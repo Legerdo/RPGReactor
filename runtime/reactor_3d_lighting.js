@@ -1170,6 +1170,7 @@ Reactor3D.Reflections = {
         this._target = new THREE.WebGLCubeRenderTarget(Reactor3D.reflectionSize(), {
             generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter
         });
+        Reactor3D.sharePassOutput(this._target);
         this._camera = new THREE.CubeCamera(0.1, 400, this._target);
     },
 
@@ -1341,9 +1342,32 @@ Reactor3D.withSkyAt = function(scene, position, draw) {
 Reactor3D.MIRROR_DEPTH = 2;
 /** How far off a panel's plane (tiles) a fragment still takes the mirror picture. */
 Reactor3D.MIRROR_TOLERANCE = 0.3;
+/**
+ * A picture the world is drawn into for a surface to reflect (a mirror's,
+ * the reflection cube) is written as the main passes are: sRGB, in plain
+ * RGBA8 (see `Viewport.createTarget`). Output colour space is part of a
+ * program's identity, and a pass drawn linear made three look every
+ * material's program up again on each change of pass. The shaders reading
+ * these pictures decode them (`SRGB_DECODE_GLSL`); the studio cube, an sRGB
+ * image the GPU decodes itself, is read as it is.
+ */
+Reactor3D.sharePassOutput = function(target) {
+    target.texture.colorSpace = THREE.SRGBColorSpace;
+    target.texture.internalFormat = "RGBA8";
+    target.isXRRenderTarget = true;
+    return target;
+};
+/** sRGB bytes to linear light, declared once however many snippets ask for it. */
+Reactor3D.SRGB_DECODE_GLSL = [
+    "#ifndef RR_SRGB_DECODE",
+    "#define RR_SRGB_DECODE",
+    "vec3 rrSRGBToLinear(vec3 c) { return mix(c * 0.0773993808, pow(c * 0.9478672986 + vec3(0.0521327014), vec3(2.4)), vec3(greaterThan(c, vec3(0.04045)))); }",
+    "#endif"
+].join("\n");
+
 /** The mirror slots' uniforms, declared for a fragment shader. */
 Reactor3D.mirrorUniformDeclarations = function() {
-    const lines = [];
+    const lines = [this.SRGB_DECODE_GLSL];
     for (let slot = 0; slot < this.MIRROR_SLOTS; slot++) lines.push("uniform float rrMirrorOn" + slot + ";", "uniform vec4 rrMirrorPlane" + slot + ";", "uniform mat4 rrMirrorMatrix" + slot + ";", "uniform sampler2D rrMirrorMap" + slot + ";");
     return lines.join("\n");
 };
@@ -1358,7 +1382,7 @@ Reactor3D.mirrorLookup = function(target, on, offset, scale) {
     for (let slot = 0; slot < this.MIRROR_SLOTS; slot++) {
         lines.push((slot ? "\t} else if (" : "\tif (") + "rrMirrorOn" + slot + " > 0.5 && " + on(slot) + ") {",
             "\t\tvec4 rrMC = rrMirrorMatrix" + slot + " * vec4(vRRWorldPos, 1.0); vec2 rrMU = rrMC.xy / rrMC.w" + (offset ? " + " + offset : "") + ";",
-            "\t\tif (rrMC.w > 0.0 && rrMU.x > 0.0 && rrMU.y > 0.0 && rrMU.x < 1.0 && rrMU.y < 1.0) " + target + " = textureLod(rrMirrorMap" + slot + ", rrMU, 0.0).rgb * " + scale + ";");
+            "\t\tif (rrMC.w > 0.0 && rrMU.x > 0.0 && rrMU.y > 0.0 && rrMU.x < 1.0 && rrMU.y < 1.0) " + target + " = rrSRGBToLinear(textureLod(rrMirrorMap" + slot + ", rrMU, 0.0).rgb) * " + scale + ";");
     }
     lines.push("\t}");
     return lines.join("\n");
@@ -1485,6 +1509,7 @@ Reactor3D.Mirrors = {
         let target = this._targets.get(key);
         if (!target) {
             target = new THREE.WebGLRenderTarget(width, height, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+            Reactor3D.sharePassOutput(target);
             this._targets.set(key, target);
         } else if (target.width !== width || target.height !== height) target.setSize(width, height);
         return target;
@@ -1804,6 +1829,8 @@ Reactor3D.injectShine = function(material, shader) {
             "\t}",
             "\trrR.x *= rrEnvFlip;",
             "\tvec3 rrEnv = textureLod(rrEnvMap, rrR, rrShine.y * rrEnvMaxLod).rgb;",
+            // A live capture holds sRGB (flip 1); the studio cube is decoded by the GPU (flip -1).
+            "\tif (rrEnvFlip > 0.0) rrEnv = rrSRGBToLinear(rrEnv);",
             // On a mirror panel (facing the plane's way and lying on it) the mirror picture, sharp, at this
             // fragment's own place in the reflected view.
             Reactor3D.mirrorLookup("rrEnv", slot => "dot(rrN, rrMirrorPlane" + slot + ".xyz) > 0.92 && abs(dot(vRRWorldPos, rrMirrorPlane" + slot + ".xyz) - rrMirrorPlane" + slot + ".w) < rrMirrorTolerance", "", "1.0"),

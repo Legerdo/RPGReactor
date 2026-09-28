@@ -1798,6 +1798,9 @@ Reactor3D.MapScene.prototype.pieceMaterial = function(name, load, surface, both)
         opacity: look.glass ? 0.32 : 1,
         depthWrite: !look.glass
     });
+    // Glass in one draw, both faces: three draws a see-through two-sided material twice, marking it
+    // changed between the two, so every pane looked its program up again twice a draw in every pass.
+    if (look.glass) material.forceSinglePass = true;
     material.__reactorShaded = true;
     material.__reactorPieces = true;
     material.__reactorSelfLit = look.glow;
@@ -2124,7 +2127,7 @@ Reactor3D.waterMaterial = function(texture, look) {
             ].join("\n")
         );
         shader.fragmentShader = "varying float vRRDepth;\nvarying vec3 vRRWaveNormal;\nuniform vec4 rrWaterLook;\nuniform vec3 rrWaterTint;\nuniform vec4 rrWaterColour;\nuniform vec4 rrWaterForm;\n"
-            + (env ? "uniform samplerCube rrEnvMap;\nuniform float rrEnvMaxLod;\nuniform float rrEnvFlip;\n" : "")
+            + (env ? "uniform samplerCube rrEnvMap;\nuniform float rrEnvMaxLod;\nuniform float rrEnvFlip;\n" + Reactor3D.SRGB_DECODE_GLSL + "\n" : "")
             + (mirror ? Reactor3D.mirrorUniformDeclarations() + "\nuniform float rrMirrorTolerance;\n" : "")
             + shader.fragmentShader.replace(
             "#include <map_fragment>",
@@ -2165,13 +2168,18 @@ Reactor3D.waterMaterial = function(texture, look) {
                     "\t\tfloat rrWindow = smoothstep(0.18, 0.4, -rrViewDir.y);",
                     "\t\tvec3 rrRb = reflect(-rrViewDir, -rrWaveN);",
                     "\t\trrRb.x *= rrEnvFlip;",
-                    "\t\tvec3 rrUnder = textureLod(rrEnvMap, rrRb, 0.35 * rrEnvMaxLod).rgb * rrTint;",
+                    "\t\tvec3 rrUnder = textureLod(rrEnvMap, rrRb, 0.35 * rrEnvMaxLod).rgb;",
+                    // A live capture holds sRGB (flip 1); the studio cube is decoded by the GPU.
+                    "\t\tif (rrEnvFlip > 0.0) rrUnder = rrSRGBToLinear(rrUnder);",
+                    "\t\trrUnder *= rrTint;",
                     "\t\tdiffuseColor.rgb = mix(diffuseColor.rgb, rrUnder, 0.6 * (1.0 - rrWindow));",
                     "\t\tdiffuseColor.a = mix(max(diffuseColor.a, 0.9), 0.12, rrWindow);",
                     "\t} else if (rrWaterLook.x > 0.0) {",
                     "\t\tvec3 rrR = reflect(-rrViewDir, rrWaveN);",
                     "\t\trrR.x *= rrEnvFlip;",
-                    "\t\tvec3 rrEnvC = textureLod(rrEnvMap, rrR, rrWaterLook.y * rrEnvMaxLod).rgb * rrWaterTint;",
+                    "\t\tvec3 rrEnvC = textureLod(rrEnvMap, rrR, rrWaterLook.y * rrEnvMaxLod).rgb;",
+                    "\t\tif (rrEnvFlip > 0.0) rrEnvC = rrSRGBToLinear(rrEnvC);",
+                    "\t\trrEnvC *= rrWaterTint;",
                     // The sheet's own mirror picture when it is one of the frame's mirrors: the world sharp and
                     // in place, rippled by the waves (and blurred a little as the water roughens).
                     mirror ? [

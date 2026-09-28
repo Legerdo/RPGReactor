@@ -362,3 +362,21 @@ test('the reflection capture waits while nothing shiny is on screen, and goes on
     assert.match(core, /if \(reflections\) Reactor3D\.Reflections\._frame\+\+;\n\s+const capture = reflections && !Reactor3D\.Reflections\.idle\(\);\n\s+if \(capture \|\| mirrors\.length\) renderer\.resetState\(\);/);
     F.reset();
 });
+
+test('reflection pictures are written as the main passes are (sRGB) and decoded where read; glass draws in one pass', () => {
+    global.self = global; global.window = global;
+    require(path.resolve(__dirname, '..', '..', 'runtime/libs/three.js'));
+    const R = require(path.resolve(__dirname, '..', '..', 'runtime/reactor_3d.js'));
+    const target = R.sharePassOutput(new THREE.WebGLRenderTarget(4, 4));
+    assert.equal(target.isXRRenderTarget, true, 'output colour space follows the target, as the main passes');
+    assert.equal(target.texture.colorSpace, THREE.SRGBColorSpace);
+    assert.equal(target.texture.internalFormat, 'RGBA8', 'stored as bytes, decoded by the shader');
+    const src = require('./helpers/runtime-3d-source.cjs').source3D();
+    assert.match(src, /generateMipmaps: true, minFilter: THREE\.LinearMipmapLinearFilter, magFilter: THREE\.LinearFilter\n\s+\}\);\n\s+Reactor3D\.sharePassOutput\(this\._target\);/, 'the reflection cube');
+    assert.match(src, /generateMipmaps: false \}\);\n\s+Reactor3D\.sharePassOutput\(target\);/, 'a mirror picture');
+    assert.match(src, /= rrSRGBToLinear\(textureLod\(rrMirrorMap" \+ slot \+ ", rrMU, 0\.0\)\.rgb\) \* " \+ scale/, 'mirror pictures decoded');
+    assert.match(src, /"\\tif \(rrEnvFlip > 0\.0\) rrEnv = rrSRGBToLinear\(rrEnv\);"/, 'a live capture decoded on shiny surfaces (the studio cube is decoded by the GPU)');
+    assert.equal((src.match(/if \(rrEnvFlip > 0\.0\) rr(Under|EnvC) = rrSRGBToLinear\(rr(Under|EnvC)\);/g) || []).length, 2, 'and on water, above and below');
+    assert.match(R.mirrorUniformDeclarations(), /#ifndef RR_SRGB_DECODE[\s\S]*vec3 rrSRGBToLinear\(vec3 c\)/);
+    assert.match(src, /if \(look\.glass\) material\.forceSinglePass = true;/, 'glass is one draw, not a back pass and a front pass that change the material between them');
+});
