@@ -368,7 +368,8 @@
     /**
      * The default rules a rigged model plays: for each state of its
      * template the model has no motion of its own for, that state's preset.
-     * A preset laid on two states (a quadruped's walk) is taken once.
+     * A preset laid on two states (a quadruped's walk) is taken once, and
+     * when the model has a motion for one of them it plays in the other only.
      */
     function defaultRules(template, rules) {
         const table = DEFAULTS[template];
@@ -379,7 +380,11 @@
             const preset = PRESETS.find(entry => entry.id === id && entry.template === template);
             if (!preset) continue;
             taken.add(id);
-            for (const rule of preset.rules) out.push(Object.assign(JSON.parse(JSON.stringify(rule)), { defaultMotion: true }));
+            const states = Object.keys(table).filter(other => table[other] === id);
+            const open = states.filter(other => !covers(rules || [], other));
+            for (const trigger of open.length < states.length ? open : [null]) {
+                for (const rule of preset.rules) out.push(Object.assign(JSON.parse(JSON.stringify(rule)), { defaultMotion: true }, trigger ? { trigger } : {}));
+            }
         }
         return out;
     }

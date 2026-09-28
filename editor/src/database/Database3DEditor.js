@@ -7264,6 +7264,8 @@ class Database3DEditor {
             this.rawAnimations.push(JSON.parse(JSON.stringify(rule)));
         }
         this.saveRules();
+        // An open Motion editor on that motion shows the preset, not its old tracks to save over it.
+        if (this.motionEditor && this.motionEditor.active && this.motionEditor.motion.original === preset.name) this.motionEditor.open(preset.name);
         this.renderRuleList();
         const status = this._detail.querySelector('.r3d-status');
         if (status) status.textContent = `${this._t(preset.name)} — ${this._t('Applied')}`;
