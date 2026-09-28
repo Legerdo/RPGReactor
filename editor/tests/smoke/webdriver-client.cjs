@@ -190,4 +190,32 @@ class WebDriverClient {
     }
 }
 
-module.exports = { WebDriverClient, getFreePort, poll };
+/**
+ * Prints a failed smoke's error with the page's state and browser console,
+ * and on GitHub Actions repeats it as an error annotation: annotations are
+ * readable through the public API without signing in, step logs are not.
+ */
+async function reportSmokeFailure(title, error, driver, probeScript) {
+    const lines = [String(error && (error.stack || error))];
+    if (error && error.cause) lines.push(`cause: ${error.cause.stack || error.cause}`);
+    if (driver && driver.sessionId) {
+        if (probeScript) {
+            try { lines.push(`page: ${JSON.stringify(await driver.execute(probeScript))}`); }
+            catch (probeError) { lines.push(`page probe failed: ${probeError.message}`); }
+        }
+        try {
+            const entries = await driver.sessionRequest('POST', '/se/log', { type: 'browser' });
+            for (const entry of (Array.isArray(entries) ? entries : []).slice(-25)) {
+                lines.push(`console ${entry.level}: ${String(entry.message).slice(0, 400)}`);
+            }
+        } catch {}
+    }
+    const text = lines.join('\n');
+    console.error(text);
+    if (process.env.GITHUB_ACTIONS) {
+        const escape = value => value.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+        console.log(`::error title=${escape(title).replace(/[:,]/g, ' ')}::${escape(text.slice(0, 6000))}`);
+    }
+}
+
+module.exports = { WebDriverClient, getFreePort, poll, reportSmokeFailure };
