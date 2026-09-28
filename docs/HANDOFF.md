@@ -4,15 +4,27 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 
 ## Where things stand (2026-09-28)
 
-**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`, GitHub release published from the tag). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker (revision 20260928.1), both changelogs, READMEs and the release checklist name 0.98.9. 3,885 tests pass; a fresh clone passes too.
+**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`, GitHub release published from the tag). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9. Runtime 20260928.2 after the evening audit (below); 3,909 tests pass.
 
-**CI after the release push:** the syntax check (a duplicate declaration in a smoke script) and the keyboard-menu smoke (Database now ends at Controls) are fixed locally, awaiting the owner's push. The Web persistence smoke has failed on GitHub on every run since 2026-09-24 but passes locally and in a fresh clone; its log needs a signed-in GitHub account to read (likely the 90 s project-load wait on a slow runner). `cut-release.cjs` now fetches origin/main and stops if GitHub has commits the checkout lacks, and runs CI's syntax check before tagging.
+**CI after the release push:** the syntax check (a duplicate declaration in a smoke script) and the keyboard-menu smoke (Database now ends at Controls) are fixed locally, awaiting the owner's push. The Web persistence smoke is intermittent on GitHub, not broken (it passed on the last push) and passes locally. Its step log needs a signed-in account, so a failure now also prints the page state and browser console as an error annotation, readable without signing in: `curl https://api.github.com/repos/Psychronic-Games/RPGReactor/check-runs/<job id>/annotations`. `cut-release.cjs` now fetches origin/main and stops if GitHub has commits the checkout lacks, and runs CI's syntax check before tagging.
 
 **Pick up here:**
-1. **The Web smoke on CI:** read the failed step's log (owner pastes it) before touching timeouts.
+1. **The Web smoke on CI:** on its next failure, read the annotation (see above) before touching timeouts.
 2. **Web bundle headroom:** 883 zip entries against itch's 1,000; 485 MB extracted against its 500 MB. Next wins if needed: the three editor/project duplicate libraries, four `- Copy`/`.old` images in the Demo's `img/system` (owner's call), and unreferenced Effekseer effects (biggest, but narrows the web sandbox).
 3. **Carried from 0.98.8:** the remaining motion presets on Fleagus (Swim, Jump, Guard, aims, strikes, Climb), the Transfer Player map picker's 3D view, the PBR quality setting, an in-game controls screen, and the importer threads (Dreamwalker frame-by-frame fight, Random Dungeon).
 4. **Open reports:** the intermittent no-jump (console notes are in; no repro in eight runs) and a rooftop sun shadow (needs the owner's screenshot and spot).
+
+## 2026-09-28 (evening) — Audit of the 0.98.8 features
+
+Runtime 20260928.2, 3,909 tests. Six areas audited in parallel (physics and ladders, reflections, builder, interfaces and quests, motions, importer); 30 bugs fixed with tests, listed in the editor changelog for 0.98.9. Node tests only: nothing here was checked in the editor or the game yet.
+
+**Suspected and left open** (confidence in brackets):
+- **Builder:** Workshop close with no map to return to leaves the plot loaded, and Ctrl+S then fails (high, rare). Editing a structure's floor plan while its plot has unsaved work: Database OK saves the plot over it (medium). Undo does not restore events removed with a building or models a stamp pushed off (medium). Placing over an identical piece ignores a new finish, surface or size, and paste/duplicate/move can stack two pieces in one slot (design call).
+- **Physics:** a jump crosses X-tiles, fences and region walls with no height (medium; maybe intended). Sized events: the footprint does not wrap on looping maps, a moving sized event checks only its anchor's next tile.
+- **Reflections:** every battle-room shader compiles twice (shadows arrive 400 ms in, when the map lets go of them). The editor's map view calls `Reflections.update`/`Mirrors.update` itself instead of `prepareReflections`, so chrome models there lack the in-model capture.
+- **Interfaces:** a Common Event battle command that removes the current actor may reopen its command window; the quest tracker does not redraw for a `\V[n]` change alone.
+- **Motion editor:** ▶ on a rule does nothing while the Motion editor is open; other remembered rule indexes can go stale after a preset or motion save (older than this cycle).
+- **Importer:** cancelling leaves the partial folder and any ffmpeg/fluidsynth children running; all-Japanese titles give `package.json` name `rr-` (shared app-data folder).
 
 ## 0.98.8 cycle (2026-09-21 to 2026-09-28)
 
