@@ -19,6 +19,9 @@
             // Preserve them while building our own scene, whose data stays local.
             const keys = ['_surface','_facade','_eventProps','BILLBOARD_TILT'];
             const saved = keys.map(key => R[key]);
+            // A new MapScene switches reflections off until something in it shines; a view that
+            // keeps drawing behind the room (the editor's map) has its switch back on dispose.
+            this.hostReflections = !!R.Reflections?.wanted;
             try {
                 this.world = new R.MapScene(this.map, sheets, { flags: this.tileset.flags, tilesetId: this.tileset.id,
                     tileSize: this.assets.tileSize || 48, loadParallax: name => parallaxes.get(name) });
@@ -1359,6 +1362,7 @@
             for(const play of this.effectPlays.values())this.stopEffect(play);this.effectPlays.clear();
             root.Reactor3D.GpuEffects.release(this.effectContext);
             this.world?.destroy();this.renderer?.dispose();this.renderer?.forceContextLoss();
+            if(this.hostReflections&&root.Reactor3D?.Reflections)root.Reactor3D.Reflections.wanted=true;
         }
     }
     root.ReactorBattleRoomView=BattleRoomView;

@@ -295,7 +295,46 @@ test('a lake seen from a rooftop: the sky is never clipped out of a mirror, noth
 test('a mirror earns a picture by how much of the screen it covers, not a distance guess', () => {
     const lighting = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_3d_lighting.js'), 'utf8');
     assert.match(lighting, /const cover = box => \{[\s\S]{0,900}return w > 0 && h > 0 \? \(w \* h\) \/ 4 : 0;/, 'the projected box, clipped to the view');
-    assert.match(lighting, /score: shows \* 1e6 \+ \(inView \? 1e3 : 0\) \+ 1000 \* cover\(worldBox\) \* facing/);
-    assert.match(lighting, /if \(p\.primary && !known\(p\) && p\.score % 1e6 - 1e3 >= 5\) planes\.push\(p\);/, 'past the first two, half a percent of the screen');
+    assert.match(lighting, /const share = 1000 \* cover\(worldBox\) \* facing;\s*scored\.push\(\{ normal, point, d: normal\.dot\(point\), score: shows \* 1e6 \+ \(inView \? 1e3 : 0\) \+ share, share: inView \? share : 0,/);
+    assert.match(lighting, /if \(p\.primary && !known\(p\) && p\.share >= 5\) planes\.push\(p\);/, 'past the first two, half a percent of the screen');
     assert.doesNotMatch(lighting, /far \* far \/ 400/, 'the distance falloff that left a plain wall 150 tiles off to the capture is gone');
+});
+
+test('a mirror kept from last frame still needs its share of the screen for an extra slot', () => {
+    // Two facing mirrors (the house of mirrors) and a speck far off in view that held a slot last frame.
+    const chunk = (w, h, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.2)); m.position.set(x, y, z); m.userData.pieceChunk = 0; m.updateMatrixWorld(true); return m; };
+    const front = chunk(10, 6, 0, 2, -5), back = chunk(10, 6, 0, 2, 20), speck = chunk(0.2, 0.2, -3, 5, -40);
+    const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 500); camera.position.set(0, 2, 10); camera.lookAt(0, 2, 0); camera.updateMatrixWorld(true);
+    const renderer = { getRenderTarget: () => null, setRenderTarget() {}, render() {}, getDrawingBufferSize: v => v.set(640, 360) };
+    const M = Reactor3D.Mirrors, weak = Reactor3D.isWeakGpu, tier = Reactor3D.tier;
+    Reactor3D.isWeakGpu = () => false; Reactor3D.tier = () => 'full';
+    const plane = (object, z, d) => ({ plane: { object, normal: new THREE.Vector3(0, 0, z), d } });
+    try {
+        M._live = [plane(front, 1, -4.9), plane(back, -1, -19.9), plane(speck, 1, -39.9)];
+        M.update(renderer, new THREE.Scene(), camera, [front, back, speck], null, null);
+        assert.deepEqual(M._live.map(entry => entry.plane.object), [front, back], 'the speck covers nothing: its 1.5x for being kept last frame is no share of the screen');
+        M.update(renderer, new THREE.Scene(), camera, [], null, null);
+        assert.equal(M._live, null, 'with nothing to mirror, no earlier plane (or map) is held on to');
+        assert.equal(M.active, false);
+    } finally { Reactor3D.isWeakGpu = weak; Reactor3D.tier = tier; M.reset(); }
+});
+
+test('a new map lets the mirror pictures go; a battle preview hands the map its reflections back', () => {
+    const M = Reactor3D.Mirrors;
+    let disposed = 0;
+    const target = M.target(0, 2, 32, 32);
+    target.addEventListener('dispose', () => disposed++);
+    M._live = [{ slot: 0, plane: {}, texture: target.texture, matrix: new THREE.Matrix4() }];
+    M.active = true;
+    Reactor3D.Reflections.reset();
+    assert.equal(disposed, 1, 'its render target is released');
+    assert.equal(M._targets.size, 0);
+    assert.equal(M._live, null);
+    assert.equal(M.active, false);
+    assert.equal(M.uniforms().rrMirrorOn0.value, 0);
+    const battle = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_battle_room.js'), 'utf8');
+    assert.match(battle, /this\.hostReflections = !!R\.Reflections\?\.wanted;\s*try \{\s*this\.world = new R\.MapScene/, 'read before the room\'s MapScene switches them off');
+    assert.match(battle, /if\(this\.hostReflections&&root\.Reactor3D\?\.Reflections\)root\.Reactor3D\.Reflections\.wanted=true;/, 'and put back when the room goes');
+    const core = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_3d.js'), 'utf8');
+    assert.match(core, /if \(!this\._mirrorList\.list\.length\) return \[\];/, 'a map without mirrors skips the frustum every frame');
 });

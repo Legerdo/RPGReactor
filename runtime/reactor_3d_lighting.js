@@ -1232,6 +1232,7 @@ Reactor3D.Reflections = {
         this._tick = 0;
         this._ready = false;
         if (this._uniforms) this._uniforms.rrEnvMap.value = null;
+        if (Reactor3D.Mirrors) Reactor3D.Mirrors.reset();
     }
 };
 
@@ -1402,6 +1403,16 @@ Reactor3D.Mirrors = {
         return this._dummy;
     },
 
+    /** A new map: the pictures' targets let go (a full-size colour and depth buffer each), nothing kept from the last map's planes. */
+    reset() {
+        for (const target of this._targets.values()) target.dispose();
+        this._targets.clear();
+        this._live = null;
+        this._applied = null;
+        this.active = false;
+        if (this._uniforms) this.clear();
+    },
+
     /** Every slot off: nothing reads a mirror picture (a preview, a capture, the edge of the recursion). */
     clear() {
         const u = this.uniforms();
@@ -1498,6 +1509,8 @@ Reactor3D.Mirrors = {
         this._applied = null;
         this.active = false;
         if (!renderer || !scene || !camera || !camera.isPerspectiveCamera || (Reactor3D.isWeakGpu && Reactor3D.isWeakGpu())) return;
+        // Nothing mirrors here (most maps, every frame): nothing to weigh, and no earlier plane held on to.
+        if (!candidates || !candidates.length) { this._live = null; return; }
         camera.updateMatrixWorld(true);
         const camPos = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
         // Every panel of every candidate facing the camera, scored: first by how much of the party
@@ -1530,7 +1543,8 @@ Reactor3D.Mirrors = {
                     // Water competes on what it fills of the view, like any mirror.
                     const bounds = new THREE.Box3().setFromObject(object);
                     const inView = frustum.intersectsBox(bounds);
-                    scored.push({ normal: own.normal.clone(), point: own.point.clone(), d: own.normal.dot(own.point), score: (inView ? 1e3 : 0) + 1000 * cover(bounds), primary: inView, object });
+                    const share = 1000 * cover(bounds);
+                    scored.push({ normal: own.normal.clone(), point: own.point.clone(), d: own.normal.dot(own.point), score: (inView ? 1e3 : 0) + share, share: inView ? share : 0, primary: inView, object });
                 }
                 continue;
             }
@@ -1566,7 +1580,8 @@ Reactor3D.Mirrors = {
                 }
                 // Off screen and showing nothing it can still be the second mirror: the one the first reflects.
                 // How much of the view it fills (per mille of the screen), as squarely as it faces.
-                scored.push({ normal, point, d: normal.dot(point), score: shows * 1e6 + (inView ? 1e3 : 0) + 1000 * cover(worldBox) * facing, primary: shows > 0 || inView, object });
+                const share = 1000 * cover(worldBox) * facing;
+                scored.push({ normal, point, d: normal.dot(point), score: shows * 1e6 + (inView ? 1e3 : 0) + share, share: inView ? share : 0, primary: shows > 0 || inView, object });
             }
         }
         // The mirror kept last frame stays unless another clearly wins: no flicker between near equals.
@@ -1594,10 +1609,11 @@ Reactor3D.Mirrors = {
                 // A middling GPU draws the first two only (each plane is another draw of the scene).
                 if (planes.length >= (Reactor3D.tier() === "full" ? Reactor3D.MIRROR_SLOTS : 2)) break;
                 // Past the first two, only what fills a real share of the view (half a percent: not a wall's top strip).
-                if (p.primary && !known(p) && p.score % 1e6 - 1e3 >= 5) planes.push(p);
+                // Read from the share itself: last frame's 1.5x on the score passed any kept plane.
+                if (p.primary && !known(p) && p.share >= 5) planes.push(p);
             }
         }
-        if (!planes.length) return;
+        if (!planes.length) { this._live = null; return; }
         const size = renderer.getDrawingBufferSize(new THREE.Vector2());
         const height = Math.min(1080, size.y), width = Math.round(height * (camera.aspect || size.x / size.y));
         const shadowSentinel = Reactor3D.Shadows && Reactor3D.Shadows._sentinel;

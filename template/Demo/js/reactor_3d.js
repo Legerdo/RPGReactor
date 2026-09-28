@@ -1354,14 +1354,14 @@ Reactor3D.prepareReflections = function(renderer, mapScene, scene, camera) {
     // (between passes) unbound every texture unit behind three's back (`Shadows.unbindFrom`):
     // three must forget what it thinks is bound, or the shadow samplers meet empty units
     // ("mismatch between texture format and sampler type") and those draws are dropped.
-    if (reflections || (Reactor3D.Mirrors && Reactor3D.Mirrors.active !== undefined)) renderer.resetState();
+    // Mirror finishes near the camera: the sharp planar pictures, the party in them.
+    const mirrors = Reactor3D.Mirrors && mapScene.mirrorCandidates ? mapScene.mirrorCandidates(camera) : [];
+    if (reflections || mirrors.length) renderer.resetState();
     if (reflections) {
         const probe = mapScene.reflectionProbe ? mapScene.reflectionProbe(camera) : null;
         if (probe) Reactor3D.Reflections.update(renderer, scene, probe.position, probe.hidden, probe.toward, probe.radius, probe.reach);
     }
-    // Mirror finishes near the camera: the sharp planar pictures, the party in them.
     if (Reactor3D.Mirrors) {
-        const mirrors = mapScene.mirrorCandidates ? mapScene.mirrorCandidates(camera) : [];
         Reactor3D.Mirrors.update(renderer, scene, camera, mirrors, null, mirrors.length && mapScene.mirrorSubject ? mapScene.mirrorSubject() : null);
     }
 };
@@ -7012,6 +7012,8 @@ Reactor3D.MapScene.prototype.mirrorCandidates = function(camera) {
         }
         this._mirrorList = { frame, list };
     }
+    // Asked every frame: a map without a mirror stops here, before the frustum.
+    if (!this._mirrorList.list.length) return [];
     const reach = Reactor3D.MIRROR_PLANE_REACH, viewReach = Reactor3D.MIRROR_VIEW_REACH || reach;
     // A mirror in view stays sharp from much farther off: beyond the near reach it fell back to the
     // capture, whose few texels spread over a flat wall as bands of sky and ground.
