@@ -935,6 +935,7 @@ Reactor3D.EmptyPass = {
 
 /** The game, editor map and model previews use the same colour-draw path. */
 Reactor3D.renderScene = function(renderer, scene, camera) {
+    if (this.cacheUniformArrays) this.cacheUniformArrays(renderer);
     this.SkeletonUpdates.prepare(scene);
     if (this.useSceneWater) this.useSceneWater(scene);
     const detail = this.GeometryDetail;

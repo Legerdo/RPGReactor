@@ -212,7 +212,7 @@ test('the battle room reflects and casts through the map\'s own frame step, its 
     const main = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_3d.js'), 'utf8');
     const battle = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_battle_room.js'), 'utf8');
     assert.match(main, /Reactor3D\.prepareWorldFrame\(this\._renderer, mapScene, scene, this\._camera\);/, 'the map viewport');
-    assert.match(battle, /R\.prepareWorldFrame\(this\.renderer,this\.world,this\.scene,this\.camera,shadowed\?\{mapData:this\.map,lights:this\.uniforms,focus\}:false\);\s*this\.renderer\.render\(this\.scene,this\.camera\);/, 'the battle room, right before its draw');
+    assert.match(battle, /R\.prepareWorldFrame\(this\.renderer,this\.world,this\.scene,this\.camera,shadowed\?\{mapData:this\.map,lights:this\.uniforms,focus\}:false\);\s*(this\.renderer\.setRenderTarget\(this\.target\);\s*)?R\.cacheUniformArrays\?\.\(this\.renderer\);\s*this\.renderer\.render\(this\.scene,this\.camera\);/, 'the battle room, right before its draw');
     assert.match(battle, /this\.world\.guestModels = \(\) => this\.models\.values\(\);/);
     const scene = Object.create(Reactor3D.MapScene.prototype);
     const tank = { object: { position: { distanceTo: () => 3 } } }, lead = { object: { position: {} } };

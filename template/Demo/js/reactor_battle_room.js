@@ -1141,11 +1141,13 @@
                 try{
                     R.prepareWorldFrame(this.renderer,this.world,this.scene,this.camera,shadowed?{mapData:this.map,lights:this.uniforms,focus}:false);
                     this.renderer.setRenderTarget(this.target);
+                    R.cacheUniformArrays?.(this.renderer);
                     this.renderer.render(this.scene,this.camera);
                 }finally{this.renderer.setRenderTarget(null);this.view._resetPixi();}
                 return;
             }
             R.prepareWorldFrame(this.renderer,this.world,this.scene,this.camera,shadowed?{mapData:this.map,lights:this.uniforms,focus}:false);
+            R.cacheUniformArrays?.(this.renderer);
             this.renderer.render(this.scene,this.camera);
         }
         /** A rule's timed effects (a muzzle flash at the cannon, a sound) fire once each as the action clock passes them. */

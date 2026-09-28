@@ -567,6 +567,50 @@ Reactor3D.packLightUniforms = function(lights, ambient, uniforms = this.lightUni
     return count;
 };
 
+/**
+ * three.js skips a plain uniform whose value is what the program already
+ * holds, but sends a uniform ARRAY every time a material is bound: every
+ * lit material re-sent all the lights (three arrays of SHADER_LIGHTS vec4s,
+ * the shadow tables) on every switch, most of a frame's CPU on a map of many
+ * materials. Each program's number arrays get the same rule here: kept per
+ * program (GL holds uniform values per program), compared with the last
+ * values sent, sent only when they differ. Sampler arrays are left alone
+ * (their texture units are handed out afresh each draw). Programs compiled
+ * since the last call are taken on the next; call once a frame per renderer.
+ */
+/** The kill switch: false sends every array on every bind again, as three does. */
+Reactor3D.uniformArrayCache = true;
+Reactor3D.CACHED_UNIFORM_TYPES = new Set([0x1406, 0x8B50, 0x8B51, 0x8B52, 0x1404, 0x8B53, 0x8B54, 0x8B55, 0x8B5A, 0x8B5B, 0x8B5C]);
+Reactor3D.cacheUniformArrays = function(renderer) {
+    const programs = renderer && renderer.info && renderer.info.programs;
+    if (!programs || renderer.__rrCachedPrograms === programs.length && programs.every(program => program.__rrArraysCached)) return;
+    renderer.__rrCachedPrograms = programs.length;
+    const wrap = uniform => {
+        if (uniform.__rrCached || typeof uniform.setValue !== "function" || !this.CACHED_UNIFORM_TYPES.has(uniform.type)) return;
+        uniform.__rrCached = true;
+        const send = uniform.setValue;
+        let last = null;
+        uniform.setValue = function(gl, v, textures) {
+            // Only flat number arrays are compared (three also takes arrays of vectors, sent as they come).
+            if (Reactor3D.uniformArrayCache !== false && v && typeof v.length === "number" && (ArrayBuffer.isView(v) || typeof v[0] === "number")) {
+                if (last && last.length === v.length) {
+                    let same = true;
+                    for (let i = 0; i < v.length; i++) if (last[i] !== v[i]) { same = false; break; }
+                    if (same) return;
+                    last.set(v);
+                } else last = Float64Array.from(v);
+            } else last = null;
+            send.call(this, gl, v, textures);
+        };
+    };
+    const visit = list => { for (const uniform of list || []) { if (uniform.seq) visit(uniform.seq); else if (uniform.size !== undefined) wrap(uniform); } };
+    for (const program of programs) {
+        if (program.__rrArraysCached) continue;
+        program.__rrArraysCached = true;
+        try { visit(program.getUniforms().seq); } catch (error) { /* a program that failed to link has none */ }
+    }
+};
+
 Reactor3D.injectLightShader = function(shader, renderer) {
     const uniforms = this.lightUniforms();
     this.LightGrid.ensure(uniforms);

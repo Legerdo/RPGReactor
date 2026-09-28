@@ -155,3 +155,39 @@ test('flat light quads read fixed ground axes that a spotlight never bends', () 
         global.$dataMap = saved.dataMap;
     }
 });
+
+test('number-array uniforms are sent once per program until their values change; samplers always', () => {
+    global.self = global; global.window = global;
+    require(require('node:path').resolve(__dirname, '..', '..', 'runtime/libs/three.js'));
+    const R = require(require('node:path').resolve(__dirname, '..', '..', 'runtime/reactor_3d.js'));
+    const sent = [];
+    const uniform = (id, type, size) => ({ id, type, size, cache: [], setValue(gl, v) { sent.push([id, Array.from(v)]); } });
+    const lights = uniform('rrLightPos', 0x8B52, 2), shadow = uniform('rrLightShadow', 0x1406, 2), samplers = uniform('rrMaps', 0x8B5E, 2);
+    const program = { getUniforms: () => ({ seq: [lights, shadow, { seq: [samplers] }] }) };
+    const renderer = { info: { programs: [program] } };
+    R.cacheUniformArrays(renderer);
+    const pos = new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    lights.setValue(null, pos); lights.setValue(null, pos);
+    assert.equal(sent.length, 1, 'the same values again are not sent');
+    pos[6] = 9; lights.setValue(null, pos);
+    assert.equal(sent.length, 2, 'a changed element is');
+    assert.deepEqual(sent[1][1].slice(6), [9, 8]);
+    shadow.setValue(null, [-1, 2]); shadow.setValue(null, [-1, 2]); shadow.setValue(null, [-1, 3]);
+    assert.equal(sent.filter(([id]) => id === 'rrLightShadow').length, 2, 'plain number arrays alike');
+    samplers.setValue(null, [0, 1]); samplers.setValue(null, [0, 1]);
+    assert.equal(sent.filter(([id]) => id === 'rrMaps').length, 2, 'sampler arrays are never held back');
+    // Another program holds its own values: its first bind is always sent.
+    const other = uniform('rrLightPos', 0x8B52, 2);
+    renderer.info.programs.push({ getUniforms: () => ({ seq: [other] }) });
+    R.cacheUniformArrays(renderer);
+    other.setValue(null, pos);
+    assert.equal(sent.filter(([id]) => id === 'rrLightPos').length, 3);
+    // The kill switch sends every time.
+    R.uniformArrayCache = false;
+    lights.setValue(null, pos); lights.setValue(null, pos);
+    assert.equal(sent.filter(([id]) => id === 'rrLightPos').length, 5);
+    R.uniformArrayCache = true;
+    const source = require('./helpers/runtime-3d-source.cjs').source3D();
+    assert.match(source, /Reactor3D\.renderScene = function\(renderer, scene, camera\) \{\n\s+if \(this\.cacheUniformArrays\) this\.cacheUniformArrays\(renderer\);/, 'every colour draw takes new programs in');
+    assert.match(require('node:fs').readFileSync(require('node:path').resolve(__dirname, '..', '..', 'runtime/reactor_battle_room.js'), 'utf8'), /R\.cacheUniformArrays\?\.\(this\.renderer\);\n\s+this\.renderer\.render\(this\.scene,this\.camera\);/, 'and the battle room\'s');
+});

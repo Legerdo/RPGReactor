@@ -28,7 +28,7 @@ test('on the shared context the room draws into a target PIXI samples: no readba
     assert.match(room, /R\.adoptGlTexture\(view\.pixi\(\),source,view\.targetHandle\(this\.target\)\);/);
     assert.match(room, /rotate:PIXI\.groupD8\.MIRROR_VERTICAL/);
     // Drawn into it with three's state forgotten first and PIXI's handed back after, effect passes too.
-    assert.match(room, /this\.renderer\.resetState\(\);\n\s+try\{\n\s+R\.prepareWorldFrame\([^\n]+\n\s+this\.renderer\.setRenderTarget\(this\.target\);\n\s+this\.renderer\.render\(this\.scene,this\.camera\);\n\s+\}finally\{this\.renderer\.setRenderTarget\(null\);this\.view\._resetPixi\(\);\}/);
+    assert.match(room, /this\.renderer\.resetState\(\);\n\s+try\{\n\s+R\.prepareWorldFrame\([^\n]+\n\s+this\.renderer\.setRenderTarget\(this\.target\);\n\s+R\.cacheUniformArrays\?\.\(this\.renderer\);\n\s+this\.renderer\.render\(this\.scene,this\.camera\);\n\s+\}finally\{this\.renderer\.setRenderTarget\(null\);this\.view\._resetPixi\(\);\}/);
     assert.equal((room.match(/G\.restoreDefault\(\);this\.releaseContext\(\);/g) || []).length, 2, 'both effect passes hand the context back');
     assert.match(room, /this\.effectContext \|\|= this\.view\?G\.forViewport\(this\.view\):G\.create\(this\.renderer,0\);/);
     // The viewport's renderer and effect context outlive the room; its target goes two frames later.
