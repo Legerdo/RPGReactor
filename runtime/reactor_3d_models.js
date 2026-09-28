@@ -603,6 +603,32 @@ Reactor3D.COLLISION_SUBDIV = 4;
 Reactor3D.COLLISION_BODY_RADIUS = 0.34;
 
 /**
+ * The model key and the mask's pose key for a spec. Collision asks for
+ * them for every model event several times a frame, and specs are stable
+ * objects, so both strings are kept beside the spec and rebuilt only when a
+ * field they are made from has changed.
+ */
+Reactor3D.collisionKeysFor = function(spec) {
+    const memo = this._collisionKeys || (this._collisionKeys = new WeakMap());
+    const stretch = spec.stretch || null;
+    let keys = memo.get(spec);
+    let same = !!keys && keys.name === spec.name && keys.ext === spec.ext && keys.file === spec.file
+        && keys.size === spec.size && keys.scale === spec.scale && keys.pitch === spec.pitch && keys.roll === spec.roll
+        && (stretch ? keys.stretch !== null && keys.stretch.length === stretch.length : keys.stretch === null);
+    for (let i = 0; same && stretch && i < stretch.length; i++) same = keys.stretch[i] === stretch[i];
+    if (same) return keys;
+    const model = this.modelCacheKey(spec.name, spec.ext, spec.file);
+    keys = {
+        name: spec.name, ext: spec.ext, file: spec.file, size: spec.size, scale: spec.scale,
+        pitch: spec.pitch, roll: spec.roll, stretch: stretch ? Array.from(stretch) : null,
+        model,
+        pose: `${model}|${spec.size}|${spec.scale}|${(spec.stretch || []).join(",")}|${spec.pitch}|${spec.roll}`
+    };
+    memo.set(spec, keys);
+    return keys;
+};
+
+/**
  * Which tiles a model's mesh actually covers, in the body's own frame.
  *
  * The triangles below walking height are projected onto the ground at the
@@ -614,12 +640,12 @@ Reactor3D.COLLISION_BODY_RADIUS = 0.34;
  */
 Reactor3D.modelCollisionMask = function(spec) {
     if (!spec || typeof THREE === "undefined") return null;
-    const key = this.modelCacheKey(spec.name, spec.ext, spec.file);
-    const entry = this._glbCache && this._glbCache[key];
+    const keys = this.collisionKeysFor(spec);
+    const entry = this._glbCache && this._glbCache[keys.model];
     const template = entry && entry.template;
     if (!template) return null;
     const json = this._sidecarJson && this._sidecarJson[spec.name];
-    const poseKey = `${key}|${spec.size}|${spec.scale}|${(spec.stretch || []).join(",")}|${spec.pitch}|${spec.roll}`;
+    const poseKey = keys.pose;
     if (!this._collisionMasks) this._collisionMasks = {};
     if (this._collisionMasks[poseKey] !== undefined) return this._collisionMasks[poseKey];
     const mask = this.buildModelCollisionMask(template, json, spec);
@@ -852,7 +878,7 @@ Reactor3D.eventModelFootprint = function(character, spec, yaw) {
     spec = spec || this.characterModelSpec(character);
     const size = spec && spec.size > 0 ? spec.size : 2;
     const extra = spec && spec.scale > 0 ? spec.scale : 1;
-    const entry = spec ? this._glbCache[this.modelCacheKey(spec.name, spec.ext, spec.file)] : null;
+    const entry = spec ? this._glbCache[this.collisionKeysFor(spec).model] : null;
     const extent = entry && entry.template && entry.template.userData.glbSize;
     let halfX = size * extra / 2;
     let halfZ = halfX;

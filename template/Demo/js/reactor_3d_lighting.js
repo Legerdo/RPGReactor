@@ -1099,6 +1099,9 @@ Reactor3D.Reflections = {
     _capturing: false,
     /** Set when something shiny is in the scene; a scene with none never captures. */
     wanted: false,
+    // Frames counted by the capture's step, and the last one whose main draw showed anything shiny.
+    _frame: 0,
+    _shownFrame: -1,
 
     uniforms() {
         if (!this._uniforms) {
@@ -1197,6 +1200,8 @@ Reactor3D.Reflections = {
      */
     bind(renderer) {
         const uniforms = this.uniforms();
+        // Something shiny is on screen this frame (its own draw, not a capture or a mirror picture).
+        if (!this._capturing && !(Reactor3D.Mirrors && Reactor3D.Mirrors._rendering)) this._shownFrame = this._frame;
         // While a face is being drawn the cube is the target: whatever shines in that face reads the studio.
         const live = this._ready && this._target && renderer === this._renderer && !this._capturing;
         const texture = live ? this._target.texture : (Reactor3D.studioEnvMap ? Reactor3D.studioEnvMap() : null);
@@ -1212,6 +1217,16 @@ Reactor3D.Reflections = {
         uniforms.rrEnvMap.value = texture;
         uniforms.rrEnvFlip.value = live ? 1 : -1;
         uniforms.rrEnvMaxLod.value = live ? Math.log2(Reactor3D.reflectionSize()) : 0;
+    },
+
+    /**
+     * Whether this frame's capture can wait: once the cube is whole, a frame
+     * after one that showed nothing shiny takes no face (the capture was most
+     * of the reflection cost on a map whose chrome is off screen). The frame
+     * something shiny shows, the capture goes on.
+     */
+    idle() {
+        return !!this._ready && this._shownFrame < this._frame - 1;
     },
 
     /** A material that reads the reflections picks them per renderer as it draws. */
@@ -1230,6 +1245,8 @@ Reactor3D.Reflections = {
         this.wanted = false;
         this._face = 0;
         this._tick = 0;
+        this._frame = 0;
+        this._shownFrame = -1;
         this._ready = false;
         if (this._uniforms) this._uniforms.rrEnvMap.value = null;
         if (Reactor3D.Mirrors) Reactor3D.Mirrors.reset();
@@ -3434,8 +3451,12 @@ Reactor3D.lightSolidGrid = function() {
     const width = $gameMap.width();
     const height = $gameMap.height();
     if (!(width > 0) || !(height > 0)) return null;
-    const key = ($gameMap._mapId || 0) + ":" + width + "x" + height;
-    if (this._lightSolid && this._lightSolid.key === key) return this._lightSolid;
+    // Asked once per sample of every light's march, so the cache is matched
+    // on its numbers; the string key is only for reading in a console.
+    const mapId = $gameMap._mapId || 0;
+    const known = this._lightSolid;
+    if (known && known.mapId === mapId && known.width === width && known.height === height) return known;
+    const key = mapId + ":" + width + "x" + height;
     const room = this.roomFor(map);
     const grid = new Uint8Array(width * height);
     if (room) {
@@ -3445,7 +3466,7 @@ Reactor3D.lightSolidGrid = function() {
             }
         }
     }
-    this._lightSolid = { key, width, height, grid, room: !!room, roomHeight: room && room.height > 0 ? room.height : 25 };
+    this._lightSolid = { key, mapId, width, height, grid, room: !!room, roomHeight: room && room.height > 0 ? room.height : 25 };
     return this._lightSolid;
 };
 

@@ -569,6 +569,9 @@
         }
         this._rrParticles = live.length > 6000 ? live.slice(live.length - 6000) : live;
         while (this._rrParticleSprites.length < this._rrParticles.length) { const s = new Sprite(); s.anchor.x = 0.5; s.anchor.y = 0.5; this._rrParticleSprites.push(s); }
+        // One picture lookup per texture a frame, not one per particle: thousands of live particles each
+        // rebuilt the same URL through the loader every frame.
+        let textures = null;
         this._rrParticleSprites.forEach((sprite, i) => {
             const p = this._rrParticles[i];
             if (!p) { if (sprite.parent) sprite.parent.removeChild(sprite); sprite.visible = false; return; }
@@ -576,17 +579,24 @@
             if (sprite.parent !== wantParent) { if (sprite.parent) sprite.parent.removeChild(sprite); wantParent.addChild(sprite); }
             sprite.visible = true;
             const e = p.effect;
-            const bitmap = e.texture ? ImageManager.loadPicture(e.texture) : this._rrParticleDot();
+            let bitmap;
+            if (e.texture) {
+                textures = textures || new Map();
+                bitmap = textures.get(e.texture);
+                if (!bitmap) { bitmap = ImageManager.loadPicture(e.texture); textures.set(e.texture, bitmap); }
+            } else bitmap = this._rrParticleDot();
             if (sprite.bitmap !== bitmap) sprite.bitmap = bitmap;
             const t = Math.max(0, Math.min(1, p.age / Math.max(1, p.life)));
             const size = e.growth[0] + (e.growth[1] - e.growth[0]) * t;
             sprite.scale.x = sprite.scale.y = size;
-            const c = [0, 1, 2].map(k => Math.round(e.color0[k] + (e.color1[k] - e.color0[k]) * t));
             // colours are 0-255 multipliers of the texture, so 100 draws it at 39%: measured against the shipped
             // Deep 8 player, whose "RetardHorns" spore cloud (20 -> 100 over a particle's life) settles at 13% of
             // the texture's colour where a percent reading gave 37%. A tint only darkens; 255 draws unchanged.
-            const tint = (v) => Math.round(clamp(v, 0, 255));
-            sprite.tint = (tint(c[0]) << 16) | (tint(c[1]) << 8) | tint(c[2]);
+            const c0 = e.color0, c1 = e.color1;
+            const r = Math.round(clamp(Math.round(c0[0] + (c1[0] - c0[0]) * t), 0, 255));
+            const g = Math.round(clamp(Math.round(c0[1] + (c1[1] - c0[1]) * t), 0, 255));
+            const b = Math.round(clamp(Math.round(c0[2] + (c1[2] - c0[2]) * t), 0, 255));
+            sprite.tint = (r << 16) | (g << 8) | b;
             sprite.opacity = p.age <= p.delay ? 255 : Math.round(255 * (1 - (p.age - p.delay) / Math.max(1, e.timeout[0])));
             sprite.x = e.screenRelative ? p.x : p.x - dx;
             sprite.y = e.screenRelative ? p.y : p.y - dy;

@@ -1021,6 +1021,12 @@ Graphics._updateReactor3DCanvas = function() {
     if (viewport && viewport.resize) viewport.resize();
 };
 
+/**
+ * Work that belongs to the frame drawn, not to each update: a tick catching up
+ * runs several updates and one draw. Each hook runs once, just before it.
+ */
+Graphics._reactorBeforeRender = Graphics._reactorBeforeRender || new Set();
+
 Graphics._onTick = function(deltaTime) {
     const prof = ReactorProfiler._active ? ReactorProfiler : null;
     if (prof) prof.frameBegin();
@@ -1062,6 +1068,9 @@ Graphics._onTick = function(deltaTime) {
     }
     if (this._canRender()) {
         const tRender = prof ? performance.now() : 0;
+        for (const hook of this._reactorBeforeRender) {
+            try { hook(); } catch (e) { console.warn("Graphics._onTick: a before-render hook threw", e); }
+        }
         this._app.render();
         if (prof) prof.phase("render", performance.now() - tRender);
         // v8: Sprite_Animation._render runs via the onRender bridge, which v8

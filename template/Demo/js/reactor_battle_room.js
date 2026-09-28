@@ -32,7 +32,8 @@
             this.world.guestSubject = () => this.models.get('actor:0') || this.billboards.get('actor:0') || null;
             this.scene.background = new T.Color(0x171a21);
             this.camera = this.settings.projection === '2d' ? new T.OrthographicCamera(-12,12,7,-7,.1,2000) : R.createCamera({ fov: 40 });
-            this.renderer = new T.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: true });
+            // No MSAA: the map's passes draw without it, and a room should look the same.
+            this.renderer = new T.WebGLRenderer({ antialias: false, alpha: false, preserveDrawingBuffer: true });
             this.renderer.setPixelRatio(1); this.resize(960, 540);
             this.uniforms = {
                 rrLightCount: {value:0}, rrAmbient:{value:new Float32Array([1,1,1])},

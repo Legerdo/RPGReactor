@@ -11,6 +11,8 @@
     const WAIT_MODE = "reactorVideoSurface";
     const MAX_ID = 999999;
     const DEG = Math.PI / 180;
+    /** Screen pixels past the edge a video still uploads its frames within. */
+    const VIDEO_UPLOAD_MARGIN = 96;
     const DESCRIPTOR_VERSION = 1;
 
     function own(object, key) {
@@ -1036,11 +1038,47 @@
             const graphics = currentGraphics();
             const margin = descriptor.cullDistance;
             const corners = this.transformedCorners();
-            const xs = corners.map(item => item.x + x);
-            const ys = corners.map(item => item.y + y);
-            this.pixiContainer.visible = margin <= 0 || !(Math.max(...xs) < -margin
-                || Math.min(...xs) > graphics.width + margin || Math.max(...ys) < -margin
-                || Math.min(...ys) > graphics.height + margin);
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const corner of corners) {
+                if (corner.x < minX) minX = corner.x;
+                if (corner.x > maxX) maxX = corner.x;
+                if (corner.y < minY) minY = corner.y;
+                if (corner.y > maxY) maxY = corner.y;
+            }
+            minX += x; maxX += x; minY += y; maxY += y;
+            this.pixiContainer.visible = margin <= 0 || !(maxX < -margin
+                || minX > graphics.width + margin || maxY < -margin
+                || minY > graphics.height + margin);
+            this.syncVideoUploads(minX, minY, maxX, maxY, graphics);
+        }
+
+        /**
+         * A playing video uploads every decoded frame to the GPU whether its
+         * quad is drawn or not: a flat map with a row of screens off to the
+         * side spent more on those uploads than on the whole map. Off screen
+         * (judged through the parent's last rendered transform, with a margin
+         * for that frame of lag) the uploads wait, and the frame showing now
+         * goes up the moment the quad comes back. Playback itself carries on.
+         */
+        syncVideoUploads(minX, minY, maxX, maxY, graphics) {
+            const source = this.videoSource;
+            if (!source || typeof source.autoUpdate !== "boolean") return;
+            let shown = this.pixiContainer.visible !== false;
+            const parent = this.pixiContainer.parent;
+            const m = parent && parent.worldTransform;
+            if (shown && m && Number.isFinite(m.a)) {
+                const x1 = m.a * minX, x2 = m.a * maxX, y1 = m.c * minY, y2 = m.c * maxY;
+                const u1 = m.b * minX, u2 = m.b * maxX, v1 = m.d * minY, v2 = m.d * maxY;
+                const left = Math.min(x1, x2) + Math.min(y1, y2) + m.tx;
+                const right = Math.max(x1, x2) + Math.max(y1, y2) + m.tx;
+                const top = Math.min(u1, u2) + Math.min(v1, v2) + m.ty;
+                const bottom = Math.max(u1, u2) + Math.max(v1, v2) + m.ty;
+                const pad = VIDEO_UPLOAD_MARGIN;
+                shown = !(right < -pad || left > graphics.width + pad || bottom < -pad || top > graphics.height + pad);
+            }
+            if (source.autoUpdate === shown) return;
+            source.autoUpdate = shown;
+            if (shown && typeof source.updateFrame === "function") source.updateFrame();
         }
 
         updateThreePosition() {

@@ -718,8 +718,8 @@ test('priority 3 draws above the tile layers yet y-sorts against characters in f
     assert.match(sprites, /this\.z = this\.reactorSortedZ\(\);/);
     assert.match(sprites, /if \(cy <= oy\) continue;\s+\/\/ behind it/, 'behind: own layer, so the event covers the character');
     assert.match(sprites, /if \(top >= bottom\) continue;\s+\/\/ clear below it\n\s+return 5;/, 'in front and overlapping: lifted to the event\'s layer');
-    assert.match(sprites, /const drawnWidth = sprite => \(\(sprite\._frame && sprite\._frame\.width\) \|\| sprite\.width \|\| 48\)/, 'measured from the frame, which is stable mid-update');
-    assert.match(sprites, /this\._reactorSortedAbove = sorted;/, 'the spriteset lists them once per frame');
+    assert.match(sprites, /function reactorDrawnWidth\(sprite\) \{\n\s+return \(\(sprite\._frame && sprite\._frame\.width\) \|\| sprite\.width \|\| 48\)/, 'measured from the frame, which is stable mid-update');
+    assert.match(sprites, /const sorted = this\._reactorSortedAbove \|\| \(this\._reactorSortedAbove = \[\]\);\n\s+sorted\.length = 0;/, 'the spriteset lists them once per frame');
     const page = read('src/event/EventPageEditor.js');
     assert.match(page, /<option value="3" \$\{page\.priorityType === 3 \? 'selected' : ''\}>\$\{this\._t\('event\.aboveCharactersSorted'\)\}<\/option>/);
     const i18n = read('src/I18nManager.js');

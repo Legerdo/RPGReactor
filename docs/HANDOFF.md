@@ -4,7 +4,7 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 
 ## Where things stand (2026-09-28)
 
-**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`, GitHub release published from the tag). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9. Runtime 20260928.3 after the evening audit and rocks (below); 3,912 tests pass.
+**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`, GitHub release published from the tag). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9. Runtime 20260928.4 after the evening audit, rocks and a performance pass (below); 3,922 tests pass.
 
 **CI after the release push:** the syntax check (a duplicate declaration in a smoke script) and the keyboard-menu smoke (Database now ends at Controls) are fixed locally, awaiting the owner's push. The Web persistence smoke is intermittent on GitHub, not broken (it passed on the last push) and passes locally. Its step log needs a signed-in account, so a failure now also prints the page state and browser console as an error annotation, readable without signing in: `curl https://api.github.com/repos/Psychronic-Games/RPGReactor/check-runs/<job id>/annotations`. `cut-release.cjs` now fetches origin/main and stops if GitHub has commits the checkout lacks, and runs CI's syntax check before tagging.
 
@@ -13,6 +13,14 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 2. **Web bundle headroom:** 883 zip entries against itch's 1,000; 485 MB extracted against its 500 MB. Next wins if needed: the three editor/project duplicate libraries, four `- Copy`/`.old` images in the Demo's `img/system` (owner's call), and unreferenced Effekseer effects (biggest, but narrows the web sandbox).
 3. **Carried from 0.98.8:** the remaining motion presets on Fleagus (Swim, Jump, Guard, aims, strikes, Climb), the Transfer Player map picker's 3D view, the PBR quality setting, an in-game controls screen, and the importer threads (Dreamwalker frame-by-frame fight, Random Dungeon).
 4. **Open reports:** the intermittent no-jump (console notes are in; no repro in eight runs) and a rooftop sun shadow (needs the owner's screenshot and spot).
+
+## 2026-09-28 (late) — Rock brush and tops; a performance pass
+
+Runtime 20260928.4. The owner: rocks "as user friendly and powerful as possible", and every system as performant as possible.
+
+- **Rocks:** tops (`cap`, "ground" = the room floor), tint, a drag row / Ctrl-drag area brush with seeded variation, triplanar rock sides, the hammer taking a shape struck off its own cell, a faster mesher with a per-chunk cache. Checked with real input in the editor (`scratchpad/rock-brush.js` on `ed3d.cjs`, which now has `drag()`; it clears the map copy first, because North Haven's Manor covers x 30-110, y 6-71 and swallowed the test's clicks) and in the game (`rock-game.cjs`). The Demo gains Grass (from `!Grass-01`), Moss and Snow materials (`scratchpad/cap-tex.py`).
+- **Performance** (details in the 0.98.9 changelog): battle room drawn once per frame without MSAA (249 to 103 ms a battle frame on software GL), reflection capture idle when nothing shiny shows, off-screen videos stop uploading, and smaller per-frame allocations. Profilers: the session scratchpad's `prof3d.cjs` and `game-prof.cjs` (BATTLE=troop runs a battle) were copied to `scratchpad/`.
+- **Measured, not done** (ranked by the two perf audits): the battle room still reads its picture back through a 2D canvas each frame (upload straight from its WebGL canvas, or render it on PIXI's context as the map does); light uniform arrays re-uploaded on every material switch (72% of the editor 3D view's CPU on software GL; a uniform buffer or data texture); shadow faces walking the whole scene per face; one video decoder per media surface even for the same file; event collision scanning every event per step with many walkers; glass pieces drawn twice.
 
 ## 2026-09-28 (night) — Rocks, and the see-through square in North Haven's lake
 

@@ -523,3 +523,43 @@ test('3D media geometry pins UV corners to their own vertices and leaves legacy 
     runtime.applyWorldCorners(geometry,[{x:-.7,y:-.8},{x:.5,y:-.5},{x:.5,y:.5},{x:-.5,y:.5}],4,2);
     assert.deepEqual(points,[[-2.8,1.6,0],[2,1,0],[-2,-1,0],[2,-1,0]]);assert.equal(position.needsUpdate,true);assert.deepEqual(calls,['normals','box','sphere']);
 });
+
+test('a video off screen stops uploading frames and uploads the current one when it returns', () => {
+    const descriptor = runtime.normalizeShowArgs({ id: 3, file: 'panel.mp4', target: 'screen', x: 100, y: 100, width: 100, height: 50 });
+    const owner = Object.create(runtime.VideoSurfaceOwner.prototype);
+    owner.descriptor = descriptor;
+    let frames = 0;
+    owner.videoSource = { autoUpdate: true, updateFrame: () => frames++ };
+    const parent = { worldTransform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 } };
+    let position;
+    owner.pixiContainer = { visible: true, parent, position: { set: (x, y) => { position = [x, y]; } } };
+    owner.updatePixiPosition();
+    assert.deepEqual(position, [100, 100]);
+    assert.equal(owner.videoSource.autoUpdate, true, 'on screen keeps uploading');
+    assert.equal(frames, 0);
+    parent.worldTransform.tx = -5000;
+    owner.updatePixiPosition();
+    assert.equal(owner.videoSource.autoUpdate, false, 'off screen waits');
+    assert.equal(owner.pixiContainer.visible, true, 'visibility is untouched without a cull distance');
+    parent.worldTransform.tx = -150;
+    owner.updatePixiPosition();
+    assert.equal(owner.videoSource.autoUpdate, true, 'within the margin uploads again');
+    assert.equal(frames, 1, 'the frame showing now goes up at once');
+    // A zoomed-out parent brings a far surface into view.
+    descriptor.x = 3000;
+    parent.worldTransform = { a: 0.25, b: 0, c: 0, d: 0.25, tx: 0, ty: 0 };
+    owner.updatePixiPosition();
+    assert.equal(owner.videoSource.autoUpdate, true);
+    parent.worldTransform = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+    owner.updatePixiPosition();
+    assert.equal(owner.videoSource.autoUpdate, false);
+    // A container culled by its own distance never uploads; an image surface has no video source.
+    descriptor.x = -5000;
+    descriptor.cullDistance = 1;
+    parent.worldTransform = { a: 0.01, b: 0, c: 0, d: 0.01, tx: 0, ty: 0 };
+    owner.updatePixiPosition();
+    assert.equal(owner.pixiContainer.visible, false);
+    assert.equal(owner.videoSource.autoUpdate, false);
+    owner.videoSource = null;
+    assert.doesNotThrow(() => owner.updatePixiPosition());
+});

@@ -338,3 +338,27 @@ test('a new map lets the mirror pictures go; a battle preview hands the map its 
     const core = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_3d.js'), 'utf8');
     assert.match(core, /if \(!this\._mirrorList\.list\.length\) return \[\];/, 'a map without mirrors skips the frustum every frame');
 });
+
+test('the reflection capture waits while nothing shiny is on screen, and goes on the frame something is', () => {
+    global.self = global; global.window = global;
+    require(path.resolve(__dirname, '..', '..', 'runtime/libs/three.js'));
+    const R = require(path.resolve(__dirname, '..', '..', 'runtime/reactor_3d.js'));
+    const F = R.Reflections;
+    F.reset();
+    F._frame++;
+    assert.equal(F.idle(), false, 'a cube not yet whole is always taken');
+    F._ready = true;
+    F._frame++;
+    assert.equal(F.idle(), true, 'whole, and nothing shiny drawn: the capture waits');
+    F._capturing = true; F.bind({}); F._capturing = false;
+    F._frame++;
+    assert.equal(F.idle(), true, 'a capture\'s own draw does not count as shown');
+    F.bind({});
+    F._frame++;
+    assert.equal(F.idle(), false, 'something shiny drew last frame: the capture goes on');
+    F._frame++;
+    assert.equal(F.idle(), true);
+    const core = require('./helpers/runtime-3d-source.cjs').source3D();
+    assert.match(core, /if \(reflections\) Reactor3D\.Reflections\._frame\+\+;\n\s+const capture = reflections && !Reactor3D\.Reflections\.idle\(\);\n\s+if \(capture \|\| mirrors\.length\) renderer\.resetState\(\);/);
+    F.reset();
+});

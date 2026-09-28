@@ -447,28 +447,39 @@ Sprite_Character.prototype.reactorSortedZ = function() {
     const scene = typeof SceneManager !== "undefined" ? SceneManager._scene : null;
     const sorted = scene && scene._spriteset && scene._spriteset._reactorSortedAbove;
     if (!sorted || !sorted.length) return base;
-    // Frame sizes, not PIXI's bounds getters: mid-update those read from a
-    // half-applied transform (and null for a width) and lie about overlap.
-    const drawnWidth = sprite => ((sprite._frame && sprite._frame.width) || sprite.width || 48)
-        * Math.abs((sprite.scale && sprite.scale.x) || 1);
-    const drawnHeight = sprite => ((sprite._frame && sprite._frame.height) || sprite.height || 48)
-        * Math.abs((sprite.scale && sprite.scale.y) || 1);
-    const anchorY = sprite => (sprite.anchor ? sprite.anchor.y : 1);
     const cx = this.x, cy = this.y;
-    const cw = drawnWidth(this), ch = drawnHeight(this);
-    const top = cy - ch * anchorY(this);
-    for (const other of sorted) {
+    const cw = reactorDrawnWidth(this), ch = reactorDrawnHeight(this);
+    const top = cy - ch * reactorAnchorY(this);
+    for (let i = 0; i < sorted.length; i++) {
+        const other = sorted[i];
         if (other === this || !other._character) continue;
         const oy = other.y;
         if (cy <= oy) continue;                                  // behind it
-        const ow = drawnWidth(other), oh = drawnHeight(other);
+        const ow = reactorDrawnWidth(other), oh = reactorDrawnHeight(other);
         if (Math.abs(cx - other.x) >= (cw + ow) / 2) continue;   // beside it
-        const bottom = oy + oh * (1 - anchorY(other));
+        const bottom = oy + oh * (1 - reactorAnchorY(other));
         if (top >= bottom) continue;                             // clear below it
         return 5;
     }
     return base;
 };
+
+// Frame sizes, not PIXI's bounds getters: mid-update those read from a
+// half-applied transform (and null for a width) and lie about overlap.
+// Module functions, as reactorSortedZ runs twice per character a frame.
+function reactorDrawnWidth(sprite) {
+    return ((sprite._frame && sprite._frame.width) || sprite.width || 48)
+        * Math.abs((sprite.scale && sprite.scale.x) || 1);
+}
+
+function reactorDrawnHeight(sprite) {
+    return ((sprite._frame && sprite._frame.height) || sprite.height || 48)
+        * Math.abs((sprite.scale && sprite.scale.y) || 1);
+}
+
+function reactorAnchorY(sprite) {
+    return sprite.anchor ? sprite.anchor.y : 1;
+}
 
 /**
  * Place the sprite by projecting its grid cell through the 3D camera.
@@ -6436,13 +6447,14 @@ Spriteset_Map.prototype.update = function() {
         return;
     }
     // The sorted-above events, looked up by every character sprite this frame.
+    // One list for the spriteset's life, refilled in place.
     const sprites = this._characterSprites || [];
-    const sorted = [];
-    for (const sprite of sprites) {
-        const character = sprite._character;
-        if (character && character.isSortedAbovePriority && character.isSortedAbovePriority()) sorted.push(sprite);
+    const sorted = this._reactorSortedAbove || (this._reactorSortedAbove = []);
+    sorted.length = 0;
+    for (let i = 0; i < sprites.length; i++) {
+        const character = sprites[i]._character;
+        if (character && character.isSortedAbovePriority && character.isSortedAbovePriority()) sorted.push(sprites[i]);
     }
-    this._reactorSortedAbove = sorted;
     _reactorSpritesetMapStaleUpdate.apply(this, arguments);
 };
 

@@ -1356,8 +1356,10 @@ Reactor3D.prepareReflections = function(renderer, mapScene, scene, camera) {
     // ("mismatch between texture format and sampler type") and those draws are dropped.
     // Mirror finishes near the camera: the sharp planar pictures, the party in them.
     const mirrors = Reactor3D.Mirrors && mapScene.mirrorCandidates ? mapScene.mirrorCandidates(camera) : [];
-    if (reflections || mirrors.length) renderer.resetState();
-    if (reflections) {
+    if (reflections) Reactor3D.Reflections._frame++;
+    const capture = reflections && !Reactor3D.Reflections.idle();
+    if (capture || mirrors.length) renderer.resetState();
+    if (capture) {
         const probe = mapScene.reflectionProbe ? mapScene.reflectionProbe(camera) : null;
         if (probe) Reactor3D.Reflections.update(renderer, scene, probe.position, probe.hidden, probe.toward, probe.radius, probe.reach);
     }
@@ -5226,6 +5228,8 @@ Reactor3D.roomImageNames = function(mapData) {
  */
 Reactor3D.MapScene.prototype.addRoom = function(room, load, tileSize, width, height) {
     if (!room || typeof load !== "function") return;
+    // A rock's "ground" cap wears the floor too (see groundLoader).
+    this._roomFloor = room.floor || ""; this._roomLoad = load;
     if (!(width > 0) || !(height > 0)) return;
     const pieces = [
         ["floor", room.floor],
@@ -6589,8 +6593,12 @@ Reactor3D.MapScene.prototype.syncLights = function(focus) {
     // dimensions: walk past it and it stays put; face away and it is simply
     // behind you.
     const camera = Reactor3D.viewport() && Reactor3D.viewport().camera();
-    const right = new THREE.Vector3(1, 0, 0);
-    const up = new THREE.Vector3(0, 0, -1);
+    // The ground plane's axes never change; kept rather than made every frame.
+    const axes = Reactor3D._flatLightAxes || (Reactor3D._flatLightAxes = {
+        right: new THREE.Vector3(1, 0, 0), up: new THREE.Vector3(0, 0, -1), aim: new THREE.Vector3()
+    });
+    const right = axes.right;
+    const up = axes.up;
 
     const declared = Reactor3D.nearestLights(Reactor3D.lights(), focus);
     if (Reactor3D.lightModeFor() === "volume") {
@@ -6674,7 +6682,7 @@ Reactor3D.MapScene.prototype.syncLights = function(focus) {
             const angle = ((light.angle === undefined ? 45 : light.angle) * Math.PI) / 180;
             // The direction it points, flattened into the billboard's plane.
             const yaw = ((light.yaw || 0) * Math.PI) / 180;
-            const aim = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+            const aim = axes.aim.set(Math.sin(yaw), 0, Math.cos(yaw));
             // Shortened to the first wall in its way, spread and all — a
             // torch aimed at a wall used to paint its full length up the
             // wall's face and out the far side.
@@ -7019,15 +7027,18 @@ Reactor3D.MapScene.prototype.mirrorCandidates = function(camera) {
     // capture, whose few texels spread over a flat wall as bands of sky and ground.
     camera.updateMatrixWorld();
     const frustum = this._mirrorFrustum || (this._mirrorFrustum = new THREE.Frustum());
-    frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const viewProjection = this._mirrorViewProjection || (this._mirrorViewProjection = new THREE.Matrix4());
+    frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     let sphereOf = null;
+    // A model that moves is measured again every frame, into scratch read at once below.
+    const scratch = this._mirrorBounds || (this._mirrorBounds = { box: new THREE.Box3(), sphere: new THREE.Sphere() });
     // Distance to the thing's bounds, not its origin: a chunk or a sheet has its origin at the map's corner.
     const distance = object => {
         const still = object.userData.pieceChunk !== undefined || !!object.userData.water;
         let sphere = still ? object.userData.__rrMirrorSphere : null;
         if (!sphere) {
-            const box = new THREE.Box3().setFromObject(object);
-            sphere = box.isEmpty() ? null : box.getBoundingSphere(new THREE.Sphere());
+            const box = (still ? new THREE.Box3() : scratch.box).setFromObject(object);
+            sphere = box.isEmpty() ? null : box.getBoundingSphere(still ? new THREE.Sphere() : scratch.sphere);
             if (still) object.userData.__rrMirrorSphere = sphere;
         }
         sphereOf = sphere;
@@ -7362,6 +7373,7 @@ Reactor3D.MapScene.prototype.clear = function() {
         this._ripples = null;
     }
     this._pieceMaterials = null;
+    this._rockChunkCache = null;
     this._pieceGhostMaterials = null;
     this._materialTextures = null;
     // The light pools live in the pass groups rather than in `_meshes`, so

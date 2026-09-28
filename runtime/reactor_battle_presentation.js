@@ -963,6 +963,14 @@
             if(main.texture)main.texture=PIXI.Texture.EMPTY;
         }
         for(const key of [...room.models.keys(),...room.billboards.keys()])if(!key.startsWith('prop:')&&!key.startsWith('event:')&&!key.startsWith('extra:')&&!live.has(key))room.remove(key);
-        P.updateRoomEvents?.(room);room.render();for(const sprite of ss.battlerSprites())if(sprite._reactorRoomKey)P.publishRoomBounds(sprite,room,sprite._reactorRoomKey);const bitmap=ss._reactorRoomSprite.bitmap;bitmap.context.drawImage(room.renderer.domElement,0,0);bitmap.baseTexture.update();
+        P.updateRoomEvents?.(room);
+        // Drawn once for the frame shown (a tick catching up updates several times), else at once.
+        ss._reactorRoomDirty=true;if(!(typeof Graphics!=='undefined'&&Graphics._reactorBeforeRender))P.flushRoom(ss);
     };
+    /** The room's picture for the frame: rendered, its battlers' bounds published, copied onto the battle's sprite. */
+    P.flushRoom=function(ss){
+        const room=ss._reactorRoom;if(!room||room.disposed||!ss._reactorRoomDirty||!ss._reactorRoomSprite)return;ss._reactorRoomDirty=false;
+        room.render();for(const sprite of ss.battlerSprites())if(sprite._reactorRoomKey)P.publishRoomBounds(sprite,room,sprite._reactorRoomKey);const bitmap=ss._reactorRoomSprite.bitmap;bitmap.context.drawImage(room.renderer.domElement,0,0);bitmap.baseTexture.update();
+    };
+    if(typeof Graphics!=='undefined'&&Graphics._reactorBeforeRender)Graphics._reactorBeforeRender.add(()=>{const ss=typeof SceneManager!=='undefined'&&SceneManager._scene?SceneManager._scene._spriteset:null;if(ss&&ss._reactorRoom)P.flushRoom(ss);});
 })(globalThis);
