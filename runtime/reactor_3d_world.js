@@ -520,6 +520,11 @@ Reactor3D.normalizePiece = function(raw, mapData) {
         if ("thick" in own && Number.isFinite(Number(raw.thick))) piece.thick = Math.max(0.02, Math.min(1, Math.round(Number(raw.thick) * 100) / 100));
         if ("rough" in own && Number.isFinite(Number(raw.rough))) piece.rough = Math.max(0, Math.min(1, Math.round(Number(raw.rough) * 100) / 100));
     }
+    // A rock's top (`cap`: a material, or "ground" for the map's own floor) and its tint.
+    if (kind === "rock") {
+        if (typeof raw.cap === "string" && raw.cap.trim()) piece.cap = raw.cap.trim();
+        if (typeof raw.tint === "string" && /^#[0-9a-f]{6}$/i.test(raw.tint) && raw.tint.toLowerCase() !== "#ffffff") piece.tint = raw.tint.toLowerCase();
+    }
     return piece;
 };
 
@@ -1404,27 +1409,42 @@ Reactor3D.ROCK_BLEND = 1.6;
 Reactor3D.ROCK_SINK = 1;
 /** How far the world bends under a rock's outline, in tiles. */
 Reactor3D.ROCK_WARP = 1.4;
-/** Tiles per repeat of a rock's material image. */
+/** Tiles per repeat of a rock's material image, and of its top's. */
 Reactor3D.ROCK_UV = 5;
+Reactor3D.ROCK_CAP_UV = 3;
+/** The cap that wears the map's own floor (the room's floor image, at its own scale). */
+Reactor3D.ROCK_GROUND = "ground";
 
 /** Smooth value noise fixed to the world, about -1..1; three octaves, or one for a slow bend. */
+// The noise's lattice: a whole-number corner hashed to 0..1, and one octave smoothly between corners.
+// Plain functions of the closure, so a mesh's hundreds of thousands of samples make no garbage.
+const rockHash = (i, j, k) => {
+    let h = Math.imul(i, 374761393) + Math.imul(j, 668265263) + Math.imul(k, 2147483587);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+};
+const rockOctave = (x, y, z) => {
+    const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+    const fx = x - ix, fy = y - iy, fz = z - iz;
+    const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy), uz = fz * fz * (3 - 2 * fz);
+    const a0 = rockHash(ix, iy, iz), a1 = rockHash(ix + 1, iy, iz), b0 = rockHash(ix, iy + 1, iz), b1 = rockHash(ix + 1, iy + 1, iz);
+    const c0 = rockHash(ix, iy, iz + 1), c1 = rockHash(ix + 1, iy, iz + 1), d0 = rockHash(ix, iy + 1, iz + 1), d1 = rockHash(ix + 1, iy + 1, iz + 1);
+    const x00 = a0 + (a1 - a0) * ux, x10 = b0 + (b1 - b0) * ux, x01 = c0 + (c1 - c0) * ux, x11 = d0 + (d1 - d0) * ux;
+    const y0 = x00 + (x10 - x00) * uy, y1 = x01 + (x11 - x01) * uy;
+    return (y0 + (y1 - y0) * uz) * 2 - 1;
+};
 Reactor3D.rockNoise = function(x, y, z, octaves) {
-    const hash = (i, j, k) => {
-        let h = Math.imul(i, 374761393) + Math.imul(j, 668265263) + Math.imul(k, 2147483587);
-        h = Math.imul(h ^ (h >>> 13), 1274126177);
-        return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
-    };
-    const octave = (x, y, z) => {
-        const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
-        const fx = x - ix, fy = y - iy, fz = z - iz;
-        const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy), uz = fz * fz * (3 - 2 * fz);
-        const lerp = (a, b, t) => a + (b - a) * t;
-        const x00 = lerp(hash(ix, iy, iz), hash(ix + 1, iy, iz), ux), x10 = lerp(hash(ix, iy + 1, iz), hash(ix + 1, iy + 1, iz), ux);
-        const x01 = lerp(hash(ix, iy, iz + 1), hash(ix + 1, iy, iz + 1), ux), x11 = lerp(hash(ix, iy + 1, iz + 1), hash(ix + 1, iy + 1, iz + 1), ux);
-        return lerp(lerp(x00, x10, uy), lerp(x01, x11, uy), uz) * 2 - 1;
-    };
-    if (octaves === 1) return octave(x, y, z);
-    return octave(x, y, z) * 0.57 + octave(x * 2.03 + 17.1, y * 2.03 + 3.7, z * 2.03 + 9.2) * 0.29 + octave(x * 4.11 + 5.3, y * 4.11 + 11.9, z * 4.11 + 1.3) * 0.14;
+    if (octaves === 1) return rockOctave(x, y, z);
+    return rockOctave(x, y, z) * 0.57 + rockOctave(x * 2.03 + 17.1, y * 2.03 + 3.7, z * 2.03 + 9.2) * 0.29 + rockOctave(x * 4.11 + 5.3, y * 4.11 + 11.9, z * 4.11 + 1.3) * 0.14;
+};
+
+/** A rock's rounded box, as a signed distance from a world point (no bend, no noise). */
+const rockBoxDistance = (f, x, y, z) => {
+    const px = x - f.c[0], py = y - f.c[1], pz = z - f.c[2], r = f.round, a = f.axes;
+    const qx = Math.abs(px * a[0][0] + py * a[0][1] + pz * a[0][2]) - (f.half[0] - r);
+    const qy = Math.abs(px * a[1][0] + py * a[1][1] + pz * a[1][2]) - (f.half[1] - r);
+    const qz = Math.abs(px * a[2][0] + py * a[2][1] + pz * a[2][2]) - (f.half[2] - r);
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) - r;
 };
 
 /**
@@ -1448,8 +1468,9 @@ Reactor3D.rockFrame = function(piece, base) {
     const amp = 0.3 + 1.1 * rough;
     const reach = [0, 1, 2].map(i => Math.abs(axes[0][i]) * half[0] + Math.abs(axes[1][i]) * half[1] + Math.abs(axes[2][i]) * half[2]);
     const pad = amp + this.ROCK_BLEND + this.ROCK_WARP;
+    const tint = piece.tint ? [1, 3, 5].map(i => parseInt(piece.tint.slice(i, i + 2), 16) / 255) : null;
     return {
-        piece, c, axes, half, round, rough, amp, top: c[1] + half[1] * Math.abs(axes[1][1]),
+        piece, c, axes, half, round, rough, amp, tint, top: c[1] + half[1] * Math.abs(axes[1][1]),
         min: [c[0] - reach[0] - pad, c[1] - reach[1] - pad, c[2] - reach[2] - pad],
         max: [c[0] + reach[0] + pad, c[1] + reach[1] + pad, c[2] + reach[2] + pad]
     };
@@ -1461,13 +1482,20 @@ Reactor3D.rockFrame = function(piece, base) {
  */
 Reactor3D.rockField = function(frames, x, y, z, near) {
     const k = this.ROCK_BLEND;
-    // Nowhere near a rock (most of a chunk's grid): nothing to bend or roughen.
-    let reached = false;
-    for (let i = 0; i < frames.length && !reached; i++) {
+    // Nowhere near a rock (most of a chunk's grid): nothing to bend or roughen. Far outside
+    // every rock, or deep in one, only the side of the surface matters to the mesh: the plain
+    // boxes say it, past the most the bend, the blend and the noise could move it.
+    let plain = Infinity, amp = 0, closest = -1;
+    for (let i = 0; i < frames.length; i++) {
         const f = frames[i];
-        reached = x >= f.min[0] && x <= f.max[0] && y >= f.min[1] && y <= f.max[1] && z >= f.min[2] && z <= f.max[2];
+        if (x < f.min[0] || x > f.max[0] || y < f.min[1] || y > f.max[1] || z < f.min[2] || z > f.max[2]) continue;
+        const di = rockBoxDistance(f, x, y, z);
+        if (di < plain) { plain = di; closest = i; }
+        if (f.amp > amp) amp = f.amp;
     }
-    if (!reached) return 1e3;
+    if (closest < 0) return 1e3;
+    const margin = 1.6 * this.ROCK_WARP + amp + k * 0.25 + 0.3;
+    if (plain > margin || plain < -margin) { if (near) near.index = closest; return plain; }
     // The boxes are read through a slow bend of the world, across more than up, so a row of
     // them is an outcrop and not a wall of bricks; the tops stay level.
     const W = this.ROCK_WARP;
@@ -1478,12 +1506,7 @@ Reactor3D.rockField = function(frames, x, y, z, near) {
     for (let i = 0; i < frames.length; i++) {
         const f = frames[i];
         if (x < f.min[0] || x > f.max[0] || yy < f.min[1] || yy > f.max[1] || z < f.min[2] || z > f.max[2]) continue;
-        const px = x - f.c[0], py = yy - f.c[1], pz = z - f.c[2];
-        const r = f.round;
-        const qx = Math.abs(px * f.axes[0][0] + py * f.axes[0][1] + pz * f.axes[0][2]) - (f.half[0] - r);
-        const qy = Math.abs(px * f.axes[1][0] + py * f.axes[1][1] + pz * f.axes[1][2]) - (f.half[1] - r);
-        const qz = Math.abs(px * f.axes[2][0] + py * f.axes[2][1] + pz * f.axes[2][2]) - (f.half[2] - r);
-        const di = Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) - r;
+        const di = rockBoxDistance(f, x, yy, z);
         if (di < bestD) { bestD = di; best = i; }
         if (d === Infinity) d = di;
         else { const h = Math.max(k - Math.abs(d - di), 0) / k; d = Math.min(d, di) - h * h * k * 0.25; }
@@ -1507,8 +1530,8 @@ Reactor3D.rockField = function(frames, x, y, z, near) {
 /**
  * Mesh the rocks `frames` inside the world box {x0, z0, x1, z1} (whole
  * tiles, x1 and z1 exclusive) by surface nets on the ROCK_STEP grid. Each
- * face goes into `bucketFor(frame)`'s arrays (positions, uvs, colors), so a
- * chunk can split them by material. Faces are owned by the box they start
+ * face goes into `bucketFor(frame, capped)`'s arrays (positions, uvs,
+ * colors), so a chunk can split them by material and cap. Faces are owned by the box they start
  * in, so boxes side by side mesh one seamless surface.
  */
 Reactor3D.rockMesh = function(frames, box, bucketFor) {
@@ -1523,13 +1546,25 @@ Reactor3D.rockMesh = function(frames, box, bucketFor) {
     const gx = i => box.x0 + (i - 1) * s, gy = j => ylo + j * s, gz = k => box.z0 + (k - 1) * s;
     const values = new Float32Array(X * Y * Z), owner = new Int16Array(X * Y * Z);
     const near = { index: -1 };
+    // The rocks each column of the grid can meet (with room for a crack's look along a slope):
+    // a sample weighs those, not every rock of the chunk.
+    live.forEach((f, i) => { f.live = i; });
+    const reachOf = new Array(X * Z);
+    for (let k = 0; k < Z; k++) for (let i = 0; i < X; i++) {
+        const x = gx(i), z = gz(k);
+        reachOf[k * X + i] = live.filter(f => x >= f.min[0] - 2 && x <= f.max[0] + 2 && z >= f.min[2] - 2 && z <= f.max[2] + 2);
+    }
     let any = false;
-    for (let k = 0; k < Z; k++) for (let j = 0; j < Y; j++) for (let i = 0; i < X; i++) {
-        const at = (k * Y + j) * X + i;
-        near.index = -1;
-        const v = this.rockField(live, gx(i), gy(j), gz(k), near);
-        values[at] = v; owner[at] = near.index;
-        if (v < 0) any = true;
+    for (let k = 0; k < Z; k++) for (let i = 0; i < X; i++) {
+        const column = reachOf[k * X + i];
+        for (let j = 0; j < Y; j++) {
+            const at = (k * Y + j) * X + i;
+            if (!column.length) { values[at] = 1e3; owner[at] = -1; continue; }
+            near.index = -1;
+            const v = this.rockField(column, gx(i), gy(j), gz(k), near);
+            values[at] = v; owner[at] = near.index >= 0 ? column[near.index].live : -1;
+            if (v < 0) any = true;
+        }
     }
     if (!any) return;
     const id = (i, j, k) => (k * Y + j) * X + i;
@@ -1538,10 +1573,11 @@ Reactor3D.rockMesh = function(frames, box, bucketFor) {
     const verts = [];
     const corners = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]];
     const edges = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+    const v = new Float64Array(8);
     const vertexOf = (i, j, k) => {
         const key = (k * (Y - 1) + j) * (X - 1) + i;
         if (cubeVertex[key] >= 0) return cubeVertex[key];
-        const v = corners.map(([a, b, c]) => values[id(i + a, j + b, k + c)]);
+        for (let c = 0; c < 8; c++) v[c] = values[id(i + (c & 1), j + ((c >> 1) & 1), k + (c >> 2))];
         let sx = 0, sy = 0, sz = 0, n = 0;
         for (const [a, b] of edges) {
             if ((v[a] < 0) === (v[b] < 0)) continue;
@@ -1550,39 +1586,58 @@ Reactor3D.rockMesh = function(frames, box, bucketFor) {
             sx += pa[0] + (pb[0] - pa[0]) * t; sy += pa[1] + (pb[1] - pa[1]) * t; sz += pa[2] + (pb[2] - pa[2]) * t; n++;
         }
         const p = [gx(i) + (sx / n) * s, gy(j) + (sy / n) * s, gz(k) + (sz / n) * s];
-        // Its shade: lit by facing (the field's slope), darker in a crack, a little mottled.
-        const e = 0.2;
-        const gxv = this.rockField(live, p[0] + e, p[1], p[2]) - this.rockField(live, p[0] - e, p[1], p[2]);
-        const gyv = this.rockField(live, p[0], p[1] + e, p[2]) - this.rockField(live, p[0], p[1] - e, p[2]);
-        const gzv = this.rockField(live, p[0], p[1], p[2] + e) - this.rockField(live, p[0], p[1], p[2] - e);
+        // Its shade: darker in a crack (how open the field is along its slope, read off the
+        // cube's own corners), a little mottled.
+        const gxv = v[1] - v[0] + v[3] - v[2] + v[5] - v[4] + v[7] - v[6];
+        const gyv = v[2] - v[0] + v[3] - v[1] + v[6] - v[4] + v[7] - v[5];
+        const gzv = v[4] - v[0] + v[5] - v[1] + v[6] - v[2] + v[7] - v[3];
         const gl = Math.hypot(gxv, gyv, gzv) || 1;
         const nrm = [gxv / gl, gyv / gl, gzv / gl];
-        const open1 = this.rockField(live, p[0] + nrm[0] * 0.6, p[1] + nrm[1] * 0.6, p[2] + nrm[2] * 0.6) / 0.6;
-        const open2 = this.rockField(live, p[0] + nrm[0] * 1.5, p[1] + nrm[1] * 1.5, p[2] + nrm[2] * 1.5) / 1.5;
+        const column = reachOf[k * X + i];
+        const open1 = this.rockField(column, p[0] + nrm[0] * 0.6, p[1] + nrm[1] * 0.6, p[2] + nrm[2] * 0.6) / 0.6;
+        const open2 = this.rockField(column, p[0] + nrm[0] * 1.5, p[1] + nrm[1] * 1.5, p[2] + nrm[2] * 1.5) / 1.5;
         const ao = Math.max(0.45, Math.min(1, 0.4 + 0.6 * (Math.max(0, open1) + Math.max(0, open2)) / 2));
-        const mottle = 0.9 + 0.1 * this.rockNoise(p[0] * 1.7 + 40, p[1] * 1.7, p[2] * 1.7);
-        verts.push({ p, shade: Math.min(1, ao * mottle) });
+        const mottle = 0.9 + 0.1 * rockOctave(p[0] * 1.7 + 40, p[1] * 1.7, p[2] * 1.7);
+        verts.push({ p, n: nrm, shade: Math.min(1, ao * mottle) });
         cubeVertex[key] = verts.length - 1;
         return verts.length - 1;
     };
     // Each face lit by its own facing, as a cut stone is: tops bright, overhangs dark, the sides by their turn.
-    const tri = (bucket, a, b, c) => {
+    // A face turned up far enough wears the rock's cap (the edge wanders, so a top is not cut
+    // square), mapped from above; a rock's tint colours the rest.
+    const tri = (frame, a, b, c) => {
         const ux = b.p[0] - a.p[0], uy = b.p[1] - a.p[1], uz = b.p[2] - a.p[2];
         const vx = c.p[0] - a.p[0], vy = c.p[1] - a.p[1], vz = c.p[2] - a.p[2];
-        const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+        let cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+        // A face folded over at a crease looks the other way from the field's slope at its
+        // corners: turned back, it is lit and wound as the surface round it.
+        if (cx * (a.n[0] + b.n[0] + c.n[0]) + cy * (a.n[1] + b.n[1] + c.n[1]) + cz * (a.n[2] + b.n[2] + c.n[2]) < 0) { const t = b; b = c; c = t; cx = -cx; cy = -cy; cz = -cz; }
         const nx = Math.abs(cx), ny = Math.abs(cy), nz = Math.abs(cz);
         const len = Math.hypot(cx, cy, cz) || 1;
-        const fx = cx / len, fy = cy / len, fz = cz / len;
+        // Lit half by its own facing (the cut look) and half by the surface round it, so a sliver
+        // at a crease takes the light of its neighbours instead of going black.
+        const sx = cx / len + (a.n[0] + b.n[0] + c.n[0]) / 3, sy = cy / len + (a.n[1] + b.n[1] + c.n[1]) / 3, sz = cz / len + (a.n[2] + b.n[2] + c.n[2]) / 3;
+        const sl = Math.hypot(sx, sy, sz) || 1;
+        const fx = sx / sl, fy = sy / sl, fz = sz / sl;
         const side = 0.6 + 0.2 * (fx * 0.5 + 0.5) + 0.12 * (fz * 0.5 + 0.5);
         const facing = fy > 0 ? side + (1 - side) * Math.min(1, fy * 1.25) : side * (1 + 0.5 * fy);
-        const U = this.ROCK_UV;
+        // Near a rock's top it wears the cap wherever it faces up; lower down, only a ledge that
+        // faces nearly straight up does, so a craggy side is not speckled with it.
+        const my = (a.p[1] + b.p[1] + c.p[1]) / 3;
+        const edge = 0.22 * rockOctave((a.p[0] + b.p[0] + c.p[0]) * 0.2, my * 0.6, (a.p[2] + b.p[2] + c.p[2]) * 0.2);
+        const capped = !!frame.piece.cap && fy > (frame.top - my < 1.5 ? 0.5 : 0.86) + edge;
+        const bucket = bucketFor(frame, capped);
+        const U = capped ? (frame.piece.cap === this.ROCK_GROUND ? 1 : this.ROCK_CAP_UV) : this.ROCK_UV;
+        const tint = !capped && frame.tint;
         for (const q of [a, b, c]) {
             bucket.positions.push(q.p[0], q.p[1], q.p[2]);
-            if (ny >= nx && ny >= nz) bucket.uvs.push(q.p[0] / U, q.p[2] / U);
+            if (capped || (ny >= nx && ny >= nz)) bucket.uvs.push(q.p[0] / U, q.p[2] / U);
             else if (nx >= nz) bucket.uvs.push(q.p[2] / U, q.p[1] / U);
             else bucket.uvs.push(q.p[0] / U, q.p[1] / U);
             const shade = Math.max(0.3, Math.min(1, q.shade * facing));
-            bucket.colors.push(shade, shade, shade);
+            if (tint) bucket.colors.push(shade * tint[0], shade * tint[1], shade * tint[2]);
+            else bucket.colors.push(shade, shade, shade);
+            if (bucket.normals) bucket.normals.push(q.n[0], q.n[1], q.n[2]);
         }
     };
     // A face for every owned grid edge the surface crosses, joining the four cubes round it,
@@ -1603,14 +1658,44 @@ Reactor3D.rockMesh = function(frames, box, bucketFor) {
             const v = quad.map(([ci, cj, ck]) => verts[vertexOf(ci, cj, ck)]);
             const inside = here < 0 ? id(i, j, k) : id(ni, nj, nk);
             const frame = live[Math.max(0, owner[inside])];
-            const bucket = bucketFor(frame);
             // The quad faces the way out of the rock across its edge; both halves turn together.
             const d1 = [v[2].p[0] - v[0].p[0], v[2].p[1] - v[0].p[1], v[2].p[2] - v[0].p[2]], d2 = [v[3].p[0] - v[1].p[0], v[3].p[1] - v[1].p[1], v[3].p[2] - v[1].p[2]];
             const facing = [d1[1] * d2[2] - d1[2] * d2[1], d1[2] * d2[0] - d1[0] * d2[2], d1[0] * d2[1] - d1[1] * d2[0]][axis] * (here < 0 ? 1 : -1);
-            if (facing >= 0) { tri(bucket, v[0], v[1], v[2]); tri(bucket, v[0], v[2], v[3]); }
-            else { tri(bucket, v[0], v[2], v[1]); tri(bucket, v[0], v[3], v[2]); }
+            if (facing >= 0) { tri(frame, v[0], v[1], v[2]); tri(frame, v[0], v[2], v[3]); }
+            else { tri(frame, v[0], v[2], v[1]); tri(frame, v[0], v[3], v[2]); }
         }
     }
+};
+
+/**
+ * A material whose image is laid from all three sides by world position and
+ * blended by the surface's facing, `tiles` world tiles to a repeat: a rock's
+ * crags turn every way, and a face's own projection jumped between neighbours.
+ */
+Reactor3D.triplanarMaterial = function(material, tiles) {
+    if (!material || material.__reactorTriplanar) return material;
+    material.__reactorTriplanar = 1 / (tiles || 1);
+    const earlier = material.onBeforeCompile;
+    material.onBeforeCompile = function(shader, renderer) {
+        if (typeof earlier === "function") earlier.call(this, shader, renderer);
+        shader.uniforms.rrTriScale = { value: this.__reactorTriplanar };
+        shader.vertexShader = shader.vertexShader
+            .replace("#include <common>", "#include <common>\nvarying vec3 vRRTriPos;\nvarying vec3 vRRTriNormal;")
+            .replace("#include <project_vertex>", "#include <project_vertex>\nvRRTriPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvRRTriNormal = normalize(mat3(modelMatrix) * normal);");
+        shader.fragmentShader = shader.fragmentShader
+            .replace("#include <common>", "#include <common>\nvarying vec3 vRRTriPos;\nvarying vec3 vRRTriNormal;\nuniform float rrTriScale;")
+            .replace("#include <map_fragment>", [
+                "#ifdef USE_MAP",
+                "\tvec3 rrTriW = pow(abs(normalize(vRRTriNormal)), vec3(4.0));",
+                "\trrTriW /= max(rrTriW.x + rrTriW.y + rrTriW.z, 1e-4);",
+                "\tvec4 sampledDiffuseColor = texture2D(map, vRRTriPos.zy * rrTriScale) * rrTriW.x + texture2D(map, vRRTriPos.xz * rrTriScale) * rrTriW.y + texture2D(map, vRRTriPos.xy * rrTriScale) * rrTriW.z;",
+                "\tdiffuseColor *= sampledDiffuseColor;",
+                "#endif"
+            ].join("\n"));
+    };
+    const earlierKey = material.customProgramCacheKey;
+    material.customProgramCacheKey = function() { return (typeof earlierKey === "function" ? earlierKey.call(this) : "") + "|triplanar"; };
+    return material;
 };
 
 /** Whether a map has any rock. */
@@ -1655,6 +1740,8 @@ Reactor3D.MapScene.prototype.materialTexture = function(name, load) {
         const source = bitmap.image || bitmap.canvas;
         if (!source) return;
         texture.image = source;
+        // A rock's "ground" cap is mapped in tiles: its image repeats at the room floor's scale.
+        if (name === Reactor3D.ROCK_GROUND && this._roomFloor) texture.repeat.set(48 / (source.width || 48), 48 / (source.height || 48));
         texture.needsUpdate = true;
     };
     if (bitmap.isReady && !bitmap.isReady()) {
@@ -1697,7 +1784,7 @@ Reactor3D.MapScene.prototype.pieceMaterial = function(name, load, surface, both)
     if (!this._pieceMaterials) this._pieceMaterials = new Map();
     if (typeof surface === "string") surface = Reactor3D.PIECE_FINISHES[surface] || null;
     const shine = Reactor3D.surfaceKey(surface);
-    const key = (shine ? name + "\u0001" + shine : name) + (both ? "\u0002" : "");
+    const key = (shine ? name + "\u0001" + shine : name) + (both ? "\u0002" + both : "");
     let material = this._pieceMaterials.get(key);
     if (material) return material;
     const look = Reactor3D.materialLook(name);
@@ -1715,6 +1802,7 @@ Reactor3D.MapScene.prototype.pieceMaterial = function(name, load, surface, both)
     material.__reactorPieces = true;
     material.__reactorSelfLit = look.glow;
     material.userData.rrPieceMaterial = name;
+    if (both === "rock") Reactor3D.triplanarMaterial(material, Reactor3D.ROCK_UV);
     Reactor3D.litMaterial(material);
     if (surface && Reactor3D.setMaterialShine) Reactor3D.setMaterialShine(material, surface);
     this._materials.push(material);
@@ -1827,7 +1915,9 @@ Reactor3D.MapScene.prototype.layPieceChunks = function(mapData, load, keys) {
 /**
  * The rocks of the chunks in `wanted` (every chunk a rock reaches when
  * null): each chunk meshes the rock field over its own cells, from every
- * rock that reaches it, one mesh per material.
+ * rock that reaches it, one mesh per material and per cap. A chunk whose
+ * rocks are the same as when it was last meshed (an edit beside it, an
+ * undo) takes its arrays again instead of meshing.
  */
 Reactor3D.MapScene.prototype.layRockChunks = function(mapData, load, rocks, wanted) {
     const frames = rocks.map(piece => Reactor3D.rockFrame(piece, Reactor3D.pieceBaseAt(mapData, piece.x, piece.y)));
@@ -1838,29 +1928,56 @@ Reactor3D.MapScene.prototype.layRockChunks = function(mapData, load, rocks, want
             for (let cx = Math.floor(Math.max(0, f.min[0]) / size); cx <= Math.floor(Math.max(0, f.max[0]) / size); cx++) keys.add(cx * 65536 + cy);
         }
     }
+    const cache = this._rockChunkCache || (this._rockChunkCache = new Map());
+    const signature = f => f.sig || (f.sig = JSON.stringify([f.piece.x, f.piece.y, f.piece.z, f.piece.size, f.piece.angle, f.piece.tilt, f.piece.roll, f.piece.offset, f.piece.rough, f.piece.material, f.piece.finish, f.piece.surface, f.piece.cap, f.piece.tint, f.c[1]]));
     for (const key of keys) {
         if (wanted && !wanted.has(key)) continue;
         const cx = Math.floor(key / 65536), cy = key % 65536;
-        const buckets = new Map();
-        const bucketFor = frame => {
-            const shine = Reactor3D.surfaceKey(Reactor3D.pieceSurface(frame.piece));
-            const look = shine ? frame.piece.material + "\u0001" + shine : frame.piece.material;
-            let bucket = buckets.get(look);
-            if (!bucket) buckets.set(look, bucket = { positions: [], uvs: [], colors: [], piece: frame.piece });
-            return bucket;
-        };
-        Reactor3D.rockMesh(frames, { x0: cx * size, z0: cy * size, x1: cx * size + size, z1: cy * size + size }, bucketFor);
-        for (const bucket of buckets.values()) {
-            if (!bucket.positions.length) continue;
+        const box = { x0: cx * size, z0: cy * size, x1: cx * size + size, z1: cy * size + size };
+        const reaching = frames.filter(f => f.max[0] >= box.x0 - 1 && f.min[0] <= box.x1 + 1 && f.max[2] >= box.z0 - 1 && f.min[2] <= box.z1 + 1);
+        const sig = reaching.map(signature).sort().join("|");
+        let buckets = cache.get(key);
+        if (!buckets || buckets.sig !== sig) {
+            const made = new Map();
+            const bucketFor = (frame, capped) => {
+                const piece = frame.piece, cap = capped ? piece.cap : null;
+                const surface = cap ? null : Reactor3D.pieceSurface(piece);
+                const shine = Reactor3D.surfaceKey(surface);
+                const look = cap ? "\u0003" + cap : shine ? piece.material + "\u0001" + shine : piece.material;
+                let bucket = made.get(look);
+                if (!bucket) made.set(look, bucket = { positions: [], uvs: [], colors: [], normals: [], name: cap || piece.material, surface, cap: !!cap });
+                return bucket;
+            };
+            Reactor3D.rockMesh(reaching, box, bucketFor);
+            buckets = [...made.values()].filter(b => b.positions.length).map(b => ({ name: b.name, surface: b.surface, cap: b.cap,
+                positions: new Float32Array(b.positions), uvs: new Float32Array(b.uvs), colors: new Float32Array(b.colors), normals: new Float32Array(b.normals) }));
+            buckets.sig = sig;
+            cache.set(key, buckets);
+        }
+        for (const bucket of buckets) {
             const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(bucket.positions), 3));
-            geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(bucket.uvs), 2));
-            geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(bucket.colors), 3));
-            geometry.computeVertexNormals();
+            geometry.setAttribute("position", new THREE.BufferAttribute(bucket.positions, 3));
+            geometry.setAttribute("uv", new THREE.BufferAttribute(bucket.uvs, 2));
+            geometry.setAttribute("color", new THREE.BufferAttribute(bucket.colors, 3));
+            // The field's own slope, smooth across faces: what the rock's image is blended by.
+            geometry.setAttribute("normal", new THREE.BufferAttribute(bucket.normals, 3));
             geometry.computeBoundingSphere();
-            this.addPieceChunkMesh(key, bucket.piece.material, Reactor3D.pieceSurface(bucket.piece), geometry, load, true).userData.rocks = true;
+            const ground = bucket.cap && bucket.name === Reactor3D.ROCK_GROUND;
+            this.addPieceChunkMesh(key, ground ? Reactor3D.ROCK_GROUND : bucket.name, bucket.surface, geometry, ground ? this.groundLoader() : load, bucket.cap ? "both" : "rock").userData.rocks = true;
         }
     }
+};
+
+/**
+ * The loader a rock's "ground" cap reads with: the room's floor image, by
+ * the loader the room was laid with; with no floor, the Grass material.
+ */
+Reactor3D.MapScene.prototype.groundLoader = function() {
+    const floor = this._roomFloor, load = this._roomLoad;
+    return () => {
+        if (floor && typeof load === "function") return load(floor);
+        return Reactor3D.defaultMaterialLoader("Grass");
+    };
 };
 
 /** One chunk's mesh of one material (and its ghost for the cut), laid in the pieces group. */

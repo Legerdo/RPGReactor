@@ -301,7 +301,7 @@ test('building happens in the world: the hammer in the toolbar opens a bar over 
       assert.match(read('editor/src/LightingManager.js'), /if \(!window\.reactor\?\.dockMapPanel\?\.\(panel\)\) \(workspace \|\| document\.body\)\.appendChild\(panel\);/, 'Lighting mounts in the dock');
       assert.match(read('editor/src/MediaSurfaceManager.js'), /if \(!window\.reactor\?\.dockMapPanel\?\.\(panel\)\) document\.body\.appendChild\(panel\);/, 'Media Surfaces mounts in the dock');
       const css = read('editor/css/styles.css'); assert.match(css, /#map-side-dock \{[\s\S]{0,200}background-color: var\(--color-bg-panel\);/, 'the dock wears the theme'); assert.match(css, /#map-side-dock > \.lighting-panel,\s*#map-side-dock > \.media-surfaces-panel \{[\s\S]{0,300}box-shadow: none;/, 'no floating look inside it'); }
-    assert.match(managerSrc, /if \(!stack\.length\) return this\.removeEffectAt\(map, target\);/, 'the hammer takes screens and lights too');
+    assert.match(managerSrc, /if \(covering\) return elevation\.restorePieces[^\n]+\n\s+return this\.removeEffectAt\(map, target\);/, 'the hammer takes screens and lights too, where no piece stands');
     // Select: a placed piece is picked up, edited in place, moved, turned and removed; a stair run climbs; a ramp is a sized wedge.
     const ctx2 = { console, window: {}, document: { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} }, CustomEvent: class { constructor(t, i) { this.type = t; this.detail = i && i.detail; } } };
     ctx2.window = ctx2;
@@ -1367,4 +1367,81 @@ test('rocks: one craggy mass from boxes, the same across chunk edges, stood on a
     assert.match(bar, /static ROCK_PRESETS = \{ boulder: \[3, 2, 3\], rock: \[4, 4, 4\], cliff: \[4, 8, 4\], spire: \[2, 8, 2\], ledge: \[6, 2, 3\], slab: \[6, 1, 6\] \};/);
     assert.match(bar, /if \(key === 'taper' \|\| key === 'thick' \|\| key === 'rough'\) v = Math\.max\(0, Math\.min\(1, Math\.round\(v\) \/ 100\)\);/);
     assert.match(bar, /\.filter\(k => k !== 'rock'\); \}/, 'the Shape slot leaves rocks to their own slot');
+});
+
+test('rock tops, tints and the rock brush: rows, filled areas, each rock its own', () => {
+    loadThree();
+    const R = require(path.resolve(__dirname, '..', '..', 'runtime/reactor_3d.js'));
+    const rock = (x, y, z, size, extra) => R.normalizePiece(Object.assign({ id: 1, kind: 'rock', x, y, z, rot: 0, material: 'Rock', size }, extra || {}));
+    const capped = rock(10, 10, 0, [6, 4, 6], { cap: 'Moss', tint: '#C8B49A' });
+    assert.deepEqual([capped.cap, capped.tint], ['Moss', '#c8b49a'], 'a top and a tint are kept');
+    assert.equal('tint' in rock(1, 1, 0, [2, 2, 2], { tint: '#ffffff' }), false, 'white is no tint');
+    assert.equal('cap' in R.normalizePiece({ kind: 'box', x: 1, y: 1, cap: 'Moss' }), false, 'only a rock has a top');
+    // The top goes to faces turned up near the rock's top; the sides keep the rock and its tint.
+    const buckets = new Map();
+    R.rockMesh([R.rockFrame(capped, 0)], { x0: 0, z0: 0, x1: 32, z1: 32 }, (frame, isCap) => {
+        const key = isCap ? 'cap' : 'rock';
+        if (!buckets.has(key)) buckets.set(key, { positions: [], uvs: [], colors: [], normals: [] });
+        return buckets.get(key);
+    });
+    const cap = buckets.get('cap'), body = buckets.get('rock');
+    assert.ok(cap && cap.positions.length > 90 && body && body.positions.length > 90, 'both a top and sides');
+    // Up top, bar a little at the foot where the rock flares onto the ground.
+    let high = 0;
+    for (let i = 1; i < cap.positions.length; i += 3) if (cap.positions[i] > 2.5) high++;
+    assert.ok(high / (cap.positions.length / 3) > 0.85, 'the top stays up top: ' + (high / (cap.positions.length / 3)).toFixed(2));
+    assert.equal(cap.normals.length, cap.positions.length, 'each vertex has the field\'s slope for the image blend');
+    assert.ok(body.colors[0] > body.colors[2], 'the sides wear the warm tint');
+    // "ground" is the map's floor, not a material file; any other top is one to load.
+    const E = loadElevation();
+    const map = { id: 1, width: 40, height: 40, reactor3d: { version: 1, pieces: [
+        { id: 1, kind: 'rock', x: 5, y: 5, z: 0, rot: 0, material: 'Rock', size: [3, 3, 3], cap: 'ground' },
+        { id: 2, kind: 'rock', x: 9, y: 5, z: 0, rot: 0, material: 'Rock', size: [3, 3, 3], cap: 'Snow' }] } };
+    assert.deepEqual([...E.pieceMaterials(map)], ['Rock', 'Snow']);
+    // A rock's image is laid from three sides by world position, blended by the surface.
+    const shaded = {}; R.triplanarMaterial(shaded, 5);
+    const shader = { uniforms: {}, vertexShader: '#include <common>\n#include <project_vertex>', fragmentShader: '#include <common>\n#include <map_fragment>' };
+    shaded.onBeforeCompile(shader);
+    assert.match(shader.fragmentShader, /texture2D\(map, vRRTriPos\.zy \* rrTriScale\) \* rrTriW\.x \+ texture2D\(map, vRRTriPos\.xz \* rrTriScale\) \* rrTriW\.y/);
+    assert.equal(shader.uniforms.rrTriScale.value, 0.2);
+    assert.match(shaded.customProgramCacheKey(), /\|triplanar$/);
+    // The brush: a drag lays one rock each spacing, a Ctrl rectangle fills a grid, each rock varies by its seed.
+    const context = { console, window: {}, document: { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} }, CustomEvent: class { constructor(t, i) { this.type = t; this.detail = i && i.detail; } } };
+    context.window = context;
+    vm.runInNewContext(read('editor/src/utils/MapElevation.js'), context);
+    vm.runInNewContext(read('editor/src/PieceBuilderManager.js'), context);
+    const P = context.PieceBuilderManager;
+    assert.deepEqual({ ...P.rockVariation(7) }, { ...P.rockVariation(7) }, 'a seed is always the same rock');
+    assert.notDeepEqual({ ...P.rockVariation(7) }, { ...P.rockVariation(8) });
+    const field = { id: 2, width: 40, height: 40, reactor3d: { version: 1 } };
+    const manager = new P({ getTilemapManager: () => ({ currentMap: field }) });
+    manager.setKind('rock'); manager.setSize('rock', [4, 8, 4]); manager.rockCap = 'ground';
+    const rocks = () => context.RRMapElevation.pieces(field).filter(p => p.kind === 'rock');
+    const next = manager.pieceFor({ x: 0, y: 0, z: 0 });
+    manager.beginStroke({ x: 2, y: 10, z: 0 });
+    for (let x = 3; x <= 14; x++) manager.paintAt({ x, y: 10, z: 0 });
+    manager.endStroke();
+    assert.deepEqual([...rocks().map(p => p.x)], [2, 5, 8, 11, 14], 'a row of rocks three cells apart (three quarters of four wide)');
+    assert.deepEqual([...rocks()[0].size], [...next.size], 'the first rock is the one the ghost showed');
+    assert.ok(new Set(rocks().map(p => p.size.join(','))).size > 1, 'and they are not all alike');
+    assert.ok(rocks().every(p => p.cap === 'ground'), 'each wears the top in hand');
+    assert.equal(manager.undoStack.length, 1, 'one stroke, one undo step');
+    manager.setSize('rock', [3, 2, 3]);
+    manager.beginStroke({ x: 2, y: 20, z: 0 }, undefined, { rectangle: true });
+    manager.paintAt({ x: 9, y: 25, z: 0 }, { rectangle: true });
+    const grid = rocks().filter(p => p.y >= 20);
+    manager.paintAt({ x: 10, y: 25, z: 0 }, { rectangle: true });
+    manager.endStroke();
+    assert.equal(grid.length, 4 * 3, 'a filled rectangle: a rock every two cells across and along');
+    const again = rocks().filter(p => p.y >= 20 && p.x <= 9);
+    assert.deepEqual([...again.map(p => p.size.join(','))], [...grid.map(p => p.size.join(','))], 'dragged bigger, the rectangle keeps its rocks');
+    manager.rockVary = false;
+    assert.deepEqual([...manager.pieceFor({ x: 0, y: 0, z: 0 }).size], [3, 2, 3], 'Vary off lays the size in hand');
+    // The hammer takes a rock struck anywhere on it, not only on the cell it stands on.
+    context.Reactor3D = R;
+    const before = rocks().length, anchor = rocks().find(p => p.x === 2 && p.y === 10);
+    manager.setMode('erase');
+    manager.beginStroke({ x: 1, y: 11, z: 0, height: 1 }); manager.endStroke();
+    assert.equal(rocks().length, before - 1);
+    assert.equal(rocks().some(p => p.id === anchor.id), false, 'the rock the cell belongs to');
 });

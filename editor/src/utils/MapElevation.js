@@ -710,6 +710,11 @@
             if ('thick' in own && Number.isFinite(Number(raw.thick))) piece.thick = Math.max(0.02, Math.min(1, Math.round(Number(raw.thick) * 100) / 100));
             if ('rough' in own && Number.isFinite(Number(raw.rough))) piece.rough = Math.max(0, Math.min(1, Math.round(Number(raw.rough) * 100) / 100));
         }
+        // A rock's top (a material, or "ground" for the map's floor) and its tint.
+        if (raw.kind === 'rock') {
+            if (typeof raw.cap === 'string' && raw.cap.trim()) piece.cap = raw.cap.trim();
+            if (typeof raw.tint === 'string' && /^#[0-9a-f]{6}$/i.test(raw.tint) && raw.tint.toLowerCase() !== '#ffffff') piece.tint = raw.tint.toLowerCase();
+        }
         return piece;
     };
     const pieces = mapData => {
@@ -1109,7 +1114,10 @@
     const waterSnapshot = mapData => water(mapData);
     const restoreWater = (mapData, saved) => writeWater(mapData, Array.isArray(saved) ? saved.map(raw => normalizeWater(raw, mapData)).filter(Boolean) : []);
     /** Every material the map's pieces wear, each once. */
-    const pieceMaterials = mapData => Array.from(new Set(pieces(mapData).map(piece => piece.material).concat(water(mapData).map(region => region.material)).filter(Boolean))).sort();
+    const pieceMaterials = mapData => Array.from(new Set(pieces(mapData).map(piece => piece.material)
+        // A rock's top is a material too, but for "ground", the map's own floor.
+        .concat(pieces(mapData).map(piece => piece.cap && piece.cap !== 'ground' ? piece.cap : ''))
+        .concat(water(mapData).map(region => region.material)).filter(Boolean))).sort();
 
     const api = {
         WATER_MAX_LEVEL, normalizeWater, water, hasWater, addWater, waterCovers, waterAt, removeWaterAt, removeWaterRegion, styleWaterRegion, waterBasin, fillWaterAt, refitWater, waterSnapshot, restoreWater,

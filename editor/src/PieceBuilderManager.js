@@ -37,6 +37,13 @@ class PieceBuilderManager {
         // A ladder reaches a storey unless told otherwise.
         this.ladderHeight = 5;
         this.ladderWidth = 1;
+        // Rocks laid by hand each vary a little (size, turn, roughness) unless told not to; the next
+        // one's variation is fixed ahead by its seed, so the ghost is the rock the click lays. The top
+        // and tint the next rock wears.
+        this.rockVary = true;
+        this.rockSeed = 1;
+        this.rockCap = '';
+        this.rockTint = '';
         this.selected = 0;
         this.selectedIds = [];
         this.gizmoMode = 'all';          // every handle at once: arrows, rings and size cubes
@@ -1084,7 +1091,31 @@ class PieceBuilderManager {
             const off = this.shapeOffsetFor(target);
             if (off && (off[0] || off[1])) piece.offset = off;
         }
+        if (this.kind === 'rock') {
+            if (this.rockCap) piece.cap = this.rockCap;
+            if (this.rockTint) piece.tint = this.rockTint;
+            if (this.rockVary) {
+                const v = PieceBuilderManager.rockVariation(Number.isFinite(target.seed) ? target.seed : this.rockSeed);
+                const quarter = n => Math.max(0.5, Math.round(n * 4) / 4);
+                piece.size = [quarter(piece.size[0] * v.w), quarter(piece.size[1] * v.h), quarter(piece.size[2] * v.d)];
+                piece.angle = ((v.angle % 360) + 360) % 360;
+                const rough = Number.isFinite(piece.rough) ? piece.rough : 0.5;
+                piece.rough = Math.max(0, Math.min(1, Math.round((rough + v.rough) * 100) / 100));
+            }
+        }
         return piece;
+    }
+
+    /** How a rock laid by hand differs from the size in hand, fixed by a seed: sizes scaled, a slight turn, roughness nudged. */
+    static rockVariation(seed) {
+        const r = n => { const v = Math.sin(seed * 12.9898 + n * 78.233) * 43758.5453; return v - Math.floor(v); };
+        return { w: 0.8 + 0.45 * r(1), h: 0.75 + 0.55 * r(2), d: 0.8 + 0.45 * r(3), angle: Math.round((r(4) - 0.5) * 50), rough: Math.round((r(5) - 0.5) * 20) / 100 };
+    }
+
+    /** Where rocks go apart in a drag or a filled rectangle: most of a rock's width, so they meet and melt together. */
+    rockSpacing() {
+        const size = this.sizeFor('rock');
+        return [Math.max(1, Math.round(size[0] * 0.75)), Math.max(1, Math.round(size[2] * 0.75))];
     }
 
     /** Where in its cell a shape goes: under the pointer, to the quarter tile (a cell piece fills its cell). */
@@ -1113,7 +1144,7 @@ class PieceBuilderManager {
         this.undoStack.push(saved);
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack.length = 0;
-        this._stroke = { mode, moved: false, last: null, anchor: { x: target.x, y: target.y, z: target.z }, snapshot: saved.pieces, rectangle: !!options.rectangle };
+        this._stroke = { mode, moved: false, last: null, anchor: { x: target.x, y: target.y, z: target.z }, snapshot: saved.pieces, rectangle: !!options.rectangle, seed: this.rockSeed };
         return this.dab(target);
     }
 
@@ -1135,6 +1166,13 @@ class PieceBuilderManager {
         const y0 = Math.min(a.y, target.y), y1 = Math.max(a.y, target.y);
         const fill = this._stroke.mode === 'erase' || PieceBuilderManager.fillsRectangle(this.kind);
         const cells = [];
+        // Rocks fill it on a grid of their spacing, each its own (seeded by its place, so the
+        // rectangle keeps its rocks while it is dragged bigger).
+        if (this.kind === 'rock' && this._stroke.mode !== 'erase') {
+            const [sx, sy] = this.rockSpacing();
+            for (let y = y0; y <= y1; y += sy) for (let x = x0; x <= x1; x += sx) cells.push({ x, y, z: a.z, seed: this._stroke.seed + x * 7919 + y * 104729 });
+            return { cells, x0, y0, x1, y1 };
+        }
         for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
             if (fill || x === x0 || x === x1 || y === y0 || y === y1) cells.push({ x, y, z: a.z });
         }
@@ -1174,6 +1212,12 @@ class PieceBuilderManager {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !target || !this._stroke) return false;
         this._stroke.last = { x: target.x, y: target.y, z: target.z };
+        // A drag of rocks lays one each spacing along the way, not one per cell.
+        const rock = this.kind === 'rock' && this._stroke.mode !== 'erase';
+        if (rock && this._stroke.lastRock) {
+            const [sx, sy] = this.rockSpacing();
+            if (Math.hypot((target.x - this._stroke.lastRock.x) / sx, (target.y - this._stroke.lastRock.y) / sy) < 1) return false;
+        }
         // A hand edit inside a building: the new piece joins the building,
         // and the building stops following its plan (it would be built
         // again from the plan on the next move and lose the edit), while it
@@ -1190,6 +1234,8 @@ class PieceBuilderManager {
                 if (elevation.setPiece(map, step) && this._changedSince(map)) changed = true;
             }
         } else changed = !!elevation.setPiece(map, piece) && this._changedSince(map);
+        // The rock laid: the next one is another rock (its own variation; the ghost follows).
+        if (rock && changed) { this._stroke.lastRock = { x: target.x, y: target.y }; this.rockSeed++; this._ghostChanged(); }
         if (changed && group && elevation.structureOf(map, group)) {
             elevation.removeStructure(map, group);
             this._flash('pieces.detached');
@@ -1340,13 +1386,24 @@ class PieceBuilderManager {
         const elevation = this.elevation();
         if (elevation.removePiece(map, target.x, target.y, target.z)) return true;
         const stack = elevation.pieces(map).filter(piece => piece.x === target.x && piece.y === target.y);
-        if (!stack.length) return this.removeEffectAt(map, target);
+        if (!stack.length) {
+            // A shape (a rock, a dome) stands on cells beyond its own: the hammer takes it wherever it is struck.
+            const R = typeof Reactor3D !== 'undefined' ? Reactor3D : null;
+            const wanted = Number.isFinite(target.height) ? target.height : target.z;
+            const covering = (R && R.piecesAt ? R.piecesAt(map, target.x, target.y) || [] : [])
+                .filter(entry => entry.standIn && wanted >= entry.z - 0.05 && wanted <= R.pieceTop(entry, 0.5, 0.5) + 0.05)
+                .reduce((best, entry) => (!best || entry.z >= best.z ? entry : best), null);
+            if (covering) return elevation.restorePieces(map, elevation.pieces(map).filter(piece => piece.id !== covering.id));
+            return this.removeEffectAt(map, target);
+        }
         const top = stack.reduce((best, piece) => (piece.z > best.z ? piece : best), stack[0]);
         return elevation.removePiece(map, top.x, top.y, top.z);
     }
 
     endStroke() {
         if (this._stroke && !this._stroke.moved) this.undoStack.pop();
+        // A rectangle of rocks used seeds from its start: the next rocks take new ones.
+        if (this._stroke && this._stroke.rectangle && this.kind === 'rock') { this.rockSeed += 1000003; this._ghostChanged(); }
         this._stroke = null;
         if (this._flashed) this._flashed = false; else this.refreshStatus();
     }

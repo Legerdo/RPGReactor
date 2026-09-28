@@ -404,6 +404,16 @@ class BuildHotbar {
             if (s.shape && kind !== 'wedge' && kind !== 'rock') body += section(tt('Shape'), `<div class="rr-build-shapes">${this.shapeKinds().filter(k => k !== 'wedge').map(k => `<button type="button" class="rr-build-chip rr-build-shape" data-shape="${k}" aria-pressed="${k === kind}" title="${this._t('pieces.kind.' + k)}">${this.icon(k, 20)}<span>${this._t('pieces.kind.' + k)}</span></button>`).join('')}</div>`);
             if (!s.shape && (BuildHotbar.FACING.includes(kind) || s.placed)) body += section(this._t('build.direction'), facing(rot));
             body += section(this._t('pieces.material'), swatches(piece ? piece.material : manager.material));
+            // A rock's top (nothing, the map's own ground, or any material), its tint, and in hand whether each rock varies.
+            if (kind === 'rock') {
+                const cap = piece ? (piece.cap || '') : manager.rockCap;
+                const capChip = (value, label) => `<button type="button" class="rr-build-chip rr-build-rockcap" data-cap="${value}" aria-pressed="${cap === value}">${label}</button>`;
+                body += section(this._t('build.rock.top'), `<div class="rr-build-rockcaps">${capChip('', this._t('build.rock.capNone'))}${capChip('ground', this._t('build.rock.capGround'))}</div>`
+                    + `<div class="rr-build-swatches">${manager.materials().map(entry => `<button type="button" class="rr-build-swatch rr-build-rockcap" data-cap="${entry.name}" aria-pressed="${cap === entry.name}" title="${entry.name}" style="background-image:url('${entry.url}');"></button>`).join('')}</div>`);
+                const tint = (piece ? piece.tint : manager.rockTint) || '#ffffff';
+                body += section(this._t('build.rock.tint'), `<div class="rr-build-rocktint-row"><input type="color" class="rr-build-rocktint" value="${tint}"><button type="button" class="rr-btn-secondary rr-build-rocktint-reset"${tint === '#ffffff' ? ' disabled' : ''}>${this._t('build.rock.tintReset')}</button></div>`);
+                if (!piece) body += `<label class="rr-build-check"><input type="checkbox" class="rr-build-rockvary"${manager.rockVary ? ' checked' : ''}> ${this._t('build.rock.vary')}</label><div class="rr-build-note rr-build-wrap">${this._t('build.rock.hint')}</div>`;
+            }
             body += section(this._t('build.finish'), finishes(piece || { finish: manager.finish, surface: manager.surface }));
             // A flight's steps and width, in hand or placed (a placed flight is laid again from its foot).
             const flight = kind === 'stair' && s.placed && manager.stairFlight ? manager.stairFlight(piece) : null;
@@ -454,6 +464,14 @@ class BuildHotbar {
             } else { manager.lastShape = kind; manager.setKind(kind); }
             this.render();
         }));
+        panel.querySelectorAll('.rr-build-rockcap').forEach(el => el.addEventListener('click', () => {
+            const cap = el.dataset.cap || '';
+            edit({ cap }, () => { manager.rockCap = cap; manager._ghostChanged(); });
+        }));
+        const setTint = value => { const tint = String(value).toLowerCase() === '#ffffff' ? '' : value; edit({ tint }, () => { manager.rockTint = tint; manager._ghostChanged(); }); };
+        panel.querySelector('.rr-build-rocktint')?.addEventListener('change', event => setTint(event.target.value));
+        panel.querySelector('.rr-build-rocktint-reset')?.addEventListener('click', () => setTint('#ffffff'));
+        panel.querySelector('.rr-build-rockvary')?.addEventListener('change', event => { manager.rockVary = event.target.checked; manager._ghostChanged(); });
         panel.querySelectorAll('.rr-build-rockpreset').forEach(el => el.addEventListener('click', () => {
             const size = BuildHotbar.ROCK_PRESETS[el.dataset.preset];
             if (!size) return;

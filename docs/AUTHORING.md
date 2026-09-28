@@ -82,9 +82,14 @@ fractional tiles for models.
   footprint covers, as a wall of its height. `rock` is a shape drawn as
   rock: every rock on a map is one mass (neighbours melt together, a
   noise fixed to the world makes it craggy, its top stays nearly flat),
-  with an optional `rough` from 0 to 1 (0.5 by default). It blocks and is
-  stood on as its box, and one standing on the ground reaches a tile into
-  it. Cliffs are rocks side by side and stacked.
+  with an optional `rough` from 0 to 1 (0.5 by default), `cap` (the
+  material its tops and flat ledges wear, or `"ground"` for the map's own
+  room floor, so a cliff top is the grass around it) and `tint`
+  (`#rrggbb`, its sides only). Its image is laid from all three sides by
+  world position. It blocks and is stood on as its box, and one standing
+  on the ground reaches a tile into it. Cliffs are rocks side by side and
+  stacked: in the Build bar a drag lays a row and a Ctrl-drag fills an
+  area, each rock varied a little unless Vary is off.
 - `x, y`: the cell. `z`: the level the piece's foot stands at, in tiles
   above the ground, up to 240 (forty-eight storeys of five). `rot`: quarter
   turns clockwise seen from above; `0` rises or faces south.

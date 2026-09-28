@@ -3822,6 +3822,11 @@
         /* Gloss, metal, texture and tint show only through a reflection: dimmed (still editable) while it is 0. */
         .rr-surface-row.is-dimmed { opacity: 0.45; }
         .rr-build-shapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+        .rr-build-rockcaps { display: flex; gap: 4px; margin-bottom: 4px; }
+        .rr-build-rockcaps .rr-build-chip { flex: 1; justify-content: center; }
+        .rr-build-rocktint-row { display: flex; gap: 6px; align-items: center; }
+        .rr-build-rocktint-row input[type="color"] { width: 44px; height: 26px; padding: 0; border: 1px solid var(--color-border); background: none; }
+        .rr-build-check { display: flex; gap: 6px; align-items: center; font-size: 12px; margin: 6px 0 2px; }
         .rr-build-shapes .rr-build-chip { flex-direction: column; justify-content: center; gap: 2px; padding: 5px 2px; font-size: 10px; min-width: 0; }
         .rr-build-shapes .rr-build-chip span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .rr-build-wrap { white-space: normal; line-height: 1.4; padding: 0; }
