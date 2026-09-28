@@ -1,13 +1,13 @@
 # Current status
 
-The verified state of the tree as of **2026-09-26**. This page states what is true now; dated engineering history is in [HANDOFF.md](HANDOFF.md) and [docs/archive](archive/README.md), and released behaviour is described in the [changelog](../CHANGELOG.md) and [release notes](posts/release-notes-0.98.8.md).
+The verified state of the tree as of **2026-09-28**. This page states what is true now; dated engineering history is in [HANDOFF.md](HANDOFF.md) and [docs/archive](archive/README.md), and released behaviour is described in the [changelog](../CHANGELOG.md) and [release notes](posts/release-notes-0.98.8.md).
 
 ## Version and validation
 
-- Latest release: **0.98.7**, tagged and published on GitHub on 2026-09-21. Signed binaries and the itch channels follow from the Actions tab (Release Candidate → Release). The 0.98.8 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.8.
-- Runtime revision: **20260926.25** (`runtime/reactor_main.js`, stated twice: the header comment drives the project updater, the global identifies a running game). All 14 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
-- Node suite: **3,827 tests** in this tree (`cd editor && npm test`, about 25 s); all pass except `a structure plan builds rooms…`, which reads the owner's uncommitted workshop save of `template/Demo/3d/Structures/Manor.json` (80×65 built) and passes on the committed file. A fresh clone with `npm ci --ignore-scripts` reproduces CI and skips the tests that read gitignored projects (Star Shift Rebellion and the six older-engine games in `template/` the importer is measured on); last run in a fresh clone on 2026-09-21.
-- CI (`.github/workflows/ci.yml`): syntax checks, the Node suite, dependency audit, patch hygiene, a clean-tree check, and a GUI job that runs the Web persistence smoke and five NW.js smokes (save, interaction order, keyboard, menus, event double-click) under xvfb with `--enable-unsafe-swiftshader`. Green as of 2026-09-21; it had been red from September 14 because the runner has no GPU.
+- Latest release: **0.98.8**, tagged and published on GitHub on 2026-09-28. Signed binaries and the itch channels follow from the Actions tab (Release Candidate → Release). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9.
+- Runtime revision: **20260928.1** (`runtime/reactor_main.js`, stated twice: the header comment drives the project updater, the global identifies a running game). All 14 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
+- Node suite: **3,885 tests** in this tree (`cd editor && npm test`, about 25 s), all passing. A fresh clone with `npm ci --ignore-scripts` reproduces CI and skips the tests that read gitignored projects.
+- CI (`.github/workflows/ci.yml`): syntax checks, the Node suite, dependency audit, patch hygiene, a clean-tree check, and a GUI job that runs the Web persistence smoke and five NW.js smokes (save, interaction order, keyboard, menus, event double-click) under xvfb with `--enable-unsafe-swiftshader`. After the 0.98.8 push the syntax check and the menu smoke failed (both fixed, awaiting push); the Web persistence smoke has failed on GitHub since 2026-09-24 and passes locally and in a fresh clone (log not yet read).
 - Public editor releases use NW.js **0.107.0** exactly; see the [release checklist](RELEASE-CHECKLIST.md).
 
 ## What is built
