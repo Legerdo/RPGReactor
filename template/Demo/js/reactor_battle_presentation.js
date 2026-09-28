@@ -937,7 +937,8 @@
         P.preloadBattleModels();
         try{await room.build();if(scene._reactorRoomToken!==token){room.dispose();return;}
             const ss=scene._spriteset;room.resize(Graphics.width,Graphics.height);
-            const sprite=new Sprite(new Bitmap(Graphics.width,Graphics.height));ss._baseSprite.addChildAt(sprite,Math.max(0,ss._baseSprite.children.indexOf(ss._battleField)));
+            // A room on the game's context shows its own texture; one on its own canvas is copied into a bitmap.
+            const sprite=room.texture?new PIXI.Sprite(room.texture):new Sprite(new Bitmap(Graphics.width,Graphics.height));ss._baseSprite.addChildAt(sprite,Math.max(0,ss._baseSprite.children.indexOf(ss._battleField)));
             ss._reactorRoom=room;ss._reactorRoomSprite=sprite;P.setupRoomEvents?.(room,ss);
             for(const bg of [ss._backgroundSprite,ss._back1Sprite,ss._back2Sprite])if(bg)bg.visible=false;
         }catch(error){room.dispose();const ss=scene._spriteset;if(ss?._reactorRoom===room){ss._reactorRoom=null;const sprite=ss._reactorRoomSprite;sprite?.removeFromParent();sprite?.bitmap?.destroy();sprite?.destroy();ss._reactorRoomSprite=null;}throw error;}
@@ -970,7 +971,10 @@
     /** The room's picture for the frame: rendered, its battlers' bounds published, copied onto the battle's sprite. */
     P.flushRoom=function(ss){
         const room=ss._reactorRoom;if(!room||room.disposed||!ss._reactorRoomDirty||!ss._reactorRoomSprite)return;ss._reactorRoomDirty=false;
-        room.render();for(const sprite of ss.battlerSprites())if(sprite._reactorRoomKey)P.publishRoomBounds(sprite,room,sprite._reactorRoomKey);const bitmap=ss._reactorRoomSprite.bitmap;bitmap.context.drawImage(room.renderer.domElement,0,0);bitmap.baseTexture.update();
+        room.render();for(const sprite of ss.battlerSprites())if(sprite._reactorRoomKey)P.publishRoomBounds(sprite,room,sprite._reactorRoomKey);
+        const sprite=ss._reactorRoomSprite;
+        if(room.texture){if(sprite.texture!==room.texture)sprite.texture=room.texture;return;}
+        const bitmap=sprite.bitmap;bitmap.context.drawImage(room.renderer.domElement,0,0);bitmap.baseTexture.update();
     };
     if(typeof Graphics!=='undefined'&&Graphics._reactorBeforeRender)Graphics._reactorBeforeRender.add(()=>{const ss=typeof SceneManager!=='undefined'&&SceneManager._scene?SceneManager._scene._spriteset:null;if(ss&&ss._reactorRoom)P.flushRoom(ss);});
 })(globalThis);

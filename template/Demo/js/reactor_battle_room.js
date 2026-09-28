@@ -32,9 +32,14 @@
             this.world.guestSubject = () => this.models.get('actor:0') || this.billboards.get('actor:0') || null;
             this.scene.background = new T.Color(0x171a21);
             this.camera = this.settings.projection === '2d' ? new T.OrthographicCamera(-12,12,7,-7,.1,2000) : R.createCamera({ fov: 40 });
-            // No MSAA: the map's passes draw without it, and a room should look the same.
-            this.renderer = new T.WebGLRenderer({ antialias: false, alpha: false, preserveDrawingBuffer: true });
-            this.renderer.setPixelRatio(1); this.resize(960, 540);
+            // On the game's own WebGL context when the map's viewport shares it: the room draws into
+            // a target PIXI samples, and nothing is copied. Else its own canvas (no MSAA: the map's
+            // passes draw without it), copied onto the battle's sprite each frame.
+            const viewport = R.battleRoomShared !== false && R.sharedContextAvailable?.() ? R.acquireViewport?.() : null;
+            this.view = viewport && viewport.isShared?.() ? viewport : null;
+            if (this.view) this.renderer = this.view.renderer();
+            else { this.renderer = new T.WebGLRenderer({ antialias: false, alpha: false, preserveDrawingBuffer: true }); this.renderer.setPixelRatio(1); }
+            this.resize(960, 540);
             this.uniforms = {
                 rrLightCount: {value:0}, rrAmbient:{value:new Float32Array([1,1,1])},
                 rrLightPos:{value:new Float32Array(R.SHADER_LIGHTS*4)}, rrLightColor:{value:new Float32Array(R.SHADER_LIGHTS*4)},
@@ -820,7 +825,30 @@
             r.object?.traverse(node => {for(const m of [node.material].flat().filter(Boolean))m.dispose();});
             if(r.billboard){r.object.geometry.dispose();r.texture.dispose();}
         }
-        resize(width,height) { this.width=width;this.height=height;this.renderer?.setSize(width,height,false); if(this.camera){this.camera.aspect=width/height;this.camera.updateProjectionMatrix();} }
+        resize(width,height) { this.width=width;this.height=height;if(this.view)this.shareTarget(width,height);else this.renderer?.setSize(width,height,false); if(this.camera){this.camera.aspect=width/height;this.camera.updateProjectionMatrix();} }
+        /** On the shared context: the target the room draws into, and the PIXI texture that shows it (`texture`). */
+        shareTarget(width,height) {
+            if(this.target&&this.target.width===width&&this.target.height===height)return;
+            this.releaseTarget();
+            const R=root.Reactor3D,view=this.view;
+            this.target=view.createTarget(width,height,1,{samples:0});
+            const source=new PIXI.TextureSource({width,height,resolution:1,scaleMode:'nearest',alphaMode:'premultiplied-alpha',autoGarbageCollect:false,label:'reactor3d-battle-room'});
+            R.adoptGlTexture(view.pixi(),source,view.targetHandle(this.target));
+            this.textureSource=source;
+            // Flipped: a framebuffer's first row is its bottom.
+            this.texture=new PIXI.Texture({source,rotate:PIXI.groupD8.MIRROR_VERTICAL,label:'reactor3d-battle-room'});
+        }
+        releaseTarget() {
+            if(!this.target)return;
+            const target=this.target,texture=this.texture,source=this.textureSource,pixi=this.view?.pixi();
+            this.target=this.texture=this.textureSource=null;
+            // As the viewport's own passes: PIXI never made this GL texture and must not delete it, and a
+            // sprite may still draw the old texture this frame, so it goes two frames from now.
+            const reap=()=>{try{target.dispose();}catch(e){}if(source&&pixi&&source._gpuData)delete source._gpuData[pixi.uid];try{texture.destroy(true);}catch(e){}};
+            if(typeof requestAnimationFrame==='function')requestAnimationFrame(()=>requestAnimationFrame(reap));else reap();
+        }
+        /** three has driven the context: it forgets, and on the shared context PIXI does too. */
+        releaseContext() { this.renderer.resetState(); if(this.view)this.view._resetPixi(); }
         cinematicEnabled(){return this.settings.cameraSource==='custom'&&this.settings.camera?.mode==='cinematic';}
         beginCinematicAction(user,targets){
             if(!this.cinematicEnabled()||!user){this.cinematicShot=null;this.cinematicTransition=null;return;}
@@ -1107,6 +1135,16 @@
             if(cast)R.Shadows.setCandidates(cast.candidates);
             this.updateEffects();
             for(const update of this.sequenceVisualUpdates||[])update();
+            if(this.view){
+                // PIXI has drawn since: three forgets what it thought was bound before it draws anything.
+                this.renderer.resetState();
+                try{
+                    R.prepareWorldFrame(this.renderer,this.world,this.scene,this.camera,shadowed?{mapData:this.map,lights:this.uniforms,focus}:false);
+                    this.renderer.setRenderTarget(this.target);
+                    this.renderer.render(this.scene,this.camera);
+                }finally{this.renderer.setRenderTarget(null);this.view._resetPixi();}
+                return;
+            }
             R.prepareWorldFrame(this.renderer,this.world,this.scene,this.camera,shadowed?{mapData:this.map,lights:this.uniforms,focus}:false);
             this.renderer.render(this.scene,this.camera);
         }
@@ -1322,18 +1360,19 @@
                     if(target){G.bindQuad(play.quad,target);const u=play.quad.material.uniforms;u.resolution.value.set(this.width,this.height);u.rectMin.value.set(0,0);u.rectSize.value.set(1,1);R.EffekseerScene.standQuad(play.quad.mesh,play.world,this.camera);play.quad.mesh.visible=true;}
                     entry.context._makeContextCurrent();
                 }
-            } finally { G.restoreDefault();this.renderer.resetState(); }
+            } finally { G.restoreDefault();this.releaseContext(); }
         }
         queueEffect(id,owner,effect,transient=false) {
             const R=root.Reactor3D,G=R.GpuEffects,animation=this.assets.animation?.(effect.animation);
             if(!root.effekseer||!animation?.effectName||this.effectPlays.size>=16)return false;
-            this.effectContext ||= G.create(this.renderer,0);const entry=this.effectContext;if(!entry)return false;
+            // On the shared context the effects run on the viewport's own effect context, shared with the map.
+            this.effectContext ||= this.view?G.forViewport(this.view):G.create(this.renderer,0);const entry=this.effectContext;if(!entry)return false;
             const play={id,owner,effect,animation,world:new THREE.Vector3(),pending:true,transient,createdAt:Date.now(),age:0};this.effectPlays.set(id,play);entry.loading++;
             try {
                 entry.context._makeContextCurrent();
                 play.native=entry.context.loadEffect(this.assets.effectUrl(animation.effectName),1,()=>{play.pending=false;G.loaded(entry);},()=>{play.failed=true;play.pending=false;G.loaded(entry);this.assets.warn?.('Missing room effect: '+animation.effectName);});
             }catch(error){play.failed=true;G.loaded(entry);this.assets.warn?.(error);}
-            finally{G.restoreDefault();this.renderer.resetState();}
+            finally{G.restoreDefault();this.releaseContext();}
             return true;
         }
         playAnimation(key,animationId,transform={}) {
@@ -1361,8 +1400,9 @@
             if(this.mapMedia){for(const media of this.mapMedia.media.values())this.stopMedia(media);this.mapMedia.object.removeFromParent();this.mapMedia=null;}
             for(const key of [...this.models.keys(),...this.billboards.keys()])this.remove(key);
             for(const play of this.effectPlays.values())this.stopEffect(play);this.effectPlays.clear();
-            root.Reactor3D.GpuEffects.release(this.effectContext);
-            this.world?.destroy();this.renderer?.dispose();this.renderer?.forceContextLoss();
+            // The shared context, its renderer and its effect context belong to the viewport and live on.
+            if(this.view){this.releaseTarget();this.world?.destroy();this.view._resetPixi();}
+            else{root.Reactor3D.GpuEffects.release(this.effectContext);this.world?.destroy();this.renderer?.dispose();this.renderer?.forceContextLoss();}
             if(this.hostReflections&&root.Reactor3D?.Reflections)root.Reactor3D.Reflections.wanted=true;
         }
     }
