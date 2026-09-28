@@ -106,8 +106,13 @@
         const lostPad = settings.jumpButtons.find(button => Input.gamepadMapper[button] !== "jump");
         if (lostKey === undefined && lostPad === undefined) return false;
         if (typeof console !== "undefined") console.warn("RPG Reactor: the jump " + (lostKey !== undefined ? "key " + lostKey + " had become \"" + Input.keyMapper[lostKey] + "\"" : "button " + lostPad + " had become \"" + Input.gamepadMapper[lostPad] + "\"") + "; put back.");
+        // Re-taken, a key that still said "jump" must keep what it did before the map, or it jumps everywhere after.
+        const before = this._saved;
         this._saved = null;
         this.setField3D(true);
+        for (const kind of ["keys", "pads"]) {
+            for (const [k, v] of Object.entries(this._saved ? this._saved[kind] : {})) if (v === "jump" && k in before[kind]) this._saved[kind][k] = before[kind][k];
+        }
         return true;
     };
     if (typeof Scene_Map !== "undefined") {

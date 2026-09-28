@@ -198,8 +198,9 @@ test('the editor and the runtime know the same piece kinds (a ladder is placeabl
 test('a placed ladder is edited whole: its height from the foot, its turn, its move and its removal', () => {
     const src = read('editor/src/PieceBuilderManager.js'), bar = read('editor/src/BuildHotbar.js'), css = read('editor/css/styles.css');
     assert.match(src, /setLadderHeight\(piece, height, record = true\)/);
-    assert.match(src, /if \(piece\.kind === 'ladder'\) \{\n\s+const ids = new Set\(this\.ladderStack\(piece\)/);
-    assert.match(src, /const gone = new Set\(piece\.kind === 'ladder' \? this\.ladderStack\(piece\)/);
+    // The whole ladder: every column of a wide one (its flight), else the one stack.
+    assert.match(src, /if \(piece\.kind === 'ladder'\) \{\n[^\n]*\n\s+const ids = new Set\(\(flight \? flight\.pieces : this\.ladderStack\(piece\)\)/);
+    assert.match(src, /const gone = new Set\(piece\.kind === 'ladder' \? \(flight \? flight\.pieces : this\.ladderStack\(piece\)\)/);
     assert.match(bar, /if \(s\.piece\) \{ const f = manager\.ladderFlight\(s\.piece\); manager\.setLadderSize\(s\.piece, key === 'height' \? size : \(f \? f\.height : 1\), key === 'width' \? size : \(f \? f\.width : 1\)\); \}/);
     assert.match(css, /\.rr-build-note\.rr-build-wrap \{ white-space: normal;/);
 });
@@ -417,4 +418,70 @@ test('jump keys taken back on a 3D map are put back and said', () => {
     const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', '..', 'runtime', 'reactor_controls.js'), 'utf8');
     assert.match(src, /ReactorControls\.checkField3D = function\(scene\) \{/);
     assert.match(src, /Graphics\.frameCount % 60 === 0\) ReactorControls\.checkField3D\(this\);/);
+});
+
+test('jump keys put back on a 3D map give back what they did before the map, not "jump"', () => {
+    const c = sandbox();
+    class Scene_Map {}
+    c.Scene_Map = Scene_Map;
+    c.Reactor3D = { isMap3D: () => true };
+    c.ReactorControls.setField3D(true);
+    c.Input.keyMapper[32] = 'ok'; // a plugin's key config writes the keyboard back; the pad keeps "jump"
+    c.console = { warn() {} };
+    assert.equal(c.ReactorControls.checkField3D(new Scene_Map()), true);
+    assert.equal(c.Input.keyMapper[32], 'jump');
+    c.ReactorControls.setField3D(false);
+    assert.equal(c.Input.gamepadMapper[2], 'shift', 'the pad button dashes again off the map');
+    assert.equal(c.Input.keyMapper[32], 'ok');
+});
+
+function gameSandbox() {
+    const c = sandbox();
+    vm.runInContext(`
+        class Game_CharacterBase { update() {} locate(x, y) { this.x = x; this.y = y; this._reactorGround = undefined; } isMoving() { return false; } }
+        class Game_Player extends Game_CharacterBase {}
+        class Game_Follower extends Game_CharacterBase { chaseCharacter() { this.chased = (this.chased || 0) + 1; } }
+        Object.assign(globalThis, { Game_CharacterBase, Game_Player, Game_Follower });
+    `, c);
+    vm.runInContext(read('runtime/reactor_physics.js'), c);
+    return c;
+}
+
+test('a transfer lands on the ground there, not at the height the character had', () => {
+    const c = gameSandbox();
+    c.Reactor3D = { isMap3D: () => true, groundHeightAt: () => 0, TERRAIN_SLOPE_LIMIT: 0.75 };
+    c.$gamePlayer = new c.Game_Player();
+    const hurt = [];
+    c.$gameParty = { members: () => [{ isAlive: () => true, mhp: 100, gainHp: v => hurt.push(v) }], isAllDead: () => false };
+    c.$dataSystem = { reactorPhysics: { fallDamage: true, fallFrom: 3 } };
+    const player = Object.assign(c.$gamePlayer, { _realX: 0, _realY: 0, _reactorAlt: 12, _reactorGround: 12, _reactorOnLadder: true });
+    player.locate(0, 0);
+    player._realX = 0; player._realY = 0;
+    for (let i = 0; i < 200; i++) c.ReactorPhysics.update(player);
+    assert.equal(player._reactorAlt, 0);
+    assert.equal(player._reactorOnLadder, false);
+    assert.deepEqual(hurt, [], 'no fall from the roof it left');
+});
+
+test('a follower waiting on a ladder keeps no character of its own: the save stays flat', () => {
+    const c = gameSandbox();
+    const follower = Object.assign(new c.Game_Follower(), { x: 5, y: 6, _reactorAlt: 0 });
+    const player = Object.assign(new c.Game_Player(), { x: 5, y: 5, _reactorAlt: 6, followers: () => ({ _data: [follower] }) });
+    c.$gamePlayer = player;
+    c.$dataMap = {};
+    c.Reactor3D = { ladderAt: (m, x, y) => (x === 5 && y === 6 ? { dir: 8, bottom: 0, top: 6 } : null) };
+    follower.chaseCharacter(player);
+    assert.equal(follower.chased, undefined, 'still climbing: waits');
+    assert.doesNotThrow(() => JSON.stringify(player, (k, v) => (k === 'followers' ? undefined : v)));
+    assert.equal(typeof follower._reactorChaseLater, 'boolean');
+});
+
+test('a map set to jump jumps where the project switches jumping off, and one set off does not', () => {
+    const on = sandbox({ reactorControls: { jump: false } }, { jump: true });
+    assert.equal(on.ReactorPhysics.jumpAllowed(), true);
+    on.ReactorControls.setField3D(true);
+    assert.equal(on.Input.keyMapper[32], 'jump', 'and its keys jump there');
+    assert.equal(sandbox({ reactorControls: { jump: false } }).ReactorPhysics.jumpAllowed(), false, 'project default: off');
+    assert.equal(sandbox({}, { jump: false }).ReactorPhysics.jumpAllowed(), false, 'the map says off');
+    assert.equal(sandbox({}, { jump: true, jumpHeight: 0 }).ReactorPhysics.jumpAllowed(), false, 'no height, no jump');
 });

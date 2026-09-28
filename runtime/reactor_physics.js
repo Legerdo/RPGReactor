@@ -70,7 +70,11 @@
 
     ReactorPhysics.jumpAllowed = function() {
         const settings = this.settings();
-        return settings.jump && settings.jumpHeight > 0 && (root.ReactorControls ? root.ReactorControls.settings().jump : true);
+        if (!(settings.jumpHeight > 0)) return false;
+        // A map set to jump (Map Properties › Jumping: On) jumps even where the project's Controls switch it off.
+        const map = typeof $dataMap !== "undefined" && $dataMap && $dataMap.reactor3d && $dataMap.reactor3d.physics;
+        if (map && typeof map === "object" && map.jump === true) return true;
+        return settings.jump && (root.ReactorControls ? root.ReactorControls.settings().jump : true);
     };
 
     /** How far above a character's ground it is: the height the 3D view adds. */
@@ -207,6 +211,13 @@
         return character._reactorDive > 0.3;
     };
 
+    /** On the ground, still: no height, no speed, not swimming, climbing or diving. */
+    ReactorPhysics.settle = function(character) {
+        character._reactorAir = 0; character._reactorVz = 0; character._reactorAlt = undefined; character._reactorPeak = undefined;
+        character._reactorSwim = false; character._reactorLeap = false; character._reactorClimb = false;
+        character._reactorOnLadder = false; character._reactorDive = 0; character._reactorFloat = undefined;
+    };
+
     /**
      * One frame for a character on a 3D map: the ground under it (at its
      * height, so the right floor), then gravity, then landing. A character on
@@ -217,8 +228,7 @@
         const vehicle = (typeof Game_Vehicle !== "undefined" && character instanceof Game_Vehicle)
             || (typeof $gamePlayer !== "undefined" && character === $gamePlayer && character.isInVehicle && character.isInVehicle());
         if (vehicle || typeof Reactor3D === "undefined" || typeof $dataMap === "undefined" || !$dataMap || !Reactor3D.isMap3D || !Reactor3D.isMap3D($dataMap)) {
-            character._reactorAir = 0; character._reactorVz = 0; character._reactorAlt = undefined;
-            character._reactorSwim = false; character._reactorLeap = false; character._reactorClimb = false;
+            this.settle(character);
             return;
         }
         const x = Number.isFinite(character._realX) ? character._realX : character.x;
@@ -483,6 +493,13 @@
             _update.apply(this, arguments);
             ReactorPhysics.update(this);
         };
+        // Placed somewhere (a transfer, Set Event Location): on the ground there, not at the
+        // height it had where it was, which fell (and hurt) from a roof onto the next map.
+        const _locate = Game_CharacterBase.prototype.locate;
+        Game_CharacterBase.prototype.locate = function() {
+            ReactorPhysics.settle(this);
+            return _locate.apply(this, arguments);
+        };
     }
 
     if (typeof Scene_Map !== "undefined") {
@@ -549,7 +566,8 @@
         if (typeof Game_Follower !== "undefined") {
             const _chase = Game_Follower.prototype.chaseCharacter;
             Game_Follower.prototype.chaseCharacter = function(character) {
-                if (ReactorPhysics.followerClimbing(this)) { this._reactorChaseLater = character; return; }
+                // A flag, not the leader itself: a character held here made the save circular ("Object too deep").
+                if (ReactorPhysics.followerClimbing(this)) { this._reactorChaseLater = true; return; }
                 this._reactorChaseLater = null;
                 return _chase.apply(this, arguments);
             };
@@ -570,7 +588,7 @@
                     if (!this.isMovementSucceeded() && sx && sy) this.moveStraight(alongX ? (sy > 0 ? 8 : 2) : (sx > 0 ? 4 : 6));
                     this._reactorChaseLater = null;
                 }
-                const lead = this._reactorChaseLater;
+                const lead = this._reactorChaseLater ? leader : null;
                 if (lead && !this.isMoving() && !ReactorPhysics.followerClimbing(this)) {
                     if (Math.abs(this.deltaXFrom(lead.x)) + Math.abs(this.deltaYFrom(lead.y)) > 1) this.chaseCharacter(lead);
                     else this._reactorChaseLater = null;
