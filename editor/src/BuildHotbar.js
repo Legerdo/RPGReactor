@@ -35,7 +35,9 @@ class BuildHotbar {
     }
 
     static PIECES = ['floor', 'wall', 'doorway', 'window', 'glass', 'stair', 'ladder', 'ramp', 'roof', 'pillar', 'fence', 'block'];
-    static EXTRA = ['shape', 'screen', 'light', 'hammer', 'blueprint'];
+    static EXTRA = ['rock', 'shape', 'screen', 'light', 'hammer', 'blueprint'];
+    /** Rock sizes to start from, [w, h, d] in tiles: pick one, click, stack. */
+    static ROCK_PRESETS = { boulder: [3, 2, 3], rock: [4, 4, 4], cliff: [4, 8, 4], spire: [2, 8, 2], ledge: [6, 2, 3], slab: [6, 1, 6] };
     static SLOTS = ['select'].concat(BuildHotbar.PIECES, BuildHotbar.EXTRA);
     /** The Terrain group: the ground's brushes, then the water. Each is a TerrainManager mode. */
     static TERRAIN = ['raise', 'lower', 'smooth', 'flatten', 'pour', 'drain', 'look'];
@@ -129,6 +131,7 @@ class BuildHotbar {
         if (manager.mode === 'erase') return 'hammer';
         if (manager.mode === 'stamp' || manager.mode === 'move') return 'blueprint';
         if (manager.kind === 'wedge') return 'ramp';
+        if (manager.kind === 'rock') return 'rock';
         return BuildHotbar.PIECES.includes(manager.kind) ? manager.kind : 'shape';
     }
 
@@ -193,12 +196,18 @@ class BuildHotbar {
         else if (slot === 'ramp') manager.setKind('wedge');
         else if (BuildHotbar.PIECES.includes(slot)) manager.setKind(slot);
         else if (slot === 'hammer') manager.setMode('erase');
+        else if (slot === 'rock') {
+            // The first rock of a session wears the project's Rock material when it has one.
+            if (!manager._rockPicked && manager.materials?.().some(m => m.name === 'Rock')) manager.material = 'Rock';
+            manager._rockPicked = true;
+            manager.setKind('rock');
+        }
         else if (slot === 'shape') { const kinds = this.shapeKinds(); if (!kinds.includes(manager.kind) || manager.kind === 'wedge') manager.setKind(manager.lastShape || 'cylinder'); else manager.setMode('place'); }
         else if (slot === 'blueprint') { const plans = manager.structures(true); if (plans.length) { if (!plans.some(plan => plan.file === manager.structure)) manager.structure = plans[0].file; manager.setMode('stamp'); } }
         this.render();
     }
 
-    shapeKinds() { return typeof DatabaseStructureEditor !== 'undefined' ? DatabaseStructureEditor.SHAPE_KINDS : (this.manager()?.kinds() || []).filter(k => !BuildHotbar.PIECES.includes(k)); }
+    shapeKinds() { return (typeof DatabaseStructureEditor !== 'undefined' ? DatabaseStructureEditor.SHAPE_KINDS : (this.manager()?.kinds() || []).filter(k => !BuildHotbar.PIECES.includes(k))).filter(k => k !== 'rock'); }
 
     icon(name, size = 26) {
         const M = typeof PieceBuilderManager !== 'undefined' ? PieceBuilderManager.ICONS : {};
@@ -237,7 +246,7 @@ class BuildHotbar {
     }
 
     label(slot) {
-        if (BuildHotbar.PIECES.includes(slot)) return this._t('pieces.kind.' + slot);
+        if (BuildHotbar.PIECES.includes(slot) || slot === 'rock') return this._t('pieces.kind.' + slot);
         if (slot === 'mselect') return this._t('build.select');
         if (slot === 'mremove') return this._t('build.hammer');
         if (slot === 'library') return this._t('build.library');
@@ -387,7 +396,12 @@ class BuildHotbar {
             head = (s.placed ? this._t('build.selected') + ': ' : '') + (kind === 'wedge' ? this._t('pieces.kind.ramp') : this._t('pieces.kind.' + kind));
             const rot = piece ? (s.shape ? Math.round(((piece.angle || 0) / 90) % 4) : piece.rot) : (s.shape ? 0 : manager.rot);
             // Which shape: every one, in hand or placed (a placed one changes kind and keeps its size and place).
-            if (s.shape && kind !== 'wedge') body += section(tt('Shape'), `<div class="rr-build-shapes">${this.shapeKinds().filter(k => k !== 'wedge').map(k => `<button type="button" class="rr-build-chip rr-build-shape" data-shape="${k}" aria-pressed="${k === kind}" title="${this._t('pieces.kind.' + k)}">${this.icon(k, 20)}<span>${this._t('pieces.kind.' + k)}</span></button>`).join('')}</div>`);
+            // A rock: sizes to start from, the one in use lit.
+            if (kind === 'rock') {
+                const size = (piece ? piece.size : manager.sizeFor(kind)).join(',');
+                body += section(this._t('pieces.kind.rock'), `<div class="rr-build-shapes">${Object.entries(BuildHotbar.ROCK_PRESETS).map(([name, dims]) => `<button type="button" class="rr-build-chip rr-build-rockpreset" data-preset="${name}" aria-pressed="${dims.join(',') === size}" title="${dims.join(' × ')}">${this.icon('rock', 20)}<span>${this._t('build.rock.' + name)}</span></button>`).join('')}</div>`);
+            }
+            if (s.shape && kind !== 'wedge' && kind !== 'rock') body += section(tt('Shape'), `<div class="rr-build-shapes">${this.shapeKinds().filter(k => k !== 'wedge').map(k => `<button type="button" class="rr-build-chip rr-build-shape" data-shape="${k}" aria-pressed="${k === kind}" title="${this._t('pieces.kind.' + k)}">${this.icon(k, 20)}<span>${this._t('pieces.kind.' + k)}</span></button>`).join('')}</div>`);
             if (!s.shape && (BuildHotbar.FACING.includes(kind) || s.placed)) body += section(this._t('build.direction'), facing(rot));
             body += section(this._t('pieces.material'), swatches(piece ? piece.material : manager.material));
             body += section(this._t('build.finish'), finishes(piece || { finish: manager.finish, surface: manager.surface }));
@@ -416,6 +430,7 @@ class BuildHotbar {
                 if ('taper' in own) settings += num('rr-build-param', tt('Top') + ' %', Math.round((piece?.taper ?? manager.params?.[kind]?.taper ?? own.taper) * 100), 0, 100, 5, 'taper');
                 if ('sweep' in own) settings += num('rr-build-param', tt('Around') + ' °', piece?.sweep ?? manager.params?.[kind]?.sweep ?? own.sweep, 15, 360, 15, 'sweep');
                 if ('thick' in own) settings += num('rr-build-param', tt('Wall') + ' %', Math.round((piece?.thick ?? manager.params?.[kind]?.thick ?? own.thick) * 100), 2, 100, 2, 'thick');
+                if ('rough' in own) settings += num('rr-build-param', tt('Rough') + ' %', Math.round((piece?.rough ?? manager.params?.[kind]?.rough ?? own.rough) * 100), 0, 100, 5, 'rough');
                 if (settings) body += section(this._t('build.settings'), settings);
             }
             if (s.placed) foot = `<button type="button" class="rr-btn-secondary rr-build-remove">${this._t('build.remove')}</button>`;
@@ -438,6 +453,12 @@ class BuildHotbar {
                 manager.updateSelected(patch);
             } else { manager.lastShape = kind; manager.setKind(kind); }
             this.render();
+        }));
+        panel.querySelectorAll('.rr-build-rockpreset').forEach(el => el.addEventListener('click', () => {
+            const size = BuildHotbar.ROCK_PRESETS[el.dataset.preset];
+            if (!size) return;
+            if (s.piece) manager.updateSelected({ size: size.slice() }); else manager.setSize('rock', size);
+            this.renderPanel();
         }));
         panel.querySelector('.rr-build-relay')?.addEventListener('click', () => { manager.relayFromPlan(); this.renderPanel(); });
         panel.querySelector('.rr-build-turn-all')?.addEventListener('click', () => { manager.turnSelection(); this.renderPanel(); });
@@ -515,7 +536,7 @@ class BuildHotbar {
         });
         panel.querySelectorAll('.rr-build-param').forEach(el => el.addEventListener('change', () => {
             const key = el.dataset.key; let v = Number(el.value); if (!Number.isFinite(v)) { this.renderPanel(); return; }
-            if (key === 'taper' || key === 'thick') v = Math.max(0, Math.min(1, Math.round(v) / 100)); else if (key === 'sides') v = Math.max(3, Math.min(32, Math.round(v))); else v = Math.max(15, Math.min(360, Math.round(v)));
+            if (key === 'taper' || key === 'thick' || key === 'rough') v = Math.max(0, Math.min(1, Math.round(v) / 100)); else if (key === 'sides') v = Math.max(3, Math.min(32, Math.round(v))); else v = Math.max(15, Math.min(360, Math.round(v)));
             edit({ [key]: v }, () => { manager.params = manager.params || {}; manager.params[s.kind] = Object.assign({}, manager.params[s.kind], { [key]: v }); manager._ghostChanged(); });
         }));
         panel.querySelector('.rr-build-steps')?.addEventListener('change', event => {

@@ -79,7 +79,12 @@ fractional tiles for models.
   the footprint), `angle` in degrees and optional `tilt` and `roll`, stand
   at any quarter tile, and some take settings (`sides`, `taper`, `sweep`,
   `thick`; see `Reactor3D.SHAPE_PARAMS`). A shape blocks every cell its
-  footprint covers, as a wall of its height.
+  footprint covers, as a wall of its height. `rock` is a shape drawn as
+  rock: every rock on a map is one mass (neighbours melt together, a
+  noise fixed to the world makes it craggy, its top stays nearly flat),
+  with an optional `rough` from 0 to 1 (0.5 by default). It blocks and is
+  stood on as its box, and one standing on the ground reaches a tile into
+  it. Cliffs are rocks side by side and stacked.
 - `x, y`: the cell. `z`: the level the piece's foot stands at, in tiles
   above the ground, up to 240 (forty-eight storeys of five). `rot`: quarter
   turns clockwise seen from above; `0` rises or faces south.

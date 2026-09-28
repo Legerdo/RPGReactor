@@ -175,7 +175,8 @@ test('the runtime stands on piece tops, climbs stairs, and blocks what is too ta
 test('every kind makes closed, outward-facing geometry that a turn moves as one', () => {
     const THREE = loadThree();
     const R = require(path.resolve(__dirname, '..', '..', 'runtime/reactor_3d.js'));
-    for (const kind of R.PIECE_KINDS) {
+    // A rock is meshed as one mass with its neighbours and reaches past its box (its own test below).
+    for (const kind of R.PIECE_KINDS.filter(k => k !== 'rock')) {
         for (const rot of [0, 1, 2, 3]) {
             const geometry = R.pieceGeometry([{ id: 1, kind, x: 3, y: 4, z: 2, rot, material: '' }], mapWith([]));
             const position = geometry.attributes.position;
@@ -283,7 +284,7 @@ test('building happens in the world: the hammer in the toolbar opens a bar over 
     const barSource = read('editor/src/BuildHotbar.js');
     assert.match(barSource, /static PIECES = \['floor', 'wall', 'doorway', 'window', 'glass', 'stair', 'ladder', 'ramp', 'roof', 'pillar', 'fence', 'block'\]/, 'the slots a child reaches for first, by the kinds\' own names');
     assert.match(barSource, /static SLOTS = \['select'\]\.concat/, 'Select comes first');
-    assert.match(barSource, /static EXTRA = \['shape', 'screen', 'light', 'hammer', 'blueprint'\]/);
+    assert.match(barSource, /static EXTRA = \['rock', 'shape', 'screen', 'light', 'hammer', 'blueprint'\]/);
     assert.match(barSource, /if \(\/\^\[0-9\]\$\/\.test\(event\.key\)\)/, 'number keys pick slots');
     const managerSrc = read('editor/src/PieceBuilderManager.js');
     assert.doesNotMatch(managerSrc, /placeEffectAt/, 'the builder places no screens or lights of its own');
@@ -899,7 +900,7 @@ test('the round pieces: a shape has a size and a turn, blocks its round footprin
     // An octagon fitted to the cell has apothem one half; a hexagon fitted to it is three quarters of the cell.
     const octagon = 8 * 0.25 * Math.tan(Math.PI / 8);
     const volumes = { box: 1, wedge: 0.5, pyramid: 1 / 3, prism: 0.5, cylinder: Math.PI / 4, tube: Math.PI / 4 * (1 - 0.49), cone: Math.PI / 12, dome: Math.PI / 6, sphere: Math.PI / 6, arch, tunnel: arch, ring: 2 * Math.PI * Math.PI * 0.4 * 0.1 * 0.5,
-        hull: (octagon + octagon * 0.64 + octagon * 0.8) / 3, spike: 0.75 / 3, capsule: Math.PI / 8 + 2 * (2 / 3 * Math.PI * 0.25 * 0.25), dish: 0.0886, fin: 0.7 };
+        hull: (octagon + octagon * 0.64 + octagon * 0.8) / 3, spike: 0.75 / 3, capsule: Math.PI / 8 + 2 * (2 / 3 * Math.PI * 0.25 * 0.25), dish: 0.0886, fin: 0.7, rock: 1 };
     assert.deepEqual(Object.keys(volumes).sort(), [...R.SHAPE_KINDS].sort(), 'every shape kind has a known volume');
     for (const kind of R.SHAPE_KINDS) {
         const out = { positions: [], uvs: [], colors: [] };
@@ -1315,4 +1316,55 @@ test('the Blueprint slot stamps a plan that exists, not one left from another pr
     manager.structure = 'Tower.json';
     bar.pick('blueprint');
     assert.equal(manager.structure, 'Tower.json', 'a plan still there stays chosen');
+});
+
+test('rocks: one craggy mass from boxes, the same across chunk edges, stood on as their boxes', () => {
+    loadThree();
+    const R = require(path.resolve(__dirname, '..', '..', 'runtime/reactor_3d.js'));
+    const E = loadElevation();
+    assert.ok(R.SHAPE_KINDS.includes('rock') && E.SHAPE_KINDS.includes('rock'), 'a shape kind in the runtime and the editor');
+    const rock = (x, y, z, size, extra) => R.normalizePiece(Object.assign({ id: 1, kind: 'rock', x, y, z, rot: 0, material: 'Rock', size }, extra || {}));
+    assert.equal(rock(1, 1, 0, [2, 2, 2], { rough: 0.83 }).rough, 0.83, 'its roughness is kept');
+    assert.equal(E.normalizePiece({ kind: 'rock', x: 1, y: 1, z: 0, size: [2, 2, 2], rough: 2 }).rough, 1, 'and clamped by the editor alike');
+    assert.equal('rough' in rock(1, 1, 0, [2, 2, 2]), false, 'a plain rock carries no setting');
+    // A cliff of two rocks side by side and one stacked on them.
+    const frames = [rock(10, 10, 0, [4, 6, 4]), rock(13, 10, 0, [4, 3, 4]), rock(10, 10, 6, [3, 3, 3])].map(p => R.rockFrame(p, 0));
+    const mesh = box => { const out = { positions: [], uvs: [], colors: [] }; R.rockMesh(frames, box, () => out); return out; };
+    const area = P => { let sum = 0; for (let i = 0; i < P.length; i += 9) { const u = [P[i + 3] - P[i], P[i + 4] - P[i + 1], P[i + 5] - P[i + 2]], v = [P[i + 6] - P[i], P[i + 7] - P[i + 1], P[i + 8] - P[i + 2]]; sum += Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]) / 2; } return sum; };
+    const whole = mesh({ x0: 0, z0: 0, x1: 32, z1: 32 });
+    const west = mesh({ x0: 0, z0: 0, x1: 12, z1: 32 }), east = mesh({ x0: 12, z0: 0, x1: 32, z1: 32 });
+    assert.ok(whole.positions.length / 9 > 500, 'a craggy surface, not a box');
+    assert.equal(west.positions.length + east.positions.length, whole.positions.length, 'split across a chunk edge: the same faces');
+    assert.ok(Math.abs(area(west.positions) + area(east.positions) - area(whole.positions)) < 1e-3, 'and the same surface');
+    assert.equal(whole.uvs.length / 2, whole.positions.length / 3);
+    assert.equal(whole.colors.length, whole.positions.length);
+    // Faces look out of the rock: the field rises across nearly every one.
+    let outward = 0, total = 0;
+    const P = whole.positions;
+    for (let i = 0; i < P.length; i += 9) {
+        const u = [P[i + 3] - P[i], P[i + 4] - P[i + 1], P[i + 5] - P[i + 2]], v = [P[i + 6] - P[i], P[i + 7] - P[i + 1], P[i + 8] - P[i + 2]];
+        const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        const c = [(P[i] + P[i + 3] + P[i + 6]) / 3, (P[i + 1] + P[i + 4] + P[i + 7]) / 3, (P[i + 2] + P[i + 5] + P[i + 8]) / 3];
+        const e = 0.05, f = (x, y, z) => R.rockField(frames, x, y, z);
+        const g = [f(c[0] + e, c[1], c[2]) - f(c[0] - e, c[1], c[2]), f(c[0], c[1] + e, c[2]) - f(c[0], c[1] - e, c[2]), f(c[0], c[1], c[2] + e) - f(c[0], c[1], c[2] - e)];
+        total++; if (n[0] * g[0] + n[1] * g[1] + n[2] * g[2] > 0) outward++;
+    }
+    assert.ok(outward / total > 0.95, `faces look out (${outward} of ${total})`);
+    // Its top is walkable: the stacked rock's top is near level 9, and the ground rock reaches into the ground.
+    let top = -Infinity, bottom = Infinity;
+    for (let i = 1; i < P.length; i += 3) { top = Math.max(top, P[i]); bottom = Math.min(bottom, P[i]); }
+    assert.ok(Math.abs(top - 9) < 0.6, 'the top stands where the stack ends: ' + top.toFixed(2));
+    assert.ok(bottom < -0.5, 'a rock on the ground reaches into it');
+    // It stands, blocks and is walked on as the box of its size.
+    const map = mapWith([{ id: 1, kind: 'rock', x: 5, y: 5, z: 0, rot: 0, material: 'Rock', size: [3, 4, 3] }]);
+    assert.equal(R.pieceFootprint(R.piecesOf(map)[0]).length, 9, 'three by three cells');
+    assert.equal(R.pieceSurfaceAt(map, 5.5, 5.5, 4), 4, 'its top is its height');
+    // The piece geometry of a lone rock (the ghost, a plan's preview) is the rock too.
+    const lone = R.pieceGeometry([{ id: 1, kind: 'rock', x: 0, y: 0, z: 0, rot: 0, material: '', size: [2, 2, 2] }], null);
+    assert.ok(lone.attributes.position.count / 3 > 100);
+    // The Build bar: a Rock slot beside Shape with sizes to start from and its roughness in percent.
+    const bar = read('editor/src/BuildHotbar.js');
+    assert.match(bar, /static ROCK_PRESETS = \{ boulder: \[3, 2, 3\], rock: \[4, 4, 4\], cliff: \[4, 8, 4\], spire: \[2, 8, 2\], ledge: \[6, 2, 3\], slab: \[6, 1, 6\] \};/);
+    assert.match(bar, /if \(key === 'taper' \|\| key === 'thick' \|\| key === 'rough'\) v = Math\.max\(0, Math\.min\(1, Math\.round\(v\) \/ 100\)\);/);
+    assert.match(bar, /\.filter\(k => k !== 'rock'\); \}/, 'the Shape slot leaves rocks to their own slot');
 });

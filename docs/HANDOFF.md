@@ -4,7 +4,7 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 
 ## Where things stand (2026-09-28)
 
-**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`, GitHub release published from the tag). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9. Runtime 20260928.2 after the evening audit (below); 3,909 tests pass.
+**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`, GitHub release published from the tag). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9. Runtime 20260928.3 after the evening audit and rocks (below); 3,912 tests pass.
 
 **CI after the release push:** the syntax check (a duplicate declaration in a smoke script) and the keyboard-menu smoke (Database now ends at Controls) are fixed locally, awaiting the owner's push. The Web persistence smoke is intermittent on GitHub, not broken (it passed on the last push) and passes locally. Its step log needs a signed-in account, so a failure now also prints the page state and browser console as an error annotation, readable without signing in: `curl https://api.github.com/repos/Psychronic-Games/RPGReactor/check-runs/<job id>/annotations`. `cut-release.cjs` now fetches origin/main and stops if GitHub has commits the checkout lacks, and runs CI's syntax check before tagging.
 
@@ -13,6 +13,14 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 2. **Web bundle headroom:** 883 zip entries against itch's 1,000; 485 MB extracted against its 500 MB. Next wins if needed: the three editor/project duplicate libraries, four `- Copy`/`.old` images in the Demo's `img/system` (owner's call), and unreferenced Effekseer effects (biggest, but narrows the web sandbox).
 3. **Carried from 0.98.8:** the remaining motion presets on Fleagus (Swim, Jump, Guard, aims, strikes, Climb), the Transfer Player map picker's 3D view, the PBR quality setting, an in-game controls screen, and the importer threads (Dreamwalker frame-by-frame fight, Random Dungeon).
 4. **Open reports:** the intermittent no-jump (console notes are in; no repro in eight runs) and a rooftop sun shadow (needs the owner's screenshot and spot).
+
+## 2026-09-28 (night) — Rocks, and the see-through square in North Haven's lake
+
+Runtime 20260928.3. The owner's direction: the Demo needs terrain like cliffs and rocks, built "like Lego".
+
+- **Rocks** (`kind: "rock"`, a shape): a Rock slot in the Build bar with size presets and a Rough setting; all rocks of a map mesh as one craggy mass (see the 0.98.9 editor changelog and AUTHORING.md). Checked on Demo copies only: in the editor on the headless display :57 (`scratchpad/start-display.sh`) with real clicks (`scratchpad/ed3d.cjs` + `rock-input.js`: slot, preset, place, stack on top at level 8, place beside, Ctrl+Z) and in the game (`scratchpad/rock-game.cjs`: five textured rock chunks, the party stopped at a ledge rock's footprint). The Demo map itself has no rocks yet. Look tuning went through four renders: plain rounded boxes read as clay, then as a castle wall; the world bend, larger blend, ledges and per-face shading made it read as rock. Cost: about 40 ms for a 32×32 area of cliff, 30 ms to relay after an edit.
+- **Next for rocks:** a grass or moss cap on tops (the mesh knows which faces point up), per-rock tint, a rock brush that lays a row or fills a box of rocks in one drag (Ctrl-drag lays rectangles for floors and blocks already), and profiling a whole cliff coastline on a weak GPU.
+- **The lake's see-through square** (owner's screenshot): the pond's `mask` was the hollow as poured on 09-27, when that patch was still an island; digging it out afterwards never refit the mask. Terrain strokes now refit every sheet (`refitWater`). The Demo's data still has the hole until any terrain stroke is made on North Haven (the owner had the Demo open, so its data was not touched).
 
 ## 2026-09-28 (evening) — Audit of the 0.98.8 features
 

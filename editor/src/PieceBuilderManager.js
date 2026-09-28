@@ -595,7 +595,8 @@ class PieceBuilderManager {
         spike: 'M12 2l4 17H8z M8 19a4 1.5 0 0 0 8 0',
         capsule: 'M8 8a4 4 0 0 1 8 0v8a4 4 0 0 1-8 0z M8 9h8 M8 15h8',
         dish: 'M3 8a9 9 0 0 0 18 0 M3 8h18 M12 14v6 M9 20h6',
-        fin: 'M4 20h16v-9L13 3H4z M4 11h9'
+        fin: 'M4 20h16v-9L13 3H4z M4 11h9',
+        rock: 'M3 19l2.5-6 4-4 3.5 2 3-4 5 6.5V19z M9.5 9l1 5 3-3 M16 7l.5 5'
     };
 
     initializeUI(container) {

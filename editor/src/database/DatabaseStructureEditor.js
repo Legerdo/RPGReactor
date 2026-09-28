@@ -26,11 +26,11 @@ class DatabaseStructureEditor {
     /** What an effect can be, the way the 3D Models page attaches them: a screen, a light, an animation. */
     static EFFECT_KINDS = ['screen', 'light', 'animation'];
     static EFFECT_DEFAULTS = { screen: { width: 4, height: 2.25, z: 1, media: '' }, light: { color: '#9fd8ff', radius: 6, intensity: 1.2, z: 4 }, animation: { animation: 0, z: 0 } };
-    static SHAPE_KINDS = ['box', 'wedge', 'pyramid', 'prism', 'hull', 'spike', 'cylinder', 'capsule', 'tube', 'cone', 'dome', 'sphere', 'dish', 'fin', 'arch', 'tunnel', 'ring'];
+    static SHAPE_KINDS = ['box', 'wedge', 'pyramid', 'prism', 'hull', 'spike', 'cylinder', 'capsule', 'tube', 'cone', 'dome', 'sphere', 'dish', 'fin', 'arch', 'tunnel', 'ring', 'rock'];
     /** The settings a kind carries beyond its size, with what it wears until told otherwise. */
-    static SHAPE_PARAMS = { hull: { sides: 8, taper: 0.8 }, spike: { sides: 6, taper: 0 }, capsule: { sides: 24 }, dish: { sides: 32 }, fin: { taper: 0.4 }, cylinder: { sweep: 360 }, tube: { sweep: 360, thick: 0.3 }, ring: { sweep: 360, thick: 0.2 } };
+    static SHAPE_PARAMS = { hull: { sides: 8, taper: 0.8 }, spike: { sides: 6, taper: 0 }, capsule: { sides: 24 }, dish: { sides: 32 }, fin: { taper: 0.4 }, cylinder: { sweep: 360 }, tube: { sweep: 360, thick: 0.3 }, ring: { sweep: 360, thick: 0.2 }, rock: { rough: 0.5 } };
     /** What a shape is first placed at, in tiles: wide enough to see, tall enough to matter. */
-    static SHAPE_DEFAULTS = { box: [4, 3, 4], wedge: [4, 2, 4], pyramid: [4, 4, 4], prism: [4, 3, 6], cylinder: [4, 6, 4], tube: [6, 5, 6], cone: [4, 4, 4], dome: [4, 2, 4], sphere: [4, 4, 4], arch: [3, 4, 1], tunnel: [4, 4, 8], ring: [6, 1, 6], hull: [4, 6, 4], spike: [1, 4, 1], capsule: [2, 6, 2], dish: [4, 1, 4], fin: [3, 3, 0.25], tower: [4, 6, 4] };
+    static SHAPE_DEFAULTS = { box: [4, 3, 4], wedge: [4, 2, 4], pyramid: [4, 4, 4], prism: [4, 3, 6], cylinder: [4, 6, 4], tube: [6, 5, 6], cone: [4, 4, 4], dome: [4, 2, 4], sphere: [4, 4, 4], arch: [3, 4, 1], tunnel: [4, 4, 8], ring: [6, 1, 6], hull: [4, 6, 4], spike: [1, 4, 1], capsule: [2, 6, 2], dish: [4, 1, 4], fin: [3, 3, 0.25], rock: [4, 4, 4], tower: [4, 6, 4] };
     /** The three things the 3D handles do to a selected shape. */
     static GIZMO_MODES = ['move', 'turn', 'size'];
     /** How close a dragged face comes to another shape's face before it clicks onto it, in tiles. */
@@ -115,6 +115,7 @@ class DatabaseStructureEditor {
             capsule: `<path d="M5 5.5a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z M5 6.5h6 M5 9.5h6" ${stroke}/>`,
             dish: `<path d="M2.5 5a5.5 5.5 0 0 0 11 0 M2.5 5h11 M8 9v4 M6 13h4" ${stroke}/>`,
             fin: `<path d="M3 13h10V7L9 2H3z M3 7h6" ${stroke}/>`,
+            rock: `<path d="M2 13l1.7-4 2.7-2.7 2.3 1.3 2-2.6 3.3 4.3V13z M6.3 6l.7 3.3 2-2" ${stroke}/>`,
             move: `<path d="M8 2v12M2 8h12M8 2l-2 2M8 2l2 2M8 14l-2-2M8 14l2-2M2 8l2-2M2 8l2 2M14 8l-2-2M14 8l-2 2" ${stroke}/>`,
             turn: `<path d="M13 8a5 5 0 1 1-1.5-3.5M11.5 2v2.5H14" ${stroke}/>`,
             size: `<path d="M3 13V8M3 13h5M3 13l4-4M13 3v5M13 3H8M13 3L9 7" ${stroke}/>`,

@@ -5,8 +5,8 @@ The verified state of the tree as of **2026-09-28**. This page states what is tr
 ## Version and validation
 
 - Latest release: **0.98.8**, tagged and published on GitHub on 2026-09-28. Signed binaries and the itch channels follow from the Actions tab (Release Candidate → Release). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9.
-- Runtime revision: **20260928.2** (`runtime/reactor_main.js`, stated twice: the header comment drives the project updater, the global identifies a running game). All 14 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
-- Node suite: **3,909 tests** in this tree (`cd editor && npm test`, about 25 s), all passing. A fresh clone with `npm ci --ignore-scripts` reproduces CI and skips the tests that read gitignored projects.
+- Runtime revision: **20260928.3** (`runtime/reactor_main.js`, stated twice: the header comment drives the project updater, the global identifies a running game). All 14 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
+- Node suite: **3,912 tests** in this tree (`cd editor && npm test`, about 25 s), all passing. A fresh clone with `npm ci --ignore-scripts` reproduces CI and skips the tests that read gitignored projects.
 - CI (`.github/workflows/ci.yml`): syntax checks, the Node suite, dependency audit, patch hygiene, a clean-tree check, and a GUI job that runs the Web persistence smoke and five NW.js smokes (save, interaction order, keyboard, menus, event double-click) under xvfb with `--enable-unsafe-swiftshader`. After the 0.98.8 push the syntax check and the menu smoke failed (both fixed, awaiting push). The Web persistence smoke is intermittent on GitHub (failed on 09-27 and on the release commit, passed on the merge after it; also earlier on 09-07, 09-14 and 09-21) and passes locally; a failure now posts the page state and browser console as a public error annotation.
 - Public editor releases use NW.js **0.107.0** exactly; see the [release checklist](RELEASE-CHECKLIST.md).
 
@@ -16,7 +16,7 @@ Each system has a guide; the guide is the authority on its behaviour and limits.
 
 | System | Guide | Where the data lives |
 | --- | --- | --- |
-| 3D maps: pieces, shapes, ladders, blueprints, terrain, water, physics, lights, models, events | [AUTHORING.md](AUTHORING.md) | `MapNNN.r3d.json` beside each map, `3d/Structures/*.json`, `img/materials/`, `System.json` › `reactorPhysics` / `reactorControls` |
+| 3D maps: pieces, shapes, rocks, ladders, blueprints, terrain, water, physics, lights, models, events | [AUTHORING.md](AUTHORING.md) | `MapNNN.r3d.json` beside each map, `3d/Structures/*.json`, `img/materials/`, `System.json` › `reactorPhysics` / `reactorControls` |
 | 3D design background (tileset classes, faces, phasing) | [DESIGN-3D-WORLDS.md](DESIGN-3D-WORLDS.md) | `Tileset3D.json`, tileset sidecars |
 | Battle Rooms and Action Sequences | [BATTLE-PRESENTATION.md](BATTLE-PRESENTATION.md) | `data/ActionSequences.json`, `data/BattlePresentation.json` |
 | Rigging a model, hands and held weapons, motions and the Motion editor | [RIGGING-MODELS.md](RIGGING-MODELS.md) | the model's `model.json` sidecar; presets in `runtime/reactor_rig_motions.js` (the editor's `RigMotionPresets.js`, byte for byte) |
