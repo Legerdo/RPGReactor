@@ -194,7 +194,7 @@ class BuildHotbar {
         else if (BuildHotbar.PIECES.includes(slot)) manager.setKind(slot);
         else if (slot === 'hammer') manager.setMode('erase');
         else if (slot === 'shape') { const kinds = this.shapeKinds(); if (!kinds.includes(manager.kind) || manager.kind === 'wedge') manager.setKind(manager.lastShape || 'cylinder'); else manager.setMode('place'); }
-        else if (slot === 'blueprint') { const plans = manager.structures(true); if (plans.length) { if (!manager.structure) manager.structure = plans[0].file; manager.setMode('stamp'); } }
+        else if (slot === 'blueprint') { const plans = manager.structures(true); if (plans.length) { if (!plans.some(plan => plan.file === manager.structure)) manager.structure = plans[0].file; manager.setMode('stamp'); } }
         this.render();
     }
 
@@ -281,18 +281,20 @@ class BuildHotbar {
     /** A model's picture for its slot, or null while it is drawn (the bar redraws when it lands). */
     modelThumb(entry) {
         if (!entry || typeof RREventPreviewModels === 'undefined' || typeof Reactor3D === 'undefined' || !Reactor3D.normalizeModelSpec) return null;
-        this._thumbs = this._thumbs || new Map();
-        const known = this._thumbs.get(entry.name);
-        if (known !== undefined) return known;
-        this._thumbs.set(entry.name, null);
-        const spec = Reactor3D.normalizeModelSpec({ name: entry.name, ext: entry.ext, file: entry.file, texture: entry.texture, size: 1, scale: 1 });
         const project = this.projectController?.getCurrentProject?.() || this.projectController?.currentProject;
+        // Pictures by name, so per project: another project's model of the same name is another model.
+        if (!this._thumbs || this._thumbsProject !== project?.path) { this._thumbs = new Map(); this._thumbsProject = project?.path; }
+        const thumbs = this._thumbs;
+        const known = thumbs.get(entry.name);
+        if (known !== undefined) return known;
+        thumbs.set(entry.name, null);
+        const spec = Reactor3D.normalizeModelSpec({ name: entry.name, ext: entry.ext, file: entry.file, texture: entry.texture, size: 1, scale: 1 });
         if (!spec || !project) return null;
         Promise.resolve(RREventPreviewModels.thumbnail(project, spec, window.reactor?.mapEditor3D || this.projectController?.mapEditor3D, 64, 2)).then(result => {
-            if (!result?.url) { this._thumbs.delete(entry.name); return; }
-            this._thumbs.set(entry.name, result.url);
-            if (this.visible && this.group() === 'models') this.render();
-        }).catch(() => this._thumbs.delete(entry.name));
+            if (!result?.url) { thumbs.delete(entry.name); return; }
+            thumbs.set(entry.name, result.url);
+            if (this.visible && this.group() === 'models' && thumbs === this._thumbs) this.render();
+        }).catch(() => thumbs.delete(entry.name));
         return null;
     }
 
@@ -505,7 +507,7 @@ class BuildHotbar {
                 }
             });
             el.addEventListener('change', () => {
-                if (snapshot) { manager.undoStack.push(snapshot); if (manager.undoStack.length > 50) manager.undoStack.shift(); manager.redoStack.length = 0; }
+                if (snapshot) { manager.undoStack.push(snapshot); if (manager.undoStack.length > 50) manager.undoStack.shift(); manager.redoStack.length = 0; manager.syncHistoryButtons?.(); }
                 snapshot = null;
                 el.blur();
                 this.renderPanel();

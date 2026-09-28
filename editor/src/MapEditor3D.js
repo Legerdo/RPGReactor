@@ -3914,7 +3914,7 @@ class MapEditor3D {
                 const manager = this.pieceManager();
                 const record = drag.gizmo || drag.pieceMove;
                 if (this.shapeGizmo && typeof RRShapeGizmo3D !== 'undefined') RRShapeGizmo3D.release(this.shapeGizmo);
-                if (record.changed || record.moved) { manager.undoStack.push(record.snapshot); if (manager.undoStack.length > 50) manager.undoStack.shift(); manager.redoStack.length = 0; }
+                if (record.changed || record.moved) { manager.undoStack.push(record.snapshot); if (manager.undoStack.length > 50) manager.undoStack.shift(); manager.redoStack.length = 0; manager.syncHistoryButtons?.(); }
                 manager?.refreshStatus?.();
                 return;
             }

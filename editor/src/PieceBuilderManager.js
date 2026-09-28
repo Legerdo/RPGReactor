@@ -48,6 +48,29 @@ class PieceBuilderManager {
     selectionIds() { return this.selectedIds.length ? this.selectedIds.slice() : (this.selected ? [this.selected] : []); }
     selectionPieces() { const ids = new Set(this.selectionIds()); const map = this.currentMap(); return map ? (this.elevation()?.pieces(map) || []).filter(piece => ids.has(piece.id)) : []; }
 
+    /**
+     * A hand edit to a stamped building's pieces: the building stops following
+     * its plan, as for a piece laid or hammered in it (a move or turn builds
+     * it again from the plan, which would lose the edit).
+     */
+    _detach(map, pieces) {
+        const elevation = this.elevation();
+        if (!pieces.some(piece => piece && piece.group)) return false;
+        let detached = false;
+        for (const group of new Set(pieces.map(piece => piece && piece.group).filter(Boolean))) {
+            if (elevation.structureOf(map, group)) { elevation.removeStructure(map, group); detached = true; }
+        }
+        if (detached) this._flash('pieces.detached');
+        return detached;
+    }
+
+    /** The pieces of `after` (by id) that differ from how they stood in `before`, as saved. */
+    _changedPieces(map, before, after, ids) {
+        const elevation = this.elevation(), was = new Map(before.map(piece => [piece.id, piece]));
+        const saved = piece => JSON.stringify(elevation.normalizePiece ? elevation.normalizePiece(piece, map) : piece);
+        return after.filter(piece => ids.has(piece.id) && (!was.has(piece.id) || saved(piece) !== saved(was.get(piece.id))));
+    }
+
     /** Select every piece whose cell lies in the box (cells inclusive), at any level; a shape by the cell it stands on. */
     selectInBox(x0, y0, x1, y1) {
         const map = this.currentMap(), elevation = this.elevation();
@@ -67,7 +90,7 @@ class PieceBuilderManager {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation) return false;
         if (record) { this.undoStack.push(this._snapshot(map)); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0; }
-        const list = elevation.pieces(map);
+        const list = elevation.pieces(map), before = list.slice();
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
         for (let i = 0; i < list.length; i++) {
             if (!ids.has(list[i].id)) continue;
@@ -76,6 +99,7 @@ class PieceBuilderManager {
             for (const q of [before, list[i]]) { x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x); y1 = Math.max(y1, q.y); }
         }
         elevation.restorePieces(map, list);
+        this._detach(map, this._changedPieces(map, before, list, ids));
         this.announce(false, { x0: x0 - 4, y0: y0 - 4, x1: x1 + 4, y1: y1 + 4 });
         this._syncPanel(); this._ghostChanged();
         return true;
@@ -118,6 +142,7 @@ class PieceBuilderManager {
         this.undoStack.push(this._snapshot(map)); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
         const gone = elevation.pieces(map).filter(piece => ids.has(piece.id));
         elevation.restorePieces(map, elevation.pieces(map).filter(piece => !ids.has(piece.id)));
+        this._detach(map, gone);
         this.selectedIds = []; this.selected = 0;
         this.announce(false, { x0: Math.min(...gone.map(p => p.x)) - 4, y0: Math.min(...gone.map(p => p.y)) - 4, x1: Math.max(...gone.map(p => p.x)) + 4, y1: Math.max(...gone.map(p => p.y)) + 4 });
         this._syncPanel(); this.refreshStatus(); this._ghostChanged();
@@ -190,6 +215,7 @@ class PieceBuilderManager {
         let id = list.reduce((max, p) => Math.max(max, p.id || 0), 0);
         for (let z = foot.z + stack.length; z < foot.z + target; z++) list.push(Object.assign({}, foot, { id: ++id, z }));
         elevation.restorePieces(map, list);
+        this._detach(map, stack);
         // The selection stays on the ladder: its foot, which every height keeps.
         this.selected = foot.id;
         this.announce(false, { x0: foot.x - 1, y0: foot.y - 1, x1: foot.x + 1, y1: foot.y + 1 });
@@ -197,9 +223,19 @@ class PieceBuilderManager {
         return true;
     }
 
+    /** The selected pieces, a ladder whole (every level and column), as it is turned, moved and deleted whole. */
+    _copiedPieces() {
+        const list = this.selectionPieces(), ids = new Set(list.map(p => p.id));
+        for (const piece of list.slice()) {
+            if (piece.kind !== 'ladder') continue;
+            for (const p of this.ladderFlight(piece)?.pieces || []) if (!ids.has(p.id)) { ids.add(p.id); list.push(p); }
+        }
+        return list;
+    }
+
     /** Copy the selected pieces (relative to their lowest corner) for Paste. */
     copySelection() {
-        const list = this.selectionPieces();
+        const list = this._copiedPieces();
         if (!list.length) return false;
         const x0 = Math.min(...list.map(p => p.x)), y0 = Math.min(...list.map(p => p.y)), z0 = Math.min(...list.map(p => p.z));
         PieceBuilderManager.clipboard = list.map(p => { const c = Object.assign({}, p, { x: p.x - x0, y: p.y - y0, z: p.z - z0 }); delete c.id; delete c.group; return c; });
@@ -228,7 +264,7 @@ class PieceBuilderManager {
 
     /** A copy of the selection laid just east of it. */
     duplicateSelection() {
-        const list = this.selectionPieces();
+        const list = this._copiedPieces();
         if (!list.length || !this.copySelection()) return false;
         const x1 = Math.max(...list.map(p => p.x));
         return this.pasteAt({ x: x1 + 1, y: Math.min(...list.map(p => p.y)), z: Math.min(...list.map(p => p.z)) });
@@ -284,6 +320,7 @@ class PieceBuilderManager {
             list.push(next);
         }
         elevation.restorePieces(map, list);
+        this._detach(map, flight.pieces);
         this.selected = footId;
         const reach = Math.max(steps, width, flight.steps, flight.width) + 1;
         this.announce(false, { x0: flight.foot.x - reach, y0: flight.foot.y - reach, x1: flight.foot.x + reach, y1: flight.foot.y + reach });
@@ -295,14 +332,34 @@ class PieceBuilderManager {
         const map = this.currentMap(), elevation = this.elevation();
         const piece = this.selectedPiece();
         if (!map || !elevation || !piece) return false;
-        // A ladder turns, changes material and moves whole, not one level of it.
+        // A ladder turns, changes material and moves whole, not one level or one column of it.
         if (piece.kind === 'ladder') {
-            const ids = new Set(this.ladderStack(piece).map(p => p.id));
+            const flight = this.ladderFlight(piece);
+            const ids = new Set((flight ? flight.pieces : this.ladderStack(piece)).map(p => p.id));
             const dx = 'x' in patch ? patch.x - piece.x : 0, dy = 'y' in patch ? patch.y - piece.y : 0, dz = 'z' in patch ? patch.z - piece.z : 0;
             const rest = Object.assign({}, patch); delete rest.x; delete rest.y; delete rest.z;
             if (record) { this.undoStack.push(this._snapshot(map)); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0; }
-            elevation.restorePieces(map, elevation.pieces(map).map(p => ids.has(p.id) ? Object.assign({}, p, rest, { x: p.x + dx, y: p.y + dy, z: p.z + dz }) : p));
-            this.announce(false, { x0: Math.min(piece.x, piece.x + dx) - 1, y0: Math.min(piece.y, piece.y + dy) - 1, x1: Math.max(piece.x, piece.x + dx) + 1, y1: Math.max(piece.y, piece.y + dy) + 1 });
+            if (flight && flight.columns > 1 && 'rot' in rest && rest.rot !== piece.rot) {
+                // A wide ladder turned is laid again from its foot, its columns across the new way.
+                const list = elevation.pieces(map).filter(p => !ids.has(p.id));
+                let id = list.reduce((max, p) => Math.max(max, p.id || 0), 0), footId = 0;
+                const from = Object.assign({}, flight.foot, rest, { x: flight.foot.x + dx, y: flight.foot.y + dy, z: flight.foot.z + dz });
+                for (const { piece: next } of this._layLadder(from, flight.width, flight.height, flight.middle)) {
+                    if (next.x < 0 || next.y < 0 || next.x >= map.width || next.y >= map.height) continue;
+                    next.id = ++id;
+                    if (!footId) footId = next.id;
+                    list.push(next);
+                }
+                elevation.restorePieces(map, list);
+                if (footId) this.selected = footId;
+                this._detach(map, flight.pieces);
+            } else {
+                const before = elevation.pieces(map), after = before.map(p => ids.has(p.id) ? Object.assign({}, p, rest, { x: p.x + dx, y: p.y + dy, z: p.z + dz }) : p);
+                elevation.restorePieces(map, after);
+                this._detach(map, this._changedPieces(map, before, after, ids));
+            }
+            const reach = (flight ? flight.columns : 1) + 1;
+            this.announce(false, { x0: Math.min(piece.x, piece.x + dx) - reach, y0: Math.min(piece.y, piece.y + dy) - reach, x1: Math.max(piece.x, piece.x + dx) + reach, y1: Math.max(piece.y, piece.y + dy) + reach });
             this._syncPanel(); this._ghostChanged();
             return true;
         }
@@ -314,6 +371,7 @@ class PieceBuilderManager {
         const next = Object.assign({}, before, patch);
         list[index] = next;
         elevation.restorePieces(map, list);
+        this._detach(map, this._changedPieces(map, [before], [next], new Set([before.id])));
         const reach = this.isShape(next.kind) ? Math.ceil(Math.max(...(next.size || [1, 1, 1])) / 2) + 1 : 1;
         this.announce(false, { x0: Math.min(before.x, next.x) - reach, y0: Math.min(before.y, next.y) - reach, x1: Math.max(before.x, next.x) + reach, y1: Math.max(before.y, next.y) + reach });
         this._syncPanel(); this._ghostChanged();
@@ -347,11 +405,13 @@ class PieceBuilderManager {
         const map = this.currentMap(), elevation = this.elevation(), piece = this.selectedPiece();
         if (!map || !elevation || !piece) return false;
         this.undoStack.push(this._snapshot(map)); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
-        // A ladder goes whole.
-        const gone = new Set(piece.kind === 'ladder' ? this.ladderStack(piece).map(p => p.id) : [piece.id]);
+        // A ladder goes whole, every column of a wide one.
+        const flight = piece.kind === 'ladder' ? this.ladderFlight(piece) : null;
+        const gone = new Set(piece.kind === 'ladder' ? (flight ? flight.pieces : this.ladderStack(piece)).map(p => p.id) : [piece.id]);
         elevation.restorePieces(map, elevation.pieces(map).filter(entry => !gone.has(entry.id)));
+        this._detach(map, [piece]);
         this.selected = 0;
-        const reach = this.isShape(piece.kind) ? Math.ceil(Math.max(...(piece.size || [1, 1, 1])) / 2) + 1 : 1;
+        const reach = this.isShape(piece.kind) ? Math.ceil(Math.max(...(piece.size || [1, 1, 1])) / 2) + 1 : (flight ? flight.columns + 1 : 1);
         this.announce(false, { x0: piece.x - reach, y0: piece.y - reach, x1: piece.x + reach, y1: piece.y + reach });
         this._syncPanel(); this.refreshStatus(); this._ghostChanged();
         return true;
@@ -456,6 +516,9 @@ class PieceBuilderManager {
     setMap(mapData, tilemapManager) {
         this.tilemapManager = tilemapManager || this.tilemapManager;
         this.selectedGroup = 0;
+        // Ids are per map: a selection kept across the switch names another map's pieces (and Delete would take them).
+        this.selected = 0; this.selectedIds = [];
+        this._stroke = null;
         this.undoStack = []; this.redoStack = [];
         this.render2D();
         if (this.panel) { this.renderStructures(true); this.refreshStatus(); this._syncPanel(); }
@@ -685,7 +748,7 @@ class PieceBuilderManager {
         if (!map || !elevation || !plan || !SP) return false;
         // The turn in hand (R/Q/E) turns the building before it goes down;
         // _lay levels the pad and clamps the footprint to the map.
-        const saved = this._snapshot(map);
+        const saved = this._snapshot(map, { ground: true, effects: true });
         const group = elevation.nextPieceGroup(map);
         if (!this._lay(map, plan, { group, plan: this.structure, x: Math.floor(x), y: Math.floor(y), rot: this.rot || 0, scale: 1 })) return false;
         this.undoStack.push(saved);
@@ -753,7 +816,7 @@ class PieceBuilderManager {
         if (!record) return false;
         const plan = this.structures().find(entry => entry.file === record.plan)?.plan;
         if (!plan) return false;
-        const saved = this._snapshot(map);
+        const saved = this._snapshot(map, { ground: true, effects: true });
         if (!this._lay(map, plan, Object.assign(record, change))) return false;
         this.undoStack.push(saved); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
         this.announce(true); this.refreshStatus(); this._ghostChanged();
@@ -832,7 +895,7 @@ class PieceBuilderManager {
         if (elevation.structureOf(map, this.selectedGroup)) return this._restamp(map, { x: Math.floor(x), y: Math.floor(y) });
         const W = bounds.x1 - bounds.x0 + 1, H = bounds.y1 - bounds.y0 + 1;
         const X0 = Math.max(0, Math.min(map.width - W, Math.floor(x))), Y0 = Math.max(0, Math.min(map.height - H, Math.floor(y)));
-        const saved = this._snapshot(map);
+        const saved = this._snapshot(map, { ground: true });
         if (!elevation.movePieceGroup(map, this.selectedGroup, X0, Y0)) return false;
         elevation.relocatePropsOff(map, X0, Y0, W, H);
         this.undoStack.push(saved);
@@ -851,18 +914,28 @@ class PieceBuilderManager {
         return true;
     }
 
-    /** Everything a building edit can touch: pieces, the ground, the building records. */
-    _snapshot(map) {
+    /**
+     * What a building edit can touch: pieces and the building records, and
+     * the ground or the lights and screens only for an edit that changes
+     * them (they have tools and undo of their own, which an undo here must
+     * not roll back).
+     */
+    _snapshot(map, { ground = false, effects = false } = {}) {
         const elevation = this.elevation();
-        const sidecar = map.reactor3d || {};
-        return { pieces: elevation.piecesSnapshot(map), terrain: elevation.terrainSnapshot(map), structures: elevation.structures(map),
-            surfaces: JSON.stringify(sidecar.mediaSurfaces || null), lights: JSON.stringify(sidecar.lights || null) };
+        const out = { pieces: elevation.piecesSnapshot(map), structures: elevation.structures(map) };
+        if (ground) out.terrain = elevation.terrainSnapshot(map);
+        if (effects) {
+            const sidecar = map.reactor3d || {};
+            out.surfaces = JSON.stringify(sidecar.mediaSurfaces || null);
+            out.lights = JSON.stringify(sidecar.lights || null);
+        }
+        return out;
     }
 
     removeSelectedGroup() {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !this.selectedGroup) return false;
-        const saved = this._snapshot(map);
+        const saved = this._snapshot(map, { effects: true });
         if (typeof RRStructurePlan !== 'undefined' && RRStructurePlan.removeGroupEvents(map, this.selectedGroup)) this._eventsChanged = true;
         if (typeof RRStructurePlan !== 'undefined' && RRStructurePlan.removeGroupEffects(map, this.selectedGroup)) { window.reactor?.lightingManager?.render?.(); window.reactor?.mediaSurfaceManager?.render?.(); }
         if (!elevation.removePieceGroup(map, this.selectedGroup)) return false;
@@ -1034,11 +1107,12 @@ class PieceBuilderManager {
     beginStroke(target, mode = this.mode, options = {}) {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !target) return false;
-        const snapshot = elevation.piecesSnapshot(map);
-        this.undoStack.push(snapshot);
+        // The building records too (an edit inside a stamped building detaches it), and what the hammer may take: a light or a screen.
+        const saved = this._snapshot(map, { effects: mode === 'erase' });
+        this.undoStack.push(saved);
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack.length = 0;
-        this._stroke = { mode, moved: false, last: null, anchor: { x: target.x, y: target.y, z: target.z }, snapshot, rectangle: !!options.rectangle };
+        this._stroke = { mode, moved: false, last: null, anchor: { x: target.x, y: target.y, z: target.z }, snapshot: saved.pieces, rectangle: !!options.rectangle };
         return this.dab(target);
     }
 
@@ -1244,6 +1318,7 @@ class PieceBuilderManager {
             list.push(next);
         }
         elevation.restorePieces(map, list);
+        this._detach(map, flight.pieces);
         this.selected = footId;
         reach += 1;
         this.announce(false, { x0: flight.foot.x - reach, y0: flight.foot.y - reach, x1: flight.foot.x + reach, y1: flight.foot.y + reach });
@@ -1279,7 +1354,7 @@ class PieceBuilderManager {
     removeAt(target) {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !target) return false;
-        const saved = elevation.piecesSnapshot(map);
+        const saved = this._snapshot(map, { effects: true });
         if (!this.eraseAt(map, target)) return false;
         this.undoStack.push(saved);
         this.redoStack.length = 0;
@@ -1335,12 +1410,13 @@ class PieceBuilderManager {
         if (!map || !elevation || !from.length) return;
         const entry = from.pop();
         const whole = entry && !Array.isArray(entry) && entry.pieces;
-        to.push(whole ? this._snapshot(map) : elevation.piecesSnapshot(map));
+        const ground = !!whole && 'terrain' in entry, effects = !!whole && entry.surfaces !== undefined;
+        to.push(whole ? this._snapshot(map, { ground, effects }) : elevation.piecesSnapshot(map));
         elevation.restorePieces(map, whole ? entry.pieces : entry);
         if (whole) {
-            if (entry.terrain) elevation.restoreTerrain(map, entry.terrain); else elevation.clearTerrain(map);
+            if (ground) { if (entry.terrain) elevation.restoreTerrain(map, entry.terrain); else elevation.clearTerrain(map); }
             elevation.restoreStructures(map, entry.structures);
-            if (entry.surfaces !== undefined) {
+            if (effects) {
                 const sidecar = map.reactor3d || (map.reactor3d = { version: 1 });
                 const surfaces = JSON.parse(entry.surfaces), lights = JSON.parse(entry.lights);
                 if (surfaces) sidecar.mediaSurfaces = surfaces; else delete sidecar.mediaSurfaces;
@@ -1348,13 +1424,14 @@ class PieceBuilderManager {
                 this._effectsChanged();
             }
         }
-        this.announce(!!whole); this.refreshStatus(); this._syncPanel();
+        this.announce(ground); this.refreshStatus(); this._syncPanel();
     }
 
     clear() {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !elevation.hasPieces(map)) return;
-        this.undoStack.push(elevation.piecesSnapshot(map)); this.redoStack.length = 0;
+        // The building records go with the last piece: the undo brings them back too.
+        this.undoStack.push(this._snapshot(map)); this.redoStack.length = 0;
         elevation.clearPieces(map);
         this.announce(); this.refreshStatus();
     }

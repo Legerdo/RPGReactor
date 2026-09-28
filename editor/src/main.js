@@ -88,7 +88,7 @@ class RPGReactor {
             showAbout: () => this.showAbout(),
             getMapEditor: () => this.mapEditor,
             getEventManager: () => this.eventManager,
-            getBuildHistory: () => (this.pieceBuilderManager?.active ? this.pieceBuilderManager : null),
+            getBuildHistory: () => (this.pieceBuilderManager?.active ? this.pieceBuilderManager : this.terrainManager?.active ? this.terrainManager : null),
             toggleEventMode: () => this.toggleEventMode(),
             disableEventModeIfActive: () => this.disableEventModeIfActive(),
             installRuntime: () => this.projectController.installReactorRuntime(),
@@ -255,6 +255,7 @@ class RPGReactor {
             this.pieceBuilderManager?.setMap(
                 this.projectController.getTilemapManager().currentMap,
                 this.projectController.getTilemapManager());
+            this.terrainManager?.setMap?.();
 
             // Lighting is map content too: the toolbar tool edits it live.
             if (!this.lightingManager && typeof LightingManager !== 'undefined') {

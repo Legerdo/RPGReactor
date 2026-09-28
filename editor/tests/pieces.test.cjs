@@ -598,7 +598,7 @@ test('a structure plan builds rooms, walls, doors on shared walls, a stairwell a
     const manager = read('editor/src/PieceBuilderManager.js');
     assert.match(manager, /path\.join\(projectPath, '3d', 'Structures'\)/);
     assert.match(managerSource, /elevation\.restorePieces\(map, kept\.concat\(SP\.build\(shaped, X0, Y0, firstId, record\.group, name => this\.resolvePlan\(name\)\)\)\);/, 'a stamp keeps what stands off the footprint, tags its own pieces, and resolves its parts');
-    assert.match(manager, /return \{ pieces: elevation\.piecesSnapshot\(map\), terrain: elevation\.terrainSnapshot\(map\), structures: elevation\.structures\(map\),\s*surfaces: JSON\.stringify\(sidecar\.mediaSurfaces \|\| null\), lights: JSON\.stringify\(sidecar\.lights \|\| null\) \};/, 'one undo step: pieces, ground and building records');
+    assert.match(manager, /stampAt\(x, y\) \{[\s\S]{0,400}const saved = this\._snapshot\(map, \{ ground: true, effects: true \}\);/, 'one undo step: pieces, ground, building records, lights and screens');
     assert.match(read('editor/src/MapEditor3D.js'), /if \(target && this\.pieceManager\(\)\.mode === 'stamp'\) \{[\s\S]{0,300}this\.pieceManager\(\)\.stampAt\(target\.x, target\.y\);/);
     assert.match(read('editor/index.html'), /src\/utils\/StructurePlan\.js/);
     assert.ok(fs.existsSync(path.resolve(__dirname, '..', '..', 'editor/build-scripts/build-structure.cjs')));
@@ -1162,4 +1162,157 @@ test('a ladder takes fractions: 1.5 wide and 2.5 tall, centred, the top cut shor
     assert.equal(r2(ladder.top - ladder.bottom), 2.5, 'climbed to where it ends');
     const back = R.normalizePiece(pieces.find(p => p.rise));
     assert.deepEqual([back.span, back.rise], [0.75, 0.5], 'both survive a save');
+});
+
+test('a builder undo brings back the building record and the hammered light, and leaves the ground and lights edited since alone', () => {
+    const context = { console, window: {}, document: { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} }, CustomEvent: class { constructor(t, i) { this.type = t; this.detail = i && i.detail; } } };
+    context.window = context;
+    vm.runInNewContext(read('editor/src/utils/MapElevation.js'), context);
+    vm.runInNewContext(read('editor/src/PieceBuilderManager.js'), context);
+    const E = context.RRMapElevation;
+    const map = { id: 3, width: 8, height: 8, reactor3d: { version: 1 } };
+    const manager = new context.PieceBuilderManager({ getTilemapManager: () => ({ currentMap: map }) });
+    // A stamped building: its pieces share group 1, and the record says which plan it came from.
+    for (const x of [2, 3, 4]) E.setPiece(map, { kind: 'wall', x, y: 2, z: 0, group: 1 });
+    E.setStructure(map, { group: 1, plan: 'House.json', x: 2, y: 2, rot: 0, scale: 1 });
+    manager.setKind('floor');
+    manager.beginStroke({ x: 3, y: 2, z: 0 }); manager.endStroke();
+    assert.equal(E.structureOf(map, 1), null, 'a hand edit inside the building detaches it from its plan');
+    manager.undo();
+    assert.equal(E.structureOf(map, 1)?.plan, 'House.json', 'and the undo attaches it again');
+    manager.redo();
+    assert.equal(E.structureOf(map, 1), null);
+    manager.undo();
+    // The hammer takes a light when no piece is there; the undo puts it back.
+    map.reactor3d.lights = [{ id: 'light1', x: 6.5, y: 6.5, height: 48 }];
+    manager.setMode('erase');
+    manager.beginStroke({ x: 6, y: 6, z: 0 }); manager.endStroke();
+    assert.equal(map.reactor3d.lights, undefined);
+    manager.undo();
+    assert.equal(map.reactor3d.lights?.length, 1, 'the light is back');
+    assert.equal(manager.removeAt({ x: 6, y: 6, z: 0 }), true, 'a right-click takes it too');
+    manager.undo();
+    assert.equal(map.reactor3d.lights?.length, 1, 'and its undo brings it back');
+    // A piece edit, then the ground raised and a light added with their own tools: undoing the edit keeps both.
+    manager.setMode('select');
+    manager.selectAt({ x: 2, y: 2, z: 0 });
+    manager.updateSelected({ material: 'Brick' });
+    const ground = new Array(81).fill(0); ground[40] = 2;
+    E.restoreTerrain(map, ground);
+    map.reactor3d.lights.push({ id: 'light2', x: 1.5, y: 1.5, height: 48 });
+    manager.undo();
+    assert.equal(E.pieceAt(map, 2, 2, 0).material, '', 'the edit is undone');
+    assert.equal(E.terrain(map)[40], 2, 'the hill raised since stays');
+    assert.equal(map.reactor3d.lights.length, 2, 'the light added since stays');
+    manager.redo();
+    assert.equal(E.pieceAt(map, 2, 2, 0).material, 'Brick');
+    assert.equal(E.terrain(map)[40], 2);
+});
+
+test('the terrain tool keeps its history per map and takes Ctrl+Z through the editor\'s one shortcut', () => {
+    const context = { console, Math, Number, Object, Array, String, JSON, CustomEvent: class { constructor(t, i) { this.type = t; this.detail = i && i.detail; } },
+        document: { dispatchEvent() {}, addEventListener() { throw new Error('the terrain tool listens for no keys of its own'); }, removeEventListener() {}, getElementById: () => null } };
+    context.window = context;
+    vm.runInNewContext(read('editor/src/utils/MapElevation.js'), context);
+    vm.runInNewContext(read('editor/src/TerrainManager.js'), context);
+    const E = context.RRMapElevation;
+    let map = { id: 1, width: 6, height: 6, note: '<3d>', reactor3d: { version: 1 } };
+    const manager = new context.TerrainManager({ getTilemapManager: () => ({ currentMap: map }) });
+    manager.activate();
+    manager.beginStroke({ x: 2, y: 2 }); manager.endStroke();
+    assert.equal(manager.canUndo(), true);
+    // Another map: the last map's height field must not land on this one.
+    map = { id: 2, width: 6, height: 6, note: '<3d>', reactor3d: { version: 1 } };
+    manager.setMap();
+    assert.equal(manager.canUndo(), false);
+    manager.undo();
+    assert.equal(E.hasTerrain(map), false);
+    assert.match(read('editor/src/main.js'), /this\.terrainManager\?\.setMap\?\.\(\);/, 'every map load resets it');
+});
+
+test('a wide ladder is selected whole: material, turn, move and Delete take every column', () => {
+    const context = { console, window: {}, document: { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} }, CustomEvent: class { constructor(t, i) { this.type = t; this.detail = i && i.detail; } } };
+    context.window = context;
+    vm.runInNewContext(read('editor/src/utils/MapElevation.js'), context);
+    vm.runInNewContext(read('editor/src/PieceBuilderManager.js'), context);
+    const E = context.RRMapElevation;
+    const map = { id: 3, width: 20, height: 20, reactor3d: { version: 1, pieces: [{ id: 1, kind: 'ladder', x: 10, y: 5, z: 0, rot: 0, material: '' }] } };
+    const manager = new context.PieceBuilderManager({ getTilemapManager: () => ({ currentMap: map }) });
+    manager.setLadderSize(E.pieces(map)[0], 3, 3);
+    const ladders = () => E.pieces(map).filter(p => p.kind === 'ladder');
+    assert.equal(ladders().length, 9, 'three columns, three levels');
+    manager.mode = 'select'; manager.selected = manager.selected || ladders()[0].id;
+    manager.updateSelected({ material: 'Iron' });
+    assert.ok(ladders().every(p => p.material === 'Iron'), 'every column takes the material');
+    manager.turnSelected();
+    const turned = manager.ladderFlight(manager.selectedPiece());
+    assert.deepEqual([ladders().length, turned.columns, turned.levels], [9, 3, 3], 'turned, still one ladder three wide');
+    assert.ok(ladders().every(p => p.rot === 1 && p.material === 'Iron'));
+    manager.moveSelectedPieceTo(4.5, 12.5);
+    assert.equal(manager.ladderFlight(manager.selectedPiece()).columns, 3, 'moved whole');
+    manager.removeSelected();
+    assert.equal(ladders().length, 0, 'Delete takes it all');
+    manager.undo();
+    assert.equal(ladders().length, 9);
+    manager.selectAt({ x: ladders()[0].x, y: ladders()[0].y, z: 0 });
+    assert.equal(manager.duplicateSelection(), true);
+    assert.equal(ladders().length, 18, 'a duplicate is the whole ladder, not the one level clicked');
+});
+
+test('another map lets go of the selection: its ids name the new map\'s pieces', () => {
+    const context = { console, window: {}, document: { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} }, CustomEvent: class { constructor(t, i) { this.type = t; this.detail = i && i.detail; } } };
+    context.window = context;
+    vm.runInNewContext(read('editor/src/utils/MapElevation.js'), context);
+    vm.runInNewContext(read('editor/src/PieceBuilderManager.js'), context);
+    const E = context.RRMapElevation;
+    let map = { id: 1, width: 8, height: 8, reactor3d: { version: 1 } };
+    const manager = new context.PieceBuilderManager({ getTilemapManager: () => ({ currentMap: map }) });
+    E.setPiece(map, { kind: 'wall', x: 1, y: 1, z: 0 }); E.setPiece(map, { kind: 'wall', x: 2, y: 1, z: 0 });
+    manager.selectInBox(0, 0, 3, 3);
+    assert.equal(manager.selectionIds().length, 2);
+    map = { id: 2, width: 8, height: 8, reactor3d: { version: 1 } };
+    E.setPiece(map, { kind: 'block', x: 5, y: 5, z: 0 });
+    manager.setMap(map, null);
+    assert.equal(manager.selectionIds().length, 0);
+    assert.equal(manager.removeSelection(), false, 'Delete takes nothing on the new map');
+    assert.equal(E.pieces(map).length, 1);
+});
+
+test('an edit in Select detaches a stamped building from its plan, so moving it later keeps the edit', () => {
+    const context = { console, window: {}, document: { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} }, CustomEvent: class { constructor(t, i) { this.type = t; this.detail = i && i.detail; } } };
+    context.window = context;
+    vm.runInNewContext(read('editor/src/utils/MapElevation.js'), context);
+    vm.runInNewContext(read('editor/src/PieceBuilderManager.js'), context);
+    const E = context.RRMapElevation;
+    const map = { id: 3, width: 12, height: 12, reactor3d: { version: 1 } };
+    const manager = new context.PieceBuilderManager({ getTilemapManager: () => ({ currentMap: map }) });
+    for (const x of [2, 3, 4]) E.setPiece(map, { kind: 'wall', x, y: 2, z: 0, material: 'Stone', group: 1 });
+    E.setStructure(map, { group: 1, plan: 'House.json', x: 2, y: 2, rot: 0, scale: 1 });
+    manager.mode = 'select';
+    manager.selectAt({ x: 3, y: 2, z: 0 });
+    manager.updateSelected({ x: 3, y: 2 }, false);
+    assert.ok(E.structureOf(map, 1), 'a drag that stays on its cell changes nothing');
+    manager.updateSelected({ material: 'Brick' });
+    assert.equal(E.structureOf(map, 1), null, 'a changed piece: the building no longer follows its plan');
+    manager.undo();
+    assert.equal(E.structureOf(map, 1)?.plan, 'House.json', 'undo attaches it again');
+    manager.selectInBox(2, 2, 4, 2);
+    manager.updateSelection({ material: 'Stone' });
+    assert.ok(E.structureOf(map, 1), 'the same material again is no edit');
+    manager.removeSelection();
+    assert.equal(E.structureOf(map, 1), null);
+});
+
+test('the Blueprint slot stamps a plan that exists, not one left from another project or a renamed file', () => {
+    const context = { console, window: {}, document: { addEventListener() {}, removeEventListener() {} } };
+    context.window = context;
+    vm.runInNewContext(read('editor/src/BuildHotbar.js') + '\nwindow.BuildHotbar = BuildHotbar;', context);
+    const manager = { structure: 'Old.json', mode: 'select', structures: () => [{ file: 'Cottage.json' }, { file: 'Tower.json' }], setMode(mode) { this.mode = mode; }, activate() {} };
+    const bar = new context.BuildHotbar({ pieceBuilderManager: manager });
+    bar.pick('blueprint');
+    assert.equal(manager.structure, 'Cottage.json');
+    assert.equal(manager.mode, 'stamp');
+    manager.structure = 'Tower.json';
+    bar.pick('blueprint');
+    assert.equal(manager.structure, 'Tower.json', 'a plan still there stays chosen');
 });

@@ -26,7 +26,6 @@ class TerrainManager {
         this.waterMaterial = 'Water';
         this.waterLook = Object.assign({}, TerrainManager.WATER_LOOKS.water);
         this._preview = null;
-        this._onKeyDown = event => this.handleKey(event);
         this.panel = null;
         this.undoStack = [];
         this.redoStack = [];
@@ -155,7 +154,6 @@ class TerrainManager {
         if (!this.active) this._resumeMapEditor = !!mapEditor?.enabled;
         this.active = true;
         mapEditor?.setEnabled?.(false);
-        document.addEventListener('keydown', this._onKeyDown);
         // Terrain is shaped in the 3D view: bring it up for a 3D map.
         const map = this.currentMap();
         if (map && this.elevation()?.hasNote(map)) {
@@ -163,6 +161,17 @@ class TerrainManager {
             if (toggle && !toggle.checked) toggle.click();
         }
         this.refreshStatus();
+        this.syncHistoryButtons();
+    }
+
+    /** Another map: the history and the sheet in the Look panel were the last map's. */
+    setMap() {
+        this.undoStack = []; this.redoStack = [];
+        this._stroke = null;
+        this._lookSnapshot = null;
+        this._basins = null; this._preview = null;
+        if (this.selectedWater) this.selectWater(null);
+        if (this.active) this.syncHistoryButtons();
     }
 
     deactivate() {
@@ -171,7 +180,6 @@ class TerrainManager {
         this.selectedWater = null;
         window.reactor?.mapEditor3D?.showWaterSelection?.(null);
         this._stroke = null;
-        document.removeEventListener('keydown', this._onKeyDown);
         const mapEditor = window.reactor?.mapEditor;
         if (mapEditor && this._resumeMapEditor) {
             mapEditor.setEnabled(true);
@@ -337,24 +345,22 @@ class TerrainManager {
         return changed;
     }
 
-    /** Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) while the tab is up, unless a field has focus. */
-    handleKey(event) {
-        if (!this.active || !(event.ctrlKey || event.metaKey)) return;
-        const target = event.target;
-        if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && target.type !== 'range') return;
-        const key = String(event.key || '').toLowerCase();
-        if (key === 'z' && !event.shiftKey) { event.preventDefault(); this.undo(); }
-        else if (key === 'y' || (key === 'z' && event.shiftKey)) { event.preventDefault(); this.redo(); }
-    }
-
     endStroke() {
         if (this._stroke && !this._stroke.moved) this.undoStack.pop();
         this._stroke = null;
         this.refreshStatus();
+        this.syncHistoryButtons();
     }
 
+    // Ctrl+Z / Ctrl+Y and the toolbar's Undo and Redo reach these through the editor's one undo shortcut (UIManager) while the tool is up.
     undo() { this._swap(this.undoStack, this.redoStack); }
     redo() { this._swap(this.redoStack, this.undoStack); }
+    canUndo() { return this.undoStack.length > 0; }
+    canRedo() { return this.redoStack.length > 0; }
+    syncHistoryButtons() {
+        const ui = window.reactor?.uiManager;
+        if (this.active && ui?.updateUndoRedoButtons) ui.updateUndoRedoButtons(this.canUndo(), this.canRedo());
+    }
     _swap(from, to) {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !from.length) return;
@@ -387,6 +393,7 @@ class TerrainManager {
      */
     announce(region = null, waterToo = false) {
         this._basins = null; this._preview = null;
+        this.syncHistoryButtons();
         const mapEditor = window.reactor?.mapEditor;
         if (typeof mapEditor?.onElevationChanged === 'function') mapEditor.onElevationChanged(this.currentMap());
         if (typeof document === 'undefined' || typeof CustomEvent !== 'function') return;

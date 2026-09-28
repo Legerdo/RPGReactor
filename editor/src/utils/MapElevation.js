@@ -1098,7 +1098,8 @@
         if (!sidecar || typeof sidecar !== 'object' || Array.isArray(sidecar)) return JSON.stringify(sidecar);
         const rowOf = key => {
             if (key === 'elevation') return Math.floor(Number(sidecar.width)) || 0;
-            if (key === 'terrain') return Math.floor(Number(sidecar.terrainWidth)) || 0;
+            // The terrain is a corner grid: `terrainWidth` is the map's width in tiles, a row one more.
+            if (key === 'terrain') { const w = Math.floor(Number(sidecar.terrainWidth)) || 0; return w > 0 ? w + 1 : 0; }
             return 0;
         };
         const value = (key, v) => {
