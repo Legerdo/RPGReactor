@@ -12,7 +12,7 @@ const read = relative => fs.readFileSync(path.join(repoRoot, relative), 'utf8');
  * Loads runtime/reactor_ui.js against stubs for the engine classes it
  * extends, so the data half (normalize, layout, conditions) is testable.
  */
-function loadRuntimeUI({ argv = [], search = '' } = {}) {
+function loadRuntimeUI({ argv = [], search = '', globals = {} } = {}) {
     class Base { initialize() {} }
     const stub = () => { const C = function() {}; C.prototype = Object.create(Base.prototype); return C; };
     const sceneCalls = [];
@@ -69,6 +69,7 @@ function loadRuntimeUI({ argv = [], search = '' } = {}) {
         $gameParty: { members: () => [], allItems: () => [], inBattle: () => false, menuActor: () => null },
         XMLHttpRequest: class { open() {} send() {} overrideMimeType() {} }
     };
+    Object.assign(sandbox, globals);
     sandbox.window = sandbox;
     sandbox.globalThis = sandbox;
     SceneMenuBase.prototype.__sandbox = sandbox;
@@ -1893,4 +1894,105 @@ test('the Target Cursor points at the top of the battler as drawn: a 3D model\'s
     assert.deepEqual({ ...UI.battlerTop(scene, model) }, { x: 760, y: 320 }, 'a model: the top centre of its box, not its 900px picture');
     const sheet = { x: 400, y: 500, scale: { y: 2 }, _frame: { height: 64 }, bitmap: { isReady: () => true, height: 384 }, parent: shift(50, 30) };
     assert.deepEqual({ ...UI.battlerTop({ toLocal: p => p, _spriteset: {} }, sheet) }, { x: 450, y: 402 }, 'a sprite: one frame tall at its scale, where its parent sits');
+});
+
+test('Close All and the nesting limit find interfaces on the stack by the wrapped class pixi_compat puts there', () => {
+    const sandbox = loadRuntimeUI();
+    const UI = sandbox.ReactorUI;
+    // MZGlobalUpgrade replaces the global with a wrapper sharing the prototype; the stack holds the wrapper.
+    const wrapped = function() {};
+    wrapped.prototype = sandbox.Scene_ReactorUI.prototype;
+    const map = function() {};
+    const scene = Object.create(sandbox.Scene_ReactorUI.prototype);
+    scene._closing = false;
+    scene._interface = { closeTransition: 'none' };
+    scene.focusedWindow = () => null;
+    let closed = 0;
+    scene.performClose = () => closed++;
+    sandbox.SceneManager._stack = [map, wrapped, wrapped];
+    UI._resumeStates.push({ interfaceId: 1 }, { interfaceId: 2 });
+    scene.closeAll();
+    assert.equal(sandbox.SceneManager._stack.length, 1, 'every interface under this one is dropped');
+    assert.equal(sandbox.SceneManager._stack[0], map);
+    assert.equal(UI._resumeStates.length, 0);
+    assert.equal(closed, 1);
+    sandbox.$dataUserInterfaces = [null, { id: 1, name: 'Menu', nodes: [] }];
+    sandbox.SceneManager._stack = Array(UI.MAX_NESTING).fill(wrapped);
+    assert.equal(UI.call(1), false, 'the nesting limit counts wrapped interfaces');
+    sandbox.SceneManager._stack = [map];
+    assert.equal(UI.call(1), true);
+});
+
+test('cancelling the target of a Use a Skill battle command returns to the command window', () => {
+    const calls = [];
+    const SceneBattle = function() {};
+    SceneBattle.prototype.onEnemyCancel = function() { calls.push('stock enemy'); };
+    SceneBattle.prototype.onActorCancel = function() { calls.push('stock actor'); };
+    const sandbox = loadRuntimeUI({ globals: { Scene_Battle: SceneBattle } });
+    const scene = new sandbox.Scene_Battle();
+    let symbol = 'rrSkill';
+    scene._actorCommandWindow = { currentSymbol: () => symbol, activate() { calls.push('activate'); } };
+    scene._statusWindow = { show() { calls.push('status'); } };
+    scene.onEnemyCancel();
+    scene.onActorCancel();
+    assert.deepEqual(calls, ['stock enemy', 'status', 'activate', 'stock actor', 'activate']);
+    calls.length = 0;
+    symbol = 'skill';
+    scene.onEnemyCancel();
+    scene.onActorCancel();
+    assert.deepEqual(calls, ['stock enemy', 'stock actor'], 'stock commands keep the stock handling');
+});
+
+test('Call Interface to an interface that cannot open leaves the caller showing and taking input', () => {
+    const sandbox = loadRuntimeUI();
+    const UI = sandbox.ReactorUI;
+    sandbox.SoundManager = { playBuzzer() {} };
+    sandbox.Graphics = { width: 816, height: 624 };
+    sandbox.$dataUserInterfaces = [null, { id: 1, name: 'Menu', nodes: [] }];
+    const scene = Object.create(sandbox.Scene_ReactorUI.prototype);
+    scene._closing = false;
+    scene._transitionPhase = 'idle';
+    scene._interface = { closeTransition: 'fade', openTransition: 'none', transitionDuration: 2 };
+    const window = { _uiTransitionAlpha: 1, syncVisualState() {}, node: () => ({ type: 'list' }), setPressed() {}, deactivate() { this.active = false; }, activate() { this.active = true; } };
+    scene._nodeWindows = [window];
+    scene._focusIndex = 0;
+    scene.resumeState = () => ({ interfaceId: 1 });
+    UI._resumeStates.length = 0;
+    scene.runAction(UI.normalizeAction({ type: 'callInterface', id: 9 }));
+    scene.updateInterfaceTransition();
+    scene.updateInterfaceTransition();
+    assert.equal(scene._closing, false, 'input is taken again');
+    assert.equal(window._uiTransitionAlpha, 1, 'the faded-out interface shows again');
+    assert.equal(window.active, true);
+    assert.equal(UI._resumeStates.length, 0);
+});
+
+test('a scene that throws while it opens leaves the interface showing and taking input', () => {
+    const sandbox = loadRuntimeUI();
+    const UI = sandbox.ReactorUI;
+    sandbox.SoundManager = { playBuzzer() {} };
+    sandbox.Graphics = { width: 816, height: 624 };
+    sandbox.SceneManager = { _stack: [], _nextScene: null, push(cls) { this._stack.push('caller'); this._nextScene = new cls(); } };
+    const scene = Object.create(sandbox.Scene_ReactorUI.prototype);
+    scene._closing = false;
+    scene._transitionPhase = 'idle';
+    scene._interface = { closeTransition: 'fade', openTransition: 'none', transitionDuration: 2 };
+    const window = { _uiTransitionAlpha: 1, syncVisualState() {}, node: () => ({ type: 'list' }), setPressed() {}, deactivate() { this.active = false; }, activate() { this.active = true; } };
+    scene._nodeWindows = [window];
+    scene._focusIndex = 0;
+    scene.resumeState = () => ({ interfaceId: 1 });
+    UI._resumeStates.length = 0;
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+        scene.pushScene(function Broken() { throw new Error('plugin scene broke'); });
+        scene.updateInterfaceTransition();
+        scene.updateInterfaceTransition();
+    } finally { console.error = originalError; }
+    assert.equal(scene._closing, false, 'input is taken again');
+    assert.equal(window._uiTransitionAlpha, 1);
+    assert.equal(window.active, true);
+    assert.equal(sandbox.SceneManager._stack.length, 0, 'the half-made push is undone');
+    assert.equal(sandbox.SceneManager._nextScene, null);
+    assert.equal(UI._resumeStates.length, 0);
 });

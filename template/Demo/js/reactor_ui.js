@@ -1540,7 +1540,7 @@
             return false;
         }
         let depth = 0;
-        for (const scene of SceneManager._stack) if (scene === Scene_ReactorUI) depth++;
+        for (const scene of SceneManager._stack) if (this.isInterfaceClass(scene)) depth++;
         if (depth >= this.MAX_NESTING) {
             console.warn("ReactorUI: interface nesting limit reached");
             return false;
@@ -3363,6 +3363,15 @@
     Scene_ReactorUI.prototype = Object.create(Scene_MenuBase.prototype);
     Scene_ReactorUI.prototype.constructor = Scene_ReactorUI;
 
+    /**
+     * Whether a class on SceneManager's stack is this scene. pixi_compat wraps
+     * the global after this file loads, so the stack holds the wrapper, which
+     * shares this prototype.
+     */
+    ReactorUI.isInterfaceClass = function(sceneClass) {
+        return !!sceneClass && sceneClass.prototype === Scene_ReactorUI.prototype;
+    };
+
     Scene_ReactorUI.prototype.initialize = function() {
         Scene_MenuBase.prototype.initialize.call(this);
         this._interfaceId = 0;
@@ -3780,6 +3789,16 @@
         return true;
     };
 
+    /** Undoes a close whose next interface could not open: this one shows again and takes input. */
+    Scene_ReactorUI.prototype.cancelClose = function() {
+        this._closing = false;
+        this._transitionPhase = "opening";
+        this.applyInterfaceTransition(1);
+        this._transitionPhase = "idle";
+        const focused = this.focusedWindow();
+        if (focused && focused.node().type === "list") focused.activate();
+    };
+
     Scene_ReactorUI.prototype.updateConditions = function() {
         const authored = new Map(this._interface.nodes.map(node => [node.id, node]));
         const shown = (node, trail) => {
@@ -3995,7 +4014,7 @@
     Scene_ReactorUI.prototype.closeAll = function() {
         this.beginCloseTransition(() => {
             const stack = SceneManager._stack;
-            while (stack.length > 0 && stack[stack.length - 1] === Scene_ReactorUI) {
+            while (stack.length > 0 && ReactorUI.isInterfaceClass(stack[stack.length - 1])) {
                 stack.pop();
                 ReactorUI._resumeStates.pop();
             }
@@ -4007,8 +4026,19 @@
     Scene_ReactorUI.prototype.pushScene = function(sceneClass, args = []) {
         this.beginCloseTransition(() => {
             this.rememberForPush();
-            SceneManager.push(sceneClass);
-            if(args.length) SceneManager.prepareNextScene(...args);
+            const depth = SceneManager._stack.length;
+            try {
+                SceneManager.push(sceneClass);
+                if(args.length) SceneManager.prepareNextScene(...args);
+            } catch (error) {
+                // A scene that throws while being made leaves this interface open and taking input.
+                console.error("ReactorUI: scene failed to open", error);
+                SceneManager._stack.length = depth;
+                SceneManager._nextScene = null;
+                ReactorUI._resumeStates.pop();
+                SoundManager.playBuzzer();
+                this.cancelClose();
+            }
         });
     };
 
@@ -4175,6 +4205,7 @@
                     if (!ReactorUI.call(action.id)) {
                         ReactorUI._resumeStates.pop();
                         SoundManager.playBuzzer();
+                        this.cancelClose();
                     }
                 });
                 break;
@@ -4991,6 +5022,20 @@
         const _needsInputWindowChange = Scene_Battle.prototype.needsInputWindowChange;
         Scene_Battle.prototype.needsInputWindowChange = function() {
             return this._rrCommandEvent ? false : _needsInputWindowChange.apply(this, arguments);
+        };
+        // Cancelling the target of a Use a Skill command goes back to the command window, as Attack does.
+        const _onEnemyCancel = Scene_Battle.prototype.onEnemyCancel;
+        Scene_Battle.prototype.onEnemyCancel = function() {
+            _onEnemyCancel.apply(this, arguments);
+            if (this._actorCommandWindow && this._actorCommandWindow.currentSymbol() === "rrSkill") {
+                this._statusWindow.show();
+                this._actorCommandWindow.activate();
+            }
+        };
+        const _onActorCancel = Scene_Battle.prototype.onActorCancel;
+        Scene_Battle.prototype.onActorCancel = function() {
+            _onActorCancel.apply(this, arguments);
+            if (this._actorCommandWindow && this._actorCommandWindow.currentSymbol() === "rrSkill") this._actorCommandWindow.activate();
         };
     }
 
