@@ -443,7 +443,7 @@ function open(source, destination, options) {
             for (const [k, n] of Object.entries(mapNotes)) addNote(notes.maps, k, n);
             written.push(info.id);
         }
-        for (const stale of fs.readdirSync(path.join(dest, 'data'))) if (/^Map\d+\.json$/.test(stale) && !written.includes(Number(stale.slice(3, 6)))) fs.unlinkSync(path.join(dest, 'data', stale));
+        for (const stale of fs.readdirSync(path.join(dest, 'data'))) if (/^Map\d+\.json$/.test(stale) && !written.includes(parseInt(stale.slice(3), 10))) fs.unlinkSync(path.join(dest, 'data', stale));   // Map1000.json is map 1000
         writeJson(path.join(dest, 'data', 'MapInfos.json'), infos.map(i => i || null));
     
         // 4. System: the old engine's framework.
@@ -521,7 +521,7 @@ function open(source, destination, options) {
                     texts['System.json'] = { terms };
                 }
                 for (const [file, records] of [['Actors', other.actors], ['Classes', other.classes], ['Skills', other.skills], ['Items', other.items], ['Weapons', other.weapons], ['Armors', other.armors], ['Enemies', other.enemies], ['Troops', other.troops], ['States', other.states], ['Animations', other.animations], ['CommonEvents', other.commonEvents]]) texts[`${file}.json`] = records.map(r => r || null);
-                for (const [file] of baseMaps) { const id = Number(file.slice(3, 6)); texts[file] = mapFor(infos[id], project.maps[id], cmds, route).json; }
+                for (const [file] of baseMaps) { const id = parseInt(file.slice(3), 10); texts[file] = mapFor(infos[id], project.maps[id], cmds, route).json; }
                 const stats = { wholeLists: 0 };
                 const files = {};
                 let count = 0;
@@ -719,11 +719,16 @@ function probe(folder) {
     if (has('RPG_RT.ldb')) {
         const out = Object.assign({}, none, { kind: '2003', engine: 'RPG Maker 2000/2003', languages: languages(folder) });
         out.title = iniValue(iniOf('RPG_RT.ini'), 'GameTitle') || path.basename(folder);
+        let encoding = iniValue(iniOf('RPG_RT.ini'), 'Encoding');
         try {
-            const db = L.readDatabase(fs.readFileSync(path.join(folder, lower.get('rpg_rt.ldb'))));
+            const bytes = fs.readFileSync(path.join(folder, lower.get('rpg_rt.ldb')));
+            if (!encoding || /^auto$/i.test(encoding)) encoding = L.detectEncoding(L.textSamples(bytes));
+            const db = L.readDatabase(bytes, encoding);
             out.engine = db.engine || out.engine;
             out.kind = out.engine === 'RPG Maker 2000' ? '2000' : '2003';
         } catch (_) { /* unreadable: still a 2000/2003 folder, the import will say why */ }
+        // The title is in the game's code page (a Japanese game's is Shift_JIS), as the import reads it.
+        try { const t = L.parseIni(new TextDecoder(L.normalizeEncoding(encoding)).decode(fs.readFileSync(path.join(folder, lower.get('rpg_rt.ini'))))).RPG_RT?.GameTitle; if (t) out.title = t; } catch (_) { /* no ini */ }
         try { if (has('RPG_RT.lmt')) out.maps = L.readMapTree(fs.readFileSync(path.join(folder, lower.get('rpg_rt.lmt')))).maps.filter(m => m && m.type === 1).length; } catch (_) { /* tree unreadable */ }
         return out;
     }
@@ -734,7 +739,8 @@ function probe(folder) {
         const mz = scripts.some(n => n.startsWith('rmmz_')) || has('game.rmmzproject');
         return Object.assign({}, none, { kind: mz ? 'mz' : 'mv', engine: mz ? 'RPG Maker MZ' : 'RPG Maker MV', title: path.basename(folder) });
     }
-    const ini = iniOf('Game.ini');
+    // In the code page the game's editor wrote it in (a Japanese title is Shift_JIS).
+    const ini = (() => { try { return require('./RgssImporter.js').iniText(fs.readFileSync(path.join(folder, lower.get('game.ini')))); } catch (_) { return ''; } })();
     const library = iniValue(ini, 'Library').toLowerCase();
     const rgss = (kind, engine, project, archive, data2, lib) => (ext(project) || has(archive) || data.some(n => n.endsWith(data2)) || library.startsWith(lib))
         ? Object.assign({}, none, { kind, engine, title: iniValue(ini, 'Title') || path.basename(folder), packed: has(archive), maps: data.filter(n => /^map\d+\./.test(n) && n.endsWith(data2)).length }) : null;
@@ -743,6 +749,15 @@ function probe(folder) {
         || rgss('xp', 'RPG Maker XP', '.rxproj', 'Game.rgssad', '.rxdata', 'rgss1')
         || none;
 }
-function importProject(source, destination, options) { return rgssKind(source) ? rgssImporter(source).importProject(source, destination, options) : open(source, destination, options).importProject(); }
+/** The game is never written to: the new project may not be its folder, inside it, or a folder holding it. */
+function checkDestination(source, destination) {
+    const src = path.resolve(source), dest = path.resolve(destination);
+    const within = (outer, inner) => { const rel = path.relative(outer, inner); return rel === '' || (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)); };
+    if (within(src, dest) || within(dest, src)) throw new Error(`${dest} is the game's own folder or holds it; choose a folder outside the game.`);
+}
+function importProject(source, destination, options) {
+    checkDestination(source, destination);
+    return rgssKind(source) ? rgssImporter(source).importProject(source, destination, options) : open(source, destination, options).importProject();
+}
 
 module.exports = { findRtp, open, report, printReport, importProject, languages, probe };

@@ -276,7 +276,9 @@
                 if (!parent || !fs.existsSync(parent)) { errorEl.textContent = tt('Choose a folder to create the project in.'); return; }
                 if (!name || /[\\/:*?"<>|\0-\x1f]/.test(name) || /^\.|[. ]$/.test(name)) { errorEl.textContent = tt('Project name must be a safe single folder name.'); return; }
                 destination = path.join(parent, name);
-                if (fs.existsSync(destination) && fs.readdirSync(destination).length) { errorEl.textContent = tt('That folder already exists and is not empty.'); return; }
+                // A folder already there (an earlier or interrupted import) is imported into again, in place, when the author agrees.
+                const force = fs.existsSync(destination) && fs.readdirSync(destination).length > 0;
+                if (force && !window.confirm(`${tt('That folder already exists and is not empty.')} ${tt('Import into it again? Files already there are overwritten.')}`)) return;
                 errorEl.textContent = '';
                 logEl.textContent = '';
                 startedAt = Date.now(); tick(); clock = setInterval(tick, 1000);
@@ -301,7 +303,7 @@
                 let workerPath = path.join(appRoot, 'build-scripts', 'legacy-import-worker.js');
                 try {
                     const { Worker } = require('worker_threads');
-                    worker = new Worker(workerPath, { workerData: { source, destination, options: { encoding: encodingSelect.value || undefined, language: languageSelect.value || undefined, rtpPath: rtpInput.value || undefined } } });
+                    const w = worker = new Worker(workerPath, { workerData: { source, destination, options: { force, encoding: encodingSelect.value || undefined, language: languageSelect.value || undefined, rtpPath: rtpInput.value || undefined } } });
                     worker.on('message', msg => {
                         if (msg.type === 'log') log(msg.message, msg.level);
                         else if (msg.type === 'progress') setProgress(msg.fraction, msg.status);
@@ -318,6 +320,8 @@
                         }
                     });
                     worker.on('error', err => failed(err.message || err));
+                    // A worker that ends without its 'done' (killed, out of memory) would leave the dialog importing forever.
+                    worker.on('exit', code => { if (worker === w && !settled) failed(`worker exited (${code})`); });
                 } catch (error) {
                     failed(error.message || error);
                 }

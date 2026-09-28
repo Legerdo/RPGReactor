@@ -32,7 +32,7 @@ const CONVERTED = new Set(['characters', 'tilesets', 'autotiles', 'icons', 'wind
 
 function gameIni(src) {
     const b = src.read('Game.ini');
-    const text = b ? b.toString('latin1') : '';
+    const text = R.iniText(b);   // a Japanese game's title is Shift_JIS
     const get = (k) => { const m = new RegExp(`^[ \\t]*${k}[ \\t]*=[ \\t]*(.*)$`, 'mi').exec(text); return m ? m[1].trim() : ''; };
     return { title: get('Title'), rtp: [get('RTP1'), get('RTP2'), get('RTP3')].filter(Boolean) };
 }
@@ -70,8 +70,13 @@ function open(folder, destination, options) {
         };
     }
 
-    function importProject() {
+    async function importProject() {
         const { PNG } = require('pngjs');
+        // The worker shares the editor's process: synchronous PNG loops keep their memory until the
+        // event loop turns, so the image passes breathe.
+        const breathe = () => new Promise(resolve => setImmediate(resolve));
+        let sinceBreath = 0;
+        const maybeBreathe = async () => { if (++sinceBreath >= 16) { sinceBreath = 0; await breathe(); } };
         const log = typeof options.log === 'function' ? options.log : () => {};
         const report = typeof options.progress === 'function' ? options.progress : () => {};
         const span = (from, to) => (done, total, status) => report(from + (to - from) * (total ? Math.min(1, done / total) : 1), status);
@@ -129,13 +134,14 @@ function open(folder, destination, options) {
         if (iconFiles.length) {
             const perRow = 16, size = 24;
             const sheet = X.blank(perRow * size, Math.ceil((iconFiles.length + 1) / perRow) * size);
-            iconFiles.forEach((f, i) => {
+            for (const [i, f] of iconFiles.entries()) {
+                await maybeBreathe();
                 const img = readPng('Graphics/Icons/' + f);
-                if (!img) return;
+                if (!img) continue;
                 const index = i + 1;
                 X.blit(sheet, img, 0, 0, size, size, (index % perRow) * size, Math.floor(index / perRow) * size);
                 iconNames.set(f.replace(/\.png$/i, '').toLowerCase(), index);
-            });
+            }
             writePng(path.join(dest, 'img', 'system', 'IconSet.png'), sheet);
             add(images, 'Icons', iconFiles.length);
         }
@@ -151,7 +157,8 @@ function open(folder, destination, options) {
         const bases = [];
         const cutSheets = new Map();
         const tilesetList = xp.tilesets.filter(Boolean);
-        tilesetList.forEach((ts, index) => {
+        for (const [index, ts] of tilesetList.entries()) {
+            await breathe();
             tilesetProgress(index, tilesetList.length, `Tileset ${ts.id}: ${ts.name || ''}`);
             const image = ts.tileset_name ? findGraphic('Tilesets', ts.tileset_name) : null;
             if (ts.tileset_name && !image) skipped.push(`Graphics/Tilesets/${ts.tileset_name}: not shipped (RTP?)`);
@@ -176,7 +183,7 @@ function open(folder, destination, options) {
                 add(images, 'Tilesets');
             }
             tilesets[ts.id] = X.tilesetRecord(ts, names, X.tilesetFlags(ts, b));
-        });
+        }
         for (let i = 1; i < tilesets.length; i++) if (tilesets[i] === undefined) tilesets[i] = null;
 
         // Music a script of the game's plays in place of what its events name.
@@ -214,16 +221,17 @@ function open(folder, destination, options) {
         log(`Writing ${mapIds.length} maps and their events…`, 'stage');
         const mapProgress = span(0.2, 0.45);
         const mapInfos = C.mapInfos(infos);
-        mapIds.forEach((id, index) => {
+        for (const [index, id] of mapIds.entries()) {
+            await maybeBreathe();
             mapProgress(index, mapIds.length, `Map ${index + 1} of ${mapIds.length}: ${(mapInfos[id] && mapInfos[id].name) || ''}`.trim());
             const file = `Map${String(id).padStart(3, '0')}`;
             const raw = data(file);
-            if (!raw) { skipped.push(`Data/${file}.rxdata: missing`); return; }
+            if (!raw) { skipped.push(`Data/${file}.rxdata: missing`); continue; }
             const ts = xp.tilesets[raw.tileset_id] || null;
             const json = aliased(X.map(raw, ts, bases[raw.tileset_id] || [], notes, ruby));
             // XP names a map in MapInfos only; MZ shows displayName on entry, which XP never did.
             writeJson(path.join(dest, 'data', `${file}.json`), json);
-        });
+        }
         writeJson(path.join(dest, 'data', 'MapInfos.json'), mapInfos);
 
         // ---- graphics, audio ---------------------------------------------------
@@ -240,18 +248,18 @@ function open(folder, destination, options) {
         for (const f of graphicFiles('Characters')) plan.push(['Graphics/Characters/' + f, path.join('img/characters', path.dirname(f), X.characterName(path.basename(f).replace(/\.png$/i, '')) + '.png'), 'Characters']);
         for (const [folderName, target] of Object.entries(R.AUDIO)) for (const f of src.files('Audio/' + folderName)) plan.push(['Audio/' + folderName + '/' + f, path.join(target, f), folderName]);
         const assetProgress = span(0.45, 0.95);
-        plan.forEach(([from, to, bucket], index) => {
-            if (index % 10 === 0) assetProgress(index, plan.length, `${bucket}: ${path.basename(from)}`);
-            if (/\.(txt|rtf|db|ini)$/i.test(from)) return;
+        for (const [index, [from, to, bucket]] of plan.entries()) {
+            if (index % 10 === 0) { assetProgress(index, plan.length, `${bucket}: ${path.basename(from)}`); await breathe(); }
+            if (/\.(txt|rtf|db|ini)$/i.test(from)) continue;
             const bytes = src.read(from);
-            if (!bytes) return;
+            if (!bytes) continue;
             // Zero-byte files are placeholders a script plays something else for (see audioAliases).
-            if (!bytes.length) { add(notes, 'emptyPlaceholder'); return; }
+            if (!bytes.length) { add(notes, 'emptyPlaceholder'); continue; }
             const out = R.systemTwin(path.join(dest, R.repairPath(to.replace(/\\/g, '/'))));
             mkdir(path.dirname(out));
             fs.writeFileSync(out, bytes);
             add(images, bucket);
-        });
+        }
         // XP's game-over image is MZ's img/system/GameOver.png.
         const gameover = findGraphic('Gameovers', system.gameover_name);
         if (gameover) fs.writeFileSync(path.join(dest, 'img', 'system', 'GameOver.png'), src.read('Graphics/Gameovers/' + gameover));
@@ -266,6 +274,7 @@ function open(folder, destination, options) {
             .filter(n => { const f = findGraphic('Windowskins', n); const img = f && readPng('Graphics/Windowskins/' + f); return img && img.width === 192 && img.height === 128; });
         const defaultSkin = String(system.windowskin_name || '') || Object.keys(skinCounts).sort((a, b) => skinCounts[b] - skinCounts[a])[0] || scriptSkins[0] || '';
         for (const f of graphicFiles('Windowskins').filter(n => /\.png$/i.test(n))) {
+            await maybeBreathe();
             const skin = readPng('Graphics/Windowskins/' + f);
             if (!skin) continue;
             // Only full skins (192×128) convert; the rest are images scripts draw themselves.

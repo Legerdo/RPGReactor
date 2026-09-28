@@ -432,11 +432,11 @@ test('the runtime reads plain PCM WAV the browser refuses, and nothing else', ()
 });
 
 const xpCorpus = path.resolve(__dirname, '..', '..', 'template', 'Nocturne English');
-test('Nocturne: Rebirth (XP, packed) imports whole', { skip: !fs.existsSync(path.join(xpCorpus, 'Game.rgssad')) && 'corpus not present' }, () => {
+test('Nocturne: Rebirth (XP, packed) imports whole', { skip: !fs.existsSync(path.join(xpCorpus, 'Game.rgssad')) && 'corpus not present' }, async () => {
     assert.equal(I.probe(xpCorpus).kind, 'xp');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-xp-'));
     try {
-        const summary = I.importProject(xpCorpus, path.join(dir, 'game'), {});
+        const summary = await I.importProject(xpCorpus, path.join(dir, 'game'), {});
         assert.equal(summary.engine, 'RPG Maker XP');
         assert.equal(summary.maps, 204);
         assert.ok(summary.plugins.includes('RR_XpCompat'));

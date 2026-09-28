@@ -60,6 +60,21 @@ function repairName(name) {
 }
 const repairPath = (rel) => rel.split('/').map(repairName).join('/');
 
+/**
+ * Game.ini's text. The editor wrote it in the Windows code page it ran under: UTF-8 when the
+ * bytes are valid UTF-8, Shift_JIS when they read as Japanese, Windows-1252 otherwise.
+ */
+function iniText(bytes) {
+    if (!bytes || !bytes.length) return '';
+    const decode = (name) => { try { return new TextDecoder(name, { fatal: true }).decode(bytes); } catch (_) { return null; } };
+    if (!bytes.some(b => b >= 0x80)) return Buffer.from(bytes).toString('latin1');
+    const utf8 = decode('utf-8');
+    if (utf8 !== null) return utf8;
+    const sjis = decode('shift_jis');
+    if (sjis !== null && !/[^\x00-\x7f\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]/.test(sjis) && (sjis.match(/[\u3040-\u30ff\u3400-\u9fff]/g) || []).length >= 2) return sjis;
+    return new TextDecoder('windows-1252').decode(bytes);
+}
+
 /** A game folder and its archive, read as one tree; the archive wins, as in the engine. */
 function source(folder) {
     const dirCache = new Map();
@@ -576,4 +591,4 @@ function open(folder, destination, options) {
 function report(folder, options) { return open(folder, null, options).inventory(); }
 function importProject(folder, destination, options) { return open(folder, destination, options).importProject(); }
 
-module.exports = { open, report, importProject, source, installPlugins, applyParamTables, applyLargeTroops, systemTwin, writeFamilyQuests, copyAliasedAudio, matchFileCase, repairName, repairPath, STOCK_SCRIPTS, GRAPHICS, AUDIO };
+module.exports = { open, report, importProject, source, installPlugins, applyParamTables, applyLargeTroops, systemTwin, writeFamilyQuests, copyAliasedAudio, matchFileCase, repairName, repairPath, iniText, STOCK_SCRIPTS, GRAPHICS, AUDIO };

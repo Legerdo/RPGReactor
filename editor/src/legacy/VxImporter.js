@@ -27,7 +27,7 @@ const TILE_SHEETS = ['TileA1', 'TileA2', 'TileA3', 'TileA4', 'TileA5', 'TileB', 
 
 function gameIni(src) {
     const b = src.read('Game.ini');
-    const text = b ? b.toString('latin1') : '';
+    const text = R.iniText(b);   // a Japanese game's title is Shift_JIS
     const get = (k) => { const m = new RegExp(`^[ \\t]*${k}[ \\t]*=[ \\t]*(.*)$`, 'mi').exec(text); return m ? m[1].trim() : ''; };
     return { title: get('Title'), rtp: get('RTP') };
 }
