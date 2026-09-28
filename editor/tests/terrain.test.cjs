@@ -299,3 +299,40 @@ test('water fills a hollow: it rises from the low point until it would spill, an
     assert.equal(ME.normalizeWater({ x0: 0, y0: 0, x1: 1, y1: 1, level: 1, mask: '1111' }, map3).mask, undefined, 'a full mask is dropped');
     assert.equal(ME.normalizeWater({ x0: -1, y0: 0, x1: 1, y1: 0, level: 1, mask: '110' }, map3).mask, '10', 'a mask is cut with its box at the map edge');
 });
+
+test('a pond follows the ground: an island dug out under it fills, ground raised through it dries, all of it gone drains', () => {
+    const ME = loadElevation();
+    const W = 20, H = 20;
+    const map = { width: W, height: H, reactor3d: { version: 1, elevation: new Array(W * H).fill(0) } };
+    ME.ensureTerrain(map);
+    const grid = ME.terrain(map), stride = W + 1;
+    // A round hollow with an island standing out of it.
+    for (let y = 0; y <= H; y++) for (let x = 0; x <= W; x++) grid[y * stride + x] = Math.hypot(x - 10, y - 10) < 6 ? -4 : 0;
+    for (let y = 9; y <= 11; y++) for (let x = 9; x <= 11; x++) grid[y * stride + x] = 1;
+    assert.ok(ME.fillWaterAt(map, 6, 10, 'Water'));
+    const poured = ME.water(map)[0];
+    assert.ok(!ME.waterCovers(poured, 10, 10), 'the island is dry when poured');
+    assert.equal(ME.refitWater(map), false, 'nothing to fit while the ground is as poured');
+    // The island dug down to the pond's floor: the water closes over it.
+    for (let y = 9; y <= 11; y++) for (let x = 9; x <= 11; x++) grid[y * stride + x] = -4;
+    assert.equal(ME.refitWater(map), true);
+    const filled = ME.water(map)[0];
+    assert.ok(ME.waterCovers(filled, 10, 10), 'water over the old island');
+    assert.equal(filled.level, poured.level, 'at the level it stood');
+    assert.deepEqual([filled.x0, filled.y0, filled.x1, filled.y1], [poured.x0, poured.y0, poured.x1, poured.y1], 'within its own box');
+    // A hill raised through the water leaves it dry there.
+    for (let y = 5; y <= 7; y++) for (let x = 9; x <= 11; x++) grid[y * stride + x] = 2;
+    assert.equal(ME.refitWater(map), true);
+    assert.ok(!ME.waterCovers(ME.water(map)[0], 10, 6), 'the new hill stands out of it');
+    // Every cell raised above the water: the sheet goes.
+    for (let i = 0; i < grid.length; i++) grid[i] = 5;
+    assert.equal(ME.refitWater(map), true);
+    assert.equal(ME.water(map).length, 0);
+});
+
+test('a terrain stroke refits the ponds, and its undo puts the ground and the water back together', () => {
+    const src = read('editor/src/TerrainManager.js');
+    assert.match(src, /else if \(this\._stroke\) this\.refitWater\(\);/);
+    assert.match(src, /return \{ ground: true, terrain: elevation\.terrainSnapshot\(map\), water: elevation\.waterSnapshot\(map\) \};/);
+    assert.match(src, /if \(entry && entry\.ground\) \{\n\s+to\.push\(this\.groundSnapshot\(map\)\);\n\s+elevation\.restoreTerrain\(map, entry\.terrain\);\n\s+elevation\.restoreWater\(map, entry\.water\);/);
+});

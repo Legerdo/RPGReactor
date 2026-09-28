@@ -1065,13 +1065,53 @@
         const kept = water(mapData).filter(region => !waterTouches(region, sheet));
         return writeWater(mapData, kept.concat([sheet])) ? sheet : null;
     };
+    /**
+     * Fit every sheet to the ground as it stands now: within its box and at
+     * its own level, the water spreads from the cells it still covers to
+     * every neighbour lower than it, and leaves ground that rose above it.
+     * A sheet whose cells all rose goes. Called after the ground changes
+     * shape, so a hill dug out under a pond fills instead of leaving a hole.
+     * True when any sheet changed.
+     */
+    const refitWater = mapData => {
+        const list = water(mapData);
+        if (!list.length) return false;
+        const ground = (cx, cy) => terrainHeightAt(mapData, cx + 0.5, cy + 0.5) + (Number(at(mapData, cx, cy)) || 0);
+        let changed = false;
+        const next = [];
+        for (const region of list) {
+            const w = region.x1 - region.x0 + 1, h = region.y1 - region.y0 + 1;
+            const wet = new Uint8Array(w * h), queue = [];
+            const dry = (cx, cy) => ground(cx, cy) > region.level - 0.01;
+            for (let cy = region.y0; cy <= region.y1; cy++) for (let cx = region.x0; cx <= region.x1; cx++) {
+                if (waterCovers(region, cx, cy) && !dry(cx, cy)) { wet[(cy - region.y0) * w + (cx - region.x0)] = 1; queue.push(cx, cy); }
+            }
+            for (let i = 0; i < queue.length; i += 2) {
+                const cx = queue[i], cy = queue[i + 1];
+                for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                    const nx = cx + dx, ny = cy + dy;
+                    if (nx < region.x0 || ny < region.y0 || nx > region.x1 || ny > region.y1) continue;
+                    const key = (ny - region.y0) * w + (nx - region.x0);
+                    if (wet[key] || dry(nx, ny)) continue;
+                    wet[key] = 1; queue.push(nx, ny);
+                }
+            }
+            if (!queue.length) { changed = true; continue; }
+            let mask = '';
+            for (let i = 0; i < w * h; i++) mask += wet[i] ? '1' : '0';
+            const fitted = normalizeWater(Object.assign({}, region, { mask }), mapData);
+            if ((fitted.mask || '') !== (region.mask || '')) changed = true;
+            next.push(fitted);
+        }
+        return changed ? writeWater(mapData, next) : false;
+    };
     const waterSnapshot = mapData => water(mapData);
     const restoreWater = (mapData, saved) => writeWater(mapData, Array.isArray(saved) ? saved.map(raw => normalizeWater(raw, mapData)).filter(Boolean) : []);
     /** Every material the map's pieces wear, each once. */
     const pieceMaterials = mapData => Array.from(new Set(pieces(mapData).map(piece => piece.material).concat(water(mapData).map(region => region.material)).filter(Boolean))).sort();
 
     const api = {
-        WATER_MAX_LEVEL, normalizeWater, water, hasWater, addWater, waterCovers, waterAt, removeWaterAt, removeWaterRegion, styleWaterRegion, waterBasin, fillWaterAt, waterSnapshot, restoreWater,
+        WATER_MAX_LEVEL, normalizeWater, water, hasWater, addWater, waterCovers, waterAt, removeWaterAt, removeWaterRegion, styleWaterRegion, waterBasin, fillWaterAt, refitWater, waterSnapshot, restoreWater,
         EVENT_SIZE_MAX, eventSize, setEventSize, PIECE_KINDS, PIECE_FINISHES, SHAPE_KINDS, SHAPE_PARAMS, PIECE_MAX_LEVEL, normalizePiece, pieces, hasPieces, pieceAt, setPiece, removePiece,
         piecesSnapshot, restorePieces, clearPieces, pieceMaterials,
         nextPieceGroup, pieceGroup, pieceGroupBounds, pieceGroupAt, groupConnectedPieces, movePieceGroup, removePieceGroup, rotatePieceGroup,

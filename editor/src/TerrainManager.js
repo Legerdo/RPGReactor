@@ -203,7 +203,7 @@ class TerrainManager {
             const cell = { x: Math.floor(point.x + 0.5), y: Math.floor(point.y + 0.5) };
             return this.drain(saved => elevation.removeWaterAt(map, cell.x, cell.y));
         }
-        this.undoStack.push(elevation.terrainSnapshot(map));
+        this.undoStack.push(this.groundSnapshot(map));
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack.length = 0;
         // Flatten levels to the ground under the first touch.
@@ -347,6 +347,7 @@ class TerrainManager {
 
     endStroke() {
         if (this._stroke && !this._stroke.moved) this.undoStack.pop();
+        else if (this._stroke) this.refitWater();
         this._stroke = null;
         this.refreshStatus();
         this.syncHistoryButtons();
@@ -361,10 +362,29 @@ class TerrainManager {
         const ui = window.reactor?.uiManager;
         if (this.active && ui?.updateUndoRedoButtons) ui.updateUndoRedoButtons(this.canUndo(), this.canRedo());
     }
+    /** The ground and the water on it, as one undo step: a stroke can move both. */
+    groundSnapshot(map) {
+        const elevation = this.elevation();
+        return { ground: true, terrain: elevation.terrainSnapshot(map), water: elevation.waterSnapshot(map) };
+    }
+
+    /** Ponds follow the ground after it changes shape; the view redraws them when one did. */
+    refitWater() {
+        const map = this.currentMap(), elevation = this.elevation();
+        if (map && elevation?.refitWater?.(map)) this.announce(null, true);
+    }
+
     _swap(from, to) {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !from.length) return;
         const entry = from.pop();
+        if (entry && entry.ground) {
+            to.push(this.groundSnapshot(map));
+            elevation.restoreTerrain(map, entry.terrain);
+            elevation.restoreWater(map, entry.water);
+            this.announce(); this.announce(null, true); this.refreshStatus();
+            return;
+        }
         if (entry && !Array.isArray(entry) && entry.water) {
             to.push({ water: elevation.waterSnapshot(map) });
             elevation.restoreWater(map, entry.water);
@@ -379,9 +399,9 @@ class TerrainManager {
     clear() {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !elevation.hasTerrain(map)) return;
-        this.undoStack.push(elevation.terrainSnapshot(map)); this.redoStack.length = 0;
+        this.undoStack.push(this.groundSnapshot(map)); this.redoStack.length = 0;
         elevation.clearTerrain(map);
-        this.announce(); this.refreshStatus();
+        this.announce(); this.refitWater(); this.refreshStatus();
     }
 
     /**
