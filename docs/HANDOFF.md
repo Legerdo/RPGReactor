@@ -4,7 +4,7 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 
 ## Where things stand (2026-09-28)
 
-**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`, GitHub release published from the tag). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9. Runtime 20260928.8 after the evening audit, rocks, a performance pass and an out-of-order audit (below); 3,977 tests pass.
+**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`, GitHub release published from the tag). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9. Runtime 20260928.9 after the evening audit, rocks, a performance pass and an out-of-order audit (below); 3,977 tests pass.
 
 **CI after the release push:** the syntax check (a duplicate declaration in a smoke script) and the keyboard-menu smoke (Database now ends at Controls) are fixed locally, awaiting the owner's push. The Web persistence smoke is intermittent on GitHub, not broken (it passed on the last push) and passes locally. Its step log needs a signed-in account, so a failure now also prints the page state and browser console as an error annotation, readable without signing in: `curl https://api.github.com/repos/Psychronic-Games/RPGReactor/check-runs/<job id>/annotations`. `cut-release.cjs` now fetches origin/main and stops if GitHub has commits the checkout lacks, and runs CI's syntax check before tagging.
 
@@ -19,7 +19,7 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 Runtime 20260928.8. Five agents drove the editor and the game on the headless display with real input in unusual orders (builder/rocks, terrain/water, database pages, editor-wide flows, the game); 60-odd bugs fixed with tests, summarized in the 0.98.9 editor changelog. **Harness hazard:** the editor harness links the Demo's `img/audio/effects` into its copy, and a reproduced import-over-open-project wrote 13 system images, `css/game.css` and 270 DEEP 8 files into the real `template/Demo` (restored from git; `ed3d.cjs` now copies css and reports writes into the linked folders).
 
 Found and not fixed:
-- **Rock collision is the box, not the rock you see:** the bend and noise move the surface up to 1.4 tiles, so a party floats up to half a tile over a low boulder, some cells are invisible walls and some bulges are walked through.
+- ~~Rock collision is the box~~: fixed in runtime .9 (`rockColumns`: cells read the drawn surface; the bend no longer moves a rock off its cell).
 - Stamping a building into a pond levels its pad to the average height and can sink it; Pour ignores pieces (a hollow inside a building floods); Custom gravity 0 or blank falls back silently; Blueprint with no plans or a plan larger than the map does nothing silently.
 - Pointer lock is never released when the map scene stops (read in code; the harness cannot take the lock).
 - Map info bar overlaps its checkboxes at 1024×600; Escape during an import cancels it without asking; Ctrl+N/O/R still act under dialogs.

@@ -1368,10 +1368,26 @@ test('rocks: one craggy mass from boxes, the same across chunk edges, stood on a
     for (let i = 1; i < P.length; i += 3) { top = Math.max(top, P[i]); bottom = Math.min(bottom, P[i]); }
     assert.ok(Math.abs(top - 9) < 0.6, 'the top stands where the stack ends: ' + top.toFixed(2));
     assert.ok(bottom < -0.5, 'a rock on the ground reaches into it');
-    // It stands, blocks and is walked on as the box of its size.
+    // It is stood on and blocks where its drawn surface is: each cell reads the top of the rock over its middle.
     const map = mapWith([{ id: 1, kind: 'rock', x: 5, y: 5, z: 0, rot: 0, material: 'Rock', size: [3, 4, 3] }]);
-    assert.equal(R.pieceFootprint(R.piecesOf(map)[0]).length, 9, 'three by three cells');
-    assert.equal(R.pieceSurfaceAt(map, 5.5, 5.5, 4), 4, 'its top is its height');
+    assert.equal(R.pieceFootprint(R.piecesOf(map)[0]).length, 9, 'its box still covers three by three cells (selection, plans)');
+    const stood = R.pieceSurfaceAt(map, 5.5, 5.5, 4);
+    const column = R.rockColumns(map, R.piecesOf(map)).find(c => c.x === 5 && c.y === 5);
+    let surface = -Infinity;
+    for (let wy = 6; wy > -2; wy -= 0.01) if (R.rockField([R.rockFrame(R.piecesOf(map)[0], 0)], 5.5, wy, 5.5) < 0) { surface = wy; break; }
+    assert.ok(Math.abs(stood - surface) < 0.05, `stood on at the drawn top (${stood} against ${surface.toFixed(2)})`);
+    assert.equal(column.z, 0, 'a rock on the ground is solid down to it');
+    assert.equal(R.pieceSurfaceAt(map, 12.5, 12.5, 0), 0, 'the ground beside it is the ground');
+    // An arch: a rock held up off the ground over a cell is walked under.
+    const arch = mapWith([{ id: 1, kind: 'rock', x: 5, y: 5, z: 5, rot: 0, material: 'Rock', size: [3, 2, 3], rough: 0 }]);
+    const under = R.rockColumns(arch, R.piecesOf(arch)).find(c => c.x === 5 && c.y === 5);
+    assert.ok(under.z > 3, 'a raised rock starts above the ground: ' + under.z);
+    assert.equal(R.pieceSurfaceAt(arch, 5.5, 5.5, 0), 0, 'and is walked under from the ground');
+    // The bend shapes a rock's outline but leaves it where it was laid: its middle is rock.
+    for (const [x, y, size] of [[20, 20, [2, 2, 2]], [40, 12, [4, 6, 4]], [9, 30, [3, 1, 3]]]) {
+        const lone = { width: 64, height: 64, reactor3d: { version: 1, pieces: [{ id: 1, kind: 'rock', x, y, z: 0, rot: 0, material: 'Rock', size }] } };
+        assert.ok(R.pieceSurfaceAt(lone, x + 0.5, y + 0.5, 0) > size[1] * 0.6, `a rock at ${x},${y} stands where it was laid`);
+    }
     // The piece geometry of a lone rock (the ghost, a plan's preview) is the rock too.
     const lone = R.pieceGeometry([{ id: 1, kind: 'rock', x: 0, y: 0, z: 0, rot: 0, material: '', size: [2, 2, 2] }], null);
     assert.ok(lone.attributes.position.count / 3 > 100);

@@ -86,8 +86,9 @@ fractional tiles for models.
   material its tops and flat ledges wear, or `"ground"` for the map's own
   room floor, so a cliff top is the grass around it) and `tint`
   (`#rrggbb`, its sides only). Its image is laid from all three sides by
-  world position. It blocks and is stood on as its box, and one standing
-  on the ground reaches a tile into it. Cliffs are rocks side by side and
+  world position. It is stood on and blocks where it is drawn (each cell
+  reads the rock's surface over its middle; a raised rock is walked
+  under), and one standing on the ground reaches a tile into it. Cliffs are rocks side by side and
   stacked: in the Build bar a drag lays a row and a Ctrl-drag fills an
   area, each rock varied a little unless Vary is off.
 - `x, y`: the cell. `z`: the level the piece's foot stands at, in tiles

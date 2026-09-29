@@ -542,10 +542,13 @@ Reactor3D.pieceIndex = function(mapData) {
     if (known) return known;
     const cells = new Map();
     const list = [];
+    const rocks = [];
     for (const entry of raw) {
         const piece = this.normalizePiece(entry, mapData);
         if (!piece) continue;
         list.push(piece);
+        // A rock stands where its surface is, not its box (see rockColumns, after the loop).
+        if (piece.kind === "rock") { rocks.push(piece); continue; }
         // A shape stands on every cell of its footprint: the cell rule sees a
         // stand-in there of the shape's height, so nothing walks into a tower.
         for (const [fx, fy] of this.pieceFootprint(piece)) {
@@ -553,6 +556,14 @@ Reactor3D.pieceIndex = function(mapData) {
             let stack = cells.get(key);
             if (!stack) cells.set(key, stack = []);
             stack.push(fx === piece.x && fy === piece.y ? piece : Object.assign({}, piece, { x: fx, y: fy, standIn: true, anchor: [piece.x, piece.y] }));
+        }
+    }
+    if (rocks.length) {
+        for (const column of this.rockColumns(mapData, rocks)) {
+            const key = column.y * 65536 + column.x;
+            let stack = cells.get(key);
+            if (!stack) cells.set(key, stack = []);
+            stack.push(Object.assign({}, column.piece, { x: column.x, y: column.y, z: column.z, rockTop: column.top, standIn: true, anchor: [column.piece.x, column.piece.y] }));
         }
     }
     // Each cell's stack from the ground up, which is the order the surface
@@ -617,6 +628,8 @@ Reactor3D.pieceTop = function(piece, u, v) {
         // which is the ground downstairs and the floor's level upstairs.
         case "doorway": return piece.z;
         default:
+            // A rock's column: the height of the rock you see over that cell (rockColumns).
+            if (piece.kind === "rock" && Number.isFinite(piece.rockTop)) return piece.rockTop;
             if (this.isShapeKind(piece.kind)) {
                 // A wedge is a ramp: its top rises along its own +v, so a long low wedge is a
                 // slope walked in steps under the limit.
@@ -1470,8 +1483,12 @@ Reactor3D.rockFrame = function(piece, base) {
     const reach = [0, 1, 2].map(i => Math.abs(axes[0][i]) * half[0] + Math.abs(axes[1][i]) * half[1] + Math.abs(axes[2][i]) * half[2]);
     const pad = amp + this.ROCK_BLEND + this.ROCK_WARP;
     const tint = piece.tint ? [1, 3, 5].map(i => parseInt(piece.tint.slice(i, i + 2), 16) / 255) : null;
+    // The bend where the rock stands: taken off its reading, so the bend shapes its outline and never
+    // moves the rock itself away from where it was laid (up to a tile and a half, otherwise).
+    const W = this.ROCK_WARP;
+    const warp = [W * this.rockNoise(c[0] * 0.16 + 3.1, c[1] * 0.1, c[2] * 0.16, 1), W * 0.3 * this.rockNoise(c[0] * 0.2 + 11, c[1] * 0.2, c[2] * 0.2 + 2, 1), W * this.rockNoise(c[0] * 0.16, c[1] * 0.1 + 5.7, c[2] * 0.16 + 8.3, 1)];
     return {
-        piece, c, axes, half, round, rough, amp, tint, top: c[1] + half[1] * Math.abs(axes[1][1]),
+        piece, c, axes, half, round, rough, amp, tint, warp, top: c[1] + half[1] * Math.abs(axes[1][1]),
         min: [c[0] - reach[0] - pad, c[1] - reach[1] - pad, c[2] - reach[2] - pad],
         max: [c[0] + reach[0] + pad, c[1] + reach[1] + pad, c[2] + reach[2] + pad]
     };
@@ -1507,7 +1524,7 @@ Reactor3D.rockField = function(frames, x, y, z, near) {
     for (let i = 0; i < frames.length; i++) {
         const f = frames[i];
         if (x < f.min[0] || x > f.max[0] || yy < f.min[1] || yy > f.max[1] || z < f.min[2] || z > f.max[2]) continue;
-        const di = rockBoxDistance(f, x, yy, z);
+        const di = rockBoxDistance(f, x - f.warp[0], yy - f.warp[1], z - f.warp[2]);
         if (di < bestD) { bestD = di; best = i; }
         if (d === Infinity) d = di;
         else { const h = Math.max(k - Math.abs(d - di), 0) / k; d = Math.min(d, di) - h * h * k * 0.25; }
@@ -1697,6 +1714,68 @@ Reactor3D.triplanarMaterial = function(material, tiles) {
     const earlierKey = material.customProgramCacheKey;
     material.customProgramCacheKey = function() { return (typeof earlierKey === "function" ? earlierKey.call(this) : "") + "|triplanar"; };
     return material;
+};
+
+/** A rock as a key: where it stands and what shapes it, its ground included. */
+Reactor3D.rockSignature = function(f) {
+    return f.sig || (f.sig = JSON.stringify([f.piece.x, f.piece.y, f.piece.z, f.piece.size, f.piece.angle, f.piece.tilt, f.piece.roll, f.piece.offset, f.piece.rough, f.piece.material, f.piece.finish, f.piece.surface, f.piece.cap, f.piece.tint, f.c[1]]));
+};
+
+/**
+ * Where the rocks stand, cell by cell, as the rock is drawn: at each cell's
+ * middle, the top of the rock mass there (found from above, then halved in)
+ * and how far down it goes before it opens, so a party stands on the rock it
+ * sees, is stopped by a bulge past a rock's box, and walks under an arch.
+ * Each entry is {x, y, piece (the rock whose surface it is), top (over that
+ * rock's own ground, as a shape's top is), z (the mass's foot over the
+ * cell's ground; 0 when it reaches the ground)}. Measured a chunk at a time
+ * and kept by the rocks that reach it, so an edit measures only its chunks.
+ */
+Reactor3D.rockColumns = function(mapData, rocks) {
+    const frames = rocks.map(piece => this.rockFrame(piece, this.pieceBaseAt(mapData, piece.x, piece.y)));
+    const size = this.PIECE_CHUNK, W = mapData ? mapData.width : Infinity, H = mapData ? mapData.height : Infinity;
+    const cache = this._rockColumnCache || (this._rockColumnCache = new Map());
+    if (cache.size > 4096) cache.clear();
+    const keys = new Set();
+    for (const f of frames) {
+        for (let cy = Math.floor(Math.max(0, f.min[2]) / size); cy <= Math.floor(Math.max(0, f.max[2]) / size); cy++) {
+            for (let cx = Math.floor(Math.max(0, f.min[0]) / size); cx <= Math.floor(Math.max(0, f.max[0]) / size); cx++) keys.add(cx * 65536 + cy);
+        }
+    }
+    const out = [];
+    const near = { index: -1 };
+    for (const key of keys) {
+        const kx = Math.floor(key / 65536), ky = key % 65536;
+        const box = { x0: kx * size, z0: ky * size, x1: kx * size + size, z1: ky * size + size };
+        const reaching = frames.filter(f => f.max[0] >= box.x0 && f.min[0] <= box.x1 && f.max[2] >= box.z0 && f.min[2] <= box.z1);
+        const sig = (mapData && mapData.id) + "|" + reaching.map(f => this.rockSignature(f)).sort().join("|");
+        const known = cache.get(key);
+        if (known && known.sig === sig) { for (const c of known.columns) out.push(Object.assign({}, c, { piece: reaching[c.owner].piece })); continue; }
+        const columns = [];
+        for (let y = box.z0; y < Math.min(box.z1, H); y++) for (let x = box.x0; x < Math.min(box.x1, W); x++) {
+            const cx = x + 0.5, cz = y + 0.5;
+            const here = reaching.filter(f => cx >= f.min[0] && cx <= f.max[0] && cz >= f.min[2] && cz <= f.max[2]);
+            if (!here.length) continue;
+            let hi = -Infinity, lo = Infinity;
+            for (const f of here) { hi = Math.max(hi, f.max[1]); lo = Math.min(lo, f.min[1]); }
+            let inside = null, outside = hi;
+            for (let wy = hi; wy >= lo; wy -= 0.5) { if (this.rockField(here, cx, wy, cz) < 0) { inside = wy; break; } outside = wy; }
+            if (inside === null) continue;
+            for (let i = 0; i < 6; i++) { const m = (inside + outside) / 2; if (this.rockField(here, cx, m, cz) < 0) inside = m; else outside = m; }
+            const top = inside;
+            let foot = top;
+            for (let wy = top - 0.5; wy >= lo; wy -= 0.5) { if (this.rockField(here, cx, wy, cz) >= 0) break; foot = wy; }
+            near.index = -1;
+            this.rockField(here, cx, top - 0.05, cz, near);
+            const owner = here[Math.max(0, near.index)];
+            const cellBase = mapData ? this.pieceBaseAt(mapData, x, y) : 0;
+            const anchorBase = mapData ? this.pieceBaseAt(mapData, owner.piece.x, owner.piece.y) : 0;
+            columns.push({ x, y, owner: reaching.indexOf(owner), top: Math.round((top - anchorBase) * 100) / 100, z: foot <= cellBase + 0.5 ? 0 : Math.round((foot - cellBase) * 100) / 100 });
+        }
+        cache.set(key, { sig, columns });
+        for (const c of columns) out.push(Object.assign({}, c, { piece: reaching[c.owner].piece }));
+    }
+    return out;
 };
 
 /** Whether a map has any rock. */
@@ -1933,7 +2012,7 @@ Reactor3D.MapScene.prototype.layRockChunks = function(mapData, load, rocks, want
         }
     }
     const cache = this._rockChunkCache || (this._rockChunkCache = new Map());
-    const signature = f => f.sig || (f.sig = JSON.stringify([f.piece.x, f.piece.y, f.piece.z, f.piece.size, f.piece.angle, f.piece.tilt, f.piece.roll, f.piece.offset, f.piece.rough, f.piece.material, f.piece.finish, f.piece.surface, f.piece.cap, f.piece.tint, f.c[1]]));
+    const signature = f => Reactor3D.rockSignature(f);
     for (const key of keys) {
         if (wanted && !wanted.has(key)) continue;
         const cx = Math.floor(key / 65536), cy = key % 65536;
