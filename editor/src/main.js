@@ -88,7 +88,11 @@ class RPGReactor {
             showAbout: () => this.showAbout(),
             getMapEditor: () => this.mapEditor,
             getEventManager: () => this.eventManager,
-            getBuildHistory: () => (this.pieceBuilderManager?.active ? this.pieceBuilderManager : this.terrainManager?.active ? this.terrainManager : null),
+            // The history Ctrl+Z and the toolbar's Undo step: the tool holding the map, else the map editor's.
+            getBuildHistory: () => (this.pieceBuilderManager?.active ? this.pieceBuilderManager
+                : this.terrainManager?.active ? this.terrainManager
+                : this.lightingManager?.active ? this.lightingManager
+                : this.mediaSurfaceManager?.panel ? this.mediaSurfaceManager.historyOwner() : null),
             toggleEventMode: () => this.toggleEventMode(),
             disableEventModeIfActive: () => this.disableEventModeIfActive(),
             installRuntime: () => this.projectController.installReactorRuntime(),
@@ -112,6 +116,14 @@ class RPGReactor {
         // switch rewrites them, and the web font that sets them arrives after
         // the first layout, so a measurement taken at show time is too narrow.
         window.addEventListener('rr-language-changed', () => this.scaleToolbarIcons());
+        // The tool panels are built from keys when they open; one up during a language switch is built again.
+        window.addEventListener('rr-language-changed', () => {
+            // The bar keeps its Models panel mounted; dropping it has the next render mount it anew.
+            if (this.buildHotbar) this.buildHotbar._modelsBody = null;
+            if (this.buildHotbar?.visible) this.buildHotbar.render();
+            this.lightingManager?.refreshLanguage?.();
+            if (this.mediaSurfaceManager?.panel) this.mediaSurfaceManager.render();
+        });
         document.fonts?.ready?.then?.(() => this.scaleToolbarIcons());
 
         // Initialize Project Controller
@@ -309,6 +321,9 @@ class RPGReactor {
             // not silently turn painting back on underneath another tool.
             if (wasInEventMode && this.eventManager) this.eventManager.setEventMode(true);
             else if (this.lightingManager?.active) this.claimMapTool('lighting');
+            // The Build bar stays up with the tool that was in hand (Media Surfaces is per map: the bar takes over).
+            else if (this.buildHotbar?.visible && ['pieces', 'terrain', 'models'].includes(this.mapTool)) this.claimMapTool(this.mapTool);
+            else if (this.buildHotbar?.visible) this.buildHotbar.show();
             else if (this.tilesetPaletteViewer) this.tilesetPaletteViewer.selectLayer(this.tilesetPaletteViewer.currentLayer || 'A');
             else this.claimMapTool('paint');
 
@@ -336,7 +351,13 @@ class RPGReactor {
         // 3D map viewport
         this.mapEditor3D = new MapEditor3D(this.projectController);
         this.projectController.mapEditor3D = this.mapEditor3D;
-        this.projectController.disableMap3DView = () => this.mapEditor3D.setEnabled(false);
+        // A project closed or opened over this one starts in 2D, and the 3D box says so until a map asks for 3D again.
+        this.projectController.disableMap3DView = async () => {
+            const result = await this.mapEditor3D.setEnabled(false);
+            const checkbox = document.getElementById('map-3d-view');
+            if (checkbox) checkbox.checked = false;
+            return result;
+        };
         this.mapEditor3D.onFailure = message => this.handleMap3DViewFailure(message);
         // Double-clicking a cube opens the same editor the 2D map opens, so
         // events are editable from the 3D view rather than only visible in it.
@@ -577,7 +598,9 @@ class RPGReactor {
             const target = event.target;
             if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
                 || target.isContentEditable)) return;
-            if (document.querySelector('.modal-overlay, .rr-modal-overlay, #database-modal')) return;
+            // (The event editor's overlay is always in the page, hidden: only one on screen counts.)
+            if (Array.from(document.querySelectorAll('.modal-overlay, .rr-modal-overlay, #database-modal'))
+                .some(el => el.getClientRects().length > 0)) return;
             if (this.releaseMapSelection()) event.preventDefault();
         });
     }
@@ -786,7 +809,7 @@ class RPGReactor {
     syncMapToolButtons() {
         const owner = this.mapTool, map = this.mapEditor;
         const building = owner === 'pieces' || (!!this.buildHotbar?.visible && (owner === 'lighting' || owner === 'media' || owner === 'terrain' || owner === 'models'));
-        for (const [selector,tool] of [['#toolbar-event-manager-btn','events'],['[data-action="media-surfaces"]','media'],['[data-action="lighting-tool"]','lighting'],['[data-action="build-tool"]','pieces']]) {
+        for (const [selector,tool] of [['#toolbar-event-manager-btn','events'],['.tool-button[data-action="media-surfaces"]','media'],['.tool-button[data-action="lighting-tool"]','lighting'],['.tool-button[data-action="build-tool"]','pieces']]) {
             const on = tool === 'pieces' ? building : owner === tool;
             const button=document.querySelector(selector);button?.classList.toggle('active',on);button?.setAttribute('aria-pressed',String(on));
         }
@@ -1260,6 +1283,8 @@ class RPGReactor {
             const unnamedMap = window.I18n ? window.I18n.tText('Unnamed Map') : 'Unnamed Map';
             const mapName = (mapInfo && mapInfo.name) ? mapInfo.name : (map.displayName || unnamedMap);
             mapNameEl.textContent = mapName;
+            // The placeholder's key would put "No Map Loaded" back over the name on a language switch.
+            mapNameEl.removeAttribute('data-i18n');
 
             // Display dimensions
             mapDimensionsEl.textContent = `${map.width} x ${map.height}`;

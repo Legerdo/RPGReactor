@@ -1054,9 +1054,29 @@ class EventManager {
     getEventAt(x, y) {
         if (!this.currentMap || !this.currentMap.events) return null;
 
+        // An event on the cell, else a sized event whose footprint covers it (the 3D view's box answers there too).
         return this.currentMap.events.find(event =>
             event && event.x === x && event.y === y
-        );
+        ) || this.currentMap.events.find(event => {
+            if (!event) return false;
+            const [w, h] = this._eventFootprint(event.id);
+            return (w > 1 || h > 1) && x >= event.x && x < event.x + w && y >= event.y && y < event.y + h;
+        });
+    }
+
+    _eventFootprint(eventId) {
+        const E = typeof RRMapElevation !== 'undefined' ? RRMapElevation : null;
+        return E && E.eventSize && this.currentMap ? E.eventSize(this.currentMap, eventId) : [1, 1];
+    }
+
+    /** Whether `event` can stand at (x, y): no other event on any cell of its footprint. */
+    canPlaceEvent(event, x, y, size = this._eventFootprint(event.id)) {
+        const [w, h] = size;
+        return !(this.currentMap?.events || []).some(other => {
+            if (!other || other.id === event.id) return false;
+            const [ow, oh] = this._eventFootprint(other.id);
+            return other.x < x + w && other.x + ow > x && other.y < y + h && other.y + oh > y;
+        });
     }
 
     // Select an event
@@ -1179,9 +1199,8 @@ class EventManager {
             if (newTileX >= 0 && newTileX < this.currentMap.width &&
                 newTileY >= 0 && newTileY < this.currentMap.height) {
 
-                // Check if there's another event at the target position (but not the dragged one)
-                const existingEvent = this.getEventAt(newTileX, newTileY);
-                if (!existingEvent || existingEvent.id === this.draggedEvent.id) {
+                // No other event on any cell the dragged one's footprint would cover
+                if (this.canPlaceEvent(this.draggedEvent, newTileX, newTileY)) {
                     // First real movement: capture the pre-drag state for
                     // undo (the event still holds its original position here)
                     if (!this._dragStateSaved) {
@@ -1949,8 +1968,9 @@ class EventManager {
             return;
         }
 
-        // Check if there's already an event at this position
-        if (this.getEventAt(x, y)) {
+        // Check if there's already an event at this position, or under the pasted one's footprint
+        const pastedSize = Array.isArray(eventPlacement?.size) ? eventPlacement.size : [1, 1];
+        if (!this.canPlaceEvent({ id: null }, x, y, pastedSize)) {
             alert(tt('There is already an event at this position.'));
             return;
         }

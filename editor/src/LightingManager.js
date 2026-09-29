@@ -62,10 +62,11 @@ class LightingManager {
         if (enabled) window.reactor?.claimMapTool?.('lighting');
         if (this.active === !!enabled) return;
         this.active = !!enabled;
-        const button = document.querySelector('[data-action="lighting-tool"]');
+        const button = document.querySelector('.tool-button[data-action="lighting-tool"]');
         if (button) button.classList.toggle('active', this.active);
         if (this.active) this._activate();
         else { this._deactivate(); window.reactor?.releaseMapTool?.('lighting'); }
+        this.syncHistoryButtons();
     }
 
     toggle() {
@@ -173,8 +174,10 @@ class LightingManager {
         this._undo.push(RRMapLights.snapshot(map));
         if (this._undo.length > 100) this._undo.shift();
         this._redo = [];
+        this.syncHistoryButtons();
     }
 
+    // Ctrl+Z / Ctrl+Y and the toolbar's Undo and Redo reach these through UIManager while the tool is up.
     undo() {
         this._timeTravel(this._undo, this._redo);
     }
@@ -183,13 +186,27 @@ class LightingManager {
         this._timeTravel(this._redo, this._undo);
     }
 
+    canUndo() { return this._undo.length > 0; }
+    canRedo() { return this._redo.length > 0; }
+
+    syncHistoryButtons() {
+        const reactor = typeof window !== 'undefined' ? window.reactor : null, ui = reactor?.uiManager;
+        if (!ui?.updateUndoRedoButtons) return;
+        if (this.active) ui.updateUndoRedoButtons(this.canUndo(), this.canRedo());
+        else { const map = reactor.mapEditor; ui.updateUndoRedoButtons(!!map?.canUndo?.(), !!map?.canRedo?.()); }
+    }
+
     _timeTravel(from, to) {
         const map = this.map();
         if (!map || !from.length || typeof RRMapLights === 'undefined') return;
+        // A drag in progress ends here, or it would keep moving the restored light.
+        this.drag = null;
+        this._end3DDrag();
         to.push(RRMapLights.snapshot(map));
         RRMapLights.restore(map, from.pop());
         if (this.selectedId && !RRMapLights.get(map, this.selectedId)) this.selectedId = null;
         this._changed();
+        this.syncHistoryButtons();
     }
 
     //-------------------------------------------------------------------------
@@ -1097,10 +1114,15 @@ class LightingManager {
         if (!this.active || event.defaultPrevented || window.reactor?.uiManager?.isEditorModalOpenForGlobalShortcuts?.()) return;
         const editing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '') || document.activeElement?.isContentEditable;
         if (event.key === 'Escape') {
+            // One press lets go of one thing: what the tool holds claims it before the map's selection.
             if (this.placing || this._cancelChipDrag) {
                 this._cancelChipDrag?.();
                 this.armPlacement(null);
-            } else this.select(null);
+                event.preventDefault();
+            } else if (this.selectedId) {
+                this.select(null);
+                event.preventDefault();
+            }
             return;
         }
         if (editing) return;
@@ -1150,6 +1172,7 @@ class LightingManager {
                 this._buildOverlay();
                 this._syncPanel();
                 this._syncDiskNotice();
+                if (this.active) this.syncHistoryButtons();
             }
             if (this.mapEditor3D()?.isEnabled?.()) {
                 if (this._overlay) this._overlay.root.visible = false;
@@ -1373,6 +1396,16 @@ class LightingManager {
         if (!window.reactor?.dockMapPanel?.(panel)) (workspace || document.body).appendChild(panel);
         this._panel = panel;
         this._syncPanel();
+    }
+
+    /** A language switch with the tool up: the panel is built from keys once, so it is built again. */
+    refreshLanguage() {
+        if (!this.active || !this._panel) return;
+        this._buildPanel();
+        this.render();
+        this._syncPanel();
+        this._syncAddButtons();
+        this._syncDiskNotice();
     }
 
     _destroyPanel() {

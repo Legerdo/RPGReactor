@@ -186,7 +186,7 @@ test('undo is captured on the first cell crossed, not on the press', () => {
 test('an event cannot be dragged off the map or onto another', () => {
     const body = methodBody('dragEventTo');
     assert.match(body, /tile\.x >= mapData\.width \|\| tile\.y >= mapData\.height/);
-    assert.match(body, /occupant && occupant\.id !== event\.id/);
+    assert.match(body, /manager\?\.canPlaceEvent && !manager\.canPlaceEvent\(event, tile\.x, tile\.y\)/, 'no other event under its footprint');
     assert.match(body, /tile\.x === event\.x && tile\.y === event\.y/,
         'and moving onto its own cell is not a move');
 });

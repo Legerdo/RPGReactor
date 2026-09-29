@@ -27,14 +27,16 @@ class MediaSurfaceManager {
             if (!window.reactor?.dockMapPanel?.(panel)) document.body.appendChild(panel);
         }
         this.panel.hidden = false;
-        document.querySelector('[data-action="media-surfaces"]')?.classList.add('active');
-        this.render(); this.projectController?.mediaSurfacePreviewManager?.syncToolInteraction?.(); return true;
+        document.querySelector('.tool-button[data-action="media-surfaces"]')?.classList.add('active');
+        this.render(); this.syncHistoryButtons(); this.projectController?.mediaSurfacePreviewManager?.syncToolInteraction?.(); return true;
     }
     close() {
         this.cancelPlacement?.();
         if (this.panel) { if (window.reactor?.undockMapPanel) window.reactor.undockMapPanel(this.panel); else this.panel.remove(); }
+        const wasOpen = !!this.panel;
         this.panel = null;
-        document.querySelector('[data-action="media-surfaces"]')?.classList.remove('active');
+        document.querySelector('.tool-button[data-action="media-surfaces"]')?.classList.remove('active');
+        if (wasOpen) { const map = window.reactor?.mapEditor; window.reactor?.uiManager?.updateUndoRedoButtons?.(!!map?.canUndo?.(), !!map?.canRedo?.()); }
         this.editor?.close(true);
         this.projectController?.mediaSurfacePreviewManager?.syncToolInteraction?.();
         window.reactor?.releaseMapTool?.('media');
@@ -79,8 +81,11 @@ class MediaSurfaceManager {
         else if (map.reactor3d) delete map.reactor3d.mediaSurfaces;
         this.projectController.mediaSurfacePreviewManager?.rescan();
     }
-    change(rows) { this.undo.push(this.copy(this.rows())); this.redo = []; this.write(rows); }
-    history(from, to) { if (!from.length) return; to.push(this.copy(this.rows())); this.write(from.pop()); this.render(); }
+    change(rows) { this.undo.push(this.copy(this.rows())); this.redo = []; this.write(rows); this.syncHistoryButtons(); }
+    history(from, to) { if (!from.length) return; to.push(this.copy(this.rows())); this.write(from.pop()); this.render(); this.syncHistoryButtons(); }
+    /** What Ctrl+Z and the toolbar's Undo/Redo step while the panel is open. */
+    historyOwner() { return { undo: () => this.history(this.undo, this.redo), redo: () => this.history(this.redo, this.undo) }; }
+    syncHistoryButtons() { if (this.panel) window.reactor?.uiManager?.updateUndoRedoButtons?.(this.undo.length > 0, this.redo.length > 0); }
     nextId() {
         const used = new Set(MediaSurfacePreviewManager.scanMap(this.map()).map(row => Number(row.id)));
         let id = 1; while (used.has(id) && id <= 999999) id++; return id;

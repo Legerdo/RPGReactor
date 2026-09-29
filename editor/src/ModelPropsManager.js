@@ -98,6 +98,12 @@ class ModelPropsManager {
         if (this.active) this._bindPointer();
     }
 
+    /** Another project: the models chosen so far (the Build bar's slots, the one in hand) were the last project's files. */
+    onProjectChanged() {
+        this.recent = [];
+        this.model = null;
+    }
+
     _ensureContainer() {
         const parent = this.tilemapManager?.container;
         if (!parent || typeof PIXI === 'undefined') return null;

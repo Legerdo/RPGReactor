@@ -485,6 +485,7 @@ class ProjectController {
             const resources = reactor?.resourceManager || null;
             if (resources && typeof resources.onProjectChanged === 'function') resources.onProjectChanged();
             this.mediaSurfacePreviewManager?.onProjectChanged?.();
+            this.modelPropsManager?.onProjectChanged?.();
             // Event model previews cache by model name alone; two projects
             // sharing a model name would show the first one's mesh (or its
             // cached load failure) on the second.

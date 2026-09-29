@@ -34,6 +34,16 @@
         return null;
     }
 
+    /** Whether an editor has the project in `folder` open: its lock file names a running process. */
+    function projectOpenAt(fs, path, folder) {
+        const open = root.reactor?.projectController?.currentProject?.path;
+        if (open && path.resolve(open) === path.resolve(folder)) return true;
+        let pid;
+        try { pid = JSON.parse(fs.readFileSync(path.join(folder, '.rpgreactor.lock'), 'utf8')).pid; } catch (_) { return false; }
+        if (!pid) return false;
+        try { process.kill(pid, 0); return true; } catch (error) { return error?.code === 'EPERM'; }
+    }
+
     function appRootOf(path) {
         const candidates = [];
         try { candidates.push(process.cwd()); } catch (_) { /* browser */ }
@@ -278,6 +288,8 @@
                 destination = path.join(parent, name);
                 // A folder already there (an earlier or interrupted import) is imported into again, in place, when the author agrees.
                 const force = fs.existsSync(destination) && fs.readdirSync(destination).length > 0;
+                // Never over a project open in an editor, this one included: its lock names a live process.
+                if (force && projectOpenAt(fs, path, destination)) { errorEl.textContent = tt('That folder already exists and is not empty.'); return; }
                 if (force && !window.confirm(`${tt('That folder already exists and is not empty.')} ${tt('Import into it again? Files already there are overwritten.')}`)) return;
                 errorEl.textContent = '';
                 logEl.textContent = '';
@@ -342,7 +354,7 @@
         });
     }
 
-    const api = { show, detect, ENCODINGS };
+    const api = { show, detect, projectOpenAt, ENCODINGS };
     root.RRLegacyImportDialog = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

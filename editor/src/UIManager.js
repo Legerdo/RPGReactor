@@ -597,7 +597,8 @@ class UIManager {
             // Copy, paste and duplicate of models and built pieces, when one of those tools holds the map.
             if (commandModifier && !e.altKey && !e.shiftKey && ['c', 'v', 'd'].includes(e.key.toLowerCase()) && !isTextInput && !eventEditorOpen) {
                 const map3d = window.reactor?.mapEditor3D;
-                const worldTool = window.reactor?.modelPropsManager?.active || (window.reactor?.pieceBuilderManager?.active && window.reactor.pieceBuilderManager.mode === 'select');
+                // Building in any slot keeps the keys (only Select copies pieces): a piece in hand never copies or pastes the whole map.
+                const worldTool = window.reactor?.modelPropsManager?.active || window.reactor?.pieceBuilderManager?.active || window.reactor?.buildHotbar?.visible;
                 if (worldTool && map3d?.handleClipboardKey) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -668,18 +669,21 @@ class UIManager {
                     activeElement.isContentEditable
                 );
 
-                if (!isTextInput) {
+                // The event editor works on the event it opened with: an undo behind it would swap the
+                // map's events for copies and its OK would then land on a detached one.
+                if (!isTextInput && !eventEditorOpen) {
                     e.preventDefault();
 
                     // Building (the Build bar up): its own history, pieces, lights and screens.
                     const build = this.callbacks.getBuildHistory?.();
                     if (build) { build.undo(); return; }
 
-                    // Check if event mode is active
+                    // Event mode steps the events' history only (the toolbar's Undo shows that one);
+                    // falling through undid a tile stroke nobody could see from there.
                     if (this.callbacks.getEventManager) {
                         const eventManager = this.callbacks.getEventManager();
-                        if (eventManager && eventManager.eventMode && eventManager.canUndo()) {
-                            eventManager.undo();
+                        if (eventManager && eventManager.eventMode) {
+                            if (eventManager.canUndo()) eventManager.undo();
                             return;
                         }
                     }
@@ -704,17 +708,16 @@ class UIManager {
                     activeElement.isContentEditable
                 );
 
-                if (!isTextInput) {
+                if (!isTextInput && !eventEditorOpen) {
                     e.preventDefault();
 
                     const build = this.callbacks.getBuildHistory?.();
                     if (build) { build.redo(); return; }
 
-                    // Check if event mode is active
                     if (this.callbacks.getEventManager) {
                         const eventManager = this.callbacks.getEventManager();
-                        if (eventManager && eventManager.eventMode && eventManager.canRedo()) {
-                            eventManager.redo();
+                        if (eventManager && eventManager.eventMode) {
+                            if (eventManager.canRedo()) eventManager.redo();
                             return;
                         }
                     }
@@ -885,10 +888,15 @@ class UIManager {
             'plugin-manager-modal'
         ];
 
-        return modalIds.some(id => {
+        if (modalIds.some(id => {
             const modal = document.getElementById(id);
             return modal && modal.style.display && modal.style.display !== 'none';
-        });
+        })) return true;
+
+        // Any other dialog on screen (Import Project, Unsaved Changes, Options, pickers…): the map
+        // behind it takes no keys. The event editor is handled key by key by the caller.
+        return Array.from(document.querySelectorAll?.('.rr-modal-overlay, .modal-overlay, .modal') || [])
+            .some(el => el.id !== 'event-editor-modal' && el.getClientRects?.().length > 0);
     }
 
     confirmApplicationReload() {
