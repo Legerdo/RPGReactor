@@ -126,15 +126,20 @@ class PieceBuilderManager {
 
     /** The whole selection a quarter turn clockwise about its box: each piece turned and carried round. */
     turnSelection(steps = 1) {
+        this._settleCarry();
         const pieces = this.selectionPieces();
         if (pieces.length <= 1) return this.turnSelected(steps);
         const x0 = Math.min(...pieces.map(p => p.x)), y0 = Math.min(...pieces.map(p => p.y)), x1 = Math.max(...pieces.map(p => p.x)), y1 = Math.max(...pieces.map(p => p.y));
         const map = this.currentMap();
         const n = ((steps % 4) + 4) % 4;
+        // The turned box slides back inside the map at an edge (clamping each piece stacked a row on one cell).
+        const [W, H] = n % 2 ? [y1 - y0, x1 - x0] : [x1 - x0, y1 - y0];
+        if (W >= map.width || H >= map.height) return false;
+        const bx = Math.min(x0, map.width - 1 - W), by = Math.min(y0, map.height - 1 - H);
         return this.updateSelection(piece => {
             let x = piece.x - x0, y = piece.y - y0, w = x1 - x0, h = y1 - y0, offset = piece.offset ? piece.offset.slice() : null;
             for (let i = 0; i < n; i++) { const nx = h - y; y = x; x = nx; const t = w; w = h; h = t; if (offset) offset = [-offset[1], offset[0]]; }
-            const out = { x: Math.max(0, Math.min(map.width - 1, x0 + x)), y: Math.max(0, Math.min(map.height - 1, y0 + y)) };
+            const out = { x: bx + x, y: by + y };
             if (this.isShape(piece.kind)) { out.angle = (((piece.angle || 0) + 90 * n) % 360 + 360) % 360; if (offset) out.offset = offset; }
             else out.rot = ((piece.rot + n) % 4 + 4) % 4;
             return out;
@@ -142,6 +147,7 @@ class PieceBuilderManager {
     }
 
     removeSelection() {
+        this._settleCarry();
         const ids = new Set(this.selectionIds());
         if (ids.size <= 1) return this.removeSelected();
         const map = this.currentMap(), elevation = this.elevation();
@@ -193,6 +199,15 @@ class PieceBuilderManager {
     }
 
     clearSelection() { if (!this.selected && !this.selectedIds.length) return; this.selected = 0; this.selectedIds = []; this._syncPanel(); this._ghostChanged(); }
+
+    /** Selected pieces that are gone (taken off, undone) let go: a piece laid later may be given the same id. */
+    _pruneSelection() {
+        if (!this.selected && !this.selectedIds.length) return;
+        const live = new Set((this.elevation()?.pieces(this.currentMap()) || []).map(piece => piece.id));
+        const ids = this.selectedIds.filter(id => live.has(id));
+        if (!live.has(this.selected)) this.selected = ids[0] || 0;
+        this.selectedIds = ids.length > 1 ? ids : [];
+    }
 
     /** Change the selected piece in place (a material, a turn, a size, a move); the list keeps its ids. */
     /** A placed ladder is a stack of one-level pieces: every ladder level joined to this one on its cell. */
@@ -249,8 +264,24 @@ class PieceBuilderManager {
         return true;
     }
 
+    /**
+     * Pieces put down by a paste or a carry take their slots, as laying one there would: a cell piece
+     * on the same cell and level (a slab only by a slab) goes. Shapes stand anywhere and overlap freely.
+     */
+    _takeSlots(map, ids) {
+        const elevation = this.elevation(), list = elevation.pieces(map);
+        const slot = piece => this.isShape(piece.kind) ? null : piece.x + ',' + piece.y + ',' + piece.z + (piece.kind === 'floor' ? 'f' : '');
+        const taken = new Set(list.filter(piece => ids.has(piece.id)).map(slot).filter(Boolean));
+        const kept = list.filter(piece => ids.has(piece.id) || !taken.has(slot(piece)));
+        if (kept.length === list.length) return false;
+        elevation.restorePieces(map, kept);
+        this._detach(map, list.filter(piece => !kept.includes(piece)));
+        return true;
+    }
+
     /** Lay the copied pieces with their lowest corner at `target` (a cell and level); they come selected, one undo step. */
     pasteAt(target) {
+        this._settleCarry();
         const clip = PieceBuilderManager.clipboard, map = this.currentMap(), elevation = this.elevation();
         if (!clip || !clip.length || !target || !map || !elevation) return false;
         const list = elevation.pieces(map);
@@ -260,6 +291,7 @@ class PieceBuilderManager {
         if (!added.length) return false;
         this.undoStack.push(this._snapshot(map)); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
         elevation.restorePieces(map, list.concat(added));
+        this._takeSlots(map, new Set(added.map(p => p.id)));
         this.mode = 'select';
         this.selectedIds = added.map(p => p.id);
         this.selected = added[0].id;
@@ -271,10 +303,14 @@ class PieceBuilderManager {
 
     /** A copy of the selection laid just east of it. */
     duplicateSelection() {
+        this._settleCarry();
         const list = this._copiedPieces();
         if (!list.length || !this.copySelection()) return false;
-        const x1 = Math.max(...list.map(p => p.x));
-        return this.pasteAt({ x: x1 + 1, y: Math.min(...list.map(p => p.y)), z: Math.min(...list.map(p => p.z)) });
+        // Beside it, clear of it: a shape (a rock, a dome) covers cells beyond the one it stands on.
+        const R = typeof Reactor3D !== 'undefined' && Reactor3D.pieceFootprint ? Reactor3D : null;
+        const across = p => R && this.isShape(p.kind) ? R.pieceFootprint(p).map(cell => cell[0]) : [p.x];
+        const width = Math.max(...list.flatMap(across)) - Math.min(...list.flatMap(across)) + 1;
+        return this.pasteAt({ x: Math.min(...list.map(p => p.x)) + width, y: Math.min(...list.map(p => p.y)), z: Math.min(...list.map(p => p.z)) });
     }
 
     /**
@@ -757,8 +793,10 @@ class PieceBuilderManager {
         // The turn in hand (R/Q/E) turns the building before it goes down;
         // _lay levels the pad and clamps the footprint to the map.
         const saved = this._snapshot(map, { ground: true, effects: true });
+        const places = this._propPlaces(map);
         const group = elevation.nextPieceGroup(map);
         if (!this._lay(map, plan, { group, plan: this.structure, x: Math.floor(x), y: Math.floor(y), rot: this.rot || 0, scale: 1 })) return false;
+        saved.propMoves = this._propMoves(map, places);
         this.undoStack.push(saved);
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack.length = 0;
@@ -825,7 +863,9 @@ class PieceBuilderManager {
         const plan = this.structures().find(entry => entry.file === record.plan)?.plan;
         if (!plan) return false;
         const saved = this._snapshot(map, { ground: true, effects: true });
+        const places = this._propPlaces(map);
         if (!this._lay(map, plan, Object.assign(record, change))) return false;
+        saved.propMoves = this._propMoves(map, places);
         this.undoStack.push(saved); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
         this.announce(true); this.refreshStatus(); this._ghostChanged();
         return true;
@@ -904,8 +944,10 @@ class PieceBuilderManager {
         const W = bounds.x1 - bounds.x0 + 1, H = bounds.y1 - bounds.y0 + 1;
         const X0 = Math.max(0, Math.min(map.width - W, Math.floor(x))), Y0 = Math.max(0, Math.min(map.height - H, Math.floor(y)));
         const saved = this._snapshot(map, { ground: true });
+        const places = this._propPlaces(map);
         if (!elevation.movePieceGroup(map, this.selectedGroup, X0, Y0)) return false;
         elevation.relocatePropsOff(map, X0, Y0, W, H);
+        saved.propMoves = this._propMoves(map, places);
         this.undoStack.push(saved);
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack.length = 0;
@@ -920,6 +962,13 @@ class PieceBuilderManager {
         this.refreshStatus();
         this._ghostChanged();
         return true;
+    }
+
+    /** Where each model stands, and the models an edit then pushed off its footprint as `{ id, from, to }` (an undo puts them back). */
+    _propPlaces(map) { return new Map((this.elevation().props?.(map) || []).map(prop => [prop.id, [prop.x, prop.y]])); }
+    _propMoves(map, places) {
+        return (this.elevation().props?.(map) || []).filter(prop => places.has(prop.id) && (places.get(prop.id)[0] !== prop.x || places.get(prop.id)[1] !== prop.y))
+            .map(prop => ({ id: prop.id, from: places.get(prop.id), to: [prop.x, prop.y] }));
     }
 
     /**
@@ -949,7 +998,7 @@ class PieceBuilderManager {
         if (!elevation.removePieceGroup(map, this.selectedGroup)) return false;
         this.undoStack.push(saved); this.redoStack.length = 0;
         this.selectedGroup = 0;
-        this.announce(); this.refreshStatus(); this._ghostChanged();
+        this.announce(); this.refreshStatus(); this._syncPanel(); this._ghostChanged();
         return true;
     }
 
@@ -1385,6 +1434,9 @@ class PieceBuilderManager {
     eraseAt(map, target) {
         const elevation = this.elevation();
         if (elevation.removePiece(map, target.x, target.y, target.z)) return true;
+        // What the strike landed in by its height, a shape standing over the cell included: a rock over a floor goes, not the floor under it.
+        const struck = typeof Reactor3D !== 'undefined' && Reactor3D.piecesAt ? this.pieceAtTarget(target) : null;
+        if (struck) return elevation.restorePieces(map, elevation.pieces(map).filter(piece => piece.id !== struck.id));
         const stack = elevation.pieces(map).filter(piece => piece.x === target.x && piece.y === target.y);
         if (!stack.length) {
             // A shape (a rock, a dome) stands on cells beyond its own: the hammer takes it wherever it is struck.
@@ -1416,6 +1468,7 @@ class PieceBuilderManager {
         if (!this.eraseAt(map, target)) return false;
         this.undoStack.push(saved);
         this.redoStack.length = 0;
+        this._pruneSelection();
         this.announce(false, { x0: target.x - 1, y0: target.y - 1, x1: target.x + 1, y1: target.y + 1 });
         this.refreshStatus();
         return true;
@@ -1448,12 +1501,25 @@ class PieceBuilderManager {
             this.nudgeSelected(key === 'arrowleft' ? -step : key === 'arrowright' ? step : 0, key === 'arrowup' ? -step : key === 'arrowdown' ? step : 0);
         }
         else if ((key === 'delete' || key === 'backspace') && this.mode === 'move' && this.selectedGroup) { event.preventDefault(); this.removeSelectedGroup(); }
-        else if (key === 'escape' && this.mode === 'move' && this.selectedGroup) { event.preventDefault(); this.selectedGroup = 0; this.refreshStatus(); this._ghostChanged(); }
+        else if (key === 'escape' && this.mode === 'move' && this.selectedGroup) { event.preventDefault(); this.selectedGroup = 0; this.refreshStatus(); this._syncPanel(); this._ghostChanged(); }
         else if (key === 'escape' && this.mode !== 'place') { event.preventDefault(); this.setMode('place'); }
     }
 
-    undo() { this._swap(this.undoStack, this.redoStack); this.syncHistoryButtons(); }
-    redo() { this._swap(this.redoStack, this.undoStack); this.syncHistoryButtons(); }
+    undo() { this._endGesture(); this._swap(this.undoStack, this.redoStack); this.syncHistoryButtons(); }
+    redo() { this._endGesture(); this._swap(this.redoStack, this.undoStack); this.syncHistoryButtons(); }
+
+    /**
+     * Ctrl+Z or Ctrl+Y in the middle of a drag (a stroke, a Ctrl-rectangle, a piece or a handle
+     * carried): the drag ends there as its own undo step, so the undo takes back the drag and
+     * not the edit before it, and the rest of the drag does nothing.
+     */
+    _endGesture() {
+        if (this._stroke) this.endStroke();
+        else window.reactor?.mapEditor3D?.endPieceDrag?.();
+    }
+
+    /** An edit made while pieces are carried (R, Delete, a paste): the carry so far becomes its own step first, so the steps stay in order. */
+    _settleCarry() { window.reactor?.mapEditor3D?.endPieceDrag?.(undefined, { carryOn: true }); }
     canUndo() { return this.undoStack.length > 0; }
     canRedo() { return this.redoStack.length > 0; }
     /** The toolbar's Undo and Redo follow the builder's history while it is up, the map editor's otherwise. */
@@ -1469,10 +1535,24 @@ class PieceBuilderManager {
         const entry = from.pop();
         const whole = entry && !Array.isArray(entry) && entry.pieces;
         const ground = !!whole && 'terrain' in entry, effects = !!whole && entry.surfaces !== undefined;
-        to.push(whole ? this._snapshot(map, { ground, effects }) : elevation.piecesSnapshot(map));
+        const back = whole ? this._snapshot(map, { ground, effects }) : elevation.piecesSnapshot(map);
+        // A step that knows the ground it left moves only the corners it levelled: terrain shaped since stays.
+        const sealed = ground && entry.terrainAfter !== undefined;
+        if (sealed) { back.terrain = entry.terrainAfter; back.terrainAfter = entry.terrain; }
+        to.push(back);
         elevation.restorePieces(map, whole ? entry.pieces : entry);
+        // Models the edit pushed aside go back where they stood (unless moved since), and aside again on a redo.
+        if (whole && entry.propMoves?.length) {
+            for (const move of entry.propMoves) {
+                const prop = elevation.propById(map, move.id);
+                if (prop && prop.x === move.to[0] && prop.y === move.to[1]) elevation.updateProp(map, move.id, { x: move.from[0], y: move.from[1] });
+            }
+            back.propMoves = entry.propMoves.map(move => ({ id: move.id, from: move.to, to: move.from }));
+            window.reactor?.modelPropsManager?.render?.();
+        }
         if (whole) {
-            if (ground) { if (entry.terrain) elevation.restoreTerrain(map, entry.terrain); else elevation.clearTerrain(map); }
+            if (sealed) elevation.restoreTerrainChanges(map, entry.terrainAfter, entry.terrain);
+            else if (ground) { if (entry.terrain) elevation.restoreTerrain(map, entry.terrain); else elevation.clearTerrain(map); }
             elevation.restoreStructures(map, entry.structures);
             if (effects) {
                 const sidecar = map.reactor3d || (map.reactor3d = { version: 1 });
@@ -1482,6 +1562,7 @@ class PieceBuilderManager {
                 this._effectsChanged();
             }
         }
+        this._pruneSelection();
         this.announce(ground); this.refreshStatus(); this._syncPanel();
     }
 
@@ -1491,13 +1572,17 @@ class PieceBuilderManager {
         // The building records go with the last piece: the undo brings them back too.
         this.undoStack.push(this._snapshot(map)); this.redoStack.length = 0;
         elevation.clearPieces(map);
-        this.announce(); this.refreshStatus();
+        this._pruneSelection();
+        this.announce(); this.refreshStatus(); this._syncPanel();
     }
 
     /** The pieces changed: the 3D view lays them down again in place, and the map is dirty. */
     announce(terrainToo = false, region = null) {
         this.render2D();
         this.syncHistoryButtons();
+        // A step that levelled ground keeps the ground it left, for its undo (_swap).
+        const top = terrainToo && this.undoStack[this.undoStack.length - 1];
+        if (top && 'terrain' in top && top.terrainAfter === undefined) top.terrainAfter = this.elevation()?.terrainSnapshot(this.currentMap()) ?? null;
         const mapEditor = window.reactor?.mapEditor;
         if (typeof mapEditor?.onElevationChanged === 'function') mapEditor.onElevationChanged(this.currentMap());
         if (typeof document === 'undefined' || typeof CustomEvent !== 'function') return;
@@ -1505,6 +1590,8 @@ class PieceBuilderManager {
         // place, the whole map), then the pieces are laid on it. `region`
         // is the cells an edit touched, so only their chunks are relaid.
         if (terrainToo) document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: this.currentMap()?.id, terrain: true, region: null } }));
+        // Ponds follow levelled ground as they follow a terrain stroke.
+        if (terrainToo) window.reactor?.terrainManager?.refitWater?.();
         document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: this.currentMap()?.id, pieces: true, region: region || null } }));
         // Events came or went with a building: the event tool and the 3D
         // view's markers are redrawn (a plain edit notice rebuilds the view).

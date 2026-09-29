@@ -272,6 +272,26 @@
         return true;
     };
 
+    /**
+     * Undo or redo one terrain edit: every corner the edit moved (where
+     * `from`, the grid on the far side of it, differs from `to`) takes its
+     * `to` height, and every other corner keeps what it holds now, so a
+     * later edit elsewhere (a building's levelled pad) stays. Null is flat
+     * ground. A grid of another size (the map was resized) goes back whole.
+     */
+    const restoreTerrainChanges = (mapData, from, to) => {
+        const size = terrainSize(mapData);
+        if ((from && from.length !== size) || (to && to.length !== size)) return restoreTerrain(mapData, to);
+        const grid = ensureTerrain(mapData);
+        if (!grid) return false;
+        for (let i = 0; i < size; i++) {
+            const before = from ? Number(from[i]) || 0 : 0, after = to ? Number(to[i]) || 0 : 0;
+            if (before !== after) grid[i] = after;
+        }
+        if (!hasTerrain(mapData)) clearTerrain(mapData);
+        return true;
+    };
+
     /** Forget the terrain entirely: the map is its elevation again. */
     const clearTerrain = mapData => {
         const sidecar = mapData && mapData.reactor3d;
@@ -816,8 +836,13 @@
         if (!bounds) return false;
         const w = bounds.x1 - bounds.x0 + 1, h = bounds.y1 - bounds.y0 + 1;
         if (bounds.x0 + h > mapData.width || bounds.y0 + w > mapData.height) return false;
-        const list = pieces(mapData).map(piece => piece.group !== group ? piece
-            : Object.assign({}, piece, { x: bounds.x0 + (h - 1 - (piece.y - bounds.y0)), y: bounds.y0 + (piece.x - bounds.x0), rot: (piece.rot + 1) % 4 }));
+        const list = pieces(mapData).map(piece => {
+            if (piece.group !== group) return piece;
+            const next = Object.assign({}, piece, { x: bounds.x0 + (h - 1 - (piece.y - bounds.y0)), y: bounds.y0 + (piece.x - bounds.x0), rot: (piece.rot + 1) % 4 });
+            // A shape's or a ladder's shift in its cell turns with it (the turn itself is the quarter turn above).
+            if (piece.offset) next.offset = [-piece.offset[1] || 0, piece.offset[0] || 0];
+            return next;
+        });
         return writePieces(mapData, list);
     };
     /*
@@ -918,7 +943,8 @@
      * terrain sloping below it; the runtime blocks water deeper than a
      * wade. `water: [{x0, y0, x1, y1, level, material, mask}]` in the sidecar.
      */
-    const WATER_MAX_LEVEL = 60;
+    // As high as ground goes: the tallest tile with the terrain raised to its top.
+    const WATER_MAX_LEVEL = 160;
     const normalizeWater = (raw, mapData) => {
         if (!raw || typeof raw !== 'object') return null;
         let x0 = Math.floor(Number(raw.x0)), y0 = Math.floor(Number(raw.y0)), x1 = Math.floor(Number(raw.x1)), y1 = Math.floor(Number(raw.y1));
@@ -1134,7 +1160,7 @@
         clamp, fileNameFor, ensure, at, setAt, raiseAt,
         snapshot, restore, isFlat, save,
         TERRAIN_MAX, TERRAIN_MODES, terrain, hasTerrain, ensureTerrain, terrainAt, terrainHeightAt,
-        paintTerrain, terrainSnapshot, restoreTerrain, clearTerrain
+        paintTerrain, terrainSnapshot, restoreTerrain, restoreTerrainChanges, clearTerrain
     };
     /**
      * A sidecar as text: readable, and not four times its data. Each top-level

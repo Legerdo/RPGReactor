@@ -719,7 +719,8 @@ Reactor3D.pieceBaseAt = function(mapData, x, y) {
 // covers its whole box.
 
 Reactor3D.WATER_WADE = 0.45;
-Reactor3D.WATER_MAX_LEVEL = 60;
+// As high as ground goes: the tallest tile with the terrain raised to its top.
+Reactor3D.WATER_MAX_LEVEL = 160;
 
 Reactor3D.normalizeWater = function(raw, mapData) {
     if (!raw || typeof raw !== "object") return null;

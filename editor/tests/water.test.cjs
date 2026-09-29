@@ -124,3 +124,19 @@ test('the terrain tab pours into a hollow, previews it under the pointer, remove
     }
     assert.ok(fs.existsSync(path.resolve(__dirname, '..', '..', 'template/Demo/img/materials/Water.png')));
 });
+
+test('a pond poured in a hollow on high ground stands at the hollow\'s level, in the editor and in the game', () => {
+    loadThree();
+    const R = require(path.resolve(__dirname, '..', '..', 'runtime/reactor_3d.js'));
+    const ME = loadElevation();
+    const W = 20, H = 20;
+    // A plateau of tall tiles with a hollow dug into its top.
+    const map = { id: 1, width: W, height: H, reactor3d: { version: 1, width: W, height: H, elevation: new Array(W * H).fill(ME.MAX - 20) } };
+    const grid = ME.ensureTerrain(map);
+    for (let y = 0; y <= H; y++) for (let x = 0; x <= W; x++) grid[y * (W + 1) + x] = Math.hypot(x - 10, y - 10) < 6 ? -4 : ME.TERRAIN_MAX;
+    const basin = ME.waterBasin(map, 10, 10);
+    const sheet = ME.fillWaterAt(map, 10, 10, 'Water');
+    assert.ok(basin.level > ME.MAX - 20 && sheet.level === basin.level, 'not cut down under the ground: ' + sheet.level);
+    assert.equal(R.waterOf(map)[0].level, sheet.level, 'the game reads the same level');
+    assert.ok(ME.WATER_MAX_LEVEL >= ME.MAX + ME.TERRAIN_MAX && R.WATER_MAX_LEVEL === ME.WATER_MAX_LEVEL);
+});

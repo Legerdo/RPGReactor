@@ -1983,7 +1983,8 @@ class MapEditor3D {
         const stamp = manager.mode === 'stamp' ? manager.structurePlan() : bounds ? { size: [bounds.x1 - bounds.x0 + 1, bounds.y1 - bounds.y0 + 1] } : null;
         if (manager.mode === 'move' && !bounds) { this.hidePieceGhost(); return; }
         const turn = stamp && !bounds ? (manager.rot || 0) : 0;
-        const key = stamp ? (bounds ? 'move:' + manager.selectedGroup : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null]);
+        // A building turned or grown while picked up has a new footprint: its slab is made again.
+        const key = stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null]);
         if (!this.pieceGhost || this.pieceGhost.userData.key !== key) {
             this.hidePieceGhost(true);
             // A plan's ghost is the building itself, translucent; a selected
@@ -2845,6 +2846,33 @@ class MapEditor3D {
             if (!best || distance < best.distance) best = { id: child.userData.propId, distance };
         }
         return best ? best.id : null;
+    }
+
+    /**
+     * A placed piece carried or a handle held ends: one undo step for the whole drag, taken
+     * when it started. Called on release, or by an undo mid-drag (the rest of the drag then
+     * moves nothing). True when the drag changed something, false when not, null with no drag.
+     */
+    endPieceDrag(drag = this.pointer, { carryOn = false } = {}) {
+        const record = drag && (drag.gizmo || drag.pieceMove);
+        if (!record) return null;
+        const manager = this.pieceManager();
+        const changed = !!((record.changed || record.moved) && record.snapshot);
+        if (changed) { manager.undoStack.push(record.snapshot); if (manager.undoStack.length > 50) manager.undoStack.shift(); manager.redoStack.length = 0; manager.syncHistoryButtons?.(); }
+        // A turn or a paste while pieces are carried: the carry so far is its own step, and the carry goes on
+        // (its next step starts from the next move). A handle drag ends.
+        if (carryOn && drag.pieceMove) { record.snapshot = null; record.moved = false; record.split = true; return changed; }
+        // Set down, carried pieces take their cells: a wall carried onto a wall replaces it rather than standing inside it.
+        const carried = drag.pieceMove && (changed || record.split) ? manager._copiedPieces() : [];
+        if (carried.length && manager._takeSlots(this.currentMap(), new Set(carried.map(piece => piece.id)))) {
+            const xs = carried.map(piece => piece.x), ys = carried.map(piece => piece.y);
+            manager.announce(false, { x0: Math.min(...xs) - 1, y0: Math.min(...ys) - 1, x1: Math.max(...xs) + 1, y1: Math.max(...ys) + 1 });
+        }
+        drag.gizmo = drag.pieceMove = null;
+        drag.propHold = true;
+        if (this.shapeGizmo && typeof RRShapeGizmo3D !== 'undefined') RRShapeGizmo3D.release(this.shapeGizmo);
+        manager?.refreshStatus?.();
+        return changed;
     }
 
     /** Right-click in Build › Select: Copy, Paste here, Duplicate, Delete for the piece under the pointer and the selection. */
@@ -3821,6 +3849,7 @@ class MapEditor3D {
                 if (!move.grabPoint) { move.grabPoint = [point.x, point.z]; return; }
                 const wantX = Math.round(point.x - move.grabPoint[0]), wantY = Math.round(point.z - move.grabPoint[1]);
                 const dx = wantX - move.cellsMoved[0], dy = wantY - move.cellsMoved[1];
+                if (!move.snapshot) move.snapshot = manager._snapshot(this.currentMap());
                 if ((dx || dy) && manager.moveSelectionBy(dx, dy, false)) { move.cellsMoved = [wantX, wantY]; move.moved = true; }
                 return;
             }
@@ -3836,6 +3865,7 @@ class MapEditor3D {
                 if (!move.grabOffset) { const [cx, cz] = manager.isShape(piece.kind) ? Reactor3D.shapeCentre(piece) : [piece.x + 0.5, piece.y + 0.5]; move.grabOffset = [cx - point.x, cz - point.z]; return; }
                 const cx = point.x + move.grabOffset[0], cz = point.z + move.grabOffset[1];
                 const snapped = manager.isShape(piece.kind) ? [Math.round(cx * 4) / 4, Math.round(cz * 4) / 4] : [Math.floor(cx) + 0.5, Math.floor(cz) + 0.5];
+                if (!move.snapshot) move.snapshot = manager._snapshot(this.currentMap());
                 if (manager.moveSelectedPieceTo(snapped[0], snapped[1], undefined, false)) move.moved = true;
                 return;
             }
@@ -3910,12 +3940,7 @@ class MapEditor3D {
                 return;
             }
             if (drag && (drag.gizmo || drag.pieceMove)) {
-                // One undo step for the whole drag, taken when it started.
-                const manager = this.pieceManager();
-                const record = drag.gizmo || drag.pieceMove;
-                if (this.shapeGizmo && typeof RRShapeGizmo3D !== 'undefined') RRShapeGizmo3D.release(this.shapeGizmo);
-                if (record.changed || record.moved) { manager.undoStack.push(record.snapshot); if (manager.undoStack.length > 50) manager.undoStack.shift(); manager.redoStack.length = 0; manager.syncHistoryButtons?.(); }
-                manager?.refreshStatus?.();
+                this.endPieceDrag(drag);
                 return;
             }
             if (drag && drag.terrain) {
@@ -4196,9 +4221,8 @@ class MapEditor3D {
         if (tile.x < 0 || tile.y < 0 || tile.x >= mapData.width || tile.y >= mapData.height) return;
 
         const manager = this.eventManager();
-        // Two events cannot share a cell, and the 2D drag refuses the same way.
-        const occupant = manager?.getEventAt?.(tile.x, tile.y);
-        if (occupant && occupant.id !== event.id) return;
+        // Two events cannot share a cell (a sized event's footprint counts), and the 2D drag refuses the same way.
+        if (manager?.canPlaceEvent && !manager.canPlaceEvent(event, tile.x, tile.y)) return;
 
         if (!this._eventDragSaved) {
             this._eventDragSaved = true;
@@ -4240,6 +4264,8 @@ class MapEditor3D {
 
     handleDoubleClick(event) {
         if (this.projectController?.mediaSurfacePreviewManager?.authoring) return;
+        // Building (pieces, the ground, models): two quick clicks are two clicks, and the camera stays.
+        if (this.canEditPieces() || this.canEditTerrain() || this.canEditProps()) return;
         if (!this.canSelectEvents()) {
             const map = this.currentMap();
             if (map) this.frameMap(map);

@@ -278,7 +278,7 @@ test('building happens in the world: the hammer in the toolbar opens a bar over 
     const mainSource = read('editor/src/main.js');
     assert.match(mainSource, /this\.buildHotbar = new BuildHotbar\(this\.projectController\)/);
     assert.match(mainSource, /this\.buildHotbar\.mount\(document\.getElementById\('canvas-container'\)\)/, 'mounted over the map canvas');
-    assert.match(mainSource, /\['\[data-action="build-tool"\]','pieces'\]/, 'the button lights while building');
+    assert.match(mainSource, /\['\.tool-button\[data-action="build-tool"\]','pieces'\]/, 'the button lights while building (the toolbar button, not the Tools menu entry)');
     assert.match(mainSource, /else this\.buildHotbar\?\.hide\(false\);/, 'another owner puts the tool down and the bar away');
     assert.match(mainSource, /new PieceBuilderManager\(this\.projectController\)/);
     const barSource = read('editor/src/BuildHotbar.js');
@@ -1003,6 +1003,19 @@ test('Stamp puts a plan down turned by the turn in hand, one undo step', () => {
     const [w0, h0] = stampWith(0), [w1, h1] = stampWith(1);
     assert.notEqual(w0, h0, 'the Cottage is not square, so a turn shows');
     assert.deepEqual([w1, h1], [h0, w0]);
+    // A model standing where the plan goes is pushed aside; the undo puts it back, the redo aside again.
+    const map = { width: 40, height: 40, reactor3d: { version: 1 } };
+    const E = context.RRMapElevation;
+    const manager = new context.PieceBuilderManager({ getTilemapManager: () => ({ currentMap: map }) });
+    Object.assign(manager, { structures: () => [{ file: 'Cottage.json', name: 'Cottage', plan }], structure: 'Cottage.json', announce() {} });
+    const id = E.addProp(map, { name: 'Tree', file: 'Tree', ext: '.glb', x: 5.5, y: 5.5, size: 1, scale: 1 });
+    manager.stampAt(2, 3);
+    const aside = [E.propById(map, id).x, E.propById(map, id).y];
+    assert.notDeepEqual(aside, [5.5, 5.5], 'pushed off the footprint');
+    manager.undo();
+    assert.deepEqual([E.propById(map, id).x, E.propById(map, id).y], [5.5, 5.5], 'undone, it stands where it stood');
+    manager.redo();
+    assert.deepEqual([E.propById(map, id).x, E.propById(map, id).y], aside);
 });
 
 test('window glass runs along its wall, whichever way the wall runs', () => {
@@ -1444,4 +1457,99 @@ test('rock tops, tints and the rock brush: rows, filled areas, each rock its own
     manager.beginStroke({ x: 1, y: 11, z: 0, height: 1 }); manager.endStroke();
     assert.equal(rocks().length, before - 1);
     assert.equal(rocks().some(p => p.id === anchor.id), false, 'the rock the cell belongs to');
+});
+
+test('out of order: Ctrl+Z mid-drag takes back the drag, a turn at the map edge slides, a struck rock goes before the floor under it', () => {
+    const context = { console, window: {}, document: { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} }, CustomEvent: class { constructor(t, i) { this.type = t; this.detail = i && i.detail; } } };
+    context.window = context;
+    vm.runInNewContext(read('editor/src/utils/MapElevation.js'), context);
+    vm.runInNewContext(read('editor/src/PieceBuilderManager.js'), context);
+    const E = context.RRMapElevation;
+    const map = { id: 3, width: 12, height: 12, reactor3d: { version: 1 } };
+    const manager = new context.PieceBuilderManager({ getTilemapManager: () => ({ currentMap: map }) });
+    manager.setKind('wall');
+    manager.beginStroke({ x: 0, y: 0, z: 0 }); manager.endStroke();
+    // A row, Ctrl+Z halfway: the row goes, the wall before it stays, and the rest of the drag lays nothing.
+    manager.beginStroke({ x: 2, y: 2, z: 0 }); manager.paintAt({ x: 3, y: 2, z: 0 });
+    manager.undo();
+    assert.equal(E.pieces(map).length, 1, 'the row so far is taken back, not the wall laid before it');
+    assert.equal(manager.paintAt({ x: 4, y: 2, z: 0 }), false, 'the drag lays nothing more');
+    manager.endStroke();
+    assert.deepEqual([manager.undoStack.length, manager.redoStack.length], [1, 1]);
+    manager.redo();
+    assert.equal(E.pieces(map).length, 3, 'redo brings the row back');
+    // The same for a Ctrl-rectangle (Z pressed with Ctrl still held).
+    manager.setKind('floor');
+    manager.beginStroke({ x: 6, y: 6, z: 0 }, undefined, { rectangle: true });
+    manager.paintAt({ x: 9, y: 9, z: 0 }, { rectangle: true });
+    manager.undo();
+    manager.paintAt({ x: 10, y: 10, z: 0 }, { rectangle: true });
+    manager.endStroke();
+    assert.equal(E.pieces(map).length, 3, 'no rectangle laid after the undo');
+    manager.undo();
+    assert.equal(E.pieces(map).length, 1, 'the next undo takes the row, one step each');
+    // A row along the bottom edge turned: it stands up inside the map, one wall a cell, not stacked on one.
+    E.restorePieces(map, []);
+    for (let x = 2; x <= 6; x++) E.setPiece(map, { kind: 'wall', x, y: 11, z: 0 });
+    manager.mode = 'select'; manager.selectInBox(0, 11, 11, 11);
+    manager.turnSelection();
+    assert.equal(new Set(E.pieces(map).map(p => p.x + ',' + p.y)).size, 5, 'five cells');
+    assert.ok(E.pieces(map).every(p => p.x === 2 && p.y >= 7 && p.y <= 11 && p.rot === 1));
+    // A hand-built group turned in Move: a shape's shift in its cell turns with it.
+    E.restorePieces(map, [{ id: 1, kind: 'floor', x: 1, y: 1, z: 0, group: 2 }, { id: 2, kind: 'floor', x: 2, y: 1, z: 0, group: 2 }, { id: 3, kind: 'box', x: 1, y: 1, z: 0, size: [1, 1, 1], offset: [0.25, 0], group: 2 }]);
+    E.rotatePieceGroup(map, 2);
+    const box = E.pieces(map).find(p => p.kind === 'box');
+    assert.deepEqual([box.x, box.y, box.rot, box.angle, ...box.offset], [1, 1, 1, 0, 0, 0.25]);
+    // The hammer strikes a rock's side over a floor cell: the rock goes, the floor stays.
+    loadThree();
+    context.Reactor3D = require(path.resolve(__dirname, '..', '..', 'runtime/reactor_3d.js'));
+    E.restorePieces(map, [{ id: 1, kind: 'floor', x: 4, y: 4, z: 0 }, { id: 2, kind: 'floor', x: 5, y: 4, z: 0 }, { id: 3, kind: 'rock', x: 5, y: 4, z: 0, size: [3, 3, 3], material: 'Rock' }]);
+    manager.setMode('erase');
+    assert.equal(manager.removeAt({ x: 4, y: 4, z: 1, height: 1.5 }), true);
+    assert.deepEqual(E.pieces(map).map(p => p.kind), ['floor', 'floor']);
+    // Ctrl+D lays a rock's copy clear of it, not a cell over inside it.
+    E.restorePieces(map, [{ id: 1, kind: 'rock', x: 3, y: 3, z: 0, size: [3, 3, 3], material: 'Rock' }]);
+    manager.mode = 'select'; manager.selected = 1; manager.selectedIds = [];
+    assert.equal(manager.duplicateSelection(), true);
+    const cells = E.pieces(map).map(p => context.Reactor3D.pieceFootprint(p).map(c => c[0]));
+    assert.ok(Math.min(...cells[1]) > Math.max(...cells[0]), 'the copy starts east of the rock\'s last cell');
+    // A selected piece taken off (a right-click with a slot in hand, or undone) lets go: the next piece laid takes its id, unselected.
+    E.restorePieces(map, []);
+    manager.setKind('wall');
+    manager.beginStroke({ x: 1, y: 1, z: 0 }); manager.endStroke();
+    manager.beginStroke({ x: 3, y: 1, z: 0 }); manager.endStroke();
+    manager.mode = 'select'; manager.selectAt({ x: 3, y: 1, z: 0 });
+    manager.setKind('wall');
+    manager.removeAt({ x: 3, y: 1, z: 0 });
+    manager.beginStroke({ x: 6, y: 6, z: 0 }); manager.endStroke();
+    assert.equal(E.pieceAt(map, 6, 6, 0).id, 2, 'the id comes round again');
+    assert.deepEqual([...manager.selectionIds()], [], 'and the new wall is not selected');
+    manager.mode = 'select'; manager.selectAt({ x: 6, y: 6, z: 0 });
+    manager.undo();
+    assert.deepEqual([...manager.selectionIds()], [], 'undone, it lets go too');
+    // A paste takes the slots it lands on, as laying there would: one wall on the cell, not two inside each other.
+    manager.redo();
+    manager.mode = 'select'; manager.selectAt({ x: 1, y: 1, z: 0 });
+    manager.copySelection();
+    manager.pasteAt({ x: 6, y: 6, z: 0 });
+    assert.deepEqual([...E.pieces(map).filter(p => p.x === 6 && p.y === 6).map(p => p.kind)], ['wall'], 'the pasted wall replaced the one there');
+    manager.undo();
+    assert.equal(E.pieces(map).filter(p => p.x === 6 && p.y === 6).length, 1, 'and the undo brings the old one back');
+    // The panel follows what an undo changes under the same selection, and a drag ends as one step on an undo.
+    const bar = read('editor/src/BuildHotbar.js'), view = read('editor/src/MapEditor3D.js');
+    assert.match(bar, /const shape = JSON\.stringify\(\[manager\.selected, manager\.selectedIds, manager\.selectedGroup,[^\n]*flight && \[flight\.steps, flight\.width, flight\.height\]\]\)/);
+    assert.match(view, /if \(drag && \(drag\.gizmo \|\| drag\.pieceMove\)\) \{\s+this\.endPieceDrag\(drag\);/);
+    // R, Delete, Ctrl+V or Ctrl+D while pieces are carried: the carry so far is a step of its own first.
+    const builder = read('editor/src/PieceBuilderManager.js');
+    for (const name of ['turnSelection\\(steps = 1\\)', 'removeSelection\\(\\)', 'pasteAt\\(target\\)', 'duplicateSelection\\(\\)']) assert.match(builder, new RegExp('    ' + name + ' \\{\\s+this\\._settleCarry\\(\\);'), name);
+    assert.match(view, /if \(carryOn && drag\.pieceMove\) \{ record\.snapshot = null; record\.moved = false; record\.split = true; return changed; \}/);
+    assert.match(view, /manager\._takeSlots\(this\.currentMap\(\), new Set\(carried\.map\(piece => piece\.id\)\)\)/, 'a carry set down takes its cells');
+    assert.equal((view.match(/if \(!move\.snapshot\) move\.snapshot = manager\._snapshot\(this\.currentMap\(\)\);/g) || []).length, 2, 'the carry after a split starts its step on its next move');
+    // Building keeps Ctrl+C/V/D in every slot (a wall in hand once copied and pasted the whole map), and a double-click keeps the camera.
+    assert.match(read('editor/src/UIManager.js'), /const worldTool = window\.reactor\?\.modelPropsManager\?\.active \|\| window\.reactor\?\.pieceBuilderManager\?\.active \|\| window\.reactor\?\.buildHotbar\?\.visible;/);
+    assert.match(view, /handleDoubleClick\(event\) \{[\s\S]{0,200}if \(this\.canEditPieces\(\) \|\| this\.canEditTerrain\(\) \|\| this\.canEditProps\(\)\) return;/);
+    // A slider moved by its arrow keys, and the surface tint's popup, are undo steps too.
+    assert.match(bar, /if \(!snapshot && \(placed \|\| s\.kind === 'many'\)\) snapshot = manager\._snapshot\(manager\.currentMap\(\)\);/);
+    assert.match(bar, /RRColorPopup\.bind\(surfaceTint, hex => \{ setSurface\(\{ tint: hex \}, !recorded\); recorded = true; \}\);/);
+    assert.match(view, /'move:' \+ manager\.selectedGroup \+ ':' \+ stamp\.size\.join\('x'\)/);
 });

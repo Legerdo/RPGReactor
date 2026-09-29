@@ -184,7 +184,7 @@ test('the Structures floor plan has a Select tool, and its piece index no longer
 
 test('while building, Ctrl+Z and the toolbar Undo reach the builder; the workshop swaps the maps for its structures', () => {
     const ui = read('editor/src/UIManager.js'), main = read('editor/src/main.js'), pieces = read('editor/src/PieceBuilderManager.js'), workshop = read('editor/src/StructureWorkshop.js');
-    assert.match(main, /getBuildHistory: \(\) => \(this\.pieceBuilderManager\?\.active \? this\.pieceBuilderManager : this\.terrainManager\?\.active \? this\.terrainManager : null\)/);
+    assert.match(main, /getBuildHistory: \(\) => \(this\.pieceBuilderManager\?\.active \? this\.pieceBuilderManager\s*: this\.terrainManager\?\.active \? this\.terrainManager\s*: this\.lightingManager\?\.active \? this\.lightingManager\s*: this\.mediaSurfaceManager\?\.panel \? this\.mediaSurfaceManager\.historyOwner\(\) : null\)/);
     assert.match(ui, /const build = this\.callbacks\.getBuildHistory\?\.\(\);\s*if \(build\) \{ build\.undo\(\); return; \}/, 'Ctrl+Z');
     assert.match(ui, /const build = this\.callbacks\.getBuildHistory\?\.\(\);\s*if \(build\) \{ build\.redo\(\); return; \}/, 'Ctrl+Y');
     assert.match(ui, /case 'undo':\s*if \(this\.callbacks\.getBuildHistory\?\.\(\)\) \{ this\.callbacks\.getBuildHistory\(\)\.undo\(\); break; \}/, 'the Undo button');

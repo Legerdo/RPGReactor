@@ -113,6 +113,7 @@ class TerrainManager {
         const look = this.panel?.querySelector('.rr-terrain-look');
         if (look) look.hidden = mode !== 'look';
         window.reactor?.mapEditor3D?.hideWaterGhost?.();
+        this._preview = null;
         this.panel?.querySelectorAll('.rr-terrain-mode').forEach(button => button.setAttribute('aria-checked', String(button.dataset.terrainMode === mode)));
     }
 
@@ -140,6 +141,8 @@ class TerrainManager {
     }
 
     refreshStatus() {
+        // The Build bar's panel says it too (an undo from the keyboard does not redraw it).
+        window.reactor?.buildHotbar?.refreshTerrainStatus?.(this.statusText());
         const status = this.panel?.querySelector('.rr-terrain-status');
         if (!status || Date.now() < (this._flashUntil || 0)) return;
         const map = this.currentMap(), elevation = this.elevation();
@@ -176,10 +179,15 @@ class TerrainManager {
 
     deactivate() {
         if (!this.active) return;
+        if (this._lookSnapshot) this.editLook({}, 'commit');
+        // Another tool taken up mid-stroke: the stroke so far is a step, its ponds and pieces follow the ground.
+        if (this._stroke) this.endStroke();
         this.active = false;
         this.selectedWater = null;
         window.reactor?.mapEditor3D?.showWaterSelection?.(null);
-        this._stroke = null;
+        // Pour's preview goes with the tool; picked up again, it shows at once.
+        window.reactor?.mapEditor3D?.hideWaterGhost?.();
+        this._preview = null;
         const mapEditor = window.reactor?.mapEditor;
         if (mapEditor && this._resumeMapEditor) {
             mapEditor.setEnabled(true);
@@ -245,6 +253,8 @@ class TerrainManager {
      * outlined, and its look fills the panel. Null lets go.
      */
     selectWater(region) {
+        // A look still being changed (a colour a moment from its commit) is kept as its own step first.
+        if (this._lookSnapshot) this.editLook({}, 'commit');
         this.selectedWater = region ? { x0: region.x0, y0: region.y0, x1: region.x1, y1: region.y1, level: region.level } : null;
         if (region) this.waterLook = this.lookOf(region);
         this._lookSnapshot = null;
@@ -268,6 +278,8 @@ class TerrainManager {
         Object.assign(this.waterLook, patch || {});
         const map = this.currentMap(), elevation = this.elevation(), region = this.selectedRegion();
         if (!map || !elevation || !region) return false;
+        // A commit with nothing gathered and nothing new (a late timer after the step was kept) is no step.
+        if (phase !== 'live' && !this._lookSnapshot && !Object.keys(patch || {}).length) return false;
         if (!this._lookSnapshot) this._lookSnapshot = elevation.waterSnapshot(map);
         elevation.styleWaterRegion(map, region, this.waterLook);
         if (phase === 'live') {
@@ -341,21 +353,32 @@ class TerrainManager {
             mode: this.mode, radius: this.radius, strength: this.strength, reference: this._stroke.reference
         });
         this._stroke.last = { x: point.x, y: point.y };
-        if (changed) { this._stroke.moved = true; this.announce(changed); }
+        if (changed) {
+            this._stroke.moved = true;
+            const seen = this._stroke.region;
+            this._stroke.region = seen ? { x0: Math.min(seen.x0, changed.x0), x1: Math.max(seen.x1, changed.x1), z0: Math.min(seen.z0, changed.z0), z1: Math.max(seen.z1, changed.z1) } : changed;
+            this.announce(changed);
+        }
         return changed;
     }
 
     endStroke() {
         if (this._stroke && !this._stroke.moved) this.undoStack.pop();
-        else if (this._stroke) this.refitWater();
+        else if (this._stroke) {
+            // A sheet the stroke reached is laid again even when its outline held: its depth is the ground's.
+            if (!this.refitWater() && this._reachesWater(this._stroke.region)) this.announce(null, true);
+            this._relayPieces(this._stroke.region);
+            this._seal(this.undoStack[this.undoStack.length - 1]);
+        }
         this._stroke = null;
         this.refreshStatus();
         this.syncHistoryButtons();
     }
 
     // Ctrl+Z / Ctrl+Y and the toolbar's Undo and Redo reach these through the editor's one undo shortcut (UIManager) while the tool is up.
-    undo() { this._swap(this.undoStack, this.redoStack); }
-    redo() { this._swap(this.redoStack, this.undoStack); }
+    // A stroke still being drawn closes first: it is the step undone.
+    undo() { if (this._stroke) this.endStroke(); this._swap(this.undoStack, this.redoStack); }
+    redo() { if (this._stroke) this.endStroke(); this._swap(this.redoStack, this.undoStack); }
     canUndo() { return this.undoStack.length > 0; }
     canRedo() { return this.redoStack.length > 0; }
     syncHistoryButtons() {
@@ -368,27 +391,101 @@ class TerrainManager {
         return { ground: true, terrain: elevation.terrainSnapshot(map), water: elevation.waterSnapshot(map) };
     }
 
+    /**
+     * A ground step is done: it keeps only the corners it moved, before and
+     * after, so undo and redo move those and leave the rest (a building's pad
+     * levelled since) alone, and a small stroke on a big map stays small.
+     */
+    _seal(entry) {
+        const map = this.currentMap(), elevation = this.elevation();
+        if (!entry || !entry.ground || !map || !elevation) return;
+        const before = entry.terrain, after = elevation.terrainSnapshot(map);
+        const size = (map.width + 1) * (map.height + 1);
+        entry.waterAfter = elevation.waterSnapshot(map);
+        if ((before && before.length !== size) || (after && after.length !== size)) { entry.after = after; return; }
+        const index = [], was = [], now = [];
+        for (let i = 0; i < size; i++) {
+            const a = before ? Number(before[i]) || 0 : 0, b = after ? Number(after[i]) || 0 : 0;
+            if (a !== b) { index.push(i); was.push(a); now.push(b); }
+        }
+        entry.changes = { size, index, was, now };
+        delete entry.terrain;
+    }
+
+    /** The tiles a sealed step's corners touch (`x0..x1`, `z0..z1`), or null for the whole map. */
+    _changesRegion(map, changes) {
+        if (!changes || !changes.index.length) return null;
+        const stride = map.width + 1;
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (const i of changes.index) { const x = i % stride, z = Math.floor(i / stride); x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+        return { x0: Math.max(0, x0 - 1), x1: Math.min(map.width, x1 + 1), z0: Math.max(0, z0 - 1), z1: Math.min(map.height, z1 + 1) };
+    }
+
+    /** Put one sealed step's corners to one side of it. */
+    _applyChanges(map, changes, undoing) {
+        const elevation = this.elevation();
+        if (changes.size !== (map.width + 1) * (map.height + 1)) return;
+        const grid = elevation.ensureTerrain(map);
+        if (!grid) return;
+        const values = undoing ? changes.was : changes.now;
+        for (let k = 0; k < changes.index.length; k++) grid[changes.index[k]] = values[k];
+        if (!elevation.hasTerrain(map)) elevation.clearTerrain(map);
+    }
+
     /** Ponds follow the ground after it changes shape; the view redraws them when one did. */
     refitWater() {
         const map = this.currentMap(), elevation = this.elevation();
-        if (map && elevation?.refitWater?.(map)) this.announce(null, true);
+        if (!map || !elevation?.refitWater?.(map)) return false;
+        this.announce(null, true);
+        return true;
+    }
+
+    /**
+     * Pieces and rocks stand on the ground: after it moved under them they
+     * are laid again, the cells of the region a stroke moved (`x0..x1`,
+     * `z0..z1` in tiles) or, with none, the whole map.
+     */
+    _relayPieces(region) {
+        const map = this.currentMap(), elevation = this.elevation();
+        if (!map || !elevation?.hasPieces?.(map) || typeof document === 'undefined' || typeof CustomEvent !== 'function') return;
+        const cells = region ? { x0: region.x0 - 1, y0: region.z0 - 1, x1: region.x1, y1: region.z1 } : null;
+        if (cells && !elevation.pieces(map).some(piece => piece.x >= cells.x0 && piece.x <= cells.x1 && piece.y >= cells.y0 && piece.y <= cells.y1)) return;
+        document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: map.id, pieces: true, region: cells } }));
+    }
+
+    /** Whether a region a stroke moved (`x0..x1`, `z0..z1` in tiles) reaches a sheet or the shore it laps. */
+    _reachesWater(region) {
+        const map = this.currentMap(), elevation = this.elevation();
+        if (!region || !map || !elevation?.water) return false;
+        return elevation.water(map).some(sheet => region.x0 <= sheet.x1 + 2 && region.x1 >= sheet.x0 - 1 && region.z0 <= sheet.y1 + 2 && region.z1 >= sheet.y0 - 1);
     }
 
     _swap(from, to) {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !from.length) return;
         const entry = from.pop();
+        if (entry && entry.ground && (entry.changes || entry.after !== undefined)) {
+            const undoing = from === this.undoStack;
+            if (entry.changes) this._applyChanges(map, entry.changes, undoing);
+            else elevation.restoreTerrainChanges(map, undoing ? entry.after : entry.terrain, undoing ? entry.terrain : entry.after);
+            elevation.restoreWater(map, undoing ? entry.water : entry.waterAfter);
+            // Ground another tool levelled since (a stamped building's pad) keeps its ponds fitted.
+            elevation.refitWater?.(map);
+            to.push(entry);
+            this.announce(); this.announce(null, true); this._relayPieces(this._changesRegion(map, entry.changes)); this.refreshStatus(); this._followHistory();
+            return;
+        }
         if (entry && entry.ground) {
             to.push(this.groundSnapshot(map));
             elevation.restoreTerrain(map, entry.terrain);
             elevation.restoreWater(map, entry.water);
-            this.announce(); this.announce(null, true); this.refreshStatus();
+            this.announce(); this.announce(null, true); this._relayPieces(null); this.refreshStatus(); this._followHistory();
             return;
         }
         if (entry && !Array.isArray(entry) && entry.water) {
             to.push({ water: elevation.waterSnapshot(map) });
             elevation.restoreWater(map, entry.water);
-            this.announce(null, true); this.refreshStatus();
+            this.announce(null, true); this.refreshStatus(); this._followHistory();
             return;
         }
         to.push(elevation.terrainSnapshot(map));
@@ -396,12 +493,31 @@ class TerrainManager {
         this.announce(); this.refreshStatus();
     }
 
+    /**
+     * After an undo or redo: the sheet picked for Look is let go when the
+     * step took it away, and otherwise the panel shows its look as it now
+     * is (a slider would else write the undone look straight back).
+     */
+    _followHistory() {
+        if (!this.selectedWater) return;
+        const region = this.selectedRegion();
+        if (!region) { this.selectWater(null); return; }
+        this.waterLook = this.lookOf(region);
+        this._lookSnapshot = null;
+        window.reactor?.buildHotbar?.render?.();
+    }
+
     clear() {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !elevation.hasTerrain(map)) return;
-        this.undoStack.push(this.groundSnapshot(map)); this.redoStack.length = 0;
+        const saved = this.groundSnapshot(map);
+        this.undoStack.push(saved); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
         elevation.clearTerrain(map);
-        this.announce(); this.refitWater(); this.refreshStatus();
+        this.announce();
+        if (!this.refitWater() && elevation.hasWater(map)) this.announce(null, true);
+        this._seal(saved);
+        this._relayPieces(saved.changes ? this._changesRegion(map, saved.changes) : null);
+        this.refreshStatus();
     }
 
     /**

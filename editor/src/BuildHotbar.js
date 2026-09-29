@@ -508,7 +508,12 @@ class BuildHotbar {
             setSurface({ [el.dataset.key]: Math.max(0, Math.min(100, n)) / 100 }, true); this.renderPanel();
         }));
         const surfaceTint = panel.querySelector('.rr-build-surface-tint');
-        if (surfaceTint && typeof RRColorPopup !== 'undefined') RRColorPopup.bind(surfaceTint, hex => setSurface({ tint: hex }, false));
+        if (surfaceTint && typeof RRColorPopup !== 'undefined') {
+            // One undo step each time the popup is opened, however long the colour is dragged about.
+            let recorded = false;
+            surfaceTint.addEventListener('click', () => { recorded = false; });
+            RRColorPopup.bind(surfaceTint, hex => { setSurface({ tint: hex }, !recorded); recorded = true; });
+        }
         panel.querySelectorAll('.rr-build-material').forEach(el => el.addEventListener('click', () => edit({ material: el.dataset.material }, () => manager.setMaterial(el.dataset.material))));
         panel.querySelectorAll('.rr-build-rot').forEach(el => el.addEventListener('click', () => { const r = Number(el.dataset.rot); edit(s.shape ? { angle: r * 90 } : { rot: r }, () => { manager.rot = r; manager._syncPanel(); manager._ghostChanged(); }); }));
         panel.querySelectorAll('.rr-build-size').forEach(el => el.addEventListener('change', () => {
@@ -530,6 +535,8 @@ class BuildHotbar {
             let snapshot = null;
             el.addEventListener('pointerdown', () => { snapshot = placed || s.kind === 'many' ? manager._snapshot(manager.currentMap()) : null; });
             el.addEventListener('input', () => {
+                // An arrow key on a focused slider comes with no press: its undo step is taken here.
+                if (!snapshot && (placed || s.kind === 'many')) snapshot = manager._snapshot(manager.currentMap());
                 const v = Number(el.value), key = el.dataset.key, kind = el.dataset.for;
                 number.value = kind === 'rr-build-surface' ? Math.round(v * 100) : el.value;
                 if (kind === 'rr-build-surface') { if (placed || !s.piece) setSurface({ [key]: v }, false); return; }
@@ -607,7 +614,9 @@ class BuildHotbar {
         } else {
             const look = terrain.waterLook;
             const keys = ['reflect', 'gloss', 'tint', 'colour', 'clear', 'waves', 'glow'];
-            const same = preset => keys.every(key => (preset[key] ?? '') === (look[key] ?? ''));
+            // Without a reflection the gloss and tint are not kept (lava read back is still lava).
+            const plain = preset => !(Number(preset.reflect) > 0) && !(Number(look.reflect) > 0);
+            const same = preset => keys.every(key => (preset[key] ?? '') === (look[key] ?? '') || ((key === 'gloss' || key === 'tint') && plain(preset)));
             const swatch = (cls, value) => typeof RRColorPopup !== 'undefined' ? RRColorPopup.swatch(cls, value) : `<input type="color" class="${cls}" value="${value}">`;
             // The liquid (what it is), then how it reflects.
             body = section(t('terrain.liquid'), `<div class="rr-build-finishes">${Object.keys(TerrainManager.WATER_LOOKS).map(p => `<button type="button" class="rr-build-chip rr-build-look" data-preset="${p}" aria-pressed="${same(TerrainManager.WATER_LOOKS[p])}"><span>${t('terrain.look.' + p)}</span></button>`).join('')}</div>`
@@ -626,7 +635,7 @@ class BuildHotbar {
         const status = terrain.statusText ? terrain.statusText() : '';
         const iconButton = (cls, icon, key) => `<button type="button" class="rr-btn-secondary rr-build-icon-btn ${cls}" title="${t(key)}" aria-label="${t(key)}">${this.icon(icon, 16)}</button>`;
         panel.innerHTML = `<div class="rr-build-panel-head">${this.icon(slot, 20)}<span>${this.label(slot)}</span></div>`
-            + `<div class="rr-build-panel-body">${body}${status ? `<div class="rr-build-note rr-build-wrap rr-build-tstatus">${status}</div>` : ''}</div>`
+            + `<div class="rr-build-panel-body">${body}<div class="rr-build-note rr-build-wrap rr-build-tstatus"${status ? '' : ' hidden'}>${status}</div></div>`
             + `<div class="lit-section-footer rr-build-panel-foot">${iconButton('rr-build-tundo', 'undo', 'terrain.undo')}${iconButton('rr-build-tredo', 'redo', 'terrain.redo')}${['raise', 'lower', 'smooth', 'flatten'].includes(slot) ? iconButton('rr-build-tclear', 'level', 'terrain.clear') : ''}</div>`;
         const bindRange = (cls, apply, show) => panel.querySelector('.' + cls)?.addEventListener('input', event => {
             apply(Number(event.target.value));
@@ -666,6 +675,14 @@ class BuildHotbar {
         panel.querySelector('.rr-build-tclear')?.addEventListener('click', () => { terrain.clear(); this.renderTerrainPanel(); });
     }
 
+    /** The Terrain panel's line about the ground and its water, kept in step without redrawing the panel. */
+    refreshTerrainStatus(text) {
+        const line = this.visible && this.group() === 'terrain' ? this.panel?.querySelector('.rr-build-tstatus') : null;
+        if (!line) return;
+        line.textContent = text || '';
+        line.hidden = !text;
+    }
+
     /** The manager changed: the bar and the panel follow. */
     sync() {
         if (!this.visible || !this.root) return;
@@ -685,7 +702,9 @@ class BuildHotbar {
         // A selection change or a live drag redraws the panel, without stealing a field being typed in.
         if (document.activeElement && this.panel.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
         const piece = manager.selectedPiece?.();
-        const shape = JSON.stringify([manager.selected, manager.selectedIds, manager.mode, manager.kind, manager.material, manager.rot, manager.gizmoMode, piece && piece.kind, piece && piece.material, piece && piece.rot]);
+        // A flight's steps and a ladder's size are its other pieces (an undo can change them under the same foot).
+        const flight = piece && piece.kind === 'stair' ? manager.stairFlight?.(piece) : piece && piece.kind === 'ladder' ? manager.ladderFlight?.(piece) : null;
+        const shape = JSON.stringify([manager.selected, manager.selectedIds, manager.selectedGroup, manager.mode, manager.kind, manager.material, manager.rot, manager.gizmoMode, piece && piece.kind, piece && piece.material, piece && piece.rot, flight && [flight.steps, flight.width, flight.height]]);
         const key = shape + JSON.stringify(piece || null);
         if (key === this._panelKey) return;
         // The same piece moved, turned or sized (a handle drag): the numbers follow in place.
