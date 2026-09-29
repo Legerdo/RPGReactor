@@ -339,6 +339,8 @@ class Database3DEditor {
      */
     _onKeyDown(event) {
         if (!this._detail || !this._detail.isConnected) return;
+        // A dialog over the page (Preset Motions, a picker) takes its own keys.
+        if (event.target && event.target.closest && event.target.closest('.rr-modal-overlay')) return;
         const consume = () => {
             event.stopPropagation();
             event.preventDefault();
@@ -363,6 +365,12 @@ class Database3DEditor {
                 this.selectionUndo();
                 consume();
             }
+            return;
+        }
+        // Escape leaves the Motion editor before it would close the database.
+        if (event.key === 'Escape' && this.motionEditor && this.motionEditor.active) {
+            this.motionEditor.close();
+            consume();
             return;
         }
         if (this.selectedPartName === null) return;
@@ -7197,7 +7205,10 @@ class Database3DEditor {
             </div>`;
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
-        const close = () => overlay.remove();
+        // Escape closes this dialog, not the database under it.
+        const keys = typeof RRKeyboardNavigation !== 'undefined' && RRKeyboardNavigation.modal
+            ? RRKeyboardNavigation.modal(overlay, { onEscape: () => close() }) : null;
+        const close = () => { keys?.leave?.(); overlay.remove(); };
         modal.querySelector('.r3d-presets-close').addEventListener('click', close);
         modal.querySelector('.r3d-presets-done').addEventListener('click', close);
         // A click on the backdrop no longer closes the dialog: close deliberately.
@@ -7237,6 +7248,7 @@ class Database3DEditor {
             card.appendChild(apply);
             grid.appendChild(card);
         }
+        keys?.enter?.();
     }
 
     /** Whether the model plays its rig's default motions (the sidecar's `defaultMotions`). */
@@ -7256,13 +7268,28 @@ class Database3DEditor {
         this.renderRuleList();
     }
 
+    /**
+     * Keep every remembered rule index (the card's rule, the list's
+     * selection, each part's remembered work) on the same rule after the
+     * list was rebuilt from `before`; a rule that is gone leaves -1.
+     */
+    _followRuleIndexes(before) {
+        const after = this.rawAnimations;
+        const follow = index => Number.isInteger(index) && index >= 0 && before[index] ? after.indexOf(before[index]) : -1;
+        this._editingRule = follow(this._editingRule);
+        this.selectedRule = follow(this.selectedRule);
+        for (const snapshot of Object.values(this._poses || {})) snapshot.editingRule = follow(snapshot.editingRule);
+    }
+
     applyMotionPreset(preset) {
         // Reapplying replaces the preset's own rules; hand-authored ones
         // (different names) are untouched.
+        const before = this.rawAnimations;
         this.rawAnimations = this.rawAnimations.filter(raw => raw.name !== preset.name);
         for (const rule of preset.rules) {
             this.rawAnimations.push(JSON.parse(JSON.stringify(rule)));
         }
+        this._followRuleIndexes(before);
         this.saveRules();
         // An open Motion editor on that motion shows the preset, not its old tracks to save over it.
         if (this.motionEditor && this.motionEditor.active && this.motionEditor.motion.original === preset.name) this.motionEditor.open(preset.name);
@@ -7384,7 +7411,27 @@ class Database3DEditor {
     }
 
     /** One on-demand motion, played once on the preview (the one on the card plays the card's values). */
+    /**
+     * ▶ while the Motion editor is open: its own motion plays on the
+     * timeline; anything else closes the editor first, which otherwise
+     * pins the preview to its playhead. True when the editor took it.
+     */
+    _motionEditorTakesPlay(name) {
+        const editor = this.motionEditor;
+        if (!editor || !editor.active) return false;
+        if (name !== undefined && (name === editor.motion.original || name === editor.motion.name)) {
+            editor.playing = true;
+            editor._playFrom = null;
+            editor.playhead = 0;
+            editor.renderPlayButton();
+            return true;
+        }
+        editor.close();
+        return false;
+    }
+
     playRuleAction(name) {
+        if (this._motionEditorTakesPlay(name)) return;
         const index = this.playRules.findIndex(rule => rule.trigger === 'action' && rule.name === name);
         if (index < 0) return;
         if (index === this._editingRule) { this.previewPose(); return; }
@@ -7570,6 +7617,7 @@ class Database3DEditor {
     /** Play a baked clip straight from the list, no rule required. */
     playEmbeddedClip(clipName) {
         if (typeof Reactor3D === 'undefined' || !this._binding) return;
+        this._motionEditorTakesPlay();
         const values = { type: 'clip', trigger: 'action' };
         values.name = '__preview';
         values.clip = clipName;

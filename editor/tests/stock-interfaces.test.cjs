@@ -287,3 +287,33 @@ test('the Battle baseline is the Demo\'s MOG battle HUD: picture panels in a cen
     assert.deepStrictEqual([small.columns, small.width, small.x, small.y], [4, 680, 68, 444], 'four panels fit an 816x624 screen');
 });
 
+
+test('Stock Layout drops a binding its presentation cannot fill, and Undo restores the record and the binding', () => {
+    const Editor = require('../src/database/DatabaseUserInterfaceEditor.js');
+    const previous = global.RRStockInterfaces;
+    global.RRStockInterfaces = Stock;
+    try {
+        const system = Object.assign({}, fixtureSystem, { reactorBattleInterfaceId: 8 });
+        const editor = Object.create(Editor.prototype);
+        const hud = Object.assign(Stock.buildOne('battle', { system }), { id: 8, name: 'Battle' });
+        Object.assign(editor, {
+            databaseManager: { data: { system } }, wrapper: null, _t: text => text,
+            current: editor.normalizeInterface.call({ databaseManager: { data: { system } }, nextNodeId: Editor.prototype.nextNodeId }, hud),
+            undoStack: [], redoStack: [], selectedIds: new Set(), selectedId: 0,
+            renderTree() {}, renderProperties() {}, refreshFirstFocus() {}, scheduleRender() {}
+        });
+        const before = JSON.stringify(editor.current);
+        assert.equal(editor.applyStockLayout('item'), true);
+        assert.deepStrictEqual([editor.current.mode, editor.current.stock, system.reactorBattleInterfaceId], ['scene', 'item', 0],
+            'a focused scene cannot be the battle HUD');
+        editor.undo();
+        assert.deepStrictEqual([editor.current.mode, editor.current.stock, system.reactorBattleInterfaceId], ['battle', 'battle', 8]);
+        const { roles: rolesAfter, ...restored } = editor.current;
+        const { roles: rolesBefore, ...original } = JSON.parse(before);
+        assert.deepStrictEqual(JSON.parse(JSON.stringify(restored)), original);
+        editor.redo();
+        assert.deepStrictEqual([editor.current.mode, editor.current.stock, system.reactorBattleInterfaceId], ['scene', 'item', 0]);
+    } finally {
+        if (previous === undefined) delete global.RRStockInterfaces; else global.RRStockInterfaces = previous;
+    }
+});

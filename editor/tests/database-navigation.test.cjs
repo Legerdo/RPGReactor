@@ -624,3 +624,33 @@ test('actor equipment hides unsupported slots and trait pickers preserve sparse 
     assert.deepEqual(fixtureBindings, fixtureSlots.map((etypeId, slotIndex) => ({ etypeId, slotIndex })));
     assert.match(fs.readFileSync(path.join(repoRoot, 'index.html'), 'utf8'), /src\/utils\/EquipSlots\.js/);
 });
+
+test('New opens the record it adds, so the detail matches the list selection', () => {
+    const source = fs.readFileSync(path.join(repoRoot, 'src', 'DatabaseEditorUI.js'), 'utf8');
+    const handler = source.slice(source.indexOf('addBtn.onclick = () => {'), source.indexOf('const deleteBtn = document.createElement'));
+    assert.match(handler, /refreshList\(\);\n\s*\/\/[^\n]*\n\s*this\.showDatabaseDetail\(this\.databaseManager\.data\[type\]\?\.\[newEntry\.id\] \|\| newEntry, type, \{ reuse: true \}\);/);
+});
+
+test('opening a record that fills in its defaults is not an edit: Cancel\'s baseline and the saved state take the filled-in record', () => {
+    const DatabaseEditorUI = loadBrowserClass(path.join(repoRoot, 'src', 'DatabaseEditorUI.js'), 'DatabaseEditorUI');
+    const ui = Object.create(DatabaseEditorUI.prototype);
+    const data = { userInterfaces: [null, { id: 1, name: 'Title' }, { id: 2, name: 'Menu' }], actors: [null] };
+    const manager = {
+        data, savedState: {},
+        serialize: value => JSON.stringify(value),
+        captureSavedState(key) { this.savedState[key] = this.serialize(this.data[key]); }
+    };
+    manager.captureSavedState('userInterfaces');
+    ui.databaseManager = manager;
+    ui._dataSnapshot = JSON.stringify(data);
+    const fill = record => { record.mode = record.mode || 'scene'; return record; };
+    assert.equal(ui.normalizeOnView('userInterfaces', data.userInterfaces[1], fill), data.userInterfaces[1]);
+    assert.equal(ui._dataSnapshot, JSON.stringify(data), 'nothing to discard');
+    assert.equal(manager.savedState.userInterfaces, JSON.stringify(data.userInterfaces), 'nothing to save');
+    // A real edit elsewhere stays an edit, and the saved state is left alone while the file has one.
+    data.userInterfaces[2].name = 'Main Menu';
+    ui.normalizeOnView('userInterfaces', data.userInterfaces[2], fill);
+    assert.equal(JSON.parse(ui._dataSnapshot).userInterfaces[2].name, 'Menu');
+    assert.equal(JSON.parse(ui._dataSnapshot).userInterfaces[2].mode, undefined, 'an edited record keeps its baseline');
+    assert.notEqual(manager.savedState.userInterfaces, JSON.stringify(data.userInterfaces));
+});

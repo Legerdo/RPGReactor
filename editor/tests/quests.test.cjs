@@ -906,3 +906,22 @@ for (const name of ['QuestSet', 'QuestObjective', 'QuestReward', 'OpenQuestLog']
         quest.value = '1';quest.listeners.change();assert.equal(ok.disabled,false);
     });
 }
+
+test('Escape in a picker opened from a quest dialog closes the picker, not the dialog, and a detail cleanup drops the dialog\'s key listener', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'database', 'DatabaseQuestEditor.js'), 'utf8');
+    const guards = source.match(/const nested = event\.target && event\.target\.closest && event\.target\.closest\('\.rr-modal-overlay'\);\n\s*if \(nested && nested !== overlay\) return;/g) || [];
+    assert.equal(guards.length, 1, 'Tracker and Labels opens a switch picker');
+    assert.equal((source.match(/registerDetailModal\(overlay, close\)/g) || []).length, 2);
+});
+
+test('a picked switch or variable stays on its button: the label the language pass first read goes with the old text', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'database', 'DatabaseQuestEditor.js'), 'utf8');
+    assert.equal((source.match(/button\.textContent = /g) || []).length, 1, 'every picker button is relabelled through setPickLabel');
+    const context = { console, module: { exports: {} }, window: {} };
+    vm.runInNewContext(source + '\n;globalThis.DatabaseQuestEditor = DatabaseQuestEditor;', context);
+    const attributes = { 'data-i18n-text-source': '(none)' };
+    const button = { textContent: '(none)', removeAttribute: name => { delete attributes[name]; } };
+    context.DatabaseQuestEditor.prototype.setPickLabel(button, '#0003 Door');
+    assert.equal(button.textContent, '#0003 Door');
+    assert.equal(attributes['data-i18n-text-source'], undefined);
+});

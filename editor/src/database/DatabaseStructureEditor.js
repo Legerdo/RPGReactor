@@ -343,6 +343,25 @@ class DatabaseStructureEditor {
         return out;
     }
 
+    /** The plot a built structure needs: every piece, light, screen, shape, effect and spot inside it. */
+    static builtExtent(plan) {
+        let w = 0, d = 0;
+        const cover = (x, y) => {
+            if (Number.isFinite(Number(x))) w = Math.max(w, Math.floor(Number(x)) + 1);
+            if (Number.isFinite(Number(y))) d = Math.max(d, Math.floor(Number(y)) + 1);
+        };
+        for (const row of [].concat(plan.pieces || [], plan.lights || [], plan.surfaces || [])) if (row) cover(row.x, row.y);
+        for (const row of [].concat(plan.shapes || [], plan.effects || [])) if (row && Array.isArray(row.at)) cover(row.at[0], row.at[1]);
+        for (const cell of Object.values(plan.spots || {})) if (Array.isArray(cell)) cover(cell[0], cell[1]);
+        // A described building: its rooms (corner to corner), windows and stairs.
+        for (const floor of plan.floors || []) {
+            for (const rect of Object.values(floor.rooms || {})) if (Array.isArray(rect)) cover(rect[2], rect[3]);
+            for (const cell of floor.windows || []) if (Array.isArray(cell)) cover(cell[0], cell[1]);
+        }
+        for (const stair of plan.stairs || []) if (stair && Array.isArray(stair.from)) cover(stair.from[0], stair.from[1]);
+        return [w, d];
+    }
+
     /** A cottage to start from: two rooms, a front door, a door between, a window every six cells. */
     /** An empty page with one floor and a style: the building is whatever gets drawn on it. */
     static newPlan(name) {
@@ -1085,9 +1104,16 @@ class DatabaseStructureEditor {
             this.renderMore();
         });
         for (const input of bar.querySelectorAll('.rr-structures-size')) {
+            // The plot never shrinks past what is built on it: those pieces could not be reached again.
+            const least = () => Math.max(DatabaseStructureEditor.SIZE_MIN, DatabaseStructureEditor.builtExtent(plan)[Number(input.dataset.i)]);
+            input.min = String(least());
             input.addEventListener('change', () => {
+                const i = Number(input.dataset.i);
+                const size = Math.max(least(), Math.min(DatabaseStructureEditor.SIZE_MAX, Math.floor(Number(input.value)) || DatabaseStructureEditor.SIZE_MIN));
+                input.value = String(size);
+                if (size === plan.size[i]) return;
                 this.pushHistory();
-                plan.size[Number(input.dataset.i)] = Math.max(DatabaseStructureEditor.SIZE_MIN, Math.min(DatabaseStructureEditor.SIZE_MAX, Math.floor(Number(input.value)) || DatabaseStructureEditor.SIZE_MIN));
+                plan.size[i] = size;
                 this.markDirty();
             });
         }

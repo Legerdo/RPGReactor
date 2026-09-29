@@ -313,8 +313,10 @@ class DatabaseActionSequenceEditor {
     phaseHead(phase,count,continued=false){const U=this.ui,B=ReactorBattleData,[,label,help]=B.actionPhases.find(([id])=>id===phase),head=U.element('div','rr-sequence-phase-head'+(continued?' rr-sequence-phase-continued':''));head.dataset.phaseHead=phase;head.title=continued?U.text(U.message('{phase} carries on here after the phase it called; these steps are still part of it.',{phase:U.text(label)})):U.text(help);
         head.append(U.element('span','rr-sequence-phase-number',String(B.phaseIds().indexOf(phase)+1),true),U.element('span','rr-sequence-phase-label',continued?U.message('{phase} (continued)',{phase:U.text(label)}):label));
         const tag=U.element('span','rr-sequence-phase-count',continued?'':count?U.message('{n} steps',{n:count}):'No steps');if(!continued)head.append(tag);
-        const add=U.button('+',()=>this.showStepPicker({phase,index:this.phaseInsertIndex(phase)}),true);add.classList.add('rr-sequence-phase-add');add.title=U.text('Add a step to this phase');add.setAttribute('aria-label',U.text('Add a step to this phase'));head.append(add);
-        if(!count){const inherit=U.button('Remove',()=>this.inheritPhase(phase));inherit.classList.add('rr-sequence-phase-inherit');inherit.title=U.text('Remove this empty phase; it then comes from the next level down, or the built-in action');head.append(inherit);}
+        const add=U.button('+',()=>this.showStepPicker({phase,index:this.phaseInsertIndex(phase)}),true);add.classList.add('rr-sequence-phase-add');add.title=U.text('Add a step to this phase');add.setAttribute('aria-label',U.text('Add a step to this phase'));
+        // The buttons wrap together under a long phase name, never one of them alone.
+        const actions=U.element('span','rr-sequence-phase-actions');actions.append(add);head.append(actions);
+        if(!count){const inherit=U.button('Remove',()=>this.inheritPhase(phase));inherit.classList.add('rr-sequence-phase-inherit');inherit.title=U.text('Remove this empty phase; it then comes from the next level down, or the built-in action');actions.append(inherit);}
         return head;}
     drawSteps(){const U=this.ui,B=ReactorBattleData,top=this.steps.scrollTop,focused=this.steps.contains(document.activeElement)?document.activeElement.dataset.stepId:null;this.steps.replaceChildren();
         const phased=B.purpose(this.sequence)==='action',counts={};if(phased)for(const step of this.sequence.steps)counts[B.stepPhase(step)]=(counts[B.stepPhase(step)]||0)+1;

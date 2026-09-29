@@ -91,3 +91,13 @@ test('the step picker asks which step to add and inserts the choice where it was
  // Escape closes without adding anything.
  const third=e.showStepPicker();third.querySelector('.rr-modal-close').fire('click');assert.equal(third.parentNode===null,true);assert.equal(inserted.length,3);
 });
+
+test('a phase head\'s buttons wrap together under a long name instead of running out of the step list', () => {
+    const fs = require('node:fs'), path = require('node:path');
+    const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'styles.css'), 'utf8');
+    const editor = fs.readFileSync(path.join(__dirname, '..', 'src', 'database', 'DatabaseActionSequenceEditor.js'), 'utf8');
+    assert.match(css, /\.rr-sequence-phase-head \{ display:flex;flex-wrap:wrap;/);
+    assert.match(css, /\.rr-sequence-phase-actions \{ display:flex;gap:6px;margin-inline-start:auto; \}/);
+    assert.match(editor, /const actions=U\.element\('span','rr-sequence-phase-actions'\);actions\.append\(add\);head\.append\(actions\);/);
+    assert.match(editor, /inherit\.classList\.add\('rr-sequence-phase-inherit'\);.{0,200}actions\.append\(inherit\);/);
+});

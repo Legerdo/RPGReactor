@@ -167,7 +167,10 @@ class RRMotionEditor {
         const mine = this.rulesOf(motion);
         const place = at >= 0 ? Math.min(at, kept.length) : kept.length;
         kept.splice(place, 0, ...mine);
+        const before = host.rawAnimations;
         host.rawAnimations = kept;
+        // Rules after this one moved when its part count changed.
+        if (typeof host._followRuleIndexes === 'function') host._followRuleIndexes(before);
         // The list's selection (what Delete removes) follows the motion to where it now stands.
         host.selectedRule = mine.length ? place : -1;
         motion.original = motion.name;
@@ -234,7 +237,7 @@ class RRMotionEditor {
                 ${m.trigger === 'action' || m.trigger === 'jumping' ? `<label class="r3d-motion-field"><input type="checkbox" class="r3d-motion-repeat"${m.repeat ? ' checked' : ''}> ${rrEscapeHtml(tt('Repeat'))}</label>
                 ${m.trigger === 'action' ? `<label class="r3d-motion-field" title="${rrEscapeHtml(tt('Held until another stance moves the same parts.'))}"><input type="checkbox" class="r3d-motion-hold"${m.hold ? ' checked' : ''}> ${rrEscapeHtml(tt('Stance'))}</label>` : ''}` : ''}
                 <span style="flex:1"></span>
-                <button type="button" class="rr-btn-secondary r3d-motion-play"></button>
+                <button type="button" class="rr-btn-secondary r3d-motion-play" data-rr-i18n-skip="1"></button>
                 <button type="button" class="r3d-motion-close" title="${rrEscapeHtml(tt('Close'))}">×</button>
             </div>
             <div class="r3d-motion-body">

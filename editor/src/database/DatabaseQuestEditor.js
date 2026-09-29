@@ -116,7 +116,8 @@ class DatabaseQuestEditor {
 
     showQuestDetail(container, quest) {
         const tt = text => this._t(text);
-        DatabaseQuestEditor.normalize(quest);
+        if (this.parentEditor && typeof this.parentEditor.normalizeOnView === 'function') this.parentEditor.normalizeOnView('quests', quest, DatabaseQuestEditor.normalize);
+        else DatabaseQuestEditor.normalize(quest);
         const settings = this.settings();
         container.innerHTML = '';
         const wrapper = document.createElement('div');
@@ -446,6 +447,9 @@ class DatabaseQuestEditor {
             if (onDone) onDone();
         };
         const onKey = event => {
+            // A switch picker opened from here closes on its own Escape.
+            const nested = event.target && event.target.closest && event.target.closest('.rr-modal-overlay');
+            if (nested && nested !== overlay) return;
             if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
         };
         overlay.querySelector('[data-label="all"]').value = settings.allLabel || '';
@@ -453,7 +457,7 @@ class DatabaseQuestEditor {
             const button = event.currentTarget;
             this.pickSwitchOrVariable('switch', tracker.hideSwitchId, id => {
                 tracker.hideSwitchId = id;
-                button.textContent = this.switchName(id);
+                this.setPickLabel(button, this.switchName(id));
             });
         });
         overlay.querySelector('.rr-modal-close').addEventListener('click', close);
@@ -461,7 +465,7 @@ class DatabaseQuestEditor {
         overlay.querySelector('.quest-settings-ok').addEventListener('click', apply);
         document.addEventListener('keydown', onKey, true);
         document.body.appendChild(overlay);
-        this.commonUI?.databaseEditor?.registerDetailModal(overlay);
+        this.commonUI?.databaseEditor?.registerDetailModal(overlay, close);
         return overlay;
     }
 
@@ -550,8 +554,8 @@ class DatabaseQuestEditor {
             this.pickSwitchOrVariable(kind, current, id => {
                 this.writePath(quest, target, id);
                 this.databaseManager.updateQuest(quest.id, quest);
-                button.textContent = kind === 'switch' ? this.switchName(id) : this.variableName(id);
-                if (target.startsWith('objectives.') && !(id > 0)) button.textContent = this._t('Switch…');
+                this.setPickLabel(button, target.startsWith('objectives.') && !(id > 0) ? this._t('Switch…')
+                    : kind === 'switch' ? this.switchName(id) : this.variableName(id));
             });
         }));
         const icon = container.querySelector('.quest-icon');
@@ -617,6 +621,12 @@ class DatabaseQuestEditor {
             target = target[part];
         }
         target[parts[parts.length - 1]] = value;
+    }
+
+    /** A picker button's new label; the language pass would otherwise put back the label it first read. */
+    setPickLabel(button, text) {
+        button.removeAttribute('data-i18n-text-source');
+        button.textContent = text;
     }
 
     pickSwitchOrVariable(kind, current, callback) {
@@ -712,7 +722,7 @@ class DatabaseQuestEditor {
         ok.addEventListener('click', confirm);
         document.addEventListener('keydown', onKey, true);
         document.body.appendChild(overlay);
-        this.commonUI?.databaseEditor?.registerDetailModal(overlay);
+        this.commonUI?.databaseEditor?.registerDetailModal(overlay, close);
         const first = overlay.querySelector('input[name="quest-import-source"]:checked') || ok;
         if (first && first.focus) first.focus();
         return overlay;

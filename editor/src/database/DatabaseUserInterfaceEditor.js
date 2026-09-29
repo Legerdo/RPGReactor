@@ -548,7 +548,9 @@ class DatabaseUserInterfaceEditor {
     showUserInterfaceDetail(container, entry) {
         const tt = text => this._t(text);
         this.detach();
-        this.current = this.normalizeInterface(entry);
+        this.current = this.parentEditor && typeof this.parentEditor.normalizeOnView === 'function'
+            ? this.parentEditor.normalizeOnView('userInterfaces', entry, record => this.normalizeInterface(record))
+            : this.normalizeInterface(entry);
         this.selectedId = 0;
         this.selectedIds = new Set();
         this.selectionAnchor = 0;
@@ -899,7 +901,7 @@ class DatabaseUserInterfaceEditor {
         const label = (this.stockLayoutKinds().find(entry => entry[0] === kind) || [kind, kind])[1];
         if (this.current.nodes.length && typeof window !== 'undefined' && window.confirm
             && !window.confirm(this._t('Replace every layer with the {name} layout?').replace('{name}', label))) return false;
-        this.pushUndo();
+        this.pushUndo(true);
         const normalized = this.normalizeInterface(Object.assign({}, built, { id: this.current.id }));
         this.current.nodes = normalized.nodes;
         this.current.firstFocus = normalized.firstFocus;
@@ -917,6 +919,7 @@ class DatabaseUserInterfaceEditor {
             if (field) field.value = label;
         }
         if (!this.current.note) this.current.note = normalized.note;
+        this.dropUnfitReplacementRoles();
         const mode = this.wrapper && this.wrapper.querySelector('.rr-ui-mode');
         if (mode) mode.value = this.current.mode;
         this.updatePresentationFields();
@@ -935,12 +938,44 @@ class DatabaseUserInterfaceEditor {
     // UNDO
     // ==========================================
 
-    snapshot() {
-        return JSON.stringify({ nodes: this.current.nodes, firstFocus: this.current.firstFocus });
+    /** The record settings a Stock Layout replaces, with the System roles bound to this record. */
+    static get STOCK_RECORD_FIELDS() {
+        return ['mode', 'background', 'cancel', 'hideStatusWindow', 'openTransition', 'transitionDuration', 'stock'];
     }
 
-    pushUndo() {
-        this.undoStack.push(this.snapshot());
+    recordState() {
+        const system = this.replacementSystem() || {};
+        const id = Number(this.current.id) || 0;
+        const state = { bound: DatabaseUserInterfaceEditor.REPLACEMENT_ROLES.filter(([, , field]) => id > 0 && Number(system[field]) === id).map(([, , field]) => field) };
+        for (const key of DatabaseUserInterfaceEditor.STOCK_RECORD_FIELDS) state[key] = this.current[key];
+        return state;
+    }
+
+    restoreRecordState(state) {
+        for (const key of DatabaseUserInterfaceEditor.STOCK_RECORD_FIELDS) {
+            if (state[key] === undefined) delete this.current[key];
+            else this.current[key] = state[key];
+        }
+        const system = this.replacementSystem();
+        const id = Number(this.current.id) || 0;
+        if (system && id > 0) {
+            for (const [, , field] of DatabaseUserInterfaceEditor.REPLACEMENT_ROLES) {
+                if (state.bound.includes(field)) system[field] = id;
+                else if (Number(system[field]) === id) system[field] = 0;
+            }
+        }
+        const mode = this.wrapper && this.wrapper.querySelector('.rr-ui-mode');
+        if (mode) mode.value = this.current.mode;
+        this.updatePresentationFields();
+    }
+
+    /** Layers only, or with the record's settings too (a Stock Layout replaces both). */
+    snapshot(record = false) {
+        return JSON.stringify(Object.assign({ nodes: this.current.nodes, firstFocus: this.current.firstFocus }, record ? { record: this.recordState() } : {}));
+    }
+
+    pushUndo(record = false) {
+        this.undoStack.push(this.snapshot(record));
         if (this.undoStack.length > 100) this.undoStack.shift();
         this.redoStack = [];
     }
@@ -949,6 +984,7 @@ class DatabaseUserInterfaceEditor {
         const parsed = JSON.parse(serialized);
         this.current.nodes = parsed.nodes;
         this.current.firstFocus = parsed.firstFocus;
+        if (parsed.record) this.restoreRecordState(parsed.record);
         this.selectedIds = new Set(this.selectedNodes().map(node => node.id));
         if (!this.node(this.selectedId)) this.selectedId = [...this.selectedIds][0] || 0;
         this.touch();
@@ -960,14 +996,16 @@ class DatabaseUserInterfaceEditor {
 
     undo() {
         if (!this.undoStack.length) return;
-        this.redoStack.push(this.snapshot());
-        this.restore(this.undoStack.pop());
+        const entry = this.undoStack.pop();
+        this.redoStack.push(this.snapshot(!!JSON.parse(entry).record));
+        this.restore(entry);
     }
 
     redo() {
         if (!this.redoStack.length) return;
-        this.undoStack.push(this.snapshot());
-        this.restore(this.redoStack.pop());
+        const entry = this.redoStack.pop();
+        this.undoStack.push(this.snapshot(!!JSON.parse(entry).record));
+        this.restore(entry);
     }
 
     // ==========================================
@@ -1080,6 +1118,8 @@ class DatabaseUserInterfaceEditor {
             if (candidate.action && ['focusNode', 'equip'].includes(candidate.action.type) && doomed.has(candidate.action.id)) candidate.action.id = 0;
         }
         if (doomed.has(this.current.firstFocus)) this.current.firstFocus = 0;
+        const cancel = this.current.cancel;
+        if (cancel && ['focusNode', 'equip'].includes(cancel.type) && doomed.has(cancel.id)) cancel.id = 0;
         this.selectedId = 0;
         this.selectedIds = new Set();
         this.selectionAnchor = 0;
@@ -2719,6 +2759,15 @@ class DatabaseUserInterfaceEditor {
     /** Keyboard for everything in the editor that is not a text field. */
     onKey(event) {
         const target = event.target;
+        // Escape closes an open + Add Node or Stock Layout menu before it would close the database.
+        const menu = event.key === 'Escape' && this.wrapper ? this.wrapper.querySelector('.rr-ui-add-menu[open]') : null;
+        if (menu) {
+            event.preventDefault();
+            event.stopPropagation();
+            menu.open = false;
+            menu.querySelector('summary')?.focus({ preventScroll: true });
+            return;
+        }
         const tag = target && target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (target && target.isContentEditable)) return;
         const handled = () => { event.preventDefault(); event.stopPropagation(); };

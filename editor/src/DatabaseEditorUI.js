@@ -398,6 +398,34 @@ class DatabaseEditorUI {
         this._dataSnapshot = JSON.stringify(this.databaseManager.data);
     }
 
+    /**
+     * Run an editor's fill-in-the-defaults pass on a record it is opening.
+     * Opening is not an edit: when the pass changed the record, the Cancel
+     * baseline takes the filled-in record too, and so does the saved state
+     * when the file had no unsaved edits, so viewing never asks to discard.
+     */
+    normalizeOnView(type, entry, normalize) {
+        const manager = this.databaseManager;
+        const before = JSON.stringify(entry);
+        const saved = manager?.savedState?.[type];
+        const clean = saved !== undefined && typeof manager.serialize === 'function' && manager.serialize(manager.data[type]) === saved;
+        const result = normalize(entry);
+        if (!entry || JSON.stringify(entry) === before) return result;
+        if (clean) manager.captureSavedState(type);
+        if (this._dataSnapshot && Number.isInteger(entry.id)) {
+            try {
+                const snapshot = JSON.parse(this._dataSnapshot);
+                if (Array.isArray(snapshot[type]) && JSON.stringify(snapshot[type][entry.id]) === before) {
+                    snapshot[type][entry.id] = JSON.parse(JSON.stringify(entry));
+                    this._dataSnapshot = JSON.stringify(snapshot);
+                }
+            } catch (error) {
+                console.warn('Database baseline was not updated:', error);
+            }
+        }
+        return result;
+    }
+
     /** Close through Cancel; confirm first when the data differs from the snapshot. */
     async requestCloseDatabase(cancelAndClose) {
         if (this._databaseSaveInFlight) return;
@@ -998,6 +1026,9 @@ class DatabaseEditorUI {
             focusedId = newEntry.id;
             selectionAnchorId = newEntry.id;
             refreshList();
+            // The new record opens: the detail must not stay on the one before it.
+            this.showDatabaseDetail(this.databaseManager.data[type]?.[newEntry.id] || newEntry, type, { reuse: true });
+            listEl.querySelector(`[data-entry-id="${newEntry.id}"]`)?.scrollIntoView({ block: 'nearest' });
         };
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'database-delete-btn';

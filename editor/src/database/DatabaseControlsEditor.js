@@ -39,6 +39,10 @@ class DatabaseControlsEditor {
         this.parentEditor = parentEditor;
         this._capture = null;
         this._onCaptureKey = event => this.captureKey(event);
+        // A click anywhere but the "+" that started it stops listening, keeping the keys as they were.
+        this._onCaptureAway = event => {
+            if (this._capture && !(event.target && event.target.closest && event.target.closest('.rr-controls-add, .rr-controls-listen'))) { this.stopCapture(); this.render(); }
+        };
     }
 
     _t(text, params) {
@@ -245,10 +249,12 @@ class DatabaseControlsEditor {
         this.render();
         if (kind.startsWith('key')) document.addEventListener('keydown', this._onCaptureKey, true);
         else this._padTimer = setInterval(() => this.pollPad(), 50);
+        document.addEventListener('pointerdown', this._onCaptureAway, true);
     }
 
     stopCapture() {
         document.removeEventListener('keydown', this._onCaptureKey, true);
+        document.removeEventListener('pointerdown', this._onCaptureAway, true);
         clearInterval(this._padTimer);
         this._padTimer = null;
         this._capture = null;
@@ -265,6 +271,8 @@ class DatabaseControlsEditor {
         if (!code && /^Key[A-Z]$/.test(event.code || '')) code = event.code.charCodeAt(3);
         if (!code && /^Digit[0-9]$/.test(event.code || '')) code = 48 + Number(event.code.slice(5));
         if (!code) return;
+        // Escape stops listening; only Cancel / Menu, whose key it is, takes it.
+        if (code === 27 && !(this._capture.kind === 'key' && this._capture.action === 'escape')) { this.stopCapture(); this.render(); return; }
         this.assign(this._capture.kind, this._capture.action, code);
     }
 

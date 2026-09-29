@@ -361,10 +361,11 @@ class DatabaseManager {
         try {
             this.fs.mkdirSync(directory, { recursive: true });
             for (const entry of records) {
-                if (!entry || !entry.name || !entry.plan) continue;
+                // A deleted record has no name and no file. One with a file keeps it while its name is retyped.
+                if (!entry || !entry.plan || (!entry.name && !entry.file)) continue;
                 if (!entry.file || taken.has(entry.file)) entry.file = DatabaseManager.structureFileName(entry.name, taken);
                 taken.add(entry.file);
-                entry.plan.name = entry.name;
+                entry.plan.name = entry.name || entry.file.replace(/\.json$/i, '');
                 const plan = normalize(entry.plan);
                 this._writeFileAtomic(this.fs, this.path.join(directory, entry.file), (typeof RRMapElevation !== 'undefined' && RRMapElevation.stringifySidecar ? RRMapElevation.stringifySidecar(trim(plan)) : JSON.stringify(trim(plan), null, 2)) + '\n');
                 keep.add(entry.file);

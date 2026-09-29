@@ -123,8 +123,13 @@ test('the database manager reads plans as records and writes records back as pla
         assert.deepEqual(fs.readdirSync(folder).sort(), ['Cottage-copy.json', 'Cottage.json', 'Tower.json', 'notes.json'], 'the new one is named after its plan, the pasted one after its own name since its file was taken');
         assert.equal(manager.data.structures[2].file, 'Tower.json');
         assert.equal(manager.data.structures[3].file, 'Cottage-copy.json');
-        // A cleared record takes its file with it.
+        // A name being retyped is not a deletion: the file stays and keeps its name.
         cottage.name = '';
+        assert.equal(await manager.saveStructures(root), true);
+        assert.ok(fs.existsSync(path.join(folder, 'Cottage.json')));
+        assert.equal(JSON.parse(fs.readFileSync(path.join(folder, 'Cottage.json'), 'utf8')).name, 'Cottage');
+        // A cleared record (Delete leaves no name and no file) takes its file with it.
+        cottage.file = '';
         assert.equal(await manager.saveStructures(root), true);
         assert.deepEqual(fs.readdirSync(folder).sort(), ['Cottage-copy.json', 'Tower.json', 'notes.json'], 'the cleared plan\'s file went; the file that is not a plan stays');
         assert.equal(JSON.parse(fs.readFileSync(path.join(folder, 'Tower.json'), 'utf8')).name, 'Tower');
@@ -505,4 +510,17 @@ test('screens, lights and animations on a plan: kept in the file, drawn on the p
     editor.undo(); assert.equal(plan.effects.length, 5, 'undo brings it back');
     assert.equal(editor.effectName('screen').length > 0, true);
     assert.ok(E.shapeOutline('tube', { sweep: 230 }).solid[0].length > 40, 'a swept tube draws an annular sector on the plan');
+});
+
+test('the plot never shrinks past what is built on it', () => {
+    const { DatabaseStructureEditor: E } = loadEditor();
+    const plan = E.normalizePlan({ name: 'Yard', size: [40, 30], pieces: [{ kind: 'floor', x: 12, y: 3 }, { kind: 'wall', x: 2, y: 9 }],
+        lights: [{ x: 17.5, y: 6.5 }], spots: { door: [3, 20] }, shapes: [{ kind: 'box', at: [25, 1] }] });
+    assert.deepEqual([...E.builtExtent(plan)], [26, 21]);
+    assert.deepEqual([...E.builtExtent(E.newPlan('Empty'))], [0, 0]);
+    const described = E.normalizePlan({ name: 'Cottage', size: [16, 12], floors: [{ rooms: { room: [1, 1, 9, 10], kitchen: [11, 1, 14, 10] } }] });
+    assert.deepEqual([...E.builtExtent(described)], [15, 11], 'a described cottage keeps the plot its rooms need');
+    const source = read('editor/src/database/DatabaseStructureEditor.js');
+    assert.match(source, /const least = \(\) => Math\.max\(DatabaseStructureEditor\.SIZE_MIN, DatabaseStructureEditor\.builtExtent\(plan\)\[Number\(input\.dataset\.i\)\]\);/);
+    assert.match(source, /const size = Math\.max\(least\(\), Math\.min\(DatabaseStructureEditor\.SIZE_MAX,/);
 });

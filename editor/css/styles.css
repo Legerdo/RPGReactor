@@ -5648,15 +5648,16 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .rr-sequence-disclosure-body { display:flex;flex-direction:column;gap:8px;padding:8px; }
 .rr-sequence-disclosure-body .rr-battle-field { margin:0; }
 /* Phase sections in the step list: where Prepare, Movement, Execute, Effect, Return and Finish begin. */
-.rr-sequence-phase-head { display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px 4px 8px;border-inline-start:3px solid var(--color-accent);border-radius:4px;background:var(--color-bg-panel);font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--color-text);cursor:default; }
+.rr-sequence-phase-head { display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;padding:4px 6px 4px 8px;border-inline-start:3px solid var(--color-accent);border-radius:4px;background:var(--color-bg-panel);font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--color-text);cursor:default; }
 .rr-sequence-phase-continued { opacity:.8; }
 .rr-sequence-phase-continued .rr-sequence-phase-number { opacity:.55; }
 .rr-sequence-phase-head:first-child { margin-top:0; }
 .rr-sequence-phase-number { display:inline-flex;flex:0 0 16px;align-items:center;justify-content:center;width:16px;height:16px;box-sizing:border-box;border-radius:50%;background:var(--color-accent-tint-25);color:var(--color-accent-bright);font-size:10px;font-weight:700; }
 .rr-sequence-phase-label { font-weight:700;flex:0 0 auto; }
-.rr-sequence-phase-count { flex:1;min-width:0;color:var(--color-text-muted);text-transform:none;letter-spacing:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.rr-sequence-phase-count { flex:1 1 0;min-width:0;color:var(--color-text-muted);text-transform:none;letter-spacing:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .rr-sequence-phase-head .rr-btn-secondary { flex:0 0 auto;min-height:20px;padding:0 6px !important;font-size:11px;text-transform:none;letter-spacing:0;white-space:nowrap; }
-.rr-sequence-phase-add { display:inline-flex;align-items:center;justify-content:center;width:22px;padding:0 !important;font-weight:700;text-align:center !important;margin-inline-start:auto; }
+.rr-sequence-phase-add { display:inline-flex;align-items:center;justify-content:center;width:22px;padding:0 !important;font-weight:700;text-align:center !important; }
+.rr-sequence-phase-actions { display:flex;gap:6px;margin-inline-start:auto; }
 .rr-sequence-phase-head.drop-into { outline:2px solid var(--color-accent);outline-offset:-2px; }
 .rr-sequence-footer { align-items:center;flex-wrap:wrap;gap:8px 14px; }
 .rr-sequence-footer > .rr-battle-field { flex:0 0 auto;flex-direction:row;align-items:center;gap:6px; }
