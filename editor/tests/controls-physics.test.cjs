@@ -485,3 +485,17 @@ test('a map set to jump jumps where the project switches jumping off, and one se
     assert.equal(sandbox({}, { jump: false }).ReactorPhysics.jumpAllowed(), false, 'the map says off');
     assert.equal(sandbox({}, { jump: true, jumpHeight: 0 }).ReactorPhysics.jumpAllowed(), false, 'no height, no jump');
 });
+
+test('the menu stays shut while a fatal fall holds the game over', () => {
+    const c = sandbox();
+    vm.runInContext(`
+        class Scene_Map { update() {} checkGameover() {} isMenuEnabled() { return true; } }
+        globalThis.Scene_Map = Scene_Map;
+    `, c);
+    vm.runInContext(read('runtime/reactor_physics.js'), c);
+    c.$gameTemp = {};
+    const scene = new c.Scene_Map();
+    assert.equal(scene.isMenuEnabled(), true);
+    c.$gameTemp._reactorFatalFall = { frame: 1 };
+    assert.equal(scene.isMenuEnabled(), false, 'no menu (or save) over the limp party');
+});

@@ -1140,9 +1140,17 @@ Reactor3D._paintBattlerShared = function(viewport, state, sprite) {
     return true;
 };
 
-/** A battler's target is GPU memory; it goes with the state that owned it. */
-Reactor3D.releaseBattlerState = function(state) {
-    if (!state || !state.target) return;
+/**
+ * A battler's target is GPU memory; it goes with the state that owned it,
+ * and so do its model copy's own parts, unless the state lives on (`resizing`).
+ */
+Reactor3D.releaseBattlerState = function(state, resizing) {
+    if (!state) return;
+    if (!resizing && state.object && state.template && this.releaseModelInstance) {
+        this.releaseModelInstance(state.object, state.template);
+        state.template = null;
+    }
+    if (!state.target) return;
     try { state.target.dispose(); } catch (e) { /* already gone */ }
     state.target = null;
     state.adoptedSource = null;
@@ -7364,6 +7372,11 @@ Reactor3D.MapScene.prototype.clear = function() {
     this._pieceMeshes = [];
     this._pieceGhosts = [];
     this._cutCaps = [];
+    // Water sheets are not in `_meshes` (their materials are): each rebuilt map kept the old sheets' geometry.
+    for (const mesh of this._waterMeshes || []) {
+        if (mesh.parent) mesh.parent.remove(mesh);
+        mesh.geometry.dispose();
+    }
     this._waterMeshes = [];
     // The ripple rings sit in the pieces group, which goes with the scene;
     // their shared ring and their materials are let go of here.

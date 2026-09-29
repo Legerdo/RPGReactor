@@ -514,6 +514,12 @@
             if (typeof $gameTemp !== "undefined" && $gameTemp._reactorFatalFall) return;
             _checkGameover.apply(this, arguments);
         };
+        // Nor can the menu open over them: a save there kept a dead, limp party, and a revive there still ended the game.
+        const _isMenuEnabled = Scene_Map.prototype.isMenuEnabled;
+        Scene_Map.prototype.isMenuEnabled = function() {
+            if (typeof $gameTemp !== "undefined" && $gameTemp && $gameTemp._reactorFatalFall) return false;
+            return _isMenuEnabled.apply(this, arguments);
+        };
     }
 
     if (typeof Game_Player !== "undefined") {

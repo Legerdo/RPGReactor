@@ -2355,7 +2355,8 @@
             else if (event.key === "Escape") { event.preventDefault(); this._uiScene.cancelInput(this); }
         };
         dom.addEventListener("keydown", keydown);
-        dom.addEventListener("keyup", event => { if (!(this._uiScene._characterGrid && gridKeys.includes(event.key))) event.stopPropagation(); });
+        // Key releases go on to the game: a movement key held as the field opened and let go
+        // while typing stayed down for the 3D camera, and the player walked on by itself after.
         dom.addEventListener("input", () => this.setDraft(dom.value));
         // Clicking the game canvas takes focus away; typing should still land here.
         dom.addEventListener("blur", () => setTimeout(() => { if (this._uiDom === dom) dom.focus(); }, 0));

@@ -3119,6 +3119,36 @@ Reactor3D.cloneModelTemplate = function(template) {
 };
 
 /**
+ * Free what an instance of `template` holds on the GPU of its own: carved
+ * part geometries and its skeletons' bone textures. On a shared renderer
+ * nothing else frees them. A carved part draws from the template's vertex
+ * buffers, which stay for every other copy; only its own index goes.
+ * Materials are the caller's.
+ */
+Reactor3D.releaseModelInstance = function(object, template) {
+    if (!object || !template) return;
+    const geometries = new Set(), buffers = new Set(), skeletons = new Set();
+    template.traverse(node => {
+        const geometry = node.geometry;
+        if (geometry) {
+            geometries.add(geometry);
+            for (const name of Object.keys(geometry.attributes)) buffers.add(geometry.attributes[name]);
+            if (geometry.index) buffers.add(geometry.index);
+        }
+        if (node.skeleton) skeletons.add(node.skeleton);
+    });
+    object.traverse(node => {
+        const geometry = node.geometry;
+        if (geometry && !geometries.has(geometry)) {
+            for (const name of Object.keys(geometry.attributes)) if (buffers.has(geometry.attributes[name])) delete geometry.attributes[name];
+            if (geometry.index && buffers.has(geometry.index)) geometry.index = null;
+            geometry.dispose();
+        }
+        if (node.skeleton && !skeletons.has(node.skeleton)) node.skeleton.dispose();
+    });
+};
+
+/**
  * Give every skinned mesh under `object` its bounds up front. three's
  * renderer wants a skinned mesh's bounding sphere before its first draw
  * (for depth sorting, culling or not), and SkinnedMesh.computeBoundingSphere
@@ -5156,6 +5186,7 @@ Reactor3D.updateEnemyModelSprite = function(sprite) {
             camera.position.set(0, height * 0.52, Math.max(distance, 0.8));
             camera.lookAt(0, height * 0.48, 0);
             state.object = object;
+            state.template = template;
             state.scene = scene;
             state.camera = camera;
             state.scale = scale;
@@ -5350,6 +5381,7 @@ Reactor3D.updateActorModelSprite = function(sprite) {
             camera.position.set(0, height * 0.52, Math.max(distance, 0.8));
             camera.lookAt(0, height * 0.48, 0);
             state.object = object;
+            state.template = template;
             state.scene = scene;
             state.camera = camera;
             state.scale = scale;
@@ -5505,7 +5537,7 @@ Reactor3D.expandModelSpriteFrame = function(state) {
     state.radius = radius;
     state.pixelsPerUnit = size / (radius * 2);
     if (size !== state.size) {
-        this.releaseBattlerState(state);
+        this.releaseBattlerState(state, true);
         const previous = state.bitmap;
         state.size = size; state.bitmap = new Bitmap(size, size);
         const sprite = state.sprite;
@@ -5597,6 +5629,7 @@ Reactor3D.updateMapModelSprite = function(sprite) {
             const camera = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0.01, 100);
             const framing = this.frameModelSprite(object, state.size, camera);
             state.object = object;
+            state.template = template;
             state.scene = scene;
             state.camera = camera;
             state.scale = 1 / span;
@@ -6388,8 +6421,15 @@ Reactor3D.MapScene.prototype.syncCharacterModels = function(characters) {
     for (const [key, holder] of this._modelInstances) {
         if (live.has(key)) continue;
         if (holder.object && holder.object.parent) holder.object.parent.remove(holder.object);
+        Reactor3D.releaseModelHolder(holder);
         this._modelInstances.delete(key);
     }
+};
+
+/** A character model going for good: what its copy holds on the GPU goes with it (the renderer outlives map scenes). */
+Reactor3D.releaseModelHolder = function(holder) {
+    const entry = holder && holder.object && this._glbCache[holder.spec];
+    if (entry && entry.template) this.releaseModelInstance(holder.object, entry.template);
 };
 
 Reactor3D.MapScene.prototype.syncCharacterBillboards = function(sprites) {
@@ -6683,6 +6723,7 @@ Reactor3D.MapScene.prototype.clear = function() {
         for (const holder of this._modelInstances.values()) {
             Reactor3D.pauseModelPlayback(holder);
             if (holder.object && holder.object.parent) holder.object.parent.remove(holder.object);
+            Reactor3D.releaseModelHolder(holder);
         }
         this._modelInstances.clear();
     }

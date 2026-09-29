@@ -115,6 +115,7 @@
                 const {template, sidecar} = await this.assets.model(spec);
                 if (this.disposed || this.models.get(key) !== record || !template) return;
                 const object = R.cloneModelTemplate(template);
+                record.template = template;
                 R.applyModelTransform(object, R.readModelTransform(sidecar));
                 const rig = R.readModelRig(sidecar);
                 if (rig) R.applyModelRig(object, rig);
@@ -823,6 +824,8 @@
             if(r.shadow){r.shadow.removeFromParent();r.shadow.geometry.dispose();r.shadow.material.dispose();r.shadow=null;}
             r.object?.removeFromParent();r.binding?.mixer?.stopAllAction?.();
             r.object?.traverse(node => {for(const m of [node.material].flat().filter(Boolean))m.dispose();});
+            // The room may draw on the map's own renderer, which lives on: its carved parts and bone textures go too.
+            if(r.object&&r.template)root.Reactor3D.releaseModelInstance?.(r.object,r.template);
             if(r.billboard){r.object.geometry.dispose();r.texture.dispose();}
         }
         resize(width,height) { this.width=width;this.height=height;if(this.view)this.shareTarget(width,height);else this.renderer?.setSize(width,height,false); if(this.camera){this.camera.aspect=width/height;this.camera.updateProjectionMatrix();} }

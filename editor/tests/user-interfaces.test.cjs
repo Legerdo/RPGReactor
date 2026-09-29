@@ -1716,6 +1716,24 @@ test('a Text Input edits a draft: Enter commits and runs the action, Escape leav
 });
 
 
+test('a Text Input lets key releases through to the game, so a movement key held as it opened is let go', () => {
+    const sandbox = loadRuntimeUI(), ui = sandbox.ReactorUI;
+    const listeners = {};
+    const element = { style: {}, setAttribute() {}, focus() {}, addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); } };
+    sandbox.document = { body: { appendChild() {} }, createElement: () => element };
+    const scene = new sandbox.Scene_ReactorUI();
+    const node = ui.normalizeNode({ type: 'input', variableId: 3, maxLength: 8 });
+    const field = Object.create(sandbox.Window_ReactorUINode.prototype);
+    Object.assign(field, { _uiNode: node, _uiScene: scene, _uiDraft: '' });
+    field.openDomInput();
+    let stopped = false;
+    const event = key => ({ key, isComposing: false, stopPropagation() { stopped = true; }, preventDefault() {} });
+    for (const fn of listeners.keyup || []) fn(event('ArrowUp'));
+    assert.strictEqual(stopped, false, 'the release reaches the document (the 3D camera\'s held keys, the game\'s Input)');
+    for (const fn of listeners.keydown || []) fn(event('w'));
+    assert.strictEqual(stopped, true, 'a key typed into the field still stops there');
+});
+
 // --- Battle HUD ------------------------------------------------------------
 
 test('a Battle HUD binds from System, places stock battle windows, follows the acting actor and points the cursor at the target', () => {
