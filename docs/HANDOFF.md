@@ -2,17 +2,19 @@
 
 Dated engineering notes for whoever picks the project up next, newest first. This file holds the cycle in progress and the one just shipped. Older cycles are in [archive/handoff](archive/handoff/): [2026-09-14 to 09-21](archive/handoff/2026-09-14-to-21.md) (0.98.7), [2026-09-02 to 09-13](archive/handoff/2026-09-02-to-13.md) (0.98.5 and 0.98.6) and [2026-08 and earlier](archive/handoff/2026-08-and-earlier.md). The verified current state is [STATUS.md](STATUS.md); read that first.
 
-## Where things stand (2026-09-28)
+## Where things stand (2026-09-28, end of day)
 
-**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`, GitHub release published from the tag). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9. Runtime 20260928.9 after the evening audit, rocks, a performance pass and an out-of-order audit (below); 3,977 tests pass.
+**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`). The 0.98.9 cycle is open: runtime **20260928.9**, **3,977 tests** passing, **24 local commits not yet pushed** (the owner pushes). Today's work, newest first below: an out-of-order audit through the real interface (60-odd fixes) and rock collision; a performance pass (battle room on the shared context, light uniforms held per program, reflection passes sharing the main passes' output, idle reflection capture, off-screen videos); rocks with tops, tint and a drag brush; the pond refit; and an audit of the 0.98.8 features. The draft release notes are in `changelog/0.98.9.md`, the full list in `editor/changelog/0.98.9.md`.
 
-**CI after the release push:** the syntax check (a duplicate declaration in a smoke script) and the keyboard-menu smoke (Database now ends at Controls) are fixed locally, awaiting the owner's push. The Web persistence smoke is intermittent on GitHub, not broken (it passed on the last push) and passes locally. Its step log needs a signed-in account, so a failure now also prints the page state and browser console as an error annotation, readable without signing in: `curl https://api.github.com/repos/Psychronic-Games/RPGReactor/check-runs/<job id>/annotations`. `cut-release.cjs` now fetches origin/main and stops if GitHub has commits the checkout lacks, and runs CI's syntax check before tagging.
+**CI:** the syntax-check and menu-smoke fixes are among the unpushed commits. The Web persistence smoke is intermittent on GitHub (it passed on the last push) and now posts its page state and console as a public annotation on failure: `curl https://api.github.com/repos/Psychronic-Games/RPGReactor/check-runs/<job id>/annotations`. checkout/setup-node are on v5 (Node 24). Runner images move to Ubuntu 26 on 2026-10-19; watch the GUI smokes then.
 
 **Pick up here:**
-1. **The Web smoke on CI:** on its next failure, read the annotation (see above) before touching timeouts.
-2. **Web bundle headroom:** 883 zip entries against itch's 1,000; 485 MB extracted against its 500 MB. Next wins if needed: the three editor/project duplicate libraries, four `- Copy`/`.old` images in the Demo's `img/system` (owner's call), and unreferenced Effekseer effects (biggest, but narrows the web sandbox).
-3. **Carried from 0.98.8:** the remaining motion presets on Fleagus (Swim, Jump, Guard, aims, strikes, Climb), the Transfer Player map picker's 3D view, the PBR quality setting, an in-game controls screen, and the importer threads (Dreamwalker frame-by-frame fight, Random Dungeon).
-4. **Open reports:** the intermittent no-jump (console notes are in; no repro in eight runs) and a rooftop sun shadow (needs the owner's screenshot and spot).
+1. **Owner review of rocks** (look, tops, brush, collision) and the Demo scenery the owner is building with them (cliffs, rocks, terrain). The owner has not seen rocks in person yet.
+2. **Open from the audits** (details in the sections below): stamping a building into a pond levels its pad to the average and can sink it; Pour ignores pieces; pointer lock is never released when the map scene stops; the map info bar overlaps at 1024×600; Escape cancels an import without asking; airships have no altitude in 3D.
+3. **Performance, measured and not done:** shadow faces walk the whole scene per face; one video decoder per media surface even for the same file; event collision scans every event per step with many walkers.
+4. **Carried from 0.98.8:** motion presets on Fleagus (Swim, Jump, Guard, aims, strikes, Climb), the Transfer Player map picker's 3D view, the PBR quality setting, an in-game controls screen, the importer threads (Dreamwalker frame-by-frame fight, Random Dungeon), web bundle headroom (883 of 1,000 zip entries, 485 of 500 MB), and the open reports (intermittent no-jump, a rooftop sun shadow).
+
+**Harnesses** (repo `scratchpad/`, git-ignored): `start-display.sh` (headless display :57), `ed3d.cjs` (editor on a Demo copy, real clicks/drags/shots; it links the Demo's img/audio, so never import or write assets through it), `rock-game.cjs`, `battle-shared-check.cjs`, `uverify-game.cjs`, `uab-game.cjs`, `game-prof.cjs` (BATTLE=troop), `prof3d.cjs`, `ed-prof.cjs`, `mat-versions.js`, `reflect-shots.cjs`, `rock-tex.py`, `cap-tex.py`.
 
 ## 2026-09-28 (night, 2) — Out-of-order audit through the real interface
 
