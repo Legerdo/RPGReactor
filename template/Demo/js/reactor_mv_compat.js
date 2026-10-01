@@ -1713,6 +1713,57 @@
         };
     }
 
+    /**
+     * MV's System.json lacks the fields MZ added, and the MZ boot, title and
+     * menus read them: an MV project nobody had opened System 2 for stopped at
+     * boot ("Cannot read properties of undefined (reading
+     * 'mainFontFilename')"), then at the title (`titleCommandWindow`). Data
+     * without one of them gets MV's own behaviour: the 816x624 screen with the
+     * UI the same size, font size 28, window opacity 192, the 48/144/32 tile,
+     * face and icon sizes, the turn-based battle, all four item categories,
+     * key items counted, no autosave, splash screen or message skip, and the
+     * title's command window as MV placed it.
+     * The font names are MZ's defaults, which the font loader below swaps for
+     * the font gamefont.css declares; a plugin-set screen size still wins at
+     * boot (resizeScreen above). Only absent fields are filled.
+     */
+    function systemDefaults() {
+        return {
+            advanced: {
+                gameId: 0,
+                screenWidth: 816, screenHeight: 624,
+                uiAreaWidth: 816, uiAreaHeight: 624,
+                numberFontFilename: "mplus-2p-bold-sub.woff",
+                fallbackFonts: "Verdana, sans-serif",
+                fontSize: mvGameSemantics ? 28 : 26,
+                mainFontFilename: "mplus-1m-regular.woff",
+                windowOpacity: 192,
+                screenScale: 1
+            },
+            battleSystem: 0,
+            tileSize: 48, faceSize: 144, iconSize: 32,
+            itemCategories: [true, true, true, true],
+            optAutosave: false,
+            optKeyItemsNumber: true,
+            optMessageSkip: false,
+            optSplashScreen: false,
+            titleCommandWindow: { background: 0, offsetX: 0, offsetY: 0 }
+        };
+    }
+
+    function installSystemDefaults() {
+        if (!global.DataManager || DataManager.onLoad.__mvSystemDefaults) return;
+        var origOnLoad = DataManager.onLoad;
+        DataManager.onLoad = function(object) {
+            if (object && object === global.$dataSystem) {
+                var defaults = systemDefaults();
+                for (var key in defaults) if (object[key] === undefined) object[key] = defaults[key];
+            }
+            return origOnLoad.apply(this, arguments);
+        };
+        DataManager.onLoad.__mvSystemDefaults = true;
+    }
+
     function installSceneLayoutCompatibility() {
         // MV scene geometry: the help window sits at the very top and the
         // main area spans the rest of the screen — there is no reserved
@@ -5475,6 +5526,7 @@
     installBackgroundSnapCompatibility();
     installTraitObjectsCopyCompatibility();
     installBoxSizeCompatibility();
+    installSystemDefaults();
     installStaleEventGuard();
     installSpriteBaseCompatibility();
     installButtonCompatibility();
@@ -5586,11 +5638,30 @@
         }
 
         // An event whose data is gone, or whose pages all fail their
-        // conditions, reads as an empty page rather than throwing.
+        // conditions, reads as an empty page rather than throwing: a whole
+        // one, since MV plugins guard with `if (page)` and then walk its
+        // list (GALV_CFStepSE read `page.list.length` of a bare {} and
+        // stopped SideMV on its first map).
+        var emptyPage = {
+            conditions: { actorId: 1, actorValid: false, itemId: 1, itemValid: false, selfSwitchCh: "A", selfSwitchValid: false,
+                switch1Id: 1, switch1Valid: false, switch2Id: 1, switch2Valid: false, variableId: 1, variableValid: false, variableValue: 0 },
+            directionFix: false,
+            image: { characterIndex: 0, characterName: "", direction: 2, pattern: 0, tileId: 0 },
+            list: [],
+            moveFrequency: 3,
+            moveRoute: { list: [{ code: 0, parameters: [] }], repeat: true, skippable: false, wait: false },
+            moveSpeed: 3, moveType: 0, priorityType: 0,
+            stepAnime: false, through: false, trigger: 0, walkAnime: true
+        };
         if (global.Game_Event && !marked(Game_Event.prototype, "page")) {
             Game_Event.prototype.page = mark(function() {
                 var event = this.event();
-                return (event && event.pages[this._pageIndex]) || {};
+                var page = event && event.pages[this._pageIndex];
+                if (page) return page;
+                // Kept whole: a plugin that writes to the page it read writes here.
+                if (!Array.isArray(emptyPage.list)) emptyPage.list = [];
+                emptyPage.list.length = 0;
+                return emptyPage;
             });
             Game_Event.prototype.list = mark(function() {
                 return this.page().list || [];

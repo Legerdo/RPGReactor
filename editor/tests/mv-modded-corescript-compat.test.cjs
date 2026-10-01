@@ -126,7 +126,12 @@ test("the modded corescript's contracts are supplied to the game that ships them
     assert.equal(party.isAllDead(), true, 'the party is judged by the stock rule');
     // Null-safe pages.
     const event = new Game_Event(); event._pageIndex = -1; event.event = () => ({ pages: [] });
-    assert.deepEqual(plain(event.page()), {});
+    const empty = event.page();
+    assert.deepEqual(plain(empty.list), [], 'a whole empty page: plugins guard with if (page) and walk its list');
+    assert.equal(empty.image.characterName, '');
+    assert.deepEqual(plain(empty.moveRoute.list), [{ code: 0, parameters: [] }]);
+    empty.list.push({ code: 108, parameters: ['<step_se>'] });
+    assert.deepEqual(plain(event.page().list), [], 'what a plugin wrote into it does not stay');
     assert.deepEqual(plain(event.list()), []);
     event.event = () => null;
     assert.equal(event.findProperPageIndex(), -1);
