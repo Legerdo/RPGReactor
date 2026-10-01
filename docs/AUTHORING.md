@@ -14,7 +14,7 @@ project; a person can use it to find where anything lives.
 | Surface | File (per map, beside `data/MapNNN.json`) | Editor tool | Check |
 | --- | --- | --- | --- |
 | 3D switch | `<3d>` in the map note | Map Properties › 3D | — |
-| Tile elevation (terraces, cliffs) | `MapNNN.r3d.json` › `elevation` (one whole number per tile) | Map Properties, height brush | — |
+| Tile elevation (terraces, cliffs) | `MapNNN.r3d.json` › `elevation` (one whole number per tile) | — (by hand or generator) | — |
 | Terrain (rolling ground) | `MapNNN.r3d.json` › `terrain` ((w+1)×(h+1) corner heights), `terrainWidth` | Build bar › Terrain brushes | `editor/tests/terrain.test.cjs` rules |
 | Room (floor, walls, ceiling, sky) | `MapNNN.r3d.json` › `room` | Map Properties › 3D | — |
 | Pieces (the 3D tileset) | `MapNNN.r3d.json` › `pieces` | **Build** bar over the 3D view (the Build button in the toolbar); drawn as a plan on the flat map too | `validate-map.cjs` |
@@ -96,6 +96,9 @@ fractional tiles for models.
   turns clockwise seen from above; `0` rises or faces south.
 - `material`: a name under `img/materials` without extension, or `""` for
   plain grey.
+- `finish`: optional `mirror`, `chrome`, `polished`, `glossy` or `gold`,
+  worn over the material; a `surface` (`reflect`, `gloss`, `metal`, `tint`,
+  `texture`, as on a model) overrides it.
 - `group`: pieces of one building share a number. Optional.
 
 Rules the engine applies, so a generator can predict them: a character

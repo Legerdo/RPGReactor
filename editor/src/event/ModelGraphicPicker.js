@@ -4,6 +4,8 @@
  */
 class ModelGraphicPicker {
     static EXTS = ['.glb', '.obj', '.fbx', '.stl', '.usdz', '.3mf', '.dxf', '.blend'];
+    /** Input anywhere in the dialog that can change what the preview shows. */
+    static PREVIEW_INPUT_EVENTS = ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'input', 'change', 'click', 'keydown'];
 
     constructor(projectController) {
         this.projectController = projectController;
@@ -185,6 +187,13 @@ class ModelGraphicPicker {
         document.body.appendChild(modal);
 
         this._modal = modal;
+        // The preview is drawn only while something is changing. Any input in
+        // the dialog counts: a slider, an angle box, a ring hover, a face
+        // button — each gets the same second of full-rate frames an orbit
+        // does, then the still model is left alone.
+        for (const type of ModelGraphicPicker.PREVIEW_INPUT_EVENTS) {
+            modal.addEventListener(type, () => { this._lastInputAt = performance.now(); }, true);
+        }
         this._bindPreviewInput();
         this._initGizmo();
         this._refreshFaceButtons();
@@ -412,6 +421,8 @@ class ModelGraphicPicker {
                 }
                 return;
             }
+            // A drag that leaves the dialog still moves the preview.
+            this._lastInputAt = performance.now();
             const dx = e.clientX - lastX;
             const dy = e.clientY - lastY;
             lastX = e.clientX;
@@ -884,6 +895,9 @@ class ModelGraphicPicker {
 
     _disposePreview() {
         this._disposePoseRings();
+        this._unwatchPreviewSize?.();
+        this._unwatchPreviewSize = null;
+        this._previewTextures = [];
         this._disposeModelResources();
         if (this._renderer) {
             this._renderer.dispose();
@@ -967,18 +981,35 @@ class ModelGraphicPicker {
                 this._renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
                 this._renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
                 if (THREE.SRGBColorSpace) this._renderer.outputColorSpace = THREE.SRGBColorSpace;
+                // Measured on a reported resize, not every frame: reading the
+                // rectangle forces a layout the idle loop has no use for.
+                let sizeDirty = true;
+                this._previewDirty = true;
+                this._unwatchPreviewSize?.();
+                this._unwatchPreviewSize = ModelPreview3D.watchSize(canvas, () => { sizeDirty = true; });
                 const tick = () => {
                     if (!this._renderer || !this._modal) return;
-                    const rect = canvas.getBoundingClientRect();
-                    const width = Math.max(1, Math.round(rect.width));
-                    const height = Math.max(1, Math.round(rect.height));
-                    const pixelRatio = this._renderer.getPixelRatio();
-                    const bufferWidth = Math.floor(width * pixelRatio);
-                    const bufferHeight = Math.floor(height * pixelRatio);
-                    if (canvas.width !== bufferWidth || canvas.height !== bufferHeight) {
-                        this._renderer.setSize(width, height, false);
-                        this._camera.aspect = width / height;
-                        this._camera.updateProjectionMatrix();
+                    if (sizeDirty || !this._unwatchPreviewSize) {
+                        sizeDirty = false;
+                        const rect = canvas.getBoundingClientRect();
+                        const width = Math.max(1, Math.round(rect.width));
+                        const height = Math.max(1, Math.round(rect.height));
+                        const pixelRatio = this._renderer.getPixelRatio();
+                        const bufferWidth = Math.floor(width * pixelRatio);
+                        const bufferHeight = Math.floor(height * pixelRatio);
+                        if (canvas.width !== bufferWidth || canvas.height !== bufferHeight) {
+                            this._renderer.setSize(width, height, false);
+                            this._camera.aspect = width / height;
+                            this._camera.updateProjectionMatrix();
+                            this._previewDirty = true;
+                        }
+                    }
+                    const theme = ModelPreview3D.themeKey();
+                    if (theme !== this._previewTheme) { this._previewTheme = theme; this._previewDirty = true; }
+                    const textureVersion = ModelPreview3D.textureVersionSum(this._previewTextures);
+                    if (textureVersion !== this._previewTextureVersion) {
+                        this._previewTextureVersion = textureVersion;
+                        this._previewDirty = true;
                     }
                     {
                         const now = performance.now();
@@ -991,8 +1022,10 @@ class ModelGraphicPicker {
                     }
                     this._applyCamera();
                     {
-                        // A still preview repaints ten times a second; orbit,
-                        // zoom, and a fresh model keep the full rate.
+                        // A still preview is not drawn again; orbit, zoom,
+                        // any input in the dialog and a fresh model keep the
+                        // full rate for a second, and a late texture, a theme
+                        // switch or a resize draw one more frame.
                         const now = performance.now();
                         const goalKey = `${this._viewGoal.yaw}|${this._viewGoal.pitch}|${this._viewGoal.distance}`;
                         if (goalKey !== this._lastGoalKey) {
@@ -1003,10 +1036,11 @@ class ModelGraphicPicker {
                             || Math.abs(this._viewGoal.pitch - this._view.pitch) > 0.01
                             || Math.abs(this._viewGoal.distance - this._view.distance) > 0.001;
                         const active = easing || (Number.isFinite(this._lastInputAt) && now - this._lastInputAt < 1000);
-                        if (!active && this._lastRenderAt > 0 && now - this._lastRenderAt < 100) {
+                        if (!active && !this._previewDirty) {
                             this._raf = requestAnimationFrame(tick);
                             return;
                         }
+                        this._previewDirty = false;
                         this._lastRenderAt = now;
                     }
                     ModelPreview3D.updateBackground(this._scene);
@@ -1051,6 +1085,11 @@ class ModelGraphicPicker {
             this._applyModelRotation();
             this._rebuildFaceMarkers();
             this._scene.add(this._object);
+            // A GLB's images decode after the first draw; their version
+            // numbers tell the idle loop when one has landed.
+            this._previewTextures = ModelPreview3D.collectTextures(template, this._object);
+            this._previewTextureVersion = -1;
+            this._previewDirty = true;
             try {
                 this._renderer.compile?.(this._scene, this._camera);
                 for (const texture of template.userData?.glbTextures || []) {

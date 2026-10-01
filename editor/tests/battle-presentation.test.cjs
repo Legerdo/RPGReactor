@@ -1,4 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const B=require('../../runtime/reactor_battle_data.js');
 test('starter sequences have exactly one effect cue and stable finite timing',()=>{for(const name of B.templates){const s=B.template(name);assert.deepEqual(B.validateSequence(s),[]);assert.ok(B.duration(s)>0);}});
 test('sequence lookup respects explicit existing behavior and leaves absent bindings alone',()=>{
@@ -466,7 +467,7 @@ test('a room model dissolves for Ash and Ember: shards off its surface in its co
 test('Shatter is wired end to end: the trait, both emitters, and a mesh of triangles in a flat battle', () => {
     const fs = require('node:fs'), path = require('node:path');
     const read = file => fs.readFileSync(path.join(__dirname, '../../runtime', file), 'utf8');
-    const objects = read('reactor_objects.js'), sprites = read('reactor_sprites.js');
+    const objects = runtimeSource('reactor_objects.js'), sprites = read('reactor_sprites.js');
     // The trait's eighth value reaches the sprite, which reaches the preset.
     assert.match(objects, /case 7:\s*\n\s*this\.requestEffect\("shatterCollapse"\)/, 'Collapse Effect 7 asks for the shatter');
     assert.match(sprites, /case "shatterCollapse":\s*\n\s*this\.startParticleCollapse\("shatter"\)/, 'and the sprite starts that preset');
@@ -488,7 +489,7 @@ test('Shatter is wired end to end: the trait, both emitters, and a mesh of trian
 test("an enemy can carry its own collapse sound, chosen beside the effect and stored with its presentation settings", () => {
     const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
     const editorRoot = path.resolve(__dirname, '..');
-    const objects = fs.readFileSync(path.join(editorRoot, '../runtime/reactor_objects.js'), 'utf8');
+    const objects = runtimeSource('reactor_objects.js');
     // Every collapse kind asks for the enemy's own sound before the engine's.
     assert.match(objects, /Game_Enemy\.prototype\.playCollapseSe = function/);
     for (const kind of ['collapse', 'bossCollapse', 'ashCollapse', 'emberCollapse', 'wispCollapse', 'shatterCollapse']) {

@@ -165,7 +165,7 @@ test('the passes render at an adaptive scale: drop fast when the game cannot hol
     }
     const viewport = r3d.slice(r3d.indexOf('Reactor3D.Viewport.prototype._trackFrame'), r3d.indexOf('Reactor3D.Viewport.prototype._disposeTargets'));
     assert.match(viewport, /if \(next < this\._scale \|\| \(next > this\._scale && stats\.since >= 300\)\)/, 'climbing back needs five calm seconds');
-    assert.match(r3d, /Reactor3D\.Viewport\.prototype\.render = function\(slot\) \{[\s\S]*?this\._trackFrame\(\);\s*this\.renderInto/);
+    assert.match(r3d, /Reactor3D\.Viewport\.prototype\.render = function\(slot\) \{[\s\S]*?this\._trackFrame\(\);\s*if \(this\.upscaled\(\)\) return this\._renderUpscaled\(slot \|\| "below"\);\s*return this\.renderInto/);
     assert.match(r3d, /const pixels = Math\.max\(16, Math\.round\(state\.size \* scale\)\);[\s\S]*?state\.target = viewport\.createTarget\(pixels, pixels, scale, state\.flat \? \{ samples: 4 \} : undefined\);/, 'battler targets follow the scale');
     const warm = r3d.slice(r3d.indexOf('Reactor3D.warmLoadedTemplates = function'), r3d.indexOf('Templates live outside any scene'));
     assert.ok(warm.indexOf('if (!pending.length) return;') < warm.indexOf('new THREE.Scene()'), 'the per-frame warm scan allocates nothing on the steady state');
@@ -242,4 +242,22 @@ test('map scenes and battle rooms release their model copies, and a rebuilt map 
     const room = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_battle_room.js'), 'utf8');
     assert.match(room, /const object = R\.cloneModelTemplate\(template\);\n\s+record\.template = template;/);
     assert.match(room, /if\(r\.object&&r\.template\)root\.Reactor3D\.releaseModelInstance\?\.\(r\.object,r\.template\);/);
+});
+
+test('an empty pass says so, and its full-screen sprite is not composited', () => {
+    const R = require('../../runtime/reactor_3d.js');
+    const E = R.EmptyPass, target = { addEventListener() {} };
+    const renderer = { autoClear: true, autoClearColor: true, autoClearDepth: true, autoClearStencil: true, getClearAlpha: () => 0 };
+    const viewport = { _renderer: renderer, _shared: true };
+    const savedWork = E.hasWork; let draws = 0;
+    try {
+        E.hasWork = () => false;
+        assert.equal(E.render(viewport, target, {}, {}, () => draws++), true, 'cleared once, empty');
+        assert.equal(E.render(viewport, target, {}, {}, () => draws++), true, 'still empty, not drawn again');
+        assert.equal(draws, 1);
+        E.hasWork = () => true;
+        assert.equal(E.render(viewport, target, {}, {}, () => draws++), false, 'something to draw');
+    } finally { E.hasWork = savedWork; }
+    const sprites = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', '..', 'runtime', 'reactor_sprites.js'), 'utf8');
+    assert.match(sprites, /const aboveEmpty = state\.viewport\.renderPass\([\s\S]{0,400}sprite\.renderable = !aboveEmpty;/);
 });

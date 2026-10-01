@@ -291,11 +291,6 @@ const RR_I18N_STRINGS = {
         'toolbar.title.circle': 'Circular Area Tool',
         'toolbar.title.fill': 'Fill Tool',
         'toolbar.title.shadowPen': 'Shadow Pen (Toggle shadows on tiles)',
-        'toolbar.title.heightBrush': 'Height Brush (paint elevation for 3D maps)',
-        'toolbar.height': 'Height:',
-        'toolbar.height.set': 'Set to',
-        'toolbar.height.raise': 'Raise',
-        'toolbar.height.lower': 'Lower',
         'toolbar.title.eraser': 'Erase Tiles (Layer-Aware)',
         'toolbar.title.autoLayer': 'Auto-Select Layer (Smart Stacking)',
         'toolbar.title.layer1': 'Layer 1',
@@ -652,11 +647,6 @@ const RR_I18N_STRINGS = {
         'toolbar.title.circle': '円形範囲ツール',
         'toolbar.title.fill': '塗りつぶしツール',
         'toolbar.title.shadowPen': '影ペン (タイルの影を切り替え)',
-        'toolbar.title.heightBrush': '高さブラシ (3Dマップの高低差を描く)',
-        'toolbar.height': '高さ:',
-        'toolbar.height.set': '設定',
-        'toolbar.height.raise': '上げる',
-        'toolbar.height.lower': '下げる',
         'toolbar.title.eraser': 'タイル消去 (レイヤー対応)',
         'toolbar.title.autoLayer': '自動レイヤー選択 (スマート重ね合わせ)',
         'toolbar.title.layer1': 'レイヤー 1',
@@ -995,11 +985,6 @@ const RR_I18N_STRINGS = {
         'toolbar.title.circle': 'Herramienta de área circular',
         'toolbar.title.fill': 'Herramienta de relleno',
         'toolbar.title.shadowPen': 'Lápiz de sombras (alternar sombras en tiles)',
-        'toolbar.title.heightBrush': 'Pincel de altura (pinta la elevación para mapas 3D)',
-        'toolbar.height': 'Altura:',
-        'toolbar.height.set': 'Fijar en',
-        'toolbar.height.raise': 'Subir',
-        'toolbar.height.lower': 'Bajar',
         'toolbar.title.eraser': 'Borrar tiles (según capa)',
         'toolbar.title.autoLayer': 'Seleccionar capa automáticamente (apilado inteligente)',
         'toolbar.title.layer1': 'Capa 1',
@@ -2981,11 +2966,6 @@ RR_I18N_STRINGS['ko'] = { ...RR_I18N_STRINGS.en,
     'toolbar.title.openProject': '프로젝트 열기', 'toolbar.title.saveProject': '프로젝트 저장', 'toolbar.title.undo': '실행 취소 (Ctrl+Z)', 'toolbar.title.redo': '다시 실행 (Ctrl+Y)',
     'toolbar.title.playtest': '테스트 플레이', 'toolbar.title.singleTile': '단일 타일 도구', 'toolbar.title.rectangle': '사각형 영역 도구', 'toolbar.title.circle': '원형 영역 도구',
     'toolbar.title.fill': '채우기 도구', 'toolbar.title.shadowPen': '그림자 펜 (타일 그림자 전환)', 'toolbar.title.eraser': '타일 지우기 (레이어 인식)', 'toolbar.title.autoLayer': '레이어 자동 선택 (스마트 스태킹)',
-    'toolbar.title.heightBrush': 'Πινέλο ύψους (ζωγραφίζει το υψόμετρο για χάρτες 3D)',
-    'toolbar.height': 'Ύψος:',
-    'toolbar.height.set': 'Ορισμός σε',
-    'toolbar.height.raise': 'Ανύψωση',
-    'toolbar.height.lower': 'Χαμήλωμα',
     'toolbar.title.layer1': '레이어 1', 'toolbar.title.layer2': '레이어 2', 'toolbar.title.layer3': '레이어 3', 'toolbar.title.layer4': '레이어 4',
     'toolbar.title.eventManager': '이벤트 관리자', 'toolbar.title.database': '데이터베이스', 'toolbar.title.plugins': '플러그인', 'toolbar.title.audioPlayer': '오디오 플레이어',
     'toolbar.title.forgeLauncher': 'Forge - 개발 도구 모음', 'welcome.tagline': '오픈 소스 크로스 플랫폼 엔진으로 멋진 RPG 게임을 만들어 보세요', 'welcome.gettingStarted': '시작하기', 'welcome.step.create': '새 프로젝트를 만들어 RPG 제작을 시작하세요',
@@ -3281,11 +3261,6 @@ RR_I18N_STRINGS['ar'] = { ...RR_I18N_STRINGS.en,
     'toolbar.title.openProject': 'فتح مشروع', 'toolbar.title.saveProject': 'حفظ المشروع', 'toolbar.title.undo': 'تراجع (Ctrl+Z)', 'toolbar.title.redo': 'إعادة (Ctrl+Y)',
     'toolbar.title.playtest': 'اختبار اللعب', 'toolbar.title.singleTile': 'أداة البلاطة الواحدة', 'toolbar.title.rectangle': 'أداة المنطقة المستطيلة', 'toolbar.title.circle': 'أداة المنطقة الدائرية',
     'toolbar.title.fill': 'أداة التعبئة', 'toolbar.title.shadowPen': 'قلم الظل (تبديل الظلال على البلاطات)', 'toolbar.title.eraser': 'مسح البلاطات (حسب الطبقة)', 'toolbar.title.autoLayer': 'اختيار الطبقة تلقائيًا (تكديس ذكي)',
-    'toolbar.title.heightBrush': 'Πινέλο ύψους (ζωγραφίζει το υψόμετρο για χάρτες 3D)',
-    'toolbar.height': 'Ύψος:',
-    'toolbar.height.set': 'Ορισμός σε',
-    'toolbar.height.raise': 'Ανύψωση',
-    'toolbar.height.lower': 'Χαμήλωμα',
     'toolbar.title.layer1': 'الطبقة 1', 'toolbar.title.layer2': 'الطبقة 2', 'toolbar.title.layer3': 'الطبقة 3', 'toolbar.title.layer4': 'الطبقة 4',
     'toolbar.title.eventManager': 'مدير الأحداث', 'toolbar.title.database': 'قاعدة البيانات', 'toolbar.title.plugins': 'الإضافات', 'toolbar.title.audioPlayer': 'مشغّل الصوت',
     'toolbar.title.forgeLauncher': 'Forge - حزمة أدوات التطوير', 'welcome.tagline': 'أنشئ ألعاب RPG مذهلة بمحرك مفتوح المصدر متعدد المنصات', 'welcome.gettingStarted': 'الخطوات الأولى', 'welcome.step.create': 'أنشئ مشروعًا جديدًا لبدء بناء لعبتك',
@@ -5531,11 +5506,6 @@ RR_I18N_STRINGS['it'] = { ...RR_I18N_STRINGS.en,
     'toolbar.title.openProject': 'Apri progetto', 'toolbar.title.saveProject': 'Salva progetto', 'toolbar.title.undo': 'Annulla (Ctrl+Z)', 'toolbar.title.redo': 'Ripeti (Ctrl+Y)',
     'toolbar.title.playtest': 'Playtest', 'toolbar.title.singleTile': 'Strumento tile singolo', 'toolbar.title.rectangle': 'Strumento area rettangolare', 'toolbar.title.circle': 'Strumento area circolare',
     'toolbar.title.fill': 'Strumento riempimento', 'toolbar.title.shadowPen': 'Penna ombre (attiva/disattiva le ombre sui tile)', 'toolbar.title.eraser': 'Cancella tile (in base al livello)', 'toolbar.title.autoLayer': 'Selezione automatica livello (impilamento intelligente)',
-    'toolbar.title.heightBrush': 'Πινέλο ύψους (ζωγραφίζει το υψόμετρο για χάρτες 3D)',
-    'toolbar.height': 'Ύψος:',
-    'toolbar.height.set': 'Ορισμός σε',
-    'toolbar.height.raise': 'Ανύψωση',
-    'toolbar.height.lower': 'Χαμήλωμα',
     'toolbar.title.layer1': 'Livello 1', 'toolbar.title.layer2': 'Livello 2', 'toolbar.title.layer3': 'Livello 3', 'toolbar.title.layer4': 'Livello 4',
     'toolbar.title.eventManager': 'Gestore eventi', 'toolbar.title.database': 'Database', 'toolbar.title.plugins': 'Plugin', 'toolbar.title.audioPlayer': 'Lettore audio',
     'toolbar.title.forgeLauncher': 'Forgia - Suite di strumenti di sviluppo', 'welcome.tagline': 'Crea fantastici giochi RPG con un motore open source e multipiattaforma', 'welcome.gettingStarted': 'Per iniziare', 'welcome.step.create': 'Crea un nuovo progetto per iniziare a costruire il tuo RPG',
@@ -6002,11 +5972,6 @@ RR_I18N_STRINGS['pl'] = { ...RR_I18N_STRINGS.en,
     'toolbar.title.openProject': 'Otwórz projekt', 'toolbar.title.saveProject': 'Zapisz projekt', 'toolbar.title.undo': 'Cofnij (Ctrl+Z)', 'toolbar.title.redo': 'Ponów (Ctrl+Y)',
     'toolbar.title.playtest': 'Test gry', 'toolbar.title.singleTile': 'Narzędzie pojedynczego kafelka', 'toolbar.title.rectangle': 'Narzędzie obszaru prostokątnego', 'toolbar.title.circle': 'Narzędzie obszaru okrągłego',
     'toolbar.title.fill': 'Narzędzie wypełniania', 'toolbar.title.shadowPen': 'Pióro cieni (przełącza cienie na kafelkach)', 'toolbar.title.eraser': 'Wymaż kafelki (z uwzględnieniem warstw)', 'toolbar.title.autoLayer': 'Automatyczny wybór warstwy (inteligentne układanie)',
-    'toolbar.title.heightBrush': 'Πινέλο ύψους (ζωγραφίζει το υψόμετρο για χάρτες 3D)',
-    'toolbar.height': 'Ύψος:',
-    'toolbar.height.set': 'Ορισμός σε',
-    'toolbar.height.raise': 'Ανύψωση',
-    'toolbar.height.lower': 'Χαμήλωμα',
     'toolbar.title.layer1': 'Warstwa 1', 'toolbar.title.layer2': 'Warstwa 2', 'toolbar.title.layer3': 'Warstwa 3', 'toolbar.title.layer4': 'Warstwa 4',
     'toolbar.title.eventManager': 'Menedżer zdarzeń', 'toolbar.title.database': 'Baza danych', 'toolbar.title.plugins': 'Wtyczki', 'toolbar.title.audioPlayer': 'Odtwarzacz audio',
     'toolbar.title.forgeLauncher': 'Kuźnia – zestaw narzędzi deweloperskich', 'welcome.tagline': 'Twórz niesamowite gry RPG dzięki otwartemu, wieloplatformowemu silnikowi', 'welcome.gettingStarted': 'Pierwsze kroki', 'welcome.step.create': 'Utwórz nowy projekt, aby zacząć budować swoje RPG',
@@ -6473,11 +6438,6 @@ RR_I18N_STRINGS['id'] = { ...RR_I18N_STRINGS.en,
     'toolbar.title.openProject': 'Buka Proyek', 'toolbar.title.saveProject': 'Simpan Proyek', 'toolbar.title.undo': 'Urungkan (Ctrl+Z)', 'toolbar.title.redo': 'Ulangi (Ctrl+Y)',
     'toolbar.title.playtest': 'Uji Main', 'toolbar.title.singleTile': 'Alat Tile Tunggal', 'toolbar.title.rectangle': 'Alat Area Persegi Panjang', 'toolbar.title.circle': 'Alat Area Lingkaran',
     'toolbar.title.fill': 'Alat Isi', 'toolbar.title.shadowPen': 'Pena Bayangan (Aktifkan/nonaktifkan bayangan pada tile)', 'toolbar.title.eraser': 'Hapus Tile (Sesuai Lapisan)', 'toolbar.title.autoLayer': 'Pilih Lapisan Otomatis (Penumpukan Cerdas)',
-    'toolbar.title.heightBrush': 'Πινέλο ύψους (ζωγραφίζει το υψόμετρο για χάρτες 3D)',
-    'toolbar.height': 'Ύψος:',
-    'toolbar.height.set': 'Ορισμός σε',
-    'toolbar.height.raise': 'Ανύψωση',
-    'toolbar.height.lower': 'Χαμήλωμα',
     'toolbar.title.layer1': 'Lapisan 1', 'toolbar.title.layer2': 'Lapisan 2', 'toolbar.title.layer3': 'Lapisan 3', 'toolbar.title.layer4': 'Lapisan 4',
     'toolbar.title.eventManager': 'Manajer Event', 'toolbar.title.database': 'Database', 'toolbar.title.plugins': 'Plugin', 'toolbar.title.audioPlayer': 'Pemutar Audio',
     'toolbar.title.forgeLauncher': 'Bengkel - Rangkaian Alat Pengembangan', 'welcome.tagline': 'Buat game RPG menakjubkan dengan engine lintas platform yang open-source', 'welcome.gettingStarted': 'Memulai', 'welcome.step.create': 'Buat proyek baru untuk mulai membangun RPG Anda',
@@ -6944,11 +6904,6 @@ RR_I18N_STRINGS['vi'] = { ...RR_I18N_STRINGS.en,
     'toolbar.title.openProject': 'Mở dự án', 'toolbar.title.saveProject': 'Lưu dự án', 'toolbar.title.undo': 'Hoàn tác (Ctrl+Z)', 'toolbar.title.redo': 'Làm lại (Ctrl+Y)',
     'toolbar.title.playtest': 'Chơi thử', 'toolbar.title.singleTile': 'Công cụ tile đơn', 'toolbar.title.rectangle': 'Công cụ vùng chữ nhật', 'toolbar.title.circle': 'Công cụ vùng hình tròn',
     'toolbar.title.fill': 'Công cụ tô đầy', 'toolbar.title.shadowPen': 'Bút bóng (Bật/tắt bóng trên tile)', 'toolbar.title.eraser': 'Xóa tile (Theo lớp)', 'toolbar.title.autoLayer': 'Tự chọn lớp (Xếp chồng thông minh)',
-    'toolbar.title.heightBrush': 'Πινέλο ύψους (ζωγραφίζει το υψόμετρο για χάρτες 3D)',
-    'toolbar.height': 'Ύψος:',
-    'toolbar.height.set': 'Ορισμός σε',
-    'toolbar.height.raise': 'Ανύψωση',
-    'toolbar.height.lower': 'Χαμήλωμα',
     'toolbar.title.layer1': 'Lớp 1', 'toolbar.title.layer2': 'Lớp 2', 'toolbar.title.layer3': 'Lớp 3', 'toolbar.title.layer4': 'Lớp 4',
     'toolbar.title.eventManager': 'Trình quản lý sự kiện', 'toolbar.title.database': 'Cơ sở dữ liệu', 'toolbar.title.plugins': 'Plugin', 'toolbar.title.audioPlayer': 'Trình phát âm thanh',
     'toolbar.title.forgeLauncher': 'Xưởng - Bộ công cụ phát triển', 'welcome.tagline': 'Tạo những trò chơi RPG tuyệt vời với engine mã nguồn mở, đa nền tảng', 'welcome.gettingStarted': 'Bắt đầu', 'welcome.step.create': 'Tạo dự án mới để bắt đầu xây dựng RPG của bạn',
@@ -7415,11 +7370,6 @@ RR_I18N_STRINGS['th'] = { ...RR_I18N_STRINGS.en,
     'toolbar.title.openProject': 'เปิดโปรเจกต์', 'toolbar.title.saveProject': 'บันทึกโปรเจกต์', 'toolbar.title.undo': 'เลิกทำ (Ctrl+Z)', 'toolbar.title.redo': 'ทำซ้ำ (Ctrl+Y)',
     'toolbar.title.playtest': 'ทดสอบเล่น', 'toolbar.title.singleTile': 'เครื่องมือไทล์เดี่ยว', 'toolbar.title.rectangle': 'เครื่องมือพื้นที่สี่เหลี่ยม', 'toolbar.title.circle': 'เครื่องมือพื้นที่วงกลม',
     'toolbar.title.fill': 'เครื่องมือเติมสี', 'toolbar.title.shadowPen': 'ปากกาเงา (สลับเงาบนไทล์)', 'toolbar.title.eraser': 'ลบไทล์ (แยกตามเลเยอร์)', 'toolbar.title.autoLayer': 'เลือกเลเยอร์อัตโนมัติ (วางซ้อนอัจฉริยะ)',
-    'toolbar.title.heightBrush': 'Πινέλο ύψους (ζωγραφίζει το υψόμετρο για χάρτες 3D)',
-    'toolbar.height': 'Ύψος:',
-    'toolbar.height.set': 'Ορισμός σε',
-    'toolbar.height.raise': 'Ανύψωση',
-    'toolbar.height.lower': 'Χαμήλωμα',
     'toolbar.title.layer1': 'เลเยอร์ 1', 'toolbar.title.layer2': 'เลเยอร์ 2', 'toolbar.title.layer3': 'เลเยอร์ 3', 'toolbar.title.layer4': 'เลเยอร์ 4',
     'toolbar.title.eventManager': 'ตัวจัดการอีเวนต์', 'toolbar.title.database': 'ฐานข้อมูล', 'toolbar.title.plugins': 'ปลั๊กอิน', 'toolbar.title.audioPlayer': 'เครื่องเล่นเสียง',
     'toolbar.title.forgeLauncher': 'ฟอร์จ - ชุดเครื่องมือพัฒนา', 'welcome.tagline': 'สร้างเกม RPG สุดตระการตาด้วยเอนจินโอเพนซอร์สข้ามแพลตฟอร์ม', 'welcome.gettingStarted': 'เริ่มต้นใช้งาน', 'welcome.step.create': 'สร้างโปรเจกต์ใหม่เพื่อเริ่มสร้างเกม RPG ของคุณ',
@@ -7886,11 +7836,6 @@ RR_I18N_STRINGS['tr'] = { ...RR_I18N_STRINGS.en,
     'toolbar.title.openProject': 'Proje aç', 'toolbar.title.saveProject': 'Projeyi kaydet', 'toolbar.title.undo': 'Geri al (Ctrl+Z)', 'toolbar.title.redo': 'Yinele (Ctrl+Y)',
     'toolbar.title.playtest': 'Oyun testi', 'toolbar.title.singleTile': 'Tek karo aracı', 'toolbar.title.rectangle': 'Dikdörtgen alan aracı', 'toolbar.title.circle': 'Dairesel alan aracı',
     'toolbar.title.fill': 'Doldurma aracı', 'toolbar.title.shadowPen': 'Gölge kalemi (karolarda gölgeleri aç/kapat)', 'toolbar.title.eraser': 'Karoları sil (katman duyarlı)', 'toolbar.title.autoLayer': 'Katmanı otomatik seç (akıllı istifleme)',
-    'toolbar.title.heightBrush': 'Πινέλο ύψους (ζωγραφίζει το υψόμετρο για χάρτες 3D)',
-    'toolbar.height': 'Ύψος:',
-    'toolbar.height.set': 'Ορισμός σε',
-    'toolbar.height.raise': 'Ανύψωση',
-    'toolbar.height.lower': 'Χαμήλωμα',
     'toolbar.title.layer1': 'Katman 1', 'toolbar.title.layer2': 'Katman 2', 'toolbar.title.layer3': 'Katman 3', 'toolbar.title.layer4': 'Katman 4',
     'toolbar.title.eventManager': 'Olay yöneticisi', 'toolbar.title.database': 'Veritabanı', 'toolbar.title.plugins': 'Eklentiler', 'toolbar.title.audioPlayer': 'Ses oynatıcı',
     'toolbar.title.forgeLauncher': 'Atölye - geliştirme araç seti', 'welcome.tagline': 'Açık kaynaklı, çok platformlu bir motorla harika RPG oyunları oluşturun', 'welcome.gettingStarted': 'Başlarken', 'welcome.step.create': 'RPG\'nizi oluşturmaya başlamak için yeni bir proje oluşturun',
@@ -9363,11 +9308,6 @@ Object.assign(RR_I18N_STRINGS.de, {
     'toolbar.title.plugins': 'Erweiterungen',
     'toolbar.title.rectangle': 'Rechteckflächen-Werkzeug',
     'toolbar.title.shadowPen': 'Schattenstift (Schatten auf Kacheln umschalten)',
-    'toolbar.title.heightBrush': 'Yükseklik fırçası (3B haritalar için yükseklik boyar)',
-    'toolbar.height': 'Yükseklik:',
-    'toolbar.height.set': 'Şuna ayarla',
-    'toolbar.height.raise': 'Yükselt',
-    'toolbar.height.lower': 'Alçalt',
     'toolbar.title.singleTile': 'Einzelkachel-Werkzeug',
     'workspace.zoom': 'Zoom:'
 });
@@ -9536,11 +9476,6 @@ Object.assign(RR_I18N_STRINGS.fr, {
     'toolbar.title.plugins': 'Extensions',
     'toolbar.title.rectangle': 'Outil zone rectangulaire',
     'toolbar.title.shadowPen': 'Stylo d\'ombre (bascule les ombres sur les tuiles)',
-    'toolbar.title.heightBrush': 'Yükseklik fırçası (3B haritalar için yükseklik boyar)',
-    'toolbar.height': 'Yükseklik:',
-    'toolbar.height.set': 'Şuna ayarla',
-    'toolbar.height.raise': 'Yükselt',
-    'toolbar.height.lower': 'Alçalt',
     'toolbar.title.singleTile': 'Outil tuile unique',
     'workspace.zoom': 'Zoom :'
 });
@@ -9709,11 +9644,6 @@ Object.assign(RR_I18N_STRINGS.pt, {
     'toolbar.title.plugins': 'Extensões',
     'toolbar.title.rectangle': 'Ferramenta de área retangular',
     'toolbar.title.shadowPen': 'Caneta de sombra (alterna sombras nos tiles)',
-    'toolbar.title.heightBrush': 'Yükseklik fırçası (3B haritalar için yükseklik boyar)',
-    'toolbar.height': 'Yükseklik:',
-    'toolbar.height.set': 'Şuna ayarla',
-    'toolbar.height.raise': 'Yükselt',
-    'toolbar.height.lower': 'Alçalt',
     'toolbar.title.singleTile': 'Ferramenta de tile único',
     'workspace.zoom': 'Zoom:'
 });
@@ -9882,11 +9812,6 @@ Object.assign(RR_I18N_STRINGS.ru, {
     'toolbar.title.plugins': 'Плагины',
     'toolbar.title.rectangle': 'Инструмент «Прямоугольная область»',
     'toolbar.title.shadowPen': 'Перо теней (переключает тени на тайлах)',
-    'toolbar.title.heightBrush': 'Yükseklik fırçası (3B haritalar için yükseklik boyar)',
-    'toolbar.height': 'Yükseklik:',
-    'toolbar.height.set': 'Şuna ayarla',
-    'toolbar.height.raise': 'Yükselt',
-    'toolbar.height.lower': 'Alçalt',
     'toolbar.title.singleTile': 'Инструмент «Одиночный тайл»',
     'workspace.zoom': 'Масштаб:'
 });
@@ -10055,11 +9980,6 @@ Object.assign(RR_I18N_STRINGS.el, {
     'toolbar.title.plugins': 'Πρόσθετα',
     'toolbar.title.rectangle': 'Εργαλείο ορθογώνιας περιοχής',
     'toolbar.title.shadowPen': 'Πένα σκιάς (εναλλαγή σκιών στα πλακίδια)',
-    'toolbar.title.heightBrush': 'Yükseklik fırçası (3B haritalar için yükseklik boyar)',
-    'toolbar.height': 'Yükseklik:',
-    'toolbar.height.set': 'Şuna ayarla',
-    'toolbar.height.raise': 'Yükselt',
-    'toolbar.height.lower': 'Alçalt',
     'toolbar.title.singleTile': 'Εργαλείο μεμονωμένου πλακιδίου',
     'workspace.zoom': 'Ζουμ:'
 });
@@ -10228,11 +10148,6 @@ Object.assign(RR_I18N_STRINGS['zh-Hans'], {
     'toolbar.title.plugins': '插件',
     'toolbar.title.rectangle': '矩形区域工具',
     'toolbar.title.shadowPen': '阴影笔（切换图块上的阴影）',
-    'toolbar.title.heightBrush': '高度画笔（绘制 3D 地图的高程）',
-    'toolbar.height': '高度：',
-    'toolbar.height.set': '设置为',
-    'toolbar.height.raise': '升高',
-    'toolbar.height.lower': '降低',
     'toolbar.title.singleTile': '单图块工具',
     'workspace.zoom': '缩放：'
 });
@@ -10401,11 +10316,6 @@ Object.assign(RR_I18N_STRINGS['zh-Hant'], {
     'toolbar.title.plugins': '外掛',
     'toolbar.title.rectangle': '矩形區域工具',
     'toolbar.title.shadowPen': '陰影筆（切換圖塊上的陰影）',
-    'toolbar.title.heightBrush': 'Yükseklik fırçası (3B haritalar için yükseklik boyar)',
-    'toolbar.height': 'Yükseklik:',
-    'toolbar.height.set': 'Şuna ayarla',
-    'toolbar.height.raise': 'Yükselt',
-    'toolbar.height.lower': 'Alçalt',
     'toolbar.title.singleTile': '單圖塊工具',
     'workspace.zoom': '縮放：'
 });
@@ -20086,6 +19996,14 @@ Object.assign(RR_TEXT_TRANSLATIONS['id'], { "How long this track rises from sile
 Object.assign(RR_TEXT_TRANSLATIONS['vi'], { "How long this track rises from silence as it starts.": "Thời gian bản nhạc này lớn dần từ im lặng khi bắt đầu.", "How long this track fades away, and how early the next entry starts under it. 0 plays it to its end.": "Thời gian bản nhạc này nhỏ dần, và mục tiếp theo bắt đầu sớm bao lâu bên dưới nó. 0 phát đến hết.", "How long each track rises from silence as it starts.": "Thời gian mỗi bản nhạc lớn dần từ im lặng khi bắt đầu.", "How long each track fades away, and how early the next one starts under it. 0 plays every track to its end.": "Thời gian mỗi bản nhạc nhỏ dần, và bản tiếp theo bắt đầu sớm bao lâu bên dưới nó. 0 phát mỗi bản đến hết.", "A fade-out starts what follows early, under the ending track; a fade-in lets the new one rise.": "Nhỏ dần cho phần tiếp theo bắt đầu sớm dưới bản đang kết thúc; lớn dần để âm thanh mới dâng lên." });
 Object.assign(RR_TEXT_TRANSLATIONS['th'], { "How long this track rises from silence as it starts.": "ระยะเวลาที่แทร็กนี้ค่อยๆ ดังขึ้นจากความเงียบเมื่อเริ่ม", "How long this track fades away, and how early the next entry starts under it. 0 plays it to its end.": "ระยะเวลาที่แทร็กนี้ค่อยๆ เบาลง และรายการถัดไปเริ่มก่อนใต้แทร็กนี้เร็วแค่ไหน 0 จะเล่นจนจบ", "How long each track rises from silence as it starts.": "ระยะเวลาที่แต่ละแทร็กค่อยๆ ดังขึ้นจากความเงียบเมื่อเริ่ม", "How long each track fades away, and how early the next one starts under it. 0 plays every track to its end.": "ระยะเวลาที่แต่ละแทร็กค่อยๆ เบาลง และแทร็กถัดไปเริ่มก่อนใต้แทร็กนั้นเร็วแค่ไหน 0 จะเล่นทุกแทร็กจนจบ", "A fade-out starts what follows early, under the ending track; a fade-in lets the new one rise.": "การเฟดออกทำให้ส่วนถัดไปเริ่มก่อนใต้แทร็กที่กำลังจบ ส่วนการเฟดอินให้เสียงใหม่ค่อยๆ ดังขึ้น" });
 
+// The elements whose own text the label pass translates.
+const I18N_TEXT_SELECTORS = [
+    '[data-i18n-text-source]', 'button', 'h1', 'h2', 'h3', 'h4', 'th', 'summary',
+    '.database-section-header', '.database-field-label', '.rr-form-label', 'label',
+    '.effect-option > span:first-of-type', '.trait-option > span:first-of-type', '.traits-table td[colspan]',
+    '.modal-overlay span', '.modal-overlay div'
+].join(',');
+
 class I18nManager {
     constructor() {
         for (const table of Object.values(RR_I18N_STRINGS)) {
@@ -20146,7 +20064,11 @@ class I18nManager {
         if (next === this.language && options.force !== true) return;
         this.language = next;
         if (options.persist !== false) this._writeSavedLanguage(next);
+        // The observer watches only while there is something to translate;
+        // the whole-document apply below covers whatever was added unwatched.
+        if (next === 'en') this._stopObserving();
         this.apply(document);
+        if (next !== 'en' && this._observeWanted) this.observe();
         window.dispatchEvent(new CustomEvent('rr-language-changed', { detail: { language: next } }));
     }
 
@@ -20184,83 +20106,120 @@ class I18nManager {
         if (typeof nw !== 'undefined') nw.Window.get().title = document.title;
     }
 
-    applyText(root = document) {
+    applyText(root = document, includeRoot = false) {
         if (!root || !root.querySelectorAll) return;
-        const selectors = [
-            '[data-i18n-text-source]', 'button', 'h1', 'h2', 'h3', 'h4', 'th', 'summary',
-            '.database-section-header', '.database-field-label', '.rr-form-label', 'label',
-            '.effect-option > span:first-of-type', '.trait-option > span:first-of-type', '.traits-table td[colspan]',
-            '.modal-overlay span', '.modal-overlay div'
-        ].join(',');
-
-        root.querySelectorAll(selectors).forEach(el => {
-            if (el.hasAttribute('data-rr-i18n-skip') || el.closest('[data-rr-i18n-skip]')) return;
-            if (el.hasAttribute('data-i18n') || el.querySelector('input, select, textarea, button')) return;
-            if (el.children && el.children.length) return;
-            const stored = el.getAttribute('data-i18n-text-source');
-            const source = stored || el.textContent.trim();
-            if (!source) return;
-            const params = el.getAttribute('data-i18n-text-params');
-            let values = {};
-            if (params) { try { values = JSON.parse(params) || {}; } catch {} }
-            const translated = this.formatText(source, values);
-            if (translated === source && this.language !== 'en') return;
-            const wanted = translated;
-            // Write only what changes. Replacing a text node is itself a
-            // childList mutation, and `observe()` re-runs this pass on any
-            // added node: rewriting every label unconditionally kept the
-            // observer feeding itself — a whole-document pass several times
-            // a frame, forever, on every editor screen.
-            if (stored !== source) el.setAttribute('data-i18n-text-source', source);
-            if (el.textContent !== wanted) el.textContent = wanted;
-        });
-
-        root.querySelectorAll('[placeholder]').forEach(el => {
-            const stored = el.getAttribute('data-i18n-placeholder-source');
-            const source = stored || el.getAttribute('placeholder');
-            if (!source) return;
-            const params = el.getAttribute('data-i18n-text-params');
-            let values = {};
-            if (params) { try { values = JSON.parse(params) || {}; } catch {} }
-            const translated = this.formatText(source, values);
-            if (translated === source && this.language !== 'en') return;
-            const wanted = translated;
-            if (stored !== source) el.setAttribute('data-i18n-placeholder-source', source);
-            if (el.getAttribute('placeholder') !== wanted) el.setAttribute('placeholder', wanted);
-        });
+        // `includeRoot` also looks at the root element itself: the observer
+        // hands this an added button or label directly, and querySelectorAll
+        // only searches beneath it.
+        const self = includeRoot && root.nodeType === 1 && typeof root.matches === 'function';
+        const texts = root.querySelectorAll(I18N_TEXT_SELECTORS);
+        if (self && root.matches(I18N_TEXT_SELECTORS)) this._applyTextElement(root);
+        texts.forEach(el => this._applyTextElement(el));
+        const placeholders = root.querySelectorAll('[placeholder]');
+        if (self && root.hasAttribute('placeholder')) this._applyPlaceholder(root);
+        placeholders.forEach(el => this._applyPlaceholder(el));
     }
 
+    _applyTextElement(el) {
+        if (el.hasAttribute('data-rr-i18n-skip') || el.closest('[data-rr-i18n-skip]')) return;
+        if (el.hasAttribute('data-i18n') || el.querySelector('input, select, textarea, button')) return;
+        if (el.children && el.children.length) return;
+        const stored = el.getAttribute('data-i18n-text-source');
+        const source = stored || el.textContent.trim();
+        if (!source) return;
+        const params = el.getAttribute('data-i18n-text-params');
+        let values = {};
+        if (params) { try { values = JSON.parse(params) || {}; } catch {} }
+        const translated = this.formatText(source, values);
+        if (translated === source && this.language !== 'en') return;
+        const wanted = translated;
+        // Write only what changes. Replacing a text node is itself a
+        // childList mutation, and `observe()` re-runs this pass on the
+        // element that holds it: rewriting every label unconditionally kept
+        // the observer feeding itself, several passes a frame, forever, on
+        // every editor screen.
+        if (stored !== source) el.setAttribute('data-i18n-text-source', source);
+        if (el.textContent !== wanted) el.textContent = wanted;
+    }
+
+    _applyPlaceholder(el) {
+        const stored = el.getAttribute('data-i18n-placeholder-source');
+        const source = stored || el.getAttribute('placeholder');
+        if (!source) return;
+        const params = el.getAttribute('data-i18n-text-params');
+        let values = {};
+        if (params) { try { values = JSON.parse(params) || {}; } catch {} }
+        const translated = this.formatText(source, values);
+        if (translated === source && this.language !== 'en') return;
+        const wanted = translated;
+        if (stored !== source) el.setAttribute('data-i18n-placeholder-source', source);
+        if (el.getAttribute('placeholder') !== wanted) el.setAttribute('placeholder', wanted);
+    }
+
+    /**
+     * Translate labels the editor adds after the first pass.
+     *
+     * English needs no watching: its labels are already in the language they
+     * are written in, the pass would only stamp source attributes onto them,
+     * and a switch away from English re-applies the whole document before the
+     * observer starts again, reading the English text straight off anything
+     * that was never stamped. Every panel, list row and preview frame the
+     * editor adds used to buy that work anyway.
+     *
+     * Elsewhere, an added element earns a pass over itself and what it holds,
+     * not over the document: opening a database tab used to re-read every
+     * label in the window, several times over while the page filled in.
+     * Replaced text (a counter, a status line, this pass's own writes) earns
+     * a look at the element that holds it and nothing more.
+     */
     observe() {
-        if (this._observer || typeof MutationObserver === 'undefined' || !document.body) return;
-        // An added element may bring untranslated labels anywhere beneath it,
-        // so it earns a pass over the document. Replaced text (a counter, a
-        // status line, this pass's own writes) earns a look at the element
-        // that holds it and nothing more: a preview rewriting a label every
-        // frame used to buy a whole-document pass every frame, which on a
-        // large project starved everything else on the thread.
+        this._observeWanted = true;
+        if (this._observer || typeof MutationObserver === 'undefined' || typeof document === 'undefined' || !document.body) return;
+        if (this.language === 'en') return;
         this._observerTargets = this._observerTargets || new Set();
+        this._observerAdded = this._observerAdded || new Set();
         this._observer = new MutationObserver((mutations) => {
-            let whole = false;
             for (const m of mutations) {
                 if (!m.addedNodes || !m.addedNodes.length) continue;
                 for (const node of m.addedNodes) {
-                    if (node.nodeType === 1) { whole = true; break; }
-                    if (node.nodeType === 3 && m.target && m.target.nodeType === 1) this._observerTargets.add(m.target);
+                    if (node.nodeType === 1) this._observerAdded.add(node);
+                    else if (node.nodeType === 3 && m.target && m.target.nodeType === 1) this._observerTargets.add(m.target);
                 }
-                if (whole) break;
             }
-            if (whole) this._observerWhole = true;
-            else if (!this._observerTargets.size) return;
+            if (!this._observerAdded.size && !this._observerTargets.size) return;
             if (this._observerPending) return;
             this._observerPending = true;
-            setTimeout(() => {
-                this._observerPending = false;
-                const targets = [...this._observerTargets]; this._observerTargets.clear();
-                if (this._observerWhole) { this._observerWhole = false; this.applyText(document); return; }
-                for (const target of targets) if (target.isConnected) this.applyText(target.parentElement || target);
-            }, 0);
+            setTimeout(() => this._flushObserved(), 0);
         });
         this._observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    _flushObserved() {
+        this._observerPending = false;
+        const added = this._observerAdded ? [...this._observerAdded] : [];
+        const targets = this._observerTargets ? [...this._observerTargets] : [];
+        if (this._observerAdded) this._observerAdded.clear();
+        if (this._observerTargets) this._observerTargets.clear();
+        if (!this._observer) return;
+        const roots = new Set(added.filter(node => node.isConnected));
+        // A row added inside a panel added in the same batch is covered by
+        // the panel's pass; walk up so each subtree is read once.
+        const covered = node => {
+            for (let up = node.parentElement; up; up = up.parentElement) if (roots.has(up)) return true;
+            return false;
+        };
+        for (const node of roots) if (!covered(node)) this.applyText(node, true);
+        for (const target of targets) {
+            if (target.isConnected && !roots.has(target) && !covered(target)) this.applyText(target, true);
+        }
+    }
+
+    _stopObserving() {
+        if (this._observer) this._observer.disconnect();
+        this._observer = null;
+        this._observerPending = false;
+        if (this._observerAdded) this._observerAdded.clear();
+        if (this._observerTargets) this._observerTargets.clear();
     }
 
     _readSavedLanguage() {

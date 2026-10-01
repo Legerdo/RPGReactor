@@ -707,10 +707,38 @@ class ProjectController {
             this.app.canvas.style.display = 'block';
             this.app.canvas.style.imageRendering = 'pixelated';
 
-            // Handle window resize
+            // Draw the map when it changes, not sixty times a second: see
+            // MapRenderScheduler. Nothing is drawn while the Database window
+            // covers the map.
+            if (typeof MapRenderScheduler !== 'undefined') {
+                const databaseViewer = () => this._databaseViewer?.isConnected
+                    ? this._databaseViewer
+                    : (this._databaseViewer = document.getElementById('database-viewer'));
+                new MapRenderScheduler(this.app, {
+                    // The Database over the map, or a playtest in front: nothing to draw for.
+                    isCovered: () => !!databaseViewer()?.classList?.contains('active')
+                        || !!window.reactor?.playtestManager?.ownsGpu?.()
+                }).install({ inputElement: container });
+            }
+
+            // Handle window resize, once a frame: dragging a window edge fires
+            // this far more often than the screen can show, and every call
+            // reallocated the canvas. With a map open the tilemap crops the
+            // canvas to the map itself, so sizing it to the whole panel first
+            // was a second reallocation per event for nothing.
+            let resizeFrame = null;
             window.addEventListener('resize', () => {
-                const newRect = container.getBoundingClientRect();
-                this.app.renderer.resize(newRect.width, newRect.height);
+                if (resizeFrame !== null) return;
+                resizeFrame = requestAnimationFrame(() => {
+                    resizeFrame = null;
+                    const tilemap = this.tilemapManager;
+                    if (!tilemap?.currentMap || window.reactor?.mapEditor3D?.enabled) {
+                        const newRect = container.getBoundingClientRect();
+                        this.app.renderer.resize(newRect.width, newRect.height);
+                    }
+                    // The crop (or, in 3D, the 3D view's own resize) comes last.
+                    tilemap?.applyViewportCrop?.();
+                });
             });
         }
 

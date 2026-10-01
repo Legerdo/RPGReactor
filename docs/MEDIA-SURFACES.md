@@ -61,10 +61,8 @@ existing rectangle and does not reinterpret legacy 2D `corners`. Sparse
 transforms preserve it; setting it to null resets the 3D shape. The runtime
 validates the quad and copies it independently when applying transforms.
 
-The current runtime revision is **20260906.19**. It is synced
-to all 13 templates without replacing their plugin lists. Validation: all
-**2,892 automated tests pass**, including legacy import/API/command contracts, stationary unselected corners,
-quad persistence and geometry checks. Native media toolbar tests pass creation, Shift resizing, live preview,
-save, duplication, undo, tool switching, ceiling placement and battle media
-using disposable Demo data. Logs: `/tmp/rr-independent-corners-full-final.log` and
-`/tmp/rr-independent-corners-native-final.log`.
+The Node suite covers the legacy import/API/command contracts, stationary
+unselected corners, quad persistence and geometry
+(`editor/tests/video-surface-*.test.cjs`, `map-media-surfaces.test.cjs`,
+`media-surface-proportions.test.cjs`); `editor/tests/smoke/nw-media-surface-toolbar.cjs`
+drives the toolbar in NW.js.

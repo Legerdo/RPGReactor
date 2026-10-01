@@ -18,14 +18,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const { runtimeSource, runtimeParts } = require('./helpers/runtime-source.cjs');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const runtimeDir = path.join(repoRoot, 'runtime');
 const read = file => fs.readFileSync(file, 'utf8');
 
-const coreSource = read(path.join(runtimeDir, 'reactor_core.js'));
+const coreSource = runtimeSource('reactor_core.js');
 const managersSource = read(path.join(runtimeDir, 'reactor_managers.js'));
-const objectsSource = read(path.join(runtimeDir, 'reactor_objects.js'));
+const objectsSource = runtimeSource('reactor_objects.js');
 const docSource = read(path.join(repoRoot, 'docs', 'RUNTIME-EVENTS.md'));
 
 /**
@@ -302,7 +303,7 @@ test('battlerDied is the last thing die does, after states and buffs are cleared
 // --- the bundled copies -----------------------------------------------------
 
 test('the bundled Demo carries the same runtime as runtime/ for every file that emits', () => {
-    for (const file of ['reactor_core.js', 'reactor_managers.js', 'reactor_objects.js']) {
+    for (const file of [...runtimeParts('reactor_core.js'), 'reactor_managers.js', ...runtimeParts('reactor_objects.js')]) {
         const canonical = read(path.join(runtimeDir, file));
         const bundled = read(path.join(repoRoot, 'template', 'Demo', 'js', file));
         assert.equal(bundled, canonical,

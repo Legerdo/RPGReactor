@@ -943,6 +943,20 @@
             for(const bg of [ss._backgroundSprite,ss._back1Sprite,ss._back2Sprite])if(bg)bg.visible=false;
         }catch(error){room.dispose();const ss=scene._spriteset;if(ss?._reactorRoom===room){ss._reactorRoom=null;const sprite=ss._reactorRoomSprite;sprite?.removeFromParent();sprite?.bitmap?.destroy();sprite?.destroy();ss._reactorRoomSprite=null;}throw error;}
     };
+    /**
+     * The game canvas's context came back after a loss: the room is built again
+     * as at the start of the battle. A room carried over draws some of its world
+     * wrong on the new context.
+     */
+    P.rebuildRoom=function(scene){
+        const ss=scene&&scene._spriteset,old=ss&&ss._reactorRoom,config=P.settings.troops?.[$gameTroop._troopId];
+        if(!old||config?.type!=='room'||!(config.mapId>0))return;
+        scene._reactorRoomToken={};const token=scene._reactorRoomToken;
+        old.dispose();ss._reactorRoom=null;
+        const sprite=ss._reactorRoomSprite;sprite?.removeFromParent();sprite?.destroy();ss._reactorRoomSprite=null;
+        P.createRoom(scene,config,token).catch(P.warn);
+    };
+    if(root.Reactor3D?.contextRestoredHandlers)root.Reactor3D.contextRestoredHandlers.push(()=>{const scene=typeof SceneManager!=='undefined'?SceneManager._scene:null;if(scene&&scene._spriteset?._reactorRoom)P.rebuildRoom(scene);});
     P.updateRoom=function(ss){
         const room=ss._reactorRoom;if(room.disposed)return;
         room.aim();const live=new Set();

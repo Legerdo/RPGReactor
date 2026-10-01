@@ -1,4 +1,5 @@
 const { source3D } = require('./helpers/runtime-3d-source.cjs');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -187,7 +188,7 @@ test('a model will not turn into the player', () => {
 });
 
 test('a modeled event does not collide with its own footprint', () => {
-    const source = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_objects.js'), 'utf8');
+    const source = runtimeSource('reactor_objects.js');
     assert.match(source, /event !== this && event\.isNormalPriority/);
 });
 
@@ -393,7 +394,7 @@ test('a moving step tests the footprint in both orientations', () => {
     assert.ok(core3d.includes('Reactor3D.eventModelWouldOverlapEvents = function'),
         'model events collide footprint-wide with other events');
 
-    const objects = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_objects.js'), 'utf8');
+    const objects = runtimeSource('reactor_objects.js');
     assert.match(objects, /eventModelWouldOverlapEvents\(this, x, y, this\._reactorMoveDirection\(x, y\)\)/,
         'event-vs-event collision goes through the footprint');
     assert.match(objects, /eventModelWouldOverlap\(this, x, y, \$gamePlayer, this\._reactorMoveDirection\(x, y\)\)/,

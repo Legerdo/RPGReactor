@@ -447,14 +447,21 @@ Reactor3D.renderTargetSamples = 0;
 /**
  * Resolution of the 3D passes relative to the screen, 1 = native.
  *
+ * 0.75 by default, enlarged by `Reactor3D.SharpUpscale` ("cas" at 0.5, a
+ * gentle sharpen; "crisp" at full sharpness read too sharp on a second
+ * screen): the owner judged it without significant loss for the saving
+ * (UHD 630, frozen start map at 1080p: 11.2 ms native, 9.4 at 0.75). The
+ * saving is the pixels not drawn; the filter only decides how they are
+ * enlarged. A candidate for a player-facing quality setting (see
+ * docs/PERFORMANCE.md, "Quality settings"); a script or plugin sets it at
+ * any time, 1 for native.
+ *
  * The adaptive controller — drop the scale when frames run long, climb back
- * after calm — is OFF by default: the upscale reads as a blur layer over the
- * whole scene, and a game that never asked for it should stay sharp. A
- * project that wants the safety net on weak machines opts in deliberately
- * with `Reactor3D.adaptiveResolution = true` (a script call or plugin);
- * `renderScale` set below 1 holds a fixed saving either way.
+ * after calm — stays OFF: a scale that moves reads as the picture changing
+ * under the player. A project that wants it opts in with
+ * `Reactor3D.adaptiveResolution = true`.
  */
-Reactor3D.renderScale = 1;
+Reactor3D.renderScale = 0.75;
 /**
  * The most backing pixels a 3D pass draws per game pixel, whatever the
  * canvas draws at. One: the world is rendered at game size on every screen
@@ -517,6 +524,20 @@ Reactor3D.sharedContextAvailable = function() {
     return true;
 };
 
+/**
+ * three checks every new program's compile and link by asking the driver on
+ * the spot: a synchronous wait on the GPU process per program, which lands
+ * mid-game whenever a material is first drawn. A playtest keeps the checks,
+ * so a broken shader still says why; a released game does not pay for them.
+ */
+Reactor3D.setShaderErrorChecks = function(renderer) {
+    if (!renderer || !renderer.debug) return;
+    // The editor keeps them: it is where materials are authored.
+    const editor = typeof window !== "undefined" && !!(window.reactor && window.reactor.projectController);
+    const playtest = typeof Utils !== "undefined" && Utils.isOptionValid && Utils.isOptionValid("test");
+    renderer.debug.checkShaderErrors = editor || !!playtest || Reactor3D.checkShaderErrors === true;
+};
+
 Reactor3D.Viewport.prototype._initializeShared = function() {
     const pixi = Graphics._app.renderer;
     this._pixi = pixi;
@@ -542,11 +563,51 @@ Reactor3D.Viewport.prototype._initializeShared = function() {
     });
     this._renderer.setPixelRatio(1);
     this._renderer.setClearColor(0x000000, 0);
+    Reactor3D.setShaderErrorChecks(this._renderer);
     // three's constructor set the context to its own defaults behind PIXI's
     // back; PIXI's state cache must not believe otherwise.
     this._resetPixi();
     this.resize();
     this._shared = true;
+    Reactor3D.watchContextRestore(pixi.canvas || Graphics._canvas);
+};
+
+/**
+ * Counts the times the game canvas's WebGL context has come back after a
+ * loss (a GPU reset, driver update or sleep). three rebuilds its own GL
+ * objects on restore; whatever PIXI sampled from three's textures, and
+ * whatever was drawn once and kept, is rebuilt when this changes.
+ */
+Reactor3D.contextGeneration = 0;
+/** Called after the 3D state is rebuilt on a restored context (a battle room rebuilds itself). */
+Reactor3D.contextRestoredHandlers = [];
+
+Reactor3D.watchContextRestore = function(canvas) {
+    if (!canvas || typeof canvas.addEventListener !== "function" || canvas.__rrRestoreWatched) return;
+    canvas.__rrRestoreWatched = true;
+    canvas.addEventListener("webglcontextrestored", () => this.onContextRestored());
+};
+
+Reactor3D.onContextRestored = function() {
+    this.contextGeneration++;
+    const viewport = this._viewport;
+    if (viewport && viewport.isShared()) {
+        viewport._disposeTargets();
+        viewport._generation++;
+    }
+    if (this.Shadows && typeof this.Shadows.disposeSlots === "function") this.Shadows.disposeSlots();
+    // In-scene effects end first: a handle must not outlive its native context.
+    const scene = this.EffekseerScene;
+    if (scene && Array.isArray(scene._live)) {
+        for (const owner of new Set(scene._live.map(play => play.scene))) scene.stopScene(owner);
+    }
+    const effects = this.GpuEffects;
+    if (effects && effects._runtime) {
+        for (const entry of Array.from(effects._runtime.values())) effects.release(entry);
+    }
+    for (const handler of this.contextRestoredHandlers) {
+        try { handler(); } catch (error) { console.error("Reactor3D: context restore handler failed:", error); }
+    }
 };
 
 Reactor3D.Viewport.prototype._teardownShared = function() {
@@ -582,12 +643,17 @@ Reactor3D.Viewport.prototype.setRenderScale = function(scale) {
  * ratio rides along so an enlarged game (fullscreen) renders its 3D at the
  * pixels actually on screen instead of upscaling a game-sized pass.
  */
-Reactor3D.Viewport.prototype.targetSize = function() {
+Reactor3D.Viewport.prototype.targetSize = function(scale = this._scale) {
     const ratio = this.passPixelRatio();
     return {
-        width: Math.max(1, Math.round(this._width * this._scale * ratio)),
-        height: Math.max(1, Math.round(this._height * this._scale * ratio))
+        width: Math.max(1, Math.round(this._width * scale * ratio)),
+        height: Math.max(1, Math.round(this._height * scale * ratio))
     };
+};
+
+/** Whether the passes are drawn smaller and enlarged by the sharpening upscale (`Reactor3D.SharpUpscale`). */
+Reactor3D.Viewport.prototype.upscaled = function() {
+    return this._scale < 0.999 && !!(Reactor3D.SharpUpscale && Reactor3D.SharpUpscale.enabled);
 };
 
 /**
@@ -689,9 +755,23 @@ Reactor3D.Viewport.prototype._disposeTargets = function() {
 Reactor3D.Viewport.prototype._target = function(slot) {
     const existing = this._targets[slot];
     if (existing) return existing;
-    const size = this.targetSize();
-    const target = this.createTarget(size.width, size.height, this._scale);
+    // Upscaled, what PIXI shows is full size and the pass is drawn into a
+    // smaller work target (`_workTarget`); otherwise PIXI enlarges the pass.
+    const full = this.upscaled();
+    const size = this.targetSize(full ? 1 : this._scale);
+    const target = this.createTarget(size.width, size.height, full ? 1 : this._scale, full ? { samples: 0 } : undefined);
     this._targets[slot] = target;
+    return target;
+};
+
+/** The smaller target an upscaled pass is drawn into. */
+Reactor3D.Viewport.prototype._workTarget = function(slot) {
+    const key = "work:" + slot;
+    const existing = this._targets[key];
+    if (existing) return existing;
+    const size = this.targetSize();
+    const target = this.createTarget(size.width, size.height, this._scale, { linear: true });
+    this._targets[key] = target;
     return target;
 };
 
@@ -714,20 +794,34 @@ Reactor3D.Viewport.prototype.targetHandle = function(target) {
  */
 Reactor3D.GeometryDetail = {
     enabled: true,
-    pixelError: 0.35,
+    // A pixel: beside 0.35 on the start map only single texels on the
+    // characters moved (a mean difference of 0.09 of a level), for 0.85 ms
+    // of an integrated GPU's frame.
+    pixelError: 1,
     _states: new WeakMap(),
     _queue: [],
     _serial: 0,
+    /** Bumped whenever a geometry's levels arrive (what a shadow costs changes). */
+    levelsReady: 0,
+    // A skinned body is simplified too: only its index changes, so the skin
+    // (bones, weights) is the one it had, and its weights ride along as an
+    // attribute so no edge collapses across a joint. Skinning is paid per
+    // vertex in every pass, so a smaller character already qualifies.
+    skinned: true,
+    SKINNED_MIN_INDICES: 90000,
     eligible(object) {
         const g = object.geometry, m = object.material;
-        return object.isMesh && !object.isSkinnedMesh && !object.isInstancedMesh
-            && g?.index?.count >= 100000 && !g.groups.length
+        const skinned = !!object.isSkinnedMesh;
+        if (skinned && (!this.skinned || object.userData.rrNoDetail)) return false;
+        return object.isMesh && !object.isInstancedMesh
+            && g?.index?.count >= (skinned ? this.SKINNED_MIN_INDICES : 100000) && !g.groups.length
             && g.drawRange.start === 0 && g.drawRange.count >= g.index.count
             && !Object.values(g.morphAttributes || {}).some(a => a.length)
             && m?.isMeshBasicMaterial && m.__reactorModel && !m.transparent && !m.alphaTest && !m.envMap
             && !m.__reactorBillboard && !g.attributes.position.isInterleavedBufferAttribute
             && g.attributes.position.array instanceof Float32Array
-            && Object.keys(g.attributes).every(k => /^(position|normal|tangent|uv\d*|color)$/.test(k));
+            && Object.keys(g.attributes).every(k => /^(position|normal|tangent|uv\d*|color)$/.test(k)
+                || (skinned && (k === "skinIndex" || k === "skinWeight")));
     },
     signature(g) {
         return [g.index, g.index.version, ...Object.entries(g.attributes).flatMap(([k, a]) => [k, a, a.version, a.data?.version, a.count])];
@@ -768,7 +862,7 @@ Reactor3D.GeometryDetail = {
             }
             const g = state.source, positions = g.attributes.position.array.slice();
             const indices = new Uint32Array(g.index.array);
-            const attributes = Object.entries(g.attributes).filter(([k]) => /^(uv\d*|color)$/.test(k));
+            const attributes = Object.entries(g.attributes).filter(([k]) => /^(uv\d*|color|skinWeight)$/.test(k));
             const stride = attributes.reduce((n, [, a]) => n + a.itemSize, 0);
             const packed = new Float32Array(g.attributes.position.count * stride);
             for (let v = 0; v < g.attributes.position.count; v++) {
@@ -796,6 +890,7 @@ Reactor3D.GeometryDetail = {
                 g.boundingSphere = state.source.boundingSphere?.clone() || null;
                 state.levels.push({ geometry: g, error: level.error });
             }
+            this.levelsReady++;
         }
         this.dispatch();
     },
@@ -819,11 +914,105 @@ Reactor3D.GeometryDetail = {
     pixelsPerUnit(object, camera, height) {
         const g = object.geometry;
         if (!g.boundingSphere) g.computeBoundingSphere();
+        if (object.isSkinnedMesh) return this.skinnedPixelsPerUnit(object, camera, height);
         const scale = this.scaleBound(object.matrixWorld.elements);
         const center = (this._center || (this._center = new THREE.Vector3())).copy(g.boundingSphere.center)
             .applyMatrix4(object.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
         const depth = camera.isPerspectiveCamera ? Math.max(camera.near, -center.z - g.boundingSphere.radius * scale) : 1;
         return height * 0.5 * Math.abs(camera.projectionMatrix.elements[5]) * scale / depth;
+    },
+    /**
+     * A skin is not where its node's matrix says (see presetSkinnedBounds),
+     * so its size on screen comes from the placed instance: where it stands
+     * and its span, measured at the nearest the body can reach toward the
+     * camera. Geometry units become world units by the span over the rest
+     * geometry's diameter. No instance to measure: full detail.
+     */
+    skinnedPixelsPerUnit(object, camera, height) {
+        let root = object;
+        while (root && !(root.userData && root.userData.glbSize)) root = root.parent;
+        if (!root || root.userData.rrNoCull || !camera.isPerspectiveCamera) return Infinity;
+        const span = Reactor3D.instanceSpan(root), radius = object.geometry.boundingSphere.radius;
+        if (!(radius > 0) || !(span > 0)) return Infinity;
+        const center = (this._center || (this._center = new THREE.Vector3())).setFromMatrixPosition(root.matrixWorld);
+        center.y += span * 0.5;
+        center.applyMatrix4(camera.matrixWorldInverse);
+        const depth = Math.max(camera.near, -center.z - span);
+        return height * 0.5 * Math.abs(camera.projectionMatrix.elements[5]) * (span / (2 * radius)) / depth;
+    },
+    /**
+     * A shadow face holds a silhouette, 256 or 512 texels across a 90-degree
+     * view, and the full model was skinned and rasterized into it: a 149k
+     * triangle character, 488k triangle props, several times a frame for a
+     * moving light. Each caster takes the coarsest level whose error, seen
+     * from the light at the face's resolution, is under half a texel (half,
+     * so a simpler caster never shades its own finer surface). Any tier.
+     */
+    SHADOW_TEXEL_ERROR: 0.5,
+    silhouetteShadows: true,
+    forShadow(roots, origin, size, near) {
+        const swapped = [];
+        if (!this.enabled || this._failed || !roots || typeof Worker === 'undefined' || !(this.SHADOW_TEXEL_ERROR > 0)) return swapped;
+        const focal = size * 0.5, center = this._shadowCenter || (this._shadowCenter = new THREE.Vector3());
+        for (const root of roots) {
+            if (!root || !root.visible) continue;
+            root.traverseVisible(object => {
+                // Casters wear a depth material here, so the view's test (which
+                // asks for the model's own material) cannot be asked again: the
+                // levels the view already made for this geometry are the answer.
+                const selected = this.shadowLevel(object, focal, near, origin, 0);
+                if (!selected || selected === object.geometry) return;
+                swapped.push([object, object.geometry]);
+                object.geometry = selected;
+            });
+        }
+        return swapped;
+    },
+    /**
+     * The level a caster's mesh takes in a shadow face `focal` texels to
+     * its half-width: seen from `origin`, or, without one, from `distance`
+     * tiles away. Null: the mesh as it is.
+     */
+    shadowLevel(object, focal, near, origin, distance) {
+        if (!object.isMesh || (object.isSkinnedMesh && (!this.skinned || object.userData.rrNoDetail))) return null;
+        const state = this._states.get(object.geometry);
+        if (!state || !state.levels.length || !this.fresh(state)) return null;
+        // A character's shadow is its outline, not its surface: the
+        // coarsest level (a fiftieth of a tile off, on the Demo's party)
+        // wherever the light stands. Only the outline reaches the face.
+        if (object.isSkinnedMesh && this.silhouetteShadows) return state.levels[state.levels.length - 1].geometry;
+        const center = this._shadowCenter || (this._shadowCenter = new THREE.Vector3());
+        let perUnit;
+        if (object.isSkinnedMesh) {
+            let owner = object;
+            while (owner && !(owner.userData && owner.userData.glbSize)) owner = owner.parent;
+            const radius = object.geometry.boundingSphere && object.geometry.boundingSphere.radius;
+            if (!owner || owner.userData.rrNoCull || !(radius > 0)) return null;
+            const span = Reactor3D.instanceSpan(owner);
+            center.setFromMatrixPosition(owner.matrixWorld); center.y += span * 0.5;
+            perUnit = focal * (span / (2 * radius)) / Math.max(near, (origin ? center.distanceTo(origin) : distance) - span);
+        } else {
+            const g = object.geometry;
+            if (!g.boundingSphere) g.computeBoundingSphere();
+            const scale = this.scaleBound(object.matrixWorld.elements);
+            center.copy(g.boundingSphere.center).applyMatrix4(object.matrixWorld);
+            perUnit = focal * scale / Math.max(near, (origin ? center.distanceTo(origin) : distance) - g.boundingSphere.radius * scale);
+        }
+        let selected = null;
+        for (const level of state.levels) if (level.error * perUnit <= this.SHADOW_TEXEL_ERROR) selected = level.geometry;
+        return selected;
+    },
+    /** What a caster puts into one shadow face, a light `distance` tiles off: the levels it would take. */
+    shadowTriangles(root, size, distance, near) {
+        let total = 0;
+        root.traverse(child => {
+            if (!child.isMesh || !child.geometry) return;
+            const level = this.enabled && !this._failed && typeof Worker !== 'undefined' && this.SHADOW_TEXEL_ERROR > 0
+                ? this.shadowLevel(child, size * 0.5, near, null, distance) : null;
+            const g = level || child.geometry, index = g.index, position = g.attributes && g.attributes.position;
+            total += (index ? index.count : (position ? position.count : 0)) / 3;
+        });
+        return total;
     },
     begin(scene, camera, height) {
         const swapped = [];
@@ -896,6 +1085,8 @@ Reactor3D.SkeletonUpdates = {
 /** A cleared shared target can be reused while a pass has nothing to draw. */
 Reactor3D.EmptyPass = {
     enabled: true,
+    // The kill switch for not compositing an empty pass's sprite.
+    hideEmpty: true,
     hasWork(scene, camera) {
         if (scene.background || scene.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender
             || scene.onAfterRender !== THREE.Object3D.prototype.onAfterRender) return true;
@@ -926,15 +1117,269 @@ Reactor3D.EmptyPass = {
         const empty = this.enabled && viewport._shared && renderer.autoClear && renderer.autoClearColor
             && renderer.autoClearDepth && renderer.autoClearStencil
             && renderer.getClearAlpha() === 0 && !this.hasWork(scene, camera);
-        if (empty && cache.has(target)) return;
+        // True when the target is left holding nothing (the caller need not show it).
+        if (empty && cache.has(target)) return true;
         cache.delete(target);
         draw();
         if (empty) cache.add(target);
+        return empty;
     }
 };
 
 /** The game, editor map and model previews use the same colour-draw path. */
 Reactor3D.renderScene = function(renderer, scene, camera) {
+    // Characters behind the camera are not skinned for a view that cannot see them.
+    const hidden = this.InstanceCull ? this.InstanceCull.hide(scene, camera) : null;
+    // Anything whose shaders are still compiling waits out of the picture.
+    const warming = this.ShaderWarmup ? this.ShaderWarmup.hide(renderer, scene, camera) : null;
+    try { return this._renderScene(renderer, scene, camera); }
+    finally {
+        if (warming) this.ShaderWarmup.show(warming);
+        if (hidden) this.InstanceCull.show(hidden);
+    }
+};
+
+/**
+ * New things appear when their shaders and pictures are ready, instead of
+ * stopping the game until they are. three compiles a material's program on
+ * its first draw and then asks the driver about it, which waits for the
+ * compile: a map's first frame stalled for seconds on an integrated GPU (D3D
+ * compiles each program on the spot), and every model or effect that came
+ * into view later stalled again. Each draw, a visible mesh whose material
+ * has never been compiled starts compiling on the driver's own threads
+ * (`compileAsync`, WebGL's parallel shader compile) with the pass it will be
+ * drawn into bound, so the program is the one the draw will ask for, and it
+ * sits out every draw until that program is ready. Its pictures wait the same
+ * way: an image is decoded off the main thread (`decode`) and then uploaded
+ * under a per-frame budget, instead of decoded and uploaded inside the first
+ * draw (the start map's room images were 250 MB in one frame). The frame
+ * goes on; the mesh shows up a moment later. Only a material's first program
+ * is waited for: a later recompile is drawn as before, so a material that
+ * changes every frame cannot disappear. Without the extension nothing is held
+ * (there is no way to ask without waiting).
+ */
+/**
+ * A worker that turns an image file into pixels off the main thread: an
+ * ImageBitmap ready for upload (fetched and decoded there, handed back
+ * without a copy), or whether every pixel is opaque. `createImageBitmap`
+ * called on the main thread with an <img> (or even a Blob) still did much of
+ * its work there: 400 ms of a map's first frames on an integrated GPU.
+ * Null when there is no worker to be had; callers keep their own path.
+ */
+Reactor3D.ImageWorker = {
+    enabled: true,
+    _jobs: new Map(),
+    _serial: 0,
+    worker() {
+        if (this._worker !== undefined) return this._worker;
+        this._worker = null;
+        if (!this.enabled || typeof Worker === "undefined" || typeof Blob === "undefined" || typeof URL === "undefined"
+            || typeof createImageBitmap !== "function") return null;
+        try {
+            const source = [
+                "self.onmessage = async e => {",
+                "  const { id, kind, url, options } = e.data;",
+                "  try {",
+                "    const response = await fetch(url);",
+                "    if (!response.ok && response.status !== 0) throw new Error('HTTP ' + response.status);",
+                "    const blob = await response.blob();",
+                "    if (kind === 'bitmap') { const bitmap = await createImageBitmap(blob, options); self.postMessage({ id, bitmap }, [bitmap]); return; }",
+                "    const bitmap = await createImageBitmap(blob), w = bitmap.width, h = bitmap.height;",
+                "    const canvas = new OffscreenCanvas(w, h), context = canvas.getContext('2d', { willReadFrequently: true });",
+                "    context.drawImage(bitmap, 0, 0); bitmap.close();",
+                "    const data = context.getImageData(0, 0, w, h).data; let opaque = true;",
+                "    for (let i = 3; i < data.length; i += 4) if (data[i] !== 255) { opaque = false; break; }",
+                "    self.postMessage({ id, opaque, width: w, height: h });",
+                "  } catch (error) { self.postMessage({ id, error: String(error && error.message || error) }); }",
+                "};"
+            ].join("\n");
+            const worker = new Worker(URL.createObjectURL(new Blob([source], { type: "text/javascript" })), { name: "Reactor image decode" });
+            worker.onmessage = event => {
+                const job = this._jobs.get(event.data.id);
+                this._jobs.delete(event.data.id);
+                if (job) event.data.error ? job.reject(new Error(event.data.error)) : job.resolve(event.data);
+            };
+            worker.onerror = () => { for (const job of this._jobs.values()) job.reject(new Error("image worker failed")); this._jobs.clear(); this._worker = null; };
+            this._worker = worker;
+        } catch (error) { this._worker = null; }
+        return this._worker;
+    },
+    urlOf(image) {
+        const src = image && (image.currentSrc || image.src);
+        if (!src || typeof document === "undefined") return null;
+        try { return new URL(src, document.baseURI).href; } catch (error) { return null; }
+    },
+    request(kind, image, options) {
+        const worker = this.worker(), url = this.urlOf(image);
+        if (!worker || !url) return null;
+        const id = ++this._serial;
+        return new Promise((resolve, reject) => {
+            this._jobs.set(id, { resolve, reject });
+            worker.postMessage({ id, kind, url, options });
+        });
+    },
+    /** An ImageBitmap of `image` made with `options`; null when the worker cannot. */
+    bitmap(image, options) {
+        const job = this.request("bitmap", image, options);
+        return job ? job.then(data => data.bitmap) : null;
+    },
+    /** Whether every pixel of `image` is opaque; null when the worker cannot. */
+    opaque(image) {
+        const job = this.request("opaque", image, null);
+        return job ? job.then(data => data.width === image.naturalWidth && data.height === image.naturalHeight && data.opaque) : null;
+    }
+};
+
+Reactor3D.ShaderWarmup = {
+    enabled: true,
+    // A compile the driver never answers (a lost context) must not hide a thing forever.
+    TIMEOUT_MS: 5000,
+    // Pixels uploaded per frame at most (one picture always goes, however large).
+    UPLOAD_BYTES_PER_FRAME: 16 * 1024 * 1024,
+    _materials: new WeakMap(),
+    _queue: [],
+    _decoding: new WeakMap(),
+    supported(renderer) {
+        const extensions = renderer && renderer.extensions;
+        return !!(extensions && extensions.has && extensions.has("KHR_parallel_shader_compile") && renderer.compileAsync);
+    },
+    // A texture at version 0 has nothing to upload (three will not either).
+    uploaded(renderer, texture) {
+        if (!texture.version) return true;
+        const props = renderer.properties.get(texture);
+        return !!(props && props.__webglInit && props.__version === texture.version);
+    },
+    /**
+     * Decode off the main thread, then queue the upload. An <img> becomes an
+     * ImageBitmap made the way the upload wants it (flipped, colour left
+     * alone, alpha as the texture asks) so the upload is a straight copy: an
+     * <img> is flipped and converted on the main thread during the upload
+     * itself, 100 ms for one 4000px room picture on an integrated GPU.
+     */
+    bitmaps: true,
+    request(texture) {
+        if (texture.__rrRequested) return;
+        texture.__rrRequested = true;
+        const image = texture.image;
+        if (image && image.tagName === "IMG") {
+            let decoding = this._decoding.get(texture);
+            if (!decoding) {
+                const options = { imageOrientation: texture.flipY ? "flipY" : "from-image",
+                    premultiplyAlpha: texture.premultiplyAlpha ? "premultiply" : "none", colorSpaceConversion: "none" };
+                // The game only: the editor may paint into the pictures it shows.
+                const editor = typeof window !== "undefined" && !!(window.reactor && window.reactor.projectController);
+                // From the file's bytes: an <img> source is flipped and copied on
+                // the main thread; a Blob is decoded on the browser's own threads.
+                // Fetched and decoded in the image worker, else from the <img>.
+                const fromBytes = () => {
+                    const fromWorker = Reactor3D.ImageWorker.bitmap(image, options);
+                    return fromWorker ? fromWorker.catch(() => createImageBitmap(image, options)) : createImageBitmap(image, options);
+                };
+                decoding = this.bitmaps && !editor && typeof createImageBitmap === "function"
+                    ? fromBytes().then(bitmap => {
+                        if (texture.image !== image) { bitmap.close(); return; }
+                        texture.userData.rrSourceImage = image;
+                        texture.image = bitmap;
+                        texture.flipY = false;
+                        texture.needsUpdate = true;
+                        if (Reactor3D.CoveredFloor.retextured) Reactor3D.CoveredFloor.retextured(texture);
+                    }, () => (typeof image.decode === "function" ? image.decode() : null)).catch(() => {})
+                    : (typeof image.decode === "function" ? image.decode().catch(() => {}) : Promise.resolve());
+                this._decoding.set(texture, decoding);
+            }
+            decoding.then(() => this._queue.push(texture));
+        } else this._queue.push(texture);
+    },
+    pump(renderer) {
+        let budget = this.UPLOAD_BYTES_PER_FRAME, first = true;
+        while (this._queue.length && (budget > 0 || first)) {
+            const texture = this._queue.shift();
+            first = false;
+            texture.__rrRequested = false;
+            if (this.uploaded(renderer, texture) || !texture.image) continue;
+            const image = texture.image;
+            const bytes = (image.naturalWidth || image.width || 0) * (image.naturalHeight || image.height || 0) * 4;
+            try { renderer.initTexture(texture); } catch (error) { /* drawn the old way */ }
+            budget -= bytes * (texture.generateMipmaps ? 1.33 : 1);
+        }
+    },
+    /** Whether a material's pictures are on the GPU (queueing any that are not). */
+    picturesReady(renderer, material) {
+        let ready = true;
+        for (const key in material) {
+            const texture = material[key];
+            if (!texture || !texture.isTexture || texture.isVideoTexture || texture.isRenderTargetTexture || texture.isDataTexture || texture.isData3DTexture) continue;
+            const image = texture.image;
+            if (!image || (image.tagName === "IMG" && !image.complete) || this.uploaded(renderer, texture)) continue;
+            this.request(texture);
+            ready = false;
+        }
+        return ready;
+    },
+    /** Whether a material may be drawn now; starts its compile when it has none. */
+    // Programs started a frame at most: building each one's source is CPU
+    // work too (a map's first frame spent 200 ms on it).
+    COMPILES_PER_FRAME: 6,
+    materialReady(renderer, material, mesh, scene, camera, now) {
+        const props = renderer.properties.get(material);
+        const program = props && props.currentProgram;
+        if (program && props.__version === material.version) return true;
+        let state = this._materials.get(material);
+        // Drawn before (another variant, or a recompile): not held.
+        if (!state && program) return true;
+        // Changed since its compile began (shadows came on during the first
+        // frame and every lit material took its shadow variant): compile the
+        // variant the draw will ask for. The timeout runs from the first ask.
+        if (!state || state.version !== material.version) {
+            if (this._startedThisFrame >= this.COMPILES_PER_FRAME) return false;
+            this._startedThisFrame++;
+            const next = { started: state ? state.started : now, ready: false, version: material.version };
+            this._materials.set(material, next);
+            try {
+                renderer.compileAsync(mesh, camera, scene).then(() => { next.ready = true; }, () => { next.ready = true; });
+            } catch (error) { next.ready = true; }
+            state = next;
+        }
+        return state.ready || now - state.started > this.TIMEOUT_MS;
+    },
+    hide(renderer, scene, camera) {
+        if (!this.enabled || !this.supported(renderer)) return null;
+        const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+        this._startedThisFrame = 0;
+        if (this._queue.length) this.pump(renderer);
+        let hidden = null;
+        const visit = object => {
+            if (!object.visible) return;
+            if ((object.isMesh || object.isSprite || object.isPoints || object.isLine) && object.material) {
+                let ready = true;
+                const materials = Array.isArray(object.material) ? object.material : null;
+                for (let m = 0, count = materials ? materials.length : 1; m < count; m++) {
+                    const material = materials ? materials[m] : object.material;
+                    // Not drawn, or known ready at this version and with this picture: nothing to ask.
+                    // (Asking walked every property of every material on every draw: a
+                    // material never drawn never had the program version the check wanted.)
+                    if (!material || !material.visible || (material.__rrWarm === material.version && material.__rrWarmMap === material.map)) continue;
+                    if (!this.materialReady(renderer, material, object, scene, camera, now)) ready = false;
+                    else if (!this.picturesReady(renderer, material)) ready = false;
+                    else { material.__rrWarm = material.version; material.__rrWarmMap = material.map; }
+                }
+                if (!ready) { object.visible = false; (hidden || (hidden = [])).push(object); return; }
+            }
+            const children = object.children;
+            for (let i = 0; i < children.length; i++) visit(children[i]);
+        };
+        visit(scene);
+        // How many sat out the last draw: nothing, once a map has settled.
+        this.lastHidden = hidden ? hidden.length : 0;
+        return hidden;
+    },
+    lastHidden: 0,
+    show(hidden) {
+        for (const object of hidden) object.visible = true;
+    }
+};
+
+Reactor3D._renderScene = function(renderer, scene, camera) {
     if (this.cacheUniformArrays) this.cacheUniformArrays(renderer);
     this.SkeletonUpdates.prepare(scene);
     if (this.useSceneWater) this.useSceneWater(scene);
@@ -967,11 +1412,21 @@ Reactor3D.renderScene = function(renderer, scene, camera) {
 
 
 Reactor3D.Viewport.prototype.renderInto = function(target, scene, camera) {
-    Reactor3D.EmptyPass.render(this, target, scene, camera, () => {
+    return Reactor3D.EmptyPass.render(this, target, scene, camera, () => {
         this._renderer.resetState();
         this._renderer.setRenderTarget(target);
-        try { Reactor3D.renderScene(this._renderer, scene, camera); }
-        finally { this._renderer.setRenderTarget(null); this._resetPixi(); }
+        const haze = Reactor3D.HalfHaze.take(scene, target, camera);
+        const split = Reactor3D.HalfLight ? Reactor3D.HalfLight.begin(this._renderer, scene, target) : null;
+        if (split) this._renderer.setRenderTarget(split.albedo);
+        try {
+            Reactor3D.renderScene(this._renderer, scene, camera);
+            if (split) Reactor3D.HalfLight.finish(this._renderer, scene, target, camera, split);
+            if (haze) Reactor3D.HalfHaze.draw(this._renderer, target, camera, haze, split);
+        } finally {
+            if (split) Reactor3D.HalfLight.restore(split);
+            if (haze) Reactor3D.HalfHaze.restore(haze);
+            this._renderer.setRenderTarget(null); this._resetPixi();
+        }
     });
 };
 
@@ -1002,7 +1457,10 @@ Reactor3D.Viewport.prototype.createTarget = function(width, height, scale, optio
         colorSpace: THREE.SRGBColorSpace,
         minFilter: filter,
         magFilter: filter,
-        generateMipmaps: false
+        generateMipmaps: false,
+        // Readable: the light (Reactor3D.HalfLight) and the lights' haze
+        // (Reactor3D.HalfHaze) are worked out at a smaller size from it.
+        depthTexture: THREE.DepthTexture ? new THREE.DepthTexture(width, height, THREE.UnsignedIntType) : null
     });
     // three encodes to sRGB in the shader only for the canvas and for an XR
     // target; that gives exactly the bytes the canvas used to hold, which is
@@ -1012,6 +1470,8 @@ Reactor3D.Viewport.prototype.createTarget = function(width, height, scale, optio
     // renderbuffer to RGBA8, and the resolve blit between them fails.
     target.isXRRenderTarget = true;
     target.texture.internalFormat = "RGBA8";
+    // The sharpening upscale reads its source filtered (Reactor3D.SharpUpscale).
+    if (options && options.linear) target.texture.minFilter = target.texture.magFilter = THREE.LinearFilter;
     this._renderer.initRenderTarget(target);
     return target;
 };
@@ -1027,7 +1487,8 @@ Reactor3D.Viewport.prototype.passTexture = function(slot) {
     const target = this._target(slot);
     const handle = this.targetHandle(target);
     if (!handle) throw new Error("Reactor3D: render target " + slot + " has no GL texture");
-    const size = this.targetSize();
+    // The target's own size: full size when the pass is upscaled into it.
+    const size = { width: target.width, height: target.height };
     const source = new PIXI.TextureSource({
         width: size.width,
         height: size.height,
@@ -1113,7 +1574,7 @@ Reactor3D._paintBattlerShared = function(viewport, state, sprite) {
     if (!source || typeof PIXI === "undefined" || !PIXI.groupD8) return false;
     const scale = state.flat ? 1 : viewport.scale();
     const pixels = Math.max(16, Math.round(state.size * scale));
-    if (!state.target || state.targetPixels !== pixels) {
+    if (!state.target || state.targetPixels !== pixels || state.contextGeneration !== this.contextGeneration) {
         if (state.target) {
             try { state.target.dispose(); } catch (e) { /* already gone */ }
         }
@@ -1121,6 +1582,7 @@ Reactor3D._paintBattlerShared = function(viewport, state, sprite) {
         Reactor3D.clearUnpackState(viewport.pixi().gl);
         state.target = viewport.createTarget(pixels, pixels, scale, state.flat ? { samples: 4 } : undefined);
         state.targetPixels = pixels;
+        state.contextGeneration = this.contextGeneration;
         state.adoptedSource = null;
     }
     if (state.adoptedSource !== source) {
@@ -1217,6 +1679,7 @@ Reactor3D.Viewport.prototype._initializeCanvas = function() {
         alpha: true
     });
     this._renderer.setPixelRatio(1);
+    Reactor3D.setShaderErrorChecks(this._renderer);
     // Cleared transparent, not black. The render is composited into the game's
     // own scene as a sprite, and the pass drawn *over* the characters must show
     // them everywhere it has nothing of its own — an opaque clear there would
@@ -1346,7 +1809,102 @@ Reactor3D.Viewport.prototype.render = function(slot) {
         return;
     }
     this._trackFrame();
-    this.renderInto(this._target(slot || "below"), this._scene, this._camera);
+    if (this.upscaled()) return this._renderUpscaled(slot || "below");
+    return this.renderInto(this._target(slot || "below"), this._scene, this._camera);
+};
+
+/**
+ * Drawn small, then enlarged into what PIXI shows by the sharpening upscale
+ * (`Reactor3D.SharpUpscale`). An empty pass stays empty (EmptyPass).
+ */
+Reactor3D.Viewport.prototype._renderUpscaled = function(slot) {
+    const work = this._workTarget(slot);
+    const empty = this.renderInto(work, this._scene, this._camera);
+    if (empty) return empty;
+    const display = this._target(slot);
+    this._renderer.resetState();
+    try { Reactor3D.SharpUpscale.draw(this._renderer, work, display); }
+    finally { this._renderer.setRenderTarget(null); this._resetPixi(); }
+    return false;
+};
+
+/**
+ * The enlargement of a pass drawn smaller than the screen
+ * (`Reactor3D.renderScale` below 1). PIXI enlarged it pixel for pixel
+ * (nearest), blocky at a fraction; this draws it into a full-size target
+ * with one of two filters, as `mode` says:
+ *
+ *   "cas"    bilinear, then a contrast-adaptive sharpen over the four
+ *            neighbouring source pixels, clamped to their range so an edge
+ *            never rings (the idea of AMD's CAS). Five fetches.
+ *   "crisp"  sharp bilinear: each source pixel flat, its edge blended over
+ *            one screen pixel, or less as `sharpness` rises (1: half a
+ *            pixel, the hardest). One fetch; edges stay hard, a little
+ *            stepped. Tried as the default at sharpness 1; on a second
+ *            screen the owner found it too sharp.
+ *
+ * Measured on the UHD 630 at 0.75 of 1080p, frozen start map: native
+ * 11.2 ms, "crisp" 9.0, "cas" 9.9, PIXI's nearest 8.3 (the full-size
+ * target costs about 0.65 of the difference). Alpha is filtered plainly.
+ */
+Reactor3D.SharpUpscale = {
+    enabled: true,
+    mode: "cas",
+    sharpness: 0.5,
+    _quads: {},
+    FRAGMENT: {
+        cas: [
+            "uniform sampler2D source;",
+            "uniform float sharpness;",
+            "varying vec2 vUv;",
+            "void main() {",
+            "\tvec2 texel = 1.0 / vec2(textureSize(source, 0));",
+            "\tvec4 c = texture2D(source, vUv);",
+            "\tvec3 n = texture2D(source, vUv + vec2(0.0, texel.y)).rgb, s = texture2D(source, vUv - vec2(0.0, texel.y)).rgb;",
+            "\tvec3 e = texture2D(source, vUv + vec2(texel.x, 0.0)).rgb, w = texture2D(source, vUv - vec2(texel.x, 0.0)).rgb;",
+            "\tvec3 lo = min(c.rgb, min(min(n, s), min(e, w))), hi = max(c.rgb, max(max(n, s), max(e, w)));",
+            "\tgl_FragColor = vec4(clamp(c.rgb + (c.rgb * 4.0 - n - s - e - w) * 0.5 * sharpness, lo, hi), c.a);",
+            "}"
+        ],
+        crisp: [
+            "uniform sampler2D source;",
+            "uniform float sharpness;",
+            "varying vec2 vUv;",
+            "void main() {",
+            "\tvec2 size = vec2(textureSize(source, 0));",
+            // Screen pixels per source pixel, so the blend spans exactly one screen pixel.
+            "\tvec2 ratio = max(vec2(1.0), 1.0 / (fwidth(vUv) * size)) * (1.0 + sharpness);",
+            "\tvec2 p = vUv * size - 0.5, base = floor(p), f = clamp((p - base - 0.5) * ratio + 0.5, 0.0, 1.0);",
+            "\tgl_FragColor = texture2D(source, (base + 0.5 + f) / size);",
+            "}"
+        ]
+    },
+    quad() {
+        const mode = this.FRAGMENT[this.mode] ? this.mode : "cas";
+        if (this._quads[mode]) return this._quads[mode];
+        const material = new THREE.ShaderMaterial({
+            uniforms: { source: { value: null }, sharpness: { value: this.sharpness } },
+            vertexShader: "varying vec2 vUv;\nvoid main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+            fragmentShader: this.FRAGMENT[mode].join("\n"),
+            depthTest: false, depthWrite: false, blending: THREE.NoBlending
+        });
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        mesh.frustumCulled = false;
+        const scene = new THREE.Scene();
+        scene.add(mesh);
+        this._quads[mode] = { material, scene, camera: new THREE.Camera() };
+        return this._quads[mode];
+    },
+    /** `sharpness` for this draw only; 0 with "cas" at the same size is a plain copy. */
+    draw(renderer, source, target, sharpness = this.sharpness) {
+        const quad = this.quad();
+        quad.material.uniforms.source.value = source.texture;
+        quad.material.uniforms.sharpness.value = sharpness;
+        const autoClear = renderer.autoClear;
+        renderer.autoClear = false;
+        try { renderer.setRenderTarget(target); renderer.render(quad.scene, quad.camera); }
+        finally { renderer.autoClear = autoClear; }
+    }
 };
 
 /**
@@ -1412,14 +1970,17 @@ Reactor3D.Viewport.prototype.renderPass = function(mapScene, which, slot) {
             scene.updateMatrixWorld();
             // The shadow maps, while every group is still visible, then the reflections.
             Reactor3D.prepareWorldFrame(this._renderer, mapScene, scene, this._camera);
+            // The map's still lights, from the volume (after the rows are chosen).
+            if (Reactor3D.LightVolume) Reactor3D.LightVolume.frame(this._renderer, mapScene, typeof $dataMap !== "undefined" ? $dataMap : null);
         }
     }
     mapScene.setPass(which);
     // Anchored effects belong with the world's depth, not over the overlay.
     if (Reactor3D.EffekseerScene) Reactor3D.EffekseerScene.setPass(which);
-    this.render(slot);
+    const empty = this.render(slot);
     if (Reactor3D.EffekseerScene) Reactor3D.EffekseerScene.setPass("all");
     mapScene.setPass("all");
+    return empty === true;
 };
 
 Reactor3D.Viewport.prototype.setVisible = function(visible) {
@@ -1478,7 +2039,7 @@ Reactor3D.Viewport.prototype.destroy = function() {
 // at a viewport. A test pins that independence, so reaching for either from in
 // here fails rather than eroding the boundary quietly.
 //
-// The addressing must agree exactly with the 2D renderer in reactor_core.js. If
+// The addressing must agree exactly with the 2D renderer in reactor_core_display.js. If
 // it drifts, a tile shows one image in 2D and another in 3D, which is miserable
 // to chase visually. `sheetRectFor` is the single place that resolves it.
 //
@@ -1569,7 +2130,7 @@ Reactor3D.Geometry.sheetRectFor = function(tileId, tileSize) {
  * the offline preview renderer both load this file on its own. Without a table
  * every autotile silently fell back to a whole-tile blit of its block's corner,
  * so a seamless field of grass rendered as a grid of bordered squares. A test
- * pins this copy against `reactor_core.js`.
+ * pins this copy against `reactor_core_display.js`.
  */
 Reactor3D.Geometry.FLOOR_AUTOTILE_TABLE = [
     [[2,4],[1,4],[2,3],[1,3]], [[2,0],[1,4],[2,3],[1,3]], [[2,4],[3,0],[2,3],[1,3]], [[2,0],[3,0],[2,3],[1,3]],
@@ -5310,12 +5871,18 @@ Reactor3D.MapScene.prototype.addRoomPiece = function(piece, bitmap, roomHeight, 
         surfaces.push(wall(height, -Math.PI / 2, width, height / 2));      // east, faces -x
     }
 
+    // One picture for every surface of the piece: the walls are clones, each
+    // with its own repeat, sharing the one source, so the image is decoded
+    // and uploaded once instead of once a wall (four 4000px uploads in the
+    // map's first frame).
+    let base = null;
     for (const surface of surfaces) {
-        const texture = this.textureFor(bitmap);
+        const texture = base ? base.clone() : (base = this.textureFor(bitmap));
         if (!texture) {
             surface.geometry.dispose();
             continue;
         }
+        if (texture !== base) this._textures.push(texture);
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
         texture.repeat.set(surface.repeat[0], surface.repeat[1]);
@@ -5519,6 +6086,10 @@ Reactor3D.CoveredFloor = {
         if (!image || image.tagName !== "IMG" || !image.complete || !image.naturalWidth) return false;
         const known = this._images.get(image);
         if (known && known.src === image.src && known.width === image.naturalWidth && known.height === image.naturalHeight) return known.opaque;
+        // Read in a worker: every pixel of a 2400px room image read back on
+        // the main thread held the map's first frames for 80 ms each. Until
+        // the answer comes the floor is drawn, as for any unproven image.
+        if (this.analyseAsync(image)) return false;
         let opaque = false;
         try {
             const canvas = document.createElement("canvas");
@@ -5533,6 +6104,50 @@ Reactor3D.CoveredFloor = {
         this._images.set(image, { src: image.src, width: image.naturalWidth, height: image.naturalHeight, opaque });
         return opaque;
     },
+    asyncEnabled: true,
+    _waiting: new Map(),
+    /** Start the worker's read of `image`; false when that cannot be done (read here instead). */
+    analyseAsync(image) {
+        if (!this.asyncEnabled || typeof Worker === "undefined" || typeof OffscreenCanvas === "undefined"
+            || typeof createImageBitmap !== "function" || typeof Blob === "undefined" || typeof URL === "undefined") return false;
+        if (this._waiting.has(image)) return true;
+        const key = { src: image.src, width: image.naturalWidth, height: image.naturalHeight };
+        this._waiting.set(image, []);
+        const settle = opaque => {
+            const current = image.src === key.src && image.naturalWidth === key.width && image.naturalHeight === key.height;
+            if (current) this._images.set(image, Object.assign({}, key, { opaque }));
+            const records = this._waiting.get(image) || [];
+            this._waiting.delete(image);
+            for (const record of records) {
+                record.opaque = current && opaque && !record.bitmap._animatedImage && record.bitmap.image === image && image.src === record.src;
+            }
+        };
+        const fromWorker = Reactor3D.ImageWorker.opaque(image);
+        if (fromWorker) { fromWorker.then(settle, () => settle(false)); return true; }
+        try {
+            const worker = this._worker || (this._worker = new Worker(URL.createObjectURL(new Blob([
+                "self.onmessage = e => { const b = e.data.bitmap; let opaque = false; try {"
+                + " const c = new OffscreenCanvas(b.width, b.height), x = c.getContext('2d', { willReadFrequently: true });"
+                + " x.drawImage(b, 0, 0); const d = x.getImageData(0, 0, b.width, b.height).data; opaque = true;"
+                + " for (let i = 3; i < d.length; i += 4) if (d[i] !== 255) { opaque = false; break; } } catch (_) { opaque = false; }"
+                + " b.close(); self.postMessage({ id: e.data.id, opaque }); };"
+            ], { type: "text/javascript" })), { name: "Reactor image proof" }));
+            const jobs = this._jobs || (this._jobs = new Map());
+            if (!worker.onmessage) worker.onmessage = event => { const job = jobs.get(event.data.id); jobs.delete(event.data.id); if (job) job(event.data.opaque); };
+            const id = (this._jobSerial = (this._jobSerial || 0) + 1);
+            jobs.set(id, settle);
+            createImageBitmap(image).then(bitmap => worker.postMessage({ id, bitmap }, [bitmap]), () => { jobs.delete(id); settle(false); });
+        } catch (_) { settle(false); }
+        return true;
+    },
+    /** A texture the warm-up re-sourced (an ImageBitmap of the same picture): its records follow. */
+    retextured(texture) {
+        for (const record of this._byTexture.get(texture) || []) {
+            record.version = texture.version;
+            record.sourceVersion = texture.source && texture.source.version;
+        }
+    },
+    _byTexture: new WeakMap(),
     register(scene, mesh, bitmap, kind) {
         const geometry = mesh.geometry, material = mesh.material, texture = material.map;
         const image = bitmap.image;
@@ -5541,6 +6156,9 @@ Reactor3D.CoveredFloor = {
             compile: material.onBeforeCompile, before: material.onBeforeRender, draw: mesh.onBeforeRender,
             positions: Array.from(geometry.attributes.position.array), indices: Array.from(geometry.index.array),
             opaque: !bitmap._animatedImage && this.opaque(image) };
+        if (texture) { const list = this._byTexture.get(texture) || []; list.push(record); this._byTexture.set(texture, list); }
+        // The worker's answer lands on the record when it comes.
+        if (image && this._waiting.has(image)) this._waiting.get(image).push(record);
         this._surfaces.set(mesh, record);
         let entries = this._scenes.get(scene);
         if (!entries) this._scenes.set(scene, entries = []);
@@ -5562,7 +6180,7 @@ Reactor3D.CoveredFloor = {
             || m.clippingPlanes?.length || m.polygonOffset || m.onBeforeCompile !== record.compile
             || m.onBeforeRender !== record.before || mesh.onBeforeRender !== record.draw
             || m.alphaTest > 1 || bitmap._animatedImage || bitmap.image !== image || image?.src !== record.src
-            || t.image !== image || t.version !== record.version || t.source?.version !== record.sourceVersion
+            || (t.userData.rrSourceImage || t.image) !== image || t.version !== record.version || t.source?.version !== record.sourceVersion
             || (opaque && !record.opaque)) return false;
         const p = g.attributes.position?.array, index = g.index?.array;
         if (g.drawRange.start !== 0 || g.drawRange.count < 6 || g.groups.length || g.morphAttributes.position || !p || !index
@@ -6039,6 +6657,90 @@ Reactor3D.billboardMaterial = function(texture, edgeHinged) {
  * `options.flags` and `options.tilesetId` let a caller outside the running game
  * — the editor viewport — supply the tileset it is showing.
  */
+/**
+ * Tiles whose every pixel is transparent, left out of the draw.
+ *
+ * A map layer painted with a blank tile (an A5 cell of nothing, a spacer on
+ * an upper layer) still becomes two quads: the opaque core, which lights each
+ * fragment and then discards it, and the blend pass, which lights it and adds
+ * nothing. On the Demo's start map that was 2,107 quads drawn twice over the
+ * whole floor, a third of the frame on an integrated GPU. A triangle whose
+ * clamped sample rectangle (every texel filtering can reach) holds no pixel
+ * above alpha 0 draws nothing, so it leaves the index; its vertices
+ * stay, so terrain and animation, which rewrite vertices, are untouched.
+ *
+ * Only sheets that are loaded images (they never change) and only in the
+ * game: the editor picks cells by raycasting these meshes, blank or not.
+ */
+Reactor3D.InvisibleTiles = {
+    enabled: true,
+    _tables: new WeakMap(),
+    /** A summed-area table of the sheet's non-transparent pixels, or null. */
+    table(bitmap) {
+        const image = bitmap && bitmap._image;
+        if (!image || bitmap._canvas || bitmap._animatedImage || image.tagName !== "IMG" || !image.complete) return null;
+        const width = image.naturalWidth, height = image.naturalHeight;
+        if (!width || !height || typeof document === "undefined") return null;
+        const known = this._tables.get(image);
+        if (known && known.src === image.src && known.width === width && known.height === height) return known;
+        let table = null;
+        try {
+            const canvas = document.createElement("canvas");
+            canvas.width = width; canvas.height = height;
+            const context = canvas.getContext("2d", { willReadFrequently: true });
+            context.drawImage(image, 0, 0);
+            const pixels = context.getImageData(0, 0, width, height).data;
+            canvas.width = canvas.height = 1;
+            const sums = new Int32Array((width + 1) * (height + 1));
+            for (let y = 0; y < height; y++) {
+                let row = 0;
+                for (let x = 0; x < width; x++) {
+                    if (pixels[(y * width + x) * 4 + 3] !== 0) row++;
+                    sums[(y + 1) * (width + 1) + x + 1] = sums[y * (width + 1) + x + 1] + row;
+                }
+            }
+            table = { src: image.src, width, height, sums };
+        } catch (_) { /* A tainted or unreadable sheet draws everything. */ }
+        if (table) this._tables.set(image, table);
+        return table;
+    },
+    /** Pixels above alpha 0 in texels [x0, x1) x [y0, y1). */
+    count(table, x0, y0, x1, y1) {
+        const w = table.width + 1, s = table.sums;
+        return s[y1 * w + x1] - s[y0 * w + x1] - s[y1 * w + x0] + s[y0 * w + x0];
+    },
+    /** The index without the triangles that sample only transparent pixels. */
+    cull(indices, bounds, bitmap) {
+        if (!this.enabled || !bounds || !indices || !indices.length) return indices;
+        if (typeof window !== "undefined" && window.reactor && window.reactor.projectController) return indices;
+        const table = this.table(bitmap);
+        if (!table) return indices;
+        const { width, height } = table;
+        const kept = new (indices.constructor)(indices.length);
+        let n = 0;
+        for (let t = 0; t + 2 < indices.length; t += 3) {
+            let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
+            for (let k = 0; k < 3; k++) {
+                const b = indices[t + k] * 4;
+                u0 = Math.min(u0, bounds[b]); v0 = Math.min(v0, bounds[b + 1]);
+                u1 = Math.max(u1, bounds[b + 2]); v1 = Math.max(v1, bounds[b + 3]);
+            }
+            let visible = true;
+            if (Number.isFinite(u0) && Number.isFinite(v0) && Number.isFinite(u1) && Number.isFinite(v1)) {
+                // Every texel a clamped sample can reach: a bilinear tap at c
+                // reads texels floor(c - 0.5) and, unless c sits on a texel
+                // centre, the next one (nearest reads floor(c), inside both).
+                // The sheet is uploaded flipped: v runs up from the bottom row.
+                const x0 = Math.max(0, Math.floor(u0 * width - 0.5)), x1 = Math.min(width, Math.ceil(u1 * width - 0.5) + 1);
+                const y0 = Math.max(0, Math.floor((1 - v1) * height - 0.5)), y1 = Math.min(height, Math.ceil((1 - v0) * height - 0.5) + 1);
+                visible = x1 <= x0 || y1 <= y0 || this.count(table, x0, y0, x1, y1) > 0;
+            }
+            if (visible) { kept[n++] = indices[t]; kept[n++] = indices[t + 1]; kept[n++] = indices[t + 2]; }
+        }
+        return n === indices.length ? indices : kept.slice(0, n);
+    }
+};
+
 Reactor3D.MapScene.prototype.build = function(mapData, bitmaps, options) {
     this.clear();
     if (!mapData) return;
@@ -6152,7 +6854,8 @@ Reactor3D.MapScene.prototype.build = function(mapData, bitmaps, options) {
         if (group.offsets) {
             geometry.setAttribute("offset", new THREE.BufferAttribute(group.offsets, 2));
         }
-        geometry.setIndex(new THREE.BufferAttribute(group.indices, 1));
+        geometry.setIndex(new THREE.BufferAttribute(
+            group.anim ? group.indices : Reactor3D.InvisibleTiles.cull(group.indices, group.bounds, bitmaps && bitmaps[group.setNumber]), 1));
         geometry.computeVertexNormals();
         /*
          * A cut-out is not where its vertices say it is.
@@ -6807,6 +7510,9 @@ Reactor3D.MapScene.prototype.syncVolumeLights = function(declared, focus) {
     const fy = focus ? focus.y : 0;
     let count = 0;
     let bodyCount = 0;
+    // Which declared light was packed at which index (LightVolume).
+    const seen = this._volumeSeen || (this._volumeSeen = []);
+    seen.length = 0;
     // Bounds belong to this light update only: every beam sees the same pose,
     // but the next update must see movement, animation and replaced models.
     let beamBounds = null;
@@ -6876,6 +7582,7 @@ Reactor3D.MapScene.prototype.syncVolumeLights = function(declared, focus) {
             }
         }
         const at = count * 4;
+        seen.push(light, count);
         pos[at] = x; pos[at + 1] = y; pos[at + 2] = z; pos[at + 3] = reach;
         // The colour's w says the shape: 0 a sphere, 1 a cone, 2 a beam. The
         // aim's w is what that shape needs — the cone's cosine of its half
@@ -6923,6 +7630,7 @@ Reactor3D.MapScene.prototype.syncVolumeLights = function(declared, focus) {
     }
     uniforms.rrLightCount.value = count;
     Reactor3D.LightGrid.update(uniforms, focus);
+    if (Reactor3D.LightVolume) Reactor3D.LightVolume.observe(declared || [], seen, focus);
     bodies.trim(bodyCount);
     Reactor3D.Shadows.setCandidates(candidates);
 };
@@ -7095,6 +7803,247 @@ Reactor3D.MapScene.prototype.renderShadows = function(renderer, mapData, options
 };
 
 /**
+ * The lights' haze at half size. A cone or ball of haze is a smooth
+ * gradient over a large part of the screen, added once per face (a cone
+ * seen from outside twice): on the start map eleven of them were the most
+ * expensive draws of the frame (3.8 ms at 1080p on an integrated GPU), for
+ * pixels that change only gently from one to the next. Drawn into a target
+ * a quarter the pixels, each fragment tested against the pass's own depth
+ * (so a wall still hides the haze behind it), and added onto the pass in
+ * one draw: the same sums, clamped the same way, filtered up. The bright
+ * cores and a laser's dot stay in the pass, sharp. Only the map's passes
+ * (`Viewport.renderInto`); mirrors and captures draw the haze as before.
+ */
+/**
+ * A target that draws into `target`'s colour and nothing else: the same GL
+ * texture, attached to a framebuffer of its own with no depth. A full-screen
+ * pass can then write the colour while reading the target's depth texture,
+ * which WebGL refuses as a feedback loop while that depth is attached
+ * (HalfLight's combine, HalfHaze's composite). One per target, rebuilt when
+ * the target's texture is; null before the target is set up.
+ */
+Reactor3D.colourOnly = function(renderer, target) {
+    const props = renderer.properties, gl = props.get(target.texture).__webglTexture;
+    if (!gl) return null;
+    const views = this._colourViews || (this._colourViews = new WeakMap());
+    let view = views.get(target);
+    if (view && view.__rrTexture === gl && view.width === target.width && view.height === target.height) return view;
+    if (view) {
+        // The texture is the target's to delete, not this view's.
+        props.get(view.texture).__webglTexture = undefined;
+        view.dispose();
+    }
+    view = new THREE.WebGLRenderTarget(target.width, target.height, { depthBuffer: false, stencilBuffer: false,
+        colorSpace: target.texture.colorSpace, generateMipmaps: false });
+    view.isXRRenderTarget = !!target.isXRRenderTarget;
+    view.texture.internalFormat = target.texture.internalFormat;
+    // Set up around the existing texture (no storage of its own), then an
+    // ordinary target: three rebinds external textures on every use and
+    // looks for a depth texture this view does not have.
+    props.get(view.texture).__webglTexture = gl;
+    props.get(view).__hasExternalTextures = true;
+    renderer.initRenderTarget(view);
+    props.get(view).__hasExternalTextures = false;
+    view.__rrTexture = gl;
+    views.set(target, view);
+    return view;
+};
+
+Reactor3D.HalfHaze = {
+    enabled: true,
+    SCALE: 0.25,
+    matchSurfaces: true,
+    _uniforms: null,
+    uniforms() {
+        return this._uniforms || (this._uniforms = {
+            rrHazeDepth: { value: null },
+            rrHazeDepthScale: { value: new THREE.Vector2(1, 1) },
+            // Which channel holds the distance: the light's alpha, or the shrunk depth's red.
+            rrHazeDepthPick: { value: new THREE.Vector4(1, 0, 0, 0) },
+            rrHazeDepthOn: { value: 0 }
+        });
+    },
+    /**
+     * A haze material's fragment shader: drawn small, it tests its distance
+     * from the eye (1/w) against the pass's at the same place.
+     */
+    shader(source) {
+        return "uniform highp sampler2D rrHazeDepth;\nuniform vec2 rrHazeDepthScale;\nuniform vec4 rrHazeDepthPick;\nuniform int rrHazeDepthOn;\n"
+            + source.replace("void main() {", "void main() {\n\tif (rrHazeDepthOn != 0 && 1.0 / gl_FragCoord.w > dot(texture2D(rrHazeDepth, gl_FragCoord.xy * rrHazeDepthScale), rrHazeDepthPick) * 1.002) discard;");
+    },
+    /** Takes this pass's haze out of the scene's draw; null when it has none to move. */
+    take(scene, target, camera) {
+        if (!this.enabled || !target || !target.depthTexture || !scene || !scene.userData || !(camera && camera.isPerspectiveCamera)) return null;
+        const group = scene.userData.rrLightBodies;
+        if (!group || !group.visible || group.parent !== scene) return null;
+        let list = null;
+        const children = group.children;
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (child.visible && child.isMesh && child.material && child.material.userData.rrHaze && !child.material.userData.rrBeam) (list || (list = [])).push(child);
+        }
+        if (list) for (const mesh of list) mesh.visible = false;
+        return list;
+    },
+    restore(list) {
+        for (const mesh of list) mesh.visible = true;
+    },
+    /** The pass's depth at the haze's size: the farthest of the pixels each texel covers, so the haze runs a little over an edge in front of it, as a glow does, rather than stopping short of it in a dark rim. */
+    shrinkQuad() {
+        if (this._shrink) return this._shrink;
+        const material = new THREE.ShaderMaterial({
+            uniforms: { depth: { value: null }, rrShrinkStep: { value: new THREE.Vector2(4, 4) }, rrShrinkInverse: { value: new THREE.Matrix4() } },
+            vertexShader: "void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }",
+            fragmentShader: [
+                "uniform highp sampler2D depth;",
+                "uniform vec2 rrShrinkStep;",
+                "uniform mat4 rrShrinkInverse;",
+                "void main() {",
+                "\tivec2 size = textureSize(depth, 0), base = ivec2(floor(gl_FragCoord.xy - 0.5) * rrShrinkStep);",
+                "\tfloat d = 0.0;",
+                "\tfor (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {",
+                "\t\tivec2 at = min(base + ivec2(vec2(x, y) * rrShrinkStep * 0.25), size - 1);",
+                "\t\td = max(d, texelFetch(depth, at, 0).r);",
+                "\t}",
+                // As a distance from the eye, as the light pass keeps it.
+                "\tvec4 v = rrShrinkInverse * vec4(0.0, 0.0, d * 2.0 - 1.0, 1.0);",
+                "\tgl_FragColor = vec4(d >= 1.0 ? 1e30 : -v.z / v.w, 0.0, 0.0, 1.0);",
+                "}"
+            ].join("\n"),
+            depthTest: false, depthWrite: false, blending: THREE.NoBlending
+        });
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+        mesh.frustumCulled = false;
+        const scene = new THREE.Scene();
+        scene.add(mesh);
+        this._shrink = { material, scene, camera: new THREE.Camera() };
+        return this._shrink;
+    },
+    /**
+     * `split`: the pass's light (Reactor3D.HalfLight), when drawn: its small
+     * light's alpha is each texel's distance, and the haze is filtered up
+     * from the samples on each pixel's own surface, so it stays crisp at a
+     * silhouette in front of it.
+     */
+    draw(renderer, target, camera, list, split) {
+        const light = split ? split.light : null;
+        const group = list[0].parent;
+        const w = Math.max(1, Math.ceil(target.width * this.SCALE)), h = Math.max(1, Math.ceil(target.height * this.SCALE));
+        let half = this._target;
+        if (!half || half.width !== w || half.height !== h) {
+            if (half) half.dispose();
+            half = this._target = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false,
+                minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+        }
+        if (!this._quad) {
+            const material = new THREE.ShaderMaterial({
+                uniforms: { map: { value: null }, small: { value: null }, depth: { value: null }, matched: { value: 0 },
+                    hazeStep: { value: new THREE.Vector2(4, 4) }, sameSurface: { value: 0.03 }, plainSpread: { value: 0.02 }, toDistance: { value: new THREE.Vector4() } },
+                vertexShader: "varying vec2 vUv;\nvoid main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+                fragmentShader: [
+                    "uniform sampler2D map;",
+                    "uniform highp sampler2D small;",
+                    "uniform highp sampler2D depth;",
+                    "uniform vec4 toDistance;",
+                    "uniform int matched;",
+                    "uniform vec2 hazeStep;",
+                    "uniform float sameSurface;",
+                    "uniform float plainSpread;",
+                    "varying vec2 vUv;",
+                    "float rrSame(float a, float d) { float r = (a - d) / (d * sameSurface); return exp(-r * r); }",
+                    "void main() {",
+                    "\tif (matched == 0) { gl_FragColor = texture2D(map, vUv); return; }",
+                    "\tivec2 px = ivec2(gl_FragCoord.xy);",
+                    "\tivec2 top = textureSize(map, 0) - 1;",
+                    "\tvec2 at = vec2(px) / hazeStep - 0.5, base = floor(at), f = at - base;",
+                    "\tivec2 b = ivec2(base), i0 = clamp(b, ivec2(0), top), i1 = clamp(b + ivec2(1, 0), ivec2(0), top), i2 = clamp(b + ivec2(0, 1), ivec2(0), top), i3 = clamp(b + ivec2(1, 1), ivec2(0), top);",
+                    "\tvec4 dist = vec4(texelFetch(small, i0, 0).a, texelFetch(small, i1, 0).a, texelFetch(small, i2, 0).a, texelFetch(small, i3, 0).a);",
+                    // The four samples on one surface: filtered plainly, the depth unread (HalfLight.PLAIN_SPREAD).
+                    "\tfloat lo = min(min(dist.x, dist.y), min(dist.z, dist.w)), hi = max(max(dist.x, dist.y), max(dist.z, dist.w));",
+                    "\tif (hi - lo < lo * plainSpread) { gl_FragColor = texture2D(map, vUv); return; }",
+                    "\tfloat z = texelFetch(depth, px, 0).r;",
+                    "\tfloat d = z >= 1.0 ? 60000.0 : -(toDistance.x * (z * 2.0 - 1.0) + toDistance.y) / (toDistance.z * (z * 2.0 - 1.0) + toDistance.w);",
+                    "\tvec4 same = vec4(rrSame(dist.x, d), rrSame(dist.y, d), rrSame(dist.z, d), rrSame(dist.w, d));",
+                    "\tvec4 h0 = texelFetch(map, i0, 0), h1 = texelFetch(map, i1, 0), h2 = texelFetch(map, i2, 0), h3 = texelFetch(map, i3, 0);",
+                    "\tfloat best = max(max(same.x, same.y), max(same.z, same.w));",
+                    // No sample on this surface: the nearest in distance alone.
+                    "\tif (best < 0.3) same = step(vec4(best), same);",
+                    "\tvec4 w = (vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y) + 0.001) * same;",
+                    "\tgl_FragColor = (h0 * w.x + h1 * w.y + h2 * w.z + h3 * w.w) / (w.x + w.y + w.z + w.w);",
+                    "}"
+                ].join("\n"),
+                // What the haze added to its own target, added to the pass as it is.
+                blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+                blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneFactor,
+                depthTest: false, depthWrite: false, transparent: true
+            });
+            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+            mesh.frustumCulled = false;
+            const quadScene = new THREE.Scene();
+            quadScene.add(mesh);
+            this._quad = { scene: quadScene, camera: new THREE.Camera(), material };
+        }
+        // Only the haze: everything else in the group was drawn with the pass.
+        const others = [];
+        for (const child of group.children) if (child.visible) { others.push(child); child.visible = false; }
+        for (const mesh of list) mesh.visible = true;
+        // The pass's depth at the haze's size: read where each small texel
+        // falls, the full-size depth was fetched a texel in sixteen, once per
+        // face per cone, and the cache fetched the rest. The light pass keeps
+        // each texel's distance already; without it the depth is shrunk here.
+        const fromLight = !!(light && light.width === w && light.height === h);
+        let depth = this._depth;
+        if (!fromLight && (!depth || depth.width !== w || depth.height !== h)) {
+            if (depth) depth.dispose();
+            depth = this._depth = new THREE.WebGLRenderTarget(w, h, { type: THREE.FloatType, format: THREE.RedFormat, depthBuffer: false, stencilBuffer: false,
+                minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
+        }
+        const u = this.uniforms();
+        u.rrHazeDepth.value = fromLight ? light.texture : depth.texture;
+        u.rrHazeDepthPick.value.set(fromLight ? 0 : 1, 0, 0, fromLight ? 1 : 0);
+        u.rrHazeDepthScale.value.set(1 / w, 1 / h);
+        u.rrHazeDepthOn.value = 1;
+        const autoClear = renderer.autoClear, clearColour = renderer.getClearColor(this._clear || (this._clear = new THREE.Color())), clearAlpha = renderer.getClearAlpha();
+        try {
+            if (!fromLight) {
+                const shrink = this.shrinkQuad();
+                shrink.material.uniforms.depth.value = target.depthTexture;
+                shrink.material.uniforms.rrShrinkStep.value.set(target.width / w, target.height / h);
+                shrink.material.uniforms.rrShrinkInverse.value.copy(camera.projectionMatrixInverse);
+                renderer.setRenderTarget(depth);
+                renderer.render(shrink.scene, shrink.camera);
+            }
+            renderer.setRenderTarget(half);
+            renderer.setClearColor(0x000000, 0);
+            renderer.clear(true, false, false);
+            renderer.autoClear = false;
+            renderer.render(group, camera);
+            // Matched to each pixel's surface while the light keeps the small depth (a colour-only target: the depth is read).
+            const view = this.matchSurfaces && fromLight && Reactor3D.HalfLight && Reactor3D.HalfLight.matchSurfaces ? Reactor3D.colourOnly(renderer, target) : null;
+            renderer.setRenderTarget(view || target);
+            const qu = this._quad.material.uniforms, matched = !!view;
+            qu.map.value = half.texture;
+            qu.matched.value = matched ? 1 : 0;
+            qu.small.value = matched ? light.texture : null;
+            qu.depth.value = matched ? target.depthTexture : null;
+            const pi = camera.projectionMatrixInverse.elements;
+            qu.toDistance.value.set(pi[10], pi[14], pi[11], pi[15]);
+            qu.hazeStep.value.set(target.width / w, target.height / h);
+            qu.sameSurface.value = 0.03;
+            qu.plainSpread.value = Reactor3D.HalfLight ? Reactor3D.HalfLight.PLAIN_SPREAD : 0.02;
+            renderer.render(this._quad.scene, this._quad.camera);
+        } finally {
+            u.rrHazeDepthOn.value = 0;
+            u.rrHazeDepth.value = null;
+            for (const mesh of list) mesh.visible = false;
+            for (const child of others) child.visible = true;
+            renderer.autoClear = autoClear;
+            renderer.setClearColor(clearColour, clearAlpha);
+        }
+    }
+};
+
+/**
  * The glowing bodies of the lights: a soft sphere at a point light, the cone
  * of a spotlight, and a bright core at either source. Additive, depth-tested
  * and never depth-written, so a wall hides the lamp behind it and two glows
@@ -7106,6 +8055,7 @@ Reactor3D.MapScene.prototype.lightBodies = function() {
     const group = new THREE.Group();
     group.name = "light-bodies";
     this._scene.add(group);
+    this._scene.userData.rrLightBodies = group;
     this._lightBodyGroup = group;
     const down = new THREE.Vector3(0, -1, 0);
     const aimVector = new THREE.Vector3();
@@ -7280,8 +8230,10 @@ Reactor3D.coneBodyGeometry = function() {
  * since each carries its own colour.
  */
 Reactor3D.lightBodyMaterial = function() {
-    return new THREE.ShaderMaterial({
+    const haze = this.HalfHaze.uniforms();
+    const material = new THREE.ShaderMaterial({
         uniforms: {
+            rrHazeDepth: haze.rrHazeDepth, rrHazeDepthScale: haze.rrHazeDepthScale, rrHazeDepthPick: haze.rrHazeDepthPick, rrHazeDepthOn: haze.rrHazeDepthOn,
             colour: { value: new THREE.Color(1, 1, 1) },
             strength: { value: 0.3 },
             // 1 fades the body along -Y, which is a cone's length from its
@@ -7302,7 +8254,7 @@ Reactor3D.lightBodyMaterial = function() {
             "\tgl_Position = projectionMatrix * viewMatrix * world;",
             "}"
         ].join("\n"),
-        fragmentShader: [
+        fragmentShader: this.HalfHaze.shader([
             "uniform vec3 colour;",
             "uniform float strength;",
             "uniform float alongFade;",
@@ -7316,7 +8268,7 @@ Reactor3D.lightBodyMaterial = function() {
             "\tfloat a = strength * soft * along * along;",
             "\tgl_FragColor = vec4(colour * a, a);",
             "}"
-        ].join("\n"),
+        ].join("\n")),
         blending: THREE.AdditiveBlending,
         transparent: true,
         depthWrite: false,
@@ -7326,6 +8278,8 @@ Reactor3D.lightBodyMaterial = function() {
         forceSinglePass: true,
         fog: false
     });
+    material.userData.rrHaze = true;
+    return material;
 };
 
 /**
@@ -7338,7 +8292,7 @@ Reactor3D.lightBodyMaterial = function() {
  */
 Reactor3D.beamBodyMaterial = function() {
     const material = this.lightBodyMaterial();
-    material.fragmentShader = [
+    material.fragmentShader = this.HalfHaze.shader([
         "uniform vec3 colour;",
         "uniform float strength;",
         "varying float vAlong;",
@@ -7351,7 +8305,10 @@ Reactor3D.beamBodyMaterial = function() {
         "\tfloat a = strength * soft * along;",
         "\tgl_FragColor = vec4(colour * a, a);",
         "}"
-    ].join("\n");
+    ].join("\n"));
+    // A beam is a few pixels across: drawn small and filtered up it was a
+    // row of soft blocks. It stays in the pass, at full size (HalfHaze.take).
+    material.userData.rrBeam = true;
     material.needsUpdate = true;
     return material;
 };

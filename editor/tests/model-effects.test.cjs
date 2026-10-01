@@ -392,7 +392,7 @@ test('an in-scene effect is drawn as its own screen box at full resolution, smal
     const editor = fs.readFileSync(path.join(repoRoot, 'editor', 'src', 'MapEditor3D.js'), 'utf8');
     assert.match(editor, /const rect = \{ x: 0, y: 0, w: size\.x, h: size\.y, scale \};/, 'the map view draws the whole view at its own resolution');
     assert.match(editor, /rect, viewWidth: size\.x, viewHeight: size\.y\s*\}\);/, 'the layer draws it on its own loop');
-    assert.match(editor, /play\.quad && play\.layer && play\.layer\.active\)\) return true;/, 'and a playing effect keeps the view rendering at full rate');
+    assert.match(editor, /if \(play\.quad && play\.layer && play\.layer\.active\) return true;/, 'and a playing effect keeps the view rendering at full rate');
     // three allocates a canvas texture immutably at its first size: a resized source must get a new GL texture.
     assert.match(editor, /if \(play\.texWidth !== source\.width \|\| play\.texHeight !== source\.height\) \{[\s\S]*?play\.quad\.texture\.dispose\(\);/, 'the editor lets go of the texture when its canvas changes size');
     assert.match(runtime, /scratch\.height = drawH;[\s\S]*?play\.quad\.texture\.dispose\(\);\s*\}/, 'so does the game when the box changes size');
@@ -405,7 +405,7 @@ test('a map with models is drawn under one depth buffer, in the editor and the g
     assert.match(runtime, /this\.modelsInWorld \? world : \(which === "above" \|\| which === "overlay"\)/, 'the overlay joins the world pass on a model map');
     assert.match(fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_sprites.js'), 'utf8'), /state\.scene\.modelsInWorld = !!modelsInWorld;/);
     const editor = fs.readFileSync(path.join(editorRoot, 'src', 'MapEditor3D.js'), 'utf8');
-    assert.match(editor, /if \(modelsInWorld\) \{\n\s+this\.mapScene\.setPass\('world'\);\n\s+this\.renderer\.autoClear = true;\n\s+Reactor3D\.renderScene\(this\.renderer, scene, this\.camera\);\n\s+this\.renderLightsPass\(scene\);\n\s+return;/, 'the editor skips the depth-clearing passes on a model map, then composites the lights');
+    assert.match(editor, /if \(modelsInWorld\) \{\n\s+this\.mapScene\.setPass\('world'\);\n\s+this\.renderer\.autoClear = true;\n\s+this\.renderMainPass\(scene\);\n\s+this\.renderLightsPass\(scene\);\n\s+return;/, 'the editor skips the depth-clearing passes on a model map, then composites the lights');
     assert.match(editor, /Reactor3D\.EffekseerScene\.quadFor\(layer\.fxCanvas\)/, 'and shows Effekseer effects on depth quads');
     const layer = fs.readFileSync(path.join(editorRoot, 'src', 'utils', 'AnimationPreviewLayer.js'), 'utf8');
     assert.match(layer, /setWorld\(world\)/);

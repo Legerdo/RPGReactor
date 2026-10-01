@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -118,8 +119,7 @@ test('help text is escaped into the attribute it rides on', () => {
 });
 
 test('a trait names the runtime methods that decide it, and only real ones', () => {
-    const runtime = fs.readFileSync(
-        path.resolve(__dirname, '..', '..', 'runtime', 'reactor_objects.js'), 'utf8');
+    const runtime = runtimeSource('reactor_objects.js');
     const named = new Set();
     for (const code of ALL_CODES) {
         const methods = TraitHelp.rowMethods(code);
@@ -135,7 +135,7 @@ test('a trait names the runtime methods that decide it, and only real ones', () 
     // would quietly match no plugin and report "nothing changed this" forever.
     for (const method of named) {
         assert.ok(runtime.includes(`.prototype.${method} = function`),
-            `${method} is not defined in runtime/reactor_objects.js`);
+            `${method} is not defined in runtime/reactor_objects*.js`);
     }
 });
 

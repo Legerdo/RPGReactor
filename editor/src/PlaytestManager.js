@@ -12,6 +12,24 @@ class PlaytestManager {
         this.lastLaunchError = null;
     }
 
+    /** Whether a playtest window is open. */
+    isRunning() {
+        return !!this.playtestProcess;
+    }
+
+    /**
+     * Whether the playtest has the machine: open, and the editor window not
+     * focused. The editor's map views stop drawing meanwhile (MapEditor3D's
+     * loop, the 2D map's render scheduler) and pick up again the moment the
+     * editor is clicked back into: on an integrated GPU the game and the
+     * editor shared it, and the game's frame rate paid for a view nobody was
+     * looking at.
+     */
+    ownsGpu() {
+        if (!this.isRunning()) return false;
+        return !(typeof document !== 'undefined' && typeof document.hasFocus === 'function' && document.hasFocus());
+    }
+
     playtest(projectPath) {
         if (!projectPath) {
             console.error('No project loaded');

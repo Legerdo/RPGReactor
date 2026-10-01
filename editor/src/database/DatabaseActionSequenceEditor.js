@@ -1,7 +1,7 @@
 /* Built-in sequence authoring: steps and timeline are views of the same data. */
 class DatabaseActionSequenceEditor {
     constructor(parent) {this.parent=parent;this.ui=parent.battlePresentationEditor;this.db=parent.databaseManager;}
-    dispose(){this.clearPreviewMedia();this.audioContext?.close().catch(()=>{});this.audioContext=null;if(this.stepLanguageChanged)window.removeEventListener('rr-language-changed',this.stepLanguageChanged);this.stepLanguageChanged=null;this.endStepDrag();if(this.stepMenu&&this.parent._databaseActionMenu===this.stepMenu)this.parent.closeDatabaseActionMenu();this.stepMenu=null;this.controls?.dispose();this.controls=null;cancelAnimationFrame(this.raf);this.raf=0;this.playing=false;this.grid?.geometry.dispose();this.grid?.material.dispose();this.grid=null;this.preview?.dispose();this.preview=null;for(const audio of this.sounds||[])audio.pause();this.sounds=[];this.generation=(this.generation||0)+1;}
+    dispose(){this.stopPreviewInput();this.clearPreviewMedia();this.audioContext?.close().catch(()=>{});this.audioContext=null;if(this.stepLanguageChanged)window.removeEventListener('rr-language-changed',this.stepLanguageChanged);this.stepLanguageChanged=null;this.endStepDrag();if(this.stepMenu&&this.parent._databaseActionMenu===this.stepMenu)this.parent.closeDatabaseActionMenu();this.stepMenu=null;this.controls?.dispose();this.controls=null;cancelAnimationFrame(this.raf);this.raf=0;this.playing=false;this.grid?.geometry.dispose();this.grid?.material.dispose();this.grid=null;this.preview?.dispose();this.preview=null;for(const audio of this.sounds||[])audio.pause();this.sounds=[];this.generation=(this.generation||0)+1;}
     show(container,sequence){
         this.dispose();this.stepPlayback=null;this.sequence=sequence;this.selected=0;this.frame=0;this.undo=[];this.redo=[];this.disclosures=new Map();this.cast={user:1,target:1};this.castKinds={user:'actors',target:'enemies'};this.mirrored=false;this.images={};this.targetCount=1;this.sampleWeapon=0;
         const prefs=this.loadPrefs();
@@ -79,13 +79,24 @@ class DatabaseActionSequenceEditor {
         const kind=U.field(footer,'Used As',U.select(B.kinds,['motion','routine'].includes(B.purpose(sequence))?B.purpose(sequence):'action',value=>{this.edit(()=>{sequence.purpose=value;if(value==='action')B.migratePhases(sequence);});this.updateReferences();this.drawSteps();this.drawInspector();this.phasesButton.hidden=value!=='action';}));kind.title=U.text('Used As');
         this.references=U.element('p','rr-battle-help');footer.append(this.references);this.updateReferences();this.phasesButton.hidden=B.purpose(sequence)!=='action';
         this.refresh();this.loadCast();let last=performance.now();
-        const tick=now=>{if(!this.host.isConnected)return;
+        // Painted while playing, and otherwise only when something changed: a
+        // paused sequence used to be drawn in full every frame. Any input in
+        // the window (the step list, the inspector, a menu or picker over it,
+        // the canvas gizmos) asks for a second of frames, as do a language
+        // switch and whatever the preview finishes loading on its own.
+        this.previewDirty=true;this.previewInputListener=()=>this.invalidatePreview();
+        for(const type of DatabaseActionSequenceEditor.PREVIEW_INPUT_EVENTS)document.addEventListener(type,this.previewInputListener,true);
+        // Moving the pointer matters over the canvas only (gizmo hovers and drags, which capture it there).
+        this.canvas.addEventListener('pointermove',this.previewInputListener);
+        this.previewLanguageListener=()=>this.invalidatePreview();window.addEventListener('rr-language-changed',this.previewLanguageListener);
+        const tick=now=>{if(!this.host.isConnected){this.stopPreviewInput();return;}
             const dt=Math.min(100,now-last);last=now;
             for(const audio of this.sounds){if(!this.playing&&!audio.paused)audio.pause();else if(this.playing&&audio.paused&&!audio.ended)audio.play().catch(()=>{});}
             for(const entry of this.animationLayers||[]){entry.layer.paused=!this.playing;entry.layer.speed=this.speed;}
             if(this.playing)this.advancePreview(dt/1000*60*this.speed);
             if(this.preview)this.preview.effectsDelta=dt/1000*60*this.speed;
-            this.paint();this.raf=requestAnimationFrame(tick);
+            if(this.playing||this.previewNeedsPaint(now)){this.previewDirty=false;this.paint();}
+            this.raf=requestAnimationFrame(tick);
         };this.raf=requestAnimationFrame(tick);
 
     }
@@ -147,6 +158,36 @@ class DatabaseActionSequenceEditor {
         if(index===undefined&&!this.playing&&selected&&(this.asOfStep||this.controls?.transformPose===selected||ReactorBattleData.hasPose(selected))&&this.frame===ReactorBattleData.timeline(this.sequence)[this.selected].end)index=this.selected;
         const sequence=index===undefined?this.sequence:{...this.sequence,steps:this.sequence.steps.slice(0,index+1)};
         if(sequence.steps.some(s=>['action','branch'].includes(s.type)))try{return ReactorBattleData.previewPlan(sequence,this.db.data.actionSequences);}catch(error){return sequence;}return sequence;
+    }
+    /** Input anywhere in the document that can change what the paused preview shows. */
+    static PREVIEW_INPUT_EVENTS=['pointerdown','pointerup','wheel','input','change','click','keydown','keyup','drop'];
+    /** Ask for a second of frames: an edit can settle over a few (a picture loading, an inspector redraw). */
+    invalidatePreview(){this.previewDirty=true;this.previewLiveUntil=performance.now()+1000;}
+    stopPreviewInput(){
+        if(this.previewInputListener)for(const type of DatabaseActionSequenceEditor.PREVIEW_INPUT_EVENTS)document.removeEventListener(type,this.previewInputListener,true);
+        if(this.previewLanguageListener)window.removeEventListener('rr-language-changed',this.previewLanguageListener);
+        this.previewInputListener=this.previewLanguageListener=null;
+    }
+    /**
+     * Whether a paused preview has to be drawn this frame. Besides an explicit
+     * change, the room view finishes things on its own time: a model or an
+     * effect loading, a texture decoding after the model is in. Those are
+     * read off a small signature — counts and texture versions, a handful of
+     * numbers — rather than by painting to find out. A movie surface plays
+     * in real time and keeps the preview live.
+     */
+    previewNeedsPaint(now){
+        if(this.previewDirty||now<(this.previewLiveUntil||0))return true;
+        const view=this.preview;if(view!==this.previewSeenView){this.previewSeenView=view;this.previewSignature=null;this.previewTextures=[];return true;}
+        if(!view)return false;
+        let loaded=0,media=!!view.mapMedia;for(const record of view.models.values()){if(record.object)loaded++;if(record.media?.size)media=true;}
+        if(media)return true;
+        let pending=0;for(const play of view.effectPlays?.values?.()||[])if(play.pending)pending++;
+        const shape=view.models.size+'|'+loaded+'|'+view.billboards.size+'|'+pending;
+        if(shape!==this.previewShape){this.previewShape=shape;this.previewTextures=typeof ModelPreview3D!=='undefined'&&ModelPreview3D.collectTextures?ModelPreview3D.collectTextures(...[...view.models.values()].map(record=>record.object)):[];this.previewSignature=null;return true;}
+        const signature=typeof ModelPreview3D!=='undefined'&&ModelPreview3D.textureVersionSum?ModelPreview3D.textureVersionSum(this.previewTextures):0;
+        if(signature!==this.previewSignature){const first=this.previewSignature===null;this.previewSignature=signature;return !first;}
+        return false;
     }
     playStep(){
         const cue=ReactorBattleData.timeline(this.sequence)[this.selected];if(!cue)return;

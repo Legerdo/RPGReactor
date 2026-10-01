@@ -101,15 +101,26 @@ class Database3DEditor {
     }
 
     /**
-     * Whether an idle preview should draw this frame. Anything active keeps
-     * the full refresh rate; a still model repaints ten times a second, which
-     * is enough to show any change the activity checks missed and cheap
-     * enough to leave open on a laptop.
+     * Whether the preview should draw this frame. Anything active keeps the
+     * full refresh rate, and a change that asked for a frame (`dirty`) gets
+     * one; a still model is not drawn again at all. It used to repaint ten
+     * times a second to catch changes the activity checks missed, which kept
+     * an integrated GPU busy for a picture that never changed: those changes
+     * now say so (any input in the window, a hover, a texture landing, a
+     * theme switch, a resize).
      */
-    static shouldRenderPreview({ now, active, lastRenderAt, idleInterval = 100 }) {
-        if (active) return true;
-        if (!(lastRenderAt > 0)) return true;
-        return now - lastRenderAt >= idleInterval;
+    static shouldRenderPreview({ active, dirty, lastRenderAt }) {
+        if (active || dirty) return true;
+        return !(lastRenderAt > 0);
+    }
+
+    /** Input anywhere in the document that can change what the preview shows, dialogs it opens included. */
+    static PREVIEW_INPUT_EVENTS = ['pointerdown', 'pointerup', 'wheel', 'input', 'change', 'click', 'keydown', 'keyup', 'drop'];
+
+    /** Ask the preview for a second of full-rate frames: an edit may take a few frames to settle. */
+    _invalidatePreview() {
+        this._invalidatedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        this._previewDirty = true;
     }
 
     /** Cache file name keyed by the source file's identity and contents stamp. */
@@ -1692,22 +1703,36 @@ class Database3DEditor {
             // clip at double speed.
             let frame = 0;
             const startedAt = performance.now();
+            // The canvas is measured when it reports a resize, not on every
+            // frame: reading its rectangle forces a layout.
+            let sizeDirty = true;
+            this._unwatchPreviewSize = ModelPreview3D.watchSize(canvas, () => { sizeDirty = true; });
+            // Edits made anywhere — the card beside the canvas, a colour
+            // dialog over it — ask for frames; nothing else wakes a still
+            // preview.
+            this._previewInputListener = () => this._invalidatePreview();
+            for (const type of Database3DEditor.PREVIEW_INPUT_EVENTS) document.addEventListener(type, this._previewInputListener, true);
+            this._previewDirty = true;
             const tick = () => {
                 if (!this._renderer || !canvas.isConnected) {
                     this._disposePreview();
                     return;
                 }
                 frame = Math.round((performance.now() - startedAt) * 0.06);
-                const rect = canvas.getBoundingClientRect();
-                const width = Math.max(1, Math.round(rect.width));
-                const height = Math.max(1, Math.round(rect.height));
-                // The drawing buffer is the CSS size times the pixel ratio; comparing CSS pixels to it
-                // resized (and cleared) the buffer on every frame at any display scale but 100%.
-                const ratio = this._renderer.getPixelRatio();
-                if (canvas.width !== Math.floor(width * ratio) || canvas.height !== Math.floor(height * ratio)) {
-                    this._renderer.setSize(width, height, false);
-                    this._camera.aspect = width / height;
-                    this._camera.updateProjectionMatrix();
+                if (sizeDirty || !this._unwatchPreviewSize) {
+                    sizeDirty = false;
+                    const rect = canvas.getBoundingClientRect();
+                    const width = Math.max(1, Math.round(rect.width));
+                    const height = Math.max(1, Math.round(rect.height));
+                    // The drawing buffer is the CSS size times the pixel ratio; comparing CSS pixels to it
+                    // resized (and cleared) the buffer on every frame at any display scale but 100%.
+                    const ratio = this._renderer.getPixelRatio();
+                    if (canvas.width !== Math.floor(width * ratio) || canvas.height !== Math.floor(height * ratio)) {
+                        this._renderer.setSize(width, height, false);
+                        this._camera.aspect = width / height;
+                        this._camera.updateProjectionMatrix();
+                        this._previewDirty = true;
+                    }
                 }
                 if (this._sim.action && frame - this._sim.action.frame >= this._sim.action.until) {
                     // A repeating animation — or a preview of one that plays
@@ -1746,6 +1771,53 @@ class Database3DEditor {
                 if (extra) rules = rules.concat([extra]);
                 // The Motion editor shows its motion at the playhead, and nothing else moves.
                 if (this.motionEditor && this.motionEditor.active) rules = this.motionEditor.previewRules(this.playRules, frame);
+                // Decided before any per-frame work: a still model skips the
+                // animation, effect and box updates as well as the draw, and
+                // only the hover checks run (a hover that changes a part's
+                // outline asks for a frame through _refreshPartVisuals).
+                const now = performance.now();
+                {
+                    const goalKey = `${this._viewGoal.yaw}|${this._viewGoal.pitch}|${this._viewGoal.distance}|${this._viewGoal.pan.x}|${this._viewGoal.pan.y}|${this._viewGoal.pan.z}`;
+                    if (goalKey !== this._lastGoalKey) {
+                        this._lastGoalKey = goalKey;
+                        this._lastInputAt = now;
+                    }
+                }
+                const theme = ModelPreview3D.themeKey();
+                if (theme !== this._previewTheme) { this._previewTheme = theme; this._previewDirty = true; }
+                const textureVersion = ModelPreview3D.textureVersionSum(this._previewTextures);
+                if (textureVersion !== this._previewTextureVersion) {
+                    this._previewTextureVersion = textureVersion;
+                    this._previewDirty = true;
+                }
+                const easing = Math.abs(this._viewGoal.yaw - this._view.yaw) > 0.01
+                    || Math.abs(this._viewGoal.pitch - this._view.pitch) > 0.01
+                    || Math.abs(this._viewGoal.distance - this._view.distance) > 0.001
+                    || ['x', 'y', 'z'].some(axis => Math.abs(this._viewGoal.pan[axis] - this._view.pan[axis]) > 0.0001);
+                const animating = rules.some(rule => rule && rule.trigger !== 'action')
+                    || !!this._sim.action || !!this._sim.walking || !!this._sim.jumping || !!this._sim.swimming || !!this._sim.climbing || !!this._workRule || !!this._previewRule
+                    // A movie on a surface, or an effect overlay, is
+                    // motion too: throttled to the idle rate it played
+                    // as a slideshow and read as "not playing".
+                    || !!this._fxVideo || !!this._fxLight || !!(this._fxPreview && this._fxPreview.active) || !!this._additionalEffectPreviews?.size
+                    || !!this._bgFlash || !!this._flashHolder;
+                // Motions fade out over a few frames once they stop; the
+                // second after anything animated lets them come to rest.
+                if (animating) this._animatedAt = now;
+                const active = animating || easing || this._dragging || this._loadingPreview
+                    || this._selectMode || this._rigMode || this._editingRule >= 0 || this.selectedPartName !== null
+                    || (Number.isFinite(this._animatedAt) && now - this._animatedAt < 1000)
+                    || (Number.isFinite(this._invalidatedAt) && now - this._invalidatedAt < 1000)
+                    || (Number.isFinite(this._lastInputAt) && now - this._lastInputAt < 1000)
+                    || (Number.isFinite(this._pointerMovedAt) && now - this._pointerMovedAt < 300);
+                if (!Database3DEditor.shouldRenderPreview({ active, dirty: this._previewDirty, lastRenderAt: this._lastRenderAt })) {
+                    this._updateHover();
+                    this._updateRigHover();
+                    if (!this._previewDirty) {
+                        this._raf = requestAnimationFrame(tick);
+                        return;
+                    }
+                }
                 // A moving model would slide out from under the marquee, so
                 // rules freeze while a selection is being drawn.
                 // Once per animation frame, not per display refresh: spin
@@ -1791,32 +1863,8 @@ class Database3DEditor {
                 Reactor3D.aimCamera(this._camera, this._orbitCenter(this._view.pan), this._view);
                 this._updateRigHover();
                 this._updateRigOverlay();
-                {
-                    const now = performance.now();
-                    const goalKey = `${this._viewGoal.yaw}|${this._viewGoal.pitch}|${this._viewGoal.distance}|${this._viewGoal.pan.x}|${this._viewGoal.pan.y}|${this._viewGoal.pan.z}`;
-                    if (goalKey !== this._lastGoalKey) {
-                        this._lastGoalKey = goalKey;
-                        this._lastInputAt = now;
-                    }
-                    const easing = Math.abs(this._viewGoal.yaw - this._view.yaw) > 0.01
-                        || Math.abs(this._viewGoal.pitch - this._view.pitch) > 0.01
-                        || Math.abs(this._viewGoal.distance - this._view.distance) > 0.001;
-                    const animating = rules.some(rule => rule && rule.trigger !== 'action')
-                        || !!this._sim.action || !!this._sim.walking || !!this._sim.jumping || !!this._sim.swimming || !!this._sim.climbing || !!this._workRule || !!this._previewRule
-                        // A movie on a surface, or an effect overlay, is
-                        // motion too: throttled to the idle rate it played
-                        // as a slideshow and read as "not playing".
-                        || !!this._fxVideo || !!this._fxLight || !!(this._fxPreview && this._fxPreview.active) || !!this._additionalEffectPreviews?.size;
-                    const active = animating || easing || this._dragging || this._loadingPreview
-                        || this._selectMode || this._rigMode || this._editingRule >= 0 || this.selectedPartName !== null
-                        || (Number.isFinite(this._lastInputAt) && now - this._lastInputAt < 1000)
-                        || (Number.isFinite(this._pointerMovedAt) && now - this._pointerMovedAt < 300);
-                    if (!Database3DEditor.shouldRenderPreview({ now, active, lastRenderAt: this._lastRenderAt })) {
-                        this._raf = requestAnimationFrame(tick);
-                        return;
-                    }
-                    this._lastRenderAt = now;
-                }
+                this._previewDirty = false;
+                this._lastRenderAt = now;
                 Reactor3D.renderScene(this._renderer, this._scene, this._camera);
                 this._raf = requestAnimationFrame(tick);
             };
@@ -1906,6 +1954,11 @@ class Database3DEditor {
         this._object = object;
         this._previewLighting = ModelPreview3D.isolateLighting(object);
         this._lastInputAt = performance.now();
+        // A GLB's images decode after the first draw; their version numbers
+        // tell a still preview when one has landed.
+        this._previewTextures = ModelPreview3D.collectTextures(template, object);
+        this._previewTextureVersion = -1;
+        this._previewDirty = true;
         let triangles = 0;
         this._skinned = false;
         object.traverse(child => {
@@ -1995,6 +2048,13 @@ class Database3DEditor {
         this._disposeRigVisuals();
         if (this._raf) cancelAnimationFrame(this._raf);
         this._raf = null;
+        this._unwatchPreviewSize?.();
+        this._unwatchPreviewSize = null;
+        if (this._previewInputListener && typeof document !== 'undefined') {
+            for (const type of Database3DEditor.PREVIEW_INPUT_EVENTS) document.removeEventListener(type, this._previewInputListener, true);
+        }
+        this._previewInputListener = null;
+        this._previewTextures = [];
         if (this._renderer) {
             this._renderer.dispose();
             const gl = this._renderer.getContext && this._renderer.getContext();
@@ -2435,6 +2495,7 @@ class Database3DEditor {
     /** Boxes for the hovered and the chosen part, plus the pivot axes. */
     _refreshPartVisuals() {
         if (!this._scene || typeof THREE === 'undefined') return;
+        this._previewDirty = true;
         for (const key of ['_partBox', '_hoverBox', '_pivotMarker']) {
             if (this[key]) {
                 this._scene.remove(this[key]);

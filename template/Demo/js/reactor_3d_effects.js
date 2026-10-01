@@ -903,21 +903,32 @@ Reactor3D.GpuEffects = {
         try { entry.context._makeContextCurrent(); effekseer.releaseContext(entry.context); }
         finally { this.restoreDefault(); entry.renderer.resetState(); }
     },
+    /**
+     * A play's target, at least `width` x `height`. The effect's box on
+     * screen changes size nearly every frame, and resizing a three target
+     * frees its texture, framebuffer and multisample buffer for the next
+     * render to allocate again: GPU allocations every frame, per effect. The
+     * target grows in steps of 64 and only shrinks when it is more than twice
+     * too large; the drawn corner is `_rrUsed`, which the quad samples.
+     */
     target(entry, holder, width, height, colour = false) {
         const key = colour ? '_gpuColourTarget' : '_gpuEffectTarget';
+        const step = v => Math.max(64, Math.ceil(v / 64) * 64);
+        const W = step(width), H = step(height);
         let target = holder[key];
         if (!target) {
-            target = holder[key] = new THREE.WebGLRenderTarget(width, height, {
+            target = holder[key] = new THREE.WebGLRenderTarget(W, H, {
                 minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: !colour,
                 stencilBuffer: false, generateMipmaps: false, samples: colour ? 0 : entry.samples
             });
             if (colour) target.texture.colorSpace = THREE.SRGBColorSpace;
             entry.targets.add(target);
             target.addEventListener('dispose', () => entry.targets.delete(target));
-        } else if (target.width !== width || target.height !== height) {
-            target.setSize(width, height);
+        } else if (target.width < width || target.height < height || target.width > W * 2 || target.height > H * 2) {
+            target.setSize(W, H);
             entry.targets.add(target);
         }
+        target._rrUsed = [width, height];
         return target;
     },
     draw(entry, holder, width, height, box, projection, view, handle, premultiplied = false) {
@@ -949,6 +960,7 @@ Reactor3D.GpuEffects = {
     convert(entry, holder, source, premultiplied) {
         const renderer = entry.renderer;
         const target = this.target(entry, holder, source.width, source.height, true);
+        target._rrUsed = source._rrUsed || [source.width, source.height];
         if (!entry.colourMaterial) {
             entry.colourMaterial = new THREE.ShaderMaterial({
                 uniforms: { map: { value: null }, premultiplied: { value: 0 } },
@@ -973,6 +985,8 @@ Reactor3D.GpuEffects = {
         return target;
     },
     bindQuad(quad, target) {
+        const used = target._rrUsed, scale = quad.material.uniforms.uvScale;
+        if (scale) scale.value.set(used ? used[0] / target.width : 1, used ? used[1] / target.height : 1);
         if (quad.texture === target.texture) return;
         quad.texture.dispose(); quad.texture = target.texture;
         quad.material.uniforms.map.value = target.texture;
@@ -981,7 +995,8 @@ Reactor3D.GpuEffects = {
     /** Never wait on the GPU on the main thread, including timeout and context-loss paths. */
     read(entry, target, callback) {
         if (entry.disposed || entry.gl.isContextLost() || this._reads.size >= 4) return false;
-        const gl = entry.gl, width = target.width, height = target.height;
+        // Only the drawn corner of a target that grows in steps (see `target`).
+        const gl = entry.gl, width = target._rrUsed ? target._rrUsed[0] : target.width, height = target._rrUsed ? target._rrUsed[1] : target.height;
         const previous = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING), pack = gl.getParameter(gl.PIXEL_PACK_BUFFER_BINDING);
         const buffer = gl.createBuffer(); let fence, timer, finished = false;
         const read = { entry, cancel: () => finish(null) };
@@ -1223,6 +1238,7 @@ Reactor3D.EffekseerScene = {
             uniforms.depth.value = uniforms.flip.value = 0;
             uniforms.rectMin.value.set(0, 0);
             uniforms.rectSize.value.set(1, 1);
+            uniforms.uvScale.value.set(1, 1);
             reused.mesh.visible = false;
             return reused;
         }
@@ -1232,7 +1248,9 @@ Reactor3D.EffekseerScene = {
             // `rectMin`/`rectSize`: the part of the screen the texture covers,
             // in screen fractions (the whole screen by default).
             uniforms: { map: { value: texture }, resolution: { value: new THREE.Vector2(1, 1) }, depth: { value: 0 }, flip: { value: 0 },
-                rectMin: { value: new THREE.Vector2(0, 0) }, rectSize: { value: new THREE.Vector2(1, 1) } },
+                rectMin: { value: new THREE.Vector2(0, 0) }, rectSize: { value: new THREE.Vector2(1, 1) },
+                // The drawn part of a target larger than its picture (GpuEffects.target).
+                uvScale: { value: new THREE.Vector2(1, 1) } },
             // A big vertical plane standing on the anchor, turned to face the
             // camera: its depth follows real height, so the part of a tall
             // effect near the floor is judged against what stands at the
@@ -1247,11 +1265,12 @@ Reactor3D.EffekseerScene = {
                 "uniform float flip;",
                 "uniform vec2 rectMin;",
                 "uniform vec2 rectSize;",
+                "uniform vec2 uvScale;",
                 "void main() {",
                 "    vec2 uv = (gl_FragCoord.xy / resolution - rectMin) / rectSize;",
                 "    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) discard;",
                 "    if (flip > 0.5) uv.y = 1.0 - uv.y;",
-                "    vec4 c = texture2D(map, uv);",
+                "    vec4 c = texture2D(map, uv * uvScale);",
                 "    if (c.a <= 0.002) discard;",
                 "    gl_FragColor = c;",
                 "}"
@@ -1705,6 +1724,8 @@ Reactor3D.EffekseerScene = {
                     }
                 } else {
                     efx._makeContextCurrent?.();
+                    // Drawn on the overlay's own buffer: the frame's overlay pass clears it.
+                    Graphics._effekseerOverlayDirty = true;
                     gl.viewport(0, 0, Math.round(screenW * s), Math.round(screenH * s));
                     gl.enable(gl.SCISSOR_TEST);
                     gl.scissor(drawX, drawY, drawW, drawH);

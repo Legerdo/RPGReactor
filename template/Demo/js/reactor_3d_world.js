@@ -439,7 +439,7 @@ Reactor3D.hullReach = function(point, hull) {
     }
     return inside ? 0 : nearest;
 };
-// Levels a piece may stand at: 24 storeys of five tiles, so a tower plan is never cut short by the store.
+// Levels a piece may stand at: 48 storeys of five tiles, so a tower plan is never cut short by the store.
 Reactor3D.PIECE_MAX_LEVEL = 240;
 Reactor3D.PIECE_FLOOR_THICKNESS = 0.1;
 /**
@@ -1412,8 +1412,8 @@ Reactor3D.pieceGeometry = function(pieces, mapData) {
 // is one field of rounded boxes, melted together where they meet and made
 // craggy by a noise fixed to the world, and meshed a chunk at a time: rocks
 // laid side by side and stacked are one cliff, and the chunk edges never
-// show. `rough` (0-1) is how craggy. A rock stands, blocks and is walked on
-// as the box of its size; its top stays nearly flat so feet meet it.
+// show. `rough` (0-1) is how craggy. A rock is stood on and blocks where it
+// is drawn (rockColumns); selection and plans use the box of its size.
 
 /** The mesh grid, in tiles. */
 Reactor3D.ROCK_STEP = 0.5;

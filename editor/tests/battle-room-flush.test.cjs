@@ -1,12 +1,13 @@
 'use strict';
 const assert = require('node:assert/strict');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const read = p => fs.readFileSync(path.resolve(__dirname, '..', '..', p), 'utf8');
 
 test('the battle room is drawn once for the frame shown, not once per update, and without MSAA', () => {
-    const core = read('runtime/reactor_core.js'), presentation = read('runtime/reactor_battle_presentation.js'), room = read('runtime/reactor_battle_room.js');
+    const core = runtimeSource('reactor_core.js'), presentation = read('runtime/reactor_battle_presentation.js'), room = read('runtime/reactor_battle_room.js');
     // The game loop runs its before-render hooks once, just before the frame is drawn.
     assert.match(core, /Graphics\._reactorBeforeRender = Graphics\._reactorBeforeRender \|\| new Set\(\);/);
     assert.match(core, /for \(const hook of this\._reactorBeforeRender\) \{\n\s+try \{ hook\(\); \} catch \(e\) \{[^\n]+\}\n\s+\}\n\s+this\._app\.render\(\);/);

@@ -2653,20 +2653,27 @@ Sprite_Animation.renderActive = function(renderer) {
     // last-frame pixels of a finished animation stay on the overlay and block
     // view of the game canvas underneath -- hiding MOG_BattleCursor and
     // anything else PIXI draws into the game canvas in those areas.
+    //
+    // ...but only when something drew there since the last clear. Clearing a
+    // WebGL canvas is a new picture of it: the compositor then blends a
+    // full-screen transparent layer over the game every frame, for nothing,
+    // which on an integrated GPU is a frame's worth of bandwidth. While the
+    // overlay holds nothing it is also hidden, so the compositor skips it.
     const efxGL = Graphics._effekseerGL;
-    if (efxGL && Graphics._effekseerCanvas) {
-        efxGL.viewport(0, 0,
-            Graphics._effekseerCanvas.width,
-            Graphics._effekseerCanvas.height);
-        efxGL.clearColor(0, 0, 0, 0);
-        efxGL.clear(efxGL.COLOR_BUFFER_BIT | efxGL.DEPTH_BUFFER_BIT);
-    }
+    const overlay = Graphics._effekseerCanvas;
     const list = Sprite_Animation._pendingRenders;
     // Ownership can change after a v8 onRender callback queued this sprite.
     // Drop scene-owned effects before deciding whether to copy the full scene.
     let kept = 0;
     for (const inst of list) if (!inst._reactorInScene) list[kept++] = inst;
     list.length = kept;
+    if (efxGL && overlay && (Graphics._effekseerOverlayDirty !== false || list.length)) {
+        efxGL.viewport(0, 0, overlay.width, overlay.height);
+        efxGL.clearColor(0, 0, 0, 0);
+        efxGL.clear(efxGL.COLOR_BUFFER_BIT | efxGL.DEPTH_BUFFER_BIT);
+        Graphics._effekseerOverlayDirty = list.length > 0;
+    }
+    if (Graphics.showEffekseerOverlay) Graphics.showEffekseerOverlay(list.length > 0);
     if (list.length === 0) return;
     // While effects play, the overlay carries a copy of the whole rendered
     // scene and the effects draw ON that copy — the same shared-framebuffer
@@ -5616,7 +5623,15 @@ Spriteset_Map.prototype.updateReactor3D = function() {
     this.updateReactor3DCamera();
     if (state.scene.updateSky) state.scene.updateSky(state.viewport.camera ? state.viewport.camera() : null, Graphics.frameCount);
     if (state.scene.updateWater) state.scene.updateWater(Graphics.frameCount);
-    if (state.scene.updateRipples) state.scene.updateRipples(Graphics.frameCount, [$gamePlayer].concat($gamePlayer.followers().visibleFollowers(), $gameMap.events()));
+    if (state.scene.updateRipples) {
+        // One list kept and refilled: the ripples only walk it, this frame.
+        const walkers = this._reactor3dRippleWalkers || (this._reactor3dRippleWalkers = []);
+        walkers.length = 0;
+        walkers.push($gamePlayer);
+        for (const follower of $gamePlayer.followers().visibleFollowers()) walkers.push(follower);
+        for (const event of $gameMap.events()) walkers.push(event);
+        state.scene.updateRipples(Graphics.frameCount, walkers);
+    }
     // Inside a built house the roof and any wall in the way are cut around the player.
     if (state.scene.updateCutaway) state.scene.updateCutaway(state.viewport.camera ? state.viewport.camera() : null, $dataMap, $gamePlayer, this.reactor3DCompany());
     this.updateReactor3DLights(state);
@@ -5628,7 +5643,10 @@ Spriteset_Map.prototype.updateReactor3D = function() {
         // The player and visible followers ride the same instance pool as
         // events: an actor bound to a model in the database sidecar walks
         // the map as that model.
-        const characters = $gameMap.events().filter(Boolean);
+        // Refilled in place each frame; the sync only walks it.
+        const characters = this._reactor3dModelWalkers || (this._reactor3dModelWalkers = []);
+        characters.length = 0;
+        for (const event of $gameMap.events()) if (event) characters.push(event);
         if (typeof $gamePlayer !== "undefined" && $gamePlayer) {
             characters.push($gamePlayer);
             const followers = $gamePlayer.followers && $gamePlayer.followers();
@@ -5675,8 +5693,12 @@ Spriteset_Map.prototype.updateReactor3D = function() {
         modelsInWorld ? "world" : (split ? "below" : "all"), "below");
     this.updateReactor3DTexture(this._reactor3dBelow, canvas);
     if (this._reactor3dAbove) {
-        state.viewport.renderPass(state.scene, modelsInWorld ? "overlay" : "above", "above");
+        const aboveEmpty = state.viewport.renderPass(state.scene, modelsInWorld ? "overlay" : "above", "above");
         this.updateReactor3DTexture(this._reactor3dAbove, canvas);
+        // A pass that drew nothing is a full-screen transparent picture:
+        // not composited, rather than blended over the frame for nothing.
+        const sprite = this._reactor3dAbove.sprite;
+        if (sprite && Reactor3D.EmptyPass.hideEmpty) sprite.renderable = !aboveEmpty;
     }
     if (this._reactor3dLights) {
         state.viewport.renderPass(state.scene, "lights", "lights");

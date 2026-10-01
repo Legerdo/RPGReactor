@@ -4177,10 +4177,12 @@ class DatabaseAnimationEditor {
                     }
                     effekseerContext.drawHandle(handle);
 
-                    // Check for GL errors
-                    const err = gl.getError();
-                    if (err !== gl.NO_ERROR && renderFrameCount === 1) {
-                        console.error('[Effekseer Render] GL Error:', err);
+                    // Check for GL errors on the first frame only: it is the
+                    // only one reported, and getError waits for the GPU to
+                    // catch up, a stall on every frame of playback otherwise.
+                    if (renderFrameCount === 1) {
+                        const err = gl.getError();
+                        if (err !== gl.NO_ERROR) console.error('[Effekseer Render] GL Error:', err);
                     }
                 } else if (renderFrameCount > 1 && currentFrame > maxTimingFrames
                         && !editorSelf._previewFlashActive()) {

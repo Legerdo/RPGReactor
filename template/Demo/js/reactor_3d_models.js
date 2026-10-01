@@ -449,6 +449,11 @@ Reactor3D.warmLoadedTemplates = function() {
     const viewport = this._viewport;
     const renderer = viewport && viewport._renderer;
     if (!renderer || typeof THREE === "undefined") return;
+    // Where shaders compile in parallel, each placed model warms itself where
+    // it will be drawn (ShaderWarmup): the right program variants, pictures
+    // under a per-frame budget. This throwaway-scene pass compiled other
+    // variants and uploaded every picture of a model in one frame.
+    if (this.ShaderWarmup && this.ShaderWarmup.enabled && this.ShaderWarmup.supported(renderer)) return;
     if (!this._warmedTemplates) this._warmedTemplates = new Set();
     // Runs every frame; on the steady state it must allocate nothing.
     const pending = [];
@@ -483,26 +488,41 @@ Reactor3D.warmLoadedTemplates = function() {
 Reactor3D.hasCharacterModel = function(character) {
     const spec = this.characterModelSpec(character);
     if (!spec) return false;
-    const entry = this._glbCache[this.modelCacheKey(spec.name, spec.ext, spec.file)];
+    const entry = this._glbCache[this.specCacheKey(spec)];
     return !!(entry && entry.template);
+};
+
+/**
+ * `modelCacheKey` for a spec, remembered beside it: asked per character
+ * sprite per frame, and building the string afresh made every lookup hash
+ * a new one. Checked against the three fields it is made of.
+ */
+Reactor3D.specCacheKey = function(spec) {
+    const memo = this._specKeys || (this._specKeys = new WeakMap());
+    const known = memo.get(spec);
+    if (known && known.name === spec.name && known.ext === spec.ext && known.file === spec.file) return known.key;
+    const key = this.modelCacheKey(spec.name, spec.ext, spec.file);
+    memo.set(spec, { name: spec.name, ext: spec.ext, file: spec.file, key });
+    return key;
 };
 
 Reactor3D.characterModelYaw = function(character, extra) {
     return this.dir8Yaw(this.characterModelDir8(character)) + (extra || 0);
 };
 
+// Asked for every placed model every frame; one table, not one per call.
+const DIR8_YAWS = {
+    2: 0,
+    3: Math.PI / 4,
+    6: Math.PI / 2,
+    9: 3 * Math.PI / 4,
+    8: Math.PI,
+    7: -3 * Math.PI / 4,
+    4: -Math.PI / 2,
+    1: -Math.PI / 4
+};
 Reactor3D.dir8Yaw = function(direction) {
-    const yaws = {
-        2: 0,
-        3: Math.PI / 4,
-        6: Math.PI / 2,
-        9: 3 * Math.PI / 4,
-        8: Math.PI,
-        7: -3 * Math.PI / 4,
-        4: -Math.PI / 2,
-        1: -Math.PI / 4
-    };
-    return yaws[direction] != null ? yaws[direction] : 0;
+    return DIR8_YAWS[direction] != null ? DIR8_YAWS[direction] : 0;
 };
 
 Reactor3D.characterModelDir8 = function(character) {
@@ -1149,6 +1169,7 @@ Reactor3D.eventModelOccupies = function(character, x, y) {
     return false;
 };
 
+const NO_FACES = Object.freeze({});
 Reactor3D.applyEventModelPose = function(object, spec, direction, options) {
     if (!object || !spec) return;
     const preview = options && typeof options === "object" && options.preview;
@@ -1160,8 +1181,11 @@ Reactor3D.applyEventModelPose = function(object, spec, direction, options) {
     object.rotation.set(pitch, yaw, roll);
     if (object.updateMatrix) object.updateMatrix();
     const dir = direction || 2;
-    const character = { direction: function() { return dir; }, _reactorDir8: dir };
-    const faces = spec.faces || {};
+    // A stand-in character facing `dir`, for characterModelYaw below; one
+    // kept and re-pointed rather than an object and a closure per call.
+    const character = this._poseFacing || (this._poseFacing = { _reactorDir8: 2, direction() { return this._reactorDir8; } });
+    character._reactorDir8 = dir;
+    const faces = spec.faces || NO_FACES;
     const used = preview
         ? (faces[this.eventModelFaceName(dir)] || faces.front || null)
         : (faces.front || this.eventModelInterpolatedMark(faces, dir));
@@ -1170,7 +1194,7 @@ Reactor3D.applyEventModelPose = function(object, spec, direction, options) {
         target -= this.eventModelFaceTurn(dir);
     }
     if (used && typeof THREE !== "undefined") {
-        const local = new THREE.Vector3(used[0], used[1], used[2]);
+        const local = (this._poseMarkScratch || (this._poseMarkScratch = new THREE.Vector3())).set(used[0], used[1], used[2]);
         local.applyQuaternion(object.quaternion);
         local.y = 0;
         if (local.lengthSq() > 1e-8) {
@@ -3165,6 +3189,10 @@ Reactor3D.presetSkinnedBounds = function(object) {
         const geometry = child.geometry;
         if (!geometry.boundingSphere) geometry.computeBoundingSphere();
         if (geometry.boundingSphere) child.boundingSphere = geometry.boundingSphere.clone();
+        // The box likewise: Box3.setFromObject (the beam's hit test) otherwise
+        // runs every vertex through its bones the first time it meets one.
+        if (!geometry.boundingBox) geometry.computeBoundingBox();
+        if (geometry.boundingBox && !child.boundingBox) child.boundingBox = geometry.boundingBox.clone();
         // Culling stays OFF, and the sphere above is for depth sorting only.
         //
         // It was switched on for a while, against that sphere grown by a
@@ -4193,6 +4221,7 @@ Reactor3D.startRagdoll = function(holder, character) {
     object.updateMatrixWorld(true);
     // The body leaves the model's standing bounds as it falls.
     object.traverse(node => { if (node.isMesh) node.frustumCulled = false; });
+    object.userData.rrNoCull = true;
     const nodes = {};
     for (const entry of holder.binding.meshes) for (const part of entry.parts) if (!nodes[part.name]) nodes[part.name] = entry.mesh;
     const bones = Reactor3D.RAGDOLL_BONES.filter(([name]) => nodes[name]);
@@ -4534,6 +4563,90 @@ Reactor3D.sampleModelKeys = function(rule, p) {
     return { rotate: curve("rotate"), move: curve("move"), resize: curve("resize") };
 };
 
+/*
+ * `sampleModelKeys` for the frame loop: the same timeline and the same
+ * arithmetic, in the same order, written into the caller's arrays. The
+ * public one built a stops array, six closures and a dozen small arrays per
+ * keyed rule per model per frame; this one reads the stops in place (the
+ * rest stop, the rule's own keys, the closing rest stop) and allocates
+ * nothing. The public one stays as it was for the editor's callers, and a
+ * test holds the two to the same numbers.
+ */
+const KEY_REST = [0, 0, 0], KEY_ONE = [1, 1, 1];
+const KEY_REST_STOP = { at: 0, rotate: KEY_REST, move: KEY_REST, resize: KEY_ONE };
+const KEY_END_STOP = { at: 1, rotate: KEY_REST, move: KEY_REST, resize: KEY_ONE };
+const keyTimeline = { keys: null, lead: 0, count: 0, n: 0, loops: false };
+function keyStop(line, j) {
+    if (line.lead && j === 0) return KEY_REST_STOP;
+    const index = j - line.lead;
+    return index < line.count ? line.keys[index] : KEY_END_STOP;
+}
+function keyField(stop, name, i) {
+    return (stop[name] || (name === "resize" ? KEY_ONE : KEY_REST))[i];
+}
+function keyMeets(line, name, i) {
+    const gap = keyField(keyStop(line, line.n - 1), name, i) - keyField(keyStop(line, 0), name, i);
+    return name === "rotate" ? Math.abs(gap - 360 * Math.round(gap / 360)) < 1e-6 : gap === 0;
+}
+function keySlope(line, name, i, j) {
+    const n = line.n;
+    if (j < 0 || j >= n - 1) {
+        if (!line.loops || n < 3 || !keyMeets(line, name, i)) return null;
+        j = j < 0 ? n - 2 : 0;
+    }
+    const h = keyStop(line, j + 1).at - keyStop(line, j).at;
+    return h > 0 ? (keyField(keyStop(line, j + 1), name, i) - keyField(keyStop(line, j), name, i)) / h : 0;
+}
+function keyWidth(line, j) {
+    const n = line.n;
+    if (j < 0) j = n - 2; else if (j >= n - 1) j = 0;
+    return keyStop(line, j + 1).at - keyStop(line, j).at;
+}
+function keyTangent(line, name, i, j) {
+    const d0 = keySlope(line, name, i, j - 1), d1 = keySlope(line, name, i, j);
+    if (d0 === null || d1 === null || d0 * d1 <= 0) return 0;
+    const h0 = keyWidth(line, j - 1), h1 = keyWidth(line, j);
+    return 3 * (h0 + h1) / ((2 * h1 + h0) / d0 + (h1 + 2 * h0) / d1);
+}
+Reactor3D._sampleModelKeysInto = function(rule, p, out) {
+    const line = keyTimeline;
+    const keys = rule.keys;
+    line.keys = keys;
+    line.count = keys.length;
+    // A key at 0 replaces the rest stop rather than sitting on top of it.
+    line.lead = keys.length > 0 && keys[0].at <= 0 ? 0 : 1;
+    const last = keyStop(line, line.lead + line.count - 1);
+    const n = line.lead + line.count + (last.at < 1 ? 1 : 0);
+    line.n = n;
+    let k = 0;
+    while (k + 2 < n && p > keyStop(line, k + 1).at) k++;
+    const a = keyStop(line, k), b = keyStop(line, Math.min(n - 1, k + 1));
+    const span = b.at - a.at;
+    if (!(span > 0)) {
+        const move = b.move || KEY_REST, resize = b.resize || KEY_ONE;
+        for (let i = 0; i < 3; i++) {
+            out.rotate[i] = b.rotate[i];
+            out.move[i] = move[i];
+            out.resize[i] = resize[i];
+        }
+        line.keys = null;
+        return;
+    }
+    const t = Math.min(1, Math.max(0, (p - a.at) / span));
+    line.loops = !!rule.trigger && rule.trigger !== "action";
+    const t2 = t * t, t3 = t2 * t;
+    const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+    for (let c = 0; c < 3; c++) {
+        const name = c === 0 ? "rotate" : c === 1 ? "move" : "resize";
+        const target = out[name];
+        for (let i = 0; i < 3; i++) {
+            const v0 = keyField(a, name, i), v1 = keyField(b, name, i);
+            target[i] = h00 * v0 + h10 * span * keyTangent(line, name, i, k) + h01 * v1 + h11 * span * keyTangent(line, name, i, k + 1);
+        }
+    }
+    line.keys = null;
+};
+
 /** Drive one instance's rules for this frame. */
 /**
  * Logic frames a movement clip keeps playing after movement stops being
@@ -4543,6 +4656,154 @@ Reactor3D.sampleModelKeys = function(rule, p) {
  * stopping. Frames, not milliseconds, so it is the same on any display.
  */
 Reactor3D.MOVE_CLIP_GRACE = 8;
+
+/*
+ * The animation pool's hand-outs, as plain functions over counters kept on
+ * the pool itself. As closures they were made afresh on every call: seven
+ * allocations per animated model per frame, for the same four lines.
+ */
+function animNextVec(pool) {
+    const v = pool.vec[pool.vecAt] || (pool.vec[pool.vecAt] = new THREE.Vector3());
+    pool.vecAt++;
+    return v;
+}
+function animNextQuat(pool) {
+    const q = pool.quat[pool.quatAt] || (pool.quat[pool.quatAt] = new THREE.Quaternion());
+    pool.quatAt++;
+    return q;
+}
+function animNextMat(pool) {
+    const m = pool.mat[pool.matAt] || (pool.mat[pool.matAt] = new THREE.Matrix4());
+    pool.matAt++;
+    return m;
+}
+function animPivotTurn(pool, pivot, quat) {
+    const p = animNextVec(pool).fromArray(pivot);
+    const m = animNextMat(pool).makeRotationFromQuaternion(quat);
+    const turned = animNextVec(pool).copy(p).applyQuaternion(quat);
+    m.setPosition(p.sub(turned));
+    return m;
+}
+function animPivotGrow(pool, pivot, size) {
+    const p = animNextVec(pool).fromArray(pivot);
+    const m = animNextMat(pool).makeScale(size.x, size.y, size.z);
+    const grown = animNextVec(pool).copy(p).multiply(size);
+    m.setPosition(p.sub(grown));
+    return m;
+}
+
+/*
+ * A node's quaternion, written only when it changes. three re-derives a
+ * node's Euler angles from its quaternion on every write — a rotation
+ * matrix and three inverse trig calls — and the pass wrote every part of
+ * every animated model every frame, most of them the value already there.
+ * Skipped only when both the quaternion and the Euler angles are exactly
+ * what this pass left behind the last time it wrote: the angles are then
+ * already the ones the write would derive, so nothing observable differs.
+ * `Reactor3D.AnimationWrites.enabled = false` writes every time.
+ */
+Reactor3D.AnimationWrites = { enabled: true };
+function animSetQuaternion(entry, q) {
+    const node = entry.mesh.quaternion;
+    const memo = entry.quatMemo;
+    if (memo && Reactor3D.AnimationWrites.enabled
+        && q._x === node._x && q._y === node._y && q._z === node._z && q._w === node._w) {
+        const euler = entry.mesh.rotation;
+        if (memo[0] === node._x && memo[1] === node._y && memo[2] === node._z && memo[3] === node._w
+            && memo[4] === euler._x && memo[5] === euler._y && memo[6] === euler._z && memo[7] === euler._order) return;
+    }
+    node.copy(q);
+    const euler = entry.mesh.rotation;
+    const note = memo || (entry.quatMemo = [0, 0, 0, 0, 0, 0, 0, ""]);
+    note[0] = node._x; note[1] = node._y; note[2] = node._z; note[3] = node._w;
+    note[4] = euler._x; note[5] = euler._y; note[6] = euler._z; note[7] = euler._order;
+}
+
+/**
+ * Which rules reach which of a binding's meshes, worked out once instead of
+ * every frame. A rule names a part; a mesh answers to it through the first
+ * name in its ancestry chain that starts with it (the part's own name first,
+ * its parents after). That was asked afresh each frame for every mesh, every
+ * active rule and every name in the chain — on a rigged character or a
+ * vehicle cut into dozens of parts it was most of the animation pass — yet
+ * it only changes when a rule's part or a part's name does.
+ *
+ * Per mesh, the table lists the rules that reach it already in the order
+ * their contributions compose (deepest match first, then rule order), so a
+ * frame only has to skip the rules that are not playing. It is checked
+ * against everything it was built from on every use — the rules array and
+ * each rule in it, the part each names, the mesh list, each mesh's part
+ * chain and every name in it — so carving, rigging, a rename or a new rule
+ * list rebuilds it before it can answer. `enabled = false` matches every
+ * frame as before.
+ */
+Reactor3D.AnimationMatches = {
+    enabled: true,
+    table(binding, rules) {
+        const table = binding._matchTable;
+        if (table && this.current(table, binding, rules)) return table;
+        return (binding._matchTable = this.build(binding, rules));
+    },
+    current(table, binding, rules) {
+        const meshes = binding.meshes;
+        if (table.rules !== rules || table.ruleCount !== rules.length
+            || table.meshes !== meshes || table.meshCount !== meshes.length) return false;
+        for (let i = 0; i < rules.length; i++) {
+            if (table.ruleList[i] !== rules[i] || table.ruleParts[i] !== rules[i].part) return false;
+        }
+        let at = 0;
+        for (let e = 0; e < meshes.length; e++) {
+            const entry = meshes[e];
+            const parts = entry.parts;
+            if (table.entries[e] !== entry || table.chains[e] !== parts || table.chainCounts[e] !== parts.length) return false;
+            for (let d = 0; d < parts.length; d++, at++) {
+                if (table.parts[at] !== parts[d] || table.names[at] !== parts[d].name) return false;
+            }
+        }
+        return true;
+    },
+    build(binding, rules) {
+        const meshes = binding.meshes;
+        const table = {
+            rules, ruleCount: rules.length, ruleList: rules.slice(), ruleParts: rules.map(rule => rule.part),
+            meshes, meshCount: meshes.length, entries: meshes.slice(),
+            chains: [], chainCounts: [], parts: [], names: [], reach: []
+        };
+        for (const rule of rules) {
+            if (rule.part && rule._partLowerOf !== rule.part) {
+                rule._partLower = String(rule.part).toLowerCase();
+                rule._partLowerOf = rule.part;
+            }
+        }
+        for (const entry of meshes) {
+            table.chains.push(entry.parts);
+            table.chainCounts.push(entry.parts.length);
+            for (const part of entry.parts) {
+                table.parts.push(part);
+                table.names.push(part.name);
+            }
+            const reach = [];
+            for (let i = 0; i < rules.length; i++) {
+                const rule = rules[i];
+                if (!rule.part) continue;
+                for (let d = 0; d < entry.parts.length; d++) {
+                    const part = entry.parts[d];
+                    if (part.nameLower === undefined || part.nameLowerOf !== part.name) {
+                        part.nameLower = String(part.name).toLowerCase();
+                        part.nameLowerOf = part.name;
+                    }
+                    if (part.nameLower.indexOf(rule._partLower) === 0) {
+                        reach.push({ rule: i, depth: d });
+                        break;
+                    }
+                }
+            }
+            reach.sort((a, b) => b.depth - a.depth || a.rule - b.rule);
+            table.reach.push(reach);
+        }
+        return table;
+    }
+};
 
 Reactor3D.applyModelAnimation = function(binding, rules, state) {
     if (typeof THREE === "undefined" || !binding || !rules || !rules.length) return;
@@ -4555,32 +4816,26 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
     // walking character allocates nothing. Nothing handed out here outlives
     // the call: results are copied into the root and the per-entry matrix.
     const pool = this._animPool || (this._animPool = {
-        vec: [], quat: [], mat: [], match: [], action: [], actions: [],
+        vec: [], quat: [], mat: [], match: [], action: [], actions: [], byRule: [],
+        vecAt: 0, quatAt: 0, matAt: 0,
+        sampled: { rotate: [0, 0, 0], move: [0, 0, 0], resize: [1, 1, 1] },
         euler: new THREE.Euler(), scratch: new THREE.Matrix4(),
         outPos: new THREE.Vector3(), outQuat: new THREE.Quaternion(), outScale: new THREE.Vector3()
     });
-    let vecAt = 0, quatAt = 0, matAt = 0, matchAt = 0, actionAt = 0;
-    const takeVec = () => pool.vec[vecAt] || (pool.vec[vecAt] = new THREE.Vector3()), nextVec = () => { const v = takeVec(); vecAt++; return v; };
-    const nextQuat = () => { const q = pool.quat[quatAt] || (pool.quat[quatAt] = new THREE.Quaternion()); quatAt++; return q; };
-    const nextMat = () => { const m = pool.mat[matAt] || (pool.mat[matAt] = new THREE.Matrix4()); matAt++; return m; };
+    pool.vecAt = 0;
+    pool.quatAt = 0;
+    pool.matAt = 0;
+    let matchAt = 0, actionAt = 0;
     const euler = pool.euler;
-    const axisOf = rule => nextVec().fromArray(this.AXIS_VECTORS[rule.axis]);
-    const pivotTurn = (pivot, quat) => {
-        const p = nextVec().fromArray(pivot);
-        const m = nextMat().makeRotationFromQuaternion(quat);
-        const turned = nextVec().copy(p).applyQuaternion(quat);
-        m.setPosition(p.sub(turned));
-        return m;
-    };
-    const pivotGrow = (pivot, size) => {
-        const p = nextVec().fromArray(pivot);
-        const m = nextMat().makeScale(size.x, size.y, size.z);
-        const grown = nextVec().copy(p).multiply(size);
-        m.setPosition(p.sub(grown));
-        return m;
-    };
+    // Counted rather than truncated: setting an array's length every call
+    // was a measurable share of this pass.
     const partActions = pool.actions;
-    partActions.length = 0;
+    let actionCount = 0;
+    // The action each rule contributes this frame, by rule index, for the
+    // match table; filled in as the actions are made.
+    const matches = this.AnimationMatches.enabled ? this.AnimationMatches.table(binding, rules) : null;
+    const byRule = pool.byRule;
+    if (matches) for (let i = 0; i < rules.length; i++) byRule[i] = null;
     for (let i = 0; i < rules.length; i++) {
         const rule = rules[i];
         if (rule.type === "clip") continue;
@@ -4635,7 +4890,8 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
                 }
             }
             if (progress === null) continue;
-            const sampled = this.sampleModelKeys(rule, progress);
+            const sampled = pool.sampled;
+            this._sampleModelKeysInto(rule, progress, sampled);
             if (weight < 1) {
                 for (let k = 0; k < 3; k++) {
                     sampled.rotate[k] *= weight;
@@ -4645,14 +4901,14 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
             }
             if (rule.fromRest) restWeight = rule.instant ? 1 : Math.max(0, Math.min(1, progress));
             const toRad = Math.PI / 180;
-            quat = nextQuat().setFromEuler(euler.set(
+            quat = animNextQuat(pool).setFromEuler(euler.set(
                 sampled.rotate[0] * toRad, sampled.rotate[1] * toRad, sampled.rotate[2] * toRad, "XYZ"));
             if (sampled.move[0] || sampled.move[1] || sampled.move[2]) {
-                slide = nextVec().set(sampled.move[0], sampled.move[1], sampled.move[2])
+                slide = animNextVec(pool).set(sampled.move[0], sampled.move[1], sampled.move[2])
                     .multiplyScalar((state.moveScale || 1) / (state.scale || 1));
             }
             if (sampled.resize[0] !== 1 || sampled.resize[1] !== 1 || sampled.resize[2] !== 1) {
-                grow = nextVec().set(sampled.resize[0], sampled.resize[1], sampled.resize[2]);
+                grow = animNextVec(pool).set(sampled.resize[0], sampled.resize[1], sampled.resize[2]);
             }
         } else if (rule.type === "pose") {
             // The pose blend persists across frames (in binding.angles) so
@@ -4702,16 +4958,16 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
             if (!blend) continue;
             const eased = this.poseEase(blend);
             const toRad = Math.PI / 180;
-            quat = nextQuat().setFromEuler(euler.set(
+            quat = animNextQuat(pool).setFromEuler(euler.set(
                 rule.rotate[0] * eased * toRad,
                 rule.rotate[1] * eased * toRad,
                 rule.rotate[2] * eased * toRad, "XYZ"));
             if (rule.move[0] || rule.move[1] || rule.move[2]) {
-                slide = nextVec().set(rule.move[0], rule.move[1], rule.move[2])
+                slide = animNextVec(pool).set(rule.move[0], rule.move[1], rule.move[2])
                     .multiplyScalar(eased * (state.moveScale || 1) / (state.scale || 1));
             }
             if (rule.resize[0] !== 1 || rule.resize[1] !== 1 || rule.resize[2] !== 1) {
-                grow = nextVec().set(
+                grow = animNextVec(pool).set(
                     1 + (rule.resize[0] - 1) * eased,
                     1 + (rule.resize[1] - 1) * eased,
                     1 + (rule.resize[2] - 1) * eased);
@@ -4733,13 +4989,13 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
                     ? state.distance * rule.perTile
                     : (gate === false ? 0 : rule.speed / 60);
                 binding.angles[i] = (binding.angles[i] || 0) + gain;
-                quat = nextQuat().setFromAxisAngle(axisOf(rule), binding.angles[i] * Math.PI / 180);
+                quat = animNextQuat(pool).setFromAxisAngle(animNextVec(pool).fromArray(this.AXIS_VECTORS[rule.axis]), binding.angles[i] * Math.PI / 180);
             } else if (rule.type === "swing") {
                 const angle = rule.degrees * Math.sin(2 * Math.PI * (t / rule.period + rule.phase));
-                quat = nextQuat().setFromAxisAngle(axisOf(rule), angle * Math.PI / 180);
+                quat = animNextQuat(pool).setFromAxisAngle(animNextVec(pool).fromArray(this.AXIS_VECTORS[rule.axis]), angle * Math.PI / 180);
             } else {
                 const offset = rule.amount * (state.moveScale || 1) * Math.sin(2 * Math.PI * (t / rule.period + rule.phase)) / (state.scale || 1);
-                slide = axisOf(rule).multiplyScalar(offset);
+                slide = animNextVec(pool).fromArray(this.AXIS_VECTORS[rule.axis]).multiplyScalar(offset);
             }
         }
         if (!rule.part) {
@@ -4756,13 +5012,14 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
             }
             const action = pool.action[actionAt] || (pool.action[actionAt] = {});
             actionAt++;
-            action.order = partActions.length;
+            action.order = actionCount;
             action.partLower = rule._partLower;
             action.quat = quat;
             action.slide = slide;
             action.grow = grow;
             action.rest = restWeight;
-            partActions.push(action);
+            partActions[actionCount++] = action;
+            if (matches) byRule[i] = action;
         }
     }
     // Per mesh, contributions compose by ANCESTRY, not authoring order: a
@@ -4770,9 +5027,30 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
     // turret's turn applies before the cannon's recoil and the recoil
     // slides along the turned barrel — whichever rule was written or
     // edited first. Same-depth contributions keep their rule order.
-    for (const entry of binding.meshes) {
+    const meshes = binding.meshes;
+    for (let e = 0; e < meshes.length; e++) {
+        const entry = meshes[e];
         let matched = null;
-        for (const action of partActions) {
+        if (matches) {
+            // The table's order is already the composing order, and a rule
+            // makes at most one action, so the hits need no sort.
+            const reach = matches.reach[e];
+            let hits = 0;
+            for (let r = 0; r < reach.length; r++) {
+                const action = byRule[reach[r].rule];
+                if (!action) continue;
+                if (!matched) matched = entry.matched || (entry.matched = []);
+                const hit = pool.match[matchAt] || (pool.match[matchAt] = {});
+                matchAt++;
+                hit.action = action;
+                hit.depth = reach[r].depth;
+                hit.pivot = entry.parts[reach[r].depth].pivot;
+                matched[hits++] = hit;
+            }
+            if (matched && matched.length !== hits) matched.length = hits;
+        }
+        if (!matches) for (let a = 0; a < actionCount; a++) {
+            const action = partActions[a];
             let depth = -1;
             let pivot = null;
             for (let d = 0; d < entry.parts.length; d++) {
@@ -4800,7 +5078,7 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
             matched.push(hit);
         }
         if (!matched) continue;
-        matched.sort((a, b) => b.depth - a.depth || a.action.order - b.action.order);
+        if (!matches) matched.sort((a, b) => b.depth - a.depth || a.action.order - b.action.order);
         entry.acc = (entry.accMatrix || (entry.accMatrix = new THREE.Matrix4())).identity();
         for (let m = 0; m < matched.length; m++) {
             const action = matched[m].action;
@@ -4810,10 +5088,10 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
             // The slide comes first: an offset is in the model's frame, not
             // in the frame the same pose's turn leaves behind.
             if (slide) {
-                entry.acc.multiply(nextMat().makeTranslation(slide.x, slide.y, slide.z));
+                entry.acc.multiply(animNextMat(pool).makeTranslation(slide.x, slide.y, slide.z));
             }
-            if (turn) entry.acc.multiply(pivotTurn(pivot, turn));
-            if (action.grow) entry.acc.multiply(pivotGrow(pivot, action.grow));
+            if (turn) entry.acc.multiply(animPivotTurn(pool, pivot, turn));
+            if (action.grow) entry.acc.multiply(animPivotGrow(pool, pivot, action.grow));
         }
     }
     if (binding.mixer) {
@@ -4822,7 +5100,7 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
         for (const entry of binding.meshes) {
             if (!entry.clipBase) continue;
             entry.mesh.position.copy(entry.clipBase.position);
-            entry.mesh.quaternion.copy(entry.clipBase.quaternion);
+            animSetQuaternion(entry, entry.clipBase.quaternion);
             entry.mesh.scale.copy(entry.clipBase.scale);
         }
         // The same rules array asks every frame; filter it once per array.
@@ -4988,7 +5266,7 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
         }
         if (!entry.acc) {
             entry.mesh.position.copy(basePosition);
-            entry.mesh.quaternion.copy(baseQuaternion);
+            animSetQuaternion(entry, baseQuaternion);
             if (baseScale) entry.mesh.scale.copy(baseScale);
             continue;
         }
@@ -5015,7 +5293,7 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
         scratch.multiply(entry.acc);
         scratch.decompose(outPos, outQuat, outScale);
         entry.mesh.position.copy(outPos);
-        entry.mesh.quaternion.copy(outQuat);
+        animSetQuaternion(entry, outQuat);
         entry.mesh.scale.copy(outScale);
     }
 };
@@ -6020,6 +6298,8 @@ Reactor3D.advanceModelAction = function(holder, character, frame) {
         const fxNow = frame - holder.action.frame;
         for (const rule of holder.rules) {
             if (rule.trigger !== "action" || rule.name !== holder.action.name) continue;
+            // Nothing timed on this rule: nothing to fire, so nothing to measure.
+            if (!rule.effects || !rule.effects.length) continue;
             const duration = Reactor3D.modelRuleDuration(rule, holder.binding.clips);
             for (const effect of Reactor3D.modelEffectsToFire(rule, duration, holder.fxT, fxNow)) {
                 Reactor3D.fireModelEffect(effect, character, holder);
@@ -6129,26 +6409,32 @@ Reactor3D.IDENTITY_TRANSFORM = function() {
 /** The transform a character shows this frame, eased between the one it had and the one it was given. */
 Reactor3D.liveTransformAt = function(state, frame) {
     if (!state) return null;
+    return this._liveTransformInto(state, frame, { offset: [0, 0, 0], rotate: [0, 0, 0], scale: [0, 0, 0], done: false });
+};
+
+/** `liveTransformAt` into the caller's record: the placement asks every frame. */
+Reactor3D._liveTransformInto = function(state, frame, out) {
     const to = state.to, from = state.from || this.IDENTITY_TRANSFORM();
     const duration = Math.max(0, state.duration || 0);
     let t = duration > 0 ? (frame - state.frame) / duration : 1;
     t = Math.max(0, Math.min(1, t));
     // Ease in and out, so a move settles rather than stops.
     const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-    const mix = (a, b) => a + (b - a) * e;
-    return {
-        offset: [0, 1, 2].map(i => mix(from.offset[i], to.offset[i])),
-        rotate: [0, 1, 2].map(i => mix(from.rotate[i], to.rotate[i])),
-        scale: [0, 1, 2].map(i => mix(from.scale[i], to.scale[i])),
-        done: t >= 1
-    };
+    for (let i = 0; i < 3; i++) {
+        out.offset[i] = from.offset[i] + (to.offset[i] - from.offset[i]) * e;
+        out.rotate[i] = from.rotate[i] + (to.rotate[i] - from.rotate[i]) * e;
+        out.scale[i] = from.scale[i] + (to.scale[i] - from.scale[i]) * e;
+    }
+    out.done = t >= 1;
+    return out;
 };
 
 Reactor3D.applyLiveTransform = function(object, character) {
     const state = character && character._reactorTransform;
     if (!state || !object) return;
     const frame = typeof Graphics !== "undefined" ? Graphics.frameCount : 0;
-    const live = this.liveTransformAt(state, frame);
+    const live = this._liveTransformInto(state, frame, this._liveScratch
+        || (this._liveScratch = { offset: [0, 0, 0], rotate: [0, 0, 0], scale: [0, 0, 0], done: false }));
     if (!live) return;
     const r = Math.PI / 180;
     object.position.x += live.offset[0];
@@ -6189,8 +6475,63 @@ Reactor3D.MapScene.prototype.modelsGroup = function() {
         this._modelsGroup = new THREE.Group();
         this._modelsGroup.name = "character-models";
         this._scene.add(this._modelsGroup);
+        // Where `InstanceCull` finds the placed instances from the scene alone.
+        this._scene.userData.rrModelsGroup = this._modelsGroup;
     }
     return this._modelsGroup;
+};
+
+/**
+ * Culling a placed instance that has a skin, the correct way round (see
+ * `presetSkinnedBounds` for why three cannot): a sphere in WORLD space built
+ * from where the instance stands and how big it is, never from the skin's
+ * rest geometry. Its centre is half the instance's span above its feet and
+ * its radius one and a half spans and a tile, which holds a body whatever its
+ * bones do in place (a swing, a lunge, a jump). An instance outside a
+ * camera's frustum by that sphere is hidden for that one draw: a shadow face
+ * that looks away from it (four or five of a light's six, each of which
+ * skinned a whole character to draw nothing), or the view when it is behind
+ * the camera. A body in a ragdoll leaves its bounds and is never culled.
+ * Rigid meshes are left to three, which culls them itself.
+ */
+Reactor3D.InstanceCull = {
+    enabled: true,
+    SPAN_REACH: 1.5,
+    PAD: 1,
+    hide(scene, camera) {
+        const group = this.enabled && scene && camera && scene.userData && scene.userData.rrModelsGroup;
+        if (!group || !group.visible || !group.children.length || typeof THREE === "undefined") return null;
+        const frustum = this._frustum || (this._frustum = new THREE.Frustum());
+        const matrix = this._matrix || (this._matrix = new THREE.Matrix4());
+        const sphere = this._sphere || (this._sphere = new THREE.Sphere());
+        if (camera.parent === null && camera.matrixWorldAutoUpdate !== false) camera.updateMatrixWorld();
+        frustum.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+        let hidden = null;
+        for (const object of group.children) {
+            if (!object.visible || object.userData.rrNoCull || !this.skinned(object)) continue;
+            const span = Reactor3D.instanceSpan(object);
+            sphere.center.setFromMatrixPosition(object.matrixWorld);
+            sphere.center.y += span * 0.5;
+            sphere.radius = span * this.SPAN_REACH + this.PAD;
+            if (frustum.intersectsSphere(sphere)) continue;
+            object.visible = false;
+            (hidden || (hidden = [])).push(object);
+        }
+        return hidden;
+    },
+    show(hidden) {
+        if (hidden) for (const object of hidden) object.visible = true;
+    },
+    /** Whether an instance draws a skinned mesh (asked once per instance). */
+    skinned(object) {
+        let known = object.userData.rrSkinned;
+        if (known === undefined) {
+            known = false;
+            object.traverse(node => { if (node.isSkinnedMesh) known = true; });
+            object.userData.rrSkinned = known;
+        }
+        return known;
+    }
 };
 
 /** Billboards for above-characters events, rendered with the above pass. */
@@ -6220,6 +6561,132 @@ Reactor3D.mapHasAboveEvents = function(mapData) {
     return false;
 };
 
+const STILL_UNIT_EXTENT = { x: 1, y: 1, z: 1 };
+const STILL_NO_STRETCH = [1, 1, 1];
+
+/**
+ * A model standing where it stood last frame is not placed again.
+ *
+ * Placing one — its size, its authored turn and front mark, the eased
+ * facing, the ladder hold, its lift, a Transform 3D Model, a Face Ceiling
+ * or a Rotate — is a dozen trigonometric calls and three rebuilt rotations,
+ * and every prop on a map paid it every frame to arrive where it already
+ * was. The placement is a function of its inputs, so when every one of them
+ * is what it was the last time the placement ran, and the model still
+ * stands exactly as that placement left it, what it would write is already
+ * written. Its inputs: the spec, the model's size, the ground under it
+ * (read fresh each frame, so a changed map is seen), its cell position,
+ * eight-way facing, lift, air, pose pitch and spin, and the Transform 3D
+ * Model it carries — only once that has finished easing, and only while
+ * its numbers are the ones it was placed with. The facing has to have
+ * finished its turn too. The player (the look lean writes its turn), a
+ * climber and a ragdoll are always placed.
+ *
+ * While settled the model's own matrix is composed once and frozen, as the
+ * static world's meshes are; its first change thaws it before placing it.
+ * Only the root: parts under it are animation's to move. `enabled = false`
+ * places every model every frame, as before.
+ */
+Reactor3D.StillModels = {
+    enabled: true,
+    settled(holder, character, object, spec, extent, ground, dir8) {
+        const placed = holder.placed;
+        if (!placed || placed.object !== object || !placed.yawSettled || !placed.eligible) return false;
+        if (!this.eligible(character)) return false;
+        if (placed.spec !== spec || placed.ground !== ground || placed.dir8 !== dir8
+            || placed.realX !== character._realX || placed.realY !== character._realY
+            || placed.lift !== (character._reactorLift || 0) || placed.air !== (character._reactorAir || 0)
+            || placed.pitch !== (character._reactorPosePitch || 0) || placed.spin !== (character._reactorSpin || 0)
+            || placed.ex !== extent.x || placed.ey !== extent.y || placed.ez !== extent.z
+            || placed.smoothYaw !== holder.smoothYaw) return false;
+        if (!this.sameTransform(placed, character._reactorTransform)) return false;
+        // Untouched since: anything that moved, turned or scaled it outside
+        // the placement is overwritten by a full placement, as it always was.
+        const p = object.position, q = object.quaternion, r = object.rotation, s = object.scale;
+        return p.x === placed.px && p.y === placed.py && p.z === placed.pz
+            && q.x === placed.qx && q.y === placed.qy && q.z === placed.qz && q.w === placed.qw
+            && r.x === placed.rx && r.y === placed.ry && r.z === placed.rz && r.order === placed.order
+            && s.x === placed.sx && s.y === placed.sy && s.z === placed.sz;
+    },
+    eligible(character) {
+        return !character._reactorRagdoll && !character._reactorOnLadder
+            && !(typeof $gamePlayer !== "undefined" && character === $gamePlayer);
+    },
+    note(holder, character, object, spec, extent, ground, dir8, lodSpan, targetYaw) {
+        const placed = holder.placed || (holder.placed = { numbers: [] });
+        placed.object = object;
+        // Placed while climbing or limp, or as the player, it is placed again.
+        placed.eligible = this.eligible(character);
+        placed.spec = spec;
+        placed.ground = ground;
+        placed.dir8 = dir8;
+        placed.realX = character._realX;
+        placed.realY = character._realY;
+        placed.lift = character._reactorLift || 0;
+        placed.air = character._reactorAir || 0;
+        placed.pitch = character._reactorPosePitch || 0;
+        placed.spin = character._reactorSpin || 0;
+        placed.ex = extent.x;
+        placed.ey = extent.y;
+        placed.ez = extent.z;
+        placed.smoothYaw = holder.smoothYaw;
+        placed.yawSettled = holder.smoothYaw === targetYaw;
+        placed.lodSpan = lodSpan;
+        const state = character._reactorTransform || null;
+        placed.transform = state;
+        placed.transformDone = !!state && this.transformDone(state);
+        if (state) this.transformNumbers(state, placed.numbers);
+        const p = object.position, q = object.quaternion, r = object.rotation, s = object.scale;
+        placed.px = p.x; placed.py = p.y; placed.pz = p.z;
+        placed.qx = q.x; placed.qy = q.y; placed.qz = q.z; placed.qw = q.w;
+        placed.rx = r.x; placed.ry = r.y; placed.rz = r.z; placed.order = r.order;
+        placed.sx = s.x; placed.sy = s.y; placed.sz = s.z;
+    },
+    /** Whether a Transform 3D Model has eased all the way, by `liveTransformAt`'s own clock. */
+    transformDone(state) {
+        const frame = typeof Graphics !== "undefined" ? Graphics.frameCount : 0;
+        const duration = Math.max(0, state.duration || 0);
+        let t = duration > 0 ? (frame - state.frame) / duration : 1;
+        t = Math.max(0, Math.min(1, t));
+        return t >= 1;
+    },
+    /** Every number `liveTransformAt` reads, flat. */
+    transformNumbers(state, out) {
+        const from = state.from || Reactor3D.IDENTITY_TRANSFORM(), to = state.to;
+        out[0] = state.frame;
+        out[1] = state.duration;
+        for (let i = 0; i < 3; i++) {
+            out[2 + i] = from.offset[i];
+            out[5 + i] = from.rotate[i];
+            out[8 + i] = from.scale[i];
+            out[11 + i] = to.offset[i];
+            out[14 + i] = to.rotate[i];
+            out[17 + i] = to.scale[i];
+        }
+        return out;
+    },
+    sameTransform(placed, state) {
+        if (placed.transform !== (state || null)) return false;
+        if (!state) return true;
+        if (!placed.transformDone || !this.transformDone(state)) return false;
+        const numbers = this.transformNumbers(state, this._numbers || (this._numbers = []));
+        const was = placed.numbers;
+        for (let i = 0; i < numbers.length; i++) if (numbers[i] !== was[i]) return false;
+        return true;
+    },
+    freeze(holder, object) {
+        if (!object.matrixAutoUpdate) return;
+        object.updateMatrix();
+        object.matrixAutoUpdate = false;
+        holder.rootFrozen = true;
+    },
+    thaw(holder, object) {
+        if (!holder.rootFrozen) return;
+        object.matrixAutoUpdate = true;
+        holder.rootFrozen = false;
+    }
+};
+
 Reactor3D.MapScene.prototype.syncCharacterModels = function(characters) {
     if (typeof THREE === "undefined") return;
     const group = this.modelsGroup();
@@ -6230,6 +6697,11 @@ Reactor3D.MapScene.prototype.syncCharacterModels = function(characters) {
     const lodViewport = Reactor3D.viewport();
     const lodCamera = lodViewport && lodViewport.camera ? lodViewport.camera() : null;
     const lodEye = lodCamera ? lodCamera.position : null;
+    // The screen the distance levels are budgeted against, read once a sync
+    // rather than once a model: it is the same camera and viewport for all.
+    let lodScreen = null;
+    let commandsAsked = false;
+    const still = Reactor3D.StillModels;
     for (const character of characters || []) {
         const spec = Reactor3D.characterModelSpec(character);
         if (!spec) continue;
@@ -6292,65 +6764,87 @@ Reactor3D.MapScene.prototype.syncCharacterModels = function(characters) {
         const object = holder.object;
         if (!object) continue;
         Reactor3D.resumeModelPlayback(holder, character, Reactor3D.currentFrame());
-        const extent = object.userData.glbSize || { x: 1, y: 1, z: 1 };
+        const extent = object.userData.glbSize || STILL_UNIT_EXTENT;
         // Largest dimension, matching the collision footprint's rule.
         const span = Math.max(extent.x, extent.y, extent.z, 0.0001);
         const fit = (spec.size > 0 ? spec.size : 2) / span;
         const scale = fit * (spec.scale > 0 ? spec.scale : 1);
-        const stretch = spec.stretch || [1, 1, 1];
         const ground = Reactor3D.characterGround(
             typeof $dataMap !== "undefined" ? $dataMap : null, character);
-        object.scale.set(scale * stretch[0], scale * stretch[1], scale * stretch[2]);
-        if (lodEye) Reactor3D.pickLod(object, Reactor3D.instanceSpan(object), lodEye, holder.spec);
-        Reactor3D.applyEventModelPose(object, spec, Reactor3D.characterModelDir8(character));
-        // Facing is discrete, so the pose above pivots a long model 90 degrees
-        // in one frame — the ends of a nine-tile vehicle teleport sideways.
-        // Ease the visible yaw toward the pose's target along the shortest
-        // arc; collision already accounts for both orientations of a turning
-        // step, so only the drawing needs the swing.
-        const targetYaw = object.rotation.y;
-        if (holder.smoothYaw === undefined) {
-            holder.smoothYaw = targetYaw;
-        } else {
-            const delta = Math.atan2(
-                Math.sin(targetYaw - holder.smoothYaw),
-                Math.cos(targetYaw - holder.smoothYaw));
-            const maxStep = Reactor3D.MODEL_TURN_SPEED;
-            holder.smoothYaw = Math.abs(delta) <= maxStep
-                ? targetYaw
-                : holder.smoothYaw + Math.sign(delta) * maxStep;
+        const dir8 = Reactor3D.characterModelDir8(character);
+        if (lodEye && !lodScreen) {
+            lodScreen = this._lodScreenScratch || (this._lodScreenScratch = { factor: 0, pixels: 0 });
+            lodScreen.factor = Reactor3D._lodScreenFactor();
+            lodScreen.pixels = Reactor3D._lodScreenPixels();
         }
-        object.rotation.y = holder.smoothYaw;
-        // Publish the heading the model is actually drawn at, so a light this
-        // character carries swings with the mesh instead of snapping between
-        // compass points. The spec's own yaw is an art correction for a model
-        // authored facing the wrong way, not part of where the character
-        // looks, so it comes back off.
-        Reactor3D.noteModelFacing(character, holder.smoothYaw - (spec.yaw || 0));
-        const offset = spec.offset || [0, 0, 0];
-        // A jump or a fall (reactor_physics) lifts the model by its air.
-        const air = character._reactorAir || 0;
-        // A climber hangs against its ladder, not in the middle of the cell.
-        if (character._reactorOnLadder && holder.chestForward === undefined) holder.chestForward = Reactor3D.chestForward(holder);
-        const hold = character._reactorOnLadder ? Reactor3D.LADDER_RUNGS - Reactor3D.LADDER_CHEST_GAP - (holder.chestForward || 0) : 0;
-        const holdX = hold * ((character.direction && character.direction() === 6) ? 1 : (character.direction && character.direction() === 4) ? -1 : 0);
-        const holdZ = hold * ((character.direction && character.direction() === 2) ? 1 : (character.direction && character.direction() === 8) ? -1 : 0);
-        object.position.set(character._realX + 0.5 + offset[0] + holdX, ground + (character._reactorLift || 0) + air + offset[2], character._realY + 0.5 + offset[1] + holdZ);
-        holder.cameraBaseX = character._realX;
-        holder.cameraBaseY = ground + (character._reactorLift || 0) + air;
-        holder.cameraBaseZ = character._realY;
-        Reactor3D.applyLiveTransform(object, character);
-        // Face Ceiling / Face Ground and Rotate route steps. Local axes,
-        // after the facing yaw: a model falls onto its own back or face
-        // whichever way it points, and rolls the way a sprite would turn.
-        const posePitch = character._reactorPosePitch || 0;
-        const poseSpin = character._reactorSpin || 0;
-        if (posePitch) object.rotateX(-posePitch * Math.PI / 2);
-        if (poseSpin) object.rotateZ(-poseSpin * Math.PI / 180);
+        if (still.enabled && still.settled(holder, character, object, spec, extent, ground, dir8)) {
+            // Placed last frame from these same inputs and untouched since:
+            // everything the placement below would write is already there.
+            if (lodEye) Reactor3D.pickLod(object, holder.placed.lodSpan, lodEye, holder.spec, lodScreen);
+            Reactor3D.noteModelFacing(character, holder.smoothYaw - (spec.yaw || 0));
+            still.freeze(holder, object);
+        } else {
+            still.thaw(holder, object);
+            const stretch = spec.stretch || STILL_NO_STRETCH;
+            object.scale.set(scale * stretch[0], scale * stretch[1], scale * stretch[2]);
+            const lodSpan = Reactor3D.instanceSpan(object);
+            if (lodEye) Reactor3D.pickLod(object, lodSpan, lodEye, holder.spec, lodScreen);
+            Reactor3D.applyEventModelPose(object, spec, dir8);
+            // Facing is discrete, so the pose above pivots a long model 90 degrees
+            // in one frame — the ends of a nine-tile vehicle teleport sideways.
+            // Ease the visible yaw toward the pose's target along the shortest
+            // arc; collision already accounts for both orientations of a turning
+            // step, so only the drawing needs the swing.
+            const targetYaw = object.rotation.y;
+            if (holder.smoothYaw === undefined) {
+                holder.smoothYaw = targetYaw;
+            } else {
+                const delta = Math.atan2(
+                    Math.sin(targetYaw - holder.smoothYaw),
+                    Math.cos(targetYaw - holder.smoothYaw));
+                const maxStep = Reactor3D.MODEL_TURN_SPEED;
+                holder.smoothYaw = Math.abs(delta) <= maxStep
+                    ? targetYaw
+                    : holder.smoothYaw + Math.sign(delta) * maxStep;
+            }
+            object.rotation.y = holder.smoothYaw;
+            // Publish the heading the model is actually drawn at, so a light this
+            // character carries swings with the mesh instead of snapping between
+            // compass points. The spec's own yaw is an art correction for a model
+            // authored facing the wrong way, not part of where the character
+            // looks, so it comes back off.
+            Reactor3D.noteModelFacing(character, holder.smoothYaw - (spec.yaw || 0));
+            const offset = spec.offset || [0, 0, 0];
+            // A jump or a fall (reactor_physics) lifts the model by its air.
+            const air = character._reactorAir || 0;
+            // A climber hangs against its ladder, not in the middle of the cell.
+            if (character._reactorOnLadder && holder.chestForward === undefined) holder.chestForward = Reactor3D.chestForward(holder);
+            const hold = character._reactorOnLadder ? Reactor3D.LADDER_RUNGS - Reactor3D.LADDER_CHEST_GAP - (holder.chestForward || 0) : 0;
+            const holdX = hold * ((character.direction && character.direction() === 6) ? 1 : (character.direction && character.direction() === 4) ? -1 : 0);
+            const holdZ = hold * ((character.direction && character.direction() === 2) ? 1 : (character.direction && character.direction() === 8) ? -1 : 0);
+            object.position.set(character._realX + 0.5 + offset[0] + holdX, ground + (character._reactorLift || 0) + air + offset[2], character._realY + 0.5 + offset[1] + holdZ);
+            holder.cameraBaseX = character._realX;
+            holder.cameraBaseY = ground + (character._reactorLift || 0) + air;
+            holder.cameraBaseZ = character._realY;
+            Reactor3D.applyLiveTransform(object, character);
+            // Face Ceiling / Face Ground and Rotate route steps. Local axes,
+            // after the facing yaw: a model falls onto its own back or face
+            // whichever way it points, and rolls the way a sprite would turn.
+            const posePitch = character._reactorPosePitch || 0;
+            const poseSpin = character._reactorSpin || 0;
+            if (posePitch) object.rotateX(-posePitch * Math.PI / 2);
+            if (poseSpin) object.rotateZ(-poseSpin * Math.PI / 180);
+            if (still.enabled) still.note(holder, character, object, spec, extent, ground, dir8, lodSpan, targetYaw);
+        }
         object.visible = !(character.isTransparent && character.isTransparent())
             && !Reactor3D.cameraInsideModel(character, object)
             && !Reactor3D.characterHiddenByCamera(character, true);
-        Reactor3D.registerPluginCommands();
+        // Idempotent; asked once a sync, at the first placed model, which is
+        // when the first of the per-model calls it replaces used to run.
+        if (!commandsAsked) {
+            commandsAsked = true;
+            Reactor3D.registerPluginCommands();
+        }
         // A limp body (a fatal fall) is the ragdoll's, not the animation's.
         if (character._reactorRagdoll && holder.binding) {
             Reactor3D.stepRagdoll(holder, character);
@@ -6490,7 +6984,7 @@ Reactor3D.MapScene.prototype.syncCharacterBillboards = function(sprites) {
             // The quad leans towards the camera; seen from a light it is a
             // cut-out of the sprite, which is the shadow a sprite should cast.
             Reactor3D.Shadows.markCaster(object, true);
-            holder = { texture, geometry, object, stamp: "", view: null, above: false };
+            holder = { texture, geometry, object, stampFields: null, view: null, above: false };
             this._billboards.set(key, holder);
         }
         this._updateCharacterBillboard(holder, sprite, character);
@@ -6561,13 +7055,18 @@ Reactor3D.MapScene.prototype._updateCharacterBillboard = function(holder, sprite
     holder.object.visible = !!(ready && !hidden);
     if (!ready) return;
     const mirrored = !!(sprite.scale && sprite.scale.x < 0);
-    const stamp = [
-        bitmap.url || bitmap._url || "",
-        frame.x, frame.y, frame.width, frame.height,
-        mirrored ? 1 : 0
-    ].join(":");
-    if (holder.stamp !== stamp) {
-        holder.stamp = stamp;
+    // What the frame was cut from last time, field by field: joining them
+    // into a string made one per billboard per frame to find nothing new.
+    const url = bitmap.url || bitmap._url || "";
+    const stamp = holder.stampFields || (holder.stampFields = { url: null, x: 0, y: 0, width: 0, height: 0, mirrored: false });
+    if (stamp.url !== url || stamp.x !== frame.x || stamp.y !== frame.y
+        || stamp.width !== frame.width || stamp.height !== frame.height || stamp.mirrored !== mirrored) {
+        stamp.url = url;
+        stamp.x = frame.x;
+        stamp.y = frame.y;
+        stamp.width = frame.width;
+        stamp.height = frame.height;
+        stamp.mirrored = mirrored;
         const sheet = Reactor3D.sheetTextureFor(bitmap);
         if (sheet && sheet.image) {
             const view = Reactor3D.billboardView(holder, sheet);

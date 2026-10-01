@@ -685,11 +685,17 @@ class EventManager {
 
         const tileWidth = this.tilemapManager.TILE_WIDTH;
         const tileHeight = this.tilemapManager.TILE_HEIGHT;
+        // Every pointer move lands here, and most stay on the tile they were
+        // on. Rebuilding the outline regardless re-tessellated it and
+        // re-uploaded its geometry each time for an identical picture.
+        const key = `${tileX},${tileY},${tileWidth},${tileHeight}`;
+        if (this.hoverHighlight.visible && this.hoverHighlight._rrHoverKey === key) return;
         const color = 0xFFD700;
         this.hoverHighlight.clear();
         this.hoverHighlight.rect(tileX * tileWidth, tileY * tileHeight, tileWidth, tileHeight);
         this.hoverHighlight.stroke({ color, width: 2, alpha: 0.9 });
         this.hoverHighlight.visible = true;
+        this.hoverHighlight._rrHoverKey = key;
     }
 
     hideHoverHighlight() {

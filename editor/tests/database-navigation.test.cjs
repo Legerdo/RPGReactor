@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -367,7 +368,7 @@ test('level 999 extrapolates finite class parameters without expanding class dat
     assert.match(battleSource, /RREquipSlots\.resolveInitialBindings/);
     assert.doesNotMatch(battleSource, /emptyHint\.textContent = this\._t\('\(no compatible items\)'\)/);
 
-    const runtime = fs.readFileSync(path.resolve(repoRoot, '..', 'runtime', 'reactor_objects.js'), 'utf8');
+    const runtime = runtimeSource('reactor_objects.js');
     assert.match(runtime, /Game_Actor\.prototype\.classParamAtLevel/);
     assert.match(runtime, /Math\.min\(100, Math\.floor\(Number\(repeats\)/);
     assert.match(fs.readFileSync(path.join(repoRoot, 'index.html'), 'utf8'), /src\/utils\/DataLimits\.js/);

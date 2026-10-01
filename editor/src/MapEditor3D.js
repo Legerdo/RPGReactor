@@ -720,6 +720,7 @@ class MapEditor3D {
         this.renderer.setSize(width, height, false);
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
+        this.requestRender();
     }
 
     //-------------------------------------------------------------------------
@@ -832,6 +833,7 @@ class MapEditor3D {
             meshes: this.mapScene._meshes.length,
             events: this.eventGroup ? this.eventGroup.children.length : 0
         };
+        this.requestRender();
         return true;
     }
 
@@ -1422,6 +1424,7 @@ class MapEditor3D {
     setGridVisible(on) {
         this.gridVisible = !!on;
         if (this.grid) this.grid.visible = this.gridVisible;
+        this.requestRender();
     }
 
     /** Show or hide the passage marks in this view. */
@@ -1432,6 +1435,7 @@ class MapEditor3D {
 
     /** Redraw the passage marks after a change, once per frame. */
     refreshPassage() {
+        this.requestRender();
         if (!this.passageVisible || this._passageRefresh) return;
         this._passageRefresh = requestAnimationFrame(() => {
             this._passageRefresh = null;
@@ -1515,6 +1519,7 @@ class MapEditor3D {
                 const fill = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0xff4040, transparent: true, opacity: 0.22, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
                 fill.renderOrder = 995;
                 group.add(fill);
+                this.requestRender();
             }).catch(() => {});
         }
     }
@@ -2192,6 +2197,7 @@ class MapEditor3D {
             object.userData.event = event;
             object.userData.modelPreview = true;
             group.add(object);
+            this.requestRender();
             // Clickable by its box, like a prop: a raycast through a heavy
             // mesh on every hover is what jitters.
             object.userData.pickBox = new THREE.Box3().setFromObject(object);
@@ -2257,6 +2263,7 @@ class MapEditor3D {
                 object.traverse(node => { node.userData.propId = prop.id; });
                 this.placeProp(object, prop, mapData);
                 group.add(object);
+                this.requestRender();
                 // Picking tests the box, not the mesh: a raycast through a
                 // million triangles on every mouse move is what jitters.
                 object.userData.pickBox = new THREE.Box3().setFromObject(object);
@@ -2394,7 +2401,7 @@ class MapEditor3D {
         if (isImage) {
             const image = new Image();
             texture = new THREE.Texture();
-            image.onload = () => { texture.image = image; texture.needsUpdate = true; };
+            image.onload = () => { texture.image = image; texture.needsUpdate = true; this.requestRender(); };
             image.src = url;
         } else {
             video = document.createElement('video');
@@ -2569,6 +2576,7 @@ class MapEditor3D {
                 ghost.userData.placementGhost = true;
                 this.mapScene.scene().add(ghost);
                 this.placementGhost = ghost;
+                this.requestRender();
                 if (this._ghostPoint) this.placeProp(ghost, { x: this._ghostPoint.x, y: this._ghostPoint.y, z: manager.fields.z || 0 }, mapData);
             }).catch(() => {});
         }
@@ -2691,6 +2699,7 @@ class MapEditor3D {
     refreshProps(ids) {
         const mapData = this.currentMap();
         if (!mapData || !this.mapScene) return;
+        this.requestRender();
         const elevation = window.RRMapElevation;
         if (Array.isArray(ids) && ids.length && this.propGroup && elevation) {
             const props = elevation.props(mapData);
@@ -2957,6 +2966,7 @@ class MapEditor3D {
 
     /** Mark a prop as the selected one and put the pose rings on it. */
     selectProp(id) {
+        this.requestRender();
         this.selectedPropId = id || null;
         const object = this.selectedPropId ? this.propObject(this.selectedPropId) : null;
         this.selectPropRings(object);
@@ -3061,6 +3071,7 @@ class MapEditor3D {
             mesh.userData.__reactorOverlay = true;
             this.mapScene.scene().add(mesh);
             this.propFootprint = mesh;
+            this.requestRender();
         }).catch(() => {});
     }
 
@@ -3191,10 +3202,21 @@ class MapEditor3D {
     /** Advance stepping-animation previews at the game's cadence. */
     animateEventPreviews(now) {
         this.animateModels(now);
-        if (!this.animatedEvents?.length) return;
+        this.stepEventPreviews(now);
+    }
+
+    /**
+     * Count the stepping characters on and redraw the ones whose pattern
+     * turns; true when any did. The loop calls this every frame so the
+     * cadence holds while the view draws only on the frames that change —
+     * a second call at the same time counts nothing.
+     */
+    stepEventPreviews(now) {
+        if (!this.animatedEvents?.length) return false;
         const last = this._lastPreviewTick || now;
         this._lastPreviewTick = now;
-        const frames = Math.min(10, (now - last) / (1000 / 60));
+        const frames = Math.max(0, Math.min(10, (now - last) / (1000 / 60)));
+        let stepped = false;
         for (const anim of this.animatedEvents) {
             anim.count += frames;
             if (anim.count < anim.wait) continue;
@@ -3207,7 +3229,9 @@ class MapEditor3D {
             ctx.drawImage(anim.sheet, anim.baseX + shown * anim.frameWidth, anim.baseY,
                 anim.frameWidth, anim.frameHeight, 0, 0, anim.canvas.width, anim.canvas.height);
             anim.texture.needsUpdate = true;
+            stepped = true;
         }
+        return stepped;
     }
 
     eventSprite(event, sheets, pageImage, animatedPage = null) {
@@ -3427,6 +3451,7 @@ class MapEditor3D {
 
     /** Mark a mesh as the selected one, or clear the selection with null. */
     select(mesh) {
+        this.requestRender();
         if (this.selected && this.selected !== mesh) this.highlight(this.selected, false);
         this.selected = mesh || null;
         if (this.selected) this.highlight(this.selected, true);
@@ -3607,6 +3632,7 @@ class MapEditor3D {
 
     applyCamera() {
         if (!this.camera) return;
+        this.requestRender();
         this.faceCamera();
         this.updateLabelVisibility();
         this.updateZoomReadout();
@@ -4064,6 +4090,17 @@ class MapEditor3D {
         input.addEventListener('wheel', this._onWheel, { passive: false });
         input.addEventListener('contextmenu', this._onContextMenu);
         window.addEventListener('resize', this._onResize);
+        // A press, a key, a wheel or an edit anywhere in the window may change
+        // what this view shows — a panel slider, a tool button, a typed value
+        // — and most of those paths never tell the view. Noting the time is
+        // all a request costs, so every one of them counts; a bare pointer
+        // move counts only over the view (its own handler) or with a button
+        // held, so sweeping the mouse across the panels draws nothing.
+        this._onAnyInput = event => {
+            if (event.type === 'pointermove' && !event.buttons) return;
+            this.requestRender();
+        };
+        for (const type of MapEditor3D.INPUT_EVENTS) window.addEventListener(type, this._onAnyInput, { capture: true, passive: true });
         this.installFlyKeys();
     }
 
@@ -4080,6 +4117,10 @@ class MapEditor3D {
             input.removeEventListener('contextmenu', this._onContextMenu);
         }
         if (this._onResize) window.removeEventListener('resize', this._onResize);
+        if (this._onAnyInput) {
+            for (const type of MapEditor3D.INPUT_EVENTS) window.removeEventListener(type, this._onAnyInput, { capture: true });
+            this._onAnyInput = null;
+        }
         this.removeFlyKeys();
         if (this._resizeObserver) {
             this._resizeObserver.disconnect();
@@ -4127,7 +4168,6 @@ class MapEditor3D {
             y: tile.y * this.tilePixels() + tile.localY
         };
         editor.paintTile(tile.x, tile.y);
-        this._paintDirty = true;
     }
 
     /**
@@ -4136,15 +4176,16 @@ class MapEditor3D {
      * `resetDrawingState` commits the undo entry and announces the edit, which
      * is what brings the 3D geometry back in line — the same announcement a
      * stroke on the 2D canvas makes.
+     *
+     * No full 2D redraw here. The 2D canvas is hidden and paused under this
+     * view, so a whole-map `renderMap` per stroke drew a picture nobody could
+     * see; turning 3D off redraws the 2D map in full anyway (see `teardown`).
      */
     endPaint() {
         const editor = this.mapEditor();
         if (!editor) return;
         editor.resetDrawingState(true);
-        if (this._paintDirty) {
-            this._paintDirty = false;
-            this.projectController?.tilemapManager?.renderMap?.({ preserveScroll: true });
-        }
+        this.requestRender();
     }
 
     //-------------------------------------------------------------------------
@@ -4580,6 +4621,18 @@ class MapEditor3D {
 
     //-------------------------------------------------------------------------
     // Loop
+    //
+    // The view draws when something asks it to, not on a clock. Anything that
+    // changes the picture marks the view active (`requestRender`, or the
+    // camera and hover cell moving, which are compared each frame); the loop
+    // then draws for a short tail, which covers the frames a reflection
+    // capture takes to go round its six faces and any follow-up that lands a
+    // frame late. Only a picture that really moves keeps the full rate:
+    // playing media, a flight, a drifting sky, a running effect, an animated
+    // model or light, water waves (at the old idle cadence) and the A1 and
+    // stepping-character frames (only on the frame they change). A still
+    // view otherwise draws once a second, a safety net for a change nobody
+    // announced — a model or picture that finished loading on its own time.
 
     startLoop() {
         if (this.frame !== null) return;
@@ -4594,13 +4647,16 @@ class MapEditor3D {
             // Suspended (the browser playtest runs in an overlay iframe):
             // keep the loop alive but do no GPU work — the playtest owns
             // the machine until the overlay closes.
-            if (this.suspended || MapEditor3D.coveredByDatabase()) { this.frame = requestAnimationFrame(tick); return; }
+            if (this.suspended || MapEditor3D.coveredByDatabase() || MapEditor3D.playtestRunning()) { this._covered = true; this.frame = requestAnimationFrame(tick); return; }
             this.frame = null;
             try {
                 if (this.keepCanvasFilling()) this.resize();
+                // Whatever changed behind the cover is drawn when it lifts.
+                if (this._covered) { this._covered = false; this.requestRender(); }
                 this.stepFly(now);
                 const lightsLive = !!window.reactor?.lightingManager?.wants3DFrames?.();
-                if (MapEditor3D.shouldRender({ now, active: this.previewActive(now) || lightsLive, lastRenderAt: this._lastRenderAt })) {
+                const stepped = this.stepAnimations(now);
+                if (MapEditor3D.shouldRender({ now, active: this.previewActive(now) || lightsLive || stepped, lastRenderAt: this._lastRenderAt, idleInterval: this.idleInterval() })) {
                     this._lastRenderAt = now;
                     this.render(now);
                 }
@@ -4619,47 +4675,135 @@ class MapEditor3D {
     }
 
     /**
-     * Whether an idle view should draw this frame: anything moving keeps the
-     * refresh rate, a still view repaints ten times a second. That cadence
-     * also carries the water animation (a frame every 500 ms) and any change
-     * the activity checks do not know about, within a tenth of a second.
+     * Something on screen changed: draw it on the next frame, and through
+     * the short tail after (`ACTIVE_TAIL_MS`). Cheap enough to call from
+     * anywhere, as often as wanted — it only notes the time.
      */
+    requestRender() {
+        this._lastActiveAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
+
+    /** A playtest is open and the editor is not focused: the game gets the GPU (PlaytestManager.ownsGpu). */
+    static playtestRunning() {
+        return typeof window !== 'undefined' && !!window.reactor?.playtestManager?.ownsGpu?.();
+    }
+
     /** The Database window covers the map: its own previews get the GPU. */
     static coveredByDatabase() {
         return typeof document !== 'undefined' && typeof document.getElementById === 'function'
             && !!document.getElementById('database-viewer')?.classList?.contains('active');
     }
 
-    static shouldRender({ now, active, lastRenderAt, idleInterval = 100 }) {
+    /**
+     * Whether this frame should draw: anything moving draws every frame; a
+     * still view draws only once `idleInterval` has passed since its last
+     * draw — once a second by default, the safety net described above.
+     */
+    static shouldRender({ now, active, lastRenderAt, idleInterval = MapEditor3D.IDLE_INTERVAL_MS }) {
         if (active) return true;
         if (!(lastRenderAt > 0)) return true;
         return now - lastRenderAt >= idleInterval;
     }
 
-    /** The camera moved, the hover moved, a key or pointer was used in the last second, or a flight is on. */
+    /**
+     * How long a still view may go between draws. Water waves run on their
+     * own clock in the shader: held at the ten frames a second a still view
+     * always gave them, rather than lifted to the full rate.
+     */
+    idleInterval() {
+        return this.mapScene?._waterMeshes?.length ? 100 : MapEditor3D.IDLE_INTERVAL_MS;
+    }
+
+    /**
+     * Advance the frame-stepped animations — the A1 water and waterfalls, and
+     * stepping characters — without drawing, and say whether either shows a
+     * new frame. They change a few times a second, so the view draws on those
+     * frames alone rather than on every frame in between.
+     */
+    stepAnimations(now) {
+        let stepped = this.stepEventPreviews(now);
+        const scene = this.mapScene;
+        if (scene && scene._animated && scene._animated.length && Number.isFinite(this._animationStartedAt)
+            && window.reactor?.optionsManager?.getAnimateAutotiles?.() !== false
+            && Math.floor((now - this._animationStartedAt) / 500) !== scene._frame) {
+            stepped = true;
+        }
+        return stepped;
+    }
+
+    /** The camera or hover moved, a draw was asked for within the tail, or something on screen moves by itself. */
     previewActive(now) {
         if (this.projectController?.mediaSurfacePreviewManager?.previewActive?.()) return true;
         if (this.flying()) return true;
         // A drifting sky is a moving picture: drawn at the idle rate it steps.
         const sky = this.mapScene?._sky?.userData?.sky;
         if (sky && (sky.driftX || sky.driftY)) return true;
-        // A playing effect is a moving picture: the quad takes a new frame
-        // of it only when this view renders, so the idle rate would show it
-        // at ten frames a second.
-        if ((this.effectPlays || []).some(play => play.quad && play.layer && play.layer.active)) return true;
-        const camera = this.camera;
-        const cameraKey = camera
-            ? `${camera.position.x.toFixed(4)}|${camera.position.y.toFixed(4)}|${camera.position.z.toFixed(4)}|`
-                + `${camera.quaternion.x.toFixed(5)}|${camera.quaternion.y.toFixed(5)}|${camera.quaternion.z.toFixed(5)}|${camera.quaternion.w.toFixed(5)}`
-            : '';
-        const hover = this.hoverCell;
-        const hoverKey = hover ? `${hover.visible}|${hover.position.x}|${hover.position.y}|${hover.position.z}` : '';
-        const key = cameraKey + '#' + hoverKey;
-        if (key !== this._activityKey) {
-            this._activityKey = key;
-            this._lastActiveAt = now;
+        if (this.effectsAnimate()) return true;
+        if (this.modelsAnimate()) return true;
+        // The light volume is baked over a few dozen drawn frames: a still
+        // view drawing once a second took half a minute to light itself.
+        if (typeof Reactor3D !== 'undefined' && Reactor3D.LightVolume?.baking?.()) return true;
+        if (this.viewMoved()) this._lastActiveAt = now;
+        return Number.isFinite(this._lastActiveAt) && now - this._lastActiveAt < MapEditor3D.ACTIVE_TAIL_MS;
+    }
+
+    /**
+     * Whether the camera or the hover cell moved since the last look: plain
+     * numbers kept in one array and compared with a tolerance finer than a
+     * pixel can show, rather than a string of them built every frame.
+     */
+    viewMoved() {
+        const camera = this.camera, hover = this.hoverCell;
+        const seen = this._viewSeen || (this._viewSeen = new Float64Array(11).fill(NaN));
+        let moved = false;
+        const values = this._viewValues || (this._viewValues = new Float64Array(11));
+        values.fill(NaN);
+        if (camera) {
+            values[0] = camera.position.x; values[1] = camera.position.y; values[2] = camera.position.z;
+            values[3] = camera.quaternion.x; values[4] = camera.quaternion.y;
+            values[5] = camera.quaternion.z; values[6] = camera.quaternion.w;
         }
-        return Number.isFinite(this._lastActiveAt) && now - this._lastActiveAt < 1000;
+        if (hover) {
+            values[7] = hover.visible ? 1 : 0;
+            values[8] = hover.position.x; values[9] = hover.position.y; values[10] = hover.position.z;
+        }
+        for (let i = 0; i < 11; i++) {
+            const was = seen[i], value = values[i];
+            if (Math.abs(was - value) <= 1e-5 || (was !== was && value !== value)) continue;
+            seen[i] = value;
+            moved = true;
+        }
+        return moved;
+    }
+
+    /**
+     * A playing effect is a moving picture: an Effekseer quad takes a new
+     * frame only when this view draws, a video plane plays, and a carried
+     * light that flickers or pulses changes every frame. A still picture, a
+     * steady light and an MV overlay (which animates itself and only follows
+     * the camera) do not keep the view drawing.
+     */
+    effectsAnimate() {
+        for (const play of this.effectPlays || []) {
+            if (!play || !play.object || !play.object.parent) continue;
+            if (play.quad && play.layer && play.layer.active) return true;
+            const video = play.plane && play.plane.userData && play.plane.userData.video;
+            if (video && !video.paused && !video.ended) return true;
+            const light = play.light && play.effect && play.effect.light;
+            if (light && (light.flicker || light.pulse)) return true;
+        }
+        return false;
+    }
+
+    /** A placed model that moves by itself: an action playing, or rules that run on their own (the 2D preview's test). */
+    modelsAnimate() {
+        for (const driver of this.animatedModels || []) {
+            if (!driver || !driver.object || !driver.object.parent) continue;
+            if (driver.action) return true;
+            const rules = Array.isArray(driver.rules) ? driver.rules : [];
+            if (rules.some(rule => rule && (rule.trigger === 'always' || rule.trigger === 'idle'))) return true;
+        }
+        return false;
     }
 
     render(now) {
@@ -4690,6 +4834,9 @@ class MapEditor3D {
         // The shadow maps, before any pass hides a group: the same step the
         // game's viewport takes, from the same lights the feed just synced.
         this.mapScene.renderShadows?.(this.renderer, this.currentMap());
+        // The still, flickering and pulsing lights from the baked volume, the
+        // moving ones gathered once a frame (Reactor3D.LightVolume), as in the game.
+        if (typeof Reactor3D !== 'undefined' && Reactor3D.LightVolume) Reactor3D.LightVolume.frame(this.renderer, this.mapScene, this.currentMap());
         const scene = this.mapScene.scene();
         // A face of the reflection capture, as the game takes it.
         if (typeof Reactor3D !== 'undefined' && Reactor3D.Reflections && this.camera) Reactor3D.Reflections.update(this.renderer, scene, this.camera.position, this.mapScene.reflectionHidden?.());
@@ -4702,6 +4849,12 @@ class MapEditor3D {
         const eventVisible = this.eventGroup ? this.eventGroup.visible : null;
         const gridVisible = this.grid ? this.grid.visible : null;
         const hoverVisible = this.hoverCell ? this.hoverCell.visible : null;
+        // World matrices once for the frame, as the game's viewport takes
+        // them: every draw below (the unlit surfaces, the rest, the star
+        // tiles, the overlay, the lights) recomposed the whole graph again.
+        scene.updateMatrixWorld();
+        const matrixAuto = scene.matrixWorldAutoUpdate;
+        scene.matrixWorldAutoUpdate = false;
         try {
             // Match the tilemap's two canvases. Lower geometry and events share
             // real 3D depth; starred geometry starts with a fresh depth buffer
@@ -4717,13 +4870,13 @@ class MapEditor3D {
             if (modelsInWorld) {
                 this.mapScene.setPass('world');
                 this.renderer.autoClear = true;
-                Reactor3D.renderScene(this.renderer, scene, this.camera);
+                this.renderMainPass(scene);
                 this.renderLightsPass(scene);
                 return;
             }
             this.mapScene.setPass('below');
             this.renderer.autoClear = true;
-            Reactor3D.renderScene(this.renderer, scene, this.camera);
+            this.renderMainPass(scene);
 
             // The above-characters overlay (layer >= 5 video surfaces) is the
             // game's third slot: composited over star tiles and world alike,
@@ -4756,6 +4909,7 @@ class MapEditor3D {
             if (overlay && overlayVisible !== null) overlay.visible = overlayVisible;
             this.renderLightsPass(scene);
         } finally {
+            scene.matrixWorldAutoUpdate = matrixAuto;
             scene.background = background;
             this.renderer.autoClear = autoClear;
             if (this.eventGroup && eventVisible !== null) this.eventGroup.visible = eventVisible;
@@ -4798,6 +4952,62 @@ class MapEditor3D {
      * pools filled and the materials dimmed every frame, and the viewport
      * showed none of it.
      */
+    /**
+     * The map's main pass as the game's viewport draws it (Viewport.render and
+     * renderInto): into a target at the game's render scale, the light and
+     * the lights' haze worked out at a quarter size (Reactor3D.HalfLight,
+     * HalfHaze), then enlarged onto the canvas (Reactor3D.SharpUpscale; at
+     * full scale a plain copy). Without WebGL 2 it draws straight to the
+     * canvas as it did. The later passes (star tiles, overlay, flat lights)
+     * clear depth and draw over it on the canvas as before.
+     */
+    renderMainPass(scene) {
+        const R3 = Reactor3D, renderer = this.renderer;
+        const target = this.mainTarget();
+        if (!target) { R3.renderScene(renderer, scene, this.camera); return; }
+        const haze = R3.HalfHaze ? R3.HalfHaze.take(scene, target, this.camera) : null;
+        const split = R3.HalfLight ? R3.HalfLight.begin(renderer, scene, target) : null;
+        renderer.setRenderTarget(split ? split.albedo : target);
+        try {
+            R3.renderScene(renderer, scene, this.camera);
+            if (split) R3.HalfLight.finish(renderer, scene, target, this.camera, split);
+            if (haze) R3.HalfHaze.draw(renderer, target, this.camera, haze, split);
+        } finally {
+            if (split) R3.HalfLight.restore(split);
+            if (haze) R3.HalfHaze.restore(haze);
+            renderer.setRenderTarget(null);
+        }
+        const size = renderer.getDrawingBufferSize(this._drawSize || (this._drawSize = new THREE.Vector2()));
+        R3.SharpUpscale.draw(renderer, target, null, target.width < size.x ? undefined : 0);
+    }
+
+    /** The main pass's target: the canvas's size at the game's render scale, its depth readable. */
+    mainTarget() {
+        const R3 = Reactor3D;
+        if (!R3.HalfLight || !R3.SharpUpscale || !THREE.DepthTexture) return null;
+        const gl = this.renderer.getContext();
+        if (!(typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext)) return null;
+        const size = this.renderer.getDrawingBufferSize(this._drawSize || (this._drawSize = new THREE.Vector2()));
+        const scale = Math.min(1, Math.max(0.25, R3.renderScale || 1));
+        const width = Math.max(1, Math.round(size.x * scale)), height = Math.max(1, Math.round(size.y * scale));
+        let target = this._mainTarget;
+        if (target && target.width === width && target.height === height) return target;
+        if (target) target.dispose();
+        target = this._mainTarget = new THREE.WebGLRenderTarget(width, height, {
+            depthBuffer: true, stencilBuffer: false, generateMipmaps: false,
+            colorSpace: THREE.SRGBColorSpace, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+            depthTexture: new THREE.DepthTexture(width, height, THREE.UnsignedIntType)
+        });
+        // Encoded in the shader and stored as bytes, as the game's passes are
+        // (Viewport.createTarget), so the enlargement copies what the canvas held.
+        target.isXRRenderTarget = true;
+        target.texture.internalFormat = 'RGBA8';
+        // Allocated now, its depth with it, as the game's are: the unlit target
+        // shares that depth and must find it made.
+        this.renderer.initRenderTarget(target);
+        return target;
+    }
+
     renderLightsPass(scene) {
         const mapScene = this.mapScene;
         if (!mapScene || typeof mapScene.setPass !== 'function') return;
@@ -4860,6 +5070,13 @@ MapEditor3D.startDirection = function(system) {
     const asked = Number(system && system.startDirection);
     return [2, 4, 6, 8].indexOf(asked) >= 0 ? asked : 2;
 };
+
+/** The window-wide input that marks the view for a draw (see `attachInput`). */
+MapEditor3D.INPUT_EVENTS = ['pointerdown', 'pointerup', 'pointermove', 'keydown', 'keyup', 'wheel', 'input', 'change', 'click'];
+/** How often a still view draws anyway: the net under a change nobody announced. */
+MapEditor3D.IDLE_INTERVAL_MS = 1000;
+/** How long the view keeps drawing after a change: a reflection capture's six faces, and a follow-up a frame late. */
+MapEditor3D.ACTIVE_TAIL_MS = 500;
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = MapEditor3D;

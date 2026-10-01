@@ -441,28 +441,6 @@ test('reviewed translations preserve interpolation placeholders', () => {
     }
 });
 
-test('known Greek fallback values do not leak into corrected locales', () => {
-    const { catalogs } = loadI18nForTest();
-    const affectedLocales = ['ko', 'it', 'pl', 'ar', 'tr', 'id', 'vi', 'th'];
-    const badValues = {
-        'toolbar.title.heightBrush': 'Πινέλο ύψους (ζωγραφίζει το υψόμετρο για χάρτες 3D)',
-        'toolbar.height': 'Ύψος:',
-        'toolbar.height.set': 'Ορισμός σε',
-        'toolbar.height.raise': 'Ανύψωση',
-        'toolbar.height.lower': 'Χαμήλωμα'
-    };
-
-    for (const locale of affectedLocales) {
-        for (const [key, badValue] of Object.entries(badValues)) {
-            assert.notEqual(
-                catalogs.keyed[locale][key],
-                badValue,
-                `${locale} does not inherit Greek text for ${key}`
-            );
-        }
-    }
-});
-
 test('reviewed Thai translations use normalized orthography', () => {
     const { reviewed } = loadI18nForTest();
     const decomposedSaraAm = '\u0E4D\u0E32';

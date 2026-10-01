@@ -447,7 +447,12 @@
                 }
                 if (source) {
                     const gl = renderer.gl || (renderer.context && renderer.context.gl);
-                    const max = gl && gl.getParameter ? gl.getParameter(gl.MAX_TEXTURE_SIZE) : 16384;
+                    // A lost context answers every query with null, and a null
+                    // limit made every canvas look oversized: the guard shrank
+                    // it to 1x1 and wiped it. Nothing uploads until the context
+                    // is back, and PIXI uploads every source again then.
+                    if (gl && typeof gl.isContextLost === "function" && gl.isContextLost()) return;
+                    const max = (gl && gl.getParameter && gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 16384;
                     const pw = Number(source.pixelWidth);
                     const ph = Number(source.pixelHeight);
                     const invalid = !isFinite(pw) || !isFinite(ph) || pw < 1 || ph < 1 || pw > max || ph > max;

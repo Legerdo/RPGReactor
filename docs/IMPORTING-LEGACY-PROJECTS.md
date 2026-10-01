@@ -88,7 +88,7 @@ back underneath the new import.
 
 ## Runtime equivalents
 
-Six 2003 commands have no MZ command. The importer emits Script calls to
+Seven 2003 commands have no MZ command. The importer emits Script calls to
 engine methods that the runtime carries for any project:
 
 | 2003 command | Call |
@@ -243,7 +243,11 @@ system, the Customizable Item Menu, the HP colour controller, EXP gauge and
 stat icons, Neon Black's lockpicking and terrain tags, Galv's keypad and item
 sounds, PMM stealth, Vlue's item popup, death common events, Theo's shadows and
 screen shake, Lemony's sound emitter, Kread's event update, Smart Followers,
-Tactics Ogre crafting and Mr Bubble's dismantling; from VX, Woratana's
+Tactics Ogre crafting, Mr Bubble's dismantling, and Dreamwalker's battle and
+menu scripts (Yanfly's Battle Engine with its targeting, command, skill, state,
+steal and Victory Aftermath add-ons, Yami's Classical ATB, Battle Symphony,
+Yanfly's Equip, Save, Status and Shop screens, Galv's music player, instance
+items, equipment levels and durability); from VX, Woratana's
 Multiple Fog, the Skill (Tech) Shop and modern algebra's Editable Actor
 Options. A journal whose quests are data (Nicke's Simple Journal, the CSCA Quest
 System) becomes Reactor's own quests instead: they are in Database › Quests, the game's calls
@@ -313,7 +317,7 @@ working through RR_VxCompat.
 
 ## Media
 
-Every import (2000/2003, XP, VX Ace) finishes by converting what the runtime
+Every import (2000/2003, XP, VX, VX Ace) finishes by converting what the runtime
 cannot play, with the system's FFmpeg or the pinned build the asset optimizer
 downloads:
 

@@ -966,6 +966,8 @@ class EventPageEditor {
     _disposeModelPreview() {
         if (this._modelPreviewRaf) cancelAnimationFrame(this._modelPreviewRaf);
         this._modelPreviewRaf = 0;
+        this._modelPreviewUnwatch?.();
+        this._modelPreviewUnwatch = null;
         if (this._modelPreviewRenderer) {
             this._modelPreviewRenderer.dispose();
             const gl = this._modelPreviewRenderer.getContext && this._modelPreviewRenderer.getContext();
@@ -1052,20 +1054,42 @@ class EventPageEditor {
             this._modelPreviewScene = scene;
             this._modelPreviewCamera = camera;
             this._modelPreviewRenderer = renderer;
+            // The page's model stands still, so it is drawn when something
+            // about the picture changes — its size, the theme behind it, or a
+            // texture decoding after the first draw — and not sixty times a
+            // second. The canvas is measured only when it reports a resize.
+            const textures = ModelPreview3D.collectTextures(template, object);
+            let dirty = true, sizeDirty = true, theme = null, textureVersion = -1;
+            const unwatchSize = ModelPreview3D.watchSize(canvas, () => { sizeDirty = true; });
+            this._modelPreviewUnwatch = unwatchSize;
             const tick = () => {
-                if (gen !== this._modelPreviewGen || !canvas.isConnected || !this._modelPreviewRenderer) return;
-                const rect = canvas.getBoundingClientRect();
-                const width = Math.max(1, Math.round(rect.width));
-                const height = Math.max(1, Math.round(rect.height));
-                const ratio = renderer.getPixelRatio();
-                if (canvas.width !== Math.floor(width * ratio) || canvas.height !== Math.floor(height * ratio)) {
-                    renderer.setSize(width, height, false);
-                    camera.aspect = width / height;
-                    camera.updateProjectionMatrix();
+                if (gen !== this._modelPreviewGen || !canvas.isConnected || !this._modelPreviewRenderer) {
+                    unwatchSize?.();
+                    return;
                 }
-                Reactor3D.aimCamera(camera, { x: -0.5, y: 0, z: -0.5 }, { yaw: 0, pitch: 12, distance: 2.4 });
-                ModelPreview3D.updateBackground(scene);
-                Reactor3D.renderScene(renderer, scene, camera);
+                if (sizeDirty || !unwatchSize) {
+                    sizeDirty = false;
+                    const rect = canvas.getBoundingClientRect();
+                    const width = Math.max(1, Math.round(rect.width));
+                    const height = Math.max(1, Math.round(rect.height));
+                    const ratio = renderer.getPixelRatio();
+                    if (canvas.width !== Math.floor(width * ratio) || canvas.height !== Math.floor(height * ratio)) {
+                        renderer.setSize(width, height, false);
+                        camera.aspect = width / height;
+                        camera.updateProjectionMatrix();
+                        dirty = true;
+                    }
+                }
+                const nextTheme = ModelPreview3D.themeKey();
+                if (nextTheme !== theme) { theme = nextTheme; dirty = true; }
+                const nextVersion = ModelPreview3D.textureVersionSum(textures);
+                if (nextVersion !== textureVersion) { textureVersion = nextVersion; dirty = true; }
+                if (dirty) {
+                    dirty = false;
+                    Reactor3D.aimCamera(camera, { x: -0.5, y: 0, z: -0.5 }, { yaw: 0, pitch: 12, distance: 2.4 });
+                    ModelPreview3D.updateBackground(scene);
+                    Reactor3D.renderScene(renderer, scene, camera);
+                }
                 this._modelPreviewRaf = requestAnimationFrame(tick);
             };
             this._modelPreviewRaf = requestAnimationFrame(tick);

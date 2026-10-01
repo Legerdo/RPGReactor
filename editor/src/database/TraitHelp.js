@@ -7,8 +7,8 @@
  * than to a product. Those are the things an author actually has to know, and
  * until now the only place they were written down was the engine source.
  *
- * Every sentence here describes what `runtime/reactor_objects.js` really does,
- * checked against it rather than against RPG Maker's documentation - the two
+ * Every sentence here describes what `runtime/reactor_objects*.js` really do,
+ * checked against them rather than against RPG Maker's documentation - the two
  * disagree in a few places, and the runtime wins.
  *
  * Rows carry their sentence as hover help (see utils/HoverHelp.js). Dropdown

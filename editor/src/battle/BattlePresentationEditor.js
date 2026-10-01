@@ -494,6 +494,11 @@ class BattlePresentationEditor {
             for(const [type,fn] of [['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',up],['lostpointercapture',up]])canvas.addEventListener(type,fn);
             stopPlacement=()=>{for(const [type,fn] of [['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',up],['lostpointercapture',up]])canvas.removeEventListener(type,fn);canvas.style.cursor='';};
             const clock={};
+            // The canvas's CSS width sets the marker size; it is read when the
+            // canvas reports a resize, not every frame (a forced layout each time).
+            let cssWidth=Math.max(1,canvas.clientWidth);
+            const sizeObserver=typeof ResizeObserver!=='undefined'?new ResizeObserver(()=>{cssWidth=Math.max(1,canvas.clientWidth);}):null;
+            sizeObserver?.observe(canvas);const stopMarkers=stopPlacement;stopPlacement=()=>{sizeObserver?.disconnect();stopMarkers();};
             const draw=(now=performance.now())=>{if(!current()){cleanup();return;}
                 const steps=this.roomFrameSteps(clock,now);
                 // The setup dialog owns the visible renderer while open.
@@ -504,7 +509,7 @@ class BattlePresentationEditor {
                     ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(view.renderer.domElement,0,0,canvas.width,canvas.height);
                     for(let i=0;i<troopEditor.currentTroop.members.length;i++){
                         const p=view.project(ReactorBattleData.position(settings,'enemies',i));if(!p.visible)continue;
-                        const scale=canvas.width/Math.max(1,canvas.clientWidth);ctx.fillStyle=i===troopEditor.selectedMemberIndex?'#ffcc33':'#ff6680';ctx.beginPath();ctx.arc(p.x,p.y,5*scale,0,Math.PI*2);ctx.fill();ctx.font=(12*scale)+'px sans-serif';ctx.fillText('E'+(i+1),p.x+9*scale,p.y+4*scale);
+                        const scale=canvas.width/(sizeObserver?cssWidth:Math.max(1,canvas.clientWidth));ctx.fillStyle=i===troopEditor.selectedMemberIndex?'#ffcc33':'#ff6680';ctx.beginPath();ctx.arc(p.x,p.y,5*scale,0,Math.PI*2);ctx.fill();ctx.font=(12*scale)+'px sans-serif';ctx.fillText('E'+(i+1),p.x+9*scale,p.y+4*scale);
                     }
                     if(troopEditor.showBattleUI){const setup=troopEditor.battleUISetup||troopEditor.refreshBattleUISetup();if(setup)troopEditor.drawBattleUIOverlay(ctx,setup);}
                 }
@@ -616,10 +621,15 @@ class BattlePresentationEditor {
             const endDrag=()=>{cameraDrag=null;if(!dragging)return;dragging=false;view.cameraFollowFrozen=false;view.cameraFollowResume=true;drawInspector();};
             overlay.onpointerup=endDrag;overlay.onpointercancel=endDrag;overlay.onlostpointercapture=endDrag;
             const clock={};
+            // The stage is measured when it reports a resize rather than every frame.
+            let stageSize=null;
+            const stageObserver=typeof ResizeObserver!=='undefined'?new ResizeObserver(()=>{stageSize=null;}):null;
+            stageObserver?.observe(stage);const stopDialogNavigation=stopNavigation;stopNavigation=()=>{stageObserver?.disconnect();stopDialogNavigation();};
             const draw=(now=performance.now())=>{if(!modal.isConnected){cleanup();return;}
                 const steps=this.roomFrameSteps(clock,now);
                 if(!steps){raf=requestAnimationFrame(draw);return;}
-                const width=Math.max(1,stage.clientWidth),height=Math.max(1,stage.clientHeight);
+                if(!stageSize||!stageObserver)stageSize={width:Math.max(1,stage.clientWidth),height:Math.max(1,stage.clientHeight)};
+                const {width,height}=stageSize;
                 if(view.width!==width||view.height!==height){view.resize(width,height);overlay.width=width;overlay.height=height;}
                 navigation.stepFly(now);this.drawRoomCast(view,draft,cast);
                 for(let step=0;step<steps;step++)view.render();

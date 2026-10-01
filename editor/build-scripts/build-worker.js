@@ -164,8 +164,9 @@ function copyDirRecursive(src, dest) {
 
 function validateProjectRuntime(root) {
     const required = [
-        'reactor_main.js', 'reactor_json.js', 'reactor_core.js', 'reactor_3d.js', 'reactor_3d_lighting.js', 'reactor_3d_models.js', 'reactor_3d_effects.js', 'reactor_3d_world.js', 'reactor_3d_speech.js', 'reactor_managers.js',
-        'reactor_objects.js', 'reactor_scenes.js', 'reactor_sprites.js', 'reactor_picture_extensions.js', 'reactor_screen_fx.js',
+        'reactor_main.js', 'reactor_json.js', 'reactor_core.js', 'reactor_core_display.js', 'reactor_core_io.js', 'reactor_3d.js', 'reactor_3d_lighting.js', 'reactor_3d_models.js', 'reactor_3d_effects.js', 'reactor_3d_world.js', 'reactor_3d_speech.js', 'reactor_managers.js',
+        'reactor_objects.js', 'reactor_objects_actions.js', 'reactor_objects_battlers.js', 'reactor_objects_map.js', 'reactor_objects_interpreter.js', 'reactor_objects_legacy.js',
+        'reactor_scenes.js', 'reactor_sprites.js', 'reactor_picture_extensions.js', 'reactor_screen_fx.js',
         'reactor_media_surfaces.js', 'reactor_quests.js', 'reactor_controls.js', 'reactor_physics.js', 'reactor_rig_motions.js',
             'reactor_battle_data.js', 'reactor_battle_room.js', 'reactor_battle_presentation.js', 'reactor_battle_events.js',
         'reactor_windows.js', 'reactor_ui.js', 'reactor_mv_compat.js', 'reactor_plugins.js',

@@ -4,6 +4,7 @@
 // parallax grounds through it, stands characters on it, and refuses a step
 // steeper than the slope limit.
 const { source3D } = require('./helpers/runtime-3d-source.cjs');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -93,7 +94,7 @@ test('every ground surface and every stander goes through the terrain', () => {
     assert.equal((runtime.match(/Reactor3D\.characterGround\(/g) || []).length, 3, 'both model placements, and the cutaway (one helper for the player and each of the company)');
     assert.match(runtime, /Reactor3D\.viewGroundAt\(\$dataMap, x \+ 0\.5, y \+ 0\.5, near\)/, 'the camera module, which never looks at a wall stack\'s top');
     assert.match(read('runtime/reactor_sprites.js'), /Reactor3D\.viewGroundAt\(\$dataMap, focus\.x \+ 0\.5, focus\.y \+ 0\.5, near\)/);
-    const objects = read('runtime/reactor_objects.js');
+    const objects = runtimeSource('reactor_objects.js');
     assert.match(objects, /const ground = Reactor3D\.characterGround\(\$dataMap, this\);/);
     assert.match(objects, /Reactor3D\.terrainBlocks\(\$dataMap, x, y, x2, y2, this\._reactorGround\)\) return false;/);
     const editor3d = read('editor/src/MapEditor3D.js');

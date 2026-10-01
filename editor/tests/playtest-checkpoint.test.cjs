@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -7,7 +8,7 @@ const vm = require('node:vm');
 const repoRoot = path.resolve(__dirname, '..', '..');
 const managers = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_managers.js'), 'utf8');
 const scenes = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_scenes.js'), 'utf8');
-const core = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_core.js'), 'utf8');
+const core = runtimeSource('reactor_core.js');
 
 function loadCheckpointApi({ test = true, allDead = false, mapId = 3, saveOk = true } = {}) {
     const start = managers.indexOf('DataManager.PLAYTEST_CHECKPOINT_ID = 99;');

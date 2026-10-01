@@ -1,4 +1,5 @@
 const { source3D } = require('./helpers/runtime-3d-source.cjs');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -711,7 +712,7 @@ test('culled character sprites keep updating, three gets a clean unpack state, a
 });
 
 test('priority 3 draws above the tile layers yet y-sorts against characters in front of it', () => {
-    const objects = fs.readFileSync(path.join(editorRoot, '..', 'runtime', 'reactor_objects.js'), 'utf8');
+    const objects = runtimeSource('reactor_objects.js');
     const sprites = fs.readFileSync(path.join(editorRoot, '..', 'runtime', 'reactor_sprites.js'), 'utf8');
     assert.match(objects, /if \(this\._priorityType === 3\) return 5;\n\s+return this\._priorityType \* 2 \+ 1;/, 'the above layer, not MZ\'s z 7');
     assert.match(objects, /Game_CharacterBase\.prototype\.isSortedAbovePriority = function\(\) \{\n\s+return this\._priorityType === 3;/);

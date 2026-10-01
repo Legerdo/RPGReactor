@@ -99,7 +99,21 @@ test('projected error tightens with camera approach and respects shear; mutable 
     uv.needsUpdate = true; assert.equal(R.GeometryDetail.fresh(uvState), false);
     const state = { source: g, signature: R.GeometryDetail.signature(g), dead: false };
     g.attributes.position.needsUpdate = true; assert.equal(R.GeometryDetail.fresh(state), false);
-    mesh.isSkinnedMesh = true; assert.equal(R.GeometryDetail.eligible(mesh), false); mesh.isSkinnedMesh = false;
+    // A skinned body qualifies (index only; its weights guide the simplifier)
+    // unless switched off or opted out; with no placed instance to measure it
+    // from, it is drawn at full detail.
+    mesh.isSkinnedMesh = true;
+    g.setAttribute('skinIndex', new T.BufferAttribute(new Uint16Array(12), 4)); g.setAttribute('skinWeight', new T.Float32BufferAttribute(new Float32Array(12), 4));
+    assert.equal(R.GeometryDetail.eligible(mesh), true);
+    R.GeometryDetail.skinned = false; assert.equal(R.GeometryDetail.eligible(mesh), false); R.GeometryDetail.skinned = true;
+    mesh.userData.rrNoDetail = true; assert.equal(R.GeometryDetail.eligible(mesh), false); delete mesh.userData.rrNoDetail;
+    assert.equal(R.GeometryDetail.pixelsPerUnit(mesh, c, 1080), Infinity);
+    const holder = new T.Group(); holder.userData.glbSize = { x: 1, y: 2, z: 1 }; holder.add(mesh); holder.position.z = -20; holder.updateMatrixWorld(true);
+    c.position.set(0, 1, 0); c.updateMatrixWorld();
+    const far = R.GeometryDetail.pixelsPerUnit(mesh, c, 1080); holder.position.z = -5; holder.updateMatrixWorld(true);
+    assert.ok(Number.isFinite(far) && R.GeometryDetail.pixelsPerUnit(mesh, c, 1080) > far * 3, 'measured from where the instance stands');
+    holder.userData.rrNoCull = true; assert.equal(R.GeometryDetail.pixelsPerUnit(mesh, c, 1080), Infinity, 'a ragdoll keeps full detail');
+    holder.remove(mesh); mesh.isSkinnedMesh = false; g.deleteAttribute('skinIndex'); g.deleteAttribute('skinWeight'); c.position.set(0, 0, 0); mesh.updateMatrixWorld(true);
     c.position.z = 100; c.updateMatrixWorld(); const distant = R.GeometryDetail.pixelsPerUnit(mesh, c, 1080);
     c.position.z = 10; c.updateMatrixWorld(); assert.ok(R.GeometryDetail.pixelsPerUnit(mesh, c, 1080) > distant * 9);
     const matrix = new T.Matrix4().makeShear(2, 3, -1, .5, -.2, 1.3);
@@ -168,4 +182,28 @@ test('all shadow passes, including rigid dynamic casters, see original geometry'
         assert.throws(() => R.Shadows._flush(), /shadow interrupted/);
         assert.equal(mesh.geometry, reduced);
     } finally { D._active = active; }
+});
+test('a shadow face draws each caster at the coarsest level under half a texel from the light, and gives it back', () => {
+    const D = R.GeometryDetail;
+    const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute([0,0,0,1,0,0,0,1,0], 3));
+    g.setIndex(new T.BufferAttribute(new Uint32Array(100002), 1)); g.computeBoundingSphere();
+    const m = new T.MeshBasicMaterial(); m.__reactorModel = true;
+    const mesh = new T.Mesh(g, m), root = new T.Group(); root.add(mesh);
+    const fine = new T.BufferGeometry(), coarse = new T.BufferGeometry();
+    const state = { source: g, signature: D.signature(g), levels: [{ geometry: fine, error: 0.001 }, { geometry: coarse, error: 0.01 }], id: 1, dead: false };
+    const saved = D._states.get(g); D._states.set(g, state);
+    const savedWorker = global.Worker; global.Worker = global.Worker || function () {};
+    try {
+        root.position.set(0, 0, 0); root.updateMatrixWorld(true);
+        const near = D.forShadow([root], new T.Vector3(0, 0, 2), 256, 0.05);
+        assert.equal(mesh.geometry, fine, 'close to the light: only the finer level is under half a texel');
+        D.end(near); assert.equal(mesh.geometry, g, 'given back after the face');
+        const far = D.forShadow([root], new T.Vector3(0, 0, 400), 256, 0.05);
+        assert.equal(mesh.geometry, coarse, 'far from the light: the coarsest');
+        D.end(far);
+        const touching = D.forShadow([root], new T.Vector3(0, 0, 0.2), 256, 0.05);
+        assert.equal(mesh.geometry, g, 'too close for either: full detail');
+        D.end(touching);
+        D.SHADOW_TEXEL_ERROR = 0; assert.deepEqual(D.forShadow([root], new T.Vector3(0, 0, 400), 256, 0.05), [], 'the kill switch');
+    } finally { D.SHADOW_TEXEL_ERROR = 0.5; if (saved) D._states.set(g, saved); else D._states.delete(g); global.Worker = savedWorker; }
 });

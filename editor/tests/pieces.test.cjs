@@ -2,6 +2,7 @@
 // turns, wearing a material; the runtime stands characters on their tops
 // and blocks what cannot be stepped onto through the terrain's rise rule.
 const { source3D } = require('./helpers/runtime-3d-source.cjs');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -139,7 +140,7 @@ test('the runtime stands on piece tops, climbs stairs, and blocks what is too ta
     assert.equal(R.groundHeightAt(doors, 1.5, 1.5, 5.1), 5, 'an upstairs doorway is its own threshold, level with the floor beside it');
     assert.equal(R.terrainBlocks(doors, 2, 1, 1, 1, 5.1), false, 'walked through from the upper floor');
     // The game keeps the height on the character and forgets it on locate.
-    const objects = read('runtime/reactor_objects.js');
+    const objects = runtimeSource('reactor_objects.js');
     assert.match(objects, /Reactor3D\.terrainBlocks\(\$dataMap, x, y, x2, y2, this\._reactorGround\)/);
     assert.match(objects, /Game_CharacterBase\.prototype\.locate = function\(x, y\) \{[\s\S]{0,200}this\._reactorGround = undefined;/);
     assert.match(objects, /this\._reactorGround = character\._reactorGround;/, 'a follower copying the leader copies the floor');

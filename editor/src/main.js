@@ -50,8 +50,12 @@ class RPGReactor {
         // Set application icon for taskbar/dock (important for Linux)
         this.setApplicationIcon();
 
-        // Initialize performance profiler
-        window.perfProfiler = new PerformanceProfiler();
+        // The method profiler wraps the tile renderers and the map editor's
+        // paint calls, so every tile drawn pays for a timing call and a
+        // counter. It is a diagnostic: switched on only when asked for, with
+        // localStorage 'rr.perfProfiler' set to '1' or RR_PERF_PROFILER in
+        // the environment, and every wrap site already checks it exists.
+        if (RPGReactor.perfProfilerRequested()) window.perfProfiler = new PerformanceProfiler();
 
         // Wait for DOM to be ready
         if (document.readyState === 'loading') {
@@ -104,13 +108,21 @@ class RPGReactor {
         this.sidebarResizer = new SidebarResizer();
         this.sidebarResizer.initialize();
 
-        // Keep sidebar layout correct on window resize and scale toolbar icons
+        // Keep sidebar layout correct on window resize and scale toolbar icons.
+        // A window drag fires resize many times a frame; each pass re-reads
+        // the saved sidebar sizes and forces layout to measure the toolbar,
+        // so the work waits for the next frame and runs once there. A resize
+        // that left the width alone cannot change what fits on the toolbar.
         window.addEventListener('resize', () => {
-            if (this.sidebarResizer) {
-                this.sidebarResizer.refresh();
-            }
-            this.resetSidebarScroll();
-            this.scaleToolbarIcons();
+            if (this._resizeFrame) return;
+            this._resizeFrame = requestAnimationFrame(() => {
+                this._resizeFrame = null;
+                if (this.sidebarResizer) {
+                    this.sidebarResizer.refresh();
+                }
+                this.resetSidebarScroll();
+                if (window.innerWidth !== this._toolbarScaledWidth) this.scaleToolbarIcons();
+            });
         });
         // The bar's natural width also moves when its labels change: a language
         // switch rewrites them, and the web font that sets them arrives after
@@ -397,9 +409,6 @@ class RPGReactor {
         this.mediaSurfaceManager = new MediaSurfaceManager(this.projectController, this.databaseManager);
         this.projectController.mediaSurfaceManager = this.mediaSurfaceManager;
         this.mediaSurfacePreviewManager.setEnabled(this.optionsManager.getShowVideoPreviews());
-        // The height brush's controls only mean anything while it is on, so
-        // they are bound once here and shown with it.
-
         document.getElementById('map-3d-view')?.addEventListener('change', async (event) => {
             const active = await this.applyMap3DViewPreference(event.currentTarget.checked);
             // Ticked or unticked by hand: that is the map's preference from now on.
@@ -1099,6 +1108,17 @@ class RPGReactor {
         setTimeout(resetAll, 50);
     }
 
+    static perfProfilerRequested() {
+        try {
+            if (typeof localStorage !== 'undefined' && localStorage.getItem('rr.perfProfiler') === '1') return true;
+        } catch (_) { /* storage unavailable */ }
+        try {
+            return typeof process !== 'undefined' && !!process.env && process.env.RR_PERF_PROFILER === '1';
+        } catch (_) {
+            return false;
+        }
+    }
+
     // Scale toolbar icons to fit available width.
     // At full size: 32px icons. Shrinks proportionally when the window is narrow.
     scaleToolbarIcons() {
@@ -1106,6 +1126,7 @@ class RPGReactor {
         if (!toolbar || toolbar.style.display === 'none') return;
         const last = toolbar.lastElementChild;
         if (!last) return;
+        this._toolbarScaledWidth = window.innerWidth;
 
         const maxSize = 32;
         const minSize = 16;

@@ -1,6 +1,7 @@
 // A web build carries an index of its files so the runtime can correct filename
 // casing in a browser, where no directory can be read.
 const assert = require('node:assert/strict');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -11,7 +12,7 @@ const { INDEX_PATH, listFiles, writeWebFileIndex } = require(path.join(repoRoot,
 
 /** The runtime's index helpers, lifted from the source onto a bare Utils object. */
 function runtimeUtils() {
-    const source = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_core.js'), 'utf8');
+    const source = runtimeSource('reactor_core.js');
     const lift = name => {
         const at = source.indexOf(`Utils.${name} = function(`);
         assert.ok(at >= 0, `${name} is in the runtime`);

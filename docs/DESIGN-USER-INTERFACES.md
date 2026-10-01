@@ -48,7 +48,7 @@ grid and snap-to-grid.
 
 **6. Data binding is declarative and typed.** Text retains stock and
 plugin-added escape codes. Lists use fixed row sources rather than arbitrary
-queries, and actor-aware nodes use one of five explicit actor binding modes.
+queries, and actor-aware nodes use one of six explicit actor binding modes.
 Scripts and common events remain the escape hatch for project-specific logic.
 
 ## Node set
@@ -126,7 +126,8 @@ binding modes:
 - fixed database actor ID;
 - current menu actor;
 - actor ID read from a game variable;
-- actor selected in a named List context.
+- actor selected in a named List context;
+- actor being named (Name Input; the menu actor elsewhere).
 
 Actor text tokens cover identity and profile (`{actor.name}`,
 `{actor.nickname}`, `{actor.class}`, `{actor.level}`, `{actor.profile}`), current
@@ -367,10 +368,10 @@ with wraparound; per-control Up/Down/Left/Right targets override it when the
 target is a visible focusable control, and invalid targets safely fall back to
 geometry.
 
-Scene interfaces support `none`, `fade`, and `slide-left` opening and closing
+Scene interfaces support `none`, `fade`, `slideLeft`, and `slideUp` opening and closing
 transitions over an authored duration. Input remains locked while opening, and
 the close action completes only after its transition. Overlay visibility can
-fade; slide motion is not applied to map overlays.
+fade or slide in by 96 px.
 
 ## Editor and capture
 
@@ -428,7 +429,7 @@ plugin-owned scene trees remains unresolved.
 
 ## Generated baselines and opt-in replacement
 
-A project that has no `data/UserInterfaces.json` is offered twelve generated,
+A project that has no `data/UserInterfaces.json` is offered thirteen generated,
 editable records with stable IDs. New kinds append rather than renumbering old
 ones, and **Stock Layout** in the Layers panel replaces any record's layers
 with one of them (undoable):

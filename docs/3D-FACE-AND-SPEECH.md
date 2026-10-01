@@ -1,8 +1,7 @@
 # Model face points, speech and prop playback
 
-Updated in development runtime **20260906.3**. Restart the editor/playtest to
-load updated scripts; existing projects receive runtime updates through the
-normal project runtime sync.
+Existing projects receive runtime updates through the normal project runtime
+sync.
 
 ## First-person characters
 
@@ -109,7 +108,7 @@ return. Playback pauses across reconstruction; completed one-shot animations
 and explicit stops stay stopped. The 2D model sprites use the same action,
 repeat and timed-effect driver as the 3D scene.
 
-The map's **Props** panel includes **Animation speed (%)**: 100 is normal,
+A placed model's **Playback** card (Build bar › Models) includes **Speed (%)**: 100 is normal,
 50 is half speed, 200 is double. Values range from 1 to 1000. Speed belongs to
 the placement, so it does not change the model's shared animation definition.
 Use **Set Model Animation Speed** to select a map prop and change its speed

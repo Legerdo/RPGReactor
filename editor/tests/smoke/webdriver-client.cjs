@@ -45,7 +45,10 @@ class WebDriverClient {
         this.driverPath = driverPath;
         this.host = options.host || '127.0.0.1';
         this.port = options.port || null;
-        this.env = options.env || process.env;
+        // The sound mixer remembers a mute per program name, and NW.js says
+        // "Chromium": a harness muted there muted every Chromium browser on
+        // the desktop afterwards. Harness windows go by a name of their own.
+        this.env = Object.assign({ PULSE_PROP_OVERRIDE: "application.name='RPG Reactor harness'" }, options.env || process.env);
         this.driverArgs = options.driverArgs || [];
         this.process = null;
         this.sessionId = null;
@@ -124,12 +127,14 @@ class WebDriverClient {
      * flag is given, so any smoke that draws a map died on the runner while
      * passing on every desktop. With a GPU the flag changes nothing.
      * `RR_NW_ARGS` adds more, space separated, for emulating such a runner
-     * (`--disable-gpu`) or trying a flag without editing a smoke.
+     * (`--disable-gpu`) or trying a flag without editing a smoke. Sessions
+     * are silent (`--mute-audio`) unless `RR_NW_AUDIO=1`: playback still
+     * runs, nothing reaches the speakers.
      */
     async createSession(alwaysMatch) {
         const options = alwaysMatch && alwaysMatch['goog:chromeOptions'];
         if (options && Array.isArray(options.args)) {
-            const extra = ['--enable-unsafe-swiftshader', ...String(process.env.RR_NW_ARGS || '').split(/\s+/).filter(Boolean)];
+            const extra = ['--enable-unsafe-swiftshader', ...(process.env.RR_NW_AUDIO === '1' ? [] : ['--mute-audio']), ...String(process.env.RR_NW_ARGS || '').split(/\s+/).filter(Boolean)];
             for (const flag of extra) if (!options.args.includes(flag)) options.args.push(flag);
         }
         const result = await this.request('POST', '/session', {

@@ -2,7 +2,8 @@
 class ActionSequencePreview {
     constructor(editor) {
         this.editor=editor;this.mode='step';this.selection='user';this.tool='move';this.placements={};this.distance=14;this.hold=null;
-        this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(editor.canvas);
+        // A resize clears the canvas, and a paused preview is painted only on request.
+        this.observer=new ResizeObserver(()=>{this.resize();this.editor.invalidatePreview?.();});this.observer.observe(editor.canvas);
         this.bindPointer();
     }
     disposeGizmos(){if(this.rings)RRPoseRings3D.dispose(this.rings);if(this.arrows)RRAxisArrows3D.dispose(this.arrows);this.rings=this.arrows=null;this.hold=null;}

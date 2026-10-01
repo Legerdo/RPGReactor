@@ -2,6 +2,7 @@
 // lives in the compatibility layer as additive shims: a stock game must
 // see stock behaviour, and the game that needs them must get each one.
 const assert = require('node:assert/strict');
+const { runtimeSource } = require('./helpers/runtime-source.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -9,7 +10,7 @@ const vm = require('node:vm');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const compat = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_mv_compat.js'), 'utf8');
-const objects = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_objects.js'), 'utf8');
+const objects = runtimeSource('reactor_objects.js');
 // Values built inside the sandbox carry another realm's prototypes; compare their shape.
 const plain = value => JSON.parse(JSON.stringify(value));
 

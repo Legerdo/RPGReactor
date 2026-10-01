@@ -817,7 +817,7 @@ void main() {
     };
 
     // A loaded save or a re-entered map scene brings the map data back as authored: re-apply the
-    // 2000/2003 tile substitutions $gameMap keeps (Game_Map.rrTileSubstitute, reactor_objects.js).
+    // 2000/2003 tile substitutions $gameMap keeps (Game_Map.rrTileSubstitute, reactor_objects_legacy.js).
     // RPG Maker 2000/2003 Erase Screen lasts through teleports but not through another scene: handing the map
     // to the save screen, the menu or a shop shows it again (EasyRPG's Scene_Map::TransitionOut clears
     // screen_erased_by_event for all but battle and debug). Deep 8 erases the screen for its menu map and

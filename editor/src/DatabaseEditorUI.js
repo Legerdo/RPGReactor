@@ -1078,11 +1078,25 @@ class DatabaseEditorUI {
         };
         listEl.parentNode.appendChild(changeMaxBtn);
 
-        searchInput.addEventListener('input', event => {
-            populateList(event.target.value, false, { resetSelection: true });
+        // Filtering rebuilds the list and clears the detail pane, so it waits
+        // for a pause in typing: a keystroke each on a 2,000-entry list used
+        // to rebuild it once per letter. Enter filters at once.
+        let searchTimer = null;
+        const runSearch = () => {
+            clearTimeout(searchTimer);
+            searchTimer = null;
+            if (this._activeDatabaseList !== listSession) return;
+            populateList(searchInput.value, false, { resetSelection: true });
             listEl.scrollTop = 0;
             this.cleanupDatabaseDetail();
             detailEl.innerHTML = this._selectEntryMarkup();
+        };
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(runSearch, 150);
+        });
+        searchInput.addEventListener('keydown', event => {
+            if (event.key === 'Enter' && searchTimer !== null) runSearch();
         });
 
         if (this._listKeyHandler) document.removeEventListener('keydown', this._listKeyHandler);

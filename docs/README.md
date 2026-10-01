@@ -16,9 +16,10 @@ Guides for authoring with the engine, the current verified state, and maintainer
 - [Media surfaces](MEDIA-SURFACES.md): image and video placement on maps, models and the screen; transforms and proportions.
 - [Custom user interfaces](DESIGN-USER-INTERFACES.md): the User Interfaces database section, its node set, actor bindings, opt-in stock-scene replacement and explicit boundaries.
 - [Building 3D worlds from 2D tilesets](DESIGN-3D-WORLDS.md): the tileset-class, facing and per-face model behind HD-2D maps, with the phasing table marked to what shipped.
+- [Reactor plugin API](DESIGN-PLUGIN-API.md): proposal for `@target Reactor` headers, named and ordered hooks in place of raw aliasing, and a plugin reference generated from the runtime. Not built yet.
 - [Runtime events](RUNTIME-EVENTS.md): the `ReactorEvents` feed a plugin can observe instead of wrapping battle methods; the test holds the page to the source.
 - [Performance checks](PERFORMANCE.md): reproducible CPU/GPU profiling and image comparisons, with measured results per pass.
-- [Importing an RPG Maker 2000/2003 project](IMPORTING-LEGACY-PROJECTS.md): the report, the import, what converts exactly, what the MZ format cannot hold, and what is still to come.
+- [Importing older RPG Maker projects](IMPORTING-LEGACY-PROJECTS.md): RPG Maker 2000, 2003, XP, VX and VX Ace games into a new project; the report, the import, what converts exactly, what the MZ format cannot hold, and what is still to come.
 - [Demo: assets not on disk](demo-missing-se.md): art the bundled Demo references but does not ship, kept current while originals are authored.
 
 ## Maintainers
@@ -29,7 +30,7 @@ Guides for authoring with the engine, the current verified state, and maintainer
 ## Release history
 
 - [posts/](posts/): release notes and itch devlogs per release, 0.98.5 onward.
-- [devlogs/](devlogs/): the longer story of each release, 0.94.1 onward, plus mid-cycle notes such as [3D objects on the map](devlogs/2026-08-02-3d-objects-on-the-map.md) and [Build in the world](devlogs/2026-09-20-build-in-the-world.md).
+- [devlogs/](devlogs/): longer release stories, 0.94.1 onward, plus mid-cycle notes such as [3D objects on the map](devlogs/2026-08-02-3d-objects-on-the-map.md) and [Build in the world](devlogs/2026-09-20-build-in-the-world.md).
 
 Devlogs, posts and released changelog sections describe their named release and keep their historical counts; use the status and guide pages for current defaults.
 

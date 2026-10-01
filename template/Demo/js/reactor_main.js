@@ -1,10 +1,10 @@
 //=============================================================================
 // reactor_main.js — RPG Reactor runtime entry point
 // RPG Reactor runtime version: 0.98.9
-// RPG Reactor runtime revision: 20260928.9
+// RPG Reactor runtime revision: 20260930.12
 // The same stamp, reachable from the F12 console: which engine is this
 // window actually running? Type RPG_REACTOR_RUNTIME_REVISION to see.
-globalThis.RPG_REACTOR_RUNTIME_REVISION = "20260928.9";
+globalThis.RPG_REACTOR_RUNTIME_REVISION = "20260930.12";
 //=============================================================================
 
 const scriptUrls = [
@@ -17,6 +17,8 @@ const scriptUrls = [
     "js/libs/vorbisdecoder.js",
     "js/reactor_json.js",
     "js/reactor_core.js",
+    "js/reactor_core_display.js",
+    "js/reactor_core_io.js",
     // Small; declares the namespace and reads map mode. three.js itself is
     // ~2 MB and loads on demand from Reactor3D.ensureLoaded(), so a project
     // with no 3D maps never downloads it.
@@ -31,6 +33,11 @@ const scriptUrls = [
     "js/reactor_battle_room.js",
     "js/reactor_managers.js",
     "js/reactor_objects.js",
+    "js/reactor_objects_actions.js",
+    "js/reactor_objects_battlers.js",
+    "js/reactor_objects_map.js",
+    "js/reactor_objects_interpreter.js",
+    "js/reactor_objects_legacy.js",
     "js/reactor_scenes.js",
     "js/reactor_sprites.js",
     "js/reactor_picture_extensions.js",

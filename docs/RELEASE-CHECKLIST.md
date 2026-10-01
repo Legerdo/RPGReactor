@@ -139,7 +139,7 @@ node editor/build-scripts/sync-runtime.cjs --check
 ```
 
 Run the real editor smokes with matching browser and SDK drivers before the
-candidate is cut. CI performs persistence and interaction-order checks in its `gui-smokes` job;
+candidate is cut. CI performs persistence, interaction-order, keyboard-navigation and event double-click checks in its `gui-smokes` job;
 the UI-layout smoke remains a local release gate:
 
 ```bash
@@ -155,8 +155,9 @@ smoke launches the actual editor and verifies a native project save without
 initializing map rendering. The read-only NW.js UI smoke opens the tracked Demo
 without saving, verifies the closed contained Inspector drawer at 1280x720, and
 checks the three-column layouts at 1600x900, 1920x1080, and 2560x1440. The first
-two smokes and `smoke:nw-interactions` run in CI's `gui-smokes` job; the latter
-checks rapid navigation, keyboard ownership, retired dialogs and delayed map
+two smokes and `smoke:nw-interactions` run in CI's `gui-smokes` job with
+`smoke:nw-keyboard`, `smoke:nw-menus` and `smoke:nw-event-double-click`;
+`smoke:nw-interactions` checks rapid navigation, keyboard ownership, retired dialogs and delayed map
 loads using a disposable project, with replayable seeds and failure artifacts.
 `smoke:nw-ui` is currently a local
 release gate.
@@ -222,13 +223,16 @@ node editor/build-scripts/cut-release.cjs 0.98.9 --dry-run
 node editor/build-scripts/cut-release.cjs 0.98.9
 ```
 
-The second command runs the full test suite again, dates both changelog
+The second command stops if GitHub's `main` has commits the checkout lacks,
+runs CI's syntax check and the full test suite again, dates both changelog
 files for the version and their index lines, updates the package version and root README release link/count
 sentence, creates a release commit when needed, creates `v0.98.9`, and pushes
 the branch and tag. The editor README, status page, other version prose, and
 validation dates are not automatically refreshed; review those before cutting
 the release. The tag starts **Publish Release**, which publishes
-the source release from `changelog/<version>.md`. Wait for that run
+the source release from `changelog/<version>.md` (with `GITHUB_TOKEN` or
+`GH_TOKEN` set, `cut-release.cjs` publishes it first and the workflow updates
+its notes). Wait for that run
 and verify the tag before starting signed builds:
 
 ```bash

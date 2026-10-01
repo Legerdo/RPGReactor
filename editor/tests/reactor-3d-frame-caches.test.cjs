@@ -188,6 +188,6 @@ test('number-array uniforms are sent once per program until their values change;
     assert.equal(sent.filter(([id]) => id === 'rrLightPos').length, 5);
     R.uniformArrayCache = true;
     const source = require('./helpers/runtime-3d-source.cjs').source3D();
-    assert.match(source, /Reactor3D\.renderScene = function\(renderer, scene, camera\) \{\n\s+if \(this\.cacheUniformArrays\) this\.cacheUniformArrays\(renderer\);/, 'every colour draw takes new programs in');
+    assert.match(source, /Reactor3D\._renderScene = function\(renderer, scene, camera\) \{\n\s+if \(this\.cacheUniformArrays\) this\.cacheUniformArrays\(renderer\);/, 'every colour draw takes new programs in');
     assert.match(require('node:fs').readFileSync(require('node:path').resolve(__dirname, '..', '..', 'runtime/reactor_battle_room.js'), 'utf8'), /R\.cacheUniformArrays\?\.\(this\.renderer\);\n\s+this\.renderer\.render\(this\.scene,this\.camera\);/, 'and the battle room\'s');
 });
