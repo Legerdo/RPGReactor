@@ -6980,19 +6980,19 @@ Window_NameBox.prototype.updateBackground = function() {
     };
     // a choice takes one text line, as the message's own lines do (MZ adds 8 px a row)
     const inMessage = () => !!($dataSystem && $dataSystem.rrChoicesInMessage);
-    const _itemHeight = Window_ChoiceList.prototype.itemHeight;
+    // The stock rules are looked up when called, not captured here: the MV layer installs MV row
+    // metrics on Window_Selectable after this file loads, and a captured copy would keep MZ's.
+    const base = Object.getPrototypeOf(Window_ChoiceList.prototype);
     Window_ChoiceList.prototype.itemHeight = function() {
-        return inMessage() ? this.lineHeight() : _itemHeight.call(this);
+        return inMessage() ? this.lineHeight() : base.itemHeight.call(this);
     };
-    const _rowSpacing = Window_ChoiceList.prototype.rowSpacing;
     Window_ChoiceList.prototype.rowSpacing = function() {
-        return inMessage() ? 0 : _rowSpacing.call(this);
+        return inMessage() ? 0 : base.rowSpacing.call(this);
     };
     // the old engines draw no bar behind each choice, only the cursor
-    const _drawItemBackground = Window_ChoiceList.prototype.drawItemBackground;
     Window_ChoiceList.prototype.drawItemBackground = function(index) {
         if ($dataSystem && $dataSystem.rrChoicesInMessage) return;
-        _drawItemBackground.call(this, index);
+        base.drawItemBackground.call(this, index);
     };
     const _updateBackground = Window_ChoiceList.prototype.updateBackground;
     Window_ChoiceList.prototype.updateBackground = function() {

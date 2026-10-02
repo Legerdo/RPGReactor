@@ -1247,6 +1247,62 @@
         Window_Base.prototype.fittingHeight = function(numLines) {
             return numLines * this.lineHeight() + this.standardPadding() * 2;
         };
+
+        // MV pads windows by 18; MZ's 12 comes from System 2, which MV data
+        // has no value for unless the editor has saved one.
+        Window_Base.prototype.standardPadding = function() {
+            const advanced = global.$dataSystem && $dataSystem.advanced;
+            return advanced && typeof advanced.windowPadding === "number" ? advanced.windowPadding : 18;
+        };
+
+        // MV lists command text from the left; only horizontal commands center.
+        if (global.Window_Command) {
+            Window_Command.prototype.itemTextAlign = function() { return "left"; };
+        }
+        if (global.Window_HorzCommand) {
+            Window_HorzCommand.prototype.itemTextAlign = function() { return "center"; };
+        }
+
+        // MV paints a window's back once: the stretched back and the tiled
+        // pattern drawn into one bitmap, faded by backOpacity as a whole. MZ
+        // fades the two layers separately, so a skin with an opaque pattern
+        // comes out almost solid (the 0.75 back reads as 0.94).
+        if (global.Window && Window.prototype._refreshBack) {
+            Window.prototype._refreshBack = function() {
+                const sprite = this._backSprite;
+                if (!sprite) return;
+                const m = this._margin;
+                const w = Math.max(0, Math.floor(this._width - m * 2));
+                const h = Math.max(0, Math.floor(this._height - m * 2));
+                const skin = this._windowskin;
+                const tiling = sprite.children && sprite.children[0];
+                if (tiling) tiling.visible = false;
+                sprite.scale.x = 1;
+                sprite.scale.y = 1;
+                sprite.move(m, m);
+                if (w <= 0 || h <= 0 || !skin || !skin.isReady()) {
+                    sprite.visible = false;
+                    return;
+                }
+                sprite.visible = true;
+                let bitmap = this._mvBackBitmap;
+                if (!bitmap || bitmap.width !== w || bitmap.height !== h) {
+                    if (bitmap) bitmap.destroy();
+                    bitmap = this._mvBackBitmap = new Bitmap(w, h);
+                } else {
+                    bitmap.clear();
+                }
+                bitmap.blt(skin, 0, 0, 96, 96, 0, 0, w, h);
+                for (let y = 0; y < h; y += 96) {
+                    for (let x = 0; x < w; x += 96) {
+                        bitmap.blt(skin, 0, 96, 96, 96, x, y, 96, 96);
+                    }
+                }
+                sprite.bitmap = bitmap;
+                sprite.setFrame(0, 0, w, h);
+                if (sprite.setColorTone) sprite.setColorTone(this._colorTone);
+            };
+        }
         if (global.Window_Selectable) {
             Window_Selectable.prototype.itemHeight = function() {
                 return this.lineHeight();
@@ -1471,6 +1527,26 @@
     // normal-priority ones. MV-authored games routed NPCs around
     // below-priority events (floor markers), so keep MV's stricter rule
     // for them — MZ games get the MZ rule from the corescript.
+    // MV's message commands (Show Text, Choices, Number, Item, Scrolling
+    // Text) step past what they consumed themselves and return false; MZ's
+    // return true and let executeCommand step. MV plugins wrap them without
+    // passing the result on (GALV_MessageStyles' command101), which under
+    // MZ's rule leaves the interpreter on the Show Choices it already ran:
+    // the choices open a second time, without their text, after the first
+    // answer. MV's own convention does not depend on the return value.
+    function installMessageCommandStepCompatibility() {
+        if (!global.Game_Interpreter) return;
+        for (const name of ["command101", "command102", "command103", "command104", "command105"]) {
+            const original = Game_Interpreter.prototype[name];
+            if (typeof original !== "function" || original.__mvStepsItself) continue;
+            Game_Interpreter.prototype[name] = function(params) {
+                if (original.call(this, params || this._params || [])) this._index++;
+                return false;
+            };
+            Game_Interpreter.prototype[name].__mvStepsItself = true;
+        }
+    }
+
     function installEventCollisionCompatibility() {
         if (!global.Game_Event || !Game_Event.prototype) return;
         Game_Event.prototype.isCollidedWithEvents = function(x, y) {
@@ -2240,6 +2316,21 @@
                 obj[name] = fn;
             }
         };
+
+        // MV keeps icon and face sizes as statics; MZ moved them to
+        // ImageManager. Plugins that build an icon bitmap from them
+        // (GALV_ActionIndicators) otherwise make it 0x0 and draw nothing.
+        if (global.ImageManager) {
+            var sizeStatic = function(owner, name, value) {
+                if (owner && owner[name] === undefined && value !== undefined) owner[name] = value;
+            };
+            sizeStatic(global.Window_Base, "_iconWidth", ImageManager.iconWidth);
+            sizeStatic(global.Window_Base, "_iconHeight", ImageManager.iconHeight);
+            sizeStatic(global.Window_Base, "_faceWidth", ImageManager.faceWidth);
+            sizeStatic(global.Window_Base, "_faceHeight", ImageManager.faceHeight);
+            sizeStatic(global.Sprite_StateIcon, "_iconWidth", ImageManager.iconWidth);
+            sizeStatic(global.Sprite_StateIcon, "_iconHeight", ImageManager.iconHeight);
+        }
 
         // ---- Game_Map.tileEvents (MV name) <-> _tileEvents (MZ rename).
         // MV saves serialize the field as `tileEvents`; Reactor reads
@@ -5715,6 +5806,7 @@
         installSceneLayoutCompatibility();
         installMapDataReloadCompatibility();
         installEventCollisionCompatibility();
+        installMessageCommandStepCompatibility();
         installDamagePopupCompatibility();
         installBattleTurnFlowCompatibility();
         installBattleFieldOffsetCompatibility();

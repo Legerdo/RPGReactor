@@ -2223,8 +2223,16 @@ TilingSprite.prototype.update = function() {
 TilingSprite.prototype.move = function(x, y, width, height) {
     this.x = x || 0;
     this.y = y || 0;
-    this._width = width || 0;
-    this._height = height || 0;
+    const w = width || 0;
+    const h = height || 0;
+    if (this._width === w && this._height === h) return;
+    this._width = w;
+    this._height = h;
+    // v8 redraws a size change only when told; without this a window that
+    // shrinks after its first draw (a floating message) keeps its old back.
+    if (typeof this.onViewUpdate === "function") {
+        this.onViewUpdate();
+    }
 };
 
 /**

@@ -676,6 +676,22 @@
                     }
                 };
                 replaceRefs(instance, 0);
+                // v8 also wires change observers as object literals whose
+                // arrow functions captured `this` = tmp (Sprite/Text/
+                // NineSlice `_anchor`, TilingSprite `_anchor` and
+                // `_tileTransform`). The walk above cannot see a closure, so
+                // those observers kept re-flagging tmp: a plugin's
+                // TilingSprite subclass (GALV_LayerGraphics) drew its first
+                // tilePosition forever while its origin scrolled.
+                const rebind = (holder, field) => {
+                    const observer = holder && holder[field];
+                    if (observer && observer !== instance && observer.constructor === Object &&
+                            typeof observer._onUpdate === "function") {
+                        holder[field] = { _onUpdate: () => instance.onViewUpdate() };
+                    }
+                };
+                rebind(instance._anchor, "_observer");
+                rebind(instance._tileTransform, "observer");
                 return instance;
             }
         }
