@@ -8,6 +8,11 @@
  *     "enemies": { "<enemyId>": spec } }
  * with spec exactly what the map sidecar stores per event (name, file,
  * ext, size, scale, yaw/pitch/roll in degrees, faces).
+ *
+ * While a project's database is loaded, its bindings are part of the
+ * Database's edits: the DatabaseManager registers its in-memory copy
+ * (useStore), reads and writes go there, and the file is written with the
+ * rest of the database on OK/Apply, so Cancel and list Undo take them back.
  */
 (function(root) {
     'use strict';
@@ -25,7 +30,21 @@
         else fs.writeFileSync(destination, data, 'utf8');
     }
 
+    // (projectPath) => the live bindings object for that project, or null.
+    let storeProvider = null;
+
+    function useStore(provider) {
+        storeProvider = typeof provider === 'function' ? provider : null;
+    }
+
+    function liveStore(projectPath) {
+        const store = storeProvider && projectPath ? storeProvider(projectPath) : null;
+        return store && typeof store === 'object' && !Array.isArray(store) ? store : null;
+    }
+
     function read(projectPath) {
+        const live = liveStore(projectPath);
+        if (live) return JSON.parse(JSON.stringify(live));
         const fs = require('fs');
         const destination = filePath(projectPath);
         try {
@@ -62,9 +81,8 @@
         return entry && entry.name ? entry : null;
     }
 
-    function set(projectPath, section, id, spec, slot) {
-        const fs = require('fs');
-        const data = read(projectPath);
+    /** Put one binding into a bindings object (a slot of an actor, or a whole entry); a nameless spec removes it. */
+    function apply(data, section, id, spec, slot) {
         if (slot) {
             const existing = slotsOf(data[section] && data[section][String(id)]);
             const entry = {};
@@ -87,14 +105,39 @@
             delete data[section][String(id)];
             if (!Object.keys(data[section]).length) delete data[section];
         }
-        const sections = Object.keys(data).filter(key => key !== 'version');
+        return data;
+    }
+
+    /** Drop every binding of a section past `maxId` (the section's maximum shrank). */
+    function prune(data, section, maxId) {
+        const entries = data && data[section];
+        if (!entries || typeof entries !== 'object') return false;
+        let changed = false;
+        for (const key of Object.keys(entries)) {
+            if (Number(key) > maxId) { delete entries[key]; changed = true; }
+        }
+        if (!Object.keys(entries).length) delete data[section];
+        return changed;
+    }
+
+    /** Write a bindings object as the file; with nothing bound the absent file is the clean state. */
+    function writeStore(projectPath, data, fs = require('fs')) {
+        const sections = Object.keys(data || {}).filter(key => key !== 'version');
         if (!sections.length) {
-            // Nothing bound: the absent file is the clean state.
             fs.rmSync(filePath(projectPath), { force: true });
             return;
         }
-        data.version = 1;
-        writeFile(fs, filePath(projectPath), (typeof RRJson !== 'undefined' && RRJson.stringify ? RRJson.stringify(data) : JSON.stringify(data, null, 2)) + '\n');
+        const out = Object.assign({}, data, { version: 1 });
+        writeFile(fs, filePath(projectPath), (typeof RRJson !== 'undefined' && RRJson.stringify ? RRJson.stringify(out) : JSON.stringify(out, null, 2)) + '\n');
+    }
+
+    function set(projectPath, section, id, spec, slot) {
+        const live = liveStore(projectPath);
+        if (live) {
+            apply(live, section, id, spec && spec.name ? JSON.parse(JSON.stringify(spec)) : spec, slot);
+            return;
+        }
+        writeStore(projectPath, apply(read(projectPath), section, id, spec, slot));
     }
 
     function trySet(projectPath, section, id, spec, slot) {
@@ -502,7 +545,7 @@
         return api;
     }
 
-    const api = { filePath, read, get, set, attachRow, decorateSlot, modelThumbnail };
+    const api = { filePath, read, get, set, apply, prune, writeStore, useStore, attachRow, decorateSlot, modelThumbnail };
     root.RRDatabase3DBindings = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

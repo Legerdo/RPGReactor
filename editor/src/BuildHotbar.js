@@ -205,6 +205,8 @@ class BuildHotbar {
         else if (slot === 'shape') { const kinds = this.shapeKinds(); if (!kinds.includes(manager.kind) || manager.kind === 'wedge') manager.setKind(manager.lastShape || 'cylinder'); else manager.setMode('place'); }
         else if (slot === 'blueprint') { const plans = manager.structures(true); if (plans.length) { if (!plans.some(plan => plan.file === manager.structure)) manager.structure = plans[0].file; manager.setMode('stamp'); } }
         this.render();
+        // After the render, which rebuilds the bar: a Blueprint with no plans to stamp says so.
+        if (slot === 'blueprint' && !manager.structures().length) this.flash(this._t('pieces.noStructures'));
     }
 
     shapeKinds() { return (typeof DatabaseStructureEditor !== 'undefined' ? DatabaseStructureEditor.SHAPE_KINDS : (this.manager()?.kinds() || []).filter(k => !BuildHotbar.PIECES.includes(k))).filter(k => k !== 'rock'); }

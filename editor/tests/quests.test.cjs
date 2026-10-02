@@ -925,3 +925,45 @@ test('a picked switch or variable stays on its button: the label the language pa
     assert.equal(button.textContent, '#0003 Door');
     assert.equal(attributes['data-i18n-text-source'], undefined);
 });
+
+test('the tracker redraws when a variable or actor name its text shows changes, with no quest change', () => {
+    const data = [null, { id: 1, name: 'Hunt for \\N[2]', objectives: [{ text: 'Wolves: \\V[4]/5', hidden: false }, { text: 'Again \\v[4]', hidden: false }], rewards: [], activation: { type: 'command' }, completion: { type: 'command' } }];
+    const variables = { 4: 1 };
+    const { quests, context } = loadRuntime(data, { variables });
+    context.Graphics.boxHeight = 624;
+    const names = { 2: 'Reid' };
+    context.$gameActors = { actor: id => (names[id] ? { name: () => names[id] } : null) };
+    quests.discover(1);
+    const tracker = Object.create(context.Window_QuestTracker.prototype);
+    tracker._settingsSeen = tracker.settings();
+    const before = tracker.signature();
+    assert.equal(tracker.signature(), before, 'steady while nothing changes');
+    variables[4] = 2;
+    const afterVariable = tracker.signature();
+    assert.notEqual(afterVariable, before, 'a \\V[n] change alone redraws it');
+    names[2] = 'Ann';
+    assert.notEqual(tracker.signature(), afterVariable, 'a \\N[n] change alone redraws it');
+});
+
+test('switching the log\'s category drops a quest selected in the old one, so the detail never shows a quest the list does not', () => {
+    const { quests, context } = loadRuntime(DATA);
+    quests.discover(1);
+    quests.discover(4);
+    const list = Object.create(context.Window_QuestList.prototype);
+    list._category = null;
+    list._data = [];
+    let index = -1;
+    const shown = [];
+    list.index = () => index;
+    list.scrollTo = () => {};
+    context.Window_Selectable.prototype.select = function(i) { index = i; };
+    list.deselect = function() { this.select(-1); };
+    list._detailWindow = { setQuest: quest => shown.push(quest && quest.id) };
+    list.refresh();
+    list.selectQuest(4);
+    assert.equal(list.quest().id, 4);
+    list.setCategory('Side');
+    assert.equal(index, -1);
+    assert.equal(list.quest(), null);
+    assert.equal(shown[shown.length - 1], null, 'the detail empties with it');
+});

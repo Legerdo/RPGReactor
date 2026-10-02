@@ -86,7 +86,7 @@ test('an RTP is found inside an archive\'s folders, and its fonts come along', (
             const buf = rarArchive([['Data/RTP/CharSet/Chara1.png', 'c', 0x35], ['Data/RTP/ChipSet/Basis.png', 'b', 0x35], ['Data/RTP/ChipSet/Inner.png', 'i', 0x35], ['Data/RTP/ChipSet/Outline.png', 'o', 0x35], ['Data/RTP/Readme.txt', 'r', 0x35], ['Data/RM2000.fon', 'f', 0x30], ['Presetup/Gins.ini', 'g', 0x30]]);
             const result = RM.unpack(buf);
             assert.equal(result.folder, path.join(root, 'data', 'rtp', '2000-donmiguel'), 'Don Miguel\'s RTP beside the official one');
-            assert.deepEqual(fs.readdirSync(result.folder).sort(), ['CharSet', 'ChipSet', 'RM2000.fon']);
+            assert.deepEqual(fs.readdirSync(result.folder).sort(), ['CharSet', 'ChipSet', 'RM2000.fon', 'rpg-reactor-rtp.json']);
             // a zip with the RTP at its top, and a zip around an installer
             const zip = (entries) => {
                 const locals = [], centrals = []; let offset = 0;

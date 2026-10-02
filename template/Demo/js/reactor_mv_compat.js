@@ -1302,6 +1302,15 @@
                 sprite.setFrame(0, 0, w, h);
                 if (sprite.setColorTone) sprite.setColorTone(this._colorTone);
             };
+            // The back picture belongs to the window; every scene change destroys its windows.
+            const _destroy = Window.prototype.destroy;
+            Window.prototype.destroy = function() {
+                if (this._mvBackBitmap) {
+                    this._mvBackBitmap.destroy();
+                    this._mvBackBitmap = null;
+                }
+                return _destroy.apply(this, arguments);
+            };
         }
         if (global.Window_Selectable) {
             Window_Selectable.prototype.itemHeight = function() {

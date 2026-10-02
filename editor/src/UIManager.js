@@ -560,7 +560,11 @@ class UIManager {
             if (shortcut) {
                 e.preventDefault();
                 e.stopPropagation();
-                if (!e.repeat) shortcut();
+                // New, Open and Playtest would act on the project behind a dialog (an event being
+                // edited, an import running); Save stays available everywhere.
+                const editorOpen = document.getElementById('event-editor-modal')?.getClientRects?.().length > 0;
+                const behindDialog = e.key.toLowerCase() !== 's' && (editorOpen || this.isEditorModalOpenForGlobalShortcuts());
+                if (!e.repeat && !behindDialog) shortcut();
                 return;
             }
 

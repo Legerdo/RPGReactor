@@ -60,7 +60,7 @@ class MediaSurfaceManager {
         if (!this.rows().length) { const empty = document.createElement('p'); empty.setAttribute('data-i18n-text-source','No map surfaces yet.'); empty.textContent = this.t('No map surfaces yet.'); body.append(empty); }
         for (const row of this.rows()) {
             const item = document.createElement('div'); item.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:6px;background:var(--color-bg-deep);';
-            const edit = this.button(`${row.id}: ${row.movie || row.file || 'Media Surface'}`, () => this.edit(Number(row.id)));
+            const edit = this.button(`${row.id}: ${row.movie || row.file || this.t('Media Surface')}`, () => this.edit(Number(row.id)));
             edit.style.cssText = 'flex:1;min-width:0;text-align:start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
             edit.setAttribute('data-rr-i18n-skip',''); edit.title = edit.textContent;
             const actions = document.createElement('div'); actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;';

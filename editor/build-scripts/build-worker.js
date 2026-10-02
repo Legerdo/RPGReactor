@@ -113,6 +113,11 @@ const EXCLUDED = new Set([
     path.join('js', 'RMMZ_Corescript'),
     path.join('data', 'Database.names.json'),
     path.join('data', 'nul'),
+    // The editor's own files: the open project's lock, and what an import of an older
+    // engine's game leaves for its author (the report and the original scripts).
+    '.rpgreactor.lock',
+    'import-report.json',
+    path.join('legacy', 'Scripts'),
 ]);
 
 // Battle Test writes a full Test_-prefixed copy of every database file into
@@ -548,6 +553,7 @@ async function installProprietaryCodec(platform, runtimeRoot, runtimeVersion, pr
                 // A browser cannot list its files; the runtime corrects filename casing from this index.
                 const indexed = webFileIndex.writeWebFileIndex(platformOutDir);
                 logInfo(`File index written: ${indexed} files (filename casing is corrected from it in the browser).`);
+                for (const warning of webFileIndex.storefrontWarnings(platformOutDir)) logWarn(warning);
                 progress(Math.round(pRename), 'Finalizing...');
             } else {
                 // ── Get NW.js runtime ───────────────────────────────

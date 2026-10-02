@@ -610,8 +610,15 @@
         }
 
         /* Map Info Content (inside workspace-tabs) */
+        /* One row: the toggles keep their width and the map name gives way,
+           so the two halves never overlap on a narrow window (1024×600). */
         #map-info-content {
             display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 0 16px;
+            box-sizing: border-box;
             font-size: 12px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
             width: 100%;
@@ -621,27 +628,42 @@
         }
 
         #map-info-left {
-            position: absolute !important;
-            left: 16px !important;
-            top: 50% !important;
-            transform: translateY(-50%) !important;
-            max-width: calc(100% - 400px) !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-            white-space: nowrap !important;
-            display: flex !important;
-            gap: 12px !important;
-            align-items: center !important;
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        #map-info-left .map-info-item {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #map-info-left .map-info-item + .map-info-item {
+            flex-shrink: 0;
         }
 
         #map-info-right {
-            position: absolute !important;
-            right: 16px !important;
-            top: 50% !important;
-            transform: translateY(-50%) !important;
-            display: flex !important;
-            gap: 16px !important;
-            align-items: center !important;
+            flex: 0 0 auto;
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        @media (max-width: 1180px) {
+            #map-info-content {
+                gap: 10px;
+                padding: 0 10px;
+            }
+
+            #map-info-right {
+                gap: 10px;
+            }
         }
 
         .map-info-item {
@@ -3265,12 +3287,7 @@
             flex: 0 1 clamp(260px, 30vw, 380px);
         }
 
-        html.rr-web #map-info-left {
-            max-width: calc(100% - 230px) !important;
-        }
-
         html.rr-web #map-info-right {
-            right: 8px !important;
             gap: 8px !important;
         }
 
@@ -3375,8 +3392,6 @@
             }
 
             html.rr-web #map-info-left {
-                left: 8px !important;
-                max-width: calc(100% - 150px) !important;
                 gap: 6px !important;
             }
 
@@ -3501,10 +3516,6 @@
                 flex-wrap: wrap;
                 gap: 10px !important;
                 margin-bottom: 24px !important;
-            }
-
-            html.rr-web #map-info-left {
-                max-width: calc(100% - 16px) !important;
             }
 
             html.rr-web #map-info-right {

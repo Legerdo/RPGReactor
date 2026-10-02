@@ -99,6 +99,7 @@ function installMvMetrics(advanced) {
     Window_HorzCommand.prototype = Object.create(Window_Command.prototype);
     function Window() {}
     Window.prototype._refreshBack = function() {};
+    Window.prototype.destroy = function() { this.windowDestroyed = true; };
     const context = { Bitmap, Window_Base, Window_Selectable, Window_Command, Window_HorzCommand, Window, Rectangle: class {}, $dataSystem: { advanced } };
     context.global = context;
     const fn = slice(compat, '    function installWindowMetricsCompatibility() {', '    function installSceneCompatibility() {');
@@ -139,6 +140,10 @@ test('an MV window back is the stretched back and the tiled pattern in one bitma
     win._refreshBack();
     assert.equal(bitmap.destroyed, true);
     assert.equal(sprite.bitmap.width, 112);
+    const last = sprite.bitmap;
+    win.destroy();
+    assert.equal(last.destroyed, true, 'the window takes its back picture with it');
+    assert.equal(win.windowDestroyed, true);
 });
 
 test('MV message commands step past what they ran, so a wrapper that drops the result still advances', () => {

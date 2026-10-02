@@ -1884,6 +1884,7 @@ test('a Common Event battle command runs at once while time stands still, then t
     sandbox.Game_Interpreter = class { setup(list, id) { this.list = list; this.id = id; } update() { runs--; } isRunning() { return runs > 0; } };
     const actor = { canAttack: () => true, canInput: () => true };
     sandbox.BattleManager = { canEscape: () => true, actor: () => actor, isInputting: () => true };
+    sandbox.$gameParty = { battleMembers: () => [actor] };
     const win = { _actor: actor, active: true, list: [], addCommand(name, symbol, enabled = true, ext = null) { this.list.push([name, symbol, enabled, ext]); },
         setHandler(symbol, fn) { handlers[symbol] = fn; }, currentExt: () => 1, deactivate() { this.active = false; }, activate() { this.active = true; } };
     const opened = [];
@@ -1901,6 +1902,29 @@ test('a Common Event battle command runs at once while time stands still, then t
     const source = read('runtime/reactor_ui.js');
     assert.match(source, /isTimeActive = function\(\) \{\s*return this\._rrCommandEvent \? false/, 'battle time stands still while it runs');
     assert.match(source, /needsInputWindowChange = function\(\) \{\s*return this\._rrCommandEvent \? false/, 'and the command windows stay closed');
+});
+
+test('a Common Event battle command that takes the choosing actor out of the party reopens no window for them', () => {
+    const sandbox = loadRuntimeUI();
+    const UI = sandbox.ReactorUI;
+    sandbox.$dataCommonEvents = [null, { id: 1, name: 'Leave', list: [{ code: 0 }] }];
+    sandbox.Game_Interpreter = class { setup() {} update() {} isRunning() { return false; } };
+    for (const tpb of [false, true]) {
+        const actor = { canInput: () => true, state: 'inputting', setActionState(s) { this.state = s; } };
+        const manager = { _currentActor: actor, _inputting: true, actor() { return this._currentActor; }, isInputting() { return this._inputting; }, isTpb: () => tpb,
+            cancelActorInput() { if (this._currentActor) this._currentActor.setActionState('undecided'); } };
+        sandbox.BattleManager = manager;
+        sandbox.$gameParty = { battleMembers: () => [] };
+        const opened = [];
+        const win = { deactivate() {} };
+        const scene = { _actorCommandWindow: win, _partyCommandWindow: {}, startActorCommandSelection() { opened.push('actor'); }, startPartyCommandSelection() { opened.push('party'); }, changeInputWindow() { opened.push('change'); } };
+        UI.runCommandEvent(scene, win, 1);
+        assert.equal(UI.updateCommandEvent(scene), false);
+        assert.deepEqual(opened, ['change'], 'the input window follows the battle, not the removed actor');
+        assert.equal(manager._currentActor, null);
+        assert.equal(actor.state, 'undecided');
+        assert.equal(manager._inputting, !tpb, tpb ? 'time progress: the next ready member opens later' : 'turn-based: back to the party command');
+    }
 });
 
 test('the Target Cursor points at the top of the battler as drawn: a 3D model\'s projected box, else the sprite\'s frame on screen', () => {
@@ -2013,4 +2037,25 @@ test('a scene that throws while it opens leaves the interface showing and taking
     assert.equal(sandbox.SceneManager._stack.length, 0, 'the half-made push is undone');
     assert.equal(sandbox.SceneManager._nextScene, null);
     assert.equal(UI._resumeStates.length, 0);
+});
+
+test('an interface a plugin or script calls over an open one brings the one beneath back when it closes', () => {
+    const sandbox = loadRuntimeUI();
+    const UI = sandbox.ReactorUI;
+    sandbox.$dataUserInterfaces = [null, { id: 1, name: 'Menu', nodes: [] }, { id: 2, name: 'Popup', nodes: [] }];
+    const beneath = Object.create(sandbox.Scene_ReactorUI.prototype);
+    beneath._closing = false;
+    beneath.resumeState = () => ({ interfaceId: 1 });
+    sandbox.SceneManager._scene = beneath;
+    sandbox.SceneManager._stack = [];
+    UI._resumeStates.length = 0;
+    assert.equal(UI.call(2), true);
+    assert.deepEqual([...UI._resumeStates.map(state => state.interfaceId)], [1], 'the open interface is remembered for when this one pops');
+    beneath.rememberForPush();
+    assert.equal(UI._resumeStates.length, 1, 'an action that also remembers it does not keep it twice');
+    beneath.forgetPush();
+    assert.equal(UI._resumeStates.length, 0);
+    sandbox.SceneManager._scene = {};
+    assert.equal(UI.call(2), true);
+    assert.equal(UI._resumeStates.length, 0, 'over the map nothing is remembered');
 });

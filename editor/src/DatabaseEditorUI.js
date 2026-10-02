@@ -986,7 +986,12 @@ class DatabaseEditorUI {
         const snapshotForUndo = () => undoStack.push({
             entries: JSON.parse(JSON.stringify(this.databaseManager.data[type])),
             editorNames: JSON.parse(JSON.stringify(this.databaseManager.data.editorNames)),
-            battlePresentation: JSON.parse(JSON.stringify(this.databaseManager.data.battlePresentation||null))
+            battlePresentation: JSON.parse(JSON.stringify(this.databaseManager.data.battlePresentation||null)),
+            // Clearing an interface also takes it off System's scenes; a tileset carries its 3D classes.
+            interfaceAssignments: type === 'userInterfaces' ? this.interfaceAssignments() : null,
+            tileset3d: type === 'tilesets' ? JSON.parse(JSON.stringify(this.databaseManager.data.tileset3d || null)) : undefined,
+            // Records with 3D models carry their bindings (Database.r3d.json).
+            modelBindings: DatabaseEditorUI.MODEL_BINDING_TYPES.includes(type) ? JSON.parse(JSON.stringify(this.databaseManager.data.modelBindings ?? null)) : undefined
         });
         const performUndo = () => {
             if (undoStack.length === 0) return;
@@ -995,6 +1000,9 @@ class DatabaseEditorUI {
             this.databaseManager.data[type] = snapshot.entries;
             this.databaseManager.data.editorNames = snapshot.editorNames;
             this.databaseManager.data.battlePresentation = snapshot.battlePresentation;
+            if (snapshot.interfaceAssignments && this.databaseManager.data.system) Object.assign(this.databaseManager.data.system, snapshot.interfaceAssignments);
+            if (snapshot.tileset3d !== undefined) this.databaseManager.data.tileset3d = snapshot.tileset3d;
+            if (snapshot.modelBindings !== undefined) this.databaseManager.data.modelBindings = snapshot.modelBindings;
             this._markDatabaseMutation();
             refreshData();
             selectedIds.clear();
@@ -1067,7 +1075,11 @@ class DatabaseEditorUI {
                 if (newMax === this.databaseManager.getMaxEntries(type)) return;
                 snapshotForUndo();
                 listSession.mutationGeneration++;
-                this.databaseManager.changeMaximum(type, newMax, template);
+                if (!this.databaseManager.changeMaximum(type, newMax, template)) {
+                    // Action Sequences refuse to drop a sequence something is still assigned.
+                    alert(tt('The maximum was not changed: records past it are still in use.'));
+                    return;
+                }
                 refreshData();
                 selectedIds.clear();
                 refreshList();
@@ -1594,7 +1606,9 @@ class DatabaseEditorUI {
         const presentation=sourceEntries.map(entry=>this.databaseManager?.data?.battlePresentation?.[type]?.[entry.id]||null);
         // The 3D model binding lives in the sidecar beside the database, not in the record: it copies with the record or the paste shows a plain battler image.
         const bindings=sourceEntries.map(entry=>this.readModelBinding(type,entry.id));
-        this.listClipboard = { type, entries: copiedEntries, entry: copiedEntries[0] || null, editorNames, presentation:JSON.parse(JSON.stringify(presentation)), bindings };
+        // A tileset's 3D classification lives beside the database too (Tilesets.r3d.json).
+        const tiles3d = type === 'tilesets' ? sourceEntries.map(entry => this.tileset3DClasses(entry.id)) : undefined;
+        this.listClipboard = { type, entries: copiedEntries, entry: copiedEntries[0] || null, editorNames, presentation:JSON.parse(JSON.stringify(presentation)), bindings, tiles3d };
         let writePromise = Promise.resolve(true);
         if (typeof ReactorClipboard !== 'undefined') {
             writePromise = Promise.resolve(ReactorClipboard.write('databaseEntry', {
@@ -1605,6 +1619,7 @@ class DatabaseEditorUI {
                 editorNames,
                 presentation,
                 bindings,
+                tiles3d,
                 sourceProjectName: this.currentProject?.name || null,
                 sourceProjectPath: this.currentProject?.path || null
             }));
@@ -1628,7 +1643,7 @@ class DatabaseEditorUI {
                 typeof payload.editorNames?.[index] === 'string' ? payload.editorNames[index].trim() : '');
             const presentation=payload.sourceProjectPath===this.currentProject?.path?payload.presentation:undefined;
             const bindings=payload.sourceProjectPath===this.currentProject?.path?payload.bindings:undefined;
-            this.listClipboard = { type, entries, entry: entries[0], editorNames, presentation, bindings };
+            this.listClipboard = { type, entries, entry: entries[0], editorNames, presentation, bindings, tiles3d: payload.tiles3d };
             return this.listClipboard;
         }
 
@@ -1685,11 +1700,10 @@ class DatabaseEditorUI {
         if (this._snapshotForUndo) this._snapshotForUndo();
         if (session) session.mutationGeneration++;
         if (this.getDefaultTemplates()[type]) {
-            entries.forEach(entry => {
-                const blank = this.clearDatabaseEntry(type, entry.id);
-                const idx = data.findIndex(candidate => candidate?.id === entry.id);
-                if (idx >= 0 && blank) data[idx] = blank;
-            });
+            entries.forEach(entry => this.clearDatabaseEntry(type, entry.id));
+            // The list shows what the database now holds: a cut Action Sequence leaves no record behind.
+            data.length = 0;
+            targetArray.forEach(entry => { if (entry) data.push(entry); });
         }
         if (session?.type === type) session.selectIds(entries.map(entry => entry.id), entries[0].id, false);
         populateList(searchInput.value, false, { preserveScroll: true });
@@ -1745,9 +1759,11 @@ class DatabaseEditorUI {
         const pastedEntries = copiedEntries.map((sourceEntry, index) => {
             const pasted = JSON.parse(JSON.stringify(sourceEntry));
             pasted.id = targetId + index;
+            this.releaseSharedIdentity(type, pasted, targetArray);
             targetArray[pasted.id] = pasted;
             const section=this.databaseManager.data.battlePresentation?.[type];if(section){const binding=clipboard.presentation?.[index];if(binding)section[pasted.id]=JSON.parse(JSON.stringify(binding));else delete section[pasted.id];}
             if(Array.isArray(clipboard.bindings))this.writeModelBinding(type,pasted.id,clipboard.bindings[index]||null);
+            if (type === 'tilesets') this.setTileset3DClasses(pasted.id, clipboard.tiles3d?.[index] || null);
             this.setEditorName(type, pasted.id, clipboard.editorNames?.[index] || '');
             return pasted;
         });
@@ -1784,11 +1800,23 @@ class DatabaseEditorUI {
         } catch (error) { console.warn(error); }
     }
 
+    /**
+     * A copy must not share what names its source outside the list: a structure's
+     * file (the earlier record keeps a file two claim, so a copy pasted above its
+     * source would take it) or a quest's key (scripts find the first quest with it).
+     */
+    releaseSharedIdentity(type, copy, records) {
+        const field = { structures: 'file', quests: 'key' }[type];
+        if (!field || !copy[field]) return;
+        if ((records || []).some((entry, id) => entry && entry !== copy && id !== copy.id && entry[field] === copy[field])) copy[field] = '';
+    }
+
     duplicateListEntry(entry, data, type, populateList, searchInput) {
         if (this._snapshotForUndo) this._snapshotForUndo();
         if (this._activeDatabaseList?.type === type) this._activeDatabaseList.mutationGeneration++;
         const cloned = JSON.parse(JSON.stringify(entry));
         delete cloned.id;
+        this.releaseSharedIdentity(type, cloned, this.databaseManager.data[type]);
         cloned.name = (cloned.name || this._t('common.unnamed')) + ` (${this._t('common.copy')})`;
         const newEntry = this.databaseManager.addEntry(type, cloned);
         if (newEntry) {
@@ -1800,6 +1828,7 @@ class DatabaseEditorUI {
             const section = this.databaseManager.data?.battlePresentation?.[type];
             if (section && section[entry.id]) section[newEntry.id] = JSON.parse(JSON.stringify(section[entry.id]));
             this.writeModelBinding(type, newEntry.id, this.readModelBinding(type, entry.id));
+            if (type === 'tilesets') this.setTileset3DClasses(newEntry.id, this.tileset3DClasses(entry.id));
             data.push(newEntry);
             if (this._activeDatabaseList?.type === type) {
                 this._activeDatabaseList.selectIds([newEntry.id], newEntry.id, false);
@@ -2134,7 +2163,9 @@ class DatabaseEditorUI {
             // it with a strict === 0. The Type control can convert this record
             // into an immediately editable stock MV sprite animation.
             animations: { name: 'New Animation', flashTimings: [], soundTimings: [], effectName: '', displayType: 0, offsetX: 0, offsetY: 0, rotation: { x: 0, y: 0, z: 0 }, scale: 100, speed: 100 },
-            tilesets: { name: 'New Tileset', mode: 0, tilesetNames: ['', '', '', '', '', '', '', '', ''], flags: new Array(8192).fill(0), note: '' },
+            // Tile 0 (the empty tile on every unpainted upper layer) is a star: as an O,
+            // checkPassage would stop at it and every wall on the map would be walkable.
+            tilesets: { name: 'New Tileset', mode: 0, tilesetNames: ['', '', '', '', '', '', '', '', ''], flags: Object.assign(new Array(8192).fill(0), { 0: 0x10 }), note: '' },
             commonEvents: { name: 'New Common Event', trigger: 0, switchId: 1, list: [{code:0,indent:0,parameters:[]}] },
             // Reactor section; the runtime (reactor_ui.js) fills in any field an
             // older record lacks, so this is the whole shape.
@@ -2177,12 +2208,46 @@ class DatabaseEditorUI {
         if (!blank) return null;
         if (type === 'actionSequences') {
             const refs = typeof ReactorBattleData !== 'undefined' ? ReactorBattleData.references(this.databaseManager.data.battlePresentation, id,this.databaseManager.data.actionSequences) : [];
-            if (refs.length) { alert('This sequence is assigned to ' + refs.map(r => r.kind + ' #' + r.id).join(', ') + '. Change those assignments before deleting it.'); return null; }
+            if (refs.length) {
+                const text = 'This sequence is assigned to {refs}. Change those assignments before deleting it.', values = { refs: refs.map(r => r.kind + ' #' + r.id).join(', ') };
+                alert(typeof window !== 'undefined' && window.I18n?.formatText ? window.I18n.formatText(text, values) : text.replace('{refs}', values.refs));
+                return null;
+            }
             entries[id] = null;
         } else {entries[id] = blank;const section=this.databaseManager.data.battlePresentation?.[type];if(section)delete section[id];}
+        if (type === 'tilesets') this.setTileset3DClasses(id, null);
+        // A cleared record keeps no 3D model.
+        if (DatabaseEditorUI.MODEL_BINDING_TYPES.includes(type)) this.writeModelBinding(type, id, null);
+        // A cleared interface no longer replaces the stock scene System assigned it to.
+        if (type === 'userInterfaces') {
+            const assigned = this.interfaceAssignments();
+            for (const field of Object.keys(assigned)) if (Number(assigned[field]) === id) this.databaseManager.data.system[field] = 0;
+        }
         this.setEditorName(type, id, '');
         this._markDatabaseMutation();
         return blank;
+    }
+
+    /** A copy of one tileset's 3D tile classes ({ tileId: class }), or null when it has none. */
+    tileset3DClasses(id) {
+        const tiles = this.databaseManager?.data?.tileset3d?.tilesets?.[String(id)];
+        return tiles && typeof tiles === 'object' ? JSON.parse(JSON.stringify(tiles)) : null;
+    }
+
+    /** Give a tileset these 3D tile classes; null takes away whatever it had. */
+    setTileset3DClasses(id, tiles) {
+        const store = this.databaseManager?.data?.tileset3d || (tiles && this.databaseManager?.getTileset3D?.());
+        if (!store || typeof store !== 'object') return;
+        if (!store.tilesets || typeof store.tilesets !== 'object') store.tilesets = {};
+        if (tiles && Object.keys(tiles).length) store.tilesets[String(id)] = JSON.parse(JSON.stringify(tiles));
+        else delete store.tilesets[String(id)];
+    }
+
+    /** System's scene assignments to User Interfaces records ({ reactorMenuInterfaceId: 3, ... }). */
+    interfaceAssignments() {
+        const system = this.databaseManager?.data?.system, out = {};
+        if (system) for (const field of Object.keys(system)) if (/^reactor[A-Za-z]+InterfaceId$/.test(field)) out[field] = system[field];
+        return out;
     }
 
     createBlankDatabaseEntry(type, id) {
@@ -4146,6 +4211,9 @@ class DatabaseEditorUI {
     }
 
 }
+
+/** Database sections whose records can bind a 3D model (Database.r3d.json). */
+DatabaseEditorUI.MODEL_BINDING_TYPES = ['actors', 'enemies', 'weapons', 'armors', 'items'];
 
 // Export for use in main.js
 if (typeof module !== 'undefined' && module.exports) {

@@ -132,7 +132,9 @@ function shippedLanguage(read, M, langs, scripts) {
         const settings = M.load(read('game_settings.rvdata2'));
         const find = (o) => { if (o instanceof Map) { for (const [k, v] of o) { if (String(k).replace(/^:/, '') === 'language') return v; const r = find(v); if (r !== undefined) return r; } } else if (o && typeof o === 'object') { for (const [k, v] of Object.entries(o)) { if (k.replace(/^@?:?/, '') === 'language') return v; const r = find(v); if (r !== undefined) return r; } } return undefined; };
         const index = find(settings);
-        if (typeof index === 'number' && ordered[index]) return ordered[index];
+        // Only a language the game ships a file for: the scripts may list one it never had.
+        const named = typeof index === 'number' && ordered[index] && langs.find(l => l.toLowerCase() === String(ordered[index]).toLowerCase());
+        if (named) return named;
     } catch (_) { /* no settings file */ }
     return langs.includes('Eng') ? 'Eng' : langs[langs.length - 1];
 }

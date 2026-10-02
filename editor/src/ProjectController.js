@@ -4010,6 +4010,8 @@ class ProjectController {
         mapData.data = this.resizeMapData(sourceMap.data, oldWidth, oldHeight, newWidth, newHeight, offsetX, offsetY);
         const resized = this.resizeMapEvents(sourceMap.events, newWidth, newHeight, offsetX, offsetY);
         mapData.events = resized.events;
+        // The 3D sidecar (heights, terrain, pieces, props, lights, screens, ponds) moves with the tiles.
+        this.mapElevation()?.resizeSidecar?.(mapData, oldWidth, oldHeight, offsetX, offsetY);
 
         if (analysis.shifts) {
             this.shiftEventLocationCommands(mapData.events, offsetX, offsetY);
@@ -4288,13 +4290,17 @@ class ProjectController {
         }
 
         const childCount = mapIdsToDelete.length - 1;
+        const fill = (text, values) => text.replace(/\{(\w+)\}/g, (token, key) => Object.hasOwn(values, key) ? String(values[key]) : token);
+        const mapName = map.name || this._tt('Unnamed Map');
         const message = childCount > 0
-            ? `${this._tt('Delete')} "${map.name || this._tt('Unnamed Map')}" ${this._tt('and')} ${childCount} ${childCount === 1 ? this._tt('child map') : this._tt('child maps')}?\n\n${this._tt('This removes their Map###.json files and MapInfos entries.')}`
-            : `${this._tt('Delete')} "${map.name || this._tt('Unnamed Map')}"?\n\n${this._tt('This removes its')} Map${String(mapId).padStart(3, '0')}.json ${this._tt('file and MapInfos entry.')}`;
+            ? fill(this._tt(childCount === 1
+                ? 'Delete "{name}" and 1 child map?\n\nThis removes their Map###.json files and MapInfos entries.'
+                : 'Delete "{name}" and {count} child maps?\n\nThis removes their Map###.json files and MapInfos entries.'), { name: mapName, count: childCount })
+            : fill(this._tt('Delete "{name}"?\n\nThis removes its {file} file and MapInfos entry.'), { name: mapName, file: `Map${String(mapId).padStart(3, '0')}.json` });
 
         const presentation=this.databaseManager?.data?.battlePresentation||(typeof window!=='undefined'?window.reactor?.databaseManager?.data?.battlePresentation:null);
-        const roomUses=Object.entries(presentation?.troops||{}).filter(([,room])=>room.type==='room'&&mapIdsToDelete.includes(room.mapId)).map(([id])=>'Troop #'+id);
-        const roomMessage=roomUses.length?'\n\nBattle Rooms using these maps: '+roomUses.join(', ')+'. Select replacement maps in Troops after deletion.':'';
+        const roomUses=Object.entries(presentation?.troops||{}).filter(([,room])=>room.type==='room'&&mapIdsToDelete.includes(room.mapId)).map(([id])=>fill(this._tt('Troop #{id}'),{id}));
+        const roomMessage=roomUses.length?'\n\n'+fill(this._tt('Battle Rooms using these maps: {troops}. Select replacement maps in Troops after deletion.'),{troops:roomUses.join(', ')}):'';
         if (!confirm(message+roomMessage)) return;
 
         const deletingLoadedMap = mapIdsToDelete.includes(this.tilemapManager?.currentMap?.id);

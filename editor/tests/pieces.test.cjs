@@ -600,7 +600,7 @@ test('a structure plan builds rooms, walls, doors on shared walls, a stairwell a
     const manager = read('editor/src/PieceBuilderManager.js');
     assert.match(manager, /path\.join\(projectPath, '3d', 'Structures'\)/);
     assert.match(managerSource, /elevation\.restorePieces\(map, kept\.concat\(SP\.build\(shaped, X0, Y0, firstId, record\.group, name => this\.resolvePlan\(name\)\)\)\);/, 'a stamp keeps what stands off the footprint, tags its own pieces, and resolves its parts');
-    assert.match(manager, /stampAt\(x, y\) \{[\s\S]{0,400}const saved = this\._snapshot\(map, \{ ground: true, effects: true \}\);/, 'one undo step: pieces, ground, building records, lights and screens');
+    assert.match(manager, /stampAt\(x, y\) \{[\s\S]{0,400}const saved = this\._snapshot\(map, \{ ground: true, effects: true, events: true \}\);/, 'one undo step: pieces, ground, building records, lights, screens and the building\'s people');
     assert.match(read('editor/src/MapEditor3D.js'), /if \(target && this\.pieceManager\(\)\.mode === 'stamp'\) \{[\s\S]{0,300}this\.pieceManager\(\)\.stampAt\(target\.x, target\.y\);/);
     assert.match(read('editor/index.html'), /src\/utils\/StructurePlan\.js/);
     assert.ok(fs.existsSync(path.resolve(__dirname, '..', '..', 'editor/build-scripts/build-structure.cjs')));

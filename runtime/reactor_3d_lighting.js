@@ -2250,8 +2250,22 @@ Reactor3D.claimShadows = function(renderer) {
     const shadows = this.Shadows;
     if (!shadows || !renderer) return false;
     if (!shadows._renderer || shadows._renderer === renderer) return true;
+    // The map draws them only while its scene runs: once a battle or any other
+    // scene has the stage they are free at once, so a room compiles its lit
+    // programs once, shadowed, instead of again when the idle time runs out.
+    if (this.mapRowsIdle(shadows._renderer)) return true;
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     return now - (shadows.lastRenderAt || 0) > this.SHADOW_CLAIM_IDLE_MS;
+};
+
+/** Whether `owner` is the game map's renderer while a scene other than the map runs (it draws nothing then). */
+Reactor3D.mapRowsIdle = function(owner) {
+    if (typeof SceneManager === "undefined" || typeof Scene_Map === "undefined") return false;
+    const scene = SceneManager._scene;
+    if (!scene || scene instanceof Scene_Map) return false;
+    const viewport = this._viewport;
+    const mapRenderer = viewport && (typeof viewport.renderer === "function" ? viewport.renderer() : viewport._renderer);
+    return !!mapRenderer && mapRenderer === owner;
 };
 
 Reactor3D.Shadows = {

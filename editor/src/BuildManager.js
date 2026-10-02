@@ -536,6 +536,13 @@ class BuildManager {
     }
 
     async startBuild() {
+        // One build at a time: a second click while the project saves would start a second worker on the same folder.
+        if (this.isBuilding || this._starting) return;
+        this._starting = true;
+        try { await this._startBuild(); } finally { this._starting = false; }
+    }
+
+    async _startBuild() {
         const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         const platforms = this.getSelectedPlatforms();
 
@@ -618,7 +625,7 @@ class BuildManager {
             if (!fs.existsSync(workerPath)) {
                 throw new Error(`${tt('Build worker not found at:')} ${workerPath}`);
             }
-            this.worker = new Worker(workerPath, {
+            const worker = this.worker = new Worker(workerPath, {
                 workerData: {
                     projectPath: project.path,
                     projectName: project.name,
@@ -637,8 +644,11 @@ class BuildManager {
                 }
             });
 
+            // A cancelled build's worker still reports (its exit comes after the cancel): only this build's own count.
+            const current = () => this.worker === worker;
             // Log messages from worker
             this.worker.on('message', (msg) => {
+                if (!current()) return;
                 if (msg.type === 'log') {
                     this.log(msg.message, msg.color || 'var(--color-text)');
                 } else if (msg.type === 'progress') {
@@ -656,6 +666,7 @@ class BuildManager {
 
             // Worker threw an uncaught error
             this.worker.on('error', (err) => {
+                if (!current()) return;
                 this.log('', 'var(--color-text)');
                 this.log('========================================', 'var(--color-danger-bright)');
                 this.log(tt('Build worker error:'), 'var(--color-danger-bright)');
@@ -666,6 +677,7 @@ class BuildManager {
 
             // Worker exited
             this.worker.on('exit', (code) => {
+                if (!current()) return;
                 if (code !== 0 && this.isBuilding) {
                     this.log(`${tt('Build worker exited with code')} ${code}`, 'var(--color-danger-bright)');
                 }

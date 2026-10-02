@@ -3232,9 +3232,10 @@ Bitmap.prototype.drawText = function(text, x, y, maxWidth, lineHeight, align) {
         tx = Math.round(tx);
         align = "left";
     } else if (align === "center") {
-        tx += maxWidth / 2;
+        // Aligned in the space given, even when a fixed size lets the text run past it.
+        tx += span / 2;
     } else if (align === "right") {
-        tx += maxWidth;
+        tx += span;
     }
     context.textAlign = align || "left";
     context.textBaseline = "alphabetic";

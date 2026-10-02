@@ -75,7 +75,7 @@ class TilesetPaletteViewer {
         const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         const chosen = this._selection;
         info.innerHTML = chosen
-            ? `<div>${tt('Selected:')} ${chosen.width}x${chosen.height} ${tt('tiles')} (${chosen.count} ${tt('tiles')}) ${tt('on layer')} ${chosen.layer}</div>`
+            ? `<div>${tt('Selected: {width}x{height} tiles ({count} tiles) on layer {layer}').replace(/\{(\w+)\}/g, (token, key) => Object.hasOwn(chosen, key) ? String(chosen[key]) : token)}</div>`
             : `<div>${tt('No tiles selected')}</div>`;
     }
 

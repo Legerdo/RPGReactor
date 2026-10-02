@@ -491,6 +491,9 @@
 
         const gen = (n) => expr(n).code;
         const js = (code, kind = 'any') => ({ code, kind });
+        // Ruby counts only nil and false as false: a number (0 too), a string ("" too) or an array always passes.
+        const alwaysTrue = (kind) => kind === 'number' || kind === 'float' || kind === 'string' || String(kind || '').startsWith('array');
+        const test = (n) => { const e = expr(n); return alwaysTrue(e.kind) ? `(${e.code}, true)` : e.code; };
         const fill = (template, recv, a) => template.replace(/\$(?![A-Za-z_])/g, recv).replace(/%(\d)/g, (m, i) => (a[Number(i)] !== undefined ? a[Number(i)] : 'undefined')).replace(/, undefined\)/g, ')').replace(/\(undefined\)/g, '()').replace(/%\*/g, a.join(', '));
 
         function literal(v) { return JSON.stringify(v); }
@@ -508,9 +511,9 @@
                 case 'regex': return js(`new RegExp(${JSON.stringify(n.body)}, ${JSON.stringify(n.flags)})`, 'regex');
                 case 'hash': return js('{ ' + n.pairs.map(([k, v]) => `[${gen(k)}]: ${gen(v)}`).join(', ') + ' }', 'any');
                 case 'range': { const a = gen(n.from), b = gen(n.to); return js(`Array.from({ length: (${b}) - (${a})${n.exclusive ? '' : ' + 1'} }, (_, i) => (${a}) + i)`, 'array'); }
-                case 'not': return js('!(' + gen(n.e) + ')', 'bool');
+                case 'not': return js('!(' + test(n.e) + ')', 'bool');
                 case 'neg': return js('-(' + gen(n.e) + ')', 'number');
-                case 'cond': return js(`(${gen(n.cond)} ? ${gen(n.a)} : ${gen(n.b)})`);
+                case 'cond': return js(`(${test(n.cond)} ? ${gen(n.a)} : ${gen(n.b)})`);
                 case 'seq': return js('(' + n.body.map(gen).join(', ') + ')');
                 case 'bin': {
                     if (n.op === '=~') fail('regexp');
@@ -533,6 +536,13 @@
                     if (n.op === '+' && (listy(l.kind) || listy(r.kind))) return js(`[...${l.code}, ...${r.code}]`, listy(l.kind) ? l.kind : r.kind);
                     if (n.op === '-' && (listy(l.kind) || listy(r.kind))) return js(`((a, b) => a.filter((v) => !b.includes(v)))(${l.code}, ${r.code})`, listy(l.kind) ? l.kind : r.kind);
                     if (n.op === '+' && l.kind === 'any' && r.kind === 'any') return js(`((a, b) => (Array.isArray(a) ? a.concat(b) : a + b))(${l.code}, ${r.code})`);
+                    // "%03d" % n formats a string; JS's % would make NaN of it.
+                    if (n.op === '%' && l.kind === 'string') fail('string format');
+                    // Ruby's % takes the divisor's sign (-7 % 3 is 2).
+                    if (n.op === '%') return js(`((x, y) => x - y * Math.floor(x / y))(${l.code}, ${r.code})`, float ? 'float' : 'number');
+                    // A value that is never false in Ruby decides || and && by itself (0 || 5 is 0).
+                    if (n.op === '||' && alwaysTrue(l.kind)) return js(`(${l.code})`, l.kind);
+                    if (n.op === '&&' && alwaysTrue(l.kind)) return js(`(${l.code}, ${r.code})`, r.kind);
                     const logical = ['==', '!=', '<', '>', '<=', '>=', '&&', '||'].includes(n.op);
                     return js(`(${l.code} ${loose ? n.op : op} ${r.code})`, logical ? 'bool' : float ? 'float' : 'number');
                 }
@@ -802,16 +812,18 @@
             // Ruby divides two integers to an integer, as `/` does (see 'bin').
             // Arrays add and take away as lists (flags += ["x"]).
             const listy = (k) => String(k || '').startsWith('array');
-            const combine = (current, kind = 'any') => (op === '=' ? value : op === '||=' ? `(${current} || ${value})` : op === '&&=' ? `(${current} && ${value})`
+            const combine = (current, kind = 'any') => (op === '=' ? value
+                : op === '||=' ? (alwaysTrue(kind) ? current : `(${current} || ${value})`) : op === '&&=' ? (alwaysTrue(kind) ? value : `(${current} && ${value})`)
                 : op === '/=' ? `((x, y) => (Number.isInteger(x) && Number.isInteger(y) ? Math.floor(x / y) : x / y))(${current}, ${value})`
+                : op === '%=' ? `((x, y) => x - y * Math.floor(x / y))(${current}, ${value})`
                 : op === '+=' && (listy(kind) || listy(valueNode.kind)) ? `[...${current}, ...${value}]`
                 : op === '-=' && (listy(kind) || listy(valueNode.kind)) ? `((a, b) => a.filter((v) => !b.includes(v)))(${current}, ${value})`
                 : `${current} ${op.slice(0, -1)} (${value})`);
             if (t.t === 'index') {
                 const recv = expr(t.recv), a = t.args.map(gen);
                 // Variable 0 is a scratch slot scripts use; MZ's setValue skips it.
-                if ((recv.kind === '$game_variables' || recv.kind === 'rawvars') && a[0] === '0') return js(`($gameVariables._data[0] = ${combine('$gameVariables.value(0)')})`);
-                if (recv.kind === '$game_variables' || recv.kind === 'rawvars') return js(`$gameVariables.setValue(${a[0]}, ${combine(`$gameVariables.value(${a[0]})`)})`);
+                if ((recv.kind === '$game_variables' || recv.kind === 'rawvars') && a[0] === '0') return js(`($gameVariables._data[0] = ${combine('$gameVariables.value(0)', 'number')})`);
+                if (recv.kind === '$game_variables' || recv.kind === 'rawvars') return js(`$gameVariables.setValue(${a[0]}, ${combine(`$gameVariables.value(${a[0]})`, 'number')})`);
                 if (recv.kind === '$game_switches') return js(`$gameSwitches.setValue(${a[0]}, ${combine(`$gameSwitches.value(${a[0]})`)})`);
                 if (recv.kind === '$game_self_switches') return js(`$gameSelfSwitches.setValue(${a[0]}, ${combine(`$gameSelfSwitches.value(${a[0]})`)})`);
                 // A compound assignment (+=, -=, …) reads the current value through the same index first.
@@ -889,8 +901,8 @@
 
         function stmt(n) {
             switch (n.t) {
-                case 'if': return `if (${gen(n.cond)}) { ${n.then.map(stmt).join(' ')} }${n.else.length ? ` else { ${n.else.map(stmt).join(' ')} }` : ''}`;
-                case 'while': return `while (${gen(n.cond)}) { ${within('loop', () => n.body.map(stmt)).join(' ')} }`;
+                case 'if': return `if (${test(n.cond)}) { ${n.then.map(stmt).join(' ')} }${n.else.length ? ` else { ${n.else.map(stmt).join(' ')} }` : ''}`;
+                case 'while': return `while (${test(n.cond)}) { ${within('loop', () => n.body.map(stmt)).join(' ')} }`;
                 case 'for': {
                     let iter = expr(n.iter);
                     if (iter.kind === 'pictures') iter = js('[null, ...Array.from({ length: 20 }, (_, i) => i + 1)]', 'array:pictureId');

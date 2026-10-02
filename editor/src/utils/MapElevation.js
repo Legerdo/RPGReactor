@@ -336,7 +336,10 @@
         const lit = !!(sidecar3d && ((Array.isArray(sidecar3d.lights) && sidecar3d.lights.length)
             || sidecar3d.lighting));
         const media = Array.isArray(sidecar3d?.mediaSurfaces) && sidecar3d.mediaSurfaces.length > 0;
-        if (isFlat(mapData) && !grouped && !media && !modeled && !lifted && !previewed && !roomed && !propped && !built && !lit
+        // Events sized over several tiles, and the map's own gravity, jump and fall damage.
+        const sized = !!(sidecar3d && sidecar3d.eventSize && typeof sidecar3d.eventSize === 'object' && Object.keys(sidecar3d.eventSize).length);
+        const physical = !!(sidecar3d && sidecar3d.physics && typeof sidecar3d.physics === 'object' && Object.keys(sidecar3d.physics).length);
+        if (isFlat(mapData) && !grouped && !media && !modeled && !lifted && !previewed && !roomed && !propped && !built && !lit && !sized && !physical
             && !(sidecar3d && sidecar3d.camera)) {
             if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
             return true;
@@ -1036,6 +1039,81 @@
         });
         return found ? writeWater(mapData, styled.filter(Boolean)) : false;
     };
+    /*
+     * What holds water back: the solid a piece makes from its cell's ground
+     * up, in tiles. A wall or a pane holds to its top, a block to its own and
+     * a window to its sill; a floor slab (water stands over it), a doorway, a
+     * fence, a pillar, a ladder, a stair, a ramp and a roof let water by.
+     * Pieces stacked on one cell hold as one while each starts where the one
+     * under it ends; a piece that starts higher (an upper storey over a
+     * doorway, a bridge) holds nothing, the water passing under it. Shapes
+     * and rocks hold to their tops (the hollow ones not at all) when the 3D
+     * runtime is loaded to say which cells they stand on.
+     */
+    const WATER_HOLD = new Map([['wall', 5], ['glass', 5], ['block', 1], ['window', 1.5]]);
+    const WATER_OPEN_SHAPES = ['tube', 'ring', 'arch', 'tunnel'];
+    const WATER_SOLID_SHAPES = new Set(SHAPE_KINDS.filter(kind => !WATER_OPEN_SHAPES.includes(kind)));
+    // The cell pieces' part, kept per pieces array (every edit writes a new one): a big map has tens of thousands.
+    const waterHoldMemo = new WeakMap();
+    const columnTop = span => {
+        span.sort((a, b) => a[0] - b[0]);
+        let top = 0;
+        for (const [bottom, end] of span) { if (bottom > top + 0.05) break; if (end > top) top = end; }
+        return top;
+    };
+    /** How high pieces hold water over each cell's ground, by `y * width + x`; null when nothing does. */
+    const waterWalls = mapData => {
+        const raw = mapData && mapData.reactor3d && mapData.reactor3d.pieces;
+        if (!Array.isArray(raw) || !raw.length) return null;
+        const W = mapData.width, H = mapData.height;
+        let own = waterHoldMemo.get(raw);
+        if (!own || own.width !== W || own.height !== H) {
+            own = { width: W, height: H, spans: new Map(), walls: new Map(), shapes: false };
+            for (const entry of raw) {
+                if (!entry || typeof entry !== 'object') continue;
+                const hold = WATER_HOLD.get(entry.kind);
+                if (hold === undefined) { if (WATER_SOLID_SHAPES.has(entry.kind)) own.shapes = true; continue; }
+                const x = Math.floor(Number(entry.x)), y = Math.floor(Number(entry.y));
+                if (!(x >= 0 && y >= 0 && x < W && y < H)) continue;
+                const z = Math.max(0, Math.min(PIECE_MAX_LEVEL, Math.floor(Number(entry.z)) || 0)), key = y * W + x;
+                const span = own.spans.get(key);
+                if (span) span.push([z, z + hold]); else own.spans.set(key, [[z, z + hold]]);
+            }
+            for (const [key, span] of own.spans) { const top = columnTop(span); if (top > 0) own.walls.set(key, top); }
+            waterHoldMemo.set(raw, own);
+        }
+        // Shapes stand from their own cell's ground, which a terrain stroke moves: read afresh each time.
+        const R = root.Reactor3D;
+        if (!own.shapes || !R || typeof R.pieceIndex !== 'function') return own.walls.size ? own.walls : null;
+        const index = R.pieceIndex(mapData);
+        if (!index) return own.walls.size ? own.walls : null;
+        const extra = new Map();
+        const hold = piece => {
+            if (piece.x < 0 || piece.y < 0 || piece.x >= W || piece.y >= H) return;
+            // On a cell of its footprint lower or higher than its own, a shape starts that much up or down.
+            const anchor = Array.isArray(piece.anchor) ? piece.anchor : [piece.x, piece.y];
+            const shift = R.pieceBaseAt(mapData, anchor[0], anchor[1]) - R.pieceBaseAt(mapData, piece.x, piece.y);
+            const bottom = piece.z + shift, top = R.pieceTop(piece, 0.5, 0.5) + shift;
+            if (!(top > bottom)) return;
+            const key = piece.y * W + piece.x, span = extra.get(key);
+            if (span) span.push([bottom, top]); else extra.set(key, [[bottom, top]]);
+        };
+        // Each shape on every cell of its footprint, as the runtime stands it there (`pieceIndex`); rocks by the columns it worked out.
+        let rocks = false;
+        for (const piece of index.list) {
+            if (!WATER_SOLID_SHAPES.has(piece.kind)) continue;
+            if (piece.kind === 'rock') { rocks = true; continue; }
+            for (const [fx, fy] of R.pieceFootprint(piece)) hold(fx === piece.x && fy === piece.y ? piece : Object.assign({}, piece, { x: fx, y: fy, standIn: true, anchor: [piece.x, piece.y] }));
+        }
+        if (rocks) for (const stack of index.cells.values()) for (const piece of stack) if (piece.kind === 'rock') hold(piece);
+        if (!extra.size) return own.walls.size ? own.walls : null;
+        const walls = new Map(own.walls);
+        for (const [key, span] of extra) {
+            const top = columnTop(span.concat(own.spans.get(key) || []));
+            if (top > 0) walls.set(key, top); else walls.delete(key);
+        }
+        return walls.size ? walls : null;
+    };
     /**
      * The hollow under a cell, as water poured there would fill it: the
      * water rises from that cell's ground a quarter tile at a time,
@@ -1045,12 +1123,16 @@
      * pond does not become a lake over the whole valley). The result is the
      * box of the last level that held, its level, its cell count and a mask
      * of the cells under water. Null when the cell is not in a hollow.
+     * Pieces hold the water back up to their tops (`waterWalls`), so walls
+     * on flat ground make a basin of their own.
      */
     const waterBasin = (mapData, x, y, maxCells = 6000) => {
-        if (!mapData || !hasTerrain(mapData)) return null;
+        if (!mapData) return null;
         const W = mapData.width, H = mapData.height;
         if (x < 0 || y < 0 || x >= W || y >= H) return null;
-        const ground = (cx, cy) => terrainHeightAt(mapData, cx + 0.5, cy + 0.5) + (Number(at(mapData, cx, cy)) || 0);
+        const walls = waterWalls(mapData);
+        if (!walls && !hasTerrain(mapData)) return null;
+        const ground = (cx, cy) => terrainHeightAt(mapData, cx + 0.5, cy + 0.5) + (Number(at(mapData, cx, cy)) || 0) + (walls ? walls.get(cy * W + cx) || 0 : 0);
         const start = ground(x, y);
         // The cells under water at a level, or null when the water would spill.
         const flood = (level, held) => {
@@ -1058,8 +1140,8 @@
             const queue = [[x, y]];
             let x0 = x, y0 = y, x1 = x, y1 = y;
             const limit = held ? Math.min(maxCells, Math.ceil(held.cells * 2.5) + 12) : maxCells;
-            while (queue.length) {
-                const [cx, cy] = queue.shift();
+            for (let next = 0; next < queue.length; next++) {
+                const [cx, cy] = queue[next];
                 for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
                     const nx = cx + dx, ny = cy + dy;
                     if (nx < 0 || ny < 0 || nx >= W || ny >= H) return null;
@@ -1102,13 +1184,15 @@
      * its own level, the water spreads from the cells it still covers to
      * every neighbour lower than it, and leaves ground that rose above it.
      * A sheet whose cells all rose goes. Called after the ground changes
-     * shape, so a hill dug out under a pond fills instead of leaving a hole.
-     * True when any sheet changed.
+     * shape, so a hill dug out under a pond fills instead of leaving a hole,
+     * and after pieces change, so a wall built through a pond leaves its
+     * cells dry. True when any sheet changed.
      */
     const refitWater = mapData => {
         const list = water(mapData);
         if (!list.length) return false;
-        const ground = (cx, cy) => terrainHeightAt(mapData, cx + 0.5, cy + 0.5) + (Number(at(mapData, cx, cy)) || 0);
+        const walls = waterWalls(mapData), W = mapData.width;
+        const ground = (cx, cy) => terrainHeightAt(mapData, cx + 0.5, cy + 0.5) + (Number(at(mapData, cx, cy)) || 0) + (walls ? walls.get(cy * W + cx) || 0 : 0);
         let changed = false;
         const next = [];
         for (const region of list) {
@@ -1145,8 +1229,93 @@
         .concat(pieces(mapData).map(piece => piece.cap && piece.cap !== 'ground' ? piece.cap : ''))
         .concat(water(mapData).map(region => region.material)).filter(Boolean))).sort();
 
+    /**
+     * A map resized about an anchor: everything in its sidecar that stands
+     * at a map position moves by the same offset the tiles and events did
+     * (`dx`, `dy`, the old map's cell 0,0 in the new map), and what falls off
+     * the new edge goes as the tiles there do. Heights, terrain corners and
+     * 3D object cells shift as grids; pieces, building records and their
+     * spots, props, unattached lights, screens and ponds move as points.
+     * Called with the map already at its new size; the old size is given.
+     */
+    const resizeSidecar = (mapData, oldWidth, oldHeight, dx, dy) => {
+        const sidecar = mapData && mapData.reactor3d;
+        const W = mapData && mapData.width, H = mapData && mapData.height;
+        if (!sidecar || typeof sidecar !== 'object' || !(W > 0) || !(H > 0) || !(oldWidth > 0) || !(oldHeight > 0)) return false;
+        dx = Math.floor(Number(dx) || 0); dy = Math.floor(Number(dy) || 0);
+        const inside = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+        const shiftGrid = (cells, ow, oh, nw, nh, fill) => {
+            const out = new Array(nw * nh).fill(fill);
+            for (let y = 0; y < oh; y++) for (let x = 0; x < ow; x++) {
+                const tx = x + dx, ty = y + dy;
+                if (tx >= 0 && ty >= 0 && tx < nw && ty < nh) out[ty * nw + tx] = cells[y * ow + x];
+            }
+            return out;
+        };
+        if (Array.isArray(sidecar.elevation) && sidecar.elevation.length === oldWidth * oldHeight) {
+            sidecar.elevation = shiftGrid(sidecar.elevation, oldWidth, oldHeight, W, H, MIN);
+        }
+        if (Array.isArray(sidecar.terrain)) {
+            const tw = Number(sidecar.terrainWidth) > 0 ? Number(sidecar.terrainWidth) : oldWidth;
+            if (sidecar.terrain.length % (tw + 1) === 0) {
+                sidecar.terrain = shiftGrid(sidecar.terrain.map(v => Number(v) || 0), tw + 1, sidecar.terrain.length / (tw + 1), W + 1, H + 1, 0);
+                sidecar.terrainWidth = W;
+            }
+        }
+        for (const field of ['objects', 'objectGround']) {
+            const store = sidecar[field];
+            if (!store || typeof store !== 'object') continue;
+            for (const layer of Object.keys(store)) {
+                if (Array.isArray(store[layer]) && store[layer].length === oldWidth * oldHeight) store[layer] = shiftGrid(store[layer], oldWidth, oldHeight, W, H, 0);
+            }
+        }
+        if (Array.isArray(sidecar.pieces)) {
+            sidecar.pieces = sidecar.pieces.filter(piece => piece && typeof piece === 'object')
+                .map(piece => Object.assign({}, piece, { x: Number(piece.x) + dx, y: Number(piece.y) + dy }))
+                .filter(piece => inside(piece.x, piece.y));
+            if (!sidecar.pieces.length) delete sidecar.pieces;
+        }
+        if (Array.isArray(sidecar.structures)) {
+            const groups = new Set((sidecar.pieces || []).map(piece => piece.group).filter(Boolean));
+            sidecar.structures = sidecar.structures.filter(entry => entry && groups.has(entry.group)).map(entry => {
+                const spots = {};
+                for (const [name, at] of Object.entries(entry.spots || {})) if (Array.isArray(at)) spots[name] = [Number(at[0]) + dx, Number(at[1]) + dy];
+                return Object.assign({}, entry, { x: (Number(entry.x) || 0) + dx, y: (Number(entry.y) || 0) + dy, spots });
+            });
+            if (!sidecar.structures.length) delete sidecar.structures;
+        }
+        if (Array.isArray(sidecar.props)) {
+            sidecar.props = sidecar.props.filter(prop => prop && typeof prop === 'object')
+                .map(prop => Object.assign({}, prop, { x: Number(prop.x) + dx, y: Number(prop.y) + dy }))
+                .filter(prop => inside(Math.floor(prop.x), Math.floor(prop.y)));
+            if (!sidecar.props.length) delete sidecar.props;
+        }
+        if (Array.isArray(sidecar.lights)) {
+            // An attached light's x and y are offsets from what carries it, and move with that.
+            sidecar.lights = sidecar.lights.filter(light => light && typeof light === 'object').map(light => {
+                const attached = light.attach && (light.attach.player || Number(light.attach.event) > 0);
+                return attached || light.type === 'sun' ? light : Object.assign({}, light, { x: Number(light.x) + dx, y: Number(light.y) + dy });
+            }).filter(light => (light.attach && (light.attach.player || Number(light.attach.event) > 0)) || light.type === 'sun' || inside(Math.floor(light.x), Math.floor(light.y)));
+            if (!sidecar.lights.length) delete sidecar.lights;
+        }
+        if (Array.isArray(sidecar.mediaSurfaces)) {
+            sidecar.mediaSurfaces = sidecar.mediaSurfaces.filter(row => row && typeof row === 'object')
+                .map(row => row.target && row.target !== 'map' ? row : Object.assign({}, row, { x: Number(row.x) + dx, y: Number(row.y) + dy }))
+                .filter(row => (row.target && row.target !== 'map') || inside(Math.floor(row.x + 0.5), Math.floor(row.y + 0.5)));
+            if (!sidecar.mediaSurfaces.length) delete sidecar.mediaSurfaces;
+        }
+        if (Array.isArray(sidecar.water)) {
+            sidecar.water = sidecar.water.map(sheet => normalizeWater(sheet && Object.assign({}, sheet, { x0: Number(sheet.x0) + dx, x1: Number(sheet.x1) + dx, y0: Number(sheet.y0) + dy, y1: Number(sheet.y1) + dy }), mapData))
+                .filter(sheet => sheet && (!sheet.mask || sheet.mask.includes('1')));
+            if (!sidecar.water.length) delete sidecar.water;
+        }
+        // The recorded size stays the old one: it is how Map Properties knows the sidecar changed and writes it.
+        return true;
+    };
+
     const api = {
-        WATER_MAX_LEVEL, normalizeWater, water, hasWater, addWater, waterCovers, waterAt, removeWaterAt, removeWaterRegion, styleWaterRegion, waterBasin, fillWaterAt, refitWater, waterSnapshot, restoreWater,
+        resizeSidecar,
+        WATER_MAX_LEVEL, normalizeWater, water, hasWater, addWater, waterCovers, waterAt, removeWaterAt, removeWaterRegion, styleWaterRegion, waterWalls, waterBasin, fillWaterAt, refitWater, waterSnapshot, restoreWater,
         EVENT_SIZE_MAX, eventSize, setEventSize, PIECE_KINDS, PIECE_FINISHES, SHAPE_KINDS, SHAPE_PARAMS, PIECE_MAX_LEVEL, normalizePiece, pieces, hasPieces, pieceAt, setPiece, removePiece,
         piecesSnapshot, restorePieces, clearPieces, pieceMaterials,
         nextPieceGroup, pieceGroup, pieceGroupBounds, pieceGroupAt, groupConnectedPieces, movePieceGroup, removePieceGroup, rotatePieceGroup,

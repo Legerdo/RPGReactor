@@ -430,11 +430,39 @@ Reactor3D.modelAnimationsBusy = function(character) {
 /** The wait modes that hold a script in the background: the world never freezes for these. */
 Reactor3D.BACKGROUND_WAIT_MODES = ["reactorScopedWait", "reactorModelAnimation"];
 
+/**
+ * Give a wait its character. The interpreter holding the wait is saved, so
+ * the character rides along unsaved (an event's own parallel interpreter
+ * holding that event made the save circular, "Object too deep") and is
+ * found again by id after a load.
+ */
+Reactor3D.holdWaitCharacter = function(wait, character) {
+    Object.defineProperty(wait, "character", { value: character || null, writable: true, configurable: true, enumerable: false });
+    const player = typeof $gamePlayer !== "undefined" ? $gamePlayer : null;
+    const line = player && player.followers ? player.followers()._data || [] : [];
+    wait.characterId = !character ? 0 : character === player ? -1
+        : line.indexOf(character) >= 0 ? -2 - line.indexOf(character)
+        : typeof character.eventId === "function" ? character.eventId() : 0;
+    return wait;
+};
+
+/** The character a wait watches: the one it was given, or after a load the one its id names. */
+Reactor3D.waitCharacter = function(wait) {
+    if (!wait) return null;
+    if (wait.character) return wait.character;
+    const id = Number(wait.characterId) || 0;
+    if (id === -1) return typeof $gamePlayer !== "undefined" ? $gamePlayer : null;
+    if (id < -1) return typeof $gamePlayer !== "undefined" && $gamePlayer ? $gamePlayer.followers().follower(-id - 2) || null : null;
+    if (id > 0) return typeof $gameMap !== "undefined" && $gameMap ? $gameMap.event(id) || null : null;
+    return null;
+};
+
 /** Whether a scoped wait still holds, whatever it watches. */
 Reactor3D.scopedWaitHolding = function(wait) {
     if (!wait) return false;
     const frame = typeof Graphics !== "undefined" ? Graphics.frameCount : 0;
-    if (frame >= wait.deadline) return false;
+    // No deadline is Infinity in play and null once saved: a switch wait loaded from a save still holds.
+    if (Number.isFinite(wait.deadline) && frame >= wait.deadline) return false;
     if (wait.mode === "duration") return frame < wait.until;
     if (wait.mode === "switch") {
         return typeof $gameSwitches !== "undefined" && $gameSwitches
@@ -453,7 +481,7 @@ Reactor3D.scopedWaitHolding = function(wait) {
             default: return !(current >= value);
         }
     }
-    return this.scopedActionsBusy(wait.character);
+    return this.scopedActionsBusy(this.waitCharacter(wait));
 };
 
 /** What a scoped wait watches: the animation queue, and for one character a forced route too. */
@@ -465,13 +493,14 @@ Reactor3D.scopedActionsBusy = function(character) {
 
 /** Whether a Play Model Animation wait is still holding. */
 Reactor3D.modelAnimationWaiting = function(wait) {
-    if (!wait || !wait.character || !wait.name) return false;
+    const character = this.waitCharacter(wait);
+    if (!character || !wait.name) return false;
     const frame = typeof Graphics !== "undefined" ? Graphics.frameCount : 0;
     if (frame >= wait.deadline) return false;
-    const key = this.modelInstanceKey(wait.character);
+    const key = this.modelInstanceKey(character);
     const pending = this._modelActions && this._modelActions[key];
     if (Array.isArray(pending) && pending.some(entry => entry && entry.name === wait.name)) return true;
-    const holder = this.modelHolderFor ? this.modelHolderFor(wait.character) : null;
+    const holder = this.modelHolderFor ? this.modelHolderFor(character) : null;
     const action = holder && holder.action;
     if (action && action.name === wait.name) {
         if (!wait.started) {
@@ -2073,10 +2102,10 @@ Reactor3D.registerPluginCommands = function() {
             // action is still pending the wait holds, once it starts it holds
             // until the action ends — and a repeating action releases after
             // its first full cycle (the restart bumps the action's frame).
-            this._reactorAnimWait = {
-                character, name, started: false, startedFrame: null,
+            this._reactorAnimWait = Reactor3D.holdWaitCharacter({
+                name, started: false, startedFrame: null,
                 deadline: (typeof Graphics !== "undefined" ? Graphics.frameCount : 0) + 1800
-            };
+            }, character);
             this.setWaitMode("reactorModelAnimation");
         }
     });
@@ -2115,8 +2144,7 @@ Reactor3D.registerPluginCommands = function() {
         const duration = Math.max(0, Math.round(Number(args && args.duration) || 0));
         const modes = ["actions", "duration", "switch", "variable"];
         const mode = modes.indexOf(String(args && args.mode)) >= 0 ? String(args.mode) : "actions";
-        this._reactorScopedWait = {
-            character,
+        this._reactorScopedWait = Reactor3D.holdWaitCharacter({
             mode,
             until: frame + duration,
             // A switch or variable wait is "resume when it happens": it may
@@ -2128,7 +2156,7 @@ Reactor3D.registerPluginCommands = function() {
             variableId: Math.max(1, Math.round(Number(args && args.variableId) || 1)),
             op: String((args && args.op) || ">="),
             value: Number(args && args.value) || 0
-        };
+        }, character);
         this.setWaitMode("reactorScopedWait");
         // The waiting event can let go of itself — resume its own route
         // instead of standing at attention while the wait holds. On by

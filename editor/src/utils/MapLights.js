@@ -146,6 +146,10 @@
                 period: number(raw.pulse.period, 90, 2, 100000)
             } : null
         };
+        // Written only when set, as the runtime's schema reads them: an attached cone that keeps a bearing,
+        // and whether the source is drawn as a glowing body (the runtime's default depends on attach).
+        if (raw.followFacing === false) light.followFacing = false;
+        if (raw.body !== undefined) light.body = !!raw.body;
         if (raw.compoundId && ID_PATTERN.test(String(raw.compoundId))) {
             light.compoundId = String(raw.compoundId);
             light.compoundName = String(raw.compoundName || '').slice(0, 80);

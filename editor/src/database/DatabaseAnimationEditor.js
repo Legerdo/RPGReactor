@@ -172,10 +172,10 @@ class DatabaseAnimationEditor {
         const converted = DatabaseAnimationEditor.timingRows(animation).map(row => ({
             frame: Number.isFinite(row.frame) ? row.frame : 0,
             se: row.se || { name: '', pan: 0, pitch: 100, volume: 90 },
-            // MZ flash timings always target battlers, so MV's closest scope is 1.
-            // Keyed on the entry existing rather than on its colour: a stock
-            // flash timing may carry no colour at all and is still a flash.
-            flashScope: row.flashIndex >= 0 ? 1 : 0,
+            // A flash timing targets battlers unless its scope says screen (2) or
+            // hide target (3). Keyed on the entry existing rather than on its colour:
+            // a stock flash timing may carry no colour at all and is still a flash.
+            flashScope: row.flashIndex >= 0 ? (row.flashScope === 2 || row.flashScope === 3 ? row.flashScope : 1) : 0,
             flashColor: row.flashIndex >= 0
                 ? DatabaseAnimationEditor.normalizeFlashColor(row.flashColor) : [0, 0, 0, 0],
             flashDuration: Number.isFinite(row.flashDuration) ? row.flashDuration : 0

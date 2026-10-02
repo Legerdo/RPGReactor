@@ -59,3 +59,21 @@ test('both web builds write the index after the project is staged', () => {
         assert.match(source, /writeWebFileIndex\(/, `${worker} writes the index`);
     }
 });
+
+test('a web build over a storefront\'s file or size cap is warned about, never blocked', () => {
+    const index = require(path.join(repoRoot, 'editor', 'build-scripts', 'web-file-index.cjs'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-web-caps-'));
+    try {
+        fs.mkdirSync(path.join(root, 'img'));
+        for (let i = 0; i < 1000; i++) fs.writeFileSync(path.join(root, 'img', `p${i}.png`), '');
+        index.writeWebFileIndex(root);
+        const warnings = index.storefrontWarnings(root);
+        assert.equal(warnings.length, 1);
+        assert.match(warnings[0], /1001 files/);
+        fs.rmSync(path.join(root, 'img', 'p0.png'));
+        fs.rmSync(path.join(root, 'img', 'p1.png'));
+        assert.equal(index.storefrontWarnings(root).length, 0, '999 files fit');
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});

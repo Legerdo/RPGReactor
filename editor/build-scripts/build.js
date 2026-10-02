@@ -83,6 +83,11 @@ const EXCLUDED = new Set([
     path.join('js', 'RMMZ_Corescript'),
     path.join('data', 'Database.names.json'),
     path.join('data', 'nul'),
+    // The editor's own files: the open project's lock, and what an import of an older
+    // engine's game leaves for its author (the report and the original scripts).
+    '.rpgreactor.lock',
+    'import-report.json',
+    path.join('legacy', 'Scripts'),
 ]);
 
 // Battle Test writes a full Test_-prefixed copy of every database file into

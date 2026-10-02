@@ -2154,6 +2154,7 @@ class PluginManager {
      */
     async loadPlugins() {
         if (this.detailsContainer) this.renderEmptyDetails();
+        this._pluginsLoadError = null;
         try {
             const currentProject = this.projectController.getCurrentProject();
             if (!currentProject || !currentProject.path) {
@@ -2185,11 +2186,9 @@ class PluginManager {
             this.clearPluginSelection();
 
             const text = this.fs.readFileSync(pluginsPath, 'utf8');
-
-            // Extract the $plugins array
-            const pluginsMatch = text.match(/var\s+\$plugins\s*=\s*(\[[\s\S]*\]);/);
-            if (pluginsMatch) {
-                this.plugins = JSON.parse(pluginsMatch[1]);
+            const parsed = PluginManager.parsePluginsManifest(text);
+            if (parsed.length) {
+                this.plugins = parsed;
 
                 // Enrich plugins with descriptions and help from their source
                 // files (cached by mtime — edits still show up immediately,
@@ -2219,7 +2218,43 @@ class PluginManager {
             this.renderPluginList();
         } catch (err) {
             console.error('Error loading plugins:', err);
+            // Nothing from another project or a half-read file may be saved over this one.
+            this._pluginsLoadError = err;
+            this.plugins = [];
+            this.clearPluginSelection?.();
+            try { this.renderPluginList(); } catch (renderError) { /* the window may be closed */ }
         }
+    }
+
+    /**
+     * The $plugins array of a plugins.js / reactor_plugins.js. An empty or array-less file
+     * is an empty list; a file that names $plugins but cannot be read throws.
+     */
+    static parsePluginsManifest(text) {
+        const source = String(text || '');
+        const assign = /\$plugins\s*=\s*/.exec(source);
+        if (!assign) {
+            if (!source.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '').trim()) return [];
+            throw new Error('the file has no $plugins list');
+        }
+        const start = source.indexOf('[', assign.index + assign[0].length);
+        if (start < 0 || source.slice(assign.index + assign[0].length, start).trim()) throw new Error('$plugins is not a list');
+        // The matching bracket, skipping brackets inside strings.
+        let depth = 0;
+        let end = -1;
+        for (let i = start, inString = false; i < source.length; i++) {
+            const ch = source[i];
+            if (inString) {
+                if (ch === '\\') i++;
+                else if (ch === '"') inString = false;
+            } else if (ch === '"') inString = true;
+            else if (ch === '[') depth++;
+            else if (ch === ']' && --depth === 0) { end = i; break; }
+        }
+        if (end < 0) throw new Error('$plugins is not closed');
+        const list = JSON.parse(source.slice(start, end + 1));
+        if (!Array.isArray(list)) throw new Error('$plugins is not a list');
+        return list;
     }
 
     /**
@@ -4244,6 +4279,10 @@ class PluginManager {
             if (!currentProject || !currentProject.path) {
                 alert(this._tt('No project loaded'));
                 return;
+            }
+
+            if (this._pluginsLoadError) {
+                throw new Error(`${this._pluginsFilePath || 'plugins.js'} could not be read (${this._pluginsLoadError.message}); it was left as it is`);
             }
 
             const projectPath = currentProject.path;

@@ -2789,6 +2789,11 @@ Object.defineProperty(Window.prototype, "innerRect", {
  * Destroys the window.
  */
 Window.prototype.destroy = function() {
+    // The RGSS frame's picture belongs to the window (see _refreshRgssFrame); a scene's windows go with it.
+    if (this._rrFrameBitmap) {
+        this._rrFrameBitmap.destroy();
+        this._rrFrameBitmap = null;
+    }
     const options = { children: true, texture: true };
     PIXI.Container.prototype.destroy.call(this, options);
 };
@@ -3165,6 +3170,8 @@ Window.prototype._refreshRgssFrame = function() {
             this._rrFrameSprite.visible = false;
             this._rrFrameBitmap.destroy();
             this._rrFrameBitmap = null;
+            // MZ's frame parts were hidden for it; the skin's own frame shows again.
+            for (const child of sprite.children) child.visible = true;
         }
         return false;
     }

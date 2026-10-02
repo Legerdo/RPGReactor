@@ -435,7 +435,7 @@ test('event pages keep tile graphics, translucency and spin; panoramas scroll th
     assert.deepEqual(C.convertRoute([{ code: 34, parameter_string: '', parameter_a: 5 }], ctx()).list[0], { code: 45, parameters: ['this.setTileImage(261)'] });
     const objects = runtimeSource('reactor_objects.js');
     assert.match(objects, /this\._rrTransp = page\.rrTranslucent \? 3 : 0;/);
-    assert.match(objects, /const limit = \[24, 16, 12, 8, 6, 4\]/);
+    assert.match(objects, /const SPIN_FRAMES = \[24, 16, 12, 8, 6, 4\]/);
 });
 
 test('a panorama that neither scrolls nor loops moves with the camera in proportion, as in the old engine', () => {

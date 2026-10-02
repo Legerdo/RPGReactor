@@ -432,6 +432,18 @@ class TerrainManager {
         if (!elevation.hasTerrain(map)) elevation.clearTerrain(map);
     }
 
+    /**
+     * Pieces came or went: they hold water back, so the hollows read again
+     * and the ponds refit to them. `region` is the cells the edit touched
+     * ({x0, y0, x1, y1}); ponds whose box it misses are left as they are.
+     */
+    piecesChanged(region = null) {
+        this._basins = null; this._preview = null;
+        const map = this.currentMap(), elevation = this.elevation();
+        if (region && map && elevation?.water && !elevation.water(map).some(sheet => region.x0 <= sheet.x1 && region.x1 >= sheet.x0 && region.y0 <= sheet.y1 && region.y1 >= sheet.y0)) return false;
+        return this.refitWater();
+    }
+
     /** Ponds follow the ground after it changes shape; the view redraws them when one did. */
     refitWater() {
         const map = this.currentMap(), elevation = this.elevation();

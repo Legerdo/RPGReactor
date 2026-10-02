@@ -20013,6 +20013,9 @@ class I18nManager {
         this.language = this._readSavedLanguage();
         this._observer = null;
         this._observerPending = false;
+        // What this language has rendered, mapped back to its source, so a
+        // language switch can find labels a page wrote with tText/t directly.
+        this._served = new Map();
     }
 
     languages() {
@@ -20027,10 +20030,15 @@ class I18nManager {
         const table = RR_I18N_STRINGS[this.language] || RR_I18N_STRINGS.en;
         const fallback = RR_I18N_STRINGS.en[key] || key;
         let value = table[key] || fallback;
+        if (!value.includes('{')) this._remember(value, { key });
         // Insert user text literally, once. Replacement strings interpret $&
         // and friends, and repeated passes can expand placeholders in filenames.
         return value.replace(/\{([^{}]+)\}/g, (token, name) =>
             Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : token);
+    }
+
+    _remember(rendered, source) {
+        if (this._served && rendered && rendered.length <= 400) this._served.set(rendered, source);
     }
 
     tDbType(type, fallback = type) {
@@ -20048,11 +20056,12 @@ class I18nManager {
     }
 
     tText(text) {
-        if (this.language === 'en') return text;
-        return RR_TEXT_TRANSLATIONS[this.language]?.[text]
+        const rendered = this.language === 'en' ? text : RR_TEXT_TRANSLATIONS[this.language]?.[text]
             || RR_EVENT_COMMAND_NAMES[this.language]?.[text]
             || RR_EVENT_SECTION_NAMES[this.language]?.[text]
             || text;
+        if (typeof text === 'string') this._remember(rendered, { text });
+        return rendered;
     }
 
     formatText(source, params = {}) {
@@ -20062,11 +20071,14 @@ class I18nManager {
     setLanguage(language, options = {}) {
         const next = normalizeI18nLanguage(language);
         if (next === this.language && options.force !== true) return;
+        const served = this._served;
+        this._served = new Map();
         this.language = next;
         if (options.persist !== false) this._writeSavedLanguage(next);
         // The observer watches only while there is something to translate;
         // the whole-document apply below covers whatever was added unwatched.
         if (next === 'en') this._stopObserving();
+        this._relabelServed(served);
         this.apply(document);
         if (next !== 'en' && this._observeWanted) this.observe();
         window.dispatchEvent(new CustomEvent('rr-language-changed', { detail: { language: next } }));
@@ -20094,6 +20106,40 @@ class I18nManager {
             el.value = this.t(el.getAttribute('data-i18n-value'));
         });
         this.applyText(root);
+    }
+
+    /**
+     * Re-translate what the editor itself rendered in the previous language.
+     * Pages that write `tText(…)`/`t(…)` output straight into the DOM keep no
+     * English source, so the generic pass cannot read them back; the strings
+     * served before the switch name their sources. Fields, editable text and
+     * `data-rr-i18n-skip` stay untouched, and stamped elements are left to
+     * applyText.
+     */
+    _relabelServed(served) {
+        if (!served || !served.size || typeof document === 'undefined' || !document.body
+            || typeof document.createTreeWalker !== 'function') return;
+        const render = source => (source.key ? this.t(source.key) : this.tText(source.text));
+        const frozen = element => !element || !!element.closest('[data-rr-i18n-skip], [data-i18n], [data-i18n-text-source], textarea, [contenteditable="true"], script, style');
+        const walker = document.createTreeWalker(document.body, 4);
+        const texts = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node);
+        for (const node of texts) {
+            const value = node.nodeValue;
+            const trimmed = value.trim();
+            const source = trimmed && served.get(trimmed);
+            if (!source || frozen(node.parentElement)) continue;
+            const next = render(source);
+            if (next !== trimmed) node.nodeValue = value.replace(trimmed, next);
+        }
+        for (const attribute of ['title', 'aria-label', 'placeholder']) {
+            document.body.querySelectorAll(`[${attribute}]`).forEach(element => {
+                if (element.closest('[data-rr-i18n-skip]')) return;
+                if (attribute === 'placeholder' && element.hasAttribute('data-i18n-placeholder-source')) return;
+                const source = served.get(element.getAttribute(attribute));
+                if (source) element.setAttribute(attribute, render(source));
+            });
+        }
     }
 
     applyApplicationTitle() {

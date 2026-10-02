@@ -275,13 +275,30 @@ function unpackFolder(year, chipsets, env, platform) {
     return base + '-other';
 }
 
+/** The file an unpacked RTP folder carries: unpack replaces only folders that have it. */
+const MARKER = 'rpg-reactor-rtp.json';
+
+/**
+ * Where an unpack may write: `folder` when it is absent, empty or an earlier unpack's (its marker);
+ * otherwise the first free `folder-2`, `folder-3`…, so an RTP the user keeps there is never replaced.
+ */
+function freeFolder(folder) {
+    for (let n = 1; ; n++) {
+        const candidate = n === 1 ? folder : `${folder}-${n}`;
+        let entries;
+        try { entries = fs.readdirSync(candidate); } catch (_) { return candidate; }
+        if (!entries.length || entries.includes(MARKER)) return candidate;
+    }
+}
+
 /**
  * Unpacks an RTP installer or archive into `folder` (or, when it is omitted,
  * the user's RTP folder for what it holds): the RTP's own folders, and any
  * RM2000/RMG2000 font it carries beside them. Returns { folder, files, year }.
  */
 function unpack(buf, folder, onProgress) {
-    const all = archiveFiles(buf);
+    // An entry naming a parent, an absolute path or a drive (../../x, /etc/x, C:/x) is never written.
+    const all = archiveFiles(buf).filter(f => String(f.path).split('/').every(p => p && p !== '.' && p !== '..' && !/[\\:]/.test(p)));
     const root = locateRoot(all);
     if (!root) throw new Error('no RTP inside (no CharSet and ChipSet folders)');
     const files = all.filter(f => f.path.startsWith(root.prefix) && f.path.slice(root.prefix.length).includes('/') && !/\.(exe|dll|ico|txt|log)$/i.test(f.path))
@@ -290,11 +307,13 @@ function unpack(buf, folder, onProgress) {
     const rels = files.map(f => f.rel);
     const year = yearOfFiles(rels);
     if (!folder) folder = unpackFolder(year, rels.filter(r => /^chipset\//i.test(r)).map(r => r.split('/')[1].replace(/\.[^.]+$/, '')));
+    folder = freeFolder(folder);
     const staging = folder + '.part';
     fs.rmSync(staging, { recursive: true, force: true });
     const out = files.concat(fonts);
     out.forEach((f, i) => {
         const target = path.join(staging, ...f.rel.split('/'));
+        if (path.relative(staging, target).split(path.sep)[0] === '..') throw new Error(`${f.rel} lies outside the RTP folder`);
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.writeFileSync(target, f.read());
         if (onProgress) onProgress((i + 1) / out.length, f.rel);
@@ -302,6 +321,7 @@ function unpack(buf, folder, onProgress) {
     fs.rmSync(folder, { recursive: true, force: true });
     fs.mkdirSync(path.dirname(folder), { recursive: true });
     fs.renameSync(staging, folder);
+    fs.writeFileSync(path.join(folder, MARKER), JSON.stringify({ unpacked: new Date().toISOString() }, null, 2));
     return { folder, files: files.length, year };
 }
 
@@ -385,9 +405,9 @@ async function fetchOfficial(engine, progress = () => {}, folder = downloadFolde
     const source = SOURCES[yearOf(engine)];
     const buf = await download(source.url, (f) => progress(f * 0.7, `Downloading the ${source.name}…`));
     progress(0.7, `Unpacking the ${source.name}…`);
-    unpack(buf, folder, (f) => progress(0.7 + f * 0.3, `Unpacking the ${source.name}…`));
-    fs.writeFileSync(path.join(folder, 'rpg-reactor-rtp.json'), JSON.stringify({ source: source.url, unpacked: new Date().toISOString() }, null, 2));
-    return folder;
+    const unpacked = unpack(buf, folder, (f) => progress(0.7 + f * 0.3, `Unpacking the ${source.name}…`)).folder;
+    fs.writeFileSync(path.join(unpacked, MARKER), JSON.stringify({ source: source.url, unpacked: new Date().toISOString() }, null, 2));
+    return unpacked;
 }
 
 module.exports = { SOURCES, downloadFolder, referencedNames, classify, isOfficial, coverage, translatedView, archiveFiles, archiveKind, installerFromZip, unpack, rtpFrom, findRtpFolder, download, fetchOfficial };

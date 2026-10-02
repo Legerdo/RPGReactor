@@ -2375,8 +2375,13 @@ class EventCommandList {
                 break;
             }
             case 319: {
-                const slots = ['Weapon', 'Shield', 'Head', 'Body', 'Accessory'];
-                description = `${tt(slots[params[1]] || 'Unknown')} = #${params[2] || 0}`;
+                // [actor, equipment type id (1 = Weapon), item id]: weapons for type 1, armors otherwise.
+                const databaseManager = this.eventEditor?.databaseManager;
+                const editorClass = typeof ChangeEquipmentEditor !== 'undefined' ? ChangeEquipmentEditor : null;
+                const type = editorClass ? editorClass.equipTypes(databaseManager, params[1]).find(entry => entry.value === params[1]) : null;
+                const items = params[1] === 1 ? databaseManager?.data?.weapons : databaseManager?.data?.armors;
+                const item = params[2] ? items?.[params[2]] : null;
+                description = `${type ? type.label : `#${params[1] || 0}`} = ${params[2] ? (item?.name || `#${params[2]}`) : tt('None')}`;
                 break;
             }
             case 320: case 324:
@@ -2405,15 +2410,15 @@ class EventCommandList {
             case 331: case 332: case 342: {
                 const idx = params[0] || 0;
                 const op = params[1] === 0 ? '+' : '-';
-                const val = params[3] || 0;
-                description = `#${idx + 1} ${op}${val}`;
+                const val = params[2] === 1 ? this._fmtVarBracket(params[3] || 0) : (params[3] || 0);
+                description = `${idx === -1 ? tt('Entire Troop') : `#${idx + 1}`} ${op}${val}`;
                 break;
             }
             case 333: {
                 const idx = params[0] || 0;
                 const op = params[1] === 0 ? tt('Add') : tt('Remove');
                 const stId = params[2] || 1;
-                description = `#${idx + 1} ${op} ${tt('State')} ${stId}`;
+                description = `${idx === -1 ? tt('Entire Troop') : `#${idx + 1}`} ${op} ${tt('State')} ${stId}`;
                 break;
             }
             case 334: case 335: {

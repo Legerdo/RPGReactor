@@ -269,7 +269,9 @@ test('localization source inventory recognizes static text calls and consumed sc
 test('all statically routed localization source phrases exist in RR_TEXT_TRANSLATIONS', () => {
     const { catalogs } = loadI18nForTest();
     const vmCtx = { __text: catalogs.text };
-    const sourceKeys = new Set(Object.keys(vmCtx.__text.ja));
+    // tText falls back to the event command and section names, so a command
+    // name routed through a text helper is translated by those catalogs.
+    const sourceKeys = new Set([...Object.keys(vmCtx.__text.ja), ...Object.keys(catalogs.commands.ja), ...Object.keys(catalogs.sections.ja)]);
     const audit = auditTextTranslationCoverage(repoRoot, sourceKeys);
 
     assert.equal(audit.missing.length, 0, formatMissingPhrases(audit.missing));

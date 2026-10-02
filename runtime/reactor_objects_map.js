@@ -619,6 +619,9 @@ Game_Map.prototype.checkPassage = function(x, y, bit) {
     const flags = this.tilesetFlags();
     const tiles = this.allTiles(x, y);
     for (const tile of tiles) {
+        // Tile 0 is no tile: it never decides passage, whatever a tileset written without the
+        // star on it (flags[0] = 0) says. RPG Maker writes 16 there, which reads the same.
+        if (tile === 0) continue;
         const flag = flags[tile];
         if ((flag & 0x10) !== 0) {
             // [*] No effect on passage

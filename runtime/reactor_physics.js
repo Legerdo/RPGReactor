@@ -45,7 +45,8 @@
         const own = typeof $dataSystem !== "undefined" && $dataSystem && $dataSystem.reactorPhysics && typeof $dataSystem.reactorPhysics === "object" ? $dataSystem.reactorPhysics : {};
         const map = typeof $dataMap !== "undefined" && $dataMap && $dataMap.reactor3d && $dataMap.reactor3d.physics && typeof $dataMap.reactor3d.physics === "object" ? $dataMap.reactor3d.physics : {};
         const out = Object.assign({}, this.DEFAULTS, own, map);
-        const num = (v, fallback, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback; };
+        // Blank is not 0: a null or empty gravity is the default, not a near-weightless 0.01.
+        const num = (v, fallback, lo, hi) => { const n = v === null || v === "" || typeof v === "boolean" ? NaN : Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fallback; };
         out.gravity = num(out.gravity, 1, 0.01, 10);
         out.jumpHeight = num(out.jumpHeight, 1.25, 0, 20);
         out.fallFrom = num(out.fallFrom, 6, 0, 200);
@@ -82,9 +83,10 @@
         return character && character._reactorAir > 0 ? character._reactorAir : 0;
     };
 
-    /** Whether a character is in the air (a jump, a fall); a swimmer is not. */
+    /** Whether a character is in the air (a jump, a fall); a swimmer and a vehicle's rider are not. */
     ReactorPhysics.isAirborne = function(character) {
-        return !!character && !character._reactorSwim && !character._reactorOnLadder && (character._reactorAir > 0.02 || character._reactorVz > 0);
+        return !!character && !character._reactorSwim && !character._reactorOnLadder && !character._reactorRiding
+            && (character._reactorAir > 0.02 || character._reactorVz > 0);
     };
 
     /** Whether a character is swimming. */
@@ -216,6 +218,31 @@
         character._reactorAir = 0; character._reactorVz = 0; character._reactorAlt = undefined; character._reactorPeak = undefined;
         character._reactorSwim = false; character._reactorLeap = false; character._reactorClimb = false;
         character._reactorOnLadder = false; character._reactorDive = 0; character._reactorFloat = undefined;
+        character._reactorRiding = false;
+    };
+
+    /** Tiles an airship at full altitude flies over the highest thing under it. */
+    ReactorPhysics.AIRSHIP_HEIGHT = 3;
+
+    /**
+     * A vehicle on a 3D map, and the player aboard it: a boat or ship rides the
+     * water's surface, an airship rises with its altitude over the top of what
+     * is under it (a roof as much as the ground). No gravity, and not airborne.
+     */
+    ReactorPhysics.ride = function(character, craft) {
+        this.settle(character);
+        character._reactorRiding = true;
+        const x = Number.isFinite(character._realX) ? character._realX : character.x;
+        const y = Number.isFinite(character._realY) ? character._realY : character.y;
+        const airship = !!(craft && craft.isAirship && craft.isAirship());
+        const ground = Reactor3D.groundHeightAt($dataMap, x + 0.5, y + 0.5, airship ? Infinity : character._reactorGround);
+        character._reactorGround = ground;
+        const level = Reactor3D.waterLevelAt && Reactor3D.hasWater && Reactor3D.hasWater($dataMap)
+            ? Reactor3D.waterLevelAt($dataMap, Math.floor(x + 0.5), Math.floor(y + 0.5)) : null;
+        const surface = level !== null && level > ground ? level : ground;
+        const max = airship && craft.maxAltitude ? craft.maxAltitude() : 0;
+        const flight = max > 0 ? Math.max(0, Math.min(1, (craft._altitude || 0) / max)) * this.AIRSHIP_HEIGHT : 0;
+        character._reactorAir = surface - ground + flight;
     };
 
     /**
@@ -228,7 +255,9 @@
         const vehicle = (typeof Game_Vehicle !== "undefined" && character instanceof Game_Vehicle)
             || (typeof $gamePlayer !== "undefined" && character === $gamePlayer && character.isInVehicle && character.isInVehicle());
         if (vehicle || typeof Reactor3D === "undefined" || typeof $dataMap === "undefined" || !$dataMap || !Reactor3D.isMap3D || !Reactor3D.isMap3D($dataMap)) {
-            this.settle(character);
+            if (vehicle && typeof Reactor3D !== "undefined" && typeof $dataMap !== "undefined" && $dataMap && Reactor3D.isMap3D && Reactor3D.isMap3D($dataMap)) {
+                this.ride(character, character instanceof Game_Vehicle ? character : character.vehicle && character.vehicle());
+            } else this.settle(character);
             return;
         }
         const x = Number.isFinite(character._realX) ? character._realX : character.x;

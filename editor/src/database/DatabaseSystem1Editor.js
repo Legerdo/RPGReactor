@@ -819,7 +819,8 @@ class DatabaseSystem1Editor {
         if (addBtn && addSelect) {
             addBtn.addEventListener('click', () => {
                 const actorId = parseInt(addSelect.value);
-                if (actorId) {
+                // One actor is one Game_Actor: listed twice, the game would put the same battler in two slots.
+                if (actorId && !(system.partyMembers || []).includes(actorId)) {
                     if (!system.partyMembers) system.partyMembers = [];
                     system.partyMembers.push(actorId);
                     refreshParty();

@@ -78,6 +78,16 @@ class ProjectTools {
         return window.I18n ? window.I18n.tText(text) : text;
     }
 
+    /**
+     * A save failure's reason in the editor's language. The tool itself is
+     * sent the English reason, so the translation happens here, at display.
+     */
+    _saveFailureText(message) {
+        const changed = /^(.+) changed; reload the tool data before saving$/.exec(String(message || ''));
+        if (changed) return this._t('{file} changed; reload the tool data before saving').replace('{file}', changed[1]);
+        return this._t(String(message || ''));
+    }
+
     _escapeHtml(value) {
         if (typeof globalThis.rrEscapeHtml === 'function') return globalThis.rrEscapeHtml(value);
         return require('../../utils/HtmlEscape.js')(value);
@@ -483,7 +493,7 @@ class ProjectTools {
             reply(true);
         } catch (err) {
             reply(false, err.message);
-            if (current()) alert(`${this._t('Could not save.')}\n\n${err.message}`);
+            if (current()) alert(`${this._t('Could not save.')}\n\n${this._saveFailureText(err.message)}`);
         } finally {
             if (this._saveInFlight === token) this._saveInFlight = null;
         }

@@ -110,7 +110,8 @@
         const lineHeight = fontSize + 2;   // the text plugin stacks lines at the glyph height plus 2
         const lines = t.lines.map(expandCodes);
         const fontFace = $gameSystem.mainFontFace ? $gameSystem.mainFontFace() : "sans-serif";
-        const measure = new Bitmap(1, 1);
+        // One measuring bitmap for every text; a text whose \V[n] counts down redraws often.
+        const measure = Sprite_RRText._measure || (Sprite_RRText._measure = new Bitmap(1, 1));
         measure.fontFace = fontFace;
         measure.fontSize = fontSize;
         let width = 1;
@@ -132,8 +133,12 @@
                 x += w;
             }
         });
+        const old = this.bitmap;
         this.bitmap = bitmap;
+        if (old) old.destroy();
         this._values = lines.join("\n") + "|" + t.color;
+        // Only a line with a text code can change without a new revision (a variable, a name, another text).
+        this._hasCodes = t.lines.some(line => String(line).includes("\\"));
     };
     Sprite_RRText.prototype.update = function() {
         Sprite.prototype.update.call(this);
@@ -145,8 +150,10 @@
         if (t.layer > 0 && !owner) { this.visible = false; return; }
         this.visible = true;
         this.opacity = owner ? owner.opacity() : 255;
-        const values = t.lines.map(expandCodes).join("\n") + "|" + t.color;
-        if (t.rev !== this._rev || values !== this._values) { this._rev = t.rev; this.redraw(t); }
+        if (t.rev !== this._rev || (this._hasCodes && t.lines.map(expandCodes).join("\n") + "|" + t.color !== this._values)) {
+            this._rev = t.rev;
+            this.redraw(t);
+        }
         // "center" puts the text's middle on x and "right" its end; the plugin's 2 px drop stays
         const shift = t.align === "center" ? Math.round(this.bitmap.width / 2) : t.align === "right" ? this.bitmap.width : 0;
         // "fixed" fixes the text to the map, so it scrolls with it; otherwise it stays on the screen.
@@ -411,8 +418,7 @@
         if (!this._pictureContainer || !this._tilemap) return;
         const container = this._pictureContainer, tilemap = this._tilemap;
         const all = (this._rrPictureSprites || (this._rrPictureSprites = container.children.filter(c => c instanceof Sprite_Picture)));
-        const byZ = (a, b) => ((a.z || 0) - (b.z || 0)) || ((a._pictureId || 0) - (b._pictureId || 0));
-        const moved = new Set();
+        let moved = null;
         for (const sprite of all) {
             const p = sprite.picture();
             if (!p || !p.name()) continue;
@@ -423,17 +429,28 @@
             // a picture is ordered by id x 10, a sprite by its own z (a lower z in front), both within their layer
             const order = p._rrSprite ? -(Number(p._rrSprite.z) || 0) : (sprite._pictureId || 0) * 10;
             const wantZ = typeof slot === "number" ? slot + order / 1e6 : layer * 1e6 + order;
-            if (sprite.parent !== want) { if (sprite.parent) sprite.parent.removeChild(sprite); want.addChild(sprite); moved.add(want); }
-            if (sprite.z !== wantZ) { sprite.z = wantZ; moved.add(want); }
+            if (sprite.parent !== want) { if (sprite.parent) sprite.parent.removeChild(sprite); want.addChild(sprite); (moved || (moved = new Set())).add(want); }
+            if (sprite.z !== wantZ) { sprite.z = wantZ; (moved || (moved = new Set())).add(want); }
         }
+        if (!moved) return;
         for (const holder of moved) {
             if (holder === tilemap) { if (typeof tilemap._sortChildren === "function") tilemap._sortChildren(); }
-            else holder.children.sort(byZ);
+            else holder.children.sort(byPictureZ);
         }
+    };
+    /** Pictures and sprites in a holder: by z, then picture id. */
+    const byPictureZ = (a, b) => ((a.z || 0) - (b.z || 0)) || ((a._pictureId || 0) - (b._pictureId || 0));
+
+    /** Whether an object has any own key, without listing them. */
+    const hasAny = (object) => {
+        for (const key in object) if (Object.prototype.hasOwnProperty.call(object, key)) return true;
+        return false;
     };
 
     // Texts live in their own container above the pictures.
     Spriteset_Base.prototype._rrUpdateTexts = function() {
+        // Every game runs this each frame; most never write a screen text.
+        if (!hasAny($gameScreen._rrTexts) && !hasAny(this._rrTextSprites)) return;
         if (!this._rrTextContainer) {
             this._rrTextContainer = new Sprite();
             this._rrTextSprites = {};
@@ -446,7 +463,13 @@
             if (!this._rrTextSprites[id]) { const s = new Sprite_RRText(id); this._rrTextSprites[id] = s; this._rrTextContainer.addChild(s); }
         }
         for (const id of Object.keys(this._rrTextSprites)) {
-            if (!texts[id]) { const gone = this._rrTextSprites[id]; if (gone.parent) gone.parent.removeChild(gone); delete this._rrTextSprites[id]; }
+            if (!texts[id]) {
+                const gone = this._rrTextSprites[id];
+                if (gone.parent) gone.parent.removeChild(gone);
+                delete this._rrTextSprites[id];
+                if (gone.bitmap) gone.bitmap.destroy();
+                gone.destroy();
+            }
         }
         // A text draws just over the picture it belongs to, wherever that picture's layer put it (EasyRPG leaves
         // room at each picture's priority for the text plugin): Deep 8's title pages would otherwise sit under
@@ -541,6 +564,10 @@
             this._rrParticles = [];
             this._rrParticleSprites = [];
         }
+        // Every game runs this each frame; most never start an effect.
+        const pending = $gameScreen._rrParticleBursts;
+        if (!this._rrParticles.length && !this._rrParticlesShown && !(pending && pending.length) && !hasStream($gameScreen._rrParticles)) return;
+        this._rrParticlesShown = true;
         // A burst or stream point is on the screen when it fires; an effect that is not screen-relative then
         // stays where it was on the map while the view moves (so it is stored in map pixels).
         const onMap = SceneManager._scene instanceof Scene_Map && $gameMap;
@@ -568,6 +595,8 @@
             live.push(p);
         }
         this._rrParticles = live.length > 6000 ? live.slice(live.length - 6000) : live;
+        // The frame after the last one dies still runs, to hide the sprites.
+        if (!this._rrParticles.length) this._rrParticlesShown = false;
         while (this._rrParticleSprites.length < this._rrParticles.length) { const s = new Sprite(); s.anchor.x = 0.5; s.anchor.y = 0.5; this._rrParticleSprites.push(s); }
         // One picture lookup per texture a frame, not one per particle: thousands of live particles each
         // rebuilt the same URL through the loader every frame.
@@ -607,6 +636,10 @@
      * plugin), with an unset layer (0) over everything, so Deep 8's engine exhaust shows over its ship and
      * the rocks of Yavar-5 fly over the planet. In battle every layer shares one holder over the pictures.
      */
+    const hasStream = (effects) => {
+        for (const name in effects) if (effects[name] && effects[name].type === "stream") return true;
+        return false;
+    };
     Spriteset_Base.prototype._rrParticleHolder = function(layer) {
         const n = this._tilemap ? spriteLayer(layer) : 0;
         let holder = this._rrParticleHolders[n];

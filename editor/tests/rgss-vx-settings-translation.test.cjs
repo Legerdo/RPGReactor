@@ -120,6 +120,7 @@ test('RGSS frames: the skin\'s frame cell is kept, drawn with whole corners and 
     assert.ok(parts.every(p => !p.visible) && win._rrFrameSprite.visible, 'MZ\'s stretched parts hidden');
     win._windowskin = { _url: 'img/system/Other.png' };
     assert.equal(win._refreshRgssFrame(), false, 'a skin without a kept cell keeps MZ\'s frame');
+    assert.ok(parts.every(p => p.visible) && !win._rrFrameSprite.visible, 'switching to such a skin shows MZ\'s frame parts again');
     const windows = fs.readFileSync(path.join(__dirname, '..', '..', 'runtime', 'reactor_windows.js'), 'utf8');
     assert.match(windows, /if \(rgss\(\) && this\._opening\) this\.openness \+= 16;/);
 });

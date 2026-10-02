@@ -1646,9 +1646,12 @@ class EffekseerGenerator {
                 // Hash-stamp the copied filename: the runtime caches
                 // textures by PATH, so re-using a name would show the old
                 // pixels until restart.
+                // Every byte and the length: a sample of every 997th byte gave
+                // every PNG under 1 KB the same name, so a second small texture
+                // of the same name was never written and the first one showed.
                 const raw = fs.readFileSync(file.path);
-                let h = 5381;
-                for (let i = 0; i < raw.length; i += 997) h = ((h << 5) + h + raw[i]) >>> 0;
+                let h = 5381 ^ raw.length;
+                for (let i = 0; i < raw.length; i++) h = ((h << 5) + h + raw[i]) >>> 0;
                 const ext = path.extname(file.path);
                 const stem = path.basename(file.path, ext).replace(/[^A-Za-z0-9_-]/g, '');
                 const baseName = `${stem}_${h.toString(36)}${ext}`;
@@ -2294,7 +2297,7 @@ class EffekseerGenerator {
         try {
             const gl = canvas.getContext('webgl', { premultipliedAlpha: false, alpha: false }) ||
                        canvas.getContext('experimental-webgl', { premultipliedAlpha: false, alpha: false });
-            if (!gl) { this._overlay('WebGL unavailable', true); return; }
+            if (!gl) { this._overlay(this._tx('WebGL unavailable'), true); return; }
             this._gl = gl;
             this._efkContext = effekseer.createContext();
             this._efkContext.init(gl);
@@ -2302,7 +2305,7 @@ class EffekseerGenerator {
             else this._efkContext.setRestorationOfStatesFlag(true);
         } catch (e) {
             console.error('EffekseerGenerator: context init failed:', e);
-            this._overlay('Effekseer init failed', true);
+            this._overlay(this._tx('Effekseer init failed'), true);
             return;
         }
         this._startLoop(canvas);

@@ -145,6 +145,11 @@ test('2000/2003 text is drawn at the font\'s own size, on whole pixels, never sq
     assert.deepEqual(calls.pop(), { t: '12345', x: -12, y: 13, w: 0xffffffff, font: '13px RM2000' }, 'a gauge label\'s smaller size is the font\'s own; right-aligned from a whole pixel; overflowing, not squeezed');
     bitmap.drawText('ab', 2, 0, 10, 16, 'center');
     assert.equal(calls.pop().x, 1, 'centred from a whole pixel: 2 + (10 - 13) / 2 rounds to 1');
+    sandbox.$dataSystem = { rrLegacyWindows: 2003, advanced: { fontSize: 13, pixelatedRendering: false } };
+    bitmap.drawText('12345', 0, 0, 20, 16, 'right');
+    assert.deepEqual(calls.pop(), { t: '12345', x: 20, y: 13, w: 0xffffffff, font: '13px RM2000' }, 'with Pixelated Rendering off, right-aligned at the given width, still not squeezed');
+    bitmap.drawText('ab', 2, 0, 10, 16, 'center');
+    assert.equal(calls.pop().x, 7, 'and centred in it');
     sandbox.$dataSystem = { advanced: {} };
     bitmap.drawText('12345', 0, 0, 20, 16, 'right');
     assert.deepEqual(calls.pop(), { t: '12345', x: 20, y: 12, w: 20, font: '10px RM2000' }, 'other projects draw as before');
@@ -249,4 +254,33 @@ test('animated chipset tiles keep their four frames and cycle them; water keeps 
     const still = Object.assign(new Tilemap(), { _mapData: [0, 5] });
     still.setTileAnimation(slow.rrTileFrames, null);
     assert.equal(still._rrTileFrames, null, 'a map without them never repaints for them');
+});
+
+test('the 2003 enemy list beside the status row redraws when the living enemies or their names change, not every frame', () => {
+    const c = loadWindows({ rrLegacyWindows: 2003 });
+    const enemy = (name) => ({ alive: true, name() { return name; }, isAlive() { return this.alive; } });
+    const slime = enemy('Slime A'), bat = enemy('Bat');
+    c.$gameTroop = { members: () => [slime, bat], aliveMembers: () => [slime, bat].filter(e => e.isAlive()) };
+    let refreshes = 0;
+    c.Window_Selectable.prototype.refresh = function() { refreshes++; };
+    c.Window_Selectable.prototype.select = function() {};
+    const list = new c.Window_BattleEnemy();
+    Object.assign(list, { active: false, visible: false, index: () => -1 });
+    const scene = new c.Scene_Battle();
+    Object.assign(scene, {
+        _statusWindow: { visible: true, isOpen: () => true, x: 0 }, _enemyWindow: list, _skillWindow: { visible: false }, _itemWindow: { visible: false },
+        _actorCommandWindow: {}, _actorWindow: {}
+    });
+    scene.updateStatusWindowPosition();
+    scene.updateStatusWindowPosition();
+    scene.updateStatusWindowPosition();
+    assert.equal(refreshes, 1, 'drawn once while nothing changes');
+    assert.deepEqual([...list._enemies], [slime, bat]);
+    bat.alive = false;
+    scene.updateStatusWindowPosition();
+    assert.equal(refreshes, 2, 'a defeated enemy leaves the list');
+    assert.deepEqual([...list._enemies], [slime]);
+    slime.name = () => 'King Slime';
+    scene.updateStatusWindowPosition();
+    assert.equal(refreshes, 3, 'a transformed enemy is renamed');
 });

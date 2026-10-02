@@ -93,3 +93,22 @@ test('a particle tints, grows and fades with its age', () => {
     }
     assert.equal(seen[10][0], false, 'an expired particle is hidden');
 });
+
+test('with no effect started and no text written the per-frame updates do nothing, and the last particles are still hidden', () => {
+    const { context, screen, spriteset, update } = load();
+    update();
+    assert.equal(spriteset._rrParticleSprites.length, 0);
+    context.Spriteset_Base.prototype._rrUpdateTexts.call(spriteset);
+    assert.equal(spriteset._rrTextContainer, undefined, 'no text container until a text is written');
+    screen.rrPfxCreate('puff', 'burst');
+    screen.rrPfxSet('puff', 'texture', 'Puff');
+    screen.rrPfxSet('puff', 'amount', 3);
+    screen.rrPfxSet('puff', 'timeout', 2, 0);
+    screen.rrPfxBurst('puff', 10, 10);
+    update();
+    assert.equal(spriteset._rrParticles.length, 3);
+    for (let frame = 0; frame < 6; frame++) update();
+    assert.equal(spriteset._rrParticles.length, 0);
+    assert.ok(spriteset._rrParticleSprites.every(sprite => !sprite.visible), 'hidden on the frame after the last one died');
+    assert.equal(spriteset._rrParticlesShown, false, 'and idle after that');
+});

@@ -92,11 +92,14 @@ class StructureWorkshop {
         // The page's changes go in first (the name, the plot size), the way "Use on the map" does.
         document.getElementById('database-ok-btn')?.click();
         const started = Date.now();
+        let closed = false;
         while (Date.now() - started < 5000) {
             const viewer = document.getElementById('database-viewer');
-            if (!viewer || viewer.style.display === 'none' || viewer.offsetParent === null) break;
+            if (!viewer || viewer.style.display === 'none' || viewer.offsetParent === null) { closed = true; break; }
             await new Promise(resolve => setTimeout(resolve, 80));
         }
+        // A Database that stays open did not save (it says why): the plot waits for a save that worked.
+        if (!closed) return false;
         return this.enter(structureId);
     }
 
@@ -153,17 +156,40 @@ class StructureWorkshop {
             const fs = require('fs'), path = require('path');
             const directory = db.structuresPath ? db.structuresPath(project.path) : path.join(project.path, '3d', 'Structures');
             fs.mkdirSync(directory, { recursive: true });
+            // A record the Database has not saved yet has no file: it gets one, as a Database save would name it.
+            if (!entry.file) {
+                const taken = new Set((db.data?.structures || []).filter(Boolean).map(other => other.file).filter(Boolean).concat([...(db._structureFiles || [])]));
+                entry.file = typeof DatabaseManager !== 'undefined' && DatabaseManager.structureFileName
+                    ? DatabaseManager.structureFileName(entry.name, taken)
+                    : (String(entry.name || 'Plan').replace(/[\\/:*?"<>|]+/g, '').trim().replace(/\s+/g, '-') || 'Plan') + '.json';
+            }
             const trimmed = typeof DatabaseStructureEditor !== 'undefined' ? DatabaseStructureEditor.trimPlan(entry.plan) : entry.plan;
             const target = path.join(directory, entry.file), temp = target + '.tmp';
             fs.writeFileSync(temp, (typeof RRMapElevation !== 'undefined' && RRMapElevation.stringifySidecar ? RRMapElevation.stringifySidecar(trimmed) : JSON.stringify(trimmed, null, 2)) + '\n', 'utf8');
             fs.renameSync(temp, target);
-            db.captureSavedState?.('structures');
+            db._structureFiles?.add?.(entry.file);
+            this.markSaved(db, entry);
             return true;
         } catch (error) {
             console.error('Could not save the structure:', error);
             alert(this._t('The structure could not be saved.'));
             return false;
         }
+    }
+
+    /**
+     * This record now matches its file: only it counts as saved. Other structures changed in the
+     * Database and not saved yet stay unsaved, so the next Database save still writes them.
+     */
+    markSaved(db, entry) {
+        const saved = db.savedState?.structures;
+        let list = null;
+        try { list = saved === undefined ? null : JSON.parse(saved); } catch (_) { list = null; }
+        if (!Array.isArray(list)) return;
+        const copy = JSON.parse(JSON.stringify(entry));
+        const at = list.findIndex(record => record && record.id === entry.id);
+        if (at >= 0) list[at] = copy; else list[entry.id] = copy;
+        db.savedState.structures = typeof db.serialize === 'function' ? db.serialize(list) : JSON.stringify(list);
     }
 
     /** Leave the plot: ask about unsaved work, bring the previous map back, and the Database if asked. */
@@ -176,7 +202,11 @@ class StructureWorkshop {
         if (tilemap?.currentMap?.rrWorkshop) tilemap.captureSavedMapState();
         if (!session.barWasUp) reactor?.buildHotbar?.hide();
         this.end();
-        if (session.returnTo != null) await this.projectController.loadMap(session.returnTo, { skipDirtyCheck: true, forceReload: true });
+        // With no map to come back to, the project's first map takes the plot's place: a plot left in the
+        // view with no session would hand Ctrl+S to nothing.
+        const returnTo = session.returnTo ?? (this.projectController.getCurrentProject?.()?.maps || []).find(info => info && info.id)?.id ?? null;
+        const back = returnTo != null && await this.projectController.loadMap(returnTo, { skipDirtyCheck: true, forceReload: true });
+        if (!back && tilemap?.currentMap?.rrWorkshop) tilemap.clearMap?.();
         if (!session.was3D && reactor?.mapEditor3D?.enabled) await reactor.applyMap3DViewPreference?.(false);
         if (toDatabase) {
             reactor?.openDatabase?.('structures');

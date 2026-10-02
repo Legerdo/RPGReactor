@@ -107,6 +107,9 @@ class DatabaseManager {
             // Per-tile 3D classification. Not one of the dataFiles: those are
             // the MZ database format, and this is ours, stored beside them.
             tileset3d: null,
+            // 3D model bindings of actors, enemies, weapons, armors and items
+            // (Database.r3d.json), edited and saved with the rest.
+            modelBindings: null,
             // Editor-only labels for player-facing database entries.
             editorNames: null
         };
@@ -158,6 +161,7 @@ class DatabaseManager {
             loaded.battlePresentation = await this.loadJSON(dataPath, 'BattlePresentation.json');
             loaded.structures = await this.loadStructures(projectPath);
             loaded.tileset3d = await this.loadTileset3D(projectPath);
+            loaded.modelBindings = this.loadModelBindings(projectPath);
             loaded.editorNames = await this.loadEditorNames(projectPath);
             // An absent file reads as []; records start at id 1 behind the
             // null slot every other database file keeps. A project that has
@@ -180,6 +184,7 @@ class DatabaseManager {
             battle.validateStore(loaded.actionSequences, loaded.battlePresentation);
             Object.assign(this.data, loaded);
             this.projectPath = projectPath;
+            this.registerModelBindingStore();
             this.dataGeneration++;
             this.mutationGeneration++;
             this.captureSavedState();
@@ -384,6 +389,67 @@ class DatabaseManager {
         }
     }
 
+    bindingsModule() {
+        return (typeof globalThis !== 'undefined' && globalThis.RRDatabase3DBindings) || null;
+    }
+
+    /** Database.r3d.json as an object; {} when absent; null (and the error kept) when unreadable. */
+    loadModelBindings(projectPath) {
+        const bindings = this.bindingsModule();
+        this.modelBindingsLoadError = null;
+        if (!bindings) return null;
+        try {
+            const filePath = bindings.filePath(projectPath);
+            if (!this.fs.existsSync(filePath)) return {};
+            const parsed = RRJson.read(this.fs, filePath);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                throw new Error('Database.r3d.json must contain a JSON object');
+            }
+            return parsed;
+        } catch (error) {
+            // Readers then go to the file and show its error; it is never overwritten.
+            console.error('Error loading Database.r3d.json:', error);
+            this.modelBindingsLoadError = error;
+            return null;
+        }
+    }
+
+    /**
+     * Bindings read and written while this project is loaded go to data.modelBindings,
+     * so they are saved on OK/Apply, dropped by Cancel and restored by list Undo.
+     */
+    registerModelBindingStore() {
+        const bindings = this.bindingsModule();
+        if (!bindings || !bindings.useStore) return;
+        const same = (a, b) => {
+            if (!a || !b) return false;
+            if (!this.path) return a === b;
+            return this.path.resolve(a) === this.path.resolve(b);
+        };
+        bindings.useStore(projectPath => {
+            if (!same(projectPath, this.projectPath) || this.modelBindingsLoadError) return null;
+            if (!this.data.modelBindings || typeof this.data.modelBindings !== 'object') this.data.modelBindings = {};
+            return this.data.modelBindings;
+        });
+    }
+
+    saveModelBindings(projectPath) {
+        const bindings = this.bindingsModule();
+        if (!bindings || this.data.modelBindings === null || this.data.modelBindings === undefined) return true;
+        if (this.modelBindingsLoadError && this.fs.existsSync(bindings.filePath(projectPath))) {
+            console.error('Refusing to overwrite unreadable Database.r3d.json:', this.modelBindingsLoadError);
+            return false;
+        }
+        try {
+            bindings.writeStore(projectPath, this.data.modelBindings, this.fs);
+            this.captureSavedState('modelBindings');
+            return true;
+        } catch (error) {
+            console.error('Error saving Database.r3d.json:', error);
+            return false;
+        }
+    }
+
     async saveTileset3D(projectPath) {
         const classes = this.tileset3DClasses();
         if (!classes || !this.fs || !this.path) return true;
@@ -488,6 +554,9 @@ class DatabaseManager {
         if (!dataKey || dataKey === 'tileset3d') {
             this.savedState.tileset3d = this.serialize(this.data.tileset3d || null);
         }
+        if (!dataKey || dataKey === 'modelBindings') {
+            this.savedState.modelBindings = this.serialize(this.data.modelBindings || null);
+        }
         if (!dataKey || dataKey === 'structures') {
             this.savedState.structures = this.serialize(this.data.structures || null);
         }
@@ -509,6 +578,10 @@ class DatabaseManager {
         if (this.savedState.editorNames !== undefined
             && this.serialize(this.data.editorNames || null) !== this.savedState.editorNames) {
             dirty.push('editorNames');
+        }
+        if (this.savedState.modelBindings !== undefined
+            && this.serialize(this.data.modelBindings || null) !== this.savedState.modelBindings) {
+            dirty.push('modelBindings');
         }
         if (this.savedState.structures !== undefined
             && this.serialize(this.data.structures || null) !== this.savedState.structures) {
@@ -886,6 +959,9 @@ class DatabaseManager {
             this.data[dataKey].length = newMax + 1;
             const names = this.editorNamesModule();
             if (names) this.data.editorNames = names.prune(this.data.editorNames, dataKey, newMax);
+            // A record grown back later must not inherit the removed one's model.
+            const bindings = this.bindingsModule();
+            if (bindings && this.data.modelBindings) bindings.prune(this.data.modelBindings, dataKey, newMax);
         }
 
         if (newMax !== currentMax) this.mutationGeneration++;
@@ -979,6 +1055,7 @@ class DatabaseManager {
             failed.push(this.tileset3DClasses()?.FILENAME || 'Tilesets.r3d.json');
         }
         if (!unchanged('structures') && !await this.saveStructures(projectPath)) failed.push('3d/Structures');
+        if (!unchanged('modelBindings') && !this.saveModelBindings(projectPath)) failed.push('Database.r3d.json');
         if (failed.length === 0 && !unchanged('editorNames') && !await this.saveEditorNames(projectPath)) {
             failed.push(this.editorNamesModule()?.FILENAME || 'Database.names.json');
         }

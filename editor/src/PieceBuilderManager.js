@@ -468,6 +468,9 @@ class PieceBuilderManager {
     }
     setSize(kind, size) { this.sizes[kind] = size.map(v => Math.max(0.25, Math.min(60, Math.round(v * 4) / 4))); this._syncPanel(); this._ghostChanged(); }
     /** The way a piece's own +v points for its turn: the direction a stair climbs, a ramp rises. */
+    /** The tag a stamped building's events carry in their note (StructurePlan's eventTag). */
+    static STRUCTURE_EVENT = /<structure:\d+>\s*<spot:[^>]+>/;
+
     static stepOf(rot) { return [[0, 1], [-1, 0], [0, -1], [1, 0]][((rot % 4) + 4) % 4]; }
 
     /** A shape's size for the next placement: its kind's own, scaled. */
@@ -792,10 +795,10 @@ class PieceBuilderManager {
         if (!map || !elevation || !plan || !SP) return false;
         // The turn in hand (R/Q/E) turns the building before it goes down;
         // _lay levels the pad and clamps the footprint to the map.
-        const saved = this._snapshot(map, { ground: true, effects: true });
+        const saved = this._snapshot(map, { ground: true, effects: true, events: true });
         const places = this._propPlaces(map);
         const group = elevation.nextPieceGroup(map);
-        if (!this._lay(map, plan, { group, plan: this.structure, x: Math.floor(x), y: Math.floor(y), rot: this.rot || 0, scale: 1 })) return false;
+        if (!this._lay(map, plan, { group, plan: this.structure, x: Math.floor(x), y: Math.floor(y), rot: this.rot || 0, scale: 1 })) return this._tooBig(map, plan, this.rot || 0, 1);
         saved.propMoves = this._propMoves(map, places);
         this.undoStack.push(saved);
         if (this.undoStack.length > 50) this.undoStack.shift();
@@ -814,13 +817,7 @@ class PieceBuilderManager {
         const X0 = Math.max(0, Math.min(map.width - W, record.x)), Y0 = Math.max(0, Math.min(map.height - H, record.y));
         if (W > map.width || H > map.height) return false;
         record.x = X0; record.y = Y0;
-        if (elevation.hasTerrain(map)) {
-            const grid = elevation.terrain(map), stride = map.width + 1;
-            let sum = 0, n = 0;
-            for (let yy = Y0; yy <= Y0 + H; yy++) for (let xx = X0; xx <= X0 + W; xx++) { sum += Number(grid[yy * stride + xx]) || 0; n++; }
-            const mean = Math.round((sum / n) * 1000) / 1000;
-            for (let yy = Y0; yy <= Y0 + H; yy++) for (let xx = X0; xx <= X0 + W; xx++) grid[yy * stride + xx] = mean;
-        }
+        this._levelPad(map, X0, Y0, W, H);
         elevation.relocatePropsOff(map, X0, Y0, W, H);
         const kept = elevation.pieces(map).filter(piece => piece.group !== record.group && !(piece.x >= X0 && piece.x < X0 + W && piece.y >= Y0 && piece.y < Y0 + H));
         const firstId = kept.reduce((max, piece) => Math.max(max, piece.id), 0) + 1;
@@ -844,6 +841,19 @@ class PieceBuilderManager {
         return true;
     }
 
+    /** A plan that does not fit the map is said so, not ignored. Always false: nothing was laid. */
+    _tooBig(map, plan, rot, scale) {
+        const SP = typeof RRStructurePlan !== 'undefined' ? RRStructurePlan : null;
+        const size = SP ? SP.transform(plan, rot, scale).size : plan.size;
+        if (size && (size[0] > map.width || size[1] > map.height)) {
+            const text = window.I18n ? window.I18n.tText('This plan is larger than the map.') : 'This plan is larger than the map.';
+            const status = this.panel?.querySelector('.rr-pieces-status');
+            if (status) status.textContent = text;
+            window.reactor?.buildHotbar?.flash?.(text);
+        }
+        return false;
+    }
+
     /** An event template under 3d/Structures/events, by name. */
     loadEventTemplate(name) {
         try {
@@ -862,9 +872,9 @@ class PieceBuilderManager {
         if (!record) return false;
         const plan = this.structures().find(entry => entry.file === record.plan)?.plan;
         if (!plan) return false;
-        const saved = this._snapshot(map, { ground: true, effects: true });
+        const saved = this._snapshot(map, { ground: true, effects: true, events: true });
         const places = this._propPlaces(map);
-        if (!this._lay(map, plan, Object.assign(record, change))) return false;
+        if (!this._lay(map, plan, Object.assign(record, change))) return this._tooBig(map, plan, record.rot, record.scale);
         saved.propMoves = this._propMoves(map, places);
         this.undoStack.push(saved); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
         this.announce(true); this.refreshStatus(); this._ghostChanged();
@@ -951,13 +961,7 @@ class PieceBuilderManager {
         this.undoStack.push(saved);
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack.length = 0;
-        if (elevation.hasTerrain(map)) {
-            const grid = elevation.terrain(map), stride = map.width + 1;
-            let sum = 0, n = 0;
-            for (let yy = Y0; yy <= Y0 + H; yy++) for (let xx = X0; xx <= X0 + W; xx++) { sum += Number(grid[yy * stride + xx]) || 0; n++; }
-            const mean = Math.round((sum / n) * 1000) / 1000;
-            for (let yy = Y0; yy <= Y0 + H; yy++) for (let xx = X0; xx <= X0 + W; xx++) grid[yy * stride + xx] = mean;
-        }
+        this._levelPad(map, X0, Y0, W, H);
         this.announce(true);
         this.refreshStatus();
         this._ghostChanged();
@@ -977,22 +981,86 @@ class PieceBuilderManager {
      * them (they have tools and undo of their own, which an undo here must
      * not roll back).
      */
-    _snapshot(map, { ground = false, effects = false } = {}) {
+    _snapshot(map, { ground = false, effects = false, events = false } = {}) {
         const elevation = this.elevation();
         const out = { pieces: elevation.piecesSnapshot(map), structures: elevation.structures(map) };
         if (ground) out.terrain = elevation.terrainSnapshot(map);
+        // Levelled ground and pieces refit the ponds (announce): a pond under a footprint or a wall shrinks or goes.
+        if (elevation.waterSnapshot && (ground || elevation.hasWater?.(map))) out.water = JSON.stringify(elevation.waterSnapshot(map));
         if (effects) {
             const sidecar = map.reactor3d || {};
             out.surfaces = JSON.stringify(sidecar.mediaSurfaces || null);
             out.lights = JSON.stringify(sidecar.lights || null);
         }
+        // A building's people come and go with it (placeEvents, removeGroupEvents): only the steps that
+        // place or take them keep them, so undoing another step never rolls back an event edited since.
+        if (events) out.events = JSON.stringify(this._structureEvents(map));
         return out;
+    }
+
+    /** The events a stamped building placed (`<structure:n><spot:…>` in the note), as [index, event]. */
+    _structureEvents(map) {
+        return (Array.isArray(map.events) ? map.events : []).map((event, index) => [index, event])
+            .filter(([, event]) => event && typeof event.note === 'string' && PieceBuilderManager.STRUCTURE_EVENT.test(event.note));
+    }
+
+    /** Put a snapshot's building events back in place of the ones there now; a slot taken since by another event gives a new id. */
+    _restoreStructureEvents(map, saved) {
+        if (!Array.isArray(map.events)) return;
+        for (const [index] of this._structureEvents(map)) map.events[index] = null;
+        for (const [index, event] of saved) {
+            let id = index;
+            if (map.events[id]) id = map.events.reduce((max, e) => Math.max(max, e && e.id ? e.id : 0), 0) + 1;
+            while (map.events.length <= id) map.events.push(null);
+            map.events[id] = Object.assign(event, { id });
+        }
+        while (map.events.length > 1 && map.events[map.events.length - 1] == null) map.events.pop();
+        this._eventsChanged = true;
+    }
+
+    /**
+     * The ponds as they were before a step, keeping what was done to them since: a sheet the step
+     * refitted gets its old cells back (its look as it is now), one the step dried up whole comes
+     * back unless it was drained since, and a sheet poured since stays.
+     */
+    static mergeWater(current, before, after) {
+        const key = sheet => [sheet.x0, sheet.y0, sheet.x1, sheet.y1, sheet.level].join(',');
+        if (!Array.isArray(after)) return before.slice();
+        const was = new Map(before.map(sheet => [key(sheet), sheet]));
+        const left = new Set(after.map(key)), now = new Set(current.map(key));
+        const out = current.map(sheet => {
+            const old = was.get(key(sheet));
+            if (!old) return sheet;
+            const merged = Object.assign({}, sheet);
+            if (old.mask) merged.mask = old.mask; else delete merged.mask;
+            return merged;
+        });
+        for (const [k, sheet] of was) if (!now.has(k) && !left.has(k)) out.push(sheet);
+        return out;
+    }
+
+    /**
+     * Level a footprint's ground to one height for a building: the mean of its corners, or the
+     * surface of a pond it stands in, so it is built on the water rather than sunk to the pond's floor.
+     */
+    _levelPad(map, X0, Y0, W, H) {
+        const elevation = this.elevation();
+        if (!elevation.hasTerrain(map)) return;
+        const grid = elevation.terrain(map), stride = map.width + 1;
+        let sum = 0, n = 0;
+        for (let yy = Y0; yy <= Y0 + H; yy++) for (let xx = X0; xx <= X0 + W; xx++) { sum += Number(grid[yy * stride + xx]) || 0; n++; }
+        let level = Math.round((sum / n) * 1000) / 1000;
+        for (const sheet of elevation.water ? elevation.water(map) : []) {
+            if (sheet.level <= level) continue;
+            for (let yy = Y0; yy < Y0 + H && sheet.level > level; yy++) for (let xx = X0; xx < X0 + W; xx++) if (elevation.waterCovers(sheet, xx, yy)) { level = sheet.level; break; }
+        }
+        for (let yy = Y0; yy <= Y0 + H; yy++) for (let xx = X0; xx <= X0 + W; xx++) grid[yy * stride + xx] = level;
     }
 
     removeSelectedGroup() {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !this.selectedGroup) return false;
-        const saved = this._snapshot(map, { effects: true });
+        const saved = this._snapshot(map, { effects: true, events: true });
         if (typeof RRStructurePlan !== 'undefined' && RRStructurePlan.removeGroupEvents(map, this.selectedGroup)) this._eventsChanged = true;
         if (typeof RRStructurePlan !== 'undefined' && RRStructurePlan.removeGroupEffects(map, this.selectedGroup)) { window.reactor?.lightingManager?.render?.(); window.reactor?.mediaSurfaceManager?.render?.(); }
         if (!elevation.removePieceGroup(map, this.selectedGroup)) return false;
@@ -1534,11 +1602,16 @@ class PieceBuilderManager {
         if (!map || !elevation || !from.length) return;
         const entry = from.pop();
         const whole = entry && !Array.isArray(entry) && entry.pieces;
-        const ground = !!whole && 'terrain' in entry, effects = !!whole && entry.surfaces !== undefined;
-        const back = whole ? this._snapshot(map, { ground, effects }) : elevation.piecesSnapshot(map);
+        const ground = !!whole && 'terrain' in entry, effects = !!whole && entry.surfaces !== undefined, events = !!whole && entry.events !== undefined;
+        const back = whole ? this._snapshot(map, { ground, effects, events }) : elevation.piecesSnapshot(map);
         // A step that knows the ground it left moves only the corners it levelled: terrain shaped since stays.
         const sealed = ground && entry.terrainAfter !== undefined;
         if (sealed) { back.terrain = entry.terrainAfter; back.terrainAfter = entry.terrain; }
+        let water = null;
+        if (whole && entry.water !== undefined && elevation.restoreWater) {
+            water = PieceBuilderManager.mergeWater(elevation.waterSnapshot(map), JSON.parse(entry.water), entry.waterAfter !== undefined ? JSON.parse(entry.waterAfter) : undefined);
+            back.waterAfter = JSON.stringify(water);
+        }
         to.push(back);
         elevation.restorePieces(map, whole ? entry.pieces : entry);
         // Models the edit pushed aside go back where they stood (unless moved since), and aside again on a redo.
@@ -1553,6 +1626,7 @@ class PieceBuilderManager {
         if (whole) {
             if (sealed) elevation.restoreTerrainChanges(map, entry.terrainAfter, entry.terrain);
             else if (ground) { if (entry.terrain) elevation.restoreTerrain(map, entry.terrain); else elevation.clearTerrain(map); }
+            if (water) elevation.restoreWater(map, water);
             elevation.restoreStructures(map, entry.structures);
             if (effects) {
                 const sidecar = map.reactor3d || (map.reactor3d = { version: 1 });
@@ -1561,6 +1635,7 @@ class PieceBuilderManager {
                 if (lights) sidecar.lights = lights; else delete sidecar.lights;
                 this._effectsChanged();
             }
+            if (events) this._restoreStructureEvents(map, JSON.parse(entry.events));
         }
         this._pruneSelection();
         this.announce(ground); this.refreshStatus(); this._syncPanel();
@@ -1590,8 +1665,10 @@ class PieceBuilderManager {
         // place, the whole map), then the pieces are laid on it. `region`
         // is the cells an edit touched, so only their chunks are relaid.
         if (terrainToo) document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: this.currentMap()?.id, terrain: true, region: null } }));
-        // Ponds follow levelled ground as they follow a terrain stroke.
-        if (terrainToo) window.reactor?.terrainManager?.refitWater?.();
+        // Ponds follow levelled ground as they follow a terrain stroke, and the pieces that hold them back.
+        window.reactor?.terrainManager?.piecesChanged?.(terrainToo ? null : region);
+        // And the ponds it left, so its undo gives back only what it took from them.
+        if (top && 'water' in top && top.waterAfter === undefined) top.waterAfter = JSON.stringify(this.elevation()?.waterSnapshot?.(this.currentMap()) || []);
         document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: this.currentMap()?.id, pieces: true, region: region || null } }));
         // Events came or went with a building: the event tool and the 3D
         // view's markers are redrawn (a plain edit notice rebuilds the view).

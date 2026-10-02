@@ -101,7 +101,13 @@ class DatabaseControlsEditor {
         return 'Key ' + n;
     }
 
-    static buttonName(index) { return DatabaseControlsEditor.BUTTON_NAMES[Number(index)] || 'Button ' + index; }
+    static buttonName(index) {
+        // Face and shoulder buttons keep their printed names; the D-pad and unnamed buttons are described.
+        const tt = text => (typeof window !== 'undefined' && window.I18n ? window.I18n.tText(text) : text);
+        const name = DatabaseControlsEditor.BUTTON_NAMES[Number(index)];
+        if (!name) return tt('Button {n}').replace('{n}', String(index));
+        return name.startsWith('D-pad') ? tt(name) : name;
+    }
 
     showControlsDetail(container) {
         this.container = container;

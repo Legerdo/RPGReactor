@@ -87,3 +87,16 @@ test('the filtered copy actually calls the predicate', () => {
             `${scriptName} no longer tests the set inline, which would bypass the Test_ rule`);
     }
 });
+
+for (const scriptName of scripts) {
+    const isStagingExcluded = loadPredicate(scriptName);
+
+    test(`${scriptName}: the editor's lock and an import's leftovers are not staged`, () => {
+        // A build is made with the project open, so its .rpgreactor.lock (pid and token) was in every game.
+        assert.equal(isStagingExcluded('.rpgreactor.lock'), true);
+        assert.equal(isStagingExcluded('import-report.json'), true);
+        assert.equal(isStagingExcluded(nodePath.join('legacy', 'Scripts')), true, 'the original Ruby scripts');
+        assert.equal(isStagingExcluded('legacy'), false, 'only the importer\'s folder inside it');
+        assert.equal(isStagingExcluded(nodePath.join('data', 'import-report.json')), false);
+    });
+}

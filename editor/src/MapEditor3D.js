@@ -170,7 +170,7 @@ class MapEditor3D {
         } else {
             const runtimePath = this.projectController?.projectManager?.getRuntimePath?.();
             if (!runtimePath || !this.fs || !this.path) {
-                this.lastError = 'The runtime directory could not be found.';
+                this.lastError = this._t('The runtime directory could not be found.');
                 return false;
             }
             load = async file => {
@@ -197,7 +197,7 @@ class MapEditor3D {
         const runtime = window.Reactor3D;
         this.librariesLoaded = !!(window.pako && window.THREE && runtime)
             && (runtime.EXTENSIONS || []).every(extension => runtime[extension.namespace]);
-        if (!this.librariesLoaded) this.lastError = 'A 3D runtime dependency did not load.';
+        if (!this.librariesLoaded) this.lastError = this._t('A 3D runtime dependency did not load.');
         if (this.librariesLoaded) this.configureWorkers();
         return this.librariesLoaded;
     }
@@ -355,7 +355,8 @@ class MapEditor3D {
     }
 
     fail(error) {
-        this.lastError = error?.message || String(error || '3D view unavailable');
+        // Shown in the status bar as it stands: the view's own reasons in the editor's language.
+        this.lastError = this._t(error?.message || String(error || '3D view unavailable'));
         console.error(`3D view unavailable: ${this.lastError}`);
         this._desiredEnabled = false;
         this._lifecycleGeneration++;
@@ -458,6 +459,12 @@ class MapEditor3D {
     teardown() {
         this.enabled = false;
         this._rebuildGeneration++;
+        // The terrain brushes paint only in this view, and hold 2D editing off while they are in hand.
+        const reactor = typeof window !== 'undefined' ? window.reactor : null;
+        if (reactor?.terrainManager?.active) {
+            if (typeof reactor.claimMapTool === 'function') reactor.claimMapTool('paint');
+            else reactor.terrainManager.deactivate?.();
+        }
         this.projectController?.eventModelPanel?.hide?.();
         if (typeof Reactor3D !== 'undefined' && Reactor3D.Shadows && Reactor3D.Shadows.focus) Reactor3D.Shadows.focus = null;
         this.stopLoop();

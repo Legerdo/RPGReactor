@@ -645,7 +645,7 @@ class AudioCommandEditor {
         trackList.style.cssText = 'background: var(--color-bg-surface); flex: 1; overflow-y: auto; padding: 0;';
 
         if (files.length === 0) {
-            trackList.innerHTML = `<p style="color: var(--color-text-muted); padding: 20px; text-align: center;">${tt('No')} ${this.commandType.folder.toUpperCase()} ${tt('files found')}</p>`;
+            trackList.innerHTML = `<p style="color: var(--color-text-muted); padding: 20px; text-align: center;">${tt('No {folder} files found').replace('{folder}', this.commandType.folder.toUpperCase())}</p>`;
             browser.appendChild(tabBar);
             browser.appendChild(trackList);
             return browser;

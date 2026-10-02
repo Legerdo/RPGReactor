@@ -666,15 +666,25 @@ class BattleTestConfigModal {
                     : BattleTestConfigModal.readProjectDataFile(fs, path.join(dataDir, filename));
                 this._writeFileAtomic(fs, path.join(dataDir, 'Test_' + filename), JSON.stringify(payload));
             }
+            // The 3D model bindings too, so a model bound a moment ago fights in the test. Unreadable
+            // bindings (null) leave the game to the file itself; a stale copy from an earlier test goes.
+            const bindings = dm.data.modelBindings, testBindings = path.join(dataDir, 'Test_Database.r3d.json');
+            if (bindings && typeof bindings === 'object') this._writeFileAtomic(fs, testBindings, JSON.stringify(Object.assign({}, bindings, { version: 1 })));
+            else fs.rmSync(testBindings, { force: true });
         } catch (e) {
             alert(`${this._t('Failed to write test data:')} ${e.message}`);
             return;
         }
 
-        // Also save normal System.json so testTroopId persists
+        // The test party and troop persist in the project's System.json too. Only those two
+        // fields: the rest of the System page is unsaved work that Cancel must still be able to drop.
         try {
-            const onDisk = typeof dm.fileContent === 'function' ? dm.fileContent('System.json', system) : system;
-            this._writeFileAtomic(fs, path.join(dataDir, 'System.json'), (typeof RRJson !== 'undefined' && RRJson.stringify ? RRJson.stringify(onDisk) : JSON.stringify(onDisk, null, 2)));
+            const onDisk = BattleTestConfigModal.readProjectDataFile(fs, path.join(dataDir, 'System.json'));
+            if (onDisk && typeof onDisk === 'object' && !Array.isArray(onDisk)) {
+                onDisk.testBattlers = JSON.parse(JSON.stringify(this.battlers));
+                onDisk.testTroopId = this.troopId;
+                this._writeFileAtomic(fs, path.join(dataDir, 'System.json'), (typeof RRJson !== 'undefined' && RRJson.stringify ? RRJson.stringify(onDisk) : JSON.stringify(onDisk, null, 2)));
+            }
         } catch (e) {
             // Non-fatal, test files are what matter
         }
@@ -697,7 +707,8 @@ class BattleTestConfigModal {
     static readProjectDataFile(fs, filePath) {
         try {
             if (fs.existsSync(filePath)) {
-                const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                const text = fs.readFileSync(filePath, 'utf8');
+                const parsed = typeof RRJson !== 'undefined' && RRJson.parse ? RRJson.parse(text) : JSON.parse(text);
                 if (parsed !== undefined) return parsed;
             }
         } catch (error) {

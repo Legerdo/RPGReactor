@@ -368,7 +368,7 @@ class DatabaseQuestEditor {
                 ${this.options([['none', tt('Nothing')], ['gold', tt('Gold')], ['item', tt('Item')], ['weapon', tt('Weapon')], ['armor', tt('Armor')], ['exp', tt('EXP to the party')], ['commonEvent', tt('Common event')]], give)}
             </select>
             ${needsTarget ? `<select class="database-field-value quest-give-id" data-index="${index}" style="flex:1 1 auto;min-width:0;">${this.options(targets, current)}</select>` : ''}
-            ${needsAmount ? `<input type="number" class="database-field-value quest-give-amount" data-index="${index}" value="${rrEscapeHtml(entry.amount != null ? entry.amount : (give === 'gold' ? 100 : 1))}" style="width:80px;" title="${rrEscapeHtml(tt('Amount'))}">` : ''}
+            ${needsAmount ? `<input type="number" class="database-field-value quest-give-amount" data-index="${index}" value="${rrEscapeHtml(entry.amount != null ? entry.amount : 1)}" style="width:80px;" title="${rrEscapeHtml(tt('Amount'))}">` : ''}
         </div>`;
     }
 

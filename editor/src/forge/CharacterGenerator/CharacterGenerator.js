@@ -173,6 +173,14 @@ class CharacterGenerator {
         return true;
     }
 
+    /**
+     * A part the editor ships with. The loader keeps those over a project file with the same id,
+     * so a project part saved under that id would be hidden from the next launch on.
+     */
+    _isBuiltInPartId(partId) {
+        return RR_CHARACTER_REGISTRY.some(d => d.id === partId && !this._projectPartDescriptors.has(d));
+    }
+
     _removeProjectParts() {
         if (!this._projectPartDescriptors?.size || typeof RR_CHARACTER_REGISTRY === 'undefined') return;
         for (let i = RR_CHARACTER_REGISTRY.length - 1; i >= 0; i--) {
@@ -2020,6 +2028,7 @@ class CharacterGenerator {
         const styleId = this.characterStyle || 'psychronic';
         const tags = this._forgeTags(cfg);
         const partId = `full-outfits-${styleId}-${slug}`;
+        if (this._isBuiltInPartId(partId)) { setStatus(tt('A built-in part already uses the name “{name}”. Choose another name.').replace('{name}', cfg.name), false); return; }
         const config = Object.assign(this._forgeEngineConfig(cfg), { style: styleId, category: 'full outfits', tags });
         let result;
         try { result = eng.generateOutfit(config, body); }
@@ -2081,6 +2090,7 @@ class CharacterGenerator {
             draw(buf, W, H, direction, frame, params) { RR_CG_drawTemplatePart(buf, W, H, direction, frame, params, this); }
         };
         RR_CHARACTER_REGISTRY.push(descriptor);
+        this._projectPartDescriptors.add(descriptor);
         setStatus(tt('Saved “{name}” → {file} (available in Procedural parts).').replace('{name}', cfg.name).replace('{file}', `${partId}.js`), true);
     }
 
@@ -2399,6 +2409,7 @@ class CharacterGenerator {
         const styleId = this.characterStyle || 'psychronic';
         const slug = (cfg.name || 'hair').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'hair';
         const partId = `hair-${styleId}-${slug}`;
+        if (this._isBuiltInPartId(partId)) { setStatus(tt('A built-in part already uses the name “{name}”. Choose another name.').replace('{name}', cfg.name), false); return; }
         const config = this._hairEngineConfig(cfg);
         let result;
         try { result = eng.generateHair(config, body); }
@@ -2446,11 +2457,13 @@ class CharacterGenerator {
         for (let k = RR_CHARACTER_REGISTRY.length - 1; k >= 0; k--) {
             if (RR_CHARACTER_REGISTRY[k].id === partId) RR_CHARACTER_REGISTRY.splice(k, 1);
         }
-        RR_CHARACTER_REGISTRY.push({
+        const descriptor = {
             id: partId, category: 'hair', name: cfg.name, tags: config.tags, params: [],
             template: { palette: result.palette, sheet: result.sheet },
             draw(buf, W, H, direction, frame, params) { RR_CG_drawTemplatePart(buf, W, H, direction, frame, params, this); }
-        });
+        };
+        RR_CHARACTER_REGISTRY.push(descriptor);
+        this._projectPartDescriptors.add(descriptor);
         setStatus(tt('Saved “{name}” → {file} (available in Procedural parts).').replace('{name}', cfg.name).replace('{file}', `${partId}.js`), true);
     }
 
@@ -3478,6 +3491,7 @@ class CharacterGenerator {
                 const baseName = file.name.replace(/\.(png|webp|jpe?g)$/i, '');
                 const partId = this._slugifyForId(`${category}-${this.characterStyle}-${baseName}`);
                 const niceName = baseName.replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                if (this._isBuiltInPartId(partId)) throw new Error(tt('A built-in part already uses the name “{name}”. Choose another name.').replace('{name}', niceName));
                 const js = this._formatPartDescriptorJs(partId, category, niceName, result);
                 const fullPath = path.join(outDir, `${partId}.js`);
                 fs.writeFileSync(fullPath, js, 'utf8');
@@ -3489,6 +3503,8 @@ class CharacterGenerator {
                 this.activePartIds.delete(partId);
                 this.activeLayerOrder = this.activeLayerOrder.filter(x => x !== partId);
                 try { (new Function(js))(); } catch (regErr) { console.warn('Live-register failed for', partId, regErr); }
+                const registered = RR_CHARACTER_REGISTRY.find(d => d.id === partId);
+                if (registered) this._projectPartDescriptors.add(registered);
                 summary.push({ name: file.name, partId, ok: true, paletteSize: result.paletteSize || Object.keys(result.palette || {}).length });
                 ok++;
             } catch (e) {
@@ -4767,6 +4783,7 @@ ${sheetJs}
                 return;
             }
             if (!outDir) { alert(tt('Open a project first.')); return; }
+            if (!this._confirmSheetOverwrite(outPath, name)) return;
             fs.mkdirSync(outDir, { recursive: true });
             const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
             fs.writeFileSync(outPath, Buffer.from(base64, 'base64'));
@@ -5230,6 +5247,13 @@ ${sheetJs}
         });
     }
 
+    /** A sheet the game may already use is replaced only when the user says so. */
+    _confirmSheetOverwrite(outPath, name) {
+        const tt = (text) => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
+        if (!require('fs').existsSync(outPath)) return true;
+        return window.confirm(`img/characters/$${name}.png ${tt('already exists in this project. Overwrite it?')}`);
+    }
+
     async _savePartsSheet() {
         const tt = (text) => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         const webHost = window.RPGReactorHost?.mode === 'web' ? window.RPGReactorHost : null;
@@ -5242,14 +5266,15 @@ ${sheetJs}
         const sheetCanvas = this.root.querySelector('.rr-cg-sheet-canvas');
         if (!sheetCanvas) return;
         const fs = require('fs'), path = require('path');
-        const outDir  = path.join(projectPath, 'img', 'characters');
-        const outPath = path.join(outDir, `$${name}.png`);
+        // No project in the browser edition: the download below needs no project path.
+        const outDir  = projectPath ? path.join(projectPath, 'img', 'characters') : null;
+        const outPath = outDir ? path.join(outDir, `$${name}.png`) : null;
         try {
             const dataUrl = sheetCanvas.toDataURL('image/png');
             if (webHost) {
                 const result = await webHost.saveFile({
                     data: dataUrl,
-                    projectPath: projectPath ? outPath : null,
+                    projectPath: outPath,
                     suggestedName: `$${name}.png`,
                     mimeType: 'image/png',
                 });
@@ -5258,6 +5283,8 @@ ${sheetJs}
                     : tt('Saved → {path}').replace('{path}', result.path));
                 return;
             }
+            if (!outDir) { alert(tt('Open a project first.')); return; }
+            if (!this._confirmSheetOverwrite(outPath, name)) return;
             fs.mkdirSync(outDir, { recursive: true });
             const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
             fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));

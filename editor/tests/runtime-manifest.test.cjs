@@ -161,6 +161,9 @@ test('the revision the updater compares and the revision the game reports are th
     for (const name of fs.readdirSync(templates)) {
         const copy = path.join(templates, name, 'js', 'reactor_main.js');
         if (!fs.existsSync(copy)) continue;
+        // Only projects that boot the runtime carry it (an imported MZ project may hold a stray copy).
+        const page = path.join(templates, name, 'index.html');
+        if (fs.existsSync(page) && !/js\/reactor_main\.js/.test(fs.readFileSync(page, 'utf8'))) continue;
         const source = fs.readFileSync(copy, 'utf8');
         if (source.match(/RPG Reactor runtime revision:\s*([\w.-]+)/)?.[1] !== stated) behind.push(name);
     }

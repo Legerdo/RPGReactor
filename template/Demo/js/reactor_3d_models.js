@@ -315,31 +315,41 @@ Reactor3D.loadDatabaseSidecar = function() {
         this._databaseSidecar = parsed && typeof parsed === "object" ? parsed : null;
         this._databaseSidecarState = "done";
     };
+    // A battle test reads the Test_ copy the editor wrote from its unsaved database, when it wrote one.
+    const testing = typeof DataManager !== "undefined" && typeof DataManager.isBattleTest === "function" && DataManager.isBattleTest();
+    const urls = testing ? [this.DATABASE_SIDECAR_URL.replace(/([^/]+)$/, "Test_$1"), this.DATABASE_SIDECAR_URL] : [this.DATABASE_SIDECAR_URL];
     // The absent file is the normal state for most projects; ask the disk
     // first so it never logs an unsuppressible network error.
     if (typeof Utils !== "undefined" && Utils.isNwjs()) {
         try {
             const fs = require("fs");
             const path = require("path");
-            const full = path.join(path.dirname(process.mainModule.filename), this.DATABASE_SIDECAR_URL);
-            if (!fs.existsSync(full)) return finish(null);
-            return finish(JSON.parse(fs.readFileSync(full, "utf8")));
+            for (const url of urls) {
+                const full = path.join(path.dirname(process.mainModule.filename), url);
+                if (fs.existsSync(full)) return finish(JSON.parse(fs.readFileSync(full, "utf8")));
+            }
+            return finish(null);
         } catch (error) {
             return finish(null);
         }
     }
-    const xhr = new XMLHttpRequest();
-    xhr.open("GET", this.DATABASE_SIDECAR_URL);
-    xhr.overrideMimeType("application/json");
-    xhr.onload = () => {
-        try {
-            finish(xhr.status < 400 ? JSON.parse(xhr.responseText) : null);
-        } catch (error) {
-            finish(null);
-        }
+    const request = index => {
+        const xhr = new XMLHttpRequest();
+        const next = () => (index + 1 < urls.length ? request(index + 1) : finish(null));
+        xhr.open("GET", urls[index]);
+        xhr.overrideMimeType("application/json");
+        xhr.onload = () => {
+            if (xhr.status >= 400) return next();
+            try {
+                finish(JSON.parse(xhr.responseText));
+            } catch (error) {
+                finish(null);
+            }
+        };
+        xhr.onerror = next;
+        xhr.send();
     };
-    xhr.onerror = () => finish(null);
-    xhr.send();
+    request(0);
 };
 
 // True once the sidecar has answered — instantly on NW.js, after one
@@ -7291,6 +7301,11 @@ Reactor3D.normalizeProp = function(raw, mapData) {
         direction: [2, 4, 6, 8].indexOf(direction) >= 0 ? direction : 2,
         size: size > 0 ? size : 2,
         scale: scale > 0 ? scale : 1,
+        // Per-axis stretch on top of size and scale, as the editor saves it.
+        stretch: [0, 1, 2].map(i => {
+            const v = Array.isArray(raw.stretch) ? Number(raw.stretch[i]) : 1;
+            return Number.isFinite(v) && v > 0 ? v : 1;
+        }),
         passable: raw.passable === true || raw.passable === "true",
         // An action rule and an effect the prop starts with, by name.
         animations, animation: animations[0] || "",

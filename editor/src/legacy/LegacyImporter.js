@@ -85,7 +85,8 @@ function rtpCandidates(engine, options = {}) {
     // Where Import Project downloads the official RTP, then EasyRPG Player's folders: $XDG_DATA_HOME/rtp/2000, the system share.
     const year = is2003 ? '2003' : '2000';
     const downloaded = require('./RtpManager.js').downloadFolder(engine);
-    found.push(downloaded, downloaded + '-donmiguel', downloaded + '-other');
+    // An unpack beside an RTP the user keeps there lands in <folder>-2.
+    for (const d of [downloaded, downloaded + '-donmiguel', downloaded + '-other']) found.push(d, d + '-2');
     const xdg = process.env.XDG_DATA_HOME || (home && path.join(home, '.local', 'share'));
     if (xdg) found.push(path.join(xdg, 'rtp', year));
     found.push(path.join('/usr/share/rtp', year), path.join('/usr/local/share/rtp', year));
@@ -756,7 +757,7 @@ function open(source, destination, options) {
     
         // 6. Project identity.
         const pkg = JSON.parse(fs.readFileSync(path.join(dest, 'package.json'), 'utf8'));
-        pkg.name = 'rr-' + safeName(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        pkg.name = PF.packageName(safeName(title));
         pkg.version = editorPackage.version;
         pkg.window = Object.assign({}, pkg.window, { title, width: 640, height: 480, min_width: 320, min_height: 240 });
         pkg['chromium-args'] = '--force-color-profile=srgb --window-size=640,480';

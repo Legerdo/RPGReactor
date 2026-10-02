@@ -124,7 +124,7 @@
         const encodingSelect = document.createElement('select');
         encodingSelect.id = 'rr-legacy-import-encoding';
         encodingSelect.style.cssText = 'width:100%;box-sizing:border-box;padding:6px 8px;font-size:13px;color:var(--color-text);background:var(--color-bg-input, var(--color-bg-deep));border:1px solid var(--color-border);border-radius:var(--radius-sm, 4px);';
-        for (const [value, text] of ENCODINGS) { const o = document.createElement('option'); o.value = value; o.textContent = value ? text : tt('Automatic'); encodingSelect.appendChild(o); }
+        for (const [value, text] of ENCODINGS) { const o = document.createElement('option'); o.value = value; o.textContent = tt(value ? text : 'Automatic'); encodingSelect.appendChild(o); }
         const languageSelect = document.createElement('select');
         languageSelect.id = 'rr-legacy-import-language';
         languageSelect.style.cssText = encodingSelect.style.cssText;
@@ -229,12 +229,29 @@
         parentInput.value = (() => { try { return localStorage.getItem('rrLegacyImportParent') || os.homedir(); } catch (_) { return os.homedir(); } })();
 
         return new Promise(resolve => {
-            let settled = false, worker = null, destination = null;
+            let settled = false, worker = null, destination = null, created = false;
+            // An import stopped part way: its converters (FFmpeg, FluidSynth) first, then the worker;
+            // a folder this import created is removed, one it imported into again is left as it is.
+            const stopImport = () => {
+                const w = worker;
+                worker = null;
+                if (!w) return;
+                const partial = created ? destination : null;
+                let ended = false;
+                const end = () => {
+                    if (ended) return;
+                    ended = true;
+                    Promise.resolve(w.terminate()).catch(() => {}).then(() => { if (partial) { try { fs.rmSync(partial, { recursive: true, force: true }); } catch (_) { /* in use */ } } });
+                };
+                w.on('message', msg => { if (msg && msg.type === 'cancelled') end(); });
+                setTimeout(end, 2000);
+                try { w.postMessage({ type: 'cancel' }); } catch (_) { end(); }
+            };
             const finish = value => {
                 if (settled) return;
                 settled = true;
                 document.removeEventListener('keydown', handleKeyDown, true);
-                if (worker) { try { worker.terminate(); } catch (_) { /* gone */ } }
+                stopImport();
                 clearInterval(clock);
                 overlay.remove();
                 if (previouslyFocused && previouslyFocused.isConnected !== false && typeof previouslyFocused.focus === 'function') previouslyFocused.focus();
@@ -412,6 +429,7 @@
                 if (!parent || !fs.existsSync(parent)) { errorEl.textContent = tt('Choose a folder to create the project in.'); return; }
                 if (!name || /[\\/:*?"<>|\0-\x1f]/.test(name) || /^\.|[. ]$/.test(name)) { errorEl.textContent = tt('Project name must be a safe single folder name.'); return; }
                 destination = path.join(parent, name);
+                created = !fs.existsSync(destination);
                 // A folder already there (an earlier or interrupted import) is imported into again, in place, when the author agrees.
                 const force = fs.existsSync(destination) && fs.readdirSync(destination).length > 0;
                 // Never over a project open in an editor, this one included: its lock names a live process.
@@ -460,19 +478,21 @@
                     });
                     worker.on('error', err => failed(err.message || err));
                     // A worker that ends without its 'done' (killed, out of memory) would leave the dialog importing forever.
-                    worker.on('exit', code => { if (worker === w && !settled) failed(`worker exited (${code})`); });
+                    worker.on('exit', code => { if (worker === w && !settled) failed(tt('The import worker stopped (exit code {code}).').replace('{code}', String(code))); });
                 } catch (error) {
                     failed(error.message || error);
                 }
             };
+            // Closing while an import runs stops it, so it asks first.
+            const close = () => { if (worker && !window.confirm(tt('Stop the import?'))) return; finish(null); };
             const handleKeyDown = event => {
                 if (event.key === 'Escape' && window.RRContextMenu && window.RRContextMenu.isOpen()) return;   // the menu closes first
-                if (event.key === 'Escape') { event.preventDefault(); finish(null); }
+                if (event.key === 'Escape') { event.preventDefault(); close(); }
                 else if (event.key === 'Enter' && event.target === nameInput) { event.preventDefault(); start(); }
             };
             nameInput.addEventListener('input', () => { errorEl.textContent = ''; nameInput.dataset.auto = 'false'; });
-            closeButton.addEventListener('click', () => finish(null));
-            cancelButton.addEventListener('click', () => finish(null));
+            closeButton.addEventListener('click', close);
+            cancelButton.addEventListener('click', close);
             importButton.addEventListener('click', start);
             openButton.addEventListener('click', () => { const d = destination; finish(d); if (openProject) openProject(d); });
             document.addEventListener('keydown', handleKeyDown, true);

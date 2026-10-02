@@ -1011,6 +1011,15 @@ class SoundEffectGenerator {
             this.root.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--color-text-muted); font-size: 12px;">${this._t('Open a project to use Forge tools.')}</div>`;
             return;
         }
+        // Another project starts from the defaults: a project without a config (or an older one missing
+        // fields) kept the previous project's sound, which the next change saved into it.
+        if (this._loadedProjectPath !== this.projectPath) {
+            const fresh = new SoundEffectGenerator();
+            for (const key of ['activeArchetypeId', 'params', 'mode', 'pattern', 'bpm', 'jitterStrength', 'saveFormat', 'saveQuality']) {
+                this[key] = fresh[key];
+            }
+            this._loadedProjectPath = this.projectPath;
+        }
         this._ensureFolders();
         this._loadConfig();
         this._render();
@@ -1756,6 +1765,8 @@ class SoundEffectGenerator {
                 picker.remove();
             }
         });
+        // Dismissing the dialog fires `cancel`, not `change`.
+        picker.addEventListener('cancel', () => picker.remove());
         document.body.appendChild(picker);
         picker.click();
     }

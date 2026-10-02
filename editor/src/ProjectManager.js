@@ -123,7 +123,7 @@ class ProjectManager {
             targetPath = resolvedTarget;
 
             if (templatePath) {
-                await this.copyDirectory(templatePath, targetPath);
+                await this.copyDirectory(templatePath, targetPath, relPath => ProjectManager.isTemplateCopyExcluded(relPath));
                 if (runtimePath) {
                     await this.copyRuntimeIntoProject(runtimePath, this.path.join(targetPath, 'js'), true);
                 }
@@ -155,7 +155,20 @@ class ProjectManager {
         return !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(projectName);
     }
 
-    async copyDirectory(source, target) {
+    /**
+     * What a new project leaves behind when it copies the template: the template's own
+     * editor lock (held while the template is open), its saves, backups, screenshots and
+     * battle-test copies of the database.
+     */
+    static isTemplateCopyExcluded(relPath) {
+        const parts = String(relPath || '').split(/[\\/]+/).filter(Boolean);
+        if (parts.length === 1) {
+            return ['.rpgreactor.lock', 'save', 'Backup', 'BACKUP', 'backup', 'Screenshots'].includes(parts[0]);
+        }
+        return parts.length === 2 && parts[0] === 'data' && /^Test_.*\.json$/.test(parts[1]);
+    }
+
+    async copyDirectory(source, target, exclude = null, relBase = '') {
         if (!this.fs || !this.path) return;
 
         // Create target directory
@@ -167,13 +180,15 @@ class ProjectManager {
         const files = this.fs.readdirSync(source);
 
         for (const file of files) {
+            const relPath = relBase ? `${relBase}/${file}` : file;
+            if (exclude && exclude(relPath)) continue;
             const sourcePath = this.path.join(source, file);
             const targetPath = this.path.join(target, file);
             const stat = this.fs.statSync(sourcePath);
 
             if (stat.isDirectory()) {
                 // Recursively copy subdirectories
-                await this.copyDirectory(sourcePath, targetPath);
+                await this.copyDirectory(sourcePath, targetPath, exclude, relPath);
             } else {
                 // Copy file
                 this.fs.copyFileSync(sourcePath, targetPath);
@@ -726,13 +741,17 @@ class ProjectManager {
     }
 
     getStarterTileset() {
+        // Tile 0 (nothing drawn) is a star (0x10): an empty upper layer never decides passage,
+        // so the tile below it does.
+        const flags = new Array(8192).fill(0);
+        flags[0] = 0x10;
         return {
             id: 1,
             mode: 1,
             name: 'Default',
             note: '',
             tilesetNames: ['', '', '', '', '', '', '', '', ''],
-            flags: new Array(8192).fill(0)
+            flags
         };
     }
 

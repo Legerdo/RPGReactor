@@ -7610,6 +7610,18 @@ Window_NameBox.prototype.updateBackground = function() {
         if (legacy()) this._statusWindow.show();
     };
 
+    /** Whether the living enemies or their names differ from what the 2003 list drew; every frame, so no lists are made. */
+    const legacyEnemyListChanged = (list) => {
+        const drawn = list._legacyNames;
+        if (!drawn) return true;
+        let alive = 0;
+        for (const enemy of $gameTroop.members()) {
+            if (!enemy.isAlive()) continue;
+            if (alive >= drawn.length || list._enemies[alive] !== enemy || drawn[alive] !== enemy.name()) return true;
+            alive++;
+        }
+        return alive !== drawn.length;
+    };
     override(Scene_Battle.prototype, "updateStatusWindowPosition", function() {
         const status = this._statusWindow;
         if (is2003()) {
@@ -7618,12 +7630,11 @@ Window_NameBox.prototype.updateBackground = function() {
             const list = this._enemyWindow;
             if (!list.active) {
                 const show = status.visible && status.isOpen() && !this._skillWindow.visible && !this._itemWindow.visible;
-                const alive = $gameTroop.aliveMembers(), names = alive.map(e => e.name()).join("\n");
-                if (show && (!list.visible || list._legacyNames !== names)) {
+                if (show && (!list.visible || legacyEnemyListChanged(list))) {
                     // No action is being aimed, so the list is simply the living enemies.
-                    list._enemies = alive;
+                    list._enemies = $gameTroop.aliveMembers();
                     Window_Selectable.prototype.refresh.call(list);
-                    list._legacyNames = names;
+                    list._legacyNames = list._enemies.map(e => e.name());
                 }
                 if (list.index() >= 0) Window_Selectable.prototype.select.call(list, -1);
                 list.visible = show;

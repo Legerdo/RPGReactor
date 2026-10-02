@@ -61,7 +61,9 @@
         const limit = $dataSystem && $dataSystem.rrLegacyVariableLimit;
         if (!limit || typeof value !== "number" || operationType < 0 || operationType > 5) return _operateVariable.apply(this, arguments);
         const a = Math.trunc(Number($gameVariables.value(variableId)) || 0), b = Math.trunc(value) || 0;
-        const result = [b, a + b, a - b, a * b, b ? Math.trunc(a / b) : a, b ? a % b : 0][operationType];
+        // A parallel event's bar can do this many times a frame: no list per operation.
+        const result = operationType === 0 ? b : operationType === 1 ? a + b : operationType === 2 ? a - b
+            : operationType === 3 ? a * b : operationType === 4 ? (b ? Math.trunc(a / b) : a) : (b ? a % b : 0);
         $gameVariables.setValue(variableId, Math.max(-limit, Math.min(limit, result)) || 0);
     };
 
@@ -107,11 +109,12 @@
     };
 
     const SPIN_ORDER = { 8: 6, 6: 2, 2: 4, 4: 8 };
+    const SPIN_FRAMES = [24, 16, 12, 8, 6, 4];
     const _Game_Event_updateSpin = Game_Event.prototype.update;
     Game_Event.prototype.update = function() {
         _Game_Event_updateSpin.call(this);
         if (!this._rrSpin) return;
-        const limit = [24, 16, 12, 8, 6, 4][Math.max(1, Math.min(6, this.realMoveSpeed())) - 1];
+        const limit = SPIN_FRAMES[Math.max(1, Math.min(6, this.realMoveSpeed())) - 1];
         if (++this._rrSpinCount >= limit) { this._rrSpinCount = 0; this._direction = SPIN_ORDER[this._direction] || 2; }
     };
 

@@ -300,7 +300,7 @@ function open(folder, destination, options) {
 
         // ---- identity ----------------------------------------------------------
         const pkg = JSON.parse(fs.readFileSync(path.join(dest, 'package.json'), 'utf8'));
-        pkg.name = 'rr-' + title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        pkg.name = require('./ProjectFiles.js').packageName(title);
         pkg.version = editorPackage.version;
         const [sw, sh] = [sys.advanced.screenWidth, sys.advanced.screenHeight];
         const [ww, wh] = [sw * sys.advanced.screenScale, sh * sys.advanced.screenScale];

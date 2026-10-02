@@ -2302,6 +2302,7 @@ class DatabaseTilesetEditor {
                 break;
         }
 
+        currentFlag = DatabaseTilesetEditor.keepEmptyTileStar(tileIndex, currentFlag);
         if (currentFlag !== oldFlag) {
             this.currentTileset.flags[tileIndex] = currentFlag;
             // Autotiles: mirror the flag to all 48 shape slots of the kind —
@@ -2613,6 +2614,15 @@ class DatabaseTilesetEditor {
         }
     }
 
+    /**
+     * Tile 0 is the empty tile of every unpainted upper layer: its passage stays a star,
+     * or checkPassage stops at it and every wall under it turns walkable (O) or every
+     * floor solid (X). Its other flags are free to edit.
+     */
+    static keepEmptyTileStar(tileIndex, flag) {
+        return tileIndex === 0 ? (flag & ~0x1F) | 0x10 : flag;
+    }
+
     /** The flag a passage brush writes, over whatever the tile had. */
     passageBrushFlag(oldFlag) {
         switch (this.passageBrush) {
@@ -2625,6 +2635,7 @@ class DatabaseTilesetEditor {
 
     /** Write one tile's flag with autotile mirroring, repaint, and announce. */
     writeTileFlag(canvas, imageIndex, isSplitSheet, tileIndex, newFlag) {
+        newFlag = DatabaseTilesetEditor.keepEmptyTileStar(tileIndex, newFlag);
         const oldFlag = this.currentTileset.flags[tileIndex] || 0;
         if (newFlag === oldFlag) return false;
         this.currentTileset.flags[tileIndex] = newFlag;

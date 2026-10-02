@@ -521,14 +521,6 @@
     }
 
     /**
-     * The screen size the game's scripts set with Graphics.resize_screen(w, h)
-     * (the last call in script order; literals or constants), or null when they
-     * keep Ace's 544×416. A resolution script is how most Ace games reach 640×480.
-     * The stock RGSS player clamps the call to 640×480 (DOTP asks Yanfly's Core
-     * Engine for 854×480 and runs at 640×480); only a script that patches the
-     * player past that ("Unlimited Resolution") or an mkxp build goes larger.
-     */
-    /**
      * The window scale an RGSS import opens at: a whole number, so every game pixel covers the same screen
      * pixels, 2 when twice the screen fits a 1080p desktop, else 1. Any other factor smears text and edges.
      */
@@ -536,6 +528,14 @@
         return width * 2 <= 1800 && height * 2 <= 1000 ? 2 : 1;
     }
 
+    /**
+     * The screen size the game's scripts set with Graphics.resize_screen(w, h)
+     * (the last call in script order; literals or constants), or null when they
+     * keep Ace's 544×416. A resolution script is how most Ace games reach 640×480.
+     * The stock RGSS player clamps the call to 640×480 (DOTP asks Yanfly's Core
+     * Engine for 854×480 and runs at 640×480); only a script that patches the
+     * player past that ("Unlimited Resolution") or an mkxp build goes larger.
+     */
     function screenSize(sources, constants) {
         const unlimited = sources.some(t => /Unlimited\s*Resolution|mkxp/i.test(String(t || '')));
         const [maxW, maxH] = unlimited ? [1920, 1080] : [640, 480];

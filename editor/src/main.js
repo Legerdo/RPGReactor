@@ -1291,7 +1291,7 @@ class RPGReactor {
 
         if (mapInfoContent && mapIdEl && mapNameEl && mapDimensionsEl) {
             // Show the map info content
-            mapInfoContent.style.display = 'block';
+            mapInfoContent.style.display = 'flex';
 
             // Format map ID with leading zeros (e.g., 001, 002, etc.)
             const mapIdStr = String(map.id).padStart(3, '0');

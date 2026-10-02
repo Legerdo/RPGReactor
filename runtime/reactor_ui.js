@@ -1545,6 +1545,9 @@
             console.warn("ReactorUI: interface nesting limit reached");
             return false;
         }
+        // Called over an open interface (by its action, a plugin or a script), that one comes back when this closes.
+        const current = SceneManager._scene;
+        if (current instanceof Scene_ReactorUI && !current._closing) current.rememberForPush();
         SceneManager.push(Scene_ReactorUI);
         SceneManager.prepareNextScene(Number(id));
         return true;
@@ -3503,8 +3506,18 @@
         if (focus >= 0) this.setFocus(focus);
     };
 
+    /** Keeps this interface's state for when the scene pushed over it pops back; once per push. */
     Scene_ReactorUI.prototype.rememberForPush = function() {
+        if (this._pushRemembered) return;
         ReactorUI._resumeStates.push(this.resumeState());
+        this._pushRemembered = true;
+    };
+
+    /** Takes back the state rememberForPush kept, when the push it was for did not happen. */
+    Scene_ReactorUI.prototype.forgetPush = function() {
+        if (!this._pushRemembered) return;
+        ReactorUI._resumeStates.pop();
+        this._pushRemembered = false;
     };
 
     Scene_ReactorUI.prototype.create = function() {
@@ -3801,17 +3814,25 @@
     };
 
     Scene_ReactorUI.prototype.updateConditions = function() {
-        const authored = new Map(this._interface.nodes.map(node => [node.id, node]));
-        const shown = (node, trail) => {
-            if (!node || trail.has(node.id) || !ReactorUI.evaluateCondition(node.visible, this)) return false;
-            const parent = authored.get(node.parent);
-            if (!parent || parent === node) return true;
-            trail.add(node.id);
-            return shown(parent, trail);
+        // Runs every frame: the node table is kept per interface, and a parent chain longer than the
+        // node count is a cycle (shown as hidden).
+        if (this._authoredFor !== this._interface) {
+            this._authoredFor = this._interface;
+            this._authoredNodes = new Map(this._interface.nodes.map(node => [node.id, node]));
+        }
+        const authored = this._authoredNodes;
+        const shown = node => {
+            for (let depth = 0; node && depth <= authored.size; depth++) {
+                if (!ReactorUI.evaluateCondition(node.visible, this)) return false;
+                const parent = authored.get(node.parent);
+                if (!parent || parent === node) return true;
+                node = parent;
+            }
+            return false;
         };
         for (const window of this._nodeWindows) {
             const node = window.node();
-            window.visible = shown(node, new Set());
+            window.visible = shown(node);
             if (node.type === "button" || node.type === "list") window.setEnabled(ReactorUI.evaluateCondition(node.enabled, this));
         }
         const focused = this.focusedWindow();
@@ -4036,7 +4057,7 @@
                 console.error("ReactorUI: scene failed to open", error);
                 SceneManager._stack.length = depth;
                 SceneManager._nextScene = null;
-                ReactorUI._resumeStates.pop();
+                this.forgetPush();
                 SoundManager.playBuzzer();
                 this.cancelClose();
             }
@@ -4204,7 +4225,7 @@
                 this.beginCloseTransition(() => {
                     this.rememberForPush();
                     if (!ReactorUI.call(action.id)) {
-                        ReactorUI._resumeStates.pop();
+                        this.forgetPush();
                         SoundManager.playBuzzer();
                         this.cancelClose();
                     }
@@ -4874,7 +4895,15 @@
         running.interpreter.update();
         if (running.interpreter.isRunning()) return true;
         scene._rrCommandEvent = null;
-        const actor = BattleManager.actor();
+        let actor = BattleManager.actor();
+        if (actor && !$gameParty.battleMembers().includes(actor)) {
+            // The event took the choosing actor out of the party: nobody is choosing now. With time progress
+            // the next ready member opens through the usual check; turn-based input goes back to the party.
+            BattleManager.cancelActorInput();
+            BattleManager._currentActor = null;
+            if (BattleManager.isTpb()) BattleManager._inputting = false;
+            actor = null;
+        }
         if (running.party && BattleManager.isInputting() && !actor) scene.startPartyCommandSelection();
         else if (actor && actor.canInput()) scene.startActorCommandSelection();
         else scene.changeInputWindow();

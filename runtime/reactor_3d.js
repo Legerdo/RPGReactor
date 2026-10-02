@@ -5013,8 +5013,10 @@ Reactor3D.standingPlaceFor = function(character) {
     // a world position; taking it literally put every character half a tile
     // south of the square it occupies, which is invisible head-on and swings
     // into view as the camera comes round.
-    // A jump or a fall (reactor_physics) lifts the character by its air.
-    const ground = { height: this.elevationAt(map, x, y) + (character._reactorLift || 0) + (character._reactorAir || 0), z: character._realY + 0.5, lift: 0 };
+    // On the terrain and the pieces it walks (its air is counted from there, as a model's is);
+    // a jump or a fall (reactor_physics) lifts the character by its air.
+    const floor = this.characterGround ? this.characterGround(map, character) : this.elevationAt(map, x, y);
+    const ground = { height: floor + (character._reactorLift || 0) + (character._reactorAir || 0), z: character._realY + 0.5, lift: 0 };
     if (typeof character.eventId !== "function") return ground;
     if (character.isMoving && character.isMoving()) return ground;
 
@@ -8886,6 +8888,16 @@ Reactor3D.renderBlocker = function(mapData) {
         }
     }
 
+    /** Give the mouse back (the map scene stopping); the release is not the Escape that calls the menu. */
+    function releaseLook() {
+        held.clear();
+        const canvas = typeof Graphics !== "undefined" && Graphics._canvas;
+        if (typeof document === "undefined" || !canvas || document.pointerLockElement !== canvas
+            || typeof document.exitPointerLock !== "function") return;
+        look.suppressMenuUntil = Date.now() + 1500;
+        document.exitPointerLock();
+    }
+
     /**
      * Escape releases the pointer lock, and the browser keeps that key
      * press to itself: the game never hears it, so the menu needed a second
@@ -9395,6 +9407,19 @@ Reactor3D.renderBlocker = function(mapData) {
                 }
             };
             Game_Player.prototype.moveByInput.__reactorCamera3d = true;
+        }
+        if (typeof Scene_Map !== "undefined" && Scene_Map.prototype.stop
+            && !Scene_Map.prototype.stop.__reactorCamera3d) {
+            const baseStop = Scene_Map.prototype.stop;
+            // A menu, battle or other scene opened while the look holds the
+            // mouse would get no cursor: the map gives the mouse back as it
+            // stops. A transfer goes on to the next map and keeps it.
+            Scene_Map.prototype.stop = function() {
+                baseStop.apply(this, arguments);
+                const next = typeof SceneManager !== "undefined" ? SceneManager._nextScene : null;
+                if (!(next && next instanceof Scene_Map)) releaseLook();
+            };
+            Scene_Map.prototype.stop.__reactorCamera3d = true;
         }
         if (typeof document !== "undefined" && typeof document.addEventListener === "function"
             && typeof window !== "undefined" && !installHooks.__reactorLookBound) {
