@@ -3217,17 +3217,25 @@ Bitmap.prototype.drawText = function(text, x, y, maxWidth, lineHeight, align) {
     //   textBaseline == 'top'. So we use 'alphabetic' here.
     const context = this.context;
     const alpha = context.globalAlpha;
-    maxWidth = maxWidth || 0xffffffff;
+    const fixed = Bitmap.fixedFontSize();
+    const span = maxWidth || 0xffffffff;
+    maxWidth = fixed ? 0xffffffff : span;
     let tx = x;
-    let ty = Math.round(y + lineHeight / 2 + this.fontSize * 0.35);
-    if (align === "center") {
-        tx += maxWidth / 2;
-    }
-    if (align === "right") {
-        tx += maxWidth;
-    }
+    let ty = Math.round(y + lineHeight / 2 + (fixed || this.fontSize) * 0.35);
     context.save();
     context.font = this._makeFontNameText();
+    if (Bitmap.pixelText()) {
+        // Pixel art: the text starts on a whole pixel, wherever it is aligned.
+        const width = align === "center" || align === "right" ? Math.min(context.measureText(text).width, maxWidth) : 0;
+        if (align === "center") tx += (span - width) / 2;
+        if (align === "right") tx += span - width;
+        tx = Math.round(tx);
+        align = "left";
+    } else if (align === "center") {
+        tx += maxWidth / 2;
+    } else if (align === "right") {
+        tx += maxWidth;
+    }
     context.textAlign = align || "left";
     context.textBaseline = "alphabetic";
     context.globalAlpha = 1;
@@ -3279,7 +3287,21 @@ Bitmap.prototype.retry = function() {
 Bitmap.prototype._makeFontNameText = function() {
     const italic = this.fontItalic ? "Italic " : "";
     const bold = this.fontBold ? "Bold " : "";
-    return italic + bold + this.fontSize + "px " + this.fontFace;
+    return italic + bold + (Bitmap.fixedFontSize() || this.fontSize) + "px " + this.fontFace;
+};
+
+/** System.json advanced.pixelatedRendering: text is placed on whole pixels. */
+Bitmap.pixelText = function() {
+    return typeof $dataSystem !== "undefined" && $dataSystem?.advanced?.pixelatedRendering === true;
+};
+
+/**
+ * RPG Maker 2000/2003 (System.json rrLegacyWindows): every text is drawn at the font's own size
+ * (advanced.fontSize) and at its natural width, never squeezed; a pixel font at any other size blurs.
+ */
+Bitmap.fixedFontSize = function() {
+    const system = typeof $dataSystem !== "undefined" && $dataSystem;
+    return (system && system.rrLegacyWindows && system.advanced && system.advanced.fontSize) || 0;
 };
 
 /** System.json advanced.rrTextShadow: text casts a sharp 1 px drop shadow instead of an outline, as 2000/2003 drew it. */

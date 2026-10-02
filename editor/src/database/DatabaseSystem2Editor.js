@@ -378,6 +378,7 @@ class DatabaseSystem2Editor {
         const fields = [
             { label: 'Multi-frame Sheets ([fN])', path: 'rrMultiFrames', value: system.rrMultiFrames === true, type: 'checkbox' },
             { label: 'Skip Title Screen', path: 'rrSkipTitle', value: system.rrSkipTitle === true, type: 'checkbox' },
+            { label: 'RPG Maker 2000/2003 Title Menu', path: 'rrLegacyTitle', value: system.rrLegacyTitle === true, type: 'checkbox' },
             { label: 'Erase Pictures on Map Change', path: 'rrPicturesEraseOnMapChange', value: system.rrPicturesEraseOnMapChange === true, type: 'checkbox' },
             { label: 'RPG Maker 2000/2003 Passability', path: 'rrLegacyPassage', value: system.rrLegacyPassage === true, type: 'checkbox' },
             { label: 'Common Events Before Map Events', path: 'rrLegacyEventOrder', value: system.rrLegacyEventOrder === true, type: 'checkbox' },

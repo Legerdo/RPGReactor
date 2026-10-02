@@ -608,7 +608,7 @@ Scene_Message.prototype.createMessageWindow = function() {
 Scene_Message.prototype.messageWindowRect = function() {
     const ww = Graphics.boxWidth;
     // room for the frame margin (none in a 2003 import); an XP, VX or VX Ace window is its lines and padding
-    const wh = this.calcWindowHeight(4, false) + ($dataSystem && $dataSystem.rrRgssWindows ? 0 : Window.defaultMargin() * 2);
+    const wh = this.calcWindowHeight(4, false) + ($dataSystem && ($dataSystem.rrRgssWindows || $dataSystem.rrLegacyWindows) ? 0 : Window.defaultMargin() * 2);
     const wx = (Graphics.boxWidth - ww) / 2;
     const wy = 0;
     return new Rectangle(wx, wy, ww, wh);
@@ -3844,7 +3844,8 @@ Scene_Boot.prototype.isReady = function() {
     const _adjustBoxSize = Scene_Boot.prototype.adjustBoxSize;
     Scene_Boot.prototype.adjustBoxSize = function() {
         _adjustBoxSize.call(this);
-        if (!rgss()) return;
+        // RPG Maker 2000/2003 (rrLegacyWindows) lay windows out on the whole screen too.
+        if (!rgss() && !($dataSystem && $dataSystem.rrLegacyWindows)) return;
         Graphics.boxWidth = $dataSystem.advanced.uiAreaWidth;
         Graphics.boxHeight = $dataSystem.advanced.uiAreaHeight;
     };

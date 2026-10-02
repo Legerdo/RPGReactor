@@ -6079,6 +6079,7 @@ Spriteset_Map.prototype.loadTileset = function() {
         }
         this._tilemap.setBitmaps(bitmaps);
         this._tilemap.flags = $gameMap.tilesetFlags();
+        if (this._tilemap.setTileAnimation) this._tilemap.setTileAnimation(this._tileset.rrTileFrames, this._tileset.rrWater);
     }
 };
 

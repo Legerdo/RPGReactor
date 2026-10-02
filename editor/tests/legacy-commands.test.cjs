@@ -221,7 +221,7 @@ test('skills and items get MZ formulas, scopes and effects that reproduce the 20
     const notes = {};
     const out = D.convert(withIds(db), { start: {} }, notes);
     assert.equal(out.skills[1].damage.formula, 'Math.max(0, Math.floor(40 + a.mat * 10 / 40 - b.mdf * 10 / 80))');
-    assert.deepEqual([out.skills[1].scope, out.skills[1].occasion, out.skills[1].damage.type, out.skills[1].damage.elementId, out.skills[1].damage.variance, out.skills[1].successRate, out.skills[1].mpCost, out.skills[1].hitType, out.skills[1].message1], [2, 1, 1, 1, 40, 95, 6, 2, ' casts Fire']);
+    assert.deepEqual([out.skills[1].scope, out.skills[1].occasion, out.skills[1].damage.type, out.skills[1].damage.elementId, out.skills[1].damage.variance, out.skills[1].successRate, out.skills[1].mpCost, out.skills[1].hitType, out.skills[1].message1], [2, 1, 1, 1, 40, 95, 6, 2, '%1 casts Fire']);
     assert.deepEqual([out.skills[2].scope, out.skills[2].damage.type, out.skills[2].damage.formula], [7, 3, 'Math.max(0, Math.floor(60 + a.mat * 5 / 40))']);
     assert.deepEqual(out.skills[2].effects, [{ code: 22, dataId: 2, value1: 1, value2: 0 }]);
     assert.deepEqual(out.skills[3].effects, [{ code: 44, dataId: 2, value1: 0, value2: 0 }], 'a switch skill calls a generated common event');
@@ -256,7 +256,7 @@ test('actors own a class each, 2003 classes follow, ranks become rate traits, st
     assert.equal(out.classes[1].expTable[2], 60);
     assert.deepEqual(out.classes[1].learnings, [{ level: 5, skillId: 9, note: '' }]);
     assert.equal(out.classes[2].name, 'Mage'); assert.equal(out.ctx.classOffset, 1);
-    assert.deepEqual([out.states[2].restriction, out.states[2].removeAtBattleEnd, out.states[2].autoRemovalTiming, out.states[2].minTurns, out.states[2].removeByDamage, out.states[2].message1], [4, true, 2, 3, true, 'sleeps']);
+    assert.deepEqual([out.states[2].restriction, out.states[2].removeAtBattleEnd, out.states[2].autoRemovalTiming, out.states[2].minTurns, out.states[2].removeByDamage, out.states[2].message1], [4, true, 2, 3, true, '%1 sleeps']);
     assert.deepEqual(out.enemies[1].params, [30, 0, 8, 4, 2, 2, 5, 50]);
     assert.deepEqual(out.enemies[1].dropItems, [{ kind: 1, dataId: 1, denominator: 4 }]);
     assert.deepEqual(out.enemies[1].actions, [{ skillId: 1, rating: 9, conditionType: 0, conditionParam1: 0, conditionParam2: 0 }, { skillId: 4, rating: 5, conditionType: 1, conditionParam1: 2, conditionParam2: 4 }]);

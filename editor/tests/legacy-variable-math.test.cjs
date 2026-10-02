@@ -84,7 +84,10 @@ test('MV and MZ projects keep MZ arithmetic', () => {
     assert.equal(run(9999999, ADD, 1), 10000000);
 });
 
-test('the importer sets the limit by engine', () => {
-    const source = fs.readFileSync(path.join(repoRoot, 'editor', 'src', 'legacy', 'LegacyConvert.js'), 'utf8');
-    assert.match(source, /out\.rrLegacyVariableLimit = db\.engine === 'RPG Maker 2000' \? 999999 : 9999999;/);
+test('the importer sets the limit by the engine that runs the game', () => {
+    const K = require(path.join(repoRoot, 'editor', 'src', 'legacy', 'LegacyConvert.js'));
+    const limit = (db) => K.systemJson({ advanced: {}, titleCommandWindow: {} }, { system: {}, ...db }, null, null).rrLegacyVariableLimit;
+    assert.equal(limit({ engine: 'RPG Maker 2000' }), 999999);
+    assert.equal(limit({ engine: 'RPG Maker 2003' }), 9999999);
+    assert.equal(limit({ engine: 'RPG Maker 2000', runtime: 'RPG Maker 2003' }), 9999999, 'a 2000 database on 2003\'s RPG_RT');
 });

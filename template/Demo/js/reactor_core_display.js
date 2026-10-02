@@ -599,7 +599,14 @@ Tilemap.prototype.isReady = function() {
  */
 Tilemap.prototype.update = function() {
     this.animationCount++;
-    this.animationFrame = Math.floor(this.animationCount / 30);
+    this.animationFrame = Math.floor(this.animationCount / (this._rrWater ? this._rrWater.step : 30));
+    if (this._rrTileFrames) {
+        const step = Math.floor(this.animationCount / 6);
+        if (step !== this._rrTileStep) {
+            this._rrTileStep = step;
+            this._needsRepaint = true;
+        }
+    }
     for (const child of this.children) {
         if (child.update) {
             child.update();
@@ -841,8 +848,23 @@ Tilemap.prototype._addTile = function(layer, tileId, dx, dy) {
     }
 };
 
+/**
+ * Tile animation a tileset sets out (an RPG Maker 2000/2003 import): `frames` maps a tile id to the ids it shows
+ * in turn, a frame every 6 game frames; `water` gives the water's step in frames and its cycle (4: frames
+ * 1-2-3-2, 3: 1-2-3). Only tiles the map uses are kept, so a map without them never repaints for them.
+ */
+Tilemap.prototype.setTileAnimation = function(frames, water) {
+    const used = new Set(this._mapData || []);
+    const kept = frames ? Object.entries(frames).filter(([id]) => used.has(Number(id))) : [];
+    this._rrTileFrames = kept.length ? Object.fromEntries(kept) : null;
+    this._rrWater = water && water.step > 0 ? water : null;
+    this._needsRepaint = true;
+};
+
 Tilemap.prototype._addNormalTile = function(layer, tileId, dx, dy) {
     let setNumber = 0;
+    const frames = this._rrTileFrames && this._rrTileFrames[tileId];
+    if (frames) tileId = frames[Math.floor(this.animationCount / 6) % frames.length];
 
     if (Tilemap.isTileA5(tileId)) {
         setNumber = 4;
@@ -870,7 +892,7 @@ Tilemap.prototype._addAutotile = function(layer, tileId, dx, dy) {
     let isTable = false;
 
     if (Tilemap.isTileA1(tileId)) {
-        const waterSurfaceIndex = [0, 1, 2, 1][this.animationFrame % 4];
+        const waterSurfaceIndex = this._rrWater && this._rrWater.cycle === 3 ? this.animationFrame % 3 : [0, 1, 2, 1][this.animationFrame % 4];
         setNumber = 0;
         if (kind === 0) {
             bx = waterSurfaceIndex * 2;
@@ -3097,8 +3119,13 @@ Window.prototype._refreshBack = function() {
         tilingSprite.bitmap = this._windowskin;
         tilingSprite.setFrame(0, 96, 96, 96);
         tilingSprite.move(0, 0, w, h);
-        tilingSprite.scale.x = 1 / sprite.scale.x;
-        tilingSprite.scale.y = 1 / sprite.scale.y;
+        // A window with no width or height (a closed choice list with no margin) has no back to tile:
+        // undoing a zero scale gives an infinite one, and a zero-size tiling sprite sends an infinite
+        // texture transform, which some GPUs draw as triangles across the whole screen.
+        const hasArea = w > 0 && h > 0;
+        tilingSprite.scale.x = hasArea ? 95 / w : 1;
+        tilingSprite.scale.y = hasArea ? 95 / h : 1;
+        if (tilingSprite.visible !== hasArea) tilingSprite.visible = hasArea;
     }
     if (sprite.setColorTone) {
         sprite.setColorTone(this._colorTone);

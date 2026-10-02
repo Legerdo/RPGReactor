@@ -110,7 +110,17 @@
         const nameInput = input('rr-legacy-import-name', false);
         const rtpInput = input('rr-legacy-import-rtp', true);
         const rtpBrowse = button('rr-legacy-import-rtp-browse', tt('Browse…'));
-        try { rtpInput.value = localStorage.getItem('rrLegacyImportRtp') || ''; } catch (_) { /* private mode */ }
+        // One Browse: a folder and a file need different system dialogs, so it asks which.
+        rtpBrowse.setAttribute('aria-haspopup', 'menu');
+        const rtpButtons = rtpBrowse;
+        // The field shows the RTP this game will use: found afresh for each game picked, or the author's choice.
+        // Nothing is kept between imports; a folder chosen here is also looked in for other games until the dialog closes.
+        try { localStorage.removeItem('rrLegacyImportRtp'); localStorage.removeItem('rrLegacyImportRtps'); } catch (_) { /* private mode */ }
+        let chosenRtps = [];
+        const knownRtps = () => chosenRtps;
+        const rememberRtp = (folder, keep) => { chosenRtps = [...(keep ? [folder] : []), ...chosenRtps.filter(f => f !== folder)]; };
+        // 'auto': the best RTP found for the game; 'chosen': the author's pick; 'none': cleared, import without one.
+        let rtpMode = 'auto';
         const encodingSelect = document.createElement('select');
         encodingSelect.id = 'rr-legacy-import-encoding';
         encodingSelect.style.cssText = 'width:100%;box-sizing:border-box;padding:6px 8px;font-size:13px;color:var(--color-text);background:var(--color-bg-input, var(--color-bg-deep));border:1px solid var(--color-border);border-radius:var(--radius-sm, 4px);';
@@ -138,7 +148,23 @@
         body.append(label(tt('Project name'), nameInput.id), nameInput, spacer());
         body.append(label(tt('Text encoding'), encodingSelect.id), encodingSelect, spacer(), hint(tt('Leave on Automatic unless names and messages come out garbled.')));
         body.append(label(tt('Language'), languageSelect.id), languageSelect, spacer(), hint(tt('A translation the game ships in its Language folder, baked into every text.')));
-        body.append(label(tt('RTP folder'), rtpInput.id), rtpInput, rtpBrowse, hint(tt('Only for 2000/2003 games that use RPG Maker\'s standard files; an installed RTP is found without it.')));
+        rtpInput.placeholder = tt('Drop an RTP folder, installer or archive here');
+        body.append(label(tt('RTP folder'), rtpInput.id), rtpInput, rtpButtons, hint(tt('For 2000/2003 games that use RPG Maker\'s standard files: a folder, an RTP installer (.exe) or an archive (.zip, .rar). One already on this computer is found without it.')));
+        // Shown when the picked game takes files from the RTP and none can be found.
+        const rtpMissing = document.createElement('div');
+        rtpMissing.id = 'rr-legacy-import-rtp-missing';
+        rtpMissing.setAttribute('role', 'status');
+        rtpMissing.style.cssText = `grid-column:2 / span 2;display:none;align-items:center;gap:10px;font-size:12px;color:${'var(--color-warning-text, var(--color-warning, #d9a441))'};`;
+        const rtpMissingText = document.createElement('span');
+        rtpMissingText.textContent = tt('This game uses RPG Maker\'s RTP, which was not found. Choose its folder, or the import will lack the standard graphics, sounds and font.');
+        const rtpGet = button('rr-legacy-import-rtp-get', tt('Download the RTP'));
+        rtpGet.style.flex = 'none';
+        rtpMissing.append(rtpMissingText, rtpGet);
+        // Files only Don Miguel's RTP Addon has: the official RTP cannot stand in for them.
+        const rtpAddon = document.createElement('div');
+        rtpAddon.id = 'rr-legacy-import-rtp-addon';
+        rtpAddon.style.cssText = rtpMissing.style.cssText;
+        body.append(rtpMissing, rtpAddon);
         fillLanguages([]);
 
         const errorEl = document.createElement('div');
@@ -254,9 +280,109 @@
                 showDetected(probed);
                 fillLanguages(probed.languages);
                 errorEl.textContent = reason(probed);
+                rtpMode = 'auto';
+                updateRtp();
             }));
             parentBrowse.addEventListener('click', () => browse(parentInput, picked => { try { localStorage.setItem('rrLegacyImportParent', picked); } catch (_) { /* private mode */ } }));
-            rtpBrowse.addEventListener('click', () => browse(rtpInput, picked => { try { localStorage.setItem('rrLegacyImportRtp', picked); } catch (_) { /* private mode */ } }));
+            // A 2000/2003 game that takes files from the RTP: fill the folder when one is found, say so when none is.
+            const rtpNeeded = () => !!(probed && (probed.kind === '2000' || probed.kind === '2003') && probed.needsRtp);
+            const importer = () => require(path.join(appRoot, 'src', 'legacy', 'LegacyImporter.js'));
+            const rtpManager = () => require(path.join(appRoot, 'src', 'legacy', 'RtpManager.js'));
+            const rtpFound = () => {
+                if (!rtpNeeded()) return true;
+                if (rtpMode === 'none') return false;
+                try { return !!importer().findRtp(probed.engine, { rtpPath: rtpInput.value || undefined, source: sourceInput.value, referenced: probed.rtpRefs, known: knownRtps() }); } catch (_) { return !!rtpInput.value; }
+            };
+            const missingText = () => rtpMode === 'none'
+                ? tt('No RTP: the import will lack the standard graphics, sounds and font.')
+                : tt('This game uses RPG Maker\'s RTP, which was not found. Choose its folder, or the import will lack the standard graphics, sounds and font.');
+            const updateRtp = () => {
+                // The RTP on this computer that answers to most of the game's names, unless one was chosen or cleared.
+                if (rtpMode === 'auto') {
+                    let found = null;
+                    if (rtpNeeded()) { try { found = importer().findRtp(probed.engine, { source: sourceInput.value, referenced: probed.rtpRefs, known: knownRtps() }); } catch (_) { /* importer unavailable */ } }
+                    rtpInput.value = found || '';
+                } else if (rtpMode === 'none') rtpInput.value = '';
+                const found = rtpFound();
+                rtpMissing.style.display = found ? 'none' : 'flex';
+                if (!rtpBusy) rtpMissingText.textContent = missingText();
+                // Files only Don Miguel's RTP Addon has, when the chosen RTP lacks them.
+                const addon = rtpNeeded() && probed.rtpUse ? probed.rtpUse.addon : [];
+                const folder = found ? (rtpInput.value || '') : '';
+                const lacking = addon.filter(ref => { const [sub, name] = ref.split('/'); try { return !fs.readdirSync(path.join(folder, sub)).some(f => f.replace(/\.[^.]+$/, '').toLowerCase() === name.toLowerCase()); } catch (_) { return true; } });
+                rtpAddon.textContent = lacking.length ? `${tt('This game also uses files from Don Miguel\'s RTP Addon, which the official RTP does not have:')} ${lacking.join(', ')}` : '';
+                rtpAddon.style.display = rtpAddon.textContent ? 'flex' : 'none';
+            };
+            // Download, unpack or locate an RTP while the rest of the dialog waits.
+            let rtpBusy = false;
+            const rtpTask = async (work, failure) => {
+                if (rtpBusy) return;
+                rtpBusy = true;
+                for (const el of [rtpGet, rtpBrowse, importButton]) el.disabled = true;
+                rtpMissing.style.display = 'flex';
+                const progress = (fraction, status) => { rtpMissingText.textContent = `${tt(/^Unpacking/.test(status) ? 'Unpacking the RTP…' : 'Downloading the RTP…')} ${Math.round(fraction * 100)}%`; };
+                try {
+                    const folder = await work(progress);
+                    rtpInput.value = folder;
+                    rtpMode = 'chosen';
+                    rememberRtp(folder, true);
+                    rtpBusy = false;
+                    updateRtp();
+                } catch (error) {
+                    rtpBusy = false;
+                    rtpMissing.style.display = 'flex';
+                    rtpMissingText.textContent = `${failure} ${error && error.message ? error.message : error}`;
+                } finally {
+                    for (const el of [rtpGet, rtpBrowse, importButton]) el.disabled = false;
+                }
+            };
+            // Whatever the author points at: an RTP folder, a folder holding one or its installer, an installer or archive.
+            const useRtp = (target) => rtpTask(progress => rtpManager().rtpFrom(target, progress), tt('No RTP there:'));
+            const pickRtpFolder = () => {
+                const chooser = document.createElement('input');
+                chooser.type = 'file';
+                chooser.setAttribute('nwdirectory', '');
+                if (rtpInput.value && fs.existsSync(rtpInput.value)) chooser.setAttribute('nwworkingdir', rtpInput.value);
+                chooser.addEventListener('change', () => { const picked = chooser.files?.[0]?.path || chooser.value; if (picked) useRtp(picked); });
+                chooser.click();
+            };
+            const pickRtpFile = () => {
+                const chooser = document.createElement('input');
+                chooser.type = 'file';
+                chooser.accept = '.exe,.zip,.rar';
+                chooser.addEventListener('change', () => { const picked = chooser.files?.[0]?.path || chooser.value; if (picked) useRtp(picked); });
+                chooser.click();
+            };
+            // Import without an RTP; a folder cleared is no longer offered for later games.
+            const clearRtp = () => {
+                if (rtpMode === 'chosen' && rtpInput.value) rememberRtp(rtpInput.value, false);
+                rtpMode = 'none';
+                updateRtp();
+            };
+            rtpBrowse.addEventListener('click', () => {
+                if (rtpBusy) return;
+                const r = rtpBrowse.getBoundingClientRect();
+                const menu = window.RRContextMenu && window.RRContextMenu.show(r.left, r.bottom + 2, [
+                    { label: tt('RTP Folder…'), action: pickRtpFolder },
+                    { label: tt('Installer or Archive…'), action: pickRtpFile },
+                    { separator: true },
+                    { label: tt('Clear'), enabled: !!rtpInput.value, action: clearRtp }
+                ]);
+                if (menu) menu.style.zIndex = '10600';   // above this dialog
+                else pickRtpFolder();
+            });
+            for (const target of [rtpInput, rtpButtons]) {
+                target.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; rtpInput.style.borderColor = 'var(--color-accent)'; });
+                target.addEventListener('dragleave', () => { rtpInput.style.borderColor = ''; });
+                target.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    rtpInput.style.borderColor = '';
+                    const dropped = e.dataTransfer.files && e.dataTransfer.files[0] && e.dataTransfer.files[0].path;
+                    if (dropped) useRtp(dropped);
+                });
+            }
+            // Download RPG Maker's official RTP and unpack the installer's files, nothing installed.
+            rtpGet.addEventListener('click', () => { if (probed) rtpTask(progress => rtpManager().fetchOfficial(probed.engine, progress), tt('RTP download failed:')); });
             const log = (message, level = 'info') => {
                 const line = document.createElement('div');
                 line.textContent = message;
@@ -291,12 +417,13 @@
                 // Never over a project open in an editor, this one included: its lock names a live process.
                 if (force && projectOpenAt(fs, path, destination)) { errorEl.textContent = tt('That folder already exists and is not empty.'); return; }
                 if (force && !window.confirm(`${tt('That folder already exists and is not empty.')} ${tt('Import into it again? Files already there are overwritten.')}`)) return;
+                if (!rtpFound() && !window.confirm(`${rtpMissingText.textContent} ${tt('Import without the RTP?')}`)) return;
                 errorEl.textContent = '';
                 logEl.textContent = '';
                 startedAt = Date.now(); tick(); clock = setInterval(tick, 1000);
                 setProgress(0, tt('Importing…'));
                 const setBusy = busy => {
-                    for (const el of [sourceBrowse, parentBrowse, rtpBrowse, nameInput, encodingSelect, importButton]) el.disabled = busy;
+                    for (const el of [sourceBrowse, parentBrowse, rtpBrowse, rtpGet, nameInput, encodingSelect, importButton]) el.disabled = busy;
                     // A source with no translations keeps the language list off.
                     languageSelect.disabled = busy || languageSelect.options.length <= 1;
                 };
@@ -315,7 +442,7 @@
                 let workerPath = path.join(appRoot, 'build-scripts', 'legacy-import-worker.js');
                 try {
                     const { Worker } = require('worker_threads');
-                    const w = worker = new Worker(workerPath, { workerData: { source, destination, options: { force, encoding: encodingSelect.value || undefined, language: languageSelect.value || undefined, rtpPath: rtpInput.value || undefined } } });
+                    const w = worker = new Worker(workerPath, { workerData: { source, destination, options: { force, encoding: encodingSelect.value || undefined, language: languageSelect.value || undefined, rtpPath: rtpInput.value || undefined, noRtp: rtpMode === 'none' || undefined } } });
                     worker.on('message', msg => {
                         if (msg.type === 'log') log(msg.message, msg.level);
                         else if (msg.type === 'progress') setProgress(msg.fraction, msg.status);
@@ -339,6 +466,7 @@
                 }
             };
             const handleKeyDown = event => {
+                if (event.key === 'Escape' && window.RRContextMenu && window.RRContextMenu.isOpen()) return;   // the menu closes first
                 if (event.key === 'Escape') { event.preventDefault(); finish(null); }
                 else if (event.key === 'Enter' && event.target === nameInput) { event.preventDefault(); start(); }
             };

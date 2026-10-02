@@ -179,6 +179,29 @@
         try { return _processMoveCommand.call(this, command); } finally { this._directionFix = true; }
     };
 
+    // A player moved by a Set Move Route starts no touch events, neither stepping onto one nor walking into one;
+    // only the player's own steps do (EasyRPG's Game_Player::UpdateMovement and UpdateNextMovementAction, as
+    // RPG_RT). A Blurred Line walks its hero through a dialogue event in the opening cutscene, which in MZ cut in
+    // before the scene's own talk, with the screen still tinted.
+    // The route counts as over once its last step has begun (EasyRPG ends it as that step is taken; MZ a frame
+    // after), so the event a route walks the player onto still starts: A Blurred Line's route passes the dialogue
+    // event and ends on the one that opens the scene.
+    const routeHolds = (player) => {
+        if (!player.isMoveRouteForcing()) return false;
+        const route = player._moveRoute, next = route && route.list[player._moveRouteIndex];
+        return !!route && (route.repeat || (next && next.code !== 0));
+    };
+    const _checkHere = Game_Player.prototype.checkEventTriggerHere;
+    Game_Player.prototype.checkEventTriggerHere = function(triggers) {
+        if (legacyMotion() && routeHolds(this) && triggers.some(t => t === 1 || t === 2)) return;
+        _checkHere.call(this, triggers);
+    };
+    const _checkTouch = Game_Player.prototype.checkEventTriggerTouch;
+    Game_Player.prototype.checkEventTriggerTouch = function(x, y) {
+        if (legacyMotion() && routeHolds(this)) return;
+        _checkTouch.call(this, x, y);
+    };
+
     // A paused character (a route's Stop Animation) and, with rrLegacyMotion, a jumping one hold the middle
     // frame; a fixed-graphic page keeps its own (EasyRPG's Game_Character::UpdateAnimation / ResetAnimation).
     Game_CharacterBase.prototype.rrAnimPause = function(paused) {
