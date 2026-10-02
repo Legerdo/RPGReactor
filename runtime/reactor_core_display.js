@@ -3133,6 +3133,7 @@ Window.prototype._refreshBack = function() {
 };
 
 Window.prototype._refreshFrame = function() {
+    if (this._refreshRgssFrame()) return;
     const drect = { x: 0, y: 0, width: this._width, height: this._height };
     const srect = { x: 96, y: 0, width: 96, height: 96 };
     const m = 24;
@@ -3140,6 +3141,66 @@ Window.prototype._refreshFrame = function() {
         child.bitmap = this._windowskin;
     }
     this._setRectPartsGeometry(this._frameSprite, srect, drect, m);
+};
+
+/**
+ * RGSS frames (System.json rrRgssFrames: the skins an import kept the frame cell of, as <skin>_frame.png):
+ * the 16 px corners as they are and the edges repeated along the sides every 32 px, where MZ's frame
+ * stretches them (a skin with ornaments along its edges smears into streaks). True when it drew one.
+ */
+Window.prototype._refreshRgssFrame = function() {
+    const sprite = this._frameSprite;
+    const names = typeof $dataSystem !== "undefined" && $dataSystem && $dataSystem.rrRgssFrames;
+    const skin = this._windowskin;
+    const name = names && skin && skin._url ? (/img\/system\/([^/?#]+)\.png$/i.exec(decodeURIComponent(skin._url)) || [])[1] : null;
+    const cell = name && names.includes(name) ? ImageManager.loadSystem(name + "_frame") : null;
+    if (cell && !cell.isReady() && this._rrFrameCellWait !== cell) {
+        this._rrFrameCellWait = cell;
+        cell.addLoadListener(() => this._refreshFrame());
+    }
+    const w = this._width, h = this._height;
+    if (!cell || !cell.isReady() || w < 32 || h < 32) {
+        if (this._rrFrameBitmap) {
+            this._rrFrameSprite.bitmap = null;
+            this._rrFrameSprite.visible = false;
+            this._rrFrameBitmap.destroy();
+            this._rrFrameBitmap = null;
+        }
+        return false;
+    }
+    let frame = this._rrFrameBitmap;
+    if (!frame || frame.width !== w || frame.height !== h) {
+        if (frame) frame.destroy();
+        frame = this._rrFrameBitmap = new Bitmap(w, h);
+    } else {
+        frame.clear();
+    }
+    for (let x = 16; x < w - 16; x += 32) {
+        const cw = Math.min(32, w - 16 - x);
+        frame.blt(cell, 16, 0, cw, 16, x, 0);
+        frame.blt(cell, 16, 48, cw, 16, x, h - 16);
+    }
+    for (let y = 16; y < h - 16; y += 32) {
+        const ch = Math.min(32, h - 16 - y);
+        frame.blt(cell, 0, 16, 16, ch, 0, y);
+        frame.blt(cell, 48, 16, 16, ch, w - 16, y);
+    }
+    frame.blt(cell, 0, 0, 16, 16, 0, 0);
+    frame.blt(cell, 48, 0, 16, 16, w - 16, 0);
+    frame.blt(cell, 0, 48, 16, 16, 0, h - 16);
+    frame.blt(cell, 48, 48, 16, 16, w - 16, h - 16);
+    // The RGSS frame is a sprite beside MZ's frame parts (which are hidden), drawn where they are.
+    if (!this._rrFrameSprite) {
+        this._rrFrameSprite = new Sprite();
+        const parent = sprite.parent || this._container;
+        parent.addChildAt(this._rrFrameSprite, parent.children.indexOf(sprite) + 1);
+    }
+    for (const child of sprite.children) child.visible = false;
+    this._rrFrameSprite.visible = true;
+    this._rrFrameSprite.bitmap = frame;
+    this._rrFrameSprite.setFrame(0, 0, w, h);
+    this._rrFrameSprite.move(0, 0);
+    return true;
 };
 
 // The cursor is clamped to the window's inner rect (MV behavior). Plugins
@@ -3286,6 +3347,7 @@ Window.prototype._updateClientArea = function() {
 
 Window.prototype._updateFrame = function() {
     this._frameSprite.visible = this.frameVisible;
+    if (this._rrFrameSprite) this._rrFrameSprite.alpha = this.frameVisible ? 1 : 0;
 };
 
 Window.prototype._updateContentsBack = function() {
@@ -4111,9 +4173,11 @@ ColorFilter.prototype._fragmentSrc = function() {
         "  float b3 = blendColor.b / 255.0;" +
         "  float i3 = blendColor.a / 255.0;" +
         "  float i1 = 1.0 - i3;" +
-        "  r = clamp((r / a + r2) * a, 0.0, 1.0);" +
-        "  g = clamp((g / a + g2) * a, 0.0, 1.0);" +
-        "  b = clamp((b / a + b2) * a, 0.0, 1.0);" +
+        // The tone is added to the straight colour and clamped there, then premultiplied again: clamping after
+        // the multiply let a toned, translucent pixel exceed its alpha and draw brighter than white.
+        "  r = a > 0.0 ? clamp(r / a + r2, 0.0, 1.0) * a : 0.0;" +
+        "  g = a > 0.0 ? clamp(g / a + g2, 0.0, 1.0) * a : 0.0;" +
+        "  b = a > 0.0 ? clamp(b / a + b2, 0.0, 1.0) * a : 0.0;" +
         "  r = clamp(r * i1 + r3 * i3 * a, 0.0, 1.0);" +
         "  g = clamp(g * i1 + g3 * i3 * a, 0.0, 1.0);" +
         "  b = clamp(b * i1 + b3 * i3 * a, 0.0, 1.0);" +

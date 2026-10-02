@@ -55,6 +55,8 @@ function open(folder, destination, options) {
     });
     const mainAt = scripts.findIndex(s => s.name.trim() === 'Main');
     const active = mainAt >= 0 ? scripts.slice(0, mainAt) : scripts;
+    // Settings the game makes before its first scene (screen size, default font) can be in Main itself.
+    const settingsScripts = (mainAt >= 0 ? scripts.slice(0, mainAt + 1) : scripts).map(s => s.text);
     const custom = active.filter(s => s.text.trim() && !STOCK_SCRIPTS.has(s.name.trim()));
     const mapIds = (infos instanceof Map ? Array.from(infos.keys()) : Object.keys(infos)).map(Number).filter(n => n > 0).sort((a, b) => a - b);
     const ini = gameIni(src);
@@ -198,9 +200,9 @@ function open(folder, destination, options) {
         // Every XP character sheet is one character, four frames a row ($name[f4]).
         sys.rrMultiFrames = true;
         sys.rrBalloonSize = 32;
-        const fontSettings = C.fontDefaults(active.map(s => s.text), constants);
+        const fontSettings = C.fontDefaults(settingsScripts, constants);
         if (typeof fontSettings.size === 'number') sys.advanced.fontSize = fontSettings.size;
-        const screen = C.screenSize(active.map(s => s.text), constants);
+        const screen = C.screenSize(settingsScripts, constants);
         if (screen) Object.assign(sys.advanced, { screenWidth: screen[0], screenHeight: screen[1], uiAreaWidth: screen[0], uiAreaHeight: screen[1] });
         if (system.windowskin_name) sys.rrWindowskin = String(system.windowskin_name);
         // XP's own message codes take one number; lists belong to the game's message script, which is not here.
@@ -215,6 +217,10 @@ function open(folder, destination, options) {
         sys.rrChoicesInMessage = true;   // choices are listed inside the message window, after the text
         sys.rrNoItemBackgrounds = true;   // the old engines draw no bar behind each item of a list, only the cursor
         Object.assign(sys, { rrRgssWindows: true, rrMapNameStays: true, rrTouchUiOff: true, rrRgssKeys: true });   // rows one line tall, the map name through messages, no touch buttons, A/S/D as the X/Y/Z buttons
+        // RGSS shows its screen 1:1 and zooms sprites without smoothing: open at a whole-number scale and enlarge
+        // with hard pixel edges, so text and window frames stay sharp.
+        sys.advanced.screenScale = C.windowScale(sys.advanced.screenWidth, sys.advanced.screenHeight);
+        sys.advanced.pixelatedRendering = true;
         writeJson(path.join(dest, 'data', 'System.json'), sys);
 
         // ---- maps --------------------------------------------------------------
@@ -236,6 +242,8 @@ function open(folder, destination, options) {
 
         // ---- graphics, audio ---------------------------------------------------
         log('Copying graphics and audio…', 'stage');
+        // The engine asks for name + ".png" / ".ogg"; an upper-case extension (wait1.PNG) is written lower-case.
+        const lowerExt = (f) => f.replace(/\.[A-Za-z0-9]+$/, (e) => e.toLowerCase());
         const plan = [];
         for (const folderName of src.folders('Graphics')) {
             const lower = folderName.toLowerCase();
@@ -243,10 +251,10 @@ function open(folder, destination, options) {
             const key = Object.keys(GRAPHICS).find(k => k.toLowerCase() === lower);
             const target = key ? GRAPHICS[key] : 'img/' + folderName;
             if (!key) add(notes, 'scriptGraphicsFolder');
-            for (const f of graphicFiles(folderName)) plan.push(['Graphics/' + folderName + '/' + f, path.join(target, f), folderName]);
+            for (const f of graphicFiles(folderName)) plan.push(['Graphics/' + folderName + '/' + f, path.join(target, lowerExt(f)), folderName]);
         }
         for (const f of graphicFiles('Characters')) plan.push(['Graphics/Characters/' + f, path.join('img/characters', path.dirname(f), X.characterName(path.basename(f).replace(/\.png$/i, '')) + '.png'), 'Characters']);
-        for (const [folderName, target] of Object.entries(R.AUDIO)) for (const f of src.files('Audio/' + folderName)) plan.push(['Audio/' + folderName + '/' + f, path.join(target, f), folderName]);
+        for (const [folderName, target] of Object.entries(R.AUDIO)) for (const f of src.files('Audio/' + folderName)) plan.push(['Audio/' + folderName + '/' + f, path.join(target, lowerExt(f)), folderName]);
         const assetProgress = span(0.45, 0.95);
         for (const [index, [from, to, bucket]] of plan.entries()) {
             if (index % 10 === 0) { assetProgress(index, plan.length, `${bucket}: ${path.basename(from)}`); await breathe(); }
@@ -312,7 +320,7 @@ function open(folder, destination, options) {
         pkg.name = 'rr-' + title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         pkg.version = editorPackage.version;
         const [sw, sh] = [sys.advanced.screenWidth, sys.advanced.screenHeight];
-        const [ww, wh] = [Math.round(sw * 1.5), Math.round(sh * 1.5)];
+        const [ww, wh] = [sw * sys.advanced.screenScale, sh * sys.advanced.screenScale];
         pkg.window = Object.assign({}, pkg.window, { title, width: ww, height: wh, min_width: sw, min_height: sh });
         pkg['chromium-args'] = `--force-color-profile=srgb --window-size=${ww},${wh}`;
         writeJson(path.join(dest, 'package.json'), pkg);

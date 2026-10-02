@@ -1,7 +1,8 @@
 //=============================================================================
-// reactor_objects_legacy.js v1.7.0
+// reactor_objects_legacy.js v1.8.0
 //=============================================================================
-// Event commands of RPG Maker 2000/2003 that MZ lacks, and [fN] character sheets.
+// Event commands of RPG Maker 2000/2003 that MZ lacks, [fN] character sheets,
+// and Script commands that wait inside a loop.
 // Part of reactor_objects.js; loads after reactor_objects_interpreter.js.
 
 //-----------------------------------------------------------------------------
@@ -377,6 +378,41 @@
         };
     }
 })();
+
+//-----------------------------------------------------------------------------
+// A Script command that waits inside a loop (an RGSS `while … wait(30) end`)
+// runs as a generator: each `yield n` waits n frames, and the event's next
+// command runs once the generator finishes. A save made meanwhile keeps the
+// event at that command; the rest of the script is dropped on load.
+//-----------------------------------------------------------------------------
+
+Game_Interpreter.prototype.rrRunScript = function(generator) {
+    Object.defineProperty(this, "_rrScript", { value: generator, writable: true, configurable: true, enumerable: false });
+    this.rrStepScript();
+};
+
+Game_Interpreter.prototype.rrStepScript = function() {
+    const step = this._rrScript.next();
+    if (step.done) {
+        this._rrScript = null;
+        return false;
+    }
+    this.wait(Math.max(1, Number(step.value) || 1));
+    return true;
+};
+
+const _rrScriptUpdateWait = Game_Interpreter.prototype.updateWait;
+Game_Interpreter.prototype.updateWait = function() {
+    if (_rrScriptUpdateWait.call(this)) return true;
+    // The frame a wait starts on is its first, as with the Wait command.
+    return this._rrScript && this.rrStepScript() ? _rrScriptUpdateWait.call(this) : false;
+};
+
+const _rrScriptClear = Game_Interpreter.prototype.clear;
+Game_Interpreter.prototype.clear = function() {
+    _rrScriptClear.call(this);
+    if (this._rrScript) this._rrScript = null;
+};
 
 //-----------------------------------------------------------------------------
 // [fN] character sheets (see reactor_sprites.js): N frames, looping, resting on 0.

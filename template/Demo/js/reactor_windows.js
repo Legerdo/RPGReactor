@@ -7733,6 +7733,22 @@ Window_NameBox.prototype.updateBackground = function() {
     };
 })();
 
+// VX and VX Ace windows (System.json rrRgssWindows) open and close 48 openness a frame (Window_Base#update_open),
+// MZ's 32.
+(function() {
+    const rgss = () => !!($dataSystem && $dataSystem.rrRgssWindows);
+    const _updateOpen = Window_Base.prototype.updateOpen;
+    Window_Base.prototype.updateOpen = function() {
+        if (rgss() && this._opening) this.openness += 16;
+        _updateOpen.call(this);
+    };
+    const _updateClose = Window_Base.prototype.updateClose;
+    Window_Base.prototype.updateClose = function() {
+        if (rgss() && this._closing) this.openness -= 16;
+        _updateClose.call(this);
+    };
+})();
+
 // XP, VX and VX Ace keys (System.json rrRgssKeys): a message waits for a fresh
 // press of OK or Cancel; holding one does not page through the text.
 (function() {

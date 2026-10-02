@@ -896,8 +896,10 @@ function probe(folder) {
     // In the code page the game's editor wrote it in (a Japanese title is Shift_JIS).
     const ini = (() => { try { return require('./RgssImporter.js').iniText(fs.readFileSync(path.join(folder, lower.get('game.ini')))); } catch (_) { return ''; } })();
     const library = iniValue(ini, 'Library').toLowerCase();
+    // A game keeping its text in Local/<Language>.csv files offers those languages.
+    const keyedLanguages = () => { try { return require('./KeyedLocalization.js').languages((dir) => require('./RgssImporter.js').source(folder).files(dir)); } catch (_) { return []; } };
     const rgss = (kind, engine, project, archive, data2, lib) => (ext(project) || has(archive) || data.some(n => n.endsWith(data2)) || library.startsWith(lib))
-        ? Object.assign({}, none, { kind, engine, title: iniValue(ini, 'Title') || path.basename(folder), packed: has(archive), maps: data.filter(n => /^map\d+\./.test(n) && n.endsWith(data2)).length }) : null;
+        ? Object.assign({}, none, { kind, engine, title: iniValue(ini, 'Title') || path.basename(folder), packed: has(archive), maps: data.filter(n => /^map\d+\./.test(n) && n.endsWith(data2)).length, languages: has('Local') ? keyedLanguages() : [] }) : null;
     return rgss('ace', 'RPG Maker VX Ace', '.rvproj2', 'Game.rgss3a', '.rvdata2', 'rgss3')
         || rgss('vx', 'RPG Maker VX', '.rvproj', 'Game.rgss2a', '.rvdata', 'rgss2')
         || rgss('xp', 'RPG Maker XP', '.rxproj', 'Game.rgssad', '.rxdata', 'rgss1')

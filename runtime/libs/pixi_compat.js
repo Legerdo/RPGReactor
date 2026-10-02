@@ -1395,13 +1395,19 @@
             setter.__rrNumeric = true;
             Object.defineProperty(PIXI.Container.prototype, "blendMode", { get: containerDescriptor.get, set: setter, configurable: true });
         }
-        // filter.blendMode = 32  (v8 filters hold a plain field, set after construction)
-        if (PIXI.Filter && PIXI.Filter.prototype && !Object.getOwnPropertyDescriptor(PIXI.Filter.prototype, "blendMode")) {
+        // filter.blendMode = 32: early v8 filters hold a plain field; later ones (8.20) an accessor of their own,
+        // whose setter takes names only, so a number is translated before it.
+        const filterDescriptor = PIXI.Filter && PIXI.Filter.prototype && Object.getOwnPropertyDescriptor(PIXI.Filter.prototype, "blendMode");
+        if (PIXI.Filter && PIXI.Filter.prototype && !filterDescriptor) {
             Object.defineProperty(PIXI.Filter.prototype, "blendMode", {
                 get: function() { return this.__rrBlendMode === undefined ? "normal" : this.__rrBlendMode; },
                 set: function(value) { this.__rrBlendMode = translate(value); },
                 configurable: true
             });
+        } else if (filterDescriptor && filterDescriptor.set && !filterDescriptor.set.__rrNumeric) {
+            const setter = function(value) { return filterDescriptor.set.call(this, translate(value)); };
+            setter.__rrNumeric = true;
+            Object.defineProperty(PIXI.Filter.prototype, "blendMode", { get: filterDescriptor.get, set: setter, configurable: true });
         }
     })();
 
@@ -3042,6 +3048,9 @@
             if (typeof cls !== "function" || !cls.prototype) continue;
             if (seen.has(cls)) continue;
             seen.add(cls);
+            // An ES6 class (a plugin's `class X extends Sprite`) builds itself through super(), which already
+            // reaches the wrapped MZ base; wrapping it would call it without `new`, which a class cannot take.
+            try { if (/^class\b/.test(Function.prototype.toString.call(cls))) continue; } catch (e) {}
             const pixiBase = findPixiAncestor(cls);
             if (!pixiBase) continue;
             try {
