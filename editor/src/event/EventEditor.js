@@ -389,6 +389,7 @@ class EventEditor {
 
         header.appendChild(topRow);
         header.appendChild(noteRow);
+        header.appendChild(this.createUnitRow(event));
 
         // Add event listener for name changes
         setTimeout(() => {
@@ -408,6 +409,57 @@ class EventEditor {
         }, 0);
 
         return header;
+    }
+
+    /**
+     * The event as a unit of battles on the map (runtime/reactor_fight.js):
+     * its side, the Database record it fights as, and how far it walks a turn.
+     * Stored as `event.rrUnit`; None removes it.
+     */
+    createUnitRow(event) {
+        const tt = text => (typeof window !== 'undefined' && window.I18n ? window.I18n.tText(text) : text);
+        const unit = event.rrUnit || null;
+        const row = document.createElement('div');
+        row.className = 'event-unit-row';
+        row.title = tt('Fights in battles on the map.');
+        const option = (value, label, current) => `<option value="${value}"${String(value) === String(current) ? ' selected' : ''}>${rrEscapeHtml(label)}</option>`;
+        row.innerHTML = `
+            <label class="event-unit-label">${rrEscapeHtml(tt('Battle unit'))}</label>
+            <select class="event-unit-team">${[['', 'None'], ['enemy', 'Enemy'], ['ally', 'Ally'], ['neutral', 'Neutral']].map(([v, l]) => option(v, tt(l), unit ? unit.team : '')).join('')}</select>
+            <span class="event-unit-more">
+                <select class="event-unit-record">${[['enemy', 'Enemy'], ['actor', 'Actor']].map(([v, l]) => option(v, tt(l), unit && unit.record === 'actor' ? 'actor' : 'enemy')).join('')}</select>
+                <select class="event-unit-id"></select>
+                <label>${rrEscapeHtml(tt('Move range'))}</label>
+                <input type="number" class="event-unit-move" min="1" max="20" step="1" value="${unit && unit.move ? unit.move : 4}">
+            </span>`;
+        const team = row.querySelector('.event-unit-team'), record = row.querySelector('.event-unit-record');
+        const id = row.querySelector('.event-unit-id'), move = row.querySelector('.event-unit-move'), more = row.querySelector('.event-unit-more');
+        const fillIds = () => {
+            const list = (record.value === 'actor' ? this.databaseManager.getActors() : this.databaseManager.getEnemies()) || [];
+            const current = unit && unit.record === record.value ? unit.id : (list.find(entry => entry && entry.id > 0) || {}).id;
+            id.innerHTML = list.filter(entry => entry && entry.id > 0)
+                .map(entry => option(entry.id, String(entry.id).padStart(4, '0') + ': ' + (entry.name || ''), current)).join('');
+        };
+        const write = () => {
+            if (!team.value) {
+                delete event.rrUnit;
+            } else {
+                const next = { team: team.value, record: record.value, id: Math.floor(Number(id.value) || 0), move: Math.max(1, Math.min(20, Math.floor(Number(move.value) || 4))) };
+                if (next.team === 'neutral' && !next.id) delete next.record;
+                event.rrUnit = next;
+            }
+            more.style.display = team.value ? '' : 'none';
+        };
+        fillIds();
+        more.style.display = team.value ? '' : 'none';
+        team.addEventListener('change', () => {
+            if (team.value === 'ally' && !unit) { record.value = 'actor'; fillIds(); }
+            write();
+        });
+        record.addEventListener('change', () => { fillIds(); write(); });
+        id.addEventListener('change', write);
+        move.addEventListener('change', write);
+        return row;
     }
 
     /**

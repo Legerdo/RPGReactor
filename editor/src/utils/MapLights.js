@@ -149,6 +149,8 @@
         // Written only when set, as the runtime's schema reads them: an attached cone that keeps a bearing,
         // and whether the source is drawn as a glowing body (the runtime's default depends on attach).
         if (raw.followFacing === false) light.followFacing = false;
+        // A sun that keeps its authored light whatever the map's time of day.
+        if (raw.daylight === 'fixed') light.daylight = 'fixed';
         if (raw.body !== undefined) light.body = !!raw.body;
         if (raw.compoundId && ID_PATTERN.test(String(raw.compoundId))) {
             light.compoundId = String(raw.compoundId);

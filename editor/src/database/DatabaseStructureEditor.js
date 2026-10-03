@@ -171,7 +171,7 @@ class DatabaseStructureEditor {
         if (palette?.materials) return palette.materials().map(entry => entry.name);
         const node = this._node(), root = this.projectPath();
         if (!node || !root || typeof RRAssetFiles === 'undefined') return [];
-        try { return RRAssetFiles.listImages(node.path.join(root, 'img', 'materials')).map(record => record.imageReference || record.name); } catch (error) { return []; }
+        try { return RRAssetFiles.listMaterials(node.path.join(root, 'img', 'materials')).map(record => record.imageReference || record.name); } catch (error) { return []; }
     }
 
     materialUrl(name) {
@@ -207,6 +207,9 @@ class DatabaseStructureEditor {
                 if (anchored) out.push(int(door[3], 0, 0, this.SIZE_MAX));
                 // A front door may say which side of the room it is on.
                 if (anchored && ['north', 'south', 'east', 'west'].includes(door[4])) out.push(door[4]);
+                // The door that hangs there: its own settings (an object), or false for an open doorway.
+                const own = door[door.length - 1];
+                if (door.length > 3 && (own === false || (own && typeof own === 'object' && !Array.isArray(own)))) out.push(own === false ? false : JSON.parse(JSON.stringify(own)));
                 return out;
             }),
             windows: (floor?.windows || []).filter(Array.isArray).map(cell => [int(cell[0], 0, 0, this.SIZE_MAX), int(cell[1], 0, 0, this.SIZE_MAX)]),
@@ -220,8 +223,17 @@ class DatabaseStructureEditor {
         }));
         // A roof of so many rows, or none at all (`pitch: null`): a bridge, a hangar, a flat-topped tower.
         plan.roof = Object.assign({ pitch: plan.roof && plan.roof.pitch === null ? null : int(plan.roof?.pitch, 2, 0, 20) },
-            plan.roof && (plan.roof.style === 'flat' || plan.roof.style === 'gable') ? { style: plan.roof.style } : {});
-        plan.windows = { every: int(plan.windows?.every, 6, 0, 60), width: int(plan.windows?.width, 2, 1, 8) };
+            plan.roof && (plan.roof.style === 'flat' || plan.roof.style === 'gable') ? { style: plan.roof.style } : {},
+            plan.roof && Number.isFinite(Number(plan.roof.overhang)) ? { overhang: Math.max(0, Math.min(1, Number(plan.roof.overhang))) } : {});
+        // The window rhythm, and how the windows look: their frame, shutters and flower boxes (StructurePlan reads them).
+        const look = plan.windows && typeof plan.windows === 'object' ? plan.windows : {};
+        plan.windows = Object.assign({ every: int(look.every, 6, 0, 60), width: int(look.width, 2, 1, 8) },
+            look.frame === false || typeof look.frame === 'string' || (look.frame && typeof look.frame === 'object') ? { frame: JSON.parse(JSON.stringify(look.frame)) } : {},
+            look.shutters === true || /^#[0-9a-f]{6}$/i.test(String(look.shutters)) ? { shutters: look.shutters } : {},
+            look.closed === true ? { closed: true } : {},
+            look.flowerBox === true || look.flowerBox === 'all' ? { flowerBox: look.flowerBox } : {});
+        // Every door's settings (`door`), or none hung at all (`doors: false`).
+        if (plan.door !== undefined && !(plan.door && typeof plan.door === 'object' && !Array.isArray(plan.door))) delete plan.door;
         plan.spots = Object.fromEntries(Object.entries(plan.spots || {}).map(([name, cell]) => [name, [int(cell?.[0], 0, 0, this.SIZE_MAX), int(cell?.[1], 0, 0, this.SIZE_MAX)]]));
         plan.effects = (Array.isArray(plan.effects) ? plan.effects : []).filter(fx => fx && this.EFFECT_KINDS.includes(fx.type)).map(fx => {
             const own = this.EFFECT_DEFAULTS[fx.type];
@@ -267,6 +279,11 @@ class DatabaseStructureEditor {
         }).filter(Boolean);
         plan.lights = (Array.isArray(plan.lights) ? plan.lights : []).filter(row => row && typeof row === 'object').map(row => Object.assign({}, row));
         plan.surfaces = (Array.isArray(plan.surfaces) ? plan.surfaces : []).filter(row => row && typeof row === 'object').map(row => Object.assign({}, row));
+        // A saved selection's placed models (plot cells) and the water standing in it (its level above the pad).
+        plan.props = (Array.isArray(plan.props) ? plan.props : []).filter(row => row && typeof row === 'object' && row.name).map(row => { const out = Object.assign({}, row); delete out.id; delete out.structure; return out; });
+        plan.water = (Array.isArray(plan.water) ? plan.water : []).filter(row => row && typeof row === 'object').map(row => { const out = JSON.parse(JSON.stringify(row)); delete out.structure; return out; });
+        plan.description = typeof plan.description === 'string' ? plan.description : '';
+        plan.category = typeof plan.category === 'string' ? plan.category : '';
         // A described building is as tall as its floors; a built one as its highest storey with walls,
         // doors, windows or stairs (what stands above that, a roof, sits on top).
         if (plan.floors.length && !plan.pieces.length) plan.height = Math.min(24, plan.floors.length);
@@ -296,8 +313,10 @@ class DatabaseStructureEditor {
             return f;
         });
         if (plan.stairs.length || had.has('stairs')) fields.stairs = plan.stairs.map(stair => ({ floor: stair.floor, from: stair.from.slice(), dir: stair.dir, width: stair.width }));
-        if (plan.floors.length || had.has('roof')) fields.roof = Object.assign({ pitch: plan.roof.pitch }, plan.roof.style ? { style: plan.roof.style } : {});
-        if (plan.floors.length || had.has('windows')) fields.windows = { every: plan.windows.every, width: plan.windows.width };
+        if (plan.floors.length || had.has('roof')) fields.roof = Object.assign({ pitch: plan.roof.pitch }, plan.roof.style ? { style: plan.roof.style } : {}, Number.isFinite(plan.roof.overhang) ? { overhang: plan.roof.overhang } : {});
+        if (plan.floors.length || had.has('windows')) fields.windows = Object.assign({}, plan.windows);
+        if (plan.door) fields.door = JSON.parse(JSON.stringify(plan.door));
+        if (plan.doors === false) fields.doors = false;
         if (Object.keys(plan.spots).length || had.has('spots')) fields.spots = Object.fromEntries(Object.entries(plan.spots).map(([name, cell]) => [name, cell.slice()]));
         if (plan.events.length || had.has('events')) fields.events = plan.events.map(event => ({ ...event }));
         if (plan.effects.length || had.has('effects')) fields.effects = plan.effects.map(fx => {
@@ -336,6 +355,10 @@ class DatabaseStructureEditor {
         if (plan.pieces.length || had.has('pieces')) { fields.height = plan.height; fields.pieces = plan.pieces.map(piece => { const out = Object.assign({}, piece); if (!out.material) delete out.material; if (!out.rot) delete out.rot; if (!out.z) delete out.z; return out; }); }
         if (plan.lights.length || had.has('lights')) fields.lights = plan.lights.map(row => Object.assign({}, row));
         if (plan.surfaces.length || had.has('surfaces')) fields.surfaces = plan.surfaces.map(row => Object.assign({}, row));
+        if ((plan.props || []).length || had.has('props')) fields.props = (plan.props || []).map(row => Object.assign({}, row));
+        if ((plan.water || []).length || had.has('water')) fields.water = (plan.water || []).map(row => JSON.parse(JSON.stringify(row)));
+        if (plan.description) fields.description = plan.description;
+        if (plan.category) fields.category = plan.category;
         // The file's own order first, then anything new at the end.
         const out = {};
         for (const key of plan._had || []) if (key in fields) out[key] = fields[key];
@@ -350,7 +373,8 @@ class DatabaseStructureEditor {
             if (Number.isFinite(Number(x))) w = Math.max(w, Math.floor(Number(x)) + 1);
             if (Number.isFinite(Number(y))) d = Math.max(d, Math.floor(Number(y)) + 1);
         };
-        for (const row of [].concat(plan.pieces || [], plan.lights || [], plan.surfaces || [])) if (row) cover(row.x, row.y);
+        for (const row of [].concat(plan.pieces || [], plan.lights || [], plan.surfaces || [], plan.props || [])) if (row) cover(row.x, row.y);
+        for (const sheet of plan.water || []) if (sheet) cover(sheet.x1, sheet.y1);
         for (const row of [].concat(plan.shapes || [], plan.effects || [])) if (row && Array.isArray(row.at)) cover(row.at[0], row.at[1]);
         for (const cell of Object.values(plan.spots || {})) if (Array.isArray(cell)) cover(cell[0], cell[1]);
         // A described building: its rooms (corner to corner), windows and stairs.

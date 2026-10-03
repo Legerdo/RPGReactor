@@ -15,14 +15,21 @@ function fakeRenderer() {
     return {
         extensions: { has: name => name === 'KHR_parallel_shader_compile' },
         properties: { get: t => props.get(t) || (props.set(t, {}), props.get(t)) },
-        compileAsync(mesh) {
+        compileAsync() { throw new Error('the warmup waits through compile() and its own guarded poll'); },
+        compile(mesh) {
             compiles.push(mesh);
-            for (const m of [].concat(mesh.material)) this.properties.get(m).currentProgram = {};
-            return new Promise(res => waiting.push(res));
+            const started = new Set();
+            for (const m of [].concat(mesh.material)) {
+                const program = { ready: false, isReady() { return this.ready; } };
+                this.properties.get(m).currentProgram = program;
+                waiting.push(program);
+                started.add(m);
+            }
+            return started;
         },
         initTexture(t) { const p = this.properties.get(t); p.__webglInit = true; p.__version = t.version; this.uploads = (this.uploads || 0) + 1; },
         draw(mesh) { for (const m of [].concat(mesh.material)) this.properties.get(m).__version = m.version; },
-        finishCompiles() { while (waiting.length) waiting.shift()(); }, compiles
+        finishCompiles() { while (waiting.length) waiting.shift().ready = true; }, compiles
     };
 }
 const tick = () => new Promise(res => setTimeout(res, 0));
@@ -77,4 +84,15 @@ test('without parallel compile nothing is held; a compile never answered is draw
     W.enabled = false;
     try { const other = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()); scene.add(other); assert.equal(W.hide(r, scene, {}), null, 'the kill switch'); }
     finally { W.enabled = true; }
+});
+
+test('a material disposed while it compiles ends the wait instead of throwing from a timer', async () => {
+    const scene = new THREE.Scene(), mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    scene.add(mesh);
+    const r = fakeRenderer();
+    W.hide(r, scene, {});
+    // A piece relay disposes the material: three forgets its program.
+    r.properties.get(mesh.material).currentProgram = undefined;
+    await tick(); await tick();
+    assert.equal(W.hide(r, scene, {}), null, 'nothing left to wait for: drawn');
 });

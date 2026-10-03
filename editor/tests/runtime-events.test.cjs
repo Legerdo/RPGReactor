@@ -52,6 +52,12 @@ const EXPECTED_EMITS = {
     battlerRevived: 1,
     stateAdded: 1,
     stateRemoved: 1,
+    doorOpened: 1,
+    doorClosed: 1,
+    mapBattleStart: 1,
+    mapBattleTurnStart: 1,
+    unitDefeated: 1,
+    mapBattleEnd: 1,
 };
 
 // --- runtime harness ------------------------------------------------------

@@ -221,10 +221,66 @@ class EventPageEditor {
             </div>
         `;
 
+        section.appendChild(this.createFightHookRow(page));
+
         // Add event listeners
         this.attachConditionListeners(section);
 
         return section;
+    }
+
+    /**
+     * Battle hook: the page runs when its moment in a battle on the map comes
+     * (runtime/reactor_fight.js), on top of the conditions above. Stored as
+     * `page.rrFightHook`.
+     */
+    createFightHookRow(page) {
+        const tt = text => this._tt(text);
+        const hook = page.rrFightHook || null;
+        const on = hook ? hook.on : '';
+        const row = document.createElement('div');
+        row.className = 'event-fight-hook';
+        row.title = tt('Runs when its battle moment comes; it is never the page the event shows.');
+        const choices = [['', 'None'], ['battleStart', 'Battle starts'], ['turnStart', 'Turn starts'], ['turnEnd', 'Turn ends'],
+            ['unitDefeated', 'Unit defeated'], ['unitEnters', 'Unit enters area']];
+        const option = (value, label, current) => `<option value="${value}"${String(value) === String(current) ? ' selected' : ''}>${rrEscapeHtml(tt(label))}</option>`;
+        row.innerHTML = `
+            <label class="event-fight-hook-label">${rrEscapeHtml(tt('Battle hook'))}</label>
+            <select class="event-fight-hook-on">${choices.map(([v, l]) => option(v, l, on)).join('')}</select>
+            <span class="event-fight-hook-more"></span>`;
+        const more = row.querySelector('.event-fight-hook-more');
+        const select = row.querySelector('.event-fight-hook-on');
+        const team = current => `<select class="event-fight-hook-team">${[['any', 'Any side'], ['ally', 'Allies'], ['enemy', 'Enemies']].map(([v, l]) => option(v, l, current)).join('')}</select>`;
+        const fill = () => {
+            const h = page.rrFightHook || {};
+            if (h.on === 'turnStart' || h.on === 'turnEnd') {
+                more.innerHTML = `<input type="number" class="event-fight-hook-turn" min="0" max="999" step="1" value="${Number(h.turn) || 0}" title="${rrEscapeHtml(tt('Turn (0 = every turn)'))}">${team(h.team || 'any')}`;
+            } else if (h.on === 'unitDefeated') {
+                more.innerHTML = `<select class="event-fight-hook-unit">${[['any', 'Any unit'], ['ally', 'An ally'], ['enemy', 'An enemy'], ['this', 'This event']].map(([v, l]) => option(v, l, h.unit || 'any')).join('')}</select>`;
+            } else if (h.on === 'unitEnters') {
+                more.innerHTML = `<label>${rrEscapeHtml(tt('Region'))}</label><input type="number" class="event-fight-hook-region" min="1" max="255" step="1" value="${Number(h.region) || 1}">${team(h.team || 'any')}`;
+            } else {
+                more.innerHTML = '';
+            }
+            const write = () => {
+                const next = { on: select.value };
+                const turn = more.querySelector('.event-fight-hook-turn'), side = more.querySelector('.event-fight-hook-team');
+                const unit = more.querySelector('.event-fight-hook-unit'), region = more.querySelector('.event-fight-hook-region');
+                if (turn) next.turn = Math.max(0, Math.floor(Number(turn.value) || 0));
+                if (side) next.team = side.value;
+                if (unit) next.unit = unit.value;
+                if (region) next.region = Math.max(1, Math.floor(Number(region.value) || 1));
+                page.rrFightHook = next;
+            };
+            more.querySelectorAll('input, select').forEach(control => control.addEventListener('change', write));
+        };
+        select.addEventListener('change', () => {
+            if (!select.value) delete page.rrFightHook;
+            else page.rrFightHook = { on: select.value };
+            fill();
+        });
+        fill();
+        return row;
     }
 
     /**

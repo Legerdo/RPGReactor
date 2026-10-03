@@ -1,10 +1,10 @@
 //=============================================================================
 // reactor_main.js — RPG Reactor runtime entry point
 // RPG Reactor runtime version: 0.98.9
-// RPG Reactor runtime revision: 20261002.4
+// RPG Reactor runtime revision: 20261002.10
 // The same stamp, reachable from the F12 console: which engine is this
 // window actually running? Type RPG_REACTOR_RUNTIME_REVISION to see.
-globalThis.RPG_REACTOR_RUNTIME_REVISION = "20261002.4";
+globalThis.RPG_REACTOR_RUNTIME_REVISION = "20261002.10";
 //=============================================================================
 
 const scriptUrls = [
@@ -28,6 +28,8 @@ const scriptUrls = [
     "js/reactor_3d_effects.js",
     "js/reactor_3d_world.js",
     "js/reactor_3d_speech.js",
+    "js/reactor_3d_foliage.js",
+    "js/reactor_3d_doors.js",
     "js/reactor_rig_motions.js",
     "js/reactor_battle_data.js",
     "js/reactor_battle_room.js",
@@ -51,6 +53,7 @@ const scriptUrls = [
     "js/reactor_mv_compat.js",
     "js/reactor_battle_presentation.js",
     "js/reactor_battle_events.js",
+    "js/reactor_fight.js",
     "js/reactor_plugins.js"
 ];
 const effekseerWasmUrl = "js/libs/effekseer.wasm";

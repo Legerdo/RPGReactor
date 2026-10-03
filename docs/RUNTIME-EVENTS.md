@@ -1,6 +1,6 @@
 # Runtime events: `ReactorEvents`
 
-The runtime emits synchronous notifications at fixed points of a battle. This
+The runtime emits synchronous notifications at fixed points of a battle, of a battle on the map, and when a door on a 3D map opens or shuts. This
 feed is intended for read-only observers, so a plugin that tracks combat can
 subscribe to it instead of wrapping prototype methods it never meant to change.
 
@@ -298,6 +298,63 @@ they emit.
 Does **not** fire for `clearStates()` (death, `recoverAll`, `escape`), nor for
 a direct `eraseState` — those bypass `removeState` by design in the engine, and
 the feed reports what the engine does rather than second-guessing it.
+
+### `doorOpened`
+
+Emitted in `reactor_3d_doors.js` when a door of a 3D map starts to open: for
+someone walking up to an automatic door, the OK button at an action door, or a
+script (`Reactor3D.Doors.open`).
+
+| Field | |
+|---|---|
+| `mapId` | `number` |
+| `id` | `number` — the door piece's id in the map's sidecar |
+| `tag` | `string` — the door's `tag`, or `""` |
+| `by` | `Game_Character` or `null` — who opened it; `null` for a script |
+
+### `doorClosed`
+
+Emitted when a door's leaves come to rest shut, with the same fields; `by` is
+whoever last opened it.
+
+### `mapBattleStart`
+
+Emitted in `reactor_fight.js` when a battle starts on the map (Tactical,
+Action or First Person), after every unit has had `onBattleStart`.
+
+| Field | |
+|---|---|
+| `serial` | `number` — this fight's number; `$gameFight.resultOf(serial)` gives its result once it ends |
+| `mode` | `string` — `"tactical"`, `"action"` or `"firstPerson"` |
+| `mapId` | `number` |
+
+### `mapBattleTurnStart`
+
+Emitted when an on-map battle's round begins.
+
+| Field | |
+|---|---|
+| `turn` | `number` — the round that is starting, from 1 |
+
+### `unitDefeated`
+
+Emitted when a unit of an on-map battle falls.
+
+| Field | |
+|---|---|
+| `unitId` | `number` — the unit's id in `$gameFight` |
+| `eventId` | `number` — its event, or `0` for a party member |
+| `team` | `string` — `"ally"` or `"enemy"` |
+| `battler` | `Game_Battler` — the engine's own instance |
+
+### `mapBattleEnd`
+
+Emitted when an on-map battle has ended and its rewards (or defeat) are done.
+
+| Field | |
+|---|---|
+| `serial` | `number` |
+| `result` | `0` victory, `1` escape, `2` defeat — as Battle Processing's branches |
 
 ## Migrating an observer
 

@@ -136,7 +136,7 @@ test('water is a volume: lit materials and the sky dim through it, per scene, an
     assert.match(lighting, /material && material\.__reactorWater\) \|\|/);
     assert.match(core, /if \(this\.useSceneWater\) this\.useSceneWater\(scene\);/);
     assert.match(core, /Reactor3D\.waterVolumeMaterial\(material\)/);
-    assert.match(world, /this\.noteWaterVolume\(\);/);
+    assert.match(world, /this\.noteWaterVolume\(focus\);/);
 });
 
 test('the terrain lets a swimmer into deep water and out onto a low bank only', () => {

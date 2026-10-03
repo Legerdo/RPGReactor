@@ -30,7 +30,7 @@
  * 5. This file is the core of the 3D runtime, not all of it. A concern that
  *    outgrows it lives in one reactor_3d_<concern>.js named in
  *    `Reactor3D.EXTENSIONS` (lighting and shadows, models, model effects, the world
- *    builder, speech), loaded right
+ *    builder, speech, foliage), loaded right
  *    after this file everywhere: scriptUrls in the game, the extension list in
  *    the editor, and the tail of this file in Node.
  */
@@ -64,7 +64,9 @@ Reactor3D.EXTENSIONS = [
     { file: "reactor_3d_models.js", namespace: "Models" },
     { file: "reactor_3d_effects.js", namespace: "Effects" },
     { file: "reactor_3d_world.js", namespace: "World" },
-    { file: "reactor_3d_speech.js", namespace: "Speech" }
+    { file: "reactor_3d_speech.js", namespace: "Speech" },
+    { file: "reactor_3d_foliage.js", namespace: "Foliage" },
+    { file: "reactor_3d_doors.js", namespace: "Doors" }
 ];
 
 /**
@@ -1316,6 +1318,30 @@ Reactor3D.ShaderWarmup = {
         }
         return ready;
     },
+    /**
+     * three's compileAsync, waiting on each program with a guard: a material
+     * disposed while it compiles (a piece relay) has no program left, and
+     * three's own poll threw on it from a timer ("reading 'isReady'").
+     */
+    compileGuarded(renderer, object, camera, scene) {
+        const materials = renderer.compile(object, camera, scene);
+        // The wait gives up with the warmup's own timeout, so a program that never reports ready is not polled forever.
+        const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+        const deadline = clock() + this.TIMEOUT_MS;
+        return new Promise(resolve => {
+            const check = () => {
+                if (clock() > deadline) { resolve(); return; }
+                try {
+                    materials.forEach(material => {
+                        const program = renderer.properties.get(material).currentProgram;
+                        if (!program || program.isReady()) materials.delete(material);
+                    });
+                } catch (error) { materials.clear(); }
+                if (!materials.size) resolve(); else setTimeout(check, 10);
+            };
+            setTimeout(check, 0);
+        });
+    },
     /** Whether a material may be drawn now; starts its compile when it has none. */
     // Programs started a frame at most: building each one's source is CPU
     // work too (a map's first frame spent 200 ms on it).
@@ -1336,7 +1362,7 @@ Reactor3D.ShaderWarmup = {
             const next = { started: state ? state.started : now, ready: false, version: material.version };
             this._materials.set(material, next);
             try {
-                renderer.compileAsync(mesh, camera, scene).then(() => { next.ready = true; }, () => { next.ready = true; });
+                this.compileGuarded(renderer, mesh, camera, scene).then(() => { next.ready = true; }, () => { next.ready = true; });
             } catch (error) { next.ready = true; }
             state = next;
         }
@@ -5742,6 +5768,38 @@ Reactor3D.clampRoomHeight = function(value) {
     return Math.max(this.ROOM_MIN_HEIGHT, Math.min(this.ROOM_MAX_HEIGHT, height));
 };
 
+// The floor on steep terrain: `cliff` is the material (img/materials) its slopes turn to,
+// "" for none and Rock when unset; `cliffSlope` the slope in degrees where it begins; `cliffTint`
+// (#rrggbb) colours it as a rock piece's tint does, so a cliff can match the rocks against it.
+Reactor3D.GROUND_CLIFF = "Rock";
+// Off: the floor on shaped ground is laid from above only, as before (a kill switch).
+Reactor3D.GROUND_SLOPE = true;
+Reactor3D.GROUND_CLIFF_SLOPE = 40;
+
+/** Whether img/materials holds `name` (plain or encrypted), by disk or a web build's file index; false when unknown. */
+Reactor3D.materialFileExists = function(name) {
+    if (!name || typeof Utils === "undefined") return false;
+    const files = ["img/materials/" + name + ".png", "img/materials/" + name + ".png_"];
+    try {
+        if (Utils.isNwjs && Utils.isNwjs() && typeof require === "function") {
+            const fs = require("fs"), path = require("path");
+            const base = path.dirname(process.mainModule.filename);
+            return files.some(file => fs.existsSync(path.join(base, file)) || !!Utils.correctFileCase(file));
+        }
+        if (Utils.loadWebFileIndex) Utils.loadWebFileIndex();
+        const index = Utils._webFileIndex;
+        return !!index && files.some(file => index.has(file.toLowerCase()));
+    } catch (error) {
+        return false;
+    }
+};
+
+Reactor3D.clampCliffSlope = function(value) {
+    const slope = Number(value);
+    if (value === null || value === "" || !Number.isFinite(slope)) return this.GROUND_CLIFF_SLOPE;
+    return Math.max(10, Math.min(80, Math.round(slope)));
+};
+
 /** The map's room, or null when no piece of one has an image. */
 Reactor3D.roomFor = function(mapData) {
     const sidecar = mapData && mapData.reactor3d;
@@ -5759,7 +5817,10 @@ Reactor3D.roomFor = function(mapData) {
         ceiling: name(room.ceiling),
         sky: name(room.sky),
         skyScrollX: scroll(room.skyScrollX),
-        skyScrollY: scroll(room.skyScrollY)
+        skyScrollY: scroll(room.skyScrollY),
+        cliff: typeof room.cliff === "string" ? room.cliff.trim() : this.GROUND_CLIFF,
+        cliffSlope: this.clampCliffSlope(room.cliffSlope),
+        cliffTint: typeof room.cliffTint === "string" && /^#[0-9a-f]{6}$/i.test(room.cliffTint) ? room.cliffTint.toLowerCase() : ""
     };
     return parsed.floor || parsed.walls || parsed.ceiling || parsed.sky ? parsed : null;
 };
@@ -5802,6 +5863,7 @@ Reactor3D.MapScene.prototype.addRoom = function(room, load, tileSize, width, hei
     if (!room || typeof load !== "function") return;
     // A rock's "ground" cap wears the floor too (see groundLoader).
     this._roomFloor = room.floor || ""; this._roomLoad = load;
+    this._roomCliff = { name: room.cliff, slope: room.cliffSlope, tint: room.cliffTint };
     if (!(width > 0) || !(height > 0)) return;
     const pieces = [
         ["floor", room.floor],
@@ -5907,6 +5969,14 @@ Reactor3D.MapScene.prototype.addRoomPiece = function(piece, bitmap, roomHeight, 
         // Lit like the ground, so a dark corner of the room is dark.
         material.__reactorShaded = true;
         Reactor3D.litMaterial(material);
+        // Bent through terrain, the floor is laid from the sides on slopes and turns to rock on cliffs.
+        if (piece === "floor" && this._terrainMap && Reactor3D.GROUND_SLOPE) {
+            const cliff = this._roomCliff && this._roomCliff.name;
+            Reactor3D.groundSlopeMaterial(material, imageWidth, imageHeight,
+                cliff ? this.materialTexture(cliff, this._cliffLoad) : null, this._roomCliff ? this._roomCliff.slope : Reactor3D.GROUND_CLIFF_SLOPE,
+                this._roomCliff ? this._roomCliff.tint : "",
+                cliff && this.materialDetail ? this.materialDetail(cliff, this._cliffLoad) : null);
+        }
         this._materials.push(material);
         const mesh = new THREE.Mesh(surface.geometry, material);
         // Behind the parallax grounds, which are behind the tiles.
@@ -5946,6 +6016,121 @@ Reactor3D.MapScene.prototype.groundPlane = function(width, height, y) {
     }
     return geometry;
 };
+
+/**
+ * The floor on shaped ground. Its image is laid from above, which stretches into streaks on a
+ * slope, so where the ground leans it is also laid from the sides (world position, `tilesW` x
+ * `tilesH` tiles to a repeat, as from above) and blended by facing; flat ground keeps the plain
+ * lookup. Past `slope` degrees, give or take a noisy edge, it turns to the `cliff` texture
+ * (triplanar at the rocks' scale) through a band of bare earth. The cliff waits for its image:
+ * a missing one leaves the floor as it was. Sampled with explicit gradients, so the branches
+ * that skip work on flat ground draw no seams.
+ */
+Reactor3D.groundSlopeMaterial = function(material, tilesW, tilesH, cliff, slope, tint, detail) {
+    if (!material || material.__reactorGroundSlope) return material;
+    const toRad = Math.PI / 180, degrees = Reactor3D.clampCliffSlope(slope);
+    material.__reactorGroundSlope = {
+        tiles: new THREE.Vector2(tilesW > 0 ? tilesW : 1, tilesH > 0 ? tilesH : 1),
+        // Steepness is 1 - n.y: rock starts at the slope and is whole 14 degrees on.
+        band: new THREE.Vector2(1 - Math.cos(degrees * toRad), 1 - Math.cos(Math.min(89, degrees + 14) * toRad)),
+        cliff: cliff || null,
+        // As a rock piece's tint: the colour's own numbers, multiplied in.
+        tint: typeof tint === "string" && /^#[0-9a-f]{6}$/i.test(tint)
+            ? new THREE.Vector3(...[1, 3, 5].map(i => parseInt(tint.slice(i, i + 2), 16) / 255))
+            : new THREE.Vector3(1, 1, 1),
+        // The cliff material's normal and roughness maps and its repeat, as its rock pieces wear them.
+        detail: detail || null
+    };
+    const earlier = material.onBeforeCompile;
+    material.onBeforeCompile = function(shader, renderer) {
+        if (typeof earlier === "function") earlier.call(this, shader, renderer);
+        const own = this.__reactorGroundSlope;
+        shader.uniforms.rrGroundTiles = { value: own.tiles };
+        shader.uniforms.rrCliffBand = { value: own.band };
+        shader.uniforms.rrCliffMap = { value: own.cliff };
+        shader.uniforms.rrCliffScale = own.detail ? own.detail.triScale : { value: 1 / Reactor3D.ROCK_UV };
+        const maps = !!(own.detail && own.detail.maps);
+        if (maps) {
+            shader.uniforms.rrCliffDetail = own.detail.map;
+            shader.uniforms.rrCliffDetailParams = own.detail.params;
+        }
+        shader.uniforms.rrCliffTint = { value: own.tint };
+        // 1 once the cliff image has arrived; read every frame, so it switches on by itself.
+        shader.uniforms.rrCliffOn = { get value() { return own.cliff && own.cliff.image ? 1 : 0; } };
+        shader.vertexShader = shader.vertexShader
+            .replace("#include <common>", "#include <common>\nvarying vec3 vRRGroundPos;\nvarying vec3 vRRGroundN;")
+            .replace("#include <project_vertex>", "#include <project_vertex>\nvRRGroundPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvRRGroundN = normalize(mat3(modelMatrix) * normal);");
+        shader.fragmentShader = shader.fragmentShader
+            .replace("#include <common>", "#include <common>\n" + Reactor3D.GROUND_SLOPE_COMMON_GLSL
+                + (maps ? "\n#define RR_CLIFF_DETAIL\nuniform sampler2D rrCliffDetail;\nuniform vec4 rrCliffDetailParams;\n" + Reactor3D.DETAIL_FUNCTIONS_GLSL : ""))
+            .replace("#include <map_fragment>", Reactor3D.GROUND_SLOPE_MAP_GLSL);
+    };
+    const earlierKey = material.customProgramCacheKey;
+    material.customProgramCacheKey = function() { return (typeof earlierKey === "function" ? earlierKey.call(this) : "") + "|groundslope" + (this.__reactorGroundSlope.detail && this.__reactorGroundSlope.detail.maps ? "|cliffdetail" : ""); };
+    material.needsUpdate = true;
+    return material;
+};
+
+Reactor3D.GROUND_SLOPE_COMMON_GLSL = [
+    "varying vec3 vRRGroundPos;",
+    "varying vec3 vRRGroundN;",
+    "uniform vec2 rrGroundTiles;",
+    "uniform vec2 rrCliffBand;",
+    "uniform sampler2D rrCliffMap;",
+    "uniform float rrCliffScale;",
+    "uniform float rrCliffOn;",
+    "uniform vec3 rrCliffTint;",
+    "float rrGroundHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }",
+    "float rrGroundNoise(vec2 p) {",
+    "\tvec2 i = floor(p), f = fract(p);",
+    "\tf = f * f * (3.0 - 2.0 * f);",
+    "\treturn mix(mix(rrGroundHash(i), rrGroundHash(i + vec2(1.0, 0.0)), f.x), mix(rrGroundHash(i + vec2(0.0, 1.0)), rrGroundHash(i + vec2(1.0, 1.0)), f.x), f.y);",
+    "}"
+].join("\n");
+
+Reactor3D.GROUND_SLOPE_MAP_GLSL = [
+    "#ifdef USE_MAP",
+    "\tvec3 rrGN = normalize(vRRGroundN);",
+    "\tvec3 rrGW = pow(abs(rrGN), vec3(4.0));",
+    "\trrGW /= max(rrGW.x + rrGW.y + rrGW.z, 1e-4);",
+    "\tvec3 rrGdx = dFdx(vRRGroundPos), rrGdy = dFdy(vRRGroundPos);",
+    "\tvec4 sampledDiffuseColor = texture2D(map, vMapUv);",
+    "\tfloat rrSteep = 1.0 - abs(rrGN.y);",
+    // Laid from the sides only where that shows: under a hundredth of the blend it is the plain lookup.
+    "\tif (rrGW.x + rrGW.z > 0.01) {",
+    "\t\tvec2 rrGS = 1.0 / rrGroundTiles;",
+    "\t\tvec4 rrGX = textureGrad(map, vRRGroundPos.zy * rrGS, rrGdx.zy * rrGS, rrGdy.zy * rrGS);",
+    "\t\tvec4 rrGZ = textureGrad(map, vRRGroundPos.xy * rrGS, rrGdx.xy * rrGS, rrGdy.xy * rrGS);",
+    "\t\tsampledDiffuseColor = rrGX * rrGW.x + sampledDiffuseColor * rrGW.y + rrGZ * rrGW.z;",
+    "\t}",
+    "\tif (rrCliffOn > 0.5 && rrSteep > rrCliffBand.x - 0.12) {",
+    "\t\tvec3 rrCP = vRRGroundPos * rrCliffScale, rrCdx = rrGdx * rrCliffScale, rrCdy = rrGdy * rrCliffScale;",
+    "\t\tvec4 rrRock = textureGrad(rrCliffMap, rrCP.zy, rrCdx.zy, rrCdy.zy) * rrGW.x + textureGrad(rrCliffMap, rrCP.xz, rrCdx.xz, rrCdy.xz) * rrGW.y + textureGrad(rrCliffMap, rrCP.xy, rrCdx.xy, rrCdy.xy) * rrGW.z;",
+    // A wandering edge: broad noise over the ground, finer noise, and the rock's own light and dark.
+    "\t\tfloat rrEdge = rrGroundNoise(vRRGroundPos.xz * 0.3 + vRRGroundPos.y * 0.2) * 0.6 + rrGroundNoise(vRRGroundPos.xz * 1.6 - vRRGroundPos.y * 0.7) * 0.4;",
+    "\t\tfloat rrLum = dot(rrRock.rgb, vec3(0.299, 0.587, 0.114));",
+    // The cliff material's relief and sheen, as on its rock pieces (reactor_3d_world.js injectMaterialDetail).
+    "#ifdef RR_CLIFF_DETAIL",
+    "\t\tif (rrCliffDetailParams.w > 0.5) {",
+    "\t\t\tfloat rrCR;",
+    "\t\t\tvec3 rrCN = rrDetailTriplanar(rrCliffDetail, rrCP, rrCdx, rrCdy, rrGN, rrGW, rrCliffDetailParams.x, rrCR);",
+    "\t\t\trrRock.rgb = rrDetailShade(rrRock.rgb, rrGN, rrCN, rrCR, vRRGroundPos, rrCliffDetailParams);",
+    "\t\t}",
+    "#endif",
+    // Shaded by facing as the rock pieces are (reactor_3d_world.js rockMesh), so a cliff in the ground and a rock against it match.
+    "\t\tfloat rrSide = 0.6 + 0.2 * (rrGN.x * 0.5 + 0.5) + 0.12 * (rrGN.z * 0.5 + 0.5);",
+    "\t\trrRock.rgb *= rrGN.y > 0.0 ? rrSide + (1.0 - rrSide) * min(1.0, rrGN.y * 1.25) : rrSide * (1.0 + 0.5 * rrGN.y);",
+    // Their crevices' shade too, mottled, and their tint.
+    "\t\trrRock.rgb *= (0.68 + 0.27 * rrEdge) * rrCliffTint;",
+    "\t\tfloat rrCliff = smoothstep(rrCliffBand.x, rrCliffBand.y, rrSteep + (rrEdge - 0.5) * 0.16 + (rrLum - 0.4) * 0.1);",
+    // Bare earth where the grass gives out: darker and browner across the middle of the blend.
+    "\t\tfloat rrEarth = rrCliff * (1.0 - rrCliff) * 4.0;",
+    "\t\tsampledDiffuseColor.rgb = mix(sampledDiffuseColor.rgb, sampledDiffuseColor.rgb * vec3(0.62, 0.52, 0.4), rrEarth * 0.55);",
+    "\t\tsampledDiffuseColor = mix(sampledDiffuseColor, vec4(rrRock.rgb, sampledDiffuseColor.a), rrCliff);",
+    "\t}",
+    "\tdiffuseColor *= sampledDiffuseColor;",
+    "#endif"
+].join("\n");
 
 
 /**
@@ -6055,6 +6240,8 @@ Reactor3D.MapScene.prototype.setSkyOffset = function(offset) {
 /** Each frame: the sky stands around the camera and drifts by the frames elapsed. */
 Reactor3D.MapScene.prototype.updateSky = function(camera, frame) {
     const mesh = this._sky;
+    // Only a map under a sky has a time of day for its reflections: indoors the studio stays as it is.
+    Reactor3D._skyFollows = !!(mesh && mesh.parent);
     if (!mesh || !mesh.parent) return;
     if (camera) {
         mesh.position.copy(camera.position);
@@ -6064,6 +6251,11 @@ Reactor3D.MapScene.prototype.updateSky = function(camera, frame) {
         // the camera stood when the scene was built, and a camera pulled
         // far back looked out past its edge at nothing.
         if (mesh.matrixAutoUpdate === false) mesh.updateMatrix();
+    }
+    // The sky at the map's time of day: deep blue at night, warm at dusk (a uniform, nothing rebuilt).
+    if (Reactor3D.daylight && mesh.material && mesh.material.color) {
+        const sky = Reactor3D.daylight().skyLinear;
+        mesh.material.color.setRGB(sky[0], sky[1], sky[2]);
     }
     const drift = mesh.userData.sky;
     if (!drift || !Number.isFinite(frame)) return;
@@ -6832,9 +7024,17 @@ Reactor3D.MapScene.prototype.build = function(mapData, bitmaps, options) {
     const loadParallax = settings.loadParallax
         || (name => Reactor3D.defaultParallaxLoader(name));
     this.addParallaxGrounds(Reactor3D.parallaxGroundLayers(mapData), loadParallax, tileSize);
+    // The cliff image is the room's own choice of a material that may not exist: the game asks the disk first.
+    this._cliffLoad = settings.loadMaterial || (name => (Reactor3D.materialFileExists(name) ? Reactor3D.defaultMaterialLoader(name) : null));
+    // A material's normal and roughness maps and settings (materialDetail): the game asks the disk which
+    // exist; a host with its own loader (the editor) answers for the maps and hands the settings over.
+    this._materialProbe = settings.loadMaterial ? null : (name => Reactor3D.materialFileExists(name));
+    this._materialSettingsLoad = typeof settings.loadMaterialSettings === "function" ? settings.loadMaterialSettings : null;
     this.addRoom(Reactor3D.roomFor(mapData), loadParallax, tileSize, mapData.width, mapData.height);
     this.addSky(Reactor3D.skyFor(mapData), loadParallax, tileSize);
-    // The 3D tileset: blocks on cells, on top of the ground just laid.
+    // The 3D tileset: blocks on cells, on top of the ground just laid. Far rocks mesh in the
+    // background unless the view draws only on a change (the editor).
+    this._rockWorkers = settings.rockWorkers !== false;
     this.addPieces(mapData, settings.loadMaterial || (name => Reactor3D.defaultMaterialLoader(name)));
     this.addWater(mapData, settings.loadMaterial || (name => Reactor3D.defaultMaterialLoader(name)));
 
@@ -7321,6 +7521,7 @@ Reactor3D.MapScene.prototype.syncLights = function(focus) {
     }
     // Flat quads: the lit materials see no lights, only the ambient.
     Reactor3D.lightUniforms().rrLightCount.value = 0;
+    Reactor3D.setKeyLight(Reactor3D.lightUniforms(), 0);
     if (this._lightBodies) this._lightBodies.trim(0);
     const round = this.lightPool("round");
     const cone = this.lightPool("cone");
@@ -7631,6 +7832,7 @@ Reactor3D.MapScene.prototype.syncVolumeLights = function(declared, focus) {
         count++;
     }
     uniforms.rrLightCount.value = count;
+    Reactor3D.setKeyLight(uniforms, count);
     Reactor3D.LightGrid.update(uniforms, focus);
     if (Reactor3D.LightVolume) Reactor3D.LightVolume.observe(declared || [], seen, focus);
     bodies.trim(bodyCount);
@@ -7729,7 +7931,8 @@ Reactor3D.MapScene.prototype.mirrorCandidates = function(camera) {
         // Reflective water: a level plane, facing up.
         for (const mesh of this._waterMeshes || []) {
             const look = mesh.material && mesh.material.userData && mesh.material.userData.rrWaterLook;
-            if (!look || !(look.x > 0)) continue;
+            // A river is no level plane: it reflects the sky's capture, not a mirror picture.
+            if (!look || !(look.x > 0) || mesh.userData.water.path) continue;
             if (!mesh.userData.rrMirrorPlane) {
                 mesh.updateMatrixWorld();
                 const level = new THREE.Vector3(0, mesh.userData.water.level, 0).applyMatrix4(mesh.matrixWorld).y;
@@ -8337,6 +8540,12 @@ Reactor3D.MapScene.prototype.clear = function() {
         mesh.geometry.dispose();
     }
     this._waterMeshes = [];
+    // A river's falls, likewise (their materials are in `_materials` too, freed with the rest).
+    for (const mesh of this._waterFalls || []) {
+        if (mesh.parent) mesh.parent.remove(mesh);
+        mesh.geometry.dispose();
+    }
+    this._waterFalls = [];
     // The ripple rings sit in the pieces group, which goes with the scene;
     // their shared ring and their materials are let go of here.
     if (this._ripples) {
@@ -8349,6 +8558,7 @@ Reactor3D.MapScene.prototype.clear = function() {
     this._rockChunkCache = null;
     this._pieceGhostMaterials = null;
     this._materialTextures = null;
+    this._materialDetails = null;
     // The light pools live in the pass groups rather than in `_meshes`, so
     // they have to be let go of by name or a rebuilt map keeps the old ones.
     for (const kind of Object.keys(this._pools || {})) {

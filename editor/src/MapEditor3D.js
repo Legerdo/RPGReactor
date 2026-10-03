@@ -394,6 +394,8 @@ class MapEditor3D {
             // Pieces are laid down again on their own; the rest of the scene stays.
             if (event?.detail?.pieces && this.updatePiecesInPlace(event.detail.region || null)) return;
             if (event?.detail?.water && this.updateWaterInPlace()) return;
+            // Foliage grows again in the chunks the brush touched; the rest of the scene stays.
+            if (event?.detail?.foliage && this.updateFoliageInPlace(event.detail.region || null)) return;
             const since = Date.now() - (this._lastRebuildAt || 0);
             if (since >= REBUILD_INTERVAL) {
                 clearTimeout(this._rebuildTimer);
@@ -807,7 +809,11 @@ class MapEditor3D {
             // layers, which on a parallax map is very close to nothing.
             loadParallax: name => parallaxes[name] || null,
             // The pieces' material images, off disk the same way.
-            loadMaterial: name => materials[name] || null
+            loadMaterial: name => materials[name] || null,
+            // A material's settings file (img/materials/<Name>.json), read with its images.
+            loadMaterialSettings: name => this.materialSettings?.[name] || null,
+            // The view draws only on a change: every rock is meshed before it shows.
+            rockWorkers: false
         });
         this.mapScene.setPass('all');
         if (skyOffset) this.mapScene.setSkyOffset?.(skyOffset);
@@ -1614,9 +1620,35 @@ class MapEditor3D {
         if (chosen) names.add(chosen);
         const waterMaterial = this.terrainManager()?.waterMaterial;
         if (waterMaterial) names.add(waterMaterial);
+        // The material the room's steep ground turns to; a missing one is simply not loaded.
+        const cliff = RRMapElevation.roomCliff ? RRMapElevation.roomCliff(RRMapElevation.room(mapData)).name : '';
+        if (cliff) names.add(cliff);
         if (!names.size) return {};
-        if (!this.materialImages) this.materialImages = {};
+        // Kept per project: another project's Stone is not this one's.
+        if (!this.materialImages || this._materialImagesProject !== projectPath) {
+            this.materialImages = {};
+            this.materialSettings = {};
+            this._materialImagesProject = projectPath;
+        }
         const directory = this.path.join(projectPath, 'img', 'materials');
+        // Each material's normal and roughness maps, where it has them (a missing one has no url and is skipped),
+        // and its settings file, read once.
+        for (const name of [...names]) {
+            if (!name || (typeof RRAssetFiles !== 'undefined' && RRAssetFiles.isMaterialCompanion?.(name))) continue;
+            names.add(`${name}_normal`);
+            names.add(`${name}_rough`);
+            if (!(name in this.materialSettings)) {
+                let settings = null;
+                try {
+                    const fs = typeof require === 'function' ? require('fs') : null;
+                    const file = this.path.join(directory, `${name}.json`);
+                    if (fs && fs.existsSync(file)) settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+                } catch (error) {
+                    console.warn(`The settings of material "${name}" could not be read.`, error);
+                }
+                this.materialSettings[name] = settings;
+            }
+        }
         const loaded = {};
         const pending = [];
         for (const name of names) {
@@ -1652,6 +1684,17 @@ class MapEditor3D {
             scene.updatePieces(mapData, name => materials[name] || null, region);
             this._lastActiveAt = performance.now();
         }).catch(error => console.error('The pieces could not be laid down again.', error));
+        return true;
+    }
+
+    /** Grow the foliage again where it changed ({x0, y0, x1, y1} in cells, or all), without a rebuild. */
+    updateFoliageInPlace(region) {
+        const mapData = this.currentMap();
+        const scene = this.mapScene;
+        if (!mapData || !scene?.updateFoliage) return false;
+        scene.updateFoliage(mapData, region);
+        this._lastActiveAt = performance.now();
+        this.requestRender?.();
         return true;
     }
 
@@ -1740,6 +1783,56 @@ class MapEditor3D {
         this._lastActiveAt = performance.now();
     }
 
+    /**
+     * The River tool's course: a line over the ground through the points
+     * clicked (the last one following the pointer), a dot at each, and the
+     * channel's width either side as a fainter band.
+     */
+    showRiverGhost(points, width = 3) {
+        if (!this.mapScene || !Array.isArray(points) || !points.length) { this.hideRiverGhost(); return; }
+        const mapData = this.currentMap();
+        const height = (x, z) => mapData && typeof Reactor3D !== 'undefined' && Reactor3D.groundHeightAt
+            ? Reactor3D.groundHeightAt(mapData, Math.max(0, Math.min(mapData.width - 1e-3, x)), Math.max(0, Math.min(mapData.height - 1e-3, z)), Infinity) + 0.12 : 0.12;
+        if (!this.riverGhost) {
+            const group = new THREE.Group();
+            const line = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x4fb3ff, depthTest: false, transparent: true }));
+            const band = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0x4fb3ff, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }));
+            const dots = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xffffff, size: 7, sizeAttenuation: false, depthTest: false }));
+            for (const part of [band, line, dots]) { part.renderOrder = 999; part.frustumCulled = false; group.add(part); }
+            this.riverGhost = { group, line, band, dots };
+            this.mapScene.scene().add(group);
+        }
+        const ghost = this.riverGhost;
+        // The line, every half tile so it lies on the ground between the points.
+        const along = [], band = [], index = [];
+        for (let i = 0; i < points.length; i++) {
+            const [ax, az] = points[i], [bx, bz] = points[Math.min(points.length - 1, i + 1)];
+            const steps = i + 1 < points.length ? Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) * 2)) : 1;
+            for (let k = 0; k < steps; k++) {
+                const t = k / steps, x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+                along.push(x, height(x, z), z);
+                if (i + 1 < points.length) {
+                    const run = Math.hypot(bx - ax, bz - az) || 1, px = -(bz - az) / run * width / 2, pz = (bx - ax) / run * width / 2;
+                    const base = band.length / 3;
+                    band.push(x + px, height(x + px, z + pz), z + pz, x - px, height(x - px, z - pz), z - pz);
+                    if (k > 0 || i > 0) index.push(base - 2, base - 1, base, base - 1, base + 1, base);
+                }
+            }
+        }
+        ghost.line.geometry.setAttribute('position', new THREE.Float32BufferAttribute(along, 3));
+        ghost.line.geometry.computeBoundingSphere();
+        ghost.band.geometry.setAttribute('position', new THREE.Float32BufferAttribute(band, 3));
+        ghost.band.geometry.setIndex(index);
+        ghost.dots.geometry.setAttribute('position', new THREE.Float32BufferAttribute(points.flatMap(([x, z]) => [x, height(x, z) + 0.05, z]), 3));
+        ghost.group.visible = true;
+        this._lastActiveAt = performance.now();
+    }
+
+    hideRiverGhost() {
+        if (this.riverGhost) this.riverGhost.group.visible = false;
+        this._lastActiveAt = performance.now();
+    }
+
     /** The outward normal of one triangle of a mesh whose geometry is in world units. */
     triangleNormal(mesh, triangle) {
         const position = mesh?.geometry?.attributes?.position;
@@ -1779,7 +1872,9 @@ class MapEditor3D {
         if (!point) return null;
         const manager = this.pieceManager();
         const erase = !!options.erase || manager?.mode === 'erase';
-        const onPiece = !!(hit && hit.object?.userData?.pieces);
+        // A door's leaf hangs in the middle of its cell: the cell under the hit is the door's, whichever face is struck.
+        const doorId = hit && hit.object?.userData?.rrDoor || 0;
+        const onPiece = !!(hit && hit.object?.userData?.pieces) && !doorId;
         const normal = onPiece ? this.triangleNormal(hit.object, hit.triangle) : null;
         const top = !!(normal && normal.y > 0.5);
         const side = !!(normal && Math.abs(normal.y) <= 0.5);
@@ -1798,7 +1893,9 @@ class MapEditor3D {
         // The face pointed at, for a screen on a wall: which way it looks and whose cell it is.
         const sideName = side ? (Math.abs(normal.x) >= Math.abs(normal.z) ? (normal.x > 0 ? 'east' : 'west') : (normal.z > 0 ? 'south' : 'north')) : null;
         const faceCell = side ? { x: Math.max(0, Math.min(mapData.width - 1, Math.floor(point.x - normal.x * 0.5))), y: Math.max(0, Math.min(mapData.height - 1, Math.floor(point.z - normal.z * 0.5))) } : null;
-        return { x, y, z: Math.min(max, z), side: sideName, faceCell, height: Math.max(0, rel), top, point: { x: point.x, z: point.z } };
+        const target = { x, y, z: Math.min(max, z), side: sideName, faceCell, height: Math.max(0, rel), top, point: { x: point.x, z: point.z } };
+        if (doorId) target.door = doorId;
+        return target;
     }
 
     /**
@@ -1995,14 +2092,19 @@ class MapEditor3D {
         const stamp = manager.mode === 'stamp' ? manager.structurePlan() : bounds ? { size: [bounds.x1 - bounds.x0 + 1, bounds.y1 - bounds.y0 + 1] } : null;
         if (manager.mode === 'move' && !bounds) { this.hidePieceGhost(); return; }
         const turn = stamp && !bounds ? (manager.rot || 0) : 0;
+        // A door hangs across the doorway under the pointer: its ghost is the leaves' slab where it will hang.
+        const door = !stamp && !erase && manager.kind === 'door' ? manager.pieceFor(target) : null;
+        const doorKey = door ? ':door:' + [door.x - target.x, door.y - target.y, door.rot, door.width, door.style].join(',') : '';
         // A building turned or grown while picked up has a new footprint: its slab is made again.
-        const key = stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null]);
+        const key = doorKey + (stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null]));
         if (!this.pieceGhost || this.pieceGhost.userData.key !== key) {
             this.hidePieceGhost(true);
             // A plan's ghost is the building itself, translucent; a selected
             // building being moved shows its footprint as a slab.
             const silhouette = stamp && !bounds ? manager.ghostGeometryFor(stamp, turn) : null;
             const geometry = silhouette
+                || (door ? Reactor3D.pieceGeometry([{ id: 0, kind: 'trim', material: '', x: door.x - target.x, y: door.y - target.y, z: 0, rot: door.rot,
+                    boxes: [{ box: [0, 0, 0.42, door.width || 1, Reactor3D.doorLeafHeight ? Reactor3D.doorLeafHeight(door) : 3.6, 0.58] }] }], null) : null)
                 || (stamp
                     ? new THREE.BoxGeometry(stamp.size[0], 0.3, stamp.size[1]).translate(stamp.size[0] / 2, 0.15, stamp.size[1] / 2)
                     : Reactor3D.pieceGeometry(erase ? [{ id: 0, material: '', kind: 'block', x: 0, y: 0, z: 0, rot: 0 }]
@@ -2893,7 +2995,7 @@ class MapEditor3D {
 
     /** Right-click in Build › Select: Copy, Paste here, Duplicate, Delete for the piece under the pointer and the selection. */
     showPieceMenu(clientX, clientY) {
-        const manager = this.pieceManager(), t = key => (window.I18n ? window.I18n.t(key) : key);
+        const manager = this.pieceManager(), t = key => (window.I18n ? window.I18n.t(key) : key), tx = text => (window.I18n ? window.I18n.tText(text) : text);
         const pick = this.pieceTargetAt(clientX, clientY, { erase: true });
         const under = pick ? manager.pieceAtTarget(pick) : null;
         if (under && !manager.selectionIds().includes(under.id)) manager.selectAt(pick);
@@ -2905,8 +3007,48 @@ class MapEditor3D {
             { label: t('ctx3d.paste'), shortcut: mod + '+V', enabled: !!(PieceBuilderManager.clipboard && place), action: () => manager.pasteAt(place) },
             { label: t('ctx3d.duplicate'), shortcut: mod + '+D', enabled: has, action: () => manager.duplicateSelection() },
             { separator: true },
+            { label: tx('Select whole building'), enabled: !!under, action: () => manager.selectConnectedAt(pick) },
+            { label: tx('Save as structure…'), enabled: has, action: () => window.reactor?.buildHotbar?.openSaveStructureDialog?.() },
+            { separator: true },
             { label: t('ctx3d.delete'), shortcut: 'Delete', enabled: has, action: () => manager.removeSelection() }
         ]);
+    }
+
+    /**
+     * A picture of a box of the map as the view shows it now (a saved structure's thumbnail):
+     * the box's corners (cells x0..x1, y0..y1, heights y0w..y1w) framed and cropped, `size`
+     * pixels on its long side. A data URL, or null when the box is off screen.
+     */
+    snapshotBox(box, size = 192) {
+        if (!this.renderer || !this.camera || typeof THREE === 'undefined' || !box) return null;
+        const canvas = this.renderer.domElement;
+        const W = canvas.width, H = canvas.height;
+        let sx0 = Infinity, sy0 = Infinity, sx1 = -Infinity, sy1 = -Infinity;
+        const v = new THREE.Vector3();
+        for (const x of [box.x0, box.x1 + 1]) for (const z of [box.y0, box.y1 + 1]) for (const y of [box.low || 0, box.high || 0]) {
+            v.set(x, y, z).project(this.camera);
+            if (v.z > 1) continue;
+            sx0 = Math.min(sx0, (v.x + 1) / 2 * W); sx1 = Math.max(sx1, (v.x + 1) / 2 * W);
+            sy0 = Math.min(sy0, (1 - v.y) / 2 * H); sy1 = Math.max(sy1, (1 - v.y) / 2 * H);
+        }
+        if (!Number.isFinite(sx0)) return null;
+        const pad = 0.08 * Math.max(sx1 - sx0, sy1 - sy0);
+        sx0 = Math.max(0, sx0 - pad); sy0 = Math.max(0, sy0 - pad); sx1 = Math.min(W, sx1 + pad); sy1 = Math.min(H, sy1 + pad);
+        if (sx1 - sx0 < 4 || sy1 - sy0 < 4) return null;
+        // The picture is of the building, not of the selection: its outline and handles stay out of it.
+        const gizmo = this.shapeGizmo;
+        const hidden = [this.selectionOutline, gizmo && gizmo.arrows && gizmo.arrows.root, gizmo && gizmo.rings && gizmo.rings.root, gizmo && gizmo.cubes && gizmo.cubes.root, this.hoverCell].filter(object => object && object.visible);
+        for (const object of hidden) object.visible = false;
+        try {
+            // Drawn and read in one go: the canvas keeps its picture until the frame is handed on.
+            this.render(performance.now());
+            const scale = size / Math.max(sx1 - sx0, sy1 - sy0);
+            const out = document.createElement('canvas');
+            out.width = Math.max(1, Math.round((sx1 - sx0) * scale)); out.height = Math.max(1, Math.round((sy1 - sy0) * scale));
+            out.getContext('2d').drawImage(canvas, sx0, sy0, sx1 - sx0, sy1 - sy0, 0, 0, out.width, out.height);
+            return out.toDataURL('image/png');
+        } catch (error) { return null; }
+        finally { for (const object of hidden) object.visible = true; this.requestRender(); }
     }
 
     /** Right-click with the models tool: Copy, Paste here, Duplicate, Delete, Deselect. */
@@ -3447,8 +3589,11 @@ class MapEditor3D {
      * is missing.
      */
     raycastMapMeshes() {
-        const meshes = this.mapScene && this.mapScene._meshes;
-        if (!meshes || !this._raycaster) return null;
+        const laid = this.mapScene && this.mapScene._meshes;
+        if (!laid || !this._raycaster) return null;
+        // A door's leaves are picked like a piece: a click on a door is the door, not the room behind it.
+        const leaves = this.mapScene._doorGroup ? this.mapScene._doorGroup.children : null;
+        const meshes = leaves && leaves.length ? laid.concat(leaves) : laid;
         if (typeof RRMeshBvh !== 'undefined' && RRMeshBvh.raycastMeshes) {
             return RRMeshBvh.raycastMeshes(this._raycaster.ray, meshes, THREE);
         }
@@ -3616,6 +3761,11 @@ class MapEditor3D {
             mesh.material.dispose();
             mesh.parent?.remove(mesh);
             this[key] = null;
+        }
+        if (this.riverGhost) {
+            for (const part of [this.riverGhost.line, this.riverGhost.band, this.riverGhost.dots]) { part.geometry.dispose(); part.material.dispose(); }
+            this.riverGhost.group.parent?.remove(this.riverGhost.group);
+            this.riverGhost = null;
         }
         if (this.mapScene) {
             this.mapScene.destroy();
@@ -4312,6 +4462,12 @@ class MapEditor3D {
 
     handleDoubleClick(event) {
         if (this.projectController?.mediaSurfacePreviewManager?.authoring) return;
+        // Build › Select: a double-click takes the whole building (its group, or every loose piece touching it).
+        if (this.canEditPieces() && this.pieceManager().mode === 'select') {
+            const pick = this.pieceTargetAt(event.clientX, event.clientY, { erase: true });
+            if (pick) { event.preventDefault(); this.pieceManager().selectConnectedAt(pick); }
+            return;
+        }
         // Building (pieces, the ground, models): two quick clicks are two clicks, and the camera stays.
         if (this.canEditPieces() || this.canEditTerrain() || this.canEditProps()) return;
         if (!this.canSelectEvents()) {
@@ -4340,7 +4496,7 @@ class MapEditor3D {
         this.updateHoverCell(this.canEditTerrain() ? null : tile);
         if (this.canEditTerrain()) {
             const manager = this.terrainManager(), point = this.groundPointAt(clientX, clientY);
-            const water = manager.mode === 'fill' || manager.mode === 'drain' || manager.mode === 'look';
+            const water = manager.mode === 'fill' || manager.mode === 'drain' || manager.mode === 'look' || manager.mode === 'river';
             this.updateTerrainRing(water ? null : point);
             manager.hoverAt?.(point);
         } else if (this.terrainRing) this.terrainRing.visible = false;
@@ -4832,7 +4988,8 @@ class MapEditor3D {
         this.animateEventPreviews(now);
         // The sky stands around the editor's camera and drifts at the game's frame rate.
         this.mapScene.updateSky?.(this.camera, now / (1000 / 60));
-        this.mapScene.updateWater?.(now / (1000 / 60));
+        // The water volumes nearest the orbit target, when a river makes more than the shader takes.
+        this.mapScene.updateWater?.(now / (1000 / 60), this.view && this.view.target ? this.view.target : null);
         this.pickPropLods();
         this.projectController?.mediaSurfacePreviewManager?.updateThree?.();
         // Lights are map content: feed the compositor on every drawn frame,

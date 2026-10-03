@@ -286,6 +286,16 @@ class EventCommandPicker {
                                 commands: [
                                     { name: 'Call User Interface', code: 357, reactor: 'CallUserInterface' }
                                 ]
+                            },
+                            {
+                                title: 'Battles on the Map',
+                                commands: [
+                                    { name: 'Change Battle Mode', code: 357, reactor: 'ChangeBattleMode' },
+                                    { name: 'Start Battle on Map', code: 357, reactor: 'StartMapBattle' },
+                                    { name: 'Spawn Unit', code: 357, reactor: 'SpawnUnit' },
+                                    { name: 'Remove Unit', code: 357, reactor: 'RemoveUnit' },
+                                    { name: 'End Battle on Map', code: 357, reactor: 'EndMapBattle' }
+                                ]
                             }
                         ]
                     }

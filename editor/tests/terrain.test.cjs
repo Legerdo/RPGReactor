@@ -112,7 +112,7 @@ test('every ground surface and every stander goes through the terrain', () => {
     // The terrain tools live in the Build bar's Terrain group now, not a palette tab.
     assert.doesNotMatch(read('editor/src/TilesetPaletteViewer.js'), /createLayerTab\('T'/);
     const bar = read('editor/src/BuildHotbar.js');
-    assert.match(bar, /static TERRAIN = \['raise', 'lower', 'smooth', 'flatten', 'pour', 'drain', 'look'\];/);
+    assert.match(bar, /static TERRAIN = \['raise', 'lower', 'smooth', 'flatten', 'pour', 'river', 'drain', 'look'\];/);
     assert.match(bar, /if \(!terrain\.active\) terrain\.activate\(\);\n\s*terrain\.setMode\(BuildHotbar\.TERRAIN_MODE\[slot\]\);/);
     assert.match(read('editor/src/main.js'), /onTerrainTabSelected = \(\) => \{/);
     assert.match(read('editor/index.html'), /src\/TerrainManager\.js/);

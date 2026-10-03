@@ -148,6 +148,16 @@ class DatabaseSystem1Editor {
                 });
             });
 
+            // Battle Mode: System.json › reactorBattle, absent while it is all default (Classic, team turns).
+            const writeBattleMode = () => {
+                const mode = container.querySelector('.system-battle-mode')?.value || 'classic';
+                const turns = container.querySelector('.system-battle-turns')?.value || 'team';
+                if (mode === 'classic' && turns === 'team') delete system.reactorBattle;
+                else system.reactorBattle = { mode, turns };
+                this.databaseManager.mutationGeneration = (this.databaseManager.mutationGeneration || 0) + 1;
+            };
+            container.querySelectorAll('.system-battle-mode, .system-battle-turns').forEach(select => select.addEventListener('change', writeBattleMode));
+
             // Radio buttons
             const radios = container.querySelectorAll('.system-radio');
             radios.forEach(radio => {
@@ -601,6 +611,24 @@ class DatabaseSystem1Editor {
         `;
         const battleSystemSection = this.createSection(tt('Battle System'), battleSystem);
         column.appendChild(battleSystemSection);
+
+        // Battle Mode: where battles happen. Classic is the battle screen above; the others fight on the map.
+        const battleMode = system.reactorBattle || {};
+        const modeOption = (value, label, current) => `<option value="${value}"${value === current ? ' selected' : ''}>${tt(label)}</option>`;
+        const battleModeSection = this.createSection(tt('Battle Mode'), `
+            <div class="system-battle-mode-grid">
+                <label for="system-battle-mode">${tt('Battle Mode')}</label>
+                <select id="system-battle-mode" class="database-field-value system-battle-mode">
+                    ${[['classic', 'Classic'], ['tactical', 'Tactical'], ['action', 'Action'], ['firstPerson', 'First Person']].map(([v, l]) => modeOption(v, l, battleMode.mode || 'classic')).join('')}
+                </select>
+                <label for="system-battle-turns">${tt('Turn order')}</label>
+                <select id="system-battle-turns" class="database-field-value system-battle-turns">
+                    ${[['team', 'Team turns'], ['initiative', 'Initiative order']].map(([v, l]) => modeOption(v, l, battleMode.turns || 'team')).join('')}
+                </select>
+            </div>
+            <div class="system-battle-mode-hint">${tt('Classic is the separate battle screen; Tactical, Action and First Person fight on the map.')}</div>
+        `);
+        column.appendChild(battleModeSection);
 
         // Row 4: Options
         const options = `

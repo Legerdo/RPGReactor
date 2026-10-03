@@ -372,6 +372,9 @@ Reactor3D.lightUniforms = function() {
         rrLightColor: { value: new Float32Array(n * 4) },   // r, g, b (× intensity × gain), spot flag
         rrLightAim: { value: new Float32Array(n * 4) },     // aim x, y, z, cos(half angle)
         rrAmbient: { value: new Float32Array([1, 1, 1]) },
+        // The light a material's relief is shaded against: the map's sun where it stands (w 1),
+        // else a direction from above (w 0).
+        rrKeyLight: { value: new Float32Array(Reactor3D.KEY_LIGHT_DEFAULT) },
         // Which shadow tile each light samples, -1 for none.
         rrLightShadow: { value: new Float32Array(n).fill(-1) },
         // Per tile: near, far, its dynamic tile (-1 for none), softness (in face units).
@@ -477,6 +480,7 @@ Reactor3D.lightGlsl = function(shadows, taps) {
         "uniform vec4 rrLightColor[" + this.SHADER_LIGHTS + "];",
         "uniform vec4 rrLightAim[" + this.SHADER_LIGHTS + "];",
         "uniform vec3 rrAmbient;",
+        "uniform vec4 rrKeyLight;",
         "uniform float rrSelfLit;",
         "varying vec3 vRRWorldPos;",
         "vec3 rrLight(vec3 p) {",
@@ -611,7 +615,21 @@ Reactor3D.packLightUniforms = function(lights, ambient, uniforms = this.lightUni
         count++;
     }
     uniforms.rrLightCount.value = count;
+    this.setKeyLight(uniforms, count);
     return count;
+};
+
+/** From above and a little from +x and +z, as the pieces' facing shade is lit, when no sun is packed. */
+Reactor3D.KEY_LIGHT_DEFAULT = [0.35, 1, 0.3, 0];
+/** The key light from the packed lights: the first sun's place, else the default direction. */
+Reactor3D.setKeyLight = function(uniforms, count) {
+    const key = uniforms.rrKeyLight && uniforms.rrKeyLight.value;
+    if (!key) return;
+    const pos = uniforms.rrLightPos.value, col = uniforms.rrLightColor.value;
+    for (let i = 0; i < count; i++) {
+        if (col[i * 4 + 3] > 2.5) { key[0] = pos[i * 4]; key[1] = pos[i * 4 + 1]; key[2] = pos[i * 4 + 2]; key[3] = 1; return; }
+    }
+    key.set(this.KEY_LIGHT_DEFAULT);
 };
 
 /**
@@ -983,7 +1001,7 @@ Reactor3D.pieceSolidAt = function(mapData, wx, wy, wz, cut) {
     const h = wy - base;
     const u = wx - x, v = wz - y;
     for (const piece of stack) {
-        if (piece.kind === "floor" || piece.kind === "doorway") continue;
+        if (piece.kind === "floor" || piece.kind === "doorway" || piece.kind === "door") continue;
         if (h < piece.z || h > piece.z + this.pieceHeight(piece.kind)) continue;
         if (piece.kind === "stair" || piece.kind === "ramp") { if (h > this.pieceTop(piece, u, v)) continue; }
         return true;
@@ -1234,7 +1252,8 @@ Reactor3D.Reflections = {
         if (!this._uniforms) {
             // rrEnvProbe: where the live capture stood (xyz) and how far off its world is taken
             // to lie (w, 0 for infinitely far: the studio, or a capture from the camera).
-            this._uniforms = { rrEnvMap: { value: null }, rrEnvMaxLod: { value: 0 }, rrEnvFlip: { value: -1 }, rrEnvProbe: { value: new THREE.Vector4(0, 0, 0, 0) }, rrEnvProbeReach: { value: 0 } };
+            // rrSkyLight: the studio gradient's tint at the map's time of day (a live capture sees the dome itself).
+            this._uniforms = { rrEnvMap: { value: null }, rrEnvMaxLod: { value: 0 }, rrEnvFlip: { value: -1 }, rrEnvProbe: { value: new THREE.Vector4(0, 0, 0, 0) }, rrEnvProbeReach: { value: 0 }, rrSkyLight: { value: new THREE.Vector3(1, 1, 1) } };
         }
         if (!this._uniforms.rrEnvMap.value && Reactor3D.studioEnvMap) {
             this._uniforms.rrEnvMap.value = Reactor3D.studioEnvMap();
@@ -1328,6 +1347,8 @@ Reactor3D.Reflections = {
      */
     bind(renderer) {
         const uniforms = this.uniforms();
+        if (Reactor3D.daylight && Reactor3D._skyFollows) { const sky = Reactor3D.daylight().skyLinear; uniforms.rrSkyLight.value.set(sky[0], sky[1], sky[2]); }
+        else uniforms.rrSkyLight.value.set(1, 1, 1);
         // Something shiny is on screen this frame (its own draw, not a capture or a mirror picture).
         if (!this._capturing && !(Reactor3D.Mirrors && Reactor3D.Mirrors._rendering)) this._shownFrame = this._frame;
         // While a face is being drawn the cube is the target: whatever shines in that face reads the studio.
@@ -1853,6 +1874,7 @@ Reactor3D.injectShine = function(material, shader) {
     shader.uniforms.rrEnvFlip = env.rrEnvFlip;
     shader.uniforms.rrEnvProbe = env.rrEnvProbe;
     shader.uniforms.rrEnvProbeReach = env.rrEnvProbeReach;
+    shader.uniforms.rrSkyLight = env.rrSkyLight;
     const mirror = this.Mirrors.uniforms();
     for (const name of Object.keys(mirror)) shader.uniforms[name] = mirror[name];
     shader.uniforms.rrShine = { value: shine.vector };
@@ -1880,6 +1902,7 @@ Reactor3D.injectShine = function(material, shader) {
         "uniform float rrEnvFlip;",
         "uniform vec4 rrEnvProbe;",
         "uniform float rrEnvProbeReach;",
+        "uniform vec3 rrSkyLight;",
         Reactor3D.mirrorUniformDeclarations(),
         "uniform float rrMirrorTolerance;",
         "uniform vec4 rrShine;",
@@ -1914,6 +1937,8 @@ Reactor3D.injectShine = function(material, shader) {
             "\tvec3 rrEnv = textureLod(rrEnvMap, rrR, rrShine.y * rrEnvMaxLod).rgb;",
             // A live capture holds sRGB (flip 1); the studio cube is decoded by the GPU (flip -1).
             "\tif (rrEnvFlip > 0.0) rrEnv = rrSRGBToLinear(rrEnv);",
+            // The studio is a noon sky: dimmed and tinted to the map's time of day.
+            "\telse rrEnv *= rrSkyLight;",
             // On a mirror panel (facing the plane's way and lying on it) the mirror picture, sharp, at this
             // fragment's own place in the reflected view.
             Reactor3D.mirrorLookup("rrEnv", slot => "dot(rrN, rrMirrorPlane" + slot + ".xyz) > 0.92 && abs(dot(vRRWorldPos, rrMirrorPlane" + slot + ".xyz) - rrMirrorPlane" + slot + ".w) < rrMirrorTolerance", "", "1.0"),
@@ -1940,6 +1965,7 @@ Reactor3D.litMaterial = function(material) {
     material.onBeforeCompile = function(shader, renderer) {
         if (typeof earlier === "function") earlier.call(this, shader, renderer);
         Reactor3D.injectLightShader(shader, renderer);
+        if (Reactor3D.injectMaterialDetail) Reactor3D.injectMaterialDetail(this, shader);
         // A self-lit material (a Glow) ignores the lights: its own uniform, one per material.
         shader.uniforms.rrSelfLit = { value: this.__reactorSelfLit ? 1 : 0 };
         Reactor3D.injectBlendColor(this, shader);
@@ -1952,7 +1978,8 @@ Reactor3D.litMaterial = function(material) {
     material.customProgramCacheKey = function() {
         return (typeof earlierKey === "function" ? earlierKey.call(this) : "") + "|reactor3d-lit" + (this.__reactorPieces ? "|cutaway" : this.__reactorModel ? "|sightline" : "") + (this.__reactorGhost ? "|ghost" : "")
             + (Reactor3D.Shadows.active() ? "|shadows" + Reactor3D.Shadows.quality().taps : "")
-            + (Reactor3D.shineOf(this) ? "|shine" : "");
+            + (Reactor3D.shineOf(this) ? "|shine" : "")
+            + (Reactor3D.detailProgramKey ? Reactor3D.detailProgramKey(this) : "");
     };
     return material;
 };
@@ -3603,6 +3630,88 @@ Reactor3D.ambient = function() {
     return this._ambient;
 };
 
+//-----------------------------------------------------------------------------
+// Time of day
+//
+// The map's ambient says what time it is: bright and white is day, middling
+// and warm is dusk (or dawn), low and cool is night. A sun follows it unless
+// it says `daylight: "fixed"`: full at day, low and amber at dusk, and at
+// night a dim pale-blue moon that still casts. On a map with a sky image the
+// dome and the studio reflection follow too, so a lake does not mirror a noon
+// sky at midnight. A map with neither a sun nor a sky (indoors) is unchanged;
+// an indoor map lit by the Indoor preset with a sun overhead should fix that sun.
+
+/** The night sun's share of its authored brightness, and its colour. */
+Reactor3D.MOONLIGHT = 0.07;
+Reactor3D.MOON_COLOUR = 0xa9bde6;
+/** A twilight sun's share of its brightness, and the amber it turns. */
+Reactor3D.DUSK_SUN = 0.5;
+Reactor3D.DUSK_SUN_COLOUR = 0xffa964;
+/** The sky dome's tint at night, at a warm dusk and at a grey (cool or neutral) twilight, as seen (sRGB). */
+Reactor3D.NIGHT_SKY = [0.14, 0.18, 0.33];
+Reactor3D.DUSK_SKY = [1.0, 0.74, 0.56];
+Reactor3D.GREY_SKY = [0.62, 0.64, 0.7];
+
+/**
+ * The time of day an ambient `{ intensity, colour }` stands for, written into
+ * `out` (made once when absent): `day`, `twilight` and `night` (weights summing
+ * to 1), `warm` (0-1, how amber the twilight is), `sun` (a following sun's
+ * brightness factor), `sunMix`/`amberMix`/`moonMix` (how its colour is made:
+ * authored, amber, moon), `sky` ([r, g, b] as seen) and `skyLinear` (the same in
+ * light, what the dome and the studio reflection are multiplied by). No ambient
+ * (an unlit map) is full day.
+ */
+Reactor3D.daylightOf = function(ambient, out) {
+    out = out || { sky: [1, 1, 1], skyLinear: [1, 1, 1] };
+    const level = ambient && Number.isFinite(ambient.intensity) ? Math.max(0, ambient.intensity) : 1;
+    const colour = ambient && ambient.colour !== undefined ? ambient.colour : 0xffffff;
+    const r = ((colour >> 16) & 255) / 255, b = (colour & 255) / 255;
+    const step = (lo, hi, v) => { const t = Math.max(0, Math.min(1, (v - lo) / (hi - lo))); return t * t * (3 - 2 * t); };
+    const night = ambient ? 1 - step(0.15, 0.5, level) : 0;
+    const bright = ambient ? step(0.35, 1.0, level) : 1;
+    const day = (1 - night) * bright, twilight = (1 - night) * (1 - bright);
+    const warm = Math.max(0, Math.min(1, (r - b) / 0.35));
+    out.day = day; out.twilight = twilight; out.night = night; out.warm = warm;
+    out.sun = day + twilight * this.DUSK_SUN + night * this.MOONLIGHT;
+    out.amberMix = twilight * warm;
+    out.moonMix = night;
+    out.sunMix = Math.max(0, 1 - out.amberMix - out.moonMix);
+    const sky = out.sky || (out.sky = [1, 1, 1]), linear = out.skyLinear || (out.skyLinear = [1, 1, 1]);
+    for (let i = 0; i < 3; i++) {
+        sky[i] = day + twilight * (warm * this.DUSK_SKY[i] + (1 - warm) * this.GREY_SKY[i]) + night * this.NIGHT_SKY[i];
+        linear[i] = Math.pow(sky[i], 2.2);
+    }
+    return out;
+};
+
+/** The time of day of the current ambient (`setAmbient`), worked out again only when it changes. */
+Reactor3D.daylight = function(ambient = this._ambient) {
+    const cache = this._daylightCache || (this._daylightCache = { level: NaN, colour: NaN, unlit: null, value: { sky: [1, 1, 1], skyLinear: [1, 1, 1] } });
+    const unlit = !ambient;
+    const level = ambient ? ambient.intensity : 1, colour = ambient ? ambient.colour : 0xffffff;
+    if (cache.unlit !== unlit || cache.level !== level || cache.colour !== colour) {
+        cache.unlit = unlit; cache.level = level; cache.colour = colour;
+        this.daylightOf(ambient || null, cache.value);
+    }
+    return cache.value;
+};
+
+/**
+ * A sun's colour and brightness at this time of day (`day` from `daylight`),
+ * into `out`: as authored for a fixed sun or anything that is not a sun.
+ */
+Reactor3D.sunAtDaylight = function(light, colour, intensity, day, out) {
+    out = out || {};
+    out.colour = colour; out.intensity = intensity;
+    if (!light || light.type !== this.LIGHT_SUN || light.daylight === "fixed" || !day) return out;
+    const c = colour === undefined || colour === null ? 0xffffff : colour;
+    const channel = shift => Math.round(Math.min(255,
+        ((c >> shift) & 255) * day.sunMix + ((this.DUSK_SUN_COLOUR >> shift) & 255) * day.amberMix + ((this.MOON_COLOUR >> shift) & 255) * day.moonMix));
+    out.colour = (channel(16) << 16) | (channel(8) << 8) | channel(0);
+    out.intensity = (intensity === undefined ? 1 : intensity) * day.sun;
+    return out;
+};
+
 /**
  * The lights worth carrying, nearest a point first.
  *
@@ -4255,6 +4364,8 @@ Reactor3D.readMapLights = function(mapData) {
             intensity: number(entry.intensity, 1, 0, 4),
             occlude: entry.occlude !== false,
             shadow: entry.shadow !== false,
+            // A sun follows the map's time of day (its ambient) unless fixed.
+            daylight: entry.daylight === "fixed" ? "fixed" : "auto",
             on: entry.on !== false,
             tag: entry.tag ? String(entry.tag) : "",
             attach: entry.attach && typeof entry.attach === "object"
@@ -4603,10 +4714,18 @@ Reactor3D.nativeLights = function(mapData) {
         const animated = this.animateLight(light, frame, i, radius, intensity);
         radius = animated.radius;
         intensity = animated.intensity;
+        // A sun at the map's time of day (the flicker's base scaled alike, so it reads as no flicker).
+        let lit = colour, priorityIntensity = animated.priorityIntensity;
+        if (light.type === this.LIGHT_SUN && light.daylight !== "fixed") {
+            const day = this.daylight(this.ambientFor(map));
+            const sun = this.sunAtDaylight(light, colour, intensity, day, this._sunScratch || (this._sunScratch = {}));
+            lit = sun.colour; intensity = sun.intensity;
+            if (priorityIntensity !== undefined) priorityIntensity *= day.sun;
+        }
         out.push({
             id: light.id, type: light.type, x: x, y: y, height: height,
-            radius: radius, colour: colour, intensity: intensity,
-            priorityRadius: animated.priorityRadius, priorityIntensity: animated.priorityIntensity,
+            radius: radius, colour: lit, intensity: intensity,
+            priorityRadius: animated.priorityRadius, priorityIntensity: priorityIntensity,
             angle: angle, width: width, yaw: -(yaw + facing), pitch: pitch, occlude: light.occlude,
             shadow: light.shadow, body: light.body, baseRadius: baseRadius
         });

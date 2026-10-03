@@ -101,9 +101,42 @@
      */
     ReactorPhysics.floatHeight = function(mapData, x, y, ground, settings = this.settings()) {
         if (!settings.swim || typeof Reactor3D === "undefined" || !Reactor3D.waterLevelAt || !Reactor3D.hasWater(mapData)) return null;
-        const level = Reactor3D.waterLevelAt(mapData, Math.floor(x), Math.floor(y));
+        // A river's surface where the swimmer is, so it floats smoothly down a slope.
+        const level = Reactor3D.waterSurfaceAt ? Reactor3D.waterSurfaceAt(mapData, x, y) : Reactor3D.waterLevelAt(mapData, Math.floor(x), Math.floor(y));
         if (level === null || level - ground <= settings.swimDepth) return null;
         return level - settings.swimDepth;
+    };
+
+    /**
+     * A river carries whoever is in it: a swimmer, or a wader where it runs
+     * fast. Left alone in it (no step taken, none asked for), a character
+     * builds up drift each way at the river's speed and is moved a cell
+     * along whichever way has built up a whole cell, facing as it was, so a
+     * river running aslant carries it aslant, step by step. A step of its
+     * own starts the count again. Returns whether it was moved.
+     */
+    ReactorPhysics.DRIFT_WADE_SPEED = 1;
+    ReactorPhysics.drift = function(character, asked) {
+        if (!character || typeof Reactor3D === "undefined" || !Reactor3D.waterFlowAt || typeof $dataMap === "undefined" || !$dataMap) return false;
+        const stop = () => { character._reactorDriftX = 0; character._reactorDriftY = 0; return false; };
+        if (asked || character._reactorOnLadder || this.isAirborne(character)) return stop();
+        // Mid-step (the current's own step, or one it was given) the count waits.
+        if (character.isMoving()) return false;
+        const flow = Reactor3D.hasWater($dataMap) ? Reactor3D.waterFlowAt($dataMap, character.x, character.y) : null;
+        const wading = !character._reactorSwim && flow && flow.speed >= this.DRIFT_WADE_SPEED
+            && flow.level - (Number.isFinite(character._reactorGround) ? character._reactorGround : flow.level) > 0.25;
+        if (!flow || (!character._reactorSwim && !wading)) return stop();
+        const ax = (character._reactorDriftX || 0) + flow.dx * flow.speed / 60, ay = (character._reactorDriftY || 0) + flow.dz * flow.speed / 60;
+        character._reactorDriftX = ax; character._reactorDriftY = ay;
+        if (Math.abs(ax) < 1 && Math.abs(ay) < 1) return false;
+        const alongX = Math.abs(ax) >= Math.abs(ay);
+        if (alongX) character._reactorDriftX = ax - Math.sign(ax); else character._reactorDriftY = ay - Math.sign(ay);
+        const d = alongX ? (ax > 0 ? 6 : 4) : (ay > 0 ? 2 : 8);
+        if (!character.canPass(character.x, character.y, d)) return stop();
+        const facing = character.direction();
+        character.moveStraight(d);
+        if (character.setDirection) character.setDirection(facing);
+        return !!(character.isMovementSucceeded && character.isMovementSucceeded());
     };
 
     /** How far apart the party climbs one ladder: about a body length. */
@@ -571,6 +604,8 @@
                     : this.isInVehicle() ? "in a vehicle" : $gameMap.isEventRunning() ? "an event is running (Jump shares its key with an event's action button?)" : "diving");
             }
             _updateP.apply(this, arguments);
+            // Afterwards, so a step the player asked for this frame is already under way.
+            if (free) ReactorPhysics.drift(this, Input.dir4 !== 0);
         };
         // On a ladder the way toward the wall climbs and the way back climbs
         // down; at the top the way on steps onto the ledge, at the foot the way

@@ -17,6 +17,9 @@ class TerrainManager {
         plain: { reflect: 0, gloss: 0.85, tint: '#ffffff', colour: '', clear: 0.6, waves: 1, glow: 0 }
     };
 
+    /** The Foliage group's modes: four kinds painted as a density, and bushes stood one by one. */
+    static FOLIAGE_MODES = ['grass', 'flowers', 'fern', 'reeds', 'bush'];
+
     constructor(projectController) {
         this.projectController = projectController;
         this.active = false;
@@ -30,6 +33,27 @@ class TerrainManager {
         this.undoStack = [];
         this.redoStack = [];
         this._stroke = null;
+        // River: its channel's width and depth, and the course clicked so far.
+        this.riverWidth = 3;
+        this.riverDepth = 1;
+        this._river = null;
+        // Foliage: paint or erase, how thick, and each kind's look in hand.
+        this.foliageErase = false;
+        this.foliageLevel = 7;
+        this.foliageLook = {};
+        this.bushSize = 1.6;
+        this.bushVary = true;
+        this.bushColour = '';
+        this.bushBloom = '';
+        this._foliageStroke = null;
+    }
+
+    foliage() { return typeof RRMapFoliage !== 'undefined' ? RRMapFoliage : (window.RRMapFoliage || null); }
+    isFoliageMode(mode = this.mode) { return TerrainManager.FOLIAGE_MODES.includes(mode); }
+    /** A kind's look in hand: what the runtime grows it as, with the author's changes over it. */
+    foliageLookOf(kind) {
+        const base = (typeof Reactor3D !== 'undefined' && Reactor3D.FOLIAGE_LOOKS && Reactor3D.FOLIAGE_LOOKS[kind]) || {};
+        return Object.assign({ height: base.height, colour: base.colour, tip: base.tip }, this.foliageLook[kind] || {});
     }
 
     _t(key, params) { return window.I18n ? window.I18n.t(key, params) : key; }
@@ -107,7 +131,8 @@ class TerrainManager {
     }
 
     setMode(mode) {
-        if (!this.elevation()?.TERRAIN_MODES.includes(mode) && mode !== 'drain' && mode !== 'fill' && mode !== 'look') return;
+        if (!this.elevation()?.TERRAIN_MODES.includes(mode) && mode !== 'drain' && mode !== 'fill' && mode !== 'look' && mode !== 'river' && !this.isFoliageMode(mode)) return;
+        if (mode !== 'river') this.cancelRiver();
         this.mode = mode;
         if (mode !== 'look' && this.selectedWater) this.selectWater(null);
         const look = this.panel?.querySelector('.rr-terrain-look');
@@ -171,6 +196,8 @@ class TerrainManager {
     setMap() {
         this.undoStack = []; this.redoStack = [];
         this._stroke = null;
+        this._foliageStroke = null;
+        this.cancelRiver();
         this._lookSnapshot = null;
         this._basins = null; this._preview = null;
         if (this.selectedWater) this.selectWater(null);
@@ -181,8 +208,9 @@ class TerrainManager {
         if (!this.active) return;
         if (this._lookSnapshot) this.editLook({}, 'commit');
         // Another tool taken up mid-stroke: the stroke so far is a step, its ponds and pieces follow the ground.
-        if (this._stroke) this.endStroke();
+        if (this._stroke || this._foliageStroke) this.endStroke();
         this.active = false;
+        this.cancelRiver();
         this.selectedWater = null;
         window.reactor?.mapEditor3D?.showWaterSelection?.(null);
         // Pour's preview goes with the tool; picked up again, it shows at once.
@@ -207,6 +235,8 @@ class TerrainManager {
         if (!map || !elevation || !point) return false;
         // Water: Pour fills the hollow under the click; Remove takes the sheet under it.
         if (this.mode === 'fill') return this.pourAt(point);
+        if (this.mode === 'river') return this.riverPoint(point);
+        if (this.isFoliageMode()) return this.beginFoliage(point);
         if (this.mode === 'drain') {
             const cell = { x: Math.floor(point.x + 0.5), y: Math.floor(point.y + 0.5) };
             return this.drain(saved => elevation.removeWaterAt(map, cell.x, cell.y));
@@ -327,9 +357,89 @@ class TerrainManager {
         return this._basins.get(key);
     }
 
+    /**
+     * River: each click adds a point to the course (in tiles, the cell's
+     * middle at x + 0.5); a second click on the last point within a moment
+     * (a double-click) lays the river, as Enter does.
+     */
+    riverPoint(point) {
+        if (!point) return false;
+        const at = { x: point.x + 0.5, y: point.y + 0.5 }, now = Date.now();
+        const river = this._river || (this._river = { points: [], clickedAt: 0 });
+        const last = river.points[river.points.length - 1];
+        if (last && now - river.clickedAt < 400 && Math.hypot(at.x - last[0], at.y - last[1]) < 0.75) return this.finishRiver();
+        river.clickedAt = now;
+        if (!last || Math.hypot(at.x - last[0], at.y - last[1]) >= 0.5) river.points.push([Math.round(at.x * 100) / 100, Math.round(at.y * 100) / 100]);
+        this._showRiver(null);
+        window.reactor?.buildHotbar?.renderTerrainPanel?.();
+        return true;
+    }
+
+    /** Whether a course is being clicked out. */
+    riverPending() { return !!(this._river && this._river.points.length); }
+
+    _showRiver(cursor) {
+        const view = window.reactor?.mapEditor3D;
+        const points = this._river ? this._river.points : [];
+        if (!points.length) { view?.hideRiverGhost?.(); return; }
+        view?.showRiverGhost?.(cursor ? points.concat([cursor]) : points, this.riverWidth);
+    }
+
+    /**
+     * Lay the river along the course clicked: its channel is carved, it runs
+     * downhill from the first point, falls where the ground drops, and one
+     * undo step takes the ground and the water back together.
+     */
+    finishRiver() {
+        const map = this.currentMap(), elevation = this.elevation();
+        const points = this._river ? this._river.points : [];
+        if (!map || !elevation?.carveRiver) return false;
+        if (points.length < 2) { this._flash('terrain.riverShort'); return false; }
+        const saved = this.groundSnapshot(map);
+        const laid = elevation.carveRiver(map, points, Object.assign({ width: this.riverWidth, depth: this.riverDepth, material: this.waterMaterial }, this._riverLook()));
+        if (!laid) { this._flash('terrain.riverNone'); return false; }
+        this.undoStack.push(saved); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
+        this._seal(saved);
+        this.cancelRiver();
+        this.announce(); this.announce(null, true);
+        this._relayPieces(laid.region);
+        this.refreshStatus();
+        window.reactor?.buildHotbar?.renderTerrainPanel?.();
+        return true;
+    }
+
+    /** The look in hand, as a river is written with it (water's own values left out). */
+    _riverLook() {
+        const look = this.waterLook || {}, out = {};
+        if (Number(look.reflect) > 0) Object.assign(out, { reflect: Number(look.reflect), gloss: Number(look.gloss), tint: look.tint });
+        if (look.colour) out.colour = look.colour;
+        if (look.clear !== undefined && Math.abs(Number(look.clear) - 0.6) > 1e-6) out.clear = Number(look.clear);
+        if (look.waves !== undefined && Math.abs(Number(look.waves) - 1) > 1e-6) out.waves = Number(look.waves);
+        if (Number(look.glow) > 0) out.glow = Number(look.glow);
+        return out;
+    }
+
+    /** Drop the course clicked so far. */
+    cancelRiver() {
+        if (!this._river) return false;
+        this._river = null;
+        window.reactor?.mapEditor3D?.hideRiverGhost?.();
+        window.reactor?.buildHotbar?.renderTerrainPanel?.();
+        return true;
+    }
+
+    /** Keys while the River slot is in hand: Enter lays the river, Escape drops the course. True when taken. */
+    handleRiverKey(event) {
+        if (this.mode !== 'river' || !this.riverPending()) return false;
+        if (event.key === 'Enter') { this.finishRiver(); return true; }
+        if (event.key === 'Escape') { this.cancelRiver(); return true; }
+        return false;
+    }
+
     /** The pointer over the ground in Pour: a ghost of the hollow the click would fill. Elsewhere, no ghost. */
     hoverAt(point) {
         const view = window.reactor?.mapEditor3D;
+        if (this.mode === 'river') { if (this.riverPending()) this._showRiver(point ? [point.x + 0.5, point.y + 0.5] : null); return; }
         if (this.mode !== 'fill' || !point) { if (this._preview) { view?.hideWaterGhost?.(); this._preview = null; } return; }
         const cell = { x: Math.floor(point.x + 0.5), y: Math.floor(point.y + 0.5) };
         if (this._preview && this._preview.x === cell.x && this._preview.y === cell.y) return;
@@ -338,7 +448,78 @@ class TerrainManager {
         if (basin) view?.showWaterGhost?.(basin); else view?.hideWaterGhost?.();
     }
 
+    // ---- Foliage ------------------------------------------------------------
+
+    /** A foliage stroke starts: one undo step for the whole of it; the first dab lands at once. */
+    beginFoliage(point) {
+        const map = this.currentMap(), foliage = this.foliage();
+        if (!map || !foliage || !point) return false;
+        this._foliageStroke = { saved: foliage.snapshot(map), region: null, last: null, travelled: 0 };
+        return this.foliageDab(point, true);
+    }
+
+    foliageDab(point, first) {
+        const map = this.currentMap(), foliage = this.foliage(), stroke = this._foliageStroke;
+        if (!map || !foliage || !stroke) return false;
+        const cx = point.x + 0.5, cy = point.y + 0.5;
+        let changed = null;
+        if (this.mode === 'bush') {
+            if (this.foliageErase) {
+                if (foliage.removeBushes(map, cx, cy, this.radius * 0.5)) changed = { x0: Math.floor(cx - this.radius), y0: Math.floor(cy - this.radius), x1: Math.ceil(cx + this.radius), y1: Math.ceil(cy + this.radius) };
+            } else {
+                // A click stands one bush; a drag one every bush's width of travel, scattered over the brush when they vary.
+                const last = stroke.last, step = Math.max(0.8, this.bushSize * 1.1);
+                if (!first && last && Math.hypot(cx - last.x, cy - last.y) < step) return false;
+                const vary = this.bushVary, r = vary && !first ? Math.random() * this.radius * 0.5 : 0, a = Math.random() * Math.PI * 2;
+                const size = vary ? this.bushSize * (0.75 + Math.random() * 0.5) : this.bushSize;
+                const bush = foliage.addBush(map, { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, size, colour: this.bushColour || undefined, bloom: this.bushBloom || undefined, tall: vary ? 0.85 + Math.random() * 0.35 : 1 });
+                if (bush) changed = { x0: Math.floor(bush.x - bush.size), y0: Math.floor(bush.y - bush.size), x1: Math.ceil(bush.x + bush.size), y1: Math.ceil(bush.y + bush.size) };
+                stroke.last = { x: cx, y: cy };
+            }
+        } else {
+            const last = stroke.last, spacing = Math.max(0.35, this.radius * 0.3);
+            if (!first && last && Math.hypot(cx - last.x, cy - last.y) < spacing) return false;
+            const look = this.foliageLook[this.mode] || {};
+            changed = foliage.paint(map, this.mode, cx, cy, { radius: this.radius, strength: this.strength, level: this.foliageLevel, erase: this.foliageErase, settings: look });
+            stroke.last = { x: cx, y: cy };
+        }
+        if (!changed) return false;
+        const seen = stroke.region;
+        stroke.region = seen ? { x0: Math.min(seen.x0, changed.x0), y0: Math.min(seen.y0, changed.y0), x1: Math.max(seen.x1, changed.x1), y1: Math.max(seen.y1, changed.y1) } : changed;
+        this.announceFoliage(changed);
+        return true;
+    }
+
+    endFoliage() {
+        const stroke = this._foliageStroke;
+        this._foliageStroke = null;
+        if (!stroke || !stroke.region) return;
+        this.undoStack.push({ foliage: stroke.saved, foliageSet: true }); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
+        this.syncHistoryButtons();
+    }
+
+    /** The map's wind (direction in degrees, strength), one undo step each change. */
+    setWind(patch) {
+        const map = this.currentMap(), foliage = this.foliage();
+        if (!map || !foliage) return false;
+        const saved = foliage.snapshot(map);
+        if (!foliage.setWind(map, patch)) { this._flash('foliage.windNeedsFoliage'); return false; }
+        this.undoStack.push({ foliage: saved, foliageSet: true }); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
+        this.announceFoliage(null);
+        return true;
+    }
+
+    /** Foliage changed where it says (cells), or everywhere: the 3D view grows those chunks again. */
+    announceFoliage(region) {
+        this.syncHistoryButtons();
+        const mapEditor = window.reactor?.mapEditor;
+        if (typeof mapEditor?.onElevationChanged === 'function') mapEditor.onElevationChanged(this.currentMap());
+        if (typeof document === 'undefined' || typeof CustomEvent !== 'function') return;
+        document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: this.currentMap()?.id, foliage: true, region: region || null } }));
+    }
+
     paintAt(point) {
+        if (this._foliageStroke) return point ? this.foliageDab(point, false) : false;
         if (!this._stroke || !point) return false;
         const last = this._stroke.last;
         const spacing = Math.max(0.35, this.radius * 0.25);
@@ -363,6 +544,7 @@ class TerrainManager {
     }
 
     endStroke() {
+        if (this._foliageStroke) { this.endFoliage(); return; }
         if (this._stroke && !this._stroke.moved) this.undoStack.pop();
         else if (this._stroke) {
             // A sheet the stroke reached is laid again even when its outline held: its depth is the ground's.
@@ -377,8 +559,8 @@ class TerrainManager {
 
     // Ctrl+Z / Ctrl+Y and the toolbar's Undo and Redo reach these through the editor's one undo shortcut (UIManager) while the tool is up.
     // A stroke still being drawn closes first: it is the step undone.
-    undo() { if (this._stroke) this.endStroke(); this._swap(this.undoStack, this.redoStack); }
-    redo() { if (this._stroke) this.endStroke(); this._swap(this.redoStack, this.undoStack); }
+    undo() { if (this._stroke || this._foliageStroke) this.endStroke(); this._swap(this.undoStack, this.redoStack); }
+    redo() { if (this._stroke || this._foliageStroke) this.endStroke(); this._swap(this.redoStack, this.undoStack); }
     canUndo() { return this.undoStack.length > 0; }
     canRedo() { return this.redoStack.length > 0; }
     syncHistoryButtons() {
@@ -476,6 +658,13 @@ class TerrainManager {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !from.length) return;
         const entry = from.pop();
+        if (entry && entry.foliageSet) {
+            const foliage = this.foliage();
+            to.push({ foliage: foliage.snapshot(map), foliageSet: true });
+            foliage.restore(map, entry.foliage);
+            this.announceFoliage(null);
+            return;
+        }
         if (entry && entry.ground && (entry.changes || entry.after !== undefined)) {
             const undoing = from === this.undoStack;
             if (entry.changes) this._applyChanges(map, entry.changes, undoing);

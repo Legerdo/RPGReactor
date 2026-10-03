@@ -339,7 +339,8 @@
         // Events sized over several tiles, and the map's own gravity, jump and fall damage.
         const sized = !!(sidecar3d && sidecar3d.eventSize && typeof sidecar3d.eventSize === 'object' && Object.keys(sidecar3d.eventSize).length);
         const physical = !!(sidecar3d && sidecar3d.physics && typeof sidecar3d.physics === 'object' && Object.keys(sidecar3d.physics).length);
-        if (isFlat(mapData) && !grouped && !media && !modeled && !lifted && !previewed && !roomed && !propped && !built && !lit && !sized && !physical
+        const planted = !!(sidecar3d && sidecar3d.foliage && typeof sidecar3d.foliage === 'object' && (sidecar3d.foliage.layers || sidecar3d.foliage.bushes));
+        if (isFlat(mapData) && !grouped && !media && !modeled && !lifted && !previewed && !roomed && !propped && !built && !lit && !sized && !physical && !planted
             && !(sidecar3d && sidecar3d.camera)) {
             if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
             return true;
@@ -419,9 +420,23 @@
         return Math.max(ROOM_MIN_HEIGHT, Math.min(ROOM_MAX_HEIGHT, height));
     };
 
+    // Steep shaped ground turns to a cliff material: Rock unless the room names another ("" for none),
+    // from `cliffSlope` degrees. Kept in the room only when it differs.
+    const ROOM_CLIFF = 'Rock';
+    const ROOM_CLIFF_SLOPE = 40;
+    const clampCliffSlope = value => {
+        const slope = Number(value);
+        if (value === null || value === '' || !Number.isFinite(slope)) return ROOM_CLIFF_SLOPE;
+        return Math.max(10, Math.min(80, Math.round(slope)));
+    };
+
     const normalizeRoom = room => {
         const source = room && typeof room === 'object' ? room : {};
         const name = value => (typeof value === 'string' ? value.trim() : '');
+        const cliff = typeof source.cliff === 'string' ? source.cliff.trim() : ROOM_CLIFF;
+        const cliffSlope = clampCliffSlope(source.cliffSlope);
+        const cliffTint = typeof source.cliffTint === 'string' && /^#[0-9a-f]{6}$/i.test(source.cliffTint) && source.cliffTint.toLowerCase() !== '#ffffff'
+            ? source.cliffTint.toLowerCase() : '';
         // Image pixels a frame, to a thousandth: a whole pixel a frame is
         // already a brisk sky, and a slow one is a fraction of that.
         const scroll = value => {
@@ -437,13 +452,23 @@
             // `skyScrollX/Y` image pixels a frame as a 2D parallax scrolls.
             sky: name(source.sky),
             skyScrollX: scroll(source.skyScrollX),
-            skyScrollY: scroll(source.skyScrollY)
+            skyScrollY: scroll(source.skyScrollY),
+            ...(cliff !== ROOM_CLIFF ? { cliff } : {}),
+            ...(cliffSlope !== ROOM_CLIFF_SLOPE ? { cliffSlope } : {}),
+            ...(cliffTint ? { cliffTint } : {})
         };
     };
 
+    /** The material a room's steep ground wears ('' for none) and the slope it starts at. */
+    const roomCliff = room => ({
+        name: room && typeof room.cliff === 'string' ? room.cliff : ROOM_CLIFF,
+        slope: room && room.cliffSlope !== undefined ? clampCliffSlope(room.cliffSlope) : ROOM_CLIFF_SLOPE,
+        tint: room && room.cliffTint ? room.cliffTint : ''
+    });
+
     const isDefaultRoom = room =>
         !room.floor && !room.walls && !room.ceiling && !room.sky && !room.skyScrollX && !room.skyScrollY
-        && room.height === ROOM_DEFAULT_HEIGHT;
+        && room.height === ROOM_DEFAULT_HEIGHT && room.cliff === undefined && room.cliffSlope === undefined && room.cliffTint === undefined;
 
     /** The map's room, defaults filled in. */
     const room = mapData => normalizeRoom(mapData && mapData.reactor3d && mapData.reactor3d.room);
@@ -590,7 +615,9 @@
             ...(raw.animationSpeed == null || Number(raw.animationSpeed) === 100 ? {}
                 : { animationSpeed: Math.max(1, Math.min(1000, number(raw.animationSpeed, 100))) }),
             effects: names(raw.effects, raw.effect),
-            effect: names(raw.effects, raw.effect)[0] || ''
+            effect: names(raw.effects, raw.effect)[0] || '',
+            // The stamped building it came with, so a re-stamp or a removal takes only its own.
+            ...(Number(raw.structure) > 0 ? { structure: Math.floor(Number(raw.structure)) } : {})
         };
     };
 
@@ -678,8 +705,68 @@
 
     /** A piece's finish over its material (the runtime's `PIECE_FINISHES`). */
     const PIECE_FINISHES = ['mirror', 'chrome', 'polished', 'glossy', 'gold'];
-    const PIECE_KINDS = ['wall', 'block', 'floor', 'pillar', 'stair', 'ramp', 'roof', 'doorway', 'window', 'fence', 'glass', 'ladder'].concat(SHAPE_KINDS);
+    const PIECE_KINDS = ['wall', 'block', 'floor', 'pillar', 'stair', 'ramp', 'roof', 'doorway', 'window', 'fence', 'glass', 'ladder', 'door'].concat(SHAPE_KINDS);
     const PIECE_MAX_LEVEL = 240;
+    /*
+     * A door's own fields and a window's frame, as the runtime reads them (reactor_3d_doors.js,
+     * `normalizeDoor` / `normalizeWindowFrame`; a test holds the two to the same output).
+     */
+    const DOOR_STYLES = ['plank', 'panelled', 'arched', 'double', 'gate'];
+    const DOOR_OPENS = ['auto', 'action', 'locked'];
+    const DOOR_SOUND_KEYS = ['open', 'close', 'locked'];
+    const WINDOW_STYLES = ['cottage', 'two', 'arched', 'plain'];
+    const SHUTTER_COLOUR = '#3f5f3a';
+    const clampTo = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const trimmed = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+    const doorSound = raw => {
+        if (!raw || typeof raw !== 'object') return null;
+        const out = {};
+        if (typeof raw.name === 'string') out.name = raw.name.trim().slice(0, 120);
+        const volume = Number(raw.volume), pitch = Number(raw.pitch);
+        if (Number.isFinite(volume)) out.volume = clampTo(Math.round(volume), 0, 100);
+        if (Number.isFinite(pitch)) out.pitch = clampTo(Math.round(pitch), 50, 150);
+        return Object.keys(out).length ? out : null;
+    };
+    const normalizeDoor = raw => {
+        raw = raw || {};
+        const width = Math.floor(Number(raw.width));
+        const out = {
+            width: Number.isFinite(width) ? clampTo(width, 1, 6) : 1,
+            style: DOOR_STYLES.includes(raw.style) ? raw.style : 'plank',
+            hinge: raw.hinge === 'right' ? 'right' : 'left',
+            swing: raw.swing === 'out' || raw.swing === 'in' ? raw.swing : 'away',
+            opens: DOOR_OPENS.includes(raw.opens) ? raw.opens : 'auto'
+        };
+        if (out.opens === 'locked' && raw.lock && typeof raw.lock === 'object') {
+            const sw = Math.floor(Number(raw.lock.switch)), item = Math.floor(Number(raw.lock.item));
+            if (sw > 0) out.lock = { switch: sw };
+            else if (item > 0) out.lock = { item };
+        }
+        if (typeof raw.message === 'string') out.message = raw.message.slice(0, 200);
+        if (raw.sound && typeof raw.sound === 'object') {
+            const sound = {};
+            for (const key of DOOR_SOUND_KEYS) { const one = doorSound(raw.sound[key]); if (one) sound[key] = one; }
+            if (Object.keys(sound).length) out.sound = sound;
+        }
+        const frame = trimmed(raw.frame, 80);
+        if (frame) out.frame = frame;
+        const tag = trimmed(raw.tag, 80);
+        if (tag) out.tag = tag;
+        return out;
+    };
+    const normalizeWindowFrame = raw => {
+        if (raw === true) raw = {};
+        if (!raw || typeof raw !== 'object') return null;
+        const out = { style: WINDOW_STYLES.includes(raw.style) ? raw.style : 'cottage' };
+        const material = trimmed(raw.material, 80);
+        if (material) out.material = material;
+        const colour = v => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : null);
+        const shutters = raw.shutters === true ? SHUTTER_COLOUR : colour(raw.shutters);
+        if (shutters) out.shutters = shutters;
+        if (shutters && raw.closed === true) out.closed = true;
+        if (raw.flowerBox === true) out.flowerBox = true;
+        return out;
+    };
     const normalizePiece = (raw, mapData) => {
         if (!raw || typeof raw !== 'object' || !PIECE_KINDS.includes(raw.kind)) return null;
         const x = Math.floor(Number(raw.x)), y = Math.floor(Number(raw.y));
@@ -733,6 +820,12 @@
             if ('thick' in own && Number.isFinite(Number(raw.thick))) piece.thick = Math.max(0.02, Math.min(1, Math.round(Number(raw.thick) * 100) / 100));
             if ('rough' in own && Number.isFinite(Number(raw.rough))) piece.rough = Math.max(0, Math.min(1, Math.round(Number(raw.rough) * 100) / 100));
         }
+        // A door's leaf, how it opens and sounds; a window's frame.
+        if (raw.kind === 'door') Object.assign(piece, normalizeDoor(raw));
+        if (raw.kind === 'window' && raw.frame) {
+            const frame = normalizeWindowFrame(raw.frame);
+            if (frame) piece.frame = frame;
+        }
         // A rock's top (a material, or "ground" for the map's floor) and its tint.
         if (raw.kind === 'rock') {
             if (typeof raw.cap === 'string' && raw.cap.trim()) piece.cap = raw.cap.trim();
@@ -774,8 +867,10 @@
         if (!next) return 0;
         // A floor slab is the ground under whatever stands on its cell: it keeps its slot beside a wall
         // or a block at the same level, and only another slab replaces it.
-        const at = list.findIndex(piece => piece.x === next.x && piece.y === next.y && piece.z === next.z && (piece.kind === 'floor') === (next.kind === 'floor'));
-        const same = at >= 0 && list[at].kind === next.kind && list[at].rot === next.rot && list[at].material === next.material;
+        // A door hangs in a doorway: it keeps a slot of its own beside it, as a slab does.
+        const slot = kind => (kind === 'floor' ? 'floor' : kind === 'door' ? 'door' : 'piece');
+        const at = list.findIndex(piece => piece.x === next.x && piece.y === next.y && piece.z === next.z && slot(piece.kind) === slot(next.kind));
+        const same = at >= 0 && list[at].kind === next.kind && list[at].rot === next.rot && list[at].material === next.material && next.kind !== 'door';
         if (same) return list[at].id;
         next.id = at >= 0 ? list[at].id : list.reduce((max, piece) => Math.max(max, piece.id), 0) + 1;
         if (at >= 0) list[at] = next; else list.push(next);
@@ -889,11 +984,13 @@
      * on the nearest edge, so a building stamped over a tree does not
      * swallow the tree. Returns how many moved.
      */
-    const relocatePropsOff = (mapData, x0, y0, w, h) => {
+    const relocatePropsOff = (mapData, x0, y0, w, h, ownGroup = 0) => {
         if (!mapData || !mapData.reactor3d || !Array.isArray(mapData.reactor3d.props)) return 0;
         let moved = 0;
         for (const prop of props(mapData)) {
             if (!(prop.x >= x0 && prop.x < x0 + w && prop.y >= y0 && prop.y < y0 + h)) continue;
+            // The building's own models stay: the stamp lays them again where they belong.
+            if (ownGroup && prop.structure === ownGroup) continue;
             const left = prop.x - x0, right = x0 + w - prop.x, top = prop.y - y0, bottom = y0 + h - prop.y;
             const nearest = Math.min(left, right, top, bottom);
             let nx = prop.x, ny = prop.y;
@@ -976,13 +1073,62 @@
         const waves = Number(raw.waves);
         if (Number.isFinite(waves)) region.waves = Math.max(0, Math.min(2, Math.round(waves * 100) / 100));
         if (unit(raw.glow) !== null) region.glow = unit(raw.glow);
+        // A sheet a stamped building brought (a fountain's basin): the building's group, so it goes with it.
+        if (Number(raw.structure) > 0) region.structure = Math.floor(Number(raw.structure));
+        const river = normalizeRiverPath(raw, mapData);
+        if (river) {
+            region.path = river.path;
+            if (river.flow !== 1) region.flow = river.flow;
+            region.level = river.path.reduce((top, point) => Math.max(top, point[2]), -Infinity);
+        }
         return region;
     };
+    /*
+     * A river: a sheet with a `path` ([[x, y, level], ...], its centre line
+     * downstream, tile units) whose surface follows those heights, and a
+     * `flow` (default 1, 0 still). The runtime (Reactor3D.riverSample) works
+     * out the surface; without it loaded (a bare Node check) the nearest
+     * stretch's straight line stands in.
+     */
+    const normalizeRiverPath = (raw, mapData) => {
+        if (!raw || !Array.isArray(raw.path)) return null;
+        const width = mapData && mapData.width > 0 ? mapData.width : Infinity, height = mapData && mapData.height > 0 ? mapData.height : Infinity;
+        const round = value => Math.round(value * 100) / 100;
+        const path = [];
+        for (const point of raw.path) {
+            if (!Array.isArray(point) || point.length < 3) continue;
+            const x = Number(point[0]), y = Number(point[1]), level = Number(point[2]);
+            if (![x, y, level].every(Number.isFinite)) continue;
+            const next = [round(Math.max(0, Math.min(width, x))), round(Math.max(0, Math.min(height, y))), round(Math.max(-WATER_MAX_LEVEL, Math.min(WATER_MAX_LEVEL, level)))];
+            const last = path[path.length - 1];
+            if (last && last[0] === next[0] && last[1] === next[1] && last[2] === next[2]) continue;
+            path.push(next);
+        }
+        if (path.length < 2) return null;
+        const flow = raw.flow === undefined || raw.flow === null || raw.flow === '' ? 1 : Number(raw.flow);
+        return { path, flow: Number.isFinite(flow) ? Math.max(0, Math.min(4, Math.round(flow * 100) / 100)) : 1 };
+    };
+    /** A river's surface at a world point. */
+    const riverLevelAt = (region, wx, wz) => {
+        const R = root.Reactor3D;
+        if (R && typeof R.riverSample === 'function') return R.riverSample(region, wx, wz, {}).level;
+        let best = Infinity, level = region.level;
+        for (let i = 0; i + 1 < region.path.length; i++) {
+            const [ax, az, al] = region.path[i], [bx, bz, bl] = region.path[i + 1];
+            const run = Math.hypot(bx - ax, bz - az);
+            const t = run > 1e-6 ? Math.max(0, Math.min(1, ((wx - ax) * (bx - ax) + (wz - az) * (bz - az)) / (run * run))) : 0;
+            const d = Math.hypot(wx - (ax + (bx - ax) * t), wz - (az + (bz - az) * t));
+            if (d < best) { best = d; level = al + (bl - al) * t; }
+        }
+        return level;
+    };
+    /** A sheet's surface over a cell's middle: a pond's level, a river's height there. */
+    const sheetLevelAt = (region, x, y) => region.path ? riverLevelAt(region, x + 0.5, y + 0.5) : region.level;
     /** Whether a sheet stands over a cell. */
     const waterCovers = (region, x, y) => x >= region.x0 && x <= region.x1 && y >= region.y0 && y <= region.y1
         && (!region.mask || region.mask[(y - region.y0) * (region.x1 - region.x0 + 1) + (x - region.x0)] === '1');
     /** The highest sheet over a cell, or null. */
-    const waterAt = (mapData, x, y) => water(mapData).reduce((best, region) => waterCovers(region, x, y) && (!best || region.level > best.level) ? region : best, null);
+    const waterAt = (mapData, x, y) => water(mapData).reduce((best, region) => waterCovers(region, x, y) && (!best || sheetLevelAt(region, x, y) > sheetLevelAt(best, x, y)) ? region : best, null);
     /** Whether two sheets share a cell. */
     const waterTouches = (a, b) => {
         for (let y = Math.max(a.y0, b.y0); y <= Math.min(a.y1, b.y1); y++) for (let x = Math.max(a.x0, b.x0); x <= Math.min(a.x1, b.x1); x++) if (waterCovers(a, x, y) && waterCovers(b, x, y)) return true;
@@ -1047,11 +1193,14 @@
      * Pieces stacked on one cell hold as one while each starts where the one
      * under it ends; a piece that starts higher (an upper storey over a
      * doorway, a bridge) holds nothing, the water passing under it. Shapes
-     * and rocks hold to their tops (the hollow ones not at all) when the 3D
+     * and rocks hold to their tops (the hollow ones and ones thinner than a
+     * post, `WATER_THIN`, not at all) when the 3D
      * runtime is loaded to say which cells they stand on.
      */
     const WATER_HOLD = new Map([['wall', 5], ['glass', 5], ['block', 1], ['window', 1.5]]);
     const WATER_OPEN_SHAPES = ['tube', 'ring', 'arch', 'tunnel'];
+    // Narrower than this across (tiles, both ways) a shape lets water by.
+    const WATER_THIN = 0.6;
     const WATER_SOLID_SHAPES = new Set(SHAPE_KINDS.filter(kind => !WATER_OPEN_SHAPES.includes(kind)));
     // The cell pieces' part, kept per pieces array (every edit writes a new one): a big map has tens of thousands.
     const waterHoldMemo = new WeakMap();
@@ -1090,6 +1239,9 @@
         const extra = new Map();
         const hold = piece => {
             if (piece.x < 0 || piece.y < 0 || piece.x >= W || piece.y >= H) return;
+            // A post, a pole or a stilt is thinner than its cell: the water stands round it.
+            const size = Array.isArray(piece.size) ? piece.size : null;
+            if (size && Number(size[0]) < WATER_THIN && Number(size[2]) < WATER_THIN) return;
             // On a cell of its footprint lower or higher than its own, a shape starts that much up or down.
             const anchor = Array.isArray(piece.anchor) ? piece.anchor : [piece.x, piece.y];
             const shift = R.pieceBaseAt(mapData, anchor[0], anchor[1]) - R.pieceBaseAt(mapData, piece.x, piece.y);
@@ -1176,7 +1328,8 @@
         const basin = waterBasin(mapData, x, y);
         if (!basin) return null;
         const sheet = normalizeWater({ x0: basin.x0, y0: basin.y0, x1: basin.x1, y1: basin.y1, level: basin.level, material: material || '', mask: basin.mask }, mapData);
-        const kept = water(mapData).filter(region => !waterTouches(region, sheet));
+        // A river running into the pond stays: where the two meet the higher water shows.
+        const kept = water(mapData).filter(region => region.path || !waterTouches(region, sheet));
         return writeWater(mapData, kept.concat([sheet])) ? sheet : null;
     };
     /**
@@ -1186,7 +1339,9 @@
      * A sheet whose cells all rose goes. Called after the ground changes
      * shape, so a hill dug out under a pond fills instead of leaving a hole,
      * and after pieces change, so a wall built through a pond leaves its
-     * cells dry. True when any sheet changed.
+     * cells dry. A river only dries where the ground rose over it: its
+     * banks are its own, so it never spreads past them. True when any sheet
+     * changed.
      */
     const refitWater = mapData => {
         const list = water(mapData);
@@ -1198,11 +1353,12 @@
         for (const region of list) {
             const w = region.x1 - region.x0 + 1, h = region.y1 - region.y0 + 1;
             const wet = new Uint8Array(w * h), queue = [];
-            const dry = (cx, cy) => ground(cx, cy) > region.level - 0.01;
+            // A river's own height over each cell, not its highest.
+            const dry = (cx, cy) => ground(cx, cy) > sheetLevelAt(region, cx, cy) - 0.01;
             for (let cy = region.y0; cy <= region.y1; cy++) for (let cx = region.x0; cx <= region.x1; cx++) {
                 if (waterCovers(region, cx, cy) && !dry(cx, cy)) { wet[(cy - region.y0) * w + (cx - region.x0)] = 1; queue.push(cx, cy); }
             }
-            for (let i = 0; i < queue.length; i += 2) {
+            for (let i = 0; !region.path && i < queue.length; i += 2) {
                 const cx = queue[i], cy = queue[i + 1];
                 for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
                     const nx = cx + dx, ny = cy + dy;
@@ -1221,6 +1377,157 @@
         }
         return changed ? writeWater(mapData, next) : false;
     };
+    /**
+     * A river along a course: `course` is points in tile units ([x, y], a
+     * cell's middle at x + 0.5), upstream first. The surface starts a little
+     * under the ground at the source (or at the level of a lake the course
+     * starts in) and follows the ground down, never up: where the ground
+     * rises ahead the river keeps its height and the channel is cut through,
+     * where it drops sharply (a cliff) the river falls. A course whose points
+     * all carry a level ([x, y, level]) keeps those heights instead. The
+     * channel is carved into the terrain (`width` tiles across, `depth`
+     * under the surface at its middle, banks sloping up beside it; the
+     * ground is only ever lowered), the wet cells are found on the carved
+     * ground, and one sheet is written with its path. A lake the course
+     * ends in takes it at its own level. Returns { sheet, region } (the
+     * corners carved, `x0..x1`, `z0..z1`) or null when there is no river to
+     * lay (fewer than two points, or no wet cell).
+     */
+    const RIVER_FREEBOARD = 0.35;
+    const carveRiver = (mapData, course, options = {}) => {
+        if (!mapData || !Array.isArray(course)) return null;
+        const W = mapData.width, H = mapData.height;
+        const points = course.filter(p => Array.isArray(p) && p.length >= 2 && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))
+            .map(p => [Math.max(0, Math.min(W, Number(p[0]))), Math.max(0, Math.min(H, Number(p[1]))), p.length > 2 && Number.isFinite(Number(p[2])) ? Number(p[2]) : null]);
+        if (points.length < 2) return null;
+        const given = points.every(p => p[2] !== null);
+        const width = Math.max(1, Math.min(16, Number(options.width) || 3)), half = width / 2;
+        const depth = Math.max(0.3, Math.min(6, Number(options.depth) || 1));
+        const ground = (wx, wz) => terrainHeightAt(mapData, wx, wz) + (Number(at(mapData, Math.max(0, Math.min(W - 1, Math.floor(wx))), Math.max(0, Math.min(H - 1, Math.floor(wz))))) || 0);
+        const lakes = water(mapData).filter(region => !region.path);
+        const lakeAt = (wx, wz) => lakes.reduce((best, region) => waterCovers(region, Math.floor(wx), Math.floor(wz)) && (!best || region.level > best.level) ? region : best, null);
+        // The course every tile, the clicked points kept.
+        const samples = [];
+        for (let i = 0; i + 1 < points.length; i++) {
+            const [ax, az, al] = points[i], [bx, bz, bl] = points[i + 1];
+            const run = Math.hypot(bx - ax, bz - az), steps = Math.max(1, Math.ceil(run));
+            for (let k = 0; k < steps; k++) {
+                const t = k / steps;
+                samples.push([ax + (bx - ax) * t, az + (bz - az) * t, given ? al + (bl - al) * t : null]);
+            }
+        }
+        const last = points[points.length - 1];
+        samples.push([last[0], last[1], last[2]]);
+        // The heights: the bank (the lowest ground across the river) less a freeboard, never rising downstream.
+        if (!given) {
+            // A course ending in a lake never runs below that lake: it falls into it at its level.
+            const end = lakeAt(last[0], last[1]), floor = end ? end.level : -Infinity;
+            let level = Infinity;
+            samples.forEach((sample, i) => {
+                const [x, z] = sample;
+                // Across the course: square to the way from the sample before to the one after.
+                const j = Math.min(samples.length - 1, i + 1), k = Math.max(0, i - 1);
+                let dx = samples[j][0] - samples[k][0], dz = samples[j][1] - samples[k][1];
+                const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
+                let bank = Infinity;
+                for (let o = -half; o <= half + 1e-6; o += 0.5) bank = Math.min(bank, ground(Math.max(0, Math.min(W, x - dz * o)), Math.max(0, Math.min(H, z + dx * o))));
+                const lake = lakeAt(x, z);
+                const target = Math.max(floor, lake ? lake.level : bank - RIVER_FREEBOARD);
+                level = Math.min(level, target);
+                sample[2] = Math.round(level * 100) / 100;
+            });
+        }
+        // The path: the samples thinned where the river runs straight and even (a waterfall's ends always kept).
+        const scale = 3;
+        const keep = new Uint8Array(samples.length);
+        keep[0] = keep[samples.length - 1] = 1;
+        const thin = (a, b) => {
+            let worst = -1, far = 0.15;
+            const [ax, az, al] = samples[a], [bx, bz, bl] = samples[b];
+            const run = Math.hypot(bx - ax, bz - az, (bl - al) * scale) || 1;
+            for (let i = a + 1; i < b; i++) {
+                const [x, z, l] = samples[i];
+                const t = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (z - az) * (bz - az) + (l - al) * (bl - al) * scale * scale) / (run * run)));
+                const d = Math.hypot(x - (ax + (bx - ax) * t), z - (az + (bz - az) * t), (l - (al + (bl - al) * t)) * scale);
+                if (d > far) { far = d; worst = i; }
+            }
+            if (worst < 0) return;
+            keep[worst] = 1;
+            thin(a, worst); thin(worst, b);
+        };
+        if (given) points.forEach(p => { const i = samples.findIndex(s => Math.abs(s[0] - p[0]) < 1e-9 && Math.abs(s[1] - p[1]) < 1e-9); if (i >= 0) keep[i] = 1; });
+        else thin(0, samples.length - 1);
+        // A step steeper than a waterfall keeps both its ends, so the fall is its own stretch.
+        for (let i = 0; i + 1 < samples.length; i++) {
+            const drop = samples[i][2] - samples[i + 1][2], run = Math.hypot(samples[i + 1][0] - samples[i][0], samples[i + 1][1] - samples[i][1]);
+            if (drop > 0.5 && drop > run) { keep[i] = 1; keep[i + 1] = 1; }
+        }
+        const round = v => Math.round(v * 100) / 100;
+        const path = samples.filter((_, i) => keep[i]).map(([x, z, l]) => [round(x), round(z), round(l)]);
+        const shape = normalizeWater({ x0: 0, y0: 0, x1: W - 1, y1: H - 1, level: 0, path }, mapData);
+        if (!shape || !shape.path) return null;
+        // The line the channel follows, for distances.
+        const distanceTo = (wx, wz) => {
+            let best = Infinity;
+            for (let i = 0; i + 1 < path.length; i++) {
+                const [ax, az] = path[i], [bx, bz] = path[i + 1];
+                const run2 = (bx - ax) ** 2 + (bz - az) ** 2;
+                const t = run2 > 1e-9 ? Math.max(0, Math.min(1, ((wx - ax) * (bx - ax) + (wz - az) * (bz - az)) / run2)) : 0;
+                best = Math.min(best, Math.hypot(wx - (ax + (bx - ax) * t), wz - (az + (bz - az) * t)));
+            }
+            return best;
+        };
+        // Carve: under the river its bed, beside it a bank sloping up out of the water; never raised.
+        const bankRun = 1.5;
+        const reach = half + bankRun;
+        let bx0 = Infinity, bz0 = Infinity, bx1 = -Infinity, bz1 = -Infinity;
+        for (const [x, z] of path) { bx0 = Math.min(bx0, x); bz0 = Math.min(bz0, z); bx1 = Math.max(bx1, x); bz1 = Math.max(bz1, z); }
+        const cx0 = Math.max(0, Math.floor(bx0 - reach - 1)), cz0 = Math.max(0, Math.floor(bz0 - reach - 1));
+        const cx1 = Math.min(W, Math.ceil(bx1 + reach + 1)), cz1 = Math.min(H, Math.ceil(bz1 + reach + 1));
+        const grid = ensureTerrain(mapData);
+        if (!grid) return null;
+        const stride = W + 1;
+        let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+        for (let cz = cz0; cz <= cz1; cz++) for (let cx = cx0; cx <= cx1; cx++) {
+            const d = distanceTo(cx, cz);
+            if (d > reach) continue;
+            const surface = riverLevelAt(shape, cx, cz);
+            const shallow = surface - 0.3 * depth;
+            const bed = d <= half ? surface - depth * (1 - 0.7 * (d / half) * (d / half))
+                : shallow + (d - half) / bankRun * (surface + RIVER_FREEBOARD + 0.2 - shallow);
+            const index = cz * stride + cx, elevation = (Number(at(mapData, Math.min(W - 1, cx), Math.min(H - 1, cz))) || 0);
+            const current = Number(grid[index]) || 0;
+            const next = Math.max(-TERRAIN_MAX, Math.round((bed - elevation) * 1000) / 1000);
+            if (next < current - 1e-6) {
+                grid[index] = next;
+                x0 = Math.min(x0, cx); z0 = Math.min(z0, cz); x1 = Math.max(x1, cx); z1 = Math.max(z1, cz);
+            }
+        }
+        // The wet cells on the carved ground: near the line and under the surface there.
+        const mx0 = Math.max(0, Math.floor(bx0 - half - 1)), mz0 = Math.max(0, Math.floor(bz0 - half - 1));
+        const mx1 = Math.min(W - 1, Math.ceil(bx1 + half)), mz1 = Math.min(H - 1, Math.ceil(bz1 + half));
+        const wet = [];
+        let wx0 = Infinity, wz0 = Infinity, wx1 = -Infinity, wz1 = -Infinity;
+        for (let z = mz0; z <= mz1; z++) for (let x = mx0; x <= mx1; x++) {
+            if (distanceTo(x + 0.5, z + 0.5) > half + 0.5) continue;
+            const above = riverLevelAt(shape, x + 0.5, z + 0.5) - ground(x + 0.5, z + 0.5);
+            // Dry, or far over the ground (beside a lip, where a cliff falls away): not the river's.
+            if (above <= 0.02 || (above > depth + 2 && !lakes.some(region => waterCovers(region, x, z)))) continue;
+            wet.push([x, z]);
+            wx0 = Math.min(wx0, x); wz0 = Math.min(wz0, z); wx1 = Math.max(wx1, x); wz1 = Math.max(wz1, z);
+        }
+        if (!wet.length) return null;
+        const bw = wx1 - wx0 + 1, bh = wz1 - wz0 + 1, cells = new Uint8Array(bw * bh);
+        for (const [x, z] of wet) cells[(z - wz0) * bw + (x - wx0)] = 1;
+        let mask = '';
+        for (let i = 0; i < cells.length; i++) mask += cells[i] ? '1' : '0';
+        const raw = Object.assign({ x0: wx0, y0: wz0, x1: wx1, y1: wz1, level: 0, material: options.material || 'Water', mask, path }, options.flow !== undefined ? { flow: options.flow } : {});
+        for (const key of ['reflect', 'gloss', 'tint', 'colour', 'clear', 'waves', 'glow']) if (options[key] !== undefined) raw[key] = options[key];
+        const sheet = normalizeWater(raw, mapData);
+        if (!sheet || !writeWater(mapData, water(mapData).concat([sheet]))) return null;
+        return { sheet, region: x0 <= x1 ? { x0: Math.max(0, x0 - 1), x1: Math.min(W, x1 + 1), z0: Math.max(0, z0 - 1), z1: Math.min(H, z1 + 1) } : null };
+    };
+
     const waterSnapshot = mapData => water(mapData);
     const restoreWater = (mapData, saved) => writeWater(mapData, Array.isArray(saved) ? saved.map(raw => normalizeWater(raw, mapData)).filter(Boolean) : []);
     /** Every material the map's pieces wear, each once. */
@@ -1262,6 +1569,9 @@
                 sidecar.terrainWidth = W;
             }
         }
+        // Foliage density and bushes move with the cells (MapFoliage.resize).
+        const foliage = root.RRMapFoliage || (typeof require === 'function' && typeof module !== 'undefined' ? (() => { try { return require('./MapFoliage.js'); } catch (_) { return null; } })() : null);
+        if (sidecar.foliage && foliage) foliage.resize(mapData, oldWidth, oldHeight, dx, dy);
         for (const field of ['objects', 'objectGround']) {
             const store = sidecar[field];
             if (!store || typeof store !== 'object') continue;
@@ -1305,7 +1615,8 @@
             if (!sidecar.mediaSurfaces.length) delete sidecar.mediaSurfaces;
         }
         if (Array.isArray(sidecar.water)) {
-            sidecar.water = sidecar.water.map(sheet => normalizeWater(sheet && Object.assign({}, sheet, { x0: Number(sheet.x0) + dx, x1: Number(sheet.x1) + dx, y0: Number(sheet.y0) + dy, y1: Number(sheet.y1) + dy }), mapData))
+            sidecar.water = sidecar.water.map(sheet => normalizeWater(sheet && Object.assign({}, sheet, { x0: Number(sheet.x0) + dx, x1: Number(sheet.x1) + dx, y0: Number(sheet.y0) + dy, y1: Number(sheet.y1) + dy },
+                Array.isArray(sheet.path) ? { path: sheet.path.map(point => Array.isArray(point) ? [Number(point[0]) + dx, Number(point[1]) + dy].concat(point.slice(2)) : point) } : {}), mapData))
                 .filter(sheet => sheet && (!sheet.mask || sheet.mask.includes('1')));
             if (!sidecar.water.length) delete sidecar.water;
         }
@@ -1316,7 +1627,8 @@
     const api = {
         resizeSidecar,
         WATER_MAX_LEVEL, normalizeWater, water, hasWater, addWater, waterCovers, waterAt, removeWaterAt, removeWaterRegion, styleWaterRegion, waterWalls, waterBasin, fillWaterAt, refitWater, waterSnapshot, restoreWater,
-        EVENT_SIZE_MAX, eventSize, setEventSize, PIECE_KINDS, PIECE_FINISHES, SHAPE_KINDS, SHAPE_PARAMS, PIECE_MAX_LEVEL, normalizePiece, pieces, hasPieces, pieceAt, setPiece, removePiece,
+        normalizeRiverPath, riverLevelAt, sheetLevelAt, carveRiver,
+        EVENT_SIZE_MAX, eventSize, setEventSize, PIECE_KINDS, PIECE_FINISHES, SHAPE_KINDS, SHAPE_PARAMS, PIECE_MAX_LEVEL, normalizePiece, normalizeDoor, normalizeWindowFrame, DOOR_STYLES, DOOR_OPENS, WINDOW_STYLES, pieces, hasPieces, pieceAt, setPiece, removePiece,
         piecesSnapshot, restorePieces, clearPieces, pieceMaterials,
         nextPieceGroup, pieceGroup, pieceGroupBounds, pieceGroupAt, groupConnectedPieces, movePieceGroup, removePieceGroup, rotatePieceGroup,
         structures, structureOf, setStructure, restoreStructures, removeStructure, relocatePropsOff,
@@ -1325,7 +1637,7 @@
         PROP_MAX_LIFT, PROP_DIRECTIONS, normalizeProp, props, propById, addProp, updateProp, removeProp,
         NOTE_TAG, hasNote, addNote, removeNote, setMode3D,
         ROOM_DEFAULT_HEIGHT, ROOM_MIN_HEIGHT, ROOM_MAX_HEIGHT,
-        clampRoomHeight, room, setRoom,
+        clampRoomHeight, room, setRoom, roomCliff, clampCliffSlope, ROOM_CLIFF, ROOM_CLIFF_SLOPE,
         clamp, fileNameFor, ensure, at, setAt, raiseAt,
         snapshot, restore, isFlat, save,
         TERRAIN_MAX, TERRAIN_MODES, terrain, hasTerrain, ensureTerrain, terrainAt, terrainHeightAt,
@@ -1347,6 +1659,12 @@
             return 0;
         };
         const value = (key, v) => {
+            // Foliage: its wind, then a layer or a bush a line.
+            if (key === 'foliage' && v && typeof v === 'object' && !Array.isArray(v)) {
+                const parts = Object.keys(v).map(k => '    ' + JSON.stringify(k) + ': ' + (Array.isArray(v[k]) && v[k].length && v[k].every(item => item && typeof item === 'object')
+                    ? '[\n' + v[k].map(item => '      ' + JSON.stringify(item)).join(',\n') + '\n    ]' : JSON.stringify(v[k])));
+                return '{\n' + parts.join(',\n') + '\n  }';
+            }
             if (!Array.isArray(v) || !v.length) return JSON.stringify(v);
             const row = rowOf(key);
             if (row > 0 && v.every(n => typeof n === 'number' || n === null)) {

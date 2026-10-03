@@ -255,7 +255,10 @@ test('the 3D subsystem is the core and the extensions the core names', () => {
     // 27 since 2026-09-26: reactor_controls.js (keys and buttons) and reactor_physics.js (jumping, gravity) are their own concerns.
     // 28 since 2026-09-26: reactor_rig_motions.js (the rig presets, shared byte for byte with the editor) is its own concern.
     // 35 since 2026-09-29: reactor_core.js and reactor_objects.js are split by class into parts (runtime-core-split.test.cjs).
-    assert.ok(roots.length <= 35, `runtime js/ root has grown to ${roots.length} files`);
+    // 36 since 2026-10-02: reactor_3d_foliage.js (grass, flowers, ferns, reeds and bushes) is its own 3D extension.
+    // 37 since 2026-10-02: reactor_3d_doors.js (doors that open, framed windows) is its own 3D extension.
+    // 38 since 2026-10-02: reactor_fight.js (battles on the live map) is its own concern.
+    assert.ok(roots.length <= 38, `runtime js/ root has grown to ${roots.length} files`);
 });
 
 test('the game boots every extension straight after the core, before anything reads them', () => {

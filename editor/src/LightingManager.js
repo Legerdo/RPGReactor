@@ -418,7 +418,8 @@ class LightingManager {
                 colour: this._colourNumber(light.color), occlude: light.occlude,
                 shadow: light.shadow,
                 animated: !!(light.pulse || light.flicker),
-                attached: !!light.attach
+                attached: !!light.attach,
+                daylight: light.daylight
             });
         }
         return out;
@@ -1365,17 +1366,28 @@ class LightingManager {
             intensity: ambient.ambient,
             colour: this._colourNumber(ambient.ambientColour)
         });
-        Reactor3D.setLights(this.resolvedLights(this._frame).map(light => ({
+        Reactor3D.setLights(this.resolvedLights(this._frame).map(light => this._atDaylight({
             id: light.id, type: light.type, x: light.x, y: light.y, height: light.height,
             radius: light.radius, colour: light.colour, intensity: light.intensity,
             priorityRadius: light.priorityRadius, priorityIntensity: light.priorityIntensity,
-            angle: light.angle, width: light.width, yaw: -light.yaw, pitch: light.pitch, occlude: light.occlude,
+            angle: light.angle, width: light.width, yaw: -light.yaw, pitch: light.pitch, occlude: light.occlude, daylight: light.daylight,
             shadow: light.shadow
         })).concat(modelLights));
         const map = this.map();
         const focus = map ? { x: map.width / 2, y: map.height / 2 } : null;
         scene.syncLights?.(focus);
         this._update3DRing(scene);
+    }
+
+    /** A sun at the map's time of day (its ambient), as the game shows it; anything else as it is. */
+    _atDaylight(light) {
+        if (light.type !== 'sun' || light.daylight === 'fixed' || !Reactor3D.sunAtDaylight) return light;
+        const day = Reactor3D.daylight();
+        const lit = Reactor3D.sunAtDaylight(light, light.colour, light.intensity, day, this._sunLit || (this._sunLit = {}));
+        light.colour = lit.colour;
+        light.intensity = lit.intensity;
+        if (light.priorityIntensity !== undefined) light.priorityIntensity *= day.sun;
+        return light;
     }
 
     /**
@@ -2208,6 +2220,16 @@ class LightingManager {
         // A sun hangs high and covers a map: its sliders reach that far.
         const sun = light.type === 'sun';
         look.appendChild(this._row(this._k('lit.radius'), this._slider('radius', light.radius, sun ? 10 : 0.1, sun ? 500 : 30, sun ? 1 : 0.1, { numberMax: sun ? 2000 : 200 })));
+        if (sun) {
+            // A sun follows the map's ambient (day, dusk, night) unless fixed.
+            const follows = this._el('div', 'lit-flags');
+            const wrap = this._el('label');
+            const input = this._input('checkbox', '', field => commit({ daylight: field.checked ? 'auto' : 'fixed' }));
+            input.checked = light.daylight !== 'fixed';
+            wrap.append(input, this._el('span', '', this._k('lit.daylight')));
+            follows.appendChild(wrap);
+            look.append(follows, this._el('div', 'lit-note', this._k('lit.daylightHint')));
+        }
         if (light.type === 'spot') {
             look.appendChild(this._row(this._k('lit.angle'), this._slider('angle', light.angle, 1, 179, 1)));
         }

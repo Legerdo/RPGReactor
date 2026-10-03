@@ -1134,7 +1134,7 @@
             const lead=this.models.get('actor:0')||this.billboards.get('actor:0');
             const focus=lead?.object?lead.object.getWorldPosition(new T.Vector3()):null;
             const cast=shadowed?{candidates:[],focus}:null;
-            R.packLightUniforms(lights,{intensity:a.ambient??1,colour:R.parseColour(a.ambientColour??'#ffffff')},this.uniforms,cast);
+            R.packLightUniforms(lights,this.roomAmbient(),this.uniforms,cast);
             if(cast)R.Shadows.setCandidates(cast.candidates);
             this.updateEffects();
             for(const update of this.sequenceVisualUpdates||[])update();
@@ -1200,12 +1200,19 @@
             }
             return shadowed;
         }
+        // The map's ambient as the map shows it now: an AmbientLight command's ease included.
+        roomAmbient() {
+            const R=root.Reactor3D,a=this.map.reactor3d?.lighting||{};
+            const live=R.ambientFor&&typeof $dataMap!=='undefined'&&$dataMap===this.map&&(a.ambient!==undefined||(typeof $gameMap!=='undefined'&&$gameMap&&$gameMap._reactorAmbientOverride));
+            return live?R.ambientFor(this.map):{intensity:a.ambient??1,colour:R.parseColour(a.ambientColour??'#ffffff')};
+        }
         roomLights() {
             const R=root.Reactor3D;
             return R.readMapLights(this.map).flatMap((light,index)=>{
                 if(light.on===false||this.assets.lightIsOn&&!this.assets.lightIsOn(light))return [];
                 const animated=R.animateLight(light,this.frame,index,light.radius,light.intensity);
-                const result={...light,...animated,colour:light.color,yaw:-light.yaw,id:'room:'+index};// its own id: a shadow row follows it by id, and names repeat
+                const result={...light,...animated,colour:light.color,yaw:-light.yaw,id:'room:'+index};
+                if(light.type===R.LIGHT_SUN&&light.daylight!=='fixed'&&R.sunAtDaylight){const sun=R.sunAtDaylight(light,result.colour,result.intensity,R.daylight(this.roomAmbient()),{});result.colour=sun.colour;result.intensity=sun.intensity;}// the room's sun at the map's time of day// its own id: a shadow row follows it by id, and names repeat
                 if(light.attach){
                     const record=light.attach.player?(this.models.get('actor:0')||this.billboards.get('actor:0')):(this.models.get('event:'+light.attach.event)||this.billboards.get('event:'+light.attach.event));
                     if(!record)return [];result.x+=record.position.x+.5;result.y+=record.position.y+.5;result.height+=(record.position.z||0);

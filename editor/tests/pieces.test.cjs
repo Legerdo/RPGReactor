@@ -176,8 +176,9 @@ test('the runtime stands on piece tops, climbs stairs, and blocks what is too ta
 test('every kind makes closed, outward-facing geometry that a turn moves as one', () => {
     const THREE = loadThree();
     const R = require(path.resolve(__dirname, '..', '..', 'runtime/reactor_3d.js'));
-    // A rock is meshed as one mass with its neighbours and reaches past its box (its own test below).
-    for (const kind of R.PIECE_KINDS.filter(k => k !== 'rock')) {
+    // A rock is meshed as one mass with its neighbours and reaches past its box (its own test below);
+    // a door is its leaves, which swing, and its casing, laid as trims (doors.test.cjs).
+    for (const kind of R.PIECE_KINDS.filter(k => k !== 'rock' && k !== 'door')) {
         for (const rot of [0, 1, 2, 3]) {
             const geometry = R.pieceGeometry([{ id: 1, kind, x: 3, y: 4, z: 2, rot, material: '' }], mapWith([]));
             const position = geometry.attributes.position;
@@ -228,7 +229,8 @@ test('the scene lays pieces down per material and can lay them again alone', () 
     const load = name => { asked.push(name); return name === 'Stone' ? { image: canvas, width: 4, height: 4 } : null; };
     scene.addPieces(map, load);
     assert.equal(scene._pieceMeshes.length, 3, 'one mesh per material per chunk; these four pieces share one chunk');
-    assert.deepEqual(asked.sort(), ['Stone', 'Wood']);
+    assert.deepEqual(asked.filter(name => !/_(normal|rough)$/.test(name)).sort(), ['Stone', 'Wood']);
+    assert.deepEqual(asked.filter(name => /_(normal|rough)$/.test(name)).sort(), ['Stone_normal', 'Stone_rough'], 'only a material with an image is asked for its normal and roughness maps');
     const stone = scene._pieceMeshes.find(m => m.userData.pieceMaterial === 'Stone');
     assert.ok(stone.material.map && stone.material.map.wrapS === THREE.RepeatWrapping, 'a material image repeats');
     assert.equal(stone.geometry.attributes.position.count, 2 * 10 * 3, 'two blocks side by side on the ground: five faces each (a bottom, no shared face), ten triangles');
@@ -240,7 +242,7 @@ test('the scene lays pieces down per material and can lay them again alone', () 
     assert.equal(again.length, 1);
     assert.equal(scene._meshes.length, 1, 'the old piece meshes left the scene\'s list');
     assert.equal(scene._piecesGroup.children.length, 2, 'the chunk and its see-through twin for the sight corridor');
-    assert.equal(asked.length, 2, 'textures are made once per scene');
+    assert.equal(asked.length, 4, 'textures (and a material\'s maps) are made once per scene');
     assert.equal(again[0].material, stone.material, 'and so are materials: chunks share them');
     // Chunks: pieces far apart are separate meshes, and an edit relays only its own chunk.
     const wide = { width: 64, height: 64, reactor3d: { version: 1, elevation: new Array(64 * 64).fill(0), pieces: [
@@ -283,7 +285,7 @@ test('building happens in the world: the hammer in the toolbar opens a bar over 
     assert.match(mainSource, /else this\.buildHotbar\?\.hide\(false\);/, 'another owner puts the tool down and the bar away');
     assert.match(mainSource, /new PieceBuilderManager\(this\.projectController\)/);
     const barSource = read('editor/src/BuildHotbar.js');
-    assert.match(barSource, /static PIECES = \['floor', 'wall', 'doorway', 'window', 'glass', 'stair', 'ladder', 'ramp', 'roof', 'pillar', 'fence', 'block'\]/, 'the slots a child reaches for first, by the kinds\' own names');
+    assert.match(barSource, /static PIECES = \['floor', 'wall', 'doorway', 'door', 'window', 'glass', 'stair', 'ladder', 'ramp', 'roof', 'pillar', 'fence', 'block'\]/, 'the slots a child reaches for first, by the kinds\' own names');
     assert.match(barSource, /static SLOTS = \['select'\]\.concat/, 'Select comes first');
     assert.match(barSource, /static EXTRA = \['rock', 'shape', 'screen', 'light', 'hammer', 'blueprint'\]/);
     assert.match(barSource, /if \(\/\^\[0-9\]\$\/\.test\(event\.key\)\)/, 'number keys pick slots');
@@ -383,7 +385,7 @@ test('building happens in the world: the hammer in the toolbar opens a bar over 
     for (const key of ['build.selectedMany', 'build.manyHint', 'build.boxHint']) assert.equal((read('editor/src/I18nManager.js').match(new RegExp('"' + key.replace(/\./g, '\\.') + '":', 'g')) || []).length, 18, key + ' in 18 locales');
     assert.match(viewSource, /if \(event\?\.detail\?\.pieces && this\.updatePiecesInPlace\(event\.detail\.region \|\| null\)\) return;/, 'a piece edit never rebuilds the scene');
     assert.match(viewSource, /loadMaterial: name => materials\[name\] \|\| null/);
-    assert.match(viewSource, /return \{ x, y, z: Math\.min\(max, z\), side: sideName, faceCell, height: Math\.max\(0, rel\), top, point: \{ x: point\.x, z: point\.z \} \};/, 'a target knows the face it points at');
+    assert.match(viewSource, /const target = \{ x, y, z: Math\.min\(max, z\), side: sideName, faceCell, height: Math\.max\(0, rel\), top, point: \{ x: point\.x, z: point\.z \} \};/, 'a target knows the face it points at');
     const i18n = read('editor/src/I18nManager.js');
     for (const key of ['pieces.hint', 'pieces.piece', 'pieces.kind.wall', 'pieces.kind.block', 'pieces.kind.fence', 'pieces.material', 'pieces.plain', 'pieces.materialsHint', 'pieces.turn', 'pieces.level', 'pieces.place', 'pieces.erase', 'pieces.undo', 'pieces.redo', 'pieces.clear', 'pieces.keys', 'pieces.needs3D', 'pieces.count']) {
         assert.equal((i18n.match(new RegExp('"' + key.replace(/\./g, '\\.') + '": "', 'g')) || []).length, 18, key + ' in 18 locales');
@@ -515,7 +517,9 @@ test('a structure plan builds rooms, walls, doors on shared walls, a stairwell a
     const pieces = SP.build(plan, 10, 10, 7);
     assert.equal(pieces[0].id, 7, 'ids continue from the map\'s');
     const at = (x, y, z) => pieces.filter(p => p.x === 10 + x && p.y === 10 + y && p.z === z).map(p => p.kind).sort().join('+');
-    assert.equal(at(0, 0, 0), 'floor+wall'); assert.equal(at(7, 4, 0), 'doorway+floor'); assert.equal(at(7, 2, 0), 'floor+wall'); assert.equal(at(3, 9, 0), 'doorway+floor');
+    assert.equal(at(0, 0, 0), 'floor+wall'); assert.equal(at(7, 4, 0), 'doorway+floor'); assert.equal(at(7, 2, 0), 'floor+wall'); assert.equal(at(3, 9, 0), 'door+doorway+floor');
+    // The door hangs from the first cell along its across: the front door faces south, the kitchen's east.
+    assert.deepEqual(pieces.filter(p => p.kind === 'door' && p.z === 0).map(p => [p.x - 10, p.y - 10, p.rot, p.width, p.style]), [[3, 9, 0, 2, 'plank'], [7, 5, 3, 2, 'panelled']]);
     assert.equal(at(9, 3, 0), 'floor'); assert.equal(pieces.find(p => p.x === 19 && p.y === 13 && p.z === 0).material, 'Stone', 'a wet room has the wet floor');
     assert.equal(at(5, 7, 0), 'stair'); assert.equal(at(5, 3, 4), 'stair', 'five steps north');
     assert.equal(at(5, 5, 5), '', 'the floor above the stairs is open');
@@ -525,7 +529,7 @@ test('a structure plan builds rooms, walls, doors on shared walls, a stairwell a
     assert.equal(at(3, 4, 10), 'floor', 'a ceiling over the top-floor room, under the roof');
     assert.equal(at(7, 4, 10), '', 'none over a wall');
     assert.equal(at(0, 3, 10), 'block', 'a gable closes the end');
-    assert.equal(at(0, 3, 11), 'block'); assert.equal(at(0, 1, 10), 'block'); assert.equal(at(0, 1, 11), 'ramp', 'and steps with the pitch: one block under the second row of ramps');
+    assert.equal(at(0, 3, 11), 'block'); assert.equal(at(0, 1, 10), 'block'); assert.equal(at(0, 1, 11), 'box+ramp', 'and steps with the pitch: one block under the second row of ramps (the verge\'s slab rides over it)');
     // Turned a quarter: the size swaps, the rooms turn, the stair runs east, doors still land on shared walls.
     const turned = SP.transform(plan, 1, 1);
     assert.deepEqual(turned.size, [10, 14]);
@@ -587,7 +591,7 @@ test('a structure plan builds rooms, walls, doors on shared walls, a stairwell a
     assert.equal(E.structureOf(map, 1), null, 'the record goes with the pieces');
     const managerSource = read('editor/src/PieceBuilderManager.js');
     assert.match(managerSource, /if \(elevation\.structureOf\(map, this\.selectedGroup\)\) return this\._restamp\(map, \{ x: Math\.floor\(x\), y: Math\.floor\(y\) \}\);/, 'a stamped building is built again where it goes');
-    assert.match(managerSource, /const shaped = SP\.transform\(plan, record\.rot, record\.scale\);/);
+    assert.match(managerSource, /const shaped = SP\.transform\(plan, record\.rot, record\.scale, name => this\.resolvePlan\(name\)\);/);
     assert.match(managerSource, /elevation\.relocatePropsOff\(map, X0, Y0, W, H\);/);
     const report = SP.validate(plan, pieces, 10, 10, 40, 40, R);
     assert.deepEqual(Object.fromEntries(Object.entries(report.report).map(([k, v]) => [k, v.reached])), { hall: true, kitchen: true, 'landing (2)': true, 'bedroom (2)': true }, 'every room on both floors is walked to from the front door');
@@ -600,7 +604,7 @@ test('a structure plan builds rooms, walls, doors on shared walls, a stairwell a
     const manager = read('editor/src/PieceBuilderManager.js');
     assert.match(manager, /path\.join\(projectPath, '3d', 'Structures'\)/);
     assert.match(managerSource, /elevation\.restorePieces\(map, kept\.concat\(SP\.build\(shaped, X0, Y0, firstId, record\.group, name => this\.resolvePlan\(name\)\)\)\);/, 'a stamp keeps what stands off the footprint, tags its own pieces, and resolves its parts');
-    assert.match(manager, /stampAt\(x, y\) \{[\s\S]{0,400}const saved = this\._snapshot\(map, \{ ground: true, effects: true, events: true \}\);/, 'one undo step: pieces, ground, building records, lights, screens and the building\'s people');
+    assert.match(manager, /stampAt\(x, y\) \{[\s\S]{0,400}const saved = this\._snapshot\(map, \{ ground: true, effects: true, events: true, props: this\._bringsProps\(plan\) \}\);/, 'one undo step: pieces, ground, building records, lights, screens, the building\'s people and (a saved structure\'s) models');
     assert.match(read('editor/src/MapEditor3D.js'), /if \(target && this\.pieceManager\(\)\.mode === 'stamp'\) \{[\s\S]{0,300}this\.pieceManager\(\)\.stampAt\(target\.x, target\.y\);/);
     assert.match(read('editor/index.html'), /src\/utils\/StructurePlan\.js/);
     assert.ok(fs.existsSync(path.resolve(__dirname, '..', '..', 'editor/build-scripts/build-structure.cjs')));
@@ -866,7 +870,7 @@ test('a plan places events at its spots; a hand-edited event survives a re-stamp
     // The editor and the CLI both place, and the Manor's Steward is on North Haven.
     assert.match(read('editor/src/PieceBuilderManager.js'), /SP\.placeEvents\(map, record\.group, wanted, name => this\.loadEventTemplate\(name\)\);/);
     assert.match(read('editor/src/PieceBuilderManager.js'), /RRStructurePlan\.removeGroupEvents\(map, this\.selectedGroup\)/);
-    assert.match(read('editor/build-scripts/build-structure.cjs'), /SP\.placeEvents\(map, group, SP\.eventsOf\(plan, X0, Y0, resolve\), loadTemplate\)/);
+    assert.match(read('editor/build-scripts/build-structure.cjs'), /SP\.placeEvents\(map, group, SP\.eventsOf\(plan, X0, Y0, resolve\)\.concat\(effectEvents\), loadTemplate\)/);
     const north = JSON.parse(read('template/Demo/data/Map005.json'));
     const steward = north.events.find(e => e && e.name === 'Steward');
     assert.ok(steward && /<structure:\d+><spot:desk>/.test(steward.note), 'the Steward is tagged with his building and spot');
@@ -978,7 +982,7 @@ test('the round pieces: a shape has a size and a turn, blocks its round footprin
     // The palette lists the kinds with their own icons and names in every locale.
     const palette = read('editor/src/PieceBuilderManager.js');
     for (const kind of ['dome', 'cylinder', 'cone']) assert.match(palette, new RegExp(`\\b${kind}: '`), kind + ' has an icon');
-    assert.match(read('editor/src/utils/MapElevation.js'), /'window', 'fence', 'glass', 'ladder'\]/, 'the editor keeps the same kinds');
+    assert.match(read('editor/src/utils/MapElevation.js'), /'window', 'fence', 'glass', 'ladder', 'door'\]/, 'the editor keeps the same kinds');
 });
 
 test('Stamp puts a plan down turned by the turn in hand, one undo step', () => {
@@ -1564,7 +1568,7 @@ test('out of order: Ctrl+Z mid-drag takes back the drag, a turn at the map edge 
     assert.equal((view.match(/if \(!move\.snapshot\) move\.snapshot = manager\._snapshot\(this\.currentMap\(\)\);/g) || []).length, 2, 'the carry after a split starts its step on its next move');
     // Building keeps Ctrl+C/V/D in every slot (a wall in hand once copied and pasted the whole map), and a double-click keeps the camera.
     assert.match(read('editor/src/UIManager.js'), /const worldTool = window\.reactor\?\.modelPropsManager\?\.active \|\| window\.reactor\?\.pieceBuilderManager\?\.active \|\| window\.reactor\?\.buildHotbar\?\.visible;/);
-    assert.match(view, /handleDoubleClick\(event\) \{[\s\S]{0,200}if \(this\.canEditPieces\(\) \|\| this\.canEditTerrain\(\) \|\| this\.canEditProps\(\)\) return;/);
+    assert.match(view, /handleDoubleClick\(event\) \{[\s\S]{0,700}if \(this\.canEditPieces\(\) \|\| this\.canEditTerrain\(\) \|\| this\.canEditProps\(\)\) return;/);
     // A slider moved by its arrow keys, and the surface tint's popup, are undo steps too.
     assert.match(bar, /if \(!snapshot && \(placed \|\| s\.kind === 'many'\)\) snapshot = manager\._snapshot\(manager\.currentMap\(\)\);/);
     assert.match(bar, /RRColorPopup\.bind\(surfaceTint, hex => \{ setSurface\(\{ tint: hex \}, !recorded\); recorded = true; \}\);/);

@@ -288,8 +288,13 @@ test('a lake seen from a rooftop: the sky is never clipped out of a mirror, noth
     const core = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_3d.js'), 'utf8');
     assert.match(core, /gl_Position\.z = gl_Position\.w \* 0\.99999;/, 'the sky dome is drawn at infinity: an oblique mirror frustum cut it to a disc');
     const world = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_3d_world.js'), 'utf8');
-    assert.match(world, /vec3 rrWaveN = normalize\(mix\(vRRWaveNormal, vec3\(0\.0, 1\.0, 0\.0\), smoothstep\(30\.0, 90\.0, distance\(cameraPosition, vRRWorldPos\)\)\)\);/, 'far waves lie flat');
-    assert.match(world, /float rrGlint = pow\(max\(dot\(rrWaveN, rrHalf\), 0\.0\), 400\.0\);/, 'the glint is the sun\'s, not a wash over a lake seen from above');
+    // Water's shading is RIVER_SHADE_GLSL, ponds and rivers alike.
+    assert.match(world, /float rrFar = smoothstep\(25\.0, 80\.0, distance\(cameraPosition, vRRWorldPos\)\);/);
+    assert.match(world, /vec3 rrWaveN = normalize\(mix\(vRRWaveNormal \+ .*, vec3\(0\.0, 1\.0, 0\.0\), rrFar\)\);/, 'far waves lie flat');
+    assert.match(world, /float rrGlint = pow\(rrNdotH, 500\.0\) \* 1\.4 \+ pow\(rrNdotH, 60\.0\) \* 0\.12;/, 'the glint is the sun\'s, not a wash over a lake seen from above');
+    // A low sun: straight down, the broad glint term is all but nothing.
+    const L = [0.12, 0.55, -0.83], n = Math.hypot(...L), h = [L[0] / n, L[1] / n + 1, L[2] / n], hn = Math.hypot(...h);
+    assert.ok(Math.pow(h[1] / hn, 60) * 0.12 < 0.001, 'no glint wash on a lake seen from above');
 });
 
 test('a mirror earns a picture by how much of the screen it covers, not a distance guess', () => {

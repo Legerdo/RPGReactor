@@ -114,6 +114,8 @@ class EventCommandList {
         this.callUserInterfaceEditor = new CallUserInterfaceEditor();
         this.questCommandEditor = typeof QuestCommandEditor !== 'undefined'
             ? new QuestCommandEditor(eventEditor.databaseManager) : null;
+        this.fightCommandEditor = typeof FightCommandEditor !== 'undefined'
+            ? new FightCommandEditor(eventEditor.databaseManager) : null;
         this.camera3DEditor = typeof Camera3DEditor !== 'undefined' ? new Camera3DEditor() : null;
         this.transformModel3DEditor = typeof TransformModel3DEditor !== 'undefined' ? new TransformModel3DEditor() : null;
         this.lightCommandEditor = typeof LightCommandEditor !== 'undefined' ? new LightCommandEditor() : null;
@@ -488,6 +490,7 @@ class EventCommandList {
         if (name === 'SpeakModel3D') return this.speakModel3DEditor;
         if (name === 'CallUserInterface') return this.callUserInterfaceEditor;
         if (typeof QuestCommandEditor !== 'undefined' && QuestCommandEditor.supports(name)) return this.questCommandEditor;
+        if (typeof FightCommandEditor !== 'undefined' && FightCommandEditor.supports(name)) return this.fightCommandEditor;
         return null;
     }
 
@@ -2116,6 +2119,12 @@ class EventCommandList {
                     // ("#alarm → off"), instead of the raw argument dump.
                     if (typeof LightCommandEditor !== 'undefined' && LightCommandEditor.supports(params[1])) {
                         description = LightCommandEditor.summary(params[1], params[3]);
+                        break;
+                    }
+                    // So do the on-map battle commands ("Enemy 0002: Bat at (12, 8)").
+                    if (typeof FightCommandEditor !== 'undefined' && FightCommandEditor.supports(params[1])) {
+                        info.name = this._commandName(FightCommandEditor.LABELS[params[1]]);
+                        description = FightCommandEditor.summary(params[1], params[3]);
                         break;
                     }
                 } else if (pluginName && commandName) {

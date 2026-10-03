@@ -21,10 +21,12 @@ project; a person can use it to find where anything lives.
 | Buildings, built or described | `3d/Structures/*.json` (project-wide), placed as `MapNNN.r3d.json` › `structures` | Database › Structures › Build (the plot in the 3D view with the Build bar), Build bar › Blueprint or Use on the map stamps one | `build-structure.cjs --check`, and the page's own walk |
 | Materials | `img/materials/*.png` (tileable) | swatches in the Build bar's specs panel | — |
 | Water | `MapNNN.r3d.json` › `water` (a hollow's box, its `level`, a `mask` of the wet cells) | Build bar › Terrain › Pour | `validate-map.cjs` |
+| Rivers and waterfalls | `MapNNN.r3d.json` › `water` (a sheet with a `path` of heights downstream and a `flow`) | Build bar › Terrain › River | `carve-river.cjs`, `validate-map.cjs` |
+| Foliage (grass, flowers, ferns, reeds, bushes) and wind | `MapNNN.r3d.json` › `foliage` (a density per cell per layer, bushes one by one) | Build bar › Foliage | `paint-foliage.cjs`, `validate-map.cjs` |
 | Placed models | `MapNNN.r3d.json` › `props` | Build bar › Models (Select there, or Build › Select, picks a placed one up) | — |
 | Physics (gravity, jump, fall damage, swimming) | `System.json` › `reactorPhysics`; a map's own in `MapNNN.r3d.json` › `physics` | Database › Controls › Physics (3D maps); Map Properties › Physics | — |
 | Keys and gamepad buttons | `System.json` › `reactorControls` (absent while stock) | Database › Controls | — |
-| Lights | `MapNNN.r3d.json` › `lights`, `lighting` | Lighting tool | — |
+| Lights and time of day | `MapNNN.r3d.json` › `lights`, `lighting` (a sun follows the ambient unless `daylight: "fixed"`) | Lighting tool | — |
 | Events | `MapNNN.json` › `events` (RPG Maker data) | Event tool | — |
 
 `MapNNN.json` stays ordinary RPG Maker data. Everything 3D is in the
@@ -70,9 +72,9 @@ fractional tiles for models.
   a wider stair is stairs side by side), `ramp` (same, a slope), `roof`
   (a one-cell gable), `doorway` (a lintel only: the opening is the whole
   cell, tile two side by side for a door), `window` (a sill and a header),
-  `glass`, `fence`, and `ladder` (one level of rails and rungs on one side
+  `glass`, `fence`, `ladder` (one level of rails and rungs on one side
   of the cell; a stack of them at one cell is one ladder, climbed by
-  walking into it, and nothing stands on it). The shapes are `box`,
+  walking into it, and nothing stands on it) and `door` (below). The shapes are `box`,
   `wedge`, `pyramid`, `prism`, `hull`, `spike`, `cylinder`, `capsule`,
   `tube`, `cone`, `dome`, `sphere`, `dish`, `fin`, `arch`, `tunnel` and
   `ring`: they carry `size: [w, h, d]` in tiles (the cell is the middle of
@@ -101,6 +103,88 @@ fractional tiles for models.
   `texture`, as on a model) overrides it.
 - `group`: pieces of one building share a number. Optional.
 
+A material may have companions beside its image, each optional:
+`<Name>_normal.png` (a normal map, OpenGL convention, green up),
+`<Name>_rough.png` (roughness, white rough) and `<Name>.json`:
+
+```json
+{ "scale": 4.5, "gloss": 0.35, "reflect": 0.5, "normalStrength": 1.2 }
+```
+
+`scale` is the tiles one repeat of the image covers (absent: one a tile on
+a piece, `5` on a rock); `gloss` (0-1) how smooth its smoothest parts are,
+`reflect` (0-1) how much sky they mirror at a glancing angle, and
+`normalStrength` (0-3) how deep the relief reads. Pieces, rocks and terrain
+cliffs of that material take the relief from the map's sun (else a light
+from above) and a sheen where the roughness map is dark. The pickers list
+the material, not its companions.
+
+### Doors and window frames
+
+```json
+{ "kind": "door", "x": 52, "y": 30, "z": 0, "rot": 0, "material": "Wood", "width": 3,
+  "style": "plank", "hinge": "left", "swing": "away", "opens": "locked",
+  "lock": { "item": 4 }, "message": "It's locked.",
+  "sound": { "open": { "name": "door-open-02", "volume": 80, "pitch": 95 } },
+  "frame": "Wood", "tag": "inn.front" }
+```
+
+A door hangs in a doorway (or a gap in a fence) across `width` cells (1-6),
+starting at its own and running along its across: east when `rot` is 0,
+south for 1, west for 2, north for 3. `rot` is the way its front faces.
+`swing` `"away"` (the default) opens away from whoever opens it, so a door
+pushed from inside swings out onto the street; `"in"` always opens away from
+the front, `"out"` always toward it. An automatic door notices a walker early
+enough (by their pace) to be clear of their way before they reach it, and a
+leaf never sweeps through anyone: it stops short of a character in its way,
+opens the other way when that side is clearer, and waits to close while
+anyone stands between it and the doorway. `style`:
+`plank` (boards, ledges, strap hinges, a ring), `panelled`, `arched` (an
+arched head, the wall coming down over it), `double` (two panelled leaves)
+or `gate` (fence high); a door three cells wide or more hangs two leaves.
+`frame` is the casing's material (the door's own when absent). The wall comes
+down to the door's head (an arched door's crown), so nothing crosses the
+opening above an open leaf; `validate-map.cjs` reports anything that stands
+in a doorway's opening (a rail, a sill, a shape) as "something crosses
+doorway at x,y".
+
+`opens`: `"auto"` opens for whoever walks up to it (the player, followers,
+events) and shuts behind them; `"action"` opens and shuts with the OK button
+facing it, and shuts itself a while after everyone has gone; `"locked"`
+stays shut until its `lock` is met (`{ "switch": n }` on, or the party holding
+`{ "item": n }`, which unlocks it for good), then behaves as `"auto"`. With no
+`lock`, a script unlocks it. OK at a locked door, or walking into it, rattles
+it; OK also shows its `message` (`"It's locked."` when absent, none when
+`""`). Each of `sound.open`, `sound.close` and `sound.locked` is a sound
+effect's `name`, `volume` and `pitch`; absent ones use `door-open-01`,
+`door-close-01` and `door-locked-01` (a gate `gate-open-01` and
+`door-close-02`), and an empty name is silence. Sounds fade with distance
+from the player and pan with the camera. A shut door blocks like a wall;
+an open one is its threshold. In the editor no door is ever shut against a
+walker.
+
+A script reaches a door on the player's map by piece id or tag:
+`Reactor3D.Doors.open("inn.front")`, `close`, `lock`, `unlock`, `isOpen`,
+`isLocked`. A lock or unlock is kept in the save; open and shut are not (a
+map's doors are shut when it loads). The runtime feed sends `doorOpened` and
+`doorClosed` (docs/RUNTIME-EVENTS.md).
+
+A window may wear a frame:
+
+```json
+{ "kind": "window", "x": 40, "y": 12, "z": 0, "rot": 2, "material": "Stone",
+  "frame": { "style": "cottage", "material": "Wood", "shutters": "#3f5f3a", "closed": false, "flowerBox": true } }
+```
+
+`style`: `cottage` (six small panes a cell), `two` (a sash bar), `arched`
+(an arched head) or `plain`. `rot` points its outside: the sill and lintel
+band stand out on that face, open shutters fold back against the wall either
+side, and the flower box hangs under the sill. Framed windows side by side at
+one level and turn are one window: one sill, one pair of shutters, a mullion
+between cells. In the Build bar the Door slot hangs a door in the doorway
+clicked (a run of doorways gets one door across it), and the Door and Window
+cards set all of the above.
+
 Rules the engine applies, so a generator can predict them: a character
 stands on the top of the lowest stack reachable from where it already is,
 so a floor over a room is a ceiling from below and a floor from the stairs;
@@ -127,7 +211,7 @@ and screens about the plot) and marks it as the building's.
     { "kind": "wall", "x": 3, "y": 2, "z": 1, "rot": 1, "material": "Stone" },
     { "kind": "cylinder", "x": 6, "y": 2, "z": 0.5, "size": [2, 3, 2], "angle": 30 }
   ],
-  "lights": [{ "type": "point", "x": 5.5, "y": 4.5, "height": 96, "radius": 4, "color": "#ffcc88" }]
+  "lights": [{ "type": "point", "x": 5.5, "y": 4.5, "height": 2.5, "radius": 4, "color": "#ffcc88" }]
 }
 ```
 
@@ -135,6 +219,40 @@ and screens about the plot) and marks it as the building's.
 each); the workshop keeps building inside them. A described plan (below)
 opened in the workshop is built out into pieces, and saving it keeps the
 pieces.
+
+### Saving what is on a map as a structure
+
+Anything built on a map can be kept as a structure and stamped again
+anywhere. In Build › Select, click a piece and **Select whole building**
+(or double-click the piece): a stamped building takes its whole group, a
+hand-built one every loose piece touching it; a box dragged on the ground
+selects everything in it. **Save as structure…** on the selection names
+it and writes `3d/Structures/<Name>.json` (with a `.png` picture of it),
+which Database › Structures and the Blueprint slot list at once. It holds
+the selected pieces and what stands in the box they cover:
+
+- `lights` and `surfaces` as above (not the sun or a light riding a character);
+- `props`: placed models, in the plot's cells, as the map's `props` rows;
+- `water`: sheets wholly inside the box (a fountain, a garden pond), the
+  box and mask in plot cells and `level` above the ground it stood on;
+- with **Bring the events inside as its people**, each event in the box as
+  a template under `3d/Structures/events` and a spot (`spots`, `events`),
+  so a stamp places them where they stood (People at spots, below);
+- `description`, the note typed with it.
+
+A stamp levels the ground under the plot, puts the water at its height
+above that, and marks the models and water with the building's group, so
+moving, turning or removing the building takes them along. **Make the
+selection one building of it** turns the original into a stamp of the new
+structure (one undo step); Rebuild from plan then follows later edits of
+the file. A name already taken asks before replacing that structure.
+Foliage is not saved with a structure.
+
+From a shell, a box of a map:
+
+```
+node editor/build-scripts/save-structure.cjs <project> <mapId> <x0> <y0> <x1> <y1> <name> [--events] [--note "text"] [--force] [--check]
+```
 
 ## Structure plans
 
@@ -179,6 +297,16 @@ A building as a person describes it. Everything else is derived.
   the outside, never beside a door.
 - Floor is laid under every doorway and wall cell as well as every room,
   and a ceiling over every top-floor room under the roof.
+- A door hangs in every doorway: outside doors `plank`, inner ones
+  `panelled`, all `"auto"`, in `materials.door` (`Wood` when absent) with a
+  `materials.frame` casing. `"door": { ... }` on the plan gives them all
+  their settings, a door entry's own last element (an object) its own:
+  `["hall", "outside", 3, 5, "south", { "opens": "locked", "lock": { "switch": 7 } }]`;
+  `false` there, or `"doors": false` on the plan, leaves an open doorway.
+- Windows wear a frame: `"windows": { "every": 6, "width": 2, "frame":
+  "cottage", "shutters": "#3f5f3a", "flowerBox": true }` (`frame: false` for
+  none; `flowerBox` on the ground floor, `"all"` on every floor), in
+  `materials.frame`.
 - A room may wear its own materials: `"materials": { "hall": { "floor":
   "Stone", "wall": "Wood" } }` on the floor. The floor is the room's; the
   wall applies to inner walls that touch the room (the first neighbouring
@@ -244,7 +372,8 @@ districts of hamlets:
   them onto the map marked with the building's group; a re-stamp or a
   removal takes only its own. `roof: { pitch: null }` is a building with no
   roof at all. Materials named `Glass…` draw see-through and `…Glow` draw
-  lit from within, with no image needed; every window gets a pane of
+  lit from within, with no image needed (without one a `…Glow` shines a colour
+  read from its name: `LampGlow` warm, `ForgeGlow` orange, `ScreenGlow` cyan); every window gets a pane of
   `materials.glass` (`Glass` unless the plan says).
 - `spots`: named cells. A stamped building keeps them in its record as
   map cells, prefixed by the part's name (`north.bed`), so a story can
@@ -312,6 +441,46 @@ image under `img/materials`; the runtime waves it, tints it by depth and
 fades it out at the shore. Optional `reflect` and `gloss` (0-1) and `tint` (`#rrggbb`) make it mirror the
 world through its waves: `reflect: 1, gloss: 0.92, tint: "#d8dde3"` is mercury.
 
+### Rivers and waterfalls
+
+```json
+{ "x0": 20, "y0": 140, "x1": 120, "y1": 175, "mask": "…", "material": "Water",
+  "path": [[25.5, 170.5, -4.91], [60.5, 172.5, -5.2], [110.3, 155.8, -5.6], [112.7, 154.2, -13.94]],
+  "flow": 1, "level": -4.91 }
+```
+
+A sheet with a `path` is a river: its centre line, upstream first, in tiles
+(a cell's middle is x + 0.5), with the surface's height at each point.
+The surface follows those heights, smoothly round bends and changes of
+slope, and the image runs downstream, faster where it drops, white where
+it is fast; it is clear over the shallows and dark where it runs deep. A stretch dropping more than a tile per tile of run is a
+waterfall: a falling curtain from its lip to its foot, foam, spray and mist where it lands.
+`flow` (0-4, default 1) scales the current; 0 is still. `level` is the
+path's highest point, for older readers. The mask says which cells are wet,
+as for a pond.
+
+In the game a river carries a swimmer downstream (and a wader where it runs
+fast) while they take no step of their own, and a waterfall is gone down,
+never swum up. Where a river runs into a lake the lake draws the water.
+
+The Build bar's **River** slot lays one: click along the course, upstream
+first, then double-click or press Enter (Esc drops the course). It carves
+the channel (Width across, Depth under the surface), starts a little under
+the ground at the first point or at the level of a lake it starts in,
+follows the ground down and never up, falls where the ground drops, and
+ends at the level of a lake it runs into. One undo takes the river and its
+channel back. The same from a shell:
+
+```
+node editor/build-scripts/carve-river.cjs <project> <mapId> <course.json> [--width 3] [--depth 1] [--flow 1] [--material Water] [--check]
+```
+
+`course.json` is `[[x, y], ...]`; points that all carry a level
+(`[[x, y, level], ...]`) keep those heights. The channel only ever lowers
+the ground, so rocks and pieces in its way stay: lay the river first, or
+clear its course. `validate-map.cjs` reports a course that leaves the map,
+runs uphill or has no wet cell.
+
 ## Terrain and elevation
 
 `terrain` is a height at every tile corner, bilinear between; `elevation`
@@ -320,8 +489,79 @@ cliff faces. Both add. A generator writing hills should write `terrain`
 and keep slopes under 0.75 tile per tile where characters must walk;
 `build-structure.cjs` levels a building's pad itself.
 
+On a shaped map the room floor is laid from the sides as well as from
+above where the ground leans, so slopes do not streak, and past a slope it
+turns to rock:
+
+```json
+"room": { "floor": "!Grass-01", "cliff": "Rock", "cliffSlope": 40, "cliffTint": "#a99f93" }
+```
+
+`cliff` is an image under `img/materials` (absent: `Rock` when the project
+has it; `""`: off), `cliffSlope` the angle in degrees where the change
+begins (10-80, default 40), `cliffTint` a colour multiplied in as a rock
+piece's `tint`, so terrain cliffs match the rocks beside them. Map
+Properties › 3D sets all three.
+
+## Foliage
+
+```json
+"foliage": {
+  "wind": { "dir": 30, "strength": 0.6, "gust": 1 },
+  "layers": [
+    { "kind": "grass", "density": "0x812 4x6 7x3", "height": 0.8, "colour": "#4a7a30", "tip": "#b9c862", "vary": 0.25, "seed": 1 }
+  ],
+  "bushes": [ { "x": 41.5, "y": 30.2, "size": 2, "colour": "#3f6b2b", "bloom": "#f3c6dc", "tall": 1.2, "seed": 7 } ]
+}
+```
+
+A layer is one `kind` (`grass`, `flowers`, `fern`, `reeds`) painted over
+the whole map: `density` is a level 0-9 per cell, row by row, written as
+runs (`0x812` is 812 cells of none, `7` one cell at level 7, trailing none
+left off). Blades are not stored; the runtime grows them from the density
+by a seeded scatter, on the ground where it is drawn, so they follow the
+terrain. Nothing grows where a piece or a rock stands on the ground, under
+water (reeds stand in water up to about 0.9 tile deep), or on a slope the
+room draws as cliff. `height` is in tiles, `colour` the root and `tip` the
+tip (as they read in daylight), `vary` how much each clump differs, `seed`
+which scatter; `flowers` also takes `colours`, the petals to pick from.
+Leave a key out for the kind's own look. A bush is a seeded mass of leaves
+at `x`, `y` (tiles), `size` wide (0.4-8); `tall` makes it taller than wide,
+`bloom` gives it blossom. A bush 1.4 or more wide blocks the cells it
+covers; smaller ones are walked through. `wind` blows toward `dir`
+degrees (0 east, 90 south) at `strength` (0-2), with `gust` rolling over
+it; whoever walks through the grass bends it.
+
+In the editor the Build bar's **Foliage** group paints a kind with a brush
+(size, strength, density; Erase thins it), stands bushes by click or
+scatters them by drag, and sets the map's wind; each stroke is one undo
+step. To fill a map by rule:
+
+```
+node editor/build-scripts/paint-foliage.cjs <project> <mapId> <spec.json> [--check]
+```
+
+where `spec.json` names fills (`kind`, `level`, `where`: a `rect`,
+`polygon` or `all`; `rules`: `maxSlope`, `awayFromPieces`, `nearPieces`,
+`awayFromWater`, `nearWater`, `noise` for natural patches), scattered
+bushes (`where`, `count`, `size` [min, max], `spacing`, `rules`) and the
+wind; the script's header has the full shape. Density thins with distance
+from the eye (`Reactor3D.FOLIAGE_LOD`, less on weak graphics) and the
+blades stay out of reflections.
+
+## Time of day
+
+The map's ambient (`lighting.ambient`, `lighting.ambientColour`; the
+Lighting tool's Day, Dusk and Night presets) says what time it is, and a
+sun follows it: as authored by day, lower and amber at a warm dusk, a dim
+pale-blue moon at night that still casts. On a map with a sky image the
+sky and the reflections of shiny surfaces darken and tint with it. A sun
+that should keep its authored light whatever the hour says
+`"daylight": "fixed"` (Lighting tool › the sun's Follows time of day).
+Lamps, fires and Glow materials keep their own light, so they stand out
+at night. A map with no sun and no sky (indoors) is unchanged.
+
 ## What is not here yet
 
-Furniture inside rooms, rivers
-that flow (a sheet has waves but no current), hip roofs, and a per-transfer floor (a transfer always lands on the ground
+Furniture inside rooms, hip roofs, and a per-transfer floor (a transfer always lands on the ground
 floor). Add them to this page as they land.

@@ -1,12 +1,12 @@
 # Current status
 
-The verified state of the tree as of **2026-10-01**. This page states what is true now; dated engineering history is in [HANDOFF.md](HANDOFF.md) and [docs/archive](archive/README.md), and released behaviour is described in the [changelog](../CHANGELOG.md) and [release notes](posts/release-notes-0.98.8.md).
+The verified state of the tree as of **2026-10-02**. This page states what is true now; dated engineering history is in [HANDOFF.md](HANDOFF.md) and [docs/archive](archive/README.md), and released behaviour is described in the [changelog](../CHANGELOG.md) and [release notes](posts/release-notes-0.98.8.md).
 
 ## Version and validation
 
 - Latest release: **0.98.8**, tagged and published on GitHub on 2026-09-28. Signed binaries and the itch channels follow from the Actions tab (Release Candidate → Release). The 0.98.9 cycle is open: package, lockfile, about box, web host, runtime marker, both changelogs, READMEs and the release checklist name 0.98.9.
-- Runtime revision: **20261002.4** (`runtime/reactor_main.js`, stated twice: the header comment drives the project updater, the global identifies a running game). All 16 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
-- Node suite: **4,329 tests** in this tree (`cd editor && npm test`, about 25 s), all passing. A fresh clone with `npm ci --ignore-scripts` reproduces CI and skips the tests that read gitignored projects.
+- Runtime revision: **20261002.10** (`runtime/reactor_main.js`, stated twice: the header comment drives the project updater, the global identifies a running game). All 16 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
+- Node suite: **4,436 tests** in this tree (`cd editor && npm test`, about 25 s), all passing. A fresh clone with `npm ci --ignore-scripts` reproduces CI and skips the tests that read gitignored projects.
 - CI (`.github/workflows/ci.yml`): syntax checks, the Node suite, dependency audit, patch hygiene, a clean-tree check, and a GUI job that runs the Web persistence smoke and five NW.js smokes (save, interaction order, keyboard, menus, event double-click) under xvfb with `--enable-unsafe-swiftshader`. After the 0.98.8 push the syntax check and the menu smoke failed (both fixed, awaiting push). The Web persistence smoke is intermittent on GitHub (failed on 09-27 and on the release commit, passed on the merge after it; also earlier on 09-07, 09-14 and 09-21) and passes locally; a failure now posts the page state and browser console as a public error annotation.
 - Public editor releases use NW.js **0.107.0** exactly; see the [release checklist](RELEASE-CHECKLIST.md).
 
@@ -16,8 +16,9 @@ Each system has a guide; the guide is the authority on its behaviour and limits.
 
 | System | Guide | Where the data lives |
 | --- | --- | --- |
-| 3D maps: pieces, shapes, rocks, ladders, blueprints, terrain, water, physics, lights, models, events | [AUTHORING.md](AUTHORING.md) | `MapNNN.r3d.json` beside each map, `3d/Structures/*.json`, `img/materials/`, `System.json` › `reactorPhysics` / `reactorControls` |
+| 3D maps: pieces, shapes, rocks, ladders, blueprints, terrain and cliffs, water, rivers and waterfalls, foliage, doors and window frames, material detail maps, physics, lights, models, events | [AUTHORING.md](AUTHORING.md) | `MapNNN.r3d.json` beside each map, `3d/Structures/*.json`, `img/materials/`, `System.json` › `reactorPhysics` / `reactorControls` |
 | 3D design background (tileset classes, faces, phasing) | [DESIGN-3D-WORLDS.md](DESIGN-3D-WORLDS.md) | `data/Tilesets.r3d.json`, tileset sidecars |
+| Battle modes: Classic, and battles on the map (phase 1 of [DESIGN-BATTLE-MODES.md](DESIGN-BATTLE-MODES.md)) | [BATTLE-MODES.md](BATTLE-MODES.md) | `System.json › reactorBattle`, `Troops.json › reactorBattle`, map sidecar `battle`, event units and hook pages |
 | Battle Rooms and Action Sequences | [BATTLE-PRESENTATION.md](BATTLE-PRESENTATION.md) | `data/ActionSequences.json`, `data/BattlePresentation.json` |
 | Rigging a model, hands and held weapons, motions and the Motion editor | [RIGGING-MODELS.md](RIGGING-MODELS.md) | the model's `model.json` sidecar; presets in `runtime/reactor_rig_motions.js` (the editor's `RigMotionPresets.js`, byte for byte) |
 | Face points, speech and prop playback | [3D-FACE-AND-SPEECH.md](3D-FACE-AND-SPEECH.md) | model sidecars |
@@ -48,19 +49,18 @@ Each system has a guide; the guide is the authority on its behaviour and limits.
 
 ## Open work
 
-- **Look and speed, 2026-09-30:** the owner reviews the weak-GPU defaults on the UHD 630 (edges, beams, the 0.75 scale with `"cas"` against `"crisp"`). Measured and not done: the PIXI composite (about 1.2 ms on the weak tier) and the full-size upscale target (0.8 ms) could be one draw; a player-facing graphics menu over the quality settings.
+The prioritized list of open threads, with what each needs next, is the top of [HANDOFF.md](HANDOFF.md) › Where things stand. In short:
 
-Recorded on 2026-09-20 and 2026-09-21 unless dated otherwise.
-
-- **World builder rough edges:** a thin line of floor slab shows between stacked windows; the Demo's stamped Manor and Hamlet predate the clean gables and turned window glass (2026-09-22) until re-stamped.
-- **Model motion (2026-09-26, in progress):** the Motion editor and preset rewrite are new and want the owner's review. The gesture presets besides Wave were checked only for direction, not studied pose by pose (Guard reads more like hands up). Swim and Jump were called "a good start but awkward" by the owner. Fleagus has no finger joints, so his waving hand keeps its resting curl.
-- **Rocks (2026-09-28):** the Rock slot, tops, tint, drag brush and drawn-surface collision are new and await the owner's review in the editor and the game; the Demo has no rocks yet.
-- **From the audits, not fixed:** the 2026-10-02 whole-app audit's open findings are in [HANDOFF.md](HANDOFF.md).
-- **Next agreed builder work:** furniture pieces and room contents in plans; a spot/template picker in the panel; a hamlet-of-hamlets stress test; lighting normals on slopes; hip roofs.
-- **Importer (2026-09-22):** all six older-engine games in `template/` import and boot (A Blurred Line 2000, DEEP 8 2003, Nocturne XP, Legionwood VX, The Seventh Warrior and DOTP VX Ace); every file still missing is absent from the game itself. Open: Dreamwalker (DOTP) is being brought to parity with the shipped game (2026-09-25: the title, opening, menus, shop and the battle's command phase match the shipped game; nearly all of its 177 scripts are ported; a frame-by-frame fight comparison is next, see HANDOFF), Nocturne's custom message and menu scripts (2,558 calls), side-view battle systems (Tankentai SBS in Legionwood) run as front view, Legionwood's monster book, credits and puzzle scenes, a screenshot check of the import dialog's new RTP row, and editor commands for the 2003 screen features.
+- **Battle modes:** phase 1 (battles on the map, [BATTLE-MODES.md](BATTLE-MODES.md)) is built; phase 2 (Tactical with player control, ranges, the range trigger) is next per [DESIGN-BATTLE-MODES.md](DESIGN-BATTLE-MODES.md).
+- **North Haven (Demo Map005)** is generated by `scratchpad/northhaven/build.cjs` (not in git) and awaits the owner's full review: landscape, rivers and waterfalls, foliage, HD materials, the village with doors and lanterns, Night time of day.
+- **World builder follow-ups:** foliage not cleared by paste/duplicate/drag-move; ponds don't grow when a wall is removed; lights don't follow time of day; a few panels still scroll at 1366×768 and 1024×600; furniture, hip roofs and a spot picker not started.
+- **Importer:** universal community-script ports (proposed, not started); Dreamwalker's fight comparison; Nocturne's message/menu scripts; Legionwood's side view, monster book, credits and puzzles; XP/VX/Ace RTP download.
+- **Owner reviews pending:** the 2026-09-30 weak-GPU look on the UHD 630 (edges, beams, `"cas"` vs `"crisp"`); motion presets on Fleagus (Guard reads like hands up; Swim and Jump "a good start but awkward"; Fleagus has no finger joints).
+- **Performance, measured and not done:** shadow faces walk the whole scene per face; event collision scans every event per step; the PIXI composite and the upscale target could be one draw; no player-facing graphics menu yet (PERFORMANCE.md › Quality settings lists every knob).
+- **Web bundle:** about 496 of itch's 500 MB.
 - **Custom interfaces:** MOG's meter flow animation is not carried over.
-- **Demo content:** the Demo is 3D; actors 1–5 and the enemies of its one reachable troop are models, so it ships no 2D battler art. Actors 6–8, enemies 3–5 and troops 2–5 are unused leftover records. Every sound the Demo names exists on disk (`demo-template-completeness.test.cjs`). See [demo-missing-se.md](demo-missing-se.md).
-- **Older threads, last recorded 2026-09-04 and not re-verified since:** sustained-playthrough shadow and caster-budget verification on integrated GPUs; the owner's reported fullscreen softness in the real launch path; Braver's full victory → transfer → autosave flow through the storage bridge; per-object light lists and generated distance levels as performance candidates.
+- **Demo content:** the Demo is 3D; actors 1–5 and troop 1's enemies are models, so it ships no 2D battler art. Actors 6–8, enemies 3–5 and troops 2–5 are unused leftovers (troop 3 names a missing `battlebacks1/Grassland.png`). Every sound the Demo names exists on disk (`demo-template-completeness.test.cjs`).
+- **Older threads, last recorded 2026-09-04 and not re-verified since:** sustained-playthrough shadow and caster-budget verification on integrated GPUs; the owner's reported fullscreen softness in the real launch path; Braver's full victory → transfer → autosave flow through the storage bridge.
 - **Release gates that are manual:** native Windows/macOS signed-package launch checks and a complete game playthrough; see the [release checklist](RELEASE-CHECKLIST.md).
 
 ## Keeping this page current

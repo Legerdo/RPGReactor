@@ -29,11 +29,24 @@ test('a plan file survives a round trip through the form untouched', () => {
     // Normalizing fills every field the form reads; trimming leaves out what
     // says nothing. A file the owner wrote by hand comes back byte for byte.
     const { DatabaseStructureEditor: E } = loadEditor();
-    for (const name of ['Cottage', 'Manor', 'Hamlet']) {
+    // Croft, Lodge, Longhouse and TwoUp wear window frames, shutters and flower boxes.
+    for (const name of ['Cottage', 'Manor', 'Hamlet', 'Croft', 'Lodge', 'Longhouse', 'TwoUp']) {
         const original = JSON.parse(read(`template/Demo/3d/Structures/${name}.json`));
         const back = E.trimPlan(E.normalizePlan(JSON.parse(JSON.stringify(original))));
         assert.equal(JSON.stringify(back), JSON.stringify(original), `${name}.json is written back as it was read, keys in the same order`);
     }
+    // A door entry's own settings, an open doorway, every door's settings, no doors, a roof's overhang: all kept.
+    const plan = { name: 'Doors', size: [12, 10], storey: 5, materials: { wall: 'Stone', door: 'Wood', frame: 'Wood' }, door: { opens: 'action' },
+        floors: [{ rooms: { a: [1, 1, 4, 8], b: [6, 1, 10, 8] }, doors: [['a', 'outside', 2, 2, 'south', { style: 'arched', lock: { switch: 3 }, opens: 'locked' }], ['a', 'b', 2, 4, false]] }],
+        roof: { pitch: 2, overhang: 0.5 }, windows: { every: 4, width: 2, frame: 'two', shutters: '#112233', closed: true, flowerBox: 'all' } };
+    const back = E.trimPlan(E.normalizePlan(JSON.parse(JSON.stringify(plan))));
+    // (vm-realm values: compared as JSON, memory feedback_vm_realm_deepequal)
+    const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));
+    same(back.floors[0].doors, plan.floors[0].doors);
+    same(back.door, plan.door);
+    same(back.roof, plan.roof);
+    same(back.windows, plan.windows);
+    assert.equal(E.trimPlan(E.normalizePlan(Object.assign({}, plan, { doors: false }))).doors, false);
 });
 
 test('normalizing fills defaults and clamps, and trimming drops what is default', () => {
@@ -475,7 +488,7 @@ test('screens, lights and animations on a plan: kept in the file, drawn on the p
     assert.equal(row.movie, 'Starfield.webm'); assert.equal(row.target, 'map'); assert.equal(row.structure, 3);
     assert.ok(Math.abs(row.x - 13.5) < 1e-9 && Math.abs(row.y - (6.5 + 0.52)) < 1e-9, 'stood just in front of its wall, toward the room');
     assert.equal(row.width, 8 * 48); assert.equal(row.rotationY, 0, 'facing south');
-    assert.equal(map.reactor3d.lights.length, 1); assert.equal(map.reactor3d.lights[0].tag, 'structure:3'); assert.equal(map.reactor3d.lights[0].height, 8 * 48); assert.equal(map.reactor3d.lights[0].body, false);
+    assert.equal(map.reactor3d.lights.length, 1); assert.equal(map.reactor3d.lights[0].tag, 'structure:3'); assert.equal(map.reactor3d.lights[0].height, 8, 'its height in tiles, as map lights have it'); assert.equal(map.reactor3d.lights[0].body, false);
     assert.equal(requests.length, 1); assert.equal(requests[0].animation, 41);
     SP.placeEvents(map, 3, requests, null);
     const event = map.events.find(Boolean);

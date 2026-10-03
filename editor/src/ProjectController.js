@@ -2547,6 +2547,12 @@ class ProjectController {
         if (skySx) skySx.value = room.skyScrollX || 0;
         const skySy = document.getElementById('map-3d-sky-sy-input');
         if (skySy) skySy.value = room.skyScrollY || 0;
+        const cliff = elevation && elevation.roomCliff ? elevation.roomCliff(room) : { name: 'Rock', slope: 40 };
+        this.fillMaterialSelect(document.getElementById('map-3d-cliff-select'), cliff.name);
+        const cliffSlope = document.getElementById('map-3d-cliff-slope-input');
+        if (cliffSlope) cliffSlope.value = cliff.slope;
+        const cliffTint = document.getElementById('map-3d-cliff-tint-input');
+        if (cliffTint) cliffTint.value = cliff.tint || '#ffffff';
 
         // The default camera: a mode, and blank overrides meaning "the mode's own".
         const camera = elevation && elevation.camera ? elevation.camera(mapData) : { mode: 'fixed' };
@@ -2625,8 +2631,39 @@ class ProjectController {
             ceiling: value('map-3d-ceiling-select'),
             sky: value('map-3d-sky-select'),
             skyScrollX: parseFloat(value('map-3d-sky-sx-input')) || 0,
-            skyScrollY: parseFloat(value('map-3d-sky-sy-input')) || 0
+            skyScrollY: parseFloat(value('map-3d-sky-sy-input')) || 0,
+            cliff: document.getElementById('map-3d-cliff-select') ? value('map-3d-cliff-select') : undefined,
+            cliffSlope: value('map-3d-cliff-slope-input'),
+            cliffTint: value('map-3d-cliff-tint-input')
         };
+    }
+
+    /** A select of the images under img/materials, `(None)` first; a chosen name not on disk stays, marked missing. */
+    fillMaterialSelect(select, value) {
+        if (!select) return;
+        select.innerHTML = `<option value="">${this._t('common.none')}</option>`;
+        if (this.currentProject && this.currentProject.path && (typeof nw !== 'undefined' || window.RPGReactorHost)) {
+            const fs = require('fs');
+            const path = require('path');
+            const folder = path.join(this.currentProject.path, 'img', 'materials');
+            if (fs.existsSync(folder)) {
+                RRAssetFiles.listMaterials(folder).map(record => record.imageReference).forEach(file => {
+                    const option = document.createElement('option');
+                    option.value = file;
+                    option.textContent = file;
+                    select.appendChild(option);
+                });
+            }
+        }
+        select.value = value || '';
+        if (value && select.value !== value) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = `${value} ${this._tt('(missing)')}`;
+            option.style.color = 'var(--color-danger-bright)';
+            select.appendChild(option);
+            select.value = value;
+        }
     }
 
     /**
