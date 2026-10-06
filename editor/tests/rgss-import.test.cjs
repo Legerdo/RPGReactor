@@ -238,7 +238,7 @@ test('the runtime rules for imported games stay off in MV and MZ data', () => {
     assert.equal(c.maxPattern(), 8); assert.equal(c.pattern(), 5); c.resetPattern(); assert.equal(c._pattern, 0);
     const sprites = read('reactor_sprites.js');
     assert.match(sprites, /const w = \(\$dataSystem && Number\(\$dataSystem\.rrBalloonSize\)\) \|\| 48;/);
-    assert.match(sprites, /\$dataMap && Array\.isArray\(\$dataMap\.rrImageLayers\)/);
+    assert.match(read('reactor_image_layers.js'), /\$dataMap && Array\.isArray\(\$dataMap\.rrImageLayers\)/);
     const windows = read('reactor_windows.js');
     assert.match(windows, /if \(typeof step !== "number"\) return _reactorMakeFontBigger\.call\(this\);/);
     assert.match(windows, /if \(code !== "RRFACE"\) return _reactorMessageEscape\.call\(this, code, textState\);/);

@@ -2372,7 +2372,8 @@ Game_Actor.prototype.benchMembersExpRate = function() {
 };
 
 Game_Actor.prototype.shouldDisplayLevelUp = function() {
-    return true;
+    // A level gained while the Victory interface gives a battle's rewards is shown there, not as a message.
+    return !(typeof ReactorVictory !== "undefined" && ReactorVictory && ReactorVictory.isGiving());
 };
 
 Game_Actor.prototype.changeLevel = function(level, show) {

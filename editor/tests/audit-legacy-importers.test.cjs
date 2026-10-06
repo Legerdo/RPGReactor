@@ -81,7 +81,7 @@ test('the import worker still exits on its own when the import ends, and stops c
 
 test('closing the import dialog mid-import asks first, then stops the worker and removes a folder it created', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'LegacyImportDialog.js'), 'utf8');
-    assert.match(source, /const close = \(\) => \{ if \(worker && !window\.confirm\(tt\('Stop the import\?'\)\)\) return; finish\(null\); \};/);
+    assert.match(source, /const close = async \(\) => \{\s*if \(worker && !\(await RRDialog\.confirm\(tt\('Stop the import\?'\), [^\n]*\)\)\) return;\s*finish\(null\);\s*\};/);
     assert.match(source, /if \(event\.key === 'Escape'\) \{ event\.preventDefault\(\); close\(\); \}/);
     assert.match(source, /cancelButton\.addEventListener\('click', close\)/);
     assert.match(source, /created = !fs\.existsSync\(destination\);/);

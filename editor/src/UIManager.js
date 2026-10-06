@@ -231,6 +231,12 @@ class UIManager {
             case 'media-surfaces':
                 this.handleToolbarAction(action);
                 break;
+            case 'image-layers':
+                this.handleToolbarAction(action);
+                break;
+            case 'battle-setup':
+                this.handleToolbarAction(action);
+                break;
             case 'manage-plugins':
                 if (this.callbacks.showPluginManager) {
                     this.callbacks.showPluginManager();
@@ -666,12 +672,7 @@ class UIManager {
 
             // Ctrl/Cmd+Z - Undo (only when not in a text input)
             if (commandModifier && e.key.toLowerCase() === 'z' && !e.shiftKey) {
-                const activeElement = document.activeElement;
-                const isTextInput = activeElement && (
-                    activeElement.tagName === 'INPUT' ||
-                    activeElement.tagName === 'TEXTAREA' ||
-                    activeElement.isContentEditable
-                );
+                const isTextInput = UIManager.isTextEntry(document.activeElement);
 
                 // The event editor works on the event it opened with: an undo behind it would swap the
                 // map's events for copies and its OK would then land on a detached one.
@@ -705,12 +706,7 @@ class UIManager {
             // Ctrl/Cmd+Y or Ctrl/Cmd+Shift+Z - Redo (only when not in a text input)
             if ((commandModifier && !e.shiftKey && e.key.toLowerCase() === 'y') ||
                 (commandModifier && e.shiftKey && e.key.toLowerCase() === 'z')) {
-                const activeElement = document.activeElement;
-                const isTextInput = activeElement && (
-                    activeElement.tagName === 'INPUT' ||
-                    activeElement.tagName === 'TEXTAREA' ||
-                    activeElement.isContentEditable
-                );
+                const isTextInput = UIManager.isTextEntry(document.activeElement);
 
                 if (!isTextInput && !eventEditorOpen) {
                     e.preventDefault();
@@ -879,6 +875,16 @@ class UIManager {
         }, true); // Use capture phase
     }
 
+    /**
+     * Whether the focused element takes typed text, so that Ctrl+Z and Ctrl+Y are its own.
+     * A slider, a tick, a radio, a color or a button input has no text to undo: the map's history gets the keys.
+     */
+    static isTextEntry(element) {
+        if (!element) return false;
+        if (element.tagName === 'TEXTAREA' || element.isContentEditable) return true;
+        return element.tagName === 'INPUT' && !/^(range|checkbox|radio|button|color)$/.test(String(element.type || '').toLowerCase());
+    }
+
     isEditorModalOpenForGlobalShortcuts() {
         const databaseViewer = document.getElementById('database-viewer');
         if (databaseViewer && databaseViewer.classList.contains('active')) {
@@ -903,83 +909,26 @@ class UIManager {
             .some(el => el.id !== 'event-editor-modal' && el.getClientRects?.().length > 0);
     }
 
-    confirmApplicationReload() {
-        if (document.getElementById('rr-reload-confirm')) return false;
+    /**
+     * Ask before reloading the application, through the editor's themed dialog: the question waits
+     * its turn behind any other, takes every key while it is up and starts on Cancel. Asked again
+     * while it is still unanswered, it is not asked twice. Resolves true when the reload was started.
+     */
+    async confirmApplicationReload() {
+        if (this._reloadQuestion) return false;
         const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
-
-        const overlay = document.createElement('div');
-        overlay.id = 'rr-reload-confirm';
-        overlay.className = 'rr-modal-overlay';
-
-        const modal = document.createElement('div');
-        modal.className = 'rr-modal';
-        modal.style.width = 'min(460px, 92vw)';
-        modal.setAttribute('role', 'alertdialog');
-        modal.setAttribute('aria-modal', 'true');
-        modal.setAttribute('aria-labelledby', 'rr-reload-confirm-title');
-
-        const header = document.createElement('div');
-        header.className = 'rr-modal-header';
-        const title = document.createElement('div');
-        title.id = 'rr-reload-confirm-title';
-        title.className = 'rr-modal-title';
-        title.textContent = tt('Reload Application?');
-        const closeButton = document.createElement('button');
-        closeButton.type = 'button';
-        closeButton.className = 'rr-modal-close';
-        closeButton.setAttribute('aria-label', tt('Cancel reload'));
-        closeButton.textContent = '\u00d7';
-        header.append(title, closeButton);
-
-        const body = document.createElement('div');
-        body.className = 'rr-modal-body';
-        const message = document.createElement('p');
-        message.style.cssText = 'margin:0;color:var(--color-text);line-height:1.5;';
-        message.textContent = tt('Reload RPG Reactor and simulate a browser restart?');
-        const warning = document.createElement('p');
-        warning.style.cssText = 'margin:0;padding:9px 10px;background:var(--color-danger-bg-deep);border:1px solid var(--color-danger-border);border-radius:var(--radius-md);color:var(--color-danger-light);font-weight:600;line-height:1.4;';
-        warning.textContent = tt('Any unsaved changes will be lost.');
-        body.append(message, warning);
-
-        const footer = document.createElement('div');
-        footer.className = 'rr-modal-footer';
-        const cancelButton = document.createElement('button');
-        cancelButton.id = 'rr-reload-cancel';
-        cancelButton.type = 'button';
-        cancelButton.className = 'rr-btn-secondary';
-        cancelButton.textContent = tt('Cancel');
-        const reloadButton = document.createElement('button');
-        reloadButton.id = 'rr-reload-accept';
-        reloadButton.type = 'button';
-        reloadButton.className = 'rr-button-primary';
-        reloadButton.textContent = tt('Reload');
-        footer.append(cancelButton, reloadButton);
-        modal.append(header, body, footer);
-        overlay.appendChild(modal);
-
-        const close = () => {
-            document.removeEventListener('keydown', handleKeyDown, true);
-            overlay.remove();
-        };
-        const reload = () => {
-            close();
-            this.reloadApplicationIgnoringCache();
-        };
-        const handleKeyDown = event => {
-            if (event.key === 'Escape') {
-                event.preventDefault();
-                close();
-            }
-        };
-        closeButton.addEventListener('click', close);
-        cancelButton.addEventListener('click', close);
-        reloadButton.addEventListener('click', reload);
-        overlay.addEventListener('click', event => {
-            if (event.target === overlay) close();
-        });
-        document.addEventListener('keydown', handleKeyDown, true);
-        document.body.appendChild(overlay);
-        cancelButton.focus();
+        this._reloadQuestion = true;
+        let reload = false;
+        try {
+            reload = await window.RRDialog.confirm(
+                `${tt('Reload RPG Reactor and simulate a browser restart?')}\n\n${tt('Any unsaved changes will be lost.')}`,
+                { title: tt('Reload Application?'), ok: tt('Reload'), danger: true }
+            );
+        } finally {
+            this._reloadQuestion = false;
+        }
+        if (!reload) return false;
+        this.reloadApplicationIgnoringCache();
         return true;
     }
 
@@ -1079,20 +1028,22 @@ class UIManager {
     }
 
     showAlert(title, message, okLabel) {
-        return this.openThemedDialog({
-            title,
-            message,
-            okLabel: okLabel || ((typeof window !== 'undefined' && window.I18n) ? window.I18n.tText('OK') : 'OK')
-        });
+        return this.openThemedDialog({ title, message, okLabel });
     }
 
-    showConfirm(title, message, okLabel, cancelLabel) {
+    /**
+     * A question that starts on Cancel, so a stray Enter answers no. `options.danger`: the action
+     * destroys something (danger button). `options.focus: 'ok'` starts on the action instead.
+     */
+    showConfirm(title, message, okLabel, cancelLabel, options = {}) {
         const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         return this.openThemedDialog({
             title,
             message,
-            okLabel: okLabel || tt('OK'),
-            cancelLabel: cancelLabel || tt('Cancel')
+            okLabel,
+            cancelLabel: cancelLabel || tt('Cancel'),
+            danger: !!options.danger,
+            focus: options.focus
         });
     }
 
@@ -1402,93 +1353,14 @@ class UIManager {
         });
     }
 
-    openThemedDialog({ title, message, okLabel, cancelLabel }) {
-        const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
-        const previouslyFocused = document.activeElement;
-        const overlay = document.createElement('div');
-        overlay.id = 'rr-themed-dialog';
-        overlay.className = 'rr-modal-overlay';
-
-        const modal = document.createElement('div');
-        modal.className = 'rr-modal';
-        modal.style.width = 'min(520px, 92vw)';
-        modal.setAttribute('role', 'alertdialog');
-        modal.setAttribute('aria-modal', 'true');
-        modal.setAttribute('aria-labelledby', 'rr-themed-dialog-title');
-
-        const header = document.createElement('div');
-        header.className = 'rr-modal-header';
-        const titleEl = document.createElement('div');
-        titleEl.id = 'rr-themed-dialog-title';
-        titleEl.className = 'rr-modal-title';
-        titleEl.textContent = title || '';
-        const closeButton = document.createElement('button');
-        closeButton.type = 'button';
-        closeButton.id = 'rr-themed-dialog-close';
-        closeButton.className = 'rr-modal-close';
-        closeButton.setAttribute('aria-label', cancelLabel || tt('Close'));
-        closeButton.textContent = '\u00d7';
-        header.append(titleEl, closeButton);
-
-        const body = document.createElement('div');
-        body.className = 'rr-modal-body';
-        String(message || '').split('\n').forEach(line => {
-            const p = document.createElement('p');
-            p.style.cssText = 'margin:0;color:var(--color-text);line-height:1.5;white-space:pre-wrap;';
-            p.textContent = line;
-            body.appendChild(p);
-        });
-
-        const footer = document.createElement('div');
-        footer.className = 'rr-modal-footer';
-        let cancelButton = null;
-        if (cancelLabel) {
-            cancelButton = document.createElement('button');
-            cancelButton.id = 'rr-themed-dialog-cancel';
-            cancelButton.type = 'button';
-            cancelButton.className = 'rr-button-danger';
-            cancelButton.textContent = cancelLabel;
-            footer.appendChild(cancelButton);
-        }
-        const okButton = document.createElement('button');
-        okButton.id = 'rr-themed-dialog-ok';
-        okButton.type = 'button';
-        okButton.className = 'rr-button-primary';
-        okButton.textContent = okLabel || tt('OK');
-        footer.appendChild(okButton);
-        modal.append(header, body, footer);
-        overlay.appendChild(modal);
-
-        return new Promise(resolve => {
-            let settled = false;
-            const finish = value => {
-                if (settled) return;
-                settled = true;
-                document.removeEventListener('keydown', handleKeyDown, true);
-                overlay.remove();
-                if (previouslyFocused && previouslyFocused.isConnected !== false &&
-                    typeof previouslyFocused.focus === 'function') {
-                    previouslyFocused.focus();
-                }
-                resolve(value);
-            };
-            const handleKeyDown = event => {
-                if (event.key === 'Escape') {
-                    event.preventDefault();
-                    finish(!cancelLabel);
-                }
-            };
-            closeButton.addEventListener('click', () => finish(!cancelLabel));
-            if (cancelButton) cancelButton.addEventListener('click', () => finish(false));
-            okButton.addEventListener('click', () => finish(true));
-            overlay.addEventListener('click', event => {
-                if (event.target === overlay) finish(!cancelLabel);
-            });
-            document.addEventListener('keydown', handleKeyDown, true);
-            document.body.appendChild(overlay);
-            window.RRKeyboardNavigation?.modal(overlay, { container: () => modal });
-            (cancelButton || okButton).focus();
-        });
+    /**
+     * The editor's themed dialog (utils/Dialog.js). With a cancelLabel it is a question and resolves
+     * true only from its action button; without one it is a notice and resolves true however it closes.
+     * `danger` paints the action button in the danger style. A question starts on Cancel unless
+     * `focus` is 'ok'.
+     */
+    openThemedDialog({ title, message, okLabel, cancelLabel, danger, kind, focus }) {
+        return window.RRDialog.open({ title, message, okLabel, cancelLabel, danger, kind, focus: focus || 'cancel' });
     }
 
     reloadApplicationIgnoringCache() {
@@ -1607,6 +1479,14 @@ class UIManager {
             case 'media-surfaces':
                 window.reactor?.mediaSurfaceManager?.toggle();
                 break;
+            case 'image-layers':
+                window.reactor?.mapImageLayersManager?.toggle();
+                break;
+            // Battle Setup: Event mode on and the card beside the map; a second press closes the card.
+            case 'battle-setup':
+                if (!window.reactor?.eventManager?.currentMap) this.callbacks.toggleEventMode?.();
+                else window.RRBattleSetup?.toggle(window.reactor.eventManager);
+                break;
             case 'lighting-tool':
                 if (typeof window !== 'undefined' && window.reactor?.lightingManager) {
                     window.reactor.lightingManager.toggle();
@@ -1653,6 +1533,9 @@ class UIManager {
         if (mapEditor.shadowPenMode) {
             mapEditor.setShadowPenMode(false);
         }
+        // The pencil draws: picking it puts the eraser down. A shape or the
+        // bucket keeps it, which is how an area is erased.
+        if (tool === 'pencil' && mapEditor.eraserMode) mapEditor.setEraserMode(false);
         mapEditor.setTool(tool);
 
         // Update button visual states

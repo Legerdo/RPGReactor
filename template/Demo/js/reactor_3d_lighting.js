@@ -554,9 +554,10 @@ Reactor3D.LIGHT_GLSL = Reactor3D.lightGlsl(false);
  */
 Reactor3D.packLightUniforms = function(lights, ambient, uniforms = this.lightUniforms(), shadows = null) {
     if (uniforms.rrLightGridEnabled) uniforms.rrLightGridEnabled.value = 0;
-    // The map's light volume holds the map's lights, not these.
+    // The map's light volume holds the map's lights, not these; nor does the map's glowing water light a preview.
     if (uniforms.rrVolumeOn) uniforms.rrVolumeOn.value = 0;
     if (uniforms.rrDynOn) uniforms.rrDynOn.value = 0;
+    if (uniforms.rrWaterFarEdge) uniforms.rrWaterFarEdge.value = 0;
     const pos = uniforms.rrLightPos.value;
     const col = uniforms.rrLightColor.value;
     const aim = uniforms.rrLightAim.value;
@@ -784,14 +785,37 @@ Reactor3D.cutawayUniforms = function() {
             rrCutFoci: { value: new Float32Array(3 * Reactor3D.CUTAWAY_FOCI) },
             rrCutFocusCount: { value: 0 },
             rrCutRadius: { value: 0 },
+            // 1 while a battle runs on the map: only then is a character's own model a body the fades pass by.
+            rrCutBattle: { value: 0 },
             // The footprint the top cut reaches: x0, z0, x1, z1 in world tiles.
             rrCutBox: { value: [0, 0, 0, 0] },
             // Half the width of the see-through corridor: the party's own width and a little.
-            rrGhostWidth: { value: Reactor3D.GHOST_WIDTH }
+            rrGhostWidth: { value: Reactor3D.GHOST_WIDTH },
+            // A battle's ground nothing may hide (reactor_fight_tactical.js): its box in world tiles
+            // (x0, z0, x1, z1; empty is off), the ground it lies on and the height a wall keeps over it.
+            rrFightBox: { value: [0, 0, 0, 0] },
+            rrFightLevel: { value: [0, 0] },
+            // What a Tactical battle has opened to show its units: boxes of the map in world tiles (x0, z0, x1, z1
+            // each) and the height everything built inside each is cut away above. A count of 0 opens nothing.
+            // `rrOpenAll` is the one box they all lie in and `rrOpenLow` the lowest of the heights: a piece
+            // outside the one or under the other asks about no box at all. The first `rrOpenFeet` boxes are the
+            // buildings' footprints and every other box lies inside one of them: a piece in no footprint asks
+            // about none of the rest.
+            rrOpenBox: { value: new Float32Array(4 * Reactor3D.CUTAWAY_OPENINGS) },
+            rrOpenTop: { value: new Float32Array(Reactor3D.CUTAWAY_OPENINGS) },
+            rrOpenCount: { value: 0 },
+            rrOpenFeet: { value: 0 },
+            rrOpenAll: { value: [-1e9, -1e9, 1e9, 1e9] },
+            rrOpenLow: { value: -1e9 }
         };
     }
     return this._cutawayUniforms;
 };
+/**
+ * How many boxes a battle's openings may be made of (a house is its footprint and each run of wall cut low). A
+ * piece asks only as many as are in use, and none outside `rrOpenAll` or under `rrOpenLow`.
+ */
+Reactor3D.CUTAWAY_OPENINGS = 24;
 
 /**
  * Half the width of the see-through corridor at the party: the body and a
@@ -805,6 +829,8 @@ Reactor3D.GHOST_WIDTH = 0.6;
 Reactor3D.CUTAWAY_FOCI = 8;
 /** How far from the player, in tiles, an event is still kept in sight through a wall. */
 Reactor3D.CUTAWAY_COMPANY_REACH = 12;
+/** How far below the player, in tiles, an event is no longer kept in sight: under the floor or the roof the player stands on. */
+Reactor3D.CUTAWAY_COMPANY_BELOW = 3;
 
 Reactor3D.injectCutaway = function(material, shader) {
     // Pieces take both cuts; a placed model (a tree in front of the door)
@@ -814,7 +840,17 @@ Reactor3D.injectCutaway = function(material, shader) {
     for (const name of Object.keys(shared)) shader.uniforms[name] = shared[name];
     if (shader.fragmentShader.indexOf("uniform float rrCutTop;") >= 0) return;
     shader.uniforms.rrGhost = { value: material.__reactorGhost ? 1 : 0 };
-    shader.fragmentShader = "uniform float rrCutTop;\nuniform vec3 rrCutEye;\nuniform vec3 rrCutFocus;\nuniform float rrCutRadius;\nuniform vec4 rrCutBox;\nuniform float rrGhost;\nuniform float rrGhostWidth;\nuniform vec3 rrCutFoci[" + Reactor3D.CUTAWAY_FOCI + "];\nuniform int rrCutFocusCount;\n" + shader.fragmentShader.replace(
+    // Scenery in the way of a Tactical battle's units (a tree, a prop) is cut off at a height, whole above it and
+    // gone over it: one height per material, a model's materials being its own. A unit's own model never is.
+    material.userData = material.userData || {};
+    shader.uniforms.rrFightStump = material.userData.rrFightStump || (material.userData.rrFightStump = { value: 1e9 });
+    // In a battle a character's own model (who fights, who walks with the player, who stands by) fades neither in
+    // the sight line nor over the battle's ground: characters are not cover. One flag per material, counted only
+    // while a battle runs here (rrCutBattle), so the map's own fade is the map's again when it is over.
+    shader.uniforms.rrCutBody = material.userData.rrCutBody || (material.userData.rrCutBody = { value: 0 });
+    const openings = Reactor3D.CUTAWAY_OPENINGS;
+    shader.fragmentShader = "uniform float rrFightStump;\nuniform float rrCutBody;\nuniform float rrCutBattle;\nuniform float rrCutTop;\nuniform vec3 rrCutEye;\nuniform vec3 rrCutFocus;\nuniform float rrCutRadius;\nuniform vec4 rrCutBox;\nuniform float rrGhost;\nuniform float rrGhostWidth;\nuniform vec3 rrCutFoci[" + Reactor3D.CUTAWAY_FOCI + "];\nuniform int rrCutFocusCount;\n"
+        + (material.__reactorPieces ? "uniform vec4 rrOpenBox[" + openings + "];\nuniform float rrOpenTop[" + openings + "];\nuniform int rrOpenCount;\nuniform int rrOpenFeet;\nuniform vec4 rrOpenAll;\nuniform float rrOpenLow;\n" : "") + shader.fragmentShader.replace(
         "#include <map_fragment>",
         [
             material.__reactorPieces ? "if (vRRWorldPos.y > rrCutTop && vRRWorldPos.x >= rrCutBox.x && vRRWorldPos.z >= rrCutBox.y && vRRWorldPos.x <= rrCutBox.z && vRRWorldPos.z <= rrCutBox.w) discard;" : "",
@@ -853,9 +889,37 @@ Reactor3D.injectCutaway = function(material, shader) {
                 "\t\tif (rrOff2 < rrGhostWidth * (rrAlong2 / rrSight2Length) && rrLineY - 1.0 < rrF.y + 3.5) { rrInWay = true; break; }",
                 "\t}",
                 "}",
+                // What a Tactical battle has opened is cut at a level, whole under it and gone over it: the storey
+                // above its floor over a house, a wall in the way down to its foot. A face is asked a hair inside
+                // the cell it belongs to, so a wall's own face on a box's edge goes with its wall. What lies under
+                // the lowest cut, or outside the one box everything open lies in, asks about no box: a floor, the
+                // rest of the map. The buildings' footprints are asked first, and the walls cut low only by what
+                // lies in one: a building that is not open asks about a handful of boxes, not all of them.
+                "if (rrOpenCount > 0 && vRRWorldPos.y > rrOpenLow) {",
+                "\tvec2 rrOpenAt = vRRWorldPos.xz - rrFaceN.xz * 0.02;",
+                "\tif (rrOpenAt.x >= rrOpenAll.x && rrOpenAt.y >= rrOpenAll.y && rrOpenAt.x <= rrOpenAll.z && rrOpenAt.y <= rrOpenAll.w) {",
+                "\t\tfloat rrOpenCut = 1e9;",
+                "\t\tfor (int rrJ = 0; rrJ < " + openings + "; rrJ++) {",
+                "\t\t\tif (rrJ >= rrOpenFeet) break;",
+                "\t\t\tvec4 rrOpen = rrOpenBox[rrJ];",
+                "\t\t\tif (rrOpenAt.x >= rrOpen.x && rrOpenAt.y >= rrOpen.y && rrOpenAt.x <= rrOpen.z && rrOpenAt.y <= rrOpen.w) rrOpenCut = min(rrOpenCut, rrOpenTop[rrJ]);",
+                "\t\t}",
+                "\t\tif (rrOpenCut < 1e8) {",
+                "\t\t\tfor (int rrJ = 0; rrJ < " + openings + "; rrJ++) {",
+                "\t\t\t\tif (rrJ >= rrOpenCount) break;",
+                "\t\t\t\tif (rrJ < rrOpenFeet) continue;",
+                "\t\t\t\tvec4 rrOpen = rrOpenBox[rrJ];",
+                "\t\t\t\tif (rrOpenAt.x >= rrOpen.x && rrOpenAt.y >= rrOpen.y && rrOpenAt.x <= rrOpen.z && rrOpenAt.y <= rrOpen.w) rrOpenCut = min(rrOpenCut, rrOpenTop[rrJ]);",
+                "\t\t\t}",
+                "\t\t\tif (vRRWorldPos.y > rrOpenCut) discard;",
+                "\t\t}",
+                "\t}",
+                "}",
                 "if (rrGhost > 0.5) { if (!rrInWay) discard; } else if (rrInWay) discard;"
-            ].join("\n\t") : "",
-            "if (rrCutRadius > 0.0 && vRRWorldPos.y > rrCutFocus.y - 1.2) {",
+            ].join("\n\t")
+                // Scenery in the way of a battle's units is cut off above its foot; a body never is.
+                : "if (rrCutBody * rrCutBattle < 0.5 && vRRWorldPos.y > rrFightStump) discard;",
+            "if (rrCutRadius > 0.0 && rrCutBody * rrCutBattle < 0.5 && vRRWorldPos.y > rrCutFocus.y - 1.2) {",
             "\tvec3 rrSight = rrCutFocus - rrCutEye;",
             "\tfloat rrSightLength = length(rrSight);",
             "\tif (rrSightLength > 0.001) {",
@@ -932,6 +996,16 @@ Reactor3D.CUTAWAY_REACH = 24;
  */
 Reactor3D.MapScene.prototype.updateCutaway = function(camera, mapData, character, others) {
     const shared = Reactor3D.cutawayUniforms();
+    const frame = (this._cutFrame = (this._cutFrame || 0) + 1);
+    Reactor3D._cutFrameNow = frame;
+    // A placed model thins where it stands near the line from the eye to the player (a bough, a cart), and over a
+    // tactical battle's ground. In a battle characters stand all along that line and all over that ground, and each
+    // was drawn as a dithered ghost: characters are not cover. Theirs are marked as the battle begins and a few
+    // times a second after, and the fades pass them by while the battle runs. (Before anything returns: a map with
+    // nothing built has bodies too.)
+    const battle = !!camera && Reactor3D.cutawayInBattle();
+    if (battle && (!shared.rrCutBattle.value || frame % Reactor3D.CUTAWAY_BODY_FRAMES === 1)) Reactor3D.cutawayMarkBodies(character);
+    shared.rrCutBattle.value = battle ? 1 : 0;
     if (!camera || !mapData || !character || !Reactor3D.hasPieces(mapData)) {
         shared.rrCutTop.value = 1e9;
         shared.rrCutRadius.value = 0;
@@ -964,19 +1038,153 @@ Reactor3D.MapScene.prototype.updateCutaway = function(camera, mapData, character
     shared.rrCutEye.value[0] = eye.x; shared.rrCutEye.value[1] = eye.y; shared.rrCutEye.value[2] = eye.z;
     shared.rrCutFocus.value[0] = x; shared.rrCutFocus.value[1] = ground + 1.5; shared.rrCutFocus.value[2] = z;
     const foci = shared.rrCutFoci.value;
-    foci[0] = x; foci[1] = ground + 1.5; foci[2] = z;
-    let count = 1;
+    if (battle) {
+        // The fade stops CUTAWAY_PARTY_ROOM short of the line's end, so the party standing there never thins. With
+        // the party marked, a battle needs no such room, and its camera can stand nearer than that: the line is
+        // carried on past the player, so a bough right behind the player's back thins too. Not for an eye in or
+        // over the player's head (first person, a camera hard against a wall): that line points at the ground.
+        const focus = shared.rrCutFocus.value, dx = focus[0] - eye.x, dy = focus[1] - eye.y, dz = focus[2] - eye.z;
+        if (Math.hypot(dx, dz) >= 1) {
+            const on = (Reactor3D.CUTAWAY_PARTY_ROOM - Reactor3D.CUTAWAY_BATTLE_ROOM) / Math.hypot(dx, dy, dz);
+            focus[0] += dx * on; focus[1] += dy * on; focus[2] += dz * on;
+        }
+    }
+    // A corridor only for who something built really hides: a rim, a bench or a counter the eye sees over is not
+    // cover, and a corridor through it was a box cut out of it at the character's feet.
+    let count = 0;
+    if (Reactor3D.cutawayHides(mapData, eye, character, x, ground, z, true, frame)) { foci[0] = x; foci[1] = ground + 1.5; foci[2] = z; count = 1; }
+    let slot = 0;
     for (const other of others || []) {
         if (count >= Reactor3D.CUTAWAY_FOCI) break;
         if (!other) continue;
+        slot++;
         const ox = (Number.isFinite(other._realX) ? other._realX : other.x || 0) + 0.5;
         const oz = (Number.isFinite(other._realY) ? other._realY : other.y || 0) + 0.5;
         const og = standing(other);
+        // One of the company is looked at afresh each frame, in turn; the rest keep their last answer.
+        if (!Reactor3D.cutawayHides(mapData, eye, other, ox, og, oz, slot % Reactor3D.CUTAWAY_FOCI === frame % Reactor3D.CUTAWAY_FOCI, frame)) continue;
         foci[count * 3] = ox; foci[count * 3 + 1] = og + 1.5; foci[count * 3 + 2] = oz;
         count++;
     }
     shared.rrCutFocusCount.value = count;
     shared.rrCutRadius.value = Reactor3D.CUTAWAY_RADIUS;
+};
+
+/** Whether a battle runs on the map being played (never in the editor, which has no game). */
+Reactor3D.cutawayInBattle = function() {
+    const fight = typeof $gameFight !== "undefined" ? $gameFight : null;
+    return !!(fight && typeof fight.isHere === "function" && fight.isHere());
+};
+/** How often, in frames, a battle's characters are looked over for models not yet marked as bodies. */
+Reactor3D.CUTAWAY_BODY_FRAMES = 30;
+/** How far short of the player the model fade stops, in tiles: the shader's own number, and a battle's. */
+Reactor3D.CUTAWAY_PARTY_ROOM = 3.5;
+Reactor3D.CUTAWAY_BATTLE_ROOM = 0.6;
+
+/**
+ * Marks the models of everyone in a battle's picture as bodies the fades leave whole: the player, the followers,
+ * the battle's units, and every other character on the map (scenery, the placed models, is not one). A model
+ * instance is marked once; one that arrives later is found on a later look. The mark stays on the material and
+ * counts only while a battle runs here (`rrCutBattle`): nothing is walked again to take it off.
+ */
+Reactor3D.cutawayMarkBodies = function(player) {
+    this.cutawayMarkBody(player);
+    if (typeof $gamePlayer !== "undefined" && $gamePlayer) {
+        // A tactical view follows the unit whose turn it is: the player is a body whoever that is.
+        if ($gamePlayer !== player) this.cutawayMarkBody($gamePlayer);
+        if ($gamePlayer.followers) for (const follower of $gamePlayer.followers().visibleFollowers()) this.cutawayMarkBody(follower);
+    }
+    if (typeof $gameMap === "undefined" || !$gameMap || !$gameMap.events) return;
+    const scenery = this.PROP_EVENT_BASE || 10000;
+    for (const event of $gameMap.events()) {
+        if (event && typeof event.eventId === "function" && event.eventId() < scenery) this.cutawayMarkBody(event);
+    }
+};
+Reactor3D.cutawayMarkBody = function(character) {
+    const holder = character && this.modelHolderFor ? this.modelHolderFor(character) : null;
+    const object = holder && holder.object;
+    if (!object || typeof object.traverse !== "function") return false;
+    // What the character holds is part of its body: a weapon comes to the hand after the body was marked.
+    const held = this.MapHeld && this.MapHeld.count ? this.MapHeld.states.get(this.modelInstanceKey(character)) : null;
+    const thing = held && held.character === character && held.record ? held.record.object : null;
+    if (thing && !thing.__rrCutBody && typeof thing.traverse === "function") { thing.__rrCutBody = true; this.cutawayMarkMaterials(thing); }
+    if (object.__rrCutBody) return false;
+    object.__rrCutBody = true;
+    this.cutawayMarkMaterials(object);
+    return true;
+};
+/** Every material of a model is told it is a body's. */
+Reactor3D.cutawayMarkMaterials = function(object) {
+    object.traverse(node => {
+        const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : null;
+        if (!materials) return;
+        for (const material of materials) {
+            material.userData = material.userData || {};
+            if (material.userData.rrCutBody) material.userData.rrCutBody.value = 1;
+            else material.userData.rrCutBody = { value: 1 };
+        }
+    });
+    return true;
+};
+
+/**
+ * Whether something built stands between the eye and a character: on the line to its chest or to its head. The
+ * answer is kept per character and looked at again when `fresh`, or when it is `CUTAWAY_FOCI` frames old.
+ */
+Reactor3D.cutawayHides = function(mapData, eye, character, x, ground, z, fresh, frame) {
+    const memo = this._cutHides || (this._cutHides = new WeakMap());
+    let kept = memo.get(character);
+    if (!kept) memo.set(character, kept = { frame: -1e9, hides: false, last: -1e9, open: -1e9 });
+    else if (!fresh && frame - kept.frame < this.CUTAWAY_FOCI && frame >= kept.frame) { if (kept.hides) kept.open = frame; return kept.hides; }
+    if (frame < kept.last) kept.last = -1e9;
+    kept.frame = frame;
+    const to = this._cutTo || (this._cutTo = { x: 0, y: 0, z: 0 });
+    to.x = x; to.z = z;
+    let hides = false;
+    for (let i = 0; i < 2 && !hides; i++) {
+        to.y = ground + (i ? this.CUTAWAY_HEAD : 1.5);
+        const length = Math.hypot(to.x - eye.x, to.y - eye.y, to.z - eye.z);
+        // Up to the character itself: what it stands against (a wall at its back) hides nothing of it.
+        hides = length > 0.6 && this.sightBuilt(mapData, eye, to, length - 0.5);
+    }
+    if (hides) kept.last = frame;
+    // A corridor stays open a moment after its wall was last met: a line that grazes a corner does not flicker.
+    kept.hides = hides || frame - kept.last < this.CUTAWAY_HOLD;
+    if (kept.hides) kept.open = frame;
+    return kept.hides;
+};
+
+/**
+ * Whether what is built is opened for a character standing at a point of the map: a corridor is being held open
+ * to it, or it stands on a battle's ground, which nothing built may hide (reactor_fight_tactical.js). Who the
+ * picture shows through a wall is in plain view: a number or an animation on it is shown too.
+ */
+Reactor3D.cutawayShows = function(character, wx, wz) {
+    const shared = this._cutawayUniforms;
+    if (!shared) return false;
+    const box = shared.rrFightBox.value;
+    if (box[2] > box[0] && wx >= box[0] && wz >= box[1] && wx <= box[2] && wz <= box[3]) return true;
+    if (!(shared.rrCutRadius.value > 0) || !character || !this._cutHides) return false;
+    const kept = this._cutHides.get(character), age = kept ? this._cutFrameNow - kept.open : -1;
+    return age >= 0 && age <= 1;
+};
+/** How high over its feet a character's head is taken to be when asking whether a wall hides it, in tiles. */
+Reactor3D.CUTAWAY_HEAD = 2.6;
+/** Frames a corridor stays open after the last frame something was found in the way. */
+Reactor3D.CUTAWAY_HOLD = 20;
+
+/** Whether a piece stands on the first `reach` tiles of the line from one point to another (posts and rails aside). */
+Reactor3D.sightBuilt = function(mapData, from, to, reach) {
+    if (!this.hasPieces(mapData)) return false;
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+    const length = Math.hypot(dx, dy, dz);
+    if (!(length > 1e-6) || !(reach > 0)) return false;
+    const end = Math.min(reach, length), thin = this.CAMERA_ARM_THIN;
+    for (let d = 0.15; d < end; d += 0.3) {
+        const t = d / length;
+        if (this.pieceSolidAt(mapData, from.x + dx * t, from.y + dy * t, from.z + dz * t, null, thin)) return true;
+    }
+    return false;
 };
 Reactor3D.MapScene.prototype.setCutLook = function(on) {
     for (const ghost of this._pieceGhosts || []) ghost.visible = on;
@@ -984,13 +1192,23 @@ Reactor3D.MapScene.prototype.setCutLook = function(on) {
 };
 
 /**
- * Whether a world point is inside a piece's solid: a wall, block, window,
- * pillar, fence or roof volume on its cell (floors and doorways are open,
- * a stair or ramp counts under its slope). Pieces the cutaway has removed
- * (above `cut.top` inside `cut.box`) are not solid: the camera may sit
- * where a roof was.
+ * Whether a world point is inside something built. A wall, block, window,
+ * pane or pillar fills its cell to its height (a floor is open; a stair or
+ * ramp counts under its slope); a doorway is open under its lintel; a shape
+ * is its own outline at its own height (a lamp post is its post, not its
+ * cell; a cone narrows to its point; a slab laid at a tilt is where it
+ * lies); a rock is solid up to its surface; a door is solid while its leaf
+ * stands shut. Pieces the cutaway has removed (above `cut.top` inside
+ * `cut.box`) are not solid: the camera may sit where a roof was. With
+ * `thin`, what is narrower than that many tiles (a post, a rail, a pillar)
+ * is let through: a camera does not come in for it. `doors` says how a
+ * way through counts: `DOORS_OPEN`, a doorway and a door are open air at
+ * every height, lintel and all (the map's own camera trails its player
+ * through them); `DOORS_CLOSING`, a door on its way shut is shut already.
  */
-Reactor3D.pieceSolidAt = function(mapData, wx, wy, wz, cut) {
+Reactor3D.DOORS_OPEN = 1;
+Reactor3D.DOORS_CLOSING = 2;
+Reactor3D.pieceSolidAt = function(mapData, wx, wy, wz, cut, thin, doors) {
     const index = this.pieceIndex(mapData);
     if (!index) return false;
     const x = Math.floor(wx), y = Math.floor(wz);
@@ -1000,13 +1218,166 @@ Reactor3D.pieceSolidAt = function(mapData, wx, wy, wz, cut) {
     const base = this.pieceBaseAt(mapData, x, y);
     const h = wy - base;
     const u = wx - x, v = wz - y;
+    const slim = thin > 0 ? thin : 0;
     for (const piece of stack) {
-        if (piece.kind === "floor" || piece.kind === "doorway" || piece.kind === "door") continue;
-        if (h < piece.z || h > piece.z + this.pieceHeight(piece.kind)) continue;
-        if (piece.kind === "stair" || piece.kind === "ramp") { if (h > this.pieceTop(piece, u, v)) continue; }
+        const kind = piece.kind;
+        if (kind === "floor") continue;
+        if (kind === "doorway") {
+            if (doors !== 1 && h >= piece.z + this.PIECE_STOREY - this.DOORWAY_LINTEL && h <= piece.z + this.PIECE_STOREY) return true;
+            continue;
+        }
+        if (kind === "door") { if (doors !== 1 && this.doorSolidAt(piece, h, doors === 2)) return true; continue; }
+        if (Number.isFinite(piece.rockTop)) { if (h >= piece.z && h <= piece.rockTop) return true; continue; }
+        if (this.isShapeKind(kind)) { if (this.shapeHolds(mapData, piece, wx, wy, wz, base, slim)) return true; continue; }
+        if (slim && (kind === "pillar" || kind === "fence" || kind === "ladder")) continue;
+        if (h < piece.z || h > piece.z + this.pieceHeight(kind)) continue;
+        if (kind === "stair" || kind === "ramp") { if (h > this.pieceTop(piece, u, v)) continue; }
         return true;
     }
     return false;
+};
+/** How deep a doorway's lintel hangs under the top of its storey, in tiles (the band `pieceShapes` draws). */
+Reactor3D.DOORWAY_LINTEL = 0.6;
+
+/**
+ * Whether a height over a door's cell is in the door: the wall over its
+ * leaves always, and the leaves themselves while they stand across the
+ * doorway (`doorShut`: what stops a shot or a look stops a camera). A gate
+ * has nothing over it. With `closing`, leaves on their way shut count from
+ * the moment they begin to swing: a camera starts in before they meet.
+ */
+Reactor3D.doorSolidAt = function(piece, h, closing) {
+    if (h < piece.z) return false;
+    const leaf = this.doorLeafHeight ? this.doorLeafHeight(piece) : 3.6;
+    if (h > piece.z + leaf) return piece.style !== "gate" && h <= piece.z + this.PIECE_STOREY;
+    if (closing && this.doorClosing(piece)) return true;
+    return !!this.doorShut && this.doorShut(piece);
+};
+/** Whether a door is shut or swinging shut (the game's doors only: nothing swings in the editor). */
+Reactor3D.doorClosing = function(piece) {
+    const state = this._doorStates && piece ? this._doorStates.get(piece.id) : null;
+    return !!state && !state.open;
+};
+
+/**
+ * A shape's own frame, kept per piece: its middle, its size, the turn that
+ * takes a world offset into it, and for one laid at a tilt or a roll how
+ * high its middle stands over its foot.
+ */
+Reactor3D.shapeFrame = function(piece) {
+    const memo = this._shapeFrameMemo || (this._shapeFrameMemo = new WeakMap());
+    let frame = memo.get(piece);
+    if (frame) return frame;
+    const [w, h, d] = this.shapeSize(piece);
+    const [cx, cz] = this.shapeCentre(piece);
+    const rad = deg => (Number(deg) || 0) * Math.PI / 180;
+    const yaw = rad((Number(piece.angle) || 0) + (Number(piece.rot) || 0) * 90), tilt = rad(piece.tilt), roll = rad(piece.roll);
+    const params = this.shapeParams(piece);
+    frame = { w, h, d, cx, cz, cos: Math.cos(yaw), sin: Math.sin(yaw), turned: this.shapeTurned(piece), lift: 0,
+        ct: Math.cos(tilt), st: Math.sin(tilt), cr: Math.cos(roll), sr: Math.sin(roll),
+        sweep: params.sweep, thick: params.thick, taper: params.taper === undefined ? 1 : params.taper, narrow: Math.max(w, d) };
+    if (frame.turned) {
+        // Its lowest corner rests at its height (`shapePlacer`): its middle stands this far over that.
+        frame.lift = this.shapePlacer(piece, 0)(0.5, 0.5, 0.5)[1] - (Number(piece.z) || 0);
+        // A post lying down is still a post: the two lesser sides say how thin it is.
+        frame.narrow = [w, h, d].sort((a, b) => a - b)[1];
+    }
+    memo.set(piece, frame);
+    return frame;
+};
+
+/** Whether a world point is inside a shape (see `pieceSolidAt`). `cellBase` is the ground of the cell the point is in. */
+Reactor3D.shapeHolds = function(mapData, piece, wx, wy, wz, cellBase, slim) {
+    const f = this.shapeFrame(piece);
+    if (slim && f.narrow < slim) return false;
+    // A shape is drawn from the ground of the cell it stands on, whichever of its cells the point is over.
+    const base = Array.isArray(piece.anchor) ? this.pieceBaseAt(mapData, piece.anchor[0], piece.anchor[1]) : cellBase;
+    const px = wx - f.cx, pz = wz - f.cz;
+    let lx = px * f.cos + pz * f.sin, lz = -px * f.sin + pz * f.cos;
+    const hw = f.w / 2, hd = f.d / 2, kind = piece.kind;
+    if (f.turned) {
+        // Back through the tilt and the roll, about its middle.
+        const qy = wy - base - (Number(piece.z) || 0) - f.lift;
+        const y1 = qy * f.ct + lz * f.st;
+        lz = -qy * f.st + lz * f.ct;
+        const x0 = lx * f.cr + y1 * f.sr, y0 = -lx * f.sr + y1 * f.cr;
+        if (Math.abs(y0) > f.h / 2) return false;
+        return this.shapeSolidAt(kind, x0, lz, hw, hd, 0, f.sweep, f.thick);
+    }
+    const t = (wy - base - (Number(piece.z) || 0)) / f.h;
+    if (!(t >= 0 && t <= 1)) return false;
+    // How much of its outline is left at this height.
+    let k = 1;
+    switch (kind) {
+        case "cone": case "pyramid": k = 1 - t; break;
+        case "hull": case "spike": k = 1 + (f.taper - 1) * t; break;
+        case "dome": k = Math.sqrt(Math.max(0, 1 - t * t)); break;
+        case "sphere": k = Math.sqrt(Math.max(0, 1 - (2 * t - 1) * (2 * t - 1))); break;
+        case "wedge": return Math.abs(lx) <= hw && Math.abs(lz) <= hd && t <= lz / f.d + 0.5;
+        case "prism": return Math.abs(lx) <= hw && Math.abs(lz) <= hd && t <= 1 - Math.abs(2 * lz / f.d);
+        case "arch": case "tunnel": {
+            if (Math.abs(lx) > hw || Math.abs(lz) > hd) return false;
+            // The opening `pieceShapes` cuts: 0.7 of the width, round-topped from half the height.
+            const du = lx / f.w;
+            return !(Math.abs(du) < 0.35 && t < 0.5 + Math.sqrt(Math.max(0, 0.1225 - du * du)));
+        }
+        default: break;
+    }
+    if (!(k > 0)) return false;
+    return this.shapeSolidAt(kind, lx, lz, hw * k, hd * k, 0, f.sweep, f.thick);
+};
+
+/**
+ * How far a camera may stand from what it looks at. The way out from
+ * `focus` toward `to` is walked in short steps (shorter where something is
+ * built), and the first point under the ground or inside a piece ends it:
+ * the answer is the distance to that point less a margin, never under
+ * `least`, or the whole way when nothing is met. Posts and rails are
+ * walked past (`CAMERA_ARM_THIN`): a camera that came in for each lamp
+ * post would jump as it passed one. `Reactor3D.cameraArmHit` says whether
+ * the last answer was cut short. `how`: "ground", only the ground counts
+ * (what is built has been opened for what is looked at); "closing", a door
+ * on its way shut counts as shut.
+ */
+Reactor3D.CAMERA_ARM_STEP = 0.2;
+Reactor3D.CAMERA_ARM_MARGIN = 0.3;
+Reactor3D.CAMERA_ARM_THIN = 0.8;
+Reactor3D.cameraArmHit = false;
+Reactor3D.cameraArm = function(mapData, focus, to, least, margin, step, how) {
+    this.cameraArmHit = false;
+    const dx = to.x - focus.x, dy = to.y - focus.y, dz = to.z - focus.z;
+    const length = Math.hypot(dx, dy, dz);
+    if (!mapData || !(length > 1e-6)) return length || 0;
+    const built = how !== "ground" && this.hasPieces(mapData), thin = this.CAMERA_ARM_THIN, doors = how === "closing" ? this.DOORS_CLOSING : 0;
+    const shared = this._cutawayUniforms;
+    const cut = built && shared && shared.rrCutRadius.value > 0 ? this._armCut || (this._armCut = { top: 0, box: null }) : null;
+    if (cut) { cut.top = shared.rrCutTop.value; cut.box = shared.rrCutBox.value; }
+    const stride = step > 0 ? step : this.CAMERA_ARM_STEP;
+    let clear = 0, d = Math.min(stride, length);
+    for (;;) {
+        if (this.cameraArmBlocked(mapData, focus, dx, dy, dz, d / length, built, cut, thin, doors)) {
+            // Between the last clear point and this one, to a hair: a camera sliding along a wall does not step.
+            let lo = clear, hi = d;
+            for (let i = 0; i < 5; i++) {
+                const mid = (lo + hi) / 2;
+                if (this.cameraArmBlocked(mapData, focus, dx, dy, dz, mid / length, built, cut, thin, doors)) hi = mid; else lo = mid;
+            }
+            this.cameraArmHit = true;
+            return Math.max(least || 0, lo - (margin >= 0 ? margin : this.CAMERA_ARM_MARGIN));
+        }
+        if (d >= length) return length;
+        clear = d;
+        // Half the stride where something is built: a slab a fifth of a tile thick is not stepped over.
+        const here = built ? this.piecesAt(mapData, Math.floor(focus.x + dx * d / length), Math.floor(focus.z + dz * d / length)) : null;
+        d = Math.min(length, d + (here ? stride / 2 : stride));
+    }
+};
+/** One point of `cameraArm`'s way: under the ground (and a margin over it), or inside a piece. */
+Reactor3D.cameraArmBlocked = function(mapData, focus, dx, dy, dz, t, built, cut, thin, doors) {
+    const x = focus.x + dx * t, y = focus.y + dy * t, z = focus.z + dz * t;
+    if (x >= 0 && z >= 0 && x < mapData.width && z < mapData.height && this.terrainHeightAt && this.elevationAt
+        && y < this.elevationAt(mapData, Math.floor(x), Math.floor(z)) + this.terrainHeightAt(mapData, x, z) + this.CAMERA_GROUND_MARGIN) return true;
+    return built && this.pieceSolidAt(mapData, x, y, z, cut, thin, doors);
 };
 
 /**
@@ -1015,14 +1386,17 @@ Reactor3D.pieceSolidAt = function(mapData, wx, wy, wz, cut) {
  * shoved in against every interior wall was a close-up of the player's
  * back. Only a camera that would stand *inside* a solid piece moves: it
  * comes in along its own line of sight until it is out of that solid,
- * plus a margin. Nothing happens on a map without pieces.
+ * plus a margin. A doorway and a door are no solid to it, lintel and all:
+ * a camera trailing its player out of a house passes over the door, and
+ * coming in for that one cell was a jump. Nothing happens on a map without
+ * pieces.
  */
 Reactor3D.clearCameraPath = function(camera, focus, mapData) {
     if (!camera || !focus || !mapData || !this.hasPieces(mapData)) return false;
     const shared = this._cutawayUniforms;
     const cut = shared && shared.rrCutRadius.value > 0 ? { top: shared.rrCutTop.value, box: shared.rrCutBox.value } : null;
     const to = camera.position;
-    if (!this.pieceSolidAt(mapData, to.x, to.y, to.z, cut)) return false;
+    if (!this.pieceSolidAt(mapData, to.x, to.y, to.z, cut, 0, this.DOORS_OPEN)) return false;
     const from = focus;
     const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
     const length = Math.hypot(dx, dy, dz);
@@ -1031,7 +1405,7 @@ Reactor3D.clearCameraPath = function(camera, focus, mapData) {
     let free = 0.5;
     for (let d = length - step; d >= 0.5; d -= step) {
         const t = d / length;
-        if (!this.pieceSolidAt(mapData, from.x + dx * t, from.y + dy * t, from.z + dz * t, cut)) { free = Math.max(0.5, d - 0.3); break; }
+        if (!this.pieceSolidAt(mapData, from.x + dx * t, from.y + dy * t, from.z + dz * t, cut, 0, this.DOORS_OPEN)) { free = Math.max(0.5, d - 0.3); break; }
     }
     const t = free / length;
     camera.position.set(from.x + dx * t, from.y + dy * t, from.z + dz * t);
@@ -1064,6 +1438,102 @@ Reactor3D.clearCameraGround = function(camera, focus, mapData) {
     }
     const t = free / length;
     camera.position.set(focus.x + dx * t, focus.y + dy * t, focus.z + dz * t);
+    camera.updateMatrixWorld();
+    return true;
+};
+
+/**
+ * Keep a camera over the roof its player stands on. A roof is a shell: under its tiles there is
+ * nothing solid, so a camera behind a player coming down a pitch sank through them and looked at the
+ * roof from inside. The surface is followed out from the player's feet toward the camera (up the
+ * pitch, over the ridge, down the far side; a wall standing over the roof is not part of it), and
+ * the camera is lifted until its whole line to the player clears that surface, still looking where
+ * it looked. Only for a body on built pieces under the open sky, and never an eye in the head.
+ */
+Reactor3D.CAMERA_ROOF_MARGIN = 0.6;
+Reactor3D.CAMERA_ROOF_LIFT = 10;
+Reactor3D.clearCameraRoof = function(camera, focus, mapData, feet) {
+    if (!camera || !focus || !mapData || !Number.isFinite(feet) || !this.hasPieces(mapData)) return false;
+    const to = camera.position;
+    const dx = to.x - focus.x, dy = to.y - focus.y, dz = to.z - focus.z;
+    const length = Math.hypot(dx, dy, dz);
+    if (length < 1.5) return false;
+    // On something built, with nothing over it.
+    if (feet - this.pieceBaseAt(mapData, Math.floor(focus.x), Math.floor(focus.z)) < 0.5) return false;
+    if (this.pieceCoverAt(mapData, focus.x, focus.z, feet)) return false;
+    let surface = feet, lift = 0;
+    const step = 0.25;
+    for (let d = step; d <= length + 1e-6; d += step) {
+        const t = Math.min(1, d / length);
+        const x = focus.x + dx * t, z = focus.z + dz * t;
+        if (x < 0 || z < 0 || x >= mapData.width || z >= mapData.height) break;
+        const here = this.groundHeightAt(mapData, x, z, surface);
+        // More than a roof's pitch up in one stride is a wall over the roof: clearCameraPath's.
+        if (here - surface > step * this.ROOF_SLOPE_LIMIT + 0.6) break;
+        surface = here;
+        const short = surface + this.CAMERA_ROOF_MARGIN - (focus.y + dy * t);
+        if (short > 0) lift = Math.max(lift, short / t);
+    }
+    if (!(lift > 0.01)) return false;
+    lift = Math.min(lift, this.CAMERA_ROOF_LIFT);
+    // What it looked at, it looks at still.
+    const ahead = camera.getWorldDirection(this._roofAhead || (this._roofAhead = new THREE.Vector3()));
+    const ax = to.x + ahead.x * length, ay = to.y + ahead.y * length, az = to.z + ahead.z * length;
+    camera.position.set(to.x, to.y + lift, to.z);
+    camera.lookAt(ax, ay, az);
+    camera.updateMatrixWorld();
+    return true;
+};
+
+/**
+ * Whether a world point is in the hollow of a roof: under its tiles (a ramp, a slab laid at a tilt,
+ * the ridge's strip of floor) and over the ceiling below them, where nothing is solid and a camera
+ * would look at the roof from inside. A room is not one, up to its ceiling: that is a storey over
+ * its floor. Nor is the open air under an eave, which has only the ground below it.
+ */
+Reactor3D.inRoofVoid = function(mapData, wx, wy, wz) {
+    const index = this.pieceIndex(mapData);
+    if (!index) return false;
+    const x = Math.floor(wx), y = Math.floor(wz);
+    const stack = index.cells.get(y * 65536 + x);
+    if (!stack) return false;
+    const base = this.pieceBaseAt(mapData, x, y), h = wy - base, u = wx - x, v = wz - y;
+    // What is built under the point: the ceiling a hollow lies on.
+    let under = 0;
+    for (const piece of stack) {
+        if (piece.kind === "ladder" || piece.kind === "doorway" || piece.kind === "door") continue;
+        const slab = piece.kind === "box" && this.shapeTurned(piece);
+        let top = this.pieceTop(piece, u, v);
+        if (slab && Array.isArray(piece.anchor)) top += this.pieceBaseAt(mapData, piece.anchor[0], piece.anchor[1]) - base;
+        if (top <= h + 0.05) { under = Math.max(under, top); continue; }
+        // The first thing over the point, from the ground up.
+        if (under <= 0.5) return false;
+        if (piece.kind === "ramp" || slab) return true;
+        return piece.kind === "floor" && piece.z > h && piece.z - under < this.PIECE_STOREY - 0.5;
+    }
+    return false;
+};
+
+/**
+ * Keep a camera out of a roof's hollow, wherever its player is: it rises over the tiles above it,
+ * still looking where it looked. A roof the cutaway has taken off (the player is under it) is left.
+ */
+Reactor3D.clearCameraAttic = function(camera, focus, mapData) {
+    if (!camera || !focus || !mapData || !this.hasPieces(mapData)) return false;
+    const to = camera.position;
+    const shared = this._cutawayUniforms;
+    if (shared && shared.rrCutRadius.value > 0 && to.y > shared.rrCutTop.value) {
+        const box = shared.rrCutBox.value;
+        if (to.x >= box[0] && to.z >= box[1] && to.x <= box[2] && to.z <= box[3]) return false;
+    }
+    if (!this.inRoofVoid(mapData, to.x, to.y, to.z)) return false;
+    const over = this.groundHeightAt(mapData, to.x, to.z, 1e6) + this.CAMERA_ROOF_MARGIN;
+    if (!(over > to.y) || over - to.y > this.CAMERA_ROOF_LIFT) return false;
+    const length = Math.hypot(to.x - focus.x, to.y - focus.y, to.z - focus.z);
+    const ahead = camera.getWorldDirection(this._roofAhead || (this._roofAhead = new THREE.Vector3()));
+    const ax = to.x + ahead.x * length, ay = to.y + ahead.y * length, az = to.z + ahead.z * length;
+    camera.position.set(to.x, over, to.z);
+    camera.lookAt(ax, ay, az);
     camera.updateMatrixWorld();
     return true;
 };
@@ -1121,13 +1591,15 @@ Reactor3D.TransparentPixels = {
  * Water as a volume, not a sheet: whatever is seen through water fades to
  * the water's colour by how much water lies between it and the eye. From
  * above, a pond's floor dims with depth; with the eye under the surface,
- * everything hazes blue with distance, the world above included. Up to
- * four sheets (their box and level), per scene: `renderScene` loads the
- * values a MapScene left in `scene.userData.rrWater`, and a scene without
- * any (a model preview) clears them.
+ * everything hazes with distance, the world above included. Each sheet has
+ * its own colour and thickness (`fog`: the liquid's colour, how clear it is,
+ * its glow lighting it from within; plain water its blue-green), so a dive
+ * into a purple lake is purple. Up to four sheets (their box, level and
+ * fog), per scene: `renderScene` loads the values a MapScene left in
+ * `scene.userData.rrWater`, and a scene without any (a model preview)
+ * clears them.
  */
 Reactor3D.WATER_VOLUME_MAX = 4;
-Reactor3D.WATER_VOLUME_DENSITY = 0.22;
 Reactor3D.waterVolumeUniforms = function() {
     if (!this._waterVolumeUniforms) {
         const max = this.WATER_VOLUME_MAX;
@@ -1135,24 +1607,81 @@ Reactor3D.waterVolumeUniforms = function() {
             rrWaterCount: { value: 0 },
             rrWaterBox: { value: Array.from({ length: max }, () => new THREE.Vector4()) },
             rrWaterLevel: { value: new Array(max).fill(-1e9) },
-            rrWaterColor: { value: new THREE.Color(0.02, 0.13, 0.2) },
-            rrWaterDensity: { value: this.WATER_VOLUME_DENSITY }
+            // Per sheet: r, g, b and density. One flat array, so a frame that changes nothing sends nothing.
+            rrWaterFog: { value: new Float32Array(max * 4) }
         };
     }
     return this._waterVolumeUniforms;
 };
 
-/** Load a scene's water into the shared uniforms before it draws. */
-Reactor3D.useSceneWater = function(scene) {
+/**
+ * Load a scene's water into the shared uniforms before it draws. The shader
+ * lays the volumes on in the order they are loaded, and that order is the
+ * same whatever order the map lists its sheets in: the larger boxes first
+ * (where two boxes claim the same stretch of a line of sight, the smaller,
+ * a pond in the corner of a lake's box, is laid over the larger), and the
+ * sheet `camera`'s eye is in (waterEyeSheet) last of all, its colour being
+ * the one nearest the eye. With the eye in a sheet, another sheet's volume
+ * whose box holds the eye is left out: the eye is in one body of water, and
+ * what is round it is that body's (the lake whose box takes in the pond
+ * being dived in is not round the diver; where a river runs into a lake the
+ * swimmer and all that is near are in the one the eye is in, not both).
+ */
+Reactor3D.useSceneWater = function(scene, camera) {
     if (typeof THREE === "undefined") return;
     const uniforms = this.waterVolumeUniforms();
     const water = scene && scene.userData && scene.userData.rrWater;
     const count = water ? Math.min(this.WATER_VOLUME_MAX, water.length) : 0;
-    uniforms.rrWaterCount.value = count;
+    const eye = count > 1 && camera ? this.waterEyeSheet(water, count, camera) : null;
+    const order = this._waterOrder || (this._waterOrder = new Int8Array(this.WATER_VOLUME_MAX));
+    const ranks = this._waterRanks || (this._waterRanks = new Float64Array(this.WATER_VOLUME_MAX));
+    let loaded = 0;
     for (let i = 0; i < count; i++) {
-        uniforms.rrWaterBox.value[i].set(water[i].x0, water[i].z0, water[i].x1, water[i].z1);
-        uniforms.rrWaterLevel.value[i] = water[i].level;
+        const entry = water[i], own = eye !== null && entry.region === eye;
+        if (eye !== null && !own && entry._rrAside) continue;
+        const rank = own ? -1 : (entry.x1 - entry.x0) * (entry.z1 - entry.z0);
+        let at = loaded++;
+        for (; at > 0 && ranks[at - 1] < rank; at--) { order[at] = order[at - 1]; ranks[at] = ranks[at - 1]; }
+        order[at] = i; ranks[at] = rank;
     }
+    uniforms.rrWaterCount.value = loaded;
+    // A volume that names no fog of its own is plain water (Reactor3D.WATER_FOG).
+    const fogs = uniforms.rrWaterFog.value, plain = this.WATER_FOG;
+    for (let slot = 0; slot < loaded; slot++) {
+        const entry = water[order[slot]], fog = entry.fog;
+        uniforms.rrWaterBox.value[slot].set(entry.x0, entry.z0, entry.x1, entry.z1);
+        uniforms.rrWaterLevel.value[slot] = entry.level;
+        fogs[slot * 4] = fog ? fog.x : plain[0]; fogs[slot * 4 + 1] = fog ? fog.y : plain[1]; fogs[slot * 4 + 2] = fog ? fog.z : plain[2]; fogs[slot * 4 + 3] = fog ? fog.w : plain[3];
+    }
+};
+
+/**
+ * The sheet the camera's eye is in, of the first `count` volumes: the one
+ * whose water covers the eye's own cell with its surface above the eye. A
+ * volume's box holds dry land too (a lake's box takes in its banks and
+ * whatever pond lies in a corner of it), so the sheet is asked, not the box.
+ * Where two sheets cover the cell (a river running into a lake) the higher
+ * surface wins: it is the one a swimmer is at and the one seen from above.
+ * Null when the eye is in none. Each volume is marked `_rrAside` when its
+ * box holds the eye under its level.
+ */
+Reactor3D.waterEyeSheet = function(water, count, camera) {
+    const world = this._waterEyeWorld || (this._waterEyeWorld = new THREE.Vector3());
+    const point = this._waterEyePoint || (this._waterEyePoint = new THREE.Vector3());
+    // A camera with no parent stands where its position says (its world matrix is written as it draws).
+    if (camera.parent) world.setFromMatrixPosition(camera.matrixWorld); else world.copy(camera.position);
+    let best = null, top = -Infinity;
+    for (let i = 0; i < count; i++) {
+        const entry = water[i], region = entry.region;
+        entry._rrAside = world.y < entry.level && world.x >= entry.x0 && world.x <= entry.x1 && world.z >= entry.z0 && world.z <= entry.z1;
+        if (!region || !entry.inverse) continue;
+        point.copy(world).applyMatrix4(entry.inverse);
+        const x = Math.floor(point.x), y = Math.floor(point.z);
+        if (!this.waterCovers(region, x, y)) continue;
+        const level = region.path ? this.riverCellLevel(region, x, y) : region.level;
+        if (point.y < level && level > top) { best = region; top = level; }
+    }
+    return best;
 };
 
 /** Whether a world point is under one of the scene's water sheets (the eye, for the underwater wash). */
@@ -1167,26 +1696,32 @@ Reactor3D.WATER_VOLUME_GLSL = [
     "uniform int rrWaterCount;",
     "uniform vec4 rrWaterBox[" + 4 + "];",
     "uniform float rrWaterLevel[" + 4 + "];",
-    "uniform vec3 rrWaterColor;",
-    "uniform float rrWaterDensity;",
+    "uniform vec4 rrWaterFog[" + 4 + "];",
     "varying vec3 vRRWaterPos;",
     "vec3 rrWaterTint(vec3 color) {",
     "	if (rrWaterCount == 0) return color;",
     "	vec3 P = vRRWaterPos, C = cameraPosition;",
-    "	float path = 0.0;",
+    // In the order loaded (useSceneWater): the sheet the eye is in comes last, so its colour is the one seen.
     "	for (int i = 0; i < 4; i++) {",
     "		if (i >= rrWaterCount) break;",
     "		float yc = C.y - rrWaterLevel[i], yp = P.y - rrWaterLevel[i];",
     "		if (yc >= 0.0 && yp >= 0.0) continue;",
+    // A to B: the stretch of the line of sight under this sheet's level.
     "		vec3 A = C, B = P;",
     "		if (yc >= 0.0) A = mix(C, P, yc / (yc - yp));",
     "		else if (yp >= 0.0) B = mix(C, P, yc / (yc - yp));",
-    "		vec2 m = (A.xz + B.xz) * 0.5;",
+    // Of that, only what lies over the sheet's own box is in its water: another sheet's water beside it is not.
     "		vec4 b = rrWaterBox[i];",
-    "		if (m.x < b.x - 1.0 || m.y < b.y - 1.0 || m.x > b.z + 1.0 || m.y > b.w + 1.0) continue;",
-    "		path += length(B - A);",
+    "		vec2 d = B.xz - A.xz;",
+    "		d = mix(d, vec2(1e-5), step(abs(d), vec2(1e-5)));",
+    "		vec2 lo = (b.xy - A.xz) / d, hi = (b.zw - A.xz) / d;",
+    "		vec2 rrIn = min(lo, hi), rrOut = max(lo, hi);",
+    "		float span = min(min(rrOut.x, rrOut.y), 1.0) - max(max(rrIn.x, rrIn.y), 0.0);",
+    "		if (span <= 0.0) continue;",
+    "		vec4 rrFog = rrWaterFog[i];",
+    "		color = mix(color, rrFog.rgb, 1.0 - exp(-length(B - A) * span * rrFog.a));",
     "	}",
-    "	return mix(color, rrWaterColor, 1.0 - exp(-path * rrWaterDensity));",
+    "	return color;",
     "}"
 ].join("\n");
 
@@ -1198,9 +1733,11 @@ Reactor3D.injectWaterVolume = function(material, shader) {
     shader.vertexShader = "varying vec3 vRRWaterPos;\n" + shader.vertexShader.replace(
         "#include <project_vertex>",
         "#include <project_vertex>\n\tvRRWaterPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    // A lit surface also takes glowing water's sheen (its program has the light's own reading of that water), under the water's tint.
+    const sheen = this.WaterLight && shader.fragmentShader.indexOf("vec3 rrWaterShone") >= 0 ? this.WaterLight.SHEEN_GLSL + "\n" : "";
     shader.fragmentShader = this.WATER_VOLUME_GLSL + "\n" + shader.fragmentShader.replace(
         "#include <opaque_fragment>",
-        "outgoingLight = rrWaterTint(outgoingLight);\n#include <opaque_fragment>");
+        sheen + "outgoingLight = rrWaterTint(outgoingLight);\n#include <opaque_fragment>");
 };
 
 /** The water volume on a material that is not lit (the sky). */
@@ -1973,12 +2510,15 @@ Reactor3D.litMaterial = function(material) {
         Reactor3D.injectCutaway(this, shader);
         Reactor3D.injectWaterVolume(this, shader);
         Reactor3D.injectShine(this, shader);
+        // A model variant's color adjustment, last: the texel is adjusted before anything above mixes over it.
+        if (Reactor3D.injectLook) Reactor3D.injectLook(this, shader);
     };
     const earlierKey = material.customProgramCacheKey;
     material.customProgramCacheKey = function() {
         return (typeof earlierKey === "function" ? earlierKey.call(this) : "") + "|reactor3d-lit" + (this.__reactorPieces ? "|cutaway" : this.__reactorModel ? "|sightline" : "") + (this.__reactorGhost ? "|ghost" : "")
             + (Reactor3D.Shadows.active() ? "|shadows" + Reactor3D.Shadows.quality().taps : "")
             + (Reactor3D.shineOf(this) ? "|shine" : "")
+            + (Reactor3D.lookOf && Reactor3D.lookOf(this) ? "|look" : "")
             + (Reactor3D.detailProgramKey ? Reactor3D.detailProgramKey(this) : "");
     };
     return material;
@@ -4797,6 +5337,15 @@ Reactor3D.LightVolume = {
             u.rrLightDynamic = { value: 0 };
             u.rrLightAll = { value: 0 };
             u.rrDynAtlasSize = { value: new Float32Array([1, 1]) };
+            // Glowing water where the volume does not hold its light (WaterLight.loadFar): the water's picture,
+            // the map's size and the reach over and under, the box the volume holds it whole in, and the tiles
+            // it fades over past that box (0: no water glows).
+            u.rrWaterFar = { value: null };
+            u.rrWaterFarMap = { value: new Float32Array(4) };
+            u.rrWaterFarBox = { value: new Float32Array(4) };
+            u.rrWaterFarEdge = { value: 0 };
+            // How much of that water's light a surface takes as a sheen in the water's own colour (WaterLight.SHEEN).
+            u.rrWaterSheen = { value: 0 };
         }
         return u;
     },
@@ -4815,7 +5364,12 @@ Reactor3D.LightVolume = {
                 + "uniform vec3 rrVolumeFlickerColor[" + slots + "];\nuniform uint rrLightCached;\nuniform uint rrLightAll;\n"
                 + "uniform highp sampler3D rrVolumePulse;\nuniform vec3 rrVolumePulseColor[" + this.PULSE_SLOTS + "];\nuniform float rrVolumePulseRadius[" + this.PULSE_SLOTS + "];\n"
                 + "uniform int rrDynOn;\nuniform highp sampler2D rrDynAtlas;\nuniform vec3 rrDynOrigin;\nuniform vec3 rrDynCells;\nuniform vec2 rrDynTiles;\nuniform float rrDynVoxel;\nuniform uint rrLightDynamic;\n"
-                + "uniform vec2 rrDynAtlasSize;")
+                + "uniform vec2 rrDynAtlasSize;\n"
+                + "uniform highp sampler2D rrWaterFar;\nuniform vec4 rrWaterFarMap;\nuniform vec4 rrWaterFarBox;\nuniform float rrWaterFarEdge;\nuniform float rrWaterSheen;\n"
+                // What the light came to at the last point asked, and the glowing water's part of it, for the
+                // sheen a surface takes of that water's light (WaterLight.SHEEN_GLSL).
+                + "vec3 rrLitBy = vec3(1.0);\nvec3 rrWaterShone = vec3(0.0);")
+            .replace("\treturn sum;\n}", "\trrLitBy = sum;\n\treturn sum;\n}")
             .replace("vec3 sum = rrAmbient;\n", "vec3 sum = rrAmbient;\n"
                 // Derivatives before any branch; the face's normal, turned to the eye.
                 + "\tvec3 rrVN = cross(dFdx(p), dFdy(p));\n")
@@ -4834,6 +5388,26 @@ Reactor3D.LightVolume = {
                 + "\t\t\tvec4 rrVP = texture(rrVolumePulse, rrQ);\n"
                 + pulse.join("")
                 + "\t\t\tif (grid) mask &= ~rrLightCached; else { grid = true; mask = rrLightAll & ~rrLightCached; }\n"
+                + "\t\t}\n"
+                + "\t}\n"
+                // Glowing water's light where the volume does not hold it: past the volume's box on a map
+                // larger than it (the far banks of a lake), over or under it, or with the volume set aside.
+                // The volume's share (as its bake faded it toward its edge) and this one make one light.
+                + "\tif (rrWaterFarEdge > 0.0) {\n"
+                + "\t\tfloat rrWB = 0.0;\n"
+                + "\t\tif (rrVolumeOn != 0) {\n"
+                + "\t\t\tvec3 rrWQ = (rrVP0 - rrVolumeOrigin) * rrVolumeInvSize;\n"
+                + "\t\t\tif (all(greaterThanEqual(rrWQ, vec3(0.0))) && all(lessThanEqual(rrWQ, vec3(1.0))))\n"
+                + "\t\t\t\trrWB = clamp(1.0 + min(min(rrVP0.x - rrWaterFarBox.x, rrWaterFarBox.z - rrVP0.x), min(rrVP0.z - rrWaterFarBox.y, rrWaterFarBox.w - rrVP0.z)) / rrWaterFarEdge, 0.0, 1.0);\n"
+                + "\t\t}\n"
+                + "\t\tvec2 rrWU = rrVP0.xz * rrWaterFarMap.xy;\n"
+                // The picture is read wherever water glows on the map, the volume's box included: all of the water's
+                // light at the point is kept for the sheen, and the share the volume does not hold joins the sum.
+                + "\t\tif (all(greaterThanEqual(rrWU, vec2(0.0))) && all(lessThanEqual(rrWU, vec2(1.0)))) {\n"
+                + "\t\t\tvec4 rrWL = textureLod(rrWaterFar, rrWU, 0.0);\n"
+                + "\t\t\tfloat rrWY = rrVP0.y - rrWL.a;\n"
+                + "\t\t\trrWaterShone = rrWL.rgb * pow(max(0.0, 1.0 - (rrWY >= 0.0 ? rrWY / rrWaterFarMap.z : -rrWY / rrWaterFarMap.w)), 1.5);\n"
+                + "\t\t\tsum += rrWaterShone * (1.0 - rrWB);\n"
                 + "\t\t}\n"
                 + "\t}\n"
                 // The moving lights, baked this frame into slices laid side by side:
@@ -5017,6 +5591,7 @@ Reactor3D.LightVolume = {
         u.rrVolumeOn.value = 0;
         u.rrVolumeStatic.value = u.rrVolumeFlicker.value = u.rrVolumePulse.value = null;
         u.rrDynOn.value = 0; u.rrDynAtlas.value = null;
+        u.rrWaterFarEdge.value = 0;
     },
 
     /** The bake: one full-screen draw per layer, the cached lights at each voxel's centre. */
@@ -5046,6 +5621,7 @@ Reactor3D.LightVolume = {
             "uniform float rrBakeLayer;",
             "uniform vec3 rrBakeCells;",
             "uniform vec2 rrBakeTiles;",
+            Reactor3D.WaterLight.BAKE_GLSL,
             // `continue` inside the light's own code leaves this one-pass loop: no light.
             "float rrBakeScalar(int i, vec3 p) {",
             "\tfloat result = 0.0;",
@@ -5067,6 +5643,8 @@ Reactor3D.LightVolume = {
             "\tif (rrBakeMode == 0 || rrBakeMode == 3) {",
             "\t\tvec3 s = vec3(0.0);",
             "\t\tfor (int i = 0; i < " + n + "; i++) { if (i >= rrBakeCount) break; s += rrBakeColor[i].rgb * rrBakeScalar(i, p); }",
+            // The glowing water's light, in the still lights' volume only.
+            "\t\tif (rrBakeMode == 0 && rrBakeWaterEdge > 0.0) s += rrBakeWaterLight(p);",
             "\t\tgl_FragColor = vec4(s, 1.0);",
             "\t} else if (rrBakeMode == 2) {",
             "\t\tvec4 d = vec4(0.0);",
@@ -5088,6 +5666,7 @@ Reactor3D.LightVolume = {
             rrBakeOrigin: { value: new Float32Array(3) }, rrBakeVoxel: { value: this.VOXEL }, rrBakeLayer: { value: 0 },
             rrBakeCells: { value: new Float32Array(3) }, rrBakeTiles: { value: new Float32Array(2) }
         };
+        Object.assign(uniforms, Reactor3D.WaterLight.bakeUniforms());
         if (shadows) for (const key of ["rrShadowInfo", "rrShadowPos", "rrShadowBias", "rrShadowAtlas", "rrShadowDynAtlas", "rrShadowGrid"]) uniforms[key] = shared[key];
         const material = new THREE.ShaderMaterial({
             uniforms, fragmentShader: fragment,
@@ -5123,6 +5702,7 @@ Reactor3D.LightVolume = {
         u.rrBakeOrigin.value.set(volume.region.origin);
         // The moving lights' bake shares these uniforms on its own, coarser grid.
         u.rrBakeVoxel.value = this.VOXEL;
+        Reactor3D.WaterLight.loadBake(u, volume);
     },
 
     /** Bake a few more layers of the back volume; true when it is whole. */
@@ -5178,6 +5758,7 @@ Reactor3D.LightVolume = {
         // (INVALID_OPERATION), leaving the volume unlit.
         if (this.enabled && renderer && typeof renderer.resetState === "function") renderer.resetState();
         this.frameStatic(renderer, mapScene, mapData, focus);
+        Reactor3D.WaterLight.loadFar(this.uniforms(), mapData, this);
         this.frameDynamic(renderer, mapData, focus);
     },
 
@@ -5408,15 +5989,26 @@ Reactor3D.LightVolume = {
             return;
         }
         const want = this.desired();
+        // Glowing water is light this volume holds too: the volume then stands where that water can be in it.
+        const water = Reactor3D.WaterLight.describe(mapData);
+        if (water) focus = Reactor3D.WaterLight.focus(focus, mapData);
         const region = this.region(mapData, focus);
+        if (water) Reactor3D.WaterLight.fit(region, water, focus);
         const regionKey = region.origin.join(",") + "/" + region.dims.join(",");
-        const signature = want.signature + "/" + regionKey;
-        const hasLights = want.statics.length + want.flickers.length + (want.pulses || []).length > 0;
+        const base = want.signature + "/" + regionKey;
+        let signature = base + (water ? "/" + water.signature : "");
+        // A bake under way for an earlier look of the water is let finish (a slider being dragged changes the
+        // look every frame, and a bake started again every frame would never show): the next one takes the newest.
+        if (this._back && this._back.base === base && this._back.water && water && this._back.signature !== signature) signature = this._back.signature;
+        const hasLights = want.statics.length + want.flickers.length + (want.pulses || []).length > 0 || !!water;
         if (!(this._front && this._front.signature === signature) && hasLights) {
             if (!this._back || this._back.signature !== signature) {
                 this.dispose(this._back);
                 this._back = this.makeVolume(region, want);
                 this._back.signature = signature;
+                this._back.base = base;
+                this._back.water = water;
+                this._back.waterMap = water ? mapData : null;
             }
             if (this.bakeSome(renderer, this._back)) {
                 this.dispose(this._front);
@@ -5426,6 +6018,8 @@ Reactor3D.LightVolume = {
         }
         const front = this._front;
         if (!front) return;
+        // Water that glowed when the front was baked and glows no longer: its light goes with the volume.
+        if (front.water && !water) return;
         // Every light the front holds must still be what was baked; else the
         // volume sits out (all lights live) until the new one is ready.
         const count = u.rrLightCount.value, held = front.want.statics.concat(front.want.flickers, front.want.pulses || []);
@@ -5458,6 +6052,610 @@ Reactor3D.LightVolume = {
         u.rrLightCached.value = cached >>> 0;
         u.rrLightAll.value = (count >= 32 ? 0xffffffff : (1 << count) - 1) >>> 0;
         u.rrVolumeOn.value = 1;
+    }
+};
+
+//-----------------------------------------------------------------------------
+// The water's light
+//
+// A sheet that glows lights what stands round it: the shore, the ground,
+// walls, pieces, plants and whoever walks by take its colour, less with
+// distance. It is not a ring of lamps. The glowing water of a map is laid
+// out as one small picture of the map (a texel a tile): each glowing sheet's
+// wet cells spread outward a few tiles and coloured by the sheet, with the
+// water's height beside it. The light volume's bake reads that picture at
+// every voxel and fades it with height over (and under) the water, so the
+// light stands in the same baked volume as the still lamps: a frame pays
+// nothing for it once it is baked, it casts no shadows, and it is baked
+// again only when a sheet's look, shape or level changes. However many
+// sheets glow, the bake reads one texel.
+Reactor3D.WaterLight = {
+    enabled: true,
+    /** How far the light spreads from the water's edge: three passes of a box this many tiles each way. */
+    SPREAD: 3,
+    /**
+     * A thin sheet (a well, a crack of lava, a stream) has little water under
+     * so wide a spread and would light nothing. Spread as widely, the most
+     * water any cell of it has round it tells how thin it is: under THIN[0]
+     * the box is one tile each way, under THIN[1] two, and what is found is
+     * raised until its middle has as much as SHORE (a little under a
+     * straight shore's half), never more than GAIN times. So a small pool
+     * lights its rim about as a lake lights its bank, but only a few tiles
+     * out: the reach goes with the size.
+     */
+    THIN: [0.08, 0.3],
+    SHORE: 0.4,
+    GAIN: 8,
+    /**
+     * A wide sheet (a lake) lights further than a pond: its water is spread
+     * with a wider box, up to this many tiles each way a pass, for as long as
+     * its middle still has water all round it at that width.
+     */
+    WIDE: 5,
+    /**
+     * The share of the water's light a surface takes as a sheen in the
+     * water's own colour, whatever colour the surface is. Light falls on a
+     * surface through the surface's colour: under a purple lake's light green
+     * grass (which has no purple in it) only goes grey, and nothing on the
+     * bank looks lit by the lake. A lighter surface takes more of it, a
+     * black one a quarter.
+     */
+    SHEEN: 0.3,
+    /** The sheen, before `#include <opaque_fragment>` of a lit material (injectWaterVolume): `rrLitBy` and `rrWaterShone` are what `rrLight` left. */
+    SHEEN_GLSL: [
+        "{",
+        // How light the surface is: what it shows over the light that fell on it, by its strongest channel.
+        "\tvec3 rrOwn = outgoingLight / max(rrLitBy, vec3(0.001));",
+        "\toutgoingLight += rrWaterShone * (rrWaterSheen * (0.25 + 0.75 * clamp(max(rrOwn.r, max(rrOwn.g, rrOwn.b)), 0.0, 1.0)));",
+        "}"
+    ].join("\n"),
+    /** How far over and under the surface it reaches, in tiles (a basin's slopes and a cave's roof take it). */
+    ABOVE: 14,
+    BELOW: 14,
+    /** How many tiles from the volume's edge it fades out over, on a map larger than the volume. */
+    EDGE: 6,
+    /** The most sheets a map's light is made of: the brightest, then the largest. */
+    MAX_SHEETS: 32,
+    _memo: new WeakMap(),
+    _spreads: new Map(),
+    _serial: 0,
+    _lastKey: "",
+
+    /** What a sheet's spread depends on: where its water lies. */
+    shapeKey(region) {
+        return region.x0 + "," + region.y0 + "," + region.x1 + "," + region.y1 + "," + region.level + "," + (region.mask || "")
+            + (region.path ? "," + JSON.stringify(region.path) : "");
+    },
+
+    /**
+     * The glowing sheets of a map, or null when none glows: `{ signature, sheets,
+     * width, height }`, each sheet `{ region, shade, low }` (`low` its lowest
+     * surface). Worked out once per stored water list (an edit writes a new
+     * list); the signature changes only when what the light depends on does.
+     */
+    describe(mapData) {
+        if (!this.enabled) return null;
+        const raw = mapData && mapData.reactor3d && mapData.reactor3d.water;
+        if (!Array.isArray(raw) || !raw.length || typeof Reactor3D.waterOf !== "function" || typeof Reactor3D.waterShade !== "function") return null;
+        if (this._memo.has(raw)) return this._memo.get(raw);
+        const sheets = [];
+        for (const region of Reactor3D.waterOf(mapData)) {
+            if (!(region.glow > 0)) continue;
+            const shade = Reactor3D.waterShade(region);
+            if (!(shade.light > 0)) continue;
+            let low = region.level;
+            if (region.path) for (const point of region.path) low = Math.min(low, point[2]);
+            sheets.push({ region, shade, low, cells: (region.x1 - region.x0 + 1) * (region.y1 - region.y0 + 1) });
+        }
+        let info = null;
+        if (sheets.length) {
+            sheets.sort((a, b) => b.shade.light - a.shade.light || b.cells - a.cells);
+            sheets.length = Math.min(sheets.length, this.MAX_SHEETS);
+            const key = mapData.width + "x" + mapData.height + ";" + sheets.map(sheet => this.shapeKey(sheet.region) + "|" + sheet.region.glow + "|" + (sheet.region.colour || "")).join(";");
+            if (key !== this._lastKey) { this._lastKey = key; this._serial++; }
+            info = { signature: "water" + this._serial, sheets, width: mapData.width, height: mapData.height };
+        }
+        this._memo.set(raw, info);
+        return info;
+    },
+
+    /** A running box of half-width `r` along the rows (`stride` 1) or the columns (`stride` w) of a w x h field, in place; past the field counts as dry. */
+    box(field, w, h, stride, r, scratch) {
+        const rows = stride === 1, lines = rows ? h : w, length = rows ? w : h, span = 2 * r + 1;
+        for (let line = 0; line < lines; line++) {
+            const start = rows ? line * w : line;
+            let sum = 0;
+            for (let i = 0; i < length; i++) scratch[i] = field[start + i * stride];
+            for (let i = 0; i <= r && i < length; i++) sum += scratch[i];
+            for (let i = 0; i < length; i++) {
+                field[start + i * stride] = sum / span;
+                if (i + r + 1 < length) sum += scratch[i + r + 1];
+                if (i - r >= 0) sum -= scratch[i - r];
+            }
+        }
+    },
+
+    /**
+     * How much of a sheet's water lies round each cell (`cover`, 1 well inside
+     * it, a half at a straight shore, nothing a few tiles off), and the height
+     * of that water as seen from the cell (`level`: a river's runs downhill),
+     * over the sheet's box grown by the spread and cut to the map. A thin
+     * sheet is spread less far and raised (THIN, SHORE, GAIN; `reach` and
+     * `gain` say how). Kept per shape: a look that changes does not spread
+     * the water again.
+     */
+    spread(region, mapData) {
+        const key = this.shapeKey(region) + "@" + mapData.width + "x" + mapData.height;
+        const known = this._spreads.get(key);
+        if (known) return known;
+        const pad = Math.max(this.SPREAD, this.WIDE) * 3 + 1;
+        const x0 = Math.max(0, region.x0 - pad), y0 = Math.max(0, region.y0 - pad);
+        const x1 = Math.min(mapData.width - 1, region.x1 + pad), y1 = Math.min(mapData.height - 1, region.y1 + pad);
+        const w = x1 - x0 + 1, h = y1 - y0 + 1;
+        const cover = new Float32Array(w * h), level = new Float32Array(w * h), scratch = new Float32Array(Math.max(w, h));
+        // `level` holds each wet cell's height; spread like the cover, their ratio is the height seen from a cell.
+        const lay = reach => {
+            cover.fill(0); level.fill(0);
+            for (let y = Math.max(y0, region.y0); y <= Math.min(y1, region.y1); y++) for (let x = Math.max(x0, region.x0); x <= Math.min(x1, region.x1); x++) {
+                if (!Reactor3D.waterCovers(region, x, y)) continue;
+                const at = (y - y0) * w + (x - x0);
+                cover[at] = 1;
+                level[at] = region.path && Reactor3D.riverCellLevel ? Reactor3D.riverCellLevel(region, x, y) : region.level;
+            }
+            for (const field of [cover, level]) for (let pass = 0; pass < 3; pass++) { this.box(field, w, h, 1, reach, scratch); this.box(field, w, h, w, reach, scratch); }
+            let most = 0;
+            for (let i = 0; i < cover.length; i++) if (cover[i] > most) most = cover[i];
+            return most;
+        };
+        let reach = this.SPREAD, most = lay(reach);
+        if (most > 0 && most < this.THIN[1]) { reach = most < this.THIN[0] ? 1 : 2; most = lay(reach); }
+        // A wide sheet reaches further, a tile at a time, while its middle is still whole.
+        else while (most > 0.98 && reach < this.WIDE) {
+            const wider = lay(reach + 1);
+            if (wider <= 0.98) { most = lay(reach); break; }
+            reach++; most = wider;
+        }
+        const gain = most > 0 ? Math.max(1, Math.min(this.GAIN, this.SHORE / most)) : 1;
+        for (let i = 0; i < cover.length; i++) {
+            level[i] = cover[i] > 1e-5 ? level[i] / cover[i] : region.level;
+            cover[i] = Math.min(1, cover[i] * gain);
+        }
+        const made = { x0, y0, w, h, cover, level, reach, gain };
+        if (this._spreads.size >= 48) this._spreads.clear();
+        this._spreads.set(key, made);
+        return made;
+    },
+
+    /**
+     * The map's glowing water as a picture, a texel a tile, into `out` when it
+     * fits: r, g, b the light the water gives a point at its own height
+     * there, a the height of that water.
+     */
+    build(mapData, info, out) {
+        const W = info.width, H = info.height, n = W * H;
+        const data = out && out.length === n * 4 ? out : new Float32Array(n * 4);
+        data.fill(0);
+        const weight = this._weights && this._weights.length === n ? this._weights : (this._weights = new Float32Array(n));
+        weight.fill(0);
+        for (const sheet of info.sheets) {
+            const s = this.spread(sheet.region, mapData), shade = sheet.shade;
+            const r = shade.neon[0] * shade.light, g = shade.neon[1] * shade.light, b = shade.neon[2] * shade.light;
+            for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) {
+                const cover = s.cover[y * s.w + x];
+                if (cover <= 1e-4) continue;
+                // A faint glow stays close to its water; a strong one reaches out.
+                const f = Math.pow(cover, shade.shape), at = (s.y0 + y) * W + s.x0 + x;
+                data[at * 4] += r * f; data[at * 4 + 1] += g * f; data[at * 4 + 2] += b * f;
+                data[at * 4 + 3] += s.level[y * s.w + x] * f;
+                weight[at] += f;
+            }
+        }
+        for (let i = 0; i < n; i++) if (weight[i] > 0) data[i * 4 + 3] /= weight[i];
+        return data;
+    },
+
+    /** The picture as the texture the bake reads (half floats, filtered), written again only for another `info`. */
+    texture(mapData, info) {
+        if (typeof THREE === "undefined") return null;
+        let held = this._texture;
+        if (held && held.signature === info.signature && held.width === info.width && held.height === info.height) return held.texture;
+        const data = this._field = this.build(mapData, info, this._field);
+        const n = info.width * info.height * 4;
+        if (!held || held.width !== info.width || held.height !== info.height) {
+            if (held) held.texture.dispose();
+            const texture = new THREE.DataTexture(new Uint16Array(n), info.width, info.height, THREE.RGBAFormat, THREE.HalfFloatType);
+            texture.minFilter = texture.magFilter = THREE.LinearFilter;
+            texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+            texture.generateMipmaps = false;
+            held = this._texture = { texture, width: info.width, height: info.height, signature: "" };
+        }
+        const half = held.texture.image.data;
+        for (let i = 0; i < n; i++) half[i] = THREE.DataUtils.toHalfFloat(data[i]);
+        held.texture.needsUpdate = true;
+        held.signature = info.signature;
+        return held.texture;
+    },
+
+    /** How high the focus may stand before the volume is raised with it: under this the volume stays where every map's does. */
+    RISE: 12,
+
+    /**
+     * Where the volume is centred on a map whose water glows: the view's own
+     * focus when its owner names one (the editor's orbit target, in steps of
+     * eight tiles so a pan does not bake at every tile), else the focus given
+     * (the player). `standY` is the height of the ground there. `groundY`,
+     * which the volume is hung from, is 0 (where a map without glowing water
+     * hangs it, so its lamps are cached the same) until the focus stands more
+     * than RISE over that: the water's light exists only in the volume, and
+     * high ground would otherwise be out of the top of it.
+     */
+    focus(given, mapData) {
+        const out = this._focus || (this._focus = { x: 0, y: 0, groundY: 0, standY: 0 });
+        const S = Reactor3D.Shadows;
+        let point = null;
+        if (S && typeof S.focus === "function") { try { point = S.focus(); } catch (error) { point = null; } }
+        if (point && Number.isFinite(point.x) && Number.isFinite(point.z)) {
+            out.x = Math.round(point.x / 8) * 8; out.y = Math.round(point.z / 8) * 8;
+            out.standY = Number.isFinite(point.y) ? point.y : 0;
+        } else {
+            if (!given) return given;
+            out.x = given.x; out.y = given.y;
+            out.standY = Number.isFinite(given.groundY) ? given.groundY
+                : typeof Reactor3D.terrainHeightAt === "function" && mapData ? Reactor3D.terrainHeightAt(mapData, (given.x || 0) + 0.5, (given.y || 0) + 0.5) || 0 : 0;
+        }
+        out.groundY = Math.max(0, out.standY - this.RISE);
+        return out;
+    },
+
+    /**
+     * Lower a volume's floor so the glowing sheets inside its box are in it
+     * (a lake in a basin lies under the ground the volume is hung from),
+     * never so far that the focus's own ground and a storey over it leave
+     * the top.
+     */
+    fit(region, info, focus) {
+        const v = Reactor3D.LightVolume.VOXEL, x0 = region.origin[0], z0 = region.origin[2];
+        const x1 = x0 + region.dims[0] * v, z1 = z0 + region.dims[2] * v;
+        let low = Infinity;
+        for (const sheet of info.sheets) {
+            const r = sheet.region;
+            if (r.x1 + 1 < x0 || r.x0 > x1 || r.y1 + 1 < z0 || r.y0 > z1) continue;
+            if (sheet.low < low) low = sheet.low;
+        }
+        if (low === Infinity) return region;
+        const ground = focus && Number.isFinite(focus.standY) ? focus.standY : focus && Number.isFinite(focus.groundY) ? focus.groundY : 0;
+        const floor = Math.floor((low - 2) / 4) * 4, least = Math.ceil((ground + 12 - region.dims[1] * v) / 4) * 4;
+        region.origin[1] = Math.max(least, Math.min(region.origin[1], floor));
+        return region;
+    },
+
+    /** The bake's uniforms for the water: the picture, the map's size and the reach over and under, the box the light is whole in, and the tiles it fades out over past that box (0: no water glows). */
+    bakeUniforms() {
+        return { rrBakeWater: { value: null }, rrBakeWaterMap: { value: new Float32Array(4) }, rrBakeWaterBox: { value: new Float32Array(4) }, rrBakeWaterEdge: { value: 0 } };
+    },
+
+    BAKE_GLSL: [
+        "uniform highp sampler2D rrBakeWater;",
+        "uniform vec4 rrBakeWaterMap;",
+        "uniform vec4 rrBakeWaterBox;",
+        "uniform float rrBakeWaterEdge;",
+        "vec3 rrBakeWaterLight(vec3 p) {",
+        "\tvec4 e = texture2D(rrBakeWater, p.xz * rrBakeWaterMap.xy);",
+        "\tfloat dy = p.y - e.a;",
+        "\tfloat f = pow(max(0.0, 1.0 - (dy >= 0.0 ? dy / rrBakeWaterMap.z : -dy / rrBakeWaterMap.w)), 1.5);",
+        // Toward the edge of a volume that does not hold the whole map the light fades out rather than stop at a line.
+        "\tfloat edge = min(min(p.x - rrBakeWaterBox.x, rrBakeWaterBox.z - p.x), min(p.z - rrBakeWaterBox.y, rrBakeWaterBox.w - p.z));",
+        "\treturn e.rgb * (f * clamp(1.0 + edge / rrBakeWaterEdge, 0.0, 1.0));",
+        "}"
+    ].join("\n"),
+
+    /** Before a volume's layers are baked: its water (`volume.water`, from describe) into the bake's uniforms. */
+    loadBake(uniforms, volume) {
+        const info = volume && volume.water, texture = info ? this.texture(volume.waterMap, info) : null;
+        uniforms.rrBakeWaterEdge.value = texture ? this.EDGE : 0;
+        if (!texture) return;
+        uniforms.rrBakeWater.value = texture;
+        const map = uniforms.rrBakeWaterMap.value;
+        map[0] = 1 / info.width; map[1] = 1 / info.height; map[2] = this.ABOVE; map[3] = this.BELOW;
+        this.wholeBox(volume.region, info, uniforms.rrBakeWaterBox.value);
+    },
+
+    /**
+     * The box of the map (x0, z0, x1, z1) a volume holds the water's light
+     * whole in, into `box`: its own box drawn in by EDGE on each side that
+     * does not lie on the map's edge. Past it the bake fades the light out
+     * over EDGE tiles, and the lit shader fades the far light in the same.
+     */
+    wholeBox(region, info, box) {
+        const v = Reactor3D.LightVolume.VOXEL, x0 = region.origin[0], z0 = region.origin[2];
+        const x1 = x0 + region.dims[0] * v, z1 = z0 + region.dims[2] * v;
+        box[0] = x0 > 0 ? x0 + this.EDGE : -1e6; box[1] = z0 > 0 ? z0 + this.EDGE : -1e6;
+        box[2] = x1 < info.width ? x1 - this.EDGE : 1e6; box[3] = z1 < info.height ? z1 - this.EDGE : 1e6;
+        return box;
+    },
+
+    /**
+     * Each frame, after the volume shown is settled: the water's light for
+     * the lit shader to read where that volume does not hold it. The volume
+     * is a box round the focus (64 tiles on a larger map), and a glowing lake
+     * is seen from much further: past the box, over or under it, and while
+     * the volume is set aside or cannot be made on this renderer, a surface
+     * reads the same picture the bake does, one texel, with the bake's own
+     * falloff. `uniforms` are the light's, `volumes` the LightVolume. The
+     * picture is the one the newest bake reads; it is made here only when no
+     * bake is there to make it (a bake keeps the picture it began with).
+     */
+    loadFar(uniforms, mapData, volumes) {
+        const info = this.describe(mapData);
+        if (!info) { uniforms.rrWaterFarEdge.value = 0; return; }
+        let held = this._texture;
+        let fits = !!held && held.width === info.width && held.height === info.height;
+        if (!volumes._back && !(fits && held.signature === info.signature)) {
+            this.texture(mapData, info);
+            held = this._texture;
+            fits = !!held && held.width === info.width && held.height === info.height;
+        }
+        if (!fits) { uniforms.rrWaterFarEdge.value = 0; return; }
+        uniforms.rrWaterFar.value = held.texture;
+        if (uniforms.rrWaterSheen) uniforms.rrWaterSheen.value = this.SHEEN;
+        const map = uniforms.rrWaterFarMap.value, box = uniforms.rrWaterFarBox.value;
+        map[0] = 1 / info.width; map[1] = 1 / info.height; map[2] = this.ABOVE; map[3] = this.BELOW;
+        uniforms.rrWaterFarEdge.value = this.EDGE;
+        // Where the volume shown holds the light whole; nowhere when it is off or was baked before the water glowed.
+        const front = volumes._front;
+        if (uniforms.rrVolumeOn.value && front && front.water) this.wholeBox(front.region, front.water, box);
+        else { box[0] = box[1] = 1e6; box[2] = box[3] = -1e6; }
+    }
+};
+
+//-----------------------------------------------------------------------------
+// The halo
+//
+// A thing that shines brightly bleeds light into the picture round it: the
+// rim of a glowing lake lies over its bank, over the reeds and over whoever
+// stands in front of it. Only what feeds the halo is drawn for it, so the
+// rest of the picture is left exactly as it was: each feeder is a mesh of a
+// shining surface (`feed`), drawn alone into a target a quarter the pass's
+// size each way, in the colour and strength it gives, behind whatever the
+// pass's depth has in front of it (the haze's own test). That small picture
+// is halved LEVELS times and gathered back up, each size a wider and softer
+// copy, and the sum is laid over the pass as a screen: a dark bank takes all
+// of it, a sunlit one a little, nothing goes past white, and a pixel the sum
+// does not reach is not written. Drawn with the lights' haze
+// (`HalfHaze.take` / `draw`), so it is in the game's passes and the
+// editor's view alike and off wherever the haze's quarter-size pass is. A
+// map where nothing feeds it draws no pass and holds no target.
+//
+// Glowing liquids feed it (MapScene.addWaterHaze; the strength is
+// waterShade's `halo`). Anything else that shines can: make a mesh of its
+// surface with `surfaceMaterial({ colour, strength })`, or with any material
+// built through `HalfHaze.shader` that writes the light it gives, hand it to
+// `feed` with the scene's light bodies group, and show it while it shines.
+Reactor3D.Halo = {
+    /** A quality switch, with the lights' others (HalfHaze, HalfLight, SHADOWS): false draws no halo and keeps no target. */
+    enabled: true,
+    /** The most the halo adds where a feeder at full strength fills the view (as drawn, 0-1), before the screen. */
+    STRENGTH: 0.9,
+    /** How many times the quarter-size picture is halved; the widest copy spreads about a tenth of the picture's height. */
+    LEVELS: 4,
+    /** Each size's share of the halo, tightest first (one per level; they sum to 1). */
+    SHARES: [0.2, 0.25, 0.27, 0.28],
+    /** Frames without a feeder before the targets are let go. */
+    IDLE_FRAMES: 120,
+    _targets: null,
+    _idle: 0,
+    _passes: 0,
+    _draws: 0,
+
+    /**
+     * A mesh of `geometry` standing at `matrix` (world) that feeds the halo,
+     * kept with `bodies` (a scene's light bodies group) in a group of its own
+     * that no draw of the scene shows: only `draw` does. Returns the mesh;
+     * its `visible` says whether it shines now.
+     */
+    feed(bodies, geometry, material, matrix) {
+        let group = bodies.userData.rrHalo;
+        if (!group) {
+            group = bodies.userData.rrHalo = new THREE.Group();
+            group.name = "halo-feeders";
+            group.visible = false;
+            bodies.add(group);
+        }
+        const mesh = new THREE.Mesh(geometry, material);
+        if (matrix) mesh.matrix.copy(matrix);
+        mesh.matrixAutoUpdate = false;
+        group.add(mesh);
+        return mesh;
+    },
+
+    /**
+     * A shining surface as the halo takes it: one flat colour times its
+     * strength (`shared`: `{ colour: { value: Color }, strength: { value } }`,
+     * the owner's live values), gone where the surface meets the shore (a
+     * sheet's `rrDepth`; a surface without one gives everywhere).
+     */
+    surfaceMaterial(shared) {
+        const haze = Reactor3D.HalfHaze.uniforms();
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                rrHazeDepth: haze.rrHazeDepth, rrHazeDepthScale: haze.rrHazeDepthScale, rrHazeDepthPick: haze.rrHazeDepthPick, rrHazeDepthOn: haze.rrHazeDepthOn,
+                colour: shared.colour, strength: shared.strength
+            },
+            vertexShader: [
+                "attribute float rrDepth;",
+                "varying float vRRDepth;",
+                "void main() {",
+                "\tvRRDepth = rrDepth;",
+                "\tgl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+                "}"
+            ].join("\n"),
+            fragmentShader: Reactor3D.HalfHaze.shader([
+                "uniform vec3 colour;",
+                "uniform float strength;",
+                "varying float vRRDepth;",
+                "void main() {",
+                "\tgl_FragColor = vec4(colour * (strength * smoothstep(0.0, 0.3, vRRDepth)), 1.0);",
+                "}"
+            ].join("\n")),
+            blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, depthTest: false,
+            side: THREE.DoubleSide, forceSinglePass: true, fog: false
+        });
+        // A surface with no depth of its own under it (no `rrDepth`) gives everywhere.
+        material.defaultAttributeValues = { rrDepth: [1] };
+        material.userData.rrHaloFeeder = true;
+        return material;
+    },
+
+    /**
+     * What feeds the halo from a scene's light bodies this frame: the
+     * feeders' group when the halo is on and one of them shines, else null.
+     * Asked once a pass; after IDLE_FRAMES passes with nothing, the targets go.
+     */
+    sources(bodies) {
+        const group = this.enabled && bodies ? bodies.userData.rrHalo : null;
+        if (group) {
+            const list = group.children;
+            for (let i = 0; i < list.length; i++) if (list[i].visible) { this._idle = 0; return group; }
+        }
+        if (this._targets && ++this._idle > this.IDLE_FRAMES) this.dispose();
+        return null;
+    },
+
+    /** The quarter-size picture and its halvings, made for the size asked. */
+    targets(w, h) {
+        let list = this._targets;
+        if (list && list[0].width === w && list[0].height === h && list.length === this.LEVELS + 1) return list;
+        this.dispose();
+        list = this._targets = [];
+        for (let i = 0; i <= this.LEVELS; i++) {
+            const target = new THREE.WebGLRenderTarget(Math.max(1, Math.ceil(w / (1 << i))), Math.max(1, Math.ceil(h / (1 << i))), {
+                type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false,
+                minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+            list.push(target);
+        }
+        return list;
+    },
+
+    dispose() {
+        for (const target of this._targets || []) target.dispose();
+        this._targets = null;
+        this._idle = 0;
+    },
+
+    /** What it holds and did last, for a test or a measurement. */
+    state() {
+        return { enabled: this.enabled, targets: this._targets ? this._targets.length : 0, size: this._targets ? [this._targets[0].width, this._targets[0].height] : null,
+            passes: this._passes, draws: this._draws };
+    },
+
+    /** The full-screen programs: halve, gather up (added to what a size already holds), the last gather (written), and the screen onto the pass. */
+    quads() {
+        if (this._quads) return this._quads;
+        const vertex = "varying vec2 vUv;\nvoid main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }";
+        const quad = (fragment, uniforms, blend) => {
+            const material = new THREE.ShaderMaterial(Object.assign({ uniforms, vertexShader: vertex, fragmentShader: fragment, depthTest: false, depthWrite: false }, blend));
+            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+            mesh.frustumCulled = false;
+            const scene = new THREE.Scene();
+            scene.add(mesh);
+            return { material, scene, uniforms };
+        };
+        // Halved: the texel under each pixel and its four diagonal neighbours (each a filtered four), so a thin feeder does not flicker.
+        const down = [
+            "uniform sampler2D map;",
+            "uniform vec2 texel;",
+            "varying vec2 vUv;",
+            "void main() {",
+            "\tvec3 c = texture2D(map, vUv).rgb * 4.0 + texture2D(map, vUv + texel).rgb + texture2D(map, vUv - texel).rgb",
+            "\t\t+ texture2D(map, vUv + vec2(texel.x, -texel.y)).rgb + texture2D(map, vUv - vec2(texel.x, -texel.y)).rgb;",
+            "\tgl_FragColor = vec4(c * 0.125, 1.0);",
+            "}"
+        ].join("\n");
+        // Gathered up: a tent over the smaller size, so no texel of it shows as a block.
+        const up = [
+            "uniform sampler2D map;",
+            "uniform vec2 texel;",
+            "uniform float weight;",
+            "varying vec2 vUv;",
+            "void main() {",
+            "\tvec3 c = texture2D(map, vUv + vec2(-2.0, 0.0) * texel).rgb + texture2D(map, vUv + vec2(2.0, 0.0) * texel).rgb",
+            "\t\t+ texture2D(map, vUv + vec2(0.0, -2.0) * texel).rgb + texture2D(map, vUv + vec2(0.0, 2.0) * texel).rgb",
+            "\t\t+ 2.0 * (texture2D(map, vUv + vec2(-1.0, -1.0) * texel).rgb + texture2D(map, vUv + vec2(1.0, -1.0) * texel).rgb",
+            "\t\t+ texture2D(map, vUv + vec2(-1.0, 1.0) * texel).rgb + texture2D(map, vUv + vec2(1.0, 1.0) * texel).rgb);",
+            "\tgl_FragColor = vec4(c * (weight / 12.0), 1.0);",
+            "}"
+        ].join("\n");
+        // Onto the pass: nothing where the halo does not reach (the pixel is not written), a grain under one
+        // step of the screen elsewhere so a wide dim halo over a dark bank does not band.
+        const screen = [
+            "uniform sampler2D map;",
+            "uniform float strength;",
+            "varying vec2 vUv;",
+            "void main() {",
+            "\tvec3 h = min(texture2D(map, vUv).rgb * strength, vec3(1.0));",
+            "\tif (max(h.r, max(h.g, h.b)) < 0.002) discard;",
+            "\tfloat grain = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;",
+            "\tgl_FragColor = vec4(max(h + grain / 255.0, vec3(0.0)), 0.0);",
+            "}"
+        ].join("\n");
+        const added = { blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+            blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneFactor, transparent: true };
+        const sample = () => ({ map: { value: null }, texel: { value: new THREE.Vector2() }, weight: { value: 1 } });
+        this._quads = {
+            camera: new THREE.Camera(),
+            down: quad(down, sample(), { blending: THREE.NoBlending }),
+            up: quad(up, sample(), added),
+            last: quad(up, sample(), { blending: THREE.NoBlending }),
+            // A screen: what is there plus the halo's share of what is left to white; the pass's alpha as it was.
+            screen: quad(screen, { map: { value: null }, strength: { value: this.STRENGTH } }, { blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+                blendSrc: THREE.OneMinusDstColorFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor, transparent: true })
+        };
+        return this._quads;
+    },
+
+    /**
+     * The halo of `feeders` (from `sources`) onto `target`, the pass just
+     * drawn: called by `HalfHaze.draw` while the haze's depth uniforms hold
+     * the pass's depth at `w` by `h`, its own size.
+     */
+    draw(renderer, target, camera, feeders, w, h) {
+        const levels = this.targets(w, h), quads = this.quads(), shares = this.SHARES, n = this.LEVELS;
+        const autoClear = renderer.autoClear, clearColour = renderer.getClearColor(this._clear || (this._clear = new THREE.Color())), clearAlpha = renderer.getClearAlpha();
+        let passes = 0;
+        try {
+            renderer.setRenderTarget(levels[0]);
+            renderer.setClearColor(0x000000, 0);
+            renderer.clear(true, false, false);
+            renderer.autoClear = false;
+            feeders.visible = true;
+            try { renderer.render(feeders, camera); } finally { feeders.visible = false; }
+            for (let i = 1; i <= n; i++) {
+                const from = levels[i - 1], u = quads.down.uniforms;
+                u.map.value = from.texture; u.texel.value.set(1 / from.width, 1 / from.height);
+                renderer.setRenderTarget(levels[i]);
+                renderer.render(quads.down.scene, quads.camera); passes++;
+            }
+            // Each size takes the wider ones, weighted so the sizes end with their shares.
+            for (let i = n - 1; i >= 1; i--) {
+                const from = levels[i + 1], u = quads.up.uniforms;
+                u.map.value = from.texture; u.texel.value.set(0.5 / from.width, 0.5 / from.height); u.weight.value = shares[i] / shares[i - 1];
+                renderer.setRenderTarget(levels[i]);
+                renderer.render(quads.up.scene, quads.camera); passes++;
+            }
+            const first = levels[1], lu = quads.last.uniforms;
+            lu.map.value = first.texture; lu.texel.value.set(0.5 / first.width, 0.5 / first.height); lu.weight.value = shares[0];
+            renderer.setRenderTarget(levels[0]);
+            renderer.render(quads.last.scene, quads.camera); passes++;
+            quads.screen.uniforms.map.value = levels[0].texture;
+            quads.screen.uniforms.strength.value = this.STRENGTH;
+            renderer.setRenderTarget(target);
+            renderer.render(quads.screen.scene, quads.camera); passes++;
+        } finally {
+            renderer.autoClear = autoClear;
+            renderer.setClearColor(clearColour, clearAlpha);
+            this._passes = passes;
+            this._draws++;
+        }
     }
 };
 
@@ -5496,7 +6694,8 @@ Reactor3D.HalfLight = {
     /** Whether a material's colour is its picture times the light, so it can take the light afterwards. */
     deferrable(material) {
         if (!material || !material.__reactorLit || material.__reactorSelfLit || !material.visible) return false;
-        if (material.colorWrite === false || material.__reactorGhost || material.__reactorWater) return false;
+        // Foliage with a glowing tip adds its own colour over the light (reactor_3d_foliage.js).
+        if (material.colorWrite === false || material.__reactorGhost || material.__reactorWater || material.__reactorGlowTip) return false;
         if (material.blending !== THREE.NormalBlending) return false;
         // Translucent surfaces that do not write depth sit over what is behind them.
         if (material.transparent && !material.depthWrite) return false;

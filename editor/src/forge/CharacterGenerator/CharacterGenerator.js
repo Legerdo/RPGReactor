@@ -96,6 +96,11 @@ class CharacterGenerator {
         return typeof window !== 'undefined' && window.I18n ? window.I18n.t(key, params) : key;
     }
 
+    /** The title this tool's dialogs carry. */
+    _dialogTitle() {
+        return typeof window !== 'undefined' && window.I18n ? window.I18n.t('menu.characterGenerator') : 'Character Generator';
+    }
+
     _escapeHtml(value) {
         if (typeof globalThis.rrEscapeHtml === 'function') return globalThis.rrEscapeHtml(value);
         return require('../../utils/HtmlEscape.js')(value);
@@ -137,7 +142,7 @@ class CharacterGenerator {
     _requireProjectPath() {
         const path = this._syncProjectPath();
         if (!path) {
-            alert(this._t('forge.openProject'));
+            RRDialog.alert(this._t('forge.openProject'), { title: this._dialogTitle(), kind: 'warning' });
             return null;
         }
         return path;
@@ -1528,8 +1533,9 @@ class CharacterGenerator {
         });
         if (zoneEditAction) zoneEditAction.addEventListener('change', () => { this._forgeZoneEditAction = zoneEditAction.value || 'paint'; });
         if (zoneEditBrush) zoneEditBrush.addEventListener('change', () => { this._forgeZoneEditBrush = parseInt(zoneEditBrush.value, 10) || 1; });
-        if (zoneEditClear) zoneEditClear.addEventListener('click', () => {
-            const ok = window.confirm(tt('Clear all painted zone edits for this style? This cannot be undone.'));
+        if (zoneEditClear) zoneEditClear.addEventListener('click', async () => {
+            const ok = await RRDialog.confirm(tt('Clear all painted zone edits for this style? This cannot be undone.'),
+                { title: tt('Clear Zone Edits'), ok: tt('Clear Zone Edits'), danger: true });
             if (!ok) return;
             const scope = this._forgeZoneEditScopeKey();
             if (this._forgeZoneEdits) this._forgeZoneEdits[scope] = {};
@@ -2073,7 +2079,10 @@ class CharacterGenerator {
                 fs.mkdirSync(dir, { recursive: true });
                 const filePath = path.join(dir, `${partId}.js`);
                 if (fs.existsSync(filePath) &&
-                    !confirm(tt("{file} already exists in this project's outfit library. Overwrite it?").replace('{file}', `${partId}.js`))) {
+                    !(await RRDialog.confirm(tt("{file} already exists in this project's outfit library. Overwrite it?").replace('{file}', `${partId}.js`),
+                        { title: tt('Overwrite File'), ok: tt('Overwrite'), danger: true }))) {
+                    // The line may still say "Saved" from the save that wrote the file.
+                    setStatus(tt('Save canceled'), false);
                     return;
                 }
                 fs.writeFileSync(filePath, js, 'utf8');
@@ -2448,7 +2457,10 @@ class CharacterGenerator {
                 fs.mkdirSync(dir, { recursive: true });
                 const filePath = path.join(dir, `${partId}.js`);
                 if (fs.existsSync(filePath) &&
-                    !confirm(tt("{file} already exists in this project's hair library. Overwrite it?").replace('{file}', `${partId}.js`))) {
+                    !(await RRDialog.confirm(tt("{file} already exists in this project's hair library. Overwrite it?").replace('{file}', `${partId}.js`),
+                        { title: tt('Overwrite File'), ok: tt('Overwrite'), danger: true }))) {
+                    // The line may still say "Saved" from the save that wrote the file.
+                    setStatus(tt('Save canceled'), false);
                     return;
                 }
                 fs.writeFileSync(filePath, js, 'utf8');
@@ -3450,9 +3462,11 @@ class CharacterGenerator {
         }
     }
 
-    _openBulkImportChooser() {
+    async _openBulkImportChooser() {
         const tt = (text) => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
-        const category = (window.prompt(tt('Category for these parts (e.g. {examples}):').replace('{examples}', 'hair, clothing, accessory'), 'hair') || '').trim().toLowerCase();
+        const typed = await RRDialog.prompt(tt('Category for these parts (e.g. {examples}):').replace('{examples}', 'hair, clothing, accessory'),
+            { title: tt('Import Parts'), value: 'hair', ok: tt('Choose Files') });
+        const category = (typed || '').trim().toLowerCase();
         if (!category) { this._setTemplateStatus(tt('Bulk import cancelled.')); return; }
         const input = document.createElement('input');
         input.type = 'file';
@@ -3478,7 +3492,7 @@ class CharacterGenerator {
         const path = require('path');
         const outDir = path.join(projectPath, 'forge', 'character_generator', 'styles', this.characterStyle, 'parts', category);
         try { fs.mkdirSync(outDir, { recursive: true }); }
-        catch (e) { alert(tt('Could not create folder: {error}').replace('{error}', e.message)); return; }
+        catch (e) { RRDialog.alert(tt('Could not create folder: {error}').replace('{error}', e.message), { title: tt('Import Parts'), kind: 'error' }); return; }
 
         let ok = 0, fail = 0;
         const summary = [];
@@ -3520,11 +3534,14 @@ class CharacterGenerator {
         this._render();
         console.log('[CharacterGenerator] Bulk import wrote files to:', outDir);
         for (const s of summary) console.log('  ', s.ok ? `OK  ${s.partId}` : `FAIL ${s.name}: ${s.error}`);
-        const lines = summary.map(s => s.ok
-            ? `✓ ${s.name} → ${s.partId}${s.paletteSize > 90 ? ` (${tt('{count} Unicode symbols').replace('{count}', s.paletteSize)})` : ''}`
-            : `✗ ${s.name}: ${s.error}`);
-        alert(tt('Bulk import complete: {succeeded} succeeded, {failed} failed\n\nFiles written to:\n{directory}\n\n{details}')
-            .replace('{succeeded}', ok).replace('{failed}', fail).replace('{directory}', outDir).replace('{details}', lines.join('\n')));
+        // The files that failed come first: they are what the reader has to act on, and a long list scrolls.
+        const failedLines = summary.filter(s => !s.ok).map(s => `✗ ${s.name}: ${s.error}`);
+        const writtenLines = summary.filter(s => s.ok)
+            .map(s => `✓ ${s.name} → ${s.partId}${s.paletteSize > 90 ? ` (${tt('{count} Unicode symbols').replace('{count}', s.paletteSize)})` : ''}`);
+        const details = [failedLines, writtenLines].filter(group => group.length).map(group => group.join('\n')).join('\n\n');
+        await RRDialog.alert(tt('Bulk import complete: {succeeded} succeeded, {failed} failed\n\nFiles written to:\n{directory}\n\n{details}')
+            .replace('{succeeded}', ok).replace('{failed}', fail).replace('{directory}', () => outDir).replace('{details}', () => details),
+            { title: tt('Import Parts'), kind: fail > 0 ? 'warning' : 'info' });
     }
 
     _slugifyForId(s) {
@@ -3625,7 +3642,7 @@ ${sheetJs}
         } catch (e) {
             console.error('Character template analysis failed:', e);
             this._setTemplateStatus(tt('Analysis failed.'), true);
-            alert(tt('Template analysis failed: {error}').replace('{error}', e.message));
+            RRDialog.alert(tt('Template analysis failed: {error}').replace('{error}', e.message), { title: this._dialogTitle(), kind: 'error' });
         }
     }
 
@@ -4738,7 +4755,7 @@ ${sheetJs}
         if (!projectPath && !webHost && !this._requireProjectPath()) return;
         const nameInput = this.root.querySelector('.rr-cgp-name');
         let name = (nameInput?.value || '').trim();
-        if (!name) { alert(tt('Enter a name for the character sheet.')); return; }
+        if (!name) { RRDialog.alert(tt('Enter a name for the character sheet.'), { title: this._dialogTitle(), kind: 'warning' }); return; }
         name = name.replace(/^[\$!]+/, '');
 
         // Render all 12 cells: 4 directions × 3 walk frames
@@ -4777,20 +4794,20 @@ ${sheetJs}
                     suggestedName: `$${name}.png`,
                     mimeType: 'image/png',
                 });
-                if (result) alert(result.project
+                if (result) RRDialog.alert(result.project
                     ? tt('Saved {file} to {path}').replace('{file}', `$${name}.png`).replace('{path}', 'img/characters/')
-                    : tt('Saved → {path}').replace('{path}', result.path));
+                    : tt('Saved → {path}').replace('{path}', result.path), { title: this._dialogTitle() });
                 return;
             }
-            if (!outDir) { alert(tt('Open a project first.')); return; }
-            if (!this._confirmSheetOverwrite(outPath, name)) return;
+            if (!outDir) { RRDialog.alert(tt('Open a project first.'), { title: this._dialogTitle(), kind: 'warning' }); return; }
+            if (!(await this._confirmSheetOverwrite(outPath, name))) return;
             fs.mkdirSync(outDir, { recursive: true });
             const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
             fs.writeFileSync(outPath, Buffer.from(base64, 'base64'));
-            alert(tt('Saved {file} to {path}').replace('{file}', `$${name}.png`).replace('{path}', 'img/characters/'));
+            RRDialog.alert(tt('Saved {file} to {path}').replace('{file}', `$${name}.png`).replace('{path}', 'img/characters/'), { title: this._dialogTitle() });
         } catch (e) {
             console.error('CharacterGenerator save error:', e);
-            alert(tt('Save failed: {error}').replace('{error}', e.message));
+            RRDialog.alert(tt('Save failed: {error}').replace('{error}', e.message), { title: this._dialogTitle(), kind: 'error' });
         }
     }
 
@@ -5247,11 +5264,12 @@ ${sheetJs}
         });
     }
 
-    /** A sheet the game may already use is replaced only when the user says so. */
-    _confirmSheetOverwrite(outPath, name) {
+    /** A sheet the game may already use is replaced only when the user says so. Resolves true to write. */
+    async _confirmSheetOverwrite(outPath, name) {
         const tt = (text) => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         if (!require('fs').existsSync(outPath)) return true;
-        return window.confirm(`img/characters/$${name}.png ${tt('already exists in this project. Overwrite it?')}`);
+        return RRDialog.confirm(tt('{file} already exists in this project. Overwrite it?').replace('{file}', () => `img/characters/$${name}.png`),
+            { title: tt('Overwrite File'), ok: tt('Overwrite'), danger: true });
     }
 
     async _savePartsSheet() {
@@ -5261,7 +5279,7 @@ ${sheetJs}
         if (!projectPath && !webHost && !this._requireProjectPath()) return;
         const input = this.root.querySelector('.rr-cg-name-input');
         let name = (input?.value || '').trim();
-        if (!name) { alert(tt('Enter a name for the character sheet.')); return; }
+        if (!name) { RRDialog.alert(tt('Enter a name for the character sheet.'), { title: this._dialogTitle(), kind: 'warning' }); return; }
         name = name.replace(/^[\$!]+/, '');
         const sheetCanvas = this.root.querySelector('.rr-cg-sheet-canvas');
         if (!sheetCanvas) return;
@@ -5278,18 +5296,18 @@ ${sheetJs}
                     suggestedName: `$${name}.png`,
                     mimeType: 'image/png',
                 });
-                if (result) alert(result.project
+                if (result) RRDialog.alert(result.project
                     ? tt('Saved {file} to {path}').replace('{file}', `$${name}.png`).replace('{path}', 'img/characters/')
-                    : tt('Saved → {path}').replace('{path}', result.path));
+                    : tt('Saved → {path}').replace('{path}', result.path), { title: this._dialogTitle() });
                 return;
             }
-            if (!outDir) { alert(tt('Open a project first.')); return; }
-            if (!this._confirmSheetOverwrite(outPath, name)) return;
+            if (!outDir) { RRDialog.alert(tt('Open a project first.'), { title: this._dialogTitle(), kind: 'warning' }); return; }
+            if (!(await this._confirmSheetOverwrite(outPath, name))) return;
             fs.mkdirSync(outDir, { recursive: true });
             const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
             fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
-            alert(tt('Saved {file} to {path}').replace('{file}', `$${name}.png`).replace('{path}', 'img/characters/'));
-        } catch (e) { console.error('CharacterGenerator parts save error:', e); alert(tt('Save failed: {error}').replace('{error}', e.message)); }
+            RRDialog.alert(tt('Saved {file} to {path}').replace('{file}', `$${name}.png`).replace('{path}', 'img/characters/'), { title: this._dialogTitle() });
+        } catch (e) { console.error('CharacterGenerator parts save error:', e); RRDialog.alert(tt('Save failed: {error}').replace('{error}', e.message), { title: this._dialogTitle(), kind: 'error' }); }
     }
 
     // ── Themed colour picker (ported from AnimationGenerator) ─────────────────

@@ -158,7 +158,7 @@ test('a 2000/2003 title is read in the game\'s code page, not Latin-1', () => {
 
 test('the dialog imports again into a folder already there only when asked, and never waits on a worker that is gone', () => {
     const dialog = fs.readFileSync(path.join(editorRoot, 'src', 'LegacyImportDialog.js'), 'utf8');
-    assert.match(dialog, /force && !window\.confirm\(/);
+    assert.match(dialog, /force && !\(await RRDialog\.confirm\(/);
     assert.match(dialog, /options: \{ force, /);
     assert.match(dialog, /\.on\('exit', [^\n]*failed\(/);
 });

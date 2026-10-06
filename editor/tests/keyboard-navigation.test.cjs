@@ -250,3 +250,117 @@ test('outdentLine removes one indentation level from the caret line only', () =>
     const flush = { value: 'x', selectionStart: 1, selectionEnd: 1 };
     assert.equal(context.RRKeyboardNavigation.outdentLine(flush, 4), false, 'nothing to remove leaves Tab to the browser');
 });
+
+// A dialog that redraws the control holding the focus leaves the focus on <body>: the overlay's own
+// listener hears nothing, so the helper answers from the document for the dialog on top.
+function dialog(context, { onEscape, display } = {}) {
+    const overlay = dom.createElement('div');
+    if (display) overlay.style.display = display;
+    context.document.body.appendChild(overlay);
+    const first = dom.createElement('input'), last = dom.createElement('button');
+    overlay.appendChild(first); overlay.appendChild(last);
+    const state = { overlay, first, last, escapes: 0 };
+    state.trap = context.RRKeyboardNavigation.modal(overlay, onEscape === false ? {} : { onEscape: () => { state.escapes++; } });
+    return state;
+}
+const strayPress = (context, key, fields = {}) => press(context, context.document.body, key, fields);
+
+test('a key that reaches no control goes to the dialog on top: Escape closes it, Tab goes back inside', () => {
+    const context = createContext();
+    const one = dialog(context);
+    one.trap.enter();
+    context.document.activeElement = context.document.body;   // the focused control was redrawn away
+    assert.equal(strayPress(context, 'Tab'), true);
+    assert.equal(context.document.activeElement, one.first, 'Tab from the page lands on the first control');
+    context.document.activeElement = context.document.body;
+    assert.equal(strayPress(context, 'Tab', { shiftKey: true }), true);
+    assert.equal(context.document.activeElement, one.last, 'Shift+Tab on the last');
+    context.document.activeElement = context.document.body;
+    assert.equal(strayPress(context, 'Escape'), true);
+    assert.equal(one.escapes, 1);
+    // Other keys, and chords, are not the dialog's.
+    assert.equal(strayPress(context, 'a'), false);
+    assert.equal(strayPress(context, 'Escape', { ctrlKey: true }), false);
+    assert.equal(one.escapes, 1);
+    // A key somebody already took is left to them.
+    const taken = { key: 'Escape', target: context.document.body, defaultPrevented: true, preventDefault() {}, stopPropagation() {} };
+    for (const handler of context.document.listeners.keydown.slice()) handler(taken);
+    assert.equal(one.escapes, 1, 'a key already handled is not handled twice');
+});
+
+test('nested dialogs answer innermost first, a hidden one not at all, and a disposed one stops listening', () => {
+    const context = createContext();
+    const outer = dialog(context), inner = dialog(context);
+    outer.trap.enter(); inner.trap.enter();
+    context.document.activeElement = context.document.body;
+    strayPress(context, 'Escape');
+    assert.deepEqual([outer.escapes, inner.escapes], [0, 1], 'the dialog entered last is on top');
+    // Focus left behind in the dialog underneath still reaches the one on top.
+    outer.first.focus();
+    press(context, outer.first, 'Escape');
+    assert.deepEqual([outer.escapes, inner.escapes], [0, 2]);
+    // Inside the dialog on top its own listener answers, once.
+    inner.first.focus();
+    const inside = { key: 'Escape', target: inner.first, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+    inner.overlay.fire('keydown', inside);                       // the overlay's own listener, as the key bubbles to it
+    for (const handler of context.document.listeners.keydown.slice()) handler(inside);
+    assert.deepEqual([outer.escapes, inner.escapes], [0, 3]);
+    // Closed by hiding: the one underneath is on top again.
+    inner.overlay.style.display = 'none';
+    context.document.activeElement = context.document.body;
+    strayPress(context, 'Escape');
+    assert.deepEqual([outer.escapes, inner.escapes], [1, 3]);
+    // Shown again without enter(): modal() puts it back on top.
+    inner.overlay.style.display = '';
+    context.RRKeyboardNavigation.modal(inner.overlay);
+    strayPress(context, 'Escape');
+    assert.deepEqual([outer.escapes, inner.escapes], [1, 4]);
+    // An overlay removed without dispose() is forgotten; a disposed one stops listening.
+    inner.overlay.remove();
+    strayPress(context, 'Escape');
+    assert.deepEqual([outer.escapes, inner.escapes], [2, 4]);
+    const before = context.document.listeners.keydown.length;
+    outer.trap.dispose();
+    assert.equal(context.document.listeners.keydown.length, before - 1, 'no dialog left: the document listener goes');
+    strayPress(context, 'Escape');
+    assert.deepEqual([outer.escapes, inner.escapes], [2, 4]);
+});
+
+test('the page says which dialog is on top where it can, and something else on top keeps the key', () => {
+    const context = createContext();
+    const outer = dialog(context), inner = dialog(context);
+    context.innerWidth = 800; context.innerHeight = 600;
+    let under = outer.first;
+    context.document.elementFromPoint = () => under;
+    context.document.activeElement = context.document.body;
+    strayPress(context, 'Escape');
+    assert.deepEqual([outer.escapes, inner.escapes], [1, 0], 'the dialog under the middle of the window');
+    under = inner.last;
+    strayPress(context, 'Escape');
+    assert.deepEqual([outer.escapes, inner.escapes], [1, 1]);
+    const foreign = dom.createElement('div');
+    context.document.body.appendChild(foreign);
+    under = foreign;
+    assert.equal(strayPress(context, 'Escape'), false, 'a layer that is not one of these dialogs is on top');
+    assert.deepEqual([outer.escapes, inner.escapes], [1, 1]);
+});
+
+test('an open menu owns the keys, and a dialog whose owner listens on it hears a stray Escape replayed', () => {
+    const context = createContext();
+    const one = dialog(context);
+    const { menu } = buildMenu(context, ['Copy', 'Paste']);
+    let closed = 0;
+    const keys = context.RRKeyboardNavigation.menu(menu, { items: () => menu.children, close: () => { closed++; } });
+    context.document.activeElement = context.document.body;
+    strayPress(context, 'Escape');
+    assert.deepEqual([closed, one.escapes], [1, 0], 'the menu closes; the dialog stays');
+    keys.dispose();
+    one.trap.dispose();
+    // No onEscape: the owner's own listener is on the dialog, so the key is pressed there again.
+    const plain = dialog(context, { onEscape: false });
+    const heard = [];
+    context.KeyboardEvent = function (type, init) { Object.assign(this, init, { type, defaultPrevented: false }); this.preventDefault = () => { this.defaultPrevented = true; }; };
+    plain.overlay.dispatchEvent = event => { heard.push(event.key); event.preventDefault(); };
+    assert.equal(strayPress(context, 'Escape'), true, 'the owner took the replayed key');
+    assert.deepEqual(heard, ['Escape']);
+});

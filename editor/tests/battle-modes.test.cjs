@@ -230,3 +230,72 @@ test('a battle nobody can move or act in ends as an escape instead of running fo
     assert.equal(w.$gameFight.isActive(), false);
     assert.equal(w.$gameFight.resultOf(serial), w.ReactorFight.ESCAPE);
 });
+
+test('what an event\'s data names is worked out once per data object, and a page or data change still shows', () => {
+    const w = fightWorld();
+    const F = w.ReactorFight;
+    let parses = 0;
+    const parse = F.unitSpecOf;
+    F.unitSpecOf = function(data, list) { parses++; return parse.call(this, data, list); };
+    const data = { note: '<unit: enemy 1>' };
+    const first = F.dataUnitSpec(data);
+    assert.equal(first.team, 'enemy');
+    assert.equal(first.id, 1);
+    for (let i = 0; i < 50; i++) assert.equal(F.dataUnitSpec(data), first, 'the same answer, not read again');
+    assert.equal(parses, 1, 'the note was read once for 51 asks');
+    // The data changing (the editor's card, a script) is seen at the next ask.
+    data.note = '<unit: actor 2>';
+    assert.equal(F.dataUnitSpec(data).id, 2);
+    data.rrUnit = { team: 'neutral', record: '', id: 0 };
+    assert.equal(F.dataUnitSpec(data).team, 'neutral');
+    // An event that names no unit costs one look and answers null from then on.
+    const plain = { note: 'a shopkeeper' };
+    parses = 0;
+    for (let i = 0; i < 10; i++) assert.equal(F.dataUnitSpec(plain), null);
+    assert.equal(parses, 0, 'data with no unit is never parsed');
+    assert.equal(F.dataUnitSpec(null), null);
+    F.unitSpecOf = parse;
+    // The model a unit event wears: the event's page and erasure are asked every time (a page change shows at once);
+    // only what the data and the page's own commands name is kept (F.lookUnit; its cases are in fight-look.test.cjs).
+    const source = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '..', '..', 'runtime/reactor_fight.js'), 'utf8');
+    const wrapper = source.slice(source.indexOf('Reactor3D.characterModelSpec = function(character) {'));
+    assert.match(wrapper.slice(0, 900), /const unit = F\.lookUnit\(character\);\s+if \(!unit \|\| !unit\.id \|\| !this\.databaseModelSpec\) return own;/);
+    const lookUnit = source.slice(source.indexOf('F.lookUnit = function(event) {'));
+    assert.match(lookUnit.slice(0, 900), /if \(!data \|\| event\._erased\) return null;\s+const page = typeof event\.page === "function" \? event\.page\(\) : null;/);
+});
+
+test('units spawned for a battle that fell leave the map when it ends: event, sprite and self switches; the living and the authored stay', () => {
+    const { fightWorld, event } = require('./helpers/fight-world.cjs');
+    const w = fightWorld({ events: [event(1, 9, 9, { note: '<unit: enemy 1>' })] });
+    const fight = w.$gameFight, F = w.ReactorFight;
+    assert.ok(fight.start({ mode: 'tactical', canEscape: true, canLose: true }));
+    const fallen = fight.spawn({ record: 'enemy', id: 1, team: 'enemy', x: 12, y: 3 });
+    const living = fight.spawn({ record: 'enemy', id: 1, team: 'enemy', x: 13, y: 3 });
+    const fallenId = fallen.eventId, livingId = living.eventId;
+    assert.ok(w.$gameMap.event(fallenId) && w.$gameMap._rrSpawned[fallenId] && w.$dataMap.events[fallenId]);
+    // A sprite stands for each, as the map's spriteset would make it.
+    const removed = [];
+    const sprite = id => ({ _character: w.$gameMap.event(id), parent: { removeChild(s) { removed.push(id); } }, destroy() { removed.push('destroyed ' + id); } });
+    w.SceneManager._scene = { _spriteset: { _characterSprites: [sprite(1), sprite(fallenId), sprite(livingId)] } };
+    w.$gameSelfSwitches.setValue([w.$gameMap.mapId(), fallenId, 'A'], true);
+    w.$gameMap.event(fallenId).erase();
+    // Mid-battle nothing is swept that the battle still counts.
+    assert.equal(F.sweepSpawned(), 0);
+    w.$gameMap.event(1).erase();   // an authored event that fell stays an event
+    fight.end(1);
+    w.run(200, () => !fight.isActive());
+    assert.equal(fight.isActive(), false);
+    assert.equal(w.$gameMap.event(fallenId), undefined, 'the fallen spawned unit is gone');
+    assert.equal(w.$gameMap._rrSpawned[fallenId], undefined);
+    assert.ok(w.$dataMap.events[fallenId], 'its data stays until the map is read again, so a straggler reads an erased event');
+    assert.deepEqual(removed, [fallenId, 'destroyed ' + fallenId]);
+    assert.equal(w.SceneManager._scene._spriteset._characterSprites.length, 2);
+    assert.equal(w.$gameSelfSwitches.value([w.$gameMap.mapId(), fallenId, 'A']), false);
+    assert.ok(w.$gameMap.event(livingId) && w.$gameMap._rrSpawned[livingId], 'one still standing stays where it is');
+    assert.ok(w.$gameMap.event(1), 'an authored event stays');
+    // The next battle's spawns take the freed id, and one that was still fading at the end goes at the next start.
+    w.$gameMap.event(livingId).erase();
+    assert.ok(fight.start({ mode: 'tactical', canEscape: true, canLose: true }));
+    assert.equal(w.$gameMap.event(livingId), undefined);
+    assert.ok(fight.spawn({ record: 'enemy', id: 1, team: 'enemy', x: 12, y: 3 }).eventId > livingId, 'and no id is used twice on one visit');
+});

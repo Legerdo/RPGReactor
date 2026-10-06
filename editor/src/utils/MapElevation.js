@@ -201,10 +201,42 @@
      * `reference`, the height under the stroke's first touch. Returns whether
      * anything moved.
      */
+    // Dunes: long ridges across the wind, a gentle rise on the windward side and a
+    // steeper slip face on the lee. `size` is a ridge to the next in tiles, `height`
+    // a crest above its trough, `dir` where the wind blows toward (degrees, 0 east,
+    // 90 south, as the foliage's wind), `seed` which field. Walkable keeps the slip
+    // face under the slope characters climb.
+    const DUNE_LEE = 0.3, DUNE_WALK_SLOPE = 0.55;
+    const DUNE_DEFAULT = { dir: 30, size: 10, height: 1.6, seed: 1, walkable: true };
+    const duneNoise = (x, seed) => {
+        const hash = n => { const v = Math.sin(n * 127.1 + seed * 311.7) * 43758.5453; return v - Math.floor(v); };
+        const i = Math.floor(x), f = x - i, t = f * f * (3 - 2 * f);
+        return hash(i) * (1 - t) + hash(i + 1) * t;
+    };
+    const duneSettings = (options = {}) => {
+        const number = (value, fallback, min, max) => { const n = Number(value); return value === null || value === '' || value === undefined || !Number.isFinite(n) ? fallback : Math.max(min, Math.min(max, n)); };
+        const size = number(options.size, DUNE_DEFAULT.size, 4, 40), walkable = options.walkable !== false;
+        const height = Math.min(number(options.height, DUNE_DEFAULT.height, 0.1, 12), walkable ? DUNE_WALK_SLOPE * DUNE_LEE * size : 12);
+        return { dir: number(options.dir, DUNE_DEFAULT.dir, -360, 720), size, height, seed: Math.round(number(options.seed, DUNE_DEFAULT.seed, 0, 99999)), walkable };
+    };
+    /** A dune field's height over its troughs at a point (tiles), 0 to `height`. */
+    const duneHeightAt = (x, y, options = {}) => {
+        const d = duneSettings(options), a = d.dir * Math.PI / 180;
+        const u = x * Math.cos(a) + y * Math.sin(a), v = -x * Math.sin(a) + y * Math.cos(a);
+        // Crests wander across the wind and each ridge is its own height along its length.
+        const phase = (u + (duneNoise(v / (d.size * 1.7), d.seed) - 0.5) * d.size * 0.9 + (duneNoise(v / (d.size * 0.6), d.seed + 7) - 0.5) * d.size * 0.25) / d.size;
+        const ridge = Math.floor(phase), t = phase - ridge;
+        const rise = t < 1 - DUNE_LEE ? t / (1 - DUNE_LEE) : (1 - t) / DUNE_LEE;
+        const tall = 0.6 + 0.4 * duneNoise(v / (d.size * 1.3) + ridge * 17.3, d.seed + 3);
+        // Rounded at the crest and in the trough, straight between.
+        const shaped = rise * rise * (3 - 2 * rise) * 0.5 + rise * 0.5;
+        return d.height * tall * shaped;
+    };
+
     const paintTerrain = (mapData, x, y, options = {}) => {
         const grid = ensureTerrain(mapData);
         if (!grid) return false;
-        const mode = TERRAIN_MODES.includes(options.mode) ? options.mode : 'raise';
+        const mode = options.mode === 'dunes' ? 'dunes' : TERRAIN_MODES.includes(options.mode) ? options.mode : 'raise';
         const radius = Math.max(0.5, Math.min(64, Number(options.radius) || 3));
         const strength = Math.max(0.01, Math.min(4, Number(options.strength) || 0.25));
         const stride = mapData.width + 1;
@@ -231,6 +263,10 @@
                         sum += Number(before[ny * stride + nx]) || 0; count++;
                     }
                     next = current + ((sum / count) - current) * Math.min(1, strength * 2) * falloff;
+                } else if (mode === 'dunes') {
+                    // Toward the field laid on the ground as the stroke found it (`base`), else on the level under the first touch.
+                    const under = options.base && options.base.length === grid.length ? Number(options.base[index]) || 0 : Number(options.reference) || 0;
+                    next = current + (under + duneHeightAt(cx, cy, options.dunes) - current) * Math.min(1, strength * 2) * falloff;
                 } else {
                     const reference = Number(options.reference) || 0;
                     next = current + (reference - current) * Math.min(1, strength * 2) * falloff;
@@ -591,6 +627,8 @@
             ext: raw.ext ? String(raw.ext) : '',
             file: raw.file ? String(raw.file) : '',
             texture: raw.texture ? String(raw.texture) : '',
+            // The model's variant; left out when it wears its own look.
+            ...(typeof raw.variant === 'string' && raw.variant.trim() ? { variant: raw.variant.trim() } : {}),
             x: Math.round(Math.max(0, Math.min(width - 1, number(raw.x, 0))) * 100) / 100,
             y: Math.round(Math.max(0, Math.min(height - 1, number(raw.y, 0))) * 100) / 100,
             z: Math.round(Math.max(0, Math.min(PROP_MAX_LIFT, number(raw.z, 0))) * 100) / 100,
@@ -681,26 +719,129 @@
      */
     const SHAPE_KINDS = ['box', 'wedge', 'pyramid', 'prism', 'hull', 'spike', 'cylinder', 'capsule', 'tube', 'cone', 'dome', 'sphere', 'dish', 'fin', 'arch', 'tunnel', 'ring', 'rock'];
     const SHAPE_PARAMS = { hull: { sides: 8, taper: 0.8 }, spike: { sides: 6, taper: 0 }, capsule: { sides: 24 }, dish: { sides: 32 }, fin: { taper: 0.4 }, cylinder: { sweep: 360 }, tube: { sweep: 360, thick: 0.3 }, ring: { sweep: 360, thick: 0.2 }, rock: { rough: 0.5 } };
-    /** An event's footprint `[w, h]` in tiles from its own tile right and down (the runtime's `eventSizeAt`); 1 by 1 unset. */
+    /**
+     * Sized events. `reactor3d.eventSize[id] = [w, h]` is a footprint set by hand, in tiles;
+     * `reactor3d.eventSizeAnchor: "center"` says the footprints are centred on their events (tiles
+     * x - floor((w - 1) / 2) .. x + floor(w / 2), the same for y), and a map without it (0.98.8) counts
+     * them from the event's tile right and down, as the runtime still reads it. The editor converts
+     * such a map when it reads it (`convertEventSizes`), so here every footprint is centred.
+     * `reactor3d.eventSizeAuto[id] = [w, h, ox, oy]` is what the editor measured for an event that
+     * stands as a 3D model with no size of its own (the tiles its body covers, from tile x + ox,
+     * y + oy): the game works those out from the model itself, so this is the editor's picture only.
+     */
     const EVENT_SIZE_MAX = 64;
-    const eventSize = (mapData, eventId) => {
+    const sizeNumber = v => Math.max(1, Math.min(EVENT_SIZE_MAX, Math.floor(Number(v)) || 1));
+    const eventSizeEntry = (mapData, eventId) => {
         const raw = mapData && mapData.reactor3d && mapData.reactor3d.eventSize ? mapData.reactor3d.eventSize[String(eventId)] : null;
-        const n = v => Math.max(1, Math.min(EVENT_SIZE_MAX, Math.floor(Number(v)) || 1));
-        return Array.isArray(raw) ? [n(raw[0]), n(raw[1])] : [1, 1];
+        return Array.isArray(raw) ? [sizeNumber(raw[0]), sizeNumber(raw[1])] : null;
+    };
+    /** The footprint measured from an event's model, `[w, h, ox, oy]`, when it has no size set by hand; else null. */
+    const eventSizeAuto = (mapData, eventId) => {
+        if (eventSizeEntry(mapData, eventId)) return null;
+        const raw = mapData && mapData.reactor3d && mapData.reactor3d.eventSizeAuto ? mapData.reactor3d.eventSizeAuto[String(eventId)] : null;
+        if (!Array.isArray(raw)) return null;
+        const w = sizeNumber(raw[0]), h = sizeNumber(raw[1]);
+        const origin = (v, n) => Math.max(1 - n, Math.min(0, Math.floor(Number(v)) || 0));
+        return [w, h, origin(raw[2], w), origin(raw[3], h)];
+    };
+    /** An event's footprint `[w, h]` in tiles: set by hand, else measured from its model, else 1 by 1. */
+    const eventSize = (mapData, eventId) => {
+        const own = eventSizeEntry(mapData, eventId);
+        if (own) return own;
+        const auto = eventSizeAuto(mapData, eventId);
+        return auto ? [auto[0], auto[1]] : [1, 1];
+    };
+    const hasEventSizes = mapData => !!(mapData && mapData.reactor3d && mapData.reactor3d.eventSize && typeof mapData.reactor3d.eventSize === 'object' && Object.keys(mapData.reactor3d.eventSize).length);
+    /** Whether hand-set footprints are centred on their events: marked so, or none yet (the next one will mark it). */
+    const eventSizeCentered = mapData => !hasEventSizes(mapData) || mapData.reactor3d.eventSizeAnchor === 'center';
+    /** A footprint's first tile, in tiles from the event's own (zero or less): `size` is one about to be set. */
+    const eventFootprintOrigin = (mapData, eventId, size = null) => {
+        if (!size) {
+            const auto = eventSizeAuto(mapData, eventId);
+            if (auto) return [auto[2], auto[3]];
+        }
+        const [w, h] = size || eventSize(mapData, eventId);
+        return eventSizeCentered(mapData) ? [0 - Math.floor((w - 1) / 2), 0 - Math.floor((h - 1) / 2)] : [0, 0];
+    };
+    /**
+     * Where a sized event's own graphic stands, in tiles from the middle of its tile: the middle of
+     * its footprint. Centred, that is its own tile for an odd size and half a tile on for an even
+     * one (the game draws it there too); a model's measured footprint is round the model as it stands.
+     */
+    const eventMarkerOffset = (mapData, eventId) => {
+        if (eventSizeAuto(mapData, eventId)) return [0, 0];
+        const [w, h] = eventSize(mapData, eventId);
+        return eventSizeCentered(mapData) ? [w % 2 === 0 ? 0.5 : 0, h % 2 === 0 ? 0.5 : 0] : [(w - 1) / 2, (h - 1) / 2];
+    };
+    /** The mark follows the footprints: there with them, gone with the last. */
+    const markEventSizes = mapData => {
+        const sidecar = mapData && mapData.reactor3d;
+        if (!sidecar) return;
+        if (hasEventSizes(mapData)) sidecar.eventSizeAnchor = 'center';
+        else { delete sidecar.eventSizeAnchor; if (sidecar.eventSize && !Object.keys(sidecar.eventSize).length) delete sidecar.eventSize; }
+    };
+    /**
+     * A map saved before footprints were centred (0.98.8: from the event's tile right and down): each
+     * sized event moves to the middle tile of its footprint, so the footprint covers the tiles it
+     * covered, and the map is marked. True when anything changed.
+     */
+    const convertEventSizes = mapData => {
+        if (!hasEventSizes(mapData) || mapData.reactor3d.eventSizeAnchor === 'center') return false;
+        for (const event of mapData.events || []) {
+            const size = event ? eventSizeEntry(mapData, event.id) : null;
+            if (!size) continue;
+            event.x += Math.floor((size[0] - 1) / 2);
+            event.y += Math.floor((size[1] - 1) / 2);
+        }
+        mapData.reactor3d.eventSizeAnchor = 'center';
+        return true;
     };
     const setEventSize = (mapData, eventId, size) => {
         if (!mapData || !eventId) return false;
-        const n = v => Math.max(1, Math.min(EVENT_SIZE_MAX, Math.floor(Number(v)) || 1));
-        const w = n(size && size[0]), h = n(size && size[1]);
+        const w = sizeNumber(size && size[0]), h = sizeNumber(size && size[1]);
+        convertEventSizes(mapData);
         const store = mapData.reactor3d && mapData.reactor3d.eventSize;
         if (w === 1 && h === 1) {
-            if (store && store[String(eventId)]) { delete store[String(eventId)]; if (!Object.keys(store).length) delete mapData.reactor3d.eventSize; return true; }
+            if (store && store[String(eventId)]) { delete store[String(eventId)]; markEventSizes(mapData); return true; }
             return false;
         }
         if (!mapData.reactor3d || typeof mapData.reactor3d !== 'object') mapData.reactor3d = { version: 1 };
         if (!mapData.reactor3d.eventSize || typeof mapData.reactor3d.eventSize !== 'object') mapData.reactor3d.eventSize = {};
         mapData.reactor3d.eventSize[String(eventId)] = [w, h];
+        markEventSizes(mapData);
         return true;
+    };
+    /** Keep (or, with null, forget) the footprint measured from an event's model. */
+    const setEventSizeAuto = (mapData, eventId, rect) => {
+        if (!mapData || !eventId) return false;
+        const store = mapData.reactor3d && mapData.reactor3d.eventSizeAuto;
+        const one = !Array.isArray(rect) || (sizeNumber(rect[0]) === 1 && sizeNumber(rect[1]) === 1);
+        if (one) {
+            if (!store || !store[String(eventId)]) return false;
+            delete store[String(eventId)];
+            if (!Object.keys(store).length) delete mapData.reactor3d.eventSizeAuto;
+            return true;
+        }
+        if (!mapData.reactor3d || typeof mapData.reactor3d !== 'object') mapData.reactor3d = { version: 1 };
+        if (!mapData.reactor3d.eventSizeAuto || typeof mapData.reactor3d.eventSizeAuto !== 'object') mapData.reactor3d.eventSizeAuto = {};
+        const w = sizeNumber(rect[0]), h = sizeNumber(rect[1]);
+        const next = [w, h, Math.max(1 - w, Math.min(0, Math.floor(Number(rect[2])) || 0)), Math.max(1 - h, Math.min(0, Math.floor(Number(rect[3])) || 0))];
+        const was = mapData.reactor3d.eventSizeAuto[String(eventId)];
+        if (Array.isArray(was) && was.join(',') === next.join(',')) return false;
+        mapData.reactor3d.eventSizeAuto[String(eventId)] = next;
+        return true;
+    };
+    /**
+     * The tiles a model covers (`Reactor3D.blockedTilesFor`) as a footprint round the event at (x, y):
+     * `[w, h, ox, oy]`, the box of those tiles, the event's own tile always inside it. Null with no tiles.
+     */
+    const footprintOfTiles = (tiles, x, y) => {
+        if (!Array.isArray(tiles) || !tiles.length) return null;
+        let x0 = x, y0 = y, x1 = x, y1 = y;
+        for (const tile of tiles) { x0 = Math.min(x0, tile.x); y0 = Math.min(y0, tile.y); x1 = Math.max(x1, tile.x); y1 = Math.max(y1, tile.y); }
+        // No wider than the limit, kept round the event.
+        x0 = Math.max(x0, x - (EVENT_SIZE_MAX - 1)); y0 = Math.max(y0, y - (EVENT_SIZE_MAX - 1));
+        return [Math.min(EVENT_SIZE_MAX, x1 - x0 + 1), Math.min(EVENT_SIZE_MAX, y1 - y0 + 1), x0 - x, y0 - y];
     };
 
     /** A piece's finish over its material (the runtime's `PIECE_FINISHES`). */
@@ -1572,6 +1713,9 @@
         // Foliage density and bushes move with the cells (MapFoliage.resize).
         const foliage = root.RRMapFoliage || (typeof require === 'function' && typeof module !== 'undefined' ? (() => { try { return require('./MapFoliage.js'); } catch (_) { return null; } })() : null);
         if (sidecar.foliage && foliage) foliage.resize(mapData, oldWidth, oldHeight, dx, dy);
+        // The ground types' paint moves with the cells too (MapGround.resize).
+        const groundTypes = root.RRMapGround || (typeof require === 'function' && typeof module !== 'undefined' ? (() => { try { return require('./MapGround.js'); } catch (_) { return null; } })() : null);
+        if (sidecar.ground && groundTypes) groundTypes.resize(mapData, oldWidth, oldHeight, dx, dy);
         for (const field of ['objects', 'objectGround']) {
             const store = sidecar[field];
             if (!store || typeof store !== 'object') continue;
@@ -1628,7 +1772,7 @@
         resizeSidecar,
         WATER_MAX_LEVEL, normalizeWater, water, hasWater, addWater, waterCovers, waterAt, removeWaterAt, removeWaterRegion, styleWaterRegion, waterWalls, waterBasin, fillWaterAt, refitWater, waterSnapshot, restoreWater,
         normalizeRiverPath, riverLevelAt, sheetLevelAt, carveRiver,
-        EVENT_SIZE_MAX, eventSize, setEventSize, PIECE_KINDS, PIECE_FINISHES, SHAPE_KINDS, SHAPE_PARAMS, PIECE_MAX_LEVEL, normalizePiece, normalizeDoor, normalizeWindowFrame, DOOR_STYLES, DOOR_OPENS, WINDOW_STYLES, pieces, hasPieces, pieceAt, setPiece, removePiece,
+        EVENT_SIZE_MAX, eventSize, eventSizeEntry, eventSizeAuto, eventSizeCentered, eventFootprintOrigin, eventMarkerOffset, markEventSizes, convertEventSizes, setEventSize, setEventSizeAuto, footprintOfTiles, PIECE_KINDS, PIECE_FINISHES, SHAPE_KINDS, SHAPE_PARAMS, PIECE_MAX_LEVEL, normalizePiece, normalizeDoor, normalizeWindowFrame, DOOR_STYLES, DOOR_OPENS, WINDOW_STYLES, pieces, hasPieces, pieceAt, setPiece, removePiece,
         piecesSnapshot, restorePieces, clearPieces, pieceMaterials,
         nextPieceGroup, pieceGroup, pieceGroupBounds, pieceGroupAt, groupConnectedPieces, movePieceGroup, removePieceGroup, rotatePieceGroup,
         structures, structureOf, setStructure, restoreStructures, removeStructure, relocatePropsOff,
@@ -1641,7 +1785,8 @@
         clamp, fileNameFor, ensure, at, setAt, raiseAt,
         snapshot, restore, isFlat, save,
         TERRAIN_MAX, TERRAIN_MODES, terrain, hasTerrain, ensureTerrain, terrainAt, terrainHeightAt,
-        paintTerrain, terrainSnapshot, restoreTerrain, restoreTerrainChanges, clearTerrain
+        paintTerrain, terrainSnapshot, restoreTerrain, restoreTerrainChanges, clearTerrain,
+        duneHeightAt, duneSettings, DUNE_DEFAULT, DUNE_LEE, DUNE_WALK_SLOPE
     };
     /**
      * A sidecar as text: readable, and not four times its data. Each top-level
@@ -1659,8 +1804,8 @@
             return 0;
         };
         const value = (key, v) => {
-            // Foliage: its wind, then a layer or a bush a line.
-            if (key === 'foliage' && v && typeof v === 'object' && !Array.isArray(v)) {
+            // Foliage: its wind, then a layer or a bush a line. Ground: a type a line.
+            if ((key === 'foliage' || key === 'ground') && v && typeof v === 'object' && !Array.isArray(v)) {
                 const parts = Object.keys(v).map(k => '    ' + JSON.stringify(k) + ': ' + (Array.isArray(v[k]) && v[k].length && v[k].every(item => item && typeof item === 'object')
                     ? '[\n' + v[k].map(item => '      ' + JSON.stringify(item)).join(',\n') + '\n    ]' : JSON.stringify(v[k])));
                 return '{\n' + parts.join(',\n') + '\n  }';

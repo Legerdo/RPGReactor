@@ -401,12 +401,15 @@ class BuildManager {
         this.versionPicker.load().catch(() => {});
     }
 
-    close() {
+    async close() {
         if (this.isBuilding) {
             const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
-            const confirm = window.confirm(tt('A build is in progress. Are you sure you want to close?'));
-            if (!confirm) return;
-            this.cancelBuild();
+            const confirmed = await RRDialog.confirm(tt('A build is in progress. Are you sure you want to close?'), {
+                title: tt('Deploy Game'), ok: tt('Cancel Build'), cancel: tt('Keep Building'), danger: true
+            });
+            if (!confirmed) return;
+            // The build may have finished while the question was up.
+            if (this.isBuilding) this.cancelBuild();
         }
         this.versionPicker.close();
         this.modal.style.display = 'none';
@@ -547,14 +550,14 @@ class BuildManager {
         const platforms = this.getSelectedPlatforms();
 
         if (platforms.length === 0) {
-            alert(tt('Please select at least one platform to build.'));
+            await RRDialog.alert(tt('Please select at least one platform to build.'), { title: tt('Deploy Game') });
             return;
         }
 
         // Validate that a project is loaded
         const project = window.reactor.projectController.getCurrentProject();
         if (!project || !project.path) {
-            alert(tt('No project is currently loaded. Please open a project before building.'));
+            await RRDialog.alert(tt('No project is currently loaded. Please open a project before building.'), { title: tt('Deploy Game'), kind: 'warning' });
             return;
         }
 
@@ -563,7 +566,7 @@ class BuildManager {
         // stale build (playtest already saves for the same reason).
         const saved = await window.reactor.projectController.saveAll();
         if (!saved) {
-            alert(tt('Build cancelled: the project could not be saved.'));
+            await RRDialog.alert(tt('Build cancelled: the project could not be saved.'), { title: tt('Deploy Game'), kind: 'error' });
             return;
         }
 
@@ -587,7 +590,7 @@ class BuildManager {
 
         const editorNwVersion = process.versions.nw || process.versions['node-webkit'];
         if (!editorNwVersion) {
-            alert(tt('Could not determine the editor NW.js version.'));
+            await RRDialog.alert(tt('Could not determine the editor NW.js version.'), { title: tt('Deploy Game'), kind: 'error' });
             return;
         }
         const nwVersionPolicy = document.getElementById('build-nw-version-policy').value;
@@ -595,11 +598,11 @@ class BuildManager {
         if (nwVersionPolicy === 'exact') {
             try { await this.versionPicker.load(); }
             catch {
-                alert(tt('NW.js versions are unavailable. Connect to the internet or choose Same as editor.'));
+                await RRDialog.alert(tt('NW.js versions are unavailable. Connect to the internet or choose Same as editor.'), { title: tt('Deploy Game'), kind: 'warning' });
                 return;
             }
             if (!this.versionPicker.hasVersion(exactNwVersion)) {
-                alert(tt('Select an available NW.js version from the searchable list.'));
+                await RRDialog.alert(tt('Select an available NW.js version from the searchable list.'), { title: tt('Deploy Game') });
                 return;
             }
         }

@@ -17,9 +17,11 @@
  * strokes, selection, undo); this is its face.
  *
  * The bar has four groups, switched at its left end: Build (the above),
- * Terrain (the ground's brushes and the water: raise, lower, smooth,
- * flatten, pour, drain, and a sheet's look), whose model is the
- * TerrainManager, Foliage (grass, flowers, ferns and reeds painted on, and
+ * Terrain (the ground's brushes, dunes, the grounds painted over the floor
+ * and the steep ground's material, rock, the water: pour, river, drain and a
+ * sheet's look, the map's biome, and the land past its border), whose model
+ * is the TerrainManager (rock is a shape the
+ * PieceBuilderManager lays, shown here because it is ground), Foliage (grass, flowers, ferns and reeds painted on, and
  * bushes stood: the TerrainManager's foliage modes), and Models (3D models stood on the map: Select, Remove,
  * the Library, then the models in hand this session and on this map), whose
  * model is the ModelPropsManager. The panel shows the settings of whichever
@@ -33,23 +35,32 @@ class BuildHotbar {
         this.panel = null;
         this.visible = false;
         this._onKeyDown = event => this.handleKey(event);
+        // The map view's Surroundings tick changed: Beyond the Border says whether the land is shown.
+        this._onSurroundView = () => { if (this.visible && this.group() === 'terrain' && this.activeSlot() === 'surround') this.renderTerrainPanel(); };
     }
 
     static PIECES = ['floor', 'wall', 'doorway', 'door', 'window', 'glass', 'stair', 'ladder', 'ramp', 'roof', 'pillar', 'fence', 'block'];
-    static EXTRA = ['rock', 'shape', 'screen', 'light', 'hammer', 'blueprint'];
+    static EXTRA = ['shape', 'screen', 'light', 'hammer', 'blueprint'];
     /** Rock sizes to start from, [w, h, d] in tiles: pick one, click, stack. */
     /** A placed shape's panel tabs. */
     static SHAPE_TABS = ['size', 'offset', 'rotate'];
     static ROCK_PRESETS = { boulder: [3, 2, 3], rock: [4, 4, 4], cliff: [4, 8, 4], spire: [2, 8, 2], ledge: [6, 2, 3], slab: [6, 1, 6] };
     static SLOTS = ['select'].concat(BuildHotbar.PIECES, BuildHotbar.EXTRA);
-    /** The Terrain group: the ground's brushes, then the water. Each is a TerrainManager mode. */
-    static TERRAIN = ['raise', 'lower', 'smooth', 'flatten', 'pour', 'river', 'drain', 'look'];
-    static TERRAIN_MODE = { raise: 'raise', lower: 'lower', smooth: 'smooth', flatten: 'flatten', pour: 'fill', river: 'river', drain: 'drain', look: 'look' };
+    /** The Terrain group: the ground's brushes, the water, then the whole map's look and the land past its border. Each is a TerrainManager mode. */
+    static TERRAIN = ['raise', 'lower', 'smooth', 'flatten', 'dunes', 'ground', 'rock', 'pour', 'river', 'drain', 'look', 'biome', 'surround'];
+    static TERRAIN_MODE = { raise: 'raise', lower: 'lower', smooth: 'smooth', flatten: 'flatten', dunes: 'dunes', ground: 'ground', pour: 'fill', river: 'river', drain: 'drain', look: 'look', biome: 'biome', surround: 'surround' };
     /** The Models group's fixed slots; the models themselves follow as model0, model1... */
     static MODELS = ['mselect', 'mremove', 'library'];
     /** The Foliage group: four kinds painted as a density, then bushes. Each is a TerrainManager mode of the same name. */
-    static FOLIAGE = ['grass', 'flowers', 'fern', 'reeds', 'bush'];
+    static FOLIAGE = ['grass', 'flowers', 'fern', 'reeds', 'bulbs', 'tendrils', 'crystals', 'bush'];
+    /** The foliage kinds that are not Earth's, and their names. */
+    static ALIEN_FOLIAGE = { bulbs: 'Bulbs', tendrils: 'Fronds', crystals: 'Crystals' };
     static GROUPS = ['build', 'terrain', 'foliage', 'models'];
+    /**
+     * How long after the last change a run of them (arrow keys on a slider, a number's arrows held, a color moved) is
+     * kept as one undo step, in ms: longer than the wait before a held key or a held arrow starts to repeat.
+     */
+    static GATHER_MS = 800;
     /** The kinds whose facing matters: they climb, slope, open or run one way. */
     /** The longest stair run or ladder: as high as a piece may stand. */
     static get MAX_RUN() { return (typeof Reactor3D !== 'undefined' && Reactor3D.PIECE_MAX_LEVEL) || 240; }
@@ -66,9 +77,18 @@ class BuildHotbar {
     props() { return this.projectController?.modelPropsManager || window.reactor?.modelPropsManager || null; }
     /** Which group the bar shows: Terrain or Models while that tool holds the map. */
     group() {
-        const tool = window.reactor?.mapTool;
+        const tool = this.tool();
         if (tool === 'terrain') return BuildHotbar.FOLIAGE.includes(this.terrain()?.mode) ? 'foliage' : 'terrain';
-        return tool === 'models' ? 'models' : 'build';
+        if (tool === 'models') return 'models';
+        // Rock is laid by the builder and kept with the ground it is.
+        return this.rockInHand() ? 'terrain' : 'build';
+    }
+    /** Whose tool holds the map: the terrain's, the models', else the builder's. */
+    tool() { const tool = window.reactor?.mapTool; return tool === 'terrain' || tool === 'models' ? tool : 'build'; }
+    /** Whether the builder holds a rock to lay (the Terrain group's Rock slot). */
+    rockInHand() {
+        const manager = this.manager();
+        return !!manager && this.tool() === 'build' && !this.docked() && manager.mode === 'place' && manager.kind === 'rock';
     }
     slots() {
         const group = this.group();
@@ -113,6 +133,7 @@ class BuildHotbar {
         // Opened, the bar starts in Select: a click picks up, nothing is laid by accident.
         if (opening && manager.mode !== 'select') manager.setMode('select');
         document.addEventListener('keydown', this._onKeyDown, true);
+        document.addEventListener('rr-surround-view', this._onSurroundView);
         this.render();
     }
 
@@ -122,6 +143,7 @@ class BuildHotbar {
         this.root.style.display = 'none';
         this.panel.style.display = 'none';
         document.removeEventListener('keydown', this._onKeyDown, true);
+        document.removeEventListener('rr-surround-view', this._onSurroundView);
         if (release) { this.manager()?.deactivate(); window.reactor?.claimMapTool?.('paint'); }
     }
 
@@ -134,6 +156,7 @@ class BuildHotbar {
     activeSlot() {
         const manager = this.manager();
         if (!manager) return 'wall';
+        if (this.rockInHand()) return 'rock';
         if (this.group() === 'terrain') {
             const mode = this.terrain()?.mode;
             return BuildHotbar.TERRAIN.find(slot => BuildHotbar.TERRAIN_MODE[slot] === mode) || 'raise';
@@ -178,6 +201,28 @@ class BuildHotbar {
         this.render();
     }
 
+    /** Pick up a water sheet (a Select click on it from any group): the bar turns to Terrain, its Look panel on that sheet, the sheet outlined. */
+    selectWater(region) {
+        const terrain = this.terrain();
+        if (!terrain || !region) return false;
+        if (!terrain.active) terrain.activate();
+        terrain.setMode('look');
+        this._lastTerrain = 'look';
+        // Renders the bar and the panel with the sheet's look.
+        terrain.selectWater(region);
+        return true;
+    }
+
+    /** Pick up the piece under a point of the 3D view (a Select click on a building from another group): the bar turns to Build in Select with it selected. */
+    selectPiece(clientX, clientY) {
+        const manager = this.manager(), view = window.reactor?.mapEditor3D;
+        if (!manager || !view?.pieceTargetAt) return false;
+        this.pick('select');
+        const piece = manager.selectAt(view.pieceTargetAt(clientX, clientY, { erase: true }));
+        this.render();
+        return !!piece;
+    }
+
     /** Pick a slot: pieces place, the hammer erases, Select picks up, the rest open their specs. */
     pick(slot) {
         const manager = this.manager();
@@ -208,7 +253,7 @@ class BuildHotbar {
             return;
         }
         // A terrain slot: the terrain tool takes the map (the bar stays) in that mode.
-        if (BuildHotbar.TERRAIN.includes(slot)) {
+        if (BuildHotbar.TERRAIN.includes(slot) && slot !== 'rock') {
             const terrain = this.terrain();
             if (!terrain) return;
             if (!terrain.active) terrain.activate();
@@ -217,12 +262,12 @@ class BuildHotbar {
             this.render();
             return;
         }
-        if (this.group() !== 'build') manager.activate();
+        if (this.tool() !== 'build') manager.activate();
         // Screens and lights have their own editors: the slot opens the one for the map, and the bar stays.
         if (slot === 'screen') { if (this.docked() !== 'screen') window.reactor?.mediaSurfaceManager?.open?.(); return; }
         if (slot === 'light') { if (this.docked() !== 'light') window.reactor?.lightingManager?.setActive?.(true); return; }
         if (this.docked()) manager.activate();
-        this._lastBuild = slot;
+        if (slot === 'rock') this._lastTerrain = slot; else this._lastBuild = slot;
         if (slot === 'select') manager.setMode('select');
         else if (slot === 'ramp') manager.setKind('wedge');
         else if (BuildHotbar.PIECES.includes(slot)) manager.setKind(slot);
@@ -264,6 +309,11 @@ class BuildHotbar {
             river: 'M3 7c3-2 5 2 8 0s5-2 8 0 M3 12c3-2 5 2 8 0s5-2 8 0 M3 17c3-2 5 2 8 0s5-2 8 0',
             drain: 'M12 3c3 5 6 8 6 11a6 6 0 0 1-12 0c0-3 3-6 6-11z M4 4l16 16',
             look: 'M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z M18 15l1 2 2 1-2 1-1 2-1-2-2-1 2-1z',
+            dunes: 'M2 18c3-7 6-7 8-2 2-6 6-8 12 2z M2 21h20',
+            ground: 'M3 20h18 M3 15c3-2 6 2 9 0s6-2 9 0 M7 10l2-5 2 5z M14 10c0-3 5-3 5 0z',
+            biome: 'M12 3a9 9 0 1 0 0.01 0z M3 12h18 M12 3c-3 3-3 15 0 18 M12 3c3 3 3 15 0 18',
+            // Beyond the border: a far ridge on the horizon, the map's edge in front.
+            surround: 'M2 14h20 M6 14l4-6 3 4 2-2.5 3 4.5 M5 21v-3h14v3',
             undo: 'M9 14L4 9l5-5 M4 9h10a6 6 0 0 1 0 12h-3',
             redo: 'M15 14l5-5-5-5 M20 9H10a6 6 0 0 0 0 12h3',
             level: 'M3 16h18 M5 12h14 M4 8h16',
@@ -280,7 +330,10 @@ class BuildHotbar {
             flowers: 'M12 21v-9 M12 12c-2-4 2-4 0 0 M12 8a2 2 0 1 0 0.01 0 M8 8c-2 0-2-3 0-3s2 3 0 3z M16 8c2 0 2-3 0-3s-2 3 0 3z M12 4c0-2 3-2 3 0s-3 2-3 0z M9 21c0-3-2-5-4-6 M15 21c0-3 2-5 4-6',
             fern: 'M12 21C12 13 9 7 3 4 M12 21c0-8 3-14 9-17 M7 9l2-3 M6 12l3-2 M17 9l-2-3 M18 12l-3-2 M12 21V9',
             reeds: 'M8 21V7 M12 21V4 M16 21V8 M11 4h2v5h-2z M7 7h2v4H7z M4 21h16',
-            bush: 'M4 18a5 5 0 0 1 3-8 5 5 0 0 1 10 0 5 5 0 0 1 3 8z M12 18v3'
+            bush: 'M4 18a5 5 0 0 1 3-8 5 5 0 0 1 10 0 5 5 0 0 1 3 8z M12 18v3',
+            bulbs: 'M8 21c0-5 1-8 3-10 M11 8a3 3 0 1 0 0.01 0 M16 21c0-3 0-5 1-7 M17.5 11.5a2 2 0 1 0 0.01 0 M4 21h16',
+            tendrils: 'M7 21c0-7 1-11 4-13a3 3 0 1 1 0 5 M15 21c0-5 1-8 3-9a2.2 2.2 0 1 1 0 3.6 M4 21h16',
+            crystals: 'M6 21l1-9 2-3 2 3 1 9z M13 21l1.5-12 2-4 2 4 1.5 12z M3 21h18'
         };
         const path = own[name] || M[name] || '';
         return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><path d="${path}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
@@ -292,7 +345,9 @@ class BuildHotbar {
         if (slot === 'mremove') return this._t('build.hammer');
         if (slot === 'library') return this._t('build.library');
         if (/^model\d+$/.test(slot)) return (this.props()?.libraryModels()[Number(slot.slice(5))]?.name || '').split('/').pop();
+        if (slot === 'dunes' || slot === 'ground' || slot === 'biome' || slot === 'surround') return this._tt({ dunes: 'Dunes', ground: 'Ground', biome: 'Biome', surround: 'Beyond the Border' }[slot]);
         if (BuildHotbar.TERRAIN.includes(slot)) return this._t({ pour: 'terrain.waterPour', drain: 'terrain.drain', look: 'terrain.lookShort' }[slot] || 'terrain.' + slot);
+        if (BuildHotbar.ALIEN_FOLIAGE[slot]) return this._tt(BuildHotbar.ALIEN_FOLIAGE[slot]);
         if (BuildHotbar.FOLIAGE.includes(slot)) return this._t('foliage.' + slot);
         return this._t('build.' + slot);
     }
@@ -301,7 +356,7 @@ class BuildHotbar {
         const root = this.root, manager = this.manager();
         if (!root || !manager) return;
         const active = this.activeSlot();
-        const group = this.group(), terrain = group === 'terrain';
+        const group = this.group(), terrain = group === 'terrain' && !this.rockInHand();
         const slots = this.slots();
         const escape = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
         const face = slot => {
@@ -379,7 +434,7 @@ class BuildHotbar {
     renderPanel() {
         const panel = this.panel, manager = this.manager();
         if (!panel || !manager) return;
-        if (this.group() === 'terrain') { this._modelsBody = null; this.renderTerrainPanel(); return; }
+        if (this.group() === 'terrain' && !this.rockInHand()) { this._modelsBody = null; this.renderTerrainPanel(); return; }
         if (this.group() === 'foliage') { this._modelsBody = null; this.renderFoliagePanel(); return; }
         if (this.group() === 'models') { this.renderModelsPanel(); return; }
         this._modelsBody = null;
@@ -398,17 +453,19 @@ class BuildHotbar {
             const lo = span ? Math.max(min, Math.floor(value - span)) : min, hi = span ? Math.min(max, Math.ceil(value + span)) : max;
             return `<div class="mp-transform-row rr-build-slide mp-axis-${axis}"><span class="mp-axis-label">${label}</span><input type="range" class="rr-build-slider" data-for="${cls}" data-key="${key}" min="${lo}" max="${hi}" step="${step}" value="${value}" data-no-stepper><input type="number" class="database-field-value ${cls}" data-key="${key}" value="${value}" min="${min}" max="${max}" step="${step}" data-no-stepper></div>`;
         };
-        const swatches = current => `<div class="rr-build-swatches"><button type="button" class="rr-build-swatch rr-build-material" data-material="" aria-pressed="${!current}" title="${this._t('pieces.plain')}"><span class="rr-build-swatch-plain"></span></button>`
-            + manager.materials().map(entry => `<button type="button" class="rr-build-swatch rr-build-material" data-material="${entry.name}" aria-pressed="${current === entry.name}" title="${entry.name}" style="background-image:url('${entry.url}');"></button>`).join('') + '</div>';
-        const materialCard = current => section(this._t('pieces.material'), swatches(current), current || this._t('pieces.plain'));
+        // The material in use, large; a click opens the project's materials to swap it for another.
+        const materialUrl = name => (manager.materials().find(entry => entry.name === name) || {}).url || '';
+        const swatches = current => RRMaterialPopup.tile({ cls: 'rr-build-material-tile', value: current || '', url: materialUrl(current), blank: this._t('pieces.plain'), attrs: `title="${escape(this._t('pieces.material'))}"` });
+        const materialCard = current => section(this._t('pieces.material'), swatches(current));
         const FINISHES = ['', 'mirror', 'chrome', 'polished', 'glossy', 'gold'];
         const PRESETS = (typeof Reactor3D !== 'undefined' && Reactor3D.PIECE_FINISHES) || {};
         const surfaceOf = p => p ? (p.surface || (p.finish && PRESETS[p.finish]) || null) : null;
         const sameSurface = (a, b) => (!a && !b) || (!!a && !!b && ['reflect', 'gloss', 'metal', 'texture'].every(k => Math.abs((a[k] || 0) - (b[k] || 0)) < 1e-6) && String(a.tint || '#ffffff').toLowerCase() === String(b.tint || '#ffffff').toLowerCase());
         // The finishes as presets; the surface's own sliders (as a 3D model's Surface has) under Custom, or open when no preset matches.
-        const finishes = holder => {
+        // `differ`: the pieces read wear different surfaces, so no preset is pressed and the sliders stay shut until asked for.
+        const finishes = (holder, differ = false) => {
             const current = surfaceOf(holder);
-            const preset = FINISHES.find(f => sameSurface(current, f ? PRESETS[f] : null));
+            const preset = differ ? null : FINISHES.find(f => sameSurface(current, f ? PRESETS[f] : null));
             const custom = preset === undefined || !!this._finishCustom;
             const chips = `<div class="rr-build-finishes">${FINISHES.map(f => `<button type="button" class="rr-build-chip rr-build-finish" data-finish="${f}" aria-pressed="${!custom && preset === f}">${f === 'mirror' ? this._t('build.finish.mirror') : tt(f ? f[0].toUpperCase() + f.slice(1) : 'Plain')}</button>`).join('')}`
                 + `<button type="button" class="rr-build-chip rr-build-finish-custom" aria-pressed="${custom}">${tt('Custom')}</button></div>`;
@@ -426,7 +483,19 @@ class BuildHotbar {
             // Keep it: the selection as a structure, stamped again anywhere from the Blueprint slot.
             const keep = `<button type="button" class="rr-btn-secondary rr-build-save-structure rr-build-wide-button">${this.icon('blueprint', 16)}<span>${escape(tt('Save as structure…'))}</span></button>`
                 + `<div class="rr-build-note rr-build-wrap">${escape(tt('Reuse it anywhere from the Blueprint slot.'))}</div>`;
-            body = lead(this._t('build.manyHint')) + section(tt('Structure'), keep) + materialCard(null) + section(this._t('build.finish'), finishes(manager.selectionPieces ? manager.selectionPieces()[0] || null : null));
+            // The parts of what is selected, a material each: a row per part, then one for them all. One part alone is the plain card.
+            const pieces = manager.selectionPieces ? manager.selectionPieces() : [];
+            const parts = manager.selectionParts ? manager.selectionParts() : [];
+            const whole = this.wholePart(parts, s.count);
+            this.keepPartsView(parts);
+            const hand = this.partInHand(parts);
+            const materials = parts.length > 1 ? section(tt('Materials'), this.partRows(parts, whole, hand, materialUrl))
+                : section(this._t('pieces.material'), this.partTile(whole, this._t('pieces.material'), materialUrl));
+            // The Finish card reads the part in hand (every selected piece when none is): pieces that differ press no preset.
+            const inHand = hand ? new Set(hand.ids) : null, held = inHand ? pieces.filter(piece => inHand.has(piece.id)) : pieces;
+            const differ = held.some(piece => !sameSurface(surfaceOf(piece), surfaceOf(held[0])));
+            body = lead(this._t(parts.length > 1 ? 'build.parts.hint' : 'build.manyHint')) + section(tt('Structure'), keep) + materials
+                + section(this._t('build.finish'), finishes(held[0] || null, differ), parts.length > 1 ? (hand ? this.partName(hand.key) : this._t('build.parts.all')) : '');
             foot = `<button type="button" class="rr-btn-secondary rr-build-turn-all">${this.icon('turn', 16)}<span>${tt('Turn')}</span></button><button type="button" class="rr-btn-secondary rr-build-remove">${this._t('build.remove')}</button>`;
         } else if (s.kind === 'select') {
             head = this._t('build.select');
@@ -472,7 +541,7 @@ class BuildHotbar {
                 const cap = piece ? (piece.cap || '') : manager.rockCap;
                 const capChip = (value, label) => `<button type="button" class="rr-build-chip rr-build-rockcap" data-cap="${value}" aria-pressed="${cap === value}">${label}</button>`;
                 const top = `<div class="rr-build-rockcaps">${capChip('', this._t('build.rock.capNone'))}${capChip('ground', this._t('build.rock.capGround'))}</div>`
-                    + `<div class="rr-build-swatches">${manager.materials().map(entry => `<button type="button" class="rr-build-swatch rr-build-rockcap" data-cap="${entry.name}" aria-pressed="${cap === entry.name}" title="${entry.name}" style="background-image:url('${entry.url}');"></button>`).join('')}</div>`;
+                    + RRMaterialPopup.tile({ cls: 'rr-build-rockcap-tile', value: cap && cap !== 'ground' ? cap : '', url: materialUrl(cap), blank: this._t('pieces.material'), attrs: `title="${escape(this._t('build.rock.top'))}"` });
                 const capName = cap === '' ? this._t('build.rock.capNone') : cap === 'ground' ? this._t('build.rock.capGround') : cap;
                 body += `<div class="lit-section rr-build-section">` + this.paneTabs('rockmat', [['sides', `${this._t('pieces.material')} · ${escape(material || this._t('pieces.plain'))}`, swatches(material)], ['top', `${this._t('build.rock.top')} · ${escape(capName)}`, top]]) + '</div>';
             } else body += materialCard(piece ? piece.material : manager.material);
@@ -533,6 +602,199 @@ class BuildHotbar {
         this.setPanel(s.kind === 'wedge' ? 'ramp' : s.kind === 'many' ? 'select' : s.kind, head, body, foot);
         this.bindPanel(s);
     }
+
+    // ---- Several pieces selected: the parts of the building, a material each ----
+
+    /** What each part is called: the bar's own word for its pieces where it has one (a window's frame as its own card names it). */
+    static PART_NAMES = {
+        wall: 'pieces.kind.wall', inner: 'build.parts.inner', floor: 'pieces.kind.floor', ceiling: 'build.parts.ceiling', roof: 'pieces.kind.roof',
+        stair: 'pieces.kind.stair', ramp: 'pieces.kind.ramp', ladder: 'pieces.kind.ladder', pillar: 'pieces.kind.pillar', door: 'pieces.kind.door',
+        glass: 'pieces.kind.glass', fence: 'pieces.kind.fence', path: 'build.parts.path', block: 'pieces.kind.block', shape: 'build.shape', rock: 'pieces.kind.rock'
+    };
+
+    partName(key) { return key === 'frame' ? this._tt('Window frame') : this._t(BuildHotbar.PART_NAMES[key] || 'build.parts.all'); }
+
+    /** Every part as one, for the row that paints them all: its materials are theirs, a window's frame left out (a pick here leaves frames be). */
+    wholePart(parts, count) {
+        const materials = [];
+        for (const part of parts) if (part.key !== 'frame') for (const name of part.materials) if (!materials.includes(name)) materials.push(name);
+        return { key: '', count, materials, mixed: materials.length > 1, material: materials.length === 1 ? materials[0] : materials.length ? null : '' };
+    }
+
+    /** The part whose name is pressed, which the Finish card edits; null is every part. A frame has no finish of its own. */
+    partInHand(parts) {
+        const part = parts.length > 1 ? parts.find(entry => entry.key === this._partInHand && entry.key !== 'frame') || null : null;
+        if (!part) this._partInHand = '';
+        return part;
+    }
+
+    /**
+     * Called as the rows are drawn again: another selection starts from every part, and the same one keeps
+     * its place (how far the panel was scrolled, which row's control had the keyboard), which bindParts puts back.
+     */
+    keepPartsView(parts) {
+        const manager = this.manager(), panel = this.panel;
+        const same = !!manager && this._partsFor === manager.selectedIds && !!panel.querySelector('.rr-build-part-tile');
+        if (!same) this._partInHand = '';
+        const active = same && typeof document !== 'undefined' ? document.activeElement : null;
+        const held = active && panel.contains(active) && active.closest ? active : null;
+        this._partsKeep = same ? {
+            scroll: panel.querySelector('.rr-build-panel-body')?.scrollTop || 0,
+            focus: held && held.classList.contains('rr-build-part-name') ? `.rr-build-part-name[data-part="${held.dataset.part}"]`
+                : held && held.classList.contains('rr-build-finish') ? `.rr-build-finish[data-finish="${held.dataset.finish}"]` : ''
+        } : null;
+        this._partsFor = manager ? manager.selectedIds : null;
+        this._partsShown = parts;
+    }
+
+    /** The rows of the Materials card: each part's name (pressed when it is the one in hand), how many pieces, its material; the last row is all of them. */
+    partRows(parts, whole, hand, urlOf) {
+        const escape = text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const row = (part, name) => {
+            const label = `<span class="rr-build-part-label">${escape(name)}</span><span class="rr-build-part-count">${part.count}</span>`;
+            const pressed = hand ? hand.key === part.key : part.key === '';
+            const title = part.key === 'frame' ? `<span class="rr-build-part-name">${label}</span>`
+                : `<button type="button" class="rr-build-part-name" data-part="${part.key}" aria-pressed="${pressed}" title="${escape(this._t('build.parts.pick'))}">${label}</button>`;
+            return `<div class="rr-build-part${part.key ? '' : ' rr-build-part-all'}" data-part="${part.key}" role="listitem">${title}${this.partTile(part, name, urlOf)}</div>`;
+        };
+        return `<div class="rr-build-parts" role="list">${parts.map(part => row(part, this.partName(part.key))).join('')}${row(whole, this._t('build.parts.all'))}</div>`;
+    }
+
+    /** A part's material as the tile that swaps it: its picture and name, or "Mixed" over the pictures of all it holds (bindParts lays those in). */
+    partTile(part, name, urlOf) {
+        const escape = text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const value = part.mixed ? '' : part.material || '';
+        const shown = part.mixed ? this._t('build.parts.mixed') : value || this._t('pieces.plain');
+        if (typeof RRMaterialPopup === 'undefined') return '';
+        return RRMaterialPopup.tile({ cls: 'rr-build-part-tile' + (part.mixed ? ' is-mixed' : ''), value, url: urlOf(value), blank: shown,
+            attrs: `data-part="${part.key}" title="${escape(this._t('pieces.material'))}" aria-label="${escape(name + ': ' + shown)}"` });
+    }
+
+    /** The rows' controls: a tile swaps its part's material (one undo step), a name takes its part in hand for Finish, pointing at a row lights its part in the view. */
+    bindParts() {
+        const panel = this.panel, manager = this.manager();
+        if (!panel || !manager || !panel.querySelector('.rr-build-part-tile')) return;
+        const parts = this._partsShown || [];
+        const partOf = key => parts.find(part => part.key === key) || null;
+        const urlOf = name => (manager.materials().find(entry => entry.name === name) || {}).url || '';
+        // A mixed part shows what it holds: up to four of its materials as quarters of the tile's face.
+        panel.querySelectorAll('.rr-build-part-tile.is-mixed').forEach(el => {
+            const face = el.querySelector('.rr-material-tile-face'), part = partOf(el.dataset.part) || this.wholePart(parts, 0);
+            const names = part.materials.slice(0, 4);
+            if (!face || names.length < 2) return;
+            const picture = name => { const url = urlOf(name); return url ? `url("${String(url).replace(/["\\]/g, '\\$&')}")` : 'linear-gradient(var(--color-bg-deep), var(--color-bg-deep))'; };
+            const quarters = names.length === 2 ? [names[0], names[1], names[1], names[0]] : [names[0], names[1], names[2], names[3] || names[0]];
+            face.classList.remove('is-plain');
+            face.style.backgroundImage = quarters.map(picture).join(', ');
+            face.style.backgroundPosition = '0 0, 100% 0, 0 100%, 100% 100%';
+            face.style.backgroundSize = '50% 50%';
+            face.style.backgroundRepeat = 'no-repeat';
+        });
+        panel.querySelectorAll('.rr-build-part-tile').forEach(el => el.addEventListener('click', () => {
+            const key = el.dataset.part, part = partOf(key);
+            // While its materials are open the part stays lit, wherever the pointer goes.
+            this._partPin = el;
+            this.showPart(part, el);
+            RRMaterialPopup.open(el, {
+                materials: manager.materials(), current: el.classList.contains('is-mixed') ? null : el.dataset.value,
+                // A window frame with no material named wears the default wood: it has no plain.
+                blank: key === 'frame' ? null : this._t('pieces.plain'),
+                onHover: name => { if (name === null && this._partPin === el) { this._partPin = null; this.showPart(null); } },
+                onPick: name => {
+                    if (key) manager.paintSelectionPart(key, name); else manager.updateSelection({ material: name });
+                    this.refreshParts();
+                }
+            });
+        }));
+        panel.querySelectorAll('button.rr-build-part-name').forEach(el => el.addEventListener('click', () => {
+            this._partInHand = el.dataset.part;
+            this._finishCustom = false;
+            this.renderPanel();
+        }));
+        panel.querySelectorAll('.rr-build-part').forEach(row => {
+            const part = partOf(row.dataset.part);
+            const leave = () => { if (!this._partPin) this.showPart(null); };
+            row.addEventListener('pointerenter', () => { if (!this._partPin) this.showPart(part, row); });
+            row.addEventListener('pointerleave', leave);
+            row.addEventListener('focusin', () => { if (!this._partPin) this.showPart(part, row); });
+            row.addEventListener('focusout', event => { if (!row.contains(event.relatedTarget)) leave(); });
+        });
+        // Drawn again for the same selection: back where the panel was scrolled, the keyboard on the control it was on.
+        const keep = this._partsKeep;
+        this._partsKeep = null;
+        if (keep) {
+            const body = panel.querySelector('.rr-build-panel-body');
+            if (body && keep.scroll) body.scrollTop = keep.scroll;
+            if (keep.focus) panel.querySelector(keep.focus)?.focus({ preventScroll: true });
+        }
+        // An undo, a redo or any other edit of the pieces while the rows are up: they show the pieces as they are now.
+        if (!this._onPartsEdited && typeof document !== 'undefined') {
+            this._onPartsEdited = event => { if (event?.detail?.pieces) this.refreshParts(); };
+            document.addEventListener('rr-map-edited', this._onPartsEdited);
+        }
+    }
+
+    /** The rows drawn again when the pieces they show have changed; left alone while a field of the panel is being typed in or dragged. */
+    refreshParts() {
+        const panel = this.panel, manager = this.manager();
+        if (!panel || !manager || !this.visible || !panel.querySelector('.rr-build-part-tile')) return false;
+        const active = typeof document !== 'undefined' ? document.activeElement : null;
+        if (active && active.tagName === 'INPUT' && panel.contains(active)) return false;
+        if (manager.mode !== 'select' || manager.selectionIds().length < 2 || this._partsShown === manager.selectionParts()) return false;
+        this.renderPanel();
+        return true;
+    }
+
+    /**
+     * A part of the selection lit in the 3D view while its row is pointed at: its pieces keep the
+     * selection's outline at full strength and the rest of the selection dims. `part` null (or the row
+     * for all of them) puts the outline back. The part's boxes are the selection outline's own, so it
+     * is drawn on the next frame and costs nothing between; the selection itself never changes.
+     * `from` is the row or tile pointing: when it leaves the page the light goes with it.
+     */
+    showPart(part, from) {
+        const view = (typeof window !== 'undefined' && window.reactor?.mapEditor3D) || null;
+        const outline = view ? view.selectionOutline : null;
+        const lit = this._partLit || (this._partLit = { line: null, dimmed: null, from: null, watch: null });
+        const source = part && outline && outline.visible && typeof THREE !== 'undefined' ? outline.geometry.getAttribute('position') : null;
+        // The outline holds twelve edges a selected piece, in the selection's order: anything else is not this selection's.
+        const count = source ? source.count / 24 : 0;
+        if (!source || !part.at.length || count !== this.manager()?.selectionIds().length || part.at.some(index => index >= count)) {
+            if (lit.line) lit.line.visible = false;
+            if (lit.dimmed !== null && outline) outline.material.opacity = lit.dimmed;
+            lit.dimmed = null; lit.from = null;
+            if (lit.watch) lit.watch.disconnect();
+            view?.requestRender?.();
+            return false;
+        }
+        const positions = new Float32Array(part.at.length * 72);
+        part.at.forEach((index, i) => positions.set(source.array.subarray(index * 72, index * 72 + 72), i * 72));
+        if (!lit.line) {
+            lit.line = new THREE.LineSegments(new THREE.BufferGeometry(), outline.material.clone());
+            lit.line.renderOrder = outline.renderOrder + 1;
+            lit.line.userData.__reactorOverlay = true;
+        }
+        // A child of the selection's outline: hidden whenever that is, with nothing to remember.
+        if (lit.line.parent !== outline) outline.add(lit.line);
+        lit.line.geometry.dispose();
+        lit.line.geometry = new THREE.BufferGeometry();
+        lit.line.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        lit.line.geometry.computeBoundingSphere();
+        lit.line.material.opacity = 1;
+        lit.line.visible = true;
+        if (lit.dimmed === null) { lit.dimmed = outline.material.opacity; outline.material.opacity = BuildHotbar.PART_DIM; }
+        // The row can go without the pointer leaving it (the panel drawn again, the bar put away): the light goes then too.
+        lit.from = from || null;
+        if (lit.from && this.panel && typeof MutationObserver !== 'undefined') {
+            if (!lit.watch) lit.watch = new MutationObserver(() => { const row = this._partLit.from; if (row && (!row.isConnected || row.offsetParent === null)) { this._partPin = null; this.showPart(null); } });
+            lit.watch.observe(this.panel, { childList: true, attributes: true, attributeFilter: ['style', 'class'] });
+        }
+        view.requestRender?.();
+        return true;
+    }
+
+    /** How strong the rest of the selection's outline stays while one part is lit. */
+    static PART_DIM = 0.16;
 
     /** The panel's frame: its head (with the collapse toggle), the body and the foot; collapsed, the head alone. */
     setPanel(icon, head, body, foot) {
@@ -598,6 +860,7 @@ class BuildHotbar {
         root.classList.toggle('is-narrow', narrow);
         root.classList.toggle('is-short', short);
         panel.classList.toggle('is-compact', compact);
+        panel.classList.toggle('is-narrow', narrow);
         panel.style.width = (width >= 1100 ? 300 : width >= 760 ? 268 : Math.max(200, Math.min(248, width - 40))) + 'px';
         // As tall as what it holds, never past the bar: a short panel leaves the view free under it.
         const bar = root.style.display === 'none' ? 0 : root.getBoundingClientRect().height;
@@ -751,7 +1014,10 @@ class BuildHotbar {
     bindPanel(s) {
         const panel = this.panel, manager = this.manager();
         const placed = !!s.piece || s.kind === 'many';
-        const edit = (patch, pending) => { if (s.kind === 'many') manager.updateSelection(patch); else if (placed) manager.updateSelected(patch); else pending(); this.renderPanel(); };
+        // Many selected: the Finish card edits the part in hand, every selected piece when none is.
+        const hand = s.kind === 'many' ? this.partInHand(this._partsShown || []) : null;
+        const editMany = (patch, record) => (hand ? manager.updateSelectionPart(hand.ids, patch, record) : manager.updateSelection(patch, record));
+        const edit = (patch, pending) => { if (s.kind === 'many') editMany(patch); else if (placed) manager.updateSelected(patch); else pending(); this.renderPanel(); };
         panel.querySelectorAll('.rr-build-shape').forEach(el => el.addEventListener('click', () => {
             const kind = el.dataset.shape;
             if (s.piece) {
@@ -781,6 +1047,7 @@ class BuildHotbar {
         panel.querySelector('.rr-build-select-whole')?.addEventListener('click', () => { manager.selectConnectedAt(null); this.renderPanel(); });
         panel.querySelector('.rr-build-relay')?.addEventListener('click', () => { manager.relayFromPlan(); this.renderPanel(); });
         this.bindDoorPanel(s, edit);
+        if (s.kind === 'many') this.bindParts();
         panel.querySelector('.rr-build-turn-all')?.addEventListener('click', () => { manager.turnSelection(); this.renderPanel(); });
         // A preset chip sets the surface to the preset's (the sliders then start from it).
         const presets = (typeof Reactor3D !== 'undefined' && Reactor3D.PIECE_FINISHES) || {};
@@ -798,8 +1065,9 @@ class BuildHotbar {
         });
         // The surface's own values: sliders live (one undo step a drag), numbers in percent, the tint by the colour popup.
         const currentSurface = () => {
-            // Many selected: they start from the first one's surface (gold stays gold while a slider moves).
-            const holder = s.kind === 'many' ? (manager.selectionPieces()[0] || null) : (placed ? manager.selectedPiece() : { finish: manager.finish, surface: manager.surface });
+            // Many selected: they start from the surface of the first of the part in hand (gold stays gold while a slider moves).
+            const first = () => { const all = manager.selectionPieces(); return (hand ? all.find(piece => hand.ids.includes(piece.id)) : all[0]) || null; };
+            const holder = s.kind === 'many' ? first() : (placed ? manager.selectedPiece() : { finish: manager.finish, surface: manager.surface });
             const base = holder ? (holder.surface || (holder.finish && presets[holder.finish])) : null;
             return Object.assign({ reflect: 0, gloss: 0.8, metal: 0, texture: 0, tint: '#ffffff' }, base || {});
         };
@@ -809,7 +1077,7 @@ class BuildHotbar {
             const plain = !surface.reflect && !surface.metal && !surface.texture && Math.abs(surface.gloss - 0.8) < 1e-6 && String(surface.tint).toLowerCase() === '#ffffff';
             const value = { finish: '', surface: plain ? null : surface };
             if (patch.reflect !== undefined) panel.querySelectorAll('.rr-surface-row:not([data-surface="reflect"])').forEach(row => row.classList.toggle('is-dimmed', !(surface.reflect > 0)));
-            if (s.kind === 'many') manager.updateSelection(value, record);
+            if (s.kind === 'many') editMany(value, record);
             else if (placed) manager.updateSelected(value, record);
             else { manager.finish = ''; manager.surface = value.surface; }
         };
@@ -824,7 +1092,14 @@ class BuildHotbar {
             surfaceTint.addEventListener('click', () => { recorded = false; });
             RRColorPopup.bind(surfaceTint, hex => { setSurface({ tint: hex }, !recorded); recorded = true; });
         }
-        panel.querySelectorAll('.rr-build-material').forEach(el => el.addEventListener('click', () => edit({ material: el.dataset.material }, () => manager.setMaterial(el.dataset.material))));
+        panel.querySelectorAll('.rr-build-material-tile').forEach(el => el.addEventListener('click', () => RRMaterialPopup.open(el, {
+            materials: manager.materials(), current: el.dataset.value, blank: this._t('pieces.plain'),
+            onPick: name => edit({ material: name }, () => manager.setMaterial(name))
+        })));
+        panel.querySelectorAll('.rr-build-rockcap-tile').forEach(el => el.addEventListener('click', () => RRMaterialPopup.open(el, {
+            materials: manager.materials(), current: el.dataset.value,
+            onPick: cap => edit({ cap }, () => { manager.rockCap = cap; manager._ghostChanged(); })
+        })));
         panel.querySelectorAll('.rr-build-rot').forEach(el => el.addEventListener('click', () => { const r = Number(el.dataset.rot); edit(s.shape ? { angle: r * 90 } : { rot: r }, () => { manager.rot = r; manager._syncPanel(); manager._ghostChanged(); }); }));
         panel.querySelectorAll('.rr-build-size').forEach(el => el.addEventListener('change', () => {
             const i = Number(el.dataset.key), v = Number(el.value);
@@ -915,9 +1190,61 @@ class BuildHotbar {
         // What a click does comes first, as on every panel.
         const note = key => `<div class="rr-build-note rr-build-wrap rr-build-lead">${t(key)}</div>`;
         let body = '';
+        const tt = text => this._tt(text);
+        const escape = text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const lead = text => `<div class="rr-build-note rr-build-wrap rr-build-lead">${text}</div>`;
+        const swatchOf = (cls, value) => typeof RRColorPopup !== 'undefined' ? RRColorPopup.swatch(cls, value) : `<input type="color" class="${cls}" value="${value}">`;
+        const chipOf = (cls, data, label, on) => `<button type="button" class="rr-build-chip ${cls}" data-value="${escape(data)}" aria-pressed="${on}"><span>${escape(label)}</span></button>`;
         if (['raise', 'lower', 'smooth', 'flatten'].includes(slot)) {
             body = note('terrain.hint.brush') + section(t('terrain.brush'), range('rr-build-tradius', t('terrain.radius'), terrain.radius, 1, 12, 0.5, terrain.radius)
                 + range('rr-build-tstrength', t('terrain.strength'), terrain.strength, 0.05, 1, 0.05, terrain.strength));
+        } else if (slot === 'dunes') {
+            const d = terrain.dunes, limit = typeof RRMapElevation !== 'undefined' && RRMapElevation.duneSettings ? RRMapElevation.duneSettings(d).height : d.height;
+            body = lead(tt('Drag to raise dunes: long ridges across the wind, gentle on one side, steep on the other.'))
+                + section(t('terrain.brush'), range('rr-build-tradius', t('terrain.radius'), terrain.radius, 1, 12, 0.5, terrain.radius)
+                    + range('rr-build-tstrength', t('terrain.strength'), terrain.strength, 0.05, 1, 0.05, terrain.strength))
+                + section(tt('Dunes'), range('rr-build-ddir', tt('Wind direction'), d.dir, 0, 359, 1, Math.round(d.dir) + '°')
+                    + range('rr-build-dsize', tt('Ridge spacing'), d.size, 4, 40, 1, d.size)
+                    + range('rr-build-dheight', tt('Height'), Math.min(d.height, limit), 0.2, d.walkable ? Math.max(0.2, Math.round(0.55 * 0.3 * d.size * 10) / 10) : 12, 0.1, Math.round(Math.min(d.height, limit) * 10) / 10))
+                + `<details class="lit-section rr-build-section rr-build-more" data-more="dunes"${this.moreOpen('dunes') ? ' open' : ''}><summary class="lit-section-header">${tt('Advanced')}</summary><div class="lit-section-body">`
+                + `<label class="rr-build-check"><input type="checkbox" class="rr-build-dwalk"${d.walkable ? ' checked' : ''}> ${tt('Keep slopes walkable')}</label>`
+                + `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-dseed">${tt('Another dune field')}</button></div></div></details>`;
+        } else if (slot === 'ground') {
+            const types = terrain.groundTypes(), inHand = terrain.groundTypeInHand(), manager = this.manager();
+            const urlOf = name => ((manager?.materials?.() || []).find(entry => entry.name === name) || {}).url || '';
+            const tile = inHand && typeof RRMaterialPopup !== 'undefined'
+                ? RRMaterialPopup.tile({ cls: 'rr-build-gmaterial', value: inHand.material, url: urlOf(inHand.material), blank: tt('None') }) : '';
+            const list = types.map((type, i) => `<button type="button" class="rr-build-chip rr-build-gtype" data-index="${i}" aria-pressed="${i === terrain.groundType && !terrain.groundErase}"><i class="rr-build-gdot" style="background:${escape(type.tint || '#ffffff')}"></i><span>${escape(type.name || type.material)}</span></button>`).join('');
+            const presets = TerrainManager.GROUND_PRESETS.map((preset, i) => `<button type="button" class="rr-build-chip rr-build-gpreset" data-index="${i}"><i class="rr-build-gdot" style="background:${escape(preset.tint)}"></i><span>${escape(tt(preset.name))}</span></button>`).join('');
+            // A map with no floor has nothing for a ground to lie over: say so, and offer one.
+            const floors = terrain.hasGroundFloor() || !this.is3D() ? [] : this.groundFloors();
+            const noFloor = terrain.hasGroundFloor() ? '' : `<div class="rr-build-note rr-build-wrap rr-build-gnofloor">${tt('This map has no floor to paint over.')}</div>`
+                + (floors.length ? `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-gsetfloor" data-floor="${escape(floors[0])}">${tt('Set a floor')}</button></div>` : `<div class="rr-build-note rr-build-wrap">${tt('Choose one in Map Properties, 3D, Floor.')}</div>`);
+            body = lead(tt('Paint a ground over the floor: sand, dirt, snow, or one of your own. Erase goes back to the map\'s own ground.')) + noFloor
+                + `<div class="rr-build-finishes rr-build-pair">${chipOf('rr-build-gmode', 'paint', t('foliage.paint'), !terrain.groundErase)}${chipOf('rr-build-gmode', 'erase', t('foliage.erase'), !!terrain.groundErase)}</div>`
+                + `<div class="rr-build-finishes rr-build-pair">${chipOf('rr-build-gshape', 'brush', t('terrain.brush'), terrain.groundShape !== 'rect')}${chipOf('rr-build-gshape', 'rect', tt('Rectangle'), terrain.groundShape === 'rect')}</div>`
+                + section(tt('Ground'), (types.length ? `<div class="rr-build-finishes rr-build-gtypes">${list}</div>` : `<div class="rr-build-note rr-build-wrap">${tt('This map has no ground types yet. Pick one to start.')}</div>`)
+                    + `<details class="rr-build-gadd"${types.length ? '' : ' open'}><summary class="rr-btn-secondary rr-build-gaddbtn">+ ${tt('Add a ground')}</summary><div class="rr-build-finishes rr-build-pair">${presets}</div></details>`,
+                    inHand ? escape(inHand.name || inHand.material) : '')
+                + (inHand ? section(tt('This ground'), tile
+                    + `<div class="rr-build-range"><span>${tt('Tint')}</span>${swatchOf('rr-build-gtint', inHand.tint || '#ffffff')}</div>`
+                    + range('rr-build-gscale', tt('Scale'), inHand.scale || 4, 0.5, 16, 0.5, inHand.scale || 4)
+                    + `<label class="rr-build-check"><input type="checkbox" class="rr-build-gbare"${inHand.bare ? ' checked' : ''}> ${tt('Nothing grows here')}</label>`
+                    + `<label class="rr-build-field"><span>${tt('Name')}</span><input type="text" class="database-field-value rr-build-gname" value="${escape(inHand.name || inHand.material)}" maxlength="40"></label>`
+                    + `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-gremove">${tt('Remove this ground')}</button></div>`) : '')
+                + this.steepSection(terrain, section, urlOf)
+                + section(t('terrain.brush'), range('rr-build-tradius', t('terrain.radius'), terrain.radius, 1, 12, 0.5, terrain.radius)
+                    + range('rr-build-tstrength', t('terrain.strength'), terrain.strength, 0.05, 1, 0.05, terrain.strength)
+                    + range('rr-build-gsoft', tt('Soft edge'), terrain.groundSoft, 0, 1, 0.05, Math.round(terrain.groundSoft * 100) + '%')
+                    + range('rr-build-glevel', tt('Coverage'), terrain.groundLevel, 1, 9, 1, terrain.groundLevel)
+                    + `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-gfill">${terrain.groundErase ? tt('Clear the whole map') : tt('Fill the whole map')}</button></div>`);
+        } else if (slot === 'biome') {
+            const names = { temperate: 'Temperate', desert: 'Desert', snow: 'Snow', volcanic: 'Volcanic', alienViolet: 'Alien violet', alienFungal: 'Alien fungal' };
+            body = lead(tt('A starting look for the whole map: its ground, cliffs, plant colors and water together. Heights stay as they are.'))
+                + section(tt('Biome'), `<div class="rr-build-finishes">${Object.keys(TerrainManager.BIOMES).map(key => chipOf('rr-build-biome', key, tt(names[key]), terrain.biome === key)).join('')}</div>`
+                    + `<label class="rr-build-check"><input type="checkbox" class="rr-build-breplace"${terrain.biomeReplace ? ' checked' : ''}> ${tt('Also clear the ground already painted')}</label>`);
+        } else if (slot === 'surround') {
+            body = this.surroundBody(terrain, section);
         } else if (slot === 'pour') {
             body = note('terrain.hint.pour');
         } else if (slot === 'river') {
@@ -941,7 +1268,7 @@ class BuildHotbar {
                 + `<div class="lit-section rr-build-section">` + this.paneTabs('waterlook', [
                     // No colour of its own is water's depth blue, shown as such.
                     ['liquid', t('terrain.look.colour'), `<div class="rr-build-range"><span>${t('terrain.look.colour')}</span>${swatch('rr-build-tcolour', look.colour || '#2a5f96')}</div>`
-                        + range('rr-build-tclear', t('terrain.look.clear'), look.clear ?? 0.6, 0, 1, 0.01, Math.round((look.clear ?? 0.6) * 100) + '%')
+                        + range('rr-build-tclarity', t('terrain.look.clear'), look.clear ?? 0.6, 0, 1, 0.01, Math.round((look.clear ?? 0.6) * 100) + '%')
                         + range('rr-build-twaves', t('terrain.look.waves'), look.waves ?? 1, 0, 2, 0.01, Math.round((look.waves ?? 1) * 100) + '%')
                         + range('rr-build-tglow', t('terrain.look.glow'), look.glow ?? 0, 0, 1, 0.01, Math.round((look.glow ?? 0) * 100) + '%')],
                     ['reflect', t('terrain.look.reflect'), range('rr-build-treflect', t('terrain.look.reflect'), look.reflect, 0, 1, 0.01, Math.round(look.reflect * 100) + '%')
@@ -951,10 +1278,10 @@ class BuildHotbar {
             const chosen = terrain.selectedRegion ? terrain.selectedRegion() : null;
             body = (chosen ? `<div class="rr-build-note rr-build-wrap rr-build-tselected">${t('terrain.look.selected').replace('{w}', chosen.x1 - chosen.x0 + 1).replace('{h}', chosen.y1 - chosen.y0 + 1)}</div>` : note('terrain.look.pick')) + body;
         }
-        const status = terrain.statusText ? terrain.statusText() : '';
+        const status = this.terrainStatus(terrain.statusText ? terrain.statusText() : '');
         const iconButton = (cls, icon, key) => `<button type="button" class="rr-btn-secondary rr-build-icon-btn ${cls}" title="${t(key)}" aria-label="${t(key)}">${this.icon(icon, 16)}</button>`;
         this.setPanel(slot, this.label(slot), `${body}<div class="rr-build-note rr-build-wrap rr-build-tstatus"${status ? '' : ' hidden'}>${status}</div>`,
-            `${iconButton('rr-build-tundo', 'undo', 'terrain.undo')}${iconButton('rr-build-tredo', 'redo', 'terrain.redo')}${['raise', 'lower', 'smooth', 'flatten'].includes(slot) ? iconButton('rr-build-tclear', 'level', 'terrain.clear') : ''}`);
+            `${iconButton('rr-build-tundo', 'undo', 'terrain.undo')}${iconButton('rr-build-tredo', 'redo', 'terrain.redo')}${['raise', 'lower', 'smooth', 'flatten', 'dunes'].includes(slot) ? iconButton('rr-build-tclear', 'level', 'terrain.clear') : ''}`);
         const bindRange = (cls, apply, show) => panel.querySelector('.' + cls)?.addEventListener('input', event => {
             apply(Number(event.target.value));
             panel.querySelector('.' + cls + '-value').textContent = show(Number(event.target.value));
@@ -965,14 +1292,65 @@ class BuildHotbar {
         panel.querySelector('.rr-build-rfinish')?.addEventListener('click', () => terrain.finishRiver());
         panel.querySelector('.rr-build-rcancel')?.addEventListener('click', () => terrain.cancelRiver());
         bindRange('rr-build-tstrength', v => { terrain.strength = v; }, v => v);
-        // The look's sliders edit the selected sheet as they move (one undo step a drag), else only the look in hand.
-        const lookRange = (cls, key) => {
-            bindRange(cls, v => { if (terrain.editLook) terrain.editLook({ [key]: v }, 'live'); else terrain.waterLook[key] = v; }, v => Math.round(v * 100) + '%');
-            panel.querySelector('.' + cls)?.addEventListener('change', () => terrain.editLook?.({}, 'commit'));
+        // Dunes: the field in hand.
+        bindRange('rr-build-ddir', v => { terrain.dunes.dir = v; }, v => Math.round(v) + '°');
+        bindRange('rr-build-dheight', v => { terrain.dunes.height = v; }, v => v);
+        panel.querySelector('.rr-build-dsize')?.addEventListener('input', event => { terrain.dunes.size = Number(event.target.value); panel.querySelector('.rr-build-dsize-value').textContent = event.target.value; });
+        panel.querySelector('.rr-build-dsize')?.addEventListener('change', () => this.renderTerrainPanel());
+        panel.querySelector('.rr-build-dwalk')?.addEventListener('change', event => { terrain.dunes.walkable = event.target.checked; this.renderTerrainPanel(); });
+        panel.querySelector('.rr-build-dseed')?.addEventListener('click', () => { terrain.dunes.seed = 1 + Math.floor(Math.random() * 9999); this.flash(this._tt('Another dune field')); });
+        // Ground: the type in hand, its look, the brush.
+        panel.querySelectorAll('.rr-build-gmode').forEach(el => el.addEventListener('click', () => { terrain.groundErase = el.dataset.value === 'erase'; this.renderTerrainPanel(); }));
+        panel.querySelectorAll('.rr-build-gshape').forEach(el => el.addEventListener('click', () => { terrain.groundShape = el.dataset.value; this.renderTerrainPanel(); }));
+        panel.querySelector('.rr-build-gsetfloor')?.addEventListener('click', event => { if (terrain.setGroundFloor(event.currentTarget.dataset.floor)) this.renderTerrainPanel(); });
+        panel.querySelectorAll('.rr-build-gtype').forEach(el => el.addEventListener('click', () => { terrain.editGroundType({}, 'commit'); terrain.groundType = Number(el.dataset.index); terrain.groundErase = false; this.renderTerrainPanel(); }));
+        panel.querySelectorAll('.rr-build-gpreset').forEach(el => el.addEventListener('click', () => {
+            const preset = TerrainManager.GROUND_PRESETS[Number(el.dataset.index)];
+            if (preset && terrain.addGroundType(Object.assign({}, preset, { name: this._tt(preset.name) })) !== -1) this.renderTerrainPanel();
+        }));
+        bindRange('rr-build-gsoft', v => { terrain.groundSoft = v; }, v => Math.round(v * 100) + '%');
+        bindRange('rr-build-glevel', v => { terrain.groundLevel = v; }, v => v);
+        this.gestureRange(panel.querySelector('.rr-build-gscale'), v => { terrain.editGroundType({ scale: v }, 'live'); panel.querySelector('.rr-build-gscale-value').textContent = v; }, () => terrain.editGroundType({}, 'commit'));
+        panel.querySelector('.rr-build-gbare')?.addEventListener('change', event => { terrain.editGroundType({ bare: event.target.checked }, 'commit'); terrain.announceFoliage(null); });
+        panel.querySelector('.rr-build-gname')?.addEventListener('change', event => { terrain.editGroundType({ name: event.target.value }, 'commit'); this.renderTerrainPanel(); });
+        panel.querySelector('.rr-build-gremove')?.addEventListener('click', () => { terrain.removeGroundType(); this.renderTerrainPanel(); });
+        panel.querySelector('.rr-build-gfill')?.addEventListener('click', () => { terrain.fillGround(); this.renderTerrainPanel(); });
+        const groundTint = panel.querySelector('.rr-build-gtint');
+        const tintInput = hex => {
+            terrain.editGroundType({ tint: hex }, 'live');
+            const dot = panel.querySelector(`.rr-build-gtype[data-index="${terrain.groundType}"] .rr-build-gdot`);
+            if (dot) dot.style.background = hex;
+            clearTimeout(this._groundCommit);
+            this._groundCommit = setTimeout(() => terrain.editGroundType({}, 'commit'), 450);
         };
+        if (groundTint && groundTint.tagName === 'BUTTON') RRColorPopup.bind(groundTint, tintInput);
+        else groundTint?.addEventListener('input', event => tintInput(event.target.value));
+        const groundTile = panel.querySelector('.rr-build-gmaterial');
+        groundTile?.addEventListener('click', () => {
+            const manager = this.manager();
+            if (typeof RRMaterialPopup === 'undefined' || !manager) return;
+            if (RRMaterialPopup.isOpen()) { RRMaterialPopup.close(); return; }
+            RRMaterialPopup.open(groundTile, {
+                materials: manager.materials?.() || [],
+                current: groundTile.dataset.value,
+                onPick: name => { if (name) { terrain.editGroundType({ material: name }, 'commit'); this.renderTerrainPanel(); } }
+            });
+        });
+        this.bindSteepSection(terrain);
+        this.bindSurroundBody(terrain);
+        // Biome: one click sets the map's look.
+        panel.querySelector('.rr-build-breplace')?.addEventListener('change', event => { terrain.biomeReplace = event.target.checked; });
+        panel.querySelectorAll('.rr-build-biome').forEach(el => el.addEventListener('click', () => {
+            if (terrain.applyBiome(el.dataset.value, !!terrain.biomeReplace)) { terrain.biome = el.dataset.value; this.renderTerrainPanel(); }
+        }));
+        // The look's sliders edit the selected sheet as they move (one undo step a drag or a run of arrow keys), else only the look in hand.
+        const lookRange = (cls, key) => this.gestureRange(panel.querySelector('.' + cls), v => {
+            if (terrain.editLook) terrain.editLook({ [key]: v }, 'live'); else terrain.waterLook[key] = v;
+            panel.querySelector('.' + cls + '-value').textContent = Math.round(v * 100) + '%';
+        }, () => terrain.editLook?.({}, 'commit'));
         lookRange('rr-build-treflect', 'reflect');
         lookRange('rr-build-tgloss', 'gloss');
-        lookRange('rr-build-tclear', 'clear');
+        lookRange('rr-build-tclarity', 'clear');
         lookRange('rr-build-twaves', 'waves');
         lookRange('rr-build-tglow', 'glow');
         // A colour from the popup: live as it moves, kept a moment after the last change.
@@ -994,7 +1372,193 @@ class BuildHotbar {
         }));
         panel.querySelector('.rr-build-tundo')?.addEventListener('click', () => { terrain.undo(); this.renderTerrainPanel(); });
         panel.querySelector('.rr-build-tredo')?.addEventListener('click', () => { terrain.redo(); this.renderTerrainPanel(); });
-        panel.querySelector('.rr-build-tclear')?.addEventListener('click', () => { terrain.clear(); this.renderTerrainPanel(); });
+        panel.querySelector('button.rr-build-tclear')?.addEventListener('click', () => { terrain.clear(); this.renderTerrainPanel(); });
+    }
+
+    /**
+     * One undo step for a run of changes on a control: `keep()` closes the step. `now()` closes it at once (a drag
+     * let go), `soon()` a moment after the last change (arrow keys, a number's arrows held); losing focus closes it too.
+     */
+    gesture(el, keep) {
+        let timer = 0;
+        const now = () => { clearTimeout(timer); timer = 0; keep(); };
+        const soon = () => { clearTimeout(timer); timer = setTimeout(now, BuildHotbar.GATHER_MS); };
+        el.addEventListener('blur', () => { if (timer) now(); });
+        return { now, soon };
+    }
+
+    /** A slider that edits the map as it moves (`live(value)`): one undo step a drag, one a run of arrow keys (`keep()`). */
+    gestureRange(el, live, keep) {
+        if (!el) return;
+        const step = this.gesture(el, keep);
+        let keyed = false;
+        el.addEventListener('keydown', () => { keyed = true; });
+        el.addEventListener('pointerdown', () => { keyed = false; });
+        el.addEventListener('input', () => live(Number(el.value)));
+        el.addEventListener('change', () => (keyed ? step.soon() : step.now()));
+    }
+
+    /**
+     * The Ground panel's Steep Ground card: the material the map's steep ground turns to (none
+     * allowed), its tint and the angle it starts at; with no material, the tint and the angle are off.
+     * On a map whose ground is flat, a line saying so.
+     */
+    steepSection(terrain, section, urlOf) {
+        const tt = text => this._tt(text);
+        const escape = text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const cliff = terrain.cliff();
+        if (!terrain.hasSlopes()) return section(tt('Steep Ground'), `<div class="rr-build-note rr-build-wrap rr-build-steep-flat">${escape(tt('This map\'s ground is flat: nothing on it is steep.'))}</div>`);
+        const off = !cliff.name;
+        const tile = typeof RRMaterialPopup !== 'undefined'
+            ? RRMaterialPopup.tile({ cls: 'rr-build-cmaterial', value: cliff.name, url: urlOf(cliff.name), blank: tt('None'), attrs: `title="${escape(this._t('pieces.material'))}"` }) : '';
+        const swatch = typeof RRColorPopup !== 'undefined' ? RRColorPopup.swatch('rr-build-ctint', cliff.tint || '#ffffff', off) : `<input type="color" class="rr-build-ctint" value="${cliff.tint || '#ffffff'}"${off ? ' disabled' : ''}>`;
+        return section(tt('Steep Ground'), tile
+            + `<div class="rr-build-range${off ? ' is-off' : ''}"><span>${tt('Tint')}</span>${swatch}</div>`
+            + `<label class="rr-build-range${off ? ' is-off' : ''}"><span>${tt('Starts At')}</span><input type="range" class="rr-build-cslope" min="10" max="80" step="1" value="${cliff.slope}"${off ? ' disabled' : ''} data-no-stepper><b class="rr-build-cslope-value">${cliff.slope}°</b></label>`
+            + `<div class="rr-build-note rr-build-wrap">${escape(tt('Ground steeper than this angle turns to this material, on the map and past its border.'))}</div>`,
+            escape(cliff.name || tt('None')));
+    }
+
+    /** The Steep Ground card's controls: a material picked is one undo step, the slider one a drag or a run of arrow keys, a color one a moment after it stops moving. */
+    bindSteepSection(terrain) {
+        const panel = this.panel;
+        const tile = panel.querySelector('.rr-build-cmaterial');
+        tile?.addEventListener('click', () => {
+            const manager = this.manager();
+            if (typeof RRMaterialPopup === 'undefined' || !manager) return;
+            if (RRMaterialPopup.isOpen()) { RRMaterialPopup.close(); return; }
+            RRMaterialPopup.open(tile, {
+                materials: manager.materials?.() || [], current: tile.dataset.value, blank: this._tt('None'),
+                onPick: name => { terrain.setCliff({ name }, 'commit'); this.renderTerrainPanel(); }
+            });
+        });
+        const keep = () => terrain.setCliff({}, 'commit');
+        // A change on another control than the one still gathering closes that one's step first.
+        const live = (el, patch) => {
+            if (this._cliffOwner !== el) { keep(); this._cliffOwner = el; }
+            terrain.setCliff(patch, 'live');
+        };
+        const slope = panel.querySelector('.rr-build-cslope');
+        this.gestureRange(slope, value => {
+            live(slope, { slope: value });
+            panel.querySelector('.rr-build-cslope-value').textContent = value + '°';
+        }, keep);
+        // A color from the popup: live as it moves, kept a moment after the last change.
+        const tint = panel.querySelector('.rr-build-ctint');
+        const tintInput = hex => {
+            live(tint, { tint: hex });
+            clearTimeout(this._cliffCommit);
+            this._cliffCommit = setTimeout(keep, BuildHotbar.GATHER_MS);
+        };
+        if (tint && tint.tagName === 'BUTTON') RRColorPopup.bind(tint, tintInput);
+        else tint?.addEventListener('input', event => tintInput(event.target.value));
+    }
+
+    /**
+     * Beyond the Border: what is seen past the map's border. The six styles as pictures, how far the
+     * land reaches and how hilly it is; under Advanced a style per side, the seed and the numbers the
+     * chosen styles read. A setting no chosen style reads is disabled or left out, and every control is
+     * off on a map that is not 3D. The form's rules are RRMapEdges', the steps the TerrainManager's.
+     */
+    surroundBody(terrain, section) {
+        const edges = typeof RRMapEdges !== 'undefined' ? RRMapEdges : null;
+        if (!edges) return '';
+        const tt = text => this._tt(text);
+        const escape = text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const view = edges.read(this.currentMap()), uses = edges.uses(view), reach = edges.reach();
+        const on = this.is3D(), no = ok => (ok && on ? '' : ' disabled');
+        const lead = `<div class="rr-build-note rr-build-wrap rr-build-lead">${escape(tt('What is seen past the map\'s border. Nobody walks there.'))}</div>`;
+        // The land is laid from the map's floor: without one there is nothing to lay.
+        const bare = on && !terrain.hasGroundFloor(), floors = bare ? this.groundFloors() : [];
+        const noFloor = !bare ? '' : `<div class="rr-build-note rr-build-wrap rr-build-gnofloor">${escape(tt('Nothing shows past the border of a map with no floor.'))}</div>`
+            + (floors.length ? `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-gsetfloor" data-floor="${escape(floors[0])}">${tt('Set a floor')}</button></div>` : `<div class="rr-build-note rr-build-wrap">${tt('Choose one in Map Properties, 3D, Floor.')}</div>`);
+        // The map view's Surroundings tick is off: the land is laid and not shown.
+        const hidden = !on || edges.visible() ? '' : `<div class="rr-build-note rr-build-wrap rr-build-shidden">${escape(tt('The land past the border is hidden in this view.'))}</div>`
+            + `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-sshow">${escape(tt('Show Surroundings'))}</button></div>`;
+        const tiles = `<div class="rr-build-shapes">${edges.STYLES.map(style => `<button type="button" class="rr-build-chip rr-build-sstyle" data-style="${style.id}" aria-pressed="${style.id === view.style}" title="${escape(tt(style.label))}"${no(true)}>${edges.icon(style.id)}<span>${escape(tt(style.label))}</span></button>`).join('')}</div>`;
+        const picked = edges.STYLES.find(style => style.id === view.style) || edges.STYLES[0];
+        // The distance says Automatic until it is set; the chip is the way back. Weak graphics show less than the slider's far end.
+        const auto = view.distance === null;
+        const distance = `<div class="rr-build-stack${uses.distance && on ? '' : ' is-off'}"><span>${escape(tt('Distance (tiles)'))}</span>`
+            + `<span class="rr-build-stack-value"><b class="rr-build-sdistance-value"${auto ? ' hidden' : ''}>${auto ? '' : view.distance}</b>`
+            + `<button type="button" class="rr-build-chip rr-build-sauto" aria-pressed="${auto}"${no(uses.distance)}>${escape(tt('Automatic'))}</button></span>`
+            + `<input type="range" class="rr-build-sdistance" min="${reach.min}" max="${reach.max}" step="8" value="${auto ? reach.auto : view.distance}" aria-label="${escape(tt('Distance (tiles)'))}"${no(uses.distance)} data-no-stepper>`
+            + `<div class="rr-build-note rr-build-wrap rr-build-sreach" data-shown="${reach.shown}"${uses.distance && !auto && view.distance > reach.shown ? '' : ' hidden'}>${escape(tt('This computer shows {count} tiles. Stronger graphics show the rest.').replace('{count}', reach.shown))}</div></div>`;
+        const hills = `<div class="rr-build-stack${uses.rough && on ? '' : ' is-off'}"><span>${escape(tt('Hills'))}</span>`
+            + `<span class="rr-build-stack-value"><b class="rr-build-srough-value">${Math.round(view.rough * 100)}%</b></span>`
+            + `<input type="range" class="rr-build-srough" min="0" max="1" step="0.05" value="${view.rough}" aria-label="${escape(tt('Hills'))}"${no(uses.rough)} data-no-stepper></div>`;
+        // Each side's own style: any but the map's own (that is "Same as the map") and a floating island (the whole map is one or is not).
+        const sideOptions = current => `<option value="">${escape(tt('Same as the map'))}</option>`
+            + edges.STYLES.filter(style => style.id !== 'void' && style.id !== view.style).map(style => `<option value="${style.id}"${style.id === current ? ' selected' : ''}>${escape(tt(style.label))}</option>`).join('');
+        const sides = edges.SIDES.map(side => `<label class="rr-build-field rr-build-sfield${uses.sides && on ? '' : ' is-off'}"><span>${escape(tt(edges.SIDE_LABEL[side]))}</span>`
+            + `<select class="database-field-value rr-build-sside" data-side="${side}"${no(uses.sides)}>${sideOptions(view.edges[side])}</select></label>`).join('');
+        // A number shows the value in use, so its arrows step from it; the sea level alone has none until it is set.
+        const numbers = edges.NUMBERS.filter(field => uses[field.use]).map(field => `<label class="rr-build-field rr-build-sfield"><span>${escape(tt(field.label))}</span>`
+            + `<input type="number" class="database-field-value rr-build-snumber" data-key="${field.key}" value="${edges.shown(view, field)}" min="${field.min}" max="${field.max}" step="${field.step}"${field.key === 'level' ? ` placeholder="${escape(tt('Automatic'))}"` : ''}${no(true)}></label>`).join('');
+        return lead + noFloor + hidden
+            + section(tt('Style'), tiles, escape(tt(picked.label)))
+            + section(this._t('build.settings'), distance + hills)
+            + `<details class="lit-section rr-build-section rr-build-more" data-more="surround"${this.moreOpen('surround') ? ' open' : ''}><summary class="lit-section-header">${tt('Advanced')}</summary><div class="lit-section-body"><div class="rr-build-sgrid">${sides}${numbers}</div></div></details>`;
+    }
+
+    /**
+     * Beyond the Border's controls: a tile or a side is one undo step; a slider one a drag or a run of arrow keys; a
+     * number one a moment after its last change (typed, or its arrows held). A slider and a number show their value
+     * in place, so the keyboard keeps them; a tile or a side draws the panel again (which numbers it shows may change).
+     */
+    bindSurroundBody(terrain) {
+        const panel = this.panel, edges = typeof RRMapEdges !== 'undefined' ? RRMapEdges : null;
+        if (!edges || !panel.querySelector('.rr-build-sstyle')) return;
+        // A style picked after Nothing starts from the numbers the map last had.
+        const set = (change, phase = 'commit') => terrain.setSurround(edges.patch(terrain.surroundBase(), change), phase);
+        const commit = change => { set(change); this.renderTerrainPanel(); };
+        const keep = () => terrain.setSurround(terrain.surround(), 'commit');
+        // A change on another control than the one still gathering closes that one's step first.
+        const live = (el, change) => {
+            if (this._surroundOwner !== el) { keep(); this._surroundOwner = el; }
+            set(change, 'live');
+        };
+        panel.querySelector('.rr-build-sshow')?.addEventListener('click', () => edges.setVisible(true));
+        panel.querySelectorAll('.rr-build-sstyle').forEach(el => el.addEventListener('click', () => commit({ style: el.dataset.style })));
+        panel.querySelector('.rr-build-sauto')?.addEventListener('click', () => commit({ distance: null }));
+        panel.querySelectorAll('.rr-build-sside').forEach(el => el.addEventListener('change', () => {
+            commit({ edges: { [el.dataset.side]: el.value } });
+            // The list drawn in its place takes the focus, once the themed list has wrapped it (which moves it, and a moved element loses the focus).
+            setTimeout(() => this.panel.querySelector(`.rr-build-sside[data-side="${el.dataset.side}"]`)?.focus({ preventScroll: true }), 0);
+        }));
+        panel.querySelectorAll('.rr-build-snumber').forEach(el => {
+            const field = edges.NUMBERS.find(entry => entry.key === el.dataset.key), step = this.gesture(el, keep);
+            // Ctrl+Z and Ctrl+Y in the field are the map's, as on a slider, unless text typed there is still the field's own to undo.
+            let typed = false;
+            el.addEventListener('input', event => { if (event.isTrusted && event.inputType) typed = true; });
+            el.addEventListener('keydown', event => {
+                const key = String(event.key || '').toLowerCase();
+                if (typed || !(event.ctrlKey || event.metaKey) || event.altKey || (key !== 'z' && key !== 'y')) return;
+                event.preventDefault();
+                if (key === 'z' && !event.shiftKey) terrain.undo(); else terrain.redo();
+                this.renderTerrainPanel();
+            });
+            el.addEventListener('change', () => {
+                typed = false;
+                live(el, { [field.key]: el.value });
+                // The field shows what was kept: a number held to its range, the default when it was cleared.
+                el.value = edges.shown(edges.read(this.currentMap()), field);
+                step.soon();
+            });
+        });
+        // The sliders: the land follows as they move.
+        const slider = (cls, key, show) => {
+            const el = panel.querySelector('.' + cls);
+            this.gestureRange(el, value => { live(el, { [key]: value }); show(value); }, keep);
+        };
+        slider('rr-build-sdistance', 'distance', value => {
+            const shown = panel.querySelector('.rr-build-sdistance-value');
+            shown.textContent = value; shown.hidden = false;
+            panel.querySelector('.rr-build-sauto')?.setAttribute('aria-pressed', 'false');
+            const reach = panel.querySelector('.rr-build-sreach');
+            if (reach) reach.hidden = !(value > Number(reach.dataset.shown));
+        });
+        slider('rr-build-srough', 'rough', value => { panel.querySelector('.rr-build-srough-value').textContent = Math.round(value * 100) + '%'; });
     }
 
     /**
@@ -1026,16 +1590,24 @@ class BuildHotbar {
                 + `<div class="rr-build-finishes">${chip('rr-build-fbloomnone', '', t('foliage.none'), !terrain.bushBloom)}</div>`;
         } else {
             const own = terrain.foliageLookOf(slot);
-            const petals = slot === 'flowers' ? ((terrain.foliageLook.flowers && terrain.foliageLook.flowers.colours) || null) : null;
+            const headed = slot === 'flowers' || slot === 'bulbs';
+            const petals = headed ? ((terrain.foliageLook[slot] && terrain.foliageLook[slot].colours) || null) : null;
             look = range('rr-build-fheight', t('foliage.height'), own.height, 0.1, 5, 0.05, own.height)
                 + `<div class="rr-build-range"><span>${t('foliage.colour')}</span>${swatch('rr-build-fcolour', own.colour)}</div>`
                 + `<div class="rr-build-range"><span>${t('foliage.tip')}</span>${swatch('rr-build-ftip', own.tip)}</div>`
-                + (slot === 'flowers' ? `<div class="rr-build-range"><span>${t('foliage.petals')}</span>${swatch('rr-build-fpetals', petals ? petals[0] : '#f4d54a')}</div><div class="rr-build-finishes">${chip('rr-build-fmixed', '', t('foliage.mixed'), !petals)}</div>` : '')
+                + range('rr-build-fglow', this._tt('Glow'), own.glow || 0, 0, 1, 0.05, Math.round((own.glow || 0) * 100) + '%')
+                + (headed ? `<div class="rr-build-range rr-build-fpetal-row"><span>${t('foliage.petals')}</span><span class="rr-build-fpetal-list">${(petals || []).map((c, i) => swatch('rr-build-fpetal rr-build-fpetal-' + i, c)).join('')}`
+                    + `<button type="button" class="rr-btn-secondary rr-build-icon-btn rr-build-fpetaladd" title="${this._tt('Add a petal color')}" aria-label="${this._tt('Add a petal color')}">+</button>`
+                    + (petals && petals.length ? `<button type="button" class="rr-btn-secondary rr-build-icon-btn rr-build-fpetaldel" title="${this._tt('Remove the last petal color')}" aria-label="${this._tt('Remove the last petal color')}">&minus;</button>` : '')
+                    + `</span></div><div class="rr-build-finishes">${chip('rr-build-fmixed', '', t('foliage.mixed'), !petals)}</div>` : '')
                 + `<div class="rr-build-finishes">${chip('rr-build-fnatural', '', t('foliage.natural'), !terrain.foliageLook[slot])}</div>`;
         }
         const windRows = range('rr-build-fwinddir', t('foliage.windDir'), wind.dir, 0, 359, 1, Math.round(wind.dir) + '°')
             + range('rr-build-fwindstr', t('foliage.windStrength'), wind.strength, 0, 2, 0.05, Math.round(wind.strength * 100) + '%');
-        body += `<div class="lit-section rr-build-section">` + this.paneTabs('foliage', [['brush', t('terrain.brush'), brush], ['look', t('foliage.look'), look], ['wind', t('foliage.wind'), windRows]]) + '</div>';
+        // Plant colors for the whole map in one click: every kind in hand, and what is already planted.
+        const paletteNames = { meadow: 'Meadow', autumn: 'Autumn', dry: 'Dry', snow: 'Snow-dusted', violet: 'Alien violet', teal: 'Alien teal', crimson: 'Alien crimson', glow: 'Glowing' };
+        const palettes = `<div class="rr-build-note rr-build-wrap">${this._tt('Recolors every plant on the map, and what you paint next.')}</div><div class="rr-build-finishes rr-build-pair">${Object.keys(TerrainManager.FOLIAGE_PALETTES).map(key => `<button type="button" class="rr-build-chip rr-build-fpalette" data-value="${key}" aria-pressed="${terrain.foliagePalette === key}"><i class="rr-build-gdot" style="background:${TerrainManager.FOLIAGE_PALETTES[key].grass[1]}"></i><span>${this._tt(paletteNames[key])}</span></button>`).join('')}</div>`;
+        body += `<div class="lit-section rr-build-section">` + this.paneTabs('foliage', [['brush', t('terrain.brush'), brush], ['look', t('foliage.look'), look], ['colors', this._tt('Colors'), palettes], ['wind', t('foliage.wind'), windRows]]) + '</div>';
         const iconButton = (cls, icon, key) => `<button type="button" class="rr-btn-secondary rr-build-icon-btn ${cls}" title="${t(key)}" aria-label="${t(key)}">${this.icon(icon, 16)}</button>`;
         this.setPanel(slot, this.label(slot), body, `${iconButton('rr-build-tundo', 'undo', 'terrain.undo')}${iconButton('rr-build-tredo', 'redo', 'terrain.redo')}`);
         const bindRange = (cls, apply, show) => panel.querySelector('.' + cls)?.addEventListener('input', event => {
@@ -1059,11 +1631,17 @@ class BuildHotbar {
         };
         colour('rr-build-fcolour', hex => setLook({ colour: hex }));
         colour('rr-build-ftip', hex => setLook({ tip: hex }));
-        colour('rr-build-fpetals', hex => setLook({ colours: [hex] }));
+        // The petals: each color its own swatch, one added or the last taken away.
+        const petalList = () => ((terrain.foliageLook[slot] && terrain.foliageLook[slot].colours) || []).slice();
+        bindRange('rr-build-fglow', v => setLook({ glow: v }), v => Math.round(v * 100) + '%');
+        petalList().forEach((_, i) => colour('rr-build-fpetal-' + i, hex => { const list = petalList(); list[i] = hex; setLook({ colours: list }); }));
+        panel.querySelector('.rr-build-fpetaladd')?.addEventListener('click', () => { const list = petalList(); list.push(['#f4d54a', '#ffffff', '#e86a8c', '#8f7fe8', '#ff9a4a'][list.length % 5]); setLook({ colours: list.slice(0, 8) }); this.renderFoliagePanel(); });
+        panel.querySelector('.rr-build-fpetaldel')?.addEventListener('click', () => { const list = petalList(); list.pop(); if (list.length) setLook({ colours: list }); else if (terrain.foliageLook[slot]) delete terrain.foliageLook[slot].colours; this.renderFoliagePanel(); });
+        panel.querySelectorAll('.rr-build-fpalette').forEach(el => el.addEventListener('click', () => { terrain.applyFoliagePalette(el.dataset.value); this.renderFoliagePanel(); }));
         colour('rr-build-fleaves', hex => { terrain.bushColour = hex; });
         colour('rr-build-fbloom', hex => { terrain.bushBloom = hex; panel.querySelector('.rr-build-fbloomnone')?.setAttribute('aria-pressed', 'false'); });
         panel.querySelector('.rr-build-fbloomnone')?.addEventListener('click', () => { terrain.bushBloom = ''; this.renderFoliagePanel(); });
-        panel.querySelector('.rr-build-fmixed')?.addEventListener('click', () => { if (terrain.foliageLook.flowers) delete terrain.foliageLook.flowers.colours; this.renderFoliagePanel(); });
+        panel.querySelector('.rr-build-fmixed')?.addEventListener('click', () => { if (terrain.foliageLook[slot]) delete terrain.foliageLook[slot].colours; this.renderFoliagePanel(); });
         panel.querySelector('.rr-build-fnatural')?.addEventListener('click', () => { delete terrain.foliageLook[slot]; this.renderFoliagePanel(); });
         // The wind is the map's: kept as one step when a slider lets go.
         const windRange = (cls, key, show) => {
@@ -1076,18 +1654,37 @@ class BuildHotbar {
         panel.querySelector('.rr-build-tredo')?.addEventListener('click', () => { terrain.redo(); this.renderFoliagePanel(); });
     }
 
+    /** Ground pictures a map could take as its floor (img/parallaxes, the `!` ones first, grass before the rest). */
+    groundFloors() {
+        try {
+            const project = this.projectController?.getCurrentProject?.() || this.projectController?.currentProject;
+            if (!project?.path || typeof require !== 'function') return [];
+            const fs = require('fs'), path = require('path'), dir = path.join(project.path, 'img', 'parallaxes');
+            const names = fs.readdirSync(dir).filter(file => /\.(png|png_|jpg|webp)$/i.test(file)).map(file => file.replace(/\.[^.]+$/, ''));
+            const rank = name => (/grass/i.test(name) ? 0 : 2) + (name.startsWith('!') ? 0 : 1);
+            return names.filter(name => name.startsWith('!') || /grass|ground|floor/i.test(name)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+        } catch (error) { return []; }
+    }
+
+    /** The status line a Terrain panel shows: the ground's and its water's; on Beyond the Border, only that the map is not 3D. */
+    terrainStatus(text) { return this.activeSlot() === 'surround' && this.is3D() ? '' : (text || ''); }
+
     /** The Terrain panel's line about the ground and its water, kept in step without redrawing the panel. */
     refreshTerrainStatus(text) {
         const line = this.visible && this.group() === 'terrain' ? this.panel?.querySelector('.rr-build-tstatus') : null;
         if (!line) return;
-        line.textContent = text || '';
-        line.hidden = !text;
+        // The Ground panel's Steep Ground card follows the ground gaining or losing its slopes (an undo from the keyboard).
+        const terrain = this.terrain();
+        if (terrain?.hasSlopes && this.activeSlot() === 'ground' && !!this.panel.querySelector('.rr-build-steep-flat') === terrain.hasSlopes()) { this.renderTerrainPanel(); return; }
+        const shown = this.terrainStatus(text);
+        line.textContent = shown;
+        line.hidden = !shown;
     }
 
     /** The manager changed: the bar and the panel follow. */
     sync() {
         if (!this.visible || !this.root) return;
-        if (this.group() !== 'build') {
+        if (this.tool() !== 'build') {
             // Terrain and Models: redraw when the slot in hand or the models on offer change.
             const shown = this.root.querySelector('.rr-build-slot[aria-pressed="true"]')?.dataset.slot;
             const groupShown = this.root.querySelector('.rr-build-group[aria-checked="true"]')?.dataset.group;
@@ -1096,7 +1693,8 @@ class BuildHotbar {
         }
         const active = this.activeSlot();
         const wasActive = this.root.querySelector('.rr-build-slot[aria-pressed="true"]')?.dataset.slot;
-        if (wasActive !== active) { this.render(); return; }
+        // A rock taken up or put down turns the bar to Terrain or back.
+        if (wasActive !== active || this.root.querySelector('.rr-build-group[aria-checked="true"]')?.dataset.group !== this.group()) { this.render(); return; }
         const manager = this.manager();
         const level = this.root.querySelector('.rr-build-level');
         if (level) level.textContent = String(manager.level);
@@ -1187,11 +1785,17 @@ class BuildHotbar {
         document.body.appendChild(overlay);
         const name = overlay.querySelector('#rr-save-structure-name'), error = overlay.querySelector('.rr-save-structure-error');
         const close = () => { document.removeEventListener('keydown', onKey, true); overlay.remove(); };
-        const save = () => {
+        const save = async () => {
             const value = name.value.trim();
             if (!value) { error.textContent = tt('Give it a name.'); name.focus(); return; }
             const existing = manager.structureNamed(value);
-            if (existing && !window.confirm(tt('A structure named “{name}” already exists. Replace it?', { name: existing.name || value }))) { name.focus(); name.select(); return; }
+            if (existing) {
+                const replace = await RRDialog.confirm(tt('A structure named “{name}” already exists. Replace it?', { name: existing.name || value }),
+                    { title: tt('Save as structure'), ok: tt('Replace'), danger: true });
+                // Closed while the question was up: nothing to save into.
+                if (!overlay.isConnected) return;
+                if (!replace) { name.focus(); name.select(); return; }
+            }
             const saved = manager.saveSelectionAsStructure({ name: value, description: overlay.querySelector('#rr-save-structure-note').value.trim(),
                 events: !!overlay.querySelector('.rr-save-structure-events')?.checked, replace: !!overlay.querySelector('.rr-save-structure-replace')?.checked, overwrite: !!existing });
             if (!saved) { error.textContent = tt('The structure could not be saved.'); return; }
@@ -1233,6 +1837,12 @@ class BuildHotbar {
         if (window.reactor?.uiManager?.isEditorModalOpenForGlobalShortcuts?.()) return;
         // A river being clicked out: Enter lays it, Escape drops the course.
         if (this.group() === 'terrain' && this.terrain()?.handleRiverKey?.(event)) { event.preventDefault(); event.stopPropagation(); return; }
+        // Escape lets go of the sheet the Look panel holds.
+        if (event.key === 'Escape' && this.group() === 'terrain' && this.terrain()?.mode === 'look' && this.terrain().selectedWater) {
+            event.preventDefault(); event.stopPropagation();
+            this.terrain().selectWater(null);
+            return;
+        }
         if (/^[0-9]$/.test(event.key)) {
             const index = event.key === '0' ? 9 : Number(event.key) - 1;
             const slots = this.slots();

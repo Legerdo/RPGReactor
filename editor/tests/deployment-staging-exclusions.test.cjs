@@ -47,6 +47,14 @@ for (const scriptName of scripts) {
             'runtime database sidecars remain deployable');
     });
 
+    test(`${scriptName}: the Forge tools' project data is not staged`, () => {
+        // <project>/forge holds generator settings and character part sources for the editor's Forge
+        // tools; no runtime file reads it, and a style pack there can be tens of megabytes.
+        assert.equal(isStagingExcluded('forge'), true);
+        assert.equal(isStagingExcluded(nodePath.join('img', 'forge')), false, 'only the folder at the project root');
+        assert.equal(isStagingExcluded(nodePath.join('js', 'plugins', 'forge.js')), false);
+    });
+
     test(`${scriptName}: the Test_ rule does not reach outside data/`, () => {
         // A plugin or asset legitimately named Test_… must not be dropped.
         assert.equal(isStagingExcluded(nodePath.join('js', 'plugins', 'Test_Harness.json')), false);

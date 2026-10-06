@@ -350,10 +350,9 @@ function open(folder, destination, options) {
         const log = typeof options.log === 'function' ? options.log : () => {};
         const report = typeof options.progress === 'function' ? options.progress : () => {};
         const span = (from, to) => (done, total, status) => report(from + (to - from) * (total ? Math.min(1, done / total) : 1), status);
-        const repo = path.resolve(__dirname, '..', '..', '..');
-        const editorPackage = JSON.parse(fs.readFileSync(path.join(repo, 'editor', 'package.json'), 'utf8'));
-        const skeleton = path.join(repo, 'template', 'Barebones');
-        const runtime = path.join(repo, 'runtime');
+        const EditorPaths = require('./EditorPaths.js');
+        const editorPackage = EditorPaths.editorPackage();
+        const runtime = EditorPaths.runtime();
         const dest = path.resolve(destination);
         const mkdir = (p) => fs.mkdirSync(p, { recursive: true });
         const writeJson = (p, v) => fs.writeFileSync(p, JSON.stringify(v));
@@ -367,17 +366,16 @@ function open(folder, destination, options) {
 
         log('Copying the project skeleton and runtime…', 'stage');
         report(0, 'Copying the project skeleton and runtime…');
-        const copyTree = (from, to, skip = () => false) => {
+        const copyTree = (from, to) => {
             for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
                 const s = path.join(from, entry.name), d = path.join(to, entry.name);
-                if (skip(path.relative(skeleton, s).replace(/\\/g, '/'))) continue;
-                if (entry.isDirectory()) { mkdir(d); copyTree(s, d, skip); } else { mkdir(path.dirname(d)); fs.copyFileSync(s, d); }
+                if (entry.isDirectory()) { mkdir(d); copyTree(s, d); } else { mkdir(path.dirname(d)); fs.copyFileSync(s, d); }
             }
         };
-        copyTree(skeleton, dest, r => (r === 'img' || r === 'img/system' || r.startsWith('img/system/')) ? false : r.startsWith('img/') || r.startsWith('audio/') || r.startsWith('js/'));
+        EditorPaths.copySkeleton(dest, r => r.startsWith('js/'));
         mkdir(path.join(dest, 'js'));
         copyTree(runtime, path.join(dest, 'js'));
-        if (fs.existsSync(path.join(skeleton, 'js', 'reactor_plugins.js'))) fs.copyFileSync(path.join(skeleton, 'js', 'reactor_plugins.js'), path.join(dest, 'js', 'reactor_plugins.js'));
+        fs.copyFileSync(EditorPaths.skeletonFile('js/reactor_plugins.js'), path.join(dest, 'js', 'reactor_plugins.js'));
         for (const f of [...Object.values(GRAPHICS), ...Object.values(AUDIO), 'img/sv_actors', 'img/sv_enemies', 'movies']) mkdir(path.join(dest, f));
 
         log('Converting the database…', 'stage');
@@ -409,7 +407,7 @@ function open(folder, destination, options) {
         { const n = applyLargeTroops(db, scriptText); if (n) add(notes, 'largeTroops', n); }
         const files = { Actors: db.actors, Classes: db.classes, Skills: db.skills, Items: db.items, Weapons: db.weapons, Armors: db.armors, Enemies: db.enemies, Troops: db.troops, States: db.states, Animations: db.animations, CommonEvents: db.commonEvents, Tilesets: db.tilesets };
         for (const [file, records] of Object.entries(files)) writeJson(path.join(dest, 'data', `${file}.json`), records);
-        const base = JSON.parse(fs.readFileSync(path.join(skeleton, 'data', 'System.json'), 'utf8'));
+        const base = JSON.parse(fs.readFileSync(EditorPaths.skeletonFile('data/System.json'), 'utf8'));
         const sys = aliased(C.system(base, system, notes));
         const vocab = scripts.find(s => s.name === 'Vocab');
         if (vocab) Object.assign(sys.terms.messages, C.vocabMessages(vocab.text));
@@ -536,7 +534,7 @@ function open(folder, destination, options) {
             // in MZ's layout, each with its frame cell beside it for RGSS's repeating edges.
             if (/^Graphics\/System\/Window[^/]*\.png$/i.test(from)) {
                 try {
-                    const skin = PNG.sync.read(bytes), baseFile = path.join(skeleton, 'img', 'system', 'Window.png');
+                    const skin = PNG.sync.read(bytes), baseFile = EditorPaths.skeletonFile('img/system/Window.png');
                     if (skin.width !== 128 || skin.height !== 128) throw Object.assign(new Error('not a skin'), { notSkin: true });
                     const baseImg = fs.existsSync(baseFile) ? PNG.sync.read(fs.readFileSync(baseFile)) : null;
                     const rgba = (png) => ({ width: png.width, height: png.height, data: new Uint8Array(png.data.buffer, png.data.byteOffset, png.data.length) });

@@ -112,6 +112,8 @@ class PluginManager {
             this._keyHandler = (e) => {
                 if (modal.style.display === 'none') return;
                 if (document.querySelector('.plugin-manager-child-modal')) return;
+                // Picking a plugin redraws its row and leaves the focus on the page: Escape still closes.
+                if (e.key === 'Escape' && !e.defaultPrevented && !modal.contains(e.target)) { e.preventDefault(); this.hide(); return; }
                 const helpSearch = this._helpSearch;
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && helpSearch?.input?.isConnected) {
                     e.preventDefault();
@@ -522,7 +524,7 @@ class PluginManager {
                     parsedValue = textarea.value;
                     return true;
                 }
-                alert(this._tt('Invalid JSON format. Please fix the syntax errors.'));
+                RRDialog.alert(this._tt('Invalid JSON format. Please fix the syntax errors.'), { title: this._tt('Plugin Manager'), kind: 'warning' });
                 return false;
             }
         };
@@ -532,7 +534,7 @@ class PluginManager {
             if (textView.style.display !== 'none') {
                 if (!applyTextValue()) return;
                 if (!hasExpectedShape(parsedValue)) {
-                    alert(this._tt('Invalid JSON format. Please fix the syntax errors.'));
+                    RRDialog.alert(this._tt('Invalid JSON format. Please fix the syntax errors.'), { title: this._tt('Plugin Manager'), kind: 'warning' });
                     return;
                 }
                 renderStructureView();
@@ -683,7 +685,7 @@ class PluginManager {
         const isArray = String(fieldSchema.type || '').includes('[]');
         const structName = this.getStructName(fieldSchema.type);
         if (!structName && !isArray) {
-            alert(this._tt('Invalid struct type:') + ' ' + fieldSchema.type);
+            RRDialog.alert(this._tt('Invalid struct type:') + ' ' + fieldSchema.type, { title: this._tt('Plugin Manager'), kind: 'error' });
             return;
         }
 
@@ -710,7 +712,7 @@ class PluginManager {
         }
 
         if (structName && !structSchema) {
-            alert(this._tt('Could not find struct definition for:') + ' ' + structName);
+            RRDialog.alert(this._tt('Could not find struct definition for:') + ' ' + structName, { title: this._tt('Plugin Manager'), kind: 'error' });
             return;
         }
 
@@ -1066,8 +1068,13 @@ class PluginManager {
                 if (this.moveArrayElement(arrayData, index, index + 1)) refresh();
             }, index === arrayData.length - 1));
             actions.appendChild(makeAction(this._tt('Edit'), this._tt('Edit'), editElement));
-            actions.appendChild(makeAction('×', this._tt('Delete'), () => {
-                if (!confirm(this._tt('Delete this element?'))) return;
+            actions.appendChild(makeAction('×', this._tt('Delete'), async () => {
+                const element = arrayData[index];
+                const confirmed = await RRDialog.confirm(this._tt('Delete this element?'), {
+                    title: this._tt('Delete Element'), ok: this._tt('Delete'), danger: true
+                });
+                // The question was about the element in this row when it was asked.
+                if (!confirmed || arrayData[index] !== element) return;
                 arrayData.splice(index, 1);
                 refresh();
             }));
@@ -1756,12 +1763,16 @@ class PluginManager {
             cursor: pointer;
             font-size: 11px;
         `;
-        deleteBtn.addEventListener('click', () => {
-            if (confirm(this._tt('Delete this element?'))) {
-                arrayData.splice(index, 1);
-                document.body.removeChild(overlay);
-                onSave();
-            }
+        deleteBtn.addEventListener('click', async () => {
+            const element = arrayData[index];
+            const confirmed = await RRDialog.confirm(this._tt('Delete this element?'), {
+                title: this._tt('Delete Element'), ok: this._tt('Delete'), danger: true
+            });
+            // The question was about the element this editor shows; the editor may have closed meanwhile.
+            if (!confirmed || arrayData[index] !== element || overlay.parentNode !== document.body) return;
+            arrayData.splice(index, 1);
+            document.body.removeChild(overlay);
+            onSave();
         });
         header.appendChild(deleteBtn);
 
@@ -2886,7 +2897,7 @@ class PluginManager {
 
         const clipboardPlugins = clipboard?.plugins || (clipboard?.plugin ? [clipboard.plugin] : []);
         if (clipboardPlugins.length === 0) {
-            alert(this._tt('No plugin in clipboard to paste.'));
+            await RRDialog.alert(this._tt('No plugin in clipboard to paste.'), { title: this._tt('Paste') });
             return;
         }
 
@@ -2919,14 +2930,17 @@ class PluginManager {
         this.renderSelectedPluginDetails();
     }
 
-    _removeSelectedPlugins() {
+    async _removeSelectedPlugins() {
         const selectedIndices = this.getSelectedPluginIndices();
         if (selectedIndices.length === 0) return;
 
         const label = selectedIndices.length === 1
             ? `${this._tt('Remove plugin')} "${this.plugins[selectedIndices[0]].name}"?`
             : `${this._tt('Remove')} ${selectedIndices.length} ${this._tt('selected plugins?')}`;
-        if (!confirm(label)) return;
+        const selectedPlugins = selectedIndices.map(index => this.plugins[index]);
+        const confirmed = await RRDialog.confirm(label, { title: this._tt('Remove Plugin'), ok: this._tt('Remove'), danger: true });
+        // The question named the plugins selected when it was asked.
+        if (!confirmed || selectedIndices.some((index, i) => this.plugins[index] !== selectedPlugins[i])) return;
 
         for (const index of [...selectedIndices].sort((a, b) => b - a)) {
             this.plugins.splice(index, 1);
@@ -2946,7 +2960,7 @@ class PluginManager {
         );
 
         if (unusedPlugins.length === 0) {
-            alert(this._tt('All available plugins are already added!'));
+            RRDialog.alert(this._tt('All available plugins are already added!'), { title: this._tt('Add Plugin') });
             return;
         }
 
@@ -3113,7 +3127,7 @@ class PluginManager {
             this.renderPluginList();
         } catch (err) {
             console.error('Error adding plugin:', err);
-            alert(`${this._tt('Error adding plugin:')} ${err.message}`);
+            RRDialog.alert(`${this._tt('Error adding plugin:')} ${err.message}`, { title: this._tt('Add Plugin'), kind: 'error' });
         }
     }
 
@@ -4277,7 +4291,7 @@ class PluginManager {
         try {
             const currentProject = this.projectController.getCurrentProject();
             if (!currentProject || !currentProject.path) {
-                alert(this._tt('No project loaded'));
+                await RRDialog.alert(this._tt('No project loaded'), { title: this._tt('Plugin Manager'), kind: 'warning' });
                 return;
             }
 
@@ -4303,10 +4317,10 @@ ${JSON.stringify(pluginsToWrite, null, 4)};
 `;
 
             this._writeFileAtomic(this.fs, pluginsPath, content, 'utf8');
-            alert(this._tt('Plugins saved successfully!'));
+            await RRDialog.alert(this._tt('Plugins saved successfully!'), { title: this._tt('Plugin Manager') });
         } catch (err) {
             console.error('Error saving plugins:', err);
-            alert(`${this._tt('Error saving plugins:')} ${err.message}`);
+            await RRDialog.alert(`${this._tt('Error saving plugins:')} ${err.message}`, { title: this._tt('Plugin Manager'), kind: 'error' });
         }
     }
 

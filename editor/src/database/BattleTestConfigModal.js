@@ -599,7 +599,7 @@ class BattleTestConfigModal {
     async launch() {
         const system = this.databaseManager.getSystem();
         if (!system) {
-            alert(this._t('System data not available'));
+            await RRDialog.alert(this._t('System data not available'), { title: this._t('Battle Test Configuration'), kind: 'error' });
             return;
         }
 
@@ -607,13 +607,13 @@ class BattleTestConfigModal {
         // `Game_Party.setupBattleTestMembers` skips actorId 0 - and Scene_Battle
         // cannot open on nobody. Refuse here, where the fix is one dropdown away.
         if (!BattleTestConfigModal.hasBattleParty(this.battlers, this.databaseManager)) {
-            alert(this._t('Please select at least one party member for the battle test.'));
+            await RRDialog.alert(this._t('Please select at least one party member for the battle test.'), { title: this._t('Battle Test Configuration'), kind: 'warning' });
             return;
         }
 
         const missing = this.missingBattlerGraphics();
         if (missing.length) {
-            alert(this._t('Missing battle graphic. Choose another actor or set their graphic in Actors.') + '\n' + missing.join('\n'));
+            await RRDialog.alert(this._t('Missing battle graphic. Choose another actor or set their graphic in Actors.') + '\n' + missing.join('\n'), { title: this._t('Battle Test Configuration'), kind: 'warning' });
             return;
         }
 
@@ -653,6 +653,10 @@ class BattleTestConfigModal {
             ['ActionSequences.json', dm.data.actionSequences],
             ['BattlePresentation.json', dm.data.battlePresentation],
         ];
+        // The interfaces too (a Battle HUD moved a moment ago), once the project has its own; a project still on
+        // the stock screens has no UserInterfaces.json and gets no test copy.
+        if (Array.isArray(dm.data.userInterfaces) && typeof dm.hasUserInterfaces === 'function' && dm.hasUserInterfaces()) testFiles.push(['UserInterfaces.json', dm.data.userInterfaces]);
+        else fs.rmSync(path.join(dataDir, 'Test_UserInterfaces.json'), { force: true });
 
         try {
             for (const [filename, data] of testFiles) {
@@ -672,7 +676,7 @@ class BattleTestConfigModal {
             if (bindings && typeof bindings === 'object') this._writeFileAtomic(fs, testBindings, JSON.stringify(Object.assign({}, bindings, { version: 1 })));
             else fs.rmSync(testBindings, { force: true });
         } catch (e) {
-            alert(`${this._t('Failed to write test data:')} ${e.message}`);
+            await RRDialog.alert(`${this._t('Failed to write test data:')} ${e.message}`, { title: this._t('Battle Test Configuration'), kind: 'error' });
             return;
         }
 

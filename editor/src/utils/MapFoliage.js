@@ -11,7 +11,9 @@
 (function(root) {
     'use strict';
 
-    const KINDS = ['grass', 'flowers', 'fern', 'reeds'];
+    const KINDS = ['grass', 'flowers', 'fern', 'reeds', 'bulbs', 'tendrils', 'crystals'];
+    /** The kinds whose heads take a list of colors. */
+    const PALETTE_KINDS = ['flowers', 'bulbs'];
     const runtime = () => {
         if (root.Reactor3D && root.Reactor3D.decodeFoliageDensity) return root.Reactor3D;
         if (typeof require === 'function' && typeof module !== 'undefined') {
@@ -85,9 +87,9 @@
     /** A layer's settings as the panel and the script give them; only what differs from the kind's own look is kept. */
     const layerSettings = (kind, settings = {}) => {
         const out = {};
-        for (const key of ['height', 'vary', 'seed']) if (Number.isFinite(Number(settings[key])) && settings[key] !== '' && settings[key] !== null && settings[key] !== undefined) out[key] = Math.round(Number(settings[key]) * 100) / 100;
+        for (const key of ['height', 'vary', 'seed', 'glow']) if (Number.isFinite(Number(settings[key])) && settings[key] !== '' && settings[key] !== null && settings[key] !== undefined) out[key] = Math.round(Number(settings[key]) * 100) / 100;
         for (const key of ['colour', 'tip']) if (typeof settings[key] === 'string' && /^#[0-9a-f]{6}$/i.test(settings[key])) out[key] = settings[key].toLowerCase();
-        if (kind === 'flowers' && Array.isArray(settings.colours)) out.colours = settings.colours.filter(c => /^#[0-9a-f]{6}$/i.test(c)).map(c => c.toLowerCase());
+        if (PALETTE_KINDS.includes(kind) && Array.isArray(settings.colours)) out.colours = settings.colours.filter(c => /^#[0-9a-f]{6}$/i.test(c)).map(c => c.toLowerCase());
         return out;
     };
 
@@ -105,7 +107,7 @@
         const data = foliage(mapData);
         data.layers = Array.isArray(data.layers) ? data.layers : [];
         const settings = layerSettings(kind, options.settings || {});
-        const same = layer => layer.kind === kind && ['height', 'colour', 'tip', 'vary'].every(key => (layer[key] ?? null) === (settings[key] ?? null));
+        const same = layer => layer.kind === kind && ['height', 'colour', 'tip', 'vary', 'glow'].every(key => (layer[key] ?? null) === (settings[key] ?? null));
         let layer = data.layers.find(same);
         if (!layer && !options.erase) { layer = Object.assign({ kind }, settings, { density: '' }); data.layers.push(layer); }
         const targets = options.erase ? data.layers.filter(l => l.kind === kind) : [layer];
@@ -142,7 +144,7 @@
         const data = foliage(mapData);
         data.layers = Array.isArray(data.layers) ? data.layers : [];
         const own = layerSettings(kind, settings);
-        let layer = data.layers.find(l => l.kind === kind && ['height', 'colour', 'tip', 'vary'].every(key => (l[key] ?? null) === (own[key] ?? null)));
+        let layer = data.layers.find(l => l.kind === kind && ['height', 'colour', 'tip', 'vary', 'glow'].every(key => (l[key] ?? null) === (own[key] ?? null)));
         if (!layer) { layer = Object.assign({ kind }, own, { density: '' }); data.layers.push(layer); }
         const levels = decode(layer.density, W * H);
         let count = 0;
@@ -214,7 +216,7 @@
         const data = raw(mapData) || {};
         const size = mapData.width * mapData.height;
         const R = runtime();
-        const per = (R && R.FOLIAGE_LOOKS) || { grass: { perLevel: 0.9 }, flowers: { perLevel: 0.3 }, fern: { perLevel: 0.22 }, reeds: { perLevel: 0.45 } };
+        const per = (R && R.FOLIAGE_LOOKS) || { grass: { perLevel: 0.9 }, flowers: { perLevel: 0.3 }, fern: { perLevel: 0.22 }, reeds: { perLevel: 0.45 }, bulbs: { perLevel: 0.22 }, tendrils: { perLevel: 0.26 }, crystals: { perLevel: 0.3 } };
         const out = { layers: [], bushes: Array.isArray(data.bushes) ? data.bushes.length : 0 };
         for (const layer of Array.isArray(data.layers) ? data.layers : []) {
             const levels = decode(layer.density, size);
@@ -276,7 +278,7 @@
         const data = raw(mapData);
         if (!data || !cells || !cells.size) return null;
         const W = mapData.width, H = mapData.height, size = W * H;
-        const next = clone(data), record = { layers: [], bushes: [] };
+        const next = clone(data), record = { layers: [], bushes: [], at: [] };
         for (const layer of Array.isArray(next.layers) ? next.layers : []) {
             const levels = decode(layer.density, size), was = [];
             for (const key of cells) {
@@ -288,7 +290,7 @@
             if (was.length) { layer.density = encode(levels); record.layers.push({ key: layerKey(layer), cells: was }); }
         }
         if (Array.isArray(next.bushes)) {
-            next.bushes = next.bushes.filter(bush => { if (!bushOver(bush, cells)) return true; record.bushes.push(bush); return false; });
+            next.bushes = next.bushes.filter((bush, index) => { if (!bushOver(bush, cells)) return true; record.bushes.push(bush); record.at.push(index); return false; });
         }
         if (!record.layers.length && !record.bushes.length) return null;
         write(mapData, next);
@@ -320,7 +322,10 @@
             for (const [i, level] of entry.cells) if (!levels[i]) levels[i] = level;
             layer.density = encode(levels);
         }
-        data.bushes = (Array.isArray(data.bushes) ? data.bushes : []).concat(clone(record.bushes));
+        // Each bush goes back to the place in the list it was taken from, so the list reads as it did.
+        const bushes = Array.isArray(data.bushes) ? data.bushes.slice() : [], at = Array.isArray(record.at) ? record.at : [];
+        clone(record.bushes).forEach((bush, i) => bushes.splice(Math.min(at[i] >= 0 ? at[i] : bushes.length, bushes.length), 0, bush));
+        data.bushes = bushes;
         write(mapData, data);
         return true;
     };
@@ -351,7 +356,7 @@
         return box;
     };
 
-    const api = { KINDS, decode, encode, foliage, hasFoliage, snapshot, restore, layerSettings, paint, fill, bushes, addBush, removeBushes, wind, setWind, stats, resize, coveredCells, clearCells, clearUnderPieces, uncover, recover, clearedRegion };
+    const api = { KINDS, PALETTE_KINDS, decode, encode, foliage, hasFoliage, snapshot, restore, layerSettings, paint, fill, bushes, addBush, removeBushes, wind, setWind, stats, resize, coveredCells, clearCells, clearUnderPieces, uncover, recover, clearedRegion };
     root.RRMapFoliage = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

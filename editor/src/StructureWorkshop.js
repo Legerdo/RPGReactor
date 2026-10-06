@@ -138,7 +138,7 @@ class StructureWorkshop {
         const plan = entry.plan;
         plan.pieces = E.pieces(map).map(piece => { const out = Object.assign({}, piece); delete out.id; delete out.group; return out; });
         const sidecar = map.reactor3d || {};
-        plan.lights = (sidecar.lights || []).filter(Boolean).map(row => { const out = Object.assign({}, row); delete out.tag; return out; });
+        plan.lights = (sidecar.lights || []).filter(Boolean).map(row => { const out = Object.assign({}, row); if (!out.tag || /^structure:\d+$/.test(String(out.tag))) delete out.tag; delete out.structure; return out; });
         plan.surfaces = (sidecar.mediaSurfaces || []).filter(Boolean).map(row => { const out = Object.assign({}, row); delete out.structure; return out; });
         // What the pieces replace: a built structure is its pieces, not rooms described in words.
         plan.floors = []; plan.stairs = []; plan.shapes = []; plan.parts = []; plan.paths = []; plan.effects = [];
@@ -172,7 +172,7 @@ class StructureWorkshop {
             return true;
         } catch (error) {
             console.error('Could not save the structure:', error);
-            alert(this._t('The structure could not be saved.'));
+            RRDialog.alert(this._t('The structure could not be saved.'), { title: this._t('Structures'), kind: 'error' });
             return false;
         }
     }
@@ -197,7 +197,13 @@ class StructureWorkshop {
         if (!this.session) return;
         const tilemap = this.tilemap(), reactor = this.reactor();
         if (save && !this.save()) return;
-        if (!save && tilemap?.isMapDirty?.() && !window.confirm(this._t('Leave the workshop without saving?'))) return;
+        if (!save && tilemap?.isMapDirty?.()) {
+            const leave = await RRDialog.confirm(this._t('Leave the workshop without saving?'), {
+                title: this._t('Unsaved Changes'), ok: this._t('Discard Changes'), danger: true
+            });
+            // The workshop may have been left another way while the question was up.
+            if (!leave || !this.session) return;
+        }
         const session = this.session;
         if (tilemap?.currentMap?.rrWorkshop) tilemap.captureSavedMapState();
         if (!session.barWasUp) reactor?.buildHotbar?.hide();

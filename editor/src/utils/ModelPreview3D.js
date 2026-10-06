@@ -78,6 +78,20 @@ class ModelPreview3D {
         return () => observer.disconnect();
     }
 
+    /**
+     * Draw a preview that is only drawn when its picture changes, and say
+     * whether it has to be drawn again. The draw leaves out any mesh whose
+     * shaders are still compiling or whose pictures are still uploading
+     * (Reactor3D.ShaderWarmup) and expects the next frame to show it; a
+     * still preview has no next frame unless it asks for one.
+     */
+    static render(renderer, scene, camera) {
+        Reactor3D.renderScene(renderer, scene, camera);
+        // lastHidden is the last draw's, whichever renderer made it: only a renderer the warmup holds things for reads it.
+        const warmup = Reactor3D.ShaderWarmup;
+        return !!(warmup && warmup.enabled !== false && (!warmup.supported || warmup.supported(renderer)) && warmup.lastHidden > 0);
+    }
+
     /** Inspection viewports own their light field; map lighting is never borrowed. */
     static isolateLighting(object, uniforms) {
         const count = Reactor3D.SHADER_LIGHTS;
@@ -288,7 +302,7 @@ class ModelPreview3D {
                 this.dirty = false;
                 Reactor3D.aimCamera(this.camera, { x: -0.5, y: 0, z: -0.5 }, this.view);
                 ModelPreview3D.updateBackground(this.scene);
-                Reactor3D.renderScene(this.renderer, this.scene, this.camera);
+                if (ModelPreview3D.render(this.renderer, this.scene, this.camera)) this.dirty = true;
                 this.lastRenderAt = now;
             }
             this.raf = requestAnimationFrame(this.tick);

@@ -107,12 +107,14 @@ test('every ground surface and every stander goes through the terrain', () => {
     assert.match(read('editor/src/TilesetPaletteViewer.js'), /layerName === 'T' \? 'terrain' : layerName === 'P' \? 'pieces' : 'paint'/);
     assert.match(editor3d, /this\.terrainManager\(\)\?\.endStroke\(\);/);
     // The drifting sky keeps the editor rendering, at fractional frames.
-    assert.match(editor3d, /if \(sky && \(sky\.driftX \|\| sky\.driftY\)\) return true;/);
+    // A drifting sky keeps a still view drawing, every other frame (idleInterval).
+    assert.match(editor3d, /if \(sky && \(sky\.driftX \|\| sky\.driftY\)\) return MapEditor3D\.SKY_INTERVAL_MS;/);
     assert.match(editor3d, /this\.mapScene\.updateSky\?\.\(this\.camera, now \/ \(1000 \/ 60\)\);/);
     // The terrain tools live in the Build bar's Terrain group now, not a palette tab.
     assert.doesNotMatch(read('editor/src/TilesetPaletteViewer.js'), /createLayerTab\('T'/);
     const bar = read('editor/src/BuildHotbar.js');
-    assert.match(bar, /static TERRAIN = \['raise', 'lower', 'smooth', 'flatten', 'pour', 'river', 'drain', 'look'\];/);
+    // The ground's brushes, dunes, the painted grounds and rock, then the water, then the map's biome and the land past its border.
+    assert.match(bar, /static TERRAIN = \['raise', 'lower', 'smooth', 'flatten', 'dunes', 'ground', 'rock', 'pour', 'river', 'drain', 'look', 'biome', 'surround'\];/);
     assert.match(bar, /if \(!terrain\.active\) terrain\.activate\(\);\n\s*terrain\.setMode\(BuildHotbar\.TERRAIN_MODE\[slot\]\);/);
     assert.match(read('editor/src/main.js'), /onTerrainTabSelected = \(\) => \{/);
     assert.match(read('editor/index.html'), /src\/TerrainManager\.js/);
@@ -600,4 +602,18 @@ test('Pour\'s preview goes when another tool is taken up, and shows again at onc
     manager.setMode('fill');
     manager.hoverAt({ x: 10, y: 10 });
     assert.equal(shown, true, 'the pointer still over the same cell shows it again');
+});
+
+test('the Look panel\'s Clarity slider is not the button that levels the whole map', () => {
+    // The slider once carried the level button's class, so a click on Clarity flattened the terrain
+    // (and every pond with it): the handler found the slider where the button was not shown.
+    const hotbar = read('editor/src/BuildHotbar.js');
+    assert.match(hotbar, /range\('rr-build-tclarity', t\('terrain\.look\.clear'\)/, 'Clarity has a class of its own');
+    assert.match(hotbar, /lookRange\('rr-build-tclarity', 'clear'\)/);
+    assert.doesNotMatch(hotbar, /range\('rr-build-tclear'/, 'no slider carries the level button\'s class');
+    assert.match(hotbar, /querySelector\('button\.rr-build-tclear'\)\?\.addEventListener\('click', \(\) => \{ terrain\.clear\(\)/, 'the level handler binds to a button only');
+    // No class is both a slider and a button in the terrain panel.
+    const sliders = new Set(Array.from(hotbar.matchAll(/(?:range|lookRange|bindRange)\('(rr-build-[a-z-]+)'/g), m => m[1]));
+    const buttons = Array.from(hotbar.matchAll(/iconButton\('(rr-build-[a-z-]+)'/g), m => m[1]);
+    for (const cls of buttons) assert.ok(!sliders.has(cls), `${cls} is a button and a slider`);
 });

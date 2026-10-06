@@ -124,6 +124,21 @@ class ProjectController {
         }
     }
 
+    /**
+     * Whether the editor that wrote a lock still runs. A pid alone cannot say after a restart: the number is
+     * handed out again, so a lock written before this boot belongs to nobody, whoever holds its pid now.
+     */
+    projectLockOwnerLives(lock) {
+        if (!this.isProcessRunning(lock.pid)) return false;
+        try {
+            const bootedAt = Date.now() - require('os').uptime() * 1000;
+            const openedAt = Date.parse(lock.openedAt);
+            // Ten seconds of grace for a clock corrected at startup.
+            if (Number.isFinite(openedAt) && Number.isFinite(bootedAt) && openedAt < bootedAt - 10000) return false;
+        } catch (error) { /* no uptime to read: the pid's word stands */ }
+        return true;
+    }
+
     acquireProjectLock(projectPath) {
         if (typeof nw === 'undefined') return true;
 
@@ -180,7 +195,7 @@ class ProjectController {
                 } catch (readError) {
                     return this._rejectProjectLock(projectPath, readError);
                 }
-                if (this.isProcessRunning(lock.pid)) {
+                if (this.projectLockOwnerLives(lock)) {
                     return this._rejectProjectLock(projectPath, null, true);
                 }
                 try {
@@ -229,7 +244,9 @@ class ProjectController {
         const message = live
             ? this._tt('This project is already open in another RPG Reactor instance.')
             : this._tt('The project lock could not be verified. The project was not opened.');
-        if (typeof alert === 'function') alert(message + `\n\n${projectPath}`);
+        if (typeof RRDialog !== 'undefined') {
+            RRDialog.alert(message + `\n\n${projectPath}`, { title: this._t('menu.openProject'), kind: live ? 'warning' : 'error' });
+        }
         this.uiManager?.updateStatus(live
             ? 'Project already open in another instance'
             : this._tt('Could not verify project lock'));
@@ -395,13 +412,13 @@ class ProjectController {
         return mapDirty || this.isProjectDirty() || !!this.databaseManager?.isDirty?.();
     }
 
-    /** A themed save-problem alert; the native one only with no UI at all. */
+    /** A save problem, said through the editor's themed dialog. */
     async _alertSaveProblem(message) {
         const text = this._tt(message);
         if (this.uiManager?.showAlert) {
             await this.uiManager.showAlert(this._tt('Save'), text);
-        } else if (typeof alert === 'function') {
-            alert(text);
+        } else if (typeof RRDialog !== 'undefined') {
+            await RRDialog.alert(text, { title: this._tt('Save'), kind: 'error' });
         }
     }
 
@@ -412,12 +429,18 @@ class ProjectController {
         let decision;
         if (this.uiManager?.promptUnsavedChanges) {
             decision = await this.uiManager.promptUnsavedChanges(subject);
-        } else if (confirm(`${this._tt('There are unsaved changes in')} ${subject}. ${this._tt('Save them now?')}`)) {
+        } else if (typeof RRDialog === 'undefined') {
+            // Nothing can ask: the changes are kept and the action does not go on.
+            decision = 'cancel';
+        } else if (await RRDialog.confirm(`${this._tt('There are unsaved changes in')} ${subject}. ${this._tt('Save them now?')}`, {
+            title: this._tt('Unsaved Changes'), ok: this._tt('Save'), cancel: this._tt('Discard Changes')
+        })) {
             decision = 'save';
         } else {
-            decision = confirm(`${this._tt('Discard the unsaved changes in')} ${subject}?`)
-                ? 'discard'
-                : 'cancel';
+            // Not saving is not yet discarding: that is asked by name, and starts on Cancel.
+            decision = await RRDialog.confirm(`${this._tt('Discard the unsaved changes in')} ${subject}?`, {
+                title: this._tt('Unsaved Changes'), ok: this._tt('Discard Changes'), danger: true
+            }) ? 'discard' : 'cancel';
         }
 
         if (decision === 'save') {
@@ -544,14 +567,14 @@ class ProjectController {
                             this.uiManager.updateStatus('New project created: ' + projectName);
                             await this.populateProjectUI();
                         } else {
-                            alert(this._tt('Failed to load the newly created project'));
+                            RRDialog.alert(this._tt('Failed to load the newly created project'), { title: this._t('menu.newProject'), kind: 'error' });
                             this.uiManager.updateStatus('Error creating project');
                         }
                     } else {
                         const details = this.projectManager.lastCreateError
                             ? `\n\n${this.projectManager.lastCreateError}`
                             : '';
-                        alert(this._tt('Failed to create project. Check console for details.') + details);
+                        RRDialog.alert(this._tt('Failed to create project. Check console for details.') + details, { title: this._t('menu.newProject'), kind: 'error' });
                         this.uiManager.updateStatus('Error creating project');
                     }
                 }
@@ -607,7 +630,7 @@ class ProjectController {
                     const loadError = this.projectManager.lastLoadError || null;
                     this.logProjectOpen('manual-open:failed', { projectPath, loadError });
                     const details = loadError?.message ? `\n\n${loadError.message}` : '';
-                    alert(this._tt("Failed to load project. Make sure it's a valid RPG Reactor or RPG Maker project.") + `\n\n${projectPath}${details}`);
+                    RRDialog.alert(this._tt("Failed to load project. Make sure it's a valid RPG Reactor or RPG Maker project.") + `\n\n${projectPath}${details}`, { title: this._t('menu.openProject'), kind: 'error' });
                     this.uiManager.updateStatus('Error loading project');
                     return;
                 }
@@ -627,7 +650,7 @@ class ProjectController {
             } catch (error) {
                 console.error(`Error opening project at ${projectPath}:`, error);
                 this.logProjectOpen('manual-open:error', { projectPath, error: error.message || String(error) });
-                alert(`${this._tt('Error opening project:')}\n${projectPath}\n\n${error.message || error}`);
+                RRDialog.alert(`${this._tt('Error opening project:')}\n${projectPath}\n\n${error.message || error}`, { title: this._t('menu.openProject'), kind: 'error' });
                 this.uiManager.updateStatus('Error loading project');
             }
     }
@@ -636,7 +659,7 @@ class ProjectController {
     async importLegacyProject() {
         if (!await this.confirmUnsavedChanges()) return;
         const dialog = (typeof window !== 'undefined' && window.RRLegacyImportDialog) || null;
-        if (!dialog) { alert(this._tt('The import dialog is not available.')); return; }
+        if (!dialog) { RRDialog.alert(this._tt('The import dialog is not available.'), { title: this._tt('Import Project'), kind: 'error' }); return; }
         await dialog.show({ openProject: (destination) => this.openProjectAtPath(destination) });
     }
 
@@ -649,7 +672,7 @@ class ProjectController {
             this.logProjectOpen('populate:runtime-refreshed', runtimeRefresh);
         } else if (runtimeRefresh && !runtimeRefresh.ok) {
             console.error('Could not refresh the project runtime:', runtimeRefresh.error);
-            alert(`${this._tt('Could not install the Reactor runtime:')}\n\n${runtimeRefresh.error}`);
+            await RRDialog.alert(`${this._tt('Could not install the Reactor runtime:')}\n\n${runtimeRefresh.error}`, { title: this._runtimeInstallTitle(), kind: 'error' });
         }
 
         // Load database
@@ -673,7 +696,7 @@ class ProjectController {
             this._notifyProjectChanged();
             await this.uiManager.showWelcomeScreen();
             this.updateWindowTitle();
-            alert(this._tt('The project database could not be loaded. Check the JSON files for parse errors.'));
+            RRDialog.alert(this._tt('The project database could not be loaded. Check the JSON files for parse errors.'), { title: this._t('menu.openProject'), kind: 'error' });
             return;
         }
 
@@ -1710,7 +1733,7 @@ class ProjectController {
     }
 
     _t(key, params) {
-        return window.I18n ? window.I18n.t(key, params) : key;
+        return (typeof window !== 'undefined' && window.I18n) ? window.I18n.t(key, params) : key;
     }
 
     _tt(text) {
@@ -1916,7 +1939,7 @@ class ProjectController {
                         this.tilemapManager?.loadMapSidecar?.(map);
                     } catch (e) {
                         console.error(`Could not read ${mapFile}:`, e);
-                        alert(`${this._tt('Could not open map properties:')} ${mapFile} ${this._tt('is unreadable or corrupt.')}`);
+                        RRDialog.alert(`${this._tt('Could not open map properties:')} ${mapFile} ${this._tt('is unreadable or corrupt.')}`, { title: this._t('mapProps.title'), kind: 'error' });
                         return;
                     }
                 }
@@ -1943,7 +1966,7 @@ class ProjectController {
     createNewMap(afterMapId = this.tilemapManager?.currentMap?.id ?? null) {
         const newMapId = this.getNextAvailableMapId();
         if (!newMapId) {
-            alert(`${this._tt('Map')} ${this._tt('Max:')} ${globalThis.RR_LIMITS?.MAP_COUNT || 2000}`);
+            RRDialog.alert(`${this._tt('Map')} ${this._tt('Max:')} ${globalThis.RR_LIMITS?.MAP_COUNT || 2000}`, { title: this._t('mapCtx.newMap'), kind: 'warning' });
             return;
         }
         // Create a default map object
@@ -2107,32 +2130,11 @@ class ProjectController {
 
         // Note, less the <3d> tag the 3D checkbox stands for.
         document.getElementById('map-note-textarea').value = this.noteWithout3D(mapData.note);
+        // Battle on sight shows what the note says (<battle trigger: N>).
+        if (typeof window !== 'undefined' && window.RRBattleSetup?.syncMapTrigger) window.RRBattleSetup.syncMapTrigger();
 
         // Encounters
         this.populateEncountersList(mapData.encounterList || []);
-
-        // Image layers (pictures locked to the map)
-        const layersSection = document.getElementById('map-image-layers-section');
-        if (layersSection && typeof RRMapImageLayersEditor !== 'undefined') {
-            if (!layersSection.dataset.mounted) {
-                RRMapImageLayersEditor.mount(layersSection, { pickImage: (current, done) => this.pickParallaxImage(current, done) });
-                layersSection.dataset.mounted = 'true';
-            }
-            RRMapImageLayersEditor.load(mapData.rrImageLayers);
-        }
-    }
-
-    /** Choose an image from img/parallaxes with the image picker; `done(name)`. */
-    pickParallaxImage(current, done) {
-        const folder = this.parallaxFolder();
-        const assets = window.RRAssetFiles;
-        const picker = typeof window !== 'undefined' ? window.reactor?.databaseEditorUI : null;
-        if (!folder || !assets || !picker || typeof picker.showImagePicker !== 'function') return;
-        let files = [];
-        try { files = assets.listImageReferences(folder); } catch (error) { console.error('Error reading parallaxes folder:', error); }
-        picker.showImagePicker(this._tt('Image Layers'), files, (name) => done(name),
-            (name) => assets.imageUrlFor(folder, name), current || undefined,
-            { selectButtonLabel: this._tt('Use This Image'), allowNone: true });
     }
 
     populateTilesetDropdown() {
@@ -2388,7 +2390,7 @@ class ProjectController {
         const moved = Object.assign({}, sequence, { enabled: true });
         const error = RRBgmSequenceEditor.validate(moved, text => this._tt(text));
         if (error) {
-            alert(error);
+            RRDialog.alert(error, { title: this._t('mapProps.title'), kind: 'warning' });
             return;
         }
         // Map files carry no name of their own; the map list does.
@@ -2410,7 +2412,7 @@ class ProjectController {
         const pending = this._pendingSequenceMove;
         const manager = this.databaseManager;
         const fail = () => {
-            alert(this._tt('The music sequence library could not be saved.'));
+            RRDialog.alert(this._tt('The music sequence library could not be saved.'), { title: this._t('mapProps.title'), kind: 'error' });
             return 0;
         };
         if (!pending || !manager || typeof manager.addEntry !== 'function' || !manager.data?.system) return fail();
@@ -2547,12 +2549,6 @@ class ProjectController {
         if (skySx) skySx.value = room.skyScrollX || 0;
         const skySy = document.getElementById('map-3d-sky-sy-input');
         if (skySy) skySy.value = room.skyScrollY || 0;
-        const cliff = elevation && elevation.roomCliff ? elevation.roomCliff(room) : { name: 'Rock', slope: 40 };
-        this.fillMaterialSelect(document.getElementById('map-3d-cliff-select'), cliff.name);
-        const cliffSlope = document.getElementById('map-3d-cliff-slope-input');
-        if (cliffSlope) cliffSlope.value = cliff.slope;
-        const cliffTint = document.getElementById('map-3d-cliff-tint-input');
-        if (cliffTint) cliffTint.value = cliff.tint || '#ffffff';
 
         // The default camera: a mode, and blank overrides meaning "the mode's own".
         const camera = elevation && elevation.camera ? elevation.camera(mapData) : { mode: 'fixed' };
@@ -2619,7 +2615,7 @@ class ProjectController {
         };
     }
 
-    /** The room as the form has it now. */
+    /** The room as the form has it now: its height, its images and the sky's drift. */
     readMap3DForm() {
         const elevation = this.mapElevation();
         const value = id => document.getElementById(id)?.value || '';
@@ -2631,39 +2627,8 @@ class ProjectController {
             ceiling: value('map-3d-ceiling-select'),
             sky: value('map-3d-sky-select'),
             skyScrollX: parseFloat(value('map-3d-sky-sx-input')) || 0,
-            skyScrollY: parseFloat(value('map-3d-sky-sy-input')) || 0,
-            cliff: document.getElementById('map-3d-cliff-select') ? value('map-3d-cliff-select') : undefined,
-            cliffSlope: value('map-3d-cliff-slope-input'),
-            cliffTint: value('map-3d-cliff-tint-input')
+            skyScrollY: parseFloat(value('map-3d-sky-sy-input')) || 0
         };
-    }
-
-    /** A select of the images under img/materials, `(None)` first; a chosen name not on disk stays, marked missing. */
-    fillMaterialSelect(select, value) {
-        if (!select) return;
-        select.innerHTML = `<option value="">${this._t('common.none')}</option>`;
-        if (this.currentProject && this.currentProject.path && (typeof nw !== 'undefined' || window.RPGReactorHost)) {
-            const fs = require('fs');
-            const path = require('path');
-            const folder = path.join(this.currentProject.path, 'img', 'materials');
-            if (fs.existsSync(folder)) {
-                RRAssetFiles.listMaterials(folder).map(record => record.imageReference).forEach(file => {
-                    const option = document.createElement('option');
-                    option.value = file;
-                    option.textContent = file;
-                    select.appendChild(option);
-                });
-            }
-        }
-        select.value = value || '';
-        if (value && select.value !== value) {
-            const option = document.createElement('option');
-            option.value = value;
-            option.textContent = `${value} ${this._tt('(missing)')}`;
-            option.style.color = 'var(--color-danger-bright)';
-            select.appendChild(option);
-            select.value = value;
-        }
     }
 
     /**
@@ -2685,7 +2650,7 @@ class ProjectController {
             console.error('Error reading parallaxes folder:', error);
         }
         if (files.length === 0) {
-            alert(tt('No parallax images found in img/parallaxes folder'));
+            RRDialog.alert(tt('No parallax images found in img/parallaxes folder'), { title: this._t('mapProps.title'), kind: 'warning' });
             return;
         }
         const titles = {
@@ -2744,12 +2709,17 @@ class ProjectController {
             target.reactor3d.lighting = { ambient: 1, ambientColour: '#ffffff' };
             changed = true;
         }
-        changed = elevation.setRoom(target, room) || changed;
+        // The steep ground and the land past the border are set on the map (the Terrain tools): what the map has stays.
+        const cliff = elevation.roomCliff(elevation.room(target));
+        changed = elevation.setRoom(target, Object.assign({}, room, { cliff: cliff.name, cliffSlope: cliff.slope, cliffTint: cliff.tint })) || changed;
         if (typeof elevation.setCamera === 'function') {
             changed = elevation.setCamera(target, this.readMap3DCameraForm()) || changed;
         }
         // This map's gravity, jump and fall damage: kept only when it says something.
         const physics = this.readMapPhysicsForm();
+        // What the form has no field for (a map's own ledge climbing, its fall rule, its sounds) is kept as written.
+        const FORM_PHYSICS = ['gravity', 'jumpHeight', 'jump', 'fallDamage', 'swim'];
+        for (const [key, value] of Object.entries(target.reactor3d?.physics || {})) if (!FORM_PHYSICS.includes(key)) physics[key] = value;
         const physicsBefore = JSON.stringify(target.reactor3d?.physics || {});
         if (JSON.stringify(physics) !== physicsBefore) {
             target.reactor3d = target.reactor3d || { version: 1 };
@@ -2761,14 +2731,18 @@ class ProjectController {
             sidecar.mode = elevation.MODE_3D;
             changed = true;
         }
-        if (!changed) return false;
-
         const isCurrent = this.tilemapManager?.currentMap?.id === mapData.id;
+        // OK writes the loaded map and marks it saved: what the map's tools changed in the sidecar since the
+        // last save (ground shaped, pieces laid, the land past the border) is written with it.
+        const unsaved = isCurrent && typeof this.tilemapManager.sidecarState === 'function'
+            && this.tilemapManager.sidecarState() !== this.tilemapManager.savedSidecarState;
+        if (!changed && !unsaved) return false;
+
         if (isCurrent && typeof this.tilemapManager.saveMapSidecar === 'function') {
             if (!this.tilemapManager.saveMapSidecar()) {
-                alert(this._t('mapProps.sidecarNotSaved'));
+                RRDialog.alert(this._t('mapProps.sidecarNotSaved'), { title: this._t('mapProps.title'), kind: 'error' });
             }
-            return true;
+            return changed;
         }
         if (typeof nw === 'undefined' || !this.currentProject?.path) return true;
         const fs = require('fs');
@@ -2785,7 +2759,7 @@ class ProjectController {
             });
         } catch (error) {
             console.error('Error saving the map 3D sidecar:', error);
-            alert(this._t('mapProps.sidecarNotSaved'));
+            RRDialog.alert(this._t('mapProps.sidecarNotSaved'), { title: this._t('mapProps.title'), kind: 'error' });
         }
         return true;
     }
@@ -3203,7 +3177,7 @@ class ProjectController {
             console.error('Error reading parallaxes folder:', error);
         }
         if (files.length === 0) {
-            alert(tt('No parallax images found in img/parallaxes folder'));
+            RRDialog.alert(tt('No parallax images found in img/parallaxes folder'), { title: this._t('mapProps.title'), kind: 'warning' });
             return;
         }
 
@@ -3308,7 +3282,8 @@ class ProjectController {
         const height = Number(heightInput.value);
         const sizeError = this.mapDimensionError(width, height);
         if (sizeError) {
-            alert(sizeError);
+            // The field takes the focus once the notice has been read.
+            await RRDialog.alert(sizeError, { title: this._t('mapProps.title'), kind: 'warning' });
             (width < 1 || width > (globalThis.RR_LIMITS?.MAP_WIDTH || 512) || !Number.isInteger(width)
                 ? widthInput : heightInput).focus();
             return false;
@@ -3330,7 +3305,7 @@ class ProjectController {
         if (typeof RRBgmSequenceEditor !== 'undefined' && sequenceSource === 0) {
             const sequenceError = RRBgmSequenceEditor.validate(bgmSequence, text => this._tt(text));
             if (sequenceError) {
-                alert(sequenceError);
+                await RRDialog.alert(sequenceError, { title: this._t('mapProps.title'), kind: 'warning' });
                 document.getElementById('map-bgm-choose-btn')?.focus();
                 return false;
             }
@@ -3385,12 +3360,6 @@ class ProjectController {
             data: this.currentEditingMap.data || [],
             events: this.currentEditingMap.events || []
         };
-        // Image layers: stored only when the map has some, so a stock map stays stock.
-        const imageLayers = typeof RRMapImageLayersEditor !== 'undefined' && document.getElementById('map-image-layers-section')?.dataset.mounted
-            ? RRMapImageLayersEditor.read() : (this.currentEditingMap.rrImageLayers || []);
-        if (imageLayers.length) mapData.rrImageLayers = imageLayers;
-        else delete mapData.rrImageLayers;
-
         const libraryId = movedId || (typeof sequenceSource === 'number' ? sequenceSource : 0);
         const sequenceOn = !!(bgmSequence && bgmSequence.enabled);
         if (movedId) {
@@ -3457,12 +3426,12 @@ class ProjectController {
             if (typeof nw !== 'undefined') {
                 if (!this.writeMapDataFile(mapData)) {
                     this.currentProject.maps = JSON.parse(mapInfosBeforeInsert);
-                    alert(this._tt('The new map file could not be saved.'));
+                    await RRDialog.alert(this._tt('The new map file could not be saved.'), { title: this._t('mapProps.title'), kind: 'error' });
                     return false;
                 }
                 if (!this.projectManager.saveMapInfos(this.currentProject.path, this.currentProject.maps)) {
                     this.currentProject.maps = JSON.parse(mapInfosBeforeInsert);
-                    alert(this._tt('The map list could not be saved.'));
+                    await RRDialog.alert(this._tt('The map list could not be saved.'), { title: this._t('mapProps.title'), kind: 'error' });
                     return false;
                 }
                 this.savedMapInfosState = JSON.stringify(this.currentProject.maps || []);
@@ -3505,12 +3474,12 @@ class ProjectController {
             }
 
             if (!this.writeMapDataFile(mapData)) {
-                alert(this._tt('The map could not be saved.'));
+                await RRDialog.alert(this._tt('The map could not be saved.'), { title: this._t('mapProps.title'), kind: 'error' });
                 return false;
             }
             if (this.projectManager && this.projectManager.saveMapInfos) {
                 if (!this.projectManager.saveMapInfos(this.currentProject.path, this.currentProject.maps)) {
-                    alert(this._tt('The map list could not be saved.'));
+                    await RRDialog.alert(this._tt('The map list could not be saved.'), { title: this._t('mapProps.title'), kind: 'error' });
                     return false;
                 }
             }
@@ -4015,7 +3984,9 @@ class ProjectController {
         const { offsetX, offsetY } = analysis;
 
         if (analysis.tilesLost > 0 || analysis.eventsLost.length > 0) {
-            if (!confirm(this.describeMapResizeLoss(analysis, oldWidth, oldHeight, newWidth, newHeight))) {
+            if (!(await RRDialog.confirm(this.describeMapResizeLoss(analysis, oldWidth, oldHeight, newWidth, newHeight), {
+                title: this._tt('Resize Map'), ok: this._tt('Resize Map'), danger: true
+            }))) {
                 return false;
             }
         }
@@ -4025,10 +3996,16 @@ class ProjectController {
         let inbound = null;
         if (analysis.shifts) {
             const report = this.scanProjectForMapReferences(sourceMap.id);
-            if (report.references.length > 0 || report.unreadable.length > 0) {
-                if (confirm(this.describeMapReferenceUpdate(report, offsetX, offsetY))) {
+            if (report.references.length > 0) {
+                // Either answer resizes the map: the buttons say what becomes of the commands.
+                if (await RRDialog.confirm(this.describeMapReferenceUpdate(report, offsetX, offsetY), {
+                    title: this._tt('Resize Map'), ok: this._tt('Update Commands'), cancel: this._tt('Leave Unchanged')
+                })) {
                     inbound = report;
                 }
+            } else if (report.unreadable.length > 0) {
+                // Nothing to update: the maps that could not be checked are named.
+                await RRDialog.alert(this.describeMapReferenceUpdate(report, offsetX, offsetY), { title: this._tt('Resize Map'), kind: 'warning' });
             }
         }
 
@@ -4066,7 +4043,7 @@ class ProjectController {
             if (inbound) {
                 this.applyMapReferenceOffsets(inbound.references, offsetX, offsetY);
                 if (!this.persistScannedMapReferences(inbound)) {
-                    alert(this._t('mapResize.updateFailed'));
+                    await RRDialog.alert(this._t('mapResize.updateFailed'), { title: this._tt('Resize Map'), kind: 'error' });
                 }
                 if (inbound.sources.some(source => source.kind === 'commonEvents')) {
                     this.databaseManager.mutationGeneration = (this.databaseManager.mutationGeneration || 0) + 1;
@@ -4101,11 +4078,11 @@ class ProjectController {
 
     // Placeholder methods for other context menu items
     loadSampleMap() {
-        alert(this._tt('Load Sample Map - Coming soon!'));
+        RRDialog.alert(this._tt('Load Sample Map - Coming soon!'), { title: this._t('mapCtx.loadSample') });
     }
 
     addToQuickAccess(mapId) {
-        alert(this._tt('Add To Quick Access - Coming soon!'));
+        RRDialog.alert(this._tt('Add To Quick Access - Coming soon!'), { title: this._t('mapCtx.addQuick') });
     }
 
     async copyMap(mapId) {
@@ -4121,7 +4098,7 @@ class ProjectController {
             } else {
                 const mapPath = path.join(this.currentProject.path, 'data', `Map${String(mapId).padStart(3, '0')}.json`);
                 if (!fs.existsSync(mapPath)) {
-                    alert(this._tt('Map file not found.'));
+                    await RRDialog.alert(this._tt('Map file not found.'), { title: this._t('mapCtx.copyMap'), kind: 'warning' });
                     return;
                 }
                 mapData = RRJson.parse(fs.readFileSync(mapPath));
@@ -4151,7 +4128,7 @@ class ProjectController {
             this.uiManager.updateStatus(`Copied map ${mapId} to clipboard`);
         } catch (error) {
             console.error('Error copying map:', error);
-            alert(this._tt('Failed to copy map. Check console for details.'));
+            await RRDialog.alert(this._tt('Failed to copy map. Check console for details.'), { title: this._t('mapCtx.copyMap'), kind: 'error' });
         }
     }
 
@@ -4169,11 +4146,11 @@ class ProjectController {
             if (this.currentProject !== targetProject) return;
             const payload = clipboardData?.payload || null;
             if (!payload?.mapData) {
-                alert(this._tt('No map in clipboard to paste.'));
+                await RRDialog.alert(this._tt('No map in clipboard to paste.'), { title: this._t('mapCtx.pasteMap') });
                 return;
             }
             const sizeError = this.mapDimensionError(payload.mapData.width, payload.mapData.height);
-            if (sizeError) { alert(sizeError); return; }
+            if (sizeError) { await RRDialog.alert(sizeError, { title: this._t('mapCtx.pasteMap'), kind: 'warning' }); return; }
             const newMapData = JSON.parse(JSON.stringify(payload.mapData));
             if (!Array.isArray(newMapData.data) || newMapData.data.length !== newMapData.width * newMapData.height * 6) {
                 throw new Error('Cannot paste malformed map tile data');
@@ -4191,7 +4168,7 @@ class ProjectController {
             // Resolve the ID after asynchronous imports, which can yield to another map operation.
             const newMapId = this.getNextAvailableMapId();
             if (!newMapId) {
-                alert(`${this._tt('Map')} ${this._tt('Max:')} ${globalThis.RR_LIMITS?.MAP_COUNT || 2000}`);
+                await RRDialog.alert(`${this._tt('Map')} ${this._tt('Max:')} ${globalThis.RR_LIMITS?.MAP_COUNT || 2000}`, { title: this._t('mapCtx.pasteMap'), kind: 'warning' });
                 return;
             }
             const sourceName = payload.mapInfo?.name || payload.mapData.displayName || `Map ${payload.mapId || ''}`.trim();
@@ -4233,7 +4210,7 @@ class ProjectController {
                 catch (cleanupError) { console.error('Could not remove incomplete map copy:', cleanupError); }
             }
             console.error('Error pasting map:', error);
-            if (this.currentProject === targetProject) alert(this._tt('Failed to paste map. Check console for details.'));
+            if (this.currentProject === targetProject) await RRDialog.alert(this._tt('Failed to paste map. Check console for details.'), { title: this._t('mapCtx.pasteMap'), kind: 'error' });
         } finally {
             if (this._pastingMap === token) this._pastingMap = null;
         }
@@ -4322,7 +4299,7 @@ class ProjectController {
             .filter(mapInfo => mapInfo && !mapIdsToDelete.includes(mapInfo.id));
 
         if (remainingMaps.length === 0) {
-            alert(this._tt('Cannot delete the last map in the project.'));
+            await RRDialog.alert(this._tt('Cannot delete the last map in the project.'), { title: this._t('mapCtx.deleteMap'), kind: 'warning' });
             return;
         }
 
@@ -4338,7 +4315,9 @@ class ProjectController {
         const presentation=this.databaseManager?.data?.battlePresentation||(typeof window!=='undefined'?window.reactor?.databaseManager?.data?.battlePresentation:null);
         const roomUses=Object.entries(presentation?.troops||{}).filter(([,room])=>room.type==='room'&&mapIdsToDelete.includes(room.mapId)).map(([id])=>fill(this._tt('Troop #{id}'),{id}));
         const roomMessage=roomUses.length?'\n\n'+fill(this._tt('Battle Rooms using these maps: {troops}. Select replacement maps in Troops after deletion.'),{troops:roomUses.join(', ')}):'';
-        if (!confirm(message+roomMessage)) return;
+        if (!(await RRDialog.confirm(message + roomMessage, { title: this._t('mapCtx.deleteMap'), ok: this._t('mapCtx.deleteMap'), danger: true }))) return;
+        // The answer can come after another project was opened or the map left the list.
+        if (this.currentProject !== targetProject || targetProject.maps?.[mapId] !== map) return;
 
         const deletingLoadedMap = mapIdsToDelete.includes(this.tilemapManager?.currentMap?.id);
         if (deletingLoadedMap && !await this.confirmUnsavedChanges('map')) return;
@@ -4424,7 +4403,7 @@ class ProjectController {
                 }
             }
             console.error('Error deleting map:', error);
-            if (this.currentProject === targetProject) alert(this._tt('Failed to delete map. Check console for details.'));
+            if (this.currentProject === targetProject) await RRDialog.alert(this._tt('Failed to delete map. Check console for details.'), { title: this._t('mapCtx.deleteMap'), kind: 'error' });
         }
     }
 
@@ -4515,11 +4494,11 @@ class ProjectController {
     }
 
     shiftMap(mapId) {
-        alert(this._tt('Shift - Coming soon!'));
+        RRDialog.alert(this._tt('Shift - Coming soon!'), { title: this._t('mapCtx.shift') });
     }
 
     generateDungeon(mapId) {
-        alert(this._tt('Generate Dungeon - Coming soon!'));
+        RRDialog.alert(this._tt('Generate Dungeon - Coming soon!'), { title: this._t('mapCtx.generateDungeon') });
     }
 
     async saveMapAsImage(mapId) {
@@ -4538,7 +4517,7 @@ class ProjectController {
 
             const mapPath = path.join(this.currentProject.path, 'data', `Map${String(mapId).padStart(3, '0')}.json`);
             if (!fs.existsSync(mapPath)) {
-                alert(this._tt('Map file not found.'));
+                await RRDialog.alert(this._tt('Map file not found.'), { title: this._t('mapCtx.saveImage'), kind: 'warning' });
                 return;
             }
 
@@ -4550,7 +4529,7 @@ class ProjectController {
             const maxCanvasPixels = globalThis.RR_LIMITS?.MAP_CANVAS_PIXELS || 32 * 1024 * 1024;
             if (!pixelWidth || !pixelHeight || pixelWidth > maxCanvasSide || pixelHeight > maxCanvasSide ||
                 pixelWidth * pixelHeight > maxCanvasPixels) {
-                alert(`${this._tt('Map image is too large to export')} (${pixelWidth}x${pixelHeight}).`);
+                await RRDialog.alert(`${this._tt('Map image is too large to export')} (${pixelWidth}x${pixelHeight}).`, { title: this._t('mapCtx.saveImage'), kind: 'warning' });
                 return;
             }
 
@@ -4581,7 +4560,7 @@ class ProjectController {
                 });
 
                 if (!success) {
-                    alert(this._tt('Failed to render map image.'));
+                    RRDialog.alert(this._tt('Failed to render map image.'), { title: this._t('mapCtx.saveImage'), kind: 'error' });
                     this.uiManager.updateStatus('Map image export failed');
                     return;
                 }
@@ -4594,7 +4573,7 @@ class ProjectController {
             input.click();
         } catch (error) {
             console.error('Error saving map image:', error);
-            alert(this._tt('Failed to save map image. Check console for details.'));
+            RRDialog.alert(this._tt('Failed to save map image. Check console for details.'), { title: this._t('mapCtx.saveImage'), kind: 'error' });
             this.uiManager.updateStatus('Map image export failed');
         }
     }

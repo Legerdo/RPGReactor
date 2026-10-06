@@ -68,7 +68,12 @@ test('down a step a walker keeps its footing; off a ledge it falls, and a long f
     c.$gameParty = { members: () => [{ isAlive: () => true, mhp: 100, gainHp: v => hurt.push(v) }], isAllDead: () => false };
     player._reactorAlt = 1; ground = 0;
     c.ReactorPhysics.update(player);
-    assert.equal(player._reactorAir, 0, 'a one-level step is walked down, not fallen');
+    assert.equal(c.ReactorPhysics.isAirborne(player), false, 'a one-level step is walked down, not fallen');
+    assert.equal(player._reactorAlt, 1 - c.ReactorPhysics.STEP_SPEED, 'and come down over a few frames, not in one');
+    let frames = 1;
+    while (player._reactorAlt > 0 && frames < 20) { c.ReactorPhysics.update(player); frames++; assert.equal(c.ReactorPhysics.isAirborne(player), false); }
+    assert.deepEqual([frames, player._reactorAlt, player._reactorAir, player._reactorVz, player._reactorStepDown], [4, 0, 0, 0, false], 'four frames for a tile, then on the ground');
+    assert.deepEqual(hurt, [], 'no landing: nothing fell');
     player._reactorAlt = 8;
     c.ReactorPhysics.update(player);
     assert.ok(player._reactorAir > 7, 'off a ledge: in the air');
@@ -134,7 +139,7 @@ test('water is a volume: lit materials and the sky dim through it, per scene, an
     const lighting = read('runtime/reactor_3d_lighting.js'), core = read('runtime/reactor_3d.js'), world = read('runtime/reactor_3d_world.js');
     assert.match(lighting, /Reactor3D\.injectWaterVolume\(this, shader\);\n    \};/);
     assert.match(lighting, /material && material\.__reactorWater\) \|\|/);
-    assert.match(core, /if \(this\.useSceneWater\) this\.useSceneWater\(scene\);/);
+    assert.match(core, /if \(this\.useSceneWater\) this\.useSceneWater\(scene(?:, camera)?\);/);
     assert.match(core, /Reactor3D\.waterVolumeMaterial\(material\)/);
     assert.match(world, /this\.noteWaterVolume\(focus\);/);
 });

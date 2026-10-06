@@ -91,11 +91,19 @@ Existing sequences without the optional motion `transform` and `targetIndex` pro
 
 ### Weapons in hand
 
+The same sequences play in battles on the map (see [BATTLE-MODES.md](BATTLE-MODES.md)). 3D models play Motion and pose steps as in the battle scene; sprites answer with a short lunge, hop or flinch. Projectiles, icons and pictures are drawn over the map in 2D and 3D.
+
 A weapon step shows, moves or hides the equipped weapon (or the skill's item) in the hand for the sequence. Selecting a step in the editor previews the sequence as of that step, so a weapon shown by the next step is not yet in the hand.
+
+A hand whose rig has finger markers closes on what it holds and opens again when the item is hidden. **Held By › In the fist** on a Show step puts the handle across the palm along the knuckles, the blade out by the thumb (a gun by its grip, the trigger finger free), with the step's offset and turns in the hand's own frame, so it stays in the fist however the arm moves; choosing it clears the step's offset and turns. New Show steps start that way. A held model with its own markers (Database › 3D Models › Rig, Blade or tool / Gun) is gripped where they say; see [RIGGING-MODELS.md](RIGGING-MODELS.md). A step saved before it keeps the older hold (the handle along the forearm, offsets in the battler's frame), where the wrist turns to take the handle as far as it can.
+
+A Motion step can move the weapon while it poses. With a weapon in hand, the step shows a **Weapon in Hand** card (Offset, Rotate), and a click on the weapon in the preview puts the arrows and rings on it; a click on a limb goes back to posing. What it writes is an ordinary weapon Move step just before the Motion step, marked Concurrent and as long as it, so the weapon and the limbs arrive together; it follows the Motion step's duration and is deleted with it.
+
+A step's inspector shows what the step needs; Phase, what the weapon is drawn as, its layer, hand and grip, Edit Model Poses, Start from rest and Aim at target are under **Advanced**.
 
 ### The preview camera
 
-Right-drag orbits the preview, middle-drag or Shift + right-drag pans it, and the wheel zooms; **Reset View** brings it home and **Frame Battler** keeps the selected battler centred. The view is remembered with the other preview choices and never touches the battle's own camera, which stays as the troop's room sets it.
+Drag empty space to turn the preview (right-drag turns it from anywhere), Shift-drag or middle-drag pans it, and the wheel zooms; **Reset View** brings it home and **Frame Battler** keeps the selected battler centred. The preview's cast (User, Target, Skill / Item, Weapon in Hand, Targets, Scene, Projection) folds under one **Preview** line above the stage. The view is remembered with the other preview choices and never touches the battle's own camera, which stays as the troop's room sets it.
 
 ### Phases inside the sequence (2026-09-12)
 
@@ -113,7 +121,7 @@ Wherever a step places something, the inspector shows the same card: **Offset**,
 
 Held items are edited in the viewport too. Select a Show or Move weapon step and the arrows stand on the held thing: drag them to move it in the hand (X is forward of the hand), drag the rings to **Tilt**, **Turn** and **Roll** it, and the card follows. Turn and Roll only turn a 3D model; an icon has Tilt alone.
 
-A bound 3D model is read by its shape and held by its own grip: the long axis is the blade or barrel, the widest part marks the handle end, and it lies along the forearm with the tip out, turning with the arm. **Held By** offers that grip first, then the middle or the top. **Held With** both hands puts the other hand on the forestock; **Aim** at the target bends the holding arm down the line to the target so a gun points at it (a long gun's stock ends at the shoulder, a pistol goes out at arm's length), with no arm poses to author. The model's size comes from its binding under Database › Weapons or Items; the step's Scale multiplies it. A model with an authored front face points where its holder faces; one without keeps the long-axis assumption. In Advanced, **Bone Name** names a specific bone to attach to (blank finds the hand), and the icon grip fields place a 2D icon.
+A bound 3D model is read by its shape and held by its own grip: the long axis is the blade or barrel, the widest part marks the handle end, and it lies along the forearm with the tip out, turning with the arm. **Held By** offers that grip first, then the middle or the top. **Held With** both hands puts the other hand on the forestock (the chest turns the other shoulder forward until that hand reaches a marked Fore grip); **Aim** at the target bends the holding arm down the line to the target so a gun points at it (a long gun's stock ends at the shoulder, a pistol goes out at arm's length), with no arm poses to author. The model's size comes from its binding under Database › Weapons or Items; the step's Scale multiplies it. A model with an authored front face points where its holder faces; one without keeps the long-axis assumption. In Advanced, **Bone Name** names a specific bone to attach to (blank finds the hand), and the icon grip fields place a 2D icon.
 
 The **User** and **Target** above the preview are a preview cast only. Nothing about them is stored in the sequence: in battle, whichever battler uses the sequence plays it, with its own equipment and model. ### Pose Parts (2026-09-12)
 

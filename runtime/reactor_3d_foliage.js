@@ -42,14 +42,24 @@
     //-------------------------------------------------------------------------
     // The format
 
-    R.FOLIAGE_KINDS = ["grass", "flowers", "fern", "reeds"];
+    // The last three are not Earth's: bulbs (a lit globe on a thin stalk), tendrils (fronds that curl and
+    // uncurl, each in its own time) and crystals (shards standing in the ground, which no wind moves).
+    R.FOLIAGE_KINDS = ["grass", "flowers", "fern", "reeds", "bulbs", "tendrils", "crystals"];
     /** What each kind looks like before an author says otherwise. Heights in tiles (a tile is about 0.6 m). */
     R.FOLIAGE_LOOKS = {
         grass: { height: 0.8, colour: "#4a7a30", tip: "#b9c862", vary: 0.25, perLevel: 0.9 },
         flowers: { height: 0.65, colour: "#4f7f34", tip: "#7ea54a", vary: 0.3, perLevel: 0.3, colours: ["#f4d54a", "#fafafa", "#e2609b", "#8f7ee6"] },
         fern: { height: 1.0, colour: "#2f5e24", tip: "#6f9a3e", vary: 0.2, perLevel: 0.22 },
-        reeds: { height: 2.2, colour: "#5d7a3a", tip: "#b8b06a", vary: 0.2, perLevel: 0.45 }
+        reeds: { height: 2.2, colour: "#5d7a3a", tip: "#b8b06a", vary: 0.2, perLevel: 0.45 },
+        // `glow` (0-1): how much of the kind's own colour shows whatever the light, strongest at the tip.
+        bulbs: { height: 1.1, colour: "#2a3f52", tip: "#5a8fa0", vary: 0.3, perLevel: 0.22, glow: 1, colours: ["#7afff0", "#b8ff5a", "#ff7af0"] },
+        tendrils: { height: 1.3, colour: "#3a2a70", tip: "#c48cf0", vary: 0.25, perLevel: 0.26, glow: 0.3 },
+        crystals: { height: 0.7, colour: "#5a4a9a", tip: "#d8c8ff", vary: 0.35, perLevel: 0.3, glow: 0.45 }
     };
+    /** The kinds a ground marked bare still takes: mineral, not grown. */
+    R.FOLIAGE_ON_BARE = ["crystals"];
+    /** How bright a glowing tip is beside its colour in full light. */
+    R.FOLIAGE_GLOW = 1.1;
     R.BUSH_LOOK = { colour: "#3f6b2b", size: 1.6 };
     /** A bush this wide or wider stops a walker; smaller ones are walked through. */
     R.BUSH_BLOCK_SIZE = 1.4;
@@ -104,9 +114,10 @@
             colour: hex(raw.colour, look.colour),
             tip: hex(raw.tip, look.tip),
             vary: clamp(num(raw.vary, look.vary), 0, 1),
+            glow: clamp(num(raw.glow, look.glow || 0), 0, 1),
             seed: Math.floor(num(raw.seed, 1)) | 0
         };
-        if (raw.kind === "flowers") {
+        if (look.colours) {
             const colours = Array.isArray(raw.colours) ? raw.colours.map(c => hex(c, null)).filter(Boolean) : [];
             layer.colours = colours.length ? colours : look.colours.slice();
         }
@@ -189,6 +200,8 @@
         if (x < 0 || y < 0 || x >= mapData.width || y >= mapData.height) return -1;
         if (R.pieceOnGround(mapData, x, y)) return -1;
         if (slopeAt(mapData, x, y) > limit) return -1;
+        // Nor on a ground type marked bare (sand, snow, ash).
+        if (R.groundBareAt && !R.FOLIAGE_ON_BARE.includes(kind) && R.groundBareAt(mapData, x, y)) return -1;
         const level = R.hasWater(mapData) ? R.waterLevelAt(mapData, x, y) : null;
         if (level !== null) {
             const depth = level - bareGround(mapData, x + 0.5, y + 0.5);
@@ -234,8 +247,8 @@
         const look = R.FOLIAGE_LOOKS[layer.kind];
         const W = mapData.width;
         const items = [];
-        const width = { grass: 0.06, flowers: 0.03, fern: 0.24, reeds: 0.055 }[layer.kind];
-        const lean = { grass: 0.28, flowers: 0.08, fern: 0.85, reeds: 0.06 }[layer.kind];
+        const width = { grass: 0.06, flowers: 0.03, fern: 0.24, reeds: 0.055, bulbs: 0.028, tendrils: 0.11, crystals: 0.2 }[layer.kind];
+        const lean = { grass: 0.28, flowers: 0.08, fern: 0.85, reeds: 0.06, bulbs: 0.3, tendrils: 0.5, crystals: 0.35 }[layer.kind];
         const palette = layer.colours ? layer.colours.map(rgb) : null;
         const limit = R.foliageSlopeLimit(mapData);
         for (let y = y0; y < y1; y++) {
@@ -434,7 +447,7 @@
         return uniforms;
     };
 
-    /** A kind's clump, built in the shader from these: (side or u, height share t or v, which blade) and the part (0 blade, 1 flower head, 2 cattail). */
+    /** A kind's clump, built in the shader from these: (side or u, height share t or v, which blade) and the part (0 blade, 1 flower head, 2 cattail, 3 bulb). */
     R.foliageTemplate = function(kind) {
         const pos = [], part = [], index = [];
         const blade = (which, rows, tip) => {
@@ -446,7 +459,20 @@
         };
         if (kind === "grass") for (let b = 0; b < 3; b++) blade(b, [0, 0.35, 0.68], true);
         else if (kind === "fern") for (let b = 0; b < 6; b++) blade(b, [0, 0.12, 0.24, 0.36, 0.48, 0.6, 0.72, 0.84, 0.93], true);
-        else if (kind === "reeds") {
+        else if (kind === "tendrils") for (let b = 0; b < 3; b++) blade(b, [0, 0.12, 0.24, 0.36, 0.48, 0.6, 0.7, 0.8, 0.88, 0.95], true);
+        // Three shards, each two crossed cards: wide at the shoulder, to a point.
+        else if (kind === "crystals") for (let b = 0; b < 6; b++) blade(b, [0, 0.55], true);
+        else if (kind === "bulbs") {
+            blade(0, [0, 0.5, 1], false);
+            // The globe: two crossed discs at the stalk's top.
+            const rim = 12;
+            for (let k = 0; k < 2; k++) {
+                const start = pos.length / 3;
+                pos.push(0, 0, k); part.push(3);
+                for (let p = 0; p < rim; p++) { const a = p / rim * Math.PI * 2; pos.push(Math.cos(a), Math.sin(a), k); part.push(3); }
+                for (let p = 0; p < rim; p++) index.push(start, start + 1 + p, start + 1 + (p + 1) % rim);
+            }
+        } else if (kind === "reeds") {
             blade(0, [0, 0.4, 0.75], true); blade(1, [0, 0.4, 0.75], true); blade(2, [0, 0.45, 0.8], true);
             // The cattail on the first stalk: two crossed cards.
             for (let k = 0; k < 3; k++) {
@@ -481,6 +507,8 @@
         "uniform vec4 rrFolPush[" + R.FOLIAGE_PUSHERS + "];",
         "uniform vec3 rrFolRoot;",
         "uniform vec3 rrFolTip;",
+        "uniform float rrFolGlow;",
+        "varying float vRRGlow;",
         "varying vec3 vRRFoliage;",
         "varying float vRRSide;",
         "float rrFolHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }",
@@ -497,7 +525,8 @@
         "float rrDist = distance(rrBase, rrFolView);",
         "float rrKeep = rrFolLod.z * (1.0 - smoothstep(rrFolLod.x, rrFolLod.y, rrDist));",
         "float rrGrow = clamp((rrKeep - aFolShape.w) / rrFolLod.w, 0.0, 1.0);",
-        "float rrWhich = position.z;",
+        // A crystal's shard is two crossed cards: the pair share everything but which way they face.
+        kind === "crystals" ? "float rrWhich = floor(position.z * 0.5);\n\tfloat rrCross = mod(position.z, 2.0);" : "float rrWhich = position.z;",
         "float rrT = position.y, rrSide = position.x;",
         "float rrJit = rrFolHash(vec2(rrWhich + 1.0, aFolTint.w));",
         kind === "fern"
@@ -516,6 +545,12 @@
         kind === "fern"
             // A frond: wide in the middle, arching out and over.
             ? "\tfloat rrLeaflet = mod(floor(rrT * 8.4 + 0.5), 2.0) > 0.5 ? 1.0 : 0.45;\n\tfloat rrW = rrWidth * pow(sin(3.14159 * min(rrT, 0.98)), 0.7) * (1.0 - rrT * 0.35) * rrLeaflet;\n\trrP.xz += rrAcross * rrSide * rrW * 0.5;\n\tfloat rrArc = rrT * 2.3;\n\trrP.xz += rrDir * (1.0 - cos(rrArc)) * 0.5 * rrLean * rrH;\n\trrUp = sin(rrArc) * 0.6;\n\trrP.y += rrUp * rrH;"
+            : kind === "tendrils"
+            // A tendril: it rises and curls over, tighter toward its tip, curling and uncurling in its own time.
+            ? "\tfloat rrCurl = (2.6 + 2.4 * rrJit) * (0.72 + 0.28 * sin(rrFolTime * 1.1 + aFolTint.w + rrWhich * 2.1));\n\tvec2 rrArc = vec2(0.0);\n\tfloat rrSeg = rrT / 8.0;\n\tfor (int k = 0; k < 8; k++) { float rrS = (float(k) + 0.5) * rrSeg; float rrA = rrLean * 0.4 + rrCurl * rrS * rrS * rrS; rrArc += vec2(sin(rrA), cos(rrA)) * rrSeg; }\n\tfloat rrW = rrWidth * (1.0 - 0.78 * rrT);\n\trrP.xz += rrAcross * rrSide * rrW * 0.5 + rrDir * rrArc.x * rrH;\n\trrUp = max(rrArc.y, 0.0);\n\trrP.y += rrArc.y * rrH;"
+            : kind === "crystals"
+            // A shard: a card wide at its shoulder and pointed, leaning its own way; nothing bends it.
+            ? "\tfloat rrW = rrWidth * (rrT < 0.55 ? 0.5 + 0.5 * rrT / 0.55 : (1.0 - rrT) / 0.45) * (0.55 + 0.9 * rrJit);\n\tvec2 rrCard = rrCross < 0.5 ? rrAcross : rrDir;\n\trrP.xz += rrDir * 0.17 * rrWhich;\n\trrP.xz += rrCard * rrSide * rrW * 0.5 + rrDir * rrLean * rrT * rrH * 0.6;\n\trrP.y += rrT * rrH;\n\trrUp = 0.0;"
             : "\tfloat rrW = rrWidth * pow(1.0 - rrT, 0.75);\n\trrP.xz += rrAcross * rrSide * rrW * 0.5;\n\trrP.xz += rrDir * rrLean * rrT * rrT * rrH;\n\trrP.y += rrT * rrH * (1.0 - 0.25 * rrLean * rrT);",
         "} else if (aFolPart < 1.5) {",
         // A flower's head: a disc of petals tipped toward the light at the stem's top.
@@ -525,6 +560,19 @@
         "\tfloat rrTilt = 0.5 + 0.5 * rrJit;",
         "\trrP.xz += rrAcross * rrSide * rrHead + rrDir * rrT * rrHead * (1.0 - rrTilt * 0.5);",
         "\trrP.y += rrT * rrHead * rrTilt + 0.015 * (1.0 - length(vec2(rrSide, rrT)));",
+        "\trrUp = 1.0;",
+        "} else if (aFolPart > 2.5) {",
+        // A bulb: a globe (two crossed discs) on the top of the clump's stalk, moving as the stalk's tip does.
+        "\tfloat rrJ0 = rrFolHash(vec2(1.0, aFolTint.w));",
+        "\tfloat rrY0 = aFolBase.w + (rrJ0 - 0.5) * 0.8;",
+        "\trrDir = vec2(cos(rrY0), sin(rrY0));",
+        "\trrAcross = vec2(-rrDir.y, rrDir.x);",
+        "\trrH = aFolShape.x * rrGrow * (0.7 + 0.6 * rrJ0);",
+        "\tfloat rrLean0 = aFolShape.z * (0.75 + 0.5 * rrJ0);",
+        "\tfloat rrGlobe = (rrH * 0.055 + 0.035) * rrGrow;",
+        "\trrP = rrBase;",
+        "\trrP.xz += rrDir * ((0.05 + 0.07 * rrJ0) * 0.3 + rrLean0 * rrH) + (position.z < 0.5 ? rrDir : rrAcross) * rrSide * rrGlobe;",
+        "\trrP.y += rrH * (1.0 - 0.25 * rrLean0) + (rrT * 1.2 + 0.85) * rrGlobe;",
         "\trrUp = 1.0;",
         "} else {",
         // A cattail: a brown card high on the first stalk, crossed with its twin.
@@ -543,7 +591,7 @@
         "float rrGust = rrFolNoise(rrBase.xz * 0.07 - rrWindDir * rrFolTime * 1.6) * rrFolWind.w;",
         "float rrSway = (0.22 * sin(rrFolTime * 2.3 + aFolTint.w + rrBase.x * 0.37 + rrBase.z * 0.29) + 0.25 + rrGust * 0.9) * rrFolWind.z;",
         "float rrBend = rrUp * rrUp * rrH;",
-        "rrP.xz += rrWindDir * rrSway * rrBend * " + (kind === "reeds" ? "0.18" : kind === "fern" ? "0.2" : "0.42") + ";",
+        "rrP.xz += rrWindDir * rrSway * rrBend * " + (kind === "reeds" ? "0.18" : kind === "fern" ? "0.2" : kind === "tendrils" ? "0.14" : kind === "bulbs" ? "0.3" : "0.42") + ";",
         "rrP.xz += rrAcross * 0.06 * sin(rrFolTime * 3.1 + aFolTint.w * 2.0) * rrBend * rrFolWind.z;",
         "rrP.y -= abs(rrSway) * rrBend * 0.08;",
         // Pressed aside and down where someone walks.
@@ -560,16 +608,21 @@
         // Colour: root to tip, each clump its own shade, shadowed toward the ground.
         "float rrShadeT = aFolPart > 0.5 ? 1.0 : rrT;",
         "vec3 rrCol = mix(rrFolRoot, rrFolTip, rrShadeT);",
-        "if (aFolPart > 0.5 && aFolPart < 1.5) rrCol = aFolTint.rgb;",
+        "if ((aFolPart > 0.5 && aFolPart < 1.5) || aFolPart > 2.5) rrCol = aFolTint.rgb;",
         "else if (aFolPart > 1.5) rrCol = vec3(0.09, 0.05, 0.025);",
-        "else {",
-        "\trrCol *= aFolTint.rgb;",
-        // Now and then a blade gone dry, straw at its tip.
-        "\tfloat rrDry = step(0.86, rrFolHash(vec2(rrWhich + 7.0, aFolTint.w * 3.1)));",
-        "\trrCol = mix(rrCol, vec3(0.42, 0.36, 0.17) * mix(0.55, 1.0, rrShadeT), rrDry * 0.75);",
-        "}",
+        kind === "bulbs" ? "else {" : kind === "tendrils" ? "else {\n\t\trrCol *= aFolTint.rgb;" : kind === "crystals"
+            // Each face of a shard its own brightness.
+            ? "else {\n\t\trrCol *= aFolTint.rgb * (rrCross < 0.5 ? 1.0 : 0.6) * (1.25 + 0.5 * rrShadeT);"
+            : "else {\n\t\trrCol *= aFolTint.rgb;",
+        // Now and then an Earth blade gone dry, straw at its tip.
+        kind === "bulbs" || kind === "tendrils" || kind === "crystals" ? "}"
+            : "\tfloat rrDry = step(0.86, rrFolHash(vec2(rrWhich + 7.0, aFolTint.w * 3.1)));\n\t\trrCol = mix(rrCol, vec3(0.42, 0.36, 0.17) * mix(0.55, 1.0, rrShadeT), rrDry * 0.75);\n\t}",
+        // How much of its own colour shows whatever the light: a globe wholly, a flower's head, a blade toward its tip.
+        "vRRGlow = rrFolGlow * (aFolPart > 2.5 ? 1.0 : aFolPart > 0.5 ? (aFolPart < 1.5 ? 0.7 : 0.0) : rrShadeT * rrShadeT);",
+
         "vRRFoliage = rrCol * (0.32 + 0.68 * rrShadeT) * " + R.FOLIAGE_LIGHT.toFixed(3) + ";",
-        "vRRSide = aFolPart < 0.5 ? rrSide : 0.0;"
+        // A blade is darker toward its edges, a globe toward its rim.
+        "vRRSide = aFolPart < 0.5 ? rrSide : aFolPart > 2.5 ? min(1.0, length(vec2(rrSide, rrT)) * 1.6) : 0.0;"
     ].join("\n\t");
 
     const linear = text => {
@@ -583,19 +636,26 @@
         material.__reactorFoliage = layer.kind;
         const own = {
             rrFolRoot: { value: new THREE.Color().setRGB(...linear(layer.colour)) },
-            rrFolTip: { value: new THREE.Color().setRGB(...linear(layer.tip)) }
+            rrFolTip: { value: new THREE.Color().setRGB(...linear(layer.tip)) },
+            rrFolGlow: { value: layer.glow || 0 }
         };
+        // A glowing layer shows its own colour over the light: drawn lit in place, not with the light laid on afterwards.
+        const glow = (layer.glow || 0) > 0;
+        if (glow) material.__reactorGlowTip = true;
         material.userData.rrFoliage = own;
         material.onBeforeCompile = function(shader) {
             const shared = R.foliageUniforms();
             for (const key of Object.keys(shared)) shader.uniforms[key] = shared[key];
             shader.uniforms.rrFolRoot = own.rrFolRoot;
             shader.uniforms.rrFolTip = own.rrFolTip;
+            shader.uniforms.rrFolGlow = own.rrFolGlow;
             shader.vertexShader = FOLIAGE_VERTEX + "\n" + shader.vertexShader.replace("#include <begin_vertex>", foliageBody(layer.kind));
             // A blade is lighter along its middle than at its edges.
-            shader.fragmentShader = "varying vec3 vRRFoliage;\nvarying float vRRSide;\n" + shader.fragmentShader.replace("#include <color_fragment>", "#include <color_fragment>\n\tdiffuseColor.rgb *= vRRFoliage * (0.8 + 0.2 * (1.0 - abs(vRRSide)));");
+            shader.fragmentShader = "varying vec3 vRRFoliage;\nvarying float vRRSide;\nvarying float vRRGlow;\n" + shader.fragmentShader.replace("#include <color_fragment>", "#include <color_fragment>\n\tdiffuseColor.rgb *= vRRFoliage * (0.8 + 0.2 * (1.0 - abs(vRRSide)));" + (glow ? "\n\tvec3 rrFolSelf = diffuseColor.rgb;" : ""));
+            // The glow: the colour before the light, kept where the light would leave it darker. No pass of its own.
+            if (glow) shader.fragmentShader = shader.fragmentShader.replace("#include <opaque_fragment>", "outgoingLight = mix(outgoingLight, max(outgoingLight, rrFolSelf * " + R.FOLIAGE_GLOW.toFixed(2) + "), vRRGlow);\n\t#include <opaque_fragment>");
         };
-        material.customProgramCacheKey = function() { return "reactor3d-foliage-" + layer.kind; };
+        material.customProgramCacheKey = function() { return "reactor3d-foliage-" + layer.kind + (glow ? "-glow" : ""); };
         R.litMaterial(material);
         return material;
     };

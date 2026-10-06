@@ -64,8 +64,8 @@ PTBS's `PTBS_Actor:` / `PTBS_Enemy:` comments are read too, so the Demo's PTBS m
 - **New commands** (Reactor tab, also plugin commands so plugins and scripts can call them):
   - Change Battle Mode (System default, this map, or the next battle)
   - Start Battle on Map (mode, troop or tagged units, deployment area, objectives)
-  - Spawn Unit (troop member, actor or enemy at a spot or region, with team and AI), Remove Unit, Change Unit Team, Move Unit, Unit Waits / Ends Turn
-  - Change Objective (defeat all, defeat a unit, reach an area, survive N turns or seconds, protect a unit, switch/variable condition), End Battle (win / lose / escape)
+  - Spawn Unit (troop member, actor or enemy at a spot or region, with team and AI), Remove Unit, Change Unit Team (built 2026-10-03 as Change Unit Side), Move Unit, Unit Waits / Ends Turn
+  - Change Objective (built 2026-10-03 as Change Battle Goal: defeat all, defeat a unit, survive N turns, a switch, a variable; reach an area, protect a unit and seconds are still to come, and a switch covers them meanwhile), End Battle (win / lose / escape)
   - Set Terrain Cost (region or tile), Focus Camera on Unit
 - **New page conditions and hooks** (the event editor's Conditions, plus "battle hook" pages that run when their condition fires): battle turn start / end (team or unit), unit defeated, unit HP below N%, unit enters / leaves an area (region, rectangle or spot), unit adjacent to this event, objective changed. Tile and region triggers are the existing region-check pattern with a unit-aware condition.
 - **Scripts:** `$gameFight.unit(eventId)`, `.units({ team })`, `.spawn(...)`, `.end(result)`, and the runtime events feed (`battleTurnStarted`, `unitDefeated`, `unitMoved`) for plugins.
@@ -120,9 +120,9 @@ Action mode with the `firstPerson` camera and pointer lock: crosshair, aim by mo
 ## Phases
 
 1. **The on-map battle framework** (built 2026-10-02, `runtime/reactor_fight.js`; the turn driver moves every unit itself, the player's controls come with phase 2). The mode switch (System, map, troop, Change Battle Mode), `$gameFight` beside the map with save and load mid-battle, events and party members as units with Database battlers, damage, skills, items and states applied on the map, victory, defeat and escape into the existing rewards and the Battle Processing branch, objectives, the pause rules for messages and events, the first commands and conditions (Start Battle on Map, Spawn Unit, Remove Unit, End Battle, unit defeated, turn start, unit enters area), and a minimal turn driver to exercise it. PTBS tags read. Classic untouched. *Playable:* a scripted fight on a Demo map with a reinforcement, saved and loaded mid-fight.
-2. **Tactical.** Grid movement and ranges, team or initiative turns, default skill ranges, simple AI, then the 3D world's height, line of sight, cover, water, doors and foliage costs, facing, the Range grid editor, AI presets, the tactical camera, HUD nodes. *Playable:* a fight across North Haven's square and lanes.
-3. **Action on 3D maps** (third person, top-down, isometric). Attack, dodge, guard, hotbar, lock-on, enemy presets, followers as allies, Action Sequences in real time. 2D action deferred. *Playable:* clearing the gorge.
-4. **First person.** Crosshair, weapons, projectiles, aim, on the same framework and Action data. *Playable:* the same fight in first person.
+2. **Tactical** (first version built 2026-10-03, `runtime/reactor_fight_tactical.js`). Grid movement and ranges, team or initiative turns, default skill ranges, simple AI, then the 3D world's height, line of sight, cover, water, doors and foliage costs, facing, the Range grid editor, AI presets, the tactical camera, HUD nodes. *Playable:* a fight across North Haven's square and lanes.
+3. **Action on 3D maps** (third person, top-down, isometric; first version built 2026-10-03, `runtime/reactor_fight_action.js`, switching the controlled character not built). Attack, dodge, guard, hotbar, lock-on, enemy presets, followers as allies, Action Sequences in real time. 2D action deferred. *Playable:* clearing the gorge.
+4. **First person** (first version built 2026-10-03). Crosshair, weapons, projectiles, aim, on the same framework and Action data. *Playable:* the same fight in first person.
 5. **2D action and polish.** Pixel movement for 2D action, controller tuning, accessibility (slow time, auto-target), more AI presets, tutorials in the Demo.
 
 Deferred throughout: networked play, mounted combat, destructible pieces.
@@ -131,7 +131,16 @@ Deferred throughout: networked play, mounted combat, destructible pieces.
 
 1. Tactical reads `PSYCHRONIC_PTBS.js`'s tags and comments (`PTBS_Actor`/`PTBS_Enemy`, `<PTBS>` skill ranges and areas), so existing PTBS maps keep working.
 2. Turns: team turns or initiative order, chosen per battle, with a project default.
-3. Fights start from events and encounters; a map may also opt in to starting one when the player walks into an enemy unit's range.
+3. Fights start from events and encounters; a map may also opt in to starting one when the player walks into an enemy unit's range. *Replaced 2026-10-04, see below.*
 4. Action and First Person: followers fight as AI allies, and the player can switch which character they control.
 5. Every on-map mode uses the game's own actors, enemies, classes, stats, equipment, skills and states; attacks play through Action Sequences with the equipped weapon held (a character draws and aims the equipped rifle, then fires).
 6. Not yet asked, defaults until the owner says otherwise: a Transfer Player during a fight ends it as an escape unless the command's event sets "keep fight"; 2D action with pixel movement stays in phase 5.
+
+## Decisions (owner, 2026-10-04)
+
+These replace decision 3 above. They are being built in the 0.98.9 cycle; STATUS.md says what has landed.
+
+1. Fight on sight is the default. Enemy units placed on a map start their fight when the party comes within 6 tiles and can see them. A map that has a Start Battle on Map command waits for its events instead. The start is held while an event runs, a message is open, the party is in a vehicle, swimming or moved by a route, while encounters are off, and after a battle until the leader has left every enemy's start distance once.
+2. The same holds on a Classic map: walking up to placed enemies opens a Classic battle against the placed enemies the start rule takes (at most eight, the nearest first), as a troop made for that battle from those units' records. Placing enemies never changes a map's mode.
+3. Enemy units placed on a map stay defeated once beaten. "Comes back" on a unit brings it back when the map is entered again.
+4. The Demo ships in Classic mode with no test units by North Haven's fountain.

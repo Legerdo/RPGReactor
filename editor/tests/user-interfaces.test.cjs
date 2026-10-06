@@ -88,6 +88,46 @@ test('reactor_ui.js boots after the windows and before MV compatibility and plug
     assert.equal(read('template/Demo/js/reactor_ui.js'), read('runtime/reactor_ui.js'), 'the Demo carries the same file');
 });
 
+test('a battle test reads the Test_ copy of the interfaces when the editor wrote one; a normal game never asks for it', () => {
+    const TEST = 'data/Test_UserInterfaces.json', REAL = 'data/UserInterfaces.json';
+    const real = JSON.stringify([null, { id: 1, name: 'Saved' }]), unsaved = JSON.stringify([null, { id: 1, name: 'Unsaved' }]);
+    // Over XHR (a browser build): each file answers or is missing.
+    const overXhr = (testing, files) => {
+        const sandbox = loadRuntimeUI(), asked = [];
+        sandbox.Utils = { isNwjs: () => false };
+        sandbox.DataManager = Object.assign(sandbox.DataManager || {}, { isBattleTest: () => testing });
+        sandbox.XMLHttpRequest = class {
+            open(method, url) { this.url = url; asked.push(url); }
+            overrideMimeType() {}
+            send() { const body = files[this.url]; this.status = body === undefined ? 404 : 200; this.responseText = body || ''; this.onload(); }
+        };
+        sandbox.ReactorUI._state = null;
+        sandbox.ReactorUI.load();
+        return { asked, name: sandbox.$dataUserInterfaces[1] && sandbox.$dataUserInterfaces[1].name, done: sandbox.ReactorUI.isReady() };
+    };
+    assert.deepEqual(overXhr(true, { [TEST]: unsaved, [REAL]: real }), { asked: [TEST], name: 'Unsaved', done: true });
+    assert.deepEqual(overXhr(true, { [REAL]: real }), { asked: [TEST, REAL], name: 'Saved', done: true }, 'no Test_ file: the saved one');
+    assert.deepEqual(overXhr(true, { [TEST]: '{broken', [REAL]: real }), { asked: [TEST, REAL], name: 'Saved', done: true }, 'a broken Test_ file falls back');
+    assert.deepEqual(overXhr(false, { [TEST]: unsaved, [REAL]: real }), { asked: [REAL], name: 'Saved', done: true }, 'a normal game never asks for the Test_ file');
+    assert.deepEqual(overXhr(true, {}), { asked: [TEST, REAL], name: undefined, done: true });
+    // On disk (NW.js).
+    const onDisk = (testing, files) => {
+        const sandbox = loadRuntimeUI(), read = [];
+        sandbox.Utils = { isNwjs: () => true };
+        sandbox.DataManager = Object.assign(sandbox.DataManager || {}, { isBattleTest: () => testing });
+        sandbox.process = { mainModule: { filename: '/game/index.html' } };
+        sandbox.require = name => name === 'fs'
+            ? { existsSync: file => { read.push(file); return files[file] !== undefined; }, readFileSync: file => files[file] }
+            : require('node:path').posix;
+        sandbox.ReactorUI._state = null;
+        sandbox.ReactorUI.load();
+        return { read, name: sandbox.$dataUserInterfaces[1] && sandbox.$dataUserInterfaces[1].name };
+    };
+    assert.deepEqual(onDisk(true, { ['/game/' + TEST]: unsaved, ['/game/' + REAL]: real }), { read: ['/game/' + TEST], name: 'Unsaved' });
+    assert.deepEqual(onDisk(true, { ['/game/' + REAL]: real }), { read: ['/game/' + TEST, '/game/' + REAL], name: 'Saved' });
+    assert.deepEqual(onDisk(false, { ['/game/' + TEST]: unsaved, ['/game/' + REAL]: real }), { read: ['/game/' + REAL], name: 'Saved' });
+});
+
 test('the runtime registers the Call User Interface plugin command and loads the file optionally', () => {
     const source = read('runtime/reactor_ui.js');
     assert.match(source, /PluginManager\.registerCommand\(this\.PLUGIN_NAME, this\.COMMAND_NAME/);
@@ -327,8 +367,8 @@ test('the editor and runtime agree on anchors, node types, and action types', ()
         assert.ok(runtimeSource.includes(`"${action}"`), `runtime action ${action}`);
         assert.ok(editorSource.includes(`'${action}'`), `editor action ${action}`);
     }
-    assert.match(runtimeSource, /NODE_TYPES = \["box", "image", "text", "button", "list", "gauge", "input", "battleWindow", "battleCursor"\]/);
-    assert.match(editorSource, /NODE_TYPES\(\) \{ return \['box', 'image', 'text', 'button', 'list', 'gauge', 'input', 'battleWindow', 'battleCursor'\]; \}/);
+    assert.match(runtimeSource, /NODE_TYPES = \["box", "image", "text", "button", "list", "gauge", "input", "battleWindow", "battleCursor",\s+"fightUnit", "fightTurnOrder", "fightInfo", "fightWindow",\s+"actionCrosshair", "actionVitals", "actionWeapon", "actionHotbar", "actionTarget", "actionBars", "actionDamage", "actionInfo",\s+"victoryParty", "victoryLevels", "victoryRewards", "victoryText"\]/);
+    assert.match(editorSource, /NODE_TYPES\(\) \{ return \['box', 'image', 'text', 'button', 'list', 'gauge', 'input', 'battleWindow', 'battleCursor',\s+'fightUnit', 'fightTurnOrder', 'fightInfo', 'fightWindow',\s+'actionCrosshair', 'actionVitals', 'actionWeapon', 'actionHotbar', 'actionTarget', 'actionBars', 'actionDamage', 'actionInfo',\s+'victoryParty', 'victoryLevels', 'victoryRewards', 'victoryText'\]; \}/);
     assert.match(runtimeSource, /IMAGE_SOURCES = \["picture", "system", "face", "character", "icon", "partyFace", "title1", "title2"\]/);
     assert.match(editorSource, /IMAGE_SOURCES\(\) \{ return \['picture', 'system', 'face', 'character', 'icon', 'partyFace', 'title1', 'title2'\]; \}/);
     assert.match(runtimeSource, /GAUGE_KINDS = \["hp", "mp", "tp", "exp"/);
@@ -635,7 +675,10 @@ test('System editors expose stock-default selectors for every bounded replacemen
     assert.match(system2, /reactorOptionsInterfaceId/);
     assert.match(system2, /reactorSaveInterfaceId/);
     assert.match(system2, /reactorLoadInterfaceId/);
-    assert.match(system2, /\(entry\.mode \|\| 'scene'\) === \(role === 'battle' \? 'battle' : 'scene'\)/);
+    assert.match(system2, /reactorTacticalInterfaceId/);
+    assert.match(system2, /reactorActionInterfaceId/);
+    assert.match(system2, /reactorFirstPersonInterfaceId/);
+    assert.match(system2, /\(entry\.mode \|\| 'scene'\) === \(\['battle', 'tactical', 'action', 'firstPerson', 'victory'\]\.includes\(role\) \? role : 'scene'\)/);
     assert.match(system1, /if \(!record\.roles\.includes\('title'\)\) record\.roles\.push\('title'\)/);
     assert.match(read('runtime/reactor_ui.js'), /record\.roles \|\| \[\]\)\.includes\(role\)/);
 });

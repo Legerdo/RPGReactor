@@ -613,9 +613,9 @@ function normalizeShowArgs(raw, interpreter) {
             return !!(image && image.complete && image.naturalWidth > 0);
         }
 
-        /** The decoded pixels, for a texture that takes any image-like. */
+        /** The picture as loaded, for a texture that takes any image-like: no canvas copy is made of it. */
         imageSource() {
-            if (this.bitmap) return this.bitmap.canvas || this.bitmap.image || null;
+            if (this.bitmap) return this.bitmap.image || this.bitmap.canvas || null;
             return this.image || null;
         }
 
@@ -841,8 +841,10 @@ function normalizeShowArgs(raw, interpreter) {
         }
 
         attachThree(state) {
+            // A picture shares its source with every other surface showing that file (one upload).
+            const pictures = typeof Reactor3D !== "undefined" && Reactor3D && Reactor3D.ScenePictures;
             const texture = this.isImage
-                ? new THREE.CanvasTexture(this.imageSource())
+                ? (pictures ? pictures.texture(this.imageSource(), true) : new THREE.CanvasTexture(this.imageSource()))
                 : this.shared ? this.manager.sharedThreeTexture(this.shared, this)
                 : new THREE.VideoTexture(this.video);
             if (this.isImage) texture.needsUpdate = true;

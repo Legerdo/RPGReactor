@@ -123,6 +123,16 @@ test('only what moves by itself keeps the full rate', () => {
     assert.equal(view.modelsAnimate(), true, 'an action playing moves');
     view.animatedModels = [{ object: attached, rules: [{ trigger: 'idle' }] }];
     assert.equal(view.modelsAnimate(), true, 'idle rules move');
+    // Out of the picture it moves nothing in it: asked of the camera's frustum where there is one.
+    const asked = [];
+    view.viewFrustum = () => ({ });
+    view.modelInView = (object, frustum) => { asked.push(object); return false; };
+    assert.equal(view.modelsAnimate(), false, 'a model the camera cannot see does not keep the view drawing');
+    assert.deepEqual(asked, [attached]);
+    view.modelInView = () => true;
+    assert.equal(view.modelsAnimate(), true);
+    delete view.viewFrustum; delete view.modelInView;
+    assert.match(mapSource, /sphere\.radius = span \* 1\.5 \+ 1;/);
 
     view.effectPlays = [];
     view.animatedModels = [];
@@ -130,6 +140,13 @@ test('only what moves by itself keeps the full rate', () => {
     assert.equal(view.idleInterval(), MapEditor3D.IDLE_INTERVAL_MS);
     view.mapScene._waterMeshes.push({});
     assert.equal(view.idleInterval(), 100, 'waves at the old idle cadence, not the full rate');
+    // A drifting sky draws a still view every other frame, and no longer counts as the view being active.
+    view.mapScene._sky = { userData: { sky: { driftX: 0.0001, driftY: 0 } } };
+    assert.equal(view.idleInterval(), MapEditor3D.SKY_INTERVAL_MS);
+    assert.ok(MapEditor3D.SKY_INTERVAL_MS > 17 && MapEditor3D.SKY_INTERVAL_MS < 34);
+    assert.doesNotMatch(mapSource, /if \(sky && \(sky\.driftX \|\| sky\.driftY\)\) return true;/);
+    view.mapScene._sky.userData.sky.driftX = 0;
+    assert.equal(view.idleInterval(), 100);
 });
 
 test('A1 water and stepping characters draw on the frames they change, not between', () => {

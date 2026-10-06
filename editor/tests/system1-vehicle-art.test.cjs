@@ -138,3 +138,31 @@ test('every vehicle row carries a canvas for its own sprite', () => {
     assert.match(source, /class="vehicle-sprite-preview" data-vehicle="\$\{key\}"/);
     assert.match(source, /\['boat', 'ship', 'airship'\]\.forEach\(key => this\.renderVehiclePreview\(/);
 });
+
+test('after the picker the keyboard is on the Change button of the vehicle that was changed', () => {
+    const focused = [];
+    const asked = [];
+    const detail = {
+        innerHTML: 'stale',
+        querySelector(selector) { asked.push(selector); return { focus: () => focused.push(selector) }; }
+    };
+    let redrawn = 0;
+    const sandbox = {
+        console,
+        require,
+        CharacterGraphicPicker: class {
+            show(name, index, pattern, direction, callback) { callback({ characterName: 'Vehicle', characterIndex: 5 }); }
+        },
+        rrEscapeHtml: value => String(value),
+        document: { getElementById: id => (id === 'database-detail' ? detail : null) },
+        window: {}
+    };
+    const Editor = vm.runInNewContext(`${source}\nDatabaseSystem1Editor;`, sandbox);
+    const editor = Object.create(Editor.prototype);
+    editor.projectManager = { getCurrentProject: () => ({ path: 'C:/Project' }) };
+    // The redraw replaces every button of the page, so the focus is looked for after it.
+    editor.showSystem1Detail = el => { redrawn++; assert.equal(focused.length, 0, 'not before the page is drawn again'); };
+    editor.showVehicleImagePicker({ ship: { characterName: 'Old', characterIndex: 0 } }, 'ship');
+    assert.equal(redrawn, 1);
+    assert.deepEqual(focused, ['.vehicle-change-btn[data-vehicle="ship"]']);
+});

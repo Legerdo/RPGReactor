@@ -914,6 +914,18 @@ function trimWebProject(projectRoot, log) {
         return face ? actorIds.has(face[1]) : true;
     });
     trimDir('img/enemies', file => referenced(path.parse(file).name));
+    // Tileset pictures no tileset names are library stock as well.
+    try {
+        const tilesets = JSON.parse(fs.readFileSync(path.join(dataRoot, 'Tilesets.json'), 'utf8'));
+        const named = new Set();
+        for (const tileset of tilesets) for (const name of (tileset && tileset.tilesetNames) || []) if (name) named.add(name);
+        if (named.size) trimDir('img/tilesets', file => named.has(path.parse(file).name));
+    } catch (error) { /* an unreadable list trims nothing */ }
+    // Plugin files the project's plugin list does not name (old copies, debug helpers) cannot be switched on.
+    if (fs.existsSync(pluginsPath)) {
+        const pluginList = fs.readFileSync(pluginsPath, 'utf8');
+        trimDir(path.join('js', 'plugins'), file => !/\.js$/i.test(file) || pluginList.includes('"' + path.parse(file).name + '"'));
+    }
     // A playtest's battle and event test data: written afresh before every test.
     trimDir('data', file => !/^Test_.*\.json$/i.test(file));
     // 3D model folders the maps never place are library stock too — and by
@@ -1267,15 +1279,17 @@ function buildWeb(stageRoot, stagingDir) {
         logInfo(`Profile-scoped manifest name: ${manifest.name}`);
     }
 
-    // Forge GIF support is a runtime feature, but full node_modules trees are
-    // intentionally excluded from editor distributions. Stage only the small
-    // encoder/decoder dependency closure needed by import and export.
+    // Full node_modules trees are intentionally excluded from editor
+    // distributions. Stage only what the shipped code requires at run time:
+    // the Forge's GIF encoder/decoder closure, the PNG optimiser, and pngjs
+    // for the legacy project importers.
     const gifJsPath = dependencyPath('gif.js');
     const gifuctPath = dependencyPath('gifuct-js');
     const schemaParserPath = dependencyPath('js-binary-schema-parser');
     const oxipngPath = dependencyPath(path.join('@jsquash', 'oxipng'));
     const wasmFeatureDetectPath = dependencyPath('wasm-feature-detect');
-    if (!gifJsPath || !gifuctPath || !schemaParserPath || !oxipngPath || !wasmFeatureDetectPath) {
+    const pngjsPath = dependencyPath('pngjs');
+    if (!gifJsPath || !gifuctPath || !schemaParserPath || !oxipngPath || !wasmFeatureDetectPath || !pngjsPath) {
         throw new Error('Editor runtime dependencies are missing. Run npm ci before packaging the editor.');
     }
     fs.mkdirSync(path.join(stageRoot, 'libs'), { recursive: true });
@@ -1286,6 +1300,7 @@ function buildWeb(stageRoot, stagingDir) {
     copyDirRecursive(schemaParserPath, path.join(stageRoot, 'node_modules', 'js-binary-schema-parser'));
     copyDirRecursive(oxipngPath, path.join(stageRoot, 'node_modules', '@jsquash', 'oxipng'));
     copyDirRecursive(wasmFeatureDetectPath, path.join(stageRoot, 'node_modules', 'wasm-feature-detect'));
+    copyDirRecursive(pngjsPath, path.join(stageRoot, 'node_modules', 'pngjs'));
 
     // Copy runtime corescript used for newly created projects.
     const runtimeCandidates = [
@@ -1295,12 +1310,12 @@ function buildWeb(stageRoot, stagingDir) {
     const runtimeSrc = runtimeCandidates.find(candidate => fs.existsSync(path.join(candidate, 'reactor_main.js')));
     if (runtimeSrc) {
         const requiredRuntimeFiles = [
-            'reactor_main.js', 'reactor_json.js', 'reactor_core.js', 'reactor_core_display.js', 'reactor_core_io.js', 'reactor_3d.js', 'reactor_3d_lighting.js', 'reactor_3d_models.js', 'reactor_3d_effects.js', 'reactor_3d_world.js', 'reactor_3d_speech.js', 'reactor_3d_foliage.js', 'reactor_3d_doors.js', 'reactor_managers.js',
-            'reactor_objects.js', 'reactor_objects_actions.js', 'reactor_objects_battlers.js', 'reactor_objects_map.js', 'reactor_objects_interpreter.js', 'reactor_objects_legacy.js',
+            'reactor_main.js', 'reactor_json.js', 'reactor_core.js', 'reactor_core_display.js', 'reactor_core_io.js', 'reactor_3d.js', 'reactor_3d_lighting.js', 'reactor_3d_models.js', 'reactor_3d_effects.js', 'reactor_3d_world.js', 'reactor_3d_speech.js', 'reactor_3d_foliage.js', 'reactor_3d_doors.js', 'reactor_3d_surround.js', 'reactor_3d_vehicles.js', 'reactor_3d_rider.js', 'reactor_managers.js',
+            'reactor_objects.js', 'reactor_objects_actions.js', 'reactor_objects_battlers.js', 'reactor_objects_map.js', 'reactor_objects_interpreter.js', 'reactor_objects_followers.js', 'reactor_objects_legacy.js',
             'reactor_scenes.js', 'reactor_sprites.js', 'reactor_picture_extensions.js', 'reactor_screen_fx.js',
-            'reactor_media_surfaces.js', 'reactor_quests.js', 'reactor_controls.js', 'reactor_physics.js', 'reactor_rig_motions.js',
-            'reactor_battle_data.js', 'reactor_battle_room.js', 'reactor_battle_presentation.js', 'reactor_battle_events.js', 'reactor_fight.js',
-            'reactor_windows.js', 'reactor_ui.js', 'reactor_mv_compat.js', 'reactor_plugins.js',
+            'reactor_media_surfaces.js', 'reactor_quests.js', 'reactor_image_layers.js', 'reactor_controls.js', 'reactor_physics.js', 'reactor_rig_motions.js',
+            'reactor_battle_data.js', 'reactor_battle_room.js', 'reactor_battle_presentation.js', 'reactor_battle_events.js', 'reactor_fight_look.js', 'reactor_fight.js', 'reactor_fight_flow.js', 'reactor_fight_tactical.js', 'reactor_fight_stage.js', 'reactor_fight_camera.js', 'reactor_fight_action.js', 'reactor_fight_menu.js', 'reactor_fight_classic.js', 'reactor_speaker_face.js', 'reactor_vehicles.js', 'reactor_vehicles_drive.js', 'reactor_vehicles_feel.js', 'reactor_vehicles_hints.js',
+            'reactor_windows.js', 'reactor_ui_victory.js', 'reactor_ui_fight.js', 'reactor_ui_action.js', 'reactor_ui.js', 'reactor_mv_compat.js', 'reactor_plugins.js',
             path.join('libs', 'pixi.js'), path.join('libs', 'pixi_compat.js'),
             path.join('libs', 'pako.min.js'), path.join('libs', 'lz-string.js'), path.join('libs', 'localforage.min.js'),
             path.join('libs', 'effekseer.min.js'), path.join('libs', 'effekseer.wasm'),

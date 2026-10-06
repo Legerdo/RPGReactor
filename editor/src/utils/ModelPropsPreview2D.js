@@ -120,7 +120,7 @@ class ModelPropsPreview2D {
                 if (node.geometry && !sharedGeometry.has(node.geometry)) entry.ownedGeometry.add(node.geometry);
             });
             const chosen = new Set(entry.prop.effects || (entry.prop.effect ? [entry.prop.effect] : []));
-            entry.effects = Reactor3D.readModelEffects(template.userData.reactorSidecar || {})
+            entry.effects = Reactor3D.readModelEffects(template.userData.reactorSidecar || {}, spec)
                 .filter(effect => effect.trigger === 'always' || chosen.has(effect.name));
             entry.camera = new THREE.OrthographicCamera();
             const frame = Reactor3D.frameModelSprite(entry.object, entry.tw, entry.camera);

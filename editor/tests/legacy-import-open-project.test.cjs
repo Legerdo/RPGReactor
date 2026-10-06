@@ -28,5 +28,5 @@ test('a folder whose lock names a running editor counts as open', () => {
 
 test('the re-import prompt is not offered over an open project', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'LegacyImportDialog.js'), 'utf8');
-    assert.match(source, /if \(force && projectOpenAt\(fs, path, destination\)\) \{ errorEl\.textContent = tt\('That folder already exists and is not empty\.'\); return; \}\s*if \(force && !window\.confirm\(/);
+    assert.match(source, /if \(force && projectOpenAt\(fs, path, destination\)\) \{ errorEl\.textContent = tt\('That folder already exists and is not empty\.'\); return; \}\s*if \(force && !\(await RRDialog\.confirm\(/);
 });

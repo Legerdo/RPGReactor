@@ -13,14 +13,14 @@ const vm = require('node:vm');
 
 const editorRoot = path.resolve(__dirname, '..');
 
-function setup({ overlays = [], eventEditorShown = false } = {}) {
+function setup({ overlays = [], eventEditorShown = false, active = { tagName: 'BUTTON' } } = {}) {
     const source = fs.readFileSync(path.join(editorRoot, 'src', 'UIManager.js'), 'utf8');
     let keydown = null;
     const element = (id, shown) => ({ id, style: { display: shown ? 'flex' : 'none' }, getClientRects: () => (shown ? [{}] : []) });
     const editor = element('event-editor-modal', eventEditorShown);
     const all = [editor, ...overlays.map(id => element(id, true))];
     const document = {
-        activeElement: { tagName: 'BUTTON' },
+        activeElement: active,
         getElementById: id => all.find(el => el.id === id) || null,
         querySelector: () => null,
         querySelectorAll: () => all,
@@ -39,7 +39,7 @@ function setup({ overlays = [], eventEditorShown = false } = {}) {
     const manager = new UIManager({ getEventManager: () => eventManager, getMapEditor: () => mapEditor, getBuildHistory: () => null });
     manager.setupKeyboardShortcuts();
     const press = (key, ctrlKey = false) => keydown({ key, ctrlKey, metaKey: false, altKey: false, shiftKey: false, target: document.activeElement, preventDefault() {}, stopPropagation() {} });
-    return { manager, press, calls, eventManager };
+    return { manager, press, calls, eventManager, UIManager };
 }
 
 test('no dialog up: Delete and Ctrl+Z reach the map', () => {
@@ -76,4 +76,22 @@ test('event mode with nothing to undo there leaves the tiles alone', () => {
     eventManager.eventMode = false;
     press('z', true);
     assert.deepEqual(calls, ['map undo']);
+});
+
+test('Ctrl+Z and Ctrl+Y reach the map from a focused slider or tick, and stay with a field that takes text', () => {
+    // A slider keeps the focus after a drag: the undo that follows is the map's.
+    for (const type of ['range', 'checkbox', 'radio', 'color', 'button']) {
+        const { press, calls } = setup({ active: { tagName: 'INPUT', type } });
+        press('z', true); press('y', true);
+        assert.deepEqual(calls, ['undo', 'redo'], type);
+    }
+    // Text being typed has its own undo.
+    for (const active of [{ tagName: 'INPUT', type: 'text' }, { tagName: 'INPUT', type: 'number' }, { tagName: 'INPUT', type: 'search' }, { tagName: 'INPUT' }, { tagName: 'TEXTAREA' }, { tagName: 'DIV', isContentEditable: true }]) {
+        const { press, calls } = setup({ active });
+        press('z', true); press('y', true);
+        assert.deepEqual(calls, [], JSON.stringify(active));
+    }
+    const { UIManager } = setup();
+    assert.equal(UIManager.isTextEntry(null), false);
+    assert.equal(UIManager.isTextEntry({ tagName: 'SELECT' }), false);
 });

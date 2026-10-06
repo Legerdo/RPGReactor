@@ -10,8 +10,8 @@
   "roof": {"pitch":6},
   "windows": {"every":4,"width":2,"frame":"two"},
   "shapes": [
-    {"kind":"box","at":[7,3],"z":0,"size":[7,1.1,2],"material":"Wood"},
-    {"kind":"box","at":[18,3],"z":0,"size":[2.6,1.2,1.4],"material":"Wood"}
+    {"kind":"box","at":[7,3],"size":[7,1.1,2],"material":"Wood"},
+    {"kind":"box","at":[18,3],"size":[2.6,1.2,1.4],"material":"Wood"}
   ],
   "spots": {"desk":[18,6],"hall":[7,8]},
   "events": [

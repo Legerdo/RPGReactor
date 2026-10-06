@@ -438,7 +438,7 @@ Scene_Title.prototype.create = function() {
 Scene_Title.prototype.resumePlaytestCheckpoint = function() {
     if (!DataManager.hasPlaytestCheckpoint() || this._resumingPlaytestCheckpoint) return;
     this._resumingPlaytestCheckpoint = true;
-    DataManager.loadGame(DataManager.PLAYTEST_CHECKPOINT_ID)
+    DataManager.loadGame(DataManager.playtestCheckpointId())
         .then(() => {
             SoundManager.playLoad();
             this.fadeOutAll();
@@ -2878,6 +2878,23 @@ Scene_Name.prototype.create = function() {
     this._actor = $gameActors.actor(this._actorId);
     this.createEditWindow();
     this.createInputWindow();
+    this.fitNameWindows();
+};
+
+/** On a screen too small for the two windows they are shown smaller, whole and in the middle. */
+Scene_Name.prototype.fitNameWindows = function() {
+    const edit = this._editWindow, input = this._inputWindow;
+    if (!edit || !input || !edit.scale || !input.scale) return;
+    const gap = 8, width = Math.max(edit.width, input.width), height = edit.height + gap + input.height;
+    const scale = Math.min(1, Graphics.boxWidth / width, Graphics.boxHeight / height);
+    if (!(scale < 1)) return;
+    const x = Math.round((Graphics.boxWidth - width * scale) / 2), y = Math.round((Graphics.boxHeight - height * scale) / 2);
+    edit.scale.set(scale, scale);
+    input.scale.set(scale, scale);
+    edit.x = x;
+    edit.y = y;
+    input.x = x;
+    input.y = y + Math.round((edit.height + gap) * scale);
 };
 
 Scene_Name.prototype.start = function() {
@@ -3703,6 +3720,19 @@ Scene_Gameover.prototype.gotoTitle = function() {
 // can slow a map down, never hold it hostage.
 const _reactorSceneMapOnMapLoaded = Scene_Map.prototype.onMapLoaded;
 Scene_Map.prototype.onMapLoaded = function() {
+    // Another map than the one played: what it does not claim, from here on, is let go when it starts.
+    if (typeof Reactor3D !== "undefined" && Reactor3D.ModelUse && typeof $gameMap !== "undefined" && $gameMap) {
+        const transfer = this._transfer && typeof $gamePlayer !== "undefined" && $gamePlayer && $gamePlayer.isTransferring();
+        if (Reactor3D.ModelUse.begin(transfer ? $gamePlayer.newMapId() : $gameMap.mapId())) {
+            // The map left behind is not drawn again: its world and the models this map does not
+            // name go before this map's come in, so the two are not in memory together.
+            try {
+                const before = SceneManager._previousScene, spriteset = before && before !== this && before._spriteset;
+                if (spriteset && typeof spriteset.releaseReactor3D === "function" && !Reactor3D.ModelUse.busy()) spriteset.releaseReactor3D();
+                if (typeof $dataMap !== "undefined" && $dataMap) Reactor3D.ModelUse.sweep($dataMap, true);
+            } catch (error) { console.warn("Reactor3D: the map before could not be released early.", error); }
+        }
+    }
     _reactorSceneMapOnMapLoaded.call(this);
     this._reactorPreloadDone = true;
     if (typeof Reactor3D !== "undefined" && Reactor3D.preloadMapModels
@@ -3726,6 +3756,8 @@ const _reactorSceneMapStart = Scene_Map.prototype.start;
 Scene_Map.prototype.start = function() {
     _reactorSceneMapStart.call(this);
     if (typeof Reactor3D !== "undefined" && Reactor3D.warmLoadedTemplates) {
+        // The scene before this one is gone and this map's models are claimed.
+        if (Reactor3D.ModelUse && typeof $dataMap !== "undefined") Reactor3D.ModelUse.sweep($dataMap);
         Reactor3D.warmLoadedTemplates();
     }
 };

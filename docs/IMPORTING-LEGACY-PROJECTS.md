@@ -125,7 +125,7 @@ back underneath the new import.
 | CharSet (288×256, rows up/right/down/left) | img/characters, rows reordered to MZ's down/left/right/up, named with a leading `!` so sprites stand on their tile | A leading `$` is removed: MZ reads it as a single-character sheet |
 | FaceSet, Panorama, Picture (with subfolders), Monster, Battle, Backdrop, Title, GameOver, System | The matching img folders, palette entry 0 made transparent where the old engine did | Show Picture chose per call whether palette entry 0 is transparent: a picture only ever shown opaque is written opaque, one shown both ways gets a second `Name (opaque).png` that those calls name |
 | Music and Sound | audio/bgm and audio/se | MIDI files are copied but the runtime does not play them |
-| System: start position, party, title, title and battle music, system sounds, switch and variable names | System.json | 2003 had no icon set: every icon index is 0 and MZ's stock IconSet.png comes with the project at 32 px cells, for authors who add icons later |
+| System: start position, party, title, title and battle music, system sounds, switch and variable names | System.json | 2003 had no icon set: every icon index is 0 and the Demo's IconSet.png comes with the project at 32 px cells, for authors who add icons later |
 
 ## Runtime equivalents
 

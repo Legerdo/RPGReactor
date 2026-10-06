@@ -33,6 +33,9 @@ class DatabaseActorEditor {
         graphics.className = 'database-item-column';
         details.appendChild(this.createGeneralSettingsSection(actor));
         details.appendChild(this.createTraitsSection(actor));
+        // Combat settings grouped by shared rules, Tactical movement and Action attacks.
+        const tacticsSection = window.RRTactics?.createSection({ kind: 'actor', record: actor, databaseManager: this.databaseManager });
+        if (tacticsSection) details.appendChild(tacticsSection);
         details.appendChild(this.createNoteSection(actor));
         graphics.appendChild(this.createImagesSection(actor));
         graphics.appendChild(this.createEquipmentSection(actor));
@@ -65,7 +68,7 @@ class DatabaseActorEditor {
         imagesContent.className = 'database-section-content';
         imagesContent.style.flex = '1';
 
-        imagesSection.innerHTML = `<div class="database-section-header">${tt('Images')}</div>`;
+        imagesSection.innerHTML = `<div class="database-section-header" data-section-key="images">${tt('Images')}</div>`;
         imagesSection.appendChild(imagesContent);
 
         // Add previews (delegates to parent editor)
@@ -121,7 +124,7 @@ class DatabaseActorEditor {
         ).join('');
 
         generalSection.innerHTML = `
-            <div class="database-section-header">${tt('General Settings')}</div>
+            <div class="database-section-header" data-section-key="general-settings">${tt('General Settings')}</div>
             <div class="database-section-content">
                 <div class="db-form db-fill">
                     <div class="db-row-cols">
@@ -258,7 +261,7 @@ class DatabaseActorEditor {
         });
 
         equipmentSection.innerHTML = `
-            <div class="database-section-header">${tt('Equipment')}</div>
+            <div class="database-section-header" data-section-key="equipment">${tt('Equipment')}</div>
             <div class="database-section-content">
                 <div style="font-size: 10px; color: var(--color-text-muted); padding: 4px 8px 8px;">${sourceLabel}</div>
                 <table class="traits-table">
@@ -338,7 +341,7 @@ class DatabaseActorEditor {
             `<tr><td style="width: 3px; padding: 0; border: none; background: transparent;"></td><td colspan="2" style="text-align: center; color: var(--color-text-muted); font-style: italic; padding: 12px;">${tt('No traits')}</td></tr>`;
 
         section.innerHTML = `
-            <div class="database-section-header">${tt('Traits')}</div>
+            <div class="database-section-header" data-section-key="traits">${tt('Traits')}</div>
             <div class="database-section-content">
                 <table class="traits-table" id="actor-traits-table-${actor.id}">
                     <thead>
@@ -754,7 +757,7 @@ class DatabaseActorEditor {
         const noteSection = document.createElement('div');
         noteSection.className = 'database-section';
         noteSection.innerHTML = `
-            <div class="database-section-header">${tt('Note')}</div>
+            <div class="database-section-header" data-section-key="note">${tt('Note')}</div>
             <div class="database-section-content">
                 <textarea class="database-field-value" rows="5" style="width: 100%;" data-field="note" data-actor-id="${actor.id}">${rrEscapeHtml(actor.note)}</textarea>
             </div>

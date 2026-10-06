@@ -30,6 +30,10 @@
  * around the outside. "outside" as a door's other room is the outer wall.
  * `validate` walks the built plan with the engine's own passability from
  * outside the front door and says which rooms it reached.
+ *
+ * The roof is a gable unless `roof.style` says `"flat"` (a parapet round a
+ * flat top) or `"shed"` (one slope, `pitch` levels up to the side `high`
+ * names: north, south, east or west).
  */
 (function(root) {
     'use strict';
@@ -325,12 +329,20 @@
      * for `placeEvents`, each a parallel event that shows its animation on
      * itself again and again.
      */
+    /**
+     * Whether a light is a stamped building's: marked with the group's number (`structure`), or, on a map
+     * stamped before lights carried that mark, tagged with it. The tag is the author's to change.
+     */
+    const STRUCTURE_TAG = /^structure:\d+$/;
+    function ownsLight(light, group) {
+        return !!light && (Number(light.structure) === group || light.tag === 'structure:' + group);
+    }
+
     function placeEffects(mapData, group, wanted) {
         if (!mapData) return [];
         const sidecar = mapData.reactor3d || (mapData.reactor3d = { version: 1 });
-        const tag = 'structure:' + group;
         sidecar.mediaSurfaces = (Array.isArray(sidecar.mediaSurfaces) ? sidecar.mediaSurfaces : []).filter(row => !(row && row.structure === group));
-        sidecar.lights = (Array.isArray(sidecar.lights) ? sidecar.lights : []).filter(light => !(light && light.tag === tag));
+        sidecar.lights = (Array.isArray(sidecar.lights) ? sidecar.lights : []).filter(light => !ownsLight(light, group));
         if (Array.isArray(sidecar.props)) sidecar.props = sidecar.props.filter(prop => !(prop && Number(prop.structure) === group));
         if (Array.isArray(sidecar.water)) sidecar.water = sidecar.water.filter(sheet => !(sheet && Number(sheet.structure) === group));
         return addEffects(mapData, wanted, group);
@@ -381,7 +393,9 @@
             }
             if (fx.type === 'mapLight') {
                 while (lights.some(l => l && l.id === 'light' + nextLight)) nextLight++;
-                lights.push(Object.assign(JSON.parse(JSON.stringify(fx.row)), { id: 'light' + nextLight++, x: Number(fx.row.x) + fx.shift[0], y: Number(fx.row.y) + fx.shift[1], tag }));
+                // A tag the plan's light was given is its own; without one it answers to the building's.
+                const own = fx.row.tag && !STRUCTURE_TAG.test(String(fx.row.tag)) ? String(fx.row.tag) : tag;
+                lights.push(Object.assign(JSON.parse(JSON.stringify(fx.row)), { id: 'light' + nextLight++, x: Number(fx.row.x) + fx.shift[0], y: Number(fx.row.y) + fx.shift[1], tag: own }, group ? { structure: group } : {}));
                 continue;
             }
             if (fx.type === 'screen') {
@@ -396,7 +410,7 @@
                 while (lights.some(l => l && l.id === 'light' + nextLight)) nextLight++;
                 lights.push({ id: 'light' + nextLight++, type: 'point', x: x + 0.5, y: y + 0.5, height: Math.round(z * 100) / 100, yaw: 0, pitch: 0,
                     radius: Number(fx.radius) > 0 ? Number(fx.radius) : 6, angle: 70, width: 0.08, color: String(fx.color || '#9fd8ff'), intensity: Number.isFinite(Number(fx.intensity)) ? Number(fx.intensity) : 1.2,
-                    occlude: true, shadow: false, on: true, body: false, tag, attach: null, flicker: 0, pulse: null });
+                    occlude: true, shadow: false, on: true, body: false, tag, attach: null, flicker: 0, pulse: null, ...(group ? { structure: group } : {}) });
             } else if (fx.type === 'animation' && Number(fx.animation) > 0) {
                 events.push({ key: fx.key, name: fx.name || 'effect', template: '', direction: 2, at: [x, y], animation: Math.floor(Number(fx.animation)) });
             }
@@ -412,10 +426,9 @@
     function removeGroupEffects(mapData, group) {
         const sidecar = mapData && mapData.reactor3d;
         if (!sidecar) return false;
-        const tag = 'structure:' + group;
         let changed = false;
         if (Array.isArray(sidecar.mediaSurfaces)) { const kept = sidecar.mediaSurfaces.filter(row => !(row && row.structure === group)); changed = kept.length !== sidecar.mediaSurfaces.length; if (kept.length) sidecar.mediaSurfaces = kept; else delete sidecar.mediaSurfaces; }
-        if (Array.isArray(sidecar.lights)) { const kept = sidecar.lights.filter(light => !(light && light.tag === tag)); changed = changed || kept.length !== sidecar.lights.length; if (kept.length) sidecar.lights = kept; else delete sidecar.lights; }
+        if (Array.isArray(sidecar.lights)) { const kept = sidecar.lights.filter(light => !ownsLight(light, group)); changed = changed || kept.length !== sidecar.lights.length; if (kept.length) sidecar.lights = kept; else delete sidecar.lights; }
         // Its placed models and water, marked with the group's number.
         for (const key of ['props', 'water']) {
             if (!Array.isArray(sidecar[key])) continue;
@@ -645,7 +658,11 @@
                 if (x === bx0 || x === bx1 || y === by0 || y === by1) put('block', x, y, roofZ, 0, M.wall);
             }
         }
-        if (roof.pitch !== null && roof.style !== 'flat') for (const [bx0, by0, bx1, by1] of buildingBoxes(top ? top.rooms : {}, plan.size)) {
+        // A slanted roof: one slope from a low eave up to the high side.
+        if (roof.pitch !== null && roof.style === 'shed') for (const [bx0, by0, bx1, by1] of buildingBoxes(top ? top.rooms : {}, plan.size)) {
+            shedRoof(roof, bx0, by0, bx1, by1, roofZ, M, put);
+        }
+        if (roof.pitch !== null && roof.style !== 'flat' && roof.style !== 'shed') for (const [bx0, by0, bx1, by1] of buildingBoxes(top ? top.rooms : {}, plan.size)) {
             const bh = by1 - by0 + 1;
             const pitch = Math.max(0, Math.min(Math.floor((bh - 1) / 2), Math.floor(roof.pitch)));
             for (let x = bx0; x <= bx1; x++) {
@@ -704,6 +721,46 @@
             slope(xa, xb, by1, -1, roofZ + 1, pitch - 1);
             if (flat1 > flat0) box((xa + xb) / 2, (flat0 + flat1) / 2, roofZ + pitch - 0.25, [xb - xa, 0.25 + 0.1 + LIFT, flat1 - flat0]);
         }
+    }
+
+    /** The turn that points a wedge's rise at each side of a building. */
+    const SHED_ANGLE = { south: 0, west: 90, north: 180, east: 270 };
+
+    /**
+     * A slanted roof over a building's box: one slope from a low eave up to the high side (`roof.high`,
+     * north unless said), `roof.pitch` levels up over the building's depth. A wedge in the wall's
+     * material closes the two ends and the high side; a slab of roof lies on it with eaves all round.
+     * A shape's tilt is whole degrees and its height a quarter level, so the slope is the nearest whole
+     * degree, the wedge rises to match it, and the low eave reaches out to where the slab's lowest
+     * corner meets a quarter level.
+     */
+    function shedRoof(roof, bx0, by0, bx1, by1, roofZ, M, put) {
+        const high = SHED_ANGLE[roof.high] === undefined ? 'north' : roof.high;
+        const alongY = high === 'north' || high === 'south';
+        const run = alongY ? by1 - by0 + 1 : bx1 - bx0 + 1, across = alongY ? bx1 - bx0 + 1 : by1 - by0 + 1;
+        const wanted = Math.max(1, Math.min(run, Math.floor(Number(roof.pitch)) || 1));
+        const degrees = Math.max(1, Math.min(60, Math.round(Math.atan2(wanted, run) * 180 / Math.PI)));
+        const t = degrees * Math.PI / 180, tan = Math.tan(t), cos = Math.cos(t), sin = Math.sin(t);
+        const two = v => Math.round(v * 100) / 100;
+        const raw = Number(roof.overhang);
+        const o = Math.max(0, Math.min(1, Number.isFinite(raw) ? raw : ROOF_OVERHANG));
+        const T = ROOF_SLAB, LIFT = 0.04;
+        // A shape stood `s` tiles up the run from the low edge, on the building's middle line, turned to rise toward the high side.
+        const place = (kind, s, z, size, material, extra) => {
+            const cx = high === 'east' ? bx0 + s : high === 'west' ? bx1 + 1 - s : (bx0 + bx1 + 1) / 2;
+            const cy = high === 'south' ? by0 + s : high === 'north' ? by1 + 1 - s : (by0 + by1 + 1) / 2;
+            const ax = Math.max(bx0, Math.min(bx1, Math.floor(cx))), ay = Math.max(by0, Math.min(by1, Math.floor(cy)));
+            put(kind, ax, ay, z, 0, material, Object.assign({ size: size.map(two), angle: SHED_ANGLE[high], offset: [two(cx - ax - 0.5), two(cy - ay - 0.5)] }, extra || {}));
+        };
+        place('wedge', run / 2, roofZ, [across, run * tan, run], M.wall);
+        // The low eave: the reach nearest the overhang asked for at which the slab's lowest corner stands on a quarter level.
+        let drop = 0, low = LIFT * cos / tan;
+        for (let m = 1; m <= 8; m++) {
+            const reach = (LIFT * cos + m * 0.25) / tan;
+            if (Math.abs(reach - o) < Math.abs(low - o)) { drop = m; low = reach; }
+        }
+        const middle = (run + o - low) / 2 - (LIFT + T / 2) * sin;
+        place('box', middle, roofZ - drop * 0.25, [across + 2 * o, T, (run + o + low) / cos], M.roof || M.wall, { tilt: 360 - degrees });
     }
 
     /**
@@ -850,6 +907,8 @@
             for (const name of Object.keys(out.spots || {})) out.spots[name] = point(out.spots[name][0], out.spots[name][1]);
             for (const fx of out.effects || []) { fx.at = point(fx.at[0], fx.at[1]); if (fx.facing) fx.facing = DIR_CW[fx.facing] || fx.facing; }
             out.paths = (out.paths || []).map(strip => rect(strip).concat(strip.slice(4)));
+            // A slanted roof's high side turns with the building.
+            if (out.roof && DIR_CW[out.roof.high]) out.roof = Object.assign({}, out.roof, { high: DIR_CW[out.roof.high] });
             // A part turns about the whole: its own turn adds one, and its corner moves with its footprint.
             for (const part of out.parts || []) {
                 const inner = part._size || [1, 1];
@@ -950,7 +1009,7 @@
         return { start, report, states: seen.size };
     }
 
-    const api = { doorPiece, doorOptions, windowRot, turnWater, growWater, PROP_TURN, build, buildOwn, spots, eventsOf, effectsOf, placeEffects, addEffects, removeGroupEffects, placeEvents, removeGroupEvents, eventTag, EVENT_TAG, transform, validate, entrance, doorCells, doorWall, sharedWall, isWallCell, isOuterWallCell, canWindow, buildingBox, buildingBoxes, DIRS };
+    const api = { shedRoof, SHED_ANGLE, doorPiece, doorOptions, windowRot, turnWater, growWater, PROP_TURN, build, buildOwn, spots, eventsOf, effectsOf, placeEffects, addEffects, removeGroupEffects, placeEvents, removeGroupEvents, eventTag, EVENT_TAG, transform, validate, entrance, doorCells, doorWall, sharedWall, isWallCell, isOuterWallCell, canWindow, buildingBox, buildingBoxes, DIRS };
     root.RRStructurePlan = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

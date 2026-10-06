@@ -144,7 +144,8 @@
         try { set(projectPath, section, id, spec, slot); return true; }
         catch (error) {
             console.error('Could not save 3D model binding:', error);
-            alert(root.I18n ? root.I18n.tText('Could not save the 3D model binding.') : 'Could not save the 3D model binding.');
+            RRDialog.alert(root.I18n ? root.I18n.tText('Could not save the 3D model binding.') : 'Could not save the 3D model binding.',
+                { title: root.I18n ? root.I18n.t('menu.models3d') : '3D Models', kind: 'error' });
             return false;
         }
     }
@@ -230,7 +231,7 @@
             name.style.color = '';
             if (options.onSync) options.onSync(spec);
             check.checked = !!spec;
-            name.textContent = spec ? spec.name : tt('(None)');
+            name.textContent = spec ? spec.name + (spec.variant ? ' · ' + spec.variant : '') : tt('(None)');
             name.style.display = spec ? '' : 'none';
             change.style.display = spec ? '' : 'none';
             if (row._rr3d && row._rr3d.afterSync) row._rr3d.afterSync(spec);
@@ -469,9 +470,10 @@
             button.setAttribute('data-i18n-text-source', spec ? 'Change Model' : button2d);
             button.textContent = spec ? tt('Change Model') : tt(button2d);
             if (spec) {
-                nameTag.textContent = spec.name;
+                const shown = spec.name + (spec.variant ? ' · ' + spec.variant : '');
+                nameTag.textContent = shown;
                 nameTag.style.display = nameTag2d ? 'none' : '';
-                if (nameTag2d) { nameTag2d.style.display = ''; nameTag2d.textContent = spec.name; nameTag2d.title = spec.name; }
+                if (nameTag2d) { nameTag2d.style.display = ''; nameTag2d.textContent = shown; nameTag2d.title = shown; }
                 thumb.style.opacity = '0.35';
                 if (options.thumbnail) {
                     const render = () => Promise.resolve().then(() => options.thumbnail(spec)).then(url => {

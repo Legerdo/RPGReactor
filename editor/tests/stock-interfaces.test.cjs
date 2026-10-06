@@ -21,7 +21,9 @@ test('build preserves stable ids and appends later screens deterministically', (
     assert.deepStrictEqual(records.map(r => [r.id, r.name, r.stock]), [
         [1, 'Title Screen', 'title'], [2, 'Main Menu', 'menu'], [3, 'Game End', 'gameEnd'], [4, 'Status', 'status'],
         [5, 'Options', 'options'], [6, 'Save', 'save'], [7, 'Load', 'load'],
-        [8, 'Items', 'item'], [9, 'Skills', 'skill'], [10, 'Equipment', 'equip'], [11, 'Shop', 'shop'], [12, 'Name Input', 'name'], [13, 'Battle', 'battle']
+        [8, 'Items', 'item'], [9, 'Skills', 'skill'], [10, 'Equipment', 'equip'], [11, 'Shop', 'shop'], [12, 'Name Input', 'name'], [13, 'Battle', 'battle'],
+        [14, 'Tactical Battle', 'tactical'], [15, 'Action Battle', 'action'], [16, 'First Person Battle', 'firstPerson'],
+        [17, 'Victory', 'victory']
     ]);
     const [title, menu, gameEnd, status] = records;
     const box = record => record.nodes.find(n => n.type === 'box' && n.name === 'Commands');
@@ -149,7 +151,7 @@ test('Options, Save, and Load baselines use typed sources and semantic actions o
 
 test('missing system data falls back to MZ defaults without throwing', () => {
     const records = Stock.build({});
-    assert.strictEqual(records.length, 13);
+    assert.strictEqual(records.length, 17);
     const box = records[0].nodes.find(n => n.type === 'box');
     assert.deepStrictEqual([box.x, box.y], [(816 - 240) / 2, 624 - 132 - 96]);
     assert.strictEqual(records[1].nodes.filter(n => n.type === 'button').map(b => b.text)[0], 'Item');
@@ -238,7 +240,8 @@ test('Items, Skills, Equipment and Shop chain their lists through contexts and w
             if (node.action && ['focusNode', 'equip'].includes(node.action.type)) assert.ok(ids(record).has(node.action.id), `${record.name}: ${node.name} focuses a real node`);
             if (node.backFocus) assert.ok(ids(record).has(node.backFocus), `${record.name}: ${node.name} goes back to a real node`);
         }
-        if (record.mode !== 'battle') assert.ok(ids(record).has(record.firstFocus), `${record.name} starts on a real node`);
+        // A HUD (Classic battle or Tactical battle) never takes focus, nor does the Victory interface.
+        if (!['battle', 'tactical', 'action', 'firstPerson', 'victory'].includes(record.mode)) assert.ok(ids(record).has(record.firstFocus), `${record.name} starts on a real node`);
         assert.deepStrictEqual(record.roles, [record.stock]);
     }
     const item = byStock('item');

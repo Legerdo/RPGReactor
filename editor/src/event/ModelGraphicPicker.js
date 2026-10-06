@@ -43,8 +43,16 @@ class ModelGraphicPicker {
     static colorTextureIn(texDir) {
         const fs = require('fs');
         if (!texDir || !fs.existsSync(texDir)) return '';
+        // A variant's picture lies in the same folder and is not the model's own.
+        let worn = [];
+        try {
+            const sidecar = JSON.parse(fs.readFileSync(require('path').join(texDir, '..', 'model.json'), 'utf8'));
+            worn = (Array.isArray(sidecar.variants) ? sidecar.variants : []).map(variant => variant && variant.texture).filter(Boolean);
+        } catch (error) {
+            worn = [];
+        }
         const images = fs.readdirSync(texDir)
-            .filter(name => /\.(png|jpe?g|webp)$/i.test(name)).sort();
+            .filter(name => /\.(png|jpe?g|webp)$/i.test(name) && !worn.includes(name)).sort();
         if (!images.length) return '';
         return images.find(name => /clr|colou?r|diffuse|albedo|base/i.test(name))
             || images[0];
@@ -109,6 +117,7 @@ class ModelGraphicPicker {
         this.selectedFile = (current && current.file) || '';
         this.selectedExt = (current && current.ext) || '';
         this.selectedTexture = (current && current.texture) || '';
+        this.selectedVariant = (current && current.variant) || '';
         this.selectedYaw = Number(current && current.yaw) || 0;
         this.selectedPitch = Number(current && current.pitch) || 0;
         this.selectedRoll = Number(current && current.roll) || 0;
@@ -150,6 +159,7 @@ class ModelGraphicPicker {
                                     <button type="button" class="rr-btn-secondary model-face-clear">${this._t('Clear marks')}</button>
                                 </div>
                                 <div class="model-face-status" style="font-size:11px;color:var(--color-text-muted);"></div>
+                                <div class="model-variant-row" style="display:none;align-items:center;gap:8px;font-size:12px;color:var(--color-text);"></div>
                                 <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text);">
                                     X <input type="number" class="model-angle-x" step="1" value="${Math.round(this.selectedPitch)}"
                                         style="width:64px;padding:3px 5px;background:var(--color-bg-surface);color:var(--color-text);border:1px solid var(--color-border-input);">
@@ -275,6 +285,7 @@ class ModelGraphicPicker {
                         roll: this.selectedRoll,
                         faces: Object.assign({}, this.selectedFaces),
                         texture: this.selectedTexture || '',
+                        ...(this.selectedVariant ? { variant: this.selectedVariant } : {}),
                         // The model card over the 3D view owns the offset; a re-pick keeps it.
                         ...(this.selectedOffset.some(v => v) ? { offset: this.selectedOffset.slice() } : {}),
                         ...(this._framing
@@ -330,6 +341,9 @@ class ModelGraphicPicker {
                 this.selectedFile = file.file;
                 this.selectedExt = file.ext;
                 this.selectedTexture = file.texture || '';
+                // Variants belong to a model: another model starts in its own look.
+                this.selectedVariant = '';
+                this._refreshVariant();
                 this._placingFace = '';
                 this._refreshFaceButtons();
                 this._refreshCursor();
@@ -349,6 +363,7 @@ class ModelGraphicPicker {
             if (!this.selectedTexture) this.selectedTexture = current.texture || '';
             browser.scrollTo(this.selectedName);
         }
+        this._refreshVariant();
         this._drawPreview();
     }
 
@@ -518,6 +533,34 @@ class ModelGraphicPicker {
     _refreshCursor() {
         const canvas = this._modal && this._modal.querySelector('.model-preview-canvas');
         if (canvas) canvas.style.cursor = this._placingFace ? 'crosshair' : 'grab';
+    }
+
+    /** The Variant choice: shown only for a model that has variants. */
+    _refreshVariant() {
+        const row = this._modal && this._modal.querySelector('.model-variant-row');
+        if (!row || typeof ModelVariantsPanel === 'undefined') return;
+        const names = ModelVariantsPanel.namesFor(this.currentProject && this.currentProject.path, this.selectedName);
+        const html = ModelVariantsPanel.selectHtml('model-variant-select', names, this.selectedVariant, this._t("Model's own"),
+            'style="max-width:200px;padding:3px 5px;background:var(--color-bg-surface);color:var(--color-text);border:1px solid var(--color-border-input);"');
+        row.style.display = html ? 'flex' : 'none';
+        row.innerHTML = html ? `<span>${this._t('Variant')}</span>${html}` : '';
+        const select = row.querySelector('select');
+        if (select) select.addEventListener('change', () => {
+            this.selectedVariant = select.value;
+            this._wearVariant();
+        });
+    }
+
+    /** The variant chosen, on the model in view. */
+    _wearVariant() {
+        const model = this._object && this._object.children[0];
+        if (!model || typeof ModelVariantsPanel === 'undefined') return;
+        ModelVariantsPanel.wear(model, this.currentProject && this.currentProject.path, this.selectedName, this.selectedVariant);
+        // Its picture loads after this: the idle loop watches for it.
+        this._previewTextures = ModelPreview3D.collectTextures(this._template, this._object);
+        this._previewTextureVersion = -1;
+        this._previewDirty = true;
+        this._lastInputAt = performance.now();
     }
 
     _refreshFaceButtons() {
@@ -1044,7 +1087,7 @@ class ModelGraphicPicker {
                         this._lastRenderAt = now;
                     }
                     ModelPreview3D.updateBackground(this._scene);
-                    Reactor3D.renderScene(this._renderer, this._scene, this._camera);
+                    if (ModelPreview3D.render(this._renderer, this._scene, this._camera)) this._previewDirty = true;
                     this._raf = requestAnimationFrame(tick);
                 };
                 this._raf = requestAnimationFrame(tick);
@@ -1085,6 +1128,7 @@ class ModelGraphicPicker {
             this._applyModelRotation();
             this._rebuildFaceMarkers();
             this._scene.add(this._object);
+            if (this.selectedVariant) this._wearVariant();
             // A GLB's images decode after the first draw; their version
             // numbers tell the idle loop when one has landed.
             this._previewTextures = ModelPreview3D.collectTextures(template, this._object);

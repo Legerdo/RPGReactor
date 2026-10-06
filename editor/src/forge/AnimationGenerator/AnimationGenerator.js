@@ -103,6 +103,11 @@ class AnimationGenerator {
         return window.I18n && window.I18n.tText ? window.I18n.tText(label) : label;
     }
 
+    /** The title this tool's dialogs carry. */
+    _dialogTitle() {
+        return window.I18n && window.I18n.t ? window.I18n.t('menu.animationGenerator') : 'Animation Generator';
+    }
+
     _escapeHtml(value) {
         if (typeof globalThis.rrEscapeHtml === 'function') return globalThis.rrEscapeHtml(value);
         return require('../../utils/HtmlEscape.js')(value);
@@ -145,7 +150,7 @@ class AnimationGenerator {
     _requireProjectPath() {
         const p = this._syncProjectPath();
         if (!p) {
-            alert(this._tx('Open a project to use Forge tools.'));
+            RRDialog.alert(this._tx('Open a project to use Forge tools.'), { title: this._dialogTitle(), kind: 'warning' });
             return null;
         }
         return p;
@@ -1822,7 +1827,7 @@ class AnimationGenerator {
                 this._render();
             } catch (err) {
                 console.error('Texture pick failed:', err);
-                alert(this._tx('Failed to import texture:') + ' ' + err.message);
+                RRDialog.alert(this._tx('Failed to import texture:') + ' ' + err.message, { title: this._dialogTitle(), kind: 'error' });
             }
         });
         input.click();
@@ -2248,7 +2253,7 @@ class AnimationGenerator {
     async _saveSheet() {
         const input = this.root.querySelector('.rr-ag-name');
         let name = (input.value || '').trim();
-        if (!name) { alert(this._tx('Enter a name for the animation sheet.')); return; }
+        if (!name) { RRDialog.alert(this._tx('Enter a name for the animation sheet.'), { title: this._dialogTitle(), kind: 'warning' }); return; }
         name = name.replace(/\.png$/i, '');
 
         // Re-bake the sheet synchronously so toDataURL() sees the full image.
@@ -2269,12 +2274,12 @@ class AnimationGenerator {
                     suggestedName: `${name}.png`,
                     mimeType: 'image/png',
                 });
-                if (result) alert(result.project
+                if (result) RRDialog.alert(result.project
                     ? this._tx('Saved {file} to {path}').replace('{file}', `${name}.png`).replace('{path}', 'img/animations/')
-                    : this._tx('Saved → {path}').replace('{path}', result.path));
+                    : this._tx('Saved → {path}').replace('{path}', result.path), { title: this._dialogTitle() });
             } catch (err) {
                 console.error('AnimationGenerator save:', err);
-                alert(this._tx('Failed to save:') + ' ' + err.message);
+                RRDialog.alert(this._tx('Failed to save:') + ' ' + err.message, { title: this._dialogTitle(), kind: 'error' });
             }
             return;
         }
@@ -2300,10 +2305,10 @@ class AnimationGenerator {
             if (!file || !file.path) { picker.remove(); return; } // user cancelled
             try {
                 fs.writeFileSync(file.path, pngBuf);
-                alert(this._tx('Saved → {path}').replace('{path}', file.path));
+                RRDialog.alert(this._tx('Saved → {path}').replace('{path}', file.path), { title: this._dialogTitle() });
             } catch (err) {
                 console.error('AnimationGenerator save:', err);
-                alert(this._tx('Failed to save:') + ' ' + err.message);
+                RRDialog.alert(this._tx('Failed to save:') + ' ' + err.message, { title: this._dialogTitle(), kind: 'error' });
             } finally {
                 picker.remove();
             }
@@ -2325,7 +2330,7 @@ class AnimationGenerator {
      */
     _saveAnimatedGif(btn) {
         if (typeof GIF !== 'function') {
-            alert(this._tx('GIF encoder (gif.js) is not loaded.'));
+            RRDialog.alert(this._tx('GIF encoder (gif.js) is not loaded.'), { title: this._dialogTitle(), kind: 'error' });
             return;
         }
         const webHost = window.RPGReactorHost?.mode === 'web' ? window.RPGReactorHost : null;
@@ -2416,12 +2421,12 @@ class AnimationGenerator {
                         suggestedName: `${name}.gif`,
                         mimeType: 'image/gif',
                     });
-                    if (result) alert(result.project
+                    if (result) RRDialog.alert(result.project
                         ? this._tx('Saved {file} to {path}').replace('{file}', `${name}.gif`).replace('{path}', 'img/animations/')
-                        : this._tx('Saved → {path}').replace('{path}', result.path));
+                        : this._tx('Saved → {path}').replace('{path}', result.path), { title: this._dialogTitle() });
                 } catch (err) {
                     console.error('GIF save:', err);
-                    alert(this._tx('Failed to save:') + ' ' + err.message);
+                    RRDialog.alert(this._tx('Failed to save:') + ' ' + err.message, { title: this._dialogTitle(), kind: 'error' });
                 } finally {
                     if (btn) { btn.disabled = false; setLabel(originalText); }
                 }
@@ -2447,10 +2452,10 @@ class AnimationGenerator {
                     }
                     try {
                         fs.writeFileSync(file.path, gifBuf);
-                        alert(this._tx('Saved → {path}').replace('{path}', file.path));
+                        RRDialog.alert(this._tx('Saved → {path}').replace('{path}', file.path), { title: this._dialogTitle() });
                     } catch (err) {
                         console.error('GIF save:', err);
-                        alert(this._tx('Failed to save:') + ' ' + err.message);
+                        RRDialog.alert(this._tx('Failed to save:') + ' ' + err.message, { title: this._dialogTitle(), kind: 'error' });
                     } finally {
                         picker.remove();
                         if (btn) { btn.disabled = false; setLabel(originalText); }

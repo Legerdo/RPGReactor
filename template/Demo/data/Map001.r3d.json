@@ -93,5 +93,6 @@
     {"id":1,"target":"map","movie":"Starshift Rebellion Poster.png","x":13.32,"y":-0.16,"z":5.89,"width":237.70781747435444,"height":320,"opacity":255,"loop":true,"muted":true,"volume":100,"playbackRate":1,"corners":[{"x":-118.85390873717722,"y":-160},{"x":118.85390873717722,"y":-160},{"x":118.85390873717722,"y":160},{"x":-118.85390873717722,"y":160}],"rotationX":-0.2,"rotationY":0,"rotationZ":0,"scaleX":1,"scaleY":1,"layer":3,"depth":0,"cullingDistance":0,"scanlines":0,"wait":"false"},
     {"id":2,"target":"map","movie":"SS-Origins-Poster.jpg","x":6.21,"y":-0.48,"z":5.69,"width":320,"height":180,"opacity":255,"loop":true,"muted":true,"volume":100,"playbackRate":1,"corners":[{"x":-160,"y":-90},{"x":160,"y":-90},{"x":160,"y":90},{"x":-160,"y":90}],"rotationX":0,"rotationY":0,"rotationZ":0,"scaleX":1,"scaleY":1,"layer":3,"depth":0,"cullingDistance":0,"scanlines":0,"wait":"false"},
     {"id":3,"target":"map","movie":"Star Shift Freelancers - Poster.jpg","x":19.95,"y":-0.48,"z":5.69,"width":320,"height":180,"opacity":255,"loop":true,"muted":true,"volume":100,"playbackRate":1,"corners":[{"x":-160,"y":-90},{"x":160,"y":-90},{"x":160,"y":90},{"x":-160,"y":90}],"rotationX":0,"rotationY":0,"rotationZ":0,"scaleX":1,"scaleY":1,"layer":3,"depth":0,"cullingDistance":0,"scanlines":0,"wait":"false"}
-  ]
+  ],
+  "eventSizeAuto": {"24":[5,2,-2,-1]}
 }

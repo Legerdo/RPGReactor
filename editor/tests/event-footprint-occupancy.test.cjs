@@ -27,8 +27,9 @@ function manager() {
 test('a footprint cell answers with its event, the anchor first', () => {
     const m = manager();
     assert.equal(m.getEventAt(5, 5).id, 1);
-    assert.equal(m.getEventAt(7, 6).id, 1, 'the far corner of a 3 by 2 footprint');
-    assert.equal(m.getEventAt(8, 5), undefined, 'beside it, nothing');
+    assert.equal(m.getEventAt(6, 6).id, 1, 'the far corner of a 3 by 2 footprint, centred on the event');
+    assert.equal(m.getEventAt(4, 5).id, 1, 'and the tile before the event\'s own');
+    assert.equal(m.getEventAt(7, 5), undefined, 'beside it, nothing');
     assert.equal(m.getEventAt(5, 7), undefined);
     assert.equal(m.getEventAt(0, 8).id, 2);
 });
@@ -37,9 +38,11 @@ test('no drag or paste puts two events on one cell', () => {
     const m = manager();
     const small = m.currentMap.events[2], big = m.currentMap.events[1];
     assert.equal(m.canPlaceEvent(small, 6, 6), false, 'into the footprint');
-    assert.equal(m.canPlaceEvent(small, 8, 6), true);
+    assert.equal(m.canPlaceEvent(small, 4, 6), false, 'on either side of the event');
+    assert.equal(m.canPlaceEvent(small, 7, 6), true);
     small.x = 9; small.y = 5;
-    assert.equal(m.canPlaceEvent(big, 7, 5), false, 'the footprint dragged over another event');
+    assert.equal(m.canPlaceEvent(big, 8, 5), false, 'the footprint dragged over another event');
+    assert.equal(m.canPlaceEvent(big, 7, 5), true, 'beside it');
     assert.equal(m.canPlaceEvent(big, 5, 7), true);
     assert.equal(m.canPlaceEvent(big, 5, 5), true, 'its own cells are free to it');
     assert.equal(m.canPlaceEvent({ id: null }, 3, 4, [3, 2]), false, 'a pasted 3 by 2 overlapping the footprint');

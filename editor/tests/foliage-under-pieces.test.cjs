@@ -44,6 +44,7 @@ test('a stamp clears grass and bushes under its pieces; undo grows them back, re
     assert.equal(E.pieces(map).length, 0);
     assert.equal(grassAt(cx, cy), 6, 'undone, the grass grows back');
     assert.equal(F.bushes(map).length, 3, 'and the bushes stand again');
+    assert.deepEqual(F.bushes(map).map(b => [b.x, b.y]), [[8, 8], [9.5, 6.5], [30, 30]], 'in the order they were planted');
     manager.redo();
     assert.equal(grassAt(cx, cy), 0, 'redone, cleared again');
     assert.equal(F.bushes(map).length, 1);

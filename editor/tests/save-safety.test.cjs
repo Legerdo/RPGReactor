@@ -17,6 +17,8 @@ function loadBrowserClass(fileName, className, globals = {}) {
         process,
         require,
         nw: {},
+        // The editor's themed dialog, answered by the test's own `alert` and `confirm` stand-ins.
+        RRDialog: require('./helpers/dialog-stub.cjs').themedDialogFrom(globals),
         ...globals
     });
 }
@@ -751,7 +753,7 @@ test('model animation and effect saves report corrupt settings and preserve the 
     const file = path.join(project, 'model.json');fs.writeFileSync(file, '{ broken');
     const alerts = [], status = { textContent: '' };
     const Editor = loadBrowserClass('database/Database3DEditor.js', 'Database3DEditor', {
-        window: {}, alert: value => alerts.push(value)
+        window: {}, RRDialog: { alert: async value => { alerts.push(value); } }
     });
     const editor = Object.create(Editor.prototype);
     Object.assign(editor, {

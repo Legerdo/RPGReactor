@@ -39,6 +39,9 @@ class DatabaseClassEditor {
             databaseManager: this.databaseManager, projectManager: this.projectManager
         });
         if (passiveSection) rightColumn.appendChild(passiveSection);
+        // Combat settings grouped by shared rules, Tactical movement and Action attacks.
+        const tacticsSection = window.RRTactics?.createSection({ kind: 'class', record: classEntry, databaseManager: this.databaseManager });
+        if (tacticsSection) rightColumn.appendChild(tacticsSection);
         rightColumn.appendChild(this.createNoteSection(classEntry));
 
         columnsWrapper.appendChild(leftColumn);
@@ -54,7 +57,7 @@ class DatabaseClassEditor {
         const section = document.createElement('div');
         section.className = 'database-section';
         section.innerHTML = `
-            <div class="database-section-header">${tt('General Settings')}</div>
+            <div class="database-section-header" data-section-key="general-settings">${tt('General Settings')}</div>
             <div class="database-section-content">
                 <div class="db-form" style="margin-bottom: 10px;">
                     <div class="db-row-cols">
@@ -103,7 +106,7 @@ class DatabaseClassEditor {
         const section = document.createElement('div');
         section.className = 'database-section';
         section.innerHTML = `
-            <div class="database-section-header">${tt('Note')}</div>
+            <div class="database-section-header" data-section-key="note">${tt('Note')}</div>
             <div class="database-section-content">
                 <textarea class="database-field-value" rows="4" style="width: 100%; box-sizing: border-box;" data-field="note" data-class-id="${classEntry.id}">${rrEscapeHtml(classEntry.note)}</textarea>
             </div>
@@ -208,7 +211,7 @@ class DatabaseClassEditor {
             ? `<span class="rr-class-target-note" style="font-size: 11px; font-weight: normal; color: var(--color-text-muted); white-space: nowrap; margin-right: 8px;">${rrEscapeHtml(tt('Actors of this class stop at Lv{level}').replace('{level}', String(actorsCap)))}</span>`
             : '';
         section.innerHTML = `
-            <div class="database-section-header" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div class="database-section-header" data-section-key="parameter-curves" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <span style="flex: 1 1 auto;">${tt('Parameter Curves')}</span>
                 ${capNote}
                 <label class="database-field-label" style="margin: 0; font-weight: normal; white-space: nowrap;">${tt('Target level')}</label>
@@ -882,7 +885,7 @@ class DatabaseClassEditor {
             `<tr><td colspan="4" style="text-align: center; color: var(--color-text-muted);">${tt('No skills learned')}</td></tr>`;
 
         section.innerHTML = `
-            <div class="database-section-header">${tt('Learnable Skills')}</div>
+            <div class="database-section-header" data-section-key="learnable-skills">${tt('Learnable Skills')}</div>
             <div class="database-section-content">
                 <table class="traits-table learnings-table">
                     <thead>
@@ -1064,7 +1067,7 @@ class DatabaseClassEditor {
             `<tr><td colspan="3" style="text-align: center; color: var(--color-text-muted);">${tt('No traits')}</td></tr>`;
 
         section.innerHTML = `
-            <div class="database-section-header">${tt('Traits')}</div>
+            <div class="database-section-header" data-section-key="traits">${tt('Traits')}</div>
             <div class="database-section-content">
                 <table class="traits-table" id="traits-table-${classEntry.id}">
                     <thead>

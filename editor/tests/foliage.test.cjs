@@ -276,7 +276,8 @@ test('foliage is an extension the game, the editor and the builds all load', () 
 
 test('the Build bar has a Foliage group whose slots are the terrain tool\'s foliage modes', () => {
     const BuildHotbar = require(path.join(repoRoot, 'editor/src/BuildHotbar.js'));
-    assert.deepEqual(BuildHotbar.FOLIAGE, ['grass', 'flowers', 'fern', 'reeds', 'bush']);
+    // Earth's four, then the alien three (ground-types.test.cjs), then bushes.
+    assert.deepEqual(BuildHotbar.FOLIAGE, ['grass', 'flowers', 'fern', 'reeds', 'bulbs', 'tendrils', 'crystals', 'bush']);
     assert.ok(BuildHotbar.GROUPS.includes('foliage'));
     const bar = Object.create(BuildHotbar.prototype);
     const terrain = { mode: 'fern' };

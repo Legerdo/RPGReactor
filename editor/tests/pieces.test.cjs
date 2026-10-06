@@ -287,7 +287,8 @@ test('building happens in the world: the hammer in the toolbar opens a bar over 
     const barSource = read('editor/src/BuildHotbar.js');
     assert.match(barSource, /static PIECES = \['floor', 'wall', 'doorway', 'door', 'window', 'glass', 'stair', 'ladder', 'ramp', 'roof', 'pillar', 'fence', 'block'\]/, 'the slots a child reaches for first, by the kinds\' own names');
     assert.match(barSource, /static SLOTS = \['select'\]\.concat/, 'Select comes first');
-    assert.match(barSource, /static EXTRA = \['rock', 'shape', 'screen', 'light', 'hammer', 'blueprint'\]/);
+    // Rock is laid from the Terrain group (ground-types.test.cjs).
+    assert.match(barSource, /static EXTRA = \['shape', 'screen', 'light', 'hammer', 'blueprint'\]/);
     assert.match(barSource, /if \(\/\^\[0-9\]\$\/\.test\(event\.key\)\)/, 'number keys pick slots');
     const managerSrc = read('editor/src/PieceBuilderManager.js');
     assert.doesNotMatch(managerSrc, /placeEffectAt/, 'the builder places no screens or lights of its own');

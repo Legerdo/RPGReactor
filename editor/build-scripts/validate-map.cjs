@@ -31,7 +31,24 @@ const map = JSON.parse(fs.readFileSync(stem + '.json', 'utf8'));
 map.id = mapId;
 map.reactor3d = fs.existsSync(stem + '.r3d.json') ? JSON.parse(fs.readFileSync(stem + '.r3d.json', 'utf8')) : null;
 const problems = [], notes = [];
-if (!map.reactor3d) { console.log(`Map ${mapId}: no 3D sidecar; nothing to check.`); process.exit(0); }
+
+if (!map.reactor3d) {
+    console.log(`Map ${mapId} (${map.name || ''}) ${map.width}x${map.height}: no 3D sidecar.`);
+    for (const note of notes) console.log(`  ok   ${note}`);
+    for (const problem of problems) console.log(`  FIX  ${problem}`);
+    process.exit(problems.length ? 1 : 0);
+}
+// What lies past the border.
+if (map.reactor3d.surround !== undefined) {
+    const surround = Reactor3D.normalizeSurround(map.reactor3d.surround);
+    const rawStyle = map.reactor3d.surround && map.reactor3d.surround.style;
+    if (!Reactor3D.SURROUND_STYLES.includes(rawStyle)) problems.push(`surround: style "${rawStyle}" is not one of ${Reactor3D.SURROUND_STYLES.join(', ')}`);
+    else if (surround) {
+        if (surround.style !== 'void' && !(Reactor3D.roomFor(map) || {}).floor) problems.push('surround: the map has no room floor for the land past its border to wear (Map Properties > 3D > Floor)');
+        const built = Reactor3D.surroundGeometry(map, surround, { floorY: 0 });
+        notes.push(`surround: ${surround.style}${Object.keys(surround.edges).length ? ' (' + Object.entries(surround.edges).map(([side, style]) => side + ' ' + style).join(', ') + ')' : ''}, ${built.info.triangles.toLocaleString()} triangles${built.info.sea !== null ? ', sea at ' + built.info.sea.toFixed(2) : ''}`);
+    }
+}
 const pieces = E.pieces(map);
 const raw = Array.isArray(map.reactor3d.pieces) ? map.reactor3d.pieces : [];
 if (raw.length !== pieces.length) problems.push(`${raw.length - pieces.length} piece(s) are off the map or malformed and will not be built`);
@@ -102,6 +119,30 @@ for (const crossed of Reactor3D.doorwayCrossings(map)) problems.push(`something 
     const falls = Reactor3D.riverFalls(sheet);
     notes.push(`${name}: ${points.length} points, ${Number(points[0][2])} down to ${Number(points[points.length - 1][2])}${falls.length ? `, ${falls.length} waterfall(s)` : ''}`);
 });
+// Ground types: each a material with an image, painted somewhere, no more than the floor's shader takes.
+const groundRaw = map.reactor3d.ground;
+if (groundRaw && typeof groundRaw === 'object') {
+    const rawTypes = Array.isArray(groundRaw.types) ? groundRaw.types : [];
+    const ground = Reactor3D.groundOf(map);
+    const kept = ground ? ground.types : [];
+    if (rawTypes.length > Reactor3D.GROUND_TYPES_MAX) problems.push(`ground: ${rawTypes.length} types, and a map draws ${Reactor3D.GROUND_TYPES_MAX}; the rest are not drawn`);
+    else if (rawTypes.length !== kept.length) problems.push(`ground: ${rawTypes.length - kept.length} type(s) name no material and are not drawn`);
+    if (kept.length && !(Reactor3D.roomFor(map) || {}).floor) problems.push('ground: the map has no room floor to lay its ground types over (Map Properties > 3D > Floor)');
+    for (const type of kept) {
+        const found = ['.png', '.jpg', '.jpeg', '.webp'].some(ext => fs.existsSync(path.join(materialsDir, type.material + ext)));
+        if (!found) problems.push(`ground: type "${type.name}" names material "${type.material}", which has no image under img/materials`);
+        const cells = type.paint.reduce((n, v) => n + (v ? 1 : 0), 0);
+        if (!cells) notes.push(`ground: "${type.name}" is painted nowhere`);
+        else notes.push(`ground: "${type.name}" (${type.material}${type.tint ? ', ' + type.tint : ''}) on ${cells.toLocaleString()} cell(s)${type.bare ? ', nothing grows on it' : ''}`);
+    }
+    for (const type of rawTypes) {
+        const tokens = String(type && type.paint || '').split(/[\s,]+/).filter(Boolean);
+        const bad = tokens.filter(token => !/^[0-9](?:x\d+)?$/.test(token));
+        if (bad.length) problems.push(`ground: "${(type && (type.name || type.material)) || '?'}" has ${bad.length} paint token(s) that are not a level 0-9 or a run like 9x12: ${bad.slice(0, 3).join(' ')}`);
+        const total = tokens.reduce((n, token) => { const m = /^[0-9](?:x(\d+))?$/.exec(token); return n + (m ? (m[1] ? Number(m[1]) : 1) : 0); }, 0);
+        if (total > map.width * map.height) problems.push(`ground: "${(type && (type.name || type.material)) || '?'}" paints ${total} cells on a map of ${map.width * map.height}`);
+    }
+}
 // Foliage: layers that are kinds the runtime grows, cells it can grow on, bushes on the map.
 const foliageRaw = map.reactor3d.foliage;
 if (foliageRaw && typeof foliageRaw === 'object') {

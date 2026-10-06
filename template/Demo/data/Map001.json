@@ -928,13 +928,18 @@
             {
               "code": 201,
               "indent": 0,
+              "parameters": [0, 5, 83, 65, 2, 0]
+            },
+            {
+              "code": 132,
+              "indent": 0,
               "parameters": [
-                0,
-                5,
-                25,
-                1,
-                2,
-                0
+                {
+                  "name": "Psychronic - Nightshade Strike",
+                  "volume": 100,
+                  "pitch": 100,
+                  "pan": 0
+                }
               ]
             },
             {

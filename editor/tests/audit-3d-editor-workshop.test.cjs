@@ -132,9 +132,21 @@ test('a pond the builder refitted keeps a look set since when the builder step i
     const merged = PieceBuilderManager.mergeWater(current, before, after);
     assert.deepEqual(JSON.parse(JSON.stringify(merged)), [
         { x0: 0, y0: 0, x1: 3, y1: 3, level: -1, material: 'Water', tint: '#ff0000' },
-        { x0: 20, y0: 20, x1: 21, y1: 21, level: -2, material: 'Water' },
-        { x0: 10, y0: 10, x1: 11, y1: 11, level: -1, material: 'Water' }
+        { x0: 10, y0: 10, x1: 11, y1: 11, level: -1, material: 'Water' },
+        { x0: 20, y0: 20, x1: 21, y1: 21, level: -2, material: 'Water' }
     ]);
+});
+
+test('ponds a builder step dried up come back in the places they held in the list', () => {
+    const { PieceBuilderManager } = loadBuilder();
+    const pond = (x, extra) => Object.assign({ x0: x, y0: 0, x1: x + 1, y1: 1, level: -1, material: 'Water' }, extra);
+    const names = list => list.map(sheet => sheet.x0);
+    // The step dried the first and the third of four: undone, the list reads as it did.
+    assert.deepEqual(names(PieceBuilderManager.mergeWater([pond(10), pond(30)], [pond(0), pond(10), pond(20), pond(30)], [pond(10), pond(30)])), [0, 10, 20, 30]);
+    // One poured since stays where it is, after the ones that were there.
+    assert.deepEqual(names(PieceBuilderManager.mergeWater([pond(30), pond(50)], [pond(0), pond(30)], [pond(30)])), [0, 30, 50]);
+    // One drained since stays gone, and the rest keep their order.
+    assert.deepEqual(names(PieceBuilderManager.mergeWater([], [pond(0), pond(10), pond(20)], [pond(10)])), [0, 20]);
 });
 
 test('a plan larger than the map says so; scaling a building past the map edge leaves its record as it was', () => {

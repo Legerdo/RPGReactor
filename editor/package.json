@@ -7,7 +7,7 @@
   "scripts": {
     "start": "nw .",
     "dev": "nw .",
-    "test": "node --test",
+    "test": "node --test --test-concurrency=8",
     "smoke:web": "node tests/smoke/web-editor-persistence.cjs",
     "smoke:nw": "node tests/smoke/nw-editor-save.cjs",
     "smoke:nw-interactions": "node tests/smoke/nw-interaction-order.cjs",

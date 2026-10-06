@@ -742,7 +742,7 @@ test('the database save carries the choice, and a failure there fails the save',
     assert.equal(broken.call(self({ log: 'reactor' }), 'P'), false);
 });
 
-test('choosing VisuStella\'s log in the Quests tab brings in the quests it lacks here and keeps its start-of-game quests starting', () => {
+test('choosing VisuStella\'s log in the Quests tab brings in the quests it lacks here and keeps its start-of-game quests starting', async () => {
     const importer = {
         SOURCES: { visustella: { label: 'VS' } },
         installedSystems: () => [{ source: 'visustella', label: 'VS', enabled: true }],
@@ -757,8 +757,9 @@ test('choosing VisuStella\'s log in the Quests tab brings in the quests it lacks
     const system = {};
     const questions = [];
     const opened = [];
-    const window = { confirm: text => { questions.push(text); return true; }, alert: () => {} };
-    const context = { console, module: undefined, globalThis: undefined, window, rrEscapeHtml: v => String(v), QuestImporter: importer };
+    const window = {};
+    const RRDialog = { confirm: async text => { questions.push(text); return true; }, alert: async () => {} };
+    const context = { console, module: undefined, globalThis: undefined, window, RRDialog, rrEscapeHtml: v => String(v), QuestImporter: importer };
     context.globalThis = context;
     vm.runInNewContext(read('editor/src/database/DatabaseQuestEditor.js') + '\n;globalThis.__D = DatabaseQuestEditor;', context);
     const manager = {
@@ -773,7 +774,7 @@ test('choosing VisuStella\'s log in the Quests tab brings in the quests it lacks
     const editor = new context.__D(manager, {}, null, parent);
 
     assert.equal(plain(editor.questLogState(editor.settings())).notes[0].startsWith('VS is also enabled.'), true, 'no choice yet: the two logs are described as separate');
-    assert.equal(editor.chooseQuestLog('visustella'), true, 'an import happened, and it re-rendered');
+    assert.equal(await editor.chooseQuestLog('visustella'), true, 'an import happened, and it re-rendered');
     assert.equal(system.reactorQuests.log, 'visustella');
     assert.equal(store[1].activation.type, 'start', 'known at the start in the plugin');
     assert.equal(store[2].activation.type, 'command', 'a quest the plugin does not know stays as it was');
@@ -782,7 +783,7 @@ test('choosing VisuStella\'s log in the Quests tab brings in the quests it lacks
     assert.match(questions[0], /^Saving will replace the quests in VS with the ones here\. /);
     assert.deepEqual(opened, ['quests']);
     assert.match(plain(editor.questLogState(editor.settings())).notes[0], /^Saving writes these quests into VS and turns it on\./);
-    assert.equal(editor.chooseQuestLog('reactor'), false);
+    assert.equal(await editor.chooseQuestLog('reactor'), false);
     assert.equal(system.reactorQuests.log, 'reactor');
     assert.match(plain(editor.questLogState(editor.settings())).notes[0], /^Saving turns VS off in the Plugin Manager/);
 });

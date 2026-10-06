@@ -35,19 +35,32 @@
 // muzzle or the screen it was placed on rather than on the character's feet.
 //-----------------------------------------------------------------------------
 
-Reactor3D.readModelEffects = function(json) {
+Reactor3D.readModelEffects = function(json, spec) {
     const list = json && Array.isArray(json.effects) ? json.effects : [];
     const effects = [];
     const seen = new Set();
+    // A use that wears a variant shows that variant's media: another picture
+    // or movie on a media surface, or the surface left off.
+    const variant = spec && spec.variant && this.modelVariant ? this.modelVariant(json, spec.variant) : null;
+    const media = variant && variant.media ? variant.media : null;
+    // An effect may name the variants that wear it (`variants`, "" being the
+    // model's own look); with no list every one wears it. A use (a spec)
+    // gets the effects of the look it wears; a reader with no spec gets all.
+    const wearing = spec ? (variant ? variant.name : "") : null;
     for (const raw of list) {
         if (!raw || typeof raw !== "object" || !raw.name) continue;
         const name = String(raw.name);
         if (seen.has(name)) continue;
         seen.add(name);
+        if (wearing !== null && Array.isArray(raw.variants) && raw.variants.length && raw.variants.indexOf(wearing) < 0) continue;
         const anchorRaw = raw.anchor && typeof raw.anchor === "object" ? raw.anchor : {};
         const offsetRaw = Array.isArray(anchorRaw.offset) ? anchorRaw.offset : [];
         const triggers = ["action", "always", "moving", "walking", "dashing", "jumping", "swimming", "treading", "climbing", "idle"];
-        const videoRaw = raw.video && typeof raw.video === "object" ? raw.video : null;
+        let videoRaw = raw.video && typeof raw.video === "object" ? raw.video : null;
+        if (media && raw.type === "video" && Object.prototype.hasOwnProperty.call(media, name)) {
+            if (media[name] === false) continue;
+            videoRaw = Object.assign({}, videoRaw, { file: media[name].file });
+        }
         const effect = {
             // What it shows: a database animation, or a video surface on a
             // plane at the anchor — an animated screen on a console.
@@ -314,6 +327,13 @@ Reactor3D.effectAnchorWorld = function(object, effect, out) {
     return (part || object).localToWorld(target);
 };
 
+/**
+ * The mouth's outline: a closed ring of eight points round the lips, named as a rig names its
+ * markers, in order round the ring. Left and right are the character's own. With all eight the
+ * speech fallback opens exactly the mouth they draw (reactor_3d_speech.js).
+ */
+Reactor3D.MOUTH_OUTLINE_KEYS = ["cornerL", "upperL", "upperM", "upperR", "cornerR", "lowerR", "lowerM", "lowerL"];
+
 /** Optional semantic points, authored in the same bone/part frame as effects. */
 Reactor3D.readModelLandmarks = function(json) {
     const source = json && json.landmarks;
@@ -326,6 +346,14 @@ Reactor3D.readModelLandmarks = function(json) {
         if (name === "mouth") {
             if (point.interior === "none" || point.interior === "dark") points[name].interior = point.interior;
             if (typeof point.interiorColor === "string" && /^#[0-9a-f]{6}$/i.test(point.interiorColor)) points[name].interiorColor = point.interiorColor;
+            // The ring is all eight points or none: a partial one is ignored and the three points stand.
+            const ring = point.outline && typeof point.outline === "object" ? point.outline : null;
+            const finite = value => Array.isArray(value) && value.length === 3 && value.every(n => typeof n === "number" && Number.isFinite(n));
+            if (ring && this.MOUTH_OUTLINE_KEYS.every(key => finite(ring[key]))) {
+                points[name].outline = Object.fromEntries(this.MOUTH_OUTLINE_KEYS.map(key => [key, ring[key].slice()]));
+            }
+            // How far the mouth opens, as a share of the ring's own room: 1 unless said, 0 to 2.
+            if (typeof point.open === "number" && Number.isFinite(point.open) && point.open !== 1) points[name].open = Math.max(0, Math.min(2, point.open));
         }
     }
     return points;
@@ -354,6 +382,7 @@ Reactor3D.bindModelLandmarks = function(object, points) {
         // A removed/renamed bone must not reinterpret its local offset at the feet.
         if (point.part && !node) continue;
         bound[name] = { node: node || object, offset: point.offset.slice() };
+        if (name === "mouth" && point.outline) bound[name].outline = point.outline;
     }
     // Rest-space landmarks and mesh transforms are captured once for optional
     // procedural lip morphs; animated vertices are never scanned per frame.
@@ -366,9 +395,21 @@ Reactor3D.bindModelLandmarks = function(object, points) {
     // its old inverse until the first render and speech samples the wrong size.
     object.updateMatrixWorld(true);
     const inverse = new THREE.Matrix4().copy(object.matrixWorld).invert();
+    // A model stood on its idle clip (groundAnimatedTemplate) has its body
+    // moved by the clip's lowest point, and the meshes are captured below
+    // where they stand moved. A point on a part moved with the part; a point
+    // on the whole model is moved here, or the mouth would open where the
+    // lips were before.
+    const ground = Number(object.userData && object.userData.reactorClipGround) || 0;
+    const settle = (name, point) => { if (ground && !points[name].part) point.y -= ground; return point; };
     for (const name of Object.keys(bound)) {
         const point = this.modelLandmarkWorld(object, name, new THREE.Vector3());
-        rest.points[name] = point.applyMatrix4(inverse);
+        rest.points[name] = settle(name, point.applyMatrix4(inverse));
+    }
+    // The mouth's ring, in the same rest space, in ring order.
+    if (bound.mouth && bound.mouth.outline) {
+        rest.outline = this.MOUTH_OUTLINE_KEYS.map(key => settle("mouth", bound.mouth.node.localToWorld(new THREE.Vector3().fromArray(bound.mouth.outline[key])).applyMatrix4(inverse)));
+        rest.open = typeof points.mouth.open === "number" ? points.mouth.open : 1;
     }
     if (bound.mouth) object.traverse(mesh => {
         if (mesh.isMesh && !mesh.userData.__reactorOverlay) {

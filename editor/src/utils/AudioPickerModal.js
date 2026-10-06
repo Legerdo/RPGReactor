@@ -547,7 +547,7 @@
             if (previousFocus?.isConnected && typeof previousFocus.focus === 'function') previousFocus.focus();
         };
 
-        const confirm = () => {
+        const confirmSelection = () => {
             finish();
             options.onOk({
                 name: selectedFile,
@@ -592,7 +592,7 @@
             row.addEventListener('click', () => selectTrack(name));
             row.addEventListener('dblclick', () => {
                 selectedFile = name;
-                confirm();
+                confirmSelection();
             });
             row.addEventListener('keydown', event => {
                 if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -785,7 +785,7 @@
         const okBtn = document.createElement('button');
         okBtn.textContent = tt('OK');
         okBtn.className = 'rr-button-primary';
-        okBtn.onclick = confirm;
+        okBtn.onclick = confirmSelection;
 
         footer.appendChild(cancelBtn);
         footer.appendChild(okBtn);

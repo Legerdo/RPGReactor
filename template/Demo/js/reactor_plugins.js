@@ -360,7 +360,7 @@ var $plugins =
     },
     {
         "name": "PSYCHRONIC_MegaVictoryMZ",
-        "status": true,
+        "status": false,
         "description": "Adds Extra Functionality to victory section of RPG Maker MZ.",
         "parameters": {
             "showLevels": "true",
@@ -405,7 +405,7 @@ var $plugins =
     },
     {
         "name": "PSYCHRONIC_RaveLighting",
-        "status": true,
+        "status": false,
         "description": "Adds customizable lighting effects to events with various patterns and controls, featuring enhanced bloom effects for a more heavenly glow.",
         "parameters": {
             "lightBuffer": "350",
@@ -461,7 +461,7 @@ var $plugins =
     },
     {
         "name": "PSYCHRONIC_PTBS",
-        "status": true,
+        "status": false,
         "description": "v1.0.4 - Psychronic Tactical Battle System (PTBS) with Win Condition Editor",
         "parameters": {
             "BlockedRegions": "[\"250\",\"251\"]",

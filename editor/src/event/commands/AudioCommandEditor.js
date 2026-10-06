@@ -224,7 +224,7 @@ class AudioCommandEditor {
             ? this.projectController.getCurrentProject()
             : this.projectController.currentProject;
         if (!currentProject || !currentProject.path) {
-            alert(tt('No project loaded'));
+            RRDialog.alert(tt('No project loaded'), { title: tt(this.commandType.name), kind: 'warning' });
             return;
         }
 
@@ -1138,7 +1138,7 @@ class AudioCommandEditor {
             this.projectController.currentProject;
 
         if (!currentProject || !currentProject.path) {
-            alert(tt('No project loaded'));
+            RRDialog.alert(tt('No project loaded'), { title: tt(this.commandType.name), kind: 'warning' });
             return;
         }
 
@@ -1148,14 +1148,14 @@ class AudioCommandEditor {
 
         // Check if folder exists
         if (!fs.existsSync(audioFolder)) {
-            alert(tt('Audio folder not found:') + ' ' + audioFolder);
+            RRDialog.alert(tt('Audio folder not found:') + ' ' + audioFolder, { title: tt(this.commandType.name), kind: 'warning' });
             return;
         }
 
         const files = RRAssetFiles.listUnique(audioFolder, RRAssetFiles.AUDIO_EXTENSIONS);
 
         if (files.length === 0) {
-            alert(tt('No audio files found in folder'));
+            RRDialog.alert(tt('No audio files found in folder'), { title: tt(this.commandType.name) });
             return;
         }
 
@@ -1244,7 +1244,7 @@ class AudioCommandEditor {
         if (filename) {
             this.loadAudioFile(filename);
         } else {
-            alert(tt('Please select an audio file first'));
+            RRDialog.alert(tt('Please select an audio file first'), { title: tt(this.commandType.name) });
         }
     }
 

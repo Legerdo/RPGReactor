@@ -169,6 +169,7 @@ class EventCommandPicker {
                                 title: 'Scene Control',
                                 commands: [
                                     { name: 'Battle Processing', code: 301 },
+                                    { name: 'Start Battle on Map', code: 357, reactor: 'StartMapBattle' },
                                     { name: 'Shop Processing', code: 302 },
                                     { name: 'Name Input Processing', code: 303 },
                                     { name: 'Open Menu Screen', code: 351 },
@@ -288,13 +289,23 @@ class EventCommandPicker {
                                 ]
                             },
                             {
+                                title: 'Party Followers',
+                                commands: [
+                                    { name: 'Change Follower Formation', code: 357, reactor: 'ChangeFollowerFormation' },
+                                    { name: 'Follower Orders', code: 357, reactor: 'FollowerOrders' }
+                                ]
+                            },
+                            {
                                 title: 'Battles on the Map',
                                 commands: [
-                                    { name: 'Change Battle Mode', code: 357, reactor: 'ChangeBattleMode' },
                                     { name: 'Start Battle on Map', code: 357, reactor: 'StartMapBattle' },
                                     { name: 'Spawn Unit', code: 357, reactor: 'SpawnUnit' },
+                                    { name: 'Change Unit Side', code: 357, reactor: 'ChangeUnitSide' },
                                     { name: 'Remove Unit', code: 357, reactor: 'RemoveUnit' },
-                                    { name: 'End Battle on Map', code: 357, reactor: 'EndMapBattle' }
+                                    { name: 'End Battle on Map', code: 357, reactor: 'EndMapBattle' },
+                                    { name: 'Change Battle Goal', code: 357, reactor: 'ChangeBattleGoal' },
+                                    { name: 'Change Battle Mode', code: 357, reactor: 'ChangeBattleMode' },
+                                    { name: 'Set Terrain Cost', code: 357, reactor: 'SetTerrainCost' }
                                 ]
                             }
                         ]
@@ -425,9 +436,12 @@ class EventCommandPicker {
                 transition: background-color 0.15s;
             `;
 
+            tab.dataset.commandTab = String(index);
             tab.addEventListener('click', () => {
                 this.currentTab = index;
                 this.renderContent();
+                // The redraw replaced the tab that held the focus: the new one takes it, so Escape and Tab still answer.
+                this.modal.querySelector(`[data-command-tab="${index}"]`)?.focus({ preventScroll: true });
             });
 
             tab.addEventListener('mouseenter', () => {

@@ -108,7 +108,7 @@
         }
         async addModel(key, spec, position) {
             const R = root.Reactor3D;
-            if(this.disposed)return;const existing=this.models.get(key);if(existing){if(['name','ext','file','texture','size','scale'].every(k=>existing.spec[k]===spec[k]))return;this.remove(key);}
+            if(this.disposed)return;const existing=this.models.get(key);if(existing){if(['name','ext','file','texture','size','scale','variant'].every(k=>existing.spec[k]===spec[k]))return;this.remove(key);}
             const record = { spec, position: {...position}, object:null };
             this.models.set(key, record);
             try {
@@ -116,16 +116,18 @@
                 if (this.disposed || this.models.get(key) !== record || !template) return;
                 const object = R.cloneModelTemplate(template);
                 record.template = template;
-                R.applyModelTransform(object, R.readModelTransform(sidecar));
+                R.applyModelTransform(object, R.readModelTransform(sidecar, spec));
                 const rig = R.readModelRig(sidecar);
                 if (rig) R.applyModelRig(object, rig);
                 else { R.carveModelParts(object, R.readModelParts(sidecar)); R.applyPivotOverrides(object, R.readModelPivots(sidecar)); }
+                // A thing made to be held says where its grip, tip, barrel and trigger are (a Blade or Gun rig).
+                const heldRig = R.readHeldRig?.(sidecar); if (heldRig) object.userData.__heldRig = heldRig;
                 const e = template.userData.glbSize || {x:1,y:1,z:1};
                 record.extent = e;
                 record.scale = (spec.size || 2) * (spec.scale || 1) / Math.max(e.x,e.y,e.z,.001);
                 object.scale.setScalar(record.scale);
                 record.object = object; record.binding = R.prepareModelInstance(object, object.__reactorClips);
-                record.rules = R.readModelAnimationRules(sidecar); record.effects = R.readModelEffects(sidecar);
+                record.rules = R.readModelAnimationRules(sidecar); record.effects = R.readModelEffects(sidecar, spec);
                 record.chosenEffects=new Set(R.propEffectList(spec));record.media=new Map();
                 if(key.startsWith('prop:')){record.sequence=R.propAnimationList(spec);record.sequenceIndex=0;record.animationStart=this.frame;record.animationFrame=this.frame;}
                 if (!key.startsWith('prop:') && !key.startsWith('event:')) BattleRoomView.prepareMotions(record);
@@ -164,24 +166,8 @@
                     record.object.scale.set(...stretch.map(axis => axis * record.scale));
                 } else if (!record.billboard) {
                     if(p.frame){
-                        // In a hand: the model's long axis lies along the forearm with its tip forward and its bulk hanging down, the handle end (pivotY of the way along) in the fist; Tilt, Turn and Roll then adjust that in the hand's frame, and it all rides the hand.
-                        const T=root.THREE,R=root.Reactor3D,shape=R.heldShape(record.object),hand=p.frame.quaternion;
-                        const forward=p.frame.forearm?p.frame.forearm.clone():new T.Vector3(0,0,1).applyQuaternion(hand);
-                        let up=new T.Vector3(0,1,0);up.sub(forward.clone().multiplyScalar(up.dot(forward)));if(up.lengthSq()<1e-6)up.set(0,0,1);up.normalize();
-                        const right=new T.Vector3().crossVectors(forward,up);
-                        const la=new T.Vector3().fromArray(shape?shape.axis:[0,1,0]);let lu=new T.Vector3().fromArray(shape?shape.up:[0,0,1]);lu.sub(la.clone().multiplyScalar(lu.dot(la)));if(lu.lengthSq()<1e-6)lu.set(0,0,1);lu.normalize();const lr=new T.Vector3().crossVectors(la,lu);
-                        const world=new T.Matrix4().makeBasis(forward,up,right),local=new T.Matrix4().makeBasis(la,lu,lr);
-                        const base=new T.Quaternion().setFromRotationMatrix(world.multiply(local.transpose()));
-                        const adjust=new T.Quaternion().setFromEuler(new T.Euler((p.rotateX||0)*Math.PI/180,(p.rotateY||0)*Math.PI/180,(p.rotateZ||0)*Math.PI/180,'XYZ'));
-                        // The adjustment turns about the hand's own axes.
-                        record.object.quaternion.copy(hand).multiply(adjust).multiply(hand.clone().invert()).multiply(base);
-                        record.object.scale.set(...['scaleX','scaleY','scaleZ'].map((axis,i)=>record.scale*(p.scale??1)*(p[axis]??1)*(record.spec.stretch?.[i]??1)));
-                        if(shape){
-                            // The point pivotY of the way from the handle end to the tip sits in the hand.
-                            // Held By 0 (the base) is the model's own grip; any other value is that fraction of the way from the handle end to the tip.
-                            const along=p.pivotY?Math.max(0,Math.min(1,p.pivotY)):shape.grip,gripPoint=new T.Vector3().fromArray(shape.base).add(new T.Vector3().fromArray(shape.axis).multiplyScalar(shape.length*along));
-                            record.object.position.sub(gripPoint.multiplyScalar(record.object.scale.x).applyQuaternion(record.object.quaternion));
-                        }
+                        // In a hand: turned in the hand's frame about its grip (Reactor3D.Held.orient, reactor_3d_models.js, which the map's held things use too).
+                        root.Reactor3D.Held.orient(record,p);
                         return;
                     }
                     root.Reactor3D.applyEventModelPose(record.object,
@@ -301,22 +287,7 @@
          * already move, after them, for this frame.
          */
         reachArm(key, side, target, {down=.5}={}) {
-            const record=this.models.get(key),T=root.THREE;if(!record?.object||!target)return false;
-            BattleRoomView.attachmentWorld(record,side+'Hand','');const hand=record.attachmentBones?.get(side+'Hand'),fore=hand?.parent,upper=fore?.parent;if(!upper?.parent)return false;
-            upper.updateMatrixWorld(true);
-            const S=upper.getWorldPosition(new T.Vector3()),E=fore.getWorldPosition(new T.Vector3()),H=hand.getWorldPosition(new T.Vector3());
-            const a=S.distanceTo(E),b=E.distanceTo(H);if(a<1e-4||b<1e-4)return false;
-            const goal=target.clone();let d=S.distanceTo(goal);if(d<1e-4)return false;d=Math.max(Math.abs(a-b)+1e-3,Math.min(a+b-1e-3,d));
-            const dir=goal.clone().sub(S).normalize();
-            let pole=E.clone().sub(S);pole.sub(dir.clone().multiplyScalar(pole.dot(dir)));if(pole.lengthSq()<1e-6)pole.set(0,-1,0);pole.normalize();
-            pole.lerp(new T.Vector3(0,-1,0),down);pole.sub(dir.clone().multiplyScalar(pole.dot(dir)));if(pole.lengthSq()<1e-6)pole.set(0,-1,0);pole.normalize();
-            const cosA=Math.max(-1,Math.min(1,(a*a+d*d-b*b)/(2*a*d))),angA=Math.acos(cosA);
-            const elbow=S.clone().add(dir.clone().multiplyScalar(Math.cos(angA)*a)).add(pole.clone().multiplyScalar(Math.sin(angA)*a));
-            const turn=(bone,from,to)=>{const q=new T.Quaternion().setFromUnitVectors(from.normalize(),to.normalize()),parentQ=bone.parent.getWorldQuaternion(new T.Quaternion());bone.quaternion.premultiply(parentQ.clone().invert().multiply(q).multiply(parentQ));bone.updateMatrixWorld(true);};
-            turn(upper,E.clone().sub(S),elbow.clone().sub(S));
-            const E2=fore.getWorldPosition(new T.Vector3()),H2=hand.getWorldPosition(new T.Vector3());
-            turn(fore,H2.clone().sub(E2),goal.clone().sub(E2));
-            return true;
+            return root.Reactor3D.Held.reachArm(this.models.get(key),side,target,down);
         }
         /**
          * Holds a shown weapon the way its step asks: aimed, the shooting arm
@@ -325,17 +296,8 @@
          * answer is the hand frame to place the item with.
          */
         holdAim(ownerKey, heldKey, step, at) {
-            const T=root.THREE,R=root.Reactor3D,side=step.attachment==='leftHand'?'left':'right';
-            const frame=this.attachmentFrame(ownerKey,step);if(!frame||step.aim!=='target'||!at)return frame;
-            const owner=this.models.get(ownerKey),held=this.models.get(heldKey);
-            BattleRoomView.attachmentWorld(owner,side+'Hand','');const hand=owner.attachmentBones?.get(side+'Hand'),upper=hand?.parent?.parent;if(!upper)return frame;
-            const S=upper.getWorldPosition(new T.Vector3()),goal=new T.Vector3(at.x+.5,(at.z||0)+(at.height??1.2),at.y+.5),dir=goal.clone().sub(S);if(dir.lengthSq()<1e-6)return frame;dir.normalize();
-            const shape=held?.object?R.heldShape(held.object):null,gripLength=shape?shape.grip*shape.length*(held.scale||1):.3,itemLength=shape?shape.length*(held.scale||1):0;
-            // A long gun is shouldered (the stock ends by the shoulder); a short one is held out at arm's length.
-            const fore=hand.parent,E=fore.getWorldPosition(new T.Vector3()),H=hand.getWorldPosition(new T.Vector3()),reach=S.distanceTo(E)+E.distanceTo(H);
-            const distance=itemLength>1.2?Math.max(.35,gripLength+.12):reach*.86;
-            this.reachArm(ownerKey,side,S.clone().add(dir.clone().multiplyScalar(distance)),{down:.65});
-            const after=this.attachmentFrame(ownerKey,step)||frame;after.forearm=dir;return after;
+            const goal=at?new root.THREE.Vector3(at.x+.5,(at.z||0)+(at.height??1.2),at.y+.5):null;
+            return root.Reactor3D.Held.aim(this.models.get(ownerKey),this.models.get(heldKey),step,goal,this);
         }
         /**
          * Holds a shown weapon for this frame, in order: the aiming arm reaches
@@ -344,10 +306,12 @@
          * it. Returns the hand point in room tiles.
          */
         holdHeld(ownerKey, heldKey, step, ownerPose, at, placement) {
-            const frame=this.holdAim(ownerKey,heldKey,step,at);
-            const p=this.attachmentPoint(ownerKey,step,ownerPose);if(!p)return null;
+            // The order and the hand's part of it are Reactor3D.Held's (reactor_3d_models.js); the room places the thing between the two halves.
+            const H=root.Reactor3D.Held,owner=this.models.get(ownerKey),held=this.models.get(heldKey);
+            const goal=at?new root.THREE.Vector3(at.x+.5,(at.z||0)+(at.height??1.2),at.y+.5):null,{frame,fist}=H.begin(owner,held,step,goal,placement,this);
+            const p=fist?{x:fist.position.x-.5,y:fist.position.z-.5,z:fist.position.y}:this.attachmentPoint(ownerKey,step,ownerPose);if(!p)return null;
             this.place(heldKey,{...placement,x:p.x,y:p.y,z:p.z,frame});
-            if(placement.visible!==false)this.holdBoth(ownerKey,heldKey,step);
+            H.finish(owner,held,step,frame,fist,placement.visible!==false,this);
             return p;
         }
         /** Where a held model's tip (a muzzle, a blade point) is, in room tiles, or null. */
@@ -359,13 +323,7 @@
         }
         /** The other hand takes the held thing a little way out along it, as far as an arm reaches. */
         holdBoth(ownerKey, heldKey, step) {
-            const T=root.THREE,R=root.Reactor3D;if(step.hands!=='both')return;
-            const held=this.models.get(heldKey);if(!held?.object)return;const shape=R.heldShape(held.object);if(!shape)return;
-            const other=step.attachment==='leftHand'?'right':'left';
-            held.object.updateMatrixWorld(true);
-            const grip=new T.Vector3().fromArray(shape.base).add(new T.Vector3().fromArray(shape.axis).multiplyScalar(shape.length*shape.grip)),tip=new T.Vector3().fromArray(shape.base).add(new T.Vector3().fromArray(shape.axis).multiplyScalar(shape.length));
-            const point=grip.lerp(tip,.3).applyMatrix4(held.object.matrixWorld);
-            this.reachArm(ownerKey,other,point,{down:.7});
+            root.Reactor3D.Held.both(this.models.get(ownerKey),this.models.get(heldKey),step,this);
         }
         attachmentPoint(key, step, pose) {
             const record=this.models.get(key)||this.billboards.get(key),p=pose||record?.position||{x:0,y:0,z:0},world=BattleRoomView.attachmentWorld(record,step.attachment,step.bone,step.type==='projectile'?'end':undefined);
@@ -914,8 +872,10 @@
          * the model's own forward; both are taken from the live object, so
          * the answer holds whatever way the battler faces or the file leans.
          */
-        aimTurn(key,partName,at){
-            const record=this.models.get(key),T=root.THREE;if(!record?.object||!record.binding||!at)return 0;
+        aimTurn(key,partName,at){return BattleRoomView.aimTurnOf(this.models.get(key),partName,at);}
+        /** The turn, in degrees about its up axis, that points a model's part at a place (tiles); a map unit's model is measured the same way (reactor_fight_stage.js). */
+        static aimTurnOf(record,partName,at){
+            const T=root.THREE;if(!record?.object||!record.binding||!at)return 0;
             const wanted=String(partName).toLowerCase(),entries=record.binding.meshes.filter(e=>e.parts.some(p=>String(p.name).toLowerCase()===wanted));if(!entries.length)return 0;
             const pivotOf=name=>{for(const e of record.binding.meshes){const i=e.parts.findIndex(p=>String(p.name).toLowerCase()===name);if(i>=0&&e.parts[i].pivot)return {pivot:e.parts[i].pivot,entry:e};}return null;};
             const own=pivotOf(wanted);if(!own)return 0;
@@ -1138,6 +1098,8 @@
             if(cast)R.Shadows.setCandidates(cast.candidates);
             this.updateEffects();
             for(const update of this.sequenceVisualUpdates||[])update();
+            // Hands close on, and let go of, what they hold (Reactor3D.HandGrip), once the held things are placed for this frame.
+            R.HandGrip?.update();
             if(this.view){
                 // PIXI has drawn since: three forgets what it thought was bound before it draws anything.
                 this.renderer.resetState();

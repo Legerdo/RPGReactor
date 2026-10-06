@@ -689,7 +689,7 @@ class DatabaseTraitEditor {
     saveTrait(trait) {
         // Validate that a trait type is selected
         if (!trait.code) {
-            alert(this._t('Please select a trait type before saving.'));
+            RRDialog.alert(this._t('Please select a trait type before saving.'), { title: this._t('Traits'), kind: 'warning' });
             return false;
         }
 

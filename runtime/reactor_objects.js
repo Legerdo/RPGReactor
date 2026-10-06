@@ -6,6 +6,7 @@
 //   reactor_objects_battlers.js
 //   reactor_objects_map.js
 //   reactor_objects_interpreter.js
+//   reactor_objects_followers.js
 //   reactor_objects_legacy.js
 
 //-----------------------------------------------------------------------------

@@ -350,6 +350,18 @@ command window over the acting actor, and `BattleCursor_B`/`_A` for enemies
 and allies. It is what new projects made from the Demo start with. A project that
 still runs MOG_BattleHud draws both HUDs; the runtime warns in the console.
 
+## Tactical Battle HUD
+
+A record with the **Tactical Battle HUD** presentation (`mode: "tactical"`), bound as Tactical Battle in System 2 or Use As (`reactorTacticalInterfaceId`), is drawn over the map while a Tactical battle runs on it. With none bound the game shows the stock layout, sized for the screen. It is separate from the Battle HUD: a Classic battle never reads it, a Battle record never draws on the map, and Action and First Person battles show none of it. Nodes: **Unit Panel** (the unit whose turn it is, or the unit under the cursor with the aimed action's forecast), **Turn Order**, **Battle Text** (objective, turn and phase, phase banner, what to do next and why a greyed command cannot be used), **Tactical Window** (places the stock command, skill or item window). A portrait is the unit's face, else a portrait of its model, else its map sprite, else an enemy's battle picture, else its initials. A Unit Panel's **Gauges** are Clipped corners (the stock look: two corners cut, numbers on the bar's right end, lost HP running down) or Thin bar. The command window is as wide as its longest row and as tall as the panel beside it; Overwatch, Wait and End Turn take their icons from the project's icon sheet through the same `\i[n]` codes the project's own command terms use, and the Tactical Window node has an icon field for each. The unit panels and menus fade while the cinematic camera holds a shot. The HUD works the same on 2D and 3D maps. The drawing is `runtime/reactor_ui_fight.js`, copied byte for byte to `editor/src/utils/FightHud.js` so the canvas shows what the game draws. `reactorFightInterfaceId` and `mode: "fight"` from earlier builds are read as the same thing.
+
+## Action and First Person Battle HUDs
+
+A record with the **Action Battle HUD** or **First Person Battle HUD** presentation (`mode: "action"`, `mode: "firstPerson"`), bound as Action Battle or First Person Battle in System 2 or Use As (`reactorActionInterfaceId`, `reactorFirstPersonInterfaceId`), is drawn over the map while a battle of that mode runs. With none bound the game shows that mode's stock layout. Nodes: **Crosshair** (four styles; the gap is the spread, red over a target, a ring while reloading, ticks on a hit), **Vitals**, **Weapon** (magazine, reload bar, combo pips, the carried weapons after a switch), **Hotbar** (key, cost, cooldown), **Target**, **Enemy Bars**, **Damage Marks** (an arc toward the hit, a low-HP edge), **Action Text**. Neither is read by a Tactical or Classic battle. The drawing is `runtime/reactor_ui_action.js`, copied byte for byte to `editor/src/utils/ActionHud.js`.
+
+## Screen sizes
+
+A record stores the screen it was designed for (`design: { width, height }`). On another screen the game shows it at one factor, the smaller of the width and height ratios. Layers that span the screen stretch, centered layers stay centered, the rest keep their margin to the nearer edge; a Focused scene keeps its layers together in the middle. Text shrinks with the layout, but not below 12 px (480 high) to 14 px (720 and up) when the layers still fit at that size. **Preview at** shows the result for common sizes and warns when text is hard to read. **Designed for** (Interface Settings › Screen) changes the design size without touching the numbers. **Refit to this size** rewrites the numbers for the project screen in one undo step. A record with no design size is shown as written.
+
 ## Styling, focus, and transitions
 
 Text, Button labels, and List rows can set a font face (blank means the game
@@ -429,7 +441,7 @@ plugin-owned scene trees remains unresolved.
 
 ## Generated baselines and opt-in replacement
 
-A project that has no `data/UserInterfaces.json` is offered thirteen generated,
+A project that has no `data/UserInterfaces.json` is offered sixteen generated,
 editable records with stable IDs. New kinds append rather than renumbering old
 ones, and **Stock Layout** in the Layers panel replaces any record's layers
 with one of them (undoable):
@@ -449,6 +461,9 @@ with one of them (undoable):
 | 11 | Shop | Shop |
 | 12 | Name Input | Name Input |
 | 13 | Battle | Battle (a Battle HUD) |
+| 14 | Tactical Battle | Tactical Battle (a Tactical Battle HUD) |
+| 15 | Action Battle | Action Battle (an Action Battle HUD) |
+| 16 | First Person Battle | First Person Battle (a First Person Battle HUD) |
 
 Generation uses the project's screen/UI area, terms, title art, menu settings,
 starting party, and stock scene geometry. Existing projects that already have a

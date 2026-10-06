@@ -304,6 +304,48 @@
             cleanup(){closed=true;ss._rrSequenceVisualUpdates?.delete(update);room?.sequenceVisualUpdates?.delete(update);for(const entry of [...held.values(),...flights])destroy(entry);held.clear();flights.length=0;}
         };
     };
+    // A sequence's script: a condition, a formula or a Run Script step, with the user and a target in reach.
+    P.evalSequence=(code,subject,target,action,statement=false)=>Function('user','subject','target','a','b','v','action','item',statement?String(code):'return ('+String(code)+');')(subject,subject,target,subject,target,root.$gameVariables?._data||[],action,action?.item?.());
+    // The steps that change game data, audio or the screen play the same
+    // wherever a sequence runs: the battle scene and a battle on the map
+    // (reactor_fight_stage.js) both hand them here. `env`: the battlers the
+    // step chose, the user, `number` (a step value as a number), `feedback`
+    // (shows a battler's result), `audioSaved` (kept across the run's steps).
+    // Answers null when the step is not one of them, else {ticket} with what
+    // the sequence waits on, if anything.
+    P.gameCue=function(step,env){
+        const {chosen,subject,number,audioSaved}=env;
+        if(step.type==='event'){
+            const event=root.$dataCommonEvents?.[step.eventId];if(!event)throw Error('Missing common event #'+step.eventId);
+            const interpreter=new Game_Interpreter();interpreter.setup(event.list);let ticks=0;
+            return {ticket:{blocking:true,isPlaying(){if(++ticks>18000)throw Error('Sequence common event exceeded five minutes.');interpreter.update();return interpreter.isRunning();},cancel(){interpreter.clear();}}};
+        }
+        if(['hp','mp','tp','buff','state','kill'].includes(step.type)){
+            for(const battler of chosen){battler.clearResult?.();
+                if(['hp','mp','tp'].includes(step.type)){const max=step.type==='hp'?battler.mhp:step.type==='mp'?battler.mmp:battler.maxTp();const value=number(step.amount,battler)*(step.percent==='percent'?max/100:1);battler['gain'+step.type.toUpperCase().replace('HP','Hp').replace('MP','Mp').replace('TP','Tp')](Math.round(value));}
+                if(step.type==='state')battler[step.operation==='remove'?'removeState':'addState'](step.stateId);
+                if(step.type==='buff'){const id=['mhp','mmp','atk','def','mat','mdf','agi','luk'].indexOf(step.param);battler[step.operation==='increase'?'addBuff':step.operation==='decrease'?'addDebuff':'removeBuff'](id,step.turns);}
+                if(step.type==='kill')battler.addState(battler.deathStateId());
+                if(step.show==='show')env.feedback?.(battler);
+            }return {};
+        }
+        if(step.type==='item'){const amount=number(step.amount);if(step.kind==='gold')$gameParty.gainGold(amount);else $gameParty.gainItem(({items:root.$dataItems,weapons:root.$dataWeapons,armors:root.$dataArmors})[step.kind]?.[step.itemId],amount);return {};}
+        if(step.type==='switch'){$gameSwitches.setValue(step.switchId,step.operation==='toggle'?!$gameSwitches.value(step.switchId):step.operation==='on');return {};}
+        if(step.type==='variable'){const a=$gameVariables.value(step.variableId),b=number(step.amount),v={set:()=>b,add:()=>a+b,subtract:()=>a-b,multiply:()=>a*b,divide:()=>b?a/b:0,modulo:()=>b?a%b:0}[step.operation]();$gameVariables.setValue(step.variableId,v);return {};}
+        if(['bgm','bgs','se'].includes(step.type)){
+            const suffix=step.type==='bgm'?'Bgm':step.type==='bgs'?'Bgs':'Se',op=step.operation;
+            if(op==='play')AudioManager['play'+suffix]({name:step.name,volume:step.volume,pitch:step.pitch,pan:step.pan});
+            else if(op==='system')SoundManager.playSystemSound(step.soundId);
+            else if(op==='save')audioSaved[suffix]=AudioManager['save'+suffix]?.();
+            else if(op==='resume'&&audioSaved[suffix])AudioManager['replay'+suffix]?.(audioSaved[suffix]);
+            else if(op==='fadeIn'||op==='fadeOut')AudioManager[op+suffix]?.(step.fade/60);
+            else if(op==='stop')AudioManager['stop'+suffix]?.();return {};
+        }
+        if(step.type==='movie'){Video.play('movies/'+step.name);return {ticket:{blocking:true,isPlaying:()=>Video.isPlaying(),cancel:()=>Video._element?.pause()}};}
+        if(step.type==='flash'){$gameScreen.startFlash([step.red,step.green,step.blue,step.alpha],step.duration);return {};}
+        if(step.type==='shake'){$gameScreen.startShake(step.power,step.speed,step.duration);return {};}
+        return null;
+    };
     P.extendAdapter=function(adapter,env){
         const {manager,subject,targets,ss,room,roles,homes,saved,stateOnly=false}=env;
         const visuals=P.sequenceVisuals(env);adapter.visuals=visuals;
@@ -313,7 +355,7 @@
         const all=()=>[...new Set([subject,...targets,...(root.$gameParty?.battleMembers?.()||[]),...(root.$gameTroop?.members?.()||[])])];
         const choose=step=>B.selectTargets(step,{user:subject,subject:step.callRole?B.selectTargets({role:step.callRole,filter:step.callFilter},{user:subject,targets,actors:root.$gameParty?.battleMembers?.(),enemies:root.$gameTroop?.members?.(),friends:subject.friendsUnit?.().members(),opponents:subject.opponentsUnit?.().members()})[0]:subject,subjects:step.callRole?B.selectTargets({role:step.callRole,filter:step.callFilter},{user:subject,targets,actors:root.$gameParty?.battleMembers?.(),enemies:root.$gameTroop?.members?.(),friends:subject.friendsUnit?.().members(),opponents:subject.opponentsUnit?.().members()}):[subject],targets,selected,
             actors:root.$gameParty?.battleMembers?.(),enemies:root.$gameTroop?.members?.(),friends:subject.friendsUnit?.().members(),opponents:subject.opponentsUnit?.().members(),moved:b=>ss.findTargetSprite(b)?.isMoving?.()});
-        const expression=(code,target=selected[0]||targets[0],statement=false)=>Function('user','subject','target','a','b','v','action','item',statement?String(code):'return ('+String(code)+');')(subject,subject,target,subject,target,root.$gameVariables?._data||[],action,action?.item?.());
+        const expression=(code,target=selected[0]||targets[0],statement=false)=>P.evalSequence(code,subject,target,action,statement);
         adapter.condition=code=>{try{return !!expression(code);}catch(error){P.warn('Sequence condition: '+error.message);return false;}};
         const number=(value,target)=>{const n=typeof value==='number'?value:Number(expression(value??'0',target));if(!Number.isFinite(n))throw Error('Sequence expression must return a finite number.');return n;};
         const capture=sprite=>{
@@ -360,33 +402,8 @@
             if(step.type==='formula'){formula=step.operation==='clear'?null:step.formula;return;}
             if(step.type==='element'){elements=step.operation==='clear'?null:String(step.elements).split(',').map(Number).filter(n=>Number.isInteger(n)&&n>=0);if(elements&&!elements.length)throw Error('Select at least one damage element.');return;}
             if(step.type==='eval'){expression(step.code,chosen[0],true);return;}
-            if(step.type==='event'){
-                const event=root.$dataCommonEvents?.[step.eventId];if(!event)throw Error('Missing common event #'+step.eventId);
-                const interpreter=new Game_Interpreter();interpreter.setup(event.list);let ticks=0;
-                return {blocking:true,isPlaying(){if(++ticks>18000)throw Error('Sequence common event exceeded five minutes.');interpreter.update();return interpreter.isRunning();},cancel(){interpreter.clear();}};
-            }
-            if(['hp','mp','tp','buff','state','kill'].includes(step.type)){
-                for(const battler of chosen){battler.clearResult?.();
-                    if(['hp','mp','tp'].includes(step.type)){const max=step.type==='hp'?battler.mhp:step.type==='mp'?battler.mmp:battler.maxTp();const value=number(step.amount,battler)*(step.percent==='percent'?max/100:1);battler['gain'+step.type.toUpperCase().replace('HP','Hp').replace('MP','Mp').replace('TP','Tp')](Math.round(value));}
-                    if(step.type==='state')battler[step.operation==='remove'?'removeState':'addState'](step.stateId);
-                    if(step.type==='buff'){const id=['mhp','mmp','atk','def','mat','mdf','agi','luk'].indexOf(step.param);battler[step.operation==='increase'?'addBuff':step.operation==='decrease'?'addDebuff':'removeBuff'](id,step.turns);}
-                    if(step.type==='kill')battler.addState(battler.deathStateId());
-                    if(step.show==='show'){battler.startDamagePopup?.();log?.displayActionResults?.(subject,battler);}
-                }return;
-            }
-            if(step.type==='item'){const amount=number(step.amount);if(step.kind==='gold')$gameParty.gainGold(amount);else $gameParty.gainItem(({items:root.$dataItems,weapons:root.$dataWeapons,armors:root.$dataArmors})[step.kind]?.[step.itemId],amount);return;}
-            if(step.type==='switch'){$gameSwitches.setValue(step.switchId,step.operation==='toggle'?!$gameSwitches.value(step.switchId):step.operation==='on');return;}
-            if(step.type==='variable'){const a=$gameVariables.value(step.variableId),b=number(step.amount),v={set:()=>b,add:()=>a+b,subtract:()=>a-b,multiply:()=>a*b,divide:()=>b?a/b:0,modulo:()=>b?a%b:0}[step.operation]();$gameVariables.setValue(step.variableId,v);return;}
-            if(['bgm','bgs','se'].includes(step.type)){
-                const suffix=step.type==='bgm'?'Bgm':step.type==='bgs'?'Bgs':'Se',op=step.operation;
-                if(op==='play')AudioManager['play'+suffix]({name:step.name,volume:step.volume,pitch:step.pitch,pan:step.pan});
-                else if(op==='system')SoundManager.playSystemSound(step.soundId);
-                else if(op==='save')audioSaved[suffix]=AudioManager['save'+suffix]?.();
-                else if(op==='resume'&&audioSaved[suffix])AudioManager['replay'+suffix]?.(audioSaved[suffix]);
-                else if(op==='fadeIn'||op==='fadeOut')AudioManager[op+suffix]?.(step.fade/60);
-                else if(op==='stop')AudioManager['stop'+suffix]?.();return;
-            }
-            if(step.type==='movie'){Video.play('movies/'+step.name);return {blocking:true,isPlaying:()=>Video.isPlaying(),cancel:()=>Video._element?.pause()};}
+            // Game data, audio and the screen: the steps shared with a battle on the map.
+            const shared=P.gameCue(step,{chosen,subject,number,audioSaved,feedback:battler=>{battler.startDamagePopup?.();log?.displayActionResults?.(subject,battler);}});if(shared)return shared.ticket;
             if(step.type==='battlestatus'||step.type==='battlelog'){
                 const window=step.type==='battlelog'?log:SceneManager._scene?._statusWindow;if(!window)return;
                 const visible=window.visible;restore.push(()=>window.visible=visible);
@@ -399,8 +416,6 @@
                 else if(step.operation==='restore')[a.bitmap,b.bitmap]=adapter._savedBattleback||adapter._battleback;
                 else{a.bitmap=ImageManager.loadBattleback1(step.floor);b.bitmap=ImageManager.loadBattleback2(step.background);}return;
             }
-            if(step.type==='flash'){$gameScreen.startFlash([step.red,step.green,step.blue,step.alpha],step.duration);return;}
-            if(step.type==='shake'){$gameScreen.startShake(step.power,step.speed,step.duration);return;}
             if(step.type==='tint'&&step.space!=='battler'){
                 if(step.space==='screen'){const old=$gameScreen.tone().slice();restore.push(()=>$gameScreen.startTint(old,0));$gameScreen.startTint([step.red,step.green,step.blue,step.gray],step.duration);}
                 else{const sprite=step.space==='upper'?ss._back2Sprite:ss._back1Sprite;if(sprite){const tone=sprite.getColorTone();restore.push(()=>sprite.setColorTone(tone));tween(sprite,'tone',[step.red,step.green,step.blue,step.gray],step.duration,start,v=>sprite.setColorTone(v),tone);}}return;

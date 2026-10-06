@@ -742,11 +742,14 @@ class TilemapManager {
         // Create layers
         this.layers.checkerboard = new PIXI.Container();
         this.layers.parallax = new PIXI.Container();
-        // Map image layers ($dataMap.rrImageLayers): painted ground over the lower
-        // tiles, and light/canopy/sky over everything (dimmed so the map stays editable).
-        this.layers.imageGround = new PIXI.Container();
-        this.layers.imageOver = new PIXI.Container();
-        this.layers.imageOver.alpha = 0.6;
+        // Map image layers ($dataMap.rrImageLayers), one container per depth in the game's
+        // order: behind the map, over the lower tiles, with the characters, over everything;
+        // and the marks of the tiles a selected layer blocks. Nothing in them takes input.
+        for (const name of ['imageBack', 'imageGround', 'imageSame', 'imageOver', 'imageMarks']) {
+            this.layers[name] = new PIXI.Container();
+            this.layers[name].eventMode = 'none';
+            this.layers[name].interactiveChildren = false;
+        }
         this.layers.ground = new PIXI.Container();
         this.layers.lower1 = new PIXI.Container();
         this.layers.lower2 = new PIXI.Container();
@@ -847,6 +850,7 @@ class TilemapManager {
         this.container.addChild(this._hitSurface);
         this.container.addChild(this.layers.checkerboard);
         this.container.addChild(this.layers.parallax);
+        this.container.addChild(this.layers.imageBack);
         this.container.addChild(this.layers.ground);
         this.container.addChild(this.layers.a1ground);
         this.container.addChild(this.layers.lower1);
@@ -857,11 +861,13 @@ class TilemapManager {
         this.container.addChild(this.layers.lower3);
         this.container.addChild(this.layers.a1lower3);
         this.container.addChild(this.layers.imageGround);
+        this.container.addChild(this.layers.imageSame);
         this.container.addChild(this.layers.upper0);
         this.container.addChild(this.layers.upper1);
         this.container.addChild(this.layers.upper2);
         this.container.addChild(this.layers.upper3);
         this.container.addChild(this.layers.imageOver);
+        this.container.addChild(this.layers.imageMarks);
         this.container.addChild(this.layers.layerHighlight);
         this.drawGrid();
         this.drawPassage();
@@ -969,9 +975,12 @@ class TilemapManager {
         layer.eventMode = "none";
         const marks = new PIXI.Graphics();
         const inset = Math.max(2, Math.round(tw * 0.18));
+        const imageSolid = (typeof window !== "undefined" && window.reactor?.mapImageLayersManager?.solidTest(map)) || null;
         for (let y = 0; y < map.height; y++) {
             for (let x = 0; x < map.width; x++) {
-                const { blocked } = TilemapManager.tilePassage(map.data, map.width, map.height, flags, x, y, roomFloor);
+                // A picture at the characters' depth stops movement where it is solid, as an impassable tile does.
+                const blocked = imageSolid && imageSolid(x, y) ? 0x0f
+                    : TilemapManager.tilePassage(map.data, map.width, map.height, flags, x, y, roomFloor).blocked;
                 if (!blocked) continue;
                 const px = x * tw, py = y * th;
                 if (blocked === 0x0f) {
@@ -2781,30 +2790,13 @@ class TilemapManager {
 
     /**
      * Draw the map's image layers (rrImageLayers) as the game draws them at the
-     * start of play: each at its base name (variables at 0), locked to the map.
+     * start of play. The Image Layers tool does the drawing (MapImageLayersManager.drawFlat),
+     * since it draws them again whenever a layer is edited.
      */
-    async renderImageLayers() {
-        const map = this.currentMap, generation = this._mapLoadGeneration;
-        const targets = [this.layers?.imageGround, this.layers?.imageOver];
-        for (const layer of targets) if (layer) layer.removeChildren().forEach(child => child.destroy?.({ children: true }));
-        if (!map || !Array.isArray(map.rrImageLayers) || typeof PIXI === 'undefined' || !this.path) return;
-        const root = this.path.join(this.projectPath, 'img', 'parallaxes');
-        for (const spec of map.rrImageLayers) {
-            if (!spec || !spec.name) continue;
-            const url = typeof RRAssetFiles !== 'undefined' ? RRAssetFiles.imageUrlFor(root, spec.name) : null;
-            if (!url) continue;
-            try {
-                const texture = await PIXI.Assets.load(url);
-                if (this.destroyed || generation !== this._mapLoadGeneration || this.currentMap !== map) return;
-                texture.source.style.scaleMode = 'nearest';
-                const sprite = new PIXI.Sprite(texture);
-                sprite.eventMode = 'none';
-                if (typeof spec.opacity === 'number') sprite.alpha = spec.opacity / 255;
-                (spec.layer === 'over' ? this.layers.imageOver : this.layers.imageGround).addChild(sprite);
-            } catch (error) {
-                console.warn(`Map image layer ${spec.name} could not be loaded.`, error);
-            }
-        }
+    renderImageLayers() {
+        this.requestRender();
+        const tool = typeof window !== 'undefined' ? window.reactor?.mapImageLayersManager : null;
+        return tool ? tool.drawFlat(this) : Promise.resolve();
     }
 
     // Render parallax background
@@ -3830,6 +3822,9 @@ class TilemapManager {
             if (sidecar && typeof sidecar === 'object' && !Array.isArray(sidecar)) {
                 mapData.reactor3d = sidecar;
                 this.unreadableMapSidecars.delete(filePath);
+                // A map saved before footprints were centred on their events (0.98.8) is read as it
+                // was: each sized event moves to its footprint's middle tile, covering the same tiles.
+                if (elevation && elevation.convertEventSizes) elevation.convertEventSizes(mapData);
                 // A map resized elsewhere (RPG Maker, a hand edit) keeps a
                 // sidecar sized for the old map; its heights and terrain are
                 // refitted here, once, so every reader indexes the map it has.

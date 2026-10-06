@@ -124,7 +124,7 @@
         plan.height = Math.max(1, Math.min(24, Math.ceil(top / storey)));
         // Lights standing in the box (not the sun, not one riding a character): heights are above the ground already.
         const lights = (Array.isArray(sidecar.lights) ? sidecar.lights : []).filter(light => light && light.type !== 'sun' && !light.attach && inArea(Number(light.x), Number(light.y)))
-            .map(light => { const out = Object.assign({}, light, { x: round(Number(light.x) - x0), y: round(Number(light.y) - y0) }); delete out.id; delete out.tag; return out; });
+            .map(light => { const out = Object.assign({}, light, { x: round(Number(light.x) - x0), y: round(Number(light.y) - y0) }); delete out.id; if (!out.tag || /^structure:\d+$/.test(String(out.tag))) delete out.tag; delete out.structure; return out; });
         if (lights.length) plan.lights = lights;
         const surfaces = (Array.isArray(sidecar.mediaSurfaces) ? sidecar.mediaSurfaces : []).filter(row => row && (!row.target || row.target === 'map') && inArea(Number(row.x), Number(row.y)))
             .map(row => { const out = Object.assign({}, row, { x: round(Number(row.x) - x0), y: round(Number(row.y) - y0) }); delete out.id; delete out.structure; return out; });

@@ -1515,8 +1515,10 @@ class ResourceManager {
                 const file = files[0];
                 try {
                     const defaultName = file.name.slice(0, -this.path.extname(file.name).length);
-                    const modelName = window.prompt(this.text('Model folder name:'), defaultName);
-                    if (modelName === null) return;
+                    const modelName = await RRDialog.prompt(this.text('Model folder name:'), {
+                        title: this.text('Import 3D Model'), value: defaultName, ok: this.text('Import')
+                    });
+                    if (modelName === null || generation !== this.operationGeneration) return;
                     this.projectController.verifyProjectOwnership(ownership, { requireWrite: true });
                     const bytes = this.readImportFile(file.path);
                     const map3d = this.projectController.mapEditor3D;
@@ -1624,7 +1626,7 @@ class ResourceManager {
                         const replace = await this.uiManager.showConfirm(
                             this.text('Replace resource?'),
                             this.text('{file} has the same project name as {names}. Replace the existing resource?', { file: file.name, names }),
-                            this.text('Replace'), this.text('Cancel'));
+                            this.text('Replace'), this.text('Cancel'), { danger: true });
                         if (!replace) continue;
                         if (generation !== this.operationGeneration) return;
                         this.projectController.verifyProjectOwnership(ownership, { requireWrite: true });
@@ -1751,7 +1753,7 @@ class ResourceManager {
             this.countText(paths.length,
                 '1 destination file already exists: {examples}. Replace it?',
                 '{count} destination files already exist: {examples}. Replace them?', { examples: examples + more }),
-            this.text('Replace'), this.text('Cancel'));
+            this.text('Replace'), this.text('Cancel'), { danger: true });
     }
 
     async deleteSelected() {
@@ -1762,7 +1764,7 @@ class ResourceManager {
         const confirmed = await this.uiManager.showConfirm(
             this.text('Delete resource?'),
             this.text('{path} will be removed permanently. References are not checked and may break.', { path: record.relativePath }),
-            this.text('Delete'), this.text('Cancel'));
+            this.text('Delete'), this.text('Cancel'), { danger: true });
         if (!confirmed) return;
         try {
             this.projectController.verifyProjectOwnership(ownership, { requireWrite: true });

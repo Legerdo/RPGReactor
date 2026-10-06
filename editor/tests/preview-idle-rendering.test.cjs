@@ -169,8 +169,11 @@ test('the preview loops are wired to their invalidation, not a timer', () => {
     const pageTick = page.slice(page.indexOf('const tick = () => {', page.indexOf('_renderModelPreview')));
     assert.match(pageTick, /^const tick = \(\) => \{[\s\S]*?if \(sizeDirty \|\| !unwatchSize\) \{[\s\S]*?getBoundingClientRect\(\)/,
         'the event page model is measured on a resize only');
-    assert.match(pageTick, /if \(dirty\) \{\s*dirty = false;[\s\S]*?Reactor3D\.renderScene\(renderer, scene, camera\);\s*\}/,
-        'and drawn only when its picture changed');
+    assert.match(pageTick, /if \(dirty\) \{[\s\S]*?dirty = ModelPreview3D\.render\(renderer, scene, camera\);\s*\}/,
+        'and drawn only when its picture changed, or while the draw left the model out');
+    for (const [name, source] of [['EventPageEditor', page], ['ModelGraphicPicker', read('event', 'ModelGraphicPicker.js')], ['Database3DEditor', read('database', 'Database3DEditor.js')]]) {
+        assert.doesNotMatch(source, /Reactor3D\.renderScene\(/, `${name} draws its still preview through ModelPreview3D.render, which knows when a mesh sat the draw out`);
+    }
 
     const picker = read('event', 'ModelGraphicPicker.js');
     assert.match(picker, /for \(const type of ModelGraphicPicker\.PREVIEW_INPUT_EVENTS\) \{\s*modal\.addEventListener\(type, \(\) => \{ this\._lastInputAt = performance\.now\(\); \}, true\);/,
@@ -194,4 +197,99 @@ test('the preview loops are wired to their invalidation, not a timer', () => {
     assert.match(animation, /if \(renderFrameCount === 1\) \{\s*const err = gl\.getError\(\);/,
         'playback asks the GPU for errors on the first frame only');
     assert.doesNotMatch(animation, /const err = gl\.getError\(\);\s*if \(err !== gl\.NO_ERROR && renderFrameCount === 1\)/);
+});
+
+// The draw path leaves out a mesh whose shaders are still compiling or whose
+// pictures are still uploading and shows it a frame later. A preview that
+// draws once per change has no later frame: the event page's 3D model box
+// stayed empty. A draw that held something back asks for another.
+function warmupDraws(renders) {
+    const warmup = { lastHidden: 0, holding: 0 };
+    return { warmup, renderScene: () => { renders.push(warmup.holding); warmup.lastHidden = warmup.holding; } };
+}
+
+test('a still preview keeps drawing while the draw holds its model back', t => {
+    const f = previewFixture(t);
+    const draws = warmupDraws(f.renders);
+    global.Reactor3D.renderScene = draws.renderScene;
+    global.Reactor3D.ShaderWarmup = draws.warmup;
+    draws.warmup.holding = 1;
+    f.step();
+    assert.deepEqual(f.renders, [1], 'the first draw leaves the model out (its shaders are compiling)');
+    f.step();
+    f.step();
+    assert.deepEqual(f.renders, [1, 1, 1], 'so the preview draws again each frame');
+    draws.warmup.holding = 0;
+    f.step();
+    assert.deepEqual(f.renders, [1, 1, 1, 0], 'until a draw shows everything');
+    for (let i = 0; i < 30; i++) f.step();
+    assert.equal(f.renders.length, 4, 'and then rests');
+    f.preview.dispose();
+});
+
+test('the event page shows its 3D model once the shaders are ready', async t => {
+    const os = require('node:os');
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-event-model-'));
+    t.after(() => fs.rmSync(project, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(project, '3d', 'Actors', 'Guard', 'source'), { recursive: true });
+    fs.writeFileSync(path.join(project, '3d', 'Actors', 'Guard', 'source', 'Guard.glb'), 'glb');
+
+    const frames = [], renders = [];
+    const draws = warmupDraws(renders);
+    const vector = () => ({ set() {}, setScalar() {}, sub() {} });
+    const node = { isMesh: true, userData: {}, material: {} };
+    class Group {
+        constructor() { this.children = []; this.position = vector(); this.scale = vector(); }
+        add(child) { this.children.push(child); }
+        traverse(fn) { fn(this); for (const child of this.children) child.traverse(fn); }
+    }
+    withGlobals(t, {
+        document: { documentElement: { getAttribute: () => 'dark' } },
+        getComputedStyle: () => ({ getPropertyValue: () => '#101010' }),
+        requestAnimationFrame: fn => { frames.push(fn); return frames.length; },
+        cancelAnimationFrame: () => {},
+        ResizeObserver: class { observe() {} disconnect() {} },
+        ModelPreview3D,
+        THREE: {
+            Scene: class { add() {} },
+            Group,
+            Color: class { copy() { return this; } },
+            Vector3: class {},
+            Box3: class { constructor() { this.min = { y: 0 }; this.max = { y: 1 }; } setFromObject() { return this; } getCenter(v) { return v; } },
+            WebGLRenderer: class { setPixelRatio() {} getPixelRatio() { return 1; } setSize() {} dispose() {} }
+        },
+        Reactor3D: {
+            SHADER_LIGHTS: 4,
+            extensionsLoaded: () => true,
+            readModelAsync: async () => ({ userData: { glbSize: { x: 1, y: 1, z: 1 } }, traverse(fn) { fn(node); } }),
+            cloneModelTemplate: () => ({ scale: vector(), position: vector(), traverse(fn) { fn(node); } }),
+            applyEventModelPose() {},
+            createCamera: () => ({ updateProjectionMatrix() {} }),
+            aimCamera() {},
+            renderScene: draws.renderScene,
+            ShaderWarmup: draws.warmup
+        }
+    });
+    withGlobals(t, { window: { devicePixelRatio: 1, THREE: global.THREE, Reactor3D: global.Reactor3D } });
+    const EventPageEditor = require(path.join(repoRoot, 'src', 'event', 'EventPageEditor.js'));
+    const page = Object.create(EventPageEditor.prototype);
+    page.projectController = { getCurrentProject: () => ({ path: project }) };
+    const canvas = { width: 0, height: 0, isConnected: true, getBoundingClientRect: () => ({ width: 380, height: 100 }) };
+    const step = () => frames.shift()(0);
+
+    draws.warmup.holding = 1;
+    const built = page._renderModelPreview(canvas, { name: 'Actors/Guard', file: 'Guard', ext: '.glb' }, { image: { direction: 2 } });
+    step();
+    await built;
+    assert.ok(page._modelPreviewRenderer, 'the preview is built');
+    step();
+    assert.deepEqual(renders, [1], 'the first draw leaves the model out while its shaders compile');
+    step();
+    assert.deepEqual(renders, [1, 1], 'so the box is drawn again');
+    draws.warmup.holding = 0;
+    step();
+    assert.deepEqual(renders, [1, 1, 0], 'and shows the model as soon as it may be drawn');
+    for (let i = 0; i < 20; i++) step();
+    assert.equal(renders.length, 3, 'a still model is not drawn again after that');
+    page._disposeModelPreview();
 });

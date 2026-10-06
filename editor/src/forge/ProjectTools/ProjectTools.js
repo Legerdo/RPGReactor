@@ -110,6 +110,11 @@ class ProjectTools {
         this._closeTool();
     }
 
+    /** A tool is open: mounting this page again would close it and lose what it holds unsaved. */
+    holdsWork() {
+        return !!(this.frame && this.activeTool);
+    }
+
     _syncProjectPath() {
         const project = this.projectController?.getCurrentProject?.() || this.projectController?.currentProject;
         this.projectPath = project?.path || null;
@@ -261,9 +266,9 @@ class ProjectTools {
         }
     }
 
-    _confirmAndOpen(tool) {
+    async _confirmAndOpen(tool) {
         const message = `${this._t('Run this project tool?')}\n\n${tool.relPath}\n\n${this._t('A tool runs sandboxed with no file access, and can only read and write database files through the editor. Only run tools you trust.')}`;
-        if (!window.confirm(message)) return;
+        if (!(await RRDialog.confirm(message, { title: this._t('Run Project Tool'), ok: this._t('Run Tool') }))) return;
         this._openTool(tool);
     }
 
@@ -275,7 +280,7 @@ class ProjectTools {
             this._verifyProject();
             html = this._readFile(tool.relPath, 'utf8');
         } catch (err) {
-            alert(`${this._t('Could not read the tool file.')}\n\n${tool.relPath}\n${err.message}`);
+            RRDialog.alert(`${this._t('Could not read the tool file.')}\n\n${tool.relPath}\n${err.message}`, { title: this._t('Run Project Tool'), kind: 'error' });
             return;
         }
 
@@ -457,7 +462,7 @@ class ProjectTools {
                 throw new Error('Invalid database data');
             }
             const confirmMsg = `${this._t('Save changes from this tool?')}\n\ndata/${file}`;
-            if (!window.confirm(confirmMsg)) return reply(false, 'Cancelled');
+            if (!(await RRDialog.confirm(confirmMsg, { title: this._t('Save Tool Changes'), ok: this._t('Save') }))) return reply(false, 'Cancelled');
             validate();
 
             const keys = files.map(name => baselines.get(name).key);
@@ -493,7 +498,7 @@ class ProjectTools {
             reply(true);
         } catch (err) {
             reply(false, err.message);
-            if (current()) alert(`${this._t('Could not save.')}\n\n${this._saveFailureText(err.message)}`);
+            if (current()) RRDialog.alert(`${this._t('Could not save.')}\n\n${this._saveFailureText(err.message)}`, { title: this._t('Save Tool Changes'), kind: 'error' });
         } finally {
             if (this._saveInFlight === token) this._saveInFlight = null;
         }

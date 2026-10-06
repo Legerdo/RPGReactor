@@ -3,6 +3,19 @@
 // and reactor_fight.js in a fresh context, with a tiny database and a walkable
 // map. `run(frames)` steps it as Scene_Map does; messages close themselves
 // and are kept in `messages`.
+//
+// The battle's files are loaded in the order the game boots them
+// (runtime/reactor_main.js):
+//   reactor_controls.js        the names of keys and buttons only (`controls: true`: the whole file)
+//   reactor_fight_look.js      `look: true`
+//   reactor_fight.js           always
+//   reactor_fight_flow.js      always
+//   reactor_fight_tactical.js  `tactical: true`
+//   reactor_fight_action.js    `action: true`
+//   reactor_fight_menu.js      with the Tactical driver, which it stands on
+//   reactor_fight_classic.js   `classic: true`
+//   reactor_vehicles.js, reactor_vehicles_drive.js, reactor_vehicles_feel.js, reactor_vehicles_hints.js   `vehicles: true`
+// `prepare(ctx)` runs just before them, for what a file must find when it loads (a map scene, windows).
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -29,7 +42,25 @@ function jsonExSource() {
     return io.slice(start, end);
 }
 
-const fightSource = () => fs.readFileSync(path.join(runtimeRoot, 'reactor_fight.js'), 'utf8');
+/** One of the battle's files (runtime/reactor_fight*.js, reactor_controls.js), as the game boots it. */
+const battleSource = name => fs.readFileSync(path.join(runtimeRoot, name), 'utf8');
+
+// What the controls file names: keys and buttons as a player knows them, and the device used last.
+const CONTROL_NAMES = ['KEY_NAMES', 'BUTTON_NAMES', 'keyName', 'buttonName', 'keyRank', 'labelFor', 'device', 'noteDevice', 'onDevice'];
+
+// The vehicle game files, in the order the game boots them: the last of the engine's own files (runtime/reactor_main.js).
+const VEHICLE_FILES = ['reactor_vehicles.js', 'reactor_vehicles_drive.js', 'reactor_vehicles_feel.js', 'reactor_vehicles_hints.js'];
+
+/**
+ * The names of keys and buttons, which a battle's hint line and menu show. This world's Input has no key maps to
+ * switch, so the rest of the controls file (the project's keys, Jump, a battle's own bindings) is left out unless
+ * `whole`: a test of those loads the file itself, or asks for `controls: true` and gives Input its maps.
+ */
+function loadControls(ctx, whole) {
+    vm.runInContext(battleSource('reactor_controls.js'), ctx, { filename: 'reactor_controls.js' });
+    if (whole) return;
+    vm.runInContext(`ReactorControls = (names => { const own = {}; for (const name of names) own[name] = ReactorControls[name]; return own; })(${JSON.stringify(CONTROL_NAMES)});`, ctx);
+}
 
 const filled = value => Array.from({ length: 100 }, () => value);
 const page = (overrides = {}) => Object.assign({
@@ -99,7 +130,7 @@ function database() {
  * $dataSystem. Returns the context with `run`, `messages` and `pushed` (the
  * scenes SceneManager was asked for).
  */
-function fightWorld({ events = [], system = {}, mapNote = '', mapSidecar = null } = {}) {
+function fightWorld({ events = [], system = {}, mapNote = '', mapSidecar = null, tactical = false, action = false, controls = false, look = false, classic = false, vehicles = false, prepare = null } = {}) {
     // The context's own built-ins, so the engine's prototype extensions stay inside it.
     const ctx = { console, setTimeout, clearTimeout, Bitmap: function() {}, Input: function() {} };
     vm.createContext(ctx);
@@ -121,7 +152,25 @@ function fightWorld({ events = [], system = {}, mapNote = '', mapSidecar = null 
         AudioManager.saveBgm = () => ({ name: "map", volume: 90, pitch: 100, pan: 0, pos: 0 });
         AudioManager.saveBgs = () => ({ name: "", volume: 90, pitch: 100, pan: 0, pos: 0 });
     `, ctx);
-    vm.runInContext(fightSource(), ctx, { filename: 'reactor_fight.js' });
+    // The battle's files in the order the game boots them (runtime/reactor_main.js).
+    const load = name => vm.runInContext(battleSource(name), ctx, { filename: name });
+    if (prepare) prepare(ctx);
+    loadControls(ctx, controls);
+    // What a unit stands as (the look rule), for the tests that ask for it.
+    if (look) load('reactor_fight_look.js');
+    load('reactor_fight.js');
+    // How a battle begins by itself: a map's own start, the Test battle.
+    load('reactor_fight_flow.js');
+    // The tactical driver (the player's controls, ranges, AI) for the tests that ask for it.
+    if (tactical) load('reactor_fight_tactical.js');
+    // The action driver (real-time battles) likewise.
+    if (action) load('reactor_fight_action.js');
+    // The battle menu stands on the tactical driver.
+    if (tactical) load('reactor_fight_menu.js');
+    // Placed enemies on a Classic map (the battle screen), for the tests that ask for it.
+    if (classic) load('reactor_fight_classic.js');
+    // The vehicle game files, after every battle file as the game boots them, for the tests that ask for them.
+    if (vehicles) for (const name of VEHICLE_FILES) load(name);
     Object.assign(ctx, database());
     Object.assign(ctx.$dataSystem, system);
     const width = 20, height = 15, size = width * height;
@@ -154,4 +203,4 @@ function fightWorld({ events = [], system = {}, mapNote = '', mapSidecar = null 
     return ctx;
 }
 
-module.exports = { fightWorld, event, page };
+module.exports = { fightWorld, event, page, VEHICLE_FILES };

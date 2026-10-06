@@ -1141,6 +1141,16 @@ Game_CharacterBase.prototype.canPass = function(x, y, d) {
 Game_CharacterBase.prototype.canPassDiagonally = function(x, y, horz, vert) {
     const x2 = $gameMap.roundXWithDirection(x, horz);
     const y2 = $gameMap.roundYWithDirection(y, vert);
+    // On a 3D map a body is as wide as its cell, so a diagonal step crosses
+    // both cells beside it: both have to be open, and nothing at the corner
+    // they share may stand over the walker. A corner cut past a wall, a post
+    // or a crate walked through it. The straight steps are still there to
+    // take, so the walk goes round.
+    if (typeof ReactorPhysics !== "undefined" && ReactorPhysics.squareCorners && ReactorPhysics.squareCorners(this)) {
+        return !ReactorPhysics.cornerBlocks(this, x, y, horz, vert)
+            && this.canPass(x, y, vert) && this.canPass(x, y2, horz)
+            && this.canPass(x, y, horz) && this.canPass(x2, y, vert);
+    }
     if (this.canPass(x, y, vert) && this.canPass(x, y2, horz)) {
         return true;
     }
@@ -1167,6 +1177,12 @@ Game_CharacterBase.prototype.isCollidedWithCharacters = function(x, y) {
 };
 
 Game_CharacterBase.prototype.isCollidedWithEvents = function(x, y) {
+    // An event is in the way on every tile its body covers (its own tile, its
+    // typed size, or the footprint of the model it stands as), within this
+    // character's height.
+    if (typeof Reactor3D !== "undefined" && Reactor3D.bodyBlocksTile) {
+        return Reactor3D.bodyBlocksTile(this, x, y);
+    }
     const events = $gameMap.eventsXyNt(x, y);
     return events.some(event => event.isNormalPriority());
 };
@@ -1718,6 +1734,8 @@ Game_Character.prototype.setMoveRoute = function(moveRoute) {
     } else {
         this._moveRoute = moveRoute;
         this._moveRouteIndex = 0;
+        // A walk to a tile belongs to the step of the route that asked for it.
+        this._reactorWalk = null;
     }
 };
 
@@ -1729,6 +1747,7 @@ Game_Character.prototype.forceMoveRoute = function(moveRoute) {
     this._moveRouteIndex = 0;
     this._moveRouteForcing = true;
     this._waitCount = 0;
+    this._reactorWalk = null;
 };
 
 Game_Character.prototype.updateStop = function() {
@@ -1741,6 +1760,11 @@ Game_Character.prototype.updateStop = function() {
 Game_Character.prototype.updateRoutineMove = function() {
     if (this._waitCount > 0) {
         this._waitCount--;
+    } else if (this._reactorWalk) {
+        // A Move to Tile step keeps the route until its walk ends.
+        if (this.reactorUpdateWalk()) {
+            this.advanceMoveRouteIndex();
+        }
     } else {
         this.setMovementSuccess(true);
         const command = this._moveRoute.list[this._moveRouteIndex];
@@ -2002,6 +2026,10 @@ Game_Character.prototype.processRouteEnd = function() {
 
 Game_Character.prototype.advanceMoveRouteIndex = function() {
     const moveRoute = this._moveRoute;
+    // The step that began a walk to a tile is passed when the walk ends.
+    if (this._reactorWalk) {
+        return;
+    }
     if (moveRoute && (this.isMovementSucceeded() || moveRoute.skippable)) {
         let numCommands = moveRoute.list.length - 1;
         this._moveRouteIndex++;
@@ -2208,6 +2236,497 @@ Game_Character.prototype.findDirectionTo = function(goalX, goalY) {
 
 Game_Character.prototype.searchLimit = function() {
     return 12;
+};
+
+//-----------------------------------------------------------------------------
+// Walking to a tile by path finding: a route's Move to Tile step
+// (`reactorMoveToTile`, the Script entry the editor writes) and the same walk
+// asked for outside a route (`reactorWalkTo`: a script, Follower Orders).
+// The goal is kept on the character and saved with it; the path is not, and
+// is found again after a load.
+
+/**
+ * Tiles one search opens before it settles for the nearest tile it reached:
+ * the walk goes that far and looks again from there, so a way longer than
+ * one search finds is walked in legs.
+ */
+Game_Character.WALK_NODES = 3000;
+/** Tiles a walk that takes no way but the whole way opens (a follower's own walk back to the line). */
+Game_Character.WALK_NODES_NEAR = 600;
+/** How far apart two heights are and still the same floor of a 3D map. */
+Game_Character.WALK_FLOOR_REACH = 1.2;
+/** What a tile on another floor than the goal's counts for in a search, in steps: the tile over the goal is not near it. */
+Game_Character.WALK_FLOOR_STEPS = 6;
+/**
+ * A search runs a slice a frame: until this many milliseconds are spent, and
+ * at least the fewest and at most the most tiles whatever the clock says
+ * (a step test on a 3D map costs about 25 microseconds on a desktop).
+ */
+Game_Character.WALK_SLICE_MS = 1.5;
+Game_Character.WALK_SLICE_FEWEST = 8;
+Game_Character.WALK_SLICE_MOST = 96;
+/** Frames a walker waits when a step of its path is blocked before it looks for another way. */
+Game_Character.WALK_BLOCKED_WAIT = 12;
+/** Frames before a goal that could not be reached is tried again: doubled each time, up to the longest. */
+Game_Character.WALK_RETRY_WAIT = 30;
+Game_Character.WALK_RETRY_LONGEST = 300;
+
+// The path each walker follows, and the one search under way: neither is saved.
+Game_Character._walkPaths = new WeakMap();
+Game_Character._walkSearch = null;
+Game_Character._walkScratch = null;
+
+/** The arrays every search uses, made once: a tile opened is a row in each. */
+Game_Character.walkScratch = function() {
+    const capacity = Game_Character.WALK_NODES * 4 + 16;
+    let scratch = Game_Character._walkScratch;
+    if (!scratch || scratch.capacity < capacity) {
+        scratch = Game_Character._walkScratch = {
+            capacity,
+            x: new Int32Array(capacity), y: new Int32Array(capacity), height: new Float32Array(capacity),
+            cost: new Int32Array(capacity), rank: new Int32Array(capacity), left: new Int32Array(capacity),
+            parent: new Int32Array(capacity), direction: new Uint8Array(capacity), closed: new Uint8Array(capacity),
+            heap: new Int32Array(capacity * 2), seen: new Map()
+        };
+    }
+    return scratch;
+};
+
+/**
+ * A route's Move to Tile step: the character walks to the tile by path
+ * finding and the route stays on this step until it stands there. Where the
+ * tile cannot be reached it goes as near as it can; a route with Skip If
+ * Cannot Move then goes on to its next step, and any other tries again at
+ * intervals, as a blocked step does. A second call replaces the first.
+ * `height` names the floor of a 3D map the tile is meant on (without it,
+ * whichever floor of the tile is come to first); `whole` takes the whole way
+ * or none: no walk to somewhere near (a number: nor a way of more steps
+ * than that).
+ */
+Game_Character.prototype.reactorMoveToTile = function(x, y, height, whole) {
+    x = Math.floor(Number(x));
+    y = Math.floor(Number(y));
+    Game_Character._walkPaths.delete(this);
+    this._reactorWalk = null;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !$gameMap.isValid(x, y)) {
+        return;
+    }
+    this._reactorWalk = { x: x, y: y, wait: 0, retry: 0 };
+    if (Number.isFinite(height)) {
+        this._reactorWalk.h = height;
+    }
+    if (whole) {
+        this._reactorWalk.whole = true;
+        if (whole > 1) {
+            this._reactorWalk.most = Math.floor(whole);
+        }
+    }
+    if (this.reactorWalkArrived()) {
+        this._reactorWalk = null;
+        return;
+    }
+    // Its first step is taken in the frame the route reaches it.
+    if (this.reactorUpdateWalk()) {
+        this._reactorWalk = null;
+    }
+};
+
+/**
+ * The same walk from outside a route: a forced route of that one step, so
+ * the character's own route waits for it and `isMoveRouteForcing` says
+ * whether it is still on its way. `skippable` false keeps trying where the
+ * tile cannot be reached.
+ */
+Game_Character.prototype.reactorWalkTo = function(x, y, skippable = true) {
+    this.forceMoveRoute(Game_Character.walkRoute(x, y, skippable));
+};
+
+/** The one-step route that walks to a tile (`height` and `whole` as `reactorMoveToTile` takes them). */
+Game_Character.walkRoute = function(x, y, skippable = true, height, whole) {
+    const floor = Number.isFinite(height) ? String(Math.round(height * 1000) / 1000) : "undefined";
+    const text = "this.reactorMoveToTile(" + Math.floor(Number(x) || 0) + ", " + Math.floor(Number(y) || 0)
+        + (Number.isFinite(height) || whole ? ", " + floor + ", " + (whole > 1 ? Math.floor(whole) : !!whole) : "") + ");";
+    return {
+        list: [{ code: Game_Character.ROUTE_SCRIPT, parameters: [text] }, { code: Game_Character.ROUTE_END, parameters: [] }],
+        repeat: false, skippable: !!skippable, wait: false
+    };
+};
+
+/** Whether a walk to a tile is under way. */
+Game_Character.prototype.reactorIsWalking = function() {
+    return !!this._reactorWalk;
+};
+
+/** Whether the character stands on the tile its walk is to, on the floor meant where one is named. */
+Game_Character.prototype.reactorWalkArrived = function() {
+    const walk = this._reactorWalk;
+    return !!walk && this.x === walk.x && this.y === walk.y
+        && (walk.h === undefined || Math.abs(this.reactorWalkHeight() - walk.h) <= Game_Character.WALK_FLOOR_REACH);
+};
+
+/** Whether a walk may take the step from (x, y) toward `d`: the character's own step rule. */
+Game_Character.prototype.reactorWalkAllows = function(x, y, d) {
+    return this.canPass(x, y, d);
+};
+
+/**
+ * One step of a walk from tile (x, y), standing at `height` there (the level
+ * of a 3D map; 0 on a flat one): the height stood at on the next tile, or
+ * NaN where the step cannot be taken. The character is asked as if it stood
+ * on that tile at that height, so the slopes, ledges and floors of a 3D map
+ * are judged by the rule its own steps are.
+ */
+Game_Character.prototype.reactorWalkStep = function(x, y, d, height) {
+    const world = typeof Reactor3D !== "undefined" && typeof $dataMap !== "undefined" && $dataMap
+        && Reactor3D.isMap3D && Reactor3D.isMap3D($dataMap) ? Reactor3D : null;
+    const ground = this._reactorGround;
+    const alt = this._reactorAlt;
+    let allowed = false;
+    if (world) {
+        this._reactorGround = height;
+        if (Number.isFinite(alt)) {
+            this._reactorAlt = height;
+        }
+    }
+    try {
+        allowed = this.reactorWalkAllows(x, y, d);
+    } finally {
+        this._reactorGround = ground;
+        this._reactorAlt = alt;
+    }
+    if (!allowed) {
+        return NaN;
+    }
+    if (!world) {
+        return 0;
+    }
+    const x2 = $gameMap.roundXWithDirection(x, d);
+    const y2 = $gameMap.roundYWithDirection(y, d);
+    // As the terrain's own rule reads a step: the edge between the two tiles, then the middle of the next.
+    const edgeX = x + (d === 6 ? 1 : d === 4 ? 0 : 0.5);
+    const edgeY = y + (d === 2 ? 1 : d === 8 ? 0 : 0.5);
+    const edge = world.groundHeightAt($dataMap, edgeX, edgeY, height);
+    return world.groundHeightAt($dataMap, x2 + 0.5, y2 + 0.5, edge);
+};
+
+/** The height a walk starts from: where the character stands on a 3D map (on a ladder, the height it holds), 0 on a flat one. */
+Game_Character.prototype.reactorWalkHeight = function() {
+    if (this._reactorOnLadder && Number.isFinite(this._reactorAlt)) {
+        return this._reactorAlt;
+    }
+    if (Number.isFinite(this._reactorGround)) {
+        return this._reactorGround;
+    }
+    return 0;
+};
+
+/**
+ * One frame of a walk to a tile, asked while the character stands: the next
+ * step of its path, or a slice of the search for one. True once the walk is
+ * over (the character stands on the tile, or cannot get nearer and its route
+ * skips what cannot be done), with the movement success set to whether it
+ * arrived.
+ */
+Game_Character.prototype.reactorUpdateWalk = function() {
+    const walk = this._reactorWalk;
+    if (!walk) {
+        return true;
+    }
+    if (this.reactorWalkArrived()) {
+        return this.reactorEndWalk(true);
+    }
+    if (walk.wait > 0) {
+        walk.wait--;
+        return false;
+    }
+    // In the air or pulling itself up a ledge it takes no step and plans none.
+    if (this._reactorMantle || (typeof ReactorPhysics !== "undefined" && ReactorPhysics.isAirborne(this))) {
+        return false;
+    }
+    const paths = Game_Character._walkPaths;
+    let path = paths.get(this);
+    if (path && (path.mapId !== $gameMap.mapId() || path.goalX !== walk.x || path.goalY !== walk.y
+        || path.x !== this.x || path.y !== this.y)) {
+        path = null;
+    }
+    if (!path) {
+        path = this.reactorSearchWalk(walk.x, walk.y, walk.h, walk.whole ? Game_Character.WALK_NODES_NEAR : Game_Character.WALK_NODES);
+        if (!path) {
+            return false;
+        }
+        // The whole way or none: a way that only comes near, or is longer than asked for, is not walked.
+        if (walk.whole && (!path.reached || (walk.most > 0 && path.length > walk.most))) {
+            return this.reactorEndWalk(false);
+        }
+        paths.set(this, path);
+    }
+    if (path.index >= path.length) {
+        paths.delete(this);
+        // One search went as far as it looks and got nearer: the next leg is looked for from here.
+        if (!path.reached && !path.exhausted && path.length > 0) {
+            return false;
+        }
+        if (path.taken) {
+            // Beside the tile, and somebody stands on it: this is where the walk was to end, and the route goes
+            // on whether or not it skips what cannot be done. A route that waited here for the tile to clear
+            // would hold its event, and the player with it, for as long as the other one stood there. Where the
+            // tile has cleared on the way, the last step is looked for.
+            if (this.isCollidedWithCharacters(walk.x, walk.y)) {
+                return this.reactorEndWalk(true);
+            }
+            return false;
+        }
+        // As near as it can come, and the tile is further.
+        if (this._moveRoute && this._moveRoute.skippable) {
+            return this.reactorEndWalk(false);
+        }
+        walk.retry = walk.retry ? Math.min(Game_Character.WALK_RETRY_LONGEST, walk.retry * 2) : Game_Character.WALK_RETRY_WAIT;
+        walk.wait = walk.retry;
+        return false;
+    }
+    const d = path.directions[path.index];
+    if (!this.reactorWalkAllows(this.x, this.y, d)) {
+        // Something has moved into the way: another way is looked for shortly.
+        paths.delete(this);
+        walk.wait = Game_Character.WALK_BLOCKED_WAIT;
+        return false;
+    }
+    this.moveStraight(d);
+    if (this.isMovementSucceeded()) {
+        path.index++;
+        path.x = this.x;
+        path.y = this.y;
+        walk.retry = 0;
+    } else {
+        paths.delete(this);
+        walk.wait = Game_Character.WALK_BLOCKED_WAIT;
+    }
+    return false;
+};
+
+Game_Character.prototype.reactorEndWalk = function(arrived) {
+    Game_Character._walkPaths.delete(this);
+    this._reactorWalk = null;
+    this.setMovementSuccess(arrived);
+    return true;
+};
+
+/**
+ * The path to a tile, or null while it is still being looked for: one search
+ * runs at a time, a slice a frame, so a long way round never holds a frame.
+ */
+Game_Character.prototype.reactorSearchWalk = function(goalX, goalY, goalHeight, limit) {
+    let search = Game_Character._walkSearch;
+    const mapId = $gameMap.mapId();
+    const frame = typeof Graphics !== "undefined" ? Graphics.frameCount : 0;
+    const floor = Number.isFinite(goalHeight) ? goalHeight : null;
+    if (search && search.owner !== this) {
+        const other = search.owner._reactorWalk;
+        // Another walker's search is under way: this one waits its turn. One left unfinished (its walker was
+        // told something else, erased, left behind on another map) gives way.
+        const alive = other && other.x === search.goalX && other.y === search.goalY && search.mapId === mapId
+            && frame - search.frame <= 2;
+        if (alive) {
+            return null;
+        }
+        search = null;
+    }
+    if (!search || search.goalX !== goalX || search.goalY !== goalY || search.goalHeight !== floor || search.mapId !== mapId
+        || search.startX !== this.x || search.startY !== this.y) {
+        search = Game_Character._walkSearch = this.reactorBeginSearch(goalX, goalY, goalHeight, limit);
+    }
+    search.frame = frame;
+    if (!this.reactorRunSearch(search, Game_Character.WALK_SLICE_MOST, Game_Character.WALK_SLICE_MS)) {
+        return null;
+    }
+    Game_Character._walkSearch = null;
+    return search.path;
+};
+
+/**
+ * The path to a tile, found at once: `{ directions, length, reached,
+ * exhausted, opened }`, to the nearest tile reached where `reached` is
+ * false. For scripts and tests; a walk searches in slices.
+ */
+Game_Character.prototype.reactorFindPath = function(goalX, goalY, goalHeight) {
+    // The arrays are shared: a search under way in slices begins again afterwards.
+    Game_Character._walkSearch = null;
+    const search = this.reactorBeginSearch(goalX, goalY, goalHeight);
+    while (!this.reactorRunSearch(search, Game_Character.WALK_NODES, 0)) {
+        // Until the goal is reached or the search has opened all it may.
+    }
+    return search.path;
+};
+
+Game_Character.prototype.reactorBeginSearch = function(goalX, goalY, goalHeight, limit) {
+    const scratch = Game_Character.walkScratch();
+    const height = this.reactorWalkHeight();
+    const floor = Number.isFinite(goalHeight) ? goalHeight : null;
+    scratch.seen.clear();
+    scratch.x[0] = this.x;
+    scratch.y[0] = this.y;
+    scratch.height[0] = height;
+    scratch.cost[0] = 0;
+    scratch.left[0] = Game_Character.walkLeft(this.x, this.y, height, goalX, goalY, floor);
+    scratch.rank[0] = scratch.left[0];
+    scratch.parent[0] = -1;
+    scratch.direction[0] = 0;
+    scratch.closed[0] = 0;
+    scratch.heap[0] = 0;
+    scratch.seen.set(Game_Character.walkKey(this.x, this.y, height), 0);
+    return {
+        owner: this, mapId: $gameMap.mapId(), goalX: goalX, goalY: goalY, startX: this.x, startY: this.y,
+        goalHeight: floor, limit: limit > 0 ? Math.min(limit, Game_Character.WALK_NODES) : Game_Character.WALK_NODES,
+        count: 1, heapSize: 1, opened: 0, best: 0, reached: false, exhausted: false, frame: 0, path: null,
+        taken: scratch.left[0] > 0 && !this.isThrough() && this.isCollidedWithCharacters(goalX, goalY)
+    };
+};
+
+/** The steps left from a tile to the goal at least: on another floor than the one meant, further by a stair's worth. */
+Game_Character.walkLeft = function(x, y, height, goalX, goalY, goalHeight) {
+    const steps = $gameMap.distance(x, y, goalX, goalY);
+    if (goalHeight === null || Math.abs(height - goalHeight) <= Game_Character.WALK_FLOOR_REACH) {
+        return steps;
+    }
+    return steps + Game_Character.WALK_FLOOR_STEPS;
+};
+
+/** A tile on a floor: two floors over one tile (a bridge and the road under it) are two places. */
+Game_Character.walkKey = function(x, y, height) {
+    const level = Math.max(0, Math.min(255, Math.round(height * 2) + 128));
+    return (y * $gameMap.width() + x) * 256 + level;
+};
+
+/**
+ * Opens up to `budget` tiles of a search, or as many as `milliseconds`
+ * allow (never fewer than `WALK_SLICE_FEWEST`). True once it is over:
+ * `search.path` is then the way.
+ */
+Game_Character.prototype.reactorRunSearch = function(search, budget, milliseconds) {
+    const scratch = Game_Character.walkScratch();
+    const clock = milliseconds > 0 && typeof performance !== "undefined" && performance.now ? performance : null;
+    const began = clock ? clock.now() : 0;
+    let spent = 0;
+    const xs = scratch.x, ys = scratch.y, heights = scratch.height, costs = scratch.cost, ranks = scratch.rank;
+    const lefts = scratch.left, parents = scratch.parent, directions = scratch.direction, closed = scratch.closed;
+    const heap = scratch.heap, seen = scratch.seen;
+    while (budget > 0) {
+        if (search.heapSize === 0) {
+            // Everything that can be walked to has been opened: the goal cannot be reached.
+            search.exhausted = true;
+            return this.reactorFinishSearch(search);
+        }
+        if (search.opened >= search.limit) {
+            return this.reactorFinishSearch(search);
+        }
+        if (clock && ++spent > Game_Character.WALK_SLICE_FEWEST && (spent & 3) === 0 && clock.now() - began >= milliseconds) {
+            return false;
+        }
+        // The tile nearest the goal by the way walked plus the way left; of equals, the one with less left.
+        const node = heap[0];
+        const last = heap[--search.heapSize];
+        let at = 0;
+        for (;;) {
+            let child = at * 2 + 1;
+            if (child >= search.heapSize) {
+                break;
+            }
+            const other = child + 1;
+            if (other < search.heapSize && (ranks[heap[other]] < ranks[heap[child]]
+                || (ranks[heap[other]] === ranks[heap[child]] && lefts[heap[other]] < lefts[heap[child]]))) {
+                child = other;
+            }
+            if (ranks[heap[child]] < ranks[last] || (ranks[heap[child]] === ranks[last] && lefts[heap[child]] < lefts[last])) {
+                heap[at] = heap[child];
+                at = child;
+            } else {
+                break;
+            }
+        }
+        heap[at] = last;
+        if (closed[node]) {
+            continue;
+        }
+        closed[node] = 1;
+        search.opened++;
+        budget--;
+        const x = xs[node], y = ys[node];
+        if (lefts[node] === 0) {
+            search.best = node;
+            search.reached = true;
+            return this.reactorFinishSearch(search);
+        }
+        // Somebody stands on the goal: the tile beside it is as near as a walk comes.
+        if (search.taken && lefts[node] === 1) {
+            search.best = node;
+            search.exhausted = true;
+            return this.reactorFinishSearch(search);
+        }
+        for (let d = 2; d <= 8; d += 2) {
+            const height = this.reactorWalkStep(x, y, d, heights[node]);
+            if (height !== height) {
+                continue;
+            }
+            const x2 = $gameMap.roundXWithDirection(x, d);
+            const y2 = $gameMap.roundYWithDirection(y, d);
+            const key = Game_Character.walkKey(x2, y2, height);
+            const cost = costs[node] + 1;
+            let next = seen.get(key);
+            if (next === undefined) {
+                if (search.count >= scratch.capacity || search.heapSize >= heap.length) {
+                    continue;
+                }
+                next = search.count++;
+                seen.set(key, next);
+                xs[next] = x2;
+                ys[next] = y2;
+                heights[next] = height;
+                closed[next] = 0;
+                lefts[next] = Game_Character.walkLeft(x2, y2, height, search.goalX, search.goalY, search.goalHeight);
+                if (lefts[next] < lefts[search.best] || (lefts[next] === lefts[search.best] && cost < costs[search.best])) {
+                    search.best = next;
+                }
+            } else if (closed[next] || cost >= costs[next] || search.heapSize >= heap.length) {
+                continue;
+            } else if (lefts[next] === lefts[search.best] && cost < costs[search.best]) {
+                search.best = next;
+            }
+            costs[next] = cost;
+            ranks[next] = cost + lefts[next];
+            parents[next] = node;
+            directions[next] = d;
+            let slot = search.heapSize++;
+            while (slot > 0) {
+                const up = (slot - 1) >> 1;
+                if (ranks[heap[up]] < ranks[next] || (ranks[heap[up]] === ranks[next] && lefts[heap[up]] <= lefts[next])) {
+                    break;
+                }
+                heap[slot] = heap[up];
+                slot = up;
+            }
+            heap[slot] = next;
+        }
+    }
+    return false;
+};
+
+/** The steps from the start to the goal, or to the nearest tile reached where the goal was not. */
+Game_Character.prototype.reactorFinishSearch = function(search) {
+    const scratch = Game_Character.walkScratch();
+    const length = scratch.cost[search.best];
+    const directions = new Uint8Array(length);
+    for (let node = search.best, i = length - 1; i >= 0 && node > 0; node = scratch.parent[node], i--) {
+        directions[i] = scratch.direction[node];
+    }
+    search.path = {
+        mapId: search.mapId, goalX: search.goalX, goalY: search.goalY, x: search.startX, y: search.startY,
+        directions: directions, length: length, index: 0, reached: search.reached, exhausted: search.exhausted,
+        opened: search.opened,
+        // The way ends beside the goal because somebody stands on it.
+        taken: !search.reached && search.taken && scratch.left[search.best] === 1
+    };
+    scratch.seen.clear();
+    return true;
 };
 
 //-----------------------------------------------------------------------------
@@ -2944,6 +3463,29 @@ Game_Followers.prototype.setup = function() {
     }
 };
 
+/**
+ * A follower as the character of Set Movement Route, Show Animation and
+ * Show Balloon Icon: this number plus its place in the line (1 the first).
+ * An event id no map has, so a runtime that knows no followers finds no
+ * such event and leaves the command out.
+ */
+Game_Followers.CHARACTER_ID = 1000000;
+
+/**
+ * The place in the line (1 the first follower) a character id names, or 0
+ * for any other: the editor's ids, and -2, -3, ... as plugins number them.
+ */
+Game_Followers.placeOfCharacterId = function(id) {
+    id = Number(id);
+    if (id <= -2) {
+        return Math.floor(-id) - 1;
+    }
+    if (id > Game_Followers.CHARACTER_ID) {
+        return Math.floor(id) - Game_Followers.CHARACTER_ID;
+    }
+    return 0;
+};
+
 Game_Followers.prototype.isVisible = function() {
     return this._visible;
 };
@@ -3328,11 +3870,11 @@ Game_Event.prototype.isCollidedWithCharacters = function(x, y) {
 };
 
 Game_Event.prototype.isCollidedWithEvents = function(x, y) {
-    if (typeof Reactor3D !== "undefined" && Reactor3D.eventModelWouldOverlapEvents
-        && Reactor3D.characterModelSpec && Reactor3D.characterModelSpec(this)) {
-        // A model's body is wider than its center tile; checking only (x, y)
-        // let a driving vehicle plow through single-tile events.
-        return Reactor3D.eventModelWouldOverlapEvents(this, x, y, this._reactorMoveDirection(x, y));
+    if (typeof Reactor3D !== "undefined" && Reactor3D.bodyMeetsEvents) {
+        // Body against body: every tile this event would cover, turned as the
+        // step turns it, against every tile the others cover. A long vehicle
+        // does not plow through anyone, and nobody walks into its side.
+        return Reactor3D.bodyMeetsEvents(this, x, y, this._reactorMoveDirection(x, y));
     }
     const events = $gameMap.eventsXyNt(x, y);
     return events.some(event => event !== this && event.isNormalPriority());
@@ -3349,9 +3891,9 @@ Game_Event.prototype._reactorMoveDirection = function(x, y) {
 
 Game_Event.prototype.isCollidedWithPlayerCharacters = function(x, y) {
     if (!this.isNormalPriority()) return false;
-    if (typeof Reactor3D !== "undefined" && Reactor3D.eventModelWouldOverlap
-        && Reactor3D.characterModelSpec(this)) {
-        return Reactor3D.eventModelWouldOverlap(this, x, y, $gamePlayer, this._reactorMoveDirection(x, y));
+    if (typeof Reactor3D !== "undefined" && Reactor3D.bodyMeetsParty) {
+        // The whole body, against the player and the followers who are not walked through.
+        return Reactor3D.bodyMeetsParty(this, x, y, this._reactorMoveDirection(x, y));
     }
     return $gamePlayer.isCollided(x, y);
 };
@@ -3604,7 +4146,9 @@ Game_Event.prototype.resetPattern = function() {
 
 Game_Event.prototype.checkEventTriggerTouch = function(x, y) {
     if (!$gameMap.isEventRunning()) {
-        if (this._trigger === 2 && $gamePlayer.pos(x, y)) {
+        // An event touches with its whole body: the step it was refused would have put a tile of it on the player.
+        if (this._trigger === 2 && (typeof Reactor3D !== "undefined" && Reactor3D.bodyTouchesPlayer
+            ? Reactor3D.bodyTouchesPlayer(this, x, y) : $gamePlayer.pos(x, y))) {
             if (!this.isJumping() && this.isNormalPriority()) {
                 this.start();
             }
@@ -3644,9 +4188,9 @@ Game_Event.prototype.forceMoveRoute = function(moveRoute) {
 };
 
 Game_Event.prototype.pos = function(x, y) {
-    if (typeof Reactor3D !== "undefined" && Reactor3D.characterModelSpec
-        && Reactor3D.characterModelSpec(this)) {
-        return Reactor3D.eventModelOccupies(this, x, y);
+    // An event is at every tile its body covers (Reactor3D.eventBody).
+    if (typeof Reactor3D !== "undefined" && Reactor3D.eventBodyCovers) {
+        return Reactor3D.eventBodyCovers(this, x, y);
     }
     return this._x === x && this._y === y;
 };

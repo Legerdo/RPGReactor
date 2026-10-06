@@ -7701,7 +7701,7 @@ Object.assign(globalThis.RR_REVIEWED_TRANSLATIONS.keyed['zh-Hans'], {
   "toolbar.tools": "工具：",
   "toolbar.title.undo": "撤销（Ctrl+Z）",
   "toolbar.title.redo": "重做（Ctrl+Y）",
-  "toolbar.title.showPassage": "显示通行性：X 表示不可通行，红色边缘表示某方向不可通行，红色表示有 3D 模型",
+  "toolbar.title.showPassage": "显示角色能去的地方。平面地图：X 表示不可通行，红色边缘表示某方向不可通行，红色表示 3D 模型下方。3D 视图：每个位置的各边标示为跳一下、攀上、梯子、落差或无法通行，并在指针下显示文字",
   "toolbar.title.forgeLauncher": "Forge - 开发工具套件",
   "welcome.tagline": "用开源跨平台引擎创作出色的 RPG 游戏",
   "welcome.gettingStarted": "快速上手",

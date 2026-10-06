@@ -5,6 +5,12 @@ The **Media Surfaces** toolbar tool manages map-owned surfaces. Event commands
 are displayed as **Show Media Surface**, **Transform Media Surface**, and
 **Stop Media Surface**.
 
+A model's media surface can show a different picture or movie per variant, or be off: Database › 3D Models › Variants, the variant's Effects tab.
+
+Effects are placed on the model once; each variant chooses which it wears. On an effect's card, **Shown in** is All variants or the chosen ones. On a variant's card, the **Effects** tab lists every effect: tick to show it in this variant, pick the picture or movie this variant shows on a media surface, press **Place** to move it on the model with the variant still worn, press **+** to add a media surface only this variant wears. In `model.json` an effect's `variants` lists the variants that wear it (`""` is the model's own look); with no list every variant wears it. A media surface shows on its own only when Play when is not On demand.
+
+Select an effect's row under Effects and its card opens at the preview's upper right with four tabs. Effect: type, media, what it follows, when it plays, sound. Offset: drag an arrow, or drag the surface itself across the model. Rotate: drag a ring. Scale: drag an edge for width or height, a corner for both; a light shows its reach as a ring; an animation has one handle. Each drag is one undo step. **Save effect** writes it.
+
 Drag a corner freely to reshape/resize a surface; hold Shift to preserve its
 proportions. Shift can be pressed or released during the drag. In the 3D panel,
 **Keep Proportions** links width/height and scale controls independently of

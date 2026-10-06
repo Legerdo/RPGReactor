@@ -20,6 +20,73 @@ The owner wants these to become a player-facing graphics menu one day, the way m
 
 A menu would most naturally offer presets over these (for example Low: renderScale 0.6, lighting 1/8; Medium: 0.75, 1/4; High: 1, 1/4; Ultra: 1 with `HalfLight` and `HalfHaze` off and pixelError 0.35), saved per player with the other options.
 
+## Editor memory
+
+Editor previews hold only what they show. A model loaded to draw a thumbnail is released as soon as the picture exists, and the thumbnail renderer is dropped with its WebGL context four seconds after its last use. The 3D Models page keeps the model on screen and the one before it; closing the page releases every model and both renderers. The 3D map view frees its models' graphics-card copies before its renderer is disposed, because a renderer's own dispose leaves them behind on the context it shares with the 2D view. On North Haven (video memory / ArrayBuffers, MB): closing the Database after eight previews ended at 804, 978, 975 / 323, 351, 351 over three rounds before and 502, 475, 477 / 207, 219, 219 after; three 2D/3D toggles went 1103, 1179, 1256 before and 471, 484, 482 after. Still open: switching maps keeps every model for the project (a release on map change left copies held and is off: `MapEditor3D.SWEEP_MODELS_ON_MAP_CHANGE`), and the builder's 50-step undo can hold about 97 MB on North Haven. Measure with `scratchpad/memory/ed-mem.cjs <out> 5 --loops`: three rounds of each open-and-close loop should end where the first ended.
+
+## Battle start on the map (runtime 20261003.29, weak tier, 1080p, one window)
+
+What a battle can play is readied with the map: each unit's and party member's sequences, pictures, effects and projectile models (one action a frame, once a session), a collision footprint for every size a model stands at, every model's bounds, and the Tactical HUD (hidden until the battle takes it, made again a second after a battle ends). Units that join a running battle are built inside 4 ms a frame (`Reactor3D.ModelJoins.BUDGET`), and carried weapons are taken up one unit a frame.
+
+First five seconds, frames over 33 / 50 / 66 ms and the worst frame; "4x" is with the CPU throttled four times (`Emulation.setCPUThrottlingRate`), the nearer picture of a low-end PC:
+
+| Battle | Before | After | 4x before | 4x after |
+| --- | --- | --- | --- | --- |
+| Tactical raid, 11 units | 50/5/1, 68 ms | 60/10/0, 65 | 98/24/13, 300 | 69 to 100/11 to 14/7 to 8, 141 to 165 |
+| Raid, second start | 53/9/0, 57 | 49/3/0, 55 | 89/7/3, 104 | 31 to 89/5 to 6/2, 96 to 102 |
+| Action skirmish | 17/2/0, 66 | 19/0/0, 49 | 33 to 79/8 to 12/7 to 8, 232 | 83 to 101/10 to 11/6, 212 to 218 |
+| First Person | 29/4/0, 65 | 15/0/0, 44 | 50/9/6, 274 | 58 to 81/10/6, 151 |
+| Army drill, 43 units | 46/11/2, 92 | 22/2/0, 60 | 72/56/35, 264 | 78/63/33, 161 |
+| 2D Deck Drill | 1/0/0, 37 | 1/0/0, 46 | 12/8/7, 123 | 14/7/6, 205 |
+
+Unthrottled, no CPU hitch is left at a raid's start: the remaining long frames are GPU wait (the tactical view is GPU-bound at about 22 ms a frame here). Throttled, the worst frames are the fight's first frame (turn order, `Game_Fight.start`, unit model builds), one grip solve a frame (30 to 40 ms each), the HUD's first uploads and portrait painting. New shader programs still compile at a battle's start (7 for the raid, 5 for Action, 33 for the army after its Transfer Player rebuilds the scene). Measure with `scratchpad/perf/battle-perf.cjs <out> begin` (`MENU=0..4`, `THROTTLE=4`, `SECOND=1`, `PROF=start`, `NOCHECK=1` for a shipped game's shader checks).
+
+## Memory (runtime 20261003.27 to .30, weak tier, 1080p)
+
+Since .30 a model stays loaded while the map being played, a battle on it, its encounters or its events name it. When another map opens, unclaimed models are released; the newest stay while they fit 96 MB (32 MB on low-memory machines). `Reactor3D.ModelUse.enabled = false` keeps every model for the session. A model's embedded pictures are decoded once (the GLB worker decoded and dropped them, and the main thread decoded them again). North Haven straight from the title now takes about 1.4 GB of process memory (1.3 GB on a low-memory machine; 1.9 GB before today) plus 0.6 to 0.8 GB of video memory, and plays with a battle inside a 1.6 GB limit on the low tier; at 1.5 GB it loads and walks and is killed when a battle starts. Arriving through the Reactor Room still needs 2 GB: that room's pictures are each held as a decoded image, a canvas and a texture, and one 2400x2400 wall picture is uploaded three times.
+
+Since .31 a picture used by several surfaces (walls, floor, a poster) is uploaded once per sampling (`Reactor3D.ScenePictures`), with no canvas copy; large pictures cost width x height x 4 bytes of video memory (a 4000x2250 poster: 34 MB), and machines reporting 4 GB or less keep them at 2048 on the longest side (`Reactor3D.ScenePictures.LOW_MEMORY_SIZE`). A hidden tile layer builds no 2D atlas. The Reactor Room went from 1,853 to about 1,440 MB of process memory. The Demo walk (title, Static Room, Reactor Room, North Haven, a battle) passes inside 2 GB with no reclaim; inside 1.5 GB it is killed loading North Haven after the Reactor Room. The editor on North Haven in the 3D view takes about 1.75 GB plus 0.7 GB of video memory; its model thumbnails and previews are not yet released (video memory 838 to 1,017 MB over two rounds of previews).
+
+The figures below are from .27.
+
+A 2D game takes about 0.5 GB and runs inside a 1 GB limit. A large 3D map takes 1.6 to 1.8 GB of process memory plus about 0.8 GB of video memory, which is system RAM on integrated graphics. Each 2048 model texture costs 21 MB of video memory; 1024 costs 5 MB. Machines reporting 4 GB or less load model textures at 1024 (`Reactor3D.memoryTier`: `"auto"`, `"low"`, `"normal"`; `Reactor3D.lowMemoryTextureSize`). Music is decoded whole: about 22 MB per minute.
+
+| Stage (all processes, PSS) | MB | Video memory |
+| --- | --- | --- |
+| Title | 730 | 236 |
+| Small 2D map | 1,266 | 436 |
+| North Haven, straight from the title | 1,944 before, 1,625 to 1,805 after the cuts | 760 to 811 (619 on the low tier) |
+| North Haven, arriving through two other 3D maps | 2,562 | 783 |
+
+Cuts in this revision: a decoded bitmap is closed once its texture is on the GPU (145 to 209 MB; `Reactor3D.ShaderWarmup.releaseImages`), workers end after 8 s idle (`Reactor3D.IdleWorkers.REST_MS`), the 2D tile atlas is made by the first tile drawn (48 MB each side). Inside a hard limit with no swap: North Haven plays in 2 GB (peak 1,958 during the load) and is killed during the load at 1.5 GB; an imported 2003 game peaks at 371 to 497 MB. Largest thing left: `Reactor3D._glbCache` keeps every model and its textures for the session, so each 3D map visited adds to the next (about 620 MB at North Haven after two others). Measure with `scratchpad/memory/mem.cjs` and `limited.sh`.
+
+## World and models on weak graphics (runtime 20261003.26, Ryzen integrated Radeon, 1080p, frozen frames, one window)
+
+| Change | Measured | Picture |
+| --- | --- | --- |
+| `Reactor3D.DepthFirst` (pieces, floor; the sky tests depth) | isometric 20.69 to 18.42 ms, third person 12.82 to 11.39, first person at the map edge 23.23 to 19.70 | identical (0 channels differ, including the indoor cutaway) |
+| `GeometryDetail` shared per model, index lists kept | 43.8 to 22 ms for 40 standing units while levels arrive | same levels |
+| A skinned body's distance taken from its joints | 691k to 599k triangles, 22.75 to 21.98 ms | mean 0.18 of a level |
+| Model sprites on flat maps take detail levels | Deck Drill 13.46 to 6.0 ms GPU | within `pixelError` |
+| Ground edge noise only where paint is part-way | 8 types 2.14 to 1.72 ms (3 types 0.9 ms) | identical |
+| Battle models and weapons readied at map load; a weapon measured once per model | tactical start: frames over 50 ms 12 to 8, over 33 ms 59 to 28 | none |
+
+Surroundings cost 0.0 to 0.05 ms out of view; a map-wide glowing foliage layer costs what a plain one does. A profile of the party walking North Haven with weapons shows none of the roof, climbing or held-weapon helpers above 0.1% of the frame. North Haven holds 726 geometries and 67 textures after each of three round trips (no leak): model textures 133 MB, piece buffers 66 MB, piece textures 28 MB, model buffers 23 MB. Still over budget: isometric on North Haven at 18.4 ms GPU (the tank's 20 double-sided meshes are about 3.3 ms of it); battle start still has frames over 50 ms (an effect model loaded by the sequence warm-up, a GPU wait of 16 to 28 ms, the first grip solves).
+
+## Battles on the map (runtime 20261003.24, Ryzen integrated Radeon, 1080p, one window)
+
+| Scene | Frame | CPU | Battle code |
+|---|---|---|---|
+| Exploring, before any battle | 16.7 ms (capped) | 4.0 | 0 |
+| Tactical, 14 units, at rest | 23.8 ms | 7.0 | 0.11 ms |
+| Tactical, enemy phase | 28.3 | 8.2 | 0.24, worst 8.1 |
+| Action, third person, 8 enemies | 22.4 | 8.2 | 0.64 |
+| First Person, 8 enemies | 26.5 | 9.1 | 0.71 |
+| Army of 61, at rest / enemy phase | 34.0 / 48.0 | 13.1 / 18.3 | 0.25 / 1.64, worst 20 |
+| 2D battle, 11 units | 16.7 (capped) | 4.2 | 0.11 |
+
+The battle's own code is a small share; the frame is the world and the models. A unit's AI thinks within `ReactorFight.AI_BUDGET_MS` (4) a frame, shared by every unit deciding in that frame (three times that above 20 units); its floods and its weighing yield to the clock. Model portraits are fetched from the graphics card without waiting and kept for the session. Battle start still has about ten frames over 50 ms (the worst 90 to 105 ms at raid size, 340 ms for an army): the first carry of each weapon model, a model's first load, new texture uploads and shader compiles. The 2D battle row is with flat-map models sharing their detail levels (20.6 ms before). Measure with `scratchpad/harness-slot.sh -x node scratchpad/perf/battle-perf.cjs <out> tactical|army|action3|action1|drill` (`NODRAIN=1` for frame times, `PROFILE=1`, `ALLOC=1`, `LEAKS=10`).
+
 ## Edges and beams — runtime 20260930.12
 
 Harness iGPU (Ryzen 9 9950X3D's Radeon, radeonsi on X11, weak tier since this runtime), 1920×1080, the start map near the Psychronic mascot (37,11) and the start area (24,47). Looks were judged with game updates stopped and the clock running, each variant drawn for a second first; the frozen mode's stopped clock can hold programs a variant never compiled and drew a wrong reference.

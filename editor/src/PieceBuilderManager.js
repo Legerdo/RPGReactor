@@ -59,6 +59,186 @@ class PieceBuilderManager {
     selectionIds() { return this.selectedIds.length ? this.selectedIds.slice() : (this.selected ? [this.selected] : []); }
     selectionPieces() { const ids = new Set(this.selectionIds()); const map = this.currentMap(); return map ? (this.elevation()?.pieces(map) || []).filter(piece => ids.has(piece.id)) : []; }
 
+    // ---- The parts of a building: a material and a finish each ---------------
+
+    /** Every part a selection can hold, in the order they are listed. */
+    static PART_ORDER = ['wall', 'inner', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'ladder', 'pillar', 'door', 'frame', 'glass', 'fence', 'path', 'block', 'shape', 'rock'];
+    /** What a framed window's frame wears when it names no material (the runtime's own default). */
+    static FRAME_MATERIAL = 'Wood';
+
+    /**
+     * Pieces sorted into the parts of the buildings they make: `[{ key, ids, at, count, material, mixed,
+     * materials }]` in PART_ORDER, only the parts present. `at` are the pieces' places in the list given;
+     * `material` is the part's one material ('' is plain), or null when its pieces differ (`mixed`), and
+     * `materials` every one it holds. `shapes` names the shape kinds, `storey` a wall's height.
+     *
+     * A part is what a piece is in its building, which its kind alone does not say (a house's roof is
+     * ramps, slabs and thin boxes; its gables are blocks):
+     *  - wall: walls, doorways and windows with open ground on one of their four sides; the blocks stacked
+     *    on a wall (a gable's steps, a parapet) and the ramps and slabs lying on those blocks.
+     *  - inner: walls and doorways with the building on all four sides, and what is stacked on them.
+     *  - floor: a slab with something over it that is the lowest in its cell or has walls standing at its
+     *    level; an open slab on top of something low, or alone between walls on all four sides.
+     *  - ceiling: a covered slab a storey or more above the foot of its cell, no wall standing at its level.
+     *  - roof: `roof` pieces; a ramp or slab with nothing over it, a storey or more above the foot of its
+     *    cell; the ramps up and down the same slope; a thin box that is tilted two levels up or higher, or
+     *    lies on a roof's or a gable's top slab (eaves, verges, an awning).
+     *  - path: an open slab alone in its cell, not walled in.
+     *  - stair, ramp, ladder, pillar, door, glass, fence, rock: the kind. block: a block on no wall.
+     *    shape: every other shape.
+     *  - frame: the frames that windows wear (`frame.material`); such a window is in its wall part too.
+     */
+    static buildingParts(pieces, { shapes = [], storey = 5 } = {}) {
+        const S = storey, shapeKinds = new Set(shapes);
+        const SOLID = new Set(['floor', 'wall', 'doorway', 'window', 'glass', 'block', 'ramp', 'roof', 'stair', 'pillar']);
+        const WALLS = new Set(['wall', 'doorway', 'window']);
+        const RISE = [[0, 1], [-1, 0], [0, -1], [1, 0]];
+        const NONE = [];
+        const cellKey = (x, y) => y * 65536 + x;
+        // Every solid cell piece by its cell, lowest first; the levels walls stand at per building; how far the walls of a level reach along each row and column.
+        const cells = new Map(), wallLevels = new Map(), rows = new Map(), cols = new Map();
+        const widen = (spans, key, at) => { const span = spans.get(key); if (!span) spans.set(key, [at, at]); else { if (at < span[0]) span[0] = at; if (at > span[1]) span[1] = at; } };
+        for (const piece of pieces) {
+            if (!SOLID.has(piece.kind)) continue;
+            const key = cellKey(piece.x, piece.y);
+            const list = cells.get(key);
+            if (list) list.push(piece); else cells.set(key, [piece]);
+            if (!WALLS.has(piece.kind)) continue;
+            const levels = wallLevels.get(piece.group || 0);
+            if (levels) levels.add(piece.z); else wallLevels.set(piece.group || 0, new Set([piece.z]));
+            widen(rows, piece.z * 65536 + piece.y, piece.x); widen(cols, piece.z * 65536 + piece.x, piece.y);
+        }
+        for (const list of cells.values()) if (list.length > 1) list.sort((a, b) => a.z - b.z);
+        const at = (x, y) => cells.get(cellKey(x, y)) || NONE;
+        const part = new Map();
+        // The building reaches a cell at a level when a wall stands there or anything lies over it.
+        const inside = (x, y, z) => { for (const q of at(x, y)) if (q.z > z || (q.z === z && WALLS.has(q.kind))) return true; return false; };
+        const walled = role => role === 'wall' || role === 'inner';
+        // The part of the wall a piece stands directly on, or of the block carried up from a wall; null on neither.
+        const onWall = piece => { for (const q of at(piece.x, piece.y)) { if (q.z >= piece.z) break; if (WALLS.has(q.kind) && q.z + S === piece.z) return part.get(q); } return null; };
+        const onBlock = piece => { for (const q of at(piece.x, piece.y)) { if (q.z >= piece.z) break; if (q.kind === 'block' && q.z + 1 === piece.z && walled(part.get(q))) return part.get(q); } return null; };
+        // Nothing over it, and nothing but a slab standing at its own level.
+        const open = piece => { for (const q of at(piece.x, piece.y)) if (q !== piece && (q.z > piece.z || (q.z === piece.z && q.kind !== 'floor'))) return false; return true; };
+        const foot = piece => at(piece.x, piece.y)[0].z;
+        // The next ramp of the same slope, a level up (1) or down (-1).
+        const slopeMate = (piece, up) => { const [ax, ay] = RISE[piece.rot || 0]; return at(piece.x + ax * up, piece.y + ay * up).find(q => q.kind === 'ramp' && q.z === piece.z + up && (q.rot || 0) === (piece.rot || 0)) || null; };
+        const inWalls = piece => {
+            const row = rows.get(piece.z * 65536 + piece.y), col = cols.get(piece.z * 65536 + piece.x);
+            return !!row && !!col && row[0] < piece.x && row[1] > piece.x && col[0] < piece.y && col[1] > piece.y;
+        };
+        for (const piece of pieces) {
+            if (!WALLS.has(piece.kind)) continue;
+            const { x, y, z } = piece;
+            part.set(piece, inside(x - 1, y, z) && inside(x + 1, y, z) && inside(x, y - 1, z) && inside(x, y + 1, z) ? 'inner' : 'wall');
+        }
+        // Blocks from the lowest up, so a stack is carried up from the wall under it.
+        for (const list of cells.values()) for (const piece of list) if (piece.kind === 'block') part.set(piece, onWall(piece) || onBlock(piece) || 'block');
+        // Ramps from the highest down: a gable's lowest ramp lies on the wall itself and follows the one above it.
+        const ramps = pieces.filter(piece => piece.kind === 'ramp').sort((a, b) => b.z - a.z);
+        for (const piece of ramps) {
+            const above = slopeMate(piece, 1);
+            const gable = onBlock(piece) || (onWall(piece) && above && walled(part.get(above)) ? part.get(above) : null);
+            if (gable) part.set(piece, gable);
+            else if (open(piece) && piece.z - foot(piece) >= S) part.set(piece, 'roof');
+        }
+        // The rest of each slope: a ramp next to a roof's ramp, up or down the slope, is roof too (an eave past the wall).
+        for (const piece of ramps) if (!part.has(piece) && part.get(slopeMate(piece, 1)) === 'roof') part.set(piece, 'roof');
+        for (let i = ramps.length - 1; i >= 0; i--) if (!part.has(ramps[i]) && part.get(slopeMate(ramps[i], -1)) === 'roof') part.set(ramps[i], 'roof');
+        for (const piece of pieces) {
+            const kind = piece.kind;
+            if (part.has(piece) || shapeKinds.has(kind)) continue;
+            if (kind !== 'floor') { part.set(piece, kind); continue; }
+            const cap = onBlock(piece);
+            if (cap) part.set(piece, cap);
+            else if (open(piece)) part.set(piece, piece.z - foot(piece) >= S ? 'roof' : at(piece.x, piece.y).length > 1 || inWalls(piece) ? 'floor' : 'path');
+            else part.set(piece, piece.z - foot(piece) >= S && !wallLevels.get(piece.group || 0)?.has(piece.z) ? 'ceiling' : 'floor');
+        }
+        // Shapes last: an eave or a verge is a thin box, tilted off the level or lying on a roof's or a gable's top slab.
+        for (const piece of pieces) {
+            const kind = piece.kind;
+            if (!shapeKinds.has(kind)) continue;
+            const size = piece.size || [1, 1, 1];
+            const thin = kind === 'box' && Math.min(size[0], size[1], size[2]) <= 0.5;
+            const tilted = thin && !!(piece.tilt || piece.roll) && piece.z >= 2;
+            const lying = thin && !tilted && at(piece.x, piece.y).some(q => q.kind === 'floor' && q.z >= piece.z - 0.5 && q.z <= piece.z + size[1] + 0.5 && (walled(part.get(q)) || part.get(q) === 'roof'));
+            part.set(piece, kind === 'rock' ? 'rock' : tilted || lying ? 'roof' : 'shape');
+        }
+        const lists = new Map();
+        const add = (key, piece, index, material) => {
+            let entry = lists.get(key);
+            if (!entry) lists.set(key, entry = { key, ids: [], at: [], count: 0, material, mixed: false, materials: [] });
+            entry.ids.push(piece.id); entry.at.push(index); entry.count++;
+            if (!entry.materials.includes(material)) entry.materials.push(material);
+        };
+        pieces.forEach((piece, index) => {
+            const key = part.get(piece);
+            if (PieceBuilderManager.PART_ORDER.includes(key)) add(key, piece, index, piece.material || '');
+            if (piece.kind === 'window' && piece.frame) add('frame', piece, index, piece.frame.material || PieceBuilderManager.FRAME_MATERIAL);
+        });
+        const out = [];
+        for (const key of PieceBuilderManager.PART_ORDER) {
+            const entry = lists.get(key);
+            if (!entry) continue;
+            entry.mixed = entry.materials.length > 1;
+            if (entry.mixed) entry.material = null;
+            out.push(entry);
+        }
+        return out;
+    }
+
+    /** The selection's parts (buildingParts), worked out once for a selection and kept until it or the map's pieces change. */
+    selectionParts() {
+        const map = this.currentMap(), elevation = this.elevation();
+        if (!map || !elevation) return [];
+        const raw = map.reactor3d ? map.reactor3d.pieces : null;
+        const memo = this._partsMemo;
+        if (memo && memo.map === map && memo.raw === raw && memo.ids === this.selectedIds && memo.one === this.selected) return memo.parts;
+        const storey = (typeof Reactor3D !== 'undefined' && Reactor3D.PIECE_STOREY) || 5;
+        const parts = PieceBuilderManager.buildingParts(this.selectionPieces(), { shapes: elevation.SHAPE_KINDS || [], storey });
+        this._partsMemo = { map, raw, ids: this.selectedIds, one: this.selected, parts };
+        return parts;
+    }
+
+    /**
+     * Change some of the selected pieces (a part of the building) and leave the selection whole:
+     * `ids` theirs, `patch` a record, or a function of the piece giving one (null leaves that piece
+     * as it is). One undo step. Nothing is recorded or drawn again when no piece ends up different.
+     */
+    updateSelectionPart(ids, patch, record = true) {
+        const selected = new Set(this.selectionIds()), wanted = new Set();
+        for (const id of ids || []) if (selected.has(id)) wanted.add(id);
+        const map = this.currentMap(), elevation = this.elevation();
+        if (!wanted.size || !map || !elevation) return false;
+        const before = elevation.pieces(map), list = before.slice();
+        for (let i = 0; i < list.length; i++) {
+            if (!wanted.has(list[i].id)) continue;
+            const change = typeof patch === 'function' ? patch(list[i]) : patch;
+            if (change) list[i] = Object.assign({}, list[i], change);
+        }
+        const changed = this._changedPieces(map, before, list, wanted);
+        if (!changed.length) return false;
+        if (record) { this.undoStack.push(this._snapshot(map)); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0; }
+        elevation.restorePieces(map, list);
+        this._detach(map, changed);
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const piece of changed) { x0 = Math.min(x0, piece.x); y0 = Math.min(y0, piece.y); x1 = Math.max(x1, piece.x); y1 = Math.max(y1, piece.y); }
+        this.announce(false, { x0: x0 - 4, y0: y0 - 4, x1: x1 + 4, y1: y1 + 4 });
+        this._syncPanel(); this._ghostChanged();
+        return true;
+    }
+
+    /**
+     * A material for one part of the selection (a `key` of selectionParts()): that part's pieces only,
+     * one undo step. A window's frame keeps its material in the frame, so its wall is left as it is.
+     */
+    paintSelectionPart(key, material) {
+        const part = this.selectionParts().find(entry => entry.key === key);
+        if (!part) return false;
+        const name = typeof material === 'string' ? material.trim() : '';
+        if (key === 'frame') return this.updateSelectionPart(part.ids, piece => (piece.frame ? { frame: Object.assign({}, piece.frame, { material: name }) } : null));
+        return this.updateSelectionPart(part.ids, { material: name });
+    }
+
     /**
      * A hand edit to a stamped building's pieces: the building stops following
      * its plan, as for a piece laid or hammered in it (a move or turn builds
@@ -1209,7 +1389,12 @@ class PieceBuilderManager {
             if (old.mask) merged.mask = old.mask; else delete merged.mask;
             return merged;
         });
-        for (const [k, sheet] of was) if (!now.has(k) && !left.has(k)) out.push(sheet);
+        // A sheet that comes back takes its old place among the ones it stood between.
+        let cursor = 0;
+        for (const [k, sheet] of was) {
+            if (now.has(k)) cursor = out.findIndex(other => key(other) === k) + 1;
+            else if (!left.has(k)) out.splice(cursor++, 0, sheet);
+        }
         return out;
     }
 

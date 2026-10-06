@@ -88,6 +88,22 @@ DataManager.removeInvalidGlobalInfo = function() {
             delete globalInfo[savefileId];
         }
     }
+    this.removeHiddenGlobalInfo();
+};
+
+// The playtest checkpoint is not a save the player made. Its file is written,
+// its entry never stays in the save list, so no list, newest-save lookup or
+// Continue (the engine's or a plugin's) can land on it.
+DataManager.removeHiddenGlobalInfo = function() {
+    const globalInfo = this._globalInfo;
+    if (!globalInfo) return;
+    // Its own name is no slot of the list; the entry saveGame leaves under it goes.
+    if (this.PLAYTEST_CHECKPOINT_ID in globalInfo) delete globalInfo[this.PLAYTEST_CHECKPOINT_ID];
+    // A save index written while the checkpoint lived in slot 99: cleaned, unless the game's own list reaches that slot.
+    const old = this.LEGACY_PLAYTEST_CHECKPOINT_ID;
+    if (!(old > this.maxSavefiles() + 1) || !(old in globalInfo)) return;
+    delete globalInfo[old];
+    while (globalInfo.length > 0 && !globalInfo[globalInfo.length - 1]) globalInfo.length--;
 };
 
 DataManager.saveGlobalInfo = function(info) {
@@ -97,6 +113,7 @@ DataManager.saveGlobalInfo = function(info) {
     if (info !== undefined) {
         this._globalInfo = info;
     }
+    this.removeHiddenGlobalInfo();
     StorageManager.saveObject("global", this._globalInfo);
 };
 
@@ -492,16 +509,29 @@ DataManager.savefileInfo = function(savefileId) {
 // hidden slot, and F9 on the title screen resumes it, so a crash forty
 // minutes into an intro costs the walk from the last checkpoint, not from
 // the start. Playtests only (Utils.isOptionValid("test")); a deployed game
-// never writes it. Slot 99 sits past every save list.
+// never writes it. It is a file of its own name ("filecheckpoint"), not a
+// numbered slot, so no save list can reach it however long a plugin makes one.
+// Until this build it was slot 99: a checkpoint left there by a session still
+// running is read once, where the game's own list does not reach that slot.
 
-DataManager.PLAYTEST_CHECKPOINT_ID = 99;
+DataManager.PLAYTEST_CHECKPOINT_ID = "checkpoint";
+DataManager.LEGACY_PLAYTEST_CHECKPOINT_ID = 99;
 
 DataManager.isPlaytestCheckpointEnabled = function() {
     return typeof Utils !== "undefined" && Utils.isOptionValid && Utils.isOptionValid("test");
 };
 
+/** The checkpoint to resume: the named file, else one left in slot 99 by an earlier build; null with neither. */
+DataManager.playtestCheckpointId = function() {
+    if (!this.isPlaytestCheckpointEnabled()) return null;
+    if (this.savefileExists(this.PLAYTEST_CHECKPOINT_ID)) return this.PLAYTEST_CHECKPOINT_ID;
+    const old = this.LEGACY_PLAYTEST_CHECKPOINT_ID;
+    const listed = typeof this.maxSavefiles === "function" && !(old > this.maxSavefiles() + 1);
+    return !listed && this.savefileExists(old) ? old : null;
+};
+
 DataManager.hasPlaytestCheckpoint = function() {
-    return this.isPlaytestCheckpointEnabled() && this.savefileExists(this.PLAYTEST_CHECKPOINT_ID);
+    return this.playtestCheckpointId() !== null;
 };
 
 /** Saves the checkpoint, unless one is being written or the party is dead. */
@@ -4012,10 +4042,18 @@ BattleManager.processVictory = function() {
     this.playVictoryMe();
     this.replayBgmAndBgs();
     this.makeRewards();
-    this.displayVictoryMessage();
-    this.displayRewards();
-    this.gainRewards();
+    // A Victory interface in use gives the rewards (through gainRewards) and shows them itself.
+    if (!this.showVictoryInterface()) {
+        this.displayVictoryMessage();
+        this.displayRewards();
+        this.gainRewards();
+    }
     this.endBattle(0);
+};
+
+/** Hands the rewards to the project's Victory interface; false where there is none in use (or a plugin words the rewards its own way). */
+BattleManager.showVictoryInterface = function() {
+    return typeof ReactorVictory !== "undefined" && !!ReactorVictory && ReactorVictory.classic(this);
 };
 
 BattleManager.processEscape = function() {

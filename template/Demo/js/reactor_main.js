@@ -1,10 +1,10 @@
 //=============================================================================
 // reactor_main.js — RPG Reactor runtime entry point
 // RPG Reactor runtime version: 0.98.9
-// RPG Reactor runtime revision: 20261002.10
+// RPG Reactor runtime revision: 20261005.5
 // The same stamp, reachable from the F12 console: which engine is this
 // window actually running? Type RPG_REACTOR_RUNTIME_REVISION to see.
-globalThis.RPG_REACTOR_RUNTIME_REVISION = "20261002.10";
+globalThis.RPG_REACTOR_RUNTIME_REVISION = "20261005.5";
 //=============================================================================
 
 const scriptUrls = [
@@ -30,6 +30,9 @@ const scriptUrls = [
     "js/reactor_3d_speech.js",
     "js/reactor_3d_foliage.js",
     "js/reactor_3d_doors.js",
+    "js/reactor_3d_surround.js",
+    "js/reactor_3d_vehicles.js",
+    "js/reactor_3d_rider.js",
     "js/reactor_rig_motions.js",
     "js/reactor_battle_data.js",
     "js/reactor_battle_room.js",
@@ -39,6 +42,7 @@ const scriptUrls = [
     "js/reactor_objects_battlers.js",
     "js/reactor_objects_map.js",
     "js/reactor_objects_interpreter.js",
+    "js/reactor_objects_followers.js",
     "js/reactor_objects_legacy.js",
     "js/reactor_scenes.js",
     "js/reactor_sprites.js",
@@ -46,14 +50,35 @@ const scriptUrls = [
     "js/reactor_screen_fx.js",
     "js/reactor_media_surfaces.js",
     "js/reactor_windows.js",
+    "js/reactor_ui_victory.js",
+    "js/reactor_ui_fight.js",
+    "js/reactor_ui_action.js",
     "js/reactor_ui.js",
     "js/reactor_quests.js",
+    "js/reactor_image_layers.js",
     "js/reactor_controls.js",
     "js/reactor_physics.js",
     "js/reactor_mv_compat.js",
     "js/reactor_battle_presentation.js",
     "js/reactor_battle_events.js",
+    "js/reactor_fight_look.js",
     "js/reactor_fight.js",
+    "js/reactor_fight_flow.js",
+    "js/reactor_fight_tactical.js",
+    "js/reactor_fight_stage.js",
+    "js/reactor_fight_camera.js",
+    "js/reactor_fight_action.js",
+    "js/reactor_fight_menu.js",
+    "js/reactor_fight_classic.js",
+    "js/reactor_speaker_face.js",
+    // Vehicles: the last engine files, after every battle file, in this order (each wraps what the
+    // files above left: a battle's start outermost, and the ride's camera laid over the battle
+    // drivers'). None of them wraps the boot scene's start or the Show Text command, which the
+    // speaker's face above keeps outermost.
+    "js/reactor_vehicles.js",
+    "js/reactor_vehicles_drive.js",
+    "js/reactor_vehicles_feel.js",
+    "js/reactor_vehicles_hints.js",
     "js/reactor_plugins.js"
 ];
 const effekseerWasmUrl = "js/libs/effekseer.wasm";

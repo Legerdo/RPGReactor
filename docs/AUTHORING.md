@@ -17,9 +17,12 @@ project; a person can use it to find where anything lives.
 | Tile elevation (terraces, cliffs) | `MapNNN.r3d.json` › `elevation` (one whole number per tile) | — (by hand or generator) | — |
 | Terrain (rolling ground) | `MapNNN.r3d.json` › `terrain` ((w+1)×(h+1) corner heights), `terrainWidth` | Build bar › Terrain brushes | `editor/tests/terrain.test.cjs` rules |
 | Room (floor, walls, ceiling, sky) | `MapNNN.r3d.json` › `room` | Map Properties › 3D | — |
+| Steep ground (the material slopes turn to) | `MapNNN.r3d.json` › `room` › `cliff`, `cliffSlope`, `cliffTint` | Build bar › Terrain › Ground › Steep Ground | `editor/tests/terrain-cliff.test.cjs` rules |
 | Pieces (the 3D tileset) | `MapNNN.r3d.json` › `pieces` | **Build** bar over the 3D view (the Build button in the toolbar); drawn as a plan on the flat map too | `validate-map.cjs` |
 | Buildings, built or described | `3d/Structures/*.json` (project-wide), placed as `MapNNN.r3d.json` › `structures` | Database › Structures › Build (the plot in the 3D view with the Build bar), Build bar › Blueprint or Use on the map stamps one | `build-structure.cjs --check`, and the page's own walk |
 | Materials | `img/materials/*.png` (tileable) | swatches in the Build bar's specs panel | — |
+| Ground types (sand, dirt, snow, alien grounds) | `MapNNN.r3d.json` › `ground.types` (a material, tint, scale and a level per cell each) | Build bar › Terrain › Ground | `paint-ground.cjs`, `validate-map.cjs` |
+| The land past the border | `MapNNN.r3d.json` › `surround` | Build bar › Terrain › Beyond the Border | `editor/tests/map-surround.test.cjs` rules |
 | Water | `MapNNN.r3d.json` › `water` (a hollow's box, its `level`, a `mask` of the wet cells) | Build bar › Terrain › Pour | `validate-map.cjs` |
 | Rivers and waterfalls | `MapNNN.r3d.json` › `water` (a sheet with a `path` of heights downstream and a `flow`) | Build bar › Terrain › River | `carve-river.cjs`, `validate-map.cjs` |
 | Foliage (grass, flowers, ferns, reeds, bushes) and wind | `MapNNN.r3d.json` › `foliage` (a density per cell per layer, bushes one by one) | Build bar › Foliage | `paint-foliage.cjs`, `validate-map.cjs` |
@@ -27,7 +30,11 @@ project; a person can use it to find where anything lives.
 | Physics (gravity, jump, fall damage, swimming) | `System.json` › `reactorPhysics`; a map's own in `MapNNN.r3d.json` › `physics` | Database › Controls › Physics (3D maps); Map Properties › Physics | — |
 | Keys and gamepad buttons | `System.json` › `reactorControls` (absent while stock) | Database › Controls | — |
 | Lights and time of day | `MapNNN.r3d.json` › `lights`, `lighting` (a sun follows the ambient unless `daylight: "fixed"`) | Lighting tool | — |
+| Model variants (one model, several looks) | `3d/<model>/model.json` › `variants`; a use names one with `variant` in its model spec, or `variant(Name)` in an `<r3d>` note | Database › 3D Models › Variants; the Variant row wherever a model is chosen | `editor/tests/model-variants.test.cjs` |
 | Events | `MapNNN.json` › `events` (RPG Maker data) | Event tool | — |
+| Rideable motorcycles | `data/ReactorVehicles.json`; model `model.json` › `vehicle` / `parts`; event `rrVehicle` | Setup scripts below; the Vehicles Database page and event card are not wired into the editor yet | `validate-vehicles.cjs` |
+| Event size (footprint) | `MapNNN.r3d.json` › `eventSize[id] = [w, h]` with `eventSizeAnchor: "center"`; `eventSizeAuto[id]` is the editor's measured picture | Event Editor › Size (W, H, Auto) | `editor/tests/event-marker-centre.test.cjs` |
+| A record's battle settings (reach, area, sight, Move range, Climb, how it fights, how a weapon fires, cooldown, an enemy's picture on the map) | `rrBattle` on the record, in `data/Skills.json`, `Items.json`, `Weapons.json`, `Armors.json`, `States.json`, `Actors.json`, `Classes.json`, `Enemies.json` ([BATTLE-MODES.md](BATTLE-MODES.md#a-records-battle-settings)); tags in its Note are also read | Database › the record's **Shared Combat Settings**, **Tactical Battles** and **Action and First Person Battles** cards | `battle-tags-to-fields.cjs` (lists a project's tags, `--write` moves them into the records) |
 
 `MapNNN.json` stays ordinary RPG Maker data. Everything 3D is in the
 sidecar `MapNNN.r3d.json`, so a project with no 3D maps has no sidecars.
@@ -41,8 +48,16 @@ In the editor, Database › Structures lists the structure files as cards.
 A structure's page has a floor plan beside a 3D view of it: pick a floor,
 paint rooms, floors, walls, doors, windows and stairs with the tools
 (Select picks pieces up to move, nudge, turn or delete; right-drag erases;
-Ctrl+Z undoes), set **Floors** to stack more, and **Rebuild roof** lays
-the roof again over the top floor. **Build** opens the structure's plot in
+Ctrl+Z undoes), and set **Floors** to stack more. The plan shows what the
+3D view shows: the rooms, the structure's own pieces and shapes, and the
+plans it is made of. **Roof** is Gable, Flat or Slanted (one slope, with
+the side it rises to); the style and **Roof pitch** act at once, and
+**Rebuild roof** lays the roof again over the top floor. The **Walls**,
+**Floors** and roof tiles show the material in use; a click opens the
+project's materials, the building wears each while the pointer is over it
+and keeps it on a click (the selection only, when pieces are selected).
+**Seen from above**, over the floor list, shows the whole building from
+the top: its roof, and what stands above the top floor. **Build** opens the structure's plot in
 the map's 3D view with the same Build bar the map uses, for anything the
 plan cannot paint. The Build bar's Blueprint slot, or Use on the map,
 stamps a structure; **Rebuild from plan** re-lays a stamped one from its
@@ -53,6 +68,8 @@ ground is, what blocks a step, how deep the water stands) are in
 `runtime/reactor_3d_world.js`, readable without three.js; the checks above
 run the same code the game does.
 
+An event's Size is its footprint, centered on the event: triggers, the action button and collision count every tile of it, and an even size's graphic stands on the tile edge at its middle. **Auto**, for an event that stands as a 3D model, takes the tiles the model's body covers at its model size and facing; typing a width or height sets it by hand (an event across a three-tile doorway). A map saved before 0.98.9 counts footprints from the event's tile right and down until it is saved in the editor.
+
 ## Units
 
 A tile is one world unit. The bundled characters stand three tiles, so a
@@ -60,6 +77,52 @@ tile is about 0.6 m. A storey (`PIECE_STOREY`) is 5 tiles. Doorways default
 to 3 cells wide (1.8 m); a front door is usually 4 to 6. Heights in the
 sidecar are in tiles; positions are cells (integers) for pieces and
 fractional tiles for models.
+
+## Riding the Demo motorcycle
+
+North Haven (Map005) has a rideable motorcycle parked at **(83, 67)**,
+southwest of the village fountain, facing east. The Motorcycle entrance
+in the Reactor Room (Map001, event 24) transfers the player to **(83, 65)**,
+two tiles north of it. Start a new playtest after changing the project data.
+
+Walk beside the bike and press **Enter** (Confirm) to mount. **Up**
+accelerates, **Down** brakes and then reverses if held, and **Left/Right**
+steer. Press **Escape** (Cancel) to dismount; while moving, the bike brakes
+first and gets you off once it is slow enough and has room. **Enter**
+while seated interacts with nearby characters and keeps you aboard.
+Escape opens the menu normally once you are on foot; a separately bound
+Menu button still opens it while riding. The existing Jump control
+(**Space** by default) hops the bike.
+These are the Demo's default keyboard bindings; custom Confirm, Cancel, movement
+and Jump bindings also apply. The motorcycle uses the existing driving
+physics, rolling wheels, rider pose and save persistence. North Haven
+uses the supported third-person camera. The seat label and hint strip
+are not implemented yet, so no on-screen Ride instruction appears.
+
+The vehicle type names the Ninja model, sized to fit the starting party.
+The model sidecar binds its wheels, seat, hands, feet and carved Steering
+part. A parked vehicle is an ordinary event with
+`rrVehicle: {"type":1,"yaw":90,"key":"north-haven-motorcycle"}`; the
+vehicle system supplies its model and boarding behavior. The old Reactor
+Room event remains an entrance, separate from the rideable bike.
+
+For another project, these tools use the runtime's own fit and standing
+checks. `make-vehicle.cjs --fit` creates the type and fits the rider;
+`carve-part.cjs` separates steering geometry when the model needs it;
+run `make-vehicle.cjs --id N --reguess` after carving to attach the hands
+and steering control to that part. `place-vehicle.cjs` places it on a map.
+All support `--check` to inspect a proposed change before writing.
+
+```sh
+node editor/build-scripts/make-vehicle.cjs <project> --name Motorcycle --kind motorcycle --model Vehicles/kawashaki_ninja_h2 --fit
+node editor/build-scripts/place-vehicle.cjs <project> <mapId> --vehicle 1 --at x,y --face e --key motorcycle
+node editor/build-scripts/validate-vehicles.cjs <project>
+```
+
+The Demo already contains that type and placement; rerunning the placement
+command would add another event. No map generator is needed to place a
+vehicle, and North Haven's terrain, structures, foliage and residents
+are preserved.
 
 ## Pieces
 
@@ -293,7 +356,10 @@ A building as a person describes it. Everything else is derived.
 - `stairs`: `from` is the bottom step's cell, `dir` the way it climbs, one
   cell per tile of rise; the floor above is left open over the run.
 - `roof`: ramps step up `pitch` rows from each eave, a flat top between,
-  gables closed with blocks. `windows`: a pair every `every` cells along
+  gables closed with blocks. `style: "flat"` is a flat top with a parapet;
+  `style: "shed"` is one slope rising `pitch` levels to `high` (`north`
+  unless said, or `south`, `east`, `west`), a wedge of wall under a slab
+  of roof with eaves. `windows`: a pair every `every` cells along
   the outside, never beside a door.
 - Floor is laid under every doorway and wall cell as well as every room,
   and a ceiling over every top-floor room under the roof.
@@ -500,8 +566,39 @@ turns to rock:
 `cliff` is an image under `img/materials` (absent: `Rock` when the project
 has it; `""`: off), `cliffSlope` the angle in degrees where the change
 begins (10-80, default 40), `cliffTint` a colour multiplied in as a rock
-piece's `tint`, so terrain cliffs match the rocks beside them. Map
-Properties › 3D sets all three.
+piece's `tint`, so terrain cliffs match the rocks beside them. In the
+editor: Build bar › Terrain › **Ground** › Steep Ground (the material
+tile, with None; Tint; Starts At). With None, Tint and Starts At are off.
+A flat map has no steep ground.
+
+## Getting up high
+
+A character walks a rise of up to 0.75 tile, jumps onto anything up to its jump height plus that (2 tiles by default), and mantles a ledge up to its jump height plus its reach (4.25 by default): Jump while walking into it. The top must be level, with three tiles of room over it and nothing over the climber. A railing, a ridge or a pillar is not a place to stand. A roof is a place to be: a gable's pitch (45 degrees) and a slanted roof are walked; steeper than 45 degrees is not stood on. An eave within reach is mantled: Jump while walking toward it, a step or two before it. A one-storey eave is within reach from level ground; a two-storey one needs a `ladder` (one piece per level, turned to the wall) or something to climb from. A party member walks off the edge of a roof, a wall top or a crate when the fall is no deeper than the safe fall (6 tiles by default); a deeper one, and a cliff of the ground itself, takes a Jump. An event with `<climb>` in its note hops or mantles a ledge in the way of its route. In third person the camera rides over the roof the player stands on and never sits inside a roof: it rises over the tiles. Events more than three tiles below the player are not shown through the floor or roof the player stands on. Two ramps in a row are a slope walked. A climber's hands stay on the edge it takes and its body against the wall; what it carries is put away for the climb and comes back to the hand on top. In first person nobody is shown through a wall. The map view's **Edges** tick labels each edge of the tile under the pointer in the 3D view: Walk, Hop, Mantle, Climb ladder, Drop or Blocked, with the height and, when blocked, why (Too high, No room to stand, Something overhead, Too steep, Map edge). `ReactorPhysics.edge(mapData, x, y, d, height)` answers what a body can do at any edge (`walk`, `ladder`, `hop`, `mantle`, `drop` or `blocked` with a reason). Database › Controls › Physics: Climb onto ledges within reach, Reach above a jump. In a Tactical battle a mantle costs 2 move, a ladder 1 plus one per 2.5 tiles climbed.
+
+## Ground types
+
+```json
+"ground": { "types": [ { "name": "Beach", "material": "Sand", "tint": "#e8866a", "scale": 4, "bare": true, "paint": "0x812 9x3 5" } ] }
+```
+
+The room's floor is the map's own ground; `ground.types` paints others over it, up to eight. A type is a `material` (an image under `img/materials`, with its `_normal`/`_rough` maps and `.json` when it has them), a `tint`, a `scale` (tiles to one repeat; absent: the material's own, else 4), `bare` (nothing grows on it) and `paint`: a level 0-9 per cell, row by row, as runs. A later type lies over an earlier one. Borders wander, and a half-strength paint reads as patches. On slopes a type turns to the room's cliff as the floor does. In the editor: Build bar › Terrain › **Ground** (Paint or Erase, + Add a ground, the material tile, Tint, Scale, Nothing grows here; Radius, Strength, Soft edge, Coverage; Fill the whole map). The Ground panel fills a rectangle by drag (Rectangle). A rock capped with `"ground"` wears the type painted under it, and bushes are not stood on bare ground by the brush. **Dunes** raises wind-shaped ridges (Wind direction, Ridge spacing, Height). **Biome** sets a map's ground, cliff tint, plant colors and water together. **Rock** is in the Terrain group. By rule:
+
+```
+node editor/build-scripts/paint-ground.cjs <project> <mapId> <spec.json> [--check]
+node editor/build-scripts/make-ground-materials.cjs <project> [--force] [--only Name,Name] [--size 256]
+```
+
+`spec.json` names `types` and `fill` jobs (`type`, `level`, `where`: `rect`, `polygon` or `all`; `rules`: `maxSlope`, `minSlope`, `minHeight`, `maxHeight`, `nearWater`, `awayFromWater`, `nearPieces`, `awayFromPieces`, `noise`). A beach is `{ "type": "Beach", "where": { "all": true }, "rules": { "nearWater": 3 } }`. `make-ground-materials.cjs` also writes `<Name>_rough.png` for the grounds with a sheen (Alien-Crystal, Alien-Chitin).
+
+## Beyond the border
+
+`surround` in a map's sidecar is what is seen past its border; nobody walks there.
+
+```json
+"surround": { "style": "continue", "distance": 160, "rough": 0.5, "edges": { "south": "ocean" } }
+```
+
+`style`: `continue` (the border's heights carried out into hills), `ocean` (the land falls to a shore and water runs to the horizon), `mountains`, `plateau` (the edge drops to a far floor), `void` (a floating island with a rock underside) or `none`. `edges` names another style for `north`, `east`, `south` or `west`. `distance` is the reach in tiles (24-320; 160, or 96 on weak graphics, when absent), `rough` 0-1 how hilly, `seed` which hills, `level` the sea's surface (absent: the lowest water at the border, else just under the lowest ground), `height` the mountains', `drop` the plateau's fall and the void's depth, `haze` 0-1 how far the far land fades into the sky. The land wears the room floor and the ground painted at the border. In the editor: Build bar › Terrain › **Beyond the Border**, on a 3D map (the six styles as pictures; Distance, with Automatic; Hills; under Advanced a style per side, Seed and the numbers the chosen styles use). A style picked after Nothing keeps the distance, hills and numbers the map had. On weak graphics the panel says how far that computer shows when the distance is past it. A map with no floor shows nothing past its border. The Surroundings tick in the map view hides it; the panel then offers to show it.
 
 ## Foliage
 
@@ -531,6 +628,10 @@ at `x`, `y` (tiles), `size` wide (0.4-8); `tall` makes it taller than wide,
 covers; smaller ones are walked through. `wind` blows toward `dir`
 degrees (0 east, 90 south) at `strength` (0-2), with `gust` rolling over
 it; whoever walks through the grass bends it.
+
+Three kinds are not Earth's: `bulbs` (a lit globe on a stalk; takes `colours` as flowers do), `tendrils` (fronds that curl and uncurl) and `crystals` (shards no wind moves, the one kind that stands on bare ground). Any layer takes `glow` (0-1): its own color shows whatever the light, strongest at the tip.
+
+The **Colors** tab recolors every plant on the map and what is painted next from a palette; a flower layer's petals are a list of colors.
 
 In the editor the Build bar's **Foliage** group paints a kind with a brush
 (size, strength, density; Erase thins it), stands bushes by click or

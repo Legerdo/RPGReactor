@@ -103,7 +103,8 @@ test('types editor exposes dense panels, clipboard actions, and destructive shri
     assert.match(source, /showDatabaseActionMenu\(event\.clientX, event\.clientY/);
     assert.match(source, /requestGeneration !== pasteGeneration \|\| mutationGeneration !== expectedMutation/);
     assert.match(source, /viewer\?\.classList\.contains\('active'\)[\s\S]*detail\?\.contains\(workspace\)/);
-    assert.match(source, /newMax < currentMax && !confirm/);
+    assert.match(source, /if \(newMax < currentMax\) \{[\s\S]{0,400}?await RRDialog\.confirm\(this\.describeRemovedEntries\(newMax, currentMax\), \{[\s\S]{0,160}?danger: true/,
+        'a smaller maximum is a danger question through the themed dialog');
     assert.match(source, /resizeTypeArray\(system, category, newMax\)/);
 });
 
@@ -131,9 +132,8 @@ test('database maximum UI displays caps and lazy-loads continuous large lists', 
     const animations = fs.readFileSync(path.join(repoRoot, 'src', 'database', 'DatabaseAnimationEditor.js'), 'utf8');
 
     assert.match(source, /const batchSize = 250;/);
-    assert.match(source, /input\.max = String\(maximum\)/);
-    assert.match(source, /input\.className = 'rr-database-maximum-input'/);
-    assert.match(theme, /\.rr-database-maximum-input::\-webkit-inner-spin-button,[\s\S]*\-webkit-appearance: none;/);
+    // Change Maximum asks in the themed prompt, which refuses a number past the section's cap.
+    assert.match(source, /value >= 1 && value <= maximum \? '' : tt\('Enter a whole number from 1 to \{max\}\.'\)/);
     assert.match(source, /tt\('Max:'\).*maximum/);
     assert.match(source, /filteredData\.slice\(renderedCount, end\)/);
     assert.match(source, /type === 'animations'[\s\S]*?filteredData\.length/,

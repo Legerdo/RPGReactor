@@ -98,12 +98,20 @@ Reactor3D.viewGroundAt = function(mapData, wx, wz, near) {
 /** The ground under a character, at the middle of its cell as it moves between cells. */
 Reactor3D.characterGround = function(mapData, character) {
     if (!character) return this.DEFAULT_ELEVATION;
-    const x = Number.isFinite(character._realX) ? character._realX : character.x || 0;
-    const y = Number.isFinite(character._realY) ? character._realY : character.y || 0;
     // Where the character last stood decides which floor of a house it is
     // on; `locate` forgets it, so a transfer lands on the ground floor.
     const near = character._reactorGround;
-    let ground = this.groundHeightAt(mapData, x + 0.5, y + 0.5, near);
+    // In the running game the physics has read this frame's ground and kept
+    // the layer the body is on (a wall's corner beside a diagonal step, a slab
+    // over a jump are not ground): the view draws that answer, not its own.
+    const physics = typeof ReactorPhysics !== "undefined" ? ReactorPhysics : null;
+    if (physics && physics.groundPoint && Number.isFinite(near) && Number.isFinite(character._reactorAlt)
+        && typeof $dataMap !== "undefined" && mapData === $dataMap) return near;
+    let x = (Number.isFinite(character._realX) ? character._realX : character.x || 0) + 0.5;
+    let y = (Number.isFinite(character._realY) ? character._realY : character.y || 0) + 0.5;
+    // The point of a diagonal step that floors into neither of its two cells is read in one of them.
+    if (physics && physics.groundPoint) { const point = physics.groundPoint(character); if (Number.isFinite(point[0]) && Number.isFinite(point[1])) { x = point[0]; y = point[1]; } }
+    let ground = this.groundHeightAt(mapData, x, y, near);
     // A diagonal step passes over the corner cell between its two cells; beside
     // a doorway that corner is a wall, whose stack reads as its top, and the
     // character was lifted onto the roof (and stayed, standing there). A surface
@@ -178,7 +186,9 @@ Reactor3D.terrainBlocks = function(mapData, x, y, x2, y2, near) {
         // half tile: built to be climbed, judged by its halves.
         return false;
     }
-    return Math.abs(to - from) > limit;
+    if (Math.abs(to - from) <= limit) return false;
+    // Up or down a roof: its pitch is steeper than ground a walker takes, and both ends of the step are on it.
+    return !(Math.abs(to - from) <= this.ROOF_SLOPE_LIMIT && this.roofSlopeAt(mapData, x, y, from) && this.roofSlopeAt(mapData, x2, y2, to));
 };
 
 Reactor3D.stairAt = function(mapData, x, y) {
@@ -368,6 +378,8 @@ Reactor3D.shapePlacer = function(piece, base) {
     const oy = (Number(base) || 0) + (Number(piece.z) || 0) - lowest;
     return (u, y, v) => { const q = spin(u, y, v); return [cx + q[0], oy + q[1], cz + q[2]]; };
 };
+/** The shapes whose solid part is round on the ground (`shapeSolidAt`): an ellipse, not their box. */
+Reactor3D.SHAPE_SOLID_ROUND = ["cylinder", "cone", "dome", "sphere", "hull", "spike", "capsule", "dish"];
 /**
  * Whether a point of the ground, `lx` across and `lz` along from a
  * shape's middle in its own turned frame (tiles), is under a solid part
@@ -418,17 +430,45 @@ Reactor3D.pieceFootprint = function(piece) {
             if (this.hullReach([x + 0.5, y + 0.5], hull) <= SLACK) cells.push([x, y]);
         }
     } else {
-        const angle = ((Number(piece.angle) || 0) + (Number(piece.rot) || 0) * 90) * Math.PI / 180;
-        const corners = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([u, v]) => [cx + u * Math.cos(angle) - v * Math.sin(angle), cz + u * Math.sin(angle) + v * Math.cos(angle)]);
+        const turn = (Number(piece.angle) || 0) + (Number(piece.rot) || 0) * 90;
+        const angle = turn * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
+        const corners = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([u, v]) => [cx + u * cos - v * sin, cz + u * sin + v * cos]);
         const x0 = Math.floor(Math.min(...corners.map(c => c[0])) - SLACK), x1 = Math.ceil(Math.max(...corners.map(c => c[0])) + SLACK) - 1;
         const y0 = Math.floor(Math.min(...corners.map(c => c[1])) - SLACK), y1 = Math.ceil(Math.max(...corners.map(c => c[1])) + SLACK) - 1;
-        // A cell counts when its middle, seen from the shape's own frame, is under a solid part.
+        const params = this.shapeParams(piece);
+        // Whether a ground point, seen from the shape's own frame, is under a solid part (or within the slack of one).
+        const solid = (wx, wz) => {
+            const px = wx - cx, pz = wz - cz;
+            return this.shapeSolidAt(piece.kind, px * cos + pz * sin, -px * sin + pz * cos, hw, hd, SLACK, params.sweep, params.thick);
+        };
+        // A cell counts when its middle is under a solid part.
+        const cols = x1 - x0 + 1, rows = y1 - y0 + 1;
+        const under = cols > 0 && rows > 0 ? new Uint8Array(cols * rows) : null;
         for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-            if (x < 0 || y < 0) continue;
-            const px = x + 0.5 - cx, pz = y + 0.5 - cz;
-            const u = px * Math.cos(-angle) - pz * Math.sin(-angle), v = px * Math.sin(-angle) + pz * Math.cos(-angle);
-            const params = this.shapeParams(piece);
-            if (this.shapeSolidAt(piece.kind, u, v, hw, hd, SLACK, params.sweep, params.thick)) cells.push([x, y]);
+            if (x < 0 || y < 0 || !solid(x + 0.5, y + 0.5)) continue;
+            cells.push([x, y]);
+            under[(y - y0) * cols + (x - x0)] = 1;
+        }
+        // And when a part narrower than a cell passes between its middle and a neighbour's (a ring's wall, a thin
+        // wall at an angle, a post on a border): a step between the two would walk through what is drawn. The cell
+        // whose half of that step holds more of it takes it. Exactly between the two, something that comes most of
+        // the way to both middles takes both; something thin lying on the border itself takes neither (a cell is
+        // all there is to give it, and that would shut a row beside a rail).
+        // An upright box at least a cell each way, square to the grid, cannot pass between two middles.
+        const boxy = !this.HOLLOW_KINDS.includes(piece.kind) && this.SHAPE_SOLID_ROUND.indexOf(piece.kind) < 0;
+        const narrow = !boxy || ((turn % 90) + 90) % 90 !== 0 || w + 2 * SLACK < 1 || d + 2 * SLACK < 1;
+        if (narrow && under) for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+            if (x < 0 || y < 0 || under[(y - y0) * cols + (x - x0)]) continue;
+            for (let arm = 0; arm < 4; arm++) {
+                const ax = arm === 0 ? 1 : arm === 1 ? -1 : 0, ay = arm === 2 ? 1 : arm === 3 ? -1 : 0;
+                // The neighbour's own middle is under it: the neighbour holds it.
+                if (solid(x + 0.5 + ax, y + 0.5 + ay)) continue;
+                let count = 0, sum = 0, nearest = 16;
+                for (let k = 1; k < 16; k++) if (solid(x + 0.5 + ax * k / 16, y + 0.5 + ay * k / 16)) { count++; sum += k; if (k < nearest) nearest = k; }
+                if (!count) continue;
+                const mean = sum / count / 16;
+                if (mean < 0.5 - 1 / 64 || (mean <= 0.5 + 1 / 64 && nearest <= 2)) { cells.push([x, y]); break; }
+            }
         }
     }
     if (!cells.length && !this.HOLLOW_KINDS.includes(piece.kind)) cells.push([piece.x, piece.y]);
@@ -687,12 +727,73 @@ Reactor3D.pieceTop = function(piece, u, v) {
                         return p00[1] + su * (p10[1] - p00[1]) + sv * (p01[1] - p00[1]);
                     }
                 }
+                // A slab laid at a tilt (an eave, a slanted roof) is stood on where it is, not at its highest corner.
+                if (piece.kind === "box") return this.tiltedBoxTop(piece, at, piece.x + (Number.isFinite(u) ? u : 0.5), piece.y + (Number.isFinite(v) ? v : 0.5));
                 let top = -Infinity;
                 for (const u of [0, 1]) for (const y of [0, 1]) for (const v of [0, 1]) top = Math.max(top, at(u, y, v)[1]);
                 return top;
             }
             return piece.z + this.pieceHeight(piece.kind);
     }
+};
+
+/**
+ * The top of a tilted or rolled box over a ground point: a box is convex, so its top is the lowest
+ * of its upward faces' planes there. A point past its shadow reads the nearest point of the shadow
+ * (a cell of its footprint reaches a little beyond it). Its faces and shadow are kept per piece.
+ */
+Reactor3D.tiltedBoxTop = function(piece, at, wx, wz) {
+    const memo = this._tiltedBoxMemo || (this._tiltedBoxMemo = new WeakMap());
+    let box = memo.get(piece);
+    if (!box) {
+        const o = at(0, 0, 0), ends = [at(1, 0, 0), at(0, 1, 0), at(0, 0, 1)], far = at(1, 1, 1);
+        const faces = [];
+        for (const end of ends) {
+            const n = [end[0] - o[0], end[1] - o[1], end[2] - o[2]];
+            const len = Math.hypot(n[0], n[1], n[2]) || 1;
+            // The face this axis points at passes through the far corner; the one it points from, through the near one.
+            if (n[1] / len > 1e-6) faces.push([n[0] / n[1], n[2] / n[1], far[0], far[1], far[2]]);
+            else if (n[1] / len < -1e-6) faces.push([n[0] / n[1], n[2] / n[1], o[0], o[1], o[2]]);
+        }
+        const points = [];
+        let high = -Infinity;
+        for (const u of [0, 1]) for (const y of [0, 1]) for (const v of [0, 1]) { const q = at(u, y, v); points.push([q[0], q[2]]); high = Math.max(high, q[1]); }
+        box = { faces, hull: this.convexHull(points), high };
+        memo.set(piece, box);
+    }
+    let x = wx, z = wz;
+    const hull = box.hull;
+    if (hull.length >= 3 && this.hullReach([x, z], hull) > 0) {
+        let nearest = Infinity;
+        for (let i = 0; i < hull.length; i++) {
+            const a = hull[i], b = hull[(i + 1) % hull.length];
+            const ex = b[0] - a[0], ez = b[1] - a[1];
+            const t = Math.max(0, Math.min(1, ((wx - a[0]) * ex + (wz - a[1]) * ez) / (ex * ex + ez * ez || 1)));
+            const px = a[0] + ex * t, pz = a[1] + ez * t, d = Math.hypot(wx - px, wz - pz);
+            if (d < nearest) { nearest = d; x = px; z = pz; }
+        }
+    }
+    let top = box.high;
+    for (const face of box.faces) top = Math.min(top, face[3] - face[0] * (x - face[2]) - face[1] * (z - face[4]));
+    return top;
+};
+
+/** A roof's pitch, in tiles of rise per tile: a step this steep is still walked where both its ends stand on a roof's slope (45 degrees, the gable the plans lay). */
+Reactor3D.ROOF_SLOPE_LIMIT = 1.05;
+
+/** Whether what is stood on at a height on a cell is a roof's slope: a ramp, or a slab laid at a tilt. */
+Reactor3D.roofSlopeAt = function(mapData, x, y, height) {
+    const stack = this.piecesAt(mapData, x, y);
+    if (!stack || !Number.isFinite(height)) return false;
+    const base = this.pieceBaseAt(mapData, x, y);
+    for (const piece of stack) {
+        const slab = piece.kind === "box" && this.shapeTurned(piece);
+        if (piece.kind !== "ramp" && !slab) continue;
+        let top = this.pieceTop(piece, 0.5, 0.5);
+        if (slab && Array.isArray(piece.anchor)) top += this.pieceBaseAt(mapData, piece.anchor[0], piece.anchor[1]) - base;
+        if (Math.abs(base + top - height) <= 0.3) return true;
+    }
+    return false;
 };
 
 /**
@@ -820,6 +921,113 @@ Reactor3D.waterLookOf = function(raw) {
     if (Number.isFinite(waves)) out.waves = Math.max(0, Math.min(2, Math.round(waves * 100) / 100));
     if (unit(raw.glow) !== null) out.glow = unit(raw.glow);
     return out;
+};
+
+/** A "#rrggbb" colour as light (linear r, g, b), written into `out`. */
+Reactor3D.hexToLinear = function(hex, out) {
+    const n = parseInt(String(hex).slice(1), 16);
+    const linear = byte => { const v = byte / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    out[0] = linear((n >> 16) & 255); out[1] = linear((n >> 8) & 255); out[2] = linear(n & 255);
+    return out;
+};
+
+/** The colour plain water shines when it glows: its depth blue, as the Look panel shows it. */
+Reactor3D.WATER_GLOW_COLOUR = "#2a5f96";
+/** Plain water seen through: its colour, and how fast things fade into it (per tile of water). */
+Reactor3D.WATER_FOG = [0.02, 0.13, 0.2, 0.22];
+/** How strongly a sheet at full glow lights what stands round it (a lamp of intensity 1 is 2). */
+Reactor3D.WATER_LIGHT = 1.6;
+/** How brightly a sheet at full glow shines, its strongest channel, before its waves brighten and dim it. */
+Reactor3D.WATER_SHINE = 0.75;
+/**
+ * The shine a sheet must pass before light bleeds from it into the picture
+ * round it (its halo, `Reactor3D.Halo`): a glow of a fifth. Under it a sheet
+ * shines and lights its banks but has no halo.
+ */
+Reactor3D.WATER_HALO_FROM = 0.03;
+/** The share of a glowing sheet's shine a full mirror on its surface holds back (the world mirrored in it is seen instead). */
+Reactor3D.WATER_GLOW_MIRROR = 0.35;
+
+/**
+ * Everything a sheet's look comes to, in numbers: for the sheet's own shader,
+ * for the water seen through and from inside it, for the light it gives the
+ * map and for the haze over it. The game and the editor both read a look
+ * through here (a slider in the editor writes the result straight into the
+ * sheet's uniforms), so they draw the same thing for the same value; and every
+ * value moves smoothly with `glow` and `clear`, with no step anywhere between
+ * 0 and 1.
+ *   glow     as set, 0-1
+ *   neon     the colour it shines (its own, else water's blue), its strongest channel at 1
+ *   emit     how brightly it shines, over whatever light falls on it (the night does not dim it)
+ *   cover    how opaque the shine makes it
+ *   fog      [r, g, b, density]: the liquid seen through, lit from within by the glow
+ *   light    how strongly it lights its surroundings
+ *   shape    the power its light's falloff is raised to (a faint glow stays a little closer to the water)
+ *   haze     how thick the glow hangs over it
+ *   halo     how strongly its light bleeds into the picture round it, 0-1: none until the shine passes
+ *            WATER_HALO_FROM, then in step with the shine (a faint rim at a third, neon at full)
+ */
+Reactor3D.waterShade = function(look, out) {
+    out = out || { neon: [0, 0, 0], fog: [0, 0, 0, 0] };
+    const unit = (value, fallback) => { const n = Number(value); return value !== undefined && value !== null && value !== "" && Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback; };
+    const glow = unit(look && look.glow, 0), clear = unit(look && look.clear, 0.6);
+    const own = look && typeof look.colour === "string" && /^#[0-9a-f]{6}$/i.test(look.colour) ? look.colour : null;
+    const neon = this.hexToLinear(own || this.WATER_GLOW_COLOUR, out.neon);
+    const peak = Math.max(neon[0], neon[1], neon[2]);
+    // Black has no hue to shine in: it glows pale.
+    if (peak > 1e-4) { neon[0] /= peak; neon[1] /= peak; neon[2] /= peak; } else neon[0] = neon[1] = neon[2] = 1;
+    out.glow = glow;
+    // Squared: through the screen's own curve the shine then rises in near even steps. Short of full at the
+    // top, so the crests of its waves have room to be brighter than the troughs.
+    out.emit = this.WATER_SHINE * glow * glow;
+    out.cover = glow * glow;
+    const fog = out.fog, base = this.WATER_FOG;
+    if (own) { this.hexToLinear(own, fog); fog[0] *= 0.4; fog[1] *= 0.4; fog[2] *= 0.4; } else { fog[0] = base[0]; fog[1] = base[1]; fog[2] = base[2]; }
+    for (let i = 0; i < 3; i++) fog[i] += (neon[i] * 0.85 - fog[i]) * glow;
+    // Clear water (0.6) fades things as it always did; tar hides them in a tile or two, a clear spring lets the eye run far.
+    fog[3] = base[3] * Math.pow(4, (0.6 - clear) / 0.6);
+    // In step with the slider: a third of the glow is about a fifth of the light on the bank, a faint tint.
+    out.light = this.WATER_LIGHT * glow;
+    out.shape = 1.2 - 0.4 * glow;
+    out.haze = 0.035 * Math.pow(glow, 1.5);
+    out.halo = Math.max(0, out.emit - this.WATER_HALO_FROM) / (this.WATER_SHINE - this.WATER_HALO_FROM);
+    return out;
+};
+
+/**
+ * Write a look into a sheet's material (one made by `waterMaterial`): as the
+ * sheet is laid, and again whenever the look changes while the sheet stands
+ * (a slider in the editor). Returns what the look came to (`waterShade`).
+ */
+Reactor3D.applyWaterLook = function(material, look) {
+    const data = material && material.userData;
+    if (!data || !data.rrWaterForm) return null;
+    const shade = this.waterShade(look, data.rrWaterShade);
+    data.rrWaterShade = shade;
+    data.rrWaterLook.x = look && look.reflect > 0 ? Math.min(1, Number(look.reflect)) : 0;
+    data.rrWaterLook.y = 1 - (look && look.gloss !== undefined ? look.gloss : 0.85);
+    // A sheet that starts to mirror takes the reflection capture from then on.
+    if (data.rrWaterLook.x > 0 && this.Reflections && !material.__reactorReflects) { this.Reflections.wanted = true; this.Reflections.hook(material); }
+    data.rrWaterTint.set(look && look.tint ? look.tint : "#ffffff");
+    // The liquid: its colour (w 1 when it has its own), then its clarity, waves, glow and how opaque the glow makes it.
+    if (look && look.colour) {
+        const colour = this._waterColourScratch || (this._waterColourScratch = new THREE.Color());
+        colour.set(look.colour);
+        data.rrWaterColour.set(colour.r, colour.g, colour.b, 1);
+    } else data.rrWaterColour.set(0, 0, 0, 0);
+    data.rrWaterForm.set(look && look.clear !== undefined ? look.clear : 0.6, look && look.waves !== undefined ? look.waves : 1, shade.glow, shade.cover);
+    data.rrWaterGlow.set(shade.neon[0], shade.neon[1], shade.neon[2], shade.emit);
+    // A river's falls are drawn with these same values (fallMaterial, foamMaterial), so they follow the look with the sheet.
+    if (look && look.colour) data.rrFallTint.set(look.colour).multiplyScalar(0.4); else data.rrFallTint.setRGB(0.05, 0.1, 0.11);
+    data.rrWaterFog.set(shade.fog[0], shade.fog[1], shade.fog[2], shade.fog[3]);
+    data.rrWaterHaze.colour.value.setRGB(shade.neon[0], shade.neon[1], shade.neon[2]);
+    data.rrWaterHaze.strength.value = shade.haze;
+    for (const haze of data.rrWaterHazeMeshes || []) haze.visible = shade.haze > 0;
+    // What it gives the halo (Reactor3D.Halo): its colour, as strongly as its shine passes the halo's threshold.
+    data.rrWaterHalo.colour.value.setRGB(shade.neon[0], shade.neon[1], shade.neon[2]);
+    data.rrWaterHalo.strength.value = shade.halo;
+    if (data.rrWaterHaloMesh) data.rrWaterHaloMesh.visible = shade.halo > 0;
+    return shade;
 };
 
 /** The raw sheet's mask cut to the region's box (the box may have been clamped to the map), or null when it covers the box. */
@@ -2008,7 +2216,8 @@ Reactor3D.rockMesh = function(frames, box, bucketFor, groundFloor) {
         const capped = !!frame.piece.cap && fy > (frame.top - my < 1.5 ? 0.5 : 0.86) + edge;
         const bucket = bucketFor(frame, capped);
         const U = capped ? (frame.piece.cap === this.ROCK_GROUND ? 1 : this.ROCK_CAP_UV) : this.ROCK_UV;
-        const tint = !capped && frame.tint;
+        // A side wears the rock's tint; a top capped with a painted ground wears that ground's.
+        const tint = capped ? frame.capTint : frame.tint;
         for (const q of [a, b, c]) {
             bucket.positions.push(q.p[0], q.p[1], q.p[2]);
             if (capped || (ny >= nx && ny >= nz)) bucket.uvs.push(q.p[0] / U, q.p[2] / U);
@@ -2694,6 +2903,7 @@ Reactor3D.MapScene.prototype.layPieceChunks = function(mapData, load, keys) {
  */
 Reactor3D.MapScene.prototype.layRockChunks = function(mapData, load, rocks, wanted) {
     const frames = rocks.map(piece => Reactor3D.rockFrame(piece, Reactor3D.pieceBaseAt(mapData, piece.x, piece.y)));
+    if (Reactor3D.hasGround(mapData)) for (const frame of frames) Reactor3D.rockGroundCap(mapData, frame);
     const size = Reactor3D.PIECE_CHUNK;
     const keys = new Set();
     for (const f of frames) {
@@ -2742,6 +2952,23 @@ Reactor3D.rockLook = function(frame, capped) {
     const surface = cap ? null : this.pieceSurface(piece);
     const shine = this.surfaceKey(surface);
     return { look: cap ? "\u0003" + cap : shine ? piece.material + "\u0001" + shine : piece.material, name: cap || piece.material, surface, cap: !!cap };
+};
+
+/**
+ * A rock capped with "ground" on a map with ground types wears the ground painted under its
+ * middle: that type's material and tint. Where none is painted it keeps the room's floor.
+ */
+Reactor3D.rockGroundCap = function(mapData, frame) {
+    if (!frame || !frame.piece || frame.piece.cap !== this.ROCK_GROUND) return frame;
+    const ground = this.groundAt(mapData, frame.c[0], frame.c[2]);
+    if (ground.type < 0) return frame;
+    frame.piece = Object.assign({}, frame.piece, { cap: ground.material });
+    frame.capTint = ground.tint ? [1, 3, 5].map(i => parseInt(ground.tint.slice(i, i + 2), 16) / 255) : null;
+    frame.looks = null;
+    // What it was meshed from: the same rock on another ground is meshed again.
+    frame.sig = null;
+    frame.sig = this.rockSignature(frame) + "|" + ground.material + ground.tint;
+    return frame;
 };
 
 /** A chunk's rock faces, meshed here: one bucket of arrays per material and cap. */
@@ -2804,7 +3031,7 @@ Reactor3D.MapScene.prototype.queueRockChunks = function(pool, jobs, load, floor)
         const frames = job.reaching.map(f => {
             const pair = f.looks || (f.looks = [Reactor3D.rockLook(f, false), Reactor3D.rockLook(f, true)]);
             for (const look of pair) looks.set(look.look, look);
-            return { piece: { cap: f.piece.cap || "" }, c: f.c, axes: f.axes, half: f.half, round: f.round, rough: f.rough, amp: f.amp, tint: f.tint, warp: f.warp, top: f.top, min: f.min, max: f.max, lookKeys: [pair[0].look, pair[1].look] };
+            return { piece: { cap: f.piece.cap || "" }, c: f.c, axes: f.axes, half: f.half, round: f.round, rough: f.rough, amp: f.amp, tint: f.tint, capTint: f.capTint || null, warp: f.warp, top: f.top, min: f.min, max: f.max, lookKeys: [pair[0].look, pair[1].look] };
         });
         // The ground the faces are judged against, over the chunk and two tiles round it.
         const g = { x0: job.box.x0 - 2, z0: job.box.z0 - 2, w: job.box.x1 - job.box.x0 + 4, h: job.box.z1 - job.box.z0 + 4, values: null };
@@ -2878,6 +3105,14 @@ Reactor3D.rockWorkerPool = function() {
         try { job.done({ buckets: job.fallback() }); } catch (e) { console.warn("Reactor3D: a rock chunk could not be meshed —", e); }
         setTimeout(runHere, 0);
     };
+    // The meshers rest once a map's rocks are laid (Reactor3D.IdleWorkers): the next map makes them again.
+    const rest = () => Reactor3D.IdleWorkers?.touch("rock", () => pool.queue.length > 0 || pool.jobs.size > 0, () => {
+        for (const worker of pool.idle) worker.terminate();
+        pool.idle.length = 0;
+        pool.rested = true;
+        if (this._rockPool === pool) this._rockPool = undefined;
+        try { URL.revokeObjectURL(url); } catch (e) { /* never made */ }
+    });
     const pump = () => {
         if (pool.broken) { runHere(); return; }
         while (pool.idle.length && pool.queue.length) {
@@ -2886,6 +3121,7 @@ Reactor3D.rockWorkerPool = function() {
             job.worker = worker;
             worker.postMessage(Object.assign({ id: job.id }, job.payload));
         }
+        rest();
     };
     const fail = error => {
         if (pool.broken) return;
@@ -2897,7 +3133,9 @@ Reactor3D.rockWorkerPool = function() {
         runHere();
     };
     try {
-        for (let i = 0; i < Math.max(1, Math.min(3, cores - 1)); i++) {
+        // Each mesher is a heap of its own: a low-memory machine keeps one.
+        const meshers = typeof this.lowMemory === "function" && this.lowMemory() ? 1 : Math.max(1, Math.min(3, cores - 1));
+        for (let i = 0; i < meshers; i++) {
             const worker = new Worker(url);
             worker.onmessage = event => {
                 const job = pool.jobs.get(event.data && event.data.id);
@@ -2910,6 +3148,12 @@ Reactor3D.rockWorkerPool = function() {
         }
     } catch (e) { return null; }
     pool.submit = (payload, done, fallback) => {
+        // A pool that rested hands its work to the one made after it.
+        if (pool.rested) {
+            const next = Reactor3D.rockWorkerPool();
+            if (next && next !== pool) return next.submit(payload, done, fallback);
+            pool.broken = true;
+        }
         pool.queue.push({ id: pool.next++, payload, done, fallback });
         pump();
     };
@@ -3082,10 +3326,9 @@ Reactor3D.RIVER_MAP_GLSL = [
 Reactor3D.RIVER_SHADE_GLSL = [
     // The colours are before the light, which a sunny map lays on at two to three times: dark here is dark there.
     "\tvec3 rrShallow = vec3(0.10, 0.155, 0.105), rrDeep = vec3(0.008, 0.034, 0.04);",
-    // A liquid of its own colour: lighter in the shallows. One that lights itself (lava) is not lit
-    // afterwards, so its colour stands as it is.
-    "\tfloat rrSelf = rrWaterForm.z >= 0.5 ? 1.0 : 0.0;",
-    "\tif (rrWaterColour.w > 0.5) { rrShallow = rrWaterColour.rgb * mix(0.5, 1.15, rrSelf); rrDeep = rrWaterColour.rgb * mix(0.22, 0.9, rrSelf); }",
+    // A liquid of its own colour: lighter in the shallows. What a glowing one shines is added after the
+    // map's light (rrWaterEmit), so this is the liquid as the light finds it.
+    "\tif (rrWaterColour.w > 0.5) { rrShallow = rrWaterColour.rgb * 0.5; rrDeep = rrWaterColour.rgb * 0.22; }",
     "\tfloat rrDeepness = smoothstep(0.05, 1.1, vRRDepth);",
     "\tvec3 rrTint = mix(rrShallow, rrDeep, rrDeepness);",
     // A low sun to the north, the way the camera looks: its glints gather in a glittering path across
@@ -3114,13 +3357,133 @@ Reactor3D.RIVER_SHADE_GLSL = [
     "\tfloat rrWhite = clamp(max(rrFoam, rrLace * 0.75), 0.0, 1.0);",
     "\tdiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.44, 0.44), rrWhite) + vec3(rrGlint * 0.6) * (1.0 - rrWaterForm.z);",
     // Clear over the shallows, near opaque over the deep; the sky and the foam are not seen through.
-    "\tfloat rrClear = clamp(rrWaterForm.x / 0.6, 0.0, 1.66);",
     "\tfloat rrOpacity = mix(0.32, 0.95, rrDeepness);",
-    "\trrOpacity = mix(1.0, rrOpacity, min(rrClear, 1.0)) * (rrClear > 1.0 ? mix(1.0, 0.6, rrClear - 1.0) : 1.0);",
+    // That is water's own clarity (0.6). The light let through moves in step with the slider: none at no
+    // clarity (tar, lava), water's own at 0.6, more past it, on one straight line, so every part of the
+    // slider shows wherever water lets any light through. Past water's own clarity a further share is let
+    // through that grows from nothing (no corner where it begins): deep water, which lets little through,
+    // opens as the clarity nears full.
+    "\tfloat rrClearX = rrWaterForm.x / 0.6, rrClearOver = max(rrClearX - 1.0, 0.0) * 1.5;",
+    "\tfloat rrThrough = (1.0 - rrOpacity) * rrClearX;",
+    "\trrThrough += (1.0 - rrThrough) * 0.25 * rrClearOver * rrClearOver;",
+    "\trrOpacity = 1.0 - clamp(rrThrough, 0.0, 1.0);",
     "\trrOpacity = max(rrOpacity, max(min(rrFresnel, 0.85), max(rrWhite, min(rrGlint, 1.0))));",
     // Gone over a third of a tile of depth: an opaque liquid's edge would show the cells' steps on a shorter one.
     "\tdiffuseColor.a *= rrOpacity * smoothstep(0.0, 0.3, vRRDepth) * vRREdge;"
 ].join("\n");
+
+/**
+ * The numbers of a glowing sheet's shine: WATER_GLOW_GLSL is written from
+ * them and `waterGlowShine` works them outside a shader.
+ */
+Reactor3D.WATER_GLOW = {
+    /** The liquid at rest, as a share of the look's shine (`waterShade().emit`). */
+    base: 0.52,
+    /** As much more on a crest of its swell, as much less in a trough. */
+    swell: 0.16,
+    /** More in the bright veins that wander over it, and their average where they are too fine for the picture's pixels. */
+    vein: 0.8,
+    veinFar: 0.125,
+    /** How fast the veins wander on a liquid of full waves (a slow shimmer: they are well changed in three seconds, not in half a one). */
+    stir: 0.14,
+    /** The spread between ripples facing one way and the other, near the eye. */
+    ripple: 0.16,
+    /** The slow bands of brighter and dimmer liquid that drift through it. */
+    drift: 0.16,
+    /** How hot a vein burns at full glow, and the hottest. */
+    hot: 0.42,
+    hotMost: 0.55,
+    /**
+     * What heat does to the colour: each channel rises toward full by its own
+     * strength (the power falls from 1 by `heat` times the heat), so the next
+     * strongest comes up first (lava's veins go orange and yellow, not pink),
+     * with `pale` times the heat of white in it.
+     */
+    heat: 1.3,
+    pale: 0.3,
+    /** How much of the lit liquid stands back at full glow, and how far what is left of it and what it mirrors take the glow's colour. */
+    body: 0.6,
+    tint: 0.85,
+    /** How much harder it shines under a noon sky than at night: beside sunlit ground the same shine would look dull. */
+    day: 0.35
+};
+
+/**
+ * One point of a glowing sheet's shine as the shader works it: `swell` from
+ * -1 (a trough) to 1 (a crest), `vein` from 0 to 1.4 (in a vein's core),
+ * `drift` from -1 to 1, `facet` 0 to 1 (0.5 where no ripple shows). Into
+ * `out`: `shine` (times the look's `emit`) and `hot` (its heat, times the glow).
+ */
+Reactor3D.waterGlowShine = function(swell, vein, drift, facet = 0.5, out = {}) {
+    const g = this.WATER_GLOW;
+    out.shine = (g.base + g.swell * swell + g.vein * vein) * (1 - g.ripple / 2 + g.ripple * facet) * (1 + g.drift * drift);
+    out.hot = Math.min(g.hotMost, g.hot * vein);
+    return out;
+};
+
+/** The colour a glowing liquid of colour `neon` ([r, g, b], its strongest channel 1) burns at heat `hot`, into `out`. */
+Reactor3D.waterGlowHeated = function(neon, hot, out = [0, 0, 0]) {
+    const g = this.WATER_GLOW;
+    for (let i = 0; i < 3; i++) { const v = Math.pow(Math.max(neon[i], 1e-4), 1 - g.heat * hot); out[i] = v + (1 - v) * g.pale * hot; }
+    return out;
+};
+
+/**
+ * What a glowing sheet shines, after RIVER_SHADE_GLSL has coloured it. The
+ * glow takes the sheet over as it rises: what the map's light makes of the
+ * liquid stands back (a noon sun on it would wash the shine pale), and what
+ * is left of that, the sky it catches and the world it mirrors, takes the
+ * glow's colour, so the sheet stays one saturated colour at any time of day.
+ * The surface is read in the shine itself: dimmer in the troughs of its
+ * swell and brighter on the crests and on the ripples that face one way;
+ * bright veins wander over it as light does over the bed of a pool, slower
+ * on a liquid that barely stirs, and burn hot at their cores (paler, each
+ * channel up by its own strength: purple toward lilac, lava toward orange
+ * and yellow); slow bands of brighter liquid drift through it; and under a bright
+ * sky it shines harder, so it still stands over sunlit ground. The veins are
+ * worked out in the map's own tiles, turned off its grid and pushed about by
+ * a wide slow wave so their repeat is never seen as one, and give way to
+ * their average where they would be finer than the picture's pixels. Sets
+ * `rrWaterEmit` (added once the map's light is laid on: shineAfterLight),
+ * `rrGlowTint` for the mirror and `rrMirrorShare`, which the mirror writes:
+ * where the surface mirrors, that much less of the shine comes through it.
+ * With no glow every factor here is one, the shine nothing, and none of the
+ * veins' arithmetic is run.
+ */
+Reactor3D.WATER_GLOW_GLSL = (g => [
+    "\tvec3 rrGlowTint = mix(vec3(1.0), rrWaterGlow.rgb, " + g.tint.toFixed(2) + " * rrWaterForm.w);",
+    "\tdiffuseColor.rgb *= rrGlowTint * (1.0 - " + g.body.toFixed(2) + " * rrWaterForm.w);",
+    "\tfloat rrMirrorShare = 0.0;",
+    "\tif (rrWaterGlow.w > 0.0) {",
+    "\t\tvec2 rrAt = vRRWorldPos.xz;",
+    "\t\tvec2 rrU = vec2(0.891 * rrAt.x - 0.454 * rrAt.y, 0.454 * rrAt.x + 0.891 * rrAt.y) * 0.42",
+    "\t\t\t+ 0.9 * vec2(sin(dot(rrAt, vec2(0.071, 0.113)) + rrWaveTime * 0.05), cos(dot(rrAt, vec2(0.127, -0.059)) - rrWaveTime * 0.04));",
+    "\t\tfloat rrFine = 1.0 - smoothstep(0.1, 0.4, length(fwidth(rrU)));",
+    "\t\tfloat rrVein = " + g.veinFar.toFixed(3) + ";",
+    "\t\tif (rrFine > 0.0) {",
+    // How fast it stirs follows the liquid's waves: lava's veins crawl.
+    "\t\t\tfloat rrStir = (rrWaveTime + 40.0) * " + g.stir.toFixed(2) + " * mix(0.25, 1.0, clamp(rrWaterForm.y, 0.0, 1.0));",
+    "\t\t\tvec2 rrP = mod(rrU, 6.2831853) - 250.0, rrI = rrP;",
+    "\t\t\tfloat rrC = 1.0;",
+    "\t\t\tfor (int n = 0; n < 4; n++) {",
+    "\t\t\t\tfloat rrTn = rrStir * (1.0 - 3.5 / float(n + 1));",
+    "\t\t\t\trrI = rrP + vec2(cos(rrTn - rrI.x) + sin(rrTn + rrI.y), sin(rrTn - rrI.y) + cos(rrTn + rrI.x));",
+    "\t\t\t\trrC += 1.0 / length(vec2(rrP.x / (sin(rrI.x + rrTn) / 0.005), rrP.y / (cos(rrI.y + rrTn) / 0.005)));",
+    "\t\t\t}",
+    "\t\t\trrVein = mix(rrVein, min(pow(abs(1.17 - pow(rrC * 0.25, 1.4)), 8.0), 1.4), rrFine);",
+    "\t\t}",
+    // The ripples fade out with distance, as the surface's slope does.
+    "\t\tfloat rrFacet = mix(clamp(0.5 + dot(rrRipple, vec2(0.6, -0.8)) * 0.6 * rrWaterForm.y, 0.0, 1.0), 0.5, rrFar);",
+    "\t\tfloat rrDrift = sin(dot(rrAt, vec2(0.13, 0.09)) + rrWaveTime * 0.31) * sin(dot(rrAt, vec2(-0.07, 0.16)) - rrWaveTime * 0.23);",
+    "\t\tfloat rrShine = (" + g.base.toFixed(2) + " + " + g.swell.toFixed(2) + " * vRRSwell + " + g.vein.toFixed(2) + " * rrVein) * (" + (1 - g.ripple / 2).toFixed(2) + " + " + g.ripple.toFixed(2) + " * rrFacet) * (1.0 + " + g.drift.toFixed(2) + " * rrDrift);",
+    "\t\tfloat rrHot = rrWaterForm.z * min(" + g.hotMost.toFixed(2) + ", " + g.hot.toFixed(2) + " * rrVein);",
+    // The brighter the map's own light, the harder it shines (`rrAmbient` is the light's: night to noon).
+    "\t\tfloat rrByDay = 1.0 + " + g.day.toFixed(2) + " * smoothstep(0.2, 1.0, dot(rrAmbient, vec3(0.3, 0.59, 0.11)));",
+    // Paler where it foams: the foam reads.
+    "\t\tvec3 rrHeated = mix(pow(max(rrWaterGlow.rgb, vec3(0.0001)), vec3(1.0 - " + g.heat.toFixed(2) + " * rrHot)), vec3(1.0), " + g.pale.toFixed(2) + " * rrHot);",
+    "\t\trrWaterEmit = rrHeated * (rrWaterGlow.w * rrShine * rrByDay * (1.0 - 0.6 * rrWhite));",
+    "\t}"
+].join("\n"))(Reactor3D.WATER_GLOW);
 
 /**
  * Waves in the sheet's own shader: two swells cross the surface and lift
@@ -3139,17 +3502,21 @@ Reactor3D.waterMaterial = function(texture, look) {
     material.__reactorShaded = true;
     material.__reactorWater = true;
     const shared = this.waterUniforms();
-    // Its look: reflect, roughness, then the tint the reflection takes.
-    const reflect = look && look.reflect > 0 ? look.reflect : 0;
-    material.userData.rrWaterLook = new THREE.Vector4(reflect, 1 - (look && look.gloss !== undefined ? look.gloss : 0.85), 0, 0);
-    material.userData.rrWaterTint = new THREE.Color(look && look.tint ? look.tint : "#ffffff");
-    // The liquid: its colour (w 1 when it has its own), and its clarity, waves and glow.
-    const colour = look && look.colour ? new THREE.Color(look.colour) : null;
-    material.userData.rrWaterColour = new THREE.Vector4(colour ? colour.r : 0, colour ? colour.g : 0, colour ? colour.b : 0, colour ? 1 : 0);
-    const glow = look && look.glow > 0 ? look.glow : 0;
-    material.userData.rrWaterForm = new THREE.Vector4(look && look.clear !== undefined ? look.clear : 0.6, look && look.waves !== undefined ? look.waves : 1, glow, 0);
-    // A glowing liquid lights itself: lava is bright in the dark.
-    if (glow >= 0.5) material.__reactorSelfLit = true;
+    // Its look lives in these, written by applyWaterLook: reflect and roughness, the tint the reflection takes;
+    // the liquid's colour; its clarity, waves, glow and cover; what it shines (colour, strength); the water seen
+    // through (colour, density); and the haze over it.
+    const data = material.userData;
+    data.rrWaterLook = new THREE.Vector4(0, 0.15, 0, 0);
+    data.rrWaterTint = new THREE.Color(0xffffff);
+    data.rrWaterColour = new THREE.Vector4(0, 0, 0, 0);
+    data.rrWaterForm = new THREE.Vector4(0.6, 1, 0, 0);
+    data.rrWaterGlow = new THREE.Vector4(0, 0, 0, 0);
+    data.rrFallTint = new THREE.Color(0.05, 0.1, 0.11);
+    data.rrWaterFog = new THREE.Vector4(this.WATER_FOG[0], this.WATER_FOG[1], this.WATER_FOG[2], this.WATER_FOG[3]);
+    data.rrWaterHaze = { colour: { value: new THREE.Color(0, 0, 0) }, strength: { value: 0 } };
+    data.rrWaterHalo = { colour: { value: new THREE.Color(0, 0, 0) }, strength: { value: 0 } };
+    this.applyWaterLook(material, look);
+    const reflect = data.rrWaterLook.x;
     // A river: its image runs along it (the vertices carry the way and speed) and whitens in rapids.
     const flowing = !!(look && Array.isArray(look.path));
     material.userData.rrFlowing = flowing;
@@ -3161,10 +3528,11 @@ Reactor3D.waterMaterial = function(texture, look) {
         shader.uniforms.rrWaterTint = { value: material.userData.rrWaterTint };
         shader.uniforms.rrWaterColour = { value: material.userData.rrWaterColour };
         shader.uniforms.rrWaterForm = { value: material.userData.rrWaterForm };
+        shader.uniforms.rrWaterGlow = { value: material.userData.rrWaterGlow };
         if (env) { shader.uniforms.rrEnvMap = env.rrEnvMap; shader.uniforms.rrEnvMaxLod = env.rrEnvMaxLod; shader.uniforms.rrEnvFlip = env.rrEnvFlip; }
         const mirror = env && Reactor3D.Mirrors ? Reactor3D.Mirrors.uniforms() : null;
         if (mirror) for (const name of Object.keys(mirror)) shader.uniforms[name] = mirror[name];
-        shader.vertexShader = "uniform float rrWaveTime;\nuniform vec4 rrWaterForm;\nattribute float rrDepth;\nvarying float vRRDepth;\nvarying vec3 vRRWaveNormal;\n"
+        shader.vertexShader = "uniform float rrWaveTime;\nuniform vec4 rrWaterForm;\nattribute float rrDepth;\nvarying float vRRDepth;\nvarying vec3 vRRWaveNormal;\nvarying float vRRSwell;\n"
             + (flowing ? "attribute vec2 rrFlow;\nattribute float rrRapid;\nvarying vec2 vRRFlow;\nvarying float vRRRapid;\n" : "attribute float rrEdge;\nvarying float vRREdge;\n") + shader.vertexShader.replace(
             "#include <begin_vertex>",
             [
@@ -3184,12 +3552,16 @@ Reactor3D.waterMaterial = function(texture, look) {
                 "\tfloat rrCalm = smoothstep(0.0, 0.8, rrDepth);",
                 "\ttransformed.y += rrLift * rrCalm;",
                 "\tvRRWaveNormal = normalize(vec3(-rrDx * rrCalm, 1.0, -rrDz * rrCalm));",
+                // Where on the swell the vertex rides, -1 in a trough to 1 on a crest: a glowing sheet is read by it.
+                "\tvRRSwell = rrLift / max(rrA1 + rrA2, 0.0001) * rrCalm;",
                 "\tvRRDepth = rrDepth;",
                 flowing ? "\tvRRFlow = rrFlow;\n\tvRRRapid = rrRapid;" : "\tvRREdge = rrEdge;",
                 "}"
             ].join("\n")
         );
-        shader.fragmentShader = "varying float vRRDepth;\nvarying vec3 vRRWaveNormal;\nuniform vec4 rrWaterLook;\nuniform vec3 rrWaterTint;\nuniform vec4 rrWaterColour;\nuniform vec4 rrWaterForm;\n"
+        shader.fragmentShader = "varying float vRRDepth;\nvarying vec3 vRRWaveNormal;\nvarying float vRRSwell;\nuniform vec4 rrWaterLook;\nuniform vec3 rrWaterTint;\nuniform vec4 rrWaterColour;\nuniform vec4 rrWaterForm;\n"
+            // What the sheet shines, worked out with its colour and added once the map's light has been laid on.
+            + "uniform vec4 rrWaterGlow;\nvec3 rrWaterEmit = vec3(0.0);\n"
             // A level sheet is shaded as a river is, still but for a breath of wind across it.
             + "uniform float rrWaveTime;\n" + (flowing ? "varying vec2 vRRFlow;\nvarying float vRRRapid;\nconst float vRREdge = 1.0;\n" : "const vec2 vRRFlow = vec2(0.16, 0.07);\nconst float vRRRapid = 0.0;\nvarying float vRREdge;\n")
             + (env ? "uniform samplerCube rrEnvMap;\nuniform float rrEnvMaxLod;\nuniform float rrEnvFlip;\n" + Reactor3D.SRGB_DECODE_GLSL + "\n" : "")
@@ -3200,9 +3572,7 @@ Reactor3D.waterMaterial = function(texture, look) {
                 Reactor3D.RIVER_MAP_GLSL,
                 "{",
                 Reactor3D.RIVER_SHADE_GLSL,
-                // A glowing liquid burns brighter at its crests.
-                // Its crests, and the bright of its running image.
-                "\tif (rrWaterForm.z > 0.0) diffuseColor.rgb *= 1.0 + rrWaterForm.z * (0.1 + 0.9 * rrBright * rrBright + 2.5 * (1.0 - rrWaveN.y));",
+                Reactor3D.WATER_GLOW_GLSL,
                 // A reflective sheet mirrors the world through its waves, more at a
                 // glancing angle, and turns opaque as it does: mercury is a mirror.
                 env ? [
@@ -3225,7 +3595,7 @@ Reactor3D.waterMaterial = function(texture, look) {
                     "\t\trrR.x *= rrEnvFlip;",
                     "\t\tvec3 rrEnvC = textureLod(rrEnvMap, rrR, rrWaterLook.y * rrEnvMaxLod).rgb;",
                     "\t\tif (rrEnvFlip > 0.0) rrEnvC = rrSRGBToLinear(rrEnvC);",
-                    "\t\trrEnvC *= rrWaterTint;",
+                    "\t\trrEnvC *= rrWaterTint * rrGlowTint;",
                     // The sheet's own mirror picture when it is one of the frame's mirrors: the world sharp and
                     // in place, rippled by the waves (and blurred a little as the water roughens).
                     mirror ? [
@@ -3241,18 +3611,124 @@ Reactor3D.waterMaterial = function(texture, look) {
                     "\t\tfloat rrBase = min(rrWaterLook.x / 0.45, 1.0) * rrFresnel * 0.9;",
                     "\t\tfloat rrFloor = pow(smoothstep(0.45, 1.0, rrWaterLook.x), 1.5) * mix(0.75, 0.95, 1.0 - rrWaterLook.y);",
                     "\t\tfloat rrMirror = clamp(rrFloor + (1.0 - rrFloor) * rrBase, 0.0, 0.97);",
+                    "\t\trrMirrorShare = rrMirror;",
                     "\t\tdiffuseColor.rgb = mix(diffuseColor.rgb, rrEnvC * 0.4, rrMirror) + vec3(rrGlint * 0.4 * rrMirror);",
                     // Opaque as a mirror, but still gone where the ground rises over it (the shore cells).
                     "\t\tdiffuseColor.a = max(diffuseColor.a, rrMirror * smoothstep(0.0, 0.3, vRRDepth) * vRREdge);",
                     "\t}"
                 ].join("\n") : "",
+                // Where the surface mirrors the world, less of the shine comes through it: the reflection still shows.
+                "\trrWaterEmit *= 1.0 - " + Reactor3D.WATER_GLOW_MIRROR.toFixed(2) + " * rrMirrorShare;",
+                // The shine is seen over the shallows too: a strong glow hides the bed, still gone at the shore.
+                "\tdiffuseColor.a = max(diffuseColor.a, rrWaterForm.w * smoothstep(0.0, 0.3, vRRDepth) * vRREdge);",
                 "}"
             ].join("\n")
         );
     };
     material.customProgramCacheKey = function() { return "reactor3d-water" + (env ? "|env|mirror" : "") + (flowing ? "|river" : ""); };
     this.litMaterial(material);
+    // The sheet takes the map's light as any surface does (its reflections with it: a night sky stays dark
+    // in it); what it shines is added after that light, in its own colour.
+    return this.shineAfterLight(material);
+};
+
+/** The heights over a shining sheet its haze hangs at, and each layer's share of it. */
+Reactor3D.WATER_HAZE_LAYERS = [[0.2, 1], [0.7, 0.6], [1.5, 0.3]];
+
+/**
+ * One layer of the glow that hangs over a shining sheet: the sheet's own
+ * surface lifted a little, in its colour, thicker seen along the water than
+ * down onto it and gone at the shore. Drawn with the lights' haze (at a
+ * quarter size, behind whatever stands in front), so `shared` is the sheet's
+ * `rrWaterHaze` (colour and strength, moved by applyWaterLook).
+ */
+Reactor3D.waterHazeMaterial = function(shared, lift, weight) {
+    const haze = this.HalfHaze.uniforms();
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            rrHazeDepth: haze.rrHazeDepth, rrHazeDepthScale: haze.rrHazeDepthScale, rrHazeDepthPick: haze.rrHazeDepthPick, rrHazeDepthOn: haze.rrHazeDepthOn,
+            colour: shared.colour, strength: shared.strength, rrLift: { value: lift }, rrWeight: { value: weight }
+        },
+        vertexShader: [
+            "attribute float rrDepth;",
+            "uniform float rrLift;",
+            "varying float vRRDepth;",
+            "varying vec3 vToEye;",
+            "void main() {",
+            "\tvec4 world = modelMatrix * vec4(position.x, position.y + rrLift, position.z, 1.0);",
+            "\tvRRDepth = rrDepth;",
+            "\tvToEye = cameraPosition - world.xyz;",
+            "\tgl_Position = projectionMatrix * viewMatrix * world;",
+            "}"
+        ].join("\n"),
+        fragmentShader: this.HalfHaze.shader([
+            "uniform vec3 colour;",
+            "uniform float strength;",
+            "uniform float rrWeight;",
+            "varying float vRRDepth;",
+            "varying vec3 vToEye;",
+            "void main() {",
+            "\tfloat slant = min(1.0 / max(abs(normalize(vToEye).y), 0.25), 2.0);",
+            // The blend multiplies by the alpha again: the root keeps the layer's share as set.
+            "\tfloat a = sqrt(strength * rrWeight * slant * smoothstep(0.0, 0.6, vRRDepth));",
+            "\tgl_FragColor = vec4(colour * a, a);",
+            "}"
+        ].join("\n")),
+        blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, depthTest: true,
+        side: THREE.DoubleSide, forceSinglePass: true, fog: false
+    });
+    material.userData.rrHaze = true;
     return material;
+};
+
+/**
+ * Hang the haze over a sheet just laid (`mesh`): its layers stand with the
+ * lights' glowing bodies, share the sheet's surface, and show only while the
+ * sheet glows. Kept in `_waterHaze`. The same surface once more is what the
+ * sheet gives the halo (`Reactor3D.Halo.feed`), kept in `_waterHalo` and
+ * showing while the sheet's shine passes the halo's threshold. Both are taken
+ * down when the water is laid again.
+ */
+Reactor3D.MapScene.prototype.addWaterHaze = function(mesh) {
+    const data = mesh.material.userData;
+    if (!data.rrWaterHaze || typeof this.lightBodies !== "function" || !Reactor3D.HalfHaze) return;
+    const group = this.lightBodies().group;
+    mesh.updateWorldMatrix(true, false);
+    data.rrWaterHazeMeshes = [];
+    this._waterHaze = this._waterHaze || [];
+    for (const [lift, weight] of Reactor3D.WATER_HAZE_LAYERS) {
+        const haze = new THREE.Mesh(mesh.geometry, Reactor3D.waterHazeMaterial(data.rrWaterHaze, lift, weight));
+        haze.renderOrder = 11;
+        haze.visible = data.rrWaterHaze.strength.value > 0;
+        haze.matrix.copy(mesh.matrixWorld);
+        haze.matrixAutoUpdate = false;
+        group.add(haze);
+        this._materials.push(haze.material);
+        this._waterHaze.push(haze);
+        data.rrWaterHazeMeshes.push(haze);
+    }
+    // The sheet's surface once more, as what it gives the halo: drawn by Reactor3D.Halo alone, never with the scene.
+    if (Reactor3D.Halo && data.rrWaterHalo) {
+        const source = Reactor3D.Halo.feed(group, mesh.geometry, Reactor3D.Halo.surfaceMaterial(data.rrWaterHalo), mesh.matrixWorld);
+        source.visible = data.rrWaterHalo.strength.value > 0;
+        this._materials.push(source.material);
+        (this._waterHalo || (this._waterHalo = [])).push(source);
+        data.rrWaterHaloMesh = source;
+    }
+};
+
+/** Take the sheets' haze and what they give the halo down (the water laid again); the surface is the sheet's own and goes with the sheet. */
+Reactor3D.MapScene.prototype.removeWaterHaze = function() {
+    for (const list of [this._waterHaze || [], this._waterHalo || []]) {
+        for (const haze of list) {
+            if (haze.parent) haze.parent.remove(haze);
+            const m = this._materials ? this._materials.indexOf(haze.material) : -1;
+            if (m >= 0) this._materials.splice(m, 1);
+            haze.material.dispose();
+        }
+    }
+    this._waterHaze = [];
+    this._waterHalo = [];
 };
 
 /**
@@ -3460,25 +3936,31 @@ Reactor3D.fallFoot = function(fall) {
  * spacing; where they are thin the curtain is a dark, see-through sheet
  * over the rock, where they gather it is white. Glassy at the lip, which
  * catches the light; broken up and whiter as it falls; its sides ragged
- * and shifting, not a ruled edge. Lit like the rest of the water; one per
- * fall (its speed is the drop's).
+ * and shifting, not a ruled edge. Lit like the rest of the water, and
+ * shining as its river does: `sheet` is the river's own material, whose
+ * colour and glow the curtain reads live (a look changed on the sheet shows
+ * on its falls at once). One per fall (its speed is the drop's).
  */
-Reactor3D.fallMaterial = function(texture, region, drop) {
+Reactor3D.fallMaterial = function(texture, region, drop, sheet) {
     const material = new THREE.MeshBasicMaterial({ map: texture || null, color: 0xffffff, transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true });
     material.__reactorShaded = true;
     material.__reactorWater = true;
     const shared = this.waterUniforms();
-    // Before the light, which a sunny map lays on at two to three times.
-    const colour = region && region.colour ? new THREE.Color(region.colour).multiplyScalar(0.4) : new THREE.Color(0.05, 0.1, 0.11);
-    material.userData.rrFallTint = colour;
+    const look = this.fallLook(region, sheet);
+    // The curtain's dark water, before the light, which a sunny map lays on at two to three times.
+    material.userData.rrFallTint = look.rrFallTint;
+    material.userData.rrWaterGlow = look.rrWaterGlow;
+    material.userData.rrWaterForm = look.rrWaterForm;
     // Water falling `drop` tiles reaches a few tiles a second; a still river (flow 0) falls all the same.
     material.userData.rrFallSpeed = 1.6 + Math.min(4, Math.sqrt(Math.max(0.1, drop)) * 0.9);
     material.onBeforeCompile = function(shader) {
         shader.uniforms.rrWaveTime = shared.rrWaveTime;
         shader.uniforms.rrFallTint = { value: material.userData.rrFallTint };
         shader.uniforms.rrFallSpeed = { value: material.userData.rrFallSpeed };
+        shader.uniforms.rrWaterGlow = { value: material.userData.rrWaterGlow };
+        shader.uniforms.rrWaterForm = { value: material.userData.rrWaterForm };
         shader.vertexShader = "attribute vec2 rrCurtain;\nattribute vec2 rrFallUv;\nvarying vec2 vRRCurtain;\nvarying vec2 vRRFallUv;\n" + shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n\tvRRCurtain = rrCurtain;\n\tvRRFallUv = rrFallUv;");
-        shader.fragmentShader = "uniform float rrWaveTime;\nuniform vec3 rrFallTint;\nuniform float rrFallSpeed;\nvarying vec2 vRRCurtain;\nvarying vec2 vRRFallUv;\n" + shader.fragmentShader.replace(
+        shader.fragmentShader = "uniform float rrWaveTime;\nuniform vec3 rrFallTint;\nuniform float rrFallSpeed;\nuniform vec4 rrWaterGlow;\nuniform vec4 rrWaterForm;\nvec3 rrWaterEmit = vec3(0.0);\nvarying vec2 vRRCurtain;\nvarying vec2 vRRFallUv;\n" + shader.fragmentShader.replace(
             "#include <map_fragment>",
             [
                 "{",
@@ -3515,29 +3997,77 @@ Reactor3D.fallMaterial = function(texture, region, drop) {
                 // The top of a fall is one sheet of water, never seen through to the ledge it pours off; it
                 // thins into ropes with gaps only lower down, as it breaks up.
                 "\tdiffuseColor.a = max(diffuseColor.a, 0.92 * (1.0 - smoothstep(0.12, 0.4, rrDown)) * rrSide);",
+                // A glowing river falls as light: the curtain shines in the river's colour, brightest in its ropes
+                // and paler where it has turned white, and the shine fills the thin film between the ropes.
+                "\trrWaterEmit = rrWaterGlow.rgb * (rrWaterGlow.w * (0.55 + 0.9 * rrDensity) * (1.0 - 0.6 * rrWhite));",
+                "\tdiffuseColor.a = max(diffuseColor.a, rrWaterForm.w * 0.9 * rrSide * smoothstep(1.0, 0.86, rrDown));",
                 "}"
             ].join("\n")
         );
     };
     material.customProgramCacheKey = function() { return "reactor3d-waterfall"; };
     this.litMaterial(material);
+    return this.shineAfterLight(material);
+};
+
+/**
+ * What a fall reads of its river: the sheet's own live values when the
+ * river's material is given (`rrFallTint`, `rrWaterGlow`, `rrWaterForm`,
+ * each the very object the sheet's uniforms hold), else the same worked
+ * from the region's look.
+ */
+Reactor3D.fallLook = function(region, sheet) {
+    const data = sheet && sheet.userData;
+    if (data && data.rrWaterGlow && data.rrFallTint && data.rrWaterForm) return data;
+    const shade = this.waterShade(region);
+    return {
+        rrFallTint: region && region.colour ? new THREE.Color(region.colour).multiplyScalar(0.4) : new THREE.Color(0.05, 0.1, 0.11),
+        rrWaterGlow: new THREE.Vector4(shade.neon[0], shade.neon[1], shade.neon[2], shade.emit),
+        rrWaterForm: new THREE.Vector4(0.6, 1, shade.glow, shade.cover)
+    };
+};
+
+/**
+ * What a water material shines (`rrWaterEmit`, worked out in its own shader)
+ * is added once the map's light has been laid on, so the night does not dim
+ * it. Past full brightness a shining liquid goes pale and keeps its hue: cut
+ * off at full channel by channel, a purple lake under a noon sun would come
+ * out magenta. A material that shines nothing is left exactly as it was. For
+ * a material already through `litMaterial`.
+ */
+Reactor3D.WATER_SHINE_GLSL = [
+    "outgoingLight += rrWaterEmit;",
+    "{",
+    "\tfloat rrOver = max(outgoingLight.r, max(outgoingLight.g, outgoingLight.b));",
+    "\tif (rrOver > 1.0 && rrWaterEmit.r + rrWaterEmit.g + rrWaterEmit.b > 0.0) outgoingLight = mix(outgoingLight / rrOver, vec3(1.0), min(0.6 * (rrOver - 1.0), 0.7));",
+    "}"
+].join("\n");
+Reactor3D.shineAfterLight = function(material) {
+    const lit = material.onBeforeCompile;
+    material.onBeforeCompile = function(shader, renderer) {
+        lit.call(this, shader, renderer);
+        shader.fragmentShader = shader.fragmentShader.replace("#include <opaque_fragment>", Reactor3D.WATER_SHINE_GLSL + "\n#include <opaque_fragment>");
+    };
     return material;
 };
 
 /**
  * Where a fall lands: a disc of churning foam on the water below, thickest
  * in a ring where the curtain strikes, boiling outward in patches and
- * thinning out at the rim.
+ * thinning out at the rim. Under a glowing river's fall it shines, pale, in
+ * the river's colour (`region`, `sheet`: as fallMaterial takes them).
  */
-Reactor3D.foamMaterial = function(texture) {
+Reactor3D.foamMaterial = function(texture, region, sheet) {
     const material = new THREE.MeshBasicMaterial({ map: texture || null, color: 0xffffff, transparent: true, depthWrite: false, forceSinglePass: true });
     material.__reactorShaded = true;
     material.__reactorWater = true;
     const shared = this.waterUniforms();
+    material.userData.rrWaterGlow = this.fallLook(region, sheet).rrWaterGlow;
     material.onBeforeCompile = function(shader) {
         shader.uniforms.rrWaveTime = shared.rrWaveTime;
+        shader.uniforms.rrWaterGlow = { value: material.userData.rrWaterGlow };
         shader.vertexShader = "attribute vec2 rrFoamUv;\nvarying vec2 vRRFoamUv;\n" + shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n\tvRRFoamUv = rrFoamUv;");
-        shader.fragmentShader = "uniform float rrWaveTime;\nvarying vec2 vRRFoamUv;\n" + shader.fragmentShader.replace(
+        shader.fragmentShader = "uniform float rrWaveTime;\nuniform vec4 rrWaterGlow;\nvec3 rrWaterEmit = vec3(0.0);\nvarying vec2 vRRFoamUv;\n" + shader.fragmentShader.replace(
             "#include <map_fragment>",
             [
                 "{",
@@ -3558,13 +4088,15 @@ Reactor3D.foamMaterial = function(texture) {
                 "\tfloat rrChurn = clamp(rrRing * (0.35 + 0.75 * rrBright) + smoothstep(0.5, 0.95, rrBoil * (0.45 + rrBright)) * (1.0 - rrR) * 0.9, 0.0, 1.0);",
                 "\tdiffuseColor.rgb = vec3(0.42, 0.44, 0.45);",
                 "\tdiffuseColor.a = rrChurn * (1.0 - smoothstep(0.5, 1.0, rrR)) * 0.88;",
+                // Foam is white water: it takes the glow paler than the sheet does (as the sheet's own foam).
+                "\trrWaterEmit = rrWaterGlow.rgb * (rrWaterGlow.w * 0.4 * (0.7 + 0.6 * rrBright));",
                 "}"
             ].join("\n")
         );
     };
     material.customProgramCacheKey = function() { return "reactor3d-fall-foam"; };
     this.litMaterial(material);
-    return material;
+    return this.shineAfterLight(material);
 };
 
 /**
@@ -3572,7 +4104,8 @@ Reactor3D.foamMaterial = function(texture) {
  * vertex shader from a seed each (`rrSeed`: phase, heading, kind, size), so
  * nothing is touched per frame. Spray is flung out and up from the foot and
  * drops back; mist rises from it, drifting outward, swelling and fading. As
- * many as the fall is wide, a few dozen at most.
+ * many as the fall is wide, a few dozen at most. Thrown up by a glowing
+ * river they take its colour (`region`, `sheet`: as fallMaterial takes them).
  */
 Reactor3D.FALL_SPRAY_MAX = 40;
 Reactor3D.FALL_MIST_MAX = 24;
@@ -3600,7 +4133,7 @@ Reactor3D.fallSprayGeometry = function(fall, foot) {
     return geometry;
 };
 
-Reactor3D.fallSprayMaterial = function(fall, foot) {
+Reactor3D.fallSprayMaterial = function(fall, foot, region, sheet) {
     const shared = this.waterUniforms();
     const drop = Math.max(0.1, fall.top - fall.bottom);
     const material = new THREE.ShaderMaterial({
@@ -3612,7 +4145,8 @@ Reactor3D.fallSprayMaterial = function(fall, foot) {
             rrHalf: { value: fall.half },
             rrRadius: { value: foot.radius },
             rrDrop: { value: drop },
-            rrViewH: { value: 720 }
+            rrViewH: { value: 720 },
+            rrWaterGlow: { value: this.fallLook(region, sheet).rrWaterGlow }
         },
         vertexShader: [
             "attribute vec4 rrSeed;",
@@ -3649,6 +4183,7 @@ Reactor3D.fallSprayMaterial = function(fall, foot) {
             "}"
         ].join("\n"),
         fragmentShader: [
+            "uniform vec4 rrWaterGlow;",
             "varying float vRRAlpha;",
             "varying float vRRKind;",
             "void main() {",
@@ -3656,7 +4191,9 @@ Reactor3D.fallSprayMaterial = function(fall, foot) {
             "\tfloat r2 = dot(c, c);",
             "\tif (r2 > 1.0) discard;",
             "\tfloat soft = vRRKind < 0.5 ? (1.0 - r2) : (1.0 - r2) * (1.0 - r2);",
-            "\tgl_FragColor = vec4(vRRKind < 0.5 ? vec3(0.93, 0.96, 0.97) : vec3(0.84, 0.88, 0.9), vRRAlpha * soft);",
+            "\tvec3 white = vRRKind < 0.5 ? vec3(0.93, 0.96, 0.97) : vec3(0.84, 0.88, 0.9);",
+            // Off a glowing river the drops and the mist carry its colour, the more the brighter it shines.
+            "\tgl_FragColor = vec4(mix(white, rrWaterGlow.rgb, 0.65 * min(rrWaterGlow.w / " + this.WATER_SHINE.toFixed(2) + ", 1.0)), vRRAlpha * soft);",
             "}"
         ].join("\n")
     });
@@ -3675,6 +4212,8 @@ Reactor3D.fallSprayBeforeRender = function(renderer, scene, camera, geometry, ma
 Reactor3D.MapScene.prototype.addWater = function(mapData, load) {
     this._waterMeshes = this._waterMeshes || [];
     this._waterFalls = this._waterFalls || [];
+    // The haze of sheets a cleared scene took away, and what they gave the halo, went with its light bodies.
+    if (!this._waterMeshes.length) { this._waterHaze = []; this._waterHalo = []; }
     const all = Reactor3D.waterOf(mapData);
     for (const region of all) {
         const geometry = Reactor3D.waterGeometry(region, mapData, true, all);
@@ -3689,26 +4228,30 @@ Reactor3D.MapScene.prototype.addWater = function(mapData, load) {
         mesh.matrixAutoUpdate = false;
         this._materials.push(material);
         this._waterMeshes.push(mesh);
-        if (region.path) this.addFalls(region, load);
+        this.addWaterHaze(mesh);
+        if (region.path) this.addFalls(region, load, material);
     }
 };
 
-/** A river's waterfalls: a curtain down each, foam where it lands, and spray and mist rising there. Kept in `_waterFalls`. */
-Reactor3D.MapScene.prototype.addFalls = function(region, load) {
+/**
+ * A river's waterfalls: a curtain down each, foam where it lands, and spray and mist rising there. Kept in
+ * `_waterFalls`. `sheet` is the river's own material: its falls read its colour and glow live.
+ */
+Reactor3D.MapScene.prototype.addFalls = function(region, load, sheet) {
     for (const fall of Reactor3D.riverFalls(region)) {
         const texture = this.materialTexture(region.material, load);
-        const curtain = new THREE.Mesh(Reactor3D.fallGeometry(fall), Reactor3D.fallMaterial(texture, region, fall.top - fall.bottom));
+        const curtain = new THREE.Mesh(Reactor3D.fallGeometry(fall), Reactor3D.fallMaterial(texture, region, fall.top - fall.bottom, sheet));
         curtain.renderOrder = 6;
         curtain.userData.waterFall = fall;
         const foot = Reactor3D.fallFoot(fall);
         const disc = new THREE.CircleGeometry(foot.radius, 28);
         disc.rotateX(-Math.PI / 2);
         disc.setAttribute("rrFoamUv", disc.attributes.uv.clone());
-        const foam = new THREE.Mesh(disc, Reactor3D.foamMaterial(this.materialTexture(region.material, load)));
+        const foam = new THREE.Mesh(disc, Reactor3D.foamMaterial(this.materialTexture(region.material, load), region, sheet));
         foam.position.set(foot.x, foot.y + 0.06, foot.z);
         foam.renderOrder = 7;
         foam.userData.waterFall = fall;
-        const spray = new THREE.Points(Reactor3D.fallSprayGeometry(fall, foot), Reactor3D.fallSprayMaterial(fall, foot));
+        const spray = new THREE.Points(Reactor3D.fallSprayGeometry(fall, foot), Reactor3D.fallSprayMaterial(fall, foot, region, sheet));
         spray.onBeforeRender = Reactor3D.fallSprayBeforeRender;
         spray.renderOrder = 8;
         spray.userData.waterFall = fall;
@@ -3751,15 +4294,22 @@ Reactor3D.MapScene.prototype.noteWaterVolume = function(focus) {
         this._waterVolumeFor = meshes;
         this._waterVolumeCount = meshes.length;
         const a = new THREE.Vector3(), b = new THREE.Vector3();
+        // Each volume carries its sheet's own colour and thickness (`fog`, the sheet's live value: a look changed in place shows at once),
+        // and the sheet itself with the way from the world back into its cells (`region`, `inverse`): a box
+        // holds dry land too, and which sheet the eye is in is asked of the sheet (Reactor3D.waterEyeSheet).
+        let inverse = null;
         const box = (mesh, x0, z0, x1, z1, level) => {
             a.set(x0, level, z0).applyMatrix4(mesh.matrixWorld);
             b.set(x1, level, z1).applyMatrix4(mesh.matrixWorld);
-            return { x0: Math.min(a.x, b.x), z0: Math.min(a.z, b.z), x1: Math.max(a.x, b.x), z1: Math.max(a.z, b.z), level: a.y };
+            return { x0: Math.min(a.x, b.x), z0: Math.min(a.z, b.z), x1: Math.max(a.x, b.x), z1: Math.max(a.z, b.z), level: a.y,
+                fog: mesh.material && mesh.material.userData ? mesh.material.userData.rrWaterFog || null : null,
+                region: mesh.userData.water, inverse };
         };
         const all = [];
         for (const mesh of meshes) {
             const region = mesh.userData.water;
             mesh.updateMatrixWorld();
+            inverse = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
             if (!region.path) { all.push(box(mesh, region.x0, region.y0, region.x1 + 1, region.y1 + 1, region.level)); continue; }
             const profile = Reactor3D.riverProfile(region), path = region.path;
             for (let i = 0; i < profile.n; i++) {
@@ -3889,6 +4439,7 @@ Reactor3D.MapScene.prototype.updateRipples = function(frame, characters) {
 /** Lay the water again after an edit; the rest of the scene stays. */
 Reactor3D.MapScene.prototype.updateWaterSheets = function(mapData, load) {
     this.removeFalls();
+    this.removeWaterHaze();
     for (const mesh of this._waterMeshes || []) {
         if (mesh.parent) mesh.parent.remove(mesh);
         mesh.geometry.dispose();
@@ -3899,6 +4450,685 @@ Reactor3D.MapScene.prototype.updateWaterSheets = function(mapData, load) {
     this._waterMeshes = [];
     this.addWater(mapData, load);
     return this._waterMeshes.slice();
+};
+
+//-----------------------------------------------------------------------------
+// Ground types
+//
+// The room's floor is the map's base ground. `ground.types` paints others over
+// it: each a material (img/materials) with a `tint`, a `scale` (tiles to one
+// repeat of its image), `bare` (nothing grows on it) and `paint`, a level 0-9
+// per cell, row by row, written as runs ("0x812 9x3 5": 812 cells of none,
+// three at 9, one at 5; trailing none left off). A later type lies over an
+// earlier one. A map without `ground` draws exactly as it did.
+
+Reactor3D.GROUND_TYPES_MAX = 8;
+/** Tiles one repeat of a ground type's image covers, unless the type or its material says. */
+Reactor3D.GROUND_TYPE_SCALE = 4;
+/** The side each ground type's image is kept at on the GPU (they share one array texture), by tier. */
+Reactor3D.GROUND_ARRAY_SIZE = { full: 512, weak: 256 };
+/** A cell wears a type from this level up (what grows, what lies past the map's edge). */
+Reactor3D.GROUND_SOLID_LEVEL = 5;
+
+/** Runs to levels: one byte per cell, `size` of them. Unknown tokens read as none. */
+Reactor3D.decodeGroundPaint = function(text, size) {
+    const out = new Uint8Array(Math.max(0, size | 0));
+    if (typeof text !== "string" || !text) return out;
+    let i = 0;
+    for (const token of text.split(/[\s,]+/)) {
+        if (!token || i >= out.length) continue;
+        const m = /^([0-9])(?:x(\d+))?$/.exec(token);
+        if (!m) continue;
+        const level = Number(m[1]), count = m[2] ? Math.min(Number(m[2]), out.length - i) : 1;
+        if (level) out.fill(level, i, i + count);
+        i += count;
+    }
+    return out;
+};
+
+/** Levels to runs, the trailing none left off. */
+Reactor3D.encodeGroundPaint = function(levels) {
+    const parts = [];
+    let end = levels.length;
+    while (end > 0 && !levels[end - 1]) end--;
+    for (let i = 0; i < end;) {
+        const level = levels[i];
+        let j = i + 1;
+        while (j < end && levels[j] === level) j++;
+        parts.push(j - i > 1 ? level + "x" + (j - i) : String(level));
+        i = j;
+    }
+    return parts.join(" ");
+};
+
+Reactor3D.normalizeGroundType = function(raw, mapData) {
+    if (!raw || typeof raw !== "object") return null;
+    const material = typeof raw.material === "string" ? raw.material.trim() : "";
+    if (!material || Reactor3D.isMaterialCompanion(material)) return null;
+    const size = mapData && mapData.width > 0 && mapData.height > 0 ? mapData.width * mapData.height : 0;
+    const scale = Number(raw.scale);
+    return {
+        name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : material,
+        material,
+        tint: typeof raw.tint === "string" && /^#[0-9a-f]{6}$/i.test(raw.tint) ? raw.tint.toLowerCase() : "",
+        scale: raw.scale !== null && raw.scale !== "" && Number.isFinite(scale) && scale > 0 ? Math.max(0.25, Math.min(32, scale)) : 0,
+        bare: raw.bare === true,
+        paint: Reactor3D.decodeGroundPaint(raw.paint, size)
+    };
+};
+
+Reactor3D.normalizeGround = function(raw, mapData) {
+    if (!raw || typeof raw !== "object") return null;
+    const types = (Array.isArray(raw.types) ? raw.types : []).map(type => Reactor3D.normalizeGroundType(type, mapData)).filter(Boolean).slice(0, Reactor3D.GROUND_TYPES_MAX);
+    return types.length ? { types } : null;
+};
+
+/** The map's ground types, normalized once per sidecar object (an edit writes a new one). */
+Reactor3D.groundOf = function(mapData) {
+    const raw = mapData && mapData.reactor3d && mapData.reactor3d.ground;
+    if (!raw || typeof raw !== "object") return null;
+    const memo = this._groundMemo || (this._groundMemo = new WeakMap());
+    let known = memo.get(raw);
+    if (known && known.width === mapData.width && known.height === mapData.height) return known.value;
+    known = { width: mapData.width, height: mapData.height, value: Reactor3D.normalizeGround(raw, mapData) };
+    memo.set(raw, known);
+    return known.value;
+};
+
+Reactor3D.hasGround = function(mapData) { return !!this.groundOf(mapData); };
+
+/**
+ * The ground a cell wears: `{ type, name, material, tint, scale, bare, level }`, `type` its place
+ * in `ground.types`, or -1 with the room's floor as `material` where none is painted solid.
+ * Cells off the map answer for the nearest cell on it.
+ */
+Reactor3D.groundAt = function(mapData, x, y) {
+    const ground = this.groundOf(mapData);
+    const room = this.roomFor ? this.roomFor(mapData) : null;
+    const base = { type: -1, name: "", material: room ? room.floor : "", tint: "", scale: 0, bare: false, level: 0 };
+    if (!ground || !(mapData.width > 0) || !(mapData.height > 0)) return base;
+    const cx = Math.max(0, Math.min(mapData.width - 1, Math.floor(x))), cy = Math.max(0, Math.min(mapData.height - 1, Math.floor(y)));
+    const i = cy * mapData.width + cx;
+    for (let t = ground.types.length - 1; t >= 0; t--) {
+        const type = ground.types[t], level = type.paint[i];
+        if (level >= this.GROUND_SOLID_LEVEL) return { type: t, name: type.name, material: type.material, tint: type.tint, scale: type.scale, bare: type.bare, level };
+    }
+    return base;
+};
+
+/** Whether a cell wears a ground nothing grows on. */
+Reactor3D.groundBareAt = function(mapData, x, y) {
+    const ground = this.groundOf(mapData);
+    if (!ground) return false;
+    const i = y * mapData.width + x;
+    for (let t = ground.types.length - 1; t >= 0; t--) if (ground.types[t].paint[i] >= this.GROUND_SOLID_LEVEL) return ground.types[t].bare;
+    return false;
+};
+
+/** Every material the ground types name, once each. */
+Reactor3D.groundMaterialNames = function(mapData) {
+    const ground = this.groundOf(mapData);
+    return ground ? Array.from(new Set(ground.types.map(type => type.material))) : [];
+};
+
+/**
+ * The ground types as the floor's shader reads them, made once per scene: the
+ * paint as one or two RGBA textures (a type a channel, a texel a cell), the
+ * types' images as the layers of one array texture and their normal and
+ * roughness maps as another, so the floor costs three or four samplers however
+ * many types a map has. A layer is grey until its image arrives.
+ */
+Reactor3D.MapScene.prototype.groundLayers = function(mapData) {
+    const ground = Reactor3D.groundOf(mapData);
+    if (!ground || typeof THREE === "undefined" || !THREE.DataArrayTexture || typeof document === "undefined" || !document) return null;
+    const W = mapData.width, H = mapData.height, count = ground.types.length, load = this._cliffLoad, build = this._build;
+    const side = Reactor3D.GROUND_ARRAY_SIZE[Reactor3D.isWeakGpu && Reactor3D.isWeakGpu() ? "weak" : "full"];
+    const splat = () => {
+        const texture = new THREE.DataTexture(new Uint8Array(W * H * 4), W, H, THREE.RGBAFormat);
+        texture.magFilter = THREE.LinearFilter;
+        texture.minFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        this._textures.push(texture);
+        return texture;
+    };
+    const layers = srgb => {
+        const data = new Uint8Array(side * side * 4 * count);
+        if (srgb) data.fill(128); else for (let i = 0; i < data.length; i += 4) { data[i] = 128; data[i + 1] = 128; data[i + 2] = 255; }
+        const texture = new THREE.DataArrayTexture(data, side, side, count);
+        texture.format = THREE.RGBAFormat;
+        texture.type = THREE.UnsignedByteType;
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.magFilter = THREE.LinearFilter;
+        texture.minFilter = THREE.LinearMipmapLinearFilter;
+        texture.generateMipmaps = true;
+        if (srgb && THREE.SRGBColorSpace) texture.colorSpace = THREE.SRGBColorSpace;
+        texture.needsUpdate = true;
+        this._textures.push(texture);
+        return texture;
+    };
+    const g = this._ground = {
+        count, width: W, height: H,
+        materials: ground.types.map(type => type.material),
+        size: new THREE.Vector2(W, H),
+        splat: splat(), splatB: count > 4 ? splat() : null,
+        array: layers(true), detail: null,
+        types: ground.types.map(() => new THREE.Vector4(1, 1, 1, 1 / Reactor3D.GROUND_TYPE_SCALE)),
+        on: new Float32Array(count),
+        detailParams: ground.types.map(() => new THREE.Vector4(1, 0, 0.5, 0)),
+        settings: ground.types.map(() => null)
+    };
+    let canvas = null, context = null;
+    const read = image => {
+        if (!canvas) { canvas = document.createElement("canvas"); canvas.width = side; canvas.height = side; context = canvas.getContext("2d", { willReadFrequently: true }); }
+        context.clearRect(0, 0, side, side);
+        context.drawImage(image, 0, 0, side, side);
+        return context.getImageData(0, 0, side, side).data;
+    };
+    const imageOf = bitmap => (bitmap ? bitmap.image || bitmap.canvas || null : null);
+    const ready = bitmap => !!bitmap && !(bitmap.isReady && !bitmap.isReady()) && !!imageOf(bitmap);
+    const whenReady = (bitmap, then) => {
+        if (!bitmap) return;
+        if (ready(bitmap)) then(); else if (typeof bitmap.addLoadListener === "function") bitmap.addLoadListener(() => { if (this._build === build && this._ground === g && ready(bitmap)) then(); });
+    };
+    // Rows go in bottom up, as three lays a picture, so a normal map's green stays up.
+    const store = (texture, index, pixel) => {
+        const data = texture.image.data, base = index * side * side * 4;
+        for (let y = 0; y < side; y++) {
+            const from = (side - 1 - y) * side * 4, to = base + y * side * 4;
+            for (let x = 0; x < side * 4; x += 4) pixel(data, to + x, from + x);
+        }
+        texture.needsUpdate = true;
+    };
+    const probe = this._materialProbe;
+    const companion = name => {
+        if (!Reactor3D.MATERIAL_DETAIL || (probe && !probe(name))) return null;
+        try { return typeof load === "function" ? load(name) || null : null; } catch (error) { return null; }
+    };
+    ground.types.forEach((type, index) => {
+        let bitmap = null;
+        try { bitmap = typeof load === "function" ? load(type.material) : null; } catch (error) { bitmap = null; }
+        whenReady(bitmap, () => {
+            try {
+                const pixels = read(imageOf(bitmap));
+                store(g.array, index, (data, to, from) => { data[to] = pixels[from]; data[to + 1] = pixels[from + 1]; data[to + 2] = pixels[from + 2]; data[to + 3] = 255; });
+                g.on[index] = 1;
+            } catch (error) {
+                console.warn(`Reactor3D: ground material "${type.material}" could not be read.`, error);
+            }
+        });
+        const normal = companion(type.material + Reactor3D.MATERIAL_NORMAL), rough = companion(type.material + Reactor3D.MATERIAL_ROUGH);
+        if (normal || rough) {
+            if (!g.detail) g.detail = layers(false);
+            const pack = () => {
+                if (![normal, rough].filter(Boolean).every(ready)) return;
+                try {
+                    const n = normal ? read(imageOf(normal)).slice() : null, r = rough ? read(imageOf(rough)).slice() : null;
+                    store(g.detail, index, (data, to, from) => { data[to] = n ? n[from] : 128; data[to + 1] = n ? n[from + 1] : 128; data[to + 2] = n ? n[from + 2] : 255; data[to + 3] = r ? r[from] : 0; });
+                    g.detailParams[index].w = 1;
+                } catch (error) {
+                    console.warn(`Reactor3D: the maps of ground material "${type.material}" could not be read.`, error);
+                }
+            };
+            whenReady(normal, pack); if (rough && rough !== normal) whenReady(rough, pack);
+        }
+        // The material's own settings: its repeat when the type gives none, and how its relief and sheen read.
+        const apply = raw => {
+            const s = g.settings[index] = Reactor3D.normalizeMaterialSettings(raw);
+            g.detailParams[index].set(s.normalStrength, s.gloss, s.reflect, g.detailParams[index].w);
+            this.updateGround(mapData);
+        };
+        const own = this._materialSettingsLoad;
+        if (own) { const raw = own(type.material); if (raw) g.settings[index] = Reactor3D.normalizeMaterialSettings(raw); }
+        else if (Reactor3D.materialSettingsExist && Reactor3D.materialSettingsExist(type.material)) Reactor3D.readMaterialSettings(type.material, raw => { if (raw && this._build === build && this._ground === g) apply(raw); });
+        if (g.settings[index]) g.detailParams[index].set(g.settings[index].normalStrength, g.settings[index].gloss, g.settings[index].reflect, g.detailParams[index].w);
+    });
+    this.updateGround(mapData);
+    return g;
+};
+
+/**
+ * The ground types changed: the paint is written again (`region` in cells, or
+ * all of it) and each type's tint and scale read again, in place. False when
+ * the types themselves changed (another count or material): the scene is built again.
+ */
+Reactor3D.MapScene.prototype.updateGround = function(mapData, region) {
+    const g = this._ground, ground = Reactor3D.groundOf(mapData);
+    if (!g) return !ground;
+    if (!ground || ground.types.length !== g.count || mapData.width !== g.width || mapData.height !== g.height
+        || ground.types.some((type, i) => type.material !== g.materials[i])) return false;
+    const W = g.width, H = g.height;
+    const x0 = region ? Math.max(0, Math.floor(region.x0)) : 0, x1 = region ? Math.min(W - 1, Math.ceil(region.x1)) : W - 1;
+    const y0 = region ? Math.max(0, Math.floor(region.y0)) : 0, y1 = region ? Math.min(H - 1, Math.ceil(region.y1)) : H - 1;
+    ground.types.forEach((type, index) => {
+        const texture = index < 4 ? g.splat : g.splatB, data = texture.image.data, channel = index % 4, paint = type.paint;
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) data[(y * W + x) * 4 + channel] = Math.round(paint[y * W + x] * 255 / 9);
+        const tint = type.tint, settings = g.settings[index];
+        g.types[index].set(tint ? parseInt(tint.slice(1, 3), 16) / 255 : 1, tint ? parseInt(tint.slice(3, 5), 16) / 255 : 1, tint ? parseInt(tint.slice(5, 7), 16) / 255 : 1,
+            1 / (type.scale || (settings && settings.scale) || Reactor3D.GROUND_TYPE_SCALE));
+    });
+    g.splat.needsUpdate = true;
+    if (g.splatB) g.splatB.needsUpdate = true;
+    return true;
+};
+
+/** The shader's declarations for a scene's ground types (groundSlopeMaterial splices them in). */
+Reactor3D.groundTypesHeaderGLSL = function(g) {
+    return [
+        "#define RR_GROUND_COUNT " + g.count,
+        g.detail ? "#define RR_GROUND_DETAIL" : "",
+        "precision highp sampler2DArray;",
+        "uniform sampler2D rrGroundSplat;",
+        g.splatB ? "uniform sampler2D rrGroundSplatB;" : "",
+        "uniform sampler2DArray rrGroundArray;",
+        "uniform vec2 rrGroundSize;",
+        "uniform vec4 rrGroundType[RR_GROUND_COUNT];",
+        "uniform float rrGroundOn[RR_GROUND_COUNT];",
+        "uniform vec4 rrGroundKey;",
+        g.detail ? "uniform sampler2DArray rrGroundDetail;\nuniform vec4 rrGroundDetailParams[RR_GROUND_COUNT];\n" + Reactor3D.DETAIL_FUNCTIONS_GLSL : ""
+    ].filter(Boolean).join("\n");
+};
+
+/**
+ * The types laid over the floor, in their order. A texel of paint is a cell, read
+ * between cells, so a border is soft; it is then drawn in with a wandering edge,
+ * and a half-strength paint reads as patches, not as a wash. A type's image is laid
+ * from above and, where the ground leans, from the sides, as the floor itself is.
+ */
+Reactor3D.groundTypesBodyGLSL = function(g) {
+    return [
+        "\t{",
+        "\t\tvec2 rrSuv = vRRGroundPos.xz / rrGroundSize;",
+        "\t\tvec4 rrWA = texture2D(rrGroundSplat, rrSuv);",
+        g.splatB ? "\t\tvec4 rrWB = texture2D(rrGroundSplatB, rrSuv);" : "",
+        "\t\tif (rrWA.x + rrWA.y + rrWA.z + rrWA.w" + (g.splatB ? " + rrWB.x + rrWB.y + rrWB.z + rrWB.w" : "") + " > 0.004) {",
+        // The wandering edge moves a weight only between none and whole (its term is rrW * (1 - rrW)), so the noise
+        // is worked out only where some type is part-way: the inside of a painted ground skips it, to the same picture.
+        "\t\t\tvec4 rrWE = rrWA * (1.0 - rrWA);",
+        g.splatB ? "\t\t\trrWE += rrWB * (1.0 - rrWB);" : "",
+        "\t\t\tfloat rrWn = 0.5;",
+        "\t\t\tif (rrWE.x + rrWE.y + rrWE.z + rrWE.w > 0.0) rrWn = rrGroundNoise(vRRGroundPos.xz * 0.9) * 0.65 + rrGroundNoise(vRRGroundPos.xz * 3.7) * 0.35;",
+        // A painted ground is shaded by how it faces the key light, leaning a little to one side so a slope
+        // reads under a sun straight overhead (a dune's slip face is darker than its back); level ground is as it was.
+        "\t\t\tvec3 rrGL = normalize((rrGroundKey.w > 0.5 ? normalize(rrGroundKey.xyz - vRRGroundPos) : normalize(rrGroundKey.xyz)) + vec3(0.45, 0.0, 0.35));",
+        "\t\t\tfloat rrGShade = clamp((0.35 + 0.65 * max(dot(rrGN, rrGL), 0.0)) / (0.35 + 0.65 * max(rrGL.y, 0.05)), 0.5, 1.25);",
+        "\t\t\tfor (int i = 0; i < RR_GROUND_COUNT; i++) {",
+        g.splatB ? "\t\t\t\tfloat rrW = i < 4 ? rrWA[i] : rrWB[i - 4];" : "\t\t\t\tfloat rrW = rrWA[i];",
+        "\t\t\t\tif (rrW < 0.004 || rrGroundOn[i] < 0.5) continue;",
+        "\t\t\t\trrW = smoothstep(0.38, 0.62, rrW + (rrWn - 0.5) * 1.6 * rrW * (1.0 - rrW));",
+        "\t\t\t\tif (rrW < 0.004) continue;",
+        "\t\t\t\tfloat rrTS = rrGroundType[i].w, rrTL = float(i);",
+        "\t\t\t\tvec3 rrTP = vRRGroundPos * rrTS, rrTdx = rrGdx * rrTS, rrTdy = rrGdy * rrTS;",
+        "\t\t\t\tvec4 rrTC = textureGrad(rrGroundArray, vec3(rrTP.xz, rrTL), rrTdx.xz, rrTdy.xz);",
+        "\t\t\t\tif (rrGW.x + rrGW.z > 0.01) rrTC = textureGrad(rrGroundArray, vec3(rrTP.zy, rrTL), rrTdx.zy, rrTdy.zy) * rrGW.x + rrTC * rrGW.y + textureGrad(rrGroundArray, vec3(rrTP.xy, rrTL), rrTdx.xy, rrTdy.xy) * rrGW.z;",
+        "\t\t\t\trrTC.rgb *= rrGroundType[i].rgb * rrGShade;",
+        g.detail ? [
+            "\t\t\t\tif (rrGroundDetailParams[i].w > 0.5) {",
+            "\t\t\t\t\tvec4 rrTD = textureGrad(rrGroundDetail, vec3(rrTP.xz, rrTL), rrTdx.xz, rrTdy.xz);",
+            "\t\t\t\t\trrTC.rgb = rrDetailShade(rrTC.rgb, rrGN, normalize(rrDetailAxis(rrTD, rrGN, 1, rrGroundDetailParams[i].x)), rrTD.a, vRRGroundPos, rrGroundDetailParams[i]);",
+            "\t\t\t\t}"
+        ].join("\n") : "",
+        "\t\t\t\tsampledDiffuseColor.rgb = mix(sampledDiffuseColor.rgb, rrTC.rgb, rrW);",
+        "\t\t\t}",
+        "\t\t}",
+        "\t}"
+    ].filter(Boolean).join("\n");
+};
+
+/** A ground's uniforms on a compiled floor shader. */
+Reactor3D.groundTypesUniforms = function(shader, g) {
+    shader.uniforms.rrGroundSplat = { value: g.splat };
+    if (g.splatB) shader.uniforms.rrGroundSplatB = { value: g.splatB };
+    shader.uniforms.rrGroundArray = { value: g.array };
+    shader.uniforms.rrGroundSize = { value: g.size };
+    shader.uniforms.rrGroundType = { value: g.types };
+    shader.uniforms.rrGroundOn = { value: g.on };
+    // The key light the lit materials share (the map's sun, else a direction from above), under this shader's own name.
+    const lights = Reactor3D.lightUniforms ? Reactor3D.lightUniforms() : null;
+    shader.uniforms.rrGroundKey = { value: lights && lights.rrKeyLight ? lights.rrKeyLight.value : new Float32Array(Reactor3D.KEY_LIGHT_DEFAULT || [0.35, 1, 0.3, 0]) };
+    if (g.detail) {
+        shader.uniforms.rrGroundDetail = { value: g.detail };
+        shader.uniforms.rrGroundDetailParams = { value: g.detailParams };
+    }
+};
+
+//-----------------------------------------------------------------------------
+// World lines
+//
+// What a shot, a look or a blow meets on its way: a segment tested against
+// the world as it is drawn. The ground is the cell's elevation plus the
+// terrain. A cell piece is its own boxes (a doorway only its lintel, a window
+// its sill and header, a fence its posts and rails). A shape is its own
+// outline and height in its own frame, turned, tilted and rolled as drawn, so
+// a lamp post is a post and a stall's roof a slab with open air under it. A
+// rock is the column of its mass over each cell. A door is its leaf while it
+// stands shut. (`groundHeightAt` answers another question, where a body
+// stands, and joins what hangs over a walker to the surface: a line under an
+// awning read as in the ground.)
+//
+// A line is walked cell by cell. A cell's solids are worked out the first
+// time a line crosses it and kept until the map's pieces or ground change, so
+// a query touches only the cells it passes and makes no objects.
+
+/** How a solid fills its frame (u across, y up, v along, each 0 to 1). */
+const LINE_BOX = 0, LINE_WEDGE = 1, LINE_GABLE = 2, LINE_PYRAMID = 3, LINE_ROUND = 4, LINE_TUBE = 5, LINE_CONE = 6, LINE_DOME = 7,
+    LINE_BALL = 8, LINE_ARCH = 9, LINE_RING = 10, LINE_TAPER = 11, LINE_CAPSULE = 12, LINE_DISH = 13, LINE_FIN = 14;
+Reactor3D.LINE_CODES = { box: LINE_BOX, wedge: LINE_WEDGE, prism: LINE_GABLE, pyramid: LINE_PYRAMID, cylinder: LINE_ROUND, tube: LINE_TUBE, cone: LINE_CONE,
+    dome: LINE_DOME, sphere: LINE_BALL, arch: LINE_ARCH, tunnel: LINE_ARCH, ring: LINE_RING, hull: LINE_TAPER, spike: LINE_TAPER, capsule: LINE_CAPSULE,
+    dish: LINE_DISH, fin: LINE_FIN };
+/** How far under the ground's surface a line may graze before the ground stops it, in tiles. */
+Reactor3D.LINE_SKIN = 0.05;
+/** What the last `worldRay` met: "" (nothing), "ground", "piece" or "edge" (the map's border). */
+Reactor3D.lineMet = "";
+
+/**
+ * One solid as a line meets it: the frame that `place` maps the box (x0, y0, v0)-(x1, y1, v1) into,
+ * and how the solid fills that frame (`code`, with its own two numbers). Kept as the rows that carry
+ * a world point into the frame, so a test is three products and no object.
+ */
+Reactor3D.lineSolid = function(place, x0, y0, v0, x1, y1, v1, code, a, b) {
+    const o = place(x0, y0, v0);
+    const row = end => { const x = end[0] - o[0], y = end[1] - o[1], z = end[2] - o[2], n = x * x + y * y + z * z || 1; return [x / n, y / n, z / n, Math.sqrt(n)]; };
+    const u = row(place(x1, y0, v0)), y = row(place(x0, y1, v0)), v = row(place(x0, y0, v1));
+    // The thinnest part a line must not step over: a post's width, a hollow shape's wall, a bowl's shell.
+    let fine = Math.min(u[3], v[3]);
+    if (code === LINE_TUBE || code === LINE_RING) fine *= Math.max(0.04, a || 0.2) / 2;
+    else if (code === LINE_DISH) fine = Math.min(fine, y[3] * 0.12);
+    else if (code === LINE_ARCH) fine *= 0.15;
+    return { code: code || LINE_BOX, ox: o[0], oy: o[1], oz: o[2], ux: u[0], uy: u[1], uz: u[2], yx: y[0], yy: y[1], yz: y[2], vx: v[0], vy: v[1], vz: v[2],
+        a: a || 0, b: b || 0, step: Math.max(0.02, Math.min(0.08, fine / 5)), glass: false, door: null };
+};
+
+/** Whether a point of a solid's frame is in the solid. */
+Reactor3D.lineInside = function(s, u, y, v) {
+    const cu = u - 0.5, cv = v - 0.5;
+    switch (s.code) {
+        case LINE_WEDGE: return y <= v;
+        case LINE_GABLE: return y <= 1 - Math.abs(2 * v - 1);
+        case LINE_PYRAMID: return y <= 1 - 2 * Math.max(Math.abs(cu), Math.abs(cv));
+        case LINE_ROUND: return cu * cu + cv * cv <= 0.25 && (s.b >= 360 || this.withinSweep(s.b, cu, cv, 0));
+        case LINE_TUBE: {
+            const r2 = cu * cu + cv * cv, inner = 0.5 * (1 - s.a);
+            return r2 <= 0.25 && r2 >= inner * inner && (s.b >= 360 || this.withinSweep(s.b, cu, cv, 0));
+        }
+        case LINE_CONE: { const r = 0.5 * (1 - y); return cu * cu + cv * cv <= r * r; }
+        case LINE_DOME: return 4 * (cu * cu + cv * cv) + y * y <= 1;
+        case LINE_BALL: { const cy = y - 0.5; return cu * cu + cy * cy + cv * cv <= 0.25; }
+        // A wall with a round-topped opening through it along v: posts either side, the band over the arc.
+        case LINE_ARCH: return Math.abs(cu) >= 0.35 || y > 0.5 + Math.sqrt(0.1225 - cu * cu);
+        case LINE_RING: {
+            const half = s.a / 2, k = (Math.sqrt(cu * cu + cv * cv) - (0.5 - half)) / half, cy = (y - 0.5) * 2;
+            return k * k + cy * cy <= 1 && (s.b >= 360 || this.withinSweep(s.b, cu, cv, 0));
+        }
+        case LINE_TAPER: {
+            const k = 0.5 * (1 + (s.a - 1) * y);
+            return s.b === 4 ? Math.max(Math.abs(cu), Math.abs(cv)) <= k : cu * cu + cv * cv <= k * k;
+        }
+        case LINE_CAPSULE: {
+            const r2 = 4 * (cu * cu + cv * cv), k = y < 0.25 ? (0.25 - y) * 4 : y > 0.75 ? (y - 0.75) * 4 : 0;
+            return r2 + k * k <= 1;
+        }
+        // A bowl's shell: over the outside of the bowl, under its inside.
+        case LINE_DISH: { const q = 4 * (cu * cu + cv * cv); return q <= 1 && y >= q && y <= q + 0.12; }
+        case LINE_FIN: return u >= (1 - s.a) * y;
+        default: return true;
+    }
+};
+
+/** Where a line, between `t0` and `t1` along it, enters a solid; -1 when it does not. */
+Reactor3D.lineEnters = function(s, ox, oy, oz, dx, dy, dz, t0, t1) {
+    const px = ox - s.ox, py = oy - s.oy, pz = oz - s.oz;
+    const lu = px * s.ux + py * s.uy + pz * s.uz, du = dx * s.ux + dy * s.uy + dz * s.uz;
+    let lo = t0, hi = t1;
+    if (du > 1e-12 || du < -1e-12) {
+        const a = -lu / du, b = (1 - lu) / du;
+        if (a < b) { if (a > lo) lo = a; if (b < hi) hi = b; } else { if (b > lo) lo = b; if (a < hi) hi = a; }
+        if (lo > hi) return -1;
+    } else if (lu < 0 || lu > 1) return -1;
+    const ly = px * s.yx + py * s.yy + pz * s.yz, dyy = dx * s.yx + dy * s.yy + dz * s.yz;
+    if (dyy > 1e-12 || dyy < -1e-12) {
+        const a = -ly / dyy, b = (1 - ly) / dyy;
+        if (a < b) { if (a > lo) lo = a; if (b < hi) hi = b; } else { if (b > lo) lo = b; if (a < hi) hi = a; }
+        if (lo > hi) return -1;
+    } else if (ly < 0 || ly > 1) return -1;
+    const lv = px * s.vx + py * s.vy + pz * s.vz, dv = dx * s.vx + dy * s.vy + dz * s.vz;
+    if (dv > 1e-12 || dv < -1e-12) {
+        const a = -lv / dv, b = (1 - lv) / dv;
+        if (a < b) { if (a > lo) lo = a; if (b < hi) hi = b; } else { if (b > lo) lo = b; if (a < hi) hi = a; }
+        if (lo > hi) return -1;
+    } else if (lv < 0 || lv > 1) return -1;
+    if (s.code === LINE_BOX) return lo;
+    // Any other solid: along the part of the line inside its box in steps no longer than its thinnest part,
+    // then halved back to where it was entered.
+    const n = Math.max(1, Math.min(96, Math.ceil((hi - lo) / s.step)));
+    let last = lo;
+    for (let i = 0; i <= n; i++) {
+        const t = lo + (hi - lo) * i / n;
+        if (this.lineInside(s, lu + du * t, ly + dyy * t, lv + dv * t)) {
+            if (i === 0) return t;
+            let out = last, at = t;
+            for (let k = 0; k < 5; k++) {
+                const m = (out + at) / 2;
+                if (this.lineInside(s, lu + du * m, ly + dyy * m, lv + dv * m)) at = m; else out = m;
+            }
+            return at;
+        }
+        last = t;
+    }
+    return -1;
+};
+
+/** What lines are tested against on a map: its shapes by the cells their boxes reach, and each cell's solids as lines come to them. */
+Reactor3D.lineIndex = function(mapData) {
+    const side = mapData.reactor3d || null;
+    const raw = side && Array.isArray(side.pieces) ? side.pieces : null, terrain = side ? side.terrain : null, elevation = side ? side.elevation : null;
+    const memo = this._lineIndexMemo || (this._lineIndexMemo = new WeakMap());
+    let index = memo.get(mapData);
+    if (index && index.raw === raw && index.terrain === terrain && index.elevation === elevation) return index;
+    index = { raw, terrain, elevation, cells: new Map(), shapes: new Map(), flat: !this.terrainOf(mapData) };
+    const pieces = this.pieceIndex(mapData);
+    if (pieces) for (const piece of pieces.list) {
+        // A rock is its columns (rockColumns), which the cells' own stacks carry.
+        if (!this.isShapeKind(piece.kind) || piece.kind === "rock") continue;
+        const place = this.shapePlacer(piece, this.pieceBaseAt(mapData, piece.x, piece.y));
+        const params = this.shapeParams(piece);
+        const code = this.LINE_CODES[piece.kind] || LINE_BOX;
+        const solid = this.lineSolid(place, 0, 0, 0, 1, 1, 1, code,
+            code === LINE_TAPER || code === LINE_FIN ? params.taper : params.thick,
+            code === LINE_TAPER ? params.sides : params.sweep === undefined ? 360 : params.sweep);
+        solid.glass = this.materialLook(piece.material).glass;
+        let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+        for (let corner = 0; corner < 8; corner++) {
+            const q = place(corner & 1, (corner >> 1) & 1, (corner >> 2) & 1);
+            if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[2] < z0) z0 = q[2]; if (q[2] > z1) z1 = q[2];
+        }
+        for (let y = Math.max(0, Math.floor(z0)); y <= Math.min(mapData.height - 1, Math.floor(z1)); y++) {
+            for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(mapData.width - 1, Math.floor(x1)); x++) {
+                const key = y * 65536 + x;
+                let list = index.shapes.get(key);
+                if (!list) index.shapes.set(key, list = []);
+                list.push(solid);
+            }
+        }
+    }
+    memo.set(mapData, index);
+    return index;
+};
+
+/** The solids of one cell piece, added to `list`. */
+Reactor3D.lineCellPiece = function(mapData, piece, stack, list) {
+    const S = this.PIECE_STOREY, kind = piece.kind;
+    const glass = this.materialLook(piece.material).glass;
+    // A rock's column over this cell: from the mass's foot here to its top (a height over its own cell's ground).
+    if (kind === "rock") {
+        if (!Number.isFinite(piece.rockTop) || !Array.isArray(piece.anchor)) return;
+        const foot = this.pieceBaseAt(mapData, piece.x, piece.y) + piece.z, top = this.pieceBaseAt(mapData, piece.anchor[0], piece.anchor[1]) + piece.rockTop;
+        if (top > foot) list.push(this.lineSolid((u, y, v) => [piece.x + u, y, piece.y + v], 0, foot, 0, 1, top, 1, LINE_BOX));
+        return;
+    }
+    // A door's leaves hang from its own cell's ground across every cell of its doorway.
+    const anchor = Array.isArray(piece.anchor) ? piece.anchor : null;
+    const cx = piece.x + 0.5, cz = piece.y + 0.5, rot = ((piece.rot | 0) % 4 + 4) % 4;
+    const oy = this.pieceBaseAt(mapData, anchor ? anchor[0] : piece.x, anchor ? anchor[1] : piece.y) + piece.z;
+    const place = (u, y, v) => {
+        let dx = u - 0.5, dz = v - 0.5;
+        for (let i = 0; i < rot; i++) { const next = -dz; dz = dx; dx = next; }
+        return [cx + dx, oy + y, cz + dz];
+    };
+    const add = (x0, y0, v0, x1, y1, v1, code, a, b) => { const solid = this.lineSolid(place, x0, y0, v0, x1, y1, v1, code, a, b); solid.glass = glass; list.push(solid); return solid; };
+    switch (kind) {
+        case "wall": add(0, 0, 0, 1, S, 1); break;
+        case "block": add(0, 0, 0, 1, 1, 1); break;
+        case "floor": add(0, 0, 0, 1, this.PIECE_FLOOR_THICKNESS, 1); break;
+        case "pillar":
+            add(0.24, 0, 0.24, 0.76, 0.12, 0.76);
+            add(0.3, 0.12, 0.3, 0.7, S - 0.12, 0.7, LINE_ROUND, 0, 360);
+            add(0.24, S - 0.12, 0.24, 0.76, S, 0.76);
+            break;
+        case "stair": {
+            for (let i = 0; i < 4; i++) add(0, 0, i * 0.25, 1, (i + 1) * 0.25, 1);
+            // A raised stair stands on a solid down to what is under it, as it is drawn.
+            let under = 0;
+            if (piece.z > 0 && stack) for (const other of stack) {
+                if (other === piece || other.id === piece.id || other.kind === "ladder" || other.z >= piece.z) continue;
+                under = Math.max(under, Math.min(piece.z, this.pieceTop(other, 0.5, 0.5)));
+            }
+            if (piece.z > under) add(0, under - piece.z, 0, 1, 0, 1);
+            break;
+        }
+        case "ramp": add(0, 0, 0, 1, 1, 1, LINE_WEDGE); break;
+        case "roof": add(0, 0, 0, 1, 1, 1, LINE_GABLE); break;
+        case "doorway": add(0, S - 0.6, 0, 1, S, 1); break;
+        case "window":
+            add(0, 0, 0, 1, 1.5, 1);
+            add(0, S - 1.4, 0, 1, S, 1);
+            // Shutters drawn shut fill the hole, on the cell's outer face where they hang.
+            if (piece.frame && piece.frame.closed) add(0, 1.5, 0.94, 1, S - 1.4, 1).glass = false;
+            break;
+        case "glass": add(0, 0, 0.45, 1, S, 0.55).glass = true; break;
+        case "fence":
+            add(0.05, 0, 0.42, 0.15, 1.5, 0.58); add(0.85, 0, 0.42, 0.95, 1.5, 0.58);
+            add(0, 0.5, 0.45, 1, 0.62, 0.55); add(0, 1.15, 0.45, 1, 1.27, 0.55);
+            break;
+        // The leaf across this cell of the doorway, counted only while it stands shut (see worldRay).
+        case "door": add(0, 0, 0.44, 1, this.doorLeafHeight ? this.doorLeafHeight(piece) : 3.6, 0.56).door = piece; break;
+        // A ladder's rails and rungs stop nothing.
+        default: break;
+    }
+};
+
+/** The solids on a cell (null when it has none), built the first time a line comes to it. */
+Reactor3D.lineCell = function(index, mapData, x, y) {
+    const key = y * 65536 + x;
+    let list = index.cells.get(key);
+    if (list !== undefined) return list;
+    list = [];
+    const pieces = this.pieceIndex(mapData), stack = pieces ? pieces.cells.get(key) : null;
+    if (stack) for (const piece of stack) {
+        // A shape's stand-ins (and the shape itself) come from the shapes' own boxes below.
+        if (this.isShapeKind(piece.kind) && piece.kind !== "rock") continue;
+        this.lineCellPiece(mapData, piece, stack, list);
+    }
+    const shapes = index.shapes.get(key);
+    if (shapes) for (const solid of shapes) list.push(solid);
+    if (!list.length) list = null;
+    index.cells.set(key, list);
+    return list;
+};
+
+/**
+ * How far along a line the world lets it go, at most `far`: from (ox, oy, oz) along the unit direction
+ * (dx, dy, dz), in tiles, y up. Stopped by the ground, by a piece or shape where it is solid, by a shut
+ * door and by the map's border; `sight` passes what is seen through (glass). `Reactor3D.lineMet` says what stopped it.
+ *
+ * `level`: a line drawn on a flat picture of the map (an aim taken on the ground from above, which has no
+ * height of its own). It keeps its height over the ground it passes: the ground never stops it, and what is
+ * built is met at that height over its own cell's ground, so a wall stops it up a slope as on the level and a
+ * counter lower than the weapon does not.
+ */
+Reactor3D.worldRay = function(mapData, ox, oy, oz, dx, dy, dz, far, sight, level) {
+    this.lineMet = "";
+    if (!mapData || !(far > 0)) return far > 0 ? far : 0;
+    const index = this.lineIndex(mapData), skin = this.LINE_SKIN;
+    const width = mapData.width, height = mapData.height;
+    let x = Math.floor(ox), z = Math.floor(oz);
+    const stepX = dx > 0 ? 1 : -1, stepZ = dz > 0 ? 1 : -1;
+    const deltaX = dx !== 0 ? Math.abs(1 / dx) : Infinity, deltaZ = dz !== 0 ? Math.abs(1 / dz) : Infinity;
+    let nextX = dx > 0 ? (x + 1 - ox) / dx : dx < 0 ? (x - ox) / dx : Infinity;
+    let nextZ = dz > 0 ? (z + 1 - oz) / dz : dz < 0 ? (z - oz) / dz : Infinity;
+    const from = level && x >= 0 && z >= 0 && x < width && z < height ? this.pieceBaseAt(mapData, x, z) : 0;
+    let t0 = 0;
+    for (let guard = Math.ceil(far) * 2 + 4; guard > 0; guard--) {
+        if (x < 0 || z < 0 || x >= width || z >= height) { this.lineMet = "edge"; return t0; }
+        const t1 = Math.min(nextX, nextZ, far);
+        let best = -1, lift = 0;
+        if (level) lift = this.pieceBaseAt(mapData, x, z) - from;
+        else {
+            // The ground: the face of a cell that stands higher than the line comes in, then where the line comes down to it.
+            const base = this.elevationAt(mapData, x, z), y0 = oy + dy * t0;
+            if (index.flat) {
+                if (y0 < base - skin) best = t0;
+                else if (dy < 0) { const t = (base - skin - oy) / dy; if (t <= t1) best = Math.max(t0, t); }
+            } else if (y0 < base + this.terrainHeightAt(mapData, ox + dx * t0, oz + dz * t0) - skin) best = t0;
+            else {
+                // Rolling ground: its middle and its far side, halved back to where the line went under.
+                let clear = t0;
+                for (let part = 1; part <= 2 && best < 0; part++) {
+                    const t = t0 + (t1 - t0) * part / 2;
+                    if (oy + dy * t >= base + this.terrainHeightAt(mapData, ox + dx * t, oz + dz * t) - skin) { clear = t; continue; }
+                    let under = t;
+                    for (let k = 0; k < 6; k++) {
+                        const m = (clear + under) / 2;
+                        if (oy + dy * m < base + this.terrainHeightAt(mapData, ox + dx * m, oz + dz * m) - skin) under = m; else clear = m;
+                    }
+                    best = under;
+                }
+            }
+            if (best >= 0) this.lineMet = "ground";
+        }
+        const solids = index.cells.get(z * 65536 + x);
+        const list = solids !== undefined ? solids : this.lineCell(index, mapData, x, z);
+        if (list) for (let i = 0; i < list.length; i++) {
+            const solid = list[i];
+            if (sight && solid.glass) continue;
+            if (solid.door && !(this.doorShut && this.doorShut(solid.door))) continue;
+            const t = this.lineEnters(solid, ox, oy + lift, oz, dx, dy, dz, t0, best >= 0 ? best : t1);
+            if (t >= 0 && (best < 0 || t < best)) { best = t; this.lineMet = "piece"; }
+        }
+        if (best >= 0) return best;
+        if (t1 >= far) return far;
+        t0 = t1;
+        if (nextX < nextZ) { x += stepX; nextX += deltaX; } else { z += stepZ; nextZ += deltaZ; }
+    }
+    return far;
+};
+
+/**
+ * Whether a world point is in the ground or in a solid part of what is built. `sight` passes glass;
+ * `walker` passes every door (whether a door lets a body by is the walking rule's to say).
+ */
+Reactor3D.worldSolidAt = function(mapData, wx, wy, wz, sight, walker) {
+    if (!mapData) return false;
+    const x = Math.floor(wx), z = Math.floor(wz);
+    if (x < 0 || z < 0 || x >= mapData.width || z >= mapData.height) return false;
+    if (wy < this.elevationAt(mapData, x, z) + this.terrainHeightAt(mapData, wx, wz) - this.LINE_SKIN) return true;
+    const index = this.lineIndex(mapData);
+    const solids = index.cells.get(z * 65536 + x);
+    const list = solids !== undefined ? solids : this.lineCell(index, mapData, x, z);
+    if (list) for (let i = 0; i < list.length; i++) {
+        const s = list[i];
+        if (sight && s.glass) continue;
+        if (s.door && (walker || !(this.doorShut && this.doorShut(s.door)))) continue;
+        const px = wx - s.ox, py = wy - s.oy, pz = wz - s.oz;
+        const u = px * s.ux + py * s.uy + pz * s.uz;
+        if (u < 0 || u > 1) continue;
+        const y = px * s.yx + py * s.yy + pz * s.yz;
+        if (y < 0 || y > 1) continue;
+        const v = px * s.vx + py * s.vy + pz * s.vz;
+        if (v < 0 || v > 1) continue;
+        if (this.lineInside(s, u, y, v)) return true;
+    }
+    return false;
 };
 
 Reactor3D.World = { file: "reactor_3d_world.js" };

@@ -759,13 +759,13 @@ test('a drag paints only when the palette has a selection', () => {
 
 test('a raycast hit becomes a tile coordinate', () => {
     // The ground is one merged mesh per sheet, so a hit cannot name a tile —
-    // but the world position can, since the map is one unit per tile.
-    assert.match(source, /Math\.floor\(point\.x\)/);
-    assert.match(source, /Math\.floor\(point\.z\)/);
+    // but the world position can, since the map is one unit per tile. (Which
+    // world position the pointer names is map-3d-pointer-tile.test.cjs.)
+    assert.match(source, /x: Math\.floor\(wx\), y: Math\.floor\(wz\)/);
     // In pixels, and a pixel is whatever size this project's tiles are: MZ
     // offers 48, 32, 24 and 16, and a hardcoded 48 put every quadrant offset
     // half a tile out on anything but the default.
-    assert.match(source, /localX: \(point\.x - x\) \* this\.tilePixels\(\)/,
+    assert.match(source, /localX: \(pick\.px - pick\.x\) \* this\.tilePixels\(\)/,
         'quadrant tools get pixel offsets in the project\'s tile size');
 });
 

@@ -319,10 +319,10 @@ function open(source, destination, options) {
     
     // ---- writing the project ---------------------------------------------------
     const { PNG } = require('pngjs');
-    const repo = path.resolve(__dirname, '..', '..', '..');
-    const editorPackage = JSON.parse(fs.readFileSync(path.join(repo, 'editor', 'package.json'), 'utf8'));
-    const skeleton = path.join(repo, 'template', 'Barebones');
-    const runtime = path.join(repo, 'runtime');
+    const EditorPaths = require('./EditorPaths.js');
+    const editorPackage = EditorPaths.editorPackage();
+    // Found when an import starts; a report does not need it.
+    let runtime = null;
     
     /** Decode a PNG to RGBA, and make palette entry 0 transparent when `key` is set (the 2000/2003 rule). */
     function decodePng(bytes, key) {
@@ -357,11 +357,10 @@ function open(source, destination, options) {
     const mkdir = (p) => fs.mkdirSync(p, { recursive: true });
     const writeJson = (p, v) => fs.writeFileSync(p, JSON.stringify(v));
     
-    function copyTree(from, to, skip = () => false) {
+    function copyTree(from, to) {
         for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
             const s = path.join(from, entry.name), d = path.join(to, entry.name);
-            if (skip(path.relative(skeleton, s))) continue;
-            if (entry.isDirectory()) { mkdir(d); copyTree(s, d, skip); } else { mkdir(path.dirname(d)); fs.copyFileSync(s, d); }
+            if (entry.isDirectory()) { mkdir(d); copyTree(s, d); } else { mkdir(path.dirname(d)); fs.copyFileSync(s, d); }
         }
     }
     
@@ -453,6 +452,7 @@ function open(source, destination, options) {
         const report = typeof options.progress === 'function' ? options.progress : () => {};
         const span = (from, to) => (done, total, status) => report(from + (to - from) * (total ? Math.min(1, done / total) : 1), status);
         const dest = path.resolve(destination);
+        runtime = EditorPaths.runtime();
         if (fs.existsSync(dest) && fs.readdirSync(dest).length && !options.force) throw new Error(`${dest} exists and is not empty.`);
         mkdir(dest);
         const t0 = Date.now();
@@ -481,20 +481,17 @@ function open(source, destination, options) {
 
         log('Copying the project skeleton and runtime…', 'stage');
         report(0, 'Copying the project skeleton and runtime…');
-        // 1. Skeleton: the Barebones template minus its art and music, then the runtime.
-        // Everything but the template's art, music and runtime; img/system (icons, balloons, window skin) does come.
-        copyTree(skeleton, dest, rel => {
-            const r = rel.replace(/\\/g, '/');
+        // 1. Skeleton: an empty project with its system pictures (icons, balloons, window skin), then the runtime.
+        EditorPaths.copySkeleton(dest, r => {
             if (options.skipAssets && r === 'img/system/Window.png' && fs.existsSync(path.join(dest, 'img', 'system', 'Window.png'))) return true;   // a converted skin survives a data-only re-import
-            if (r === 'img' || r === 'img/system' || r.startsWith('img/system/')) return false;
-            return r.startsWith('img/') || r.startsWith('audio/') || r.startsWith('js/');
+            return r.startsWith('js/');
         });
         mkdir(path.join(dest, 'js'));
         for (const entry of fs.readdirSync(runtime, { withFileTypes: true })) {
             const s = path.join(runtime, entry.name), d = path.join(dest, 'js', entry.name);
             if (entry.isDirectory()) { mkdir(d); copyTree(s, d); } else fs.copyFileSync(s, d);
         }
-        if (fs.existsSync(path.join(skeleton, 'js', 'reactor_plugins.js'))) fs.copyFileSync(path.join(skeleton, 'js', 'reactor_plugins.js'), path.join(dest, 'js', 'reactor_plugins.js'));
+        fs.copyFileSync(EditorPaths.skeletonFile('js/reactor_plugins.js'), path.join(dest, 'js', 'reactor_plugins.js'));
         for (const folder of ['audio/bgm', 'audio/bgs', 'audio/me', 'audio/se', 'img/animations', 'img/characters', 'img/enemies', 'img/faces', 'img/parallaxes', 'img/pictures', 'img/tilesets', 'img/titles1', 'img/titles2', 'img/battlebacks1', 'img/battlebacks2', 'img/sv_actors', 'img/sv_enemies', 'movies']) mkdir(path.join(dest, folder));
     
         log('Converting the database…', 'stage');
@@ -586,7 +583,7 @@ function open(source, destination, options) {
         writeJson(path.join(dest, 'data', 'MapInfos.json'), infos.map(i => i || null));
     
         // 4. System: the old engine's framework.
-        const base = JSON.parse(fs.readFileSync(path.join(skeleton, 'data', 'System.json'), 'utf8'));
+        const base = JSON.parse(fs.readFileSync(EditorPaths.skeletonFile('data/System.json'), 'utf8'));
         const system = D.system(K.systemJson(base, db, project.tree, project.ini), db, project.tree, dbNotes);
         if (translator) {   // terms are translated by value: the 2003 term table was laid into MZ's
             const walk = (obj) => { for (const k of Object.keys(obj)) { const v = obj[k]; if (typeof v === 'string') { const t = translator.term(v); if (t !== undefined) obj[k] = t; } else if (v && typeof v === 'object') walk(v); } };
@@ -656,7 +653,7 @@ function open(source, destination, options) {
                 if (tr) for (const info of texts['MapInfos.json']) if (info) { const v = tr.field('maps.name', info.name); if (v !== undefined) info.name = v; }
                 for (const info of texts['MapInfos.json']) if (info && !baseMaps.has(`Map${String(info.id).padStart(3, '0')}.json`)) texts['MapInfos.json'][info.id] = infos[info.id] || null;
                 {   // terms: the stock conversion, then the pack's translation by value
-                    const terms = JSON.parse(JSON.stringify(D.system(K.systemJson(JSON.parse(fs.readFileSync(path.join(skeleton, 'data', 'System.json'), 'utf8')), db, project.tree, project.ini), db, project.tree, {}).terms));
+                    const terms = JSON.parse(JSON.stringify(D.system(K.systemJson(JSON.parse(fs.readFileSync(EditorPaths.skeletonFile('data/System.json'), 'utf8')), db, project.tree, project.ini), db, project.tree, {}).terms));
                     const walk = (obj) => { for (const k of Object.keys(obj)) { const v = obj[k]; if (typeof v === 'string') { const t = tr ? tr.term(v) : undefined; if (t !== undefined) obj[k] = t; } else if (v && typeof v === 'object') walk(v); } };
                     walk(terms);
                     texts['System.json'] = { terms };
@@ -708,7 +705,7 @@ function open(source, destination, options) {
         await importImages('System', 'img/system', { key: true });
         {   // the game's window skin, over the stock Window.png for the parts 2003 had no equivalent of
             const skinFile = sys.system_name ? resolveInsensitive(source, path.join('System', sys.system_name + '.png')) : null;
-            const baseFile = path.join(skeleton, 'img', 'system', 'Window.png');
+            const baseFile = EditorPaths.skeletonFile('img/system/Window.png');
             if (skinFile) {
                 try {
                     const skin = K.windowSkin(decodePng(fs.readFileSync(skinFile), true), fs.existsSync(baseFile) ? decodePng(fs.readFileSync(baseFile), false) : null);

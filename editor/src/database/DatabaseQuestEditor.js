@@ -130,7 +130,7 @@ class DatabaseQuestEditor {
         const strip = document.createElement('div');
         strip.className = 'database-section';
         strip.innerHTML = `
-            <div class="database-section-header">${tt('Quest Log')}</div>
+            <div class="database-section-header" data-section-key="quest-log">${tt('Quest Log')}</div>
             <div class="database-section-content"><div class="db-form">
                 <div class="db-row-cols">
                     <span class="db-col">
@@ -166,7 +166,7 @@ class DatabaseQuestEditor {
         const general = document.createElement('div');
         general.className = 'database-section';
         general.innerHTML = `
-            <div class="database-section-header">${tt('General')}</div>
+            <div class="database-section-header" data-section-key="general">${tt('General')}</div>
             <div class="database-section-content"><div class="db-general-grid">
                 <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
                     <label style="font-size:11px;color:var(--color-text-muted);font-weight:600;">${tt('Icon')}</label>
@@ -192,7 +192,7 @@ class DatabaseQuestEditor {
         const rules = document.createElement('div');
         rules.className = 'database-section';
         rules.innerHTML = `
-            <div class="database-section-header">${tt('Rules')}</div>
+            <div class="database-section-header" data-section-key="rules">${tt('Rules')}</div>
             <div class="database-section-content"><div class="db-form">
                 <div class="db-row-cols">
                     <span class="db-col">
@@ -246,7 +246,7 @@ class DatabaseQuestEditor {
         const description = document.createElement('div');
         description.className = 'database-section';
         description.innerHTML = `
-            <div class="database-section-header">${tt('Description')}</div>
+            <div class="database-section-header" data-section-key="description">${tt('Description')}</div>
             <div class="database-section-content"><div class="db-form">
                 <div class="db-row-cols">
                     <span class="db-col">
@@ -264,7 +264,7 @@ class DatabaseQuestEditor {
         const more = document.createElement('div');
         more.className = 'database-section';
         more.innerHTML = `
-            <div class="database-section-header">${tt('Extra Text')}</div>
+            <div class="database-section-header" data-section-key="extra-text">${tt('Extra Text')}</div>
             <div class="database-section-content"><div class="db-form">
                 <div class="db-row-cols">
                     <span class="db-col"><label>${tt('Subtext')}</label><textarea class="database-field-value" rows="3" data-field="subtext" data-quest-id="${quest.id}" data-rr-textcodes="help" data-rr-textcodes-preview>${rrEscapeHtml(quest.subtext)}</textarea></span>
@@ -278,7 +278,7 @@ class DatabaseQuestEditor {
         const note = document.createElement('div');
         note.className = 'database-section';
         note.innerHTML = `
-            <div class="database-section-header">${tt('Note')}</div>
+            <div class="database-section-header" data-section-key="note">${tt('Note')}</div>
             <div class="database-section-content"><div class="db-form">
                 <div class="db-row-cols">
                     <span class="db-col">
@@ -336,7 +336,7 @@ class DatabaseQuestEditor {
                 <button type="button" class="rr-btn-secondary quest-remove" data-list="${kind}" data-index="${index}" title="${rrEscapeHtml(tt('Remove'))}">✕</button>
             </div>`).join('');
         section.innerHTML = `
-            <div class="database-section-header" style="display:flex;align-items:center;gap:8px;"><span style="flex:1;">${title}</span>
+            <div class="database-section-header" data-section-key="${kind}" style="display:flex;align-items:center;gap:8px;"><span style="flex:1;">${title}</span>
                 <button type="button" class="rr-btn-secondary quest-add" data-list="${kind}">${addLabel}</button></div>
             <div class="database-section-content"><div class="quest-list" style="display:flex;flex-direction:column;gap:6px;padding:4px 0;">${rows || `<div style="color:var(--color-text-muted);font-size:12px;">${kind === 'objectives' ? tt('No objectives yet. A quest with none completes only by event command.') : tt('No rewards listed.')}</div>`}</div></div>`;
         return section;
@@ -393,7 +393,7 @@ class DatabaseQuestEditor {
                     <button type="button" class="rr-modal-close" aria-label="${rrEscapeHtml(tt('Cancel'))}" style="background: none; border: none; font-size: 18px; cursor: pointer; color: inherit;">×</button>
                 </div>
                 <div class="rr-modal-body" style="padding: 14px 18px; display: flex; flex-direction: column; gap: 14px;">
-                    <div class="database-section"><div class="database-section-header">${tt('On-map tracker')}</div>
+                    <div class="database-section"><div class="database-section-header" data-section-key="on-map-tracker">${tt('On-map tracker')}</div>
                         <div class="database-section-content"><div class="db-form">
                             <div class="db-row-cols">
                                 <span class="db-col"><label>${tt('Show the tracked quest on the map')}</label><input type="checkbox" class="system-checkbox" data-tracker="enabled" ${tracker.enabled !== false ? 'checked' : ''}></span>
@@ -410,7 +410,7 @@ class DatabaseQuestEditor {
                             </div>
                         </div></div>
                     </div>
-                    <div class="database-section"><div class="database-section-header">${tt('Quest log labels')}</div>
+                    <div class="database-section"><div class="database-section-header" data-section-key="quest-log-labels">${tt('Quest log labels')}</div>
                         <div class="database-section-content"><div class="db-form">
                             <div class="db-row-cols">${labelRow('all', 'All')}${labelRow('objectives', 'Objectives')}${labelRow('rewards', 'Rewards')}</div>
                             <div class="db-row-cols">${labelRow('complete', 'Complete')}${labelRow('failed', 'Failed')}${labelRow('tracked', 'Tracked')}</div>
@@ -574,9 +574,9 @@ class DatabaseQuestEditor {
             }, sheet);
         });
         const logChoice = container.querySelector('[data-quest-log]');
-        if (logChoice) logChoice.addEventListener('change', () => {
+        if (logChoice) logChoice.addEventListener('change', async () => {
             // An import on the way has already re-rendered, on the quest it added.
-            if (!this.chooseQuestLog(logChoice.value)) rerender();
+            if (!(await this.chooseQuestLog(logChoice.value))) rerender();
         });
         container.querySelectorAll('.quest-give').forEach(select => select.addEventListener('change', () => {
             const entry = (quest.rewards || [])[Number(select.dataset.index)];
@@ -631,8 +631,9 @@ class DatabaseQuestEditor {
 
     pickSwitchOrVariable(kind, current, callback) {
         if (typeof SwitchVariablePicker === 'undefined') {
-            const typed = window.prompt(this._t(kind === 'switch' ? 'Switch number (0 for none)' : 'Variable number (0 for none)'), String(current || 0));
-            if (typed !== null) callback(Math.max(0, parseInt(typed, 10) || 0));
+            RRDialog.prompt(this._t(kind === 'switch' ? 'Switch number (0 for none)' : 'Variable number (0 for none)'),
+                { title: this._t(kind === 'switch' ? 'Switch' : 'Variable'), value: String(current || 0) })
+                .then(typed => { if (typed !== null) callback(Math.max(0, parseInt(typed, 10) || 0)); });
             return;
         }
         if (!this._pickers) this._pickers = new SwitchVariablePicker(this.databaseManager, this.projectManager);
@@ -704,7 +705,7 @@ class DatabaseQuestEditor {
             return input && !input.disabled ? input.value : null;
         };
         const ok = overlay.querySelector('.quest-import-ok');
-        const confirm = () => {
+        const accept = () => {
             const source = chosen();
             if (!source) return;
             close();
@@ -712,14 +713,14 @@ class DatabaseQuestEditor {
         };
         const onKey = event => {
             if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
-            else if (event.key === 'Enter' && !ok.disabled) { event.preventDefault(); event.stopPropagation(); confirm(); }
+            else if (event.key === 'Enter' && !ok.disabled) { event.preventDefault(); event.stopPropagation(); accept(); }
         };
         overlay.querySelectorAll('input[name="quest-import-source"]').forEach(input => {
             input.addEventListener('change', () => { ok.disabled = !chosen(); });
         });
         overlay.querySelector('.rr-modal-close').addEventListener('click', close);
         overlay.querySelector('.quest-import-cancel').addEventListener('click', close);
-        ok.addEventListener('click', confirm);
+        ok.addEventListener('click', accept);
         document.addEventListener('keydown', onKey, true);
         document.body.appendChild(overlay);
         this.commonUI?.databaseEditor?.registerDetailModal(overlay, close);
@@ -730,15 +731,15 @@ class DatabaseQuestEditor {
 
     /**
      * Read one source's quests and add the ones this database lacks, matched
-     * by key. `lead` is said before the question. Returns true once quests
+     * by key. `lead` is said before the question. Resolves true once quests
      * were added and the tab re-opened on the last of them.
      */
-    importFrom(source, lead) {
+    async importFrom(source, lead) {
         const project = this._project();
         if (!project || !project.path || typeof QuestImporter === 'undefined') return false;
         const label = this._t((QuestImporter.SOURCES[source] || {}).label || source);
         const found = QuestImporter.read(project.path, source);
-        const say = message => { if (window.alert) window.alert(message); else console.log(message); return false; };
+        const say = async message => { await RRDialog.alert(message, { title: this._t('Import Quests') }); return false; };
         if (!found) return say(this._t('{source} is not in this project.', { source: label }));
         if (!found.quests.length) return say(this._t('{source} has no quests to import.', { source: label }));
         const existing = this.databaseManager.getQuests();
@@ -751,7 +752,9 @@ class DatabaseQuestEditor {
         const question = (lead ? lead + ' ' : '')
             + this._t('Import {count} quest(s) from {source}?', { count: fresh.length, source: label })
             + (skipped ? ' ' + this._t('{count} already here will be left alone.', { count: skipped }) : '');
-        if (!window.confirm(question)) return false;
+        if (!(await RRDialog.confirm(question, { title: this._t('Import Quests'), ok: this._t('Import') }))) return false;
+        // The answer came for the project that was open when it was asked.
+        if (this._project() !== project) return false;
         let last = null;
         for (const record of fresh) {
             record.key = QuestImporter.uniqueKey(record.key || record.name, taken);
@@ -773,9 +776,9 @@ class DatabaseQuestEditor {
      * already does: a quest it knows at the start of a game appears at the
      * start here, which is how that is written back, and the quests it has
      * that this database lacks are offered for import, since saving replaces
-     * its list with these. Returns true when an import re-rendered the tab.
+     * its list with these. Resolves true when an import re-rendered the tab.
      */
-    chooseQuestLog(mode) {
+    async chooseQuestLog(mode) {
         const settings = this.settings();
         settings.log = mode === 'visustella' ? 'visustella' : 'reactor';
         this.databaseManager.mutationGeneration++;

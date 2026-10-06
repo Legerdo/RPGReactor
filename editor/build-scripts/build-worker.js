@@ -118,6 +118,8 @@ const EXCLUDED = new Set([
     '.rpgreactor.lock',
     'import-report.json',
     path.join('legacy', 'Scripts'),
+    // The Forge tools' own project data (generator settings, character part sources): the game never reads it.
+    'forge',
 ]);
 
 // Battle Test writes a full Test_-prefixed copy of every database file into
@@ -151,6 +153,33 @@ function copyDirFiltered(src, dest, relBase) {
     }
 }
 
+/**
+ * Plugins the Demo ships (and every project made from it inherits) that reach for Node while the
+ * page loads, which stops a browser build at boot. The web copy gets the same fallback the web
+ * editor's own bundle applies (dist-editor-worker.js patchWebProject); the project is not touched.
+ * Returns the plugins it changed.
+ */
+function applyBrowserFallbacks(webRoot) {
+    const changed = [];
+    const pluginPath = path.join(webRoot, 'js', 'plugins', 'PSYCHRONIC_MegaSkillTreesMZ.js');
+    if (fs.existsSync(pluginPath)) {
+        const source = fs.readFileSync(pluginPath, 'utf8');
+        const marker = '    function loadSkillTreesData() {\n';
+        const guard = "        if (typeof require !== 'function') {";
+        if (source.includes(marker) && !source.includes(marker + guard)) {
+            fs.writeFileSync(pluginPath, source.replace(marker, [
+                marker.trimEnd(),
+                guard,
+                '            skillTreesData = [];',
+                '            return;',
+                '        }',
+            ].join('\n') + '\n'));
+            changed.push('PSYCHRONIC_MegaSkillTreesMZ');
+        }
+    }
+    return changed;
+}
+
 function copyDirRecursive(src, dest) {
     fs.mkdirSync(dest, { recursive: true });
     const entries = fs.readdirSync(src, { withFileTypes: true });
@@ -169,12 +198,12 @@ function copyDirRecursive(src, dest) {
 
 function validateProjectRuntime(root) {
     const required = [
-        'reactor_main.js', 'reactor_json.js', 'reactor_core.js', 'reactor_core_display.js', 'reactor_core_io.js', 'reactor_3d.js', 'reactor_3d_lighting.js', 'reactor_3d_models.js', 'reactor_3d_effects.js', 'reactor_3d_world.js', 'reactor_3d_speech.js', 'reactor_3d_foliage.js', 'reactor_3d_doors.js', 'reactor_managers.js',
-        'reactor_objects.js', 'reactor_objects_actions.js', 'reactor_objects_battlers.js', 'reactor_objects_map.js', 'reactor_objects_interpreter.js', 'reactor_objects_legacy.js',
+        'reactor_main.js', 'reactor_json.js', 'reactor_core.js', 'reactor_core_display.js', 'reactor_core_io.js', 'reactor_3d.js', 'reactor_3d_lighting.js', 'reactor_3d_models.js', 'reactor_3d_effects.js', 'reactor_3d_world.js', 'reactor_3d_speech.js', 'reactor_3d_foliage.js', 'reactor_3d_doors.js', 'reactor_3d_surround.js', 'reactor_3d_vehicles.js', 'reactor_3d_rider.js', 'reactor_managers.js',
+        'reactor_objects.js', 'reactor_objects_actions.js', 'reactor_objects_battlers.js', 'reactor_objects_map.js', 'reactor_objects_interpreter.js', 'reactor_objects_followers.js', 'reactor_objects_legacy.js',
         'reactor_scenes.js', 'reactor_sprites.js', 'reactor_picture_extensions.js', 'reactor_screen_fx.js',
-        'reactor_media_surfaces.js', 'reactor_quests.js', 'reactor_controls.js', 'reactor_physics.js', 'reactor_rig_motions.js',
-            'reactor_battle_data.js', 'reactor_battle_room.js', 'reactor_battle_presentation.js', 'reactor_battle_events.js', 'reactor_fight.js',
-        'reactor_windows.js', 'reactor_ui.js', 'reactor_mv_compat.js', 'reactor_plugins.js',
+        'reactor_media_surfaces.js', 'reactor_quests.js', 'reactor_image_layers.js', 'reactor_controls.js', 'reactor_physics.js', 'reactor_rig_motions.js',
+            'reactor_battle_data.js', 'reactor_battle_room.js', 'reactor_battle_presentation.js', 'reactor_battle_events.js', 'reactor_fight_look.js', 'reactor_fight.js', 'reactor_fight_flow.js', 'reactor_fight_tactical.js', 'reactor_fight_stage.js', 'reactor_fight_camera.js', 'reactor_fight_action.js', 'reactor_fight_menu.js', 'reactor_fight_classic.js', 'reactor_speaker_face.js', 'reactor_vehicles.js', 'reactor_vehicles_drive.js', 'reactor_vehicles_feel.js', 'reactor_vehicles_hints.js',
+        'reactor_windows.js', 'reactor_ui_victory.js', 'reactor_ui_fight.js', 'reactor_ui_action.js', 'reactor_ui.js', 'reactor_mv_compat.js', 'reactor_plugins.js',
         path.join('libs', 'pixi.js'), path.join('libs', 'pixi_compat.js'),
         path.join('libs', 'pako.min.js'), path.join('libs', 'lz-string.js'), path.join('libs', 'localforage.min.js'),
         path.join('libs', 'effekseer.min.js'), path.join('libs', 'effekseer.wasm'),
@@ -550,6 +579,7 @@ async function installProprietaryCodec(platform, runtimeRoot, runtimeVersion, pr
                 progress(Math.round(pCopy), 'Copying game files...');
                 copyDirRecursive(stagingDir, platformOutDir);
                 logGood('Game files copied.');
+                for (const name of applyBrowserFallbacks(platformOutDir)) logInfo(`Browser fallback applied to ${name} (it reads files with Node at load).`);
                 // A browser cannot list its files; the runtime corrects filename casing from this index.
                 const indexed = webFileIndex.writeWebFileIndex(platformOutDir);
                 logInfo(`File index written: ${indexed} files (filename casing is corrected from it in the browser).`);

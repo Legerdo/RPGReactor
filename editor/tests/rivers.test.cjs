@@ -384,7 +384,7 @@ test('a river is coloured by its depth before the light, mirrors by its Fresnel 
     assert.match(world, /const vec2 vRRFlow = vec2\(0\.16, 0\.07\);/, 'a pond with a breath of wind across it');
     assert.match(world, /min\(rrWaterLook\.x \/ 0\.45, 1\.0\) \* rrFresnel/, 'water mirrors by its Fresnel term');
     assert.match(world, /pow\(smoothstep\(0\.45, 1\.0, rrWaterLook\.x\), 1\.5\)/, 'a reflect past water\'s raises a floor toward a mirror (mercury)');
-    assert.match(R.RIVER_SHADE_GLSL, /rrSelf = rrWaterForm\.z >= 0\.5/, 'a self-lit liquid (lava) keeps its colour');
+    assert.doesNotMatch(R.RIVER_SHADE_GLSL, /rrSelf|>= 0\.5/, 'no half-way switch for a glowing liquid: what it shines is added after the light');
     assert.match(R.RIVER_SHADE_GLSL, /\* \(1\.0 - rrWaterColour\.w\)/, 'only water laces white at the bank');
 });
 

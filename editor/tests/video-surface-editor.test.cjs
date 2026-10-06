@@ -620,7 +620,8 @@ test('Preview Event animates stepping pages and previews 3D-model pages in both 
     assert.match(map3d, /this\.animateEventPreviews\(now\);/);
     assert.match(html, /src="src\/utils\/EventPreviewModels\.js"/);
     const models = require(path.join(editorRoot, 'src', 'utils', 'EventPreviewModels.js'));
-    assert.deepEqual(Object.keys(models).sort(), ['animate', 'clear', 'instance', 'revision', 'templateFor', 'texturesDecoded', 'thumbnail']);
+    assert.deepEqual(Object.keys(models).sort(), ['THUMBNAILS_KEPT', 'animate', 'clear', 'disposeInstance', 'instance', 'nextMap', 'releaseGpu', 'revision',
+        'sharedGeometry', 'stats', 'sweep', 'templateFor', 'texturesDecoded', 'thumbnail']);
 });
 
 test('model-bound characters on flat maps render as sprites, the view the editor previews', () => {
@@ -639,7 +640,8 @@ test('model-bound characters on flat maps render as sprites, the view the editor
     assert.match(sprites, /if \(Reactor3D\.updateMapModelSprite\) Reactor3D\.updateMapModelSprite\(this\);/);
     const editorModels = read('src/utils/EventPreviewModels.js');
     assert.match(editorModels, /Reactor3D\.frameModelSprite\(object, Math\.round\(pixels\), thumbCamera\)/, 'the editor thumbnail uses the same framing');
-    assert.match(read('src/EventManager.js'), /sprite\.anchor\.set\(texture\.anchorX, texture\.anchorY\);\n\s+sprite\.x = \(event\.x \+ 0\.5\) \* tw;\n\s+sprite\.y = \(event\.y \+ 0\.5\) \* th;/, 'and places the origin on the tile centre');
+    assert.match(read('src/EventManager.js'), /sprite\.anchor\.set\(texture\.anchorX, texture\.anchorY\);\n\s+sprite\.x = \(x \+ 0\.5\) \* tw;\n\s+sprite\.y = \(y \+ 0\.5\) \* th;/, 'and places the origin on the tile centre');
+    assert.match(read('src/EventManager.js'), /return this\.modelSpriteAt\(this\.previewModelRaw\(event, pageIndex\), page\?\.image\?\.direction \|\| 2, event\.x, event\.y\);/, 'an event\'s preview: its own tile');
     assert.match(read('src/EventManager.js'), /map3d\.ensureLibraries\(\)\.then\(ready => \{/, '2D previews load three.js on demand');
     assert.match(read('css/styles.css'), /\.sidebar-header \{\n\s+background-color: var\(--color-bg-panel\);\n(?:.*\n){2}\s+border-left: 3px solid var\(--color-accent\);/);
 });

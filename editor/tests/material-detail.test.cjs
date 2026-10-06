@@ -173,6 +173,8 @@ test('material pickers list materials, not their normal and roughness maps', () 
     const read = rel => fs.readFileSync(path.join(root, 'editor', 'src', rel), 'utf8');
     assert.match(read('PieceBuilderManager.js'), /RRAssetFiles\.listMaterials\(directory\)/);
     assert.match(read('database/DatabaseStructureEditor.js'), /RRAssetFiles\.listMaterials\(/);
-    assert.match(read('ProjectController.js'), /RRAssetFiles\.listMaterials\(folder\)/);
+    // The steep ground's material is picked from the builder's own list (Build bar › Terrain › Ground).
+    assert.match(read('BuildHotbar.js'), /materials: manager\.materials\?\.\(\) \|\| \[\], current: tile\.dataset\.value, blank: this\._tt\('None'\)/);
+    assert.doesNotMatch(read('ProjectController.js'), /img', 'materials'/);
     assert.match(read('MapEditor3D.js'), /loadMaterialSettings: name => this\.materialSettings\?\.\[name\] \|\| null/, 'the editor\'s view hands the settings to the scene');
 });

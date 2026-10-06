@@ -678,6 +678,7 @@ Tilemap.prototype.setBitmaps = function(bitmaps) {
  * Forces to repaint the entire tilemap.
  */
 Tilemap.prototype.refresh = function() {
+    if (this._rrAllTileFrames) this._rrKeepUsedTileFrames();
     this._needsRepaint = true;
 };
 
@@ -854,11 +855,18 @@ Tilemap.prototype._addTile = function(layer, tileId, dx, dy) {
  * 1-2-3-2, 3: 1-2-3). Only tiles the map uses are kept, so a map without them never repaints for them.
  */
 Tilemap.prototype.setTileAnimation = function(frames, water) {
-    const used = new Set(this._mapData || []);
-    const kept = frames ? Object.entries(frames).filter(([id]) => used.has(Number(id))) : [];
-    this._rrTileFrames = kept.length ? Object.fromEntries(kept) : null;
+    this._rrAllTileFrames = frames || null;
+    this._rrKeepUsedTileFrames();
     this._rrWater = water && water.step > 0 ? water : null;
     this._needsRepaint = true;
+};
+
+/** The animated tiles the map shows now. A tile changed after load (a substitution, then `refresh`) is asked for again. */
+Tilemap.prototype._rrKeepUsedTileFrames = function() {
+    const frames = this._rrAllTileFrames;
+    const used = frames ? new Set(this._mapData || []) : null;
+    const kept = frames ? Object.entries(frames).filter(([id]) => used.has(Number(id))) : [];
+    this._rrTileFrames = kept.length ? Object.fromEntries(kept) : null;
 };
 
 Tilemap.prototype._addNormalTile = function(layer, tileId, dx, dy) {
@@ -1490,6 +1498,7 @@ Tilemap.Layer.prototype._destroyV8Mesh = function() {
         Tilemap.Layer._releaseV8Atlas(this._v8Atlas);
         this._v8Atlas = null;
     }
+    this._v8AtlasBitmaps = null;
 };
 
 Tilemap.Layer.prototype._setupV8Backend = function(bitmaps) {
@@ -1507,7 +1516,10 @@ Tilemap.Layer.prototype._setupV8Backend = function(bitmaps) {
         if (typeof PIXI.Mesh !== "function" || typeof PIXI.MeshGeometry !== "function") {
             throw new Error("PIXI 8 mesh classes are unavailable");
         }
-        this._v8Atlas = Tilemap.Layer._acquireV8Atlas(bitmaps);
+        // The atlas (a 4096x3072 canvas: 48 MB, and as much again once it is on the GPU) is made
+        // when the first tile is drawn (_syncV8Backend): a layer that draws none, as on a 3D map,
+        // never makes one.
+        this._v8AtlasBitmaps = bitmaps;
         this._v8Geometry = new PIXI.MeshGeometry({
             positions: new Float32Array(8),
             uvs: new Float32Array(8),
@@ -1517,7 +1529,7 @@ Tilemap.Layer.prototype._setupV8Backend = function(bitmaps) {
         this._v8Geometry.batchMode = "no-batch";
         this._v8Mesh = new PIXI.Mesh({
             geometry: this._v8Geometry,
-            texture: this._v8Atlas.texture,
+            texture: PIXI.Texture.EMPTY,
             roundPixels: true
         });
         this._v8Mesh.eventMode = "none";
@@ -1619,9 +1631,30 @@ Tilemap.Layer.prototype._syncV8Backend = function() {
     const ultraMode7 = typeof UltraMode7 !== "undefined" &&
         typeof UltraMode7.isActive === "function" && UltraMode7.isActive();
     this._v8TileRoot.visible = !ultraMode7;
-    if (ultraMode7 || this._v8Backend !== "mesh" || !this._v8MeshDirty) return;
+    if (ultraMode7 || this._v8Backend !== "mesh") return;
+    // Not shown (a 3D map draws the tiles itself): no atlas, and one it holds is
+    // given back; the layer is drawn again from its tiles when it shows.
+    if (!this.visible || (this.parent && this.parent.visible === false)) {
+        if (this._v8Atlas) {
+            if (this._v8Mesh) { this._v8Mesh.visible = false; this._v8Mesh.texture = PIXI.Texture.EMPTY; }
+            Tilemap.Layer._releaseV8Atlas(this._v8Atlas);
+            this._v8Atlas = null;
+            this._v8MeshDirty = true;
+        }
+        return;
+    }
+    if (!this._v8MeshDirty) return;
     try {
         const count = this._elements.length;
+        if (!this._v8Atlas) {
+            if (!count) {
+                if (this._v8Mesh) this._v8Mesh.visible = false;
+                this._v8MeshDirty = false;
+                return;
+            }
+            this._v8Atlas = Tilemap.Layer._acquireV8Atlas(this._v8AtlasBitmaps);
+            this._v8Mesh.texture = this._v8Atlas.texture;
+        }
         const positions = new Float32Array(count * 8);
         const uvs = new Float32Array(count * 8);
         const indices = new Uint32Array(count * 6);

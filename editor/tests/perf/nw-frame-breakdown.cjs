@@ -374,7 +374,9 @@ async function main() {
         await driver.start();
         await driver.createSession({ browserName: "chrome", "goog:chromeOptions": {
             args: [`nwapp=${projectRoot}`, `user-data-dir=${path.join(tempRoot, "profile")}`, "no-first-run", "no-default-browser-check",
-                "disable-backgrounding-occluded-windows", "disable-renderer-backgrounding", "disable-background-timer-throttling"] } });
+                "disable-backgrounding-occluded-windows", "disable-renderer-backgrounding", "disable-background-timer-throttling",
+                // RR_PERF_MUTE=1: no sound from a harness window on a machine someone is working at.
+                ...(process.env.RR_PERF_MUTE ? ["mute-audio"] : [])] } });
         await driver.setScriptTimeout(Math.max(120000, SECONDS * 3000));
         await driver.waitForScript("return Boolean(window.SceneManager && SceneManager._scene && !(SceneManager._scene instanceof Scene_Boot) && Graphics.width > 0);", [], { timeout: 90000, description: "title screen" });
         // --mode=load records the map loading itself: from New Game on the title screen.
@@ -386,7 +388,8 @@ async function main() {
                 + "return { hidden: W ? W.lastHidden : 0, baking: !!(V && V.enabled && V._back), cam: c ? c.position.toArray().concat(c.quaternion.toArray()).map(v => v.toFixed(3)).join() : '' };";
             const from = Date.now();
             let settled = 0, last = null;
-            while (settled < 8 && Date.now() - from < 90000) {
+            // --settle=<ms>: how long to wait for that (a map with moving lights never stops baking).
+            while (settled < 8 && Date.now() - from < Number(option("settle", 90000))) {
                 await new Promise(r => setTimeout(r, 250));
                 const x = await driver.execute(SETTLE);
                 settled = !x.hidden && !x.baking && (WALK || x.cam === last) ? settled + 1 : 0;

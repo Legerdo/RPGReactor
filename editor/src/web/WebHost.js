@@ -644,7 +644,8 @@
             let previousStamp = null;
             try { previousStamp = localStorage.getItem('rrWebBundleStamp'); } catch (error) { /* private mode */ }
             if (storedRecords.length && previousStamp && previousStamp !== bundleStamp
-                && confirm(tt('This update ships a newer Reactor One than your browser-saved copy. Load the new version and discard your browser edits?'))) {
+                && await RRDialog.confirm(tt('This update ships a newer Reactor One than your browser-saved copy. Load the new version and discard your browser edits?'),
+                    { title: 'Reactor One', ok: tt('Load New Version'), cancel: tt('Keep My Edits'), danger: true })) {
                 try { localStorage.setItem('rrWebBundleStamp', bundleStamp); } catch (error) { /* best effort */ }
                 await this.resetProject();
                 return;
@@ -752,7 +753,8 @@
                 if (existingPaths.length) {
                     const allowed = confirmOverwrite
                         ? await confirmOverwrite(existingPaths)
-                        : window.confirm(tt('{count} destination file(s) already exist. Replace them?', { count: existingPaths.length }));
+                        : await RRDialog.confirm(tt('{count} destination file(s) already exist. Replace them?', { count: existingPaths.length }),
+                            { title: tt('Replace exported files?'), ok: tt('Replace'), danger: true });
                     if (!allowed) return null;
                 }
                 await beforeWrite?.();
@@ -850,7 +852,8 @@
             if (existing.length) {
                 const allowed = confirmOverwrite
                     ? await confirmOverwrite(existing.map(item => item.path))
-                    : window.confirm(tt('{count} destination file(s) already exist. Replace them?', { count: existing.length }));
+                    : await RRDialog.confirm(tt('{count} destination file(s) already exist. Replace them?', { count: existing.length }),
+                        { title: tt('Replace exported files?'), ok: tt('Replace'), danger: true });
                 if (!allowed) return null;
             }
             for (const item of existing) {
@@ -965,9 +968,9 @@
             location.reload();
         },
         unsupported(feature) {
-            alert(tt('{feature} is available in the desktop edition of RPG Reactor. Browser edits are saved in this browser.', {
+            return RRDialog.alert(tt('{feature} is available in the desktop edition of RPG Reactor. Browser edits are saved in this browser.', {
                 feature: tt(feature),
-            }));
+            }), { title: tt(feature) });
         },
         applyBrowserUi() {
             for (const action of ['build-deployment', 'dist-editor', 'exit', 'new-project', 'open-project', 'close-project']) {
@@ -986,8 +989,9 @@
             reset.className = 'graphic-selector-button';
             reset.textContent = tt('Reset');
             reset.style.cssText = 'padding:2px 6px;font-size:10px;';
-            reset.onclick = () => {
-                if (confirm(tt('Reset Reactor One and discard all browser-saved edits?'))) this.resetProject();
+            reset.onclick = async () => {
+                if (await RRDialog.confirm(tt('Reset Reactor One and discard all browser-saved edits?'),
+                    { title: 'Reactor One', ok: tt('Reset'), danger: true })) this.resetProject();
             };
             banner.append(message, reset);
             document.body.appendChild(banner);

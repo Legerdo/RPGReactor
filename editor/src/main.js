@@ -290,6 +290,10 @@ class RPGReactor {
                 this.lightingManager._startTicking();
             }
 
+            // One undo history across the map's tools; another map starts it empty.
+            this.registerMapHistory();
+            this.mapHistory?.mapChanged();
+
             // The card that edits a selected event's 3D model in place.
             if (!this.eventModelPanel && typeof EventModelPanel !== 'undefined') {
                 this.eventModelPanel = new EventModelPanel(this.projectController);
@@ -341,6 +345,7 @@ class RPGReactor {
 
             // Update map info banner
             this.updateMapInfoBanner();
+            this.updateMapCoordinates(null, null);
             this.mediaSurfacePreviewManager?.setMap(
                 this.projectController.getTilemapManager()?.currentMap,
                 this.projectController.getTilemapManager()
@@ -408,6 +413,8 @@ class RPGReactor {
         this.projectController.mediaSurfacePreviewManager = this.mediaSurfacePreviewManager;
         this.mediaSurfaceManager = new MediaSurfaceManager(this.projectController, this.databaseManager);
         this.projectController.mediaSurfaceManager = this.mediaSurfaceManager;
+        // Image Layers: the tool's panel, and the map's image layers drawn in both views.
+        this.mapImageLayersManager = new MapImageLayersManager(this.projectController, this.databaseManager);
         this.mediaSurfacePreviewManager.setEnabled(this.optionsManager.getShowVideoPreviews());
         document.getElementById('map-3d-view')?.addEventListener('change', async (event) => {
             const active = await this.applyMap3DViewPreference(event.currentTarget.checked);
@@ -745,7 +752,9 @@ class RPGReactor {
     // Show plugin manager
     showPluginManager() {
         if (!this.projectController.isProjectLoaded()) {
-            alert(window.I18n ? window.I18n.t('alert.loadProjectFirst') : 'Please load a project first.');
+            RRDialog.alert(window.I18n ? window.I18n.t('alert.loadProjectFirst') : 'Please load a project first.', {
+                title: window.I18n ? window.I18n.t('menu.plugins') : 'Plugins'
+            });
             return;
         }
         if (this.pluginManager) {
@@ -785,14 +794,18 @@ class RPGReactor {
                 this.projectController?.mediaSurfacePreviewManager?.authoring?.editor?.close(true);
             }
             if (owner !== 'lighting') this.lightingManager?.setActive(false);
+            if (owner !== 'imageLayers') this.mapImageLayersManager?.close();
             if (owner !== 'models') this.modelPropsManager?.deactivate();
             if (owner !== 'terrain') this.terrainManager?.deactivate();
             if (owner !== 'pieces') {
                 this.pieceBuilderManager?.deactivate();
                 // Lighting and Media Surfaces are part of building: opened from the bar (or over it), the bar stays and shows which is in hand.
                 if (this.buildHotbar?.visible && (owner === 'lighting' || owner === 'media' || owner === 'terrain' || owner === 'models')) this.buildHotbar.render();
+                // Image Layers opened over the bar leaves the bar up too, and gives the map back to it when its panel closes.
+                else if (this.buildHotbar?.visible && owner === 'imageLayers') this.buildHotbar.render();
                 else this.buildHotbar?.hide(false);
             }
+            if (owner !== 'events') window.RRBattleSetup?.close?.();
             if (owner !== 'events' && this.eventManager?.eventMode) this.eventManager.setEventMode(false);
             const map = this.mapEditor, palette = this.tilesetPaletteViewer;
             if (owner !== 'paint') {
@@ -818,10 +831,13 @@ class RPGReactor {
     syncMapToolButtons() {
         const owner = this.mapTool, map = this.mapEditor;
         const building = owner === 'pieces' || (!!this.buildHotbar?.visible && (owner === 'lighting' || owner === 'media' || owner === 'terrain' || owner === 'models'));
+        // The Build button stays lit under Image Layers too, while the bar is up.
+        const underImageLayers = !!this.buildHotbar?.visible && owner === 'imageLayers';
         for (const [selector,tool] of [['#toolbar-event-manager-btn','events'],['.tool-button[data-action="media-surfaces"]','media'],['.tool-button[data-action="lighting-tool"]','lighting'],['.tool-button[data-action="build-tool"]','pieces']]) {
-            const on = tool === 'pieces' ? building : owner === tool;
+            const on = tool === 'pieces' ? building || underImageLayers : owner === tool;
             const button=document.querySelector(selector);button?.classList.toggle('active',on);button?.setAttribute('aria-pressed',String(on));
         }
+        window.RRBattleSetup?.syncButton?.();
         document.querySelectorAll('.tool-draw-mode').forEach(button=>{
             const active=owner==='paint'&&!map?.shadowPenMode&&button.dataset.tool===map?.currentTool;
             button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
@@ -839,9 +855,71 @@ class RPGReactor {
         if (this._changingMapTool || this.mapTool !== owner) return;
         // Closing the Lighting or Media Surfaces panel with the build bar up hands the map back to the bar.
         if (this.buildHotbar?.visible && (owner === 'lighting' || owner === 'media')) { this.buildHotbar.show(); return; }
+        // So does closing the Image Layers panel.
+        if (this.buildHotbar?.visible && owner === 'imageLayers') { this.buildHotbar.show(); return; }
         const palette=this.tilesetPaletteViewer;
         if (palette) palette.selectLayer(palette.currentLayer || 'A');
         else this.claimMapTool('paint');
+    }
+
+    /**
+     * One undo history for the map view (RRMapHistory): every map tool's steps in the order they
+     * were taken, so Ctrl+Z, the toolbar and each panel's Undo take back the last thing done,
+     * whatever tool did it and whatever tool is in hand.
+     */
+    registerMapHistory() {
+        if (typeof RRMapHistory === 'undefined') return;
+        if (!this.mapHistory) {
+            const ui = this.uiManager, show = ui.updateUndoRedoButtons.bind(ui);
+            this.mapHistory = new RRMapHistory({
+                onChange: (canUndo, canRedo) => show(canUndo, canRedo),
+                onStep: step => this.announceHistoryStep(step)
+            });
+            // Whatever a tool reports for itself, the buttons show the whole history.
+            ui.updateUndoRedoButtons = () => show(this.mapHistory.canUndo(), this.mapHistory.canRedo());
+        }
+        const history = this.mapHistory;
+        if (this.mapEditor) history.register('tiles', { object: this.mapEditor,
+            label: entry => (entry?.kind === 'props' ? 'Models' : entry?.kind === 'elevation' ? 'Height' : entry?.kind === 'object3d' ? 'Models' : 'Tiles') });
+        if (this.eventManager) history.register('events', { object: this.eventManager, label: () => 'Event' });
+        const builder = this.pieceBuilderManager;
+        if (builder) history.register('builder', { object: builder, settle: () => builder._endGesture(), label: () => 'Building' });
+        const terrain = this.terrainManager;
+        if (terrain) history.register('terrain', { object: terrain,
+            // A look, a ground type, the steep ground or the land past the border still being changed, and a stroke still being drawn, are steps first.
+            settle: () => {
+                if (terrain._groundSnapshot) terrain.editGroundType({}, 'commit');
+                if (terrain._lookSnapshot) terrain.editLook({}, 'commit');
+                terrain._settleMapSettings?.();
+                if (terrain._stroke || terrain._foliageStroke || terrain._groundStroke) terrain.endStroke();
+            },
+            label: entry => (entry?.surroundSet ? 'Beyond the Border' : entry?.cliffSet ? 'Steep Ground' : entry?.biome ? (entry.label || 'Biome') : entry?.foliageSet ? 'Foliage' : entry?.groundSet ? 'Ground' : entry?.water && !entry.ground ? 'Water' : 'Terrain') });
+        if (this.lightingManager) history.register('lighting', { object: this.lightingManager, undoKey: '_undo', redoKey: '_redo', label: () => 'Light' });
+        const media = this.mediaSurfaceManager;
+        if (media && !history.owners.has('media')) {
+            // Its steps are kept under `undo` and `redo` themselves, and one method steps either way.
+            const step = media.history;
+            history.register('media', { object: media, undoKey: 'undo', redoKey: 'redo', methods: { undo: null, redo: null, canUndo: null, canRedo: null },
+                undo: () => step.call(media, media.undo, media.redo), redo: () => step.call(media, media.redo, media.undo), label: () => 'Media Surface' });
+            media.history = function(from, to) { return history._quiet ? step.call(this, from, to) : (from === this.undo ? history.undo() : history.redo()); };
+        }
+    }
+
+    /** The status line says what an undo or a redo took back, since the tool in hand may be another. */
+    announceHistoryStep(step) {
+        const tt = text => (window.I18n?.tText ? window.I18n.tText(text) : text);
+        const action = tt(step.kind === 'undo' ? 'Undo' : 'Redo');
+        const text = step.label ? `${action}: ${tt(step.label)}` : action;
+        this.uiManager.updateStatus(text);
+        // A short note over the map: the step may belong to a tool whose panel is not up.
+        const stage = typeof document !== 'undefined' ? document.getElementById('canvas-container') : null;
+        if (!stage) return;
+        let note = stage.querySelector(':scope > .rr-history-note');
+        if (!note) { note = document.createElement('div'); note.className = 'rr-history-note'; note.setAttribute('role', 'status'); stage.appendChild(note); }
+        note.textContent = text;
+        note.classList.add('is-shown');
+        clearTimeout(this._historyNoteTimer);
+        this._historyNoteTimer = setTimeout(() => note.classList.remove('is-shown'), 2200);
     }
 
     toggleEventMode() {
@@ -1191,7 +1269,9 @@ class RPGReactor {
 
     openDatabase(type) {
         if (!this.projectController.isProjectLoaded()) {
-            alert(window.I18n ? window.I18n.t('alert.loadProjectFirst') : 'Please load a project first.');
+            RRDialog.alert(window.I18n ? window.I18n.t('alert.loadProjectFirst') : 'Please load a project first.', {
+                title: window.I18n ? window.I18n.t('menu.database') : 'Database'
+            });
             return;
         }
 

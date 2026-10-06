@@ -495,6 +495,8 @@ class ProjectManager {
         if (this.fs.existsSync(systemPath)) {
             const systemData = RRJson.parse(this.fs.readFileSync(systemPath));
             systemData.gameTitle = projectName;
+            // A new project shows the speaker's face in messages, unless its template says otherwise.
+            if (systemData.reactorSpeakerFace === undefined) systemData.reactorSpeakerFace = true;
             this.writeJson(systemPath, systemData);
         }
     }
@@ -548,6 +550,7 @@ class ProjectManager {
 
         this.writeSolidPng(this.path.join(targetPath, 'img', 'system', 'Window.png'), 192, 192, [32, 32, 40, 255]);
         this.writeSolidPng(this.path.join(targetPath, 'img', 'system', 'IconSet.png'), 512, 512, [0, 0, 0, 0]);
+        this.writeStarterSystemImages(this.path.join(targetPath, 'img', 'system'));
         this.copyEditorIcon(targetPath);
     }
 
@@ -579,7 +582,54 @@ class ProjectManager {
         return (crc ^ 0xffffffff) >>> 0;
     }
 
+    /**
+     * The img/system pictures every map, menu and battle loads besides the window skin and the icons.
+     * A project without one of them stops at "Failed to load" the first time a scene asks for it, so
+     * a blank project gets plain ones of the sizes the engine cuts them by: a clear balloon, state,
+     * weapon and button sheet, soft shadows, block digits for damage, a dark Game Over.
+     */
+    writeStarterSystemImages(systemPath) {
+        const file = name => this.path.join(systemPath, name);
+        const clear = [0, 0, 0, 0];
+        this.writeSolidPng(file('Balloon.png'), 384, 720, clear);
+        this.writeSolidPng(file('ButtonSet.png'), 528, 96, clear);
+        this.writeSolidPng(file('States.png'), 768, 960, clear);
+        for (const name of ['Weapons1.png', 'Weapons2.png', 'Weapons3.png']) this.writeSolidPng(file(name), 576, 384, clear);
+        this.writeSolidPng(file('GameOver.png'), 816, 624, [12, 12, 16, 255]);
+        const shadow = (width, height) => this.writePng(file(width === 48 ? 'Shadow1.png' : 'Shadow2.png'), width, height, (x, y) => {
+            const dx = (x + 0.5 - width / 2) / (width * 0.42), dy = (y + 0.5 - height * 0.72) / (height * 0.2);
+            const d = dx * dx + dy * dy;
+            return d >= 1 ? clear : [0, 0, 0, Math.round(120 * (1 - d))];
+        });
+        shadow(48, 48);
+        shadow(160, 48);
+        // Damage: ten digits across, five rows (HP damage, HP recovery, MP damage, MP recovery, Miss).
+        const glyphs = {
+            0: '111101101101111', 1: '010110010010111', 2: '111001111100111', 3: '111001111001111', 4: '101101111001001',
+            5: '111100111001111', 6: '111100111101111', 7: '111001001001001', 8: '111101111101111', 9: '111101111001111',
+            M: '101111111101101', I: '111010010010111', S: '111100111001111'
+        };
+        const colours = [[255, 255, 255], [128, 255, 128], [255, 200, 128], [128, 200, 255], [255, 255, 255]];
+        const lit = (x, y) => {
+            const row = Math.floor(y / 40), cell = Math.floor(x / 32);
+            const glyph = row < 4 ? glyphs[cell] : glyphs['MISS'[cell]];
+            const gx = Math.floor((x - cell * 32 - 7) / 6), gy = Math.floor((y - row * 40 - 5) / 6);
+            return !!glyph && gx >= 0 && gx < 3 && gy >= 0 && gy < 5 && x - cell * 32 >= 7 && y - row * 40 >= 5 && glyph[gy * 3 + gx] === '1';
+        };
+        this.writePng(file('Damage.png'), 320, 200, (x, y) => {
+            if (lit(x, y)) return colours[Math.floor(y / 40)].concat(255);
+            // A dark rim one pixel round each block keeps the digits readable over any map.
+            for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (x + ox >= 0 && x + ox < 320 && y + oy >= 0 && y + oy < 200 && lit(x + ox, y + oy)) return [0, 0, 0, 200];
+            return clear;
+        });
+    }
+
     writeSolidPng(filePath, width, height, rgba) {
+        this.writePng(filePath, width, height, () => rgba);
+    }
+
+    /** A PNG whose pixel at (x, y) is what `pixel` answers: [red, green, blue, alpha]. */
+    writePng(filePath, width, height, pixel) {
         const zlib = require('zlib');
         const Buffer = require('buffer').Buffer;
         const rowSize = width * 4 + 1;
@@ -589,6 +639,7 @@ class ProjectManager {
             pixels[row] = 0;
             for (let x = 0; x < width; x++) {
                 const offset = row + 1 + x * 4;
+                const rgba = pixel(x, y);
                 pixels[offset] = rgba[0];
                 pixels[offset + 1] = rgba[1];
                 pixels[offset + 2] = rgba[2];
@@ -793,6 +844,8 @@ class ProjectManager {
             optSideView: true,
             optSlipDeath: false,
             optTransparent: false,
+            // A Show Text with no face picture shows its speaker's face (runtime/reactor_speaker_face.js).
+            reactorSpeakerFace: true,
             partyMembers: [],
             currencyUnit: 'G',
             elements: ['', 'Physical'],

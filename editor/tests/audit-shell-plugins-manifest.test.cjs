@@ -17,7 +17,7 @@ function loadManager() {
     const source = fs.readFileSync(path.join(repoRoot, 'src', 'PluginManager.js'), 'utf8');
     const alerts = [];
     const PluginManager = vm.runInNewContext(`${source}\nPluginManager;`, {
-        console: { log() {}, warn() {}, error() {} }, require, nw: {}, alert: text => alerts.push(text),
+        console: { log() {}, warn() {}, error() {} }, require, nw: {}, RRDialog: { alert: async text => { alerts.push(text); } },
         RRPluginAnnotations: require(path.join(repoRoot, 'src', 'utils', 'PluginAnnotations.js')),
         RRPluginParamCodec: require(path.join(repoRoot, 'src', 'utils', 'PluginParamCodec.js'))
     });

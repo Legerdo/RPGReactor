@@ -79,7 +79,8 @@ test('the box stands on the ground whatever the sprite height', () => {
 });
 
 test('selecting an event carries the box with it', () => {
-    const body = methodBody('highlight');
+    assert.match(methodBody('highlight'), /this\.highlightEventBox\(mesh, on\)/);
+    const body = methodBody('highlightEventBox');
     assert.match(body, /userData\.box/);
     assert.match(body, /box\.material\.color\.setHex/, 'it brightens');
     // But it does not grow: the box says which cell the event is on, and a
@@ -278,7 +279,7 @@ test('events can only be picked with the event tool up', () => {
     assert.match(methodBody('canSelectEvents'), /eventMode/);
     assert.match(methodBody('handleClick'), /if \(!this\.canSelectEvents\(\)\) return/);
     assert.match(methodBody('updateHover'),
-        /this\.canSelectEvents\(\) && this\.eventAt\(clientX, clientY\)/,
+        /this\.canSelectEvents\(\) && this\.eventAt\(clientX, clientY, tile\)/,
         'and the cursor does not offer what a click will not do');
     // The right-click menu and double-click-to-open go the same way. Stated as
     // the rule rather than as one spelling of it: the context menu asks the

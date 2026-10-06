@@ -292,6 +292,10 @@ Game_Interpreter.prototype.iterateBattler = function(param1, param2, callback) {
 Game_Interpreter.prototype.character = function(param) {
     if ($gameParty.inBattle()) {
         return null;
+    } else if (Game_Followers.placeOfCharacterId(param) > 0) {
+        // A follower by its place in the line; a place nobody walks in is nobody.
+        const follower = $gamePlayer.followers().follower(Game_Followers.placeOfCharacterId(param) - 1);
+        return follower && follower.actor() ? follower : null;
     } else if (param < 0) {
         return $gamePlayer;
     } else if (this.isOnCurrentMap()) {

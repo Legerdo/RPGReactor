@@ -7078,13 +7078,14 @@ Window_NameBox.prototype.updateBackground = function() {
         const rows = Math.max(1, Math.floor((Graphics.height - top - BAND) / SLOT_HEIGHT));
         return screenRect(0, top, Graphics.width, rows * SLOT_HEIGHT);
     };
-    const _needsCancelButton = Scene_File.prototype.needsCancelButton;
+    // What these classes inherit is asked for when it is called, never kept: a plugin that replaces the parent's
+    // method after this file loads (a menu background, a list's row backing) must still reach the save screens.
+    const parentOf = Class => Object.getPrototypeOf(Class.prototype);
     Scene_File.prototype.needsCancelButton = function() {
-        return legacy() ? false : _needsCancelButton.call(this);
+        return legacy() ? false : parentOf(Scene_File).needsCancelButton.call(this);
     };
-    const _createBackground = Scene_File.prototype.createBackground;
     Scene_File.prototype.createBackground = function() {
-        if (!legacy()) return _createBackground.call(this);
+        if (!legacy()) return parentOf(Scene_File).createBackground.call(this);
         this._backgroundSprite = new Sprite(new Bitmap(Graphics.width, Graphics.height));
         this._backgroundSprite.bitmap.fillAll(legacy().background || "#000000");
         this.addChild(this._backgroundSprite);
@@ -7120,9 +7121,8 @@ Window_NameBox.prototype.updateBackground = function() {
             slot.setSlot(index < list.maxItems() ? list.indexToSavefileId(index) : null, list.active && index === list.index());
         });
     };
-    const _updateList = Window_SavefileList.prototype.update;
     Window_SavefileList.prototype.update = function() {
-        _updateList.call(this);
+        parentOf(Window_SavefileList).update.call(this);
         if (this._rrOnUpdate) this._rrOnUpdate();
     };
     // Save lists no autosave row: the old engine had none, and it can't be saved to
@@ -7131,9 +7131,8 @@ Window_NameBox.prototype.updateBackground = function() {
         _setMode.call(this, mode, legacy() && mode === "save" ? false : autosave);
     };
 
-    const _updatePadding = Window_SavefileList.prototype.updatePadding;
     Window_SavefileList.prototype.updatePadding = function() {
-        if (this._rrLegacySlots) this.padding = 0; else _updatePadding.call(this);
+        if (this._rrLegacySlots) this.padding = 0; else parentOf(Window_SavefileList).updatePadding.call(this);
     };
     const _numVisibleRows = Window_SavefileList.prototype.numVisibleRows;
     Window_SavefileList.prototype.numVisibleRows = function() {
@@ -7143,14 +7142,12 @@ Window_NameBox.prototype.updateBackground = function() {
     Window_SavefileList.prototype.drawItem = function(index) {
         if (!this._rrLegacySlots) _drawItem.call(this, index);
     };
-    const _drawItemBackground = Window_SavefileList.prototype.drawItemBackground;
     Window_SavefileList.prototype.drawItemBackground = function(index) {
-        if (!this._rrLegacySlots) _drawItemBackground.call(this, index);
+        if (!this._rrLegacySlots) parentOf(Window_SavefileList).drawItemBackground.call(this, index);
     };
     // the scroll arrows sit in the bands above and below the slots, as the old engine drew them
-    const _refreshArrows = Window_SavefileList.prototype._refreshArrows;
     Window_SavefileList.prototype._refreshArrows = function() {
-        _refreshArrows.call(this);
+        parentOf(Window_SavefileList)._refreshArrows.call(this);
         if (!this._rrLegacySlots) return;
         this._upArrowSprite.move(this._width / 2, -BAND / 2);
         this._downArrowSprite.move(this._width / 2, this._height + BAND / 2);
@@ -7514,9 +7511,8 @@ Window_NameBox.prototype.updateBackground = function() {
 
     // A use target: the party on the right (184 px), a 48 px face and three lines each.
     override(Scene_ItemBase.prototype, "actorWindowRect", () => new Rectangle(Graphics.boxWidth - 184, 0, 184, Graphics.boxHeight));
-    const _menuStatusDraw = Window_MenuStatus.prototype.drawItem;
     Window_MenuActor.prototype.drawItem = function(index) {
-        if (!legacy()) return _menuStatusDraw.call(this, index);
+        if (!legacy()) return Window_MenuStatus.prototype.drawItem.call(this, index);
         const actor = this.actor(index);
         if (!actor) return;
         const rect = this.itemRect(index), x = FACE + 8, y = rect.y;
@@ -7530,9 +7526,8 @@ Window_NameBox.prototype.updateBackground = function() {
         this.drawLegacyValue(TextManager.hpA, actor.hp, actor.mhp, vx, y + 16, digits, true);
         this.drawLegacyValue(TextManager.mpA, actor.mp, actor.mmp, vx, y + 32, digits, false);
     };
-    const _menuStatusCursor = Window_MenuStatus.prototype.refreshCursor;
     Window_MenuActor.prototype.refreshCursor = function() {
-        if (!legacy()) return _menuStatusCursor.call(this);
+        if (!legacy()) return Window_MenuStatus.prototype.refreshCursor.call(this);
         if (this._cursorAll) {
             this.setCursorRect(FACE + 4, 0, 120, this.maxItems() * ROW - 10);
         } else if (this.index() >= 0) {

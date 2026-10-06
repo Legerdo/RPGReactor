@@ -979,9 +979,11 @@ class MediaSurfaceEditor {
         const files = kind === 'image' ? this.imageFiles(project) : this.movieFiles(project);
         const picker = typeof window !== 'undefined' ? window.reactor?.databaseEditorUI : null;
         if (!files.length) {
-            alert(typeof window !== 'undefined' && window.I18n?.t
+            RRDialog.alert(typeof window !== 'undefined' && window.I18n?.t
                 ? window.I18n.t('r3dfx.noVideos')
-                : 'No videos in the movies folder or images in img/pictures.');
+                : 'No videos in the movies folder or images in img/pictures.', {
+                title: typeof window !== 'undefined' && window.I18n ? window.I18n.tText('Media Surface') : 'Media Surface'
+            });
             return;
         }
         if (!picker || typeof picker.showImagePicker !== 'function') return;

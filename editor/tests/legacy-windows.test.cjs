@@ -243,7 +243,7 @@ test('animated chipset tiles keep their four frames and cycle them; water keeps 
     const pick = (from) => { const a = src.indexOf(from); return src.slice(a, src.indexOf('\n};\n', a) + 3); };
     function Tilemap() {}
     Tilemap.isTileA5 = () => false;
-    vm.runInNewContext(pick('Tilemap.prototype.setTileAnimation = function') + pick('Tilemap.prototype._addNormalTile = function'), { Tilemap });
+    vm.runInNewContext(pick('Tilemap.prototype.setTileAnimation = function') + pick('Tilemap.prototype._rrKeepUsedTileFrames = function') + pick('Tilemap.prototype.refresh = function') + pick('Tilemap.prototype._addNormalTile = function'), { Tilemap });
     const tilemap = Object.assign(new Tilemap(), { tileWidth: 16, tileHeight: 16, _mapData: [0, 146, 5], animationCount: 0 });
     tilemap.setTileAnimation(slow.rrTileFrames, slow.rrWater);
     assert.deepEqual(Object.keys(tilemap._rrTileFrames), ['146'], 'only the tiles the map uses');
@@ -254,6 +254,17 @@ test('animated chipset tiles keep their four frames and cycle them; water keeps 
     const still = Object.assign(new Tilemap(), { _mapData: [0, 5] });
     still.setTileAnimation(slow.rrTileFrames, null);
     assert.equal(still._rrTileFrames, null, 'a map without them never repaints for them');
+    // A tile put on the map after load (a 2000/2003 tile substitution rewrites the map's data, then refreshes) animates too.
+    still._mapData[1] = 145;
+    still.refresh();
+    assert.deepEqual(Object.keys(still._rrTileFrames), ['145'], 'the changed map is asked again');
+    assert.equal(still._needsRepaint, true);
+    still._mapData[1] = 5;
+    still.refresh();
+    assert.equal(still._rrTileFrames, null, 'and a map that lost them stops repainting');
+    const plain = Object.assign(new Tilemap(), { _mapData: [0, 145] });
+    plain.refresh();
+    assert.equal(plain._rrTileFrames, undefined, 'a tileset with no animation table pays nothing on refresh');
 });
 
 test('the 2003 enemy list beside the status row redraws when the living enemies or their names change, not every frame', () => {

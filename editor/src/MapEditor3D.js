@@ -15,6 +15,14 @@
 class MapEditor3D {
     /** The most pixels an in-scene effect is drawn at per frame in this view (a 1920x1080 view). */
     static EFFECT_PIXELS = 1920 * 1080;
+    /** After a different map is built, how long before the models only the last one used are given back. */
+    static MODEL_SWEEP_DELAY_MS = 3000;
+    /**
+     * Off: a model let go on a map change is read again when a map that uses it comes back, and
+     * the copy read before is still held by the view (72 MB more per North Haven round trip,
+     * measured). Until that holder is found, models stay loaded for the project.
+     */
+    static SWEEP_MODELS_ON_MAP_CHANGE = false;
 
     constructor(projectController) {
         this.projectController = projectController;
@@ -396,6 +404,11 @@ class MapEditor3D {
             if (event?.detail?.water && this.updateWaterInPlace()) return;
             // Foliage grows again in the chunks the brush touched; the rest of the scene stays.
             if (event?.detail?.foliage && this.updateFoliageInPlace(event.detail.region || null)) return;
+            // Ground paint is written into the floor's own textures; new types build the scene again.
+            if (event?.detail?.ground && !event.detail.types && this.updateGroundInPlace(event.detail.region || null)) return;
+            // The land past the border is laid again on its own, and the steep ground changes on the floor as it stands.
+            if (event?.detail?.surround && this.updateSurroundInPlace()) return;
+            if (event?.detail?.cliff && this.updateCliffInPlace()) return;
             const since = Date.now() - (this._lastRebuildAt || 0);
             if (since >= REBUILD_INTERVAL) {
                 clearTimeout(this._rebuildTimer);
@@ -458,6 +471,173 @@ class MapEditor3D {
         return match ? this.select(match) : null;
     }
 
+    /**
+     * Brings an event into view: the view's target moves to where the event
+     * stands and, where a tile there is smaller on the screen than a working
+     * size, the view comes in until it is that size. The angle the author
+     * looks from is kept, and so is a view already closer, unless something
+     * stands between the eye and the event or the eye would be under water:
+     * then the view looks from where the event is seen (`sightOf`). False
+     * when this map has no such event or the view is not up.
+     */
+    frameEvent(eventId) {
+        const mapData = this.currentMap();
+        const event = mapData ? (mapData.events || []).find(entry => entry && entry.id === Number(eventId)) : null;
+        if (!event || !this.camera || !this.view) return false;
+        const [offsetX, offsetZ] = typeof RRMapElevation !== 'undefined' && RRMapElevation.eventMarkerOffset
+            ? RRMapElevation.eventMarkerOffset(mapData, event.id) : [0, 0];
+        // The target names a tile and the camera looks at the middle of it (Reactor3D.aimCamera): the event's own tile, or where its marker stands on a wider footprint.
+        this.view.target = { x: event.x + offsetX, y: MapEditor3D.eventFeet(mapData, event), z: event.y + offsetZ };
+        const rect = this.canvas && this.canvas.getBoundingClientRect ? this.canvas.getBoundingClientRect() : null;
+        const reach = MapEditor3D.distanceForTile(rect ? rect.height : 0, this.camera.fov, MapEditor3D.FRAME_TILE_PIXELS);
+        if (reach > 0 && this.view.distance > reach) this.view.distance = Math.max(MapEditor3D.NEAREST_VIEW, reach);
+        const sight = this.sightOf(event, mapData);
+        if (sight) Object.assign(this.view, sight);
+        this.applyCamera();
+        return true;
+    }
+
+    /** The size a tile is brought to on the screen when an event is brought into view, in pixels. */
+    static get FRAME_TILE_PIXELS() { return 48; }
+
+    // The nearest the view stands to what it looks at, in tiles.
+    static get NEAREST_VIEW() { return 3; }
+    // How far over an event's feet the point lies that has to be seen, in tiles.
+    static get SIGHT_RISE() { return 0.8; }
+    // How near the eye and the point seen something may be without standing between them, and how far past what covered the event the eye is brought, in tiles.
+    static get SIGHT_CLEAR() { return 0.3; }
+    // How many times the eye is brought in past something that covers the event.
+    static get SIGHT_STEPS() { return 6; }
+    // The least pitch a view is given when it is turned to another side, in degrees.
+    static get SIGHT_LOWEST() { return 20; }
+    /**
+     * The angles a view is turned to, in order, when the event is covered
+     * from where it looks: `[turn, steep]`, degrees added to the yaw and
+     * the least pitch (0: the author's own). The author's angle first, then
+     * steeper from the same side, then from behind and from either side.
+     */
+    static get SIGHT_TURNS() { return [[0, 0], [0, 55], [0, 75], [180, 0], [90, 0], [-90, 0], [180, 55], [90, 55], [-90, 55]]; }
+
+    /** Where the eye stands when a view looks at `target` from `yaw` and `pitch` (degrees) at `distance`, as `Reactor3D.aimCamera` places it; written into `out`. */
+    static eyeAt(target, yaw, pitch, distance, out) {
+        const turn = yaw * Math.PI / 180, tilt = pitch * Math.PI / 180;
+        return out.set(target.x + 0.5 - Math.sin(turn) * Math.cos(tilt) * distance, (target.y || 0) + Math.sin(tilt) * distance, target.z + 0.5 + Math.cos(turn) * Math.cos(tilt) * distance);
+    }
+
+    /**
+     * The view of an event that sees it, for the target and distance the
+     * view has: `{ yaw, pitch, distance }`, or null where there is none
+     * (the eye under water from every angle). The author's own angle where nothing stands between
+     * the eye and the event; else the first of a few other angles from
+     * which it is seen (`SIGHT_TURNS`); else the first of them from as near
+     * as what covers the event allows (under a roof, inside a room). An eye
+     * under water sees nothing: such an angle is passed over.
+     */
+    sightOf(event, mapData) {
+        if (!this.view || typeof THREE === 'undefined') return null;
+        const view = this.view, target = view.target;
+        const point = (this._sightPoint || (this._sightPoint = new THREE.Vector3())).set(target.x + 0.5, (target.y || 0) + MapEditor3D.SIGHT_RISE, target.z + 0.5);
+        const eye = this._sightEye || (this._sightEye = new THREE.Vector3());
+        let dry = null;
+        const tried = [];
+        for (const [turn, steep] of MapEditor3D.SIGHT_TURNS) {
+            const yaw = view.yaw + turn, pitch = steep ? Math.max(view.pitch, steep) : turn ? Math.max(view.pitch, MapEditor3D.SIGHT_LOWEST) : view.pitch;
+            // A view already as steep as the angle asked for was tried as itself.
+            const key = yaw + ':' + pitch;
+            if (tried.includes(key)) continue;
+            tried.push(key);
+            MapEditor3D.eyeAt(target, yaw, pitch, view.distance, eye);
+            if (MapEditor3D.underWater(mapData, eye)) continue;
+            if (!dry) dry = { yaw, pitch, distance: view.distance };
+            if (this.sightBlocked(eye, point, event) === null) return { yaw, pitch, distance: view.distance };
+        }
+        if (!dry) return null;
+        // Covered from every side: in past what covers it, as far as the nearest the view stands.
+        let distance = dry.distance;
+        for (let step = 0; step < MapEditor3D.SIGHT_STEPS; step++) {
+            MapEditor3D.eyeAt(target, dry.yaw, dry.pitch, distance, eye);
+            const covered = this.sightBlocked(eye, point, event);
+            if (covered === null) return MapEditor3D.underWater(mapData, eye) ? dry : { yaw: dry.yaw, pitch: dry.pitch, distance };
+            if (distance <= MapEditor3D.NEAREST_VIEW) break;
+            distance = Math.max(MapEditor3D.NEAREST_VIEW, distance - covered - MapEditor3D.SIGHT_CLEAR);
+        }
+        return dry;
+    }
+
+    /** Whether a point of the map lies under the water's surface there. */
+    static underWater(mapData, point) {
+        if (!mapData || !Reactor3D.waterSurfaceAt) return false;
+        const level = Reactor3D.waterSurfaceAt(mapData, point.x, point.z);
+        return level !== null && Number.isFinite(level) && point.y < level + MapEditor3D.SIGHT_CLEAR;
+    }
+
+    /**
+     * What stands between an eye and a point it looks at: how far from the
+     * eye the first of it is met, or null when the way is free. The map's
+     * laid meshes (ground, walls, roofs, rocks), the placed models and the
+     * other events' models are asked, each from the side the eye sees it
+     * from; grass and water are looked through. `event` is the event looked
+     * at: its own model does not cover it.
+     */
+    sightBlocked(eye, point, event) {
+        const raycaster = this._raycaster || (this._raycaster = new THREE.Raycaster());
+        const ray = raycaster.ray;
+        ray.origin.copy(eye);
+        ray.direction.copy(point).sub(eye);
+        const reach = ray.direction.length() - MapEditor3D.SIGHT_CLEAR;
+        if (!(reach > 0)) return null;
+        ray.direction.normalize();
+        const laid = this.raycastMapMeshes();
+        let nearest = laid && laid.distance < reach ? laid.distance : Infinity;
+        const far = raycaster.far, at = this._pickPoint || (this._pickPoint = new THREE.Vector3());
+        try {
+            for (const group of [this.propGroup, this.eventGroup]) {
+                for (const child of group ? group.children : []) {
+                    const own = child.userData;
+                    if (!own || (own.propId === undefined && !own.modelPreview)) continue;
+                    if (event && own.event && own.event.id === event.id) continue;
+                    const box = own.pickBox || (own.pickBox = new THREE.Box3().setFromObject(child));
+                    const limit = Math.min(reach, nearest);
+                    // Boxes first: a model's own triangles are asked only where the ray crosses its box before anything nearer.
+                    if (!box.containsPoint(eye) && (!ray.intersectBox(box, at) || at.distanceTo(eye) >= limit)) continue;
+                    raycaster.far = limit;
+                    const hit = raycaster.intersectObject(child, true).find(found => !(found.object.userData && found.object.userData.__reactorOverlay));
+                    if (hit && hit.distance < nearest) nearest = hit.distance;
+                }
+            }
+        } finally {
+            raycaster.far = far;
+        }
+        return Number.isFinite(nearest) ? nearest : null;
+    }
+
+    /** How far a camera of vertical field `fov` (degrees) stands from a place for one tile there to be `pixels` across on a view `viewHeight` pixels tall; 0 when that cannot be said. */
+    static distanceForTile(viewHeight, fov, pixels) {
+        if (!(viewHeight > 0) || !(pixels > 0) || !(fov > 0) || !(fov < 180)) return 0;
+        return viewHeight / (2 * pixels * Math.tan(fov * Math.PI / 360));
+    }
+
+    /** The height an event's feet stand at: the ground under the middle of its tile, the terrain's rise and fall with it, plus the event's own height. */
+    static eventFeet(mapData, event) {
+        const ground = Reactor3D.groundHeightAt
+            ? Reactor3D.groundHeightAt(mapData, event.x + 0.5, event.y + 0.5)
+            : Reactor3D.elevationAt(mapData, event.x, event.y);
+        return (Number(ground) || 0) + (Reactor3D.eventZAt ? Number(Reactor3D.eventZAt(mapData, event.id)) || 0 : 0);
+    }
+
+    /**
+     * A camera made since the view was last aimed looks where the view was
+     * left: the view switched off and on again (another map shown in 2D,
+     * then this one again) comes back as the author left it. True when it
+     * aimed one.
+     */
+    aimNewCamera() {
+        if (!this.camera || this._aimedCamera === this.camera) return false;
+        this._aimedCamera = this.camera;
+        this.applyCamera();
+        return true;
+    }
+
     teardown() {
         this.enabled = false;
         this._rebuildGeneration++;
@@ -479,7 +659,19 @@ class MapEditor3D {
         if (this.renderer) {
             const renderer = this.renderer;
             this.renderer = null;
-            try { renderer.dispose(); } catch (_) {}
+            // While the renderer can still free them: a renderer's own dispose leaves every
+            // graphics-card copy it was not told about, and on the context shared with the 2D
+            // view nothing else ever frees those.
+            try { this.lastTeardown = this.releaseGraphics(renderer); } catch (error) {
+                console.error('Could not release the 3D view\'s models:', error);
+            }
+            const release = typeof RRModelRelease !== 'undefined' ? RRModelRelease : null;
+            // Its own context goes back to the browser; the shared one is the 2D view's.
+            if (release && this._ownCanvas) release.dropRenderer(renderer);
+            else {
+                release?.untrack(renderer);
+                try { renderer.dispose(); } catch (_) {}
+            }
         }
         if (this.inputSurface?.parentNode) {
             this.inputSurface.parentNode.removeChild(this.inputSurface);
@@ -587,6 +779,7 @@ class MapEditor3D {
                 antialias: false,
                 powerPreference: 'default'
             });
+            if (typeof RRModelRelease !== 'undefined') RRModelRelease.track(this.renderer, 'map-3d');
             this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
             if (THREE.SRGBColorSpace) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
             this.reportGpuTier();
@@ -646,6 +839,7 @@ class MapEditor3D {
         } catch (error) {
             throw error;
         }
+        if (typeof RRModelRelease !== 'undefined') RRModelRelease.track(this.renderer, 'map-3d');
         this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
         if (THREE.SRGBColorSpace) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this.reportGpuTier();
@@ -761,6 +955,7 @@ class MapEditor3D {
         const mapData = this.currentMap();
         const tileset = this.currentTileset();
         if (!mapData || !tileset) return false;
+        this.beginModelUse(mapData);
         const budgetError = this.previewBudgetError(mapData);
         if (budgetError) {
             this.lastError = budgetError;
@@ -818,6 +1013,7 @@ class MapEditor3D {
         this.mapScene.setPass('all');
         if (skyOffset) this.mapScene.setSkyOffset?.(skyOffset);
         this.applyAtmosphere(mapData);
+        globalThis.RRMapEdges?.syncView?.(this);
         this.buildGrid(mapData);
         this.buildHoverCell();
         if (!await this.buildEvents(mapData, request)) return false;
@@ -836,10 +1032,13 @@ class MapEditor3D {
             this._framedMap = framing;
             this.frameMap(mapData);
         }
+        // A map framed before keeps its view, and a camera made since is aimed by it.
+        this.aimNewCamera();
 
         // An empty view has several possible causes — no sheets on disk, a
         // tileset with no images, geometry that built nothing — and they look
         // identical on screen. Keep the counts where they can be read.
+        this.sweepModelUse(mapData, request);
         this.lastBuild = {
             map: `${mapData.width}x${mapData.height}`,
             sheets: Object.keys(bitmaps).length,
@@ -848,6 +1047,72 @@ class MapEditor3D {
         };
         this.requestRender();
         return true;
+    }
+
+    /**
+     * The view is closing: the models its caches keep (they outlive the view,
+     * so coming back is quick) give back their copies on the graphics card.
+     * Returns what the renderer held before and after, for the memory check.
+     */
+    releaseGraphics(renderer) {
+        const held = () => ({
+            geometries: renderer?.info?.memory?.geometries || 0,
+            textures: renderer?.info?.memory?.textures || 0
+        });
+        const before = held();
+        if (typeof RREventPreviewModels !== 'undefined') RREventPreviewModels.releaseGpu?.();
+        const release = typeof RRModelRelease !== 'undefined' ? RRModelRelease : null;
+        if (release && typeof Reactor3D !== 'undefined') {
+            const cache = Reactor3D._glbCache || {};
+            for (const key in cache) {
+                const template = cache[key] && cache[key].template;
+                if (!template) continue;
+                release.releaseTemplate(template);
+                const lod = Reactor3D._lodCache && Reactor3D._lodCache[key];
+                for (const level of (lod && lod.levels) || []) for (const geometry of level) geometry?.dispose?.();
+            }
+        }
+        return { before, after: held() };
+    }
+
+    /**
+     * A model's copy leaves the view: its materials, its skeletons and the geometry made for
+     * this copy alone go; what it shares with its template stays with the template.
+     */
+    disposeModelCopy(object) {
+        if (!object) return;
+        if (typeof RREventPreviewModels !== 'undefined' && RREventPreviewModels.disposeInstance) {
+            RREventPreviewModels.disposeInstance(object);
+            return;
+        }
+        object.traverse(node => {
+            const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
+            for (const material of materials) material.dispose?.();
+        });
+    }
+
+    /** Another map is being built: the models kept for the one before it are counted from here. */
+    beginModelUse(mapData) {
+        const key = `${this.projectPath()}:${mapData?.id || 0}`;
+        if (key === this._modelUseMap) return false;
+        this._modelUseMap = key;
+        this._modelSweepOwed = true;
+        if (typeof RREventPreviewModels !== 'undefined') RREventPreviewModels.nextMap?.();
+        try { if (typeof Reactor3D !== 'undefined') Reactor3D.ModelUse?.begin?.(mapData?.id || 0); } catch (error) { /* no model cache */ }
+        return true;
+    }
+
+    /** The new map is built and has asked for its models: those of the map before it that it does not use are given back. */
+    sweepModelUse(mapData, request) {
+        if (!MapEditor3D.SWEEP_MODELS_ON_MAP_CHANGE || !this._modelSweepOwed) return;
+        clearTimeout(this._modelSweepTimer);
+        this._modelSweepTimer = setTimeout(() => {
+            if (!this.rebuildIsCurrent(request) || !this._modelSweepOwed) return;
+            this._modelSweepOwed = false;
+            if (typeof RREventPreviewModels !== 'undefined') RREventPreviewModels.sweep?.();
+            try { if (typeof Reactor3D !== 'undefined') Reactor3D.ModelUse?.sweep?.(mapData); } catch (error) { /* no model cache */ }
+            this.requestRender();
+        }, MapEditor3D.MODEL_SWEEP_DELAY_MS);
     }
 
     rebuildIsCurrent(request, renderer = this.renderer) {
@@ -1130,7 +1395,17 @@ class MapEditor3D {
         // Preview Event shows a chosen page instead of the first one.
         const previewIndex = MapEditor3D.previewPageIndex(mapData, event);
         const page = event.pages?.[previewIndex ?? 0] || event.pages?.[0];
-        const sprite = this.eventSprite(event, sheets, page?.image, previewIndex !== null && page?.stepAnime ? page : null);
+        // A battle unit with no picture of its own on the page drawn stands as its record gives it:
+        // its character sheet, its battler picture or the plain figure as a billboard, its model as a model.
+        const look = previewIndex !== null ? MapEditor3D.unitLook(mapData, event) : null;
+        // Its side's box and ring it has on whatever page is drawn.
+        const side = MapEditor3D.unitSide(mapData, event);
+        const bare = !(page?.image?.tileId > 0) && !page?.image?.characterName;
+        const lookImage = look && bare && look.kind === 'character'
+            ? Object.assign({}, page?.image, { characterName: look.characterName, characterIndex: look.characterIndex }) : null;
+        const sprite = (look && bare && (look.kind === 'picture' || look.kind === 'figure') ? this.unitPictureSprite(event, look, mapData) : null)
+            || (lookImage ? this.eventSprite(event, sheets, lookImage, previewIndex !== null && page?.stepAnime ? page : null) : null)
+            || this.eventSprite(event, sheets, page?.image, previewIndex !== null && page?.stepAnime ? page : null);
         if (previewIndex !== null) this.previewEventModel(event, page, previewIndex, mapData, request);
         const mesh = sprite || new THREE.Mesh(this._eventCube || (this._eventCube = new THREE.BoxGeometry(0.55, 0.55, 0.55)), new THREE.MeshBasicMaterial({
             color: this.eventColor(event),
@@ -1141,6 +1416,7 @@ class MapEditor3D {
         // What the raycaster hands back on a click.
         mesh.userData.event = event;
         mesh.userData.height = height;
+        mesh.userData.unit = !!side;
         this.eventGroup.add(mesh);
         // A sprite casts its cut-out; the placeholder cube casts nothing.
         if (sprite && Reactor3D.Shadows) Reactor3D.Shadows.markCaster(mesh, false);
@@ -1156,9 +1432,10 @@ class MapEditor3D {
          * transparent, and transparent boxes are what sliced the labels.
          */
         const boxHeight = Math.max(height, 0.94);
-        // A sized event's box spans its footprint (right and down from its tile).
+        // A sized event's box spans its footprint, centred on the event's tile (a model's measured one lies round the model).
         const footprint = typeof RRMapElevation !== 'undefined' && RRMapElevation.eventSize ? RRMapElevation.eventSize(mapData, event.id) : [1, 1];
-        const box = this.eventBox(boxHeight, this.eventColor(event), footprint);
+        const origin = typeof RRMapElevation !== 'undefined' && RRMapElevation.eventFootprintOrigin ? RRMapElevation.eventFootprintOrigin(mapData, event.id) : [0, 0];
+        const box = this.eventBox(boxHeight, this.eventColor(event), footprint, origin);
         mesh.userData.box = box;
         mesh.userData.boxHeight = boxHeight;
         this.eventGroup.add(box);
@@ -1211,19 +1488,263 @@ class MapEditor3D {
         // One place decides where an event's pieces sit, because dragging
         // one has to put all three back down together.
         this.placeEvent(mesh);
-        
+        if (side) this.addUnitRing(mesh, side, page, footprint, origin, mapData);
+
+    }
+
+    /** What an event stands as on the page this view draws of it (the look rule's answer, as the 2D map has it); null for an event that is no unit there. */
+    static unitLook(mapData, event) {
+        return typeof EventManager !== 'undefined' && typeof EventManager.unitLook === 'function' ? EventManager.unitLook(event, mapData) : null;
+    }
+
+    /** The side an event fights on, whatever page is drawn of it: `{ team, color }` as the 2D map has it; null for an event that is no unit. */
+    static unitSide(mapData, event) {
+        return typeof EventManager !== 'undefined' && typeof EventManager.unitSide === 'function' ? EventManager.unitSide(event, mapData) : null;
+    }
+
+    /** A side's color as a number. */
+    static colorNumber(hex, fallback = 0xe6d15a) {
+        const match = /^#([0-9a-f]{6})$/i.exec(String(hex || ''));
+        return match ? parseInt(match[1], 16) : fallback;
+    }
+
+    // How far over the ground a unit's ring lies, how wide its band is and how far its notch reaches, in tiles.
+    static get RING_LIFT() { return 0.06; }
+    static get RING_BAND() { return 0.07; }
+    static get RING_NOTCH() { return 0.16; }
+    // How many straight pieces a ring's round is made of.
+    static get RING_SEGMENTS() { return 40; }
+    // A ring is drawn over what stands on it (grass, a slope's shoulder, the unit itself), just under the events' boxes.
+    static get RING_ORDER() { return 997; }
+    static get RING_OPACITY() { return 0.92; }
+    // The ground a ring lies on is followed up and down no further than this, plus this much for each tile from its middle: a wall or a drop beside the unit is not ground it lies on.
+    static get RING_STEP() { return 0.6; }
+    static get RING_SLOPE() { return 1.2; }
+
+    /**
+     * A ring on the ground, as triangles: an ellipse of radii `rx` and
+     * `rz` (its band RING_BAND wide, inside those radii) with an arrowhead
+     * on its edge the way `direction` points (2 down the map, 4 left, 6
+     * right, 8 up). `{ positions, index }`: x, y (0) and z for each
+     * corner, three corners to a triangle, wound to face up.
+     */
+    static unitRingShape(rx, rz, direction, segments = MapEditor3D.RING_SEGMENTS) {
+        const band = Math.min(MapEditor3D.RING_BAND, rx * 0.5, rz * 0.5);
+        const positions = [], index = [];
+        for (let i = 0; i < segments; i++) {
+            const angle = i / segments * Math.PI * 2, cos = Math.cos(angle), sin = Math.sin(angle);
+            positions.push(cos * rx, 0, sin * rz, cos * (rx - band), 0, sin * (rz - band));
+        }
+        for (let i = 0; i < segments; i++) {
+            const a = i * 2, b = ((i + 1) % segments) * 2;
+            // Outer, next outer, inner; then inner, next outer, next inner: both face up (+y).
+            index.push(a, a + 1, b, b, a + 1, b + 1);
+        }
+        const [dx, dz] = direction === 4 ? [-1, 0] : direction === 6 ? [1, 0] : direction === 8 ? [0, -1] : [0, 1];
+        const reach = dx ? rx : rz, half = MapEditor3D.RING_NOTCH * 0.6, tip = reach + MapEditor3D.RING_NOTCH, base = reach - band;
+        const at = positions.length / 3;
+        // The arrowhead: its tip outside the ring, its base across the band.
+        positions.push(dx * tip, 0, dz * tip, dx * base - dz * half, 0, dz * base + dx * half, dx * base + dz * half, 0, dz * base - dx * half);
+        index.push(at, at + 2, at + 1);
+        return { positions, index };
+    }
+
+    /**
+     * A unit's ring: on the ground under it in its side's color (`side`
+     * is `{ color }`), round the tiles it takes, with a notch the way it
+     * faces. It follows the ground's rise and fall (`layUnitRing`) and is
+     * drawn over what stands on it, so tall grass or a slope's shoulder
+     * does not hide it. One mesh, its own shape and material, kept on the
+     * marker as `userData.ring`. Shown while Event mode is on or Battle
+     * Setup is open.
+     */
+    addUnitRing(marker, side, page, footprint, origin, mapData) {
+        const event = marker.userData.event;
+        const reach = typeof EventManager !== 'undefined' && EventManager.RING_REACH > 0 ? EventManager.RING_REACH : 0.44;
+        const ring = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({
+            color: MapEditor3D.colorNumber(side.color), transparent: true, opacity: MapEditor3D.RING_OPACITY, depthTest: false, depthWrite: false
+        }));
+        ring.renderOrder = MapEditor3D.RING_ORDER;
+        ring.userData.event = event;
+        ring.userData.unitRing = true;
+        ring.userData.facing = Number(page?.image?.direction) || 2;
+        marker.userData.ring = ring;
+        this.shapeUnitRing(ring, footprint[0] * reach, footprint[1] * reach);
+        const [shiftX, , shiftZ] = MapEditor3D.eventBoxShift(footprint, origin);
+        // Where its middle lies from the middle of the event's tile: `placeEvent` keeps it there.
+        ring.userData.shift = [shiftX, shiftZ];
+        ring.position.set(event.x + 0.5 + shiftX, MapEditor3D.eventFeet(mapData, event) + MapEditor3D.RING_LIFT, event.y + 0.5 + shiftZ);
+        this.layUnitRing(ring, mapData);
+        ring.visible = this.unitRingsShown();
+        this.eventGroup.add(ring);
+        return ring;
+    }
+
+    /** Gives a ring the radii `rx` and `rz`, in tiles (flat: `layUnitRing` lays it on the ground). */
+    shapeUnitRing(ring, rx, rz) {
+        const shape = MapEditor3D.unitRingShape(rx, rz, ring.userData.facing);
+        const geometry = ring.geometry, corners = geometry.getAttribute('position');
+        // A ring shaped again keeps its corners' place on the graphics card: only their numbers change.
+        if (corners && corners.array.length === shape.positions.length) {
+            corners.array.set(shape.positions);
+            corners.needsUpdate = true;
+        } else {
+            geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(shape.positions), 3));
+            geometry.setIndex(shape.index);
+        }
+        geometry.computeBoundingSphere();
+        ring.userData.radii = [rx, rz];
+    }
+
+    /**
+     * Lays a ring on the ground where it is: each corner rises and falls
+     * from the unit's own tile as the land does (the cell's height and the
+     * terrain's slope) and as what is built under the unit does (a ramp, a
+     * stair). A height out of reach is not ground the ring lies on (a
+     * cliff or a wall beside the unit, the drop off a deck's edge): that
+     * part of the corner's height stays level with the unit's feet.
+     */
+    layUnitRing(ring, mapData) {
+        const corners = ring && ring.geometry && ring.geometry.getAttribute('position');
+        if (!corners || !mapData || !Reactor3D.groundHeightAt) return;
+        const values = corners.array, lastX = mapData.width - 1e-6, lastZ = mapData.height - 1e-6;
+        const inMap = (value, last) => Math.max(0, Math.min(last, value));
+        // The ring's height is its unit's feet, at the middle of the unit's tile: `shift` is how far the ring's middle lies from there.
+        const [shiftX, shiftZ] = ring.userData.shift || [0, 0];
+        const tileX = inMap(ring.position.x - shiftX, lastX), tileZ = inMap(ring.position.z - shiftZ, lastZ);
+        const land = MapEditor3D.groundAt(mapData, tileX, tileZ), built = Reactor3D.groundHeightAt(mapData, tileX, tileZ) - land;
+        for (let i = 0; i < values.length; i += 3) {
+            const x = values[i], z = values[i + 2], wx = inMap(ring.position.x + x, lastX), wz = inMap(ring.position.z + z, lastZ);
+            const here = MapEditor3D.groundAt(mapData, wx, wz);
+            const slope = here - land, step = Reactor3D.groundHeightAt(mapData, wx, wz, here + built) - here - built;
+            const rise = (Math.abs(slope) <= MapEditor3D.RING_STEP + MapEditor3D.RING_SLOPE * Math.hypot(x + shiftX, z + shiftZ) ? slope : 0)
+                + (Math.abs(step) <= MapEditor3D.RING_STEP ? step : 0);
+            values[i + 1] = Number.isFinite(rise) ? rise : 0;
+        }
+        corners.needsUpdate = true;
+        ring.geometry.computeBoundingSphere();
+    }
+
+    /** A unit that stands as a model takes the ground the model covers: its ring goes round that, where it is more than the unit's tiles. */
+    fitUnitRing(marker, box) {
+        const ring = marker && marker.userData.ring;
+        if (!ring || !box || !ring.userData.radii) return;
+        const rx = Math.max(ring.userData.radii[0], (box.max.x - box.min.x) / 2), rz = Math.max(ring.userData.radii[1], (box.max.z - box.min.z) / 2);
+        if (!(rx > 0) || !(rz > 0) || !Number.isFinite(rx) || !Number.isFinite(rz)) return;
+        if (rx === ring.userData.radii[0] && rz === ring.userData.radii[1]) return;
+        this.shapeUnitRing(ring, rx, rz);
+        const event = ring.userData.event, middleX = (box.max.x + box.min.x) / 2, middleZ = (box.max.z + box.min.z) / 2;
+        ring.position.x = middleX;
+        ring.position.z = middleZ;
+        if (event) ring.userData.shift = [middleX - (event.x + 0.5), middleZ - (event.y + 0.5)];
+        this.layUnitRing(ring, this.currentMap());
+        this.requestRender();
+    }
+
+    /** Whether the units' rings are drawn: Event mode is on, or Battle Setup is open. */
+    unitRingsShown() {
+        const manager = this.eventManager();
+        if (manager && typeof manager.unitRingsShown === 'function') return !!manager.unitRingsShown();
+        return !!(manager && manager.eventMode);
+    }
+
+    /** The rings appear or go where they lie; nothing is built again. */
+    syncUnitRings() {
+        const shown = this.unitRingsShown();
+        let changed = false;
+        for (const marker of this.pickables || []) {
+            const ring = marker.userData && marker.userData.ring;
+            if (!ring || ring.visible === shown) continue;
+            ring.visible = shown;
+            changed = true;
+        }
+        if (changed) this.requestRender();
+        return changed;
+    }
+
+    /**
+     * A unit's battler picture or plain figure as a billboard: a card as
+     * wide and tall as the tiles a unit's picture takes (a typed size makes
+     * it that many times bigger), the picture standing in it with its feet
+     * on its lower edge. Null where the look rule is not loaded.
+     */
+    unitPictureSprite(event, look, mapData) {
+        if (typeof EventManager === 'undefined' || typeof EventManager.lookArt !== 'function' || typeof ReactorFightLook === 'undefined') return null;
+        const rule = ReactorFightLook;
+        const size = Math.max(1, Math.floor(Number((typeof RRMapElevation !== 'undefined' && RRMapElevation.eventSize ? RRMapElevation.eventSize(mapData, event.id) : [1, 1])[0]) || 1));
+        const wide = rule.TILES_WIDE * size, tall = rule.TILES_TALL * size;
+        // A picture still being read is drawn on its card when it arrives: every billboard of the look shows it then.
+        if (!this._onLookArt) this._onLookArt = ready => { MapEditor3D.lookCard(ready); this.requestRender(); };
+        const art = EventManager.lookArt(look, null, this._onLookArt);
+        if (!art) return null;
+        const mesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(wide, tall),
+            new THREE.MeshBasicMaterial({ map: MapEditor3D.lookCard(art).texture, transparent: true, alphaTest: 0.4 })
+        );
+        mesh.userData.height = tall;
+        return mesh;
+    }
+
+    /** The width of the picture a unit's billboard is drawn from, in pixels. */
+    static get UNIT_CARD_PIXELS() { return 256; }
+
+    /**
+     * The picture the billboards of one look are drawn from, kept with the
+     * look's art (`EventManager.lookArt`): one canvas and one texture for
+     * every unit that stands as that picture or that side's plain figure,
+     * whatever its size. The art stands in it with its feet on the lower
+     * edge, drawn once it is read. `{ canvas, texture, drawn }`.
+     */
+    static lookCard(art) {
+        const rule = ReactorFightLook;
+        let card = art.texture3D;
+        if (!card) {
+            const canvas = document.createElement('canvas');
+            canvas.width = MapEditor3D.UNIT_CARD_PIXELS;
+            canvas.height = Math.round(MapEditor3D.UNIT_CARD_PIXELS * rule.TILES_TALL / rule.TILES_WIDE);
+            const texture = new THREE.CanvasTexture(canvas);
+            if (THREE.SRGBColorSpace) texture.colorSpace = THREE.SRGBColorSpace;
+            // Many billboards hold it: none of them gives it back when it goes (`disposeOwnPictures`).
+            texture.userData.shared = true;
+            card = art.texture3D = { canvas, texture, drawn: false };
+        }
+        if (art.ready && art.canvas && !card.drawn) {
+            const canvas = card.canvas;
+            const fit = rule.fit(art.canvas.width, art.canvas.height, canvas.width / rule.TILES_WIDE, canvas.height / rule.TILES_TALL, 1);
+            const context = canvas.getContext('2d');
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'high';
+            context.drawImage(art.canvas, 0, 0, art.canvas.width, art.canvas.height, Math.round((canvas.width - fit.width) / 2), canvas.height - fit.height, fit.width, fit.height);
+            card.drawn = true;
+            card.texture.needsUpdate = true;
+        }
+        return card;
+    }
+
+    /** An event's sprite and a name plate are each drawn from a picture made for them alone: it goes with them. A picture many units share (`lookCard`) stays. */
+    static disposeOwnPictures(object) {
+        const materials = Array.isArray(object?.material) ? object.material : object?.material ? [object.material] : [];
+        for (const material of materials) {
+            const map = material.map;
+            if (map && !(map.userData && map.userData.shared)) map.dispose?.();
+        }
     }
 
     /** What one event looks like in this view; a change means rebuild its pieces. */
     _eventIdentity(event, mapData) {
         const previewIndex = MapEditor3D.previewPageIndex(mapData, event);
         const page = event.pages?.[previewIndex ?? 0] || event.pages?.[0];
+        const look = previewIndex !== null ? MapEditor3D.unitLook(mapData, event) : null;
         return JSON.stringify([
             event.x, event.y, event.name, event.note, previewIndex,
             page && page.image, page && page.stepAnime,
-            Reactor3D.eventModelSpec ? Reactor3D.eventModelSpec(mapData, event.id, previewIndex ?? 0) : null,
+            previewIndex !== null ? MapEditor3D.previewModelSpec(mapData, event, previewIndex) : (Reactor3D.eventModelSpec ? Reactor3D.eventModelSpec(mapData, event.id, 0) : null),
+            look && typeof EventManager !== 'undefined' && EventManager.lookKey ? EventManager.lookKey(look) : null,
+            this.eventColor(event),
             Reactor3D.eventZAt ? Reactor3D.eventZAt(mapData, event.id) : 0,
-            typeof RRMapElevation !== 'undefined' && RRMapElevation.eventSize ? RRMapElevation.eventSize(mapData, event.id) : null
+            typeof RRMapElevation !== 'undefined' && RRMapElevation.eventSize ? RRMapElevation.eventSize(mapData, event.id) : null,
+            typeof RRMapElevation !== 'undefined' && RRMapElevation.eventFootprintOrigin ? RRMapElevation.eventFootprintOrigin(mapData, event.id) : null
         ]);
     }
 
@@ -1320,11 +1841,11 @@ class MapEditor3D {
      * Slightly under a full cell so two events side by side do not fight over
      * the edge they would otherwise share.
      */
-    eventBox(height, colour, footprint = [1, 1]) {
+    eventBox(height, colour, footprint = [1, 1], origin = [0, 0]) {
         const side = 0.94;
         const [w, d] = footprint;
-        // Centred on the event's own tile, reaching w tiles right and d down.
-        const shape = new THREE.BoxGeometry(side + (w - 1), height, side + (d - 1)).translate((w - 1) / 2, 0, (d - 1) / 2);
+        // Its middle from the middle of the event's own tile: the footprint starts `origin` tiles from it.
+        const shape = new THREE.BoxGeometry(side + (w - 1), height, side + (d - 1)).translate(...MapEditor3D.eventBoxShift(footprint, origin));
         const geometry = new THREE.EdgesGeometry(shape);
         shape.dispose();
         const box = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
@@ -1345,9 +1866,18 @@ class MapEditor3D {
         const mapData = this.currentMap();
         const event = mesh?.userData?.event;
         if (!mapData || !event) return;
+        // Taken by its model: the event's marker is what is placed, and the model goes with it (below).
+        if (mesh.userData.modelPreview) {
+            const marker = this.eventMarker(event);
+            if (marker && marker.userData.model === mesh) { this.placeEvent(marker); return; }
+        }
 
         const height = mesh.userData.height || 0.55;
         const x = event.x + 0.5;
+        // A sized event's own marker (sprite or cube, label) stands in the middle of its footprint, where
+        // the game draws it; the box is the footprint, centred on the event's tile as the game counts it.
+        const [offsetX, offsetZ] = typeof RRMapElevation !== 'undefined' && RRMapElevation.eventMarkerOffset
+            ? RRMapElevation.eventMarkerOffset(mapData, event.id) : [0, 0];
 
         /*
          * An event standing where the map's art was stood up is drawn on that
@@ -1373,9 +1903,52 @@ class MapEditor3D {
         const z = facade ? facade.z : event.y + 0.5;
 
         // A flat event lies on the ground; everything else stands on it.
-        mesh.position.set(x, mesh.userData.flat ? elevation + 0.01 : elevation + height / 2, z);
+        const markerX = x + offsetX, markerZ = facade ? z : z + offsetZ;
+        mesh.position.set(markerX, mesh.userData.flat ? elevation + 0.01 : elevation + height / 2, markerZ);
         mesh.userData.box?.position.set(x, elevation + mesh.userData.boxHeight / 2, z);
-        mesh.userData.label?.position.set(x, elevation + height + 0.28, z);
+        mesh.userData.label?.position.set(markerX, elevation + height + 0.28, markerZ);
+
+        // A unit's ring lies under it and its previewed model stands on the same ground: both go where the event goes.
+        const ring = mesh.userData.ring, model = mesh.userData.model;
+        if (!ring && !model) return;
+        const feet = MapEditor3D.eventFeet(mapData, event);
+        if (ring && ring.userData.shift) {
+            ring.position.set(x + ring.userData.shift[0], feet + MapEditor3D.RING_LIFT, event.y + 0.5 + ring.userData.shift[1]);
+            this.layUnitRing(ring, mapData);
+        }
+        if (model && model.parent && model.userData.seat) {
+            const seat = model.userData.seat;
+            const moved = (this._seatMove || (this._seatMove = new THREE.Vector3()))
+                .set(x + seat[0], feet + seat[1], event.y + 0.5 + seat[2]).sub(model.position);
+            if (moved.lengthSq() > 0) {
+                model.position.add(moved);
+                model.userData.pickBox?.translate(moved);
+            }
+        }
+    }
+
+    /**
+     * Draw an event's box over everything, or by depth like the rest of the scene. A box inside a
+     * previewed model, or behind one, is not seen at all by depth; the selected event's box and the
+     * box of any event standing as a model are drawn over, so what is selected is always seen.
+     */
+    eventBoxOnTop(box, on) {
+        if (!box || !box.material || box.material.depthTest === !on) return;
+        box.material.depthTest = !on;
+        box.material.depthWrite = !on;
+        box.renderOrder = on ? 998 : 0;
+        box.material.needsUpdate = true;
+        this.requestRender();
+    }
+
+    /** The marker (sprite or cube) of an event, which carries its box and label. */
+    eventMarker(event) {
+        return event ? (this.pickables || []).find(mesh => mesh.userData.event && mesh.userData.event.id === event.id && mesh.userData.box) || null : null;
+    }
+
+    /** The colour of the selected event's box: the theme's accent, as the 2D map draws it. */
+    selectedEventColor() {
+        return typeof EventManager !== 'undefined' && EventManager.selectedTone ? EventManager.selectedTone() : 0xfff2a0;
     }
 
     /**
@@ -1440,101 +2013,54 @@ class MapEditor3D {
         this.requestRender();
     }
 
-    /** Show or hide the passage marks in this view. */
+    /** Show or hide Passage in this view. */
     setPassageVisible(on) {
         this.passageVisible = !!on;
         this.drawPassage();
     }
 
-    /** Redraw the passage marks after a change, once per frame. */
+    /** Bring Passage up to date after a change: what changed, and where, is found from the map itself. */
     refreshPassage() {
         this.requestRender();
-        if (!this.passageVisible || this._passageRefresh) return;
-        this._passageRefresh = requestAnimationFrame(() => {
-            this._passageRefresh = null;
-            this.drawPassage();
-        });
+        if (this.passageVisible) this.drawPassage();
     }
 
     /**
-     * The passage marks on the ground of the 3D view: the same reading as
-     * the flat map's (`TilemapManager.tilePassage`) - an X where nothing
-     * walks, a red edge on a side that cannot be crossed - and red under
-     * the tiles a placed model (prop or model event) blocks.
+     * Passage in the 3D view: every place a character can get to, each side
+     * of it marked by what happens there (a walk, a hop, a mantle, a ladder,
+     * a drop, a stop), an X on a tile nobody stands on, the same in words
+     * under the pointer, and a legend. The game's own rules answer
+     * (RRMapEdgeLabels: `ReactorPhysics.edges`, the tileset's flags below,
+     * the tiles placed models and sized events cover). Called on every
+     * rebuild and change; it does nothing while the tick is off.
      */
     drawPassage() {
-        if (this.passageGroup) {
-            this.passageGroup.parent?.remove(this.passageGroup);
-            this.passageGroup.traverse(node => { node.geometry?.dispose?.(); node.material?.dispose?.(); });
-            this.passageGroup = null;
-        }
-        this._passageGeneration = (this._passageGeneration || 0) + 1;
-        const mapData = this.currentMap();
-        if (!this.passageVisible || !mapData || !this.mapScene || typeof TilemapManager === 'undefined' || !TilemapManager.tilePassage) return;
+        globalThis.RRMapEdgeLabels?.passage.sync(this);
+    }
+
+    /**
+     * The tileset's say on the cells of a map, read as the flat map's passage
+     * marks read it: `read(x, y)` gives the directions a cell blocks (bits
+     * 1 down, 2 left, 4 right, 8 up; 15 nothing walks), and `signature`
+     * changes when the tileset's flags, the room's floor or the map's image
+     * layers do. A picture at the characters' depth shuts the tiles it is
+     * solid on, as it does on the flat map.
+     */
+    passageTiles(mapData) {
+        if (!mapData || typeof TilemapManager === 'undefined' || !TilemapManager.tilePassage) return null;
         const tileset = this.projectController?.tilemapManager?.currentTileset
             || this.projectController?.databaseManager?.getTileset?.(mapData.tilesetId);
         const flags = (tileset && tileset.flags) || [];
         const roomFloor = !!(Reactor3D.roomFor && Reactor3D.roomFor(mapData) && Reactor3D.isMap3D(mapData));
-        const group = new THREE.Group();
-        group.name = 'passage';
-        group.userData.__reactorOverlay = true;
-        const lines = [];
-        const inset = 0.18;
-        const lift = 0.03;
-        for (let y = 0; y < mapData.height; y++) {
-            for (let x = 0; x < mapData.width; x++) {
-                const { blocked } = TilemapManager.tilePassage(mapData.data, mapData.width, mapData.height, flags, x, y, roomFloor);
-                if (!blocked) continue;
-                const h = Reactor3D.elevationAt(mapData, x, y) + lift;
-                const x0 = x + inset, x1 = x + 1 - inset, z0 = y + inset, z1 = y + 1 - inset;
-                if (blocked === 0x0f) {
-                    lines.push(x0, h, z0, x1, h, z1, x1, h, z0, x0, h, z1);
-                    continue;
-                }
-                if (blocked & 1) lines.push(x0, h, z1, x1, h, z1);
-                if (blocked & 2) lines.push(x0, h, z0, x0, h, z1);
-                if (blocked & 4) lines.push(x1, h, z0, x1, h, z1);
-                if (blocked & 8) lines.push(x0, h, z0, x1, h, z0);
-            }
-        }
-        if (lines.length) {
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lines), 3));
-            const marks = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xff4040, transparent: true, opacity: 0.9, depthTest: false }));
-            marks.renderOrder = 996;
-            group.add(marks);
-        }
-        this.mapScene.scene().add(group);
-        this.passageGroup = group;
-        // Model footprints, as their templates arrive.
-        const placements = TilemapManager.modelPlacements ? TilemapManager.modelPlacements(mapData) : [];
-        if (!placements.length || typeof RREventPreviewModels === 'undefined' || !Reactor3D.blockedTilesFor) return;
-        const generation = this._passageGeneration;
-        const project = this.projectController?.getCurrentProject
-            ? this.projectController.getCurrentProject() : this.projectController?.currentProject;
-        for (const placed of placements) {
-            // A model in the air blocks nothing on the ground.
-            if (placed.z > 0.5) continue;
-            RREventPreviewModels.templateFor(project, placed.spec, this).then(template => {
-                if (!template || generation !== this._passageGeneration || this.passageGroup !== group) return;
-                const tiles = Reactor3D.blockedTilesFor(template, template.userData.reactorSidecar, placed.spec, placed.direction, placed.x, placed.y);
-                if (!tiles.length) return;
-                const positions = new Float32Array(tiles.length * 18);
-                let at = 0;
-                for (const tile of tiles) {
-                    const h = Reactor3D.elevationAt(mapData, tile.x, tile.y) + 0.02;
-                    const x0 = tile.x + 0.04, x1 = tile.x + 0.96, z0 = tile.y + 0.04, z1 = tile.y + 0.96;
-                    positions.set([x0, h, z0, x1, h, z0, x1, h, z1, x0, h, z0, x1, h, z1, x0, h, z1], at);
-                    at += 18;
-                }
-                const geometry = new THREE.BufferGeometry();
-                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-                const fill = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0xff4040, transparent: true, opacity: 0.22, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
-                fill.renderOrder = 995;
-                group.add(fill);
-                this.requestRender();
-            }).catch(() => {});
-        }
+        let hash = flags.length;
+        for (let i = 0; i < flags.length; i++) hash = (hash * 31 + (flags[i] | 0)) | 0;
+        const imageSolid = (typeof window !== 'undefined' && window.reactor?.mapImageLayersManager?.solidTest?.(mapData)) || null;
+        const layers = imageSolid ? JSON.stringify(mapData.rrImageLayers) : '';
+        return {
+            signature: `${mapData.tilesetId}|${roomFloor ? 1 : 0}|${hash}|${layers}`,
+            read: (x, y) => (imageSolid && imageSolid(x, y) ? 0x0f
+                : TilemapManager.tilePassage(mapData.data, mapData.width, mapData.height, flags, x, y, roomFloor).blocked)
+        };
     }
 
     /**
@@ -1549,8 +2075,8 @@ class MapEditor3D {
      * Built as a unit square at the origin and scaled, so a multi-tile brush
      * outlines everything it will put down rather than just its first cell.
      * `depthTest: false` because it is a cursor: it should not be cut in half
-     * by the ground it is lying on. Nothing can hide it wrongly, since a cell
-     * with something in front of it is not a cell the raycast can reach.
+     * by the ground it is lying on, and the floor under a roof is named
+     * through the roof (see `tileAt`), where the outline has to show.
      */
     buildHoverCell() {
         if (!this.mapScene) return;
@@ -1566,6 +2092,21 @@ class MapEditor3D {
         this.hoverCell.renderOrder = 998;
         this.hoverCell.visible = false;
         this.mapScene.scene().add(this.hoverCell);
+        // Where an event placed on the outlined tile will stand, when that is
+        // not the surface outlined (`updateHoverCell`): the tile's square at
+        // that height, fainter, and a line joining the two. Four sides and
+        // the line, as ten points written in place. It hangs on the outline,
+        // so it is shown, hidden and taken away with it.
+        if (this.hoverFeet) { this.hoverFeet.geometry.dispose(); this.hoverFeet.material.dispose(); }
+        const feet = new THREE.BufferGeometry();
+        feet.setAttribute('position', new THREE.BufferAttribute(new Float32Array(30), 3));
+        this.hoverFeet = new THREE.LineSegments(feet, new THREE.LineBasicMaterial({
+            color: 0xfff2a0, transparent: true, opacity: 0.5, depthTest: false
+        }));
+        this.hoverFeet.renderOrder = 998;
+        this.hoverFeet.frustumCulled = false;
+        this.hoverFeet.visible = false;
+        this.hoverCell.add(this.hoverFeet);
     }
 
     /**
@@ -1623,6 +2164,8 @@ class MapEditor3D {
         // The material the room's steep ground turns to; a missing one is simply not loaded.
         const cliff = RRMapElevation.roomCliff ? RRMapElevation.roomCliff(RRMapElevation.room(mapData)).name : '';
         if (cliff) names.add(cliff);
+        // The grounds painted over the floor (RRMapGround).
+        if (typeof RRMapGround !== 'undefined') for (const name of RRMapGround.materials(mapData)) names.add(name);
         if (!names.size) return {};
         // Kept per project: another project's Stone is not this one's.
         if (!this.materialImages || this._materialImagesProject !== projectPath) {
@@ -1673,6 +2216,45 @@ class MapEditor3D {
         return loaded;
     }
 
+    /**
+     * The room's steep ground (its material, the angle it starts at, its tint) put on the floor as it
+     * stands, without a rebuild: once a frame, however fast a slider is dragged, from the map as it then
+     * is. The angle and the tint change with the images already in hand; only another material is read
+     * off disk first, and the newest one asked for wins.
+     */
+    updateCliffInPlace() {
+        const scene = this.mapScene;
+        if (!this.currentMap() || !scene?.setRoomCliff || typeof RRMapElevation === 'undefined' || !RRMapElevation.roomCliff) return false;
+        if (this._cliffFrame) return true;
+        const run = () => {
+            this._cliffFrame = 0;
+            const mapData = this.currentMap();
+            if (!mapData || this.mapScene !== scene) return;
+            const cliff = RRMapElevation.roomCliff(RRMapElevation.room(mapData));
+            const order = this._cliffOrder = (this._cliffOrder || 0) + 1;
+            const put = images => { if (scene.setRoomCliff(cliff, name => images[name] || null)) this.requestRender(); };
+            const held = this.materialImages || {};
+            if (!cliff.name || held[cliff.name] || (scene._roomCliff && scene._roomCliff.name === cliff.name)) { put(held); return; }
+            const request = this._rebuildGeneration;
+            this.loadMaterials(mapData).then(materials => {
+                if (this.mapScene !== scene || this._rebuildGeneration !== request || this._cliffOrder !== order) return;
+                put(materials);
+            }).catch(error => console.error('The steep ground could not be shown.', error));
+        };
+        if (typeof requestAnimationFrame === 'function') this._cliffFrame = requestAnimationFrame(run);
+        else run();
+        return true;
+    }
+
+    /** Lay the land past the border again without a rebuild: once a frame, however often it is asked (RRMapEdges.lay). */
+    updateSurroundInPlace() {
+        const mapData = this.currentMap();
+        const edges = globalThis.RRMapEdges;
+        if (!mapData || !this.mapScene?.addSurround || !edges?.lay) return false;
+        edges.lay(this, mapData);
+        return true;
+    }
+
     /** Lay the pieces down again without a rebuild; true when the scene can. */
     updatePiecesInPlace(region = null) {
         const mapData = this.currentMap();
@@ -1698,6 +2280,17 @@ class MapEditor3D {
         return true;
     }
 
+    /** Write the ground types' paint, tints and scales again where they changed, without a rebuild. */
+    updateGroundInPlace(region) {
+        const mapData = this.currentMap();
+        const scene = this.mapScene;
+        if (!mapData || !scene?.updateGround || !scene._ground) return false;
+        if (!scene.updateGround(mapData, region)) return false;
+        this._lastActiveAt = performance.now();
+        this.requestRender?.();
+        return true;
+    }
+
     /** Lay the water sheets again without a rebuild. */
     updateWaterInPlace() {
         const mapData = this.currentMap();
@@ -1712,16 +2305,106 @@ class MapEditor3D {
         return true;
     }
 
-    /** A translucent slab where a water sheet is being drawn. */
-    /** The sheet under the pointer (its region), or null. */
+    /** The sheet under the pointer (its region), or null: whatever stands in front of it is looked through. */
     waterMeshAt(clientX, clientY) {
+        const hit = this.waterHitAt(clientX, clientY);
+        return hit ? hit.region : null;
+    }
+
+    /** The sheet under the pointer and how far along the ray it lies: `{ region, distance }`, or null. */
+    waterHitAt(clientX, clientY) {
         const meshes = this.mapScene && this.mapScene._waterMeshes;
         if (!meshes || !meshes.length || !this.camera || !this.canvas) return null;
         const rect = this.canvas.getBoundingClientRect();
         this._raycaster = this._raycaster || new THREE.Raycaster();
         this._raycaster.setFromCamera(new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1), this.camera);
-        const hit = this._raycaster.intersectObjects(meshes, false)[0];
-        return hit ? hit.object.userData.water || null : null;
+        const hit = this._raycaster.intersectObjects(meshes, false).find(found => found.object.userData.water);
+        return hit ? { region: hit.object.userData.water, distance: hit.distance } : null;
+    }
+
+    /**
+     * What a Select click lands on: the nearest thing the pointer's ray meets,
+     * `{ kind, distance }` with kind 'water' (and its `water` region), 'piece',
+     * 'model' (and its `propId`), 'event', 'light' or 'ground'; null on nothing.
+     * A rock standing in a lake is the rock, the lake seen past a jetty is the
+     * jetty, and the bed seen through clear water is the water.
+     */
+    selectHitAt(clientX, clientY) {
+        if (!this.mapScene || !this.camera || !this.canvas || typeof THREE === 'undefined') return null;
+        const rect = this.canvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) return null;
+        this._raycaster = this._raycaster || new THREE.Raycaster();
+        const aim = () => this._raycaster.setFromCamera(new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1), this.camera);
+        let best = null;
+        const take = hit => { if (hit && Number.isFinite(hit.distance) && (!best || hit.distance < best.distance)) best = hit; };
+        aim();
+        const laid = this.raycastMapMeshes();
+        if (laid) take({ kind: laid.object?.userData?.pieces || laid.object?.userData?.rrDoor ? 'piece' : 'ground', distance: laid.distance });
+        const water = this.waterHitAt(clientX, clientY);
+        if (water) take({ kind: 'water', water: water.region, distance: water.distance });
+        const propId = this.propAt(clientX, clientY, true);
+        if (propId) {
+            const child = this.propGroup.children.find(object => object.userData.propId === propId);
+            aim();
+            const hit = child ? this._raycaster.intersectObject(child, true).find(found => !found.object.userData?.__reactorOverlay) : null;
+            if (hit) take({ kind: 'model', propId, distance: hit.distance });
+        }
+        const eye = this.camera.position;
+        if (this.eventGroup?.visible !== false) {
+            const marker = this.eventAt(clientX, clientY, null);
+            if (marker) take({ kind: 'event', distance: marker.getWorldPosition(this._selectPoint || (this._selectPoint = new THREE.Vector3())).distanceTo(eye) });
+        }
+        // A light is a point, not a surface: one within a few pixels of the pointer counts where it stands.
+        const mapData = this.currentMap();
+        const lights = mapData && typeof Reactor3D !== 'undefined' && Reactor3D.readMapLights ? Reactor3D.readMapLights(mapData) : [];
+        const at = this._selectPoint || (this._selectPoint = new THREE.Vector3());
+        for (const light of lights) {
+            if (light.attach) continue;
+            at.set(light.x + 0.5, Reactor3D.elevationAt(mapData, Math.round(light.x), Math.round(light.y)) + light.height, light.y + 1);
+            const distance = at.distanceTo(eye);
+            at.project(this.camera);
+            if (at.z > 1) continue;
+            const px = rect.left + (at.x + 1) / 2 * rect.width, py = rect.top + (1 - at.y) / 2 * rect.height;
+            if (Math.hypot(px - clientX, py - clientY) <= 14) take({ kind: 'light', distance });
+        }
+        return best;
+    }
+
+    /**
+     * A Select click on something another group owns, found by selectHitAt:
+     * water turns the bar to Terrain with the Look panel on that sheet, a
+     * building to Build with the piece selected, a model to Models with that
+     * model selected. True when the bar turned.
+     */
+    selectAcrossGroups(hit, clientX, clientY) {
+        const bar = window.reactor?.buildHotbar;
+        if (!hit || !bar) return false;
+        if (hit.kind === 'water' && bar.selectWater) return !!bar.selectWater(hit.water);
+        if (hit.kind === 'piece' && bar.selectPiece) return !!bar.selectPiece(clientX, clientY);
+        if (hit.kind === 'model' && bar.selectModel && this.propsManager()) { bar.selectModel(hit.propId); return true; }
+        return false;
+    }
+
+    /**
+     * A Select or Look click, settled when the button comes up without the
+     * pointer having travelled (a drag from the same press turned the view or
+     * drew a box, and must change neither the selection nor the group).
+     * `across.from` is the group whose tool held the map ('build', 'terrain',
+     * 'models'); `across.hit` what the press already found, else it is looked
+     * for now. Water is selected with the Look panel on it; a building or a
+     * model turns the bar to its group; in Look, bare ground or nothing lets
+     * the sheet in hand go. True when the click was taken.
+     */
+    settleSelectClick(across, clientX, clientY) {
+        const hit = across.hit || this.selectHitAt(clientX, clientY);
+        if (across.from === 'build') return hit?.kind === 'water' && this.selectAcrossGroups(hit, clientX, clientY);
+        if (across.from === 'models') return !!hit && hit.kind !== 'model' && this.selectAcrossGroups(hit, clientX, clientY);
+        const terrain = this.terrainManager();
+        if (!terrain) return false;
+        if (hit?.kind === 'water') { terrain.selectWater(hit.water); return true; }
+        if (this.selectAcrossGroups(hit, clientX, clientY)) return true;
+        if (terrain.selectedWater && (!hit || hit.kind === 'ground')) { terrain.selectWater(null); return true; }
+        return false;
     }
 
     /** The selected sheet outlined at its level (the Look panel edits it); null takes the outline away. */
@@ -1744,14 +2427,11 @@ class MapEditor3D {
     /** A sheet's look set on its material at once, while a slider moves (the rebuild follows on release). */
     restyleWater(key, look) {
         const mesh = key && (this.mapScene?._waterMeshes || []).find(m => { const r = m.userData.water; return r && r.x0 === key.x0 && r.y0 === key.y0 && r.x1 === key.x1 && r.y1 === key.y1 && Math.abs(r.level - key.level) < 1e-6; });
-        const u = mesh && mesh.material && mesh.material.userData;
-        if (!u || !u.rrWaterLook) return;
-        u.rrWaterLook.x = look.reflect > 0 ? look.reflect : 0;
-        u.rrWaterLook.y = 1 - (look.gloss ?? 0.85);
-        u.rrWaterTint?.set(look.tint || '#ffffff');
-        if (u.rrWaterColour) { if (look.colour) { const c = new THREE.Color(look.colour); u.rrWaterColour.set(c.r, c.g, c.b, 1); } else u.rrWaterColour.w = 0; }
-        if (u.rrWaterForm) u.rrWaterForm.set(look.clear ?? 0.6, look.waves ?? 1, look.glow ?? 0, 0);
+        if (!mesh || !mesh.material || typeof Reactor3D === 'undefined' || !Reactor3D.applyWaterLook) return;
+        // The runtime's own reading of a look, as the game lays the sheet: the view shows what the game will.
+        if (!Reactor3D.applyWaterLook(mesh.material, look)) return;
         this._lastActiveAt = performance.now();
+        this.requestRender?.();
     }
 
     /** A translucent ghost of a sheet: the hollow's own surface when the region has a mask (or the runtime can shape it), else its box. */
@@ -2205,8 +2885,15 @@ class MapEditor3D {
         };
     }
 
+    /** How far from the outlined surface an event has to stand before the outline shows where: more than a step. */
+    static get FEET_GAP() { return 0.75; }
+
     /** Move the outline onto a cell, or hide it when the cursor is off the map. */
     updateHoverCell(tile) {
+        // The cursor left the map: Battle Setup's ghost leaves with it.
+        if (!tile && typeof window !== 'undefined' && window.RRBattleSetup) window.RRBattleSetup.hover3D(this, null);
+        const feet = this.hoverFeet;
+        if (feet) feet.visible = false;
         if (!this.hoverCell) return;
         const mapData = this.currentMap();
         if (!tile || !mapData) {
@@ -2218,17 +2905,42 @@ class MapEditor3D {
         this.hoverCell.position.set(tile.x, 0.03, tile.y);
         // Each corner on the ground under it: at the tile's own elevation
         // the outline floated over a hollow (a pond, a pit) and read as a
-        // cell on the far side of it.
-        const base = Reactor3D.elevationAt(mapData, tile.x, tile.y);
+        // cell on the far side of it. Raised by the pick's `lift`, it lies
+        // on the surface the pointer met (a path's slab, a floor, a rock)
+        // and so under the pointer: drawn on the ground below that surface
+        // it stood somewhere else on the screen.
+        const base = Reactor3D.elevationAt(mapData, tile.x, tile.y) + (Number.isFinite(tile.lift) ? tile.lift : 0);
         const terrain = Reactor3D.terrainHeightAt ? (wx, wz) => Reactor3D.terrainHeightAt(mapData, wx, wz) || 0 : () => 0;
+        // Water lies flat over a bed that does not: its outline is level, at the surface.
+        const level = Number.isFinite(tile.level) ? tile.level : null;
         const position = this.hoverCell.geometry.attributes.position;
         for (let i = 0; i < position.count; i++) {
             const cx = tile.x + position.getX(i) * width, cz = tile.y + position.getZ(i) * height;
-            position.setY(i, base + terrain(Math.min(mapData.width, cx), Math.min(mapData.height, cz)));
+            position.setY(i, level !== null ? level : base + terrain(Math.min(mapData.width, cx), Math.min(mapData.height, cz)));
         }
         position.needsUpdate = true;
         this.hoverCell.geometry.computeBoundingSphere();
         this.hoverCell.visible = true;
+        // Event mode: an event placed on this tile stands by the game's
+        // height rule, which is not always the surface outlined (the floor
+        // inside under a roof marked at the pointer, the ground under a
+        // deck, the top of the wall whose foot is pointed at, the bed under
+        // water). The click would then put it somewhere the outline is not,
+        // so the place is shown: the tile's square there, joined to the
+        // outline by a line.
+        if (!feet || width !== 1 || height !== 1 || !this.canSelectEvents()) return;
+        const cx = tile.x + 0.5, cz = tile.y + 0.5;
+        const shown = level !== null ? level : base + terrain(cx, cz), stand = MapEditor3D.standAt(mapData, cx, cz);
+        if (!(Math.abs(stand - shown) > MapEditor3D.FEET_GAP)) return;
+        // In the outline's own frame: the tile's corner is its origin, and heights are the world's.
+        const at = feet.geometry.attributes.position;
+        at.setXYZ(0, 0, stand, 0); at.setXYZ(1, 1, stand, 0);
+        at.setXYZ(2, 1, stand, 0); at.setXYZ(3, 1, stand, 1);
+        at.setXYZ(4, 1, stand, 1); at.setXYZ(5, 0, stand, 1);
+        at.setXYZ(6, 0, stand, 1); at.setXYZ(7, 0, stand, 0);
+        at.setXYZ(8, 0.5, shown, 0.5); at.setXYZ(9, 0.5, stand, 0.5);
+        at.needsUpdate = true;
+        feet.visible = true;
     }
 
     /**
@@ -2248,6 +2960,9 @@ class MapEditor3D {
             const previewIndex = MapEditor3D.previewPageIndex(mapData, event);
             const previewName = previewIndex !== null ? event.pages[previewIndex]?.image?.characterName : null;
             if (previewName) names.add(previewName);
+            // A unit that stands as its record's character sheet.
+            const look = previewIndex !== null ? MapEditor3D.unitLook(mapData, event) : null;
+            if (look && look.kind === 'character' && look.characterName) names.add(look.characterName);
         }
 
         this.characterImages = this.characterImages || {};
@@ -2277,11 +2992,40 @@ class MapEditor3D {
      * keeps that arithmetic in one place. Null when the event has no graphic,
      * which is also when the 2D editor shows a bare coloured square.
      */
-    /** The page Preview Event chose for this event, or null. */
+    /**
+     * How far from an event's own tile it was taken hold of: a grab on the marker in the middle of
+     * a 3 by 3 is one tile right and down of the event's tile.
+     */
+    static eventGrabOffset(event, tile, footprint = [1, 1], origin = [0, 0]) {
+        const [w, h] = footprint, dx = tile.x - event.x, dy = tile.y - event.y;
+        // Taken by its marker with the ground behind it under the pointer (a tall sprite's head): the event's own tile.
+        if (dx < origin[0] || dy < origin[1] || dx >= origin[0] + w || dy >= origin[1] + h) return [0, 0];
+        return [dx, dy];
+    }
+
+    /** Where an event's box has its middle, from the middle of the event's own tile: `[x, 0, z]` in tiles. */
+    static eventBoxShift(footprint = [1, 1], origin = [0, 0]) {
+        return [origin[0] + (footprint[0] - 1) / 2, 0, origin[1] + (footprint[1] - 1) / 2];
+    }
+
+    /**
+     * The page of an event this view draws at real size: the one Preview
+     * Event chose, else, for a battle unit, the page it is a unit on. Null
+     * for an event shown by its marker alone.
+     */
     static previewPageIndex(mapData, event) {
+        if (typeof EventManager !== 'undefined' && typeof EventManager.previewPage === 'function') return EventManager.previewPage(mapData, event);
         const previews = mapData?.reactor3d?.eventPreviews;
         const page = previews ? previews[String(event?.id)] : undefined;
         return Number.isInteger(page) && event?.pages?.[page] ? page : null;
+    }
+
+    /** The model a previewed page stands as: its own, else (a battle unit with none) the one the Database gives its record, as in the game. */
+    static previewModelSpec(mapData, event, pageIndex) {
+        const own = Reactor3D.eventModelSpec ? Reactor3D.eventModelSpec(mapData, event.id, pageIndex) : null;
+        if (own) return own;
+        const look = MapEditor3D.unitLook(mapData, event);
+        return look && look.kind === 'model' && look.page === pageIndex && Reactor3D.normalizeModelSpec ? Reactor3D.normalizeModelSpec(look.spec) : null;
     }
 
     /**
@@ -2291,7 +3035,7 @@ class MapEditor3D {
      */
     previewEventModel(event, page, pageIndex, mapData, request) {
         if (typeof RREventPreviewModels === 'undefined' || !Reactor3D.eventModelSpec) return;
-        const spec = Reactor3D.eventModelSpec(mapData, event.id, pageIndex);
+        const spec = MapEditor3D.previewModelSpec(mapData, event, pageIndex);
         if (!spec) return;
         const group = this.eventGroup;
         const project = this.projectController?.getCurrentProject
@@ -2299,23 +3043,35 @@ class MapEditor3D {
         RREventPreviewModels.templateFor(project, spec, this).then(template => {
             if (!template || !this.rebuildIsCurrent(request) || this.eventGroup !== group) return;
             const object = RREventPreviewModels.instance(template, spec, page?.image?.direction || 2);
-            const elevation = Reactor3D.elevationAt(mapData, event.x, event.y)
-                + (Reactor3D.eventZAt ? Reactor3D.eventZAt(mapData, event.id) : 0);
+            // Where the event's box stands: the ground under its tile, the terrain's rise and fall with it.
+            const elevation = MapEditor3D.eventFeet(mapData, event);
             const offset = spec.offset || [0, 0, 0];
-            object.position.set(event.x + 0.5 + offset[0], elevation + offset[2], event.y + 0.5 + offset[1]);
+            // At the middle of a footprint set by hand, where the game stands it (half a tile on for an even size).
+            const [middleX, middleZ] = typeof RRMapElevation !== 'undefined' && RRMapElevation.eventMarkerOffset ? RRMapElevation.eventMarkerOffset(mapData, event.id) : [0, 0];
+            object.position.set(event.x + 0.5 + middleX + offset[0], elevation + offset[2], event.y + 0.5 + middleZ + offset[1]);
+            // Where it stands from the middle of the event's tile and its feet: `placeEvent` keeps it there.
+            object.userData.seat = [middleX + offset[0], offset[2], middleZ + offset[1]];
             object.userData.event = event;
             object.userData.modelPreview = true;
             group.add(object);
             this.requestRender();
+            // The model stands on (and round) the event's box: the box is drawn over it.
+            const marker = this.eventMarker(event);
+            if (marker) { marker.userData.model = object; marker.userData.modelShown = true; this.eventBoxOnTop(marker.userData.box, true); }
             // Clickable by its box, like a prop: a raycast through a heavy
             // mesh on every hover is what jitters.
             object.userData.pickBox = new THREE.Box3().setFromObject(object);
+            // A unit is its model: the stand-in cube inside it is not drawn (it still takes a click), and the ring goes round the model.
+            if (marker && marker.userData.unit) {
+                if (!marker.material?.map) marker.visible = false;
+                this.fitUnitRing(marker, object.userData.pickBox);
+            }
             const driver = this.animateModel(object, template, null);
             // An animated preview changes shape each frame; a still one is
             // cached. Marked after the animation is prepared: a rig can
             // replace the meshes, and meshes marked before that never cast.
             if (Reactor3D.Shadows) Reactor3D.Shadows.markCaster(object, this.movesOnItsOwn(template, driver));
-            this.playModelEffects(object, template, '');
+            this.playModelEffects(object, template, '', spec);
             // The model card waits for the model: a selection made before the
             // load finished has nothing to show until now.
             if (this.selected?.userData?.event?.id === event.id) this.projectController?.eventModelPanel?.sync?.(event);
@@ -2382,7 +3138,7 @@ class MapEditor3D {
                 // whether or not its file carries clips; marked once the
                 // animation is prepared, since a rig can replace the meshes.
                 if (Reactor3D.Shadows) Reactor3D.Shadows.markCaster(object, this.movesOnItsOwn(template, driver));
-                this.playModelEffects(object, template, Reactor3D.propEffectList ? Reactor3D.propEffectList(prop) : prop.effect);
+                this.playModelEffects(object, template, Reactor3D.propEffectList ? Reactor3D.propEffectList(prop) : prop.effect, spec);
                 if (this.selectedPropId === prop.id) this.selectProp(prop.id);
             });
         }
@@ -2445,7 +3201,7 @@ class MapEditor3D {
      * anchors — a database animation as an overlay over the canvas, a video
      * as a plane in the scene. State-triggered effects wait for the game.
      */
-    playModelEffects(object, template, chosen) {
+    playModelEffects(object, template, chosen, spec = null) {
         const sidecar = template && template.userData.reactorSidecar;
         if (!sidecar || typeof Reactor3D === 'undefined' || !Reactor3D.readModelEffects) return;
         const chosenNames = new Set((Array.isArray(chosen) ? chosen : (chosen ? [chosen] : [])).map(String));
@@ -2453,7 +3209,7 @@ class MapEditor3D {
             ? this.projectController.getCurrentProject() : this.projectController?.currentProject;
         const animations = window.reactor?.databaseManager?.data?.animations || [];
         const started = new Set();
-        for (const effect of Reactor3D.readModelEffects(sidecar)) {
+        for (const effect of Reactor3D.readModelEffects(sidecar, spec)) {
             if (effect.trigger !== 'always' && !chosenNames.has(effect.name)) continue;
             if (started.has(effect.name)) continue;
             started.add(effect.name);
@@ -2666,7 +3422,7 @@ class MapEditor3D {
         if (!spec || !mapData || !this.mapScene || typeof RREventPreviewModels === 'undefined') { this.hidePlacementGhost(); return; }
         const point = this.groundPointAt(clientX, clientY);
         if (!point) { this.hidePlacementGhost(); return; }
-        const key = `${spec.name}|${spec.ext}|${spec.file}|${spec.size}|${spec.scale}|${(spec.stretch || []).join(',')}|${spec.yaw}|${spec.pitch}|${spec.roll}|${manager.fields.direction}`;
+        const key = `${spec.name}|${spec.ext}|${spec.file}|${spec.variant || ''}|${spec.size}|${spec.scale}|${(spec.stretch || []).join(',')}|${spec.yaw}|${spec.pitch}|${spec.roll}|${manager.fields.direction}`;
         if (this._ghostKey !== key) {
             this.hidePlacementGhost(true);
             this._ghostKey = key;
@@ -2678,7 +3434,8 @@ class MapEditor3D {
                 ghost.traverse(node => {
                     const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
                     if (!materials.length) return;
-                    const faded = materials.map(material => { const copy = material.clone(); copy.transparent = true; copy.opacity = 0.45; copy.depthWrite = false; return copy; });
+                    // A copy is a plain material: a variant's color adjustment is put back on it.
+                    const faded = materials.map(material => { const copy = material.clone(); copy.transparent = true; copy.opacity = 0.45; copy.depthWrite = false; if (Reactor3D.lookOf && Reactor3D.lookOf(material)) Reactor3D.lookMaterial(copy); return copy; });
                     node.material = Array.isArray(node.material) ? faded : faded[0];
                 });
                 ghost.userData.__reactorOverlay = true;
@@ -2700,10 +3457,7 @@ class MapEditor3D {
         if (!this.placementGhost) { if (dispose) this._ghostKey = null; return; }
         if (dispose) {
             this.placementGhost.parent?.remove(this.placementGhost);
-            this.placementGhost.traverse(node => {
-                const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
-                for (const material of materials) material.dispose?.();
-            });
+            this.disposeModelCopy(this.placementGhost);
             this.placementGhost = null;
             this._ghostKey = null;
         } else {
@@ -2776,7 +3530,7 @@ class MapEditor3D {
      * facing, pitch/yaw/roll, lift, position, passability) is a pose.
      */
     static propIdentity(prop) {
-        return [prop.name, prop.ext, prop.file, prop.texture,
+        return [prop.name, prop.ext, prop.file, prop.texture, prop.variant || '',
             (prop.animations || (prop.animation ? [prop.animation] : [])).join(','), prop.repeat ? 1 : 0, prop.animationSpeed ?? 100,
             (prop.effects || (prop.effect ? [prop.effect] : [])).join(',')].join('|');
     }
@@ -2847,10 +3601,7 @@ class MapEditor3D {
                 if (this.animatedModels) this.animatedModels = this.animatedModels.filter(driver => driver.object.userData.propId !== undefined);
                 if (this.eventGroup) {
                     for (const child of this.eventGroup.children) {
-                        child.traverse(node => {
-                            const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
-                            for (const material of materials) material.dispose?.();
-                        });
+                        this.disposeModelCopy(child);
                     }
                     this.eventGroup.parent?.remove(this.eventGroup);
                     this.eventGroup = null;
@@ -2859,6 +3610,8 @@ class MapEditor3D {
                 this.refreshPassage();
                 return;
             }
+            // The rings left standing follow Event mode and Battle Setup, whatever is built again below.
+            this.syncUnitRings();
             // The diff: only what actually changed is torn down and rebuilt.
             // Deleting one event must not blink every model on the map.
             const fresh = new Map();
@@ -2891,10 +3644,9 @@ class MapEditor3D {
                 if (child.userData.label) doomed.add(child.userData.label);
             }
             for (const child of doomed) {
-                child.traverse(node => {
-                    const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
-                    for (const material of materials) material.dispose?.();
-                });
+                // A sprite, a unit's picture and a name plate each hold a picture drawn for them alone.
+                if (!child.userData.modelPreview) MapEditor3D.disposeOwnPictures(child);
+                this.disposeModelCopy(child);
                 this.eventGroup.remove(child);
             }
             this.pickables = this.pickables.filter(mesh => !doomed.has(mesh));
@@ -2906,6 +3658,9 @@ class MapEditor3D {
                     const event = (mapData.events || []).find(entry => entry && entry.id === id);
                     if (event) this._buildOneEvent(event, sheets, mapData, this._rebuildGeneration);
                 }
+                // What was built stands as the view is turned now: pictures and names face the eye, names at the size the distance gives them.
+                this.faceCamera();
+                this.updateLabelVisibility();
             }
             this._eventSnapshot = fresh;
             if (reselect !== null && fresh.has(reselect)) this.selectEventById(reselect);
@@ -2920,10 +3675,7 @@ class MapEditor3D {
         if (this.animatedModels) this.animatedModels = this.animatedModels.filter(driver => !driver.object.userData.propId);
         if (!this.propGroup) return;
         for (const child of this.propGroup.children) {
-            child.traverse(node => {
-                const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
-                for (const material of materials) material.dispose?.();
-            });
+            this.disposeModelCopy(child);
         }
         this.propGroup.parent?.remove(this.propGroup);
         this.propGroup = null;
@@ -3286,7 +4038,11 @@ class MapEditor3D {
         if (now === null || !manager || !object) return;
         const size = Math.max(0.1, Math.min(64, Math.round(state.startSize * (1 + (now - state.start) / state.reach) * 100) / 100));
         manager.elevation()?.updateProp(manager.currentMap, state.id, { size, scale: 1 });
-        this.placeProp(object, manager.prop(state.id));
+        // The model grows under the pointer: its scale as well as its place, and the handle stays on its corner.
+        this.poseProp(object, manager.prop(state.id));
+        if (this.propSizeHandle) this.propSizeHandle.userData.reach = Math.max(0.6, size * 0.6 + 0.2) * 1.1;
+        this.syncPropRings();
+        this.requestRender();
         manager._syncCard?.();
         this._propMoved = true;
     }
@@ -3516,7 +4272,7 @@ class MapEditor3D {
      * merged mesh per sheet, so a hit against them identifies a sheet rather
      * than a tile and is no use for picking.
      */
-    eventAt(clientX, clientY) {
+    eventAt(clientX, clientY, tile = undefined) {
         if (!this.pickables || !this.pickables.length || !this.camera || !this.canvas) return null;
         const rect = this.canvas.getBoundingClientRect();
         if (!rect.width || !rect.height) return null;
@@ -3541,16 +4297,40 @@ class MapEditor3D {
                 if (!best || distance < best.distance) best = { object: child, distance };
             }
         }
+        if (!best) {
+            // A sized event answers on every tile of its footprint, as it does on the 2D map.
+            const sidecar = this.currentMap()?.reactor3d;
+            const sized = sidecar && (sidecar.eventSize || sidecar.eventSizeAuto);
+            if (sized && Object.keys(sized).length) {
+                const at = tile === undefined ? this.tileAt(clientX, clientY) : tile;
+                const event = at ? this.eventManager()?.getEventAt?.(at.x, at.y) : null;
+                if (event && (event.x !== at.x || event.y !== at.y)) return this.eventMarker(event);
+            }
+        }
         return best ? best.object : null;
     }
 
     /**
-     * The map tile under the cursor.
+     * The map tile under the cursor: the tile whose standing surface the
+     * pointer's ray meets first. The ground, a path, a floor and a rock
+     * are stood on, and so is any level top seen directly (a deck, a
+     * bridge, an upper floor, a wall's top). A pitched roof or a wall's
+     * face in the way is looked through, so the tile named is the one seen
+     * at the pointer and an event dropped on it lands under the pointer.
+     * Water is its surface: the tile the sheet lies over where the ray
+     * comes down into it.
      *
      * The ground is one merged mesh per sheet, so a hit cannot name a tile
      * directly — but the world position can, since the map is one unit per
      * tile. That is what lets the 3D view call the same `paintTile` the 2D
      * canvas does rather than growing a second painting path.
+     *
+     * `lift` is how far over the tile's own ground the surface was met, for
+     * the outline, which is drawn on that surface. `level` is set for water
+     * alone: the height its surface lies at, flat whatever the bed does.
+     * `height` is the world height of the surface met, for what is stood on
+     * it by the click (a unit, a new event). The last answer is kept as
+     * `lastPick`.
      */
     tileAt(clientX, clientY) {
         const mapData = this.currentMap();
@@ -3565,19 +4345,234 @@ class MapEditor3D {
         ), this.camera);
 
         const hit = this.raycastMapMeshes();
-        if (!hit) return null;
-        const point = hit.point;
-        const x = Math.floor(point.x);
-        const y = Math.floor(point.z);
-        if (x < 0 || y < 0 || x >= mapData.width || y >= mapData.height) return null;
-        return {
-            x,
-            y,
+        const pick = hit ? MapEditor3D.standPick(mapData, this._raycaster.ray, hit) : null;
+        if (!pick) { this.lastPick = null; return null; }
+        return (this.lastPick = {
+            x: pick.x,
+            y: pick.y,
             // Where within the tile, in pixels, for the tools that care which
             // quadrant was clicked.
-            localX: (point.x - x) * this.tilePixels(),
-            localY: (point.z - y) * this.tilePixels()
-        };
+            localX: (pick.px - pick.x) * this.tilePixels(),
+            localY: (pick.pz - pick.y) * this.tilePixels(),
+            lift: pick.lift,
+            level: pick.level,
+            height: Number.isFinite(pick.level) ? pick.level : MapEditor3D.groundAt(mapData, pick.px, pick.pz) + pick.lift
+        });
+    }
+
+    /**
+     * How far from a tile's standing surface a hit still counts as on it:
+     * what a laid surface differs from the height read for it (a path's
+     * slab, a rock's rounded top), and the tallest riser taken as a step.
+     */
+    static get STAND_REACH() { return 0.5; }
+
+    /**
+     * How level a face is while it is still a top something stands on: the
+     * upward part of its unit normal. A deck bent over rolling ground is
+     * above it; a roof's pitch (0.71 at 45 degrees) is under it.
+     */
+    static get LEVEL_TOP() { return 0.9; }
+
+    /**
+     * How far off a ray is taken to end when it meets nothing laid (the sky,
+     * the land past the border): as far as the sky stands. The camera turns
+     * about that point and a zoom holds it still.
+     */
+    static get OPEN_REACH() { return (typeof Reactor3D !== 'undefined' && Reactor3D.SKY_RADIUS) || 160; }
+
+    /** The ground at a world point of the map: the cell's elevation and the terrain's rise there. */
+    static groundAt(mapData, wx, wz) {
+        return Reactor3D.elevationAt(mapData, Math.floor(wx), Math.floor(wz))
+            + (Reactor3D.terrainHeightAt ? Reactor3D.terrainHeightAt(mapData, wx, wz) || 0 : 0);
+    }
+
+    /**
+     * Where an event placed at a world point of the map stands: the ground
+     * or what is built on it from the ground up, by the game's own height
+     * rule (`Reactor3D.groundHeightAt`, which `placeEvent` and the running
+     * game both read). A cell holding a wall is the wall's top by that rule.
+     */
+    static standAt(mapData, wx, wz) {
+        return Reactor3D.groundHeightAt ? Reactor3D.groundHeightAt(mapData, wx, wz) : MapEditor3D.groundAt(mapData, wx, wz);
+    }
+
+    /**
+     * How level a triangle of a mesh lies: the upward part of its unit
+     * normal, 1 for a floor's top, 0 for a wall's face, under 0 for an
+     * underside. Read from the mesh's own vertices, which the laid meshes
+     * keep in world units.
+     */
+    static faceUp(mesh, triangle) {
+        const geometry = mesh && mesh.geometry, position = geometry && geometry.attributes && geometry.attributes.position;
+        if (!position || !Number.isInteger(triangle)) return 0;
+        const index = geometry.index ? geometry.index.array : null;
+        const a = index ? index[triangle * 3] : triangle * 3, b = index ? index[triangle * 3 + 1] : triangle * 3 + 1, c = index ? index[triangle * 3 + 2] : triangle * 3 + 2;
+        const ax = position.getX(a), ay = position.getY(a), az = position.getZ(a);
+        const ux = position.getX(b) - ax, uy = position.getY(b) - ay, uz = position.getZ(b) - az;
+        const vx = position.getX(c) - ax, vy = position.getY(c) - ay, vz = position.getZ(c) - az;
+        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+        const length = Math.hypot(nx, ny, nz);
+        return length > 0 ? ny / length : 0;
+    }
+
+    /**
+     * The tile a ray names, from the nearest laid surface it met (`hit`):
+     * `{ x, y, px, pz, lift }` (the tile, the world point picked in it, and
+     * the picked surface's height over the tile's ground there), or null.
+     *
+     * A hit on the standing surface is that tile, and so is the ground
+     * itself wherever it shows and any level top the ray comes down onto (a
+     * deck, a bridge, an upper floor, a wall's top): somebody can be stood
+     * there, and the cell under the pointer is the one meant. A hit on a
+     * piece or the room's shell that is not stood on (a pitched roof, a
+     * wall's face) is looked through to the floor behind it under the same
+     * cover (`standCrossing`), so an event dropped there stands where the
+     * pointer is. With no such floor, a piece names the cell under the
+     * point met (a roof seen from too flat an angle to show the floor under
+     * it, a rock's face, a post), marked at the pointer, and the room's
+     * wall or ceiling is no tile at all. The side of a raised cell is that
+     * cell, marked at the pointer. Tile art that stands up names the cell
+     * it stands on, drawn on the ground. A pick under water is the water's
+     * surface (`waterPick`).
+     */
+    static standPick(mapData, ray, hit) {
+        const origin = ray.origin, direction = ray.direction;
+        // A face seen side-on ends on a cell's edge: a step along the ray names the cell behind the face.
+        const px = hit.point.x + direction.x * 1e-3, pz = hit.point.z + direction.z * 1e-3;
+        const inside = px >= 0 && pz >= 0 && px < mapData.width && pz < mapData.height;
+        const data = (hit.object && hit.object.userData) || {};
+        const shell = !!data.roomPiece && data.roomPiece !== 'floor';
+        const named = (wx, wz, height) => ({ x: Math.floor(wx), y: Math.floor(wz), px: wx, pz: wz, lift: height - MapEditor3D.groundAt(mapData, wx, wz) });
+        let pick = null;
+        if (!shell && !data.pieces && !data.rrDoor) {
+            if (!inside) return null;
+            // Under the cell's own ground the hit is the cell's side (a cliff's face): the outline is drawn at the
+            // height met, since on the cell's top it would stand the cliff's height away from the pointer. (A tenth
+            // of a tile is what a sheet's triangles lie under the height read for a bent tile.)
+            const side = hit.point.y < MapEditor3D.groundAt(mapData, px, pz) - 0.1;
+            pick = data.roomPiece || side ? named(px, pz, hit.point.y) : { x: Math.floor(px), y: Math.floor(pz), px, pz, lift: 0 };
+        } else {
+            if (inside && !shell) {
+                const stood = Math.abs(hit.point.y - MapEditor3D.standAt(mapData, px, pz)) <= MapEditor3D.STAND_REACH;
+                // A top the ray comes down onto, level enough to stand on. Looked through like a roof, it would
+                // name ground beyond it, a different tile at every angle of the view.
+                const level = !stood && !!data.pieces && direction.y < 0
+                    && Math.abs(MapEditor3D.faceUp(hit.object, hit.triangle)) >= MapEditor3D.LEVEL_TOP;
+                if (stood || level) pick = named(px, pz, hit.point.y);
+            }
+            if (!pick) {
+                const crossing = MapEditor3D.standCrossing(mapData, origin, direction, hit.distance);
+                if (crossing) pick = named(crossing.x, crossing.z, crossing.y);
+                else if (inside && !shell) pick = named(px, pz, hit.point.y);
+            }
+        }
+        return pick ? MapEditor3D.waterPick(mapData, ray, pick) : null;
+    }
+
+    /**
+     * A pick that lies under water, as the water: the tile the sheet lies
+     * over where the ray comes down through its surface, marked on the
+     * surface (`level`, the surface's height: the outline lies flat there,
+     * where every other one follows its ground). The laid meshes hold the
+     * bed and not the sheet, and the bed of a deep lake is met many tiles
+     * past the place on the water the pointer is on. Any other pick is
+     * returned as it is.
+     */
+    static waterPick(mapData, ray, pick) {
+        if (!Reactor3D.waterSurfaceAt || !Reactor3D.hasWater || !Reactor3D.hasWater(mapData)) return pick;
+        const origin = ray.origin, direction = ray.direction;
+        if (!(direction.y < 0)) return pick;
+        let level = Reactor3D.waterSurfaceAt(mapData, pick.px, pick.pz);
+        if (level === null || !(MapEditor3D.groundAt(mapData, pick.px, pick.pz) + pick.lift < level - 0.05)) return pick;
+        let wx = pick.px, wz = pick.pz;
+        // A river's surface slopes along its run: the level is read again where the ray meets it.
+        for (let pass = 0; pass < 3; pass++) {
+            const t = (level - origin.y) / direction.y;
+            if (!(t > 0)) return pick;
+            wx = origin.x + direction.x * t; wz = origin.z + direction.z * t;
+            if (!(wx >= 0 && wz >= 0 && wx < mapData.width && wz < mapData.height)) return pick;
+            const there = Reactor3D.waterSurfaceAt(mapData, wx, wz);
+            // Dry at that point: the ray came in under a bank or behind a fall, and what it met stays the pick.
+            if (there === null) return pick;
+            if (Math.abs(there - level) < 0.02) break;
+            level = there;
+        }
+        return { x: Math.floor(wx), y: Math.floor(wz), px: wx, pz: wz, lift: level - MapEditor3D.groundAt(mapData, wx, wz), level };
+    }
+
+    /**
+     * Whether something built stands over a world point at a height: a roof,
+     * an upper floor, the rest of a wall or a post above it.
+     */
+    static coveredAt(mapData, wx, wy, wz) {
+        const x = Math.floor(wx), z = Math.floor(wz);
+        const stack = Reactor3D.piecesAt && Reactor3D.pieceTop ? Reactor3D.piecesAt(mapData, x, z) : null;
+        if (!stack) return false;
+        const over = wy - MapEditor3D.groundAt(mapData, wx, wz);
+        for (const piece of stack) if (Reactor3D.pieceTop(piece, wx - x, wz - z) > over) return true;
+        return false;
+    }
+
+    /**
+     * Where a ray, from `from` along it, first comes down onto the standing
+     * surface of the map (`standAt`): `{ x, y, z }` in the world, a point of
+     * the ray, or null. Walked cell by cell with the surface read where the
+     * ray enters, crosses the middle of and leaves each cell. A column the
+     * ray enters through its side (a rock's face, a stack of blocks) is
+     * passed through, unless its top is within a step of the ray, which is
+     * that step.
+     *
+     * The walk is for the floor under what was met: it ends where the ray
+     * comes out into the open (nothing built over it) still more than a
+     * step over the surface, since what it would come down on from there is
+     * somewhere else on the map, behind the building. A ray gone under the
+     * ground itself has no surface left to meet either.
+     */
+    static standCrossing(mapData, origin, direction, from) {
+        const ox = origin.x, oy = origin.y, oz = origin.z, dx = direction.x, dy = direction.y, dz = direction.z;
+        const width = mapData.width, height = mapData.height, reach = MapEditor3D.STAND_REACH;
+        const gap = t => oy + dy * t - MapEditor3D.standAt(mapData, ox + dx * t, oz + dz * t);
+        const at = t => ({ x: ox + dx * t, y: oy + dy * t, z: oz + dz * t });
+        let t = Math.max(0, from) + 1e-3;
+        let cx = Math.floor(ox + dx * t), cz = Math.floor(oz + dz * t);
+        const stepX = dx > 0 ? 1 : -1, stepZ = dz > 0 ? 1 : -1;
+        const perX = dx !== 0 ? Math.abs(1 / dx) : Infinity, perZ = dz !== 0 ? Math.abs(1 / dz) : Infinity;
+        let nextX = dx !== 0 ? ((dx > 0 ? cx + 1 : cx) - ox) / dx : Infinity;
+        let nextZ = dz !== 0 ? ((dz > 0 ? cz + 1 : cz) - oz) / dz : Infinity;
+        // Straight down: one cell, met where the ray reaches its surface.
+        if (nextX === Infinity && nextZ === Infinity) {
+            if (!(dy < 0) || cx < 0 || cz < 0 || cx >= width || cz >= height) return null;
+            const down = (oy - MapEditor3D.standAt(mapData, ox, oz)) / -dy;
+            return down >= t ? at(down) : null;
+        }
+        for (let cells = width + height + 4; cells > 0; cells--) {
+            const exit = Math.min(nextX, nextZ);
+            if (cx >= 0 && cz >= 0 && cx < width && cz < height) {
+                const inset = Math.min(1e-4, (exit - t) / 4);
+                const first = t + inset, end = exit - inset;
+                let low = first, lowGap = gap(first);
+                // Into a cell through its side: a step's riser is the step (also past a wall, where the ray comes
+                // out just under the floor behind it); anything taller is passed through.
+                if (lowGap <= 0 && lowGap >= -reach) return at(first);
+                for (let i = 1; i <= 2; i++) {
+                    const high = i === 1 ? (first + end) / 2 : end, highGap = gap(high);
+                    if (lowGap > 0 && highGap <= 0) {
+                        let above = low, under = high;
+                        for (let n = 0; n < 16; n++) { const middle = (above + under) / 2; if (gap(middle) > 0) above = middle; else under = middle; }
+                        return at(under);
+                    }
+                    low = high; lowGap = highGap;
+                }
+                if (lowGap <= 0 && oy + dy * end < MapEditor3D.groundAt(mapData, ox + dx * end, oz + dz * end) - 0.05) return null;
+                if (lowGap > reach && !MapEditor3D.coveredAt(mapData, ox + dx * end, oy + dy * end, oz + dz * end)) return null;
+            } else if ((cx < 0 && stepX < 0) || (cx >= width && stepX > 0) || (cz < 0 && stepZ < 0) || (cz >= height && stepZ > 0)) {
+                return null;
+            }
+            t = exit;
+            if (nextX <= nextZ) { cx += stepX; nextX += perX; } else { cz += stepZ; nextZ += perZ; }
+        }
+        return null;
     }
 
     /**
@@ -3587,18 +4582,27 @@ class MapEditor3D {
      * triangle of every sheet, which on a large map was milliseconds per
      * pointer move, twice a move. Falls back to three when the tree helper
      * is missing.
+     *
+     * The sky is not among them: its dome stands around the camera at a
+     * fixed radius and is drawn behind everything, so the ray would meet it
+     * before any ground farther from the eye than that radius, and every
+     * pick from a far zoom would land on the sky.
      */
     raycastMapMeshes() {
         const laid = this.mapScene && this.mapScene._meshes;
         if (!laid || !this._raycaster) return null;
+        // One list kept for every pick: a pointer move asks several times.
+        const meshes = this._pickMeshes || (this._pickMeshes = []);
+        meshes.length = 0;
+        for (const mesh of laid) if (mesh && !(mesh.userData && mesh.userData.roomPiece === 'sky')) meshes.push(mesh);
         // A door's leaves are picked like a piece: a click on a door is the door, not the room behind it.
         const leaves = this.mapScene._doorGroup ? this.mapScene._doorGroup.children : null;
-        const meshes = leaves && leaves.length ? laid.concat(leaves) : laid;
+        if (leaves) for (const leaf of leaves) meshes.push(leaf);
         if (typeof RRMeshBvh !== 'undefined' && RRMeshBvh.raycastMeshes) {
             return RRMeshBvh.raycastMeshes(this._raycaster.ray, meshes, THREE);
         }
         const hits = this._raycaster.intersectObjects(meshes, false);
-        return hits.length ? { point: hits[0].point, distance: hits[0].distance, object: hits[0].object } : null;
+        return hits.length ? { point: hits[0].point, distance: hits[0].distance, object: hits[0].object, triangle: hits[0].faceIndex } : null;
     }
 
     /** Mark a mesh as the selected one, or clear the selection with null. */
@@ -3695,16 +4699,16 @@ class MapEditor3D {
         // A previewed model's root is a Group: no material of its own, and
         // its scale IS the model's size. Reaching for either crashed the
         // click handler mid-update and took the outlines and labels with it
-        // until a restart — the arrows and grid mark its selection instead.
-        if (mesh.userData.modelPreview) return;
+        // until a restart — the arrows and grid mark its selection, and so
+        // does its event's box, which is drawn through the model.
+        if (mesh.userData.modelPreview) {
+            const marker = this.eventMarker(mesh.userData.event);
+            if (marker) this.highlightEventBox(marker, on);
+            return;
+        }
         const scale = on ? 1.25 : 1;
         mesh.scale.set(scale, scale, scale);
-        // The box marks the cell, so it holds its size and brightens instead.
-        const box = mesh.userData.box;
-        if (box) {
-            box.material.opacity = on ? 1 : 0.8;
-            box.material.color.setHex(on ? 0xfff2a0 : box.userData.color);
-        }
+        this.highlightEventBox(mesh, on);
         if (!mesh.material) return;
         if (mesh.material.map) {
             // A character sprite is brightened rather than faded: dimming the
@@ -3715,7 +4719,19 @@ class MapEditor3D {
         }
     }
 
+    /** The box marks the cell, so it holds its size: the selected one brightens to the accent and shows through what stands on it. */
+    highlightEventBox(mesh, on) {
+        const box = mesh.userData.box;
+        if (!box) return;
+        box.material.opacity = on ? 1 : 0.8;
+        box.material.color.setHex(on ? this.selectedEventColor() : box.userData.color);
+        this.eventBoxOnTop(box, on || mesh.userData.modelShown === true);
+    }
+
     eventColor(event) {
+        // A battle unit's box is its side's color, whatever page of it is drawn.
+        const side = MapEditor3D.unitSide(this.currentMap(), event);
+        if (side) return MapEditor3D.colorNumber(side.color);
         const trigger = event.pages?.[0]?.trigger ?? 0;
         switch (trigger) {
             case 1: return 0x4ea3ff;   // player touch
@@ -3734,12 +4750,9 @@ class MapEditor3D {
         if (this.eventGroup) {
             for (const child of this.eventGroup.children) {
                 if (child.userData?.modelPreview) {
-                    // A previewed model: instance materials are ours, the
-                    // geometry belongs to the shared template.
-                    child.traverse(node => {
-                        const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
-                        for (const material of materials) material.dispose?.();
-                    });
+                    // A previewed model: its materials and what was made for this
+                    // copy alone are ours, the rest belongs to the shared template.
+                    this.disposeModelCopy(child);
                     continue;
                 }
                 child.geometry?.dispose?.();
@@ -3844,7 +4857,11 @@ class MapEditor3D {
                     this.pointer.propHold = true;
                     const manager = this.pieceManager();
                     const held = this.grabShapeGizmo(event.clientX, event.clientY);
-                    const propHit = held ? null : this.propAt(event.clientX, event.clientY, true);
+                    // Water nearest under the pointer: the press takes no piece seen through it, and the
+                    // release (a click) turns the bar to that sheet. A drag from here still draws the box.
+                    const nearest = held ? null : this.selectHitAt(event.clientX, event.clientY);
+                    const water = nearest?.kind === 'water' ? nearest : null;
+                    const propHit = held || water ? null : this.propAt(event.clientX, event.clientY, true);
                     if (propHit && this.propsManager() && window.reactor?.buildHotbar?.selectModel) {
                         // A placed model: the bar turns to Models in Select, and the models
                         // tool (below, now holding the map) picks it up and carries a drag.
@@ -3854,7 +4871,7 @@ class MapEditor3D {
                     } else {
                         const pick = this.pieceTargetAt(event.clientX, event.clientY, { erase: true });
                         const wasSelected = manager.selectionIds();
-                        const under = pick ? manager.pieceAtTarget(pick) : null;
+                        const under = pick && !water ? manager.pieceAtTarget(pick) : null;
                         if (under && wasSelected.includes(under.id)) {
                             // A press on the selection: dragging slides it (all of it).
                             manager.selectAt(pick);
@@ -3863,10 +4880,11 @@ class MapEditor3D {
                             // A click picks what is under the pointer (or nothing); a drag from
                             // here instead draws a box that selects everything inside it, so a
                             // building can be boxed even where its floor covers the ground.
-                            manager.selectAt(pick);
+                            manager.selectAt(water ? null : pick);
                             const planeY = pick && Number.isFinite(pick.top) ? pick.top : 0;
                             const ground = this.planePointAt(event.clientX, event.clientY, planeY);
                             if (ground) this.pointer.band = { start: ground, end: ground, planeY, started: false };
+                            if (water) this.pointer.across = { from: 'build', hit: water };
                         }
                     }
                 } else if (target) {
@@ -3898,12 +4916,14 @@ class MapEditor3D {
                 // Remove takes the sheet drawn under the pointer first: a sheet standing
                 // high over the ground is not over the cell the ray meets beyond it.
                 const mode = this.terrainManager().mode;
-                const sheet = mode === 'drain' || mode === 'look' ? this.waterMeshAt(event.clientX, event.clientY) : null;
+                // Look picks with a click: the press only notes it, so a drag from anywhere turns the view
+                // and the sheet in hand stays in hand; the release settles what was clicked (settleSelectClick).
+                if (mode === 'look') this.pointer.across = { from: 'terrain' };
+                const sheet = mode === 'drain' ? this.waterMeshAt(event.clientX, event.clientY) : null;
                 const point = sheet || mode === 'look' ? null : this.groundPointAt(event.clientX, event.clientY);
                 if (sheet) {
                     this.pointer.terrain = true;
-                    if (mode === 'look') this.terrainManager().selectWater(sheet);
-                    else this.terrainManager().drainRegion(sheet);
+                    this.terrainManager().drainRegion(sheet);
                 }
                 else if (point) {
                     this.pointer.terrain = true;
@@ -3955,6 +4975,9 @@ class MapEditor3D {
                         } else {
                             manager.select(null, { fromThree: true });
                             this.selectProp(null);
+                            // Select off every model: a drag from here turns the view; a click on a water
+                            // sheet or a building turns the bar to its group on release (settleSelectClick).
+                            if (manager.tool === 'select') this.pointer.across = { from: 'models' };
                         }
                     }
                 }
@@ -3983,6 +5006,12 @@ class MapEditor3D {
                     const mesh = this.eventAt(event.clientX, event.clientY);
                     if (mesh) {
                         this.pointer.drag = mesh;
+                        // Where the event was taken hold of, in tiles from its own: a sized event's
+                        // marker stands in the middle of its footprint, and stays under the pointer.
+                        const held = this.tileAt(event.clientX, event.clientY), grabbed = mesh.userData.event;
+                        this.pointer.dragOffset = held && grabbed ? MapEditor3D.eventGrabOffset(grabbed, held,
+                            typeof RRMapElevation !== 'undefined' && RRMapElevation.eventSize ? RRMapElevation.eventSize(this.currentMap(), grabbed.id) : [1, 1],
+                            typeof RRMapElevation !== 'undefined' && RRMapElevation.eventFootprintOrigin ? RRMapElevation.eventFootprintOrigin(this.currentMap(), grabbed.id) : [0, 0]) : [0, 0];
                         this.beginEventDrag();
                     }
                 }
@@ -3997,6 +5026,8 @@ class MapEditor3D {
                 // One raycast answers both questions.
                 const tile = this.tileAt(event.clientX, event.clientY);
                 this.updateHover(event.clientX, event.clientY, tile);
+                // Passage: what a character can do at each side of the place under the pointer (the ray is tileAt's).
+                if (globalThis.RRMapEdgeLabels?.on) globalThis.RRMapEdgeLabels.hover(this, event.clientX, event.clientY, tile);
                 if (tile) window.reactor?.updateMapCoordinates?.(tile.x, tile.y);
                 return;
             }
@@ -4086,7 +5117,8 @@ class MapEditor3D {
             } else if (this.pointer.drag) {
                 const tile = this.tileAt(event.clientX, event.clientY);
                 if (tile) {
-                    this.dragEventTo(this.pointer.drag, tile);
+                    const [heldX, heldY] = this.pointer.dragOffset || [0, 0];
+                    this.dragEventTo(this.pointer.drag, { x: tile.x - heldX, y: tile.y - heldY });
                     this.updateHoverCell(tile);
                 }
             } else if (this.pointer.look) {
@@ -4115,6 +5147,10 @@ class MapEditor3D {
                 this.pieceManager()?.endStroke();
                 return;
             }
+            // A Select or Look press that went nowhere is a click on what it found.
+            if (drag && drag.across && event.type === 'pointerup' && !(drag.band && drag.band.started)
+                && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) <= 4
+                && this.settleSelectClick(drag.across, event.clientX, event.clientY)) return;
             if (drag && drag.band) {
                 if (!drag.band.started) return;
                 const box = this.showSelectionBand(drag.band.start, drag.band.end, drag.band.planeY);
@@ -4456,6 +5492,9 @@ class MapEditor3D {
         if (typeof this.onEventSelected === 'function') this.onEventSelected(picked);
         if (!picked) {
             const tile = this.tileAt(clientX, clientY);
+            // Battle Setup has a unit in hand: the click stands it where its preview stands, on the surface the pointer met.
+            const setup = typeof window !== 'undefined' ? window.RRBattleSetup : null;
+            if (tile && setup?.placeAt(this.eventManager(), tile.x, tile.y, setup.whereOf(this, tile, { x: clientX, y: clientY }))) return;
             if (tile) this.eventManager()?.selectTile(tile.x, tile.y);
         }
     }
@@ -4476,13 +5515,16 @@ class MapEditor3D {
             return;
         }
         event.preventDefault();
+        // Battle Setup has a unit in hand: two quick clicks are two clicks, and no event opens.
+        if (typeof window !== 'undefined' && window.RRBattleSetup?.holding?.()) return;
         const cube = this.eventAt(event.clientX, event.clientY);
         if (cube) {
             const picked = this.select(cube);
             if (picked && typeof this.onEventActivated === 'function') this.onEventActivated(picked);
         } else {
             const tile = this.tileAt(event.clientX, event.clientY);
-            if (tile) this.eventManager()?.activateEventAt(tile.x, tile.y);
+            // A new event opened on a deck, a bridge or an upper floor stands there: its Z is the surface's.
+            if (tile && this.eventManager()?.activateEventAt(tile.x, tile.y) && typeof window !== 'undefined') window.RRBattleSetup?.standNewEvent?.(this.eventManager(), tile);
         }
     }
 
@@ -4496,8 +5538,9 @@ class MapEditor3D {
         this.updateHoverCell(this.canEditTerrain() ? null : tile);
         if (this.canEditTerrain()) {
             const manager = this.terrainManager(), point = this.groundPointAt(clientX, clientY);
-            const water = manager.mode === 'fill' || manager.mode === 'drain' || manager.mode === 'look' || manager.mode === 'river';
-            this.updateTerrainRing(water ? null : point);
+            // The water tools click, and the biome and the border have no brush: no ring.
+            const ringless = ['fill', 'drain', 'look', 'river', 'biome', 'surround'].includes(manager.mode);
+            this.updateTerrainRing(ringless ? null : point);
             manager.hoverAt?.(point);
         } else if (this.terrainRing) this.terrainRing.visible = false;
         if (this.canEditPieces()) this.updatePieceGhost(this.pieceTargetAt(clientX, clientY));
@@ -4519,7 +5562,9 @@ class MapEditor3D {
             return;
         }
         this.hidePlacementGhost();
-        const over = this.canSelectEvents() && this.eventAt(clientX, clientY);
+        const over = this.canSelectEvents() && this.eventAt(clientX, clientY, tile);
+        // Battle Setup: the unit in hand as it will stand, where a click would stand it; over a unit, its name.
+        if (typeof window !== 'undefined' && window.RRBattleSetup) window.RRBattleSetup.hover3D(this, this.canSelectEvents() ? tile : null, over ? over.userData?.event : null, { x: clientX, y: clientY });
         this.canvas.style.cursor = over
             ? (this.canDragEvents() ? 'grab' : 'pointer')
             : 'default';
@@ -4555,8 +5600,13 @@ class MapEditor3D {
             // still says something, and is better than a stale number.
             const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
             point = this._raycaster.ray.intersectPlane(ground, new THREE.Vector3());
+            // Farther off than the sky stands, or nowhere: the point of the
+            // view ray that far off. A pivot past what an orbit reaches is
+            // cut to that reach from its own side, which moves the eye.
+            if (!point || this.camera.position.distanceTo(point) > MapEditor3D.OPEN_REACH) {
+                point = this._raycaster.ray.at(MapEditor3D.OPEN_REACH, new THREE.Vector3());
+            }
         }
-        if (!point) return false;
 
         const distance = this.camera.position.distanceTo(point);
         if (!(distance > 1)) return false;
@@ -4610,10 +5660,13 @@ class MapEditor3D {
         ), this.camera);
         const hit = this.raycastMapMeshes();
         if (hit) return hit.point.clone();
-        // Empty map space uses the current orbit plane; rays looking away
-        // from that plane keep ordinary distance-only zoom.
-        return this._raycaster.ray.intersectPlane(
-            new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.view.target.y), new THREE.Vector3());
+        // Empty map space uses the current orbit plane. Where the ray meets it
+        // farther off than the sky stands, or not at all, the point of the ray
+        // that far off: a notch moves the eye a tenth of the way to the
+        // anchor, and the plane near the horizon is thousands of tiles off.
+        const ray = this._raycaster.ray, reach = MapEditor3D.OPEN_REACH;
+        const point = ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.view.target.y), new THREE.Vector3());
+        return point && ray.origin.distanceTo(point) <= reach ? point : ray.at(reach, new THREE.Vector3());
     }
 
     zoom(deltaY, clientX, clientY) {
@@ -4874,6 +5927,10 @@ class MapEditor3D {
      * always gave them, rather than lifted to the full rate.
      */
     idleInterval() {
+        // A drifting sky moves a fraction of a pixel a frame: a still view under one draws thirty times a
+        // second, not sixty. (It drew every frame, for hours, on any map whose sky scrolls.)
+        const sky = this.mapScene?._sky?.userData?.sky;
+        if (sky && (sky.driftX || sky.driftY)) return MapEditor3D.SKY_INTERVAL_MS;
         return this.mapScene?._waterMeshes?.length ? 100 : MapEditor3D.IDLE_INTERVAL_MS;
     }
 
@@ -4898,9 +5955,7 @@ class MapEditor3D {
     previewActive(now) {
         if (this.projectController?.mediaSurfacePreviewManager?.previewActive?.()) return true;
         if (this.flying()) return true;
-        // A drifting sky is a moving picture: drawn at the idle rate it steps.
-        const sky = this.mapScene?._sky?.userData?.sky;
-        if (sky && (sky.driftX || sky.driftY)) return true;
+        // (A drifting sky is drawn at its own rate: see idleInterval.)
         if (this.effectsAnimate()) return true;
         if (this.modelsAnimate()) return true;
         // The light volume is baked over a few dozen drawn frames: a still
@@ -4960,13 +6015,37 @@ class MapEditor3D {
 
     /** A placed model that moves by itself: an action playing, or rules that run on their own (the 2D preview's test). */
     modelsAnimate() {
+        let frustum = null;
         for (const driver of this.animatedModels || []) {
             if (!driver || !driver.object || !driver.object.parent) continue;
-            if (driver.action) return true;
             const rules = Array.isArray(driver.rules) ? driver.rules : [];
-            if (rules.some(rule => rule && (rule.trigger === 'always' || rule.trigger === 'idle'))) return true;
+            if (!driver.action && !rules.some(rule => rule && (rule.trigger === 'always' || rule.trigger === 'idle'))) continue;
+            // A model that moves out of the picture moves nothing in it: the view keeps its idle rate.
+            if (frustum === null) frustum = this.viewFrustum() || false;
+            if (frustum && !this.modelInView(driver.object, frustum)) continue;
+            return true;
         }
         return false;
+    }
+
+    /** The camera's frustum, or null where there is none to ask (no camera yet). */
+    viewFrustum() {
+        const camera = this.camera;
+        if (!camera || typeof THREE === 'undefined' || !camera.projectionMatrix || !camera.matrixWorldInverse) return null;
+        const frustum = this._viewFrustum || (this._viewFrustum = new THREE.Frustum());
+        const matrix = this._viewFrustumMatrix || (this._viewFrustumMatrix = new THREE.Matrix4());
+        return frustum.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    }
+
+    /** Whether a placed model may show in the frustum: a sphere about where it stands, as wide as it can reach (the runtime's InstanceCull rule). */
+    modelInView(object, frustum) {
+        if (!object.matrixWorld || typeof Reactor3D === 'undefined' || !Reactor3D.instanceSpan) return true;
+        const sphere = this._viewSphere || (this._viewSphere = new THREE.Sphere());
+        const span = Reactor3D.instanceSpan(object);
+        sphere.center.setFromMatrixPosition(object.matrixWorld);
+        sphere.center.y += span * 0.5;
+        sphere.radius = span * 1.5 + 1;
+        return frustum.intersectsSphere(sphere);
     }
 
     render(now) {
@@ -5239,6 +6318,8 @@ MapEditor3D.startDirection = function(system) {
 MapEditor3D.INPUT_EVENTS = ['pointerdown', 'pointerup', 'pointermove', 'keydown', 'keyup', 'wheel', 'input', 'change', 'click'];
 /** How often a still view draws anyway: the net under a change nobody announced. */
 MapEditor3D.IDLE_INTERVAL_MS = 1000;
+/** How often a still view under a drifting sky draws: just under two frames, so every other one. */
+MapEditor3D.SKY_INTERVAL_MS = 30;
 /** How long the view keeps drawing after a change: a reflection capture's six faces, and a follow-up a frame late. */
 MapEditor3D.ACTIVE_TAIL_MS = 500;
 

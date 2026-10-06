@@ -2181,11 +2181,13 @@ class EffekseerGenerator {
         this._scheduleRebuild();
     }
 
-    _savePreset() {
+    async _savePreset() {
         const recipe = this._recipe();
         if (!recipe) return;
-        const name = (prompt(this._t('efk.presetName'), '') || '').trim();
-        if (!name) return;
+        const typed = await RRDialog.prompt(this._t('efk.presetName'), { title: this._tx('Save Preset'), value: '', ok: this._tx('Save') });
+        const name = (typed || '').trim();
+        // The preset is for the recipe that was in the panel when the name was asked.
+        if (!name || this._recipe() !== recipe) return;
         const all = this._loadPresets();
         if (!all[recipe.id]) all[recipe.id] = {};
         all[recipe.id][name] = { ...this._params() };
@@ -2716,7 +2718,10 @@ class EffekseerGenerator {
             const effectsDir = path.join(project.path, 'effects');
             const mainPath = path.join(effectsDir, `${name}.efkefc`);
             if (fs.existsSync(mainPath) &&
-                !confirm(`effects/${name}.efkefc ${this._tx('already exists in this project. Overwrite it?')}`)) {
+                !(await RRDialog.confirm(this._tx('{file} already exists in this project. Overwrite it?').replace('{file}', () => `effects/${name}.efkefc`),
+                    { title: this._tx('Overwrite File'), ok: this._tx('Overwrite'), danger: true }))) {
+                // The line may still say "Exported" from an earlier export of this file.
+                this._status(this._tx('Export canceled'));
                 return;
             }
             for (const file of files.values()) {

@@ -190,6 +190,19 @@
         return R.doorBlocking(piece, state) ? piece.z + R.doorLeafHeight(piece) : piece.z;
     };
 
+    /** How far through its swing (0 shut, 1 open) a leaf still stands across its doorway to a shot or a look. */
+    R.DOOR_SHUT_SWING = 0.3;
+
+    /**
+     * Whether a door's leaf stands across its doorway now, whatever kind of door it is: what a shot or a look
+     * is stopped by (`worldRay`). An automatic door lets a walker by yet hides what is behind it until it swings.
+     * No door is shut in the editor or in Node.
+     */
+    R.doorShut = function(piece) {
+        const state = this._doorStates && piece ? this._doorStates.get(piece.id) : null;
+        return !!state && state.t < R.DOOR_SHUT_SWING;
+    };
+
     const gameOn = () => typeof $gamePlayer !== "undefined" && !!$gamePlayer && typeof $gameMap !== "undefined" && !!$gameMap;
     const saved = () => {
         if (typeof $gameSystem === "undefined" || !$gameSystem) return null;

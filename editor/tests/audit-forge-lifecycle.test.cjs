@@ -104,9 +104,11 @@ test('Sound Effect Generator: another project starts from the defaults', () => {
     assert.equal(gen.saveFormat, 'wav');
 });
 
-function characterGenerator(window) {
+function characterGenerator(window, dialog = {}) {
+    // The tool asks and tells through the themed dialog.
+    const RRDialog = Object.assign({ alert: async () => {}, confirm: async () => true, prompt: async () => null }, dialog);
     const CharacterGenerator = loadClass([read('CharacterGenerator/CharacterGenerator.js')], 'CharacterGenerator',
-        { window, document: {}, require, alert() {}, RR_CHARACTER_REGISTRY: [], CharacterRenderer: {} });
+        { window, document: {}, require, RRDialog, RR_CHARACTER_REGISTRY: [], CharacterRenderer: {} });
     const gen = new CharacterGenerator();
     gen.root = {
         querySelector(selector) {
@@ -136,8 +138,7 @@ test('Character Generator: a sheet already in img/characters is replaced only wh
     const outPath = path.join(outDir, '$Hero.png');
     fs.writeFileSync(outPath, 'original');
     let asked = 0, answer = false;
-    const window = Object.assign(stubWindow(), { confirm: () => { asked++; return answer; } });
-    const gen = characterGenerator(window);
+    const gen = characterGenerator(stubWindow(), { confirm: async () => { asked++; return answer; } });
     gen._syncProjectPath = () => project.path;
     await gen._savePartsSheet();
     assert.equal(asked, 1);
@@ -173,7 +174,7 @@ test('Character Generator: a forge part never takes a built-in part id, and save
     const builtIn = { id: 'hair-psychronic-layered-bob', category: 'hair', name: 'Layered Bob' };
     const registry = [builtIn];
     const CharacterGenerator = loadClass([read('CharacterGenerator/CharacterGenerator.js')], 'CharacterGenerator',
-        { window: stubWindow(), document: {}, require, alert() {}, confirm: () => true, RR_CHARACTER_REGISTRY: registry, CharacterRenderer: {} });
+        { window: stubWindow(), document: {}, require, RRDialog: { alert: async () => {}, confirm: async () => true }, RR_CHARACTER_REGISTRY: registry, CharacterRenderer: {} });
     const gen = new CharacterGenerator();
     gen.projectPath = project.path;
     gen._syncProjectPath = () => project.path;
@@ -267,4 +268,55 @@ test('Animation Generator: a different texture with a taken name is kept beside 
     fs.copyFileSync(path.join(srcB, 'smoke.png'), path.join(dest, 'smoke-2.png'));
     assert.equal(AnimationGenerator.textureFileName(dest, path.join(srcB, 'smoke.png')), 'smoke-2.png');
     assert.equal(AnimationGenerator.textureFileName(dest, path.join(dest, 'smoke.png')), 'smoke.png', 'a file picked from textures/ itself keeps its name');
+});
+
+test('a language change keeps a running project tool open and only relabels the workspace', () => {
+    // The workspace was rebuilt on every language change, and Project Tools closes its tool whenever it is
+    // mounted again: whatever the tool held unsaved was gone.
+    const listeners = {};
+    const win = { addEventListener(name, fn) { listeners[name] = fn; }, removeEventListener() {}, I18n: { t: key => `fr:${key}` } };
+    const ForgeManager = loadClass([read('ForgeManager.js')], 'ForgeManager', { window: win, document: {}, require, alert() {} });
+    const names = [{ dataset: { toolId: 'x' }, querySelector: () => null }];
+    const title = { textContent: '' };
+    const manager = new ForgeManager({});
+    let rebuilt = 0;
+    manager._renderWorkspace = () => { rebuilt++; };
+    manager.workspaceModal = { style: { display: 'flex' }, querySelector: sel => sel === '.rr-modal-title' ? title : null, querySelectorAll: () => names };
+    const source = read('ForgeManager.js');
+    const tool = /id:\s*'([^']+)'[^}]*getter:\s*'([^']+)'/.exec(source.slice(source.indexOf('const FORGE_TOOLS')));
+    assert.ok(tool, 'a Forge tool entry names its id and getter');
+    manager.activeToolId = tool[1];
+    // Nothing in hand: the workspace is rebuilt, so every tool's own text follows the language.
+    manager[tool[2]] = { holdsWork: () => false };
+    listeners['rr-language-changed']();
+    assert.equal(rebuilt, 1);
+    // A tool in hand: its page stays, the title takes the new language.
+    manager[tool[2]] = { holdsWork: () => true };
+    listeners['rr-language-changed']();
+    assert.equal(rebuilt, 1, 'the page of a tool that holds work is not mounted again');
+    assert.match(title.textContent, /^fr:menu\.forge \| fr:/);
+    // Project Tools says so exactly while a tool's frame is up.
+    const tools = read('ProjectTools/ProjectTools.js');
+    assert.match(tools, /holdsWork\(\) \{\s*return !!\(this\.frame && this\.activeTool\);/);
+    assert.match(source, /<span class="rr-forge-sidebar-name">\$\{name\}<\/span>/);
+});
+
+test('Effekseer Generator: the generated-texture cache is bounded, and what is in use stays', () => {
+    // A parametric texture's numbers are part of its name, so every stop of a dragged slider made a canvas
+    // that was kept for the life of the editor.
+    const made = [];
+    const context = new Proxy({}, { get: (_, key) => key === 'createLinearGradient' || key === 'createRadialGradient' ? () => ({ addColorStop() {} })
+        : key === 'getImageData' || key === 'createImageData' ? (x, y, w, h) => ({ data: new Uint8ClampedArray((w || x) * (h || y) * 4), width: w || x, height: h || y })
+        : key === 'measureText' ? () => ({ width: 10 }) : () => {} , set: () => true });
+    const document = { createElement: () => { const canvas = { width: 0, height: 0, getContext: () => context, toDataURL: () => 'data:image/png;base64,' }; made.push(canvas); return canvas; } };
+    const RR_EfkTextures = new Function('document', 'atob', `${read('EffekseerGenerator/textures.js')}\n;return RR_EfkTextures;`)(document, s => s);
+    const base = RR_EfkTextures.NAMES[0];
+    const first = RR_EfkTextures.get(base);
+    assert.equal(RR_EfkTextures.get(base), first, 'the same texture is made once');
+    for (let i = 0; i < RR_EfkTextures.CACHE_LIMIT * 3; i++) {
+        RR_EfkTextures.get(`${base}_p${i}`);
+        if (i % 7 === 0) assert.equal(RR_EfkTextures.get(base), first, 'a texture still asked for is never dropped');
+    }
+    assert.ok(RR_EfkTextures.cached() <= RR_EfkTextures.CACHE_LIMIT, `kept ${RR_EfkTextures.cached()}`);
+    assert.equal(RR_EfkTextures.get(base), first);
 });

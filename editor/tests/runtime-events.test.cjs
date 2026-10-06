@@ -55,9 +55,31 @@ const EXPECTED_EMITS = {
     doorOpened: 1,
     doorClosed: 1,
     mapBattleStart: 1,
-    mapBattleTurnStart: 1,
+    // Once from the turn queue, once from an action battle's four-second turn (reactor_fight_action.js).
+    mapBattleTurnStart: 2,
     unitDefeated: 1,
     mapBattleEnd: 1,
+    // Tactical battles (reactor_fight_tactical.js; fightImpact from reactor_fight.js in every on-map mode).
+    fightTeamTurn: 1,
+    fightUnitTurn: 1,
+    // The second and third sites are an army's units moving and acting side by side (reactor_fight_tactical.js).
+    fightMoveStart: 2,
+    fightMoveEnd: 2,
+    fightAim: 3,
+    fightFire: 3,
+    fightImpact: 1,
+    fightActionEnd: 3,
+    fightUnitSpawned: 1,
+    // A unit on watch (overwatch) and its reaction shot: a second emit site for aim, fire and action end.
+    fightOverwatch: 1,
+    // Action and First Person battles (reactor_fight_action.js): a shot at once or one that flies, an alert by sight or by a blow taken.
+    fightShot: 2,
+    fightSwing: 1,
+    fightReload: 1,
+    fightDodge: 1,
+    fightAlert: 2,
+    fightWindup: 1,
+    fightGuard: 1,
 };
 
 // --- runtime harness ------------------------------------------------------

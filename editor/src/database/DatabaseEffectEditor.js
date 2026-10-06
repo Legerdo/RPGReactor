@@ -690,7 +690,8 @@ class DatabaseEffectEditor {
 
     saveEffect(effect) {
         if (!effect.code) {
-            alert(window.I18n ? window.I18n.tText('Please select an effect type before saving.') : 'Please select an effect type before saving.');
+            RRDialog.alert(window.I18n ? window.I18n.tText('Please select an effect type before saving.') : 'Please select an effect type before saving.',
+                { title: window.I18n ? window.I18n.tText('Effects') : 'Effects', kind: 'warning' });
             return false;
         }
 

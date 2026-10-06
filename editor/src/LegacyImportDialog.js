@@ -63,8 +63,7 @@
     function show({ openProject } = {}) {
         const tt = text => (root.I18n ? root.I18n.tText(text) : text);
         if (typeof nw === 'undefined' || typeof require !== 'function') {
-            alert(tt('Importing a project needs the desktop editor.'));
-            return Promise.resolve(null);
+            return RRDialog.alert(tt('Importing a project needs the desktop editor.'), { title: tt('Import Project') }).then(() => null);
         }
         const fs = require('fs'), path = require('path'), os = require('os');
         const appRoot = appRootOf(path);
@@ -422,7 +421,7 @@
                     : state === 'error' ? 'var(--color-danger-bright, #e5484d)'
                     : 'linear-gradient(90deg, var(--color-accent-deep), var(--color-accent-hover))';
             };
-            const start = () => {
+            const start = async () => {
                 const source = sourceInput.value.trim(), parent = parentInput.value.trim(), name = nameInput.value.trim();
                 const info = source ? (probed && sourceInput.value === source ? probed : (probeOf(path, appRoot, source) || { kind: detect(fs, path, source) })) : null;
                 if (!info || !IMPORTABLE.has(info.kind)) { errorEl.textContent = reason(info); return; }
@@ -434,8 +433,12 @@
                 const force = fs.existsSync(destination) && fs.readdirSync(destination).length > 0;
                 // Never over a project open in an editor, this one included: its lock names a live process.
                 if (force && projectOpenAt(fs, path, destination)) { errorEl.textContent = tt('That folder already exists and is not empty.'); return; }
-                if (force && !window.confirm(`${tt('That folder already exists and is not empty.')} ${tt('Import into it again? Files already there are overwritten.')}`)) return;
-                if (!rtpFound() && !window.confirm(`${rtpMissingText.textContent} ${tt('Import without the RTP?')}`)) return;
+                if (force && !(await RRDialog.confirm(`${tt('That folder already exists and is not empty.')} ${tt('Import into it again? Files already there are overwritten.')}`,
+                    { title: tt('Import Project'), ok: tt('Overwrite'), danger: true }))) return;
+                if (!rtpFound() && !(await RRDialog.confirm(`${rtpMissingText.textContent} ${tt('Import without the RTP?')}`,
+                    { title: tt('Import Project'), ok: tt('Import') }))) return;
+                // Closed, or an import started, while a question was up.
+                if (settled || worker) return;
                 errorEl.textContent = '';
                 logEl.textContent = '';
                 startedAt = Date.now(); tick(); clock = setInterval(tick, 1000);
@@ -484,7 +487,10 @@
                 }
             };
             // Closing while an import runs stops it, so it asks first.
-            const close = () => { if (worker && !window.confirm(tt('Stop the import?'))) return; finish(null); };
+            const close = async () => {
+                if (worker && !(await RRDialog.confirm(tt('Stop the import?'), { title: tt('Import Project'), ok: tt('Stop Import'), danger: true }))) return;
+                finish(null);
+            };
             const handleKeyDown = event => {
                 if (event.key === 'Escape' && window.RRContextMenu && window.RRContextMenu.isOpen()) return;   // the menu closes first
                 if (event.key === 'Escape') { event.preventDefault(); close(); }

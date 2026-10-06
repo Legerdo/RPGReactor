@@ -1225,6 +1225,12 @@ class LightingManager {
                 this._bind3DPointer();
                 this._sync3D();
             }
+            // Another map: the steps kept belong to the last one, whether or not the 3D libraries are in yet.
+            if (this.map() !== this._historyMap) {
+                this._historyMap = this.map();
+                this._undo = [];
+                this._redo = [];
+            }
             if (typeof Reactor3D !== 'undefined' && (this.map() !== this._boundMap || this._overlay?.root.parent !== this.tilemapManager?.container)) {
                 this._cancelChipDrag?.();
                 this.armPlacement(null);
@@ -2087,8 +2093,11 @@ class LightingManager {
      * The tag control: a dropdown of every tag on the map, the presets'
      * tags, none, and "new", which turns into a field for the name.
      */
-    _tagControl(light, commit) {
+    _tagControl(light, commitTag) {
         const NEW = '*new*';
+        // A stamped building's light from before lights carried the building's number keeps it when its tag changes.
+        const legacy = !light.structure && /^structure:(\d+)$/.exec(String(light.tag || ''));
+        const commit = patch => commitTag(legacy ? Object.assign({ structure: Number(legacy[1]) }, patch) : patch);
         const known = new Set(typeof RRMapLights !== 'undefined' ? RRMapLights.tags(this.map()) : []);
         for (const preset of this._presets()) if (preset.template.tag) known.add(preset.template.tag);
         if (light.tag) known.add(light.tag);
