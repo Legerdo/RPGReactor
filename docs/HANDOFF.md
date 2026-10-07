@@ -2,9 +2,9 @@
 
 Dated engineering notes for whoever picks the project up next, newest first. This file holds the cycle in progress and the one just shipped. Older cycles are in [archive/handoff](archive/handoff/): [2026-09-14 to 09-21](archive/handoff/2026-09-14-to-21.md) (0.98.7), [2026-09-02 to 09-13](archive/handoff/2026-09-02-to-13.md) (0.98.5 and 0.98.6) and [2026-08 and earlier](archive/handoff/2026-08-and-earlier.md). The verified current state is [STATUS.md](STATUS.md); read that first.
 
-## Where things stand (2026-10-06)
+## Where things stand (2026-10-07)
 
-**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`). The 0.98.9 cycle is open. **Local checkpoint `68467829` (2026-10-06)** saves the vehicle Database, event authoring, map travel, class/equipment reuse, 2D/3D driving and independent engine audio. `runtime/` and all 16 bundled projects carry **20261006.3**. It follows checkpoint `9b959cee` (2026-10-05), which saved the earlier combat coherence and Demo motorcycle work. The latest validation is recorded below. The previously referenced `scratchpad/ux-pass/RESUME.md` and `lead-DOCS.md` are absent; use the checkpoint and dated notes here. No push or release was requested.
+**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`). The 0.98.9 cycle is open. **Local checkpoint `68467829` (2026-10-06)** saves the vehicle Database, event authoring, map travel, class/equipment reuse, 2D/3D driving and independent engine audio. PR [#73](https://github.com/Psychronic-Games/RPGReactor/pull/73) is now integrated alongside this work; `runtime/` and all 16 bundled projects carry **20261007.1**. It follows checkpoint `9b959cee` (2026-10-05), which saved the earlier combat coherence and Demo motorcycle work. The latest validation is recorded below. The previously referenced `scratchpad/ux-pass/RESUME.md` and `lead-DOCS.md` are absent; use the checkpoint and dated notes here. No push or release was requested.
 
 **CI:** the syntax-check and menu-smoke fixes are among the unpushed commits. The Web persistence smoke is intermittent on GitHub and posts its page state as a public annotation on failure (`curl https://api.github.com/repos/Psychronic-Games/RPGReactor/check-runs/<job id>/annotations`). Runner images move to Ubuntu 26 on 2026-10-19; watch the GUI smokes then. **Web bundle:** about 496 of itch's 500 MB after the HD materials (plus door sounds); the owner picks what to trim at the end of the weekend of 2026-10-03 (never the Psychronic BGM), so it does not block work until then.
 
@@ -27,6 +27,35 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 ### Harnesses
 
 Repo `scratchpad/` (gitignored): `start-display.sh` (headless :57; use the X11 env), `ed3d.cjs` (editor on a Demo copy with real clicks; links the Demo's img/audio, never write assets through it), `game-prof.cjs` (BATTLE=troop), `prof3d.cjs`, `ed-prof.cjs`, `look-capture-setup.js` + `look-crops.py` (judge looks with the clock running), `rock-game.cjs`, `battle-shared-check.cjs`, `uverify-game.cjs`, `uab-game.cjs`, `mat-versions.js`, `reflect-shots.cjs`, `core-split-boot.cjs`, plus the per-import oracles under `scratchpad/<game>/`. Parallel agents share one working tree: never `git stash`/`checkout`/`restore` in a brief (compare with `git show HEAD:<file>`), and only the lead syncs the runtime and bumps the revision.
+
+## 2026-10-07 — PR #73 integrated with local development
+
+Merged `origin/main` (`bab5cc76`, PR [#73](https://github.com/Psychronic-Games/RPGReactor/pull/73))
+into local main without conflicts. All 35 existing local commits remain in
+history, including vehicle and combat coherence work. The incoming change
+is 32 added lines across three files: runtime core, its Demo copy and the
+Effekseer state-guard test. The current uncommitted Demo project timestamp
+was preserved byte for byte and excluded from the integration commit.
+
+The scene copy before effects now disables culling, scissor and stencil,
+opens the color mask and resets the blend equation to addition. This fixes
+black scenes after subtractive or culled effects while retaining the
+first-draw/focus/context-restore policy. Runtime **20261007.1** makes existing
+projects receive the fix; all 16 bundled runtime copies are synchronized.
+
+Targeted rendering/core tests passed **23/23**. A disposable NW.js harness
+on ANGLE/OpenGL with an NVIDIA RTX 5070 called the actual runtime scene-copy
+function on real WebGL. All **12 checks** reproduced missing scene pixels
+with the old function and matched clean baseline pixels exactly with the
+merged function: subtractive blending, front-face culling, scissor, stencil,
+color masks and combined state, for 2D and composited 3D sources. This checks
+the scene copy; it is not a full battle/effect-pack playthrough. GUI ran
+separately from Node tests. Evidence: `/tmp/rr-pr73-webgl-smoke.cjs`,
+`/tmp/rr-pr73-webgl-smoke.log`, `/tmp/rr-pr73-targeted-tests.log`.
+Full suite: **6,706 tests, 6,696 passed, 10 skipped, zero failures**
+(`cd editor && node --test --test-concurrency=2`, 144.1 s), recorded in
+`/tmp/rr-pr73-full-suite.log`. Syntax, runtime synchronization, documentation
+links and patch hygiene also passed. No push or release was requested.
 
 ## 2026-10-06 — Local checkpoint and documentation
 
