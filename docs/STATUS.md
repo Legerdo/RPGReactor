@@ -1,6 +1,6 @@
 # Current status
 
-Working changes on **2026-10-06** add vehicle authoring, map travel and class reuse after the local **2026-10-05 checkpoint**. The owner requested a commit and to resume tomorrow; no push or release was requested. The feature descriptions and open work below include earlier observations; this validation does not close their gameplay review gates. Dated engineering history is in [HANDOFF.md](HANDOFF.md) and [docs/archive](archive/README.md), and released behaviour is described in the [changelog](../CHANGELOG.md) and [release notes](posts/release-notes-0.98.8.md).
+Local checkpoint **`68467829` (2026-10-06)** saves vehicle authoring, map travel, class reuse and independent engine audio at runtime **20261006.3**, including the existing Demo party settings. The owner requested this commit and a documentation update; no push or release was requested. The feature descriptions and open work below include earlier observations; this validation does not close their gameplay review gates. Dated engineering history is in [HANDOFF.md](HANDOFF.md) and [docs/archive](archive/README.md), and released behaviour is described in the [changelog](../CHANGELOG.md) and [release notes](posts/release-notes-0.98.8.md).
 
 ## Version and validation
 

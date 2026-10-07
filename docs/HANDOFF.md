@@ -4,7 +4,7 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 
 ## Where things stand (2026-10-06)
 
-**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`). The 0.98.9 cycle is open. The working vehicle pass now carries runtime **20261006.3**; see the 2026-10-06 entry below. **The accumulated editor, runtime and Demo work is saved in the local 2026-10-05 checkpoint:** `runtime/` and all 16 bundled projects carry runtime **20261005.5**, including Cancel to dismount vehicles. The 2026-10-05 validation below resolved the two required-file tracking failures and verified editor save and interaction order. The previously referenced `scratchpad/ux-pass/RESUME.md` and `lead-DOCS.md` are absent; `scratchpad/` was empty when resuming. Use the checkpoint below and the dated notes here; do not assume the missing package briefs are available.
+**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`). The 0.98.9 cycle is open. **Local checkpoint `68467829` (2026-10-06)** saves the vehicle Database, event authoring, map travel, class/equipment reuse, 2D/3D driving and independent engine audio. `runtime/` and all 16 bundled projects carry **20261006.3**. It follows checkpoint `9b959cee` (2026-10-05), which saved the earlier combat coherence and Demo motorcycle work. The latest validation is recorded below. The previously referenced `scratchpad/ux-pass/RESUME.md` and `lead-DOCS.md` are absent; use the checkpoint and dated notes here. No push or release was requested.
 
 **CI:** the syntax-check and menu-smoke fixes are among the unpushed commits. The Web persistence smoke is intermittent on GitHub and posts its page state as a public annotation on failure (`curl https://api.github.com/repos/Psychronic-Games/RPGReactor/check-runs/<job id>/annotations`). Runner images move to Ubuntu 26 on 2026-10-19; watch the GUI smokes then. **Web bundle:** about 496 of itch's 500 MB after the HD materials (plus door sounds); the owner picks what to trim at the end of the weekend of 2026-10-03 (never the Psychronic BGM), so it does not block work until then.
 
@@ -27,6 +27,18 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 ### Harnesses
 
 Repo `scratchpad/` (gitignored): `start-display.sh` (headless :57; use the X11 env), `ed3d.cjs` (editor on a Demo copy with real clicks; links the Demo's img/audio, never write assets through it), `game-prof.cjs` (BATTLE=troop), `prof3d.cjs`, `ed-prof.cjs`, `look-capture-setup.js` + `look-crops.py` (judge looks with the clock running), `rock-game.cjs`, `battle-shared-check.cjs`, `uverify-game.cjs`, `uab-game.cjs`, `mat-versions.js`, `reflect-shots.cjs`, `core-split-boot.cjs`, plus the per-import oracles under `scratchpad/<game>/`. Parallel agents share one working tree: never `git stash`/`checkout`/`restore` in a brief (compare with `git show HEAD:<file>`), and only the lead syncs the runtime and bumps the revision.
+
+## 2026-10-06 — Local checkpoint and documentation
+
+Committed the tested vehicle pass as **`68467829`** (`Add vehicle authoring,
+map travel, class reuse, and engine audio`), including the existing Demo
+party settings and project metadata. The authoring guide, documentation
+index, READMEs and both 0.98.9 changelogs now describe the Vehicles page,
+class/loadout reuse, carried and parked vehicles, shared image pickers,
+Reactor commands and independent engine sound. STATUS points to this
+checkpoint and retains the verified 6,695 passing tests and 1024×600 GUI
+checks. Mounted combat, an in-game vehicle equipment menu and the seat
+hint strip remain open. No push or release.
 
 ## 2026-10-06 — Vehicle labels, collapse spacing and sound
 

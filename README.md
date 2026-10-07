@@ -37,6 +37,7 @@ RPGReactor/
 - [Changelog](CHANGELOG.md): upcoming development and previous releases.
 - [Current status](docs/STATUS.md): the verified state of the tree, runtime defaults, test results, and open work.
 - [Authoring a world](docs/AUTHORING.md): where every part of a 3D map lives, which tool edits it by hand, what a generator writes, and what checks it.
+- [Vehicle authoring guide](docs/AUTHORING.md#authoring-vehicles): vehicle types, event setup, classes and equipment, map travel and sound.
 - [Battle authoring guide](docs/BATTLE-PRESENTATION.md): Battle Rooms, formations, action steps, and supported plugin behavior.
 - [Rigging a 3D model](docs/RIGGING-MODELS.md): templates, hand markers, and what the runtime reads.
 - [Media surface guide](docs/MEDIA-SURFACES.md): image/video placement, transforms, proportions, and legacy command support.

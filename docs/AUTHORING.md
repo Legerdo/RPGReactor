@@ -106,7 +106,9 @@ part. A parked vehicle is an ordinary event with
 vehicle system supplies its model and boarding behavior. The old Reactor
 Room event remains an entrance, separate from the rideable bike.
 
-To author another vehicle, open **Database → Vehicles → + Add Vehicle**,
+## Authoring vehicles
+
+To author a vehicle, open **Database → Vehicles → + Add Vehicle**,
 choose its kind and image. The image control starts in 2D; check **3D**
 to choose a model with the shared model picker. Switching back retains
 the previous assignments. Adjust movement and handling as needed. Create

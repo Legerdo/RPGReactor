@@ -12,6 +12,7 @@ Guides for authoring with the engine, the current verified state, and maintainer
 
 - [Battle modes](BATTLE-MODES.md): Classic and the battles on the map (Tactical, Action, First Person): choosing the mode, units, commands, hooks. Its design and phases: [DESIGN-BATTLE-MODES.md](DESIGN-BATTLE-MODES.md).
 - [Battle Rooms and Action Sequences](BATTLE-PRESENTATION.md): rooms, cameras, formations, visual sequences, assignment, plugin compatibility and current limits.
+- [Vehicles](AUTHORING.md#authoring-vehicles): database types, event setup, classes and equipment, map travel and engine sound; [ride the Demo motorcycle](AUTHORING.md#riding-the-demo-motorcycle).
 - [Rigging a 3D model](RIGGING-MODELS.md): templates, hand markers, placing markers precisely, what the runtime reads.
 - [Model face points and speech](3D-FACE-AND-SPEECH.md): eye placement, mouth and lip authoring, spoken dialogue, per-prop animation speed.
 - [Media surfaces](MEDIA-SURFACES.md): image and video placement on maps, models and the screen; transforms and proportions.
