@@ -204,7 +204,8 @@ const demo = fs.existsSync(path.join(baseline, 'Map005.r3d.json')) ? baseline : 
 test('North Haven\'s hills: along a ridge and back, past ledges on both sides, the party comes to rest and trades end', t => {
     if (!fs.existsSync(path.join(demo, 'Map005.r3d.json'))) return t.skip('the Demo is not in this checkout');
     for (const formation of ['wedge', 'rank', 'column']) {
-        const w = followerWorld({ data: demo, mapId: 5, start: [101, 11], party: party(7), system: { reactorBattle: { partySize: 7 }, maxBattleMembers: 7 }, prepare: map => {
+        // Exercise the default formation spacing, independent of the Demo author's party preferences.
+        const w = followerWorld({ data: demo, mapId: 5, start: [101, 11], party: party(7), system: { reactorBattle: { partySize: 7 }, maxBattleMembers: 7, reactorParty: { formation: 'file', spacing: 1, straggle: 0 } }, prepare: map => {
             map.reactor3d.pieces = map.reactor3d.pieces.filter(piece => piece.kind !== 'rock');
             map.events = [null];
         } });

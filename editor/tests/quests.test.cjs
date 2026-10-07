@@ -821,7 +821,7 @@ test('the Quests tab imports through one button and a source picker, not a plugi
 
 test('the Quests tab is wired like every other Reactor tab, with its own file that a project only gains once it authors one', () => {
     const manager = read('editor/src/DatabaseManager.js');
-    assert.match(manager, /\['quests', 'ReactorQuests\.json'\],\n\s*\['system', 'System\.json'\]/);
+    assert.match(manager, /\['quests', 'ReactorQuests\.json'\]/);
     assert.match(manager, /if \(!Array\.isArray\(loaded\.quests\) \|\| loaded\.quests\.length === 0\) loaded\.quests = \[null\];/);
     assert.match(manager, /if \(key === 'quests' && !this\.hasQuests\(\)\n\s*&& !this\.fs\.existsSync/);
     for (const method of ['getQuests()', 'getQuest(id)', 'hasQuests()', 'addQuest(record)', 'updateQuest(id, data)']) assert.ok(manager.includes(`    ${method} {`), method);

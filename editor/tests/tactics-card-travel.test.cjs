@@ -229,7 +229,7 @@ test('a cleared record and a record a smaller maximum removed keep no settings; 
     }
     // The list's search narrows what is shown by name and id; the record it hands to Copy is the Database's own, whole.
     const source = fs.readFileSync(path.join(editorRoot, 'src', 'DatabaseEditorUI.js'), 'utf8');
-    assert.match(source, /const getSelectedEntries = \(\) => filteredData\s*\.filter\(entry => selectedIds\.has\(entry\.id\)\)\s*\.map\(entry => this\.databaseManager\.data\[type\]\?\.\[entry\.id\] \|\| entry\);/);
+    assert.match(source, /const getSelectedEntries = \(\) => filteredData\s*\.filter\(entry => selectedIds\.has\(entry\.id\)[^\n]*\)\s*\.map\(entry => this\.databaseManager\.data\[type\]\?\.\[entry\.id\] \|\| entry\);/);
     assert.match(source, /filteredData = query \? data\.filter\(entry => \{/);
 });
 

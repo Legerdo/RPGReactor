@@ -826,6 +826,7 @@
         const selectedRow = list.querySelector('.audio-track-item.playing');
         if (selectedRow) selectedRow.scrollIntoView({ block: 'center' });
         setTimeout(() => (selectedRow || list.querySelector('.audio-track-item') || closeX).focus(), 0);
+        return { modal: overlay, close: cancel };
     }
 
     const api = { open };

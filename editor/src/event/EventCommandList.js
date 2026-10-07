@@ -115,6 +115,7 @@ class EventCommandList {
         this.commandPicker = new EventCommandPicker();
         this.playModelAnimationEditor = new PlayModelAnimationEditor();
         this.callUserInterfaceEditor = new CallUserInterfaceEditor();
+        this.vehicleCommandEditor = typeof VehicleCommandEditor !== 'undefined' ? new VehicleCommandEditor() : null;
         this.questCommandEditor = typeof QuestCommandEditor !== 'undefined'
             ? new QuestCommandEditor(eventEditor.databaseManager) : null;
         this.fightCommandEditor = typeof FightCommandEditor !== 'undefined'
@@ -482,6 +483,7 @@ class EventCommandList {
 
     /** The dialog for a Reactor plugin command, by its command name. */
     _reactorCommandEditor(name) {
+        if (typeof VehicleCommandEditor !== 'undefined' && VehicleCommandEditor.supports(name)) return this.vehicleCommandEditor;
         if (typeof MediaSurfaceEditor !== 'undefined'
             && typeof MediaSurfaceEditor.supports === 'function'
             && MediaSurfaceEditor.supports(name)) {
@@ -2171,6 +2173,11 @@ class EventCommandList {
                     if (typeof FightCommandEditor !== 'undefined' && FightCommandEditor.supports(params[1])) {
                         info.name = this._commandName(FightCommandEditor.LABELS[params[1]]);
                         description = FightCommandEditor.summary(params[1], params[3]);
+                        break;
+                    }
+                    if (typeof VehicleCommandEditor !== 'undefined' && VehicleCommandEditor.supports(params[1])) {
+                        info.name = window.I18n ? window.I18n.t(params[1] === 'GetOnVehicle' ? 'vehicle.getOn' : 'vehicle.getOff') : VehicleCommandEditor.LABELS[params[1]];
+                        description = VehicleCommandEditor.summary(params[1], params[3]);
                         break;
                     }
                     // And the Party Followers commands ("Followers walk in a wedge, 2 tiles apart").

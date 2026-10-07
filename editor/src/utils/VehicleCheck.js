@@ -57,23 +57,23 @@
     // The kinds, where the runtime's own table (Reactor3D.Vehicles.KINDS) is not loaded.
     const KINDS = {
         motorcycle: { size: 3.5, speed: 20, arrives: 'V1', rider: 'seat', medium: 'ground', played: true },
-        tank: { size: 12, speed: 9, arrives: 'V2', rider: 'inside', medium: 'ground', played: false },
-        airship: { size: 12, speed: 14, arrives: 'V3', rider: 'inside', medium: 'air', played: false },
-        shuttle: { size: 9, speed: 22, arrives: 'V3', rider: 'inside', medium: 'air', played: false },
-        car: { size: 5, speed: 16, arrives: 'Later', rider: 'seat', medium: 'ground', played: false },
-        boat: { size: 6, speed: 10, arrives: 'Later', rider: 'seat', medium: 'water', played: false },
-        hover: { size: 4, speed: 16, arrives: 'Later', rider: 'seat', medium: 'ground', played: false }
+        tank: { size: 12, speed: 9, arrives: 'V2', rider: 'inside', medium: 'ground', played: true },
+        airship: { size: 12, speed: 14, arrives: 'V3', rider: 'inside', medium: 'air', played: true },
+        shuttle: { size: 9, speed: 22, arrives: 'V3', rider: 'inside', medium: 'air', played: true },
+        car: { size: 5, speed: 16, arrives: 'Later', rider: 'seat', medium: 'ground', played: true },
+        boat: { size: 6, speed: 10, arrives: 'Later', rider: 'seat', medium: 'water', played: true },
+        hover: { size: 4, speed: 16, arrives: 'Later', rider: 'seat', medium: 'ground', played: true }
     };
 
     // The keys each of the three pieces of data has. A key that is not here is not a setting.
     const FORMAT = {
         type: {
-            id: true, name: true, note: true, kind: true, prompt: true, rider: true, encounters: true, bgm: true, flight: true,
+            id: true, name: true, note: true, classId: true, initialLevel: true, equips: true, traits: true, learnings: true, ridable: true, graphic3d: true, medium: true, passability: true, leans: true, walks: true, turnsInPlace: true, kind: true, prompt: true, rider: true, encounters: true, bgm: true, flight: true,
             model: ['name', 'file', 'ext', 'size', 'scale', 'variant', 'texture', 'offset'],
             sheet: ['characterName', 'characterIndex'],
             handling: ['speed', 'toTopSpeed', 'turnCircle', 'jump', 'brake', 'coast', 'reverse', 'lean', 'step', 'wade', 'turnInPlace', 'grip', 'turnRate'],
             body: ['height', 'radius'],
-            sounds: ['engine', 'engineRate', 'start', 'stop', 'bump', 'land', 'scrape', 'skid'],
+            sounds: ['engine', 'engineRate', 'idle', 'accelerate', 'slowdown', 'start', 'stop', 'bump', 'land', 'scrape', 'skid'],
             camera: ['speedDistance', 'speedFov', 'lookAhead', 'minDistance']
         },
         // Read by later versions; named, not refused.
@@ -155,6 +155,8 @@
         'vehicleCheck.noSkeleton': '{rider} has no 3D skeleton: nobody is shown on the seat.',
         'vehicleCheck.laterKind': '{name} is {kind}: this version does not drive those yet.',
         'vehicleCheck.flatMap': '{name} on {map}: this version rides on 3D maps.',
+        'vehicleCheck.noSprite': '{name} on {map} needs a 2D image.',
+        'vehicleCheck.notRidable': '{name}: Rideable is switched off.',
         'vehicleCheck.loopMap': '{name} on {map}: this map loops.',
         'vehicleCheck.firstPersonMap': '{name} on {map}: this map\'s camera is first person.',
         'vehicleCheck.freeOff': '{name} on {map}: free riding is switched off in this project.',
@@ -329,7 +331,7 @@
     //-------------------------------------------------------------------------
     // Sounds.
 
-    const SOUND_SLOTS = ['engine', 'start', 'stop', 'bump', 'land', 'scrape', 'skid'];
+    const SOUND_SLOTS = ['engine', 'idle', 'accelerate', 'slowdown', 'start', 'stop', 'bump', 'land', 'scrape', 'skid'];
     const AUDIO_EXTS = ['.ogg', '.m4a', '.mp3', '.wav', '.flac'];
 
     /**
@@ -347,7 +349,7 @@
         for (const slot of SOUND_SLOTS) {
             const sound = has(own, slot) ? own[slot] : stock[slot];
             const name = typeof sound === 'string' ? sound : sound && sound.name;
-            if (typeof name === 'string' && name) out.push({ slot, name, kind: 'se' });
+            if (typeof name === 'string' && name) out.push({ slot, name, kind: ['idle','accelerate','slowdown'].includes(slot) && sound?.folder!=='se'?'bgs':'se' });
         }
         if (record.bgm && typeof record.bgm.name === 'string' && record.bgm.name) out.push({ slot: 'bgm', name: record.bgm.name, kind: 'bgm' });
         return out;
@@ -588,7 +590,7 @@
             }
 
             // Sounds: each named file is in the project; an engine written as null is silence by hand.
-            if (isObject(record.sounds) && has(record.sounds, 'engine') && record.sounds.engine === null) add('vehicleCheck.noEngine', 'note', { name }, where('sounds.engine'), more);
+            if (isObject(record.sounds) && has(record.sounds, 'engine') && record.sounds.engine === null && !soundsOf(record, lookups).some(sound => ['idle','accelerate','slowdown'].includes(sound.slot))) add('vehicleCheck.noEngine', 'note', { name }, where('sounds.engine'), more);
             for (const sound of soundsOf(record, lookups)) {
                 if (audioExists(lookups, sound.kind, sound.name)) continue;
                 add('vehicleCheck.soundMissing', 'fix', { name, file: `audio/${sound.kind}/${sound.name}.ogg` }, where(sound.slot === 'bgm' ? 'bgm' : `sounds.${sound.slot}`), more);
@@ -606,7 +608,11 @@
                 add('vehicleCheck.unread', 'fix', { file: TYPES_FILE, key }, where(key), more);
             }
 
-            if (!spec) { add('vehicleCheck.noModel', 'fix', { name }, where('model'), more); continue; }
+            if (!spec) {
+                const ownImage=everywhere.some(entry=>entry.row?.type===id && entry.event.pages?.some(page=>page?.image?.characterName || page?.image?.tileId));
+                if (!record.sheet?.characterName && !ownImage && record.ridable!==false) add('vehicleCheck.noModel', 'fix', { name }, where('model'), more);
+                continue;
+            }
             const url = R3 && typeof R3.modelUrl === 'function' ? R3.modelUrl(spec.name, spec.ext, spec.file) : `3d/${spec.name}/source/${spec.file}${spec.ext}`;
             const modelFile = `3d/${spec.name}/model.json`;
             if (typeof lookups.exists === 'function' && !lookups.exists(url)) { add('vehicleCheck.modelMissing', 'fix', { name, path: url }, where('model.name'), more); continue; }
@@ -828,6 +834,7 @@
             if (standing.has(map)) return standing.get(map);
             const made = Object.assign({}, lookups, {
                 body: (event, unit) => {
+                    if (!C.is3D(map,lookups)) return [[0,0]];
                     const row = S.vehicleOf(event), record = row ? S.typeAt(types, row.type) : null;
                     const spec = record ? specOf(record, null) : null;
                     if (spec && typeof lookups.body === 'function') return lookups.body(map, event, spec, row.yaw);
@@ -864,14 +871,15 @@
             const words = { name, event: label, map: entry.mapName };
             const deep = C && typeof C.is3D === 'function' ? C.is3D(map, lookups) : /<3d>/i.test(String(map.note || ''));
             let rides = '';
-            if (!deep) rides = 'flatMap';
-            else if (Number(map.scrollType) > 0) rides = 'loopMap';
-            else if (firstPerson(map)) rides = 'firstPersonMap';
+            if (deep && Number(map.scrollType) > 0) rides = 'loopMap';
+            else if (deep && firstPerson(map)) rides = 'firstPersonMap';
             else if (!free) rides = 'freeOff';
+            else if (record.ridable===false) rides = 'notRidable';
+            else if (!deep && !record.sheet?.characterName && event.pages?.some(page=>page && !page.image?.characterName && !page.image?.tileId)) rides='noSprite';
             report.vehicles.push({ mapId: map.id, mapName: entry.mapName, eventId: event.id, name: event.name || '', x: event.x, y: event.y, type: row.type, yaw: row.yaw, board: row.board, key: row.key, rides });
             if (rides && !(rides === 'freeOff' && offSaid.has(map.id))) {
                 if (rides === 'freeOff') offSaid.add(map.id);
-                add('vehicleCheck.' + rides, 'note', { name, map: entry.mapName }, where(''), more);
+                add('vehicleCheck.' + rides, rides==='noSprite'?'fix':'note', { name, map: entry.mapName }, where(''), more);
             }
 
             const raw = String(isObject(event.rrVehicle) && typeof event.rrVehicle.key === 'string' ? event.rrVehicle.key : '').trim();
@@ -901,9 +909,9 @@
 
             // Where it stands, by Battle Setup's stand test, with its own body.
             if (C && typeof C.standing === 'function' && Number.isFinite(map.width) && Number.isFinite(map.height)) {
-                let shape = null;
+                let shape = deep ? null : [[0,0]];
                 const spec = held ? held.spec : specOf(record, null);
-                if (typeof lookups.body === 'function' && spec) { try { shape = C.toShape(lookups.body(map, event, spec, row.yaw)); } catch (error) { shape = null; } }
+                if (deep && typeof lookups.body === 'function' && spec) { try { shape = C.toShape(lookups.body(map, event, spec, row.yaw)); } catch (error) { shape = null; } }
                 const lift = Number(isObject(map.reactor3d) && isObject(map.reactor3d.eventZ) && map.reactor3d.eventZ[String(event.id)]) || 0;
                 let stand = null;
                 try { stand = C.standing(map, event.x, event.y, { lift, eventId: event.id, body: shape || undefined, name }, standLookups(map)); } catch (error) { stand = null; }

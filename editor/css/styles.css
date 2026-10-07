@@ -1947,6 +1947,69 @@
             gap: 10px 12px;
             align-items: center;
         }
+        .vehicle-detail .vehicle-hint,
+        .vehicle-inherited-skills {
+            margin: 6px 0 0;
+            font-size: 11px;
+            line-height: 1.4;
+            color: var(--color-text-muted);
+        }
+        .event-vehicle-problem:empty {
+            display: none;
+        }
+        .vehicle-equipment-row {
+            display: grid;
+            grid-template-columns: 90px minmax(0, 1fr);
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+        .vehicle-equipment-rows {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(225px, 1fr));
+            gap: 6px 12px;
+            margin-top: 8px;
+        }
+        .vehicle-equipment-row > span {
+            font-size: 12px;
+            color: var(--color-text-muted);
+        }
+        .vehicle-equipment-row select {
+            width: 100%;
+            max-width: none;
+        }
+        .vehicle-base-stats {
+            grid-column: 1 / -1;
+        }
+        .event-vehicle-fields {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            margin-top: 5px;
+        }
+        .event-vehicle-fields label {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            min-width: 0;
+            font-size: 11px;
+        }
+        .event-vehicle-fields select,
+        .event-vehicle-fields input {
+            width: 100%;
+            box-sizing: border-box;
+            min-width: 0;
+        }
+        .event-vehicle-pair {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 6px;
+        }
+        .event-vehicle-help {
+            font-size: 11px;
+            line-height: 1.4;
+            color: var(--color-text-muted);
+        }
         .db-form > label,
         .db-form .db-row-pair > label {
             color: var(--color-text-muted);
@@ -6932,3 +6995,52 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
     .rr-tactics-form > label.rr-tactics-check { grid-column: 1 / -1; }
 }
 /* End of an enemy's picture on the map. */
+
+/* Vehicles share the Actors' two-column hierarchy without the image-card whitespace. */
+.vehicle-detail { padding:12px; }
+.vehicle-detail .vehicle-columns { gap:12px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+.vehicle-detail .database-item-column { gap:10px; }
+.vehicle-detail .database-section { margin:0; padding:0; min-width:0; }
+.vehicle-detail .database-section-content { padding:10px; }
+.vehicle-detail .database-section-header { padding:8px 10px; }
+.vehicle-detail .vehicle-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.vehicle-detail .vehicle-field { display:flex; flex-direction:column; gap:4px; min-width:0; margin:0; }
+.vehicle-detail .vehicle-field > span { font-size:11px; color:var(--color-text-muted); }
+.vehicle-detail input:not([type=checkbox]), .vehicle-detail select, .vehicle-detail textarea { width:100%; min-width:0; box-sizing:border-box; }
+.vehicle-detail .vehicle-check { display:flex; align-items:center; gap:5px; margin-top:8px; font-size:12px; }
+.vehicle-detail .vehicle-sprite-preview { flex:none; width:64px; height:64px; image-rendering:pixelated; border:1px solid var(--color-border); border-radius:4px; }
+.vehicle-detail .vehicle-equipment-rows { grid-template-columns:minmax(0,1fr); margin:0; gap:7px; }
+.vehicle-detail .vehicle-equipment-row { grid-template-columns:80px minmax(0,1fr); }
+.vehicle-detail .vehicle-base-stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 14px; }
+.vehicle-detail .vehicle-base-stats > div { display:flex; justify-content:space-between; font-size:12px; }
+.vehicle-detail .vehicle-base-stats span { color:var(--color-text-muted); }
+.vehicle-detail .vehicle-handling-details { margin-top:10px; font-size:12px; }
+.vehicle-detail .vehicle-handling-details summary { cursor:pointer; color:var(--color-text-muted); }
+.vehicle-detail .vehicle-handling { margin-top:8px; }
+.vehicle-detail .vehicle-medium-settings { margin-top:8px; }
+.vehicle-detail .vehicle-stock-bgm { margin-top:8px; width:100%; }
+.vehicle-detail .vehicle-location-fields { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.vehicle-detail .traits-table { table-layout:auto; width:100%; }
+.vehicle-detail .traits-table td { overflow-wrap:anywhere; }
+.vehicle-detail .trait-action-buttons, .vehicle-detail .learning-action-buttons { flex-wrap:wrap; gap:4px; }
+@container database-detail (max-width:480px) {
+  .vehicle-detail .vehicle-columns { grid-template-columns:minmax(0,1fr); }
+}
+.vehicle-detail .vehicle-graphic-slot { display:flex; flex-direction:column; align-items:center; gap:6px; padding:0; background:none; border:0; }
+.vehicle-detail .vehicle-graphic-slot .graphic-canvas-container { height:128px; width:100%; display:flex; align-items:center; justify-content:center; }
+.vehicle-detail .vehicle-graphic-slot .vehicle-sprite-preview { border:0; }
+.vehicle-detail .vehicle-graphic-slot .graphic-preview-name { max-width:100%; min-height:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+.vehicle-detail .vehicle-model-settings { margin-top:8px; }
+.vehicle-detail .vehicle-model-settings[hidden] { display:none; }
+
+.vehicle-detail .vehicle-graphic-slot .graphic-3d-pane { height:128px !important; }
+.vehicle-detail .vehicle-graphic-slot img { width:104px !important; height:104px !important; }
+
+.vehicle-detail .database-section-header[aria-expanded] { padding-inline-start:26px; }
+.vehicle-detail .vehicle-sound-row { display:grid; grid-template-columns:82px minmax(0,1fr); align-items:center; gap:8px; margin-bottom:6px; font-size:11px; }
+.vehicle-detail .vehicle-sound-row:last-child { margin-bottom:0; }
+.vehicle-detail .vehicle-sound-row > span { color:var(--color-text-muted); overflow-wrap:anywhere; }
+.vehicle-detail .vehicle-sound-browse { width:100%; min-width:0; text-align:start; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:4px 7px; }
+.vehicle-detail .vehicle-effects-details { font-size:11px; margin-top:9px; }
+.vehicle-detail .vehicle-effects-details summary { cursor:pointer; color:var(--color-text-muted); }
+.vehicle-detail .vehicle-effect-rows { margin-top:8px; }

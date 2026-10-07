@@ -15,8 +15,8 @@
 //     (`_rrMount`), Confirm to interact and Cancel to get off aboard, parking and the place to stand
 //     beside it, and the rule for a battle that starts on the map;
 //   - the script calls and the three plugin commands.
-// The boat, the ship and the airship are not touched: `$gameMap._vehicles`
-// stays the three, and nothing here runs for them.
+// `$gameMap._vehicles` stays the native three. Optional database extensions
+// add battler data and image bindings without replacing their movement or commands.
 //
 // What is saved is plain data on $gamePlayer, on the event and on $gameMap;
 // no saved object holds a character. Every cache is in this module and is
@@ -167,7 +167,7 @@
         let type = plainTypes.get(record);
         if (type) return type;
         const kind = typeof record.kind === "string" && record.kind ? record.kind : "motorcycle";
-        const model = record.model && typeof record.model === "object" && record.model.name ? Object.assign({}, record.model) : null;
+        const model = record.graphic3d !== false && record.model && typeof record.model === "object" && record.model.name ? Object.assign({}, record.model) : null;
         if (model) {
             if (!model.file) model.file = String(model.name).split("/").pop();
             if (!model.ext) model.ext = ".glb";
@@ -175,7 +175,8 @@
         }
         type = {
             id: record.id, name: record.name || "", kind, prompt: record.prompt || "",
-            promptTerm: "ride", leaveTerm: "getOff", played: kind === "motorcycle", medium: "ground",
+            promptTerm: "ride", leaveTerm: "getOff", played: record.ridable !== false, medium: record.medium || "ground",
+            sheet: record.sheet || {},
             model, rider: record.rider === "inside" ? "inside" : "seat", bgm: record.bgm || null,
             handling: Object.assign({ speed: 20, brake: 0.67 }, record.handling || null),
             body: Object.assign({ height: 2.6, radius: 0.45 }, record.body || null),
@@ -299,6 +300,11 @@
         if (!R || typeof R.characterModelSpec !== "function" || R.characterModelSpec.__rrVehicles) return;
         const characterModelSpec = R.characterModelSpec;
         R.characterModelSpec = function(character) {
+            const stock = character && ["boat","ship","airship"].includes(character._type) && root.$dataSystem && root.$dataSystem[character._type];
+            if (stock && stock.reactorVehicle && stock.reactorVehicle.model && stock.reactorVehicle.model.name) {
+                const look = lookOf(models().typeOf(stock.reactorVehicle));
+                if (look && look.spec) return look.spec;
+            }
             if (!character || !character._rrVehicle) return characterModelSpec.call(this, character);
             // Its own picture or model comes first; an erased event and one with no page in force show nothing.
             if (character._erased || character._pageIndex < 0 || character._characterName || character._tileId > 0) return characterModelSpec.call(this, character);
@@ -316,6 +322,11 @@
             const collectMapModelSpecs = R.collectMapModelSpecs;
             R.collectMapModelSpecs = function(data) {
                 const specs = collectMapModelSpecs.call(this, data);
+                for (const key of ["boat","ship","airship"]) {
+                    const entry = root.$dataSystem && root.$dataSystem[key] && root.$dataSystem[key].reactorVehicle;
+                    const look = entry && models() && lookOf(models().typeOf(entry));
+                    if (look && look.spec) specs.push(look.spec);
+                }
                 eachRow(data, (event, id) => {
                     const look = lookOf(V.type(id)), spec = look && look.spec;
                     if (!spec) return;
@@ -351,7 +362,7 @@
     let keep = 0, noRoom = 0;
 
     V.idOf = function(event) {
-        return event && event._eventId > 0 ? (event._mapId || 0) + ":" + event._eventId : "";
+        return event && event._eventId > 0 ? event._rrIdentity || (event._mapId || 0) + ":" + event._eventId : "";
     };
 
     /** Whether an event is a vehicle now: marked, not erased, and one of its pages in force. */
@@ -363,7 +374,7 @@
         const data = mapData(), p = player();
         // While a transfer waits, the data is the next map's.
         if (!data || !data.events || (p && p.isTransferring && p.isTransferring())) return null;
-        const authored = data.events[event._eventId];
+        const authored = event._rrAuthored || data.events[event._eventId];
         return authored && authored.rrVehicle && typeof authored.rrVehicle === "object" ? authored.rrVehicle : null;
     };
 
@@ -403,6 +414,76 @@
         return map._rrVehicles && map._rrVehicles.at ? map._rrVehicles : null;
     };
 
+    // A vehicle can reuse Class/Weapon/Armor/State rules without becoming a party member.
+    if (typeof Game_Actor !== "undefined") {
+        function Game_ReactorVehicle() { this.initialize.apply(this, arguments); }
+        Game_ReactorVehicle.prototype = Object.create(Game_Actor.prototype);
+        Game_ReactorVehicle.prototype.constructor = Game_ReactorVehicle;
+        Game_ReactorVehicle.prototype.initialize = function(typeId, identity) {
+            Game_Battler.prototype.initialize.call(this);
+            this._rrVehicleType = typeId; this._rrVehicleIdentity = identity;
+            const record = this.actor();
+            this._name = record.name; this._classId = record.classId;
+            this._level = Math.max(1, Math.min(999, Math.floor(Number(record.initialLevel) || 1)));
+            this.initExp(); this.initSkills(); this.initEquips(record.equips || []);
+            this.recoverAll();
+        };
+        Game_ReactorVehicle.prototype.actor = function() {
+            const record = typeof this._rrVehicleType === "string" ? root.$dataSystem && root.$dataSystem[this._rrVehicleType] && root.$dataSystem[this._rrVehicleType].reactorVehicle || {}
+                : root.$dataReactorVehicles && root.$dataReactorVehicles[this._rrVehicleType] || {};
+            return Object.assign({ name: "Vehicle", nickname: "", profile: "", note: "", traits: [], equips: [], maxLevel: 999,
+                characterName: "", characterIndex: 0, faceName: "", faceIndex: 0, battlerName: "" }, record);
+        };
+        // Class is optional: intrinsic traits, skills and equipment still work.
+        const transportClass = {id:0,traits:[],learnings:[],expParams:[30,20,30,30],
+            params:Array.from({length:8},(_,param)=>Array(1000).fill(param === 0 ? 1 : 0))};
+        Game_ReactorVehicle.prototype.currentClass = function() { return root.$dataClasses && root.$dataClasses[this._classId] || transportClass; };
+        Game_ReactorVehicle.prototype.equipSlots = function() {
+            const engine = world() && world().Vehicles, entry = this.currentClass();
+            return engine && engine.equipmentSlots ? engine.equipmentSlots(entry, $dataSystem.equipTypes)
+                : Array.isArray(entry.rrVehicleSlots) ? entry.rrVehicleSlots.slice() : $dataSystem.equipTypes.map((_, id) => id).slice(1);
+        };
+        Game_ReactorVehicle.prototype.initSkills = function() {
+            Game_Actor.prototype.initSkills.call(this);
+            for (const learning of this.actor().learnings || []) if (learning.level <= this._level) this.learnSkill(learning.skillId);
+        };
+        Game_ReactorVehicle.prototype.levelUp = function() {
+            Game_Actor.prototype.levelUp.call(this);
+            for (const learning of this.actor().learnings || []) if (learning.level === this._level) this.learnSkill(learning.skillId);
+        };
+        // A vehicle never trades with the party just to validate its initial loadout.
+        Game_ReactorVehicle.prototype.tradeItemWithParty = function() { return true; };
+        Game_ReactorVehicle.prototype.index = function() { return -1; };
+        root.Game_ReactorVehicle = Game_ReactorVehicle;
+    }
+
+    V.battler = function(what) {
+        const stockKey = typeof what === "string" && /^(?:stock:)?(boat|ship|airship)$/.test(what) ? what.replace(/^stock:/, "")
+            : what && typeof what === "object" && !what._rrVehicle && ["boat","ship","airship"].includes(what._type) ? what._type : "";
+        if (stockKey) {
+            const record = root.$dataSystem && root.$dataSystem[stockKey] && root.$dataSystem[stockKey].reactorVehicle;
+            if (!record || !root.Game_ReactorVehicle || !(root.$dataClasses && root.$dataClasses[record.classId] || record.traits?.length || record.learnings?.length || record.equips?.some(id => id > 0))) return null;
+            const store = registry(true), identity = "stock:" + stockKey;
+            if (!store.battlers) store.battlers = {};
+            return store.battlers[identity] || (store.battlers[identity] = new root.Game_ReactorVehicle(stockKey, identity));
+        }
+        const event = V.find(what), identity = event ? V.idOf(event) : typeof what === "string" ? what.trim() : "";
+        const store = registry(false);
+        if (store && store.battlers && store.battlers[identity]) {
+            const battler = store.battlers[identity];
+            if (!event || battler._rrVehicleType === event._rrVehicle) return battler;
+            delete store.battlers[identity];
+        }
+        const record = event && root.$dataReactorVehicles && root.$dataReactorVehicles[event._rrVehicle];
+        if (!record || !root.Game_ReactorVehicle) return null;
+        const hasClass = record.classId && root.$dataClasses && root.$dataClasses[record.classId];
+        const intrinsic = record.traits && record.traits.length || record.learnings && record.learnings.length || record.equips && record.equips.some(id => id > 0);
+        if (!hasClass && !intrinsic) return null;
+        const live = registry(true);
+        if (!live.battlers) live.battlers = {};
+        return live.battlers[identity] = new root.Game_ReactorVehicle(event._rrVehicle, identity);
+    };
+
     const groundOf = function(character) {
         if (Number.isFinite(character._reactorGround)) return character._reactorGround;
         const R = world();
@@ -419,6 +500,11 @@
             yaw: round3(V.degrees(headingOf(event))), type: event._rrVehicle, home: [home[0], home[1]]
         };
         if (gone) entry.gone = true;
+        const previous = store.at[V.idOf(event)];
+        if (previous && previous.event) {
+            entry.event = previous.event;
+            if (previous.models) entry.models = previous.models;
+        }
         store.at[V.idOf(event)] = entry;
     };
 
@@ -434,7 +520,7 @@
 
     const atHome = function(event) {
         const home = event._rrHome;
-        return !!home && !event._rrFree && event._realX === home[0] && event._realY === home[1]
+        return !!home && !event._rrIdentity && !event._rrFree && event._realX === home[0] && event._realY === home[1]
             && Math.abs(turn360(V.degrees(headingOf(event)) - home[2] + 180) - 180) < 0.01;
     };
 
@@ -459,6 +545,10 @@
         if (!(id > 0) || !V.type(id)) return false;
         const asked = number(row.yaw);
         const degrees = Number.isFinite(asked) ? turn360(asked) : DEGREES_OF_DIR[event._direction] === undefined ? 180 : DEGREES_OF_DIR[event._direction];
+        if (authored._rrVehicleIdentity) {
+            event._rrIdentity = authored._rrVehicleIdentity;
+            event._rrAuthored = authored;
+        }
         event._rrVehicle = id;
         event._rrHome = [authored.x, authored.y, degrees];
         event._rrYaw = degrees * RAD;
@@ -473,26 +563,36 @@
     const enterMap = function(map) {
         const data = mapData(), store = registry(false);
         const authored = data && data.events;
+        const p = player(), transfer = p && p._rrVehicleTransfer;
         const types = root.$dataReactorVehicles;
         if (authored && types && types.length > 1) {
             for (let i = 1; i < authored.length; i++) {
                 const row = authored[i] && authored[i].rrVehicle;
                 const event = row && typeof row === "object" ? map._events[authored[i].id] : null;
                 if (!event || !mark(event, authored[i])) continue;
+                if (event._rrIdentity) event.refresh();
                 const id = V.idOf(event), entry = store ? store.at[id] : null;
                 if (!entry) continue;
-                if (entry.type !== event._rrVehicle || !entry.home || entry.home[0] !== authored[i].x || entry.home[1] !== authored[i].y || entry.map !== map._mapId) {
+                if (entry.type !== event._rrVehicle || !entry.home || (!event._rrIdentity && (entry.home[0] !== authored[i].x || entry.home[1] !== authored[i].y))) {
                     delete store.at[id];
+                } else if (entry.map !== map._mapId) {
+                    event._rrAway = true;
+                    event.erase();
                 } else if (entry.gone) {
                     event.erase();
                 } else {
+                    if (event._rrIdentity) event._rrHome = [entry.home[0], entry.home[1], entry.yaw];
                     place(event, entry.x, entry.y, entry.z, entry.yaw);
+                }
+                if (transfer && transfer.map === map._mapId && V.idOf(event) === transfer.identity && !event._erased) {
+                    p._rrRide = { map: map._mapId, id: event._eventId };
+                    event._rrBoarded = true;
                 }
             }
         }
         rebuild(map);
         offer.event = null; offer.stamp = -1;
-        if (V.bind) V.bind();
+        if (V.bind && !transfer) V.bind();
     };
 
     /** Before another map is set up: where each vehicle of this one stands, unless it is at its home. */
@@ -501,7 +601,7 @@
         const events = map.events();
         for (let i = 0; i < events.length; i++) {
             const event = events[i];
-            if (!event || !(event._rrVehicle > 0) || !event._rrHome) continue;
+            if (!event || !(event._rrVehicle > 0) || !event._rrHome || event._rrAway) continue;
             const store = registry(false), id = V.idOf(event), entry = store ? store.at[id] : null;
             if (entry && entry.gone) continue;
             if (atHome(event)) { if (entry) delete store.at[id]; continue; }
@@ -521,7 +621,8 @@
         for (let i = 0; i < events.length; i++) {
             const event = events[i];
             if (!event || !(event._eventId > 0)) continue;
-            const authored = data.events[event._eventId];
+            if (event._rrAuthored) data.events[event._eventId] = event._rrAuthored;
+            const authored = event._rrAuthored || data.events[event._eventId];
             const row = authored && authored.rrVehicle && typeof authored.rrVehicle === "object" ? authored.rrVehicle : null;
             if (row && !event._rrVehicle) mark(event, authored);
             else if (!row && event._rrVehicle && !event._rrBoarded) {
@@ -534,7 +635,7 @@
 
     /** Why this version rides no vehicle on this map now, whatever its type: "" when it does. */
     const mapRule = function() {
-        if (!map3D()) return "flat";
+        if (!map3D()) return "";
         const map = $gameMap;
         if (map.isLoopHorizontal() || map.isLoopVertical()) return "loop";
         const camera = map._reactorCamera3d || (typeof map.reactorCamera3D === "function" ? map.reactorCamera3D() : null);
@@ -543,13 +644,15 @@
 
     /** Why this version does not ride a type anywhere: there is none, or its kind arrives later. */
     const kindRule = function(type) {
-        return !type ? "type" : type.played === false ? "kind" : "";
+        return !type ? "type" : type.played === false ? "disabled" : "";
     };
 
     /** Whether a type has nothing to be drawn as: it names no model, or its model's file could not be read. */
-    const modelRule = function(type) {
+    const modelRule = function(type, event) {
+        const sprite = !!(type && type.sheet && type.sheet.characterName || event && (event._characterName || event._tileId > 0));
+        if (!map3D()) return sprite ? "" : "image";
         const look = lookOf(type);
-        if (!look || !look.spec) return "model";
+        if (!look || !look.spec) return sprite ? "" : "model";
         // The model's cache entry is looked up once it exists and kept: only its `failed` mark is read after.
         if (!look.cached || look.cached.failed) {
             const R = world();
@@ -565,7 +668,7 @@
     V.scenery = function(event) {
         if (!V.free()) return "free";
         const type = event ? V.type(event._rrVehicle) : null;
-        return kindRule(type) || mapRule() || modelRule(type);
+        return kindRule(type) || mapRule() || modelRule(type,event);
     };
 
     /**
@@ -582,9 +685,7 @@
         if (name === "ridden") return V.ridden();
         const identity = /^(\d+):(\d+)$/.exec(name);
         if (identity) {
-            if (Number(identity[1]) !== map._mapId) return null;
-            const event = map._events[Number(identity[2])];
-            return V.isVehicle(event) ? event : null;
+            return V.list().find(event => V.idOf(event) === name && V.isVehicle(event)) || null;
         }
         const list = V.list(), p = player();
         let best = null, bestGap = Infinity;
@@ -771,7 +872,7 @@
             if (at === null) return false;
             height = at;
         } else if (!$gameMap.checkPassage(x, y, 0x0f)) return false;
-        if (R && R.bodyBlocksTile) { if (R.bodyBlocksTile(p, x, y, true)) return false; }
+        if (map3D() && R && R.bodyBlocksTile) { if (R.bodyBlocksTile(p, x, y, true)) return false; }
         else if ($gameMap.eventsXyNt(x, y).some(event => event.isNormalPriority())) return false;
         if (out) out[2] = height;
         return true;
@@ -781,7 +882,7 @@
     const coversTile = function(event, x, y) {
         if (event._x === x && event._y === y) return true;
         const R = world();
-        return !!(R && R.eventBodyCovers && R.eventBodyCovers(event, x, y));
+        return !!(map3D() && R && R.eventBodyCovers && R.eventBodyCovers(event, x, y));
     };
 
     /**
@@ -796,7 +897,7 @@
         const type = V.type(event._rrVehicle);
         const mx = event._realX + 0.5, my = event._realY + 0.5;
         const fx = Math.sin(yaw), fy = -Math.cos(yaw), lx = fy, ly = -fx;
-        const side = (type && type.body && type.body.radius > 0 ? type.body.radius : 0.45) + 0.8, end = dimsOf(type).length / 2 + 0.8;
+        const side = map3D() ? (type && type.body && type.body.radius > 0 ? type.body.radius : 0.45) + 0.8 : 1, end = map3D() ? dimsOf(type).length / 2 + 0.8 : 1;
         const ground = groundOf(event);
         SIDES[0] = lx * side; SIDES[1] = ly * side; SIDES[2] = -lx * side; SIDES[3] = -ly * side;
         SIDES[4] = -fx * end; SIDES[5] = -fy * end; SIDES[6] = fx * end; SIDES[7] = fy * end;
@@ -806,7 +907,7 @@
             // Outward past whatever of that side the vehicle's own body still covers.
             for (let more = 0; more <= 1.5; more += 0.5) {
                 const scale = (reach + more) / reach;
-                const x = Math.floor(mx + ox * scale), y = Math.floor(my + oy * scale);
+                const x = $gameMap.roundX(Math.floor(mx + ox * scale)), y = $gameMap.roundY(Math.floor(my + oy * scale));
                 if (x === lastX && y === lastY) continue;
                 lastX = x; lastY = y;
                 if (coversTile(event, x, y)) continue;
@@ -817,35 +918,57 @@
         return null;
     };
 
-    /**
-     * Whether a vehicle's body fits with its middle on (x + 0.5, y + 0.5) at a heading: every tile of it by the
-     * dismount test, on the place to stand nearest `height` (the vehicle's own height when none is given).
-     */
+    /** Tile passage and authored 3D water for the selected travel medium. */
+    V.surfacePassable = function(type, x, y) {
+        if (!$gameMap.isValid(x,y)) return false;
+        if (type.medium === "air") return true;
+        if (type.medium !== "water") return $gameMap.checkPassage(x,y,0x0f);
+        const R=world();
+        if (map3D() && R.waterSurfaceAt && Number.isFinite(R.waterSurfaceAt($dataMap,x+0.5,y+0.5))) return true;
+        return type.passability === "ship" ? $gameMap.isShipPassable(x,y) : $gameMap.isBoatPassable(x,y);
+    };
+
+    /** Whether the vehicle body fits at a heading and the nearest standing height. */
     V.fits = function(event, x, y, radians, height) {
         if (!event || !Number.isFinite(x) || !Number.isFinite(y)) return false;
-        const R = world();
+        const R = world(), type = V.type(event._rrVehicle);
+        if (!map3D() || type && type.medium !== "ground") {
+            const tx = $gameMap.roundX(Math.round(x)), ty = $gameMap.roundY(Math.round(y));
+            if (!$gameMap.isValid(tx,ty)) return false;
+            if (type && type.medium === "air") return true;
+            if (type && !V.surfacePassable(type,tx,ty)) return false;
+            if ((!type || type.medium === "ground") && !$gameMap.checkPassage(tx,ty,0x0f)) return false;
+            return !$gameMap.eventsXyNt(tx,ty).some(other => other !== event && other.isNormalPriority());
+        }
         const from = Number.isFinite(height) ? height : groundOf(event);
         const was = [event._x, event._y, event._realX, event._realY, event._direction, event._reactorDir8, event._rrFree, event._through];
-        event._x = Math.round(x); event._y = Math.round(y); event._realX = x; event._realY = y;
-        if (Number.isFinite(radians)) face(event, radians);
-        event._rrFree = 1;
-        // Its middle's tile has a place to stand (a tile off the map has none); then every tile of its body is on the
-        // map, has one within a step of that, and is free of bodies.
-        const P = physics(), deep = !!(P && P.standingAt && map3D());
-        const near = deep ? P.standingAt($dataMap, event._x, event._y, from, null) : 0;
-        let ok = !(deep && near === null);
-        const shape = ok && R && R.eventBody ? R.eventBody(event) : null;
-        if (shape) {
-            for (let j = 0; ok && j < shape.h; j++) for (let i = 0; ok && i < shape.w; i++) {
-                if (shape.cells !== null && !shape.cells[j * shape.w + i]) continue;
-                const tx = event._x + shape.ox + i, ty = event._y + shape.oy + j;
-                if (!$gameMap.isValid(tx, ty) || (deep && P.standingAt($dataMap, tx, ty, near, STAND) === null)) ok = false;
-            }
-            if (ok && R.bodyFits && !R.bodyFits(event, event._x, event._y)) ok = false;
-        } else if (ok && (!$gameMap.isValid(event._x, event._y) || $gameMap.eventsXyNt(event._x, event._y).some(other => other !== event && other.isNormalPriority()))) ok = false;
-        event._x = was[0]; event._y = was[1]; event._realX = was[2]; event._realY = was[3];
-        event._direction = was[4]; event._reactorDir8 = was[5]; event._rrFree = was[6]; event._through = was[7];
-        return ok;
+        const p = player(), ignoreRider = p && event._rrBoarded && p._rrRide && p._rrRide.map === event._mapId && p._rrRide.id === event._eventId;
+        const through = p && p._through;
+        if (ignoreRider) p._through = true;
+        try {
+            event._x = Math.round(x); event._y = Math.round(y); event._realX = x; event._realY = y;
+            if (Number.isFinite(radians)) face(event, radians);
+            event._rrFree = 1;
+            // Its middle's tile has a place to stand (a tile off the map has none); then every tile of its body is on the
+            // map, has one within a step of that, and is free of bodies.
+            const P = physics(), deep = !!(P && P.standingAt && map3D());
+            const near = deep ? P.standingAt($dataMap, event._x, event._y, from, null) : 0;
+            let ok = !(deep && near === null);
+            const shape = ok && R && R.eventBody ? R.eventBody(event) : null;
+            if (shape) {
+                for (let j = 0; ok && j < shape.h; j++) for (let i = 0; ok && i < shape.w; i++) {
+                    if (shape.cells !== null && !shape.cells[j * shape.w + i]) continue;
+                    const tx = event._x + shape.ox + i, ty = event._y + shape.oy + j;
+                    if (!$gameMap.isValid(tx, ty) || (deep && P.standingAt($dataMap, tx, ty, near, STAND) === null)) ok = false;
+                }
+                if (ok && R.bodyFits && !R.bodyFits(event, event._x, event._y)) ok = false;
+            } else if (ok && (!$gameMap.isValid(event._x, event._y) || $gameMap.eventsXyNt(event._x, event._y).some(other => other !== event && other.isNormalPriority()))) ok = false;
+            return ok;
+        } finally {
+            event._x = was[0]; event._y = was[1]; event._realX = was[2]; event._realY = was[3];
+            event._direction = was[4]; event._reactorDir8 = was[5]; event._rrFree = was[6]; event._through = was[7];
+            if (ignoreRider) p._through = through;
+        }
     };
 
     /**
@@ -1019,6 +1142,14 @@
     const pick = function(p, map) {
         const list = kept.list, R = world(), data = mapData();
         if (!R || !data || !V.free() || mapRule()) return null;
+        if (!map3D()) {
+            const dx = map.roundXWithDirection(p.x,p.direction()), dy = map.roundYWithDirection(p.y,p.direction());
+            const candidate = list.find((event,i) => !event._erased && event._pageIndex >= 0 && kept.board[i] !== "command" &&
+                !V.scenery(event) && (event.pos(dx,dy) || event.pos(p.x,p.y)));
+            if (!candidate || map.eventsXy(dx,dy).some(other => other !== candidate && !V.isVehicle(other) && other.isNormalPriority() && other.isTriggerIn([0,1,2]))) return null;
+            const battler = V.battler(candidate);
+            return battler && battler.isDead() ? null : candidate;
+        }
         const wx = p._realX + 0.5, wz = p._realY + 0.5, height = heightOf(p), facing = facingOf(p);
         const within = Math.cos(V.FACING * RAD), sin = Math.sin(facing), cos = Math.cos(facing);
         let best = null, bestGap = Infinity, bestFaced = false;
@@ -1035,7 +1166,9 @@
             // The direction to the nearest point of its body against his facing; on its body he faces it.
             const dx = NEAR.x - wx, dz = NEAR.z - wz, length = Math.hypot(dx, dz);
             const faced = length < 1e-6 || (dx * sin - dz * cos) / length >= within - 1e-9;
-            if (!(faced === bestFaced ? gap < bestGap : faced) || kindRule(type) || modelRule(type)) continue;
+            if (!(faced === bestFaced ? gap < bestGap : faced) || kindRule(type) || modelRule(type,event)) continue;
+            const battler = V.battler(event);
+            if (battler && battler.isDead()) continue;
             best = event; bestGap = gap; bestFaced = faced;
         }
         if (!best) return null;
@@ -1100,7 +1233,7 @@
 
     /** The rider nobody draws on the seat: the type hides its rider, or the leader has no model. */
     const hidesRider = function(type, p) {
-        if (type && type.rider === "inside") return true;
+        if (!map3D() || type && type.rider === "inside") return true;
         const R = world();
         return !!(R && R.characterModelSpec && map3D() && !R.characterModelSpec(p));
     };
@@ -1109,6 +1242,8 @@
     const board = function(event, instant) {
         const p = player();
         if (!p || !V.isVehicle(event) || p._vehicleType !== "walk" || p._rrMount || fightHere() || V.scenery(event)) return false;
+        const battler = V.battler(event);
+        if (battler && battler.isDead()) return false;
         const yaw = headingOf(event);
         event._rrYaw = yaw;
         p._rrWas = { speed: p._moveSpeed, transparent: !!p._transparent };
@@ -1545,6 +1680,42 @@
         };
     };
 
+    const copy = value => JSON.parse(JSON.stringify(value));
+
+    V.prepareTransfer = function(mapId, x, y, direction) {
+        const p = player(), event = V.ridden();
+        if (p) p._rrVehicleTransfer = null;
+        if (!p || !event || mapId === $gameMap._mapId) return false;
+        note(event, false);
+        const entry = registry(true).at[V.idOf(event)];
+        // Keep the original pages, key and optional graphic binding. Never write to a project map file.
+        if (!entry.event) entry.event = copy(event._rrAuthored || event.event());
+        const data = mapData(), models = data && data.reactor3d && data.reactor3d.events;
+        if (!entry.models && models && models[event._eventId]) entry.models = copy(models[event._eventId]);
+        p._rrVehicleTransfer = { identity: V.idOf(event), map: mapId, x, y,
+            yaw: direction ? DEGREES_OF_DIR[direction] : V.degrees(headingOf(event)) };
+        return true;
+    };
+
+    /** Add visiting vehicles to runtime map data before constructing its events. */
+    const visitingVehicles = function(map) {
+        const data = mapData(), store = registry(false);
+        if (!data || !Array.isArray(data.events) || !store) return;
+        for (const [identity, entry] of Object.entries(store.at)) {
+            if (!entry.event || entry.gone || entry.map !== map._mapId || Number(identity.split(":")[0]) === map._mapId) continue;
+            if (data.events.some(event => event && event._rrVehicleIdentity === identity)) continue;
+            const authored = copy(entry.event), id = Math.max(1, data.events.length);
+            authored.id = id; authored.x = Math.round(entry.x); authored.y = Math.round(entry.y);
+            authored._rrVehicleIdentity = identity;
+            data.events[id] = authored;
+            if (entry.models) {
+                if (!data.reactor3d) data.reactor3d = {};
+                if (!data.reactor3d.events) data.reactor3d.events = {};
+                data.reactor3d.events[id] = copy(entry.models);
+            }
+        }
+    };
+
     const installMap = function() {
         if (typeof Game_Map === "undefined" || Game_Map.prototype.vehicle.__rrVehicles) return;
         const proto = Game_Map.prototype;
@@ -1558,6 +1729,7 @@
 
         const setupEvents = proto.setupEvents;
         proto.setupEvents = function() {
+            visitingVehicles(this);
             rebuilding = true;
             let result;
             try { result = setupEvents.apply(this, arguments); } finally { rebuilding = false; }
@@ -1572,6 +1744,11 @@
             resumeAt = p && p._vehicleType === "reactor" && p._rrRide && this._mapId === mapId && !p._rrMount
                 ? [p._realX, p._realY, p._reactorGround, p._reactorAlt] : null;
             leaveMap(this);
+            const transfer = p && p._rrVehicleTransfer;
+            if (transfer && transfer.map === mapId) {
+                const entry = registry(true).at[transfer.identity];
+                if (entry) Object.assign(entry, { map: mapId, x: transfer.x, y: transfer.y, z: null, yaw: transfer.yaw });
+            }
             return setup.apply(this, arguments);
         };
     };
@@ -1599,12 +1776,26 @@
     const installEvent = function() {
         if (typeof Game_Event === "undefined" || Game_Event.prototype.pos.__rrVehicles) return;
         const proto = Game_Event.prototype;
+        const characterName = proto.characterName, characterIndex = proto.characterIndex;
+        const inheritedSheet = event => !event._erased && event._pageIndex >= 0 && !event._characterName && !event._tileId &&
+            event._rrVehicle && V.type(event._rrVehicle) && V.type(event._rrVehicle).sheet;
+        proto.characterName = function() { const sheet = inheritedSheet(this); return sheet && sheet.characterName || characterName.call(this); };
+        proto.characterIndex = function() { const sheet = inheritedSheet(this); return sheet && sheet.characterName ? sheet.characterIndex || 0 : characterIndex.call(this); };
+        const eventData = proto.event;
+        proto.event = function() { return this._rrAuthored || eventData.call(this); };
+        const meetsConditions = proto.meetsConditions;
+        proto.meetsConditions = function(page) {
+            if (!this._rrIdentity || !page.conditions.selfSwitchValid) return meetsConditions.call(this, page);
+            const home = this._rrIdentity.split(":").map(Number);
+            if (!$gameSelfSwitches.value([home[0], home[1], page.conditions.selfSwitchCh])) return false;
+            return meetsConditions.call(this, Object.assign({}, page, { conditions: Object.assign({}, page.conditions, { selfSwitchValid: false }) }));
+        };
 
         // The carried event is one tile to the grid: its body is the mover's, and no shape is built for a place it
         // holds for one tick.
         const pos = proto.pos;
         proto.pos = function(x, y) {
-            if (this._rrFree === 2) return this._x === x && this._y === y;
+            if (this._rrFree === 2 || this._rrVehicle && !map3D()) return this._x === x && this._y === y;
             return pos.call(this, x, y);
         };
         proto.pos.__rrVehicles = true;
@@ -1698,6 +1889,25 @@
         }
 
         if (typeof Game_Interpreter !== "undefined" && !Game_Interpreter.prototype.updateWaitMode.__rrVehicles) {
+            const selfSwitch = Game_Interpreter.prototype.command123;
+            Game_Interpreter.prototype.command123 = function(params) {
+                const event = $gameMap && this._mapId === $gameMap._mapId ? $gameMap.event(this._eventId) : null;
+                if (!event || !event._rrIdentity) return selfSwitch.call(this, params);
+                const home = event._rrIdentity.split(":").map(Number);
+                $gameSelfSwitches.setValue([home[0], home[1], params[0]], params[1] === 0);
+                return true;
+            };
+            // Game_Action ordinarily identifies subjects through Actors or Troop indices.
+            // Vehicles use their own saved identity; no synthetic Actor database record is needed.
+            if (typeof Game_Action !== "undefined" && !Game_Action.prototype.subject.__rrVehicles) {
+                const setSubject = Game_Action.prototype.setSubject, subject = Game_Action.prototype.subject;
+                Game_Action.prototype.setSubject = function(battler) {
+                    this._rrVehicleSubject = battler && battler._rrVehicleIdentity || "";
+                    return setSubject.call(this, battler);
+                };
+                Game_Action.prototype.subject = function() { return this._rrVehicleSubject ? V.battler(this._rrVehicleSubject) : subject.call(this); };
+                Game_Action.prototype.subject.__rrVehicles = true;
+            }
             const updateWaitMode = Game_Interpreter.prototype.updateWaitMode;
             Game_Interpreter.prototype.updateWaitMode = function() {
                 if (this._waitMode === "reactorVehicle") {
@@ -1814,6 +2024,16 @@
         });
     };
 
+    if (typeof Game_Player !== "undefined") {
+        const nativeGetOn = Game_Player.prototype.getOnVehicle;
+        Game_Player.prototype.getOnVehicle = function() {
+            const x = this.x, y = this.y, d = this.direction(), nx = $gameMap.roundXWithDirection(x,d), ny = $gameMap.roundYWithDirection(y,d);
+            const key = $gameMap.airship().pos(x,y) ? "airship" : $gameMap.ship().pos(nx,ny) ? "ship" : $gameMap.boat().pos(nx,ny) ? "boat" : "";
+            const entry = key && root.$dataSystem && root.$dataSystem[key] && root.$dataSystem[key].reactorVehicle;
+            if (entry && entry.ridable === false) return false;
+            return nativeGetOn.apply(this,arguments);
+        };
+    }
     installLooks();
     installPlayer();
     installMap();

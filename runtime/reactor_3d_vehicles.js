@@ -91,8 +91,8 @@
             { speed: 16, toTopSpeed: 3, turnCircle: 4, turnRate: 120, turnInPlace: 30, brake: 1.1, coast: 3.2, reverse: 4, lean: 15, jump: 0, step: 0.75, wade: 99, grip: 32 },
             { height: 2.4, radius: 0.8 }, "seat", "astride", "ride", "none", "ride", "getOff", 0)
     });
-    /** The kinds this version rides; a vehicle of another kind is scenery. */
-    const PLAYED = freeze(["motorcycle"]);
+    /** Presets share the mover; a type explicitly decides whether it is rideable. */
+    const PLAYED = freeze(Object.keys(KINDS));
 
     // Each number of a type record: where it lives, and the range the game holds it to.
     const RANGES = freeze({
@@ -101,9 +101,9 @@
         body: { height: [0.5, 20], radius: [0.1, 10] },
         camera: { speedDistance: [0, 200], speedFov: [0, 40], lookAhead: [0, 12], minDistance: [0, 60] }
     });
-    const RECORD_KEYS = freeze(["id", "name", "note", "kind", "prompt", "model", "sheet", "rider", "encounters", "handling", "body", "sounds", "bgm", "camera", "flight"]);
+    const RECORD_KEYS = freeze(["id", "name", "note", "classId", "initialLevel", "equips", "traits", "learnings", "ridable", "graphic3d", "medium", "turnsInPlace", "leans", "walks", "passability", "kind", "prompt", "model", "sheet", "rider", "encounters", "handling", "body", "sounds", "bgm", "camera", "flight"]);
     const MODEL_KEYS = freeze(["name", "file", "ext", "size", "scale", "variant", "texture", "offset"]);
-    const SOUND_KEYS = freeze(["engine", "engineRate", "start", "stop", "bump", "land", "scrape", "skid"]);
+    const SOUND_KEYS = freeze(["engine", "engineRate", "idle", "accelerate", "slowdown", "start", "stop", "bump", "land", "scrape", "skid"]);
     /** Keys later versions read; this one notes them and reads none. */
     const RESERVED_KEYS = freeze(["onBoard", "onLeave", "fire", "battle"]);
     // What someone writing a record by hand is likely to have meant.
@@ -127,13 +127,16 @@
         return clamp(value, low, high);
     }
 
-    function soundOf(value, fallback, notes, slot) {
+    function soundOf(value, fallback, notes, slot, folder) {
         if (value === undefined) return fallback ? Object.assign({}, fallback) : null;
         if (value === null) return null;
-        if (typeof value === "string") return value ? sound(value) : null;
+        if (typeof value === "string") return value ? Object.assign(sound(value),folder?{folder}:null) : null;
         if (isObject(value) && typeof value.name === "string" && value.name) {
-            return { name: value.name, volume: finite(value.volume) ? inRange(value.volume, 0, 100, notes, "sounds." + slot + ".volume") : 90,
+            const result={ name: value.name, volume: finite(value.volume) ? inRange(value.volume, 0, 100, notes, "sounds." + slot + ".volume") : 90,
                 pitch: finite(value.pitch) ? inRange(value.pitch, 50, 150, notes, "sounds." + slot + ".pitch") : 100 };
+            if (folder) { result.folder=value.folder==="se"?"se":folder; result.pan=finite(value.pan)?inRange(value.pan,-100,100,notes,"sounds."+slot+".pan"):0; }
+            else if (finite(value.pan)) result.pan=inRange(value.pan,-100,100,notes,"sounds."+slot+".pan");
+            return result;
         }
         if (notes) notes.push({ key: "badSound", level: "fix", args: { slot } });
         return fallback ? Object.assign({}, fallback) : null;
@@ -173,13 +176,12 @@
             notes.push({ key: "unknownKind", level: "fix", args: { kind: typeof said === "string" ? said : JSON.stringify(said) } });
         }
         const base = KINDS[kindName];
-        const played = PLAYED.indexOf(kindName) >= 0;
-        if (notes && !played) notes.push({ key: "kindLater", level: "note", args: { kind: kindName, arrives: base.arrives } });
+        const played = source.ridable !== false;
         const handling = numbersOf("handling", source.handling, base.handling, notes);
         const body = numbersOf("body", source.body, base.body, notes);
         const camera = numbersOf("camera", source.camera, base.camera, notes);
         let model = null;
-        if (isObject(source.model) && typeof source.model.name === "string" && source.model.name) {
+        if (source.graphic3d !== false && isObject(source.model) && typeof source.model.name === "string" && source.model.name) {
             const raw = source.model, name = raw.name;
             model = { name, file: typeof raw.file === "string" && raw.file ? raw.file : name.split("/").pop(),
                 ext: typeof raw.ext === "string" && raw.ext ? raw.ext : ".glb",
@@ -192,12 +194,13 @@
             if (notes) for (const name of Object.keys(raw)) {
                 if (MODEL_KEYS.indexOf(name) < 0) notes.push({ key: "unknownKey", level: "fix", args: { key: "model." + name, meant: "" } });
             }
-        } else if (notes) {
+        } else if (notes && !(source.sheet && source.sheet.characterName)) {
             notes.push({ key: "noModel", level: "fix", args: {} });
         }
         const rawSounds = isObject(source.sounds) ? source.sounds : {};
         const sounds = {};
         for (const slot of ["engine", "start", "stop", "bump", "land", "scrape", "skid"]) sounds[slot] = soundOf(rawSounds[slot], base.sounds[slot], notes, slot);
+        for (const slot of ["idle", "accelerate", "slowdown"]) sounds[slot] = soundOf(rawSounds[slot], null, notes, slot, "bgs");
         const rate = Array.isArray(rawSounds.engineRate) && rawSounds.engineRate.length === 2 && rawSounds.engineRate.every(finite)
             ? rawSounds.engineRate : base.sounds.engineRate;
         sounds.engineRate = [inRange(rate[0], 0.1, 4, notes, "sounds.engineRate"), inRange(rate[1], 0.1, 4, notes, "sounds.engineRate")];
@@ -217,7 +220,10 @@
             note: typeof source.note === "string" ? source.note : "",
             kind: kindName,
             prompt: typeof source.prompt === "string" ? source.prompt : "",
-            medium: base.medium, turnsInPlace: base.turnsInPlace, leans: base.leans, walks: base.walks,
+            medium: ["ground", "water", "air"].includes(source.medium) ? source.medium : base.medium,
+            turnsInPlace: typeof source.turnsInPlace === "boolean" ? source.turnsInPlace : base.turnsInPlace,
+            leans: typeof source.leans === "boolean" ? source.leans : base.leans, walks: typeof source.walks === "boolean" ? source.walks : base.walks,
+            passability: source.passability === "ship" ? "ship" : "boat", flight: { height: Math.max(0, Math.min(99, finite(source.flight && source.flight.height) ? source.flight.height : 3)) },
             played, arrives: base.arrives, promptTerm: base.prompt, leaveTerm: base.leave, posture: base.posture, stance: base.stance,
             model,
             sheet: { characterName: typeof sheet.characterName === "string" ? sheet.characterName : "",
@@ -245,6 +251,7 @@
     }
 
     let defaultType = null;
+    const stockTypes = new WeakMap();
     /**
      * A type record of data/ReactorVehicles.json with every field filled: its own value, else its kind's. Numbers
      * are held to their ranges. The same object for the same record; nothing a caller may write to. `index` is the
@@ -262,6 +269,17 @@
         }
         return type;
     }
+    /** Native vehicles retain their original silence unless sounds are explicitly assigned. */
+    function stockTypeOf(record) {
+        if (!isObject(record)) return null;
+        let type = stockTypes.get(record);
+        if (!type) {
+            const sounds = { engine: null, start: null, stop: null, bump: null, land: null, scrape: null, skid: null, ...record.sounds };
+            type = makeType({ ...record, sounds }, null);
+            stockTypes.set(record, type);
+        }
+        return type;
+    }
     /** What typeOf changed or could not read in a record: [{ key, level: "fix" | "note", args }]. */
     function typeNotes(record) {
         if (!isObject(record)) return [];
@@ -272,6 +290,7 @@
     function forgetType(record) {
         if (!isObject(record)) return;
         types.delete(record);
+        stockTypes.delete(record);
         typeNotesOf.delete(record);
     }
     /** The parsed file as a list of types with its null first slot; a missing or broken file is `[null]`. */
@@ -360,7 +379,7 @@
 
         // Drawn only. The lean goes into the turn by how hard the tires are worked.
         const work = h.grip > 0 ? Math.min(1, speed * Math.abs(rate) / h.grip) : 0;
-        const lean = k.leanRad * work * (turn > 0 ? 1 : turn < 0 ? -1 : 0);
+        const lean = (type.leans === false ? 0 : k.leanRad) * work * (turn > 0 ? 1 : turn < 0 ? -1 : 0);
         state.roll = (state.roll || 0) + (lean - (state.roll || 0)) * (1 - Math.exp(-dt / ROLL_EASE));
         // The nose lifts under the throttle from slow and dips under the brake; in the air it drops.
         const wantSquat = air ? 0 : gas && v >= 0 ? SQUAT_GO * gas * Math.max(0, 1 - v / (top > 0 ? top : 1)) : brake && v > 0.05 ? SQUAT_BRAKE * brake : 0;
@@ -1694,10 +1713,17 @@
         });
     }
 
+    /** Vehicle-only layouts on shared Classes; absent layouts use the ordinary equipment types. */
+    function equipmentSlots(classEntry, equipTypes) {
+        const custom = classEntry && classEntry.rrVehicleSlots;
+        if (Array.isArray(custom)) return custom.filter(id => Number.isInteger(id) && id > 0 && id < (equipTypes || []).length);
+        return (equipTypes || []).map((_, id) => id).slice(1);
+    }
+
     R.Vehicles = {
         file: "reactor_3d_vehicles.js",
-        KINDS, PLAYED, RANGES, STEP_MAX, POINTS,
-        typeOf, typeNotes, forgetType, types: typesOf,
+        KINDS, PLAYED, RANGES, STEP_MAX, POINTS, equipmentSlots,
+        typeOf, stockTypeOf, typeNotes, forgetType, types: typesOf,
         step, newState,
         frame, forwardName, boxOf, shapeOf, forgetShape, surfaceNear, surfaceUnder,
         read, forget, guess, findFront, findWheels, pointNames, turnAbout,

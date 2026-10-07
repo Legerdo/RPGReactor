@@ -36,6 +36,8 @@ class DatabaseEditorUI {
         this.stateEditor = new DatabaseStateEditor(databaseManager, { getCurrentProject: () => this.currentProject }, this.commonUI, this);
         this.questEditor = typeof DatabaseQuestEditor !== 'undefined'
             ? new DatabaseQuestEditor(databaseManager, { getCurrentProject: () => this.currentProject }, this.commonUI, this) : null;
+        this.vehicleEditor = typeof DatabaseVehicleEditor !== 'undefined'
+            ? new DatabaseVehicleEditor(databaseManager, { getCurrentProject: () => this.currentProject }, this) : null;
         this.structureEditor = typeof DatabaseStructureEditor !== 'undefined'
             ? new DatabaseStructureEditor(databaseManager, { getCurrentProject: () => this.currentProject }, this.commonUI, this) : null;
         this.musicSequenceEditor = typeof DatabaseMusicSequenceEditor !== 'undefined'
@@ -173,6 +175,8 @@ class DatabaseEditorUI {
     }
 
     _selectEntryMarkup(type) {
+        if (type === 'vehicles') return `<div style="padding:24px;line-height:1.5"><p>${rrEscapeHtml(this._t('vehicle.placeHint'))}</p><button class="rr-ui-first-run-create rr-button-primary">+ ${rrEscapeHtml(this._t('vehicle.add'))}</button></div>`;
+
         if (type === 'userInterfaces' && this.databaseManager && this.databaseManager.data
             && !(this.databaseManager.data.userInterfaces || []).some(Boolean)) {
             // A project from before the section existed opens on an empty
@@ -358,6 +362,7 @@ class DatabaseEditorUI {
         this._renderedDetail = null;
         this.tilesetEditor?.resetFlagEditing?.({ refresh: false });
         this.troopEditor?.disposePreviewLayout?.();
+        this.vehicleEditor?.dispose?.();
         this.controlsEditor?.detach?.();
         this.actionSequenceEditor?.dispose();
         this.battlePresentationEditor?.dispose();
@@ -769,6 +774,10 @@ class DatabaseEditorUI {
                 data = (this.databaseManager.data.actionSequences || []).filter(Boolean);
                 title = this._dbTitle(type, 'Action Sequences');
                 break;
+            case 'vehicles':
+                data = DatabaseVehicleEditor.listEntries(this.databaseManager);
+                title = this._dbTitle(type, 'Vehicles');
+                break;
             case 'quests':
                 data = this.databaseManager.getQuests();
                 title = this._dbTitle(type, 'Quests');
@@ -936,9 +945,13 @@ class DatabaseEditorUI {
                 item.classList.toggle('selected', selected);
                 item.setAttribute('aria-selected', String(selected));
             });
+            if (type === 'vehicles') {
+                const remove = listEl.parentNode.querySelector('.database-delete-btn');
+                if (remove) remove.disabled = !data.some(entry => !entry.stockVehicle && selectedIds.has(entry.id));
+            }
         };
         const getSelectedEntries = () => filteredData
-            .filter(entry => selectedIds.has(entry.id))
+            .filter(entry => selectedIds.has(entry.id) && !entry.stockVehicle)
             .map(entry => this.databaseManager.data[type]?.[entry.id] || entry);
         const selectIds = (ids, focusId = null, showDetail = true) => {
             selectedIds.clear();
@@ -1005,7 +1018,7 @@ class DatabaseEditorUI {
                 this.paintDatabaseListName(nameSpan, labels.primary, type);
                 const idSpan = document.createElement('span');
                 idSpan.className = 'database-list-id';
-                idSpan.textContent = `#${entry.id}`;
+                idSpan.textContent = entry.stockVehicle ? '' : `#${entry.id}`;
                 if (this.listIconTypes.includes(type)) {
                     const iconSpan = document.createElement('span');
                     iconSpan.className = 'database-list-icon';
@@ -1038,7 +1051,7 @@ class DatabaseEditorUI {
                         ? entry.id
                         : (getSelectedEntries().at(-1)?.id ?? null);
                     applySelection();
-                    const focusedEntry = this.databaseManager.data[type]?.[focusedId];
+                    const focusedEntry = this.databaseManager.data[type]?.[focusedId] || data.find(entry => entry.id === focusedId);
                     if (focusedEntry) this.showDatabaseDetail(focusedEntry, type, { reuse: true });
                     else { this.cleanupDatabaseDetail(); detailEl.innerHTML = this._selectEntryMarkup(type); }
                 });
@@ -1053,7 +1066,7 @@ class DatabaseEditorUI {
                     focusedId = entry.id;
                     applySelection();
                     this.showDatabaseDetail(this.databaseManager.data[type]?.[entry.id] || entry, type, { reuse: true });
-                    this.showListContextMenu(event.clientX, event.clientY, entry, data, type, populateList, searchInput, detailEl);
+                    if (!entry.stockVehicle) this.showListContextMenu(event.clientX, event.clientY, entry, data, type, populateList, searchInput, detailEl);
                 });
                 listEl.appendChild(item);
             });
@@ -1063,7 +1076,8 @@ class DatabaseEditorUI {
 
         const refreshData = () => {
             data.length = 0;
-            this.databaseManager.data[type]?.forEach(entry => { if (entry) data.push(entry); });
+            if (type === 'vehicles') data.push(...DatabaseVehicleEditor.listEntries(this.databaseManager));
+            else this.databaseManager.data[type]?.forEach(entry => { if (entry) data.push(entry); });
         };
         const refreshList = () => populateList(searchInput.value, false, { preserveScroll: true });
         const listSession = {
@@ -1134,7 +1148,7 @@ class DatabaseEditorUI {
         buttonBar.style.cssText = 'display:flex;gap:4px;padding:6px 8px;background-color:var(--color-bg-menubar);border-bottom:1px solid var(--color-border);flex-shrink:0;';
         const addBtn = document.createElement('button');
         addBtn.className = 'database-add-btn';
-        addBtn.textContent = this._t('common.new');
+        addBtn.textContent = type === 'vehicles' ? '+ ' + this._t('vehicle.add') : this._t('common.new');
         addBtn.style.cssText = 'flex:1;padding:4px 8px;background-color:var(--color-bg-panel);color:var(--color-text);border:1px solid var(--color-border-input);border-radius:3px;cursor:pointer;font-size:11px;';
         addBtn.onclick = () => {
             if (this.databaseManager.getMaxEntries(type) >= this.getDatabaseMaximum(type)) return;
@@ -1243,7 +1257,7 @@ class DatabaseEditorUI {
         });
 
         if (this._listKeyHandler) document.removeEventListener('keydown', this._listKeyHandler);
-        const getSelectedEntry = () => data.find(entry => entry?.id === focusedId) || getSelectedEntries()[0] || null;
+        const getSelectedEntry = () => data.find(entry => entry?.id === focusedId && !entry.stockVehicle) || getSelectedEntries()[0] || null;
         const listKeyHandler = event => {
             if (event.defaultPrevented) return;
             if (!viewer.classList.contains('active') || this._activeDatabaseList !== listSession) return;
@@ -1329,6 +1343,7 @@ class DatabaseEditorUI {
         document.addEventListener('keydown', listKeyHandler);
 
         populateList();
+        if (type === 'vehicles' && data.length) selectIds([data[0].id]);
         viewer.classList.add('active');
         this.takeDatabaseSnapshot();
         this.setupDatabaseControls();
@@ -1834,7 +1849,8 @@ class DatabaseEditorUI {
             entries.forEach(entry => this.clearDatabaseEntry(type, entry.id));
             // The list shows what the database now holds: a cut Action Sequence leaves no record behind.
             data.length = 0;
-            targetArray.forEach(entry => { if (entry) data.push(entry); });
+            if (type === 'vehicles') data.push(...DatabaseVehicleEditor.listEntries(this.databaseManager));
+            else targetArray.forEach(entry => { if (entry) data.push(entry); });
         }
         if (session?.type === type) session.selectIds(entries.map(entry => entry.id), entries[0].id, false);
         populateList(searchInput.value, false, { preserveScroll: true });
@@ -1848,7 +1864,7 @@ class DatabaseEditorUI {
     }
 
     async pasteListEntries(targetEntry, data, type, populateList, searchInput, detailEl) {
-        if (!targetEntry) return;
+        if (!targetEntry || targetEntry.stockVehicle) return;
         const targetId = targetEntry.id;
         const session = this._activeDatabaseList;
         const mutationGeneration = session?.mutationGeneration;
@@ -1900,7 +1916,8 @@ class DatabaseEditorUI {
         });
         this._markDatabaseMutation();
         data.length = 0;
-        targetArray.forEach(entry => { if (entry) data.push(entry); });
+        if (type === 'vehicles') data.push(...DatabaseVehicleEditor.listEntries(this.databaseManager));
+        else targetArray.forEach(entry => { if (entry) data.push(entry); });
         if (session?.type === type) session.selectIds(pastedEntries.map(entry => entry.id), pastedEntries[0].id, false);
         populateList(searchInput.value, false, { preserveScroll: true });
         this.showDatabaseDetail(pastedEntries[0], type);
@@ -1943,6 +1960,7 @@ class DatabaseEditorUI {
     }
 
     duplicateListEntry(entry, data, type, populateList, searchInput) {
+        if (entry.stockVehicle) return;
         if (this._snapshotForUndo) this._snapshotForUndo();
         if (this._activeDatabaseList?.type === type) this._activeDatabaseList.mutationGeneration++;
         const cloned = JSON.parse(JSON.stringify(entry));
@@ -1992,6 +2010,7 @@ class DatabaseEditorUI {
             { name: 'Animations', type: 'animations' },
             { name: 'Tilesets', type: 'tilesets' },
             { name: '3D Models', type: 'reactor3d' },
+            { name: 'Vehicles', type: 'vehicles' },
             { name: 'Structures', type: 'structures' },
             { name: 'Common Events', type: 'commonEvents' },
             { name: 'User Interfaces', type: 'userInterfaces' },
@@ -2074,6 +2093,9 @@ class DatabaseEditorUI {
             this.actionSequenceEditor.show(detailEl, entry);
         } else if (type === 'quests' && this.questEditor) {
             this.questEditor.showQuestDetail(detailEl, entry);
+        } else if (type === 'vehicles' && this.vehicleEditor) {
+            if (entry.stockVehicle) this.vehicleEditor.showStock(detailEl, entry.stockVehicle);
+            else this.vehicleEditor.show(detailEl, entry);
         } else if (type === 'structures' && this.structureEditor) {
             this.structureEditor.showStructureDetail(detailEl, entry);
         } else if (type === 'musicSequences' && this.musicSequenceEditor) {
@@ -2309,6 +2331,7 @@ class DatabaseEditorUI {
             userInterfaces: { name: 'New Interface', mode: 'scene', background: 'blur', visible: { type: 'always' }, cancel: { type: 'close' }, firstFocus: 0, coordinateSpace: 'screen', nodes: [], note: '' },
             // Reactor quests: reactor_quests.js reads this shape as it is.
             actionSequences: typeof ReactorBattleData !== 'undefined' ? ReactorBattleData.template() : {version:1,name:'New Sequence',steps:[]},
+            vehicles: { name: 'New Vehicle', kind: 'motorcycle', model: { name: '', size: 3.5 } },
             quests: { name: 'New Quest', key: '', category: '', iconIndex: 0, difficulty: '', from: '', location: '', description: '', objectives: [], rewards: [], subtext: '', quotes: '', activation: { type: 'command', switchId: 0, variableId: 0, operator: '>=', value: 0 }, completion: { type: 'command', switchId: 0 }, note: '' },
             // Stored on System.json; reactor_managers.js reads this shape as it is.
             musicSequences: { name: 'New Sequence', sequence: { enabled: true, entries: [] } },
@@ -2324,7 +2347,7 @@ class DatabaseEditorUI {
             actors: 9999, classes: 9999, skills: 9999, items: 9999,
             weapons: 9999, armors: 9999, enemies: 9999, troops: 9999,
             states: 9999, animations: 5000, tilesets: 1000, commonEvents: 9999,
-            userInterfaces: 9999, quests: 9999, structures: 9999, musicSequences: 9999, actionSequences: 9999, elements: 512, skillTypes: 128, weaponTypes: 256,
+            userInterfaces: 9999, quests: 9999, vehicles: 9999, structures: 9999, musicSequences: 9999, actionSequences: 9999, elements: 512, skillTypes: 128, weaponTypes: 256,
             armorTypes: 256, equipTypes: 128
         }[type] || 0;
     }
@@ -2339,6 +2362,7 @@ class DatabaseEditorUI {
     }
 
     clearDatabaseEntry(type, id) {
+        if (type === 'vehicles' && id < 1) return;
         const entries = this.databaseManager?.data?.[type];
         if (!entries || !Number.isInteger(id) || id <= 0 || id >= entries.length) return null;
         const blank = this.createBlankDatabaseEntry(type, id);

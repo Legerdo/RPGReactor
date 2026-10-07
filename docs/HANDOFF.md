@@ -2,9 +2,9 @@
 
 Dated engineering notes for whoever picks the project up next, newest first. This file holds the cycle in progress and the one just shipped. Older cycles are in [archive/handoff](archive/handoff/): [2026-09-14 to 09-21](archive/handoff/2026-09-14-to-21.md) (0.98.7), [2026-09-02 to 09-13](archive/handoff/2026-09-02-to-13.md) (0.98.5 and 0.98.6) and [2026-08 and earlier](archive/handoff/2026-08-and-earlier.md). The verified current state is [STATUS.md](STATUS.md); read that first.
 
-## Where things stand (2026-10-05)
+## Where things stand (2026-10-06)
 
-**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`). The 0.98.9 cycle is open. **The accumulated editor, runtime and Demo work is saved in the local 2026-10-05 checkpoint:** `runtime/` and all 16 bundled projects carry runtime **20261005.5**, including Cancel to dismount vehicles. The 2026-10-05 validation below resolved the two required-file tracking failures and verified editor save and interaction order. The previously referenced `scratchpad/ux-pass/RESUME.md` and `lead-DOCS.md` are absent; `scratchpad/` was empty when resuming. Use the checkpoint below and the dated notes here; do not assume the missing package briefs are available.
+**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`). The 0.98.9 cycle is open. The working vehicle pass now carries runtime **20261006.3**; see the 2026-10-06 entry below. **The accumulated editor, runtime and Demo work is saved in the local 2026-10-05 checkpoint:** `runtime/` and all 16 bundled projects carry runtime **20261005.5**, including Cancel to dismount vehicles. The 2026-10-05 validation below resolved the two required-file tracking failures and verified editor save and interaction order. The previously referenced `scratchpad/ux-pass/RESUME.md` and `lead-DOCS.md` are absent; `scratchpad/` was empty when resuming. Use the checkpoint below and the dated notes here; do not assume the missing package briefs are available.
 
 **CI:** the syntax-check and menu-smoke fixes are among the unpushed commits. The Web persistence smoke is intermittent on GitHub and posts its page state as a public annotation on failure (`curl https://api.github.com/repos/Psychronic-Games/RPGReactor/check-runs/<job id>/annotations`). Runner images move to Ubuntu 26 on 2026-10-19; watch the GUI smokes then. **Web bundle:** about 496 of itch's 500 MB after the HD materials (plus door sounds); the owner picks what to trim at the end of the weekend of 2026-10-03 (never the Psychronic BGM), so it does not block work until then.
 
@@ -27,6 +27,107 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 ### Harnesses
 
 Repo `scratchpad/` (gitignored): `start-display.sh` (headless :57; use the X11 env), `ed3d.cjs` (editor on a Demo copy with real clicks; links the Demo's img/audio, never write assets through it), `game-prof.cjs` (BATTLE=troop), `prof3d.cjs`, `ed-prof.cjs`, `look-capture-setup.js` + `look-crops.py` (judge looks with the clock running), `rock-game.cjs`, `battle-shared-check.cjs`, `uverify-game.cjs`, `uab-game.cjs`, `mat-versions.js`, `reflect-shots.cjs`, `core-split-boot.cjs`, plus the per-import oracles under `scratchpad/<game>/`. Parallel agents share one working tree: never `git stash`/`checkout`/`restore` in a brief (compare with `git show HEAD:<file>`), and only the lead syncs the runtime and bumps the revision.
+
+## 2026-10-06 — Vehicle labels, collapse spacing and sound
+
+Runtime **20261006.3**. The shared graphic slot says Vehicle Sprite or
+Vehicle Model. Vehicle section headers reserve space for the collapse
+chevron. Sound groups Idle, Acceleration, Slowdown and BGM in four compact
+rows; optional SE effects fold away. Pickers reuse the shared audio modal,
+including loop preview and volume/pitch/pan controls. Native records expose
+Start/Stop effects; Reactor event vehicles expose their existing impact,
+landing, scrape and skid hooks too.
+
+Engine loops use independent BGS buffers and the BGS volume setting, with
+speed-dependent pitch/volume and crossfades. Existing SE engine assignments
+remain compatible. Per-buffer generations prevent delayed fade cleanup
+from stopping a restarted loop. Native extensions inherit no placeholder
+sounds. A native vehicle with empty BGM no longer stops map music or
+replays an old track on dismount; selected BGM retains the native behavior.
+
+A disposable NW.js project at **1024×600** passed both image labels, header
+spacing, folded effects, audio picker loop preview, actual BGS selection,
+None, picker Cancel, whole-database rollback and no horizontal overflow.
+No browser error events were reported. GUI ran separately from Node tests.
+Evidence: `/tmp/rr-vehicle-sound-ui.log`, `/tmp/rr-vehicle-sound-ui.png`.
+Verification: **6,705 tests completed, 6,695 passed, 10 skipped, zero failed**
+(`cd editor && node --test --test-concurrency=2`, 126.5 s). Regression tests
+cover state crossfades, per-buffer fade cleanup, BGS/SE volume separation,
+map ambience preservation, native Start/Stop, optional native BGM,
+normalization and BGS asset validation. Changed JavaScript syntax, patch
+hygiene and all 16 runtime copies passed; Demo validation says Ready to ride.
+Full-suite evidence: `/tmp/rr-vehicle-sounds-full-suite.log`.
+User Demo System/project edits remain untouched. No commit or push.
+
+## 2026-10-06 — Vehicle image control and 2D/3D parity
+
+Runtime **20261006.2**. Vehicles now reuse the Actors graphic-slot control:
+one image button, 2D by default, and a 3D checkbox that opens the existing
+model picker. Switching back retains both assignments; inactive retained
+models do not render. Stock and custom records share the compact form with
+initial equipment, own traits and learnable skills. Parameters include
+class, equipment and parameter-rate traits; inherited class skills fold away.
+
+Rideable and movement settings replace fixed kind restrictions. Flat maps
+inherit character images, use native tile passage and solid events, support
+loops, and drive without THREE. Transfers between 2D and 3D preserve vehicle
+identity and saved battler condition. Water uses boat/ship passage in 2D and
+authored water in 3D; air vehicles land before dismounting in 3D. The checker
+uses flat sprite footprints and reports missing 2D images. Native vehicles
+retain their original movement and event commands; Reactor extensions are
+optional. Mounted combat and an in-game equipment menu remain open.
+
+A disposable NW.js project at an actual **1024×600** passed sprite and model
+selection through the shared pickers, picker Cancel, mode restoration,
+stock browsing without writes, equipment and skill authoring, trait modal
+opening, database rollback and no horizontal overflow. No browser error
+events were reported. This GUI run used default graphics settings (SwiftShader
+fallback permitted), separately from the Node suite. Earlier forced software
+rendering alongside the tests caused resource contention; it was not a
+measurement of normal app performance. The long scene parity harness did
+not complete, so new live gameplay parity is not claimed; runtime parity is
+covered by the actual runtime objects in the Node tests.
+
+Verification: **6,697 tests completed, 6,687 passed, 10 skipped, zero failed**
+(`node --test --test-concurrency=2`, 126.6 s). Changed JavaScript syntax
+checks and patch hygiene passed. Evidence: `/tmp/rr-vehicle-ui-parity.log`,
+`/tmp/rr-vehicle-ui-parity.png`, `/tmp/rr-vehicle-ui-parity-3d.png`,
+`/tmp/rr-vehicles-coherence-final-suite2.log`. All 16 bundled projects match runtime; the
+Demo vehicle validator reports Ready to ride. Existing user Demo System and
+project edits were preserved. No commit or push was requested for this pass.
+
+## 2026-10-06 — Vehicle authoring, map travel and class reuse
+
+Working changes after the local checkpoint, runtime **20261006.1**. Vehicles
+now has an optional Database catalog, + Add Vehicle, model/handling/class/
+starting-loadout controls, and the original Boat/Ship/Airship as the first three list entries.
+Events expose whole-event Reactor Vehicle metadata with inherited model
+previews. Get On/Get Off Reactor Vehicle commands appear only in the Reactor
+tab and retain MZ plugin-command encoding; stock vehicle commands remain intact.
+
+A ridden vehicle carries its stable source identity and authored event to
+another map, parks there, hides its original event while away, and returns
+without duplication. Runtime event injection does not rewrite map files.
+Self switches retain the source identity. Class-based battlers reuse weapon,
+armor, trait and state rules with independent saved health and equipment.
+Classes expose optional vehicle-only slots, including duplicate types.
+The forms use compact fields and short hints, with detailed authoring guidance in the guide. Mounted combat and an in-game vehicle equipment menu remain open: choosing
+a class does not change the existing battle dismount rule.
+
+Verification: **6,686 tests completed, 6,676 passed, 10 skipped, zero failed**
+(56.7 s). All 16 bundled projects match the runtime; the Demo vehicle
+validator reports Ready to ride. A disposable NW.js Demo passed authoring,
+stock list order, Cancel rollback, model preview, class stats, inherited map
+appearance, riding, transfer, saved condition and parking. The 1024×600 form
+has no horizontal overflow. The live harness used software rendering and
+`--disable-domain-blocking-for-3d-apis` to allow its deliberately disposed
+preview contexts; no runtime error events were reported. Evidence:
+`/tmp/rr-vehicles-full-final2.log`, `/tmp/rr-vehicles-live-final.log`,
+`/tmp/rr-vehicles-form.png`.
+
+See [AUTHORING.md](AUTHORING.md#riding-the-demo-motorcycle) for the workflow
+and map/kind limits. The owner's pre-existing Demo System/project edits were
+preserved. No commit, push or release was requested for these changes.
 
 ## 2026-10-05 — End-of-day checkpoint
 

@@ -18,6 +18,7 @@ class DatabaseManager {
             commonEvents: 9999,
             userInterfaces: 9999,
             quests: 9999,
+            vehicles: 9999,
             structures: 9999,
             musicSequences: 9999,
             actionSequences: 9999,
@@ -75,6 +76,7 @@ class DatabaseManager {
             // project that never authored one.
             ['actionSequences', 'ActionSequences.json'],
             ['quests', 'ReactorQuests.json'],
+            ['vehicles', 'ReactorVehicles.json'],
             ['system', 'System.json']
         ];
 
@@ -96,6 +98,7 @@ class DatabaseManager {
             // absent in projects that never authored an interface.
             userInterfaces: [],
             quests: [],
+            vehicles: [null],
             // Reactor's building plans: one record per file under 3d/Structures,
             // read on load and written back on save, so the list, search,
             // clipboard and undo are the database's own.
@@ -158,6 +161,8 @@ class DatabaseManager {
             for (const [key, filename] of this.dataFiles) {
                 loaded[key] = await this.loadJSON(dataPath, filename);
             }
+            if (!Array.isArray(loaded.vehicles)) throw new Error('ReactorVehicles.json must be an array');
+            if (!loaded.vehicles.length) loaded.vehicles = [null];
             loaded.battlePresentation = await this.loadJSON(dataPath, 'BattlePresentation.json');
             loaded.structures = await this.loadStructures(projectPath);
             loaded.tileset3d = await this.loadTileset3D(projectPath);
@@ -726,6 +731,18 @@ class DatabaseManager {
         return this.data.tilesets[id] || null;
     }
 
+    getVehicles() {
+        return (this.data.vehicles || []).filter(Boolean);
+    }
+
+    getVehicle(id) {
+        return (this.data.vehicles || [])[id] || null;
+    }
+
+    hasVehicles() {
+        return (this.data.vehicles || []).some(Boolean);
+    }
+
     getQuests() {
         return (this.data.quests || []).filter(entry => entry !== null);
     }
@@ -1043,6 +1060,9 @@ class DatabaseManager {
                 && !this.fs.existsSync(this.path.join(projectPath, 'data', filename))) {
                 continue;
             }
+            // Optional Reactor data leaves imported RPG Maker projects unchanged.
+            if (key === 'vehicles' && !this.hasVehicles()
+                && !this.fs.existsSync(this.path.join(projectPath, 'data', filename))) continue;
             // System.json is part of dataFiles and gets its own fresh
             // versionId when its turn comes — skip the companion rewrite
             // that would otherwise re-save it after every other file.

@@ -7903,3 +7903,10 @@ for (const [locale, labels] of Object.entries({
     globalThis.RR_REVIEWED_TRANSLATIONS.text[locale][key] = labels[i];
   });
 }
+
+// Reactor vehicle commands share the existing event command catalogs.
+Object.assign(globalThis.RR_REVIEWED_TRANSLATIONS.commands.pl, {
+    'Get On Reactor Vehicle': 'Wsiądź do pojazdu Reactor',
+    'Get Off Reactor Vehicle': 'Wysiądź z pojazdu Reactor'
+});
+globalThis.RR_REVIEWED_TRANSLATIONS.sections.pl.Vehicles = 'Pojazdy';

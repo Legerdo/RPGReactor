@@ -390,6 +390,10 @@ class UIManager {
             click: () => this.callbacks.openDatabase('reactor3d')
         }));
         databaseMenu.append(new nw.MenuItem({
+            label: 'Vehicles',
+            click: () => this.callbacks.openDatabase('vehicles')
+        }));
+        databaseMenu.append(new nw.MenuItem({
             label: 'Common Events',
             click: () => this.callbacks.openDatabase('commonEvents')
         }));

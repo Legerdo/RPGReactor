@@ -39,7 +39,7 @@ const block = () => ({
     controls: [{ input: 'steer', shape: 'bars', part: 'Steering', at: [-0.5, 0.7, 0], axis: [0.41, 0.91, 0], degrees: 30, degreesAtSpeed: 7 }],
     seats: [{ posture: 'astride', seat: { at: POINTS.seat }, handL: { at: POINTS.handL, part: 'Steering' }, handR: { at: POINTS.handR, part: 'Steering' }, footL: { at: POINTS.footL }, footR: { at: POINTS.footR } }]
 });
-const record = more => Object.assign({ id: 1, name: 'Motorcycle', kind: 'motorcycle', model: { name: 'Vehicles/bike', file: 'bike', size: 2 }, sounds: JSON.parse(JSON.stringify(SOUNDS)) }, more);
+const record = more => Object.assign({ id: 1, name: 'Motorcycle', kind: 'motorcycle', sheet: {characterName:'Vehicle',characterIndex:0}, model: { name: 'Vehicles/bike', file: 'bike', size: 2 }, sounds: JSON.parse(JSON.stringify(SOUNDS)) }, more);
 const page = more => Object.assign(S.defaultPage(), more);
 const bike = (id, x, y, row = {}, more = {}) => Object.assign(S.vehicleEvent(id, x, y, Object.assign({ type: 1, yaw: 180, name: 'Motorcycle' }, row)), more);
 const command = (name, args = {}, label = name) => ({ code: 357, indent: 0, parameters: ['RPGReactor', name, label, args] });
@@ -147,7 +147,7 @@ test('a project whose vehicle is whole is ready to ride, and the notes are count
     assert.deepEqual(told(second), [['note', 'Motorcycle has no engine sound.'], ['note', 'Motorcycle: nothing on the model turns with the steering.']]);
     assert.deepEqual([second.ok, second.notes, second.sentence.key, second.sentence.text], [true, 2, 'vehicleCheck.readyNotes', 'Ready to ride. 2 notes.']);
     // Something to fix: not ready, whatever the notes.
-    one.types[1].model = null;
+    one.types[1].model = null; one.types[1].sheet = null;
     const broken = check(one);
     assert.deepEqual([broken.ok, broken.fixes, broken.sentence.text], [false, 1, 'Not ready to ride. To fix: 1.']);
     assert.deepEqual([C.sentenceOf(0, 0).text, C.sentenceOf(0, 1).text, C.sentenceOf(0, 5).text, C.sentenceOf(2, 5).text], ['Ready to ride.', 'Ready to ride. 1 note.', 'Ready to ride. 5 notes.', 'Not ready to ride. To fix: 2.']);
@@ -167,7 +167,7 @@ test('a project with no vehicles says so, and a file that is not JSON is a line 
 // The type record.
 
 test('a type with no model, a model file that is missing, a kind that is none', () => {
-    const none = check(project({ types: [null, record({ model: undefined })] }));
+    const none = check(project({ types: [null, record({ model: undefined, sheet:null })] }));
     assert.deepEqual(told(none)[0], ['fix', 'Motorcycle has no model.']);
     assert.deepEqual([lineOf(none, 'noModel').file, lineOf(none, 'noModel').path], ['data/ReactorVehicles.json', '[1].model']);
     const missing = check(project({ types: [null, record({ model: { name: 'Vehicles/gone' } })] }));
@@ -588,23 +588,32 @@ test('a vehicle whose type is not in the Database, and a name it cannot have', (
 });
 
 test('a vehicle that stands where it does not fit says why, in Battle Setup\'s words', () => {
-    // A flat map: the stand test is the tile's passage flags. The bike's body is its own tile and the one north of it.
+    // A flat map uses one tile even when the same type has a larger 3D model.
     const walled = project({ maps: [flat(1, [bike(1, 5, 5), bike(2, 9, 5), bike(3, 15, 5), { id: 4, name: 'Crate', note: '', pages: [page()], x: 15, y: 4 }], {}, [[5, 5], [9, 4]])] });
     const report = check(walled);
     assert.deepEqual(told(report).filter(line => line[0] === 'fix'), [
-        ['fix', 'Motorcycle (001) on Yard stands where it does not fit.'], ['fix', 'Motorcycle (002) on Yard stands where it does not fit.'], ['fix', 'Motorcycle (003) on Yard stands where it does not fit.']
+        ['fix', 'Motorcycle (001) on Yard stands where it does not fit.']
     ]);
     assert.deepEqual(report.lines.filter(line => line.key === 'vehicleCheck.noFit').map(line => [line.eventId, line.why, line.whyText, line.x, line.y, line.path]), [
-        [1, 'tile', 'Nobody can walk onto this tile.', 5, 5, 'events[1]'], [2, 'fit', 'Motorcycle does not fit here.', 9, 5, 'events[2]'], [3, 'fit', 'Motorcycle does not fit here.', 15, 5, 'events[3]']
+        [1, 'tile', 'Nobody can walk onto this tile.', 5, 5, 'events[1]']
     ]);
     // Off the map, and on another event.
     const off = check(project({ maps: [flat(1, [bike(1, 999, 5), bike(2, 20, 20), { id: 3, name: 'Crate', note: '', pages: [page()], x: 20, y: 20 }])] }), { body: () => [[0, 0]] });
     assert.deepEqual(off.lines.filter(line => line.key === 'vehicleCheck.noFit').map(line => [line.eventId, line.whyText]), [[1, 'Off the map.'], [2, 'Something is already here.']]);
-    // Two bikes nose to tail: each one's whole body is in the other's way.
+    // Adjacent flat sprites do not inherit their 3D model's footprint.
     const pair = check(project({ maps: [flat(1, [bike(1, 5, 6), bike(2, 5, 5)])] }));
-    assert.deepEqual(pair.lines.filter(line => line.key === 'vehicleCheck.noFit').map(line => [line.eventId, line.why]), [[1, 'fit'], [2, 'taken']], 'one does not fit, the other stands on what the first covers');
-    // Free tiles all round: nothing to say but that a flat map is not ridden on.
-    assert.deepEqual(told(check(project({ maps: [flat(1, [bike(1, 5, 5)])] }))), [['note', 'Motorcycle on Yard: this version rides on 3D maps.']]);
+    assert.deepEqual(pair.lines.filter(line => line.key === 'vehicleCheck.noFit').map(line => [line.eventId, line.why]), [], 'each sprite occupies its own tile');
+    // Open ground and an assigned sprite are ready to ride.
+    assert.deepEqual(told(check(project({ maps: [flat(1, [bike(1, 5, 5)])] }))), []);
+});
+
+test('the checker requires a sprite on flat maps and respects the Rideable setting',()=>{
+    const missing=project({types:[null,record({sheet:null})],maps:[flat(1,[bike(1,5,5)])]});
+    assert.equal(lineOf(check(missing),'noSprite').text,'Motorcycle on Yard needs a 2D image.');
+    missing.maps[0].events[1].pages[0].image.characterName='Vehicle';
+    assert.equal(check(missing).fixes,0);
+    missing.types[1].ridable=false;
+    assert.equal(lineOf(check(missing),'notRidable').text,'Motorcycle: Rideable is switched off.');
 });
 
 test('a map this version does not ride on makes the vehicle scenery, and says why', () => {
@@ -612,15 +621,15 @@ test('a map this version does not ride on makes the vehicle scenery, and says wh
     const infos = [null, { id: 1, name: 'Yard' }, { id: 2, name: 'Ring' }, { id: 3, name: 'Cabin' }, { id: 4, name: 'Road' }];
     const report = check(project({ maps, mapInfos: infos }));
     assert.deepEqual(told(report), [
-        ['note', 'Motorcycle on Yard: this version rides on 3D maps.'], ['note', 'Motorcycle on Ring: this map loops.'], ['note', 'Motorcycle on Cabin: this map\'s camera is first person.']
+        ['note', 'Motorcycle on Ring: this map loops.'], ['note', 'Motorcycle on Cabin: this map\'s camera is first person.']
     ], 'two bikes on one map are told once; the last map rides');
-    assert.deepEqual(report.vehicles.map(vehicle => [vehicle.mapId, vehicle.rides]), [[1, 'flatMap'], [2, 'loopMap'], [2, 'loopMap'], [3, 'firstPersonMap'], [4, '']]);
+    assert.deepEqual(report.vehicles.map(vehicle => [vehicle.mapId, vehicle.rides]), [[1, ''], [2, 'loopMap'], [2, 'loopMap'], [3, 'firstPersonMap'], [4, '']]);
     assert.deepEqual([C.firstPerson({ reactor3d: { camera: { mode: 'firstPerson' } } }), C.firstPerson({ reactor3d: { camera: { mode: 'fps' } } }), C.firstPerson({ reactor3d: { camera: { mode: 'thirdPerson' } } }), C.firstPerson({})], [true, true, false, false]);
     // The project's own switch: every vehicle is scenery, said once a map.
     const off = check(project({ system: { partyMembers: [1], reactorVehicles: { free: false } }, maps: [mapOf(4, [bike(1, 5, 5), bike(2, 9, 5)])], mapInfos: infos }));
     assert.deepEqual(told(off), [['note', 'Motorcycle on Road: free riding is switched off in this project.']]);
     // A map with no name is named by its file.
-    assert.equal(check(project({ maps: [flat(9, [bike(1, 5, 5)])], mapInfos: [] })).lines[0].text, 'Motorcycle on Map009: this version rides on 3D maps.');
+    assert.equal(check(project({ maps: [flat(9, [bike(1, 5, 5)], {width:40,height:30})], mapInfos: [] })).lines[0].text, 'Motorcycle is faster than this map is wide: it crosses Map009 in 2 seconds.');
 });
 
 test('commands that never run, a vehicle no command boards, one that moves by itself', () => {
@@ -691,7 +700,7 @@ test('a vehicle faster than its map is wide, a type on no map, a plugin that mov
     assert.deepEqual(told(report), [['note', 'Motorcycle is faster than this map is wide: it crosses Yard in 2 seconds.']], '40 tiles at 20 a second; 200 tiles take ten');
     assert.deepEqual(told(check(project({ types: [null, record({ handling: { speed: 4 } })], maps: [mapOf(1, [bike(1, 10, 10)], { width: 40, height: 30 })] }))), [], 'slower: ten seconds across');
     // A map nobody rides on is not too small for riding: only why it is not ridden is said.
-    assert.deepEqual(told(check(project({ maps: [flat(1, [bike(1, 10, 10)], { width: 40, height: 30 })] }))), [['note', 'Motorcycle on Yard: this version rides on 3D maps.']]);
+    assert.deepEqual(told(check(project({ maps: [flat(1, [bike(1, 10, 10)], { width: 40, height: 30 })] }))), [['note', 'Motorcycle is faster than this map is wide: it crosses Yard in 2 seconds.']]);
     assert.deepEqual(told(check(project({ maps: [mapOf(1, [bike(1, 10, 10)], { width: 40, height: 30, scrollType: 1 })] }))), [['note', 'Motorcycle on Yard: this map loops.']]);
     assert.deepEqual(told(check(project({ maps: [mapOf(1, [])] }))), [['note', 'No Motorcycle is on any map.']]);
     assert.deepEqual([lineOf(check(project({ maps: [mapOf(1, [])] })), 'unplaced').file, lineOf(check(project({ maps: [mapOf(1, [])] })), 'unplaced').path], ['data/ReactorVehicles.json', '[1]']);
@@ -1054,3 +1063,12 @@ test('with the Demo\'s party on the fixture the checker says of each hand and fo
 
 if (ONLY === 'catalog') console.log(`catalog: ${catalog()} sentences in 17 locales`);
 if (ONLY === 'sameRecord') { const lists = sameRecord(); console.log(lists === null ? 'sameRecord: not run' : `sameRecord: ${lists} lists`); }
+
+test('BGS engine states validate the BGS folder and do not report a configured engine as silent',()=>{
+    const data=project();data.types[1].sounds={engine:null,idle:'Motor',accelerate:{name:'Rev'},slowdown:{name:'Coast',folder:'se'}};
+    const report=check(data);
+    assert.deepEqual(report.lines.map(line=>line.path),['[1].sounds.idle','[1].sounds.accelerate','[1].sounds.slowdown']);
+    assert.deepEqual(C.soundsOf(data.types[1],{Vehicles:null}),[{slot:'idle',name:'Motor',kind:'bgs'},{slot:'accelerate',name:'Rev',kind:'bgs'},{slot:'slowdown',name:'Coast',kind:'se'}]);
+    const exists=file=>FILES.includes(file) || ['audio/bgs/Motor.ogg','audio/bgs/Rev.m4a','audio/se/Coast.ogg_'].includes(file);
+    assert.deepEqual(told(check(data,{exists})),[]);
+});

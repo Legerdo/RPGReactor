@@ -1023,7 +1023,8 @@ class TilemapManager {
                 const index = typeof MapEditor3D !== "undefined" && MapEditor3D.previewPageIndex
                     ? MapEditor3D.previewPageIndex(mapData, event) : 0;
                 if (index === null) continue;
-                const spec = Reactor3D.eventModelSpec(mapData, event.id, index);
+                const spec = typeof MapEditor3D !== 'undefined' && MapEditor3D.previewModelSpec
+                    ? MapEditor3D.previewModelSpec(mapData, event, index) : Reactor3D.eventModelSpec(mapData, event.id, index);
                 if (!spec) continue;
                 const page = event.pages && event.pages[index];
                 const z = Reactor3D.eventZAt ? Reactor3D.eventZAt(mapData, event.id) : 0;

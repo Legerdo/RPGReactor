@@ -2468,7 +2468,9 @@ class EventManager {
         const chosen = EventManager.chosenPreviewPage(map, event);
         if (chosen !== null) return chosen;
         const unit = EventManager.unitOf(event);
-        if (!unit || !event.pages) return null;
+        if (!unit || !event.pages) {
+            return typeof RRVehicles !== 'undefined' && RRVehicles.vehicleOf(event) && event.pages?.[0] ? 0 : null;
+        }
         const index = unit.page > 0 ? unit.page - 1 : 0;
         return event.pages[index] ? index : null;
     }
@@ -3041,6 +3043,12 @@ class EventManager {
     createEventPreviewSprite(event, page, pageIndex = 0) {
         let image = page?.image;
         if (!image) return null;
+        // Vehicles inherit their database sprite without changing the event page.
+        if (!image.tileId && !image.characterName) {
+            const row = typeof RRVehicles !== 'undefined' && RRVehicles.vehicleOf(event);
+            const sheet = row && window.reactor?.databaseManager?.data?.vehicles?.[row.type]?.sheet;
+            if (sheet?.characterName) image = {...image, ...sheet};
+        }
         // A unit with no picture of its own on this page stands as its record gives it.
         const look = image.tileId > 0 || image.characterName ? null : this.unitLook(event);
         if (look && look.page === pageIndex) {

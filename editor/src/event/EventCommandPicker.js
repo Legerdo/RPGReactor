@@ -240,6 +240,13 @@ class EventCommandPicker {
                     {
                         sections: [
                             {
+                                title: 'Vehicles',
+                                commands: [
+                                    { name: 'Get On Reactor Vehicle', code: 357, reactor: 'GetOnVehicle' },
+                                    { name: 'Get Off Reactor Vehicle', code: 357, reactor: 'GetOffVehicle' }
+                                ]
+                            },
+                            {
                                 title: '3D',
                                 commands: [
                                     { name: 'Play Model Animation', code: 357, reactor: 'PlayModelAnimation' },

@@ -16,17 +16,17 @@ const code = source.split('\n').filter(line => !/^\s*(\/\/|\/?\*)/.test(line)).j
 const world = () => boardWorld({ vehicles: [bike(31, 10, 10, { yaw: 180 })], events: [event(32, 20, 20)] });
 const aboard = w => { w.stand(11, 10, 4); w.board(31); return w.$gamePlayer; };
 
-test('the file leaves the three and their functions alone', () => {
+test('native vehicles keep their list, class, movement and interpreter commands', () => {
     // Nothing of the stock vehicles is named in code: their list, their class, the functions that make, refresh and
     // update them, their tile flags, their four commands and the two bodies plugins replace.
-    for (const name of ['_vehicles', 'Game_Vehicle', 'createVehicles', 'refereshVehicles', 'updateVehicles', 'isBoatPassable', 'isShipPassable',
-        'isAirshipLandOk', 'isCollidedWithVehicles', 'command202', 'command206', 'command140', 'command323', 'updateVehicleGetOn', 'updateVehicleGetOff',
+    for (const name of ['_vehicles', 'Game_Vehicle', 'createVehicles', 'refereshVehicles', 'updateVehicles', 'isCollidedWithVehicles', 'command202', 'command206', 'command140', 'command323', 'updateVehicleGetOn', 'updateVehicleGetOff',
         '_vehicleGettingOn', '_vehicleGettingOff', '_altitude', '_driving', '_shadowSprite']) {
         assert.equal(code.includes(name), false, name + ' is not touched');
     }
-    assert.equal(/prototype\.getOnVehicle\s*=|prototype\.getOffVehicle\s*=|proto\.getOnVehicle\s*=|proto\.getOffVehicle\s*=/.test(code), false, 'boarding is not inside the two bodies plugins replace');
-    assert.equal(/prototype\.command\d+\s*=/.test(code), false, 'no interpreter command function is added or replaced');
-    assert.equal(/"boat"|"ship"|"airship"/.test(code), false, 'the three types are never named');
+    assert.equal(/prototype\.getOffVehicle\s*=|proto\.getOffVehicle\s*=/.test(code), false, 'native dismounting stays unchanged');
+    assert.equal(code.includes('return nativeGetOn.apply(this,arguments);'),true,'unconfigured native boarding delegates unchanged');
+    assert.deepEqual(Array.from(code.matchAll(/prototype\.(command\d+)\s*=/g), match => match[1]), ['command123'], 'only a visiting vehicle self switch keeps its original identity');
+    assert.equal(/Game_Map\.prototype\.(?:isBoatPassable|isShipPassable|isAirshipLandOk)\s*=/.test(code),false,'tile passage rules are only read');
 });
 
 test('$gameMap answers for the three exactly as before, on foot and aboard a new vehicle', () => {
@@ -134,7 +134,7 @@ test('the save holds no class of the file and no character: ids and plain data',
     // The event carries the fields of the saved table, and this file writes no other `_rr` field on anything.
     for (const key of ['_rrVehicle', '_rrHome', '_rrYaw', '_rrBoarded', '_rrFree', '_rrPose']) assert.ok(Object.keys(e).includes(key), key);
     const table = ['_rrBoarded', '_rrFree', '_rrHome', '_rrLean', '_rrPose', '_rrSpeed', '_rrSteer', '_rrVehicle', '_rrYaw',
-        '_rrRide', '_rrDrive', '_rrMount', '_rrWas', '_rrSeated', '_rrVehicles'];
+        '_rrRide', '_rrDrive', '_rrMount', '_rrWas', '_rrSeated', '_rrVehicles', '_rrVehicleType', '_rrVehicleIdentity', '_rrIdentity', '_rrAuthored', '_rrAway', '_rrVehicleTransfer', '_rrVehicleSubject'];
     const written = new Set(Array.from(code.matchAll(/\._(rr[A-Za-z]+)\s*=(?!=)/g), m => '_' + m[1]));
     for (const key of written) assert.ok(table.includes(key), key + ' is in the saved table');
 });

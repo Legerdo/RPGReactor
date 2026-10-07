@@ -656,7 +656,7 @@ class DatabaseActorEditor {
         if (!actor.traits) actor.traits = [];
 
         this.traitEditor.showTraitEditorModal(actor, -1, (updatedEntry) => {
-            this.databaseManager.updateActor(updatedEntry.id, updatedEntry);
+            this.saveTraitRecord(updatedEntry);
             this.refreshActorDetail(updatedEntry);
         });
     }
@@ -668,7 +668,7 @@ class DatabaseActorEditor {
         if (traitIndex === null) return;
 
         this.traitEditor.showTraitEditorModal(actor, traitIndex, (updatedEntry) => {
-            this.databaseManager.updateActor(updatedEntry.id, updatedEntry);
+            this.saveTraitRecord(updatedEntry);
             this.refreshActorDetail(updatedEntry);
         });
     }
@@ -719,7 +719,7 @@ class DatabaseActorEditor {
             actor.traits.push(newTrait);
         }
 
-        this.databaseManager.updateActor(actor.id, actor);
+        this.saveTraitRecord(actor);
         this.refreshActorDetail(actor);
     }
 
@@ -730,7 +730,7 @@ class DatabaseActorEditor {
         if (traitIndex === null) return;
 
         actor.traits.splice(traitIndex, 1);
-        this.databaseManager.updateActor(actor.id, actor);
+        this.saveTraitRecord(actor);
         this.refreshActorDetail(actor);
     }
 
@@ -738,7 +738,13 @@ class DatabaseActorEditor {
     /**
      * Refresh the actor detail view after changes
      */
+    saveTraitRecord(record) {
+        if (this.recordOwner?.save) return this.recordOwner.save(record);
+        return this.databaseManager.updateActor(record.id, record);
+    }
+
     refreshActorDetail(actor) {
+        if (this.recordOwner?.refresh) return this.recordOwner.refresh(actor);
         if (this.parentEditor?.showDatabaseDetail) {
             return this.parentEditor.showDatabaseDetail(actor, 'actors');
         }

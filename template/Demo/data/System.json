@@ -90,7 +90,7 @@
   "titleBgm": {"name":"Psychronic - Forest Trek","pan":0,"pitch":100,"volume":90},
   "titleCommandWindow": {"background":0,"offsetX":0,"offsetY":0},
   "variables": ["","Battle result","","","","","","","","","","","","","","","","","","",""],
-  "versionId": 65216764,
+  "versionId": 89918397,
   "victoryMe": {"name":"Victory1","pan":0,"pitch":100,"volume":90},
   "weaponTypes": ["","Dagger","Sword","Flail","Axe","Whip","Staff","Bow","Crossbow","Gun","Claw","Glove","Spear","Pistol","Rifle","Shotgun","Cannon"],
   "windowTone": [0,0,0,0],
@@ -107,5 +107,6 @@
   "reactorControls": {"keys":{"9":"tab","13":"ok","16":"shift","17":"control","18":"control","27":"escape","33":"pageup","34":"pagedown","37":"left","38":"up","39":"right","40":"down","45":"escape","81":"pageup","87":"pagedown","88":"escape","90":"ok","96":"escape","98":"down","100":"left","102":"right","104":"up","120":"debug"},"gamepad":{"0":"ok","1":"cancel","2":"shift","3":"menu","4":"pageup","5":"pagedown","12":"up","13":"down","14":"left","15":"right"},"jump":true,"jumpKeys":[32],"jumpButtons":[2]},
   "reactorPhysics": {"gravity":1,"jumpHeight":1.25,"fallDamage":true,"fallFrom":6,"fallPercent":10,"fallCommonEvent":0,"swim":true,"swimDepth":2.2,"splashSe":null,"hardLandSe":{"name":"Bone-Crack-01","volume":90,"pitch":100,"pan":0}},
   "reactorBattle": {"mode":"classic","turns":"team"},
-  "reactorVictoryInterfaceId": 9
+  "reactorVictoryInterfaceId": 9,
+  "reactorParty": {"formation":"scattered","spacing":2,"straggle":20}
 }

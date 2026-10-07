@@ -425,6 +425,7 @@
         bottomRow.appendChild(corner);
 
         const pane = document.createElement('div');
+        pane.className = 'graphic-3d-pane';
         pane.style.cssText = 'display:none;flex-direction:column;align-items:center;justify-content:center;'
             + 'gap:6px;height:176px;box-sizing:border-box;';
         const thumb = document.createElement('img');
@@ -438,7 +439,8 @@
         pane.appendChild(nameTag);
         canvasBox.parentNode.insertBefore(pane, canvasBox.nextSibling);
 
-        const bound = () => get(project.path, 'actors', id, slot);
+        const bound = () => options.getBound ? options.getBound() : get(project.path, 'actors', id, slot);
+        const write = spec => options.setBound ? options.setBound(spec) !== false : trySet(project.path, 'actors', id, spec, slot);
         const api = { afterSync: null };
         box._rr3dSlot = api;
         const sync = () => {
@@ -500,19 +502,20 @@
 
         const openPicker = () => {
             const picker = new ModelGraphicPicker(pickerController(projectManager, project));
-            picker.show(bound(), result => {
+            picker.show(options.pickerValue ? options.pickerValue() : bound(), result => {
                 // The modal-close observer restores the persisted selection on
                 // failure too, without starting a second thumbnail render.
-                if (trySet(project.path, 'actors', id, result, slot)
+                if (write(result)
                     && result && result.name && options.onBound) options.onBound(result);
             }, options.framing ? { framing: true } : undefined);
+            if (picker._modal) options.registerModal?.(picker._modal, () => picker._close?.());
             resyncWhenClosed();
         };
 
         check.addEventListener('change', () => {
             if (check.checked) openPicker();
             else {
-                if (!trySet(project.path, 'actors', id, null, slot)) { sync(); return; }
+                if (!write(null)) { sync(); return; }
                 sync();
             }
         });
@@ -529,7 +532,7 @@
             sync,
             openPicker,
             clear: () => {
-                if (!trySet(project.path, 'actors', id, null, slot)) { sync(); return false; }
+                if (!write(null)) { sync(); return false; }
                 sync();
                 return true;
             },

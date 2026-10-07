@@ -261,7 +261,7 @@
     function seatAt(d, x, y, near) {
         const R = world(), map = typeof root.$dataMap !== "undefined" ? root.$dataMap : null;
         d.air = 0; d.vz = 0; d.slide = 0;
-        if (!R || !map || !R.groundHeightAt) { d.alt = d.gf = d.gr = d.gm = d.peak = finite(near) ? near : 0; return; }
+        if (!R || !map || !R.isMap3D || !R.isMap3D(map) || !R.groundHeightAt) { d.alt = d.gf = d.gr = d.gm = d.peak = 0; return; }
         const cx = x + 0.5, cz = y + 0.5, hx = Math.sin(d.yaw), hz = -Math.cos(d.yaw);
         const mid = R.groundHeightAt(map, cx, cz, near);
         let gf = R.groundHeightAt(map, cx + hx * SHAPE.front, cz + hz * SHAPE.front, mid);
@@ -351,7 +351,7 @@
         const mount = player._rrMount;
         if (mount && !mount.drawn) return false;
         const R = world(), map = typeof root.$dataMap !== "undefined" ? root.$dataMap : null;
-        return !!(R && map && R.isMap3D && R.isMap3D(map));
+        return !!(R && map && R.Vehicles && riddenBy(player));
     };
 
     //-------------------------------------------------------------------------
@@ -359,6 +359,7 @@
 
     function cameraMode() {
         const R = world(), camera = R && R.Camera;
+        if (!R || !R.isMap3D || !R.isMap3D(root.$dataMap)) return "";
         if (!camera || typeof camera.currentState !== "function") return "";
         const state = camera.currentState();
         return state ? state.mode : "";
@@ -870,16 +871,105 @@
     }
 
     /** One logic tick of the ride. Reads no key unless `sceneActive` and the player can move. */
+    // A sprite uses a one-tile footprint. Water and flight use their travel
+    // medium in either renderer; the ground mover below retains the 3D axles.
+    function solidEventAt(map, event, x, y) {
+        const events=map._events;
+        for (let i=0;i<events.length;i++) {
+            const other=events[i];
+            if (other && other!==event && !other._erased && !other.isThrough() && other.isNormalPriority() && other.pos(x,y)) return true;
+        }
+        return false;
+    }
+
+    function mediumAllows(type, x, y) {
+        return ReactorVehicles.surfacePassable(type,x,y);
+    }
+
+    function surfaceHeight(R, data, type, x, y, near, deep) {
+        if (!deep) return 0;
+        const ground = R.groundHeightAt ? R.groundHeightAt(data,x+0.5,y+0.5,near) : 0;
+        const surface = type.medium === "water" && R.waterSurfaceAt ? R.waterSurfaceAt(data,x+0.5,y+0.5) : null;
+        return type.medium === "air" ? ground + type.flight.height : surface !== null && surface !== false ? surface : ground;
+    }
+
+    function surfaceTick(player, event, d, type, R, data, V, sceneActive, deep) {
+        const map = root.$gameMap, last=Drive.last, F=feel();
+        if (d.leave === "transfer") { d.v=0; return; }
+        if (d.grid) {
+            if (player._moveRouteForcing || player._jumpCount > 0 || player._realX !== player._x || player._realY !== player._y) {
+                d.yaw=Drive.yawOf(player._reactorDir8 || player._direction); d.v=0;
+                d.alt=d.gf=d.gr=d.gm=surfaceHeight(R,data,type,player._realX,player._realY,d.alt,deep);
+                write(player,event,d); return;
+            }
+            d.grid=0; Drive.seat(player);
+        }
+        USED.gas=USED.brake=USED.steer=0; USED.jump=false; USED.analog=false;
+        const controls=!!sceneActive && player.canMove();
+        if (controls) {
+            Drive.input(IN);
+            if (d.leave && IN.gas > 0 && !wasGas) d.leave="";
+            wasGas=IN.gas>0;
+            if (!d.leave) { USED.gas=IN.gas; USED.brake=IN.brake; USED.steer=IN.steer; USED.analog=IN.analog; }
+            last.controls=1;
+        }
+        if (!controls || d.leave) { USED.brake=1; d.rest=0; }
+        ENV.air=false; ENV.water=false; ENV.slope=1; ENV.pitch=0; ENV.alone=false;
+        V.step(d,USED,type,ENV,DT);
+        d.yaw=turnOf(d.yaw+d.turn); last.turned=d.turn;
+        let x=player._realX, y=player._realY;
+        const parts=Math.max(1,Math.ceil(Math.abs(d.go)/0.2));
+        const sx=Math.sin(d.yaw)*d.go/parts, sy=-Math.cos(d.yaw)*d.go/parts;
+        const debug=controls && player.isDebugThrough && player.isDebugThrough();
+        for (let i=0;i<parts && d.go!==0;i++) {
+            const nx=map.roundX(x+sx), ny=map.roundY(y+sy);
+            const ox=map.roundX(Math.round(x)), oy=map.roundY(Math.round(y)), tx=map.roundX(Math.round(nx)),ty=map.roundY(Math.round(ny));
+            let ok=mediumAllows(type,tx,ty);
+            if (ok && type.medium === "ground") {
+                if (tx!==ox) { const direction=sx>0?6:4; ok=map.isPassable(ox,oy,direction) && map.isPassable(tx,oy,10-direction); }
+                if (ok && ty!==oy) { const direction=sy>0?2:8; ok=map.isPassable(tx,oy,direction) && map.isPassable(tx,ty,10-direction); }
+            }
+            if (ok && type.medium !== "air") ok=!solidEventAt(map,event,tx,ty);
+            if (ok && deep && type.medium === "water") {
+                const hx=Math.sin(d.yaw), hy=-Math.cos(d.yaw);
+                shapeFor(event,type);
+                for (let axle=0;axle<3;axle++) {
+                    const reach=axle===0?-SHAPE.rear:axle===2?SHAPE.front:0;
+                    for (let side=0;side<2;side++) {
+                        const offset=side===0?-SHAPE.radius:SHAPE.radius;
+                        const bx=map.roundX(Math.floor(nx+0.5+hx*reach+hy*offset)), by=map.roundY(Math.floor(ny+0.5+hy*reach-hx*offset));
+                        if (!mediumAllows(type,bx,by) || solidEventAt(map,event,bx,by)) ok=false;
+                    }
+                }
+            }
+            const alt=surfaceHeight(R,data,type,nx,ny,d.alt,deep);
+            if (ok && deep && type.medium === "air" && R.groundHeightAt && d.air && alt-type.flight.height >= d.alt-0.02 && d.v !== 0) ok=false;
+            if (!ok && !debug) { last.stopped=1; last.refused=8; if (Math.abs(d.v)>=Drive.BUMP_FROM) bump(event,Math.abs(d.v)); d.v=0; d.go=0; break; }
+            x=nx; y=ny; d.travel+=d.go/parts; last.moved+=Math.abs(d.go/parts);
+            player._realX=x; player._realY=y; player._x=tx; player._y=ty;
+            if ((tx!==ox || ty!==oy) && type.medium !== "air") {
+                last.entered++; write(player,event,d);
+                if (enter(player,d,type,event)) { d.v=0; break; }
+            }
+        }
+        const surface=surfaceHeight(R,data,type,x,y,d.alt,deep);
+        const ground=deep && R.groundHeightAt ? R.groundHeightAt(data,x+0.5,y+0.5,d.alt) : 0;
+        if (type.medium === "air" && deep) {
+            if (d.leave && Math.abs(d.v) < ReactorVehicles.SLOW && map.isAirshipLandOk(player._x,player._y)) d.alt=Math.max(ground,d.alt-0.12);
+            else if (!d.leave) d.alt=surface;
+            d.gf=d.gr=d.gm=ground; d.air=d.alt>ground+0.02?1:0;
+        } else { d.alt=d.gf=d.gr=d.gm=surface; d.air=0; }
+        d.vz=0; d.pitch=0; d.tilt=0; d.roll=0; foot(d,type); write(player,event,d);
+        if (F && typeof F.advance === "function") F.advance(d,type,USED);
+    }
+
     Drive.tick = function tick(sceneActive) {
         const player = typeof root.$gamePlayer !== "undefined" ? root.$gamePlayer : null;
         if (!player || !player._rrFree || player._vehicleType !== "reactor") return;
         const mount = player._rrMount, F = feel();
         const R = world(), map = typeof root.$dataMap !== "undefined" ? root.$dataMap : null, V = R ? R.Vehicles : null;
-        if ((mount && !mount.drawn) || !R || !map || !R.isMap3D || !R.isMap3D(map) || !R.groundHeightAt || !V || typeof V.step !== "function") {
-            // Seated on a map that is not 3D (a save made aboard, the map made flat since): there is no ride there.
-            // The vehicle is parked where it stands and the party is on foot.
-            if (!(mount && !mount.drawn) && R && map && R.isMap3D && !R.isMap3D(map)) { standDown(player); return; }
-            if (F && typeof F.advance === "function") F.advance(player._rrDrive || null, null, null);
+        if ((mount && !mount.drawn) || !R || !map || !V || typeof V.step !== "function") {
+            if (F && typeof F.advance === "function") F.advance(player._rrDrive || null,null,null);
             return;
         }
         const event = riddenBy(player);
@@ -887,6 +977,10 @@
         const d = stateOf(player, event), type = typeFor(event), P = physics(), last = Drive.last;
         tickNo++;
         last.entered = 0; last.slid = 0; last.stopped = 0; last.refused = 0; last.moved = 0; last.turned = 0; last.controls = 0; last.air = d.air;
+        const deep = R.isMap3D && R.isMap3D(map);
+        if (!deep && ReactorVehicles.scenery && ReactorVehicles.scenery(event)) { standDown(player); return; }
+        if (!deep || type.medium !== "ground") { surfaceTick(player,event,d,type,R,map,V,sceneActive,deep); return; }
+        if (!R.groundHeightAt) return;
         // Parked for a transfer: it stands until the on-foot list has run.
         if (d.leave === "transfer") { d.v = 0; if (F && typeof F.advance === "function") F.advance(d, type, null); return; }
         // Somebody else put the player somewhere (a script's `locate`): the ride goes on from there, at a standstill.
@@ -1376,6 +1470,7 @@
             // To another map: the work is done here, while this map's data is loaded.
             if (this._rrFree && this._vehicleType === "reactor" && typeof root.$gameMap !== "undefined" && root.$gameMap
                 && mapId !== root.$gameMap.mapId()) parkForTransfer(this);
+            if (typeof ReactorVehicles.prepareTransfer === "function") ReactorVehicles.prepareTransfer(mapId, arguments[1], arguments[2], arguments[3]);
             return _reserveTransfer.apply(this, arguments);
         };
 
@@ -1383,8 +1478,23 @@
         proto.performTransfer = function() {
             if (!this._rrFree || this._vehicleType !== "reactor" || !this.isTransferring()) return _performTransfer.apply(this, arguments);
             if (this._newMapId !== root.$gameMap.mapId()) {
-                // Another map: plain fields only. The events here are still the last map's, and its data is gone.
+                // The world carries the same identity into a runtime event on the destination map.
                 leaveStrip();
+                if (this._rrVehicleTransfer && typeof ReactorVehicles.bind === "function") {
+                    const d = this._rrDrive, result = _performTransfer.apply(this, arguments);
+                    this._rrVehicleTransfer = null;
+                    const event = ReactorVehicles.bind();
+                    if (!event) return result;
+                    this._rrMount = null; this._rrDrive = d;
+                    d.leave = ""; d.grid = 0; d.air = 0; d.vz = 0;
+                    d.yaw = Drive.yawOf(this.direction());
+                    shapeFor(event, typeFor(event));
+                    Drive.seat(this);
+                    ReactorVehicles.refresh();
+                    if (ReactorVehicles.scenery(event) || !fitsAt(event, this, this._x, this._y, d.yaw)) standDown(this);
+                    else ReactorVehicles.bind();
+                    return result;
+                }
                 onFoot(this);
                 return _performTransfer.apply(this, arguments);
             }

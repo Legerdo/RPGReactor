@@ -323,53 +323,19 @@ test('performTransfer with nothing reserved changes nothing of the ride', () => 
     assert.ok(p._rrDrive, 'the state is kept');
 });
 
-test('aboard on a map that is not 3D (a save made aboard, the map made flat since) the party is put on foot and walks', () => {
-    const w = driveWorld({ at: [15, 15], yaw: 90, flat: true, board: false });
-    const p = w.$gamePlayer, e = w.vehicle();
-    assert.equal(w.Reactor3D.isMap3D(w.$dataMap), false);
-    // The saved fields of a ride, as a save made aboard holds them.
-    w.mount(15.3, 15, 90);
-    p._rrDrive = { v: 6, steer: 0, yaw: 90 * DEG, alt: 0, gf: 0, gr: 0 };
-    p._transparent = true; p._rrWas = { speed: 4, transparent: false };
-    w.run(1);
-    assert.equal(p._vehicleType, 'walk');
-    assert.equal(p._rrFree, 0);
-    assert.equal(p._rrDrive, null);
-    assert.equal(p._transparent, false, 'seen again');
-    assert.equal(e._rrFree, 1, 'the vehicle is parked where it stood');
-    assert.equal(e._through, false);
-    assert.deepEqual([e._realX, e._realY], [15.3, 15]);
-    assert.equal(e._rrSpeed, 0);
-    // And it walks: on a tile (its own, or one beside the vehicle where the world's own way off put it), then a step away.
-    w.run(30);
-    assert.deepEqual([p._realX, p._realY], [p._x, p._y], 'on a tile');
-    assert.ok(Math.abs(p._x - 15) <= 2 && Math.abs(p._y - 15) <= 2, 'by the vehicle: ' + p._x + ', ' + p._y);
-    const from = [p._x, p._y], away = p._y > 15 ? 2 : p._y < 15 ? 8 : p._x < 15 ? 4 : 6;
-    p.moveStraight(away);
-    w.run(40);
-    assert.equal(Math.abs(p._realX - from[0]) + Math.abs(p._realY - from[1]), 1, 'a step: ' + p._realX + ', ' + p._realY);
+test('a saved ride continues on a flat map using flat coordinates', () => {
+    const w = driveWorld({at:[15,15],yaw:90,flat:true,board:false,withWorld:true,type:{sheet:{characterName:'Vehicle',characterIndex:0}}});
+    const p=w.$gamePlayer,e=w.vehicle();
+    w.mount(15.3,15,90);p._rrDrive={v:6,steer:0,yaw:90*DEG,alt:4,gf:4,gr:4};
+    w.run(1);assert.equal(p._vehicleType,'reactor');assert.equal(p._rrFree,1);
+    assert.ok(p._realX>15.3);assert.equal(p._rrDrive.alt,0);assert.equal(e._realX,p._realX);
 });
 
-test('on a map that is not 3D the world\'s own way off is taken first, at once', () => {
-    const w = driveWorld({ at: [15, 15], yaw: 90, flat: true, board: false });
-    const p = w.$gamePlayer, e = w.vehicle();
-    w.mount(15.3, 15, 90);
-    p._rrDrive = { v: 6, steer: 0, yaw: 90 * DEG, alt: 0, gf: 0, gr: 0 };
-    const asked = [];
-    // The world's file's part, standing in: it puts the party on foot beside the vehicle.
-    w.ReactorVehicles.getOff = options => { asked.push(options && options.instant); p._vehicleType = 'walk'; p._rrFree = 0; p._rrDrive = null; p._rrRide = null; e._rrBoarded = false; e._rrFree = 1; p._realX = p._x = 15; p._realY = p._y = 16; return true; };
-    w.run(1);
-    assert.deepEqual(asked, [true], 'asked once, at once');
-    assert.deepEqual([p._vehicleType, p._realX, p._realY], ['walk', 15, 16], 'and nothing more is done to it');
-    assert.equal(e._through, true, 'the vehicle is as that way off left it');
-    // With no room to get off, the party is put on foot where it is.
-    const tight = driveWorld({ at: [15, 15], yaw: 90, flat: true, board: false });
-    tight.mount(15.3, 15, 90);
-    tight.$gamePlayer._rrDrive = { v: 0, steer: 0, yaw: 90 * DEG, alt: 0, gf: 0, gr: 0 };
-    if (!tight.loadedWorld) tight.ReactorVehicles.getOff = () => false;
-    tight.run(1);
-    assert.equal(tight.$gamePlayer._rrFree, 0);
-    assert.equal(tight.$gamePlayer._vehicleType, 'walk');
+test('switching to flat rendering keeps a valid ride instead of requesting a dismount', () => {
+    const w=driveWorld({at:[15,15],yaw:90,flat:true,board:false,withWorld:true,type:{sheet:{characterName:'Vehicle',characterIndex:0}}});
+    const p=w.$gamePlayer;w.mount(15.3,15,90);p._rrDrive={v:6,steer:0,yaw:90*DEG,alt:0,gf:0,gr:0};
+    const asked=[];w.ReactorVehicles.getOff=options=>{asked.push(options);return false;};
+    w.run(1);assert.deepEqual(asked,[]);assert.equal(p._vehicleType,'reactor');assert.ok(p._realX>15.3);
 });
 
 test('aboard: on a forced route\'s steps a wheel over a drop hangs, as it does on the ride', () => {

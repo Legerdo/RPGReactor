@@ -87,7 +87,7 @@ test('the table of kinds: every row, its medium and its switches', () => {
     assert.deepEqual(row('hover'), ['Later', 'ground', true, false, false, 4, 'seat']);
     // Only the motorcycle is walked round at a standstill, and only it is ridden in this version.
     assert.deepEqual(Object.keys(V.KINDS).filter(name => V.KINDS[name].walks), ['motorcycle']);
-    assert.deepEqual(plain(V.PLAYED), ['motorcycle']);
+    assert.deepEqual(plain(V.PLAYED), Object.keys(V.KINDS));
 });
 
 test('the motorcycle row, number by number', () => {
@@ -145,7 +145,7 @@ test('a kind that is written and is not a name is a motorcycle, and the validato
 
 test('typeOf({ kind: "motorcycle" }) returns every field filled', () => {
     const type = V.typeOf({ kind: 'motorcycle' });
-    assert.deepEqual(Object.keys(type).sort(), ['arrives', 'bgm', 'body', 'camera', 'encounters', 'handling', 'id', 'k', 'kind', 'leans', 'leaveTerm', 'medium',
+    assert.deepEqual(Object.keys(type).sort(), ['arrives', 'bgm', 'body', 'camera', 'encounters', 'flight', 'passability', 'handling', 'id', 'k', 'kind', 'leans', 'leaveTerm', 'medium',
         'model', 'name', 'note', 'played', 'posture', 'prompt', 'promptTerm', 'rider', 'sheet', 'sounds', 'stance', 'turnsInPlace', 'walks'].sort());
     assert.deepEqual(plain(type.handling), plain(V.KINDS.motorcycle.handling));
     assert.deepEqual(plain(type.body), { height: 2.6, radius: 0.45 });
@@ -157,7 +157,7 @@ test('typeOf({ kind: "motorcycle" }) returns every field filled', () => {
     assert.deepEqual([type.promptTerm, type.leaveTerm, type.posture, type.stance], ['ride', 'getOff', 'astride', 'ride']);
     assert.deepEqual(plain(type.sounds), { engine: { name: 'drone-01', volume: 90, pitch: 100 }, start: { name: 'powerup-01', volume: 90, pitch: 100 },
         stop: { name: 'equip-01', volume: 90, pitch: 100 }, bump: { name: 'hit-01', volume: 90, pitch: 100 }, land: { name: 'hit-02', volume: 90, pitch: 100 },
-        scrape: null, skid: null, engineRate: [0.6, 1.5] });
+        scrape: null, skid: null, idle:null, accelerate:null, slowdown:null, engineRate: [0.6, 1.5] });
     // What the step reads, worked out once: tiles, seconds, radians.
     assert.equal(type.k.radius, 1.5);
     assert.ok(Math.abs(type.k.launch - 2.303 * 20 / 3) < 1e-9);
@@ -216,11 +216,26 @@ test('a type and the table are read only: nothing a caller writes sticks', () =>
     assert.equal(type.handling.speed, 20);
 });
 
-test('a kind that arrives in a later version is scenery now, and the validator is told which version', () => {
-    for (const [name, arrives] of [['tank', 'V2'], ['airship', 'V3'], ['shuttle', 'V3'], ['car', 'Later'], ['boat', 'Later'], ['hover', 'Later']]) {
+test('all presets are rideable, and a setting makes any preset scenery', () => {
+    for (const name of Object.keys(V.KINDS)) {
         const record = { kind: name };
-        assert.equal(V.typeOf(record).played, false, name);
-        assert.deepEqual(plain(V.typeNotes(record)).filter(note => note.key === 'kindLater'), [{ key: 'kindLater', level: 'note', args: { kind: name, arrives } }]);
+        assert.equal(V.typeOf(record).played, true, name);
+        assert.equal(V.typeOf({...record,ridable:false}).played, false,name);
+        assert.deepEqual(plain(V.typeNotes(record)).filter(note => note.key === 'kindLater'), []);
     }
-    assert.equal(V.typeOf({ kind: 'motorcycle' }).played, true);
+});
+
+test('vehicle engine states normalize BGS defaults and retain explicit legacy SE assignments',()=>{
+    const type=V.typeOf({sounds:{idle:'Motor',accelerate:{name:'Rev',volume:200,pitch:10,pan:-200},slowdown:{name:'Coast',folder:'se',pan:50},engine:null}});
+    assert.deepEqual(plain(type.sounds.idle),{name:'Motor',volume:90,pitch:100,folder:'bgs'});
+    assert.deepEqual(plain(type.sounds.accelerate),{name:'Rev',volume:100,pitch:50,folder:'bgs',pan:-100});
+    assert.equal(type.sounds.slowdown.folder,'se');assert.equal(type.sounds.slowdown.pan,50);
+});
+
+test('stock vehicle extensions add only explicitly assigned sounds and refresh after edits',()=>{
+    const record={kind:'boat',sounds:{idle:'Boat'}};
+    const type=V.stockTypeOf(record);assert.equal(V.stockTypeOf(record),type);
+    for(const slot of ['engine','start','stop','bump','land','scrape','skid'])assert.equal(type.sounds[slot],null,slot);
+    assert.equal(type.sounds.idle.folder,'bgs');record.sounds.idle='Wake';V.forgetType(record);
+    assert.equal(V.stockTypeOf(record).sounds.idle.name,'Wake');assert.equal(V.stockTypeOf(null),null);
 });

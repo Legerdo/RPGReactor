@@ -34,6 +34,7 @@ class DatabaseClassEditor {
         const rightColumn = document.createElement('div');
         rightColumn.style.cssText = 'display: flex; flex-direction: column; gap: 16px; min-width: 0;';
         rightColumn.appendChild(this.createTraitsSection(classEntry));
+        if (typeof DatabaseVehicleEditor !== 'undefined') rightColumn.appendChild(DatabaseVehicleEditor.classSlotsSection(classEntry, this.databaseManager));
         const passiveSection = window.RRPassiveStates?.createSection({
             objectType: 'class', record: classEntry,
             databaseManager: this.databaseManager, projectManager: this.projectManager
@@ -984,12 +985,13 @@ class DatabaseClassEditor {
     deleteLearning(classEntry, learningIndex) {
         if (!classEntry.learnings?.[learningIndex]) return;
         classEntry.learnings.splice(learningIndex, 1);
-        this.databaseManager.updateClass(classEntry.id, classEntry);
-        this.refreshClassDetail(classEntry);
+        this.saveLearningRecord(classEntry);
+        this.refreshLearningRecord(classEntry);
     }
 
     showLearningEditorModal(classEntry, learningIndex) {
         const tt = text => window.I18n ? window.I18n.tText(text) : text;
+        const isCurrent = this.commonUI?.databaseEditor?.captureDetailContext?.() || (() => true);
         const existing = learningIndex >= 0 ? classEntry.learnings?.[learningIndex] : null;
         const firstSkill = (this.databaseManager.getSkills() || []).find(skill => skill && skill.id > 0);
         const draft = existing
@@ -1034,6 +1036,7 @@ class DatabaseClassEditor {
         modal.querySelector('.learning-edit-cancel').addEventListener('click', close);
         // A click on the backdrop no longer closes the dialog: close deliberately.
         modal.querySelector('.learning-edit-ok').addEventListener('click', () => {
+            if (!isCurrent() || !overlay.isConnected) return;
             const maxLevel = globalThis.RR_LIMITS?.ACTOR_LEVEL || 999;
             draft.level = Math.max(1, Math.min(maxLevel, parseInt(modal.querySelector('.learning-edit-level').value) || 1));
             draft.skillId = parseInt(modal.querySelector('.learning-edit-skill').value) || draft.skillId;
@@ -1041,10 +1044,20 @@ class DatabaseClassEditor {
             if (!classEntry.learnings) classEntry.learnings = [];
             if (learningIndex >= 0) classEntry.learnings[learningIndex] = draft;
             else classEntry.learnings.push(draft);
-            this.databaseManager.updateClass(classEntry.id, classEntry);
+            this.saveLearningRecord(classEntry);
             close();
-            this.refreshClassDetail(classEntry);
+            this.refreshLearningRecord(classEntry);
         });
+    }
+
+    saveLearningRecord(record) {
+        if (this.recordOwner?.save) return this.recordOwner.save(record);
+        return this.databaseManager.updateClass(record.id, record);
+    }
+
+    refreshLearningRecord(record) {
+        if (this.recordOwner?.refresh) return this.recordOwner.refresh(record);
+        return this.refreshClassDetail(record);
     }
 
     createTraitsSection(classEntry) {

@@ -32,7 +32,7 @@ project; a person can use it to find where anything lives.
 | Lights and time of day | `MapNNN.r3d.json` › `lights`, `lighting` (a sun follows the ambient unless `daylight: "fixed"`) | Lighting tool | — |
 | Model variants (one model, several looks) | `3d/<model>/model.json` › `variants`; a use names one with `variant` in its model spec, or `variant(Name)` in an `<r3d>` note | Database › 3D Models › Variants; the Variant row wherever a model is chosen | `editor/tests/model-variants.test.cjs` |
 | Events | `MapNNN.json` › `events` (RPG Maker data) | Event tool | — |
-| Rideable motorcycles | `data/ReactorVehicles.json`; model `model.json` › `vehicle` / `parts`; event `rrVehicle` | Setup scripts below; the Vehicles Database page and event card are not wired into the editor yet | `validate-vehicles.cjs` |
+| Vehicles: types, classes, equipment and motorcycle riding | `data/ReactorVehicles.json`; class `rrVehicleSlots`; model `model.json` › `vehicle` / `parts`; event `rrVehicle` | Database → Vehicles; Classes → Vehicle Equipment Slots; event → Reactor Vehicle; Reactor commands | `validate-vehicles.cjs` |
 | Event size (footprint) | `MapNNN.r3d.json` › `eventSize[id] = [w, h]` with `eventSizeAnchor: "center"`; `eventSizeAuto[id]` is the editor's measured picture | Event Editor › Size (W, H, Auto) | `editor/tests/event-marker-centre.test.cjs` |
 | A record's battle settings (reach, area, sight, Move range, Climb, how it fights, how a weapon fires, cooldown, an enemy's picture on the map) | `rrBattle` on the record, in `data/Skills.json`, `Items.json`, `Weapons.json`, `Armors.json`, `States.json`, `Actors.json`, `Classes.json`, `Enemies.json` ([BATTLE-MODES.md](BATTLE-MODES.md#a-records-battle-settings)); tags in its Note are also read | Database › the record's **Shared Combat Settings**, **Tactical Battles** and **Action and First Person Battles** cards | `battle-tags-to-fields.cjs` (lists a project's tags, `--write` moves them into the records) |
 
@@ -106,7 +106,61 @@ part. A parked vehicle is an ordinary event with
 vehicle system supplies its model and boarding behavior. The old Reactor
 Room event remains an entrance, separate from the rideable bike.
 
-For another project, these tools use the runtime's own fit and standing
+To author another vehicle, open **Database → Vehicles → + Add Vehicle**,
+choose its kind and image. The image control starts in 2D; check **3D**
+to choose a model with the shared model picker. Switching back retains
+the previous assignments. Adjust movement and handling as needed. Create
+or edit an event, then choose the type under **Reactor Vehicle**.
+The setting belongs to the whole event. Leave its page graphic empty to
+inherit the vehicle image; set its heading and optional command name.
+Confirm boards nearby vehicles. Events with existing commands default to
+command boarding so dialogue and conditions run first. Add **Get On Reactor
+Vehicle** from the **Reactor** command tab, targeting `this`, after those
+commands. **Get Off Reactor Vehicle** uses the same tab. Stock RPG Maker
+vehicle commands keep their existing meanings.
+
+A ridden vehicle travels with the player on a Transfer Player command.
+Once parked, it stays on that map until the player returns. Its original
+event is hidden while it is elsewhere, and its identity, position, class
+condition and self switches survive saving and returning. Transfers to
+maps that do not support riding carry and park the vehicle at the arrival
+position and put the player on foot. Vehicles support both 2D and 3D maps;
+assign a character sprite for use in 2D. 2D looping maps are supported;
+3D looping maps and first-person 3D maps remain unsupported. **Rideable**
+and **Movement** determine whether and where a type can be ridden, rather
+than a fixed scenery restriction on its kind.
+
+A vehicle can optionally use an existing **Class**, initial level and
+starting equipment. The class supplies parameter curves, learned skills,
+traits and weapon/armor type permissions. Vehicles also have their own
+traits and learnable skills. **Classes → Vehicle Equipment
+Slots** defines a vehicle-only layout; repeat Weapon slots for multiple
+guns or armor/module slots for multiple parts. **Types** supplies the shared
+equipment, weapon and armor categories. Actors keep their existing slot
+rules. Each placed vehicle has independent health, equipment and active
+states; these use the existing battler rules and save data. Choosing a
+class does not enable mounted combat or an in-game vehicle equipment menu.
+Battles still use the existing dismount behavior; damage routing and rider
+protection need separate combat integration.
+
+The Vehicles page also edits the original **Boat, Ship and Airship** in
+System.json. They retain native movement and RPG Maker event commands;
+optional model, class, equipment, trait and skill settings use a Reactor
+extension on each original record. Map 0 leaves them unplaced. Additional Reactor vehicle types
+use an optional file, so projects without them need no extra catalog.
+Database Cancel restores vehicle records and class slot edits together.
+
+**Sound** groups optional Idle, Acceleration and Slowdown loops from
+`audio/bgs` with the vehicle BGM. Engine loops use independent buffers and
+BGS volume, so map ambience continues playing; missing acceleration or
+slowdown clips use Idle. Their pitch and volume follow driving speed.
+The existing `sounds.engine` SE remains a legacy idle fallback. Choosing
+None for Idle clears that fallback. BGM with no selection leaves game
+music alone. **Effects** folds away optional SEs; native Boat, Ship and
+Airship support Start and Stop, while Reactor event vehicles also support
+Impact, Landing, Scrape and Skid.
+
+For model preparation, these tools use the runtime's own fit and standing
 checks. `make-vehicle.cjs --fit` creates the type and fits the rider;
 `carve-part.cjs` separates steering geometry when the model needs it;
 run `make-vehicle.cjs --id N --reguess` after carving to attach the hands

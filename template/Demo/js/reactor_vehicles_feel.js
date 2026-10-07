@@ -112,8 +112,10 @@
     /** The engine loop. `sent` is the rate last sent to the source node, `rates` how many times one was sent. */
     const engine = Feel.engine = {
         on: false, held: false, name: "", buffer: null, node: null, gain: null,
-        sent: 0, volume: -1, rates: 0, share: 0, gas: 0, buffers: {}, generation: 0
+        sent: 0, volume: -1, rates: 0, share: 0, gas: 0, buffers: {}, generation: 0,
+        folder: "se", type: null, slowing: 0
     };
+    const ENGINE_SLOTS = ["engine", "idle", "accelerate", "slowdown"];
     // `kind`: the type the last tick rode. `type`, `asked`: the ridden event's own, looked up once a ride.
     // `tick`: the logic tick the mover last advanced on; `self`: the one the camera wrapper last advanced on by itself.
     // `ticks`: how many ticks were advanced. `came`: the player a map scene began aboard, until it is on foot.
@@ -351,6 +353,7 @@
     function ashore(player) {
         if (engine.on) engineOff(T.engineFade);
         engine.held = false;
+        engine.slowing=0; engine.share=0;
         state.came = null;
         if (cam.live) {
             if (!player || cam.owner !== player || cam.map !== mapNow() || battleHere() || cam.tailT >= T.tailMost) cam.live = false;
@@ -390,6 +393,15 @@
         state.stamp++;
         state.ticks++;
         const player = typeof $gamePlayer !== "undefined" ? $gamePlayer : null;
+        const stock=stockSoundType(player);
+        if (stock) {
+            cam.live=false;
+            const moving=!!player.isMoving?.(),share=moving?1:0;
+            engine.held=false;
+            engineRun(stock,share,moving?1:0,!!player._vehicleGettingOn || !!player._vehicleGettingOff,share<engine.share?1:0);
+            state.busy=engine.on;
+            return;
+        }
         if (!player || player._vehicleType !== "reactor") { ashore(player); return; }
         const mount = player._rrMount || null;
         const hopping = !!mount && mount.t < mount.n;
@@ -415,7 +427,7 @@
         const braking = brake > 0 && v > top * 0.5;
         if (braking && !state.braking) Feel.sound("skid", kind);
         state.braking = braking;
-        engineRun(kind, share, gas < 0 ? 0 : gas > 1 ? 1 : gas, boarding);
+        engineRun(kind, share, gas < 0 ? 0 : gas > 1 ? 1 : gas, boarding, brake);
     }
 
     /**
@@ -436,6 +448,7 @@
     Feel.reset = function() {
         engineOff(0);
         engine.held = false;
+        engine.type=null; engine.slowing=0; engine.share=0;
         zero();
         state.tick = -1;
         state.self = -1;
@@ -635,16 +648,17 @@
     }
 
     /** The module's own buffer for an engine sound, made once a name; null where it cannot be had. */
-    function engineBuffer(name) {
+    function engineBuffer(name, folder = "se") {
         if (!name || typeof AudioManager === "undefined" || !AudioManager || typeof AudioManager.createBuffer !== "function") return null;
-        let buffer = engine.buffers[name];
+        const key=folder === "se" ? name : folder+"/"+name;
+        let buffer = engine.buffers[key];
         if (buffer === undefined) {
             buffer = null;
             try {
-                const missing = typeof AudioManager.isMissingLocalSe === "function" && AudioManager.isMissingLocalSe(name);
-                if (!missing) buffer = AudioManager.createBuffer("se/", name);
+                const missing = folder === "se" && typeof AudioManager.isMissingLocalSe === "function" && AudioManager.isMissingLocalSe(name);
+                if (!missing) buffer = AudioManager.createBuffer(folder+"/", name);
             } catch (error) { buffer = null; }
-            engine.buffers[name] = buffer;
+            engine.buffers[key] = buffer;
         }
         return buffer;
     }
@@ -698,27 +712,36 @@
     function engineOff(seconds) {
         const buffer = engine.buffer;
         engine.on = false; engine.node = null; engine.gain = null; engine.sent = 0; engine.volume = -1;
-        const generation = ++engine.generation;
+        engine.generation++;
         if (!buffer) return;
+        const generation=buffer._rrVehicleGeneration;
         try {
             if (seconds > 0 && buffer._fadeGainNode && typeof buffer.fadeOut === "function" && typeof setTimeout === "function") {
                 buffer.fadeOut(seconds);
                 // A faded loop still runs: its nodes are let go when the fade is over, unless it was started again.
-                setTimeout(() => { if (engine.generation === generation) buffer.stop(); }, seconds * 1000 + 50);
+                setTimeout(() => { if (buffer._rrVehicleGeneration === generation) buffer.stop(); }, seconds * 1000 + 50);
             } else if (typeof buffer.stop === "function") buffer.stop();
         } catch (error) { /* silence either way */ }
     }
 
     /** One tick of the engine: started when it may play, then its rate and volume by the speed. */
-    function engineRun(type, share, gas, boarding) {
-        const sounds = type ? type.sounds : null, sound = sounds ? sounds.engine : null;
+    function engineRun(type, share, gas, boarding, brake = 0) {
+        const sounds = type ? type.sounds : null;
+        if (type!==engine.type) engine.slowing=0;
+        else if (brake>0 || share<engine.share-0.001) engine.slowing=15;
+        else if (engine.slowing>0) engine.slowing--;
+        const idle=sounds && (sounds.idle || sounds.engine);
+        const sound=sounds ? engine.slowing>0 ? sounds.slowdown || idle : share>0.01 || gas>0 ? sounds.accelerate || idle : idle : null;
         const name = soundName(sound);
+        const folder=sound && sound.folder === "bgs" ? "bgs" : "se";
         engine.share = share;
         engine.gas = gas;
+        if (sounds) for (const slot of ENGINE_SLOTS) { const clip=sounds[slot]; if (clip && soundName(clip)) engineBuffer(soundName(clip),clip.folder==="bgs"?"bgs":"se"); }
         if (!name) { if (engine.on) engineOff(T.engineFade); return; }
-        if (engine.on && engine.name !== name) engineOff(0);
+        if (engine.on && (engine.name !== name || engine.folder!==folder)) engineOff(engine.type===type?T.engineFade:0);
+        engine.type=type;
         // Asked for as the hop on begins, so it has arrived by the time the rider is seated.
-        const buffer = engineBuffer(name);
+        const buffer = engineBuffer(name,folder);
         if (boarding || engine.held) { if (engine.on) engineOff(T.engineFade); return; }
         if (!buffer) return;
         // Stopped by somebody else (every sound stopped by a command): it is started again below.
@@ -727,13 +750,17 @@
             // Never before it is whole: a loop started on a partly decoded file is rebuilt under the ramp.
             if ((typeof buffer.isError === "function" && buffer.isError()) || !buffer.isReady() || !buffer._isLoaded) return;
             engine.generation++;
-            engine.on = true; engine.name = name; engine.buffer = buffer;
+            buffer._rrVehicleGeneration=(buffer._rrVehicleGeneration || 0)+1;
+            engine.on = true; engine.name = name; engine.folder=folder; engine.buffer = buffer;
             engine.node = null; engine.gain = null; engine.sent = 0; engine.volume = -1;
             buffer._volume = 0;
             buffer.play(true, 0);
         }
         const own = typeof sound === "object" ? sound : null;
-        const config = typeof AudioManager !== "undefined" && AudioManager && finite(AudioManager.seVolume) ? AudioManager.seVolume : 100;
+        const pan = own && finite(own.pan) ? own.pan / 100 : 0;
+        if (buffer.pan !== pan) buffer.pan = pan;
+        const setting=folder==="bgs"?AudioManager.bgsVolume:AudioManager.seVolume;
+        const config = finite(setting) ? setting : 100;
         const loud = own && finite(own.volume) ? own.volume : T.soundVolume;
         sendVolume(buffer, Feel.engineVolume(share) * loud * config / 10000);
         const pitch = own && own.pitch > 0 ? own.pitch / 100 : 1;
@@ -787,11 +814,49 @@
             const row = event && event.rrVehicle;
             if (!row) continue;
             const type = typeById(Number(row.type));
-            const name = type && type.sounds ? soundName(type.sounds.engine) : "";
-            if (name && engine.buffers[name] === undefined && engineBuffer(name)) made++;
+            for (const slot of ENGINE_SLOTS) {
+                const clip=type && type.sounds && type.sounds[slot],name=soundName(clip),folder=clip && clip.folder==="bgs"?"bgs":"se",key=folder==="se"?name:folder+"/"+name;
+                if (name && engine.buffers[key] === undefined && engineBuffer(name,folder)) made++;
+            }
         }
         return made;
     };
+
+    function stockSoundType(player) {
+        if (!player || player._vehicleType!=="boat" && player._vehicleType!=="ship" && player._vehicleType!=="airship") return null;
+        const record=typeof $dataSystem!=="undefined" && $dataSystem[player._vehicleType]?.reactorVehicle;
+        const R=world();
+        return record?.sounds && R?.Vehicles?.stockTypeOf ? R.Vehicles.stockTypeOf(record) : null;
+    }
+
+    function hookStockSounds() {
+        if (typeof Game_Vehicle!=="undefined") {
+            for (const [method, slot] of [["getOn", "start"], ["getOff", "stop"]]) {
+                const original=Game_Vehicle.prototype[method];
+                if (!original || original.__rrVehicleSound) continue;
+                Game_Vehicle.prototype[method]=function() {
+                    const record=typeof $dataSystem!=="undefined" && $dataSystem[this._type]?.reactorVehicle;
+                    const R=world(), type=record?.sounds && R?.Vehicles?.stockTypeOf ? R.Vehicles.stockTypeOf(record) : null;
+                    const result=original.apply(this,arguments);
+                    if (type) Feel.sound(slot,type);
+                    return result;
+                };
+                Game_Vehicle.prototype[method].__rrVehicleSound=true;
+            }
+        }
+        if (typeof Game_Player==="undefined") return;
+        const update=Game_Player.prototype.update;
+        if (!update || update.__rrVehicleSound) return;
+        let aboard=false;
+        Game_Player.prototype.update=function() {
+            const result=update.apply(this,arguments);
+            const stock=this._vehicleType==="boat" || this._vehicleType==="ship" || this._vehicleType==="airship";
+            if (stock || aboard) Feel.advance(null,null,null);
+            aboard=stock;
+            return result;
+        };
+        Game_Player.prototype.update.__rrVehicleSound=true;
+    }
 
     function hookScenes() {
         if (typeof Scene_Map === "undefined" || !Scene_Map.prototype) return;
@@ -801,10 +866,10 @@
             proto.start = function() {
                 const result = start.apply(this, arguments);
                 try {
-                    // A map arrived at on foot (a transfer leaves the vehicle behind): no engine. Aboard, the tick starts
+                    // A map arrived at on foot: no engine. Aboard, the tick starts
                     // it, and a ride the scene begins with is no boarding: the view stays where it is.
                     const player = typeof $gamePlayer !== "undefined" ? $gamePlayer : null;
-                    const aboard = !!player && player._vehicleType === "reactor";
+                    const aboard = !!player && (player._vehicleType === "reactor" || !!stockSoundType(player));
                     state.came = aboard ? player : null;
                     if (engine.on && !aboard) engineOff(0);
                     Feel.prepare();
@@ -826,5 +891,6 @@
     }
 
     hookCamera();
+    hookStockSounds();
     hookScenes();
 })(typeof window !== "undefined" ? window : globalThis);

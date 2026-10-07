@@ -616,7 +616,7 @@ test('Preview Event animates stepping pages and previews 3D-model pages in both 
     assert.match(events, /RREventPreviewModels\.thumbnail\(project, spec, this\.projectController\.mapEditor3D, pixels, direction\)/);
     assert.match(map3d, /static previewPageIndex\(mapData, event\)/);
     assert.match(map3d, /this\.eventSprite\(event, sheets, page\?\.image, previewIndex !== null && page\?\.stepAnime \? page : null\)/, '3D draws the previewed page');
-    assert.match(map3d, /RREventPreviewModels\.instance\(template, spec, page\?\.image\?\.direction \|\| 2\)/);
+    assert.match(map3d, /RREventPreviewModels\.instance\(template, spec, direction\)/);
     assert.match(map3d, /this\.animateEventPreviews\(now\);/);
     assert.match(html, /src="src\/utils\/EventPreviewModels\.js"/);
     const models = require(path.join(editorRoot, 'src', 'utils', 'EventPreviewModels.js'));

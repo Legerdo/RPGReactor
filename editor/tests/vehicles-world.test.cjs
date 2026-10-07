@@ -514,16 +514,16 @@ test('the kill switch and the maps this version does not ride on: scenery, with 
     flat.stand(11, 10, 4);
     flat.run(1);
     assert.equal(flat.V.isVehicle(flat.vehicle(31)), true, 'it is a vehicle, and it stands there');
-    assert.equal(flat.V.scenery(flat.vehicle(31)), 'flat');
+    assert.equal(flat.V.scenery(flat.vehicle(31)), 'image', 'a flat vehicle needs a sprite');
     assert.equal(flat.V.offered(true), null);
     assert.equal(flat.V.getOn(31), false);
-    // A kind that arrives in a later version.
+    // A preset is rideable by default; settings disable it.
     const later = boardWorld({ types: [null, motorcycle({ kind: 'tank' })], vehicles: [bike(31, 10, 10)] });
     if (later.Reactor3D.Vehicles && typeof later.Reactor3D.Vehicles.typeOf === 'function') {
         later.stand(11, 10, 4);
         later.run(1);
-        assert.equal(later.V.scenery(later.vehicle(31)), 'kind');
-        assert.equal(later.V.offered(true), null);
+        assert.equal(later.V.scenery(later.vehicle(31)), '');
+        assert.equal(later.V.offered(true), later.vehicle(31));
     }
 });
 

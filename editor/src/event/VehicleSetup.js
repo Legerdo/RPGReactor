@@ -177,12 +177,13 @@
      */
     function typeModel(record, kinds) {
         const model = record && record.model;
+        if (record?.graphic3d === false) return null;
         if (!model || typeof model !== 'object' || !model.name) return null;
         const vehicles = root.Reactor3D && root.Reactor3D.Vehicles;
         if (!kinds && vehicles && typeof vehicles.typeOf === 'function') {
             // A record the game's own reader cannot take (a kind that is no kind) is read here, as a motorcycle.
             let typed = null;
-            try { typed = vehicles.typeOf(record); } catch (error) { typed = null; }
+            try { typed = vehicles.typeOf(Object.assign({}, record)); } catch (error) { typed = null; }
             if (typed && typed.model) return typed.model;
         }
         const table = kinds || (vehicles && vehicles.KINDS) || null;

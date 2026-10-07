@@ -3701,8 +3701,12 @@ Game_Vehicle.prototype.getOn = function() {
     this._driving = true;
     this.setWalkAnime(true);
     this.setStepAnime(true);
-    $gameSystem.saveWalkingBgm();
-    this.playBgm();
+    const bgm=this._bgm || this.vehicle().bgm;
+    this._rrVehicleBgm=!!bgm?.name;
+    if (this._rrVehicleBgm) {
+        $gameSystem.saveWalkingBgm();
+        this.playBgm();
+    }
 };
 
 Game_Vehicle.prototype.getOff = function() {
@@ -3710,7 +3714,8 @@ Game_Vehicle.prototype.getOff = function() {
     this.setWalkAnime(false);
     this.setStepAnime(false);
     this.resetDirection();
-    $gameSystem.replayWalkingBgm();
+    if (this._rrVehicleBgm!==false) $gameSystem.replayWalkingBgm();
+    delete this._rrVehicleBgm;
 };
 
 Game_Vehicle.prototype.setBgm = function(bgm) {

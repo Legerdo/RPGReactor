@@ -700,3 +700,52 @@ test('the file keeps what the world file put on ReactorVehicles, and reads no la
     assert.equal(typeof vm.runInContext('ReactorVehicles.Feel.advance', lexical), 'function');
     assert.ok(!/ReactorVehicles\.Hints|V\.Hints/.test(source), 'nothing of the hints file is read');
 });
+
+test('BGS engine states crossfade without replacing map ambience, including reused names and rapid switches',()=>{
+    const w=world();w.AudioManager.bgsVolume=40;
+    w.type.sounds={engine:null,engineRate:[0.6,1.5],idle:{name:'motor',folder:'bgs',volume:80,pitch:100,pan:50},accelerate:{name:'rev',folder:'bgs',volume:90,pitch:100,pan:0},slowdown:{name:'coast',folder:'bgs',volume:70,pitch:100,pan:0}};
+    const ambience={name:'Wind',pos:12};w.AudioManager._currentBgs=ambience;w.AudioManager._bgsBuffer={unchanged:true};
+    w.aboard(0);w.tick();assert.deepEqual(plain(w.AudioManager.made.map(b=>b.folder+b.name)),['bgs/motor','bgs/rev','bgs/coast']);
+    w.AudioManager.made.forEach(w.loaded);w.tick();const [idle,rev,coast]=w.AudioManager.made;
+    assert.equal(w.Feel.engine.buffer,idle);assert.ok(near(idle._volume,0.5*0.8*0.4));assert.equal(idle.pan,0.5);
+    w.tick(10,{gas:1,brake:0});assert.equal(w.Feel.engine.buffer,rev);assert.equal(idle.log.at(-1)[0],'fadeOut');
+    w.tick(8,{gas:0,brake:1});assert.equal(w.Feel.engine.buffer,coast);
+    for(let i=0;i<16;i++)w.tick(0,{gas:0,brake:0});assert.equal(w.Feel.engine.buffer,idle);
+    w.timers.forEach(t=>t.fn());assert.equal(idle.isPlaying(),true,'a previous fade cannot stop the restarted idle loop');assert.equal(rev.isPlaying(),false);assert.equal(coast.isPlaying(),false);
+    assert.equal(w.AudioManager._currentBgs,ambience);assert.deepEqual(plain(w.AudioManager._bgsBuffer),{unchanged:true});assert.deepEqual(plain(w.AudioManager.other),[]);
+    w.$gamePlayer._vehicleType='walk';w.tick();w.timers.forEach(t=>t.fn());assert.equal(idle.isPlaying(),false);
+});
+
+test('the same filename in SE and BGS uses separate buffers and the correct volume bus',()=>{
+    const w=world(),se=w.idling();
+    w.type.sounds.idle={name:'drone-01',folder:'bgs',volume:80,pitch:100};w.AudioManager.bgsVolume=50;w.tick();
+    const bgs=w.AudioManager.made.find(b=>b.folder==='bgs/');assert.notEqual(bgs,se);w.loaded(bgs);w.tick();assert.equal(w.Feel.engine.buffer,bgs);assert.ok(near(bgs._volume,0.2));
+});
+
+test('optional stock vehicle engine loops use the shared audio driver without changing native movement',()=>{
+    const w=world();w.$dataSystem={boat:{reactorVehicle:{sounds:{engine:null,idle:{name:'Boat',folder:'bgs',volume:80,pitch:100},accelerate:{name:'Wake',folder:'bgs',volume:80,pitch:100}}}}};
+    w.Reactor3D={Vehicles:{stockTypeOf:r=>r}};w.$gamePlayer._vehicleType='boat';let moving=false;w.$gamePlayer.isMoving=()=>moving;
+    w.Feel.advance();w.AudioManager.made.forEach(w.loaded);w.Feel.advance();assert.equal(w.Feel.engine.name,'Boat');
+    moving=true;w.Feel.advance();assert.equal(w.Feel.engine.name,'Wake');assert.equal(w.$gamePlayer._vehicleType,'boat');
+    w.$gamePlayer._vehicleType='walk';w.Feel.advance();assert.equal(w.Feel.engine.on,false);
+});
+
+test('native vehicle BGM None leaves current music alone throughout boarding and dismounting',()=>{
+    const code=fs.readFileSync(path.join(__dirname,'../../runtime/reactor_objects_map.js'),'utf8');
+    const methods=code.slice(code.indexOf('Game_Vehicle.prototype.getOn ='),code.indexOf('Game_Vehicle.prototype.syncWithPlayer ='));
+    const ctx={calls:[],music:'Map'};vm.createContext(ctx);
+    vm.runInContext(`function Game_Vehicle(){};Game_Vehicle.prototype.setWalkAnime=Game_Vehicle.prototype.setStepAnime=Game_Vehicle.prototype.resetDirection=function(){};Game_Vehicle.prototype.vehicle=function(){return {bgm:this.bgm};};$gameSystem={saveWalkingBgm(){calls.push('save');this.saved=music;},replayWalkingBgm(){calls.push('replay');music=this.saved;}};AudioManager={playBgm(bgm){calls.push(bgm.name);music=bgm.name;}};`,ctx);
+    vm.runInContext(methods,ctx);vm.runInContext(`v=new Game_Vehicle();v.bgm={name:''};v.getOn();music='Event music';v.getOff();`,ctx);
+    assert.deepEqual(plain(ctx.calls),[]);assert.equal(ctx.music,'Event music');
+    vm.runInContext(`v.bgm={name:'Boat'};v.getOn();v.getOff();`,ctx);
+    assert.deepEqual(plain(ctx.calls),['save','Boat','replay']);assert.equal(ctx.music,'Event music');
+});
+
+test('native start and stop effects use assigned sounds once without replacing original vehicle hooks',()=>{
+    const w=world();w.$dataSystem={boat:{reactorVehicle:{sounds:{start:{name:'Ignition'},stop:{name:'Off'}}}}};
+    w.Reactor3D={Vehicles:{stockTypeOf:r=>r}};
+    vm.runInContext(`function Game_Vehicle(){this._type='boat';this.calls=[];}Game_Vehicle.prototype.getOn=function(){this.calls.push('on');};Game_Vehicle.prototype.getOff=function(){this.calls.push('off');};`,w);
+    vm.runInContext(source,w);const vehicle=vm.runInContext('new Game_Vehicle()',w);vehicle.getOn();vehicle.getOff();
+    assert.deepEqual(plain(vehicle.calls),['on','off']);assert.deepEqual(plain(w.AudioManager.played.map(s=>s.name)),['Ignition','Off']);
+    const hook=w.Game_Vehicle.prototype.getOn;vm.runInContext(source,w);assert.equal(w.Game_Vehicle.prototype.getOn,hook);
+});

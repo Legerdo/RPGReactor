@@ -3024,6 +3024,10 @@ class MapEditor3D {
     static previewModelSpec(mapData, event, pageIndex) {
         const own = Reactor3D.eventModelSpec ? Reactor3D.eventModelSpec(mapData, event.id, pageIndex) : null;
         if (own) return own;
+        if (typeof RRVehicles !== 'undefined' && !event.pages?.[pageIndex]?.image?.characterName && !(event.pages?.[pageIndex]?.image?.tileId > 0)) {
+            const vehicle = RRVehicles.modelOf(event, typeof window !== 'undefined' ? window.reactor?.databaseManager?.data?.vehicles : null);
+            if (vehicle) return Reactor3D.normalizeModelSpec(vehicle);
+        }
         const look = MapEditor3D.unitLook(mapData, event);
         return look && look.kind === 'model' && look.page === pageIndex && Reactor3D.normalizeModelSpec ? Reactor3D.normalizeModelSpec(look.spec) : null;
     }
@@ -3042,13 +3046,19 @@ class MapEditor3D {
             ? this.projectController.getCurrentProject() : this.projectController?.currentProject;
         RREventPreviewModels.templateFor(project, spec, this).then(template => {
             if (!template || !this.rebuildIsCurrent(request) || this.eventGroup !== group) return;
-            const object = RREventPreviewModels.instance(template, spec, page?.image?.direction || 2);
+            const vehicle = typeof RRVehicles !== 'undefined' ? RRVehicles.vehicleOf(event) : null;
+            const direction = vehicle ? RRVehicles.dir8OfYaw(vehicle.yaw) : page?.image?.direction || 2;
+            const object = RREventPreviewModels.instance(template, spec, direction);
             // Where the event's box stands: the ground under its tile, the terrain's rise and fall with it.
             const elevation = MapEditor3D.eventFeet(mapData, event);
             const offset = spec.offset || [0, 0, 0];
             // At the middle of a footprint set by hand, where the game stands it (half a tile on for an even size).
             const [middleX, middleZ] = typeof RRMapElevation !== 'undefined' && RRMapElevation.eventMarkerOffset ? RRMapElevation.eventMarkerOffset(mapData, event.id) : [0, 0];
             object.position.set(event.x + 0.5 + middleX + offset[0], elevation + offset[2], event.y + 0.5 + middleZ + offset[1]);
+            if (vehicle && Reactor3D.Vehicles?.pose) {
+                // Use the model's vehicle forward axis and parked lean, just as the runtime does.
+                Reactor3D.Vehicles.pose({ object, spec }, { _rrVehicle: vehicle.type, _rrYaw: vehicle.yaw * Math.PI / 180 }, object, spec, elevation);
+            }
             // Where it stands from the middle of the event's tile and its feet: `placeEvent` keeps it there.
             object.userData.seat = [middleX + offset[0], offset[2], middleZ + offset[1]];
             object.userData.event = event;

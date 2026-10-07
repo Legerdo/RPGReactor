@@ -937,6 +937,18 @@ function trimWebProject(projectRoot, log) {
         const noteSpec = spec => {
             if (spec && spec.name) usedModels.add(String(spec.name));
         };
+        // A vehicle type supplies its model without a map-sidecar binding.
+        const systemPath = path.join(dataRoot, 'System.json');
+        if (fs.existsSync(systemPath)) {
+            const system = JSON.parse(fs.readFileSync(systemPath, 'utf8'));
+            for (const key of ['boat','ship','airship']) noteSpec(system[key]?.reactorVehicle?.model);
+        }
+        const vehiclesPath = path.join(dataRoot, 'ReactorVehicles.json');
+        if (fs.existsSync(vehiclesPath)) {
+            const vehicles = JSON.parse(fs.readFileSync(vehiclesPath, 'utf8'));
+            if (!Array.isArray(vehicles)) throw new Error('ReactorVehicles.json must be an array');
+            for (const vehicle of vehicles) noteSpec(vehicle && vehicle.model);
+        }
         for (const file of fs.readdirSync(dataRoot)) {
             if (!file.endsWith('.r3d.json')) continue;
             try {
