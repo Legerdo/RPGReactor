@@ -1,5 +1,42 @@
 # Runtime performance checks
 
+## Draws thrown away each frame (2026-10-09, runtime 20261009.1)
+
+The owner reported lag spikes and uneven frame pacing on every map, worst on North Haven, on an RTX 5070 with a Ryzen 9 9950X3D and a 180 Hz monitor. The frame was bound by the main thread, not the GPU: standing in North Haven's village square, with no water in sight, the scene was drawn three more times a frame for its lakes' mirror pictures, and every piece chunk a second time for the see-through pass.
+
+| Change | Switch | What it stops |
+| --- | --- | --- |
+| A water sheet takes a mirror picture only while it has a pixel on screen | `Reactor3D.WaterSight.enabled` (`HOLD`: 30 frames) | A whole draw of the scene per lake whose bounds touch the view, up to four. Asked with an occlusion query round each sheet's draw; in a game only. |
+| Mirror pictures at the view's render scale | `Reactor3D.MIRROR_AT_VIEW_SCALE` | Pictures drawn at 1920x1080 for a frame drawn at 1440x810. |
+| Only the ghost chunks a see-through corridor crosses are drawn | `Reactor3D.CUT_GHOST_CULL` | Every piece chunk drawn twice (462 ghosts on North Haven; 3 to 11 with a corridor, none without). |
+| Light arrays compared in one shared function, one loop per array kind | none | Hundreds of cold closures, 160 KB of number objects a frame. |
+| A door's reach asked without making records | none | About 60 KB a frame for 39 doors against every character. |
+
+North Haven, a 45 s walk round a 60-tile square from the fountain (83, 65), 1920x1080, a 60 Hz headless output:
+
+| | Before | After |
+| --- | --- | --- |
+| RTX 5070, main thread per frame | 12.87 ms | 5.37 ms |
+| RTX 5070, frames over 25 ms | 10 (33 ms each) | 0 |
+| RTX 5070, standing in the square, tick to composite | 11.2 ms | 5.2 ms |
+| RTX 5070, main thread slowed four times | 15.9 fps, median frame 66.7 ms | 41.5 fps, median 16.7 ms |
+| Radeon iGPU (weak tier), main thread per frame | 5.62 ms | 4.59 ms |
+| Radeon iGPU, GPU median / p95 | 14.5 / 19.1 ms | 14.1 / 17.8 ms |
+| Radeon iGPU, main thread slowed four times, standing in the square | 49 to 50 fps, 72 to 87 frames over 25 ms in 8 s | 55 to 59 fps, 9 to 34 |
+| Garbage made per frame (RTX walk) | 1,155 KB | 937 KB |
+
+The Reactor Room on the RTX after the changes: 6.42 ms a frame, no long frame in 30 s. The picture was compared with each switch on and off with the game running: the fountain's and the lake's reflections, and a wall seen through at three places (differences were the idle animation and the grass's sway only). Full Node suite: **6,743 tests; 6,733 passed, 10 skipped, zero failed** (127.9 s).
+
+Still open, measured:
+
+- **The weak tier is GPU-bound on North Haven:** 12.1 ms median over an 81-point grid of the map on the Radeon iGPU, about 14 ms in the village, with nothing wasted found: ground 1.4 ms, the party's four models 2.5 ms (one is 149,000 triangles), pieces 3.5 ms. A frame past 16.7 ms is shown for two refreshes; `Reactor3D.adaptiveResolution` is the existing answer and is off by the owner's choice.
+- **Refresh rates that 60 does not divide:** the game runs 60 updates a second, and the 3D world is drawn on update frames. At 180 Hz that is every third refresh; at 144 Hz and 100 Hz the updates fall on uneven refreshes (2, 2, 3 at 144), which reads as judder however fast the frame is. Not addressed.
+- **The reflection capture** draws a cube face every frame on the full tier: 1.2 ms of main thread on North Haven (about 220 draws).
+- **Garbage left:** most is three.js's own render lists and matrix math; `LightVolume.dynamicRegion` recomputes some geometry's bounding box on each walk of the scene (45 KB a frame), and a visible lake's bounds are measured afresh each frame.
+- **Arriving on North Haven** (measured before these changes, not again after): the first second holds one frame of 0.5 to 0.85 s (the build) and about a dozen of 50 to 300 ms.
+
+Method: `editor/tests/perf/headless-display.sh` starts a headless display on the real GPUs (the integrated GPU by default, the NVIDIA card with the offload variables it names), and `nw-frame-breakdown.cjs` took `--map=<id>,<x>,<y>`, `--walk-size` and `--throttle`. A whole-frame GPU timer query on the RTX measures the main thread's submission, not GPU work (0.7 ms with the capture off, 12 ms with it on, the same scene): read per-pass sums and the CPU profile there.
+
 ## Editor map loading (2026-10-07)
 
 Runtime **20261007.2**: the editor prepares rock geometry using the existing runtime workers while tileset, parallax and material images load together. It waits for every rock chunk before constructing the scene; individual rock/terrain edits still use the same signatures and meshing program. The two most recently visited maps retain CPU arrays within a 64 MiB budget (16 MiB on low-memory hosts), cleared when the project changes. Deleted chunks are removed; concurrent rebuilds share matching jobs and discard obsolete results.
@@ -16,9 +53,48 @@ These are map-build timings, not a guarantee of click-to-visible latency. Image 
 
 Six functional regression tests cover exact worker/synchronous arrays (positions, UVs, normals and colours), reuse, rock/ground invalidation, deleted rocks, overlapping preparation and undo, worker failure/fallback, map eviction, memory limits and project isolation. Full Node suite: **6,712 tests; 6,702 passed, 10 skipped, zero failed** (131.4 s). Evidence: `/tmp/rr-northhaven-load.cjs`, `/tmp/rr-northhaven-control-results.json`, `/tmp/rr-northhaven-opengl-results.json`, `/tmp/rr-northhaven-final-results.json`, `/tmp/rr-northhaven-full-suite.log`.
 
-## Quality settings (not yet exposed to players)
+## Quality levels (2026-10-09, runtime 20261009.2)
 
-The owner wants these to become a player-facing graphics menu one day, the way most games let weak hardware trade a little picture for frame rate. Today they are engine defaults a script call or plugin can change at any time. Figures: Intel UHD 630, 1080p, the Demo's start map, frozen GPU frame unless noted (runtime 20260930.9).
+The owner's rule: a game runs well on any hardware, looks good on the weakest and better on the best. Level 0 is the picture as it has always been drawn, and a machine that holds its frame rate never leaves it. `Reactor3D.Quality` (in `runtime/reactor_3d.js`) steps a machine that does not hold it down a level at a time, along what its frames wait for, and never along the other:
+
+| Kind | Level 1 | Level 2 | Level 3 |
+| --- | --- | --- | --- |
+| GPU (the graphics card) | world drawn at 0.83 of the project's `renderScale` | 0.67 of it, models a level coarser (`pixelError` x2) | shadows off, `pixelError` x3 |
+| CPU (the main thread) | no depth-first draw, foliage at 0.65 of its distances and 0.7 of its clumps | foliage at 0.45 and 0.5, shadows off | |
+| Either, its levels spent and still a quarter short | the world drawn on every other update: 30 pictures a second under 60 updates | | |
+
+- **What is measured:** the world frames a second of play delivers, against the screen's own refresh (read from the game's quickest frames, so a 50 Hz panel showing 50 is not short). A two-second window short by 12% twice running, or by 40% once, takes a step. The main thread is the cause when its work fills 60% of the frame or 75% of a refresh's budget, the graphics card otherwise. Loading, a window out of focus and the two seconds after a step are not judged.
+- **Back up:** only as another map opens, after ten calm seconds, one step; a step that does not hold is not tried again that session.
+- **Kept:** the levels a machine settles at are saved with the player's options (`ConfigManager.graphicsAuto`) and start its next session.
+- **The player's say:** Options, Graphics: Auto (the default), High, Medium, Low (`ConfigManager.graphicsQuality`; High is level 0, Medium is GPU 1 and CPU 1, Low is GPU 3 and CPU 2). The row appears once the machine has drawn a 3D map. A project whose options plugin builds its own list adds the entry there: the Demo's is in the Visual category. `Window_Options.GRAPHICS_TEXT` holds the words.
+- **Switches:** `Reactor3D.Quality.enabled = false` draws level 0 always; `Reactor3D.Quality.reset()` returns the automatic levels to the top.
+
+Measured on the Radeon iGPU (weak tier), North Haven, runtime 20261009.2:
+
+| Case | Without | With |
+| --- | --- | --- |
+| Main thread slowed four times, the 60-tile walk | 29 to 38 world frames a second, uneven | CPU 1 in 4 s (45 to 52), CPU 2 in 10 s, then a steady 30 at the full picture size |
+| The world drawn at full 1080p (a GPU pushed past its budget) | 45 to 50 a second | GPU 1 and GPU 2 within 16 s, then a steady 60 |
+| Normal walk, and the RTX 5070 | 60 | 60, level 0 throughout |
+
+What each setting buys there, standing in the square (GPU ms per frame; main thread ms with it slowed four times): the defaults 14.0 and 16.2; scale 0.6, 11.6; scale 0.5, 9.6; shadows off, 13.0; no depth-first draw, 14.9 and 14.1; thinner foliage, 13.8 and 14.9; the light at an eighth, 14.0 (nothing). High, Medium and Low were looked at side by side on the weak tier: Medium is a little softer, Low softer and without shadows, both clean.
+
+Not covered: a Classic battle's room is not measured (it keeps the levels the map left), and a 2D map has nothing to step.
+
+### Game speed below 60 frames a second
+
+`SceneManager.determineRepeatNumber` rounded the smoothed frame interval to a whole number of updates, which is one update a frame all the way from 60 down to 40 frames a second: a machine at 45 ran the game at three quarters of its speed. It now adds the time up and makes the updates as they come due (up to four a frame), with one a frame kept for a screen within 3% of 60 Hz. `SceneManager.trueSpeed = false` rounds as before.
+
+| Frames a second | 180 to 62 | 60 | 55 | 50 | 45 | 40 | 30 | 24 | 20 | 15 | 10 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Updates a second, before | 60 (62 at 62) | 60 | 55 | 50 | 45 | 72 | 60 | 48 | 40 | 30 | 20 |
+| Updates a second, now | 60 | 60 | 60 | 60 | 60 | 60 | 60 | 60 | 60 | 60 | 40 |
+
+Live on the weak tier, the party walking North Haven (tiles a second; 3.73 on an unslowed machine): main thread slowed four times 3.11 before and 3.67 now; slowed six times 2.49 and 3.67. A 60 Hz screen with its frames 6% off never gets a frame with no update or two. A 50 Hz screen now plays at full speed (six updates in five frames) where it played at five sixths.
+
+## Quality settings
+
+The levels above move a few of these; all remain engine defaults a script call or plugin can change at any time. Figures: Intel UHD 630, 1080p, the Demo's start map, frozen GPU frame unless noted (runtime 20260930.9).
 
 | Setting | Default | What it trades | Measured |
 | --- | --- | --- | --- |

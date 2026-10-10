@@ -5643,6 +5643,13 @@ Spriteset_Map.prototype.updateReactor3D = function() {
         && !SceneManager.isFinalUpdateOfFrame()) {
         return;
     }
+    // The quality levels count this frame, and at the last level have the
+    // world drawn on every other one (the passes keep the picture between).
+    const quality = Reactor3D.Quality;
+    quality.mapOpened($gameMap.mapId());
+    if (!quality.worldTick(performance.now())) return;
+    // The Options window offers the setting once a 3D map has been drawn on this machine.
+    if (!ConfigManager.reactor3dSeen) { ConfigManager.reactor3dSeen = true; ConfigManager.save(); }
 
     // _realX/_realY interpolate between cells, so the camera glides rather than
     // stepping a whole tile at a time.

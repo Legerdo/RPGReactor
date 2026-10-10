@@ -2218,7 +2218,8 @@ Scene_Options.prototype.optionsWindowRect = function() {
 
 Scene_Options.prototype.maxCommands = function() {
     // Increase this value when adding option items.
-    return 7;
+    // The Graphics row is there once this machine has drawn a 3D map (Window_Options.addGraphicsOption).
+    return 7 + (typeof Reactor3D !== "undefined" && Reactor3D.Quality && ConfigManager.reactor3dSeen ? 1 : 0);
 };
 
 Scene_Options.prototype.maxVisibleCommands = function() {

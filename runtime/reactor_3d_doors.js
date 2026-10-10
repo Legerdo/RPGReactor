@@ -701,15 +701,22 @@
         return R.piecesOf(mapData).find(piece => piece.kind === "door" && piece.id === found.id) || null;
     };
 
-    /** How far a character stands from a door, across its leaves and toward its faces (tiles). */
+    /**
+     * How far a character stands from a door, across its leaves and toward its faces (tiles).
+     * Asked for every door and character each frame: the answer is one shared record, read
+     * before the next call, and nothing is made on the way.
+     */
+    const reach = { off: 0, away: 0 };
     const reachOf = (door, character) => {
-        const piece = door.piece, { u: U, v: V } = R.doorAxes(piece.rot);
-        const [ox, oz] = R.doorPoint(piece, 0, 0.5);
+        const piece = door.piece, r = ((piece.rot | 0) % 4 + 4) % 4, U = ACROSS[r], V = FRONT[r];
+        // The middle of the doorway's near edge: doorPoint(piece, 0, 0.5).
+        const ox = piece.x + 0.5 - 0.5 * U[0], oz = piece.y + 0.5 - 0.5 * U[1];
         const px = character._realX + 0.5 - ox, pz = character._realY + 0.5 - oz;
         const along = px * U[0] + pz * U[1], away = px * V[0] + pz * V[1];
         const W = piece.width || 1;
-        const off = along < 0 ? -along : along > W ? along - W : 0;
-        return { off, away: Math.abs(away) };
+        reach.off = along < 0 ? -along : along > W ? along - W : 0;
+        reach.away = Math.abs(away);
+        return reach;
     };
 
     /** Whether a character faces toward a door's middle. */
@@ -820,13 +827,15 @@
             let near = null, inside = false;
             for (const c of characters || []) {
                 if (!c || (c.isTransparent && c.isTransparent() && c !== player)) continue;
-                const r = reachOf(door, c);
-                if (r.off < 0.45 && r.away < 0.75) { inside = true; if (!near) near = c; continue; }
+                const r = reachOf(door, c), off = r.off, away = r.away;
+                if (off < 0.45 && away < 0.75) { inside = true; if (!near) near = c; continue; }
                 if (near) continue;
+                // Nobody this far off is noticed at any pace a character walks or rides at.
+                if (!(off < 0.9)) continue;
                 const moving = c.isMoving && c.isMoving();
                 const pace = moving && c.distancePerFrame ? c.distancePerFrame() : 0.0625;
-                if (!(r.off < 0.9 && r.away < 1.2 + pace * R.DOOR_SWING_FRAMES * 1.3)) continue;
-                if ((moving && facesDoor(door, c)) || (c === player && r.away < 2.1 && facesDoor(door, c))) near = c;
+                if (!(away < 1.2 + pace * R.DOOR_SWING_FRAMES * 1.3)) continue;
+                if ((moving && facesDoor(door, c)) || (c === player && away < 2.1 && facesDoor(door, c))) near = c;
             }
             if (piece.opens === "auto" || (piece.opens === "locked" && !R.doorLocked(piece, state))) {
                 if (near && !state.open && state.t === 0 && !R.doorLocked(piece, state)) state.dir = R.doorOpenSide(door, near, characters);

@@ -733,7 +733,14 @@
 
     /** The eye in the map's tiles, for the distance fade; one vector reused. */
     const eye = { world: null, inverse: null, frame: -1 };
-    const lodOf = () => (R.isWeakGpu && R.isWeakGpu() ? R.FOLIAGE_LOD.weak : R.FOLIAGE_LOD.full);
+    const lodNow = { near: 0, far: 0, scale: 0 };
+    /** The tier's distances and share of clumps, less what the quality level takes (`Reactor3D.Quality`); one record reused. */
+    const lodOf = () => {
+        const lod = R.isWeakGpu && R.isWeakGpu() ? R.FOLIAGE_LOD.weak : R.FOLIAGE_LOD.full, quality = R.Quality;
+        if (!quality || (quality.foliageReach() === 1 && quality.foliageShare() === 1)) return lod;
+        lodNow.near = lod.near * quality.foliageReach(); lodNow.far = lod.far * quality.foliageReach(); lodNow.scale = lod.scale * quality.foliageShare();
+        return lodNow;
+    };
 
     /** Before a chunk draws: its share of clumps for the eye's distance, the eye and the clock set once a frame. */
     function beforeChunk(renderer, scene, camera) {

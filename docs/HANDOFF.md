@@ -4,7 +4,7 @@ Dated engineering notes for whoever picks the project up next, newest first. Thi
 
 ## Where things stand (2026-10-07)
 
-**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`). The **0.99.0** cycle is open for the owner’s planned weekend release, carrying forward the unreleased 0.98.9 work. **Local checkpoint `68467829` (2026-10-06)** saves the vehicle Database, event authoring, map travel, class/equipment reuse, 2D/3D driving and independent engine audio. PR [#73](https://github.com/Psychronic-Games/RPGReactor/pull/73) is now integrated alongside this work; `runtime/` and all 16 bundled projects carry **20261007.4**. It follows checkpoint `9b959cee` (2026-10-05), which saved the earlier combat coherence and Demo motorcycle work. The latest validation is recorded below. The previously referenced `scratchpad/ux-pass/RESUME.md` and `lead-DOCS.md` are absent; use the checkpoint and dated notes here. No push or release was requested.
+**0.98.8 shipped on 2026-09-28** (tag `v0.98.8`). The **0.99.0** cycle is open for the owner’s planned weekend release, carrying forward the unreleased 0.98.9 work. **Local checkpoint `68467829` (2026-10-06)** saves the vehicle Database, event authoring, map travel, class/equipment reuse, 2D/3D driving and independent engine audio. PR [#73](https://github.com/Psychronic-Games/RPGReactor/pull/73) is now integrated alongside this work; `runtime/` and all 16 bundled projects carry **20261009.2** (the 2026-10-09 performance pass and quality levels, below). It follows checkpoint `9b959cee` (2026-10-05), which saved the earlier combat coherence and Demo motorcycle work. The latest validation is recorded below. The previously referenced `scratchpad/ux-pass/RESUME.md` and `lead-DOCS.md` are absent; use the checkpoint and dated notes here. No push or release was requested.
 
 **CI:** the syntax-check and menu-smoke fixes are among the unpushed commits. The Web persistence smoke is intermittent on GitHub and posts its page state as a public annotation on failure (`curl https://api.github.com/repos/Psychronic-Games/RPGReactor/check-runs/<job id>/annotations`). Runner images move to Ubuntu 26 on 2026-10-19; watch the GUI smokes then. **Web bundle:** about 496 of itch's 500 MB after the HD materials (plus door sounds); the owner picks what to trim at the end of the weekend of 2026-10-03 (never the Psychronic BGM), so it does not block work until then.
 
@@ -45,6 +45,27 @@ Runtime **20261007.4** adds database placements (`startMapId`, `startX`, `startY
 ### Harnesses
 
 Repo `scratchpad/` (gitignored): `start-display.sh` (headless :57; use the X11 env), `ed3d.cjs` (editor on a Demo copy with real clicks; links the Demo's img/audio, never write assets through it), `game-prof.cjs` (BATTLE=troop), `prof3d.cjs`, `ed-prof.cjs`, `look-capture-setup.js` + `look-crops.py` (judge looks with the clock running), `rock-game.cjs`, `battle-shared-check.cjs`, `uverify-game.cjs`, `uab-game.cjs`, `mat-versions.js`, `reflect-shots.cjs`, `core-split-boot.cjs`, plus the per-import oracles under `scratchpad/<game>/`. Parallel agents share one working tree: never `git stash`/`checkout`/`restore` in a brief (compare with `git show HEAD:<file>`), and only the lead syncs the runtime and bumps the revision.
+
+## 2026-10-09 — Quality levels: the frame rate kept on any hardware (runtime 20261009.2)
+
+Owner, the same day: a game has to run great however weak the hardware, look good there and better on great hardware, "one way or another". With the wasted draws gone the weak tier was still at its limit, so the engine now steps a slow machine down by itself. The design, the levels, the measurements and the limits are in [PERFORMANCE.md](PERFORMANCE.md) › Quality levels.
+
+- **Where:** `Reactor3D.Quality` in `runtime/reactor_3d.js`; fed by `Graphics._onTick` (`reactor_core.js`) and `Spriteset_Map.updateReactor3D` (`reactor_sprites.js`); read by the viewport's render scale, `GeometryDetail`, `DepthFirst`, `shadowsWanted` and the foliage's distances. Saved in `ConfigManager` (`reactor_managers.js`); the Options row is `Window_Options.addGraphicsOption` (`reactor_windows.js`). Tests: `editor/tests/quality-levels.test.cjs`.
+- **The Demo** uses its options plugin (`PSYCHRONIC_MegaOptionsMZ`), which builds its own list: a Graphics entry was added to its Visual category in `template/Demo/js/reactor_plugins.js`, driven with real key presses in the harness.
+- **Tried and dropped:** a GPU timer query round the world's draw to tell a slow card from a slow screen. A card at 18 ms on a 60 Hz screen runs at 30, and 18 of 33 ms read as "not the card". The screen's refresh is read from the game's quickest frames instead, and one timer query at a time would also have fought the measuring tools.
+- **Half rate:** a strict every-other-frame skip gave 20 a second when a draw ran over a refresh; the draw now waits 25 ms from the last one.
+- **The measuring tool** (`nw-frame-breakdown.cjs`) turns the levels off for its runs; a `--setup` script turns them back on.
+- **Game speed:** with frames short the game itself ran slow (stock update rounding: one update a frame from 60 down to 40 frames a second). `SceneManager.determineRepeatNumber` now adds the time up; `trueSpeed = false` is the old rounding. Table and live walking speeds in PERFORMANCE.md.
+- **Open:** the owner has not seen it. Classic battle rooms are not measured. The words in the Options row are English unless a game sets `Window_Options.GRAPHICS_TEXT`. Other bundled projects with their own options plugins do not list the entry.
+
+## 2026-10-09 — Performance pass: draws thrown away each frame (runtime 20261009.1)
+
+The owner reported lag spikes and uneven performance on every map since the last two weeks' work, worst on North Haven. Measured first (`nw-frame-breakdown.cjs --mode=spikes` with a CPU profile, both GPUs): the frame was bound by the main thread. Figures, switches and what is left are in [PERFORMANCE.md](PERFORMANCE.md); the changes are in `runtime/reactor_3d_lighting.js` (`WaterSight`, `cullCutGhosts`, `sendUniformArray`), `reactor_3d.js` (the scale handed to the mirrors), `reactor_3d_world.js` and `reactor_3d_doors.js`, with `editor/tests/frame-waste.test.cjs`.
+
+- **Result:** RTX 5070 walk 12.87 to 5.37 ms of main thread a frame, 10 frames over 25 ms to none; with the main thread slowed four times 15.9 to 41.5 fps; weak tier 5.62 to 4.59 ms.
+- **Looks:** each switch was compared on and off with the game running (fountain, lake, a wall seen through at three places). The owner has not seen it yet; the owner's main monitor is 180 Hz and the harness output is 60 Hz.
+- **Harness:** the old `scratchpad/` scripts are gone. `editor/tests/perf/headless-display.sh` (tracked) starts a second KWin with a virtual output and its own Xwayland; NW.js runs there as an X11 client on the Radeon iGPU by default (weak tier) or the RTX with `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia`. Profile a Demo copy outside Dropbox and copy `runtime/*.js` into its `js/` before each run.
+- **Next, by what was measured:** the weak tier's GPU on North Haven (nothing wasted found; adaptive resolution is the owner's call), update pacing at 144 and 100 Hz, the reflection capture's face every frame, the map arrival's long frames.
 
 ## 2026-10-09 — Dropbox pushed a stale copy over the repository; recovered
 

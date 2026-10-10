@@ -483,7 +483,7 @@ test('the dynamic budget is measured from the player, and a party of two reduced
 
 test('both viewports render the maps once a frame before the first pass, and the game marks its casters', () => {
     const three = source3D();
-    assert.match(three, /scene\.updateMatrixWorld\(\);\n\s*\/\/ The shadow maps, while every group is still visible, then the reflections\.\n\s*Reactor3D\.prepareWorldFrame\(this\._renderer, mapScene, scene, this\._camera\);/);
+    assert.match(three, /scene\.updateMatrixWorld\(\);\n\s*\/\/ The shadow maps, while every group is still visible, then the reflections\.\n\s*Reactor3D\.prepareWorldFrame\(this\._renderer, mapScene, scene, this\._camera, undefined, this\.upscaled\(\) \? this\._scale : 1\);/);
     assert.match(three, /if \(shadows !== false && mapScene\.renderShadows\) mapScene\.renderShadows\(renderer, \(shadows && shadows\.mapData\) \|\| null, shadows \|\| undefined\);/);
     assert.match(three, /group\.add\(object\);\n\s*\/\/ A prop never moves; its map is cached\. An event walks\.\n\s*Reactor3D\.Shadows\.markCaster\(object, !\(typeof character\.eventId === "function"\n\s*&& character\.eventId\(\) >= Reactor3D\.PROP_EVENT_BASE\)\);/);
     // The depth passes run from the sentinel's hook, inside the pass.

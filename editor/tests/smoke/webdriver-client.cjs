@@ -115,7 +115,8 @@ class WebDriverClient {
                 });
             });
             request.once('error', reject);
-            request.setTimeout(30000, () => request.destroy(new Error('WebDriver request timed out')));
+            // RR_WEBDRIVER_REQUEST_MS: a longer limit for one request (a profile that samples for a minute).
+            request.setTimeout(Number(process.env.RR_WEBDRIVER_REQUEST_MS) || 30000, () => request.destroy(new Error('WebDriver request timed out')));
             if (payload) request.write(payload);
             request.end();
         });

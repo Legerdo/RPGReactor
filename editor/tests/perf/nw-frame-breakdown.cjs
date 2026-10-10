@@ -19,6 +19,12 @@
  *
  *   node tests/perf/nw-frame-breakdown.cjs --project=<disposable copy> [--mode=passes|spikes]
  *        [--seconds=10] [--walk] [--nw-root=<dir>] [--out=<dir>] [--setup=<script.js>]
+ *        [--map=<id>,<x>,<y>] [--walk-size=8] [--throttle=4]
+ *
+ *   --map        start there instead of the project's starting position.
+ *   --walk-size  the side, in tiles, of the square --walk loops round.
+ *   --throttle   slow the main thread this many times (spikes and load): the
+ *                nearer picture of a low-end CPU.
  *
  * Profile a disposable project copy: project plugins can autosave.
  * Not part of `npm test`.
@@ -39,15 +45,20 @@ const outDir = path.resolve(option("out", os.tmpdir()));
 const SECONDS = Number(option("seconds", 10));
 const MODE = option("mode", "passes");
 const WALK = flag("walk");
+const WALK_SIZE = Number(option("walk-size", 8));
+const START = option("map", "").split(",").map(Number).filter(Number.isFinite);
 const exe = process.platform === "win32" ? ".exe" : "";
 
 const cdp = (driver, cmd, params = {}) => driver.sessionRequest("POST", "/goog/cdp/execute", { cmd, params });
 
 const BOOT = `
-    const walk = arguments[0]; const done = arguments[arguments.length - 1];
+    const walk = arguments[0], size = arguments[1], start = arguments[2]; const done = arguments[arguments.length - 1];
     (async () => {
         SceneManager.isGameActive = () => true;
+        // The quality levels stand still while a tool measures (a --setup script turns them back on).
+        if (typeof Reactor3D !== "undefined" && Reactor3D.Quality) Reactor3D.Quality.enabled = false;
         DataManager.setupNewGame();
+        if (start && start.length === 3) $gamePlayer.reserveTransfer(start[0], start[1], start[2], 2, 0);
         SceneManager.goto(Scene_Map);
         const t0 = Date.now();
         while (Date.now() - t0 < 60000) {
@@ -60,7 +71,7 @@ const BOOT = `
             const leg = (code, n) => Array.from({ length: n }, () => ({ code, indent: null }));
             $gamePlayer.setThrough(true);
             $gamePlayer.forceMoveRoute({ repeat: true, skippable: true, wait: false,
-                list: [...leg(4, 8), ...leg(3, 8), ...leg(1, 8), ...leg(2, 8), { code: 0 }] });
+                list: [...leg(4, size), ...leg(3, size), ...leg(1, size), ...leg(2, size), { code: 0 }] });
         }
         await new Promise(r => setTimeout(r, 5000));
         // Steady state: the geometry worker has simplified every dense model
@@ -283,7 +294,7 @@ const FROZEN = `
 `;
 
 const SPIKES = `
-    const seconds = arguments[0], load = arguments[1] === true; const done = arguments[arguments.length - 1];
+    const seconds = arguments[0], load = arguments[1] === true, startAt = arguments[2]; const done = arguments[arguments.length - 1];
     const pixi = Graphics._app.renderer; const gl = pixi.gl; const ext = gl.getExtension("EXT_disjoint_timer_query_webgl2");
     // Marker: a busy function the profile can find, to line its clock up with performance.now().
     const marker = window.__rrPerfMarker = function __rrPerfMarker() { const t = performance.now(); let x = 0; while (performance.now() - t < 8) x += Math.sqrt(x + 1); return [t, x]; };
@@ -324,7 +335,9 @@ const SPIKES = `
         else { Graphics._tickHandler = origTick; Graphics._app.render = origRender; for (const r of restoreGl) r(); done({ markAt, times, gpu, glCounts, heapMb: Math.round(performance.memory.usedJSHeapSize / 1048576) }); }
     };
     requestAnimationFrame(tick);
-    if (load) { SceneManager.isGameActive = () => true; DataManager.setupNewGame(); SceneManager.goto(Scene_Map); }
+    if (load) { SceneManager.isGameActive = () => true; if (typeof Reactor3D !== "undefined" && Reactor3D.Quality) Reactor3D.Quality.enabled = false; DataManager.setupNewGame();
+        if (startAt && startAt.length === 3) $gamePlayer.reserveTransfer(startAt[0], startAt[1], startAt[2], 2, 0);
+        SceneManager.goto(Scene_Map); }
 `;
 
 function analyzeSpikes(profile, result) {
@@ -380,7 +393,7 @@ async function main() {
         await driver.setScriptTimeout(Math.max(120000, SECONDS * 3000));
         await driver.waitForScript("return Boolean(window.SceneManager && SceneManager._scene && !(SceneManager._scene instanceof Scene_Boot) && Graphics.width > 0);", [], { timeout: 90000, description: "title screen" });
         // --mode=load records the map loading itself: from New Game on the title screen.
-        const opened = MODE === "load" ? { load: true } : await driver.executeAsync(BOOT, [WALK]);
+        const opened = MODE === "load" ? { load: true } : await driver.executeAsync(BOOT, [WALK, WALK_SIZE, START]);
         if (MODE !== "load") {
             // Everything shown, the light volume baked and, standing still,
             // the camera at rest, so frozen frames compare like with like.
@@ -396,6 +409,7 @@ async function main() {
                 last = x.cam;
             }
             opened.settleWait = Date.now() - from;
+            if (settled < 8) opened.unsettled = await driver.execute(SETTLE);
         }
         console.log("opened", JSON.stringify(opened));
         if (opened.error) throw new Error(opened.error);
@@ -473,9 +487,12 @@ async function main() {
         } else {
             await cdp(driver, "Profiler.enable");
             await cdp(driver, "Profiler.setSamplingInterval", { interval: 250 });
+            const throttle = Number(option("throttle", 1));
+            if (throttle > 1) await cdp(driver, "Emulation.setCPUThrottlingRate", { rate: throttle });
             await cdp(driver, "Profiler.start");
-            const r = await driver.executeAsync(SPIKES, [SECONDS, MODE === "load"]);
+            const r = await driver.executeAsync(SPIKES, [SECONDS, MODE === "load", START]);
             const { profile } = await cdp(driver, "Profiler.stop");
+            if (throttle > 1) await cdp(driver, "Emulation.setCPUThrottlingRate", { rate: 1 });
             fs.writeFileSync(path.join(outDir, "frame-spikes.cpuprofile"), JSON.stringify(profile));
             const a = analyzeSpikes(profile, r);
             fs.writeFileSync(path.join(outDir, "frame-spikes.json"), JSON.stringify(a, null, 1));

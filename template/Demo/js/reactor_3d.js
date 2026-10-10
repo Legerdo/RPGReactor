@@ -482,6 +482,285 @@ Reactor3D.maxPassPixelRatio = 1;
 Reactor3D.adaptiveResolution = false;
 Reactor3D.minRenderScale = 0.5;
 
+/**
+ * Keeping the frame rate on a machine that cannot draw the whole picture.
+ *
+ * Level 0 is the picture as it has always been drawn, and a machine that
+ * holds its frame rate there never leaves it. One that does not is stepped
+ * down, a level at a time, until it does: along GPU when the graphics card
+ * is what the frame waits for (the size the world is drawn at, then model
+ * detail, then shadows), along CPU when the main thread is (the depth-first
+ * draw and far foliage, then shadows), and last of all, where that is not
+ * enough, the world drawn on every other update: a steady 30 pictures a
+ * second under 60 updates.
+ * Measured on an integrated Radeon in North Haven's square: the size alone
+ * is 14.0, 11.6 and 9.6 ms of GPU at levels 0, 1 and 2; shadows are 1 ms;
+ * with the main thread slowed four times the first CPU level is 2 to 3 ms.
+ *
+ * What is watched is how many world frames a second of play delivers, not
+ * the length of any one frame (a 144 Hz screen shows 60 updates on uneven
+ * refreshes at any speed), against what the screen itself can show: its
+ * refresh is read from the game's quickest frames, so a 50 Hz panel showing
+ * 50 is not short of anything. A window that falls short is the main
+ * thread's doing when its own work fills the frame, and the graphics card's
+ * otherwise. Steps come while frames are short; a step back up is tried
+ * only as another map opens, after a calm stretch, and given up for the
+ * session the first time it does not hold.
+ *
+ * `ConfigManager.graphicsQuality` is the player's say: "auto" (the default)
+ * as above, "high", "medium" or "low" to hold a level. Outside a game (the
+ * editor) the level is always 0.
+ */
+Reactor3D.Quality = {
+    /** The kill switch: false draws level 0 whatever the frame rate or the player's setting. */
+    enabled: true,
+    GPU: [
+        { scale: 1, detail: 1, shadows: true },
+        { scale: 0.83, detail: 1, shadows: true },
+        { scale: 0.67, detail: 2, shadows: true },
+        { scale: 0.67, detail: 3, shadows: false }
+    ],
+    CPU: [
+        { depthFirst: true, reach: 1, share: 1, shadows: true },
+        { depthFirst: false, reach: 0.65, share: 0.7, shadows: true },
+        { depthFirst: false, reach: 0.45, share: 0.5, shadows: false }
+    ],
+    /** The levels a player's fixed setting holds: [GPU, CPU]. */
+    FIXED: { high: [0, 0], medium: [1, 1], low: [3, 2] },
+    /** A window of play this long is judged (ms), if the world was asked for at least MIN_TICKS times in it. */
+    WINDOW_MS: 2000,
+    MIN_TICKS: 24,
+    /** Short of the world frames a second should deliver by this share: slow (two windows running step), failing (one does). */
+    SLOW: 0.12,
+    FAILING: 0.4,
+    CALM: 0.03,
+    /** Short by this share with a kind's levels spent: the world is drawn on every other update. Less is left alone. */
+    HALF_AT: 0.25,
+    /** The main thread is what a frame waits for when its work takes this share of the frame, or of a refresh's budget. */
+    BOUND: 0.6,
+    BOUND_OF_BUDGET: 0.75,
+    /** Ticks not judged after a step or a new map (loading, new programs), and a gap this long (ms) is not play. */
+    REST_TICKS: 120,
+    GAP_MS: 250,
+    /** Calm windows before a step up is tried at the next map, and the windows it must then hold for. */
+    PROBE_CALM: 5,
+    PROBE_WINDOWS: 5,
+    /** The game's frame intervals the screen's refresh is read from: the quickest few of each REFRESH_SAMPLES. */
+    REFRESH_SAMPLES: 31,
+
+    // The automatic levels, and those in force this frame (the player's fixed setting, or the automatic ones).
+    _gpu: 0, _cpu: 0, _half: false,
+    g: 0, c: 0, h: false,
+    _taken: [], _loaded: false, _ceiling: false, _probe: null, _probeLeft: 0,
+    _rest: 0, _calm: 0, _slowRun: 0, _mapId: 0,
+    _last: 0, _elapsed: 0, _ticks: 0, _draws: 0, _busy: 0, _busyTicks: 0, _tickStart: 0, _worldTick: false, _drew: false, _lastDraw: 0,
+    _refreshMs: Infinity, _tickLast: 0, _intervals: null, _sorted: null, _intervalCount: 0,
+
+    /** The player's setting; "high" where there is no game to ask. */
+    setting() {
+        const config = typeof ConfigManager !== "undefined" ? ConfigManager : null;
+        if (!config) return "high";
+        const value = config.graphicsQuality;
+        return value === "high" || value === "medium" || value === "low" ? value : "auto";
+    },
+
+    /** The levels in force, worked out once a frame and whenever they change. */
+    refresh() {
+        const setting = this.enabled === false ? "high" : this.setting();
+        if (setting === "auto") {
+            if (!this._loaded) this.load();
+            this.g = this._gpu; this.c = this._cpu; this.h = this._half;
+        } else {
+            const fixed = this.FIXED[setting];
+            this.g = fixed[0]; this.c = fixed[1]; this.h = false;
+        }
+    },
+
+    /** The share of `Reactor3D.renderScale` the world is drawn at. */
+    scale() { return this.GPU[this.g].scale; },
+    /** How many times `GeometryDetail.pixelError` a model's level may stray. */
+    detail() { return this.GPU[this.g].detail; },
+    shadows() { return this.GPU[this.g].shadows && this.CPU[this.c].shadows; },
+    depthFirst() { return this.CPU[this.c].depthFirst; },
+    /** The share of the foliage's distances kept, and of its clumps. */
+    foliageReach() { return this.CPU[this.c].reach; },
+    foliageShare() { return this.CPU[this.c].share; },
+    /** How many updates one world draw stands for: 2 at the last level. */
+    drawEvery() { return this.h ? 2 : 1; },
+
+    /** The machine's own levels from its last session. */
+    load() {
+        this._loaded = true;
+        const kept = typeof ConfigManager !== "undefined" && ConfigManager.graphicsAuto;
+        if (!kept || typeof kept !== "object") return;
+        this._gpu = Math.max(0, Math.min(this.GPU.length - 1, Number(kept.gpu) || 0));
+        this._cpu = Math.max(0, Math.min(this.CPU.length - 1, Number(kept.cpu) || 0));
+        this._half = kept.half === true;
+        this._taken = [];
+        for (let i = 0; i < this._gpu; i++) this._taken.push("gpu");
+        for (let i = 0; i < this._cpu; i++) this._taken.push("cpu");
+        if (this._half) this._taken.push("half");
+    },
+
+    keep() {
+        this.refresh();
+        const config = typeof ConfigManager !== "undefined" ? ConfigManager : null;
+        if (!config) return;
+        config.graphicsAuto = { gpu: this._gpu, cpu: this._cpu, half: this._half };
+        try { if (typeof config.save === "function") config.save(); } catch (e) { /* a config that cannot be written is not worth a frame */ }
+    },
+
+    /** The automatic levels back to the top (the player chose Auto again, or a script asks). */
+    reset() {
+        this._gpu = 0; this._cpu = 0; this._half = false;
+        this._taken = []; this._ceiling = false; this._probe = null; this._calm = 0; this._slowRun = 0;
+        this.clearWindow();
+        this._rest = this.REST_TICKS;
+        this.keep();
+    },
+
+    clearWindow() {
+        this._elapsed = 0; this._ticks = 0; this._draws = 0; this._busy = 0; this._busyTicks = 0;
+    },
+
+    /** Whether the window has the player's eye: a game out of focus or hidden is not running slow. */
+    away() {
+        if (typeof document === "undefined") return false;
+        return document.hidden === true || (typeof document.hasFocus === "function" && !document.hasFocus());
+    },
+
+    /**
+     * One step down along `kind` ("cpu" or "gpu"); with that kind spent, the
+     * half rate, when the frames are `short` enough to be worth it. The other
+     * kind's steps are never taken in its place: a smaller picture does
+     * nothing for a slow main thread, and the picture would be spent for it.
+     */
+    stepDown(kind, short) {
+        const left = kind === "cpu" ? this._cpu < this.CPU.length - 1 : this._gpu < this.GPU.length - 1;
+        const step = left ? kind : !this._half && !(short < this.HALF_AT) ? "half" : null;
+        if (!step) return null;
+        if (step === "cpu") this._cpu++; else if (step === "gpu") this._gpu++; else this._half = true;
+        this._taken.push(step);
+        // A step up that did not hold is not tried again this session.
+        if (this._probe) { this._probe = null; this._ceiling = true; }
+        this._rest = this.REST_TICKS;
+        this._calm = 0;
+        this.keep();
+        return step;
+    },
+
+    /** The last step taken, undone. */
+    stepUp() {
+        const step = this._taken.pop();
+        if (!step) return null;
+        if (step === "cpu") this._cpu--; else if (step === "gpu") this._gpu--; else this._half = false;
+        this._rest = this.REST_TICKS;
+        this.keep();
+        return step;
+    },
+
+    /** Another map opens: the picture changes anyway, so a calm machine tries its last step back. */
+    mapOpened(mapId) {
+        if (mapId === this._mapId) return;
+        const first = !this._mapId;
+        this._mapId = mapId;
+        this.clearWindow();
+        this._rest = this.REST_TICKS;
+        this._slowRun = 0;
+        if (first || this.enabled === false || this.setting() !== "auto") { this._calm = 0; return; }
+        if (!this._ceiling && !this._probe && this._taken.length && this._calm >= this.PROBE_CALM) {
+            this._probe = this.stepUp();
+            this._probeLeft = this.PROBE_WINDOWS;
+        }
+        this._calm = 0;
+    },
+
+    /** A frame of the game begins. */
+    tickBegin(now) {
+        this.refresh();
+        this._tickStart = now;
+        this._worldTick = false;
+        this._drew = false;
+        this.noteInterval(now);
+    },
+
+    /**
+     * The screen's refresh, from the game's own frames: the quickest it is
+     * seen to run at (a title screen, a loading frame, a frame the world is
+     * not drawn in), the fourth quickest of each batch so one stray short
+     * frame is not taken for it.
+     */
+    noteInterval(now) {
+        const interval = now - this._tickLast;
+        this._tickLast = now;
+        if (!(interval > 2 && interval < 100)) return;
+        if (!this._intervals) { this._intervals = new Float64Array(this.REFRESH_SAMPLES); this._sorted = new Float64Array(this.REFRESH_SAMPLES); }
+        this._intervals[this._intervalCount++] = interval;
+        if (this._intervalCount < this._intervals.length) return;
+        this._intervalCount = 0;
+        this._sorted.set(this._intervals);
+        this._sorted.sort();
+        if (this._sorted[3] < this._refreshMs) this._refreshMs = this._sorted[3];
+    },
+
+    /** The world frames a second this screen can show at this level: 60, the screen's own refresh if lower, half at the half rate. */
+    wantedPerSecond() {
+        const screen = this._refreshMs < Infinity ? 1030 / this._refreshMs : 60;
+        return Math.min(60, screen) / this.drawEvery();
+    },
+
+    /**
+     * The 3D map is asked for this frame's picture. Returns whether to draw
+     * it: false on every other frame at the half rate.
+     */
+    worldTick(now) {
+        this._worldTick = true;
+        if (this._last) {
+            const gap = now - this._last;
+            if (gap < this.GAP_MS && !this.away()) { this._elapsed += gap; this._ticks++; }
+            else this.clearWindow();
+        }
+        this._last = now;
+        // At the half rate a draw waits a frame and a half from the last one: every other refresh
+        // at 60 Hz, and no longer than that after a draw that itself ran over a refresh.
+        if (this.h && now - this._lastDraw < 25) return false;
+        this._lastDraw = now;
+        this._drew = true;
+        this._draws++;
+        return true;
+    },
+
+    /** The frame's work is done: the main thread's share of it, and the window judged when it is full. */
+    tickEnd(now) {
+        if (!this._worldTick) return;
+        if (this._drew) { this._busy += now - this._tickStart; this._busyTicks++; }
+        if (this.enabled === false || this.setting() !== "auto") { this.clearWindow(); return; }
+        if (this._rest > 0) { this._rest--; this.clearWindow(); return; }
+        if (this._elapsed < this.WINDOW_MS || this._ticks < this.MIN_TICKS) return;
+        const perSecond = this._draws * 1000 / this._elapsed, wanted = this.wantedPerSecond();
+        const short = Math.max(0, 1 - perSecond / wanted);
+        const frameMs = this._draws ? this._elapsed / this._draws : 0, busyMs = this._busyTicks ? this._busy / this._busyTicks : 0;
+        const cpuBound = busyMs >= this.BOUND * frameMs || busyMs >= this.BOUND_OF_BUDGET * 1000 / (wanted * this.drawEvery());
+        this.clearWindow();
+        this.judge(short, cpuBound);
+    },
+
+    /** One window's verdict: how far short of its world frames, and whether the main thread's work is why. Returns the step taken, if any. */
+    judge(short, cpuBound) {
+        if (short < this.SLOW) {
+            this._slowRun = 0;
+            this._calm = short <= this.CALM ? this._calm + 1 : 0;
+            if (this._probe && --this._probeLeft <= 0) this._probe = null;
+            return null;
+        }
+        this._calm = 0;
+        this._slowRun++;
+        if (this._slowRun < 2 && short < this.FAILING) return null;
+        this._slowRun = 0;
+        return this.stepDown(cpuBound ? "cpu" : "gpu", short);
+    }
+};
+
 /** MSAA for a given scale: a half-size target has nothing left to smooth. */
 Reactor3D.samplesForScale = function(scale) {
     let base = Math.max(0, Math.floor(this.renderTargetSamples || 0));
@@ -693,7 +972,7 @@ Reactor3D.Viewport.prototype._trackFrame = function() {
     if (frame === this._trackedFrame) return;
     this._trackedFrame = frame;
     if (!Reactor3D.adaptiveResolution) {
-        this.setRenderScale(Reactor3D.renderScale);
+        this.setRenderScale((Reactor3D.renderScale || 1) * Reactor3D.Quality.scale());
         return;
     }
     const now = performance.now();
@@ -1094,7 +1373,8 @@ Reactor3D.GeometryDetail = {
             if (!state.levels.length) return;
             const pixels = this.pixelsPerUnit(object, camera, height);
             let selected = null;
-            for (const level of state.levels) if (level.error * pixels <= this.pixelError) selected = level.geometry;
+            const allowed = this.pixelError * Reactor3D.Quality.detail();
+            for (const level of state.levels) if (level.error * pixels <= allowed) selected = level.geometry;
             if (!selected) return;
             swapped.push([object, object.geometry]);
             object.geometry = selected;
@@ -1653,7 +1933,7 @@ Reactor3D.DepthFirst = {
     },
     wanted(renderer, scene) {
         if (!this.enabled || this._drawing || typeof THREE === "undefined" || scene.overrideMaterial || renderer.autoClear === false) return false;
-        if (Reactor3D.tier() !== "weak") return false;
+        if (Reactor3D.tier() !== "weak" || !Reactor3D.Quality.depthFirst()) return false;
         const target = renderer.getRenderTarget ? renderer.getRenderTarget() : null;
         const width = target ? target.width : renderer.domElement ? renderer.domElement.width : 0, height = target ? target.height : renderer.domElement ? renderer.domElement.height : 0;
         return width * height >= this.MIN_PIXELS;
@@ -2219,10 +2499,12 @@ Reactor3D.SharpUpscale = {
  * (from inside the nearest mirror-bright model, else the camera) and the
  * planar mirrors near the camera. The map's viewport and the battle room both
  * call this, so a model shines the same in either. Once a frame, after the
- * world matrices are current.
+ * world matrices are current. `scale` is the share of the screen's size the
+ * frame is drawn at (the view's render scale), 1 when left out.
  */
-Reactor3D.prepareReflections = function(renderer, mapScene, scene, camera) {
+Reactor3D.prepareReflections = function(renderer, mapScene, scene, camera, scale) {
     if (!renderer || !mapScene || !scene || !camera) return;
+    if (Reactor3D.WaterSight) Reactor3D.WaterSight.begin(camera);
     const reflections = Reactor3D.Reflections && Reactor3D.Reflections.enabled();
     // The capture and the mirrors draw lit materials before the frame's own draw, and PIXI
     // (between passes) unbound every texture unit behind three's back (`Shadows.unbindFrom`):
@@ -2238,7 +2520,7 @@ Reactor3D.prepareReflections = function(renderer, mapScene, scene, camera) {
         if (probe) Reactor3D.Reflections.update(renderer, scene, probe.position, probe.hidden, probe.toward, probe.radius, probe.reach);
     }
     if (Reactor3D.Mirrors) {
-        Reactor3D.Mirrors.update(renderer, scene, camera, mirrors, null, mirrors.length && mapScene.mirrorSubject ? mapScene.mirrorSubject() : null);
+        Reactor3D.Mirrors.update(renderer, scene, camera, mirrors, null, mirrors.length && mapScene.mirrorSubject ? mapScene.mirrorSubject() : null, scale);
     }
 };
 
@@ -2246,11 +2528,12 @@ Reactor3D.prepareReflections = function(renderer, mapScene, scene, camera) {
  * A frame's shared work before its draw: the shadow rows, then the
  * reflections. The map's viewport and the battle room both call this.
  * `shadows` is false to skip the rows (a battle room that does not hold
- * them), or the options `Shadows.render` takes, plus `mapData`.
+ * them), or the options `Shadows.render` takes, plus `mapData`. `scale` as
+ * `prepareReflections` takes it.
  */
-Reactor3D.prepareWorldFrame = function(renderer, mapScene, scene, camera, shadows) {
+Reactor3D.prepareWorldFrame = function(renderer, mapScene, scene, camera, shadows, scale) {
     if (shadows !== false && mapScene.renderShadows) mapScene.renderShadows(renderer, (shadows && shadows.mapData) || null, shadows || undefined);
-    Reactor3D.prepareReflections(renderer, mapScene, scene, camera);
+    Reactor3D.prepareReflections(renderer, mapScene, scene, camera, scale);
 };
 
 /**
@@ -2276,7 +2559,7 @@ Reactor3D.Viewport.prototype.renderPass = function(mapScene, which, slot) {
             this._matrixFrame = frame;
             scene.updateMatrixWorld();
             // The shadow maps, while every group is still visible, then the reflections.
-            Reactor3D.prepareWorldFrame(this._renderer, mapScene, scene, this._camera);
+            Reactor3D.prepareWorldFrame(this._renderer, mapScene, scene, this._camera, undefined, this.upscaled() ? this._scale : 1);
             // The map's still lights, from the volume (after the rows are chosen).
             if (Reactor3D.LightVolume) Reactor3D.LightVolume.frame(this._renderer, mapScene, typeof $dataMap !== "undefined" ? $dataMap : null);
         }

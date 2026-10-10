@@ -3005,6 +3005,30 @@ Window_Options.prototype.addGeneralOptions = function() {
     this.addCommand(TextManager.alwaysDash, "alwaysDash");
     this.addCommand(TextManager.commandRemember, "commandRemember");
     this.addCommand(TextManager.touchUI, "touchUI");
+    this.addGraphicsOption();
+};
+
+/**
+ * How the 3D world is drawn: Auto keeps the frame rate by itself, the rest
+ * hold a level (reactor_3d.js, `Reactor3D.Quality`). Offered once this
+ * machine has drawn a 3D map: a 2D game has nothing for it to change.
+ * The words are `Window_Options.GRAPHICS_TEXT`, for a game in another language.
+ */
+Window_Options.GRAPHICS_VALUES = ["auto", "high", "medium", "low"];
+Window_Options.GRAPHICS_TEXT = { name: "Graphics", auto: "Auto", high: "High", medium: "Medium", low: "Low" };
+Window_Options.prototype.addGraphicsOption = function() {
+    if (typeof Reactor3D === "undefined" || !Reactor3D.Quality || !ConfigManager.reactor3dSeen) return;
+    this.addCommand(Window_Options.GRAPHICS_TEXT.name, "graphicsQuality");
+};
+
+Window_Options.prototype.changeGraphicsQuality = function(forward, wrap) {
+    const values = Window_Options.GRAPHICS_VALUES;
+    const at = Math.max(0, values.indexOf(ConfigManager.graphicsQuality));
+    const next = wrap ? (at + (forward ? 1 : values.length - 1)) % values.length : Math.max(0, Math.min(values.length - 1, at + (forward ? 1 : -1)));
+    if (next === at) return;
+    this.changeValue("graphicsQuality", values[next]);
+    // Auto chosen again starts from the full picture.
+    if (values[next] === "auto" && typeof Reactor3D !== "undefined" && Reactor3D.Quality) Reactor3D.Quality.reset();
 };
 
 Window_Options.prototype.addVolumeOptions = function() {
@@ -3033,7 +3057,9 @@ Window_Options.prototype.statusWidth = function() {
 Window_Options.prototype.statusText = function(index) {
     const symbol = this.commandSymbol(index);
     const value = this.getConfigValue(symbol);
-    if (this.isVolumeSymbol(symbol)) {
+    if (symbol === "graphicsQuality") {
+        return Window_Options.GRAPHICS_TEXT[value] || Window_Options.GRAPHICS_TEXT.auto;
+    } else if (this.isVolumeSymbol(symbol)) {
         return this.volumeStatusText(value);
     } else {
         return this.booleanStatusText(value);
@@ -3055,7 +3081,9 @@ Window_Options.prototype.volumeStatusText = function(value) {
 Window_Options.prototype.processOk = function() {
     const index = this.index();
     const symbol = this.commandSymbol(index);
-    if (this.isVolumeSymbol(symbol)) {
+    if (symbol === "graphicsQuality") {
+        this.changeGraphicsQuality(true, true);
+    } else if (this.isVolumeSymbol(symbol)) {
         this.changeVolume(symbol, true, true);
     } else {
         this.changeValue(symbol, !this.getConfigValue(symbol));
@@ -3065,7 +3093,9 @@ Window_Options.prototype.processOk = function() {
 Window_Options.prototype.cursorRight = function() {
     const index = this.index();
     const symbol = this.commandSymbol(index);
-    if (this.isVolumeSymbol(symbol)) {
+    if (symbol === "graphicsQuality") {
+        this.changeGraphicsQuality(true, false);
+    } else if (this.isVolumeSymbol(symbol)) {
         this.changeVolume(symbol, true, false);
     } else {
         this.changeValue(symbol, true);
@@ -3075,7 +3105,9 @@ Window_Options.prototype.cursorRight = function() {
 Window_Options.prototype.cursorLeft = function() {
     const index = this.index();
     const symbol = this.commandSymbol(index);
-    if (this.isVolumeSymbol(symbol)) {
+    if (symbol === "graphicsQuality") {
+        this.changeGraphicsQuality(false, false);
+    } else if (this.isVolumeSymbol(symbol)) {
         this.changeVolume(symbol, false, false);
     } else {
         this.changeValue(symbol, false);

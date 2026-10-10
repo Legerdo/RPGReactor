@@ -4289,6 +4289,7 @@ Reactor3D.MapScene.prototype.addWater = function(mapData, load) {
         mesh.matrixAutoUpdate = false;
         this._materials.push(material);
         this._waterMeshes.push(mesh);
+        if (Reactor3D.WaterSight) Reactor3D.WaterSight.watch(mesh);
         this.addWaterHaze(mesh);
         if (region.path) this.addFalls(region, load, material);
     }

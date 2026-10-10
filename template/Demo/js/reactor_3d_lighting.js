@@ -646,6 +646,28 @@ Reactor3D.setKeyLight = function(uniforms, count) {
  */
 /** The kill switch: false sends every array on every bind again, as three does. */
 Reactor3D.uniformArrayCache = true;
+/**
+ * A cached array uniform's `setValue` (the uniform is `this`; what three's own
+ * sends with and the last values sent are kept on it). One function for every
+ * uniform of every program: a closure apiece ran hundreds of cold copies of
+ * the compare, each boxing every number it read.
+ */
+Reactor3D.sendUniformArray = function(gl, v, textures) {
+    // Only flat number arrays are compared (three also takes arrays of vectors, sent as they come).
+    if (Reactor3D.uniformArrayCache !== false && v && typeof v.length === "number" && (ArrayBuffer.isView(v) || typeof v[0] === "number")) {
+        const last = this.__rrLast;
+        if (last && last.length === v.length) {
+            // Each kind of array through a loop of its own: one loop reading all three kinds
+            // read every number through the slow path, which makes a number object per read.
+            if (v instanceof Float32Array ? Reactor3D.sameAsFloat32(last, v) : Array.isArray(v) ? Reactor3D.sameAsArray(last, v) : Reactor3D.sameAsOther(last, v)) return;
+            last.set(v);
+        } else this.__rrLast = Float64Array.from(v);
+    } else this.__rrLast = null;
+    this.__rrSend(gl, v, textures);
+};
+Reactor3D.sameAsFloat32 = function(last, v) { for (let i = 0; i < v.length; i++) if (last[i] !== v[i]) return false; return true; };
+Reactor3D.sameAsArray = function(last, v) { for (let i = 0; i < v.length; i++) if (last[i] !== v[i]) return false; return true; };
+Reactor3D.sameAsOther = function(last, v) { for (let i = 0; i < v.length; i++) if (last[i] !== v[i]) return false; return true; };
 Reactor3D.CACHED_UNIFORM_TYPES = new Set([0x1406, 0x8B50, 0x8B51, 0x8B52, 0x1404, 0x8B53, 0x8B54, 0x8B55, 0x8B5A, 0x8B5B, 0x8B5C]);
 Reactor3D.cacheUniformArrays = function(renderer) {
     const programs = renderer && renderer.info && renderer.info.programs;
@@ -654,20 +676,9 @@ Reactor3D.cacheUniformArrays = function(renderer) {
     const wrap = uniform => {
         if (uniform.__rrCached || typeof uniform.setValue !== "function" || !this.CACHED_UNIFORM_TYPES.has(uniform.type)) return;
         uniform.__rrCached = true;
-        const send = uniform.setValue;
-        let last = null;
-        uniform.setValue = function(gl, v, textures) {
-            // Only flat number arrays are compared (three also takes arrays of vectors, sent as they come).
-            if (Reactor3D.uniformArrayCache !== false && v && typeof v.length === "number" && (ArrayBuffer.isView(v) || typeof v[0] === "number")) {
-                if (last && last.length === v.length) {
-                    let same = true;
-                    for (let i = 0; i < v.length; i++) if (last[i] !== v[i]) { same = false; break; }
-                    if (same) return;
-                    last.set(v);
-                } else last = Float64Array.from(v);
-            } else last = null;
-            send.call(this, gl, v, textures);
-        };
+        uniform.__rrSend = uniform.setValue;
+        uniform.__rrLast = null;
+        uniform.setValue = Reactor3D.sendUniformArray;
     };
     const visit = list => { for (const uniform of list || []) { if (uniform.seq) visit(uniform.seq); else if (uniform.size !== undefined) wrap(uniform); } };
     for (const program of programs) {
@@ -1068,6 +1079,78 @@ Reactor3D.MapScene.prototype.updateCutaway = function(camera, mapData, character
     }
     shared.rrCutFocusCount.value = count;
     shared.rrCutRadius.value = Reactor3D.CUTAWAY_RADIUS;
+    this.cullCutGhosts(eye, foci, count, shared.rrGhostWidth.value);
+};
+
+/** The kill switch: false shows every ghost while the cut is on, as before. */
+Reactor3D.CUT_GHOST_CULL = true;
+/**
+ * The ghosts this frame draws: those whose chunk a corridor crosses. A ghost
+ * shows only inside a corridor (its shader discards the rest), and with every
+ * ghost shown the whole of the pieces was drawn a second time each frame to be
+ * thrown away, corridor or none. Nobody hidden shows none.
+ */
+Reactor3D.MapScene.prototype.cullCutGhosts = function(eye, foci, count, width) {
+    const ghosts = this._pieceGhosts || [];
+    if (Reactor3D.CUT_GHOST_CULL === false) {
+        if (this._cutGhostsCulled) { this._cutGhostsCulled = false; this._cutGhostsHidden = null; for (const ghost of ghosts) ghost.visible = true; }
+        return;
+    }
+    this._cutGhostsCulled = true;
+    if (!(count > 0)) {
+        // Hidden once, and again when chunks were laid since.
+        if (this._cutGhostsHidden !== ghosts || this._cutGhostsHiddenCount !== ghosts.length) {
+            for (const ghost of ghosts) ghost.visible = false;
+            this._cutGhostsHidden = ghosts;
+            this._cutGhostsHiddenCount = ghosts.length;
+        }
+        return;
+    }
+    this._cutGhostsHidden = null;
+    const reach = (Number(width) || 0) + 0.1;
+    for (const ghost of ghosts) {
+        // The chunk's footprint in the world, measured once (a chunk laid again is a new mesh).
+        const geometry = ghost.geometry;
+        // One that cannot be measured stays shown.
+        if (!geometry || !ghost.userData) { ghost.visible = true; continue; }
+        let box = ghost.userData.rrGhostBox;
+        if (!box) {
+            if (!geometry.boundingBox) geometry.computeBoundingBox();
+            ghost.updateWorldMatrix(true, false);
+            const bounds = Reactor3D._ghostBounds || (Reactor3D._ghostBounds = new THREE.Box3());
+            bounds.copy(geometry.boundingBox).applyMatrix4(ghost.matrixWorld);
+            box = ghost.userData.rrGhostBox = [bounds.min.x, bounds.min.z, bounds.max.x, bounds.max.z];
+        }
+        let crossed = false;
+        for (let i = 0; i < count && !crossed; i++) {
+            crossed = Reactor3D.segmentCrossesRect(eye.x, eye.z, foci[i * 3], foci[i * 3 + 2], box[0] - reach, box[1] - reach, box[2] + reach, box[3] + reach);
+        }
+        ghost.visible = crossed;
+    }
+};
+
+/** Whether the segment (ax, ay) to (bx, by) touches the rectangle (x0, y0) to (x1, y1). */
+Reactor3D.segmentCrossesRect = function(ax, ay, bx, by, x0, y0, x1, y1) {
+    if (!(x0 <= x1) || !(y0 <= y1)) return false;
+    const dx = bx - ax, dy = by - ay;
+    let t0 = 0, t1 = 1;
+    if (dx === 0) { if (ax < x0 || ax > x1) return false; }
+    else {
+        let a = (x0 - ax) / dx, b = (x1 - ax) / dx;
+        if (a > b) { const swap = a; a = b; b = swap; }
+        if (a > t0) t0 = a;
+        if (b < t1) t1 = b;
+        if (t0 > t1) return false;
+    }
+    if (dy === 0) { if (ay < y0 || ay > y1) return false; }
+    else {
+        let a = (y0 - ay) / dy, b = (y1 - ay) / dy;
+        if (a > b) { const swap = a; a = b; b = swap; }
+        if (a > t0) t0 = a;
+        if (b < t1) t1 = b;
+        if (t0 > t1) return false;
+    }
+    return true;
 };
 
 /** Whether a battle runs on the map being played (never in the editor, which has no game). */
@@ -1189,6 +1272,7 @@ Reactor3D.sightBuilt = function(mapData, from, to, reach) {
 Reactor3D.MapScene.prototype.setCutLook = function(on) {
     for (const ghost of this._pieceGhosts || []) ghost.visible = on;
     this._cutLook = on;
+    this._cutGhostsHidden = null;
 };
 
 /**
@@ -2036,6 +2120,78 @@ Reactor3D.MIRROR_PLANE_REACH = 60;
 Reactor3D.MIRROR_VIEW_REACH = 250;
 /** How many mirror planes a frame draws: the first two reflect each other (a house of mirrors), the rest once, at half size. */
 Reactor3D.MIRROR_SLOTS = 4;
+/** Mirror pictures at the view's render scale; false draws them at the screen's size whatever the view is drawn at. */
+Reactor3D.MIRROR_AT_VIEW_SCALE = true;
+
+/**
+ * Whether a water sheet put a pixel on screen in the game's own draw, from an
+ * occlusion query round each sheet's draw. A sheet's mirror picture is another
+ * draw of the whole scene, and a lake behind a hill or a house took one on
+ * every frame its bounds touched the view (North Haven's village square, no
+ * water in sight: three pictures a frame, half the frame's CPU). The answer
+ * comes a frame or two after the draw, so a sheet keeps its picture for HOLD
+ * frames after its last pixel. Only in a game: the editor draws a frame when
+ * something changes, and an answer would wait for the next one.
+ */
+Reactor3D.WaterSight = {
+    /** The kill switch: false gives every sheet in the view its picture, as before. */
+    enabled: true,
+    HOLD: 30,
+    _frame: 0,
+    _camera: null,
+
+    active() {
+        return this.enabled !== false && typeof Graphics !== "undefined" && typeof SceneManager !== "undefined";
+    },
+
+    /** A frame's reflections begin: `camera` is the one whose draws are asked about. */
+    begin(camera) {
+        this._frame++;
+        this._camera = camera;
+    },
+
+    /** The sheet's draws ask from now on; it counts as seen until the first answers are in. */
+    watch(mesh) {
+        const sight = this;
+        mesh.userData.rrSight = { seen: this._frame, query: null, open: null, gl: null, generation: -1 };
+        mesh.onBeforeRender = function(renderer, scene, camera) { sight._before(this, renderer, camera); };
+        mesh.onAfterRender = function() { sight._after(this); };
+    },
+
+    /** Whether the sheet showed within the last HOLD frames. */
+    seen(mesh) {
+        const state = mesh && mesh.userData && mesh.userData.rrSight;
+        return !state || !this.active() || this._frame - state.seen <= this.HOLD;
+    },
+
+    _before(mesh, renderer, camera) {
+        const state = mesh.userData.rrSight;
+        if (!state || camera !== this._camera || !this.active()) return;
+        // The frame's own draw only: a mirror's eye and the capture's see other things.
+        if (Reactor3D.Mirrors._rendering || (Reactor3D.Reflections && Reactor3D.Reflections._capturing)) return;
+        const gl = renderer.getContext();
+        if (!gl || typeof gl.beginQuery !== "function" || gl.isContextLost()) return;
+        // A query belongs to the context that made it (and a restored context made none of these).
+        if (state.gl !== gl || state.generation !== Reactor3D.contextGeneration) { state.query = null; state.gl = gl; state.generation = Reactor3D.contextGeneration; }
+        if (state.query) {
+            // One question at a time: the next is asked when this one is answered.
+            if (!gl.getQueryParameter(state.query, gl.QUERY_RESULT_AVAILABLE)) return;
+            if (gl.getQueryParameter(state.query, gl.QUERY_RESULT)) state.seen = this._frame;
+            gl.deleteQuery(state.query);
+        }
+        state.query = gl.createQuery();
+        gl.beginQuery(gl.ANY_SAMPLES_PASSED_CONSERVATIVE, state.query);
+        state.open = gl;
+    },
+
+    _after(mesh) {
+        const state = mesh.userData.rrSight;
+        if (!state || !state.open) return;
+        const gl = state.open;
+        state.open = null;
+        gl.endQuery(gl.ANY_SAMPLES_PASSED_CONSERVATIVE);
+    }
+};
 
 /** Whether a model is a mirror finish: some lit material reflecting fully and nearly perfectly smooth. */
 Reactor3D.isMirrorFinish = function(object) {
@@ -2231,7 +2387,7 @@ Reactor3D.Mirrors = {
      * models near `camera` (`candidates`, their objects), the panel of each
      * facing the camera, drawn MIRROR_DEPTH deep. With none, every slot off.
      */
-    update(renderer, scene, camera, candidates, hidden, subject) {
+    update(renderer, scene, camera, candidates, hidden, subject, scale) {
         this.clear();
         this._applied = null;
         this.active = false;
@@ -2266,6 +2422,8 @@ Reactor3D.Mirrors = {
             // A water sheet names its own plane: level, facing up.
             const own = object.userData && object.userData.rrMirrorPlane;
             if (own) {
+                // A sheet with no pixel on screen has nothing to show a picture in.
+                if (Reactor3D.WaterSight && !Reactor3D.WaterSight.seen(object)) continue;
                 if (camPos.clone().sub(own.point).dot(own.normal) > 0.05) {
                     // Water competes on what it fills of the view, like any mirror.
                     const bounds = new THREE.Box3().setFromObject(object);
@@ -2342,7 +2500,9 @@ Reactor3D.Mirrors = {
         }
         if (!planes.length) { this._live = null; return; }
         const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-        const height = Math.min(1080, size.y), width = Math.round(height * (camera.aspect || size.x / size.y));
+        // At the size the frame itself is drawn at (`scale`: the view's render scale): its fragments
+        // read the picture at their own place on screen, and more texels than fragments are never read.
+        const height = Math.max(16, Math.round(Math.min(1080, size.y) * (Reactor3D.MIRROR_AT_VIEW_SCALE !== false && scale > 0 && scale < 1 ? scale : 1))), width = Math.round(height * (camera.aspect || size.x / size.y));
         const shadowSentinel = Reactor3D.Shadows && Reactor3D.Shadows._sentinel;
         const hide = (hidden || []).concat(shadowSentinel ? [shadowSentinel] : []).filter(object => object && object.visible);
         this._rendering = true;
@@ -2798,7 +2958,7 @@ Reactor3D._lodSwaps = 0;
 
 /** Whether this map wants shadows at all: the engine switch, the mode, the sidecar. */
 Reactor3D.shadowsWanted = function(mapData) {
-    if (this.SHADOWS === "off") return false;
+    if (this.SHADOWS === "off" || (this.Quality && !this.Quality.shadows())) return false;
     if (this.lightModeFor(mapData) !== "volume") return false;
     const map = mapData || (typeof $dataMap !== "undefined" ? $dataMap : null);
     const lighting = map && map.reactor3d && map.reactor3d.lighting;

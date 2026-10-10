@@ -659,6 +659,10 @@ function ConfigManager() {
 ConfigManager.alwaysDash = false;
 ConfigManager.commandRemember = false;
 ConfigManager.touchUI = true;
+// "auto" keeps the frame rate by itself (reactor_3d.js, `Reactor3D.Quality`); "high", "medium" and "low" hold a level.
+ConfigManager.graphicsQuality = "auto";
+ConfigManager.graphicsAuto = null;
+ConfigManager.reactor3dSeen = false;
 ConfigManager._isLoaded = false;
 
 Object.defineProperty(ConfigManager, "bgmVolume", {
@@ -729,6 +733,10 @@ ConfigManager.makeData = function() {
     config.bgsVolume = this.bgsVolume;
     config.meVolume = this.meVolume;
     config.seVolume = this.seVolume;
+    // The player's graphics setting, the levels this machine settled at under "auto", and whether it has drawn a 3D map.
+    config.graphicsQuality = this.graphicsQuality;
+    config.graphicsAuto = this.graphicsAuto;
+    config.reactor3dSeen = this.reactor3dSeen;
     return config;
 };
 
@@ -740,6 +748,9 @@ ConfigManager.applyData = function(config) {
     this.bgsVolume = this.readVolume(config, "bgsVolume");
     this.meVolume = this.readVolume(config, "meVolume");
     this.seVolume = this.readVolume(config, "seVolume");
+    this.graphicsQuality = ["auto", "high", "medium", "low"].includes(config.graphicsQuality) ? config.graphicsQuality : "auto";
+    this.graphicsAuto = config.graphicsAuto && typeof config.graphicsAuto === "object" ? config.graphicsAuto : null;
+    this.reactor3dSeen = config.reactor3dSeen === true;
 };
 
 ConfigManager.readFlag = function(config, name, defaultValue) {
@@ -3086,15 +3097,35 @@ SceneManager.isFinalUpdateOfFrame = function() {
     return this._finalUpdateOfFrame !== false;
 };
 
+/**
+ * How many updates this frame owes.
+ *
+ * Locked to a 60 Hz screen (frames within 3% of a tick apart): one a frame,
+ * with no bookkeeping, so a 59.94 Hz screen never owes a stray second update.
+ * Otherwise time is added up and the updates made as they come due: none or
+ * one on a faster screen, one or two on a 50 Hz screen or a machine short of
+ * its frames, so the game keeps its speed. (This used to round the smoothed
+ * interval instead, which made one update a frame all the way from 60 down
+ * to 40 frames a second: at 45 the game ran at three quarters of its speed,
+ * at 24 at four fifths.) An update is made a tenth of a tick early rather
+ * than a frame late, so a frame a hair short of a tick still gets its own.
+ * Up to MAX_UPDATES a frame: under 15 frames a second the game slows down
+ * rather than chase itself.
+ *
+ * `trueSpeed = false` rounds as before.
+ */
+SceneManager.trueSpeed = true;
+SceneManager.MAX_UPDATES = 4;
 SceneManager.determineRepeatNumber = function(deltaTime) {
     // [Note] We consider environments where the refresh rate is higher than
     //   60Hz, but ignore sudden irregular deltaTime.
     this._smoothDeltaTime *= 0.8;
     this._smoothDeltaTime += Math.min(deltaTime, 2) * 0.2;
-    if (this._smoothDeltaTime >= 0.9) {
-        this._elapsedTime = 0;
-        return Math.round(this._smoothDeltaTime);
-    } else {
+    if (this.trueSpeed === false) {
+        if (this._smoothDeltaTime >= 0.9) {
+            this._elapsedTime = 0;
+            return Math.round(this._smoothDeltaTime);
+        }
         this._elapsedTime += deltaTime;
         if (this._elapsedTime >= 1) {
             this._elapsedTime -= 1;
@@ -3102,6 +3133,19 @@ SceneManager.determineRepeatNumber = function(deltaTime) {
         }
         return 0;
     }
+    if (this._smoothDeltaTime >= 0.97 && this._smoothDeltaTime <= 1.03) {
+        this._elapsedTime = 0;
+        return 1;
+    }
+    this._elapsedTime += deltaTime;
+    const owed = Math.floor(this._elapsedTime + 0.1);
+    if (owed <= 0) return 0;
+    if (owed > this.MAX_UPDATES) {
+        this._elapsedTime = 0;
+        return this.MAX_UPDATES;
+    }
+    this._elapsedTime -= owed;
+    return owed;
 };
 
 SceneManager.terminate = function() {
