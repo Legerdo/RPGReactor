@@ -941,13 +941,30 @@ class MapEditor3D {
         return this.projectController?.getCurrentProject?.()?.path || null;
     }
 
-    /**
-     * Rebuild the scene from whatever map is open.
-     *
-     * Cheap enough to call on every edit: the geometry builder produces one
-     * merged mesh per tileset sheet, so even a 200x200 map is a handful of
-     * buffers rather than tens of thousands of objects.
-     */
+    /** Mesh rocks without blocking input; retain recently visited maps within a memory budget. */
+    async prepareRockChunks(mapData) {
+        // Retain CPU arrays, not GPU objects, for two maps within 64 MiB
+        // (16 MiB on low-memory hosts). Signatures account for edits.
+        const maps = this._rockMapCaches || (this._rockMapCaches = new Map());
+        const cache = maps.get(mapData.id) || new Map();
+        maps.delete(mapData.id);
+        maps.set(mapData.id, cache);
+        while (maps.size > 2) maps.delete(maps.keys().next().value);
+        await Reactor3D.prepareRockChunks(mapData, cache);
+        if (maps !== this._rockMapCaches || maps.get(mapData.id) !== cache) return cache;
+        const bytes = entries => [...entries.values()].reduce((total, buckets) => total + buckets.reduce((sum, bucket) =>
+            sum + bucket.positions.byteLength + bucket.uvs.byteLength + bucket.colors.byteLength + bucket.normals.byteLength, 0), 0);
+        const limit = (Reactor3D.lowMemory?.() ? 16 : 64) * 1024 * 1024;
+        let total = [...maps.values()].reduce((sum, entries) => sum + bytes(entries), 0);
+        for (const [id, entries] of maps) {
+            if (total <= limit) break;
+            total -= bytes(entries);
+            maps.delete(id);
+        }
+        return cache;
+    }
+
+    /** Rebuild merged geometry from the open map, keeping the old view during asset preparation. */
     async rebuild() {
         if (!this.enabled || !this.renderer) return false;
         const request = ++this._rebuildGeneration;
@@ -973,6 +990,7 @@ class MapEditor3D {
             // same name, and keeping the first one's picture would draw the
             // wrong floor under the second one's map.
             this.parallaxImages = {};
+            this._rockMapCaches = new Map();
             // The framing key and the orbit belong to the previous project:
             // both projects usually open on map 1, and matching dimensions
             // kept a camera aimed at the OLD project's last-orbited spot — a
@@ -984,11 +1002,14 @@ class MapEditor3D {
 
         this.attachSidecar(mapData);
         this.loadClassification();
-        const bitmaps = await this.loadSheets(tileset);
-        // Loaded before the scene is built, because building it is synchronous
-        // and a parallax that arrives afterwards would arrive to no scene.
-        const parallaxes = await this.loadParallaxes(mapData);
-        const materials = await this.loadMaterials(mapData);
+        // Images and geometry are independent. Mesh rocks with the runtime's
+        // workers while the images load, then show the complete map at once.
+        const [bitmaps, parallaxes, materials, rockChunkCache] = await Promise.all([
+            this.loadSheets(tileset),
+            this.loadParallaxes(mapData),
+            this.loadMaterials(mapData),
+            this.prepareRockChunks(mapData)
+        ]);
         if (!this.rebuildIsCurrent(request, renderer)) return false;
 
         // A rebuilt sky would start its drift over; carry the old one's on.
@@ -1007,8 +1028,10 @@ class MapEditor3D {
             loadMaterial: name => materials[name] || null,
             // A material's settings file (img/materials/<Name>.json), read with its images.
             loadMaterialSettings: name => this.materialSettings?.[name] || null,
-            // The view draws only on a change: every rock is meshed before it shows.
-            rockWorkers: false
+            // The workers have already filled the cache; no late arrivals in
+            // the demand-rendered editor view.
+            rockWorkers: false,
+            rockChunkCache
         });
         this.mapScene.setPass('all');
         if (skyOffset) this.mapScene.setSkyOffset?.(skyOffset);
@@ -1370,13 +1393,13 @@ class MapEditor3D {
         this.animatedEvents = [];
         this.selected = null;
 
-        for (const event of mapData.events || []) {
+        for (const event of MapEditor3D.previewEvents(mapData)) {
             if (!event) continue;
             this._buildOneEvent(event, sheets, mapData, request);
         }
 
         this._eventSnapshot = new Map();
-        for (const event of mapData.events || []) {
+        for (const event of MapEditor3D.previewEvents(mapData)) {
             if (event) this._eventSnapshot.set(event.id, this._eventIdentity(event, mapData));
         }
 
@@ -2954,9 +2977,12 @@ class MapEditor3D {
         if (!projectPath || !this.path) return {};
 
         const names = new Set();
-        for (const event of mapData.events || []) {
+        for (const event of MapEditor3D.previewEvents(mapData)) {
             const name = event?.pages?.[0]?.image?.characterName;
             if (name) names.add(name);
+            const row = typeof RRVehicles !== 'undefined' && RRVehicles.vehicleOf(event);
+            const sheet = row && window.reactor?.databaseManager?.data?.vehicles?.[row.type]?.sheet;
+            if (sheet?.characterName) names.add(sheet.characterName);
             const previewIndex = MapEditor3D.previewPageIndex(mapData, event);
             const previewName = previewIndex !== null ? event.pages[previewIndex]?.image?.characterName : null;
             if (previewName) names.add(previewName);
@@ -3013,7 +3039,13 @@ class MapEditor3D {
      * Event chose, else, for a battle unit, the page it is a unit on. Null
      * for an event shown by its marker alone.
      */
+    static previewEvents(map) {
+        return typeof EventManager !== 'undefined' && EventManager.mapPreviewEvents
+            ? EventManager.mapPreviewEvents(map) : map?.events || [];
+    }
+
     static previewPageIndex(mapData, event) {
+        if (event?._rrDatabaseVehicle) return 0;
         if (typeof EventManager !== 'undefined' && typeof EventManager.previewPage === 'function') return EventManager.previewPage(mapData, event);
         const previews = mapData?.reactor3d?.eventPreviews;
         const page = previews ? previews[String(event?.id)] : undefined;
@@ -3084,7 +3116,7 @@ class MapEditor3D {
             this.playModelEffects(object, template, '', spec);
             // The model card waits for the model: a selection made before the
             // load finished has nothing to show until now.
-            if (this.selected?.userData?.event?.id === event.id) this.projectController?.eventModelPanel?.sync?.(event);
+            if (this.selected?.userData?.event?.id === event.id) this.projectController?.eventModelPanel?.sync?.(event?._rrDatabaseVehicle ? null : event);
         });
     }
 
@@ -3625,7 +3657,7 @@ class MapEditor3D {
             // The diff: only what actually changed is torn down and rebuilt.
             // Deleting one event must not blink every model on the map.
             const fresh = new Map();
-            for (const event of mapData.events || []) {
+            for (const event of MapEditor3D.previewEvents(mapData)) {
                 if (event) fresh.set(event.id, this._eventIdentity(event, mapData));
             }
             const affected = new Set();
@@ -3665,7 +3697,7 @@ class MapEditor3D {
             if (added.length) {
                 const sheets = await this.loadCharacterSheets(mapData);
                 for (const id of added) {
-                    const event = (mapData.events || []).find(entry => entry && entry.id === id);
+                    const event = (MapEditor3D.previewEvents(mapData)).find(entry => entry && entry.id === id);
                     if (event) this._buildOneEvent(event, sheets, mapData, this._rebuildGeneration);
                 }
                 // What was built stands as the view is turned now: pictures and names face the eye, names at the size the distance gives them.
@@ -4150,7 +4182,12 @@ class MapEditor3D {
     }
 
     eventSprite(event, sheets, pageImage, animatedPage = null) {
-        const image = pageImage || event?.pages?.[0]?.image;
+        let image = pageImage || event?.pages?.[0]?.image;
+        if (image && !image.characterName && !image.tileId) {
+            const row = typeof RRVehicles !== 'undefined' && RRVehicles.vehicleOf(event);
+            const inherited = row && window.reactor?.databaseManager?.data?.vehicles?.[row.type]?.sheet;
+            if (inherited?.characterName) image = {...image, ...inherited};
+        }
         const sheet = image && image.characterName && sheets[image.characterName];
         if (!sheet || !sheet.width) return null;
 
@@ -4209,6 +4246,7 @@ class MapEditor3D {
 
     /** The event's number and name, as the 2D map labels its squares. */
     eventLabel(event) {
+        if (event._rrDatabaseVehicle) return this.textLabel(event.name || 'Vehicle');
         return this.textLabel(`${String(event.id).padStart(3, '0')}: ${event.name || ''}`.trim());
     }
 
@@ -4625,7 +4663,7 @@ class MapEditor3D {
         const event = this.selected ? this.selected.userData.event : null;
         // The docked model card follows the selection: shown for an event
         // standing as a model here, hidden for everything else.
-        this.projectController?.eventModelPanel?.sync?.(event);
+        this.projectController?.eventModelPanel?.sync?.(event?._rrDatabaseVehicle ? null : event);
         return event;
     }
 
@@ -4646,7 +4684,7 @@ class MapEditor3D {
      */
     syncEventArrows() {
         const mesh = this.selected;
-        if (!mesh || !mesh.userData?.event || typeof RRAxisArrows3D === 'undefined' || !this.mapScene) {
+        if (!mesh || !mesh.userData?.event || mesh.userData.event._rrDatabaseVehicle || typeof RRAxisArrows3D === 'undefined' || !this.mapScene) {
             if (this.eventArrows) { RRAxisArrows3D.dispose(this.eventArrows); this.eventArrows = null; }
             this.syncGridLevel();
             return;
@@ -4739,6 +4777,7 @@ class MapEditor3D {
     }
 
     eventColor(event) {
+        if (event._rrDatabaseVehicle) return 0xf0a040;
         // A battle unit's box is its side's color, whatever page of it is drawn.
         const side = MapEditor3D.unitSide(this.currentMap(), event);
         if (side) return MapEditor3D.colorNumber(side.color);
@@ -5014,7 +5053,7 @@ class MapEditor3D {
                     this.beginEventDrag();
                 } else {
                     const mesh = this.eventAt(event.clientX, event.clientY);
-                    if (mesh) {
+                    if (mesh && !mesh.userData.event?._rrDatabaseVehicle) {
                         this.pointer.drag = mesh;
                         // Where the event was taken hold of, in tiles from its own: a sized event's
                         // marker stands in the middle of its footprint, and stays under the pointer.
@@ -5458,6 +5497,7 @@ class MapEditor3D {
     }
 
     dragEventTo(mesh, tile) {
+        if (mesh?.userData?.event?._rrDatabaseVehicle) return;
         const mapData = this.currentMap();
         const event = mesh?.userData?.event;
         if (!mapData || !event) return;
@@ -5499,7 +5539,7 @@ class MapEditor3D {
     handleClick(clientX, clientY) {
         if (!this.canSelectEvents()) return;
         const picked = this.select(this.eventAt(clientX, clientY));
-        if (typeof this.onEventSelected === 'function') this.onEventSelected(picked);
+        if (typeof this.onEventSelected === 'function') this.onEventSelected(picked?._rrDatabaseVehicle ? null : picked);
         if (!picked) {
             const tile = this.tileAt(clientX, clientY);
             // Battle Setup has a unit in hand: the click stands it where its preview stands, on the surface the pointer met.
@@ -5530,7 +5570,8 @@ class MapEditor3D {
         const cube = this.eventAt(event.clientX, event.clientY);
         if (cube) {
             const picked = this.select(cube);
-            if (picked && typeof this.onEventActivated === 'function') this.onEventActivated(picked);
+            if (picked?._rrDatabaseVehicle) EventManager.openVehicle(picked);
+            else if (picked && typeof this.onEventActivated === 'function') this.onEventActivated(picked);
         } else {
             const tile = this.tileAt(event.clientX, event.clientY);
             // A new event opened on a deck, a bridge or an upper floor stands there: its Z is the surface's.

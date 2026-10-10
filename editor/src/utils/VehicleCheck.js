@@ -4,7 +4,7 @@
  * One reading of a project for the Vehicles page's status line and for
  * build-scripts/validate-vehicles.cjs: every type of
  * data/ReactorVehicles.json, every vehicle model's `model.json › vehicle`
- * block, every event with a vehicle row on every map.
+ * block, every database starting placement and legacy vehicle event on each map.
  *
  *   RRVehicleCheck.problems(project, lookups) -> { lines, ok, fixes, notes, sentence, types, vehicles, skipped }
  *
@@ -68,7 +68,7 @@
     // The keys each of the three pieces of data has. A key that is not here is not a setting.
     const FORMAT = {
         type: {
-            id: true, name: true, note: true, classId: true, initialLevel: true, equips: true, traits: true, learnings: true, ridable: true, graphic3d: true, medium: true, passability: true, leans: true, walks: true, turnsInPlace: true, kind: true, prompt: true, rider: true, encounters: true, bgm: true, flight: true,
+            id: true, name: true, note: true, startMapId: true, startX: true, startY: true, startDirection: true, classId: true, initialLevel: true, equips: true, traits: true, learnings: true, ridable: true, graphic3d: true, medium: true, passability: true, leans: true, walks: true, turnsInPlace: true, kind: true, prompt: true, rider: true, encounters: true, bgm: true, flight: true,
             model: ['name', 'file', 'ext', 'size', 'scale', 'variant', 'texture', 'offset'],
             sheet: ['characterName', 'characterIndex'],
             handling: ['speed', 'toTopSpeed', 'turnCircle', 'jump', 'brake', 'coast', 'reverse', 'lean', 'step', 'wade', 'turnInPlace', 'grip', 'turnRate'],
@@ -371,11 +371,12 @@
     };
 
     /** Every event of the project that carries a vehicle row, in map and event order: `[{ map, mapId, mapName, event, row }]` (`row` null for one the game cannot read). */
-    function placed(project) {
+    function placed(project, lookups = {}) {
         const out = [];
         const maps = (Array.isArray(project && project.maps) ? project.maps : []).filter(Boolean).slice().sort((a, b) => a.id - b.id);
         for (const map of maps) {
-            for (const event of map.events || []) {
+            const starts = vehiclesOf(lookups)?.startingEvents?.(project.types, map.id) || [];
+            for (const event of [...(map.events || []), ...starts]) {
                 if (!event || event.rrVehicle === undefined || event.rrVehicle === null) continue;
                 out.push({ map, mapId: map.id, mapName: mapName(project, map), event, row: S.vehicleOf(event) });
             }
@@ -523,7 +524,7 @@
         // A type's number is its place in the list: the game finds a record there and nowhere else.
         const records = [];
         for (let id = 1; id < types.length; id++) if (isObject(types[id])) records.push({ id, record: types[id] });
-        const everywhere = placed(P);
+        const everywhere = placed(P, lookups);
 
         for (const file of Array.isArray(P.unreadable) ? P.unreadable : []) add('vehicleCheck.unreadable', 'fix', { file }, { file, path: '' });
 
@@ -538,6 +539,19 @@
             const name = String(record.name || '') || `Vehicle ${id}`;
             const where = path => ({ file: TYPES_FILE, path: path ? `${at}.${path}` : at });
             const more = { typeId: id };
+
+            if (record.startMapId !== undefined && Number(record.startMapId) !== 0) {
+                const map = (P.maps || []).find(map => map && map.id === Number(record.startMapId));
+                if (!Number.isInteger(Number(record.startMapId)) || !map) {
+                    add('vehicleCheck.unread', 'fix', {file:TYPES_FILE,key:'startMapId'}, where('startMapId'), more);
+                }
+                for (const [key,limit] of [['startX',map?.width],['startY',map?.height]]) {
+                    const value = Number(record[key] || 0);
+                    if (!Number.isInteger(value) || value < 0 || (Number.isFinite(limit) && value >= limit)) {
+                        add('vehicleCheck.unread', 'fix', {file:TYPES_FILE,key}, where(key), more);
+                    }
+                }
+            }
 
             // An `id` that says another number than the record's place: an event that names it by that number finds another record, or none.
             if (record.id !== undefined && record.id !== null && Number(record.id) !== id) {
@@ -848,7 +862,8 @@
         const offSaid = new Set(), fastSaid = new Set(), taken = new Map();
         for (const entry of everywhere) {
             const { map, event, row } = entry;
-            const at = `events[${event.id}].rrVehicle`, where = path => ({ file: mapFile(map.id), path: path ? `${at}.${path}` : at });
+            const at = event._rrDatabaseVehicle ? `[${event._rrDatabaseVehicle}]` : `events[${event.id}].rrVehicle`;
+            const where = path => ({ file: event._rrDatabaseVehicle ? TYPES_FILE : mapFile(map.id), path: path ? `${at}.${path}` : at });
             const more = { mapId: map.id, eventId: event.id };
             const label = pad(event.id);
             if (isObject(event.rrVehicle)) {

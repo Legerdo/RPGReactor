@@ -1,9 +1,10 @@
 //=============================================================================
 // reactor_vehicles.js - vehicles in the world
 //=============================================================================
-// A vehicle is an ordinary map event whose data carries `rrVehicle: { type }`.
-// Its type is a record of data/ReactorVehicles.json, and its identity is
-// "<mapId>:<eventId>". This file holds:
+// Database starting placements and legacy `rrVehicle: { type }` events share
+// the event driver. Their records live in data/ReactorVehicles.json; identities
+// are "0:<vehicleId>" for database placements and "<mapId>:<eventId>" for legacy events.
+// This file holds:
 //   - the types ($dataReactorVehicles) and the words the player reads (TERMS);
 //   - the vehicles of the map the party is on, and the saved registry of
 //     where each stands once it has left its authored tile
@@ -438,11 +439,8 @@
         const transportClass = {id:0,traits:[],learnings:[],expParams:[30,20,30,30],
             params:Array.from({length:8},(_,param)=>Array(1000).fill(param === 0 ? 1 : 0))};
         Game_ReactorVehicle.prototype.currentClass = function() { return root.$dataClasses && root.$dataClasses[this._classId] || transportClass; };
-        Game_ReactorVehicle.prototype.equipSlots = function() {
-            const engine = world() && world().Vehicles, entry = this.currentClass();
-            return engine && engine.equipmentSlots ? engine.equipmentSlots(entry, $dataSystem.equipTypes)
-                : Array.isArray(entry.rrVehicleSlots) ? entry.rrVehicleSlots.slice() : $dataSystem.equipTypes.map((_, id) => id).slice(1);
-        };
+        // Inherit Actor slots: class/vehicle/equipment/state traits supply
+        // permissions, seals and Dual Wield, including on classless vehicles.
         Game_ReactorVehicle.prototype.initSkills = function() {
             Game_Actor.prototype.initSkills.call(this);
             for (const learning of this.actor().learnings || []) if (learning.level <= this._level) this.learnSkill(learning.skillId);
@@ -505,6 +503,7 @@
             entry.event = previous.event;
             if (previous.models) entry.models = previous.models;
         }
+        if (!entry.event && event._rrAuthored && event._rrAuthored._rrDatabaseVehicle) entry.event = copy(event._rrAuthored);
         store.at[V.idOf(event)] = entry;
     };
 
@@ -1700,7 +1699,22 @@
     /** Add visiting vehicles to runtime map data before constructing its events. */
     const visitingVehicles = function(map) {
         const data = mapData(), store = registry(false);
-        if (!data || !Array.isArray(data.events) || !store) return;
+        if (!data || !Array.isArray(data.events)) return;
+        // setupEvents can run again on the same in-memory map. Retire generated
+        // records first so event IDs and parked positions do not accumulate.
+        for (let i = 1; i < data.events.length; i++) {
+            if (data.events[i] && data.events[i]._rrDatabaseVehicle) data.events[i] = null;
+        }
+        const placements = models()?.startingEvents?.(root.$dataReactorVehicles, map._mapId) || [];
+        for (const authored of placements) {
+            const entry = store && store.at[authored._rrVehicleIdentity];
+            if (entry && (entry.gone || entry.map !== map._mapId)) continue;
+            if (authored.x >= data.width || authored.y >= data.height) continue;
+            const vacancy = data.events.findIndex((row, index) => index > 0 && !row);
+            authored.id = vacancy > 0 ? vacancy : Math.max(1, data.events.length);
+            data.events[authored.id] = authored;
+        }
+        if (!store) return;
         for (const [identity, entry] of Object.entries(store.at)) {
             if (!entry.event || entry.gone || entry.map !== map._mapId || Number(identity.split(":")[0]) === map._mapId) continue;
             if (data.events.some(event => event && event._rrVehicleIdentity === identity)) continue;

@@ -34,7 +34,6 @@ class DatabaseClassEditor {
         const rightColumn = document.createElement('div');
         rightColumn.style.cssText = 'display: flex; flex-direction: column; gap: 16px; min-width: 0;';
         rightColumn.appendChild(this.createTraitsSection(classEntry));
-        if (typeof DatabaseVehicleEditor !== 'undefined') rightColumn.appendChild(DatabaseVehicleEditor.classSlotsSection(classEntry, this.databaseManager));
         const passiveSection = window.RRPassiveStates?.createSection({
             objectType: 'class', record: classEntry,
             databaseManager: this.databaseManager, projectManager: this.projectManager

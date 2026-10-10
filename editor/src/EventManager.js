@@ -678,7 +678,11 @@ class EventManager {
 
         const eventAtPos = this.getEventAt(tileX, tileY);
         if (eventAtPos) this.editEvent(eventAtPos);
-        else this.createNewEvent(tileX, tileY);
+        else {
+            const vehicle = EventManager.startingVehicles(this.currentMap).find(entry => entry.x === tileX && entry.y === tileY);
+            if (vehicle) EventManager.openVehicle(vehicle);
+            else this.createNewEvent(tileX, tileY);
+        }
         return true;
     }
 
@@ -2906,10 +2910,36 @@ class EventManager {
         return EventManager.previewPage(this.currentMap, event);
     }
 
-    /** The model a previewed page stands as: its own, else (a battle unit with none) the one the Database gives its record. */
+    /** Read-only vehicle placements. Their IDs cannot collide with authored events. */
+    static startingVehicles(map) {
+        const app = typeof window !== 'undefined' ? window.reactor : null;
+        const types = app?.databaseManager?.data?.vehicles;
+        if (!map || !types) return [];
+        const rules = typeof DatabaseVehicleEditor !== 'undefined' && app.projectManager
+            ? DatabaseVehicleEditor.rules(app.projectManager) : typeof Reactor3D !== 'undefined' ? Reactor3D.Vehicles : null;
+        return (rules?.startingEvents?.(types, Number(map.id)) || []).filter(event => event.x < map.width && event.y < map.height)
+            .map(event => ({...event, id:-1000000-event._rrDatabaseVehicle}));
+    }
+
+    static mapPreviewEvents(map) {
+        return [...(map?.events || []), ...EventManager.startingVehicles(map)];
+    }
+
+    static openVehicle(event) {
+        const app = typeof window !== 'undefined' ? window.reactor : null;
+        const id = event?._rrDatabaseVehicle;
+        if (!id || !app?.openDatabase) return false;
+        app.eventManager?.selectEvent?.(null);
+        app.openDatabase('vehicles');
+        app.databaseEditorUI?.navigateToDatabaseEntry?.('vehicles', id);
+        return true;
+    }
+
+    /** The model a previewed page inherits from its database record. */
     previewModelRaw(event, pageIndex) {
         const own = this.currentMap?.reactor3d?.events?.[String(event?.id)]?.[String(pageIndex)];
         if (own?.name) return own;
+        if (event?._rrDatabaseVehicle && typeof RRVehicles !== 'undefined') return RRVehicles.modelOf(event, window.reactor?.databaseManager?.data?.vehicles);
         const look = this.unitLook(event);
         return look && look.kind === 'model' && look.page === pageIndex && look.spec && look.spec.name ? look.spec : null;
     }
@@ -2938,13 +2968,13 @@ class EventManager {
     modelPreviewProps() {
         const map = this.currentMap;
         const previews = [];
-        for (const event of map?.events || []) {
+        for (const event of EventManager.mapPreviewEvents(map)) {
             if (!event) continue;
             const pageIndex = this.getEventPreviewPage(event);
             if (pageIndex === null) continue;
             const spec = this.previewModelRaw(event, pageIndex);
             if (!spec?.name) continue;
-            previews.push({ ...spec, id: -event.id, x: event.x, y: event.y,
+            previews.push({ ...spec, id: event._rrDatabaseVehicle ? event.id : -event.id, x: event.x, y: event.y,
                 size: Number(spec.size) > 0 ? Number(spec.size) : 2,
                 scale: Number(spec.scale) > 0 ? Number(spec.scale) : 1,
                 z: Number(map.reactor3d?.eventZ?.[event.id]) || 0,
@@ -2969,7 +2999,7 @@ class EventManager {
         // Each preview with where it stands from its event's tile, for a drag (`movePreviewWith`).
         this._previewSprites = new Map();
         const tw = this.tilemapManager?.TILE_WIDTH || 48, th = this.tilemapManager?.TILE_HEIGHT || tw;
-        for (const event of this.currentMap.events || []) {
+        for (const event of EventManager.mapPreviewEvents(this.currentMap)) {
             if (!event) continue;
             const pageIndex = this.getEventPreviewPage(event);
             if (pageIndex === null) continue;
@@ -2981,6 +3011,15 @@ class EventManager {
             } catch (error) {
                 console.warn(`Could not preview event ${event.id}:`, error);
             }
+        }
+        // Keep placements visible even when no sprite or model was selected.
+        // The small marker opens the database entry, never an Event Editor.
+        for (const vehicle of EventManager.startingVehicles(this.currentMap)) {
+            const marker = new PIXI.Graphics();
+            marker.rect(vehicle.x*tw, vehicle.y*th, tw, th).stroke({color:0xf0a040,width:2});
+            marker.eventMode = 'static'; marker.cursor = 'pointer';
+            marker.on('pointertap', () => { if (this.eventMode) EventManager.openVehicle(vehicle); });
+            container.addChild(marker);
         }
         this._syncPreviewTicker();
         this.renderUnitRings();

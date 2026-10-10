@@ -1981,35 +1981,6 @@
         .vehicle-base-stats {
             grid-column: 1 / -1;
         }
-        .event-vehicle-fields {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            margin-top: 5px;
-        }
-        .event-vehicle-fields label {
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-            min-width: 0;
-            font-size: 11px;
-        }
-        .event-vehicle-fields select,
-        .event-vehicle-fields input {
-            width: 100%;
-            box-sizing: border-box;
-            min-width: 0;
-        }
-        .event-vehicle-pair {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-            gap: 6px;
-        }
-        .event-vehicle-help {
-            font-size: 11px;
-            line-height: 1.4;
-            color: var(--color-text-muted);
-        }
         .db-form > label,
         .db-form .db-row-pair > label {
             color: var(--color-text-muted);
@@ -7019,7 +6990,8 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .vehicle-detail .vehicle-handling { margin-top:8px; }
 .vehicle-detail .vehicle-medium-settings { margin-top:8px; }
 .vehicle-detail .vehicle-stock-bgm { margin-top:8px; width:100%; }
-.vehicle-detail .vehicle-location-fields { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.vehicle-detail .vehicle-location-row { display:flex; gap:6px; margin-bottom:8px; }
+.vehicle-detail .vehicle-location-browse { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .vehicle-detail .traits-table { table-layout:auto; width:100%; }
 .vehicle-detail .traits-table td { overflow-wrap:anywhere; }
 .vehicle-detail .trait-action-buttons, .vehicle-detail .learning-action-buttons { flex-wrap:wrap; gap:4px; }

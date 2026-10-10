@@ -48,18 +48,18 @@ test('malformed vehicle data refuses a load and preserves the current project in
     assert.equal(JSON.stringify(manager.data), before);
     assert.equal(fs.readFileSync(file, 'utf8'), '{"unexpected":"shape"}');
 });
-test('Database Cancel restores vehicle loadouts and vehicle class slots together', async t => {
+test('Database Cancel restores vehicle loadouts and class equipment traits together', async t => {
     const {dir, manager} = project(t);
     assert.equal(await manager.loadAllData(dir), true);
     manager.data.vehicles = [null, {id: 1, name: 'Bike', classId: 1, equips: [2]}];
-    manager.data.classes = [null, {id: 1, name: 'Bike class', rrVehicleSlots: [1]}];
+    manager.data.classes = [null, {id: 1, name: 'Bike class', traits: [{code:51,dataId:1,value:1}]}];
     const UI = vm.runInNewContext(fs.readFileSync(path.join(editor, 'src/DatabaseEditorUI.js'), 'utf8') + '\nDatabaseEditorUI;', { console, RRDatabase3DBindings: bindings });
     const ui = {databaseManager: manager, currentProject: null, _dataSnapshot: JSON.stringify(manager.data)};
     manager.data.vehicles[1].equips[0] = 3;
-    manager.data.classes[1].rrVehicleSlots.push(2);
+    manager.data.classes[1].traits.push({code:55,dataId:1,value:1});
     UI.prototype.revertDatabaseSnapshot.call(ui);
     assert.deepEqual([...manager.data.vehicles[1].equips], [2]);
-    assert.deepEqual([...manager.data.classes[1].rrVehicleSlots], [1]);
+    assert.deepEqual(JSON.parse(JSON.stringify(manager.data.classes[1].traits)), [{code:51,dataId:1,value:1}]);
 });
 test('a vehicle-only model survives web distribution asset pruning', t => {
     const {dir, file} = project(t);

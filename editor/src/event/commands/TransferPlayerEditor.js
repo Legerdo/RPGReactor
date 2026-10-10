@@ -812,6 +812,7 @@ class TransferPlayerEditor {
 
         // Initial load
         loadMap(selection.mapId);
+        return { modal: picker, close: closePicker };
     }
 
     /** Where the preview scrolls to so the chosen tile is in the middle of a view `viewWidth` × `viewHeight`: `{ left, top }` in pixels. */

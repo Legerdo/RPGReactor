@@ -1,5 +1,21 @@
 # Runtime performance checks
 
+## Editor map loading (2026-10-07)
+
+Runtime **20261007.2**: the editor prepares rock geometry using the existing runtime workers while tileset, parallax and material images load together. It waits for every rock chunk before constructing the scene; individual rock/terrain edits still use the same signatures and meshing program. The two most recently visited maps retain CPU arrays within a 64 MiB budget (16 MiB on low-memory hosts), cleared when the project changes. Deleted chunks are removed; concurrent rebuilds share matching jobs and discard obsolete results.
+
+North Haven on a disposable Demo copy (NW.js, RTX 5070, Node suite run separately):
+
+| Map build | Before | After |
+| --- | --- | --- |
+| First visit | 3.15–3.28 s | 1.99–2.93 s |
+| Return after another map | 2.41–2.61 s | 0.39–0.49 s |
+| Piece geometry on the main thread | about 2.2 s | about 0.12–0.16 s |
+
+These are map-build timings, not a guarantee of click-to-visible latency. Image uploads and first-time shader compilation add work. The GUI harness lost its WebGL context with both the original rebuild and the optimization, on shared and separate contexts; it therefore did not establish a successful visual or 2D/3D toggle smoke. A subsequent session sandbox change denied the harness's local TCP listener (`EPERM`), preventing further GUI investigation. The North Haven cache holds 44,431,068 bytes in this fixture, with 171 rock meshes prepared before scene construction.
+
+Six functional regression tests cover exact worker/synchronous arrays (positions, UVs, normals and colours), reuse, rock/ground invalidation, deleted rocks, overlapping preparation and undo, worker failure/fallback, map eviction, memory limits and project isolation. Full Node suite: **6,712 tests; 6,702 passed, 10 skipped, zero failed** (131.4 s). Evidence: `/tmp/rr-northhaven-load.cjs`, `/tmp/rr-northhaven-control-results.json`, `/tmp/rr-northhaven-opengl-results.json`, `/tmp/rr-northhaven-final-results.json`, `/tmp/rr-northhaven-full-suite.log`.
+
 ## Quality settings (not yet exposed to players)
 
 The owner wants these to become a player-facing graphics menu one day, the way most games let weak hardware trade a little picture for frame rate. Today they are engine defaults a script call or plugin can change at any time. Figures: Intel UHD 630, 1080p, the Demo's start map, frozen GPU frame unless noted (runtime 20260930.9).

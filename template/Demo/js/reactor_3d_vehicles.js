@@ -252,6 +252,31 @@
 
     let defaultType = null;
     const stockTypes = new WeakMap();
+    /** Database placements use the event renderer and driver without authoring map events. */
+    function startingEvents(types, mapId, firstId = 1) {
+        const events = [];
+        if (!Array.isArray(types) || !(mapId > 0)) return events;
+        for (let type = 1; type < types.length; type++) {
+            const record = types[type];
+            if (!record || Number(record.startMapId) !== mapId) continue;
+            const x = Number(record.startX || 0), y = Number(record.startY || 0);
+            if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0) continue;
+            const direction = [1,2,3,4,6,7,8,9].includes(record.startDirection) ? record.startDirection : 2;
+            const yaw = {8:0,9:45,6:90,3:135,2:180,1:225,4:270,7:315}[direction];
+            events.push({ id: firstId + events.length, name: record.name || 'Vehicle', note: '', x, y,
+                _rrDatabaseVehicle: type, _rrVehicleIdentity: '0:' + type, rrVehicle: { type, yaw },
+                pages: [{ conditions: { actorId:1, actorValid:false, itemId:1, itemValid:false,
+                    selfSwitchCh:'A', selfSwitchValid:false, switch1Id:1, switch1Valid:false,
+                    switch2Id:1, switch2Valid:false, variableId:1, variableValid:false, variableValue:0 },
+                    image: { tileId:0, characterName:'', characterIndex:0, direction, pattern:1 },
+                    moveType:0, moveSpeed:3, moveFrequency:3,
+                    moveRoute: { list:[{code:0,parameters:[]}], repeat:true, skippable:false, wait:false },
+                    priorityType:1, walkAnime:true, stepAnime:false, directionFix:true, through:false,
+                    trigger:0, list:[{code:0,indent:0,parameters:[]}] }] });
+        }
+        return events;
+    }
+
     /**
      * A type record of data/ReactorVehicles.json with every field filled: its own value, else its kind's. Numbers
      * are held to their ranges. The same object for the same record; nothing a caller may write to. `index` is the
@@ -1713,17 +1738,10 @@
         });
     }
 
-    /** Vehicle-only layouts on shared Classes; absent layouts use the ordinary equipment types. */
-    function equipmentSlots(classEntry, equipTypes) {
-        const custom = classEntry && classEntry.rrVehicleSlots;
-        if (Array.isArray(custom)) return custom.filter(id => Number.isInteger(id) && id > 0 && id < (equipTypes || []).length);
-        return (equipTypes || []).map((_, id) => id).slice(1);
-    }
-
     R.Vehicles = {
         file: "reactor_3d_vehicles.js",
-        KINDS, PLAYED, RANGES, STEP_MAX, POINTS, equipmentSlots,
-        typeOf, stockTypeOf, typeNotes, forgetType, types: typesOf,
+        KINDS, PLAYED, RANGES, STEP_MAX, POINTS,
+        typeOf, stockTypeOf, typeNotes, forgetType, types: typesOf, startingEvents,
         step, newState,
         frame, forwardName, boxOf, shapeOf, forgetShape, surfaceNear, surfaceUnder,
         read, forget, guess, findFront, findWheels, pointNames, turnAbout,

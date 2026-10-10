@@ -37,7 +37,7 @@ function normalizeI18nLanguage(language) {
     return RR_LANGUAGES.find(candidate => candidate.id.toLowerCase() === normalized)?.id || 'en';
 }
 
-const RR_APP_VERSION = '0.98.9';
+const RR_APP_VERSION = '0.99.0';
 
 const RR_DB_TYPE_KEYS = {
     actors: 'menu.actors', classes: 'menu.classes', skills: 'menu.skills', items: 'menu.items',
@@ -22114,3 +22114,21 @@ Object.assign(RR_I18N_STRINGS["th"], {"vehicle.sprite": "สไปรต์ย�
 Object.assign(RR_TEXT_TRANSLATIONS["th"], {"Vehicle Sprite": "สไปรต์ยานพาหนะ", "Vehicle Model": "โมเดลยานพาหนะ"});
 Object.assign(RR_I18N_STRINGS["tr"], {"vehicle.sprite": "Araç spriteı", "vehicle.model": "Araç modeli", "vehicle.sound": "Ses", "vehicle.idle": "Rölanti", "vehicle.soundAcceleration": "Hızlanma", "vehicle.slowdown": "Yavaşlama", "vehicle.effects": "Efektler", "vehicle.musicUnchanged": "(Değişiklik yok)", "vehicle.useIdle": "(Rölanti)", "vehicle.soundStart": "Başlatma", "vehicle.soundStop": "Durdurma", "vehicle.soundBump": "Çarpma", "vehicle.soundLand": "İniş", "vehicle.soundScrape": "Sürtünme", "vehicle.soundSkid": "Kayma"});
 Object.assign(RR_TEXT_TRANSLATIONS["tr"], {"Vehicle Sprite": "Araç spriteı", "Vehicle Model": "Araç modeli"});
+
+Object.assign(RR_TEXT_TRANSLATIONS["ja"], {"Starting Position": "初期位置"});
+Object.assign(RR_TEXT_TRANSLATIONS["es"], {"Starting Position": "Posición inicial"});
+Object.assign(RR_TEXT_TRANSLATIONS["zh-Hant"], {"Starting Position": "起始位置"});
+Object.assign(RR_TEXT_TRANSLATIONS["zh-Hans"], {"Starting Position": "起始位置"});
+Object.assign(RR_TEXT_TRANSLATIONS["ru"], {"Starting Position": "Начальная Позиция"});
+Object.assign(RR_TEXT_TRANSLATIONS["pt"], {"Starting Position": "Posição Inicial"});
+Object.assign(RR_TEXT_TRANSLATIONS["de"], {"Starting Position": "Startposition"});
+Object.assign(RR_TEXT_TRANSLATIONS["fr"], {"Starting Position": "Position de départ"});
+Object.assign(RR_TEXT_TRANSLATIONS["el"], {"Starting Position": "Αρχική θέση"});
+Object.assign(RR_TEXT_TRANSLATIONS["ko"], {"Starting Position": "시작 위치"});
+Object.assign(RR_TEXT_TRANSLATIONS["ar"], {"Starting Position": "موضع البداية"});
+Object.assign(RR_TEXT_TRANSLATIONS["it"], {"Starting Position": "Posizione iniziale"});
+Object.assign(RR_TEXT_TRANSLATIONS["pl"], {"Starting Position": "Pozycja startowa"});
+Object.assign(RR_TEXT_TRANSLATIONS["id"], {"Starting Position": "Posisi Awal"});
+Object.assign(RR_TEXT_TRANSLATIONS["vi"], {"Starting Position": "Vị trí bắt đầu"});
+Object.assign(RR_TEXT_TRANSLATIONS["th"], {"Starting Position": "ตำแหน่งเริ่มต้น"});
+Object.assign(RR_TEXT_TRANSLATIONS["tr"], {"Starting Position": "Başlangıç konumu"});

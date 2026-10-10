@@ -7406,6 +7406,7 @@ Reactor3D.MapScene.prototype.build = function(mapData, bitmaps, options) {
     // The 3D tileset: blocks on cells, on top of the ground just laid. Far rocks mesh in the
     // background unless the view draws only on a change (the editor).
     this._rockWorkers = settings.rockWorkers !== false;
+    if (settings.rockChunkCache) this._rockChunkCache = settings.rockChunkCache;
     this.addPieces(mapData, settings.loadMaterial || (name => Reactor3D.defaultMaterialLoader(name)));
     this.addWater(mapData, settings.loadMaterial || (name => Reactor3D.defaultMaterialLoader(name)));
 

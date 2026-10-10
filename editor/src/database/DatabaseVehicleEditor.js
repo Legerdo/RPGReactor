@@ -1,4 +1,4 @@
-/** Reactor vehicle types. Optional data; browsing never normalizes or writes a record. */
+/** Reactor vehicles. Optional data; browsing never normalizes or writes a record. */
 class DatabaseVehicleEditor {
     constructor(databaseManager, projectManager, parentEditor) {
         this.databaseManager = databaseManager;
@@ -27,32 +27,6 @@ class DatabaseVehicleEditor {
             if (picked[key] !== undefined) model[key] = picked[key];
         }
         return model;
-    }
-    static classSlotsSection(record, manager) {
-        const section = document.createElement('div'); section.className = 'database-section';
-        const t = key => window.I18n ? window.I18n.t(key) : key;
-        const types = manager.getSystem()?.equipTypes || [];
-        section.innerHTML = `<div class="database-section-header" data-section-key="vehicle-equipment-slots">${rrEscapeHtml(t('vehicle.classSlots'))}</div><div class="database-section-content"><p class="vehicle-hint">${rrEscapeHtml(t('vehicle.slotHelp'))}</p><label><input class="vehicle-custom-slots" type="checkbox" ${Array.isArray(record.rrVehicleSlots) ? 'checked' : ''}> ${rrEscapeHtml(t('vehicle.customSlots'))}</label><div class="vehicle-class-slot-rows"></div><button type="button" class="vehicle-add-slot rr-btn-secondary">+ ${rrEscapeHtml(t('vehicle.slot'))}</button></div>`;
-        const changed = () => { manager.mutationGeneration++; };
-        const render = () => {
-            const custom = Array.isArray(record.rrVehicleSlots);
-            const host = section.querySelector('.vehicle-class-slot-rows'); host.innerHTML = '';
-            section.querySelector('.vehicle-add-slot').disabled = !custom || types.length < 2;
-            const slots = custom ? record.rrVehicleSlots : types.map((_, id) => id).slice(1);
-            slots.forEach((id, index) => {
-                const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:4px;margin-top:4px';
-                row.innerHTML = `<select aria-label="${rrEscapeHtml(t('vehicle.slot'))} ${index + 1}" style="flex:1;min-width:0" ${custom ? '' : 'disabled'}>${types.map((name, value) => value > 0 ? `<option value="${value}" ${value === id ? 'selected' : ''}>${rrEscapeHtml(name)}</option>` : '').join('')}${!types[id] ? `<option value="${id}" selected>#${id}</option>` : ''}</select><button class="rr-btn-secondary" type="button" ${custom ? '' : 'disabled'} aria-label="${rrEscapeHtml(t('common.delete'))}">×</button>`;
-                row.querySelector('select').onchange = e => { record.rrVehicleSlots[index] = Number(e.target.value); changed(); };
-                row.querySelector('button').onclick = () => { record.rrVehicleSlots.splice(index, 1); changed(); render(); };
-                host.appendChild(row);
-            });
-        };
-        section.querySelector('.vehicle-custom-slots').onchange = e => {
-            if (e.target.checked) record.rrVehicleSlots = types.map((_, id) => id).slice(1); else delete record.rrVehicleSlots;
-            changed(); render();
-        };
-        section.querySelector('.vehicle-add-slot').onclick = () => { record.rrVehicleSlots.push(1); changed(); render(); };
-        render(); return section;
     }
 
     // The metadata/handling module is pure until a model is supplied. Load it in an
@@ -107,7 +81,8 @@ class DatabaseVehicleEditor {
             <div class="database-item-column vehicle-main-column">
               ${section('general',tt('General'), `<div class="vehicle-fields">${field(tt('Name'),`<input class="database-field-value vehicle-name" data-field="name" value="${rrEscapeHtml(live.name || '')}">`)}${field(t('vehicle.kind'),`<select class="vehicle-kind" ${options.stockKey ? 'disabled' : ''}>${Object.entries(kinds).map(([kind,label]) => `<option value="${kind}" ${kind === (live.kind || 'motorcycle') ? 'selected' : ''}>${rrEscapeHtml(label)}</option>`).join('')}</select>`)}${field(tt('Class'),`<select class="vehicle-class"><option value="0">${t('vehicle.noClass')}</option>${classOptions}</select>`)}${field(tt('Level'),`<input class="vehicle-level" type="number" min="1" max="999" value="${Number(live.initialLevel) || 1}">`)}</div><label class="vehicle-check"><input class="vehicle-ridable" type="checkbox" ${live.ridable !== false ? 'checked' : ''}> ${t('vehicle.ridable')}</label>`)}
               ${section('appearance',tt('Image'), `<div class="graphic-preview-box vehicle-graphic-slot"><div class="graphic-preview-label">${t('vehicle.sprite')}</div><div class="graphic-canvas-container"><canvas class="vehicle-sprite-preview" width="64" height="64"></canvas></div><div class="graphic-preview-name" data-rr-i18n-skip>${rrEscapeHtml(live.sheet?.characterName || '')}</div><button class="graphic-selector-button vehicle-image-browse rr-btn-browse" type="button">${tt('Change Image')}</button></div><div class="vehicle-model-settings">${field(t('vehicle.size'),`<input class="vehicle-size" type="number" min="0.1" max="100" step="0.1" value="${Number(live.model?.size) || engine.KINDS[live.kind || 'motorcycle']?.size || 3.5}">`)}</div>`)}
-              ${options.stockKey ? section('location',tt('Location'),`<div class="vehicle-fields vehicle-location-fields">${['startMapId','startX','startY'].map((key,i) => field(tt(['Map','X','Y'][i]),`<input class="vehicle-stock-location" data-field="${key}" type="number" min="0" value="${Number(options.stock[key]) || 0}">`)).join('')}</div>`) : section('movement',tt('Movement'),`${field(t('vehicle.medium'),`<select class="vehicle-medium">${['ground','water','air'].map(medium => `<option value="${medium}" ${typed().medium === medium ? 'selected' : ''}>${t('vehicle.'+medium)}</option>`).join('')}</select>`)}<div class="vehicle-medium-settings"></div><details class="vehicle-handling-details"><summary>${t('vehicle.handling')}</summary><div class="vehicle-handling vehicle-fields"></div></details>`)}
+              ${!options.stockKey ? section('location',tt('Starting Position'), `<div class="vehicle-location-row"><button type="button" class="rr-btn-secondary vehicle-location-browse"></button><button type="button" class="rr-btn-secondary vehicle-location-clear">${tt('Clear')}</button></div>${field(tt('Direction'), `<select class="vehicle-start-direction">${[[2,'Down'],[4,'Left'],[6,'Right'],[8,'Up']].map(([dir,label]) => `<option value="${dir}" ${dir === (live.startDirection || 2) ? 'selected' : ''}>${tt(label)}</option>`).join('')}</select>`)}`) : ''}
+              ${options.stockKey ? '' : section('movement',tt('Movement'),`${field(t('vehicle.medium'),`<select class="vehicle-medium">${['ground','water','air'].map(medium => `<option value="${medium}" ${typed().medium === medium ? 'selected' : ''}>${t('vehicle.'+medium)}</option>`).join('')}</select>`)}<div class="vehicle-medium-settings"></div><details class="vehicle-handling-details"><summary>${t('vehicle.handling')}</summary><div class="vehicle-handling vehicle-fields"></div></details>`)}
               ${section('sound',t('vehicle.sound'),'<div class="vehicle-sound-rows"></div><details class="vehicle-effects-details"><summary>'+t('vehicle.effects')+'</summary><div class="vehicle-effect-rows"></div></details>')}
               ${section('note',tt('Note'),`<textarea class="vehicle-note database-field-value" rows="3">${rrEscapeHtml(live.note || '')}</textarea>`)}
             </div>
@@ -184,12 +159,35 @@ class DatabaseVehicleEditor {
             graphic.afterSync(graphic.bound());
         }
         previewSheet();
-        if (options.stockKey) {
-            container.querySelectorAll('.vehicle-stock-location').forEach(input => input.onchange = event => {
-                const value = Number(event.target.value), key=event.target.dataset.field;
-                if (!event.target.value.trim() || !Number.isInteger(value) || value < 0) { event.target.value=options.stock[key] || 0; return; }
-                options.stock[key]=value; this.changed();
-            });
+        if (!options.stockKey) {
+            const location = live;
+            const locationLabel = () => {
+                const mapId = Number(location.startMapId) || 0;
+                const info = this.databaseManager.getMapInfos?.()?.find(map => map && Number(map.id) === mapId);
+                find('.vehicle-location-browse').textContent = mapId > 0
+                    ? `${info?.name || '#' + mapId} (${location.startX || 0}, ${location.startY || 0})` : this.tt('(None)');
+                find('.vehicle-location-clear').disabled = !mapId;
+            };
+            const saveLocation = value => {
+                Object.assign(location, value);
+                save();
+                locationLabel();
+            };
+            find('.vehicle-location-browse').onclick = () => {
+                const controller = window.reactor?.projectController || this.parentEditor;
+                const picker = new TransferPlayerEditor(this.databaseManager, controller);
+                const dialog = picker.showMapPicker({ mapId: location.startMapId, x: location.startX, y: location.startY,
+                    title: this.tt('Select Map & Position'), onConfirm: position => {
+                        if (!valid() || ![position.mapId,position.x,position.y].every(Number.isInteger)
+                            || position.mapId < 1 || position.x < 0 || position.y < 0) return;
+                        saveLocation({startMapId:position.mapId,startX:position.x,startY:position.y});
+                    }});
+                if (dialog?.modal) this.parentEditor.registerDetailModal(dialog.modal, dialog.close);
+            };
+            find('.vehicle-location-clear').onclick = () => saveLocation({startMapId:0});
+            const direction = find('.vehicle-start-direction');
+            if (direction) direction.onchange = event => { live.startDirection = Number(event.target.value); save(); };
+            locationLabel();
         }
         const fillSounds = () => {
             const sounds=typed().sounds;
@@ -238,26 +236,30 @@ class DatabaseVehicleEditor {
         if (!options.stockKey) find('.vehicle-medium').onchange = event => { live.medium=event.target.value; save(); fillMovement(); };
         const fillEquipment = () => {
             const system=this.databaseManager.getSystem(), selected=this.databaseManager.getClass(live.classId);
-            const slots=engine.equipmentSlots(selected || {},system.equipTypes), traits=[...(selected?.traits || []),...(live.traits || [])];
+            const slots=traits.getActorEquipSlotBindings(live), combinedTraits=[...(selected?.traits || []),...(live.traits || [])];
+            const allowedWeapons=traits.getActorAllowedWtypeIds(live), allowedArmors=traits.getActorAllowedAtypeIds(live), sealed=traits.getActorSealedEtypeIds(live);
             const host=find('.vehicle-equipment-rows'); host.innerHTML='';
             const items=[];
-            slots.forEach((etypeId,index) => {
+            slots.forEach(({etypeId,slotIndex:index}) => {
+                if (!system.equipTypes[etypeId]?.trim() || sealed.has(etypeId)) return;
                 const weapon=etypeId===1, records=weapon?this.databaseManager.getWeapons():this.databaseManager.getArmors();
-                const allowed=records.filter(item => item.etypeId===etypeId && traits.some(trait => trait.code===(weapon?51:52) && trait.dataId===(weapon?item.wtypeId:item.atypeId)) && !traits.some(trait => trait.code===54 && trait.dataId===etypeId));
+                const allowed=records.filter(item => item && item.etypeId===etypeId && (weapon?allowedWeapons.has(item.wtypeId):allowedArmors.has(item.atypeId)));
                 const equipped=Number(live.equips?.[index]) || 0; items[index]=allowed.find(item=>item.id===equipped);
-                const label=system.equipTypes[etypeId]+(slots.filter(slot=>slot===etypeId).length>1 ? ' '+(slots.slice(0,index+1).filter(slot=>slot===etypeId).length) : '');
+                if (!allowed.length && !equipped) return;
+                const label=system.equipTypes[etypeId]+(slots.filter(slot=>slot.etypeId===etypeId).length>1 ? ' '+(slots.slice(0,index+1).filter(slot=>slot.etypeId===etypeId).length) : '');
                 const row=document.createElement('label'); row.className='vehicle-equipment-row';
                 row.innerHTML=`<span>${rrEscapeHtml(label)}</span><select class="vehicle-equip" data-slot="${index}"><option value="0">${tt('(None)')}</option>${allowed.map(item => `<option value="${item.id}" ${item.id===equipped?'selected':''}>${rrEscapeHtml(item.name)}</option>`).join('')}${equipped && !items[index] ? `<option value="${equipped}" selected>#${equipped} (${t('vehicle.incompatible')})</option>` : ''}</select>`;
                 row.querySelector('select').onchange=event => { live.equips=[...(live.equips || [])]; live.equips[index]=Number(event.target.value); save(); fillEquipment(); };
                 host.appendChild(row);
             });
+            if (!host.children.length) host.textContent=this.tt('No equipment slots available');
             const stats=find('.vehicle-base-stats'); stats.innerHTML='';
             if (!selected) { stats.textContent=this.t('vehicle.noClass'); return; }
             const names=typeof rrParamNames==='function' ? rrParamNames(text=>this.tt(text)) : ['HP','MP','ATK','DEF','MAT','MDF','AGI','LUK'];
             (selected.params || []).forEach((curve,param) => {
                 const base=typeof rrClassParamAtLevel==='function' ? rrClassParamAtLevel(curve,live.initialLevel || 1) : Number(curve?.[live.initialLevel || 1]) || 0;
                 const plus=items.reduce((sum,item)=>sum+(Number(item?.params?.[param])||0),0);
-                const rate=[...traits,...items.flatMap(item=>item?.traits || [])].reduce((rate,trait)=>trait.code===21 && trait.dataId===param ? rate*trait.value : rate,1);
+                const rate=[...combinedTraits,...items.flatMap(item=>item?.traits || [])].reduce((rate,trait)=>trait.code===21 && trait.dataId===param ? rate*trait.value : rate,1);
                 const value=Math.round(Math.max(param===0?1:0,Math.max(0,base+plus)*rate));
                 const row=document.createElement('div'); row.innerHTML=`<span>${rrEscapeHtml(names[param])}</span><strong>${value}</strong>`; stats.appendChild(row);
             });

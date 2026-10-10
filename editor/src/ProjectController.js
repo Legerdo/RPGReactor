@@ -3771,7 +3771,7 @@ class ProjectController {
         return (references || []).length;
     }
 
-    // Player and vehicle start positions live in System.json, not the map.
+    // Starting positions live in the database, outside authored map events.
     collectSystemStartReferences(system, targetMapId, into = []) {
         if (!system) return into;
         if (system.startMapId === targetMapId) {
@@ -3781,6 +3781,11 @@ class ProjectController {
             const data = system[vehicle];
             if (data && data.startMapId === targetMapId) {
                 into.push({ parameters: data, xIndex: 'startX', yIndex: 'startY', label: `${vehicle} start` });
+            }
+        }
+        for (const vehicle of this.databaseManager?.data?.vehicles || []) {
+            if (vehicle && vehicle.startMapId === targetMapId) {
+                into.push({parameters:vehicle,xIndex:'startX',yIndex:'startY',label:`${vehicle.name || 'Vehicle'} start`});
             }
         }
         return into;

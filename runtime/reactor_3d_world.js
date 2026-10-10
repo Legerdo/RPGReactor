@@ -2894,14 +2894,8 @@ Reactor3D.MapScene.prototype.layPieceChunks = function(mapData, load, keys) {
     if (rocks.length) this.layRockChunks(mapData, load, rocks, wanted);
 };
 
-/**
- * The rocks of the chunks in `wanted` (every chunk a rock reaches when
- * null): each chunk meshes the rock field over its own cells, from every
- * rock that reaches it, one mesh per material and per cap. A chunk whose
- * rocks are the same as when it was last meshed (an edit beside it, an
- * undo) takes its arrays again instead of meshing.
- */
-Reactor3D.MapScene.prototype.layRockChunks = function(mapData, load, rocks, wanted) {
+/** Shared chunk boundaries and signatures for synchronous and worker builds. */
+Reactor3D.rockChunkPlan = function(mapData, rocks, wanted) {
     const frames = rocks.map(piece => Reactor3D.rockFrame(piece, Reactor3D.pieceBaseAt(mapData, piece.x, piece.y)));
     if (Reactor3D.hasGround(mapData)) for (const frame of frames) Reactor3D.rockGroundCap(mapData, frame);
     const size = Reactor3D.PIECE_CHUNK;
@@ -2911,23 +2905,41 @@ Reactor3D.MapScene.prototype.layRockChunks = function(mapData, load, rocks, want
             for (let cx = Math.floor(Math.max(0, f.min[0]) / size); cx <= Math.floor(Math.max(0, f.max[0]) / size); cx++) keys.add(cx * 65536 + cy);
         }
     }
-    const cache = this._rockChunkCache || (this._rockChunkCache = new Map());
     const signature = f => Reactor3D.rockSignature(f);
     const floor = Reactor3D.rockGroundFloor(mapData);
+    const chunks = [];
+    for (const key of keys) {
+        if (wanted && !wanted.has(key)) continue;
+        const cx = Math.floor(key / 65536), cy = key % 65536;
+        const box = { x0: cx * size, z0: cy * size, x1: cx * size + size, z1: cy * size + size };
+        const reaching = frames.filter(f => f.max[0] >= box.x0 - 1 && f.min[0] <= box.x1 + 1 && f.max[2] >= box.z0 - 1 && f.min[2] <= box.z1 + 1);
+        const sig = reaching.map(signature).sort().join("|") + "|" + Reactor3D.rockGroundSignature(floor, box);
+        chunks.push({ key, box, reaching, sig });
+    }
+    return { chunks, floor };
+};
+
+/**
+ * The rocks of the chunks in `wanted` (every chunk a rock reaches when
+ * null): each chunk meshes the rock field over its own cells, from every
+ * rock that reaches it, one mesh per material and per cap. A chunk whose
+ * rocks are the same as when it was last meshed (an edit beside it, an
+ * undo) takes its arrays again instead of meshing.
+ */
+Reactor3D.MapScene.prototype.layRockChunks = function(mapData, load, rocks, wanted) {
+    const { chunks, floor } = Reactor3D.rockChunkPlan(mapData, rocks, wanted);
+    const cache = this._rockChunkCache || (this._rockChunkCache = new Map());
     const pending = this._rockPending || (this._rockPending = new Map());
     // A whole map laid in the game: the chunks round the player now, the rest in the background,
     // nearest first. An edit relays its own chunks at once.
     const pool = !wanted && this._rockWorkers ? Reactor3D.rockWorkerPool() : null;
     const focus = pool ? Reactor3D.rockFocus(mapData) : null;
     const jobs = [];
-    for (const key of keys) {
+    for (const chunk of chunks) {
+        const { key, box, reaching, sig } = chunk;
         if (wanted && !wanted.has(key)) continue;
         pending.delete(key);
-        const cx = Math.floor(key / 65536), cy = key % 65536;
-        const box = { x0: cx * size, z0: cy * size, x1: cx * size + size, z1: cy * size + size };
-        const reaching = frames.filter(f => f.max[0] >= box.x0 - 1 && f.min[0] <= box.x1 + 1 && f.max[2] >= box.z0 - 1 && f.min[2] <= box.z1 + 1);
         // The ground decides which faces are buried, so it is part of what the chunk was meshed from.
-        const sig = reaching.map(signature).sort().join("|") + "|" + Reactor3D.rockGroundSignature(floor, box);
         let buckets = cache.get(key);
         if (!buckets || buckets.sig !== sig) {
             const distance = focus ? Math.hypot(Math.max(box.x0 - focus.x, 0, focus.x - box.x1), Math.max(box.z0 - focus.z, 0, focus.z - box.z1)) : 0;
@@ -2943,7 +2955,7 @@ Reactor3D.MapScene.prototype.layRockChunks = function(mapData, load, rocks, want
 
 /** Chunks this near the player (tiles from its edge) are meshed before the map shows; the rest after. */
 Reactor3D.ROCK_NEAR = 24;
-/** Background meshing on (the game asks for it; the editor, which draws only on a change, does not). */
+/** Background meshing on; the editor also uses these workers to prepare complete maps. */
 Reactor3D.ROCK_WORKERS = true;
 
 /** What a rock face is drawn with: its bucket's key, material or cap, and surface. */
@@ -3019,34 +3031,80 @@ Reactor3D.MapScene.prototype.addRockChunk = function(key, buckets, load) {
     }
 };
 
-/**
- * Hand chunks to the background meshers, nearest first. Each comes back as arrays and is laid
- * if it is still wanted: the same map build, and no edit relaid the chunk meanwhile.
- */
+/** The common worker payload and material lookup, also used by editor preloading. */
+Reactor3D.rockChunkJob = function(job, floor) {
+    const looks = new Map();
+    const frames = job.reaching.map(f => {
+        const pair = f.looks || (f.looks = [Reactor3D.rockLook(f, false), Reactor3D.rockLook(f, true)]);
+        for (const look of pair) looks.set(look.look, look);
+        return { piece: { cap: f.piece.cap || "" }, c: f.c, axes: f.axes, half: f.half, round: f.round, rough: f.rough, amp: f.amp, tint: f.tint, capTint: f.capTint || null, warp: f.warp, top: f.top, min: f.min, max: f.max, lookKeys: [pair[0].look, pair[1].look] };
+    });
+    // The ground the faces are judged against, over the chunk and two tiles round it.
+    const g = { x0: job.box.x0 - 2, z0: job.box.z0 - 2, w: job.box.x1 - job.box.x0 + 4, h: job.box.z1 - job.box.z0 + 4, values: null };
+    g.values = new Float64Array(g.w * g.h);
+    for (let z = 0; z < g.h; z++) for (let x = 0; x < g.w; x++) g.values[z * g.w + x] = floor ? floor(g.x0 + x, g.z0 + z) : -Infinity;
+    return { payload: { frames, box: job.box, ground: g }, unpack: data => {
+        // A worker's buckets name their look; one meshed here already carries it.
+        const buckets = (data.buckets || []).map(b => {
+            const look = b.look ? looks.get(b.look) : b;
+            return { name: look.name, surface: look.surface, cap: look.cap, positions: b.positions, uvs: b.uvs, colors: b.colors, normals: b.normals };
+        });
+        buckets.sig = job.sig;
+        return buckets;
+    } };
+};
+
+/** Prepare reusable arrays off the main thread, before a host constructs the scene. */
+Reactor3D.prepareRockChunks = async function(mapData, cache = new Map()) {
+    const { chunks, floor } = this.rockChunkPlan(mapData, this.piecesOf(mapData).filter(piece => piece.kind === "rock"));
+    const pending = cache._pending || (cache._pending = new Map());
+    // Deleted/moved rocks must not leave arrays in a map's retained cache forever.
+    const keys = new Set(chunks.map(chunk => chunk.key));
+    for (const key of cache.keys()) if (!keys.has(key)) cache.delete(key);
+    for (const key of pending.keys()) if (!keys.has(key)) pending.delete(key);
+    const pool = chunks.some(chunk => cache.get(chunk.key)?.sig !== chunk.sig) ? this.rockWorkerPool() : null;
+    await Promise.all(chunks.map(job => {
+        const previous = pending.get(job.key);
+        if (cache.get(job.key)?.sig === job.sig) {
+            if (previous && previous.sig !== job.sig) pending.delete(job.key);
+            return;
+        }
+        if (previous?.sig === job.sig) return previous.promise;
+        pending.delete(job.key);
+        if (!pool) {
+            const buckets = this.rockChunkBuckets(job.reaching, job.box, floor);
+            buckets.sig = job.sig;
+            cache.set(job.key, buckets);
+            return;
+        }
+        const { payload, unpack } = this.rockChunkJob(job, floor);
+        const task = { sig: job.sig };
+        pending.set(job.key, task);
+        task.promise = new Promise((resolve, reject) => pool.submit(payload, data => {
+            try {
+                // An edit or a later preload may already want a different chunk.
+                if (pending.get(job.key) === task) cache.set(job.key, unpack(data));
+                resolve();
+            } catch (error) { reject(error); }
+        }, () => this.rockChunkBuckets(job.reaching, job.box, floor), reject)).finally(() => {
+            if (pending.get(job.key) === task) pending.delete(job.key);
+        });
+        return task.promise;
+    }));
+    return cache;
+};
+
+/** Lay worker results only into the build and chunk that still want them. */
 Reactor3D.MapScene.prototype.queueRockChunks = function(pool, jobs, load, floor) {
     const generation = this._rockGeneration;
     jobs.sort((a, b) => a.distance - b.distance);
     for (const job of jobs) {
-        const looks = new Map();
-        const frames = job.reaching.map(f => {
-            const pair = f.looks || (f.looks = [Reactor3D.rockLook(f, false), Reactor3D.rockLook(f, true)]);
-            for (const look of pair) looks.set(look.look, look);
-            return { piece: { cap: f.piece.cap || "" }, c: f.c, axes: f.axes, half: f.half, round: f.round, rough: f.rough, amp: f.amp, tint: f.tint, capTint: f.capTint || null, warp: f.warp, top: f.top, min: f.min, max: f.max, lookKeys: [pair[0].look, pair[1].look] };
-        });
-        // The ground the faces are judged against, over the chunk and two tiles round it.
-        const g = { x0: job.box.x0 - 2, z0: job.box.z0 - 2, w: job.box.x1 - job.box.x0 + 4, h: job.box.z1 - job.box.z0 + 4, values: null };
-        g.values = new Float64Array(g.w * g.h);
-        for (let z = 0; z < g.h; z++) for (let x = 0; x < g.w; x++) g.values[z * g.w + x] = floor ? floor(g.x0 + x, g.z0 + z) : -Infinity;
+        const { payload, unpack } = Reactor3D.rockChunkJob(job, floor);
         this._rockPending.set(job.key, job.sig);
-        pool.submit({ frames, box: job.box, ground: g }, data => {
+        pool.submit(payload, data => {
             if (!this._scene || this._rockGeneration !== generation || this._rockPending.get(job.key) !== job.sig) return;
             this._rockPending.delete(job.key);
-            // A worker's buckets name their look; one meshed here already carries it.
-            const buckets = (data.buckets || []).map(b => {
-                const look = b.look ? looks.get(b.look) : b;
-                return { name: look.name, surface: look.surface, cap: look.cap, positions: b.positions, uvs: b.uvs, colors: b.colors, normals: b.normals };
-            });
-            buckets.sig = job.sig;
+            const buckets = unpack(data);
             this._rockChunkCache.set(job.key, buckets);
             this.addRockChunk(job.key, buckets, load);
             // The static shadow rows take the new rock once the arrivals settle, not once per chunk.
@@ -3102,7 +3160,10 @@ Reactor3D.rockWorkerPool = function() {
         // Off the workers: one chunk a turn, so the frames go on between them.
         const job = pool.queue.shift();
         if (!job) return;
-        try { job.done({ buckets: job.fallback() }); } catch (e) { console.warn("Reactor3D: a rock chunk could not be meshed —", e); }
+        try { job.done({ buckets: job.fallback() }); } catch (e) {
+            if (job.failed) job.failed(e);
+            else console.warn("Reactor3D: a rock chunk could not be meshed —", e);
+        }
         setTimeout(runHere, 0);
     };
     // The meshers rest once a map's rocks are laid (Reactor3D.IdleWorkers): the next map makes them again.
@@ -3147,14 +3208,14 @@ Reactor3D.rockWorkerPool = function() {
             pool.idle.push(worker);
         }
     } catch (e) { return null; }
-    pool.submit = (payload, done, fallback) => {
+    pool.submit = (payload, done, fallback, failed) => {
         // A pool that rested hands its work to the one made after it.
         if (pool.rested) {
             const next = Reactor3D.rockWorkerPool();
-            if (next && next !== pool) return next.submit(payload, done, fallback);
+            if (next && next !== pool) return next.submit(payload, done, fallback, failed);
             pool.broken = true;
         }
-        pool.queue.push({ id: pool.next++, payload, done, fallback });
+        pool.queue.push({ id: pool.next++, payload, done, fallback, failed });
         pump();
     };
     this._rockPool = pool;

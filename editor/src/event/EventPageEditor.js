@@ -45,8 +45,6 @@ class EventPageEditor {
         conditionsSection.style.flexShrink = '0';
         container.appendChild(conditionsSection);
 
-        if (typeof RRVehicles !== 'undefined') container.appendChild(this.createVehicleSection());
-
         // Image Section (full width)
         const imageSection = this.createImageSection(page, pageIndex);
         imageSection.style.flex = '1 0 180px';
@@ -313,42 +311,6 @@ class EventPageEditor {
         });
         fill();
         return row;
-    }
-
-    /** Reactor metadata belongs to the whole event, outside RPG Maker page settings. */
-    createVehicleSection() {
-        const section = document.createElement('div');
-        section.className = 'event-section vehicle-section';
-        section.style.cssText = 'padding:6px;background:var(--color-bg-input);border-radius:4px;flex-shrink:0;';
-        const event = this.parentEditor.currentEvent;
-        const types = this.databaseManager.data.vehicles || [null];
-        const row = RRVehicles.vehicleOf(event);
-        const t = key => rrEscapeHtml(this._t(key));
-        const options = types.map((type, id) => type && id > 0 ? `<option value="${id}" ${row?.type === id ? 'selected' : ''}>${rrEscapeHtml(String(id).padStart(4, '0') + ': ' + type.name)}</option>` : '').join('');
-        const missing = row && !types[row.type] ? `<option value="${row.type}" selected>#${row.type} (${t('vehicle.missing')})</option>` : '';
-        section.innerHTML = `<strong title="${t('vehicle.how')}">${t('vehicle.event')}</strong><div class="event-vehicle-fields">
-            <select class="event-vehicle-type" aria-label="${t('vehicle.kind')}"><option value="0">${t('vehicle.none')}</option>${options}${missing}</select>
-            ${row ? `<div class="event-vehicle-pair"><label>${t('vehicle.facing')} <select class="event-vehicle-yaw"><option value="">${t('vehicle.pageFacing')}</option>${[0,45,90,135,180,225,270,315].map(yaw => `<option value="${yaw}" ${event.rrVehicle.yaw === yaw ? 'selected' : ''}>${yaw}°</option>`).join('')}${event.rrVehicle.yaw != null && ![0,45,90,135,180,225,270,315].includes(event.rrVehicle.yaw) ? `<option selected value="${Number(event.rrVehicle.yaw)}">${Number(event.rrVehicle.yaw)}°</option>` : ''}</select></label>
-            <label>${t('vehicle.board')} <select class="event-vehicle-board"><option value="ok" ${row.board === 'ok' ? 'selected' : ''}>${t('vehicle.confirm')}</option><option value="command" ${row.board === 'command' ? 'selected' : ''}>${t('vehicle.command')}</option></select></label></div>
-            <label>${t('vehicle.key')} <input class="event-vehicle-key" value="${rrEscapeHtml(row.key)}" style="width:100%;box-sizing:border-box"></label>` : ''}
-            ${row ? `<div class="event-vehicle-help">${row.board === 'command' ? t('vehicle.commandHelp') : t('vehicle.controls')}</div>` : ''}
-            <div class="event-vehicle-problem" role="status"></div>
-        </div>`;
-        if (row && event.rrVehicle.yaw == null) section.querySelector('.event-vehicle-yaw').value = '';
-        const change = value => {
-            const map = this.parentEditor._currentMap();
-            const taken = (map?.events || []).filter(other => other && other.id !== event.id).map(other => RRVehicles.vehicleOf(other)?.key).filter(Boolean);
-            const commands = event.pages.some(page => page.list?.some(command => command.code !== 0));
-            const result = RRVehicles.rowValue(event.rrVehicle, value, { types, taken, commands });
-            if (result.value) event.rrVehicle = result.value; else delete event.rrVehicle;
-            if (result.problem) { section.querySelector('.event-vehicle-problem').textContent = window.I18n ? window.I18n.t(result.problem.key, result.problem.args) : result.problem.key; return; }
-            this.parentEditor.renderCurrentPage();
-        };
-        section.querySelector('.event-vehicle-type').addEventListener('change', e => change({ type: Number(e.target.value) }));
-        section.querySelector('.event-vehicle-yaw')?.addEventListener('change', e => change({ yaw: e.target.value }));
-        section.querySelector('.event-vehicle-board')?.addEventListener('change', e => change({ board: e.target.value }));
-        section.querySelector('.event-vehicle-key')?.addEventListener('change', e => change({ key: e.target.value }));
-        return section;
     }
 
     vehicleModelSpec(pageIndex) {
