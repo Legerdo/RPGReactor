@@ -176,6 +176,7 @@ class UIManager {
             case 'import-report': {
                 const project = window.reactor?.projectController?.currentProject;
                 if (project?.path && window.RRLegacyReportDialog) window.RRLegacyReportDialog.show(project.path);
+                else if (!project?.path && typeof RRDialog !== 'undefined' && window.I18n) RRDialog.alert(window.I18n.t('alert.loadProjectFirst'), { title: window.I18n.t('menu.importReport') });
                 break;
             }
             case 'save-project':

@@ -2296,8 +2296,14 @@
     Game_Fight.prototype.finish = function() {
         const tactical = this.isTactical();
         if (tactical) {
+            // A walk the end cuts short (a page won the battle on the way, or took the party off the map) leaves
+            // the character as it was: solid, at its own pace.
+            const act = this._act, walker = act && act.unitId && act.path ? this.character(this.unit(act.unitId)) : null;
+            if (walker) { walker.setThrough(act.through); walker.setMoveSpeed(act.speed); act.path = null; }
             for (const mover of (this._tac && this._tac.movers) || EMPTY) { mover.plan = null; this.endMover(mover, false); }
             for (const mover of (this._tac && this._tac.aside) || EMPTY) this.endMover(mover, false);
+            // An action still playing beside the others is cut off as the one in front is.
+            for (const run of (this._tac && this._tac.runs) || EMPTY) this.endStage(run, true);
             if (this._tac) this._tac.runs = null;
             F.View.end(this);
         }
@@ -2312,6 +2318,7 @@
         if (tactical && W.isMenuOpen && W.isMenuOpen()) return;
         // A click on the turn strip is the strip's, not the map's under it.
         if (tactical) this.updateStripClick();
+        if (tactical && !this._ending) this.noteFallen();
         // One more frame of the battle: what the units' thinking shares its time by (AI.think).
         F.AI.tick = (F.AI.tick || 0) + 1;
         updateFight.call(this);
@@ -2321,6 +2328,29 @@
             F.Hints.update(this);
             F.View.update(this);
         }
+    };
+
+    /**
+     * A unit that died by something other than a blow of the battle (an event's Change HP, a cost it paid) has
+     * fallen all the same: it fades, its pages run, and the goal is judged. A fallen party member an event brought
+     * back stands again. Returns how many fell.
+     */
+    Game_Fight.prototype.noteFallen = function() {
+        let fell = 0;
+        for (const unit of this._units) {
+            if (unit.gone || unit.down || unit.team === "neutral") continue;
+            const battler = this.battler(unit);
+            if (unit.defeated) {
+                const character = !unit.eventId && battler && battler.isAlive() ? this.character(unit) : null;
+                if (character) { unit.defeated = false; character.setOpacity(255); this.touch(); }
+                continue;
+            }
+            if (!battler || !battler.isDead()) continue;
+            this.defeat(unit);
+            fell++;
+        }
+        if (fell) this.checkOutcome();
+        return fell;
     };
 
     const spawnUnit = Game_Fight.prototype.spawn;
@@ -2386,9 +2416,11 @@
         const unit = this.unit(entry.unitId);
         const battler = this.battler(unit);
         if (!this.isAlive(unit) || !battler.canMove()) {
-            // Fallen since the round began, or held by a state: the turn passes.
+            // Fallen since the round began, or held by a state: the turn passes. For one that is held it has
+            // ended all the same: what wears off as a turn ends (a stun, a buff) does.
             this._queue.shift();
             if (unit) this.tac().acted[unit.id] = true;
+            if (battler && battler.isAlive()) battler.onAllActionsEnd();
             return;
         }
         if (this._turns === "team" && this.isPlayerUnit(unit)) {
@@ -3072,6 +3104,8 @@
         act.back = act.stage;
         act.stage = "reactAim";
         act.stepped = false;
+        // The shot is taken and the watch spent: the walk that drew it is not undone.
+        act.locked = true;
         F.heldItem(own, "aim", character);
         if (F.feed()) ReactorEvents.emit("fightAim", { unitId: watcher.id, kind: "skill", itemId: action.item().id, targetIds: this._run.targetIds, cell: this._run.cell, ranged: true, overwatch: true });
         this.touch();
@@ -3939,7 +3973,9 @@
         if (!item || !battler.canUse(item)) return false;
         const tactics = F.tactics(battler, item);
         const targets = collectTargets(this, unit, action, tactics, character.x, character.y, cx, cy, []);
-        if (!targets.length) return false;
+        // A skill or an item with no Scope lands on nobody and is used all the same: what it does is its common event.
+        const aimless = !targets.length && item.scope === 0;
+        if (!targets.length && !aimless) return false;
         const dx = cx - character.x, dy = cy - character.y;
         if (dx || dy) character.setDirection(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 6 : 4) : (dy > 0 ? 2 : 8));
         battler.useItem(item);
@@ -3947,12 +3983,13 @@
         this._run = F.makeRun(this, unit, action, targets);
         this._run.cell = { x: cx, y: cy };
         // In a crowd, a unit that decides for itself acts at a skirmish's pace: no full sequence, no shot.
-        const quick = !act.player && this.isCrowded();
+        // So does an action with nobody to play on.
+        const quick = aimless || (!act.player && this.isCrowded());
         if (quick) this._run.quick = true;
         act.stage = "aim";
         act.item = { kind, id };
-        act.targetId = targets[0].id;
-        F.heldItem(character, "aim", this.character(targets[0]) || null);
+        act.targetId = aimless ? 0 : targets[0].id;
+        if (!aimless) F.heldItem(character, "aim", this.character(targets[0]) || null);
         if (F.feed()) ReactorEvents.emit("fightAim", { unitId: unit.id, kind, itemId: id, targetIds: this._run.targetIds, cell: this._run.cell, ranged: tactics.max >= 2, quick });
         this.touch();
         return true;
@@ -3999,8 +4036,15 @@
         if (!this.isTactical() || this._turns !== "team" || !act || !act.player || !this.awaitsPlayer()) return false;
         F.Input.used();
         const tac = this.tac();
-        while (this._queue.length && this._queue[0].kind === "unit" && this.isPlayerUnit(this.unit(this._queue[0].unitId))) {
-            tac.acted[this._queue.shift().unitId] = true;
+        // Every unit of the player's still in this side's turn, wherever it stands in the order: one that fights by
+        // itself between two of them keeps its turn.
+        for (let i = 0; i < this._queue.length && this._queue[i].kind === "unit"; i++) {
+            const unit = this.unit(this._queue[i].unitId), battler = this.battler(unit);
+            if (!this.isPlayerUnit(unit)) continue;
+            tac.acted[unit.id] = true;
+            this._queue.splice(i--, 1);
+            // Its turn has ended without orders: what wears off as a turn ends (a buff) does.
+            if (battler.isAlive()) battler.onAllActionsEnd();
         }
         if (act.unitId) this.finishAct();
         else { this._act = null; this._phase = "queue"; this._wait = 8; tac.cursor.on = false; this.touch(); }
@@ -4548,7 +4592,12 @@
     AI.think = function(fight, unit, character) {
         if (!ai.ready || ai.serial !== fight._serial || ai.unitId !== unit.id || ai.turn !== fight._turn) { ai.waits = 0; ai.entryCell = -1; ai.entryAt = 0; AI.begin(fight, unit, character, fight.battler(unit)); }
         // Someone left the field mid-think: the cells are weighed again from the first.
-        else if (AI.prune(fight)) { ai.entryCell = -1; ai.entryAt = 0; }
+        else {
+            if (AI.prune(fight)) { ai.entryCell = -1; ai.entryAt = 0; }
+            // An enemy's actions find it by its place in the troop, which moves up when a unit before it is removed.
+            const battler = unit.enemy;
+            if (battler && battler.index() >= 0) for (const entry of ai.actions) if (entry.action.subject() !== battler) entry.action.setSubject(battler);
+        }
         // A crowd's turn is long enough: its units think faster. The frame's share is one share, whoever thinks in it:
         // several units deciding in one frame (an army's side acting together) split it, each weighing at least a cell.
         // (The battle's own update counts the frames: AI.tick. Thought of outside one, each think has its own share.)
@@ -6088,8 +6137,19 @@
     const performTransfer = Game_Player.prototype.performTransfer;
     Game_Player.prototype.performTransfer = function() {
         const transferring = this.isTransferring();
-        performTransfer.call(this);
         const fight = typeof $gameFight !== "undefined" ? $gameFight : null;
+        // The party leaves the map of a battle kept for its return: whoever of it was walking a way there is
+        // solid and at its own pace on the map it goes to.
+        if (transferring && fight && fight.isTactical() && fight.isHere() && this.newMapId() !== $gameMap.mapId()) {
+            for (const unit of fight._units) {
+                const character = unit.party && !unit.gone ? fight.character(unit) : null;
+                if (!character) continue;
+                const act = fight._act, mover = fight.moverOf(unit);
+                if (act && act.unitId === unit.id && act.path) { character.setThrough(act.through); character.setMoveSpeed(act.speed); }
+                if (mover) { character.setThrough(mover.through); character.setMoveSpeed(mover.speed); }
+            }
+        }
+        performTransfer.call(this);
         if (!transferring || !fight || !fight.isHere()) return;
         for (const unit of fight._units) {
             if (!unit.party || unit.gone) continue;
@@ -6100,6 +6160,10 @@
                 if (spot) Game_CharacterBase.prototype.locate.call(character, spot.x, spot.y);
             }
             fight._inside[String(unit.id)] = [character.x, character.y];
+            // A way it was walking led on from where it stood before: the walk ends where it was put.
+            const act = fight._act, mover = fight.moverOf(unit);
+            if (act && act.unitId === unit.id && act.path) act.path.length = 0;
+            if (mover) { mover.path.length = 0; mover.plan = null; }
         }
         if (fight._tac) {
             const active = fight.activeUnit(), character = fight.character(active) || this;

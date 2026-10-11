@@ -401,7 +401,7 @@ test('Terms editor uses a full-width compact workspace with native text actions'
 
     assert.match(source, /prepareDatabaseSection\('terms',[\s\S]*showListPanel: false/);
     assert.match(source, /class="rr-terms-workspace"/);
-    assert.match(source, /class="rr-terms-fields rr-terms-fields-four"/);
+    assert.match(source, /class="database-section-content rr-terms-fields rr-terms-fields-four"/);
     assert.match(source, /class="rr-terms-message-columns"/);
     assert.match(source, /attachTextFieldContextMenu\(input\)/);
     assert.match(styles, /\.rr-terms-workspace\s*\{[^}]*grid-template-columns:/s);

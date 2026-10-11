@@ -16,6 +16,7 @@
     "smoke:nw-event-double-click": "node tests/smoke/nw-event-double-click.cjs",
     "smoke:nw-table-headers": "node tests/smoke/nw-table-headers.cjs",
     "smoke:nw-ui": "node tests/smoke/nw-user-interface-layout.cjs",
+    "smoke:nw-choices": "node tests/smoke/nw-database-choices.cjs",
     "build": "node build-scripts/build.js",
     "build:win": "node build-scripts/build.js --platform=win",
     "build:mac": "node build-scripts/build.js --platform=mac",

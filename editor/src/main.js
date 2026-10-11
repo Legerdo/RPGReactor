@@ -100,7 +100,16 @@ class RPGReactor {
             toggleEventMode: () => this.toggleEventMode(),
             disableEventModeIfActive: () => this.disableEventModeIfActive(),
             installRuntime: () => this.projectController.installReactorRuntime(),
-            openBuildManager: () => this.buildManager.open(),
+            openBuildManager: () => {
+                // Deploy Game builds the open project: with none, it says so before any choice is made.
+                if (!this.projectController.isProjectLoaded()) {
+                    RRDialog.alert(window.I18n ? window.I18n.t('alert.loadProjectFirst') : 'Please load a project first.', {
+                        title: window.I18n ? window.I18n.tText('Deploy Game') : 'Deploy Game'
+                    });
+                    return;
+                }
+                this.buildManager.open();
+            },
             openDistEditor: () => this.distEditorManager.open()
         });
 

@@ -38,10 +38,17 @@
     function projectOpenAt(fs, path, folder) {
         const open = root.reactor?.projectController?.currentProject?.path;
         if (open && path.resolve(open) === path.resolve(folder)) return true;
-        let pid;
-        try { pid = JSON.parse(fs.readFileSync(path.join(folder, '.rpgreactor.lock'), 'utf8')).pid; } catch (_) { return false; }
+        let lock;
+        try { lock = JSON.parse(fs.readFileSync(path.join(folder, '.rpgreactor.lock'), 'utf8')); } catch (_) { return false; }
+        const pid = lock && lock.pid;
         if (!pid) return false;
-        try { process.kill(pid, 0); return true; } catch (error) { return error?.code === 'EPERM'; }
+        try { process.kill(pid, 0); } catch (error) { if (error?.code !== 'EPERM') return false; }
+        // A lock written before this boot belongs to nobody, whoever holds its pid now (ProjectController.projectLockOwnerLives).
+        try {
+            const bootedAt = Date.now() - require('os').uptime() * 1000, openedAt = Date.parse(lock.openedAt);
+            if (Number.isFinite(openedAt) && Number.isFinite(bootedAt) && openedAt < bootedAt - 10000) return false;
+        } catch (_) { /* no uptime to read: the pid's word stands */ }
+        return true;
     }
 
     function appRootOf(path) {

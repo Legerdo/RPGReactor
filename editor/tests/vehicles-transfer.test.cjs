@@ -75,3 +75,18 @@ test('a transfer to a loop map parks the carried vehicle and restores the player
     assert.equal(w.V.where('1:31').map,2);
     assert.ok(w.V.find('1:31'));
 });
+test('a rider asked about between a transfer reserved and performed, with the next map\'s data already loaded, stays aboard', () => {
+    const w = world(), away = copy(w.$dataMap);
+    away.events = [null, event(1, 3, 3)];
+    w.stand(11, 10, 4); assert.equal(w.board(31), true);
+    w.$gamePlayer.reserveTransfer(2, 20, 10, 6, 0);
+    // A border crossed without a break hands the game the next map's data before the step is performed.
+    w.$dataMap = copy(away);
+    assert.equal(w.$gamePlayer.isInVehicle(), true);
+    assert.ok(w.V.ridden(), 'still aboard');
+    w.$gamePlayer.performTransfer();
+    w.V.resume();
+    assert.ok(w.V.ridden());
+    assert.equal(w.V.idOf(w.V.ridden()), '1:31');
+    assert.equal(w.$gameMap.mapId(), 2);
+});

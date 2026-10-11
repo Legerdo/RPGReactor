@@ -214,6 +214,7 @@ class DatabaseEditorUI {
      */
     setCurrentProject(project) {
         if (project !== this.currentProject) {
+            this.saveDatabaseSelections();
             this.cleanupDatabaseDetail();
             this._dataSnapshot = null;
             this._databaseSession = (this._databaseSession || 0) + 1;
@@ -237,6 +238,55 @@ class DatabaseEditorUI {
     _markDatabaseMutation() {
         if (!this.databaseManager) return;
         this.databaseManager.mutationGeneration = (this.databaseManager.mutationGeneration || 0) + 1;
+    }
+
+    /**
+     * The record last selected on a list page of the open project: this
+     * session's, else the one kept from an earlier session; undefined where
+     * none was.
+     */
+    recalledDatabaseSelection(type) {
+        const project = this.currentProject?.path || '';
+        const kept = this._listSelections;
+        if (kept && kept.project === project && kept.ids.has(type)) return kept.ids.get(type);
+        const helper = typeof window !== 'undefined' ? window.RRDatabaseSections : null;
+        return helper?.recallSelection ? helper.recallSelection(project, type) : undefined;
+    }
+
+    /** Keep the record selected on a list page: at once for this session, and shortly after in the per-user file. */
+    rememberDatabaseSelection(type, id) {
+        if (!type || !Number.isInteger(id)) return;
+        const project = this.currentProject?.path || '';
+        if (!this._listSelections || this._listSelections.project !== project) {
+            this.saveDatabaseSelections();
+            this._listSelections = { project, ids: new Map(), unsaved: new Set() };
+        }
+        const kept = this._listSelections;
+        if (kept.ids.get(type) === id) return;
+        kept.ids.set(type, id);
+        kept.unsaved.add(type);
+        // Walking a list with the arrow keys is one write, not one a row.
+        if (typeof setTimeout !== 'function') return;
+        clearTimeout(this._listSelectionTimer);
+        this._listSelectionTimer = setTimeout(() => this.saveDatabaseSelections(), 400);
+    }
+
+    /** Write the selections not yet in the per-user file. */
+    saveDatabaseSelections() {
+        if (this._listSelectionTimer) clearTimeout(this._listSelectionTimer);
+        this._listSelectionTimer = null;
+        const kept = this._listSelections;
+        const helper = typeof window !== 'undefined' ? window.RRDatabaseSections : null;
+        if (!kept || !kept.unsaved.size || !helper?.rememberSelection) return;
+        for (const type of kept.unsaved) helper.rememberSelection(kept.project, type, kept.ids.get(type));
+        kept.unsaved.clear();
+    }
+
+    /** The record a list page opens on: `wanted` when it is there, else the one last selected there, else the first. */
+    openingDatabaseEntry(type, data, wanted) {
+        if (!Array.isArray(data) || !data.length) return null;
+        const find = id => (Number.isInteger(id) ? data.find(entry => entry && entry.id === id) : null);
+        return find(wanted) || find(this.recalledDatabaseSelection(type)) || data.find(Boolean) || null;
     }
 
     /**
@@ -428,6 +478,7 @@ class DatabaseEditorUI {
     }
 
     closeDatabaseViewer() {
+        this.saveDatabaseSelections();
         this.cleanupDatabaseDetail();
         this._databaseSession = (this._databaseSession || 0) + 1;
         this.setDatabaseSaveInFlight(false);
@@ -681,9 +732,10 @@ class DatabaseEditorUI {
     }
 
     /**
-     * Open database viewer for a specific type
+     * Open database viewer for a specific type; `select` is the id of the
+     * record a list page opens on instead of the one last selected there.
      */
-    openDatabase(type) {
+    openDatabase(type, { select } = {}) {
         if (this._databaseSaveInFlight) return;
         if (!this.currentProject) {
             RRDialog.alert(this._t('alert.loadProjectFirst'), { title: this._t('menu.database'), kind: 'warning' });
@@ -692,7 +744,7 @@ class DatabaseEditorUI {
         // Leaving the 3D Models page with unsaved work on it asks first, then opens the section.
         const models = this.reactor3dEditor && this.reactor3dEditor._detail ? this.reactor3dEditor : null;
         if (models && models.hasPending && models.hasPending()) {
-            models.settlePending().then(go => { if (go) this.openDatabase(type); });
+            models.settlePending().then(go => { if (go) this.openDatabase(type, { select }); });
             return;
         }
         models?.flushAutosaves?.();
@@ -857,13 +909,13 @@ class DatabaseEditorUI {
         }
 
         // Show database viewer
-        this.showDatabaseViewer(title, data, type);
+        this.showDatabaseViewer(title, data, type, { select });
     }
 
     /**
      * Show the main database viewer with list and detail panels
      */
-    showDatabaseViewer(title, data, type) {
+    showDatabaseViewer(title, data, type, { select } = {}) {
         const tt = text => window.I18n ? window.I18n.tText(text) : text;
         const viewer = document.getElementById('database-viewer');
         const navEl = document.getElementById('database-navigation');
@@ -935,6 +987,9 @@ class DatabaseEditorUI {
         if(type==='actionSequences'){
             const starters=document.createElement('button');starters.type='button';starters.className='rr-btn-secondary';starters.style.cssText='width:100%;margin-top:6px';starters.textContent=tt('Add Starter Sequences');
             starters.onclick=()=>{snapshotForUndo();const added=ReactorBattleData.addStarters(this.databaseManager.data.actionSequences);if(!added.length)return;this.databaseManager.mutationGeneration++;listSession.mutationGeneration++;refreshData();refreshList();selectIds([added[0].id]);};searchContainer.append(starters);
+            // Nothing to add once every starter is in the list; the button follows the list as rows come and go.
+            const syncStarters=()=>{starters.disabled=!ReactorBattleData.addStarters((this.databaseManager.data.actionSequences||[]).slice()).length;};
+            const watchStarters=new MutationObserver(()=>{if(starters.isConnected)syncStarters();else watchStarters.disconnect();});watchStarters.observe(listEl,{childList:true});syncStarters();
         }
 
         listEl.parentNode.insertBefore(searchContainer, listEl);
@@ -1342,9 +1397,20 @@ class DatabaseEditorUI {
         this._listKeyHandler = listKeyHandler;
         document.addEventListener('keydown', listKeyHandler);
 
-        populateList();
-        if (type === 'vehicles' && data.length) selectIds([data[0].id]);
+        // The page opens on the record last selected there, or on its first.
+        const opening = this.openingDatabaseEntry(type, data, select);
+        if (opening) {
+            selectedIds.add(opening.id);
+            focusedId = selectionAnchorId = opening.id;
+        }
+        // With a record to open on, the list is built as far as its row.
+        populateList('', false, { preserveScroll: !!opening });
         viewer.classList.add('active');
+        if (opening) {
+            applySelection();
+            this.showDatabaseDetail(this.databaseManager.data[type]?.[opening.id] || opening, type, { reuse: true });
+            listEl.querySelector(`[data-entry-id="${opening.id}"]`)?.scrollIntoView?.({ block: 'center' });
+        }
         this.takeDatabaseSnapshot();
         this.setupDatabaseControls();
         viewer?._rrModalKeys?.enter();
@@ -1586,10 +1652,10 @@ class DatabaseEditorUI {
             this.openDatabase('system1');
             return true;
         }
-        this.openDatabase(type);
+        this.openDatabase(type, { select: id });
         const session = this._activeDatabaseList;
         if (session?.type !== type || !session.reveal) return false;
-        return session.reveal(id);
+        return session.focusedId === id || session.reveal(id);
     }
 
     showDatabaseActionMenu(x, y, items) {
@@ -2121,6 +2187,7 @@ class DatabaseEditorUI {
             });
         }
         this.wireLiveDatabaseNameSync(detailEl, entry, type);
+        this.rememberDatabaseSelection(type, entry.id);
         // Before the label pass: a section is named by the English source of
         // its title, which the pass no longer tells once it has read the title.
         this.refreshDatabaseSections();
@@ -2415,7 +2482,10 @@ class DatabaseEditorUI {
     createBlankDatabaseEntry(type, id) {
         const template = this.getDefaultTemplates()[type];
         if (!template) return null;
-        return { ...JSON.parse(JSON.stringify(template)), id, name: '' };
+        const blank = { ...JSON.parse(JSON.stringify(template)), id, name: '' };
+        // A new class starts with the standard slots, whatever types the project has added since.
+        if (type === 'classes' && typeof RREquipSlots !== 'undefined') blank.rrEquipSlots = RREquipSlots.standard(this.databaseManager.getSystem());
+        return blank;
     }
 
     restoreNullDatabaseEntries(type) {
@@ -3358,6 +3428,8 @@ class DatabaseEditorUI {
 
         // Close button handler
         closeBtn.onclick = close;
+        // Escape closes the picker, wherever the focus was left, and not the dialog it was opened from.
+        window.RRKeyboardNavigation?.modal(modal, { onEscape: close });
     }
 
     static imageBrowser(projectController) {
@@ -4089,8 +4161,8 @@ class DatabaseEditorUI {
         const rows = E.BATTLE_WORD_GROUPS.filter(([id]) => groups.get(id).length).map(([id, heading]) => `
                 <div class="rr-terms-message-group"${keyed(heading)}</div>
                 ${groups.get(id).map(row).join('')}`).join('');
-        return `<section class="rr-terms-panel rr-terms-battle-panel rr-db-fold" data-section-key="battle-words">
-                <header class="rr-db-fold-header" data-i18n-text-source="Battles on the Map">${rrEscapeHtml(this._tt('Battles on the Map'))}</header>
+        return `<section class="rr-terms-panel rr-terms-battle-panel database-section rr-db-fold" data-section-key="battle-words">
+                <header class="database-section-header rr-db-fold-header" data-i18n-text-source="Battles on the Map">${rrEscapeHtml(this._tt('Battles on the Map'))}</header>
                 <div class="rr-terms-battle-hint"${keyed('db.battleWords.hint')}</div>
                 <div class="rr-terms-message-columns"><span${keyed('db.battleWords.stock')}</span><span${keyed('db.battleWords.own')}</span></div>
                 <div class="rr-terms-battle-list" data-rr-i18n-skip>${rows}</div>
@@ -4220,23 +4292,23 @@ class DatabaseEditorUI {
             <div class="rr-terms-workspace">
                 <div class="rr-terms-left">
                     <div class="rr-terms-top-grid">
-                        <section class="rr-terms-panel rr-db-fold" data-section-key="basic">
-                            <header class="rr-db-fold-header">${tt('Basic Statuses')}</header>
-                            <div class="rr-terms-fields rr-terms-fields-two">${renderArrayFields('basic', arrays.basic)}</div>
+                        <section class="rr-terms-panel database-section rr-db-fold" data-section-key="basic">
+                            <header class="database-section-header rr-db-fold-header">${tt('Basic Statuses')}</header>
+                            <div class="database-section-content rr-terms-fields rr-terms-fields-two">${renderArrayFields('basic', arrays.basic)}</div>
                         </section>
-                        <section class="rr-terms-panel rr-db-fold" data-section-key="params">
-                            <header class="rr-db-fold-header">${tt('Parameters')}</header>
-                            <div class="rr-terms-fields rr-terms-fields-two">${renderArrayFields('params', arrays.params)}</div>
+                        <section class="rr-terms-panel database-section rr-db-fold" data-section-key="params">
+                            <header class="database-section-header rr-db-fold-header">${tt('Parameters')}</header>
+                            <div class="database-section-content rr-terms-fields rr-terms-fields-two">${renderArrayFields('params', arrays.params)}</div>
                         </section>
                     </div>
-                    <section class="rr-terms-panel rr-terms-commands-panel rr-db-fold" data-section-key="commands">
-                        <header class="rr-db-fold-header">${tt('Commands')}</header>
-                        <div class="rr-terms-fields rr-terms-fields-four">${renderArrayFields('commands', arrays.commands)}</div>
+                    <section class="rr-terms-panel rr-terms-commands-panel database-section rr-db-fold" data-section-key="commands">
+                        <header class="database-section-header rr-db-fold-header">${tt('Commands')}</header>
+                        <div class="database-section-content rr-terms-fields rr-terms-fields-four">${renderArrayFields('commands', arrays.commands)}</div>
                     </section>
                     ${this.battleWordsPanel(system)}
                 </div>
-                <section class="rr-terms-panel rr-terms-messages-panel rr-db-fold" data-section-key="messages">
-                    <header class="rr-db-fold-header">${tt('Messages')}</header>
+                <section class="rr-terms-panel rr-terms-messages-panel database-section rr-db-fold" data-section-key="messages">
+                    <header class="database-section-header rr-db-fold-header">${tt('Messages')}</header>
                     <div class="rr-terms-message-columns"><span>${tt('Type')}</span><span>${tt('Text')}</span></div>
                     <div class="rr-terms-message-list">${messagesHtml}</div>
                 </section>

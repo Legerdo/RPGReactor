@@ -1132,7 +1132,7 @@ class TilesetPaletteViewer {
     // Draw a checkerboard pattern to represent transparency. Canvas 2D
     // cannot parse var(--…) — resolve to concrete colors.
     drawCheckerboard(ctx, width, height, squareSize = 8) {
-        const color1 = ThemeColors.resolve('--color-syntax-comment', '#6a6a6a');
+        const color1 = ThemeColors.resolve('--color-tileset-checker-primary', '#808080');
         const color2 = ThemeColors.resolve('--color-tileset-checker-secondary', '#999999');
 
         for (let y = 0; y < height; y += squareSize) {

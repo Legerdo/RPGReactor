@@ -1880,6 +1880,8 @@ class MediaSurfaceEditor {
         } else {
             body.style.gridTemplateColumns = 'minmax(260px,420px)';
             body.style.justifyContent = 'center';
+            // One field and no workspace: the dialog is as big as what it holds.
+            if (!this.liveMapAuthoring) Object.assign(dialog.style, { width: 'min(460px,calc(100vw - 24px))', height: 'auto', minHeight: '0' });
         }
         dialog.appendChild(body);
 

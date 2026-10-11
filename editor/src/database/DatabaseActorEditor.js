@@ -315,7 +315,10 @@ class DatabaseActorEditor {
      * Sealed equipment slot etypeIds (TRAIT_EQUIP_SEAL = code 54) from actor + class.
      */
     getActorSealedEtypeIds(actor) {
-        return this._collectTraitDataIds(actor, 54);
+        const sealed = this._collectTraitDataIds(actor, 54);
+        // A type named since the last save is a slot of no class yet.
+        for (const id of this.databaseManager.unsettledEquipTypes?.(actor.classId) || []) sealed.add(id);
+        return sealed;
     }
 
     /**

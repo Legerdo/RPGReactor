@@ -836,8 +836,9 @@ class PieceBuilderManager {
 
     /** The images under img/materials, each once, as {name, url}. */
     materials(refresh = false) {
-        if (this._materialsCache && !refresh) return this._materialsCache;
         const projectPath = this.projectPath();
+        // The list is one project's: another project open reads its own.
+        if (this._materialsCache && !refresh && this._materialsProject === projectPath) return this._materialsCache;
         let list = [];
         try {
             if (projectPath && typeof RRAssetFiles !== 'undefined' && typeof require === 'function') {
@@ -853,6 +854,7 @@ class PieceBuilderManager {
             list = [];
         }
         this._materialsCache = list;
+        this._materialsProject = projectPath;
         return list;
     }
 
@@ -1041,9 +1043,10 @@ class PieceBuilderManager {
 
     /** The swatches: a plain one, then every image in img/materials. */
     renderMaterials(refresh = false) {
+        // Read first: the Build bar lists them too, with no panel of this tool on the page.
+        const materials = this.materials(refresh);
         const holder = this.panel?.querySelector('.rr-pieces-materials');
         if (!holder) return;
-        const materials = this.materials(refresh);
         if (materials.length && !materials.some(entry => entry.name === this.material)) this.material = this.material || '';
         // An <img>, not a CSS background: the editor page cannot load a
         // project file as a stylesheet image, while an image element can.
@@ -1057,10 +1060,10 @@ class PieceBuilderManager {
 
     /** The plans under 3d/Structures, by name. */
     structures(refresh = false) {
-        if (this._structuresCache && !refresh) return this._structuresCache;
+        const projectPath = this.projectPath();
+        if (this._structuresCache && !refresh && this._structuresProject === projectPath) return this._structuresCache;
         let list = [];
         try {
-            const projectPath = this.projectPath();
             if (projectPath && typeof require === 'function') {
                 const fs = require('fs'), path = require('path');
                 const directory = path.join(projectPath, '3d', 'Structures');
@@ -1075,13 +1078,15 @@ class PieceBuilderManager {
             }
         } catch (error) { list = []; }
         this._structuresCache = list;
+        this._structuresProject = projectPath;
         return list;
     }
 
     renderStructures(refresh = false) {
+        // Read first, as the materials are: stamped buildings are built again from these plans.
+        const list = this.structures(refresh);
         const select = this.panel?.querySelector('.rr-pieces-structure');
         if (!select) return;
-        const list = this.structures(refresh);
         select.innerHTML = `<option value="">${this._t(list.length ? 'pieces.structureNone' : 'pieces.noStructures')}</option>`
             + list.map(entry => `<option value="${entry.file.replace(/"/g, '&quot;')}">${entry.name.replace(/</g, '&lt;')} (${entry.plan.size[0]}×${entry.plan.size[1]})</option>`).join('');
         select.value = list.some(entry => entry.file === this.structure) ? this.structure : '';

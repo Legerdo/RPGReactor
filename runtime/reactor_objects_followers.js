@@ -1611,6 +1611,14 @@
         if (!was) {
             if (!fightHere()) follower.setThrough(false);
             follower.setMoveSpeed($gamePlayer.moveSpeed());
+            // A fade it was in ends here, seen: on its own nothing fades it on, and it would stay as faint as it
+            // was. One that was fading to go aboard stays out of the vehicle.
+            if (follower._rrAppear > 0 || follower._rrLeave > 0) {
+                if (follower._rrLeave > 0) follower._rrAboard = false;
+                follower._rrAppear = 0;
+                follower._rrLeave = 0;
+                follower.setOpacity($gamePlayer.opacity());
+            }
             if (this._rrTrail && this._rrGap && Number.isFinite(follower._rrTx)) {
                 // Its place in the line stays its own while the others keep theirs.
                 this.rrForgetSteps(follower);
@@ -2008,6 +2016,20 @@
         this.rrEndOrders();
         this._rrTrail = null;
         stockGather.call(this);
+    };
+
+    // A follower given an order after the gather began is on its own: the gather neither waits for it to arrive
+    // nor stands while it walks, so the event that asked for the gather goes on.
+    const stockAreGathered = Game_Followers.prototype.areGathered;
+    Game_Followers.prototype.areGathered = function() {
+        if (!this._rrHeld) return stockAreGathered.call(this);
+        return this._data.every(follower => !!follower._rrOrder || !follower.isVisible() || follower.isGathered());
+    };
+
+    const stockAreMoving = Game_Followers.prototype.areMoving;
+    Game_Followers.prototype.areMoving = function() {
+        if (!this._rrHeld) return stockAreMoving.call(this);
+        return this._data.some(follower => !follower._rrOrder && follower.isVisible() && follower.isMoving());
     };
 
     const stockRefresh = Game_Followers.prototype.refresh;

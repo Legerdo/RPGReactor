@@ -386,6 +386,40 @@ test('the HUD exists while a battle of its mode runs, takes over from the battle
     }
 });
 
+test('a map scene that ends under a battle takes its HUD with it: the feed\'s listener, its pictures, and the built-in HUD\'s stand-down', () => {
+    const sandbox = loadRuntime();
+    const UI = sandbox.ReactorUI;
+    const mapScene = () => Object.assign(new sandbox.Scene_Map(), sandbox.__scene, { children: [sandbox.__layer] });
+    sandbox.$gameFight = fakeFight('action');
+    // The menu is opened and shut three times in one battle: each time the map's scene is destroyed and made anew.
+    let scene = null;
+    for (let visit = 0; visit < 3; visit++) {
+        scene = mapScene();
+        UI.updateActionScene(scene);
+        UI.updateActionScene(scene);
+        assert.ok(scene._reactorActionHud, 'visit ' + visit);
+        assert.equal(sandbox.__listeners.unitDefeated.length, 1, 'one HUD hears who fell, visit ' + visit);
+        if (typeof scene.destroy === 'function') scene.destroy();
+        assert.equal(sandbox.__listeners.unitDefeated.length, 0, 'the scene gone, nothing of it listens');
+        assert.equal(scene._reactorActionHud, null);
+        assert.equal(sandbox.__layer.children.length, 0, 'its windows are off the layer');
+        assert.equal(sandbox.ReactorFight.stockActionHud, true, 'and the built-in HUD is not left standing down');
+    }
+    // The battle over on a later scene: the built-in HUD is the battle's again.
+    scene = mapScene();
+    UI.updateActionScene(scene);
+    UI.updateActionScene(scene);
+    sandbox.$gameFight = null;
+    UI.updateActionScene(scene);
+    assert.deepEqual([sandbox.__listeners.unitDefeated.length, sandbox.ReactorFight.stockActionHud], [0, true]);
+    // A scene with no battle HUD, and one whose HUD failed, end as they always did.
+    const quiet = mapScene();
+    quiet._reactorActionHud = false;
+    quiet._reactorFightHud = false;
+    quiet.destroy();
+    assert.equal(quiet._reactorActionHud, null);
+});
+
 test('each node is drawn again only when what it shows changes; the crosshair, bars and marks are sprites that only move', () => {
     const sandbox = loadRuntime();
     const UI = sandbox.ReactorUI, scene = sandbox.__scene;
@@ -594,12 +628,6 @@ test('the editor offers the two roles, their presentations, the eight nodes and 
         const record = editor.normalizeInterface(JSON.parse(JSON.stringify(Object.assign({ id: 15 }, records[14]))));
         assert.deepEqual([record.mode, record.nodes.length], ['action', 9]);
         assert.equal(record.nodes.find(node => node.type === 'actionVitals').showPortrait, true);
-        // System 2: each row offers the records of its own presentation.
-        const System2 = require('../src/database/DatabaseSystem2Editor.js');
-        const list = [{ id: 8, name: 'B', mode: 'battle' }, { id: 9, name: 'T', mode: 'tactical' }, { id: 10, name: 'A', mode: 'action' }, { id: 11, name: 'F', mode: 'firstPerson' }, { id: 12, name: 'S', mode: 'scene' }];
-        const system2 = new System2({ getUserInterfaces: () => list, getUserInterface: id => list.find(entry => entry.id === id) });
-        const offered = role => list.filter(entry => new RegExp(`value="${entry.id}"`).test(system2.userInterfaceOptions(0, role))).map(entry => entry.id);
-        assert.deepEqual([offered('battle'), offered('tactical'), offered('action'), offered('firstPerson'), offered('menu')], [[8], [9], [10], [11], [12]]);
         // Stock Layout over a bound record of another kind takes off the binding it can no longer fill.
         const system = Object.assign({}, database.system, { reactorTacticalInterfaceId: 9, reactorBattleInterfaceId: 8 });
         const manager = { data: Object.assign({}, database, { system }), getSystem: () => system };

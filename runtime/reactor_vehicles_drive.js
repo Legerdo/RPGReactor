@@ -197,7 +197,9 @@
         const feed = typeof root.ReactorEvents !== "undefined" ? root.ReactorEvents : null;
         if (!feed || !feed._listeners || !feed._listeners[name] || !event) return;
         const mapId = typeof root.$gameMap !== "undefined" && root.$gameMap ? root.$gameMap.mapId() : 0;
-        const payload = { vehicle: mapId + ":" + event._eventId, type: event._rrVehicle, eventId: event._eventId };
+        // The identity boarding reports: a database placement's and a visiting vehicle's are not this map's event id.
+        const identity = typeof ReactorVehicles.idOf === "function" ? ReactorVehicles.idOf(event) : mapId + ":" + event._eventId;
+        const payload = { vehicle: identity, type: event._rrVehicle, eventId: event._eventId };
         payload[key] = value;
         feed.emit(name, payload);
     }
@@ -302,6 +304,13 @@
     function remember(d, x, y, count) {
         const dry = d.dry;
         for (let i = 0; i < count; i += 4) { dry[i] = x; dry[i + 1] = y; dry[i + 2] = d.yaw; dry[i + 3] = d.alt; }
+    }
+
+    /** After a transfer the places it is put back on are the one it arrived at: those it remembered are of where it was. */
+    function arrived(player, d) {
+        remember(d, player._realX, player._realY, 12);
+        clearX = player._realX; clearY = player._realY; clearYaw = d.yaw; clearAlt = d.alt;
+        dryWait = 0;
     }
 
     /** A vehicle that is parked or left: nothing of the ride stays on what is drawn of it. */
@@ -556,10 +565,26 @@
      * stands on, and meets nothing built, no big bush and no event's body on the way. The two axle reads of a turn
      * that passes are left in `swingF` and `swingR`. A drop is no reason: a wheel swung over one hangs.
      */
+    /**
+     * Whether a circle of the vehicle is past the map's border. A side whose neighboring map stands built past
+     * it (Reactor3D.Neighbors) is open: the vehicle rides over that border, a vehicle's length and no more, and
+     * goes on in the map past it as its middle crosses.
+     */
+    function pastBorder(R, x, z, r, w, h) {
+        const N = R.Neighbors, out = BORDER_OVER;
+        if (x < r && !(N && x > -out && N.stands("west"))) return true;
+        if (z < r && !(N && z > -out && N.stands("north"))) return true;
+        if (x > w - r && !(N && x < w + out && N.stands("east"))) return true;
+        if (z > h - r && !(N && z < h + out && N.stands("south"))) return true;
+        return false;
+    }
+    /** How far past an open border a circle of the vehicle may be, in tiles. */
+    const BORDER_OVER = 4;
+
     function swing(R, map, player, d, cx, cz, y1, y2) {
         const h2x = Math.sin(y2), h2z = -Math.cos(y2), r = SHAPE.radius, w = map.width, h = map.height;
         const fx = cx + h2x * SHAPE.front, fz = cz + h2z * SHAPE.front, bx = cx - h2x * SHAPE.rear, bz = cz - h2z * SHAPE.rear;
-        if (fx < r || fz < r || fx > w - r || fz > h - r || bx < r || bz < r || bx > w - r || bz > h - r) return false;
+        if (pastBorder(R, fx, fz, r, w, h) || pastBorder(R, bx, bz, r, w, h)) return false;
         const air = d.air > 0, from = air && d.vz < S_grav ? d.alt + d.vz - S_grav : d.alt;
         const baseF = air && from > d.gf ? from : d.gf, baseR = air && from > d.gr ? from : d.gr;
         swingF = R.groundHeightAt(map, fx, fz, air ? d.alt : d.gf);
@@ -582,7 +607,7 @@
         const lx = hx * dir, lz = hz * dir;
         const cx = sx + lx * lead, cz = sz + lz * lead, tx = sx - lx * trail, tz = sz - lz * trail;
         const w = map.width, h = map.height;
-        if (cx < r || cz < r || cx > w - r || cz > h - r || tx < r || tz < r || tx > w - r || tz > h - r) return 1;
+        if (pastBorder(R, cx, cz, r, w, h) || pastBorder(R, tx, tz, r, w, h)) return 1;
         const alt = d.alt, under = dir > 0 ? d.gf : d.gr, behind = dir > 0 ? d.gr : d.gf;
         // On the ground a circle is judged from the ground it stands on; in the air from the vehicle's height, or
         // from the ground it is over where that is higher (a nose-down flight off a bank keeps its tail over the
@@ -608,7 +633,7 @@
         for (let i = 0; i < 3; i++) {
             const c = i === 0 ? 1 : RIM_COS, s = i === 0 ? 0 : i === 1 ? RIM_SIN : -RIM_SIN;
             const px = cx + (gx * c - gz * s) * r, pz = cz + (gz * c + gx * s) * r;
-            if (px < 0 || pz < 0 || px >= w || pz >= h) return 1;
+            if ((px < 0 || pz < 0 || px >= w || pz >= h) && pastBorder(R, px, pz, 0, w, h)) return 1;
             const g = R.groundHeightAt(map, px, pz, base);
             if (g - base > step) return 2;
             if (g > most) most = g;
@@ -879,7 +904,8 @@
             const other=events[i];
             if (other && other!==event && !other._erased && !other.isThrough() && other.isNormalPriority() && other.pos(x,y)) return true;
         }
-        return false;
+        // A parked boat or ship is in the way as it is for a walker.
+        return (typeof map.boat === "function" && map.boat().posNt(x,y)) || (typeof map.ship === "function" && map.ship().posNt(x,y));
     }
 
     function mediumAllows(type, x, y) {
@@ -921,15 +947,21 @@
         const parts=Math.max(1,Math.ceil(Math.abs(d.go)/0.2));
         const sx=Math.sin(d.yaw)*d.go/parts, sy=-Math.cos(d.yaw)*d.go/parts;
         const debug=controls && player.isDebugThrough && player.isDebugThrough();
+        // Where the map does not loop, its middle stays on the map's own tiles.
+        const maxX=map.isLoopHorizontal() ? Infinity : map.width()-1, maxY=map.isLoopVertical() ? Infinity : map.height()-1;
         for (let i=0;i<parts && d.go!==0;i++) {
-            const nx=map.roundX(x+sx), ny=map.roundY(y+sy);
+            let nx=map.roundX(x+sx), ny=map.roundY(y+sy), met=false, held=false;
+            if (maxX!==Infinity && (nx<0 || nx>maxX)) { nx=nx<0?0:maxX; held=true; }
+            if (maxY!==Infinity && (ny<0 || ny>maxY)) { ny=ny<0?0:maxY; held=true; }
             const ox=map.roundX(Math.round(x)), oy=map.roundY(Math.round(y)), tx=map.roundX(Math.round(nx)),ty=map.roundY(Math.round(ny));
             let ok=mediumAllows(type,tx,ty);
+            // Held at the map's edge it slides along it while that is at least half its way; met squarer, it stops.
+            if (ok && held) { const mx=nx-x, my=ny-y; ok=mx*mx+my*my >= (sx*sx+sy*sy)*0.25; }
             if (ok && type.medium === "ground") {
                 if (tx!==ox) { const direction=sx>0?6:4; ok=map.isPassable(ox,oy,direction) && map.isPassable(tx,oy,10-direction); }
                 if (ok && ty!==oy) { const direction=sy>0?2:8; ok=map.isPassable(tx,oy,direction) && map.isPassable(tx,ty,10-direction); }
             }
-            if (ok && type.medium !== "air") ok=!solidEventAt(map,event,tx,ty);
+            if (ok && type.medium !== "air") { met=solidEventAt(map,event,tx,ty); ok=!met; }
             if (ok && deep && type.medium === "water") {
                 const hx=Math.sin(d.yaw), hy=-Math.cos(d.yaw);
                 shapeFor(event,type);
@@ -944,7 +976,11 @@
             }
             const alt=surfaceHeight(R,data,type,nx,ny,d.alt,deep);
             if (ok && deep && type.medium === "air" && R.groundHeightAt && d.air && alt-type.flight.height >= d.alt-0.02 && d.v !== 0) ok=false;
-            if (!ok && !debug) { last.stopped=1; last.refused=8; if (Math.abs(d.v)>=Drive.BUMP_FROM) bump(event,Math.abs(d.v)); d.v=0; d.go=0; break; }
+            if (!ok && !debug) {
+                // Driven into somebody: their touch trigger, once per contact.
+                if (met && (tx!==touchX || ty!==touchY)) { touchX=tx; touchY=ty; player.checkEventTriggerTouch(tx,ty); }
+                last.stopped=1; last.refused=8; if (Math.abs(d.v)>=Drive.BUMP_FROM) bump(event,Math.abs(d.v)); d.v=0; d.go=0; break;
+            }
             x=nx; y=ny; d.travel+=d.go/parts; last.moved+=Math.abs(d.go/parts);
             player._realX=x; player._realY=y; player._x=tx; player._y=ty;
             if ((tx!==ox || ty!==oy) && type.medium !== "air") {
@@ -952,6 +988,8 @@
                 if (enter(player,d,type,event)) { d.v=0; break; }
             }
         }
+        // A contact lasts until its middle is more than a tile from the tile it met.
+        if (touchX>=0 && (Math.abs(x-touchX)>1 || Math.abs(y-touchY)>1)) touchX=touchY=-1;
         const surface=surfaceHeight(R,data,type,x,y,d.alt,deep);
         const ground=deep && R.groundHeightAt ? R.groundHeightAt(data,x+0.5,y+0.5,d.alt) : 0;
         if (type.medium === "air" && deep) {
@@ -1097,6 +1135,12 @@
             let code = refuse(R, map, player, d, nx, nz, fx, fz, hx, hz, dir, wx, wz);
             if (code) {
                 last.refused = code;
+                // Driven square at the border of a side with a neighboring map: the ride goes on into that map.
+                if (code === 1 && typeof player.leaveByBorder === "function") {
+                    const out = (fx < 0 ? -fx : fx) > (fz < 0 ? -fz : fz) ? (fx > 0 ? 6 : 4) : (fz > 0 ? 2 : 8);
+                    const square = (out === 6 || out === 4 ? (fx < 0 ? -fx : fx) : (fz < 0 ? -fz : fz)) > 0.5;
+                    if (square && player.leaveByBorder(out, Math.ceil(SHAPE.front + SHAPE.rear + SHAPE.radius))) break;
+                }
                 // Walked into an event's body: its touch trigger, once per contact.
                 if (code === 9 && (hitX !== touchX || hitY !== touchY)) {
                     touchX = hitX; touchY = hitY;
@@ -1152,6 +1196,13 @@
             if (!d.air) follow(d, gF, passMid, gR, len);
             // The tile under the middle, every step: the grid, event triggers and plugins read a real tile.
             const tx = Math.round(wx - 0.5), ty = Math.round(wz - 0.5);
+            // Its middle is over an open border: the ride goes on in the map past it, from this very place.
+            if ((tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) && typeof player.leaveByBorder === "function") {
+                player._realX = wx - 0.5; player._realY = wz - 0.5;
+                // (Reserving the transfer parks the vehicle: what the ride was doing is kept for the other side.)
+                d.crossV = d.v; d.crossYaw = d.yaw; d.crossSteer = d.steer;
+                if (player.leaveByBorder(tx < 0 ? 4 : tx >= map.width ? 6 : ty < 0 ? 8 : 2, 0)) break;
+            }
             if (tx !== player._x || ty !== player._y) {
                 player._realX = wx - 0.5; player._realY = wz - 0.5;
                 player._x = tx; player._y = ty;
@@ -1481,17 +1532,24 @@
                 // The world carries the same identity into a runtime event on the destination map.
                 leaveStrip();
                 if (this._rrVehicleTransfer && typeof ReactorVehicles.bind === "function") {
-                    const d = this._rrDrive, result = _performTransfer.apply(this, arguments);
+                    // Ridden over a border into the map shown past it (Reactor3D.Neighbors): the ride goes on as it
+                    // was, at its speed and on its heading, from the very place it crossed at.
+                    const N = root.Reactor3D && root.Reactor3D.Neighbors, whole = !!(N && N.crossing && N.crossing.to === this._newMapId);
+                    const d = this._rrDrive, ride = whole && d && Number.isFinite(d.crossV) ? { v: d.crossV, yaw: d.crossYaw, steer: d.crossSteer } : null;
+                    if (d) { delete d.crossV; delete d.crossYaw; delete d.crossSteer; }
+                    const result = _performTransfer.apply(this, arguments);
                     this._rrVehicleTransfer = null;
                     const event = ReactorVehicles.bind();
                     if (!event) return result;
                     this._rrMount = null; this._rrDrive = d;
                     d.leave = ""; d.grid = 0; d.air = 0; d.vz = 0;
-                    d.yaw = Drive.yawOf(this.direction());
+                    d.yaw = ride ? ride.yaw : Drive.yawOf(this.direction());
                     shapeFor(event, typeFor(event));
                     Drive.seat(this);
+                    if (ride) { d.v = ride.v; d.steer = ride.steer; }
+                    arrived(this, d);
                     ReactorVehicles.refresh();
-                    if (ReactorVehicles.scenery(event) || !fitsAt(event, this, this._x, this._y, d.yaw)) standDown(this);
+                    if (!ride && (ReactorVehicles.scenery(event) || !fitsAt(event, this, this._x, this._y, d.yaw))) standDown(this);
                     else ReactorVehicles.bind();
                     return result;
                 }
@@ -1526,6 +1584,7 @@
             d.yaw = turnOf(yaw); d.leave = ""; d.grid = 0;
             if (typeof ReactorVehicles.bind === "function") ReactorVehicles.bind();
             Drive.seat(this);
+            arrived(this, d);
             return result;
         };
     }

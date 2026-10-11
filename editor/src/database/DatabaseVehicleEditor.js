@@ -29,6 +29,18 @@ class DatabaseVehicleEditor {
         return model;
     }
 
+    /** A stock vehicle as RPG Maker writes one into System.json. */
+    static stockRecord() {
+        return { bgm: { name: '', pan: 0, pitch: 100, volume: 90 }, characterIndex: 0, characterName: '', startMapId: 0, startX: 0, startY: 0 };
+    }
+    /** A picked BGM into a stock vehicle: the four fields RPG Maker stores, in the object already there. */
+    static setStockBgm(stock, audio) {
+        const bgm = stock.bgm && typeof stock.bgm === 'object' ? stock.bgm : (stock.bgm = DatabaseVehicleEditor.stockRecord().bgm);
+        bgm.name = String(audio?.name || '');
+        for (const [key, fallback] of [['pan', 0], ['pitch', 100], ['volume', 90]]) bgm[key] = Number.isFinite(Number(audio?.[key])) ? Number(audio[key]) : fallback;
+        return bgm;
+    }
+
     // The metadata/handling module is pure until a model is supplied. Load it in an
     // isolated namespace so a flat project's database never needs WebGL or THREE.
     static rules(projectManager) {
@@ -36,8 +48,10 @@ class DatabaseVehicleEditor {
         const fs = require('fs'), path = require('path');
         const canonical = window.reactor?.projectManager?.getRuntimePath?.();
         const cwd = typeof process !== 'undefined' && process.cwd ? process.cwd() : null;
+        // Callers pass either a project controller or the bare project manager, which has no current project.
+        const project = projectManager?.getCurrentProject?.() || window.reactor?.projectController?.getCurrentProject?.();
         const candidates = [canonical, cwd && path.join(cwd, 'runtime'), cwd && path.join(cwd, '..', 'runtime'),
-            path.join(projectManager.getCurrentProject().path, 'js')].filter(Boolean);
+            project?.path && path.join(project.path, 'js')].filter(Boolean);
         const file = candidates.map(dir => path.join(dir, 'reactor_3d_vehicles.js')).find(file => fs.existsSync(file));
         if (!file) throw new Error('Vehicle rules are missing');
         const isolated = { Reactor3D: {} };
@@ -52,9 +66,11 @@ class DatabaseVehicleEditor {
         const record = { name: this.tt(label), kind: key === 'ship' ? 'boat' : key,
             ...structuredClone(stock.reactorVehicle || {}), id: {boat:-3,ship:-2,airship:-1}[key],
             sheet: { characterName: stock.characterName || '', characterIndex: stock.characterIndex || 0 } };
-        this.show(container, record, { stockKey:key, stock, save: () => {
+        // The vehicle as System.json stores it (characterName, characterIndex, bgm, the start); one that is missing is made on the first edit.
+        const own = create => create ? (system[key] ||= DatabaseVehicleEditor.stockRecord()) : system[key];
+        this.show(container, record, { stockKey:key, stock:own, save: () => {
             const {id, sheet, ...extension} = record;
-            (system[key] ||= {}).reactorVehicle = structuredClone(extension);
+            own(true).reactorVehicle = structuredClone(extension);
             this.changed();
         }});
     }
@@ -79,8 +95,8 @@ class DatabaseVehicleEditor {
         container.innerHTML = `<div class="database-detail-wrapper db-page vehicle-detail">
           <div class="database-sections-grid database-item-columns vehicle-columns">
             <div class="database-item-column vehicle-main-column">
-              ${section('general',tt('General'), `<div class="vehicle-fields">${field(tt('Name'),`<input class="database-field-value vehicle-name" data-field="name" value="${rrEscapeHtml(live.name || '')}">`)}${field(t('vehicle.kind'),`<select class="vehicle-kind" ${options.stockKey ? 'disabled' : ''}>${Object.entries(kinds).map(([kind,label]) => `<option value="${kind}" ${kind === (live.kind || 'motorcycle') ? 'selected' : ''}>${rrEscapeHtml(label)}</option>`).join('')}</select>`)}${field(tt('Class'),`<select class="vehicle-class"><option value="0">${t('vehicle.noClass')}</option>${classOptions}</select>`)}${field(tt('Level'),`<input class="vehicle-level" type="number" min="1" max="999" value="${Number(live.initialLevel) || 1}">`)}</div><label class="vehicle-check"><input class="vehicle-ridable" type="checkbox" ${live.ridable !== false ? 'checked' : ''}> ${t('vehicle.ridable')}</label>`)}
-              ${section('appearance',tt('Image'), `<div class="graphic-preview-box vehicle-graphic-slot"><div class="graphic-preview-label">${t('vehicle.sprite')}</div><div class="graphic-canvas-container"><canvas class="vehicle-sprite-preview" width="64" height="64"></canvas></div><div class="graphic-preview-name" data-rr-i18n-skip>${rrEscapeHtml(live.sheet?.characterName || '')}</div><button class="graphic-selector-button vehicle-image-browse rr-btn-browse" type="button">${tt('Change Image')}</button></div><div class="vehicle-model-settings">${field(t('vehicle.size'),`<input class="vehicle-size" type="number" min="0.1" max="100" step="0.1" value="${Number(live.model?.size) || engine.KINDS[live.kind || 'motorcycle']?.size || 3.5}">`)}</div>`)}
+              ${section('general',tt('General'), `<div class="vehicle-fields">${field(tt('Name'),`<input class="database-field-value vehicle-name" data-field="name" value="${rrEscapeHtml(live.name || '')}">`)}${field(t('vehicle.kind'),`<select class="vehicle-kind" ${options.stockKey ? 'disabled' : ''}>${Object.entries(kinds).map(([kind,label]) => `<option value="${kind}" ${kind === (live.kind || 'motorcycle') ? 'selected' : ''}>${rrEscapeHtml(label)}</option>`).join('')}</select>`)}${field(tt('Class'),`<select class="vehicle-class"><option value="0">${t('vehicle.noClass')}</option>${classOptions}</select>`)}${field(tt('Level'),`<input class="database-field-value vehicle-level" type="number" min="1" max="999" value="${Number(live.initialLevel) || 1}">`)}</div><label class="vehicle-check"><input class="vehicle-ridable" type="checkbox" ${live.ridable !== false ? 'checked' : ''}> ${t('vehicle.ridable')}</label>`)}
+              ${section('appearance',tt('Image'), `<div class="graphic-preview-box vehicle-graphic-slot"><div class="graphic-preview-label">${t('vehicle.sprite')}</div><div class="graphic-canvas-container"><canvas class="vehicle-sprite-preview" width="64" height="64"></canvas></div><div class="graphic-preview-name" data-rr-i18n-skip>${rrEscapeHtml(live.sheet?.characterName || '')}</div><button class="graphic-selector-button vehicle-image-browse rr-btn-browse" type="button">${tt('Change Image')}</button></div><div class="vehicle-model-settings">${field(t('vehicle.size'),`<input class="database-field-value vehicle-size" type="number" min="0.1" max="100" step="0.1" value="${Number(live.model?.size) || engine.KINDS[live.kind || 'motorcycle']?.size || 3.5}">`)}</div>`)}
               ${!options.stockKey ? section('location',tt('Starting Position'), `<div class="vehicle-location-row"><button type="button" class="rr-btn-secondary vehicle-location-browse"></button><button type="button" class="rr-btn-secondary vehicle-location-clear">${tt('Clear')}</button></div>${field(tt('Direction'), `<select class="vehicle-start-direction">${[[2,'Down'],[4,'Left'],[6,'Right'],[8,'Up']].map(([dir,label]) => `<option value="${dir}" ${dir === (live.startDirection || 2) ? 'selected' : ''}>${tt(label)}</option>`).join('')}</select>`)}`) : ''}
               ${options.stockKey ? '' : section('movement',tt('Movement'),`${field(t('vehicle.medium'),`<select class="vehicle-medium">${['ground','water','air'].map(medium => `<option value="${medium}" ${typed().medium === medium ? 'selected' : ''}>${t('vehicle.'+medium)}</option>`).join('')}</select>`)}<div class="vehicle-medium-settings"></div><details class="vehicle-handling-details"><summary>${t('vehicle.handling')}</summary><div class="vehicle-handling vehicle-fields"></div></details>`)}
               ${section('sound',t('vehicle.sound'),'<div class="vehicle-sound-rows"></div><details class="vehicle-effects-details"><summary>'+t('vehicle.effects')+'</summary><div class="vehicle-effect-rows"></div></details>')}
@@ -114,7 +130,7 @@ class DatabaseVehicleEditor {
         };
         const updateSheet = sheet => {
             live.sheet = sheet;
-            if (options.stockKey) { Object.assign(options.stock,sheet); this.changed(); }
+            if (options.stockKey) { Object.assign(options.stock(true),sheet); this.changed(); }
             else save();
             const tag = find('.graphic-preview-name');
             tag.textContent = sheet.characterName; tag.dataset.source2d = sheet.characterName;
@@ -196,7 +212,7 @@ class DatabaseVehicleEditor {
             for (const [slot,key] of Object.entries(slots)) {
                 if (options.stockKey && ['bump','land','scrape','skid'].includes(slot)) continue;
                 const music=slot==='bgm',loop=['idle','accelerate','slowdown'].includes(slot);
-                const sound=music ? options.stockKey?options.stock.bgm:live.bgm : slot==='idle' ? sounds.idle || sounds.engine : sounds[slot];
+                const sound=music ? options.stockKey?options.stock()?.bgm:live.bgm : slot==='idle' ? sounds.idle || sounds.engine : sounds[slot];
                 const folder=music?'bgm':loop?'bgs':'se';
                 const row=document.createElement('div'); row.className='vehicle-sound-row';
                 const label=document.createElement('span'); label.textContent=music?'BGM':this.t(key);
@@ -207,7 +223,7 @@ class DatabaseVehicleEditor {
                     const path=require('path'),dir=path.join(this.projectManager.getCurrentProject().path,'audio',folder);
                     const picker=RRAudioPickerModal.open({title:label.textContent,folderLabel:folder.toUpperCase(),files:RRAssetFiles.listUnique(dir,RRAssetFiles.AUDIO_EXTENSIONS),selected:loop && sound?.folder!=='bgs'?'':sound?.name || '',levels:sound || {volume:90,pitch:100,pan:0},loopDefault:music || loop,onOk:audio=>{
                         if (!valid()) return;
-                        if (music && options.stockKey) { options.stock.bgm=audio; this.changed(); }
+                        if (music && options.stockKey) { DatabaseVehicleEditor.setStockBgm(options.stock(true),audio); this.changed(); }
                         else if (music) { live.bgm=audio.name?audio:null; save(); }
                         else { live.sounds={...live.sounds,[slot]:audio.name?{...audio,...(loop?{folder:'bgs'}:{})}:null}; if(slot==='idle')live.sounds.engine=null; save(); }
                         fillSounds();
@@ -220,7 +236,7 @@ class DatabaseVehicleEditor {
         const fillMovement = () => {
             if (options.stockKey) return;
             const type = typed(), host = find('.vehicle-medium-settings');
-            host.innerHTML = type.medium === 'air' ? field(t('vehicle.flightHeight'),`<input class="vehicle-flight-height" type="number" min="0" max="99" step="0.1" value="${type.flight.height}">`) : type.medium === 'water' ? field(tt('Type'),`<select class="vehicle-passability"><option value="boat" ${type.passability === 'boat' ? 'selected' : ''}>${tt('Boat')}</option><option value="ship" ${type.passability === 'ship' ? 'selected' : ''}>${tt('Ship')}</option></select>`) : '';
+            host.innerHTML = type.medium === 'air' ? field(t('vehicle.flightHeight'),`<input class="database-field-value vehicle-flight-height" type="number" min="0" max="99" step="0.1" value="${type.flight.height}">`) : type.medium === 'water' ? field(tt('Type'),`<select class="vehicle-passability"><option value="boat" ${type.passability === 'boat' ? 'selected' : ''}>${tt('Boat')}</option><option value="ship" ${type.passability === 'ship' ? 'selected' : ''}>${tt('Ship')}</option></select>`) : '';
             const flight = host.querySelector('input');
             if (flight) flight.onchange = event => { const height=Number(event.target.value); if (!event.target.value.trim() || !Number.isFinite(height) || height<0 || height>99) { event.target.value=type.flight.height; return; } live.flight={...live.flight,height}; save(); };
             const passability = host.querySelector('select');
@@ -228,7 +244,7 @@ class DatabaseVehicleEditor {
             const handling = find('.vehicle-handling'); handling.innerHTML='';
             for (const [key,label] of Object.entries({speed:'vehicle.speed',toTopSpeed:'vehicle.acceleration',turnCircle:'vehicle.turn',brake:'vehicle.brake',coast:'vehicle.coast',reverse:'vehicle.reverse',lean:'vehicle.lean',jump:'vehicle.jump'})) {
                 const [min,max]=engine.RANGES.handling[key];
-                const row=document.createElement('div'); row.innerHTML=field(t(label),`<input class="vehicle-handling-input" data-handling="${key}" type="number" min="${min}" max="${max}" step="0.01" value="${type.handling[key]}">`);
+                const row=document.createElement('div'); row.innerHTML=field(t(label),`<input class="database-field-value vehicle-handling-input" data-handling="${key}" type="number" min="${min}" max="${max}" step="0.01" value="${type.handling[key]}">`);
                 row.querySelector('input').onchange=event => { const value=Number(event.target.value); if (!event.target.value.trim() || !Number.isFinite(value) || value<min || value>max) { event.target.value=typed().handling[key]; return; } live.handling={...live.handling,[key]:value}; save(); };
                 handling.appendChild(row);
             }
@@ -252,7 +268,7 @@ class DatabaseVehicleEditor {
                 row.querySelector('select').onchange=event => { live.equips=[...(live.equips || [])]; live.equips[index]=Number(event.target.value); save(); fillEquipment(); };
                 host.appendChild(row);
             });
-            if (!host.children.length) host.textContent=this.tt('No equipment slots available');
+            if (!host.children.length) host.innerHTML=`<div class="vehicle-hint">${rrEscapeHtml(this.tt('No equipment slots available'))}</div>`;
             const stats=find('.vehicle-base-stats'); stats.innerHTML='';
             if (!selected) { stats.textContent=this.t('vehicle.noClass'); return; }
             const names=typeof rrParamNames==='function' ? rrParamNames(text=>this.tt(text)) : ['HP','MP','ATK','DEF','MAT','MDF','AGI','LUK'];

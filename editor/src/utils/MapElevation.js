@@ -376,8 +376,13 @@
         const sized = !!(sidecar3d && sidecar3d.eventSize && typeof sidecar3d.eventSize === 'object' && Object.keys(sidecar3d.eventSize).length);
         const physical = !!(sidecar3d && sidecar3d.physics && typeof sidecar3d.physics === 'object' && Object.keys(sidecar3d.physics).length);
         const planted = !!(sidecar3d && sidecar3d.foliage && typeof sidecar3d.foliage === 'object' && (sidecar3d.foliage.layers || sidecar3d.foliage.bushes));
+        // Ground types painted over the floor, and the land past the border.
+        const grounded = !!(sidecar3d && sidecar3d.ground && Array.isArray(sidecar3d.ground.types) && sidecar3d.ground.types.length);
+        const bordered = !!(sidecar3d && sidecar3d.surround && typeof sidecar3d.surround === 'object');
+        // A battle mode or start an older map keeps here, which the game still reads.
+        const fought = !!(sidecar3d && sidecar3d.battle && typeof sidecar3d.battle === 'object' && Object.keys(sidecar3d.battle).length);
         if (isFlat(mapData) && !grouped && !media && !modeled && !lifted && !previewed && !roomed && !propped && !built && !lit && !sized && !physical && !planted
-            && !(sidecar3d && sidecar3d.camera)) {
+            && !grounded && !bordered && !fought && !(sidecar3d && sidecar3d.camera)) {
             if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
             return true;
         }
@@ -974,10 +979,18 @@
         }
         return piece;
     };
+    // The stored list as last read: every write stores a new array (writePieces), so the same array,
+    // as long and on a map as large, reads the same. Each call still hands out pieces of its own.
+    let piecesRead = null;
     const pieces = mapData => {
         const sidecar = mapData && mapData.reactor3d;
         const list = sidecar && Array.isArray(sidecar.pieces) ? sidecar.pieces : [];
-        return list.map(raw => normalizePiece(raw, mapData)).filter(Boolean);
+        if (!list.length) return [];
+        const read = piecesRead;
+        if (!read || read.list !== list || read.length !== list.length || read.width !== mapData.width || read.height !== mapData.height) {
+            piecesRead = { list, length: list.length, width: mapData.width, height: mapData.height, pieces: list.map(raw => normalizePiece(raw, mapData)).filter(Boolean) };
+        }
+        return piecesRead.pieces.map(piece => Object.assign({}, piece));
     };
     const hasPieces = mapData => pieces(mapData).length > 0;
     const pieceAt = (mapData, x, y, z) => pieces(mapData).find(piece => piece.x === x && piece.y === y && piece.z === z) || null;
@@ -1011,11 +1024,17 @@
         // A door hangs in a doorway: it keeps a slot of its own beside it, as a slab does.
         const slot = kind => (kind === 'floor' ? 'floor' : kind === 'door' ? 'door' : 'piece');
         const at = list.findIndex(piece => piece.x === next.x && piece.y === next.y && piece.z === next.z && slot(piece.kind) === slot(next.kind));
-        const same = at >= 0 && list[at].kind === next.kind && list[at].rot === next.rot && list[at].material === next.material && next.kind !== 'door';
+        // The same piece again: everything it is drawn by, whatever building it belongs to.
+        const drawn = ({ id, group, ...rest }) => JSON.stringify(rest);
+        const same = at >= 0 && next.kind !== 'door' && drawn(list[at]) === drawn(next);
         if (same) return list[at].id;
         next.id = at >= 0 ? list[at].id : list.reduce((max, piece) => Math.max(max, piece.id), 0) + 1;
         if (at >= 0) list[at] = next; else list.push(next);
-        return writePieces(mapData, list) ? next.id : 0;
+        if (!writePieces(mapData, list)) return 0;
+        // What was stored is what was just read with the one piece changed: the next read need not work it out again.
+        const stored = mapData.reactor3d && mapData.reactor3d.pieces;
+        if (Array.isArray(stored) && stored.length === list.length) piecesRead = { list: stored, length: stored.length, width: mapData.width, height: mapData.height, pieces: list };
+        return next.id;
     };
     /** Take one piece off a cell at a level: what stands on the slab first, the slab itself only when nothing does. */
     const removePiece = (mapData, x, y, z) => {
@@ -1147,10 +1166,18 @@
         const list = pieces(mapData);
         const here = list.find(piece => piece.x === x && piece.y === y && piece.group);
         if (here) return here.group;
-        for (const group of new Set(list.map(piece => piece.group).filter(Boolean))) {
-            const bounds = pieceGroupBounds(mapData, group);
-            if (bounds && x >= bounds.x0 && x <= bounds.x1 && y >= bounds.y0 && y <= bounds.y1) return group;
+        // Every group's cells in one pass, in the order the groups first appear.
+        const all = new Map();
+        for (const piece of list) {
+            if (!piece.group) continue;
+            let bounds = all.get(piece.group);
+            if (!bounds) all.set(piece.group, bounds = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+            if (piece.x < bounds.x0) bounds.x0 = piece.x;
+            if (piece.y < bounds.y0) bounds.y0 = piece.y;
+            if (piece.x > bounds.x1) bounds.x1 = piece.x;
+            if (piece.y > bounds.y1) bounds.y1 = piece.y;
         }
+        for (const [group, bounds] of all) if (x >= bounds.x0 && x <= bounds.x1 && y >= bounds.y0 && y <= bounds.y1) return group;
         return 0;
     };
     /**

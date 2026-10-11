@@ -528,6 +528,15 @@
         A.update(this);
     };
 
+    // A click or a turn of the wheel made while the battle waits (a message, an event, its own ending) is not the
+    // battle's: the click that closes a message does not swing the blade when the battle goes on.
+    const updateFight = Game_Fight.prototype.update;
+    Game_Fight.prototype.update = function() {
+        A._ran = false;
+        updateFight.call(this);
+        if (!A._ran && this._action) { In.leftEdge = false; In.wheel = 0; }
+    };
+
     // A camera director's shot or a sequence settling holds a turn-based battle; nothing holds a real-time one.
     const isHeld = F.isHeld;
     F.isHeld = function() {
@@ -1799,7 +1808,8 @@
         const character = $gamePlayer, profile = A.profile(battler);
         const busy = !battler.canMove() || A.bodyBusy(character) || A.isActing(fight, unit.id);
         // The lock: Tab takes the opponent nearest the crosshair's line, again the next one; it lets go of one that fell.
-        if (p.lock && !fight.isAlive(fight.unit(p.lock))) { p.lock = 0; st.rev++; }
+        const held = p.lock ? fight.unit(p.lock) : null;
+        if (p.lock && (!fight.isAlive(held) || held.team !== F.oppose(unit.team))) { p.lock = 0; st.rev++; }
         if (In.triggered("lock")) fight.actionLock();
         // Locked on, the look swings round to keep the target ahead: left and right circle it.
         const R3 = world3(), lookNow = R3 && R3.Camera && R3.Camera.look;
@@ -2090,9 +2100,14 @@
         if (!this.isAction()) return false;
         const st = this.act(), p = st.player, unit = this.playerUnit(), battler = unit && this.battler(unit);
         if (!battler || !battler.isAlive() || !battler.isActor() || p.swing || p.reload > 0) return false;
-        const list = A.weaponsOf(battler);
+        // (A weapon the Database locks or seals in the hand is not changed here either.)
+        if (battler.isEquipChangeOk && !battler.isEquipChangeOk(0)) return false;
+        const list = A.weaponsOf(battler), held = battler.weapons()[0] || null;
         if (list.length < 2) return false;
-        const next = list[((step < 0 ? list.length - 1 : 1) % list.length + list.length) % list.length];
+        // The round is the weapons carried in the Database's order, whichever is in hand: a step on from the one held
+        // comes to each in turn (the list itself starts with the one held, so its second is only ever the last one held).
+        const round = list.slice().sort((a, b) => a.id - b.id), at = round.indexOf(held);
+        const next = round[((at < 0 && step < 0 ? 0 : at) + (step < 0 ? -1 : 1) + round.length) % round.length];
         battler.changeEquip(0, next);
         if (battler.weapons()[0] !== next) return false;
         p.cooldown = 18; p.combo = 0; p.comboTimer = 0;
@@ -2127,7 +2142,20 @@
         return true;
     };
 
-    /** Uses the hotbar's `slot` (1-8): on the aimed or locked opponent, the user, or the friend most hurt, as its Scope says. */
+    /** The fallen party members an action that revives lands on: those lying as near as a friendly action reaches (the nearest, or all of them). */
+    A.fallenNear = function(fight, unit, action) {
+        const from = fight.character(unit), list = [];
+        for (const other of fight._units) {
+            if (other.gone || other.eventId || other.team !== unit.team) continue;
+            const battler = fight.battler(other), body = fight.character(other);
+            if (battler && battler.isDead() && body && fight.distance(from, body) <= 2) list.push(other);
+        }
+        if (action.isForAll() || list.length < 2) return list;
+        list.sort((a, b) => fight.distance(from, fight.character(a)) - fight.distance(from, fight.character(b)));
+        return list.slice(0, 1);
+    };
+
+    /** Uses the hotbar's `slot` (1-8): on the aimed or locked opponent, the user, the friend most hurt or a fallen one, as its Scope says. */
     Game_Fight.prototype.actionUse = function(slot) {
         if (!this.isAction()) return false;
         const st = this.act(), p = st.player, unit = this.playerUnit(), battler = unit && this.battler(unit);
@@ -2140,6 +2168,7 @@
         if (skill) action.setSkill(item.id); else action.setItem(item.id);
         let targets, lobbed = false;
         if (action.isForUser()) targets = [unit];
+        else if (action.isForDeadFriend()) targets = A.fallenNear(this, unit, action);
         else if (action.isForFriend()) targets = this.actionTargets(unit, action, unit);
         else {
             let tactics = null;
@@ -2147,7 +2176,7 @@
             const reach = Math.max(1.6, (tactics ? tactics.max : 4) * A.RANGE_SCALE);
             // Not at one behind a wall, a shut door or the ground, unless it needs no line (`<los: no>`).
             lobbed = !!tactics && tactics.los === false;
-            const within = other => !!other && this.isAlive(other) && A.gap(this, $gamePlayer, this.character(other)) <= reach
+            const within = other => !!other && other.team === F.oppose(unit.team) && this.isAlive(other) && A.gap(this, $gamePlayer, this.character(other)) <= reach
                 && (lobbed || A.blowClear(this, $gamePlayer, this.character(other)));
             // On the one locked or under the crosshair; else on the nearest it can reach with a clear way.
             let target = p.lock ? this.unit(p.lock) : aim.target ? this.unit(aim.target) : null;
@@ -2636,9 +2665,11 @@
     /** How many units are winding up or striking at a unit right now. */
     A.attackersOn = function(fight, st, targetId) {
         let count = 0;
-        for (const id of Object.keys(st.ai)) {
-            const other = st.ai[id];
-            if (other.targetId === targetId && (other.state === "windup" || other.state === "recover" && other.timer > 12)) count++;
+        for (const unit of fight._units) {
+            const other = st.ai[unit.id];
+            if (!other || other.targetId !== targetId || !(other.state === "windup" || other.state === "recover" && other.timer > 12)) continue;
+            // One that fell or left mid-blow keeps the state it had, and holds nobody off.
+            if (fight.isAlive(unit)) count++;
         }
         return count;
     };
@@ -2649,7 +2680,8 @@
         ai.state = "recover";
         ai.timer = 24;
         ai.cool = Math.max(80, 170 - Math.round(battler.agi / 3)) + Math.floor(Math.random() * 50);
-        if (!target || !fight.isAlive(target)) return;
+        // (Nor at one who came over to its side while it wound up.)
+        if (!target || !fight.isAlive(target) || target.team === unit.team) return;
         const to = fight.character(target);
         const item = (typeof $dataSkills !== "undefined" && $dataSkills[ai.skillId]) || $dataSkills[battler.attackSkillId()];
         if (!item || !battler.canUse(item)) return;
@@ -2665,7 +2697,8 @@
             if (flat) dy = 0;
             const length = Math.hypot(dx, dy, dz) || 1;
             const flying = profile.speed > 0 ? profile : Object.assign({}, profile, { speed: A.PROJECTILES.bolt, projectile: "bolt" });
-            A.fire(fight, unit, Object.assign({}, flying, { range: Math.max(flying.range, ai.reach + 3), damage: 1 }), item.id, m.ox, m.oy, m.oz, dx / length, dy / length, dz / length, flat, 2);
+            // One attack's worth the shot: of a weapon that fires several at once (a shotgun), a pellet lands its share.
+            A.fire(fight, unit, Object.assign({}, flying, { range: Math.max(flying.range, ai.reach + 3), damage: 1 / Math.max(1, flying.pellets || 1) }), item.id, m.ox, m.oy, m.oz, dx / length, dy / length, dz / length, flat, 2);
             fight.playMotion(character, "attack");
             if (typeof SoundManager !== "undefined" && SoundManager.playEnemyAttack) SoundManager.playEnemyAttack();
             return;
@@ -2674,11 +2707,33 @@
         A.startRun(fight, unit, action, targets, ai.kind === "melee" ? { reach: ai.reach + 0.1 } : { aimed: true, lobbed: !!ai.lobbed });
     };
 
+    /**
+     * Which sides the map's pages wait for to enter an area (`{ ally, enemy }`): asked once a battle, so on a map
+     * with no such page a walk costs nothing.
+     */
+    A.enterHooks = function(fight) {
+        const kept = A._enters || (A._enters = { serial: -1, map: null, ally: false, enemy: false });
+        const map = typeof $dataMap !== "undefined" ? $dataMap : null;
+        if (kept.serial === fight._serial && kept.map === map) return kept;
+        kept.serial = fight._serial; kept.map = map; kept.ally = kept.enemy = false;
+        for (const event of $gameMap.events()) {
+            const data = event && event.event ? event.event() : null;
+            for (const page of (data && data.pages) || []) {
+                const hook = F.pageHook(page);
+                if (!hook || hook.on !== "unitEnters") continue;
+                if (hook.team !== "enemy") kept.ally = true;
+                if (hook.team !== "ally") kept.enemy = true;
+            }
+        }
+        return kept;
+    };
+
     //-------------------------------------------------------------------------
     // The frame.
 
     A.update = function(fight) {
         const st = fight.act();
+        A._ran = true;
         if (st.stop > 0) {
             // The instant a blade lands: nothing moves on, and a click made now still counts.
             st.stop--;
@@ -2696,6 +2751,9 @@
             for (const unit of fight._units) {
                 if (unit.gone || !fight.isAlive(unit)) continue;
                 const battler = fight.battler(unit);
+                // Nobody's actions end here as they do in a battle of turns: the turn ends them, so a state that
+                // wears off at Action End and a buff whose turns have run out go with it.
+                battler.onAllActionsEnd();
                 battler.onTurnEnd();
                 if (battler.isDead()) fight.defeat(unit);
             }
@@ -2709,10 +2767,21 @@
         if (p.aim) A.placeAimAt($gamePlayer);
         else if (p.raised > 0 && --p.raised === 0) A.holdAim(fight, $gamePlayer, false);
         const player = typeof $gamePlayer !== "undefined" ? $gamePlayer : null, playerUnit = fight.playerUnit();
+        const enters = A.enterHooks(fight);
         A._thinks = 0;
         for (const unit of fight._units) {
-            if (unit.gone || unit === playerUnit || unit.team === "neutral" || !fight.isAlive(unit)) continue;
+            if (unit.gone || unit.team === "neutral") continue;
+            if (!fight.isAlive(unit)) {
+                // Fallen by something other than a blow (an event's command, poison on the walk): it falls as any other does.
+                if (!unit.defeated && !unit.down) { const fallen = fight.battler(unit); if (fallen && fallen.isDead()) fight.defeat(unit); }
+                continue;
+            }
+            // A party member brought back can fall again.
+            if (unit.defeated && !unit.eventId) unit.defeated = false;
             const character = fight.character(unit), battler = fight.battler(unit);
+            // Whoever has come onto another cell, the player too: the pages that run when a unit enters an area.
+            if (enters[unit.team]) fight.checkEnterHooks(unit, character);
+            if (unit === playerUnit) continue;
             A.updateUnit(fight, st, unit, character, battler, A.aiOf(fight, st, unit, character), player);
         }
         for (let i = st.runs.length - 1; i >= 0; i--) {
@@ -3252,6 +3321,8 @@
             if (fight && fight.isAction() && fight.isHere() && !A._entered) A.enter(fight);
             // (A battle kept running on the map the party left is not here: the map's own keys are the map's again.)
             else if (A._entered && !(fight && fight.isAction() && fight.isHere())) { A._entered = false; if (root.ReactorControls && root.ReactorControls.setAction) root.ReactorControls.setAction(false); }
+            // (Back from another scene, which had the ordinary keys: the battle's again.)
+            else if (A._entered && root.ReactorControls && root.ReactorControls.setAction) root.ReactorControls.setAction(true);
             if (fight && fight.isAction() && fight.isHere()) A.updateCapture(fight);
             if (typeof Sprite !== "undefined" && typeof Bitmap !== "undefined") { Hud.update(this); Prompt.update(this); Notice.update(this); }
         };
@@ -3264,6 +3335,16 @@
             // The menu (or any other scene) gave the mouse back: the battle takes it again when the map returns.
             if (A._held && typeof $gameFight !== "undefined" && $gameFight && $gameFight.isAction()) A._retake = true;
             A._held = false;
+        };
+        // Another scene (the menu, the title) has its own use for the battle's keys and buttons: a pad's Cancel is the
+        // battle's dodge, and nothing else on it would close the menu.
+        const terminateScene = Scene_Map.prototype.terminate;
+        Scene_Map.prototype.terminate = function() {
+            if (root.ReactorControls && root.ReactorControls.setAction) root.ReactorControls.setAction(false);
+            if (terminateScene) terminateScene.call(this);
+            // What flies was drawn in this scene (once more as it ended) and ends with it: a shot still in the air
+            // is drawn again by the scene that comes next, never placed on a sprite of the one that is gone.
+            A.dropAllFx();
         };
     }
 

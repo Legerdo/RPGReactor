@@ -754,14 +754,27 @@ Scene_Map.prototype.onMapLoaded = function() {
 };
 
 Scene_Map.prototype.onTransfer = function() {
+    // Over a border into the map shown past it: its pictures are the ones in use.
+    if (this.isBorderCrossing()) return;
     ImageManager.clear();
     EffectManager.clear();
+};
+
+// Whether this map was entered over a border without a break (Reactor3D.Neighbors).
+Scene_Map.prototype.isBorderCrossing = function() {
+    return typeof Reactor3D !== "undefined" && !!(Reactor3D.Neighbors && Reactor3D.Neighbors.crossing);
 };
 
 Scene_Map.prototype.start = function() {
     Scene_Message.prototype.start.call(this);
     SceneManager.clearStack();
-    if (this._transfer) {
+    if (this._transfer && this.isBorderCrossing()) {
+        // One world: no fade, no save in the middle of a walk, and the first picture is of the map entered.
+        this._mapNameWindow.open();
+        $gameMap.autoplay();
+        this._spriteset.update();
+        Reactor3D.Neighbors.end();
+    } else if (this._transfer) {
         this.fadeInForTransfer();
         this.onTransferEnd();
     } else if (this.needsFadeIn()) {
@@ -852,10 +865,12 @@ Scene_Map.prototype.isBusy = function() {
 Scene_Map.prototype.terminate = function() {
     Scene_Message.prototype.terminate.call(this);
     if (!SceneManager.isNextScene(Scene_Battle)) {
-        this._spriteset.update();
+        // Over a border the map entered draws its own first picture: this one is neither drawn again nor kept as a still.
+        const crossing = SceneManager.isNextScene(Scene_Map) && this.isBorderCrossing();
+        if (!crossing) this._spriteset.update();
         this._mapNameWindow.hide();
         this.hideMenuButton();
-        SceneManager.snapForBackground();
+        if (!crossing) SceneManager.snapForBackground();
     }
     $gameScreen.clearZoom();
 };
@@ -3739,7 +3754,8 @@ Scene_Map.prototype.onMapLoaded = function() {
     if (typeof Reactor3D !== "undefined" && Reactor3D.preloadMapModels
         && typeof $dataMap !== "undefined" && $dataMap) {
         const specs = Reactor3D.collectMapModelSpecs($dataMap);
-        if (specs.length) {
+        // Over a border the models stood in view already; any that did not arrive as they load.
+        if (specs.length && !this.isBorderCrossing()) {
             this._reactorPreloadDone = false;
             const done = () => { this._reactorPreloadDone = true; };
             Reactor3D.preloadMapModels($dataMap).then(done, done);

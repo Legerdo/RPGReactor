@@ -151,7 +151,7 @@ class EventPageEditor {
                        data-field="variableValid"
                        data-page-index="${pageIndex}"
                        ${conditions.variableValid ? 'checked' : ''}>
-                <label style="min-width: 70px; flex-shrink: 0; font-size: 12px;">${tt('Variable')}</label>
+                <label style="min-width: 70px; flex-shrink: 0; font-size: 12px;">${tt('Variable')}:</label>
                 <button class="variable-picker-btn"
                         data-field="variableId"
                         data-page-index="${pageIndex}"
@@ -383,7 +383,7 @@ class EventPageEditor {
                                 return `<button type="button" class="image-dir-btn" data-dir="${dir}"
                                     style="margin-left:3px;padding:1px 5px;font-size:10px;border-radius:3px;cursor:pointer;border:1px solid ${on ? 'var(--color-accent-bright)' : 'var(--color-border-input)'};background:${on ? 'var(--color-accent-tint-30)' : 'var(--color-bg-surface)'};color:var(--color-text);">${tt(label)}</button>`;
                             }).join('')}`
-                        : `<strong style="color: var(--color-text);">${rrEscapeHtml(this.frameWords(image, directionName))}</strong>${image.tileId > 0 ? ` | ${this._t('event.tile')} <strong style="color: var(--color-text);">${image.tileId}</strong>` : ''}`}
+                        : `${image.characterName ? `<strong style="color: var(--color-text);">${rrEscapeHtml(this.frameWords(image, directionName))}</strong>` : ''}${image.tileId > 0 ? `${image.characterName ? ' | ' : ''}${this._t('event.tile')} <strong style="color: var(--color-text);">${image.tileId}</strong>` : ''}`}
                 </div>
             </div>
         `;

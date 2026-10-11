@@ -1174,7 +1174,7 @@ test('the battle words are a group of their own on Terms, each word\'s English a
     const ui = Object.create(Shell.prototype);
     const system = { reactorBattle: { mode: 'tactical', turns: 'team', terms: { wait: 'Hold', endTurnAsk: 'Done?\nReally?', homebrew: 'Mine' } } };
     const html = ui.battleWordsPanel(system);
-    assert.match(html, /<section class="rr-terms-panel rr-terms-battle-panel rr-db-fold" data-section-key="battle-words">\s*<header class="rr-db-fold-header" data-i18n-text-source="Battles on the Map">Battles on the Map<\/header>/, 'a panel that folds by its own name');
+    assert.match(html, /<section class="rr-terms-panel rr-terms-battle-panel database-section rr-db-fold" data-section-key="battle-words">\s*<header class="database-section-header rr-db-fold-header" data-i18n-text-source="Battles on the Map">Battles on the Map<\/header>/, 'a panel that folds by its own name');
     const panel = page(html);
     const rows = panel.querySelectorAll('.rr-terms-message-row');
     const byKey = new Map(rows.map(row => [row.querySelector('input').dataset.key, row]));

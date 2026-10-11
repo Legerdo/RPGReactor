@@ -280,6 +280,40 @@
         return copy.defaultPrevented;
     }
 
+    /**
+     * An event command's dialog with no keyboard of its own lying on top (a layer in <body> classed
+     * `…-editor-modal`, with a `.rr-modal-close` button): Escape presses that button, wherever the focus
+     * was left (in it, on the page, on the command list underneath). Returns whether it did. The editors
+     * those dialogs open from are not such layers: Escape never closes one of them from here.
+     */
+    function closeUnkeyedDialog(event) {
+        const doc = root.document;
+        if (typeof doc.elementFromPoint !== 'function' || !(root.innerWidth > 0)) return false;
+        let layer = doc.elementFromPoint(root.innerWidth / 2, root.innerHeight / 2);
+        while (layer && layer.parentElement && layer.parentElement !== doc.body) layer = layer.parentElement;
+        if (!layer || layer.parentElement !== doc.body) return false;
+        if (!String(layer.className || '').split(/\s+/).some(name => /-editor-modal$/.test(name))) return false;
+        for (const trap of modals) if (trap.overlay === layer) return false;
+        const close = Array.from(layer.querySelectorAll('.rr-modal-close')).find(visible);
+        if (!close) return false;
+        // A key pressed in a control that has since gone was somebody else's, and they have answered it.
+        const target = event.target;
+        const page = !target || target === doc || target === doc.body || target === doc.documentElement;
+        if (!page && (!connected(target) || !visible(target))) return false;
+        close.click();
+        return true;
+    }
+
+    // Always listening, since such a dialog registers nothing, and on the window: a menu, a popup, a dialog
+    // with keys of its own and every owner listening on the document have had the key first.
+    function onUnkeyedEscape(event) {
+        if (event.key !== 'Escape' || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+        for (const controller of Array.from(openMenus)) if (!connected(controller.element)) openMenus.delete(controller);
+        if (openMenus.size || topModal()) return;
+        if (closeUnkeyedDialog(event)) event.preventDefault();
+    }
+    if (typeof root.addEventListener === 'function') root.addEventListener('keydown', onUnkeyedEscape);
+
     // Bubble phase: a menu, a popup or an owner listening on the document has had the key first, and
     // one that took it (preventDefault, or stopPropagation while capturing) is left to it.
     function onStrayModalKey(event) {

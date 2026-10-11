@@ -655,6 +655,10 @@ class MapEditor3D {
         try { this.clearScene(); } catch (error) {
             console.error('Could not completely clear the 3D scene:', error);
         }
+        // The maps past the border were kept for the next scene: there is none.
+        try { globalThis.RRMapNeighborView?.dispose(this); } catch (error) {
+            console.error('Could not clear the neighboring maps:', error);
+        }
         const sharedPixiRenderer = this._sharedPixiRenderer;
         if (this.renderer) {
             const renderer = this.renderer;
@@ -1019,6 +1023,8 @@ class MapEditor3D {
             flags: tileset.flags,
             tilesetId: tileset.id,
             tileSize: this.tilePixels(),
+            // The maps past the border stand through a rebuild (RRMapNeighborView): no land is laid where they do.
+            surroundNone: globalThis.RRMapNeighborView?.noneFor(this, mapData) || null,
             // The runtime reaches for ImageManager here. There is no game
             // running in the editor, so the pictures come off disk instead —
             // without which a parallax-mapped map previews as its bare tile
@@ -1037,6 +1043,8 @@ class MapEditor3D {
         if (skyOffset) this.mapScene.setSkyOffset?.(skyOffset);
         this.applyAtmosphere(mapData);
         globalThis.RRMapEdges?.syncView?.(this);
+        // The maps past the border: those kept from the scene before stand again now, a new one is built once this map is drawn.
+        globalThis.RRMapNeighborView?.sync(this);
         this.buildGrid(mapData);
         this.buildHoverCell();
         if (!await this.buildEvents(mapData, request)) return false;
@@ -4830,6 +4838,8 @@ class MapEditor3D {
             this.riverGhost = null;
         }
         if (this.mapScene) {
+            // The maps past the border are not this scene's to destroy: they stand in the next one.
+            globalThis.RRMapNeighborView?.hold(this);
             this.mapScene.destroy();
             this.mapScene = null;
         }
@@ -6181,6 +6191,8 @@ class MapEditor3D {
                 if (this.eventGroup) this.eventGroup.visible = false;
                 if (this.grid) this.grid.visible = false;
                 if (this.hoverCell) this.hoverCell.visible = false;
+                // The maps past the border are drawn once, with the ground: setPass does not reach their groups.
+                globalThis.RRMapNeighborView?.pass(this, false);
             };
             if (this.mapScene.hasAbove()) {
                 hideEditorLayers();
@@ -6209,6 +6221,7 @@ class MapEditor3D {
             if (this.eventGroup && eventVisible !== null) this.eventGroup.visible = eventVisible;
             if (this.grid && gridVisible !== null) this.grid.visible = gridVisible;
             if (this.hoverCell && hoverVisible !== null) this.hoverCell.visible = hoverVisible;
+            globalThis.RRMapNeighborView?.pass(this, true);
             this.mapScene.setPass('all');
         }
     }
@@ -6218,8 +6231,9 @@ class MapEditor3D {
      * same swap the game makes, so a far prop costs what it costs in play.
      */
     pickPropLods() {
-        const group = this.propGroup;
-        if (!group || !this.camera || typeof Reactor3D === 'undefined' || !Reactor3D.pickLod) return;
+        const group = this.propGroup, neighbors = globalThis.RRMapNeighborView;
+        const beside = !!neighbors && neighbors.hasProps(this);
+        if ((!group && !beside) || !this.camera || typeof Reactor3D === 'undefined' || !Reactor3D.pickLod) return;
         const eye = this.camera.position;
         // This view's own camera and canvas, because the levels are also
         // chosen by how much of the screen a model covers and there is no
@@ -6232,11 +6246,13 @@ class MapEditor3D {
             const size = this.renderer.getSize(new THREE.Vector2());
             screen = Reactor3D.lodScreen(this.camera, size.x, size.y);
         }
-        for (const object of group.children) {
+        for (const object of group ? group.children : []) {
             if (object.userData && object.userData.lodKey) {
                 Reactor3D.pickLod(object, Reactor3D.instanceSpan(object), eye, undefined, screen);
             }
         }
+        // The placed models of the maps past the border, by the same rule.
+        if (beside) neighbors.lods(this, eye, screen);
     }
 
     /**

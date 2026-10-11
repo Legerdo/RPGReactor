@@ -509,6 +509,7 @@ navigation sequences in a disposable project. Set `RR_INTERACTION_SEED` to repla
 another sequence; failures retain the seed and action trace in the uploaded JSON.
 `smoke:nw-keyboard`, `smoke:nw-menus` and `smoke:nw-event-double-click` are CI gates too.
 All NW.js smokes accept `--nw-root=/path/to/matching/sdk`.
+`npm run smoke:nw-choices` is a local check that needs a display: in the real editor it tries each trait row (Actors, Classes, Vehicles; a sample on Weapons, Armors, Enemies, States) and each effect row (Skills, Items) while greyed, then selects it, sets it, presses OK and compares the stored record and the list's wording with what was picked.
 `npm run smoke:nw-ui` checks the responsive interface editor
 from 1280x720 through 2560x1440 as a local release gate. Prior GUI passes do not
 replace a fresh check of the candidate, and Node tests do not establish visual

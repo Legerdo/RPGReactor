@@ -869,7 +869,7 @@ class DatabaseEnemyEditor {
         return `
             <details class="enemy-forecast" id="enemy-forecast-${enemy.id}"${state.open ? ' open' : ''}>
                 <summary class="enemy-forecast-summary">
-                    <span>${tt('Behaviour forecast')}</span>
+                    <span>${tt('Behavior forecast')}</span>
                     ${badge}
                 </summary>
                 <div class="enemy-forecast-body">

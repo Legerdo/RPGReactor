@@ -448,6 +448,11 @@
         this._hookInterpreter = null;
         // What the battle says on a HUD's banner (`announce`).
         this._notice = null;
+        // The rounds in a row nobody moved or acted in (`nextInQueue`): each battle counts its own.
+        this._idleRounds = 0;
+        this._progress = false;
+        // The units spawned for a battle kept on a map the party left, until it is back (`Game_Map.setup`).
+        this._spawnedKept = null;
     };
 
     Game_Fight.prototype.isActive = function() { return this._active; };
@@ -821,6 +826,22 @@
             follower.setOpacity($gamePlayer.opacity());
         }
         $gamePlayer.refresh();
+    };
+
+    /**
+     * The party walks out of a battle that is kept on its map (`away`), or back into it. Away from it the
+     * followers trail the leader as on any map, hidden where the game had them hidden; back in it each is a
+     * unit on its own again.
+     */
+    Game_Fight.prototype.partyAway = function(away) {
+        const followers = $gamePlayer.followers();
+        const hidden = !!this._followers && !this._followers.visible;
+        if (away) F.endRegroup(followers);
+        for (const follower of followers.data()) follower.setThrough(!!away);
+        if (hidden && away === followers.isVisible()) {
+            if (away) followers.hide(); else followers.show();
+            $gamePlayer.refresh();
+        }
     };
 
     Game_Fight.prototype.restoreParty = function() {
@@ -1462,7 +1483,11 @@
         if (!unit || unit.gone) return;
         unit.gone = true;
         const character = unit.eventId ? $gameMap.event(unit.eventId) : null;
-        if (character && !keep) character.erase();
+        if (character && !keep) {
+            character.erase();
+            // Off the map with it, and still off it when the map is read again under this battle (`eraseFallen`).
+            unit.erased = true;
+        }
         this.syncTroop();
         this.checkOutcome();
     };
@@ -1876,6 +1901,10 @@
             };
             Object.defineProperty(run, "_ctx", { value: ctx, enumerable: false, writable: true });
         }
+        // An enemy's action finds its subject by its place in the troop, which moves up when a unit before it
+        // leaves the battle (Remove Unit) while the action plays.
+        const battler = ctx.subject.enemy;
+        if (battler && battler.index() >= 0 && ctx.action.subject() !== battler) ctx.action.setSubject(battler);
         ctx.frame = run.frame;
         return ctx;
     };
@@ -2211,6 +2240,20 @@
         this._fading = this._fading.filter(fade => fade.frames > 0);
     };
 
+    /**
+     * The map of a battle that is still on was read again (the party is back on the map of a battle that was kept,
+     * or a load read the map anew): every event stands on it as authored, and those of the units that fell in the
+     * battle, or left it and the map, are taken off it again.
+     */
+    Game_Fight.prototype.eraseFallen = function() {
+        for (const unit of this._units) {
+            if (!unit.eventId || !(unit.defeated || unit.erased)) continue;
+            const event = $gameMap.event(unit.eventId);
+            if (event && !event._erased) event.erase();
+        }
+        this._fading.length = 0;
+    };
+
     Game_Fight.prototype.checkOutcome = function(roundEnded) {
         if (!this._active || this._ending) return;
         // One who joined already down and has been revived since is in the battle like anyone: falling again is falling here.
@@ -2219,7 +2262,8 @@
             const battler = this.battler(unit);
             if (battler && battler.isAlive()) unit.down = false;
         }
-        const party = this._units.filter(unit => unit.party && !unit.gone);
+        // The party in the battle: a member an event took out of the party since stands on the map as nobody, and is not counted.
+        const party = this._units.filter(unit => unit.party && !unit.gone && this.character(unit));
         if (party.length && party.every(unit => this.battler(unit).isDead())) {
             this.end(F.LOSE);
             return;
@@ -2493,11 +2537,15 @@
     const performTransfer = Game_Player.prototype.performTransfer;
     Game_Player.prototype.performTransfer = function() {
         arriving = this.isTransferring() && this.newMapId() !== $gameMap.mapId();
+        const fight = typeof $gameFight !== "undefined" && $gameFight && $gameFight._active ? $gameFight : null;
+        const here = !!fight && fight.isHere();
         try {
             performTransfer.call(this);
         } finally {
             arriving = false;
         }
+        // The party left the map of a battle that is kept, or is back on it.
+        if (fight && fight._active && fight.isHere() !== here) fight.partyAway(here);
     };
     // Nor can they be gathered: they would never arrive (they do not trail), and an event that waits for the
     // gather (a battle page, a common event) would hold the battle for good.
@@ -2576,13 +2624,25 @@
         reserveTransfer.call(this, mapId, x, y, d, fadeType);
     };
 
-    // Items and skills marked for battle work for units in an on-map battle.
+    // Items and skills marked for battle work for units in an on-map battle. A menu opened over the battle (the
+    // pause menu of an Action battle) keeps the menu's own rule: it cannot aim what only a battle uses, and would
+    // spend it for nothing.
     const isOccasionOk = Game_BattlerBase.prototype.isOccasionOk;
     Game_BattlerBase.prototype.isOccasionOk = function(item) {
         if (typeof $gameFight !== "undefined" && $gameFight && $gameFight.isHere() && !$gameParty.inBattle()) {
-            return item.occasion === 0 || item.occasion === 1;
+            const scene = typeof SceneManager !== "undefined" && SceneManager ? SceneManager._scene : null;
+            const menu = !!scene && typeof Scene_Map !== "undefined" && !(scene instanceof Scene_Map);
+            if (!menu) return item.occasion === 0 || item.occasion === 1;
         }
         return isOccasionOk.call(this, item);
+    };
+
+    // A turn in a battle on the map is the battle's own: the party's steps there do not end turns besides (states
+    // and buffs counted down, HP mended or poisoned every twenty steps of the leader's, the party alone).
+    const turnEndOnMap = Game_Actor.prototype.turnEndOnMap;
+    Game_Actor.prototype.turnEndOnMap = function() {
+        if (typeof $gameFight !== "undefined" && $gameFight && $gameFight.isHere()) return;
+        turnEndOnMap.call(this);
     };
 
     const updateMap = Game_Map.prototype.update;
@@ -2595,10 +2655,22 @@
     const setupMap = Game_Map.prototype.setup;
     Game_Map.prototype.setup = function(mapId) {
         const same = mapId === this._mapId;
-        if (!same) this._rrSpawned = null;
+        const fight = typeof $gameFight !== "undefined" && $gameFight && $gameFight._active ? $gameFight : null;
+        if (!same) {
+            // A battle kept on the map being left keeps the units spawned for it until the party is back.
+            if (fight && fight._mapId === this._mapId && this._rrSpawned) fight._spawnedKept = this._rrSpawned;
+            this._rrSpawned = null;
+        }
         setupMap.call(this, mapId);
-        // The same map set up again (a load after the project changed reloads it): units still standing come back.
-        if (same && this._rrSpawned) F.reinstateSpawned(this);
+        const back = !same && !!fight && fight._mapId === mapId;
+        if (back && fight._spawnedKept) {
+            this._rrSpawned = fight._spawnedKept;
+            fight._spawnedKept = null;
+        }
+        // The same map set up again (a load after the project changed reloads it), or the map of a battle that was
+        // kept: units still standing come back, and those that fell in the battle do not.
+        if ((same || back) && this._rrSpawned) F.reinstateSpawned(this);
+        if (fight && fight._mapId === mapId) fight.eraseFallen();
     };
 
     F.reinstateSpawned = function(map) {
@@ -2630,7 +2702,8 @@
         // unless the battle can be lost), not in the map's own Game Over before the battle has ended.
         const checkGameover = Scene_Map.prototype.checkGameover;
         Scene_Map.prototype.checkGameover = function() {
-            if ($gameFight.isActive()) return;
+            // (One kept on a map the party left judges nothing there: the map the party is on does.)
+            if ($gameFight.isHere()) return;
             checkGameover.call(this);
         };
         // The menu (and saving) stays open while the only event running is the one waiting for the fight.
@@ -2861,7 +2934,8 @@
     // How near the picture's edges a number may sit: pixels from the sides, shares of its height from the top
     // (under a target's name and bar) and for the bottom (over the HUD's row). `off`: how far past a side its unit
     // may be before the number is not shown at all.
-    F.POPUP_EDGE = { side: 36, top: 0.16, bottom: 0.76, off: 60 };
+    // `line`: a number's own height, which stands above the point it is put at.
+    F.POPUP_EDGE = { side: 36, top: 0.16, bottom: 0.76, off: 60, line: 44 };
 
     /**
      * Puts a damage number where its unit is now. Out of sight while the unit is behind the eye, off to the side
@@ -2888,7 +2962,7 @@
         const width = Graphics.width, height = Graphics.height;
         sprite.visible = head.visible && sprite._rrSeen && head.x >= -edge.off && head.x <= width + edge.off;
         if (!sprite.visible) return;
-        const top = Math.round(height * edge.top), at = Math.max(top, Math.min(Math.round(height * edge.bottom), head.y));
+        const top = Math.round(height * edge.top) + (edge.line || 0), at = Math.max(top, Math.min(Math.round(height * edge.bottom), head.y));
         // The numbers of one unit stand upward from its head; where the head is at the top of the picture, downward.
         if (sprite._rrDown === undefined) sprite._rrDown = at - top < F.POPUP_SPREAD[F.POPUP_SPREAD.length - 1][1];
         sprite.x = Math.max(edge.side, Math.min(width - edge.side, head.x + spread[0]));

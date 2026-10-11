@@ -192,7 +192,7 @@ test('a translated title goes back to its English source', () => {
 test('a named card keeps its name in every language, whatever shares its translation', () => {
     const { manager, tables } = labelManager();
     const cards = namedCards();
-    assert.ok(cards.length >= 85, `the pages name their cards (${cards.length} found)`);
+    assert.ok(cards.length >= 83, `the pages name their cards (${cards.length} found)`);
     for (const [file, key, title] of cards) {
         // This heading now names both modes sharing the bindings; keep the old fold choice.
         const originalTitle = file === 'DatabaseControlsEditor.js' && title === 'Action and First Person Battles' ? 'Action battles' : title;
@@ -408,6 +408,65 @@ test('the web edition has no disk even where Node is there to ask', () => {
     const dir = tempDir();
     const desktop = load({ RPGReactorWebHost: host, RPGReactorHost: {}, localStorage: memoryStorage() }).createStore({ env: { [S.STATE_DIR_ENV]: dir }, warn: () => {} });
     assert.equal(desktop.file, path.join(dir, 'database-sections.json'), 'the desktop host: the per-user file');
+});
+
+//-----------------------------------------------------------------------------
+// The record last selected on each list page.
+
+/** A selection store in a temp folder, as an editor window started with the override would make it. */
+function selectionStore(dir = tempDir(), extra = {}) {
+    return S.createSelectionStore(Object.assign({ fs, path, os, env: { [S.STATE_DIR_ENV]: dir }, platform: process.platform, warn: () => {} }, extra));
+}
+
+test('the record selected on a page is kept per project and per page, in a file of its own, and a new window reads it', () => {
+    const dir = tempDir(), projectA = path.join(dir, 'GameA'), projectB = path.join(dir, 'GameB');
+    fs.mkdirSync(projectA); fs.mkdirSync(projectB);
+    const store = selectionStore(dir), folds = diskStore(dir);
+    assert.equal(store.file, path.join(dir, 'database-selection.json'));
+    assert.notEqual(store.file, folds.file);
+    assert.equal(store.get(projectA, 'items', 'id'), undefined, 'never selected');
+    assert.equal(store.set(projectA, 'items', 'id', 9), true);
+    assert.equal(store.set(projectA, 'weapons', 'id', 3), true);
+    // The stock rows of Vehicles are numbered below zero.
+    assert.equal(store.set(projectA, 'vehicles', 'id', -2), true);
+    assert.equal(folds.set(projectA, 'items', 'general', true), true);
+    assert.deepEqual([store.get(projectA, 'items', 'id'), store.get(projectA, 'weapons', 'id'), store.get(projectA, 'vehicles', 'id')], [9, 3, -2]);
+    assert.equal(store.get(projectB, 'items', 'id'), undefined, 'another project is its own');
+    const restarted = selectionStore(dir);
+    assert.equal(restarted.get(projectA, 'items', 'id'), 9);
+    assert.deepEqual(JSON.parse(fs.readFileSync(store.file, 'utf8')), { version: 1, projects: { [fs.realpathSync(projectA)]: { items: { id: 9 }, weapons: { id: 3 }, vehicles: { id: -2 } } } });
+    assert.deepEqual(JSON.parse(fs.readFileSync(folds.file, 'utf8')).projects[fs.realpathSync(projectA)], { items: { general: true } }, 'the folds are not mixed with it');
+    assert.deepEqual(fs.readdirSync(projectA), [], 'nothing is written into the project');
+});
+
+test('a selection is a whole number: anything else is neither kept nor read, and the same record is not written twice', () => {
+    const dir = tempDir(), store = selectionStore(dir);
+    for (const bad of ['7', 7.5, true, null, undefined, NaN, {}]) assert.equal(store.set('/project', 'items', 'id', bad), false, String(bad));
+    assert.equal(fs.existsSync(store.file), false, 'nothing was written');
+    assert.equal(store.set('/project', 'items', 'id', 7), true);
+    const written = fs.statSync(store.file).mtimeMs;
+    fs.utimesSync(store.file, new Date(1000), new Date(1000));
+    assert.equal(store.set('/project', 'items', 'id', 7), true);
+    assert.equal(fs.statSync(store.file).mtimeMs, 1000, 'the file is left alone when the record is the same');
+    assert.ok(written > 1000);
+    // A file someone damaged, or one that holds folds: read as far as it is a selection.
+    fs.writeFileSync(store.file, JSON.stringify({ version: 1, projects: { '/project': { items: { id: '9' }, weapons: { id: 4, general: true }, skills: 'x' } } }));
+    const reread = selectionStore(dir);
+    assert.equal(reread.get('/project', 'items', 'id'), undefined);
+    assert.equal(reread.get('/project', 'weapons', 'id'), 4);
+    assert.equal(reread.get('/project', 'weapons', 'general'), undefined);
+    fs.writeFileSync(store.file, '{ not json');
+    assert.equal(selectionStore(dir).get('/project', 'weapons', 'id'), undefined);
+});
+
+test('the web edition keeps the selections in localStorage, apart from the folds', () => {
+    const storage = memoryStorage();
+    const store = S.createSelectionStore({ storage });
+    assert.equal(store.file, null);
+    assert.equal(store.set('/project', 'actors', 'id', 4), true);
+    assert.deepEqual(JSON.parse(storage.map.get(S.SELECTION_STORAGE_KEY)).projects, { '/project': { actors: { id: 4 } } });
+    assert.equal(storage.map.has(S.STORAGE_KEY), false);
+    assert.equal(S.createSelectionStore({ storage }).get('/project', 'actors', 'id'), 4);
 });
 
 //-----------------------------------------------------------------------------

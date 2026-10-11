@@ -684,3 +684,15 @@ test('the steep ground follows its slider once a frame, reading no material off 
         editor.mapScene = scene; shown = null; assert.equal(editor.updateCliffInPlace(), false);
     } finally { global.RRMapElevation = previous.elevation; global.requestAnimationFrame = previous.frame; }
 });
+
+test('a map that is not 3D takes the maps past its sides, in a sidecar that says nothing of a 3D view', () => {
+    const map = { id: 9, width: 6, height: 4, note: '', data: [] }, { terrain, edges } = terrainOn(map);
+    assert.equal(terrain.setSurround(edges.patch(terrain.surroundBase(), { neighbors: { east: { map: 4, shift: 2 } } })), true);
+    assert.deepEqual(JSON.parse(JSON.stringify(map.reactor3d)), { version: 1, surround: { style: 'none', neighbors: { east: { map: 4, shift: 2 } } } });
+    assert.equal(terrain.undoStack.length, 1, 'one step');
+    // The land past the border is still refused, with the neighbor kept.
+    assert.equal(terrain.setSurround(edges.patch(terrain.surround(), { style: 'ocean' })), false);
+    assert.equal(map.reactor3d.surround.style, 'none');
+    terrain.undo();
+    assert.equal(map.reactor3d.surround || null, null, 'undo takes the neighbor back');
+});

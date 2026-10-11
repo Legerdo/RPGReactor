@@ -360,6 +360,7 @@ class EventEditor {
             if (Array.isArray(spec.offset) && spec.offset.some(v => Number(v))) {
                 written.offset = spec.offset.slice(0, 3).map(v => Number(v) || 0);
             }
+            if (spec.texture) written.texture = String(spec.texture);
             if (typeof spec.variant === 'string' && spec.variant.trim()) written.variant = spec.variant.trim();
             pages[String(index)] = written;
         });
@@ -559,19 +560,19 @@ class EventEditor {
         return unit && unit.from !== 'row' ? unit : null;
     }
 
-    /** `Enemy as Conscript · from a comment on page 2`: a tag unit in words. `t(text, params)` translates. */
-    static tagUnitWords(unit, lists, t) {
-        const side = t(unit.team === 'ally' ? 'Ally' : unit.team === 'enemy' ? 'Enemy' : 'Bystander');
-        const record = EventEditor.unitRecord(unit, lists);
-        const name = record && record.name ? record.name : (unit.id > 0 ? String(unit.id).padStart(4, '0') : '');
-        const who = name ? t('{side} as {name}', { side, name }) : side;
-        return who + ' · ' + (unit.from === 'note' ? t('from the Note') : t('from a comment on page {page}', { page: unit.page }));
+    /** What the In battle row shows for a tag unit, and stores once the row is changed: `{ team, record, id, move }`. */
+    static tagRow(unit) {
+        if (!unit) return null;
+        const row = { team: unit.team, record: unit.record, id: unit.id };
+        if (!unit.id) delete row.record;
+        if (unit.move > 0) row.move = unit.move;
+        return row;
     }
 
     /**
      * The page a tag unit fights on while its other pages sit out: a
      * `<unit: …>` comment is read on the page that holds it, a row on every
-     * page, so "Use this row instead" would make the event fight on pages
+     * page, so changing the row would make the event fight on pages
      * where it does not today. 0 when a row changes nothing: a Note tag, a
      * one-page event, a comment on every page.
      */
@@ -592,9 +593,7 @@ class EventEditor {
         const unit = EventEditor.tagUnit(event);
         if (!unit) return false;
         const tag = /<unit\s*:\s*[^>]*>/gi;
-        event.rrUnit = { team: unit.team, record: unit.record, id: unit.id };
-        if (!unit.id) delete event.rrUnit.record;
-        if (unit.move > 0) event.rrUnit.move = unit.move;
+        event.rrUnit = EventEditor.tagRow(unit);
         const note = String(event.note || '');
         if (/<unit\s*:/i.test(note)) {
             event.note = note.split('\n').map(line => {
@@ -624,7 +623,8 @@ class EventEditor {
      * the Database record it fights as, how far it walks a turn in a Tactical
      * battle, and whether a defeated enemy comes back. Stored as
      * `event.rrUnit`; "Does not fight" removes it. A unit made by a
-     * `<unit: …>` tag is shown as what it is, with a button that makes it a row.
+     * `<unit: …>` tag shows in the same controls; changing one stores the
+     * row and takes the tag out.
      */
     createUnitRow(event) {
         const tt = (text, params) => (typeof window !== 'undefined' && window.I18n ? (params ? window.I18n.formatText(text, params) : window.I18n.tText(text))
@@ -633,29 +633,7 @@ class EventEditor {
         const row = document.createElement('div');
         row.className = 'event-header-field event-unit-row';
         const head = `<label class="event-header-label event-unit-label">${rrEscapeHtml(tt('In battle'))}</label>`;
-        const tagged = EventEditor.tagUnit(event);
-        if (tagged) {
-            row.innerHTML = `${head}
-                <div class="event-header-controls event-unit-fields">
-                    <span class="event-unit-tag">${rrEscapeHtml(EventEditor.tagUnitWords(tagged, lists, tt))}</span>
-                    <button type="button" class="event-unit-use rr-btn-browse" title="${rrEscapeHtml(tt('Stores the unit in this row and takes the tag out.'))}">${rrEscapeHtml(tt('Use this row instead'))}</button>
-                </div>`;
-            row.querySelector('.event-unit-use').addEventListener('click', async () => {
-                // A comment makes it a unit on its own page only: the author is told before that changes.
-                const page = EventEditor.rowWidens(event);
-                if (page > 0) {
-                    if (typeof RRDialog === 'undefined') return;
-                    const agreed = await RRDialog.confirm(tt('A row makes it a unit on every page, not only on page {page}.', { page }), { title: tt('In battle'), ok: tt('Use this row instead') });
-                    if (!agreed || this.currentEvent !== event) return;
-                }
-                if (!EventEditor.useUnitRow(event)) return;
-                const container = document.querySelector('.event-editor-container');
-                if (container) this.showEventEditor(container, event);
-            });
-            return row;
-        }
-
-        const unit = event.rrUnit || null;
+        const unit = event.rrUnit || EventEditor.tagRow(EventEditor.tagUnit(event));
         const option = (value, label, current) => `<option value="${rrEscapeHtml(value)}"${String(value) === String(current) ? ' selected' : ''}>${rrEscapeHtml(label)}</option>`;
         const sides = [['', 'Does not fight'], ['enemy', 'Enemy'], ['ally', 'Ally'], ['neutral', 'Bystander']];
         const records = current => {
@@ -686,7 +664,24 @@ class EventEditor {
             more.hidden = !team.value;
             returns.hidden = team.value !== 'enemy';
         };
-        const write = () => {
+        const write = async () => {
+            // A tag unit becomes a row at its first change. A comment made it a unit on its own page only: the author is told before that changes.
+            const tagged = !!EventEditor.tagUnit(event);
+            if (tagged) {
+                const page = team.value ? EventEditor.rowWidens(event) : 0;
+                if (page > 0) {
+                    const agreed = typeof RRDialog !== 'undefined' && await RRDialog.confirm(tt('A row makes it a unit on every page, not only on page {page}.', { page }), { title: tt('In battle') });
+                    if (!agreed || this.currentEvent !== event) {
+                        team.value = unit.team;
+                        id.innerHTML = records(recordOf(unit));
+                        move.value = unit.move ? unit.move : '';
+                        returnsBox.checked = false;
+                        show();
+                        return;
+                    }
+                }
+                EventEditor.useUnitRow(event);
+            }
             const before = event.rrUnit || null;
             const next = EventEditor.unitRowValue(before, { team: team.value, record: id.value, move: move.value, returns: returnsBox.checked }, lists);
             if (next) event.rrUnit = next; else delete event.rrUnit;
@@ -695,6 +690,9 @@ class EventEditor {
             if (next) this._nameAfterUnit(event, next, lists); else this._nameWithoutUnit(event);
             show();
             this.pageEditor?.refreshCharacterPreview?.();
+            // The tag left the Note or a page's commands: the editor shows the event as it is now.
+            const container = tagged && typeof document !== 'undefined' ? document.querySelector('.event-editor-container') : null;
+            if (container) this.showEventEditor(container, event);
         };
         show();
         for (const control of [team, id, move, returnsBox]) control.addEventListener('change', write);

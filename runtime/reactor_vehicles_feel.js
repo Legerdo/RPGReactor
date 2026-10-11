@@ -410,6 +410,9 @@
         const heading = headingOf(player, drive, ride);
         // A ride that began with no hop (a command's, a boarding from afar) is a boarding all the same, unless the map
         // scene began aboard (a save loaded aboard, a transfer made aboard).
+        // Ridden over a border into the map shown past it (Reactor3D.Neighbors): the same ride, and the view it had.
+        const neighbors = typeof Reactor3D !== "undefined" ? Reactor3D.Neighbors : null, crossed = neighbors ? neighbors.crossing || neighbors.last : null;
+        if (crossed && cam.live && !cam.tail && cam.owner === player && cam.map === crossed.from && mapId === crossed.to) { cam.ride = ride; cam.map = mapId; neighbors.last = null; }
         if (!cam.live || cam.tail || cam.owner !== player || cam.ride !== ride || cam.map !== mapId) seed(player, ride, mapId, heading, boarding || state.came !== player);
         const kind = state.kind = type || rideType(player, ride);
         const handling = kind ? kind.handling : null;

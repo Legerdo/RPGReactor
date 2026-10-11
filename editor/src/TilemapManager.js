@@ -3869,12 +3869,20 @@ class TilemapManager {
             return false;
         }
         try {
-            return elevation.save(this.fs, this.path, this.projectPath, this.currentMap, {
+            const saved = elevation.save(this.fs, this.path, this.projectPath, this.currentMap, {
                 writeFileAtomicSync: this._writeFileAtomic
                     ? (fs, filePath, data, encoding) =>
                         this._writeFileAtomic(fs, filePath, data, encoding)
                     : null
             });
+            // A neighboring map with no way back gets one: a border crossed one way is crossed back the other.
+            const edges = typeof RRMapEdges !== 'undefined' ? RRMapEdges : null;
+            if (saved && edges && edges.linkBack) {
+                edges.linkBack(this.fs, this.path, this.projectPath, this.currentMap, this._writeFileAtomic
+                    ? (filePath, text) => this._writeFileAtomic(this.fs, filePath, text, 'utf8')
+                    : null);
+            }
+            return saved;
         } catch (error) {
             console.error('Error saving the map 3D sidecar:', error);
             return false;

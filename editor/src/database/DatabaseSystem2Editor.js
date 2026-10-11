@@ -54,7 +54,6 @@ class DatabaseSystem2Editor {
         // Col 1: Menu Commands, Item Categories, Magic Skills
         const col1 = document.createElement('div');
         col1.style.cssText = 'display: flex; flex-direction: column; gap: 16px;';
-        col1.appendChild(this.createCustomInterfacesSection(system));
         col1.appendChild(this.createMenuCommandsSection(system));
         col1.appendChild(this.createItemCategoriesSection(system));
         col1.appendChild(this.createMagicSkillsSection(system));
@@ -99,66 +98,6 @@ class DatabaseSystem2Editor {
         });
         html += '</div>';
         return this.keyedSection('menu-commands', tt('Menu Commands'), html);
-    }
-
-    createCustomInterfacesSection(system) {
-        const tt = text => window.I18n ? window.I18n.tText(text) : text;
-        const rows = [
-            ['reactorMenuInterfaceId', 'Main Menu', 'menu'],
-            ['reactorStatusInterfaceId', 'Status', 'status'],
-            ['reactorGameEndInterfaceId', 'Game End', 'gameEnd'],
-            ['reactorOptionsInterfaceId', 'Options', 'options'],
-            ['reactorSaveInterfaceId', 'Save', 'save'],
-            ['reactorLoadInterfaceId', 'Load', 'load'],
-            ['reactorItemInterfaceId', 'Items', 'item'],
-            ['reactorSkillInterfaceId', 'Skills', 'skill'],
-            ['reactorEquipInterfaceId', 'Equipment', 'equip'],
-            ['reactorShopInterfaceId', 'Shop', 'shop'],
-            ['reactorNameInterfaceId', 'Name Input', 'name'],
-            ['reactorBattleInterfaceId', 'Battle', 'battle'],
-            ['reactorTacticalInterfaceId', 'Tactical Battle', 'tactical'],
-            ['reactorActionInterfaceId', 'Action Battle', 'action'],
-            ['reactorFirstPersonInterfaceId', 'First Person Battle', 'firstPerson'],
-            ['reactorVictoryInterfaceId', 'Victory', 'victory']
-        ];
-        const html = rows.map(([field, label, role]) => `<div style="margin-bottom: 8px;">
-            <label class="database-field-label">${tt(label)}</label>
-            <select class="database-field-value sys2-interface" data-system-field="${field}" data-role="${role}" style="width: 100%;">${this.userInterfaceOptions(system[field], role)}</select>
-        </div>`).join('') + `<div class="sys2-magic-skills-hint">${tt('The same setting as Use As in Database › User Interfaces.')}</div>`;
-        return this.keyedSection('custom-interfaces', tt('Custom Interfaces'), html);
-    }
-
-    /**
-     * Every interface whose presentation can fill the role: a Battle HUD for
-     * Battle, a Tactical Battle HUD for Tactical Battle, a focused scene for the rest. Choosing one here or in Use As is
-     * the same binding.
-     */
-    userInterfaceOptions(selectedId, role) {
-        const tt = text => window.I18n ? window.I18n.tText(text) : text;
-        const selected = Math.max(0, Math.floor(Number(selectedId) || 0));
-        const fits = entry => entry && (entry.mode || 'scene') === (['battle', 'tactical', 'action', 'firstPerson', 'victory'].includes(role) ? role : 'scene');
-        let html = `<option value="0"${selected === 0 ? ' selected' : ''}>${tt('Stock (default)')}</option>`;
-        const records = this.databaseManager.getUserInterfaces ? this.databaseManager.getUserInterfaces() : [];
-        for (const entry of records || []) {
-            const id = Math.floor(Number(entry && entry.id) || 0);
-            if (!(id > 0) || !fits(entry)) continue;
-            html += `<option value="${id}"${id === selected ? ' selected' : ''}>${String(id).padStart(4, '0')}: ${rrEscapeHtml(entry.name || tt('(Unnamed)'))}</option>`;
-        }
-        if (selected > 0 && !(records || []).some(entry => entry && Number(entry.id) === selected && fits(entry))) {
-            html += `<option value="${selected}" selected>${tt('(Missing)')} / ${tt('(incompatible)')} #${selected}</option>`;
-        }
-        return html;
-    }
-
-    /** Bind an interface to a role; the game routes a record only when its roles name that role. */
-    bindUserInterface(system, field, role, id) {
-        system[field] = id;
-        const record = id > 0 && this.databaseManager.getUserInterface ? this.databaseManager.getUserInterface(id) : null;
-        if (record && role) {
-            if (!Array.isArray(record.roles)) record.roles = record.stock ? [record.stock] : [];
-            if (!record.roles.includes(role)) record.roles.push(role);
-        }
-        this.databaseManager.mutationGeneration = (this.databaseManager.mutationGeneration || 0) + 1;
     }
 
     createItemCategoriesSection(system) {
@@ -445,17 +384,6 @@ class DatabaseSystem2Editor {
     }
 
     wireEventListeners(container, system) {
-        container.querySelectorAll('.sys2-interface').forEach(select => {
-            select.addEventListener('change', event => {
-                const field = event.target.dataset.systemField;
-                if (!['reactorMenuInterfaceId', 'reactorStatusInterfaceId', 'reactorGameEndInterfaceId',
-                    'reactorOptionsInterfaceId', 'reactorSaveInterfaceId', 'reactorLoadInterfaceId',
-                    'reactorItemInterfaceId', 'reactorSkillInterfaceId', 'reactorEquipInterfaceId', 'reactorShopInterfaceId',
-                    'reactorNameInterfaceId', 'reactorBattleInterfaceId', 'reactorTacticalInterfaceId', 'reactorActionInterfaceId', 'reactorFirstPersonInterfaceId', 'reactorVictoryInterfaceId'].includes(field)) return;
-                this.bindUserInterface(system, field, event.target.dataset.role, Math.max(0, Math.floor(Number(event.target.value) || 0)));
-            });
-        });
-
         // Menu Commands checkboxes
         container.querySelectorAll('.sys2-menu-cmd').forEach(cb => {
             cb.addEventListener('change', (e) => {

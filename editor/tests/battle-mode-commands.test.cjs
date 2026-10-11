@@ -565,11 +565,11 @@ test('the In battle row: one side, one record, a first choice that picks for you
     for (const stored of [write(null, { team: 'enemy' }), write(ally, { team: 'enemy', record: 'actor:1' }), write({ team: 'neutral', id: 0 }, { team: 'neutral', record: '' })]) {
         assert.ok(F.normalizeUnit(stored), 'the game reads what the row writes');
     }
-    // A unit made by a comment is read back, in words, and becomes a row on request.
+    // A unit made by a comment is read back as the row would store it, and becomes a row.
     const c = northHaven(), conscript = JSON.parse(JSON.stringify(c.map.events[5]));
-    const words = (text, params) => FightCommandEditor._t(text, params);
-    assert.equal(EventEditor.tagUnitWords(EventEditor.tagUnit(conscript), { enemies: c.enemies, actors: c.actors }, words), 'Enemy as Conscript · from a comment on page 2');
-    assert.equal(EventEditor.tagUnitWords(EventEditor.tagUnit(c.map.events[6]), { enemies: c.enemies, actors: c.actors }, words), 'Bystander as Raider Captain · from the Note');
+    assert.deepEqual(EventEditor.tagRow(EventEditor.tagUnit(conscript)), { team: 'enemy', record: 'enemy', id: 13 });
+    assert.deepEqual(EventEditor.tagRow(EventEditor.tagUnit(c.map.events[6])), { team: 'neutral', record: 'enemy', id: 12 });
+    assert.equal(EventEditor.tagRow(null), null);
     assert.equal(EventEditor.tagUnit(c.map.events[3]), null, 'a row is a row');
     assert.equal(EventEditor.useUnitRow(conscript), true);
     assert.deepEqual(conscript.rrUnit, { team: 'enemy', record: 'enemy', id: 13 });
@@ -582,8 +582,9 @@ test('the In battle row: one side, one record, a first choice that picks for you
     // The automatic name gives way to the record's; a name the author typed does not.
     assert.deepEqual(['EV001', 'EV12', 'Raider', 'EV', ''].map(EventEditor.isAutomaticName), [true, true, false, false, false]);
     const source = read('src/event/EventEditor.js');
-    for (const label of ['In battle', 'Does not fight', 'Bystander', 'Comes back', 'Use this row instead']) assert.ok(source.includes(`'${label}'`), label);
-    assert.doesNotMatch(source, /'Battle unit'|'Neutral'|'Move range'/);
+    for (const label of ['In battle', 'Does not fight', 'Bystander', 'Comes back']) assert.ok(source.includes(`'${label}'`), label);
+    // A tag unit is not a second mode of the row: no read-only line, no button.
+    assert.doesNotMatch(source, /'Battle unit'|'Neutral'|'Move range'|Use this row instead|event-unit-tag|event-unit-use/);
     assert.match(read('src/event/EventPageEditor.js'), /Looks like \{name\} \(Database › Enemies\)/);
 });
 
@@ -1052,27 +1053,39 @@ test('the In battle row, driven: a side makes a unit, names the event and redraw
         assert.equal(EventEditor.nameWithoutUnit('Gate guard', { name: 'Raider', was: 'EV004' }), null, 'a typed name stays');
         assert.equal(EventEditor.nameWithoutUnit('Raider', null), null, 'a name the row did not give stays');
 
-        // A unit by a comment on page 2 of two: the button says what a row changes, and Cancel leaves the tag.
+        // A unit by a comment on page 2 of two shows in the same controls. Changing one says what a row changes, and Cancel leaves the tag.
         const conscript = JSON.parse(JSON.stringify(c.map.events[5]));
         editor.currentEvent = conscript;
-        const tagged = editor.createUnitRow(conscript);
-        assert.equal(tagged.querySelector('.event-unit-tag').textContent, 'Enemy as Conscript · from a comment on page 2');
-        assert.equal(tagged.querySelector('.event-unit-team'), null, 'read only');
+        const tagged = editor.createUnitRow(conscript), tagTeam = tagged.querySelector('.event-unit-team'), tagId = tagged.querySelector('.event-unit-id');
+        assert.deepEqual([tagTeam.value, tagId.value, tagged.querySelector('.event-unit-more').hidden], ['enemy', 'enemy:13', false]);
         page.answer = false;
-        tagged.querySelector('.event-unit-use').click();
+        tagTeam.value = 'ally';
+        tagTeam.dispatch('change');
         await settle();
         assert.deepEqual(page.asked.map(asked => asked.message), ['A row makes it a unit on every page, not only on page 2.']);
-        assert.deepEqual(['rrUnit' in conscript, conscript.pages[1].list.length, reopened], [false, 2, 0]);
+        assert.deepEqual(['rrUnit' in conscript, conscript.pages[1].list.length, reopened, tagTeam.value], [false, 2, 0, 'enemy']);
         page.answer = true;
-        tagged.querySelector('.event-unit-use').click();
+        tagTeam.value = 'ally';
+        tagTeam.dispatch('change');
         await settle();
-        assert.deepEqual([conscript.rrUnit, conscript.pages[1].list.length, reopened], [{ team: 'enemy', record: 'enemy', id: 13 }, 1, 1]);
+        assert.deepEqual([conscript.rrUnit, conscript.pages[1].list.length, reopened], [{ team: 'ally', record: 'enemy', id: 13 }, 1, 1]);
         // A Note tag, or a comment on an event's only page, is the same unit as a row: no question.
         const captain = JSON.parse(JSON.stringify(c.map.events[6]));
         editor.currentEvent = captain;
-        editor.createUnitRow(captain).querySelector('.event-unit-use').click();
+        const noted = editor.createUnitRow(captain), notedMove = noted.querySelector('.event-unit-move');
+        assert.equal(noted.querySelector('.event-unit-team').value, 'neutral');
+        notedMove.value = '3';
+        notedMove.dispatch('change');
         await settle();
-        assert.deepEqual([page.asked.length, captain.rrUnit, captain.note, reopened], [2, { team: 'neutral', record: 'enemy', id: 12 }, '', 2]);
+        assert.deepEqual([page.asked.length, captain.rrUnit, captain.note, reopened], [2, { team: 'neutral', record: 'enemy', id: 12, move: 3 }, '', 2]);
+        // "Does not fight" on a tag unit takes the tag out, with no question.
+        const leaver = JSON.parse(JSON.stringify(c.map.events[5]));
+        editor.currentEvent = leaver;
+        const leaving = editor.createUnitRow(leaver).querySelector('.event-unit-team');
+        leaving.value = '';
+        leaving.dispatch('change');
+        await settle();
+        assert.deepEqual([page.asked.length, 'rrUnit' in leaver, EventEditor.tagUnit(leaver), leaver.pages[1].list.length], [2, false, null, 1]);
     });
     // When a row widens what a tag did.
     const comment = text => ({ code: 108, indent: 0, parameters: [text] });
@@ -1283,8 +1296,8 @@ test('every word the forms, the lines and the row show is translated into the 17
     };
     scan('src/event/commands/FightCommandEditor.js', ['t', 'tr', 'sentence', 'check', '_t']);
     scan('src/event/commands/BattleProcessingEditor.js', ['FightCommandEditor\\._t']);
-    for (const name of ['createUnitRow', 'tagUnitWords']) {
-        const code = read('src/event/EventEditor.js'), from = code.indexOf(`    ${name === 'tagUnitWords' ? 'static ' : ''}${name}(`);
+    for (const name of ['createUnitRow']) {
+        const code = read('src/event/EventEditor.js'), from = code.indexOf(`    ${name}(`);
         assert.ok(from > 0, name);
         const body = code.slice(from, code.indexOf('\n    }\n', from));
         for (const literal of body.matchAll(/(?<![\w$.])(?:tt|t)\(\s*(?:[^'"()]*\?\s*)?'((?:[^'\\\n]|\\.)*)'/g)) phrases.add(literal[1].replace(/\\'/g, "'"));
@@ -1301,7 +1314,7 @@ test('every word the forms, the lines and the row show is translated into the 17
     for (const literal of look.matchAll(/'([A-Z{][^'\n]* [^'\n]*)'/g)) phrases.add(literal[1]);
     // A list line's words: the ones the spec's lines are made of must be among them.
     for (const phrase of ['{who} fights as an enemy', '{unit} at ({x}, {y}), facing left', 'every unit on this map', '(the event carries on)', 'Pick on the map…', 'Runs during a battle', 'Comes back',
-        'Looks like {name} (Database › Enemies)', '{side} as {name}', 'When a unit steps on a region', '(0: every turn)', 'Leave it to events', "This map's mode ({mode})",
+        'Looks like {name} (Database › Enemies)', 'When a unit steps on a region', '(0: every turn)', 'Leave it to events', "This map's mode ({mode})",
         'The commands under {branches} will be deleted.', 'A row makes it a unit on every page, not only on page {page}.', 'Slow ({steps} steps)', 'With none chosen it faces as its pages say.', 'Delete']) assert.ok(phrases.has(phrase), `the scan sees ${phrase}`);
     assert.ok(phrases.size > 120, `${phrases.size} phrases`);
     const locales = ['ja', 'es', 'zh-Hant', 'zh-Hans', 'ru', 'pt', 'de', 'fr', 'el', 'ko', 'ar', 'it', 'pl', 'id', 'vi', 'th', 'tr'];

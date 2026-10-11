@@ -276,14 +276,6 @@ class EventCommandPicker {
                                     { name: 'Quest Reward', code: 357, reactor: 'QuestReward' },
                                     { name: 'Open Quest Log', code: 357, reactor: 'OpenQuestLog' }
                                 ]
-                            },
-                            {
-                                title: 'Media Surfaces',
-                                commands: [
-                                    { name: 'Show Media Surface', code: 357, reactor: 'ShowVideoSurface' },
-                                    { name: 'Transform Media Surface', code: 357, reactor: 'TransformVideoSurface' },
-                                    { name: 'Stop Media Surface', code: 357, reactor: 'StopVideoSurface' }
-                                ]
                             }
                         ]
                     },
@@ -313,6 +305,14 @@ class EventCommandPicker {
                                     { name: 'Change Battle Goal', code: 357, reactor: 'ChangeBattleGoal' },
                                     { name: 'Change Battle Mode', code: 357, reactor: 'ChangeBattleMode' },
                                     { name: 'Set Terrain Cost', code: 357, reactor: 'SetTerrainCost' }
+                                ]
+                            },
+                            {
+                                title: 'Media Surfaces',
+                                commands: [
+                                    { name: 'Show Media Surface', code: 357, reactor: 'ShowVideoSurface' },
+                                    { name: 'Transform Media Surface', code: 357, reactor: 'TransformVideoSurface' },
+                                    { name: 'Stop Media Surface', code: 357, reactor: 'StopVideoSurface' }
                                 ]
                             }
                         ]

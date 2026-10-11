@@ -43,7 +43,7 @@ class TraitHelp {
             54: 'Empties the slot and stops anything being equipped in it.',
             55: 'Changes what the equipment slots of this battler are.',
             61: 'A chance of one extra action this turn. Each trait is rolled on its own, so several can stack.',
-            62: 'Switches on one fixed battler behaviour.',
+            62: 'Switches on one fixed battler behavior.',
             63: 'Changes the animation played on defeat. Enemies only - actors ignore it.',
             64: 'A party-wide effect, active while this battler is in the party.'
         };

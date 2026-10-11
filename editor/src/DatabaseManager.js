@@ -188,6 +188,7 @@ class DatabaseManager {
             if (Array.isArray(loaded.battlePresentation) && !loaded.battlePresentation.length) loaded.battlePresentation = battle.empty();
             battle.validateStore(loaded.actionSequences, loaded.battlePresentation);
             Object.assign(this.data, loaded);
+            this.equipTypeBaseline = this.equipSlots()?.named(this.data.system) || null;
             this.projectPath = projectPath;
             this.registerModelBindingStore();
             this.dataGeneration++;
@@ -594,6 +595,28 @@ class DatabaseManager {
         }
         if (this.savedState.battlePresentation !== undefined && this.serialize(this.data.battlePresentation || null) !== this.savedState.battlePresentation) dirty.push('battlePresentation');
         return dirty;
+    }
+
+    /** The equipment-type rules (utils/EquipSlots.js), where the editor has loaded them. */
+    equipSlots() {
+        return typeof RREquipSlots !== 'undefined' ? RREquipSlots : null;
+    }
+
+    /** The equipment types that were named when the project was last saved or loaded. */
+    equipTypesKnown() {
+        return this.equipTypeBaseline || (this.equipTypeBaseline = this.equipSlots()?.named(this.data.system) || []);
+    }
+
+    /**
+     * The equipment types a class does not show a slot for yet: for a class with no list of its own, a
+     * type named since the last save (the save gives the class its own list without it). Empty otherwise.
+     */
+    unsettledEquipTypes(classId) {
+        const slots = this.equipSlots(), classEntry = this.getClass(classId), out = new Set();
+        if (!slots || (classEntry && slots.classSlots(classEntry))) return out;
+        const known = new Set(this.equipTypesKnown());
+        for (const id of slots.named(this.data.system)) if (!known.has(id)) out.add(id);
+        return out;
     }
 
     isDirty() {
@@ -1032,6 +1055,7 @@ class DatabaseManager {
         // not persist editor names until every normal database write succeeds.
         if (!this.canSaveEditorNames(projectPath)) return false;
         if (!this.saveBattlePresentation(projectPath)) return false;
+        if (this.equipSlots()) this.equipTypeBaseline = this.equipSlots().settle(this.data, this.equipTypesKnown());
         // Only what changed since the last save (or load) is written. Every
         // write is an fsync'd temp file renamed into place, and a sync client
         // or scanner holding the file can stall each rename, so rewriting the

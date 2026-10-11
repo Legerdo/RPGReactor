@@ -590,6 +590,9 @@ Reactor3D.Quality = {
 
     /** The machine's own levels from its last session. */
     load() {
+        // The options file is read while the game boots, after its first frames are drawn: until it has been,
+        // there is nothing to take the levels from.
+        if (typeof ConfigManager !== "undefined" && typeof ConfigManager.isLoaded === "function" && !ConfigManager.isLoaded()) return;
         this._loaded = true;
         const kept = typeof ConfigManager !== "undefined" && ConfigManager.graphicsAuto;
         if (!kept || typeof kept !== "object") return;
@@ -5987,8 +5990,16 @@ Reactor3D.MapScene = function() {
 };
 
 Reactor3D.MapScene.prototype.initialize = function(mapData, bitmaps, options) {
-    // A new map: its own reflections, captured once something in it shines.
-    if (Reactor3D.Reflections) Reactor3D.Reflections.reset();
+    // A new map: its own reflections, captured once something in it shines. (Not for the world of a
+    // neighboring map built beside the one being played: `options.body`.)
+    if (Reactor3D.Reflections && !(options && options.body)) Reactor3D.Reflections.reset();
+    // The sides a neighbor's world stands on have no land of their own (reactor_3d_surround.js).
+    this._surroundNone = (options && options.surroundNone) || null;
+    this._surroundOrigin = (options && options.surroundOrigin) || null;
+    // Where this map's ground is drawn (`shift`: 0 for the map being played, a neighbor's place beside it) and
+    // where the map lies in the world it is one map of (`place`): its paint is read in its own tiles, and its
+    // ground's grain and wandering edges are the world's, the same whichever map of it is being played.
+    this._groundFrame = { shift: new THREE.Vector3(), place: new THREE.Vector3(this._surroundOrigin ? this._surroundOrigin.x : 0, 0, this._surroundOrigin ? this._surroundOrigin.z : 0) };
     this._scene = new THREE.Scene();
     this._materials = [];
     this._meshes = [];
@@ -6540,7 +6551,7 @@ Reactor3D.MapScene.prototype.addRoomPiece = function(piece, bitmap, roomHeight, 
                 cliff ? this.materialTexture(cliff, this._cliffLoad) : null, this._roomCliff ? this._roomCliff.slope : Reactor3D.GROUND_CLIFF_SLOPE,
                 this._roomCliff ? this._roomCliff.tint : "",
                 cliff && this.materialDetail ? this.materialDetail(cliff, this._cliffLoad) : null,
-                this._groundMap && this.groundLayers ? (this._ground || this.groundLayers(this._groundMap)) : null);
+                this._groundMap && this.groundLayers ? (this._ground || this.groundLayers(this._groundMap)) : null, this._groundFrame);
         }
         this._materials.push(material);
         const mesh = new THREE.Mesh(surface.geometry, material);
@@ -6604,9 +6615,12 @@ Reactor3D.cliffTint = function(tint, target) {
         : target.set(1, 1, 1);
 };
 
-Reactor3D.groundSlopeMaterial = function(material, tilesW, tilesH, cliff, slope, tint, detail, ground) {
+Reactor3D.groundSlopeMaterial = function(material, tilesW, tilesH, cliff, slope, tint, detail, ground, frame) {
     if (!material || material.__reactorGroundSlope) return material;
     material.__reactorGroundSlope = {
+        // Where the ground is drawn and where its map lies in the world (the scene's own two vectors, or none).
+        shift: frame ? frame.shift : new THREE.Vector3(),
+        place: frame ? frame.place : new THREE.Vector3(),
         tiles: new THREE.Vector2(tilesW > 0 ? tilesW : 1, tilesH > 0 ? tilesH : 1),
         band: Reactor3D.cliffBand(slope, new THREE.Vector2()),
         cliff: cliff || null,
@@ -6621,6 +6635,8 @@ Reactor3D.groundSlopeMaterial = function(material, tilesW, tilesH, cliff, slope,
         if (typeof earlier === "function") earlier.call(this, shader, renderer);
         const own = this.__reactorGroundSlope;
         shader.uniforms.rrGroundTiles = { value: own.tiles };
+        shader.uniforms.rrGroundShift = { value: own.shift };
+        shader.uniforms.rrGroundPlace = { value: own.place };
         shader.uniforms.rrCliffBand = { value: own.band };
         shader.uniforms.rrCliffMap = { value: own.cliff };
         shader.uniforms.rrCliffScale = own.detail ? own.detail.triScale : { value: 1 / Reactor3D.ROCK_UV };
@@ -6695,6 +6711,11 @@ Reactor3D.GROUND_SLOPE_COMMON_GLSL = [
     "varying vec3 vRRGroundPos;",
     "varying vec3 vRRGroundN;",
     "uniform vec2 rrGroundTiles;",
+    // The ground in its map's own tiles (its paint), and in the world the map is one map of (its grain, its edges).
+    "uniform vec3 rrGroundShift;",
+    "uniform vec3 rrGroundPlace;",
+    "#define rrGroundIn (vRRGroundPos - rrGroundShift)",
+    "#define rrGroundAt (vRRGroundPos - rrGroundShift + rrGroundPlace)",
     "uniform vec2 rrCliffBand;",
     "uniform sampler2D rrCliffMap;",
     "uniform float rrCliffScale;",
@@ -6719,17 +6740,17 @@ Reactor3D.GROUND_SLOPE_MAP_GLSL = [
     // Laid from the sides only where that shows: under a hundredth of the blend it is the plain lookup.
     "\tif (rrGW.x + rrGW.z > 0.01) {",
     "\t\tvec2 rrGS = 1.0 / rrGroundTiles;",
-    "\t\tvec4 rrGX = textureGrad(map, vRRGroundPos.zy * rrGS, rrGdx.zy * rrGS, rrGdy.zy * rrGS);",
-    "\t\tvec4 rrGZ = textureGrad(map, vRRGroundPos.xy * rrGS, rrGdx.xy * rrGS, rrGdy.xy * rrGS);",
+    "\t\tvec4 rrGX = textureGrad(map, rrGroundAt.zy * rrGS, rrGdx.zy * rrGS, rrGdy.zy * rrGS);",
+    "\t\tvec4 rrGZ = textureGrad(map, rrGroundAt.xy * rrGS, rrGdx.xy * rrGS, rrGdy.xy * rrGS);",
     "\t\tsampledDiffuseColor = rrGX * rrGW.x + sampledDiffuseColor * rrGW.y + rrGZ * rrGW.z;",
     "\t}",
     // The ground types painted on the map go over the floor here, under the cliff (groundTypesBodyGLSL).
     "//RR_GROUND_TYPES",
     "\tif (rrCliffOn > 0.5 && rrSteep > rrCliffBand.x - 0.12) {",
-    "\t\tvec3 rrCP = vRRGroundPos * rrCliffScale, rrCdx = rrGdx * rrCliffScale, rrCdy = rrGdy * rrCliffScale;",
+    "\t\tvec3 rrCP = rrGroundAt * rrCliffScale, rrCdx = rrGdx * rrCliffScale, rrCdy = rrGdy * rrCliffScale;",
     "\t\tvec4 rrRock = textureGrad(rrCliffMap, rrCP.zy, rrCdx.zy, rrCdy.zy) * rrGW.x + textureGrad(rrCliffMap, rrCP.xz, rrCdx.xz, rrCdy.xz) * rrGW.y + textureGrad(rrCliffMap, rrCP.xy, rrCdx.xy, rrCdy.xy) * rrGW.z;",
     // A wandering edge: broad noise over the ground, finer noise, and the rock's own light and dark.
-    "\t\tfloat rrEdge = rrGroundNoise(vRRGroundPos.xz * 0.3 + vRRGroundPos.y * 0.2) * 0.6 + rrGroundNoise(vRRGroundPos.xz * 1.6 - vRRGroundPos.y * 0.7) * 0.4;",
+    "\t\tfloat rrEdge = rrGroundNoise(rrGroundAt.xz * 0.3 + rrGroundAt.y * 0.2) * 0.6 + rrGroundNoise(rrGroundAt.xz * 1.6 - rrGroundAt.y * 0.7) * 0.4;",
     "\t\tfloat rrLum = dot(rrRock.rgb, vec3(0.299, 0.587, 0.114));",
     // The cliff material's relief and sheen, as on its rock pieces (reactor_3d_world.js injectMaterialDetail).
     "#ifdef RR_CLIFF_DETAIL",
@@ -7690,8 +7711,12 @@ Reactor3D.MapScene.prototype.build = function(mapData, bitmaps, options) {
     // background unless the view draws only on a change (the editor).
     this._rockWorkers = settings.rockWorkers !== false;
     if (settings.rockChunkCache) this._rockChunkCache = settings.rockChunkCache;
-    this.addPieces(mapData, settings.loadMaterial || (name => Reactor3D.defaultMaterialLoader(name)));
-    this.addWater(mapData, settings.loadMaterial || (name => Reactor3D.defaultMaterialLoader(name)));
+    // (`staged`: the world of a neighboring map is laid over several frames; its pieces and its water,
+    // with the land and the plants that follow the water, are asked for one after the other: Reactor3D.Neighbors.)
+    if (!settings.staged) {
+        this.addPieces(mapData, settings.loadMaterial || (name => Reactor3D.defaultMaterialLoader(name)));
+        this.addWater(mapData, settings.loadMaterial || (name => Reactor3D.defaultMaterialLoader(name)));
+    }
 
     for (const group of built.groups) {
         const texture = this.textureFor(bitmaps && bitmaps[group.setNumber]);

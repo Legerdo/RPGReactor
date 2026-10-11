@@ -2798,6 +2798,59 @@ Game_Player.prototype.reserveTransfer = function(mapId, x, y, d, fadeType) {
     this._newY = y;
     this._newDirection = d;
     this._fadeType = fadeType;
+    this._borderArrival = null;
+    // A transfer reserved over a border crossing is a transfer like any other.
+    if (typeof Reactor3D !== "undefined" && Reactor3D.Neighbors) Reactor3D.Neighbors.crossing = null;
+};
+
+// A step off the map on a side with a neighboring map (the map's Beyond the
+// Border) goes on into that map. The arrival tile is found once that map is
+// loaded: only then is its size known.
+Game_Player.prototype.leaveByBorder = function(d, reach) {
+    if (this.isTransferring() || this.isMoveRouteForcing()) return false;
+    if (typeof Reactor3D === "undefined" || !Reactor3D.neighborExit || typeof $dataMap === "undefined" || !$dataMap) return false;
+    if (typeof $gameFight !== "undefined" && $gameFight && $gameFight.isActive && $gameFight.isActive()) return false;
+    const exit = Reactor3D.neighborExit($dataMap, this.x, this.y, d, reach || 0);
+    if (!exit || typeof $dataMapInfos === "undefined" || !$dataMapInfos || !$dataMapInfos[exit.mapId]) return false;
+    if (typeof $gameTemp !== "undefined" && $gameTemp) $gameTemp.clearDestination();
+    this.setDirection(d);
+    // The map past the border stands built beside this one: it is walked into without a fade. Else as any transfer.
+    const whole = !!(Reactor3D.Neighbors && Reactor3D.Neighbors.ready(exit.side));
+    this.reserveTransfer(exit.mapId, 0, 0, d, whole ? 2 : 0);
+    this._borderArrival = exit;
+    exit.whole = whole && Reactor3D.Neighbors.begin(exit, $gameMap.mapId());
+    // Where the player is, to the fraction of a tile, for a ride that crosses mid-tile.
+    exit.realX = this._realX; exit.realY = this._realY;
+    return true;
+};
+
+// Arrived over a border without a break: the party is where it was, in the entered map's own tiles. The
+// leader stands on `tile` and comes to it from where it stood; nobody is gathered onto the leader.
+// The tile over a border crossed without a break: the very place the leader was in, in the entered map's
+// tiles, held to the map. No tile is found for it: there is no step aside.
+Game_Player.prototype.borderCrossingTile = function(exit, width, height) {
+    const cross = Reactor3D.Neighbors.crossing;
+    return { x: Math.max(0, Math.min(width - 1, Math.round(exit.realX - cross.offset.x))),
+        y: Math.max(0, Math.min(height - 1, Math.round(exit.realY - cross.offset.z))) };
+};
+
+Game_Player.prototype.arriveByBorder = function(exit, tile) {
+    const cross = Reactor3D.Neighbors.crossing, ox = cross.offset.x, oy = cross.offset.z;
+    const realX = exit.realX - ox, realY = exit.realY - oy;
+    this.setPosition(tile.x, tile.y);
+    this._realX = realX; this._realY = realY;
+    this.center(realX, realY);
+    this.makeEncounterCount();
+    if (this.isInVehicle()) this.vehicle().refresh();
+    for (const follower of this._followers._data) {
+        follower._x -= ox; follower._y -= oy;
+        follower._realX -= ox; follower._realY -= oy;
+    }
+};
+
+Game_Player.prototype.borderArrivalTile = function(exit) {
+    const standable = (x, y) => [exit.d, 2, 4, 6, 8].some(d => this.isMapPassable(x, y, d));
+    return Reactor3D.neighborArrival(exit, $gameMap.width(), $gameMap.height(), standable);
 };
 
 Game_Player.prototype.setupForNewGame = function() {
@@ -2830,11 +2883,30 @@ Game_Player.prototype.fadeType = function() {
 Game_Player.prototype.performTransfer = function() {
     if (this.isTransferring()) {
         this.setDirection(this._newDirection);
+        const border = typeof Reactor3D !== "undefined" && Reactor3D.neighborArrival ? this._borderArrival : null;
+        this._borderArrival = null;
+        const whole = !!(border && border.whole && Reactor3D.Neighbors && Reactor3D.Neighbors.crossing);
+        // Over a border: the tile arrived on, by the entered map's size (its data is loaded; the map is set up
+        // below). A ridden vehicle is told the same tile before the map makes its events.
+        let tile = null;
+        if (border && $dataMap) {
+            tile = whole ? this.borderCrossingTile(border, $dataMap.width, $dataMap.height) : Reactor3D.neighborArrival(border, $dataMap.width, $dataMap.height);
+            if (tile) {
+                this._newX = tile.x; this._newY = tile.y;
+                if (this._rrVehicleTransfer) { this._rrVehicleTransfer.x = tile.x; this._rrVehicleTransfer.y = tile.y; }
+            }
+        }
         if (this._newMapId !== $gameMap.mapId() || this._needsMapReload) {
             $gameMap.setup(this._newMapId);
             this._needsMapReload = false;
         }
-        this.locate(this._newX, this._newY);
+        // Entered with a fade and on foot: the nearest tile along the border that can be stood on.
+        if (tile && !whole && !this._rrVehicleTransfer) {
+            tile = this.borderArrivalTile(border) || tile;
+            this._newX = tile.x; this._newY = tile.y;
+        }
+        if (tile && whole) this.arriveByBorder(border, tile);
+        else this.locate(this._newX, this._newY);
         this.refresh();
         this.clearTransferInfo();
     }
@@ -2991,10 +3063,22 @@ Game_Player.prototype.moveByInput = function() {
         let direction = this.getInputDirection();
         if (direction > 0) {
             $gameTemp.clearDestination();
+            this._walkedToDestination = false;
         } else if ($gameTemp.isDestinationValid()) {
             const x = $gameTemp.destinationX();
             const y = $gameTemp.destinationY();
             direction = this.findDirectionTo(x, y);
+            // A click on the border tile the player already stands on, facing out, is the step across
+            // the border; a walk that only ends there stops there.
+            if (direction > 0) {
+                this._walkedToDestination = true;
+            } else if (x === this.x && y === this.y) {
+                const walked = this._walkedToDestination;
+                this._walkedToDestination = false;
+                if (!walked && this.leaveByBorder(this.direction())) {
+                    return;
+                }
+            }
         }
         if (direction > 0) {
             this.executeMove(direction);
@@ -3340,6 +3424,10 @@ Game_Player.prototype.isOnDamageFloor = function() {
 };
 
 Game_Player.prototype.moveStraight = function(d) {
+    if (this.leaveByBorder(d)) {
+        this.setMovementSuccess(false);
+        return;
+    }
     if (this.canPass(this.x, this.y, d)) {
         this._followers.updateMove();
     }

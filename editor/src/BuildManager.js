@@ -393,6 +393,8 @@ class BuildManager {
             this.setupModal();
         }
         this.modal.style.display = 'flex';
+        // Tab stays inside, Escape closes as the cross does, and the focus goes back to what opened the dialog.
+        window.RRKeyboardNavigation?.modal(this.modal, { onEscape: () => this.close() })?.enter();
         this.clearLog();
         this.resetProgress();
         this.updateCodecAvailability();
@@ -413,6 +415,7 @@ class BuildManager {
         }
         this.versionPicker.close();
         this.modal.style.display = 'none';
+        this.modal._rrModalKeys?.leave();
     }
 
     selectOutputDirectory() {

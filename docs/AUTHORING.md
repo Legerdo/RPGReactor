@@ -33,6 +33,7 @@ project; a person can use it to find where anything lives.
 | Model variants (one model, several looks) | `3d/<model>/model.json` › `variants`; a use names one with `variant` in its model spec, or `variant(Name)` in an `<r3d>` note | Database › 3D Models › Variants; the Variant row wherever a model is chosen | `editor/tests/model-variants.test.cjs` |
 | Events | `MapNNN.json` › `events` (RPG Maker data) | Event tool | — |
 | Vehicles: placements, classes, equipment and motorcycle riding | `data/ReactorVehicles.json`; class/vehicle `traits`; model `model.json` › `vehicle` / `parts`; legacy event `rrVehicle` | Database → Vehicles → Starting Position; Classes → Traits; System 1 for native starts; Reactor commands | `validate-vehicles.cjs` |
+| Equipment slots of a class (how many, of which types, in what order) | `data/Classes.json` › `rrEquipSlots` | Database › Classes › Equipment Slots | `editor/tests/trait-effect-choices.test.cjs` |
 | Event size (footprint) | `MapNNN.r3d.json` › `eventSize[id] = [w, h]` with `eventSizeAnchor: "center"`; `eventSizeAuto[id]` is the editor's measured picture | Event Editor › Size (W, H, Auto) | `editor/tests/event-marker-centre.test.cjs` |
 | A record's battle settings (reach, area, sight, Move range, Climb, how it fights, how a weapon fires, cooldown, an enemy's picture on the map) | `rrBattle` on the record, in `data/Skills.json`, `Items.json`, `Weapons.json`, `Armors.json`, `States.json`, `Actors.json`, `Classes.json`, `Enemies.json` ([BATTLE-MODES.md](BATTLE-MODES.md#a-records-battle-settings)); tags in its Note are also read | Database › the record's **Shared Combat Settings**, **Tactical Battles** and **Action and First Person Battles** cards | `battle-tags-to-fields.cjs` (lists a project's tags, `--write` moves them into the records) |
 
@@ -146,12 +147,14 @@ than a fixed scenery restriction on its kind.
 A vehicle can optionally use an existing **Class**, initial level and
 starting equipment. The class supplies parameter curves, learned skills,
 traits and weapon/armor type permissions. Vehicles also have their own
-traits and learnable skills. Equipment uses the same rules as Actors:
-**Traits → Equip Weapon / Equip Armor** allow item types, **Seal Equip**
-disables a slot, and **Slot Type → Dual Wield** supplies a second weapon
-slot. Configure class traits when a class is assigned; without a class,
-configure the vehicle's own traits. Vehicle traits also supplement its
-class permissions. **Types** supplies the shared equipment, weapon and
+traits and learnable skills. Equipment uses the same rules as Actors: the
+class's **Equipment Slots** say which slots there are (see
+[Class equipment slots](#class-equipment-slots)), and
+**Traits → Equip Weapon / Equip Armor** allow item types. On a class with
+no slot list, **Seal Equip** disables a slot and **Slot Type → Dual Wield**
+supplies a second weapon slot. Configure class traits when a class is
+assigned; without a class, configure the vehicle's own traits. Vehicle
+traits also supplement its class permissions. **Types** supplies the shared equipment, weapon and
 armor categories. Each placed vehicle has independent health, equipment and active
 states; these use the existing battler rules and save data. Choosing a
 class does not enable mounted combat or an in-game vehicle equipment menu.
@@ -196,6 +199,18 @@ The Demo already contains that type and placement; rerunning the placement
 command would add another event. No map generator is needed to place a
 vehicle, and North Haven's terrain, structures, foliage and residents
 are preserved.
+
+## Class equipment slots
+
+```json
+{ "id": 11, "name": "Motorcycle", "rrEquipSlots": [1, 6, 1, 1, 1] }
+```
+
+`rrEquipSlots` on a class is its slots: the equipment type id of each slot, in order (ids are places in `System.json` › `equipTypes`). A type listed twice is two slots of it, so `[1, 3, 3, 4]` is Weapon, Head, Head, Body. Actors and vehicles of the class have these slots, and their `equips` holds one item id per slot in the same order. Change Equipment fills the first slot of the type it names.
+
+A class with no `rrEquipSlots` has one slot per equipment type, with a second weapon in place of the second slot under Dual Wield. A class with a list ignores Dual Wield: list Weapon twice.
+
+In the editor: Database › Classes › **Equipment Slots**. Add a slot, pick its type from the dropdown, drag a slot by its grip (or use the arrow keys on the grip) to change the order, delete it with ×. A new class starts with Weapon, Shield, Head, Body and Accessory. An equipment type added under Types is a slot of no class until it is added there. Changing a class's slots moves the starting equipment of its actors and vehicles with each slot's type.
 
 ## Pieces
 
@@ -301,8 +316,10 @@ walker.
 
 A script reaches a door on the player's map by piece id or tag:
 `Reactor3D.Doors.open("inn.front")`, `close`, `lock`, `unlock`, `isOpen`,
-`isLocked`. A lock or unlock is kept in the save; open and shut are not (a
-map's doors are shut when it loads). The runtime feed sends `doorOpened` and
+`isLocked`. A lock or unlock is kept in the save; open and shut are not: a
+map entered by a transfer or a loaded save has its doors shut, except one the
+leader stands in. Back from the menu or a battle on the same map, each door is
+as it was left. The runtime feed sends `doorOpened` and
 `doorClosed` (docs/RUNTIME-EVENTS.md).
 
 A window may wear a frame:
@@ -672,6 +689,20 @@ node editor/build-scripts/make-ground-materials.cjs <project> [--force] [--only 
 ```
 
 `style`: `continue` (the border's heights carried out into hills), `ocean` (the land falls to a shore and water runs to the horizon), `mountains`, `plateau` (the edge drops to a far floor), `void` (a floating island with a rock underside) or `none`. `edges` names another style for `north`, `east`, `south` or `west`. `distance` is the reach in tiles (24-320; 160, or 96 on weak graphics, when absent), `rough` 0-1 how hilly, `seed` which hills, `level` the sea's surface (absent: the lowest water at the border, else just under the lowest ground), `height` the mountains', `drop` the plateau's fall and the void's depth, `haze` 0-1 how far the far land fades into the sky. The land wears the room floor and the ground painted at the border. In the editor: Build bar › Terrain › **Beyond the Border**, on a 3D map (the six styles as pictures; Distance, with Automatic; Hills; under Advanced a style per side, Seed and the numbers the chosen styles use). A style picked after Nothing keeps the distance, hills and numbers the map had. On weak graphics the panel says how far that computer shows when the distance is past it. A map with no floor shows nothing past its border. The Surroundings tick in the map view hides it; the panel then offers to show it.
+
+### Neighboring maps
+
+`neighbors` in the same `surround` names the map past a side:
+
+```json
+"surround": { "style": "continue", "neighbors": { "north": { "map": 7 }, "east": { "map": 9, "shift": 12 } } }
+```
+
+The neighbor is shown and entered without a break. Within 64 tiles of such a border the map past it is read in the background and its world is built beside this one, in place of the side's style: its ground and paint, pieces, rocks, water, plants and placed models. Walking or driving over the border then goes on in that map with no fade: the party, a ridden vehicle, its speed and the camera carry over, and the map left stays standing behind until it is 96 tiles away. `shift` is the tile of this map the neighbor's first tile lies against (0 when absent). A neighbor shorter than the side leaves this map's own land along the rest of it. Only the map being played runs its events; a neighbor's events and lights wait until it is entered, so maps of one world should share a sun and an ambient light. A border reached before its neighbor is ready (a teleport to the border, a map still being read) is crossed with a fade, onto the nearest tile along the border that can be stood on. With the mouse, click the border tile the player stands on, facing out. A side with no neighbor is a border as before, an event's Set Movement Route never leaves the map, and nothing leaves by a border during a battle on the map. `Reactor3D.Neighbors.enabled = false` crosses every border with a fade and shows each side's own style.
+
+For borders that read as one world: give both maps the same height along the shared border (the terrain is a grid of corners, and each border corner belongs to both), carry roads and painted ground across, and keep trees, rocks and buildings a few tiles back from the border. The Demo's Open Road (maps 8 to 12) is five maps in a row built this way, joined to North Haven's east side: ride out of the village by the east lane, or enter from the Reactor Room.
+
+In the editor: Build bar › Terrain › Beyond the Border › **Neighboring Maps**, one map per side, on a 3D or a 2D map; a neighbor's **Shift (tiles)** is under its map. The 3D view shows each neighbor standing past its border and moves it as Shift changes. A 2D map is entered and left by its borders with the usual fade; nothing of the neighbor is drawn past a 2D map's edge. Saving a map writes the way back into each neighbor whose facing side names no map; a neighbor that already names one is left alone, so a one-way border is made by clearing or changing the way back on the other map.
 
 ## Foliage
 

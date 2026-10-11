@@ -5294,7 +5294,7 @@ Spriteset_Map.prototype._rrWindowDormant = function(child, minX, maxX, minY, max
 // change.
 Spriteset_Map.prototype.destroy = function(options) {
     this.removeAllBalloons();
-    this.releaseReactor3D();
+    this.releaseReactor3D(true);
     this.destroyReactorLighting2D();
     if (this._rrCullHolder) {
         for (const child of this._rrCullHolder.children.slice()) {
@@ -5311,13 +5311,23 @@ Spriteset_Map.prototype.destroy = function(options) {
  * map is loading: the scene left behind is not drawn again, and holding its
  * world through the next map's load put two maps in memory at once.
  */
-Spriteset_Map.prototype.releaseReactor3D = function() {
+Spriteset_Map.prototype.releaseReactor3D = function(now) {
     // Geometry, materials and textures are GPU allocations the collector cannot
     // reclaim; leaving them behind leaks a whole map's worth per transfer. The
     // viewport itself outlives the map and is only hidden.
+    // Asked early while a border is being crossed: the world past the border is in this scene still, and
+    // the map entered takes it (and this one) as its spriteset is made. Let go with the spriteset instead.
+    if (!now && this._reactor3d && Reactor3D.Neighbors && Reactor3D.Neighbors.crossing) return;
     if (this._reactor3d) {
-        this._reactor3d.scene.destroy();
-        this._reactor3d.viewport.setVisible(false);
+        // A world left over a border stands on past it in the map entered (Reactor3D.Neighbors): it is that map's to let go.
+        const kept = !!this._reactor3d.scene._neighborKept;
+        if (!kept) {
+            const bodies = this._reactor3d.scene._neighborBodies;
+            if (bodies && Reactor3D.Neighbors) for (const side of Object.keys(bodies)) Reactor3D.Neighbors.removeBody(this._reactor3d.scene, side);
+            this._reactor3d.scene.destroy();
+        }
+        if (Reactor3D.Neighbors && Reactor3D.Neighbors.live === this._reactor3d) Reactor3D.Neighbors.live = null;
+        if (!(kept && Reactor3D.Neighbors && Reactor3D.Neighbors.crossing)) this._reactor3d.viewport.setVisible(false);
         this._reactor3d = null;
         this.destroyReactor3DSprite();
         // Whatever this map borrowed from the lighting plugin is given back.
@@ -5422,13 +5432,18 @@ Spriteset_Map.prototype.createReactor3D = function() {
     // each time until the browser began evicting live ones. 3D is a view of the
     // map; it can fail, and the map still has to draw.
     try {
-        const scene = new Reactor3D.MapScene($dataMap, this._tilemap.bitmaps);
+        // Crossed into over a border: the world that stood past it is this map's, as it stands.
+        const scene = (Reactor3D.Neighbors && Reactor3D.Neighbors.adopt($gameMap.mapId())) || new Reactor3D.MapScene($dataMap, this._tilemap.bitmaps);
         const settings = ($dataMap.reactor3d && $dataMap.reactor3d.camera) || {};
         const camera = Reactor3D.createCamera(settings);
         viewport.setScene(scene.scene(), camera);
         viewport.setVisible(true);
 
         this._reactor3d = { viewport, scene, camera, settings };
+        // Entered over a border: the view goes on turning from where it was, in this map's own tiles.
+        const neighbors = Reactor3D.Neighbors, cross = neighbors && neighbors.crossing;
+        const view = cross && scene._neighborBodies && neighbors.live ? neighbors.live.cameraCurrent : null;
+        if (view) this._reactor3d.cameraCurrent = Object.assign({}, view, { x: view.x - cross.offset.x, z: view.z - cross.offset.z });
         this._tilemap.lowerLayerVisible = false;
         if (this._tilemap._lowerLayer) this._tilemap._lowerLayer.visible = false;
         if (this._tilemap._upperLayer) this._tilemap._upperLayer.visible = false;
@@ -5441,7 +5456,7 @@ Spriteset_Map.prototype.createReactor3D = function() {
         // 3D view has several causes that look identical on screen and none
         // of them throw. `bounds` against `camera` is what tells "nothing was
         // built" from "nothing is in view".
-        console.debug("Reactor3D: 3D scene built.", Object.assign(scene.report(), {
+        if (!scene._neighborBodies) console.debug("Reactor3D: 3D scene built.", Object.assign(scene.report(), {
             bounds: scene.extent ? scene.extent() : "n/a",
             camera: [camera.position.x, camera.position.y, camera.position.z]
                 .map(n => Math.round(n * 10) / 10).join(", ")
@@ -5654,6 +5669,8 @@ Spriteset_Map.prototype.updateReactor3D = function() {
     // _realX/_realY interpolate between cells, so the camera glides rather than
     // stepping a whole tile at a time.
     this.updateReactor3DCamera();
+    // The maps past the borders the player is near: read, built beside this one, let go when left behind.
+    if (Reactor3D.Neighbors) Reactor3D.Neighbors.update(state, this._tilemap.bitmaps);
     if (state.scene.updateSky) state.scene.updateSky(state.viewport.camera ? state.viewport.camera() : null, Graphics.frameCount);
     if (state.scene.updateWater) state.scene.updateWater(Graphics.frameCount);
     if (state.scene.updateRipples) {

@@ -2026,8 +2026,7 @@ class DatabaseUserInterfaceEditor {
 
     interfacePropertiesMarkup() {
         const tt = text => this._t(text);
-        return `<div class="rr-ui-prop-title">${tt('Interface Settings')}</div>
-            ${this.group(tt('Behavior'))}
+        return `${this.group(tt('Behavior'))}
             <div class="rr-ui-sub rr-ui-scene-setting">
                 ${this.row(tt('Background'), this.selectControl('rr-ui-background', this.current.background, [
                     ['blur', tt('Blurred map')], ['dim', tt('Dimmed map')], ['none', tt('Map as is')]
@@ -2040,7 +2039,7 @@ class DatabaseUserInterfaceEditor {
             </div>
             <div class="rr-ui-sub rr-ui-battle-setting">
                 ${this.row('', this.checkControl('rr-ui-hide-status', this.current.hideStatusWindow !== false, tt('Hide the stock battle status')), tt('The HUD replaces it. A Battle Window node for the status places it instead.'))}
-                ${this.hintRow(tt('Bind this interface as Battle in System 2 or Use As. Battle Window nodes place the stock battle windows; the battle itself stays stock, so battle plugins keep working.'))}
+                ${this.hintRow(tt('Bind this interface as Battle in Use As. Battle Window nodes place the stock battle windows; the battle itself stays stock, so battle plugins keep working.'))}
             </div>
             ${this.group(tt('Screen'))}
             ${this.row(tt('Designed for'), `<span class="rr-ui-design">${this.numberControl('rr-ui-design-width', this.designSize().width, 160, 16384)}<span>×</span>${this.numberControl('rr-ui-design-height', this.designSize().height, 120, 16384)}</span>`,
@@ -2311,7 +2310,7 @@ class DatabaseUserInterfaceEditor {
             html += this.row('', this.checkControl('p-showName', node.showName !== false, tt('Show the target\'s name')));
             html += this.row(tt('Font size'), this.numberControl('p-fontSize', node.fontSize || 0, 0, 200), tt('0 uses the game default.'));
             html += this.group(tt('Placement'));
-            html += this.hintRow(tt('Offsets from the top centre of the target. A positive Y moves it down.'));
+            html += this.hintRow(tt('Offsets from the top center of the target. A positive Y moves it down.'));
             html += this.pair(`${tt('Enemy')} X`, this.numberControl('p-enemyOffsetX', node.enemyOffsetX || 0, -2000, 2000), `${tt('Enemy')} Y`, this.numberControl('p-enemyOffsetY', node.enemyOffsetY || 0, -2000, 2000));
             html += this.pair(`${tt('Ally')} X`, this.numberControl('p-actorOffsetX', node.actorOffsetX || 0, -2000, 2000), `${tt('Ally')} Y`, this.numberControl('p-actorOffsetY', node.actorOffsetY || 0, -2000, 2000));
             html += this.hintRow(tt('Shows while an enemy or ally is being chosen: over the enemy, or over the ally\'s row in the party panel.'));
@@ -4393,7 +4392,7 @@ class DatabaseUserInterfaceEditor {
                 ${needsId ? `<div class="rr-ui-command-line">${idControl}</div>` : ''}
                 <div class="rr-ui-command-line">${this.textControl('p-cmd-label', command.label, this.battleCommandDefaultLabel(command).replace(/\\[A-Za-z]+\[[^\]]*\]/g, '').trim() || tt('Label'))}</div>
                 ${command.kind === 'skillTypes' ? `<div class="rr-ui-hint">${tt('One command per skill type the actor has, named as in Types.')}</div>` : ''}
-                ${command.kind === 'escape' ? `<div class="rr-ui-hint">${tt('Greyed out in battles that cannot be escaped.')}</div>` : ''}
+                ${command.kind === 'escape' ? `<div class="rr-ui-hint">${tt('Grayed out in battles that cannot be escaped.')}</div>` : ''}
                 ${command.kind === 'commonEvent' ? `<div class="rr-ui-hint">${tt('Runs at once while the battle waits, then the same window chooses again. For a command that takes the actor\'s turn, use a skill with a Common Event effect.')}</div>` : ''}
                 ${command.kind === 'skillType' || command.kind === 'skill' ? `<div class="rr-ui-command-line">${this.checkControl('p-cmd-known', command.knownOnly, known)}</div>` : ''}
             </div>`;

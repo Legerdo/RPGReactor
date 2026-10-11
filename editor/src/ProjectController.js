@@ -1774,7 +1774,6 @@ class ProjectController {
         const menuItems = [
             { label: this._t('mapCtx.editMap'), action: () => this.editMap(mapId) },
             { label: this._t('mapCtx.newMap'), action: () => this.createNewMap(mapId) },
-            { label: this._t('mapCtx.loadSample'), action: () => this.loadSampleMap(), enabled: false },
             {
                 label: this._t(isInQuickAccess ? 'mapCtx.removeQuick' : 'mapCtx.addQuick'),
                 action: () => this.toggleQuickAccess(mapId)
@@ -1784,8 +1783,6 @@ class ProjectController {
             { label: this._t('mapCtx.pasteMap'), action: () => this.pasteMap(), enabled: true },
             { label: this._t('mapCtx.deleteMap'), action: () => this.deleteMap(mapId), enabled: canDeleteMap },
             { separator: true },
-            { label: this._t('mapCtx.shift'), action: () => this.shiftMap(mapId), enabled: false },
-            { label: this._t('mapCtx.generateDungeon'), action: () => this.generateDungeon(mapId), enabled: false },
             { label: this._t('mapCtx.saveImage'), action: () => this.saveMapAsImage(mapId), enabled: !!map && typeof nw !== 'undefined' }
         ];
 
@@ -2031,6 +2028,14 @@ class ProjectController {
 
         // Show modal
         modal.style.display = 'flex';
+        // Tab stays inside and Escape is Cancel, unless a picker opened from here lies on top.
+        window.RRKeyboardNavigation?.modal(modal, {
+            onEscape: () => {
+                const top = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+                if (!top || modal.contains(top)) document.getElementById('map-properties-cancel-btn')?.click();
+            },
+            container: () => modal.firstElementChild || modal
+        })?.enter();
     }
 
     /**
@@ -3023,12 +3028,14 @@ class ProjectController {
         // OK button
         okBtn.addEventListener('click', async () => {
             if (!await this.saveMapProperties()) return;
-            document.getElementById('map-properties-modal').style.display = 'none';
+            closeModal();
         });
 
         // Cancel and Close buttons
         const closeModal = () => {
-            document.getElementById('map-properties-modal').style.display = 'none';
+            const modal = document.getElementById('map-properties-modal');
+            modal.style.display = 'none';
+            modal._rrModalKeys?.leave();
         };
         cancelBtn.addEventListener('click', closeModal);
         closeBtn.addEventListener('click', closeModal);
@@ -4081,11 +4088,6 @@ class ProjectController {
         };
     }
 
-    // Placeholder methods for other context menu items
-    loadSampleMap() {
-        RRDialog.alert(this._tt('Load Sample Map - Coming soon!'), { title: this._t('mapCtx.loadSample') });
-    }
-
     addToQuickAccess(mapId) {
         RRDialog.alert(this._tt('Add To Quick Access - Coming soon!'), { title: this._t('mapCtx.addQuick') });
     }
@@ -4380,6 +4382,7 @@ class ProjectController {
             if (this.databaseManager?.data) {
                 this.databaseManager.data.mapInfos = this.currentProject.maps;
             }
+            await this.clearVehicleStartsOn(mapIdsToDelete);
 
             const lastMapId = localStorage.getItem(this.getLastMapStorageKey());
             if (lastMapId && mapIdsToDelete.includes(parseInt(lastMapId, 10))) {
@@ -4478,10 +4481,29 @@ class ProjectController {
             }
             if (this.currentProject !== project || this.databaseManager.data !== database) throw new Error('Project changed during starting-position repair');
             Object.assign(sourceSystem, system);
+            // What was just written is what the Database now holds: nothing of it is unsaved.
+            this.databaseManager.captureSavedState?.('system');
             this.uiManager.updateStatus(`Updated starting positions to avoid deleted maps`);
         }
 
         return changed;
+    }
+
+    /**
+     * A vehicle type that started on a deleted map has no starting position: the next map to take that
+     * number does not get the vehicle. Written at once, as the deletion is; a write that fails leaves the
+     * change for the next save. Returns how many were cleared.
+     */
+    async clearVehicleStartsOn(deletedMapIds = []) {
+        const manager = this.databaseManager, types = manager?.data?.vehicles;
+        const stale = (Array.isArray(types) ? types : []).filter(record => record && deletedMapIds.includes(Number(record.startMapId)));
+        if (!stale.length) return 0;
+        for (const record of stale) record.startMapId = 0;
+        manager.mutationGeneration = (manager.mutationGeneration || 0) + 1;
+        if (this.currentProject?.path && typeof manager.saveJSON === 'function') {
+            try { await manager.saveJSON(this.currentProject.path, 'ReactorVehicles.json', types); } catch (error) { console.error('Could not save the vehicles after deleting a map:', error); }
+        }
+        return stale.length;
     }
 
     getFirstPlayableMapId(excludedMapIds = []) {
@@ -4496,14 +4518,6 @@ class ProjectController {
         const path = require('path');
         const mapPath = path.join(this.currentProject.path, 'data', `Map${String(mapId).padStart(3, '0')}.json`);
         return fs.existsSync(mapPath);
-    }
-
-    shiftMap(mapId) {
-        RRDialog.alert(this._tt('Shift - Coming soon!'), { title: this._t('mapCtx.shift') });
-    }
-
-    generateDungeon(mapId) {
-        RRDialog.alert(this._tt('Generate Dungeon - Coming soon!'), { title: this._t('mapCtx.generateDungeon') });
     }
 
     async saveMapAsImage(mapId) {

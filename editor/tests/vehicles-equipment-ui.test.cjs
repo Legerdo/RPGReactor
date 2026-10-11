@@ -88,7 +88,7 @@ test('Classes renders its existing sections without a separate vehicle slots pan
     const { Class, document, manager } = ui(bike());
     const view = Object.create(Class.prototype);
     view.databaseManager=manager;
-    for (const key of ['createGeneralSection','createParameterCurvesSection','createLearnableSkillsSection','createTraitsSection','createNoteSection']) {
+    for (const key of ['createGeneralSection','createParameterCurvesSection','createLearnableSkillsSection','createEquipSlotsSection','createTraitsSection','createNoteSection']) {
         view[key] = () => { const section=document.createElement('div'); section.textContent=key; return section; };
     }
     view.attachEventListeners=() => {};

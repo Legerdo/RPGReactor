@@ -177,3 +177,19 @@ test('vehicle validation counts database placements and reports invalid map coor
     catalog[1].startMapId=99;
     assert.ok(check.problems(project,lookups).lines.some(line=>line.path==='[1].startMapId'));
 });
+
+test('map previews resolve the vehicle rules when the app hands over its bare project manager', () => {
+    const previous={window:global.window,Reactor3D:global.Reactor3D,EventManager:global.EventManager,DatabaseVehicleEditor:global.DatabaseVehicleEditor};
+    const VehicleEditor=require('../src/database/DatabaseVehicleEditor.js'),cached=VehicleEditor._rules;
+    VehicleEditor._rules=null;
+    // main.js keeps a ProjectManager there: it knows the runtime folder and has no current project.
+    global.window={reactor:{databaseManager:{data:{vehicles:types()}},projectManager:{getRuntimePath:()=>runtimeRoot}}};
+    global.EventManager=EventManager;global.DatabaseVehicleEditor=VehicleEditor;
+    try {
+        const placed=EventManager.startingVehicles({id:1,width:40,height:30,events:[null]});
+        assert.deepEqual(placed.map(event=>[event.x,event.y]),[[10,10]]);
+    } finally {
+        VehicleEditor._rules=cached;
+        for(const [key,value] of Object.entries(previous))if(value===undefined)delete global[key];else global[key]=value;
+    }
+});

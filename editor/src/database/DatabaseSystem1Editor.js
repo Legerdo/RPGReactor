@@ -5,11 +5,10 @@
 
 class DatabaseSystem1Editor {
     /**
-     * System.json does not store these eight under a uniform `<type>Bgm` key.
+     * System.json does not store these five under a uniform `<type>Bgm` key.
      * Title and Battle are BGM; Victory, Defeat and Game Over are ME (and Game
-     * Over is spelled `gameoverMe`, lowercase); the three vehicles nest their
-     * BGM inside the vehicle object. Synthesising `<type>Bgm` read six empty
-     * slots and wrote six keys the engine never looks at.
+     * Over is spelled `gameoverMe`, lowercase). A vehicle's BGM is nested in
+     * its own object and is set in Database > Vehicles.
      */
     static resolveMusicSlot(system, type) {
         const direct = {
@@ -21,16 +20,6 @@ class DatabaseSystem1Editor {
                 get: () => system[direct] || {},
                 ensure: () => (system[direct] = system[direct]
                     || { name: '', volume: 90, pitch: 100, pan: 0 })
-            };
-        }
-        if (['boat', 'ship', 'airship'].includes(type)) {
-            return {
-                get: () => (system[type] && system[type].bgm) || {},
-                ensure: () => {
-                    if (!system[type]) system[type] = {};
-                    return (system[type].bgm = system[type].bgm
-                        || { name: '', volume: 90, pitch: 100, pan: 0 });
-                }
             };
         }
         return null;
@@ -193,21 +182,6 @@ class DatabaseSystem1Editor {
                 });
             });
 
-            const titleInterface = container.querySelector('.system-title-interface');
-            if (titleInterface) {
-                titleInterface.addEventListener('change', event => {
-                    const id = Math.max(0, Math.floor(Number(event.target.value) || 0));
-                    system.reactorTitleInterfaceId = id;
-                    // The game routes a record only when its roles name the title.
-                    const record = id > 0 && this.databaseManager.getUserInterface ? this.databaseManager.getUserInterface(id) : null;
-                    if (record) {
-                        if (!Array.isArray(record.roles)) record.roles = record.stock ? [record.stock] : [];
-                        if (!record.roles.includes('title')) record.roles.push('title');
-                    }
-                    this.databaseManager.mutationGeneration = (this.databaseManager.mutationGeneration || 0) + 1;
-                });
-            }
-
             // Starting Party management
             this.wirePartyListeners(container, system);
             this.wireFollowerFormation(container, system);
@@ -241,15 +215,6 @@ class DatabaseSystem1Editor {
                     const valSpan = e.target.nextElementSibling;
                     if (valSpan) valSpan.textContent = val;
                     updateTonePreview();
-                });
-            });
-
-            // Vehicle Change buttons
-            const vehicleBtns = container.querySelectorAll('.vehicle-change-btn');
-            vehicleBtns.forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const vehicle = btn.dataset.vehicle;
-                    this.showVehicleImagePicker(system, vehicle);
                 });
             });
 
@@ -294,9 +259,6 @@ class DatabaseSystem1Editor {
             // runs with the rest of the wiring rather than inside the markup
             // that builds it.
             this.renderTitlePreview(container, system);
-            // Draws into a <canvas> the markup above has to have built first,
-            // so it runs with the rest of the wiring rather than inside it.
-            ['boat', 'ship', 'airship'].forEach(key => this.renderVehiclePreview(container, system, key));
 
         }, 0);
     }
@@ -382,40 +344,22 @@ class DatabaseSystem1Editor {
         `);
         column.appendChild(currencySection);
 
-        // Row 4: Vehicle Images (with Change buttons)
-        //
-        // A vehicle stores a sheet name and a bare cell index. The row draws
-        // that cell, so the index is checkable without opening anything.
-        const vehicleRow = (key, label) => `
-            <div class="form-row" style="display: flex; align-items: center; gap: 6px;${key === 'boat' ? '' : ' margin-top: 6px;'}">
-                <canvas class="vehicle-sprite-preview" data-vehicle="${key}" width="40" height="40" style="flex: 0 0 40px; width: 40px; height: 40px; border: 1px solid var(--color-border); border-radius: 3px; background-color: var(--color-bg-deep); image-rendering: pixelated;"></canvas>
-                <label class="database-field-label" style="min-width: 50px;">${label}</label>
-                <input type="text" class="database-field-value" style="flex: 1; min-width: 0;" value="${rrEscapeHtml(system[key]?.characterName || '')}" readonly>
-                <button class="vehicle-change-btn rr-btn-chip" data-vehicle="${key}">${tt('Change')}</button>
-            </div>`;
-        const vehicleImages =
-            vehicleRow('boat', tt('Boat:'))
-            + vehicleRow('ship', tt('Ship:'))
-            + vehicleRow('airship', tt('Airship:'));
-        const vehicleSection = this.keyedSection('vehicle-images', tt('Vehicle Images'), vehicleImages);
-        column.appendChild(vehicleSection);
-
-        // Row 5: Starting Positions (editable)
+        // Row 4: Starting Positions (editable)
         const posField = (label, mapVal, xVal, yVal, prefix, owner) => `
             <div class="form-row system-pos-row" data-pos-owner="${owner}" style="margin-bottom: 6px;">
                 <label class="database-field-label" style="min-width: 50px;">${label}:</label>
                 <div class="system-pos-controls">
                     <span class="system-pos-coordinate">
                         <span style="color: var(--color-text-muted); font-size: 11px;">${tt('Map')}</span>
-                        <input type="number" class="database-field-value system-pos-field" style="width: 76px; font-size: 11px;" value="${mapVal}" min="0" data-pos-target="${prefix}MapId" data-pos-part="mapId">
+                        <input type="number" class="database-field-value system-pos-field" style="width: 62px; font-size: 11px;" value="${mapVal}" min="0" data-pos-target="${prefix}MapId" data-pos-part="mapId">
                     </span>
                     <span class="system-pos-coordinate">
                         <span style="color: var(--color-text-muted); font-size: 11px;">${tt('X')}</span>
-                        <input type="number" class="database-field-value system-pos-field" style="width: 76px; font-size: 11px;" value="${xVal}" min="0" data-pos-target="${prefix}X" data-pos-part="x">
+                        <input type="number" class="database-field-value system-pos-field" style="width: 62px; font-size: 11px;" value="${xVal}" min="0" data-pos-target="${prefix}X" data-pos-part="x">
                     </span>
                     <span class="system-pos-coordinate">
                         <span style="color: var(--color-text-muted); font-size: 11px;">${tt('Y')}</span>
-                        <input type="number" class="database-field-value system-pos-field" style="width: 76px; font-size: 11px;" value="${yVal}" min="0" data-pos-target="${prefix}Y" data-pos-part="y">
+                        <input type="number" class="database-field-value system-pos-field" style="width: 62px; font-size: 11px;" value="${yVal}" min="0" data-pos-target="${prefix}Y" data-pos-part="y">
                     </span>
                     <button class="system-pos-picker-btn rr-btn-chip" data-pos-owner="${owner}">${tt('Browse...')}</button>
                 </div>
@@ -485,7 +429,6 @@ class DatabaseSystem1Editor {
         column.style.cssText = 'display: flex; flex-direction: column; gap: 16px;';
 
         // Row 1: Title Screen
-        const interfaceOptions = this.userInterfaceOptions(system.reactorTitleInterfaceId);
         //
         // Scene_Title builds its background from two sprites -- img/titles1,
         // then img/titles2 drawn over it (runtime/reactor_scenes.js,
@@ -500,11 +443,6 @@ class DatabaseSystem1Editor {
                 <button class="title-image-picker-btn rr-btn-chip" data-title-layer="${layer}">${tt('Choose Image')}</button>
             </div>`;
         const titleScreen = `
-            <div class="form-row" style="margin-bottom: 8px;">
-                <label class="database-field-label">${tt('Custom title interface:')}</label>
-                <select class="database-field-value system-title-interface" style="width: 100%;">${interfaceOptions}</select>
-                <div style="color: var(--color-text-muted); font-size: 11px; margin-top: 4px;">${tt('Stock title screen is used when no scene interface is selected or the record is unavailable.')}</div>
-            </div>
             ${titleLayerRow(1, tt('Lower Layer:'), system.title1Name || '')}
             ${titleLayerRow(2, tt('Upper Layer:'), system.title2Name || '')}
             <div class="system-title-preview" style="margin-top: 8px; position: relative; width: 100%; border: 1px solid var(--color-border); border-radius: 3px; background-color: var(--color-bg-deep); overflow: hidden;"></div>
@@ -587,23 +525,6 @@ class DatabaseSystem1Editor {
         column.appendChild(optionsSection);
 
         return column;
-    }
-
-    /** Every focused-scene interface can be the title; choosing one here or in Use As is the same binding. */
-    userInterfaceOptions(selectedId) {
-        const tt = text => window.I18n ? window.I18n.tText(text) : text;
-        const selected = Math.max(0, Math.floor(Number(selectedId) || 0));
-        let html = `<option value="0"${selected === 0 ? ' selected' : ''}>${tt('Stock (default)')}</option>`;
-        const records = this.databaseManager.getUserInterfaces ? this.databaseManager.getUserInterfaces() : [];
-        for (const entry of records || []) {
-            const id = Math.floor(Number(entry && entry.id) || 0);
-            if (!(id > 0) || (entry.mode || 'scene') !== 'scene') continue;
-            html += `<option value="${id}"${id === selected ? ' selected' : ''}>${String(id).padStart(4, '0')}: ${rrEscapeHtml(entry.name || tt('(Unnamed)'))}</option>`;
-        }
-        if (selected > 0 && !(records || []).some(entry => entry && Number(entry.id) === selected && (entry.mode || 'scene') === 'scene')) {
-            html += `<option value="${selected}" selected>${tt('(Missing)')} / ${tt('(incompatible)')} #${selected}</option>`;
-        }
-        return html;
     }
 
     //-------------------------------------------------------------------------
@@ -1194,8 +1115,8 @@ class DatabaseSystem1Editor {
         column.style.cssText = 'display: flex; flex-direction: column; gap: 16px;';
 
         // Row 1: Music
-        const musicTypes = ['title', 'battle', 'victory', 'defeat', 'gameOver', 'boat', 'ship', 'airship'];
-        const musicLabels = ['Title', 'Battle', 'Victory', 'Defeat', 'Game Over', 'Boat', 'Ship', 'Airship'];
+        const musicTypes = ['title', 'battle', 'victory', 'defeat', 'gameOver'];
+        const musicLabels = ['Title', 'Battle', 'Victory', 'Defeat', 'Game Over'];
 
         let musicRows = '';
         musicTypes.forEach((type, idx) => {
@@ -1391,82 +1312,6 @@ class DatabaseSystem1Editor {
                 }
             });
         }
-    }
-
-    /**
-     * Draw one vehicle as the map draws it: the character at its own index on
-     * the sheet, facing down, mid-step.
-     */
-    renderVehiclePreview(container, system, vehicleKey) {
-        const canvas = container.querySelector(`.vehicle-sprite-preview[data-vehicle="${vehicleKey}"]`);
-        if (!canvas) return;
-        const context = canvas.getContext('2d');
-        if (!context) return;
-        context.clearRect(0, 0, canvas.width, canvas.height);
-
-        const name = system[vehicleKey]?.characterName || '';
-        const project = this.projectManager.getCurrentProject();
-        if (!name || !project?.path) return;
-
-        const path = require('path');
-        const url = RRAssetFiles.urlFor(path.join(project.path, 'img', 'characters'), name, ['.png']);
-        if (!url) return;
-
-        const image = new Image();
-        image.onload = () => {
-            // A `$` sheet holds one character in 3 columns x 4 rows; every
-            // other sheet holds eight, four across, each with that same 3x4
-            // block. The index only means anything on the second kind.
-            const big = RRAssetFiles.isBigCharacter(name);
-            const frameWidth = image.width / (big ? 3 : 12);
-            const frameHeight = image.height / (big ? 4 : 8);
-            const index = big ? 0 : Math.min(7, Math.max(0, Number(system[vehicleKey]?.characterIndex) || 0));
-            const sx = ((index % 4) * 3 + 1) * frameWidth;
-            const sy = Math.floor(index / 4) * 4 * frameHeight;
-
-            const scale = Math.min(canvas.width / frameWidth, canvas.height / frameHeight, 2);
-            const width = Math.max(1, Math.round(frameWidth * scale));
-            const height = Math.max(1, Math.round(frameHeight * scale));
-            context.imageSmoothingEnabled = false;
-            context.drawImage(
-                image, sx, sy, frameWidth, frameHeight,
-                Math.round((canvas.width - width) / 2), Math.round((canvas.height - height) / 2),
-                width, height
-            );
-        };
-        image.src = url;
-    }
-
-    /**
-     * Pick a vehicle's sprite by clicking the cell it uses.
-     *
-     * The index used to be typed into a `prompt()` against a sheet whose
-     * dialog had already closed. CharacterGraphicPicker is the same cell grid
-     * every other character graphic in the editor is chosen from; a vehicle
-     * stores only the name and the index, so the frame's pattern and direction
-     * are read from the click and then dropped.
-     */
-    showVehicleImagePicker(system, vehicleKey) {
-        if (!system[vehicleKey]) {
-            system[vehicleKey] = { characterName: '', characterIndex: 0, startMapId: 0, startX: 0, startY: 0 };
-        }
-        const vehicle = system[vehicleKey];
-
-        new CharacterGraphicPicker(this.projectManager).show(
-            vehicle.characterName || '', vehicle.characterIndex || 0, 1, 2,
-            result => {
-                vehicle.characterName = result.characterName || '';
-                vehicle.characterIndex = Number(result.characterIndex) || 0;
-
-                const detailEl = document.getElementById('database-detail');
-                if (detailEl) {
-                    detailEl.innerHTML = '';
-                    this.showSystem1Detail(detailEl);
-                    // The page was drawn again: the keyboard goes back to the button that opened the picker.
-                    detailEl.querySelector?.(`.vehicle-change-btn[data-vehicle="${vehicleKey}"]`)?.focus?.();
-                }
-            }
-        );
     }
 
     showCommandWindowModal(system, container) {

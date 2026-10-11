@@ -1456,9 +1456,10 @@ class BuildHotbar {
 
     /**
      * Beyond the Border: what is seen past the map's border. The six styles as pictures, how far the
-     * land reaches and how hilly it is; under Advanced a style per side, the seed and the numbers the
-     * chosen styles read. A setting no chosen style reads is disabled or left out, and every control is
-     * off on a map that is not 3D. The form's rules are RRMapEdges', the steps the TerrainManager's.
+     * land reaches and how hilly it is; the map past each side (walking off that side enters it); under
+     * Advanced a style per side, the seed, the numbers the chosen styles read and a neighbor's shift along
+     * the border. A setting no chosen style reads is disabled or left out, and every control is off on a
+     * map that is not 3D. The form's rules are RRMapEdges', the steps the TerrainManager's.
      */
     surroundBody(terrain, section) {
         const edges = typeof RRMapEdges !== 'undefined' ? RRMapEdges : null;
@@ -1495,9 +1496,25 @@ class BuildHotbar {
         // A number shows the value in use, so its arrows step from it; the sea level alone has none until it is set.
         const numbers = edges.NUMBERS.filter(field => uses[field.use]).map(field => `<label class="rr-build-field rr-build-sfield"><span>${escape(tt(field.label))}</span>`
             + `<input type="number" class="database-field-value rr-build-snumber" data-key="${field.key}" value="${edges.shown(view, field)}" min="${field.min}" max="${field.max}" step="${field.step}"${field.key === 'level' ? ` placeholder="${escape(tt('Automatic'))}"` : ''}${no(true)}></label>`).join('');
+        // The map past each side: any map of the project but this one. A map since deleted shows as its number.
+        const here = this.currentMap()?.id, maps = (window.reactor?.projectController?.getCurrentProject?.()?.maps || []).filter(entry => entry && entry.id !== here);
+        const mapName = id => { const entry = maps.find(m => m.id === id); return String(id).padStart(3, '0') + (entry && entry.name ? ': ' + entry.name : ''); };
+        const mapOptions = current => `<option value="">${escape(tt('None'))}</option>`
+            + (current && !maps.some(m => m.id === current.map) ? `<option value="${current.map}" selected>${escape(mapName(current.map))}</option>` : '')
+            + maps.map(m => `<option value="${m.id}"${current && current.map === m.id ? ' selected' : ''}>${escape(mapName(m.id))}</option>`).join('');
+        // Where a neighbor lies along its border is set right under it: its shift.
+        const shiftOf = side => (!view.neighbors[side] ? '' : `<label class="rr-build-field rr-build-sfield rr-build-nshift-row"><span>${escape(tt('Shift (tiles)'))}</span>`
+            + `<input type="number" class="database-field-value rr-build-nshift" data-side="${side}" value="${view.neighbors[side].shift}" min="-9999" max="9999" step="1"></label>`);
+        const neighbors = `<div class="rr-build-note rr-build-wrap">${escape(tt('Walk past the border on a side to enter the map chosen there.'))}</div>`
+            // (Live on a 2D map as well: only the land past the border needs a 3D one.)
+            + `<div class="rr-build-sgrid">${edges.SIDES.map(side => `<label class="rr-build-field rr-build-sfield"><span>${escape(tt(edges.SIDE_LABEL[side]))}</span>`
+                + `<select class="database-field-value rr-build-nmap" data-side="${side}">${mapOptions(view.neighbors[side])}</select></label>` + shiftOf(side)).join('')}</div>`
+            + (edges.SIDES.some(side => view.neighbors[side]) ? `<div class="rr-build-note rr-build-wrap rr-build-nshift-note">${escape(tt('Shift slides a neighbor along its border: down on East and West, right on North and South.'))}</div>` : '');
         return lead + noFloor + hidden
             + section(tt('Style'), tiles, escape(tt(picked.label)))
             + section(this._t('build.settings'), distance + hills)
+            // Folded until a side has a map or the author opens it: the panel fits a small window without it.
+            + `<details class="lit-section rr-build-section rr-build-more" data-more="neighbors"${this.moreOpen('neighbors') || edges.SIDES.some(side => view.neighbors[side]) ? ' open' : ''}><summary class="lit-section-header">${tt('Neighboring Maps')}</summary><div class="lit-section-body">${neighbors}</div></details>`
             + `<details class="lit-section rr-build-section rr-build-more" data-more="surround"${this.moreOpen('surround') ? ' open' : ''}><summary class="lit-section-header">${tt('Advanced')}</summary><div class="lit-section-body"><div class="rr-build-sgrid">${sides}${numbers}</div></div></details>`;
     }
 
@@ -1544,6 +1561,42 @@ class BuildHotbar {
                 // The field shows what was kept: a number held to its range, the default when it was cleared.
                 el.value = edges.shown(edges.read(this.currentMap()), field);
                 step.soon();
+            });
+        });
+        // The map past a side: picking one is a step; its shift gathers like the numbers.
+        const neighborOf = side => edges.read(this.currentMap()).neighbors[side];
+        panel.querySelectorAll('.rr-build-nmap').forEach(el => el.addEventListener('change', () => {
+            const side = el.dataset.side, was = neighborOf(side);
+            commit({ neighbors: { [side]: el.value ? { map: Number(el.value), shift: was ? was.shift : 0 } : null } });
+            setTimeout(() => this.panel.querySelector(`.rr-build-nmap[data-side="${side}"]`)?.focus({ preventScroll: true }), 0);
+        }));
+        panel.querySelectorAll('.rr-build-nshift').forEach(el => {
+            const step = this.gesture(el, keep), side = el.dataset.side;
+            const slide = () => {
+                const now = neighborOf(side);
+                if (!now) return false;
+                live(el, { neighbors: { [side]: { map: now.map, shift: el.value } } });
+                step.soon();
+                return true;
+            };
+            // The neighbor slides in the view as the number is typed or stepped: a whole number so far is its shift.
+            let typed = false;
+            el.addEventListener('input', event => {
+                if (event.isTrusted && event.inputType) typed = true;
+                if (/^-?\d+$/.test(el.value.trim())) slide();
+            });
+            // Ctrl+Z and Ctrl+Y in the field are the map's, as on the numbers, unless text typed there is still the field's own to undo.
+            el.addEventListener('keydown', event => {
+                const key = String(event.key || '').toLowerCase();
+                if (typed || !(event.ctrlKey || event.metaKey) || event.altKey || (key !== 'z' && key !== 'y')) return;
+                event.preventDefault();
+                if (key === 'z' && !event.shiftKey) terrain.undo(); else terrain.redo();
+                this.renderTerrainPanel();
+            });
+            el.addEventListener('change', () => {
+                typed = false;
+                // The field shows what was kept: a whole number, held to its range.
+                if (slide()) el.value = (neighborOf(side) || { shift: 0 }).shift;
             });
         });
         // The sliders: the land follows as they move.

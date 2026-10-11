@@ -422,7 +422,7 @@ test('the Events list marks a unit\'s row with its side', () => {
     assert.match(rule[1], /background: var\(--rr-unit-side/);
 });
 
-test('a click on a row selects the event and brings it into the 2D view', () => {
+test('a click on a row turns on Event mode, selects the event and brings it into the 2D view', () => {
     const map = mapOf(), m = manager(map);
     map.width = 200; map.height = 200;
     eventOf(map, 4).x = 76; eventOf(map, 4).y = 59;
@@ -438,15 +438,20 @@ test('a click on a row selects the event and brings it into the 2D view', () => 
         },
         updateScrollbars() { this.bars = (this.bars || 0) + 1; }
     });
-    const selected = [];
-    m.selectEvent = event => { m.selectedEvent = event; selected.push(event.id); m.updateEventListSelection(); };
+    const selected = [], steps = [];
+    m.selectEvent = event => { m.selectedEvent = event; selected.push(event.id); steps.push('select ' + event.id); m.updateEventListSelection(); };
     m.selectTile = (x, y) => { m.tile = [x, y]; };
     m.editEvent = event => { m.edited = event.id; };
+    // The map tool's own work (the map's listeners, the start markers) is the toolbar's test.
+    m.setEventMode = on => { steps.push('mode ' + on); m.eventMode = on; };
     let keys = null;
     global.RRPickerIndex = { bindListNavigation: (list, options) => { keys = options; } };
     try { m.updateEventsList(); } finally { delete global.RRPickerIndex; }
     const rows = document.byId['events-list'].children, row = id => rows.find(entry => Number(entry.dataset.eventId) === id);
+    assert.equal(m.eventMode, false);
     row(4).fire('click');
+    assert.deepEqual(steps, ['mode true', 'select 4'], 'Event mode first: the tool that was in hand lets go before the event is picked up');
+    assert.equal(m.eventMode, true);
     assert.deepEqual(selected, [4]);
     assert.ok(row(4).classList.contains('selected'));
     // The middle of tile (76, 59) in the middle of a 1179 by 872 view.
@@ -462,6 +467,8 @@ test('a click on a row selects the event and brings it into the 2D view', () => 
     // An event by the map's edge comes as near the middle as the map allows.
     row(1).fire('click');
     assert.deepEqual([m.tilemapManager.container.x, m.tilemapManager.container.y], [0, 0]);
+    // In Event mode a click only moves the selection.
+    assert.deepEqual(steps.filter(step => step.startsWith('mode')), ['mode true']);
     // A row that is not a unit works the same; a double click still opens the event.
     row(10).fire('dblclick');
     assert.equal(m.edited, 10);
@@ -470,11 +477,53 @@ test('a click on a row selects the event and brings it into the 2D view', () => 
     m.selectEventById(6);
     assert.equal(moves.length, before);
     assert.deepEqual(selected.slice(-1), [6]);
-    // The arrow keys in the list bring each row's event into view as a click does.
+    // The arrow keys in the list bring each row's event into view as a click does, in Event mode too.
+    m.eventMode = false;
     keys.select(row(7));
     assert.deepEqual(selected.slice(-1), [7]);
     assert.equal(moves.length, before + 1);
     assert.equal(keys.isSelected(row(7)), true);
+    assert.equal(m.eventMode, true);
+    // A row whose event is gone from the map changes nothing.
+    m.eventMode = false;
+    map.events[7] = null;
+    row(7).fire('click');
+    assert.equal(m.eventMode, false);
+    assert.deepEqual(selected.slice(-1), [7]);
+});
+
+test('Event mode from a row of the Events list is the toolbar tool\'s Event mode', () => {
+    const map = mapOf(), m = manager(map);
+    global.document = fakeDocument();
+    m.selectEvent = event => { m.selectedEvent = event; };
+    m.centerOnEvent = () => {};
+    const calls = [];
+    m.setEventMode = on => { calls.push('own ' + on); m.eventMode = on; };
+    // The app's own switch: it claims the map for the event tool, lights its button and says so in the status line.
+    const app = { eventManager: m, toggleEventMode() { calls.push('toolbar'); m.eventMode = !m.eventMode; } };
+    const previous = global.window;
+    global.window = { reactor: app };
+    try {
+        m.updateEventsList();
+        const row = id => document.byId['events-list'].children.find(entry => Number(entry.dataset.eventId) === id);
+        row(3).fire('click');
+        assert.deepEqual([calls, m.eventMode, m.selectedEvent.id], [['toolbar'], true, 3]);
+        // Already on: the toolbar's switch is a toggle and is left alone.
+        row(4).fire('click');
+        assert.deepEqual([calls, m.eventMode, m.selectedEvent.id], [['toolbar'], true, 4]);
+        // A double click is two clicks and then the editor: the mode is on by the time it opens.
+        m.eventMode = false;
+        m.editEvent = event => { calls.push('edit ' + event.id + ' in mode ' + m.eventMode); };
+        row(1).fire('click'); row(1).fire('click'); row(1).fire('dblclick');
+        assert.deepEqual(calls, ['toolbar', 'toolbar', 'edit 1 in mode true']);
+        // Another manager than the app's (a second map view) switches itself.
+        app.eventManager = {};
+        m.eventMode = false;
+        row(3).fire('click');
+        assert.deepEqual(calls.slice(-1), ['own true']);
+    } finally {
+        if (previous === undefined) delete global.window; else global.window = previous;
+    }
 });
 
 test('with the 3D view up, a click on a row frames the event there and leaves the 2D view alone', () => {
@@ -486,11 +535,13 @@ test('with the 3D view up, a click on a row frames the event there and leaves th
     Object.assign(m.tilemapManager, { viewportSize: () => ({ width: 800, height: 600 }), setViewportTransform() { moved++; } });
     m.selectEvent = event => { m.selectedEvent = event; };
     m.selectTile = () => {};
+    m.setEventMode = on => { m.eventMode = on; };
     m.updateEventsList();
     const row = id => document.byId['events-list'].children.find(entry => Number(entry.dataset.eventId) === id);
     row(3).fire('click');
     assert.deepEqual(view.framed, [3]);
     assert.equal(moved, 0);
+    assert.equal(m.eventMode, true, 'the row turns Event mode on in the 3D view as well');
     // A 3D view that cannot frame it (not built yet) and a 3D view switched off fall back to the 2D view.
     view.answer = false;
     row(3).fire('click');

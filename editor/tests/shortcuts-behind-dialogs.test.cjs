@@ -95,3 +95,24 @@ test('Ctrl+Z and Ctrl+Y reach the map from a focused slider or tick, and stay wi
     assert.equal(UIManager.isTextEntry(null), false);
     assert.equal(UIManager.isTextEntry({ tagName: 'SELECT' }), false);
 });
+
+test('a command dialog over the Event Editor keeps the command list\'s keys from acting behind it', () => {
+    const EventCommandList = require(path.join(editorRoot, 'src', 'event', 'EventCommandList.js'));
+    const list = fs.readFileSync(path.join(editorRoot, 'src', 'event', 'EventCommandList.js'), 'utf8');
+    const row = { id: 'row' }, dialogField = { id: 'field' };
+    const editor = { contains: element => element === row };
+    const own = { document: globalThis.document, window: globalThis.window };
+    let under = row;
+    globalThis.document = { elementFromPoint: () => under };
+    globalThis.window = { innerWidth: 1366, innerHeight: 768 };
+    try {
+        assert.equal(EventCommandList.coveredByDialog(editor), false, 'the editor itself is on top');
+        under = dialogField;
+        assert.equal(EventCommandList.coveredByDialog(editor), true, 'Delete with Change Items up deleted the command behind it');
+        under = null;
+        assert.equal(EventCommandList.coveredByDialog(editor), false);
+    } finally { globalThis.document = own.document; globalThis.window = own.window; }
+    // The shortcut handler asks before any key acts.
+    const handler = list.slice(list.indexOf('setupKeyboardShortcuts() {'), list.indexOf('EventCommandList.historyKey(e'));
+    assert.match(handler, /if \(EventCommandList\.coveredByDialog\(eventEditorModal\)\) return;/);
+});

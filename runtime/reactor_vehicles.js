@@ -25,7 +25,8 @@
 //
 // Moving the ridden vehicle is reactor_vehicles_drive.js; drawing it and its
 // rider is reactor_3d_vehicles.js and reactor_3d_rider.js. This file meets
-// them in saved fields only: `_rrDrive.v` is read, `_rrDrive.leave` written.
+// them in saved fields only: `_rrDrive.v`, `.air`, `.alt` and `.fade` are read,
+// `_rrDrive.leave` written.
 //=============================================================================
 
 (function() {
@@ -39,7 +40,7 @@
     V.DATA_URL = "data/ReactorVehicles.json";
     /** Ticks a hop on or off takes. */
     V.HOP = 14;
-    /** Ticks a press to get off is kept while the vehicle slows, and ticks the "no room" word shows. */
+    /** Ticks a press to get off is kept once the vehicle no longer slows or comes down, and ticks the "no room" word shows. */
     V.KEEP = 90;
     /** Ticks between two looks for the vehicle OK would board. */
     V.LOOK = 6;
@@ -361,6 +362,8 @@
     let rebuilding = false;
     // Ticks left of a kept press to get off, and of the "no room" word.
     let keep = 0, noRoom = 0;
+    // The speed and, in the air, the height the ridden vehicle had on the last tick of a kept press.
+    let slowFrom = NaN, downFrom = NaN;
 
     V.idOf = function(event) {
         return event && event._eventId > 0 ? event._rrIdentity || (event._mapId || 0) + ":" + event._eventId : "";
@@ -578,6 +581,7 @@
                     event._rrAway = true;
                     event.erase();
                 } else if (entry.gone) {
+                    if (event._rrIdentity) event._rrHome = [entry.home[0], entry.home[1], entry.yaw];
                     event.erase();
                 } else {
                     if (event._rrIdentity) event._rrHome = [entry.home[0], entry.home[1], entry.yaw];
@@ -725,6 +729,12 @@
         if (V.Feel && typeof V.Feel.sound === "function") V.Feel.sound(name);
     };
 
+    /** A ride that ends while the mover has the screen dipped to put the vehicle back (`_rrDrive.fade`) gives the screen back. */
+    const endDip = function(p) {
+        const drive = p._rrDrive;
+        if (drive && drive.fade > 0 && typeof $gameScreen !== "undefined" && $gameScreen) $gameScreen.startFadeIn(drive.fade);
+    };
+
     /** The ride that began ends: the vehicle's `getOff()` and the event, once. */
     const endRide = function(event) {
         if (!riding) return;
@@ -746,6 +756,7 @@
         p._vehicleType = "walk";
         p._rrFree = 0;
         p._rrSeated = false;
+        endDip(p);
         p._rrDrive = null;
         p._rrMount = null;
         p._rrRide = null;
@@ -771,8 +782,9 @@
         if (rebuilding) return carried;
         const ride = p._rrRide, map = $gameMap;
         if (ride && ride.map === map._mapId) {
-            const event = map._events[ride.id], data = mapData();
             // While no map's data is loaded (a scene reads it again) the data is not asked: it decides once it is back.
+            // Nor on the way to another map: the data loaded may already be that map's (a border crossed without a break).
+            const event = map._events[ride.id], data = p._transferring && p._newMapId !== map._mapId ? null : mapData();
             if (event && event._rrVehicle > 0 && !event._erased && event._pageIndex >= 0 && event._rrBoarded
                 && (!data || (data.events && data.events[ride.id]))) {
                 if (carried !== event) {
@@ -980,12 +992,12 @@
         x = number(x); y = number(y);
         const asked = number(degrees), height = number(z);
         if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-        const map = $gameMap, name = typeof what === "string" ? what.trim() : what;
+        const name = typeof what === "string" ? what.trim() : what;
         let event = V.find(name);
         if (!event && typeof name === "string") {
-            // One that was taken out of the world comes back where it is put.
-            const identity = /^(\d+):(\d+)$/.exec(name);
-            const gone = identity && Number(identity[1]) === map._mapId ? map._events[Number(identity[2])] : null;
+            // One that was taken out of the world comes back where it is put: found by its identity among this
+            // map's vehicle events, whatever event id it has here.
+            const gone = /^\d+:\d+$/.test(name) ? V.list().find(other => V.idOf(other) === name) : null;
             if (gone && gone._rrVehicle > 0 && gone._erased) event = gone;
         }
         if (!event) return false;
@@ -1303,6 +1315,7 @@
         const ground = Number.isFinite(mount.tz) ? mount.tz : groundOf(p);
         p._reactorGround = ground; p._reactorAlt = ground; p._reactorAir = 0; p._reactorVz = 0;
         face(p, Number.isFinite(event._rrYaw) ? event._rrYaw : mount.fyaw);
+        endDip(p);
         p._rrDrive = null;
         p._rrMount = null;
         keep = 0; noRoom = 0; carried = null;
@@ -1387,6 +1400,7 @@
         if (!p._rrDrive) p._rrDrive = { v: 0, steer: 0, yaw: event._rrYaw, vz: 0, pitch: 0, roll: 0, travel: 0, leave: "", rest: 0, foot: 0, grid: 0, dry: null };
         p._rrDrive.leave = "ok";
         keep = V.KEEP; noRoom = 0;
+        slowFrom = NaN; downFrom = NaN;
         if (slowEnough(p)) dismount(event, p);
         return true;
     };
@@ -1398,7 +1412,11 @@
         if (!drive || drive.leave !== "ok" || p._rrMount) return;
         // A press a save carried is kept from the tick the game goes on.
         if (keep <= 0) keep = V.KEEP;
-        if (--keep <= 0) { drive.leave = ""; return; }
+        // While the vehicle still answers the press (it slows, or it comes down to land) the press does not run out.
+        const speed = Math.abs(drive.v || 0), height = drive.air > 0 && Number.isFinite(drive.alt) ? drive.alt : NaN;
+        const answering = speed < slowFrom - 1e-9 || height < downFrom - 1e-9;
+        slowFrom = speed; downFrom = height;
+        if (!answering && --keep <= 0) { drive.leave = ""; return; }
         if (slowEnough(p)) dismount(event, p);
     };
 
@@ -1708,7 +1726,8 @@
         const placements = models()?.startingEvents?.(root.$dataReactorVehicles, map._mapId) || [];
         for (const authored of placements) {
             const entry = store && store.at[authored._rrVehicleIdentity];
-            if (entry && (entry.gone || entry.map !== map._mapId)) continue;
+            // One taken out of the world here still has its event (erased as the map is entered), so it can be put back.
+            if (entry && entry.map !== map._mapId) continue;
             if (authored.x >= data.width || authored.y >= data.height) continue;
             const vacancy = data.events.findIndex((row, index) => index > 0 && !row);
             authored.id = vacancy > 0 ? vacancy : Math.max(1, data.events.length);
@@ -1716,7 +1735,7 @@
         }
         if (!store) return;
         for (const [identity, entry] of Object.entries(store.at)) {
-            if (!entry.event || entry.gone || entry.map !== map._mapId || Number(identity.split(":")[0]) === map._mapId) continue;
+            if (!entry.event || entry.map !== map._mapId || Number(identity.split(":")[0]) === map._mapId) continue;
             if (data.events.some(event => event && event._rrVehicleIdentity === identity)) continue;
             const authored = copy(entry.event), id = Math.max(1, data.events.length);
             authored.id = id; authored.x = Math.round(entry.x); authored.y = Math.round(entry.y);
@@ -1765,8 +1784,26 @@
             }
             return setup.apply(this, arguments);
         };
+
+        // A map that plays its music on arrival plays it for a party aboard a vehicle that has no music of its own.
+        const autoplay = proto.autoplay;
+        proto.autoplay = function() {
+            autoplay.apply(this, arguments);
+            const data = mapData(), p = player();
+            if (data && data.autoplayBgm && p && ridesSilent(p)) AudioManager.playBgm(AudioManager.mapBgmObject(data, this.mapId()));
+        };
     };
     let resumeAt = null;
+
+    /** Aboard a vehicle whose boarding left the music alone: one of this file's with no BGM, or a boat, ship or airship that played none. */
+    const ridesSilent = function(p) {
+        if (p._vehicleType === "reactor") {
+            const event = V.ridden(), type = event ? V.type(event._rrVehicle) : null;
+            return !!event && !(type && type.bgm && type.bgm.name);
+        }
+        const stock = p.isInVehicle() ? p.vehicle() : null;
+        return !!stock && stock._rrVehicleBgm === false;
+    };
 
     /**
      * The map scene starts: events a save brought are matched to the data, and a ride a save or a reload of the

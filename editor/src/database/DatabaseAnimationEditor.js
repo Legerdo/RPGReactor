@@ -519,7 +519,7 @@ class DatabaseAnimationEditor {
                             ` : ''}
 
                             ${isEffekseer ? `
-                                <div style="grid-column:1 / -1;color:var(--color-text-muted);font-size:10px;font-style:italic;padding:4px;">
+                                <div style="grid-column:1 / -1;color:var(--color-text-muted);font-size:10px;padding:4px;">
                                     ${tt('Effect file, display type, scale and other settings are editable in the Particle Effect panel below.')}
                                 </div>
                             ` : ''}

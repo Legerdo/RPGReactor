@@ -563,7 +563,8 @@ test('a damage number stays on its unit as the unit and the camera move, clear o
     w.Reactor3D.characterHeightTiles = () => 12;
     const giant = w.unit(10, 19);
     w.spriteset.rrFightPopup(giant, {}); w.spriteset.rrFightPopup(giant, {});
-    const top = Math.round(900 * w.F.POPUP_EDGE.top);
+    // The limit is where the number's foot stands: its own height (`line`) is above that, under the top of the HUD.
+    const top = Math.round(900 * w.F.POPUP_EDGE.top) + w.F.POPUP_EDGE.line;
     assert.deepEqual([w.spriteset._rrFightPopups[1].y, w.spriteset._rrFightPopups[2].y], [top, top + w.F.POPUP_SPREAD[1][1]]);
     for (let i = 0; i < 100; i++) w.tick();
     assert.equal(w.spriteset._rrFightPopups.length, 0, 'and goes when it has played');

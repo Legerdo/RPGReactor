@@ -1,4 +1,4 @@
 [
 null,
-{"id":1,"name":"Motorcycle","kind":"motorcycle","model":{"name":"Vehicles/kawashaki_ninja_h2","file":"kawashaki_ninja_h2","size":3},"sounds":{"engine":{"name":"drone-01","volume":90,"pitch":100},"start":{"name":"powerup-01","volume":90,"pitch":100},"stop":{"name":"equip-01","volume":90,"pitch":100,"pan":0},"bump":{"name":"hit-01","volume":90,"pitch":100},"land":{"name":"hit-02","volume":90,"pitch":100}},"classId":11}
+{"id":1,"name":"Motorcycle","kind":"motorcycle","model":{"name":"Vehicles/kawashaki_ninja_h2","file":"kawashaki_ninja_h2","size":3},"sounds":{"engine":{"name":"drone-01","volume":90,"pitch":100},"start":{"name":"powerup-01","volume":90,"pitch":100},"stop":{"name":"equip-01","volume":90,"pitch":100,"pan":0},"bump":{"name":"hit-01","volume":90,"pitch":100},"land":{"name":"hit-02","volume":90,"pitch":100}},"classId":11,"traits":[{"code":52,"dataId":1,"value":0}],"equips":[null,null,null,null,null,0]}
 ]

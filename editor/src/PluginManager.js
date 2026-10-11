@@ -1950,7 +1950,7 @@ class PluginManager {
         // Left side - Plugin list
         const listContainer = document.createElement('div');
         listContainer.style.cssText = `
-            width: 280px;
+            width: 340px;
             min-width: 220px;
             border-right: 1px solid var(--color-border);
             display: flex;

@@ -76,6 +76,21 @@ test('an idle renderer is made on demand, dropped with its context after the res
     idle.drop();
 });
 
+test('an idle renderer calls the window timers as plain functions', () => {
+    // A browser's timers throw when called as another object's methods.
+    const ownSet = globalThis.setTimeout, ownClear = globalThis.clearTimeout;
+    const calls = [];
+    globalThis.setTimeout = function (fn, ms) { if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation'); calls.push(['set', ms]); return 7; };
+    globalThis.clearTimeout = function (id) { if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation'); calls.push(['clear', id]); };
+    try {
+        const idle = new Release.IdleRenderer(() => ({}), { restMs: 25 });
+        idle.use(() => {});
+        idle.use(() => {});
+        idle.drop();
+    } finally { globalThis.setTimeout = ownSet; globalThis.clearTimeout = ownClear; }
+    assert.deepEqual(calls, [['set', 25], ['clear', 7], ['set', 25], ['clear', 7]]);
+});
+
 test('a model copy leaving a scene disposes what was made for it alone', () => {
     const own = item(), material = item(), skeleton = item();
     const copy = { traverse(visit) { visit({ geometry: own, material, skeleton }); } };

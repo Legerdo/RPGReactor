@@ -2941,7 +2941,7 @@ class DatabaseTroopEditor {
     }
 
     /**
-     * The project's Battle HUD (System 2 › Battle), normalized, or null. When
+     * The project's Battle HUD (the interface used as Battle), normalized, or null. When
      * one is bound the battle draws it instead of the stock status and
      * windows, so the preview does too.
      */

@@ -578,6 +578,8 @@
             font-size: 14px;
             border-radius: 3px;
             margin: 2px 0;
+            /* A double-click opens the row; it must not select its text as well. */
+            user-select: none;
         }
 
         .tree-item:hover {
@@ -851,6 +853,9 @@
             border-top: 1px solid var(--color-border);
             border-left: 1px solid var(--color-border);
         }
+        /* The 3D view moves by its camera: the flat map's scrollbars would scroll nothing that is seen. */
+        #canvas-container:has(> #map-3d-input) > .custom-scrollbar,
+        #canvas-container:has(> #map-3d-input) > .custom-scrollbar-corner { display: none !important; }
 
         /* Disable context menu on canvas */
         canvas {
@@ -1519,27 +1524,19 @@
             flex-shrink: 0;
         }
 
+        /* A Terms panel is a Database section like any other: its look is .database-section's. */
         .rr-terms-panel {
             min-width: 0;
-            border: 1px solid var(--color-border);
-            border-radius: 4px;
             overflow: hidden;
-            background: var(--color-bg-panel);
         }
 
-        .rr-terms-panel > header {
-            padding: 6px 8px;
-            border-bottom: 1px solid var(--color-border);
-            color: var(--color-text-strong);
-            font-size: 12px;
-            font-weight: 700;
-            background: var(--color-bg-surface);
+        .rr-terms-panel.database-section {
+            margin-bottom: 0;
         }
 
         .rr-terms-fields {
             display: grid;
             gap: 6px 8px;
-            padding: 8px;
         }
 
         .rr-terms-fields-two {
@@ -2106,6 +2103,8 @@
             gap: 4px;
             min-width: 0;
         }
+        /* A button in a column row keeps one line, so it stays the height of the buttons beside it. */
+        .db-row-cols > .db-col > button { white-space: nowrap; }
         .db-row-cols > .db-col > label {
             color: var(--color-text-muted);
             font-size: 12px;
@@ -4031,6 +4030,7 @@
         .rr-structures-floor, .rr-structures-tool { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 8px; border: 1px solid transparent; border-radius: 4px; background: var(--color-bg-button); color: var(--color-text); font-size: 12px; text-align: left; cursor: pointer; }
         .rr-structures-floor:hover, .rr-structures-tool:hover { border-color: var(--color-border); }
         .rr-structures-floor.active, .rr-structures-tool.active { background: var(--color-accent-tint-15); border-color: var(--color-accent-border-strong, var(--color-accent)); }
+        :root[data-theme$="light"] .rr-structures-floor.active, :root[data-theme$="light"] .rr-structures-tool.active { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-on); }
         .rr-structures-toolgrid { display: grid; grid-template-columns: 1fr; gap: 2px; }
         .rr-structures-above { margin-bottom: 4px; }
         .r3d-preview-states { position: absolute; right: 10px; bottom: 10px; display: none; gap: 2px; padding: 3px; background: color-mix(in srgb, var(--color-bg-panel) 88%, transparent); border: 1px solid var(--color-border); border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,0.3); z-index: 2; }
@@ -4044,8 +4044,8 @@
         .rr-structures-side-field[hidden] { display: none; }
         .rr-structures-side-field select { width: 100%; }
         .rr-structures-planpane { flex: 1.25; min-width: 0; position: relative; background: var(--color-bg-deep); border-right: 1px solid var(--color-border); }
-        .rr-structures-paint { position: absolute; inset: 0; width: 100%; height: calc(100% - 26px); cursor: crosshair; outline: none; }
-        .rr-structures-paint-hint { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; line-height: 26px; padding: 0 8px; font-size: 11px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rr-structures-paint { position: absolute; inset: 0; width: 100%; height: calc(100% - 36px); cursor: crosshair; outline: none; }
+        .rr-structures-paint-hint { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; box-sizing: border-box; line-height: 15px; padding: 3px 8px; font-size: 11px; color: var(--color-text-muted); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
         .rr-structures-3dpane { flex: 1; min-width: 0; position: relative; background: var(--color-bg-deep); }
         /* The Structure workshop: what is being built, and the way to save it, over the 3D view. */
         .rr-workshop-banner {
@@ -4126,6 +4126,8 @@
         /* Rock sizes: icon and name on one line, three to a row. */
         .rr-build-shapes .rr-build-chip.rr-build-rockpreset { flex-direction: row; gap: 4px; padding: 4px 4px; font-size: 11px; }
         .rr-build-shapes .rr-build-chip.rr-build-rockpreset svg { width: 16px; height: 16px; flex: 0 0 auto; }
+        /* A narrow panel has no room for both: the six carry the same icon, so the name stays. */
+        .rr-build-panel.is-narrow .rr-build-shapes .rr-build-chip.rr-build-rockpreset svg { display: none; }
         .rr-build-panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 8px; padding: 10px; }
         .rr-build-panel-foot { flex: 0 0 auto; }
         .rr-build-panel-foot > button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
@@ -5691,7 +5693,7 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .rr-pieces-material[aria-checked="true"] { border-color: var(--color-accent) !important; box-shadow: 0 0 0 1px var(--color-accent); }
 .rr-sequence-header > .rr-sequence-id { color:var(--color-text-muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;padding:0 2px; }
 .rr-sequence-header > input { flex:1;min-width:100px;width:140px; }
-.rr-sequence-editor .rr-battle-workspace { flex:1;min-height:260px;grid-template-columns:clamp(180px,20%,260px) minmax(0,1fr) 250px;grid-template-rows:minmax(0,1fr); }
+.rr-sequence-editor .rr-battle-workspace { flex:1;min-height:260px;grid-template-columns:clamp(180px,20%,290px) minmax(0,1fr) 250px;grid-template-rows:minmax(0,1fr); }
 /* On a short screen the centre column scrolls inside its track instead of spilling over the footer. */
 .rr-sequence-center { display:flex;flex-direction:column;gap:8px;min-height:0;overflow-y:auto;overflow-x:hidden; }
 .rr-sequence-center > * { flex-shrink:0; }
@@ -5741,8 +5743,10 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .rr-transform-card .rr-battle-field { margin:0; }
 .rr-sequence-cast-help { margin:0;font-size:11px; }
 .rr-pose-parts { display:flex;flex-direction:column;gap:6px;min-width:0; }
-.rr-pose-part-picker { display:flex;gap:6px;min-width:0; }
+.rr-pose-part-picker { display:flex;flex-wrap:wrap;gap:6px;min-width:0; }
 .rr-pose-part-picker select { flex:1;min-width:0; }
+/* In a narrow inspector the chooser keeps a readable width and Add Part drops under it. */
+.rr-pose-part-picker > .rr-shim-wrapper { flex:1 1 120px !important; }
 .rr-pose-part-list { display:flex;flex-direction:column;gap:4px; }
 .rr-pose-part-row { display:flex;gap:4px;min-width:0; }
 .rr-pose-part-row .rr-pose-part-name { flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
@@ -5770,7 +5774,8 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .rr-sequence-timeline-card .rr-sequence-steps { flex:1;min-height:0;max-height:none; }
 .rr-sequence-timeline-card .rr-sequence-steps button { padding:8px;flex-shrink:0;white-space:normal;overflow-wrap:anywhere; }
 @container database-detail (max-width:1100px) {
- .rr-sequence-editor .rr-battle-workspace { grid-template-columns:180px minmax(0,1fr) 220px; }
+ .rr-sequence-editor .rr-battle-workspace { grid-template-columns:204px minmax(0,1fr) 220px; }
+ .rr-sequence-header > .rr-battle-field .rr-shim-wrapper { max-width:230px; }
  .rr-sequence-editor { gap:8px;padding:8px; }
  .rr-sequence-tools select { max-width:135px;font-size:11px; }
 }
@@ -6114,10 +6119,13 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 [data-sequence-assignment] { margin-top:16px; grid-column:1 / -1; }
 .rr-battle-phase-list { display:grid; gap:8px; }
 .rr-battle-phase-row { display:grid; grid-template-columns:minmax(140px,1fr) minmax(180px,1.4fr); align-items:center; gap:8px 12px; padding:8px 0; border-bottom:1px solid var(--color-border); }
-.rr-battle-phase-caption { display:flex;flex-direction:column;gap:4px; }
+.rr-battle-phase-caption { display:flex;flex-direction:column;gap:4px;font-size:13px; }
 .rr-battle-phase-caption .rr-battle-help { margin:0; }
 .rr-battle-motion-details { margin-top:12px; }
-.rr-battle-motion-details > summary { padding:8px; background:var(--color-bg-panel); border-left:3px solid var(--color-accent); cursor:pointer; font-weight:600; }
+.rr-battle-motion-details > summary { padding:8px; background:var(--color-bg-panel); border-left:3px solid var(--color-accent); cursor:pointer; font-size:13px; font-weight:600; }
+.rr-state-motion-fields { display:flex;flex-direction:column;gap:8px; }
+.rr-state-motion-fields > .rr-battle-help { margin:0; }
+.rr-state-motion-fields > .rr-battle-motion-details { margin-top:4px; }
 @container database-detail (max-width:560px) { .rr-battle-phase-row { grid-template-columns:minmax(0,1fr); } }
 
 .rr-battler-graphic-card { width:100%;margin-top:10px;box-sizing:border-box; }
@@ -6168,7 +6176,7 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .rr-sequence-phase-head:first-child { margin-top:0; }
 .rr-sequence-phase-number { display:inline-flex;flex:0 0 16px;align-items:center;justify-content:center;width:16px;height:16px;box-sizing:border-box;border-radius:50%;background:var(--color-accent-tint-25);color:var(--color-accent-bright);font-size:10px;font-weight:700; }
 .rr-sequence-phase-label { font-weight:700;flex:0 0 auto; }
-.rr-sequence-phase-count { flex:1 1 0;min-width:0;color:var(--color-text-muted);text-transform:none;letter-spacing:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.rr-sequence-phase-count { flex:1 1 auto;min-width:0;color:var(--color-text-muted);text-transform:none;letter-spacing:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .rr-sequence-phase-head .rr-btn-secondary { flex:0 0 auto;min-height:20px;padding:0 6px !important;font-size:11px;text-transform:none;letter-spacing:0;white-space:nowrap; }
 .rr-sequence-phase-add { display:inline-flex;align-items:center;justify-content:center;width:22px;padding:0 !important;font-weight:700;text-align:center !important; }
 .rr-sequence-phase-actions { display:flex;gap:6px;margin-inline-start:auto; }
@@ -6188,6 +6196,7 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 
 .rr-sequence-step-modes { display:flex;flex-wrap:nowrap;gap:4px; }
 .rr-sequence-step-modes button { flex:1;min-width:0;padding:5px 3px; }
+.rr-sequence-editor .rr-sequence-step-modes button { white-space:nowrap; }
 
 /* Action Sequences: the step picker dialog. Each group is a section in the
    editor's family: a dark header bar with the accent strip (Map Properties,
@@ -6411,8 +6420,6 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .event-unit-returns { display: inline-flex; align-items: center; gap: 5px; height: 28px; cursor: pointer; }
 .event-unit-returns[hidden] { display: none; }
 .event-editor-header .event-unit-returns input { width: 14px; height: 14px; padding: 0; }
-.event-header-controls > span.event-unit-tag { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--color-text); }
-.event-editor-header .event-unit-use { flex: 0 0 auto; height: 28px; padding: 0 10px; font-size: 11px; }
 .event-unit-look { flex-shrink: 0; font-size: 10px; line-height: 14px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The editor's own dropdown (a trigger drawn over the select) at the band's control height. */
 .event-header-controls .rr-shim-wrapper { flex: 0 1 auto; min-width: 60px; height: 28px; }
@@ -6522,7 +6529,9 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .rr-battle-setup-tile:hover { background: var(--color-bg-selected); }
 .rr-battle-setup-tile:focus-visible { outline: 2px solid var(--color-accent-bright); outline-offset: -2px; }
 .rr-battle-setup-tile.is-on { border-color: var(--color-accent-bright); background: var(--color-bg-selected); color: var(--color-text-strong); font-weight: 600; }
-.rr-battle-setup-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Two lines: names that differ only at the end ("Raider Cutter", "Raider Captain") stay apart. */
+.rr-battle-setup-name { max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.2; text-align: center; overflow-wrap: anywhere; }
+.rr-battle-setup-row { align-items: start; }
 .rr-battle-setup-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px; color: var(--color-text-muted); }
 .rr-battle-setup-hint { flex: 0 0 auto; color: var(--color-text-muted); font-size: 11px; line-height: 1.35; min-height: 30px; }
 .rr-battle-setup-hint.is-armed { color: var(--color-accent-bright); }
@@ -6603,6 +6612,20 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 /* Advanced: every row on one label | field grid, the field wide enough for a side's style; the names' column is as wide as the longest word in it, in any language. */
 .rr-build-sgrid { display: grid; grid-template-columns: minmax(min-content, 1fr) minmax(0, 150px); gap: 6px; align-items: center; }
 .rr-build-sgrid > .rr-build-field.rr-build-sfield { grid-column: 1 / -1; grid-template-columns: subgrid; }
+/* A trait's or an effect's row that is not the selected one: its dropdown and number wait, greyed. */
+.rr-trait-row.is-off > :not(input[type="radio"]):not(.rr-trait-label), .rr-trait-subrow.is-off { opacity: 0.38; }
+.rr-trait-row .rr-trait-label { cursor: pointer; }
+.rr-slot-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.rr-slot-row { display: grid; grid-template-columns: 18px 18px minmax(0, 1fr) auto; align-items: center; gap: 6px; border-block: 2px solid transparent; }
+.rr-slot-grip { padding: 0; border: 0; background: transparent; color: var(--color-text-muted); font-size: 14px; line-height: 1; cursor: grab; touch-action: none; }
+.rr-slot-grip:hover, .rr-slot-grip:focus-visible { color: var(--color-accent-bright); outline: none; }
+.rr-slot-row.is-dragging { opacity: 0.45; }
+.rr-slot-row.is-dragging .rr-slot-grip { cursor: grabbing; }
+.rr-slot-row.is-drop-before { border-top-color: var(--color-accent-bright); }
+.rr-slot-row.is-drop-after { border-bottom-color: var(--color-accent-bright); }
+.rr-slot-number { color: var(--color-text-muted); font-size: 12px; text-align: end; }
+.rr-slot-row .rr-shim-wrapper, .rr-slot-row select { width: 100%; }
+.rr-slot-remove { min-width: 28px; padding-inline: 0; font-size: 15px; line-height: 1; }
 .rr-build-field.rr-build-sfield .rr-number-stepper { width: 100% !important; }
 /* A narrow view: the name over its field, as the sliders are. */
 .rr-build-panel.is-narrow .rr-build-sgrid { grid-template-columns: minmax(0, 1fr); }
@@ -6643,6 +6666,7 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
     .rr-sequence-editor .rr-battle-workspace > :not(.rr-sequence-center):not(.rr-sequence-inspector-card) { grid-column: 1; grid-row: 1 / span 2; }
     .rr-sequence-editor .rr-battle-workspace > .rr-sequence-center { grid-column: 2; grid-row: 1; }
     .rr-sequence-editor .rr-battle-workspace > .rr-sequence-inspector-card { grid-column: 2; grid-row: 2; }
+    .rr-sequence-header > .rr-battle-field .rr-shim-wrapper { max-width: none; }
 }
 /* On a short window the sequence page scrolls and its workspace keeps a workable height. */
 @media (max-height: 700px) {

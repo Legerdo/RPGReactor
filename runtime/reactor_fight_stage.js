@@ -50,6 +50,9 @@
     Stage.MAX_TRAVEL = 1.5;
     /** How far a unit steps back from one it stands too near to strike, in tiles. */
     Stage.BACK_PACE = 0.5;
+    /** A tracer's width as a share of its distance from the camera: never thinner, never thicker. */
+    Stage.TRACER_THIN = 0.0022;
+    Stage.TRACER_THICK = 0.0045;
     /** Frames between the hits of an action that lands more than once. */
     Stage.HIT_GAP = 7;
     /** Frames a unit takes to ease back to its cell, and a model out of its last pose. */
@@ -1049,7 +1052,8 @@
         if (!spec && source !== "color" && source !== "model") return null;
         const body = { scene, object: null, template: null, dropped: false, tracer: !spec, front: !!(spec && spec.faces && spec.faces.front) };
         if (!spec) {
-            const T = THREE, shared = Stage._tracer || (Stage._tracer = { box: new T.BoxGeometry(1, 1, 1), materials: new Map() });
+            // A streak: full at its head, drawn out to a point behind it.
+            const T = THREE, shared = Stage._tracer || (Stage._tracer = { box: new T.CylinderGeometry(0.5, 0, 1, 8).rotateX(Math.PI / 2), materials: new Map() });
             const color = step.color || "#ffcc55";
             let pair = shared.materials.get(color);
             if (!pair) {
@@ -1060,6 +1064,7 @@
             const group = new T.Group(), core = new T.Mesh(shared.box, pair[0]), glow = new T.Mesh(shared.box, pair[1]);
             const width = Math.max(0.06, number(step.size || 8) / 130);
             core.scale.set(width, width, 1); glow.scale.set(width * 2.6, width * 2.6, 1.15);
+            body.width = width; body.core = core; body.glow = glow;
             group.add(core, glow);
             group.visible = false;
             scene.modelsGroup().add(group);
@@ -1110,6 +1115,13 @@
             object.scale.set(1, 1, streak);
             object.position.set(p.x + 0.5 - dx * streak / 2, p.z - dy * streak / 2, p.y + 0.5 - dz * streak / 2);
             object.lookAt(object.position.x + dx, object.position.y + dy, object.position.z + dz);
+            // As thick on the screen from far off as from the camera riding behind it: a line of light, never a plank.
+            const R = reactor3d(), camera = R && R.viewport && R.viewport() && R.viewport().camera ? R.viewport().camera() : null;
+            if (camera && body.core) {
+                const away = camera.position.distanceTo(object.position);
+                const width = Math.max(away * Stage.TRACER_THIN, Math.min(away * Stage.TRACER_THICK, body.width));
+                body.core.scale.set(width, width, 1); body.glow.scale.set(width * 2.6, width * 2.6, 1.15);
+            }
             return;
         }
         object.position.set(p.x + 0.5, p.z, p.y + 0.5);

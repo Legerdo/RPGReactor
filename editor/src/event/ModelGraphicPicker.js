@@ -208,6 +208,8 @@ class ModelGraphicPicker {
         this._initGizmo();
         this._refreshFaceButtons();
         this._loadFiles();
+        // Tab stays inside, Escape cancels, and the focus goes back to what opened the picker when it closes.
+        window.RRKeyboardNavigation?.modal(modal, { onEscape: () => this._close(), container: () => content })?.enter();
 
         content.querySelector('.model-size-input').addEventListener('input', e => {
             const value = Number(e.target.value);
@@ -311,6 +313,9 @@ class ModelGraphicPicker {
         if (this._gizmo) this._gizmo.dispose();
         this._gizmo = null;
         this._disposePreview();
+        const keys = this._modal && this._modal._rrModalKeys;
+        keys?.leave();
+        keys?.dispose();
         if (this._modal && this._modal.parentNode) this._modal.parentNode.removeChild(this._modal);
         this._modal = null;
     }

@@ -150,7 +150,9 @@ test('Interface Settings renders initially and applies existing record semantics
     const editor = editorWith();
     editor.current = editor.normalizeInterface({ id: 4, coordinateSpace: 'screen', mode: 'scene', background: 'blur', nodes: [] });
     const markup = editor.interfacePropertiesMarkup();
-    assert.match(markup, /Interface Settings/);
+    // The inspector header names the panel once; the body does not repeat it.
+    assert.doesNotMatch(markup, /rr-ui-prop-title/);
+    assert.match(source, /if \(title\) title\.textContent = tt\('Interface Settings'\);/);
     for (const group of ['Behavior', 'Transitions', 'Notes']) assert.match(markup, new RegExp(`rr-ui-group[^>]*>${group}<`));
     for (const cls of ['rr-ui-background', 'rr-ui-first-focus', 'cancel-type', 'overlay-visible-type', 'rr-ui-open-transition', 'rr-ui-close-transition', 'rr-ui-transition-duration', 'rr-ui-interface-note']) assert.match(markup, new RegExp(cls));
     assert.doesNotMatch(source, /Select a node on the canvas or in the list\./);

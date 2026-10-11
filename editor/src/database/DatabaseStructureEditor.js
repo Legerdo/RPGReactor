@@ -634,6 +634,7 @@ class DatabaseStructureEditor {
         if (hint) {
             const tips = { select: 'Click a piece to pick it up, or drag a box. Drag to move; arrows nudge, R turns stairs, Delete removes.', room: 'Drag a rectangle: walls around it, floor inside.', floor: 'Drag a rectangle of floor.', wall: 'Drag a straight line of wall.', door: 'Drag along a wall to open a doorway in it.', window: 'Drag along a wall to put windows in it.', stairs: 'Click where the stairs start; they climb to the next floor. R turns them.', erase: 'Drag over anything on this floor to take it away.' };
             hint.textContent = this._paint.above ? tt('Seen from above') : (F.isDescribed(plan) ? tt('Painting turns this described building into pieces.') + ' ' : '') + tt(tips[this._paint.tool]) + ' ' + tt('Right-drag erases. Ctrl+Z undoes.');
+            hint.title = hint.textContent;
         }
     }
 

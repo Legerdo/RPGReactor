@@ -184,6 +184,30 @@ test('a machine starts its next session at the levels it settled at', () => {
     });
 });
 
+test('the levels kept from the last session are taken once the options file has been read: the game draws frames before it is', () => {
+    // As the game boots: the options are at their defaults while their file is still being read, and frames are drawn.
+    inGame({ graphicsAuto: null, _isLoaded: false, isLoaded() { return this._isLoaded; } }, saves => {
+        const clock = { now: 1000 };
+        title(0.2, clock);
+        assert.deepEqual([Q.g, Q.c, Q.h], [0, 0, false], 'nothing is known of the machine yet');
+        // The file arrives (ConfigManager.applyData).
+        global.ConfigManager.graphicsAuto = { gpu: 3, cpu: 2, half: true };
+        global.ConfigManager._isLoaded = true;
+        title(0.1, clock);
+        assert.deepEqual([Q.g, Q.c, Q.h], [3, 2, true], 'the machine starts at the levels it settled at');
+        assert.deepEqual(Q._taken, ['gpu', 'gpu', 'gpu', 'cpu', 'cpu', 'half']);
+        assert.deepEqual(saves, [], 'and nothing was written over them');
+    });
+    // A game with no options file (its first launch) starts at the top once that is known.
+    inGame({ graphicsAuto: null, _isLoaded: false, isLoaded() { return this._isLoaded; } }, () => {
+        const clock = { now: 1000 };
+        title(0.1, clock);
+        global.ConfigManager._isLoaded = true;
+        title(0.1, clock);
+        assert.deepEqual([Q.g, Q.c, Q.h, Q._loaded], [0, 0, false, true]);
+    });
+});
+
 test('a step back up is tried as another map opens after a calm stretch, and given up for the session when it does not hold', () => {
     inGame({ graphicsAuto: { gpu: 2, cpu: 0, half: false } }, () => {
         const clock = { now: 1000 };

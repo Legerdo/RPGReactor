@@ -96,7 +96,7 @@ Each of range, area and sight is the record's own, else the equipped weapon's (A
 
 In a Tactical battle the player orders the party's actors; everyone else decides for itself. Team turns (the default): pick any unit that has not acted, in any order; End Turn passes to the other side. Initiative: units act one at a time by Agility.
 
-A unit's turn: its move range shows. OK on a cell walks there, OK on its own cell stays. Then Attack, Skills, Items, Wait (and End Turn). An action shows its range; the cursor shows where it lands and the forecast. OK confirms. Cancel steps back one level and undoes the move until the unit acts. Shift ends an idle unit's turn. The mouse hovers and clicks; touch is tap, then tap again.
+A unit's turn: its move range shows. OK on a cell walks there, OK on its own cell stays. Then Attack, Skills, Items, Wait (and End Turn). An action shows its range; the cursor shows where it lands and the forecast. OK confirms. Cancel steps back one level and undoes the move until the unit acts. Shift goes to the next unit or target. The mouse hovers and clicks; touch is tap, then tap again.
 
 A blow from the side deals 1.2 times the damage, from behind 1.5. Each level of height adds or takes 10%, up to 30%. Half cover (a counter, a low wall, a bush) leaves 75% of the hit chance, full cover 50%; cover counts from two tiles away and not for an action that needs no line of sight. On a 2D map a cell nobody can walk onto hides what is behind it, unless it is water or a counter; a 3D map adds its walls, rocks, hills and shut doors. A skill's Repeats and Attack Times+ land as in a Classic battle.
 
@@ -138,9 +138,11 @@ Units notice an opponent in front of them within 9 tiles or beside them within 3
 
 The party's battle members are units: the leader is the player, the others the followers, who walk on their own during the fight. An event is a unit by:
 
-- its **Battle unit** row in the event editor (side, Database record, move range), stored as `rrUnit` on the event;
-- a note tag: `<unit: enemy 5>`, `<unit: actor 3>`, `<unit: ally 2>` (actor 2 on the allies' side), `<unit: ally enemy 4>`, `<unit: neutral>`, with `move N` for its move range (default 4);
+- its **In battle** row in the event editor (side, Database record, move range), stored as `rrUnit` on the event. This is the way to make one; the Demo's units are all rows;
+- in imported or hand-typed data, a note tag: `<unit: enemy 5>`, `<unit: actor 3>`, `<unit: ally 2>` (actor 2 on the allies' side), `<unit: ally enemy 4>`, `<unit: neutral>`, with `move N` for its move range (default 4);
 - a `<unit: …>` comment on its current page, or a PSYCHRONIC_PTBS comment (`PTBS_Actor: X`, `PTBS_PartyActor: X`, `PTBS_Enemy: Y`).
+
+The event editor shows a tag unit in the In battle row like any other; changing the row stores it there and takes the tag out. An event that fights only after a switch is one page with that switch and the row: while it shows no page it is no unit.
 
 A unit event keeps its pages, triggers and move routes; it stops wandering on its own while it fights. Its side is the event's, the same on every page: a page change changes how the event looks and acts, not whose side it is on. **Change Unit Side** changes it. On a 3D map, a unit event with no model of its own wears the model the Database binds to its record.
 

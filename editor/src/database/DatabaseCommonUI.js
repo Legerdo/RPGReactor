@@ -34,15 +34,16 @@ class DatabaseCommonUI {
         const tt = text => window.I18n ? window.I18n.tText(text) : text;
         if (trait.code === 21) { // Parameter
             const params = globalThis.rrParamNames(tt);
-            const change = Math.round((trait.value - 1) * 100);
-            return `${params[trait.dataId] || tt('Param')} ${change >= 0 ? '+' : ''}${change}%`;
+            // The percent as it is typed in the trait's dialog.
+            return `${params[trait.dataId] || tt('Param')} * ${Math.round(trait.value * 100)}%`;
         } else if (trait.code === 22) { // Ex-Parameter
-            const exParams = ['Hit Rate', 'Evasion', 'Critical Rate', 'Critical Evade', 'Magic Evade', 'Magic Reflect', 'Counter', 'HP Regen', 'MP Regen', 'TP Regen'].map(tt);
+            // The names the trait's dialog offers.
+            const exParams = ['Hit Rate', 'Evasion Rate', 'Critical Rate', 'Critical Evasion', 'Magic Evasion', 'Magic Reflection', 'Counter Attack', 'HP Regeneration', 'MP Regeneration', 'TP Regeneration'].map(tt);
             // Hit and Evasion are named on the Terms page, in terms.params 8-9.
-            [exParams[0], exParams[1]] = globalThis.rrHitEvasionNames(['Hit Rate', 'Evasion'], tt);
+            [exParams[0], exParams[1]] = globalThis.rrHitEvasionNames(['Hit Rate', 'Evasion Rate'], tt);
             return `${exParams[trait.dataId] || tt('Ex-Parameter')} +${Math.round(trait.value * 100)}%`;
         } else if (trait.code === 23) { // Sp-Parameter
-            const spParams = ['Target Rate', 'Guard Rate', 'Recovery Rate', 'Pharmacology', 'MP Cost Rate', 'TP Charge Rate', 'Physical Damage', 'Magical Damage', 'Floor Damage', 'Experience'];
+            const spParams = ['Target Rate', 'Guard Effect', 'Recovery Effect', 'Pharmacology', 'MP Cost Rate', 'TP Charge Rate', 'Physical Damage', 'Magical Damage', 'Floor Damage', 'Experience'];
             return `${tt(spParams[trait.dataId] || 'SpParam')} ${Math.round(trait.value * 100)}%`;
         } else if (trait.code === 11) { // Element Rate
             const elements = this.databaseManager.getSystem()?.elements || [];

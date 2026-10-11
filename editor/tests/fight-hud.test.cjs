@@ -1254,7 +1254,7 @@ test('the Tactical windows are their own: other scene properties, other classes,
     assert.equal(Object.keys(UI.BATTLE_COMMANDS).join(), 'actorCommand,partyCommand');
 });
 
-test('the editor keeps the two roles apart: Use As, System 2 and Stock Layout never offer one role\'s record for the other', () => {
+test('the editor keeps the two roles apart: Use As and Stock Layout never offer one role\'s record for the other', () => {
     const previous = { window: global.window, escape: global.rrEscapeHtml, document: global.document, stock: global.RRStockInterfaces };
     global.window = {};
     global.rrEscapeHtml = value => String(value);
@@ -1282,14 +1282,6 @@ test('the editor keeps the two roles apart: Use As, System 2 and Stock Layout ne
         assert.equal(bind.setReplacementRole('tactical', true), false);
         assert.equal(bind.setReplacementRole('battle', true), true);
         assert.deepEqual(system, { reactorBattleInterfaceId: 8, reactorTacticalInterfaceId: 9 });
-        // System 2.
-        const System2 = require('../src/database/DatabaseSystem2Editor.js');
-        const records = [{ id: 1, name: 'Menu', mode: 'scene' }, { id: 8, name: 'Battle', mode: 'battle' }, { id: 9, name: 'Tactical', mode: 'tactical' }, { id: 10, name: 'Clock', mode: 'overlay' }];
-        const system2 = new System2({ getUserInterfaces: () => records, getUserInterface: id => records.find(record => record.id === id) });
-        const offered = role => records.filter(record => new RegExp(`value="${record.id}"`).test(system2.userInterfaceOptions(0, role))).map(record => record.id);
-        assert.deepEqual([offered('battle'), offered('tactical'), offered('menu')], [[8], [9], [1]]);
-        assert.match(system2.userInterfaceOptions(9, 'battle'), /value="9" selected>\(Missing\) \/ \(incompatible\) #9/);
-        assert.match(system2.userInterfaceOptions(8, 'tactical'), /value="8" selected>\(Missing\) \/ \(incompatible\) #8/);
         // Stock Layout: laying the other kind over a bound record takes the binding it can no longer fill off.
         const lay = (record, bound, kind) => {
             const sys = Object.assign({}, database.system, bound);

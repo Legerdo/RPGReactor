@@ -256,6 +256,7 @@ class TerrainManager {
         this._groundStroke = null;
         this.groundType = 0;
         this.cancelRiver();
+        this._groundSnapshot = null;
         this._lookSnapshot = null;
         this._cliffSnapshot = null;
         this._surroundSnapshot = null;
@@ -842,7 +843,8 @@ class TerrainManager {
 
     _writeSurround(map, value) {
         if (value) {
-            const sidecar = map.reactor3d && typeof map.reactor3d === 'object' ? map.reactor3d : this.elevation().ensure(map);
+            // A 2D map's sidecar is made without a view mode: only a 3D map says how it is looked at.
+            const sidecar = map.reactor3d && typeof map.reactor3d === 'object' ? map.reactor3d : (this.elevation().hasNote(map) ? this.elevation().ensure(map) : (map.reactor3d = { version: 1 }));
             if (sidecar) sidecar.surround = JSON.parse(JSON.stringify(value));
         } else if (map.reactor3d) delete map.reactor3d.surround;
     }
@@ -854,7 +856,9 @@ class TerrainManager {
      */
     setSurround(next, phase = 'commit') {
         const map = this.currentMap(), elevation = this.elevation();
-        if (!map || !elevation || !elevation.hasNote(map)) return false;
+        // A 2D map takes the maps past its sides (they are entered from any map) and nothing of the land past the border, which is a 3D map's.
+        if (!map || !elevation) return false;
+        if (!elevation.hasNote(map) && next && next.style && next.style !== 'none') return false;
         const key = value => JSON.stringify(value || null);
         const before = this.surround(), changed = key(before) !== key(next);
         // A change made whole while another is still gathering (a slider's keys, then a tile): that one is its own step first.
@@ -862,7 +866,7 @@ class TerrainManager {
         if (phase !== 'live' && !this._surroundSnapshot && !changed) return false;
         if (!this._surroundSnapshot) this._surroundSnapshot = { surround: before ? JSON.parse(JSON.stringify(before)) : null };
         if (changed && before && !next) {
-            const { style, edges, ...numbers } = JSON.parse(JSON.stringify(before));
+            const { style, edges, neighbors, ...numbers } = JSON.parse(JSON.stringify(before));
             this._surroundNumbers = numbers;
         }
         if (changed) { this._writeSurround(map, next); this.announceSurround(); }

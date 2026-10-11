@@ -532,7 +532,7 @@ test('the sniper sequence: down the sight line, then with the round to the targe
     const round = b.D.shot();
     assert.equal(round.name, 'round');
     assert.equal(round.blend, 0, 'a cut, inside the action');
-    assert.ok(round.a.eye.x < 2.5 && round.b.eye.x > 8 && round.b.eye.x < 12.5, 'from behind the muzzle to just short of the target');
+    assert.ok(round.a.eye.x > 2.5 && round.a.eye.x < 4.5 && round.b.eye.x > 8 && round.b.eye.x < 12.5, 'from beside the muzzle, ahead of the shooter, to just short of the target');
     assert.ok(Math.abs(round.a.eye.z - 2.5) > 0.5 && Math.abs(round.a.eye.z - 2.5) < 1.2, 'beside the line, not on it');
     assert.equal(round.frames, 36, 'never shorter than a shot can be read');
     b.poses.length = 0;
@@ -713,4 +713,22 @@ test('the opening sweep ends looking the way the Tactical view will be watched f
     const plainArc = C.shots.establish(world, allies, enemies, null);
     const off = looks(plainArc), angle = Math.acos(Math.max(-1, Math.min(1, off.dx))) * 180 / Math.PI;
     assert.ok(Math.abs(angle - 40) < 0.5, `forty degrees off the line to the enemy (${angle})`);
+});
+
+test('a tree\'s crown is in the camera\'s way far past its trunk; a model as wide as it stands has none', () => {
+    const b = battle({ cinematic: 'all', flat: false });
+    const C = b.w.ReactorFight.Camera;
+    // A 26-tile tree whose model spreads 20 across, bumped into only at its trunk (2.8 tiles); a cart as wide as its footprint.
+    b.w.Reactor3D = { collisionKeysFor: spec => ({ model: spec.name }), _glbCache: {
+        tree: { template: { userData: { glbSize: { x: 10, y: 13, z: 9 } } } },
+        cart: { template: { userData: { glbSize: { x: 2, y: 1.5, z: 3 } } } } } };
+    const crown = C.crownOf({ name: 'tree', size: 26 }, 2.84);
+    assert.ok(Math.abs(crown - 10 * 2 / 2 * C.CROWN_FILL) < 1e-9, 'four fifths of its widest reach');
+    assert.equal(C.crownOf({ name: 'cart', size: 3 }, 1.5), 0);
+    assert.equal(C.crownOf({ name: 'not loaded', size: 3 }, 1), 0);
+    // A camera in the crown, or looking through it, is blocked; under it, beside the trunk, it is not.
+    const world = { solid: () => false, scenery: [{ x: 10, z: 10, y: 0, h: 26, r: 2.13 }, { x: 10, z: 10, y: 26 * C.CROWN_FROM, h: 26 * (1 - C.CROWN_FROM), r: crown }] };
+    assert.equal(C.blocked(world, { x: 14, y: 10, z: 10 }, { x: 30, y: 2, z: 10 }), true, 'the eye is in the leaves');
+    assert.equal(C.blocked(world, { x: 0, y: 12, z: 10 }, { x: 30, y: 12, z: 10 }), true, 'the line passes through them');
+    assert.equal(C.blocked(world, { x: 14, y: 3, z: 10 }, { x: 30, y: 2, z: 10 }), false, 'under the crown');
 });

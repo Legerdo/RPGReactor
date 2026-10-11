@@ -234,7 +234,7 @@
             });
             const record = this.record('menu', 'Main Menu', b, { firstFocus });
             record.menuCommandVersion = 2;
-            record.note = 'Baseline of the stock main menu. Bind it in System 2 to replace the main / pause menu; the stock menu stays in use until this one is called or bound.';
+            record.note = 'Baseline of the stock main menu. Bind it in Use As to replace the main / pause menu; the stock menu stays in use until this one is called or bound.';
             return record;
         },
 
@@ -308,7 +308,7 @@
                 Object.assign({ name: 'Profile', height: profileHeight - PADDING * 2, wrap: true, fitText: true }, actor));
 
             const record = this.record('status', 'Status', b, { firstFocus: previous.id });
-            record.note = 'Read-only baseline of the stock status screen. Bind it in System 2 to replace Status; it follows the current menu actor.';
+            record.note = 'Read-only baseline of the stock status screen. Bind it in Use As to replace Status; it follows the current menu actor.';
             return record;
         },
 
@@ -607,7 +607,7 @@
                 showName: true, fontSize: 18, cursorSlide: true });
             const record = this.record('battle', 'Battle', b, { mode: 'battle', background: 'none', cancel: action('none'),
                 openTransition: 'slideUp', closeTransition: 'none', transitionDuration: 30, hideStatusWindow: true, firstFocus: 0 });
-            record.note = 'Baseline battle HUD after the Demo\'s MOG battle HUD: picture panels, meters and numbers from img/system (BattleHud_*), the command window over the acting actor, and red/blue target cursors. Bind it as Battle in System 2.';
+            record.note = 'Baseline battle HUD after the Demo\'s MOG battle HUD: picture panels, meters and numbers from img/system (BattleHud_*), the command window over the acting actor, and red/blue target cursors. Bind it as Battle in Use As.';
             return record;
         },
 

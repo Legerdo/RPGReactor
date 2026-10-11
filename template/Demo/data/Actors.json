@@ -1,6 +1,6 @@
 [
 null,
-{"id":1,"battlerName":"","characterIndex":0,"characterName":"","classId":1,"equips":[1,0,0,3,0],"faceIndex":0,"faceName":"Actor1","traits":[],"initialLevel":10,"maxLevel":99,"name":"Fleagus Gustafario","nickname":"","note":"","profile":""},
+{"id":1,"battlerName":"","characterIndex":0,"characterName":"","classId":1,"equips":[1,0,0,3,0,0,0],"faceIndex":0,"faceName":"Actor1","traits":[],"initialLevel":10,"maxLevel":99,"name":"Fleagus Gustafario","nickname":"","note":"","profile":""},
 {"id":2,"battlerName":"","characterIndex":0,"characterName":"","classId":9,"equips":[50,0,0,9,0],"faceIndex":0,"faceName":"Carol-01","traits":[],"initialLevel":10,"maxLevel":99,"name":"Carol Everson","nickname":"","note":"","profile":""},
 {"battlerName":"","characterIndex":0,"characterName":"","classId":10,"equips":[49,0,0,9,0],"faceIndex":0,"faceName":"jolteagle","traits":[],"initialLevel":10,"maxLevel":99,"name":"Jolt Eagle","nickname":"","note":"","profile":"","id":3},
 {"battlerName":"","characterIndex":0,"characterName":"","classId":22,"equips":[64,0,107,104,0],"faceIndex":0,"faceName":"Max2","traits":[],"initialLevel":10,"maxLevel":99,"name":"Max Triton","nickname":"","note":"","profile":"","id":4},

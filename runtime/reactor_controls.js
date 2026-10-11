@@ -206,6 +206,9 @@
      */
     ReactorControls.checkField3D = function(scene) {
         if (typeof Input === "undefined" || !this._saved || !this.isField3D(scene)) return false;
+        // A battle on the map has its own keys until it ends, a jump key among them where the two share one: taken
+        // back here, the key would be given back as the battle's when the map is left.
+        if (this._savedAction || this._savedTactical) return false;
         const settings = this.settings();
         const lostKey = settings.jumpKeys.find(code => Input.keyMapper[code] !== "jump");
         const lostPad = settings.jumpButtons.find(button => Input.gamepadMapper[button] !== "jump");

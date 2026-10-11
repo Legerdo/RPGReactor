@@ -365,10 +365,12 @@
                 }
             }
             const up = high ? 1.3 * h : 0.28 * h, back = high ? 1.2 * h : 1.5 * h;
-            const behind = p => ({ eye: off(p, f, -back, 0.38 * h * s, up), look: { x: look.x, y: look.y, z: look.z }, fov: 44 });
+            const behind = (p, away) => ({ eye: off(p, f, -away, 0.38 * h * s, up), look: { x: look.x, y: look.y, z: look.z }, fov: 44 });
             const muzzle = { x: U.x + f.dx * 0.6 * h, y: U.y + 0.7 * h, z: U.z + f.dz * 0.6 * h };
             const end = { x: T.x - f.dx * 0.3, y: T.y + 0.62 * T.h, z: T.z - f.dz * 0.3 };
-            const a = behind(muzzle), b = behind(end);
+            // It leaves from beside the muzzle, ahead of the shooter (whose back would fill the picture, or
+            // from a roof its legs), and drops back behind the round as it flies.
+            const a = behind(muzzle, C.ROUND_START * h), b = behind(end, back);
             for (const pose of [a, b]) for (let i = 0; i < 4 && world.solid(pose.eye.x, pose.eye.y, pose.eye.z); i++) pose.eye.y += 0.8;
             const shot = makeShot("round", { variant: s > 0 ? "right" : "left", a, b }, { x: U.x, z: U.z, zoom: 1.5 }, { x: T.x, z: T.z, zoom: 1.5 },
                 { frames, blend: 0, curve: "inOut", linger: true, tau: 5, slow: slow < 1 ? { scale: slow, frames } : null, subjects: [T.c, U.c] });
@@ -379,7 +381,9 @@
                     if (p) last = { x: p.x, y: p.y, z: p.z };
                     else if (last && !gone) { gone = true; if (shot.landed) shot.landed(); }
                     if (!last) return null;
-                    const pose = behind(last);
+                    // The round pulls ahead of the camera, which then keeps its distance behind it.
+                    const flown = Math.hypot(last.x - muzzle.x, last.y - muzzle.y, last.z - muzzle.z);
+                    const pose = behind(last, Math.min(back, C.ROUND_START * h + flown));
                     pose.x = last.x; pose.z = last.z; pose.zoom = 1.5;
                     return pose;
                 };
@@ -773,16 +777,43 @@
                     if (spec) {
                         const foot = R.eventModelFootprint(event, spec);
                         const r = foot.rawX != null ? Math.max(foot.rawX, foot.rawZ) : Math.max(foot.halfX, foot.halfZ);
-                        size = { r: r * 0.75, h: R.characterHeightTiles ? R.characterHeightTiles(event) : 2 };
+                        size = { r: r * 0.75, h: R.characterHeightTiles ? R.characterHeightTiles(event) : 2, crown: C.crownOf(spec, r) };
                     }
                 } catch (error) { size = null; }
                 sizes.set(event, size);
             }
             // Only what is big enough to hide a unit; a post or a crate is the passability check's.
-            if (size && size.h >= 1.8 && size.r >= 0.45) list.push({ x, z, y: world.ground(event), h: size.h, r: size.r });
+            if (size && size.h >= 1.8 && size.r >= 0.45) {
+                const y = world.ground(event);
+                list.push({ x, z, y, h: size.h, r: size.r });
+                // A tree: its crown spreads far past the trunk a unit bumps into, from a third of the way up.
+                if (size.crown) list.push({ x, z, y: y + size.h * C.CROWN_FROM, h: size.h * (1 - C.CROWN_FROM), r: size.crown });
+            }
         }
         return list;
     }
+
+    /** How far behind the muzzle the camera that rides with a round starts, in the shooter's heights (the shooter stands 0.6 behind it). */
+    C.ROUND_START = 0.3;
+
+    /** The share of a tall model's height its crown starts at, and how much of its widest reach the crown fills. */
+    C.CROWN_FROM = 0.3;
+    C.CROWN_FILL = 0.8;
+
+    /**
+     * How far a model's top spreads, in tiles from its middle, when that is well past the footprint `r`
+     * a unit bumps into (a tree's crown over its trunk); 0 for a model that is as wide as it stands.
+     */
+    C.crownOf = function(spec, r) {
+        const R = typeof Reactor3D !== "undefined" ? Reactor3D : null;
+        const entry = R && R._glbCache && R.collisionKeysFor ? R._glbCache[R.collisionKeysFor(spec).model] : null;
+        const extent = entry && entry.template && entry.template.userData ? entry.template.userData.glbSize : null;
+        if (!extent) return 0;
+        const span = Math.max(extent.x, extent.y, extent.z, 0.0001);
+        const scale = (spec.size > 0 ? spec.size : 2) / span * (spec.scale > 0 ? spec.scale : 1), stretch = spec.stretch || [1, 1, 1];
+        const wide = Math.max(extent.x * stretch[0], extent.z * stretch[2]) * scale / 2 * C.CROWN_FILL;
+        return wide > r * 1.5 ? wide : 0;
+    };
 
     function unitPoint(id, world) {
         const unit = $gameFight.unit(id);

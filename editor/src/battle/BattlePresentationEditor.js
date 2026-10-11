@@ -322,7 +322,7 @@ class BattlePresentationEditor {
         draw();
     }
     stateGraphic(container,record){
-        const settings=this.settings(),{panel,body}=this.section('Battler Motion Override');
+        const settings=this.settings(),{panel,body}=this.section('Battler Motion Override');body.classList.add('rr-state-motion-fields');
         const get=()=>settings.states?.[record.id]?.graphicMotion||{};
         const set=patch=>{settings.states||={};settings.states[record.id]={...settings.states[record.id],graphicMotion:{...get(),...patch}};this.changed();};
         // A state's own reaction sequence: what the battler does while afflicted (poison, sleep, a custom state).
@@ -572,7 +572,7 @@ class BattlePresentationEditor {
                 else this.field(inspector,'Mode',this.select([...Object.keys(Reactor3D.Camera.MODES).map(m=>[m,this.cameraLabel(m)]),['cinematic','Cinematic Cuts']],draft.camera.mode||'fixed',mode=>{const defaults=Reactor3D.Camera.MODES[mode]||{yaw:45,pitch:35,fov:40,distance:24};Object.assign(draft.camera,{mode,yaw:defaults.yaw,pitch:defaults.pitch,fov:defaults.fov,distance:defaults.distance||24});drawInspector();}));
                 if(draft.cameraSource==='custom'&&draft.camera.mode==='cinematic')inspector.append(this.element('p','rr-battle-help','Sweeps toward the acting battler, then the target at impact. Eases back to this overview after the action.'));
                 for(const key of ['x','y','z','yaw','pitch','distance','fov']){
-                    const input=this.number(inspector,({yaw:'Yaw',pitch:'Pitch',distance:'Distance',fov:'Field of View'})[key]||key.toUpperCase(),draft.cameraSource==='map'?effective[key]:draft.camera[key]??effective[key],value=>draft.camera[key]=key==='distance'?Math.max(.5,value):key==='fov'?Math.max(5,Math.min(150,value)):key==='pitch'?Math.max(-89,Math.min(89,value)):value);
+                    const input=this.number(inspector,({yaw:'Yaw',pitch:'Pitch',distance:'Distance',fov:'Field of View'})[key]||key.toUpperCase(),Math.round((draft.cameraSource==='map'?effective[key]:draft.camera[key]??effective[key])*1000)/1000,value=>draft.camera[key]=key==='distance'?Math.max(.5,value):key==='fov'?Math.max(5,Math.min(150,value)):key==='pitch'?Math.max(-89,Math.min(89,value)):value);
                     input.dataset.cameraField=key;input.disabled=draft.cameraSource==='map'&&['yaw','pitch','distance','fov'].includes(key);
                 }
                 inspector.append(this.button('Reset Formation',()=>{draft.actors=[];draft.enemies=[];materializeFormation();drawInspector();}));

@@ -73,6 +73,7 @@
        they are neutral, and Dark is the default. */
     --color-model-preview-bg:     #1a1a1e;
     --color-asset-preview-bg:     #24272d;
+    --color-tileset-checker-primary: #808080; /* the palette's own grey in every theme: the code-comment color is green in the light ones */
     --color-tileset-checker-secondary: var(--color-text-muted);
     --color-preview-backdrop:     #c8c8c8;
 
@@ -1824,6 +1825,10 @@ input[type="number"]::-webkit-outer-spin-button {
 /* Conditional forms hide the original input; its generated controls follow. */
 .rr-number-stepper-auto:has(> input[hidden], > input[style*="display: none"], > input[style*="display:none"]) {
     display: none;
+}
+/* The same for a themed dropdown: hiding the select hides its trigger. */
+.rr-shim-wrapper:has(> select[hidden]) {
+    display: none !important;
 }
 .rr-number-stepper-auto .rr-number-stepper-input {
     padding: 4px 6px;

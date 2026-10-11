@@ -4653,7 +4653,7 @@ Reactor3D.MapScene.prototype.groundLayers = function(mapData) {
         this._textures.push(texture);
         return texture;
     };
-    const layers = srgb => {
+    const layers = (srgb, kept) => {
         const data = new Uint8Array(side * side * 4 * count);
         if (srgb) data.fill(128); else for (let i = 0; i < data.length; i += 4) { data[i] = 128; data[i + 1] = 128; data[i + 2] = 255; }
         const texture = new THREE.DataArrayTexture(data, side, side, count);
@@ -4666,20 +4666,33 @@ Reactor3D.MapScene.prototype.groundLayers = function(mapData) {
         texture.generateMipmaps = true;
         if (srgb && THREE.SRGBColorSpace) texture.colorSpace = THREE.SRGBColorSpace;
         texture.needsUpdate = true;
-        this._textures.push(texture);
+        if (!kept) this._textures.push(texture);
         return texture;
     };
+    // In the game the pictures of a set of ground materials are read once and worn by every scene with the
+    // same set: a map, and each neighboring map shown past its borders (Reactor3D.Neighbors).
+    Reactor3D.releaseGroundArrays(this);
+    const sharing = !!this._materialProbe && !this._materialSettingsLoad;
+    const key = side + "|" + ground.types.map(type => type.material).join("|");
+    let shared = sharing ? Reactor3D._groundArrays.get(key) : null;
+    const first = !shared;
+    if (first) {
+        shared = { key, array: layers(true, sharing), detail: null, on: new Float32Array(count), detailOn: new Array(count).fill(0), users: new Set(), refs: 0 };
+        if (sharing) Reactor3D._groundArrays.set(key, shared);
+    }
+    if (sharing) { shared.refs++; this._groundShared = shared; }
     const g = this._ground = {
         count, width: W, height: H,
         materials: ground.types.map(type => type.material),
         size: new THREE.Vector2(W, H),
         splat: splat(), splatB: count > 4 ? splat() : null,
-        array: layers(true), detail: null,
+        array: shared.array, detail: shared.detail,
         types: ground.types.map(() => new THREE.Vector4(1, 1, 1, 1 / Reactor3D.GROUND_TYPE_SCALE)),
-        on: new Float32Array(count),
-        detailParams: ground.types.map(() => new THREE.Vector4(1, 0, 0.5, 0)),
+        on: shared.on,
+        detailParams: ground.types.map((type, index) => new THREE.Vector4(1, 0, 0.5, shared.detailOn[index])),
         settings: ground.types.map(() => null)
     };
+    shared.users.add(g);
     let canvas = null, context = null;
     const read = image => {
         if (!canvas) { canvas = document.createElement("canvas"); canvas.width = side; canvas.height = side; context = canvas.getContext("2d", { willReadFrequently: true }); }
@@ -4689,10 +4702,6 @@ Reactor3D.MapScene.prototype.groundLayers = function(mapData) {
     };
     const imageOf = bitmap => (bitmap ? bitmap.image || bitmap.canvas || null : null);
     const ready = bitmap => !!bitmap && !(bitmap.isReady && !bitmap.isReady()) && !!imageOf(bitmap);
-    const whenReady = (bitmap, then) => {
-        if (!bitmap) return;
-        if (ready(bitmap)) then(); else if (typeof bitmap.addLoadListener === "function") bitmap.addLoadListener(() => { if (this._build === build && this._ground === g && ready(bitmap)) then(); });
-    };
     // Rows go in bottom up, as three lays a picture, so a normal map's green stays up.
     const store = (texture, index, pixel) => {
         const data = texture.image.data, base = index * side * side * 4;
@@ -4707,32 +4716,41 @@ Reactor3D.MapScene.prototype.groundLayers = function(mapData) {
         if (!Reactor3D.MATERIAL_DETAIL || (probe && !probe(name))) return null;
         try { return typeof load === "function" ? load(name) || null : null; } catch (error) { return null; }
     };
+    // (A picture that arrives after the scene that asked for it was built again is still stored: the others wear it.)
+    const live = () => (sharing ? shared.refs > 0 : this._build === build && this._ground === g);
+    const whenRead = (bitmap, then) => {
+        if (!bitmap) return;
+        if (ready(bitmap)) then(); else if (typeof bitmap.addLoadListener === "function") bitmap.addLoadListener(() => { if (live() && ready(bitmap)) then(); });
+    };
     ground.types.forEach((type, index) => {
-        let bitmap = null;
-        try { bitmap = typeof load === "function" ? load(type.material) : null; } catch (error) { bitmap = null; }
-        whenReady(bitmap, () => {
-            try {
-                const pixels = read(imageOf(bitmap));
-                store(g.array, index, (data, to, from) => { data[to] = pixels[from]; data[to + 1] = pixels[from + 1]; data[to + 2] = pixels[from + 2]; data[to + 3] = 255; });
-                g.on[index] = 1;
-            } catch (error) {
-                console.warn(`Reactor3D: ground material "${type.material}" could not be read.`, error);
-            }
-        });
-        const normal = companion(type.material + Reactor3D.MATERIAL_NORMAL), rough = companion(type.material + Reactor3D.MATERIAL_ROUGH);
-        if (normal || rough) {
-            if (!g.detail) g.detail = layers(false);
-            const pack = () => {
-                if (![normal, rough].filter(Boolean).every(ready)) return;
+        if (first) {
+            let bitmap = null;
+            try { bitmap = typeof load === "function" ? load(type.material) : null; } catch (error) { bitmap = null; }
+            whenRead(bitmap, () => {
                 try {
-                    const n = normal ? read(imageOf(normal)).slice() : null, r = rough ? read(imageOf(rough)).slice() : null;
-                    store(g.detail, index, (data, to, from) => { data[to] = n ? n[from] : 128; data[to + 1] = n ? n[from + 1] : 128; data[to + 2] = n ? n[from + 2] : 255; data[to + 3] = r ? r[from] : 0; });
-                    g.detailParams[index].w = 1;
+                    const pixels = read(imageOf(bitmap));
+                    store(shared.array, index, (data, to, from) => { data[to] = pixels[from]; data[to + 1] = pixels[from + 1]; data[to + 2] = pixels[from + 2]; data[to + 3] = 255; });
+                    shared.on[index] = 1;
                 } catch (error) {
-                    console.warn(`Reactor3D: the maps of ground material "${type.material}" could not be read.`, error);
+                    console.warn(`Reactor3D: ground material "${type.material}" could not be read.`, error);
                 }
-            };
-            whenReady(normal, pack); if (rough && rough !== normal) whenReady(rough, pack);
+            });
+            const normal = companion(type.material + Reactor3D.MATERIAL_NORMAL), rough = companion(type.material + Reactor3D.MATERIAL_ROUGH);
+            if (normal || rough) {
+                if (!shared.detail) { shared.detail = layers(false, sharing); for (const user of shared.users) user.detail = shared.detail; }
+                const pack = () => {
+                    if (![normal, rough].filter(Boolean).every(ready)) return;
+                    try {
+                        const n = normal ? read(imageOf(normal)).slice() : null, r = rough ? read(imageOf(rough)).slice() : null;
+                        store(shared.detail, index, (data, to, from) => { data[to] = n ? n[from] : 128; data[to + 1] = n ? n[from + 1] : 128; data[to + 2] = n ? n[from + 2] : 255; data[to + 3] = r ? r[from] : 0; });
+                        shared.detailOn[index] = 1;
+                        for (const user of shared.users) user.detailParams[index].w = 1;
+                    } catch (error) {
+                        console.warn(`Reactor3D: the maps of ground material "${type.material}" could not be read.`, error);
+                    }
+                };
+                whenRead(normal, pack); if (rough && rough !== normal) whenRead(rough, pack);
+            }
         }
         // The material's own settings: its repeat when the type gives none, and how its relief and sheen read.
         const apply = raw => {
@@ -4747,6 +4765,21 @@ Reactor3D.MapScene.prototype.groundLayers = function(mapData) {
     });
     this.updateGround(mapData);
     return g;
+};
+
+/** The ground material pictures read so far, by their size and set: `{ array, detail, on, detailOn, users, refs }`. */
+Reactor3D._groundArrays = new Map();
+
+/** A scene no longer wears its ground pictures (built again, or gone): the last one to wear a set lets it go. */
+Reactor3D.releaseGroundArrays = function(scene) {
+    const shared = scene._groundShared;
+    scene._groundShared = null;
+    if (!shared) return;
+    if (scene._ground) shared.users.delete(scene._ground);
+    if (--shared.refs > 0) return;
+    Reactor3D._groundArrays.delete(shared.key);
+    shared.array.dispose();
+    if (shared.detail) shared.detail.dispose();
 };
 
 /**
@@ -4800,7 +4833,7 @@ Reactor3D.groundTypesHeaderGLSL = function(g) {
 Reactor3D.groundTypesBodyGLSL = function(g) {
     return [
         "\t{",
-        "\t\tvec2 rrSuv = vRRGroundPos.xz / rrGroundSize;",
+        "\t\tvec2 rrSuv = rrGroundIn.xz / rrGroundSize;",
         "\t\tvec4 rrWA = texture2D(rrGroundSplat, rrSuv);",
         g.splatB ? "\t\tvec4 rrWB = texture2D(rrGroundSplatB, rrSuv);" : "",
         "\t\tif (rrWA.x + rrWA.y + rrWA.z + rrWA.w" + (g.splatB ? " + rrWB.x + rrWB.y + rrWB.z + rrWB.w" : "") + " > 0.004) {",
@@ -4809,7 +4842,7 @@ Reactor3D.groundTypesBodyGLSL = function(g) {
         "\t\t\tvec4 rrWE = rrWA * (1.0 - rrWA);",
         g.splatB ? "\t\t\trrWE += rrWB * (1.0 - rrWB);" : "",
         "\t\t\tfloat rrWn = 0.5;",
-        "\t\t\tif (rrWE.x + rrWE.y + rrWE.z + rrWE.w > 0.0) rrWn = rrGroundNoise(vRRGroundPos.xz * 0.9) * 0.65 + rrGroundNoise(vRRGroundPos.xz * 3.7) * 0.35;",
+        "\t\t\tif (rrWE.x + rrWE.y + rrWE.z + rrWE.w > 0.0) rrWn = rrGroundNoise(rrGroundAt.xz * 0.9) * 0.65 + rrGroundNoise(rrGroundAt.xz * 3.7) * 0.35;",
         // A painted ground is shaded by how it faces the key light, leaning a little to one side so a slope
         // reads under a sun straight overhead (a dune's slip face is darker than its back); level ground is as it was.
         "\t\t\tvec3 rrGL = normalize((rrGroundKey.w > 0.5 ? normalize(rrGroundKey.xyz - vRRGroundPos) : normalize(rrGroundKey.xyz)) + vec3(0.45, 0.0, 0.35));",
@@ -4820,7 +4853,7 @@ Reactor3D.groundTypesBodyGLSL = function(g) {
         "\t\t\t\trrW = smoothstep(0.38, 0.62, rrW + (rrWn - 0.5) * 1.6 * rrW * (1.0 - rrW));",
         "\t\t\t\tif (rrW < 0.004) continue;",
         "\t\t\t\tfloat rrTS = rrGroundType[i].w, rrTL = float(i);",
-        "\t\t\t\tvec3 rrTP = vRRGroundPos * rrTS, rrTdx = rrGdx * rrTS, rrTdy = rrGdy * rrTS;",
+        "\t\t\t\tvec3 rrTP = rrGroundAt * rrTS, rrTdx = rrGdx * rrTS, rrTdy = rrGdy * rrTS;",
         "\t\t\t\tvec4 rrTC = textureGrad(rrGroundArray, vec3(rrTP.xz, rrTL), rrTdx.xz, rrTdy.xz);",
         "\t\t\t\tif (rrGW.x + rrGW.z > 0.01) rrTC = textureGrad(rrGroundArray, vec3(rrTP.zy, rrTL), rrTdx.zy, rrTdy.zy) * rrGW.x + rrTC * rrGW.y + textureGrad(rrGroundArray, vec3(rrTP.xy, rrTL), rrTdx.xy, rrTdy.xy) * rrGW.z;",
         "\t\t\t\trrTC.rgb *= rrGroundType[i].rgb * rrGShade;",
@@ -5192,6 +5225,17 @@ Reactor3D.worldSolidAt = function(mapData, wx, wy, wz, sight, walker) {
     }
     return false;
 };
+
+// A scene cleared lets go of the ground pictures it shares.
+if (Reactor3D.MapScene && !Reactor3D.MapScene.prototype.clear.__rrGroundArrays) {
+    const clearScene = Reactor3D.MapScene.prototype.clear;
+    Reactor3D.MapScene.prototype.clear = function() {
+        Reactor3D.releaseGroundArrays(this);
+        return clearScene.apply(this, arguments);
+    };
+    Object.assign(Reactor3D.MapScene.prototype.clear, clearScene);
+    Reactor3D.MapScene.prototype.clear.__rrGroundArrays = true;
+}
 
 Reactor3D.World = { file: "reactor_3d_world.js" };
 })(typeof globalThis !== "undefined" ? globalThis : this);

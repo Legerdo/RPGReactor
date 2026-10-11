@@ -12,10 +12,10 @@ class VehicleCommandEditor {
         const t = key => window.I18n ? window.I18n.t(key) : key;
         const e = rrEscapeHtml, modal = document.createElement('div');
         modal.className = 'rr-modal-overlay'; modal.style.zIndex = '21000';
-        modal.innerHTML = `<div class="rr-modal" style="width:min(460px,90vw)"><div class="rr-modal-header"><div class="rr-modal-title">${e(t(name === 'GetOnVehicle' ? 'vehicle.getOn' : 'vehicle.getOff'))}</div><button class="rr-modal-close vc-cancel">&times;</button></div><div class="rr-modal-body" style="display:flex;flex-direction:column;gap:10px">
-            ${name === 'GetOnVehicle' ? `<label>${e(t('vehicle.target'))}<input class="vc-target" value="${e(args.vehicle || 'this')}" style="width:100%;box-sizing:border-box"></label><p>${e(t('vehicle.targetHelp'))}</p>` : ''}
-            <label><input class="vc-instant" type="checkbox" ${String(args.instant) === 'true' ? 'checked' : ''}> ${e(t('vehicle.instant'))}</label>
-            <label><input class="vc-wait" type="checkbox" ${String(args.wait) !== 'false' ? 'checked' : ''}> ${e(t('vehicle.wait'))}</label>
+        modal.innerHTML = `<div class="rr-modal" style="width:min(460px,90vw)"><div class="rr-modal-header"><div class="rr-modal-title">${e(t(name === 'GetOnVehicle' ? 'vehicle.getOn' : 'vehicle.getOff'))}</div><button class="rr-modal-close vc-cancel">&times;</button></div><div class="rr-modal-body fc-body">
+            ${name === 'GetOnVehicle' ? `<div class="fc-row"><span class="fc-label">${e(t('vehicle.target'))}</span><div class="fc-field"><input type="text" class="vc-target database-field-value" value="${e(args.vehicle || 'this')}"></div></div><div class="fc-hint">${e(t('vehicle.targetHelp'))}</div>` : ''}
+            <label class="fc-check fc-wide"><input class="vc-instant system-checkbox" type="checkbox" ${String(args.instant) === 'true' ? 'checked' : ''}><span>${e(t('vehicle.instant'))}</span></label>
+            <label class="fc-check fc-wide"><input class="vc-wait system-checkbox" type="checkbox" ${String(args.wait) !== 'false' ? 'checked' : ''}><span>${e(t('vehicle.wait'))}</span></label>
             </div><div class="rr-modal-footer"><button class="rr-btn-secondary vc-cancel">${e(t('common.cancel'))}</button><button class="rr-button-primary vc-ok">${e(t('common.ok'))}</button></div></div>`;
         document.body.appendChild(modal);
         const close = () => { document.removeEventListener('keydown', onKey, true); modal.remove(); };

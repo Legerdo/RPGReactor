@@ -46,7 +46,9 @@ test('the floor material samples by facing and blends to the cliff, keeping the 
     const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.basic.vertexShader, fragmentShader: THREE.ShaderLib.basic.fragmentShader };
     material.onBeforeCompile(shader, {});
     assert.ok(!shader.fragmentShader.includes('#include <map_fragment>'), 'the plain lookup is replaced');
-    assert.match(shader.fragmentShader, /textureGrad\(map, vRRGroundPos\.zy/, 'laid from the side with explicit gradients');
+    assert.match(shader.fragmentShader, /textureGrad\(map, rrGroundAt\.zy/, 'laid from the side with explicit gradients, by its place in the world');
+    assert.match(shader.fragmentShader, /#define rrGroundAt \(vRRGroundPos - rrGroundShift \+ rrGroundPlace\)/);
+    assert.ok(shader.uniforms.rrGroundShift && shader.uniforms.rrGroundPlace, 'where it is drawn and where its map lies');
     assert.match(shader.fragmentShader, /textureGrad\(rrCliffMap/);
     assert.match(shader.fragmentShader, /rrBlend/, 'the lit material\'s own injections stay');
     assert.match(shader.vertexShader, /vRRGroundN = normalize\(mat3\(modelMatrix\) \* normal\)/);

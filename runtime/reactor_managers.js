@@ -230,6 +230,12 @@ DataManager.loadMapData = function(mapId) {
     if (mapId > 0) {
         const filename = "Map%1.json".format(mapId.padZero(3));
         this._lastMapSrc = filename;
+        // Crossed into over a border: the map was read as the player came near (Reactor3D.Neighbors), sidecar and all.
+        const read = typeof Reactor3D !== "undefined" && Reactor3D.Neighbors ? Reactor3D.Neighbors.take(mapId) : null;
+        if (read) {
+            $dataMap = read;
+            return;
+        }
         this.loadDataFile("$dataMap", filename);
     } else {
         this.makeEmptyMap();
@@ -645,6 +651,15 @@ DataManager.extractSaveContents = function(contents) {
 
 DataManager.correctDataErrors = function() {
     $gameParty.removeInvalidMembers();
+    // A save made before a class's slot list changed: each actor holds one place per slot again.
+    const actors = $gameActors && $gameActors._data;
+    if (actors) {
+        for (const actor of actors) {
+            if (actor && actor.fitEquipSlots) {
+                actor.fitEquipSlots(false);
+            }
+        }
+    }
 };
 
 //-----------------------------------------------------------------------------

@@ -254,6 +254,7 @@ class BattleTestConfigModal {
 
     getCompatibleEquipment(actor, etypeId) {
         if (!actor || this.collectActorTraitDataIds(actor, 54).has(etypeId)) return [];
+        if (this.databaseManager.unsettledEquipTypes?.(actor.classId)?.has(etypeId)) return [];
         if (etypeId === 1) {
             const allowedWtypes = this.collectActorTraitDataIds(actor, 51);
             return this.databaseManager.getWeapons()
@@ -333,10 +334,11 @@ class BattleTestConfigModal {
         const levelRow = this.createFormRow('Level:');
         const levelInput = document.createElement('input');
         levelInput.type = 'number';
+        levelInput.className = 'database-field-value';
         levelInput.min = 1;
         levelInput.max = actorLevelLimit;
         levelInput.value = battler.level || 1;
-        levelInput.style.cssText = 'width: 60px; background: var(--color-bg-menubar); border: 1px solid var(--color-border-input); color: var(--color-text); padding: 4px; border-radius: 3px;';
+        levelInput.style.width = '80px';
         levelInput.onchange = () => {
             battler.level = Math.max(1, Math.min(actorLevelLimit, parseInt(levelInput.value) || 1));
             levelInput.value = battler.level;

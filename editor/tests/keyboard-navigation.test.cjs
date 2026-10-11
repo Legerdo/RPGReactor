@@ -16,6 +16,9 @@ function createContext() {
     document.removeEventListener = (type, handler) => { document.listeners[type] = (document.listeners[type] || []).filter(fn => fn !== handler); };
     document.contains = element => document.body.contains(element);
     document.activeElement = document.body;
+    // The window's own listeners, which hear a key after the document's.
+    context.listeners = {};
+    context.addEventListener = (type, handler) => { (context.listeners[type] ||= []).push(handler); };
     vm.runInNewContext(source, context);
     return context;
 }
@@ -24,6 +27,7 @@ function press(context, target, key, fields = {}) {
     let consumed = false;
     const event = { key, target, preventDefault() { consumed = true; }, stopPropagation() {}, ...fields };
     for (const handler of (context.document.listeners.keydown || []).slice()) handler(event);
+    for (const handler of (context.listeners.keydown || []).slice()) handler(event);
     target.fire('keydown', event);
     return consumed;
 }
@@ -363,4 +367,44 @@ test('an open menu owns the keys, and a dialog whose owner listens on it hears a
     plain.overlay.dispatchEvent = event => { heard.push(event.key); event.preventDefault(); };
     assert.equal(strayPress(context, 'Escape'), true, 'the owner took the replayed key');
     assert.deepEqual(heard, ['Escape']);
+});
+
+test('a dialog with no keyboard of its own on top closes on Escape through its close button', () => {
+    const context = createContext();
+    const under = dialog(context);                                  // the Event Editor, say
+    const layer = dom.createElement('div'), box = dom.createElement('div'), close = dom.createElement('button'), field = dom.createElement('input');
+    layer.className = 'change-items-editor-modal'; box.className = 'rr-modal'; close.className = 'rr-modal-close close-btn';
+    box.appendChild(close); box.appendChild(field); layer.appendChild(box);
+    context.document.body.appendChild(layer);
+    let closed = 0;
+    close.addEventListener('click', () => { closed++; });
+    context.innerWidth = 800; context.innerHeight = 600;
+    context.document.elementFromPoint = () => field;
+    // The focus was left on the list underneath, on the page, or is in the dialog itself.
+    const list = dom.createElement('div');                          // a list in an editor that registers no keys
+    context.document.body.appendChild(list);
+    assert.equal(press(context, under.first, 'Escape'), true);
+    assert.equal(strayPress(context, 'Escape'), true);
+    assert.equal(press(context, field, 'Escape'), true);
+    assert.equal(press(context, list, 'Escape'), true);
+    list.remove();
+    closed--;
+    assert.deepEqual([closed, under.escapes], [3, 0], 'the dialog on top closes; the one under it stays');
+    // Tab, chords and a key somebody took are not its business.
+    assert.equal(strayPress(context, 'Tab'), false);
+    assert.equal(strayPress(context, 'Escape', { shiftKey: true }), false);
+    const taken = { key: 'Escape', target: field, defaultPrevented: true, preventDefault() {}, stopPropagation() {} };
+    for (const handler of context.listeners.keydown.slice()) handler(taken);
+    // A control that went away with its own dialog had its answer already.
+    const gone = dom.createElement('input');
+    assert.equal(press(context, gone, 'Escape'), false);
+    assert.equal(closed, 3);
+    // An editor those dialogs open from is not closed this way, whatever it is named by.
+    layer.className = 'rr-modal-overlay'; layer.id = 'event-editor-modal';
+    assert.equal(strayPress(context, 'Escape'), false);
+    layer.className = 'change-items-editor-modal';
+    // A layer whose close button is not on screen keeps the key.
+    close.style.display = 'none';
+    assert.equal(strayPress(context, 'Escape'), false);
+    assert.deepEqual([closed, under.escapes], [3, 0]);
 });

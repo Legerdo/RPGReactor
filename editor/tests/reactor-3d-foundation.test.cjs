@@ -393,7 +393,7 @@ test('a 3D map releases its GPU allocations on the way out', () => {
     // The spriteset gives its world back through releaseReactor3D, which a map change also calls
     // before the next map loads.
     const at = spritesSource.indexOf('Spriteset_Map.prototype.destroy = function');
-    assert.match(spritesSource.slice(at, spritesSource.indexOf('\n};', at)), /this\.releaseReactor3D\(\);/);
+    assert.match(spritesSource.slice(at, spritesSource.indexOf('\n};', at)), /this\.releaseReactor3D\(true\);/, 'with the spriteset the world goes at once, a border crossing or not');
     const release = spritesSource.indexOf('Spriteset_Map.prototype.releaseReactor3D = function');
     const body = spritesSource.slice(release, spritesSource.indexOf('\n};', release));
     assert.match(body, /this\._reactor3d\.scene\.destroy\(\)/);

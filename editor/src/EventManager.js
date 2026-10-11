@@ -444,6 +444,8 @@ class EventManager {
             }
         } else {
             this.removeEventInteraction();
+            // What was picked up goes with the tool: an event left selected kept its model card and its arrows over the map.
+            if (this.selectedEvent || Number.isInteger(this.selectedTileX)) this.selectEvent(null);
             // Hide starting positions when leaving event mode
             if (this.startingPositionContainer) {
                 this.startingPositionContainer.visible = false;
@@ -1206,6 +1208,21 @@ class EventManager {
         }));
     }
 
+    /** Event mode as the toolbar's event tool turns it on; nothing where it is on already. */
+    enterEventMode() {
+        if (this.eventMode) return;
+        const app = typeof window !== 'undefined' ? window.reactor : null;
+        if (app && app.eventManager === this && typeof app.toggleEventMode === 'function') app.toggleEventMode();
+        else this.setEventMode(true);
+    }
+
+    /** A row of the Events list: the map goes to Event mode with that event selected and in view. */
+    selectEventFromList(eventId) {
+        if (!this.currentMap?.events?.some(entry => entry && entry.id === eventId)) return;
+        this.enterEventMode();
+        this.selectEventById(eventId, { reveal: true });
+    }
+
     /** Selects an event of this map by its number; with `reveal`, the map view in use is brought to it as well (a row of the Events list). */
     selectEventById(eventId, { reveal = false } = {}) {
         if (!this.currentMap || !this.currentMap.events) return;
@@ -1537,6 +1554,9 @@ class EventManager {
         const events = targetMap.events || (targetMap.events = []);
         if (events[event.id] || events.some(entry => entry && entry.id === event.id)) return false;
         this.saveState();
+        // An id is used again once its event is gone: what the map's 3D sidecar kept under it goes first.
+        this._setEventModels(event.id, null);
+        this._setEventPlacement(event.id, null);
         events[event.id] = event;
         this.renderEvents();
         this.selectEvent(event);
@@ -3286,7 +3306,7 @@ class EventManager {
             RRPickerIndex.bindListNavigation(eventsListEl, {
                 items: () => eventsListEl.querySelectorAll('.event-list-item'),
                 isSelected: item => Number(item.dataset.eventId) === this.selectedEvent?.id,
-                select: item => this.selectEventById(Number(item.dataset.eventId), { reveal: true })
+                select: item => this.selectEventFromList(Number(item.dataset.eventId))
             });
         }
         eventsListEl.onkeydown = event => {
@@ -3338,10 +3358,10 @@ class EventManager {
             item.style.borderRadius = '3px';
             item.style.margin = '2px 0';
 
-            // Click handler - select the event and bring it into view
+            // Click handler - Event mode, with the event selected and brought into view
             item.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.selectEventById(event.id, { reveal: true });
+                this.selectEventFromList(event.id);
             });
 
             // Double-click handler - open event editor

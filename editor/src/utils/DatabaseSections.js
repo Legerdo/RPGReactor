@@ -12,6 +12,9 @@
  *             source of its title; never by a translation
  *   memory    createStore(): get / set, safe with a damaged file and with
  *             two editor windows; recall() / remember() on the shared store
+ *   selection recallSelection() / rememberSelection(): the record last
+ *             selected on each list page, kept the same way in a file of
+ *             its own
  *   default   battleModes(), battleCardFolded(), createBattleScan(): a
  *             battle card starts folded in a project that never fights its
  *             way (Tactical; Action and First Person), and open for a record
@@ -50,6 +53,8 @@
 
     const FILE_NAME = 'database-sections.json';
     const STORAGE_KEY = 'rr-database-sections';
+    const SELECTION_FILE_NAME = 'database-selection.json';
+    const SELECTION_STORAGE_KEY = 'rr-database-selection';
     const STATE_DIR_ENV = 'RPG_REACTOR_EDITOR_STATE_DIR';
 
     //-------------------------------------------------------------------------
@@ -112,9 +117,11 @@
 
     const empty = () => ({ version: 1, projects: {} });
     const plain = value => !!value && typeof value === 'object' && !Array.isArray(value);
+    const isFold = value => typeof value === 'boolean';
+    const isRecordId = value => Number.isInteger(value);
 
-    /** What a file or a storage entry holds, as far as it is well formed; an empty memory otherwise. */
-    function parse(text) {
+    /** What a file or a storage entry holds, as far as it is well formed (`accept` says which values are); an empty memory otherwise. */
+    function parse(text, accept = isFold) {
         let raw;
         try { raw = JSON.parse(text); } catch (error) { return empty(); }
         const out = empty();
@@ -125,7 +132,7 @@
             for (const [page, sections] of Object.entries(pages)) {
                 if (!plain(sections)) continue;
                 const folds = {};
-                for (const [key, collapsed] of Object.entries(sections)) if (typeof collapsed === 'boolean') folds[key] = collapsed;
+                for (const [key, collapsed] of Object.entries(sections)) if (accept(collapsed)) folds[key] = collapsed;
                 if (Object.keys(folds).length) kept[page] = folds;
             }
             if (Object.keys(kept).length) out.projects[project] = kept;
@@ -159,16 +166,20 @@
      * cannot be read counts as empty and is rewritten by the next fold; a
      * folder that cannot be written keeps the folds for this session only.
      *
-     * options: fs, path, os, env, platform (desktop), storage (web), warn
+     * options: fs, path, os, env, platform (desktop), storage (web), warn;
+     * fileName, storageKey and accept(value) for a memory of something other
+     * than folds
      */
     function createStore(options = {}) {
+        const fileName = options.fileName || FILE_NAME, storageKey = options.storageKey || STORAGE_KEY;
+        const accept = options.accept || isFold, read = text => parse(text, accept);
         const node = options.storage ? null : (options.fs ? { fs: options.fs, path: options.path, os: options.os } : nodeModules());
         const env = options.env || (typeof process !== 'undefined' && process.env) || {};
         const platform = options.platform || (typeof process !== 'undefined' && process.platform) || '';
         const warn = options.warn || (message => { if (typeof console !== 'undefined' && console.warn) console.warn(message); });
         let storage = options.storage || null;
         if (!node && !storage) { try { storage = root.localStorage || null; } catch (error) { storage = null; } }
-        const file = node ? node.path.join(stateFolder(env, platform, node.os && node.os.homedir ? node.os.homedir() : '', node.path), FILE_NAME) : null;
+        const file = node ? node.path.join(stateFolder(env, platform, node.os && node.os.homedir ? node.os.homedir() : '', node.path), fileName) : null;
         let cache = empty(), stamp = '', warned = false, loaded = false;
         const canonical = new Map();
 
@@ -187,13 +198,13 @@
         function load() {
             loaded = true;
             if (!node) {
-                if (storage) { try { cache = parse(storage.getItem(STORAGE_KEY)); } catch (error) { /* blocked storage: this session only */ } }
+                if (storage) { try { cache = read(storage.getItem(storageKey)); } catch (error) { /* blocked storage: this session only */ } }
                 return cache;
             }
             try {
                 const stat = node.fs.statSync(file), now = stat.mtimeMs + ':' + stat.size;
                 if (now !== stamp) {
-                    cache = parse(node.fs.readFileSync(file, 'utf8'));
+                    cache = read(node.fs.readFileSync(file, 'utf8'));
                     stamp = now;
                 }
             } catch (error) {
@@ -206,7 +217,7 @@
             const text = JSON.stringify(cache, null, 1) + '\n';
             try {
                 if (!node) {
-                    if (storage) storage.setItem(STORAGE_KEY, text);
+                    if (storage) storage.setItem(storageKey, text);
                     return true;
                 }
                 const fs = node.fs;
@@ -223,7 +234,7 @@
                 stamp = stat.mtimeMs + ':' + stat.size;
                 return true;
             } catch (error) {
-                if (!warned) { warned = true; warn('Database section folds are kept for this session only: ' + (error && error.message || error)); }
+                if (!warned) { warned = true; warn(fileName + ' is kept for this session only: ' + (error && error.message || error)); }
                 return false;
             }
         }
@@ -238,7 +249,7 @@
                 if (!loaded) load();
                 const pages = cache.projects[projectKey(projectPath)];
                 const value = pages && pages[page] ? pages[page][key] : undefined;
-                return typeof value === 'boolean' ? value : undefined;
+                return accept(value) ? value : undefined;
             },
             /** The folds of one page of one project, by section. */
             page(projectPath, page) {
@@ -251,7 +262,11 @@
                 const project = projectKey(projectPath);
                 const pages = cache.projects[project] || (cache.projects[project] = {});
                 const folds = pages[page] || (pages[page] = {});
-                folds[key] = !!collapsed;
+                if (options.accept) {
+                    if (!accept(collapsed)) return false;
+                    if (folds[key] === collapsed) return true;
+                    folds[key] = collapsed;
+                } else folds[key] = !!collapsed;
                 return save();
             }
         };
@@ -264,6 +279,17 @@
     function recall(projectPath, page, key) { const store = shared(); store.sync(); return store.get(projectPath, page, key); }
     /** Keep a fold the user made. */
     function remember(projectPath, page, key, collapsed) { return shared().set(projectPath, page, key, collapsed); }
+
+    /** A store of the record last selected on each list page (`id` of a page), per project. */
+    function createSelectionStore(options = {}) {
+        return createStore(Object.assign({}, options, { fileName: SELECTION_FILE_NAME, storageKey: SELECTION_STORAGE_KEY, accept: isRecordId }));
+    }
+    let sharedSelections = null;
+    function selections() { return sharedSelections || (sharedSelections = createSelectionStore()); }
+    /** The id of the record last selected on a list page of this project; undefined where none was. */
+    function recallSelection(projectPath, page) { const store = selections(); store.sync(); return store.get(projectPath, page, 'id'); }
+    /** Keep the record selected on a list page. */
+    function rememberSelection(projectPath, page, id) { return selections().set(projectPath, page, 'id', id); }
 
     //-------------------------------------------------------------------------
     // The battle cards' default: folded while no battle of the project is fought their way.
@@ -700,6 +726,7 @@
     const api = {
         SECTIONS, HEADERS, CONTROLS, COLLAPSED, SOLO, FOLD_EVENT, FILE_NAME, STORAGE_KEY, STATE_DIR_ENV, MAP_MODES, PASS_KEYS,
         slug, titleOf, sourceOf, keyOf, parse, stateFolder, createStore, shared, recall, remember,
+        SELECTION_FILE_NAME, SELECTION_STORAGE_KEY, createSelectionStore, recallSelection, rememberSelection,
         commandsUseMapBattle, textUsesMapBattle, textBattleModes, usesMapBattles, battleModes, battleCardFolded, createBattleScan,
         soloRows, headerOf, sectionOf, attach
     };

@@ -4689,7 +4689,10 @@
         // Under the box the field stands in (its face and frame), not under the field alone: the grid covered
         // the lower part of the Name box on every screen size.
         let under = field.y + field.height * ReactorUI.shownScale(field);
-        for (let id = node.parent; id; ) {
+        // (A record whose parents name each other is walked once round.)
+        const walked = new Set([node.id]);
+        for (let id = node.parent; id && !walked.has(id); ) {
+            walked.add(id);
             const holder = (this._nodeWindows || []).find(candidate => candidate.node().id === id);
             if (!holder) break;
             under = Math.max(under, holder.y + holder.height * ReactorUI.shownScale(holder));
@@ -6537,6 +6540,29 @@
             ReactorUI.updateActionScene(this);
         };
     }
+
+    /**
+     * A map scene's battle HUDs are let go with it. A scene that ends under a battle (the menu, a transfer, a load,
+     * Game Over) never sees the frame on which the battle is over, and what its HUD holds outside the scene would
+     * stay for good: the pictures it made, the listener of its feed, the built-in HUD's stand-down.
+     */
+    ReactorUI.releaseMapHuds = function(scene) {
+        const ready = scene._reactorFightHudReady;
+        if (ready && ready.hud) this.destroyFightHud(scene, ready.hud);
+        scene._reactorFightHudReady = false;
+        if (scene._reactorFightHud) this.destroyFightHud(scene, scene._reactorFightHud);
+        scene._reactorFightHud = null;
+        if (scene._reactorActionHud) this.destroyActionHud(scene, scene._reactorActionHud);
+        scene._reactorActionHud = null;
+    };
+
+    // As the scene is destroyed, not as it ends: the picture it leaves on screen while the next scene loads keeps its HUD.
+    // (The scene's own destroy is its parent's, asked for when called.)
+    Scene_Map.prototype.destroy = function() {
+        try { ReactorUI.releaseMapHuds(this); } catch (error) { console.warn("ReactorUI: a map battle HUD could not be let go", error); }
+        const parent = Object.getPrototypeOf(Scene_Map.prototype);
+        if (parent && typeof parent.destroy === "function") return parent.destroy.apply(this, arguments);
+    };
 
     //-------------------------------------------------------------------------
     // Battle HUD: a Battle HUD record over Scene_Battle. Its nodes draw

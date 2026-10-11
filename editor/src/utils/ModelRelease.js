@@ -179,8 +179,9 @@
             this.state = null;
             this.timer = null;
             this.made = 0;
-            this.setTimer = options.setTimeout || (typeof setTimeout === 'function' ? setTimeout : null);
-            this.clearTimer = options.clearTimeout || (typeof clearTimeout === 'function' ? clearTimeout : null);
+            // A window's own timers refuse to be called as another object's methods.
+            this.setTimer = options.setTimeout || (typeof setTimeout === 'function' ? (fn, ms) => setTimeout(fn, ms) : null);
+            this.clearTimer = options.clearTimeout || (typeof clearTimeout === 'function' ? id => clearTimeout(id) : null);
         }
         get active() { return !!this.state; }
         use(fn) {

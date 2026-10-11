@@ -2004,7 +2004,20 @@ Game_Actor.prototype.initEquips = function(equips) {
     this.refresh();
 };
 
+// A class may list its equipment slots (rrEquipSlots): the equipment type of each slot, in order, a
+// type as many times as the class has slots of it. Null for a class with no list, which has one slot
+// per equipment type (and a second weapon in place of the second slot under Dual Wield).
+Game_Actor.prototype.classEquipSlots = function() {
+    const actorClass = this.currentClass();
+    const slots = actorClass ? actorClass.rrEquipSlots : null;
+    return Array.isArray(slots) ? slots : null;
+};
+
 Game_Actor.prototype.equipSlots = function() {
+    const own = this.classEquipSlots();
+    if (own) {
+        return own.slice();
+    }
     const slots = [];
     for (let i = 1; i < $dataSystem.equipTypes.length; i++) {
         slots.push(i);
@@ -2013,6 +2026,24 @@ Game_Actor.prototype.equipSlots = function() {
         slots[1] = 1;
     }
     return slots;
+};
+
+// Under a class's own list the equipment held is one place per slot: a slot the list gained is
+// empty, and what a slot it lost was holding goes back to the party.
+Game_Actor.prototype.fitEquipSlots = function(forcing) {
+    if (!this.classEquipSlots() || !this._equips) {
+        return;
+    }
+    const count = this.equipSlots().length;
+    while (this._equips.length < count) {
+        this._equips.push(new Game_Item());
+    }
+    while (this._equips.length > count) {
+        const item = this._equips.pop().object();
+        if (item && !forcing) {
+            this.tradeItemWithParty(null, item);
+        }
+    }
 };
 
 Game_Actor.prototype.equips = function() {
@@ -2069,7 +2100,11 @@ Game_Actor.prototype.tradeItemWithParty = function(newItem, oldItem) {
 };
 
 Game_Actor.prototype.changeEquipById = function(etypeId, itemId) {
-    const slotId = etypeId - 1;
+    // Under a class's own list: the first slot of that type (none: nothing to change).
+    const slotId = this.classEquipSlots() ? this.equipSlots().indexOf(etypeId) : etypeId - 1;
+    if (slotId < 0) {
+        return;
+    }
     if (this.equipSlots()[slotId] === 1) {
         this.changeEquip(slotId, $dataWeapons[itemId]);
     } else {
@@ -2089,6 +2124,7 @@ Game_Actor.prototype.discardEquip = function(item) {
 };
 
 Game_Actor.prototype.releaseUnequippableItems = function(forcing) {
+    this.fitEquipSlots(forcing);
     for (;;) {
         const slots = this.equipSlots();
         const equips = this.equips();

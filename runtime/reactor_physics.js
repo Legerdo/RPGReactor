@@ -186,12 +186,19 @@
         return ladder;
     };
 
-    /** The character a follower walks behind: the one before it in the line, or the player. */
+    /**
+     * The character a follower walks behind: the nearest one before it in the
+     * line that follows and is seen, or the player. One out of the line (told
+     * to stay, sent somewhere, on a route, hidden) leads nobody up a ladder
+     * or a ledge, and one under such an order follows nobody: null.
+     */
     ReactorPhysics.leaderOf = function(character) {
         if (typeof Game_Follower === "undefined" || !(character instanceof Game_Follower) || typeof $gamePlayer === "undefined") return null;
+        if (character._rrOrder) return null;
         const line = $gamePlayer.followers && $gamePlayer.followers()._data || [];
-        const index = line.indexOf(character);
-        return index <= 0 ? $gamePlayer : line[index - 1];
+        let ahead = line.indexOf(character) - 1;
+        while (ahead >= 0 && (line[ahead]._rrOrder || line[ahead]._rrHidden)) ahead--;
+        return ahead < 0 ? $gamePlayer : line[ahead];
     };
 
     /**

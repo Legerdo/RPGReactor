@@ -163,7 +163,7 @@ class PlayModelAnimationEditor {
         const escape = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
         const modal = document.createElement('div');
-        modal.className = 'rr-modal-overlay';
+        modal.className = 'rr-modal-overlay rr-command-editor-modal';
         modal.style.zIndex = '21000';
         const events = this.mapEvents().concat((this.currentMap()?.reactor3d?.props || []).map(prop => ({ id: 10000 + prop.id, name: this._t('Prop {id}: {name}').replace('{id}', prop.id).replace('{name}', prop.name) })));
         const targetOptions = [

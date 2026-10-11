@@ -747,8 +747,10 @@
         const u = R.foliageUniforms(), group = this.parent;
         if (!camera || !group) return;
         const frame = renderer && renderer.info && renderer.info.render ? renderer.info.render.frame : 0;
-        if (eye.frame !== frame || eye.camera !== camera) {
-            eye.frame = frame; eye.camera = camera;
+        // (By the group too: the plants of a neighboring map stand in a group of their own beside this map's,
+        // and the eye is somewhere else in that map's tiles.)
+        if (eye.frame !== frame || eye.camera !== camera || eye.group !== group) {
+            eye.frame = frame; eye.camera = camera; eye.group = group;
             if (!eye.world) { eye.world = new THREE.Vector3(); eye.inverse = new THREE.Matrix4(); }
             eye.world.setFromMatrixPosition(camera.matrixWorld);
             eye.inverse.copy(group.matrixWorld).invert();

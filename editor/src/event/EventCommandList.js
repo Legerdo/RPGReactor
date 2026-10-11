@@ -538,6 +538,8 @@ class EventCommandList {
 
             const commandListRoot = this._commandListRoot;
             if (!commandListRoot?.isConnected || !commandListRoot.contains(e.target)) return;
+            // A dialog over the editor (a command's own, the picker) has the keys, even with the focus left on the list.
+            if (EventCommandList.coveredByDialog(eventEditorModal)) return;
 
             // Don't intercept when user is typing in an input, textarea, or contenteditable
             const tag = e.target.tagName;
@@ -583,6 +585,13 @@ class EventCommandList {
                 else this.editCommand(selected, this.currentPage, this.currentPageIndex);
             }
         });
+    }
+
+    /** Whether something lies over the Event Editor: what is under the middle of the window is not part of it. */
+    static coveredByDialog(editorModal) {
+        if (!editorModal || typeof document.elementFromPoint !== 'function' || !(window.innerWidth > 0)) return false;
+        const top = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+        return !!top && !editorModal.contains(top);
     }
 
     /**
@@ -2810,10 +2819,7 @@ class EventCommandList {
             { label: 'Select All', action: () => { this.selectAll(page); this.refreshCommandList(page, pageIndex); } },
             { label: '—', divider: true },
             { label: 'Copy As Text', action: () => this.copyAsText(page) },
-            { label: 'Copy As HTML', action: () => this.copyAsHTML(page) },
-            { label: '—', divider: true },
-            { label: 'Toggle Skip', action: () => this.toggleSkip(page, pageIndex) },
-            { label: 'Test', action: () => this.testEvent(page, pageIndex) }
+            { label: 'Copy As HTML', action: () => this.copyAsHTML(page) }
         ];
 
         menuItems.forEach(item => {
@@ -2862,17 +2868,6 @@ class EventCommandList {
             }
         };
         setTimeout(() => document.addEventListener('click', closeMenu), 100);
-    }
-
-    /**
-     * Attach context menu to empty area
-     */
-    attachEmptyContextMenu(container, page, pageIndex) {
-        container.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            this.selectedIndices = [];
-            this.showContextMenu(e.clientX, e.clientY, page, pageIndex);
-        });
     }
 
     /**
@@ -4922,16 +4917,6 @@ class EventCommandList {
 
         navigator.clipboard.writeText(html);
         console.debug('Copied as HTML');
-    }
-
-    toggleSkip(page, pageIndex) {
-        // TODO: Implement skip flag
-        console.debug('Toggle skip for selected commands');
-    }
-
-    testEvent(page, pageIndex) {
-        // TODO: Implement event testing
-        console.debug('Test event from this point');
     }
 
     /**
