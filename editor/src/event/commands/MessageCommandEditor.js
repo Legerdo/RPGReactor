@@ -1174,7 +1174,8 @@ class MessageCommandEditor {
                 const actorId = system?.partyMembers?.[index - 1];
                 return (actorId && data?.actors?.[actorId]?.name) || 'Name';
             },
-            currency: (system && system.currencyUnit) || 'G'
+            currency: (system && system.currencyUnit) || 'G',
+            fontFace: name => this._previewFaceFamily(name)
         };
 
         // Keep the overlay geometry glued to the textarea's.
@@ -1185,10 +1186,14 @@ class MessageCommandEditor {
 
         let anyOver = false;
         const lines = textarea.value.split('\n');
+        // A font code carries to the end of its box; each box starts clean.
+        const rows = this._messageRows();
+        let pen = {};
         for (let index = 0; index < lines.length; index++) {
             const line = lines[index];
+            if (index % rows === 0) pen = {};
             const scan = window.RRTextCodes.scanMessageLine(
-                line, context, this._previewFontFamily || 'sans-serif', gameSize, available, substitutions);
+                line, context, this._previewFontFamily || 'sans-serif', gameSize, available, substitutions, pen);
             if (index > 0) overlay.appendChild(document.createTextNode('\n'));
             if (scan.overflowIndex < 0) {
                 overlay.appendChild(document.createTextNode(line));
@@ -1983,6 +1988,7 @@ class MessageCommandEditor {
                 const system = JSON.parse(require('fs').readFileSync(systemPath, 'utf8'));
                 const advanced = system.advanced || {};
                 filename = advanced.mainFontFilename || '';
+                this._previewNumberFontFile = advanced.numberFontFilename || '';
                 this._previewFontSize = advanced.fontSize || 26;
                 this._previewOpacity = advanced.windowOpacity ?? 192;
                 this._previewTone = system.windowTone || [0, 0, 0, 0];
@@ -2015,6 +2021,78 @@ class MessageCommandEditor {
             });
         }
         this._iconSheet = await this._iconSheetReady;
+
+        // Every face a \FontChange in the run switches to, for the same
+        // reason as the IconSet: the draw cannot wait for a font mid-line.
+        await this._loadPreviewFaces((this.boxes || []).flatMap(box => box.lines || []));
+    }
+
+    /**
+     * The fonts a \FontChange<name> can reach, keyed by lower-cased family:
+     * what FontManager registers in a running game. Scene_Boot loads
+     * rmmz-mainfont and rmmz-numberfont from System 2, and MessageCore adds
+     * its Custom Fonts list on top.
+     */
+    _previewFaceFiles() {
+        const files = new Map();
+        if (this._previewNumberFontFile) files.set('rmmz-numberfont', this._previewNumberFontFile);
+        const fonts = window.RRTextCodes && window.RRTextCodes.customFonts
+            ? window.RRTextCodes.customFonts(this._pluginList())
+            : [];
+        for (const font of fonts) files.set(font.family.toLowerCase(), font.filename);
+        return files;
+    }
+
+    /**
+     * Start loading every registered font these lines switch to, and resolve
+     * once all of them are drawable. A font that arrives after the preview
+     * was drawn redraws the guide and the miniature, which were drawn with
+     * the face before it.
+     */
+    _loadPreviewFaces(lines) {
+        const projectPath = this._projectPath();
+        if (!projectPath || !window.RRWindowskin) return Promise.resolve();
+        if (!this._previewFaces) this._previewFaces = new Map();
+        const files = this._previewFaceFiles();
+        const waits = [];
+        for (const line of lines) {
+            for (const match of String(line || '').matchAll(/\\FontChange<([^>]*)>/gi)) {
+                const file = files.get(match[1].trim().toLowerCase());
+                if (!file) continue;
+                let entry = this._previewFaces.get(file);
+                if (!entry) {
+                    entry = { family: null };
+                    entry.ready = window.RRWindowskin.loadGameFont(
+                        require('path').join(projectPath, 'fonts'), file).then(family => {
+                        entry.family = family;
+                        this._previewFaceVersion = (this._previewFaceVersion || 0) + 1;
+                        this.updateGuide();
+                    });
+                    this._previewFaces.set(file, entry);
+                }
+                waits.push(entry.ready);
+            }
+        }
+        return Promise.all(waits);
+    }
+
+    /**
+     * The CSS family the preview draws a \FontChange<name> with. The game
+     * hands the name straight to Bitmap.fontFace, so a registered font is
+     * drawn from the same file, under the alias the editor loaded it as;
+     * any other name passes through as written, which is what the game does
+     * with a font installed on the system. Null keeps the current face: a
+     * blank name, or a registered font that has not finished loading yet.
+     */
+    _previewFaceFamily(name) {
+        const trimmed = String(name || '').trim();
+        const key = trimmed.toLowerCase();
+        if (!key) return null;
+        if (key === 'rmmz-mainfont') return this._previewFontFamily || null;
+        const file = this._previewFaceFiles().get(key);
+        if (file === undefined) return `"${trimmed.replace(/"/g, '')}"`;
+        const entry = this._previewFaces && this._previewFaces.get(file);
+        return (entry && entry.family) || null;
     }
 
     /**
@@ -2060,11 +2138,12 @@ class MessageCommandEditor {
 
         // A caret move inside the same box changes nothing on screen; leave
         // the running playback alone rather than restarting it. The skin and
-        // font arrive async, so they are part of "the same".
+        // fonts and the speaker's picture arrive async, so they are part of "the same".
+        this._loadPreviewFaces(page.lines);
         const face = this._previewFace(header);
         const key = JSON.stringify([page.lines, header.faceName, header.faceIndex,
             header.speakerName, header.background, width, height + headroom,
-            Boolean(this._skin), this._previewFontFamily || '',
+            Boolean(this._skin), this._previewFontFamily || '', this._previewFaceVersion || 0,
             face ? [face.picture ? face.picture.faceName : '', face.picture ? face.picture.faceIndex : 0, Boolean(face.canvas)] : null]);
         if (this._miniAnim && this._miniAnim.key === key) return;
         this._stopMiniAnimation();
@@ -2150,7 +2229,9 @@ class MessageCommandEditor {
      */
     static tokenizeLine(line) {
         const text = String(line || '');
-        const pattern = /\\([A-Za-z]+)\[(\d+)\]|\\([{}])|\\\\|\\([.|!^><$])/g;
+        // MessageCore's two font codes ride along: \FontChange<x> swaps the
+        // face and \ResetFont puts face, size and colour back.
+        const pattern = /\\([A-Za-z]+)\[(\d+)\]|\\([{}])|\\\\|\\([.|!^><$])|\\FontChange<([^>]*)>|\\(ResetFont)(?![A-Za-z])/gi;
         const tokens = [];
         const pushText = piece => { if (piece) tokens.push({ type: 'text', text: piece }); };
         let lastIndex = 0;
@@ -2174,6 +2255,10 @@ class MessageCommandEditor {
                     '$': { type: 'gold' }
                 };
                 tokens.push(Object.assign({}, timing[match[4]]));
+            } else if (match[5] !== undefined) {
+                tokens.push({ type: 'fontFace', name: match[5] });
+            } else if (match[6]) {
+                tokens.push({ type: 'resetFont' });
             } else if (name === 'C') {
                 tokens.push({ type: 'color', value: Number(match[2]) });
             } else if (name === 'FS') {
@@ -2317,10 +2402,11 @@ class MessageCommandEditor {
         const family = this._previewFontFamily || 'sans-serif';
         context.textBaseline = 'alphabetic';
 
+        const pen = {};
         page.lines.forEach((line, index) => {
             const budget = reveal ? { units: (reveal.lineUnits && reveal.lineUnits[index]) || 0 } : null;
             this.drawPreviewLine(context, String(line || ''), textLeft,
-                y + metrics.PADDING + index * metrics.LINE_HEIGHT, fontSize, family, budget);
+                y + metrics.PADDING + index * metrics.LINE_HEIGHT, fontSize, family, budget, pen);
         });
 
         if (reveal && reveal.cursorFrame >= 0) {
@@ -2400,26 +2486,35 @@ class MessageCommandEditor {
      * `budget`, when given, is the playback's reveal: a mutable count of
      * glyph units (characters and icons) still allowed on this line, counted
      * exactly as buildTimeline counts them.
+     *
+     * `pen`, when given, is the box's running face, size and colour, shared
+     * by its lines: Window_Message resets them once per box (newPage), not
+     * per line, so a \FontChange or \C on one line carries into the next.
      */
-    drawPreviewLine(context, line, x, y, fontSize, family, budget) {
+    drawPreviewLine(context, line, x, y, fontSize, family, budget, pen) {
         const iconSize = window.RRIconPicker?.sizeOf(this.databaseManager?.getSystem?.()) || 32;
-        let cursorX = x;
-        let size = fontSize;
-        context.fillStyle = window.RRWindowskin
+        const normal = window.RRWindowskin
             ? window.RRWindowskin.normalColor(this._skin)
             : '#ffffff';
+        const state = pen || {};
+        if (state.size === undefined) Object.assign(state, { size: fontSize, face: family, color: normal });
+        let cursorX = x;
 
         const write = text => {
             if (!text) return;
-            context.font = `${size}px ${family}`;
-            context.fillText(text, cursorX, y + size);
+            context.font = `${state.size}px ${state.face}`;
+            context.fillStyle = state.color;
+            context.fillText(text, cursorX, y + state.size);
             cursorX += context.measureText(text).width;
         };
 
         for (const token of MessageCommandEditor.tokenizeLine(line)) {
-            if (budget && budget.units <= 0) return;
+            // Past the reveal nothing more is drawn, but the codes still
+            // run: the pen they leave is the one the next line starts with.
+            const spent = Boolean(budget && budget.units <= 0);
             switch (token.type) {
                 case 'text': {
+                    if (spent) break;
                     let piece = token.text;
                     if (budget) {
                         const glyphs = Array.from(piece);
@@ -2430,20 +2525,28 @@ class MessageCommandEditor {
                     break;
                 }
                 case 'icon':
-                    this.drawPreviewIcon(context, token.value, cursorX, y + (size - iconSize) / 2 + 4);
+                    if (spent) break;
+                    this.drawPreviewIcon(context, token.value, cursorX, y + (state.size - iconSize) / 2 + 4);
                     cursorX += iconSize + 4;
                     if (budget) budget.units -= 1;
                     break;
                 case 'color':
-                    context.fillStyle = window.RRWindowskin
+                    state.color = window.RRWindowskin
                         ? window.RRWindowskin.textColor(this._skin, token.value)
                         : '#ffffff';
                     break;
                 case 'fontSize':
-                    size = token.value || fontSize;
+                    state.size = token.value || fontSize;
                     break;
                 case 'grow':
-                    size = token.up ? size + 12 : Math.max(12, size - 12);
+                    state.size = token.up ? state.size + 12 : Math.max(12, state.size - 12);
+                    break;
+                case 'fontFace':
+                    state.face = this._previewFaceFamily(token.name) || state.face;
+                    break;
+                case 'resetFont':
+                    // Window_Base.resetFontSettings: face, size and colour.
+                    Object.assign(state, { size: fontSize, face: family, color: normal });
                     break;
                 case 'px':
                     cursorX = x + token.value;
