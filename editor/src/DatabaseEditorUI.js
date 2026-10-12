@@ -4047,6 +4047,7 @@ class DatabaseEditorUI {
      */
     static BATTLE_WORDS = {
         wait: 'Wait', endTurn: 'End Turn', auto: 'Auto', overwatch: 'Overwatch',
+        mount: 'Mount', dismount: 'Dismount', whyNoRoom: 'No room to get off here',
         goalDefeatAll: 'Defeat all enemies', goalSurvive: 'Survive %1 turns', goalDefeatUnit: 'Defeat %1', goal: 'Complete the objective',
         goalEnemiesLeft: 'Enemies left: %1', goalSurviveLeft: 'Survive: %1 turns left', goalSurviveLast: 'Survive: last turn', goalChanged: 'New goal: %1',
         goalLose: 'You lose if your party falls', goalTurn: 'Turn %1',

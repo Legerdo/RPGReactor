@@ -205,7 +205,8 @@ node editor/build-scripts/release-editor.cjs \
 ```
 
 Use targets `linux`, `windows`, `macos`, and `web`. Desktop targets are rejected
-on non-matching hosts. Each target gets a fresh
+on non-matching hosts. Add `--pack-web true` to the `web` target to ship the
+bundled project inside pack archives (fewer files, smaller extracted size). Each target gets a fresh
 `dist-editor/releases/v0.99.0/<target>/` directory and an
 `artifact-manifest-<target>.json` containing byte sizes and SHA-256 hashes.
 

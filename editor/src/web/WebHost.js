@@ -686,6 +686,10 @@
                     console.warn(`Edited playtest overlay is unavailable: ${error.name || 'Error'}: ${error.message || error}`);
                 }
             }
+            // A packed project is read through the service worker alone: without it there is nothing to open.
+            if (this.manifest.packed && !navigator.serviceWorker?.controller) {
+                throw new Error(tt('this window blocks service workers, which read the project. Open a normal (not private) window with site data allowed.'));
+            }
         },
         assetUrl(filePath) {
             const relativePath = projectRelative(filePath).split('/').map(encodeURIComponent).join('/');

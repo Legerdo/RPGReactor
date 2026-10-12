@@ -5945,20 +5945,6 @@
         "phase": "execute"
       },
       {
-        "id": "step-003wwu1n7",
-        "type": "animation",
-        "duration": 0,
-        "role": "allTargets",
-        "anchor": "home",
-        "x": 0,
-        "y": 0,
-        "z": 0,
-        "easing": "smooth",
-        "animationSource": "id",
-        "animationId": 129,
-        "phase": "execute"
-      },
-      {
         "id": "step-003x9aqaj",
         "type": "impact",
         "duration": 0,

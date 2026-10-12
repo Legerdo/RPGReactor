@@ -261,9 +261,10 @@ test('the Ground panel\'s Steep Ground card: the material, tint and angle of a s
     const flat = panelFor({ id: 4, width: 6, height: 4, data: [], reactor3d: { version: 1, mode: '3d', room: { floor: '!Grass-01' } } }, 'steep');
     assert.match(flat, /This map's ground is flat: nothing on it is steep\./);
     assert.doesNotMatch(flat, /rr-build-cslope|rr-build-cmaterial|rr-build-ctint/, 'no controls that do nothing');
-    // In the Ground panel, between the grounds and the brush.
     const bar = read('editor/src/BuildHotbar.js');
-    assert.match(bar, /\+ this\.steepSection\(terrain, section, urlOf\)\n\s+\+ section\(t\('terrain\.brush'\),/);
+    // The card sits under the panel's Whole map fold, with the map's fill: what is painted with and the brush come first.
+    assert.match(bar, /const whole = fold\('ground-map', tt\('Whole map'\), '',[\s\S]{0,400}\(erasing \? '' : this\.steepSection\(terrain, section, urlOf\)\)\);/);
+    assert.match(bar, /\+ section\(t\('terrain\.brush'\), brushRows\)\n\s+\+ edit \+ whole;/);
 });
 
 test('OK in Map Properties leaves the steep ground and the land past the border as they are', () => {

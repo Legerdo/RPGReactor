@@ -564,6 +564,8 @@
             battleWindow: oneOf(source.battleWindow, Object.keys(this.BATTLE_WINDOWS), "actorCommand"),
             hideWindow: !!source.hideWindow,
             followActor: !!source.followActor,
+            // What a following window follows: the actor's row in the party panel ("slot"), or the actor as it stands in the battle ("model").
+            followTarget: source.followTarget === "model" ? "model" : "slot",
             slideX: clamp(Math.round(finite(source.slideX, 0)), -2000, 2000),
             slideY: clamp(Math.round(finite(source.slideY, 0)), -2000, 2000),
             slideDuration: clamp(Math.round(finite(source.slideDuration, 12)), 1, 120),
@@ -5783,7 +5785,7 @@
     };
 
     /**
-     * The battle's own commands (Overwatch, Wait, End Turn) on the stock
+     * The battle's own commands (Mount, Dismount, Overwatch, Wait, End Turn) on the stock
      * command window, written the way the project writes Attack, Skill and
      * Item so the window draws all its rows alike: the node's word, else the
      * project's (System.json `reactorBattle.terms`), else the stock word in
@@ -5816,22 +5818,27 @@
         win.drawItem = function(index) {
             const symbol = this.commandSymbol(index);
             if (!glyphs[symbol]) { drawItem.call(this, index); return; }
-            // As a command with an icon code draws: the icon in its 36 pixels, a space, the word.
-            const rect = this.itemLineRect(index), align = this.itemTextAlign();
-            const word = " " + words[symbol];
-            this.resetFontSettings();
-            this.changePaintOpacity(this.isCommandEnabled(index));
-            const icon = ImageManager.iconWidth || 32, wordWidth = this.textWidth(word), width = icon + 4 + wordWidth;
-            const x = align === "center" ? rect.x + Math.floor((rect.width - width) / 2) : align === "right" ? rect.x + rect.width - width : rect.x;
-            const context = this.contents.context;
-            context.save();
-            context.globalAlpha = this.contents.paintOpacity / 255;
-            shared.drawGlyph(context, symbol, x + 2, rect.y + Math.floor((rect.height - icon) / 2), icon, ColorManager.normalColor());
-            context.restore();
-            this.drawText(word, x + icon + 4, rect.y, wordWidth + 4, "left");
-            touch(this.contents);
+            drawGlyphRow(shared, this, index, symbol, words[symbol]);
         };
     };
+
+    // A command row with an icon the HUD draws itself, as a command with an icon code draws: the icon in its 36 pixels, a space, the word.
+    function drawGlyphRow(shared, win, index, symbol, name) {
+        const rect = win.itemLineRect(index), align = win.itemTextAlign();
+        const word = " " + name;
+        win.resetFontSettings();
+        win.changePaintOpacity(win.isCommandEnabled(index));
+        const icon = ImageManager.iconWidth || 32, wordWidth = win.textWidth(word), width = icon + 4 + wordWidth;
+        const x = align === "center" ? rect.x + Math.floor((rect.width - width) / 2) : align === "right" ? rect.x + rect.width - width : rect.x;
+        const context = win.contents.context;
+        context.save();
+        context.globalAlpha = win.contents.paintOpacity / 255;
+        shared.drawGlyph(context, symbol, x + 2, rect.y + Math.floor((rect.height - icon) / 2), icon, ColorManager.normalColor());
+        context.restore();
+        // (A word longer than its row is drawn narrower, as a command's is.)
+        win.drawText(word, x + icon + 4, rect.y, Math.min(wordWidth + 4, Math.max(8, rect.x + rect.width - (x + icon + 4))), "left");
+        touch(win.contents);
+    }
 
     /**
      * A list window sized to what it lists, inside its node's rectangle and
@@ -6003,11 +6010,12 @@
             state.slide = 0;
         }
         const shown = win.visible && win.openness > 0;
-        // Each time it opens its list may be another (a unit with Overwatch, a longer skill list): fitted again.
+        // Each time it opens its list may be another (a unit with Overwatch, a longer skill list): fitted again. So is
+        // a command list that changes while it is up (a unit got on or off a vehicle).
         if (shown && !state.shown) {
             this.fitFightWindow(scene, entry, win);
             state.slide = node.slideDuration;
-        }
+        } else if (shown && node.fightWindow === "command" && win.maxItems && state.rows !== win.maxItems()) this.fitFightWindow(scene, entry, win);
         state.shown = shown;
         let x = state.x, y = state.y;
         if (state.slide > 0) {
@@ -6663,7 +6671,21 @@
         let x = state.x, y = state.y;
         if (node.followActor) {
             // Between actors (target selection, a turn resolving) it stays where it last followed.
-            const slot = hud.slotRect(typeof BattleManager !== "undefined" ? BattleManager.actor() : null);
+            const actor = typeof BattleManager !== "undefined" ? BattleManager.actor() : null;
+            let followed = false;
+            if (node.followTarget === "model" && actor) {
+                // Over the actor as it stands in the battle (its model in a Battle Room, else its sprite): the window is
+                // centered on it, its bottom edge at the top of the figure, and X and Y are offsets from there.
+                const sprites = scene._spriteset && scene._spriteset._actorSprites;
+                const sprite = sprites ? sprites.find(other => other._battler === actor) : null;
+                if (sprite) {
+                    const top = this.battlerTop(scene, sprite), layer = scene._windowLayer;
+                    state.follow = { x: Math.round(top.x - (layer ? layer.x : 0) - win.width * state.scale / 2 + node.x * state.scale),
+                        y: Math.round(top.y - (layer ? layer.y : 0) - win.height * state.scale + node.y * state.scale) };
+                    followed = true;
+                }
+            }
+            const slot = followed ? null : hud.slotRect(actor);
             if (slot) state.follow = { x: slot.x + Math.round(node.x * state.scale), y: slot.y + Math.round(node.y * state.scale) };
             // Kept on the screen: on a small game (640x480) the slot's offset would stand it above the top edge.
             if (state.follow) {
@@ -6722,7 +6744,10 @@
             if (!actor) return;
             for (const command of commands) {
                 switch (command.kind) {
-                    case "attack": this.addCommand(label(command, TextManager.attack), "attack", actor.canAttack()); break;
+                    case "attack":
+                        // (One who rides a vehicle that can attack may attack with it: reactor_vehicles_mount.js.)
+                        this.addCommand(label(command, TextManager.attack), "attack", this.canChooseAttack ? this.canChooseAttack() : actor.canAttack());
+                        break;
                     case "skillTypes": this.addSkillCommands(); break;
                     case "skillType":
                         if (!command.knownOnly || actor.skillTypes().includes(command.id)) {

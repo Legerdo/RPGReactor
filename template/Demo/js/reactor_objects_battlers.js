@@ -710,6 +710,11 @@ Game_BattlerBase.prototype.specialFlag = function(flagId) {
     );
 };
 
+// Collapse Effect values the battle modes ask about by name (the rest are looks of the same going).
+Game_BattlerBase.COLLAPSE_INSTANT = 2;
+Game_BattlerBase.COLLAPSE_NONE = 3;
+Game_BattlerBase.COLLAPSE_CORPSE = 8;
+
 Game_BattlerBase.prototype.collapseType = function() {
     const set = this.traitsSet(Game_BattlerBase.TRAIT_COLLAPSE_TYPE);
     return set.length > 0 ? Math.max(...set) : 0;
@@ -3013,6 +3018,11 @@ Game_Enemy.prototype.performCollapse = function() {
             break;
         case 7:
             this.requestEffect("shatterCollapse");
+            this.playCollapseSe(() => SoundManager.playEnemyCollapse());
+            break;
+        // 8 is "Corpse": it goes over and lies where it stood, and gets up if it is revived.
+        case 8:
+            this.requestEffect("corpseCollapse");
             this.playCollapseSe(() => SoundManager.playEnemyCollapse());
             break;
     }

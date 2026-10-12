@@ -68,7 +68,7 @@
     // The keys each of the three pieces of data has. A key that is not here is not a setting.
     const FORMAT = {
         type: {
-            id: true, name: true, note: true, startMapId: true, startX: true, startY: true, startDirection: true, classId: true, initialLevel: true, equips: true, traits: true, learnings: true, ridable: true, graphic3d: true, medium: true, passability: true, leans: true, walks: true, turnsInPlace: true, kind: true, prompt: true, rider: true, encounters: true, bgm: true, flight: true,
+            id: true, name: true, note: true, startMapId: true, startX: true, startY: true, startDirection: true, copies: true, copyCount: true, classId: true, initialLevel: true, equips: true, traits: true, learnings: true, ridable: true, graphic3d: true, medium: true, passability: true, leans: true, walks: true, turnsInPlace: true, kind: true, prompt: true, rider: true, encounters: true, bgm: true, flight: true,
             model: ['name', 'file', 'ext', 'size', 'scale', 'variant', 'texture', 'offset'],
             sheet: ['characterName', 'characterIndex'],
             handling: ['speed', 'toTopSpeed', 'turnCircle', 'jump', 'brake', 'coast', 'reverse', 'lean', 'step', 'wade', 'turnInPlace', 'grip', 'turnRate'],
@@ -540,15 +540,18 @@
             const where = path => ({ file: TYPES_FILE, path: path ? `${at}.${path}` : at });
             const more = { typeId: id };
 
-            if (record.startMapId !== undefined && Number(record.startMapId) !== 0) {
-                const map = (P.maps || []).find(map => map && map.id === Number(record.startMapId));
-                if (!Number.isInteger(Number(record.startMapId)) || !map) {
-                    add('vehicleCheck.unread', 'fix', {file:TYPES_FILE,key:'startMapId'}, where('startMapId'), more);
+            // Its own start, and that of each copy of it (`copies[n]`).
+            const placed = [[record, '']].concat((Array.isArray(record.copies) ? record.copies : []).map((copy, n) => [copy, `copies[${n}].`]));
+            for (const [start, prefix] of placed) {
+                if (!start || typeof start !== 'object' || start.startMapId === undefined || Number(start.startMapId) === 0) continue;
+                const map = (P.maps || []).find(map => map && map.id === Number(start.startMapId));
+                if (!Number.isInteger(Number(start.startMapId)) || !map) {
+                    add('vehicleCheck.unread', 'fix', {file:TYPES_FILE,key:prefix + 'startMapId'}, where(prefix + 'startMapId'), more);
                 }
                 for (const [key,limit] of [['startX',map?.width],['startY',map?.height]]) {
-                    const value = Number(record[key] || 0);
+                    const value = Number(start[key] || 0);
                     if (!Number.isInteger(value) || value < 0 || (Number.isFinite(limit) && value >= limit)) {
-                        add('vehicleCheck.unread', 'fix', {file:TYPES_FILE,key}, where(key), more);
+                        add('vehicleCheck.unread', 'fix', {file:TYPES_FILE,key:prefix + key}, where(prefix + key), more);
                     }
                 }
             }

@@ -12,6 +12,7 @@ const iconHelpers = require('./icon-helpers');
 const nwRuntime = require('./nw-runtime-utils');
 const nwCodec = require('./nw-codec-utils');
 const webFileIndex = require('./web-file-index.cjs');
+const webPack = require('./web-pack.cjs');
 const assetOptimizer = require('./asset-optimizer');
 const appImage = require('./appimage-utils');
 const nativeDownload = require('./native-download');
@@ -58,6 +59,7 @@ const {
     runtimeLocales = null,
     assetOptimization = { png: false, ogg: false, oggQuality: 5 },
     createLinuxAppImage = false,
+    packWebFiles = false,   // a Web build's files go into a few archives (web-pack.cjs)
     appImageToolPath,
     appImageRuntimePath,
     releaseBuild = false,
@@ -202,7 +204,7 @@ function validateProjectRuntime(root) {
         'reactor_objects.js', 'reactor_objects_actions.js', 'reactor_objects_battlers.js', 'reactor_objects_map.js', 'reactor_objects_interpreter.js', 'reactor_objects_followers.js', 'reactor_objects_legacy.js',
         'reactor_scenes.js', 'reactor_sprites.js', 'reactor_picture_extensions.js', 'reactor_screen_fx.js',
         'reactor_media_surfaces.js', 'reactor_quests.js', 'reactor_image_layers.js', 'reactor_controls.js', 'reactor_physics.js', 'reactor_rig_motions.js',
-            'reactor_battle_data.js', 'reactor_battle_room.js', 'reactor_battle_presentation.js', 'reactor_battle_events.js', 'reactor_fight_look.js', 'reactor_fight.js', 'reactor_fight_flow.js', 'reactor_fight_tactical.js', 'reactor_fight_stage.js', 'reactor_fight_camera.js', 'reactor_fight_action.js', 'reactor_fight_menu.js', 'reactor_fight_classic.js', 'reactor_speaker_face.js', 'reactor_vehicles.js', 'reactor_vehicles_drive.js', 'reactor_vehicles_feel.js', 'reactor_vehicles_hints.js',
+            'reactor_battle_data.js', 'reactor_battle_room.js', 'reactor_battle_presentation.js', 'reactor_battle_events.js', 'reactor_fight_look.js', 'reactor_fight.js', 'reactor_fight_flow.js', 'reactor_fight_tactical.js', 'reactor_fight_stage.js', 'reactor_fight_camera.js', 'reactor_fight_action.js', 'reactor_fight_menu.js', 'reactor_fight_classic.js', 'reactor_speaker_face.js', 'reactor_vehicles.js', 'reactor_vehicles_drive.js', 'reactor_vehicles_feel.js', 'reactor_vehicles_hints.js', 'reactor_vehicles_mount.js',
         'reactor_windows.js', 'reactor_ui_victory.js', 'reactor_ui_fight.js', 'reactor_ui_action.js', 'reactor_ui.js', 'reactor_mv_compat.js', 'reactor_plugins.js',
         path.join('libs', 'pixi.js'), path.join('libs', 'pixi_compat.js'),
         path.join('libs', 'pako.min.js'), path.join('libs', 'lz-string.js'), path.join('libs', 'localforage.min.js'),
@@ -583,6 +585,14 @@ async function installProprietaryCodec(platform, runtimeRoot, runtimeVersion, pr
                 // A browser cannot list its files; the runtime corrects filename casing from this index.
                 const indexed = webFileIndex.writeWebFileIndex(platformOutDir);
                 logInfo(`File index written: ${indexed} files (filename casing is corrected from it in the browser).`);
+                if (packWebFiles) {
+                    logInfo('Packing files into archives...');
+                    const packed = webPack.packGame(platformOutDir);
+                    if (packed) {
+                        logGood(webPack.describe(packed));
+                        logInfo(`The build is now ${webFileIndex.listFiles(platformOutDir).length} files. It needs a browser that allows service workers (any current one, outside private windows).`);
+                    }
+                }
                 for (const warning of webFileIndex.storefrontWarnings(platformOutDir)) logWarn(warning);
                 progress(Math.round(pRename), 'Finalizing...');
             } else {

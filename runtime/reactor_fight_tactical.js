@@ -315,11 +315,15 @@
     /** Tiles a unit moves in a turn: its event's own Move when it sets one, else its tags, else 4. */
     F.moveOf = function(unit) {
         if (!unit) return 0;
+        // A unit on a vehicle moves as the vehicle does (reactor_vehicles_mount.js).
+        const ridden = typeof F.mountOf === "function" ? F.mountOf(unit) : null;
+        if (ridden) return F.mountMove(unit, ridden);
         return unitStat(unit, "move", F.DEFAULT_MOVE, unit.ownMove && unit.move > 0 ? unit.move : null);
     };
 
     /** Levels a unit climbs in one step (3D maps). */
     F.jumpOf = function(unit) {
+        if (unit && typeof F.mountOf === "function" && F.mountOf(unit)) return F.mountJump(unit);
         return unit ? unitStat(unit, "jump", F.DEFAULT_JUMP) : 0;
     };
 
@@ -2142,10 +2146,12 @@
         if (other.gone || other.team === "neutral") return false;
         const battler = fight.battler(other);
         if (!battler || !fight.character(other)) return false;
-        if (action.isForUser()) return other === unit;
+        // (Its own: the one that acts, which for a vehicle's action is the vehicle.)
+        if (action.isForUser()) return battler === action.subject();
         const friend = other.team === unit.team, scope = action.item().scope;
         if (scope === 14) return battler.isAlive();
-        if (action.isForOpponent()) return !friend && battler.isAlive();
+        // (One kept inside what it rides is behind it: nothing of the other side's lands on it while the vehicle stands.)
+        if (action.isForOpponent()) return !friend && battler.isAlive() && !(typeof fight.isShielded === "function" && fight.isShielded(other));
         if (!action.isForFriend() || !friend) return false;
         if (action.isForDeadFriend()) return battler.isDead();
         if (scope === 12 || scope === 13) return true;
@@ -2169,14 +2175,31 @@
             }
             if (hit) out.push(other);
         }
-        // One target, two on the cell (one under the eave, one on it): the one at the level aimed at, else the first.
+        // The party's vehicles stand on the map too (reactor_vehicles_mount.js): each is hit on its own cell, which
+        // for one that is ridden is its rider's.
+        const vehicles = typeof fight.vehicleUnits === "function" ? fight.vehicleUnits() : EMPTY;
+        for (const other of vehicles) {
+            if (!affects(fight, unit, action, other)) continue;
+            const character = fight.character(other), own = unit.mount > 0 && other.eventId === unit.mount;
+            if (area.shape === "all" || G.inArea(area.shape, area.size, ux, uy, cx, cy, own ? ux : character.x, own ? uy : character.y)) out.push(other);
+        }
         if (area.shape === "single" && out.length > 1) {
+            // A rider and what it rides are two on the cell: the one that was chosen, else the one the battle's rule names.
+            const vehicle = vehicles.length ? out.find(other => other.vehicle) : null;
+            const rider = vehicle ? out.find(other => !other.vehicle && other.mount === vehicle.eventId) : null;
+            if (rider && keepPair) { out.length = 0; out.push(rider, vehicle); return out; }
             let keep = out[0], gap = Infinity;
-            if (Number.isFinite(aimHeight)) for (const other of out) { const off = Math.abs(G.heightOf(fight.character(other)) - aimHeight); if (off < gap) { gap = off; keep = other; } }
+            if (rider) keep = aimWho === "vehicle" ? vehicle : aimWho === "rider" ? rider : typeof fight.pairTarget === "function" ? fight.pairTarget(rider, vehicle, action) : rider;
+            // One target, two on the cell (one under the eave, one on it): the one at the level aimed at, else the first.
+            else if (Number.isFinite(aimHeight)) for (const other of out) { const off = Math.abs(G.heightOf(fight.character(other)) - aimHeight); if (off < gap) { gap = off; keep = other; } }
             out.length = 0; out.push(keep);
         }
         return out;
     }
+    // Which of a rider and its vehicle a single-target action is for, while targets are collected for it ("": the rule's choice).
+    let aimWho = "";
+    // Set while the two are asked for (the player is to choose).
+    let keepPair = false;
     // The height the player's cursor aims at, while targets are collected for it (NaN: nobody said).
     let aimHeight = NaN;
 
@@ -2341,8 +2364,9 @@
             if (unit.gone || unit.down || unit.team === "neutral") continue;
             const battler = this.battler(unit);
             if (unit.defeated) {
-                const character = !unit.eventId && battler && battler.isAlive() ? this.character(unit) : null;
-                if (character) { unit.defeated = false; character.setOpacity(255); this.touch(); }
+                // (An event's unit too, while there is still something of it to stand: a body, or one not yet faded.)
+                const character = battler && battler.isAlive() ? this.character(unit) : null;
+                if (character) { this.raise(unit); this.touch(); }
                 continue;
             }
             if (!battler || !battler.isDead()) continue;
@@ -2578,6 +2602,8 @@
         character.setThrough(true);
         // The other side does not dawdle: a unit that only closes in runs (a watched walk stays at a pace the eye follows).
         if (!act.player) character.setMoveSpeed(Math.max(act.speed, act.watched || (act.plan && act.plan.kind && act.plan.kind !== "watch") ? 5 : 6));
+        // A unit on a vehicle rides its way.
+        else if (typeof F.mountOf === "function" && F.mountOf(unit)) character.setMoveSpeed(Math.max(act.speed, F.MOUNT_SPEED || 5.5));
         this._progress = true;
         if (F.feed()) ReactorEvents.emit("fightMoveStart", { unitId: unit.id, path: steps.map(step => ({ x: step.x, y: step.y })), long: steps.length >= 5 });
         this.touch();
@@ -3222,9 +3248,9 @@
     Game_Fight.prototype.pendingAction = function() {
         const act = this._act;
         if (!act || !act.item || !act.unitId) return null;
-        const key = this._serial + ":" + act.unitId + ":" + act.item.kind + ":" + act.item.id;
+        const key = this._serial + ":" + act.unitId + ":" + act.item.kind + ":" + act.item.id + (act.item.via ? ":" + act.item.via : "");
         if (cache.actionKey !== key || !cache.action) {
-            const battler = this.battler(this.unit(act.unitId));
+            const battler = this.actingBattler(this.unit(act.unitId), act.item.via);
             if (!battler) return null;
             const action = new Game_Action(battler);
             if (act.item.kind === "skill") action.setSkill(act.item.id); else action.setItem(act.item.id);
@@ -3564,6 +3590,8 @@
         info.y = character ? character.y : 0;
         info.move = F.moveOf(unit);
         info.jump = F.jumpOf(unit);
+        // What it rides, where that has a battler of its own: its name and its life are the panel's to show.
+        info.vehicle = F.mountBattler ? F.mountBattler(unit) || null : null;
         info.acted = !!tac.acted[unit.id];
         info.overwatch = !!tac.watch[unit.id];
         info.moved = !!act && act.unitId === unit.id && !!act.moved;
@@ -3815,7 +3843,10 @@
         if (!this._tac) return;
         for (const target of targets) {
             const battler = this.battler(target), character = this.character(target);
-            if (target.defeated && battler && battler.isAlive() && character) { target.defeated = false; character.setOpacity(255); }
+            if (target.defeated && battler && battler.isAlive() && character) {
+                if (target.vehicle) { target.defeated = false; if (typeof this.mendVehicle === "function") this.mendVehicle(target); }
+                else this.raise(target);
+            }
         }
         this.touch();
     };
@@ -3902,12 +3933,12 @@
     };
 
     /** Aim a skill or an item: the range shows and the cursor goes to the nearest target it has. */
-    Game_Fight.prototype.aim = function(kind, id) {
-        const act = this._act, unit = this.unit(act.unitId), battler = this.battler(unit), character = this.character(unit);
+    Game_Fight.prototype.aim = function(kind, id, via) {
+        const act = this._act, unit = this.unit(act.unitId), battler = this.actingBattler(unit, via), character = this.character(unit);
         const item = kind === "skill" ? $dataSkills[id] : $dataItems[id];
         if (!item || !battler.canUse(item)) return false;
         act.back = act.stage;
-        act.item = { kind, id };
+        act.item = via ? { kind, id, via } : { kind, id };
         act.stage = "target";
         this.touch();
         const action = this.pendingAction(), tactics = F.tactics(battler, item);
@@ -3926,14 +3957,19 @@
 
     Game_Fight.prototype.commandAttack = function() {
         if (!this.playerStage("command") || !this.awaitsPlayer()) return false;
-        return this.aim("skill", this.battler(this.unit(this._act.unitId)).attackSkillId());
+        const unit = this.unit(this._act.unitId);
+        // One who rides a vehicle that can attack chooses whose attack it is to be: the two are listed.
+        if (typeof this.vehicleAttacker === "function" && this.vehicleAttacker(unit)) { this._act.pick = "attack"; return this.openList("skill"); }
+        return this.aim("skill", this.battler(unit).attackSkillId());
     };
 
-    Game_Fight.prototype.commandSkill = function(skillId) {
+    /** `via` "vehicle": the skill is the vehicle's the unit rides, used with its strength and paid from its MP and TP. */
+    Game_Fight.prototype.commandSkill = function(skillId, via) {
         if (!(this.playerStage("command") || this.playerStage("skill")) || !this.awaitsPlayer()) return false;
-        const battler = this.battler(this.unit(this._act.unitId));
+        via = via === "vehicle" ? via : undefined;
+        const battler = this.actingBattler(this.unit(this._act.unitId), via);
         if (skillId !== battler.attackSkillId() && !battler.skills().includes($dataSkills[skillId])) return false;
-        return this.aim("skill", skillId);
+        return this.aim("skill", skillId, via);
     };
 
     Game_Fight.prototype.commandItem = function(itemId) {
@@ -3943,7 +3979,7 @@
     };
 
     /** Open the skill or the item list (a HUD with its own lists does not need them). */
-    Game_Fight.prototype.commandOpenSkills = function() { return this.openList("skill"); };
+    Game_Fight.prototype.commandOpenSkills = function() { if (this._act) delete this._act.pick; return this.openList("skill"); };
     Game_Fight.prototype.commandOpenItems = function() { return this.openList("item"); };
     Game_Fight.prototype.openList = function(stage) {
         if (!this.playerStage("command") || !this.awaitsPlayer()) return false;
@@ -3953,11 +3989,65 @@
         return true;
     };
 
+    /**
+     * The units an action by `unit` (a skill or an item, `via` "vehicle" for its vehicle's) would land on, aimed at a
+     * cell from where the unit stands: a new array, the party's vehicles among them. Nothing is used or begun.
+     */
+    Game_Fight.prototype.targetsOf = function(unit, kind, id, cx, cy, via) {
+        const battler = unit ? this.actingBattler(unit, via) : null, character = this.character(unit);
+        if (!battler || !character) return [];
+        const action = new Game_Action(battler);
+        if (kind === "skill") action.setSkill(id); else action.setItem(id);
+        if (!action.item()) return [];
+        return collectTargets(this, unit, action, F.tactics(battler, action.item()), character.x, character.y, cx, cy, []);
+    };
+
+    /**
+     * A rider and its vehicle on a cell an action for one target is aimed at: `[rider's unit, vehicle's]`, else null.
+     * Whose it is to be is the player's to say (`commandWhom`).
+     */
+    Game_Fight.prototype.targetPair = function(x, y) {
+        const act = this._act, action = this.isTactical() && act && act.item ? this.pendingAction() : null;
+        if (!action || typeof this.vehicleUnits !== "function") return null;
+        const unit = this.unit(act.unitId), character = this.character(unit), tactics = F.tactics(action.subject(), action.item());
+        if (tactics.area.shape !== "single") return null;
+        const cursor = this.cursor();
+        keepPair = true;
+        aimHeight = cursor && cursor.x === x && cursor.y === y ? cursor.h : NaN;
+        let out = null;
+        try { out = collectTargets(this, unit, action, tactics, character.x, character.y, x, y, []); } finally { keepPair = false; aimHeight = NaN; }
+        return out.length === 2 && out[1].vehicle ? out : null;
+    };
+
+    /** The rider ("rider") or its vehicle ("vehicle") is the one the aimed action is for: it begins. */
+    Game_Fight.prototype.commandWhom = function(who) {
+        const act = this._act;
+        if (!this.playerStage("skill") || !this.awaitsPlayer() || act.pick !== "whom" || !act.whom || !act.item) return false;
+        const at = act.whom;
+        aimWho = who === "vehicle" ? "vehicle" : "rider";
+        aimHeight = Number.isFinite(at.h) ? at.h : NaN;
+        let began = false;
+        try { began = this.beginAction(this.unit(act.unitId), act.item.kind, act.item.id, at.x, at.y, act.item.via); } finally { aimWho = ""; aimHeight = NaN; }
+        if (!began) return false;
+        delete act.whom; delete act.pick;
+        F.Input.used();
+        return true;
+    };
+
     Game_Fight.prototype.commandTarget = function(x, y) {
         if (!this.playerStage("target") || !this.awaitsPlayer() || !this.inRange(x, y)) return false;
         const act = this._act, cursor = this.cursor();
+        // Two on the cell, a rider and its vehicle: the list asks whose it is to be.
+        if (this.targetPair(x, y)) {
+            act.whom = { x, y, h: cursor && cursor.x === x && cursor.y === y ? cursor.h : NaN };
+            act.pick = "whom";
+            act.stage = "skill";
+            F.Input.used();
+            this.touch();
+            return true;
+        }
         aimHeight = cursor && cursor.x === x && cursor.y === y ? cursor.h : NaN;
-        const began = this.beginAction(this.unit(act.unitId), act.item.kind, act.item.id, x, y);
+        const began = this.beginAction(this.unit(act.unitId), act.item.kind, act.item.id, x, y, act.item.via);
         aimHeight = NaN;
         if (!began) return false;
         F.Input.used();
@@ -3965,8 +4055,8 @@
     };
 
     /** A unit uses a skill or an item on a cell: it turns to it, pays for it, and the action is about to play. */
-    Game_Fight.prototype.beginAction = function(unit, kind, id, cx, cy) {
-        const battler = this.battler(unit), character = this.character(unit), act = this._act;
+    Game_Fight.prototype.beginAction = function(unit, kind, id, cx, cy, via) {
+        const battler = this.actingBattler(unit, via), character = this.character(unit), act = this._act;
         const action = new Game_Action(battler);
         if (kind === "skill") action.setSkill(id); else action.setItem(id);
         const item = action.item();
@@ -3980,16 +4070,17 @@
         if (dx || dy) character.setDirection(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 6 : 4) : (dy > 0 ? 2 : 8));
         battler.useItem(item);
         this._progress = true;
-        this._run = F.makeRun(this, unit, action, targets);
+        this._run = F.makeRun(this, unit, action, targets, via);
         this._run.cell = { x: cx, y: cy };
         // In a crowd, a unit that decides for itself acts at a skirmish's pace: no full sequence, no shot.
         // So does an action with nobody to play on.
         const quick = aimless || (!act.player && this.isCrowded());
         if (quick) this._run.quick = true;
         act.stage = "aim";
-        act.item = { kind, id };
+        act.item = via ? { kind, id, via } : { kind, id };
         act.targetId = aimless ? 0 : targets[0].id;
-        if (!aimless) F.heldItem(character, "aim", this.character(targets[0]) || null);
+        // (What the vehicle does, the one who rides it does not take aim for.)
+        if (!aimless && !via) F.heldItem(character, "aim", this.character(targets[0]) || null);
         if (F.feed()) ReactorEvents.emit("fightAim", { unitId: unit.id, kind, itemId: id, targetIds: this._run.targetIds, cell: this._run.cell, ranged: tactics.max >= 2, quick });
         this.touch();
         return true;
@@ -4082,8 +4173,13 @@
             act.item = null;
             const character = this.character(this.unit(act.unitId));
             this.setCursor(character.x, character.y, G.heightOf(character));
+        } else if (act.stage === "skill" && act.pick === "whom") {
+            // Back from "whose is it to be" is the aim again.
+            act.stage = "target";
+            delete act.pick; delete act.whom;
         } else if (act.stage === "skill" || act.stage === "item") {
             act.stage = "command";
+            delete act.pick;
         } else if (act.stage === "command") {
             if (act.moved) return this.commandUndoMove();
             act.stage = "move";
@@ -4166,9 +4262,9 @@
     };
 
     /** Whether an action the acting unit would use from where it stands has anyone to land on. */
-    Game_Fight.prototype.hasTargets = function(kind, id) {
+    Game_Fight.prototype.hasTargets = function(kind, id, via) {
         const act = this._act, unit = act && act.unitId ? this.unit(act.unitId) : null;
-        const battler = this.battler(unit), character = this.character(unit);
+        const battler = this.actingBattler(unit, via), character = this.character(unit);
         if (!battler || !character) return false;
         const action = new Game_Action(battler);
         if (kind === "skill") action.setSkill(id); else action.setItem(id);
@@ -4186,11 +4282,19 @@
      * made and by a HUD's hint line for the highlighted row; the answer is kept until a unit moves.
      */
     Game_Fight.prototype.commandReason = function(symbol) {
+        // Getting on and getting off answer for themselves (reactor_vehicles_mount.js).
+        if ((symbol === "mount" || symbol === "dismount") && typeof this.mountReason === "function") return this.playerStage("command") ? this.mountReason(symbol) : "";
         if (symbol !== "attack" || !this.playerStage("command")) return "";
-        const battler = this.battler(this.unit(this._act.unitId));
-        if (!battler || !battler.canAttack()) return "";
-        const key = this._act.unitId + ":" + battler.attackSkillId() + ":" + this.positionsHash();
-        if (cache.reasonKey !== key) { cache.reasonKey = key; cache.reason = this.hasTargets("skill", battler.attackSkillId()) ? "" : "whyNoReach"; }
+        const unit = this.unit(this._act.unitId), battler = this.battler(unit);
+        // (One who rides a vehicle that can attack has its attack too: either in reach will do.)
+        const vehicle = typeof this.vehicleAttacker === "function" ? this.vehicleAttacker(unit) : null;
+        const own = !!battler && battler.canAttack();
+        if (!own && !vehicle) return "";
+        const key = this._act.unitId + ":" + (own ? battler.attackSkillId() : 0) + ":" + (vehicle ? "v" + vehicle.attackSkillId() : "") + ":" + this.positionsHash();
+        if (cache.reasonKey !== key) {
+            cache.reasonKey = key;
+            cache.reason = (own && this.hasTargets("skill", battler.attackSkillId())) || (vehicle && this.hasTargets("skill", vehicle.attackSkillId(), "vehicle")) ? "" : "whyNoReach";
+        }
         return cache.reason;
     };
 
@@ -6117,6 +6221,24 @@
         };
     }
 
+    /** How far the view's keys move it each frame, in tiles (more when the view stands further back). */
+    View.SLIDE = 0.3;
+
+    /**
+     * Move where the view looks across the screen: `right` and `ahead` are -1, 0 or 1, as the screen shows them
+     * at any turn of the view (`yaw`, degrees: the camera's own when not given, none on a 2D map).
+     */
+    View.slide = function(fight, right, ahead, amount, yaw) {
+        const tac = fight.tac();
+        if (!tac.focus || (!right && !ahead)) return false;
+        const live = View.live(), C = camera3D();
+        if (!Number.isFinite(yaw)) yaw = live && C ? (live.cameraCurrent && Number.isFinite(live.cameraCurrent.yaw) ? live.cameraCurrent.yaw : C.currentState().yaw || 0) : 0;
+        const turn = yaw * Math.PI / 180, sin = Math.sin(turn), cos = Math.cos(turn), scale = amount / Math.hypot(right, ahead);
+        tac.focus.x = clamp(tac.focus.x + (cos * right + sin * ahead) * scale, 0, $gameMap.width() - 1);
+        tac.focus.y = clamp(tac.focus.y + (sin * right - cos * ahead) * scale, 0, $gameMap.height() - 1);
+        return true;
+    };
+
     /** Move where the view looks by a screen direction (2/4/6/8), a little each frame: the pointer at the screen's edge. */
     View.pan = function(fight, d, amount) {
         const tac = fight.tac(), step = View.cursorStep(d);
@@ -6404,6 +6526,13 @@
         if (Input.isTriggered(F.key("viewLeft"))) { if (!View.rotate(-1)) In.cycle(fight, -1); }
         else if (Input.isTriggered(F.key("viewRight"))) { if (!View.rotate(1)) In.cycle(fight, 1); }
         if (touch && touch.wheelY) View.zoom(touch.wheelY > 0 ? 1 : -1);
+        // The view's own keys (W A S D) move it while they are held; the cursor stays where it is.
+        const held = control => !!control && Input.isPressed(control);
+        const slideX = (held(F.key("panRight")) ? 1 : 0) - (held(F.key("panLeft")) ? 1 : 0), slideY = (held(F.key("panUp")) ? 1 : 0) - (held(F.key("panDown")) ? 1 : 0);
+        if (slideX || slideY) {
+            const own = fight._tac && fight._tac.view;
+            if (View.slide(fight, slideX, slideY, View.SLIDE * (View.active() && own && own.zoom > 1 ? own.zoom : 1))) View.endVisit();
+        }
         const state3D = View.live() && camera3D() ? camera3D().currentState().mode : "";
         const locked = state3D === "thirdPerson" || state3D === "firstPerson"
             || (typeof document !== "undefined" && typeof Graphics !== "undefined" && !!document.pointerLockElement && document.pointerLockElement === Graphics._canvas);
@@ -7033,7 +7162,12 @@
     const U = F.UnitMarks = { MAX: 256, count: 0, hash: 0, shown: false, rings: null, scene: null, layer: null, bars: [], ground: null, spots: [], bitmaps: null, out: { x: 0, y: 0 } };
     U.TEAMS = ["ally", "enemy", "neutral"];
     U.COLORS = [0x4c9dff, 0xff5a4a, 0xc9d2da];
-    U.CSS = ["#4c9dff", "#ff5a4a", "#c9d2da"];
+    // (The fourth: a vehicle's bar.)
+    U.CSS = ["#4c9dff", "#ff5a4a", "#c9d2da", "#f2b33d"];
+    U.VEHICLE_TEAM = 3;
+    /** A vehicle's bar is this far over its rider's, and this far over the ground when nobody rides it, in tiles. */
+    U.VEHICLE_OVER = 0.32; U.VEHICLE_TALL = 1.5;
+    U.extra = 0;
     U.ACTED = 0x6f7884;
     U.WATCH = 0xffd23c;
     U.BAR_W = 46; U.BAR_H = 7;
@@ -7053,6 +7187,7 @@
      */
     U.collect = function(fight) {
         U.count = 0;
+        U.extra = 0;
         uchar.length = 0;
         if (!fight || !fight.isTactical() || !fight.isHere() || fight._ending || !fight._tac) { U.hash = 0; return 0; }
         const tac = fight._tac, team = fight.currentTeam();
@@ -7075,19 +7210,37 @@
             const big = f.w > 1 || f.h > 1, lift = ut[i] * F.FLAT_PITCH;
             ubar[i] = big ? Math.min(f.oy - lift * F.BODY_RIM, 0.5 - lift) : 1 - ut[i];
         }
+        // The party's vehicles that stand: a bar each and no ring (`U.extra`, after the units), over its rider's when it is ridden.
+        U.extra = 0;
+        for (const unit of typeof fight.vehicleUnits === "function" ? fight.vehicleUnits() : EMPTY) {
+            const i = U.count + U.extra;
+            if (i >= U.MAX) break;
+            const c = fight.character(unit), battler = fight.battler(unit);
+            if (!c || !battler || battler.isDead()) continue;
+            const rider = typeof fight.vehicleRider === "function" ? fight.vehicleRider(unit) : null;
+            U.extra++;
+            uchar.push(c);
+            uox[i] = 0.5; uoy[i] = 0.5;
+            ut[i] = rider ? F.unitHeight(rider) + U.VEHICLE_OVER : U.VEHICLE_TALL;
+            uw[i] = 1; ud[i] = 1;
+            uteam[i] = U.VEHICLE_TEAM;
+            uhp[i] = clamp(battler.hpRate(), 0, 1);
+            uflags[i] = 0;
+            ubar[i] = 1 - ut[i];
+        }
         return U.track();
     };
 
     /** Where each marked unit stands now (it may be walking): a few numbers a unit, every frame. Returns the number `collect` does. */
     U.track = function() {
         let hash = 7;
-        for (let i = 0; i < U.count; i++) {
+        for (let i = 0; i < U.count + (U.extra || 0); i++) {
             const c = uchar[i];
             ux[i] = c._realX + uox[i]; uy[i] = c._realY + uoy[i];
             ug[i] = G.heightOf(c) + (Number(c._reactorAir) || 0);
             hash = (Math.imul(hash, 31) + Math.round(ux[i] * 32) * 7 + Math.round(uy[i] * 32) * 13 + Math.round(ug[i] * 16) * 3 + uteam[i] * 5 + uflags[i] * 11 + uw[i] * 17) | 0;
         }
-        U.hash = U.count ? hash + U.count * 977 : 0;
+        U.hash = U.count ? hash + (U.count + (U.extra || 0)) * 977 : 0;
         return U.hash;
     };
 
@@ -7262,7 +7415,7 @@
             spriteset.addChild(U.layer);
         }
         const live = spriteset._reactor3d || null, camera = live && live.camera && Reactor3D.projectToScreen ? live.camera : null;
-        const count = on && !M.hidden ? U.count : 0, bitmaps = count ? unitBitmaps() : null;
+        const count = on && !M.hidden ? U.count + (U.extra || 0) : 0, bitmaps = count ? unitBitmaps() : null;
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), W = U.BAR_W, H = U.BAR_H;
         let used = 0;
         for (let i = 0; i < count; i++) {
@@ -7492,9 +7645,15 @@
             if (!battler) return;
             const attack = battler.attackSkillId(), guard = battler.guardSkillId();
             // Attack with nobody in its reach from here is grayed; the hint line says why (commandReason).
-            this.addCommand(TextManager.attack, "attack", battler.canAttack() && !fight.commandReason("attack"));
-            this.addCommand(TextManager.skill, "skill", battler.skills().some(skill => skill.id !== attack && skill.id !== guard));
+            // (One who rides has its vehicle's attack and skills with its own: reactor_vehicles_mount.js.)
+            const unit = fight.activeUnit(), vehicle = typeof fight.vehicleAttacker === "function" ? fight.vehicleAttacker(unit) : null;
+            const ridden = F.mountBattler ? F.mountBattler(unit) : null;
+            this.addCommand(TextManager.attack, "attack", (battler.canAttack() || !!vehicle) && !fight.commandReason("attack"));
+            this.addCommand(TextManager.skill, "skill", battler.skills().some(skill => skill.id !== attack && skill.id !== guard)
+                || (!!ridden && !ridden.isDead() && ridden.skills().some(skill => skill.id !== ridden.attackSkillId() && skill.id !== ridden.guardSkillId())));
             this.addCommand(TextManager.item, "item", $gameParty.items().some(item => battler.canUse(item)));
+            // On a vehicle: getting off; beside one: getting on.
+            for (const entry of typeof fight.mountCommands === "function" ? fight.mountCommands(unit) : []) this.addCommand(entry.name, entry.symbol, entry.enabled);
             if (fight.canOverwatch(fight.activeUnit())) this.addCommand(F.term("overwatch"), "overwatch");
             this.addCommand(F.term("wait"), "wait");
             if (fight._turns === "team") this.addCommand(F.term("endTurn"), "endTurn");
@@ -7560,13 +7719,24 @@
             command.setHandler("skill", () => fight().commandOpenSkills());
             command.setHandler("item", () => fight().commandOpenItems());
             command.setHandler("overwatch", () => fight().commandOverwatch());
+            // The unit's menu is another once it is on or off a vehicle: it is listed afresh.
+            const relist = done => { if (done) { command._fightShown = false; command._fightUnit = 0; } else command.activate(); };
+            command.setHandler("mount", () => relist(fight().commandMount()));
+            command.setHandler("dismount", () => relist(fight().commandDismount()));
             command.setHandler("wait", () => fight().commandWait());
             // End Turn asks first when units that could still act would lose their turn.
             command.setHandler("endTurn", () => W.askEndTurn(scene));
             // Auto hands every unit still to act to itself: asked first.
             command.setHandler("auto", () => W.openMenu(scene, "auto", "command"));
             command.setHandler("cancel", () => { ate(); fight().commandCancel(); });
-            skills.setHandler("ok", () => { const item = skills.item(); if (item) fight().commandSkill(item.id); });
+            // (A row of the vehicle the unit rides is the vehicle's to use: the list says whose each is.)
+            skills.setHandler("ok", () => {
+                const item = skills.item(), via = skills._rrVias && skills._rrVias[skills.index()] === "vehicle" ? "vehicle" : undefined;
+                if (!item) return;
+                // (The two on an aimed cell: whose the action is to be.)
+                if (fight()._act && fight()._act.pick === "whom") { if (!fight().commandWhom(via || "rider")) skills.activate(); }
+                else fight().commandSkill(item.id, via);
+            });
             skills.setHandler("cancel", () => { ate(); fight().commandCancel(); });
             items.setHandler("ok", () => { const item = items.item(); if (item) fight().commandItem(item.id); });
             items.setHandler("cancel", () => { ate(); fight().commandCancel(); });
@@ -7610,7 +7780,13 @@
                 if (command._fightUnit !== unitId || command.index() < 0 || command.index() >= command.maxItems()) command.select(0);
                 command._fightUnit = unitId;
             });
-            syncWindow(skills, stage === "skill", true, () => { skills.setActor(fight.battler(fight.activeUnit())); skills.refresh(); skills.select(Math.max(0, Math.min(skills.index(), skills.maxItems() - 1))); });
+            syncWindow(skills, stage === "skill", true, () => {
+                const unit = fight.activeUnit();
+                skills.setActor(fight.battler(unit));
+                if (typeof fight.rideList === "function") fight.rideList(skills, unit);
+                skills.refresh();
+                skills.select(Math.max(0, Math.min(skills.index(), skills.maxItems() - 1)));
+            });
             syncWindow(items, stage === "item", true, () => { items.refresh(); items.select(Math.max(0, Math.min(items.index(), items.maxItems() - 1))); });
         };
     }

@@ -220,7 +220,8 @@ class RRMotionEditor {
             wrap.appendChild(this.root);
         }
         const m = this.motion, tt = text => this._t(text);
-        const partName = part => part === '' ? tt('Whole model') : part;
+        // (A name its file damaged is shown without the damage; the stored name is the part's identity and stays.)
+        const partName = part => part === '' ? tt('Whole model') : typeof RRPartNames !== 'undefined' ? RRPartNames.readable(part) : part;
         const used = new Set(m.tracks.map(t => t.part));
         const addable = [''].concat(this.host.partNames || []).filter(part => !used.has(part));
         const track = m.tracks[this.track];

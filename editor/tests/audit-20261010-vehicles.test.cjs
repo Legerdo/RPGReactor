@@ -205,54 +205,117 @@ test('on a 2D map, a ride stops at the edge of the map and slides along it', () 
 /** A map 100 wide: a ledge 3 high, and from x = 82 a lake two deep. */
 const lakeMap = () => copy(boardWorld(floor({ width: 100, height: 20, ground: x => (x < 80 ? 3 : x < 82 ? 0 : -2),
     water: [{ x0: 82, y0: 0, x1: 99, y1: 19, level: 0 }] })).$dataMap);
-/** Rides the vehicle the party is aboard off the ledge at speed; answers the darkest the screen got and the ticks it was being put back. */
-function intoTheLake(w, ticks, each) {
+/** Rides the vehicle the party is aboard off the ledge at speed until the ride is over; answers the darkest the screen got. */
+function intoTheLake(w, ticks) {
     const p = w.$gamePlayer;
     p._rrDrive.v = 20;
     w.keys.right = true;
-    let dark = 255, backs = 0;
-    for (let t = 0; t < ticks; t++) {
+    let dark = 255;
+    for (let t = 0; t < ticks && p._vehicleType === 'reactor'; t++) {
         w.run(1);
         w.$gameScreen.update();
         dark = Math.min(dark, w.$gameScreen.brightness());
-        const d = p._rrDrive;
-        if (d && d.back > 0) { backs++; w.keys.right = false; }
-        if (each && each(d, backs) === false) break;
     }
     w.keys.right = false;
-    return { dark, backs };
+    return { dark };
 }
 
-test('ridden to another map, a vehicle that comes down in deep water is put back where it arrived, not on a place of the map it left', () => {
+test('ridden to another map and off a ledge into deep water there: the ride ends in the water, the vehicle goes down to the bed, nothing fades and nothing is put back', () => {
     // Boarded at (150, 10) on a map 200 wide; the destination is 100 wide.
     const w = boardWorld({ width: 200, height: 20, vehicles: [bike(31, 150, 10, { yaw: 90 })] });
     const p = w.stand(151, 10, 4);
     assert.equal(w.board(31), true);
     transfer(w, 2, lakeMap(), 76, 10, 6);
     assert.equal(w.V.isRiding(), true);
-    const { dark, backs } = intoTheLake(w, 200);
-    assert.ok(backs > 0 && dark === 0, 'it splashed and the screen dipped');
-    assert.equal(w.$gameScreen.brightness(), 255);
-    assert.equal(w.$gameMap.isValid(p._x, p._y), true, 'on the map: ' + p._x + ', ' + p._y);
-    assert.deepEqual([p._realX, p._realY, p._rrDrive.alt], [76, 10, 3], 'on the ledge it arrived on');
-    w.press('cancel');
-    w.run(60);
-    assert.equal(p._vehicleType, 'walk', 'and the party can get off');
+    const sunk = [];
+    w.ReactorEvents.on('vehicleSink', payload => sunk.push(payload));
+    const { dark } = intoTheLake(w, 300);
+    assert.equal(dark, 255, 'the screen never dipped');
+    assert.equal(p._vehicleType, 'walk', 'the party is on foot');
+    assert.equal(w.V.isRiding(), false);
+    assert.equal(sunk.length, 1, 'said once');
+    assert.ok(p._realX >= 82 && w.$gameMap.isValid(p._x, p._y), 'in the lake where it came down, not put back: ' + p._realX);
+    assert.equal(p._rrDrive, null);
+    const e = w.V.list().find(event => event._rrVehicle > 0);
+    assert.equal(e._rrBoarded, false);
+    assert.deepEqual([e._x, e._y], [p._x, p._y], 'the vehicle is where it went in');
+    // Down to the bed, two under the surface, a little each tick; then it stays.
+    const first = e._reactorAlt;
+    assert.ok(first > -2 && first <= 0.01, 'it starts at the surface: ' + first);
+    w.run(1);
+    assert.ok(e._reactorAlt < first, 'and goes down');
+    w.run(200);
+    assert.deepEqual([e._reactorAlt, e._reactorGround, e._rrSink], [-2, -2, undefined]);
+    // The rider is in the water, over the bed. The vehicle stays where it sank: left and come back to, it is there.
+    assert.ok(p._reactorAlt >= -2 - 1e-6 && p._reactorAlt <= 0.01, 'the rider is in the water: ' + p._reactorAlt);
+    assert.equal(w.V.sunk(e), true);
+    assert.equal(w.V.scenery(e), '', 'it is still a vehicle');
+    const kept = w.V.where(w.V.idOf(e));
+    assert.deepEqual([kept.map, Math.round(kept.x), kept.z], [2, e._x, -2], 'what is kept of it is its place on the bed');
 });
 
-test('a transfer within the map is where the vehicle is put back, too', () => {
-    const data = lakeMap();
-    const w = boardWorld(Object.assign(floor({ width: 100, height: 20, ground: x => (x < 80 ? 3 : x < 82 ? 0 : -2),
-        water: [{ x0: 82, y0: 0, x1: 99, y1: 19, level: 0 }] }), { vehicles: [bike(31, 10, 10, { yaw: 90 })] }));
-    assert.equal(data.width, w.$dataMap.width);
-    const p = w.stand(11, 10, 4);
-    assert.equal(w.board(31), true);
-    p.reserveTransfer(1, 76, 10, 6, 0);
-    p.performTransfer();
-    w.V.resume();
-    assert.equal(w.V.isRiding(), true);
-    intoTheLake(w, 200);
-    assert.deepEqual([p._realX, p._realY], [76, 10]);
+test('a sunk vehicle is boarded where it lies and walked out along the bed: slow and silent under water, itself again out of it', () => {
+    // A bank that goes down a tile in ten from x = 60; the water stands at 0.
+    const w = boardWorld(Object.assign(floor({ width: 100, height: 20, ground: x => (x < 60 ? 0.2 : Math.max(-3, 0.2 - (x - 60) * 0.1)),
+        water: [{ x0: 60, y0: 0, x1: 99, y1: 19, level: 0 }] }), { vehicles: [bike(31, 50, 10, { yaw: 90 })] }));
+    const p = w.stand(49, 10, 6), e = w.vehicle(31);
+    assert.equal(w.V.getOn(31, { instant: true }), true);
+    intoTheLake(w, 600);
+    assert.equal(p._vehicleType, 'walk');
+    assert.equal(w.V.sunk(e), true);
+    const sunkAt = e._realX;
+    // Offered to the party standing in the water beside it, and boarded: no second sinking.
+    w.run(30);
+    assert.equal(w.V.offered(true), e, 'OK boards it where it lies');
+    assert.equal(w.V.getOn(e, { instant: true }), true);
+    assert.equal(p._rrDrive.flooded, true);
+    w.run(30);
+    assert.equal(p._vehicleType, 'reactor', 'still aboard in the water');
+    // Got off under water (no tile beside it to step onto there): the rider is in the water, the vehicle stays, nothing is said to have sunk.
+    const sunk = [];
+    w.ReactorEvents.on('vehicleSink', payload => sunk.push(payload));
+    assert.equal(w.V.getOff({ instant: true }), true);
+    assert.equal(p._vehicleType, 'walk');
+    assert.deepEqual([w.V.sunk(e), sunk.length, e._rrBoarded], [true, 0, false]);
+    w.run(10);
+    assert.equal(w.V.getOn(e, { instant: true }), true);
+    w.run(30);
+    // Backed out up the bank: a walk under water, and once the water is no deeper than it wades it is a motorcycle again.
+    w.keys.left = false; w.keys.right = false; w.keys.down = true;
+    let fastest = 0, out = -1;
+    for (let t = 0; t < 900 && out < 0; t++) {
+        w.run(1);
+        if (p._rrDrive.flooded) fastest = Math.max(fastest, Math.abs(p._rrDrive.v)); else out = t;
+    }
+    w.keys.down = false;
+    assert.ok(out > 0, 'it came out of the water');
+    assert.ok(fastest > 0.5 && fastest <= 2 + 1e-9, 'walked under water at ' + fastest);
+    assert.ok(p._realX < sunkAt, 'back toward the bank: ' + p._realX);
+    assert.equal(p._vehicleType, 'reactor');
+    assert.equal(w.V.sunk(e), false);
+    // And ridden forward into the deep again, it sinks again.
+    p._rrDrive.yaw = Math.PI / 2; p._rrDrive.v = 20;
+    for (let t = 0; t < 300 && p._vehicleType === 'reactor'; t++) w.run(1);
+    assert.equal(p._vehicleType, 'walk');
+    assert.equal(w.V.sunk(e), true);
+});
+
+test('ridden down a bank into water: it stops being a vehicle where the water is deeper than it wades', () => {
+    // A bank that goes down a tile in ten from x = 60; the water stands at 0.
+    const w = boardWorld(Object.assign(floor({ width: 100, height: 20, ground: x => (x < 60 ? 0.2 : Math.max(-3, 0.2 - (x - 60) * 0.1)),
+        water: [{ x0: 60, y0: 0, x1: 99, y1: 19, level: 0 }] }), { vehicles: [bike(31, 50, 10, { yaw: 90 })] }));
+    const p = w.stand(49, 10, 6);
+    assert.equal(w.V.getOn(31, { instant: true }), true);
+    const { dark } = intoTheLake(w, 600);
+    assert.equal(dark, 255);
+    assert.equal(p._vehicleType, 'walk');
+    const e = w.vehicle(31);
+    // Ridden in, not refused at the shore: its middle is where the water is just over its wade (0.45).
+    const depth = 0 - e._reactorAlt;
+    assert.ok(depth > 0.45 && depth < 0.75, 'in ' + depth + ' of water');
+    assert.ok(e._realX > 66 && e._realX < 70, 'at x ' + e._realX);
+    assert.equal(w.V.sunk(e), true);
+    assert.equal(p._reactorSwim, false, 'water to wade in: the rider stands');
 });
 
 test('a ride that ends while the screen is dipped for a put-back gives the screen back', () => {
@@ -260,9 +323,12 @@ test('a ride that ends while the screen is dipped for a put-back gives the scree
         water: [{ x0: 82, y0: 0, x1: 99, y1: 19, level: 0 }] }), { vehicles: [bike(31, 70, 10, { yaw: 90 })] }));
     const p = w.stand(69, 10, 6);
     assert.equal(w.V.getOn(31, { instant: true }), true);
-    // In the dip, an event takes the vehicle away.
-    intoTheLake(w, 200, (d, backs) => backs < 3);
-    assert.ok(p._rrDrive.back > 0 && p._rrDrive.fade > 0, 'the dip is under way');
+    // The screen dipped to put it back (it was stuck); in the dip, an event takes the vehicle away.
+    w.run(2);
+    p._rrDrive.back = 20; p._rrDrive.fade = 20;
+    w.$gameScreen.startFadeOut(20);
+    for (let t = 0; t < 5; t++) { w.run(1); w.$gameScreen.update(); }
+    assert.ok(p._rrDrive.back > 0 && p._rrDrive.fade > 0 && w.$gameScreen.brightness() < 255, 'the dip is under way');
     w.$gameMap.event(31).erase();
     for (let t = 0; t < 60; t++) { w.run(1); w.$gameScreen.update(); }
     assert.equal(p._vehicleType, 'walk');

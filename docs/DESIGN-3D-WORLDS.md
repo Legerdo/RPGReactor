@@ -362,7 +362,7 @@ advances east. WASD follows the same mapping. Fixed and top-down controls keep
 their existing behavior.
 
 Models are placed from the Build bar's Models group: Select, Remove (the
-hammer), the Library (the model picker), then the models chosen this session
+Eraser), the Library (the model picker), then the models chosen this session
 and those already on the map as picture slots. Build › Select on a placed model
 turns the bar to Models with it picked up. The side panel holds the prop's
 cards (model selection, Placement, Transform, Playback), Transform open first;

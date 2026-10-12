@@ -184,13 +184,14 @@ test('the card opens docked with its button pressed, and its lists write the map
         assert.deepEqual(card.$$('.rr-battle-setup-mode option').map(option => option.value), ['', 'classic', 'tactical', 'action'], 'no First Person on a 2D map');
         card.$('.rr-battle-setup-mode').choose('action');
         assert.equal(map.note, 'A quiet road.\n<battle mode: action>');
-        assert.equal(card.$('.rr-battle-setup-plays').textContent, 'Action: you walk and fight in real time. · this map only');
+        assert.equal(card.$('.rr-battle-setup-mode').getAttribute('title'), 'Action: you walk and fight in real time. · this map only', 'what the mode plays like is the list\'s tooltip, not a line of the card');
+        assert.equal(card.$('.rr-battle-setup-plays'), null);
         assert.equal(card.$('.rr-battle-setup-mode').value, 'action', 'the list shows the map\'s own mode');
         card.$('.rr-battle-setup-mode').choose('tactical');
         assert.equal(map.note, 'A quiet road.\n<battle mode: tactical>');
         card.$('.rr-battle-setup-mode').choose('');
         assert.equal(map.note, 'A quiet road.');
-        assert.equal(card.$('.rr-battle-setup-plays').textContent, 'Classic: the separate battle screen. Walk up to an enemy placed here and it opens.');
+        assert.equal(card.$('.rr-battle-setup-mode').getAttribute('title'), 'Classic: the separate battle screen. Walk up to an enemy placed here and it opens.');
         // Starts: each choice is the tag written in full.
         assert.equal(card.$('.rr-battle-setup-starts').value, 'near');
         card.$('.rr-battle-setup-starts').choose('event');
@@ -209,14 +210,11 @@ test('the card opens docked with its button pressed, and its lists write the map
         assert.equal(typed('-3'), 'A quiet road.\n<battle trigger: 1>', 'never "an event says so" by a slip of the key');
         assert.equal(typed('7.9'), 'A quiet road.\n<battle trigger: 7>');
         assert.equal(typed('soon'), 'A quiet road.\n<battle trigger: 6>');
-        // More stays open while its fields are used.
-        card.$('.rr-battle-setup-more > summary').click();
-        card.$('.rr-battle-setup-starts').choose('open');
-        assert.equal(card.$('.rr-battle-setup-more').open, true);
-        // The game's mode has one editor, the Database: the card goes there.
-        assert.equal(card.$('.rr-battle-setup-game > span').textContent, 'The game\'s mode: Classic');
-        card.$('.rr-battle-setup-change').click();
-        assert.equal(card.asked.battles, 1);
+        // Nothing is folded away: the distance stands under Starts, on the same grid, and the game's mode is the list's first choice.
+        assert.equal(card.$('.rr-battle-setup-more'), null);
+        assert.equal(card.$('#rr-battle-setup-distance').parentNode.parentNode, card.$('.rr-battle-setup-starts').parentNode);
+        assert.equal(card.$$('.rr-battle-setup-mode option')[0].textContent, 'The game\'s mode (Classic)');
+        assert.equal(card.$('.rr-battle-setup-game'), null);
     });
 });
 
@@ -484,8 +482,7 @@ test('a key pressed with the keyboard on the card is the card\'s, not the map\'s
         assert.deepEqual([shortcuts, card.state.brush && card.state.brush.id], [[], 2]);
         // The arrows are not the map's either.
         for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) tileOf(card, 2).key(key);
-        card.$('.rr-battle-setup-more > summary').key('Enter');
-        assert.deepEqual([shortcuts, card.$('.rr-battle-setup-more').open], [[], true]);
+        assert.deepEqual(shortcuts, []);
         // A field and a list are left to the map's shortcuts, which pass a field by themselves; Delete and the keys held with Ctrl stay the map's.
         card.$('.rr-battle-setup-mode').key('ArrowDown');
         tileOf(card, 2).key('Delete');

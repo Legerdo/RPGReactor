@@ -104,7 +104,7 @@ class TraitHelp {
         return flagHelp;
     }
 
-    /** The four Collapse Effects, in stored dataId order. */
+    /** The Collapse Effects, in stored dataId order. */
     static collapseEffects() {
         const tt = text => (window.I18n ? window.I18n.tText(text) : text);
         const collapseHelp = [
@@ -115,7 +115,8 @@ class TraitHelp {
             'The sprite breaks into drifting motes and blows away.',
             'The sprite burns away into rising embers and sparks.',
             'The sprite unravels into slow green motes that drift upward and glow.',
-            'The sprite breaks like glass: shards burst outward from the middle and fall.'
+            'The sprite breaks like glass: shards burst outward from the middle and fall.',
+            'The battler falls and stays on the ground. It can be revived.'
         ].map(tt);
         return collapseHelp;
     }

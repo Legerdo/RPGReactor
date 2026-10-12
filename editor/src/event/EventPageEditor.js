@@ -330,6 +330,8 @@ class EventPageEditor {
         const image = page.image || {};
         const model = this.pageModelSpec(pageIndex);
         const use3d = !!(model && model.name);
+        // An event that is a vehicle (the Vehicle row) wears the vehicle's own model on a page that gives it none.
+        const worn = use3d ? null : this.vehicleModelSpec(pageIndex);
         section.style.backgroundColor = 'var(--color-bg-input)';
         section.style.padding = '4px';
         section.style.borderRadius = '4px';
@@ -340,14 +342,14 @@ class EventPageEditor {
         // Get direction name
         const directionNames = { 2: 'Down', 4: 'Left', 6: 'Right', 8: 'Up' };
         const directionName = directionNames[image.direction] || 'Down';
-        const displayName = use3d ? model.name + (model.variant ? ' · ' + model.variant : '') : (image.characterName || '');
-        const title = use3d ? tt('3D Model') : this._t('event.image');
+        const displayName = use3d ? model.name + (model.variant ? ' · ' + model.variant : '') : worn ? worn.name : (image.characterName || '');
+        const title = use3d ? tt('3D Model') : worn ? tt('3D Model') : this._t('event.image');
 
         section.innerHTML = `
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; flex-shrink: 0;">
                 <div style="font-weight: bold; font-size: 13px;">${title}</div>
                 <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: normal;">
-                    <input type="checkbox" class="image-3d-checkbox" data-page-index="${pageIndex}" ${use3d ? 'checked' : ''}>
+                    <input type="checkbox" class="image-3d-checkbox" data-page-index="${pageIndex}" ${use3d || worn ? 'checked' : ''} ${worn ? `disabled title="${rrEscapeHtml(this._t('vehicle.inherited'))}"` : ''}>
                     ${tt('3D')}
                 </label>
             </div>

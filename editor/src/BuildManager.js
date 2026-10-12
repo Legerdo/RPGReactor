@@ -1,3 +1,11 @@
+/** Whether a Web build packs its files, remembered between deployments (and shared with the editor's own Web build). */
+const WebPackPreference = {
+    KEY: 'rr-web-pack-files',
+    load() { try { return localStorage.getItem(this.KEY) === '1'; } catch (error) { return false; } },
+    save(on) { try { localStorage.setItem(this.KEY, on ? '1' : '0'); } catch (error) { /* a preference only */ } },
+};
+if (typeof window !== 'undefined') window.WebPackPreference = WebPackPreference;
+
 class BuildManager {
     constructor() {
         this.isBuilding = false;
@@ -66,6 +74,13 @@ class BuildManager {
                                             <div style="color: var(--color-text); font-weight: 600; font-size: 13px;">${tt('Web (HTML5)')}</div>
                                             <div style="color: var(--color-text-muted); font-size: 11px;">${tt('Build for browser deployment')}</div>
                                         </div>
+                                    </label>
+                                    <label id="build-pack-option" style="display: none; align-items: flex-start; gap: 8px; margin-left: 28px; padding: 7px 9px; background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); border-left: 2px solid var(--color-accent-border); border-radius: 4px; cursor: pointer;">
+                                        <input id="build-pack-files" type="checkbox" class="system-checkbox" style="width: 16px; height: 16px; min-width: 16px; min-height: 16px; max-width: 16px; max-height: 16px; flex: 0 0 16px; margin: 1px 0 0;">
+                                        <span>
+                                            <span style="display: block; color: var(--color-text); font-weight: 600; font-size: 12px;">${tt('Pack files into archives')}</span>
+                                            <span style="display: block; color: var(--color-text-muted); font-size: 10px; line-height: 1.35; margin-top: 2px;">${tt('A few zip archives in place of many files, for web hosts with file limits.')}</span>
+                                        </span>
                                     </label>
                                 </div>
                             </div>
@@ -329,6 +344,8 @@ class BuildManager {
             document.getElementById(id).addEventListener('change', () => this.updateCodecAvailability());
         }
         document.getElementById('build-platform-linux').addEventListener('change', () => this.updateAppImageAvailability());
+        document.getElementById('build-platform-web').addEventListener('change', () => this.updatePackAvailability());
+        document.getElementById('build-pack-files').addEventListener('change', event => WebPackPreference.save(event.target.checked));
 
         // Close on background click
         this.modal.addEventListener('click', (e) => {
@@ -349,6 +366,13 @@ class BuildManager {
             });
         });
 
+    }
+
+    /** Packing is a choice of the Web build alone: shown with it, and remembered between deployments. */
+    updatePackAvailability() {
+        const web = document.getElementById('build-platform-web').checked;
+        document.getElementById('build-pack-option').style.display = web ? 'flex' : 'none';
+        document.getElementById('build-pack-files').checked = web && WebPackPreference.load();
     }
 
     updateAppImageAvailability() {
@@ -399,6 +423,7 @@ class BuildManager {
         this.resetProgress();
         this.updateCodecAvailability();
         this.updateAppImageAvailability();
+        this.updatePackAvailability();
         this.log(tt('Ready to build. Select platforms and click "Start Build".'), 'var(--color-text-muted)');
         this.versionPicker.load().catch(() => {});
     }
@@ -615,6 +640,7 @@ class BuildManager {
         const runtimeLocales = this.selectedRuntimeLocales();
         const assetOptimization = this.assetOptimizationSettings();
         const createLinuxAppImage = document.getElementById('build-create-linux-appimage').checked;
+        const packWebFiles = platforms.includes('web') && document.getElementById('build-pack-files').checked;
 
         this.isBuilding = true;
         document.getElementById('build-start-btn').style.display = 'none';
@@ -645,6 +671,7 @@ class BuildManager {
                     runtimeLocales,
                     assetOptimization,
                     createLinuxAppImage,
+                    packWebFiles,
                     appRoot: appRoot,
                     editorExecPath: process.execPath,
                 }

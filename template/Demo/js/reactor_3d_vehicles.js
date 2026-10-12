@@ -252,19 +252,54 @@
 
     let defaultType = null;
     const stockTypes = new WeakMap();
-    /** Database placements use the event renderer and driver without authoring map events. */
-    function startingEvents(types, mapId, firstId = 1) {
+    /**
+     * A vehicle record is placed once by its own `startMapId`, `startX`, `startY`, `startDirection`, and again by
+     * each entry of its `copies` (`{ id, startMapId, startX, startY, startDirection }`, `id` from 2 up and never
+     * given twice): so many vehicles of that kind, each with its own place, condition and equipment. A copy is
+     * told from the others by its number in the identity: the first is `0:<type>`, copy `n` is
+     * `0:<type + COPY * (n - 1)>`.
+     */
+    const COPY = 10000;
+    const identityOf = (type, copy) => '0:' + (type + COPY * ((copy > 1 ? Math.floor(copy) : 1) - 1));
+    /** The placements of a record, the first copy first: `[{ copy, mapId, x, y, direction }]`, unplaced ones (map 0) among them. */
+    function startsOf(record) {
+        const starts = [];
+        if (!record || typeof record !== 'object') return starts;
+        const read = (source, copy) => starts.push({ copy, mapId: Math.floor(Number(source.startMapId)) || 0, x: Number(source.startX || 0), y: Number(source.startY || 0),
+            direction: [1,2,3,4,6,7,8,9].includes(source.startDirection) ? source.startDirection : 2 });
+        read(record, 1);
+        for (const entry of Array.isArray(record.copies) ? record.copies : []) {
+            const copy = entry && typeof entry === 'object' ? Math.floor(Number(entry.id)) : 0;
+            if (copy > 1 && copy < COPY && !starts.some(start => start.copy === copy)) read(entry, copy);
+        }
+        return starts;
+    }
+
+    /** The placement an identity (`0:<number>`) names, as `startingEvents` makes it, wherever it starts (an unplaced copy too); null for none. */
+    function placementOf(types, identity) {
+        const number = Number(String(identity).split(':')[1]), type = number % COPY, copy = Math.floor(number / COPY) + 1;
+        if (!Array.isArray(types) || String(identity).split(':')[0] !== '0' || !(type > 0) || !types[type]) return null;
+        const start = startsOf(types[type]).find(entry => entry.copy === copy);
+        return start ? startingEvents(types, start.mapId, 1, { type, copy })[0] || null : null;
+    }
+
+    /** Database placements use the event renderer and driver without authoring map events. `only` (`{ type, copy }`) asks for that one, placed or not. */
+    function startingEvents(types, mapId, firstId = 1, only = null) {
         const events = [];
-        if (!Array.isArray(types) || !(mapId > 0)) return events;
+        if (!Array.isArray(types) || (!(mapId > 0) && !only)) return events;
         for (let type = 1; type < types.length; type++) {
             const record = types[type];
-            if (!record || Number(record.startMapId) !== mapId) continue;
-            const x = Number(record.startX || 0), y = Number(record.startY || 0);
+            if (!record || (only && only.type !== type)) continue;
+            const starts = startsOf(record), several = starts.filter(start => start.mapId > 0).length > 1;
+            for (let at = 0; at < starts.length; at++) {
+            const start = starts[at];
+            if (only ? start.copy !== only.copy : start.mapId !== mapId) continue;
+            const x = start.x, y = start.y;
             if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0) continue;
-            const direction = [1,2,3,4,6,7,8,9].includes(record.startDirection) ? record.startDirection : 2;
+            const direction = start.direction;
             const yaw = {8:0,9:45,6:90,3:135,2:180,1:225,4:270,7:315}[direction];
-            events.push({ id: firstId + events.length, name: record.name || 'Vehicle', note: '', x, y,
-                _rrDatabaseVehicle: type, _rrVehicleIdentity: '0:' + type, rrVehicle: { type, yaw },
+            events.push({ id: firstId + events.length, name: (record.name || 'Vehicle') + (several ? ' ' + (at + 1) : ''), note: '', x, y,
+                _rrDatabaseVehicle: type, _rrVehicleCopy: start.copy, _rrVehicleIdentity: identityOf(type, start.copy), rrVehicle: { type, yaw },
                 pages: [{ conditions: { actorId:1, actorValid:false, itemId:1, itemValid:false,
                     selfSwitchCh:'A', selfSwitchValid:false, switch1Id:1, switch1Valid:false,
                     switch2Id:1, switch2Valid:false, variableId:1, variableValid:false, variableValue:0 },
@@ -273,6 +308,7 @@
                     moveRoute: { list:[{code:0,parameters:[]}], repeat:true, skippable:false, wait:false },
                     priorityType:1, walkAnime:true, stepAnime:false, directionFix:true, through:false,
                     trigger:0, list:[{code:0,indent:0,parameters:[]}] }] });
+            }
         }
         return events;
     }
@@ -349,6 +385,8 @@
      * here. `state.roll` and `state.pitch` are drawn values only: nothing here reads them back.
      * input: { gas 0..1, brake 0..1, steer -1..1, analog }. env: { slope, water, air, pitch, alone }.
      */
+    /** The pace of a vehicle walked along the bed under water, in tiles a second. */
+    const FLOODED_SPEED = 2;
     function step(state, input, type, env, dt) {
         const h = type.handling, k = type.k;
         const air = !!(env && env.air);
@@ -370,7 +408,9 @@
         }
 
         const slope = env && finite(env.slope) ? env.slope : 1;
-        const cap = h.speed * slope * (env && env.water ? 0.7 : 1);
+        // Under water it is pushed along the bed at a walk, whatever is held.
+        const flooded = !!(env && env.flooded);
+        const cap = flooded ? Math.min(FLOODED_SPEED, h.speed) : h.speed * slope * (env && env.water ? 0.7 : 1);
         const shed = clamp((Math.abs(steer) - 0.6) / 0.4, 0, 1);
         const top = cap - (cap - Math.min(cap, k.corner)) * shed;
         const was = v;
@@ -382,7 +422,7 @@
             } else if (brake) {
                 if (v > 0) v = Math.max(0, v - k.brakeA * brake * dt);
                 // Held six ticks at rest it backs up; already rolling back, it goes on backing.
-                else if (h.reverse > 0 && (v < 0 || (state.rest || 0) >= REVERSE_TICKS)) v = Math.max(-h.reverse, v - 0.5 * k.launch * dt);
+                else if (h.reverse > 0 && (v < 0 || (state.rest || 0) >= REVERSE_TICKS)) v = Math.max(-(flooded ? Math.min(FLOODED_SPEED, h.reverse) : h.reverse), v - 0.5 * k.launch * dt);
                 else v = 0;
             } else if (v > 0) {
                 v = Math.max(0, v - k.coastA * dt);
@@ -1382,6 +1422,19 @@
     }
 
     /**
+     * A built vehicle stood at a heading with nobody driving it (a battle's stage): its attitude only, upright or leant.
+     * Returns its block.
+     */
+    function stand(object, spec, yaw, kindName, lean) {
+        if (!object || typeof THREE === "undefined") return null;
+        const block = blockOf(object, kindName, spec);
+        const draw = object.__reactorStand || (object.__reactorStand = { base: new THREE.Quaternion(), baseSpec: undefined, baseFront: undefined });
+        // (`lean`: over on its side by that much, a wreck.)
+        attitude(object.quaternion, num(yaw), 0, num(lean), baseTurn(draw, spec, block, draw.base));
+        return block;
+    }
+
+    /**
      * Writes a vehicle's drawn attitude over what the placement gave it: its heading, pitch and lean, the lean of its
      * stand while nobody rides it, the tip onto the rider's foot at a stop; its height through a spring, so a curb
      * is a bounce and a landing a dip; a nod of the nose when it is stopped dead. For a seated character it asks the
@@ -1396,6 +1449,8 @@
         }
         const yaw = character._rrYaw;
         if (!finite(yaw)) return;
+        // Ridden, it is its rider's body: nothing thins it for standing between the eye and the rider.
+        if (!!object.__rrCutRide !== !!character._rrBoarded && typeof R.cutawayMarkRide === "function") R.cutawayMarkRide(object, !!character._rrBoarded);
         counts.pose++;
         rides.seen = true;
         const draw = drawOf(holder);
@@ -1450,8 +1505,13 @@
     // The rider's place on the seat: the rider's file's, when it is loaded; else the seat point with the vehicle's
     // attitude, standing in it.
     function seatRider(holder, character, object, spec) {
-        const vehicleHolder = rides.vehicle;
         const ride = character._rrRide;
+        // The leader's is the ridden vehicle; a follower's is the one its own ride names.
+        let vehicleHolder = rides.vehicle;
+        if (typeof character._memberIndex === "number" && character !== playerNow() && ride && typeof $gameMap !== "undefined" && $gameMap && typeof R.modelHolderFor === "function") {
+            const event = $gameMap.event(ride.id);
+            vehicleHolder = event ? R.modelHolderFor(event) : null;
+        }
         if (!vehicleHolder || !vehicleHolder.object || !ride || !vehicleHolder.character
             || (vehicleHolder.character.eventId && vehicleHolder.character.eventId() !== ride.id)) return;
         if (R.Rider && typeof R.Rider.seat === "function") { R.Rider.seat(holder, character, object, vehicleHolder); return; }
@@ -1563,12 +1623,40 @@
         // A ride saved on another map is not this map's event of the same id.
         if (ride && finite(ride.map) && typeof $gameMap !== "undefined" && $gameMap && typeof $gameMap.mapId === "function" && $gameMap.mapId() !== ride.map) ride = null;
         const instances = scene && scene._modelInstances;
-        if (!ride || !instances) { if (rides.active) drive(null, null); return; }
+        if (!ride || !instances) { if (rides.active) { drive(null, null); driveConvoy(null, null); } return; }
         const vehicleHolder = instances.get("e" + ride.id) || null;
         const riderHolder = instances.get(R.modelInstanceKey ? R.modelInstanceKey(player) : "p") || null;
         const vehicle = vehicleHolder && vehicleHolder.character;
         const aboard = vehicle && vehicle._rrVehicle && vehicle._rrBoarded ? vehicleHolder : null;
         drive(aboard, aboard ? riderHolder : null, 1);
+        driveConvoy(instances, player);
+    }
+
+    // The followers that ride vehicles of their own (ReactorVehicles.Convoy): each one's vehicle turns its wheels by
+    // the road it rolled, and its rider's motion is the riding one. Holders that rode last frame and do not now are let go.
+    let convoyHeld = [];
+    function driveConvoy(instances, player) {
+        const followers = player && player._followers && Array.isArray(player._followers._data) ? player._followers._data : null;
+        const now = [];
+        if (followers && instances) for (let i = 0; i < followers.length; i++) {
+            const follower = followers[i], ride = follower._rrSeated ? follower._rrRide : null;
+            if (!ride) continue;
+            const vehicleHolder = instances.get("e" + ride.id) || null, vehicle = vehicleHolder && vehicleHolder.character;
+            if (!vehicle || !vehicle._rrVehicle || !vehicle._rrBoarded) continue;
+            const turned = attach(vehicleHolder, false);
+            turned.inputs = inputs(vehicleHolder, vehicle, 1);
+            const bound = vehicleHolder.object && vehicleHolder.object.__reactorVehicleBound;
+            if (bound) bound.inputs = turned.inputs;
+            const travel = finite(vehicle._rrTravel) ? vehicle._rrTravel : NaN, rolled = travel - turned.travelWas;
+            turned.travel = finite(rolled) && Math.abs(rolled) < 8 ? rolled : 0;
+            turned.travelWas = travel;
+            now.push(vehicleHolder);
+            const riderHolder = instances.get(R.modelInstanceKey ? R.modelInstanceKey(follower) : "") || null;
+            if (riderHolder) { attach(riderHolder, true); now.push(riderHolder); }
+        }
+        for (let i = 0; i < convoyHeld.length; i++) if (now.indexOf(convoyHeld[i]) < 0 && convoyHeld[i] !== rides.vehicle && convoyHeld[i] !== rides.rider) detach(convoyHeld[i]);
+        convoyHeld = now;
+        if (now.length) { rides.seen = true; rides.active += now.length; }
     }
 
     // Whether a vehicle nobody rides has nothing for an animation pass to do: its rules are only its block's (a
@@ -1741,12 +1829,12 @@
     R.Vehicles = {
         file: "reactor_3d_vehicles.js",
         KINDS, PLAYED, RANGES, STEP_MAX, POINTS,
-        typeOf, stockTypeOf, typeNotes, forgetType, types: typesOf, startingEvents,
+        typeOf, stockTypeOf, typeNotes, forgetType, types: typesOf, startingEvents, startsOf, identityOf, placementOf, COPY,
         step, newState,
         frame, forwardName, boxOf, shapeOf, forgetShape, surfaceNear, surfaceUnder,
         read, forget, guess, findFront, findWheels, pointNames, turnAbout,
         bind, blockOf, pointWorld,
-        inputs, pose, heading, drive, rideOf, axles, counts,
+        inputs, pose, stand, heading, drive, rideOf, axles, counts,
         // The pieces the wrappers are made of, for the tools and the tests.
         rulesOf: block => rulesOf(block), pivotsOf: block => pivotsOf(block, {}), landmarksOf: block => landmarksOf(block, {}),
         attitude, standShare

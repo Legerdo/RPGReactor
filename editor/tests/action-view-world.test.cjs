@@ -200,8 +200,9 @@ test('the cutaway opens a corridor only where something built hides the characte
     // marked as bodies, which the fade passes by; scenery still thins.
     const { source3D } = require('./helpers/runtime-3d-source.cjs');
     const has = (pattern, why) => assert.ok(pattern.test(source3D()), why);
-    has(/"if \(rrCutRadius > 0\.0 && rrCutBody \* rrCutBattle < 0\.5 && vRRWorldPos\.y > rrCutFocus\.y - 1\.2\) \{"/, 'the sight-line fade asks the material whether it is a body, and counts that in a battle only');
-    has(/"if \(rrCutBody \* rrCutBattle < 0\.5 && vRRWorldPos\.y > rrFightStump\) discard;"/, 'the cut that takes scenery out of a Tactical battle\'s way passes a body by too: a bystander is no scenery');
+    // (A body counts in a battle only, 1; a ridden vehicle is its rider's body always, 2.)
+    has(/"if \(rrCutRadius > 0\.0 && max\(rrCutBody \* rrCutBattle, rrCutBody - 1\.0\) < 0\.5 && vRRWorldPos\.y > rrCutFocus\.y - 1\.2\) \{"/, 'the sight-line fade asks the material whether it is a body, and counts that in a battle only unless it is ridden');
+    has(/"if \(max\(rrCutBody \* rrCutBattle, rrCutBody - 1\.0\) < 0\.5 && vRRWorldPos\.y > rrFightStump\) discard;"/, 'the cut that takes scenery out of a Tactical battle\'s way passes a body by too: a bystander is no scenery');
     has(/shader\.uniforms\.rrCutBody = material\.userData\.rrCutBody \|\| \(material\.userData\.rrCutBody = \{ value: 0 \}\);/, 'every model material carries the mark, off until set');
     has(/uniform float rrCutBody;\\nuniform float rrCutBattle;/, 'and the shader is told whether a battle runs');
     const model = () => new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());

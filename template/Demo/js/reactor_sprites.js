@@ -648,7 +648,10 @@ Sprite_Character.prototype.update = function() {
         const posePitch = this._character._reactorPosePitch || 0;
         const poseSpin = this._character._reactorSpin || 0;
         if (posePitch || poseSpin || this._reactorPoseTurned) {
-            this.rotation = ((posePitch ? posePitch * 90 : 0) + poseSpin) * Math.PI / 180;
+            // (One felled by a blow from its right goes over to the left.)
+            const fallYaw = posePitch > 0 ? this._character._reactorFallYaw : null;
+            const side = typeof fallYaw === "number" && Math.sin(fallYaw) < -0.01 ? -1 : 1;
+            this.rotation = ((posePitch ? side * posePitch * 90 : 0) + poseSpin) * Math.PI / 180;
             this._reactorPoseTurned = !!(posePitch || poseSpin);
         }
     }
@@ -1211,6 +1214,7 @@ Sprite_Enemy.prototype.initMembers = function() {
     this._effectType = null;
     this._effectDuration = 0;
     this._shake = 0;
+    this._corpse = 0;
     this.createStateIconSprite();
 };
 
@@ -1276,6 +1280,13 @@ Sprite_Enemy.prototype.updateFrame = function() {
 Sprite_Enemy.prototype.updatePosition = function() {
     Sprite_Battler.prototype.updatePosition.call(this);
     this.x += this._shake;
+    // A body lies along the ground line it stood on, centered where it stood: the picture turns about its feet,
+    // which would carry its middle half its height to one side and leave half its width under the line.
+    if (this._corpse > 0) {
+        const lie = this._corpse;
+        this.x -= Sprite_Enemy.CORPSE_TURN * lie * this.height / 2;
+        this.y -= lie * this.width / 2;
+    }
 };
 
 Sprite_Enemy.prototype.updateStateSprite = function() {
@@ -1287,7 +1298,11 @@ Sprite_Enemy.prototype.updateStateSprite = function() {
 
 Sprite_Enemy.prototype.initVisibility = function() {
     this._appeared = this._enemy.isAlive();
-    if (!this._appeared) {
+    this.layCorpse(0);
+    // One that is a body already (the battle's sprites were made again) lies as it was left.
+    if (!this._appeared && this._enemy.isDead() && this._enemy.collapseType() === Game_BattlerBase.COLLAPSE_CORPSE) {
+        this.layCorpse(1);
+    } else if (!this._appeared) {
         this.opacity = 0;
     }
 };
@@ -1306,6 +1321,10 @@ Sprite_Enemy.prototype.setupEffect = function() {
 
 Sprite_Enemy.prototype.startEffect = function(effectType) {
     this.destroyParticleCollapse();
+    // A body that is alive again gets up rather than fading in.
+    if (effectType === "appear" && this._corpse > 0) {
+        effectType = "corpseRise";
+    }
     this._effectType = effectType;
     switch (this._effectType) {
         case "appear":
@@ -1340,6 +1359,12 @@ Sprite_Enemy.prototype.startEffect = function(effectType) {
             break;
         case "shatterCollapse":
             this.startParticleCollapse("shatter");
+            break;
+        case "corpseCollapse":
+            this.startCorpseCollapse();
+            break;
+        case "corpseRise":
+            this.startCorpseRise();
             break;
     }
     this.revertToNormal();
@@ -1378,6 +1403,16 @@ Sprite_Enemy.prototype.startInstantCollapse = function() {
     this._appeared = false;
 };
 
+Sprite_Enemy.prototype.startCorpseCollapse = function() {
+    this._effectDuration = Sprite_Enemy.CORPSE_FRAMES;
+    this._appeared = false;
+};
+
+Sprite_Enemy.prototype.startCorpseRise = function() {
+    this._effectDuration = Sprite_Enemy.CORPSE_RISE;
+    this._appeared = true;
+};
+
 Sprite_Enemy.prototype.updateEffect = function() {
     this.setupEffect();
     if (this._effectDuration > 0) {
@@ -1410,10 +1445,20 @@ Sprite_Enemy.prototype.updateEffect = function() {
             case "wispCollapse":
                 this.updateParticleCollapse();
                 break;
+            case "corpseCollapse":
+                this.updateCorpseCollapse();
+                break;
+            case "corpseRise":
+                this.updateCorpseRise();
+                break;
         }
         if (this._effectDuration === 0) {
             this._effectType = null;
         }
+    }
+    // A body is dimmed while nothing else is playing on it (every effect starts from a clean sprite).
+    if (this._corpse > 0 && !this._effectType) {
+        this.setBlendColor(Sprite_Enemy.CORPSE_SHADE);
     }
 };
 
@@ -1463,6 +1508,41 @@ Sprite_Enemy.prototype.updateBossCollapse = function() {
 
 Sprite_Enemy.prototype.updateInstantCollapse = function() {
     this.opacity = 0;
+};
+
+//-----------------------------------------------------------------------------
+// Corpse -- Collapse Effect trait value 8.
+//
+// The battler goes over and stays: the picture turns onto its side about the
+// ground it stood on and is dimmed. It is still there to be revived, and one
+// that is gets up again.
+
+Sprite_Enemy.CORPSE_FRAMES = 24;
+Sprite_Enemy.CORPSE_RISE = 16;
+// Which way the picture turns: -1 puts its head to the left, away from the party.
+Sprite_Enemy.CORPSE_TURN = -1;
+Sprite_Enemy.CORPSE_SHADE = [0, 0, 0, 96];
+
+/** Lays the sprite `amount` of the way down: 0 standing, 1 flat. */
+Sprite_Enemy.prototype.layCorpse = function(amount) {
+    this._corpse = Math.max(0, Math.min(1, amount));
+    this.rotation = Sprite_Enemy.CORPSE_TURN * this._corpse * Math.PI / 2;
+    if (this._stateIconSprite) {
+        this._stateIconSprite.visible = this._corpse === 0;
+    }
+};
+
+Sprite_Enemy.prototype.updateCorpseCollapse = function() {
+    // It tips slowly and lands fast, as a thing falling does.
+    const t = 1 - this._effectDuration / Sprite_Enemy.CORPSE_FRAMES;
+    this.layCorpse(t * t);
+    const shade = Sprite_Enemy.CORPSE_SHADE;
+    this.setBlendColor([shade[0], shade[1], shade[2], shade[3] * t]);
+};
+
+Sprite_Enemy.prototype.updateCorpseRise = function() {
+    const t = this._effectDuration / Sprite_Enemy.CORPSE_RISE;
+    this.layCorpse(t * t * (3 - 2 * t));
 };
 
 //-----------------------------------------------------------------------------

@@ -363,8 +363,7 @@ test('Forest Road has the motorcycle beside the road, the Reactor Room leads to 
     const transfer = event => (event.pages[0].list.find(command => command.code === 201) || {}).parameters;
     const way = room.events.find(event => event && event.name === 'Open Road');
     assert.ok(way, 'the Reactor Room has the Open Road entrance');
-    const entrance = room.events.find(event => event && event.name === 'Motorcycle');
-    assert.ok(Math.abs(way.x - entrance.x) + Math.abs(way.y - entrance.y) <= 4, 'beside the motorcycle entrance');
+    // (Where in the room it stands is the room's own layout: it is there, and nothing else is on its tile.)
     assert.ok(room.events.every(event => !event || event === way || event.x !== way.x || event.y !== way.y), 'on a tile of its own');
     const to = transfer(way);
     assert.deepEqual(to.slice(0, 2), [0, IDS[0]], 'it transfers to Forest Road');

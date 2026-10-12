@@ -2938,7 +2938,7 @@ class EventManager {
         const rules = typeof DatabaseVehicleEditor !== 'undefined' && app.projectManager
             ? DatabaseVehicleEditor.rules(app.projectManager) : typeof Reactor3D !== 'undefined' ? Reactor3D.Vehicles : null;
         return (rules?.startingEvents?.(types, Number(map.id)) || []).filter(event => event.x < map.width && event.y < map.height)
-            .map(event => ({...event, id:-1000000-event._rrDatabaseVehicle}));
+            .map(event => ({...event, id:-1000000-Number(String(event._rrVehicleIdentity).split(':')[1] || event._rrDatabaseVehicle)}));
     }
 
     static mapPreviewEvents(map) {

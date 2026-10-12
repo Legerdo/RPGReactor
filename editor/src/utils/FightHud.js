@@ -55,12 +55,13 @@
         hintTarget: 'Choose a target', hintEnemy: 'The enemy is moving', hintAlly: 'Your side is moving',
         whyAttack: 'Cannot attack', whySkill: 'No skill to use', whyItem: 'No item to use', whyCost: 'Not enough %1',
         whyUse: 'Cannot be used now', whyRange: 'Out of reach', whyNoTarget: 'No target there', whyNoReach: 'Nobody in reach',
-        overwatch: 'Overwatch', auto: 'Auto', wait: 'Wait', endTurn: 'End Turn', watch: 'On watch'
+        overwatch: 'Overwatch', auto: 'Auto', wait: 'Wait', endTurn: 'End Turn', watch: 'On watch',
+        mount: 'Mount', dismount: 'Dismount'
     };
     /** The commands of the battle's own (the rest are the project's Attack, Skill and Item), in menu order. */
-    H.WINDOW_LABELS = ['overwatch', 'wait', 'endTurn', 'auto'];
+    H.WINDOW_LABELS = ['mount', 'dismount', 'overwatch', 'wait', 'endTurn', 'auto'];
     /** Their icons on the icon sheet, where the project's commands carry icons (a node may name others). */
-    H.COMMAND_ICONS = { overwatch: 236, auto: 237, wait: 191, endTurn: 587 };
+    H.COMMAND_ICONS = { mount: 502, dismount: 575, overwatch: 236, auto: 237, wait: 191, endTurn: 587 };
     H.GAUGE_STYLES = ['clipped', 'bar'];
 
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -88,7 +89,8 @@
             case 'fightWindow': return Object.assign(shared, {
                 width: 192, height: 204, fill: 'window', fightWindow: 'command', hideWindow: false, windowColumns: 0,
                 slideX: 0, slideY: 0, slideDuration: 12, commandIcons: true, commandAlign: 'left', fitCommands: true,
-                overwatchIcon: H.COMMAND_ICONS.overwatch, autoIcon: H.COMMAND_ICONS.auto, waitIcon: H.COMMAND_ICONS.wait, endTurnIcon: H.COMMAND_ICONS.endTurn
+                overwatchIcon: H.COMMAND_ICONS.overwatch, autoIcon: H.COMMAND_ICONS.auto, waitIcon: H.COMMAND_ICONS.wait, endTurnIcon: H.COMMAND_ICONS.endTurn,
+                mountIcon: H.COMMAND_ICONS.mount, dismountIcon: H.COMMAND_ICONS.dismount
             });
             default: return {};
         }
@@ -260,7 +262,7 @@
     /** An empty unit view; `fillUnitView` writes into it so a panel keeps one for its whole life. */
     H.newUnitView = function() {
         return { id: 0, name: '', team: 'ally', level: 0, className: '', faceName: '', faceIndex: 0, characterName: '', characterIndex: 0,
-            battlerName: '', model: null, area: null, hpShown: -1, hp: 0, mhp: 0, mp: 0, mmp: 0, tp: 0, mtp: 100, showTp: true, icons: [], stats: {}, acted: false, moved: false, watch: false, watchText: '', preview: null };
+            battlerName: '', model: null, area: null, hpShown: -1, hp: 0, mhp: 0, mp: 0, mmp: 0, tp: 0, mtp: 100, showTp: true, vhp: 0, vmhp: 0, vname: '', icons: [], stats: {}, acted: false, moved: false, watch: false, watchText: '', preview: null };
     };
 
     /** What a panel shows of a unit, as plain values. `preview` is the pending action's forecast on it, or null. */
@@ -284,6 +286,11 @@
         view.mp = Number(battler.mp) || 0; view.mmp = Number(battler.mmp) || 0;
         view.tp = Number(battler.tp) || 0; view.mtp = battler.maxTp ? battler.maxTp() : 100;
         view.showTp = showTp !== false;
+        // What it rides, where that has a life of its own: a gauge under the unit's HP.
+        const vehicle = info.vehicle || null;
+        view.vmhp = vehicle ? Number(vehicle.mhp) || 0 : 0;
+        view.vhp = vehicle ? Number(vehicle.hp) || 0 : 0;
+        view.vname = vehicle && typeof vehicle.name === 'function' ? vehicle.name() || '' : '';
         view.icons.length = 0;
         const icons = battler.allIcons ? battler.allIcons() : battler.stateIcons ? battler.stateIcons() : null;
         if (icons) for (let i = 0; i < icons.length; i++) view.icons.push(icons[i]);
@@ -313,7 +320,7 @@
         key = mix(mix(mix(key, view.team === 'enemy' ? 1 : view.team === 'neutral' ? 2 : 0), view.faceIndex), view.characterIndex);
         for (let i = 0; i < view.icons.length; i++) key = mix(key, view.icons[i]);
         for (let i = 0; i < view.name.length; i++) key = mix(key, view.name.charCodeAt(i));
-        key = mix(key, view.watch ? 7 : 3);
+        key = mix(mix(mix(key, view.watch ? 7 : 3), view.vhp), view.vmhp);
         if (preview) {
             key = mix(mix(mix(mix(key, Math.round(preview.hit * 1000)), Math.round(preview.critical * 1000)), preview.damageMin), preview.damageMax);
             key = mix(mix(mix(mix(mix(key, preview.heals ? 1 : 2), preview.defeats ? 1 : 2), preview.cover), preview.flank === 'back' ? 2 : preview.flank === 'side' ? 1 : 0), Math.sign(preview.height || 0));
@@ -447,7 +454,7 @@
         return out;
     };
 
-    /** The icon the HUD draws for Wait (an hourglass) and End Turn (a flag), `size` square at x, y. */
+    /** The icon the HUD draws for Wait (an hourglass), End Turn (a flag), Mount and Dismount (a wheel and an arrow), `size` square at x, y. */
     H.drawGlyph = function(ctx, key, x, y, size, color) {
         const u = size / 16;
         ctx.save();
@@ -486,6 +493,14 @@
             ctx.beginPath();
             ctx.arc(8 * u, 8 * u, 2.4 * u, 0, Math.PI * 2);
             ctx.fill();
+        } else if (key === 'mount' || key === 'dismount') {
+            // A wheel, and an arrow onto it or off it.
+            const tip = key === 'mount' ? 5.8 : 1.4, tail = key === 'mount' ? 1.4 : 5.8;
+            ctx.beginPath();
+            ctx.arc(8 * u, 11 * u, 3.6 * u, 0, Math.PI * 2);
+            ctx.moveTo(8 * u, tail * u); ctx.lineTo(8 * u, tip * u);
+            ctx.moveTo(5.8 * u, 3.6 * u); ctx.lineTo(8 * u, tip * u); ctx.lineTo(10.2 * u, 3.6 * u);
+            ctx.stroke();
         } else {
             ctx.beginPath();
             ctx.moveTo(4 * u, 2 * u); ctx.lineTo(4 * u, 14 * u);
@@ -834,17 +849,22 @@
      * capped), the states along its lower edge, and beside it the name, the
      * gauges and the parameters, the whole column centered top to bottom.
      */
-    H.unitLayout = function(node, width, height, showTp, forecast) {
+    /** The gauge of the vehicle a unit rides: its colours, whatever the theme. */
+    H.VEHICLE_GAUGE = ['#b9781a', '#f2b33d'];
+
+    H.unitLayout = function(node, width, height, showTp, forecast, vehicle) {
         const fields = node.fightFields || H.UNIT_FIELDS;
         const has = key => fields.includes(key);
         const clipped = node.gaugeStyle !== 'bar';
         forecast = !!forecast && has('preview');
         // While an action is aimed the forecast is what the panel is for: HP stays, MP, TP and the parameters make room.
-        const gauges = ['hp', 'mp', 'tp'].filter(key => has(key) && (key !== 'tp' || showTp !== false) && (!forecast || key === 'hp'));
+        // (`vhp`: the life of what the unit rides, under its own.)
+        const rides = !!vehicle && has('hp');
+        const gauges = ['hp', 'vhp', 'mp', 'tp'].filter(key => (key === 'vhp' ? rides : has(key)) && (key !== 'tp' || showTp !== false) && (!forecast || key === 'hp'));
         const statKeys = has('stats') && !forecast ? (node.fightStats || H.DEFAULT_STATS) : [];
         const header = has('name') || has('level');
         // Sized as the resting panel is, so the name and HP do not jump when the forecast comes up.
-        const restGauges = ['hp', 'mp', 'tp'].filter(key => has(key) && (key !== 'tp' || showTp !== false)).length;
+        const restGauges = ['hp', 'mp', 'tp'].filter(key => has(key) && (key !== 'tp' || showTp !== false)).length + (rides ? 1 : 0);
         const restStats = has('stats') ? (node.fightStats || H.DEFAULT_STATS).length : 0;
         const size = has('portrait') ? Math.max(0, Math.floor(Math.min(node.fightPortrait > 0 ? node.fightPortrait : 9999, height, width * 0.42))) : 0;
         // Three parameters to a row where a label and its number have the room, else two.
@@ -974,7 +994,7 @@
     H.drawUnit = function(ctx, width, height, node, view, theme) {
         const fields = node.fightFields || H.UNIT_FIELDS;
         const preview = fields.includes('preview') ? view.preview : null;
-        const layout = H.unitLayout(node, width, height, view.showTp, !!preview);
+        const layout = H.unitLayout(node, width, height, view.showTp, !!preview, view.vmhp > 0);
         const color = H.teamColor(node, view.team);
         let ready = true;
         if (layout.portrait) ready = H.drawPortrait(ctx, 0, layout.portrait.y, layout.portrait.width, view, theme, color, Math.max(2, Math.round(layout.unit / 9)));
@@ -992,6 +1012,11 @@
             ctx.fillRect(r.x, r.y + r.height - 4, r.width, 2);
         }
         for (const r of layout.gauges) {
+            if (r.key === 'vhp') {
+                H.drawGauge(ctx, r, layout, view.vname || theme.terms.hp, view.vhp + '/' + view.vmhp, view.vmhp > 0 ? view.vhp / view.vmhp : 0,
+                    H.VEHICLE_GAUGE, theme.gauge.back, theme, view.vhp <= 0 ? theme.deathColor : view.vhp / view.vmhp < 0.25 ? theme.crisisColor : theme.textColor, null, '');
+                continue;
+            }
             const value = view[r.key], max = r.key === 'hp' ? view.mhp : r.key === 'mp' ? view.mmp : view.mtp;
             let mark = null, markColor = '';
             if (r.key === 'hp' && max > 0) {

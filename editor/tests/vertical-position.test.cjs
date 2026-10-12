@@ -103,7 +103,9 @@ test('Face Ceiling, Face Ground and Rotate reach the drawn character', () => {
     assert.match(three, /if \(posePitch\) object\.rotateX\(-posePitch \* Math\.PI \/ 2\);/, 'a model falls about its own axes, after facing');
     assert.match(three, /if \(poseSpin\) object\.rotateZ\(-poseSpin \* Math\.PI \/ 180\);/, 'and rolls the way a sprite turns');
     const sprites = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_sprites.js'), 'utf8');
-    assert.match(sprites, /this\.rotation = \(\(posePitch \? posePitch \* 90 : 0\) \+ poseSpin\) \* Math\.PI \/ 180;/, 'sprites turn in 2D and stood-up 3D alike');
+    // (`side` is 1 for a route's pose: only one felled by a blow from its right goes over the other way.)
+    assert.match(sprites, /this\.rotation = \(\(posePitch \? side \* posePitch \* 90 : 0\) \+ poseSpin\) \* Math\.PI \/ 180;/, 'sprites turn in 2D and stood-up 3D alike');
+    assert.match(three, /proto\.reactorFacePose = function\(pose\) \{\s*\n\s*this\._reactorFallYaw = null;/, 'a route\'s pose is never turned by an old fall');
 });
 
 test('the event list names a route step; the dialog spreads them over its columns', () => {

@@ -14,6 +14,9 @@
             const room = R.roomFor(this.map);
             if (room) for (const value of [room.floor, room.walls, room.ceiling]) if (typeof value === 'string') names.add(value);
             await Promise.all([...names].filter(Boolean).map(async name => parallaxes.set(name, await this.assets.image('parallaxes', name))));
+            // The material images of the map's ground and pieces: the game reads them itself; the editor, which has no
+            // image manager, hands them over (without them a painted road and a built wall stood bare).
+            const materials = typeof this.assets.materials === 'function' ? await this.assets.materials(this.map) : null;
             if (this.disposed) return false;
             // Geometry's published map caches are legacy lookup accelerators.
             // Preserve them while building our own scene, whose data stays local.
@@ -24,7 +27,8 @@
             this.hostReflections = !!R.Reflections?.wanted;
             try {
                 this.world = new R.MapScene(this.map, sheets, { flags: this.tileset.flags, tilesetId: this.tileset.id,
-                    tileSize: this.assets.tileSize || 48, loadParallax: name => parallaxes.get(name) });
+                    tileSize: this.assets.tileSize || 48, loadParallax: name => parallaxes.get(name),
+                    ...(materials ? { loadMaterial: name => materials[name] || null, loadMaterialSettings: name => this.assets.materialSettings?.(name) || null } : {}) });
             } finally { keys.forEach((key, i) => R[key] = saved[i]); }
             this.world.setPass('all'); this.scene = this.world.scene();
             // Reflections see the battle's props and battlers, the lead actor first in a mirror.
@@ -128,6 +132,8 @@
                 object.scale.setScalar(record.scale);
                 record.object = object; record.binding = R.prepareModelInstance(object, object.__reactorClips);
                 record.rules = R.readModelAnimationRules(sidecar); record.effects = R.readModelEffects(sidecar, spec);
+                // A vehicle's seat and grips ride its parts, for the actor who sits on it.
+                const points = R.readModelLandmarks?.(sidecar); if (points?.__rrVehicle) R.bindModelLandmarks(object, points);
                 record.chosenEffects=new Set(R.propEffectList(spec));record.media=new Map();
                 if(key.startsWith('prop:')){record.sequence=R.propAnimationList(spec);record.sequenceIndex=0;record.animationStart=this.frame;record.animationFrame=this.frame;}
                 if (!key.startsWith('prop:') && !key.startsWith('event:')) BattleRoomView.prepareMotions(record);
@@ -815,9 +821,24 @@
             if(!this.cinematicEnabled()||!user){this.cinematicShot=null;this.cinematicTransition=null;return;}
             const position=key=>(this.models.get(key)||this.billboards.get(key))?.position;
             const a=position(user),b=position(targets[0]);if(!a)return;
-            this.cinematicTransition={from:this.cameraState(),start:this.frame,duration:36};this.cinematicTrack=null;
+            this.cinematicCut();this.cinematicLinger=null;
             this.cinematicShot={phase:'actor',start:this.frame,user,targets:[...new Set(targets)],yaw:b?root.ReactorBattleData.facingToward(a,b):a.facing||0};
         }
+        /**
+         * The next shot begins as a cut: the picture changes on this frame and the glide starts over at the new shot.
+         * A cut made moments after another (an action that hits as it begins, one battler acting straight after the
+         * last) is a short ease from the shot before instead, so three pictures never flash by in a row.
+         */
+        cinematicCut(){
+            const soon=this.cinematicCutFrame!==undefined&&this.frame>=this.cinematicCutFrame&&this.frame-this.cinematicCutFrame<BattleRoomView.CUT_APART;
+            this.cinematicTransition=soon?{from:this.cameraState(),start:this.frame,duration:BattleRoomView.CUT_EASE}:null;
+            this.cinematicTrack=null;this.cinematicCutFrame=this.frame;
+        }
+        /** Frames a shot is held before another cut may follow it; a nearer one eases over `CUT_EASE` frames. */
+        static get CUT_APART(){return 20;}
+        static get CUT_EASE(){return 14;}
+        /** Frames the last shot of an action stays up after the action ends, before the cut back to the overview. */
+        static get CUT_LINGER(){return 24;}
         /**
          * Where the action is this frame, told by the running sequence: points
          * in room tiles with a weight (a projectile in flight counts double, so
@@ -920,15 +941,35 @@
         /** How tall a battler's model stands in the room, in tiles (a tank's size is its length, not its height). */
         modelHeight(key){const r=this.models.get(key)||this.billboards.get(key);if(!r)return 2;if(r.billboard)return r.height||2;const e=r.extent;return e&&r.scale?Math.max(.5,e.y*r.scale*(r.position?.scale||1)*(r.position?.scaleY||1)):this.focusHeight(r);}
         focusHeight(record){return record?.spec?(record.spec.size||2)*(record.spec.scale||1)*(record.position?.scale||1)*(record.position?.scaleY||1):record?.height||2;}
-        cinematicImpact(){
-            if(!this.cinematicShot||this.cinematicShot.phase==='impact')return;
-            this.cinematicTransition={from:this.cameraState(),start:this.frame,duration:30};
-            this.cinematicShot.phase='impact';this.cinematicShot.start=this.frame;
+        /**
+         * What a shot of a battler has to hold: how tall it stands and how much floor it covers, in tiles, from the
+         * model as it is posed. (Its size in the database is its longest side: a tank's length, which framed a tank
+         * as though it were as tall as it is long, from under the ceiling.)
+         */
+        focusSize(record){
+            const fallback={height:record?this.focusHeight(record):2,width:1};
+            if(!record?.object||!root.THREE)return fallback;
+            const box=this.boxOf(record);if(box.isEmpty())return fallback;
+            return {height:Math.max(.5,box.max.y-Math.max(0,box.min.y)),width:Math.max(box.max.x-box.min.x,box.max.z-box.min.z)};
         }
+        cinematicImpact(){
+            const shot=this.cinematicShot;if(!shot)return;
+            if(shot.phase==='impact'){
+                // A later hit of the same action: the shot stays as it is, or comes back if it had been let go.
+                if(shot.released){shot.released=false;this.cinematicCut();shot.start=this.frame;}
+                shot.hit=this.frame;return;
+            }
+            this.cinematicCut();
+            shot.phase='impact';shot.start=shot.hit=this.frame;
+        }
+        /** Frames the hit shot stays after the last hit landed; the rest of the action (the walk home) is watched from the overview. */
+        static get HIT_HOLD(){return 75;}
         endCinematicAction(){
             if(!this.cinematicShot)return;
-            this.cinematicTransition=this.cinematicEnabled()?{from:this.cameraState(),start:this.frame,duration:42}:null;
-            this.cinematicShot=null;this.cinematicTrack=null;
+            // The shot the action ended on stays a moment, then the cut back to the overview; an action that follows at once goes straight to its own shot.
+            const last=this.cinematicEnabled()?this.cameraState():null;
+            this.cinematicLinger=last?{target:last,until:this.frame+BattleRoomView.CUT_LINGER}:null;
+            this.cinematicTransition=null;this.cinematicShot=null;this.cinematicTrack=null;
         }
         cinematicBlend(target){
             const transition=this.cinematicTransition;if(!transition)return target;
@@ -942,36 +983,51 @@
             return result;
         }
         cinematicCamera(base){
-            if(!this.cinematicEnabled()){this.cinematicTransition=null;return base;}
-            const shot=this.cinematicShot;if(!shot)return this.cinematicBlend(base);
+            if(!this.cinematicEnabled()){this.cinematicTransition=null;this.cinematicLinger=null;return base;}
+            const shot=this.cinematicShot;
+            if(!shot){
+                const linger=this.cinematicLinger;
+                if(linger){if(this.frame<linger.until&&this.frame>=linger.until-BattleRoomView.CUT_LINGER)return {...linger.target};this.cinematicLinger=null;this.cinematicCutFrame=this.frame;}
+                return this.cinematicBlend(base);
+            }
             const record=key=>this.models.get(key)||this.billboards.get(key),user=record(shot.user);
             const told=shot.focus&&shot.focus.expires>=this.frame?shot.focus:null;
             // Yaw is where the eye sits: 180-yaw(user→target) is straight behind
             // the user looking at the target, and an offset swings the eye round
             // from there, so every shot sits on the user's side whatever way the
             // room faces. Camera.place puts the eye at (-sin yaw, cos yaw)·d.
-            let points,heights,yawOffset=shot.phase==='impact'?70:45;
+            const impact=shot.phase==='impact';
+            if(impact&&this.frame-(shot.hit??shot.start)>=BattleRoomView.HIT_HOLD){
+                if(!shot.released){shot.released=true;this.cinematicCut();}
+                return this.cinematicBlend(base);
+            }
+            let points,sizes,yawOffset=impact?70:45;
             if(told){
                 // The sequence said where the action is: a flying projectile
                 // and its target, the runner and who it runs at, the hit.
-                points=told.points;heights=told.points.map(p=>p.key?this.focusHeight(record(p.key)):(p.height||1));if(told.yawOffset!==undefined)yawOffset=told.yawOffset;
+                points=told.points;sizes=told.points.map(p=>p.key?this.focusSize(record(p.key)):{height:p.height||1,width:0});if(told.yawOffset!==undefined)yawOffset=told.yawOffset;
             }else{
-                const targets=shot.targets.map(record).filter(r=>r?.position&&r.object?.visible!==false),focus=shot.phase==='impact'&&targets.length?targets:[user];
+                const targets=shot.targets.map(record).filter(r=>r?.position&&r.object?.visible!==false),focus=impact&&targets.length?targets:[user];
                 if(!focus[0]?.position)return this.cinematicBlend(base);
                 // Frame the whole affected group for area attacks; repeated hits
                 // don't flick through a different camera once per resolver call.
-                points=focus.map(r=>r.position);heights=focus.map(r=>this.focusHeight(r));
+                points=focus.map(r=>r.position);sizes=focus.map(r=>this.focusSize(r));
             }
             const weight=points.reduce((n,p)=>n+(p.weight||1),0),x=points.reduce((n,p)=>n+p.x*(p.weight||1),0)/weight,y=points.reduce((n,p)=>n+p.y*(p.weight||1),0)/weight;
             // A told shot rides with the action: it widens only so far for a far
             // target, which enters the frame as the shot nears it.
             const span=Math.min(told?told.spanCap??4:Infinity,Math.max(0,...points.map(p=>Math.hypot(p.x-x,p.y-y)*2)));
-            const height=Math.max(2,...heights);
-            const aspect=Math.max(.4,this.width/this.height),distance=Math.max(told?6:5,(height+span/Math.min(1,aspect))/(2*Math.tan(base.fov*Math.PI/360))*1.3);
+            const height=Math.max(2,...sizes.map(size=>size.height));
+            // What the shot holds side to side: the spread of its subjects and the floor the widest covers (a tank's length).
+            const aspect=Math.max(.4,this.width/this.height),across=span+Math.max(0,...sizes.map(size=>size.width))*.85;
+            const age=Math.max(0,this.frame-shot.start);
+            // The hit is seen nearer than the wind-up, from lower, and the shot creeps in while it holds.
+            const fill=impact?1.15*(1-.1*(1-Math.exp(-age/45))):1.3;
+            const distance=Math.max(told?6:5,Math.max(height+Math.min(span,across)/Math.min(1,aspect),across/aspect)/(2*Math.tan(base.fov*Math.PI/360))*fill);
             // A restrained orbit keeps both shots on the same side of the action.
             // Bound the sweep so a long-running action cannot circle the room.
-            const age=Math.max(0,this.frame-shot.start),sweep=18*(1-Math.exp(-age/120));
-            let target={...base,mode:'fixed',x,y,z:points.reduce((n,p)=>n+(p.z||0)*(p.weight||1),0)/weight+height*.5,yaw:180-shot.yaw+yawOffset+sweep,pitch:20,distance};
+            const sweep=18*(1-Math.exp(-age/120));
+            let target={...base,mode:'fixed',x,y,z:points.reduce((n,p)=>n+(p.z||0)*(p.weight||1),0)/weight+height*.5,yaw:180-shot.yaw+yawOffset+sweep,pitch:impact?15:20,distance};
             const wanted=target.distance;target.distance=this.distanceInsideRoom(target);
             // A wall behind a big subject (the tank against the west wall) can leave the eye inside it: try the other side of the line, then the far side.
             const radius=height*.55;
@@ -1040,9 +1096,25 @@
             const p=new root.THREE.Vector3(position.x+.5,position.z||0,position.y+.5).project(this.camera);
             return {x:(p.x+1)*this.width/2,y:(1-p.y)*this.height/2,visible:p.z>=-1&&p.z<=1};
         }
+        /**
+         * A battler's box in the room. A skinned model's is measured from the pose it stands in, a few times a second, and
+         * carried with the model between: its rest geometry lies wherever its file left it (a point at the feet for a rig
+         * scaled by its armature), which put a target cursor and a window that follows the actor at the feet.
+         */
+        boxOf(record) {
+            const T=root.THREE,R=root.Reactor3D,object=record.object;
+            if(!R?.measureSkinnedBox)return new T.Box3().setFromObject(object);
+            let kept=record.poseBox;
+            if(!kept||this.frame-kept.frame>=20||this.frame<kept.frame){
+                let skinned=false;object.traverse(node=>{if(node.isSkinnedMesh)skinned=true;});
+                const posed=skinned?R.measureSkinnedBox(object):null;
+                kept=record.poseBox={frame:this.frame,box:posed&&!posed.isEmpty()?posed.applyMatrix4(new T.Matrix4().copy(object.matrixWorld).invert()):null};
+            }
+            return kept.box?kept.box.clone().applyMatrix4(object.matrixWorld):new T.Box3().setFromObject(object);
+        }
         bounds(key) {
             const record=this.models.get(key)||this.billboards.get(key),object=record?.object,T=root.THREE;if(!object)return null;
-            const box=new T.Box3().setFromObject(object);if(box.isEmpty())return null;
+            const box=this.boxOf(record);if(box.isEmpty())return null;
             let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
             for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z]){
                 const p=new T.Vector3(x,y,z).project(this.camera);if(p.z< -1||p.z>1)return null;
@@ -1365,7 +1437,7 @@
             play._gpuEffectTarget?.dispose();play._gpuColourTarget?.dispose();
         }
         dispose() {
-            if(this.disposed)return;this.disposed=true;this.cinematicShot=null;this.cinematicTransition=null;
+            if(this.disposed)return;this.disposed=true;this.cinematicShot=null;this.cinematicTransition=null;this.cinematicLinger=null;
             for(const interpreter of this.interpreters||[])interpreter.terminate();
             if(root.$gameTroop?._interpreter?._reactorRoom===this)delete root.$gameTroop._interpreter._reactorRoom;
             for(const sprite of this.eventSprites?.values()||[]){sprite.removeFromParent();sprite.destroy();}

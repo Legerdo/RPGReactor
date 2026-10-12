@@ -1874,7 +1874,8 @@
 
     /** Told to hide, or aboard with the leader and its fade over: not in a battle on the map, where it is a unit and has a body. */
     const unseen = function(follower) {
-        return (!!follower._rrHidden || (!!follower._rrAboard && !(follower._rrLeave > 0))) && !fightHere();
+        // (Aboard a vehicle of its own, behind the leader's, it is seen riding it.)
+        return (!!follower._rrHidden || (!!follower._rrAboard && !follower._rrSeated && !(follower._rrLeave > 0))) && !fightHere();
     };
 
     const stockVisible = Game_Follower.prototype.isVisible;
@@ -1886,6 +1887,9 @@
     const stockTransparent = Game_Follower.prototype.isTransparent;
     // A 3D model has no sheet to take away: a hidden follower is not drawn.
     Game_Follower.prototype.isTransparent = function() {
+        // One that rides a vehicle of its own is seen on it, whatever hides the leader inside the leader's: only
+        // what hid the party before the ride began hides it.
+        if (this._rrSeated && this._rrRide) return unseen(this) || !!($gamePlayer._rrWas && $gamePlayer._rrWas.transparent);
         return stockTransparent.call(this) || unseen(this);
     };
 

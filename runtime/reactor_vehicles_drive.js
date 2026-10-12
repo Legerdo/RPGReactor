@@ -28,8 +28,8 @@
 // ground its leading circle is on (a wall, a rock, a ledge), at three points
 // of that circle's rim and under each circle's middle; a slope too steep to
 // walk, at its foot; a big bush; anything built that stands between its
-// bumper and its rider's head, as it is drawn; water deeper than its wade,
-// at its wheels' level; tiles RPG Maker's flags close; an event's body. The
+// bumper and its rider's head, as it is drawn; tiles RPG Maker's flags
+// close; an event's body. Water stops nothing: it is ridden into. The
 // circles behind the leading one, and both axles' circles in a turn, meet
 // what is built, bushes and bodies as it does.
 //
@@ -39,9 +39,12 @@
 // middle is over, and a wheel swung or ridden over an edge or over water
 // takes nothing down with it. A drop is ridden off: it is in the air once
 // its middle is over the drop, until it meets the ground, and nobody is
-// hurt. Come down in water deeper than its wade, or refused both ways with a
-// key held, it is put back on the last place it could stand on and leave;
-// stuck again soon after, on the one before, then where it was boarded.
+// hurt. In water deeper than its wade, ridden into or come down in, the ride
+// is over: its rider is in the water on foot and it goes down to the bed and
+// stays there (ReactorVehicles.sink). Boarded there (`flooded`) it is walked
+// along the bed, and runs again out of the water. Refused both ways with a key held, it
+// is put back on the last place it could stand on and leave; stuck again
+// soon after, on the one before, then where it was boarded.
 //
 // A forced move route on the riding player runs as tile steps from its first
 // movement command; any RPG Maker mover on a parked vehicle gives it back to
@@ -101,7 +104,7 @@
 
     const IN = { gas: 0, brake: 0, steer: 0, jump: false, analog: false };
     const USED = { gas: 0, brake: 0, steer: 0, jump: false, analog: false };
-    const ENV = { slope: 1, water: false, air: false, pitch: 0, alone: false };
+    const ENV = { slope: 1, water: false, air: false, pitch: 0, alone: false, flooded: false };
     const SHAPE = { front: 1.225, rear: 1.225, radius: 0.45, height: 2.6 };
     /** What the last tick did, for a test or a harness: read it, do not keep it. */
     Drive.last = { entered: 0, slid: 0, stopped: 0, refused: 0, moved: 0, turned: 0, controls: 0, air: 0 };
@@ -120,6 +123,8 @@
     let parked = null, parkX = NaN, parkY = NaN, parkYaw = 0, parkAlt = 0;
     // Which remembered place the vehicle being put back is tried on first: 0 the newest, 4 the one before, 8 where it was boarded.
     let backFrom = 0;
+    // The ride ended in the water on this tick.
+    let sunk = false;
     // The last eight tiles a circle came onto and found no event's body on, and the tick it was (`tickNo`).
     const FREE_TILE = new Int32Array(8).fill(-1), FREE_AT = new Float64Array(8);
     let freeNext = 0, tickNo = 0;
@@ -571,14 +576,15 @@
      * goes on in the map past it as its middle crosses.
      */
     function pastBorder(R, x, z, r, w, h) {
-        const N = R.Neighbors, out = BORDER_OVER;
+        // (Its own length, so that its middle reaches the border however long it is: a tank's nose is ten tiles ahead of it.)
+        const N = R.Neighbors, out = Math.max(BORDER_OVER, SHAPE.front + SHAPE.rear + SHAPE.radius);
         if (x < r && !(N && x > -out && N.stands("west"))) return true;
         if (z < r && !(N && z > -out && N.stands("north"))) return true;
         if (x > w - r && !(N && x < w + out && N.stands("east"))) return true;
         if (z > h - r && !(N && z < h + out && N.stands("south"))) return true;
         return false;
     }
-    /** How far past an open border a circle of the vehicle may be, in tiles. */
+    /** How far past an open border a circle of the vehicle may be, in tiles, at the least (a vehicle longer than this, its own length). */
     const BORDER_OVER = 4;
 
     function swing(R, map, player, d, cx, cz, y1, y2) {
@@ -637,10 +643,6 @@
             const g = R.groundHeightAt(map, px, pz, base);
             if (g - base > step) return 2;
             if (g > most) most = g;
-            if (i === 0) {
-                // Water deeper than its wade, at its wheels' level, is the shore. Water under a ledge is a drop: it is ridden off.
-                if (!air && S_wet) { const level = R.waterSurfaceAt(map, px, pz); if (level !== null && level - g > S_wade && level > base - step) return 3; }
-            }
             if (!built) {
                 const dx = px - ox, dz = pz - oz, reach = Math.sqrt(dx * dx + dz * dz);
                 built = reach > 1e-9 && solidAhead(R, map, ox, oz, dx / reach, dz / reach, reach + 0.02, low, high);
@@ -830,6 +832,9 @@
         event._rrYaw = yaw; event._rrPitch = d.pitch; event._rrLean = d.roll; event._rrSteer = d.steer; event._rrTravel = d.travel; event._rrSpeed = d.v;
         if (changed || !finite(event._rrPose)) event._rrPose = ((event._rrPose | 0) + 1) % 1000000000;
         player._rrPose = event._rrPose;
+        // The followers that ride vehicles of their own come along its trail.
+        const convoy = ReactorVehicles.Convoy;
+        if (convoy && typeof convoy.follow === "function") convoy.follow(player, event, d.v);
     }
 
     /** The stand-side foot: down under a walk's crawl on the ground, up again above it and in the air. */
@@ -842,6 +847,13 @@
             if (d.roll > -0.0002 && d.roll < 0.0002) d.roll = 0;
             if (d.squat === 0) { const gap = ENV.pitch - d.tilt; if (gap > -0.0002 && gap < 0.0002) { d.tilt = ENV.pitch; d.pitch = d.tilt; } }
         }
+    }
+
+    /** The ride ends in the water (ReactorVehicles.sink): true when it did. Only a vehicle of the ground sinks. */
+    function drown(type, bed) {
+        if ((type && type.medium && type.medium !== "ground") || typeof ReactorVehicles.sink !== "function" || !ReactorVehicles.sink(bed)) return false;
+        stuckF = stuckR = 0;
+        return true;
     }
 
     /** A flight: gravity, then the wheels meeting the ground, or the water. */
@@ -866,12 +878,14 @@
         // Where it would rest here: on both wheels, or on the ground under its middle with a wheel over a drop.
         rest(gF, gM, gR);
         d.gf = restF; d.gr = restR; d.gm = gM;
-        // Water is not tested in the air; where it comes down in more than a wade it splashes and is put back.
+        // Where it comes down in water deeper than its wade it splashes and sinks, its rider left in the water.
         if (S_wet && d.vz <= 0) {
             const level = R.waterSurfaceAt(map, wx, wz), bed = restAlt > d.gm ? restAlt : d.gm;
-            if (level !== null && d.alt <= level && level - bed > S_wade) {
+            if (level !== null && d.alt <= level && level - bed > S_wade && !d.flooded) {
                 if (P && P.onSplash) P.onSplash(player, -d.vz);
                 emit("vehicleSplash", event, "depth", level - bed);
+                // (`sunk`: the tick that asked writes nothing more of a ride that is over.)
+                if (drown(type, bed)) { sunk = true; return false; }
                 sendBack(d, 20, false);
                 return false;
             }
@@ -940,7 +954,7 @@
             last.controls=1;
         }
         if (!controls || d.leave) { USED.brake=1; d.rest=0; }
-        ENV.air=false; ENV.water=false; ENV.slope=1; ENV.pitch=0; ENV.alone=false;
+        ENV.air=false; ENV.water=false; ENV.flooded=false; ENV.slope=1; ENV.pitch=0; ENV.alone=false;
         V.step(d,USED,type,ENV,DT);
         d.yaw=turnOf(d.yaw+d.turn); last.turned=d.turn;
         let x=player._realX, y=player._realY;
@@ -1099,18 +1113,33 @@
         // The ground it is on: a slope slows or speeds it, water up to its wade slows it.
         ENV.air = d.air > 0;
         ENV.water = false;
+        ENV.flooded = false;
         ENV.slope = 1;
         if (!d.air) {
             ENV.pitch = Math.atan2(d.gf - d.gr, SHAPE.front + SHAPE.rear);
             const grade = (d.gf - d.gr) / (SHAPE.front + SHAPE.rear) * (d.v < 0 ? -1 : 1);
             ENV.slope = grade > 0 ? (grade >= S_step ? 0.75 : 1 - 0.25 * grade / S_step) : (grade <= -S_step ? 1.15 : 1 - 0.15 * grade / S_step);
-            if (S_wet) { const level = R.waterSurfaceAt(map, wx, wz); ENV.water = level !== null && level - d.alt > 0.05; }
+            if (S_wet) {
+                const level = R.waterSurfaceAt(map, wx, wz), depth = level !== null ? level - d.alt : 0;
+                ENV.water = depth > 0.05;
+                // Boarded where it sank, it is walked out: it runs again once the water is no deeper than it wades.
+                if (d.flooded) { if (depth > S_wade) ENV.flooded = true; else d.flooded = false; }
+                // Ridden in past its wade: the ride is over, where it stands.
+                else if (depth > S_wade && !d.back) {
+                    const speed = d.v < 0 ? -d.v / 60 : d.v / 60;
+                    if (drown(type, d.alt)) {
+                        if (P && P.onSplash) P.onSplash(player, speed);
+                        emit("vehicleSplash", event, "depth", depth);
+                        return;
+                    }
+                }
+            }
         }
 
         V.step(d, USED, type, ENV, DT);
 
         // Jump: the map's own Jump key, on the ground.
-        if (USED.jump && !d.air && S_jump > 0 && (!P || !P.jumpAllowed || P.jumpAllowed())) {
+        if (USED.jump && !d.air && S_jump > 0 && !ENV.flooded && (!P || !P.jumpAllowed || P.jumpAllowed())) {
             // Up a slope it leaves with the climb it already has, so the ground does not catch it at once.
             d.air = 1; d.vz = S_jump + (lastRise > S_jump ? S_jump : lastRise > 0 ? lastRise : 0); d.peak = d.alt; ENV.air = true;
         }
@@ -1227,7 +1256,9 @@
 
         // In the air: gravity, the landing, the water.
         if (d.air) {
-            if (fly(R, map, P, player, d, type, event, wx, wz)) {
+            const landed = fly(R, map, P, player, d, type, event, wx, wz);
+            if (sunk) { sunk = false; return; }
+            if (landed) {
                 player._realX = wx - 0.5; player._realY = wz - 0.5;
                 player._x = Math.round(player._realX); player._y = Math.round(player._realY);
                 last.entered++;

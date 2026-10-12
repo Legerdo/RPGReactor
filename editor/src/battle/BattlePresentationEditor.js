@@ -392,6 +392,7 @@ class BattlePresentationEditor {
         editor.projectController={getCurrentProject:()=>project,mapEditor3D:pc.mapEditor3D};
         return {
             tileSize:this.db.getSystem()?.tileSize||48,screenHeight:this.db.getSystem()?.advanced?.screenHeight||624,
+            materials:map=>pc.mapEditor3D.loadMaterials(map),materialSettings:name=>pc.mapEditor3D.materialSettings?.[name]||null,
             muteMedia:true,mediaUrl:file=>{const image=/\.(png|jpe?g|webp)$/i.test(file),absolute=path.join(project.path,image?'img/pictures':'movies',file);return fs.existsSync(absolute)?RRAssetFiles.toUrl(absolute):'';},
             animation:id=>this.db.data.animations[id],effectUrl:name=>'file://'+path.join(project.path,'effects',name+'.efkefc'),
             image:(kind,name)=>new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve({image:img,width:img.naturalWidth,height:img.naturalHeight,isReady:()=>true,addLoadListener:fn=>fn()});img.onerror=()=>reject(Error('Missing '+kind+'/'+name));img.src=RRAssetFiles.imageUrlFor(path.join(project.path,'img',kind),name);}),
@@ -570,7 +571,7 @@ class BattlePresentationEditor {
                 const effective=view.cameraState();
                 if(draft.cameraSource==='map')inspector.append(this.element('p','rr-battle-help',this.message('Map camera: {mode}. Third/first person follows party slot 1.',{mode:this.text(this.cameraLabel(effective.mode))})));
                 else this.field(inspector,'Mode',this.select([...Object.keys(Reactor3D.Camera.MODES).map(m=>[m,this.cameraLabel(m)]),['cinematic','Cinematic Cuts']],draft.camera.mode||'fixed',mode=>{const defaults=Reactor3D.Camera.MODES[mode]||{yaw:45,pitch:35,fov:40,distance:24};Object.assign(draft.camera,{mode,yaw:defaults.yaw,pitch:defaults.pitch,fov:defaults.fov,distance:defaults.distance||24});drawInspector();}));
-                if(draft.cameraSource==='custom'&&draft.camera.mode==='cinematic')inspector.append(this.element('p','rr-battle-help','Sweeps toward the acting battler, then the target at impact. Eases back to this overview after the action.'));
+                if(draft.cameraSource==='custom'&&draft.camera.mode==='cinematic')inspector.append(this.element('p','rr-battle-help','Cuts to the acting battler, then to the target as the hit lands, and back to this overview after the action.'));
                 for(const key of ['x','y','z','yaw','pitch','distance','fov']){
                     const input=this.number(inspector,({yaw:'Yaw',pitch:'Pitch',distance:'Distance',fov:'Field of View'})[key]||key.toUpperCase(),Math.round((draft.cameraSource==='map'?effective[key]:draft.camera[key]??effective[key])*1000)/1000,value=>draft.camera[key]=key==='distance'?Math.max(.5,value):key==='fov'?Math.max(5,Math.min(150,value)):key==='pitch'?Math.max(-89,Math.min(89,value)):value);
                     input.dataset.cameraField=key;input.disabled=draft.cameraSource==='map'&&['yaw','pitch','distance','fov'].includes(key);

@@ -282,7 +282,8 @@
                 // A fallen enemy is gone from the room; the shot stays with whoever is left.
                 const u=at(user,1),ts=[...new Set(targets)].filter(b=>!(b.isDead?.()&&b.isEnemy?.())).map(b=>at(ss.findTargetSprite(b),1)).filter(Boolean);
                 if(room.cinematicShot.phase==='impact'){points=ts.length?ts:u?[u]:[];if(u&&ts.some(t=>near(t,u)))points.push(u);yawOffset=70;}
-                else if(time<approachUntil&&u&&ts[0]){points=[u,ts[0]];yawOffset=90;}
+                // The runner is the picture, with room ahead of it toward whoever it runs at.
+                else if(time<approachUntil&&u&&ts[0]){points=[{...u,weight:4},ts[0]];yawOffset=90;}
                 else{points=u?[u]:[];if(u&&ts[0]&&near(ts[0],u))points.push(ts[0]);yawOffset=45;}
             }
             room.setCinematicFocus(points,{yawOffset});
@@ -972,6 +973,30 @@
         P.createRoom(scene,config,token).catch(P.warn);
     };
     if(root.Reactor3D?.contextRestoredHandlers)root.Reactor3D.contextRestoredHandlers.push(()=>{const scene=typeof SceneManager!=='undefined'?SceneManager._scene:null;if(scene&&scene._spriteset?._reactorRoom)P.rebuildRoom(scene);});
+    // An actor who falls goes over and lies where it stood, and gets up when it is brought back: its model has no
+    // defeated motion of its own unless a sequence gives it one. (An enemy goes as its Collapse Effect says: only
+    // Corpse leaves it lying, as far over as its sprite is, `liePose`.)
+    P.FALL_FRAMES=18;
+    P.fallPose=function(room,key,battler){
+        const record=room.models.get(key);if(!record?.object)return;
+        const dead=typeof battler.isDead==='function'&&battler.isDead();
+        const was=record.fall||0;
+        record.fall=dead?Math.min(P.FALL_FRAMES,was+1):Math.max(0,was-2);
+        if(!record.fall)return;
+        const t=record.fall/P.FALL_FRAMES;
+        P.liePose(room,key,t*t*(3-2*t));
+    };
+    /** A room model `amount` of the way down (0 standing, 1 flat). Asked after `room.place`, which stands it up each frame. */
+    P.liePose=function(room,key,amount){
+        const record=room.models.get(key);if(!record?.object||!(amount>0))return;
+        // As on the map (Reactor3D's lying pose): over backward about its own side.
+        record.object.rotateX(-Math.min(1,amount)*Math.PI/2);
+    };
+    /** Where a flat picture is drawn in a room when it lies `amount` of the way down: turned onto its side, resting on the floor it stood on. */
+    P.lieBillboard=function(position,frame,tall,amount){
+        const lie=Math.max(0,Math.min(1,amount||0)),turn=(position.rotateZ||0),wide=tall*frame.width/Math.max(1,frame.height);
+        return {...position,rotateZ:turn-(root.Sprite_Enemy?.CORPSE_TURN??-1)*90*lie,z:(position.z||0)-lie*(tall-wide)/2};
+    };
     P.updateRoom=function(ss){
         const room=ss._reactorRoom;if(room.disposed)return;
         room.aim();const live=new Set();
@@ -984,9 +1009,9 @@
             const p=sprite._reactorRoomPosition;
             const spec=actor?Reactor3D.actorSlotSpec(battler.actorId(),'battler'):Reactor3D.databaseModelSpec('enemies',battler.enemyId());
             const main=sprite._mainSprite||sprite;
-            if(spec){if(room.billboards.has(key))room.remove(key);room.addModel(key,spec,p);room.place(key,p);}
+            if(spec){if(room.billboards.has(key))room.remove(key);room.addModel(key,spec,p);room.place(key,p);if(actor)P.fallPose(room,key,battler);else P.liePose(room,key,sprite._corpse);}
             else {if(room.models.has(key))room.remove(key);}
-            if(!spec&&main.bitmap?.isReady())room.billboard(key,main.bitmap.canvas,main._frame,{...p,flipX:actor?p.facing>0:p.facing<0},Math.max(.5,main._frame.height/48));
+            if(!spec&&main.bitmap?.isReady()){const tall=Math.max(.5,main._frame.height/48);room.billboard(key,main.bitmap.canvas,main._frame,{...P.lieBillboard(p,main._frame,tall,actor?0:sprite._corpse),flipX:actor?p.facing>0:p.facing<0},tall);}
             const record=room.models.get(key)||room.billboards.get(key);
             if(record?.object)P.mirrorSpriteLook(sprite,battler,record);
             const projected=P.roomScreenPosition(sprite);if(projected){sprite.x=projected.x;sprite.y=projected.y;}

@@ -6399,7 +6399,10 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .event-header-field { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .event-header-label { font-size: 10px; font-weight: 700; line-height: 12px; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; color: var(--color-text-muted); }
 .event-header-controls { display: flex; align-items: center; gap: 6px; height: 28px; min-width: 0; white-space: nowrap; }
-.event-header-controls > span:not(.event-unit-more), .event-unit-more > label { font-size: 11px; color: var(--color-text-muted); }
+.event-header-controls > span:not(.event-unit-more):not(.event-vehicle-more), .event-unit-more > label, .event-vehicle-more > label { font-size: 11px; color: var(--color-text-muted); }
+.event-vehicle-more { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.event-vehicle-more[hidden] { display: none; }
+.event-header-controls .rr-shim-wrapper:has(.event-vehicle-type) { max-width: 200px; }
 .event-editor-header input, .event-editor-header select, .event-editor-header textarea { box-sizing: border-box; height: 28px; margin: 0; padding: 0 8px; font-size: 12px; line-height: 16px; font-weight: 400; color: var(--color-text); background-color: var(--color-bg-panel); border: 1px solid var(--color-border-input); border-radius: 3px; }
 .event-editor-header input:focus, .event-editor-header select:focus, .event-editor-header textarea:focus { border-color: var(--color-accent); outline: none; }
 .event-header-name input { width: 100%; }
@@ -6506,22 +6509,21 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .rr-tactics-key.is-area { background: var(--color-accent); }
 
 /* Battle Setup (map view): the card docked beside the map. Everything but the tiles keeps its height; the tiles take the rest and scroll. */
-.rr-battle-setup { width: 320px; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px; box-sizing: border-box; background: var(--color-bg-panel); font-size: 12px; color: var(--color-text); outline: none; }
+.rr-battle-setup { width: 320px; display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; box-sizing: border-box; background: var(--color-bg-panel); font-size: 12px; color: var(--color-text); outline: none; }
 #map-side-dock > .rr-battle-setup { flex: 1; width: auto; min-height: 0; }
 .rr-battle-setup-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; user-select: none; }
 .rr-battle-setup-title { flex: 1; font-weight: 700; font-size: 13px; color: var(--color-text-strong); }
 .rr-battle-setup-close { width: 24px; height: 24px; padding: 0; line-height: 1; flex: 0 0 auto; }
-.rr-battle-setup-body { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow-x: hidden; overflow-y: auto; }
+.rr-battle-setup-body { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow-x: hidden; overflow-y: auto; }
 .rr-battle-setup-part { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
-.rr-battle-setup-part.is-tiles { flex: 1 0 96px; min-height: 96px; }
+.rr-battle-setup-part.is-tiles { flex: 0 1 auto; min-height: 96px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--color-border); gap: 6px; }
 .rr-battle-setup-grid { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 6px 8px; align-items: center; }
 .rr-battle-setup-grid > label { color: var(--color-text-muted); font-weight: 600; overflow-wrap: anywhere; }
 .rr-battle-setup-grid > select { min-width: 0; width: 100%; font-weight: 400; }
-.rr-battle-setup-plays { color: var(--color-text-muted); font-size: 11px; line-height: 1.35; min-height: 30px; }
 .rr-battle-setup-tiles-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-height: 24px; }
-.rr-battle-setup-label { flex: 1; color: var(--color-text-muted); font-weight: 600; }
-.rr-battle-setup-search { flex: 0 1 150px; min-width: 0; height: 24px; }
-.rr-battle-setup-tiles { flex: 1 1 0; min-height: 0; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-surface); padding: 4px; }
+.rr-battle-setup-side { flex: 0 0 116px; min-width: 0; height: 24px; font-weight: 600; }
+.rr-battle-setup-search { flex: 1 1 0; min-width: 0; height: 24px; }
+.rr-battle-setup-tiles { flex: 0 1 auto; min-height: 0; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-surface); padding: 4px; }
 .rr-battle-setup-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
 .rr-battle-setup-group { padding: 4px 2px 2px; color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
 .rr-battle-setup-tile { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; padding: 2px 0 3px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--color-text); font-size: 11px; cursor: pointer; }
@@ -6536,24 +6538,21 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .rr-battle-setup-hint { flex: 0 0 auto; color: var(--color-text-muted); font-size: 11px; line-height: 1.35; min-height: 30px; }
 .rr-battle-setup-hint.is-armed { color: var(--color-accent-bright); }
 .rr-battle-setup-hint.is-refused { color: var(--color-warning-text, var(--color-text)); font-weight: 600; }
-.rr-battle-setup-unit { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding-top: 6px; border-top: 1px solid var(--color-border); }
+.rr-battle-setup-unit { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--color-border); }
+.rr-battle-setup-unit-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.rr-battle-setup-facing { display: flex; gap: 4px; }
 .rr-battle-setup-unit[hidden] { display: none; }
 /* The selected unit: its name gives way, its number never does. */
 .rr-battle-setup-unit-name { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 4px; color: var(--color-text-strong); font-weight: 600; }
 .rr-battle-setup-unit-text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rr-battle-setup-unit-id { flex: 0 0 auto; white-space: nowrap; }
-.rr-battle-setup-unit-label { color: var(--color-text-muted); margin-right: 2px; }
+.rr-battle-setup-unit-label { color: var(--color-text-muted); font-weight: 600; }
 .rr-battle-setup-unit .map-props-btn { width: 24px; min-width: 24px; min-height: 24px; padding: 0; font-size: 11px; }
 .rr-battle-setup-unit .map-props-btn.active { background: var(--color-accent); color: var(--color-accent-on); }
-.rr-battle-setup-remove { min-height: 24px; padding: 2px 8px; font-size: 11px; margin-left: 4px; }
-.rr-battle-setup-more > summary { cursor: pointer; color: var(--color-text-muted); font-weight: 600; padding: 2px 0; }
-.rr-battle-setup-more[open] > summary { margin-bottom: 6px; }
+.rr-battle-setup-remove { flex: 0 0 auto; min-height: 24px; padding: 2px 10px; font-size: 11px; }
 .rr-battle-setup-distance { display: flex; align-items: center; gap: 6px; color: var(--color-text-muted); }
 .rr-battle-setup-distance > input { width: 56px; text-align: center; }
-.rr-battle-setup-game { display: flex; align-items: center; gap: 8px; margin-top: 6px; color: var(--color-text-muted); }
-.rr-battle-setup-game > span { flex: 1; min-width: 0; }
-.rr-battle-setup-change { min-height: 24px; padding: 2px 8px; font-size: 11px; }
-.rr-battle-setup-foot { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid var(--color-border); }
+.rr-battle-setup-foot { flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--color-border); }
 .rr-battle-setup-sentence { line-height: 1.4; color: var(--color-text); }
 .rr-battle-setup-sentence.is-warn { color: var(--color-warning-text, var(--color-text)); }
 .rr-battle-setup-count { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
@@ -6563,7 +6562,7 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .rr-battle-setup-line > span { flex: 1; min-width: 0; color: var(--color-warning-text, var(--color-text)); }
 .rr-battle-setup-line.is-note > span { color: var(--color-text-muted); }
 .rr-battle-setup-fix { flex: 0 0 auto; min-height: 20px; padding: 0 8px; font-size: 11px; }
-.rr-battle-setup-play { min-height: 30px; font-size: 13px; font-weight: 600; }
+.rr-battle-setup-play { min-height: 32px; font-size: 13px; font-weight: 600; }
 .rr-battle-setup-play:disabled { opacity: 0.5; cursor: not-allowed; }
 .rr-battle-setup-pick { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 20; max-width: min(520px, 90%); padding: 6px 12px; border: 1px solid var(--color-accent-bright); border-radius: 4px; background: var(--color-bg-panel); color: var(--color-text-strong); font-size: 12px; pointer-events: none; box-shadow: var(--shadow-popup); }
 .rr-battle-setup-pick.is-refused { border-color: var(--color-warning-text, var(--color-border)); color: var(--color-warning-text, var(--color-text)); }
@@ -7015,6 +7014,20 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .vehicle-detail .vehicle-medium-settings { margin-top:8px; }
 .vehicle-detail .vehicle-stock-bgm { margin-top:8px; width:100%; }
 .vehicle-detail .vehicle-location-row { display:flex; gap:6px; margin-bottom:8px; }
+.vehicle-detail .vehicle-location-row { align-items:center; }
+.vehicle-detail .vehicle-location-row .vehicle-location-browse { flex:1; min-width:0; }
+.vehicle-detail .vehicle-location-row .vehicle-start-direction { width:auto; flex:none; }
+/* The map picker's 3D view (MapPicker3D): a viewport, dark in every theme as the map preview beside it is. */
+.map-picker-view { margin-left:auto; gap:4px; align-items:center; }
+.map-picker-view button { padding:4px 12px; font-size:12px; }
+.map-picker-view button.is-on { border-color:var(--color-accent); background:var(--color-accent); color:var(--color-accent-on); }
+.map-picker-3d { flex:1; min-height:0; min-width:0; position:relative; overflow:hidden; background-color:#0a0a0a; border:1px solid var(--color-border); border-radius:3px; }
+.map-picker-3d-canvas, .map-picker-3d-overlay { position:absolute; inset:0; width:100%; height:100%; display:block; }
+.map-picker-3d-overlay { cursor:crosshair; outline:none; }
+.map-picker-3d-coords { position:absolute; top:8px; right:8px; box-sizing:border-box; min-width:132px; padding:6px 8px; background-color:rgba(0,0,0,.8); color:#fff; font:12px/16px monospace; text-align:center; border-radius:3px; pointer-events:none; }
+.map-picker-3d-hint { position:absolute; left:8px; bottom:8px; max-width:calc(100% - 16px); padding:4px 8px; background-color:rgba(0,0,0,.7); color:#ddd; font-size:11px; border-radius:3px; pointer-events:none; }
+.map-picker-3d-note { padding:16px; color:#ddd; font-size:13px; }
+.vehicle-detail .vehicle-start-number { flex:none; min-width:1.2em; text-align:right; color:var(--color-text-muted); }
 .vehicle-detail .vehicle-location-browse { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .vehicle-detail .traits-table { table-layout:auto; width:100%; }
 .vehicle-detail .traits-table td { overflow-wrap:anywhere; }

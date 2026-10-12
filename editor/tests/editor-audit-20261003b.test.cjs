@@ -39,9 +39,11 @@ test('the Controls page lists an Action battle\'s keys and buttons with the runt
     assert.deepEqual(DatabaseControlsEditor.TACTICAL_SYMBOLS, literal('TACTICAL_SYMBOLS'));
     assert.deepEqual(DatabaseControlsEditor.TACTICAL_ACTIONS.map(([name]) => name), new Function(`return ${runtime.match(/ReactorControls\.TACTICAL_ACTIONS = (\[[\s\S]*?\]);/)[1]};`)());
     // The stock keys and buttons give the stock tactical ones, as the game works them out.
-    assert.deepEqual(DatabaseControlsEditor.tacticalFrom(DatabaseControlsEditor.DEFAULT_KEYS, null), DatabaseControlsEditor.DEFAULT_TACTICAL_KEYS);
+    assert.deepEqual(DatabaseControlsEditor.TACTICAL_VIEW_KEYS, literal('TACTICAL_VIEW_KEYS'));
+    assert.deepEqual(DatabaseControlsEditor.TACTICAL_VIEW_STOCK, literal('TACTICAL_VIEW_STOCK'));
+    assert.deepEqual(DatabaseControlsEditor.tacticalFrom(DatabaseControlsEditor.DEFAULT_KEYS, null, DatabaseControlsEditor.TACTICAL_VIEW_KEYS), DatabaseControlsEditor.DEFAULT_TACTICAL_KEYS);
     assert.deepEqual(DatabaseControlsEditor.tacticalFrom(DatabaseControlsEditor.DEFAULT_GAMEPAD, DatabaseControlsEditor.DEFAULT_TACTICAL_BUTTONS), DatabaseControlsEditor.DEFAULT_TACTICAL_BUTTONS);
-    assert.match(runtime, /own\.tacticalKeys && typeof own\.tacticalKeys === "object" \? own\.tacticalKeys : this\.tacticalFrom\(Input\.keyMapper, null\)/);
+    assert.match(runtime, /own\.tacticalKeys && typeof own\.tacticalKeys === "object" \? own\.tacticalKeys : this\.tacticalFrom\(Input\.keyMapper, null, this\.TACTICAL_VIEW_KEYS\)/);
     assert.match(runtime, /own\.tacticalButtons && typeof own\.tacticalButtons === "object" \? own\.tacticalButtons\s*: this\.tacticalFrom\(Input\.gamepadMapper, this\.DEFAULT_TACTICAL_BUTTONS\)/);
     const source = read('src/database/DatabaseControlsEditor.js');
     assert.match(source, /tt\('Action and First Person Battles'\)/);

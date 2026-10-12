@@ -17,6 +17,7 @@ const appImage = require('./appimage-utils');
 const nativeDownload = require('./native-download');
 const nativeRelease = require('./native-release.cjs');
 const webFileIndex = require('./web-file-index.cjs');
+const webPack = require('./web-pack.cjs');
 
 // ── Logging ──────────────────────────────────────────────────────────
 function log(msg, color)  { parentPort.postMessage({ type: 'log', message: msg, color: color || '#cccccc' }); }
@@ -58,6 +59,7 @@ const {
     stageOnly = false,
     includeProprietaryCodecs = false,
     createLinuxAppImage = false,
+    packWebFiles = false,   // the Web build's project goes into a few archives (web-pack.cjs)
     appImageToolPath,
     appImageRuntimePath,
     releaseBuild = false,
@@ -1155,7 +1157,10 @@ function buildWeb(stageRoot, stagingDir) {
     const mutable = {};
     for (const entry of projectFiles) {
         if (entry.type !== 'file') continue;
-        if (/^(?:data\/.*\.json|3d\/.*\.json|project\.rpgreactor|package\.json|js\/(?:reactor_plugins|plugins)\.js)$/.test(entry.path)) {
+        // (With the files the editor edits, the one runtime script it reads at once for its own use: the vehicle
+        // rules behind Database › Vehicles and a map's starting vehicles, and the ground materials' settings. A browser
+        // has no synchronous disk.)
+        if (/^(?:data\/.*\.json|3d\/.*\.json|project\.rpgreactor|package\.json|js\/(?:reactor_plugins|plugins|reactor_3d_vehicles)\.js|img\/materials\/.*\.json)$/.test(entry.path)) {
             mutable[entry.path] = fs.readFileSync(path.join(projectRoot, entry.path), 'utf8');
         }
     }
@@ -1164,7 +1169,17 @@ function buildWeb(stageRoot, stagingDir) {
         projectName: 'Reactor One',
         files: projectFiles,
         mutable,
+        // The project's files are in packs: the page cannot read them without its service worker.
+        packed: !!packWebFiles,
     }));
+    if (packWebFiles) {
+        // After the manifest and the file index, which name the files as the editor and the game ask for them.
+        logInfo('Packing the project into archives...');
+        const packed = webPack.packFolder(projectRoot);
+        if (packed) logGood(webPack.describe(packed));
+        const workerPath = path.join(webRoot, 'service-worker.js');
+        fs.writeFileSync(workerPath, `${webPack.readerSource()}\n${fs.readFileSync(workerPath, 'utf8')}`);
+    }
 
     const outputFiles = walkWebFiles(webRoot).filter(entry => entry.type === 'file');
     const archiveName = `RPGReactor-v${appVersion}-web.zip`;
@@ -1326,7 +1341,7 @@ function buildWeb(stageRoot, stagingDir) {
             'reactor_objects.js', 'reactor_objects_actions.js', 'reactor_objects_battlers.js', 'reactor_objects_map.js', 'reactor_objects_interpreter.js', 'reactor_objects_followers.js', 'reactor_objects_legacy.js',
             'reactor_scenes.js', 'reactor_sprites.js', 'reactor_picture_extensions.js', 'reactor_screen_fx.js',
             'reactor_media_surfaces.js', 'reactor_quests.js', 'reactor_image_layers.js', 'reactor_controls.js', 'reactor_physics.js', 'reactor_rig_motions.js',
-            'reactor_battle_data.js', 'reactor_battle_room.js', 'reactor_battle_presentation.js', 'reactor_battle_events.js', 'reactor_fight_look.js', 'reactor_fight.js', 'reactor_fight_flow.js', 'reactor_fight_tactical.js', 'reactor_fight_stage.js', 'reactor_fight_camera.js', 'reactor_fight_action.js', 'reactor_fight_menu.js', 'reactor_fight_classic.js', 'reactor_speaker_face.js', 'reactor_vehicles.js', 'reactor_vehicles_drive.js', 'reactor_vehicles_feel.js', 'reactor_vehicles_hints.js',
+            'reactor_battle_data.js', 'reactor_battle_room.js', 'reactor_battle_presentation.js', 'reactor_battle_events.js', 'reactor_fight_look.js', 'reactor_fight.js', 'reactor_fight_flow.js', 'reactor_fight_tactical.js', 'reactor_fight_stage.js', 'reactor_fight_camera.js', 'reactor_fight_action.js', 'reactor_fight_menu.js', 'reactor_fight_classic.js', 'reactor_speaker_face.js', 'reactor_vehicles.js', 'reactor_vehicles_drive.js', 'reactor_vehicles_feel.js', 'reactor_vehicles_hints.js', 'reactor_vehicles_mount.js',
             'reactor_windows.js', 'reactor_ui_victory.js', 'reactor_ui_fight.js', 'reactor_ui_action.js', 'reactor_ui.js', 'reactor_mv_compat.js', 'reactor_plugins.js',
             path.join('libs', 'pixi.js'), path.join('libs', 'pixi_compat.js'),
             path.join('libs', 'pako.min.js'), path.join('libs', 'lz-string.js'), path.join('libs', 'localforage.min.js'),

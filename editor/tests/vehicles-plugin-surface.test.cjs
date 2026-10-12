@@ -133,7 +133,9 @@ test('the save holds no class of the file and no character: ids and plain data',
     for (const key of Object.keys(e)) if (key.startsWith('_rr')) walk(e[key], 'event.' + key, new Set());
     // The event carries the fields of the saved table, and this file writes no other `_rr` field on anything.
     for (const key of ['_rrVehicle', '_rrHome', '_rrYaw', '_rrBoarded', '_rrFree', '_rrPose']) assert.ok(Object.keys(e).includes(key), key);
-    const table = ['_rrBoarded', '_rrFree', '_rrHome', '_rrLean', '_rrPose', '_rrSpeed', '_rrSteer', '_rrVehicle', '_rrYaw',
+    const table = ['_rrBoarded', '_rrFree', '_rrHome', '_rrLean', '_rrPose', '_rrSink', '_rrSpeed', '_rrSteer', '_rrVehicle', '_rrYaw',
+        // The convoy: a follower's own ride, and its vehicle's place on the leader's trail.
+        '_rrConvoy', '_rrOnTrail', '_rrPitch', '_rrTravel', '_rrLeave', '_rrAppear',
         '_rrRide', '_rrDrive', '_rrMount', '_rrWas', '_rrSeated', '_rrVehicles', '_rrVehicleType', '_rrVehicleIdentity', '_rrIdentity', '_rrAuthored', '_rrAway', '_rrVehicleTransfer', '_rrVehicleSubject'];
     const written = new Set(Array.from(code.matchAll(/\._(rr[A-Za-z]+)\s*=(?!=)/g), m => '_' + m[1]));
     for (const key of written) assert.ok(table.includes(key), key + ' is in the saved table');

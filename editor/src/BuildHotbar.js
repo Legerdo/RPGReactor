@@ -3,7 +3,7 @@
  *
  * A bar along the bottom of the 3D view: Select, then one slot per thing
  * you can put down (floor, wall, doorway, window, glass, stairs, ramp,
- * roof, pillar, fence, block, a shape, a screen, a light), a hammer that
+ * roof, pillar, fence, block, a shape, a screen, a light), an eraser that
  * takes things away, and a blueprint slot that stamps a saved building.
  * A panel at the side holds the specs of whatever is in hand or selected:
  * which way it faces, its material, its size and settings, a stair run's
@@ -47,12 +47,14 @@ class BuildHotbar {
     static ROCK_PRESETS = { boulder: [3, 2, 3], rock: [4, 4, 4], cliff: [4, 8, 4], spire: [2, 8, 2], ledge: [6, 2, 3], slab: [6, 1, 6] };
     static SLOTS = ['select'].concat(BuildHotbar.PIECES, BuildHotbar.EXTRA);
     /** The Terrain group: the ground's brushes, the water, then the whole map's look and the land past its border. Each is a TerrainManager mode. */
-    static TERRAIN = ['raise', 'lower', 'smooth', 'flatten', 'dunes', 'ground', 'rock', 'pour', 'river', 'drain', 'look', 'biome', 'surround'];
-    static TERRAIN_MODE = { raise: 'raise', lower: 'lower', smooth: 'smooth', flatten: 'flatten', dunes: 'dunes', ground: 'ground', pour: 'fill', river: 'river', drain: 'drain', look: 'look', biome: 'biome', surround: 'surround' };
+    static TERRAIN = ['raise', 'lower', 'smooth', 'flatten', 'dunes', 'ground', 'terase', 'rock', 'pour', 'river', 'drain', 'look', 'biome', 'surround'];
+    static TERRAIN_MODE = { raise: 'raise', lower: 'lower', smooth: 'smooth', flatten: 'flatten', dunes: 'dunes', ground: 'ground', terase: 'ground', pour: 'fill', river: 'river', drain: 'drain', look: 'look', biome: 'biome', surround: 'surround' };
     /** The Models group's fixed slots; the models themselves follow as model0, model1... */
     static MODELS = ['mselect', 'mremove', 'library'];
     /** The Foliage group: four kinds painted as a density, then bushes. Each is a TerrainManager mode of the same name. */
-    static FOLIAGE = ['grass', 'flowers', 'fern', 'reeds', 'bulbs', 'tendrils', 'crystals', 'bush'];
+    static FOLIAGE = ['grass', 'flowers', 'fern', 'reeds', 'bulbs', 'tendrils', 'crystals', 'bush', 'ferase'];
+    /** Each group's eraser: the Build group's takes pieces away, the Terrain group's the painted ground, the Foliage group's every plant, the Models group's a model. */
+    static ERASERS = ['hammer', 'terase', 'ferase', 'mremove'];
     /** The foliage kinds that are not Earth's, and their names. */
     static ALIEN_FOLIAGE = { bulbs: 'Bulbs', tendrils: 'Fronds', crystals: 'Crystals' };
     static GROUPS = ['build', 'terrain', 'foliage', 'models'];
@@ -159,6 +161,8 @@ class BuildHotbar {
         if (this.rockInHand()) return 'rock';
         if (this.group() === 'terrain') {
             const mode = this.terrain()?.mode;
+            // (The ground's brush is two slots: Ground paints, the Eraser takes the paint away.)
+            if (mode === 'ground') return this.terrain().groundErase ? 'terase' : 'ground';
             return BuildHotbar.TERRAIN.find(slot => BuildHotbar.TERRAIN_MODE[slot] === mode) || 'raise';
         }
         if (this.group() === 'foliage') return BuildHotbar.FOLIAGE.includes(this.terrain()?.mode) ? this.terrain().mode : 'grass';
@@ -223,7 +227,7 @@ class BuildHotbar {
         return !!piece;
     }
 
-    /** Pick a slot: pieces place, the hammer erases, Select picks up, the rest open their specs. */
+    /** Pick a slot: pieces place, the Eraser takes away, Select picks up, the rest open their specs. */
     pick(slot) {
         const manager = this.manager();
         if (!manager) return;
@@ -258,6 +262,7 @@ class BuildHotbar {
             if (!terrain) return;
             if (!terrain.active) terrain.activate();
             terrain.setMode(BuildHotbar.TERRAIN_MODE[slot]);
+            if (slot === 'ground' || slot === 'terase') { terrain.editGroundType?.({}, 'commit'); terrain.groundErase = slot === 'terase'; }
             this._lastTerrain = slot;
             this.render();
             return;
@@ -294,7 +299,10 @@ class BuildHotbar {
             shape: 'M4 17a8 8 0 0 1 16 0 M4 17h16v3H4z',
             screen: 'M3 5h18v11H3z M9 20h6 M10 9l5 2.5-5 2.5z',
             light: 'M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8',
-            hammer: 'M14 4l6 6-3 3-6-6z M11 7l-8 8 3 3 8-8 M13 5l2-2',
+            // The eraser, the same in every group.
+            hammer: 'M4 15l9-9 6 6-7 7H7z M9 10l6 6 M13 19h7',
+            terase: 'M4 15l9-9 6 6-7 7H7z M9 10l6 6 M13 19h7',
+            ferase: 'M4 15l9-9 6 6-7 7H7z M9 10l6 6 M13 19h7',
             blueprint: 'M4 4h16v16H4z M8 8h8v8H8z M12 4v4M4 12h4M12 16v4M16 12h4',
             move: 'M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3',
             turn: 'M19 12a7 7 0 1 1-2-4.9M17 3v4h4',
@@ -322,7 +330,7 @@ class BuildHotbar {
             // The models group: a cube; Select, Remove and the Library within it.
             models: 'M12 3l8 4.5v9L12 21l-8-4.5v-9z M4 7.5l8 4.5 8-4.5 M12 12v9',
             mselect: 'M5 3l14 9-6 1.5L10 20z',
-            mremove: 'M14 4l6 6-3 3-6-6z M11 7l-8 8 3 3 8-8 M13 5l2-2',
+            mremove: 'M4 15l9-9 6 6-7 7H7z M9 10l6 6 M13 19h7',
             library: 'M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z',
             // The foliage group: a tuft, then each kind.
             foliage: 'M12 20c0-6-2-10-6-13 M12 20c0-6 2-10 6-13 M12 20V6 M4 20h16',
@@ -342,7 +350,7 @@ class BuildHotbar {
     label(slot) {
         if (BuildHotbar.PIECES.includes(slot) || slot === 'rock') return this._t('pieces.kind.' + slot);
         if (slot === 'mselect') return this._t('build.select');
-        if (slot === 'mremove') return this._t('build.hammer');
+        if (slot === 'mremove' || slot === 'terase' || slot === 'ferase') return this._t('build.hammer');
         if (slot === 'library') return this._t('build.library');
         if (/^model\d+$/.test(slot)) return (this.props()?.libraryModels()[Number(slot.slice(5))]?.name || '').split('/').pop();
         if (slot === 'dunes' || slot === 'ground' || slot === 'biome' || slot === 'surround') return this._tt({ dunes: 'Dunes', ground: 'Ground', biome: 'Biome', surround: 'Beyond the Border' }[slot]);
@@ -1209,7 +1217,11 @@ class BuildHotbar {
                 + `<details class="lit-section rr-build-section rr-build-more" data-more="dunes"${this.moreOpen('dunes') ? ' open' : ''}><summary class="lit-section-header">${tt('Advanced')}</summary><div class="lit-section-body">`
                 + `<label class="rr-build-check"><input type="checkbox" class="rr-build-dwalk"${d.walkable ? ' checked' : ''}> ${tt('Keep slopes walkable')}</label>`
                 + `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-dseed">${tt('Another dune field')}</button></div></div></details>`;
-        } else if (slot === 'ground') {
+        } else if (slot === 'ground' || slot === 'terase') {
+            // Ground paints one of the map's grounds; the Eraser beside it takes the paint away. What is painted with
+            // comes first, then the brush; what changes a ground everywhere it lies, and what changes the whole map,
+            // are folded away under their own names.
+            const erasing = slot === 'terase';
             const types = terrain.groundTypes(), inHand = terrain.groundTypeInHand(), manager = this.manager();
             const urlOf = name => ((manager?.materials?.() || []).find(entry => entry.name === name) || {}).url || '';
             const tile = inHand && typeof RRMaterialPopup !== 'undefined'
@@ -1220,24 +1232,29 @@ class BuildHotbar {
             const floors = terrain.hasGroundFloor() || !this.is3D() ? [] : this.groundFloors();
             const noFloor = terrain.hasGroundFloor() ? '' : `<div class="rr-build-note rr-build-wrap rr-build-gnofloor">${tt('This map has no floor to paint over.')}</div>`
                 + (floors.length ? `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-gsetfloor" data-floor="${escape(floors[0])}">${tt('Set a floor')}</button></div>` : `<div class="rr-build-note rr-build-wrap">${tt('Choose one in Map Properties, 3D, Floor.')}</div>`);
-            body = lead(tt('Paint a ground over the floor: sand, dirt, snow, or one of your own. Erase goes back to the map\'s own ground.')) + noFloor
-                + `<div class="rr-build-finishes rr-build-pair">${chipOf('rr-build-gmode', 'paint', t('foliage.paint'), !terrain.groundErase)}${chipOf('rr-build-gmode', 'erase', t('foliage.erase'), !!terrain.groundErase)}</div>`
+            const fold = (key, title, meta, inner) => `<details class="lit-section rr-build-section rr-build-more" data-more="${key}"${this.moreOpen(key) ? ' open' : ''}><summary class="lit-section-header">${title}${meta ? `<span class="lit-section-meta">${meta}</span>` : ''}</summary><div class="lit-section-body">${inner}</div></details>`;
+            const brushRows = range('rr-build-tradius', t('terrain.radius'), terrain.radius, 1, 12, 0.5, terrain.radius)
+                + range('rr-build-tstrength', t('terrain.strength'), terrain.strength, 0.05, 1, 0.05, terrain.strength)
+                + range('rr-build-gsoft', tt('Soft edge'), terrain.groundSoft, 0, 1, 0.05, Math.round(terrain.groundSoft * 100) + '%')
+                + (erasing ? '' : range('rr-build-glevel', tt('Coverage'), terrain.groundLevel, 1, 9, 1, terrain.groundLevel));
+            // The ground in hand, changed everywhere it lies: shut until it is asked for, and it says so.
+            const edit = inHand && !erasing ? fold('ground-edit', tt('Edit this ground'), escape(inHand.name || inHand.material),
+                `<div class="rr-build-note rr-build-wrap rr-build-gedit-note">${tt('Changes every place this ground is painted.')}</div>` + tile
+                + `<div class="rr-build-range"><span>${tt('Tint')}</span>${swatchOf('rr-build-gtint', inHand.tint || '#ffffff')}</div>`
+                + range('rr-build-gscale', tt('Scale'), inHand.scale || 4, 0.5, 16, 0.5, inHand.scale || 4)
+                + `<label class="rr-build-check"><input type="checkbox" class="rr-build-gbare"${inHand.bare ? ' checked' : ''}> ${tt('Nothing grows here')}</label>`
+                + `<label class="rr-build-field"><span>${tt('Name')}</span><input type="text" class="database-field-value rr-build-gname" value="${escape(inHand.name || inHand.material)}" maxlength="40"></label>`
+                + `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-gremove">${tt('Remove this ground')}</button></div>`) : '';
+            const whole = fold('ground-map', tt('Whole map'), '',
+                `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-gfill">${erasing ? tt('Clear the whole map') : tt('Fill the whole map')}</button></div>`
+                + (erasing ? '' : this.steepSection(terrain, section, urlOf)));
+            body = lead(erasing ? tt('Erase painted ground under the brush: back to the map\'s own ground.') : tt('Paint a ground over the floor: sand, dirt, snow, or one of your own. Erase goes back to the map\'s own ground.')) + noFloor
                 + `<div class="rr-build-finishes rr-build-pair">${chipOf('rr-build-gshape', 'brush', t('terrain.brush'), terrain.groundShape !== 'rect')}${chipOf('rr-build-gshape', 'rect', tt('Rectangle'), terrain.groundShape === 'rect')}</div>`
-                + section(tt('Ground'), (types.length ? `<div class="rr-build-finishes rr-build-gtypes">${list}</div>` : `<div class="rr-build-note rr-build-wrap">${tt('This map has no ground types yet. Pick one to start.')}</div>`)
+                + (erasing ? '' : section(tt('Paint with'), (types.length ? `<div class="rr-build-finishes rr-build-gtypes">${list}</div>` : `<div class="rr-build-note rr-build-wrap">${tt('This map has no ground types yet. Pick one to start.')}</div>`)
                     + `<details class="rr-build-gadd"${types.length ? '' : ' open'}><summary class="rr-btn-secondary rr-build-gaddbtn">+ ${tt('Add a ground')}</summary><div class="rr-build-finishes rr-build-pair">${presets}</div></details>`,
-                    inHand ? escape(inHand.name || inHand.material) : '')
-                + (inHand ? section(tt('This ground'), tile
-                    + `<div class="rr-build-range"><span>${tt('Tint')}</span>${swatchOf('rr-build-gtint', inHand.tint || '#ffffff')}</div>`
-                    + range('rr-build-gscale', tt('Scale'), inHand.scale || 4, 0.5, 16, 0.5, inHand.scale || 4)
-                    + `<label class="rr-build-check"><input type="checkbox" class="rr-build-gbare"${inHand.bare ? ' checked' : ''}> ${tt('Nothing grows here')}</label>`
-                    + `<label class="rr-build-field"><span>${tt('Name')}</span><input type="text" class="database-field-value rr-build-gname" value="${escape(inHand.name || inHand.material)}" maxlength="40"></label>`
-                    + `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-gremove">${tt('Remove this ground')}</button></div>`) : '')
-                + this.steepSection(terrain, section, urlOf)
-                + section(t('terrain.brush'), range('rr-build-tradius', t('terrain.radius'), terrain.radius, 1, 12, 0.5, terrain.radius)
-                    + range('rr-build-tstrength', t('terrain.strength'), terrain.strength, 0.05, 1, 0.05, terrain.strength)
-                    + range('rr-build-gsoft', tt('Soft edge'), terrain.groundSoft, 0, 1, 0.05, Math.round(terrain.groundSoft * 100) + '%')
-                    + range('rr-build-glevel', tt('Coverage'), terrain.groundLevel, 1, 9, 1, terrain.groundLevel)
-                    + `<div class="rr-build-actions"><button type="button" class="rr-btn-secondary rr-build-gfill">${terrain.groundErase ? tt('Clear the whole map') : tt('Fill the whole map')}</button></div>`);
+                    inHand ? escape(inHand.name || inHand.material) : ''))
+                + section(t('terrain.brush'), brushRows)
+                + edit + whole;
         } else if (slot === 'biome') {
             const names = { temperate: 'Temperate', desert: 'Desert', snow: 'Snow', volcanic: 'Volcanic', alienViolet: 'Alien violet', alienFungal: 'Alien fungal' };
             body = lead(tt('A starting look for the whole map: its ground, cliffs, plant colors and water together. Heights stay as they are.'))
@@ -1614,6 +1631,24 @@ class BuildHotbar {
         slider('rr-build-srough', 'rough', value => { panel.querySelector('.rr-build-srough-value').textContent = Math.round(value * 100) + '%'; });
     }
 
+    /** The Foliage group's Eraser: every plant under the brush goes, grass to bushes. The brush's size, and undo and redo. */
+    renderFoliageEraser() {
+        const panel = this.panel, terrain = this.terrain(), t = key => this._t(key);
+        if (!panel || !terrain) return;
+        const body = `<div class="rr-build-note rr-build-wrap rr-build-lead">${this._tt('Erase every plant under the brush.')}</div>`
+            + `<div class="lit-section rr-build-section"><div class="lit-section-header">${t('terrain.brush')}</div><div class="lit-section-body">`
+            + `<label class="rr-build-range"><span>${t('terrain.radius')}</span><input type="range" class="rr-build-fradius" min="1" max="12" step="0.5" value="${terrain.radius}" data-no-stepper><b class="rr-build-fradius-value">${terrain.radius}</b></label></div></div>`;
+        const iconButton = (cls, icon, key) => `<button type="button" class="rr-btn-secondary rr-build-icon-btn ${cls}" title="${t(key)}" aria-label="${t(key)}">${this.icon(icon, 16)}</button>`;
+        this.setPanel('ferase', this.label('ferase'), body, `${iconButton('rr-build-tundo', 'undo', 'terrain.undo')}${iconButton('rr-build-tredo', 'redo', 'terrain.redo')}`);
+        panel.querySelector('.rr-build-fradius')?.addEventListener('input', event => {
+            terrain.radius = Number(event.target.value);
+            const shown = panel.querySelector('.rr-build-fradius-value');
+            if (shown) shown.textContent = event.target.value;
+        });
+        panel.querySelector('.rr-build-tundo')?.addEventListener('click', () => { terrain.undo(); this.renderFoliagePanel(); });
+        panel.querySelector('.rr-build-tredo')?.addEventListener('click', () => { terrain.redo(); this.renderFoliagePanel(); });
+    }
+
     /**
      * The Foliage group's panel: paint or erase, the brush, the kind's look in
      * hand (height and colours; a bush's size, leaves and blossom), and the
@@ -1623,6 +1658,7 @@ class BuildHotbar {
         const panel = this.panel, terrain = this.terrain();
         if (!panel || !terrain) return;
         const slot = this.activeSlot(), t = key => this._t(key), bush = slot === 'bush';
+        if (slot === 'ferase') { this.renderFoliageEraser(); return; }
         const section = (title, body, meta) => `<div class="lit-section rr-build-section"><div class="lit-section-header">${title}${meta ? `<span class="lit-section-meta">${meta}</span>` : ''}</div><div class="lit-section-body">${body}</div></div>`;
         const range = (cls, label, value, min, max, step, shown) => `<label class="rr-build-range"><span>${label}</span><input type="range" class="${cls}" min="${min}" max="${max}" step="${step}" value="${value}" data-no-stepper><b class="${cls}-value">${shown}</b></label>`;
         const swatch = (cls, value) => typeof RRColorPopup !== 'undefined' ? RRColorPopup.swatch(cls, value) : `<input type="color" class="${cls}" value="${value}">`;

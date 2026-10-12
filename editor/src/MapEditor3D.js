@@ -2863,13 +2863,28 @@ class MapEditor3D {
         this._lastActiveAt = performance.now();
     }
 
+    /** The brush ring's band: its bright line this wide, inside a dark edge this wide, in tiles. */
+    static TERRAIN_RING = { bright: 0.14, dark: 0.1, segments: 64 };
+
     buildTerrainRing() {
         if (!this.mapScene || this.terrainRing) return;
-        const segments = 64; // points around the ring
+        // A flat band laid on the ground, light inside a dark edge: it reads on grass, sand, snow and paint alike,
+        // where a one-pixel line of one color was lost on ground near its own color.
+        const segments = MapEditor3D.TERRAIN_RING.segments, rings = 4, count = (segments + 1) * rings;
         const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array((segments + 1) * 3), 3));
-        this.terrainRing = new THREE.Line(geometry, new THREE.LineBasicMaterial({
-            color: 0x7fd8ff, transparent: true, opacity: 0.95, depthTest: false
+        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+        const colors = new Float32Array(count * 3), index = [];
+        for (let i = 0; i <= segments; i++) {
+            // Two points for the light line, two for the dark edge (the middle ring twice: no blend between them).
+            colors.set([1, 0.95, 0.55, 1, 0.95, 0.55, 0.03, 0.05, 0.09, 0.03, 0.05, 0.09], i * 12);
+            if (i === segments) break;
+            const a = i * 4, b = a + 4;
+            index.push(a, b, a + 1, a + 1, b, b + 1, a + 2, b + 2, a + 3, a + 3, b + 2, b + 3);
+        }
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        geometry.setIndex(index);
+        this.terrainRing = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+            vertexColors: true, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide
         }));
         this.terrainRing.renderOrder = 999;
         this.terrainRing.visible = false;
@@ -2886,12 +2901,14 @@ class MapEditor3D {
         if (!this.terrainRing) return;
         const radius = this.terrainManager()?.radius || 3;
         const positions = this.terrainRing.geometry.attributes.position;
-        const segments = positions.count - 1;
+        const band = MapEditor3D.TERRAIN_RING, segments = band.segments;
         const cx = point.x + 0.5, cz = point.y + 0.5;
+        // Four rings of points: the light line between the first two, the dark edge between the last two.
+        const radii = [radius - band.bright, radius, radius, radius + band.dark];
         for (let i = 0; i <= segments; i++) {
-            const angle = (i / segments) * Math.PI * 2;
-            const x = cx + Math.cos(angle) * radius, z = cz + Math.sin(angle) * radius;
-            positions.setXYZ(i, x, Reactor3D.groundHeightAt(mapData, x, z) + 0.06, z);
+            const angle = (i / segments) * Math.PI * 2, cos = Math.cos(angle), sin = Math.sin(angle);
+            const y = Reactor3D.groundHeightAt(mapData, cx + cos * radius, cz + sin * radius) + 0.06;
+            for (let k = 0; k < 4; k++) positions.setXYZ(i * 4 + k, cx + cos * radii[k], y, cz + sin * radii[k]);
         }
         positions.needsUpdate = true;
         this.terrainRing.geometry.computeBoundingSphere();

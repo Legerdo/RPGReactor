@@ -2806,6 +2806,11 @@ class Database3DEditor {
         });
     }
 
+    /** A part's name as shown: one its file damaged is shown without the damage (RRPartNames); the stored name stays. */
+    static partLabel(name) {
+        return typeof RRPartNames !== 'undefined' ? RRPartNames.readable(name) : name;
+    }
+
     /**
      * One row of a column section: its type's icon, its name, a muted line
      * about it, and its own actions (shown on the row under the pointer, on
@@ -2818,7 +2823,7 @@ class Database3DEditor {
         row.setAttribute('aria-selected', selected ? 'true' : 'false');
         row.innerHTML = `<span class="r3d-row-icon">${Database3DEditor.icon(icon)}</span><span class="r3d-row-text"><span class="r3d-row-name"></span><span class="r3d-row-note"></span></span><span class="r3d-row-actions"></span>`;
         const label = row.querySelector('.r3d-row-name');
-        label.textContent = name;
+        label.textContent = Database3DEditor.partLabel(name);
         if (skip) label.setAttribute('data-rr-i18n-skip', '1');
         const about = row.querySelector('.r3d-row-note');
         about.textContent = note;
@@ -4349,8 +4354,8 @@ class Database3DEditor {
         }
         const groups = [
             { label: this._k('r3dcard.groupModel'), items: [{ id: '__model', label: this._t('Whole model') }] },
-            { label: this._t('Parts'), items: parts.map(name => ({ id: name, label: name })) },
-            { label: this._k('r3dcard.groupBones'), items: bones.map(name => ({ id: name, label: name })) },
+            { label: this._t('Parts'), items: parts.map(name => ({ id: name, label: Database3DEditor.partLabel(name) })) },
+            { label: this._k('r3dcard.groupBones'), items: bones.map(name => ({ id: name, label: Database3DEditor.partLabel(name) })) },
             { label: this._k('r3dfx.title'), items: this.rawEffects.filter(raw => raw && raw.name).map(raw => ({ id: 'fx:' + raw.name, label: '\u2726 ' + raw.name })) }
         ].filter(group => group.items.length);
         const value = this._cardMode === 'effect' && this._effectWork
@@ -7508,6 +7513,7 @@ class Database3DEditor {
 
     /** Where a template's markers start: from the model's own shape for a thing held in a hand, else from its size. */
     _rigDefaultMarkers() {
+        if ((ModelRigger.TEMPLATES[this._rigTemplate] || {}).vehicle) return this._riderMarkers(false);
         const size = this._template.userData.glbSize || { x: 1, y: 1.8, z: 1 };
         let held = null;
         if (typeof Reactor3D !== 'undefined' && Reactor3D.heldMarkerDefaults && Reactor3D.HELD_RIGS[this._rigTemplate] && this._object) {
@@ -7605,11 +7611,8 @@ class Database3DEditor {
 
     enterRigMode(faceOnly = false) {
         if (typeof ModelRigger === 'undefined' || !this._object || !this._template) return false;
-        const status = this._detail.querySelector('.r3d-status');
-        if (this.customParts.length && !faceOnly) {
-            if (status) status.textContent = this._t('Remove carved parts before rigging.');
-            return false;
-        }
+        // (Every model opens the tool, and every kind of rig is offered: what a model with carved parts cannot
+        // take, a skeleton, is said in the bar beside Save, where the kind is chosen.)
         this._rigFaceMode = faceOnly;
         this.deselectPart();
         if (faceOnly) {
@@ -7648,14 +7651,131 @@ class Database3DEditor {
         this._stopEffectPreview();
         this._rebuildInstance();
         this._rigMode = true;
-        this._rigTemplate = (this.customRig && ModelRigger.TEMPLATES[this.customRig.template])
-            ? this.customRig.template : (this._rigTemplate || 'humanoid');
-        const saved = this.customRig && this.customRig.markers, size = this._template.userData.glbSize || { x: 1, y: 1.8, z: 1 };
-        const placed = saved && ModelRigger.markersFor(this._rigTemplate).some(marker => Array.isArray(saved[marker.key]) && saved[marker.key].length === 3);
-        this._rigMarkers = placed ? ModelRigger.completeMarkers(saved, this._rigTemplate, size) : this._rigDefaultMarkers();
+        // It opens on the kind the model already has: its rig's; else a rider's, for a model whose file has a seat;
+        // else the kind used last. Any other is a choice of the bar's list.
+        const saved = this.customRig && ModelRigger.TEMPLATES[this.customRig.template] ? this.customRig.template : '';
+        this._rigTemplate = saved || (this._hasRiderSeat() ? 'rider' : (this._rigTemplate || 'humanoid'));
+        this._rigMarkers = this._rigStartMarkers();
         this._buildRigVisuals();
         this.renderRigBar();
         return true;
+    }
+
+    /** Whether the model's file gives a rider a seat (model.json > vehicle > seats). */
+    _hasRiderSeat() {
+        const sidecar = this._sidecarObject(), block = sidecar && sidecar.vehicle;
+        const seat = block && typeof block === 'object' && Array.isArray(block.seats) ? block.seats[0] : null;
+        return !!(seat && typeof seat === 'object' && seat.seat);
+    }
+
+    /** Where the markers of the chosen kind start: the model's saved ones, else that kind's first guess. */
+    _rigStartMarkers() {
+        if ((ModelRigger.TEMPLATES[this._rigTemplate] || {}).vehicle) return this._riderMarkers(true);
+        const saved = this.customRig && this.customRig.template === this._rigTemplate ? this.customRig.markers : null;
+        const size = this._template.userData.glbSize || { x: 1, y: 1.8, z: 1 };
+        const placed = saved && ModelRigger.markersFor(this._rigTemplate).some(marker => Array.isArray(saved[marker.key]) && saved[marker.key].length === 3);
+        return placed ? ModelRigger.completeMarkers(saved, this._rigTemplate, size) : this._rigDefaultMarkers();
+    }
+
+    /** Whether the chosen kind binds a skeleton, which a model with carved parts cannot take (both count the model's meshes and triangles uncarved). */
+    _rigNeedsUncarved() {
+        const template = ModelRigger.TEMPLATES[this._rigTemplate];
+        return !!template && !template.markersOnly && this.customParts.length > 0;
+    }
+
+    /**
+     * The kind of vehicle this model is, '' when it is none: the kind of the Vehicles record that wears it, else a
+     * motorcycle for a model whose own file carries a `vehicle` block.
+     */
+    _vehicleKind() {
+        const records = this.databaseManager && this.databaseManager.data && Array.isArray(this.databaseManager.data.vehicles) ? this.databaseManager.data.vehicles : [];
+        const record = records.find(row => row && row.model && row.model.name === this.selectedName);
+        if (record) return typeof record.kind === 'string' && record.kind ? record.kind : 'motorcycle';
+        const sidecar = this._sidecarObject();
+        return sidecar && sidecar.vehicle && typeof sidecar.vehicle === 'object' && !Array.isArray(sidecar.vehicle) ? 'motorcycle' : '';
+    }
+
+    /** The model's model.json as it stands on disk, null when it has none or it does not read. */
+    _sidecarObject() {
+        try {
+            const text = this._readSidecarForUpdate(require('fs'));
+            const parsed = text ? JSON.parse(text) : null;
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Where a rider's dots start: where the game seats a rider on this model (its file's seat, or the game's own
+     * guess from the model's shape and kind); `fromFile` false asks for the guess alone, which is what Reset goes
+     * back to. The vehicle's left is kept for mirroring: its file may face any way.
+     */
+    _riderMarkers(fromFile) {
+        const size = this._template.userData.glbSize || { x: 1, y: 1.8, z: 1 };
+        const markers = ModelRigger.defaultMarkers(size, 'rider');
+        this._riderLeft = null;
+        const vehicles = typeof Reactor3D !== 'undefined' ? Reactor3D.Vehicles : null;
+        if (!vehicles || typeof vehicles.read !== 'function' || !this._object) return markers;
+        // The model alone is measured: the rig's own dots are taken off it for the moment.
+        const group = this._rigGroup && this._rigGroup.parent === this._object ? this._rigGroup : null;
+        if (group) this._object.remove(group);
+        try {
+            const sidecar = fromFile ? this._sidecarObject() : null;
+            // (Only the block is handed over, so the guess is the same whatever else the file holds.)
+            const block = vehicles.read(sidecar && sidecar.vehicle ? { vehicle: sidecar.vehicle } : null, vehicles.boxOf(this._object), this._vehicleKind() || 'motorcycle');
+            const seat = block && block.seats && block.seats[0];
+            for (const marker of ModelRigger.markersFor('rider')) {
+                const at = seat && seat[marker.key] && seat[marker.key].at;
+                if (Array.isArray(at) && at.length === 3 && at.every(Number.isFinite)) markers[marker.key] = at.slice();
+            }
+            if (block && Array.isArray(block.left) && block.left.length === 3) this._riderLeft = block.left.slice();
+        } catch (error) {
+            console.warn('The rider\'s places could not be read from the model.', error);
+        } finally {
+            if (group) this._object.add(group);
+        }
+        return markers;
+    }
+
+    /** A marker's twin on the other side: across the model's middle, which for a vehicle's rider is the vehicle's own. */
+    _rigMirrorPoint(local) {
+        const left = (ModelRigger.TEMPLATES[this._rigTemplate] || {}).vehicle ? this._riderLeft : null;
+        if (!left) return [-local.x, local.y, local.z];
+        const reach = 2 * (local.x * left[0] + local.y * left[1] + local.z * left[2]);
+        return [local.x - reach * left[0], local.y - reach * left[1], local.z - reach * left[2]];
+    }
+
+    /**
+     * A `vehicle` block with a rider's five points set on its first seat. Whatever else the block and the seat say
+     * is kept (which part a hand rides, the posture), and the seat is no longer one the game guessed.
+     */
+    static withRiderMarkers(block, markers) {
+        const plain = value => !!value && typeof value === 'object' && !Array.isArray(value);
+        const out = plain(block) ? JSON.parse(JSON.stringify(block)) : {};
+        const seats = Array.isArray(out.seats) ? out.seats : [];
+        const seat = plain(seats[0]) ? seats[0] : {};
+        for (const key of ['seat', 'handL', 'handR', 'footL', 'footR']) {
+            const at = markers && markers[key];
+            if (!Array.isArray(at) || at.length !== 3 || !at.every(Number.isFinite)) continue;
+            seat[key] = Object.assign({}, plain(seat[key]) ? seat[key] : {}, { at: at.map(value => Math.round(value * 1000) / 1000) });
+        }
+        seats[0] = seat;
+        out.seats = seats;
+        if (Array.isArray(out.guessed)) {
+            out.guessed = out.guessed.filter(name => name !== 'seats');
+            if (!out.guessed.length) delete out.guessed;
+        }
+        return out;
+    }
+
+    /** The rider's dots written to the model's file (model.json > vehicle > seats), every other key in its place. */
+    saveVehicleRider() {
+        const fs = require('fs');
+        const previous = this._readSidecarForUpdate(fs);
+        const sidecar = previous ? JSON.parse(previous) : {};
+        const block = Database3DEditor.withRiderMarkers(sidecar && sidecar.vehicle, this._rigMarkers);
+        this._writeFileAtomic(fs, this.rulesPath(), RRVehicles.mergeModel(previous, block));
     }
 
     exitRigMode() {
@@ -7840,8 +7960,9 @@ class Database3DEditor {
         this._placeRigLabel(key);
         const marker = this._rigMarkerDefinitions().find(entry => entry.key === key);
         if (marker && marker.mirror) {
-            this._rigMarkers[marker.mirror] = [-local.x, local.y, local.z];
-            this._rigMarkerMeshes[marker.mirror].position.set(-local.x, local.y, local.z);
+            const twin = this._rigMirrorPoint(local);
+            this._rigMarkers[marker.mirror] = twin;
+            this._rigMarkerMeshes[marker.mirror].position.fromArray(twin);
             this._placeRigLabel(marker.mirror);
         }
         this._refreshRigMarkerFit(marker && marker.mirror ? [key, marker.mirror] : [key]);
@@ -7873,6 +7994,7 @@ class Database3DEditor {
         bar.appendChild(label);
         const templatePick = document.createElement('select');
         templatePick.style.cssText = 'padding:2px 6px;background:var(--color-bg-surface);color:var(--color-text);border:1px solid var(--color-border-input);border-radius:3px;font-size:12px;';
+        const riding = !!(ModelRigger.TEMPLATES[this._rigTemplate] || {}).vehicle, carved = this._rigNeedsUncarved();
         for (const entry of ModelRigger.templates()) {
             const option = document.createElement('option');
             option.value = entry.id;
@@ -7882,9 +8004,9 @@ class Database3DEditor {
         }
         templatePick.addEventListener('change', () => {
             this._rigTemplate = templatePick.value;
-            this._rigMarkers = this._rigDefaultMarkers();
+            this._rigMarkers = this._rigStartMarkers();
             this._buildRigVisuals();
-            this._refreshUnsaved();
+            this.renderRigBar();
         });
         bar.appendChild(templatePick);
         // The rig's buttons share one size: the main action highlighted, removing in red.
@@ -7894,16 +8016,20 @@ class Database3DEditor {
         // The one button that saves the rig: it writes the markers, and binds the model to the skeleton they make.
         bind.className = 'rr-button-primary r3d-save';
         bind.dataset.kind = 'rig';
-        bind.textContent = this._t('Save rig');
-        bind.title = this._t('Saves the rig to the model. With a skeleton, the model is bound to it too.');
+        bind.textContent = this._t(riding ? 'Save rider' : 'Save rig');
+        bind.title = this._t(riding ? 'Saves where a rider sits, holds on and rests its feet to the model.' : 'Saves the rig to the model. With a skeleton, the model is bound to it too.');
         bind.addEventListener('click', () => this.saveRigFromBar());
+        bind.disabled = carved;
+        if (carved) { bind.style.opacity = '0.5'; bind.style.cursor = 'not-allowed'; }
         bar.appendChild(bind);
-        const face = sized(document.createElement('button'));
-        face.type = 'button';
-        face.className = 'rr-btn-secondary';
-        face.textContent = this._t('Face points');
-        face.addEventListener('click', () => this.requestTool('face'));
-        bar.appendChild(face);
+        if (!riding) {
+            const face = sized(document.createElement('button'));
+            face.type = 'button';
+            face.className = 'rr-btn-secondary';
+            face.textContent = this._t('Face points');
+            face.addEventListener('click', () => this.requestTool('face'));
+            bar.appendChild(face);
+        }
         const reset = sized(document.createElement('button'));
         reset.type = 'button';
         reset.className = 'rr-btn-secondary';
@@ -7914,7 +8040,7 @@ class Database3DEditor {
             this._refreshUnsaved();
         });
         bar.appendChild(reset);
-        if (this.customRig) {
+        if (this.customRig && !riding) {
             const remove = sized(document.createElement('button'));
             remove.type = 'button';
             remove.className = 'rr-button-danger';
@@ -7932,7 +8058,9 @@ class Database3DEditor {
         // One line of what to do; the finer points wait in its tooltip.
         const hint = document.createElement('span');
         hint.style.cssText = 'flex:1 1 100%;color:var(--color-text-muted);';
-        hint.textContent = this._t('Drag the markers onto the joints; sides mirror.');
+        hint.textContent = this._t(carved ? 'This rig type binds a skeleton, which a model with carved parts cannot take. Remove its parts first, or choose a type that only places markers.'
+            : riding ? 'Drag the dots to where a rider sits, holds on and rests its feet; sides mirror.' : 'Drag the markers onto the joints; sides mirror.');
+        if (carved) hint.style.color = 'var(--color-warning-text, var(--color-text))';
         hint.title = this._t('Markers snap into the model; a faint one floats outside it.') + ' ' + this._t('Wheel zooms toward the pointer; Shift-drag pans.');
         bar.appendChild(hint);
         this._refreshUnsaved();
@@ -7991,7 +8119,7 @@ class Database3DEditor {
         const bound = this._faceBindings[key] || '';
         for (const name of new Set(['', ...this.partNames, bound])) {
             const option = document.createElement('option');
-            option.value = name; option.textContent = name || this._t('Whole model'); follow.appendChild(option);
+            option.value = name; option.textContent = name ? Database3DEditor.partLabel(name) : this._t('Whole model'); follow.appendChild(option);
         }
         follow.value = bound;
         follow.addEventListener('change', () => { if (current()) this._faceBindings[key] = follow.value; });
@@ -8481,6 +8609,20 @@ class Database3DEditor {
             || !this._template) return;
         const status = this._detail.querySelector('.r3d-status');
         // A thing held in a hand (Blade or tool, Gun) has markers only: they are saved as they stand, nothing is bound.
+        if (this._rigNeedsUncarved()) {
+            if (status) status.textContent = this._t('Remove carved parts before rigging.');
+            return;
+        }
+        if (ModelRigger.TEMPLATES[this._rigTemplate] && ModelRigger.TEMPLATES[this._rigTemplate].vehicle) {
+            // A rider's dots are the vehicle's seat, not a rig: the model's rig, if it has one, is left as it is.
+            try {
+                this.saveVehicleRider();
+                if (status) status.textContent = this._t('Rider saved.');
+            } catch (error) {
+                this._reportModelSaveError(error);
+            }
+            return;
+        }
         if (ModelRigger.TEMPLATES[this._rigTemplate] && ModelRigger.TEMPLATES[this._rigTemplate].markersOnly) {
             const hadBones = this._rigHasBones();
             this.customRig = { template: this._rigTemplate, markers: JSON.parse(JSON.stringify(this._rigMarkers)) };

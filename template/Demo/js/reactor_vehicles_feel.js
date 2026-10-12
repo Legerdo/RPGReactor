@@ -430,7 +430,9 @@
         const braking = brake > 0 && v > top * 0.5;
         if (braking && !state.braking) Feel.sound("skid", kind);
         state.braking = braking;
-        engineRun(kind, share, gas < 0 ? 0 : gas > 1 ? 1 : gas, boarding, brake);
+        // Walked along the bed under water, its engine is silent.
+        if (drive && drive.flooded) { if (engine.on) engineOff(T.engineFade); }
+        else engineRun(kind, share, gas < 0 ? 0 : gas > 1 ? 1 : gas, boarding, brake);
     }
 
     /**

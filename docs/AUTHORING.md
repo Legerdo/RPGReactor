@@ -17,7 +17,7 @@ project; a person can use it to find where anything lives.
 | Tile elevation (terraces, cliffs) | `MapNNN.r3d.json` › `elevation` (one whole number per tile) | — (by hand or generator) | — |
 | Terrain (rolling ground) | `MapNNN.r3d.json` › `terrain` ((w+1)×(h+1) corner heights), `terrainWidth` | Build bar › Terrain brushes | `editor/tests/terrain.test.cjs` rules |
 | Room (floor, walls, ceiling, sky) | `MapNNN.r3d.json` › `room` | Map Properties › 3D | — |
-| Steep ground (the material slopes turn to) | `MapNNN.r3d.json` › `room` › `cliff`, `cliffSlope`, `cliffTint` | Build bar › Terrain › Ground › Steep Ground | `editor/tests/terrain-cliff.test.cjs` rules |
+| Steep ground (the material slopes turn to) | `MapNNN.r3d.json` › `room` › `cliff`, `cliffSlope`, `cliffTint` | Build bar › Terrain › Ground › Whole map › Steep Ground | `editor/tests/terrain-cliff.test.cjs` rules |
 | Pieces (the 3D tileset) | `MapNNN.r3d.json` › `pieces` | **Build** bar over the 3D view (the Build button in the toolbar); drawn as a plan on the flat map too | `validate-map.cjs` |
 | Buildings, built or described | `3d/Structures/*.json` (project-wide), placed as `MapNNN.r3d.json` › `structures` | Database › Structures › Build (the plot in the 3D view with the Build bar), Build bar › Blueprint or Use on the map stamps one | `build-structure.cjs --check`, and the page's own walk |
 | Materials | `img/materials/*.png` (tileable) | swatches in the Build bar's specs panel | — |
@@ -114,23 +114,48 @@ choose its kind and image. The image control starts in 2D; check **3D**
 to choose a model with the shared model picker. Switching back retains
 the previous assignments. Adjust movement and handling as needed. In
 **Starting Position**, click the location button, choose a map and tile
-with the shared map picker, then choose the facing. **Clear** leaves it
+with the shared map picker, then choose the facing. A 3D map stands in the
+picker (drag to turn, right-drag to move, scroll to zoom, click the place);
+**Top Down** is the flat view. **Clear** leaves it
 unplaced. The vehicle appears in both editor views without adding an event
 to the map or its event list; opening its marker selects the Vehicles entry.
 Vehicle starting coordinates follow anchored map resize offsets.
 
-Confirm boards nearby vehicles; Cancel brakes and dismounts. Event commands
+**Several of one vehicle.** Starting Position is a list: **+ Add Another** adds a copy of the vehicle with a starting
+position and facing of its own, and **Delete** on a copy's row takes it away. Each copy is a vehicle of its own
+in the game (its own place, condition and equipment) and is named in commands as "Motorcycle 2". In the file a
+copy is an entry of the record's `copies` (`{ id, startMapId, startX, startY, startDirection }`); its identity is
+`0:<vehicle ID + 10000 * (id - 1)>`, the first copy's `0:<vehicle ID>`.
+
+**Where the rider sits.** In **Database → 3D Models**, choose **Vehicle rider** in the **Rig** tool's list: five dots,
+Seat, Left and Right grip, Left and Right footrest. Drag them onto the model (a side's twin mirrors) and
+**Save rider**. They are `model.json` › `vehicle` › `seats[0]` (`seat`, `handL`, `handR`, `footL`, `footR`, each
+`{ "at": [x, y, z] }` in model space). A model with none is seated by its shape and kind.
+
+**Followers ride too.** When the leader gets on a ground vehicle on a 3D map, each follower in the line takes the
+nearest free vehicle within 20 tiles and rides behind in line, along the leader's own path; a follower with none
+near rides unseen, as before. They go with the leader over borders and through transfers, and when the leader
+gets off each vehicle is parked where it stands. A follower under an order, or hidden, takes none.
+
+**Set Vehicle Location** lists Boat, Ship, Airship and every vehicle of the Vehicles page, copies included, and
+moves the one chosen to any map: on its map it is put on the tile, and it leaves or appears as the command says.
+A ridden vehicle is not moved.
+
+Confirm boards nearby vehicles; Cancel brakes and dismounts. A ground vehicle is ridden into water: where the water is deeper than it wades (`handling.wade`, 0.45 tiles) the ride is over, its rider is left in the water on foot (swimming where it is deep) and the vehicle goes down to the bed and stays there, on that map, until someone moves it. The player gets it back by boarding it where it lies (wading to it, or diving down to it with Dash where it is deep) and walking it along the bed: under water it moves at a walk with its engine silent and cannot jump, and it runs again once the water is no deeper than it wades. Cancel under water leaves the rider in the water and the vehicle where it is. It comes out only where the bed leads out: a lake with cliff banks all round keeps it. `ReactorVehicles.sunk(vehicle)` asks, `setLocation` moves it, and `vehicleSink` is said on the runtime's event feed. Event commands
 **Get On Reactor Vehicle** and **Get Off Reactor Vehicle** remain in the
-**Reactor** tab. `nearest` targets a nearby vehicle; a database placement's
-stable script/command identity is `0:<vehicle ID>`. Stock RPG Maker vehicle
+**Reactor** tab; Get On chooses its vehicle from a list: the nearest one, this
+event (when it is a vehicle), the Boat, the Ship or the Airship, any vehicle of
+the Vehicles page, or a vehicle event of the map (stored as `nearest`, `this`,
+`boat` / `ship` / `airship`, `0:<number>` or the event's number). Stock RPG Maker vehicle
 commands retain their existing meanings.
 
-Older `rrVehicle` events, including the Demo motorcycle, remain supported.
-They keep their page conditions, command boarding, command names and save
-identities. The per-event Reactor Vehicle section has been removed; new
-placements belong in the Database. A database starting position creates
-an independent vehicle, so remove an old vehicle event when replacing it
-with a database placement rather than keeping both.
+**An event as a vehicle.** In the Event Editor's top band, **Vehicle** makes the event a vehicle of the Vehicles
+page (`rrVehicle: { type, yaw }` on the event; **None** takes it away), and **Heading** sets the way it faces. The
+event then stands on the map as that vehicle: a page that gives it no picture or model wears the vehicle's own
+(the page's Image shows it, with 3D ticked), OK boards it, and an event that has commands of its own is boarded by
+Get On Reactor Vehicle so its commands still run. Place one the way any event is placed, in the 2D or the 3D map
+view. This and a Starting Position are the two ways a vehicle comes to be on a map; each event is a vehicle of its
+own, so do not give one vehicle both.
 
 A ridden vehicle travels with the player on a Transfer Player command.
 Once parked, it stays on that map until the player returns. Its starting
@@ -156,10 +181,52 @@ supplies a second weapon slot. Configure class traits when a class is
 assigned; without a class, configure the vehicle's own traits. Vehicle
 traits also supplement its class permissions. **Types** supplies the shared equipment, weapon and
 armor categories. Each placed vehicle has independent health, equipment and active
-states; these use the existing battler rules and save data. Choosing a
-class does not enable mounted combat or an in-game vehicle equipment menu.
-Battles still use the existing dismount behavior; damage routing and rider
-protection need separate combat integration.
+states; these use the existing battler rules and save data. There is no
+in-game vehicle equipment menu.
+
+**Rider.** **Automatic** draws the rider on the seat when the vehicle's model
+places one (3D Models → Rig → Vehicle rider), else as the vehicle's type
+keeps its rider (a tank, an airship and a shuttle keep theirs inside). **On
+the seat** and **Inside the vehicle** decide it outright. Followers on
+vehicles of their own are drawn whichever it is. A figure whose rig has no
+hips, arms and legs by name stands in the seat instead of sitting.
+
+**Fighting from a vehicle.** A Tactical battle keeps the party on its land
+vehicles. A mounted unit moves the vehicle's range (the vehicle's or its
+class's `<move: N>` note; else 0.4 tiles for each tile a second of top speed,
+from 4 to 12), climbs nothing, and has **Dismount** in its menu; a unit on
+foot beside a free vehicle has **Mount**. Getting on or off is the unit's
+move for the turn. On the battle screen (Classic) the party stays aboard, and
+in a Battle Room each rider sits on its vehicle. In both, a vehicle with a
+class, traits, skills or equipment fights too: **Attack** asks whose attack
+it is to be when the vehicle can attack, and the vehicle's skills are listed
+after the rider's own under the vehicle's name, with its MP and TP. What the
+vehicle does uses its own strength, MP and TP. A rider's own attack is made
+with the weapon in hand; in a Battle Room one who goes up to the target
+leaves the vehicle for the strike. When a Tactical battle ends the leader
+rides on and anyone who got off takes the nearest vehicle again; if the
+leader ends it on foot, every vehicle stays where it stands. Action and
+First Person battles, and a boat or an aircraft in a Tactical battle, put the
+party on foot.
+
+**A vehicle in the line of fire.** A rider and its vehicle are two in one
+place. An action for one target lands on one of them: the player is asked
+which when it is theirs to aim (a heal, a revival), and the other side
+strikes whichever has the lesser share of its HP left (the rider at a tie).
+An action for an area lands on both. A rider kept **Inside the vehicle** is
+behind it: the other side's actions land on the vehicle until it is wrecked.
+A vehicle at 0 HP is a wreck: its rider is put on foot beside it, nobody
+rides it, and a revival brings it back. After a battle that is won a wreck
+stands again at 1 HP, unless System › Battles turns off **The fallen get up
+after a win**; **Recover All** for the entire party mends the party's
+vehicles on the map. A unit's panel shows its vehicle's HP under its own, and
+on the map the vehicle's bar sits over its rider's.
+
+**The fallen.** One of the party who falls in a battle goes to the ground
+and lies there until brought back (out of the saddle, if riding); in a
+Battle Room a fallen actor lies where it stood. An enemy on the map falls
+and lies a moment before it fades; on the battle screen it goes as its
+Collapse setting says.
 
 The Vehicles page also edits the original **Boat, Ship and Airship** in
 System.json. They retain native movement and RPG Maker event commands;
@@ -657,7 +724,7 @@ turns to rock:
 has it; `""`: off), `cliffSlope` the angle in degrees where the change
 begins (10-80, default 40), `cliffTint` a colour multiplied in as a rock
 piece's `tint`, so terrain cliffs match the rocks beside them. In the
-editor: Build bar › Terrain › **Ground** › Steep Ground (the material
+editor: Build bar › Terrain › **Ground** › Whole map › Steep Ground (the material
 tile, with None; Tint; Starts At). With None, Tint and Starts At are off.
 A flat map has no steep ground.
 
@@ -698,7 +765,7 @@ node editor/build-scripts/make-ground-materials.cjs <project> [--force] [--only 
 "surround": { "style": "continue", "neighbors": { "north": { "map": 7 }, "east": { "map": 9, "shift": 12 } } }
 ```
 
-The neighbor is shown and entered without a break. Within 64 tiles of such a border the map past it is read in the background and its world is built beside this one, in place of the side's style: its ground and paint, pieces, rocks, water, plants and placed models. Walking or driving over the border then goes on in that map with no fade: the party, a ridden vehicle, its speed and the camera carry over, and the map left stays standing behind until it is 96 tiles away. `shift` is the tile of this map the neighbor's first tile lies against (0 when absent). A neighbor shorter than the side leaves this map's own land along the rest of it. Only the map being played runs its events; a neighbor's events and lights wait until it is entered, so maps of one world should share a sun and an ambient light. A border reached before its neighbor is ready (a teleport to the border, a map still being read) is crossed with a fade, onto the nearest tile along the border that can be stood on. With the mouse, click the border tile the player stands on, facing out. A side with no neighbor is a border as before, an event's Set Movement Route never leaves the map, and nothing leaves by a border during a battle on the map. `Reactor3D.Neighbors.enabled = false` crosses every border with a fade and shows each side's own style.
+The neighbor is shown and entered without a break. As a map starts, the maps past its borders are read in the background and their worlds built beside it, in place of each side's style: ground and paint, pieces, rocks, water, plants and placed models; then the maps past those, so two maps out stand in every direction and nothing on the horizon changes as the party nears a border. Walking or driving over the border then goes on in that map with no fade: the party, a ridden vehicle, its speed and the camera carry over, what stood ahead and behind stays standing, and only a map more than two maps away is let go. Where two neighbors' lands past their other sides meet (the land north of each, say), each eases over 40 tiles into hills both maps share, whatever style either chose. `shift` is the tile of this map the neighbor's first tile lies against (0 when absent). A neighbor shorter than the side leaves this map's own land along the rest of it. Only the map being played runs its events; a neighbor's events and lights wait until it is entered, so maps of one world should share a sun and an ambient light. A border reached before its neighbor is ready (a teleport to the border, a map still being read) is crossed with a fade, onto the nearest tile along the border that can be stood on. With the mouse, click the border tile the player stands on, facing out. A side with no neighbor is a border as before, an event's Set Movement Route never leaves the map, and nothing leaves by a border during a battle on the map. `Reactor3D.Neighbors.enabled = false` crosses every border with a fade and shows each side's own style.
 
 For borders that read as one world: give both maps the same height along the shared border (the terrain is a grid of corners, and each border corner belongs to both), carry roads and painted ground across, and keep trees, rocks and buildings a few tiles back from the border. The Demo's Open Road (maps 8 to 12) is five maps in a row built this way, joined to North Haven's east side: ride out of the village by the east lane, or enter from the Reactor Room.
 

@@ -21,7 +21,8 @@ test('the Event Editor top is a band of fields over the page strip, styled from 
     const css = fs.readFileSync(path.join(editorRoot, 'css', 'styles.css'), 'utf8');
     const top = source.slice(source.indexOf('createHeader(event) {'), source.indexOf('createRightColumn(event) {'));
     // Name, note, position, size and the battle unit: each a label over its controls, in that order (the tab order).
-    assert.equal((top.match(/class="event-header-label[ "]/g) || []).length, 5);
+    // Name, Note, Position, Size, In battle, Vehicle.
+    assert.equal((top.match(/class="event-header-label[ "]/g) || []).length, 6);
     assert.match(top, /event-name-field[\s\S]*event-note-field[\s\S]*event-position-x[\s\S]*event-size-w[\s\S]*createUnitRow\(event\)[\s\S]*createPageStrip\(event\)/);
     assert.match(top, /strip\.appendChild\(this\.createPageTabs\(event\)\);\s*strip\.appendChild\(this\.createPageButtons\(\)\);/, 'the page buttons follow the tabs on one strip');
     assert.doesNotMatch(top, /style="|\.style\.(?!display|flex|overflow|minHeight)/, 'the band and the strip carry no inline styles');

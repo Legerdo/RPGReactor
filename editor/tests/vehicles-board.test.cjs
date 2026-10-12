@@ -1104,6 +1104,8 @@ test('Get On Vehicle (this), waiting, seats the party and runs its next command 
 test('Get On Vehicle (this) is the vehicle whose event runs the command, not the one nearest the leader', () => {
     const w = world({ vehicles: [bike(31, 10, 10, { yaw: 180 }), bike(32, 30, 10, { yaw: 180 })] });
     const p = w.$gamePlayer;
+    // (The leader alone: followers who take the other vehicle are the convoy's tests.)
+    p.hideFollowers();
     // The leader stands beside the second bike; the first one's event runs the command.
     w.stand(31, 10, 4);
     w.run(1);

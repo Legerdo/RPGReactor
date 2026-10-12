@@ -105,7 +105,9 @@ class TerrainManager {
     ground() { return typeof RRMapGround !== 'undefined' ? RRMapGround : (window.RRMapGround || null); }
 
     foliage() { return typeof RRMapFoliage !== 'undefined' ? RRMapFoliage : (window.RRMapFoliage || null); }
-    isFoliageMode(mode = this.mode) { return TerrainManager.FOLIAGE_MODES.includes(mode); }
+    /** The Foliage group's eraser: its brush takes every kind away. */
+    static FOLIAGE_ERASER = 'ferase';
+    isFoliageMode(mode = this.mode) { return TerrainManager.FOLIAGE_MODES.includes(mode) || mode === TerrainManager.FOLIAGE_ERASER; }
     /** A kind's look in hand: what the runtime grows it as, with the author's changes over it. */
     foliageLookOf(kind) {
         const base = (typeof Reactor3D !== 'undefined' && Reactor3D.FOLIAGE_LOOKS && Reactor3D.FOLIAGE_LOOKS[kind]) || {};
@@ -531,7 +533,17 @@ class TerrainManager {
         if (!map || !foliage || !stroke) return false;
         const cx = point.x + 0.5, cy = point.y + 0.5;
         let changed = null;
-        if (this.mode === 'bush') {
+        if (this.mode === TerrainManager.FOLIAGE_ERASER) {
+            // Every kind under the brush, and the bushes that stand in it.
+            const last = stroke.last, spacing = Math.max(0.35, this.radius * 0.3);
+            if (!first && last && Math.hypot(cx - last.x, cy - last.y) < spacing) return false;
+            const join = region => { if (region) changed = changed ? { x0: Math.min(changed.x0, region.x0), y0: Math.min(changed.y0, region.y0), x1: Math.max(changed.x1, region.x1), y1: Math.max(changed.y1, region.y1) } : region; };
+            for (const kind of TerrainManager.FOLIAGE_MODES) {
+                if (kind !== 'bush') join(foliage.paint(map, kind, cx, cy, { radius: this.radius, strength: 1, level: this.foliageLevel, erase: true, settings: this.foliageLook[kind] || {} }));
+            }
+            if (foliage.removeBushes(map, cx, cy, this.radius)) join({ x0: Math.floor(cx - this.radius), y0: Math.floor(cy - this.radius), x1: Math.ceil(cx + this.radius), y1: Math.ceil(cy + this.radius) });
+            stroke.last = { x: cx, y: cy };
+        } else if (this.mode === 'bush') {
             if (this.foliageErase) {
                 if (foliage.removeBushes(map, cx, cy, this.radius * 0.5)) changed = { x0: Math.floor(cx - this.radius), y0: Math.floor(cy - this.radius), x1: Math.ceil(cx + this.radius), y1: Math.ceil(cy + this.radius) };
             } else {

@@ -508,7 +508,8 @@ test('a fallen unit stays whole while a shot holds on it, then fades', () => {
     assert.equal(w.$gameMap.event(1)._erased, false, 'held: not erased');
     assert.equal(w.$gameMap.event(1).opacity(), 255);
     busy = false;
-    tick(w, F.DEFEAT_FADE + 4);
+    // (It lies a while where it fell before it fades.)
+    tick(w, F.FALL_REST + F.DEFEAT_FADE + 4);
     assert.equal(w.$gameMap.event(1)._erased, true);
 });
 

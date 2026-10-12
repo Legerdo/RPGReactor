@@ -4995,6 +4995,12 @@ Reactor3D.carveModelParts = function(root, parts) {
             }
             sub.setIndex(new THREE.BufferAttribute(Uint32Array.from(ids), 1));
             if (!geometry.getAttribute("normal")) sub.computeVertexNormals();
+            // Its bounds are the whole mesh's: three measures a geometry by every vertex of its attributes,
+            // whichever its index names, so each copy of a model measured the same vertices again for each
+            // part (a detailed vehicle's fourteen, a quarter of a frame's time each time one came into view).
+            if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+            sub.boundingSphere = geometry.boundingSphere.clone();
+            if (geometry.boundingBox) sub.boundingBox = geometry.boundingBox.clone();
             return sub;
         };
         // The pivot is authored in model space; the mesh may sit offset
@@ -5143,7 +5149,9 @@ Reactor3D.normalizeBoneName = function(name) {
  * keeps that skeleton: each rig bone names the file's bone that stands
  * where its head was fitted (a matching name counts for half the
  * distance, so Mixamo's inverted Spine/Spine02 still lands by place), and
- * that bone registers as the part. The clips keep driving those bones;
+ * that bone registers as the part. A rig bone whose nearest bone went to
+ * another takes the free bone of its own name, and the rig's root is a
+ * bone that carries what its children took. The clips keep driving those bones;
  * a pose bends them from wherever the clip holds them. Returns false when
  * nothing under `root` is skinned, so the rig binds its own skeleton.
  */
@@ -5163,13 +5171,15 @@ Reactor3D.mapRigToSkeleton = function(root, rig) {
     const heads = rig.bones.map(def => new THREE.Vector3().fromArray(def.head));
     const reach = new THREE.Box3().setFromPoints(heads).getSize(new THREE.Vector3());
     const span = Math.max(reach.x, reach.y, reach.z, 0.001);
+    const REACH = 0.35;
+    const aliasesOf = def => this.RIG_BONE_ALIASES[def.name] || [this.normalizeBoneName(def.name)];
+    const scoreOf = (index, j, named) => { const distance = places[j].distanceTo(heads[index]) / span; return named ? distance * 0.5 : distance; };
     const picks = rig.bones.map((def, index) => {
-        const aliases = this.RIG_BONE_ALIASES[def.name] || [this.normalizeBoneName(def.name)];
+        const aliases = aliasesOf(def);
         let bone = -1;
         let score = Infinity;
         bones.forEach((candidate, j) => {
-            const distance = places[j].distanceTo(heads[index]) / span;
-            const value = aliases.indexOf(names[j]) >= 0 ? distance * 0.5 : distance;
+            const value = scoreOf(index, j, aliases.indexOf(names[j]) >= 0);
             if (value < score) { score = value; bone = j; }
         });
         return { index, bone, score };
@@ -5178,18 +5188,57 @@ Reactor3D.mapRigToSkeleton = function(root, rig) {
     // already taken, or that stands nowhere near one, stays unmapped.
     picks.sort((a, b) => a.score - b.score);
     const taken = new Set();
-    let mapped = 0;
+    const chosen = rig.bones.map(() => -1);
     for (const pick of picks) {
-        if (pick.bone < 0 || taken.has(pick.bone) || pick.score > 0.35) continue;
+        if (pick.bone < 0 || taken.has(pick.bone) || pick.score > REACH) continue;
         taken.add(pick.bone);
-        const bone = bones[pick.bone];
-        const def = rig.bones[pick.index];
+        chosen[pick.index] = pick.bone;
+    }
+    // The nearest free bone that bears a rig bone's name, within reach; -1 for none. `fits` narrows the choice.
+    const namedFor = (index, fits) => {
+        const aliases = aliasesOf(rig.bones[index]);
+        let bone = -1;
+        let score = REACH;
+        bones.forEach((candidate, j) => {
+            if (taken.has(j) || aliases.indexOf(names[j]) < 0 || (fits && !fits(candidate))) return;
+            const value = scoreOf(index, j, true);
+            if (value <= score) { score = value; bone = j; }
+        });
+        return bone;
+    };
+    // One left without (its nearest bone went to a surer match: a thigh's to the forearm hanging beside it) takes
+    // the bone that bears its name.
+    rig.bones.forEach((def, index) => {
+        if (chosen[index] >= 0) return;
+        const bone = namedFor(index);
+        if (bone >= 0) { taken.add(bone); chosen[index] = bone; }
+    });
+    // The rig's root stands over the rest: a bone that carries none of what the root's children took (a coat's, a
+    // belt's, nearer the marker than the pelvis) gives way to the bone of its name that carries them all.
+    const isAbove = (above, bone) => { for (let node = bone; node; node = node.parent) if (node === above) return true; return false; };
+    rig.bones.forEach((def, index) => {
+        if (def.parent >= 0 || chosen[index] < 0) return;
+        const under = [];
+        rig.bones.forEach((other, j) => { if (other.parent === index && chosen[j] >= 0) under.push(bones[chosen[j]]); });
+        const carries = bone => under.every(child => isAbove(bone, child));
+        if (!under.length || carries(bones[chosen[index]])) return;
+        const bone = namedFor(index, carries);
+        if (bone < 0) return;
+        taken.delete(chosen[index]);
+        taken.add(bone);
+        chosen[index] = bone;
+    });
+    let mapped = 0;
+    chosen.forEach((j, index) => {
+        if (j < 0) return;
+        const bone = bones[j];
+        const def = rig.bones[index];
         bone.userData.parts = [{ name: def.name, pivot: [0, 0, 0] }];
         bone.userData.__reactorRigBone = true;
         bone.userData.__reactorClipBone = true;
         bone.userData.__reactorBoneTail = def.tail.slice();
         mapped++;
-    }
+    });
     root.userData.rigged = true;
     root.userData.rigMapped = mapped;
     this.attachRigHands(root, rig, bones.filter(b => b.userData && b.userData.__reactorRigBone));
@@ -6607,6 +6656,11 @@ Reactor3D.MapHeld = {
         if (!state.sequence) this.put(state);
         return true;
     },
+    /** Whether the character has its thing out to use it: a sequence shows it, or it aims at somebody. Carried at the side is not. */
+    inUse(character) {
+        const state = character && typeof THREE !== "undefined" ? this.states.get(Reactor3D.modelInstanceKey(character)) : null;
+        return !!state && state.character === character && !state.idle && state.shown && (state.sequence || !!(state.carry && state.carry.aim));
+    },
     /** Where the tip of what the character holds is (a muzzle, a blade's point), in the map's scene, or null when it holds nothing there. */
     tipPoint(character) {
         const state = character && typeof THREE !== "undefined" ? this.states.get(Reactor3D.modelInstanceKey(character)) : null;
@@ -6747,7 +6801,8 @@ Reactor3D.MapHeld = {
         const state = this.states.get(Reactor3D.modelInstanceKey(character));
         if (!state || state.character !== character || state.idle || !holder.object) return false;
         // Both hands are on the bars of what it rides (seated from the hop on to the hop off): the thing is put away, and the arms are the ride's.
-        if (character._rrSeated) { this.stow(state); return false; }
+        // One who takes aim from the seat, or whose sequence shows the thing, has it out: the ride lets the arms go (`inUse`).
+        if (character._rrSeated && !this.inUse(character)) { this.stow(state); return false; }
         // Both hands are on the ledge it climbs: the thing is put away, and the arms are the climb's.
         if (character._reactorMantle) { this.stow(state); return false; }
         if (state.stowed) this.unstow(state);
@@ -10038,6 +10093,16 @@ Reactor3D._liveTransformInto = function(state, frame, out) {
     return out;
 };
 
+/**
+ * The level axis a character goes over about when it falls along `yaw` (the angle on the map of the way it is
+ * thrown, 0 down the map: `ReactorFight.fallYaw`), or null when it has none. One shared vector: read it at once.
+ */
+Reactor3D.fallAxis = function(yaw) {
+    if (typeof yaw !== "number" || !Number.isFinite(yaw)) return null;
+    const axis = Reactor3D._fallAxis || (Reactor3D._fallAxis = new THREE.Vector3());
+    return axis.set(Math.cos(yaw), 0, -Math.sin(yaw));
+};
+
 Reactor3D.applyLiveTransform = function(object, character) {
     const state = character && character._reactorTransform;
     if (!state || !object) return;
@@ -10206,6 +10271,7 @@ Reactor3D.StillModels = {
             || placed.realX !== character._realX || placed.realY !== character._realY
             || placed.lift !== (character._reactorLift || 0) || placed.air !== (character._reactorAir || 0)
             || placed.pitch !== (character._reactorPosePitch || 0) || placed.spin !== (character._reactorSpin || 0)
+            || placed.fallYaw !== (character._reactorFallYaw ?? null)
             || placed.ex !== extent.x || placed.ey !== extent.y || placed.ez !== extent.z
             || placed.smoothYaw !== holder.smoothYaw) return false;
         if (!this.sameTransform(placed, character._reactorTransform)) return false;
@@ -10235,6 +10301,7 @@ Reactor3D.StillModels = {
         placed.air = character._reactorAir || 0;
         placed.pitch = character._reactorPosePitch || 0;
         placed.spin = character._reactorSpin || 0;
+        placed.fallYaw = character._reactorFallYaw ?? null;
         placed.ex = extent.x;
         placed.ey = extent.y;
         placed.ez = extent.z;
@@ -10522,7 +10589,10 @@ Reactor3D.MapScene.prototype.syncCharacterModels = function(characters) {
             // whichever way it points, and rolls the way a sprite would turn.
             const posePitch = character._reactorPosePitch || 0;
             const poseSpin = character._reactorSpin || 0;
-            if (posePitch) object.rotateX(-posePitch * Math.PI / 2);
+            // One felled by a blow goes over along the blow's line on the map (`_reactorFallYaw`), whichever way it faced.
+            const fallAxis = posePitch > 0 ? Reactor3D.fallAxis(character._reactorFallYaw) : null;
+            if (fallAxis) object.rotateOnWorldAxis(fallAxis, posePitch * Math.PI / 2);
+            else if (posePitch) object.rotateX(-posePitch * Math.PI / 2);
             if (poseSpin) object.rotateZ(-poseSpin * Math.PI / 180);
             if (still.enabled) still.note(holder, character, object, spec, extent, ground, dir8, lodSpan, targetYaw);
         }
@@ -11312,6 +11382,7 @@ Reactor3D.installVerticalMotion = function() {
     };
     /** Lie facing the ceiling (1) or the ground (-1), or stand back up (0) — a bed, a knockout. */
     proto.reactorFacePose = function(pose) {
+        this._reactorFallYaw = null;
         this._reactorPosePitch = pose > 0 ? 1 : pose < 0 ? -1 : 0;
     };
     /** Turn the drawn character to `degrees` on screen; a model rolls the same way. 0 stands it straight. */

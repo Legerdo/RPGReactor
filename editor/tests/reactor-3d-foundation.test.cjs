@@ -275,7 +275,9 @@ test('the 3D subsystem is the core and the extensions the core names', () => {
     // 59 since 2026-10-05: vehicles are two 3D extensions the editor also loads (reactor_3d_vehicles.js: what is true of a vehicle
     // model, the handling step, the drawn attitude; reactor_3d_rider.js: the rider held to seat, grips and rests) and four game
     // files (reactor_vehicles.js: a vehicle in the world; _drive: free movement; _feel: the camera and the sound; _hints: the label and the strip).
-    assert.ok(roots.length <= 59, `runtime js/ root has grown to ${roots.length} files`);
+    // 60 since 2026-10-11: reactor_vehicles_mount.js (fighting from a vehicle: a mounted unit of a Tactical battle, the
+    // vehicle's commands on the battle screen, a rider seated in a Battle Room) is its own concern.
+    assert.ok(roots.length <= 60, `runtime js/ root has grown to ${roots.length} files`);
 });
 
 test('the game boots every extension straight after the core, before anything reads them', () => {

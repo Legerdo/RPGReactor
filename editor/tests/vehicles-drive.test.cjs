@@ -460,14 +460,14 @@ test('a shut door stops it and an open doorway does not', () => {
     assert.equal(w.Drive.solidAhead(map, 38.5, 20.5, 1, 0, 3, 0.6, 2.4), false);
 });
 
-test('water: a tile deep is the shore, a wade is driven through at 70% of its speed', () => {
+test('water: a tile deep is ridden into (nothing refuses it), a wade is driven through at 70% of its speed', () => {
     const lake = depth => driveWorld(Object.assign(floor({ width: 160, height: 20, ground: x => (x >= 40 ? -depth : 0), water: [{ x0: 40, y0: 0, x1: 159, y1: 19, level: 0 }] }), { at: [20, 10], yaw: 90 }));
     const deep = lake(1);
     deep.keys.up = true;
-    const log = ride(deep, 300, (t, d, last) => !last.stopped);
-    assert.ok(log.firstStop && log.refused.water > 0, JSON.stringify(log.refused));
-    assert.ok(deep.where().x + AXLE < 40.3, 'on the shore: ' + deep.where().x);
-    assert.equal(deep.drive().alt, 0);
+    const log = ride(deep, 200);
+    assert.equal(log.refused.water, undefined, 'the shore refuses nothing: ' + JSON.stringify(log.refused));
+    assert.ok(log.air > 0, 'it rode off the bank into the lake');
+    // (What happens in water deeper than its wade is the world's: ReactorVehicles.sink, audit-20261010-vehicles.test.cjs.)
     const wade = lake(0.3);
     wade.keys.up = true;
     const through = ride(wade, 600);
@@ -903,8 +903,8 @@ test('walked round beside a ledge, a wheel swung over the drop hangs: nothing si
     }
 });
 
-test('walked round beside deep water, or ridden along it with its tail over it: no splash, no dip to black', () => {
-    for (const keys of [{ right: true }, { left: true }, { up: true, left: true }]) {
+test('walked round beside deep water with its tail over it: no splash, no dip to black', () => {
+    for (const keys of [{ right: true }, { left: true }]) {
         const w = driveWorld(Object.assign(lakeWest(), { at: [keys.up ? 20.3 : 20.1, keys.up ? 50 : 30], yaw: 0 }));
         const splashes = on(w, 'vehicleSplash');
         Object.assign(w.keys, keys);

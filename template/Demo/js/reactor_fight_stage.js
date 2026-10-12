@@ -954,7 +954,7 @@
                 // Game data and the screen: the steps the battle scene shares.
                 if (state.silent || !P || !P.gameCue) return;
                 const shared = P.gameCue(step, { chosen, subject, number: amount, audioSaved: state.audioSaved,
-                    feedback: battler => { const unit = state.cast.units.get(battler); if (unit && fight.popup) fight.popup(unit, battler); if (unit && battler.isDead && battler.isDead() && fight.defeat) fight.defeat(unit); } });
+                    feedback: battler => { const unit = state.cast.units.get(battler); if (unit && fight.popup) fight.popup(unit, battler); if (unit && battler.isDead && battler.isDead() && fight.defeat) { const by = state.cast.units.get(subject), from = by && by !== unit ? fight.character(by) : null; if (from) unit.struck = { x: from._realX, y: from._realY }; fight.defeat(unit); } } });
                 if (shared && shared.ticket) return media(shared.ticket);
             },
             pose(positions, time) {

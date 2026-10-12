@@ -1,7 +1,8 @@
 'use strict';
-// A battle and a vehicle (runtime/reactor_vehicles.js). A battle on the map that starts while the party is aboard
-// finds an ordinary party on foot: the vehicle is parked where it is and the leader stands beside it before the
-// battle places anyone. A battle on the battle screen leaves the party in the saddle, at a standstill.
+// A battle and a vehicle (runtime/reactor_vehicles.js). An Action or First Person battle that starts while the party
+// is aboard finds an ordinary party on foot: the vehicle is parked where it is and the leader stands beside it
+// before the battle places anyone. A Tactical battle keeps the party in the saddle (vehicles-mount.test.cjs), and
+// a battle on the battle screen leaves it there, at a standstill.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -10,7 +11,7 @@ const vm = require('node:vm');
 const { boardWorld, bike, event, page, motorcycle, DEG } = require('./helpers/vehicles-board-world.cjs');
 const { runtimeRoot } = require('./helpers/runtime-source.cjs');
 
-const world = (extra = {}) => boardWorld(Object.assign({ width: 80, height: 30, party: [1, 2, 3], vehicles: [bike(31, 5, 10, { yaw: 180 })] }, extra));
+const world = (extra = {}) => boardWorld(Object.assign({ action: true, width: 80, height: 30, party: [1, 2, 3], vehicles: [bike(31, 5, 10, { yaw: 180 })] }, extra));
 
 /** Aboard at (5, 10), then ridden 60 tiles east: the ride's own place moved, as a script's `locate` moves it. */
 function rideAway(w, x = 65, y = 10, degrees = 180) {
@@ -30,7 +31,7 @@ function withFollowers(w) {
     return w;
 }
 
-test('a battle on the map started aboard, 60 tiles from where the party boarded: on foot before anyone is placed', () => {
+test('an Action battle started aboard, 60 tiles from where the party boarded: on foot before anyone is placed', () => {
     const w = withFollowers(world());
     const p = rideAway(w), e = w.vehicle(31), fight = w.$gameFight, P = w.ReactorPhysics, R = w.Reactor3D;
     let off = 0;
@@ -46,7 +47,7 @@ test('a battle on the map started aboard, 60 tiles from where the party boarded:
         return prepareParty.call(this);
     };
     p._rrDrive.v = 14;
-    const serial = fight.start({ mode: 'tactical', troopId: 1 });
+    const serial = fight.start({ mode: 'action', troopId: 1 });
     assert.ok(serial > 0);
     assert.deepEqual(found, { type: 'walk', free: 0, riding: false, seated: false, ride: null, inVehicle: false, airborne: false, at: [66, 10],
         boarded: false, vehicleFree: 1, through: false });
@@ -91,14 +92,14 @@ test('a battle on the map started aboard, 60 tiles from where the party boarded:
 test('the leader\'s hop is only drawn: 14 ticks of picture, the controls the battle\'s from the first frame', () => {
     const w = withFollowers(world());
     const p = rideAway(w, 65.4, 10.25, 180), fight = w.$gameFight;
-    fight.start({ mode: 'tactical', troopId: 1 });
+    fight.start({ mode: 'action', troopId: 1 });
     const mount = JSON.parse(JSON.stringify(p._rrMount));
     assert.deepEqual([mount.t, mount.n, mount.on, mount.drawn], [0, 14, false, true]);
     assert.deepEqual([mount.fx, mount.fy], [65.4, 10.25], 'from the saddle');
     assert.deepEqual([mount.tx, mount.ty], [p.x, p.y], 'to his tile');
     assert.deepEqual([p._realX, p._realY], [p.x, p.y], 'the player is already there');
     assert.equal(p.isInVehicle(), false);
-    assert.equal(p.canMove(), false, 'the battle holds the player');
+    assert.equal(p.canMove(), true, 'the hop holds nobody: the player fights at once');
     assert.equal(w.V.isBusy(), false, 'no command waits for a drawn hop');
     const at = [p._realX, p._realY];
     for (let tick = 1; tick <= 13; tick++) {
@@ -122,7 +123,7 @@ test('a follower under a Stay order is where it was, and the others are with the
     assert.equal(w.board(31), true);
     p._realX = 65; p._realY = 10; p._x = 65; p._y = 10;
     w.run(2);
-    w.$gameFight.start({ mode: 'tactical', troopId: 1 });
+    w.$gameFight.start({ mode: 'action', troopId: 1 });
     assert.deepEqual([held.x, held.y], [3, 14], 'left where it was told to stay');
     assert.ok(Math.max(Math.abs(other.x - p.x), Math.abs(other.y - p.y)) <= 2, 'the other follower is with the leader: ' + other.x + ',' + other.y);
     assert.equal(held.isVisible(), true);
@@ -137,7 +138,7 @@ test('the same with the events feed absent: the rule listens for nothing', () =>
     let found = null;
     const prepareParty = w.$gameFight.prepareParty;
     w.$gameFight.prepareParty = function() { found = [p._vehicleType, p._rrFree, p._reactorRiding]; return prepareParty.call(this); };
-    assert.ok(w.$gameFight.start({ mode: 'tactical', troopId: 1 }) > 0);
+    assert.ok(w.$gameFight.start({ mode: 'action', troopId: 1 }) > 0);
     assert.deepEqual(found, ['walk', 0, false]);
     assert.equal(w.Reactor3D.eventBodyCovers(e, p.x, p.y), false);
     assert.deepEqual([e._rrFree, e._rrBoarded], [1, false]);
@@ -148,7 +149,7 @@ test('a start that answers 0 leaves the party on foot beside the bike', () => {
     const p = rideAway(w), e = w.vehicle(31), fight = w.$gameFight;
     // Something inside the chain refuses the battle after the party has been put on foot.
     w.ReactorVehicles.Feel.sound = name => { w.sounds.push(name); if (name === 'bump') fight._active = true; return true; };
-    assert.equal(fight.start({ mode: 'tactical', troopId: 1 }), 0);
+    assert.equal(fight.start({ mode: 'action', troopId: 1 }), 0);
     fight._active = false;
     assert.deepEqual([p._vehicleType, p._rrFree, p._rrRide], ['walk', 0, null]);
     assert.deepEqual([p.x, p.y], [66, 10]);
@@ -162,7 +163,7 @@ test('a battle already running is not touched: the wrapper stands down', () => {
     const w = withFollowers(world());
     const p = rideAway(w), fight = w.$gameFight;
     fight._active = true;
-    assert.equal(fight.start({ mode: 'tactical', troopId: 1 }), 0);
+    assert.equal(fight.start({ mode: 'action', troopId: 1 }), 0);
     fight._active = false;
     assert.equal(p._vehicleType, 'reactor', 'nothing was started and nobody was put on foot');
     assert.equal(p.vehicle(), w.vehicle(31));
@@ -175,7 +176,7 @@ test('with something on all four sides the leader is on the vehicle\'s tile, and
     let found = null;
     const prepareParty = fight.prepareParty;
     fight.prepareParty = function() { found = [p._vehicleType, p._rrFree, e._rrFree, e._through]; return prepareParty.call(this); };
-    assert.ok(fight.start({ mode: 'tactical', troopId: 1 }) > 0);
+    assert.ok(fight.start({ mode: 'action', troopId: 1 }) > 0);
     assert.deepEqual(found, ['walk', 0, 1, false]);
     w.run(1);
     assert.equal(w.Reactor3D.eventBodyCovers(e, p.x, p.y), false, 'outside its body at ' + p.x + ',' + p.y);
@@ -192,7 +193,7 @@ test('with something on all four sides and the events feed absent, the leader is
     let found = null;
     const prepareParty = w.$gameFight.prepareParty;
     w.$gameFight.prepareParty = function() { found = [p._vehicleType, w.Reactor3D.eventBodyCovers(e, p.x, p.y)]; return prepareParty.call(this); };
-    assert.ok(w.$gameFight.start({ mode: 'tactical', troopId: 1 }) > 0);
+    assert.ok(w.$gameFight.start({ mode: 'action', troopId: 1 }) > 0);
     assert.deepEqual(found, ['walk', false], 'on foot and clear of the bike before the battle prepares the party');
 });
 
@@ -208,7 +209,7 @@ test('a hop is finished first: a battle that starts in the middle of boarding fi
     w.run(1);
     w.run(5);
     assert.equal(p._rrMount.t, 5);
-    assert.ok(w.$gameFight.start({ mode: 'tactical', troopId: 1 }) > 0);
+    assert.ok(w.$gameFight.start({ mode: 'action', troopId: 1 }) > 0);
     assert.deepEqual([p._vehicleType, p._rrFree, e._rrFree, e._rrBoarded], ['walk', 0, 1, false]);
     assert.deepEqual([on, off], [1, 1], 'the hop was never cut half way: the ride began and ended');
     assert.equal(w.Reactor3D.eventBodyCovers(e, p.x, p.y), false);

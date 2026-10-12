@@ -695,13 +695,19 @@ test('the card docks beside the map and redraws the events only', () => {
     assert.match(card, /app\.undockMapPanel\(state\.panel\)/);
     assert.match(css, /#map-side-dock > \.rr-battle-setup \{ flex: 1; width: auto; min-height: 0; \}/);
     // The tiles take what is left and scroll; the middle scrolls by itself in a short window, so the sentence and Play stay in view.
-    assert.match(css, /\.rr-battle-setup-body \{ flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow-x: hidden; overflow-y: auto; \}/);
-    assert.match(css, /\.rr-battle-setup-tiles \{ flex: 1 1 0; min-height: 0; overflow-y: auto;/);
+    assert.match(css, /\.rr-battle-setup-body \{ flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow-x: hidden; overflow-y: auto; \}/);
+    // The list is as tall as its records, and gives way (scrolling inside itself) when the dock is short: no empty box under a few enemies.
+    assert.match(css, /\.rr-battle-setup-part\.is-tiles \{ flex: 0 1 auto; min-height: 96px;/);
+    assert.match(css, /\.rr-battle-setup-tiles \{ flex: 0 1 auto; min-height: 0; overflow-y: auto;/);
     assert.match(css, /\.rr-battle-setup-foot \{ flex: 0 0 auto;/);
     assert.match(css, /\.rr-battle-setup-row \{ display: grid; grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/);
     assert.match(css, /\.rr-battle-setup-tile > canvas \{ width: 68px; height: 68px;/);
     assert.match(css, /\.rr-battle-setup-grid \{ display: grid; grid-template-columns: 78px minmax\(0, 1fr\);/, 'one label | field grid');
-    assert.match(card, /<div class="rr-battle-setup-body rr-accent-scrollbar">[\s\S]{0,400}?data-part="start"><\/div><\/div><div class="rr-battle-setup-foot" data-part="foot">/);
+    // What is set for the map (mode, starts) first on one grid, then who is placed, then the one selected; the status and Play below, always in view.
+    assert.match(card, /<div class="rr-battle-setup-body rr-accent-scrollbar"><div class="rr-battle-setup-part" data-part="mode"><\/div><div class="rr-battle-setup-part" data-part="start"><\/div>[\s\S]{0,400}?data-part="unit" hidden><\/div><\/div><div class="rr-battle-setup-foot" data-part="foot">/);
+    // Play is the theme's primary button.
+    assert.match(card, /class="rr-button-primary rr-battle-setup-play"/);
+    assert.doesNotMatch(card, /rr-btn-primary/, 'a class the theme does not style');
     const rules = css.split('\n').filter(line => line.startsWith('.rr-battle-setup') && !line.startsWith('.rr-battle-setup-pick'));
     assert.ok(rules.length > 40 && rules.every(line => !/position:\s*(fixed|absolute)/.test(line)), 'it is not a sheet over the map');
     // The units' rings are the map view's to draw: the card has no layer of them.

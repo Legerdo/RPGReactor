@@ -929,8 +929,8 @@ Reactor3D.injectCutaway = function(material, shader) {
                 "if (rrGhost > 0.5) { if (!rrInWay) discard; } else if (rrInWay) discard;"
             ].join("\n\t")
                 // Scenery in the way of a battle's units is cut off above its foot; a body never is.
-                : "if (rrCutBody * rrCutBattle < 0.5 && vRRWorldPos.y > rrFightStump) discard;",
-            "if (rrCutRadius > 0.0 && rrCutBody * rrCutBattle < 0.5 && vRRWorldPos.y > rrCutFocus.y - 1.2) {",
+                : "if (max(rrCutBody * rrCutBattle, rrCutBody - 1.0) < 0.5 && vRRWorldPos.y > rrFightStump) discard;",
+            "if (rrCutRadius > 0.0 && max(rrCutBody * rrCutBattle, rrCutBody - 1.0) < 0.5 && vRRWorldPos.y > rrCutFocus.y - 1.2) {",
             "\tvec3 rrSight = rrCutFocus - rrCutEye;",
             "\tfloat rrSightLength = length(rrSight);",
             "\tif (rrSightLength > 0.001) {",
@@ -1196,6 +1196,28 @@ Reactor3D.cutawayMarkBody = function(character) {
     this.cutawayMarkMaterials(object);
     return true;
 };
+/**
+ * A ridden vehicle is its rider's body, battle or none (`on`), and scenery again when it is left: the fades that
+ * thin what stands between the eye and the party pass it by, however far behind its rider it reaches. Instances of
+ * one model share their materials, so each material counts who rides.
+ */
+Reactor3D.cutawayMarkRide = function(object, on) {
+    if (!object || typeof object.traverse !== "function" || !!object.__rrCutRide === !!on) return false;
+    object.__rrCutRide = !!on;
+    object.traverse(node => {
+        const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : null;
+        if (!materials) return;
+        for (const material of materials) {
+            material.userData = material.userData || {};
+            const mark = material.userData.rrCutBody || (material.userData.rrCutBody = { value: 0 });
+            const rides = material.userData.rrCutRides = Math.max(0, (material.userData.rrCutRides || 0) + (on ? 1 : -1));
+            // (2: a body always. 1: a body while a battle runs, as it was marked.)
+            if (rides > 0) { if (mark.value < 2) { material.userData.rrCutWas = mark.value; mark.value = 2; } }
+            else if (mark.value >= 2) mark.value = material.userData.rrCutWas || 0;
+        }
+    });
+    return true;
+};
 /** Every material of a model is told it is a body's. */
 Reactor3D.cutawayMarkMaterials = function(object) {
     object.traverse(node => {
@@ -1203,7 +1225,8 @@ Reactor3D.cutawayMarkMaterials = function(object) {
         if (!materials) return;
         for (const material of materials) {
             material.userData = material.userData || {};
-            if (material.userData.rrCutBody) material.userData.rrCutBody.value = 1;
+            // (A ridden vehicle's is a body already, and stays one when the battle is over.)
+            if (material.userData.rrCutBody) { if (material.userData.rrCutBody.value < 2) material.userData.rrCutBody.value = 1; else material.userData.rrCutWas = 1; }
             else material.userData.rrCutBody = { value: 1 };
         }
     });
@@ -2211,18 +2234,24 @@ Reactor3D.isMirrorFinish = function(object) {
 /**
  * A model's flat panels, largest first, in its own frame: `{ normal, d, area }`
  * with the plane dot(x, normal) = d. Worked out once from its triangles
- * (normals and offsets gathered into bins), kept on the model.
+ * (normals and offsets gathered into bins), kept on the model. Models made
+ * of the same geometry (three motorcycles of one file) share one answer: each
+ * weighs every triangle, a tenth of a second for a detailed vehicle.
  */
+Reactor3D._mirrorPanelsOf = new WeakMap();
 Reactor3D.mirrorPanels = function(object) {
     if (object.userData.__rrPanels) return object.userData.__rrPanels;
+    const meshes = [];
+    object.traverse(node => { if (node.isMesh && !node.isSkinnedMesh && node.geometry && node.geometry.attributes.position) meshes.push(node); });
+    if (!meshes.length) return [];
+    // (Told by its first geometry and every part's size: a vehicle's carved parts are geometry of each model's own.)
+    const made = meshes.map(mesh => mesh.geometry.attributes.position.count).join("|"), shared = this._mirrorPanelsOf.get(meshes[0].geometry);
+    if (shared && shared.made === made) return (object.userData.__rrPanels = shared.panels);
     object.updateMatrixWorld(true);
     const toLocal = new THREE.Matrix4().copy(object.matrixWorld).invert();
     const box = new THREE.Box3();
     const bins = new Map();
     const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
-    const meshes = [];
-    object.traverse(node => { if (node.isMesh && !node.isSkinnedMesh && node.geometry && node.geometry.attributes.position) meshes.push(node); });
-    if (!meshes.length) return [];
     for (const mesh of meshes) { mesh.geometry.computeBoundingBox?.(); const bb = mesh.geometry.boundingBox; if (bb) box.union(bb.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(toLocal, mesh.matrixWorld))); }
     const step = Math.max(1e-4, box.getSize(new THREE.Vector3()).length() * 0.004);
     for (const mesh of meshes) {
@@ -2256,6 +2285,7 @@ Reactor3D.mirrorPanels = function(object) {
     // a faceted hull (a tank) none worth a planar mirror.
     panels.flatShare = total > 0 && panels.length ? panels[0].area / total : 0;
     object.userData.__rrPanels = panels;
+    this._mirrorPanelsOf.set(meshes[0].geometry, { made, panels });
     return panels;
 };
 

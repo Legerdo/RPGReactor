@@ -537,6 +537,7 @@
         event._reactorLift = 0; event._reactorZTarget = 0;
         event._reactorAir = 0; event._reactorVz = 0;
         event._rrSpeed = 0; event._rrSteer = 0; event._rrLean = 0;
+        event._rrSink = undefined;
         event._rrPose = (event._rrPose || 0) + 1;
     };
 
@@ -596,6 +597,11 @@
         rebuild(map);
         offer.event = null; offer.stamp = -1;
         if (V.bind && !transfer) V.bind();
+        // The followers that rode vehicles of their own ride them here: come with the leader, or as a save left them.
+        if (transfer && transfer.map === map._mapId && transfer.convoy) {
+            if (transfer.shift) V.Convoy.shift(transfer.shift[0], transfer.shift[1], map._mapId);
+            V.Convoy.resume(transfer.convoy);
+        } else if (!transfer) V.Convoy.resume(null);
     };
 
     /** Before another map is set up: where each vehicle of this one stands, unless it is at its home. */
@@ -665,6 +671,27 @@
     };
 
     /**
+     * Whether a ground vehicle nobody rides stands in water deeper than it wades ("sunk"). It can be boarded there (by
+     * a swimmer who has dived down to it, too) and walked out along the bed: it runs again once it is out. The bed
+     * it is going down to counts while it is still sinking.
+     */
+    const waterRule = function(type, event) {
+        if (!event || !type || event._rrBoarded || (type.medium && type.medium !== "ground") || !map3D()) return "";
+        const R = world();
+        if (!R || !R.waterSurfaceAt || !R.hasWater || !R.hasWater($dataMap)) return "";
+        const level = R.waterSurfaceAt($dataMap, event._realX + 0.5, event._realY + 0.5);
+        if (level === null || level === undefined) return "";
+        const wade = type.handling && type.handling.wade >= 0 ? type.handling.wade : 0.45;
+        const stands = Number.isFinite(event._rrSink) ? event._rrSink : groundOf(event);
+        return level - stands > wade ? "sunk" : "";
+    };
+
+    /** Whether a vehicle stands under water deeper than it wades: where it sank, until it is walked or put out of it. */
+    V.sunk = function(event) {
+        return !!(event && event._rrVehicle && waterRule(V.type(event._rrVehicle), event));
+    };
+
+    /**
      * Why this version does not ride a vehicle here: "" when it does. In this order: the project's switch ("free"),
      * its type ("type", "kind"), the map ("flat", "loop", "firstPerson"), its model ("model").
      */
@@ -716,7 +743,11 @@
     // Riding: the one invariant, and what the engine asks of a vehicle.
 
     const aboard = function(on, instant) {
+        // In a battle on the map each unit gets on and off for itself: the leader's doing so moves nobody else.
+        if (fightHere()) return;
         const p = player(), followers = p && p._followers;
+        // The ride ends for the followers that rode vehicles of their own, too: each is parked where it stands.
+        if (!on && V.Convoy) V.Convoy.disband();
         if (followers && typeof followers.rrAboard === "function") followers.rrAboard(on, instant);
     };
 
@@ -1015,6 +1046,72 @@
         return true;
     };
 
+    /**
+     * Puts a vehicle of the Vehicles page (`identity`, `0:<number>`) on tile (x, y) of any map, wherever it is now:
+     * what Set Vehicle Location does for it. On this map it is moved (`setLocation`); from this map to another it
+     * leaves and waits there; from another map to this one it appears. Its heading is kept. False for one that is
+     * ridden, that the Database does not have, or that does not fit there.
+     */
+    V.moveTo = function(identity, mapId, x, y) {
+        const map = typeof $gameMap !== "undefined" ? $gameMap : null, data = mapData();
+        identity = String(identity == null ? "" : identity).trim();
+        mapId = Math.floor(number(mapId)); x = Math.floor(number(x)); y = Math.floor(number(y));
+        if (!map || !/^0:\d+$/.test(identity) || !(mapId > 0) || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+        const live = V.list().find(event => V.idOf(event) === identity) || null;
+        if (live && (live._rrBoarded || live === carried)) return false;
+        const store = registry(true);
+        if (mapId === map._mapId) {
+            if (live) {
+                // Here already, or one of this map's that is away or was taken out: it stands here again.
+                const yaw = V.degrees(headingOf(live));
+                if (live._erased) { live._erased = false; live._rrAway = false; live.refresh(); }
+                place(live, x, y, undefined, yaw);
+                live._reactorGround = undefined; live._reactorAlt = undefined;
+                live._through = pageThrough(live);
+                note(live, false);
+                offer.stamp = -1;
+                return true;
+            }
+            // On another map until now: its event is made on this one.
+            const entry = store.at[identity], authored = entry && entry.event ? copy(entry.event) : models().placementOf && models().placementOf(root.$dataReactorVehicles, identity);
+            if (!authored || !data || !Array.isArray(data.events)) return false;
+            const vacancy = data.events.findIndex((row, index) => index > 0 && !row), id = vacancy > 0 ? vacancy : Math.max(1, data.events.length);
+            authored.id = id; authored.x = x; authored.y = y; authored._rrVehicleIdentity = identity;
+            data.events[id] = authored;
+            const event = map._events[id] = new Game_Event(map._mapId, id);
+            if (!mark(event, authored)) { map._events[id] = null; data.events[id] = null; return false; }
+            event.refresh();
+            place(event, x, y, undefined, entry && Number.isFinite(entry.yaw) ? entry.yaw : V.degrees(event._rrYaw));
+            event._reactorGround = undefined; event._reactorAlt = undefined;
+            event._through = pageThrough(event);
+            // (The map's own list of its events is made once a frame: an event made now is not in it until the next.)
+            rebuild(map);
+            if (kept.list.indexOf(event) < 0) { kept.list.push(event); kept.board.push("ok"); kept.keys.push(""); kept.types.push(V.type(event._rrVehicle)); }
+            note(event, false);
+            const scene = typeof SceneManager !== "undefined" ? SceneManager._scene : null, sprites = scene && scene._spriteset;
+            if (sprites && typeof sprites.rrAddCharacter === "function") sprites.rrAddCharacter(event);
+            offer.stamp = -1;
+            return true;
+        }
+        // To another map: it waits there. One that stands on this map leaves it.
+        let entry = store.at[identity];
+        if (live && !live._erased) { note(live, false); entry = store.at[identity]; }
+        if (!entry) {
+            const authored = models().placementOf && models().placementOf(root.$dataReactorVehicles, identity);
+            if (!authored) return false;
+            entry = store.at[identity] = { map: mapId, x, y, z: null, yaw: authored.rrVehicle.yaw, type: authored.rrVehicle.type, home: [authored.x, authored.y] };
+        }
+        if (!entry.event) {
+            const authored = (live && live._rrAuthored) || (models().placementOf && models().placementOf(root.$dataReactorVehicles, identity));
+            if (authored) entry.event = copy(authored);
+        }
+        Object.assign(entry, { map: mapId, x, y, z: null });
+        delete entry.gone;
+        if (live && !live._erased) { live._rrAway = true; live.erase(); rebuild(map); }
+        offer.stamp = -1;
+        return true;
+    };
+
     /** Takes a parked vehicle out of the world; it is put back by `setLocation`. */
     V.remove = function(what) {
         const event = V.find(what);
@@ -1135,12 +1232,12 @@
         return !!(R.doorAt(data, map.roundXWithDirection(p._x, d), map.roundYWithDirection(p._y, d)) || R.doorAt(data, p._x, p._y));
     };
 
-    /** On foot and free to board: no event, no message, not swimming, climbing or in the air, no battle on the map. */
+    /** On foot and free to board: no event, no message, not climbing or in the air, no battle on the map. (A swimmer is free: what it may board is `pick`'s to say.) */
     const partyFree = function(p, map, busy) {
         if (p._vehicleType !== "walk" || p._rrMount) return false;
-        if (p._reactorSwim || p._reactorOnLadder || p._reactorMantle) return false;
+        if (p._reactorOnLadder || p._reactorMantle) return false;
         // In the air as the physics counts it: a jump or a fall, not a step down.
-        if (!p._reactorRiding && !p._reactorStepDown && (p._reactorAir > 0.02 || p._reactorVz > 0)) return false;
+        if (!p._reactorSwim && !p._reactorRiding && !p._reactorStepDown && (p._reactorAir > 0.02 || p._reactorVz > 0)) return false;
         const fight = typeof $gameFight !== "undefined" ? $gameFight : null;
         if (fight && fight.isHere()) return false;
         if (busy) return true;
@@ -1171,7 +1268,11 @@
             // Too far by plain counting for any part of it to be in reach: nothing of its body is asked.
             const far = (type.model && type.model.size > 0 ? type.model.size : 4) + V.REACH + 1;
             if (Math.abs(event._realX + 0.5 - wx) > far || Math.abs(event._realY + 0.5 - wz) > far) continue;
-            if (Math.abs(heightOf(event) - height) > V.REACH_HEIGHT) continue;
+            // A swimmer boards only a vehicle that lies under the water, and only from down beside it: dived to.
+            if (p._reactorSwim) {
+                if (!waterRule(type, event)) continue;
+                if (Math.abs(heightOf(event) - (Number.isFinite(p._reactorAlt) ? p._reactorAlt : height)) > V.REACH_HEIGHT + 1) continue;
+            } else if (Math.abs(heightOf(event) - height) > V.REACH_HEIGHT) continue;
             const gap = gapTo(R, event, wx, wz);
             if (gap > V.REACH) continue;
             // The direction to the nearest point of its body against his facing; on its body he faces it.
@@ -1242,9 +1343,33 @@
 
     const ease = k => k * k * (3 - 2 * k);
 
-    /** The rider nobody draws on the seat: the type hides its rider, or the leader has no model. */
-    const hidesRider = function(type, p) {
-        if (!map3D() || type && type.rider === "inside") return true;
+    /** Whether a vehicle's own model says where its rider sits (the Rig tool's Vehicle rider): a seat that was placed, not one guessed for its kind. */
+    const seatPlaced = function(event) {
+        const R = world(), holder = R && typeof R.modelHolderFor === "function" ? R.modelHolderFor(event) : null;
+        const block = holder && holder.object ? holder.object.__reactorVehicle : null;
+        if (block) return Array.isArray(block.seats) && !!block.seats[0] && !!block.seats[0].seat && !(block.wants && block.wants.seats);
+        // (Its model is not built yet: the file as it was read.)
+        const type = V.type(event._rrVehicle), json = type && type.model && R && R._sidecarJson ? R._sidecarJson[type.model.name] : null;
+        const seats = json && json.vehicle && Array.isArray(json.vehicle.seats) ? json.vehicle.seats : null;
+        return !!(seats && seats[0] && seats[0].seat);
+    };
+
+    /**
+     * The rider nobody draws on the seat: the vehicle's Rider setting says inside; or it says nothing, its kind
+     * keeps its rider inside and its model places no seat; or the leader has no model. Left to itself, a seat placed
+     * on the model shows its rider there, whatever the kind.
+     */
+    /** Whether a vehicle keeps its rider inside it (its Rider setting; left to itself, its kind unless its model places a seat). */
+    V.riderInside = function(event) {
+        if (!event || !(event._rrVehicle > 0)) return false;
+        const type = V.type(event._rrVehicle), record = root.$dataReactorVehicles ? root.$dataReactorVehicles[event._rrVehicle] : null;
+        const own = record && (record.rider === "seat" || record.rider === "inside") ? record.rider : "";
+        return own === "inside" || (!own && !!type && type.rider === "inside" && !seatPlaced(event));
+    };
+
+    const hidesRider = function(type, p, event) {
+        if (!map3D()) return true;
+        if (event && V.riderInside(event)) return true;
         const R = world();
         return !!(R && R.characterModelSpec && map3D() && !R.characterModelSpec(p));
     };
@@ -1252,7 +1377,7 @@
     /** Tick 0 of the hop on. The vehicle stays where it is, solid; the player stands still and is moved by the hop. */
     const board = function(event, instant) {
         const p = player();
-        if (!p || !V.isVehicle(event) || p._vehicleType !== "walk" || p._rrMount || fightHere() || V.scenery(event)) return false;
+        if (!p || !V.isVehicle(event) || p._vehicleType !== "walk" || p._rrMount || (fightHere() && !fightBoards) || V.scenery(event)) return false;
         const battler = V.battler(event);
         if (battler && battler.isDead()) return false;
         const yaw = headingOf(event);
@@ -1263,7 +1388,10 @@
         p._rrSeated = true;
         p._rrFree = 1;
         p._rrDrive = { v: 0, steer: 0, yaw, vz: 0, pitch: 0, roll: 0, travel: 0, leave: "", rest: 0, foot: 0, grid: 0, dry: null };
-        p._rrMount = { t: 0, n: V.HOP, on: true, drawn: false, fx: p._realX, fy: p._realY, fz: groundOf(p), fyaw: facingOf(p),
+        // Boarded where it sank: it is walked along the bed, and runs again when it is out of the water.
+        if (V.sunk(event)) p._rrDrive.flooded = true;
+        p._reactorSwim = false; p._reactorDive = 0;
+        p._rrMount = { t: 0, n: V.HOP, on: true, drawn: false, fx: p._realX, fy: p._realY, fz: p._rrDrive.flooded && Number.isFinite(p._reactorAlt) ? p._reactorAlt : groundOf(p), fyaw: facingOf(p),
             tx: event._realX, ty: event._realY, tz: groundOf(event) + (event._reactorLift || 0) };
         p._x = Math.round(event._realX); p._y = Math.round(event._realY);
         event._rrBoarded = true;
@@ -1289,13 +1417,14 @@
         face(p, event._rrYaw);
         p._reactorGround = ground; p._reactorAlt = ground; p._reactorAir = 0; p._reactorVz = 0;
         p._reactorRiding = true; event._reactorRiding = true;
-        if (hidesRider(V.type(event._rrVehicle), p)) p._transparent = true;
+        if (hidesRider(V.type(event._rrVehicle), p, event)) p._transparent = true;
         p._rrMount = null;
         event._rrPose = (event._rrPose || 0) + 1;
         if (V.Drive && typeof V.Drive.board === "function") V.Drive.board(event);
         riding = true;
         sound("start");
         event.getOn();
+        V.Convoy.form();
         emit("vehicleGetOn", event);
         if (V.Hints && typeof V.Hints.note === "function") V.Hints.note("boarded");
     };
@@ -1359,6 +1488,346 @@
         for (let guard = 0; p && p._rrMount && guard < 64; guard++) V.hop();
     };
 
+
+    //-------------------------------------------------------------------------
+    // The convoy: followers who ride vehicles of their own behind the leader.
+    //
+    // When the leader is seated, each follower in the line takes the nearest free vehicle within `CONVOY_REACH`
+    // tiles of the leader's (one that could be boarded: not sunk, not scenery, nobody on it); a follower with none
+    // rides unseen, as before. A convoy vehicle is not driven: it rides the leader's own trail, `CONVOY_GAP` behind
+    // the one ahead, at the heights, headings and leans the leader had there, so it goes wherever the leader went
+    // and nowhere else. When the ride ends, each is parked where it stands and its rider is on foot with the others.
+    // What is saved is on the followers (`_rrRide`, `_rrSeated`) and the events (`_rrBoarded`); the trail is not.
+
+    /** Tiles from the leader's vehicle within which a follower finds one of its own. */
+    // (About what the party sees round it: at 10, vehicles parked along one street 11 to 16 tiles apart left a follower without.)
+    V.CONVOY_REACH = 20;
+    /** Tiles between two vehicles of the convoy, bumper to bumper. */
+    V.CONVOY_GAP = 1.5;
+
+    const Convoy = V.Convoy = {};
+    // Set while a battle's own Mount boards the leader: a battle on the map refuses every other boarding.
+    let fightBoards = false;
+    /** The leader gets on a vehicle during a battle on the map, at once: a unit's Mount. False when it cannot. */
+    V.boardInFight = function(event) {
+        fightBoards = true;
+        try { const on = board(event, true); if (on) V.settle(); return on; } finally { fightBoards = false; }
+    };
+    /** One follower takes a vehicle of its own, at once. False for a vehicle that is taken or is none. */
+    V.seatFollower = function(follower, event) {
+        if (!follower || !V.isVehicle(event) || event._rrBoarded || event._erased) return false;
+        convoySeat(follower, event);
+        return true;
+    };
+    /** One follower gets off its vehicle, which is parked where it stands; the vehicle, or null. The follower is left where it is. */
+    V.unseatFollower = function(follower) {
+        if (!follower || (!follower._rrSeated && !follower._rrRide)) return null;
+        const ride = follower._rrRide, map = typeof $gameMap !== "undefined" ? $gameMap : null;
+        const event = ride && map && ride.map === map._mapId ? map._events[ride.id] : null;
+        follower._rrSeated = false; follower._rrRide = null; follower._reactorRiding = false; follower._rrFree = 0;
+        if (!event || !event._rrVehicle) return null;
+        event._rrBoarded = false; event._reactorRiding = false;
+        event._rrLean = 0; event._rrSteer = 0;
+        if (!event._erased) { V.park(event); convoySettle(event, null); }
+        return event;
+    };
+    // The leader's trail, newest last: places it was (x, y: tiles as `_realX`), its height, heading, pitch and lean
+    // there, and `s`, the road it had ridden by then. `total` is the road ridden now.
+    const trail = { list: [], total: 0, x: NaN, y: NaN, map: 0 };
+    /** The trail itself, for whoever draws or checks it: read it, do not change it. */
+    Convoy.trail = trail;
+
+    const convoyFollowers = function() {
+        const p = player(), followers = p && p._followers, data = followers && followers._data;
+        return Array.isArray(data) ? data : [];
+    };
+
+    /** The followers that ride, in the line's order, each with its vehicle: `[{ follower, event }]`. */
+    Convoy.riders = function() {
+        const out = [], map = typeof $gameMap !== "undefined" ? $gameMap : null;
+        if (!map) return out;
+        for (const follower of convoyFollowers()) {
+            const ride = follower._rrSeated ? follower._rrRide : null;
+            const event = ride && ride.map === map._mapId ? map._events[ride.id] : null;
+            if (event && event._rrVehicle && event._rrBoarded && !event._erased) out.push({ follower, event });
+        }
+        return out;
+    };
+
+    const convoySeat = function(follower, event) {
+        follower._rrRide = { map: $gameMap._mapId, id: event._eventId };
+        follower._rrSeated = true;
+        follower._rrLeave = 0; follower._rrAppear = 0;
+        if (follower.setOpacity) follower.setOpacity(255);
+        follower._realX = event._realX; follower._realY = event._realY; follower._x = Math.round(event._realX); follower._y = Math.round(event._realY);
+        follower._reactorGround = groundOf(event); follower._reactorAlt = follower._reactorGround; follower._reactorAir = 0; follower._reactorVz = 0;
+        follower._reactorRiding = true; follower._rrFree = 1;
+        if (!Number.isFinite(event._rrYaw)) event._rrYaw = headingOf(event);
+        face(follower, event._rrYaw);
+        event._rrBoarded = true;
+        event._rrFree = 2;
+        event._through = true;
+        event._rrSpeed = 0;
+        event._reactorRiding = true;
+        event._rrPose = (event._rrPose || 0) + 1;
+    };
+
+    /** The leader is seated: each follower of the line that finds a free vehicle near takes it. Returns how many did. */
+    Convoy.form = function() {
+        const p = player(), lead = V.ridden(), followers = p && p._followers;
+        trail.list.length = 0; trail.total = 0; trail.x = NaN; trail.y = NaN; trail.map = $gameMap ? $gameMap._mapId : 0;
+        if (fightHere()) return 0;
+        if (!p || !lead || !map3D() || !followers || (followers.isVisible && !followers.isVisible())) return 0;
+        const leadType = V.type(lead._rrVehicle);
+        if (leadType && leadType.medium && leadType.medium !== "ground") return 0;
+        const free = V.list().filter(event => event !== lead && V.isVehicle(event) && !event._rrBoarded && !V.scenery(event) && !V.sunk(event)
+            && !(V.battler(event) && V.battler(event).isDead())
+            && Math.hypot(event._realX - lead._realX, event._realY - lead._realY) <= V.CONVOY_REACH
+            && (() => { const type = V.type(event._rrVehicle); return !type || !type.medium || type.medium === "ground"; })());
+        let seated = 0;
+        for (const follower of convoyFollowers()) {
+            if (!free.length) break;
+            if (follower._rrOrder || follower._rrHidden || !(follower.actor && follower.actor())) continue;
+            // The one nearest to where this follower stands.
+            let best = 0, gap = Infinity;
+            for (let i = 0; i < free.length; i++) { const d = Math.hypot(free[i]._realX - follower._realX, free[i]._realY - follower._realY); if (d < gap) { gap = d; best = i; } }
+            convoySeat(follower, free.splice(best, 1)[0]);
+            seated++;
+        }
+        if (seated) offer.stamp = -1;
+        return seated;
+    };
+
+    /** The ride is over: each convoy vehicle is parked where it stands, and its rider is a follower on foot again. */
+    Convoy.disband = function() {
+        for (const follower of convoyFollowers()) {
+            if (!follower._rrSeated && !follower._rrRide) continue;
+            const ride = follower._rrRide, map = typeof $gameMap !== "undefined" ? $gameMap : null;
+            const event = ride && map && ride.map === map._mapId ? map._events[ride.id] : null;
+            follower._rrSeated = false; follower._rrRide = null; follower._reactorRiding = false; follower._rrFree = 0;
+            if (!event || !event._rrVehicle) continue;
+            event._rrBoarded = false; event._reactorRiding = false;
+            event._rrLean = 0; event._rrSteer = 0;
+            if (!event._erased) { V.park(event); convoySettle(event, follower); }
+        }
+        trail.list.length = 0; trail.total = 0; trail.x = NaN; trail.y = NaN;
+    };
+
+    /**
+     * A convoy vehicle is left where the trail had it, which is where the leader went: off a bank, out over a lake.
+     * One left above the ground comes down to it (`sinkTick`: it falls through the air and goes down slowly through
+     * water), and its rider is on foot at the height it had, for the map's own fall or swim to take from there.
+     */
+    const convoySettle = function(event, follower) {
+        const R = world();
+        if (!map3D() || !R || !R.groundHeightAt) return;
+        const alt = Number.isFinite(event._reactorAlt) ? event._reactorAlt : groundOf(event);
+        const bed = R.groundHeightAt($dataMap, event._realX + 0.5, event._realY + 0.5, alt);
+        if (!Number.isFinite(bed) || alt - bed < 0.05) return;
+        // Where it will stand is what is kept of it (a map left and come back to finds it there).
+        event._reactorGround = bed; event._reactorAlt = bed;
+        note(event, false);
+        event._reactorGround = alt; event._reactorAlt = alt;
+        event._rrSink = bed;
+        event._rrPose = (event._rrPose || 0) + 1;
+        if (follower) { follower._reactorGround = bed; follower._reactorAlt = alt; follower._reactorAir = alt - bed; follower._reactorVz = 0; }
+    };
+
+    /** The place on the trail `s` tiles of road from its start, into `at` (x, y, alt, yaw, pitch, roll); false before its first place. */
+    const trailAt = function(s, at) {
+        const list = trail.list, n = list.length;
+        if (!n || s < list[0].s) return false;
+        let hi = n - 1;
+        if (s >= list[hi].s) { Object.assign(at, list[hi]); return true; }
+        let lo = 0;
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (list[mid].s <= s) lo = mid; else hi = mid; }
+        const a = list[lo], b = list[hi], k = b.s > a.s ? (s - a.s) / (b.s - a.s) : 0;
+        at.x = a.x + (b.x - a.x) * k; at.y = a.y + (b.y - a.y) * k; at.alt = a.alt + (b.alt - a.alt) * k;
+        // (The short way round from one heading to the next.)
+        at.yaw = a.yaw + (turn360((b.yaw - a.yaw) / RAD + 180) - 180) * RAD * k;
+        at.pitch = a.pitch + (b.pitch - a.pitch) * k; at.roll = a.roll + (b.roll - a.roll) * k;
+        return true;
+    };
+    const AT = { x: 0, y: 0, alt: 0, yaw: 0, pitch: 0, roll: 0, s: 0 };
+
+    /**
+     * One tick of the convoy, after the leader's own: where the leader is goes onto the trail, and each convoy
+     * vehicle is put on the trail behind the one ahead of it. One that has not reached the trail yet (it stood
+     * beside it when the ride began) rides to it. `speed` is the leader's, signed.
+     */
+    Convoy.follow = function(p, lead, speed) {
+        const riders = Convoy.riders();
+        if (!riders.length || !lead) return;
+        const map = $gameMap, x = p._realX, y = p._realY;
+        const alt = Number.isFinite(p._reactorAlt) ? p._reactorAlt : groundOf(p);
+        // A leader put somewhere else (a transfer on this map): the trail begins again there, the convoy with it.
+        const jumped = Number.isFinite(trail.x) && Math.hypot(x - trail.x, y - trail.y) > 3;
+        if (trail.map !== map._mapId || jumped) {
+            trail.list.length = 0; trail.total = 0; trail.map = map._mapId;
+            if (jumped) for (const rider of riders) { rider.event._realX = x; rider.event._realY = y; }
+        }
+        const list = trail.list, last = list[list.length - 1];
+        const moved = Number.isFinite(trail.x) && !jumped ? Math.hypot(x - trail.x, y - trail.y) : 0;
+        trail.x = x; trail.y = y;
+        if (speed < 0 && moved > 0) {
+            // Backing up: the road is given back, and the convoy backs up along it.
+            trail.total = Math.max(list.length ? list[0].s : 0, trail.total - moved);
+            while (list.length > 1 && list[list.length - 1].s > trail.total) list.pop();
+        } else if (!last || moved > 0) {
+            trail.total += moved;
+            const yaw = Number.isFinite(lead._rrYaw) ? lead._rrYaw : 0;
+            const sample = { x, y, alt, yaw, pitch: Number(lead._rrPitch) || 0, roll: Number(lead._rrLean) || 0, s: trail.total };
+            // A place a tenth of a tile on from the last kept; nearer, the newest is moved up to here.
+            if (!last || list.length < 2 || trail.total - list[list.length - 2].s >= 0.1) list.push(sample); else list[list.length - 1] = sample;
+        }
+        let back = dimsOf(V.type(lead._rrVehicle)).length / 2;
+        for (let i = 0; i < riders.length; i++) {
+            const event = riders[i].event, follower = riders[i].follower;
+            const half = dimsOf(V.type(event._rrVehicle)).length / 2;
+            back += half + V.CONVOY_GAP;
+            const wasX = event._realX, wasY = event._realY;
+            let nx = wasX, ny = wasY, height = Number.isFinite(event._reactorAlt) ? event._reactorAlt : groundOf(event), yaw = event._rrYaw, pitch = 0, roll = 0;
+            if (trailAt(trail.total - back, AT)) {
+                const gap = Math.hypot(AT.x - wasX, AT.y - wasY);
+                // On the trail it is where the trail is; off it (the ride began, or the trail began again) it rides to it.
+                const reach = Math.max(Math.abs(speed) * 1.5, 6) / 60;
+                if (gap <= reach || event._rrOnTrail) {
+                    nx = AT.x; ny = AT.y; height = AT.alt; yaw = AT.yaw; pitch = AT.pitch; roll = AT.roll;
+                    event._rrOnTrail = gap <= Math.max(reach, 1.5);
+                } else {
+                    nx = wasX + (AT.x - wasX) * reach / gap; ny = wasY + (AT.y - wasY) * reach / gap;
+                    yaw = Math.atan2(AT.x - wasX, -(AT.y - wasY));
+                    const R = world();
+                    if (R && R.groundHeightAt) height = R.groundHeightAt($dataMap, nx + 0.5, ny + 0.5, height);
+                }
+            } else event._rrOnTrail = false;
+            back += half;
+            const went = Math.hypot(nx - wasX, ny - wasY);
+            if (went === 0 && event._rrSpeed === 0 && follower._realX === nx && follower._realY === ny) continue;
+            event._realX = nx; event._realY = ny; event._x = Math.round(nx); event._y = Math.round(ny);
+            event._rrYaw = yaw; event._rrPitch = pitch; event._rrLean = roll; event._rrSteer = 0;
+            event._rrTravel = (Number(event._rrTravel) || 0) + (speed < 0 ? -went : went);
+            event._rrSpeed = went * 60 * (speed < 0 ? -1 : 1);
+            event._reactorGround = height; event._reactorAlt = height; event._reactorAir = 0; event._reactorVz = 0;
+            event._through = true; event._rrFree = 2;
+            face(event, yaw);
+            event._rrPose = ((event._rrPose | 0) + 1) % 1000000000;
+            follower._realX = nx; follower._realY = ny; follower._x = event._x; follower._y = event._y;
+            follower._reactorGround = height; follower._reactorAlt = height; follower._reactorAir = 0; follower._reactorVz = 0;
+            follower._reactorRiding = true;
+            face(follower, yaw);
+            follower._rrPose = event._rrPose;
+        }
+        // The road behind the last of them is of no more use.
+        const keep = trail.total - back - 4;
+        let drop = 0;
+        while (drop < list.length - 2 && list[drop + 1].s < keep) drop++;
+        if (drop) list.splice(0, drop);
+    };
+
+    /** The trail and the convoy's places counted from another map's corner: the map entered over a border (`dx`, `dy` tiles). */
+    Convoy.shift = function(dx, dy, mapId) {
+        for (const sample of trail.list) { sample.x -= dx; sample.y -= dy; }
+        if (Number.isFinite(trail.x)) { trail.x -= dx; trail.y -= dy; }
+        trail.map = mapId;
+    };
+
+    /** After a map's events were made (a transfer, a save loaded): the followers that ride are on their vehicles again. */
+    Convoy.resume = function(moved) {
+        const map = typeof $gameMap !== "undefined" ? $gameMap : null;
+        if (!map) return;
+        const list = V.list();
+        for (const follower of convoyFollowers()) {
+            if (!follower._rrSeated) continue;
+            const identity = follower._rrConvoy, ride = follower._rrRide;
+            const event = identity ? list.find(other => V.idOf(other) === identity && !other._erased) : ride && ride.map === map._mapId ? map._events[ride.id] : null;
+            follower._rrConvoy = undefined;
+            if (!event || !event._rrVehicle || !player() || player()._vehicleType !== "reactor") {
+                follower._rrSeated = false; follower._rrRide = null; follower._reactorRiding = false; follower._rrFree = 0;
+                continue;
+            }
+            const at = moved && moved[identity];
+            if (at) { event._realX = at[0]; event._realY = at[1]; event._reactorGround = at[2]; event._reactorAlt = at[2]; event._rrYaw = at[3]; event._rrOnTrail = true; }
+            convoySeat(follower, event);
+            if (at) { follower._reactorGround = at[2]; follower._reactorAlt = at[2]; }
+        }
+    };
+
+    /** How fast a vehicle goes down through water, in tiles a tick. */
+    V.SINK = 0.03;
+
+    /**
+     * The ridden vehicle is in water deeper than it wades (`bed`: the ground under it). Its rider is in the water
+     * where the vehicle is, on foot at once, afloat where the water is deep; the vehicle is nobody's and goes down
+     * to the bed (`sinkTick`), where it stays until it is boarded there and walked out, or put somewhere else.
+     * False when nobody rides, or a hop on or off is under way.
+     */
+    V.sink = function(bed, quiet) {
+        const p = player(), event = V.ridden();
+        if (!p || !event || p._vehicleType !== "reactor" || p._rrMount) return false;
+        const drive = p._rrDrive;
+        const alt = drive && Number.isFinite(drive.alt) ? drive.alt : groundOf(event);
+        const falling = drive && drive.air > 0 && drive.vz < 0 ? drive.vz : 0;
+        const floor = Number.isFinite(bed) ? Math.min(bed, alt) : alt;
+        V.park(event);
+        // The rider, as `alight` leaves it, but where it is and at the height it has: the water takes it from here.
+        const was = p._rrWas;
+        p._rrSeated = false;
+        p._rrFree = 0;
+        p._vehicleType = "walk";
+        p._rrRide = null;
+        event._rrBoarded = false;
+        if (was) { p._moveSpeed = was.speed; p._transparent = !!was.transparent; }
+        p._rrWas = null;
+        p._reactorRiding = false; event._reactorRiding = false;
+        p._x = Math.round(p._realX); p._y = Math.round(p._realY); p._realX = p._x; p._realY = p._y;
+        p._reactorGround = floor; p._reactorAlt = alt; p._reactorAir = alt - floor; p._reactorVz = falling;
+        if (Number.isFinite(event._rrYaw)) face(p, event._rrYaw);
+        endDip(p);
+        p._rrDrive = null;
+        p._rrMount = null;
+        keep = 0; noRoom = 0; carried = null;
+        if (p.makeEncounterCount) p.makeEncounterCount();
+        aboard(false, true);
+        endRide(event);
+        // The vehicle: where it will stand is what is kept of it (a map left and come back to finds it on the bed).
+        event._reactorGround = floor; event._reactorAlt = floor;
+        note(event, false);
+        event._reactorGround = alt; event._reactorAlt = alt;
+        event._rrSink = floor;
+        event._rrPose = (event._rrPose || 0) + 1;
+        offer.event = null; offer.stamp = -1;
+        // (Got off a vehicle already lying under water, nothing sank: nothing is said.)
+        if (!quiet) emit("vehicleSink", event);
+        return true;
+    };
+
+    /** One tick of a vehicle going down to the bed it sinks to. */
+    V.sinkTick = function(event) {
+        const to = event._rrSink;
+        if (!Number.isFinite(to)) { event._rrSink = undefined; falls.delete(event); return; }
+        const from = Number.isFinite(event._reactorAlt) ? event._reactorAlt : to;
+        // Above the water (or where there is none) it falls; in the water it goes down slowly.
+        const R = world(), level = R && R.waterSurfaceAt && map3D() ? R.waterSurfaceAt($dataMap, event._realX + 0.5, event._realY + 0.5) : null;
+        const wet = level !== null && level !== undefined && Number.isFinite(level);
+        let step = V.SINK;
+        if (!wet || from > level) {
+            step = Math.min(V.FALL_MAX, (falls.get(event) || 0) + V.FALL);
+            falls.set(event, step);
+            // It meets the water at the surface, and goes on from there at the water's pace.
+            if (wet && from - step < level && level > to) step = from - level;
+        } else falls.delete(event);
+        const height = from - step > to ? from - step : to;
+        event._reactorGround = height; event._reactorAlt = height; event._reactorAir = 0; event._reactorVz = 0;
+        event._rrPose = (event._rrPose || 0) + 1;
+        if (height <= to) { event._rrSink = undefined; falls.delete(event); }
+    };
+    /** How much faster a vehicle nobody rides falls each tick through the air, and the fastest it falls, in tiles a tick. */
+    V.FALL = 0.012;
+    V.FALL_MAX = 0.6;
+    // How fast each falling vehicle is falling now (not saved: one loaded in mid-air starts its fall again).
+    const falls = new WeakMap();
+
     /**
      * The party gets off a vehicle that is slow enough: it is parked first, then a place beside it is looked for.
      * With none it is carried again, the buzzer plays and the label says so.
@@ -1368,6 +1837,8 @@
         const drive = p._rrDrive;
         if (drive) { drive.leave = ""; drive.v = 0; }
         keep = 0;
+        // Under water there is no tile to step onto: the rider lets go of it where it is and is in the water.
+        if (drive && drive.flooded) return V.sink(Number.isFinite(drive.alt) ? drive.alt : groundOf(event), true);
         V.park(event);
         const spot = V.landingSpot(event, SPOT);
         if (!spot) {
@@ -1426,6 +1897,34 @@
         if (!event || !p) return false;
         const far = Math.hypot(event._realX - p._realX, event._realY - p._realY) > V.HOP_REACH + dimsOf(V.type(event._rrVehicle)).length / 2;
         return board(event, !!(options && options.instant) || far);
+    };
+
+    /**
+     * The party goes aboard the boat, the ship or the airship (`type`), wherever on this map it stands: it is put
+     * where RPG Maker boards from (on the airship's tile; on a tile beside a boat or a ship, facing it), and RPG
+     * Maker's own boarding does the rest. False when the vehicle is on another map, switched off as rideable, has
+     * no tile beside it to board from, or the party already rides something.
+     */
+    V.getOnStock = function(type) {
+        const p = player(), map = typeof $gameMap !== "undefined" ? $gameMap : null;
+        const vehicle = map && typeof map.vehicle === "function" ? map.vehicle(type) : null;
+        if (!p || !vehicle || p._vehicleType !== "walk" || p._rrMount || vehicle._mapId !== map._mapId) return false;
+        const entry = root.$dataSystem && root.$dataSystem[type] && root.$dataSystem[type].reactorVehicle;
+        if (entry && entry.ridable === false) return false;
+        if (type === "airship") {
+            if (p.x !== vehicle.x || p.y !== vehicle.y) p.setPosition(vehicle.x, vehicle.y);
+        } else {
+            // Beside it already: turned to it. Else onto the first tile beside it that can be stood on.
+            const sides = [[0, 1, 8], [-1, 0, 6], [1, 0, 4], [0, -1, 2]];
+            let from = sides.find(side => p.x === vehicle.x + side[0] && p.y === vehicle.y + side[1]);
+            if (!from) {
+                from = sides.find(side => map.isValid(vehicle.x + side[0], vehicle.y + side[1]) && map.checkPassage(vehicle.x + side[0], vehicle.y + side[1], 0x0f));
+                if (!from) return false;
+                p.setPosition(vehicle.x + from[0], vehicle.y + from[1]);
+            }
+            p.setDirection(from[2]);
+        }
+        return !!p.getOnVehicle();
     };
 
     /** Gets the party off: braking first, then the hop. With `instant` at once, and false when there is nowhere to stand. */
@@ -1567,6 +2066,8 @@
         p._rrMount = { t: 0, n: V.HOP, on: false, drawn: true, fx, fy, fz, fyaw, tx: p._x, ty: p._y, tz: groundOf(p) };
         event._rrPose = (event._rrPose || 0) + 1;
     };
+
+    V.dismountForBattle = dismountForBattle;
 
     /**
      * A ride whose vehicle type was written over from outside (`$gamePlayer._vehicleType = "walk"`, the usual line to
@@ -1711,6 +2212,21 @@
         if (!entry.models && models && models[event._eventId]) entry.models = copy(models[event._eventId]);
         p._rrVehicleTransfer = { identity: V.idOf(event), map: mapId, x, y,
             yaw: direction ? DEGREES_OF_DIR[direction] : V.degrees(headingOf(event)) };
+        // The convoy goes too: what is kept of each of its vehicles is written now, and where each arrives when the
+        // map is set up (`setup`), once it is known whether a border is crossed into a map shown past it.
+        const riders = V.Convoy.riders();
+        if (riders.length) {
+            const convoy = p._rrVehicleTransfer.convoy = {};
+            for (const rider of riders) {
+                const vehicle = rider.event, identity = V.idOf(vehicle);
+                note(vehicle, false);
+                const kept = registry(true).at[identity];
+                if (!kept.event) kept.event = copy(vehicle._rrAuthored || vehicle.event());
+                if (!kept.models && models && models[vehicle._eventId]) kept.models = copy(models[vehicle._eventId]);
+                rider.follower._rrConvoy = identity;
+                convoy[identity] = null;
+            }
+        }
         return true;
     };
 
@@ -1781,6 +2297,20 @@
             if (transfer && transfer.map === mapId) {
                 const entry = registry(true).at[transfer.identity];
                 if (entry) Object.assign(entry, { map: mapId, x: transfer.x, y: transfer.y, z: null, yaw: transfer.yaw });
+                // The convoy: over a border into the map shown past it, each keeps its place behind the leader, counted
+                // from that map's corner (`shift`); by any other transfer they arrive where the leader does.
+                if (transfer.convoy) {
+                    const R = world(), cross = R && R.Neighbors && R.Neighbors.crossing && R.Neighbors.crossing.to === mapId ? R.Neighbors.crossing : null;
+                    if (cross) transfer.shift = [cross.offset.x, cross.offset.z];
+                    const here = V.list();
+                    for (const identity of Object.keys(transfer.convoy)) {
+                        const vehicle = here.find(other => V.idOf(other) === identity), kept = registry(true).at[identity];
+                        const height = vehicle && Number.isFinite(vehicle._reactorAlt) ? vehicle._reactorAlt : null;
+                        const at = transfer.convoy[identity] = cross && vehicle ? [vehicle._realX - cross.offset.x, vehicle._realY - cross.offset.z, height, vehicle._rrYaw]
+                            : [transfer.x, transfer.y, null, RAD * transfer.yaw];
+                        if (kept) Object.assign(kept, { map: mapId, x: at[0], y: at[1], z: at[2], yaw: V.degrees(at[3]) });
+                    }
+                }
             }
             return setup.apply(this, arguments);
         };
@@ -1879,7 +2409,11 @@
         // A boarded vehicle and one the mover parked run no movement type of their own.
         const updateSelfMovement = proto.updateSelfMovement;
         proto.updateSelfMovement = function() {
-            if (this._rrFree || this._rrBoarded) return;
+            if (this._rrFree || this._rrBoarded) {
+                // One that is going down through water goes down a little more.
+                if (this._rrSink !== undefined) V.sinkTick(this);
+                return;
+            }
             updateSelfMovement.call(this);
         };
 
@@ -1975,8 +2509,14 @@
             const start = Game_Fight.prototype.start;
             Game_Fight.prototype.start = function(options) {
                 const p = player();
-                if (!this._active && p && p._vehicleType === "reactor") dismountForBattle();
-                return start.call(this, options);
+                const riding = !this._active && p && p._vehicleType === "reactor";
+                // A battle fought on a grid keeps the party in the saddle (reactor_vehicles_mount.js); any other puts it on foot.
+                const mounted = riding && V.Mount && V.Mount.keeps(options);
+                if (mounted) halt();
+                else if (riding) dismountForBattle();
+                const count = start.call(this, options);
+                if (mounted && this._active) V.Mount.begin(this);
+                return count;
             };
             Game_Fight.prototype.start.__rrVehicles = true;
         }
@@ -2043,6 +2583,9 @@
         V._commands = true;
         PluginManager.registerCommand("RPGReactor", "GetOnVehicle", function(args) {
             args = args || {};
+            // The boat, the ship and the airship are RPG Maker's own: boarded as its own command boards them.
+            const stock = String(args.vehicle == null ? "" : args.vehicle).trim().toLowerCase();
+            if (stock === "boat" || stock === "ship" || stock === "airship") { V.getOnStock(stock); return; }
             const event = commandVehicle(this, args.vehicle);
             if (!event || !V.getOn(event, { instant: flag(args.instant, false) })) return;
             if (flag(args.wait, true) && V.isBusy()) this.setWaitMode("reactorVehicle");

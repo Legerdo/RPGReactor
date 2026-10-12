@@ -127,6 +127,8 @@ test('an event whose page conditions fail is no vehicle until they are met', () 
 test('find: an event, an id, an identity, ridden, nearest and a name; two events with one name are two vehicles', () => {
     const w = world({ vehicles: [bike(31, 10, 10, { yaw: 180, key: 'bike' }), bike(32, 30, 10, { yaw: 180, key: 'bike' }), bike(33, 45, 20, { key: 'spare' })] });
     const V = w.V, a = w.vehicle(31), b = w.vehicle(32), c = w.vehicle(33);
+    // (The leader alone: followers who take the other vehicles are the convoy's tests.)
+    w.$gamePlayer.hideFollowers();
     assert.equal(V.find(a), a);
     assert.equal(V.find(32), b);
     assert.equal(V.find('1:33'), c);
@@ -160,6 +162,8 @@ test('find: an event, an id, an identity, ridden, nearest and a name; two events
 test('a pasted copy of the bike is ridden away, parked and saved apart from the first', () => {
     const w = world({ vehicles: [bike(31, 10, 10, { yaw: 180 }), bike(32, 12, 10, { yaw: 180 })] });
     const V = w.V;
+    // (The leader alone: with its followers in the line, one of them would ride the first bike after it.)
+    w.$gamePlayer.hideFollowers();
     w.stand(13, 10, 4);
     w.board(32);
     assert.equal(V.ridden(), w.vehicle(32));

@@ -266,7 +266,7 @@ test('Overwatch, Wait and End Turn are written the way the project writes Attack
     assert.deepEqual(Hud.commandStyle(['\\i[1] Attack', 'SKILL', 'Item']), { upper: false, icons: false }, 'only when all three agree');
     const node = Hud.normalizeProps({ fightWindow: 'command' }, 'fightWindow');
     assert.equal(node.commandIcons, true);
-    assert.deepEqual(Hud.WINDOW_LABELS, ['overwatch', 'wait', 'endTurn', 'auto']);
+    assert.deepEqual(Hud.WINDOW_LABELS, ['mount', 'dismount', 'overwatch', 'wait', 'endTurn', 'auto']);
     assert.equal(Hud.commandText(node, 'auto', '', demo, () => true), '\\i[237] AUTO');
     assert.equal(Hud.commandLabel(node, 'wait', '', demo), 'WAIT');
     assert.equal(Hud.commandLabel(node, 'overwatch', '', demo), 'OVERWATCH');
@@ -293,6 +293,44 @@ test('Overwatch, Wait and End Turn are written the way the project writes Attack
     assert.equal(Hud.commandGlyph(node, 'attack', 'ATTACK', demo), false);
     const ctx = fakeContext();
     for (const key of Hud.WINDOW_LABELS) Hud.drawGlyph(ctx, key, 0, 0, 32, '#ffffff');
+});
+
+test('Mount and Dismount are the battle\'s own commands: the project\'s case, an icon from its sheet, the HUD\'s drawing where the sheet has none', () => {
+    const demo = Hud.commandStyle(['\\i[588] ATTACK', '\\i[496] SKILLS', '\\i[595] ITEMS']);
+    const plain = Hud.commandStyle(['Attack', 'Skill', 'Item']);
+    const node = Hud.normalizeProps({ fightWindow: 'command' }, 'fightWindow');
+    assert.deepEqual([node.mountIcon, node.dismountIcon], [Hud.COMMAND_ICONS.mount, Hud.COMMAND_ICONS.dismount]);
+    const every = () => true, none = () => false;
+    assert.equal(Hud.commandText(node, 'mount', '', demo, every), '\\i[' + Hud.COMMAND_ICONS.mount + '] MOUNT');
+    assert.equal(Hud.commandText(node, 'dismount', '', demo, every), '\\i[' + Hud.COMMAND_ICONS.dismount + '] DISMOUNT');
+    assert.equal(Hud.commandText(node, 'dismount', '', plain, every), 'Dismount');
+    assert.equal(Hud.commandText(Object.assign({}, node, { mountIcon: 12 }), 'mount', 'Saddle up', demo, every), '\\i[12] Saddle up', 'the node names another icon; the project its own word');
+    // A sheet with no picture there (a stock sheet is shorter): the HUD draws a wheel and an arrow in the icon's place.
+    const bare = Hud.commandText(node, 'mount', '', demo, none);
+    assert.equal(bare, 'MOUNT');
+    assert.equal(Hud.commandGlyph(node, 'mount', bare, demo), true);
+    const ctx = fakeContext();
+    for (const key of ['mount', 'dismount']) Hud.drawGlyph(ctx, key, 0, 0, 32, '#ffffff');
+});
+
+test('a unit that rides a vehicle with a life of its own shows that life under its own HP', () => {
+    const node = Hud.normalizeProps({}, 'fightUnit');
+    const keys = layout => layout.gauges.map(row => row.key);
+    assert.deepEqual(keys(Hud.unitLayout(node, 520, 220, true, false)), ['hp', 'mp', 'tp']);
+    assert.deepEqual(keys(Hud.unitLayout(node, 520, 220, true, false, true)), ['hp', 'vhp', 'mp', 'tp']);
+    assert.deepEqual(keys(Hud.unitLayout(node, 520, 220, true, true, true)), ['hp'], 'the forecast takes the room, as it takes MP and TP');
+    assert.ok(Hud.unitLayout(node, 520, 220, true, false, true).unit <= Hud.unitLayout(node, 520, 220, true, false).unit, 'the rows share the height');
+    // The view carries the vehicle's life, and the panel is drawn again when it changes.
+    const battler = { hp: 50, mhp: 100, mp: 5, mmp: 10, tp: 0, name: () => 'Rider', isActor: () => true };
+    const vehicle = { hp: 300, mhp: 544, name: () => 'Motorcycle' };
+    const reader = { unitInfo: () => ({ id: 1, name: 'Rider', team: 'ally', battler, level: 3, vehicle }) };
+    const view = Hud.fillUnitView(Hud.newUnitView(), reader, { id: 1 }, true, null);
+    assert.deepEqual([view.vhp, view.vmhp, view.vname], [300, 544, 'Motorcycle']);
+    const key = Hud.viewKey(view);
+    vehicle.hp = 200;
+    assert.notEqual(Hud.viewKey(Hud.fillUnitView(view, reader, { id: 1 }, true, null)), key);
+    reader.unitInfo = () => ({ id: 1, name: 'Rider', team: 'ally', battler, level: 3, vehicle: null });
+    assert.equal(Hud.fillUnitView(view, reader, { id: 1 }, true, null).vmhp, 0, 'on foot: no such row');
 });
 
 test('the hint says why the highlighted choice cannot be made; the battle\'s own line stands in for the plain stage line', () => {

@@ -1739,6 +1739,7 @@ Reactor3D.ShaderWarmup = {
             const sent = texture.source && renderer.properties.get(texture.source);
             const bytes = sent && sent.__version === texture.source.version ? 0 : (image.naturalWidth || image.width || 0) * (image.naturalHeight || image.height || 0) * 4;
             try { renderer.initTexture(texture); } catch (error) { /* drawn the old way */ }
+            if (this.uploaded(renderer, texture)) this.noteSent(renderer, texture);
             this.release(renderer, texture);
             budget -= bytes * (texture.generateMipmaps ? 1.33 : 1);
         }
@@ -1775,6 +1776,29 @@ Reactor3D.ShaderWarmup = {
         const held = texture ? this._held.get(texture.source || texture) : null;
         return held && held.bitmap ? held.image : texture && texture.image;
     },
+    /** How a texture is sampled and stored: textures of one picture alike in this share its one copy on the GPU (three's own rule). */
+    samplingKey(texture) {
+        return [texture.wrapS, texture.wrapT, texture.wrapR || 0, texture.magFilter, texture.minFilter, texture.anisotropy, texture.internalFormat, texture.format,
+            texture.type, texture.generateMipmaps, texture.premultiplyAlpha, texture.flipY, texture.unpackAlignment, texture.colorSpace].join();
+    },
+    /** A texture on the GPU is remembered by its picture, for the next texture of that picture. */
+    noteSent(renderer, texture) {
+        const source = texture.source;
+        if (!source) return;
+        const props = renderer.properties.get(source);
+        (props.__rrSent || (props.__rrSent = new Set())).add(this.samplingKey(texture));
+    },
+    /**
+     * A texture whose picture is on the GPU already, sampled the same way (the sky of the map entered
+     * beside the sky of the map left): set up against that copy here, with nothing sent and nothing
+     * to wait for. False when it has to be sent.
+     */
+    adoptSent(renderer, texture) {
+        const source = texture.source, props = source ? renderer.properties.get(source) : null;
+        if (!props || !props.__rrSent || props.__version !== source.version || !props.__rrSent.has(this.samplingKey(texture))) return false;
+        try { renderer.initTexture(texture); } catch (error) { return false; }
+        return this.uploaded(renderer, texture);
+    },
     /** Whether a material's pictures are on the GPU (queueing any that are not). */
     picturesReady(renderer, material) {
         let ready = true;
@@ -1782,7 +1806,9 @@ Reactor3D.ShaderWarmup = {
             const texture = material[key];
             if (!texture || !texture.isTexture || texture.isVideoTexture || texture.isRenderTargetTexture || texture.isDataTexture || texture.isData3DTexture) continue;
             const image = texture.image;
-            if (!image || (image.tagName === "IMG" && !image.complete) || this.uploaded(renderer, texture)) continue;
+            if (!image || (image.tagName === "IMG" && !image.complete)) continue;
+            if (this.uploaded(renderer, texture)) { this.noteSent(renderer, texture); continue; }
+            if (this.adoptSent(renderer, texture)) continue;
             this.request(renderer, texture);
             ready = false;
         }
@@ -1833,19 +1859,58 @@ Reactor3D.ShaderWarmup = {
         // variant the draw will ask for. The timeout runs from the first ask.
         if (!state || state.version !== material.version) {
             if (this._startedThisFrame >= this.COMPILES_PER_FRAME) return false;
-            this._startedThisFrame++;
-            const next = { started: state ? state.started : now, ready: false, version: material.version };
-            this._materials.set(material, next);
-            try {
-                this.compileGuarded(renderer, mesh, camera, scene).then(() => { next.ready = true; }, () => { next.ready = true; });
-            } catch (error) { next.ready = true; }
-            // The compile itself marks a see-through two-sided material changed (three builds its back and its
-            // front program in turn), so the version it leaves is the one this compile was for: the next draw
-            // must find the material unchanged, or it would start over on every draw and never show the mesh.
-            next.version = material.version;
-            state = next;
+            state = this.start(renderer, material, mesh, scene, camera, now, state);
         }
         return state.ready || now - state.started > this.TIMEOUT_MS;
+    },
+    /** A material's compile begun, for the mesh that wears it; its record. */
+    start(renderer, material, mesh, scene, camera, now, state) {
+        this._startedThisFrame++;
+        const next = { started: state ? state.started : now, ready: false, version: material.version };
+        this._materials.set(material, next);
+        try {
+            this.compileGuarded(renderer, mesh, camera, scene).then(() => { next.ready = true; }, () => { next.ready = true; });
+        } catch (error) { next.ready = true; }
+        // The compile itself marks a see-through two-sided material changed (three builds its back and its
+        // front program in turn), so the version it leaves is the one this compile was for: the next draw
+        // must find the material unchanged, or it would start over on every draw and never show the mesh.
+        next.version = material.version;
+        // A program another material already draws with (the haze of the map entered, a second lamp's glow) is not waited for.
+        if (this.linked(renderer, material)) next.ready = true;
+        return next;
+    },
+    /** Whether every program of a material is linked now. */
+    linked(renderer, material) {
+        try {
+            const props = renderer.properties.get(material), program = props && props.currentProgram;
+            if (!program || typeof program.isReady !== "function" || !program.isReady()) return false;
+            let ready = true;
+            if (props.programs && props.programs.forEach) props.programs.forEach(each => { if (each && each.isReady && !each.isReady()) ready = false; });
+            return ready;
+        } catch (error) { return false; }
+    },
+    /**
+     * Set while the pass may change between its two ways of drawing (Reactor3D.Neighbors: the map played
+     * and a world beside it differ in having water, and the quarter-size light is used only without):
+     * a surface is drawn lit one way and unlit, to take the light afterwards, the other, each a program
+     * of its own. Both are then compiled while either is drawn, so nothing waits out of the picture on
+     * the frame the border is crossed.
+     */
+    both: false,
+    /** The other program of a material that is ready, begun; nothing is held for it. */
+    other(renderer, material, mesh, scene, camera, now) {
+        const base = material.__rrTwinOf || material, half = Reactor3D.HalfLight;
+        if (base.__rrBoth === base.version || !half || !half.enabled) return;
+        const other = base !== material ? base : (half.deferrable(base) ? half.twin(base) : null);
+        const state = other ? this._materials.get(other) : null;
+        if (!other || (state && state.version === other.version)) { base.__rrBoth = base.version; return; }
+        const props = renderer.properties.get(other);
+        if (props && props.currentProgram && props.__version === other.version) { base.__rrBoth = base.version; return; }
+        if (this._startedThisFrame >= this.COMPILES_PER_FRAME) return;
+        const worn = mesh.material;
+        mesh.material = Array.isArray(worn) ? worn.map(each => (each === material ? other : each)) : other;
+        try { this.start(renderer, other, mesh, scene, camera, now, state); } finally { mesh.material = worn; }
+        base.__rrBoth = base.version;
     },
     hide(renderer, scene, camera) {
         if (!this.enabled || !this.supported(renderer)) return null;
@@ -1854,6 +1919,7 @@ Reactor3D.ShaderWarmup = {
         const queue = this._queues.get(renderer);
         if (queue && queue.list.length) this.pump(renderer);
         let hidden = null;
+        const both = this.both;
         const visit = object => {
             if (!object.visible) return;
             if ((object.isMesh || object.isSprite || object.isPoints || object.isLine) && object.material) {
@@ -1864,7 +1930,8 @@ Reactor3D.ShaderWarmup = {
                     // Not drawn, or known ready at this version and with this picture: nothing to ask.
                     // (Asking walked every property of every material on every draw: a
                     // material never drawn never had the program version the check wanted.)
-                    if (!material || !material.visible || (material.__rrWarm === material.version && material.__rrWarmMap === material.map)) continue;
+                    if (!material || !material.visible) continue;
+                    if (material.__rrWarm === material.version && material.__rrWarmMap === material.map) { if (both) this.other(renderer, material, object, scene, camera, now); continue; }
                     if (!this.materialReady(renderer, material, object, scene, camera, now)) ready = false;
                     else if (!this.picturesReady(renderer, material)) ready = false;
                     else { material.__rrWarm = material.version; material.__rrWarmMap = material.map; }
@@ -7176,8 +7243,13 @@ Reactor3D.ScenePictures = {
     texture(image, picture) {
         const texture = new THREE.CanvasTexture(image);
         const shared = this._sources.get(image);
-        if (shared) texture.source = shared;
-        else this._sources.set(image, texture.source);
+        if (shared) {
+            texture.source = shared;
+            // An <img> does not change: another texture of one asks to be set up itself, never for the
+            // picture to be sent again (the sky of a map entered re-sent the sky of the map left, the
+            // same file, on the frame the border was crossed).
+            if (image.tagName === "IMG") Object.defineProperty(texture, "needsUpdate", { configurable: true, set(value) { if (value === true) this.version++; } });
+        } else this._sources.set(image, texture.source);
         // Only what the caller names a picture is ever resampled: a tile atlas is cut by exact texel rectangles.
         if (picture && image.tagName === "IMG") texture.userData.rrScenePicture = true;
         return texture;
@@ -10302,6 +10374,10 @@ Reactor3D.renderBlocker = function(mapData) {
     function update(spriteset) {
         const live = spriteset && spriteset._reactor3d;
         if (!live || !live.camera) return false;
+        // The mouse is the look's only in a view that turns with it. A view changed to one that does not (a
+        // Tactical battle's own, an event's fixed shot) gives the pointer back, so it can point at the map:
+        // the pointer and the squares under it showed only once leaving full screen had dropped the lock.
+        if (look.locked && !isRelativeMode(currentState().mode)) { look.locked = false; releaseLook(); }
         const target = resolve(currentState(), gameContext(spriteset));
         const tween = typeof $gameMap !== "undefined" && $gameMap ? $gameMap._reactorCamera3dTween : null;
         if (tween && !tween.from) {

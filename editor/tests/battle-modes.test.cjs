@@ -71,6 +71,8 @@ test('Battle Processing on an on-map mode fights on the map and takes the Win br
     assert.equal(w.$gameParty.numItems(w.$dataItems[1]), 2, 'both drops');
     assert.equal(w.$gameActors.actor(1).currentExp() - w.$gameActors.actor(1).expForLevel(5), 20, 'the EXP of both');
     assert.equal(w.$gameTroop.members().length, 0, 'the troop is cleared after');
+    // (Once their walk back to the leader is over.)
+    w.run(w.ReactorFight.REGROUP_FRAMES + 2);
     assert.equal(w.$gamePlayer.followers().data()[0].isThrough(), true, 'followers trail again');
 });
 

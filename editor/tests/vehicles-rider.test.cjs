@@ -831,14 +831,14 @@ test('in the game: one flag test on a map with no ride; the player seated and he
         assert.ok(r.hero.rider === null, 'released on foot');
         for (const slot of slots) assert.ok(slot.node.quaternion.equals(slot.base));
 
-        // A body that cannot sit (no humanoid rig) is not shown on the seat.
+        // A body that cannot sit (no humanoid rig) stands in the seat, shown.
         const box = build(BIKE, 2);
         box.character = player;
         box.object.visible = true;
         instances.set('p', box);
         player._rrSeated = true; player._rrRide = { map: 5, id: 7 };
         assert.equal(Rider.pass(scene), false);
-        assert.equal(box.object.visible, false);
+        assert.equal(box.object.visible, true);
         player._rrSeated = false;
         Rider.pass(scene);
     } finally {
@@ -1638,7 +1638,7 @@ test('the head: half the lean, the bars\' swing looked into, the neck taking hal
 //-----------------------------------------------------------------------------
 // Boarding again, and what is not boarded.
 
-test('a body that cannot sit is asked once, shown through the hop and hidden on the seat; another rider releases the first', { skip: !have(HERO, BIKE) }, () => {
+test('a body that cannot sit is asked once, shown through the hop and stood in the seat; another rider releases the first', { skip: !have(HERO, BIKE) }, () => {
     const bike = build(BIKE, 3.5), other = build(BIKE, 3.5), joints = Rider.joints;
     let asked = 0;
     Rider.joints = function() { asked++; return joints.apply(this, arguments); };
@@ -1683,7 +1683,7 @@ test('a body that cannot sit is asked once, shown through the hop and hidden on 
         player._rrSeated = false; player._rrRide = null;
         Rider.pass(scene);
 
-        // A body with no rig: shown while the hop plays, hidden once seated.
+        // A body with no rig: shown while the hop plays, and stood in the seat once there.
         box.character = player;
         box.object.visible = true;
         instances.set('p', box);
@@ -1692,8 +1692,16 @@ test('a body that cannot sit is asked once, shown through the hop and hidden on 
         assert.equal(Rider.pass(scene), false);
         assert.equal(box.object.visible, true, 'still shown on its way to the vehicle');
         player._rrMount = null;
+        box.object.visible = false;
         Rider.pass(scene);
-        assert.equal(box.object.visible, false, 'not shown on the seat');
+        assert.equal(box.object.visible, true, 'shown on the seat');
+        const seat = new THREE.Vector3();
+        if (!R.Vehicles.pointWorld(r.bike.object, 'ride.0.seat', seat)) {
+            assert.ok(Rider.point(r.bike.object.__reactorVehicle || r.bike.vehicleBlock, 0, 'seat', 0, seat));
+            seat.applyMatrix4(r.bike.object.matrixWorld);
+        }
+        assert.ok(Math.abs(box.object.position.x - seat.x) < 1e-6 && Math.abs(box.object.position.z - seat.z) < 1e-6, 'over the seat point');
+        assert.ok(box.object.position.y < seat.y, 'its middle at the seat, not its feet');
         player._rrSeated = false; player._rrRide = null;
         Rider.pass(scene);
     } finally {

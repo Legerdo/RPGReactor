@@ -376,8 +376,8 @@ function fallen({ result, system, before = [], fall = [2, 3], during } = {}) {
     follower._reactorFall = 19; follower._reactorPosePitch = 1;
     if (during) during(w, fight);
     fight.end(result, true);
-    // The ally's event fades before the battle is over.
-    w.run(w.ReactorFight.DEFEAT_FADE + 4);
+    // The ally's event falls, lies and fades before the battle is over.
+    w.run(w.ReactorFight.FALL_REST + w.ReactorFight.DEFEAT_FADE + 4);
     assert.equal(fight.isActive(), false);
     return { w, follower, hp: id => w.$gameActors.actor(id).hp };
 }

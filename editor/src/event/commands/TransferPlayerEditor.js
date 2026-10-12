@@ -460,6 +460,25 @@ class TransferPlayerEditor {
         zoomControls.appendChild(zoomInBtn);
         zoomControls.appendChild(zoomResetBtn);
 
+        // A 3D map is shown standing, as the map view shows it, or flat from above; the choice is kept for the next time.
+        const viewToggle = document.createElement('div');
+        viewToggle.className = 'map-picker-view';
+        viewToggle.style.display = 'none';
+        const viewButtons = {};
+        for (const [mode, label] of [['3d', '3D'], ['flat', 'Top Down']]) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = tt(label);
+            button.dataset.view = mode;
+            button.addEventListener('click', () => setView(mode));
+            viewToggle.appendChild(button);
+            viewButtons[mode] = button;
+        }
+        zoomControls.appendChild(viewToggle);
+        const stage3d = document.createElement('div');
+        stage3d.className = 'map-picker-3d';
+        stage3d.style.display = 'none';
+
         previewSection.appendChild(zoomControls);
 
         // Map preview container with scroll
@@ -530,23 +549,77 @@ class TransferPlayerEditor {
             zoomLabel.textContent = `${Math.round(zoomLevel * 100)}%`;
         };
 
+        // The zoom at which the whole map is in view (1 for a map that fits as it is), and the map last shown whole.
+        let fitLevel = 1, fittedMap = 0;
+        // Zoomed, the chosen tile stays in the middle of the view.
         zoomInBtn.addEventListener('click', () => {
-            zoomLevel = Math.min(zoomLevel + 0.25, 3.0);
+            zoomLevel = Math.min(zoomLevel < 0.25 ? 0.25 : zoomLevel + 0.25, 3.0);
             updateZoom();
+            scrollToSelection();
         });
 
         zoomOutBtn.addEventListener('click', () => {
-            zoomLevel = Math.max(zoomLevel - 0.25, 0.25);
+            zoomLevel = Math.max(zoomLevel - 0.25, Math.min(0.25, fitLevel));
             updateZoom();
+            scrollToSelection();
         });
 
         zoomResetBtn.addEventListener('click', () => {
             zoomLevel = 1.0;
             updateZoom();
+            scrollToSelection();
         });
 
         previewContainer.appendChild(canvasContainer);
         previewSection.appendChild(previewContainer);
+        previewSection.appendChild(stage3d);
+
+        // The flat picture with the chosen tile marked on it.
+        const redrawSelection = () => {
+            if (!baseMapCanvas || !(baseMapCanvas.width > 0 && baseMapCanvas.height > 0)) return;
+            const ctx = mapCanvas.getContext('2d'), previousOperation = ctx.globalCompositeOperation;
+            ctx.globalCompositeOperation = 'copy';
+            ctx.drawImage(baseMapCanvas, 0, 0);
+            ctx.globalCompositeOperation = previousOperation;
+            this.drawSelectionOverlay(mapCanvas, selection);
+        };
+        const stand3d = typeof MapPicker3D !== 'undefined' && MapPicker3D.available() ? new MapPicker3D(stage3d, (x, y) => {
+            selection.x = x;
+            selection.y = y;
+            coordsDisplay.textContent = `X: ${x}, Y: ${y}`;
+            redrawSelection();
+        }) : null;
+        // Whether the map shown is a 3D map, which view is asked for, and the map standing in the 3D view (0: none).
+        let standing = false, shown3d = 0;
+        let viewMode = '3d';
+        try { if (localStorage.getItem('rr.mapPicker.view') === 'flat') viewMode = 'flat'; } catch (error) { /* the 3D view */ }
+        const applyView = () => {
+            const in3d = standing && !!stand3d && viewMode === '3d';
+            viewToggle.style.display = standing && stand3d ? 'flex' : 'none';
+            // (Not the primary button's look: OK is the dialog's one main action.)
+            for (const [mode, button] of Object.entries(viewButtons)) {
+                const on = (mode === '3d') === in3d;
+                button.className = 'rr-btn-secondary' + (on ? ' is-on' : '');
+                button.setAttribute('aria-pressed', on ? 'true' : 'false');
+            }
+            previewContainer.style.display = in3d ? 'none' : '';
+            stage3d.style.display = in3d ? '' : 'none';
+            for (const control of [zoomOutBtn, zoomLabel, zoomInBtn, zoomResetBtn]) control.style.visibility = in3d ? 'hidden' : '';
+            if (in3d) {
+                if (shown3d !== selection.mapId) { shown3d = selection.mapId; stand3d.show(selection.mapId, selection); }
+                else stand3d.select(selection.x, selection.y);
+            } else {
+                // The standing world is let go while the flat picture is up: it is a whole map on the GPU.
+                if (stand3d && shown3d) { stand3d.dispose(); shown3d = 0; }
+                updateZoom();
+                scrollToSelection();
+            }
+        };
+        const setView = mode => {
+            viewMode = mode === 'flat' ? 'flat' : '3d';
+            try { localStorage.setItem('rr.mapPicker.view', viewMode); } catch (error) { /* kept for this picker only */ }
+            applyView();
+        };
 
         // Left side - Map tree (create after canvas so we can reference it)
         const mapTreeSection = document.createElement('div');
@@ -653,6 +726,7 @@ class TransferPlayerEditor {
         const keys = typeof RRKeyboardNavigation !== 'undefined' && RRKeyboardNavigation.modal ? RRKeyboardNavigation.modal(picker, { onEscape: () => closePicker() }) : null;
         const closePicker = () => {
             if (!picker.isConnected) return;
+            if (stand3d) stand3d.dispose();
             if (keys) { keys.leave(); if (typeof keys.dispose === 'function') keys.dispose(); }
             document.removeEventListener('keydown', onPageKey);
             picker.remove();
@@ -706,8 +780,9 @@ class TransferPlayerEditor {
             renderedCanvas.height = mapCanvas.height;
             await this.renderMapPreview(renderedCanvas, coordsDisplay, mapId);
             if (generation !== mapLoadGeneration) return false;
-            await this.drawTopDown3D(renderedCanvas, mapId);
+            const stood = await this.drawTopDown3D(renderedCanvas, mapId);
             if (generation !== mapLoadGeneration) return false;
+            standing = !!stood;
 
             mapCanvas.width = renderedCanvas.width;
             mapCanvas.height = renderedCanvas.height;
@@ -724,8 +799,14 @@ class TransferPlayerEditor {
             // Now draw the selection on top
             this.drawSelectionOverlay(mapCanvas, selection);
 
+            // A map larger than the view is shown whole when it is first picked: the place is found by the lie of
+            // the map, then zoomed into.
+            const fit = Math.min(previewContainer.clientWidth / mapCanvas.width, previewContainer.clientHeight / mapCanvas.height);
+            fitLevel = fit > 0 && fit < 1 ? Math.max(0.05, Math.floor(fit * 100) / 100) : 1;
+            if (fittedMap !== mapId) { fittedMap = mapId; if (fitLevel < 1) zoomLevel = fitLevel; }
             updateZoom();
             scrollToSelection();
+            applyView();
             okBtn.disabled = false;
             mapCanvas.style.pointerEvents = '';
             // OK could not hold the focus while it was off: it takes it now, unless the focus is elsewhere in the picker.
@@ -758,21 +839,7 @@ class TransferPlayerEditor {
             coordsDisplay.textContent = `X: ${selection.x}, Y: ${selection.y}`;
 
             // Restore base map and redraw selection (no re-rendering needed)
-            if (baseMapCanvas && baseMapCanvas.width > 0 && baseMapCanvas.height > 0) {
-                const ctx = mapCanvas.getContext('2d');
-                // Save the current composite operation
-                const previousOperation = ctx.globalCompositeOperation;
-
-                // Use 'copy' to completely replace the canvas content
-                ctx.globalCompositeOperation = 'copy';
-                ctx.drawImage(baseMapCanvas, 0, 0);
-
-                // Restore composite operation for drawing selection
-                ctx.globalCompositeOperation = previousOperation;
-
-                // Draw the new selection on top
-                this.drawSelectionOverlay(mapCanvas, selection);
-            }
+            redrawSelection();
         });
 
         // Mousemove to show hover tile

@@ -181,6 +181,16 @@ function driveWorld({ at = [10, 10], yaw = 0, type = null, board = true, camera 
         w.pressed = {};
         return done;
     };
+    // Nobody is at the keyboard on these rides: an event that talks (a message, choices, a number, an item) is not
+    // started by a touch, so a villager a project sets to Player Touch does not hold the ride. One that only acts
+    // (a transfer, a door) still runs.
+    const TALKS = [101, 102, 103, 104, 105];
+    const start = w.Game_Event.prototype.start;
+    w.Game_Event.prototype.start = function() {
+        const list = this.list();
+        if (list && list.some(command => TALKS.includes(command.code))) return;
+        start.call(this);
+    };
     /** One press: `w.press("jump")` is seen by the next frame only. */
     w.press = name => { w.pressed[name] = true; };
     /** The vehicle's middle in world tiles, its heading in degrees, its speed. */

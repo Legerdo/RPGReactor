@@ -94,15 +94,12 @@
         'battleSetup.starts.near': 'When the party comes near ({tiles})',
         'battleSetup.starts.open': 'When the map opens',
         'battleSetup.starts.event': 'When an event says so',
-        'battleSetup.more': 'More',
         'battleSetup.placeAs': 'Place as',
         'battleSetup.side.enemy': 'Enemy',
         'battleSetup.side.ally': 'Ally',
         'battleSetup.side.neutral': 'Bystander',
         'battleSetup.distance': 'Distance',
         'battleSetup.tiles': 'tiles',
-        'battleSetup.gameMode': 'The game\'s mode: {mode}',
-        'battleSetup.change': 'Change…',
         'battleSetup.play': 'Play this battle',
         'battleSetup.showAll': 'Show every unit on the map'
     };
@@ -421,7 +418,7 @@
 
     const escapeHtml = value => (typeof root.rrEscapeHtml === 'function' ? root.rrEscapeHtml(value) : String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
     const state = {
-        panel: null, parts: null, open: false, manager: null, map: null, team: 'enemy', brush: null, pick: null, search: '', more: false,
+        panel: null, parts: null, open: false, manager: null, map: null, team: 'enemy', brush: null, pick: null, search: '',
         report: null, verdict: null, showUnits: false, shownId: 0, tilesKey: '', openedAt: 0, started: null,
         bound: new Map(), arts: new Map(), bodies: new Map(), files: new Map(), propTiles: new Map(), talls: new Map(), roofs: new Map(), props: null, propsKey: '', occupancy: null,
         ghostProp: null, ghost2D: null, ghost3D: null
@@ -1624,8 +1621,7 @@
         const own = inForce.from === 'map' ? inForce.mode : '';
         const choices = modeChoices(inForce, is3D || own === 'firstPerson').map(([value, key, args]) => [value, say(key, args)]);
         host.innerHTML = `<div class="rr-battle-setup-grid"><label for="rr-battle-setup-mode">${escapeHtml(say('mode'))}</label>`
-            + `<select id="rr-battle-setup-mode" class="database-field-value rr-battle-setup-mode">${optionsHtml(choices, own)}</select></div>`
-            + `<div class="rr-battle-setup-plays">${escapeHtml(playsLine(inForce))}</div>`;
+            + `<select id="rr-battle-setup-mode" class="database-field-value rr-battle-setup-mode" title="${escapeHtml(playsLine(inForce))}">${optionsHtml(choices, own)}</select></div>`;
         host.querySelector('select').addEventListener('change', event => {
             if (setMode(map, event.target.value || null)) noteChanged();
             else render();
@@ -1638,7 +1634,7 @@
         if (!host) return;
         const found = tileRecords(state.team, dataOf(), state.search), brush = state.brush;
         const key = JSON.stringify([state.team, state.search, found.total, found.groups.map(group => group.list.map(entry => [entry.record, entry.id, entry.name]))]);
-        const head = state.team === 'enemy' ? say('enemies') : say('side.' + state.team);
+        const sides = [['enemy', say('enemies')], ['ally', say('side.ally')], ['neutral', say('side.neutral')]];
         if (state.tilesKey !== key) {
             state.tilesKey = key;
             if (state.tileWatch) { state.tileWatch.disconnect(); state.tileWatch = null; }
@@ -1650,9 +1646,15 @@
                 + '<div class="rr-battle-setup-row">' + group.list.map(entry =>
                     `<button type="button" class="rr-battle-setup-tile" data-record="${entry.record}" data-id="${entry.id}" title="${escapeHtml(String(entry.id).padStart(4, '0') + ': ' + entry.name)}" aria-pressed="false">`
                     + `<canvas width="136" height="136"></canvas><span class="rr-battle-setup-name">${escapeHtml(entry.name)}</span></button>`).join('') + '</div>').join('');
-            host.innerHTML = `<div class="rr-battle-setup-tiles-head"><span class="rr-battle-setup-label">${escapeHtml(head)}</span>`
+            host.innerHTML = `<div class="rr-battle-setup-tiles-head"><select class="database-field-value rr-battle-setup-side" aria-label="${escapeHtml(say('placeAs'))}" title="${escapeHtml(say('placeAs'))}">${optionsHtml(sides, state.team)}</select>`
                 + (searching ? `<input type="search" class="database-field-value rr-battle-setup-search" placeholder="${escapeHtml(say('search'))}" aria-label="${escapeHtml(say('search'))}" value="${escapeHtml(state.search)}">` : '') + '</div>'
                 + `<div class="rr-battle-setup-tiles rr-accent-scrollbar">${empty}${groups}</div>`;
+            host.querySelector('.rr-battle-setup-side').addEventListener('change', event => {
+                state.team = event.target.value;
+                state.brush = null; state.search = ''; state.verdict = null;
+                hover2D(state.manager, null); hover3D(editor3D(state.manager), null);
+                drawTiles(); drawHint();
+            });
             const search = host.querySelector('.rr-battle-setup-search');
             if (search) search.addEventListener('input', () => { state.search = search.value; drawTiles(); const again = part('tiles').querySelector('.rr-battle-setup-search'); if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); } });
             const fresh = host.querySelector('.rr-battle-setup-new');
@@ -1719,51 +1721,37 @@
         host.hidden = !picked;
         if (!picked) { host.innerHTML = ''; return; }
         // The number tells two units of one record apart: it is never the part cut short.
-        host.innerHTML = `<span class="rr-battle-setup-unit-name" title="${escapeHtml(unitTitle(picked))}"><span class="rr-battle-setup-unit-text">${escapeHtml(picked.name || '')}</span><span class="rr-battle-setup-unit-id">(${pad(picked.id)})</span></span>`
-            + `<span class="rr-battle-setup-unit-label">${escapeHtml(say('facing'))}</span>`
+        host.innerHTML = `<div class="rr-battle-setup-unit-head"><span class="rr-battle-setup-unit-name" title="${escapeHtml(unitTitle(picked))}"><span class="rr-battle-setup-unit-text">${escapeHtml(picked.name || '')}</span><span class="rr-battle-setup-unit-id">(${pad(picked.id)})</span></span>`
+            + `<button type="button" class="rr-btn-secondary rr-battle-setup-remove">${escapeHtml(say('remove'))}</button></div>`
+            + `<div class="rr-battle-setup-grid"><span class="rr-battle-setup-unit-label">${escapeHtml(say('facing'))}</span><span class="rr-battle-setup-facing">`
             + [[4, '◀', 'left'], [8, '▲', 'up'], [2, '▼', 'down'], [6, '▶', 'right']].map(([direction, mark, label]) =>
                 `<button type="button" class="map-props-btn${facingOf(picked) === direction ? ' active' : ''}" data-face="${direction}" title="${escapeHtml(say(label))}" aria-label="${escapeHtml(say(label))}" aria-pressed="${facingOf(picked) === direction}">${mark}</button>`).join('')
-            + `<button type="button" class="rr-btn-secondary rr-battle-setup-remove">${escapeHtml(say('remove'))}</button>`;
+            + '</span></div>';
         host.querySelectorAll('[data-face]').forEach(button => button.addEventListener('click', () => turnSelected(Number(button.dataset.face))));
         host.querySelector('.rr-battle-setup-remove').addEventListener('click', () => { manager.deleteEvent(picked); render(); });
     }
 
-    /** Starts, and under More: the side placed, the distance, the game's mode. */
+    /** Starts, and the distance when the party coming near is what starts the battle. */
     function drawStart() {
         const host = part('start'), map = state.manager && state.manager.currentMap;
         if (!host || !map) return;
-        const start = startOf(map), inForce = modeInForce(map, systemOf());
+        const start = startOf(map);
         const tiles = start.kind === 'near' ? start.tiles : DISTANCE;
         const starts = [['near', say('starts.near', { tiles })], ['open', say('starts.open')], ['event', say('starts.event')]];
-        const sides = [['enemy', say('side.enemy')], ['ally', say('side.ally')], ['neutral', say('side.neutral')]];
         host.innerHTML = `<div class="rr-battle-setup-grid"><label for="rr-battle-setup-starts">${escapeHtml(say('starts'))}</label>`
-            + `<select id="rr-battle-setup-starts" class="database-field-value rr-battle-setup-starts">${optionsHtml(starts, start.kind)}</select></div>`
-            + `<details class="rr-battle-setup-more"${state.more ? ' open' : ''}><summary>${escapeHtml(say('more'))}</summary><div class="rr-battle-setup-grid">`
-            + `<label for="rr-battle-setup-side">${escapeHtml(say('placeAs'))}</label><select id="rr-battle-setup-side" class="database-field-value rr-battle-setup-side">${optionsHtml(sides, state.team)}</select>`
+            + `<select id="rr-battle-setup-starts" class="database-field-value rr-battle-setup-starts">${optionsHtml(starts, start.kind)}</select>`
             + (start.kind === 'near' ? `<label for="rr-battle-setup-distance">${escapeHtml(say('distance'))}</label><span class="rr-battle-setup-distance"><input type="number" id="rr-battle-setup-distance" class="database-field-value" data-no-stepper min="1" max="${DISTANCE_MAX}" step="1" value="${tiles}"><span>${escapeHtml(say('tiles'))}</span></span>` : '')
-            + `</div><div class="rr-battle-setup-game"><span>${escapeHtml(say('gameMode', { mode: say(inForce.game) }))}</span><button type="button" class="rr-btn-secondary rr-battle-setup-change">${escapeHtml(say('change'))}</button></div></details>`;
+            + '</div>';
         host.querySelector('.rr-battle-setup-starts').addEventListener('change', event => {
             const kind = event.target.value;
             if (setStart(map, kind === 'open' ? 'open' : kind === 'event' ? 0 : tiles)) noteChanged();
             else render();
-        });
-        host.querySelector('.rr-battle-setup-more').addEventListener('toggle', event => { state.more = event.target.open; });
-        host.querySelector('.rr-battle-setup-side').addEventListener('change', event => {
-            state.team = event.target.value;
-            state.brush = null; state.search = ''; state.verdict = null;
-            hover2D(state.manager, null); hover3D(editor3D(state.manager), null);
-            drawTiles(); drawHint();
         });
         const distance = host.querySelector('#rr-battle-setup-distance');
         if (distance) distance.addEventListener('change', () => {
             const asked = Math.max(1, Math.min(DISTANCE_MAX, Math.floor(Number(distance.value) || DISTANCE)));
             if (setStart(map, asked)) noteChanged();
             else render();
-        });
-        host.querySelector('.rr-battle-setup-change').addEventListener('click', () => {
-            const system1 = typeof DatabaseSystem1Editor !== 'undefined' ? DatabaseSystem1Editor : null;
-            if (system1 && typeof system1.openBattles === 'function') system1.openBattles();
-            else openDatabase('system1');
         });
     }
 
@@ -1773,16 +1761,19 @@
         if (!host || !manager) return;
         const report = state.report, C = Check();
         const parts = sentenceParts(report, checkWords);
+        const told = [];
         const lines = ((report && report.lines) || []).map((line, index) => {
             const why = line.whyKey ? ' ' + C.say({ key: line.whyKey, args: line.whyArgs }, checkWords) : '';
+            const text = C.say(line, checkWords) + why;
+            if (line.level === 'note' && !line.fix) { told.push(text); return ''; }
             const button = line.fix ? `<button type="button" class="rr-btn-secondary rr-battle-setup-fix" data-line="${index}">${escapeHtml(C.say({ key: line.fix.labelKey, args: {} }, checkWords))}</button>` : '';
-            return `<div class="rr-battle-setup-line is-${line.level === 'note' ? 'note' : 'fix'}"><span>${escapeHtml(C.say(line, checkWords) + why)}</span>${button}</div>`;
+            return `<div class="rr-battle-setup-line is-${line.level === 'note' ? 'note' : 'fix'}"><span>${escapeHtml(text)}</span>${button}</div>`;
         }).join('');
         const spot = report && report.count.enemy > 0 ? spotFor(manager, report) : null;
-        host.innerHTML = `<div class="rr-battle-setup-sentence${parts.level === 'warn' ? ' is-warn' : ''}" role="status">`
+        host.innerHTML = `<div class="rr-battle-setup-sentence${parts.level === 'warn' ? ' is-warn' : ''}" role="status"${told.length ? ` title="${escapeHtml(told.join('\n'))}"` : ''}>`
             + (parts.count ? `<button type="button" class="rr-battle-setup-count" title="${escapeHtml(say('showAll'))}">${escapeHtml(parts.count)}</button> ` : '') + `<span>${escapeHtml(parts.rest)}</span></div>`
             + (lines ? `<div class="rr-battle-setup-lines rr-accent-scrollbar">${lines}</div>` : '')
-            + `<button type="button" class="rr-btn-primary rr-battle-setup-play"${spot ? '' : ' disabled'}>${escapeHtml(say('play'))}</button>`;
+            + `<button type="button" class="rr-button-primary rr-battle-setup-play"${spot ? '' : ' disabled'}>${escapeHtml(say('play'))}</button>`;
         const count = host.querySelector('.rr-battle-setup-count');
         if (count) count.addEventListener('click', () => showAll(manager));
         host.querySelectorAll('.rr-battle-setup-fix').forEach(button => button.addEventListener('click', () => {
@@ -1916,8 +1907,9 @@
         panel.tabIndex = -1;
         panel.setAttribute('role', 'region');
         panel.innerHTML = `<div class="rr-battle-setup-head"><span class="rr-battle-setup-title"></span><button type="button" class="rr-btn-secondary rr-battle-setup-close">×</button></div>`
-            + '<div class="rr-battle-setup-body rr-accent-scrollbar"><div class="rr-battle-setup-part" data-part="mode"></div><div class="rr-battle-setup-part is-tiles" data-part="tiles"></div><div class="rr-battle-setup-hint" data-part="hint"></div>'
-            + '<div class="rr-battle-setup-unit" data-part="unit" hidden></div><div class="rr-battle-setup-part" data-part="start"></div></div><div class="rr-battle-setup-foot" data-part="foot"></div>';
+            + '<div class="rr-battle-setup-body rr-accent-scrollbar"><div class="rr-battle-setup-part" data-part="mode"></div><div class="rr-battle-setup-part" data-part="start"></div>'
+            + '<div class="rr-battle-setup-part is-tiles" data-part="tiles"></div><div class="rr-battle-setup-hint" data-part="hint"></div>'
+            + '<div class="rr-battle-setup-unit" data-part="unit" hidden></div></div><div class="rr-battle-setup-foot" data-part="foot"></div>';
         panel.querySelector('.rr-battle-setup-close').addEventListener('click', () => close());
         panel.addEventListener('click', onListClick, true);
         state.parts = {};

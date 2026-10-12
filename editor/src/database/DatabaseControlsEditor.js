@@ -42,11 +42,15 @@ class DatabaseControlsEditor {
     // A Tactical battle's own keys and buttons (runtime/reactor_controls.js: the same names and defaults). Until a
     // project binds its own, each stands on the keys and buttons of an ordinary action (TACTICAL_SYMBOLS).
     static TACTICAL_ACTIONS = [
-        ['viewLeft', 'Turn the view left'], ['viewRight', 'Turn the view right'], ['level', 'Cursor to the next level'],
+        ['viewLeft', 'Turn the view left'], ['viewRight', 'Turn the view right'],
+        ['panUp', 'Move the view up'], ['panDown', 'Move the view down'], ['panLeft', 'Move the view left'], ['panRight', 'Move the view right'],
+        ['level', 'Cursor to the next level'],
         ['unit', 'Back to the acting unit'], ['skip', "End a unit's turn (hold: fast-forward)"]
     ];
     static TACTICAL_SYMBOLS = { viewLeft: 'pageup', viewRight: 'pagedown', level: 'control', unit: 'tab', skip: 'shift' };
-    static DEFAULT_TACTICAL_KEYS = { 33: 'viewLeft', 81: 'viewLeft', 34: 'viewRight', 87: 'viewRight', 17: 'level', 18: 'level', 9: 'unit', 16: 'skip' };
+    static TACTICAL_VIEW_KEYS = { 87: 'panUp', 65: 'panLeft', 83: 'panDown', 68: 'panRight', 69: 'viewRight' };
+    static TACTICAL_VIEW_STOCK = { 87: 'pagedown' };
+    static DEFAULT_TACTICAL_KEYS = { 33: 'viewLeft', 81: 'viewLeft', 34: 'viewRight', 69: 'viewRight', 87: 'panUp', 65: 'panLeft', 83: 'panDown', 68: 'panRight', 17: 'level', 18: 'level', 9: 'unit', 16: 'skip' };
     static DEFAULT_TACTICAL_BUTTONS = { 4: 'viewLeft', 5: 'viewRight', 2: 'skip', 11: 'level', 10: 'unit' };
     // The keys of `reactorControls` this page writes; any other (look speed, a hand-written key) is kept as it is.
     static MANAGED = ['keys', 'gamepad', 'jump', 'jumpKeys', 'jumpButtons', 'actionKeys', 'actionButtons', 'tacticalKeys', 'tacticalButtons'];
@@ -77,12 +81,16 @@ class DatabaseControlsEditor {
     system() { return this.databaseManager.getSystem ? this.databaseManager.getSystem() : this.databaseManager.data.system; }
 
     /** The tactical bindings a set of ordinary ones gives when the project names none (the runtime's `tacticalFrom`). */
-    static tacticalFrom(mapper, extras) {
+    static tacticalFrom(mapper, extras, view) {
         const out = {}, taken = {};
         for (const [code, symbol] of Object.entries(mapper || {})) {
             for (const [name] of DatabaseControlsEditor.TACTICAL_ACTIONS) if (DatabaseControlsEditor.TACTICAL_SYMBOLS[name] === symbol) { out[code] = name; taken[name] = true; }
         }
         for (const [code, name] of Object.entries(extras || {})) if (!taken[name] && mapper[code] === undefined) out[code] = name;
+        for (const [code, name] of Object.entries(view || {})) {
+            const symbol = (mapper || {})[code];
+            if (symbol === undefined || symbol === DatabaseControlsEditor.TACTICAL_VIEW_STOCK[code]) out[code] = name;
+        }
         return out;
     }
 
@@ -97,7 +105,7 @@ class DatabaseControlsEditor {
             // A Tactical battle's own, else what the ordinary keys and buttons give it (and follow them until one is changed here).
             tacticalKeysOwn: !!(own.tacticalKeys && typeof own.tacticalKeys === 'object'),
             tacticalButtonsOwn: !!(own.tacticalButtons && typeof own.tacticalButtons === 'object'),
-            tacticalKeys: own.tacticalKeys && typeof own.tacticalKeys === 'object' ? Object.assign({}, own.tacticalKeys) : DatabaseControlsEditor.tacticalFrom(keys, null),
+            tacticalKeys: own.tacticalKeys && typeof own.tacticalKeys === 'object' ? Object.assign({}, own.tacticalKeys) : DatabaseControlsEditor.tacticalFrom(keys, null, DatabaseControlsEditor.TACTICAL_VIEW_KEYS),
             tacticalButtons: own.tacticalButtons && typeof own.tacticalButtons === 'object' ? Object.assign({}, own.tacticalButtons)
                 : DatabaseControlsEditor.tacticalFrom(gamepad, DatabaseControlsEditor.DEFAULT_TACTICAL_BUTTONS),
             jump: own.jump !== false,
@@ -123,7 +131,7 @@ class DatabaseControlsEditor {
         if (controls.actionKeys && !same(controls.actionKeys, DatabaseControlsEditor.DEFAULT_ACTION_KEYS)) next.actionKeys = controls.actionKeys;
         if (controls.actionButtons && !same(controls.actionButtons, DatabaseControlsEditor.DEFAULT_ACTION_BUTTONS)) next.actionButtons = controls.actionButtons;
         // A Tactical battle's are stored only where they differ from what the ordinary keys and buttons give it.
-        if (controls.tacticalKeysOwn && controls.tacticalKeys && !same(controls.tacticalKeys, DatabaseControlsEditor.tacticalFrom(controls.keys, null))) next.tacticalKeys = controls.tacticalKeys;
+        if (controls.tacticalKeysOwn && controls.tacticalKeys && !same(controls.tacticalKeys, DatabaseControlsEditor.tacticalFrom(controls.keys, null, DatabaseControlsEditor.TACTICAL_VIEW_KEYS))) next.tacticalKeys = controls.tacticalKeys;
         if (controls.tacticalButtonsOwn && controls.tacticalButtons && !same(controls.tacticalButtons, DatabaseControlsEditor.tacticalFrom(controls.gamepad, DatabaseControlsEditor.DEFAULT_TACTICAL_BUTTONS))) next.tacticalButtons = controls.tacticalButtons;
         if (Object.keys(next).length) system.reactorControls = next; else delete system.reactorControls;
         this.databaseManager.mutationGeneration = (this.databaseManager.mutationGeneration || 0) + 1;

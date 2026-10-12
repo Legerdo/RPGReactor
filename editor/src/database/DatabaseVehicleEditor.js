@@ -95,9 +95,9 @@ class DatabaseVehicleEditor {
         container.innerHTML = `<div class="database-detail-wrapper db-page vehicle-detail">
           <div class="database-sections-grid database-item-columns vehicle-columns">
             <div class="database-item-column vehicle-main-column">
-              ${section('general',tt('General'), `<div class="vehicle-fields">${field(tt('Name'),`<input class="database-field-value vehicle-name" data-field="name" value="${rrEscapeHtml(live.name || '')}">`)}${field(t('vehicle.kind'),`<select class="vehicle-kind" ${options.stockKey ? 'disabled' : ''}>${Object.entries(kinds).map(([kind,label]) => `<option value="${kind}" ${kind === (live.kind || 'motorcycle') ? 'selected' : ''}>${rrEscapeHtml(label)}</option>`).join('')}</select>`)}${field(tt('Class'),`<select class="vehicle-class"><option value="0">${t('vehicle.noClass')}</option>${classOptions}</select>`)}${field(tt('Level'),`<input class="database-field-value vehicle-level" type="number" min="1" max="999" value="${Number(live.initialLevel) || 1}">`)}</div><label class="vehicle-check"><input class="vehicle-ridable" type="checkbox" ${live.ridable !== false ? 'checked' : ''}> ${t('vehicle.ridable')}</label>`)}
+              ${section('general',tt('General'), `<div class="vehicle-fields">${field(tt('Name'),`<input class="database-field-value vehicle-name" data-field="name" value="${rrEscapeHtml(live.name || '')}">`)}${field(t('vehicle.kind'),`<select class="vehicle-kind" ${options.stockKey ? 'disabled' : ''}>${Object.entries(kinds).map(([kind,label]) => `<option value="${kind}" ${kind === (live.kind || 'motorcycle') ? 'selected' : ''}>${rrEscapeHtml(label)}</option>`).join('')}</select>`)}${options.stockKey ? '' : field(tt('Rider'),`<select class="vehicle-rider">${[['', 'Automatic'], ['seat', 'On the seat'], ['inside', 'Inside the vehicle']].map(([value, label]) => `<option value="${value}" ${value === (live.rider === 'seat' || live.rider === 'inside' ? live.rider : '') ? 'selected' : ''}>${tt(label)}</option>`).join('')}</select>`)}${field(tt('Class'),`<select class="vehicle-class"><option value="0">${t('vehicle.noClass')}</option>${classOptions}</select>`)}${field(tt('Level'),`<input class="database-field-value vehicle-level" type="number" min="1" max="999" value="${Number(live.initialLevel) || 1}">`)}</div><label class="vehicle-check"><input class="vehicle-ridable" type="checkbox" ${live.ridable !== false ? 'checked' : ''}> ${t('vehicle.ridable')}</label>`)}
               ${section('appearance',tt('Image'), `<div class="graphic-preview-box vehicle-graphic-slot"><div class="graphic-preview-label">${t('vehicle.sprite')}</div><div class="graphic-canvas-container"><canvas class="vehicle-sprite-preview" width="64" height="64"></canvas></div><div class="graphic-preview-name" data-rr-i18n-skip>${rrEscapeHtml(live.sheet?.characterName || '')}</div><button class="graphic-selector-button vehicle-image-browse rr-btn-browse" type="button">${tt('Change Image')}</button></div><div class="vehicle-model-settings">${field(t('vehicle.size'),`<input class="database-field-value vehicle-size" type="number" min="0.1" max="100" step="0.1" value="${Number(live.model?.size) || engine.KINDS[live.kind || 'motorcycle']?.size || 3.5}">`)}</div>`)}
-              ${!options.stockKey ? section('location',tt('Starting Position'), `<div class="vehicle-location-row"><button type="button" class="rr-btn-secondary vehicle-location-browse"></button><button type="button" class="rr-btn-secondary vehicle-location-clear">${tt('Clear')}</button></div>${field(tt('Direction'), `<select class="vehicle-start-direction">${[[2,'Down'],[4,'Left'],[6,'Right'],[8,'Up']].map(([dir,label]) => `<option value="${dir}" ${dir === (live.startDirection || 2) ? 'selected' : ''}>${tt(label)}</option>`).join('')}</select>`)}`) : ''}
+              ${!options.stockKey ? section('location',tt('Starting Position'), `<div class="vehicle-starts"></div><button type="button" class="rr-btn-secondary vehicle-start-add">+ ${tt('Add Another')}</button>`) : ''}
               ${options.stockKey ? '' : section('movement',tt('Movement'),`${field(t('vehicle.medium'),`<select class="vehicle-medium">${['ground','water','air'].map(medium => `<option value="${medium}" ${typed().medium === medium ? 'selected' : ''}>${t('vehicle.'+medium)}</option>`).join('')}</select>`)}<div class="vehicle-medium-settings"></div><details class="vehicle-handling-details"><summary>${t('vehicle.handling')}</summary><div class="vehicle-handling vehicle-fields"></div></details>`)}
               ${section('sound',t('vehicle.sound'),'<div class="vehicle-sound-rows"></div><details class="vehicle-effects-details"><summary>'+t('vehicle.effects')+'</summary><div class="vehicle-effect-rows"></div></details>')}
               ${section('note',tt('Note'),`<textarea class="vehicle-note database-field-value" rows="3">${rrEscapeHtml(live.note || '')}</textarea>`)}
@@ -116,6 +116,8 @@ class DatabaseVehicleEditor {
         };
         find('.vehicle-kind').onchange = event => { live.kind = event.target.value; save(); find('.vehicle-medium').value = typed().medium; fillMovement(); };
         find('.vehicle-ridable').onchange = event => { live.ridable = event.target.checked; save(); };
+        // Automatic: on the seat where the model places one (3D Models › Rig › Vehicle rider), else as the type keeps its rider.
+        if (find('.vehicle-rider')) find('.vehicle-rider').onchange = event => { if (event.target.value) live.rider = event.target.value; else delete live.rider; save(); };
         find('.vehicle-class').onchange = event => { live.classId = Number(event.target.value); save(); refresh(); };
         find('.vehicle-level').onchange = event => {
             const level = Number(event.target.value);
@@ -176,34 +178,37 @@ class DatabaseVehicleEditor {
         }
         previewSheet();
         if (!options.stockKey) {
-            const location = live;
-            const locationLabel = () => {
-                const mapId = Number(location.startMapId) || 0;
-                const info = this.databaseManager.getMapInfos?.()?.find(map => map && Number(map.id) === mapId);
-                find('.vehicle-location-browse').textContent = mapId > 0
-                    ? `${info?.name || '#' + mapId} (${location.startX || 0}, ${location.startY || 0})` : this.tt('(None)');
-                find('.vehicle-location-clear').disabled = !mapId;
+            // One row for each vehicle of this kind in the world: where it starts and the way it faces. The first is the
+            // record's own; each further one is a copy with its own number, kept when another is taken away.
+            const host = find('.vehicle-starts');
+            const mapName = mapId => { const info = this.databaseManager.getMapInfos?.()?.find(map => map && Number(map.id) === mapId); return info?.name || '#' + mapId; };
+            const renderStarts = () => {
+                const starts = RRVehicles.startsOf(live);
+                host.innerHTML = starts.map((start, at) => `<div class="vehicle-location-row" data-copy="${start.copy}">${starts.length > 1 ? `<span class="vehicle-start-number" data-rr-i18n-skip>${at + 1}</span>` : ''}<button type="button" class="rr-btn-secondary vehicle-location-browse" data-rr-i18n-skip>${rrEscapeHtml(start.mapId > 0 ? `${mapName(start.mapId)} (${start.x}, ${start.y})` : this.tt('(None)'))}</button><select class="vehicle-start-direction" title="${rrEscapeHtml(this.tt('Direction'))}">${[[2,'Down'],[4,'Left'],[6,'Right'],[8,'Up']].map(([dir,label]) => `<option value="${dir}" ${dir === start.direction ? 'selected' : ''}>${this.tt(label)}</option>`).join('')}</select><button type="button" class="rr-btn-secondary vehicle-location-clear" ${start.copy === 1 && !start.mapId ? 'disabled' : ''}>${this.tt(start.copy === 1 ? 'Clear' : 'Delete')}</button></div>`).join('');
+                host.querySelectorAll('.vehicle-location-row').forEach(row => {
+                    const start = starts.find(entry => entry.copy === Number(row.dataset.copy)), location = start.source;
+                    row.querySelector('.vehicle-location-browse').onclick = () => {
+                        const controller = window.reactor?.projectController || this.parentEditor;
+                        const picker = new TransferPlayerEditor(this.databaseManager, controller);
+                        const dialog = picker.showMapPicker({ mapId: location.startMapId, x: location.startX, y: location.startY,
+                            title: this.tt('Select Map & Position'), onConfirm: position => {
+                                if (!valid() || ![position.mapId,position.x,position.y].every(Number.isInteger)
+                                    || position.mapId < 1 || position.x < 0 || position.y < 0) return;
+                                Object.assign(location, {startMapId:position.mapId,startX:position.x,startY:position.y});
+                                save(); renderStarts();
+                            }});
+                        if (dialog?.modal) this.parentEditor.registerDetailModal(dialog.modal, dialog.close);
+                    };
+                    row.querySelector('.vehicle-start-direction').onchange = event => { location.startDirection = Number(event.target.value); save(); };
+                    row.querySelector('.vehicle-location-clear').onclick = () => {
+                        if (start.copy === 1) location.startMapId = 0;
+                        else { live.copies = (live.copies || []).filter(entry => entry !== location); if (!live.copies.length) delete live.copies; }
+                        save(); renderStarts();
+                    };
+                });
             };
-            const saveLocation = value => {
-                Object.assign(location, value);
-                save();
-                locationLabel();
-            };
-            find('.vehicle-location-browse').onclick = () => {
-                const controller = window.reactor?.projectController || this.parentEditor;
-                const picker = new TransferPlayerEditor(this.databaseManager, controller);
-                const dialog = picker.showMapPicker({ mapId: location.startMapId, x: location.startX, y: location.startY,
-                    title: this.tt('Select Map & Position'), onConfirm: position => {
-                        if (!valid() || ![position.mapId,position.x,position.y].every(Number.isInteger)
-                            || position.mapId < 1 || position.x < 0 || position.y < 0) return;
-                        saveLocation({startMapId:position.mapId,startX:position.x,startY:position.y});
-                    }});
-                if (dialog?.modal) this.parentEditor.registerDetailModal(dialog.modal, dialog.close);
-            };
-            find('.vehicle-location-clear').onclick = () => saveLocation({startMapId:0});
-            const direction = find('.vehicle-start-direction');
-            if (direction) direction.onchange = event => { live.startDirection = Number(event.target.value); save(); };
-            locationLabel();
+            find('.vehicle-start-add').onclick = () => { RRVehicles.addCopy(live); save(); renderStarts(); };
+            renderStarts();
         }
         const fillSounds = () => {
             const sounds=typed().sounds;

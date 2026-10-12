@@ -277,7 +277,8 @@ test('foliage is an extension the game, the editor and the builds all load', () 
 test('the Build bar has a Foliage group whose slots are the terrain tool\'s foliage modes', () => {
     const BuildHotbar = require(path.join(repoRoot, 'editor/src/BuildHotbar.js'));
     // Earth's four, then the alien three (ground-types.test.cjs), then bushes.
-    assert.deepEqual(BuildHotbar.FOLIAGE, ['grass', 'flowers', 'fern', 'reeds', 'bulbs', 'tendrils', 'crystals', 'bush']);
+    // (The kinds, then the group's Eraser, which takes every kind away.)
+    assert.deepEqual(BuildHotbar.FOLIAGE, ['grass', 'flowers', 'fern', 'reeds', 'bulbs', 'tendrils', 'crystals', 'bush', 'ferase']);
     assert.ok(BuildHotbar.GROUPS.includes('foliage'));
     const bar = Object.create(BuildHotbar.prototype);
     const terrain = { mode: 'fern' };
@@ -293,4 +294,61 @@ test('the Build bar has a Foliage group whose slots are the terrain tool\'s foli
     } finally { delete global.window.reactor; }
     const i18n = read('editor/src/I18nManager.js');
     for (const key of ['build.group.foliage', 'foliage.grass', 'foliage.hint.paint', 'foliage.windNeedsFoliage']) assert.ok(i18n.includes(`"${key}"`), key);
+});
+
+test('each group of the Build bar has an eraser: Terrain\'s takes painted ground away, Foliage\'s every plant', () => {
+    const BuildHotbar = require(path.join(repoRoot, 'editor/src/BuildHotbar.js'));
+    assert.deepEqual(BuildHotbar.ERASERS, ['hammer', 'terase', 'ferase', 'mremove']);
+    assert.ok(BuildHotbar.TERRAIN.indexOf('terase') === BuildHotbar.TERRAIN.indexOf('ground') + 1, 'beside Ground');
+    assert.equal(BuildHotbar.FOLIAGE[BuildHotbar.FOLIAGE.length - 1], 'ferase');
+    const bar = Object.create(BuildHotbar.prototype);
+    const modes = [];
+    const terrain = { mode: 'raise', groundErase: false, active: true, setMode(mode) { modes.push(mode); this.mode = mode; }, editGroundType() {} };
+    bar.terrain = () => terrain;
+    bar.manager = () => ({});
+    bar.render = () => {};
+    global.window.reactor = { mapTool: 'terrain' };
+    try {
+        // Ground and the Eraser are the ground's brush, painting and taking away.
+        bar.pick('terase');
+        assert.deepEqual([terrain.mode, terrain.groundErase, bar.activeSlot()], ['ground', true, 'terase']);
+        bar.pick('ground');
+        assert.deepEqual([terrain.mode, terrain.groundErase, bar.activeSlot()], ['ground', false, 'ground']);
+        bar.pick('raise');
+        assert.equal(bar.activeSlot(), 'raise');
+        // The Foliage group's is a mode of its own.
+        bar.pick('ferase');
+        assert.deepEqual([terrain.mode, bar.group(), bar.activeSlot()], ['ferase', 'foliage', 'ferase']);
+        // One name and one picture for all four.
+        bar._t = key => key;
+        bar._tt = text => text;
+        assert.deepEqual(BuildHotbar.ERASERS.map(slot => bar.label(slot)), ['build.hammer', 'build.hammer', 'build.hammer', 'build.hammer']);
+        const pictures = new Set(BuildHotbar.ERASERS.map(slot => bar.icon(slot)));
+        assert.equal(pictures.size, 1);
+    } finally {
+        delete global.window.reactor;
+    }
+});
+
+test('the foliage eraser takes every kind under the brush, and the bushes in it', () => {
+    // (The tool is a browser script: it leaves its class on the window.)
+    require(path.join(repoRoot, 'editor/src/TerrainManager.js'));
+    const TerrainManager = global.window.TerrainManager;
+    const tool = Object.create(TerrainManager.prototype);
+    const calls = [];
+    const foliage = {
+        paint(map, kind, x, y, options) { calls.push([kind, options.erase, options.radius]); return kind === 'grass' ? { x0: 1, y0: 1, x1: 4, y1: 4 } : null; },
+        removeBushes(map, x, y, radius) { calls.push(['bushes', radius]); return true; }
+    };
+    Object.assign(tool, { mode: 'ferase', radius: 3, strength: 0.5, foliageLevel: 5, foliageLook: {}, _foliageStroke: { saved: null, region: null, last: null, travelled: 0 } });
+    tool.currentMap = () => ({});
+    tool.foliage = () => foliage;
+    let announced = null;
+    tool.announceFoliage = region => { announced = region; };
+    assert.equal(tool.isFoliageMode('ferase'), true);
+    assert.equal(tool.foliageDab({ x: 10, y: 10 }, true), true);
+    assert.deepEqual(calls.filter(call => call[0] !== 'bushes').map(call => call[0]), TerrainManager.FOLIAGE_MODES.filter(kind => kind !== 'bush'));
+    assert.ok(calls.every(call => call[0] === 'bushes' || call[1] === true), 'every kind is erased');
+    assert.deepEqual(calls[calls.length - 1], ['bushes', 3]);
+    assert.ok(announced && announced.x0 <= 1 && announced.x1 >= 13, 'the map is told of all of it');
 });

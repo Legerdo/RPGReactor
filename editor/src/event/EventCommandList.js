@@ -115,7 +115,8 @@ class EventCommandList {
         this.commandPicker = new EventCommandPicker();
         this.playModelAnimationEditor = new PlayModelAnimationEditor();
         this.callUserInterfaceEditor = new CallUserInterfaceEditor();
-        this.vehicleCommandEditor = typeof VehicleCommandEditor !== 'undefined' ? new VehicleCommandEditor() : null;
+        this.vehicleCommandEditor = typeof VehicleCommandEditor !== 'undefined' ? new VehicleCommandEditor(eventEditor.databaseManager,
+            () => ({ event: eventEditor.currentEvent || null, map: eventEditor.currentMap || (typeof window !== 'undefined' ? window.reactor?.eventManager?.currentMap : null) || null })) : null;
         this.questCommandEditor = typeof QuestCommandEditor !== 'undefined'
             ? new QuestCommandEditor(eventEditor.databaseManager) : null;
         this.fightCommandEditor = typeof FightCommandEditor !== 'undefined'
@@ -2297,8 +2298,9 @@ class EventCommandList {
                 break;
             }
             case 202: {
-                const vehicles = ['Boat', 'Ship', 'Airship'];
-                description = `${tt(vehicles[params[0]] || 'Unknown')} → (${params[2]}, ${params[3]}, ${params[4]})`;
+                const vehicle = typeof SetVehicleLocationEditor !== 'undefined'
+                    ? SetVehicleLocationEditor.vehicleName(params[0], this.eventEditor?.databaseManager, tt) : tt(['Boat', 'Ship', 'Airship'][params[0]] || 'Unknown');
+                description = `${vehicle} → (${params[2]}, ${params[3]}, ${params[4]})`;
                 break;
             }
             case 216: description = params[0] === 0 ? tt('Show') : tt('Hide'); break;

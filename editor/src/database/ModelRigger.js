@@ -260,6 +260,30 @@
                 return bones;
             }
         },
+        // Where a rider sits on a vehicle, and what its hands and feet rest on. Markers only, and not a rig: they
+        // are the first seat of the model's `vehicle` block (model.json > vehicle > seats), which the game seats a
+        // rider by, so a vehicle keeps its carved parts (the wheels, the handlebars). Left and right mirror across
+        // the vehicle's own middle, whichever way its file faces.
+        rider: {
+            label: 'Vehicle rider',
+            markersOnly: true,
+            vehicle: true,
+            markers: [
+                { key: 'seat', label: 'Seat', surface: true },
+                { key: 'handL', label: 'Left grip', mirror: 'handR', surface: true },
+                { key: 'handR', label: 'Right grip', mirror: 'handL', surface: true },
+                { key: 'footL', label: 'Left footrest', mirror: 'footR', surface: true },
+                { key: 'footR', label: 'Right footrest', mirror: 'footL', surface: true }
+            ],
+            // (The editor starts from where the game itself would seat a rider on this model; these stand in
+            // when the game's own guess cannot be read: a saddle two thirds up, grips ahead, rests below.)
+            defaults(h, halfW, halfD) {
+                const alongX = halfW >= halfD, long = alongX ? halfW : halfD, wide = alongX ? halfD : halfW;
+                const at = (ahead, up, side) => (alongX ? [long * ahead, h * up, wide * side] : [wide * side, h * up, long * ahead]);
+                return { seat: at(-0.15, 0.7, 0), handL: at(0.45, 0.85, 0.6), handR: at(0.45, 0.85, -0.6), footL: at(0, 0.3, 0.55), footR: at(0, 0.3, -0.55) };
+            },
+            bones() { return []; }
+        },
         // Things held in a hand carry markers only: they say which part is which (the grip, the tip, the
         // barrel), and a hand reads them. Nothing is bound: no bones, no weights. `surface` markers snap
         // onto the surface under the pointer; the rest into the middle of the model there (a muzzle picked on
@@ -310,7 +334,7 @@
     }
 
     function templates() {
-        return Object.keys(TEMPLATES).map(id => ({ id, label: TEMPLATES[id].label, bones: !TEMPLATES[id].markersOnly }));
+        return Object.keys(TEMPLATES).map(id => ({ id, label: TEMPLATES[id].label, bones: !TEMPLATES[id].markersOnly, vehicle: !!TEMPLATES[id].vehicle }));
     }
 
     function markersFor(template) {
@@ -405,6 +429,10 @@
         },
         gun(m) {
             return [[m.gripBottom, m.gripTop], [m.rear, m.muzzle], [m.stock, m.rear]];
+        },
+        // A rider as a stick figure: from the seat to each hand and each foot.
+        rider(m) {
+            return [[m.seat, m.handL], [m.seat, m.handR], [m.seat, m.footL], [m.seat, m.footR]];
         }
     };
     function previewLinks(markers, template) {

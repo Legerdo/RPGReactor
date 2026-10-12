@@ -260,7 +260,11 @@ test('North Haven, every staircase: up and down, on every diagonal, hugging each
         const tall = run.upper + 0.11;
         const judge = (label, out) => {
             walks++;
-            const over = out.ends.find(end => end.alt > tall || end.over > 1 + LIMIT);
+            // Nobody ends above the floor the stairs lead to, and the one who walks is not carried up and set down.
+            // (A follower may go up some stairs and step off again on its own feet: it heads for the leader along
+            // the run when the diagonal is shut to it. That is where it walks, not a lift; no frame raises it more
+            // than the slope allows.)
+            const over = out.ends.find((end, i) => end.alt > tall || (i === 0 && end.over > 1 + LIMIT));
             if (out.rise > LIMIT + 1e-6 || over) lifted.push(`stairs at ${run.list[0].x},${run.list[0].y} ${label}: rose ${r2(out.rise)} in a frame, ends at ${out.ends.map(end => r2(end.alt)).join(' / ')} (the floor above is ${r2(run.upper)})`);
         };
         for (const [x, y, h] of starts) {

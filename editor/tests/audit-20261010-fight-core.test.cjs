@@ -131,7 +131,7 @@ test('whoever fell in a battle is still off its map when the map is read again: 
         fight.defeat(fallen);
         fight.removeUnit(fight.unitOfEvent(2), false);
         fight._wait = 1e6;
-        w.run(w.ReactorFight.DEFEAT_FADE + 4);
+        w.run(w.ReactorFight.FALL_REST + w.ReactorFight.DEFEAT_FADE + 4);
         assert.deepEqual([1, 2, 3].map(id => w.$gameMap.event(id)._erased), [true, true, false]);
         return { w, pristine, fight };
     };

@@ -30,6 +30,11 @@
     // A fallen unit's event fades over this many frames, after waiting at most this many for a shot on it to end.
     F.DEFEAT_FADE = 32;
     F.DEFEAT_HOLD = 240;
+    // One who falls goes over in this many frames, and an event's unit lies this many (the fall among them) before it fades.
+    F.FALL_FRAMES = 18;
+    F.FALL_REST = 70;
+    /** How far over a falling body is (0 upright, 1 flat), `t` 0-1 through the fall: slow to tip, quick to land. */
+    F.fallPitch = t => { const u = Math.max(0, Math.min(1, t)); return u * u * (3 - 2 * u); };
     // Results, as Battle Processing's branches number them.
     F.WIN = 0;
     F.ESCAPE = 1;
@@ -480,6 +485,8 @@
     };
 
     Game_Fight.prototype.unit = function(id) {
+        // (Under 0: a vehicle of the party's on this map, which is hit and mended as a unit is: reactor_vehicles_mount.js.)
+        if (id < 0) return typeof this.vehicleUnit === "function" ? this.vehicleUnit(-id) : null;
         return this._units.find(unit => unit.id === id) || null;
     };
 
@@ -489,6 +496,7 @@
 
     Game_Fight.prototype.battler = function(unit) {
         if (!unit) return null;
+        if (unit.vehicle) return typeof this.vehicleBattler === "function" ? this.vehicleBattler(unit) : null;
         if (unit.enemy) return unit.enemy;
         return unit.actorId ? $gameActors.actor(unit.actorId) : null;
     };
@@ -1846,9 +1854,9 @@
     // The run is plain data so a save mid-swing reloads; the sequence is
     // resolved again from the records.
 
-    F.makeRun = function(fight, unit, action, targets) {
+    F.makeRun = function(fight, unit, action, targets, via) {
         const item = action.item();
-        return {
+        const run = {
             subjectId: unit.id,
             targetIds: targets.map(t => t.id),
             kind: DataManager.isSkill(item) ? "skill" : "item",
@@ -1857,10 +1865,23 @@
             frame: 0,
             applied: false
         };
+        // Whose it is when it is not the unit's own: "vehicle", the one it rides (`actingBattler`).
+        if (via) run.via = via;
+        return run;
+    };
+
+    /**
+     * The battler an action of a unit's is made with: its own, or with `via` "vehicle" the battler of the vehicle
+     * it rides (its weapon, its skills, its strength), where it rides one that has a battler.
+     */
+    Game_Fight.prototype.actingBattler = function(unit, via) {
+        const own = this.battler(unit);
+        if (via !== "vehicle" || typeof F.mountBattler !== "function") return own;
+        return F.mountBattler(unit) || own;
     };
 
     Game_Fight.prototype.runAction = function(run) {
-        const battler = this.battler(this.unit(run.subjectId));
+        const battler = this.actingBattler(this.unit(run.subjectId), run.via);
         if (!battler) return null;
         const action = new Game_Action(battler);
         if (run.kind === "skill") action.setSkill(run.itemId); else action.setItem(run.itemId);
@@ -2066,7 +2087,7 @@
                 ReactorEvents.emit("fightImpact", { unitId: run.subjectId, targetId: target.id, damage: result.hpDamage, critical: !!result.critical,
                     missed: !!result.missed, evaded: !!result.evaded, defeated: dead, heal: result.hpDamage < 0, hit: first, hits: total, overwatch: !!run.overwatch });
             }
-            if (dead) this.defeat(target);
+            if (dead) { target.struck = this.blowFrom(run, action, target); this.defeat(target); }
         }
         if (this.afterHit) this.afterHit(run, targets);
     };
@@ -2125,6 +2146,8 @@
     };
     F.TERMS = {
         wait: "Wait", endTurn: "End Turn", auto: "Auto", overwatch: "Overwatch",
+        // A unit and a vehicle: getting on one beside it, and getting off.
+        mount: "Mount", dismount: "Dismount", whyNoRoom: "No room to get off here",
         // The goal in full (the battle menu, a change of goal), and as the HUD's line counts it down.
         goalDefeatAll: "Defeat all enemies", goalSurvive: "Survive %1 turns", goalDefeatUnit: "Defeat %1", goal: "Complete the objective",
         goalEnemiesLeft: "Enemies left: %1", goalSurviveLeft: "Survive: %1 turns left", goalSurviveLast: "Survive: last turn", goalChanged: "New goal: %1",
@@ -2219,19 +2242,167 @@
         if (!unit || unit.defeated || unit.gone) return;
         unit.defeated = true;
         const character = this.character(unit);
-        if (unit.eventId && character) this._fading.push({ eventId: unit.eventId, frames: F.DEFEAT_FADE, hold: F.DEFEAT_HOLD });
-        else if (character) character.setOpacity(110);
-        if (unit.enemy && typeof SoundManager !== "undefined") SoundManager.playEnemyCollapse();
-        this.fireHooks("unitDefeated", { unit });
+        // It goes over away from the blow that felled it (`landHits` says where that came from), else onto its back.
+        const yaw = unit.vehicle ? null : F.fallYaw(unit.struck, character);
+        delete unit.struck;
+        if (character && !unit.vehicle) character._reactorFallYaw = yaw;
+        // A vehicle is wrecked where it stands: whoever rides it is put off it (reactor_vehicles_mount.js).
+        if (unit.vehicle) { if (typeof this.wreckVehicle === "function") this.wreckVehicle(unit); }
+        // It falls and lies: one of the party until it is brought back, an event's unit as its Collapse Effect says.
+        else if (unit.eventId && character) this.fell(unit, character);
+        else if (character) { character.setOpacity(110); character._reactorFall = 1; }
+        if (unit.enemy) F.collapseSound(this.battler(unit));
+        // (A battle page's "unit defeated" is asked about the battle's units, not about what they ride.)
+        if (!unit.vehicle) this.fireHooks("unitDefeated", { unit });
         if (F.feed()) ReactorEvents.emit("unitDefeated", { unitId: unit.id, eventId: unit.eventId, team: unit.team, battler: this.battler(unit) });
     };
 
+    /**
+     * Where the blow that lands on `target` comes from: the middle of a blast (a circle, square or cross, for
+     * whoever is not standing on it), else where the one who struck stands. Null when nobody did.
+     */
+    Game_Fight.prototype.blowFrom = function(run, action, target) {
+        const to = this.character(target);
+        if (!run || !to) return null;
+        const cell = run.cell;
+        if (cell && (cell.x !== to.x || cell.y !== to.y) && typeof F.tactics === "function") {
+            const tactics = F.tactics(action.subject(), action.item()), shape = tactics && tactics.area ? tactics.area.shape : "";
+            if (shape === "circle" || shape === "square" || shape === "cross") return { x: cell.x, y: cell.y };
+        }
+        const from = this.character(this.unit(run.subjectId));
+        return from && from !== to ? { x: from._realX, y: from._realY } : null;
+    };
+
+    /**
+     * The way a character struck from `from` goes over: the angle, on the map, of the line from the blow to it
+     * (0 down the map, a quarter turn to the right of it), or null when the blow came from nowhere or from its own cell.
+     */
+    F.fallYaw = function(from, character) {
+        if (!from || !character) return null;
+        const dx = character._realX - from.x, dy = character._realY - from.y;
+        return Math.hypot(dx, dy) < 0.01 ? null : Math.round(Math.atan2(dx, dy) * 1000) / 1000;
+    };
+
+    /** A character is on its feet again: nothing of a fall is left on it. */
+    F.stand = function(character) {
+        if (character._reactorFall) character._reactorFall = 0;
+        if (character._reactorPosePitch) character._reactorPosePitch = 0;
+        if (character._reactorFallYaw != null) character._reactorFallYaw = null;
+    };
+
+    // The Collapse Effects a battle on the map tells apart (the trait's stored values); every other is a look of
+    // the same going, which the map has one of.
+    F.COLLAPSE = { boss: 1, instant: 2, none: 3, corpse: 8 };
+
+    /**
+     * What a fallen unit that an event stands for leaves, by its battler's Collapse Effect: "body" (Corpse: it
+     * falls and lies for the rest of the battle, and gets up if it is revived; so does anyone on the party's side
+     * that an actor stands behind), "stand" (No Disappear: it stays as it stood), "gone" (Instant: it is not there
+     * the next frame), or "fade" (every other: it falls, lies a moment and fades).
+     */
+    F.remainsOf = function(unit, battler) {
+        if (unit.actorId && unit.team === "ally") return "body";
+        const type = battler && typeof battler.collapseType === "function" ? battler.collapseType() : 0;
+        return type === F.COLLAPSE.corpse ? "body" : type === F.COLLAPSE.none ? "stand" : type === F.COLLAPSE.instant ? "gone" : "fade";
+    };
+
+    /** The sound of an enemy going: its own if one is chosen for it, else the one its Collapse Effect has (Instant has none). */
+    F.collapseSound = function(battler) {
+        if (typeof SoundManager === "undefined") return;
+        const type = battler && typeof battler.collapseType === "function" ? battler.collapseType() : 0;
+        const stock = type === F.COLLAPSE.instant ? null
+            : type === F.COLLAPSE.boss && SoundManager.playBossCollapse1 ? () => SoundManager.playBossCollapse1()
+            : () => SoundManager.playEnemyCollapse();
+        if (battler && typeof battler.playCollapseSe === "function") battler.playCollapseSe(stock);
+        else if (stock) stock();
+    };
+
+    /** A unit an event stands for has fallen: what is left of it (`F.remainsOf`) is put on the way it goes. */
+    Game_Fight.prototype.fell = function(unit, event) {
+        const remains = F.remainsOf(unit, this.battler(unit));
+        const fade = { eventId: unit.eventId, frames: F.DEFEAT_FADE, hold: F.DEFEAT_HOLD, rest: F.FALL_REST };
+        if (remains === "gone") { fade.frames = 1; fade.hold = 0; fade.rest = 0; }
+        if (remains === "stand") fade.rest = 0;
+        if (remains === "body" || remains === "stand") {
+            // It stays for the battle; one of the party's side stays to its very end, when it may get up (`settleFallen`).
+            fade.stay = true;
+            fade.ours = !!unit.actorId && unit.team === "ally";
+            unit.body = remains === "body" ? "lie" : "stand";
+            // (Which way it lies, for a map that is read again under the battle: `eraseFallen`.)
+            if (event._reactorFallYaw != null) unit.fallYaw = event._reactorFallYaw;
+        }
+        // Whoever comes by walks over one that lies.
+        if (unit.body === "lie") { unit.through = !!event.isThrough(); event.setThrough(true); }
+        this._fading.push(fade);
+    };
+
+    /** Whether a fallen unit is still on its way out (one that stays for the battle is not, until the battle is decided). */
+    Game_Fight.prototype.isFading = function() {
+        return this._fading.some(fade => !fade.stay || (!!this._ending && !fade.ours));
+    };
+
+    /** A fallen unit is alive again: it is in the battle as it was, and what was left of it stands. */
+    Game_Fight.prototype.raise = function(unit) {
+        unit.defeated = false;
+        if (unit.eventId) {
+            this._fading = this._fading.filter(fade => fade.eventId !== unit.eventId);
+            const event = $gameMap.event(unit.eventId);
+            if (event) {
+                F.stand(event);
+                if (unit.through !== undefined) event.setThrough(!!unit.through);
+            }
+            delete unit.through;
+            delete unit.body;
+            delete unit.fallYaw;
+        }
+        const character = this.character(unit);
+        if (character) character.setOpacity(255);
+    };
+
+    /**
+     * The battle is over: a body whose battler is alive again stands (the party's side, got up by `reviveFallen`),
+     * and whatever else was still on its way out is off the map as the ones that faded are.
+     */
+    Game_Fight.prototype.settleFallen = function() {
+        if (!this.isHere()) { this._fading.length = 0; return; }
+        for (const unit of this._units) {
+            if (!unit.eventId || !unit.defeated || unit.gone) continue;
+            const battler = this.battler(unit), event = $gameMap.event(unit.eventId);
+            if (!event || event._erased) continue;
+            if (battler && battler.isAlive()) { this.raise(unit); continue; }
+            F.stand(event);
+            event.erase();
+        }
+        this._fading.length = 0;
+    };
+
     Game_Fight.prototype.updateFading = function() {
+        // The party's fallen lie where they fell, and one brought back stands. Here rather than in the battle's own
+        // frame, which stops when the outcome is decided: the last member to fall falls too.
+        for (const unit of this._units) {
+            if (!unit.party || unit.gone) continue;
+            const character = this.character(unit);
+            if (!character || !(character._reactorFall > 0 || character._reactorPosePitch > 0)) continue;
+            const battler = this.battler(unit);
+            if (battler && battler.isAlive()) { F.stand(character); character.setOpacity(255); }
+            else if (character._reactorFall > 0) {
+                character._reactorFall = Math.min(F.FALL_FRAMES + 1, character._reactorFall + 1);
+                character._reactorPosePitch = F.fallPitch(character._reactorFall / F.FALL_FRAMES);
+            }
+        }
         // A fallen unit stays whole while a director's shot or a sequence is still on it (never longer than the hold).
         const held = this._fading.length > 0 && F.isHeld();
         for (const fade of this._fading) {
             const event = $gameMap.event(fade.eventId);
             if (!event) { fade.frames = 0; continue; }
+            // It falls and lies a while before it fades, rather than vanishing where it stood.
+            if (fade.rest > 0) {
+                fade.rest--;
+                event._reactorPosePitch = F.fallPitch((F.FALL_REST - fade.rest) / F.FALL_FRAMES);
+                continue;
+            }
+            // A body, or one that does not disappear, is there for the battle; all but the party's own go as it is decided.
+            if (fade.stay && !(this._ending && !fade.ours)) continue;
             if (held && fade.hold > 0) { fade.hold--; continue; }
             fade.frames--;
             event.setOpacity(Math.max(0, Math.round(255 * fade.frames / F.DEFEAT_FADE)));
@@ -2246,12 +2417,19 @@
      * battle, or left it and the map, are taken off it again.
      */
     Game_Fight.prototype.eraseFallen = function() {
+        const stays = [];
         for (const unit of this._units) {
             if (!unit.eventId || !(unit.defeated || unit.erased)) continue;
             const event = $gameMap.event(unit.eventId);
+            // One that stays for the battle is put back as it was left: lying, or standing where it stood.
+            if (event && unit.defeated && unit.body && !unit.erased) {
+                if (unit.body === "lie") { event._reactorPosePitch = 1; event._reactorFallYaw = unit.fallYaw != null ? unit.fallYaw : null; event.setThrough(true); }
+                stays.push({ eventId: unit.eventId, frames: F.DEFEAT_FADE, hold: 0, rest: 0, stay: true, ours: !!unit.actorId && unit.team === "ally" });
+                continue;
+            }
             if (event && !event._erased) event.erase();
         }
-        this._fading.length = 0;
+        this._fading = stays;
     };
 
     Game_Fight.prototype.checkOutcome = function(roundEnded) {
@@ -2307,7 +2485,8 @@
     Game_Fight.prototype.updateEnding = function() {
         const ending = this._ending;
         if (!ending.shown) {
-            if (this.isBusy() || this._fading.length) { if (!this._fading.length) this.noteWait(); return; }
+            const fading = this.isFading();
+            if (this.isBusy() || fading) { if (!fading) this.noteWait(); return; }
             ending.shown = true;
             if (!ending.quiet) {
                 if (ending.result === F.WIN) {
@@ -2341,6 +2520,8 @@
             const battler = this.battler(unit);
             if (battler && battler.isDead()) battler.setHp(1);
         }
+        // The party's vehicles wrecked here are mended as far as its fallen are.
+        if (typeof this.reviveVehicles === "function") this.reviveVehicles();
     };
 
     Game_Fight.prototype.finish = function() {
@@ -2352,6 +2533,7 @@
         // revives the whole party. One that was left (an escape, a transfer, an event's quiet end) leaves the
         // fallen as they are, as leaving a Classic battle does.
         if (lost ? canLose : result === F.WIN && F.systemSettings().reviveAfterBattle !== false) this.reviveFallen();
+        this.settleFallen();
         // What it leaves of its units, the party as the map has it, then what goes on round it; the battle is cleared there.
         this.finishUnits(result);
         this.restoreParty();
@@ -2374,8 +2556,7 @@
                 const character = this.character(unit);
                 if (character) {
                     character.setOpacity(255);
-                    if (character._reactorFall) character._reactorFall = 0;
-                    if (character._reactorPosePitch) character._reactorPosePitch = 0;
+                    F.stand(character);
                 }
             }
         }

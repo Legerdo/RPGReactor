@@ -231,7 +231,7 @@ test('dunes: gentle on the windward side, steeper on the lee, and walkable unles
 test('Rock is in the Terrain group, laid by the builder as before', () => {
     const BuildHotbar = require(path.join(repoRoot, 'editor/src/BuildHotbar.js'));
     assert.ok(BuildHotbar.TERRAIN.includes('rock') && !BuildHotbar.SLOTS.includes('rock'), 'out of Build, into Terrain');
-    assert.deepEqual(BuildHotbar.TERRAIN.slice(0, 7), ['raise', 'lower', 'smooth', 'flatten', 'dunes', 'ground', 'rock']);
+    assert.deepEqual(BuildHotbar.TERRAIN.slice(0, 8), ['raise', 'lower', 'smooth', 'flatten', 'dunes', 'ground', 'terase', 'rock']);
     assert.equal(BuildHotbar.TERRAIN_MODE.rock, undefined, 'not a TerrainManager mode');
     const picked = [];
     const manager = { mode: 'select', kind: 'wall', activate() { picked.push('activate'); }, setKind(kind) { this.kind = kind; this.mode = 'place'; }, setMode(mode) { this.mode = mode; }, materials: () => [{ name: 'Rock', url: '' }] };

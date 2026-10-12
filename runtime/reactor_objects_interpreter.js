@@ -1067,6 +1067,11 @@ Game_Interpreter.prototype.command202 = function(params) {
         x = $gameVariables.value(params[3]);
         y = $gameVariables.value(params[4]);
     }
+    // A vehicle of the Vehicles page is named by its own identity; the three of RPG Maker by their number.
+    if (typeof params[0] === "string") {
+        if (typeof ReactorVehicles !== "undefined" && ReactorVehicles.moveTo) ReactorVehicles.moveTo(params[0], mapId, x, y);
+        return true;
+    }
     const vehicle = $gameMap.vehicle(params[0]);
     if (vehicle) {
         vehicle.setLocation(mapId, x, y);

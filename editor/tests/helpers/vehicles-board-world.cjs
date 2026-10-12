@@ -32,6 +32,7 @@ const WORLDS_BETWEEN_COLLECTIONS = 6;
 const worldFile = process.env.VEH_WORLD_FILE || path.join(runtimeRoot, 'reactor_vehicles.js');
 const driveFile = path.join(runtimeRoot, 'reactor_vehicles_drive.js');
 const actionFile = path.join(runtimeRoot, 'reactor_fight_action.js');
+const mountFile = path.join(runtimeRoot, 'reactor_vehicles_mount.js');
 const hasDrive = fs.existsSync(driveFile);
 
 /** The smallest type record that works, with the test model. */
@@ -57,7 +58,7 @@ const STAND_INS = `(function() {
     }
 })();`;
 
-function boardWorld({ vehicles = [], events = [], types = null, drive = process.env.VEH_NO_DRIVE !== '1', action = false, model = true, before = null, prepare = null, ...rest } = {}) {
+function boardWorld({ vehicles = [], events = [], types = null, drive = process.env.VEH_NO_DRIVE !== '1', action = false, mount = true, model = true, before = null, prepare = null, ...rest } = {}) {
     if (typeof collect === 'function' && ++made % WORLDS_BETWEEN_COLLECTIONS === 0) collect();
     const w = realWorld(Object.assign({ width: 40, height: 30 }, rest, {
         events: events.concat(vehicles),
@@ -90,6 +91,8 @@ function boardWorld({ vehicles = [], events = [], types = null, drive = process.
             vm.runInContext(fs.readFileSync(worldFile, 'utf8'), ctx, { filename: 'reactor_vehicles.js' });
             if (drive && hasDrive) vm.runInContext(fs.readFileSync(driveFile, 'utf8'), ctx, { filename: 'reactor_vehicles_drive.js' });
             else vm.runInContext(STAND_INS, ctx, { filename: 'stand-ins' });
+            // Fighting from the saddle, as the game loads it after the ride (`mount: false` leaves it out).
+            if (mount) vm.runInContext(fs.readFileSync(mountFile, 'utf8'), ctx, { filename: 'reactor_vehicles_mount.js' });
             // The sounds asked for, by name.
             ctx.sounds = [];
             ctx.ReactorVehicles.Feel = { sound(name) { ctx.sounds.push(name); return true; } };

@@ -1815,6 +1815,23 @@ test('a Battle HUD binds from System, places stock battle windows, follows the a
     acting = hero;
     ui.placeBattleWindow(scene, hud, entry);
     assert.strictEqual(commandWindow.x, 122);
+    // Following the actor in the battle: centered on the figure, its bottom edge on the figure's head, X and Y offsets from there.
+    assert.strictEqual(node.followTarget, 'slot', 'the party panel row unless the node says otherwise');
+    const overModel = ui.normalizeNode({ type: 'battleWindow', battleWindow: 'actorCommand', followActor: true, followTarget: 'model', x: 4, y: -6, width: 180, height: 140, fill: 'none' });
+    assert.strictEqual(overModel.followTarget, 'model');
+    if (!sandbox.Point) sandbox.Point = function(x, y) { this.x = x; this.y = y; };
+    const modelWindow = Object.assign({}, commandWindow, { move(x, y, w, h) { Object.assign(this, { x, y, width: w, height: h }); } });
+    const modelScene = { _windowLayer: { x: 0, y: 0 }, _actorCommandWindow: modelWindow, _enemyWindow: enemyWindow,
+        _spriteset: { _enemySprites: [], _reactorRoomSprite: { toGlobal: point => point }, _actorSprites: [{ _battler: mage }, { _battler: hero, _reactorRoomBounds: { x: 600, y: 300, width: 80, height: 200 } }] } };
+    const modelEntry = { node: overModel, rect: new sandbox.Rectangle(0, 0, 180, 140) };
+    for (let i = 0; i < 14; i++) ui.placeBattleWindow(modelScene, hud, modelEntry);
+    assert.deepStrictEqual([modelWindow.x, modelWindow.y], [640 - 90 + 4, 300 - 140 - 6], 'over the acting actor\'s figure');
+    // An actor with no figure on the field (not yet shown) falls back to its row in the party panel.
+    modelScene._spriteset._actorSprites = [];
+    acting = mage;
+    for (let i = 0; i < 14; i++) ui.placeBattleWindow(modelScene, hud, modelEntry);
+    assert.deepStrictEqual([modelWindow.x, modelWindow.y], [312 + 4, 512 - 6]);
+    acting = hero;
     const hidden = { node: ui.normalizeNode({ type: 'battleWindow', battleWindow: 'enemy', hideWindow: true }), rect: new sandbox.Rectangle(0, 0, 0, 0) };
     ui.placeBattleWindow(scene, hud, hidden);
     assert.strictEqual(enemyWindow.alpha, 0, 'hidden, but still the window that takes the input');

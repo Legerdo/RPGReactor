@@ -3778,6 +3778,12 @@ class ProjectController {
         return (references || []).length;
     }
 
+    /** A vehicle record's starts, its own and each copy's: `[{ mapId, source }]`, `source` the object that holds `startMapId`, `startX`, `startY`. */
+    static vehicleStarts(record) {
+        if (typeof RRVehicles !== 'undefined' && RRVehicles.startsOf) return RRVehicles.startsOf(record);
+        return [record].concat(Array.isArray(record.copies) ? record.copies : []).filter(Boolean).map(source => ({ mapId: Number(source.startMapId) || 0, source }));
+    }
+
     // Starting positions live in the database, outside authored map events.
     collectSystemStartReferences(system, targetMapId, into = []) {
         if (!system) return into;
@@ -3791,8 +3797,9 @@ class ProjectController {
             }
         }
         for (const vehicle of this.databaseManager?.data?.vehicles || []) {
-            if (vehicle && vehicle.startMapId === targetMapId) {
-                into.push({parameters:vehicle,xIndex:'startX',yIndex:'startY',label:`${vehicle.name || 'Vehicle'} start`});
+            // Each copy of a vehicle has a start of its own.
+            for (const start of vehicle ? ProjectController.vehicleStarts(vehicle) : []) {
+                if (start.mapId === targetMapId) into.push({parameters:start.source,xIndex:'startX',yIndex:'startY',label:`${vehicle.name || 'Vehicle'} start`});
             }
         }
         return into;
@@ -4496,9 +4503,12 @@ class ProjectController {
      */
     async clearVehicleStartsOn(deletedMapIds = []) {
         const manager = this.databaseManager, types = manager?.data?.vehicles;
-        const stale = (Array.isArray(types) ? types : []).filter(record => record && deletedMapIds.includes(Number(record.startMapId)));
+        const stale = [];
+        for (const record of Array.isArray(types) ? types : []) {
+            for (const start of record ? ProjectController.vehicleStarts(record) : []) if (deletedMapIds.includes(start.mapId)) stale.push(start.source);
+        }
         if (!stale.length) return 0;
-        for (const record of stale) record.startMapId = 0;
+        for (const source of stale) source.startMapId = 0;
         manager.mutationGeneration = (manager.mutationGeneration || 0) + 1;
         if (this.currentProject?.path && typeof manager.saveJSON === 'function') {
             try { await manager.saveJSON(this.currentProject.path, 'ReactorVehicles.json', types); } catch (error) { console.error('Could not save the vehicles after deleting a map:', error); }

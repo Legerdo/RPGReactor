@@ -53,7 +53,7 @@
     /** Frames the battle holds its breath when the player's blade lands (a chain's last step a little longer). */
     A.HIT_STOP = 3;
     /** A fallen unit lies this long before it fades. */
-    A.FALL_REST = 70;
+    A.FALL_REST = F.FALL_REST;
     // A blow struck at arm's length (a swing, a melee skill) lands only on who stands within this many tiles of its
     // height: nobody is struck through the roof they stand on, or from it.
     A.LEVEL_REACH = 1.6;
@@ -388,7 +388,7 @@
     A.SEAT = ["_x", "_y", "_realX", "_realY", "_direction", "_reactorDir8", "_opacity", "_jumpCount", "_jumpPeak",
         "_reactorGround", "_reactorAlt", "_reactorAir", "_reactorVz", "_reactorPeak", "_reactorLift", "_reactorZTarget",
         "_reactorMantle", "_reactorOnLadder", "_reactorClimb", "_reactorSwim", "_reactorDive", "_reactorLeap",
-        "_reactorStepUp", "_reactorStepDown", "_reactorJumped", "_reactorFall", "_reactorPosePitch"];
+        "_reactorStepUp", "_reactorStepDown", "_reactorJumped", "_reactorFall", "_reactorPosePitch", "_reactorFallYaw"];
 
     /**
      * Changes who leads the party (`change` does it) without moving anybody: every member's body stays where it
@@ -491,7 +491,7 @@
         }
         if (typeof $gamePlayer !== "undefined" && $gamePlayer) F.heldItem($gamePlayer, "aim", null);
         // Whoever fell stands again (a battle that can be lost revives the party), and the mouse is given back.
-        for (const unit of fight._units) { const character = fight.character(unit); if (character && character._reactorPosePitch) character._reactorPosePitch = 0; }
+        for (const unit of fight._units) { const character = fight.character(unit); if (character && (character._reactorPosePitch || character._reactorFallYaw != null)) F.stand(character); }
         const R = world3(), C = R && R.Camera;
         if (st && st.cameraWas && C && C.normalizeState && typeof $gameMap !== "undefined" && $gameMap.mapId() === fight._mapId) {
             $gameMap._reactorCamera3d = C.normalizeState(st.cameraWas);
@@ -632,37 +632,8 @@
     Game_Fight.prototype.defeat = function(unit) {
         const was = unit && unit.defeated;
         defeatUnit.call(this, unit);
-        if (this._action && unit && !was && unit.defeated) {
-            this._action.defeats++; this._action.rev++;
-            // It falls and lies a while before it fades, rather than vanishing where it stood.
-            const fade = unit.eventId ? this._fading.find(entry => entry.eventId === unit.eventId) : null;
-            if (fade) fade.rest = A.FALL_REST;
-            else { const character = this.character(unit); if (character) character._reactorFall = 1; }
-        }
-    };
-
-    const updateFading = Game_Fight.prototype.updateFading;
-    Game_Fight.prototype.updateFading = function() {
-        if (this._action) {
-            for (const fade of this._fading) {
-                if (!(fade.rest > 0)) continue;
-                fade.rest--;
-                // Held whole while it lies: the base's own count starts when the rest is over.
-                fade.frames = F.DEFEAT_FADE + 1;
-                const event = $gameMap.event(fade.eventId);
-                if (event) event._reactorPosePitch = A.fallPitch((A.FALL_REST - fade.rest) / 18);
-            }
-            // The party's fallen lie where they fell, and one brought back stands. Here rather than in the battle's
-            // own frame, which stops when the outcome is decided: the last member to fall falls too.
-            for (const unit of this._units) {
-                if (!unit.party || unit.gone) continue;
-                const character = this.character(unit);
-                if (!character || !(character._reactorFall > 0 || character._reactorPosePitch > 0)) continue;
-                if (this.battler(unit).isAlive()) { character._reactorFall = 0; character._reactorPosePitch = 0; character.setOpacity(255); }
-                else if (character._reactorFall > 0) { character._reactorFall = Math.min(19, character._reactorFall + 1); character._reactorPosePitch = A.fallPitch(character._reactorFall / 18); }
-            }
-        }
-        updateFading.call(this);
+        // (It falls and lies before it fades, or until it is brought back: the battle's own rule, reactor_fight.js.)
+        if (this._action && unit && !was && unit.defeated) { this._action.defeats++; this._action.rev++; }
     };
 
     // The result names the party by who led it into the battle, not by who took the lead when that one fell.
@@ -688,7 +659,7 @@
         }
     };
     /** How far over a falling body is (0 upright, 1 flat), `t` 0-1 through the fall: slow to tip, quick to land. */
-    A.fallPitch = t => { const u = clamp(t, 0, 1); return u * u * (3 - 2 * u); };
+    A.fallPitch = F.fallPitch;
 
     for (const name of ["removeUnit", "setEventSide", "setObjective", "spawn"]) {
         const original = Game_Fight.prototype[name];
@@ -2142,11 +2113,12 @@
         return true;
     };
 
-    /** The fallen party members an action that revives lands on: those lying as near as a friendly action reaches (the nearest, or all of them). */
+    /** The fallen of its side an action that revives lands on: those lying as near as a friendly action reaches (the nearest, or all of them). */
     A.fallenNear = function(fight, unit, action) {
         const from = fight.character(unit), list = [];
         for (const other of fight._units) {
-            if (other.gone || other.eventId || other.team !== unit.team) continue;
+            // (One an event stands for is there to be revived only while its body lies.)
+            if (other.gone || (other.eventId && other.body !== "lie") || other.team !== unit.team) continue;
             const battler = fight.battler(other), body = fight.character(other);
             if (battler && battler.isDead() && body && fight.distance(from, body) <= 2) list.push(other);
         }
@@ -2777,7 +2749,7 @@
                 continue;
             }
             // A party member brought back can fall again.
-            if (unit.defeated && !unit.eventId) unit.defeated = false;
+            if (unit.defeated) fight.raise(unit);
             const character = fight.character(unit), battler = fight.battler(unit);
             // Whoever has come onto another cell, the player too: the pages that run when a unit enters an area.
             if (enters[unit.team]) fight.checkEnterHooks(unit, character);

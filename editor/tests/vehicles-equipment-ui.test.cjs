@@ -13,7 +13,7 @@ function ui(vehicle, classEntry = null, settings = {}) {
     Element.prototype.replaceChildren = function(...children) { this.innerHTML=''; for (const child of children) this.appendChild(child); };
     const pickers = [], dialogs = [];
     const context = vm.createContext({ document, window, require, process, console, structuredClone,
-        rrEscapeHtml, RREquipSlots, RRDatabase3DBindings: { decorateSlot: () => null },
+        rrEscapeHtml, RREquipSlots, RRVehicles: require('../src/event/VehicleSetup.js'), RRDatabase3DBindings: { decorateSlot: () => null },
         TransferPlayerEditor: class { showMapPicker(options) {
             pickers.push(options);
             const modal=document.createElement('div'),close=()=>modal.remove();
@@ -97,6 +97,28 @@ test('Classes renders its existing sections without a separate vehicle slots pan
     assert.equal(host.querySelector('.vehicle-custom-slots'), null);
     assert.equal(host.querySelector('[data-section-key="vehicle-equipment-slots"]'), null);
     assert.ok(host.textContent.includes('createTraitsSection'));
+});
+
+test('a vehicle has a row for each copy of it: another is added unplaced, placed by its own picker, and deleted without touching the others', () => {
+    const record=bike();
+    const {container,pickers}=ui(record);
+    assert.equal(container.querySelectorAll('.vehicle-location-row').length,1);
+    container.querySelector('.vehicle-start-add').onclick();
+    container.querySelector('.vehicle-start-add').onclick();
+    assert.deepEqual(record.copies.map(copy=>[copy.id,copy.startMapId]),[[2,0],[3,0]]);
+    let rows=container.querySelectorAll('.vehicle-location-row');
+    assert.equal(rows.length,3);
+    assert.deepEqual(Array.from(rows,row=>row.querySelector('.vehicle-start-number').textContent),['1','2','3']);
+    rows[2].querySelector('.vehicle-location-browse').onclick();
+    pickers[pickers.length-1].onConfirm({mapId:1,x:4,y:5});
+    assert.deepEqual([record.startMapId||0,record.copies[0].startMapId,record.copies[1].startMapId,record.copies[1].startX,record.copies[1].startY],[0,0,1,4,5]);
+    rows=container.querySelectorAll('.vehicle-location-row');
+    assert.equal(rows[2].querySelector('.vehicle-location-browse').textContent,'North Haven (4, 5)');
+    // The second is deleted: the third keeps its own number (what a save holds of it stays its own), and the next one added takes a new one.
+    rows[1].querySelector('.vehicle-location-clear').onclick();
+    assert.deepEqual(record.copies.map(copy=>copy.id),[3]);
+    container.querySelector('.vehicle-start-add').onclick();
+    assert.deepEqual(record.copies.map(copy=>copy.id),[3,4]);
 });
 
 test('vehicle position reuses the map picker, only writes on confirmation, and can be cleared', () => {

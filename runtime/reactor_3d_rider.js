@@ -47,6 +47,8 @@
     const Rider = {
         /** The Hips joint sits this share of the rider's height over the seat point. */
         HIPS_OVER: 0.06,
+        /** A body that cannot sit stands with this share of its height under the seat point. */
+        PERCH: 0.47,
         /** A shoulder is within this share of the arm (shoulder to palm) of its grip: bars centered, and at full lock. */
         REACH: 0.92,
         REACH_LOCK: 0.97,
@@ -715,7 +717,7 @@
             baseTurn: q(), baseTurnInv: q(), baseYaw: 0, leftLocal: v(), align: q(), headRest: q(), headLocal: q(), height: 1, measure: null,
             torso: [], neck: null, head: null, arms: [], legs: [], slots: [], bodySlots: [],
             seatPos: v(), seatQuat: q(), seatAt: v(), seatFrame: q(), hasSeat: false, groundY: 0, landX: NaN, landZ: NaN, landY: 0,
-            lean: 0, leanLimited: false, footReaches: false, standSide: "left", key: NaN, solved: false, closed: false, fingers: 0,
+            lean: 0, leanLimited: false, footReaches: false, standSide: "left", key: NaN, solved: false, closed: false, fingers: 0, armsFree: false,
             leaners: [], chain: [], more: -1, leanNow: 0, baseLean: 0, searchedLean: NaN, lockYaw: 0, headParentOwn: q(),
             // The foot at a stop: the share that is drawn (what the vehicle tips by), the share the vehicle last drew,
             // whether the leg reaches the ground at the foot's place, that place and the ground read there.
@@ -741,7 +743,7 @@
 
     /**
      * Once per boarding: the joints by rig name, the limbs measured at rest, the reach in reserve, every scratch
-     * object. The state is kept on `holder.rider`. Null for a model that cannot sit (the caller hides it).
+     * object. The state is kept on `holder.rider`. Null for a model that cannot sit (the caller stands it in the seat: `perch`).
      */
     Rider.board = function(holder, character, object, vehicleHolder) {
         if (typeof THREE === "undefined" || !holder || !object) return null;
@@ -1065,6 +1067,11 @@
         }
         if (changed) { state.still = 0; state.sampled = false; state.sampleFor[0] = 0; state.sampleFor[1] = 0; } else if (state.still < 1000) state.still++;
         const share = weights(character, WEIGHTS), hold = share.hold, body = share.body;
+        // The arms are let go while the rider has a thing in hand to use (it aims, a sequence shows it) or a battle
+        // plays its own action (`_rrArmsFree`): the seat keeps the legs and the torso.
+        const inHand = R.MapHeld;
+        const free = !!character && (!!character._rrArmsFree || !!(inHand && typeof inHand.inUse === "function" && inHand.inUse(character)));
+        if (free !== state.armsFree) { state.armsFree = free; state.key = NaN; state.solved = false; if (free) fingers(state, false); }
         const mount = character ? character._rrMount : null, hop = !!(mount && mount.n > 0);
         const vehicle = vehicleHolder && vehicleHolder.object && vehicleHolder.object === state.vehicleObject ? vehicleHolder.object : null;
         const w = work();
@@ -1117,7 +1124,7 @@
         // With the whole hold over a motion that holds still, riding with both feet up or standing with the foot
         // down: the turns worked out at five angles of the bars are blended, and nothing is worked out while the
         // rider steers. (The samples of a stop wait until the foot, the ground and the attitude have stayed.)
-        if (vehicle && state.sampling && !changed && state.still >= Rider.STILL && hold >= 1 && body >= 1 && (stance === 1 || (stance && state.stanceStill >= Rider.STILL))) {
+        if (vehicle && state.sampling && !free && !changed && state.still >= Rider.STILL && hold >= 1 && body >= 1 && (stance === 1 || (stance && state.stanceStill >= Rider.STILL))) {
             const set = stance === 1 ? 0 : 1;
             if (state.sampleFor[set] !== stance) sample(state, vehicleHolder, set, stance);
             if (state.sampleFor[set] === stance) { blend(state, set, steer, roll, degrees); return true; }
@@ -1319,7 +1326,7 @@
 
         // The arms: the palm on the grip, the knuckles along it, the elbow down and a little out.
         for (let i = 0; i < 2; i++) {
-            const arm = state.arms[i], weight = arm.live ? hold : 0;
+            const arm = state.arms[i], weight = arm.live && !state.armsFree ? hold : 0;
             for (let k = 0; k < 3; k++) arm.slots[k].weight = weight;
             arm.reached = true; arm.share = 0;
             if (!arm.live || weight <= 0) continue;
@@ -1408,6 +1415,27 @@
 
     const isUnder = (nodeIn, above) => { for (let n = nodeIn; n; n = n.parent) if (n === above) return true; return false; };
 
+    /**
+     * A body that cannot be posed on a seat (no hips, arms and legs by name) is stood in it instead of sitting: its
+     * middle at the seat point, upright, facing as its placement left it. True when it was placed.
+     */
+    Rider.perch = function(holder, vehicleHolder) {
+        const object = holder && holder.object, vehicle = vehicleHolder && vehicleHolder.object, V = R.Vehicles;
+        if (typeof THREE === "undefined" || !object || !vehicle) return false;
+        const w = work();
+        vehicle.updateWorldMatrix(true, false);
+        // The seat as the vehicle binds it, else as its block writes it.
+        if (!(V && typeof V.pointWorld === "function" && V.pointWorld(vehicle, "ride.0.seat", w.v0))) {
+            if (!Rider.point(blockOf(vehicleHolder), 0, "seat", 0, w.v0)) return false;
+            w.v0.applyMatrix4(vehicle.matrixWorld);
+        }
+        const size = object.userData && object.userData.glbSize;
+        const tall = (size && finite(size.y) ? size.y : 1.7) * object.scale.y;
+        object.position.set(w.v0.x, w.v0.y - Rider.PERCH * tall, w.v0.z);
+        object.visible = true;
+        return true;
+    };
+
     //-------------------------------------------------------------------------
     // In the game: the pass after the models were synced.
 
@@ -1418,6 +1446,7 @@
         const player = typeof $gamePlayer !== "undefined" ? $gamePlayer : null;
         if (!player || !(player._rrSeated || player._rrMount)) {
             if (aboard) { Rider.release(aboard); aboard = null; }
+            if (convoy.length) Rider.passConvoy(null, null);
             return false;
         }
         const instances = scene ? scene._modelInstances : null;
@@ -1434,12 +1463,34 @@
         aboard = holder;
         const wrote = Rider.seat(holder, player, holder.object, vehicleHolder);
         if (!holder.rider) {
-            // A body that cannot sit is not shown on the seat.
-            if (holder.riderRefused === holder.object && player._rrSeated && !player._rrMount) holder.object.visible = false;
+            // A body that cannot sit stands in the seat; those behind it are seated all the same.
+            if (holder.riderRefused === holder.object && player._rrSeated && !player._rrMount) Rider.perch(holder, vehicleHolder);
+            Rider.passConvoy(instances, player);
             return false;
         }
         Rider.update(holder, vehicleHolder);
+        Rider.passConvoy(instances, player);
         return wrote;
+    };
+
+    // The followers that ride vehicles of their own, seated and held to their points as the leader is.
+    let convoy = [];
+    Rider.passConvoy = function(instances, player) {
+        const followers = player && player._followers && Array.isArray(player._followers._data) ? player._followers._data : null;
+        const now = [];
+        if (followers && instances) for (let i = 0; i < followers.length; i++) {
+            const follower = followers[i], ride = follower._rrSeated ? follower._rrRide : null;
+            if (!ride) continue;
+            const holder = instances.get(R.modelInstanceKey(follower));
+            if (!holder || !holder.object) continue;
+            const vehicleHolder = instances.get("e" + ride.id) || null;
+            now.push(holder);
+            Rider.seat(holder, follower, holder.object, vehicleHolder);
+            if (holder.rider) Rider.update(holder, vehicleHolder);
+            else if (holder.riderRefused === holder.object) Rider.perch(holder, vehicleHolder);
+        }
+        for (let i = 0; i < convoy.length; i++) if (now.indexOf(convoy[i]) < 0) Rider.release(convoy[i]);
+        convoy = now;
     };
 
     Rider.install = function() {

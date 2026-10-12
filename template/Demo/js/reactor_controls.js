@@ -131,25 +131,34 @@
     };
 
     /**
-     * A tactical battle's own keys and buttons (reactor_fight_tactical.js): turn the view, the cursor to the
-     * cell's next level, back to the acting unit, end a unit's turn (held: fast-forward). A project sets its
-     * own in `reactorControls.tacticalKeys` / `tacticalButtons` ({ code: name }); without them each stands on
-     * the keys and buttons of an ordinary action (`TACTICAL_SYMBOLS`), wherever the project put those, and
-     * the next level and the acting unit take R3 and L3 where those do nothing else.
+     * A tactical battle's own keys and buttons (reactor_fight_tactical.js): turn the view, move the view,
+     * the cursor to the cell's next level, back to the acting unit, end a unit's turn (held: fast-forward).
+     * A project sets its own in `reactorControls.tacticalKeys` / `tacticalButtons` ({ code: name }); without
+     * them each stands on the keys and buttons of an ordinary action (`TACTICAL_SYMBOLS`), wherever the
+     * project put those, the view takes W A S D and E (`TACTICAL_VIEW_KEYS`), and the next level and the
+     * acting unit take R3 and L3 where those do nothing else.
      */
-    ReactorControls.TACTICAL_ACTIONS = ["viewLeft", "viewRight", "level", "unit", "skip"];
+    ReactorControls.TACTICAL_ACTIONS = ["viewLeft", "viewRight", "panUp", "panDown", "panLeft", "panRight", "level", "unit", "skip"];
     ReactorControls.TACTICAL_SYMBOLS = { viewLeft: "pageup", viewRight: "pagedown", level: "control", unit: "tab", skip: "shift" };
-    ReactorControls.DEFAULT_TACTICAL_KEYS = { 33: "viewLeft", 81: "viewLeft", 34: "viewRight", 87: "viewRight", 17: "level", 18: "level", 9: "unit", 16: "skip" };
+    /** W A S D move the view and E turns it right (Q, a page key, turns it left): each on a key the game gives nothing, or only what the stock keys give it. */
+    ReactorControls.TACTICAL_VIEW_KEYS = { 87: "panUp", 65: "panLeft", 83: "panDown", 68: "panRight", 69: "viewRight" };
+    ReactorControls.TACTICAL_VIEW_STOCK = { 87: "pagedown" };
+    ReactorControls.DEFAULT_TACTICAL_KEYS = { 33: "viewLeft", 81: "viewLeft", 34: "viewRight", 69: "viewRight", 87: "panUp", 65: "panLeft", 83: "panDown", 68: "panRight", 17: "level", 18: "level", 9: "unit", 16: "skip" };
     ReactorControls.DEFAULT_TACTICAL_BUTTONS = { 4: "viewLeft", 5: "viewRight", 2: "skip", 11: "level", 10: "unit" };
 
     /** The tactical bindings a mapper gives when the project names none: by the ordinary action on each key or button. */
-    ReactorControls.tacticalFrom = function(mapper, extras) {
+    ReactorControls.tacticalFrom = function(mapper, extras, view) {
         const out = {}, taken = {};
         for (const [code, symbol] of Object.entries(mapper || {})) {
             for (const name of this.TACTICAL_ACTIONS) if (this.TACTICAL_SYMBOLS[name] === symbol) { out[code] = name; taken[name] = true; }
         }
         // An action with nothing to stand on takes its stock button, where that button does nothing else.
         for (const [code, name] of Object.entries(extras || {})) if (!taken[name] && mapper[code] === undefined) out[code] = name;
+        // The view's keys: a key that moves the cursor or does anything else in the game keeps doing it.
+        for (const [code, name] of Object.entries(view || {})) {
+            const symbol = (mapper || {})[code];
+            if (symbol === undefined || symbol === this.TACTICAL_VIEW_STOCK[code]) out[code] = name;
+        }
         return out;
     };
 
@@ -169,7 +178,7 @@
         if (on) {
             const own = typeof $dataSystem !== "undefined" && $dataSystem && $dataSystem.reactorControls && typeof $dataSystem.reactorControls === "object"
                 ? $dataSystem.reactorControls : {};
-            const keys = own.tacticalKeys && typeof own.tacticalKeys === "object" ? own.tacticalKeys : this.tacticalFrom(Input.keyMapper, null);
+            const keys = own.tacticalKeys && typeof own.tacticalKeys === "object" ? own.tacticalKeys : this.tacticalFrom(Input.keyMapper, null, this.TACTICAL_VIEW_KEYS);
             const buttons = own.tacticalButtons && typeof own.tacticalButtons === "object" ? own.tacticalButtons
                 : this.tacticalFrom(Input.gamepadMapper, this.DEFAULT_TACTICAL_BUTTONS);
             this._savedTactical = { keys: {}, pads: {}, set: { keys, buttons } };

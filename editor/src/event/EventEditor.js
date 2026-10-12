@@ -456,6 +456,7 @@ class EventEditor {
             </div>
         `;
         header.querySelector('.event-header-set').appendChild(this.createUnitRow(event));
+        if (typeof RRVehicles !== 'undefined') header.querySelector('.event-header-set').appendChild(this.createVehicleRow(event));
 
         header.querySelector('.event-name-input').addEventListener('change', (e) => {
             event.name = e.target.value;
@@ -626,6 +627,52 @@ class EventEditor {
      * `<unit: …>` tag shows in the same controls; changing one stores the
      * row and takes the tag out.
      */
+    /**
+     * The Vehicle row: which vehicle of the Vehicles page this event is, and the way it faces. Stored as
+     * `event.rrVehicle` (`{ type, yaw }`); "None" removes it. The event is then that vehicle standing on the map:
+     * it wears the vehicle's own picture or model unless a page gives it another, and OK boards it (an event
+     * that has commands of its own is boarded by Get On Reactor Vehicle instead, so its commands still run).
+     */
+    createVehicleRow(event) {
+        const tt = text => (typeof window !== 'undefined' && window.I18n ? window.I18n.tText(text) : text);
+        const types = this.databaseManager.data.vehicles || [null];
+        const row = document.createElement('div');
+        row.className = 'event-header-field event-vehicle-row';
+        const now = RRVehicles.vehicleOf(event);
+        const option = (value, label, current) => `<option value="${rrEscapeHtml(value)}"${String(value) === String(current) ? ' selected' : ''}>${rrEscapeHtml(label)}</option>`;
+        const names = types.map((record, id) => (id > 0 && record && typeof record === 'object' ? option(id, String(id).padStart(4, '0') + ': ' + (record.name || ''), now ? now.type : 0) : '')).join('');
+        // One the Database no longer has is shown as itself, not as another.
+        const missing = now && !RRVehicles.typeAt(types, now.type) ? option(now.type, '#' + now.type + ' (' + this._t('vehicle.missing') + ')', now.type) : '';
+        const turns = [[0, 'Up'], [90, 'Right'], [180, 'Down'], [270, 'Left']];
+        const own = now && event.rrVehicle.yaw != null ? Number(event.rrVehicle.yaw) : '';
+        const other = own !== '' && !turns.some(([yaw]) => yaw === own) ? option(own, own + '°', own) : '';
+        row.innerHTML = `<label class="event-header-label">${rrEscapeHtml(this._t('vehicle.target'))}</label>
+            <div class="event-header-controls event-vehicle-fields">
+                <select class="event-vehicle-type" data-rr-i18n-skip>${option(0, this._t('vehicle.none'), now ? now.type : 0)}${names}${missing}</select>
+                <span class="event-vehicle-more"${now ? '' : ' hidden'}>
+                    <label>${rrEscapeHtml(this._t('vehicle.facing'))}</label>
+                    <select class="event-vehicle-yaw">${option('', this._t('vehicle.pageFacing'), own)}${turns.map(([yaw, word]) => option(yaw, tt(word), own)).join('')}${other}</select>
+                </span>
+            </div>`;
+        const change = value => {
+            const page = event.pages && event.pages[0];
+            const commands = !!(page && Array.isArray(page.list) && page.list.some(command => command && command.code !== 0));
+            const result = RRVehicles.rowValue(event.rrVehicle, value, { types, commands });
+            const was = !!event.rrVehicle;
+            if (result.value) event.rrVehicle = result.value; else delete event.rrVehicle;
+            // An event still called EV001 takes the vehicle's name.
+            const named = result.value ? RRVehicles.nameAfter(event.name, RRVehicles.typeAt(types, result.value.type)) : null;
+            if (named) event.name = named;
+            // The page's picture is the vehicle's now (or its own again): the editor shows the event as it is.
+            const container = typeof document !== 'undefined' ? document.querySelector('.event-editor-container') : null;
+            if (container && (was !== !!event.rrVehicle || value.type !== undefined)) this.showEventEditor(container, event);
+            else this.pageEditor?.refreshCharacterPreview?.();
+        };
+        row.querySelector('.event-vehicle-type').addEventListener('change', e => change({ type: Number(e.target.value) }));
+        row.querySelector('.event-vehicle-yaw').addEventListener('change', e => change({ yaw: e.target.value }));
+        return row;
+    }
+
     createUnitRow(event) {
         const tt = (text, params) => (typeof window !== 'undefined' && window.I18n ? (params ? window.I18n.formatText(text, params) : window.I18n.tText(text))
             : String(text).replace(/\{(\w+)\}/g, (token, key) => (params && key in params ? String(params[key]) : token)));

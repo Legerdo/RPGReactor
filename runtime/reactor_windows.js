@@ -1532,9 +1532,17 @@ Window_Command.prototype.selectExt = function(ext) {
 Window_Command.prototype.drawItem = function(index) {
     const rect = this.itemLineRect(index);
     const align = this.itemTextAlign();
+    const name = this.commandName(index);
     this.resetTextColor();
     this.changePaintOpacity(this.isCommandEnabled(index));
-    this.drawText(this.commandName(index), rect.x, rect.y, rect.width, align);
+    // A name with text codes (an icon before the word, a color) is drawn as message text is, aligned as the row is.
+    if (typeof name === "string" && name.includes("\\")) {
+        const width = this.textSizeEx(name).width;
+        const x = align === "center" ? rect.x + Math.max(0, Math.floor((rect.width - width) / 2)) : align === "right" ? rect.x + Math.max(0, rect.width - width) : rect.x;
+        this.drawTextEx(name, x, rect.y, rect.width);
+        return;
+    }
+    this.drawText(name, rect.x, rect.y, rect.width, align);
 };
 
 Window_Command.prototype.itemTextAlign = function() {

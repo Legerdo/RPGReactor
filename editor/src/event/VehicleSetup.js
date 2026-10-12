@@ -153,6 +153,48 @@
         };
     }
 
+    /**
+     * A record's placements, as the game reads them (runtime/reactor_3d_vehicles.js `startsOf`): its own start is
+     * copy 1, each entry of `copies` (`{ id, startMapId, startX, startY, startDirection }`, `id` from 2 up) another
+     * vehicle of that kind. `[{ copy, mapId, x, y, direction, source }]`; `source` is the object that holds it.
+     */
+    const COPY = 10000;
+    const identityOf = (type, copy) => '0:' + (type + COPY * ((copy > 1 ? Math.floor(copy) : 1) - 1));
+    function startsOf(record) {
+        const starts = [];
+        if (!record || typeof record !== 'object') return starts;
+        const read = (source, copy) => starts.push({ copy, mapId: Math.floor(Number(source.startMapId)) || 0, x: Number(source.startX || 0), y: Number(source.startY || 0),
+            direction: [1, 2, 3, 4, 6, 7, 8, 9].includes(source.startDirection) ? source.startDirection : 2, source });
+        read(record, 1);
+        for (const entry of Array.isArray(record.copies) ? record.copies : []) {
+            const copy = entry && typeof entry === 'object' ? Math.floor(Number(entry.id)) : 0;
+            if (copy > 1 && copy < COPY && !starts.some(start => start.copy === copy)) read(entry, copy);
+        }
+        return starts;
+    }
+    /** Another copy of a record, unplaced: added to its `copies` under the next number never used on it. */
+    function addCopy(record) {
+        if (!Array.isArray(record.copies)) record.copies = [];
+        const taken = startsOf(record).map(start => start.copy);
+        const id = Math.max(1, Number(record.copyCount) || 0, ...taken) + 1;
+        // (The count is kept, so a copy taken away never gives its number, and what a save holds of it, to another.)
+        record.copyCount = id;
+        const entry = { id, startMapId: 0, startX: 0, startY: 0 };
+        record.copies.push(entry);
+        return entry;
+    }
+    /** Every vehicle of the Database a command can name: `{ value, type, copy, label }`, a record with no copy placed once by its own number. */
+    function placedVehicles(types) {
+        const list = [];
+        (Array.isArray(types) ? types : []).forEach((record, type) => {
+            if (!(type > 0) || !record || typeof record !== 'object') return;
+            const starts = startsOf(record), several = starts.length > 1;
+            starts.forEach((start, at) => list.push({ value: identityOf(type, start.copy), type, copy: start.copy,
+                label: String(type).padStart(4, '0') + ': ' + (record.name || '') + (several ? ' ' + (at + 1) : '') }));
+        });
+        return list;
+    }
+
     const isRecord = value => !!value && typeof value === 'object' && !Array.isArray(value);
     /**
      * The type record a row's `type` names: the one at that place in the
@@ -413,6 +455,7 @@
     const api = {
         RESERVED, BOARD, FACES, KIND_SIZE, MESSAGES,
         vehicleEvent, vehicleOf, modelOf, typeModel, typeAt, typeIdOf, rowValue, nameProblem, nameAfter,
+        COPY, identityOf, startsOf, addCopy, placedVehicles,
         mergeModel, withPart, withType, spinsOn, spinReaches, joinRuns,
         degrees, yawOfDirection, directionOfYaw, dir8OfYaw, faceWord, defaultPage, say
     };

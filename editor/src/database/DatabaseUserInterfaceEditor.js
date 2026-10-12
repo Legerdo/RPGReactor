@@ -181,7 +181,7 @@ class DatabaseUserInterfaceEditor {
         if (type === 'battleWindow') return {
             id, type, name: '', parent: 0, anchor: 'topLeft', x: 0, y: 0, width: 240, height: 200, index: 0, opacity: 255,
             visible: { type: 'always', id: 1, on: true, op: '==', value: 0, script: '' },
-            battleWindow: 'actorCommand', fill: 'window', windowColumns: 0, commandAlign: 'center', commands: [], hideWindow: false, followActor: false,
+            battleWindow: 'actorCommand', fill: 'window', windowColumns: 0, commandAlign: 'center', commands: [], hideWindow: false, followActor: false, followTarget: 'slot',
             slideX: 0, slideY: 0, slideDuration: 12, file: '', imageX: 0, imageY: 0
         };
         if (type === 'battleCursor') return {
@@ -2286,7 +2286,10 @@ class DatabaseUserInterfaceEditor {
                     [['left', tt('Left')], ['center', tt('Center')], ['right', tt('Right')]]));
             }
             html += this.row('', this.checkControl('p-hideWindow', !!node.hideWindow, tt('Hide the window')), tt('It still takes input: pair an ally or enemy target window with a Target Cursor.'));
-            html += this.row('', this.checkControl('p-followActor', !!node.followActor, tt('Follow the active actor')), tt('X and Y become offsets from the active actor\'s row in the party panel.'));
+            html += this.row('', this.checkControl('p-followActor', !!node.followActor, tt('Follow the active actor')),
+                node.followTarget === 'model' ? tt('X and Y become offsets from the top of the actor in the battle.') : tt('X and Y become offsets from the active actor\'s row in the party panel.'));
+            if (node.followActor) html += this.row(tt('Follows'), this.selectControl('p-followTarget', node.followTarget === 'model' ? 'model' : 'slot',
+                [['slot', tt('The actor\'s row in the party panel')], ['model', tt('The actor in the battle')]]));
             if (commandKinds) html += this.battleCommandsMarkup(node, commandKinds);
             html += this.group(tt('Slide in'));
             html += this.pair(`${tt('Slide')} X`, this.numberControl('p-slideX', node.slideX || 0, -2000, 2000), `${tt('Slide')} Y`, this.numberControl('p-slideY', node.slideY || 0, -2000, 2000));
@@ -2609,6 +2612,7 @@ class DatabaseUserInterfaceEditor {
             }
             node.hideWindow = q('p-hideWindow').checked;
             node.followActor = q('p-followActor').checked;
+            node.followTarget = q('p-followTarget') && q('p-followTarget').value === 'model' ? 'model' : 'slot';
             node.slideX = num('p-slideX', -2000, 2000, 0);
             node.slideY = num('p-slideY', -2000, 2000, 0);
             node.slideDuration = num('p-slideDuration', 1, 120, 12);
@@ -4469,7 +4473,12 @@ class DatabaseUserInterfaceEditor {
     drawBattleWindowNode(node, rect) {
         const ctx = this.ctx;
         let r = rect;
-        if (node.followActor) {
+        if (node.followActor && node.followTarget === 'model') {
+            // Over the actor in the battle: a figure stands in for it on the canvas, and the window sits on its head as in the game.
+            const top = this.previewActorTop();
+            r = Object.assign({}, rect, { x: Math.round(top.x - rect.width / 2 + node.x), y: Math.round(top.y - rect.height + node.y) });
+            this.drawPreviewActor(top);
+        } else if (node.followActor) {
             const slot = this.previewSlotRect();
             if (slot) r = Object.assign({}, rect, { x: slot.x + node.x, y: slot.y + node.y });
         }
@@ -5271,7 +5280,7 @@ class DatabaseUserInterfaceEditor {
                 html += this.row('', this.checkControl('p-commandIcons', node.commandIcons !== false, tt('Icons on Overwatch, Wait and End Turn')),
                     tt('Shown where Attack, Skill and Item carry icons. Blank words follow the case of those three.'));
                 html += `<div class="rr-ui-sub"${node.commandIcons !== false ? '' : ' hidden'}>`;
-                for (const [key, label] of [['overwatchIcon', 'Overwatch'], ['waitIcon', 'Wait'], ['endTurnIcon', 'End Turn'], ['autoIcon', 'Auto']]) {
+                for (const [key, label] of [['mountIcon', 'Mount'], ['dismountIcon', 'Dismount'], ['overwatchIcon', 'Overwatch'], ['waitIcon', 'Wait'], ['endTurnIcon', 'End Turn'], ['autoIcon', 'Auto']]) {
                     html += this.row(tt(label), `<div class="rr-ui-icon-slot" data-icon-key="${key}"></div>`);
                 }
                 html += '</div>';
@@ -5510,8 +5519,10 @@ class DatabaseUserInterfaceEditor {
             const stock = [commands[2] || 'Attack', commands[5] || 'Skill', commands[4] || 'Item'];
             const style = hud.commandStyle(stock);
             const rows = stock.map(text => ({ text, right: '', enabled: true }));
-            // Auto is offered only while three or more units are still to act: the canvas shows the usual six.
-            for (const key of hud.WINDOW_LABELS.filter(entry => entry !== 'auto')) {
+            // Auto is offered only while three or more units are still to act: the canvas shows the usual six, and
+            // Mount and Dismount in a project that has vehicles.
+            const vehicles = !!(this.databaseManager && typeof this.databaseManager.getVehicles === 'function' && this.databaseManager.getVehicles().some(Boolean));
+            for (const key of hud.WINDOW_LABELS.filter(entry => entry !== 'auto' && (vehicles || (entry !== 'mount' && entry !== 'dismount')))) {
                 const text = hud.commandText(node, key, battleTerms[key], style, index => this.fightIconExists(index));
                 const glyph = hud.commandGlyph(node, key, text, style) ? key : '';
                 rows.push({ text: glyph ? hud.commandLabel(node, key, battleTerms[key], style) : text, right: '', enabled: true, glyph });
@@ -5567,6 +5578,22 @@ class DatabaseUserInterfaceEditor {
             this.drawText(Object.assign({}, node, { type: 'text', text: this._t('Target'), align: 'center', textColor: 0, outline: true, outlineWidth: 3,
                 letterSpacing: 0, wrap: false, fitText: false, fontSize: node.fontSize || 0 }), { x: rect.x - 60, y: rect.y - 36, width: 152, height: 34 });
         }
+    }
+
+    /** Where the top of the acting actor is taken to be on the canvas: a party member's place in a side-view battle. */
+    previewActorTop() {
+        const { width, height } = this.designSize();
+        return { x: Math.round(width * 0.72), y: Math.round(height * 0.52) };
+    }
+
+    /** The figure that stands in for the acting actor, its head at `top`. */
+    drawPreviewActor(top) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+        ctx.beginPath(); ctx.arc(top.x, top.y + 18, 16, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(top.x - 26, top.y + 120); ctx.lineTo(top.x - 20, top.y + 44); ctx.quadraticCurveTo(top.x, top.y + 30, top.x + 20, top.y + 44); ctx.lineTo(top.x + 26, top.y + 120); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.restore();
     }
 
     /** The first party-panel row on the canvas, where a following Battle Window is previewed. */
