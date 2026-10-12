@@ -78,6 +78,7 @@ Less fighting the tool, more making the game.
 - Equipment slots per class: two Heads, four Weapons, whatever your game needs.
 - User Interfaces fit any screen, with a preview from small windows to ultrawide.
 - Pick a spot on a 3D map in 3D.
+- Show Text previews custom message fonts the way the game draws them.
 - An Eraser in every Build group and a clearer Ground tool.
 
 FASTER ON EVERY COMPUTER
