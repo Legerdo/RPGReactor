@@ -480,3 +480,39 @@ test('an Action or First Person battle that can be escaped is left at the player
         assert.equal(held.$gameFight.isActive(), true, mode + ': it goes on');
     }
 });
+
+test('an Action or First Person battle that can be escaped is escaped by running far enough from every enemy', () => {
+    for (const mode of ['action', 'firstPerson']) {
+        for (const canEscape of [true, false]) {
+            const w = world({ events: [unit(1, 4, 4, 'enemy 1')] });
+            const fight = w.$gameFight, F = w.ReactorFight, A = F.Action;
+            w.$gamePlayer.locate(5, 4);
+            const serial = begin(w, { mode, canEscape });
+            still(w);
+            w.run(5);
+            assert.equal(fight.isActive(), true, mode + ': near the enemy it goes on');
+            // The leader gets clear: further than the escape distance from the enemy, which stays where it is.
+            w.$gamePlayer.locate(19, 14);
+            assert.ok(Math.hypot(19 - 4, 14 - 4) > A.ESCAPE_DISTANCE);
+            w.run(A.ESCAPE_FRAMES - 5);
+            assert.equal(fight.isActive(), true, mode + ': not at once');
+            w.run(200, () => !fight.isActive());
+            if (canEscape) {
+                assert.equal(fight.isActive(), false, mode + ': it ended');
+                assert.equal(fight.resultOf(serial), F.ESCAPE, mode + ': as an escape');
+            } else {
+                assert.equal(fight.isActive(), true, mode + ': one that cannot be escaped goes on');
+            }
+        }
+    }
+});
+
+test('a party that starts a battle far from every enemy has not escaped by staying away', () => {
+    const w = world({ events: [unit(1, 19, 14, 'enemy 1')] });
+    const fight = w.$gameFight, A = w.ReactorFight.Action;
+    w.$gamePlayer.locate(1, 1);
+    begin(w, { canEscape: true });
+    still(w);
+    w.run(A.ESCAPE_FRAMES * 2);
+    assert.equal(fight.isActive(), true);
+});

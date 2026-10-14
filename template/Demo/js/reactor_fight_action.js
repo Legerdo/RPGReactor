@@ -97,6 +97,10 @@
     // Frames nothing can hurt who has just taken the lead from a fallen leader, and the line that says so stays.
     A.LEAD_SAFE = 60;
     A.NOTICE_FRAMES = 150;
+    // A battle that can be escaped is escaped by running: once an enemy has been near, the leader further than this
+    // from every enemy, in tiles, for this many frames.
+    A.ESCAPE_DISTANCE = 15;
+    A.ESCAPE_FRAMES = 90;
 
     //-------------------------------------------------------------------------
     // Note tags and what a weapon is.
@@ -2776,9 +2780,27 @@
             if (entry.done || !A.updateRun(fight, entry)) st.runs.splice(i, 1);
         }
         A.updateShots(fight, st);
+        A.updateGetaway(fight, st, playerUnit);
         In.endFrame();
         // Someone fell since the outcome was last judged (in this frame, or by a HUD's own button between frames).
         if (st.defeats !== st.judged) { st.judged = st.defeats; fight.checkOutcome(); }
+    };
+
+    /** Ends a battle that can be escaped as an escape once the leader has run far enough from every enemy. */
+    A.updateGetaway = function(fight, st, playerUnit) {
+        if (!playerUnit || fight._ending || !fight.canRetreat()) return;
+        const leader = fight.character(playerUnit), foes = F.oppose(playerUnit.team);
+        if (!leader) return;
+        let nearest = Infinity;
+        for (const unit of fight._units) {
+            if (unit.gone || unit.team !== foes || !fight.isAlive(unit)) continue;
+            const character = fight.character(unit);
+            if (character) nearest = Math.min(nearest, Math.hypot(character._realX - leader._realX, character._realY - leader._realY));
+        }
+        if (nearest === Infinity) return;
+        if (nearest <= A.ESCAPE_DISTANCE) { st.engaged = true; st.away = 0; return; }
+        // A party that never came near an enemy is not running from one.
+        if (st.engaged && (st.away = (st.away || 0) + 1) >= A.ESCAPE_FRAMES) fight.commandRetreat();
     };
 
     //-------------------------------------------------------------------------

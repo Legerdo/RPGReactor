@@ -136,7 +136,7 @@ If the mouse gets away during a battle (another window, the browser), nothing op
 
 A weapon is what its type's name says (pistol, rifle, gun, shotgun, cannon, launcher, bow, crossbow shoot; the rest swing) unless it says otherwise itself: `fireRate`, `magazine`, `reload`, `spread`, `projectile`, `combo`; `cooldown` on a skill or item ([A record's battle settings](#a-records-battle-settings)). A shot carries 2.5 times the weapon's tactical range. Every hit is the stock battle math; a gun deals about one attack's damage per second of held fire, a combo's steps 0.5, 0.6 and then a whole attack, and the party takes 0.85 of each blow.
 
-Units notice an opponent in front of them within 9 tiles or beside them within 3, close in or keep their distance by their `ai` preset, flash as they wind up, strike, and rest. At most three wind up on one opponent at a time. A "turn" for hooks, states and a Survive goal passes every 4 seconds. Goals, hooks, sides and the Win / Escape / Lose branches are as in Tactical.
+Units notice an opponent in front of them within 9 tiles or beside them within 3, close in or keep their distance by their `ai` preset, flash as they wind up, strike, and rest. At most three wind up on one opponent at a time. A "turn" for hooks, states and a Survive goal passes every 4 seconds. Goals, hooks, sides and the Win / Escape / Lose branches are as in Tactical. A battle that can be escaped is escaped by running: once an enemy has come within 15 tiles, the leader gets further than that from every enemy for a second and a half.
 
 ## Units
 

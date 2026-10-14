@@ -7,7 +7,7 @@
 One bullet per area, holding its latest check. A bullet is replaced when its area is checked again.
 
 - **Release:** 0.99.0, cut with `cut-release.cjs`; the tag publishes the source release on GitHub, and signed binaries and the itch channels follow from the Actions tab (Release Candidate → Release). Public editor releases use NW.js **0.107.0** exactly ([release checklist](RELEASE-CHECKLIST.md)). Manual gates not recorded as passed: native Windows and macOS signed-package launches, and a complete game playthrough.
-- **Runtime:** revision **20261014.1**, stated twice in `runtime/reactor_main.js` (the header comment drives the project updater, the global identifies a running game). All 16 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
+- **Runtime:** revision **20261014.2**, stated twice in `runtime/reactor_main.js` (the header comment drives the project updater, the global identifies a running game). All 16 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
 - **Node suite:** 6,946 tests, 9 skipped, none failed (2026-10-11, `cd editor && node --test --test-concurrency=2`); the release's full run passed before tagging.
 - **CI** (`.github/workflows/ci.yml`): syntax, the Node suite, dependency audit, patch hygiene, a clean-tree check, and a GUI job (the Web persistence smoke and five NW.js smokes under xvfb with `--enable-unsafe-swiftshader`). The Web persistence smoke is intermittent on GitHub and passes locally; a failure posts the page state and console as a public annotation. Runner images move to Ubuntu 26 on 2026-10-19: watch the GUI smokes.
 - **Web build:** `release-editor.cjs --target web --pack-web true` keeps the release Demo at 53 files and 457 MB extracted (itch: 1,000 files, 500 MB). Packing checked in Chromium only, and not yet uploaded to the storefront.
@@ -69,9 +69,7 @@ The one list of open threads. Remove an item when it is done; record the doing i
   - A neighbor's events are drawn only once its border is crossed (parked vehicles pop in, 77 ms for two).
   - The light and bank change at the North Haven–Forest Road border (night against day; `cliffSlope` 80 against 42).
   - Drawing a neighbor past a 2D map's edge.
-  - A battle kept on another map now ends as an escape when another battle starts (encounters included); keep that rule or not.
-  - A control for escaping Action and First Person battles: the runtime path exists (`$gameFight.commandRetreat()`); proposed, a Retreat row in the pause menu shown only when the battle can be escaped.
-  - On-map battles don't remember defeated enemy units, though [DESIGN-BATTLE-MODES.md](DESIGN-BATTLE-MODES.md) decision 3 says they stay defeated (Classic placed enemies do since 2026-10-14). Doing it changes the Demo: North Haven's and Map007's enemy rows have no Comes back.
+  - On-map battles don't remember defeated enemy units (proposed: they follow the event's Comes back box, with a per-enemy default in Database › Enemies), though [DESIGN-BATTLE-MODES.md](DESIGN-BATTLE-MODES.md) decision 3 says they stay defeated (Classic placed enemies do since 2026-10-14). Doing it changes the Demo: North Haven's and Map007's enemy rows have no Comes back.
   - The 2026-10-10 audit: a Tactical walk that drew a reaction shot can no longer be undone (`reactor_fight_tactical.js`, near `:3108`), keep or revert; Database proposals 4 and 6 to 11 and editor proposals 2 to 10 ([the list](archive/handoff/0.99.0.md#proposals-from-the-audit-for-the-owner-nothing-here-was-changed)).
   - Reviews: North Haven (Demo Map005: landscape, rivers, foliage, HD materials, the village, Night); the weak-GPU look on the UHD 630 (edges, beams, `"cas"` against `"crisp"`); motion presets on Fleagus (Guard reads as hands up; Swim and Jump awkward; no finger joints).
   - The web bundle trim before the next itch upload (never the Psychronic BGM); music (156 MB) does not shrink in an archive.
