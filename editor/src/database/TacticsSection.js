@@ -16,6 +16,7 @@
  *   projectile: "bullet" | "arrow" | "bolt" | "rocket" | "none"
  *   cooldown                                                 on skills and items
  *   character: { name, index }        an enemy's picture on the map
+ *   comesBack: true                   an enemy's events stand again when their map is entered (no tag)
  *
  * The game reads a setting there first (runtime/reactor_fight_tactical.js,
  * reactor_fight_action.js, reactor_fight_look.js) and, for whatever the
@@ -183,6 +184,7 @@
         if (projectile && PROJECTILES.includes(projectile)) out.projectile = projectile;
         const rule = Look(), sheet = rule ? rule.ownCharacter(record) : null;
         if (sheet) out.character = { name: sheet.characterName, index: sheet.characterIndex };
+        if (held.comesBack === true) out.comesBack = true;
         return Object.keys(out).length ? out : null;
     }
 
@@ -678,7 +680,7 @@
         if (card === 'action') return kind === 'weapon' ? ['fireRate', 'magazine', 'reload', 'spread', 'combo', 'projectile'] : kind === 'skill' || kind === 'item' ? ['cooldown'] : [];
         if (card === 'shared') {
             if (ACTION_KINDS.includes(kind)) return ['range', 'area', 'los'];
-            if (kind === 'enemy') return ['ai', 'character'];
+            if (kind === 'enemy') return ['ai', 'character', 'comesBack'];
             return kind === 'actor' ? ['ai'] : [];
         }
         return card === 'tactical' && (UNIT_KINDS.includes(kind) || BONUS_KINDS.includes(kind)) ? ['move', 'jump'] : [];
@@ -693,6 +695,8 @@
         fireRate: [0, 20], magazine: [0, 999], reload: [0, 30], spread: [0, 45], combo: [0, 5], cooldown: [0, 600] };
     const within = (value, limit) => Math.max(limit[0], Math.min(limit[1], value));
 
+    // Settings a card holds that no Note tag says.
+    const UNTAGGED = ['comesBack'];
     const plainObject = value => !!value && typeof value === 'object' && !Array.isArray(value);
     const sameSettings = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
     const hundredths = value => Math.round(Math.max(0, Number(value) || 0) * 100) / 100;
@@ -707,9 +711,9 @@
     function stored(record, patch, keep) {
         const entry = record || {}, next = Object.assign({}, plainObject(entry.rrBattle) ? entry.rrBattle : null), taken = [];
         for (const key of Object.keys(patch || {})) {
-            if (!TAGS[key]) continue;
+            if (!TAGS[key] && !UNTAGGED.includes(key)) continue;
             if (patch[key] === null || patch[key] === undefined) delete next[key]; else next[key] = patch[key];
-            if (!(keep && keep[key])) taken.push(TAGS[key]);
+            if (TAGS[key] && !(keep && keep[key])) taken.push(TAGS[key]);
         }
         return { note: without(entry.note, taken), rrBattle: Object.keys(next).length ? next : undefined };
     }
@@ -792,6 +796,8 @@
             } else if (key === 'character') {
                 const name = text(value.name).trim();
                 patch.character = name ? { name, index: Math.min(7, whole(value.index)) } : null;
+            } else if (key === 'comesBack') {
+                patch.comesBack = value === true ? true : null;
             } else if (key === 'projectile') {
                 patch.projectile = !PROJECTILES.includes(value) || value === combatProfile(bare(key), context).projectile ? null : value;
             } else if (key === 'cooldown') {
@@ -871,11 +877,13 @@
             parts.push(said(tagged, range + area) + (found.los === false && sight ? ' · ' + t('no line of sight needed') : ''));
         }
         if (card === 'shared' && (kind === 'actor' || kind === 'enemy')) {
-            tagged = !!found.ai || (kind === 'enemy' && !!recordCharacter(entry));
+            const back = kind === 'enemy' && !!(own(entry) || {}).comesBack;
+            tagged = !!found.ai || (kind === 'enemy' && !!recordCharacter(entry)) || back;
             const behavior = { aggressive: 'Up close', ranged: 'From a distance', support: 'Supporting allies' };
             parts.push(said(tagged, t(behavior[found.ai] || behavior.aggressive)));
             const sheet = kind === 'enemy' ? recordCharacter(entry) : null;
             if (sheet) parts.push(sheet.characterName);
+            if (back) parts.push(t('Comes back'));
         }
         if (card === 'tactical' && UNIT_KINDS.includes(kind)) {
             tagged = found.move !== undefined || found.jump !== undefined;
@@ -1153,7 +1161,9 @@
                 <button type="button" class="rr-btn-chip rr-tactics-look-change">${word('Choose a picture...')}</button>
                 <button type="button" class="rr-btn-chip rr-tactics-look-auto" hidden>${word('Automatic')}</button>
             </span>
-            <span class="rr-tactics-hint rr-tactics-look-hint" hidden></span>`;
+            <span class="rr-tactics-hint rr-tactics-look-hint" hidden></span>
+            <label class="rr-tactics-check"><input type="checkbox" class="system-checkbox rr-tactics-comes-back"><span>${word('Comes back')}</span></label>
+            <span class="rr-tactics-hint">${word('Its events on a map stand again when the map is entered, unless an event says otherwise.')}</span>`;
             }
             if (name === 'tactical' && BONUS_KINDS.includes(kind)) rows += number('Move range', 'rr-tactics-move', 'tiles more or fewer', LIMITS.bonus[0], LIMITS.bonus[1], 1) + number('Climb', 'rr-tactics-jump', 'levels more or fewer', LIMITS.bonus[0], LIMITS.bonus[1], 1);
         }
@@ -1338,7 +1348,7 @@
 
     // The field of each setting's row, and what the row says while the Note keeps a tag for a plugin.
     const KEPT_ROWS = { range: '.rr-tactics-min', area: '.rr-tactics-shape', los: '.rr-tactics-los', move: '.rr-tactics-move', jump: '.rr-tactics-jump', ai: '.rr-tactics-ai',
-        character: '.rr-tactics-look-change', fireRate: '.rr-combat-fireRate', magazine: '.rr-combat-magazine', reload: '.rr-combat-reload', spread: '.rr-combat-spread',
+        character: '.rr-tactics-look-change', comesBack: '.rr-tactics-comes-back', fireRate: '.rr-combat-fireRate', magazine: '.rr-combat-magazine', reload: '.rr-combat-reload', spread: '.rr-combat-spread',
         combo: '.rr-combat-combo', cooldown: '.rr-combat-cooldown', projectile: '.rr-combat-projectile' };
     const KEPT_WORDS = 'Its tag stays in the Note: the plugin {name} reads it.';
 
@@ -1404,7 +1414,7 @@
         const min = q('.rr-tactics-min'), max = q('.rr-tactics-max'), shape = q('.rr-tactics-shape'), size = q('.rr-tactics-size'), los = q('.rr-tactics-los');
         const rangeSource = q('.rr-tactics-range-source'), rangeValues = q('.rr-tactics-range-values'), rangeBox = q('.rr-tactics-range'), rangeLabel = q('.rr-tactics-range-label'), rangeHint = q('.rr-tactics-range-hint');
         const sizeLabel = q('.rr-tactics-size-label'), sizeValues = q('.rr-tactics-size-values'), previewHint = q('.rr-tactics-preview-hint');
-        const move = q('.rr-tactics-move'), jump = q('.rr-tactics-jump'), ai = q('.rr-tactics-ai');
+        const move = q('.rr-tactics-move'), jump = q('.rr-tactics-jump'), ai = q('.rr-tactics-ai'), comesBack = q('.rr-tactics-comes-back');
         const sprite = q('.rr-tactics-sprite'), lookName = q('.rr-tactics-look-name'), lookChange = q('.rr-tactics-look-change'), lookAuto = q('.rr-tactics-look-auto'), lookHint = q('.rr-tactics-look-hint');
         let pointer = null;
 
@@ -1467,6 +1477,7 @@
                 jump.placeholder = String(stats.base.jump);
             }
             if (ai) ai.value = found.ai || 'aggressive';
+            if (comesBack) comesBack.checked = !!(own(entry) || {}).comesBack;
             if (bonus) {
                 move.value = found.move || '';
                 move.placeholder = '0';
@@ -1532,6 +1543,7 @@
         number(move, 'move');
         number(jump, 'jump');
         if (ai) ai.addEventListener('change', () => set({ ai: ai.value }));
+        if (comesBack) comesBack.addEventListener('change', () => set({ comesBack: comesBack.checked }));
         if (lookChange) {
             lookChange.addEventListener('click', () => {
                 // The sheet picker is a class of the page: a name in its scope, not a property of the window.

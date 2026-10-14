@@ -788,6 +788,20 @@
         return { type: "defeatAll" };
     };
 
+    /**
+     * Whether an enemy placed on a map stays defeated once it falls (`data`: its event's data). Only an event whose
+     * own In battle row is on the Enemy side is remembered (one a command turned into an enemy stands again). The
+     * row's Comes back (`returns`) decides, else its enemy record's (`rrBattle.comesBack`, Database › Enemies), else
+     * it stays.
+     */
+    F.staysDefeated = function(data) {
+        const row = data && data.rrUnit;
+        if (!row || row.team !== "enemy") return false;
+        if (typeof row.returns === "boolean") return !row.returns;
+        const record = row.record === "enemy" && typeof $dataEnemies !== "undefined" && $dataEnemies ? $dataEnemies[row.id] : null;
+        return !(record && record.rrBattle && record.rrBattle.comesBack === true);
+    };
+
     /** An event is remembered as defeated (`defeated`), or no longer; `mapId`: this map unless given. */
     Game_Fight.prototype.setEventDefeated = function(eventId, defeated, mapId) {
         const key = (mapId || $gameMap.mapId()) + "," + eventId;
@@ -797,14 +811,14 @@
 
     /**
      * The map is entered: the events remembered as defeated on it leave it, as Erase Event has them leave. One
-     * whose In battle row now says Comes back, or that is no row any more, stands.
+     * that now comes back (F.staysDefeated), or that is no row any more, stands.
      */
     Game_Fight.prototype.eraseDefeated = function(map) {
         const prefix = map.mapId() + ",";
         for (const key in this._fallen || {}) {
             if (!key.startsWith(prefix)) continue;
             const event = map.event(Number(key.slice(prefix.length))), data = event ? event.event() : null;
-            if (data && data.rrUnit && data.rrUnit.returns !== true) event.erase();
+            if (data && F.staysDefeated(data)) event.erase();
         }
     };
 
@@ -2590,6 +2604,7 @@
         // fallen as they are, as leaving a Classic battle does.
         if (lost ? canLose : result === F.WIN && F.systemSettings().reviveAfterBattle !== false) this.reviveFallen();
         this.settleFallen();
+        if (!lost) this.rememberDefeated();
         // What it leaves of its units, the party as the map has it, then what goes on round it; the battle is cleared there.
         // Away from a battle that is kept the party is already as the map has it (`partyAway`).
         this.finishUnits(result);
@@ -2598,6 +2613,22 @@
         if (lost) {
             if (canLose) $gameParty.reviveBattleMembers();
             else SceneManager.goto(Scene_Gameover);
+        }
+    };
+
+    /**
+     * A battle that was not lost: the enemies placed on its map that fell in it are remembered as defeated, unless
+     * they come back (F.staysDefeated), so they stay off the map when it is entered again. Read from the map's own
+     * events, so only while the party is on it.
+     */
+    Game_Fight.prototype.rememberDefeated = function() {
+        if (!this.isHere()) return;
+        for (const unit of this._units) {
+            if (!unit.eventId || unit.gone || unit.team !== "enemy") continue;
+            const battler = this.battler(unit), event = $gameMap.event(unit.eventId);
+            if (!event || !(battler ? battler.isDead() : unit.defeated)) continue;
+            const data = event.event();
+            if (data && !data.rrSpawned && F.staysDefeated(data)) this.setEventDefeated(unit.eventId, true);
         }
     };
 

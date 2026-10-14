@@ -7,14 +7,15 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 ## Where things stand (2026-10-14)
 
 - **0.99.0** shipped on 2026-10-12 at runtime **20261011.14**; PR #74 was merged after it. `main` matches `origin/main` at `dc918245`.
-- **0.99.1** is in development at runtime **20261014.2**, synced to all 16 bundled projects. Committed locally through `1ec66819` plus the Action escape; nothing pushed.
-- **Next agreed:** nothing yet. The owner agreed a kept battle ends when another starts, and asked for Action escape by running (done). On-map defeated enemies wait on the owner (STATUS › Open work).
+- **0.99.1** is in development at runtime **20261014.3**, synced to all 16 bundled projects. Committed locally; nothing pushed.
+- **Next agreed:** nothing yet. The owner agreed a kept battle ends when another starts, and asked for Action escape by running (done). On-map defeated enemies done the owner's way (event box, else Database › Enemies).
 
 ## 2026-10-14 — The 2026-10-10 audit's bugs fixed (runtime 20261014.1)
 
 All fourteen, plus the early border exit, are in `editor/changelog/0.99.1.md`. Tests: `audit-20261010-fight-core`, `audit-20261010-action`, `fight-classic`, `audit-20261010-left`, `layout-fit`, `vehicles-border-slide`. Screenshots before and after at three sizes were in `/tmp/rr-layout-shots/` (not kept).
 
 - **Changed rule, agreed by the owner:** a kept battle (Transfer Player with "keep") now ends as an escape when any other battle starts, encounters included; one `$gameFight` cannot hold two. `fight-flow.test.cjs` and two `vehicles-battle.test.cjs` tests were rewritten for it.
+- **Defeated enemies on the map are remembered now:** the Demo's North Haven raid and Map007's enemies stay gone after one win unless their enemy or event is set to Comes back (the owner sets the Demo).
 - **Action and First Person escape is by running** (`A.updateGetaway`, 15 tiles for 90 frames after an enemy came near); not yet played live.
 
 ## 2026-10-14 — 0.99.1 opened; handoff archived, doc budgets enforced

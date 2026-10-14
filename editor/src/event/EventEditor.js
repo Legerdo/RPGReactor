@@ -557,9 +557,26 @@ class EventEditor {
         const move = String(change.move == null ? '' : change.move).trim();
         if (move !== '') next.move = Math.max(1, Math.min(20, Math.floor(Number(move) || 4)));
         else delete next.move;
-        if (team === 'enemy' && change.returns) next.returns = true;
-        else delete next.returns;
+        // Comes back is an enemy's only. Set from its box (`returns` given), it is kept only where it differs from
+        // what the enemy record says (Database › Enemies), so the event follows its enemy otherwise.
+        if (team !== 'enemy') delete next.returns;
+        else if (change.returns !== undefined) {
+            if (!!change.returns === EventEditor.recordComesBack(next, lists && lists.enemies)) delete next.returns;
+            else next.returns = !!change.returns;
+        }
         return next;
+    }
+
+    /** Whether the enemy record a row fights as comes back by its own setting (`rrBattle.comesBack`). */
+    static recordComesBack(row, enemies) {
+        return !!row && row.record === 'enemy' && (Array.isArray(enemies) ? enemies : [])
+            .some(entry => entry && entry.id === row.id && entry.rrBattle && entry.rrBattle.comesBack === true);
+    }
+
+    /** Whether a defeated enemy row stands again when its map is entered: its own Comes back, else its enemy record's. */
+    static unitComesBack(row, enemies) {
+        if (!row || row.team !== 'enemy') return false;
+        return typeof row.returns === 'boolean' ? row.returns : EventEditor.recordComesBack(row, enemies);
     }
 
     /** A unit an event is by a `<unit: …>` tag (its Note or a page comment) while it has no row; null otherwise. */
@@ -710,7 +727,7 @@ class EventEditor {
                     <select class="event-unit-id">${records(recordOf(unit))}</select>
                     <label>${rrEscapeHtml(this._t('event.unitMove'))}</label>
                     <input type="number" class="event-unit-move database-field-value" data-no-stepper min="1" max="20" step="1" value="${unit && unit.move ? unit.move : ''}" placeholder="${rrEscapeHtml(tt('Auto'))}" title="${rrEscapeHtml(tt('Tiles a turn in a Tactical battle. Empty: the Move of its Database record, else 4.'))}">
-                    <label class="event-unit-returns" title="${rrEscapeHtml(tt('Defeated, it stands here again the next time the map is entered.'))}"><input type="checkbox" class="event-unit-returns-box system-checkbox"${unit && unit.returns ? ' checked' : ''}><span>${rrEscapeHtml(tt('Comes back'))}</span></label>
+                    <label class="event-unit-returns" title="${rrEscapeHtml(tt('Defeated, it stands here again the next time the map is entered.'))}"><input type="checkbox" class="event-unit-returns-box system-checkbox"${EventEditor.unitComesBack(unit, lists.enemies) ? ' checked' : ''}><span>${rrEscapeHtml(tt('Comes back'))}</span></label>
                 </span>
             </div>`;
         const team = row.querySelector('.event-unit-team'), id = row.querySelector('.event-unit-id'), move = row.querySelector('.event-unit-move');
@@ -719,7 +736,8 @@ class EventEditor {
             more.hidden = !team.value;
             returns.hidden = team.value !== 'enemy';
         };
-        const write = async () => {
+        const write = async change => {
+            const fromBox = !!change && change.target === returnsBox;
             // A tag unit becomes a row at its first change. A comment made it a unit on its own page only: the author is told before that changes.
             const tagged = !!EventEditor.tagUnit(event);
             if (tagged) {
@@ -730,7 +748,7 @@ class EventEditor {
                         team.value = unit.team;
                         id.innerHTML = records(recordOf(unit));
                         move.value = unit.move ? unit.move : '';
-                        returnsBox.checked = false;
+                        returnsBox.checked = EventEditor.unitComesBack(unit, lists.enemies);
                         show();
                         return;
                     }
@@ -738,11 +756,12 @@ class EventEditor {
                 EventEditor.useUnitRow(event);
             }
             const before = event.rrUnit || null;
-            const next = EventEditor.unitRowValue(before, { team: team.value, record: id.value, move: move.value, returns: returnsBox.checked }, lists);
+            const next = EventEditor.unitRowValue(before, { team: team.value, record: id.value, move: move.value, returns: fromBox ? returnsBox.checked : undefined }, lists);
             if (next) event.rrUnit = next; else delete event.rrUnit;
             // A side chosen for the first time picked its record: the select follows.
             if (next && recordOf(next) !== id.value) id.innerHTML = records(recordOf(next));
             if (next) this._nameAfterUnit(event, next, lists); else this._nameWithoutUnit(event);
+            returnsBox.checked = EventEditor.unitComesBack(next, lists.enemies);
             show();
             this.pageEditor?.refreshCharacterPreview?.();
             // The tag left the Note or a page's commands: the editor shows the event as it is now.
