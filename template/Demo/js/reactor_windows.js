@@ -1797,7 +1797,7 @@ Window_StatusBase.prototype.drawActorLevel = function(actor, x, y) {
     this.changeTextColor(ColorManager.textColor(1));   // the 2003 system colour
     this.drawText(TextManager.levelA, x, y, 48);
     this.resetTextColor();
-    this.drawText(actor.level, x + 72, y, 48, "right");
+    this.drawText(actor.level, x + 60, y, 60, "right");
 };
 
 Window_StatusBase.prototype.drawActorIcons = function(actor, x, y, width) {

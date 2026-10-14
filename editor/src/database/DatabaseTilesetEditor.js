@@ -1180,6 +1180,8 @@ class DatabaseTilesetEditor {
         if (nameInput) {
             nameInput.addEventListener('input', (e) => {
                 this.currentTileset.name = e.target.value;
+                // The list row follows the name as it is typed.
+                this.parentEditor?.refreshDatabaseListLabel?.(this.currentTileset, 'tilesets');
             });
         }
 

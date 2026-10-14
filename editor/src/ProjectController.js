@@ -193,7 +193,19 @@ class ProjectController {
                 try {
                     lock = this._readProjectLock(fs, lockPath);
                 } catch (readError) {
-                    return this._rejectProjectLock(projectPath, readError);
+                    // A lock that does not read as one and has not changed for a while is left from a crash or
+                    // a damaged copy: nobody holds it. A fresh one may still be being written.
+                    if (!readError?.malformed || !(Date.now() - readError.mtimeMs > 10000)) {
+                        return this._rejectProjectLock(projectPath, readError);
+                    }
+                    try {
+                        if (!this._unlinkMalformedProjectLock(fs, lockPath, readError.text)) {
+                            return this._rejectProjectLock(projectPath, new Error('Project lock changed during stale-lock recovery.'));
+                        }
+                    } catch (recoveryError) {
+                        return this._rejectProjectLock(projectPath, recoveryError);
+                    }
+                    continue;
                 }
                 if (this.projectLockOwnerLives(lock)) {
                     return this._rejectProjectLock(projectPath, null, true);
@@ -220,16 +232,30 @@ class ProjectController {
             fd = fs.openSync(lockPath, flags);
             const stat = fs.fstatSync(fd);
             if (!stat.isFile()) throw new Error('Project lock is not a regular file.');
-            const lock = JSON.parse(fs.readFileSync(fd, 'utf8'));
+            const text = fs.readFileSync(fd, 'utf8');
+            let lock = null;
+            try { lock = JSON.parse(text); } catch (parseError) { lock = null; }
             if (!lock || lock.app !== 'RPG Reactor' || !Number.isInteger(lock.pid) || lock.pid <= 0 ||
                 typeof lock.token !== 'string' || !/^[a-f0-9]{64}$/.test(lock.token) ||
                 typeof lock.openedAt !== 'string' || !Number.isFinite(Date.parse(lock.openedAt))) {
-                throw new Error('Project lock is malformed.');
+                throw Object.assign(new Error('Project lock is malformed.'), { malformed: true, text, mtimeMs: stat.mtimeMs });
             }
             return lock;
         } finally {
             if (fd !== null) fs.closeSync(fd);
         }
+    }
+
+    /** Remove a malformed lock, only while it still holds the text it was read with. */
+    _unlinkMalformedProjectLock(fs, lockPath, text) {
+        try {
+            this._readProjectLock(fs, lockPath);
+            return false;
+        } catch (error) {
+            if (!error?.malformed || error.text !== text) return false;
+        }
+        fs.unlinkSync(lockPath);
+        return true;
     }
 
     _unlinkProjectLockIfToken(fs, lockPath, token) {

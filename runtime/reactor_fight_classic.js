@@ -270,7 +270,7 @@
         // A battle made here whose battle screen never opened stops no other.
         if (C._session && !C.sceneUp()) C.drop();
         if (C._session || $gameParty.inBattle()) return 0;
-        if (typeof $gameFight !== "undefined" && $gameFight && $gameFight.isActive()) return 0;
+        if (typeof $gameFight !== "undefined" && $gameFight && $gameFight.isHere()) return 0;
         if (typeof SceneManager !== "undefined" && SceneManager.isSceneChanging && SceneManager.isSceneChanging()) return 0;
         const rows = C.take(events, options.group);
         if (!rows.length) return 0;

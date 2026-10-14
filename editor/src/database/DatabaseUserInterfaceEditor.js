@@ -2959,7 +2959,7 @@ class DatabaseUserInterfaceEditor {
         this.attachCanvasListeners();
 
         this._resizeObserver = typeof ResizeObserver === 'function'
-            ? new ResizeObserver(() => { this.fitCanvas(); this.scheduleRender(); }) : null;
+            ? new ResizeObserver(() => { this.placeInspectorDrawer(); this.fitCanvas(); this.scheduleRender(); }) : null;
         if (this._resizeObserver) this._resizeObserver.observe(q('.rr-ui-canvas-host'));
     }
 
@@ -3739,6 +3739,15 @@ class DatabaseUserInterfaceEditor {
     // ==========================================
     // CANVAS RENDERING
     // ==========================================
+
+    /** The narrow-layout Inspector drawer starts where the canvas does, below the Layout tools. */
+    placeInspectorDrawer() {
+        const workspace = this.wrapper && this.wrapper.querySelector('.rr-ui-workspace');
+        const host = workspace && workspace.querySelector('.rr-ui-canvas-host');
+        if (!host) return;
+        const top = Math.max(0, Math.round(host.getBoundingClientRect().top - workspace.getBoundingClientRect().top));
+        workspace.style.setProperty('--rr-ui-drawer-top', `${top}px`);
+    }
 
     fitCanvas() {
         const host = this.wrapper.querySelector('.rr-ui-canvas-host');

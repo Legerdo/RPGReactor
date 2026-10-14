@@ -2809,7 +2809,7 @@ Game_Player.prototype.reserveTransfer = function(mapId, x, y, d, fadeType) {
 Game_Player.prototype.leaveByBorder = function(d, reach) {
     if (this.isTransferring() || this.isMoveRouteForcing()) return false;
     if (typeof Reactor3D === "undefined" || !Reactor3D.neighborExit || typeof $dataMap === "undefined" || !$dataMap) return false;
-    if (typeof $gameFight !== "undefined" && $gameFight && $gameFight.isActive && $gameFight.isActive()) return false;
+    if (typeof $gameFight !== "undefined" && $gameFight && $gameFight.isHere && $gameFight.isHere()) return false;
     const exit = Reactor3D.neighborExit($dataMap, this.x, this.y, d, reach || 0);
     if (!exit || typeof $dataMapInfos === "undefined" || !$dataMapInfos || !$dataMapInfos[exit.mapId]) return false;
     if (typeof $gameTemp !== "undefined" && $gameTemp) $gameTemp.clearDestination();

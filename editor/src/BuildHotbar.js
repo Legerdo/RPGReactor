@@ -889,7 +889,7 @@ class BuildHotbar {
         const tt = text => this._tt(text), d = this.doorOf(piece);
         const escape = text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
         const select = (key, options, value) => `<select class="database-field-value rr-build-door" data-key="${key}">${options.map(([v, label]) => `<option value="${v}"${v === value ? ' selected' : ''}>${escape(tt(label))}</option>`).join('')}</select>`;
-        const row = (label, control) => `<label class="rr-build-field rr-build-wide"><span>${escape(label)}</span>${control}</label>`;
+        const row = (label, control) => `<label class="rr-build-field rr-build-setting"><span>${escape(label)}</span>${control}</label>`;
         let look = row(tt('Style'), select('style', BuildHotbar.DOOR_STYLES, d.style || 'plank'));
         if (piece) look += row(tt('Width'), `<input type="number" class="database-field-value rr-build-door" data-key="width" value="${d.width || 1}" min="1" max="6" step="1">`);
         look += row(tt('Hinge'), select('hinge', [['left', 'Left'], ['right', 'Right']], d.hinge || 'left'))
@@ -922,7 +922,7 @@ class BuildHotbar {
         const manager = this.manager(), tt = text => this._tt(text);
         const frame = piece ? (piece.frame || null) : manager.windowFrame;
         const style = frame ? frame.style || 'cottage' : '';
-        const row = (label, control) => `<label class="rr-build-field rr-build-wide"><span>${tt(label)}</span>${control}</label>`;
+        const row = (label, control) => `<label class="rr-build-field rr-build-setting"><span>${tt(label)}</span>${control}</label>`;
         let body = row('Style', `<select class="database-field-value rr-build-frame" data-key="style">${BuildHotbar.WINDOW_FRAMES.map(([v, label]) => `<option value="${v}"${v === style ? ' selected' : ''}>${tt(label)}</option>`).join('')}</select>`);
         if (frame) {
             const shutters = frame.shutters || '';

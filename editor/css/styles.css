@@ -2397,6 +2397,18 @@
         .rr-types-panel.is-collapsed .rr-types-panel-body {
             height: auto;
         }
+        /* Five lists need 973px; narrower, three share the first row and two the second. */
+        @container database-detail (max-width: 980px) {
+            html:not(.rr-web) .rr-types-grid {
+                grid-template-columns: repeat(6, minmax(0, 1fr));
+                grid-template-rows: repeat(2, minmax(0, 1fr));
+            }
+            html:not(.rr-web) .rr-types-grid > .rr-types-panel { grid-column: span 2; }
+            html:not(.rr-web) .rr-types-grid > .rr-types-panel:nth-child(n+4) { grid-column: span 3; }
+            html:not(.rr-web) .rr-types-list { min-height: 70px; }
+            html:not(.rr-web) .rr-types-grid:has(> .rr-types-panel.is-collapsed) { display: grid; }
+            html:not(.rr-web) .rr-types-grid:has(> .rr-types-panel.is-collapsed) > .rr-types-panel { min-width: 0; }
+        }
 
         /* Terms. Beside a folded panel the other takes the row; with the
          * messages folded, the panels on the left take the page. */
@@ -2409,6 +2421,14 @@
         }
         .rr-terms-workspace:has(> .rr-terms-messages-panel.is-collapsed) > .rr-terms-left {
             flex: 0 1 auto;
+        }
+        /* Command fields stay wide enough for an icon code and a word or two. */
+        @container database-detail (max-width: 1300px) {
+            .rr-terms-fields-four { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+        @container database-detail (max-width: 900px) {
+            .rr-terms-top-grid { grid-template-columns: minmax(0, 1fr); }
+            .rr-terms-fields-four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
 
         .database-preview {
@@ -4149,8 +4169,10 @@
         .rr-build-subhead { font-size: 11px; color: var(--color-text-muted); padding: 6px 6px 2px; }
         .rr-build-field { display: grid; grid-template-columns: 1fr 74px; align-items: center; gap: 6px; color: var(--color-text-muted); }
         .rr-build-field input { width: 100%; box-sizing: border-box; }
-        /* A door's and a window frame's rows: a wider field for a choice or a name, on the same label|field grid. */
         .rr-build-field.rr-build-wide { grid-template-columns: 1fr 128px; }
+        /* A door's and a window frame's rows: a short name, the field taking the rest of the row; in a narrow panel the name sits over its field. */
+        .rr-build-field.rr-build-setting { grid-template-columns: 64px minmax(0, 1fr); }
+        .rr-build-panel.is-narrow .rr-build-field.rr-build-setting { grid-template-columns: minmax(0, 1fr); row-gap: 2px; }
         .rr-build-field select, .rr-build-field input[type="text"] { width: 100%; min-width: 0; box-sizing: border-box; }
         .rr-build-field.rr-build-sound { grid-template-columns: 56px 1fr; }
         .rr-build-sound-row { display: flex; gap: 4px; min-width: 0; }
@@ -4445,7 +4467,7 @@
                 display: none;
                 position: absolute;
                 z-index: 8;
-                top: 0;
+                top: var(--rr-ui-drawer-top, 0px);
                 right: 0;
                 bottom: 0;
                 width: min(390px, calc(100% - 42px));
@@ -4455,7 +4477,7 @@
             .rr-ui-workspace > .database-section.rr-ui-props-panel.is-open {
                 display: flex;
             }
-            .rr-ui-inspector-close { display: block; }
+            .rr-ui-inspector-header > .rr-ui-inspector-close { display: block; }
         }
         @container database-detail (max-width: 620px) {
             .rr-ui-editor > .rr-ui-workspace {

@@ -2509,7 +2509,8 @@
             const start = Game_Fight.prototype.start;
             Game_Fight.prototype.start = function(options) {
                 const p = player();
-                const riding = !this._active && p && p._vehicleType === "reactor";
+                // (A battle kept on another map is not running here: it gives way to this one.)
+                const riding = !(this._active && this.isHere()) && p && p._vehicleType === "reactor";
                 // A battle fought on a grid keeps the party in the saddle (reactor_vehicles_mount.js); any other puts it on foot.
                 const mounted = riding && V.Mount && V.Mount.keeps(options);
                 if (mounted) halt();

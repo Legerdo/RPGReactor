@@ -5,7 +5,7 @@ Guides for authoring with the engine, the current verified state, and maintainer
 ## Start here
 
 - [Current status](STATUS.md): the verified state of the tree, runtime defaults that supersede older notes, and open work. Read this before the handoff.
-- [Handoff](HANDOFF.md): dated engineering notes for the cycle in progress and the one just shipped, with how to try the newest work.
+- [Handoff](HANDOFF.md): dated notes for the cycle in progress: what is half-done, what waits on the owner, how to resume.
 - [Authoring a world](AUTHORING.md): where every part of a 3D map lives, which tool edits it by hand, what a generator writes, and what checks it. The contract for people and AI working on the same project.
 
 ## Guides
@@ -28,6 +28,23 @@ Guides for authoring with the engine, the current verified state, and maintainer
 
 - [Release checklist](RELEASE-CHECKLIST.md): clean validation, signed candidates, GitHub and itch publication, rollback.
 - Changelogs are one file per release: [`changelog/`](../changelog/) is the release body (keep it short), [`editor/changelog/`](../editor/changelog/) holds contributor detail. Each folder's `CHANGELOG.md` is the index. A new cycle adds `<version>.md` in both, titled `# RPG Reactor <version> (in development)`, and its line at the top of both indexes.
+
+## Keeping STATUS and HANDOFF short
+
+Each session writes notes, and nothing removes them unless a rule does. These are the rules; `editor/tests/docs-budget.test.cjs` fails when one is broken.
+
+| Where | What goes there | Limit |
+| --- | --- | --- |
+| `editor/changelog/<version>.md` | What changed, in full. The record of the work. | none |
+| Commit message, guides, code comments | How it works and why. | none |
+| [STATUS.md](STATUS.md) | What is true now: one validation bullet per area, the one open-work list, decisions that stand. Replace; never append dated narrative. | 25,000 bytes |
+| [HANDOFF.md](HANDOFF.md) › Where things stand | The state the next session starts from. Rewritten, not added to, each session. | 2,500 bytes |
+| [HANDOFF.md](HANDOFF.md), one dated entry | What the next session needs and can't find elsewhere: half-done work, traps, owner questions, how to resume. Not a restatement of the changelog. | 4,000 bytes |
+| [HANDOFF.md](HANDOFF.md), whole file | The cycle in progress only. | 40,000 bytes |
+
+- **At a release,** `cut-release.cjs` moves every entry dated on or before the release into `archive/handoff/<version>.md` in the release commit. Entries older than the latest release fail the test.
+- **Mid-cycle, over the limit:** `node editor/build-scripts/archive-handoff.cjs --through <YYYY-MM-DD>` moves older entries to the archive file of the version in development.
+- **When an open item is finished,** it leaves STATUS › Open work. When a check is repeated, its validation bullet is replaced.
 
 ## Release history
 

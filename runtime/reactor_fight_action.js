@@ -228,6 +228,21 @@
         return this._active && (this._mode === "action" || this._mode === "firstPerson");
     };
 
+    // A battle with no turns that can be escaped (Can Escape) is left whenever the player asks, unless it is
+    // already ending: it ends as an escape, as a Tactical battle's Retreat ends it.
+    const canRetreat = Game_Fight.prototype.canRetreat;
+    Game_Fight.prototype.canRetreat = function() {
+        if (this.isAction()) return !!this._options.canEscape && !this._ending && this.isHere();
+        return typeof canRetreat === "function" ? canRetreat.call(this) : false;
+    };
+    const commandRetreat = Game_Fight.prototype.commandRetreat;
+    Game_Fight.prototype.commandRetreat = function() {
+        if (!this.isAction()) return typeof commandRetreat === "function" ? commandRetreat.call(this) : false;
+        if (!this.canRetreat()) return false;
+        this.end(F.ESCAPE);
+        return true;
+    };
+
     Game_Fight.prototype.act = function() {
         if (!this._action) {
             this._action = {

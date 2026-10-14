@@ -5057,7 +5057,8 @@
 
     View.end = function(fight) {
         const view = fight._tac && fight._tac.view, C = camera3D();
-        if (view && view.own && C) {
+        // The map's own camera comes back on the battle's map; a battle ended away from it leaves the camera there.
+        if (view && view.own && C && fight.isHere()) {
             C.change(view.saved, 30, false);
             if (view.kept && typeof $gameSystem !== "undefined" && $gameSystem) $gameSystem._reactorCamera3d = view.kept;
         }

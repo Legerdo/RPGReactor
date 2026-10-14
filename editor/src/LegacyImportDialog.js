@@ -101,7 +101,10 @@
 
         const body = document.createElement('div');
         body.className = 'rr-modal-body rr-accent-scrollbar';
-        body.style.cssText = 'display:grid;grid-template-columns:max-content 1fr auto;column-gap:10px;row-gap:8px;align-items:center;';
+        body.style.cssText = 'gap:8px;';
+        // The settings on one label | field | button grid; the log below them takes the height that is left.
+        const fields = document.createElement('div');
+        fields.style.cssText = 'flex:none;display:grid;grid-template-columns:max-content 1fr auto;column-gap:10px;row-gap:8px;align-items:center;';
         const label = (text, forId) => { const l = document.createElement('label'); l.setAttribute('for', forId); l.style.cssText = 'color:var(--color-text);font-size:13px;'; l.textContent = text; return l; };
         const input = (id, readOnly) => { const i = document.createElement('input'); i.type = 'text'; i.id = id; i.readOnly = !!readOnly; i.setAttribute('autocomplete', 'off'); i.setAttribute('spellcheck', 'false'); i.style.cssText = 'width:100%;box-sizing:border-box;padding:7px 10px;font-size:13px;color:var(--color-text);background:var(--color-bg-input, var(--color-bg-deep));border:1px solid var(--color-border);border-radius:var(--radius-sm, 4px);'; return i; };
         const button = (id, text, cls) => { const b = document.createElement('button'); b.type = 'button'; b.id = id; b.className = cls || 'rr-btn-secondary'; b.textContent = text; return b; };
@@ -148,14 +151,14 @@
         detectedEl.setAttribute('aria-live', 'polite');
         detectedEl.style.cssText = 'grid-column:2 / span 2;display:flex;align-items:center;gap:8px;min-height:24px;font-size:13px;color:var(--color-text-muted);';
         detectedEl.textContent = '—';
-        body.append(label(tt('Source folder'), sourceInput.id), sourceInput, sourceBrowse, hint(tt('The game\'s folder: RPG_RT.ldb for 2000/2003, a Data folder or game archive for XP, VX and VX Ace.')));
-        body.append(label(tt('Detected'), detectedEl.id), detectedEl);
-        body.append(label(tt('Create in'), parentInput.id), parentInput, parentBrowse);
-        body.append(label(tt('Project name'), nameInput.id), nameInput, spacer());
-        body.append(label(tt('Text encoding'), encodingSelect.id), encodingSelect, spacer(), hint(tt('Leave on Automatic unless names and messages come out garbled.')));
-        body.append(label(tt('Language'), languageSelect.id), languageSelect, spacer(), hint(tt('A translation the game ships in its Language folder, baked into every text.')));
+        fields.append(label(tt('Source folder'), sourceInput.id), sourceInput, sourceBrowse, hint(tt('The game\'s folder: RPG_RT.ldb for 2000/2003, a Data folder or game archive for XP, VX and VX Ace.')));
+        fields.append(label(tt('Detected'), detectedEl.id), detectedEl);
+        fields.append(label(tt('Create in'), parentInput.id), parentInput, parentBrowse);
+        fields.append(label(tt('Project name'), nameInput.id), nameInput, spacer());
+        fields.append(label(tt('Text encoding'), encodingSelect.id), encodingSelect, spacer(), hint(tt('Leave on Automatic unless names and messages come out garbled.')));
+        fields.append(label(tt('Language'), languageSelect.id), languageSelect, spacer(), hint(tt('A translation the game ships in its Language folder, baked into every text.')));
         rtpInput.placeholder = tt('Drop an RTP folder, installer or archive here');
-        body.append(label(tt('RTP folder'), rtpInput.id), rtpInput, rtpButtons, hint(tt('For 2000/2003 games that use RPG Maker\'s standard files: a folder, an RTP installer (.exe) or an archive (.zip, .rar). One already on this computer is found without it.')));
+        fields.append(label(tt('RTP folder'), rtpInput.id), rtpInput, rtpButtons, hint(tt('For 2000/2003 games that use RPG Maker\'s standard files: a folder, an RTP installer (.exe) or an archive (.zip, .rar). One already on this computer is found without it.')));
         // Shown when the picked game takes files from the RTP and none can be found.
         const rtpMissing = document.createElement('div');
         rtpMissing.id = 'rr-legacy-import-rtp-missing';
@@ -170,15 +173,15 @@
         const rtpAddon = document.createElement('div');
         rtpAddon.id = 'rr-legacy-import-rtp-addon';
         rtpAddon.style.cssText = rtpMissing.style.cssText;
-        body.append(rtpMissing, rtpAddon);
+        fields.append(rtpMissing, rtpAddon);
         fillLanguages([]);
 
         const errorEl = document.createElement('div');
         errorEl.setAttribute('role', 'alert');
-        errorEl.style.cssText = 'grid-column:1 / -1;color:var(--color-danger-bright, #e5484d);font-size:12px;min-height:1.2em;';
+        errorEl.style.cssText = 'flex:none;color:var(--color-danger-bright, #e5484d);font-size:12px;min-height:1.2em;';
         // The console: a progress bar over the importer's own lines, coloured by level.
         const consoleEl = document.createElement('div');
-        consoleEl.style.cssText = 'grid-column:1 / -1;display:flex;flex-direction:column;gap:6px;margin-top:4px;';
+        consoleEl.style.cssText = 'flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:6px;margin-top:4px;';
         const consoleHead = document.createElement('div');
         consoleHead.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;';
         const consoleTitle = document.createElement('span');
@@ -207,13 +210,13 @@
         const logEl = document.createElement('div');
         logEl.id = 'rr-legacy-import-log';
         logEl.className = 'audio-scroll';
-        logEl.style.cssText = 'height:220px;overflow-y:auto;padding:8px 10px;font-family:Consolas, Monaco, monospace;font-size:12px;line-height:1.45;color:var(--color-text);background:var(--color-bg-panel);border:1px solid var(--color-border);border-radius:4px;white-space:pre-wrap;word-wrap:break-word;';
+        logEl.style.cssText = 'flex:0 1 220px;min-height:100px;overflow-y:auto;padding:8px 10px;font-family:Consolas, Monaco, monospace;font-size:12px;line-height:1.45;color:var(--color-text);background:var(--color-bg-panel);border:1px solid var(--color-border);border-radius:4px;white-space:pre-wrap;word-wrap:break-word;';
         const ready = document.createElement('div');
         ready.style.color = 'var(--color-text-muted)';
         ready.textContent = tt('Ready to import.');
         logEl.appendChild(ready);
         consoleEl.append(consoleHead, progressRow, track, logEl);
-        body.append(errorEl, consoleEl);
+        body.append(fields, errorEl, consoleEl);
         const LEVEL_COLOURS = {
             stage: 'var(--color-accent-hover)',
             info: 'var(--color-text)',

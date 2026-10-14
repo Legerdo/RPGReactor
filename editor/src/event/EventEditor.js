@@ -330,15 +330,11 @@ class EventEditor {
                 });
             }
             (this.pendingModels || []).forEach((spec, index) => {
+                // A page with no model clears only a model the sidecar holds: a map with no sidecar gains none.
+                if ((!spec || !spec.name) && !(store && store[String(index)])) return;
                 Reactor3D.setEventModelSpec(map, event.id, index, spec);
             });
             return;
-        }
-        if (!map.reactor3d || typeof map.reactor3d !== 'object') {
-            map.reactor3d = { version: 1, mode: '3d' };
-        }
-        if (!map.reactor3d.events || typeof map.reactor3d.events !== 'object') {
-            map.reactor3d.events = {};
         }
         const key = String(event.id);
         const pages = {};
@@ -364,9 +360,21 @@ class EventEditor {
             if (typeof spec.variant === 'string' && spec.variant.trim()) written.variant = spec.variant.trim();
             pages[String(index)] = written;
         });
-        if (Object.keys(pages).length) map.reactor3d.events[key] = pages;
-        else delete map.reactor3d.events[key];
-        if (!Object.keys(map.reactor3d.events).length) delete map.reactor3d.events;
+        if (!Object.keys(pages).length) {
+            // No model to write: a map with no sidecar gains none.
+            const store = map.reactor3d && map.reactor3d.events;
+            if (!store || typeof store !== 'object') return;
+            delete store[key];
+            if (!Object.keys(store).length) delete map.reactor3d.events;
+            return;
+        }
+        if (!map.reactor3d || typeof map.reactor3d !== 'object') {
+            map.reactor3d = { version: 1, mode: '3d' };
+        }
+        if (!map.reactor3d.events || typeof map.reactor3d.events !== 'object') {
+            map.reactor3d.events = {};
+        }
+        map.reactor3d.events[key] = pages;
     }
 
     _commitChanges() {
@@ -1052,8 +1060,11 @@ class EventEditor {
     copyCurrentPage() {
         const currentPage = this.currentEvent.pages[this.currentPageIndex];
         this.clipboard = JSON.parse(JSON.stringify(currentPage)); // Deep clone
+        // The page's 3D model goes with it.
+        const model = this.pendingModels && this.pendingModels[this.currentPageIndex];
+        this.clipboardModel = model ? this._clone(model) : null;
         if (typeof ReactorClipboard !== 'undefined') {
-            ReactorClipboard.write('eventPage', { page: this.clipboard });
+            ReactorClipboard.write('eventPage', { page: this.clipboard, model: this.clipboardModel });
         }
         console.log('Page copied to clipboard');
     }
@@ -1063,12 +1074,14 @@ class EventEditor {
      */
     async pasteEventPage() {
         const targetEvent = this.currentEvent;
-        let pageData = null;
+        let pageData = null, modelData = null;
         if (typeof ReactorClipboard !== 'undefined') {
             const clipboardData = await ReactorClipboard.read('eventPage');
             pageData = clipboardData?.payload?.page || null;
+            modelData = clipboardData?.payload?.model || null;
         } else {
             pageData = this.clipboard;
+            modelData = this.clipboardModel || null;
         }
         if (this.currentEvent !== targetEvent) return;
 
@@ -1080,8 +1093,10 @@ class EventEditor {
         const pastedPage = JSON.parse(JSON.stringify(pageData)); // Deep clone
         this.currentEvent.pages.push(pastedPage);
         if (!this.pendingModels) this.pendingModels = [];
-        this.pendingModels.push(null);
+        this.pendingModels.push(modelData && modelData.name ? this._clone(modelData) : null);
         this.currentPageIndex = this.currentEvent.pages.length - 1;
+        // An Auto size follows the model.
+        if (modelData && modelData.name) this.refreshAutoSize();
 
         // Refresh the entire editor
         const container = document.querySelector('.event-editor-container');

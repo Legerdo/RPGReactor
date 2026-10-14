@@ -425,6 +425,8 @@
         this._results = {};
         // The side an event fights on when a command changed it ("mapId,eventId": team), kept with the save.
         this._sides = {};
+        // The placed enemies remembered as defeated ("mapId,eventId": true): off their map whenever it is entered.
+        this._fallen = {};
         // A battle page still running when its battle ended (updateTail).
         this._tail = null;
         this.clear();
@@ -475,6 +477,18 @@
         return this._active && typeof $gameMap !== "undefined" && $gameMap.mapId() === this._mapId;
     };
 
+    /**
+     * A battle kept on a map the party left gives way to a battle that begins elsewhere (on the map the party is
+     * on, or on the battle screen): it ends as an escape, as leaving its map would have ended it. Returns whether
+     * it ended.
+     */
+    Game_Fight.prototype.endKept = function() {
+        if (!this._active || this.isHere()) return false;
+        this._ending = { result: F.ESCAPE, shown: true, quiet: true };
+        this.finish();
+        return true;
+    };
+
     //-------------------------------------------------------------------------
     // Units: who they are and where they stand.
 
@@ -504,7 +518,8 @@
     Game_Fight.prototype.character = function(unit) {
         if (!unit) return null;
         if (unit.eventId) {
-            const event = $gameMap.event(unit.eventId);
+            // An event unit stands on the battle's map only: another map's event of that id is somebody else.
+            const event = this.isHere() ? $gameMap.event(unit.eventId) : null;
             return event && !event._erased ? event : null;
         }
         if (unit.party) {
@@ -580,9 +595,10 @@
      * ({ type: "defeatAll" } / { type: "survive", turns } / { type: "defeatUnit", eventId } /
      * { type: "switch", switchId } / { type: "variable", variableId, value }),
      * onTransfer ("escape" / "keep"), bgm ("battle", the game's battle BGM, / "map").
-     * Returns the fight's serial, or 0 when one is already running.
+     * Returns the fight's serial, or 0 when one is already running here (one kept on another map gives way: `endKept`).
      */
     Game_Fight.prototype.start = function(options) {
+        this.endKept();
         if (this._active) return 0;
         options = options || {};
         // Those who were still fading when the last battle here ended are gone by now.
@@ -621,6 +637,25 @@
     /** The party joins: every battle member, the leader and the followers who stand for them. */
     Game_Fight.prototype.takeParty = function() {
         $gameParty.battleMembers().forEach(actor => this.addUnit({ team: "ally", record: "actor", id: actor.actorId(), party: true }));
+    };
+
+    /**
+     * A battle member the battle running here has no unit for (one Change Party Member adds, a reserve member
+     * moved up) joins it: on a free cell beside the leader, its battler starting its battle. One who left the
+     * party in the battle and is back is the unit it was.
+     */
+    Game_Fight.prototype.takeNewMembers = function() {
+        if (!this._active || this._ending || !this.isHere()) return;
+        for (const actor of $gameParty.battleMembers()) {
+            const actorId = actor.actorId();
+            if (this._units.some(unit => unit.party && unit.actorId === actorId)) continue;
+            const character = this.character({ party: true, actorId });
+            const spot = character && character !== $gamePlayer ? this.freeSpotNear($gamePlayer.x, $gamePlayer.y, 1) : null;
+            if (spot) Game_CharacterBase.prototype.locate.call(character, spot.x, spot.y);
+            if (!this.addUnit({ team: "ally", record: "actor", id: actorId, party: true })) continue;
+            actor.onBattleStart(false);
+            if (this.touch) this.touch();
+        }
     };
 
     /**
@@ -751,6 +786,26 @@
         if (raw && raw.type === "switch" && Number(raw.switchId) > 0) return { type: "switch", switchId: Math.floor(Number(raw.switchId)) };
         if (raw && raw.type === "variable" && Number(raw.variableId) > 0) return { type: "variable", variableId: Math.floor(Number(raw.variableId)), value: Math.floor(Number(raw.value) || 0) };
         return { type: "defeatAll" };
+    };
+
+    /** An event is remembered as defeated (`defeated`), or no longer; `mapId`: this map unless given. */
+    Game_Fight.prototype.setEventDefeated = function(eventId, defeated, mapId) {
+        const key = (mapId || $gameMap.mapId()) + "," + eventId;
+        if (!this._fallen) this._fallen = {};
+        if (defeated) this._fallen[key] = true; else delete this._fallen[key];
+    };
+
+    /**
+     * The map is entered: the events remembered as defeated on it leave it, as Erase Event has them leave. One
+     * whose In battle row now says Comes back, or that is no row any more, stands.
+     */
+    Game_Fight.prototype.eraseDefeated = function(map) {
+        const prefix = map.mapId() + ",";
+        for (const key in this._fallen || {}) {
+            if (!key.startsWith(prefix)) continue;
+            const event = map.event(Number(key.slice(prefix.length))), data = event ? event.event() : null;
+            if (data && data.rrUnit && data.rrUnit.returns !== true) event.erase();
+        }
     };
 
     Game_Fight.prototype.sideOverride = function(mapId, eventId) {
@@ -2433,7 +2488,8 @@
     };
 
     Game_Fight.prototype.checkOutcome = function(roundEnded) {
-        if (!this._active || this._ending) return;
+        // A battle kept on a map the party left is judged there, once the party is back.
+        if (!this._active || this._ending || !this.isHere()) return;
         // One who joined already down and has been revived since is in the battle like anyone: falling again is falling here.
         for (const unit of this._units) {
             if (!unit.down) continue;
@@ -2535,8 +2591,9 @@
         if (lost ? canLose : result === F.WIN && F.systemSettings().reviveAfterBattle !== false) this.reviveFallen();
         this.settleFallen();
         // What it leaves of its units, the party as the map has it, then what goes on round it; the battle is cleared there.
+        // Away from a battle that is kept the party is already as the map has it (`partyAway`).
         this.finishUnits(result);
-        this.restoreParty();
+        if (this.isHere()) this.restoreParty(); else this._followers = null;
         this.finishAround(result);
         if (lost) {
             if (canLose) $gameParty.reviveBattleMembers();
@@ -2570,7 +2627,8 @@
      * swept last: while the battle stands they are still its units.
      */
     Game_Fight.prototype.finishAround = function(result) {
-        if (this._savedBgm) AudioManager.replayBgm(this._savedBgm);
+        // The map's music comes back on the map it was saved on; another map plays its own.
+        if (this._savedBgm && this.isHere()) AudioManager.replayBgm(this._savedBgm);
         $gameTroop.clear();
         this._results[this._serial] = result;
         if (F.feed()) ReactorEvents.emit("mapBattleEnd", { serial: this._serial, result });
@@ -2763,7 +2821,7 @@
     };
     const canEncounter = Game_Player.prototype.canEncounter;
     Game_Player.prototype.canEncounter = function() {
-        if (typeof $gameFight !== "undefined" && $gameFight && $gameFight.isActive()) return false;
+        if (typeof $gameFight !== "undefined" && $gameFight && $gameFight.isHere()) return false;
         return canEncounter.call(this);
     };
 
@@ -2782,7 +2840,7 @@
     // the party, and the units the start rule takes. Where it opens the battle screen it is the next battle.
     const executeEncounter = Game_Player.prototype.executeEncounter;
     Game_Player.prototype.executeEncounter = function() {
-        if ($gameMap.isEventRunning() || this._encounterCount > 0 || $gameFight.isActive()) return executeEncounter.call(this);
+        if ($gameMap.isEventRunning() || this._encounterCount > 0 || $gameFight.isHere()) return executeEncounter.call(this);
         const troopId = this.makeEncounterTroopId();
         const mode = F.resolveMode(troopId);
         if (F.isOnMap(mode) && $dataTroops[troopId]) {
@@ -2852,6 +2910,7 @@
         // kept: units still standing come back, and those that fell in the battle do not.
         if ((same || back) && this._rrSpawned) F.reinstateSpawned(this);
         if (fight && fight._mapId === mapId) fight.eraseFallen();
+        if (typeof $gameFight !== "undefined" && $gameFight) $gameFight.eraseDefeated(this);
     };
 
     F.reinstateSpawned = function(map) {
@@ -2996,7 +3055,7 @@
             F.waitForBattle(this, fight.serial(), 0);
             return true;
         }
-        if (!fight.isActive()) {
+        if (!fight.isHere()) {
             const mode = F.resolveMode(troopId);
             if (F.isOnMap(mode) && $dataTroops[troopId]) {
                 const serial = fight.start({ mode, troopId, who: "near", canEscape: params[2], canLose: params[3] });
@@ -3033,6 +3092,24 @@
     Game_Party.prototype.maxBattleMembers = function() {
         const size = Math.floor(Number(F.systemSettings().partySize) || 0);
         return size > 0 ? Math.min(size, 99) : maxBattleMembers.call(this);
+    };
+
+    // The party changes in a battle on the map (Change Party Member, Formation from the menu over it): whoever is
+    // a battle member now and has no unit joins it.
+    for (const name of ["addActor", "removeActor", "swapOrder"]) {
+        const change = Game_Party.prototype[name];
+        Game_Party.prototype[name] = function() {
+            change.apply(this, arguments);
+            if (root.$gameFight) root.$gameFight.takeNewMembers();
+        };
+    }
+
+    // The battle screen is set up: a battle kept on a map the party left gives way to it (`endKept`), before the
+    // troop is the screen's.
+    const setupBattle = BattleManager.setup;
+    BattleManager.setup = function(troopId, canEscape, canLose) {
+        if (root.$gameFight) root.$gameFight.endKept();
+        setupBattle.call(this, troopId, canEscape, canLose);
     };
 
     // $gameFight is created with the game and saved with it; the troop is rebuilt from it on load.
@@ -3427,8 +3504,8 @@
             const who = args.who === "near" ? "near" : "map";
             const canEscape = bool(args.canEscape), canLose = bool(args.canLose), objective = F.objectiveOfArgs(args);
             // One battle at a time: a battle running on this map takes what this one brings, and the event waits for it.
-            if (fight.isActive()) {
-                if (!fight.isHere()) return;
+            // One kept on another map gives way to this one (`endKept`).
+            if (fight.isHere()) {
                 fight.adopt({ who, troopId, canEscape, canLose, objective });
                 if (bool(args.wait)) F.waitForBattle(this, fight.serial(), variable);
                 return;

@@ -457,3 +457,26 @@ test('the pause menu over a battle on the map does not offer what only a battle 
     w.SceneManager._scene = new w.Scene_Map();
     assert.equal(actor.canUse(bomb), true);
 });
+
+test('an Action or First Person battle that can be escaped is left at the player\'s word: it ends as an escape, as in any mode', () => {
+    for (const mode of ['action', 'firstPerson']) {
+        const w = world({ events: [unit(1, 12, 9, 'enemy 1')] });
+        const fight = w.$gameFight, F = w.ReactorFight;
+        const serial = begin(w, { mode, canEscape: true });
+        assert.equal(fight.canRetreat(), true, mode + ': it can be left');
+        assert.equal(fight.commandRetreat(), true);
+        assert.equal(fight.canRetreat(), false, mode + ': once, as it ends');
+        w.run(200, () => !fight.isActive());
+        assert.equal(fight.isActive(), false);
+        assert.equal(fight.resultOf(serial), F.ESCAPE, mode + ': it ended as an escape');
+        assert.equal(w.messages.length, 1);
+        assert.match(w.messages[0], /has started to escape!$/, mode + ': said as any escape is');
+        // One that cannot be escaped is not left.
+        const held = world({ events: [unit(1, 12, 9, 'enemy 1')] });
+        begin(held, { mode, canEscape: false });
+        assert.equal(held.$gameFight.canRetreat(), false);
+        assert.equal(held.$gameFight.commandRetreat(), false);
+        held.run(10);
+        assert.equal(held.$gameFight.isActive(), true, mode + ': it goes on');
+    }
+});

@@ -23,6 +23,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { archiveHandoff, planArchive } = require('./archive-handoff.cjs');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const REPO = 'Psychronic-Games/RPGReactor';
@@ -206,6 +207,17 @@ function main() {
 
     const edits = rollVersionSurfaces(version, passed);
     say(edits.length ? `Rolled: ${edits.join(', ')}\n` : 'Version surfaces already current\n');
+
+    // The cycle's handoff entries go to the archive in the release commit, so
+    // the next cycle starts from a short handoff (docs-budget.test.cjs).
+    if (options.dryRun) {
+        const plan = planArchive({ through: today(), version });
+        say(`Would archive ${plan.moved.length} handoff entr${plan.moved.length === 1 ? 'y' : 'ies'} to ${plan.file}\n`);
+    } else {
+        const archived = archiveHandoff({ through: today(), version });
+        edits.push(...archived.written);
+        if (archived.written.length) say(`Archived ${archived.moved.length} handoff entries to ${archived.file}\n`);
+    }
 
     const body = changelogSection(version);
     say(`Release notes: ${body.split('\n').length} lines from the changelog\n`);
