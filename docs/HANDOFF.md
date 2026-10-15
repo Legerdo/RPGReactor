@@ -8,7 +8,12 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 - **0.99.0** shipped on 2026-10-12 at runtime **20261011.14**; PR #74 was merged after it. `main` matches `origin/main` at `dc918245`.
 - **0.99.1** is in development at runtime **20261014.3**, synced to all 16 bundled projects. Committed locally; nothing pushed.
+- **In progress: performance round 2, paused overnight 2026-10-14.** Local WIP commit `bf2b82bc`, not tested as a whole, runtime not yet synced into the bundled projects. Resume from [perf-round2/lead.md](perf-round2/lead.md).
 - **Next agreed:** nothing yet. The owner agreed a kept battle ends when another starts, and asked for Action escape by running (done). On-map defeated enemies done the owner's way (event box, else Database › Enemies).
+
+## 2026-10-14 — Performance round 2 paused mid-work (WIP commit bf2b82bc)
+
+Five agents worked on frame pacing, 2D tilemaps, models and textures, startup and editor memory, and worker threads; the owner paused them for the night. Everything is in WIP commit `bf2b82bc`. Each agent's state, numbers, next steps and draft changelog lines are in [perf-round2/](perf-round2/); evidence and scripts are in the gitignored `scratchpad/perf-round2-checkpoint/` (Dropbox only). Before the real commit: finish each agent's listed steps, sync the runtime, fix the known cross-agent test failures listed in lead.md, write docs and changelogs, run the full suite. Then delete `docs/perf-round2/`.
 
 ## 2026-10-14 — The 2026-10-10 audit's bugs fixed (runtime 20261014.1)
 
