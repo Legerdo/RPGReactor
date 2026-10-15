@@ -1353,7 +1353,7 @@ class LightingManager {
      * looks lit whenever the 3D view is open, whether or not this panel is:
      * the lights are authored map content, like the props.
      */
-    feed3D() {
+    feed3D(now) {
         const map3d = this.mapEditor3D();
         const scene = map3d?.mapScene;
         if (!map3d?.isEnabled?.() || !scene || typeof Reactor3D === 'undefined' || !Reactor3D.extensionsLoaded?.()) return;
@@ -1367,7 +1367,9 @@ class LightingManager {
             Reactor3D.setAmbient(null);
             return;
         }
-        this._frame++;
+        // A flicker's or pulse's frame is read off the clock at the game's sixty a second, as a carried light's
+        // is: the view draws an animated light about twenty times a second, and it plays at the speed the game shows.
+        this._frame = Number.isFinite(now) ? Math.floor(now * 0.06) : this._frame + 1;
         Reactor3D.setAmbient({
             intensity: ambient.ambient,
             colour: this._colourNumber(ambient.ambientColour)
@@ -1406,7 +1408,7 @@ class LightingManager {
 
     /** Feed the compositor and have the 3D view draw what it now holds. */
     _sync3D() {
-        this.feed3D();
+        this.feed3D(typeof performance !== 'undefined' ? performance.now() : undefined);
         this.mapEditor3D()?.requestRender?.();
     }
 

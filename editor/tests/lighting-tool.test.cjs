@@ -97,12 +97,12 @@ test('the lighting manager composites the way the runtime does', () => {
     // without this pass the lights were fully computed and never drawn —
     // the "Lighting · 10 but a bright, lightless room" the tool shipped
     // with, caught only by looking at the rendered pixels.
-    assert.match(manager, /feed3D\(\) \{/);
+    assert.match(manager, /feed3D\(now\) \{/);
     assert.match(manager, /wants3DFrames\(\) \{/);
     const editor3d = read('src/MapEditor3D.js');
     assert.match(editor3d, /renderLightsPass\(scene\) \{/);
     assert.match(editor3d, /setPass\('lights'\)/);
-    assert.match(editor3d, /lightingManager\?\.feed3D\?\.\(\)/);
+    assert.match(editor3d, /lightingManager\?\.feed3D\?\.\(now\)/);
     assert.match(editor3d, /wants3DFrames\?\.\(\)/);
     const passCalls = editor3d.match(/this\.renderLightsPass\(scene\);/g) || [];
     assert.equal(passCalls.length, 2, 'the world branch and the split-pass chain both draw lights');

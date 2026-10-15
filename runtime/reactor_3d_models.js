@@ -2127,6 +2127,7 @@ Reactor3D.ModelUse = {
         for (const level of (lod && lod.levels) || []) for (const g of level) geometry(g);
         const cap = R.textureCap ? R.textureCap() : 2048;
         for (const texture of template.userData.glbTextures || []) {
+            if (texture && texture.isCompressedTexture) { bytes += R.KTX2.bytes(texture); continue; }
             const image = texture && (R.ShaderWarmup && R.ShaderWarmup.sourceImage ? R.ShaderWarmup.sourceImage(texture) : texture.image);
             const width = Math.min(cap, image && (image.naturalWidth || image.width) || 0), height = Math.min(cap, image && (image.naturalHeight || image.height) || 0);
             bytes += width * height * 4 * (texture.generateMipmaps === false ? 1 : 1.33);
@@ -2348,19 +2349,77 @@ function reactorSplitGlb(buffer) {
     return { json, bin };
 }
 
+/**
+ * The part of a GLB's binary chunk the runtime reads: every accessor's view,
+ * packed into a buffer of its own (each view keeps its offset's remainder by
+ * 16, so every typed array over it stays aligned), and the pictures a
+ * material draws with (its base color) as Blobs on their `images` entries
+ * (`rrBlob`). Normal, roughness and occlusion maps and pictures nothing
+ * names are left behind, with the rest of the file. `json` is updated in
+ * place to the new offsets. Returns the packed ArrayBuffer.
+ */
+function reactorCompactGlb(json, buffer, binOffset, binLength) {
+    const views = json.bufferViews || [], read = {}, drawn = {};
+    for (const accessor of json.accessors || []) if (accessor.bufferView != null) read[accessor.bufferView] = true;
+    for (const material of json.materials || []) {
+        const pbr = material.pbrMetallicRoughness || {}, specgloss = material.extensions && material.extensions.KHR_materials_pbrSpecularGlossiness;
+        const info = pbr.baseColorTexture || (specgloss && specgloss.diffuseTexture);
+        const texture = info && json.textures && json.textures[info.index];
+        if (texture && texture.source != null) drawn[texture.source] = true;
+        // And its block-compressed copy (KHR_texture_basisu).
+        const basisu = texture && texture.extensions && texture.extensions.KHR_texture_basisu;
+        if (basisu && basisu.source != null) drawn[basisu.source] = true;
+    }
+    const source = new Uint8Array(buffer, binOffset, binLength), placed = [];
+    let size = 0;
+    for (let i = 0; i < views.length; i++) {
+        if (!read[i]) continue;
+        const from = views[i].byteOffset || 0, length = views[i].byteLength || 0;
+        const at = size + ((from % 16) - (size % 16) + 16) % 16;
+        placed.push([i, from, length, at]);
+        size = at + length;
+    }
+    const packed = new Uint8Array(size);
+    for (const [i, from, length, at] of placed) {
+        packed.set(source.subarray(from, from + length), at);
+        views[i].byteOffset = at;
+    }
+    (json.images || []).forEach((image, index) => {
+        if (!drawn[index] || image.uri || image.bufferView == null || typeof Blob === "undefined") return;
+        const view = views[image.bufferView], from = view.byteOffset || 0;
+        // A view an accessor also reads has moved already.
+        const bytes = read[image.bufferView] ? packed.subarray(from, from + view.byteLength) : source.subarray(from, from + view.byteLength);
+        image.rrBlob = new Blob([bytes], { type: image.mimeType || "image/png" });
+    });
+    return packed.buffer;
+}
+
 // Exposed for tests: the worker runs exactly these functions.
-Reactor3D._workerParts = { splitGlb: reactorSplitGlb };
+Reactor3D._workerParts = { splitGlb: reactorSplitGlb, compactGlb: reactorCompactGlb };
+
+/**
+ * A model keeps only what it reads of its file: the geometry and animation
+ * data in a packed buffer and its base color pictures. Off, its arrays are
+ * views into the whole file, which then stays in memory for as long as the
+ * model does, pictures nothing samples included.
+ */
+Reactor3D.GlbCompact = { enabled: true };
 
 // The worker splits the container and parses its JSON. A model's pictures are
 // not decoded here: each one is decoded when it is first drawn (ShaderWarmup),
 // at this machine's size, and that copy is closed once it is on the GPU.
 Reactor3D._glbWorkerSource = function() {
-    return reactorSplitGlb.toString() + "\n"
+    return reactorSplitGlb.toString() + "\n" + reactorCompactGlb.toString() + "\n"
         + "self.onmessage = function(event) {\n"
         + "    var data = event.data || {};\n"
         + "    var buffer = data.buffer;\n"
         + "    Promise.resolve().then(function() {\n"
         + "        var parsed = reactorSplitGlb(buffer);\n"
+        + "        if (data.compact) {\n"
+        + "            var packed = reactorCompactGlb(parsed.json, buffer, parsed.bin.offset, parsed.bin.length);\n"
+        + "            self.postMessage({ id: data.id, json: parsed.json, binOffset: 0, binLength: packed.byteLength, buffer: packed }, [packed]);\n"
+        + "            return;\n"
+        + "        }\n"
         + "        self.postMessage({ id: data.id, json: parsed.json,\n"
         + "            binOffset: parsed.bin.offset, binLength: parsed.bin.length,\n"
         + "            buffer: buffer }, [buffer]);\n"
@@ -2403,6 +2462,35 @@ Reactor3D._ensureParseWorker = function() {
     return this._parseWorker;
 };
 
+/**
+ * A worker's message arrives with every array holey and generic, whatever it
+ * holds. A node's matrix read from one by three's math (Matrix4.fromArray)
+ * taught it to convert every array it reads to the generic kind, and from
+ * there every matrix in the game held its numbers boxed: a matrix product
+ * allocated 84 bytes. The parsed glTF's arrays of numbers are rebuilt packed.
+ */
+Reactor3D.packJsonArrays = function(value) {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) {
+        let numbers = value.length > 0;
+        for (let i = 0; i < value.length; i++) {
+            const item = value[i];
+            if (typeof item !== "number") numbers = false;
+            if (item && typeof item === "object") value[i] = this.packJsonArrays(item);
+        }
+        if (!numbers) return value;
+        // Its own array literal: one that ever held an object makes every array it makes generic.
+        const packed = [];
+        for (let i = 0; i < value.length; i++) packed.push(value[i]);
+        return packed;
+    }
+    for (const key in value) {
+        const item = value[key];
+        if (item && typeof item === "object") value[key] = this.packJsonArrays(item);
+    }
+    return value;
+};
+
 Reactor3D.parseGlbAsync = function(buffer) {
     const worker = this._ensureParseWorker();
     if (!worker) return Promise.resolve(null);
@@ -2415,13 +2503,13 @@ Reactor3D.parseGlbAsync = function(buffer) {
                 return;
             }
             resolve({
-                json: data.json,
+                json: Reactor3D.packJsonArrays(data.json),
                 bin: new Uint8Array(data.buffer, data.binOffset, data.binLength),
                 bitmaps: data.bitmaps || {}
             });
         });
         try {
-            worker.postMessage({ id, buffer }, [buffer]);
+            worker.postMessage({ id, buffer, compact: !!(this.GlbCompact && this.GlbCompact.enabled) }, [buffer]);
             Reactor3D.IdleWorkers?.touch("glb", () => this._parsePending.size > 0, () => { const idle = this._parseWorker; this._parseWorker = undefined; if (idle) idle.terminate(); });
         } catch (error) {
             this._parsePending.delete(id);
@@ -2460,22 +2548,32 @@ Reactor3D.lowMemory = function() {
     const reported = typeof navigator !== "undefined" ? Number(navigator.deviceMemory) : 0;
     return reported > 0 && reported <= 4;
 };
+/**
+ * A weak GPU keeps model textures at this side (0: the usual cap). Its picture is drawn below the
+ * screen's size, so a model rarely shows a 2048 sheet's top level; the sheet would still cost
+ * 21 MB of the machine's own RAM and the bandwidth to read it.
+ */
+Reactor3D.weakTextureSize = 1024;
 /** The largest side a model texture keeps on this machine. */
 Reactor3D.textureCap = function() {
-    const cap = Math.max(64, Math.floor(this.maxTextureSize || 0));
-    return this.lowMemory() ? Math.min(cap, Math.max(64, Math.floor(this.lowMemoryTextureSize || cap))) : cap;
+    let cap = Math.max(64, Math.floor(this.maxTextureSize || 0));
+    if (this.lowMemory()) cap = Math.min(cap, Math.max(64, Math.floor(this.lowMemoryTextureSize || cap)));
+    if (this.weakTextureSize > 0 && typeof this.isWeakGpu === "function" && this.isWeakGpu()) cap = Math.min(cap, Math.max(64, Math.floor(this.weakTextureSize)));
+    return cap;
 };
 
 /** The main-thread twin of capBitmapSize for images decoded by the browser: a canvas at the capped size. */
 Reactor3D.capImage = function(image) {
+    // Only a picture the browser draws: a compressed texture's levels are capped where they are transcoded.
+    if (!image || !(image.tagName || typeof image.getContext === "function" || typeof image.close === "function")) return image;
     const cap = this.textureCap();
     const width = image && (image.naturalWidth || image.width);
     const height = image && (image.naturalHeight || image.height);
     if (!image || !(width > cap || height > cap) || typeof document === "undefined") return image;
-    // Under the usual cap and over a low-memory one: the game resamples it where it decodes it
+    // Under the usual cap and over a low-memory one: it is resampled where it is decoded
     // (ShaderWarmup's bitmap, off the main thread), so it stays an <img> here.
     const usual = Math.max(64, Math.floor(this.maxTextureSize || 0));
-    if (cap < usual && width <= usual && height <= usual && image.tagName === "IMG" && this.ShaderWarmup && this.ShaderWarmup.decodesImages()) return image;
+    if (cap < usual && width <= usual && height <= usual && image.tagName === "IMG" && this.ShaderWarmup && this.ShaderWarmup.resamplesModelSheets()) return image;
     const scale = cap / Math.max(width, height);
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(width * scale));
@@ -2533,6 +2631,9 @@ Reactor3D.readModel = function(buffer, ext, baseUrl, texture) {
     const kind = String(ext || ".glb").toLowerCase();
     if (kind === ".glb") {
         const parsed = this.readGlb(buffer);
+        if (this.GlbCompact && this.GlbCompact.enabled && parsed.bin) {
+            parsed.bin = new Uint8Array(reactorCompactGlb(parsed.json, parsed.bin.buffer, parsed.bin.byteOffset, parsed.bin.byteLength));
+        }
         return this.buildGlbTemplate(parsed.json, parsed.bin, baseUrl);
     }
     if (kind === ".obj") return this.buildMeshTemplate(this.readObj(buffer), baseUrl, texture);
@@ -3297,16 +3398,233 @@ Reactor3D.studioEnvMap = function() {
     return cube;
 };
 
+/**
+ * Block-compressed model pictures. A model compressed at import carries a KTX2
+ * (Basis Universal) copy of each base color picture beside the picture itself
+ * (glTF's KHR_texture_basisu). It is transcoded in a worker to the first
+ * format this GPU samples directly: BC7, then ETC2, then S3TC (BC3, or BC1 for
+ * an opaque picture). A BC7 sheet is a byte a texel on the GPU (a quarter of
+ * plain color) and is read with a quarter of the bandwidth. Where none of the
+ * three is supported, or the transcoder cannot run, the file's own picture is
+ * drawn as before. A machine's texture cap is kept by starting at the mip
+ * level under it. A picture the file samples with nearest filtering is never
+ * block-compressed. Off: every model draws its own picture.
+ */
+Reactor3D.KTX2 = {
+    enabled: true,
+    TRANSCODER: "basis/basis_transcoder.js",
+    WASM: "basis/basis_transcoder.wasm",
+    // Per target: the transcoder's format with and without alpha, and the three.js format each lands in.
+    TARGETS: {
+        bc7: { extensions: ["EXT_texture_compression_bptc"], basis: [7, 7], formats: ["RGBA_BPTC_Format", "RGBA_BPTC_Format"] },
+        etc2: { extensions: ["WEBGL_compressed_texture_etc"], basis: [0, 1], formats: ["RGB_ETC2_Format", "RGBA_ETC2_EAC_Format"] },
+        s3tc: { extensions: ["WEBGL_compressed_texture_s3tc", "WEBGL_compressed_texture_s3tc_srgb"], basis: [2, 3], formats: ["RGB_S3TC_DXT1_Format", "RGBA_S3TC_DXT5_Format"] }
+    },
+    ORDER: ["bc7", "etc2", "s3tc"],
+    _jobs: new Map(),
+    _serial: 0,
+    /** The extension names this machine's WebGL 2 offers (asked once, of a context made for the purpose and let go). */
+    supportedExtensions() {
+        if (this._extensions !== undefined) return this._extensions;
+        this._extensions = [];
+        try {
+            const canvas = typeof document !== "undefined" ? document.createElement("canvas") : null;
+            const gl = canvas && canvas.getContext("webgl2");
+            if (gl) {
+                this._extensions = gl.getSupportedExtensions() || [];
+                const lose = gl.getExtension("WEBGL_lose_context");
+                if (lose) lose.loseContext();
+            }
+        } catch (error) { this._extensions = []; }
+        return this._extensions;
+    },
+    /** The first target this GPU samples, or null. */
+    target() {
+        if (this._target !== undefined) return this._target;
+        const have = new Set(this.supportedExtensions());
+        this._target = this.ORDER.find(name => this.TARGETS[name].extensions.every(ext => have.has(ext))) || null;
+        return this._target;
+    },
+    usable() {
+        return !!this.enabled && typeof Worker !== "undefined" && typeof Blob !== "undefined" && typeof fetch === "function"
+            && typeof URL !== "undefined" && typeof URL.createObjectURL === "function" && !!this.target();
+    },
+    /** Whether a glTF texture may be drawn from its compressed copy: never one the file samples nearest (pixel art). */
+    allowed(json, textureDef) {
+        const sampler = textureDef.sampler != null && json.samplers ? json.samplers[textureDef.sampler] : null;
+        return !(sampler && (sampler.magFilter === 9728 || sampler.minFilter === 9728 || sampler.minFilter === 9984 || sampler.minFilter === 9986));
+    },
+    /** The transcoder worker, made from the transcoder's own script and the message loop below. */
+    worker() {
+        if (this._ready) return this._ready;
+        const url = name => Reactor3D.workerUrl(name);
+        this._ready = Promise.all([
+            fetch(url(this.TRANSCODER)).then(response => { if (!response.ok && response.status !== 0) throw new Error("transcoder " + response.status); return response.text(); }),
+            fetch(url(this.WASM)).then(response => { if (!response.ok && response.status !== 0) throw new Error("transcoder wasm " + response.status); return response.arrayBuffer(); })
+        ]).then(([script, wasm]) => {
+            const source = script + "\n;\n(" + reactorKtx2Worker.toString() + ")(self);";
+            const blobUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+            const worker = new Worker(blobUrl, { name: "Reactor texture transcode" });
+            URL.revokeObjectURL(blobUrl);
+            worker.onmessage = event => {
+                const job = this._jobs.get(event.data && event.data.id);
+                if (!job) return;
+                this._jobs.delete(job.id);
+                if (event.data.error) job.reject(new Error(event.data.error)); else job.resolve(event.data);
+            };
+            worker.onerror = event => {
+                if (event && event.preventDefault) event.preventDefault();
+                for (const job of this._jobs.values()) job.reject(new Error("transcoder worker failed"));
+                this._jobs.clear();
+                this._ready = null;
+            };
+            worker.postMessage({ init: true, wasm }, [wasm]);
+            return worker;
+        });
+        // A transcoder that could not be made is tried again by the next picture (the editor names its
+        // files once a 3D view is open); this picture is drawn as the file has it.
+        const made = this._ready;
+        made.catch(() => { if (this._ready === made) this._ready = null; });
+        return this._ready;
+    },
+    /** Transcode KTX2 bytes (a Blob or bytes) at most `cap` texels on a side: { mipmaps, width, height, format, alpha }. */
+    transcode(bytes, cap) {
+        const target = this.target();
+        return this.worker().then(worker => new Promise((resolve, reject) => {
+            const id = ++this._serial;
+            this._jobs.set(id, { id, resolve, reject });
+            worker.postMessage({ id, bytes, cap, basis: this.TARGETS[target].basis });
+            Reactor3D.IdleWorkers?.touch("ktx2", () => this._jobs.size > 0, () => {
+                const ready = this._ready;
+                this._ready = null;
+                if (ready) ready.then(idle => idle.terminate(), () => {});
+            });
+        })).then(data => {
+            const name = this.TARGETS[target].formats[data.alpha ? 1 : 0];
+            return { mipmaps: data.mipmaps, width: data.width, height: data.height, format: THREE[name], alpha: data.alpha, target };
+        });
+    },
+    /** A transcoded picture put on a texture made to wait for it: from then on it is three's CompressedTexture. */
+    wear(texture, made) {
+        Object.setPrototypeOf(texture, THREE.CompressedTexture.prototype);
+        texture.isCompressedTexture = true;
+        texture.image = { width: made.width, height: made.height };
+        texture.mipmaps = made.mipmaps;
+        texture.format = made.format;
+        texture.type = THREE.UnsignedByteType;
+        texture.generateMipmaps = false;
+        texture.flipY = false;
+        texture.minFilter = made.mipmaps.length > 1 ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
+        texture.userData.rrCompressed = made.target;
+        delete texture.userData.rrPending;
+        texture.needsUpdate = true;
+    },
+    /** GPU bytes of a compressed texture's levels. */
+    bytes(texture) {
+        let total = 0;
+        for (const level of texture.mipmaps || []) total += level && level.data ? level.data.byteLength : 0;
+        return total;
+    },
+    /**
+     * A model texture from a glTF texture's KTX2 copy, or null to take the file's own picture.
+     * The texture waits (ShaderWarmup holds what wears it) until the transcode comes back; if it
+     * fails, it takes the file's picture after all.
+     */
+    fromGlb(json, bin, textureDef, image, textures) {
+        const basisu = textureDef.extensions && textureDef.extensions.KHR_texture_basisu;
+        const ktx = basisu && json.images ? json.images[basisu.source] : null;
+        if (!ktx || ktx.uri || ktx.bufferView == null || !this.usable() || !this.allowed(json, textureDef)) return null;
+        const R = Reactor3D;
+        const map = new THREE.Texture();
+        map.userData.rrModelTexture = true;
+        map.userData.rrPending = true;
+        map.flipY = false;
+        if (THREE.SRGBColorSpace) map.colorSpace = THREE.SRGBColorSpace;
+        const bytes = R._glbImageBlob(json, bin, ktx);
+        const fallback = image && !image.uri && image.bufferView != null ? R._glbImageBlob(json, bin, image) : null;
+        this.transcode(bytes, R.textureCap()).then(made => this.wear(map, made), () => {
+            if (!fallback) { delete map.userData.rrPending; return; }
+            const url = URL.createObjectURL(fallback);
+            new THREE.ImageLoader().load(url, img => {
+                URL.revokeObjectURL(url);
+                if (R.ImageWorker && R.ImageWorker.blobs) R.ImageWorker.blobs.set(img, fallback);
+                map.image = R.capImage(img);
+                delete map.userData.rrPending;
+                map.needsUpdate = true;
+            }, undefined, () => { URL.revokeObjectURL(url); delete map.userData.rrPending; });
+        });
+        textures.push(map);
+        return map;
+    }
+};
+
+/**
+ * The transcoder worker's message loop, run after basis_transcoder.js in the worker (so `BASIS` is
+ * there). The first message brings the WebAssembly; each later one a KTX2 file to transcode from the
+ * first level at most `cap` on a side, its levels sent back as they will be uploaded.
+ */
+function reactorKtx2Worker(scope) {
+    let ready = null;
+    scope.onmessage = async event => {
+        const job = event.data;
+        if (job.init) {
+            ready = new Promise(resolve => {
+                const module = { wasmBinary: job.wasm, onRuntimeInitialized: () => resolve(module) };
+                BASIS(module); // eslint-disable-line no-undef
+            }).then(module => { module.initializeBasis(); return module; });
+            return;
+        }
+        let file = null;
+        try {
+            const basis = await ready;
+            const buffer = job.bytes && typeof job.bytes.arrayBuffer === "function" ? await job.bytes.arrayBuffer() : job.bytes;
+            file = new basis.KTX2File(new Uint8Array(buffer));
+            if (!file.isValid()) throw new Error("not a KTX2 file this transcoder reads");
+            if (!file.startTranscoding()) throw new Error("the transcode could not start");
+            const levels = Math.max(1, file.getLevels()), alpha = !!file.getHasAlpha(), format = job.basis[alpha ? 1 : 0];
+            let first = 0;
+            for (;;) {
+                const info = file.getImageLevelInfo(first, 0, 0);
+                if (first >= levels - 1 || !(job.cap > 0) || Math.max(info.origWidth, info.origHeight) <= job.cap) break;
+                first++;
+            }
+            const mipmaps = [], transfer = [];
+            for (let level = first; level < levels; level++) {
+                const info = file.getImageLevelInfo(level, 0, 0);
+                const data = new Uint8Array(file.getImageTranscodedSizeInBytes(level, 0, 0, format));
+                if (!file.transcodeImage(data, level, 0, 0, format, 0, -1, -1)) throw new Error("level " + level + " did not transcode");
+                mipmaps.push({ data, width: levels > 1 ? info.origWidth : info.width, height: levels > 1 ? info.origHeight : info.height });
+                transfer.push(data.buffer);
+            }
+            scope.postMessage({ id: job.id, mipmaps, width: mipmaps[0].width, height: mipmaps[0].height, alpha }, transfer);
+        } catch (error) {
+            scope.postMessage({ id: job.id, error: String(error && error.message || error) });
+        } finally {
+            if (file) { try { file.close(); file.delete(); } catch (error) { /* already gone */ } }
+        }
+    };
+}
+Reactor3D._workerParts.ktx2Worker = reactorKtx2Worker;
+
 Reactor3D._glbImageUrl = function(json, bin, image, baseUrl) {
     if (image.uri) {
         if (/^(data:|blob:|https?:|file:)/i.test(image.uri)) return image.uri;
         const cleaned = String(image.uri).replace(/\\/g, "/").replace(/^\.\//, "");
         return (baseUrl || "") + cleaned;
     }
+    return URL.createObjectURL(this._glbImageBlob(json, bin, image));
+};
+
+/** An embedded picture's bytes as a Blob: the one the GLB worker made, else cut from the binary chunk. */
+Reactor3D._glbImageBlob = function(json, bin, image) {
+    if (image.rrBlob) {
+        const made = image.rrBlob;
+        delete image.rrBlob;
+        return made;
+    }
     const view = json.bufferViews[image.bufferView];
     const bytes = bin.subarray(view.byteOffset || 0, (view.byteOffset || 0) + view.byteLength);
-    const blob = new Blob([bytes], { type: image.mimeType || "image/png" });
-    return URL.createObjectURL(blob);
+    return new Blob([bytes], { type: image.mimeType || "image/png" });
 };
 
 Reactor3D._loadGlbTexture = function(json, bin, texInfo, baseUrl, textures, bitmaps, usedBitmaps) {
@@ -3314,6 +3632,9 @@ Reactor3D._loadGlbTexture = function(json, bin, texInfo, baseUrl, textures, bitm
     const textureDef = json.textures[texInfo.index];
     if (!textureDef) return null;
     const image = json.images[textureDef.source];
+    // A block-compressed copy of the picture (KHR_texture_basisu), where this GPU takes one.
+    const compressed = this.KTX2.fromGlb(json, bin, textureDef, image, textures);
+    if (compressed) return compressed;
     if (!image) return null;
     // The worker already decoded this image off-thread.
     if (bitmaps && bitmaps[textureDef.source]) {
@@ -3329,7 +3650,10 @@ Reactor3D._loadGlbTexture = function(json, bin, texInfo, baseUrl, textures, bitm
     map.userData.rrModelTexture = true;
     map.flipY = false;
     if (THREE.SRGBColorSpace) map.colorSpace = THREE.SRGBColorSpace;
-    const primary = this._glbImageUrl(json, bin, image, baseUrl);
+    // An embedded picture's Blob goes with its <img> to the image worker, which decodes from it (its
+    // object URL is given back as soon as the <img> has loaded).
+    const blob = !image.uri && image.bufferView != null && typeof Blob !== "undefined" ? this._glbImageBlob(json, bin, image) : null;
+    const primary = blob ? URL.createObjectURL(blob) : this._glbImageUrl(json, bin, image, baseUrl);
     if (/^(blob:|data:)/i.test(primary)) {
         const ownedObjectUrl = !image.uri && /^blob:/i.test(primary);
         let objectUrlReleased = false;
@@ -3341,6 +3665,7 @@ Reactor3D._loadGlbTexture = function(json, bin, texInfo, baseUrl, textures, bitm
         let embedded;
         try {
             embedded = new THREE.TextureLoader().load(primary, loaded => {
+                if (blob && Reactor3D.ImageWorker && Reactor3D.ImageWorker.blobs) Reactor3D.ImageWorker.blobs.set(loaded.image, blob);
                 loaded.image = Reactor3D.capImage(loaded.image);
                 loaded.needsUpdate = true;
                 releaseObjectUrl();
@@ -3439,8 +3764,6 @@ Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
             if (prim.attributes.NORMAL != null) {
                 geometry.setAttribute("normal", new THREE.BufferAttribute(
                     this._glbAccessor(json, bin, prim.attributes.NORMAL), 3));
-            } else {
-                geometry.computeVertexNormals();
             }
             if (prim.attributes.TEXCOORD_0 != null) {
                 geometry.setAttribute("uv", new THREE.BufferAttribute(
@@ -3455,6 +3778,10 @@ Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
                 const idx = this._glbAccessor(json, bin, prim.indices);
                 geometry.setIndex(new THREE.BufferAttribute(idx, 1));
             }
+            // After the index: computed without it, the vertices were taken three at a time as
+            // triangles, and reading past the last one left a vector holding undefined, which boxes
+            // every number three's vectors are given for the rest of the session.
+            if (prim.attributes.NORMAL == null) geometry.computeVertexNormals();
             if (prim.attributes.JOINTS_0 != null && prim.attributes.WEIGHTS_0 != null) {
                 geometry.userData.joints = this._glbAccessor(json, bin, prim.attributes.JOINTS_0);
                 geometry.userData.weights = this._glbAccessor(json, bin, prim.attributes.WEIGHTS_0);
@@ -5545,8 +5872,12 @@ Reactor3D.fingerSkinWeights = function(count, position, read, weight, hands, tri
             const node = regions.node, label = regions.label, all = triangles ? triangles.count / 3 : Math.floor(count / 3), corner = k => (triangles ? triangles.getX(k) : k);
             const mixes = new Map();
             for (let t = 0; t < all; t++) {
-                const tri = [corner(t * 3), corner(t * 3 + 1), corner(t * 3 + 2)];
-                if (tri.some(i => node[i] < 0) || new Set(tri.map(i => label[i]).filter(l => l >= 0)).size < 2) continue;
+                const a = corner(t * 3), b = corner(t * 3 + 1), c = corner(t * 3 + 2);
+                if (node[a] < 0 || node[b] < 0 || node[c] < 0) continue;
+                // Corners of two fingers or more (a corner of none is not counted).
+                const la = label[a], lb = label[b], lc = label[c];
+                if (!((la >= 0 && lb >= 0 && la !== lb) || (la >= 0 && lc >= 0 && la !== lc) || (lb >= 0 && lc >= 0 && lb !== lc))) continue;
+                const tri = [a, b, c];
                 const mean = new Map();
                 for (const i of tri) for (let c = 0; c < 4; c++) if (out[i * 4 + c] > 0) mean.set(index[i * 4 + c], (mean.get(index[i * 4 + c]) || 0) + out[i * 4 + c] / 3);
                 for (const i of tri) {
@@ -5734,6 +6065,128 @@ Reactor3D.fingerRegions = function(count, position, triangles, hand, skinIndex, 
     return { label, t, mitt, carrier, mittLine, joined, own, node };
 };
 
+/**
+ * The fingers' share of a hand's skin, worked out off the main thread: 40 to
+ * 170 ms a model (more on a slow CPU) that otherwise lands on the frame the
+ * model first appears in. The worker runs `fingerSkinWeights` and
+ * `fingerRegions` as written above, over flat copies of the inputs, so the
+ * result is the one the main thread would make. Until it comes back the mesh
+ * wears the skin it had: at rest the fingers' joints sit where the hand
+ * holds them, so nothing moves when the new skin is put on. Off (or with no
+ * workers), the skin is worked out where it is asked for, as before.
+ */
+Reactor3D.FingerSkin = {
+    worker: true,
+    // The two functions the worker runs, kept as defined (a profiler's wrapper must not stand in for them).
+    kernels: { weights: Reactor3D.fingerSkinWeights, regions: Reactor3D.fingerRegions },
+    _jobs: new Map(),
+    _serial: 0,
+    source() {
+        return [
+            "'use strict';",
+            "const R = {};",
+            "R.fingerSkinWeights = " + this.kernels.weights.toString() + ";",
+            "R.fingerRegions = " + this.kernels.regions.toString() + ";",
+            "self.onmessage = function(event) {",
+            "    const job = event.data, P = job.position, I = job.index, W = job.weight, T = job.triangles;",
+            "    try {",
+            "        const position = { getX: i => P[i * 3], getY: i => P[i * 3 + 1], getZ: i => P[i * 3 + 2] };",
+            "        const triangles = T ? { count: T.length, getX: k => T[k] } : null;",
+            "        const made = R.fingerSkinWeights(job.count, position, (i, c) => I[i * 4 + c], (i, c) => W[i * 4 + c], job.hands, triangles);",
+            "        self.postMessage({ id: job.id, index: made.index, weight: made.weight, changed: made.changed, hands: job.hands.map(h => ({ mitt: h.mitt, shared: h.shared })) }, [made.index.buffer, made.weight.buffer]);",
+            "    } catch (error) { self.postMessage({ id: job.id, error: String(error && error.message || error) }); }",
+            "};"
+        ].join("\n");
+    },
+    available() {
+        return !!this.worker && typeof Worker !== "undefined" && typeof Blob !== "undefined" && typeof URL !== "undefined" && typeof URL.createObjectURL === "function";
+    },
+    ensure() {
+        if (this._worker !== undefined) return this._worker;
+        this._worker = null;
+        if (!this.available()) return null;
+        try {
+            const url = URL.createObjectURL(new Blob([this.source()], { type: "text/javascript" }));
+            const worker = new Worker(url, { name: "Reactor finger skin" });
+            URL.revokeObjectURL(url);
+            worker.onmessage = event => {
+                const job = this._jobs.get(event.data && event.data.id);
+                if (!job) return;
+                this._jobs.delete(job.id);
+                if (event.data.error) job.fallback(); else job.done(event.data);
+            };
+            worker.onerror = event => {
+                if (event && event.preventDefault) event.preventDefault();
+                // What was out is worked out here instead; later skins too.
+                this.worker = false;
+                this._worker = null;
+                const jobs = [...this._jobs.values()];
+                this._jobs.clear();
+                for (const job of jobs) job.fallback();
+            };
+            this._worker = worker;
+        } catch (error) { this._worker = null; }
+        return this._worker;
+    },
+    /** A typed copy of four components a vertex, as `getComponent` reads them. */
+    flat(source, count, Ctor) {
+        if (ArrayBuffer.isView(source)) return new Ctor(source.subarray(0, count * 4));
+        const array = source.array;
+        if (!source.isInterleavedBufferAttribute && source.itemSize === 4 && array) {
+            const part = array.subarray(0, count * 4);
+            return source.normalized ? Ctor.from(part, v => THREE.MathUtils.denormalize(v, array)) : new Ctor(part);
+        }
+        const out = new Ctor(count * 4);
+        for (let i = 0; i < count; i++) for (let c = 0; c < 4; c++) out[i * 4 + c] = source.getComponent(i, c);
+        return out;
+    },
+    /** Positions as `getX`/`getY`/`getZ` read them, three a vertex. */
+    positions(position, count) {
+        const array = position.array;
+        if (!position.isInterleavedBufferAttribute && position.itemSize === 3 && !position.normalized && array) return new Float64Array(array.subarray(0, count * 3));
+        const out = new Float64Array(count * 3);
+        for (let i = 0; i < count; i++) { out[i * 3] = position.getX(i); out[i * 3 + 1] = position.getY(i); out[i * 3 + 2] = position.getZ(i); }
+        return out;
+    },
+    /**
+     * Work out a skin: `index` and `weight` are a skin attribute or a flat array (four a vertex),
+     * `hands` the list fingerSkinWeights takes (each gains `mitt` and `shared`). `done(made)` gets
+     * { index, weight, changed }, now when no worker can take it, else once the worker answers.
+     * Returns true when the answer is still to come.
+     */
+    run(count, position, index, weight, hands, triangles, done) {
+        const here = () => {
+            const indexOf = ArrayBuffer.isView(index) ? (i, c) => index[i * 4 + c] : (i, c) => index.getComponent(i, c);
+            const weightOf = ArrayBuffer.isView(weight) ? (i, c) => weight[i * 4 + c] : (i, c) => weight.getComponent(i, c);
+            done(Reactor3D.fingerSkinWeights(count, position, indexOf, weightOf, hands, triangles));
+        };
+        const worker = this.ensure();
+        if (!worker) { here(); return false; }
+        const id = ++this._serial;
+        const job = {
+            id, fallback: here,
+            done: data => {
+                data.hands.forEach((h, i) => { hands[i].mitt = h.mitt; hands[i].shared = h.shared; });
+                done({ index: data.index, weight: data.weight, changed: data.changed });
+            }
+        };
+        let payload;
+        try {
+            const tri = triangles ? (triangles.array ? new Uint32Array(triangles.array.subarray(0, triangles.count)) : Uint32Array.from({ length: triangles.count }, (_, k) => triangles.getX(k))) : null;
+            payload = { id, count, position: this.positions(position, count), index: this.flat(index, count, Uint16Array), weight: this.flat(weight, count, Float32Array),
+                triangles: tri, hands: hands.map(h => ({ index: h.index, ends: h.ends, fingers: h.fingers, toHand: Array.from(h.toHand) })) };
+        } catch (error) { here(); return false; }
+        this._jobs.set(id, job);
+        const transfer = [payload.position.buffer, payload.index.buffer, payload.weight.buffer];
+        if (payload.triangles) transfer.push(payload.triangles.buffer);
+        try { worker.postMessage(payload, transfer); } catch (error) { this._jobs.delete(id); here(); return false; }
+        Reactor3D.IdleWorkers?.touch("finger", () => this._jobs.size > 0, () => { const idle = this._worker; this._worker = undefined; if (idle) idle.terminate(); });
+        return true;
+    },
+    /** A rig's worked-out skins, by the weights record they came from and the hands' places. */
+    _rigSkins: new WeakMap()
+};
+
 Reactor3D._fingerGeometries = new WeakMap();
 
 /**
@@ -5772,18 +6225,24 @@ Reactor3D.skinRigFingers = function(root) {
             made.set(old, entry);
         }
         if (!entry.skeleton) continue;
-        const geometry = this.fingerSkinnedGeometry(mesh, entry.hands);
+        // Fingers the mesh does not separate close as one (once its skin is worked out).
+        const geometry = this.fingerSkinnedGeometry(mesh, entry.hands, made => {
+            for (const joint of joints) if (made.userData.__reactorMitt.indexOf(old.bones.indexOf(joint.hand)) >= 0) this._handGrips.get(joint.hand).layout.mitt = true;
+        });
         if (!geometry) continue;
         mesh.geometry = geometry;
         mesh.bind(entry.skeleton, mesh.bindMatrix);
-        // Fingers the mesh does not separate close as one.
-        for (const joint of joints) if (geometry.userData.__reactorMitt.indexOf(old.bones.indexOf(joint.hand)) >= 0) this._handGrips.get(joint.hand).layout.mitt = true;
         bound++;
     }
     return bound;
 };
 
-Reactor3D.fingerSkinnedGeometry = function(mesh, hands) {
+/**
+ * A copy of a skinned mesh's geometry wearing the fingers' share of its hands' skin; `onSkin(geometry)`
+ * runs once the copy wears it (now, or when the finger skin worker answers: until then the copy wears
+ * the file's own skin).
+ */
+Reactor3D.fingerSkinnedGeometry = function(mesh, hands, onSkin) {
     const source = mesh.geometry, position = source.getAttribute("position"), skinIndex = source.getAttribute("skinIndex"), skinWeight = source.getAttribute("skinWeight");
     if (!position || !skinIndex || !skinWeight) return null;
     const round = v => Math.round(v * 1e4) / 1e4;
@@ -5795,10 +6254,17 @@ Reactor3D.fingerSkinnedGeometry = function(mesh, hands) {
     let skin = versions.find(entry => entry.signature === signature);
     if (!skin) {
         const list = hands.map(h => ({ index: h.index, ends: h.ends, fingers: h.fingers, toHand: new THREE.Matrix4().multiplyMatrices(h.inverse, mesh.bindMatrix).elements }));
-        const made = this.fingerSkinWeights(position.count, position, (i, c) => skinIndex.getComponent(i, c), (i, c) => skinWeight.getComponent(i, c), list, source.index || null);
-        skin = { signature, index: new THREE.BufferAttribute(made.index, 4), weight: new THREE.BufferAttribute(made.weight, 4), changed: made.changed, mitt: list.filter(h => h.mitt).map(h => h.index), shared: list.map(h => [h.index].concat(h.shared || [])) };
+        skin = { signature, index: null, weight: null, waiting: [] };
         versions.push(skin);
         this._fingerGeometries.set(source, versions);
+        const entry = skin;
+        this.FingerSkin.run(position.count, position, skinIndex, skinWeight, list, source.index || null, made => {
+            Object.assign(entry, { index: new THREE.BufferAttribute(made.index, 4), weight: new THREE.BufferAttribute(made.weight, 4), changed: made.changed,
+                mitt: list.filter(h => h.mitt).map(h => h.index), shared: list.map(h => [h.index].concat(h.shared || [])) });
+            const waiting = entry.waiting;
+            entry.waiting = null;
+            for (const [copy, then] of waiting) this.wearFingerSkin(copy, entry, then);
+        });
     }
     // The rest bounds are the source's, worked out once for every copy: with none to share, each new instance's
     // geometry had its box walked out again by the first thing that asked (10 ms a unit on the frame it joined).
@@ -5806,8 +6272,8 @@ Reactor3D.fingerSkinnedGeometry = function(mesh, hands) {
     if (!source.boundingSphere) source.computeBoundingSphere();
     const geometry = new THREE.BufferGeometry();
     for (const name of Object.keys(source.attributes)) if (name !== "skinIndex" && name !== "skinWeight") geometry.setAttribute(name, source.attributes[name]);
-    geometry.setAttribute("skinIndex", skin.index);
-    geometry.setAttribute("skinWeight", skin.weight);
+    geometry.setAttribute("skinIndex", skin.index || skinIndex);
+    geometry.setAttribute("skinWeight", skin.weight || skinWeight);
     geometry.setIndex(source.index);
     geometry.morphAttributes = source.morphAttributes;
     geometry.morphTargetsRelative = source.morphTargetsRelative;
@@ -5815,8 +6281,18 @@ Reactor3D.fingerSkinnedGeometry = function(mesh, hands) {
     geometry.drawRange.start = source.drawRange.start; geometry.drawRange.count = source.drawRange.count;
     geometry.boundingBox = source.boundingBox; geometry.boundingSphere = source.boundingSphere;
     geometry.name = source.name;
-    geometry.userData = Object.assign({}, source.userData, { __reactorFingerSkin: skin.changed, __reactorMitt: skin.mitt, __reactorShared: skin.shared });
+    geometry.userData = Object.assign({}, source.userData);
+    if (skin.waiting) skin.waiting.push([geometry, onSkin]);
+    else this.wearFingerSkin(geometry, skin, onSkin);
     return geometry;
+};
+
+/** A finger-skinned geometry puts on its worked-out skin. */
+Reactor3D.wearFingerSkin = function(geometry, skin, onSkin) {
+    if (geometry.getAttribute("skinIndex") !== skin.index) geometry.setAttribute("skinIndex", skin.index);
+    if (geometry.getAttribute("skinWeight") !== skin.weight) geometry.setAttribute("skinWeight", skin.weight);
+    Object.assign(geometry.userData, { __reactorFingerSkin: skin.changed, __reactorMitt: skin.mitt, __reactorShared: skin.shared });
+    if (typeof onSkin === "function") onSkin(geometry);
 };
 
 Reactor3D._heldClouds = new WeakMap();
@@ -5974,6 +6450,48 @@ Reactor3D.solveGrip = function(layout, cloud, count, pad, out, thumbStays) {
     }
     // A finger that touches first stops there; the rest keep closing. None is carried on through the thing.
     return out;
+};
+
+/**
+ * Grips solved before, kept per held thing's points: a hand of the same model
+ * holding the same thing the same way closes its fingers as the solve found
+ * the first time (15 to 25 ms a battle start on a slow machine, one solve
+ * per unit's hand). The key is the hand's layout and where the thing is in
+ * the hand, to a ten-thousandth; a thing held at a new place each frame (a
+ * gun cupped while aiming) fills a list that is emptied past `LIMIT`.
+ * `enabled = false` solves every time.
+ */
+Reactor3D.GripMemo = {
+    enabled: true,
+    LIMIT: 64,
+    _byCloud: new WeakMap(),
+    layoutKey(layout) {
+        if (layout.__rrGripKey) return layout.__rrGripKey;
+        const r = v => Math.round(v * 1e4);
+        const parts = [layout.side, layout.mitt ? 1 : 0, layout.radius, ...(layout.knuckles || [])].map(v => typeof v === "number" ? r(v) : String(v));
+        for (const f of layout.fingers) {
+            parts.push(f.finger, f.thumb ? 1 : 0, r(f.radius), r(f.length), r(f.open), r(f.max1), r(f.max2));
+            for (const key of ["base", "mid", "tip", "hinge"]) for (const v of f[key] || []) parts.push(r(v));
+        }
+        Object.defineProperty(layout, "__rrGripKey", { value: parts.join(","), configurable: true, writable: true, enumerable: false });
+        return layout.__rrGripKey;
+    },
+    key(layout, trigger, e) {
+        let key = this.layoutKey(layout) + (trigger ? "|t" : "|-");
+        for (let i = 0; i < 15; i++) key += "," + Math.round(e[i] * 1e4);
+        return key;
+    },
+    get(cloud, key) {
+        const kept = cloud && this._byCloud.get(cloud);
+        return kept ? kept.get(key) : null;
+    },
+    set(cloud, key, solved) {
+        if (!cloud) return;
+        let kept = this._byCloud.get(cloud);
+        if (!kept) this._byCloud.set(cloud, kept = new Map());
+        if (kept.size >= this.LIMIT) kept.clear();
+        kept.set(key, Float32Array.from(solved));
+    }
 };
 
 /** The four places a finger is tested, with its joints at `t1` and `t2`: along and at the end of each segment. */
@@ -6211,6 +6729,12 @@ Reactor3D.HandGrip = {
         if (same) { const turn = span * 0.004, slide = layout.radius * 0.08; for (let i = 0; i < 15 && same; i++) if (Math.abs(e[i] - grip.rel[i]) > (i < 12 ? turn : slide)) same = false; }
         if (same) return true;
         grip.rel.set(e); grip.relSet = true; grip.thing = object;
+        // Held this way before, by this hand or another of the same model: the fingers the solve found then.
+        const memo = R.GripMemo.enabled ? R.GripMemo.key(layout, grip.trigger, e) : null;
+        if (memo) {
+            const hit = R.GripMemo.get(cloud, memo);
+            if (hit && hit.length === grip.solved.length) { grip.solved.set(hit); return true; }
+        }
         // The thing's points near the hand, in the hand's frame.
         let reach = 0;
         for (const f of layout.fingers) reach = Math.max(reach, Math.hypot(f.base[0] - layout.knuckles[0], f.base[1] - layout.knuckles[1], f.base[2] - layout.knuckles[2]) + f.length + f.radius * 2);
@@ -6245,6 +6769,7 @@ Reactor3D.HandGrip = {
                 if (d < best - 1e-9) { best = d; grip.solved[i * 2] = one; grip.solved[i * 2 + 1] = two; }
             }
         });
+        if (memo) R.GripMemo.set(cloud, memo, grip.solved);
         return true;
     },
     update() {
@@ -7116,14 +7641,38 @@ Reactor3D.applyModelRig = function(root, rig) {
         let skinWeights = new Float32Array(data.count * 4);
         for (let i = 0; i < data.count * 4; i++) skinWeights[i] = data.weights[i] * weightScale;
         let skinIndices = Uint16Array.from(data.indices);
+        let fingerSkin = null;
         if (fingerHands.size) {
-            // The hands' share of the skin goes on to their finger joints, in each hand's own frame at rest.
+            // The hands' share of the skin goes on to their finger joints, in each hand's own frame at rest:
+            // worked out once for every copy of this rig, off the main thread where it can be.
             mesh.updateMatrixWorld(true);
-            const list = [...fingerHands.values()].map(hand => ({ index: hand.index, fingers: hand.fingers,
+            const handList = [...fingerHands.values()];
+            const list = handList.map(hand => ({ index: hand.index, fingers: hand.fingers,
                 toHand: new THREE.Matrix4().copy(hand.node.matrixWorld).invert().multiply(mesh.matrixWorld).elements }));
-            const skin = this.fingerSkinWeights(data.count, position, (i, c) => skinIndices[i * 4 + c], (i, c) => skinWeights[i * 4 + c], list, geometry.index || null);
-            skinIndices = skin.index; skinWeights = skin.weight;
-            [...fingerHands.values()].forEach((hand, i) => { if (list[i].mitt) this._handGrips.get(hand.node).layout.mitt = true; });
+            const round = v => Math.round(v * 1e4) / 1e4;
+            const signature = data.count + "|" + (geometry.index ? geometry.index.count : 0) + "|" + list.map(h => h.index + ":" + h.toHand.map(round).join(",") + ":"
+                + h.fingers.map(f => [f.one, f.two, ...f.base.map(round), ...f.tip.map(round), round(f.radius)].join(",")).join(";")).join("|");
+            const versions = this.FingerSkin._rigSkins.get(data) || [];
+            this.FingerSkin._rigSkins.set(data, versions);
+            fingerSkin = versions.find(entry => entry.signature === signature);
+            if (!fingerSkin) {
+                const entry = fingerSkin = { signature, index: null, weight: null, mitts: null, waiting: [] };
+                versions.push(entry);
+                this.FingerSkin.run(data.count, position, skinIndices, skinWeights, list, geometry.index || null, made => {
+                    Object.assign(entry, { index: made.index, weight: made.weight, mitts: list.map(h => !!h.mitt) });
+                    const waiting = entry.waiting;
+                    entry.waiting = null;
+                    for (const wear of waiting) wear();
+                });
+            }
+            const entry = fingerSkin;
+            const wear = () => {
+                geometry.setAttribute("skinIndex", new THREE.BufferAttribute(entry.index, 4));
+                geometry.setAttribute("skinWeight", new THREE.BufferAttribute(entry.weight, 4));
+                handList.forEach((hand, i) => { if (entry.mitts[i]) this._handGrips.get(hand.node).layout.mitt = true; });
+            };
+            if (entry.waiting) entry.waiting.push(wear);
+            else { skinIndices = entry.index; skinWeights = entry.weight; handList.forEach((hand, i) => { if (entry.mitts[i]) this._handGrips.get(hand.node).layout.mitt = true; }); }
         }
         geometry.setAttribute("skinIndex",
             new THREE.BufferAttribute(skinIndices, 4));
@@ -10405,15 +10954,17 @@ Reactor3D.animationDue = function(holder, character, object, camera) {
 };
 
 /**
- * New models built a few a frame while a battle runs on the map: each is a clone, a rig, its fingers and materials
- * (3 to 5 ms), and an army arriving together was one frame of 200 ms. The first of a frame is always built, more only
- * inside BUDGET ms; outside a battle (a map loading under its fade) every model is built the moment its files are in.
+ * New models built a few a frame while a battle runs on the map, and while a map is laid as it loads
+ * (Reactor3D.Arrival): each is a clone, a rig, its fingers and materials (3 to 5 ms, a hundred and more for a
+ * rigged hand), and an army arriving together was one frame of 200 ms. The first of a frame is always built, more
+ * only inside BUDGET ms; otherwise every model is built the moment its files are in.
  */
 Reactor3D.ModelJoins = {
     BUDGET: 4,
     spent: 0,
     queue: [],
     limited() {
+        if (Reactor3D.Arrival && Reactor3D.Arrival.pacing) return true;
         const fight = typeof $gameFight !== "undefined" ? $gameFight : null;
         return !!(fight && typeof fight.isActive === "function" && fight.isActive());
     },
@@ -10509,7 +11060,7 @@ Reactor3D.MapScene.prototype.syncCharacterModels = function(characters) {
                     }
                 });
                 this._ambientLevel = undefined;
-            }));
+            })).finally(() => { holder.settled = true; });
         }
         const object = holder.object;
         if (!object) continue;

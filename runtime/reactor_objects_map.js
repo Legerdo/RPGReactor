@@ -1014,6 +1014,60 @@ Game_CharacterBase.prototype.initMembers = function() {
     this._jumpCount = 0;
     this._jumpPeak = 0;
     this._movementSuccess = true;
+    // The fields the engine gives a character later, declared now in one order (undefined, so a save does not hold them).
+    if (Game_CharacterBase.evenShapes) {
+        const late = Game_CharacterBase.LATE_FIELDS;
+        for (let i = 0; i < late.length; i++) if (!Object.prototype.hasOwnProperty.call(this, late[i])) this[late[i]] = undefined;
+    }
+};
+
+/**
+ * One shape per kind of character. Fields the engine adds as play goes on
+ * (the physics' air and ground, a model's yaw, a staged unit's place)
+ * arrived in a different order on each character, so the game's characters
+ * stood in fifteen hidden classes, every read of `_realX` across them was a
+ * lookup that made a new number, and a walk on North Haven made 100 KB more
+ * garbage a frame. `LATE_FIELDS` are declared, undefined, when a character
+ * is made; a game loaded from a save has its characters rebuilt in one
+ * order per kind (`DataManager.extractSaveContents`). Undefined fields are
+ * not written to a save: saves are as before. `evenShapes = false` leaves
+ * the shapes as they come.
+ */
+Game_CharacterBase.evenShapes = true;
+Game_CharacterBase.LATE_FIELDS = [
+    "_interpreter",
+    "_reactorGround", "_reactorAir", "_reactorVz", "_reactorAlt", "_reactorPeak", "_reactorSwim", "_reactorLeap", "_reactorClimb",
+    "_reactorOnLadder", "_reactorDive", "_reactorFloat", "_reactorRiding", "_reactorMantle", "_reactorStepDown", "_reactorStepUp",
+    "_reactorJumped", "_reactorDir8", "_reactorWalk", "_reactorTurnStamp", "_reactorModelYaw", "_reactorModelYawAt", "_reactorLift",
+    "_reactorChaseLater", "_reactorPosePitch", "_reactorFallYaw", "_reactorPush", "_reactorPushAlso", "_reactorPushDir",
+    "_reactorPushFrames", "_reactorDriftX", "_reactorDriftY", "_rrSpin", "_rrSpinCount", "_rrVehicle", "_rrHome", "_rrYaw",
+    "_rrStage", "_rrFade", "_rrVehicleTransfer", "_borderArrival", "_destinationCheckCounter"
+];
+
+/**
+ * Characters restored from a save, rebuilt so each kind has one shape: the
+ * fields in the order the fullest of its kind holds them, then the declared
+ * ones none of them holds yet. Returns a map from each to its rebuilt self.
+ */
+Game_CharacterBase.evenOut = function(characters) {
+    const kinds = new Map(), rebuilt = new Map();
+    for (const character of characters) {
+        if (!character || typeof character !== "object") continue;
+        const proto = Object.getPrototypeOf(character), list = kinds.get(proto);
+        if (list) list.push(character); else kinds.set(proto, [character]);
+    }
+    for (const [proto, list] of kinds) {
+        const order = [], seen = new Set();
+        const fullest = list.slice().sort((a, b) => Object.keys(b).length - Object.keys(a).length);
+        for (const character of fullest) for (const key of Object.keys(character)) if (!seen.has(key)) { seen.add(key); order.push(key); }
+        for (const key of this.LATE_FIELDS) if (!seen.has(key)) { seen.add(key); order.push(key); }
+        for (const character of list) {
+            const even = Object.create(proto);
+            for (const key of order) even[key] = character[key];
+            rebuilt.set(character, even);
+        }
+    }
+    return rebuilt;
 };
 
 Game_CharacterBase.prototype.pos = function(x, y) {

@@ -37,7 +37,7 @@
     "show": true
   },
   "name_for_display": "RPG Reactor",
-  "chromium-args": "--enable-logging --disable-direct-composition --force-device-scale-factor=1 --window-size=1280,720 --class=rpg-reactor",
+  "chromium-args": "--enable-logging --disable-direct-composition --force-device-scale-factor=1 --window-size=1280,720 --class=rpg-reactor --force-high-performance-gpu --ignore-gpu-blocklist",
   "webkit": {
     "plugin": true
   },

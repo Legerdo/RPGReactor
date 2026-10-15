@@ -475,7 +475,8 @@ test('repeated 3D toggles dispose every Three renderer without losing WebGL', as
 
 test('the map view draws nothing while the Database window covers it', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'MapEditor3D.js'), 'utf8');
-    assert.match(src, /if \(this\.suspended \|\| MapEditor3D\.coveredByDatabase\(\) \|\| MapEditor3D\.playtestRunning\(\)\) \{ this\._covered = true; this\.frame = requestAnimationFrame\(tick\); return; \}/);
+    assert.match(src, /const playtest = MapEditor3D\.playtestRunning\(\);/);
+    assert.match(src, /if \(this\.suspended \|\| MapEditor3D\.coveredByDatabase\(\) \|\| playtest\) \{ this\._covered = true; this\.frame = requestAnimationFrame\(tick\); return; \}/);
     // Whatever changed behind the cover is drawn once it lifts.
     assert.match(src, /if \(this\._covered\) \{ this\._covered = false; this\.requestRender\(\); \}/);
     assert.match(src, /getElementById\('database-viewer'\)\?\.classList\?\.contains\('active'\)/);

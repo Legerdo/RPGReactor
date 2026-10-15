@@ -647,6 +647,27 @@ DataManager.extractSaveContents = function(contents) {
     $gameParty = contents.party;
     $gameMap = contents.map;
     $gamePlayer = contents.player;
+    this.evenCharacterShapes();
+};
+
+/** The restored characters rebuilt in one shape per kind (Game_CharacterBase.evenOut), in their places. */
+DataManager.evenCharacterShapes = function() {
+    if (typeof Game_CharacterBase === "undefined" || !Game_CharacterBase.evenShapes || !Game_CharacterBase.evenOut) return;
+    try {
+        const followers = $gamePlayer && $gamePlayer._followers && Array.isArray($gamePlayer._followers._data) ? $gamePlayer._followers._data : [];
+        const events = $gameMap && Array.isArray($gameMap._events) ? $gameMap._events : [];
+        const vehicles = $gameMap && Array.isArray($gameMap._vehicles) ? $gameMap._vehicles : [];
+        const all = [$gamePlayer, ...followers, ...vehicles];
+        for (const event of events) if (event) all.push(event);
+        const rebuilt = Game_CharacterBase.evenOut(all);
+        const swap = character => (character && rebuilt.get(character)) || character;
+        $gamePlayer = swap($gamePlayer);
+        for (let i = 0; i < followers.length; i++) followers[i] = swap(followers[i]);
+        for (let i = 0; i < vehicles.length; i++) vehicles[i] = swap(vehicles[i]);
+        for (const key of Object.keys(events)) events[key] = swap(events[key]);
+    } catch (error) {
+        console.warn("DataManager: the characters could not be given one shape; they play as loaded.", error);
+    }
 };
 
 DataManager.correctDataErrors = function() {
@@ -1369,6 +1390,87 @@ EffectManager.isReady = function() {
             return false;
         }
     }
+    return true;
+};
+
+/**
+ * The effects a map can play, loaded with the map: the scene waits for them
+ * (`isReady`) behind the loading fade, so the first time one plays mid-game
+ * it uploads and loads nothing (an effect's first play was 25 MB of textures
+ * in one frame). What is read: the map's Show Animation and Show Battle
+ * Animation commands, the party's attack and skills, and the attacks and
+ * skills of the enemies its events stand for and of the troops it can start.
+ * A file that is missing or does not load in `PRELOAD_WAIT_MS` is let go,
+ * never held against the map (it loads, or fails, when it is played).
+ * `preloadWithMap = false` loads each effect when it is first played.
+ */
+EffectManager.preloadWithMap = true;
+EffectManager.PRELOAD_WAIT_MS = 8000;
+EffectManager.PRELOAD_SKILLS = 12;
+EffectManager.preloadMap = function(mapData) {
+    if (!this.preloadWithMap || !mapData || !Graphics.effekseer) return 0;
+    const names = new Set();
+    for (const id of this.mapAnimationIds(mapData)) {
+        const animation = typeof $dataAnimations !== "undefined" && $dataAnimations ? $dataAnimations[id] : null;
+        if (animation && animation.effectName) names.add(animation.effectName);
+    }
+    let started = 0;
+    for (const name of names) if (this.preload(name)) started++;
+    return started;
+};
+
+/** The animations a map can show: see `preloadMap`. */
+EffectManager.mapAnimationIds = function(mapData) {
+    const ids = new Set(), troops = new Set(), enemies = new Set();
+    const skillsOf = list => { for (const skillId of list.slice(0, this.PRELOAD_SKILLS)) { const skill = $dataSkills[skillId]; if (skill) ids.add(skill.animationId); } };
+    const scan = list => {
+        for (const command of list || []) {
+            if (!command) continue;
+            if (command.code === 212 || command.code === 337) ids.add(command.parameters[1]);
+            else if (command.code === 301 && command.parameters[0] === 0) troops.add(command.parameters[1]);
+            else if (command.code === 357) {
+                const args = command.parameters[3];
+                if (args && typeof args === "object") for (const key of ["troopId", "troop"]) if (Number(args[key]) > 0) troops.add(Number(args[key]));
+                if (args && args.record === "enemy" && Number(args.id) > 0) enemies.add(Number(args.id));
+            }
+        }
+    };
+    for (const event of mapData.events || []) if (event) for (const page of event.pages || []) if (page) scan(page.list);
+    for (const encounter of mapData.encounterList || []) if (encounter && encounter.troopId > 0) troops.add(encounter.troopId);
+    if (typeof $dataSkills === "undefined" || !$dataSkills) return ids;
+    if (typeof $gameParty !== "undefined" && $gameParty && $gameParty.battleMembers) {
+        for (const actor of $gameParty.battleMembers()) {
+            if (!actor) continue;
+            if (actor.attackAnimationId1) ids.add(actor.attackAnimationId1());
+            skillsOf((actor.skills ? actor.skills() : []).map(skill => skill.id));
+        }
+    }
+    for (const troopId of troops) {
+        const troop = typeof $dataTroops !== "undefined" && $dataTroops ? $dataTroops[troopId] : null;
+        if (troop) for (const member of troop.members || []) if (member) enemies.add(member.enemyId);
+    }
+    if (typeof ReactorFight !== "undefined" && ReactorFight && ReactorFight.Stage && ReactorFight.Stage.mapRecords) {
+        try { for (const spec of ReactorFight.Stage.mapRecords(mapData)) if (spec.record === "enemy") enemies.add(spec.id); } catch (error) { /* the records are a courtesy */ }
+    }
+    for (const enemyId of enemies) {
+        const enemy = typeof $dataEnemies !== "undefined" && $dataEnemies ? $dataEnemies[enemyId] : null;
+        if (enemy) skillsOf([1, ...(enemy.actions || []).map(action => action.skillId)]);
+    }
+    ids.delete(0); ids.delete(-1);
+    return ids;
+};
+
+/** One effect loaded ahead of its first play; false when it is loaded or loading already. */
+EffectManager.preload = function(filename) {
+    if (!filename || !Graphics.effekseer) return false;
+    const url = this.makeUrl(filename), cache = this._cache;
+    if (cache[url]) return false;
+    let effect = null;
+    const forget = () => { if (cache[url] === effect && !effect.isLoaded) delete cache[url]; };
+    try { effect = Graphics.effekseer.loadEffect(url, 1, () => {}, forget); } catch (error) { return false; }
+    if (!effect) return false;
+    cache[url] = effect;
+    setTimeout(forget, this.PRELOAD_WAIT_MS);
     return true;
 };
 
@@ -3080,9 +3182,16 @@ SceneManager.setupEventHandlers = function() {
     document.addEventListener("keydown", this.onKeyDown.bind(this));
 };
 
+/**
+ * One refresh: the updates it owes. Returns how many ran, which tells
+ * Graphics a refresh with none changed nothing it draws
+ * (`Graphics._frameChanged`); undefined when the loop stopped on an error.
+ */
 SceneManager.update = function(deltaTime) {
+    let ran;
     try {
         const n = this.determineRepeatNumber(deltaTime);
+        ran = n;
         for (let i = 0; i < n; i++) {
             // Which pass of the catch-up loop this is. Game logic must run
             // every time — that is the whole point of the loop, and what
@@ -3097,10 +3206,12 @@ SceneManager.update = function(deltaTime) {
             this.updateMain();
         }
     } catch (e) {
+        ran = undefined;
         this.catchException(e);
     } finally {
         this._finalUpdateOfFrame = true;
     }
+    return ran;
 };
 
 /**
@@ -3115,7 +3226,8 @@ SceneManager.isFinalUpdateOfFrame = function() {
 /**
  * How many updates this frame owes.
  *
- * Locked to a 60 Hz screen (frames within 3% of a tick apart): one a frame,
+ * Locked to a 60 Hz screen (frames a tick apart, within 3% on average and
+ * 10% each): one a frame,
  * with no bookkeeping, so a 59.94 Hz screen never owes a stray second update.
  * Otherwise time is added up and the updates made as they come due: none or
  * one on a faster screen, one or two on a 50 Hz screen or a machine short of
@@ -3148,7 +3260,11 @@ SceneManager.determineRepeatNumber = function(deltaTime) {
         }
         return 0;
     }
-    if (this._smoothDeltaTime >= 0.97 && this._smoothDeltaTime <= 1.03) {
+    // This frame a tick long too: frames of 1, 2 and 3 refreshes of a 144 Hz
+    // screen average a tick, and taking them for a 60 Hz screen gave each
+    // one update whatever its length (the game sped up and slowed down with
+    // the frames) and threw away the time between.
+    if (this._smoothDeltaTime >= 0.97 && this._smoothDeltaTime <= 1.03 && deltaTime >= 0.9 && deltaTime <= 1.1) {
         this._elapsedTime = 0;
         return 1;
     }
@@ -3268,6 +3384,8 @@ SceneManager.catchUnknownError = function(e) {
 };
 
 SceneManager.updateMain = function() {
+    // Where everything the engine places stands before this update (the paced draw eases from there).
+    if (Graphics.FramePacing && Graphics.FramePacing._active) Graphics.FramePacing.beforeUpdate();
     this.updateFrameCount();
     this.updateInputData();
     this.updateEffekseer();

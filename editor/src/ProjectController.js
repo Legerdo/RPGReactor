@@ -747,6 +747,9 @@ class ProjectController {
                 resolution: window.devicePixelRatio || 1,
                 autoDensity: true,
                 preference: 'webgl',
+                // The discrete GPU of a dual-GPU Mac; Windows picks it from the
+                // manifest's --force-high-performance-gpu switch.
+                powerPreference: 'high-performance',
                 antialias: false,
                 roundPixels: true,  // PIXI8: Prevent sub-pixel rendering for crisp pixel art
                 width: rect.width,

@@ -156,6 +156,12 @@ class ProjectManager {
     }
 
     /**
+     * A game's GPU switches: the discrete GPU on a dual-GPU Windows laptop, and
+     * hardware WebGL on a GPU Chromium's blocklist would leave without it.
+     */
+    static GPU_CHROMIUM_ARGS = Object.freeze(['--force-high-performance-gpu', '--ignore-gpu-blocklist']);
+
+    /**
      * What a new project leaves behind when it copies the template: the template's own
      * editor lock (held while the template is open), its saves, backups, screenshots and
      * battle-test copies of the database.
@@ -411,6 +417,8 @@ class ProjectManager {
             !/js\/reactor_main\.js/.test(this.fs.readFileSync(indexPath, 'utf8'))) {
             return { ok: true, updated: false };
         }
+        const gpuArgs = this.ensureGpuChromiumArgs(projectPath);
+        if (!gpuArgs.ok) console.warn('Could not add the GPU switches to package.json:', gpuArgs.error);
 
         const runtimePath = this.getRuntimePath();
         if (!runtimePath) {
@@ -488,6 +496,7 @@ class ProjectManager {
             packageData.version = engineVersion;
             packageData.window = packageData.window || {};
             packageData.window.title = projectName;
+            this.applyGpuChromiumArgs(packageData);
             this.writeJson(packagePath, packageData);
         }
 
@@ -699,7 +708,7 @@ class ProjectManager {
             name: this.getProjectPackageName(projectName),
             version: engineVersion,
             main: 'index.html',
-            'chromium-args': '--force-color-profile=srgb --window-size=1280,720',
+            'chromium-args': ['--force-color-profile=srgb', '--window-size=1280,720', ...ProjectManager.GPU_CHROMIUM_ARGS].join(' '),
             window: {
                 title: projectName,
                 width: 1280,
@@ -919,6 +928,54 @@ class ProjectManager {
         return name === 'rmmz-game' ? 'rpg-reactor-game' : name;
     }
 
+    /**
+     * Put the GPU switches in a game manifest's chromium-args, after the
+     * project's own arguments; `"reactorHighPerformanceGpu": false` in the
+     * manifest takes them out instead. Returns true when the manifest changed.
+     */
+    applyGpuChromiumArgs(packageData) {
+        if (!packageData || typeof packageData !== 'object') return false;
+        const current = typeof packageData['chromium-args'] === 'string' ? packageData['chromium-args'] : '';
+        const args = current.split(/\s+/).filter(Boolean);
+        const wanted = ProjectManager.GPU_CHROMIUM_ARGS;
+        const next = packageData.reactorHighPerformanceGpu === false
+            ? args.filter(arg => !wanted.includes(arg))
+            : args.concat(wanted.filter(arg => !args.includes(arg)));
+        if (next.length === args.length) return false;
+        packageData['chromium-args'] = next.join(' ');
+        return true;
+    }
+
+    /** The GPU switches in an existing project's package.json; its other text is kept as written. */
+    ensureGpuChromiumArgs(projectPath) {
+        if (!this.fs || !this.path || !projectPath) return { ok: true, updated: false };
+        const packagePath = this.path.join(projectPath, 'package.json');
+        try {
+            if (!this.fs.existsSync(packagePath)) return { ok: true, updated: false };
+            const text = this.fs.readFileSync(packagePath, 'utf8');
+            const packageData = RRJson.parse(text);
+            if (!packageData || typeof packageData !== 'object' || Array.isArray(packageData)) {
+                return { ok: true, updated: false };
+            }
+            const before = packageData['chromium-args'];
+            if (!this.applyGpuChromiumArgs(packageData)) return { ok: true, updated: false };
+            const after = packageData['chromium-args'];
+            const pattern = /("chromium-args"\s*:\s*)("(?:[^"\\]|\\.)*")/;
+            const match = typeof before === 'string' ? text.match(pattern) : null;
+            let output;
+            if (match && JSON.parse(match[2]) === before) {
+                output = text.replace(pattern, (_, key) => key + JSON.stringify(after));
+            } else {
+                const indent = text.match(/\n([ \t]+)"/)?.[1] || 2;
+                output = JSON.stringify(packageData, null, indent) + (text.endsWith('\n') ? '\n' : '');
+            }
+            this._writeFileAtomic(this.fs, packagePath, output, 'utf8');
+            return { ok: true, updated: true, chromiumArgs: after };
+        } catch (error) {
+            return { ok: false, updated: false, error: error.message || String(error) };
+        }
+    }
+
     ensureProjectPackageMetadata(projectPath, displayName = null) {
         if (!this.fs || !this.path) {
             return { ok: false, error: 'File system not available.' };
@@ -957,6 +1014,7 @@ class ProjectManager {
             if (created || repaired.length > 0) {
                 this._writeFileAtomic(this.fs, packagePath, JSON.stringify(packageData, null, 2), 'utf8');
             }
+            this.ensureGpuChromiumArgs(projectPath);
             return {
                 ok: true,
                 path: packagePath,

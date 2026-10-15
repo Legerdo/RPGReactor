@@ -35,7 +35,8 @@ test('the playtest owns the GPU only while it runs and the editor is not focused
 
 test('both map views treat a playtest in front as covered, and redraw when uncovered', () => {
     const three = src('MapEditor3D.js');
-    assert.match(three, /if \(this\.suspended \|\| MapEditor3D\.coveredByDatabase\(\) \|\| MapEditor3D\.playtestRunning\(\)\) \{ this\._covered = true;/);
+    assert.match(three, /const playtest = MapEditor3D\.playtestRunning\(\);/);
+    assert.match(three, /if \(this\.suspended \|\| MapEditor3D\.coveredByDatabase\(\) \|\| playtest\) \{ this\._covered = true;/);
     assert.match(three, /static playtestRunning\(\) \{\s*return typeof window !== 'undefined' && !!window\.reactor\?\.playtestManager\?\.ownsGpu\?\.\(\);/);
     // Uncovered, whatever changed behind is drawn.
     assert.match(three, /if \(this\._covered\) \{ this\._covered = false; this\.requestRender\(\); \}/);

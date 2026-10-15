@@ -1760,6 +1760,19 @@
     }
 
     window.Window_ReactorUINode = Window_ReactorUINode;
+
+    /**
+     * The class as the game made it: the PIXI 8 compatibility layer replaces
+     * each window class on `window` with one that builds the real PIXI
+     * container (MZGlobalUpgrade), and the names in this file still hold the
+     * originals, which build a stand-in and copy it over (half a millisecond
+     * a window as an Action battle starts). The original where there is no
+     * replacement.
+     */
+    const built = cls => {
+        const made = typeof globalThis !== "undefined" ? globalThis[cls.name] : null;
+        return typeof made === "function" && made !== cls && made.prototype === cls.prototype ? made : cls;
+    };
     Window_ReactorUINode.prototype = Object.create(Window_Base.prototype);
     Window_ReactorUINode.prototype.constructor = Window_ReactorUINode;
 
@@ -3823,7 +3836,7 @@
             const WindowClass = node.type === "list" ? Window_ReactorUIList
                 : node.type === "fightUnit" || node.type === "fightTurnOrder" || node.type === "fightInfo" ? Window_ReactorUIFight
                 : actionNode ? Window_ReactorUIAction : victoryNode ? Window_ReactorUIVictory : Window_ReactorUINode;
-            const window = new WindowClass(ReactorUI.windowRect(rect, this, fit), this, node);
+            const window = new (built(WindowClass))(ReactorUI.windowRect(rect, this, fit), this, node);
             if (fit && window.scale) { window.scale.set(fit.scale, fit.scale); window._uiFitScale = fit.scale; }
             window._uiPhysicalRect = rect;
             window._uiLayoutX = window.x;
@@ -3876,7 +3889,7 @@
 
     Scene_ReactorUI.prototype.measureText = function(node) {
         if (!this._measureWindow) {
-            this._measureWindow = new Window_ReactorUINode(new Rectangle(0, 0, 8, 8), this, node);
+            this._measureWindow = new (built(Window_ReactorUINode))(new Rectangle(0, 0, 8, 8), this, node);
             this._measureWindow.visible = false;
         }
         this._measureWindow._uiNode = node;

@@ -356,7 +356,7 @@ test('runtime 3D advances A1 UVs from the tilemap animation clock', () => {
     const at = spritesSource.indexOf('Spriteset_Map.prototype.updateReactor3D = function');
     const body = spritesSource.slice(at, spritesSource.indexOf('\n};', at));
     const animate = body.indexOf('state.scene.setAnimationFrame(frame);');
-    const render = body.indexOf('state.viewport.renderPass');
+    const render = body.indexOf('this.drawReactor3D(state)');
     assert.match(body, /this\._tilemap\.animationFrame/);
     assert.ok(animate >= 0 && animate < render,
         'animated UVs move before either runtime render pass is captured');

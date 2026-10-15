@@ -1,5 +1,41 @@
 # Runtime performance checks
 
+## CPU and GPU waste, second pass (2026-10-14, runtime 20261014.4)
+
+Measured on this machine's two GPUs, Ryzen integrated Radeon (weak tier) and RTX 5070, 1920x1080 on the 60 Hz headless display. Main-thread figures moved 0.5 to 2.5 ms between identical runs while other harnesses ran; the same-session switch toggles are the firmer numbers.
+
+| Change | Switch | What it stops |
+| --- | --- | --- |
+| Quarter-size light on maps with water: the unlit twin draws without tint and sheen, the light pass writes a glowing lake's share to a second small target, the combine adds sheen then tint per pixel | `Reactor3D.HalfLight.enabled` | Full-size lighting on every map with water (North Haven). Fixed on the way: shadow rows drawn during a split pass missed every caster lit at full size (the party's and props' shadows); the lake halo stopping at reeds; the shade change at a water/no-water border (`Neighbors.mixedWater` removed). |
+| One walk of the visible scene per pass draw, shared by every reader | `Reactor3D.SceneWalk.enabled` | Five walks of the tree (warmup, skeletons, geometry detail, depth-first, quarter light), twice with the split. |
+| Shadow faces hide subtrees holding none of their row kind's casters | `Reactor3D.Shadows.casterOnly` | Every face testing the whole scene object by object. |
+| A refresh with no game update skips the composite and the Effekseer overlay unless something changed (texture source, queued render work, render-to-texture, resize, new stage, context restore) | `Graphics.skipUnchangedFrames` | The same picture composited again on every refresh above 60 Hz. |
+| The sharpening upscale is drawn in the PIXI composite where a screen pixel is one target pixel | `Reactor3D.SharpUpscale.inComposite` | A full-size copy of the 3D picture each frame. |
+| Map arrival laid over the loading frames: rock columns and nearby rock chunks in the rock workers, then pieces a chunk at a time (10 ms), water, land past the border, foliage, the models asked for, and unseen draws until shaders are ready (1.5 s at most); neighbors lay pieces in 8 ms parts | `Reactor3D.Arrival.enabled`, `WARM_MS` | The whole map built in one frame on arrival. |
+| A Battle Room billboard is copied only when its frame, canvas or bitmap changed; a room-drawn sprite keeps the empty texture | none | Every 2D battler uploaded each update, and a new texture made (and leaked) each update. |
+| Editor 3D view: animated lights draw every 45 ms with flicker read from the clock; media, effects, animated models and baking at most 60 a second | none | Full-rate drawing for any flickering light, and flicker speed tied to the draw rate. |
+| The map camera is aimed once per update | none | A second aim that stepped camera transitions and the turn ease twice per update (a 60-frame Change Camera took 30). `TURN_RATE` 0.18 → 0.33 keeps the turn feel. |
+
+| | Before | After |
+| --- | --- | --- |
+| North Haven walk, Radeon iGPU, GPU median / p95 | 15.1 / 19.1 ms | 11.4 / 12.9 ms |
+| North Haven walk, Radeon iGPU, frames over 25 ms per 20 s | 2 to 6 | 0 |
+| North Haven walk, main thread per frame, Radeon / RTX | 8.57 / 7.81 ms | 7.84 / 7.96 ms |
+| North Haven, Radeon iGPU, frozen frame, full vs quarter light: square / fountain / purple lake / river | 14.2 / 13.8 / 20.7 / 13.1 ms | 10.9 / 9.8 / 12.9 / 9.0 ms |
+| Upscale in the composite, Radeon iGPU, North Haven cas / crisp / Reactor Room | 11.1 / 10.8 / 10.4 ms | 10.3 / 9.5 / 9.6 ms (0 channels differ) |
+| A refresh with no update, main thread / iGPU GPU | 0.27 / 1.1 to 1.3 ms | 0.02 ms / none |
+| North Haven arrival, Radeon worst frame / worst shown | 584 / 251 to 300 ms | 153 to 184 (in the black wait) / 67 to 84 ms |
+| North Haven arrival, RTX worst shown | 434 to 467 ms | 83 to 100 ms |
+| Arriving beside rocks (60, 150), Radeon worst | 836 to 985 ms | 150 to 154 ms |
+| Battle Room with 2D battlers, uploads per frame Radeon / RTX | 14.7 (0.91 MB) / 11.8 (0.82 MB) | 7.0 to 7.7 (0.14 MB) / 5.2 (0.058 MB) |
+| Editor, Static Room with one flickering light | 60 draws/s, 17.7 to 19.1% CPU | 20 draws/s, 12.6 to 14.1% (7.7% with no light) |
+
+Arrival trade-off: the black loading wait is about 0.8 s longer at normal speed (1.2 → 2.0 s on the Radeon), closing the menu 0.65 to 0.83 s instead of 0.45 s; nothing pops in and the fade runs at full rate. New Game to a fully bright map is +0.5 s at normal speed, unchanged at 4x. `Reactor3D.Arrival.WARM_MS = 0` gives the old wait with pop-in. The RTX's worst arrival frame (634 to 667 ms) is now the first unseen draw: shader builds and about 264 MB of texture uploads.
+
+Sameness: quarter light against full-size, pixels 24+ levels off are 0 to 112 on North Haven (the Reactor Room, always drawn this way: 4,330); after arrival every mesh, vertex and index count and a hash of every piece position matched the one-frame build.
+
+Not done, measured: an event collision index (North Haven's 45 events cost 0.02 ms a frame; 150 wandering events 0.21 ms). Still open: model rigging (`fingerSkinWeights`, 100 to 170 ms each, now inside the wait), the first shader build on the RTX, and the 70 to 85 ms `onMapLoaded` frame.
+
 ## Draws thrown away each frame (2026-10-09, runtime 20261009.1)
 
 The owner reported lag spikes and uneven frame pacing on every map, worst on North Haven, on an RTX 5070 with a Ryzen 9 9950X3D and a 180 Hz monitor. The frame was bound by the main thread, not the GPU: standing in North Haven's village square, with no water in sight, the scene was drawn three more times a frame for its lakes' mirror pictures, and every piece chunk a second time for the see-through pass.

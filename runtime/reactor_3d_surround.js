@@ -726,7 +726,7 @@
         R.MapScene.prototype[name] = wrapped;
     };
     // Laid with the map once its water is (a lake at the border is banked); again when the water is laid again.
-    wrap("addWater", function(mapData, load) { this._surroundMap = mapData; this._surroundLoad = load; this.addSurround(mapData); });
+    wrap("addWater", function(mapData, load) { this._surroundMap = mapData; this._surroundLoad = load; this.followUp(() => this.addSurround(mapData)); });
     // The floor's image arrived after the map was built: the land past it can be laid now.
     wrap("addRoomPiece", function(piece) {
         if (piece === "floor" && this._surroundMap && !(this._surroundMeshes && this._surroundMeshes.length)) this.addSurround(this._surroundMap);
@@ -789,6 +789,8 @@
         KEEP: 16,
         /** Milliseconds a frame of building worlds while the screen fades in from a transfer (one part a frame otherwise). */
         BURST_MS: 80,
+        /** Milliseconds of a world's pieces laid in one part (a chunk at least). */
+        BUDGET_MS: 8,
         /** Frames a neighbor's placed models are given to arrive and be stood in their places. */
         SETTLE: 240,
         records: new Map(),
@@ -1079,16 +1081,22 @@
         try { return N.within(map, globals, fn); } finally { if (stand) root.$gamePlayer = player; }
     };
 
-    /** The next part of a neighbor's world still to lay: its pieces, then its water (the land and the plants follow the water). */
+    /**
+     * The next part of a neighbor's world still to lay: its pieces, a few chunks a part (`BUDGET_MS`), then
+     * its water (the land and the plants follow the water).
+     */
     N.stage = function(body) {
         const map = body.record && body.record.map, scene = body.scene;
         if (!map || !scene._scene) { body.stage = 0; return; }
         const load = body.load || (name => R.defaultMaterialLoader(name));
         const stage = body.stage;
-        body.stage = stage === 1 ? 2 : 0;
+        // (A part that fails is not tried again: the next one is laid.)
+        body.stage = stage === 1 ? 2 : stage === 2 ? 3 : 0;
         try {
             N.inBody(map, body.at || body.offset, scene._neighborGlobals, () => {
-                if (stage === 1) scene.addPieces(map, load); else scene.addWater(map, load);
+                if (stage === 1) scene.addPieces(map, load, true);
+                else if (stage === 2) { if (!scene.layQueuedPieces(N.BUDGET_MS)) body.stage = 2; }
+                else scene.addWater(map, load);
                 scene._neighborGlobals = globalsOf();
             });
         } catch (error) {
@@ -1174,6 +1182,17 @@
         });
     };
 
+    /** Whether a map past a border has had its rocks measured on the background meshers (Reactor3D.prepareRockColumns), asked once: its world is built after. */
+    N.measured = function(record) {
+        if (!record.measure) {
+            record.measure = "busy";
+            const done = () => { record.measure = "done"; };
+            const measuring = R.prepareRockColumns && record.map ? R.prepareRockColumns(record.map) : null;
+            if (measuring) measuring.then(done, done); else done();
+        }
+        return record.measure === "done";
+    };
+
     /** Whether the screen is still coming up from black (a map entered by a transfer): worlds are then built several parts a frame. */
     N.dark = function() {
         const scene = root.SceneManager && root.SceneManager._scene;
@@ -1237,21 +1256,6 @@
     };
 
     /**
-     * Whether a world standing beside the map played has water where that map has none, or none where it
-     * has: a map with water draws its lit pass whole and one without takes its light afterwards
-     * (Reactor3D.HalfLight), so crossing between the two changes the program every surface is drawn with.
-     */
-    N.mixedWater = function(scene) {
-        const wet = each => !!(each._waterMeshes && each._waterMeshes.length), own = wet(scene);
-        const differs = host => {
-            const bodies = host._neighborBodies;
-            for (const side in bodies) if (wet(bodies[side].scene) !== own || differs(bodies[side].scene)) return true;
-            return false;
-        };
-        return differs(scene);
-    };
-
-    /**
      * Once a frame on a 3D map: every map within `DEPTH` maps of the one played is read and its world built
      * (one part a frame, the nearest first; several while the screen fades in), each map once however many
      * ways lead to it, and worlds further out are let go.
@@ -1269,8 +1273,6 @@
         // this frame (a map just entered) has been aimed, and has not yet been drawn with.
         const view = R._viewport, eye = view && typeof view.camera === "function" ? view.camera() : null;
         if (eye && eye.updateMatrixWorld) eye.updateMatrixWorld();
-        // Both programs of each surface are ready before a border where the pass changes its way of drawing.
-        if (R.ShaderWarmup) R.ShaderWarmup.both = N.mixedWater(scene);
         const standing = new Set([root.$gameMap && root.$gameMap.mapId ? root.$gameMap.mapId() : 0]);
         // The side the party is about to leave by: the maps past it stand one further out.
         let ahead = "", least = Infinity;
@@ -1316,7 +1318,7 @@
             for (const want of wanted) {
                 if (count >= N.MAX || standing.has(want.entry.map)) continue;
                 const record = N.request(want.entry.map);
-                if (record.state !== "ready") continue;
+                if (record.state !== "ready" || !N.measured(record)) continue;
                 const sheets = tilesetBitmaps(record.map);
                 if (sheets.some(bitmap => bitmap && bitmap.isReady && !bitmap.isReady())) continue;
                 if (!N.spend(frame)) continue;

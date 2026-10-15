@@ -510,7 +510,7 @@ test('both viewports render the maps once a frame before the first pass, and the
     assert.ok(face.indexOf('renderer.clear(false, true, false);') < face.indexOf('for (let face = 0;'), 'all faces are cleared before selective drawing');
     assert.match(face, /camera\.up\.set\(spec\.up\[0\], spec\.up\[1\], spec\.up\[2\]\);\s*camera\.lookAt\(origin\.x \+ spec\.dir\[0\], origin\.y \+ spec\.dir\[1\], origin\.z \+ spec\.dir\[2\]\);/);
     assert.match(face, /Reactor3D\.Shadows\.renderFace\(renderer, scene, camera\);/);
-    assert.match(three, /renderFace\(renderer, scene, camera\) \{\s*const cull = Reactor3D\.InstanceCull, hidden = cull \? cull\.hide\(scene, camera\) : null;\s*try \{ renderer\.render\(scene, camera\); \} finally \{ if \(hidden\) cull\.show\(hidden\); \}/, 'a face skins only the characters it can see');
+    assert.match(three, /renderFace\(renderer, scene, camera\) \{\s*const cull = Reactor3D\.InstanceCull, hidden = cull \? cull\.hide\(scene, camera\) : null;[\s\S]{0,400}?try \{ renderer\.render\(scene, camera\); \} finally \{ renderer\.sortObjects = sorted; if \(hidden\) cull\.show\(hidden\); \}/, 'a face skins only the characters it can see');
 
     const editor = read('editor/src/MapEditor3D.js');
     assert.match(editor, /lightingManager\?\.feed3D\?\.\(\);\n[\s\S]{0,400}?this\.mapScene\.renderShadows\?\.\(this\.renderer, this\.currentMap\(\)\);\n[\s\S]{0,300}?Reactor3D\.LightVolume\.frame\(this\.renderer, this\.mapScene, this\.currentMap\(\)\);\n\s*const scene = this\.mapScene\.scene\(\);/);

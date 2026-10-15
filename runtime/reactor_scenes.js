@@ -751,6 +751,8 @@ Scene_Map.prototype.onMapLoaded = function() {
         $gamePlayer.performTransfer();
     }
     this.createDisplayObjects();
+    // The effects this map can play load behind the fade (the scene waits for them): EffectManager.preloadMap.
+    try { EffectManager.preloadMap($dataMap); } catch (error) { console.warn("EffectManager: the map's effects could not be loaded ahead.", error); }
 };
 
 Scene_Map.prototype.onTransfer = function() {
@@ -3766,7 +3768,12 @@ Scene_Map.prototype.onMapLoaded = function() {
 
 const _reactorSceneMapIsReady = Scene_Map.prototype.isReady;
 Scene_Map.prototype.isReady = function() {
-    return _reactorSceneMapIsReady.call(this) && this._reactorPreloadDone !== false;
+    // The 3D world is laid a part a frame for as long as the map loads (Spriteset_Map.updateReactor3DArrival),
+    // whatever else it is still waiting for, and the map starts once it stands whole.
+    const ready = _reactorSceneMapIsReady.call(this) && this._reactorPreloadDone !== false;
+    const spriteset = this._mapLoaded ? this._spriteset : null;
+    const laid = !spriteset || typeof spriteset.updateReactor3DArrival !== "function" || spriteset.updateReactor3DArrival();
+    return ready && laid;
 };
 
 const _reactorSceneMapStart = Scene_Map.prototype.start;

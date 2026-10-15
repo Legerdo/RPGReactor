@@ -2321,52 +2321,262 @@ Reactor3D.rockSignature = function(f) {
  * and kept by the rocks that reach it, so an edit measures only its chunks.
  */
 Reactor3D.rockColumns = function(mapData, rocks) {
-    const frames = rocks.map(piece => this.rockFrame(piece, this.pieceBaseAt(mapData, piece.x, piece.y)));
-    const size = this.PIECE_CHUNK, W = mapData ? mapData.width : Infinity, H = mapData ? mapData.height : Infinity;
+    const { chunks } = this.rockColumnPlan(mapData, rocks);
     const cache = this._rockColumnCache || (this._rockColumnCache = new Map());
     if (cache.size > 4096) cache.clear();
+    const out = [];
+    for (const { key, box, reaching, sig } of chunks) {
+        let known = cache.get(key);
+        if (!known || known.sig !== sig) {
+            known = { sig, columns: this.rockColumnsFinish(mapData, reaching, this.rockChunkColumns(reaching, box, mapData ? mapData.width : Infinity, mapData ? mapData.height : Infinity)) };
+            cache.set(key, known);
+        }
+        for (const c of known.columns) out.push(Object.assign({}, c, { piece: reaching[c.owner].piece }));
+    }
+    return out;
+};
+
+/** The chunks rockColumns measures, each with the rocks that reach it and what it was measured from. */
+Reactor3D.rockColumnPlan = function(mapData, rocks) {
+    const frames = rocks.map(piece => this.rockFrame(piece, this.pieceBaseAt(mapData, piece.x, piece.y)));
+    const size = this.PIECE_CHUNK;
     const keys = new Set();
     for (const f of frames) {
         for (let cy = Math.floor(Math.max(0, f.min[2]) / size); cy <= Math.floor(Math.max(0, f.max[2]) / size); cy++) {
             for (let cx = Math.floor(Math.max(0, f.min[0]) / size); cx <= Math.floor(Math.max(0, f.max[0]) / size); cx++) keys.add(cx * 65536 + cy);
         }
     }
-    const out = [];
-    const near = { index: -1 };
+    const chunks = [];
     for (const key of keys) {
         const kx = Math.floor(key / 65536), ky = key % 65536;
         const box = { x0: kx * size, z0: ky * size, x1: kx * size + size, z1: ky * size + size };
         const reaching = frames.filter(f => f.max[0] >= box.x0 && f.min[0] <= box.x1 && f.max[2] >= box.z0 && f.min[2] <= box.z1);
-        const sig = (mapData && mapData.id) + "|" + reaching.map(f => this.rockSignature(f)).sort().join("|");
-        const known = cache.get(key);
-        if (known && known.sig === sig) { for (const c of known.columns) out.push(Object.assign({}, c, { piece: reaching[c.owner].piece })); continue; }
-        const columns = [];
-        for (let y = box.z0; y < Math.min(box.z1, H); y++) for (let x = box.x0; x < Math.min(box.x1, W); x++) {
-            const cx = x + 0.5, cz = y + 0.5;
-            const here = reaching.filter(f => cx >= f.min[0] && cx <= f.max[0] && cz >= f.min[2] && cz <= f.max[2]);
-            if (!here.length) continue;
-            let hi = -Infinity, lo = Infinity;
-            for (const f of here) { hi = Math.max(hi, f.max[1]); lo = Math.min(lo, f.min[1]); }
-            let inside = null, outside = hi;
-            for (let wy = hi; wy >= lo; wy -= 0.5) { if (this.rockField(here, cx, wy, cz) < 0) { inside = wy; break; } outside = wy; }
-            if (inside === null) continue;
-            for (let i = 0; i < 6; i++) { const m = (inside + outside) / 2; if (this.rockField(here, cx, m, cz) < 0) inside = m; else outside = m; }
-            const top = inside;
-            let foot = top;
-            for (let wy = top - 0.5; wy >= lo; wy -= 0.5) { if (this.rockField(here, cx, wy, cz) >= 0) break; foot = wy; }
-            near.index = -1;
-            this.rockField(here, cx, top - 0.05, cz, near);
-            const owner = here[Math.max(0, near.index)];
-            const cellBase = mapData ? this.pieceBaseAt(mapData, x, y) : 0;
-            const anchorBase = mapData ? this.pieceBaseAt(mapData, owner.piece.x, owner.piece.y) : 0;
-            // A gap under the mass too low for a character to walk into is rock down to the ground.
-            columns.push({ x, y, owner: reaching.indexOf(owner), top: Math.round((top - anchorBase) * 100) / 100, z: foot < cellBase + this.ROCK_HEADROOM ? 0 : Math.round((foot - cellBase) * 100) / 100 });
-        }
-        cache.set(key, { sig, columns });
-        for (const c of columns) out.push(Object.assign({}, c, { piece: reaching[c.owner].piece }));
+        chunks.push({ key, box, reaching, sig: (mapData && mapData.id) + "|" + reaching.map(f => this.rockSignature(f)).sort().join("|") });
+    }
+    return { frames, chunks };
+};
+
+/**
+ * A chunk's columns as the field gives them, before the ground is taken off: for each cell of `box`
+ * (inside a map `W` by `H`) a rock reaches, `{ x, y, owner, top, foot }`, `owner` the index in
+ * `reaching` of the rock whose surface it is and `top` and `foot` world heights. Reads nothing but
+ * its arguments and the field, so a worker runs it as written (rockWorkerSource).
+ */
+Reactor3D.rockChunkColumns = function(reaching, box, W, H) {
+    const out = [];
+    const near = { index: -1 };
+    for (let y = box.z0; y < Math.min(box.z1, H); y++) for (let x = box.x0; x < Math.min(box.x1, W); x++) {
+        const cx = x + 0.5, cz = y + 0.5;
+        const here = reaching.filter(f => cx >= f.min[0] && cx <= f.max[0] && cz >= f.min[2] && cz <= f.max[2]);
+        if (!here.length) continue;
+        let hi = -Infinity, lo = Infinity;
+        for (const f of here) { hi = Math.max(hi, f.max[1]); lo = Math.min(lo, f.min[1]); }
+        let inside = null, outside = hi;
+        for (let wy = hi; wy >= lo; wy -= 0.5) { if (this.rockField(here, cx, wy, cz) < 0) { inside = wy; break; } outside = wy; }
+        if (inside === null) continue;
+        for (let i = 0; i < 6; i++) { const m = (inside + outside) / 2; if (this.rockField(here, cx, m, cz) < 0) inside = m; else outside = m; }
+        const top = inside;
+        let foot = top;
+        for (let wy = top - 0.5; wy >= lo; wy -= 0.5) { if (this.rockField(here, cx, wy, cz) >= 0) break; foot = wy; }
+        near.index = -1;
+        this.rockField(here, cx, top - 0.05, cz, near);
+        out.push({ x, y, owner: reaching.indexOf(here[Math.max(0, near.index)]), top, foot });
     }
     return out;
 };
+
+/** A chunk's columns as the cell stacks keep them: the top over its rock's own ground, the foot over the cell's. */
+Reactor3D.rockColumnsFinish = function(mapData, reaching, raw) {
+    return raw.map(({ x, y, owner, top, foot }) => {
+        const piece = reaching[owner].piece;
+        const cellBase = mapData ? this.pieceBaseAt(mapData, x, y) : 0;
+        const anchorBase = mapData ? this.pieceBaseAt(mapData, piece.x, piece.y) : 0;
+        // A gap under the mass too low for a character to walk into is rock down to the ground.
+        return { x, y, owner, top: Math.round((top - anchorBase) * 100) / 100, z: foot < cellBase + this.ROCK_HEADROOM ? 0 : Math.round((foot - cellBase) * 100) / 100 };
+    });
+};
+
+/**
+ * Measure a map's rock columns on the background meshers before the map is laid (Reactor3D.beginPrepare
+ * waits for it), so the cell stacks find every chunk measured: a map with a few hundred rocks no longer
+ * spends its first frame finding where they stand. Null when there is nothing to wait for: no rock left to
+ * measure, or no workers (rockColumns then measures them where it is asked, as before).
+ */
+Reactor3D.prepareRockColumns = function(mapData) {
+    const rocks = this.rockPiecesOf(mapData);
+    if (!rocks.length) return null;
+    const { chunks } = this.rockColumnPlan(mapData, rocks);
+    const cache = this._rockColumnCache || (this._rockColumnCache = new Map());
+    const missing = chunks.filter(chunk => { const known = cache.get(chunk.key); return !known || known.sig !== chunk.sig; });
+    const pool = missing.length ? this.rockWorkerPool() : null;
+    if (!pool) return null;
+    const W = mapData.width, H = mapData.height;
+    return Promise.all(missing.map(chunk => new Promise(resolve => {
+        const frames = chunk.reaching.map(f => ({ c: f.c, axes: f.axes, half: f.half, round: f.round, amp: f.amp, warp: f.warp, top: f.top, min: f.min, max: f.max }));
+        pool.submit({ kind: "columns", frames, box: chunk.box, W, H }, data => {
+            try { cache.set(chunk.key, { sig: chunk.sig, columns: this.rockColumnsFinish(mapData, chunk.reaching, data.columns) }); } catch (error) { /* measured where it is asked */ }
+            resolve();
+        }, () => this.rockChunkColumns(chunk.reaching, chunk.box, W, H), resolve);
+    })));
+};
+
+/** A map's rocks as the piece index holds them, in the same order, read without building the index (which measures them). */
+Reactor3D.rockPiecesOf = function(mapData) {
+    const raw = mapData && mapData.reactor3d && mapData.reactor3d.pieces;
+    if (!Array.isArray(raw) || !(mapData.width > 0)) return [];
+    const rocks = [];
+    for (const entry of raw) {
+        if (!entry || entry.kind !== "rock") continue;
+        const piece = this.normalizePiece(entry, mapData);
+        if (piece) rocks.push(piece);
+    }
+    return rocks;
+};
+
+/**
+ * The rock chunks within ROCK_NEAR of `focus` meshed on the background meshers, into a cache a scene
+ * built from `mapData` lays from (MapScene option `rockChunkCache`): the chunks a map meshes before it
+ * shows, meshed while it loads. Resolves with the cache; with no workers, empty.
+ */
+Reactor3D.prepareNearRockChunks = function(mapData, focus) {
+    const cache = new Map(), rocks = this.rockPiecesOf(mapData);
+    const pool = rocks.length && focus ? this.rockWorkerPool() : null;
+    if (!pool) return Promise.resolve(cache);
+    const { chunks, floor } = this.rockChunkPlan(mapData, rocks, null);
+    const near = chunks.filter(({ box }) => Math.hypot(Math.max(box.x0 - focus.x, 0, focus.x - box.x1), Math.max(box.z0 - focus.z, 0, focus.z - box.z1)) <= this.ROCK_NEAR);
+    return Promise.all(near.map(job => new Promise(resolve => {
+        const { payload, unpack } = this.rockChunkJob(job, floor);
+        pool.submit(payload, data => { try { cache.set(job.key, unpack(data)); } catch (error) { /* meshed when laid */ } resolve(); },
+            () => this.rockChunkBuckets(job.reaching, job.box, floor), resolve);
+    }))).then(() => cache);
+};
+
+/**
+ * A map opened in the game is laid over the frames of its loading wait instead of in one: its rocks are
+ * measured, and those round the arrival point meshed, on the background meshers while the map loads
+ * (Reactor3D.beginPrepare waits for them, then builds the cell index on a frame of its own); the scene is
+ * built without its pieces and water, and each frame of the wait (Scene_Map.isReady,
+ * Spriteset_Map.updateReactor3DArrival) lays a part: its pieces a few chunks at a time, its water, the land
+ * past the border, the plants; then its models are asked for and built a few a frame, and the world is drawn
+ * unseen until its programs and pictures are ready (`WARM_MS` at most). The map starts once it stands whole:
+ * nothing appears after it shows that one frame used to lay. The fade-in that follows plays at full rate.
+ * A map crossed into over a border is already built (Reactor3D.Neighbors).
+ */
+Reactor3D.Arrival = {
+    /** Off: the whole map is laid in the frame it opens. */
+    enabled: true,
+    /** Milliseconds of laying a frame of the wait (one chunk at least). */
+    BUDGET_MS: 10,
+    /** The longest the wait holds for the background measuring; past it the map is laid without it. */
+    PREPARE_MS: 6000,
+    _ready: true,
+    _token: null,
+    _rocks: null,
+    /** Where the player will stand on the map being opened (a transfer's destination). */
+    focus() {
+        const player = typeof $gamePlayer !== "undefined" ? $gamePlayer : null;
+        if (!player) return null;
+        if (player.isTransferring && player.isTransferring() && Number.isFinite(player._newX)) return { x: player._newX + 0.5, z: player._newY + 0.5 };
+        return Number.isFinite(player._realX) ? { x: player._realX + 0.5, z: player._realY + 0.5 } : null;
+    },
+    /**
+     * The background work for `mapData`, started once as the map loads; then, on a frame of its own, the
+     * piece index (the cells' stacks, with the rocks just measured), which the first update reads.
+     */
+    prepare(mapData) {
+        const token = this._token = {};
+        this._ready = false;
+        this._rocks = null;
+        this._index = null;
+        const done = () => { if (this._token === token && !this._ready) { this._ready = true; this._index = mapData; } };
+        const near = Reactor3D.prepareNearRockChunks(mapData, this.focus()).then(cache => { if (this._token === token) this._rocks = { map: mapData, cache }; });
+        Promise.all([Reactor3D.prepareRockColumns(mapData), near]).then(done, done);
+        setTimeout(done, this.PREPARE_MS);
+    },
+    ready() {
+        if (this._ready === false) return false;
+        if (this._index) {
+            // (On a frame's last update: a slow frame's catch-up would put it in one frame with the map's opening.)
+            const manager = typeof SceneManager !== "undefined" ? SceneManager : null;
+            if (manager && manager.isFinalUpdateOfFrame && !manager.isFinalUpdateOfFrame()) return false;
+            const map = this._index;
+            this._index = null;
+            Reactor3D.pieceIndex(map);
+            return false;
+        }
+        return true;
+    },
+    /** The scene options for `mapData`'s scene: built without its pieces and water, with the rocks meshed for it. */
+    options(mapData) {
+        const rocks = this._rocks && this._rocks.map === mapData ? this._rocks.cache : null;
+        this._rocks = null;
+        return rocks && rocks.size ? { staged: true, rockChunkCache: rocks } : { staged: true };
+    },
+    /** The longest the wait holds for the models the map has asked for (each is built the moment its files are in). */
+    MODELS_MS: 4000,
+    /**
+     * The longest the world is drawn unseen once laid, for its programs and pictures to be ready before the
+     * map shows (Spriteset_Map.updateReactor3DWarm); 0 draws nothing before the map starts.
+     */
+    WARM_MS: 1500,
+    /** Programs started a draw at most during those unseen draws (Reactor3D.ShaderWarmup.COMPILES_PER_FRAME in play). */
+    WARM_COMPILES: 24,
+    /**
+     * The next of a staged scene's parts, within `budget` milliseconds: its pieces a few chunks at a
+     * time, then its water, then what follows the water (followUp), a part a frame; then its models are
+     * asked for (`job.models`) and waited for, built where they stand, so none of them appears after the
+     * map shows. `job` is `{ map, load, models, stage }`. True once all of it stands.
+     */
+    step(scene, job, budget) {
+        if (!scene || !scene._scene) { this.pacing = false; return true; }
+        const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+        if (job.since === undefined) job.since = clock();
+        if (job.stage === 0) { scene.addPieces(job.map, job.load, true); job.stage = 1; return false; }
+        if (job.stage === 1) { if (scene.layQueuedPieces(budget)) job.stage = 2; return false; }
+        if (job.stage === 2) { scene._followUps = []; scene.addWater(job.map, job.load); job.stage = 3; return false; }
+        if (job.stage === 3) {
+            // The land past the border and the plants, each on a frame of its own.
+            if (scene.runFollowUp()) { scene._followUps = null; job.stage = 4; }
+            return false;
+        }
+        // (Built a few a frame meanwhile, Reactor3D.ModelJoins: several landing together were one long frame.)
+        if (job.stage === 4) { this.pacing = true; if (job.models) job.models(); job.stage = 5; return false; }
+        const joins = Reactor3D.ModelJoins;
+        if (joins) joins.drain();
+        const held = scene._modelInstances;
+        let waiting = !!(joins && joins.queue.length);
+        if (held && !waiting) for (const holder of held.values()) if (!holder.object && !holder.settled) { waiting = true; break; }
+        if (waiting && clock() - job.since < this.MODELS_MS) return false;
+        this.pacing = false;
+        return true;
+    },
+    /** Whether new models are being built a few a frame (Reactor3D.ModelJoins) because a map is being laid. */
+    pacing: false,
+    /** A staged scene whose laying failed part way: what was kept to follow the water is done now, and nothing is kept again. */
+    abandon(scene) {
+        this.pacing = false;
+        const rest = scene && scene._followUps;
+        if (!rest) return;
+        scene._followUps = null;
+        for (const work of rest) { try { work(); } catch (error) { /* told of where it failed */ } }
+    }
+};
+
+// The map's rocks are worked out on the background meshers while it loads (Reactor3D.Arrival).
+if (typeof Reactor3D.beginPrepare === "function" && !Reactor3D.beginPrepare.__rrArrival) {
+    const beginPrepare = Reactor3D.beginPrepare, isPrepared = Reactor3D.isPrepared;
+    Reactor3D.beginPrepare = function(mapData) {
+        beginPrepare.apply(this, arguments);
+        const A = this.Arrival, crossing = this.Neighbors && this.Neighbors.crossing;
+        A._ready = true;
+        A._index = null;
+        if (this._prepared === false && A.enabled && !crossing && mapData) A.prepare(mapData);
+    };
+    Reactor3D.isPrepared = function() {
+        return isPrepared.apply(this, arguments) && this.Arrival.ready();
+    };
+    Reactor3D.beginPrepare.__rrArrival = true;
+}
 
 /** Whether a map has any rock. */
 Reactor3D.hasRocks = function(mapData) {
@@ -2869,29 +3079,40 @@ Reactor3D.GHOST_OPACITY = 0.35;
 
 /** Lay the pieces of the chunks named in `keys` (every chunk when null). */
 Reactor3D.MapScene.prototype.layPieceChunks = function(mapData, load, keys) {
-    // Door casings and window frames are laid with the pieces, in their own materials (reactor_3d_doors.js).
-    const trims = Reactor3D.pieceTrims ? Reactor3D.pieceTrims(mapData) : [];
-    const pieces = trims.length ? Reactor3D.piecesOf(mapData).concat(trims) : Reactor3D.piecesOf(mapData);
-    const wanted = keys ? new Set(keys) : null;
+    const { byChunk, rocks } = Reactor3D.pieceChunkLists(mapData, keys ? new Set(keys) : null);
+    for (const [key, byMaterial] of byChunk) this.layPieceChunk(key, byMaterial, mapData, load);
+    if (rocks.length) this.layRockChunks(mapData, load, rocks, keys ? new Set(keys) : null);
+};
+
+/**
+ * The pieces of the chunks in `wanted` (all when null) by chunk and, in each, by material and surface
+ * (a mirror wall is its own draw), in the order they are laid; the rocks apart, which are meshed by the
+ * rock field. Door casings and window frames are laid with the pieces, in their own materials
+ * (reactor_3d_doors.js).
+ */
+Reactor3D.pieceChunkLists = function(mapData, wanted) {
+    const trims = this.pieceTrims ? this.pieceTrims(mapData) : [];
+    const pieces = trims.length ? this.piecesOf(mapData).concat(trims) : this.piecesOf(mapData);
     const byChunk = new Map();
     const rocks = [];
     for (const piece of pieces) {
         if (piece.kind === "rock") { rocks.push(piece); continue; }
-        const key = Reactor3D.pieceChunkKey(piece.x, piece.y);
+        const key = this.pieceChunkKey(piece.x, piece.y);
         if (wanted && !wanted.has(key)) continue;
         let byMaterial = byChunk.get(key);
         if (!byMaterial) byChunk.set(key, byMaterial = new Map());
-        // Material and surface: a mirror wall is its own draw.
-        const shine = Reactor3D.surfaceKey(Reactor3D.pieceSurface(piece));
+        const shine = this.surfaceKey(this.pieceSurface(piece));
         const look = shine ? piece.material + "\u0001" + shine : piece.material;
         let list = byMaterial.get(look);
         if (!list) byMaterial.set(look, list = []);
         list.push(piece);
     }
-    for (const [key, byMaterial] of byChunk) {
-        for (const list of byMaterial.values()) this.addPieceChunkMesh(key, list[0].material, Reactor3D.pieceSurface(list[0]), Reactor3D.pieceGeometry(list, mapData), load);
-    }
-    if (rocks.length) this.layRockChunks(mapData, load, rocks, wanted);
+    return { byChunk, rocks };
+};
+
+/** One chunk's pieces other than rocks: a mesh per material and surface. */
+Reactor3D.MapScene.prototype.layPieceChunk = function(key, byMaterial, mapData, load) {
+    for (const list of byMaterial.values()) this.addPieceChunkMesh(key, list[0].material, Reactor3D.pieceSurface(list[0]), Reactor3D.pieceGeometry(list, mapData), load);
 };
 
 /** Shared chunk boundaries and signatures for synchronous and worker builds. */
@@ -3114,7 +3335,7 @@ Reactor3D.MapScene.prototype.queueRockChunks = function(pool, jobs, load, floor)
     }
 };
 
-/** The worker's whole program: the field and mesher, as written above, and its message loop. */
+/** The worker's whole program: the field, the mesher and the column measure, as written above, and its message loop. */
 Reactor3D.rockWorkerSource = function() {
     const kernel = fn => "const " + fn.name + " = " + fn.toString() + ";";
     const R = {};
@@ -3126,7 +3347,9 @@ Reactor3D.rockWorkerSource = function() {
         "R.rockNoise = " + this.rockNoise.toString() + ";",
         "R.rockField = " + this.rockField.toString() + ";",
         "R.rockMesh = " + this.rockMesh.toString() + ";",
+        "R.rockChunkColumns = " + this.rockChunkColumns.toString() + ";",
         "self.onmessage = function(event) {",
+        "    if (event.data.kind === 'columns') { const job = event.data; self.postMessage({ id: job.id, columns: R.rockChunkColumns(job.frames, job.box, job.W, job.H) }); return; }",
         "    const job = event.data, made = new Map();",
         "    const bucketFor = (frame, capped) => { const look = frame.lookKeys[capped ? 1 : 0]; let b = made.get(look); if (!b) made.set(look, b = { look, positions: [], uvs: [], colors: [], normals: [] }); return b; };",
         "    const g = job.ground;",
@@ -3160,7 +3383,7 @@ Reactor3D.rockWorkerPool = function() {
         // Off the workers: one chunk a turn, so the frames go on between them.
         const job = pool.queue.shift();
         if (!job) return;
-        try { job.done({ buckets: job.fallback() }); } catch (e) {
+        try { job.done(job.payload && job.payload.kind === "columns" ? { columns: job.fallback() } : { buckets: job.fallback() }); } catch (e) {
             if (job.failed) job.failed(e);
             else console.warn("Reactor3D: a rock chunk could not be meshed —", e);
         }
@@ -3265,14 +3488,41 @@ Reactor3D.MapScene.prototype.addPieceChunkMesh = function(key, name, surface, ge
     return mesh;
 };
 
-/** Lay every piece down, cast into the static shadow rows. */
-Reactor3D.MapScene.prototype.addPieces = function(mapData, load) {
+/**
+ * Lay every piece down, cast into the static shadow rows. `later`: the chunks are only listed, in the
+ * order they would have been laid, and layQueuedPieces lays them a few a frame (a map opened in the game,
+ * a neighbor's world): a village of a few thousand pieces is otherwise one long frame.
+ */
+Reactor3D.MapScene.prototype.addPieces = function(mapData, load, later) {
     this._pieceMeshes = this._pieceMeshes || [];
     // A new build: rock chunks still meshing for the last one are not laid into this one.
     this._rockGeneration = (this._rockGeneration || 0) + 1;
     this._rockPending = new Map();
+    this._pieceQueue = null;
     if (!Reactor3D.hasPieces(mapData)) return;
-    this.layPieceChunks(mapData, load, null);
+    if (!later) { this.layPieceChunks(mapData, load, null); return; }
+    const { byChunk, rocks } = Reactor3D.pieceChunkLists(mapData, null);
+    this._pieceQueue = { mapData, load, chunks: Array.from(byChunk), rocks };
+};
+
+/**
+ * Lay queued chunks (addPieces with `later`) until `budget` milliseconds have gone, one at least; the
+ * rocks after the rest, as a whole map's are laid (those round the player meshed now, the rest on the
+ * background meshers). True when nothing is left to lay.
+ */
+Reactor3D.MapScene.prototype.layQueuedPieces = function(budget) {
+    const queue = this._pieceQueue;
+    if (!queue || !this._scene) { this._pieceQueue = null; return true; }
+    const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const start = clock();
+    while (queue.chunks.length) {
+        const [key, byMaterial] = queue.chunks.shift();
+        this.layPieceChunk(key, byMaterial, queue.mapData, queue.load);
+        if (queue.chunks.length && clock() - start >= (budget || 0)) return false;
+    }
+    this._pieceQueue = null;
+    if (queue.rocks.length) this.layRockChunks(queue.mapData, queue.load, queue.rocks, null);
+    return true;
 };
 
 /**
@@ -4267,6 +4517,23 @@ Reactor3D.fallSprayBeforeRender = function(renderer, scene, camera, geometry, ma
     const target = renderer.getRenderTarget();
     const size = Reactor3D._fallSpraySize || (Reactor3D._fallSpraySize = new THREE.Vector2());
     material.uniforms.rrViewH.value = target ? target.height : renderer.getDrawingBufferSize(size).y;
+};
+
+/**
+ * Work that follows a step of the build (the land past the border and the plants, after the water): done
+ * now, or, while the scene is laid over several frames (Reactor3D.Arrival sets `_followUps` to a list),
+ * kept in order for the frames after (runFollowUp).
+ */
+Reactor3D.MapScene.prototype.followUp = function(work) {
+    if (Array.isArray(this._followUps)) this._followUps.push(work); else work();
+};
+
+/** The next work kept by followUp (one that fails is told of and passed over). True when none is left. */
+Reactor3D.MapScene.prototype.runFollowUp = function() {
+    const list = this._followUps;
+    if (!Array.isArray(list) || !list.length) return true;
+    try { list.shift()(); } catch (error) { if (typeof console !== "undefined") console.warn("Reactor3D: part of the map could not be laid.", error); }
+    return !list.length;
 };
 
 /** The water sheets: one waving translucent surface per sheet, in the world's own pass. */

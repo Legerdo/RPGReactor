@@ -1,6 +1,8 @@
 /* A battle-owned map viewport. No exploration globals or live map events are replaced. */
 (function(root) {
     'use strict';
+    /** Each bitmap a billboard was drawn from: the texture watched and how often it has changed (BattleRoomView.pictureStamp). */
+    const PICTURE_WATCH = new WeakMap();
     class BattleRoomView {
         constructor(map, tileset, settings, assets) {
             this.map = map; this.tileset = tileset; this.settings = settings; this.assets = assets;
@@ -190,7 +192,13 @@
                 }
             }
         }
-        billboard(key, source, frame, position, height = 2) {
+        /**
+         * A flat picture standing in the room: `frame` of `source` (a canvas), `height` tiles tall. Its pixels
+         * are copied and sent to the graphics card only when it is another picture: another frame, another
+         * canvas, or, with the `bitmap` the canvas belongs to, that bitmap drawn on since (pictureStamp).
+         * Without one it is copied every call.
+         */
+        billboard(key, source, frame, position, height = 2, bitmap = null) {
             const T = root.THREE; let r = this.billboards.get(key);
             // Loading battlers may expose a fraction of their 1px placeholder.
             // Canvas dimensions truncate to integers; never upload a zero-size frame.
@@ -211,15 +219,37 @@
                 r.shadowSize = height * (width / Math.max(1, heightPx)) * .7; this.ensureShadow(key, r);
             }
             r.object.visible = true;
-            if (r.canvas.width !== width || r.canvas.height !== heightPx) { r.canvas.width=width;r.canvas.height=heightPx; }
-            const ctx = r.canvas.getContext('2d');ctx.clearRect(0,0,r.canvas.width,r.canvas.height);
-            ctx.drawImage(source,frame.x,frame.y,frame.width,frame.height,0,0,width,heightPx);r.texture.needsUpdate=true;
+            const stamp = BattleRoomView.pictureStamp(bitmap), drawn = r.drawn;
+            if (stamp < 0 || !drawn || drawn.source !== source || drawn.stamp !== stamp || drawn.x !== frame.x || drawn.y !== frame.y || drawn.width !== frame.width || drawn.height !== frame.height
+                || r.canvas.width !== width || r.canvas.height !== heightPx) {
+                if (r.canvas.width !== width || r.canvas.height !== heightPx) { r.canvas.width=width;r.canvas.height=heightPx; }
+                const ctx = r.canvas.getContext('2d');ctx.clearRect(0,0,r.canvas.width,r.canvas.height);
+                ctx.drawImage(source,frame.x,frame.y,frame.width,frame.height,0,0,width,heightPx);r.texture.needsUpdate=true;
+                r.drawn = { source, stamp, x: frame.x, y: frame.y, width: frame.width, height: frame.height };
+            }
             r.height=height;r.object.scale.set(height*frame.width/frame.height*(position.scale??1)*(position.scaleX??1)*(position.flipX?-1:1),height*(position.scale??1)*(position.scaleY??1),1);
             // Sequence visuals are placed after render()'s own facing pass, so
             // the turn a held or thrown picture carries is applied here as
             // well; without it a swung weapon faced the camera at 0° whatever
             // its step said.
             this.place(key,position);r.object.quaternion.copy(this.camera.quaternion);r.object.rotateZ((position.rotateZ||0)*Math.PI/180);
+        }
+        /**
+         * How many times `bitmap` has been drawn on since it was first asked about (every Bitmap draw tells its
+         * texture to update), or -1 when that cannot be known (no bitmap). A new texture under the bitmap (its
+         * canvas made from its image) counts as a change.
+         */
+        static pictureStamp(bitmap) {
+            const base = bitmap && bitmap._baseTexture;
+            if (!base || typeof base.update !== 'function') return -1;
+            let watch = PICTURE_WATCH.get(bitmap);
+            if (!watch || watch.base !== base) {
+                watch = { base, changes: watch ? watch.changes + 1 : 0 };
+                const update = base.update;
+                base.update = function() { watch.changes++; return update.apply(this, arguments); };
+                PICTURE_WATCH.set(bitmap, watch);
+            }
+            return watch.changes;
         }
         /**
          * The hand (or named bone) an attachment names, as a frame: its world

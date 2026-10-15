@@ -1224,7 +1224,7 @@ class UIManager {
      */
     showModelOptimizeDialog({ fileName = '', analysis = null,
         title = 'Import 3D Model', confirmLabel = 'Import',
-        keepLabel = 'Import as-is', keepDetail = 'Keep every byte of the original file.' } = {}) {
+        keepLabel = 'Import as-is', keepDetail = 'Keep every byte of the original file.', compression = null } = {}) {
         const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         const previouslyFocused = document.activeElement;
         const megabytes = value => `${(value / 1048576).toFixed(1)}MB`;
@@ -1303,6 +1303,27 @@ class UIManager {
             tt('Everything above, cut to about a quarter of the triangles. May soften very fine detail.'), false);
         addChoice('keep', tt(keepLabel), tt(keepDetail), false);
         body.append(summary, choices);
+        // Off by default: a compressed copy of each texture, made in a worker after the choice above.
+        let compressBox = null;
+        if (compression && typeof compression === 'object') {
+            const row = document.createElement('label');
+            row.style.cssText = 'display:grid;grid-template-columns:auto 1fr;column-gap:10px;align-items:start;margin-top:10px;cursor:pointer;';
+            compressBox = document.createElement('input');
+            compressBox.type = 'checkbox';
+            compressBox.className = 'rr-model-optimize-compress';
+            compressBox.checked = !!compression.compress;
+            compressBox.style.cssText = 'margin-top:3px;';
+            const text = document.createElement('div');
+            const strong = document.createElement('div');
+            strong.style.cssText = 'color:var(--color-text-strong, var(--color-text));font-size:13px;';
+            strong.textContent = tt('Compress textures for the graphics card');
+            const small = document.createElement('div');
+            small.style.cssText = 'color:var(--color-text-muted);font-size:12px;';
+            small.textContent = tt('Adds a compressed copy of each texture that takes a quarter of the graphics memory. Slow to import: a few seconds per texture.');
+            text.append(strong, small);
+            row.append(compressBox, text);
+            body.appendChild(row);
+        }
 
         const footer = document.createElement('div');
         footer.className = 'rr-modal-footer';
@@ -1333,6 +1354,7 @@ class UIManager {
             };
             const submit = () => {
                 const picked = radios.find(radio => radio.checked);
+                if (compressBox) compression.compress = compressBox.checked;
                 finish(picked ? picked.value : 'optimize');
             };
             const handleKeyDown = event => {

@@ -1757,11 +1757,14 @@ Input._onLostFocus = function() {
 };
 
 Input._pollGamepads = function() {
-    const connected = [];
+    // Every frame: the connected list is reused and the pads are walked by index, so polling allocates nothing.
+    const connected = this._connectedScratch || (this._connectedScratch = []);
+    connected.length = 0;
     if (navigator.getGamepads) {
         const gamepads = navigator.getGamepads();
         if (gamepads) {
-            for (const gamepad of gamepads) {
+            for (let i = 0; i < gamepads.length; i++) {
+                const gamepad = gamepads[i];
                 if (gamepad && gamepad.connected) {
                     connected[gamepad.index] = true;
                     this._updateGamepadState(gamepad);
@@ -1774,10 +1777,19 @@ Input._pollGamepads = function() {
         if (!state || connected[index]) continue;
         this._gamepadStates[index] = [];
     }
-    const mappedNames = new Set(Object.values(this.gamepadMapper));
-    for (const buttonName of mappedNames) {
+    // Each mapped name once, in the mapper's order.
+    const mapper = this.gamepadMapper;
+    const seen = this._mappedScratch || (this._mappedScratch = new Set());
+    seen.clear();
+    for (const key in mapper) {
+        if (!Object.prototype.hasOwnProperty.call(mapper, key)) continue;
+        const buttonName = mapper[key];
+        if (seen.has(buttonName)) continue;
+        seen.add(buttonName);
         let pressed = false;
-        for (const state of this._gamepadStates) {
+        const states = this._gamepadStates;
+        for (let s = 0; s < states.length; s++) {
+            const state = states[s];
             if (!state) continue;
             for (let button = 0; button < state.length; button++) {
                 if (this.gamepadMapper[button] === buttonName && state[button]) pressed = true;

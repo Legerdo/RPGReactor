@@ -270,6 +270,8 @@ class Database3DEditor {
                                 <span style="flex:1;">${this._t('Model Specifications')}</span>
                                 <button type="button" class="rr-btn-secondary r3d-optimize" style="text-transform:none;font-size:11px;padding:2px 8px;"
                                     title="${this._t('Shrink this model in place. The original is kept beside it.')}">${this._t('Optimize…')}</button>
+                                <button type="button" class="rr-btn-secondary r3d-compress" style="text-transform:none;font-size:11px;padding:2px 8px;"
+                                    title="${this._t('Add a compressed copy of each texture for the graphics card. The original is kept beside it.')}">${this._t('Compress textures')}</button>
                             </div>
                             <div class="r3d-stats" style="flex:1 1 auto;min-height:0;overflow-y:auto;padding:6px 10px 8px 10px;font-size:11px;"></div>
                         </div>
@@ -309,6 +311,8 @@ class Database3DEditor {
             </div>`;
         const optimize = detailEl.querySelector('.r3d-optimize');
         if (optimize) optimize.addEventListener('click', () => this.optimizeSelectedModel());
+        const compress = detailEl.querySelector('.r3d-compress');
+        if (compress) compress.addEventListener('click', () => this.compressSelectedModelTextures());
         const search = detailEl.querySelector('.r3d-model-search');
         search.addEventListener('input', () => this.renderModelList(true));
         search.addEventListener('focus', () => {
@@ -1523,6 +1527,60 @@ class Database3DEditor {
             }
         } catch (error) {
             say(`${this._t('Could not optimize this model')}: ${error && error.message ? error.message : error}`);
+        }
+    }
+
+    /**
+     * Add a compressed copy (KTX2) of each texture the game draws to the selected model, beside the
+     * picture itself, encoded in a worker. The file is checked to load before it replaces anything,
+     * and the first original stays beside it.
+     */
+    async compressSelectedModelTextures() {
+        const status = this._detail && this._detail.querySelector('.r3d-status');
+        const say = message => { if (status) status.textContent = message; };
+        const entry = this.listModels().find(m => m.name === this.selectedName);
+        if (!entry) return say(this._t('Select a model first.'));
+        if (!window.RRGlbOptimizer || typeof window.RRGlbOptimizer.compressTextures !== 'function' || !window.RRTextureCompressor) {
+            return say(this._t('The model optimizer is unavailable.'));
+        }
+        const fs = require('fs');
+        const path = require('path');
+        const filePath = this.sourcePath(entry);
+        if (!filePath) return say(this._t('This model’s source file could not be found.'));
+        if (path.extname(filePath).toLowerCase() !== '.glb') return say(this._t('Optimize this model first: textures are compressed in a GLB.'));
+        try {
+            const original = new Uint8Array(fs.readFileSync(filePath));
+            const result = await window.RRGlbOptimizer.compressTextures(original, {
+                encodeImage: (data, mimeType) => window.RRTextureCompressor.encode(data, mimeType),
+                onProgress: (done, total) => { if (total) say(this._t('Compressing texture {done} of {total} for {name}…', { done: Math.min(total, done + 1), total, name: entry.name })); }
+            });
+            window.RRTextureCompressor.release();
+            if (!result.compressed) return say(this._t('This model has no texture to compress.'));
+            if (typeof ResourceManager !== 'undefined' && ResourceManager.validateModelBytes) {
+                try {
+                    ResourceManager.validateModelBytes(result.bytes, '.glb', window.Reactor3D);
+                } catch (error) {
+                    return say(`${this._t('Optimizing produced a model that will not load; nothing was changed')}: ` + (error && error.message ? error.message : error));
+                }
+            }
+            const backup = filePath + '.orig';
+            if (!fs.existsSync(backup)) fs.copyFileSync(filePath, backup);
+            this._writeFileAtomic(fs, filePath, Buffer.from(result.bytes));
+            this._releaseTemplate(entry.name, true);
+            delete this._templates[entry.name];
+            this._statsCache = null;
+            if (typeof RREventPreviewModels !== 'undefined' && RREventPreviewModels.clear) RREventPreviewModels.clear();
+            const controller = this.projectController && typeof this.projectController.refreshMap3DView === 'function'
+                ? this.projectController : (window.reactor && window.reactor.projectController);
+            if (controller && typeof controller.refreshMap3DView === 'function') controller.refreshMap3DView();
+            await this.selectModel(entry);
+            say(this._t('Compressed {count} texture(s) of {name}: {before}MB → {after}MB on disk.', {
+                count: result.compressed, name: entry.name,
+                before: (original.length / 1048576).toFixed(1), after: (result.bytes.length / 1048576).toFixed(1)
+            }) + ' ' + this._t('Original kept as {file}', { file: path.basename(backup) }));
+        } catch (error) {
+            window.RRTextureCompressor.release();
+            say(`${this._t('Could not compress this model’s textures')}: ${error && error.message ? error.message : error}`);
         }
     }
 

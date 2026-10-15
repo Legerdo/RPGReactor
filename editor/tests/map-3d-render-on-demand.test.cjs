@@ -108,8 +108,10 @@ test('only what moves by itself keeps the full rate', () => {
         { object: attached, light: true, effect: { light: {} } }
     ];
     assert.equal(view.effectsAnimate(), false, 'an MV overlay, a picture and a steady light are still');
+    assert.equal(view.effectLightsAnimate(), false);
     view.effectPlays.push({ object: attached, light: true, effect: { light: { flicker: 0.4 } } });
-    assert.equal(view.effectsAnimate(), true, 'a flickering carried light moves');
+    assert.equal(view.effectsAnimate(), false, 'a flickering carried light is drawn at the lights\' cadence, not the full rate');
+    assert.equal(view.effectLightsAnimate(), true, 'a flickering carried light moves');
     view.effectPlays = [{ object: attached, plane: { userData: { video: { paused: false, ended: false } } } }];
     assert.equal(view.effectsAnimate(), true, 'a playing video plane moves');
     view.effectPlays = [{ object: { parent: null }, quad: {}, layer: { active: true } }];
