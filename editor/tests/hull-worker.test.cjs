@@ -212,3 +212,74 @@ test('a Tactical unit thinks once no model\'s heights are out on the worker', ()
     try { F.AI.think(w.$gameFight, { id: 1 }, null); } catch (error) { /* a unit of no battle: only whether it began matters */ }
     assert.equal(begun, 1);
 });
+
+/** requestIdleCallback held until the test runs the idle time between frames: `idle()` runs what is waiting. */
+function idleTime(w) {
+    const waiting = [];
+    w.requestIdleCallback = (callback, options) => { waiting.push([callback, options]); return waiting.length; };
+    return { waiting, idle() { const now = waiting.splice(0); for (const [callback] of now) callback({ didTimeout: false, timeRemaining: () => 10 }); return now.length; } };
+}
+
+test('with idle time the meshes are copied out between frames, one model at a time, and the heights are the same', async () => {
+    const w = world(), A = w.ReactorFight.Action, workers = heldWorkers(w), time = idleTime(w);
+    w.Reactor3D._glbCache.tank = { template: MODELS['boxes, a nested group and a mesh with no index']() };
+    w.Reactor3D._glbCache.rock = { template: MODELS['quantized positions in an interleaved buffer']() };
+    let copied = 0;
+    const snapshot = A.HullWorker.snapshot;
+    A.HullWorker.snapshot = function() { copied++; return snapshot.apply(this, arguments); };
+    assert.equal(A.hullOf(w.Reactor3D, { model: 'tank', size: 3 }), A.HULL_PENDING);
+    assert.equal(A.hullOf(w.Reactor3D, { model: 'rock', size: 2 }), A.HULL_PENDING);
+    assert.equal(copied, 0, 'nothing is copied in the frame that asks');
+    await settled();
+    assert.equal(time.waiting.length, 1, 'one model waits for the idle time');
+    assert.ok(time.waiting[0][1] && time.waiting[0][1].timeout > 0, 'with a timeout, so a busy game still sends it');
+    time.idle();
+    assert.equal(copied, 1);
+    assert.equal(workers.held.length, 1);
+    await settled();
+    time.idle();
+    assert.equal(copied, 2, 'the next model in the next idle time');
+    workers.deliver();
+    await settled();
+    assert.equal(A.hullsPending(), 0);
+    assert.deepEqual(plain(A.hullOf(w.Reactor3D, { model: 'tank', size: 3 })),
+        plain(A.buildHull(w.Reactor3D, MODELS['boxes, a nested group and a mesh with no index'](), null, { model: 'tank', size: 3 })));
+    assert.deepEqual(plain(A.hullOf(w.Reactor3D, { model: 'rock', size: 2 })),
+        plain(A.buildHull(w.Reactor3D, MODELS['quantized positions in an interleaved buffer'](), null, { model: 'rock', size: 2 })));
+});
+
+test('a model the worker cannot read, or a worker that failed while it waited, is worked out on the main thread; idleCopy off sends at once', async () => {
+    const w = world(), A = w.ReactorFight.Action, workers = heldWorkers(w), time = idleTime(w);
+    const morphed = MODELS['boxes, a nested group and a mesh with no index']();
+    morphed.children[0].geometry.morphAttributes.position = [morphed.children[0].geometry.getAttribute('position').clone()];
+    w.Reactor3D._glbCache.morph = { template: morphed };
+    assert.equal(A.hullOf(w.Reactor3D, { model: 'morph', size: 3 }), A.HULL_PENDING);
+    await settled();
+    time.idle();
+    await settled(); await settled();
+    assert.equal(A.hullsPending(), 0);
+    const morphHull = A.hullOf(w.Reactor3D, { model: 'morph', size: 3 });
+    assert.ok(morphHull && morphHull !== A.HULL_PENDING, 'measured here');
+    assert.equal(workers.held.length, 0);
+    // The worker fails while a model waits for its idle time: nothing is copied, the main thread measures it.
+    w.Reactor3D._glbCache.tank = { template: MODELS['boxes, a nested group and a mesh with no index']() };
+    let copied = 0;
+    const snapshot = A.HullWorker.snapshot;
+    A.HullWorker.snapshot = function() { copied++; return snapshot.apply(this, arguments); };
+    assert.equal(A.hullOf(w.Reactor3D, { model: 'tank', size: 3 }), A.HULL_PENDING);
+    A.HullWorker.fail();
+    await settled();
+    time.idle();
+    await settled(); await settled();
+    assert.equal(copied, 0);
+    assert.equal(A.hullsPending(), 0);
+    assert.deepEqual(plain(A.hullOf(w.Reactor3D, { model: 'tank', size: 3 })),
+        plain(A.buildHull(w.Reactor3D, MODELS['boxes, a nested group and a mesh with no index'](), null, { model: 'tank', size: 3 })));
+    // idleCopy off: copied and sent in the frame that asks.
+    const v = world(), B = v.ReactorFight.Action, sent = heldWorkers(v), vTime = idleTime(v);
+    B.HullWorker.idleCopy = false;
+    v.Reactor3D._glbCache.tank = { template: MODELS['boxes, a nested group and a mesh with no index']() };
+    assert.equal(B.hullOf(v.Reactor3D, { model: 'tank', size: 3 }), B.HULL_PENDING);
+    assert.equal(sent.held.length, 1);
+    assert.equal(vTime.waiting.length, 0);
+});

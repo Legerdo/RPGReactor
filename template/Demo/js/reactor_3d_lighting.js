@@ -671,7 +671,7 @@ Reactor3D.sameAsOther = function(last, v) { for (let i = 0; i < v.length; i++) i
 Reactor3D.CACHED_UNIFORM_TYPES = new Set([0x1406, 0x8B50, 0x8B51, 0x8B52, 0x1404, 0x8B53, 0x8B54, 0x8B55, 0x8B5A, 0x8B5B, 0x8B5C]);
 Reactor3D.cacheUniformArrays = function(renderer) {
     const programs = renderer && renderer.info && renderer.info.programs;
-    if (!programs || renderer.__rrCachedPrograms === programs.length && programs.every(program => program.__rrArraysCached)) return;
+    if (!programs || renderer.__rrCachedPrograms === programs.length && programs.every(program => program.__rrArraysCached || program.__rrArraysLazy)) return;
     renderer.__rrCachedPrograms = programs.length;
     const wrap = uniform => {
         if (uniform.__rrCached || typeof uniform.setValue !== "function" || !this.CACHED_UNIFORM_TYPES.has(uniform.type)) return;
@@ -682,7 +682,27 @@ Reactor3D.cacheUniformArrays = function(renderer) {
     };
     const visit = list => { for (const uniform of list || []) { if (uniform.seq) visit(uniform.seq); else if (uniform.size !== undefined) wrap(uniform); } };
     for (const program of programs) {
-        if (program.__rrArraysCached) continue;
+        if (program.__rrArraysCached || program.__rrArraysLazy) continue;
+        // Taken in when three first reads the program's uniforms (its first
+        // draw), or when ShaderWarmup reads them between frames: reading them
+        // here was a wait on the GPU process for every new program at once,
+        // behind every upload and compile queued ahead (79 ms in one frame of
+        // North Haven's arrival on the Radeon).
+        if (this.lazyUniformArrays !== false && typeof program.getUniforms === "function" && !Object.prototype.hasOwnProperty.call(program, "__rrUniformsRead")) {
+            program.__rrArraysLazy = true;
+            const read = program.getUniforms;
+            program.getUniforms = function() {
+                const uniforms = read.apply(this, arguments);
+                program.getUniforms = read;
+                program.__rrUniformsRead = true;
+                if (!program.__rrArraysCached) {
+                    program.__rrArraysCached = true;
+                    try { visit(uniforms && uniforms.seq); } catch (error) { /* a program that failed to link has none */ }
+                }
+                return uniforms;
+            };
+            continue;
+        }
         // A program still compiling on the driver's threads is taken on a
         // later call: reading its uniforms now would wait for the compile.
         if (typeof program.isReady === "function" && !program.isReady()) { renderer.__rrCachedPrograms = -1; continue; }
@@ -690,6 +710,8 @@ Reactor3D.cacheUniformArrays = function(renderer) {
         try { visit(program.getUniforms().seq); } catch (error) { /* a program that failed to link has none */ }
     }
 };
+/** False reads every linked program's uniforms as the draw begins (a wait on the GPU process per new program). */
+Reactor3D.lazyUniformArrays = true;
 
 Reactor3D.injectLightShader = function(shader, renderer) {
     const uniforms = this.lightUniforms();
@@ -3081,6 +3103,23 @@ Reactor3D.Shadows = {
     },
 
     /**
+     * The casters under `scene` leave the lists: a map scene going away keeps its
+     * groups' children attached, so no later draw finds them parentless and drops
+     * them, and each list would hold that map's models (their geometry and pictures).
+     */
+    forgetScene(scene) {
+        if (!scene) return 0;
+        const under = root => { for (let node = root; node; node = node.parent) if (node === scene) return true; return false; };
+        let dropped = 0;
+        for (const list of [this._static, this._dynamic, this._casting]) {
+            if (!list) continue;
+            for (const root of list) if (under(root)) { list.delete(root); dropped++; }
+        }
+        if (dropped) this._generation++;
+        return dropped;
+    },
+
+    /**
      * Make an object cast. Dynamic casters are the characters — anything
      * that moves by itself each frame; everything else is static and cached.
      */
@@ -3462,9 +3501,16 @@ Reactor3D.Shadows = {
             if (dynamic) {
                 if (!this._dynamicMoved(root)) continue;
             } else {
-                const hash = this._staticHashOf(root);
-                if (hash === root.userData.rrShadowHash) continue;
-                root.userData.rrShadowHash = hash;
+                // `_staticHashOf`, worked out here: asked of every static caster each frame, a number
+                // handed back from a call is a new heap object.
+                // Kept in a one-number array: a number read from a userData (each of its own shape) is a
+                // new heap object per read, and every static caster is read each frame.
+                const m = root.matrixWorld.elements;
+                const hash = root.visible ? m[12] * 1.7 + m[13] * 2.3 + m[14] * 3.1 + m[0] * 0.7 + m[5] * 1.1 + m[10] * 1.3 + m[1] * 0.3 + m[8] * 0.5 + 1 : 0.11;
+                let box = root.userData.rrShadowHash;
+                if (box instanceof Float64Array && box[0] === hash) continue;
+                if (!(box instanceof Float64Array)) box = root.userData.rrShadowHash = new Float64Array(1);
+                box[0] = hash;
             }
             const e = root.matrixWorld.elements;
             const now = { x: e[12], y: e[13], z: e[14], r: Reactor3D.instanceSpan(root) };
@@ -4119,6 +4165,53 @@ Reactor3D.Shadows = {
     },
 
     /**
+     * Before one kind of row is drawn, every subtree of the scene with
+     * nothing on that kind's layer is hidden, the largest it can be, until
+     * `_showAgain`. Each face is three's walk of the whole scene, whose layer
+     * test turned everything else away object by object, six faces a row: a
+     * moving caster's row walked every piece and plant of the map to draw
+     * the party. Nothing hidden here would pass that test, so each face draws
+     * what it drew. Read from the pass's walk when it is held (the rows are
+     * drawn from inside the pass's draw: Reactor3D.SceneWalk), else walked
+     * once here for every face of the kind. `casterOnly = false` walks
+     * everything in every face, as before.
+     */
+    casterOnly: true,
+    _hideNonCasters(scene, layer) {
+        if (!this.casterOnly || !scene) return null;
+        const walk = Reactor3D.SceneWalk, held = walk.list(scene);
+        const list = held || (this._casterList = walk.gather(scene, this._casterList));
+        const { nodes, ends, parents, count } = list;
+        if (!this._casterFlags || this._casterFlags.length < count) this._casterFlags = new Uint8Array(count * 2);
+        const flags = this._casterFlags, bit = 1 << layer, CASTS = 1, GONE = 2, hidden = [];
+        try {
+            for (let i = 0; i < count;) {
+                const object = nodes[i];
+                // Hidden already (a half of the split, a mesh still compiling): left as it is.
+                if (object.visible === false) { flags[i] = GONE; i = ends[i]; continue; }
+                const layers = object.layers;
+                flags[i] = layers && (layers.mask & bit) !== 0 && (object.isMesh || object.isLine || object.isPoints || object.isSprite) ? CASTS : 0;
+                i++;
+            }
+            for (let i = count - 1; i > 0; i--) if (!(flags[i] & GONE)) flags[parents[i]] |= flags[i];
+            for (let i = 1; i < count;) {
+                const f = flags[i];
+                if (f & (GONE | CASTS)) { i = f & GONE ? ends[i] : i + 1; continue; }
+                nodes[i].visible = false;
+                hidden.push(nodes[i]);
+                i = ends[i];
+            }
+        } finally {
+            if (!held) { list.nodes.fill(null, 0, list.count); list.count = 0; }
+        }
+        return hidden;
+    },
+
+    _showAgain(hidden) {
+        if (hidden) for (const object of hidden) object.visible = true;
+    },
+
+    /**
      * One row: six faces of depth from `origin`, each cleared and, when a
      * caster stands in it, drawn through three's ordinary render with the
      * camera's layers set to the casters' layer — so it culls to the face,
@@ -4176,8 +4269,13 @@ Reactor3D.Shadows = {
     /** One face of a row: characters the face cannot see are not skinned into it (InstanceCull). */
     renderFace(renderer, scene, camera) {
         const cull = Reactor3D.InstanceCull, hidden = cull ? cull.hide(scene, camera) : null;
-        try { renderer.render(scene, camera); } finally { if (hidden) cull.show(hidden); }
+        // A face holds depth only, the same whatever order it is drawn in: three's sort of the face's
+        // list (and the garbage it makes) is skipped. `sortFaces = true` sorts them as before.
+        const sorted = renderer.sortObjects;
+        if (!this.sortFaces) renderer.sortObjects = false;
+        try { renderer.render(scene, camera); } finally { renderer.sortObjects = sorted; if (hidden) cull.show(hidden); }
     },
+    sortFaces: false,
 
     _renderFacesOriginal(renderer, scene, target, size, row, origin, camera, mask) {
         for (let face = 0; face < 6; face++) {
@@ -4200,9 +4298,13 @@ Reactor3D.Shadows = {
      * on, the atlas is bound before any program declares a sampler for it,
      * and only then do the lit materials switch to the shadow variant — a
      * shadow sampler bound to no depth texture fails the draw outright.
+     * Drawn from the scene whole: the hook runs inside the first half of a
+     * split pass (HalfLight.whole), and the casters lit at full size wait
+     * in the second.
      */
     _flush() {
-        return Reactor3D.GeometryDetail.withOriginal(() => this._flushOriginal());
+        const half = Reactor3D.HalfLight;
+        return Reactor3D.GeometryDetail.withOriginal(() => half && half.whole ? half.whole(() => this._flushOriginal()) : this._flushOriginal());
     },
 
     _flushOriginal() {
@@ -4223,10 +4325,15 @@ Reactor3D.Shadows = {
                     const swapped = this._swapCasters(this._static);
                     try {
                         this._atCoarsestLod(() => {
-                            for (const tile of statics) {
-                                const to = tile.want || tile;
-                                this._renderTile(renderer, scene, this._atlas, this._tiles.indexOf(tile), to.origin, to.far,
-                                    Reactor3D.SHADOW_LAYER_STATIC, this._static, tile.candidate && tile.candidate.carrier);
+                            const others = this._hideNonCasters(scene, Reactor3D.SHADOW_LAYER_STATIC);
+                            try {
+                                for (const tile of statics) {
+                                    const to = tile.want || tile;
+                                    this._renderTile(renderer, scene, this._atlas, this._tiles.indexOf(tile), to.origin, to.far,
+                                        Reactor3D.SHADOW_LAYER_STATIC, this._static, tile.candidate && tile.candidate.carrier);
+                                }
+                            } finally {
+                                this._showAgain(others);
                             }
                         });
                     } finally {
@@ -4247,7 +4354,9 @@ Reactor3D.Shadows = {
                 if (dynamics.length) {
                     const roots = this._casting || this._dynamic;
                     const swapped = this._swapCasters(roots);
+                    let others = null;
                     try {
+                        others = this._hideNonCasters(scene, Reactor3D.SHADOW_LAYER_DYNAMIC);
                         for (const row of dynamics) {
                             const tile = this._tiles[row.tile];
                             if (!tile || tile.id !== row.id) continue;
@@ -4255,6 +4364,7 @@ Reactor3D.Shadows = {
                                 Reactor3D.SHADOW_LAYER_DYNAMIC, roots, tile.candidate && tile.candidate.carrier);
                         }
                     } finally {
+                        this._showAgain(others);
                         this._unswap(swapped);
                     }
                     for (const row of dynamics) {
@@ -5620,6 +5730,36 @@ Reactor3D.LightVolume = {
      * view culling: its settings at base brightness and radius (a flicker's
      * jitter is not a change), and whether it may cast. Null: never cached.
      */
+    /** Whether a light has a key (keyOf is not null): one with no id, and a beam, are never cached. */
+    keyed(light) {
+        return !!light && light.id !== undefined && light.id !== null && light.type !== Reactor3D.LIGHT_BEAM;
+    },
+    /**
+     * Whether `light`'s settings are those `record` last saw (keyOf's parts, compared in place; a
+     * frame's string per light was garbage), the record taking them if not. A record's key is then a
+     * number that changes when they do (`_keySerial`, never reused).
+     */
+    sameKey(record, light) {
+        const parts = record.keyParts;
+        const radius = light.baseRadius !== undefined ? light.baseRadius : light.priorityRadius !== undefined ? light.priorityRadius : light.radius;
+        const intensity = light.priorityIntensity !== undefined ? light.priorityIntensity : light.intensity;
+        let same = parts.length === 14;
+        same = this._keyPart(parts, 0, light.type, same); same = this._keyPart(parts, 1, light.x, same); same = this._keyPart(parts, 2, light.y, same);
+        same = this._keyPart(parts, 3, light.height, same); same = this._keyPart(parts, 4, light.groundY, same); same = this._keyPart(parts, 5, light.yaw, same);
+        same = this._keyPart(parts, 6, light.pitch, same); same = this._keyPart(parts, 7, light.angle, same); same = this._keyPart(parts, 8, light.width, same);
+        same = this._keyPart(parts, 9, light.colour, same); same = this._keyPart(parts, 10, radius, same); same = this._keyPart(parts, 11, intensity, same);
+        same = this._keyPart(parts, 12, light.shadow, same); same = this._keyPart(parts, 13, light.occlude, same);
+        return same;
+    },
+    /** One part compared as keyOf's text would have it (null and undefined alike, a number by its value), and kept. */
+    _keyPart(parts, i, value, same) {
+        const v = value === undefined || value === null ? "" : value;
+        const was = parts[i];
+        if (same && (was === v || (typeof was === "number" && typeof v === "number" && was !== was && v !== v) || String(was) === String(v))) return true;
+        parts[i] = v;
+        return false;
+    },
+    _keySerial: 0,
     keyOf(light) {
         // A carried light (a model's effect light) counts too: where it
         // stands and aims is in the key, so one on a model that holds still
@@ -5643,18 +5783,18 @@ Reactor3D.LightVolume = {
         const u = Reactor3D.lightUniforms();
         const pos = u.rrLightPos.value, col = u.rrLightColor.value, aim = u.rrLightAim.value;
         for (const light of list) {
-            const key = this.keyOf(light);
-            if (key === null) continue;
+            if (!this.keyed(light)) continue;
             const id = String(light.id);
             let record = this._records.get(id);
             if (!record) {
-                this._records.set(id, record = { id, key, since: frame, packed: null, packedKey: null, index: -1, present: -1, flicker: 1, flickers: false });
+                this._records.set(id, record = { id, key: 0, keyParts: [], since: frame, packed: null, packedKey: null, index: -1, present: -1, flicker: 1, flickers: false });
+                this.sameKey(record, light);
+                record.key = ++this._keySerial;
                 this._settleUntil = frame + this.STABLE_FRAMES + 2;
-            }
-            if (record.key !== key) {
+            } else if (!this.sameKey(record, light)) {
                 // A light that had held still and changed: the volume will bake again once it holds.
                 if (frame - record.since >= this.STABLE_FRAMES) this._settleUntil = frame + this.STABLE_FRAMES + 2;
-                record.key = key; record.since = frame;
+                record.key = ++this._keySerial; record.since = frame;
             }
             record.declared = frame;
             const base = light.priorityIntensity !== undefined ? light.priorityIntensity : light.intensity;
@@ -6869,6 +7009,27 @@ Reactor3D.Halo = {
 // back to linear, multiplies, and encodes again into the pass, as the lit
 // program did. The light is a quarter of the size each way: at the edge of
 // a model it is filtered from its neighbours.
+//
+// Water lays its tint over the lit colour (injectWaterVolume), and glowing
+// water a sheen in its own colour that goes with how light the surface is
+// (WaterLight.SHEEN_GLSL): neither multiplies, so the twin draws without
+// them and the combine lays both on after the light, in the lit program's
+// order, at the point the pass's depth gives. The sheen's share of the
+// glowing water's light is worked out with the light, into a second target
+// of its size, and filtered up with the same weights.
+
+// A pixel of the pass, back to the world point its depth holds.
+const HALF_LIGHT_WORLD = [
+    "uniform highp sampler2D rrLightDepth;",
+    "uniform mat4 rrLightInvViewProj;",
+    "vec3 rrLightWorld(ivec2 texel, ivec2 size) {",
+    "\tvec2 uv = (vec2(texel) + 0.5) / vec2(size);",
+    "\tvec4 world = rrLightInvViewProj * vec4(uv * 2.0 - 1.0, texelFetch(rrLightDepth, texel, 0).r * 2.0 - 1.0, 1.0);",
+    "\treturn world.xyz / world.w;",
+    "}"
+];
+// What a subtree holds for the split (HalfLight.begin).
+const SPLIT_DEFERRED = 1, SPLIT_FORWARD = 2, SPLIT_KEEP = 4, SPLIT_GONE = 8;
 const HALF_LIGHT_SRGB = [
     "vec3 rrToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }",
     "vec3 rrToSrgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }"
@@ -6916,9 +7077,12 @@ Reactor3D.HalfLight = {
         twin.customProgramCacheKey = function() { return material.customProgramCacheKey.call(this) + "|unlit"; };
         twin.onBeforeCompile = function(shader, renderer) {
             material.onBeforeCompile.call(this, shader, renderer);
+            // The water's sheen and tint go over the lit colour: the combine lays them on (`finishGlsl`).
             shader.fragmentShader = shader.fragmentShader
                 .replace("if (rrSelfLit < 1.0) diffuseColor.rgb *= mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);", "")
-                .replace("vec3 rrLightTerm = mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);", "vec3 rrLightTerm = vec3(1.0);");
+                .replace("vec3 rrLightTerm = mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);", "vec3 rrLightTerm = vec3(1.0);")
+                .replace(Reactor3D.WaterLight.SHEEN_GLSL + "\n", "")
+                .replace("outgoingLight = rrWaterTint(outgoingLight);", "");
         };
         material.__rrUnlitTwin = twin;
         return twin;
@@ -6928,61 +7092,108 @@ Reactor3D.HalfLight = {
      * Before the pass's draw: the surfaces that will take the light
      * afterwards are drawn alone and unlit. Returns the split, or null to
      * draw the pass as it was.
+     *
+     * Read from the scene's one walk (Reactor3D.SceneWalk). Each half hides
+     * what has no part in it as whole subtrees, the largest it can (a
+     * model's whole tree, the foliage, the doors), not object by object:
+     * three walks every visible object of each half, and every reader of
+     * the walk after this one passes a hidden subtree over in one step.
      */
     begin(renderer, scene, target) {
         if (!this.enabled || !target || !target.depthTexture || target.samples > 0 || !scene || !scene.isScene) return null;
         if (!Reactor3D.LightVolume || !Reactor3D.LightVolume.supported(renderer)) return null;
-        // The water's tint is laid over the lit colour: that map draws as before.
-        const water = scene.userData && scene.userData.rrWater;
-        if (water && water.length) return null;
-        // Only materials shown now are hidden and shown again: one a pass hid
-        // (setPass) must stay hidden when the rest of the pass is drawn.
-        const deferred = new Set(), forward = new Set(), swapped = [], sentinel = Reactor3D.Shadows && Reactor3D.Shadows._sentinel;
-        // A leaf with one material leaves the half it has no part in as a
-        // whole object: three otherwise culled and updated it there only to
-        // find its material hidden (both halves visit the whole scene).
-        const leafForward = [], leafDeferred = [];
-        const visit = object => {
-            if (!object.visible) return;
-            const material = object.material;
-            if (material && object !== sentinel && !Array.isArray(material) && !object.children.length) {
-                if (this.deferrable(material)) {
-                    deferred.add(material);
-                    swapped.push(object, material);
-                    object.material = this.twin(material);
-                    leafDeferred.push(object);
-                } else if (material.visible) {
-                    forward.add(material);
-                    leafForward.push(object);
-                }
-                return;
-            }
-            if (material && object !== sentinel) {
-                if (Array.isArray(material)) {
+        const walk = Reactor3D.SceneWalk, held = walk.hold(scene);
+        try {
+            const list = walk.list(scene) || walk.gather(scene, null);
+            const { nodes, ends, parents, count } = list;
+            if (!this._flags || this._flags.length < count) { this._flags = new Uint8Array(count * 2); this._subtrees = new Uint8Array(count * 2); }
+            const own = this._flags, sub = this._subtrees;
+            // Only materials shown now are hidden and shown again: one a pass hid
+            // (setPass) must stay hidden when the rest of the pass is drawn.
+            const split = this.splitRecord(), sentinel = Reactor3D.Shadows && Reactor3D.Shadows._sentinel;
+            const deferred = split.deferred, forward = split.forward, swapped = split.swapped;
+            // Each material taken this pass carries its stamp (negative in the forward half); one the last pass took and this one did not leaves the sets after the walk.
+            const stamp = this._stamp = (this._stamp + 1) % 1e9 || 1;
+            split.sentinel = sentinel;
+            let swaps = 0;
+            for (let i = 0; i < count;) {
+                const object = nodes[i];
+                // Hidden since the walk (the haze waiting for its own pass): neither half's.
+                if (object.visible === false) { own[i] = SPLIT_GONE; i = ends[i]; continue; }
+                let flag = 0;
+                const material = object.material;
+                // The sentinel draws the shadow rows from the first half; a light and a level-of-detail
+                // switch are read by three's own walk: none is ever hidden with a subtree.
+                if (object === sentinel || object.isLight || object.isLOD) flag = SPLIT_KEEP;
+                else if (Array.isArray(material)) {
                     let twins = null;
-                    for (let i = 0; i < material.length; i++) {
-                        const m = material[i];
+                    for (let k = 0; k < material.length; k++) {
+                        const m = material[k];
                         if (!m) continue;
-                        if (this.deferrable(m)) { deferred.add(m); (twins || (twins = material.slice()))[i] = this.twin(m); }
-                        else if (m.visible) forward.add(m);
+                        if (this.deferrable(m)) {
+                            if (m.__rrSplitStamp !== stamp) { m.__rrSplitStamp = stamp; deferred.add(m); }
+                            if (!twins) twins = this.twinList(material);
+                            twins[k] = this.twin(m);
+                            flag |= SPLIT_DEFERRED;
+                        } else if (m.visible) {
+                            if (m.__rrSplitStamp !== -stamp) { m.__rrSplitStamp = -stamp; forward.add(m); }
+                            flag |= SPLIT_FORWARD;
+                        }
                     }
-                    if (twins) { swapped.push(object, material); object.material = twins; }
-                } else if (this.deferrable(material)) {
-                    deferred.add(material);
-                    swapped.push(object, material);
-                    object.material = this.twin(material);
-                } else if (material.visible) forward.add(material);
+                    if (twins) { swapped[swaps++] = object; swapped[swaps++] = material; object.material = twins; }
+                } else if (material) {
+                    if (this.deferrable(material)) {
+                        if (material.__rrSplitStamp !== stamp) { material.__rrSplitStamp = stamp; deferred.add(material); }
+                        swapped[swaps++] = object; swapped[swaps++] = material;
+                        object.material = this.twin(material);
+                        flag = SPLIT_DEFERRED;
+                    } else if (material.visible) {
+                        if (material.__rrSplitStamp !== -stamp) { material.__rrSplitStamp = -stamp; forward.add(material); }
+                        flag = SPLIT_FORWARD;
+                    }
+                }
+                own[i] = flag;
+                i++;
             }
-            const children = object.children;
-            for (let i = 0; i < children.length; i++) visit(children[i]);
-        };
-        visit(scene);
-        const split = { deferred, forward, swapped, sentinel, albedo: null, leafForward, leafDeferred };
-        if (!deferred.size) { this.unswap(split); return null; }
-        for (const m of forward) m.visible = false;
-        for (const object of leafForward) object.visible = false;
-        split.albedo = this.albedoFor(target);
-        return split;
+            split.swaps = swaps;
+            for (const m of deferred) if (m.__rrSplitStamp !== stamp) deferred.delete(m);
+            for (const m of forward) if (m.__rrSplitStamp !== -stamp) forward.delete(m);
+            if (!deferred.size) { this.unswap(split); return null; }
+            split.phase = "albedo";
+            // What each subtree holds, children into parents.
+            sub.set(own.subarray(0, count));
+            for (let i = count - 1; i > 0; i--) if (!(sub[i] & SPLIT_GONE)) sub[parents[i]] |= sub[i];
+            // The largest subtrees with something of one half and nothing of the other, below the scene.
+            this.collect(list, sub, SPLIT_FORWARD, SPLIT_DEFERRED | SPLIT_KEEP, split.albedoHide);
+            this.collect(list, sub, SPLIT_DEFERRED, SPLIT_FORWARD | SPLIT_KEEP, split.forwardHide);
+            for (const m of forward) m.visible = false;
+            for (const object of split.albedoHide) object.visible = false;
+            split.albedo = this.albedoFor(target);
+            this._split = split;
+            return split;
+        } finally {
+            walk.release(held);
+        }
+    },
+
+    /**
+     * `fn` with the whole pass shown, the half being drawn and the other:
+     * the shadow rows are drawn from inside the first half's draw (the
+     * sentinel), and a caster drawn lit at full size (a character, a prop
+     * with a finish) is in the other half.
+     */
+    whole(fn) {
+        const split = this._split;
+        if (!split || (split.phase !== "albedo" && split.phase !== "forward")) return fn();
+        const albedo = split.phase === "albedo";
+        const materials = albedo ? split.forward : split.deferred, objects = albedo ? split.albedoHide : split.forwardHide;
+        for (const m of materials) m.visible = true;
+        for (const object of objects) object.visible = true;
+        try { return fn(); }
+        finally {
+            for (const m of materials) m.visible = false;
+            for (const object of objects) object.visible = false;
+        }
     },
 
     /**
@@ -7008,24 +7219,82 @@ Reactor3D.HalfLight = {
     },
 
     unswap(split) {
-        const list = split.swapped;
-        for (let i = 0; i < list.length; i += 2) list[i].material = list[i + 1];
-        list.length = 0;
+        // The list keeps its length between passes (a length set to 0 lets its storage go,
+        // and the next pass grows it again): `swaps` says how much of it is this pass's.
+        const list = split.swapped, swaps = split.swaps;
+        for (let i = 0; i < swaps; i += 2) { list[i].material = list[i + 1]; list[i] = null; list[i + 1] = null; }
+        split.swaps = 0;
+    },
+
+    /**
+     * The split, made once and filled again each pass: the walk takes a
+     * mesh in two of every three, and building its lists afresh was
+     * 40 KB of garbage a pass on North Haven. A pass drawn inside another
+     * pass's draw gets one of its own.
+     */
+    splitRecord() {
+        const kept = this._kept;
+        if (kept && kept.phase === "done") return kept;
+        const split = { deferred: new Set(), forward: new Set(), swapped: [], swaps: 0, sentinel: null, albedo: null, albedoHide: [], forwardHide: [], phase: "done", light: null };
+        if (!kept) this._kept = split;
+        return split;
+    },
+    _stamp: 0,
+
+    /** The twins standing in for a mesh's materials: one list per material list, its entries refilled each pass. */
+    twinList(materials) {
+        let twins = materials.__rrTwins;
+        if (!twins || twins.length !== materials.length) {
+            twins = materials.slice();
+            Object.defineProperty(materials, "__rrTwins", { value: twins, writable: true, configurable: true, enumerable: false });
+        }
+        for (let k = 0; k < materials.length; k++) twins[k] = materials[k];
+        return twins;
+    },
+
+    /** The largest subtrees below the scene with something of `has` and nothing of `without`, into `out` (refilled). */
+    collect(list, sub, has, without, out) {
+        const { nodes, ends, count } = list;
+        let n = 0;
+        for (let i = 1; i < count;) {
+            const f = sub[i];
+            if (f & SPLIT_GONE) { i = ends[i]; continue; }
+            if ((f & has) && !(f & without)) { out[n++] = nodes[i]; i = ends[i]; } else i++;
+        }
+        // Shortened, not emptied: a length set to 0 gives the storage up.
+        if (n) out.length = n;
+        else if (out.length) out.length = 0;
+    },
+
+    /**
+     * What the combine lays over the light in this scene: `wet` when it has
+     * water volumes (their tint), `sheen` while glowing water lights the map
+     * (WaterLight.loadFar).
+     */
+    finishing(scene) {
+        const water = scene && scene.userData && scene.userData.rrWater;
+        const u = Reactor3D.lightUniforms();
+        return { wet: !!(water && water.length), sheen: !!(u.rrWaterFarEdge && u.rrWaterFarEdge.value > 0 && u.rrWaterSheen && u.rrWaterSheen.value > 0) };
     },
 
     /** After the unlit draw: the light, the combine, then the rest of the pass. */
     finish(renderer, scene, target, camera, split) {
         this.unswap(split);
         for (const m of split.forward) m.visible = true;
-        for (const object of split.leafForward) object.visible = true;
+        for (const object of split.albedoHide) object.visible = true;
+        split.phase = "between";
         const w = Math.max(1, Math.ceil(target.width * this.SCALE)), h = Math.max(1, Math.ceil(target.height * this.SCALE));
-        let light = this._target;
+        const { wet, sheen } = this.finishing(scene);
+        // With the sheen, a second target beside the light holds the glowing water's share of it.
+        const slot = sheen ? "_sheenTarget" : "_target";
+        let light = this[slot];
         if (!light || light.width !== w || light.height !== h) {
             if (light) light.dispose();
-            light = this._target = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false,
-                minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+            light = this[slot] = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false,
+                minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false, count: sheen ? 2 : 1 });
         }
-        const pass = this.program(renderer);
+        const shone = sheen ? light.textures[1] : null;
+        const pass = this.program(renderer, sheen);
         const autoClear = renderer.autoClear;
         try {
             renderer.autoClear = false;
@@ -7047,9 +7316,10 @@ Reactor3D.HalfLight = {
             // so the colour is written through a target without it.
             const view = this.matchSurfaces ? Reactor3D.colourOnly(renderer, target) : null;
             if (view) {
-                const up = this.upsampleProgram(renderer), uu = up.material.uniforms;
+                const up = this.upsampleProgram(renderer, wet, sheen), uu = up.material.uniforms;
                 uu.unlit.value = split.albedo.texture;
                 uu.light.value = light.texture;
+                if (shone) uu.shone.value = shone;
                 uu.rrLightDepth.value = target.depthTexture;
                 uu.rrLightInvViewProj.value.copy(pu.rrLightInvViewProj.value);
                 uu.rrLightStep.value.copy(pu.rrLightStep.value);
@@ -7067,14 +7337,21 @@ Reactor3D.HalfLight = {
                 renderer.setRenderTarget(target);
             } else {
                 renderer.setRenderTarget(target);
-                const combine = this.combineQuad();
-                combine.material.uniforms.unlit.value = split.albedo.texture;
-                combine.material.uniforms.light.value = light.texture;
+                const combine = this.combineQuad(wet, sheen), cu = combine.material.uniforms;
+                cu.unlit.value = split.albedo.texture;
+                cu.light.value = light.texture;
+                if (shone) cu.shone.value = shone;
+                if (wet) {
+                    cu.rrLightDepth.value = target.depthTexture;
+                    cu.rrLightInvViewProj.value.copy(pu.rrLightInvViewProj.value);
+                    combine.camera.position.copy(pass.camera.position);
+                }
                 renderer.render(combine.scene, combine.camera);
             }
             // Everything else, lit as it always was, over the lit surfaces.
             for (const m of split.deferred) m.visible = false;
-            for (const object of split.leafDeferred) object.visible = false;
+            for (const object of split.forwardHide) object.visible = false;
+            split.phase = "forward";
             const sentinelMaterial = split.sentinel && split.sentinel.material;
             if (sentinelMaterial) sentinelMaterial.visible = false;
             // A background colour makes three clear the target whatever
@@ -7093,9 +7370,11 @@ Reactor3D.HalfLight = {
         this.unswap(split);
         for (const m of split.forward) m.visible = true;
         for (const m of split.deferred) m.visible = true;
-        for (const object of split.leafForward) object.visible = true;
-        for (const object of split.leafDeferred) object.visible = true;
+        for (const object of split.albedoHide) object.visible = true;
+        for (const object of split.forwardHide) object.visible = true;
         if (split.sentinel && split.sentinel.material) split.sentinel.material.visible = true;
+        split.phase = "done";
+        if (this._split === split) this._split = null;
     },
 
     /** The light's GLSL and uniforms for a full-screen program: shadows as the renderer has them, the light at any pixel of the pass. */
@@ -7111,15 +7390,10 @@ Reactor3D.HalfLight = {
         const glsl = Reactor3D.LightGrid.glsl(shadows ? Reactor3D.lightGlsl(true, taps) : Reactor3D.LIGHT_GLSL)
             .replace("varying vec3 vRRWorldPos;", "vec3 rrPassNormal;")
             .replace("vec3 rrVN = cross(dFdx(p), dFdy(p));", "vec3 rrVN = rrPassNormal;") + "\n" + [
-            "uniform highp sampler2D rrLightDepth;",
-            "uniform mat4 rrLightInvViewProj;",
+            ...HALF_LIGHT_WORLD.slice(0, 2),
             "uniform vec2 rrLightStep;",
             "uniform mat4 rrLightView;",
-            "vec3 rrLightWorld(ivec2 texel, ivec2 size) {",
-            "\tvec2 uv = (vec2(texel) + 0.5) / vec2(size);",
-            "\tvec4 world = rrLightInvViewProj * vec4(uv * 2.0 - 1.0, texelFetch(rrLightDepth, texel, 0).r * 2.0 - 1.0, 1.0);",
-            "\treturn world.xyz / world.w;",
-            "}",
+            ...HALF_LIGHT_WORLD.slice(2),
             // Each way, the step to the nearer neighbour: the one on the same surface.
             "vec3 rrLightStepTo(vec3 p, ivec2 a, ivec2 b, ivec2 size) {",
             "\tvec3 pa = rrLightWorld(clamp(a, ivec2(0), size - 1), size) - p;",
@@ -7153,30 +7427,68 @@ Reactor3D.HalfLight = {
         return { material, scene, camera: new THREE.Camera() };
     },
 
-    /** The light at half size: each texel's world point from the pass's depth, lit as a surface there would be. */
-    program(renderer) {
-        const cached = this._programs[this._lightKey(renderer)];
+    /**
+     * The light at half size: each texel's world point from the pass's
+     * depth, lit as a surface there would be. With `sheen`, the glowing
+     * water's share of that light (`rrWaterShone`) goes to a second target.
+     */
+    program(renderer, sheen) {
+        const key = this._lightKey(renderer) + (sheen ? "+sheen" : "");
+        const cached = this._programs[key];
         if (cached) return cached;
         const source = this._lightSource(renderer);
         const material = new THREE.ShaderMaterial({
             uniforms: source.uniforms,
             vertexShader: "void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }",
             fragmentShader: source.glsl + "\n" + [
+                sheen ? "layout(location = 1) out highp vec4 rrShoneOut;" : null,
                 "void main() {",
                 // One of the pixels this texel covers, and where it stands.
                 "\tivec2 size = textureSize(rrLightDepth, 0);",
                 "\tivec2 texel = min(ivec2(floor(gl_FragCoord.xy * rrLightStep)), size - 1);",
                 "\tfloat depth = texelFetch(rrLightDepth, texel, 0).r;",
                 // Nothing drawn here: the combine leaves the pixel as it is.
-                "\tif (depth >= 1.0) { gl_FragColor = vec4(1.0, 1.0, 1.0, 60000.0); return; }",
+                "\tif (depth >= 1.0) { gl_FragColor = vec4(1.0, 1.0, 1.0, 60000.0);" + (sheen ? " rrShoneOut = vec4(0.0);" : "") + " return; }",
                 "\tvec3 p = rrLightWorld(texel, size);",
                 // Alpha: the distance from the eye, for the combine and the haze (Reactor3D.HalfHaze).
                 "\tgl_FragColor = vec4(rrLightAtTexel(p, texel, size), -(rrLightView * vec4(p, 1.0)).z);",
+                sheen ? "\trrShoneOut = vec4(rrWaterShone, 0.0);" : null,
                 "}"
-            ].join("\n"),
+            ].filter(line => line !== null).join("\n"),
             depthTest: false, depthWrite: false, blending: THREE.NoBlending
         });
-        return (this._programs[source.key] = this._fullScreen(material));
+        return (this._programs[key] = this._fullScreen(material));
+    },
+
+    /**
+     * What the lit program lays over its colour after the light, for the
+     * combine: the glowing water's sheen (WaterLight.SHEEN_GLSL, over `l`,
+     * the light, and `shone`, its glowing water's share), then the water's
+     * tint (injectWaterVolume) at the world point of the pixel's depth; a
+     * pixel with nothing drawn takes no tint. `rrFinish(c, l, shone, px)`
+     * on linear colour. Needs `rrLightWorld` and `rrLightDepth` declared
+     * before it when `wet`, and `rrWaterSheen` when `sheen`.
+     */
+    finishGlsl(wet, sheen) {
+        const lines = [];
+        if (wet) lines.push(Reactor3D.WATER_VOLUME_GLSL.replace("varying vec3 vRRWaterPos;", "vec3 vRRWaterPos;"));
+        lines.push("vec3 rrFinish(vec3 c, vec3 l, vec3 shone, ivec2 px) {");
+        if (sheen) lines.push(Reactor3D.WaterLight.SHEEN_GLSL.replace(/outgoingLight/g, "c").replace("rrLitBy", "l").replace("rrWaterShone", "shone"));
+        if (wet) {
+            lines.push("\tif (rrWaterCount > 0 && texelFetch(rrLightDepth, px, 0).r < 1.0) {",
+                "\t\tvRRWaterPos = rrLightWorld(px, textureSize(rrLightDepth, 0));",
+                "\t\tc = rrWaterTint(c);",
+                "\t}");
+        }
+        lines.push("\treturn c;", "}");
+        return lines.join("\n");
+    },
+
+    /** A full-screen program's uniforms for what `finishGlsl` reads. */
+    _finishUniforms(uniforms, wet, sheen) {
+        if (wet) Object.assign(uniforms, Reactor3D.waterVolumeUniforms());
+        if (sheen) uniforms.shone = { value: null };
+        return uniforms;
     },
 
     /**
@@ -7208,13 +7520,18 @@ Reactor3D.HalfLight = {
      * target of its own: the pass's depth is read here, and the pass itself
      * holds that depth.
      */
-    upsampleProgram(renderer) {
+    upsampleProgram(renderer, wet, sheen) {
         const known = this._upsamples || (this._upsamples = {});
-        const exact = this.exactEdges !== false, key = this._lightKey(renderer) + (exact ? "" : "-x");
+        const exact = this.exactEdges !== false, key = this._lightKey(renderer) + (exact ? "" : "-x") + (wet ? "+wet" : "") + (sheen ? "+sheen" : "");
         const cached = known[key];
         if (cached) return cached;
         const source = this._lightSource(renderer);
-        const uniforms = source.uniforms;
+        const uniforms = this._finishUniforms(source.uniforms, wet, sheen);
+        // The colour as the lit program leaves it: lit, then what it lays over the light (finishGlsl).
+        const finished = wet || sheen;
+        const lit = (light, shone) => finished ? "rrLitFinished(px, " + light + ", " + (sheen ? shone : "vec3(0.0)") + ")" : "rrLit(px, " + light + ")";
+        const blend = (texel, weights, over) => "(" + ["i0", "i1", "i2", "i3"].map((i, k) => texel(i, k) + " * " + weights + "." + "xyzw"[k]).join(" + ") + ")" + (over ? " / " + over : "");
+        const shoneAt = (i) => "texelFetch(shone, " + i + ", 0).rgb";
         uniforms.unlit = { value: null };
         uniforms.light = { value: null };
         uniforms.rrLightZ = { value: new THREE.Vector4() };
@@ -7233,9 +7550,12 @@ Reactor3D.HalfLight = {
                 "uniform vec4 rrLightZ;",
                 "uniform float rrPlainSpread;",
                 "uniform float rrPlainBend;",
+                sheen ? "uniform highp sampler2D shone;" : null,
                 HALF_LIGHT_SRGB,
                 // The unlit colour (sRGB bytes) back to linear, times the light, encoded again: the lit program's arithmetic, in its order.
                 "vec4 rrLit(ivec2 px, vec3 l) { vec4 s = texelFetch(unlit, px, 0); return vec4(rrToSrgb(clamp(rrToLinear(s.rgb) * l, 0.0, 1.0)), s.a); }",
+                finished ? this.finishGlsl(wet, sheen) : null,
+                finished ? "vec4 rrLitFinished(ivec2 px, vec3 l, vec3 shone) { vec4 s = texelFetch(unlit, px, 0); return vec4(rrToSrgb(clamp(rrFinish(rrToLinear(s.rgb) * l, l, shone, px), 0.0, 1.0)), s.a); }" : null,
                 // A pixel's distance from the eye, from the depth alone.
                 "float rrDist(ivec2 t, ivec2 size) { float z = texelFetch(rrLightDepth, clamp(t, ivec2(0), size - 1), 0).r * 2.0 - 1.0; return -(rrLightZ.x * z + rrLightZ.y) / (rrLightZ.z * z + rrLightZ.w); }",
                 // Each way, the change of distance per pixel toward the nearer neighbour: the pixel's own surface.
@@ -7254,7 +7574,7 @@ Reactor3D.HalfLight = {
                 "\tvec4 dist = vec4(a.a, c.a, e.a, g.a);",
                 "\tfloat lo = min(min(dist.x, dist.y), min(dist.z, dist.w)), hi = max(max(dist.x, dist.y), max(dist.z, dist.w));",
                 "\tif (hi - lo < lo * rrPlainSpread && abs(dist.x + dist.w - dist.y - dist.z) < lo * rrPlainBend) {",
-                "\t\tgl_FragColor = rrLit(px, a.rgb * bilinear.x + c.rgb * bilinear.y + e.rgb * bilinear.z + g.rgb * bilinear.w);",
+                "\t\tgl_FragColor = " + lit("a.rgb * bilinear.x + c.rgb * bilinear.y + e.rgb * bilinear.z + g.rgb * bilinear.w", blend(shoneAt, "bilinear")) + ";",
                 "\t\treturn;",
                 "\t}",
                 "\tivec2 size = textureSize(rrLightDepth, 0);",
@@ -7267,11 +7587,14 @@ Reactor3D.HalfLight = {
                 "\tvec4 r = (dist - (d + vec4(dot(slope, o0), dot(slope, o1), dot(slope, o2), dot(slope, o3)))) / (d * rrSameSurface);",
                 "\tvec4 same = max(exp(-r * r), 1e-5);",
                 // No sample on the pixel's surface (the rim of a model, a thin part): lit at full size.
-                "\tif (max(max(same.x, same.y), max(same.z, same.w)) < rrExactBelow) { gl_FragColor = rrLit(px, " + (exact ? "rrLightAtTexel(rrLightWorld(px, size), px, size)" : "vec3(1.0, 0.0, 1.0)") + "); return; }",
+                // (The light at full size leaves its glowing water's share in rrWaterShone.)
+                "\tif (max(max(same.x, same.y), max(same.z, same.w)) < rrExactBelow) { " + (exact
+                    ? "vec3 l = rrLightAtTexel(rrLightWorld(px, size), px, size); gl_FragColor = " + lit("l", "rrWaterShone") + ";"
+                    : "gl_FragColor = rrLit(px, vec3(1.0, 0.0, 1.0));") + " return; }",
                 "\tvec4 w = (bilinear + 0.001) * same;",
-                "\tgl_FragColor = rrLit(px, (a.rgb * w.x + c.rgb * w.y + e.rgb * w.z + g.rgb * w.w) / (w.x + w.y + w.z + w.w));",
+                "\tgl_FragColor = " + lit("(a.rgb * w.x + c.rgb * w.y + e.rgb * w.z + g.rgb * w.w) / (w.x + w.y + w.z + w.w)", blend(shoneAt, "w", "(w.x + w.y + w.z + w.w)")) + ";",
                 "}"
-            ].join("\n"),
+            ].filter(line => line !== null).join("\n"),
             depthTest: false, depthWrite: false, blending: THREE.NoBlending
         });
         return (known[key] = this._fullScreen(material));
@@ -7280,27 +7603,39 @@ Reactor3D.HalfLight = {
     /**
      * The combine: each unlit pixel (sRGB bytes, as the pass stores them)
      * back to linear, times the full-size light, and encoded again; its
-     * alpha as it was. The same arithmetic as the lit program's, in its order.
+     * alpha as it was. The same arithmetic as the lit program's, in its
+     * order, with what it lays over the light (`finishGlsl`).
      */
-    combineQuad() {
-        if (this._combine) return this._combine;
+    combineQuad(wet, sheen) {
+        const known = this._combines || (this._combines = {});
+        const key = (wet ? "wet" : "") + (sheen ? "sheen" : "");
+        if (known[key]) return known[key];
+        const uniforms = this._finishUniforms({ unlit: { value: null }, light: { value: null } }, wet, sheen);
+        if (wet) { uniforms.rrLightDepth = { value: null }; uniforms.rrLightInvViewProj = { value: new THREE.Matrix4() }; }
+        if (sheen) uniforms.rrWaterSheen = Reactor3D.lightUniforms().rrWaterSheen;
+        const finished = wet || sheen;
         const material = new THREE.ShaderMaterial({
-            uniforms: { unlit: { value: null }, light: { value: null } },
+            uniforms,
             vertexShader: "void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }",
             fragmentShader: [
                 "uniform sampler2D unlit;",
                 "uniform sampler2D light;",
+                sheen ? "uniform sampler2D shone;\nuniform float rrWaterSheen;" : null,
+                wet ? HALF_LIGHT_WORLD.join("\n") : null,
                 HALF_LIGHT_SRGB,
+                finished ? this.finishGlsl(wet, sheen) : null,
                 "void main() {",
                 "\tivec2 px = ivec2(gl_FragCoord.xy);",
                 "\tvec4 s = texelFetch(unlit, px, 0);",
                 "\tvec3 l = texture2D(light, gl_FragCoord.xy / vec2(textureSize(unlit, 0))).rgb;",
-                "\tgl_FragColor = vec4(rrToSrgb(clamp(rrToLinear(s.rgb) * l, 0.0, 1.0)), s.a);",
+                finished
+                    ? "\tgl_FragColor = vec4(rrToSrgb(clamp(rrFinish(rrToLinear(s.rgb) * l, l, " + (sheen ? "texture2D(shone, gl_FragCoord.xy / vec2(textureSize(unlit, 0))).rgb" : "vec3(0.0)") + ", px), 0.0, 1.0)), s.a);"
+                    : "\tgl_FragColor = vec4(rrToSrgb(clamp(rrToLinear(s.rgb) * l, 0.0, 1.0)), s.a);",
                 "}"
-            ].join("\n"),
+            ].filter(line => line !== null).join("\n"),
             depthTest: false, depthWrite: false, blending: THREE.NoBlending
         });
-        return (this._combine = this._fullScreen(material));
+        return (known[key] = this._fullScreen(material));
     }
 };
 

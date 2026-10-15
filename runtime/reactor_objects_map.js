@@ -1015,9 +1015,10 @@ Game_CharacterBase.prototype.initMembers = function() {
     this._jumpPeak = 0;
     this._movementSuccess = true;
     // The fields the engine gives a character later, declared now in one order (undefined, so a save does not hold them).
+    // A name the character already answers, its own or from a prototype (a plugin's default), is left as it is.
     if (Game_CharacterBase.evenShapes) {
         const late = Game_CharacterBase.LATE_FIELDS;
-        for (let i = 0; i < late.length; i++) if (!Object.prototype.hasOwnProperty.call(this, late[i])) this[late[i]] = undefined;
+        for (let i = 0; i < late.length; i++) if (!(late[i] in this)) this[late[i]] = undefined;
     }
 };
 
@@ -1047,23 +1048,49 @@ Game_CharacterBase.LATE_FIELDS = [
 /**
  * Characters restored from a save, rebuilt so each kind has one shape: the
  * fields in the order the fullest of its kind holds them, then the declared
- * ones none of them holds yet. Returns a map from each to its rebuilt self.
+ * ones none of them holds yet. Each keeps exactly its own fields (a plugin's
+ * included, accessors and hidden ones through their descriptors) plus the
+ * declared ones its prototype does not answer, as a new character has them.
+ * Anything not a character, or not extensible, is left out. Returns a map
+ * from each to its rebuilt self.
  */
 Game_CharacterBase.evenOut = function(characters) {
-    const kinds = new Map(), rebuilt = new Map();
+    const kinds = new Map(), rebuilt = new Map(), taken = new Set();
+    const own = Object.prototype.hasOwnProperty, late = new Set(this.LATE_FIELDS);
     for (const character of characters) {
-        if (!character || typeof character !== "object") continue;
+        if (!(character instanceof Game_CharacterBase) || !Object.isExtensible(character) || taken.has(character)) continue;
+        taken.add(character);
         const proto = Object.getPrototypeOf(character), list = kinds.get(proto);
         if (list) list.push(character); else kinds.set(proto, [character]);
     }
+    // A name the prototype chain holds as an accessor or a read-only field is not assigned (that would call it or fail).
+    const assignable = (proto, key) => {
+        for (let p = proto; p; p = Object.getPrototypeOf(p)) {
+            const d = Object.getOwnPropertyDescriptor(p, key);
+            if (d) return "value" in d && d.writable;
+        }
+        return true;
+    };
     for (const [proto, list] of kinds) {
         const order = [], seen = new Set();
         const fullest = list.slice().sort((a, b) => Object.keys(b).length - Object.keys(a).length);
         for (const character of fullest) for (const key of Object.keys(character)) if (!seen.has(key)) { seen.add(key); order.push(key); }
         for (const key of this.LATE_FIELDS) if (!seen.has(key)) { seen.add(key); order.push(key); }
+        const plain = new Set(order.filter(key => assignable(proto, key)));
         for (const character of list) {
             const even = Object.create(proto);
-            for (const key of order) even[key] = character[key];
+            for (const key of order) {
+                if (own.call(character, key)) {
+                    const d = Object.getOwnPropertyDescriptor(character, key);
+                    if (plain.has(key) && "value" in d && d.writable && d.enumerable && d.configurable) even[key] = d.value;
+                    else Object.defineProperty(even, key, d);
+                } else if (late.has(key) && !(key in proto)) {
+                    even[key] = undefined;
+                }
+            }
+            for (const key of Reflect.ownKeys(character)) {
+                if (!own.call(even, key)) Object.defineProperty(even, key, Object.getOwnPropertyDescriptor(character, key));
+            }
             rebuilt.set(character, even);
         }
     }

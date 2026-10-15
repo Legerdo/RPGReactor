@@ -92,7 +92,7 @@ test('requestRender marks the view active, and every input handler still does', 
     assert.match(mapSource, /events: this\.eventGroup \? this\.eventGroup\.children\.length : 0\s*\};\s*this\.requestRender\(\);\s*return true;/);
     assert.match(mapSource, /this\.placeProp\(object, prop, mapData\);\s*group\.add\(object\);\s*this\.requestRender\(\);/);
     assert.match(mapSource, /object\.userData\.modelPreview = true;\s*group\.add\(object\);\s*this\.requestRender\(\);/);
-    assert.match(mapSource, /image\.onload = \(\) => \{ texture\.image = image; texture\.needsUpdate = true; this\.requestRender\(\); \};/);
+    assert.match(mapSource, /image\.onload = \(\) => \{ texture\.image = image; texture\.needsUpdate = true; this\.requestRender\?\.\(\); \};/);
     assert.match(mapSource, /this\.camera\.updateProjectionMatrix\(\);\s*this\.requestRender\(\);/);
     assert.match(mapSource, /select\(mesh\) \{\s*this\.requestRender\(\);/);
     assert.match(mapSource, /refreshPassage\(\) \{\s*this\.requestRender\(\);/);

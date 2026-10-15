@@ -55,5 +55,5 @@ test('the 3D view draws its main pass as the game does: volume, quarter-size lig
     // Both main passes go through it; the later passes draw over it on the canvas.
     assert.equal((three.match(/this\.renderMainPass\(scene\);/g) || []).length, 2);
     // A still view keeps drawing while the volume bakes.
-    assert.match(three, /Reactor3D\.LightVolume\?\.baking\?\.\(\)\) return true;/);
+    assert.match(three, /return typeof Reactor3D !== 'undefined' && !!Reactor3D\.LightVolume\?\.baking\?\.\(\);/);
 });

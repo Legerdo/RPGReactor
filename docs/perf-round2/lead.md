@@ -1,5 +1,7 @@
 # Perf round 2: lead checkpoint (paused 2026-10-14, night)
 
+**Update 2026-10-15: merged.** The code work, the merge checklist (fixes, runtime 20261014.4 synced to all 16 projects, docs, changelogs, full suite) and the commit were finished on the Windows machine with Node tests only. What is left is measuring in the game on Linux: PERFORMANCE.md › "Still to measure", with each item's steps in its own file's Next steps. The sections below are the overnight state, kept for the harness recipes. Delete this folder once the measurements are done.
+
 The owner paused for the night after ~4 h of agents. Resume in the morning. Everything is in local WIP commit bf2b82bc on `main` (parent d249fad2), plus a second commit adding these notes; nothing pushed. Follow them with the real commit after the merge checklist.
 
 **Where things are (all inside the project folder, so Dropbox carries them to another machine):**

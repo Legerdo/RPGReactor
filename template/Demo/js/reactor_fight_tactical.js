@@ -4694,6 +4694,8 @@
     };
 
     AI.think = function(fight, unit, character) {
+        // Heights of models still out on the worker (Action.hullsPending): it thinks once they are in, seeing what it would have seen with them worked out at once.
+        if (F.Action && F.Action.hullsPending && F.Action.hullsPending()) return null;
         if (!ai.ready || ai.serial !== fight._serial || ai.unitId !== unit.id || ai.turn !== fight._turn) { ai.waits = 0; ai.entryCell = -1; ai.entryAt = 0; AI.begin(fight, unit, character, fight.battler(unit)); }
         // Someone left the field mid-think: the cells are weighed again from the first.
         else {

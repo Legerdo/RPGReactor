@@ -3744,6 +3744,11 @@
                     }
                 }
             };
+            // Counts as UltraMode7's own hook for chunked tile painting
+            // (Tilemap.ChunkPaint.GATES): seven-argument calls go straight on.
+            if (Tilemap.ChunkPaint && Tilemap.ChunkPaint.origins) {
+                Tilemap.ChunkPaint.origins.set(Tilemap.CombinedLayer.prototype.addRect, "UltraMode7");
+            }
             compatLog("pixi_compat: UltraMode7 pre-2.2.0 CombinedLayer bridge installed (addRect ax/ay forwarding + animationFrame fan-out)");
         }
 

@@ -47,7 +47,7 @@ Weak-tier numbers come from the Radeon iGPU on a headless KWin display. "t4" mea
 - Nothing is half-applied. The runtime edits are complete and tested. My NW, chromedriver and display processes are stopped, and the project copies and runtime-before/after copies are removed.
 
 ## Next steps (in order)
-1. Make `immediate` the prototype's default and rerun the today/thread/nosync A/B (rtab.sh), unthrottled and t4.
+1. (`RT.immediate` is now true by default, 2026-10-15.) Rerun the today/thread/nosync A/B (rtab.sh), unthrottled and t4.
 2. Report the prototype's gaps with estimates:
    - Character and prop models: a worker-side game-object mirror built from reactor_objects plus a per-frame field diff, and GLB loading in the worker. 2 to 3 weeks; plugins that override character methods need per-plugin work.
    - Effekseer: 1 to 2 weeks, risky.

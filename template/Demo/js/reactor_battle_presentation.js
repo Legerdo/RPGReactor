@@ -158,10 +158,10 @@
                 }
                 const projectile=adapter.projectile;
                 if(projectile){const a=roles.user,b=roles.target;if(a&&b){const t=Math.min(1,Math.max(0,(frame-projectile.start)/Math.max(1,projectile.duration)));projectile.graphic.x=a.x+(b.x-a.x)*t;projectile.graphic.y=a.y+(b.y-a.y)*t-48;projectile.graphic.visible=t<1;
-                    if(room){const pa=a._reactorRoomPosition,pb=b._reactorRoomPosition;room.billboard('extra:projectile',projectile.graphic.bitmap.canvas,{x:0,y:0,width:projectile.graphic.bitmap.width,height:projectile.graphic.bitmap.height},{x:pa.x+(pb.x-pa.x)*t,y:pa.y+(pb.y-pa.y)*t,z:1},projectile.graphic.bitmap.height/48);const record=room.billboards.get('extra:projectile');if(record)record.object.visible=t<1;projectile.graphic.visible=false;}
+                    if(room){const pa=a._reactorRoomPosition,pb=b._reactorRoomPosition;room.billboard('extra:projectile',projectile.graphic.bitmap.canvas,{x:0,y:0,width:projectile.graphic.bitmap.width,height:projectile.graphic.bitmap.height},{x:pa.x+(pb.x-pa.x)*t,y:pa.y+(pb.y-pa.y)*t,z:1},projectile.graphic.bitmap.height/48,projectile.graphic.bitmap);const record=room.billboards.get('extra:projectile');if(record)record.object.visible=t<1;projectile.graphic.visible=false;}
                 }}
                 const weapon=adapter.weapon;if(weapon){const s=weapon.step,p=roles.user;weapon.graphic.x=p.x+(s.x??.5)*48;weapon.graphic.y=p.y-(s.z??1)*48+(s.y||0)*48;weapon.graphic.rotation=(s.rotation||0)*Math.PI/180;weapon.graphic.scale.set(s.scale||1);
-                    if(room&&weapon.graphic.bitmap.isReady()){const home=p._reactorRoomPosition;room.billboard('extra:weapon',weapon.graphic.bitmap.canvas,weapon.graphic._frame,{x:home.x+(s.x??.5),y:home.y+(s.y||0),z:(home.z||0)+(s.z??1),rotateZ:s.rotation||0,scale:s.scale||1},.7);weapon.graphic.visible=false;}
+                    if(room&&weapon.graphic.bitmap.isReady()){const home=p._reactorRoomPosition;room.billboard('extra:weapon',weapon.graphic.bitmap.canvas,weapon.graphic._frame,{x:home.x+(s.x??.5),y:home.y+(s.y||0),z:(home.z||0)+(s.z??1),rotateZ:s.rotation||0,scale:s.scale||1},.7,weapon.graphic.bitmap);weapon.graphic.visible=false;}
                 }
             },
             resolveNext(){if(manager._targets.length)manager.invokeAction(subject,manager._targets.shift());adapter.pendingImpact=manager._targets.length>0;},
@@ -997,6 +997,27 @@
         const lie=Math.max(0,Math.min(1,amount||0)),turn=(position.rotateZ||0),wide=tall*frame.width/Math.max(1,frame.height);
         return {...position,rotateZ:turn-(root.Sprite_Enemy?.CORPSE_TURN??-1)*90*lie,z:(position.z||0)-lie*(tall-wide)/2};
     };
+    /**
+     * A battler (or a room event) drawn by its battle room, as a picture or a model there, draws nothing of
+     * its own: its flat sprite holds the empty texture for good. Its frame changes every few updates (the
+     * motion's cells), and a sprite builds itself a new texture for each (Sprite._refresh); here a change only
+     * moves its pivot, as it would have, so nothing is made and nothing is left behind.
+     */
+    P.drawnInRoom=function(sprite){
+        if(!sprite)return;
+        if(sprite._reactorDrawnInRoom){if(sprite.texture!==PIXI.Texture.EMPTY)sprite.texture=PIXI.Texture.EMPTY;return;}
+        sprite._reactorDrawnInRoom=true;
+        const own=sprite.texture;
+        sprite.texture=PIXI.Texture.EMPTY;
+        if(own&&own.__rrSpriteOwned&&!own.destroyed)own.destroy();
+        sprite._refresh=P.roomSpriteRefresh;
+    };
+    /** Sprite._refresh for a sprite drawn by its battle room: the pivot its frame gives it, and no texture. */
+    P.roomSpriteRefresh=function(){
+        const base=this._bitmap?this._bitmap.baseTexture:null,bw=base?base.width:0,bh=base?base.height:0;
+        const frameX=Math.floor(this._frame.x),frameY=Math.floor(this._frame.y);
+        this.pivot.x=frameX-Math.min(Math.max(frameX,0),bw);this.pivot.y=frameY-Math.min(Math.max(frameY,0),bh);
+    };
     P.updateRoom=function(ss){
         const room=ss._reactorRoom;if(room.disposed)return;
         room.aim();const live=new Set();
@@ -1011,11 +1032,11 @@
             const main=sprite._mainSprite||sprite;
             if(spec){if(room.billboards.has(key))room.remove(key);room.addModel(key,spec,p);room.place(key,p);if(actor)P.fallPose(room,key,battler);else P.liePose(room,key,sprite._corpse);}
             else {if(room.models.has(key))room.remove(key);}
-            if(!spec&&main.bitmap?.isReady()){const tall=Math.max(.5,main._frame.height/48);room.billboard(key,main.bitmap.canvas,main._frame,{...P.lieBillboard(p,main._frame,tall,actor?0:sprite._corpse),flipX:actor?p.facing>0:p.facing<0},tall);}
+            if(!spec&&main.bitmap?.isReady()){const tall=Math.max(.5,main._frame.height/48);room.billboard(key,main.bitmap.canvas,main._frame,{...P.lieBillboard(p,main._frame,tall,actor?0:sprite._corpse),flipX:actor?p.facing>0:p.facing<0},tall,main.bitmap);}
             const record=room.models.get(key)||room.billboards.get(key);
             if(record?.object)P.mirrorSpriteLook(sprite,battler,record);
             const projected=P.roomScreenPosition(sprite);if(projected){sprite.x=projected.x;sprite.y=projected.y;}
-            if(main.texture)main.texture=PIXI.Texture.EMPTY;
+            P.drawnInRoom(main);
         }
         for(const key of [...room.models.keys(),...room.billboards.keys()])if(!key.startsWith('prop:')&&!key.startsWith('event:')&&!key.startsWith('extra:')&&!live.has(key))room.remove(key);
         P.updateRoomEvents?.(room);

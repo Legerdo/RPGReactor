@@ -1035,7 +1035,7 @@
         R.MapScene.prototype[name] = wrapped;
     };
     // Laid with the map, after the water (whose cells it keeps out of); again when the water is laid again.
-    wrap("addWater", function(mapData) { this.addFoliage(mapData, null); });
+    wrap("addWater", function(mapData) { this.followUp(() => this.addFoliage(mapData, null)); });
     // The ground moved under it, or pieces came or went: the chunks there grow again.
     wrap("updateTerrain", function(mapData, region) {
         this.updateFoliage(mapData, region ? { x0: region.x0, y0: region.z0, x1: region.x1, y1: region.z1 } : null);

@@ -986,6 +986,8 @@
         request(R, template, json, spec) {
             if (!this.enabled || this._failed || !this.kernel || A.buildHull !== this.kernel) return null;
             const send = () => {
+                // Turned off, or failed, while this model waited for its idle time: nothing is copied.
+                if (!this.enabled || this._failed) return null;
                 let snap = null;
                 try { snap = this.snapshot(R, template, json, spec); } catch (error) { snap = null; }
                 const worker = snap ? this.worker() : null;

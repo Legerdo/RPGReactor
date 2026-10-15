@@ -1614,9 +1614,11 @@
 
     /** Whether an event of the map is about to start (no list is built to ask). */
     F.anyEventStarting = function() {
-        const events = typeof $gameMap !== "undefined" && $gameMap ? $gameMap._events : null;
+        // The map's own list (kept for the frame): the props' ids start at 10000, and walking the raw array
+        // was ten thousand holes each time the battle asked whether it waits (2 to 3 ms a frame).
+        const events = typeof $gameMap !== "undefined" && $gameMap ? $gameMap.events() : null;
         if (!events) return false;
-        for (let i = 1; i < events.length; i++) if (events[i] && events[i].isStarting()) return true;
+        for (let i = 0; i < events.length; i++) if (events[i] && typeof events[i].isStarting === "function" && events[i].isStarting()) return true;
         return false;
     };
 

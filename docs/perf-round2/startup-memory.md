@@ -68,12 +68,21 @@ All measurements: own headless KWin display, flock /tmp/rr-perf.lock, Demo copy,
 
 ## Next steps, in order
 
-1. Add the sharing test (A); rerun `editor-memory-release`, `map-looks`, `event-editing-3d`, `model-prop-effects-2d`, `video-surface-editor`.
-2. Single-video cost check on map 1 (hook keeping one plane). Then decide on pausing off-screen video planes in the editor, or software decode.
-3. Game on map 1, weak and 2048 tiers (`nw-game-profile` with fdinfo GPU memory) against the editor.
-4. Share video in ModelPropEffects2D with refcounted play/pause.
-5. Follow-up B: release the 2D GPU data when 3D takes over; measure the return hitch.
-6. Item 3 precompile stays not done unless asked.
+State 2026-10-15 (Windows session, code and Node tests only, no NW launched):
+
+- DONE, tested: the sharing test (A). `editor-memory-release` covers the refcount, the prototype path and `SHARE_EFFECT_MEDIA` false. It found a bug, now fixed: releasing one plane twice freed the video another plane still showed. `releaseEffectPlane` now clears the plane's media references first.
+- DONE, tested: the 2D model preview shares video (`ModelPropEffects2D.SHARE_VIDEO`, on). `_videoEffectPlane` is called with the preview as owner. `showVideo` counts the shown planes per video: a video plays while any of them shows and pauses with the last one hidden. `dispose` goes through `releaseEffectPlane`. Tests are in `model-prop-effects-2d`.
+- DONE, tested, NOT MEASURED: follow-up B (`MapEditor3D.RELEASE_2D_GRAPHICS`, on).
+  - `release2DGraphics` runs PIXI's collector once with `maxUnusedTime` 0 when 3D takes over (both context strategies, while PIXI still owns the context).
+  - `park` skips its PIXI draw after that release, because the draw would only upload the map again.
+  - Not freed: pooled layer caches (`cacheAsTexture(false)` returns them to TexturePool) and textures that are not auto-collected (tile sheets).
+- Remaining, in order (all need NW on the Linux machine):
+  1. Measure B: North Haven and map 1 in the editor, 3D on, GPU memory (fdinfo) and PSS 5 s after the switch, `RELEASE_2D_GRAPHICS` true vs false (expect about 140-180 MB less). Then the return hitch: toggle 3D off and time the first 2D frame plus the `renderMap` timeout frame (teardown draws once before `renderMap` rebuilds the map), true vs false, medians of 3, also at `--throttle=4`.
+  2. Measure the 2D preview sharing: map 1 with 3D off, before about 2.97 GB. Expect it near the 3D view's ~2.46 GB. Pan so one screen leaves the view while another of the same clip stays: the video keeps playing.
+  3. Single-video cost check on map 1 (hook keeping one plane). Then decide between pausing off-screen video planes in the editor and software decode.
+  4. Game on map 1, weak and 2048 tiers (`nw-game-profile` with fdinfo GPU memory), against the editor.
+  5. Item 3 precompile stays not done unless asked.
+- Windows owner check: Task Manager GPU memory on Reactor Room, 3D on and off.
 
 ## Files changed (mine)
 

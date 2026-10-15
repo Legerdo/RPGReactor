@@ -642,7 +642,19 @@ Tilemap.prototype._prepareV8Frame = function() {
     try {
         this.updateTransform();
     } catch (e) { /* legacy PIXI tail; repaint work already done */ }
+    // A plugin's updateTransform that paints by itself (UltraMode7 drawing
+    // the map) skips the chunk check: its blocks go, and the stats say why.
+    if (this._rrCheckedFrame !== this._v8PreparedFrame) this._rrChunksSkipped();
     this._syncV8TileLayers();
+};
+
+Tilemap.prototype._rrChunksSkipped = function() {
+    if (this._rrChunks) this._rrLeaveChunks();
+    const hidden = this._lowerLayer && this._lowerLayer.visible === false &&
+        this._upperLayer && this._upperLayer.visible === false;
+    const stats = Tilemap.Layer._v8Stats();
+    stats.chunked = false;
+    stats.chunkFallback = hidden ? "hidden" : (Tilemap.ChunkPaint.gateReason() || "plugin updateTransform");
 };
 
 Tilemap.prototype._syncV8TileLayers = function() {
@@ -823,10 +835,12 @@ Tilemap.prototype._addAllSpots = function(startX, startY) {
 // each block its own mesh: the blocks the view needs are built at once, the
 // ring around them one per frame ahead of time, and blocks far from the view
 // are let go. The view moves the blocks; water and waterfalls change frame by
-// a UV offset on their quads. A plugin hook anywhere on the painting path, a
-// plugin's own tile layer, or tile frames from an import keep the paint
-// above, unchanged. Blocks are checked against the map data one per frame,
-// so a tile written without refresh() still shows.
+// a UV offset on their quads. A plugin hook anywhere on the painting path
+// (other than one that provably hands every call straight on, see
+// "Plugin hooks that hand straight on" below), a plugin's own tile layer, or
+// tile frames from an import keep the paint above, unchanged. Blocks are
+// checked against the map data one per frame, so a tile written without
+// refresh() still shows.
 //-----------------------------------------------------------------------------
 
 Tilemap.ChunkPaint = {
@@ -851,36 +865,341 @@ Tilemap.ChunkPaint = {
 // this file makes them; null otherwise.
 Tilemap.ChunkPaint.stockTileLayer = function(combined) {
     const stock = this.stock;
-    if (!(combined instanceof Tilemap.CombinedLayer) ||
-        this.unwrap(combined.addRect) !== stock.combinedAddRect ||
-        this.unwrap(combined.clear) !== stock.combinedClear) return null;
+    if (!stock || !(combined instanceof Tilemap.CombinedLayer) ||
+        !this.passes(combined.addRect, "combinedAddRect") ||
+        !this.passes(combined.clear, "combinedClear")) return null;
     const children = combined.children;
     for (let i = 0; i < children.length; i++) {
         const child = children[i];
         if (typeof child.addRect !== "function") continue;
         if (!(child instanceof Tilemap.Layer) ||
-            this.unwrap(child.addRect) !== stock.layerAddRect ||
-            this.unwrap(child.clear) !== stock.layerClear) return null;
+            !this.passes(child.addRect, "layerAddRect") ||
+            !this.passes(child.clear, "layerClear")) return null;
     }
     const first = children[0];
     return first instanceof Tilemap.Layer && first._v8TileRoot ? first : null;
 };
 
+//-----------------------------------------------------------------------------
+// Plugin hooks that hand straight on.
+//
+// A plugin that draws the map itself only on some maps (UltraMode7) hooks the
+// painting path everywhere; on its other maps each hook calls the method it
+// replaced, with the same arguments, and does nothing else. Such a hook
+// counts as the stock method while all of these hold:
+// - a plugin in GATES installed it: its script was running when the method
+//   was assigned (the painting methods are watched from this file's load to
+//   the first paint; anything assigned later has no known origin),
+// - that plugin says it is not drawing the map (asked every frame),
+// - run on a stand-in that records every read, write and call made on the
+//   tilemap, on the arguments and on whatever those hand back, plus the
+//   return value, the hook leaves the same record as the stock method, for
+//   every probe call in PROBES.
+// Verdicts are worked out again on a new map, and each one RECHECK checks
+// after it was made (one per check); with passThrough off every hook keeps
+// the full paint. A hook from any other
+// source keeps the full paint even when it looks like a pass-through: it may
+// count its calls or keep state outside the tilemap, which painting in blocks
+// (fewer, different calls) would change.
+//-----------------------------------------------------------------------------
+
+Tilemap.ChunkPaint.passThrough = true;
+Tilemap.ChunkPaint.RECHECK = 600;
+Tilemap.ChunkPaint.PROBE_LIMIT = 5000;
+// active(): true while the plugin draws the map itself, null while it is not installed.
+Tilemap.ChunkPaint.GATES = [{
+    plugin: "UltraMode7",
+    active: () => typeof UltraMode7 === "undefined" ? null : !!UltraMode7.isActive(),
+    reason: "UltraMode7 active",
+    failed: "UltraMode7 check failed",
+    state: null
+}];
+// The calls each painting method is probed with: tile ids of every kind the
+// paint treats differently (still and moving water, waterfall, A1 rocks, A2
+// table, A3 wall, A4 wall, A5, B, none); LAYER stands for a recorded layer.
+Tilemap.ChunkPaint.LAYER = Symbol("layer");
+Tilemap.ChunkPaint.PROBES = (L => ({
+    updateTransform: [[]],
+    _createLayers: [[]],
+    _addAllSpots: [[3, 2]],
+    _addSpot: [[3, 2, 1, 1]],
+    _addSpotTile: [[2053, 24, 48], [5, 24, 48]],
+    _addTile: [[L, 2053, 24, 48], [L, 5, 24, 48], [L, 0, 24, 48]],
+    _addNormalTile: [[L, 5, 24, 48], [L, 1600, 24, 48]],
+    _addAutotile: [[L, 2053, 24, 48], [L, 2101, 24, 48], [L, 2149, 24, 48], [L, 2250, 24, 48],
+        [L, 2290, 24, 48], [L, 2967, 24, 48], [L, 4453, 24, 48], [L, 6323, 24, 48]],
+    _addTableEdge: [[L, 2967, 24, 48]],
+    _addShadow: [[L, 5, 24, 48]],
+    _readMapData: [[3, 4, 1]],
+    _isHigherTile: [[5]],
+    _isTableTile: [[2967]],
+    _isOverpassPosition: [[3, 4]],
+    layerAddRect: [[1, 48, 96, 24, 0, 24, 24], [-1, 0, 0, 24, 24, 24, 24]],
+    layerClear: [[]],
+    combinedAddRect: [[1, 48, 96, 24, 0, 24, 24]],
+    combinedClear: [[]]
+}))(Tilemap.ChunkPaint.LAYER);
+Tilemap.ChunkPaint.origins = new WeakMap();
+Tilemap.ChunkPaint._verdicts = new Map();
+Tilemap.ChunkPaint._verdictMap = null;
+Tilemap.ChunkPaint._verdictSwitch = null;
+Tilemap.ChunkPaint._checks = 0;
+Tilemap.ChunkPaint._rejudged = false;
+Tilemap.ChunkPaint._stockTraces = new Map();
+Tilemap.ChunkPaint._watched = null;
+
+/** The file name of the script running now ("" outside one): a plugin while it loads. */
+Tilemap.ChunkPaint.scriptName = function() {
+    const script = typeof document !== "undefined" ? document.currentScript : null;
+    const src = script ? String(script._url || script.src || "") : "";
+    const match = /([^/\\?#]+?)(?:\.js)?(?:[?#].*)?$/.exec(src);
+    if (!match) return "";
+    try {
+        return decodeURIComponent(match[1]);
+    } catch (e) {
+        return match[1];
+    }
+};
+
+// Until settle(), notes which script assigns each of these methods. An
+// assignment through an instance or a subclass prototype lands there as its
+// own property, as it would on a plain property.
+Tilemap.ChunkPaint.watch = function(targets) {
+    const C = this;
+    const watched = [];
+    for (const [proto, names] of targets) {
+        for (const name of names) {
+            const desc = Object.getOwnPropertyDescriptor(proto, name);
+            if (!desc || !("value" in desc) || !desc.configurable) continue;
+            const slot = { proto, name, value: desc.value, enumerable: desc.enumerable, get: null };
+            slot.get = function() { return slot.value; };
+            Object.defineProperty(proto, name, {
+                configurable: true,
+                enumerable: desc.enumerable,
+                get: slot.get,
+                set(value) {
+                    if (typeof value === "function" && !C.origins.has(value)) {
+                        const origin = C.scriptName();
+                        if (origin) C.origins.set(value, origin);
+                    }
+                    if (this === proto) slot.value = value;
+                    else Object.defineProperty(this, name, { value, writable: true, configurable: true, enumerable: true });
+                }
+            });
+            watched.push(slot);
+        }
+    }
+    this._watched = watched;
+};
+
+/** The watched methods back to plain properties, holding what plugins left there. */
+Tilemap.ChunkPaint.settle = function() {
+    const watched = this._watched;
+    this._watched = null;
+    if (!watched) return;
+    for (const slot of watched) {
+        const desc = Object.getOwnPropertyDescriptor(slot.proto, slot.name);
+        if (!desc || desc.get !== slot.get) continue;
+        Object.defineProperty(slot.proto, slot.name,
+            { value: slot.value, writable: true, configurable: true, enumerable: slot.enumerable });
+    }
+};
+
+/** The reason while a plugin in GATES draws the map itself, else null. */
+Tilemap.ChunkPaint.gateReason = function() {
+    const gates = this.GATES;
+    for (let i = 0; i < gates.length; i++) {
+        const gate = gates[i];
+        let state;
+        let reason = gate.reason;
+        try {
+            state = gate.active();
+        } catch (e) {
+            state = true;
+            reason = gate.failed;
+        }
+        gate.state = state;
+        if (state) {
+            if (this._verdicts.size) this._verdicts.clear();
+            return reason;
+        }
+    }
+    return null;
+};
+
+// Verdicts hold for one map and while the switch stays as it was. Each is
+// judged again RECHECK checks after it was made, one per check at most, so
+// the work never lands on a single frame.
+Tilemap.ChunkPaint.ageVerdicts = function() {
+    const mapId = typeof $gameMap !== "undefined" && $gameMap && typeof $gameMap.mapId === "function" ?
+        $gameMap.mapId() : 0;
+    if (mapId !== this._verdictMap || this.passThrough !== this._verdictSwitch) {
+        this._verdicts.clear();
+        this._verdictMap = mapId;
+        this._verdictSwitch = this.passThrough;
+    }
+    this._checks++;
+    this._rejudged = false;
+};
+
+/** Whether `fn` stands in for the stock method `name`: { ok, reason }. */
+Tilemap.ChunkPaint.verdict = function(fn, name) {
+    let verdict = this._verdicts.get(fn);
+    if (verdict && verdict.name === name) {
+        if (this._checks - verdict.at <= this.RECHECK || this._rejudged) return verdict;
+        this._rejudged = true;
+    }
+    const origin = (typeof fn === "function" && this.origins.get(fn)) || "";
+    let ok = false;
+    if (this.passThrough && origin) {
+        const gates = this.GATES;
+        for (let i = 0; i < gates.length; i++) {
+            if (gates[i].plugin === origin && gates[i].state === false) {
+                ok = this.probe(fn, name);
+                break;
+            }
+        }
+    }
+    verdict = { name, ok, reason: ok ? "" : "plugin hook " + name + (origin ? " (" + origin + ")" : ""), at: this._checks };
+    this._verdicts.set(fn, verdict);
+    return verdict;
+};
+
+/** `fn` is the stock method `name`, or a plugin hook that stands in for it. */
+Tilemap.ChunkPaint.passes = function(fn, name) {
+    fn = this.unwrap(fn);
+    return fn === this.stock[name] || this.verdict(fn, name).ok;
+};
+
+/** Every probe call in PROBES leaves the same record from `fn` as from the stock method. */
+Tilemap.ChunkPaint.probe = function(fn, name) {
+    const sets = this.PROBES[name];
+    const stock = this.stock[name];
+    if (!sets || typeof stock !== "function" || typeof fn !== "function") return false;
+    for (let i = 0; i < sets.length; i++) {
+        const key = name + "/" + i;
+        let want = this._stockTraces.get(key);
+        const makesLayers = name === "_createLayers";
+        if (want === undefined) this._stockTraces.set(key, want = this.trace(stock, sets[i], makesLayers));
+        if (want === null || this.trace(fn, sets[i], makesLayers) !== want) return false;
+    }
+    return true;
+};
+
+/**
+ * Runs `fn` on a stand-in tilemap and returns, one line each and in order,
+ * every read, write, call and number conversion made on the stand-in, on
+ * LAYER arguments and on whatever those hand back, then the return value;
+ * null when it throws or runs past PROBE_LIMIT. Every stand-in reads as 1.
+ * makesLayers: Tilemap.CombinedLayer makes recorded stand-ins meanwhile.
+ */
+Tilemap.ChunkPaint.trace = function(fn, args, makesLayers) {
+    const limit = this.PROBE_LIMIT;
+    const log = [];
+    const byPath = new Map();
+    const pathOf = new WeakMap();
+    const note = entry => {
+        if (log.length >= limit) throw new Error("probe limit");
+        log.push(entry);
+    };
+    const show = value => {
+        if (typeof value === "string") return JSON.stringify(value);
+        if (value === null || (typeof value !== "object" && typeof value !== "function")) return String(value);
+        if (pathOf.has(value)) return pathOf.get(value);
+        if (Array.isArray(value)) {
+            return value.length > 64 ? "array " + value.length : "[" + value.map(show).join(", ") + "]";
+        }
+        return typeof value;
+    };
+    // One handler for every stand-in; each target knows its path.
+    const targetPath = new WeakMap();
+    const calls = new Map();
+    const handler = {
+        get(target, key) {
+            const path = targetPath.get(target);
+            if (key === Symbol.toPrimitive) return hint => { note(path + " as " + hint); return 1; };
+            const name = path + "." + String(key);
+            note("get " + name);
+            return stand(name);
+        },
+        set(target, key, value) {
+            note("set " + targetPath.get(target) + "." + String(key) + " = " + show(value));
+            return true;
+        },
+        has(target, key) {
+            note("has " + targetPath.get(target) + "." + String(key));
+            return false;
+        },
+        deleteProperty(target, key) {
+            note("delete " + targetPath.get(target) + "." + String(key));
+            return true;
+        },
+        apply(target, self, callArgs) {
+            const path = targetPath.get(target);
+            note("call " + path + " on " + show(self) + " (" + callArgs.map(show).join(", ") + ")");
+            const n = calls.get(path) || 0;
+            calls.set(path, n + 1);
+            return stand(path + "()" + n);
+        }
+    };
+    const stand = path => {
+        let proxy = byPath.get(path);
+        if (proxy) return proxy;
+        if (path.length > 512) throw new Error("probe limit");
+        const target = () => {};
+        targetPath.set(target, path);
+        proxy = new Proxy(target, handler);
+        byPath.set(path, proxy);
+        pathOf.set(proxy, path);
+        return proxy;
+    };
+    const self = stand("this");
+    const callArgs = args.map(arg => arg === this.LAYER ? stand("layer") : arg);
+    const CombinedLayer = Tilemap.CombinedLayer;
+    let made = 0;
+    if (makesLayers) {
+        Tilemap.CombinedLayer = function() {
+            note("new CombinedLayer");
+            return stand("CombinedLayer#" + made++);
+        };
+    }
+    try {
+        note("return " + show(fn.apply(self, callArgs)));
+    } catch (e) {
+        return null;
+    } finally {
+        if (makesLayers) Tilemap.CombinedLayer = CombinedLayer;
+    }
+    return log.join("\n");
+};
+
+/** Why the tilemap's painting methods keep the full paint, or null. */
+Tilemap.ChunkPaint.hookBlocker = function(tilemap) {
+    const gate = this.gateReason();
+    if (gate) return gate;
+    this.ageVerdicts();
+    const hooks = this.HOOKS;
+    for (let i = 0; i < hooks.length; i++) {
+        const name = hooks[i];
+        const fn = this.unwrap(tilemap[name]);
+        if (fn === this.stock[name]) continue;
+        const verdict = this.verdict(fn, name);
+        if (!verdict.ok) return verdict.reason;
+    }
+    return null;
+};
+
 /** Why this frame keeps the full paint, or null when it paints in chunks. */
 Tilemap.prototype._rrChunkBlocker = function() {
     const C = Tilemap.ChunkPaint;
+    if (C._watched) C.settle();
+    this._rrCheckedFrame = Graphics.frameCount;
     let reason = null;
     if (!C.enabled) reason = "off";
     else if (!PIXI.TextureSource || !C.stock || typeof PIXI.Mesh !== "function") reason = "no PIXI 8 mesh";
     else if (this._rrChunkFailed) reason = this._rrChunkFailed;
     else if (this._rrTileFrames) reason = "tile frames";
-    else if (typeof UltraMode7 !== "undefined") reason = "UltraMode7";
-    else {
-        const hooks = C.HOOKS;
-        for (let i = 0; i < hooks.length && !reason; i++) {
-            if (C.unwrap(this[hooks[i]]) !== C.stock[hooks[i]]) reason = "plugin hook " + hooks[i];
-        }
-    }
+    else reason = C.hookBlocker(this);
     if (!reason) {
         const lower = this._lowerLayer;
         const upper = this._upperLayer;
@@ -2771,6 +3090,13 @@ if (Tilemap.ChunkPaint) Tilemap.ChunkPaint.stock = (function() {
     stock.combinedClear = Tilemap.CombinedLayer.prototype.clear;
     return stock;
 })();
+
+// Plugins load after this file: note which of them installs each painting method.
+if (Tilemap.ChunkPaint) Tilemap.ChunkPaint.watch([
+    [Tilemap.prototype, Tilemap.ChunkPaint.HOOKS],
+    [Tilemap.Layer.prototype, ["addRect", "clear"]],
+    [Tilemap.CombinedLayer.prototype, ["addRect", "clear"]]
+]);
 
 Tilemap.Renderer = function() {
     this.initialize(...arguments);

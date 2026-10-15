@@ -27,6 +27,8 @@
     const RT = Reactor3D.RenderThread = {
         /** Off: the world is drawn on the main thread, as always. */
         enabled: false,
+        /** The worker draws as each frame post arrives; false draws on the worker's own animation frame. */
+        immediate: true,
         WORKER_URL: "js/plugins/RR_RenderWorker.js",
         worker: null,
         canvas: null,

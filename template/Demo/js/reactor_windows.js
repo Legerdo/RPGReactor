@@ -705,8 +705,9 @@ Window_Scrollable.prototype.update = function() {
 };
 
 Window_Scrollable.prototype.processWheelScroll = function() {
-    if (this.isWheelScrollEnabled() && this.isTouchedInsideFrame()) {
-        const threshold = 20;
+    // The wheel is read first: the hit test runs only on a frame the wheel turned.
+    const threshold = 20;
+    if (Math.abs(TouchInput.wheelY) >= threshold && this.isWheelScrollEnabled() && this.isTouchedInsideFrame()) {
         if (TouchInput.wheelY >= threshold) {
             this.smoothScrollDown(1);
         }
@@ -744,8 +745,11 @@ Window_Scrollable.prototype.isScrollEnabled = function() {
 };
 
 Window_Scrollable.prototype.isTouchedInsideFrame = function() {
-    const touchPos = new Point(TouchInput.x, TouchInput.y);
-    const localPos = this.worldTransform.applyInverse(touchPos);
+    // One point per window, reused for the touch and its local position.
+    const point = this._touchFrameScratch || (this._touchFrameScratch = new Point(0, 0));
+    point.x = TouchInput.x;
+    point.y = TouchInput.y;
+    const localPos = this.worldTransform.applyInverse(point, point);
     return this.innerRect.contains(localPos.x, localPos.y);
 };
 

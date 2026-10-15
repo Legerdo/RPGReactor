@@ -419,7 +419,9 @@
         const container = this._pictureContainer, tilemap = this._tilemap;
         const all = (this._rrPictureSprites || (this._rrPictureSprites = container.children.filter(c => c instanceof Sprite_Picture)));
         let moved = null;
-        for (const sprite of all) {
+        // Indexed: runs every frame, and allocates nothing while no picture moves.
+        for (let i = 0; i < all.length; i++) {
+            const sprite = all[i];
             const p = sprite.picture();
             if (!p || !p.name()) continue;
             const layer = mapLayerOf(p);

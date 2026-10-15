@@ -647,11 +647,17 @@ DataManager.extractSaveContents = function(contents) {
     $gameParty = contents.party;
     $gameMap = contents.map;
     $gamePlayer = contents.player;
-    this.evenCharacterShapes();
+    this.evenCharacterShapes(contents);
 };
 
-/** The restored characters rebuilt in one shape per kind (Game_CharacterBase.evenOut), in their places. */
-DataManager.evenCharacterShapes = function() {
+/**
+ * The restored characters rebuilt in one shape per kind
+ * (Game_CharacterBase.evenOut), and every reference to one anywhere in the
+ * loaded game (`contents`, or the game objects when not given) moved to its
+ * rebuilt self: a save that keeps shared references (an interpreter waiting
+ * on an event, a plugin's list of characters) plays on the same objects.
+ */
+DataManager.evenCharacterShapes = function(contents) {
     if (typeof Game_CharacterBase === "undefined" || !Game_CharacterBase.evenShapes || !Game_CharacterBase.evenOut) return;
     try {
         const followers = $gamePlayer && $gamePlayer._followers && Array.isArray($gamePlayer._followers._data) ? $gamePlayer._followers._data : [];
@@ -660,13 +666,40 @@ DataManager.evenCharacterShapes = function() {
         const all = [$gamePlayer, ...followers, ...vehicles];
         for (const event of events) if (event) all.push(event);
         const rebuilt = Game_CharacterBase.evenOut(all);
-        const swap = character => (character && rebuilt.get(character)) || character;
-        $gamePlayer = swap($gamePlayer);
-        for (let i = 0; i < followers.length; i++) followers[i] = swap(followers[i]);
-        for (let i = 0; i < vehicles.length; i++) vehicles[i] = swap(vehicles[i]);
-        for (const key of Object.keys(events)) events[key] = swap(events[key]);
+        if (rebuilt.size === 0) return;
+        $gamePlayer = rebuilt.get($gamePlayer) || $gamePlayer;
+        const roots = contents && typeof contents === "object" ? [contents, $gamePlayer]
+            : [$gameSystem, $gameScreen, $gameTimer, $gameSwitches, $gameVariables, $gameSelfSwitches, $gameActors, $gameParty, $gameMap, $gamePlayer];
+        this.swapReferences(roots, rebuilt);
     } catch (error) {
         console.warn("DataManager: the characters could not be given one shape; they play as loaded.", error);
+    }
+};
+
+/** Every writable reference reachable from `roots` to a key of `swaps` replaced by its value (data fields only; accessors are not read). */
+DataManager.swapReferences = function(roots, swaps) {
+    const visited = new Set(), stack = roots.slice();
+    while (stack.length > 0) {
+        const value = stack.pop();
+        if (!value || typeof value !== "object" || visited.has(value) || ArrayBuffer.isView(value)) continue;
+        visited.add(value);
+        if (Array.isArray(value)) {
+            for (let i = 0; i < value.length; i++) {
+                const child = value[i];
+                if (!child || typeof child !== "object") continue;
+                const swap = swaps.get(child);
+                if (swap) value[i] = swap;
+                stack.push(swap || child);
+            }
+            continue;
+        }
+        for (const key of Object.keys(value)) {
+            const d = Object.getOwnPropertyDescriptor(value, key);
+            if (!d || !("value" in d) || !d.value || typeof d.value !== "object") continue;
+            const swap = swaps.get(d.value);
+            if (swap && d.writable) value[key] = swap;
+            stack.push(swap || d.value);
+        }
     }
 };
 
@@ -1460,15 +1493,21 @@ EffectManager.mapAnimationIds = function(mapData) {
     return ids;
 };
 
-/** One effect loaded ahead of its first play; false when it is loaded or loading already. */
+/**
+ * One effect loaded ahead of its first play; false when it is loaded or
+ * loading already. One let go that loads after all is released, unless it
+ * is the cached one by then.
+ */
 EffectManager.preload = function(filename) {
     if (!filename || !Graphics.effekseer) return false;
     const url = this.makeUrl(filename), cache = this._cache;
     if (cache[url]) return false;
-    let effect = null;
-    const forget = () => { if (cache[url] === effect && !effect.isLoaded) delete cache[url]; };
-    try { effect = Graphics.effekseer.loadEffect(url, 1, () => {}, forget); } catch (error) { return false; }
-    if (!effect) return false;
+    let effect = null, failed = false;
+    const forget = () => { if (effect && cache[url] === effect && !effect.isLoaded) delete cache[url]; };
+    const loaded = () => { if (effect && cache[url] !== effect) Graphics.effekseer.releaseEffect(effect); };
+    const fail = () => { failed = true; forget(); };
+    try { effect = Graphics.effekseer.loadEffect(url, 1, loaded, fail); } catch (error) { return false; }
+    if (!effect || failed) return false;
     cache[url] = effect;
     setTimeout(forget, this.PRELOAD_WAIT_MS);
     return true;

@@ -1,5 +1,35 @@
 # Runtime performance checks
 
+## Frame pacing, 2D maps, models, memory and workers (2026-10-14 to 15, runtime 20261014.4)
+
+Measured on the Linux dev machine, Ryzen integrated Radeon (weak tier) on a headless display, CPU throttled 4x where marked (t4); medians of 3 alternated runs. Items marked *unmeasured* were finished on 2026-10-15 on the Windows machine with Node tests only; their checks are listed under Still to measure.
+
+| Change | Switch | Result |
+| --- | --- | --- |
+| Interpolated drawing when updates land unevenly (144, 165, 100, 50 Hz; 180 Hz at 90 fps); one update a frame only when the frame is itself a tick long (irregular frames had run the game at 80% speed) | `Graphics.FramePacing` | Emulated 144 Hz camera speed variation 0.36 to 0.46 → 0.009 (RTX) / 0.02 (iGPU); no cost at t4 |
+| Garbage: normals computed over the index (three's math had boxed every number), glTF arrays repacked, `IntegerSort`, `Shadows.sortFaces`, `DoorRest`, reused split and depth-first lists | `Reactor3D.DoorRest.enabled` and others | North Haven walk, iGPU: main thread 6.78 → 5.41 ms, garbage 875 → 346 KB a frame, frame p95 / sd 18.9 / 1.27 → 17.3 / 0.31 ms |
+| A new program's uniforms read between frames | `ShaderWarmup.readEarly`, `Reactor3D.lazyUniformArrays` | Arrival in-frame reads 96 → 36 ms, worst frame 37 to 48 → 21 ms |
+| Battle on the map asked every one of 10,000 event slots whether it was starting | none | 2 to 3 ms a battle frame; battle-start worst (t4) 344 → 316 ms |
+| One object shape per kind of character, also after a load (saves unchanged) | `Game_CharacterBase.evenShapes` | Hidden classes 16 → 4; logic 1.10 → 0.95 ms |
+| A map's effects load behind the fade; grips cached; hull meshes copied in idle time; Reactor UI windows built through the upgraded classes | `EffectManager.preloadWithMap`, `Reactor3D.GripMemo`, `HullWorker.idleCopy` | *unmeasured* (expected PIXISuper 3.4 → 0.2 ms at an Action start) |
+| Battle line-of-sight hulls built in a worker, bit-identical | `ReactorFight.Action.HullWorker.enabled` | Tactical worst frame 337 → 66 ms (t4 1368 → 336); Action 383 → 67 ms |
+| 2D tilemap painted in 8x8-tile chunks built once, water frames by a UV patch; any plugin hook on the paint path keeps the full repaint, which is itself cheaper | `Tilemap.ChunkPaint.enabled` | Big water map, t4: tick p95 / max 6.1 / 9.4 → 1.4 / 2.8 ms; with VisuMZ (fallback) 19.1 / 24.6 → 12.8 / 18.3 ms; pixels identical |
+| Chunks also while UltraMode7 is installed but not drawing the map (its hooks checked against the stock methods) | `Tilemap.ChunkPaint.passThrough` | *unmeasured*; the Demo's 2D maps were on the fallback |
+| Tile atlas packed to its sheets, CPU copy freed after upload | `Tilemap.Layer.v8AtlasPacked`, `v8AtlasDropsCanvas` | Full MZ tileset 48 + 48 MB → 18.6 MB |
+| Bitmap draws upload only the changed area (WebGL 2) | `Bitmap.partialUploads` | Letter-by-letter message 455 → 21 KB a frame |
+| Neutral sprite colour filter skipped; per-frame update walks, gamepad polling and wheel checks allocate nothing | `ColorFilter.skipNeutralSpritePasses` | 2 s walk allocation 128.9 → 10.2 MB (with the chunks) |
+| Model textures capped at 1024 on the weak tier, GLB images decoded in a worker, finger skinning in a worker, uploads in 4 MB bands | `weakTextureSize`, `GlbCompact`, `ImageWorker.embeddedBytes` | Textures 236 → 60 MB; 220 ms and 134 ms main-thread stalls → 0 |
+| Optional KTX2 copies of model textures (BC7 / ETC2 / S3TC, transcoded in a worker) | `Reactor3D.KTX2` | 236 → 156 MB at 2048; +3.8 to 4.9 MB a file |
+| Demo GLBs stripped of images no material samples | build script `drop-unsampled-images.cjs` | 124.5 → 69.6 MB, 0 pixels differ |
+| Games and the editor ask for the discrete GPU and past the blocklist | `"reactorHighPerformanceGpu": false` opts out | Verified on the GPU process command line |
+| Editor: shadow lists forgot old scenes (leak ~31 MB a rebuild); models swept on map change; scene parked during a playtest | `SWEEP_MODELS_ON_MAP_CHANGE`, `PARK_AFTER_MS` | 20 rebuilds 1882 → 2508 MB PSS before, flat after; park frees GPU 631 → 276 MB |
+| Editor: video effect planes share one video per file, in the 3D view and the 2D model preview | `MapEditor3D.SHARE_EFFECT_MEDIA`, `ModelPropEffects2D.SHARE_VIDEO` | Reactor Room 3D: 10 decoders → 2, GPU 3123 → 2455 MB; 2D preview *unmeasured* |
+| Editor: the 2D map's GPU data released when 3D takes over (PIXI collects only after a 2D draw) | `MapEditor3D.RELEASE_2D_GRAPHICS` | *unmeasured* (140 to 180 MB seen freed by a manual collect) |
+
+Measured and left alone: parallel Effekseer loading (no boot gain), dropping 3D files from 2D boots (0 to 30 ms), saves in a worker (5 ms whole), neighbor JSON in a worker (structured clone costs as much as the parse), a memo on battle gauge `param()` (no change hook to make it safe). SharedArrayBuffer works in NW (not on plain web builds) and nothing needs it yet. A render-thread prototype (`editor/tests/perf/render-thread/`, loaded by nothing) drew North Haven in a worker: main thread 26.8 → 9.5 ms at t4, but without models, shadows or effects; production would take an estimated 2 to 3 months.
+
+**Still to measure (Linux harnesses):** battle-start spikes at t4 with the round-2b changes; Action HUD pixels with `built()`; live save and load with `evenShapes` (a 0.99.0 save, Star Shift Rebellion file11); the Demo's Map007 with `passThrough` on and off (chunked, pixels, timing) and a map that turns UltraMode7 on and off; the 2D release (GPU memory 5 s after 3D on, and the first 2D frame on return, t4); Reactor Room with 3D off; one video's decoder cost; the game against the editor on Reactor Room at both tiers.
+
 ## CPU and GPU waste, second pass (2026-10-14, runtime 20261014.4)
 
 Measured on this machine's two GPUs, Ryzen integrated Radeon (weak tier) and RTX 5070, 1920x1080 on the 60 Hz headless display. Main-thread figures moved 0.5 to 2.5 ms between identical runs while other harnesses ran; the same-session switch toggles are the firmer numbers.
@@ -150,7 +180,7 @@ A menu would most naturally offer presets over these (for example Low: renderSca
 
 ## Editor memory
 
-Editor previews hold only what they show. A model loaded to draw a thumbnail is released as soon as the picture exists, and the thumbnail renderer is dropped with its WebGL context four seconds after its last use. The 3D Models page keeps the model on screen and the one before it; closing the page releases every model and both renderers. The 3D map view frees its models' graphics-card copies before its renderer is disposed, because a renderer's own dispose leaves them behind on the context it shares with the 2D view. On North Haven (video memory / ArrayBuffers, MB): closing the Database after eight previews ended at 804, 978, 975 / 323, 351, 351 over three rounds before and 502, 475, 477 / 207, 219, 219 after; three 2D/3D toggles went 1103, 1179, 1256 before and 471, 484, 482 after. Still open: switching maps keeps every model for the project (a release on map change left copies held and is off: `MapEditor3D.SWEEP_MODELS_ON_MAP_CHANGE`), and the builder's 50-step undo can hold about 97 MB on North Haven. Measure with `scratchpad/memory/ed-mem.cjs <out> 5 --loops`: three rounds of each open-and-close loop should end where the first ended.
+Editor previews hold only what they show. A model loaded to draw a thumbnail is released as soon as the picture exists, and the thumbnail renderer is dropped with its WebGL context four seconds after its last use. The 3D Models page keeps the model on screen and the one before it; closing the page releases every model and both renderers. The 3D map view frees its models' graphics-card copies before its renderer is disposed, because a renderer's own dispose leaves them behind on the context it shares with the 2D view. On North Haven (video memory / ArrayBuffers, MB): closing the Database after eight previews ended at 804, 978, 975 / 323, 351, 351 over three rounds before and 502, 475, 477 / 207, 219, 219 after; three 2D/3D toggles went 1103, 1179, 1256 before and 471, 484, 482 after. Switching maps releases the models the new map does not use (`MapEditor3D.SWEEP_MODELS_ON_MAP_CHANGE`, on since the shadow lists forget old scenes, runtime 20261014.4). Still open: the builder's 50-step undo can hold about 97 MB on North Haven. Measure with `scratchpad/memory/ed-mem.cjs <out> 5 --loops`: three rounds of each open-and-close loop should end where the first ended.
 
 ## Battle start on the map (runtime 20261003.29, weak tier, 1080p, one window)
 

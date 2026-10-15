@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const vm = require('node:vm');
 const { loadRuntimeTilemap, makeTilemap, PIXI } = require('./helpers/runtime-tilemap.cjs');
 
 // A map with every kind of tile the paint treats differently: water and
@@ -92,10 +93,25 @@ function viewOf(tilemap) {
     };
 }
 
-function pair(map = testMap()) {
+// Runs a plugin's source in the runtime's context the way the game loads
+// one: as the current script, js/plugins/<name>.js.
+function loadPlugin(context, name, source) {
+    context.document = { currentScript: { src: 'file:///game/js/plugins/' + name + '.js' } };
+    try {
+        vm.runInContext(source, context, { filename: name + '.js' });
+    } finally {
+        delete context.document;
+    }
+}
+
+function pair(map = testMap(), plugins = []) {
     const stock = loadRuntimeTilemap();
     stock.Tilemap.ChunkPaint.enabled = false;
     const chunked = loadRuntimeTilemap();
+    for (const [name, source] of plugins) {
+        loadPlugin(stock, name, source);
+        loadPlugin(chunked, name, source);
+    }
     const a = makeTilemap(stock, map);
     const b = makeTilemap(chunked, map);
     return { stock, chunked, a, b };
@@ -177,7 +193,7 @@ test('layer hooks, plugin tile layers, tile frames and the switch keep the full 
         'plugin layer': (c, t) => { const layer = new c.Tilemap.Layer(); t.addChild(layer); },
         'tile frames': (c, t) => { t._rrTileFrames = { 5: [5, 6] }; },
         'switch': c => { c.Tilemap.ChunkPaint.enabled = false; },
-        'UltraMode7': c => { c.UltraMode7 = { isActive: () => false }; },
+        'UltraMode7 drawing the map': c => { c.UltraMode7 = { isActive: () => true }; },
         'updateTransform': (c, t) => { const o = t.updateTransform; t.updateTransform = function() { return o.apply(this, arguments); }; }
     };
     for (const [name, apply] of Object.entries(cases)) {
@@ -295,4 +311,358 @@ test('the full paint reuses its arrays between paints', () => {
     assert.ok(stock.$reactorTilemapStats.meshBuilds > 10);
     assert.ok(arrays.size <= 3, `the same arrays, uploaded again (${arrays.size} made)`);
     assert.ok(PIXI);
+});
+
+//-----------------------------------------------------------------------------
+// Plugins that hook the painting path but hand every call straight on while
+// they are not drawing the map (UltraMode7 on its 2D maps).
+//-----------------------------------------------------------------------------
+
+// The painting hooks of UltraMode7 2.2.0 (the Demo's), as that plugin writes
+// them: each calls the method it replaced while the plugin is not drawing the
+// map. What it draws while active is cut down to the calls that show it ran.
+const UM7 = `
+var UltraMode7 = { active: false, paints: 0, isActive() { return this.active; } };
+const UltraMode7_Tilemap_prototype_initialize = Tilemap.prototype.initialize;
+Tilemap.prototype.initialize = function() {
+    if (!UltraMode7.isActive()) {
+        UltraMode7_Tilemap_prototype_initialize.call(this);
+        return;
+    }
+    UltraMode7_Tilemap_prototype_initialize.call(this);
+    this._margin = 0;
+};
+if (UltraMode7) {
+    const UltraMode7_Tilemap_prototype_updateTransform = Tilemap.prototype.updateTransform;
+    Tilemap.prototype.updateTransform = function() {
+        if (!UltraMode7.isActive()) {
+            UltraMode7_Tilemap_prototype_updateTransform.call(this);
+            return;
+        }
+        UltraMode7.paints++;
+        if (this._needsRepaint) {
+            this._addAllSpots(0, 0);
+            this._needsRepaint = false;
+        }
+        this._sortChildren();
+    };
+    const UltraMode7_Tilemap_prototype__createLayers = Tilemap.prototype._createLayers;
+    Tilemap.prototype._createLayers = function() {
+        UltraMode7_Tilemap_prototype__createLayers.call(this);
+        if (UltraMode7.isActive()) {
+            this._upperLayer.z = 0;
+        }
+    };
+    const UltraMode7_Tilemap_prototype__addAllSpots = Tilemap.prototype._addAllSpots;
+    Tilemap.prototype._addAllSpots = function(startX, startY) {
+        if (!UltraMode7.isActive()) {
+            UltraMode7_Tilemap_prototype__addAllSpots.call(this, startX, startY);
+            return;
+        }
+        this._lowerLayer.clear();
+        this._upperLayer.clear();
+        const tileCols = Math.ceil(this._width / this.tileWidth);
+        const tileRows = Math.ceil(this._height / this.tileHeight);
+        for (var y = startY; y < tileRows - startY; ++y) {
+            for (var x = startX; x < tileCols - startX; ++x) {
+                this._addSpot(0, 0, x, y);
+            }
+        }
+    };
+    const UltraMode7_Tilemap_prototype__addAutotile = Tilemap.prototype._addAutotile;
+    Tilemap.prototype._addAutotile = function(layer, tileId, dx, dy) {
+        if (!UltraMode7.isActive() || !Tilemap.isTileA1(tileId)) {
+            UltraMode7_Tilemap_prototype__addAutotile.call(this, layer, tileId, dx, dy);
+            return;
+        }
+        const kind = Tilemap.getAutotileKind(tileId);
+        if (kind === 2 || kind === 3) {
+            UltraMode7_Tilemap_prototype__addAutotile.call(this, layer, tileId, dx, dy);
+            return;
+        }
+        layer.addRect(0, 0, 0, dx, dy, this.tileWidth, this.tileHeight, 2 * this.tileWidth, 0);
+    };
+    const UltraMode7_Tilemap_Layer_prototype_addRect = Tilemap.Layer.prototype.addRect;
+    Tilemap.Layer.prototype.addRect = function(setNumber, sx, sy, dx, dy, w, h, ax, ay) {
+        if (!UltraMode7.isActive()) {
+            UltraMode7_Tilemap_Layer_prototype_addRect.call(this, setNumber, sx, sy, dx, dy, w, h);
+            return;
+        }
+        (this._allElements || (this._allElements = [])).push([setNumber, sx, sy, dx, dy, w, h, ax || 0, ay || 0]);
+    };
+    const UltraMode7_Tilemap_CombinedLayer_prototype_addRect = Tilemap.CombinedLayer.prototype.addRect;
+    Tilemap.CombinedLayer.prototype.addRect = function(setNumber, sx, sy, dx, dy, w, h, ax, ay) {
+        if (!UltraMode7.isActive()) {
+            UltraMode7_Tilemap_CombinedLayer_prototype_addRect.call(this, setNumber, sx, sy, dx, dy, w, h);
+            return;
+        }
+        for (const child of this.children) {
+            if (child.size() < Tilemap.Layer.MAX_SIZE) {
+                child.addRect(setNumber, sx, sy, dx, dy, w, h, ax, ay);
+                break;
+            }
+        }
+    };
+}
+`;
+
+// The current frame's quads, cell by cell and in order, are the same in
+// both tilemaps: `a` painted in full, `b` in blocks.
+function assertSamePaint(a, b, label) {
+    const { cols, rows } = viewOf(a);
+    for (const [stockLayer, root] of [[a._lowerLayer, b._rrChunks.lowerRoot], [a._upperLayer, b._rrChunks.upperRoot]]) {
+        const want = cells(stockQuads(a, stockLayer), a.tileWidth, a.tileHeight, cols, rows);
+        const got = cells(chunkQuads(b, root), b.tileWidth, b.tileHeight, cols, rows);
+        assert.ok(want.size > 0, label);
+        for (const [key, list] of want) assert.deepEqual(got.get(key), list, `${label}: cell ${key}`);
+        for (const key of got.keys()) assert.ok(want.has(key), `${label}: extra cell ${key}`);
+    }
+}
+
+test('with UltraMode7 installed but not drawing the map, blocks draw the same quads as the full paint', () => {
+    const { stock, chunked, a, b } = pair(testMap(), [['UltraMode7', UM7]]);
+    const C = chunked.Tilemap.ChunkPaint;
+    for (const name of ['updateTransform', '_createLayers', '_addAllSpots', '_addAutotile']) {
+        assert.notEqual(b[name], C.stock[name], `UltraMode7 hooks ${name}`);
+        assert.equal(C.origins.get(b[name]), 'UltraMode7');
+    }
+    let compared = 0;
+    for (let f = 0; f < 260; f++) {
+        const x = -30 + f * 7, y = 10 + f * 3;
+        step(stock, a, x, y);
+        step(chunked, b, x, y);
+        assert.equal(chunked.$reactorTilemapStats.chunkFallback, '', `frame ${f}`);
+        assert.equal(chunked.$reactorTilemapStats.chunked, true);
+        if (a.animationCount % 17 !== 0 && a.animationCount % 30 !== 1) continue;
+        assertSamePaint(a, b, `frame ${a.animationCount}`);
+        compared++;
+    }
+    assert.ok(compared > 10);
+    assert.ok(chunked.$reactorTilemapStats.animPatches > 0, 'water moved by UV offset');
+    assert.equal(chunked.$reactorTilemapStats.meshBuilds, 0, 'the full-view mesh was never built');
+    assert.equal(stock.$reactorTilemapStats.chunkFallback, 'off');
+    assert.equal(chunked.UltraMode7.paints, 0);
+});
+
+test('UltraMode7 drawing the map mid-map takes over, and blocks come back the same once it stops', () => {
+    const { stock, chunked, a, b } = pair(testMap(), [['UltraMode7', UM7]]);
+    const stats = chunked.$reactorTilemapStats;
+    let f = 0;
+    const walk = frames => {
+        for (let n = 0; n < frames; n++, f++) {
+            step(stock, a, 40 + f * 5, 30 + f * 2);
+            step(chunked, b, 40 + f * 5, 30 + f * 2);
+        }
+    };
+    walk(20);
+    assert.equal(stats.chunked, true);
+    const roots = [b._rrChunks.lowerRoot, b._rrChunks.upperRoot];
+    chunked.UltraMode7.active = stock.UltraMode7.active = true;
+    walk(3);
+    assert.equal(stats.chunked, false);
+    assert.equal(stats.chunkFallback, 'UltraMode7 active');
+    assert.equal(b._rrChunks, null, 'the blocks are let go');
+    for (const root of roots) assert.equal(root.parent, null);
+    assert.ok(chunked.UltraMode7.paints >= 3, 'UltraMode7 painted the map');
+    assert.ok(b._lowerLayer.children[0]._allElements.length > 0, 'through its own layer path');
+    chunked.UltraMode7.active = stock.UltraMode7.active = false;
+    walk(1);
+    assert.equal(stats.chunked, true, 'blocks again once it stops');
+    assert.equal(stats.chunkFallback, '');
+    assertSamePaint(a, b, 'right after');
+    walk(40);
+    assertSamePaint(a, b, '40 frames on');
+    chunked.UltraMode7.active = true;
+    walk(1);
+    assert.equal(stats.chunkFallback, 'UltraMode7 active', 'and on again');
+});
+
+test('a hook that does not hand every call straight on keeps the full paint, and says which', () => {
+    const gate = 'var UltraMode7 = { active: false, isActive() { return this.active; } };\n';
+    const cases = {
+        // reads the tilemap before handing on
+        _addSpotTile: `{ const o = Tilemap.prototype._addSpotTile;
+            Tilemap.prototype._addSpotTile = function(tileId, dx, dy) { if (this._hideTiles) return; o.call(this, tileId, dx, dy); }; }`,
+        // moves waterfall tiles only
+        _addAutotile: `{ const o = Tilemap.prototype._addAutotile;
+            Tilemap.prototype._addAutotile = function(layer, tileId, dx, dy) {
+                o.call(this, layer, tileId, dx, Tilemap.isWaterfallTile(tileId) ? dy + 1 : dy); }; }`,
+        // writes to the tilemap after handing on
+        updateTransform: `{ const o = Tilemap.prototype.updateTransform;
+            Tilemap.prototype.updateTransform = function() { o.call(this); this._seen = true; }; }`,
+        // answers differently
+        _isOverpassPosition: 'Tilemap.prototype._isOverpassPosition = function() { return true; };',
+        // throws on anything but a real tilemap
+        _addShadow: `{ const o = Tilemap.prototype._addShadow;
+            Tilemap.prototype._addShadow = function(layer, bits, dx, dy) {
+                if (!(this instanceof Tilemap)) throw new Error('not a tilemap'); o.call(this, layer, bits, dx, dy); }; }`,
+        // hands on twice
+        _readMapData: `{ const o = Tilemap.prototype._readMapData;
+            Tilemap.prototype._readMapData = function(x, y, z) { o.call(this, x, y, z); return o.call(this, x, y, z); }; }`
+    };
+    for (const [name, source] of Object.entries(cases)) {
+        const { chunked, b } = pair(testMap(), [['UltraMode7', gate + source]]);
+        step(chunked, b, 100, 100);
+        assert.equal(chunked.$reactorTilemapStats.chunked, false, name);
+        assert.equal(chunked.$reactorTilemapStats.chunkFallback, `plugin hook ${name} (UltraMode7)`);
+        assert.ok(!b._rrChunks, name);
+    }
+    // Layer methods: the layers are not the stock ones.
+    const twice = `{ const o = Tilemap.Layer.prototype.addRect;
+        Tilemap.Layer.prototype.addRect = function() { o.apply(this, arguments); o.apply(this, arguments); }; }`;
+    const layered = pair(testMap(), [['UltraMode7', gate + twice]]);
+    step(layered.chunked, layered.b, 100, 100);
+    assert.equal(layered.chunked.$reactorTilemapStats.chunkFallback, 'plugin tile layers');
+});
+
+test('only a gated plugin, not drawing the map, with the switch on, gets its hooks through', () => {
+    const passOn = `{ const o = Tilemap.prototype._addSpot;
+        Tilemap.prototype._addSpot = function(startX, startY, x, y) { o.call(this, startX, startY, x, y); }; }`;
+    // The same pass-through from any other plugin: it may keep its own count of calls.
+    let { chunked, b } = pair(testMap(), [['OtherPlugin', passOn]]);
+    step(chunked, b, 0, 0);
+    assert.equal(chunked.$reactorTilemapStats.chunkFallback, 'plugin hook _addSpot (OtherPlugin)');
+    ({ chunked, b } = pair(testMap(), [['UltraMode7', 'var UltraMode7 = { isActive() { return false; } };\n' + passOn]]));
+    step(chunked, b, 0, 0);
+    assert.equal(chunked.$reactorTilemapStats.chunked, true, 'from UltraMode7 it passes');
+    chunked.Tilemap.ChunkPaint.passThrough = false;
+    step(chunked, b, 0, 0);
+    assert.equal(chunked.$reactorTilemapStats.chunkFallback, 'plugin hook _addSpot (UltraMode7)', 'switch off');
+    chunked.Tilemap.ChunkPaint.passThrough = true;
+    step(chunked, b, 0, 0);
+    assert.equal(chunked.$reactorTilemapStats.chunked, true, 'switch on again');
+    // Installed without the plugin's own check answering.
+    ({ chunked, b } = pair(testMap(), [['UltraMode7', 'var UltraMode7 = {};\n' + passOn]]));
+    step(chunked, b, 0, 0);
+    assert.equal(chunked.$reactorTilemapStats.chunkFallback, 'UltraMode7 check failed');
+    // Assigned after the first paint, from a plugin script or not: no known origin.
+    ({ chunked, b } = pair(testMap(), [['UltraMode7', 'var UltraMode7 = { isActive() { return false; } };']]));
+    step(chunked, b, 0, 0);
+    assert.equal(chunked.$reactorTilemapStats.chunked, true);
+    loadPlugin(chunked, 'UltraMode7', passOn);
+    step(chunked, b, 0, 0);
+    assert.equal(chunked.$reactorTilemapStats.chunkFallback, 'plugin hook _addSpot');
+});
+
+test('the runtime bridge for UltraMode7 before 2.2.0 counts as its hook, and blocks stay the same', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const compat = fs.readFileSync(path.join(__dirname, '..', '..', 'runtime', 'libs', 'pixi_compat.js'), 'utf8');
+    const start = compat.indexOf('const origCombinedAddRect = Tilemap.CombinedLayer.prototype.addRect;');
+    const end = compat.indexOf('compatLog("pixi_compat: UltraMode7 pre-2.2.0', start);
+    assert.ok(start > 0 && end > start, 'bridge found in pixi_compat.js');
+    const { stock, chunked, a, b } = pair(testMap(), [['UltraMode7', 'var UltraMode7 = { isActive() { return false; } };']]);
+    for (const context of [stock, chunked]) vm.runInContext('{' + compat.slice(start, end) + '}', context);
+    const C = chunked.Tilemap.ChunkPaint;
+    assert.notEqual(chunked.Tilemap.CombinedLayer.prototype.addRect, C.stock.combinedAddRect);
+    for (let f = 0; f < 40; f++) {
+        step(stock, a, f * 9, f * 4);
+        step(chunked, b, f * 9, f * 4);
+        assert.equal(chunked.$reactorTilemapStats.chunkFallback, '', `frame ${f}`);
+    }
+    assertSamePaint(a, b, 'bridge');
+});
+
+test('painting methods are watched only until the first paint; instance assignments stay on the instance', () => {
+    const context = loadRuntimeTilemap();
+    const { Tilemap } = context;
+    const C = Tilemap.ChunkPaint;
+    assert.equal(typeof Object.getOwnPropertyDescriptor(Tilemap.prototype, '_addSpot').get, 'function');
+    const tilemap = makeTilemap(context, testMap());
+    loadPlugin(context, 'SomePlugin', 'globalThis.made = function() {}; Tilemap.prototype._addSpot = made;');
+    const own = function() {};
+    tilemap._addShadow = own;
+    assert.equal(Tilemap.prototype._addShadow, C.stock._addShadow, 'the prototype keeps its method');
+    assert.ok(Object.prototype.hasOwnProperty.call(tilemap, '_addShadow'));
+    assert.equal(C.origins.get(context.made), 'SomePlugin');
+    assert.equal(C.origins.has(own), false, 'assigned outside a plugin script');
+    step(context, tilemap, 0, 0);
+    for (const name of C.HOOKS) {
+        const desc = Object.getOwnPropertyDescriptor(Tilemap.prototype, name);
+        assert.equal(typeof desc.value, 'function', name);
+        assert.equal(desc.writable, true, name);
+    }
+    assert.equal(Tilemap.prototype._addSpot, context.made);
+    assert.equal(Object.getOwnPropertyDescriptor(Tilemap.Layer.prototype, 'addRect').value, C.stock.layerAddRect);
+});
+
+test('every stock painting method leaves a clean, repeatable record on the stand-in', () => {
+    const { Tilemap } = loadRuntimeTilemap();
+    const C = Tilemap.ChunkPaint;
+    const names = [...C.HOOKS, 'layerAddRect', 'layerClear', 'combinedAddRect', 'combinedClear'];
+    for (const name of names) {
+        const sets = C.PROBES[name];
+        assert.ok(sets && sets.length, `${name} has probes`);
+        for (const args of sets) {
+            const first = C.trace(C.stock[name], args, name === "_createLayers");
+            assert.notEqual(first, null, `${name}(${args.map(String).join(", ")}) runs on the stand-in`);
+            assert.equal(C.trace(C.stock[name], args, name === "_createLayers"), first, `${name} records the same twice`);
+        }
+        assert.equal(C.probe(C.stock[name], name), true, name);
+    }
+    // The record sees reads, calls with their arguments, and the answer.
+    const addSpot = C.trace(C.stock._addSpot, C.PROBES._addSpot[0]);
+    assert.match(addSpot, /call this\._addSpotTile on this \(this\._readMapData\(\)0, 1, 1\)/);
+    assert.match(C.trace(C.stock._isOverpassPosition, [3, 4]), /^return false$/);
+    assert.equal(Tilemap.CombinedLayer.prototype.addRect, C.stock.combinedAddRect, 'layers restored after probing _createLayers');
+    const loop = function() { let n = this; while (n.parent) n = n.parent; };
+    assert.equal(C.trace(loop, []), null, 'a walk that never ends stops at the probe limit');
+});
+
+test('a passing hook is judged again on a new map and every RECHECK checks', () => {
+    const source = `var UltraMode7 = { isActive() { return false; } };
+        var Hide = { shadows: false };
+        { const o = Tilemap.prototype._addShadow;
+          Tilemap.prototype._addShadow = function(layer, bits, dx, dy) { if (Hide.shadows) return; o.call(this, layer, bits, dx, dy); }; }`;
+    const { chunked, b } = pair(testMap(), [['UltraMode7', source]]);
+    const C = chunked.Tilemap.ChunkPaint;
+    const stats = chunked.$reactorTilemapStats;
+    chunked.$gameMap = { id: 1, mapId() { return this.id; } };
+    step(chunked, b, 0, 0);
+    assert.equal(stats.chunked, true);
+    chunked.Hide.shadows = true;
+    step(chunked, b, 0, 0);
+    assert.equal(stats.chunked, true, 'a check on its own state is not seen before the next judgment');
+    chunked.$gameMap.id = 2;
+    step(chunked, b, 0, 0);
+    assert.equal(stats.chunkFallback, 'plugin hook _addShadow (UltraMode7)', 'a new map');
+    chunked.Hide.shadows = false;
+    C.RECHECK = 5;
+    for (let f = 0; f < 6; f++) step(chunked, b, 0, 0);
+    assert.equal(stats.chunked, true, 'after RECHECK checks');
+    chunked.Hide.shadows = true;
+    for (let f = 0; f < 6; f++) step(chunked, b, 0, 0);
+    assert.equal(stats.chunked, false);
+});
+
+test('stale verdicts are judged again one per frame, never all at once', () => {
+    const { chunked, b } = pair(testMap(), [['UltraMode7', UM7]]);
+    const C = chunked.Tilemap.ChunkPaint;
+    step(chunked, b, 0, 0);
+    const judged = C._verdicts.size;
+    assert.ok(judged >= 5, `${judged} UltraMode7 hooks judged`);
+    let probes = 0;
+    const probe = C.probe;
+    C.probe = function() { probes++; return probe.apply(this, arguments); };
+    C.RECHECK = 0;
+    for (let f = 1; f <= judged; f++) {
+        step(chunked, b, 0, 0);
+        assert.equal(probes, f, `frame ${f}`);
+        assert.equal(chunked.$reactorTilemapStats.chunked, true);
+    }
+});
+
+test('judging UltraMode7 hooks costs well under a frame', t => {
+    const { chunked, b } = pair(testMap(), [['UltraMode7', UM7]]);
+    step(chunked, b, 0, 0);
+    const C = chunked.Tilemap.ChunkPaint;
+    const started = performance.now();
+    const rounds = 20;
+    for (let i = 0; i < rounds; i++) {
+        C._verdicts.clear();
+        assert.equal(b._rrChunkBlocker(), null);
+    }
+    const ms = (performance.now() - started) / rounds;
+    t.diagnostic(`one judgment of the UltraMode7 hooks: ${ms.toFixed(3)} ms`);
+    assert.ok(ms < 8, `${ms} ms`);
 });

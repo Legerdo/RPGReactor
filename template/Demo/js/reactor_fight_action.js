@@ -308,6 +308,8 @@
             }
             A.enter(this);
         }
+        // Heights worked out off the main thread are asked for as the battle starts, not at its first line of sight.
+        if (serial && A.HullWorker.enabled) A.measureAll(this);
         return serial;
     };
 
@@ -724,8 +726,9 @@
         const now = typeof Graphics !== "undefined" && Graphics.frameCount || 0;
         let size = sizes.get(character);
         if (!size) sizes.set(character, size = { at: -1e9, tall: 1.6, wide: A.SLIM, round: true, halfX: A.SLIM, halfZ: A.SLIM, pad: 0, mask: null, hull: null, spec: null, dir: 0, cos: 1, sin: 0 });
-        if (now - size.at >= 180 || now < size.at) {
+        if (now - size.at >= 180 || now < size.at || size.epoch !== A.hullEpoch) {
             size.at = now;
+            size.epoch = A.hullEpoch;
             const R = world3(), deep = !!R && A.is3D();
             size.tall = deep && R.characterHeightTiles ? R.characterHeightTiles(character) || 1.6 : 1.6;
             size.round = true; size.mask = null; size.hull = null; size.spec = null; size.dir = 0; size.pad = 0;
@@ -759,6 +762,7 @@
             const foot = R.eventModelFootprint(character, spec);
             if (!foot || foot.rawX == null) return false;
             if (!always && size.tall > 1.6 * Math.max(foot.rawX, foot.rawZ)) return false;
+            const hull = !always || foot.mask ? A.hullOf(R, spec) : null;
             size.round = false; size.spec = spec; size.mask = foot.mask || null; size.dir = 0;
             // A mask's bounds reach a walker's half width past the model itself.
             size.pad = foot.mask ? R.COLLISION_BODY_RADIUS || 0 : 0;
@@ -766,7 +770,8 @@
             // A unit is struck where its mesh is, at the heights it is. Scenery in the way stays what stands in a
             // walker's way (a tree its trunk, not its crown), as tall as the mesh is over each of those cells; one
             // that blocks as a box (a model that reads badly as a floor plan) stays its box.
-            size.hull = !always || foot.mask ? A.hullOf(R, spec) : null;
+            // Heights still being worked out (A.HullWorker): its footprint for now, measured again once they are in.
+            size.hull = hull === A.HULL_PENDING ? null : hull;
             return true;
         } catch (error) {
             return false;
@@ -777,18 +782,261 @@
     // counts in) the lowest and the highest its mesh stands there, from all of its triangles. So what overhangs
     // (a gun's barrel) is part of the body, and the open air over a low hull beside a tall turret is not. Worked
     // out once for a model and pose and kept; null for a model whose mesh cannot be read.
-    const hulls = new Map();
+    // Where workers run they are worked out there (A.HullWorker): until they come back the model is asked for
+    // again (A.HULL_PENDING), and whoever measured it measures it again once they are in (A.hullEpoch).
+    const hulls = new Map(), pendingHulls = new Set();
+    const clock = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+    A.HULL_PENDING = Object.freeze({ pending: true });
+    A.hullEpoch = 0;
+    const hullHere = (R, template, json, spec) => {
+        try { return A.buildHull(R, template, json, spec); } catch (error) { return null; }
+    };
+    const settleHull = (kept, hull) => {
+        if (!kept.job) return;
+        kept.job = null;
+        kept.hull = hull;
+        pendingHulls.delete(kept);
+        A.hullEpoch++;
+        // The scenery in a line's way is listed again at its next line.
+        if (A._props) A._props.stamp = -1e9;
+    };
     A.hullOf = function(R, spec) {
         if (!spec || typeof THREE === "undefined" || !R.collisionKeysFor) return null;
         const keys = R.collisionKeysFor(spec), entry = R._glbCache ? R._glbCache[keys.model] : null, template = entry && entry.template;
         if (!template) return null;
         let kept = hulls.get(keys.pose);
         if (!kept || kept.template !== template) {
-            let hull = null;
-            try { hull = A.buildHull(R, template, R._sidecarJson ? R._sidecarJson[spec.name] : null, spec); } catch (error) { hull = null; }
-            hulls.set(keys.pose, kept = { template, hull });
+            if (kept) settleHull(kept, null);
+            const json = R._sidecarJson ? R._sidecarJson[spec.name] : null;
+            hulls.set(keys.pose, kept = { template, hull: null, job: null });
+            const job = A.HullWorker.request(R, template, json, spec);
+            if (job) {
+                kept.job = { since: clock(), R, json, spec };
+                pendingHulls.add(kept);
+                job.then(hull => settleHull(kept, hull), () => settleHull(kept, hullHere(R, template, json, spec)));
+            } else kept.hull = hullHere(R, template, json, spec);
         }
-        return kept.hull;
+        if (kept.job && clock() - kept.job.since > A.HullWorker.WAIT_MS) settleHull(kept, hullHere(kept.job.R, template, kept.job.json, kept.job.spec));
+        return kept.job ? A.HULL_PENDING : kept.hull;
+    };
+
+    /** How many models' heights are still out on the worker; one out past HullWorker.WAIT_MS is worked out here now. */
+    A.hullsPending = function() {
+        for (const kept of Array.from(pendingHulls)) {
+            const job = kept.job;
+            if (job && clock() - job.since > A.HullWorker.WAIT_MS) settleHull(kept, hullHere(job.R, kept.template, job.json, job.spec));
+        }
+        return pendingHulls.size;
+    };
+
+    /** Every body in a battle on a 3D map is measured as it starts, so the heights any of them needs are asked for at once. */
+    A.measureAll = function(fight) {
+        if (!fight || !A.is3D()) return;
+        A.props(fight);
+        for (const unit of fight._units) {
+            const character = unit.gone ? null : fight.character(unit);
+            if (character) sizeOf(fight, character);
+        }
+    };
+
+    /**
+     * A model's heights (A.buildHull) worked out on a background thread: the model's meshes go there as they
+     * stand (their positions, indices and skins, each node's place, the box a skin was measured to) and the same
+     * code reads them there with three.js of its own. A model with a part read some other way (morph targets, an
+     * instanced or batched mesh, a line) is worked out on the main thread, as is everything where workers do not run.
+     */
+    A.HullWorker = {
+        /** Off: a model's heights are worked out where they are first asked for, on the main thread. */
+        enabled: true,
+        /** The longest a model's heights are waited for before they are worked out on the main thread after all. */
+        WAIT_MS: 4000,
+        _worker: undefined,
+        _url: null,
+        _failed: false,
+        _jobs: new Map(),
+        _serial: 0,
+        source(R, threeUrl) {
+            return [
+                "'use strict';",
+                "importScripts(" + JSON.stringify(threeUrl) + ");",
+                "const DEG = Math.PI / 180;",
+                "const clamp = (value, low, high) => Math.max(low, Math.min(high, value));",
+                "const scaleAxes = " + R.scaleAxes.toString() + ";",
+                "const buildHull = " + this.kernel.toString() + ";",
+                "const rebuild = " + A.HullWorker.rebuild.toString() + ";",
+                "self.onmessage = function(event) {",
+                "    const job = event.data;",
+                "    try {",
+                "        const made = rebuild(THREE, job.nodes, job.glbSize);",
+                "        const R = { readModelTransform: () => job.base, scaleAxes, COLLISION_SUBDIV: job.sub, COLLISION_MASK_LIMIT: job.limit, DENSE_TRIANGLES: job.denseTriangles, DENSE_SAMPLES: job.denseSamples };",
+                "        const hull = buildHull(R, made.root, null, job.spec);",
+                "        const side = box => (box && !box.isEmpty() ? box.min.toArray().concat(box.max.toArray()) : null);",
+                "        const boxes = made.meshes.map(mesh => [side(mesh.geometry.boundingBox), mesh.isSkinnedMesh ? side(mesh.boundingBox) : null]);",
+                "        self.postMessage({ id: job.id, hull, boxes }, hull ? [hull.low.buffer, hull.high.buffer] : []);",
+                "    } catch (error) { self.postMessage({ id: job.id, error: String(error && error.message || error) }); }",
+                "};"
+            ].join("\n");
+        },
+        /** The model as the worker stands it: one group of its meshes, each in its place in the model, skins bound as they were. */
+        rebuild: function(THREE, nodes, glbSize) {
+            const unpack = a => (a.stride ? new THREE.InterleavedBufferAttribute(new THREE.InterleavedBuffer(a.array, a.stride), a.itemSize, a.offset, a.normalized)
+                : new THREE.BufferAttribute(a.array, a.itemSize, a.normalized));
+            const box = b => new THREE.Box3(new THREE.Vector3(b[0], b[1], b[2]), new THREE.Vector3(b[3], b[4], b[5]));
+            const root = new THREE.Group(), meshes = [];
+            root.userData.glbSize = glbSize;
+            for (const n of nodes) {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute("position", unpack(n.position));
+                // A mesh read from its vertices alone needs only how many its index holds.
+                if (n.index) geometry.setIndex(unpack(n.index)); else if (n.indexCount) geometry.index = { count: n.indexCount };
+                if (n.geometryBox) geometry.boundingBox = box(n.geometryBox);
+                let mesh;
+                if (n.skinned) {
+                    mesh = new THREE.SkinnedMesh(geometry);
+                    if (n.meshBox) mesh.boundingBox = box(n.meshBox);
+                    else {
+                        geometry.setAttribute("skinIndex", unpack(n.skin.index));
+                        geometry.setAttribute("skinWeight", unpack(n.skin.weight));
+                        const bones = n.skin.bones.map(e => { const bone = new THREE.Bone(); bone.matrixWorld.fromArray(e); return bone; });
+                        mesh.skeleton = new THREE.Skeleton(bones, n.skin.inverses.map(e => new THREE.Matrix4().fromArray(e)));
+                        mesh.bindMatrix.fromArray(n.skin.bind);
+                        mesh.bindMatrixInverse.fromArray(n.skin.bindInverse);
+                    }
+                } else mesh = new THREE.Mesh(geometry);
+                mesh.matrixAutoUpdate = false;
+                mesh.matrix.fromArray(n.matrix);
+                root.add(mesh);
+                meshes.push(mesh);
+            }
+            return { root, meshes };
+        },
+        /** What goes to the worker for a model, or null when a part of it is read in a way the worker does not repeat. */
+        snapshot(R, template, json, spec) {
+            const T = THREE;
+            if (!template || typeof template.traverse !== "function" || !T.Box3) return null;
+            template.updateMatrixWorld(true);
+            const nodes = [], made = [], transfer = [], dense = R.DENSE_TRIANGLES || 50000;
+            let plain = true;
+            const copy = attribute => {
+                if (attribute.isInterleavedBufferAttribute) {
+                    const array = attribute.data.array.slice();
+                    transfer.push(array.buffer);
+                    return { array, stride: attribute.data.stride, offset: attribute.offset, itemSize: attribute.itemSize, normalized: attribute.normalized };
+                }
+                if (!attribute.isBufferAttribute || !attribute.array || typeof attribute.array.slice !== "function") { plain = false; return null; }
+                const array = attribute.array.slice();
+                transfer.push(array.buffer);
+                return { array, stride: 0, offset: 0, itemSize: attribute.itemSize, normalized: attribute.normalized };
+            };
+            const side = box => (box ? [box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z] : null);
+            template.traverse(node => {
+                if (!plain || node.geometry === undefined) return;
+                if (!node.isMesh || node.isInstancedMesh || node.isBatchedMesh) { plain = false; return; }
+                const geometry = node.geometry, position = geometry && geometry.getAttribute ? geometry.getAttribute("position") : null;
+                if (!position) return;
+                if (geometry.morphAttributes && Object.keys(geometry.morphAttributes).length) { plain = false; return; }
+                const index = geometry.getIndex(), count = index ? index.count : position.count;
+                const n = { position: copy(position), index: null, indexCount: 0, geometryBox: side(geometry.boundingBox), matrix: node.matrixWorld.toArray(), skinned: !!node.isSkinnedMesh, meshBox: null, skin: null };
+                if (index) { if (count / 3 > dense) n.indexCount = index.count; else n.index = copy(index); }
+                if (node.isSkinnedMesh) {
+                    n.meshBox = side(node.boundingBox);
+                    if (!n.meshBox) {
+                        const skinIndex = geometry.getAttribute("skinIndex"), skinWeight = geometry.getAttribute("skinWeight"), skeleton = node.skeleton;
+                        if (!skinIndex || !skinWeight || !skeleton || skeleton.bones.some(bone => !bone)) { plain = false; return; }
+                        n.skin = { index: copy(skinIndex), weight: copy(skinWeight), bones: skeleton.bones.map(bone => bone.matrixWorld.toArray()),
+                            inverses: skeleton.boneInverses.map(m => m.toArray()), bind: node.bindMatrix.toArray(), bindInverse: node.bindMatrixInverse.toArray() };
+                    }
+                }
+                nodes.push(n);
+                made.push(node);
+            });
+            if (!plain || !nodes.length) return null;
+            const base = R.readModelTransform(json);
+            return {
+                made, transfer,
+                payload: { nodes, glbSize: Object.assign({}, template.userData && template.userData.glbSize), base: { offset: base.offset, rotate: base.rotate, scale: base.scale },
+                    spec: { size: spec.size, scale: spec.scale, stretch: spec.stretch, pitch: spec.pitch, roll: spec.roll },
+                    sub: R.COLLISION_SUBDIV, limit: R.COLLISION_MASK_LIMIT, denseTriangles: R.DENSE_TRIANGLES, denseSamples: R.DENSE_SAMPLES }
+            };
+        },
+        worker() {
+            if (this._worker !== undefined) return this._worker;
+            this._worker = null;
+            const R = world3();
+            if (!this.enabled || this._failed || !R || !R.scaleAxes || typeof Worker === "undefined" || typeof Blob === "undefined"
+                || typeof URL === "undefined" || typeof URL.createObjectURL !== "function" || typeof document === "undefined") return null;
+            try {
+                const threeUrl = new URL(R.LIB_URL || "js/libs/three.js", document.baseURI).href;
+                const url = URL.createObjectURL(new Blob([this.source(R, threeUrl)], { type: "text/javascript" }));
+                const worker = new Worker(url, { name: "Reactor model heights" });
+                worker.onmessage = event => this.receive(event.data);
+                worker.onerror = event => { if (event && event.preventDefault) event.preventDefault(); this.fail(); };
+                this._worker = worker;
+                this._url = url;
+            } catch (error) { this._worker = null; }
+            return this._worker;
+        },
+        /**
+         * A promise of a model's heights, or null when they are to be worked out on the main thread. The
+         * model's meshes are copied out for the worker in the idle time between frames (`idleCopy`), one
+         * model at a time: copied as a battle started, every model's at once was a frame of 15 ms on a slow
+         * machine. Whatever cannot go to the worker then is worked out on the main thread (the promise fails).
+         */
+        idleCopy: true,
+        request(R, template, json, spec) {
+            if (!this.enabled || this._failed || !this.kernel || A.buildHull !== this.kernel) return null;
+            const send = () => {
+                // Turned off, or failed, while this model waited for its idle time: nothing is copied.
+                if (!this.enabled || this._failed) return null;
+                let snap = null;
+                try { snap = this.snapshot(R, template, json, spec); } catch (error) { snap = null; }
+                const worker = snap ? this.worker() : null;
+                if (!worker) return null;
+                const id = ++this._serial;
+                return new Promise((resolve, reject) => {
+                    this._jobs.set(id, { resolve, reject, made: snap.made });
+                    worker.postMessage(Object.assign({ id }, snap.payload), snap.transfer);
+                    if (R.IdleWorkers) R.IdleWorkers.touch("hull", () => this._jobs.size > 0, () => this.end());
+                });
+            };
+            if (!this.idleCopy || typeof requestIdleCallback !== "function" || this.worker() === null) return send();
+            return new Promise((resolve, reject) => {
+                this._copies = (this._copies || Promise.resolve()).then(() => new Promise(next => requestIdleCallback(() => {
+                    let job = null;
+                    try { job = send(); } catch (error) { job = null; }
+                    if (job) job.then(resolve, reject); else reject(new Error("not sent to the worker"));
+                    next();
+                }, { timeout: 250 })));
+            });
+        },
+        receive(data) {
+            const job = this._jobs.get(data && data.id);
+            if (!job) return;
+            this._jobs.delete(data.id);
+            if (data.error) { job.reject(new Error(data.error)); return; }
+            // The boxes measured there are kept on the model, as measuring them here would have kept them.
+            const T = THREE, box = b => new T.Box3(new T.Vector3(b[0], b[1], b[2]), new T.Vector3(b[3], b[4], b[5]));
+            (data.boxes || []).forEach((pair, i) => {
+                const node = job.made[i];
+                if (!node) return;
+                if (pair[0] && node.geometry && node.geometry.boundingBox === null) node.geometry.boundingBox = box(pair[0]);
+                if (pair[1] && node.isSkinnedMesh && node.boundingBox === null) node.boundingBox = box(pair[1]);
+            });
+            job.resolve(data.hull || null);
+        },
+        /** The worker failed: whatever was out is worked out on the main thread, and so is everything after. */
+        fail() {
+            this._failed = true;
+            this.end();
+        },
+        end() {
+            const worker = this._worker, jobs = Array.from(this._jobs.values());
+            this._worker = undefined;
+            this._jobs.clear();
+            if (worker) worker.terminate();
+            if (this._url) { try { URL.revokeObjectURL(this._url); } catch (error) { /* already gone */ } this._url = null; }
+            for (const job of jobs) job.reject(new Error("the model heights worker ended"));
+        }
     };
 
     /**
@@ -931,6 +1179,8 @@
         hull.reach = Math.hypot(Math.max(Math.abs(hull.minX), Math.abs(hull.maxX)), Math.max(Math.abs(hull.minZ), Math.abs(hull.maxZ)));
         return hull;
     };
+    // The worker runs this code as written; a buildHull put in its place (a plugin's) runs on the main thread.
+    A.HullWorker.kernel = A.buildHull;
 
     A.heightOf = function(character) {
         return sizeOf(typeof $gameFight !== "undefined" ? $gameFight : null, character).tall;

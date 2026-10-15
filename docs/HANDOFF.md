@@ -7,13 +7,20 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 ## Where things stand (2026-10-14)
 
 - **0.99.0** shipped on 2026-10-12 at runtime **20261011.14**; PR #74 was merged after it. `main` matches `origin/main` at `dc918245`.
-- **0.99.1** is in development at runtime **20261014.3**, synced to all 16 bundled projects. Committed locally; nothing pushed.
-- **In progress: performance round 2, paused overnight 2026-10-14.** Local WIP commit `bf2b82bc`, not tested as a whole, runtime not yet synced into the bundled projects. Resume from [perf-round2/lead.md](perf-round2/lead.md).
+- **0.99.1** is in development at runtime **20261014.4**, synced to all 16 bundled projects. Committed locally; nothing pushed.
+- **Performance round 2 landed at 20261014.4** (2026-10-15, on top of WIP commits `bf2b82bc` and `8714c49e`); several items still need measuring in the game on Linux (below).
 - **Next agreed:** nothing yet. The owner agreed a kept battle ends when another starts, and asked for Action escape by running (done). On-map defeated enemies done the owner's way (event box, else Database › Enemies).
 
-## 2026-10-14 — Performance round 2 paused mid-work (WIP commit bf2b82bc)
+## 2026-10-15 — Performance round 2 finished on Windows (runtime 20261014.4)
 
-Five agents worked on frame pacing, 2D tilemaps, models and textures, startup and editor memory, and worker threads; the owner paused them for the night. Everything is in WIP commit `bf2b82bc`. Each agent's state, numbers, next steps and draft changelog lines are in [perf-round2/](perf-round2/); evidence and scripts are in the gitignored `scratchpad/perf-round2-checkpoint/` (Dropbox only). Before the real commit: finish each agent's listed steps, sync the runtime, fix the known cross-agent test failures listed in lead.md, write docs and changelogs, run the full suite. Then delete `docs/perf-round2/`.
+The overnight round was finished on the Windows machine with code and Node tests only: no NW harness ran there (it would open on the owner's desktop). What changed is in both changelogs and [PERFORMANCE.md](PERFORMANCE.md); its **Still to measure** list is the next Linux session's work.
+
+- **How to measure:** each item's exact steps are in its Next steps in [perf-round2/](perf-round2/) (`2d-path.md`, `frame-pacing.md`, `startup-memory.md`, `threads.md`; harness rules in `rules.md`); delete the folder once they are measured. Scripts and baselines are in the gitignored `scratchpad/perf-round2-checkpoint/` (Dropbox). Run copies of the Demo, never the Demo itself.
+- **Riskiest, check first:** `Tilemap.ChunkPaint.passThrough` (UltraMode7 hooks attributed at plugin load through accessors on 18 Tilemap methods, settled to plain properties at the first paint; pixels proven in Node only) and `MapEditor3D.RELEASE_2D_GRAPHICS` (the first 2D frame after 3D re-uploads). Both have switches.
+- **evenShapes:** all 163 bundled saves load the same on and off in Node (`character-shapes.test.cjs` keeps four); the next save can differ in byte order, never in content.
+- **Owner checks on real hardware:** Task Manager GPU column shows the RTX in a playtest and in the editor; Reactor Room GPU memory with 3D on and off; walking smoothness on the 180 Hz monitor; the Black Hole animation model (normals now correct); 1024 textures in close cameras; the reactor beam on Windows (Discord tester).
+- **Tests on this machine:** the full suite after the merge is in the commit message; the failures left are the Windows list in memory plus `passage-3d` "a stroke of edits", which fails only under parallel load (time-sliced; passes alone).
+- **Render thread:** a prototype only, about 2 to 3 months to production (gap list in `threads.md`). Not proposed.
 
 ## 2026-10-14 — The 2026-10-10 audit's bugs fixed (runtime 20261014.1)
 

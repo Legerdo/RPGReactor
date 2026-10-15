@@ -27,6 +27,8 @@ class MapEditor3D {
     static PARK_AFTER_MS = 5000;
     /** Video effect planes of one file share one video and texture in this view (_videoEffectPlane). */
     static SHARE_EFFECT_MEDIA = true;
+    /** When this view takes over, the 2D view's collectable graphics-card data is freed at once (release2DGraphics). */
+    static RELEASE_2D_GRAPHICS = true;
 
     constructor(projectController) {
         this.projectController = projectController;
@@ -736,6 +738,7 @@ class MapEditor3D {
         if (this._pixiWasRunning) app?.start?.();
         try { app?.render?.(); } catch (_) {}
         this._pixiWasRunning = false;
+        this._released2D = false;
         window.reactor?.updateMapZoom?.();
         this.projectController?.mediaSurfacePreviewManager?.refreshBackend?.();
     }
@@ -759,6 +762,32 @@ class MapEditor3D {
         }
     }
 
+    /**
+     * PIXI's collector frees what it has not drawn for a minute, but only after its own draws, and
+     * it does not draw while this view is up: the 2D map's tile batches, meshes and shapes stayed
+     * on the graphics card for the whole 3D session. Everything the collector may free is freed
+     * now, and PIXI uploads it again when it next draws. Textures PIXI does not collect (tile
+     * sheets, pooled layer caches, props drawn by three) stay. Called while PIXI owns the context,
+     * before either renderer's state is reset. True when it ran.
+     */
+    static release2DGraphics(pixiRenderer) {
+        const gc = pixiRenderer?.gc;
+        if (!MapEditor3D.RELEASE_2D_GRAPHICS || !gc || !gc.enabled || typeof gc.run !== 'function') return false;
+        const maxUnusedTime = gc.maxUnusedTime;
+        // At 0 nothing counts as recently used, the renderables touched by the last 2D frame included.
+        gc.maxUnusedTime = 0;
+        try {
+            gc.run();
+        } catch (error) {
+            console.error('Could not release the 2D view\'s graphics:', error);
+            return false;
+        } finally {
+            gc.maxUnusedTime = maxUnusedTime;
+        }
+        pixiRenderer.gl?.flush?.();
+        return true;
+    }
+
     container() {
         return document.getElementById('canvas-container');
     }
@@ -776,6 +805,7 @@ class MapEditor3D {
             // paused and hidden exactly as in the shared path.
             this._pixiWasRunning = app?.ticker?.started === true;
             app?.stop?.();
+            this._released2D = MapEditor3D.release2DGraphics(app?.renderer);
             this.canvas = document.createElement('canvas');
             this.canvas.id = 'map-3d-canvas';
             this.canvas.style.cssText =
@@ -824,6 +854,7 @@ class MapEditor3D {
             ? { width: pixiScreen.width, height: pixiScreen.height }
             : null;
         app.stop?.();
+        this._released2D = MapEditor3D.release2DGraphics(pixiRenderer);
         pixiRenderer.resetState?.();
         Object.assign(this.canvas.style, {
             position: 'absolute',
@@ -3340,7 +3371,8 @@ class MapEditor3D {
         const url = typeof RRAssetFiles !== 'undefined' && RRAssetFiles.toUrl ? RRAssetFiles.toUrl(file) : 'file://' + file;
         // The view's planes of one file share one picture or one playing video and its texture
         // (each video element is a decoder of its own: six screens of one clip cost a gigabyte).
-        // A caller without a view of its own (the 2D model preview) keeps a copy per plane.
+        // The caller's own map holds them (the 2D model preview passes itself); called on the
+        // prototype, each plane keeps a copy.
         const shared = this !== MapEditor3D.prototype && MapEditor3D.SHARE_EFFECT_MEDIA
             ? (this._effectMedia || (this._effectMedia = new Map())) : null;
         const key = (isImage ? 'image:' : 'video:' + (effect.video.loop !== false) + ':') + url;
@@ -3354,7 +3386,7 @@ class MapEditor3D {
         } else if (isImage) {
             const image = new Image();
             texture = new THREE.Texture();
-            image.onload = () => { texture.image = image; texture.needsUpdate = true; this.requestRender(); };
+            image.onload = () => { texture.image = image; texture.needsUpdate = true; this.requestRender?.(); };
             image.src = url;
         } else {
             video = document.createElement('video');
@@ -3383,15 +3415,17 @@ class MapEditor3D {
 
     /** A video effect plane leaves: its picture or video goes with the last plane that shows it. */
     static releaseEffectPlane(plane) {
-        const media = plane?.userData?.effectMedia;
+        const data = plane?.userData;
+        if (!data) return;
+        // The plane lets go of its media first, so releasing it twice frees nothing another plane shows.
+        const media = data.effectMedia, video = data.video, texture = data.texture;
+        data.effectMedia = data.video = data.texture = null;
         if (media) {
-            plane.userData.effectMedia = null;
             if (--media.entry.users > 0) return;
             if (media.map.get(media.key) === media.entry) media.map.delete(media.key);
         }
-        const video = plane?.userData?.video;
         if (video) { try { video.pause(); video.removeAttribute('src'); video.load(); } catch (_) {} }
-        plane?.userData?.texture?.dispose?.();
+        texture?.dispose?.();
     }
 
     /** Keep every playing effect on its anchor as the camera and models move. */
@@ -6049,10 +6083,11 @@ class MapEditor3D {
         try { this.lastPark = this.releaseGraphics(this.renderer); } catch (error) { console.error('Could not release the 3D view\'s models:', error); }
         try { this.unbindGraphics(); } catch (error) { console.error('Could not unbind the 3D view\'s graphics:', error); }
         // A frame from each renderer: the GPU process gives deleted things back when a frame is
-        // drawn, and the 2D view collects what it has not drawn for a minute only on its own draws.
+        // drawn, and the 2D view collects what it has not drawn for a minute only on its own draws
+        // (a 2D view already released at takeover would only upload its map again).
         // The view shows its clear color until the editor is back.
         try {
-            this.projectController?.app?.render?.();
+            if (!this._released2D) this.projectController?.app?.render?.();
             this.renderer.resetState?.();
             this.renderer.setRenderTarget(null);
             this.renderer.clear(true, true, true);
