@@ -2982,12 +2982,22 @@ Reactor3D.prepareReflections = function(renderer, mapScene, scene, camera, scale
     // ("mismatch between texture format and sampler type") and those draws are dropped.
     // Mirror finishes near the camera: the sharp planar pictures, the party in them.
     const mirrors = Reactor3D.Mirrors && mapScene.mirrorCandidates ? mapScene.mirrorCandidates(camera) : [];
-    if (reflections) Reactor3D.Reflections._frame++;
-    const capture = reflections && !Reactor3D.Reflections.idle();
+    const F = Reactor3D.Reflections;
+    if (reflections) F._frame++;
+    const wanted = reflections && !F.idle();
+    // The update's face waits for a refresh with no update (`takeOwed`); one still owed from the last
+    // update is drawn now. So each update draws at most one face, and on a screen faster than the
+    // updates most faces fall on the refreshes that draw the world and nothing else.
+    const capture = wanted && (!F.SPARE_REFRESH || !F._ready || F._owed !== null);
+    if (wanted && F.SPARE_REFRESH && F._ready) {
+        const owed = F._owedRecord || (F._owedRecord = { renderer: null, mapScene: null, scene: null, camera: null });
+        owed.renderer = renderer; owed.mapScene = mapScene; owed.scene = scene; owed.camera = camera;
+        F._owed = owed;
+    } else F._owed = null;
     if (capture || mirrors.length) renderer.resetState();
     if (capture) {
         const probe = mapScene.reflectionProbe ? mapScene.reflectionProbe(camera) : null;
-        if (probe) Reactor3D.Reflections.update(renderer, scene, probe.position, probe.hidden, probe.toward, probe.radius, probe.reach);
+        if (probe) F.update(renderer, scene, probe.position, probe.hidden, probe.toward, probe.radius, probe.reach);
     }
     if (Reactor3D.Mirrors) {
         Reactor3D.Mirrors.update(renderer, scene, camera, mirrors, null, mirrors.length && mapScene.mirrorSubject ? mapScene.mirrorSubject() : null, scale);
@@ -3027,11 +3037,16 @@ Reactor3D.Viewport.prototype.renderPass = function(mapScene, which, slot) {
         if (scene.matrixWorldAutoUpdate !== false) scene.matrixWorldAutoUpdate = false;
         if (this._matrixFrame !== frame) {
             this._matrixFrame = frame;
+            if (typeof Graphics !== "undefined") this._spareRefresh = Graphics.refreshCount;
             scene.updateMatrixWorld();
             // The shadow maps, while every group is still visible, then the reflections.
             Reactor3D.prepareWorldFrame(this._renderer, mapScene, scene, this._camera, undefined, this.upscaled() ? this._scale : 1);
             // The map's still lights, from the volume (after the rows are chosen).
             if (Reactor3D.LightVolume) Reactor3D.LightVolume.frame(this._renderer, mapScene, typeof $dataMap !== "undefined" ? $dataMap : null);
+        } else if (Reactor3D.Reflections && typeof Graphics !== "undefined" && this._spareRefresh !== Graphics.refreshCount) {
+            // A refresh with no update: the reflection face the last update left.
+            this._spareRefresh = Graphics.refreshCount;
+            Reactor3D.Reflections.takeOwed(this._renderer, mapScene, scene);
         }
     }
     mapScene.setPass(which);

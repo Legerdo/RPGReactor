@@ -29,6 +29,8 @@ class MapEditor3D {
     static SHARE_EFFECT_MEDIA = true;
     /** When this view takes over, the 2D view's collectable graphics-card data is freed at once (release2DGraphics). */
     static RELEASE_2D_GRAPHICS = true;
+    /** While the view moves, the reflection capture takes a face every other draw; the draws after it stops fill the cube. */
+    static PROBE_HALF_WHILE_MOVING = true;
 
     constructor(projectController) {
         this.projectController = projectController;
@@ -6035,7 +6037,10 @@ class MapEditor3D {
                 this.stepFly(now);
                 const lightsLive = !!window.reactor?.lightingManager?.wants3DFrames?.() || this.effectLightsAnimate();
                 const stepped = this.stepAnimations(now);
-                if (MapEditor3D.shouldRender({ now, active: this.previewActive(now) || stepped, animating: this.animating(), lastRenderAt: this._lastRenderAt, idleInterval: this.idleInterval(lightsLive) })) {
+                const active = this.previewActive(now) || stepped;
+                // While the view moves, the reflection capture takes a face every other draw (`render`).
+                this._drawActive = active;
+                if (MapEditor3D.shouldRender({ now, active, animating: this.animating(), lastRenderAt: this._lastRenderAt, idleInterval: this.idleInterval(lightsLive) })) {
                     this._lastRenderAt = now;
                     this.render(now);
                 }
@@ -6338,15 +6343,38 @@ class MapEditor3D {
         // Lights are map content: feed the compositor on every drawn frame,
         // whether or not the Lighting panel is open.
         window.reactor?.lightingManager?.feed3D?.(now);
+        const scene = this.mapScene.scene();
+        // World matrices once for the frame, as the game's viewport takes
+        // them: every draw below (the shadow rows, the reflections, the unlit
+        // surfaces, the rest, the star tiles, the overlay, the lights)
+        // recomposed the whole graph again.
+        scene.updateMatrixWorld();
+        const matrixAuto = scene.matrixWorldAutoUpdate;
+        scene.matrixWorldAutoUpdate = false;
+        try {
+            this.renderFrame(scene);
+        } finally {
+            scene.matrixWorldAutoUpdate = matrixAuto;
+        }
+    }
+
+    /** One frame's passes, with the world matrices already current (see render). */
+    renderFrame(scene) {
         // The shadow maps, before any pass hides a group: the same step the
         // game's viewport takes, from the same lights the feed just synced.
         this.mapScene.renderShadows?.(this.renderer, this.currentMap());
         // The still, flickering and pulsing lights from the baked volume, the
         // moving ones gathered once a frame (Reactor3D.LightVolume), as in the game.
         if (typeof Reactor3D !== 'undefined' && Reactor3D.LightVolume) Reactor3D.LightVolume.frame(this.renderer, this.mapScene, this.currentMap());
-        const scene = this.mapScene.scene();
         // A face of the reflection capture, as the game takes it.
-        if (typeof Reactor3D !== 'undefined' && Reactor3D.Reflections && this.camera) Reactor3D.Reflections.update(this.renderer, scene, this.camera.position, this.mapScene.reflectionHidden?.());
+        // A frame after one that showed nothing shiny takes none, once the cube is whole (`Reflections.idle`).
+        const reflections = typeof Reactor3D !== 'undefined' ? Reactor3D.Reflections : null;
+        if (reflections && this.camera) {
+            if (reflections.enabled()) reflections._frame++;
+            const moving = this._drawActive && MapEditor3D.PROBE_HALF_WHILE_MOVING;
+            if (moving) this._probeTurn = !this._probeTurn;
+            if (!reflections.idle() && (!moving || this._probeTurn)) reflections.update(this.renderer, scene, this.camera.position, this.mapScene.reflectionHidden?.());
+        }
         // Mirror pieces and reflective water show their sharp mirrors here as in the game.
         if (typeof Reactor3D !== 'undefined' && Reactor3D.Mirrors && this.camera && this.mapScene.mirrorCandidates) {
             Reactor3D.Mirrors.update(this.renderer, scene, this.camera, this.mapScene.mirrorCandidates(this.camera), null, null);
@@ -6356,12 +6384,6 @@ class MapEditor3D {
         const eventVisible = this.eventGroup ? this.eventGroup.visible : null;
         const gridVisible = this.grid ? this.grid.visible : null;
         const hoverVisible = this.hoverCell ? this.hoverCell.visible : null;
-        // World matrices once for the frame, as the game's viewport takes
-        // them: every draw below (the unlit surfaces, the rest, the star
-        // tiles, the overlay, the lights) recomposed the whole graph again.
-        scene.updateMatrixWorld();
-        const matrixAuto = scene.matrixWorldAutoUpdate;
-        scene.matrixWorldAutoUpdate = false;
         try {
             // Match the tilemap's two canvases. Lower geometry and events share
             // real 3D depth; starred geometry starts with a fresh depth buffer
@@ -6418,7 +6440,6 @@ class MapEditor3D {
             if (overlay && overlayVisible !== null) overlay.visible = overlayVisible;
             this.renderLightsPass(scene);
         } finally {
-            scene.matrixWorldAutoUpdate = matrixAuto;
             scene.background = background;
             this.renderer.autoClear = autoClear;
             if (this.eventGroup && eventVisible !== null) this.eventGroup.visible = eventVisible;

@@ -1,5 +1,22 @@
 # Runtime performance checks
 
+## Reflections and the editor's 3D view on a laptop (2026-10-15, runtime 20261015.1)
+
+The owner felt jitter in 3D, in the game and the editor. Measured on the owner's Windows laptop, i5-10500H with the RTX 3060 (full tier), its panel at 144 Hz, 1920x1080 game window; the NW harnesses ran on the desktop with the owner's leave. North Haven walking the village square loop (`--map=5,83,65`), runs interleaved, medians of rounds.
+
+The game was main-thread bound, busy 16 ms of each 13.9 ms frame. A refresh with no update cost 5.7 ms, one with an update 14 ms, so frames slipped between one, two and three refreshes. Turning both reflections off gave a steady 144 fps; reflections were a third of the frame.
+
+| Change | Switch | Result |
+| --- | --- | --- |
+| A water mirror draws only the part of its picture that water at its level can show on screen (8-tile blocks, refined tile by tile near the eye, widened by the ripple's reach), at the same pixels as the whole picture; its eye is narrowed to that part, so what lies outside is culled. A lookup outside the drawn part keeps the capture (`rrMirrorArea`). Mirror-finish models keep the whole picture. | `Reactor3D.Mirrors.WATER_AREA` | Draw calls a frame 816 → 615, GPU median 9.2 → 5.6 ms; frozen frame by the fountain: 0 channels differ |
+| The reflection capture's face for an update waits for the next refresh with no update; with none before the next update, that update draws it. At most one face an update, as before. | `Reactor3D.Reflections.SPARE_REFRESH` | Update tick median / p95 13.8 / 20.4 → 12.6 / 16.0 ms; frame p95 20.8 → 14.0 ms; frames over 1.5x the median 8.7% → 3.5% |
+| Editor: world matrices once a frame before the shadow rows and the reflections (each of their draws recomposed the whole graph) | none | Render while orbiting North Haven 14.4 → 12.4 ms |
+| Editor: while the view moves, the capture takes a face every other draw; the draws after it stops fill the cube. A frame after one that showed nothing shiny takes none, as in the game. | `MapEditor3D.PROBE_HALF_WHILE_MOVING` | Render 11.5 → 9.75 ms; orbit frame p95 20.9 → 14.0 ms (a steady 72 fps on the 144 Hz panel) |
+
+Measured and left alone: culling objects too small to show in the capture's 512 faces (walking the scene cost more than it saved; North Haven has few small things); a fixed every-other-refresh draw at 144 Hz and a time-based one (both put a fifth to a third of draws three refreshes apart, worse than drawing on every refresh); the quality levels (they held level 0 throughout and do not switch under play). Effect readbacks are asynchronous already.
+
+Left, all main thread on this CPU: three's own walk and per-draw work (`projectObject`, `renderBufferDirect`, `setProgram`, about 0.3 ms per hundred draws); the quarter-size light's split (`HalfLight.begin`, 0.4 to 0.9 ms a pass); about 57 foliage, 54 piece and 30 model and character draws in the main view. The UHD 630 was not measured: Windows keeps NW on the RTX whatever the manifest says, and the weak tier draws neither the capture nor the mirrors.
+
 ## Frame pacing, 2D maps, models, memory and workers (2026-10-14 to 15, runtime 20261014.4)
 
 Measured on the Linux dev machine, Ryzen integrated Radeon (weak tier) on a headless display, CPU throttled 4x where marked (t4); medians of 3 alternated runs. Items marked *unmeasured* were finished on 2026-10-15 on the Windows machine with Node tests only; their checks are listed under Still to measure.

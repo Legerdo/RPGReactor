@@ -7,9 +7,18 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 ## Where things stand (2026-10-14)
 
 - **0.99.0** shipped on 2026-10-12 at runtime **20261011.14**; PR #74 was merged after it. `main` matches `origin/main` at `dc918245`.
-- **0.99.1** is in development at runtime **20261014.4**, synced to all 16 bundled projects. Committed locally; nothing pushed.
+- **0.99.1** is in development at runtime **20261015.1**, synced to all 16 bundled projects. Committed locally; nothing pushed.
 - **Performance round 2 landed at 20261014.4** (2026-10-15, on top of WIP commits `bf2b82bc` and `8714c49e`); several items still need measuring in the game on Linux (below).
 - **Next agreed:** nothing yet. The owner agreed a kept battle ends when another starts, and asked for Action escape by running (done). On-map defeated enemies done the owner's way (event box, else Database › Enemies).
+
+## 2026-10-15 — 3D jitter on the owner's laptop: reflections and the editor view (runtime 20261015.1)
+
+The owner reported jitter in 3D, game and editor, and allowed NW harness windows on this machine. Numbers and what was left alone are in [PERFORMANCE.md](PERFORMANCE.md) (first section).
+
+- **Harness:** an A/B script that boots the game once, walks a loop and interleaves in-page variants, with per-function timers and updates per tick, was kept in the session scratchpad only (not in the repo). The editor was driven with `nw-3d-profile.cjs --setup` orbiting North Haven by `m3.orbit()` each frame. A Demo copy with junctions for media works on Windows; `reactor_plugins.js` must not be overwritten by a runtime copy (the project's own list).
+- **To watch:** `Mirrors.WATER_AREA` was pixel-checked on one frozen frame by the fountain only; look at a lake edge-on and a river under a moving camera on the RTX. `Reflections.SPARE_REFRESH` shifts an update's face by up to one refresh; at 60 Hz nothing changes.
+- **Not measured:** the UHD 630 (Windows keeps NW on the RTX regardless of the manifest; forcing it needs the owner's Windows graphics setting for `nw.exe`). The weak tier draws neither the capture nor the mirrors, so these changes do not reach it.
+- **Next candidates, by size:** three's per-draw work (fewer draws: foliage kinds per chunk, merged static model meshes), `HalfLight.begin` classification cached between frames, the remaining 1-update ticks over 13.9 ms (p95 16 ms).
 
 ## 2026-10-15 — Performance round 2 finished on Windows (runtime 20261014.4)
 

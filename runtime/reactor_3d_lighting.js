@@ -2035,6 +2035,27 @@ Reactor3D.Reflections = {
     },
 
     /**
+     * Once the cube is whole, an update's face is drawn on the next refresh
+     * with no update, or with the next update when none came between
+     * (`Reactor3D.prepareReflections`); false draws it in its own update.
+     */
+    SPARE_REFRESH: true,
+    /** The face the last update left to a spare refresh: what it was drawn with, or null. */
+    _owed: null,
+
+    /** On a refresh with no update: the face owed, from where the camera stands now. */
+    takeOwed(renderer, mapScene, scene) {
+        const owed = this._owed;
+        if (!owed || owed.renderer !== renderer || owed.mapScene !== mapScene || owed.scene !== scene) return;
+        this._owed = null;
+        if (!this.enabled() || !mapScene.reflectionProbe) return;
+        const probe = mapScene.reflectionProbe(owed.camera);
+        if (!probe) return;
+        renderer.resetState();
+        this.update(renderer, scene, probe.position, probe.hidden, probe.toward, probe.radius, probe.reach);
+    },
+
+    /**
      * Whether this frame's capture can wait: once the cube is whole, a frame
      * after one that showed nothing shiny takes no face (the capture was most
      * of the reflection cost on a map whose chrome is off screen). The frame
@@ -2063,6 +2084,10 @@ Reactor3D.Reflections = {
         this._frame = 0;
         this._shownFrame = -1;
         this._ready = false;
+        this._owed = null;
+        // The record the owed face reuses lets the last map's scene go.
+        const record = this._owedRecord;
+        if (record) record.renderer = record.mapScene = record.scene = record.camera = null;
         if (this._uniforms) this._uniforms.rrEnvMap.value = null;
         if (Reactor3D.Mirrors) Reactor3D.Mirrors.reset();
     }
@@ -2138,7 +2163,7 @@ Reactor3D.SRGB_DECODE_GLSL = [
 /** The mirror slots' uniforms, declared for a fragment shader. */
 Reactor3D.mirrorUniformDeclarations = function() {
     const lines = [this.SRGB_DECODE_GLSL];
-    for (let slot = 0; slot < this.MIRROR_SLOTS; slot++) lines.push("uniform float rrMirrorOn" + slot + ";", "uniform vec4 rrMirrorPlane" + slot + ";", "uniform mat4 rrMirrorMatrix" + slot + ";", "uniform sampler2D rrMirrorMap" + slot + ";");
+    for (let slot = 0; slot < this.MIRROR_SLOTS; slot++) lines.push("uniform float rrMirrorOn" + slot + ";", "uniform vec4 rrMirrorPlane" + slot + ";", "uniform mat4 rrMirrorMatrix" + slot + ";", "uniform sampler2D rrMirrorMap" + slot + ";", "uniform vec4 rrMirrorArea" + slot + ";");
     return lines.join("\n");
 };
 
@@ -2152,7 +2177,7 @@ Reactor3D.mirrorLookup = function(target, on, offset, scale) {
     for (let slot = 0; slot < this.MIRROR_SLOTS; slot++) {
         lines.push((slot ? "\t} else if (" : "\tif (") + "rrMirrorOn" + slot + " > 0.5 && " + on(slot) + ") {",
             "\t\tvec4 rrMC = rrMirrorMatrix" + slot + " * vec4(vRRWorldPos, 1.0); vec2 rrMU = rrMC.xy / rrMC.w" + (offset ? " + " + offset : "") + ";",
-            "\t\tif (rrMC.w > 0.0 && rrMU.x > 0.0 && rrMU.y > 0.0 && rrMU.x < 1.0 && rrMU.y < 1.0) " + target + " = rrSRGBToLinear(textureLod(rrMirrorMap" + slot + ", rrMU, 0.0).rgb) * " + scale + ";");
+            "\t\tif (rrMC.w > 0.0 && all(greaterThan(rrMU, rrMirrorArea" + slot + ".xy)) && all(lessThan(rrMU, rrMirrorArea" + slot + ".zw))) " + target + " = rrSRGBToLinear(textureLod(rrMirrorMap" + slot + ", rrMU, 0.0).rgb) * " + scale + ";");
     }
     lines.push("\t}");
     return lines.join("\n");
@@ -2198,6 +2223,8 @@ Reactor3D.WaterSight = {
     /** The sheet's draws ask from now on; it counts as seen until the first answers are in. */
     watch(mesh) {
         const sight = this;
+        // Every sheet, for the mirror's screen area (Mirrors.waterArea): a sheet at a mirror's level reads its picture.
+        (this.sheets || (this.sheets = new Set())).add(mesh);
         mesh.userData.rrSight = { seen: this._frame, query: null, open: null, gl: null, generation: -1 };
         mesh.onBeforeRender = function(renderer, scene, camera) { sight._before(this, renderer, camera); };
         mesh.onAfterRender = function() { sight._after(this); };
@@ -2326,6 +2353,8 @@ Reactor3D.Mirrors = {
                 this._uniforms["rrMirrorPlane" + slot] = { value: new THREE.Vector4(0, 1, 0, -1e6) };
                 this._uniforms["rrMirrorMatrix" + slot] = { value: new THREE.Matrix4() };
                 this._uniforms["rrMirrorMap" + slot] = { value: this.dummy() };
+                // The part of the picture that was drawn (u0, v0, u1, v1): a lookup outside it keeps the capture.
+                this._uniforms["rrMirrorArea" + slot] = { value: new THREE.Vector4(0, 0, 1, 1) };
             }
             this._uniforms.rrMirrorTolerance = { value: Reactor3D.MIRROR_TOLERANCE };
         }
@@ -2350,7 +2379,7 @@ Reactor3D.Mirrors = {
     /** Every slot off: nothing reads a mirror picture (a preview, a capture, the edge of the recursion). */
     clear() {
         const u = this.uniforms();
-        for (let slot = 0; slot < Reactor3D.MIRROR_SLOTS; slot++) { u["rrMirrorOn" + slot].value = 0; u["rrMirrorMap" + slot].value = this.dummy(); }
+        for (let slot = 0; slot < Reactor3D.MIRROR_SLOTS; slot++) { u["rrMirrorOn" + slot].value = 0; u["rrMirrorMap" + slot].value = this.dummy(); u["rrMirrorArea" + slot].value.set(0, 0, 1, 1); }
     },
 
     target(slot, level, width, height) {
@@ -2392,6 +2421,179 @@ Reactor3D.Mirrors = {
     },
 
     /**
+     * Water's picture is drawn only where water at its level can be on
+     * screen (`waterArea`), at the same pixels as the whole picture; false
+     * draws it whole. A fountain in a corner of the view had the whole
+     * reflected world drawn for it every frame.
+     */
+    WATER_AREA: true,
+    /** The frame's own camera, whose pictures `waterArea` narrows (a reflected eye's are drawn whole). */
+    _eye: null,
+
+    /**
+     * Where, in `camera`'s view (x0, y0, x1, y1 from -1 to 1), a water plane's
+     * picture can be read: the part in view of every sheet at its level
+     * (any sheet near the plane's level reads the slot: other lakes and the
+     * neighbor maps' too), widened by how far a ripple moves a lookup. Null
+     * for the whole picture (not water, or the switch off); an empty area
+     * when no such water is in view.
+     */
+    waterArea(plane, camera) {
+        const object = plane.object, sheets = Reactor3D.WaterSight && Reactor3D.WaterSight.sheets;
+        if (!this.WATER_AREA || !sheets || !camera.isPerspectiveCamera || !object || !object.userData || !object.userData.water || !(plane.normal.y > 0.9)) return null;
+        const frustum = this._frustum || (this._frustum = new THREE.Frustum());
+        const viewProjection = this._viewProjection || (this._viewProjection = new THREE.Matrix4());
+        frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+        const area = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+        // The shader takes water within 0.4 of the plane (the boxes stand a tile off their water for waves).
+        const top = plane.d + 0.4, bottom = plane.d - 0.4;
+        let reach = 0;
+        for (const sheet of sheets) {
+            if (!sheet.parent) { sheets.delete(sheet); continue; }
+            if (!this.drawn(sheet)) continue;
+            const blocks = this.sheetBlocks(sheet);
+            if (!blocks.length || blocks.minY > top || blocks.maxY < bottom) continue;
+            let inView = false;
+            const part = this._part || (this._part = { x0: 0, y0: 0, x1: 0, y1: 0 });
+            for (let i = 0; i < blocks.length; i++) {
+                const block = blocks[i];
+                if (block.min.y > top || block.max.y < bottom || !frustum.intersectsBox(block)) continue;
+                inView = true;
+                part.x0 = part.y0 = Infinity; part.x1 = part.y1 = -Infinity;
+                this.spread(part, block, camera);
+                // A block near the eye spreads far past what its water covers: taken tile by tile.
+                if ((part.x1 - part.x0) * (part.y1 - part.y0) > this.REFINE_AREA) {
+                    for (let j = 0; j < block.tiles.length; j++) { const tile = block.tiles[j]; if (tile.min.y <= top && tile.max.y >= bottom && frustum.intersectsBox(tile)) this.spread(area, tile, camera); }
+                } else this.join(area, part);
+            }
+            // A lookup moves by the wave normal's level part (at most 1) times 0.035 + 0.1 of the sheet's roughness.
+            const look = sheet.material && sheet.material.userData && sheet.material.userData.rrWaterLook;
+            if (inView) reach = Math.max(reach, 0.035 + 0.1 * (look && Number.isFinite(look.y) ? Math.max(0, look.y) : 1));
+        }
+        if (!(area.x1 > area.x0 && area.y1 > area.y0)) return { x0: 0, y0: 0, x1: 0, y1: 0 };
+        // In picture widths; the view's coordinates span two.
+        const margin = 2 * reach;
+        return { x0: Math.max(-1, area.x0 - margin), y0: Math.max(-1, area.y0 - margin), x1: Math.min(1, area.x1 + margin), y1: Math.min(1, area.y1 + margin) };
+    },
+
+    /** A block covering more of the view than this (of 4, the whole view) is measured by its tiles. */
+    REFINE_AREA: 0.1,
+
+    join(area, part) {
+        if (!(part.x1 >= part.x0 && part.y1 >= part.y0)) return;
+        if (part.x0 < area.x0) area.x0 = part.x0; if (part.x1 > area.x1) area.x1 = part.x1;
+        if (part.y0 < area.y0) area.y0 = part.y0; if (part.y1 > area.y1) area.y1 = part.y1;
+    },
+
+    /** Whether the object and every parent are shown. */
+    drawn(object) {
+        for (let node = object; node; node = node.parent) if (!node.visible) return false;
+        return true;
+    },
+
+    /**
+     * A sheet's world boxes, one per 8-tile block its triangles touch, with
+     * their lowest and highest level: worked out again when the sheet's
+     * geometry or place changes.
+     */
+    sheetBlocks(sheet) {
+        const g = sheet.geometry, position = g && g.attributes && g.attributes.position;
+        const e = sheet.matrixWorld.elements, cache = sheet.userData.__rrBlocks;
+        if (cache && cache.geometry === g && cache.version === (position ? position.version : -1)) {
+            let same = true;
+            for (let i = 0; i < 16; i++) if (cache.matrix[i] !== e[i]) { same = false; break; }
+            if (same) return cache.blocks;
+        }
+        const blocks = [];
+        blocks.minY = Infinity; blocks.maxY = -Infinity;
+        if (position) {
+            const byKey = new Map(), byTile = new Map(), point = new THREE.Vector3();
+            for (let i = 0; i < position.count; i++) {
+                point.fromBufferAttribute(position, i).applyMatrix4(sheet.matrixWorld);
+                const key = Math.floor(point.x / 8) + "," + Math.floor(point.z / 8);
+                let box = byKey.get(key);
+                if (!box) { box = new THREE.Box3(); box.tiles = []; byKey.set(key, box); blocks.push(box); }
+                box.expandByPoint(point);
+                const tileKey = Math.floor(point.x) + "," + Math.floor(point.z);
+                let tile = byTile.get(tileKey);
+                if (!tile) { tile = new THREE.Box3(); byTile.set(tileKey, tile); box.tiles.push(tile); }
+                tile.expandByPoint(point);
+                if (point.y < blocks.minY) blocks.minY = point.y;
+                if (point.y > blocks.maxY) blocks.maxY = point.y;
+            }
+            // A corner is kept by the tile it starts: each box reaches the next corner on, and waves stand a tile off the sheet.
+            const grow = box => { box.max.x += 1; box.max.z += 1; box.min.y -= 1; box.max.y += 1; };
+            for (const box of blocks) { grow(box); box.tiles.forEach(grow); }
+        }
+        sheet.userData.__rrBlocks = { geometry: g, version: position ? position.version : -1, matrix: Array.from(e), blocks };
+        return blocks;
+    },
+
+    /** `area` grown by the box's part in front of `camera`, projected (the corners, and where its edges cross the near plane). */
+    spread(area, box, camera) {
+        const corners = this._corners || (this._corners = [0, 1, 2, 3, 4, 5, 6, 7].map(() => new THREE.Vector3()));
+        const point = this._point || (this._point = new THREE.Vector3());
+        const near = -camera.near;
+        for (let i = 0; i < 8; i++) corners[i].set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).applyMatrix4(camera.matrixWorldInverse);
+        const add = p => {
+            point.copy(p).applyMatrix4(camera.projectionMatrix);
+            if (point.x < area.x0) area.x0 = point.x; if (point.x > area.x1) area.x1 = point.x;
+            if (point.y < area.y0) area.y0 = point.y; if (point.y > area.y1) area.y1 = point.y;
+        };
+        for (let i = 0; i < 8; i++) {
+            const a = corners[i], front = a.z <= near;
+            if (front) add(a);
+            for (let bit = 1; bit < 8; bit <<= 1) {
+                if (i & bit) continue;
+                const b = corners[i | bit];
+                if (front === (b.z <= near)) continue;
+                const t = (near - a.z) / (b.z - a.z);
+                add(point.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, near));
+            }
+        }
+    },
+
+    /**
+     * An area of the view as whole pixels of a `width` x `height` picture, a
+     * pixel to spare each side, and the part of the picture a lookup may read
+     * (`uv`, half a texel in from the drawn edge so filtering stays inside).
+     * Null when it is the whole picture.
+     */
+    pixelArea(area, width, height) {
+        if (!(area.x1 > area.x0 && area.y1 > area.y0)) return { x: 0, y: 0, w: 0, h: 0, uv: new THREE.Vector4(0, 0, 0, 0) };
+        const x = Math.max(0, Math.floor((area.x0 + 1) * 0.5 * width) - 1), y = Math.max(0, Math.floor((area.y0 + 1) * 0.5 * height) - 1);
+        const x1 = Math.min(width, Math.ceil((area.x1 + 1) * 0.5 * width) + 1), y1 = Math.min(height, Math.ceil((area.y1 + 1) * 0.5 * height) + 1);
+        if (x === 0 && y === 0 && x1 === width && y1 === height) return null;
+        return { x, y, w: x1 - x, h: y1 - y, uv: new THREE.Vector4((x + 0.5) / width, (y + 0.5) / height, (x1 - 0.5) / width, (y1 - 0.5) / height) };
+    },
+
+    /**
+     * The reflected eye draws only the pixels in `area`: its projection's x
+     * and y rows scaled about them (every point lands on the same pixel as in
+     * the whole picture, and what falls outside is culled), the target's
+     * viewport and scissor on them. `widen` puts both back.
+     */
+    narrow(camera, target, area, width, height) {
+        const whole = this._wholeProjection || (this._wholeProjection = new THREE.Matrix4());
+        whole.copy(camera.projectionMatrix);
+        const e = camera.projectionMatrix.elements;
+        const cx = (2 * area.x + area.w) / width - 1, cy = (2 * area.y + area.h) / height - 1, sx = width / area.w, sy = height / area.h;
+        for (let c = 0; c < 16; c += 4) { e[c] = (e[c] - cx * e[c + 3]) * sx; e[c + 1] = (e[c + 1] - cy * e[c + 3]) * sy; }
+        camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+        target.viewport.set(area.x, area.y, area.w, area.h);
+        target.scissor.set(area.x, area.y, area.w, area.h);
+        target.scissorTest = true;
+    },
+
+    widen(camera, target, width, height) {
+        camera.projectionMatrix.copy(this._wholeProjection);
+        camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+        target.viewport.set(0, 0, width, height);
+        target.scissor.set(0, 0, width, height);
+        target.scissorTest = false;
+    },
+
+    /**
      * The mirror pictures seen from `camera`, `level` reflections deep: for
      * each plane in front of it, the view from its reflection (with the
      * other plane's own picture from there drawn first), into a target of
@@ -2420,16 +2622,25 @@ Reactor3D.Mirrors = {
                 u["rrMirrorMap" + entry.slot].value = entry.texture;
             }
             const target = this.target(slot, level, width, height);
+            // Seen from the frame's own camera, only the part of the picture its water can read is drawn
+            // (`plane.area`); the rest of the target is never looked up.
+            const area = camera === this._eye && plane.area ? this.pixelArea(plane.area, width, height) : null;
+            if (area && area.w <= 0) { seen.push({ slot, texture: target.texture, matrix, uv: area.uv }); continue; }
             const previous = renderer.getRenderTarget();
             // A lake is left out of its own picture: its wave crests stand above the level the glass
             // clips at, and their undersides showed in the reflection as a grid of dark blots.
             const own = plane.object && plane.object.userData && plane.object.userData.water && plane.object.visible ? [plane.object] : [];
             for (const object of own) object.visible = false;
             for (const object of hidden) object.visible = false;
+            if (area) this.narrow(out, target, area, width, height);
             renderer.setRenderTarget(target);
             try { Reactor3D.withSkyAt(scene, out.position, () => renderer.render(scene, out)); }
-            finally { for (const object of hidden) object.visible = true; for (const object of own) object.visible = true; renderer.setRenderTarget(previous); }
-            seen.push({ slot, texture: target.texture, matrix });
+            finally {
+                for (const object of hidden) object.visible = true; for (const object of own) object.visible = true;
+                if (area) this.widen(out, target, width, height);
+                renderer.setRenderTarget(previous);
+            }
+            seen.push({ slot, texture: target.texture, matrix, uv: area ? area.uv : null });
         }
         return seen;
     },
@@ -2557,6 +2768,8 @@ Reactor3D.Mirrors = {
         const height = Math.max(16, Math.round(Math.min(1080, size.y) * (Reactor3D.MIRROR_AT_VIEW_SCALE !== false && scale > 0 && scale < 1 ? scale : 1))), width = Math.round(height * (camera.aspect || size.x / size.y));
         const shadowSentinel = Reactor3D.Shadows && Reactor3D.Shadows._sentinel;
         const hide = (hidden || []).concat(shadowSentinel ? [shadowSentinel] : []).filter(object => object && object.visible);
+        this._eye = camera;
+        for (const plane of planes) plane.area = this.waterArea(plane, camera);
         this._rendering = true;
         let seen;
         try {
@@ -2585,6 +2798,7 @@ Reactor3D.Mirrors = {
             u["rrMirrorPlane" + entry.slot].value.set(plane.normal.x, plane.normal.y, plane.normal.z, plane.d);
             u["rrMirrorMatrix" + entry.slot].value.copy(entry.matrix);
             u["rrMirrorMap" + entry.slot].value = entry.texture;
+            if (entry.uv) u["rrMirrorArea" + entry.slot].value.copy(entry.uv);
         }
     }
 };

@@ -1494,10 +1494,15 @@ Graphics.FramePacing = {
     }
 };
 
+/** The screen refreshes ticked so far: work that may wait for a refresh with no update reads it. */
+Graphics.refreshCount = 0;
+
 Graphics._onTick = function(deltaTime) {
     const prof = ReactorProfiler._active ? ReactorProfiler : null;
     if (prof) prof.frameBegin();
     this._fpsCounter.startTick();
+    // Counts the screen's refreshes (a refresh may hold no update, or several).
+    this.refreshCount++;
     // The quality levels watch what each frame of a 3D map costs (reactor_3d.js, `Reactor3D.Quality`).
     const quality = typeof Reactor3D !== "undefined" && Reactor3D.Quality ? Reactor3D.Quality : null;
     if (quality) quality.tickBegin(performance.now());

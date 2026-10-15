@@ -97,10 +97,12 @@ test('the capture is taken after the shadow maps, in the game and in the editor'
     const core = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_3d.js'), 'utf8');
     assert.match(core, /Reactor3D\.prepareWorldFrame\(this\._renderer, mapScene, scene, this\._camera, undefined, this\.upscaled\(\) \? this\._scale : 1\);/, 'the map\'s frame step');
     assert.match(core, /if \(shadows !== false && mapScene\.renderShadows\) mapScene\.renderShadows\([^\n]+\n\s*Reactor3D\.prepareReflections\(renderer, mapScene, scene, camera, scale\);/, 'the capture and the mirrors after the shadow maps');
-    assert.match(core, /Reactor3D\.prepareReflections = function[\s\S]{0,1100}renderer\.resetState\(\);/, 'three forgets the texture units PIXI unbound before the capture and the mirrors draw');
-    assert.match(core, /const probe = mapScene\.reflectionProbe \? mapScene\.reflectionProbe\(camera\) : null;\n\s*if \(probe\) Reactor3D\.Reflections\.update\(renderer, scene, probe\.position, probe\.hidden, probe\.toward, probe\.radius, probe\.reach\);/);
+    assert.match(core, /Reactor3D\.prepareReflections = function[\s\S]{0,1900}if \(capture \|\| mirrors\.length\) renderer\.resetState\(\);/, 'three forgets the texture units PIXI unbound before the capture and the mirrors draw');
+    assert.match(core, /const probe = mapScene\.reflectionProbe \? mapScene\.reflectionProbe\(camera\) : null;\n\s*if \(probe\) F\.update\(renderer, scene, probe\.position, probe\.hidden, probe\.toward, probe\.radius, probe\.reach\);/);
+    // A face left for a refresh with no update is taken the same way, after three forgets its state.
+    assert.match(fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_3d_lighting.js'), 'utf8'), /const probe = mapScene\.reflectionProbe\(owed\.camera\);\n\s*if \(!probe\) return;\n\s*renderer\.resetState\(\);\n\s*this\.update\(renderer, scene, probe\.position, probe\.hidden, probe\.toward, probe\.radius, probe\.reach\);/);
     const editor = fs.readFileSync(path.join(repoRoot, 'editor', 'src', 'MapEditor3D.js'), 'utf8');
-    assert.match(editor, /Reactor3D\.Reflections\.update\(this\.renderer, scene, this\.camera\.position, this\.mapScene\.reflectionHidden\?\.\(\)\)/);
+    assert.match(editor, /reflections\.update\(this\.renderer, scene, this\.camera\.position, this\.mapScene\.reflectionHidden\?\.\(\)\)/);
 });
 
 test('nothing reflects until its model says so; the capture leaves out the shadow sentinel and the characters', () => {
@@ -364,7 +366,11 @@ test('the reflection capture waits while nothing shiny is on screen, and goes on
     F._frame++;
     assert.equal(F.idle(), true);
     const core = require('./helpers/runtime-3d-source.cjs').source3D();
-    assert.match(core, /if \(reflections\) Reactor3D\.Reflections\._frame\+\+;\n\s+const capture = reflections && !Reactor3D\.Reflections\.idle\(\);\n\s+if \(capture \|\| mirrors\.length\) renderer\.resetState\(\);/);
+    assert.match(core, /if \(reflections\) F\._frame\+\+;\n\s+const wanted = reflections && !F\.idle\(\);/);
+    assert.match(core, /const capture = wanted && \(/);
+    // The editor waits the same way.
+    const editor = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'MapEditor3D.js'), 'utf8');
+    assert.match(editor, /if \(reflections\.enabled\(\)\) reflections\._frame\+\+;\n[^\n]*\n[^\n]*\n\s*if \(!reflections\.idle\(\) &&/);
     F.reset();
 });
 
