@@ -515,7 +515,7 @@ test('both viewports render the maps once a frame before the first pass, and the
     const editor = read('editor/src/MapEditor3D.js');
     // The world matrices once, then the shadow rows and the volume, before any pass.
     assert.match(editor, /lightingManager\?\.feed3D\?\.\(now\);\n\s*const scene = this\.mapScene\.scene\(\);\n[\s\S]{0,400}?scene\.updateMatrixWorld\(\);\n\s*const matrixAuto = scene\.matrixWorldAutoUpdate;\n\s*scene\.matrixWorldAutoUpdate = false;\n\s*try \{\n\s*this\.renderFrame\(scene\);/);
-    assert.match(editor, /renderFrame\(scene\) \{\n[\s\S]{0,300}?this\.mapScene\.renderShadows\?\.\(this\.renderer, this\.currentMap\(\)\);\n[\s\S]{0,300}?Reactor3D\.LightVolume\.frame\(this\.renderer, this\.mapScene, this\.currentMap\(\)\);/);
+    assert.match(editor, /renderFrame\(scene\) \{\n[\s\S]{0,600}?this\.mapScene\.renderShadows\?\.\(this\.renderer, this\.currentMap\(\)\);\n[\s\S]{0,300}?Reactor3D\.LightVolume\.frame\(this\.renderer, this\.mapScene, this\.currentMap\(\)\);/);
     assert.match(editor, /if \(sprite && Reactor3D\.Shadows\) Reactor3D\.Shadows\.markCaster\(mesh, false\);/);
     // Marked once the animation is prepared (a rig can replace the meshes),
     // and a model that moves by its rules alone is a moving caster too.

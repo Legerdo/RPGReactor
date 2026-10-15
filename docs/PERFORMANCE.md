@@ -1,5 +1,20 @@
 # Runtime performance checks
 
+## Draw batches, per-pixel light on a discrete GPU, the light volume's steps (2026-10-15, runtime 20261015.2)
+
+Same laptop, panel and walk as the section below. After that round the game still held only 72 to 90 fps there, main-thread bound: about 600 draw calls a frame across the passes, three's cost per draw (its walk, the program, the uniforms) rather than the GPU's. A census of every draw by pass: the main view (both halves of the quarter-size light) and the water mirror about 350, the capture's face 155, the shadow rows 47; most of them static map pieces and plants, one mesh per material per 16-cell chunk.
+
+| Change | Switch | Result |
+| --- | --- | --- |
+| Pieces and plants are still laid and edited a 16-cell chunk at a time, and drawn a 64-cell region at a time: a region's chunks of one material copied end to end into one mesh in the same group, the chunks hidden and kept (the editor picks them, the ghosts share their geometry, an edit relays one), the plants' instances merged in order of their thinning share. Remade from the arrays when a chunk under it comes or goes; looked at only when a chunk was laid or a group's count moved, and once a second. A finish, a textured see-through and an animated part keep their own draws; glass merges (one colour, no picture, no depth written: its layers blend alike in any order). The region's arrays are let go of once uploaded and remade from the chunks if the context comes back. | `Reactor3D.DrawBatches.enabled` (`REGION`, `FREE_ARRAYS`) | Draws a frame 639 → 298; frame median 13.9 → 7.0 ms; frozen frames on maps 5, 9, 11 and 12: 0 channels differ. A 64-cell build chunk measured the same draws but meshed rocks and relaid edits 16 times larger; 128 drew more than it saved |
+| The quarter-size light only on the weak tier: a discrete GPU lights per pixel in one draw, faster than the split's second walk and draw cost the CPU | `Reactor3D.HalfLight.WEAK_ONLY` | Standing still: refresh with an update 12.3 → 10.3 ms, frame median 13.8 → 6.9 ms, draws 259 → 167; GPU 3.0 → about 4 ms |
+| The light volume stays where it was laid until the focus strays 8 tiles (it was laid again for every tile walked, three new 8 MB targets each time); a retired volume's targets are filled again by the next of its size | `Reactor3D.LightVolume.REGION_STEP` | Bakes in 5 s of walking 283 → 48; the grid is the world's, so no sample moves |
+| PIXI v8 asks every window each frame: a hidden one, and a closed one once laid out closed, are passed over | `Window.SKIP_UNSEEN_LAYOUT` | 0.28 ms a refresh on the map |
+
+All together, North Haven walk at 144 Hz: frame median / p95 13.9 / 20.8 → 6.9 / 7.2 ms, draws 601 → 181, refresh with an update 13.3 → 8.7 ms (median). With the profiler on, 1,665 frames: median 6.9, p95 7.1, no spike, 1.7 ms idle a frame. Weak tier forced on the same machine (`Reactor3D.gpuTierOverride`): draws 505 → 122, frame p95 14.0 → 7.2 ms. Editor orbit: 12.1 → 7.9 ms a draw, frame median 13.9 → 7.0 ms. Smaller maps (1, 12) were at 144 Hz before and stay there with fewer draws.
+
+Measured and left alone: hiding model branches with nothing drawn in them (six skeletons, 290 nodes) from the passes' walks, no difference; marking static chunks so three's matrix pass skips them (this three stops their world matrices too, and the saving is about 0.1 ms). Seen and not changed: chunk and region meshes stand at the map's corner with their vertices in world space, so the shadow rows' face mask (a caster's position and span) never counts map pieces; that was so before this round.
+
 ## Reflections and the editor's 3D view on a laptop (2026-10-15, runtime 20261015.1)
 
 The owner felt jitter in 3D, in the game and the editor. Measured on the owner's Windows laptop, i5-10500H with the RTX 3060 (full tier), its panel at 144 Hz, 1920x1080 game window; the NW harnesses ran on the desktop with the owner's leave. North Haven walking the village square loop (`--map=5,83,65`), runs interleaved, medians of rounds.

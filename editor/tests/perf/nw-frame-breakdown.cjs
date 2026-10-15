@@ -269,7 +269,8 @@ const FROZEN = `
         const variant = F.variants[step];
         variant.on();
         try {
-            for (let i = 0; i < 10; i++) { draw(); await sleep(); }
+            // "warmFrames" on a variant: more frames before the picture, for one whose programs compile afresh.
+            for (let i = 0; i < (variant.warmFrames || 10); i++) { draw(); await sleep(); }
             draw();
             const image = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
             const was = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);

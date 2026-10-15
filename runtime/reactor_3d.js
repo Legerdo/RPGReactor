@@ -3012,6 +3012,8 @@ Reactor3D.prepareReflections = function(renderer, mapScene, scene, camera, scale
  * `prepareReflections` takes it.
  */
 Reactor3D.prepareWorldFrame = function(renderer, mapScene, scene, camera, shadows, scale) {
+    // Chunks laid or taken away since the last frame, into their regions' draws (reactor_3d_world.js).
+    if (Reactor3D.DrawBatches) Reactor3D.DrawBatches.flush(renderer);
     if (shadows !== false && mapScene.renderShadows) mapScene.renderShadows(renderer, (shadows && shadows.mapData) || null, shadows || undefined);
     Reactor3D.prepareReflections(renderer, mapScene, scene, camera, scale);
 };

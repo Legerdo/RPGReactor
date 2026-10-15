@@ -12,6 +12,8 @@ require(path.join(root, 'runtime', 'libs', 'three.js'));
 const THREE = global.THREE;
 const Reactor3D = require(path.join(root, 'runtime', 'reactor_3d.js'));
 require(path.join(root, 'runtime', 'reactor_3d_lighting.js'));
+// The split as an integrated GPU draws it (a discrete one lights per pixel: HalfLight.WEAK_ONLY).
+Reactor3D.HalfLight.WEAK_ONLY = false;
 require(path.join(root, 'runtime', 'reactor_3d_models.js'));
 require(path.join(root, 'runtime', 'reactor_3d_doors.js'));
 

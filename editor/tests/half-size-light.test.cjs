@@ -11,6 +11,8 @@ require(path.join(root, 'runtime', 'libs', 'three.js'));
 const THREE = global.THREE;
 const Reactor3D = require(path.join(root, 'runtime', 'reactor_3d.js'));
 require(path.join(root, 'runtime', 'reactor_3d_lighting.js'));
+// The split as an integrated GPU draws it (a discrete one lights per pixel: HalfLight.WEAK_ONLY).
+Reactor3D.HalfLight.WEAK_ONLY = false;
 const HL = Reactor3D.HalfLight, HH = Reactor3D.HalfHaze;
 
 const lit = options => Reactor3D.litMaterial(new THREE.MeshBasicMaterial(options));
@@ -311,4 +313,30 @@ test('an upscaled pass is enlarged as PIXI composites it: the same filter on the
         viewport._scale = 1;
         assert.ok(viewport.passSprite('below') instanceof global.PIXI.Sprite, 'at full size there is nothing to enlarge');
     } finally { global.PIXI = saved; }
+});
+
+test('the split is drawn on an integrated GPU only: a discrete one lights per pixel in one draw', () => {
+    const scene = new THREE.Scene();
+    scene.add(new THREE.Mesh(new THREE.PlaneGeometry(), lit({})));
+    const target = { depthTexture: new THREE.DepthTexture(4, 4), width: 4, height: 4, samples: 0 };
+    const saved = Reactor3D.LightVolume.supported, tier = Reactor3D.gpuTierOverride;
+    Reactor3D.LightVolume.supported = () => true;
+    try {
+        HL.WEAK_ONLY = true;
+        Reactor3D.gpuTierOverride = 'full';
+        assert.equal(HL.begin({}, scene, target), null, 'a discrete GPU draws the pass whole');
+        Reactor3D.gpuTierOverride = 'weak';
+        const split = HL.begin({}, scene, target);
+        assert.ok(split, 'an integrated GPU splits it');
+        HL.restore(split);
+        HL.WEAK_ONLY = false;
+        Reactor3D.gpuTierOverride = 'full';
+        const forced = HL.begin({}, scene, target);
+        assert.ok(forced, 'WEAK_ONLY = false splits on every tier');
+        HL.restore(forced);
+    } finally {
+        HL.WEAK_ONLY = false;
+        Reactor3D.gpuTierOverride = tier;
+        Reactor3D.LightVolume.supported = saved;
+    }
 });

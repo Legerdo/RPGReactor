@@ -5812,6 +5812,15 @@ Reactor3D.LightVolume = {
     BELOW: 4,
     HEIGHT: 32,
     MAX_SIDE: 128,
+    /**
+     * How far, in tiles, the focus may stray from where the volume was
+     * centred before it is laid again round it. It was laid again for every
+     * tile walked (its key held its corner): a walk through North Haven
+     * rebaked it without end, 24 draws a frame, and each rebake made three
+     * new 8 MB targets and threw three away. The grid is the world's, so
+     * holding it still shifts no sample. 0 follows tile by tile, as before.
+     */
+    REGION_STEP: 8,
     STABLE_FRAMES: 30,
     LAYERS_PER_FRAME: 8,
     FLICKER_SLOTS: 4,
@@ -6105,9 +6114,29 @@ Reactor3D.LightVolume = {
         return this._supported;
     },
 
+    /** Whether two regions are the same size and height and their corners within `step` tiles. */
+    near(a, b, step) {
+        return a.dims[0] === b.dims[0] && a.dims[1] === b.dims[1] && a.dims[2] === b.dims[2] && a.origin[1] === b.origin[1]
+            && Math.abs(a.origin[0] - b.origin[0]) < step && Math.abs(a.origin[2] - b.origin[2]) < step;
+    },
+
+    /** A volume no longer shown: its targets kept for the next one of its size (`makeVolume`), the last kept let go of. */
+    retire(volume) {
+        if (!volume) return;
+        if (this._spare) this.dispose(this._spare);
+        this._spare = volume;
+    },
+    _spare: null,
+
     /** A volume being filled or shown: two 3D targets, its region and the lights it holds. */
     makeVolume(region, want) {
         const [nx, ny, nz] = region.dims;
+        // The targets of one retired at this size, filled again layer by layer (each layer is drawn whole).
+        const spare = this._spare;
+        if (spare && spare.static.width === nx && spare.static.height === ny && spare.static.depth === nz) {
+            this._spare = null;
+            return { static: spare.static, flicker: spare.flicker, pulse: spare.pulse, region, want, layer: 0, ready: false };
+        }
         const make = () => {
             const target = new THREE.WebGL3DRenderTarget(nx, ny, nz, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false });
             target.texture.minFilter = target.texture.magFilter = THREE.LinearFilter;
@@ -6126,7 +6155,8 @@ Reactor3D.LightVolume = {
     },
 
     reset() {
-        this.dispose(this._front); this.dispose(this._back);
+        this.dispose(this._front); this.dispose(this._back); this.dispose(this._spare);
+        this._spare = null;
         if (this._dynAtlas) { this._dynAtlas.dispose(); this._dynAtlas = null; }
         this._dynSig = null; this._dynAtlasBaked = null;
         this._front = this._back = null;
@@ -6536,8 +6566,11 @@ Reactor3D.LightVolume = {
         // Glowing water is light this volume holds too: the volume then stands where that water can be in it.
         const water = Reactor3D.WaterLight.describe(mapData);
         if (water) focus = Reactor3D.WaterLight.focus(focus, mapData);
-        const region = this.region(mapData, focus);
+        let region = this.region(mapData, focus);
         if (water) Reactor3D.WaterLight.fit(region, water, focus);
+        // The volume shown (or being laid) stays where it is while the focus is near where it was laid.
+        const laid = this._back ? this._back.region : this._front ? this._front.region : null;
+        if (laid && this.REGION_STEP > 0 && this.near(laid, region, this.REGION_STEP)) region = laid;
         const regionKey = region.origin.join(",") + "/" + region.dims.join(",");
         const base = want.signature + "/" + regionKey;
         let signature = base + (water ? "/" + water.signature : "");
@@ -6547,7 +6580,7 @@ Reactor3D.LightVolume = {
         const hasLights = want.statics.length + want.flickers.length + (want.pulses || []).length > 0 || !!water;
         if (!(this._front && this._front.signature === signature) && hasLights) {
             if (!this._back || this._back.signature !== signature) {
-                this.dispose(this._back);
+                this.retire(this._back);
                 this._back = this.makeVolume(region, want);
                 this._back.signature = signature;
                 this._back.base = base;
@@ -6555,7 +6588,7 @@ Reactor3D.LightVolume = {
                 this._back.waterMap = water ? mapData : null;
             }
             if (this.bakeSome(renderer, this._back)) {
-                this.dispose(this._front);
+                this.retire(this._front);
                 this._front = this._back;
                 this._back = null;
             }
@@ -7250,6 +7283,15 @@ const HALF_LIGHT_SRGB = [
 ].join("\n");
 Reactor3D.HalfLight = {
     enabled: true,
+    /**
+     * Only where the light's cost is the GPU's: an integrated GPU (the weak
+     * tier), where the split saves 3 to 8 ms a frame. A discrete GPU draws the
+     * light per pixel faster than the split's bookkeeping costs the CPU (its
+     * second walk and draw of the scene, the twins): North Haven at 144 Hz on
+     * an RTX 3060 laptop, 12.3 to 10.3 ms a refresh with an update, frame
+     * median 13.8 to 6.9 ms, the GPU 3 to about 4 ms. False splits on every tier.
+     */
+    WEAK_ONLY: true,
     // A quarter each way: measured beside the full-size light, only the rim
     // of a model against a much brighter or darker ground tells them apart.
     SCALE: 0.25,
@@ -7314,7 +7356,7 @@ Reactor3D.HalfLight = {
      * the walk after this one passes a hidden subtree over in one step.
      */
     begin(renderer, scene, target) {
-        if (!this.enabled || !target || !target.depthTexture || target.samples > 0 || !scene || !scene.isScene) return null;
+        if (!this.enabled || (this.WEAK_ONLY && Reactor3D.tier() !== "weak") || !target || !target.depthTexture || target.samples > 0 || !scene || !scene.isScene) return null;
         if (!Reactor3D.LightVolume || !Reactor3D.LightVolume.supported(renderer)) return null;
         const walk = Reactor3D.SceneWalk, held = walk.hold(scene);
         try {

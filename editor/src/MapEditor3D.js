@@ -6360,6 +6360,8 @@ class MapEditor3D {
 
     /** One frame's passes, with the world matrices already current (see render). */
     renderFrame(scene) {
+        // Chunks laid or taken away since the last frame, into their regions' draws (Reactor3D.DrawBatches).
+        if (typeof Reactor3D !== 'undefined' && Reactor3D.DrawBatches) Reactor3D.DrawBatches.flush(this.renderer);
         // The shadow maps, before any pass hides a group: the same step the
         // game's viewport takes, from the same lights the feed just synced.
         this.mapScene.renderShadows?.(this.renderer, this.currentMap());

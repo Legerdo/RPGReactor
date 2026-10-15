@@ -3473,6 +3473,7 @@ Reactor3D.MapScene.prototype.addPieceChunkMesh = function(key, name, surface, ge
     this._meshes.push(mesh);
     this._pieceMeshes.push(mesh);
     if (Reactor3D.Shadows && Reactor3D.Shadows.markCaster) Reactor3D.Shadows.markCaster(mesh, false);
+    if (Reactor3D.DrawBatches) Reactor3D.DrawBatches.add(this, mesh, Math.floor(key / 65536) * Reactor3D.PIECE_CHUNK, (key % 65536) * Reactor3D.PIECE_CHUNK);
     // The chunk again for the ghost pass: the same geometry, drawn translucent where a wall is in the way, shown only while a cut is on.
     if (!Reactor3D.materialLook(name).glass) {
         const ghost = new THREE.Mesh(geometry, this.pieceGhostMaterial(name, load));
@@ -3487,6 +3488,381 @@ Reactor3D.MapScene.prototype.addPieceChunkMesh = function(key, name, surface, ge
     }
     return mesh;
 };
+
+//-----------------------------------------------------------------------------
+// Draw batches
+//
+// The pieces are laid and edited a chunk at a time (PIECE_CHUNK cells, a mesh
+// per material), and the plants likewise (FOLIAGE_CHUNK, a mesh per layer).
+// Drawn as laid, North Haven was some 600 draw calls a frame across its
+// passes, and three's cost per draw (its walk, the program, the uniforms), not
+// the GPU, set the frame: a 144 Hz laptop held 72 fps. Here the chunk meshes of
+// one material in a REGION-cell square are drawn as one, their arrays copied
+// end to end into a mesh of the region standing in the same group. The chunks
+// stay where they are, hidden (`userData.rrBatchedIn`), for what reads them:
+// the editor's picks, the ghosts sharing their geometry, the mirrors, the edit
+// that lays a chunk again. A chunk laid or taken away makes its region's mesh
+// again from the arrays, with no meshing, before the next frame draws
+// (`flush`, from prepareWorldFrame and the editor's frame). A mirror or shiny
+// finish, glass and anything see-through keep their own draws.
+// North Haven at 144 Hz: 605 to 211 draws a frame, frame median 13.9 to 6.9 ms.
+
+Reactor3D.DrawBatches = {
+    /** The kill switch: false draws every chunk as laid (the batches are taken apart on the next frame). */
+    enabled: true,
+    /** The side of a region, in cells: a multiple of PIECE_CHUNK and FOLIAGE_CHUNK. 128 drew more off-screen than it saved. */
+    REGION: 64,
+    /** The scenes holding chunk meshes that may be batched. */
+    _scenes: new Set(),
+    _serial: 0,
+
+    /**
+     * `mesh`, a chunk of `mapScene` whose corner is cell (x, y), may be drawn in
+     * its region's batch. `sort` names an instanced attribute and component the
+     * instances are kept in order by (the foliage's thinning share).
+     */
+    add(mapScene, mesh, x, y, sort) {
+        if (!mapScene || !mesh || !mesh.userData) return;
+        const state = mapScene._drawBatches || (mapScene._drawBatches = { batches: new Map(), fresh: [], counts: new Map(), tick: 0 });
+        mesh.userData.rrBatchCell = { x, y, sort: sort || null };
+        state.fresh.push(mesh);
+        this._scenes.add(mapScene);
+    },
+
+    /** Whether a chunk mesh can be drawn with others of its kind. */
+    eligible(mesh) {
+        if (!mesh.isMesh || mesh.isInstancedMesh || mesh.isSkinnedMesh || mesh.isBatchedMesh) return false;
+        const material = mesh.material, geometry = mesh.geometry;
+        if (!material || Array.isArray(material) || !geometry || !geometry.attributes.position) return false;
+        // See-through only when its layers blend alike in any order (glass: one colour, no picture, no depth
+        // written), so its chunks drawn as one in any order look as they did sorted one by one.
+        if (material.transparent && (material.depthWrite || material.map || material.blending !== THREE.NormalBlending || !mesh.userData.pieces)) return false;
+        // A mirror or shiny finish is found and measured as its own mesh (mirrorCandidates, the reflection holders).
+        if (mesh.userData.pieceFinish || (Reactor3D.shineOf && Reactor3D.shineOf(material))) return false;
+        if (geometry.groups.length || geometry.drawRange.start !== 0 || geometry.drawRange.count !== Infinity) return false;
+        for (const k in geometry.morphAttributes) if (geometry.morphAttributes[k] && geometry.morphAttributes[k].length) return false;
+        for (const k in geometry.attributes) if (geometry.attributes[k].isInterleavedBufferAttribute) return false;
+        if (mesh.matrixAutoUpdate || !mesh.matrix.equals(this._identity || (this._identity = new THREE.Matrix4()))) return false;
+        if (geometry.isInstancedBufferGeometry) {
+            const sort = mesh.userData.rrBatchCell && mesh.userData.rrBatchCell.sort;
+            if (!sort || !geometry.attributes[sort.name] || !geometry.attributes[sort.name].isInstancedBufferAttribute) return false;
+        }
+        return true;
+    },
+
+    /** What must match for chunk meshes to share a draw: group, region, material, order, layers, shadow, hooks and array layout. */
+    keyOf(mesh) {
+        const cell = mesh.userData.rrBatchCell, region = this.REGION;
+        const geometry = mesh.geometry;
+        let layout = geometry.isInstancedBufferGeometry ? "i" : geometry.index ? "x" : "n";
+        for (const name of Object.keys(geometry.attributes).sort()) {
+            const a = geometry.attributes[name];
+            layout += "|" + name + ":" + a.itemSize + (a.normalized ? "n" : "") + (a.array && a.array.constructor.name)
+                // An instanced geometry's shared template is the same object in every chunk of its kind.
+                + (geometry.isInstancedBufferGeometry && !a.isInstancedBufferAttribute ? "#" + this.idOf(a) : "");
+        }
+        if (geometry.isInstancedBufferGeometry && geometry.index) layout += "|index#" + this.idOf(geometry.index);
+        const hook = mesh.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender ? this.idOf(mesh.onBeforeRender) : 0;
+        return mesh.parent.id + "/" + Math.floor(cell.x / region) + "," + Math.floor(cell.y / region) + "/" + mesh.material.id + "/" + mesh.renderOrder
+            + "/" + mesh.layers.mask + "/" + (mesh.castShadow ? 1 : 0) + (mesh.receiveShadow ? 1 : 0) + "/" + mesh.frustumCulled + "/" + hook + "/" + layout;
+    },
+    idOf(object) {
+        if (!this._ids) this._ids = new WeakMap();
+        let id = this._ids.get(object);
+        if (id === undefined) this._ids.set(object, id = ++this._serial);
+        return id;
+    },
+
+    /**
+     * A batch's own arrays are let go of once the GPU has them (the chunks
+     * keep theirs, and a batch is made again from those): drawn from the GPU's
+     * copy alone, the batches cost no memory twice. A context that comes back
+     * after a loss has none of them, so every batch is made again before the
+     * next draw (`watch`). False keeps the arrays.
+     */
+    FREE_ARRAYS: true,
+
+    /**
+     * Every scene's batches brought up to date with its chunks: before a
+     * frame's first draw. `renderer` is the one about to draw them.
+     */
+    flush(renderer) {
+        if (renderer) this.watch(renderer);
+        if (this._restored) {
+            this._restored = false;
+            for (const mapScene of this._scenes) {
+                const state = mapScene._drawBatches;
+                if (state) { for (const batch of state.batches.values()) batch.dirty = true; state.tick = -1; }
+            }
+        }
+        for (const mapScene of this._scenes) this.flushScene(mapScene);
+    },
+
+    /** A renderer's canvas watched for its context coming back. */
+    watch(renderer) {
+        const canvas = renderer.domElement;
+        if (!canvas || typeof canvas.addEventListener !== "function" || canvas.__rrBatchesWatched) return;
+        canvas.__rrBatchesWatched = true;
+        canvas.addEventListener("webglcontextrestored", () => { this._restored = true; });
+    },
+    _restored: false,
+
+    /** An attribute's `onUploadCallback`: its array let go of, the GPU's copy kept. */
+    _dropArray() {
+        this.array = null;
+    },
+
+    flushScene(mapScene) {
+        const state = mapScene._drawBatches;
+        if (!state || !mapScene._scene) { this.release(mapScene, true); return; }
+        if (!this.enabled || typeof THREE === "undefined") {
+            if (state.batches.size) this.release(mapScene, false);
+            return;
+        }
+        // Looked over only when something may have changed: chunks laid, a group holding batches gained or
+        // lost a child (a chunk taken away, a batch's mesh removed with the plants), and once a second
+        // whatever happened (a chunk given another material). Looking every frame cost 0.2 ms a refresh.
+        if (!state.fresh.length && ++state.tick % this.CHECK_EVERY !== 0 && !this.groupsChanged(state)) return;
+        // A chunk taken away (an edit, the plants laid again) or given another material leaves its batch.
+        for (const batch of state.batches.values()) {
+            const members = batch.members;
+            let kept = 0;
+            for (let i = 0; i < members.length; i++) {
+                const m = members[i];
+                if (m.parent === batch.parent && m.material === batch.material && m.userData.rrBatchedIn === batch) { members[kept++] = m; continue; }
+                this.leave(m, batch);
+                batch.dirty = true;
+                // Still standing (a new material): it may join another batch.
+                if (m.parent) state.fresh.push(m);
+            }
+            members.length = kept;
+            if (batch.mesh && batch.mesh.parent !== batch.parent) batch.dirty = true;
+        }
+        if (state.fresh.length) {
+            const fresh = state.fresh;
+            state.fresh = [];
+            for (const m of fresh) {
+                if (!m.parent || m.userData.rrBatchedIn || !this.eligible(m)) continue;
+                const key = this.keyOf(m);
+                let batch = state.batches.get(key);
+                if (!batch) state.batches.set(key, batch = { key, parent: m.parent, material: m.material, members: [], mesh: null, dirty: true });
+                batch.members.push(m);
+                m.userData.rrBatchedIn = batch;
+                batch.dirty = true;
+            }
+        }
+        let made = 0;
+        for (const [key, batch] of state.batches) {
+            if (!batch.dirty) continue;
+            batch.dirty = false;
+            const hidden = !!batch.mesh;
+            this.drop(batch);
+            if (!batch.members.length) { state.batches.delete(key); continue; }
+            // One chunk alone in its region is drawn as itself, and stays listed for a neighbour to join.
+            if (batch.members.length < 2) { if (hidden) this.reveal(batch.members[0]); continue; }
+            this.build(batch);
+            made++;
+        }
+        if (made && Reactor3D.Shadows && Reactor3D.Shadows.invalidate) Reactor3D.Shadows.invalidate();
+        if (made) state.builds = (state.builds || 0) + made;
+        state.counts.clear();
+        for (const batch of state.batches.values()) state.counts.set(batch.parent, batch.parent.children.length);
+    },
+
+    /** Refreshes between looks at a scene's batches when nothing seemed to change. */
+    CHECK_EVERY: 60,
+
+    /** Whether a group holding batches has another number of children than at the last look, or has left its scene. */
+    groupsChanged(state) {
+        for (const [group, count] of state.counts) if (group.children.length !== count || !group.parent) return true;
+        return false;
+    },
+
+    /** A batch's mesh made from its members' arrays, the members hidden. */
+    build(batch) {
+        const members = batch.members, first = members[0];
+        const geometry = first.geometry.isInstancedBufferGeometry ? this.mergeInstanced(members) : this.merge(members);
+        if (this.FREE_ARRAYS) {
+            // Only the batch's own arrays: an instanced template is the chunks' shared one.
+            for (const name in geometry.attributes) {
+                const a = geometry.attributes[name];
+                if (!first.geometry.isInstancedBufferGeometry || a.isInstancedBufferAttribute) a.onUploadCallback = this._dropArray;
+            }
+            if (geometry.index && !first.geometry.isInstancedBufferGeometry) geometry.index.onUploadCallback = this._dropArray;
+        }
+        const mesh = new THREE.Mesh(geometry, batch.material);
+        mesh.name = first.name || "batch";
+        mesh.renderOrder = first.renderOrder;
+        mesh.layers.mask = first.layers.mask;
+        mesh.castShadow = first.castShadow;
+        mesh.receiveShadow = first.receiveShadow;
+        mesh.frustumCulled = first.frustumCulled;
+        if (first.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender) mesh.onBeforeRender = first.onBeforeRender;
+        // Picks, sight lines and the editor's ray find the chunks, never their copy.
+        mesh.raycast = function() {};
+        mesh.userData.rrBatch = batch;
+        if (first.userData.pieces) { mesh.userData.pieces = true; mesh.userData.pieceMaterial = first.userData.pieceMaterial; }
+        if (first.userData.rrFoliageChunk) {
+            // The region's footprint, for the distance cull and the thinning (key -1: no chunk's, so an edit's removal by key passes it by).
+            const info = { count: geometry.instanceCount, x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity, y0: Infinity, y1: -Infinity, layer: first.userData.rrFoliageChunk.layer, key: -1 };
+            for (const m of members) {
+                const c = m.userData.rrFoliageChunk;
+                info.x0 = Math.min(info.x0, c.x0); info.z0 = Math.min(info.z0, c.z0); info.x1 = Math.max(info.x1, c.x1); info.z1 = Math.max(info.z1, c.z1);
+                info.y0 = Math.min(info.y0, c.y0); info.y1 = Math.max(info.y1, c.y1);
+            }
+            mesh.userData.rrFoliageChunk = info;
+        }
+        mesh.matrixAutoUpdate = false;
+        batch.parent.add(mesh);
+        mesh.updateMatrixWorld(true);
+        batch.mesh = mesh;
+        const S = Reactor3D.Shadows;
+        const casts = first.userData.reactorShadowCaster === "static" && S && S.markCaster;
+        if (casts) S.markCaster(mesh, false);
+        for (const m of members) {
+            m.visible = false;
+            if (casts && S._static) S._static.delete(m);
+        }
+    },
+
+    /** A batch's mesh taken out and let go of; the members stay hidden until `show`. */
+    drop(batch) {
+        const mesh = batch.mesh;
+        if (!mesh) return;
+        batch.mesh = null;
+        if (mesh.parent) mesh.parent.remove(mesh);
+        if (Reactor3D.Shadows && Reactor3D.Shadows._static) Reactor3D.Shadows._static.delete(mesh);
+        mesh.geometry.dispose();
+    },
+
+    /** A chunk out of its batch, drawn as itself again if the batch's mesh stood for it. */
+    leave(m, batch) {
+        if (m.userData.rrBatchedIn === batch) delete m.userData.rrBatchedIn;
+        if (batch.mesh) this.reveal(m);
+    },
+
+    /** A chunk drawn as itself, and casting as itself. */
+    reveal(m) {
+        m.visible = true;
+        const S = Reactor3D.Shadows;
+        if (m.parent && m.userData.reactorShadowCaster === "static" && S && S._static) { S._static.add(m); if (S.invalidate) S.invalidate(); }
+    },
+
+    /** Every batch of a scene taken apart: its chunks drawn as themselves (`forget`: the scene is going, and nothing is kept). */
+    release(mapScene, forget) {
+        const state = mapScene && mapScene._drawBatches;
+        if (state) {
+            for (const batch of state.batches.values()) {
+                for (const m of batch.members) { this.leave(m, batch); if (!forget && m.parent) state.fresh.push(m); }
+                this.drop(batch);
+            }
+            state.batches.clear();
+            if (forget) state.fresh.length = 0;
+        }
+        if (forget) { if (mapScene) mapScene._drawBatches = null; this._scenes.delete(mapScene); }
+    },
+
+    /** Plain meshes end to end: each attribute copied, an index offset by the vertices before it. */
+    merge(members) {
+        const first = members[0].geometry, names = Object.keys(first.attributes);
+        let vertices = 0, indices = 0;
+        for (const m of members) { vertices += m.geometry.attributes.position.count; if (first.index) indices += m.geometry.index.count; }
+        const geometry = new THREE.BufferGeometry();
+        for (const name of names) {
+            const a = first.attributes[name];
+            const array = new a.array.constructor(vertices * a.itemSize);
+            let at = 0;
+            for (const m of members) { const src = m.geometry.attributes[name].array; array.set(src.length === m.geometry.attributes[name].count * a.itemSize ? src : src.subarray(0, m.geometry.attributes[name].count * a.itemSize), at); at += m.geometry.attributes[name].count * a.itemSize; }
+            geometry.setAttribute(name, new THREE.BufferAttribute(array, a.itemSize, a.normalized));
+        }
+        if (first.index) {
+            const index = vertices > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
+            let at = 0, base = 0;
+            for (const m of members) {
+                const src = m.geometry.index.array, n = m.geometry.index.count;
+                if (base === 0) index.set(n === src.length ? src : src.subarray(0, n), 0);
+                else for (let i = 0; i < n; i++) index[at + i] = src[i] + base;
+                at += n;
+                base += m.geometry.attributes.position.count;
+            }
+            geometry.setIndex(new THREE.BufferAttribute(index, 1));
+        }
+        this.bound(geometry, members);
+        return geometry;
+    },
+
+    /**
+     * Instanced chunks of one template end to end, the instances in order of
+     * the sort component (each chunk's already are: a k-way merge), so a
+     * share of the region drawn from the front is the same share of each.
+     */
+    mergeInstanced(members) {
+        const first = members[0].geometry, sort = members[0].userData.rrBatchCell.sort;
+        const geometry = new THREE.InstancedBufferGeometry();
+        const instanced = [];
+        for (const name of Object.keys(first.attributes)) {
+            const a = first.attributes[name];
+            if (a.isInstancedBufferAttribute) instanced.push(name);
+            else geometry.setAttribute(name, a);
+        }
+        if (first.index) geometry.setIndex(first.index);
+        const lists = members.map(m => ({ g: m.geometry, n: m.geometry.attributes[sort.name].count, i: 0 }));
+        let total = 0;
+        for (const l of lists) total += l.n;
+        const out = instanced.map(name => {
+            const a = first.attributes[name];
+            return { name, size: a.itemSize, src: lists.map(l => l.g.attributes[name].array), array: new a.array.constructor(total * a.itemSize), a };
+        });
+        const keys = lists.map(l => l.g.attributes[sort.name].array), stride = first.attributes[sort.name].itemSize, c = sort.component;
+        for (let k = 0; k < total; k++) {
+            let best = -1, value = Infinity;
+            for (let j = 0; j < lists.length; j++) {
+                const l = lists[j];
+                if (l.i >= l.n) continue;
+                const v = keys[j][l.i * stride + c];
+                if (best < 0 || v < value) { best = j; value = v; }
+            }
+            const from = lists[best].i++;
+            for (const o of out) for (let s = 0; s < o.size; s++) o.array[k * o.size + s] = o.src[best][from * o.size + s];
+        }
+        for (const o of out) geometry.setAttribute(o.name, new THREE.InstancedBufferAttribute(o.array, o.size, o.a.normalized, o.a.meshPerAttribute));
+        geometry.instanceCount = total;
+        this.bound(geometry, members);
+        return geometry;
+    },
+
+    /** The merged bounds: the members' boxes joined (each measured once). */
+    bound(geometry, members) {
+        const box = new THREE.Box3();
+        for (const m of members) {
+            if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+            box.union(m.geometry.boundingBox);
+        }
+        geometry.boundingBox = box;
+        geometry.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+    },
+
+    /** Draws and batches standing now, for the perf tools. */
+    stats() {
+        let batches = 0, members = 0;
+        for (const mapScene of this._scenes) {
+            const state = mapScene._drawBatches;
+            if (!state) continue;
+            for (const batch of state.batches.values()) if (batch.mesh) { batches++; members += batch.members.length; }
+        }
+        return { batches, members };
+    }
+};
+
+// A scene cleared lets go of its batches' meshes (the chunks go with `_meshes`).
+if (typeof Reactor3D.MapScene.prototype.clear === "function" && !Reactor3D.MapScene.prototype.clear.__rrBatches) {
+    const clear = Reactor3D.MapScene.prototype.clear;
+    Reactor3D.MapScene.prototype.clear = function() {
+        Reactor3D.DrawBatches.release(this, true);
+        return clear.apply(this, arguments);
+    };
+    Reactor3D.MapScene.prototype.clear.__rrBatches = true;
+}
 
 /**
  * Lay every piece down, cast into the static shadow rows. `later`: the chunks are only listed, in the

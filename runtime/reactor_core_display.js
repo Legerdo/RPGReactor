@@ -4036,10 +4036,23 @@ Window.prototype.addInnerChild = function(child) {
     return this._clientArea.addChild(child);
 };
 
+/** The kill switch: false lays out every window every frame, hidden or closed, as before. */
+Window.SKIP_UNSEEN_LAYOUT = true;
+
 /**
  * Updates the transform on all children of this container for rendering.
  */
 Window.prototype.updateTransform = function() {
+    // PIXI v8 asks every window each frame, shown or not: a hidden window has
+    // nothing to lay out, nor does a closed one once it was laid out closed
+    // (its client area hidden). On a map screen most windows are, and laying
+    // them out was a quarter of a millisecond a frame.
+    if (Window.SKIP_UNSEEN_LAYOUT && PIXI.TextureSource) {
+        if (!this.visible) return;
+        const closed = this._openness <= 0;
+        if (closed && this._rrLaidClosed) return;
+        this._rrLaidClosed = closed;
+    }
     this._updateClientArea();
     this._updateFrame();
     this._updateContentsBack();
