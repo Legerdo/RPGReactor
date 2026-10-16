@@ -110,13 +110,11 @@ test('the editor offers the pop-out, ships its page, and comes back wired after 
     assert.ok(fs.existsSync(path.join(__dirname, '..', 'event-editor-panel.html')));
     assert.match(read('build-scripts/dist-editor-worker.js'), /'event-editor-panel\.html'/, 'a released editor carries the page');
     const window = read('src/event/EventEditorWindow.js');
-    assert.match(window, /popped \? 'Back to the editor window' : 'Open in a separate window'/, 'one button: out, or back in');
-    const i18n = read('src/I18nManager.js');
-    for (const locale of ['ja', 'zh-Hant', 'zh-Hans', 'ko', 'es', 'pt', 'fr', 'it', 'de', 'ru', 'pl', 'el', 'ar', 'tr', 'id', 'vi', 'th']) {
-        assert.match(i18n, new RegExp(`RR_TEXT_TRANSLATIONS\\["${locale}"\\], \\{"Back to the editor window":"[^"]+"`), `${locale} says it`);
-    }
-    assert.match(window, /win\.on\('close', \(\) => \{[\s\S]{0,160}closeFromFrame\(state\)/, 'its close button closes the editor');
-    assert.match(window, /win\.on\('closed', \(\) => \{\s*if \(popped === state && !state\.closing\) dock\(\{ keepPoppedOut: false, windowGone: true \}\)/);
+    assert.doesNotMatch(window, /rr-event-editor-popout-btn|Back to the editor window/, 'no button to pop out or back: its own window is the way it opens');
+    assert.match(window, /frame: false/, 'no title bar but its own header');
+    assert.match(read('css/styles.css'), /rr-event-editor-popped > \.rr-modal > \.rr-modal-header \{[^}]*-webkit-app-region: drag;/, 'the header drags it');
+    assert.match(window, /win\.on\('close', \(\) => \{[\s\S]{0,160}closeFromFrame\(state\)/, 'closed another way than its × (Alt+F4), it closes the editor');
+    assert.match(window, /win\.on\('closed', \(\) => \{\s*if \(popped === state && !state\.closing\) dock\(\{ windowGone: true \}\)/);
     assert.match(read('src/EventManager.js'), /rr-event-editor-docked[\s\S]{0,120}windowGone\) this\.setupEventEditorModal\(\)/);
     assert.match(read('src/event/EventEditor.js'), /rr-event-editor-docked[\s\S]{0,120}windowGone && this\.isOpen\(\)\) redraw\(\)/);
 });

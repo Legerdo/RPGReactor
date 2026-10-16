@@ -14,6 +14,27 @@ const read = relative => fs.readFileSync(path.join(editorRoot, relative), 'utf8'
 const quiet = { log() {}, debug() {}, warn() {}, error() {}, info() {} };
 const Window = require('../src/event/EventEditorWindow.js');
 
+test('the window opens where it was left on a screen still there, else centered over the editor', () => {
+    const { windowRect, POPOUT_KEY } = Window;
+    const store = {};
+    globalThis.localStorage = { getItem: key => store[key] || null, setItem: (key, value) => { store[key] = value; } };
+    globalThis.nw = { Screen: { Init() {}, screens: [
+        { work_area: { x: 0, y: 0, width: 1920, height: 1040 } }, { work_area: { x: 1920, y: 0, width: 2560, height: 1400 } }] } };
+    try {
+        const main = { x: 100, y: 50, width: 1600, height: 1000 };
+        assert.deepEqual(windowRect(main), { left: 200, top: 65, width: 1400, height: 970 }, 'first time: today\'s size over the editor');
+        store[POPOUT_KEY] = JSON.stringify({ left: 2400, top: 300, width: 1200, height: 900 });
+        assert.deepEqual(windowRect(main), { left: 2400, top: 300, width: 1200, height: 900 }, 'on the second monitor, where it was left');
+        store[POPOUT_KEY] = JSON.stringify({ left: 5000, top: 300, width: 1200, height: 900 });
+        assert.deepEqual(windowRect(main), { left: 200, top: 65, width: 1400, height: 970 }, 'its screen unplugged: back over the editor');
+        store[POPOUT_KEY] = JSON.stringify({ left: 1800, top: 900, width: 1000, height: 700 });
+        assert.deepEqual(windowRect(main), { left: 1920, top: 700, width: 1000, height: 700 }, 'kept wholly on the screen its middle is on');
+    } finally {
+        delete globalThis.localStorage;
+        delete globalThis.nw;
+    }
+});
+
 test('the window stays wholly on screen, at least its minimum size, so OK and Apply stay in reach', () => {
     const view = { width: 1600, height: 900 };
     assert.deepEqual(Window.clamp({ left: 100, top: 50, width: 1000, height: 700 }, view), { left: 100, top: 50, width: 1000, height: 700 });
@@ -95,7 +116,10 @@ test('leaving an event with unapplied edits asks Apply, Discard or Cancel, by th
 test('switching to another event keeps the window open where it is', () => {
     const manager = read('src/EventManager.js');
     assert.match(manager, /Nothing to apply: the window stays where it is and takes the new event\.\s*this\.eventEditor\.leaveEvent\(\);/);
-    assert.match(manager, /isPoppedOut\(\)\) RREventEditorWindow\.showPopout\(\);\s*else if \(!shownBefore && RREventEditorWindow\.wantsPopOut\(\)\)/, 'popped out, its window shows again; never re-placed');
+    assert.match(manager, /RREventEditorWindow\.open\(modal, \{ shownBefore \}\)/, 'one way to open: its window, or the page');
+    const window = read('src/event/EventEditorWindow.js');
+    assert.match(window, /function open\(overlay = overlayElement\(\), \{ shownBefore = false \} = \{\}\) \{\s*if \(popped\) \{ showPopout\(\); return; \}\s*if \(separateWindows\(\)\) \{ popOut\(overlay\); return; \}\s*if \(!shownBefore\) place\(overlay\);/,
+        'already up: shown where it is; the desktop app: a window of its own; the web editor: the page');
 });
 
 test('a map change closes the window, asking only when there is something to keep', async () => {

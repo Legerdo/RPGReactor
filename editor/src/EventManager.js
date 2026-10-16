@@ -2021,18 +2021,11 @@ class EventManager {
             }
         });
 
-        // Display the window where it was left (centered at first), over the map rather than in front of it
+        // The editor opens in its own window, where it was left (the web editor: over the map, in the page)
         const shownBefore = modal.style.display === 'flex';
-        if (typeof RREventEditorWindow !== 'undefined') {
-            RREventEditorWindow.install(modal);
-            if (!shownBefore) RREventEditorWindow.place(modal);
-        }
+        if (typeof RREventEditorWindow !== 'undefined') RREventEditorWindow.install(modal);
         modal.style.display = 'flex';
-        // Popped out, its window shows again where it was; left popped out last session, it opens there again.
-        if (typeof RREventEditorWindow !== 'undefined') {
-            if (RREventEditorWindow.isPoppedOut()) RREventEditorWindow.showPopout();
-            else if (!shownBefore && RREventEditorWindow.wantsPopOut()) RREventEditorWindow.popOut(modal);
-        }
+        if (typeof RREventEditorWindow !== 'undefined') RREventEditorWindow.open(modal, { shownBefore });
 
         console.debug('Event editor opened for:', event.name);
     }
