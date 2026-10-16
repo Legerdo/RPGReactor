@@ -4282,9 +4282,12 @@
      * made and by a HUD's hint line for the highlighted row; the answer is kept until a unit moves.
      */
     Game_Fight.prototype.commandReason = function(symbol) {
+        // The unit's menu stands open behind its skill and item lists, and is listed again when a target is
+        // cancelled back to a list: it answers the same there.
+        const listed = this.playerStage("command") || this.playerStage("skill") || this.playerStage("item");
         // Getting on and getting off answer for themselves (reactor_vehicles_mount.js).
-        if ((symbol === "mount" || symbol === "dismount") && typeof this.mountReason === "function") return this.playerStage("command") ? this.mountReason(symbol) : "";
-        if (symbol !== "attack" || !this.playerStage("command")) return "";
+        if ((symbol === "mount" || symbol === "dismount") && typeof this.mountReason === "function") return listed ? this.mountReason(symbol) : "";
+        if (symbol !== "attack" || !listed) return "";
         const unit = this.unit(this._act.unitId), battler = this.battler(unit);
         // (One who rides a vehicle that can attack has its attack too: either in reach will do.)
         const vehicle = typeof this.vehicleAttacker === "function" ? this.vehicleAttacker(unit) : null;
