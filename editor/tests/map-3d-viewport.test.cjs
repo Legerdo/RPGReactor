@@ -346,6 +346,7 @@ test('3D shares PIXI WebGL2 instead of creating a second GPU context', () => {
     assert.equal(view.createCanvas(), true);
     assert.equal(view.canvas, canvas);
     assert.equal(view.inputSurface, inputSurface);
+    assert.match(inputSurface.style.cssText, /(^|;)\s*user-select:\s*none/, 'a double-click on the view selects no text, so the next drag is not a native drag');
     assert.equal(rendererOptions.canvas, canvas);
     assert.equal(rendererOptions.context, context);
     assert.equal(rendererOptions.antialias, false, 'the existing PIXI context attributes cannot be changed');

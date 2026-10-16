@@ -3967,6 +3967,7 @@
             font-size: 11px;
             white-space: nowrap;
             pointer-events: none;
+            user-select: none;
             opacity: 1;
             transition: opacity 1.2s ease 4s;
         }
@@ -4168,6 +4169,13 @@
         .rr-save-structure-error { min-height: 1em; font-size: 12px; color: var(--color-danger-bright); }
         @media (max-width: 520px) { .rr-save-structure-top { flex-direction: column; align-items: flex-start; } }
         .rr-build-subhead { font-size: 11px; color: var(--color-text-muted); padding: 6px 6px 2px; }
+        /* A selection's parts (Materials): each part's name and how many pieces it has, over its material tile. */
+        .rr-build-parts { display: flex; flex-direction: column; gap: 6px; }
+        .rr-build-part-name { display: flex; align-items: baseline; gap: 8px; width: 100%; box-sizing: border-box; padding: 2px 2px 3px; border: 0; background: transparent; color: var(--color-text-muted); font-size: 11px; text-align: left; }
+        button.rr-build-part-name { cursor: pointer; }
+        button.rr-build-part-name:hover { color: var(--color-text-strong); }
+        button.rr-build-part-name[aria-pressed="true"] { color: var(--color-accent-bright); }
+        .rr-build-part-count { margin-left: auto; font-variant-numeric: tabular-nums; }
         .rr-build-field { display: grid; grid-template-columns: 1fr 74px; align-items: center; gap: 6px; color: var(--color-text-muted); }
         .rr-build-field input { width: 100%; box-sizing: border-box; }
         .rr-build-field.rr-build-wide { grid-template-columns: 1fr 128px; }

@@ -15,6 +15,11 @@
 class MapEditor3D {
     /** The most pixels an in-scene effect is drawn at per frame in this view (a 1920x1080 view). */
     static EFFECT_PIXELS = 1920 * 1080;
+    /**
+     * The surface over the view that takes the pointer. It selects no text, so a double-click leaves
+     * nothing for the next drag to carry off as a native drag, which would cancel the pointer.
+     */
+    static INPUT_SURFACE_CSS = 'position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 6; user-select: none; -webkit-user-select: none;';
     /** After a different map is built, how long before the models only the last one used are given back. */
     static MODEL_SWEEP_DELAY_MS = 3000;
     /**
@@ -816,8 +821,7 @@ class MapEditor3D {
             this._ownCanvas = true;
             this.inputSurface = document.createElement('div');
             this.inputSurface.id = 'map-3d-input';
-            this.inputSurface.style.cssText =
-                'position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 6;';
+            this.inputSurface.style.cssText = MapEditor3D.INPUT_SURFACE_CSS;
             container.appendChild(this.inputSurface);
             this.createHint(container);
             this.renderer = new THREE.WebGLRenderer({
@@ -871,8 +875,7 @@ class MapEditor3D {
         // This surface handles input only and creates no additional GPU context.
         this.inputSurface = document.createElement('div');
         this.inputSurface.id = 'map-3d-input';
-        this.inputSurface.style.cssText =
-            'position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 6;';
+        this.inputSurface.style.cssText = MapEditor3D.INPUT_SURFACE_CSS;
         container.appendChild(this.inputSurface);
 
         this.createHint(container);

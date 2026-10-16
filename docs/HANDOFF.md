@@ -11,6 +11,16 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 - **Performance round 2 landed at 20261014.4** (2026-10-15, on top of WIP commits `bf2b82bc` and `8714c49e`); several items still need measuring in the game on Linux (below).
 - **Next agreed:** nothing yet. The owner agreed a kept battle ends when another starts, and asked for Action escape by running (done). On-map defeated enemies done the owner's way (event box, else Database › Enemies).
 
+## 2026-10-15 — User-path sweeps: questions for the owner
+
+A sweep builds one system by real input in the editor and plays it with real keys (rules and tools in `scratchpad/user-path-sweeps/`, queue in its `lead.md`). Fixes are in the changelog; these wait on the owner:
+
+- **Events:** Paste Event Page adds a page (MZ overwrites); Show Choices' When Cancel default and empty branches; three labels for an unnamed switch (and an unnamed common event); Barebones Map002/003 name a missing tileset 10 (the game crashes there, the editor only warns in the console).
+- **Database:** a face reads "Actor2 (4)" on the page but "index 3" in the picker; Cancel discards without asking (Escape and × ask); the first OK writes `UserInterfaces.json` into a project that had none.
+- **2D maps:** Circle grows from the center (MZ's Ellipse fits the drag); New Map defaults to tileset 1 (empty in the Demo); a new map is not opened after OK; a new 2D map writes a flat `.r3d.json`; the Demo's Interstellar tileset has 4,184 null passability flags (water walkable).
+- **Battles:** troop pages never run in battles on the map; the Troops battleback preview is the Battle Test one; the Tactical unit panel covers units on a small map; a flying enemy overlaps the next cell; the Demo's Action skirmish is won before the player acts; the victory message draws over the Action HUD.
+- **3D builder:** a Roof box lays only a ring; no camera turn while building, and the hint names keys Build uses otherwise; a roofed inside cannot be seen or edited (no editor cut by level); nothing warns of a stair whose foot faces a wall; Escape in Select with nothing selected returns to the last piece kind; four Lower passes leave banks too steep to enter; stamping a structure moves models off the plot silently.
+
 ## 2026-10-15 — User Interfaces in the game: AbyssGazes (runtime 20261015.3)
 
 Tester feedback: interfaces preview and build in the editor but do not show in the game; the diagonal menu's highlight should be diagonal too. Project: `template/AbyssGazes` (not in git).
