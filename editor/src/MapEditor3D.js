@@ -6186,10 +6186,11 @@ class MapEditor3D {
         return typeof window !== 'undefined' && !!window.reactor?.playtestManager?.ownsGpu?.();
     }
 
-    /** The Database window covers the map: its own previews get the GPU. */
+    /** The Database covers the map: its own previews get the GPU. Beside the map, in a window of its own or floating, it covers nothing. */
     static coveredByDatabase() {
-        return typeof document !== 'undefined' && typeof document.getElementById === 'function'
-            && !!document.getElementById('database-viewer')?.classList?.contains('active');
+        if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return false;
+        const viewer = document.getElementById('database-viewer');
+        return !!viewer?.classList?.contains('active') && !viewer.classList.contains('rr-database-floating');
     }
 
     /**

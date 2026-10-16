@@ -41,7 +41,7 @@ test('both map views treat a playtest in front as covered, and redraw when uncov
     // Uncovered, whatever changed behind is drawn.
     assert.match(three, /if \(this\._covered\) \{ this\._covered = false; this\.requestRender\(\); \}/);
     const controller = src('ProjectController.js');
-    assert.match(controller, /isCovered: \(\) => !!databaseViewer\(\)\?\.classList\?\.contains\('active'\)\s*\|\| !!window\.reactor\?\.playtestManager\?\.ownsGpu\?\.\(\)/);
+    assert.match(controller, /isCovered: \(\) => \(!!databaseViewer\(\)\?\.classList\?\.contains\('active'\) && !databaseViewer\(\)\.classList\.contains\('rr-database-floating'\)\)\s*\|\| !!window\.reactor\?\.playtestManager\?\.ownsGpu\?\.\(\)/);
 });
 
 test('the 3D view draws its main pass as the game does: volume, quarter-size light and haze, scaled and enlarged', () => {

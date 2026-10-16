@@ -2923,10 +2923,7 @@ Game_Player.prototype.arriveByBorder = function(exit, tile) {
     this.center(realX, realY);
     this.makeEncounterCount();
     if (this.isInVehicle()) this.vehicle().refresh();
-    for (const follower of this._followers._data) {
-        follower._x -= ox; follower._y -= oy;
-        follower._realX -= ox; follower._realY -= oy;
-    }
+    this._followers.rrShift(-ox, -oy);
 };
 
 Game_Player.prototype.borderArrivalTile = function(exit) {

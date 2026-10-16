@@ -480,7 +480,8 @@ test('the map view draws nothing while the Database window covers it', () => {
     assert.match(src, /if \(this\.suspended \|\| MapEditor3D\.coveredByDatabase\(\) \|\| playtest\) \{ this\._covered = true; this\.frame = requestAnimationFrame\(tick\); return; \}/);
     // Whatever changed behind the cover is drawn once it lifts.
     assert.match(src, /if \(this\._covered\) \{ this\._covered = false; this\.requestRender\(\); \}/);
-    assert.match(src, /getElementById\('database-viewer'\)\?\.classList\?\.contains\('active'\)/);
+    assert.match(src, /viewer\?\.classList\?\.contains\('active'\) && !viewer\.classList\.contains\('rr-database-floating'\)/,
+        'a Database beside the map, floating or in its own window, covers nothing');
 });
 
 test('a render exception stops the frame loop and fails back to 2D', () => {

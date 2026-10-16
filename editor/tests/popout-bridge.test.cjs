@@ -109,8 +109,8 @@ test('the editor offers the pop-out, ships its page, and comes back wired after 
     assert.match(firstScript, /src\/utils\/PopoutBridge\.js/, 'the bridge is the first script, before any listener');
     assert.ok(fs.existsSync(path.join(__dirname, '..', 'event-editor-panel.html')));
     assert.match(read('build-scripts/dist-editor-worker.js'), /'event-editor-panel\.html'/, 'a released editor carries the page');
-    const window = read('src/event/EventEditorWindow.js');
-    assert.doesNotMatch(window, /rr-event-editor-popout-btn|Back to the editor window/, 'no button to pop out or back: its own window is the way it opens');
+    assert.doesNotMatch(read('src/event/EventEditorWindow.js'), /rr-event-editor-popout-btn|Back to the editor window/, 'no button to pop out or back: its own window is the way it opens');
+    const window = read('src/utils/DetachedWindow.js');
     assert.match(window, /frame: false/, 'no title bar but its own header');
     assert.match(read('css/styles.css'), /rr-event-editor-popped > \.rr-modal > \.rr-modal-header \{[^}]*-webkit-app-region: drag;/, 'the header drags it');
     assert.match(window, /win\.on\('close', \(\) => \{[\s\S]{0,160}closeFromFrame\(state\)/, 'closed another way than its × (Alt+F4), it closes the editor');
@@ -125,7 +125,7 @@ test('the editor\'s own window has themed dropdowns, rounded corners and the tit
     assert.match(shim, /RRPopoutBridge\.onAttach\(childWindow => watch\(childWindow\.document\)\)/, 'selects added there by a redraw are themed');
     assert.match(shim, /const view = \(triggerEl\.ownerDocument && triggerEl\.ownerDocument\.defaultView\) \|\| window;/, 'a list is placed by the window it opens in');
     assert.match(shim, /\(triggerEl\.ownerDocument \|\| document\)\.body\.appendChild\(popup\)/);
-    assert.match(read('src/event/EventEditorWindow.js'), /frame: false, transparent: true/, 'transparent around the rounded panel');
+    assert.match(read('src/utils/DetachedWindow.js'), /frame: false, transparent: true/, 'transparent around the rounded panel');
     const css = read('css/styles.css');
     assert.match(css, /rr-event-editor-popped > \.rr-modal \{[^}]*border-radius: var\(--radius-lg\);/);
     assert.match(css, /#event-editor-modal > \.rr-modal > \.rr-modal-header \{\s*border-left: 3px solid var\(--color-accent\);/);
@@ -168,4 +168,78 @@ test('the edited event stays outlined in either mode, and the preview keeps its 
     const page = read('src/event/EventPageEditor.js');
     assert.match(page, /class="character-preview-canvas"[\s\S]{0,300}object-fit: contain;/);
     assert.match(page, /_redrawOnResize\(canvas, \(\) => \{/);
+});
+
+test('two pop-outs at once: lookups, the focused element and new dialogs follow the one in use', () => {
+    const { bridge, main, child, childWindow } = bridgeWorld();
+    const other = fakeDocument('database', {}).doc;
+    other.getElementById = id => (id === 'database-viewer' ? { id } : null);
+    other.querySelector = () => null;
+    other.querySelectorAll = selector => (selector === '.overlay' ? [{ where: 'database' }] : []);
+    other.activeElement = { id: 'actor-name' };
+    const otherWindow = fakeTarget();
+    otherWindow.document = other;
+    const heard = [];
+    main.addEventListener('keydown', event => heard.push(event.key));
+    bridge.attach(childWindow);
+    bridge.attach(otherWindow);
+    assert.deepEqual(Array.from(bridge.windows()), [childWindow, otherWindow]);
+    assert.equal(main.getElementById('database-viewer').id, 'database-viewer');
+    assert.equal(main.getElementById('event-editor-modal').id, 'event-editor-modal');
+    other.fire('keydown', { key: 'a' });
+    child.fire('keydown', { key: 'b' });
+    assert.deepEqual(heard, ['a', 'b'], 'both windows heard');
+    other.focused = true;
+    assert.equal(main.activeElement.id, 'actor-name');
+    assert.deepEqual(Array.from(main.querySelectorAll('.overlay'), e => e.where), ['main', 'database', 'child'], 'the focused window searched first');
+    main.body.appendChild({ dialog: 'trait' });
+    assert.equal(other.body.children.length, 1, 'a dialog opens in the window in use');
+    bridge.detach(otherWindow);
+    other.fire('keydown', { key: 'c' });
+    child.fire('keydown', { key: 'd' });
+    assert.deepEqual(heard, ['a', 'b', 'd'], 'the other stays bridged');
+    assert.equal(main.getElementById('event-editor-modal').id, 'event-editor-modal');
+    bridge.detach();
+    assert.equal(main.getElementById('event-editor-modal'), null);
+});
+
+test('a hidden pop-out is never the window in use; a dialog kept in the page moves to the one that is', () => {
+    const { bridge, main, child, childWindow } = bridgeWorld();
+    bridge.attach(childWindow);
+    child.focused = true;
+    bridge.setAsleep(childWindow, true);
+    main.body.appendChild({ dialog: 'new map' });
+    assert.equal(main.body.children.length, 1, 'hidden between events: a dialog from the map stays in the editor window');
+    bridge.setAsleep(childWindow, false);
+    const picker = { id: 'image-picker-modal', ownerDocument: main };
+    bridge.bringToWindowInUse(picker);
+    assert.equal(child.body.children[0], picker, 'opened from the pop-out: it opens there');
+});
+
+test('the Database opens in a window of its own, keys only after a click into it', () => {
+    const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    const index = read('index.html');
+    assert.match(index, /src\/utils\/DetachedWindow\.js[\s\S]*src\/event\/EventEditorWindow\.js[\s\S]*src\/database\/DatabaseWindow\.js[\s\S]*src\/DatabaseEditorUI\.js/);
+    assert.ok(fs.existsSync(path.join(__dirname, '..', 'database-panel.html')));
+    assert.match(read('build-scripts/dist-editor-worker.js'), /'database-panel\.html'/);
+    const db = read('src/DatabaseEditorUI.js');
+    assert.equal((db.match(/this\.presentDatabaseViewer\(viewer\)/g) || []).length, 2, 'both ways a page opens show it the same way');
+    assert.match(db, /presentDatabaseViewer\(viewer\) \{[\s\S]{0,300}RRDatabaseWindow\.open\(viewer/);
+    assert.match(db, /closeDatabaseViewer\(\) \{[\s\S]*?RRDatabaseWindow\.hidePopout\(\);/);
+    assert.match(db, /const listKeyHandler = event => \{[\s\S]{0,400}!RRDatabaseWindow\.ownsKeys\(\)\) return;/, 'Delete over the map clears no record');
+    for (const file of ['src/database/DatabaseAnimationEditor.js', 'src/database/Database3DEditor.js']) {
+        assert.match(read(file), /!RRDatabaseWindow\.ownsKeys\(\)\) return;/, file);
+    }
+    assert.match(read('src/UIManager.js'), /if \(RRDatabaseWindow\.ownsKeys\(\)\) return true;/, 'the map\'s keys stop only while the Database has them');
+    assert.match(read('src/MapEditor3D.js'), /!viewer\.classList\.contains\('rr-database-floating'\)/, 'the map keeps drawing beside it');
+    const css = read('css/styles.css');
+    assert.match(css, /#database-viewer\.rr-database-popped > \.database-window > \.database-header \{[^}]*-webkit-app-region: drag;/);
+    assert.match(css, /#database-viewer\.rr-database-popped > \.database-window \{[^}]*border-radius: var\(--radius-lg\);/);
+    assert.match(read('src/database/DatabaseWindow.js'), /closeFromFrame\(\) \{[\s\S]{0,200}askToCloseDatabase\(\)/, 'Alt+F4 asks as Escape does');
+});
+
+test('Escape with a command dialog on top of the Database closes the dialog, not the Database', () => {
+    const keys = fs.readFileSync(path.join(__dirname, '..', 'src', 'utils', 'KeyboardNavigation.js'), 'utf8');
+    assert.match(keys, /state\.options\.onEscape\) \{[\s\S]{0,400}if \(closeUnkeyedDialog\(event\)\) return;\s*state\.options\.onEscape\(event\);/);
+    assert.match(keys, /function closeUnkeyedDialog\(event\) \{\s*const \{ doc, view \} = keyWindow\(event\);/, 'in the window the key was pressed in');
 });

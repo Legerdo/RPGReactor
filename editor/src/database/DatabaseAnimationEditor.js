@@ -3525,6 +3525,8 @@ class DatabaseAnimationEditor {
         const handleKeyDown = (e) => {
             // Only handle if the canvas container is focused or visible
             if (!canvas.offsetParent) return;
+            // Beside a live map, the keys are the Database's only after a click or Tab into it.
+            if (typeof RRDatabaseWindow !== 'undefined' && !RRDatabaseWindow.ownsKeys()) return;
 
             // Ctrl+Z - Undo
             if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {

@@ -380,6 +380,8 @@ class Database3DEditor {
      */
     _onKeyDown(event) {
         if (!this._detail || !this._detail.isConnected) return;
+        // Beside a live map, the keys are the Database's only after a click or Tab into it.
+        if (typeof RRDatabaseWindow !== 'undefined' && !RRDatabaseWindow.ownsKeys()) return;
         // A dialog over the page (Preset Motions, a picker) takes its own keys.
         if (event.target && event.target.closest && event.target.closest('.rr-modal-overlay')) return;
         const consume = () => {
@@ -8689,6 +8691,7 @@ class Database3DEditor {
             if (hadBones) this._rebuildInstance();
             this.renderRigBar();
             this._refreshMotionsButton();
+            this._rigChanged();
             if (status) status.textContent = this._t('Markers saved.');
             return;
         }
@@ -8729,6 +8732,7 @@ class Database3DEditor {
             this._rebuildInstance();
             this.renderRigBar();
             this._refreshMotionsButton();
+            this._rigChanged();
             if (status) {
                 const total = meshes.reduce((sum, mesh) => sum + mesh.positions.length / 3, 0);
                 status.textContent = this._t('Rig bound — {bones} bones, {vertices} vertices', {
@@ -8746,8 +8750,15 @@ class Database3DEditor {
         this._rebuildInstance();
         this.renderRigBar();
         this._refreshMotionsButton();
+        this._rigChanged();
         const status = this._detail.querySelector('.r3d-status');
         if (status) status.textContent = this._t('Rig removed.');
+    }
+
+    /** A saved or removed rig changes which default motions play: the preview and the Animations list follow at once. */
+    _rigChanged() {
+        this.rebuildPlayback();
+        this.renderRuleList();
     }
 
     /** The rig writes its own sidecar key; mergeSidecar leaves it alone. */

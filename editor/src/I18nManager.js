@@ -22243,3 +22243,22 @@ Object.assign(RR_TEXT_TRANSLATIONS["tr"], {"The game still shows its own {name}.
 Object.assign(RR_TEXT_TRANSLATIONS["id"], {"The game still shows its own {name}.":"{name}: game masih menampilkan bawaannya sendiri.","Use as {name}":"Gunakan sebagai {name}"});
 Object.assign(RR_TEXT_TRANSLATIONS["vi"], {"The game still shows its own {name}.":"{name}: trò chơi vẫn hiển thị bản mặc định.","Use as {name}":"Dùng làm {name}"});
 Object.assign(RR_TEXT_TRANSLATIONS["th"], {"The game still shows its own {name}.":"{name}: เกมยังคงแสดงแบบดั้งเดิมอยู่","Use as {name}":"ใช้เป็น{name}"});
+
+// Media surfaces: the picker's button names a video as a video.
+Object.assign(RR_TEXT_TRANSLATIONS["ja"], {"Select This Video":"この動画を選択"});
+Object.assign(RR_TEXT_TRANSLATIONS["zh-Hant"], {"Select This Video":"選擇此影片"});
+Object.assign(RR_TEXT_TRANSLATIONS["zh-Hans"], {"Select This Video":"选择此视频"});
+Object.assign(RR_TEXT_TRANSLATIONS["ko"], {"Select This Video":"이 동영상 선택"});
+Object.assign(RR_TEXT_TRANSLATIONS["es"], {"Select This Video":"Seleccionar este video"});
+Object.assign(RR_TEXT_TRANSLATIONS["pt"], {"Select This Video":"Selecionar este vídeo"});
+Object.assign(RR_TEXT_TRANSLATIONS["fr"], {"Select This Video":"Sélectionner cette vidéo"});
+Object.assign(RR_TEXT_TRANSLATIONS["it"], {"Select This Video":"Seleziona questo video"});
+Object.assign(RR_TEXT_TRANSLATIONS["de"], {"Select This Video":"Dieses Video auswählen"});
+Object.assign(RR_TEXT_TRANSLATIONS["ru"], {"Select This Video":"Выбрать это видео"});
+Object.assign(RR_TEXT_TRANSLATIONS["pl"], {"Select This Video":"Wybierz ten film"});
+Object.assign(RR_TEXT_TRANSLATIONS["el"], {"Select This Video":"Επιλογή αυτού του βίντεο"});
+Object.assign(RR_TEXT_TRANSLATIONS["ar"], {"Select This Video":"اختيار هذا الفيديو"});
+Object.assign(RR_TEXT_TRANSLATIONS["tr"], {"Select This Video":"Bu videoyu seç"});
+Object.assign(RR_TEXT_TRANSLATIONS["id"], {"Select This Video":"Pilih video ini"});
+Object.assign(RR_TEXT_TRANSLATIONS["vi"], {"Select This Video":"Chọn video này"});
+Object.assign(RR_TEXT_TRANSLATIONS["th"], {"Select This Video":"เลือกวิดีโอนี้"});

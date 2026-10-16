@@ -187,7 +187,7 @@ test('the loop draws a still view once, on request, and when the Database window
         requestAnimationFrame(fn) { frames.push(fn); return frames.length; },
         cancelAnimationFrame() {},
         document: { addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [],
-            getElementById: id => id === 'database-viewer' ? { classList: { contains: () => covered } } : null }
+            getElementById: id => id === 'database-viewer' ? { classList: { contains: name => name === 'active' && covered } } : null }
     });
     let clock = 0;
     const view = stillView(MapEditor3D);

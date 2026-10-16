@@ -291,3 +291,32 @@ test('a vehicle on the 2D map is posed at its heading along its model\'s front, 
     assert.notEqual(key(1), east, 'turning the vehicle draws it again');
     delete global.ModelPropsManager; delete global.Reactor3D; delete global.RREventPreviewModels; delete global.THREE;
 });
+
+test('a prop painted while a part sat out the draw is painted again until nothing sits out', () => {
+    const hadReactor = 'Reactor3D' in global, previous = global.Reactor3D;
+    const warmup = { lastHidden: 0 };
+    global.Reactor3D = { ShaderWarmup: warmup };
+    try {
+        const preview = new Preview({ container: { worldTransform: { a: 1 } } });
+        preview.app = { renderer: { resolution: 1, gl: { MAX_TEXTURE_SIZE: 1, getParameter: () => 4096 } } };
+        let hidden = 1;
+        // The draw holds out the mesh whose picture is still going up, as ShaderWarmup.hide does.
+        preview.ensureViewport = () => ({ renderInto: () => { warmup.lastHidden = hidden; } });
+        preview.expand = () => {};
+        const entry = { radius: 1, tw: 48, size: 120, target: {}, sprite: {}, dirty: true };
+        warmup.lastHidden = 3; // left over from another view's draw
+        preview.paint(entry);
+        assert.equal(entry.dirty, true, 'the picture is owed again while its texture is not on the GPU');
+        hidden = 0;
+        preview.paint(entry);
+        assert.equal(entry.dirty, false, 'a draw with nothing held out settles');
+        assert.equal(entry.draws, 2);
+        // A stale count from another renderer does not keep a settled prop repainting.
+        warmup.lastHidden = 5;
+        preview.ensureViewport = () => ({ renderInto: () => {} });
+        preview.paint(entry);
+        assert.equal(entry.dirty, false);
+    } finally {
+        if (hadReactor) global.Reactor3D = previous; else delete global.Reactor3D;
+    }
+});

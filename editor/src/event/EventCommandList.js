@@ -2282,7 +2282,9 @@ class EventCommandList {
                     const argEntries = Object.entries(params[3])
                         .filter(([k, v]) => v !== undefined && v !== null && v !== '')
                         .map(([k, v]) => {
-                            const sv = String(v);
+                            // An object or a list of them (a media surface's corners) as its JSON.
+                            let sv = String(v);
+                            if (v && typeof v === 'object') { try { sv = JSON.stringify(v); } catch (_) { /* kept as text */ } }
                             return `${k}=${sv.length > 30 ? sv.substring(0, 27) + '...' : sv}`;
                         });
                     if (argEntries.length > 0) {

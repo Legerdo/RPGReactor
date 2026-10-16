@@ -7166,7 +7166,8 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 #event-editor-modal.rr-event-editor-popped > .rr-modal > .rr-modal-header :is(button, input, select, a) {
     -webkit-app-region: no-drag;
 }
-.rr-event-editor-grip {
+.rr-event-editor-grip,
+.rr-database-grip {
     position: fixed;
     right: 2px;
     bottom: 2px;
@@ -7175,4 +7176,55 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
     cursor: nwse-resize;
     z-index: 10001;
     background: linear-gradient(135deg, transparent 0 50%, var(--color-border-input) 50% 58%, transparent 58% 70%, var(--color-border-input) 70% 78%, transparent 78%);
+}
+
+/* The Database floats beside a live map as the event editor does (DatabaseWindow.js): no backdrop,
+   the map takes clicks around it, the header drags it and the corner resizes it. */
+#database-viewer.rr-database-floating {
+    background: transparent;
+    pointer-events: none;
+}
+#database-viewer.rr-database-floating > .database-window {
+    pointer-events: auto;
+    position: fixed;
+    margin: 0;
+    min-width: 900px;
+    min-height: 560px;
+    resize: both;
+}
+#database-viewer.rr-database-floating > .database-window > .database-header {
+    cursor: move;
+    user-select: none;
+}
+#database-viewer > .database-window > .database-header {
+    border-left: 3px solid var(--color-accent);
+}
+html.rr-web #database-viewer.rr-database-floating {
+    padding: 0;
+}
+
+/* In a window of its own: the Database fills it, and that window's frame moves and sizes it. */
+#database-viewer.rr-database-popped {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    pointer-events: auto;
+}
+#database-viewer.rr-database-popped > .database-window {
+    position: static;
+    width: 100% !important;
+    height: 100% !important;
+    min-width: 0;
+    min-height: 0;
+    resize: none;
+    border-radius: var(--radius-lg);
+    box-sizing: border-box;
+    box-shadow: none;
+}
+#database-viewer.rr-database-popped > .database-window > .database-header {
+    cursor: default;
+    -webkit-app-region: drag;
+}
+#database-viewer.rr-database-popped > .database-window > .database-header :is(button, input, select, a) {
+    -webkit-app-region: no-drag;
 }

@@ -1001,6 +1001,7 @@ class MediaSurfaceEditor {
                 allowNone: false,
                 // The picker previews per file; only real movies get <video>.
                 mediaType: kind === 'image' ? undefined : 'video',
+                selectButtonLabel: this._t(kind === 'image' ? 'Select This Image' : 'Select This Video'),
                 // Above this dialog's own overlay (21000).
                 zIndex: 21050
             });

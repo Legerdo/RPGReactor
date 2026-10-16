@@ -305,3 +305,57 @@ test('a model grows under the pointer while its size handle is dragged', () => {
     drag.call(editor, { id: 7, startSize: 3, start: 0, reach: 2, travel: () => null }, 0, 0);
     assert.deepEqual(calls, []);
 });
+
+test('leaving a transform number for another one keeps the field clicked; leaving the card rebuilds it', async () => {
+    const vm = require('node:vm');
+    const makeInput = (cls, key) => {
+        const handlers = {};
+        return { className: cls, dataset: { key }, value: '0', max: '10',
+            addEventListener(type, fn) { (handlers[type] = handlers[type] || []).push(fn); },
+            fire(type) { (handlers[type] || []).forEach(fn => fn({})); } };
+    };
+    let inputs = [];
+    const body = { isConnected: true,
+        set innerHTML(_) { inputs = ['yaw', 'size'].flatMap(key => [makeInput('mp-card-slider', key), makeInput('mp-card-num', key)]); },
+        querySelectorAll: sel => inputs.filter(i => sel.split(',').some(s => s.trim() === '.' + i.className)),
+        querySelector: sel => inputs.find(i => sel === `.${i.className}[data-key="${i.dataset.key}"]`) || null,
+        contains: el => inputs.includes(el) };
+    const tabs = { style: {}, innerHTML: '' };
+    const document = { activeElement: null };
+    const context = vm.createContext({ setTimeout, document, window: {} });
+    vm.runInContext(read('editor/src/ModelPropsManager.js') + '\nthis.Manager = ModelPropsManager;', context);
+    const manager = Object.create(context.Manager.prototype);
+    const prop = { id: 1, x: 3, y: 4, z: 0, yaw: 0, pitch: 0, roll: 0, size: 2, scale: 1 };
+    Object.assign(manager, { selectedId: 1, model: null, fields: {}, _t: k => k, _tx: k => k,
+        panel: { querySelector: sel => sel === '#model-props-card-tabs' ? tabs : sel === '#model-props-card-body' ? body : null, querySelectorAll: sel => body.querySelectorAll(sel) },
+        prop: () => prop });
+    let builds = 0;
+    const render = manager._renderCard;
+    manager._renderCard = function () { builds++; return render.call(this); };
+    manager._renderCard();
+    const yaw = inputs.find(i => i.className === 'mp-card-num' && i.dataset.key === 'yaw');
+    const size = inputs.find(i => i.className === 'mp-card-num' && i.dataset.key === 'size');
+    // Typed into Yaw, then a click on Size: Size takes the focus as 'change' fires on Yaw.
+    yaw.fire('change');
+    document.activeElement = size;
+    await new Promise(r => setTimeout(r, 5));
+    assert.equal(builds, 1, 'the card is not rebuilt under the field just clicked');
+    assert.ok(inputs.includes(size), 'the clicked field is still in the card');
+    // Leaving the card altogether (Enter, a click on the map) rebuilds it.
+    document.activeElement = null;
+    size.fire('change');
+    await new Promise(r => setTimeout(r, 5));
+    assert.equal(builds, 2);
+});
+
+test('a model chosen from the Library lights its own slot on the Build bar', () => {
+    const vm = require('node:vm');
+    let syncs = 0;
+    const context = vm.createContext({ window: { reactor: { buildHotbar: { sync: () => { syncs++; } } } } });
+    vm.runInContext(read('editor/src/ModelPropsManager.js') + '\nthis.Manager = ModelPropsManager;', context);
+    const manager = Object.create(context.Manager.prototype);
+    Object.assign(manager, { model: null, recent: [], fields: { animations: [], effects: [] }, tool: 'select', render() {}, _syncPanel() {}, mapEditor3D: () => null });
+    manager.chooseModel({ name: 'Props/tree', file: 'tree' });
+    assert.equal(manager.tool, 'place');
+    assert.equal(syncs, 1, 'the bar is told, so it shows the model in hand instead of Select');
+});

@@ -909,6 +909,8 @@ class ModelPropsManager {
         }
         this.render();
         this._syncPanel();
+        // The Build bar shows the model in hand as its slot, lit: chosen from the Library, it was still showing Select.
+        window.reactor?.buildHotbar?.sync?.();
         this.mapEditor3D()?.selectProp?.(null);
     }
 
@@ -1037,7 +1039,18 @@ class ModelPropsManager {
                 if (slider) { if (Number(num.value) > Number(slider.max)) slider.max = num.value; slider.value = num.value; }
                 apply(num.dataset.key, num.value, true);
             });
-            num.addEventListener('change', () => { this._cardUndoPushed = false; this._cardFor = null; this._syncCard(); });
+            // Leaving the field rebuilds the card (the sliders' ranges follow the value), after the click that left it
+            // has focused its target: a rebuild during 'change' removed the field just clicked, and typing went nowhere.
+            // When that target is another of the card's fields, only the numbers are brought up to date.
+            num.addEventListener('change', () => {
+                this._cardUndoPushed = false;
+                setTimeout(() => {
+                    const active = document.activeElement;
+                    if (active && active !== num && body.isConnected && body.contains(active)) { this._syncCard(); return; }
+                    this._cardFor = null;
+                    this._syncCard();
+                }, 0);
+            });
         });
         const box = body.querySelector('.mp-card-proportional');
         if (box) box.addEventListener('change', () => {

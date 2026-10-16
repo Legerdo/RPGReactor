@@ -784,8 +784,8 @@ class ProjectController {
                     ? this._databaseViewer
                     : (this._databaseViewer = document.getElementById('database-viewer'));
                 new MapRenderScheduler(this.app, {
-                    // The Database over the map, or a playtest in front: nothing to draw for.
-                    isCovered: () => !!databaseViewer()?.classList?.contains('active')
+                    // The Database over the map (not beside it), or a playtest in front: nothing to draw for.
+                    isCovered: () => (!!databaseViewer()?.classList?.contains('active') && !databaseViewer().classList.contains('rr-database-floating'))
                         || !!window.reactor?.playtestManager?.ownsGpu?.()
                 }).install({ inputElement: container });
             }
@@ -3560,6 +3560,8 @@ class ProjectController {
                     // or the sky, in 3D) are drawn by the 3D view.
                     if (roomChanged || was3D !== wants3D || parallaxChanged) this.refreshMap3DView();
                 }
+                // The Build bar says whether the map is 3D; switching it here changes what the bar offers.
+                if (was3D !== wants3D && this.buildHotbar?.visible) this.buildHotbar.render();
             }
 
             this.uiManager.updateStatus(`Updated map: ${mapData.name}`);

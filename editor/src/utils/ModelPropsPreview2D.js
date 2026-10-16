@@ -267,9 +267,14 @@ class ModelPropsPreview2D {
             entry.sprite.texture = entry.texture;
         }
         entry.media?.paint();
+        // A part whose shader or picture is not on the GPU yet sits out the draw (ShaderWarmup), and its upload
+        // is queued by that same draw: the texture is painted again until nothing sat out. Painted once, a still
+        // prop kept the empty picture for good.
+        const warmup = Reactor3D.ShaderWarmup;
+        if (warmup) warmup.lastHidden = 0;
         viewport.renderInto(entry.target, entry.scene, entry.camera);
         entry.sprite.width = entry.sprite.height = entry.radius * 2 * entry.tw;
-        entry.dirty = false;
+        entry.dirty = !!(warmup && warmup.lastHidden > 0);
         entry.paintedFrame = entry.driver?.previewFrame;
         entry.draws = (entry.draws || 0) + 1;
         // New pixels in the sprite's texture, which the 2D scene graph cannot

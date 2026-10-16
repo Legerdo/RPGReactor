@@ -6,11 +6,20 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 ## Where things stand (2026-10-16)
 
-- **0.99.1** in development at runtime **20261016.5**, synced to all 19 bundled projects. Committed locally; nothing pushed.
-- **User-path sweeps:** 1 to 11 done and committed (owner approved all, two agents at a time, a commit per sweep); 10 Forge tools and 11 battles follow-up done. Left uncovered, to queue: a 3D model placed on a map and rigged by real clicks (8); media surfaces and a north-south neighbor crossing (9; the Demo's maps do not line up north to south, so author two that do). Owner questions: the two sweeps entries below.
-- **User reports fixed 2026-10-16:** Script commands show every line in the three event lists; Show Text lines were white on white in light themes.
-- **Savior & Religion** (`template/Savior & Religion`, not in git; a deployed, encrypted MV game the owner is trying as a template): boots, plays its opening and draws its ULDS maps (2, 5, 19) with runtime 20261016.4; its index.html is in MV mode now.
-- **Contrast pass, in progress:** light themes clean (committed); the dark palettes' findings are next. The owner keeps the current look; only unreadable pairs change. Tools in `scratchpad/user-path-sweeps/contrast-audit/` (`run.cjs` through `harness-slot.sh`, `summarize.cjs <results>`). Then the floating event editor (owner approved step 1: non-blocking, draggable; a second-monitor pop-out later).
+- **0.99.1** in development at runtime **20261016.6**, synced to all 19 bundled projects. Committed locally; nothing pushed.
+- **User-path sweeps:** 1 to 13 done and committed. Owner questions: the three sweeps entries below.
+- **Editor windows:** the event editor and the Database each open in a frameless window of their own (`utils/DetachedWindow.js`), both at once, on any monitor; `PopoutBridge` serves several windows. The web editor floats them in the page.
+- **Event lists** draw tree rails beside branches, choices, loops and battle branches (map, troop and common event lists).
+- **Savior & Religion** (`template/Savior & Religion`, not in git; a deployed, encrypted MV game the owner is trying as a template): boots, plays its opening and draws its ULDS maps (2, 5, 19); its index.html is in MV mode now.
+- **Contrast pass:** done in light and dark (committed); the owner keeps the current look.
+
+## 2026-10-16 — Sweeps 12 and 13, the Database in its own window (runtime 20261016.6)
+
+- **Sweeps:** 12 (a model imported, placed, rigged, given to an actor and an event, in the game) and 13 (media surfaces on 2D, 3D and the screen; a north-south crossing on two authored maps in `scratchpad/user-path-sweeps/media-neighbors/Demo`, Map006 over Map013). Their fixes and the lead's are in the changelog. Followers left past the far edge after a crossing north: `Game_Followers.rrShift` now moves the trail and places too, and a follower past the edge steps back toward the map (`followers-cross/steps.cjs` through `game-run.cjs`).
+- **Database window, to watch:** keys go to the window last clicked or tabbed into (`RRDetachedWindow.lastWorked`); a document-wide key handler a Database page adds must check `RRDatabaseWindow.ownsKeys()` (the list, Animations and 3D Models do). Dialogs kept in index.html move to the window in use (`RRPopoutBridge.bringToWindowInUse`: the image picker, the audio player); another such dialog opened from a pop-out shows behind it. The map is no longer paused while the Database is open. Effekseer previews could not be checked in the headless harness (black in the page too): check on a real screen.
+- **Owner questions, sweep 12:** a model event shows as a square in the editor (2D and 3D) until Preview Event, while the game shows the model; "Rig bound — 17 bones, 0 vertices" reads like a failure for a model with its own skeleton; a model's own Walking and Running clips are not used unless added as animations (RIGGING-MODELS.md says a model's clip wins); the knee marker snaps into a coat; the editor's 3D view of Barebones Map001 is much darker than the game; a new placement takes the last model's Size and Yaw.
+- **Owner questions, sweep 13:** New Map defaults to tileset 1, empty in the Demo, so a new 3D map has no ground; a faint texture seam at a border in the game; one boot failed a 3D video surface (`media surface 4 failed`) and it stayed off for the session (not reproduced).
+- **Not covered:** a media surface on a model, Show Media Surface on Player and Event, moving a model on the 2D canvas, the 2D and east-west crossings, Windows.
 
 ## 2026-10-16 — Star Shift Rebellion battles on native sequences (runtime 20261016.5)
 

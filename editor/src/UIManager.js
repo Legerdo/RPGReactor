@@ -888,9 +888,12 @@ class UIManager {
     }
 
     isEditorModalOpenForGlobalShortcuts() {
-        const databaseViewer = document.getElementById('database-viewer');
-        if (databaseViewer && databaseViewer.classList.contains('active')) {
-            return true;
+        // The Database beside a live map has the keys only after a click or Tab into it.
+        if (typeof RRDatabaseWindow !== 'undefined') {
+            if (RRDatabaseWindow.ownsKeys()) return true;
+        } else {
+            const databaseViewer = document.getElementById('database-viewer');
+            if (databaseViewer && databaseViewer.classList.contains('active')) return true;
         }
 
         const modalIds = [
@@ -907,8 +910,10 @@ class UIManager {
 
         // Any other dialog on screen (Import Project, Unsaved Changes, Options, pickers…): the map
         // behind it takes no keys. The event editor is handled key by key by the caller.
+        // A dialog in another window (the Database's, the event editor's) only while that window was the last one worked in.
+        const worked = (typeof RRDetachedWindow !== 'undefined' && RRDetachedWindow.lastWorked()?.ownerDocument) || document;
         return Array.from(document.querySelectorAll?.('.rr-modal-overlay, .modal-overlay, .modal') || [])
-            .some(el => el.id !== 'event-editor-modal' && el.getClientRects?.().length > 0);
+            .some(el => el.id !== 'event-editor-modal' && (!el.ownerDocument || el.ownerDocument === document || el.ownerDocument === worked) && el.getClientRects?.().length > 0);
     }
 
     /**
