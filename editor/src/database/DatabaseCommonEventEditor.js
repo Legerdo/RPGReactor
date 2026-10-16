@@ -275,7 +275,7 @@ class DatabaseCommonEventEditor {
             `;
 
             if (isEnd) {
-                div.innerHTML = `<span style="color: var(--color-border-input);">${tt('End')}</span>`;
+                div.innerHTML = `<span style="color: var(--color-text-muted);">${tt('End')}</span>`;
             } else {
                 const info = this.getCommandDisplay(cmd, event, idx);
                 // A plugin command with argument rows gets the toggle that

@@ -445,7 +445,7 @@ class MessageCommandEditor {
             const firstLine = (box.lines.find(line => String(line).trim().length) || '').trim();
             excerpt.textContent = firstLine || this._t('(empty)');
             excerpt.style.cssText = `
-                color: var(--color-text-muted); overflow: hidden;
+                color: ${index === this.activeIndex ? 'var(--color-text)' : 'var(--color-text-muted)'}; overflow: hidden;
                 text-overflow: ellipsis; white-space: nowrap;
             `;
 

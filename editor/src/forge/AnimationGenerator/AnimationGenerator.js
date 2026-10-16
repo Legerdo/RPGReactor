@@ -816,7 +816,7 @@ class AnimationGenerator {
         const isSingle = (this.previewMode === 'single');
         const banner = isSingle
             ? `<div style="background: var(--color-bg-input-alt); border: 1px solid var(--color-border-subtle); border-radius: 4px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;">
-                    <div style="font-size: 10px; color: var(--color-text-dim); text-transform: uppercase; letter-spacing: 0.3px;">${this._tx('Single Preview')}</div>
+                    <div style="font-size: 10px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.3px;">${this._tx('Single Preview')}</div>
                     <div style="font-size: 13px; color: var(--color-text); font-weight: 600;">${this._tx(anim.name)}</div>
                     <div style="font-size: 10px; color: var(--color-text-muted);">${cat ? this._tx(cat.name) : ''} ${this._tx('— not added to the stack yet. Tune the params below, then commit:')}</div>
                     <button class="rr-ag-commit-single rr-btn-chip" style="padding: 6px 10px; font-size: 11px; color: var(--color-accent-bright); margin-top: 2px;">+ ${this._tx('Add as Layer')}</button>
@@ -924,7 +924,7 @@ class AnimationGenerator {
                                 title="${this._tx('Edit keyframe')} ${kfi + 1}${kfi === 0 ? ' ' + this._tx('(start)') : kfi === (layer.keyframes.length - 1) ? ' ' + this._tx('(end)') : ''}"
                                 style="padding: 1px 6px; font-size: 10px; min-width: 18px;
                                        background: ${kfi === layer.activeKeyframe ? 'var(--color-accent-bright)' : 'var(--color-bg-input)'};
-                                       color: ${kfi === layer.activeKeyframe ? 'var(--color-bg-deep)' : 'var(--color-text)'};">${kfi + 1}</button>
+                                       color: ${kfi === layer.activeKeyframe ? 'var(--color-accent-bright-on)' : 'var(--color-text)'};">${kfi + 1}</button>
                         `).join('')}
                         <button class="rr-ag-kf-add rr-btn-chip" data-id="${layer.id}"
                             title="${this._tx('Add a new keyframe (duplicates the active one)')}"

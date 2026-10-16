@@ -2494,7 +2494,7 @@ class PluginManager {
         const addBtn = document.createElement('div');
         addBtn.style.cssText = `
             padding: 12px;
-            color: var(--color-accent);
+            color: var(--color-accent-bright);
             cursor: pointer;
             text-align: center;
             border-top: 1px solid var(--color-border);

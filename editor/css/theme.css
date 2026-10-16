@@ -31,6 +31,7 @@
     --color-accent-shadow:        #2a2200;        /* deep gold-tinted shadow */
     --color-accent-on:            #000000;        /* text on solid accent fill */
     --color-accent-hover-on:      #000000;
+    --color-accent-bright-on:     #000000;        /* text on a solid accent-bright fill */
     --color-accent-tint-10:       rgba(255, 215, 0, 0.10);
     --color-accent-tint-15:       rgba(255, 215, 0, 0.15);
     --color-accent-tint-25:       rgba(255, 215, 0, 0.25);
@@ -120,6 +121,7 @@
     --color-text-muted:           #999999;        /* labels / secondary */
     --color-text-dim:             #666666;        /* tertiary / placeholder */
     --color-text-link:            var(--color-accent-bright);
+    --color-text-disabled:        var(--color-text-muted); /* inactive fields: gray, still readable */
 
     /* ---------- Semantic status colors ------------------------------------- */
     --color-success:              #2d7a2d;
@@ -312,6 +314,8 @@
     /* Lighter than body text so a hint never reads as a typed value. */
     --color-text-placeholder:     #6b7280;
     --color-bg-button-subtle:     var(--color-bg-input-alt);
+    --color-accent-bright-on:     #ffffff;
+    --color-text-disabled:        var(--color-text-dim);
 }
 
 /* Placeholder text in every field: the theme's secondary text, readable on input and
@@ -350,6 +354,7 @@
     --color-text-strong:          #ffffff;
     --color-text-muted:           #999999;
     --color-text-dim:             #666666;
+    --color-accent-bright-on:     #000000;
     color-scheme: dark;
     background-color: var(--color-bg-base);
     color: var(--color-text);
@@ -548,7 +553,7 @@
     --color-text:                 #d8ccd2;
     --color-text-strong:          #ffffff;
     --color-text-muted:           #a39197;
-    --color-text-dim:             #6e5b62;
+    --color-text-dim:             #75636a;
 }
 
 /* -----------------------------------------------------------------------------
@@ -691,7 +696,7 @@
     --color-text:                 #cbd5da;
     --color-text-strong:          #ffffff;
     --color-text-muted:           #8095a0;
-    --color-text-dim:             #4d5c66;
+    --color-text-dim:             #5d6b74;
 }
 
 /* -----------------------------------------------------------------------------
@@ -834,7 +839,7 @@
     --color-text:                 #cdd5cf;
     --color-text-strong:          #ffffff;
     --color-text-muted:           #8c9a90;
-    --color-text-dim:             #5a6660;
+    --color-text-dim:             #5f6b65;
 }
 
 /* -----------------------------------------------------------------------------
@@ -972,7 +977,7 @@
     --color-text:                 #d8cccd;
     --color-text-strong:          #ffffff;
     --color-text-muted:           #a08585;
-    --color-text-dim:             #6a5050;
+    --color-text-dim:             #776060;
 }
 
 /* -----------------------------------------------------------------------------
@@ -1101,7 +1106,7 @@
     --color-text:                 #d8d0cc;
     --color-text-strong:          #ffffff;
     --color-text-muted:           #a0928a;
-    --color-text-dim:             #6a5d50;
+    --color-text-dim:             #706357;
 }
 
 /* -----------------------------------------------------------------------------
@@ -1239,7 +1244,7 @@
     --color-text:                 #d8cce0;
     --color-text-strong:          #ffffff;
     --color-text-muted:           #9c8aab;
-    --color-text-dim:             #6a5a78;
+    --color-text-dim:             #70617d;
 }
 
 /* -----------------------------------------------------------------------------
@@ -2929,7 +2934,7 @@ input[type="number"]::-webkit-outer-spin-button {
 .rr-event-command-dialog input:disabled,
 .rr-event-command-dialog select:disabled,
 .rr-event-command-dialog textarea:disabled {
-    color: var(--color-text-dim);
+    color: var(--color-text-disabled);
     background: var(--color-bg-base);
     opacity: 1;
 }
@@ -3037,7 +3042,7 @@ input[type="number"]::-webkit-outer-spin-button {
     border-color: var(--color-accent-border-strong);
 }
 .rr-variable-reference:disabled {
-    color: var(--color-text-dim);
+    color: var(--color-text-disabled);
     opacity: 0.7;
     cursor: default;
 }
@@ -3166,7 +3171,7 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 .rr-cb-controls > :disabled,
 .rr-cb-controls > .rr-number-stepper:has(> input:disabled) {
-    opacity: 0.45;
+    opacity: 0.6;
 }
 .rr-cb-word {
     flex: 0 0 auto;

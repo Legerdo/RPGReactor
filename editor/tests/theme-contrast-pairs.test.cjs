@@ -84,6 +84,20 @@ for (const theme of THEMES) {
         holds(theme, colors, '--color-danger-bright', '--color-bg-button-subtle', 3);
         holds(theme, colors, '--color-text-strong', '--color-bg-button-subtle', 4.5);
     });
+    test(`${theme}: a bright accent fill carries its own text color`, () => {
+        holds(theme, tokens(theme), '--color-accent-bright-on', '--color-accent-bright', 4.5);
+    });
+    test(`${theme}: inactive field text stays readable on the field`, () => {
+        holds(theme, tokens(theme), '--color-text-disabled', '--color-bg-base', light ? 3 : 4.5);
+    });
+    if (!light && theme !== 'dark') test(`${theme}: dim text reads at least as well as in the default dark theme`, () => {
+        const colors = tokens(theme), gold = tokens('dark');
+        const ratio = (t, fg, bg) => contrast(t[fg], t[bg]);
+        for (const bg of ['--color-bg-list-item', '--color-bg-surface', '--color-bg-panel']) {
+            const own = ratio(colors, '--color-text-dim', bg), base = ratio(gold, '--color-text-dim', bg);
+            assert.ok(own >= base - 0.05, `${theme}: --color-text-dim on ${bg} is ${own.toFixed(2)}:1, the dark theme's ${base.toFixed(2)}:1`);
+        }
+    });
     if (light) test(`${theme}: danger text reads on white and on the tinted panel`, () => {
         const colors = tokens(theme);
         holds(theme, colors, '--color-danger-light', '--color-bg-input', 4.5);

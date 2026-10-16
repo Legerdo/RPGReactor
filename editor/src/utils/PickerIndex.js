@@ -208,7 +208,7 @@
                 const active = button.dataset.letter === key;
                 button.classList.toggle('active', active);
                 button.style.backgroundColor = active ? 'var(--color-accent)' : 'var(--color-bg-input-alt)';
-                button.style.color = active ? 'var(--color-bg-deep)' : 'var(--color-text-strong)';
+                button.style.color = active ? 'var(--color-accent-on)' : 'var(--color-text-strong)';
             });
         };
 

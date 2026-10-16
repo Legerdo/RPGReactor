@@ -1411,6 +1411,8 @@
             color: var(--color-text-strong);
         }
 
+        .rr-types-row.selected .rr-types-id { color: var(--color-text); }
+
         .rr-types-id {
             align-self: stretch;
             padding: 4px 5px;
