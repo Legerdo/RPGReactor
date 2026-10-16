@@ -6871,6 +6871,29 @@ Reactor3D.Held = {
         turn(fore, H2.clone().sub(E2), goal.clone().sub(E2));
         return true;
     },
+    /** How far round from the body's front, either way, an arm aims (radians); past it the aim stops at the edge. */
+    AIM_ARC: 70 * Math.PI / 180,
+    /**
+     * Where an aimed arm points: the goal, or, when it lies further round than `AIM_ARC` from the way the
+     * shoulders face (a unit still turning to its target, a rider facing along the ride), the edge of that arc
+     * at the same distance and height. An arm that reached the goal itself went behind the back, the gun through
+     * the body. The front is square to the line between the shoulders.
+     */
+    frontGoal(record, side, shoulder, goal) {
+        const T = THREE, torso = this.torso(record, side);
+        if (!torso || !shoulder || !goal) return goal;
+        const up = new T.Vector3(0, 1, 0), S = shoulder.getWorldPosition(new T.Vector3()), O = torso.across.getWorldPosition(new T.Vector3());
+        const forward = new T.Vector3().crossVectors(O.sub(S), up).setY(0), flat = goal.clone().sub(S).setY(0);
+        if (side === "left") forward.negate();
+        if (forward.lengthSq() < 1e-10 || flat.lengthSq() < 1e-10) return goal;
+        forward.normalize();
+        const length = flat.length();
+        flat.divideScalar(length);
+        if (Math.acos(Math.max(-1, Math.min(1, forward.dot(flat)))) <= this.AIM_ARC) return goal;
+        const sign = new T.Vector3().crossVectors(forward, flat).y < 0 ? -1 : 1;
+        forward.applyAxisAngle(up, sign * this.AIM_ARC);
+        return new T.Vector3(S.x + forward.x * length, goal.y, S.z + forward.z * length);
+    },
     /** Turn a joint by a turn given in the world, on top of the pose it has. */
     turnJoint(bone, q) {
         const parentQ = bone.parent.getWorldQuaternion(new THREE.Quaternion());
@@ -6936,6 +6959,7 @@ Reactor3D.Held = {
         if (!frame || step.aim !== "target" || !goal) return frame;
         const hand = this.joint(owner, side + "Hand"), upper = hand && hand.parent && hand.parent.parent;
         if (!upper) return frame;
+        goal = this.frontGoal(owner, side, upper, goal);
         const shape = held && held.object ? R.heldShape(held.object) : null, scale = held ? held.scale || 1 : 1;
         // Held in the fist by its grip: the barrel's own line (Rear to Muzzle on a marked gun) is laid on the line from the shoulder
         // to the target, and the wrist goes where that puts the grip. A long gun's butt sits at the shoulder; a short one is held out.

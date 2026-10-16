@@ -342,3 +342,45 @@ test('models that join a running battle are built inside a budget a frame, in or
         assert.equal(J.queue.length, 0);
     } finally { J.now = was.now; J.queue.length = 0; J.spent = 0; global.$gameFight = was.fight; console.error = was.error; }
 });
+
+test('a target behind the unit is aimed at from the front: the arm never reaches behind the back', async () => {
+    const M = Reactor3D.MapHeld, kept = {};
+    for (const name of ['characterModelSpec', 'databaseModelSpec', 'loadModel', 'loadModelSidecar', 'characterGround']) kept[name] = Reactor3D[name];
+    global.$gameMap = { mapId: () => 5 }; global.Graphics = { frameCount: 0 };
+    const rifle = new THREE.Group(); rifle.add(box(1, .06, .05, 0, 0, 0), box(.12, .14, .05, -.44, -.07, 0), box(.06, .16, .05, -.2, -.1, 0)); rifle.userData.glbSize = { x: 1, y: .2, z: .05 };
+    try {
+        // The unit faces +z (down the map); the foe stands three tiles behind it, as while it is still turning to aim.
+        const unit = character(11, 4, 4), foe = character(12, 4, 1);
+        Reactor3D.characterModelSpec = () => ({ name: 'Actors/Unit', size: 1.8, scale: 1 });
+        Reactor3D.databaseModelSpec = (section, id) => (section === 'weapons' && id === 1 ? { name: 'Rifle', ext: '.glb', file: '', size: 1, scale: 1 } : null);
+        Reactor3D.loadModel = async () => rifle;
+        Reactor3D.loadModelSidecar = async () => ({});
+        Reactor3D.characterGround = () => 0;
+        const b = body();
+        b.root.position.set(4.5, 0, 4.5); b.root.updateMatrixWorld(true);
+        const holder = { object: b.root, character: unit };
+        assert.equal(M.show(unit, { battler: { weapons: () => [{ id: 1 }] }, targetCharacter: foe, hold: 'fist', attachment: 'rightHand', hands: 'both', aim: 'target', gripY: 0, duration: 0 }), true);
+        await settle();
+        for (let i = 0; i < 3; i++) { Graphics.frameCount++; M.update(holder, unit, null, false); }
+        const gun = M.states.get('e11').record.object;
+        gun.updateWorldMatrix(true, false);
+        const shape = Reactor3D.heldShape(gun);
+        const muzzle = gun.localToWorld(new THREE.Vector3(...shape.base).add(new THREE.Vector3(...shape.axis).multiplyScalar(shape.length)));
+        const hand = b.hands.Right.getWorldPosition(new THREE.Vector3()), chest = b.chest.getWorldPosition(new THREE.Vector3());
+        assert.ok(hand.z > chest.z, `the shooting hand stays in front of the chest (${(hand.z - chest.z).toFixed(2)})`);
+        assert.ok(muzzle.z > chest.z, `the muzzle is in front, not through the body (${(muzzle.z - chest.z).toFixed(2)})`);
+        const barrel = new THREE.Vector3(...shape.axis).transformDirection(gun.matrixWorld);
+        assert.ok(barrel.z > 0, 'the barrel points forward of sideways, at the edge of the arms\' arc');
+        // The arc's edge itself: a goal straight behind is turned to 70 degrees off the front, at the same distance and height.
+        const shoulder = b.hands.Right.parent.parent, S = shoulder.getWorldPosition(new THREE.Vector3());
+        const turned = Reactor3D.Held.frontGoal(M.states.get('e11').owner, 'right', shoulder, new THREE.Vector3(S.x, 1.1, S.z - 3));
+        const flat = turned.clone().sub(S).setY(0);
+        assert.ok(Math.abs(flat.angleTo(new THREE.Vector3(0, 0, 1)) - Reactor3D.Held.AIM_ARC) < 1e-6, 'turned to the arc\'s edge');
+        assert.ok(Math.abs(flat.length() - 3) < 1e-6 && turned.y === 1.1, 'at the same distance and height');
+        const ahead = new THREE.Vector3(S.x + 1, 1.1, S.z + 3);
+        assert.equal(Reactor3D.Held.frontGoal(M.states.get('e11').owner, 'right', shoulder, ahead), ahead, 'a goal in front is aimed at as it is');
+    } finally {
+        M.clear && M.clear();
+        for (const name of Object.keys(kept)) Reactor3D[name] = kept[name];
+    }
+});
