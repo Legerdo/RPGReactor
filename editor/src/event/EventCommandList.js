@@ -625,6 +625,85 @@ class EventCommandList {
         return -1;
     }
 
+    /** Whether rows of `code` are drawn one step further in than their indent: a command's follow-on and branch rows. */
+    static isContinuationRow(code) {
+        return code === 401 || (code >= 402 && code <= 405) || code === 408 || (code >= 411 && code <= 413)
+            || code === 505 || code === 605 || code === 655 || code === 657 || (code >= 601 && code <= 604);
+    }
+
+    /** The indent `command` is drawn at. */
+    static visualIndent(command) {
+        return (command.indent || 0) + (EventCommandList.isContinuationRow(command.code) ? 1 : 0);
+    }
+
+    /**
+     * Where each list draws its rails, in px from a row's padding edge: `base` is where an
+     * indent-0 row's name starts, `step` the width of one indent, `gap` the space below a row.
+     */
+    static get RAIL_GEOMETRY() {
+        return {
+            map: { base: 88, step: 24, gap: 2 },
+            database: { base: 58, step: 20, gap: 1 }
+        };
+    }
+
+    /**
+     * The tree guides beside each row of `list`, one entry per row (null for none):
+     *   through  rails passing this row, as [{ level, color }]
+     *   opens    the rail this header starts below itself
+     *   branch   the rail this row branches off (Else, When, If Win)
+     *   closes   the rail this row ends (the structure's End / Repeat Above)
+     * Rails sit at the header's indent, so a branch row shows which structure it belongs to
+     * and every row between two of them is the body of the branch above it.
+     */
+    static railsFor(list) {
+        if (!Array.isArray(list)) return [];
+        const rows = new Array(list.length).fill(null);
+        const row = i => rows[i] || (rows[i] = { through: [], opens: null, branch: null, closes: null });
+        for (let i = 0; i < list.length; i++) {
+            const shape = EventCommandList.branchShape(list[i]);
+            if (!shape) continue;
+            const range = EventCommandList.structureRange(list, i);
+            if (!range || range.end <= EventCommandList.headerEnd(list, i)) continue;
+            const level = list[i].indent || 0;
+            const rail = { level, color: EventCommandList.railColor(list[i]) };
+            row(i).opens = rail;
+            for (let j = i + 1; j < range.end; j++) {
+                const command = list[j];
+                if ((command.indent || 0) === level && shape.markers.includes(command.code)) row(j).branch = rail;
+                else row(j).through.push(rail);
+            }
+            row(range.end).closes = rail;
+        }
+        return rows;
+    }
+
+    /** A structure's rail color: its header command's. */
+    static railColor(header) {
+        const code = EventCommandList.isMapBattleStart(header) ? 301 : header.code;
+        const color = { 102: 'var(--color-syntax-type)', 301: 'var(--color-syntax-function)' }[code] || 'var(--color-syntax-string)';
+        return `color-mix(in srgb, ${color} 70%, transparent)`;
+    }
+
+    /** Draw one row's rails (an entry of railsFor) into `div`, a positioned row. */
+    static drawRails(div, rail, geometry) {
+        if (!rail) return;
+        const doc = div.ownerDocument || document;
+        const x = level => geometry.base + level * geometry.step + 7;
+        const piece = (css) => {
+            const span = doc.createElement('span');
+            span.className = 'command-rail';
+            span.style.cssText = `position: absolute; pointer-events: none; ${css}`;
+            div.appendChild(span);
+        };
+        const vertical = (r, top, bottom) => piece(`left: ${x(r.level)}px; top: ${top}; bottom: ${bottom}; border-left: 1px solid ${r.color};`);
+        const tick = r => piece(`left: ${x(r.level)}px; top: 50%; width: ${geometry.step - 11}px; border-top: 1px solid ${r.color};`);
+        for (const r of rail.through) vertical(r, '0', `-${geometry.gap}px`);
+        if (rail.opens) vertical(rail.opens, 'calc(50% + 8px)', `-${geometry.gap}px`);
+        if (rail.branch) { vertical(rail.branch, '0', `-${geometry.gap}px`); tick(rail.branch); }
+        if (rail.closes) { vertical(rail.closes, '0', '50%'); tick(rail.closes); }
+    }
+
     /** Identifies the page whose folds are being remembered. */
     collapseScope() {
         const editor = this.eventEditor || {};
@@ -790,6 +869,7 @@ class EventCommandList {
             this.expandedPluginCommands.clear();
         }
         const hiddenByCollapse = this.collapsedHiddenIndices(page.list);
+        this._rails = EventCommandList.railsFor(page.list);
 
         page.list.forEach((command, index) => {
             if (hiddenByCollapse.has(index)) return;
@@ -859,32 +939,14 @@ class EventCommandList {
             background: ${isSelected ? 'var(--color-bg-selected)' : 'var(--color-bg-list-item)'};
             ${isSelected ? EventCommandList.SELECTED_INK : ''}
             border-left: 3px solid ${this.getCommandColor(command.code)};
+            position: relative;
             font-size: 12px;
             cursor: pointer;
             user-select: none;
             transition: background-color 0.15s;
         `;
 
-        // Calculate indent
-        let indent = command.indent || 0;
-
-        // Add extra indent for continuation commands (401-404, 408, 411-413, 505, 655, 657, etc.)
-        const isContinuationCommand = command.code === 401 ||
-                                     (command.code >= 402 && command.code <= 404) ||
-                                     command.code === 405 ||
-                                     command.code === 408 ||
-                                     (command.code >= 411 && command.code <= 413) ||
-                                     command.code === 505 ||
-                                     command.code === 605 ||
-                                     command.code === 655 ||
-                                     command.code === 657;
-
-        if (isContinuationCommand) {
-            indent += 1; // Add one level of visual indentation
-        }
-
-        // Calculate pixel padding (24 pixels per indent level for clear visual hierarchy)
-        const indentPadding = indent * 24;
+        const indentPadding = EventCommandList.visualIndent(command) * EventCommandList.RAIL_GEOMETRY.map.step;
 
         // Get command info
         const commandInfo = this.getCommandInfo(command, page, index);
@@ -978,16 +1040,19 @@ class EventCommandList {
         }
 
         // Face icon (if present)
+        let faceCanvas = null;
         if (commandInfo.faceIcon) {
-            const faceCanvas = this.createFaceIcon(commandInfo.faceIcon);
+            faceCanvas = this.createFaceIcon(commandInfo.faceIcon);
             if (faceCanvas) {
+                // The face is indented with its command, clear of the rails beside it.
+                faceCanvas.style.marginLeft = `${indentPadding}px`;
                 contentDiv.appendChild(faceCanvas);
             }
         }
 
         // Command name
         const nameSpan = document.createElement('span');
-        nameSpan.style.cssText = `color: var(--rr-command-ink, ${commandInfo.color}); font-weight: 600; min-width: 100px; padding-left: ${indentPadding}px;`;
+        nameSpan.style.cssText = `color: var(--rr-command-ink, ${commandInfo.color}); font-weight: 600; min-width: 100px; padding-left: ${faceCanvas ? 0 : indentPadding}px;`;
         nameSpan.textContent = commandInfo.name;
         contentDiv.appendChild(nameSpan);
 
@@ -1025,6 +1090,12 @@ class EventCommandList {
         }
 
         div.appendChild(contentDiv);
+        const rail = this._rails?.[index];
+        if (rail) {
+            // A folded block's own rail would run into the rows it hides.
+            const shown = rail.opens && blockEndIndex >= 0 && this.isBlockCollapsed(command) ? { ...rail, opens: null } : rail;
+            EventCommandList.drawRails(div, shown, EventCommandList.RAIL_GEOMETRY.map);
+        }
 
         // Nested argument display, for expanded plugin commands that have no
         // authored 657 rows to show instead — a 356, or 357 data written
