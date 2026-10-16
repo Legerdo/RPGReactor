@@ -7,9 +7,20 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 ## Where things stand (2026-10-14)
 
 - **0.99.0** shipped on 2026-10-12 at runtime **20261011.14**; PR #74 was merged after it. `main` matches `origin/main` at `dc918245`.
-- **0.99.1** is in development at runtime **20261015.2**, synced to all 16 bundled projects. Committed locally; nothing pushed.
+- **0.99.1** is in development at runtime **20261015.3**, synced to all 17 bundled projects (AbyssGazes, a tester's project, is the new one; `template/` is gitignored). Committed locally; nothing pushed.
 - **Performance round 2 landed at 20261014.4** (2026-10-15, on top of WIP commits `bf2b82bc` and `8714c49e`); several items still need measuring in the game on Linux (below).
 - **Next agreed:** nothing yet. The owner agreed a kept battle ends when another starts, and asked for Action escape by running (done). On-map defeated enemies done the owner's way (event box, else Database › Enemies).
+
+## 2026-10-15 — User Interfaces in the game: AbyssGazes (runtime 20261015.3)
+
+Tester feedback: interfaces preview and build in the editor but do not show in the game; the diagonal menu's highlight should be diagonal too. Project: `template/AbyssGazes` (not in git).
+
+- **Cause:** nothing was bound. Use As defaults to Custom, and the stock Title note pointed at System 1, which binds nothing. Once bound, the runtime showed both, but skipped Ramza_PreTitleSplash: the router over plugins swapped Scene_Title before the plugin saw it. Both fixed (changelog); the project's System.json now binds Title (1) and Main Menu (2).
+- **Edited in the tester's project:** System.json (the two bindings) and `js/reactor_plugins.js` (the splash File was an absolute `C:\Program Files (x86)\Steam\...` path, now `movies/GoblinPartyGames.webm`; it crashed boot anywhere else). Their menu layout was left as they made it: no Angle set, labels Item/Status/Save over tabs reading Inventory/Statuses/Resume.
+- **Also found under Wine:** Item and Status only buzzed, since the journal menu has no party panel to pick an actor in; they now act for the menu actor. Wine harness: `abyss-run-wine.cjs` with a `wine chromedriver.exe` wrapper and its own WINEPREFIX in the session scratchpad; paths go in as `Z:\...`.
+- **The sweep:** `steps-sweep.cjs` with `sweep-prep.cjs` (binds all 17 roles, adds a terminal, an info popup and an overlay HUD, and a map event that calls the terminal) in the session scratchpad. It found four more: no party panel, missing meter art, baselines from before a resolution change (AbyssGazes' records 3 to 17 now carry `design` 1280x720), and Cancel under the touch Back button.
+- **To watch:** plugins wrapped around goto/push now see the stock class where they saw `Scene_ReactorUI`; a plugin that read `SceneManager._nextScene` right after its own goto call sees the swapped scene.
+- **Harness:** session scratchpad only (`abyss-run.cjs`, `editor-ui-check.cjs`), on copies, display from `headless-display.sh`.
 
 ## 2026-10-15 — 3D draw calls: region batches, per-pixel light on discrete GPUs (runtime 20261015.2)
 

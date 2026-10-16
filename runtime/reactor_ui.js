@@ -42,6 +42,8 @@
         "fightUnit", "fightTurnOrder", "fightInfo", "fightWindow",
         "actionCrosshair", "actionVitals", "actionWeapon", "actionHotbar", "actionTarget", "actionBars", "actionDamage", "actionInfo",
         "victoryParty", "victoryLevels", "victoryRewards", "victoryText"];
+    /** Nodes that can be turned by an Angle about their center. */
+    ReactorUI.TURNABLE_TYPES = ["box", "image", "text", "button", "gauge", "input"];
     /** The Victory interface's shared half (reactor_ui_victory.js): node settings, pages, the fill and drawing. */
     const VictoryHud = () => window.ReactorVictoryHud || null;
     /** The Action and First Person battle HUD's shared half (reactor_ui_action.js). */
@@ -519,6 +521,7 @@
             width: Math.max(0, Math.round(finite(source.width, 0))),
             height: Math.max(0, Math.round(finite(source.height, 0))),
             opacity: clamp(Math.round(finite(source.opacity, 255)), 0, 255),
+            angle: this.TURNABLE_TYPES.includes(type) ? clamp(Math.round(finite(source.angle, 0)), -180, 180) : 0,
             visible: this.normalizeCondition(source.visible),
             // Box / button surface
             fill: oneOf(source.fill, ["window", "color", "gradient", "none"], type === "text" || type === "image" || type === "gauge" || type === "fightTurnOrder" || type === "fightInfo"
@@ -1847,10 +1850,18 @@
         const opacity = Math.round(base * stateOpacity / 255);
         this.contentsOpacity = opacity;
         this.opacity = this.usesSkin() ? opacity : 0;
-        const x = this._uiLayoutX === undefined ? this.x : this._uiLayoutX;
-        const y = this._uiLayoutY === undefined ? this.y : this._uiLayoutY;
-        this.x = x + style.offsetX + (this._uiTransitionX || 0);
-        this.y = y + style.offsetY + (this._uiTransitionY || 0);
+        const x = this._uiLayoutX === undefined ? this.x - (this._uiTurnX || 0) : this._uiLayoutX;
+        const y = this._uiLayoutY === undefined ? this.y - (this._uiTurnY || 0) : this._uiLayoutY;
+        // An Angle turns the node about its center; x and y stay its top-left corner unturned.
+        const angle = this._uiNode.angle || 0;
+        if (angle || this.rotation) {
+            this.pivot.set(angle ? this.width / 2 : 0, angle ? this.height / 2 : 0);
+            this.rotation = angle * Math.PI / 180;
+        }
+        this._uiTurnX = angle ? this.width / 2 * this.scale.x : 0;
+        this._uiTurnY = angle ? this.height / 2 * this.scale.y : 0;
+        this.x = x + style.offsetX + (this._uiTransitionX || 0) + this._uiTurnX;
+        this.y = y + style.offsetY + (this._uiTransitionY || 0) + this._uiTurnY;
         this.alpha = this._uiTransitionAlpha === undefined ? 1 : this._uiTransitionAlpha;
         if (this._uiGauge) this._uiGauge.opacity = opacity;
     };
@@ -3105,13 +3116,29 @@
 
     /** Whether a soft image failed to load (the caller draws its fallback). */
     ReactorUI.softFailed = function(bitmap) {
-        return !bitmap || !!(bitmap.isError && bitmap.isError());
+        // A missing file is loaded as a blank stand-in after its retries, which is not art either.
+        return !bitmap || !!(bitmap.isError && bitmap.isError()) || !!bitmap._degradedToBlank;
     };
 
     ReactorUI.whenReady = function(bitmap, redraw) {
         if (this.softFailed(bitmap)) return false;
         if (bitmap.isReady()) return true;
-        if (!bitmap._rrRedraws) { bitmap._rrRedraws = []; bitmap.addLoadListener(() => { for (const fn of bitmap._rrRedraws) fn(); bitmap._rrRedraws = null; }); }
+        if (!bitmap._rrRedraws) {
+            bitmap._rrRedraws = [];
+            const settle = () => {
+                const redraws = bitmap._rrRedraws;
+                bitmap._rrRedraws = null;
+                if (redraws) for (const fn of redraws) fn();
+            };
+            bitmap.addLoadListener(settle);
+            // A picture that fails calls no load listener; its parts redraw then, with their fallback.
+            const watch = () => {
+                if (!bitmap._rrRedraws) return;
+                if (bitmap.isError && bitmap.isError()) settle();
+                else setTimeout(watch, 100);
+            };
+            setTimeout(watch, 100);
+        }
         if (bitmap._rrRedraws && !bitmap._rrRedraws.includes(redraw)) bitmap._rrRedraws.push(redraw);
         return false;
     };
@@ -3839,8 +3866,8 @@
             const window = new (built(WindowClass))(ReactorUI.windowRect(rect, this, fit), this, node);
             if (fit && window.scale) { window.scale.set(fit.scale, fit.scale); window._uiFitScale = fit.scale; }
             window._uiPhysicalRect = rect;
-            window._uiLayoutX = window.x;
-            window._uiLayoutY = window.y;
+            window._uiLayoutX = window.x - (window._uiTurnX || 0);
+            window._uiLayoutY = window.y - (window._uiTurnY || 0);
             const opacity = opacityOf(node, new Set());
             window.opacity = Math.min(window.opacity, opacity);
             window.contentsOpacity = opacity;
@@ -3928,7 +3955,10 @@
     };
 
     Scene_ReactorUI.prototype.needsCancelButton = function() {
-        return this._role !== "title";
+        if (this._role === "title") return false;
+        // A record with a Close button of its own needs no touch Back button standing over it.
+        const nodes = (this._interface && this._interface.nodes) || [];
+        return !nodes.some(node => node.type === "button" && node.action && (node.action.type === "close" || node.action.type === "closeAll"));
     };
 
     Scene_ReactorUI.prototype.needsPageButtons = function() {
@@ -4347,6 +4377,8 @@
         const picker = candidates.find(win => win.node().rowLayout === "actorPanel" && win.node().contextName === name)
             || candidates.find(win => win.node().rowLayout === "actorPanel")
             || candidates.find(win => win.node().contextName === name);
+        // With no party panel to pick in, the action goes to the menu actor, as with Select Actor off.
+        if (!picker && !use && action.type !== "formation") { this.runAction(action); return; }
         if (!picker) { SoundManager.playBuzzer(); if (use) this.updateConditions(); return; }
         const source = this.focusedWindow(), previous = picker.selectedRow();
         this._actorSelection = { action, window: picker, source, previous, pending: null, use: use || null };
@@ -6991,7 +7023,7 @@
     }
 
     //-------------------------------------------------------------------------
-    // Victory: a Victory record (bound as Victory in System 2 or Use As,
+    // Victory: a Victory record (bound as Victory in Use As,
     // `reactorVictoryInterfaceId`) shown after a won battle, over the battle
     // scene of a Classic battle or over the map of a battle fought on it.
     // The game's own functions give the rewards; each actor is read before
@@ -7515,7 +7547,10 @@
     };
 
     ReactorUI._bypassReplacements = new Set();
-    ReactorUI._routingDepth = 0;
+    // The route a router outside the engine's goto opened, until the call returns.
+    ReactorUI._pendingRoute = null;
+    // Which methods already have the router installed next to the engine's own.
+    ReactorUI._engineRouted = {};
 
     ReactorUI.gotoStockRole = function(role) {
         const replacement = this.REPLACEMENTS[role];
@@ -7531,19 +7566,46 @@
         this.gotoStockRole("title");
     };
 
-    ReactorUI.sceneRouter = function(method, base) {
+    /** The record bound in place of a stock scene class, or 0. */
+    ReactorUI.routedId = function(sceneClass) {
+        const role = this.replacementRole(sceneClass);
+        return role && !this._bypassReplacements.has(role) ? this.replacementId(role) : 0;
+    };
+
+    /**
+     * The scene is swapped as late as possible, so plugins wrapped around goto
+     * and push see the stock class: a pre-title splash that steps in for
+     * Scene_Title still plays before a replaced title. The router next to the
+     * engine's goto (`engine`, installed before plugins load) makes the swap,
+     * and push reaches it through goto. A router installed over plugins only
+     * opens a route and, if no call ever reached the engine's router (a plugin
+     * that replaced goto outright), swaps the stock scene it left queued.
+     */
+    ReactorUI.sceneRouter = function(method, base, engine) {
         const router = function(sceneClass) {
-            if (ReactorUI._routingDepth > 0) return base.apply(this, arguments);
-            const role = ReactorUI.replacementRole(sceneClass);
-            const id = role && !ReactorUI._bypassReplacements.has(role) ? ReactorUI.replacementId(role) : 0;
-            if (!id) return base.apply(this, arguments);
-            ReactorUI._routingDepth++;
-            try {
+            const route = ReactorUI._pendingRoute;
+            if (engine && method === "goto") {
+                if (route) route.reached = true;
+                const id = ReactorUI.routedId(sceneClass);
+                if (!id) return base.apply(this, arguments);
                 const result = base.call(this, Scene_ReactorUI);
-                this.prepareNextScene(id, role);
+                this.prepareNextScene(id, ReactorUI.replacementRole(sceneClass));
+                return result;
+            }
+            if (route) return base.apply(this, arguments);
+            const id = ReactorUI.routedId(sceneClass);
+            if (!id) return base.apply(this, arguments);
+            const opened = ReactorUI._pendingRoute = { reached: false };
+            try {
+                const result = base.apply(this, arguments);
+                const queued = this._nextScene;
+                if (!opened.reached && queued && queued.constructor === sceneClass) {
+                    this._nextScene = new Scene_ReactorUI();
+                    this.prepareNextScene(id, ReactorUI.replacementRole(sceneClass));
+                }
                 return result;
             } finally {
-                ReactorUI._routingDepth--;
+                ReactorUI._pendingRoute = null;
             }
         };
         router._reactorUIRouter = method;
@@ -7556,7 +7618,9 @@
         for (const method of ["goto", "push"]) {
             const current = SceneManager[method];
             if (typeof current !== "function" || current._reactorUIRouter === method) continue;
-            SceneManager[method] = this.sceneRouter(method, current);
+            const engine = !this._engineRouted[method];
+            this._engineRouted[method] = true;
+            SceneManager[method] = this.sceneRouter(method, current, engine);
         }
     };
 

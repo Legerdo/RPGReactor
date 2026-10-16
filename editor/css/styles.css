@@ -1820,6 +1820,7 @@
 
         .system-checkbox {
             appearance: none;
+            flex: 0 0 auto;
             width: 16px;
             height: 16px;
             background-color: var(--color-bg-deep);
@@ -4359,6 +4360,19 @@
             padding-inline: 12px;
             white-space: nowrap;
         }
+        .rr-ui-unbound {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            color: var(--color-warning-text, var(--color-text));
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .rr-ui-unbound[hidden] { display: none; }
+        .rr-ui-unbound > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rr-ui-unbound > button { flex: 0 0 auto; }
         .rr-ui-role-combobox {
             position: relative;
             min-width: 0;
