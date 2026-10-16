@@ -7097,3 +7097,12 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .vehicle-detail .vehicle-effects-details { font-size:11px; margin-top:9px; }
 .vehicle-detail .vehicle-effects-details summary { cursor:pointer; color:var(--color-text-muted); }
 .vehicle-detail .vehicle-effect-rows { margin-top:8px; }
+
+/* Show Text and Comment lines in the event list: in light themes, normal text takes the list's
+   text color and \C[n] colors carry a dark outline, as the game draws message text. */
+:root:is([data-theme="light"], [data-theme="bubblegum-light"], [data-theme="ocean-light"], [data-theme="cascadia-light"], [data-theme="underworld-light"], [data-theme="creamsicle-light"], [data-theme="royalty-light"]) {
+    --rr-message-normal-color: var(--color-text-strong);
+}
+:root:is([data-theme="light"], [data-theme="bubblegum-light"], [data-theme="ocean-light"], [data-theme="cascadia-light"], [data-theme="underworld-light"], [data-theme="creamsicle-light"], [data-theme="royalty-light"]) .rr-message-code-color {
+    text-shadow: -1px 0 rgba(0, 0, 0, 0.6), 1px 0 rgba(0, 0, 0, 0.6), 0 -1px rgba(0, 0, 0, 0.6), 0 1px rgba(0, 0, 0, 0.6);
+}

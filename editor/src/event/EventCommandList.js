@@ -833,11 +833,6 @@ class EventCommandList {
             return null;
         }
 
-        // Hide 655 Script continuation rows - folded into parent 355's description
-        if (command.code === 655) {
-            return null;
-        }
-
         // Hide 657 Plugin Args rows unless their plugin command is expanded.
         // They used to render unconditionally AND be duplicated by the parent's
         // ▶/▼, which showed every argument twice; the toggle is now the single
@@ -1233,13 +1228,19 @@ class EventCommandList {
             : require('../utils/HtmlEscape.js');
         let html = escapeHtml(text);
 
+        // Color 0 is the normal text color: the skin's own on a dark list; light themes set
+        // --rr-message-normal-color, since the stock skin's white vanishes on a light row.
+        const normal = `color: var(--rr-message-normal-color, ${colorAt(0)})`;
+
         // Replace \C[n] or \c[n] with color spans
         html = html.replace(/\\[Cc]\[(\d+)\]/g, (match, colorIndex) => {
-            return `</span><span style="color: ${colorAt(parseInt(colorIndex, 10))}">`;
+            const index = parseInt(colorIndex, 10);
+            return index === 0 ? `</span><span style="${normal}">`
+                : `</span><span class="rr-message-code-color" style="color: ${colorAt(index)}">`;
         });
 
         // Wrap in initial color span
-        html = `<span style="color: ${colorAt(0)}">${html}</span>`;
+        html = `<span style="${normal}">${html}</span>`;
 
         // Clean up any empty spans
         html = html.replace(/<span[^>]*><\/span>/g, '');
@@ -2135,23 +2136,10 @@ class EventCommandList {
                     }
                     break;
                 }
-                // Script - collect this line + all following 655 continuations
-                const lines = [params[0] || ''];
-                if (page && index !== undefined && page.list) {
-                    for (let i = index + 1; i < page.list.length; i++) {
-                        if (page.list[i].code !== 655) break;
-                        lines.push((page.list[i].parameters && page.list[i].parameters[0]) || '');
-                    }
-                }
-                const firstNonEmpty = lines.find(l => l && l.trim()) || '';
-                let preview = firstNonEmpty.substring(0, 200);
-                if (firstNonEmpty.length > 200) preview += '...';
-                const extra = lines.length - 1;
-                if (extra > 0) {
-                    description = `${preview}  (+${extra} ${tt(extra === 1 ? 'more line' : 'more lines')})`;
-                } else {
-                    description = preview;
-                }
+                // Script: its first line; each further line is its own 655 row.
+                const scriptLine = params[0] || '';
+                description = scriptLine.substring(0, 200);
+                if (scriptLine.length > 200) description += '...';
                 break;
             }
             case 356:
@@ -2219,7 +2207,7 @@ class EventCommandList {
                 break;
             }
             case 655: {
-                // Script continuation (rows are hidden; this is defensive)
+                // Script continuation line
                 const scriptLine = params[0] || '';
                 description = scriptLine.substring(0, 200);
                 if (scriptLine.length > 200) {

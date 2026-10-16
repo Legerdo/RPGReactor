@@ -1443,9 +1443,7 @@ class DatabaseTroopEditor {
         }
 
         page.list.forEach((cmd, idx) => {
-            // Script continuations are folded into their parent 355's summary,
-            // and plugin arguments are shown only when their command is expanded.
-            if (cmd.code === 655) return;
+            // Plugin arguments are shown only when their command is expanded.
             if (cmd.code === 657 &&
                     !this.expandedPluginCommands.has(ECL.pluginArgsOwnerIndex(page.list, idx))) {
                 return;
@@ -1976,8 +1974,9 @@ class DatabaseTroopEditor {
         if (cmd.code === 0) return;
 
         const ECL = this._eventCommandListClass();
-        if (cmd.code === 657) {
-            const range = ECL.contiguousBlockRange(page.list, idx, 357, 657);
+        if (cmd.code === 657 || cmd.code === 655) {
+            const range = cmd.code === 657 ? ECL.contiguousBlockRange(page.list, idx, 357, 657)
+                : ECL.contiguousBlockRange(page.list, idx, 355, 655);
             if (!range) return;
             idx = range.start;
             cmd = page.list[idx];

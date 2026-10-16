@@ -252,8 +252,6 @@ class DatabaseCommonEventEditor {
         }
 
         event.list.forEach((cmd, idx) => {
-            // Hide 655 Script continuation rows - folded into parent 355's summary
-            if (cmd.code === 655) return;
             // Plugin arguments are shown only when their command is expanded.
             if (cmd.code === 657 &&
                     !this.expandedPluginCommands.has(ECL.pluginArgsOwnerIndex(event.list, idx))) {
