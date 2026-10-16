@@ -93,7 +93,7 @@ const appVersion = editorPkg.version || '0.0.0';
 const INCLUDE_DIRS = ['src', 'css', 'images', 'libs', 'build-scripts', 'changelog'];
 const INCLUDE_REPOSITORY_DIRS = [path.join('template', 'Demo')];
 const INCLUDE_FILES = [
-    'index.html', 'media-surface-panel.html', 'package.json', 'package-lock.json',
+    'index.html', 'media-surface-panel.html', 'event-editor-panel.html', 'package.json', 'package-lock.json',
     'CHANGELOG.md', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
 ];
 

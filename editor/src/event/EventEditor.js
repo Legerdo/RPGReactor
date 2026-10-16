@@ -18,10 +18,17 @@ class EventEditor {
         this.clipboard = null; // For copy/paste event pages
         this.commandList = new EventCommandList(this); // Command list manager
 
-        if (typeof window !== 'undefined') window.addEventListener('rr-language-changed', () => {
-            const container = document.querySelector('.event-editor-container');
-            if (container && this.currentEvent) this.showEventEditor(container, this.currentEvent);
-        });
+        if (typeof window !== 'undefined') {
+            const redraw = () => {
+                const container = document.querySelector('.event-editor-container');
+                if (container && this.currentEvent) this.showEventEditor(container, this.currentEvent);
+            };
+            window.addEventListener('rr-language-changed', redraw);
+            // Back from its own window: the same edits, drawn with live handlers.
+            window.addEventListener('rr-event-editor-docked', event => {
+                if (event.detail && event.detail.windowGone && this.isOpen()) redraw();
+            });
+        }
     }
 
     _t(key, params = {}) {
@@ -203,6 +210,8 @@ class EventEditor {
     }
 
     _hideEditor() {
+        // A popped-out editor comes back to the editor window as it closes; it opens popped out again.
+        if (typeof RREventEditorWindow !== 'undefined' && RREventEditorWindow.isPoppedOut()) RREventEditorWindow.dock({ keepPoppedOut: true });
         const modal = document.getElementById('event-editor-modal');
         if (modal) {
             modal.style.display = 'none';

@@ -1917,6 +1917,13 @@ class EventManager {
     setupEventEditorModal() {
         const modal = document.getElementById('event-editor-modal');
         const closeBtn = document.getElementById('event-editor-close-btn');
+        // Back from a pop-out window destroyed under it, the close button is wired again.
+        if (!this._rewiresOnDock && typeof window !== 'undefined') {
+            this._rewiresOnDock = true;
+            window.addEventListener('rr-event-editor-docked', event => {
+                if (event.detail && event.detail.windowGone) this.setupEventEditorModal();
+            });
+        }
 
         if (closeBtn) {
             closeBtn.addEventListener('click', () => {
@@ -2019,6 +2026,10 @@ class EventManager {
             if (!shownBefore) RREventEditorWindow.place(modal);
         }
         modal.style.display = 'flex';
+        // Left popped out last time: it opens in its own window again, on that screen.
+        if (!shownBefore && typeof RREventEditorWindow !== 'undefined' && RREventEditorWindow.wantsPopOut() && !RREventEditorWindow.isPoppedOut()) {
+            RREventEditorWindow.popOut(modal);
+        }
 
         console.debug('Event editor opened for:', event.name);
     }

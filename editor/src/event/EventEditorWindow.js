@@ -8,12 +8,23 @@
  *   RREventEditorWindow.place(overlay)     each time it opens: the remembered place, or centered
  *   RREventEditorWindow.isOpen()           the window is showing
  *   RREventEditorWindow.ownsKeys()         open, and the last click or focus landed inside it
- *   RREventEditorWindow.clamp(rect, view)  a rectangle kept where its title bar can be reached
+ *   RREventEditorWindow.clamp(rect, view)  a rectangle kept wholly on screen
+ *   RREventEditorWindow.popOut()           move it into a window of its own (another monitor)
+ *   RREventEditorWindow.dock()             bring it back into the editor window
+ *   RREventEditorWindow.isPoppedOut()      it lives in its own window now
+ *
+ * Popped out, the window's own title bar and frame move and size it; closing that window
+ * brings the editor back here with its edits. It reopens popped out, on that screen, until
+ * it is brought back.
  */
 (function(root) {
     'use strict';
 
     const STORAGE_KEY = 'rr-event-editor-window';
+    const POPOUT_KEY = 'rr-event-editor-popout';
+    let popped = null;
+    let sizeObserver = null;
+    let globalsInstalled = false;
     const MIN_WIDTH = 860;
     const MIN_HEIGHT = 480;
 
@@ -79,7 +90,7 @@
 
     function place(overlay = overlayElement()) {
         const panel = panelOf(overlay);
-        if (!panel) return;
+        if (!panel || popped) return;
         const view = viewport();
         apply(panel, clamp(remembered() || defaultRect(view), view));
     }
@@ -102,27 +113,177 @@
         document.addEventListener('pointerup', end);
     }
 
+    function rememberedPopout() {
+        try {
+            const value = JSON.parse(root.localStorage.getItem(POPOUT_KEY) || 'null');
+            return value && value.on ? value : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function rememberPopout(value) {
+        try { root.localStorage.setItem(POPOUT_KEY, JSON.stringify(value)); } catch (error) { /* a convenience only */ }
+    }
+
+    function canPopOut() {
+        return typeof nw !== 'undefined' && !!(nw.Window && nw.Window.open) && !!root.RRPopoutBridge;
+    }
+
+    function isPoppedOut() {
+        return !!popped;
+    }
+
+    function popButtonOf(overlay) {
+        return overlay && overlay.querySelector('.rr-event-editor-popout-btn');
+    }
+
+    /** Move the editor into a window of its own, where the person's screens allow. */
+    function popOut(overlay = overlayElement()) {
+        const panel = panelOf(overlay);
+        if (popped || !panel || !canPopOut()) return false;
+        const title = (panel.querySelector('.rr-modal-title') || {}).textContent || 'Event Editor';
+        const saved = rememberedPopout();
+        const size = saved || current(panel);
+        const options = { width: Math.round(size.width), height: Math.round(size.height), frame: true, show: true, resizable: true, icon: 'images/icon.png', title };
+        if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) { options.x = saved.x; options.y = saved.y; }
+        const state = { win: null, panelStyle: panel.style.cssText, closing: false, overlay };
+        if (sizeObserver) sizeObserver.disconnect();
+        popped = state;
+        nw.Window.open('event-editor-panel.html', options, win => {
+            if (!win) { popped = null; return; }
+            state.win = win;
+            const mount = () => {
+                if (popped !== state) return;
+                const doc = win.window.document;
+                root.RRPopoutBridge.dressLike(doc);
+                doc.title = title;
+                doc.body.style.cssText = 'margin:0;height:100vh;overflow:hidden;background:var(--color-bg-base);';
+                root.RRPopoutBridge.attach(win.window);
+                overlay.classList.add('rr-event-editor-popped');
+                panel.style.cssText = '';
+                doc.body.appendChild(overlay);
+                const button = popButtonOf(overlay);
+                if (button) button.hidden = true;
+                rememberPopout({ on: true, x: win.x, y: win.y, width: win.width, height: win.height });
+                // The window manager settles a new window's size after it shows.
+                setTimeout(() => { try { if (popped === state) win.resizeTo(options.width, options.height); } catch (error) { /* kept as shown */ } }, 300);
+            };
+            const ready = () => win.window && win.window.document && win.window.document.readyState === 'complete';
+            if (ready()) mount(); else win.on('loaded', mount);
+            const keepPlace = () => { if (popped === state) rememberPopout({ on: true, x: win.x, y: win.y, width: win.width, height: win.height }); };
+            win.on('move', keepPlace);
+            win.on('resize', keepPlace);
+            // Closing the window by its own frame brings the editor back, edits and all. 'closed'
+            // covers a window closed without asking (a crash, the session ending).
+            win.on('close', () => {
+                if (popped === state && !state.closing) {
+                    keepPlace();
+                    dock({ keepPoppedOut: false });
+                } else {
+                    try { win.close(true); } catch (error) { /* gone */ }
+                }
+            });
+            win.on('closed', () => {
+                if (popped === state && !state.closing) dock({ keepPoppedOut: false, windowGone: true });
+            });
+        });
+        return true;
+    }
+
+    /**
+     * Bring the editor back into the editor window. `keepPoppedOut`: it opens popped out again
+     * next time (the editor closed by OK or Cancel), rather than here (its window was closed).
+     */
+    function dock({ keepPoppedOut = true, windowGone = false } = {}) {
+        const state = popped;
+        if (!state) return;
+        // Held from the pop-out: a window closed under it can no longer be searched.
+        const overlay = state.overlay;
+        popped = null;
+        state.closing = true;
+        if (root.RRPopoutBridge) root.RRPopoutBridge.detach();
+        if (overlay) {
+            overlay.classList.remove('rr-event-editor-popped');
+            const panel = panelOf(overlay);
+            if (panel) panel.style.cssText = state.panelStyle;
+            document.body.appendChild(overlay);
+            const button = popButtonOf(overlay);
+            if (button) button.hidden = !canPopOut();
+            if (isOpen() && panel) apply(panel, clamp(current(panel), viewport()));
+            // Watched again once the move has settled, not in the middle of its layout.
+            if (sizeObserver && panel) (root.requestAnimationFrame || setTimeout)(() => sizeObserver.observe(panel));
+        }
+        if (!keepPoppedOut) {
+            const saved = rememberedPopout() || {};
+            rememberPopout({ ...saved, on: false });
+        }
+        try { if (state.win) state.win.close(true); } catch (error) { /* already closed */ }
+        // Back from a window destroyed under it (closed without asking), the editor's elements have
+        // lost their handlers: its frame is wired again here, and the editor and its manager wire
+        // theirs (rr-event-editor-docked). The editor draws itself over its edits, as for a language change.
+        if (windowGone && overlay) {
+            const stale = popButtonOf(overlay);
+            if (stale) stale.remove();
+            overlay.__rrFloating = false;
+            install(overlay);
+        }
+        if (typeof root.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+            root.dispatchEvent(new CustomEvent('rr-event-editor-docked', { detail: { windowGone } }));
+        }
+    }
+
+    /** The pop-out's NW window while there is one (tests close it the way its frame does). */
+    function popoutWindow() {
+        return popped ? popped.win : null;
+    }
+
+    /** Whether the editor should reopen in its own window: it was left popped out. */
+    function wantsPopOut() {
+        return canPopOut() && !!rememberedPopout();
+    }
+
     function install(overlay = overlayElement()) {
         const panel = panelOf(overlay);
         if (!overlay || !panel || overlay.__rrFloating) return;
         overlay.__rrFloating = true;
         overlay.classList.add('rr-event-editor-floating');
         const header = panel.querySelector('.rr-modal-header');
-        if (header) header.addEventListener('pointerdown', event => startDrag(overlay, event));
+        if (header) header.addEventListener('pointerdown', event => { if (!popped) startDrag(overlay, event); });
+        // A window of its own, for another monitor: beside the close button, as the Media Surface panel has it.
+        const close = header && header.querySelector('.rr-modal-close');
+        if (close && !popButtonOf(overlay)) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'rr-modal-close rr-event-editor-popout-btn';
+            button.textContent = '\u29c9';
+            button.title = root.I18n && root.I18n.tText ? root.I18n.tText('Open in a separate window') : 'Open in a separate window';
+            button.style.marginLeft = 'auto';
+            button.style.marginRight = '4px';
+            button.hidden = !canPopOut();
+            button.addEventListener('click', () => popOut(overlay));
+            header.insertBefore(button, close);
+        }
         // The corner grip resizes (CSS resize); the size it leaves is the one remembered.
         if (typeof ResizeObserver === 'function') {
+            if (sizeObserver) sizeObserver.disconnect();
             let settle = null;
-            new ResizeObserver(() => {
+            sizeObserver = new ResizeObserver(() => {
                 if (!isOpen()) return;
                 clearTimeout(settle);
                 settle = setTimeout(() => remember(current(panel)), 200);
-            }).observe(panel);
+            });
+            sizeObserver.observe(panel);
         }
-        root.addEventListener('resize', () => {
-            if (isOpen()) apply(panel, clamp(current(panel), viewport()));
-        });
-        document.addEventListener('pointerdown', event => { lastWorkedTarget = event.target; }, true);
-        document.addEventListener('focusin', event => { lastWorkedTarget = event.target; }, true);
+        if (!globalsInstalled) {
+            globalsInstalled = true;
+            root.addEventListener('resize', () => {
+                const shown = panelOf(overlayElement());
+                if (isOpen() && shown && !popped) apply(shown, clamp(current(shown), viewport()));
+            });
+            document.addEventListener('pointerdown', event => { lastWorkedTarget = event.target; }, true);
+            document.addEventListener('focusin', event => { lastWorkedTarget = event.target; }, true);
+        }
     }
 
     function isOpen() {
@@ -137,7 +298,7 @@
         return !!target && overlay.contains(target);
     }
 
-    const api = { install, place, isOpen, ownsKeys, clamp, defaultRect, MIN_WIDTH, MIN_HEIGHT, STORAGE_KEY };
+    const api = { install, place, isOpen, ownsKeys, clamp, defaultRect, popOut, dock, isPoppedOut, wantsPopOut, popoutWindow, MIN_WIDTH, MIN_HEIGHT, STORAGE_KEY, POPOUT_KEY };
     root.RREventEditorWindow = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

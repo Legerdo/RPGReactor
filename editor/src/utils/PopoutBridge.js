@@ -1,0 +1,145 @@
+/**
+ * PopoutBridge - lets editor UI built for the main window live in a second OS window (another
+ * monitor) unchanged. The event editor and its command dialogs find their fields through the
+ * main `document`, open dialogs on `document.body`, and hear keys through listeners on
+ * `document` and `window`. While a pop-out is attached:
+ *
+ *   - getElementById / querySelector / querySelectorAll on the main document also search it;
+ *   - document and window listeners for input events also hear it (recorded from load, so the
+ *     ones added before the pop-out opened are there too);
+ *   - document.activeElement is its focused element while it has the focus;
+ *   - an element appended to the main body while it has the focus (a dialog, a picker, a menu)
+ *     goes to its body instead, so a dialog opens where the person is working.
+ *
+ * Load this before any other script that adds listeners.
+ *
+ *   RRPopoutBridge.attach(childWindow)   start bridging to that window
+ *   RRPopoutBridge.detach()              stop; the main window is itself again
+ *   RRPopoutBridge.active()              the attached window, or null
+ */
+(function(root) {
+    'use strict';
+    if (typeof document === 'undefined' || root.RRPopoutBridge) return;
+
+    const INPUT_EVENTS = new Set(['keydown', 'keyup', 'keypress', 'pointerdown', 'pointerup', 'pointermove', 'pointercancel',
+        'mousedown', 'mouseup', 'mousemove', 'click', 'dblclick', 'contextmenu', 'wheel', 'focusin', 'focusout',
+        'input', 'change', 'copy', 'cut', 'paste', 'dragover', 'drop']);
+    const recorded = { document: [], window: [] };
+    let child = null;
+
+    function record(kind, target) {
+        const add = target.addEventListener, remove = target.removeEventListener;
+        target.addEventListener = function(type, listener, options) {
+            if (INPUT_EVENTS.has(type) && listener) {
+                recorded[kind].push({ type, listener, options });
+                if (child) mirrorTarget(kind).addEventListener(type, listener, options);
+            }
+            return add.call(this, type, listener, options);
+        };
+        target.removeEventListener = function(type, listener, options) {
+            if (INPUT_EVENTS.has(type)) {
+                const list = recorded[kind];
+                const at = list.findIndex(entry => entry.type === type && entry.listener === listener && capture(entry.options) === capture(options));
+                if (at >= 0) list.splice(at, 1);
+                if (child) mirrorTarget(kind).removeEventListener(type, listener, options);
+            }
+            return remove.call(this, type, listener, options);
+        };
+    }
+    const capture = options => !!(typeof options === 'boolean' ? options : options && options.capture);
+    const mirrorTarget = kind => (kind === 'document' ? child.document : child);
+    record('document', document);
+    record('window', root);
+
+    const native = {
+        getElementById: document.getElementById,
+        querySelector: document.querySelector,
+        querySelectorAll: document.querySelectorAll
+    };
+    const nativeActive = Object.getOwnPropertyDescriptor(Document.prototype, 'activeElement');
+
+    function childHasFocus() {
+        try { return !!child && child.document.hasFocus(); } catch (error) { return false; }
+    }
+
+    function patchDocument() {
+        const childDoc = child.document;
+        document.getElementById = function(id) {
+            return native.getElementById.call(document, id) || childDoc.getElementById(id);
+        };
+        document.querySelector = function(selector) {
+            return native.querySelector.call(document, selector) || childDoc.querySelector(selector);
+        };
+        document.querySelectorAll = function(selector) {
+            return Array.from(native.querySelectorAll.call(document, selector)).concat(Array.from(childDoc.querySelectorAll(selector)));
+        };
+        Object.defineProperty(document, 'activeElement', {
+            configurable: true,
+            get() { return childHasFocus() ? childDoc.activeElement : nativeActive.get.call(document); }
+        });
+        const body = document.body;
+        for (const method of ['appendChild', 'append']) {
+            const original = body[method];
+            body['__rrPopout_' + method] = { original, own: Object.prototype.hasOwnProperty.call(body, method) };
+            body[method] = function(...nodes) {
+                if (childHasFocus()) return childDoc.body[method](...nodes);
+                return original.apply(body, nodes);
+            };
+        }
+    }
+
+    function unpatchDocument() {
+        delete document.getElementById;
+        delete document.querySelector;
+        delete document.querySelectorAll;
+        delete document.activeElement;
+        const body = document.body;
+        for (const method of ['appendChild', 'append']) {
+            const saved = body['__rrPopout_' + method];
+            if (!saved) continue;
+            if (saved.own) body[method] = saved.original; else delete body[method];
+            delete body['__rrPopout_' + method];
+        }
+    }
+
+    function attach(childWindow) {
+        if (child) detach();
+        child = childWindow;
+        for (const kind of ['document', 'window']) {
+            for (const { type, listener, options } of recorded[kind]) mirrorTarget(kind).addEventListener(type, listener, options);
+        }
+        patchDocument();
+    }
+
+    function detach() {
+        if (!child) return;
+        try {
+            for (const kind of ['document', 'window']) {
+                for (const { type, listener, options } of recorded[kind]) mirrorTarget(kind).removeEventListener(type, listener, options);
+            }
+        } catch (error) { /* the window is already gone */ }
+        unpatchDocument();
+        child = null;
+    }
+
+    /** The main window's stylesheets, theme and language in a new window's document. */
+    function dressLike(childDoc) {
+        for (const link of native.querySelectorAll.call(document, 'link[rel="stylesheet"], style')) {
+            childDoc.head.appendChild(link.cloneNode(true));
+        }
+        for (const name of ['data-theme', 'lang', 'dir']) {
+            const value = document.documentElement.getAttribute(name);
+            if (value) childDoc.documentElement.setAttribute(name, value);
+        }
+        // The theme follows the main window while the pop-out is open.
+        if (typeof MutationObserver === 'function') {
+            new MutationObserver(() => {
+                const theme = document.documentElement.getAttribute('data-theme');
+                if (theme) childDoc.documentElement.setAttribute('data-theme', theme);
+                else childDoc.documentElement.removeAttribute('data-theme');
+            }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+        }
+    }
+
+    root.RRPopoutBridge = { attach, detach, dressLike, active: () => child, recordedCount: () => recorded.document.length + recorded.window.length };
+})(typeof window !== 'undefined' ? window : globalThis);
