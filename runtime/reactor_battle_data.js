@@ -596,8 +596,13 @@
         let frame = 0;
         const poses = context?.homes ? copy(context.homes) : null, target = context?.target || poses?.target || { x: 0, y: 0, z: 0 }, busy = {}, active = {};
         const travelling = ['move'], lifting = ['jump','leap','float','fall'];
+        let lastPhase = null;
         const cues = (sequence.steps || []).map(step => {
             let duration = Math.max(0, number(step.duration));
+            // Return begins once every battler has stopped travelling: a walk home started in Execute plays out instead of being cut short by the Return's move.
+            const phase = B.stepPhase(step);
+            if (phase === 'return' && lastPhase !== null && lastPhase !== 'return') frame = Math.max(frame, ...Object.values(busy).map(b => Math.max(b.move || 0, b.jump || 0)));
+            lastPhase = phase;
             const key = B.roleKey(step);
             const cue = { step };
             if (step.type === 'move' && poses) {
