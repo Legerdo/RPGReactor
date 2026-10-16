@@ -582,6 +582,29 @@ Utils.correctFileCaseFromIndex = function(url) {
  * @param {string} suffix - The encrypted-asset suffix, "_" or "".
  * @returns {string} The URL with on-disk casing, without the suffix.
  */
+/**
+ * Whether a relative asset file is on disk, in any letter case. Known only with
+ * the filesystem at hand (NW.js): null elsewhere, where a request finds out.
+ *
+ * @param {string} url - The relative URL.
+ * @returns {?boolean}
+ */
+Utils.localAssetExists = function(url) {
+    if (!this.isNwjs()) return null;
+    try {
+        const fs = require("fs");
+        const path = require("path");
+        const clean = decodeURIComponent(String(url).split("?")[0]);
+        if (/^([a-z][a-z0-9+.-]*:|\/)/i.test(clean)) return null;
+        const segments = clean.split("/").filter(s => s && s !== ".");
+        if (segments.some(s => s === "..")) return null;
+        const base = path.dirname(process.mainModule.filename);
+        return fs.existsSync(path.join(base, ...segments)) || !!this.correctFileCase(url);
+    } catch (e) {
+        return null;
+    }
+};
+
 Utils.resolveFileCase = function(url, suffix) {
     const corrected = this.correctFileCase(url + suffix);
     if (!corrected) return url;
@@ -3959,6 +3982,7 @@ Bitmap.prototype._updateScaleMode = function() {
 Bitmap.prototype._startLoading = function() {
     this._revokeObjectUrl();
     this._triedMvEncrypted = false;
+    this._triedPlain = false;
     this._image = new Image();
     this._image.onload = this._onLoad.bind(this);
     this._image.onerror = this._onError.bind(this);
@@ -3991,6 +4015,22 @@ Bitmap.prototype._startLoading = function() {
 
 Bitmap.prototype._startDecrypting = function() {
     this._url = Utils.resolveFileCase(this._url, "_");
+    // With the disk at hand, ask for the name that is there (MV's .rpgmvp,
+    // or a file left plain) instead of failing a request first.
+    if (Utils.localAssetExists(this._url + "_") === false && /\.png$/i.test(this._url)) {
+        const mv = this._url.slice(0, -4) + ".rpgmvp";
+        if (Utils.localAssetExists(mv)) {
+            this._triedMvEncrypted = true;
+            this._requestEncrypted(Utils.correctFileCase(mv) || mv);
+            return;
+        }
+        if (Utils.localAssetExists(this._url)) {
+            this._triedMvEncrypted = true;
+            this._triedPlain = true;
+            this._requestBytes(this._url);
+            return;
+        }
+    }
     this._requestEncrypted(this._url + "_");
 };
 
@@ -4044,6 +4084,13 @@ Bitmap.prototype._onEncryptedError = function() {
         this._triedMvEncrypted = true;
         const candidate = this._url.slice(0, -4) + ".rpgmvp";
         this._requestEncrypted(Utils.correctFileCase(candidate) || candidate);
+        return;
+    }
+    // An encrypted game can still ship a file as it is: MV never encrypts
+    // img/system/Window.png, and a deploy can leave others plain.
+    if (!this._triedPlain) {
+        this._triedPlain = true;
+        this._requestBytes(Utils.resolveFileCase(this._url, ""));
         return;
     }
     this._onError();

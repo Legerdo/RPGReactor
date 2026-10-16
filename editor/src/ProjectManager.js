@@ -307,6 +307,18 @@ class ProjectManager {
         if (!this.fs.readdirSync(dir).length) this.fs.rmdirSync(dir);
     }
 
+    /**
+     * Whether a project was made in RPG Maker MV: its Game.rpgproject marker, or, in a
+     * deployed game that ships without one, MV's corescript (js/rpg_core.js; MZ's is
+     * rmmz_core.js). The corescript wins over an MZ marker someone dropped in to open it.
+     */
+    isRpgMakerMvProject(projectPath) {
+        const has = name => this.fs.existsSync(this.path.join(projectPath, name));
+        if (has(this.path.join('js', 'rpg_core.js'))) return true;
+        if (has(this.path.join('js', 'rmmz_core.js'))) return false;
+        return has('Game.rpgproject') || has('game.rpgproject');
+    }
+
     async installReactorRuntime(projectPath, projectName, options = {}) {
         const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         if (!this.fs || !this.path) {
@@ -328,6 +340,10 @@ class ProjectManager {
             if (this.fs.existsSync(indexPath)) {
                 indexUsesReactor = /js\/reactor_main\.js/.test(this.fs.readFileSync(indexPath, 'utf8'));
             }
+
+            // Read before the corescript is archived: a deployed MV game has
+            // no project marker, but its corescript says which engine it is.
+            const isMvProject = this.isRpgMakerMvProject(projectPath);
 
             // Quarantine the RPG Maker corescript into a zip in the project
             // root so the two runtimes never share js/. Deploy staging
@@ -369,8 +385,6 @@ class ProjectManager {
             }
 
             if (!indexUsesReactor) {
-                const isMvProject = this.fs.existsSync(this.path.join(projectPath, 'Game.rpgproject'))
-                    || this.fs.existsSync(this.path.join(projectPath, 'game.rpgproject'));
                 this.writeText(indexPath, this.getStarterIndexHtml(displayName, { mvCompat: isMvProject }));
             }
 
@@ -399,6 +413,27 @@ class ProjectManager {
         return null;
     }
 
+    /**
+     * A deployed MV game converted before its corescript was read for the engine was
+     * marked as MZ (`$reactorMvCompat = false`), which turns off every MV game rule. The
+     * conversion's backup still holds the corescript it replaced: MV's means MV.
+     */
+    repairMvCompatFlag(projectPath) {
+        try {
+            const indexPath = this.path.join(projectPath, 'index.html');
+            const html = this.fs.readFileSync(indexPath, 'utf8');
+            const flag = /window\.\$reactorMvCompat\s*=\s*false\s*;/;
+            if (!flag.test(html)) return { ok: true, repaired: false };
+            const backups = this.fs.readdirSync(projectPath).filter(name => /^rpgmaker-runtime-backup(-\d+)?\.zip$/.test(name));
+            const mv = backups.some(name => this.fs.readFileSync(this.path.join(projectPath, name)).includes('js/rpg_core.js'));
+            if (!mv) return { ok: true, repaired: false };
+            this.writeText(indexPath, html.replace(flag, 'window.$reactorMvCompat = true;'));
+            return { ok: true, repaired: true };
+        } catch (error) {
+            return { ok: false, error: error.message };
+        }
+    }
+
     async refreshReactorRuntime(projectPath, projectData) {
         if (!this.fs || !this.path || !projectPath || !projectData) {
             return { ok: true, updated: false };
@@ -419,6 +454,8 @@ class ProjectManager {
         }
         const gpuArgs = this.ensureGpuChromiumArgs(projectPath);
         if (!gpuArgs.ok) console.warn('Could not add the GPU switches to package.json:', gpuArgs.error);
+        const mvMode = this.repairMvCompatFlag(projectPath);
+        if (!mvMode.ok) console.warn('Could not correct the MV compatibility flag in index.html:', mvMode.error);
 
         const runtimePath = this.getRuntimePath();
         if (!runtimePath) {
@@ -1150,7 +1187,7 @@ class ProjectManager {
                         engine: 'RPG Reactor',
                         engineVersion: engineVersion,
                         imported: true,
-                        importedFrom: this.fs.existsSync(rmmzFile) ? 'RPG Maker MZ' : 'RPG Maker MV',
+                        importedFrom: this.isRpgMakerMvProject(projectPath) || !this.fs.existsSync(rmmzFile) ? 'RPG Maker MV' : 'RPG Maker MZ',
                         path: projectPath
                     };
                 } else {
