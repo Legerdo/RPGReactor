@@ -141,3 +141,27 @@ test('an attach hook runs for each pop-out and its cleanup on detach', () => {
     assert.deepEqual(seen, ['attach', 'detach', 'attach']);
 });
 
+
+test('a library\'s own listeners hear only their window; the editor\'s own hear the pop-out too', () => {
+    const { bridge, main, child, childWindow } = bridgeWorld();
+    const heard = [];
+    main.addEventListener('pointermove', () => heard.push('editor'));
+    // PIXI's event system, injected as script text: its frames read "<anonymous>".
+    new Function('doc', 'heard', 'doc.addEventListener("pointermove", () => heard.push("pixi"));')(main, heard);
+    bridge.attach(childWindow);
+    child.fire('pointermove');
+    assert.deepEqual(heard, ['editor'], 'the map does not follow the mouse in the editor\'s window');
+    main.fire('pointermove');
+    assert.deepEqual(heard, ['editor', 'editor', 'pixi'], 'in its own window it does');
+});
+
+test('the edited event stays outlined in either mode, and the preview keeps its proportions', () => {
+    const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    const manager = read('src/EventManager.js');
+    assert.match(manager, /updateEditingHighlight\(\) \{[\s\S]{0,400}editor\.isOpen\(\) \? editor\.sourceEvent : null/, 'drawn for the open editor\'s event, not the selection');
+    assert.doesNotMatch(manager.slice(manager.indexOf('updateEditingHighlight() {'), manager.indexOf('updateEditingHighlight() {') + 900), /eventMode/, 'whatever the mode');
+    assert.match(read('src/event/EventEditor.js'), /this\.mapManager\?\.updateEditingHighlight\?\.\(\);/, 'gone when the window closes');
+    const page = read('src/event/EventPageEditor.js');
+    assert.match(page, /class="character-preview-canvas"[\s\S]{0,300}object-fit: contain;/);
+    assert.match(page, /_redrawOnResize\(canvas, \(\) => \{/);
+});

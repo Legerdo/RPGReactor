@@ -35,7 +35,10 @@
     function record(kind, target) {
         const add = target.addEventListener, remove = target.removeEventListener;
         target.addEventListener = function(type, listener, options) {
-            if (INPUT_EVENTS.has(type) && listener) {
+            // A library's own listeners (PIXI's pointer tracking for the map, three's controls) hear
+            // only the window they were made for: relayed, the editor window's moves and clicks
+            // moved the map's tile cursor and clicked the map.
+            if (INPUT_EVENTS.has(type) && listener && !fromLibrary()) {
                 recorded[kind].push({ type, listener, options });
                 if (child) mirrorTarget(kind).addEventListener(type, listener, options);
             }
@@ -52,6 +55,15 @@
         };
     }
     const capture = options => !!(typeof options === 'boolean' ? options : options && options.capture);
+    // The registering code is a bundled library when the frame that called addEventListener is one:
+    // a file under node_modules or libs, or code injected as script text (the editor loads PIXI so,
+    // and its frames read "<anonymous>"). The editor's own scripts all load from files.
+    const LIBRARY = /[\\/](node_modules|libs)[\\/]|<anonymous>:\d/;
+    function fromLibrary() {
+        const stack = String(new Error().stack || '').split('\n');
+        // [0] "Error", [1] this function, [2] the addEventListener wrapper, [3] its caller.
+        return LIBRARY.test(stack[3] || '');
+    }
     const mirrorTarget = kind => (kind === 'document' ? child.document : child);
     record('document', document);
     record('window', root);

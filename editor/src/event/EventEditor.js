@@ -229,6 +229,8 @@ class EventEditor {
         if (modal) {
             modal.style.display = 'none';
         }
+        // The event it held is no longer outlined on the map.
+        this.mapManager?.updateEditingHighlight?.();
         this.pageEditor?._disposeModelPreview?.();
         this.pageEditor = null;
         // Cancel may have taken pages back: nothing keeps pointing at one of them.

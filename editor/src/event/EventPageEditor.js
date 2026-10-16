@@ -359,7 +359,7 @@ class EventPageEditor {
                     <canvas class="character-preview-canvas"
                             width="192"
                             height="88"
-                            style="image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges; display: block; width: 100%; height: 100%;"></canvas>
+                            style="image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges; display: block; width: 100%; height: 100%; object-fit: contain;"></canvas>
                 </div>
 
                 <div style="display: flex; align-items: center; gap: 4px; min-width: 0; flex-shrink: 0;">
@@ -422,6 +422,11 @@ class EventPageEditor {
         }
 
         this._disposeModelPreview();
+        // A model preview sizes itself (watchSize); a picture is drawn again for the new size.
+        this._redrawOnResize(canvas, () => {
+            if (this._modelPreviewRenderer && this._modelPreviewRenderer.domElement === canvas) return;
+            this.renderCharacterPreview(section, page);
+        });
 
         const row = RRVehicles.vehicleOf(this.parentEditor.currentEvent);
         const sheet = row && this.databaseManager.data.vehicles?.[row.type]?.sheet;
@@ -1201,6 +1206,29 @@ class EventPageEditor {
         // this selection to the map alongside the rest of the event draft.
         // An Auto size follows the model.
         this.parentEditor.refreshAutoSize?.();
+    }
+
+    /**
+     * The preview is drawn for its box's size; when the box changes (the editor's window resized,
+     * or moved to another window) it is drawn again for the new one, in proportion. Until then
+     * `object-fit: contain` keeps the old drawing in proportion too.
+     */
+    _redrawOnResize(canvas, redraw) {
+        canvas._rrRedraw = redraw;
+        if (canvas._rrSizeWatch) return;
+        const view = (canvas.ownerDocument && canvas.ownerDocument.defaultView) || window;
+        const Observer = view.ResizeObserver || (typeof ResizeObserver === 'function' ? ResizeObserver : null);
+        if (!Observer) return;
+        let settle = null;
+        canvas._rrSizeWatch = new Observer(() => {
+            const box = canvas.getBoundingClientRect();
+            if (Math.abs(Math.round(box.width) - canvas.width) < 2 && Math.abs(Math.round(box.height) - canvas.height) < 2) return;
+            clearTimeout(settle);
+            settle = setTimeout(() => {
+                if (canvas.isConnected && box.width > 0 && box.height > 0 && canvas._rrRedraw) canvas._rrRedraw();
+            }, 150);
+        });
+        canvas._rrSizeWatch.observe(canvas);
     }
 
     _fitPreviewCanvas(canvas) {

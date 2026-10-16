@@ -352,6 +352,11 @@ class EventManager {
             this.selectionHighlight = null;
         }
 
+        if (this.editingHighlight && this.editingHighlight.parent !== tilemapManager.container) {
+            if (this.editingHighlight.parent) this.editingHighlight.parent.removeChild(this.editingHighlight);
+            this.editingHighlight = null;
+        }
+
         if (this.startingPositionContainer && this.startingPositionContainer.parent !== tilemapManager.container) {
             if (this.startingPositionContainer.parent) {
                 this.startingPositionContainer.parent.removeChild(this.startingPositionContainer);
@@ -382,6 +387,14 @@ class EventManager {
             this.selectionHighlight = new PIXI.Graphics();
             this.selectionHighlight.visible = false;
             tilemapManager.container.addChild(this.selectionHighlight);
+        }
+
+        // The outline on the event whose editor window is open, in event and tile mode alike.
+        if (!this.editingHighlight) {
+            this.editingHighlight = new PIXI.Graphics();
+            this.editingHighlight.label = 'editing event';
+            this.editingHighlight.visible = false;
+            tilemapManager.container.addChild(this.editingHighlight);
         }
 
         // Create starting position container
@@ -823,6 +836,32 @@ class EventManager {
         this.selectionHighlight.stroke({ color: color, width: 3, alpha: 1.0 });
 
         this.selectionHighlight.visible = true;
+    }
+
+    /**
+     * The event whose editor window is open stays outlined on the map while it is open, whatever
+     * the mode (tile painting deselects events) and wherever the person is working: one look
+     * tells which event the window holds.
+     */
+    updateEditingHighlight() {
+        const outline = this.editingHighlight;
+        if (!outline || !this.currentMap || !this.tilemapManager) return;
+        const editor = this.eventEditor;
+        const event = editor && editor.isOpen && editor.isOpen() ? editor.sourceEvent : null;
+        if (!event || !Number.isInteger(event.x) || !Number.isInteger(event.y)) {
+            outline.visible = false;
+            return;
+        }
+        const tileWidth = this.tilemapManager.TILE_WIDTH, tileHeight = this.tilemapManager.TILE_HEIGHT;
+        const [firstX, firstY, spanX, spanY] = this._eventRect(event);
+        outline.clear();
+        outline.rect(firstX * tileWidth, firstY * tileHeight, spanX * tileWidth, spanY * tileHeight);
+        outline.fill({ color: 0xFFD700, alpha: 0.18 });
+        outline.rect(firstX * tileWidth, firstY * tileHeight, spanX * tileWidth, spanY * tileHeight);
+        outline.stroke({ color: 0xFFD700, width: 3, alpha: 1 });
+        outline.visible = true;
+        // Over the event sprites drawn since.
+        if (outline.parent) outline.parent.addChild(outline);
     }
 
     // Show context menu
@@ -1308,6 +1347,7 @@ class EventManager {
                         // What is drawn of the event at real size (its picture or model, its name, its ring) goes with it.
                         this.movePreviewWith(this.draggedEvent);
                         this.updateSelectionHighlight();
+                        this.updateEditingHighlight();
                     } else {
                         this.renderEvents();
                     }
@@ -2026,6 +2066,7 @@ class EventManager {
         if (typeof RREventEditorWindow !== 'undefined') RREventEditorWindow.install(modal);
         modal.style.display = 'flex';
         if (typeof RREventEditorWindow !== 'undefined') RREventEditorWindow.open(modal, { shownBefore });
+        this.updateEditingHighlight();
 
         console.debug('Event editor opened for:', event.name);
     }
@@ -3290,6 +3331,7 @@ class EventManager {
     renderEvents() {
         if (!this.eventContainer || !this.currentMap) return;
         this.renderEventPreviews();
+        this.updateEditingHighlight();
         // The 3D view draws the same events; without this an edited event
         // kept its old model there until the next full rebuild.
         const map3d = this.projectController?.mapEditor3D;
