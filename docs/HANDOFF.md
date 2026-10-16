@@ -6,10 +6,10 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 ## Where things stand (2026-10-16)
 
-- **0.99.1** in development at runtime **20261016.3**, synced to all 18 bundled projects. Committed locally; nothing pushed.
+- **0.99.1** in development at runtime **20261016.4**, synced to all 18 bundled projects. Committed locally; nothing pushed.
 - **User-path sweeps:** 1 to 11 done and committed (owner approved all, two agents at a time, a commit per sweep); 10 Forge tools and 11 battles follow-up done. Left uncovered, to queue: a 3D model placed on a map and rigged by real clicks (8); media surfaces and a north-south neighbor crossing (9; the Demo's maps do not line up north to south, so author two that do). Owner questions: the two sweeps entries below.
 - **User reports fixed 2026-10-16:** Script commands show every line in the three event lists; Show Text lines were white on white in light themes.
-- **Savior & Religion** (`template/Savior & Religion`, not in git; a deployed, encrypted MV game the owner is trying as a template): boots and plays to its opening with runtime 20261016.3. Its index.html still says `$reactorMvCompat = false` until the editor opens it once (`repairMvCompatFlag`).
+- **Savior & Religion** (`template/Savior & Religion`, not in git; a deployed, encrypted MV game the owner is trying as a template): boots, plays its opening and draws its ULDS maps (2, 5, 19) with runtime 20261016.4; its index.html is in MV mode now.
 - **Contrast pass, in progress:** light themes clean (committed); the dark palettes' findings are next. The owner keeps the current look; only unreadable pairs change. Tools in `scratchpad/user-path-sweeps/contrast-audit/` (`run.cjs` through `harness-slot.sh`, `summarize.cjs <results>`). Then the floating event editor (owner approved step 1: non-blocking, draggable; a second-monitor pop-out later).
 
 ## 2026-10-16 — User-path sweeps 6 to 11: questions for the owner

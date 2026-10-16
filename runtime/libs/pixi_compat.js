@@ -2982,6 +2982,13 @@
 
         const wrapClass = (orig, pixiBase) => {
             const wrapped = function(...args) {
+                // An ES5 super call from a plugin's own subclass, `Sprite.call(this, bitmap)` (ULDS),
+                // initializes that `this`, as MV's constructor did; building a new instance here left
+                // the caller's object with no transform or event emitter.
+                if (!new.target && this && typeof this === "object" && this !== window && orig.prototype.isPrototypeOf(this)) {
+                    orig.apply(this, args);
+                    return this;
+                }
                 let v8Inst;
                 try {
                     v8Inst = Reflect.construct(
