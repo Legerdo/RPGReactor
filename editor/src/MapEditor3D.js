@@ -1460,6 +1460,9 @@ class MapEditor3D {
         this.buildStartMarkers(mapData);
         scene.add(this.eventGroup);
         this.faceCamera();
+        // Built while an event's window is open (the view turned to 3D, the map built again): it is lit.
+        this._editingEventId = null;
+        this.syncEditingEvent();
         return true;
     }
 
@@ -3756,6 +3759,7 @@ class MapEditor3D {
                 }
                 await this.buildEvents(mapData);
                 this.refreshPassage();
+                this.syncEditingEvent();
                 return;
             }
             // The rings left standing follow Event mode and Battle Setup, whatever is built again below.
@@ -3813,6 +3817,8 @@ class MapEditor3D {
             this._eventSnapshot = fresh;
             if (reselect !== null && fresh.has(reselect)) this.selectEventById(reselect);
             this.syncEventArrows();
+            // A rebuilt event whose window is open is lit again.
+            this.syncEditingEvent();
             this.refreshPassage();
         });
     }
@@ -4873,13 +4879,37 @@ class MapEditor3D {
         }
     }
 
-    /** The box marks the cell, so it holds its size: the selected one brightens to the accent and shows through what stands on it. */
+    /**
+     * The box marks the cell, so it holds its size: the selected one brightens to the accent and
+     * shows through what stands on it. So does the box of the event whose editor window is open.
+     */
     highlightEventBox(mesh, on) {
         const box = mesh.userData.box;
         if (!box) return;
+        on = on || (this._editingEventId != null && mesh.userData.event?.id === this._editingEventId);
         box.material.opacity = on ? 1 : 0.8;
         box.material.color.setHex(on ? this.selectedEventColor() : box.userData.color);
         this.eventBoxOnTop(box, on || mesh.userData.modelShown === true);
+    }
+
+    /**
+     * The event whose editor window is open keeps its box lit as a selected one's, in event and tile
+     * mode alike, without the selection's arrows and model card (EventManager.updateEditingHighlight).
+     */
+    syncEditingEvent() {
+        const editor = typeof window !== 'undefined' ? window.reactor?.eventManager?.eventEditor : null;
+        const event = editor?.isOpen?.() ? editor.sourceEvent : null;
+        const before = this._editingEventId;
+        this._editingEventId = event && !event._rrDatabaseVehicle ? event.id : null;
+        if (before != null && before !== this._editingEventId) {
+            const marker = this.eventMarker({ id: before });
+            if (marker) this.highlightEventBox(marker, this.selected?.userData?.event?.id === before);
+        }
+        if (this._editingEventId != null) {
+            const marker = this.eventMarker(event);
+            if (marker) this.highlightEventBox(marker, true);
+        }
+        this.requestRender();
     }
 
     eventColor(event) {

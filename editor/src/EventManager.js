@@ -844,6 +844,9 @@ class EventManager {
      * tells which event the window holds.
      */
     updateEditingHighlight() {
+        // The 3D view lights the same event's box, as it lights a selected one.
+        const map3d = this.projectController?.mapEditor3D;
+        if (map3d?.isEnabled?.()) map3d.syncEditingEvent?.();
         const outline = this.editingHighlight;
         if (!outline || !this.currentMap || !this.tilemapManager) return;
         const editor = this.eventEditor;

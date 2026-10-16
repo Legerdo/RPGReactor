@@ -158,7 +158,11 @@ test('a library\'s own listeners hear only their window; the editor\'s own hear 
 test('the edited event stays outlined in either mode, and the preview keeps its proportions', () => {
     const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     const manager = read('src/EventManager.js');
-    assert.match(manager, /updateEditingHighlight\(\) \{[\s\S]{0,400}editor\.isOpen\(\) \? editor\.sourceEvent : null/, 'drawn for the open editor\'s event, not the selection');
+    assert.match(manager, /updateEditingHighlight\(\) \{[\s\S]{0,800}editor\.isOpen\(\) \? editor\.sourceEvent : null/, 'drawn for the open editor\'s event, not the selection');
+    assert.match(manager, /updateEditingHighlight\(\) \{[\s\S]{0,300}map3d\.syncEditingEvent\?\.\(\)/, 'and lit in the 3D view');
+    const view = read('src/MapEditor3D.js');
+    assert.match(view, /on = on \|\| \(this\._editingEventId != null && mesh\.userData\.event\?\.id === this\._editingEventId\);/, 'its box lit as a selected one\'s');
+    assert.ok((view.match(/this\.syncEditingEvent\(\);/g) || []).length >= 3, 'lit again after a diff rebuild and a full build');
     assert.doesNotMatch(manager.slice(manager.indexOf('updateEditingHighlight() {'), manager.indexOf('updateEditingHighlight() {') + 900), /eventMode/, 'whatever the mode');
     assert.match(read('src/event/EventEditor.js'), /this\.mapManager\?\.updateEditingHighlight\?\.\(\);/, 'gone when the window closes');
     const page = read('src/event/EventPageEditor.js');
