@@ -83,7 +83,7 @@ class ModelPropsPreview2D {
 
     spriteFor(prop, tw) {
         // Position/lift/selection changes retain the animation's clock.
-        const key = JSON.stringify([ModelPropsManager.specOf(prop), prop.direction,
+        const key = JSON.stringify([ModelPropsManager.specOf(prop), prop.direction, prop.vehicle,
             prop.animations, prop.animation, prop.repeat, prop.animationSpeed, prop.effects, prop.effect]);
         let entry = this.entries.get(prop.id);
         if (entry?.key !== key) {
@@ -102,6 +102,10 @@ class ModelPropsPreview2D {
             const template = await RREventPreviewModels.templateFor(this.manager.project(), spec, this.manager.mapEditor3D());
             if (!template || this.entries.get(entry.prop.id) !== entry) return;
             entry.object = RREventPreviewModels.instance(template, spec, entry.prop.direction);
+            const vehicle = entry.prop.vehicle;
+            if (vehicle && Reactor3D.Vehicles?.pose) {
+                Reactor3D.Vehicles.pose({ object: entry.object, spec }, { _rrVehicle: vehicle.type, _rrYaw: vehicle.yaw * Math.PI / 180 }, entry.object, spec, 0);
+            }
             entry.scene = new THREE.Scene();
             entry.scene.add(entry.object);
             entry.scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.1));

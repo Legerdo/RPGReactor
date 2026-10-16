@@ -81,10 +81,11 @@ fractional tiles for models.
 
 ## Riding the Demo motorcycle
 
-North Haven (Map005) has a rideable motorcycle parked at **(83, 67)**,
-southwest of the village fountain, facing east. The Motorcycle entrance
-in the Reactor Room (Map001, event 24) transfers the player to **(83, 65)**,
-two tiles north of it. Start a new playtest after changing the project data.
+North Haven (Map005) has five rideable motorcycles parked near its
+northwest corner, at **(20, 9)**, **(30, 9)**, **(21, 16)**, **(31, 17)**
+and **(22, 23)**, facing south. The Motorcycle entrance in the Reactor Room
+(Map001, event 24) transfers the player to **(25, 2)**, just north of them.
+Start a new playtest after changing the project data.
 
 Walk beside the bike and press **Enter** (Confirm) to mount. **Up**
 accelerates, **Down** brakes and then reverses if held, and **Left/Right**
@@ -102,8 +103,7 @@ are not implemented yet, so no on-screen Ride instruction appears.
 
 The vehicle type names the Ninja model, sized to fit the starting party.
 The model sidecar binds its wheels, seat, hands, feet and carved Steering
-part. This existing Demo placement is a legacy event with
-`rrVehicle: {"type":1,"yaw":90,"key":"north-haven-motorcycle"}`; the
+part. Each Demo bike is an event with `rrVehicle: {"type":1}`; the
 vehicle system supplies its model and boarding behavior. The old Reactor
 Room event remains an entrance, separate from the rideable bike.
 

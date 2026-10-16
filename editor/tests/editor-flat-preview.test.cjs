@@ -267,3 +267,27 @@ test('flat surfaces use world-height lights even when their floor footprint is e
     preview.syncLighting(entry, [{ ...light, shadowSource: { x: 20.5, y: 6, z: 30.5 } }], { intensity: 1 });
     assert.deepEqual(Array.from(entry.lighting.rrLightPos.value.slice(0, 3)), [0, 2, 0], 'carried lights use their world anchor rather than projected screen coordinates');
 });
+
+test('a vehicle on the 2D map is posed at its heading along its model\'s front, as the 3D view poses it', async () => {
+    global.ModelPropsManager = { specOf: p => ({ name: p.name }) };
+    const posed = [];
+    global.Reactor3D = { normalizeModelSpec: p => p, Vehicles: { pose: (holder, character, object) => posed.push([character._rrVehicle, character._rrYaw, object.id]) } };
+    // The build stops after posing: what follows needs three.js.
+    global.RREventPreviewModels = { templateFor: async () => ({ userData: {} }), instance: () => ({ id: 'bike' }) };
+    global.THREE = { Scene: class { constructor() { throw new Error('built'); } } };
+    const preview = new Preview({ project: () => ({ path: '/demo' }), mapEditor3D: () => null });
+    preview.isolateLighting = () => null;
+    for (const prop of [{ id: -5, name: 'bike', vehicle: { type: 11, yaw: 90 } }, { id: -6, name: 'crate' }]) {
+        const entry = { prop };
+        preview.entries.set(prop.id, entry);
+        await preview.load(entry);
+    }
+    assert.deepEqual(posed, [[11, Math.PI / 2, 'bike']], 'only the vehicle is posed, at its yaw');
+    const key = id => preview.entries.get(id)?.key;
+    preview.load = () => {};
+    preview.entries.clear();
+    preview.spriteFor({ id: 1, name: 'bike', vehicle: { type: 11, yaw: 90 } }, 48); const east = key(1);
+    preview.spriteFor({ id: 1, name: 'bike', vehicle: { type: 11, yaw: 180 } }, 48);
+    assert.notEqual(key(1), east, 'turning the vehicle draws it again');
+    delete global.ModelPropsManager; delete global.Reactor3D; delete global.RREventPreviewModels; delete global.THREE;
+});

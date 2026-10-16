@@ -2960,6 +2960,12 @@ class EventManager {
         const own = this.currentMap?.reactor3d?.events?.[String(event?.id)]?.[String(pageIndex)];
         if (own?.name) return own;
         if (event?._rrDatabaseVehicle && typeof RRVehicles !== 'undefined') return RRVehicles.modelOf(event, window.reactor?.databaseManager?.data?.vehicles);
+        // An event with the Vehicle field whose page shows no picture wears its vehicle's model, as in the 3D view and the game.
+        const image = event?.pages?.[pageIndex]?.image;
+        if (typeof RRVehicles !== 'undefined' && !image?.characterName && !(image?.tileId > 0)) {
+            const vehicle = RRVehicles.modelOf(event, typeof window !== 'undefined' ? window.reactor?.databaseManager?.data?.vehicles : null);
+            if (vehicle?.name) return vehicle;
+        }
         const look = this.unitLook(event);
         return look && look.kind === 'model' && look.page === pageIndex && look.spec && look.spec.name ? look.spec : null;
     }
@@ -2994,11 +3000,14 @@ class EventManager {
             if (pageIndex === null) continue;
             const spec = this.previewModelRaw(event, pageIndex);
             if (!spec?.name) continue;
+            const vehicle = typeof RRVehicles !== 'undefined' ? RRVehicles.vehicleOf(event) : null;
             previews.push({ ...spec, id: event._rrDatabaseVehicle ? event.id : -event.id, x: event.x, y: event.y,
                 size: Number(spec.size) > 0 ? Number(spec.size) : 2,
                 scale: Number(spec.scale) > 0 ? Number(spec.scale) : 1,
                 z: Number(map.reactor3d?.eventZ?.[event.id]) || 0,
-                direction: event.pages[pageIndex].image?.direction || 2 });
+                direction: event.pages[pageIndex].image?.direction || 2,
+                // A vehicle stands at its heading along its model's own front, as in the 3D view and the game.
+                ...(vehicle ? { vehicle: { type: vehicle.type, yaw: vehicle.yaw } } : null) });
         }
         // Battle Setup: the unit a click would place, on the tile under the pointer.
         const setup = typeof window !== 'undefined' ? window.RRBattleSetup : null;

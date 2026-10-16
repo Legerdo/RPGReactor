@@ -557,7 +557,7 @@ class ProjectManager {
             }
         }
 
-        this.writeSolidPng(this.path.join(targetPath, 'img', 'system', 'Window.png'), 192, 192, [32, 32, 40, 255]);
+        this.writeStarterWindowSkin(this.path.join(targetPath, 'img', 'system', 'Window.png'));
         this.writeSolidPng(this.path.join(targetPath, 'img', 'system', 'IconSet.png'), 512, 512, [0, 0, 0, 0]);
         this.writeStarterSystemImages(this.path.join(targetPath, 'img', 'system'));
         this.copyEditorIcon(targetPath);
@@ -630,6 +630,53 @@ class ProjectManager {
             // A dark rim one pixel round each block keeps the digits readable over any map.
             for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (x + ox >= 0 && x + ox < 320 && y + oy >= 0 && y + oy < 200 && lit(x + ox, y + oy)) return [0, 0, 0, 200];
             return clear;
+        });
+    }
+
+    /** Text colors 0-31 of a window skin, read by the engine from 12 px cells at (96, 144). */
+    static STARTER_TEXT_COLORS = Object.freeze([
+        '#ffffff', '#20a0d6', '#ff784c', '#66cc40', '#99ccff', '#ccc0ff', '#ffffa0', '#808080',
+        '#c0c0c0', '#2080cc', '#ff3810', '#00a010', '#3e9ade', '#a098ff', '#ffcc20', '#000000',
+        '#84aaff', '#ffff40', '#ff2020', '#202040', '#e08040', '#f0c040', '#4080c0', '#40c0f0',
+        '#80ff80', '#c08080', '#8080ff', '#ff80ff', '#00a040', '#00e060', '#a060e0', '#c080ff'
+    ]);
+
+    /**
+     * A plain 192 x 192 window skin laid out as the engine cuts it: background (0, 0), clear
+     * pattern (0, 96), frame with scroll arrows (96, 0), cursor (96, 96), pause sign (144, 96)
+     * and the text colors (96, 144). Menus drawn with it are readable and show their cursor.
+     */
+    writeStarterWindowSkin(filePath) {
+        const clear = [0, 0, 0, 0];
+        const colors = ProjectManager.STARTER_TEXT_COLORS.map(hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)));
+        const line = [210, 214, 230, 255];
+        // A triangle 16 px wide and 8 px tall in a w x h cell, pointing down or up.
+        const triangle = (lx, ly, w, h, down) => {
+            const row = down ? ly - (h - 8) / 2 : (h + 8) / 2 - 1 - ly;
+            const half = 8 - row;
+            return row >= 0 && row < 8 && Math.abs(lx + 0.5 - w / 2) <= half;
+        };
+        this.writePng(filePath, 192, 192, (x, y) => {
+            if (x < 96) {
+                if (y >= 96) return clear;
+                const t = y / 95;
+                return [Math.round(36 - 14 * t), Math.round(42 - 16 * t), Math.round(64 - 24 * t), 255];
+            }
+            const lx = x - 96;
+            if (y < 96) {
+                if (lx < 2 || lx >= 94 || y < 2 || y >= 94) return line;
+                if (lx >= 36 && lx < 60 && y >= 24 && y < 36) return triangle(lx - 36, y - 24, 24, 12, false) ? line : clear;
+                if (lx >= 36 && lx < 60 && y >= 60 && y < 72) return triangle(lx - 36, y - 60, 24, 12, true) ? line : clear;
+                return clear;
+            }
+            if (y < 144) {
+                if (lx < 48) {
+                    const cx = lx, cy = y - 96;
+                    return cx < 2 || cx >= 46 || cy < 2 || cy >= 46 ? [220, 226, 255, 200] : [200, 210, 255, 64];
+                }
+                return triangle((x - 144) % 24, (y - 96) % 24, 24, 24, true) ? line : clear;
+            }
+            return colors[Math.floor((y - 144) / 12) * 8 + Math.floor(lx / 12)].concat(255);
         });
     }
 
