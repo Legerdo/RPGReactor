@@ -603,8 +603,7 @@ class UIManager {
             // Sidebar lists own navigation even while Events is the active tool.
             // This listener runs before the list's own keyboard handler.
             if ((arrowDelta || e.key === 'Enter') && e.target?.closest?.('#maps-list, #quick-access-list, #events-list')) return;
-            const eventEditorModal = document.getElementById('event-editor-modal');
-            const eventEditorOpen = eventEditorModal && eventEditorModal.style.display !== 'none';
+            const eventEditorOpen = this.eventEditorHasKeys();
             const commandModifier = e.ctrlKey || e.metaKey;
             const propsManager = window.reactor?.projectController?.modelPropsManager || window.reactor?.modelPropsManager;
             const lightsManager = window.reactor?.projectController?.lightingManager || window.reactor?.lightingManager;
@@ -775,9 +774,8 @@ class UIManager {
                     activeElement.isContentEditable
                 );
 
-                // Check if event editor is open (don't intercept Ctrl+X)
-                const ctxModal = document.getElementById('event-editor-modal');
-                const eventEditorOpen = ctxModal && ctxModal.style.display !== 'none';
+                // The event window has the keys when the person is working in it (don't intercept Ctrl+X)
+                const eventEditorOpen = this.eventEditorHasKeys();
 
                 if (!isTextInput && !eventEditorOpen) {
                     const eventManager = this.callbacks.getEventManager ? this.callbacks.getEventManager() : null;
@@ -807,9 +805,8 @@ class UIManager {
                     activeElement.isContentEditable
                 );
 
-                // Check if event editor is open (don't intercept Ctrl+V)
-                const pasteModal = document.getElementById('event-editor-modal');
-                const eventEditorOpenForPaste = pasteModal && pasteModal.style.display !== 'none';
+                // The event window has the keys when the person is working in it (don't intercept Ctrl+V)
+                const eventEditorOpenForPaste = this.eventEditorHasKeys();
 
                 if (!isTextInput && !eventEditorOpenForPaste && this.callbacks.getEventManager) {
                     const eventManager = this.callbacks.getEventManager();
@@ -846,9 +843,8 @@ class UIManager {
                     activeElement.isContentEditable
                 );
 
-                // Check if event editor is open (don't intercept Delete key)
-                const delModal = document.getElementById('event-editor-modal');
-                const eventEditorOpen = delModal && delModal.style.display !== 'none';
+                // The event window has the keys when the person is working in it (don't intercept Delete)
+                const eventEditorOpen = this.eventEditorHasKeys();
 
                 if (!isTextInput && !eventEditorOpen && this.callbacks.getEventManager) {
                     const eventManager = this.callbacks.getEventManager();
@@ -938,7 +934,17 @@ class UIManager {
         return true;
     }
 
-    promptUnsavedChanges(subject) {
+    /**
+     * Whether the event window takes the key: it floats over a live map, so it has the keys only
+     * when the person last clicked or tabbed into it; after a click on the map, the map has them.
+     */
+    eventEditorHasKeys() {
+        if (typeof RREventEditorWindow !== 'undefined') return RREventEditorWindow.ownsKeys();
+        const modal = document.getElementById('event-editor-modal');
+        return !!modal && modal.style.display !== 'none';
+    }
+
+    promptUnsavedChanges(subject, { saveLabel = null } = {}) {
         if (this.unsavedChangesPrompt) return this.unsavedChangesPrompt;
         const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         const previouslyFocused = document.activeElement;
@@ -993,7 +999,7 @@ class UIManager {
         saveButton.id = 'rr-unsaved-save';
         saveButton.type = 'button';
         saveButton.className = 'rr-button-primary';
-        saveButton.textContent = tt('Save');
+        saveButton.textContent = saveLabel || tt('Save');
         footer.append(cancelButton, discardButton, saveButton);
         modal.append(header, body, footer);
         overlay.appendChild(modal);

@@ -7113,3 +7113,25 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 :root:is([data-theme="light"], [data-theme="bubblegum-light"], [data-theme="ocean-light"], [data-theme="cascadia-light"], [data-theme="underworld-light"], [data-theme="creamsicle-light"], [data-theme="royalty-light"]) .rr-message-code-color {
     text-shadow: -1px 0 rgba(0, 0, 0, 0.6), 1px 0 rgba(0, 0, 0, 0.6), 0 -1px rgba(0, 0, 0, 0.6), 0 1px rgba(0, 0, 0, 0.6);
 }
+
+/* The event editor floats over a live map: no backdrop, the map takes clicks around it, the
+   title bar drags it (EventEditorWindow.js) and the corner resizes it. */
+#event-editor-modal.rr-event-editor-floating {
+    background: transparent;
+    pointer-events: none;
+}
+#event-editor-modal.rr-event-editor-floating > .rr-modal {
+    pointer-events: auto;
+    position: fixed;
+    margin: 0;
+    max-width: none !important;
+    max-height: none !important;
+    min-width: 860px;
+    min-height: 480px;
+    resize: both;
+    overflow: hidden;
+}
+#event-editor-modal.rr-event-editor-floating > .rr-modal > .rr-modal-header {
+    cursor: move;
+    user-select: none;
+}

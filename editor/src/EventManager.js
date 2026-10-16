@@ -1327,6 +1327,9 @@ class EventManager {
             this.tilemapManager.container.cursor = 'default';
         }
 
+        // The event open in the window follows where it was dropped.
+        this.eventEditor?.followMapMove?.(this.draggedEvent);
+
         this.isDragging = false;
         this.draggedEvent = null;
         this.dragOffset = { x: 0, y: 0 };
@@ -1938,6 +1941,23 @@ class EventManager {
             return;
         }
 
+        // The window floats over a live map: opening another event leaves this one, asking first
+        // about edits not yet applied; the open event itself just comes forward.
+        const open = this.eventEditor && this.eventEditor.isOpen && this.eventEditor.isOpen();
+        if (open && !session.pendingResolved) {
+            if (this.eventEditor.sourceEvent === event) {
+                document.querySelector('#event-editor-modal .rr-modal')?.focus?.();
+                return;
+            }
+            if (this.eventEditor.hasUncommittedChanges()) {
+                this.eventEditor.resolvePendingChanges().then(leave => {
+                    if (leave) this.editEvent(event, { ...session, pendingResolved: true });
+                });
+                return;
+            }
+            this.eventEditor.cancelChanges();
+        }
+
         // Initialize event editor if not already created
         if (!this.eventEditor) {
             this.eventEditor = new EventEditor(
@@ -1992,7 +2012,12 @@ class EventManager {
             }
         });
 
-        // Display the modal
+        // Display the window where it was left (centered at first), over the map rather than in front of it
+        const shownBefore = modal.style.display === 'flex';
+        if (typeof RREventEditorWindow !== 'undefined') {
+            RREventEditorWindow.install(modal);
+            if (!shownBefore) RREventEditorWindow.place(modal);
+        }
         modal.style.display = 'flex';
 
         console.debug('Event editor opened for:', event.name);
@@ -2103,6 +2128,10 @@ class EventManager {
     // Delete event
     deleteEvent(event) {
         if (!event || !this.currentMap) return;
+        // Deleting the event the window has open closes the window: there is nothing left to apply to.
+        if (this.eventEditor && this.eventEditor.isOpen && this.eventEditor.isOpen() && this.eventEditor.sourceEvent === event) {
+            this.eventEditor.cancelChanges();
+        }
 
         // No confirmation - just delete
         {

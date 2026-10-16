@@ -142,6 +142,66 @@ class EventEditor {
         this._hideEditor();
     }
 
+    /** Whether the window is showing. */
+    isOpen() {
+        const modal = typeof document !== 'undefined' ? document.getElementById('event-editor-modal') : null;
+        return !!modal && modal.style.display !== 'none' && modal.style.display !== '';
+    }
+
+    /**
+     * Edits not yet applied, judged as Apply would judge them: the event, its height and size
+     * fields, its models, or a new event not yet placed.
+     */
+    hasUncommittedChanges() {
+        if (!this.currentEvent || !this.sourceEvent || !this.isOpen()) return false;
+        if (this.needsInitialCommit) return true;
+        this._readPositionFields();
+        const zChanged = (this.pendingZ != null && this.pendingZ !== this._eventZ(this.currentEvent.id))
+            || this._sizeState() !== this.pendingSizeBaseline;
+        return zChanged
+            || JSON.stringify(this.currentEvent) !== JSON.stringify(this.cancelBaseline)
+            || JSON.stringify(this.pendingModels) !== JSON.stringify(this.pendingModelsBaseline);
+    }
+
+    /**
+     * Before the window leaves this event (another event opened, the map changed): unapplied
+     * edits are applied, discarded or kept on the person's word. Resolves true when it may leave.
+     */
+    async resolvePendingChanges() {
+        if (!this.hasUncommittedChanges()) return true;
+        const ui = (typeof window !== 'undefined' && window.reactor && window.reactor.uiManager) || this.projectController?.uiManager;
+        const name = this.currentEvent.name || `EV${String(this.currentEvent.id).padStart(3, '0')}`;
+        const decision = ui && ui.promptUnsavedChanges
+            ? await ui.promptUnsavedChanges(name, { saveLabel: this._t('common.apply') })
+            : 'cancel';
+        if (decision === 'save') return this.applyChanges();
+        if (decision === 'discard') {
+            this.cancelChanges();
+            return true;
+        }
+        return false;
+    }
+
+    /** The map is about to change: the window closes, asking first about unapplied edits. */
+    async closeForMapChange({ ask = true } = {}) {
+        if (!this.isOpen()) return true;
+        if (ask && !await this.resolvePendingChanges()) return false;
+        if (this.isOpen()) this.cancelChanges();
+        return true;
+    }
+
+    /** The open event was moved on the map behind the window: its place there is the one shown. */
+    followMapMove(event) {
+        if (!event || event !== this.sourceEvent || !this.isOpen()) return;
+        for (const target of [this.currentEvent, this.cancelBaseline]) {
+            if (target) { target.x = event.x; target.y = event.y; }
+        }
+        for (const [id, value] of [['event-position-x', event.x], ['event-position-y', event.y]]) {
+            const field = document.getElementById(id);
+            if (field) field.value = String(value);
+        }
+    }
+
     _hideEditor() {
         const modal = document.getElementById('event-editor-modal');
         if (modal) {

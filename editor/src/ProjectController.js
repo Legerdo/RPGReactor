@@ -1566,6 +1566,9 @@ class ProjectController {
         tilemapManager.cancelPendingMapLoad?.();
 
         if (tilemapManager.currentMap?.id === mapId && !options.forceReload) return true;
+        // The event window floats over the map: it closes with it, asking first about unapplied edits.
+        const eventEditor = this.eventManager?.eventEditor;
+        if (eventEditor?.closeForMapChange && !await eventEditor.closeForMapChange({ ask: !options.skipDirtyCheck })) return false;
         if (!options.skipDirtyCheck && !await this.confirmUnsavedChanges('map')) return false;
         if (request !== this._mapLoadRequest || tilemapManager !== this.tilemapManager) return false;
 
