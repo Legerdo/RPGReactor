@@ -4,19 +4,18 @@ Dated notes for the cycle in progress, newest first. Read [STATUS.md](STATUS.md)
 
 An entry holds only what the next session needs and cannot find elsewhere: what is half-done, what to watch for, what waits on the owner, how to resume. What changed goes in the editor changelog; how the code works goes in the commit message and the guides. Size limits and the rollover are in [README.md](README.md#keeping-status-and-handoff-short); `docs-budget.test.cjs` enforces them.
 
-## Where things stand (2026-10-15, night)
+## Where things stand (2026-10-16)
 
 - **0.99.1** in development at runtime **20261015.6**, synced to all 17 bundled projects. Committed locally; nothing pushed.
-- **User-path sweeps paused for the night** (owner approved all of them, two agents at a time, a commit per sweep). Done and committed: 1 events, 2 Database, 3 2D maps, 4 battles, 5 3D builder. Owner's own reports fixed today: User Interfaces in the game, buildings seen through from outside, followers cut part-way, a rifle aimed behind the back.
-- **Stopped mid-sweep, committed as WIP (not verified by real input):** 6 vehicles and 7 project lifecycle. Resume steps are in the entry below.
-- **Next:** finish 6 and 7, then 8 plugins + resources, 9 quests / media surfaces / neighboring maps, 10 Forge tools, 11 battles follow-up. The owner's answers to the sweep questions (entry below) can come first.
+- **User-path sweeps:** 1 to 7 done and committed (owner approved all, two agents at a time, a commit per sweep). Queued: 8 plugins + resources, 9 quests / media surfaces / neighboring maps, 10 Forge tools, 11 battles follow-up. Owner questions from every sweep are in the entry below.
+- **User reports fixed 2026-10-16:** Script commands show every line in the three event lists; Show Text lines were white on white in light themes.
+- **In progress:** a contrast pass over the whole editor in all 14 themes (the owner keeps the current look; only unreadable pairs change). Audit tools in `scratchpad/user-path-sweeps/contrast-audit/` (`run.cjs` through `harness-slot.sh`, `summarize.cjs`).
 
 ## 2026-10-15 — Sweeps paused overnight: how to resume
 
 - **Queue and state:** `scratchpad/user-path-sweeps/lead.md` (gitignored, travels by Dropbox). Agent rules and tools beside it (`README.md`, `harness-slot.sh`, `game-run.cjs`, `editor-example.cjs`, Wine runner). Start the display first: `editor/tests/perf/headless-display.sh`, then write its number to `display.txt`.
-- **WIP commit, sweep 6 (vehicles):** `EventManager.js`, `ModelPropsPreview2D.js`, `AUTHORING.md` (the Demo's five motorcycle spots), tests in `vehicles-starting-position` and `editor-flat-preview`. The agent was adding a test when stopped; its copy and shots are in `scratchpad/user-path-sweeps/vehicles/`. Re-run the sweep with that folder as its starting point and have it report what these edits fix.
+- **Sweep 6 (vehicles):** finished 2026-10-16; the WIP edits (2D view draws a vehicle event's model at its heading) were right and kept, no new bugs.
 - **Sweep 7 (project lifecycle):** finished 2026-10-16 and committed; the WIP edits were right and kept.
-- Both sets pass their Node tests (697 in the related files); neither was re-checked by real input. Review the diffs (`git show <wip commit>`) before building on them.
 - **Rules learned today:** commit only a finished sweep's own files (two agents share the tree); a web-build test can fail while agents edit files during it (rerun alone); keep owner questions in the sweeps entry, not STATUS (near its budget).
 
 ## 2026-10-15 — User-path sweeps: questions for the owner
@@ -28,6 +27,7 @@ A sweep builds one system by real input in the editor and plays it with real key
 - **2D maps:** Circle grows from the center (MZ's Ellipse fits the drag); New Map defaults to tileset 1 (empty in the Demo); a new map is not opened after OK; a new 2D map writes a flat `.r3d.json`; the Demo's Interstellar tileset has 4,184 null passability flags (water walkable).
 - **Battles:** troop pages never run in battles on the map; the Troops battleback preview is the Battle Test one; the Tactical unit panel covers units on a small map; a flying enemy overlaps the next cell; the Demo's Action skirmish is won before the player acts; the victory message draws over the Action HUD.
 - **3D builder:** a Roof box lays only a ring; no camera turn while building, and the hint names keys Build uses otherwise; a roofed inside cannot be seen or edited (no editor cut by level); nothing warns of a stair whose foot faces a wall; Escape in Select with nothing selected returns to the last piece kind; four Lower passes leave banks too steep to enter; stamping a structure moves models off the plot silently.
+- **Vehicles:** Get On lists unnamed blank records and types with no placement (list only placed or named vehicles?); Set Vehicle Location cannot move a map's vehicle event; twice the menu opened by itself after an Escape dismount, and one keyboard load did nothing (`Scene_Load.executeLoad` only buzzes on any failure): neither reproduced, likely the shared harness display, worth one hand check.
 - **Project lifecycle:** keep the new blank project's window skin (dark blue-gray, light frame) or supply one; a macOS game's Info.plist still names `nwjs` and shares the bundle id `io.nwjs.nwjs`; a Linux build on Automatic: Bundled ships the SDK (DevTools, chromedriver, nwjc, about 48 MB); Deploy has no asset encryption; no Save As or copy-project command; a blank project starts with an empty party.
 
 ## 2026-10-15 — User Interfaces in the game: AbyssGazes (runtime 20261015.3)
