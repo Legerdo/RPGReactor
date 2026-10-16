@@ -2559,7 +2559,8 @@ class DatabaseTroopEditor {
         const btnRow = document.createElement('div');
         btnRow.className = 'rr-modal-footer troop-conditions-footer';
         btnRow.style.flexShrink = '0';
-        btnRow.appendChild(this.createButton('Cancel', () => document.body.removeChild(modal)));
+        const close = () => { modal.remove(); modal._rrModalKeys?.leave(); };
+        btnRow.appendChild(this.createButton('Cancel', close));
         btnRow.appendChild(this.createButton('OK', () => {
             page.conditions = {
                 turnEnding: document.getElementById('cond-turnEnding').checked,
@@ -2577,15 +2578,18 @@ class DatabaseTroopEditor {
             };
             this.persistTroop();
             this.renderBattlePageContent();
-            document.body.removeChild(modal);
+            close();
         }));
         dialog.appendChild(btnRow);
 
-        header.querySelector('.troop-cond-close').addEventListener('click', () => document.body.removeChild(modal));
+        header.querySelector('.troop-cond-close').addEventListener('click', close);
         modal.appendChild(dialog);
         // A click on the backdrop no longer closes the dialog: close deliberately.
         document.body.appendChild(modal);
         this.commonUI?.databaseEditor?.registerDetailModal(modal);
+        // Escape closes this dialog only: the keys follow the focus into it.
+        window.RRKeyboardNavigation?.modal(modal, { onEscape: close, container: () => dialog });
+        modal._rrModalKeys?.enter();
     }
 
     // ==========================================

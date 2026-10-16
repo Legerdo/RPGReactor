@@ -767,7 +767,7 @@ class DatabaseClassEditor {
         lvMaxInput.addEventListener('input', e => syncLvMax(e.target.value));
         shapeSlider.addEventListener('input', e => syncShape(e.target.value));
 
-        const close = () => overlay.remove();
+        const close = () => { overlay.remove(); overlay._rrModalKeys?.leave(); };
         modal.querySelector('.rr-param-curve-close').addEventListener('click', close);
         modal.querySelector('.rr-pc-cancel').addEventListener('click', close);
         modal.querySelector('.rr-pc-apply').addEventListener('click', () => {
@@ -796,6 +796,9 @@ class DatabaseClassEditor {
             }
         });
         // A click on the backdrop no longer closes the dialog: close deliberately.
+        // Escape closes this dialog only: the keys follow the focus into it.
+        window.RRKeyboardNavigation?.modal(overlay, { onEscape: close, container: () => modal });
+        overlay._rrModalKeys?.enter();
 
         recompute();
     }
@@ -1139,9 +1142,12 @@ class DatabaseClassEditor {
         document.body.appendChild(overlay);
         this.commonUI?.databaseEditor?.registerDetailModal(overlay);
 
-        const close = () => overlay.remove();
+        const close = () => { overlay.remove(); overlay._rrModalKeys?.leave(); };
         modal.querySelector('.learning-edit-close').addEventListener('click', close);
         modal.querySelector('.learning-edit-cancel').addEventListener('click', close);
+        // Escape closes this dialog only: the keys follow the focus into it.
+        window.RRKeyboardNavigation?.modal(overlay, { onEscape: close, container: () => modal });
+        overlay._rrModalKeys?.enter();
         // A click on the backdrop no longer closes the dialog: close deliberately.
         modal.querySelector('.learning-edit-ok').addEventListener('click', () => {
             if (!isCurrent() || !overlay.isConnected) return;
@@ -1917,6 +1923,7 @@ class DatabaseClassEditor {
             if (updateFrame !== null) cancelAnimationFrame(updateFrame);
             updateFrame = null;
             overlay.remove();
+            overlay._rrModalKeys?.leave();
         };
 
         // Sync slider and number input
@@ -1969,6 +1976,9 @@ class DatabaseClassEditor {
 
         document.body.appendChild(overlay);
         this.commonUI?.databaseEditor?.registerDetailModal(overlay);
+        // Escape closes this dialog only: the keys follow the focus into it.
+        window.RRKeyboardNavigation?.modal(overlay, { onEscape: closeExpModal, container: () => modal });
+        overlay._rrModalKeys?.enter();
 
         // Initialize
         updateTabDisplay();

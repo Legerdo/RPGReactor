@@ -1366,7 +1366,7 @@ class DatabaseSystem1Editor {
             </div>
         `;
 
-        const close = () => document.body.removeChild(overlay);
+        const close = () => { overlay.remove(); overlay._rrModalKeys?.leave(); };
 
         modal.querySelector('.cmd-modal-close').addEventListener('click', close);
         modal.querySelector('.cmd-modal-cancel').addEventListener('click', close);
@@ -1387,6 +1387,9 @@ class DatabaseSystem1Editor {
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
         this.commonUI?.databaseEditor?.registerDetailModal(overlay);
+        // Escape closes this dialog only: the keys follow the focus into it.
+        window.RRKeyboardNavigation?.modal(overlay, { onEscape: close, container: () => modal });
+        overlay._rrModalKeys?.enter();
     }
 
     updateSystemField(fieldName, value) {
@@ -1635,7 +1638,7 @@ class DatabaseSystem1Editor {
             gap: 8px;
         `;
 
-        const close = () => overlay.remove();
+        const close = () => { overlay.remove(); overlay._rrModalKeys?.leave(); };
         const cancelBtn = document.createElement('button');
         cancelBtn.textContent = tt('Cancel');
         cancelBtn.className = 'rr-btn-secondary';
@@ -1670,6 +1673,9 @@ class DatabaseSystem1Editor {
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
         this.commonUI?.databaseEditor?.registerDetailModal(overlay);
+        // Escape closes this dialog only: the keys follow the focus into it.
+        window.RRKeyboardNavigation?.modal(overlay, { onEscape: close, container: () => modal });
+        overlay._rrModalKeys?.enter();
     }
 
     showMusicPicker(system, musicType) {
