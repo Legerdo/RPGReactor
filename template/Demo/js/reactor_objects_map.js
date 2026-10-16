@@ -3104,9 +3104,13 @@ Game_Player.prototype.makeEncounterTroopId = function() {
 };
 
 Game_Player.prototype.meetsEncounterConditions = function(encounter) {
+    // Region IDs run 1 to 255. A set of only 0 is how editor builds before
+    // 0.99.1 stored "Whole Map", so it counts as the whole map.
+    const regionSet = encounter.regionSet || [];
     return (
-        encounter.regionSet.length === 0 ||
-        encounter.regionSet.includes(this.regionId())
+        regionSet.length === 0 ||
+        (regionSet.length === 1 && regionSet[0] === 0) ||
+        regionSet.includes(this.regionId())
     );
 };
 

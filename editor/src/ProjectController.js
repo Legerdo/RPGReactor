@@ -1774,7 +1774,7 @@ class ProjectController {
     showMapListContextMenu(x, y) {
         this.showContextMenuItems(x, y, [
             { label: this._t('mapCtx.newMap'), action: () => this.createNewMap(null) },
-            { label: this._t('mapCtx.pasteMap'), action: () => this.pasteMap() }
+            { label: this._t('mapCtx.pasteMap'), action: () => this.pasteMap(null) }
         ]);
     }
 
@@ -1809,7 +1809,7 @@ class ProjectController {
             },
             { separator: true },
             { label: this._t('mapCtx.copyMap'), action: () => this.copyMap(mapId), enabled: true },
-            { label: this._t('mapCtx.pasteMap'), action: () => this.pasteMap(), enabled: true },
+            { label: this._t('mapCtx.pasteMap'), action: () => this.pasteMap(mapId), enabled: true },
             { label: this._t('mapCtx.deleteMap'), action: () => this.deleteMap(mapId), enabled: canDeleteMap },
             { separator: true },
             { label: this._t('mapCtx.saveImage'), action: () => this.saveMapAsImage(mapId), enabled: !!map && typeof nw !== 'undefined' }
@@ -3633,7 +3633,8 @@ class ProjectController {
 
             const troopId = parseInt(troopSelect.value);
             if (troopId > 0) {
-                let regionSet = [0]; // Default to whole map
+                // An empty set is the whole map; the game reads any listed ID as a region to require.
+                let regionSet = [];
 
                 // Check if regions radio is selected
                 if (rangeContainer._regionsRadio && rangeContainer._regionsRadio.checked) {
@@ -4175,10 +4176,11 @@ class ProjectController {
         }
     }
 
-    async pasteMap() {
+    /** Paste the copied map after `afterMapId` (the row whose menu was used), or after the open map. */
+    async pasteMap(afterMapId = this.tilemapManager?.currentMap?.id ?? null) {
         if (!this.currentProject || typeof nw === 'undefined' || this._pastingMap) return;
         const targetProject = this.currentProject;
-        const selectedMapId = this.tilemapManager?.currentMap?.id ?? null;
+        const selectedMapId = afterMapId;
         const token = {};
         this._pastingMap = token;
         const written = [];

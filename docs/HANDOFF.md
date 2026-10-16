@@ -7,7 +7,7 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 ## Where things stand (2026-10-14)
 
 - **0.99.0** shipped on 2026-10-12 at runtime **20261011.14**; PR #74 was merged after it. `main` matches `origin/main` at `dc918245`.
-- **0.99.1** is in development at runtime **20261015.3**, synced to all 17 bundled projects (AbyssGazes, a tester's project, is the new one; `template/` is gitignored). Committed locally; nothing pushed.
+- **0.99.1** is in development at runtime **20261015.4**, synced to all 17 bundled projects (AbyssGazes, a tester's project, is the new one; `template/` is gitignored). Committed locally; nothing pushed.
 - **Performance round 2 landed at 20261014.4** (2026-10-15, on top of WIP commits `bf2b82bc` and `8714c49e`); several items still need measuring in the game on Linux (below).
 - **Next agreed:** nothing yet. The owner agreed a kept battle ends when another starts, and asked for Action escape by running (done). On-map defeated enemies done the owner's way (event box, else Database › Enemies).
 

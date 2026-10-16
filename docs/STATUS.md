@@ -7,7 +7,7 @@
 One bullet per area, holding its latest check. A bullet is replaced when its area is checked again.
 
 - **Release:** 0.99.0, cut with `cut-release.cjs`; the tag publishes the source release on GitHub, and signed binaries and the itch channels follow from the Actions tab (Release Candidate → Release). Public editor releases use NW.js **0.107.0** exactly ([release checklist](RELEASE-CHECKLIST.md)). Manual gates not recorded as passed: native Windows and macOS signed-package launches, and a complete game playthrough.
-- **Runtime:** revision **20261015.3**, stated twice in `runtime/reactor_main.js` (the header comment drives the project updater, the global identifies a running game). All 17 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
+- **Runtime:** revision **20261015.4**, stated twice in `runtime/reactor_main.js` (the header comment drives the project updater, the global identifies a running game). All 17 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
 - **Node suite:** 7,217 tests, 9 skipped, none failed (2026-10-15, runtime 20261015.3, Linux, `cd editor && node --test --test-concurrency=2`).
 - **CI** (`.github/workflows/ci.yml`): syntax, the Node suite, dependency audit, patch hygiene, a clean-tree check, and a GUI job (the Web persistence smoke and five NW.js smokes under xvfb with `--enable-unsafe-swiftshader`). The Web persistence smoke is intermittent on GitHub and passes locally; a failure posts the page state and console as a public annotation. Runner images move to Ubuntu 26 on 2026-10-19: watch the GUI smokes.
 - **Web build:** `release-editor.cjs --target web --pack-web true` keeps the release Demo at 53 files and 457 MB extracted (itch: 1,000 files, 500 MB). Packing checked in Chromium only, and not yet uploaded to the storefront.
@@ -66,6 +66,7 @@ The one list of open threads. Remove an item when it is done; record the doing i
 
 - **Waiting on the owner:**
   - From the 2026-10-15 events sweep: should Paste Event Page overwrite the current page (MZ) instead of adding one; Show Choices' "When Cancel" default (Branch) and its empty branches; one label for an unnamed switch (three forms today) and an unnamed common event; Barebones Map002/Map003 name tileset 10, which does not exist (the game crashes on arrival; the editor only warns in the console).
+  - From the 2D map sweep: the Circle tool drags from the center (RPG Maker's Ellipse fits the dragged rectangle); New Map defaults to tileset 1 (empty in the Demo) instead of the open map's; a new map is not opened after OK; a new 2D map writes an `.r3d.json` sidecar of flat defaults; the Demo's Interstellar tileset has 4,184 null passability flags (A1 water walkable).
   - The Demo's two motorcycles are still vehicle events (North Haven event 2, Forest Road event 1): move them to Starting Positions (close the editor on the Demo first), and decide whether Forest Road keeps a second motorcycle.
   - Set the Demo's Actor Command to Follows: The actor in the battle.
   - A neighbor's events are drawn only once its border is crossed (parked vehicles pop in, 77 ms for two).
