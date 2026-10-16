@@ -4031,10 +4031,8 @@ class DatabaseAnimationEditor {
 
         // Load Effekseer effect
         const loadEffect = () => {
-            if (!animation.effectName) {
-                console.error('No effect name specified');
-                return;
-            }
+            // A new animation has no effect file yet: nothing to preview.
+            if (!animation.effectName) return;
 
             const path = require('path');
             const effectsPath = path.join(currentProject.path, 'effects');

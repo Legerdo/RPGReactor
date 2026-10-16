@@ -2766,18 +2766,24 @@ class CharacterGenerator {
 
     _renderActiveLayers(selectedPartId) {
         const tt = (text) => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
-        if (!this.activeLayerOrder.length) {
+        // Only the layers the preview draws and Save writes are listed: parts of another
+        // style or gender stay in the order and come back when that style or gender does.
+        const shown = [];
+        this.activeLayerOrder.forEach((id, i) => {
+            const d = RR_CHARACTER_REGISTRY.find(x => x.id === id);
+            if (d && this._isProceduralDescriptorCompatible(d)) shown.push({ id, i, d });
+        });
+        if (!shown.length) {
             return '<div style="padding:8px 10px;font-size:10px;color:var(--color-text-muted);">' + tt('No active layers.') + '</div>';
         }
         // Top of list = topmost layer (drawn last). Iterate the underlying
         // array in reverse so the visual order matches the stack metaphor most
         // image editors use.
-        const len = this.activeLayerOrder.length;
-        const displayOrder = [...this.activeLayerOrder].reverse();
-        return displayOrder.map((id, displayIdx) => {
-            const i = len - 1 - displayIdx;
-            const d = RR_CHARACTER_REGISTRY.find(x => x.id === id);
-            if (!d) return '';
+        const len = shown.length;
+        return [...shown].reverse().map(({ id, i, d }, displayIdx) => {
+            const pos = len - 1 - displayIdx;
+            const upIndex = pos < len - 1 ? shown[pos + 1].i : -1;
+            const downIndex = pos > 0 ? shown[pos - 1].i : -1;
             const isSelected = id === selectedPartId;
             const isBody = d.category === 'body';
             // Up/down freely available for every layer — only disable at the
@@ -2802,9 +2808,9 @@ class CharacterGenerator {
                     <div style="display:flex;gap:3px;align-items:center;">
                         <button class="rr-cgp-layer-eye" data-part-id="${id}"
                             title="${isHidden ? tt('Show layer') : tt('Hide layer')}" style="flex:0 0 auto;padding:1px 5px;cursor:pointer;border-radius:2px;border:1px solid var(--color-border-input);background:var(--color-bg-button);color:var(--color-text-strong);display:flex;align-items:center;">${eyeSvg}</button>
-                        <button class="rr-cgp-layer-up" data-layer-index="${i}" ${upDisabled ? 'disabled' : ''}
+                        <button class="rr-cgp-layer-up" data-layer-index="${i}" data-swap-index="${upIndex}" ${upDisabled ? 'disabled' : ''}
                             title="${tt('Move up (drawn later, closer to top)')}" style="flex:0 0 auto;padding:1px 6px;font-size:10px;cursor:${upDisabled ? 'default' : 'pointer'};border-radius:2px;border:1px solid var(--color-border-input);background:var(--color-bg-button);color:var(--color-text-strong);opacity:${upDisabled ? '0.3' : '1'};">▲</button>
-                        <button class="rr-cgp-layer-down" data-layer-index="${i}" ${downDisabled ? 'disabled' : ''}
+                        <button class="rr-cgp-layer-down" data-layer-index="${i}" data-swap-index="${downIndex}" ${downDisabled ? 'disabled' : ''}
                             title="${tt('Move down (drawn earlier, behind)')}" style="flex:0 0 auto;padding:1px 6px;font-size:10px;cursor:${downDisabled ? 'default' : 'pointer'};border-radius:2px;border:1px solid var(--color-border-input);background:var(--color-bg-button);color:var(--color-text-strong);opacity:${downDisabled ? '0.3' : '1'};">▼</button>
                         <button class="rr-cgp-layer-remove" data-part-id="${id}" ${removeDisabled ? 'disabled' : ''}
                             title="${tt('Remove from scene')}" style="flex:0 0 auto;padding:1px 6px;font-size:10px;cursor:${removeDisabled ? 'default' : 'pointer'};border-radius:2px;border:1px solid var(--color-border-input);background:var(--color-bg-button);color:var(--color-text-strong);opacity:${removeDisabled ? '0.3' : '1'};">×</button>
@@ -3148,10 +3154,10 @@ class CharacterGenerator {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (btn.disabled) return;
-                const i = parseInt(btn.dataset.layerIndex);
+                const i = parseInt(btn.dataset.layerIndex), j = parseInt(btn.dataset.swapIndex);
                 const arr = this.activeLayerOrder;
-                if (i >= arr.length - 1) return;
-                [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]];
+                if (!(j > i && j < arr.length)) return;
+                [arr[j], arr[i]] = [arr[i], arr[j]];
                 this._renderPreservingScroll();
             });
         });
@@ -3160,10 +3166,10 @@ class CharacterGenerator {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (btn.disabled) return;
-                const i = parseInt(btn.dataset.layerIndex);
-                if (i <= 0) return;
+                const i = parseInt(btn.dataset.layerIndex), j = parseInt(btn.dataset.swapIndex);
                 const arr = this.activeLayerOrder;
-                [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+                if (!(j >= 0 && j < i)) return;
+                [arr[j], arr[i]] = [arr[i], arr[j]];
                 this._renderPreservingScroll();
             });
         });

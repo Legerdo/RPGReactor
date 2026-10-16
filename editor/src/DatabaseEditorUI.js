@@ -369,6 +369,16 @@ class DatabaseEditorUI {
         });
     }
 
+    /**
+     * A click on a part of the detail that takes no focus (a preview canvas) leaves the focus on
+     * the page: the keys pressed after it still belong to the detail, never to the record list.
+     */
+    _keyFollowsDetailClick(event, detailEl) {
+        const lastClick = this._lastDatabasePointerTarget;
+        const onPage = event.target === document || event.target === document.body;
+        return !!(onPage && detailEl && lastClick instanceof Node && lastClick !== detailEl && detailEl.contains(lastClick));
+    }
+
     cleanupDatabaseListChrome() {
         const listEl = document.getElementById('database-list');
         const parent = listEl?.parentNode;
@@ -1312,6 +1322,10 @@ class DatabaseEditorUI {
         });
 
         if (this._listKeyHandler) document.removeEventListener('keydown', this._listKeyHandler);
+        if (!this._databasePointerTracker) {
+            this._databasePointerTracker = event => { this._lastDatabasePointerTarget = event.target; };
+            document.addEventListener('pointerdown', this._databasePointerTracker, true);
+        }
         const getSelectedEntry = () => data.find(entry => entry?.id === focusedId && !entry.stockVehicle) || getSelectedEntries()[0] || null;
         const listKeyHandler = event => {
             if (event.defaultPrevented) return;
@@ -1326,6 +1340,7 @@ class DatabaseEditorUI {
             // node canvas, a tree row, a button): Delete there must not
             // clear the record.
             if (event.target instanceof Node && event.target !== detailEl && detailEl.contains(event.target)) return;
+            if (this._keyFollowsDetailClick(event, detailEl)) return;
             const key = event.key.toLowerCase();
             if (key === 'arrowup' || key === 'arrowdown') {
                 if (filteredData.length === 0) return;
