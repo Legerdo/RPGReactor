@@ -38,6 +38,29 @@ class QuestCommandEditor {
         ]);
     }
 
+    /** A reward's line in the Reward list: its own text, or what it gives when it has none. */
+    rewardLabel(entry) {
+        const own = String((entry && entry.text) || '').replace(/\\[A-Za-z]+\[\d*\]/g, '').trim();
+        if (own || !entry) return own;
+        const manager = this.databaseManager || (window.reactor && window.reactor.databaseManager) || null;
+        const system = (manager && manager.getSystem && manager.getSystem()) || {};
+        const amount = Math.floor(Number(entry.amount)) || 1;
+        switch (entry.give) {
+            case 'gold': return `${amount} ${system.currencyUnit || 'G'}`;
+            case 'exp': return `${amount} ${(system.terms && system.terms.basic && system.terms.basic[8]) || 'EXP'}`;
+            case 'item': case 'weapon': case 'armor': {
+                const getter = { item: 'getItem', weapon: 'getWeapon', armor: 'getArmor' }[entry.give];
+                const record = manager && manager[getter] ? manager[getter](Number(entry.giveId)) : null;
+                return record ? record.name + (amount !== 1 ? ' \u00d7' + amount : '') : '';
+            }
+            case 'commonEvent': {
+                const event = manager && manager.getCommonEvent ? manager.getCommonEvent(Number(entry.giveId)) : null;
+                return `${this._t('Common event')}: ${event && event.name ? event.name : '#' + String(entry.giveId || 0).padStart(4, '0')}`;
+            }
+            default: return '';
+        }
+    }
+
     /** The wording the actions carry in the list and the dialog. */
     actionLabel(name, value) {
         const table = {
@@ -104,7 +127,7 @@ class QuestCommandEditor {
             const record = chosen && chosen[2];
             const entries = record ? (name === 'QuestObjective' ? record.objectives : record.rewards) || [] : [];
             const current = String(args[name === 'QuestObjective' ? 'objective' : 'reward'] || 'all');
-            const list = [['all', this._t('All')]].concat(entries.map((entry, index) => [String(index + 1), `${index + 1}: ${(entry && entry.text ? String(entry.text) : '').replace(/\\[A-Za-z]+\[\d*\]/g, '').slice(0, 48)}`]));
+            const list = [['all', this._t('All')]].concat(entries.map((entry, index) => [String(index + 1), `${index + 1}: ${(name === 'QuestReward' ? this.rewardLabel(entry) : (entry && entry.text ? String(entry.text) : '').replace(/\\[A-Za-z]+\[\d*\]/g, '')).slice(0, 48)}`]));
             indexSelect.innerHTML = options(list, list.some(([value]) => value === current) ? current : 'all');
         };
         fillIndexes();

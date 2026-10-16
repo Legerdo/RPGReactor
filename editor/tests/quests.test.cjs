@@ -968,3 +968,27 @@ test('switching the log\'s category drops a quest selected in the old one, so th
     assert.equal(list.quest(), null);
     assert.equal(shown[shown.length - 1], null, 'the detail empties with it');
 });
+
+test('the Quest Reward dialog names what a reward with no text of its own gives', () => {
+    const node = () => ({ style: {}, value: '', innerHTML: '', listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; } });
+    const quest = node(), index = node(), ok = node(), action = node();
+    const modal = { style: {}, querySelector: selector => ({ '.qc-quest': quest, '.qc-index': index, '.qc-ok': ok, '.qc-action': action })[selector], querySelectorAll: () => [] };
+    const context = { window: {}, document: { createElement: () => modal, body: { appendChild() {} } } };
+    vm.runInNewContext(read('editor/src/event/commands/QuestCommandEditor.js') + '\n;globalThis.Editor = QuestCommandEditor;', context);
+    const record = { id: 1, name: 'Herb Hunt', objectives: [], rewards: [
+        { text: '', give: 'gold', amount: 250 }, { text: '', give: 'item', giveId: 7, amount: 2 }, { text: '', give: 'exp', amount: 30 },
+        { text: '', give: 'commonEvent', giveId: 1 }, { text: 'A \\I[5]kind word', give: 'none' }, { text: '', give: 'none' }] };
+    const manager = { getQuests: () => [null, record], getSystem: () => ({ currencyUnit: 'G', terms: { basic: ['', '', '', '', '', '', '', '', 'EXP'] } }),
+        getItem: id => (id === 7 ? { id: 7, name: 'Potion' } : null), getCommonEvent: id => (id === 1 ? { id: 1, name: 'Healer Thanks' } : null) };
+    const editor = new context.Editor(manager);
+    quest.value = '1';
+    editor.show(null, () => {}, 'QuestReward');
+    const labels = [...index.innerHTML.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map(match => match[2]);
+    assert.deepEqual(labels, ['All', '1: 250 G', '2: Potion ×2', '3: 30 EXP', '4: Common event: Healer Thanks', '5: A kind word', '6: ']);
+});
+
+test('the quest log has no help window, so its windows take the help area too', () => {
+    const { context } = loadRuntime([null]);
+    const scene = Object.create(context.Scene_Quest.prototype);
+    assert.equal(scene.helpAreaHeight(), 0);
+});

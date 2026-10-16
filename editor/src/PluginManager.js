@@ -2611,13 +2611,17 @@ class PluginManager {
         checkbox.addEventListener('click', (e) => {
             e.stopPropagation();
             plugin.status = checkbox.checked;
+            // An unselected row's name dims when its plugin is off, as it does when the list is drawn.
+            if (!this.selectedPluginIndices.has(index)) nameSpan.style.color = nameColor();
         });
         item.appendChild(checkbox);
 
         // Plugin name
+        const nameColor = () => this.selectedPluginIndices.has(index) ? 'var(--color-accent-on)'
+            : plugin.status ? 'var(--color-text-strong)' : 'var(--color-text-muted)';
         const nameSpan = document.createElement('span');
         nameSpan.style.cssText = `
-            color: ${isSelected ? 'var(--color-accent-on)' : plugin.status ? 'var(--color-text-strong)' : 'var(--color-text-muted)'};
+            color: ${nameColor()};
             font-size: 13px;
             overflow: hidden;
             text-overflow: ellipsis;

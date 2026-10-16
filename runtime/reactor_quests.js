@@ -777,6 +777,11 @@
         this._categoryWindow.activate();
     };
 
+    // No help window: the list and the detail reach the bottom of the screen.
+    Scene_Quest.prototype.helpAreaHeight = function() {
+        return 0;
+    };
+
     Scene_Quest.prototype.categoryWindowRect = function() {
         const wx = 0;
         const wy = this.mainAreaTop();
