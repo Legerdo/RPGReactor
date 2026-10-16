@@ -3071,6 +3071,11 @@ class EventCommandList {
             && command.parameters[0] === 'RPGReactor' && command.parameters[1] === 'StartMapBattle';
     }
 
+    /** Whether `command` owns If Win / If Escape / If Lose rows: Battle Processing or Start Battle on Map. */
+    static isBattleStart(command) {
+        return !!command && (command.code === 301 || EventCommandList.isMapBattleStart(command));
+    }
+
     /** The branch shape a header command owns: the table's entry for its code; Start Battle on Map has Battle Processing's. */
     static branchShape(command) {
         if (!command) return null;
@@ -3099,7 +3104,7 @@ class EventCommandList {
     }
 
     /**
-     * The branch rows under the Start Battle on Map at `index`, by their code:
+     * The branch rows under the battle start (Battle Processing or Start Battle on Map) at `index`, by their code:
      * `Map(code -> { marker, body })`, each body ending in its terminator.
      * Two rows of one code (a hand-made list) are read as one branch.
      */
@@ -3121,13 +3126,13 @@ class EventCommandList {
     }
 
     /**
-     * The branches an edit of the Start Battle on Map at `index` would take
+     * The branches an edit of the battle start at `index` would take
      * with their commands: those `block` no longer has that hold any.
      * `[{ code, count }]` in the order If Win (601), If Escape (602), If Lose
      * (603); `count` is the commands under the row, nested ones included.
      */
     static lostBattleBranches(list, index, block) {
-        if (!EventCommandList.isMapBattleStart(list?.[index])) return [];
+        if (!EventCommandList.isBattleStart(list?.[index])) return [];
         const shape = EventCommandList.BRANCH_STRUCTURES[301];
         const commands = EventCommandList.commandBlock(block);
         const base = commands.length ? (commands[0].indent || 0) : 0;
@@ -3148,7 +3153,7 @@ class EventCommandList {
     }
 
     /**
-     * Asked before an edit of the Start Battle on Map at `index` is stored:
+     * Asked before an edit of the battle start at `index` is stored:
      * when `block` takes a branch that holds commands, the author says
      * whether they go. Resolves true when the edit may be stored.
      */
@@ -3161,11 +3166,11 @@ class EventCommandList {
             : String(text).replace(/\{(\w+)\}/g, (token, key) => (params && key in params ? String(params[key]) : token)));
         const rows = { 601: 'If Win', 602: 'If Escape', 603: 'If Lose' };
         return RRDialog.confirm(EventCommandList.lostBranchWords(lost, code => this._commandName(rows[code]), t),
-            { title: this._commandName('Start Battle on Map'), ok: t('Delete'), danger: true });
+            { title: this._commandName(list[index].code === 301 ? 'Battle Processing' : 'Start Battle on Map'), ok: t('Delete'), danger: true });
     }
 
     /**
-     * Replace the Start Battle on Map at `index`, with its argument rows and
+     * Replace the battle start at `index`, with its argument rows and
      * its branch rows, by `block`: the command, then the branch rows it has
      * now. A branch that stays keeps its body. A branch `block` no longer has
      * goes when it is empty; one that holds commands stays where it is, with
@@ -3175,7 +3180,7 @@ class EventCommandList {
      */
     static replaceBattleStart(list, index, block, options = {}) {
         const commands = EventCommandList.commandBlock(block).slice();
-        if (commands.length === 0 || !EventCommandList.isMapBattleStart(list?.[index])) return null;
+        if (commands.length === 0 || !EventCommandList.isBattleStart(list?.[index])) return null;
         const shape = EventCommandList.BRANCH_STRUCTURES[301];
         const { byCode, endIndex, indent } = EventCommandList.battleBranches(list, index);
         EventCommandList.rebaseInsertIndent(commands, indent);
@@ -3767,6 +3772,18 @@ class EventCommandList {
 
             const code = command.code;
 
+            // Battle Processing brings its branch rows when it can be escaped or lost.
+            if (code === 301) {
+                this.battleProcessingEditor.show(null, (edited) => {
+                    if (!edited) return;
+                    const block = this._rebaseInsertIndent(BattleProcessingEditor.block(edited), baseIndent);
+                    page.list.splice(insertIndex, 0, ...block);
+                    this.selectedIndices = [insertIndex];
+                    this.refreshCommandList(page, pageIndex);
+                });
+                return;
+            }
+
             // A command whose dialog takes one command and hands one back, and a
             // command with nothing to configure, are each fully described by a
             // table above -- SIMPLE_COMMAND_EDITORS and NO_PARAM_EVENT_CODES.
@@ -4162,6 +4179,17 @@ class EventCommandList {
         // nothing to change after the fact, so don't fall through to the
         // "will be implemented" placeholder alert.
         if (NO_PARAM_EVENT_CODES.has(code)) return;
+
+        // Battle Processing: its branch rows follow Can Escape and Can Lose;
+        // a row that holds commands goes only once the author says so.
+        if (code === 301) {
+            this.battleProcessingEditor.show(command, (edited) => {
+                if (!edited) return;
+                EventCommandList.replaceBattleStart(page.list, index, BattleProcessingEditor.block(edited), { drop: true });
+                this.refreshCommandList(page, pageIndex);
+            }, undefined, { beforeStore: edited => this.confirmLostBranches(page.list, index, BattleProcessingEditor.block(edited)) });
+            return;
+        }
 
         // See SIMPLE_COMMAND_EDITORS: one editor, one command in, one back.
         const simple = EventCommandList.simpleCommandEditor(code);
