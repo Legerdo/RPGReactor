@@ -877,9 +877,8 @@ Reactor3D.injectCutaway = function(material, shader) {
     // gone over it: one height per material, a model's materials being its own. A unit's own model never is.
     material.userData = material.userData || {};
     shader.uniforms.rrFightStump = material.userData.rrFightStump || (material.userData.rrFightStump = { value: 1e9 });
-    // In a battle a character's own model (who fights, who walks with the player, who stands by) fades neither in
-    // the sight line nor over the battle's ground: characters are not cover. One flag per material, counted only
-    // while a battle runs here (rrCutBattle), so the map's own fade is the map's again when it is over.
+    // A character's own model (who fights, who walks with the player, who stands by) fades neither in the sight line
+    // nor over a battle's ground: characters are not cover, and one cut part-way showed the inside of its model.
     shader.uniforms.rrCutBody = material.userData.rrCutBody || (material.userData.rrCutBody = { value: 0 });
     const openings = Reactor3D.CUTAWAY_OPENINGS;
     shader.fragmentShader = "uniform float rrFightStump;\nuniform float rrCutBody;\nuniform float rrCutBattle;\nuniform float rrCutTop;\nuniform vec3 rrCutEye;\nuniform vec3 rrCutFocus;\nuniform float rrCutRadius;\nuniform vec4 rrCutBox;\nuniform float rrGhost;\nuniform float rrGhostWidth;\nuniform vec3 rrCutFoci[" + Reactor3D.CUTAWAY_FOCI + "];\nuniform int rrCutFocusCount;\n"
@@ -951,8 +950,8 @@ Reactor3D.injectCutaway = function(material, shader) {
                 "if (rrGhost > 0.5) { if (!rrInWay) discard; } else if (rrInWay) discard;"
             ].join("\n\t")
                 // Scenery in the way of a battle's units is cut off above its foot; a body never is.
-                : "if (max(rrCutBody * rrCutBattle, rrCutBody - 1.0) < 0.5 && vRRWorldPos.y > rrFightStump) discard;",
-            "if (rrCutRadius > 0.0 && max(rrCutBody * rrCutBattle, rrCutBody - 1.0) < 0.5 && vRRWorldPos.y > rrCutFocus.y - 1.2) {",
+                : "if (rrCutBody < 0.5 && vRRWorldPos.y > rrFightStump) discard;",
+            "if (rrCutRadius > 0.0 && rrCutBody < 0.5 && vRRWorldPos.y > rrCutFocus.y - 1.2) {",
             "\tvec3 rrSight = rrCutFocus - rrCutEye;",
             "\tfloat rrSightLength = length(rrSight);",
             "\tif (rrSightLength > 0.001) {",
@@ -1021,7 +1020,8 @@ Reactor3D.CUTAWAY_REACH = 24;
  * is itself under the ceiling (first person, a low third-person orbit)
  * has nothing overhead in its way, and cutting the ceiling from it would
  * show the sky through the room. A wall between the camera and the
- * player is opened whether they are inside or out.
+ * player is seen through while the player is inside a building (and in a
+ * battle on the map); walking outside, buildings stay whole.
  */
 /**
  * `others`: the characters beside the player a wall must not hide either
@@ -1032,12 +1032,15 @@ Reactor3D.MapScene.prototype.updateCutaway = function(camera, mapData, character
     const frame = (this._cutFrame = (this._cutFrame || 0) + 1);
     Reactor3D._cutFrameNow = frame;
     // A placed model thins where it stands near the line from the eye to the player (a bough, a cart), and over a
-    // tactical battle's ground. In a battle characters stand all along that line and all over that ground, and each
-    // was drawn as a dithered ghost: characters are not cover. Theirs are marked as the battle begins and a few
-    // times a second after, and the fades pass them by while the battle runs. (Before anything returns: a map with
-    // nothing built has bodies too.)
+    // tactical battle's ground. Characters stand along that line too (followers behind the player, a battle's
+    // units), and one thinned part-way showed the inside of its model: characters are not cover. Theirs are marked
+    // as bodies on the first frame, when a battle begins, and a few times a second after, and the fades pass them
+    // by. (Before anything returns: a map with nothing built has bodies too.)
     const battle = !!camera && Reactor3D.cutawayInBattle();
-    if (battle && (!shared.rrCutBattle.value || frame % Reactor3D.CUTAWAY_BODY_FRAMES === 1)) Reactor3D.cutawayMarkBodies(character);
+    if (!this._cutBodiesMarked || (battle && !shared.rrCutBattle.value) || frame % Reactor3D.CUTAWAY_BODY_FRAMES === 1) {
+        Reactor3D.cutawayMarkBodies(character);
+        this._cutBodiesMarked = true;
+    }
     shared.rrCutBattle.value = battle ? 1 : 0;
     if (!camera || !mapData || !character || !Reactor3D.hasPieces(mapData)) {
         shared.rrCutTop.value = 1e9;
@@ -1060,7 +1063,7 @@ Reactor3D.MapScene.prototype.updateCutaway = function(camera, mapData, character
     shared.rrCutTop.value = eye.y > cutTop ? cutTop : 1e9;
     if (covered) { shared.rrCutBox.value[0] = covered.x0; shared.rrCutBox.value[1] = covered.y0; shared.rrCutBox.value[2] = covered.x1; shared.rrCutBox.value[3] = covered.y1; }
     // The see-through pass is live whenever the corridor is: a wall between
-    // the camera and the party is seen through inside a building or out.
+    // the camera and the party is seen through while the player is inside a building.
     if (!this._cutLook) this.setCutLook(true);
     const cutState = shared.rrCutTop.value === 1e9 ? "none" : shared.rrCutTop.value + ":" + shared.rrCutBox.value.join(",");
     if (cutState !== this._cutState) {
@@ -1083,11 +1086,13 @@ Reactor3D.MapScene.prototype.updateCutaway = function(camera, mapData, character
         }
     }
     // A corridor only for who something built really hides: a rim, a bench or a counter the eye sees over is not
-    // cover, and a corridor through it was a box cut out of it at the character's feet.
+    // cover, and a corridor through it was a box cut out of it at the character's feet. Only for a player inside a
+    // building, or in a battle here: walking outside, a building between the camera and the party stays whole.
     let count = 0;
-    if (Reactor3D.cutawayHides(mapData, eye, character, x, ground, z, true, frame)) { foci[0] = x; foci[1] = ground + 1.5; foci[2] = z; count = 1; }
+    const opens = !!covered || battle;
+    if (opens && Reactor3D.cutawayHides(mapData, eye, character, x, ground, z, true, frame)) { foci[0] = x; foci[1] = ground + 1.5; foci[2] = z; count = 1; }
     let slot = 0;
-    for (const other of others || []) {
+    for (const other of opens ? others || [] : []) {
         if (count >= Reactor3D.CUTAWAY_FOCI) break;
         if (!other) continue;
         slot++;
@@ -1187,10 +1192,9 @@ Reactor3D.CUTAWAY_PARTY_ROOM = 3.5;
 Reactor3D.CUTAWAY_BATTLE_ROOM = 0.6;
 
 /**
- * Marks the models of everyone in a battle's picture as bodies the fades leave whole: the player, the followers,
- * the battle's units, and every other character on the map (scenery, the placed models, is not one). A model
- * instance is marked once; one that arrives later is found on a later look. The mark stays on the material and
- * counts only while a battle runs here (`rrCutBattle`): nothing is walked again to take it off.
+ * Marks the models of every character as bodies the fades leave whole: the player, the followers, a battle's units,
+ * and every other character on the map (scenery, the placed models, is not one). A model instance is marked once;
+ * one that arrives later is found on a later look.
  */
 Reactor3D.cutawayMarkBodies = function(player) {
     this.cutawayMarkBody(player);
@@ -1233,7 +1237,7 @@ Reactor3D.cutawayMarkRide = function(object, on) {
             material.userData = material.userData || {};
             const mark = material.userData.rrCutBody || (material.userData.rrCutBody = { value: 0 });
             const rides = material.userData.rrCutRides = Math.max(0, (material.userData.rrCutRides || 0) + (on ? 1 : -1));
-            // (2: a body always. 1: a body while a battle runs, as it was marked.)
+            // (2: a ridden vehicle, a body while ridden. 1: a character's body, as it was marked.)
             if (rides > 0) { if (mark.value < 2) { material.userData.rrCutWas = mark.value; mark.value = 2; } }
             else if (mark.value >= 2) mark.value = material.userData.rrCutWas || 0;
         }

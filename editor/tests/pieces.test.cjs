@@ -652,7 +652,7 @@ test('inside a building the roof and the wall in the camera\'s way are cut aroun
     assert.match(read('runtime/reactor_sprites.js'), /state\.scene\.updateCutaway\([^\n]*\$gamePlayer, this\.reactor3DCompany\(\)\);/, 'the game names the company');
     assert.match(read('runtime/reactor_sprites.js'), /visibleFollowers\(\)\) list\.push\(follower\);/, 'followers first');
     assert.ok(R.GHOST_WIDTH > 0.4 && R.GHOST_WIDTH < 1, 'the corridor is the body\'s width at the party, so a wall beside the party is not in the way');
-    assert.match(runtime, /if \(!this\._cutLook\) this\.setCutLook\(true\);/, 'the see-through pass is live inside or out, so nothing the corridor takes is ever simply missing');
+    assert.match(runtime, /if \(!this\._cutLook\) this\.setCutLook\(true\);/, 'the see-through pass stays live, so nothing a corridor takes is ever simply missing');
     assert.match(runtime, /if \(rrGhost > 0\.5\) \{ if \(!rrInWay\) discard; \} else if \(rrInWay\) discard;/, 'the solid pass leaves it out and the ghost pass draws only it');
     assert.match(source3D(), /transparent: true, opacity: Reactor3D\.GHOST_OPACITY, depthWrite: false/, 'the ghost pass is translucent');
     assert.match(runtime, /material\.__reactorPieces \? "\\t\\tif \(false\) \{"/, 'pieces never dither');
