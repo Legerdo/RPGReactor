@@ -633,6 +633,30 @@ class ProjectManager {
         });
     }
 
+    /** The words menus and battles show: Options rows, save slots, battle messages. */
+    static STARTER_MESSAGES = Object.freeze({
+        alwaysDash: 'Always Dash', commandRemember: 'Command Remember', touchUI: 'Touch UI', bgmVolume: 'BGM Volume',
+        bgsVolume: 'BGS Volume', meVolume: 'ME Volume', seVolume: 'SE Volume', possession: 'Possession',
+        expTotal: 'Current %1', expNext: 'To Next %1', saveMessage: 'Which file would you like to save to?',
+        loadMessage: 'Which file would you like to load?', file: 'File', autosave: 'Autosave',
+        partyName: '%1’s Party', emerge: '%1 emerged!', preemptive: '%1 got the upper hand!',
+        surprise: '%1 was surprised!', escapeStart: '%1 has started to escape!',
+        escapeFailure: 'However, it was unable to escape!', victory: '%1 was victorious!', defeat: '%1 was defeated.',
+        obtainExp: '%1 %2 received!', obtainGold: '%1\\G found!', obtainItem: '%1 found!',
+        levelUp: '%1 is now %2 %3!', obtainSkill: '%1 learned!', useItem: '%1 uses %2!',
+        criticalToEnemy: 'An excellent hit!!', criticalToActor: 'A painful blow!!', actorDamage: '%1 took %2 damage!',
+        actorRecovery: '%1 recovered %2 %3!', actorGain: '%1 gained %2 %3!', actorLoss: '%1 lost %2 %3!',
+        actorDrain: '%1 was drained of %2 %3!', actorNoDamage: '%1 took no damage!',
+        actorNoHit: 'Miss! %1 took no damage!', enemyDamage: '%1 took %2 damage!',
+        enemyRecovery: '%1 recovered %2 %3!', enemyGain: '%1 gained %2 %3!', enemyLoss: '%1 lost %2 %3!',
+        enemyDrain: '%1 was drained of %2 %3!', enemyNoDamage: '%1 took no damage!',
+        enemyNoHit: 'Miss! %1 took no damage!', evasion: '%1 evaded the attack!',
+        magicEvasion: '%1 nullified the magic!', magicReflection: '%1 reflected the magic!',
+        counterAttack: '%1 made a counterattack!', substitute: '%1 protected %2!', buffAdd: '%1’s %2 went up!',
+        debuffAdd: '%1’s %2 went down!', buffRemove: '%1’s %2 returned to normal!',
+        actionFailure: 'There was no effect on %1!'
+    });
+
     /** Text colors 0-31 of a window skin, read by the engine from 12 px cells at (96, 144). */
     static STARTER_TEXT_COLORS = Object.freeze([
         '#ffffff', '#20a0d6', '#ff784c', '#66cc40', '#99ccff', '#ccc0ff', '#ffffa0', '#808080',
@@ -919,7 +943,7 @@ class ProjectManager {
                 basic: ['Level', 'Lv', 'HP', 'HP', 'MP', 'MP', 'TP', 'TP', 'Experience', 'EXP'],
                 commands: ['Fight', 'Escape', 'Attack', 'Guard', 'Item', 'Skill', 'Equip', 'Status', 'Formation', 'Save', 'Game End', 'Options', 'Weapon', 'Armor', 'Key Item', 'Equip', 'Optimize', 'Clear', 'New Game', 'Continue', null, 'To Title', 'Cancel', null, 'Buy', 'Sell'],
                 params: ['Max HP', 'Max MP', 'Attack', 'Defense', 'M.Attack', 'M.Defense', 'Agility', 'Luck', 'Hit Rate', 'Evasion Rate'],
-                messages: {}
+                messages: { ...ProjectManager.STARTER_MESSAGES }
             },
             // 24, not 26, on purpose: MP Recovery (24) and TP Recovery (25)
             // fall back to Recovery while they are absent, and seeding them

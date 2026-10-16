@@ -15,7 +15,7 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 - **Queue and state:** `scratchpad/user-path-sweeps/lead.md` (gitignored, travels by Dropbox). Agent rules and tools beside it (`README.md`, `harness-slot.sh`, `game-run.cjs`, `editor-example.cjs`, Wine runner). Start the display first: `editor/tests/perf/headless-display.sh`, then write its number to `display.txt`.
 - **WIP commit, sweep 6 (vehicles):** `EventManager.js`, `ModelPropsPreview2D.js`, `AUTHORING.md` (the Demo's five motorcycle spots), tests in `vehicles-starting-position` and `editor-flat-preview`. The agent was adding a test when stopped; its copy and shots are in `scratchpad/user-path-sweeps/vehicles/`. Re-run the sweep with that folder as its starting point and have it report what these edits fix.
-- **WIP commit, sweep 7 (project lifecycle):** `ProjectManager.js`, `build-scripts/icon-helpers.js`, new `deploy-windows-icon.test.cjs` (a Windows build's icon, judging by the names). Work folder `scratchpad/user-path-sweeps/lifecycle/`.
+- **Sweep 7 (project lifecycle):** finished 2026-10-16 and committed; the WIP edits were right and kept.
 - Both sets pass their Node tests (697 in the related files); neither was re-checked by real input. Review the diffs (`git show <wip commit>`) before building on them.
 - **Rules learned today:** commit only a finished sweep's own files (two agents share the tree); a web-build test can fail while agents edit files during it (rerun alone); keep owner questions in the sweeps entry, not STATUS (near its budget).
 
@@ -28,6 +28,7 @@ A sweep builds one system by real input in the editor and plays it with real key
 - **2D maps:** Circle grows from the center (MZ's Ellipse fits the drag); New Map defaults to tileset 1 (empty in the Demo); a new map is not opened after OK; a new 2D map writes a flat `.r3d.json`; the Demo's Interstellar tileset has 4,184 null passability flags (water walkable).
 - **Battles:** troop pages never run in battles on the map; the Troops battleback preview is the Battle Test one; the Tactical unit panel covers units on a small map; a flying enemy overlaps the next cell; the Demo's Action skirmish is won before the player acts; the victory message draws over the Action HUD.
 - **3D builder:** a Roof box lays only a ring; no camera turn while building, and the hint names keys Build uses otherwise; a roofed inside cannot be seen or edited (no editor cut by level); nothing warns of a stair whose foot faces a wall; Escape in Select with nothing selected returns to the last piece kind; four Lower passes leave banks too steep to enter; stamping a structure moves models off the plot silently.
+- **Project lifecycle:** keep the new blank project's window skin (dark blue-gray, light frame) or supply one; a macOS game's Info.plist still names `nwjs` and shares the bundle id `io.nwjs.nwjs`; a Linux build on Automatic: Bundled ships the SDK (DevTools, chromedriver, nwjc, about 48 MB); Deploy has no asset encryption; no Save As or copy-project command; a blank project starts with an empty party.
 
 ## 2026-10-15 — User Interfaces in the game: AbyssGazes (runtime 20261015.3)
 

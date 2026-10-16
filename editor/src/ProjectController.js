@@ -158,7 +158,8 @@ class ProjectController {
             app: 'RPG Reactor',
             pid: process.pid,
             token,
-            openedAt: new Date().toISOString()
+            openedAt: new Date().toISOString(),
+            project: this._projectLockFolder(projectPath)
         }, null, 2);
 
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -207,7 +208,7 @@ class ProjectController {
                     }
                     continue;
                 }
-                if (this.projectLockOwnerLives(lock)) {
+                if (this.projectLockOwnerLives(lock) && !this._projectLockCopied(lock, projectPath)) {
                     return this._rejectProjectLock(projectPath, null, true);
                 }
                 try {
@@ -220,6 +221,22 @@ class ProjectController {
             }
         }
         return this._rejectProjectLock(projectPath, new Error('Could not acquire project lock.'));
+    }
+
+    /** The folder a lock names: the real path, so a link to a project names the project itself. */
+    _projectLockFolder(projectPath) {
+        const path = require('path');
+        let folder = path.resolve(projectPath);
+        try { folder = require('fs').realpathSync.native(folder); } catch (error) { /* not there yet: as given */ }
+        return process.platform === 'win32' ? folder.toLowerCase() : folder;
+    }
+
+    /**
+     * Whether a lock came along when its project folder was copied: it names another folder, so the editor
+     * holding it has that one open, not this one. Locks written before the folder was recorded cannot say.
+     */
+    _projectLockCopied(lock, projectPath) {
+        return typeof lock.project === 'string' && lock.project !== this._projectLockFolder(projectPath);
     }
 
     _readProjectLock(fs, lockPath) {
