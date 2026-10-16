@@ -2861,6 +2861,7 @@ class EventCommandList {
         });
 
         document.body.appendChild(menu);
+        EventCommandList.keepMenuOnScreen(menu, x, y);
 
         // Close menu on click outside
         const closeMenu = (e) => {
@@ -2870,6 +2871,13 @@ class EventCommandList {
             }
         };
         setTimeout(() => document.addEventListener('click', closeMenu), 100);
+    }
+
+    /** At the pointer, kept inside the window: a row near the bottom still reaches Paste and Delete. */
+    static keepMenuOnScreen(menu, x, y) {
+        const w = menu.offsetWidth, h = menu.offsetHeight;
+        menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - w - 4))}px`;
+        menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - h - 4))}px`;
     }
 
     /**

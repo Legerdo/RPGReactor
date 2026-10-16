@@ -65,6 +65,7 @@ Each system has a guide; the guide is the authority on its behaviour and limits.
 The one list of open threads. Remove an item when it is done; record the doing in the changelog.
 
 - **Waiting on the owner:**
+  - From the 2026-10-15 events sweep: should Paste Event Page overwrite the current page (MZ) instead of adding one; Show Choices' "When Cancel" default (Branch) and its empty branches; one label for an unnamed switch (three forms today) and an unnamed common event; Barebones Map002/Map003 name tileset 10, which does not exist (the game crashes on arrival; the editor only warns in the console).
   - The Demo's two motorcycles are still vehicle events (North Haven event 2, Forest Road event 1): move them to Starting Positions (close the editor on the Demo first), and decide whether Forest Road keeps a second motorcycle.
   - Set the Demo's Actor Command to Follows: The actor in the battle.
   - A neighbor's events are drawn only once its border is crossed (parked vehicles pop in, 77 ms for two).

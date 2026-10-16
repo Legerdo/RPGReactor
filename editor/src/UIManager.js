@@ -737,8 +737,9 @@ class UIManager {
                 }
             }
 
-            // Ctrl/Cmd+C - Copy event (only in event mode)
-            if (commandModifier && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'c') {
+            // Ctrl/Cmd+C - Copy event (only in event mode). With the event
+            // editor open the key belongs to its command list.
+            if (commandModifier && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'c' && !eventEditorOpen) {
                 const activeElement = document.activeElement;
                 const isTextInput = activeElement && (
                     activeElement.tagName === 'INPUT' ||
