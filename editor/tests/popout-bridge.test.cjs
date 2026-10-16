@@ -118,3 +118,26 @@ test('the editor offers the pop-out, ships its page, and comes back wired after 
     assert.match(read('src/EventManager.js'), /rr-event-editor-docked[\s\S]{0,120}windowGone\) this\.setupEventEditorModal\(\)/);
     assert.match(read('src/event/EventEditor.js'), /rr-event-editor-docked[\s\S]{0,120}windowGone && this\.isOpen\(\)\) redraw\(\)/);
 });
+
+test('the editor\'s own window has themed dropdowns, rounded corners and the title strip', () => {
+    const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    const shim = read('src/utils/SelectThemingShim.js');
+    assert.match(shim, /RRPopoutBridge\.onAttach\(childWindow => watch\(childWindow\.document\)\)/, 'selects added there by a redraw are themed');
+    assert.match(shim, /const view = \(triggerEl\.ownerDocument && triggerEl\.ownerDocument\.defaultView\) \|\| window;/, 'a list is placed by the window it opens in');
+    assert.match(shim, /\(triggerEl\.ownerDocument \|\| document\)\.body\.appendChild\(popup\)/);
+    assert.match(read('src/event/EventEditorWindow.js'), /frame: false, transparent: true/, 'transparent around the rounded panel');
+    const css = read('css/styles.css');
+    assert.match(css, /rr-event-editor-popped > \.rr-modal \{[^}]*border-radius: var\(--radius-lg\);/);
+    assert.match(css, /#event-editor-modal > \.rr-modal > \.rr-modal-header \{\s*border-left: 3px solid var\(--color-accent\);/);
+});
+
+test('an attach hook runs for each pop-out and its cleanup on detach', () => {
+    const { bridge, childWindow } = bridgeWorld();
+    const seen = [];
+    bridge.onAttach(win => { seen.push('attach'); return () => seen.push('detach'); });
+    bridge.attach(childWindow);
+    bridge.detach();
+    bridge.attach(childWindow);
+    assert.deepEqual(seen, ['attach', 'detach', 'attach']);
+});
+

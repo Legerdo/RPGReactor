@@ -7135,12 +7135,16 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
     cursor: move;
     user-select: none;
 }
+/* The accent strip on the left of its title bar, as the app's section headers carry it. */
+#event-editor-modal > .rr-modal > .rr-modal-header {
+    border-left: 3px solid var(--color-accent);
+}
 
 /* Popped out into a window of its own: the editor fills it, and that window's frame moves and sizes it. */
 #event-editor-modal.rr-event-editor-popped {
     position: fixed;
     inset: 0;
-    background: var(--color-bg-base);
+    background: transparent;
     pointer-events: auto;
 }
 #event-editor-modal.rr-event-editor-popped > .rr-modal {
@@ -7150,7 +7154,8 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
     min-width: 0;
     min-height: 0;
     resize: none;
-    border-radius: 0;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
     box-sizing: border-box;
 }
 /* A window with no frame: its own header moves it, as a title bar would; its controls stay clickable. */
@@ -7163,8 +7168,8 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 }
 .rr-event-editor-grip {
     position: fixed;
-    right: 0;
-    bottom: 0;
+    right: 2px;
+    bottom: 2px;
     width: 16px;
     height: 16px;
     cursor: nwse-resize;

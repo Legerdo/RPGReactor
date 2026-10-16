@@ -26,6 +26,10 @@
         'mousedown', 'mouseup', 'mousemove', 'click', 'dblclick', 'contextmenu', 'wheel', 'focusin', 'focusout',
         'input', 'change', 'copy', 'cut', 'paste', 'dragover', 'drop']);
     const recorded = { document: [], window: [] };
+    // Work other modules do for each pop-out (the select shim themes its dropdowns): run on attach,
+    // their returned cleanups on detach.
+    const attachHooks = [];
+    let cleanups = [];
     let child = null;
 
     function record(kind, target) {
@@ -121,10 +125,27 @@
             for (const { type, listener, options } of recorded[kind]) mirrorTarget(kind).addEventListener(type, listener, options);
         }
         patchDocument();
+        for (const hook of attachHooks) {
+            try {
+                const cleanup = hook(childWindow);
+                if (typeof cleanup === 'function') cleanups.push(cleanup);
+            } catch (error) { console.warn('PopoutBridge: an attach hook failed', error); }
+        }
+    }
+
+    /** Run `hook(childWindow)` for each pop-out as it attaches (and now, for one already attached); a function it returns runs on detach. */
+    function onAttach(hook) {
+        attachHooks.push(hook);
+        if (child) {
+            const cleanup = hook(child);
+            if (typeof cleanup === 'function') cleanups.push(cleanup);
+        }
     }
 
     function detach() {
         if (!child) return;
+        for (const cleanup of cleanups) { try { cleanup(); } catch (error) { /* the window is gone */ } }
+        cleanups = [];
         try {
             for (const kind of ['document', 'window']) {
                 for (const { type, listener, options } of recorded[kind]) mirrorTarget(kind).removeEventListener(type, listener, options);
@@ -153,5 +174,5 @@
         }
     }
 
-    root.RRPopoutBridge = { attach, detach, dressLike, inPopout, active: () => child, recordedCount: () => recorded.document.length + recorded.window.length };
+    root.RRPopoutBridge = { attach, detach, dressLike, inPopout, onAttach, active: () => child, recordedCount: () => recorded.document.length + recorded.window.length };
 })(typeof window !== 'undefined' ? window : globalThis);

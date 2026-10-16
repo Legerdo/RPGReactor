@@ -208,7 +208,7 @@
         const main = nw.Window.get();
         const rect = windowRect(main);
         const options = { x: rect.left, y: rect.top, width: rect.width, height: rect.height, min_width: MIN_WIDTH, min_height: MIN_HEIGHT,
-            frame: false, show: true, resizable: true, icon: 'images/icon.png', title };
+            frame: false, transparent: true, show: true, resizable: true, icon: 'images/icon.png', title };
         const state = { win: null, panelStyle: panel.style.cssText, closing: false, overlay, unhook: [] };
         if (sizeObserver) sizeObserver.disconnect();
         popped = state;
@@ -222,7 +222,9 @@
                 const doc = win.window.document;
                 root.RRPopoutBridge.dressLike(doc);
                 doc.title = title;
-                doc.body.style.cssText = 'margin:0;height:100vh;overflow:hidden;background:var(--color-bg-base);';
+                // Transparent around the panel, so its rounded corners show the desktop behind them.
+                doc.documentElement.style.cssText = 'background:transparent !important;';
+                doc.body.style.cssText = 'margin:0;height:100vh;overflow:hidden;background:transparent !important;';
                 root.RRPopoutBridge.attach(win.window);
                 overlay.classList.add('rr-event-editor-popped');
                 panel.style.cssText = '';
