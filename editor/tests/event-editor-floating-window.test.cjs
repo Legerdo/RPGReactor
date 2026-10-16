@@ -77,16 +77,25 @@ test('an edit not yet applied is seen as Apply sees it', () => {
 });
 
 test('leaving an event with unapplied edits asks Apply, Discard or Cancel, by the event\'s name', async () => {
-    for (const [decision, leaves, applied] of [['save', true, 1], ['discard', true, 0], ['cancel', false, 0]]) {
+    for (const [decision, closing, leaves, applied, how] of [
+        ['save', false, true, 1, null], ['discard', false, true, 0, 'left'], ['cancel', false, false, 0, null],
+        ['discard', true, true, 0, 'closed']]) {
         const document = fakeDocument();
         const { editor, prompts } = editorWith(document, decision);
         editor.currentEvent.name = 'Captain';
-        editor.cancelChanges = function() { this.discarded = true; this.currentEvent = this._clone(this.cancelBaseline); document.overlay.style.display = 'none'; };
-        assert.equal(await editor.resolvePendingChanges(), leaves, decision);
+        editor.cancelChanges = function() { this.how = 'closed'; document.overlay.style.display = 'none'; };
+        editor.leaveEvent = function() { this.how = 'left'; };
+        assert.equal(await editor.resolvePendingChanges({ closing }), leaves, decision);
         assert.deepEqual(prompts, [['Captain', 'Apply']]);
         assert.equal(editor.committed.length, applied, `${decision}: applied ${applied}`);
-        assert.equal(!!editor.discarded, decision === 'discard');
+        assert.equal(editor.how || null, how, `${decision}${closing ? ' while closing' : ''}: ${how || 'nothing'}`);
     }
+});
+
+test('switching to another event keeps the window open where it is', () => {
+    const manager = read('src/EventManager.js');
+    assert.match(manager, /Nothing to apply: the window stays where it is and takes the new event\.\s*this\.eventEditor\.leaveEvent\(\);/);
+    assert.match(manager, /isPoppedOut\(\)\) RREventEditorWindow\.showPopout\(\);\s*else if \(!shownBefore && RREventEditorWindow\.wantsPopOut\(\)\)/, 'popped out, its window shows again; never re-placed');
 });
 
 test('a map change closes the window, asking only when there is something to keep', async () => {

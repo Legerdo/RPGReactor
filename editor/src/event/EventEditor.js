@@ -174,7 +174,7 @@ class EventEditor {
      * Before the window leaves this event (another event opened, the map changed): unapplied
      * edits are applied, discarded or kept on the person's word. Resolves true when it may leave.
      */
-    async resolvePendingChanges() {
+    async resolvePendingChanges({ closing = false } = {}) {
         if (!this.hasUncommittedChanges()) return true;
         const ui = (typeof window !== 'undefined' && window.reactor && window.reactor.uiManager) || this.projectController?.uiManager;
         const name = this.currentEvent.name || `EV${String(this.currentEvent.id).padStart(3, '0')}`;
@@ -183,16 +183,29 @@ class EventEditor {
             : 'cancel';
         if (decision === 'save') return this.applyChanges();
         if (decision === 'discard') {
-            this.cancelChanges();
+            // Leaving for another event keeps the window where it is; closing it closes it.
+            if (closing) this.cancelChanges(); else this.leaveEvent();
             return true;
         }
         return false;
     }
 
+    /**
+     * Let go of the open event without closing the window, its edits not applied: the next event
+     * opens in the same place (the window does not hide, recenter or leave its screen).
+     */
+    leaveEvent() {
+        this._autoTicket = (this._autoTicket || 0) + 1;
+        if (this.onCancel) this.onCancel(this.sourceEvent);
+        this.pageEditor?._disposeModelPreview?.();
+        this.pageEditor = null;
+        this.currentPageIndex = 0;
+    }
+
     /** The map is about to change: the window closes, asking first about unapplied edits. */
     async closeForMapChange({ ask = true } = {}) {
         if (!this.isOpen()) return true;
-        if (ask && !await this.resolvePendingChanges()) return false;
+        if (ask && !await this.resolvePendingChanges({ closing: true })) return false;
         if (this.isOpen()) this.cancelChanges();
         return true;
     }
@@ -210,9 +223,9 @@ class EventEditor {
     }
 
     _hideEditor() {
-        // A popped-out editor comes back to the editor window as it closes; it opens popped out again.
-        if (typeof RREventEditorWindow !== 'undefined' && RREventEditorWindow.isPoppedOut()) RREventEditorWindow.dock({ keepPoppedOut: true });
         const modal = document.getElementById('event-editor-modal');
+        // Popped out, its window hides with it and keeps its screen for the next event.
+        if (typeof RREventEditorWindow !== 'undefined' && RREventEditorWindow.isPoppedOut()) RREventEditorWindow.hidePopout();
         if (modal) {
             modal.style.display = 'none';
         }

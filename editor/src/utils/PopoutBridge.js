@@ -15,6 +15,7 @@
  *
  *   RRPopoutBridge.attach(childWindow)   start bridging to that window
  *   RRPopoutBridge.detach()              stop; the main window is itself again
+ *   RRPopoutBridge.inPopout(task)        run task with the pop-out taken as the window in use
  *   RRPopoutBridge.active()              the attached window, or null
  */
 (function(root) {
@@ -58,8 +59,19 @@
     };
     const nativeActive = Object.getOwnPropertyDescriptor(Document.prototype, 'activeElement');
 
+    // While set, the pop-out counts as the window being worked in, whatever has the focus: a
+    // question its own frame raises (its close button) opens there.
+    let preferChild = 0;
+
     function childHasFocus() {
+        if (child && preferChild > 0) return true;
         try { return !!child && child.document.hasFocus(); } catch (error) { return false; }
+    }
+
+    /** Run `task` (sync or async) with the pop-out taken as the window being worked in. */
+    async function inPopout(task) {
+        preferChild++;
+        try { return await task(); } finally { preferChild--; }
     }
 
     function patchDocument() {
@@ -141,5 +153,5 @@
         }
     }
 
-    root.RRPopoutBridge = { attach, detach, dressLike, active: () => child, recordedCount: () => recorded.document.length + recorded.window.length };
+    root.RRPopoutBridge = { attach, detach, dressLike, inPopout, active: () => child, recordedCount: () => recorded.document.length + recorded.window.length };
 })(typeof window !== 'undefined' ? window : globalThis);

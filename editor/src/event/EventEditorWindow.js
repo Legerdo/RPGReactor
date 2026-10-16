@@ -13,9 +13,9 @@
  *   RREventEditorWindow.dock()             bring it back into the editor window
  *   RREventEditorWindow.isPoppedOut()      it lives in its own window now
  *
- * Popped out, the window's own title bar and frame move and size it; closing that window
- * brings the editor back here with its edits. It reopens popped out, on that screen, until
- * it is brought back.
+ * Popped out, the window's own title bar and frame move and size it; its close button closes
+ * the editor (Cancel, asking about unapplied edits) and the window waits hidden for the next
+ * event, on that screen. The title-bar button brings the editor back into the editor window.
  */
 (function(root) {
     'use strict';
@@ -150,8 +150,10 @@
         const state = { win: null, panelStyle: panel.style.cssText, closing: false, overlay };
         if (sizeObserver) sizeObserver.disconnect();
         popped = state;
+        // Not shown here while its window opens: it appears there, not first in the middle of the map.
+        overlay.style.visibility = 'hidden';
         nw.Window.open('event-editor-panel.html', options, win => {
-            if (!win) { popped = null; return; }
+            if (!win) { popped = null; overlay.style.visibility = ''; return; }
             state.win = win;
             const mount = () => {
                 if (popped !== state) return;
@@ -163,8 +165,8 @@
                 overlay.classList.add('rr-event-editor-popped');
                 panel.style.cssText = '';
                 doc.body.appendChild(overlay);
-                const button = popButtonOf(overlay);
-                if (button) button.hidden = true;
+                overlay.style.visibility = '';
+                labelPopButton(overlay);
                 rememberPopout({ on: true, x: win.x, y: win.y, width: win.width, height: win.height });
                 // The window manager settles a new window's size after it shows.
                 setTimeout(() => { try { if (popped === state) win.resizeTo(options.width, options.height); } catch (error) { /* kept as shown */ } }, 300);
@@ -174,12 +176,13 @@
             const keepPlace = () => { if (popped === state) rememberPopout({ on: true, x: win.x, y: win.y, width: win.width, height: win.height }); };
             win.on('move', keepPlace);
             win.on('resize', keepPlace);
-            // Closing the window by its own frame brings the editor back, edits and all. 'closed'
-            // covers a window closed without asking (a crash, the session ending).
+            // Its frame's close button closes the editor, as Cancel does (asking first about
+            // unapplied edits); the window only hides, to show again on that screen for the next event.
+            // 'closed' covers a window destroyed without asking (a crash, the session ending).
             win.on('close', () => {
                 if (popped === state && !state.closing) {
                     keepPlace();
-                    dock({ keepPoppedOut: false });
+                    closeFromFrame(state);
                 } else {
                     try { win.close(true); } catch (error) { /* gone */ }
                 }
@@ -208,8 +211,7 @@
             const panel = panelOf(overlay);
             if (panel) panel.style.cssText = state.panelStyle;
             document.body.appendChild(overlay);
-            const button = popButtonOf(overlay);
-            if (button) button.hidden = !canPopOut();
+            labelPopButton(overlay);
             if (isOpen() && panel) apply(panel, clamp(current(panel), viewport()));
             // Watched again once the move has settled, not in the middle of its layout.
             if (sizeObserver && panel) (root.requestAnimationFrame || setTimeout)(() => sizeObserver.observe(panel));
@@ -231,6 +233,39 @@
         if (typeof root.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
             root.dispatchEvent(new CustomEvent('rr-event-editor-docked', { detail: { windowGone } }));
         }
+    }
+
+    async function closeFromFrame(state) {
+        const editor = root.reactor && root.reactor.eventManager && root.reactor.eventManager.eventEditor;
+        if (editor && editor.isOpen && editor.isOpen()) {
+            // Asked in the pop-out, whose close button raised it.
+            const resolve = () => editor.resolvePendingChanges({ closing: true });
+            const leave = root.RRPopoutBridge ? await root.RRPopoutBridge.inPopout(resolve) : await resolve();
+            if (!leave) return;
+            if (editor.isOpen()) editor.cancelChanges();
+        }
+        hidePopout(state);
+    }
+
+    /** The editor closed while popped out: its window hides and keeps its place for the next event. */
+    function hidePopout(state = popped) {
+        if (!state || state !== popped || !state.win) return;
+        try { state.win.hide(); } catch (error) { /* gone */ }
+    }
+
+    /** An event opens while the editor lives in its window: that window comes back where it was. */
+    function showPopout() {
+        if (!popped || !popped.win) return;
+        try { popped.win.show(); popped.win.focus(); } catch (error) { /* gone */ }
+    }
+
+    /** The title-bar button: out to a window of its own, or, popped out, back into the editor window. */
+    function labelPopButton(overlay) {
+        const button = popButtonOf(overlay);
+        if (!button) return;
+        const label = popped ? 'Back to the editor window' : 'Open in a separate window';
+        button.title = root.I18n && root.I18n.tText ? root.I18n.tText(label) : label;
+        button.hidden = !canPopOut();
     }
 
     /** The pop-out's NW window while there is one (tests close it the way its frame does). */
@@ -257,12 +292,11 @@
             button.type = 'button';
             button.className = 'rr-modal-close rr-event-editor-popout-btn';
             button.textContent = '\u29c9';
-            button.title = root.I18n && root.I18n.tText ? root.I18n.tText('Open in a separate window') : 'Open in a separate window';
             button.style.marginLeft = 'auto';
             button.style.marginRight = '4px';
-            button.hidden = !canPopOut();
-            button.addEventListener('click', () => popOut(overlay));
+            button.addEventListener('click', () => { if (popped) dock({ keepPoppedOut: false }); else popOut(overlay); });
             header.insertBefore(button, close);
+            labelPopButton(overlay);
         }
         // The corner grip resizes (CSS resize); the size it leaves is the one remembered.
         if (typeof ResizeObserver === 'function') {
@@ -298,7 +332,7 @@
         return !!target && overlay.contains(target);
     }
 
-    const api = { install, place, isOpen, ownsKeys, clamp, defaultRect, popOut, dock, isPoppedOut, wantsPopOut, popoutWindow, MIN_WIDTH, MIN_HEIGHT, STORAGE_KEY, POPOUT_KEY };
+    const api = { install, place, isOpen, ownsKeys, clamp, defaultRect, popOut, dock, isPoppedOut, wantsPopOut, popoutWindow, hidePopout, showPopout, MIN_WIDTH, MIN_HEIGHT, STORAGE_KEY, POPOUT_KEY };
     root.RREventEditorWindow = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

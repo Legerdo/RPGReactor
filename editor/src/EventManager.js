@@ -1953,7 +1953,8 @@ class EventManager {
         const open = this.eventEditor && this.eventEditor.isOpen && this.eventEditor.isOpen();
         if (open && !session.pendingResolved) {
             if (this.eventEditor.sourceEvent === event) {
-                document.querySelector('#event-editor-modal .rr-modal')?.focus?.();
+                if (typeof RREventEditorWindow !== 'undefined' && RREventEditorWindow.isPoppedOut()) RREventEditorWindow.showPopout();
+                else document.querySelector('#event-editor-modal .rr-modal')?.focus?.();
                 return;
             }
             if (this.eventEditor.hasUncommittedChanges()) {
@@ -1962,7 +1963,8 @@ class EventManager {
                 });
                 return;
             }
-            this.eventEditor.cancelChanges();
+            // Nothing to apply: the window stays where it is and takes the new event.
+            this.eventEditor.leaveEvent();
         }
 
         // Initialize event editor if not already created
@@ -2026,9 +2028,10 @@ class EventManager {
             if (!shownBefore) RREventEditorWindow.place(modal);
         }
         modal.style.display = 'flex';
-        // Left popped out last time: it opens in its own window again, on that screen.
-        if (!shownBefore && typeof RREventEditorWindow !== 'undefined' && RREventEditorWindow.wantsPopOut() && !RREventEditorWindow.isPoppedOut()) {
-            RREventEditorWindow.popOut(modal);
+        // Popped out, its window shows again where it was; left popped out last session, it opens there again.
+        if (typeof RREventEditorWindow !== 'undefined') {
+            if (RREventEditorWindow.isPoppedOut()) RREventEditorWindow.showPopout();
+            else if (!shownBefore && RREventEditorWindow.wantsPopOut()) RREventEditorWindow.popOut(modal);
         }
 
         console.debug('Event editor opened for:', event.name);
