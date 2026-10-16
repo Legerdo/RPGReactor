@@ -904,7 +904,7 @@ class AnimationGenerator {
                             : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7c2 0 3.7.6 5.2 1.5"/><path d="M22 12s-3.5 7-10 7c-2 0-3.7-.6-5.2-1.5"/><path d="M4 4l16 16"/></svg>'}</button>
                         <div style="flex: 1; min-width: 0; font-size: 11px; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                             ${anim ? this._tx(anim.name) : `<span style="color:var(--color-text-dim);">${this._tx('(missing)')}</span>`}${dupBadge}
-                            <span style="font-size: 9px; color: var(--color-text-dim);"> · ${cat ? this._tx(cat.name) : '?'}</span>
+                            <span style="font-size: 9px; color: var(--color-text-muted);"> · ${cat ? this._tx(cat.name) : '?'}</span>
                         </div>
                         <button class="rr-ag-layer-up rr-btn-chip" data-id="${layer.id}" title="${this._tx('Move toward front')}" style="padding: 1px 5px; font-size: 10px; min-width: 20px;">▲</button>
                         <button class="rr-ag-layer-down rr-btn-chip" data-id="${layer.id}" title="${this._tx('Move toward back')}" style="padding: 1px 5px; font-size: 10px; min-width: 20px;">▼</button>
@@ -913,12 +913,12 @@ class AnimationGenerator {
                     </div>
                     <div style="display: flex; align-items: center; gap: 6px;">
                         <select class="rr-ag-layer-blend rr-select" data-id="${layer.id}" title="${this._tx('Blend mode')}" style="padding: 1px 4px; font-size: 10px; flex: 0 0 84px;">${blendHtml}</select>
-                        <span style="font-size: 9px; color: var(--color-text-dim);">α</span>
+                        <span style="font-size: 9px; color: var(--color-text-muted);">α</span>
                         <input type="range" class="rr-ag-layer-opacity rr-range" data-id="${layer.id}" min="0" max="1" step="0.01" value="${this._currentKfOpacity(layer)}" title="${this._tx("Opacity at this keyframe — drag to change just the active KF's opacity; values lerp between keyframes.")}" style="flex: 1; min-width: 0;">
                         <span class="rr-ag-layer-opacity-val" data-id="${layer.id}" style="font-size: 10px; color: var(--color-text-muted); min-width: 32px; text-align: right;">${Math.round(this._currentKfOpacity(layer) * 100)}%</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 3px; flex-wrap: wrap;" title="${this._tx('Keyframes: click a numbered button to edit that point in time. Param values lerp linearly between adjacent keyframes for every frame in between.')}">
-                        <span style="font-size: 9px; color: var(--color-text-dim); margin-right: 2px;">${this._tx('KF')}</span>
+                        <span style="font-size: 9px; color: var(--color-text-muted); margin-right: 2px;">${this._tx('KF')}</span>
                         ${(layer.keyframes || [{}]).map((_, kfi) => `
                             <button class="rr-ag-kf-sel rr-btn-chip" data-id="${layer.id}" data-kf="${kfi}"
                                 title="${this._tx('Edit keyframe')} ${kfi + 1}${kfi === 0 ? ' ' + this._tx('(start)') : kfi === (layer.keyframes.length - 1) ? ' ' + this._tx('(end)') : ''}"

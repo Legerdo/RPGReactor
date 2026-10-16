@@ -4380,7 +4380,6 @@
         }
         .rr-ui-unbound[hidden] { display: none; }
         .rr-ui-unbound > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .rr-ui-unbound > button { flex: 0 0 auto; }
         .rr-ui-role-combobox {
             position: relative;
             min-width: 0;
@@ -4426,6 +4425,12 @@
             min-height: 32px;
             box-sizing: border-box;
             margin-bottom: 5px;
+            appearance: none;
+        }
+        .rr-ui-interface-settings[aria-pressed="true"] {
+            background: var(--color-accent-tint-25);
+            border-color: var(--color-accent-border-strong);
+            color: var(--color-text-strong);
         }
         .rr-ui-role-list {
             max-height: 230px;

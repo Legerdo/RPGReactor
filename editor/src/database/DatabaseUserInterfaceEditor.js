@@ -992,7 +992,7 @@ class DatabaseUserInterfaceEditor {
                 <span class="rr-ui-role-value" title="${this.escapeHTML(value)}">${this.escapeHTML(value)}</span><span aria-hidden="true">▾</span>
             </button>
             <div class="rr-ui-role-popup" hidden>
-                <input type="search" class="rr-ui-role-search" aria-label="${this._t('Search roles')}" placeholder="${this._t('Search roles')}">
+                <input type="search" class="rr-input rr-ui-role-search" aria-label="${this._t('Search roles')}" placeholder="${this._t('Search roles')}">
                 <div id="${listId}" class="rr-ui-role-list" role="listbox" aria-multiselectable="true">
                     <div id="${listId}-0" class="rr-ui-role-option rr-ui-role-custom" role="option" aria-selected="${assigned.size === 0}"
                         data-replacement-custom="true" data-role-label="${this.escapeHTML(customLabel)}" tabindex="-1">
@@ -1046,8 +1046,8 @@ class DatabaseUserInterfaceEditor {
         const role = this.unboundStockRole();
         if (!role) return '';
         const label = this._t(role[1]);
-        return `<span>${this.escapeHTML(this._t('The game still shows its own {name}.').replace('{name}', label))}</span>
-            <button type="button" class="rr-btn-chip rr-ui-unbound-use" data-replacement-role="${role[0]}">${this.escapeHTML(this._t('Use as {name}').replace('{name}', label))}</button>`;
+        // Use As above is where the screen is chosen; the note only says why the game still shows its own.
+        return `<span>${this.escapeHTML(this._t('The game still shows its own {name}.').replace('{name}', label))}</span>`;
     }
 
     clearReplacementRoles() {
@@ -2103,6 +2103,8 @@ class DatabaseUserInterfaceEditor {
         const panel = this.wrapper.querySelector('.rr-ui-props');
         if (!panel) return;
         const node = this.selected();
+        // Pressed while the inspector shows the interface's own settings, so a click on it always shows where it leads.
+        this.wrapper.querySelector('.rr-ui-interface-settings')?.setAttribute('aria-pressed', String(!node && this.selectedNodes().length <= 1));
         const title = this.wrapper.querySelector('.rr-ui-inspector-title');
         if (this.selectedNodes().length > 1) {
             const label = `${tt('Selection')} (${this.selectedNodes().length})`;
@@ -2757,10 +2759,6 @@ class DatabaseUserInterfaceEditor {
             this.touch();
             this.updatePresentationFields();
             this.scheduleRender();
-        });
-        q('.rr-ui-unbound').addEventListener('click', event => {
-            const use = event.target.closest('.rr-ui-unbound-use');
-            if (use && this.setReplacementRole(use.dataset.replacementRole, true)) this.refreshReplacementControls();
         });
         const roles = q('.rr-ui-replacement-controls');
         roles.addEventListener('click', event => {

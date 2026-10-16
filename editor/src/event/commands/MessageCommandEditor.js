@@ -1578,7 +1578,7 @@ class MessageCommandEditor {
         openFolderBtn.textContent = this._t('Open in Folder');
         openFolderBtn.style.cssText = `
             padding: 6px 20px;
-            background-color: var(--color-border-subtle);
+            background-color: var(--color-bg-button-subtle);
             color: var(--color-text-strong);
             border: 1px solid var(--color-border-input);
             border-radius: 3px;
@@ -1597,7 +1597,7 @@ class MessageCommandEditor {
             }
         });
         openFolderBtn.addEventListener('mouseenter', () => { openFolderBtn.style.backgroundColor = 'var(--color-accent-tint-25)'; openFolderBtn.style.borderColor = 'var(--color-accent)'; });
-        openFolderBtn.addEventListener('mouseleave', () => { openFolderBtn.style.backgroundColor = 'var(--color-border-subtle)'; openFolderBtn.style.borderColor = 'var(--color-border-input)'; });
+        openFolderBtn.addEventListener('mouseleave', () => { openFolderBtn.style.backgroundColor = 'var(--color-bg-button-subtle)'; openFolderBtn.style.borderColor = 'var(--color-border-input)'; });
 
         const cancelBtn = document.createElement('button');
         cancelBtn.textContent = this._t('Cancel');

@@ -68,3 +68,22 @@ test('every light theme, and no dark one, swaps the normal text color', () => {
     assert.deepEqual([...named].sort(), [...lights].sort());
     assert.equal(css.match(/--rr-message-normal-color:/g).length, 1, 'set nowhere else');
 });
+
+test('the troop and common event lists draw \\C[n] colors as the map event list does', () => {
+    const loaded = {};
+    for (const [name, file] of [['DatabaseCommonEventEditor', 'DatabaseCommonEventEditor.js'], ['DatabaseTroopEditor', 'DatabaseTroopEditor.js']]) {
+        try { loaded[name] = require(path.join('..', 'src', 'database', file)); } catch (error) { loaded[name] = null; }
+    }
+    for (const [name, Editor] of Object.entries(loaded)) {
+        if (!Editor) { assert.match(read(`src/database/${name}.js`), /descriptionHTML\(cmd, info\.description/); continue; }
+        const formatter = Object.create(EventCommandList.prototype);
+        const editor = Object.assign(Object.create(Editor.prototype), { _formatter: formatter, commandDialogs: () => formatter });
+        let redrawn = 0;
+        const html = editor.descriptionHTML({ code: 401 }, 'Hello \\C[2]red\\C[0] <b>', () => redrawn++);
+        assert.match(html, /<span class="rr-message-code-color" style="color: #[0-9a-f]{6}">red<\/span>/i, `${name} colors \\C[2]`);
+        assert.doesNotMatch(html, /\\C\[|<b>/, `${name} hides the codes and escapes the text`);
+        formatter.onWindowskinLoaded();
+        assert.equal(redrawn, 1, `${name} redraws when the project's skin arrives`);
+        assert.equal(editor.descriptionHTML({ code: 355 }, 'a <b>'), 'a &lt;b&gt;', `${name} leaves other rows as escaped text`);
+    }
+});

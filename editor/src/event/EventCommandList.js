@@ -857,6 +857,7 @@ class EventCommandList {
             padding: 6px 8px;
             margin-bottom: 2px;
             background: ${isSelected ? 'var(--color-bg-selected)' : 'var(--color-bg-list-item)'};
+            ${isSelected ? EventCommandList.SELECTED_INK : ''}
             border-left: 3px solid ${this.getCommandColor(command.code)};
             font-size: 12px;
             cursor: pointer;
@@ -894,7 +895,7 @@ class EventCommandList {
 
         // Line number
         const lineNum = document.createElement('span');
-        lineNum.style.cssText = 'color: var(--color-text-dim); min-width: 40px;';
+        lineNum.style.cssText = 'color: var(--rr-command-ink, var(--color-text-dim)); min-width: 40px;';
         lineNum.textContent = String(index + 1).padStart(3, '0');
         contentDiv.appendChild(lineNum);
 
@@ -986,7 +987,7 @@ class EventCommandList {
 
         // Command name
         const nameSpan = document.createElement('span');
-        nameSpan.style.cssText = `color: ${commandInfo.color}; font-weight: 600; min-width: 100px; padding-left: ${indentPadding}px;`;
+        nameSpan.style.cssText = `color: var(--rr-command-ink, ${commandInfo.color}); font-weight: 600; min-width: 100px; padding-left: ${indentPadding}px;`;
         nameSpan.textContent = commandInfo.name;
         contentDiv.appendChild(nameSpan);
 
@@ -1147,10 +1148,20 @@ class EventCommandList {
         const rows = document.querySelectorAll('.command-list-container .command-item');
         rows.forEach(div => {
             const index = parseInt(div.dataset.index, 10);
-            div.style.backgroundColor = this._isIndexSelected(page, index)
-                ? 'var(--color-bg-selected)'
-                : 'var(--color-bg-list-item)';
+            const selected = this._isIndexSelected(page, index);
+            div.style.backgroundColor = selected ? 'var(--color-bg-selected)' : 'var(--color-bg-list-item)';
+            if (selected) div.style.setProperty('--rr-command-ink', 'var(--color-text-strong)');
+            else div.style.removeProperty('--rr-command-ink');
         });
+    }
+
+    /**
+     * A selected row's line number and command name take the row's strong text color: the dim
+     * number and the syntax colors are too faint on the selection fill. Read by the troop and
+     * common event lists too.
+     */
+    static get SELECTED_INK() {
+        return '--rr-command-ink: var(--color-text-strong);';
     }
 
     /**
@@ -1193,7 +1204,10 @@ class EventCommandList {
             this._awaitingWindowskin = true;
             document.addEventListener('rr-windowskin-loaded', () => {
                 this._awaitingWindowskin = false;
-                if (this.currentPage) {
+                // A list that borrows this one as its formatter (troops, common events) redraws itself.
+                if (typeof this.onWindowskinLoaded === 'function') {
+                    this.onWindowskinLoaded();
+                } else if (this.currentPage) {
                     this.refreshCommandList(this.currentPage, this.currentPageIndex);
                 }
             }, { once: true });

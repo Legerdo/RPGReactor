@@ -127,9 +127,9 @@ test('a record laid out as a stock screen says the game still shows its own unti
     editor.current = records[1];
     assert.equal(editor.unboundStockRole()[0], 'title');
     assert.match(editor.unboundNoticeMarkup(), /The game still shows its own Title Screen\./);
-    assert.match(editor.unboundNoticeMarkup(), /data-replacement-role="title"[^>]*>Use as Title Screen</);
+    assert.doesNotMatch(editor.unboundNoticeMarkup(), /<button/, 'Use As is the one place the screen is chosen');
 
-    assert.equal(editor.setReplacementRole('title', true), true, 'the notice button binds the role');
+    assert.equal(editor.setReplacementRole('title', true), true, 'Use As binds the role');
     assert.equal(editor.replacementSystem().reactorTitleInterfaceId, 1);
     assert.equal(editor.unboundStockRole(), null);
     assert.equal(editor.unboundNoticeMarkup(), '');

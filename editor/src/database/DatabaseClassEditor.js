@@ -265,13 +265,20 @@ class DatabaseClassEditor {
         return this._targetLevelFor(classEntry);
     }
 
+    /** The eight parameter colors of the current theme, as hex for the curve canvases. */
+    static paramColors() {
+        const stock = ['#ff3366', '#33ccff', '#ff9933', '#ffd700', '#9966ff', '#33ff99', '#ff66cc', '#66ffff'];
+        const resolve = typeof ThemeColors !== 'undefined' && typeof document !== 'undefined' ? ThemeColors.resolve : null;
+        return stock.map((color, i) => (resolve ? resolve(`--color-param-${i}`, color) : color));
+    }
+
     createParameterCurvesSection(classEntry) {
         const tt = text => window.I18n ? window.I18n.tText(text) : text;
         const section = document.createElement('div');
         section.className = 'database-section';
 
         const paramNames = globalThis.rrParamNames(tt);
-        const paramColors = ['#FF3366', '#33CCFF', '#FF9933', '#FFD700', '#9966FF', '#33FF99', '#FF66CC', '#66FFFF'];
+        const paramColors = DatabaseClassEditor.paramColors();
         const params = classEntry.params || [];
         const targetLevel = this._targetLevelFor(classEntry);
         const midLevel = Math.max(2, Math.min(targetLevel - 1, Math.round((1 + targetLevel) / 2)));
@@ -399,7 +406,7 @@ class DatabaseClassEditor {
         const capLevel = this._curveLevels(classEntry);
         const targetLevel = this._targetLevelFor(classEntry);
         const paramNames = globalThis.rrParamNames(tt);
-        const paramColors = ['#FF3366', '#33CCFF', '#FF9933', '#FFD700', '#9966FF', '#33FF99', '#FF66CC', '#66FFFF'];
+        const paramColors = DatabaseClassEditor.paramColors();
         if (!classEntry.params) classEntry.params = [];
         const working = paramNames.map((_, idx) => this._materializeCurve(classEntry.params[idx], capLevel));
         const touched = new Set();

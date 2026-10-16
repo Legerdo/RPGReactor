@@ -320,17 +320,17 @@ class DatabaseSystem1Editor {
             <div style="margin-top: 10px;">
                 <label class="database-field-label" style="margin-bottom: 6px; display: block;">${tt('Window Tone:')}</label>
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
-                    <span style="color: #f66; min-width: 14px; font-size: 11px;">R</span>
+                    <span style="color: var(--color-channel-r); min-width: 14px; font-size: 11px;">R</span>
                     <input type="range" class="window-tone-slider" data-tone-idx="0" min="-255" max="255" value="${wt[0]}" style="flex: 1;">
                     <span class="window-tone-val" style="color: var(--color-text-muted); font-size: 11px; min-width: 30px; text-align: right;">${wt[0]}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
-                    <span style="color: #6f6; min-width: 14px; font-size: 11px;">G</span>
+                    <span style="color: var(--color-channel-g); min-width: 14px; font-size: 11px;">G</span>
                     <input type="range" class="window-tone-slider" data-tone-idx="1" min="-255" max="255" value="${wt[1]}" style="flex: 1;">
                     <span class="window-tone-val" style="color: var(--color-text-muted); font-size: 11px; min-width: 30px; text-align: right;">${wt[1]}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
-                    <span style="color: #66f; min-width: 14px; font-size: 11px;">B</span>
+                    <span style="color: var(--color-channel-b); min-width: 14px; font-size: 11px;">B</span>
                     <input type="range" class="window-tone-slider" data-tone-idx="2" min="-255" max="255" value="${wt[2]}" style="flex: 1;">
                     <span class="window-tone-val" style="color: var(--color-text-muted); font-size: 11px; min-width: 30px; text-align: right;">${wt[2]}</span>
                 </div>

@@ -3497,7 +3497,7 @@ class DatabaseEditorUI {
         button.type = 'button';
         button.className = 'rr-image-browse-btn';
         button.textContent = tt('Browse…');
-        button.style.cssText = 'flex: 0 0 auto; padding: 6px 12px; background: var(--color-border-subtle); color: var(--color-text-strong); border: 1px solid var(--color-border-input); border-radius: 3px; cursor: pointer; font-size: 12px;';
+        button.style.cssText = 'flex: 0 0 auto; padding: 6px 12px; background: var(--color-bg-button-subtle); color: var(--color-text-strong); border: 1px solid var(--color-border-input); border-radius: 3px; cursor: pointer; font-size: 12px;';
 
         const fill = (field, value) => {
             field.value = value;

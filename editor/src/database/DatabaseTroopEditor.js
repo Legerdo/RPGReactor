@@ -291,9 +291,9 @@ class DatabaseTroopEditor {
             const replaceBtn = document.createElement('button');
             replaceBtn.textContent = '\u21C4';
             replaceBtn.title = tt('Replace Enemy');
-            replaceBtn.style.cssText = 'width: 18px; height: 18px; padding: 0; border: 1px solid var(--color-border-input); background: var(--color-border-subtle); color: var(--color-syntax-type); cursor: pointer; font-size: 12px; line-height: 1; border-radius: 3px; flex-shrink: 0;';
+            replaceBtn.style.cssText = 'width: 18px; height: 18px; padding: 0; border: 1px solid var(--color-border-input); background: var(--color-bg-button-subtle); color: var(--color-syntax-type); cursor: pointer; font-size: 12px; line-height: 1; border-radius: 3px; flex-shrink: 0;';
             replaceBtn.onmouseenter = () => { replaceBtn.style.backgroundColor = 'var(--color-accent-tint-25)'; };
-            replaceBtn.onmouseleave = () => { replaceBtn.style.backgroundColor = 'var(--color-border-subtle)'; };
+            replaceBtn.onmouseleave = () => { replaceBtn.style.backgroundColor = 'var(--color-bg-button-subtle)'; };
             replaceBtn.onclick = (e) => {
                 e.stopPropagation();
                 this.selectedMemberIndex = idx;
@@ -322,7 +322,7 @@ class DatabaseTroopEditor {
             const removeBtn = document.createElement('button');
             removeBtn.textContent = '\u00D7';
             removeBtn.title = tt('Remove');
-            removeBtn.style.cssText = 'width: 18px; height: 18px; padding: 0; border: 1px solid var(--color-border-input); background: var(--color-border-subtle); color: var(--color-danger-bright); cursor: pointer; font-size: 13px; line-height: 1; border-radius: 3px; flex-shrink: 0;';
+            removeBtn.style.cssText = 'width: 18px; height: 18px; padding: 0; border: 1px solid var(--color-border-input); background: var(--color-bg-button-subtle); color: var(--color-danger-bright); cursor: pointer; font-size: 13px; line-height: 1; border-radius: 3px; flex-shrink: 0;';
             removeBtn.onclick = (e) => { e.stopPropagation(); this.removeMember(idx); };
             row.appendChild(removeBtn);
 
@@ -776,7 +776,7 @@ class DatabaseTroopEditor {
         browse.className = 'troop-bb-browse-btn';
         browse.dataset.layer = String(layer);
         browse.textContent = tt('Browse…');
-        browse.style.cssText = 'margin-top: 3px; width: 100%; background: var(--color-border-subtle); border: 1px solid var(--color-border-input); color: var(--color-text-strong); padding: 3px; border-radius: 3px; font-size: 11px; cursor: pointer;';
+        browse.style.cssText = 'margin-top: 3px; width: 100%; background: var(--color-bg-button-subtle); border: 1px solid var(--color-border-input); color: var(--color-text-strong); padding: 3px; border-radius: 3px; font-size: 11px; cursor: pointer;';
         browse.addEventListener('click', () => this.openBattlebackPicker(layer, select, onChange));
         row.appendChild(browse);
         return row;
@@ -1461,6 +1461,7 @@ class DatabaseTroopEditor {
                 font-family: monospace; font-size: 11px; cursor: pointer; user-select: none;
                 border-left: 3px solid ${this.getCommandColor(cmd.code)};
                 background: ${isSelected ? 'var(--color-bg-selected)' : 'var(--color-bg-list-item)'};
+                ${isSelected ? ECL.SELECTED_INK : ''}
                 transition: background-color 0.1s; margin-bottom: 1px;
             `;
 
@@ -1475,10 +1476,10 @@ class DatabaseTroopEditor {
                 const toggle = argRows > 0
                     ? `<span class="plugin-args-toggle" style="color: var(--color-text-muted); cursor: pointer; user-select: none; min-width: 14px; display: inline-block; text-align: center;">${this.expandedPluginCommands.has(idx) ? '▼' : '▶'}</span>`
                     : '<span style="min-width: 14px; display: inline-block;"></span>';
-                div.innerHTML = `<span style="color: var(--color-text-dim); min-width: 32px; display: inline-block;">${String(idx + 1).padStart(3, '0')}</span>` +
+                div.innerHTML = `<span style="color: var(--rr-command-ink, var(--color-text-dim)); min-width: 32px; display: inline-block;">${String(idx + 1).padStart(3, '0')}</span>` +
                     toggle +
-                    `<span style="color: ${info.color}; font-weight: 600; margin: 0 8px 0 4px;">${this.escapeHTML(info.name)}</span>` +
-                    `<span style="color: var(--color-text);">${this.escapeHTML(info.description)}</span>`;
+                    `<span style="color: var(--rr-command-ink, ${info.color}); font-weight: 600; margin: 0 8px 0 4px;">${this.escapeHTML(info.name)}</span>` +
+                    `<span style="color: var(--color-text);">${this.descriptionHTML(cmd, info.description, () => this.renderCommandList(container, page))}</span>`;
 
                 div.querySelector('.plugin-args-toggle')?.addEventListener('click', (e) => {
                     // Without this the row's own handler would also select the
@@ -2297,6 +2298,14 @@ class DatabaseTroopEditor {
         if (code >= 401 && code <= 413) return 'var(--color-syntax-comment)';
         if ((code >= 601 && code <= 604) || code === 655 || code === 657) return 'var(--color-syntax-comment)';
         return 'var(--color-text-muted)';
+    }
+
+    /** A row's description as HTML: Show Text and Comment lines in their \C[n] colors, as the map event list draws them. */
+    descriptionHTML(cmd, description, redraw) {
+        if (cmd.code !== 401 && cmd.code !== 408) return this.escapeHTML(description);
+        const formatter = this.commandDialogs();
+        formatter.onWindowskinLoaded = redraw;
+        return formatter.convertTextCodesToHTML(description);
     }
 
     getCommandDisplay(cmd, page, index) {

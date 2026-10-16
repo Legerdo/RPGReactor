@@ -270,6 +270,7 @@ class DatabaseCommonEventEditor {
                 font-family: monospace; font-size: 11px; cursor: pointer; user-select: none;
                 border-left: 3px solid ${this.getCommandColor(cmd.code)};
                 background: ${isSelected ? 'var(--color-bg-selected)' : 'var(--color-bg-list-item)'};
+                ${isSelected ? ECL.SELECTED_INK : ''}
                 transition: background-color 0.1s; margin-bottom: 1px;
             `;
 
@@ -284,10 +285,10 @@ class DatabaseCommonEventEditor {
                 const toggle = argRows > 0
                     ? `<span class="plugin-args-toggle" style="color: var(--color-text-muted); cursor: pointer; user-select: none; min-width: 14px; display: inline-block; text-align: center;">${this.expandedPluginCommands.has(idx) ? '▼' : '▶'}</span>`
                     : '<span style="min-width: 14px; display: inline-block;"></span>';
-                div.innerHTML = `<span style="color: var(--color-text-dim); min-width: 32px; display: inline-block;">${String(idx + 1).padStart(3, '0')}</span>` +
+                div.innerHTML = `<span style="color: var(--rr-command-ink, var(--color-text-dim)); min-width: 32px; display: inline-block;">${String(idx + 1).padStart(3, '0')}</span>` +
                     toggle +
-                    `<span style="color: ${info.color}; font-weight: 600; margin: 0 8px 0 4px;">${this.escapeHTML(tt(info.name))}</span>` +
-                    `<span style="color: var(--color-text);">${this.escapeHTML(info.description)}</span>`;
+                    `<span style="color: var(--rr-command-ink, ${info.color}); font-weight: 600; margin: 0 8px 0 4px;">${this.escapeHTML(tt(info.name))}</span>` +
+                    `<span style="color: var(--color-text);">${this.descriptionHTML(cmd, info.description, () => this.renderCommandList(container, this.currentEvent))}</span>`;
 
                 div.querySelector('.plugin-args-toggle')?.addEventListener('click', (e) => {
                     // Without this the row's own handler would also select the
@@ -1651,6 +1652,14 @@ class DatabaseCommonEventEditor {
 
     getCommandDisplay(cmd, page, index) {
         return this._getFormatter().getCommandInfo(cmd, page, index);
+    }
+
+    /** A row's description as HTML: Show Text and Comment lines in their \C[n] colors, as the map event list draws them. */
+    descriptionHTML(cmd, description, redraw) {
+        if (cmd.code !== 401 && cmd.code !== 408) return this.escapeHTML(description);
+        const formatter = this._getFormatter();
+        formatter.onWindowskinLoaded = redraw;
+        return formatter.convertTextCodesToHTML(description);
     }
 
     // ==========================================
