@@ -22262,3 +22262,22 @@ Object.assign(RR_TEXT_TRANSLATIONS["tr"], {"Select This Video":"Bu videoyu seç"
 Object.assign(RR_TEXT_TRANSLATIONS["id"], {"Select This Video":"Pilih video ini"});
 Object.assign(RR_TEXT_TRANSLATIONS["vi"], {"Select This Video":"Chọn video này"});
 Object.assign(RR_TEXT_TRANSLATIONS["th"], {"Select This Video":"เลือกวิดีโอนี้"});
+
+// System 1 › Options: diagonal movement.
+Object.assign(RR_TEXT_TRANSLATIONS["ja"], {"Diagonal movement":"斜め移動","Two arrow keys held together walk the player diagonally.":"2つの方向キーを同時に押すと、プレイヤーが斜めに歩きます。"});
+Object.assign(RR_TEXT_TRANSLATIONS["zh-Hant"], {"Diagonal movement":"斜向移動","Two arrow keys held together walk the player diagonally.":"同時按住兩個方向鍵，玩家會斜向行走。"});
+Object.assign(RR_TEXT_TRANSLATIONS["zh-Hans"], {"Diagonal movement":"斜向移动","Two arrow keys held together walk the player diagonally.":"同时按住两个方向键，玩家会斜向行走。"});
+Object.assign(RR_TEXT_TRANSLATIONS["ko"], {"Diagonal movement":"대각선 이동","Two arrow keys held together walk the player diagonally.":"방향키 두 개를 함께 누르면 플레이어가 대각선으로 걷습니다."});
+Object.assign(RR_TEXT_TRANSLATIONS["es"], {"Diagonal movement":"Movimiento diagonal","Two arrow keys held together walk the player diagonally.":"Al mantener dos flechas a la vez, el jugador camina en diagonal."});
+Object.assign(RR_TEXT_TRANSLATIONS["pt"], {"Diagonal movement":"Movimento diagonal","Two arrow keys held together walk the player diagonally.":"Segurar duas setas ao mesmo tempo faz o jogador andar na diagonal."});
+Object.assign(RR_TEXT_TRANSLATIONS["fr"], {"Diagonal movement":"Déplacement en diagonale","Two arrow keys held together walk the player diagonally.":"Deux flèches maintenues ensemble font marcher le joueur en diagonale."});
+Object.assign(RR_TEXT_TRANSLATIONS["it"], {"Diagonal movement":"Movimento in diagonale","Two arrow keys held together walk the player diagonally.":"Tenendo premute due frecce insieme, il giocatore cammina in diagonale."});
+Object.assign(RR_TEXT_TRANSLATIONS["de"], {"Diagonal movement":"Diagonale Bewegung","Two arrow keys held together walk the player diagonally.":"Zwei gleichzeitig gehaltene Pfeiltasten lassen die Spielfigur diagonal laufen."});
+Object.assign(RR_TEXT_TRANSLATIONS["ru"], {"Diagonal movement":"Движение по диагонали","Two arrow keys held together walk the player diagonally.":"Две одновременно зажатые стрелки ведут игрока по диагонали."});
+Object.assign(RR_TEXT_TRANSLATIONS["pl"], {"Diagonal movement":"Ruch po przekątnej","Two arrow keys held together walk the player diagonally.":"Dwie strzałki przytrzymane razem prowadzą gracza po przekątnej."});
+Object.assign(RR_TEXT_TRANSLATIONS["el"], {"Diagonal movement":"Διαγώνια κίνηση","Two arrow keys held together walk the player diagonally.":"Δύο βελάκια πατημένα μαζί κάνουν τον παίκτη να περπατά διαγώνια."});
+Object.assign(RR_TEXT_TRANSLATIONS["ar"], {"Diagonal movement":"الحركة القطرية","Two arrow keys held together walk the player diagonally.":"الضغط على مفتاحي اتجاه معًا يجعل اللاعب يمشي قطريًا."});
+Object.assign(RR_TEXT_TRANSLATIONS["tr"], {"Diagonal movement":"Çapraz hareket","Two arrow keys held together walk the player diagonally.":"İki yön tuşu birlikte basılı tutulunca oyuncu çapraz yürür."});
+Object.assign(RR_TEXT_TRANSLATIONS["id"], {"Diagonal movement":"Gerak diagonal","Two arrow keys held together walk the player diagonally.":"Menahan dua tombol panah bersamaan membuat pemain berjalan diagonal."});
+Object.assign(RR_TEXT_TRANSLATIONS["vi"], {"Diagonal movement":"Di chuyển chéo","Two arrow keys held together walk the player diagonally.":"Giữ cùng lúc hai phím mũi tên để người chơi đi chéo."});
+Object.assign(RR_TEXT_TRANSLATIONS["th"], {"Diagonal movement":"เดินแนวทแยง","Two arrow keys held together walk the player diagonally.":"กดปุ่มลูกศรสองปุ่มพร้อมกันเพื่อให้ผู้เล่นเดินแนวทแยง"});

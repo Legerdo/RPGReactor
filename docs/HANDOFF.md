@@ -6,7 +6,7 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 ## Where things stand (2026-10-16)
 
-- **0.99.1** in development at runtime **20261016.6**, synced to all 19 bundled projects. Committed locally; nothing pushed.
+- **0.99.1** in development at runtime **20261016.7**, synced to all 19 bundled projects. Committed locally; nothing pushed.
 - **User-path sweeps:** 1 to 13 done and committed. Owner questions: the three sweeps entries below.
 - **Editor windows:** the event editor and the Database each open in a frameless window of their own (`utils/DetachedWindow.js`), both at once, on any monitor; `PopoutBridge` serves several windows. The web editor floats them in the page.
 - **Event lists** draw tree rails beside branches, choices, loops and battle branches (map, troop and common event lists).

@@ -3184,11 +3184,26 @@ Game_Player.prototype.canMove = function() {
     return true;
 };
 
+// Database › System 1 › Options › Diagonal movement (System.json "reactorDiagonalMove": true): two arrow
+// keys held together walk diagonally. A project without the key walks in four directions, as it always did.
+Game_Player.prototype.isDiagonalMoveOn = function() {
+    return !!(typeof $dataSystem !== "undefined" && $dataSystem && $dataSystem.reactorDiagonalMove === true);
+};
+
 Game_Player.prototype.getInputDirection = function() {
-    return Input.dir4;
+    return this.isDiagonalMoveOn() ? Input.dir8 : Input.dir4;
 };
 
 Game_Player.prototype.executeMove = function(direction) {
+    if (direction === 1 || direction === 3 || direction === 7 || direction === 9) {
+        const horz = direction === 1 || direction === 7 ? 4 : 6;
+        const vert = direction <= 3 ? 2 : 8;
+        // Blocked on the diagonal: it slides along the wall, up or down first, then sideways.
+        this.moveDiagonally(horz, vert);
+        if (!this.isMovementSucceeded()) this.moveStraight(vert);
+        if (!this.isMovementSucceeded()) this.moveStraight(horz);
+        return;
+    }
     this.moveStraight(direction);
 };
 

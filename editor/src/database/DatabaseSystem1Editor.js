@@ -519,6 +519,10 @@ class DatabaseSystem1Editor {
                     <input type="checkbox" class="system-checkbox" ${system.reactorSpeakerFace === true ? 'checked' : ''} data-field="reactorSpeakerFace">
                     ${tt("Show the speaker's face in messages")}
                 </label>
+                <label style="display: flex; align-items: center; gap: 8px; color: var(--color-text); font-size: 12px; cursor: pointer;" title="${rrEscapeHtml(tt('Two arrow keys held together walk the player diagonally.'))}">
+                    <input type="checkbox" class="system-checkbox" ${system.reactorDiagonalMove === true ? 'checked' : ''} data-field="reactorDiagonalMove">
+                    ${tt('Diagonal movement')}
+                </label>
             </div>
         `;
         const optionsSection = this.keyedSection('options', tt('Options'), options);

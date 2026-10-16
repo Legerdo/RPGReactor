@@ -543,6 +543,8 @@ class ProjectManager {
             systemData.gameTitle = projectName;
             // A new project shows the speaker's face in messages, unless its template says otherwise.
             if (systemData.reactorSpeakerFace === undefined) systemData.reactorSpeakerFace = true;
+            // And walks diagonally with two arrow keys held.
+            if (systemData.reactorDiagonalMove === undefined) systemData.reactorDiagonalMove = true;
             this.writeJson(systemPath, systemData);
         }
     }
@@ -963,6 +965,8 @@ class ProjectManager {
             optTransparent: false,
             // A Show Text with no face picture shows its speaker's face (runtime/reactor_speaker_face.js).
             reactorSpeakerFace: true,
+            // Two arrow keys held together walk diagonally (Game_Player.getInputDirection).
+            reactorDiagonalMove: true,
             partyMembers: [],
             currencyUnit: 'G',
             elements: ['', 'Physical'],
