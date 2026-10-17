@@ -127,13 +127,13 @@
      * cheekbones; a woman's jaw and brow softer, a man's jaw and chin firmer.
      */
     const APPEAL = {
-        female: { headWidth: -0.25, headFat: -0.3, cheeks: -0.25, cheekBones: 0.45, jaw: -0.4, chin: 0.1, chinWidth: -0.3, eyeSize: 0.35, eyeOpen: -0.15, eyeSlant: 0.2, eyeBags: -0.5, eyeSpacing: -0.1, headOval: 0.55,
-            browRidge: -0.4, browHeight: -0.1, noseWidth: -0.45, noseVolume: -0.3, noseLength: -0.2, noseTip: 0.2, nostrils: -0.2, upperLip: 0.35, lowerLip: 0.12, mouthWidth: -0.1, mouthCorners: 0.3, neck: -0.3 },
+        female: { headWidth: -0.25, headFat: -0.3, cheeks: -0.25, cheekBones: 0.45, jaw: -0.4, chin: 0.25, chinWidth: -0.3, mouthHeight: 0.12, eyeSize: 0.35, eyeOpen: -0.15, eyeSlant: 0.2, eyeBags: -0.5, eyeSpacing: -0.1, headOval: 0.55,
+            browRidge: -0.4, browHeight: -0.1, noseWidth: -0.45, noseVolume: -0.3, noseLength: -0.2, noseTip: 0.2, nostrils: -0.2, upperLip: 0.35, lowerLip: -0.2, mouthWidth: -0.1, mouthCorners: 0.3, neck: -0.3 },
         male: { headWidth: -0.15, headFat: -0.3, cheeks: -0.3, cheekBones: 0.4, jaw: 0.4, chin: 0.3, chinWidth: 0.15, eyeOpen: -0.2, eyeBags: -0.5, headSquare: 0.35, headOval: 0.2, noseWidth: -0.15, noseHump: -0.1,
-            upperLip: 0.1, lowerLip: 0, mouthCorners: 0.15, browHeight: -0.15, neck: 0.15 }
+            upperLip: 0.1, lowerLip: -0.15, mouthCorners: 0.15, browHeight: -0.15, neck: 0.15 }
     };
-    /** With them, a defined upper lip: its own target (appeal/…), per gender. */
-    const APPEAL_MOUTH = { female: { cupidsBow: 0.6 }, male: { cupidsBow: 0.3 } };
+    /** With them, a defined upper lip and the mouth drawn back a little: their own targets (appeal/…), per gender. */
+    const APPEAL_MOUTH = { female: { cupidsBow: 0.6, mouthBack: 0.35 }, male: { cupidsBow: 0.3, mouthBack: 0.3 } };
 
     const MUSCLE_BULK = { upperArmMuscle: 0.7, shoulderMuscle: 0.7, forearmMuscle: 0.6, thighMuscle: 0.55, calfMuscle: 0.5, pecs: 0.6, lats: 0.55, vshape: 0.3, neck: 0.45 };
     /** And a heavy one its fat: past the heaviest natural build, the belly, chin and limbs keep filling. */
@@ -443,12 +443,15 @@
         // The eyes stay open on any body: round each eye (lids, sockets, the cheek under it) nothing swells.
         const B = pack.positions, eyeIds = [...new Set(pack.eyes.refs)];
         const eyeC = [1, -1].map(sd => { const own = eyeIds.filter(v => Math.sign(B[v * 3]) === sd); return [0, 1, 2].map(k => own.reduce((a, v) => a + B[v * 3 + k], 0) / own.length); });
+        // Nor the nose or the ears, and the lips ride out on it hardly thickened: fat gathers under the chin and in the cheeks.
+        const nose = maskOf(pack, ['shape/noseVolume-incr', 'shape/noseWidth-incr'], 3), ears = maskOf(pack, ['shape/earSize-incr'], 2);
+        const lips = maskOf(pack, ['shape/upperLip-incr', 'shape/lowerLip-incr'], 2);
         for (let v = 0; v < pack.vertexCount; v++) {
             let lw = 0;
             for (let k = 0; k < 4; k++) if (light.includes(pack.skinJoints[v * 4 + k])) lw += pack.skinWeights[v * 4 + k] * (pack.skinJoints[v * 4 + k] === head ? 0.6 : 0.85);
             let eye = 1;
             for (const c of eyeC) { const d = Math.hypot(B[v * 3] - c[0], B[v * 3 + 1] - c[1], B[v * 3 + 2] - c[2]); eye = Math.min(eye, Math.max(0, Math.min(1, (d - 0.022) / 0.03))); }
-            mask[v] = Math.max(0.12, mask[v]) * (1 - lw) * eye * eye;
+            mask[v] = Math.max(0.12, mask[v]) * (1 - lw) * eye * eye * (1 - 0.85 * nose[v]) * (1 - 0.3 * lips[v]) * (1 - 0.9 * ears[v]);
         }
         return (pack._fatMask = mask);
     }

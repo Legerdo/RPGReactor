@@ -451,7 +451,17 @@
         }
     }
 
-    const api = { GARMENTS, BY_ID, SLOTS, PRESETS, PATTERNS, NECKLINE_CHOICES, MATERIAL, normalizeItem, normalizeOutfit, build };
+    /**
+     * A preset's garments for a body: a woman dressed in a set that leaves the
+     * chest bare (a barbarian's, a gladiator's) gets a cropped leather top.
+     */
+    const CHEST = new Set(['top', 'dress', 'armor', 'under']);
+    function dressFor(items, female) {
+        if (!female || items.some(i => CHEST.has((BY_ID.get(i.id) || {}).slot))) return items;
+        return items.concat([{ id: 'tanktop', color: '#5a3d22', material: 'leather', length: 0.32 }]);
+    }
+
+    const api = { GARMENTS, BY_ID, SLOTS, PRESETS, PATTERNS, NECKLINE_CHOICES, MATERIAL, normalizeItem, normalizeOutfit, dressFor, build };
     root.RRCharacterWardrobe = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

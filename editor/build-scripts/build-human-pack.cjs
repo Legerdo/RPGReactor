@@ -121,8 +121,9 @@ for (const g of GENDERS) for (const a of AGES) for (const h of ['min', 'max']) {
 for (const g of GENDERS) for (const a of AGES) {
     addTarget(`proportion/${g}-${a}-ideal`, [`macrodetails/proportions/${g}-${a}-averagemuscle-averageweight-idealproportions.target`]);
 }
-// The Proportions macro's defined upper lip.
+// The Proportions macro's defined upper lip, and the mouth drawn back a little under the nose.
 addTarget('appeal/cupidsBow', ['mouth/mouth-cupidsbow-incr.target']);
+addTarget('appeal/mouthBack', ['mouth/mouth-trans-backward.target']);
 // Breasts: size by firmness, each pair but the average one an offset of its own.
 for (const a of AGES) for (const c of LEVELS) for (const f of LEVELS) {
     if (c === 'average' && f === 'average') continue;

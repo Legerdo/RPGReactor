@@ -363,7 +363,7 @@
         // Two colors for the whole outfit, on its cloth and leather only: metal and the preset's own accents stay.
         const palettes = [['#2f4468', '#d8d0c0'], ['#7a3b3b', '#2b2e36'], ['#3e5a32', '#5a3d22'], ['#2b2e36', '#8a6a44'], ['#6a2a6a', '#c8a040'], ['#1f1f24', '#8a1a2a'], ['#3a6a8a', '#e8e4dc'], ['#5a3d22', '#d8c8a0']];
         const [main, second] = pick(palettes);
-        r.outfit = preset.items.map((item, k) => {
+        r.outfit = Wardrobe.dressFor(preset.items, Body.sexOf(body) === 'female').map((item, k) => {
             const def = Wardrobe.BY_ID.get(item.id);
             const material = item.material || (def && def.defaults.material);
             if (rand() < 0.35 || material === 'metal' || material === 'gold') return Object.assign({}, item);

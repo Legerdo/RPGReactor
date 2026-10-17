@@ -424,7 +424,7 @@ class Character3DBuilder {
         if (act === 'clear') { this._set(b.dataset.path, ''); this._commit(); this._renderPanel(); this._queueRebuild(); return; }
         if (act === 'dress') {
             const preset = RRCharacterWardrobe.PRESETS.find(p => p.id === b.dataset.id);
-            if (preset) { r.outfit = JSON.parse(JSON.stringify(preset.items)); this._replace(r); }
+            if (preset) { r.outfit = JSON.parse(JSON.stringify(RRCharacterWardrobe.dressFor(preset.items, RRHumanBody.sexOf(r) === 'female'))); this._replace(r); }
             return;
         }
         if (act === 'remove-garment') { r.outfit = r.outfit.filter(i => i.id !== b.dataset.id); this._replace(r); return; }
@@ -844,7 +844,7 @@ class Character3DBuilder {
         if (item.kind === 'species') return { result: RRCharacterModel.build(pack, RRCharacterModel.withSpecies(r, item.id), this._thumbCache.species || (this._thumbCache.species = {}), preview), frame: 'body' };
         if (item.kind === 'dress') {
             const preset = RRCharacterWardrobe.PRESETS.find(p => p.id === item.id);
-            return { result: RRCharacterModel.build(pack, Object.assign({}, r, { outfit: preset.items }), this._thumbCache.dress || (this._thumbCache.dress = {}), preview), frame: 'body' };
+            return { result: RRCharacterModel.build(pack, Object.assign({}, r, { outfit: RRCharacterWardrobe.dressFor(preset.items, RRHumanBody.sexOf(r) === 'female') }), this._thumbCache.dress || (this._thumbCache.dress = {}), preview), frame: 'body' };
         }
         // The rest show one thing on the character as it stands, without its outfit or other accessories.
         const base = Object.assign({}, r, { outfit: [], props: [] });
@@ -1927,6 +1927,6 @@ Character3DBuilder.bodyPath = function(path) {
 };
 
 /** Bumped when the previews' look changes, so pictures kept on disk are drawn again. */
-Character3DBuilder.PREVIEW_VERSION = 5;
+Character3DBuilder.PREVIEW_VERSION = 6;
 
 if (typeof window !== 'undefined') window.Character3DBuilder = Character3DBuilder;
