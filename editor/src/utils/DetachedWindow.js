@@ -18,6 +18,8 @@
  *   win.ownsKeys()         open, and the last click or focus landed in it
  *   win.clamp(rect, view)  a rectangle kept wholly on screen
  *   win.isPoppedOut()      it lives in a window of its own now
+ *   win.seeThrough()       its window shows the desktop at its rounded corners (not on Linux:
+ *                          there the panel is square, html.rr-window-square)
  *   win.hidePopout()       it closed: its window hides and keeps its place
  *
  * config: overlayId, panelSelector, headerSelector, titleSelector, title (fallback), page (the
@@ -145,6 +147,16 @@
             return !!popped;
         }
 
+        /**
+         * Whether a window of its own shows what is behind it through its clear pixels. On Linux
+         * NW.js paints them black (X11 and Wayland alike), so there the panel fills its window
+         * square to the corners.
+         */
+        function seeThrough() {
+            const host = typeof process !== 'undefined' ? process : root.process;
+            return !(host && host.platform === 'linux');
+        }
+
         /** The work areas of the connected screens, as rectangles. */
         function screens() {
             try {
@@ -246,8 +258,10 @@
                     const doc = win.window.document;
                     root.RRPopoutBridge.dressLike(doc);
                     doc.title = title;
-                    // Transparent around the panel, so its rounded corners show the desktop behind them.
+                    // Transparent around the panel, so its rounded corners show the desktop behind them;
+                    // square where the window cannot be seen through.
                     doc.documentElement.style.cssText = 'background:transparent !important;';
+                    if (!seeThrough()) doc.documentElement.classList.add('rr-window-square');
                     doc.body.style.cssText = 'margin:0;height:100vh;overflow:hidden;background:transparent !important;';
                     state.child = win.window;
                     root.RRPopoutBridge.attach(win.window);
@@ -404,7 +418,7 @@
             if (popped && popped.decide) popped.decide();
         }
 
-        const api = { install, open, place, isOpen, ownsKeys, owns, focused, decideInFront, clamp, defaultRect, windowRect, popOut, dock, isPoppedOut, popoutWindow, hidePopout, showPopout, separateWindows,
+        const api = { install, open, place, isOpen, ownsKeys, owns, focused, decideInFront, clamp, defaultRect, windowRect, popOut, dock, isPoppedOut, popoutWindow, hidePopout, showPopout, separateWindows, seeThrough,
             MIN_WIDTH, MIN_HEIGHT, STORAGE_KEY, POPOUT_KEY };
         windows.push(api);
         return api;

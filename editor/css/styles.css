@@ -7177,6 +7177,7 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
     border-radius: var(--radius-lg);
     overflow: hidden;
     box-sizing: border-box;
+    box-shadow: none;
 }
 /* A window with no frame: its own header moves it, as a title bar would; its controls stay clickable. */
 #event-editor-modal.rr-event-editor-popped > .rr-modal > .rr-modal-header {
@@ -7247,6 +7248,14 @@ html.rr-web #database-viewer.rr-database-floating {
 }
 #database-viewer.rr-database-popped > .database-window > .database-header :is(button, input, select, a) {
     -webkit-app-region: no-drag;
+}
+/* A window that cannot be seen through (Linux, DetachedWindow.seeThrough): the panel is square,
+   filling its window to the corners. */
+html.rr-window-square #event-editor-modal.rr-event-editor-popped > .rr-modal,
+html.rr-window-square #event-editor-modal.rr-event-editor-popped > .rr-modal > *,
+html.rr-window-square #database-viewer.rr-database-popped > .database-window,
+html.rr-window-square #database-viewer.rr-database-popped > .database-window > * {
+    border-radius: 0;
 }
 
 /* Forge › 3D Character Builder */

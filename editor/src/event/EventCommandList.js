@@ -588,10 +588,16 @@ class EventCommandList {
         });
     }
 
-    /** Whether something lies over the Event Editor: what is under the middle of the window is not part of it. */
+    /**
+     * Whether something lies over the Event Editor: what is under the middle of the window it is in
+     * (the editor window, or its own window) is not part of it.
+     */
     static coveredByDialog(editorModal) {
-        if (!editorModal || typeof document.elementFromPoint !== 'function' || !(window.innerWidth > 0)) return false;
-        const top = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+        if (!editorModal) return false;
+        const doc = editorModal.ownerDocument || document;
+        const view = doc.defaultView || window;
+        if (typeof doc.elementFromPoint !== 'function' || !(view.innerWidth > 0)) return false;
+        const top = doc.elementFromPoint(view.innerWidth / 2, view.innerHeight / 2);
         return !!top && !editorModal.contains(top);
     }
 
