@@ -212,6 +212,7 @@ class Character3DBuilder {
     }
 
     _renderPanel() {
+        this._shownSex = RRHumanBody.sexOf(this.recipe);
         if (!this.root) return;
         const tabs = this._tabs();
         if (!tabs.some(t => t[0] === this.tab)) this.tab = 'species';
@@ -382,6 +383,9 @@ class Character3DBuilder {
         }
         if (el.type === 'range') this._syncSliders();
         if (committed) this._commit();
+        // Gender carried across the middle: the sex the body shows changes, and the controls for it (genitals,
+        // a woman's own hair patterns) with it.
+        if (committed && path === 'gender' && RRHumanBody.sexOf(this.recipe) !== this._shownSex) this._renderPanel();
         // A body slider moving: the fast path while the drag lasts, the whole character when it ends.
         if (el.type === 'range' && Character3DBuilder.bodyPath(path) && this.human) {
             if (!committed && this._fastShape()) { clearTimeout(this._settle); this._settle = setTimeout(() => this._queueRebuild(), 220); return; }
@@ -1474,7 +1478,9 @@ class Character3DBuilder {
             // Pores and fine lines, tiled small over the skin: the light breaks up on it as on real skin.
             if (m.map) { m.normalMap = Character3DBuilder.skinDetail(); m.normalScale = new THREE.Vector2(0.3, 0.3); }
         }
-        else if (kind === 'cloth') { m.sheen = 0.6; m.sheenRoughness = 0.8; m.sheenColor = new THREE.Color('#ffffff'); m.roughness = Math.max(m.roughness, 0.75); m.specularIntensity = 0.25; }
+        // Cloth: a soft sheen in the cloth's own color at grazing angles (from its picture), so it reads as fabric
+        // without a white film washing its color out.
+        else if (kind === 'cloth') { m.sheen = 0.3; m.sheenRoughness = 0.85; m.sheenColor = new THREE.Color(0.8, 0.8, 0.8); if (m.map) m.sheenColorMap = m.map; m.roughness = Math.max(m.roughness, 0.8); m.specularIntensity = 0.12; }
         else if (kind === 'metal') { m.metalness = Math.max(0.85, m.metalness); m.roughness = Math.min(0.4, m.roughness); m.clearcoat = 0.3; }
         // Hair: matte, its soft highlight in its own color; no sheen and no anisotropic band, which both
         // read as grey panels over dark hair.
@@ -1485,6 +1491,8 @@ class Character3DBuilder {
         }
         else if (kind === 'eye') { m.roughness = 0.08; m.clearcoat = 1; m.clearcoatRoughness = 0.03; }
         else if (kind === 'glass') { m.roughness = 0.02; m.metalness = 0; m.clearcoat = 1; m.envMapIntensity = 2; }
+        // A part may hold how much of the room it reflects (a grey's black lenses, the floor kept out of them).
+        if (part.envMapIntensity != null) m.envMapIntensity = part.envMapIntensity;
         return m;
     }
 

@@ -128,12 +128,12 @@
      */
     const APPEAL = {
         female: { headWidth: -0.25, headFat: -0.3, cheeks: -0.25, cheekBones: 0.45, jaw: -0.4, chin: 0.25, chinWidth: -0.3, mouthHeight: 0.12, eyeSize: 0.35, eyeOpen: -0.15, eyeSlant: 0.2, eyeBags: -0.5, eyeSpacing: -0.1, headOval: 0.55,
-            browRidge: -0.4, browHeight: -0.1, noseWidth: -0.45, noseVolume: -0.3, noseLength: -0.2, noseTip: 0.2, nostrils: -0.2, upperLip: 0.35, lowerLip: -0.2, mouthWidth: -0.1, mouthCorners: 0.3, neck: -0.3 },
+            browRidge: -0.7, browHeight: -0.1, underbite: -0.25, noseWidth: -0.45, noseVolume: -0.3, noseLength: -0.2, noseTip: 0.2, nostrils: -0.2, upperLip: 0.35, lowerLip: -0.2, mouthWidth: -0.1, mouthCorners: 0.3, neck: -0.3 },
         male: { headWidth: -0.15, headFat: -0.3, cheeks: -0.3, cheekBones: 0.4, jaw: 0.4, chin: 0.3, chinWidth: 0.15, eyeOpen: -0.2, eyeBags: -0.5, headSquare: 0.35, headOval: 0.2, noseWidth: -0.15, noseHump: -0.1,
-            upperLip: 0.1, lowerLip: -0.15, mouthCorners: 0.15, browHeight: -0.15, neck: 0.15 }
+            upperLip: 0.1, lowerLip: -0.15, mouthCorners: 0.15, browHeight: -0.15, browRidge: -0.35, temples: -0.3, underbite: -0.2, neck: 0.15 }
     };
-    /** With them, a defined upper lip and the mouth drawn back a little: their own targets (appeal/…), per gender. */
-    const APPEAL_MOUTH = { female: { cupidsBow: 0.6, mouthBack: 0.35 }, male: { cupidsBow: 0.3, mouthBack: 0.3 } };
+    /** With them, by their own targets (appeal/…): a defined upper lip, the mouth drawn back, an upright forehead, a younger skull. */
+    const APPEAL_MOUTH = { female: { cupidsBow: 0.6, mouthBack: 0.35, foreheadForward: 0.5, younger: 0.35 }, male: { cupidsBow: 0.3, mouthBack: 0.3, foreheadForward: 0.45, younger: 0.25 } };
 
     const MUSCLE_BULK = { upperArmMuscle: 0.7, shoulderMuscle: 0.7, forearmMuscle: 0.6, thighMuscle: 0.55, calfMuscle: 0.5, pecs: 0.6, lats: 0.55, vshape: 0.3, neck: 0.45 };
     /** And a heavy one its fat: past the heaviest natural build, the belly, chin and limbs keep filling. */
@@ -830,15 +830,17 @@
                 for (let v = 0; v < F.ear.length; v++) if (F.ear[v] > 0.6 && Math.sign(P[v * 3]) === side) { c[0] += P[v * 3]; c[1] += P[v * 3 + 1]; c[2] += P[v * 3 + 2]; n++; }
                 if (!n) continue;
                 c = c.map(x => x / n);
-                // In toward the skull too: the side of the head under the ear.
-                c[0] -= side * 0.012;
+                // In toward the skull too: the side of the head under the ear, deeper the more it is put away.
+                c[0] -= side * (0.012 + 0.01 * Math.max(0, m.earsAway - 0.6) / 0.4);
                 for (let v = 0; v < F.ear.length; v++) {
                     const e = F.ear[v] * m.earsAway;
                     if (!e || Math.sign(P[v * 3]) !== side) continue;
                     // Laid flat on the skull's side at about its own size: nothing stretches, nothing pinches.
                     P[v * 3] += (c[0] - P[v * 3]) * e;
-                    P[v * 3 + 1] += (c[1] - P[v * 3 + 1]) * e * 0.45;
-                    P[v * 3 + 2] += (c[2] - P[v * 3 + 2]) * e * 0.45;
+                    // Put all the way away, it gathers to its middle too, so no nub stands out of the head.
+                    const gather = 0.45 + 0.45 * Math.max(0, m.earsAway - 0.6) / 0.4;
+                    P[v * 3 + 1] += (c[1] - P[v * 3 + 1]) * e * gather;
+                    P[v * 3 + 2] += (c[2] - P[v * 3 + 2]) * e * gather;
                 }
                 // With the ear gone, an ear hole: a pit in the side of the head, as wide as asked.
                 if (m.earsAway > 0.6 && m.earHoles > 0) {
@@ -854,7 +856,7 @@
             // The fold relaxed over the side of the head, so the skin closes over the ear smoothly.
             const field = new Float32Array(P.length);
             for (let i = 0; i < P.length; i++) field[i] = P[i] - before[i];
-            const eased = relax(pack, field, 10);
+            const eased = relax(pack, field, 20);
             for (let v = 0; v < F.ear.length; v++) {
                 if (!F.ear[v] && !F.w[v]) continue;
                 for (let k = 0; k < 3; k++) P[v * 3 + k] = before[v * 3 + k] + eased[v * 3 + k];

@@ -1227,7 +1227,7 @@
             const mx = x / lipW, my = (p[1] - mouthY) / (lipH * 1.25);
             const mouthOut = (Math.hypot(mx, my) - 1) * 6;
             let f = Math.min(above, below, mouthOut);
-            const mustacheBand = Math.min((noseBase - p[1]) / H.radii[1] * 60, (p[1] - (H.lipTop - lipH * 0.2)) / H.radii[1] * 60, (lipW * 1.15 - x) / rx * 60);
+            const mustacheBand = Math.min((noseBase - p[1]) / H.radii[1] * 60, (p[1] - (H.lipTop + lipH * 0.05)) / H.radii[1] * 60, (lipW * 1.15 - x) / rx * 60);
             const chinZone = (lipW * 1.4 - x) / rx * 60;
             switch (style) {
                 case 'goatee': f = Math.max(Math.min(f, chinZone, (mouthY + lipH - p[1]) / H.radii[1] * 60), mustacheBand); break;

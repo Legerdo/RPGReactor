@@ -124,6 +124,9 @@ for (const g of GENDERS) for (const a of AGES) {
 // The Proportions macro's defined upper lip, and the mouth drawn back a little under the nose.
 addTarget('appeal/cupidsBow', ['mouth/mouth-cupidsbow-incr.target']);
 addTarget('appeal/mouthBack', ['mouth/mouth-trans-backward.target']);
+// A modern, upright forehead over the brows, and a little of the younger skull's shape.
+addTarget('appeal/foreheadForward', ['forehead/forehead-trans-forward.target']);
+addTarget('appeal/younger', ['head/head-age-decr.target']);
 // Breasts: size by firmness, each pair but the average one an offset of its own.
 for (const a of AGES) for (const c of LEVELS) for (const f of LEVELS) {
     if (c === 'average' && f === 'average') continue;

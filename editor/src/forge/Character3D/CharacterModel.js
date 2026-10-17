@@ -196,7 +196,7 @@
         for (const p of outfit.parts) p.kind = p.metalness > 0.5 ? 'metal' : 'cloth';
         for (const p of hair) p.kind = 'hair';
         for (const p of props.parts) p.kind = p.opacity != null && p.opacity < 1 ? 'glass' : p.metalness > 0.5 ? 'metal' : 'prop';
-        for (const p of features.parts) p.kind = 'feature';
+        for (const p of features.parts) p.kind = p.kind || 'feature';
         parts.push(...outfit.parts, ...hair, ...props.parts, ...features.parts);
         const bones = built.bones.concat(features.bones.map(b => ({ name: b.name, parent: b.parent, head: b.head, tail: b.tail })));
         // The floor: shoes and boots stand on it.

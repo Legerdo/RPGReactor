@@ -425,7 +425,7 @@
             if (cover > 0) rgb = mix(rgb, s.scalp.rgb, cover * 0.95);
         }
         // With the ears folded away, the ear's own skin is the inside of the ear hole: dark.
-        if (s.earHoles && p.ears > 0.45) rgb = mix(rgb, rgb.map(c => c * 0.12), smooth(0.45, 0.85, p.ears));
+        if (s.earHoles && p.ears > 0.7) rgb = mix(rgb, rgb.map(c => c * 0.12), smooth(0.7, 0.95, p.ears));
         // Blush, lips and eye shadow on the face.
         if (s.blush) rgb = mix(rgb, mix(rgb, Outfit.linear('#c0484a'), 0.6), p.cheeks * s.blush * 0.6);
         if (p.lips > 0.25) {
