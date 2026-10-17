@@ -6,14 +6,23 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 ## Where things stand (2026-10-16)
 
-- **Start here (2026-10-17):** the owner has not reviewed the 3D Character Builder yet. First, a five-minute look: Forge › 3D Character Builder, move sliders, Randomize, Save to Project, then open the saved model in Database › 3D Models (Rig, Idle). Take the owner's notes on the look and the slider set, then build clothing and hair (plan in the 2026-10-16 builder entry). Nothing is pushed; last commit `8431c3ce`.
+- **Start here (2026-10-18):** the owner asked (2026-10-17) for a far more comprehensive 3D Character Builder; it is in (entry below), not yet seen by the owner. First a look: Forge › 3D Character Builder, species tiles, Outfit › Dress as, Extreme proportions, Randomize, Save, Open…; take notes. Nothing is pushed.
 - **0.99.1** in development at runtime **20261016.8**, synced to all 19 bundled projects. Committed locally; nothing pushed.
 - **User-path sweeps:** 1 to 13 done and committed. Owner questions: the three sweeps entries below.
 - **Editor windows:** the event editor and the Database each open in a frameless window of their own (`utils/DetachedWindow.js`), both at once, on any monitor; `PopoutBridge` serves several windows. The web editor floats them in the page.
 - **Event lists** draw tree rails beside branches, choices, loops and battle branches (map, troop and common event lists).
 - **Savior & Religion** (`template/Savior & Religion`, not in git; a deployed, encrypted MV game the owner is trying as a template): boots, plays its opening and draws its ULDS maps (2, 5, 19); its index.html is in MV mode now.
 - **Contrast pass:** done in light and dark (committed); the owner keeps the current look.
-- **3D Character Builder** (Forge): first pass in; body, face, ancestry and skin sliders, Randomize, save as a rigged GLB with an Idle clip. Next: clothing and hair (entry below).
+- **3D Character Builder** (Forge): species, extremes, garments, hair, accessories, painted skins, four-legged creatures, a seven-tab page (entry below).
+
+## 2026-10-17 — 3D Character Builder, comprehensive pass
+
+- **Asked for** (owner, after trying the first pass): extreme proportions (Jabba-fat, huge busts), muscle that bulks instead of thinning, limb and butt bulk, outfits from tunic to power armor, accessories (sunglasses, monocle), many hair styles and colors, species (reptilian, avian, cats, dogs, deer), a working Open saved, "use the logic of the existing content to extend upon it", easy for beginners.
+- **Built:** everything in the editor changelog's builder entry. Checked: Node (`character-3d-builder`, `-model`, `-hair`, `-creatures`), the software renders in the session scratchpad (`r/`), and the editor by real clicks and drags on a Barebones copy (`c3d/ui.cjs` in the session scratchpad, headless display): tabs, species, presets, Extreme drags, undo, a style through the themed dropdown, accessories, Randomize, Save, Open…, a horse; both GLBs read back through `Reactor3D.readModelAsync`, skinned, with Idle; no console errors.
+- **Not checked:** a saved character walked in the game (only read back by the game's reader); Windows; the web editor; a light theme.
+- **To know:** a garment's cut, the outfit picture and the painted skin are cached per setting (`cache.wardrobe`, `cache.skin`); pack-level caches live on the pack (`_anatomy`, `_cuts`, `_bindings`). Chain positions for cut lines are in `CharacterWardrobe.js`'s header. Hair and the creature generator were built by two agents in this session; their reports' limits: the afro reads mushroom-like, the chin strap is heavy; creatures have no UVs (vertex colors only).
+- **Questions for the owner:** keep hair hidden under hoods and helmets (now) or let long hair fall below them; do animal ears poke through helmets (now) or hide; GLB sizes run 2.5 to 3 MB for a dressed human (three 1024 pictures, 40 to 60k triangles): add an Optimize step at save?
+- **Next candidates:** crowds (Randomize × N into a folder), binding a saved character to an actor, hair cards with alpha, cloth and tail physics in the runtime, birds and serpents as body plans, ARKit face units from MakeHuman's CC0 extra-targets repo for expressions and lip sync.
 
 ## 2026-10-16 — Forge › 3D Character Builder, first pass
 

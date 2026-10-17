@@ -7,7 +7,7 @@
 One bullet per area, holding its latest check. A bullet is replaced when its area is checked again.
 
 - **Release:** 0.99.0, cut with `cut-release.cjs`; the tag publishes the source release on GitHub, and signed binaries and the itch channels follow from the Actions tab (Release Candidate → Release). Public editor releases use NW.js **0.107.0** exactly ([release checklist](RELEASE-CHECKLIST.md)). Manual gates not recorded as passed: native Windows and macOS signed-package launches, and a complete game playthrough.
-- **Runtime:** revision **20261016.5**, stated twice in `runtime/reactor_main.js` (the header comment drives the project updater, the global identifies a running game). All 19 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
+- **Runtime:** revision **20261016.8**, stated twice in `runtime/reactor_main.js` (the header comment drives the project updater, the global identifies a running game). All 19 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
 - **Node suite:** 7,217 tests, 9 skipped, none failed (2026-10-15, runtime 20261015.3, Linux, `cd editor && node --test --test-concurrency=2`).
 - **CI** (`.github/workflows/ci.yml`): syntax, the Node suite, dependency audit, patch hygiene, a clean-tree check, and a GUI job (the Web persistence smoke and five NW.js smokes under xvfb with `--enable-unsafe-swiftshader`). The Web persistence smoke is intermittent on GitHub and passes locally; a failure posts the page state and console as a public annotation. Runner images move to Ubuntu 26 on 2026-10-19: watch the GUI smokes.
 - **Web build:** `release-editor.cjs --target web --pack-web true` keeps the release Demo at 53 files and 457 MB extracted (itch: 1,000 files, 500 MB). Packing checked in Chromium only, and not yet uploaded to the storefront.
@@ -40,6 +40,7 @@ Each system has a guide; the guide is the authority on its behaviour and limits.
 | Maps that lead into each other across their borders | [AUTHORING.md](AUTHORING.md#neighboring-maps) | map sidecar `surround.neighbors` |
 | Equipment slots of a class | [AUTHORING.md](AUTHORING.md#class-equipment-slots) | `data/Classes.json` › `rrEquipSlots` |
 | Performance method and measurements | [PERFORMANCE.md](PERFORMANCE.md) | `editor/tests/perf/` |
+| 3D Character Builder: humans, species, outfits, hair, accessories, four-legged creatures | [CHARACTER-BUILDER.md](CHARACTER-BUILDER.md) | `3d/Characters/<name>/` (GLB, `character.json` recipe, thumbnail); `editor/src/forge/Character3D/` |
 
 ## Runtime defaults that supersede older notes
 
@@ -64,7 +65,7 @@ Each system has a guide; the guide is the authority on its behaviour and limits.
 
 The one list of open threads. Remove an item when it is done; record the doing in the changelog.
 
-- **3D Character Builder** (Forge, first pass 2026-10-16): owner review, then clothing and hair, eye colors, crowds, actor binding, species. [HANDOFF](HANDOFF.md).
+- **3D Character Builder** (Forge, 2026-10-17: species, extremes, garments, hair, accessories, creatures): owner review; then crowds, actor binding, more body plans, the afro and long-hair look, hair and cloth that move. [HANDOFF](HANDOFF.md).
 - **Waiting on the owner:**
   - Questions from the 2026-10-15 user-path sweeps: [HANDOFF › User-path sweeps](HANDOFF.md).
   - The Demo's motorcycles are still vehicle events (five on North Haven; Open Road: Forest event 1 in the older `yaw`/`key` form): move them to Starting Positions (close the editor on the Demo first), and decide whether Forest Road keeps a second motorcycle.

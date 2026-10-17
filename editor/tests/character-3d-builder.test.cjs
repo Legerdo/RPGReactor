@@ -23,10 +23,11 @@ test('a recipe is completed and kept in range; ancestry is a mix', () => {
     const r = Body.normalizeRecipe({ gender: 4, age: 3, weight: -1, ancestry: { african: 2, asian: 0, caucasian: 2 }, shapes: { noseWidth: 9 }, skin: 'red' });
     assert.equal(r.gender, 1);
     assert.equal(r.age, Body.MIN_AGE);
-    assert.equal(r.weight, 0);
+    // Past the natural ranges as far as Extreme reaches, and no further.
+    assert.equal(r.weight, Body.MACRO_RANGES.weight.extreme[0]);
     assert.equal(r.ancestry.african, 0.5);
     assert.equal(r.ancestry.caucasian, 0.5);
-    assert.equal(r.shapes.noseWidth, 1);
+    assert.equal(r.shapes.noseWidth, Body.SLIDER_BY_KEY.get('noseWidth').extreme);
     assert.equal(r.shapes.belly, 0);
     assert.equal(r.skin, Body.DEFAULT_RECIPE.skin);
 });

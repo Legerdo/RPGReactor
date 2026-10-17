@@ -17,8 +17,23 @@
     const LEVELS = ['min', 'average', 'max'];
     const ANCESTRY = ['african', 'asian', 'caucasian'];
 
-    /** Paired face and body sliders, -1..1, each blending a decrease and an increase target. */
-    const SHAPES = ['headFat', 'headWidth', 'headHeight', 'noseWidth', 'noseLength', 'noseHump', 'earSize', 'neck', 'shoulders', 'belly', 'hips'];
+    const Targets = root.RRHumanTargets || (typeof require === 'function' ? require('./HumanTargets.js') : null);
+    /** Shape sliders from the shared catalog: paired ones -1..1, one-sided 0..1, either carried on to its `extreme`. */
+    const SLIDERS = Targets.SLIDERS;
+    const SHAPES = SLIDERS.map(s => s.key);
+    const SLIDER_BY_KEY = new Map(SLIDERS.map(s => [s.key, s]));
+
+    /**
+     * The build sliders' ranges: natural, and how far Extreme carries them.
+     * Past the natural range a target blend is extrapolated.
+     */
+    const MACRO_RANGES = {
+        weight: { natural: [0, 1], extreme: [-0.4, 3] },
+        muscle: { natural: [0, 1], extreme: [-0.3, 2.5] },
+        height: { natural: [0, 1], extreme: [-0.6, 1.8] },
+        cup: { natural: [0, 1], extreme: [-0.2, 5] },
+        firmness: { natural: [0, 1], extreme: [-0.5, 1.5] }
+    };
 
     const DEFAULT_RECIPE = Object.freeze({
         species: 'human',
@@ -28,15 +43,25 @@
         weight: 0.5,
         height: 0.5,
         cup: 0.5,
+        firmness: 0.5,
         ancestry: Object.freeze({ african: 1 / 3, asian: 1 / 3, caucasian: 1 / 3 }),
         shapes: Object.freeze({}),
-        earsPointed: 0,
+        headSize: 1,
+        morph: Object.freeze({ snout: 0, muzzle: 0, flat: 0, earsAway: 0 }),
         skin: '#c69c7f'
     });
+
+    /** Face morphs beyond the targets: a snout or muzzle (and how narrow), a face flattened for a beak, human ears tucked away. */
+    const MORPHS = { snout: [0, 1.5], muzzle: [0, 1], flat: [0, 1], earsAway: [0, 1] };
 
     const MIN_AGE = 11, MAX_AGE = 90;
 
     const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, Number.isFinite(+x) ? +x : lo));
+
+    const macro = (r, key) => {
+        const [lo, hi] = MACRO_RANGES[key].extreme;
+        return clamp(r[key] ?? DEFAULT_RECIPE[key], lo, hi);
+    };
 
     /** A full recipe from a partial one: every field present and in range. */
     function normalizeRecipe(input) {
@@ -45,29 +70,45 @@
             species: 'human',
             gender: clamp(r.gender ?? DEFAULT_RECIPE.gender, 0, 1),
             age: clamp(r.age ?? DEFAULT_RECIPE.age, MIN_AGE, MAX_AGE),
-            muscle: clamp(r.muscle ?? DEFAULT_RECIPE.muscle, 0, 1),
-            weight: clamp(r.weight ?? DEFAULT_RECIPE.weight, 0, 1),
-            height: clamp(r.height ?? DEFAULT_RECIPE.height, 0, 1),
-            cup: clamp(r.cup ?? DEFAULT_RECIPE.cup, 0, 1),
+            muscle: macro(r, 'muscle'),
+            weight: macro(r, 'weight'),
+            height: macro(r, 'height'),
+            cup: macro(r, 'cup'),
+            firmness: macro(r, 'firmness'),
             ancestry: {},
             shapes: {},
-            earsPointed: clamp(r.earsPointed ?? 0, 0, 1),
+            headSize: clamp(r.headSize ?? 1, 0.5, 2.2),
+            morph: {},
             skin: /^#[0-9a-f]{6}$/i.test(r.skin || '') ? r.skin.toLowerCase() : DEFAULT_RECIPE.skin
         };
         if (Number.isFinite(r.seed)) out.seed = r.seed >>> 0;
+        for (const k in MORPHS) out.morph[k] = clamp(r.morph?.[k] ?? 0, MORPHS[k][0], MORPHS[k][1]);
         let total = 0;
         for (const a of ANCESTRY) { out.ancestry[a] = clamp(r.ancestry?.[a] ?? DEFAULT_RECIPE.ancestry[a], 0, 1); total += out.ancestry[a]; }
         for (const a of ANCESTRY) out.ancestry[a] = total > 0 ? out.ancestry[a] / total : 1 / 3;
-        for (const s of SHAPES) out.shapes[s] = clamp(r.shapes?.[s] ?? 0, -1, 1);
+        for (const s of SLIDERS) {
+            // Recipes from the first builder kept Pointed ears beside the shapes.
+            const v = r.shapes?.[s.key] ?? (s.key === 'earsPointed' ? r.earsPointed : 0) ?? 0;
+            out.shapes[s.key] = clamp(v, s.paired ? -s.extreme : 0, s.extreme);
+        }
         return out;
     }
 
-    /** Three-point blend: 0 → min, 0.5 → average, 1 → max. */
+    /** Three-point blend: 0 → min, 0.5 → average, 1 → max; outside 0..1 the line carries on past the end. */
     function levelWeights(x) {
         if (x < 0.5) { const min = (0.5 - x) * 2; return { min, average: 1 - min, max: 0 }; }
         const max = (x - 0.5) * 2;
         return { min: 0, average: 1 - max, max };
     }
+
+    /**
+     * How a strong build carries its muscle: past average, muscle adds the
+     * limb, chest and back bulk targets on top of the build blend, so a
+     * strong body grows instead of only leaning out.
+     */
+    const MUSCLE_BULK = { upperArmMuscle: 0.7, shoulderMuscle: 0.7, forearmMuscle: 0.6, thighMuscle: 0.55, calfMuscle: 0.5, pecs: 0.6, lats: 0.55, vshape: 0.3, neck: 0.45 };
+    /** And a heavy one its fat: past the heaviest natural build, the belly, chin and limbs keep filling. */
+    const FAT_SPREAD = { belly: 0.7, doubleChin: 0.6, upperArmFat: 0.5, forearmFat: 0.35, thighFat: 0.5, calfFat: 0.35, butt: 0.4, headFat: 0.35, waist: 0.5, neck: 0.3 };
 
     /** Age in years onto child (11), young (25) and old (90). */
     function ageWeights(years) {
@@ -77,30 +118,57 @@
     }
 
     /** Every shape target's weight for a recipe, by target name. Zero weights are left out. */
-    function targetWeights(recipe) {
+    /** The recipe held to the natural ranges: what the targets were made for. */
+    function naturalRecipe(recipe) {
         const r = normalizeRecipe(recipe);
+        for (const key in MACRO_RANGES) r[key] = clamp(r[key], ...MACRO_RANGES[key].natural);
+        for (const s of SLIDERS) r.shapes[s.key] = clamp(r.shapes[s.key], s.paired ? -1 : 0, 1);
+        return r;
+    }
+
+    /**
+     * A two-way grid of targets (min/average/max on each axis), blended
+     * bilinearly inside 0..1. Past an end, each axis carries on along its own
+     * edge's slope: two extremes add, they never multiply.
+     */
+    function grid(x, y, name, scale, add) {
+        const xc = clamp(x, 0, 1), yc = clamp(y, 0, 1);
+        const X = levelWeights(xc), Y = levelWeights(yc);
+        for (const i of LEVELS) for (const j of LEVELS) add(name(i, j), scale * X[i] * Y[j]);
+        const past = (v, vc) => (v > vc ? ['max', (v - vc) * 2] : v < vc ? ['min', (vc - v) * 2] : null);
+        const ox = past(x, xc), oy = past(y, yc);
+        if (ox) for (const j of LEVELS) { add(name(ox[0], j), scale * ox[1] * Y[j]); add(name('average', j), -scale * ox[1] * Y[j]); }
+        if (oy) for (const i of LEVELS) { add(name(i, oy[0]), scale * oy[1] * X[i]); add(name(i, 'average'), -scale * oy[1] * X[i]); }
+    }
+
+    function targetWeights(recipe, natural) {
+        const r = natural ? naturalRecipe(recipe) : normalizeRecipe(recipe);
         const out = {};
-        const add = (name, w) => { if (w > 1e-5) out[name] = (out[name] || 0) + w; };
+        const add = (name, w) => { if (Math.abs(w) > 1e-5) out[name] = (out[name] || 0) + w; };
         const genders = { female: 1 - r.gender, male: r.gender };
-        const ages = ageWeights(r.age), muscles = levelWeights(r.muscle), weights = levelWeights(r.weight);
+        const ages = ageWeights(r.age);
         // MakeHuman's height targets run from 1.2 m to 2.4 m; the slider spans about 1.45 to 2.05 m for an average man.
         const height = r.height < 0.5 ? { min: (0.5 - r.height) * 1.4, max: 0 } : { min: 0, max: (r.height - 0.5) * 0.9 };
-        const cup = levelWeights(r.cup);
         for (const g in genders) for (const a of AGES) {
             const ga = genders[g] * ages[a];
             if (ga <= 0) continue;
-            for (const m of LEVELS) for (const w of LEVELS) add(`macro/${g}-${a}-${m}muscle-${w}weight`, ga * muscles[m] * weights[w]);
+            grid(r.muscle, r.weight, (m, w) => `macro/${g}-${a}-${m}muscle-${w}weight`, ga, add);
             for (const race of ANCESTRY) add(`race/${race}-${g}-${a}`, ga * r.ancestry[race]);
             add(`height/${g}-${a}-min`, ga * height.min);
             add(`height/${g}-${a}-max`, ga * height.max);
-            if (g === 'female') { add(`cup/female-${a}-min`, ga * cup.min); add(`cup/female-${a}-max`, ga * cup.max); }
+            if (g === 'female') grid(r.cup, r.firmness, (c, f) => `cup/female-${a}-${c}cup-${f}firmness`, ga, add);
         }
-        for (const s of SHAPES) {
-            const v = r.shapes[s];
-            if (v < 0) add(`shape/${s}-decr`, -v);
-            else add(`shape/${s}-incr`, v);
+        const shapes = Object.assign({}, r.shapes);
+        const bulk = Math.max(0, (r.muscle - 0.5) * 2);
+        for (const k in MUSCLE_BULK) shapes[k] += bulk * MUSCLE_BULK[k];
+        const fat = Math.max(0, r.weight - 1) * 2;
+        for (const k in FAT_SPREAD) shapes[k] += fat * FAT_SPREAD[k];
+        for (const s of SLIDERS) {
+            const v = natural ? clamp(shapes[s.key], s.paired ? -1 : 0, 1) : shapes[s.key];
+            if (!s.paired) add(`shape/${s.key}`, v);
+            else if (v < 0) add(`shape/${s.key}-decr`, -v);
+            else add(`shape/${s.key}-incr`, v);
         }
-        add('shape/earsPointed', r.earsPointed);
         return out;
     }
 
@@ -117,6 +185,7 @@
             skinJoints: view(Uint8Array, L.skinJoints),
             skinWeights: view(Float32Array, L.skinWeights),
             bones: json.bones,
+            helpers: Object.fromEntries(Object.entries(L.helpers || {}).map(([name, h]) => [name, { source: view(Uint16Array, h.source), uv: view(Float32Array, h.uv), index: view(Uint32Array, h.index) }])),
             targets: new Map(json.targets.map(t => [t.name, { scale: t.scale, index: view(Uint16Array, t.index), delta: view(Int16Array, t.delta) }])),
             eyes: {
                 refs: view(Uint16Array, L.eyes.refs), weights: view(Float32Array, L.eyes.weights), offsets: view(Float32Array, L.eyes.offsets),
@@ -160,10 +229,7 @@
     }
 
     /** Shaped positions (meters, MakeHuman's frame: y up, facing +z) for a recipe. */
-    function shape(pack, recipe, out) {
-        const positions = out && out.length === pack.positions.length ? out : new Float32Array(pack.positions.length);
-        positions.set(pack.positions);
-        const weights = targetWeights(recipe);
+    function applyTargets(pack, weights, positions) {
         for (const name in weights) {
             const t = pack.targets.get(name);
             if (!t) continue;
@@ -175,7 +241,154 @@
                 positions[v + 2] += d[i * 3 + 2] * k;
             }
         }
+    }
+
+    /** Every vertex's neighbors over the body and helper faces, as a compact list (offsets + flat). */
+    function neighbors(pack) {
+        if (pack._neighbors) return pack._neighbors;
+        const n = pack.vertexCount, sets = Array.from({ length: n }, () => new Set());
+        const addFaces = (source, index) => {
+            for (let t = 0; t < index.length; t += 3) {
+                const a = source[index[t]], b = source[index[t + 1]], c = source[index[t + 2]];
+                sets[a].add(b); sets[a].add(c); sets[b].add(a); sets[b].add(c); sets[c].add(a); sets[c].add(b);
+            }
+        };
+        addFaces(pack.body.source, pack.body.index);
+        for (const h of Object.values(pack.helpers || {})) addFaces(h.source, h.index);
+        const offsets = new Uint32Array(n + 1);
+        for (let v = 0; v < n; v++) offsets[v + 1] = offsets[v] + sets[v].size;
+        const flat = new Uint32Array(offsets[n]);
+        for (let v = 0; v < n; v++) flat.set([...sets[v]], offsets[v]);
+        return (pack._neighbors = { offsets, flat });
+    }
+
+    /**
+     * Relaxes a displacement field over the mesh: each pass moves every vertex's
+     * value halfway to its neighbors' mean. Vertices with no neighbors (joint
+     * markers) keep theirs.
+     */
+    function relax(pack, field, passes) {
+        const { offsets, flat } = neighbors(pack);
+        const n = pack.vertexCount;
+        let a = field, b = new Float32Array(field.length);
+        for (let p = 0; p < passes; p++) {
+            for (let v = 0; v < n; v++) {
+                const s = offsets[v], e = offsets[v + 1];
+                if (e === s) { b[v * 3] = a[v * 3]; b[v * 3 + 1] = a[v * 3 + 1]; b[v * 3 + 2] = a[v * 3 + 2]; continue; }
+                let x = 0, y = 0, z = 0;
+                for (let i = s; i < e; i++) { const u = flat[i] * 3; x += a[u]; y += a[u + 1]; z += a[u + 2]; }
+                const k = 1 / (e - s);
+                b[v * 3] = 0.5 * a[v * 3] + 0.5 * x * k;
+                b[v * 3 + 1] = 0.5 * a[v * 3 + 1] + 0.5 * y * k;
+                b[v * 3 + 2] = 0.5 * a[v * 3 + 2] + 0.5 * z * k;
+            }
+            const t = a; a = b; b = t;
+        }
+        return a;
+    }
+
+    const EXTREME_PASSES = 24;
+
+    /**
+     * Shaped positions (meters, MakeHuman's frame: y up, facing +z) for a recipe.
+     * Within the natural ranges the targets blend as made. Past them the
+     * extra displacement is relaxed over the mesh before it is added, so a
+     * target carried three times as far swells smoothly instead of folding.
+     */
+    function shape(pack, recipe, out) {
+        const positions = out && out.length === pack.positions.length ? out : new Float32Array(pack.positions.length);
+        positions.set(pack.positions);
+        const natural = targetWeights(recipe, true), full = targetWeights(recipe);
+        applyTargets(pack, natural, positions);
+        const extra = {};
+        let any = false;
+        for (const name of new Set([...Object.keys(natural), ...Object.keys(full)])) {
+            const d = (full[name] || 0) - (natural[name] || 0);
+            if (Math.abs(d) > 1e-5) { extra[name] = d; any = true; }
+        }
+        if (any) {
+            const field = new Float32Array(positions.length);
+            applyTargets(pack, extra, field);
+            const smooth = relax(pack, field, EXTREME_PASSES);
+            for (let i = 0; i < positions.length; i++) positions[i] += smooth[i];
+        }
+        morph(pack, positions, normalizeRecipe(recipe));
         return positions;
+    }
+
+    /** Per pack vertex, how much the Head bone carries it; and the ear's own vertices, by how far the ear target moves them. */
+    function headFields(pack) {
+        if (pack._headFields) return pack._headFields;
+        const head = pack.bones.findIndex(b => b.name === 'Head');
+        const n = pack.vertexCount, w = new Float32Array(n), ear = new Float32Array(n);
+        for (let v = 0; v < n; v++) for (let k = 0; k < 4; k++) if (pack.skinJoints[v * 4 + k] === head) w[v] += pack.skinWeights[v * 4 + k];
+        const t = pack.targets.get('shape/earSize-incr');
+        if (t) {
+            let max = 0;
+            for (let i = 0; i < t.index.length; i++) max = Math.max(max, Math.hypot(t.delta[i * 3], t.delta[i * 3 + 1], t.delta[i * 3 + 2]));
+            for (let i = 0; i < t.index.length; i++) ear[t.index[i]] = Math.min(1, Math.hypot(t.delta[i * 3], t.delta[i * 3 + 1], t.delta[i * 3 + 2]) / max * 2.5);
+        }
+        const eyeIds = [...new Set(pack.eyes.refs)];
+        return (pack._headFields = { head, w, ear, eyeIds });
+    }
+
+    const smooth01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+    /**
+     * Head size and the face morphs, worked in the head's own measure (its
+     * joint, the eyes, the crown) so they suit any head the sliders made.
+     */
+    function morph(pack, P, r) {
+        const m = r.morph, size = r.headSize;
+        if (size === 1 && !m.snout && !m.flat && !m.earsAway && !m.muzzle) return;
+        const F = headFields(pack);
+        const h = meanOf(P, pack.bones[F.head].head);
+        let crown = -Infinity;
+        for (let v = 0; v < F.w.length; v++) if (F.w[v] > 0.9 && P[v * 3 + 1] > crown) crown = P[v * 3 + 1];
+        const eye = meanOf(P, F.eyeIds);
+        const H = crown - h[1];
+        if (m.earsAway) {
+            // Each ear folds in toward the middle of its own vertices.
+            for (const side of [1, -1]) {
+                let c = [0, 0, 0], n = 0;
+                for (let v = 0; v < F.ear.length; v++) if (F.ear[v] > 0.6 && Math.sign(P[v * 3]) === side) { c[0] += P[v * 3]; c[1] += P[v * 3 + 1]; c[2] += P[v * 3 + 2]; n++; }
+                if (!n) continue;
+                c = c.map(x => x / n);
+                // In toward the skull too: the side of the head under the ear.
+                c[0] -= side * 0.012;
+                for (let v = 0; v < F.ear.length; v++) {
+                    const e = F.ear[v] * m.earsAway;
+                    if (!e || Math.sign(P[v * 3]) !== side) continue;
+                    for (let k = 0; k < 3; k++) P[v * 3 + k] += (c[k] - P[v * 3 + k]) * e * 0.85;
+                }
+            }
+        }
+        if (m.snout || m.flat || m.muzzle) {
+            // The face below the eyes and in front of them: the mouth, the nose, the jaw.
+            // From under the chin (about 0.62 of the head's height below the eyes) up to just under the eyes.
+            const top = eye[1] - H * 0.02, bottom = eye[1] - H * 0.66, back = eye[2] - H * 0.42;
+            for (let v = 0; v < F.w.length; v++) {
+                const w = F.w[v];
+                if (w <= 0) continue;
+                const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+                const vert = smooth01(bottom - H * 0.12, bottom + H * 0.12, y) * (1 - smooth01(top - H * 0.16, top + H * 0.04, y));
+                // The whole face block from the cheeks forward moves as one, so a snout keeps its width and depth.
+                const fwd = smooth01(back, eye[2] - H * 0.1, z);
+                const f = vert * fwd * w;
+                if (!f) continue;
+                const tip = smooth01(eye[2] - H * 0.1, eye[2] + H * 0.2, z);
+                P[v * 3 + 2] += m.snout * H * 0.75 * f - m.flat * f * Math.max(0, z - back) * 0.35;
+                P[v * 3 + 1] -= m.snout * f * tip * H * 0.06;
+                P[v * 3] *= 1 - (m.muzzle * 0.4 * (0.5 + 0.5 * tip) + m.snout * 0.1) * f;
+            }
+        }
+        if (size !== 1) {
+            for (let v = 0; v < F.w.length; v++) {
+                const w = F.w[v];
+                if (!w) continue;
+                for (let k = 0; k < 3; k++) P[v * 3 + k] = h[k] + (P[v * 3 + k] - h[k]) * (1 + (size - 1) * w);
+            }
+        }
     }
 
     const meanOf = (positions, list) => {
@@ -257,6 +470,24 @@
         return out;
     }
 
+    /** Smooth normals of every pack vertex over the body faces (vertices off the body get none). */
+    function vertexNormals(pack, positions) {
+        const n = new Float32Array(pack.vertexCount * 3);
+        const src = pack.body.source, index = pack.body.index;
+        for (let t = 0; t < index.length; t += 3) {
+            const a = src[index[t]] * 3, b = src[index[t + 1]] * 3, c = src[index[t + 2]] * 3;
+            const ux = positions[b] - positions[a], uy = positions[b + 1] - positions[a + 1], uz = positions[b + 2] - positions[a + 2];
+            const vx = positions[c] - positions[a], vy = positions[c + 1] - positions[a + 1], vz = positions[c + 2] - positions[a + 2];
+            const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+            for (const s of [a, b, c]) { n[s] += nx; n[s + 1] += ny; n[s + 2] += nz; }
+        }
+        for (let i = 0; i < n.length; i += 3) {
+            const l = Math.hypot(n[i], n[i + 1], n[i + 2]);
+            if (l > 0) { n[i] /= l; n[i + 1] /= l; n[i + 2] /= l; }
+        }
+        return n;
+    }
+
     /** Render-vertex attribute from a per-source one. */
     function gather(values, source, size) {
         const out = new values.constructor(source.length * size);
@@ -298,7 +529,8 @@
         const bones = joints(pack, shaped);
         let top = 0;
         for (let i = 1; i < parts[0].positions.length; i += 3) top = Math.max(top, parts[0].positions[i]);
-        return { parts, bones, height: top };
+        // `shaped` (every pack vertex, helpers included, floor at 0) is what garments and hair are built on.
+        return { parts, bones, height: top, shaped };
     }
 
     /** A seeded random recipe within per-field ranges ({gender:[0,1], age:[18,60], ...}). */
@@ -314,7 +546,11 @@
             ancestry: { african: rand() ** 2, asian: rand() ** 2, caucasian: rand() ** 2 },
             shapes: {}
         };
-        for (const k of SHAPES) r.shapes[k] = pick(R.shapes) * (k === 'belly' ? Math.max(0, r.weight - 0.3) * 1.5 : 1);
+        for (const s of SLIDERS) {
+            if (!s.basic && rand() < 0.6) continue;
+            r.shapes[s.key] = s.paired ? pick(R.shapes) * (s.key === 'belly' ? Math.max(0, r.weight - 0.3) * 1.5 : 1) : Math.max(0, pick(R.shapes)) * 0.5;
+        }
+        r.shapes.earsPointed = 0;
         const tones = ['#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26', '#3f2618'];
         const t = rand() * (tones.length - 1), i = Math.floor(t), f = t - i;
         r.skin = mix(tones[i], tones[Math.min(i + 1, tones.length - 1)], f);
@@ -328,7 +564,7 @@
         return '#' + ((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0');
     }
 
-    const api = { SHAPES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
+    const api = { MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
     root.RRHumanBody = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -6,6 +6,11 @@
  * unrotated at their joints; the inverse bind matrices are plain
  * translations. Pictures a part names are embedded from `images`
  * ({fileName: Uint8Array of PNG}).
+ *
+ * A part: { name, positions, normals, uvs, index, joints, weights } and
+ * optionally `colors` (linear RGB per vertex), `color` (hex, when no
+ * colors), `roughness`, `metalness`, `doubleSided`, `opacity` (below 1 is
+ * blended), `cutout` and `texture` (a name in `images`).
  */
 (function(root) {
     'use strict';
@@ -121,12 +126,16 @@
 
         for (const part of built.parts) {
             const texture = part.texture ? textureFor(part.texture) : null;
+            const base = part.texture || part.colors ? [1, 1, 1, 1] : hexColor(part.color);
+            if (part.opacity != null && part.opacity < 1) base[3] = part.opacity;
             const material = {
                 name: part.name,
-                pbrMetallicRoughness: { baseColorFactor: part.texture ? [1, 1, 1, 1] : hexColor(part.color), metallicFactor: 0, roughnessFactor: part.roughness ?? 0.6 }
+                pbrMetallicRoughness: { baseColorFactor: base, metallicFactor: part.metalness ?? 0, roughnessFactor: part.roughness ?? 0.6 }
             };
             if (texture !== null) material.pbrMetallicRoughness.baseColorTexture = { index: texture };
             if (part.cutout) { material.alphaMode = 'MASK'; material.alphaCutoff = 0.5; }
+            else if (base[3] < 1) material.alphaMode = 'BLEND';
+            if (part.doubleSided) material.doubleSided = true;
             json.materials.push(material);
             const b = bounds(part.positions);
             const big = part.positions.length / 3 > 65535;
@@ -134,26 +143,28 @@
                 attributes: {
                     POSITION: accessor(Float32Array.from(part.positions), 'VEC3', 5126, 34962, b),
                     NORMAL: accessor(Float32Array.from(part.normals), 'VEC3', 5126, 34962),
-                    TEXCOORD_0: accessor(Float32Array.from(part.uvs), 'VEC2', 5126, 34962),
+                    TEXCOORD_0: accessor(Float32Array.from(part.uvs || new Float32Array(part.positions.length / 3 * 2)), 'VEC2', 5126, 34962),
                     JOINTS_0: accessor(Uint8Array.from(part.joints), 'VEC4', 5121, 34962),
                     WEIGHTS_0: accessor(Float32Array.from(part.weights), 'VEC4', 5126, 34962)
                 },
                 indices: accessor(big ? Uint32Array.from(part.index) : Uint16Array.from(part.index), 'SCALAR', big ? 5125 : 5123, 34963),
                 material: json.materials.length - 1
             };
+            if (part.colors) primitive.attributes.COLOR_0 = accessor(Float32Array.from(part.colors), 'VEC3', 5126, 34962);
             json.meshes.push({ name: part.name, primitives: [primitive] });
             json.nodes.push({ name: part.name, mesh: json.meshes.length - 1, skin: 0 });
             json.scenes[0].nodes.push(json.nodes.length - 1);
         }
-        const idle = idleClip(bones, settings.idle || {});
-        if (idle) {
-            const times = accessor(idle.times, 'SCALAR', 5126, null, { min: [idle.times[0]], max: [idle.times[idle.times.length - 1]] });
-            const animation = { name: 'Idle', channels: [], samplers: [] };
-            for (const track of idle.tracks) {
-                animation.samplers.push({ input: times, output: accessor(track.values, 'VEC4', 5126), interpolation: 'LINEAR' });
+        // Clips: `clips` ([{ name, times, tracks: [{ bone, values (quaternions) }] }]) as given, else the humanoid Idle.
+        const clips = settings.clips || [idleClip(bones, settings.idle || {})].filter(Boolean).map(c => Object.assign({ name: 'Idle' }, c));
+        for (const clip of clips) {
+            const times = accessor(Float32Array.from(clip.times), 'SCALAR', 5126, null, { min: [clip.times[0]], max: [clip.times[clip.times.length - 1]] });
+            const animation = { name: clip.name, channels: [], samplers: [] };
+            for (const track of clip.tracks) {
+                animation.samplers.push({ input: times, output: accessor(Float32Array.from(track.values), 'VEC4', 5126), interpolation: 'LINEAR' });
                 animation.channels.push({ sampler: animation.samplers.length - 1, target: { node: track.bone, path: 'rotation' } });
             }
-            json.animations = [animation];
+            (json.animations = json.animations || []).push(animation);
         }
         json.buffers.push({ byteLength: length });
 
@@ -174,7 +185,7 @@
         return out;
     }
 
-    const api = { toGlb };
+    const api = { toGlb, idleClip, axisAngle, multiply };
     root.RRCharacterGlb = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -10,9 +10,10 @@
  * (github.com/makehumancommunity/makehuman, assets CC0 since 2020).
  *
  * Kept: the base mesh with every vertex (helpers included, since fitted
- * pieces such as the eyes ride on them), the body faces only, the macro
+ * pieces such as the eyes ride on them), the body's faces, the macro
  * targets for child to old ages, height and cup targets for the average
- * build, and a handful of face and body shape targets. Skeleton: MakeHuman's
+ * build, every slider of the shared catalog (HumanTargets.js), the breast size
+ * by firmness grid, and the clothing helpers' faces. Skeleton: MakeHuman's
  * default rig reduced to Mixamo's humanoid bones, the dropped bones' weights
  * handed to the nearest kept ancestor.
  */
@@ -62,6 +63,18 @@ function renderMesh(obj) {
 const base = readObj(path.join(DATA, '3dobjs', 'base.obj'), g => g === 'body');
 const vertexCount = base.positions.length / 3;
 const body = renderMesh(base);
+// Helper geometry rides on the same vertices and moves with every target: garments and hair are cut from it.
+const HELPERS = {
+    tights: ['helper-tights'], skirt: ['helper-skirt'], hair: ['helper-hair'],
+    upperTeeth: ['helper-upper-teeth'], lowerTeeth: ['helper-lower-teeth'], tongue: ['helper-tongue'],
+    lashes: ['helper-l-eyelashes-1', 'helper-l-eyelashes-2', 'helper-r-eyelashes-1', 'helper-r-eyelashes-2']
+};
+const helpers = {};
+for (const [name, groups] of Object.entries(HELPERS)) {
+    const obj = readObj(path.join(DATA, '3dobjs', 'base.obj'), g => groups.includes(g));
+    obj.uvs = base.uvs;
+    helpers[name] = renderMesh(obj);
+}
 
 // ── targets ────────────────────────────────────────────────────────────────
 function readTarget(file) {
@@ -104,29 +117,22 @@ for (const r of ['african', 'asian', 'caucasian']) for (const g of GENDERS) for 
 for (const g of GENDERS) for (const a of AGES) for (const h of ['min', 'max']) {
     addTarget(`height/${g}-${a}-${h}`, [`macrodetails/height/${g}-${a}-averagemuscle-averageweight-${h}height.target`]);
 }
-for (const a of AGES) for (const c of ['min', 'max']) {
-    addTarget(`cup/female-${a}-${c}`, [`breast/female-${a}-averagemuscle-averageweight-${c}cup-averagefirmness.target`]);
+// Breasts: size by firmness, each pair but the average one an offset of its own.
+for (const a of AGES) for (const c of LEVELS) for (const f of LEVELS) {
+    if (c === 'average' && f === 'average') continue;
+    addTarget(`cup/female-${a}-${c}cup-${f}firmness`, [`breast/female-${a}-averagemuscle-averageweight-${c}cup-${f}firmness.target`]);
 }
-// Paired sliders: name → [decrease files, increase files].
-const PAIRS = {
-    'headFat': ['head/head-fat-decr', 'head/head-fat-incr'],
-    'headWidth': ['head/head-scale-horiz-decr', 'head/head-scale-horiz-incr'],
-    'headHeight': ['head/head-scale-vert-decr', 'head/head-scale-vert-incr'],
-    'noseWidth': ['nose/nose-scale-horiz-decr', 'nose/nose-scale-horiz-incr'],
-    'noseLength': ['nose/nose-scale-vert-decr', 'nose/nose-scale-vert-incr'],
-    'noseHump': ['nose/nose-hump-decr', 'nose/nose-hump-incr'],
-    'earSize': [['ears/l-ear-scale-decr', 'ears/r-ear-scale-decr'], ['ears/l-ear-scale-incr', 'ears/r-ear-scale-incr']],
-    'shoulders': ['torso/torso-scale-horiz-decr', 'torso/torso-scale-horiz-incr'],
-    'belly': ['stomach/stomach-pregnant-decr', 'stomach/stomach-pregnant-incr'],
-    'hips': ['hip/hip-scale-horiz-decr', 'hip/hip-scale-horiz-incr'],
-    'neck': ['neck/neck-scale-horiz-decr', 'neck/neck-scale-horiz-incr']
-};
-const files = x => (Array.isArray(x) ? x : [x]).map(f => f + '.target');
-for (const [name, [down, up]] of Object.entries(PAIRS)) {
-    addTarget(`shape/${name}-decr`, files(down));
-    addTarget(`shape/${name}-incr`, files(up));
+// Every slider of the shared catalog: a decrease and an increase target, or one target.
+const { SLIDERS } = require('../src/forge/Character3D/HumanTargets.js');
+const files = list => list.map(f => f + '.target');
+for (const s of SLIDERS) {
+    if (s.paired) {
+        addTarget(`shape/${s.key}-decr`, files(s.down));
+        addTarget(`shape/${s.key}-incr`, files(s.up));
+    } else {
+        addTarget(`shape/${s.key}`, files(s.up));
+    }
 }
-addTarget('shape/earsPointed', ['ears/l-ear-shape-pointed.target', 'ears/r-ear-shape-pointed.target']);
 
 // ── skeleton ───────────────────────────────────────────────────────────────
 const skel = JSON.parse(fs.readFileSync(path.join(DATA, 'rigs', 'default.mhskel'), 'utf8'));
@@ -221,6 +227,10 @@ layout.bodyUV = put(Float32Array.from(body.uv));
 layout.bodyIndex = put(Uint32Array.from(body.index));
 layout.skinJoints = put(skinJoints);
 layout.skinWeights = put(skinWeights);
+layout.helpers = {};
+for (const [name, h] of Object.entries(helpers)) {
+    layout.helpers[name] = { source: put(Uint16Array.from(h.src)), uv: put(Float32Array.from(h.uv)), index: put(Uint32Array.from(h.index)) };
+}
 const targetMeta = targets.map(t => {
     let max = 0;
     for (const x of t.d) max = Math.max(max, Math.abs(x));
