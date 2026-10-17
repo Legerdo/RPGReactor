@@ -21,7 +21,6 @@ class Character3DBuilder {
         this.eyeSource = null;
         this.tab = 'species';
         this.extreme = false;
-        this.more = {};
         this.pose = 'idle';
         this.randomScope = 'all';
         this._view = null;
@@ -233,9 +232,8 @@ class Character3DBuilder {
     }
 
     // ── controls ───────────────────────────────────────────────────────────
-    _section(label, more, hidden) {
-        const toggle = more ? `<button class="rr-c3d-more" data-act="more" data-section="${rrEscapeHtml(more)}">${this.more[more] ? this._t('Fewer') : this._t('Show all ({n})', { n: hidden })}</button>` : '';
-        return `<div class="rr-c3d-section" data-title="${rrEscapeHtml(label)}"><span>${this._t(label)}</span>${toggle}</div>`;
+    _section(label) {
+        return `<div class="rr-c3d-section" data-title="${rrEscapeHtml(label)}"><span>${this._t(label)}</span></div>`;
     }
 
     /**
@@ -385,7 +383,6 @@ class Character3DBuilder {
         if (!b) return;
         event.preventDefault();
         const act = b.dataset.act, r = JSON.parse(JSON.stringify(this.recipe));
-        if (act === 'more') { this.more[b.dataset.section] = !this.more[b.dataset.section]; this._renderPanel(); return; }
         if (act === 'fold') { this._fold(b); return; }
         if (act === 'extreme') { this.extreme = !this.extreme; this._renderPanel(); return; }
         if (act === 'plan') {
@@ -467,18 +464,21 @@ class Character3DBuilder {
 
     _cap(s) { return String(s).charAt(0).toUpperCase() + String(s).slice(1); }
 
-    _extremeToggle() {
-        return `<label class="rr-c3d-extreme"><input type="checkbox" data-act="extreme"${this.extreme ? ' checked' : ''}><span>${this._t('Extreme proportions')}</span></label>`;
+    /** The tab's switches, above its sections: Extreme proportions, and on the Body tab Anatomical detail. */
+    _extremeToggle(anatomy) {
+        const extreme = `<label class="rr-c3d-extreme"><input type="checkbox" data-act="extreme"${this.extreme ? ' checked' : ''}><span>${this._t('Extreme proportions')}</span></label>`;
+        const detail = anatomy ? `<label class="rr-c3d-extreme"><input type="checkbox" data-path="anatomy.detail"${this.recipe.anatomy.detail ? ' checked' : ''}><span>${this._t('Anatomical detail')}</span></label>` : '';
+        return `<div class="rr-c3d-switches">${extreme}${detail}</div>`;
     }
 
-    _shapeSliders(sections) {
+    /** Each section with all its sliders (a section folds by its header); `extra` adds controls at a section's top or end. */
+    _shapeSliders(sections, extra = {}) {
         return sections.map(section => {
             const list = RRHumanBody.SLIDERS.filter(s => s.section === section);
-            const shown = this.more[section] ? list : list.filter(s => s.basic || Math.abs(this.recipe.shapes[s.key]) > 0.005);
-            const hidden = list.length > shown.length || this.more[section];
-            return this._section(section, hidden ? section : null, list.length - shown.length) + shown.map(s => this._slider({
+            const more = extra[section] || {};
+            return this._section(section) + (more.before || '') + list.map(s => this._slider({
                 path: `shapes.${s.key}`, label: s.label, natural: s.paired ? [-1, 1] : [0, 1], extreme: s.paired ? [-s.extreme, s.extreme] : [0, s.extreme], format: s.paired ? 'signed' : ''
-            })).join('');
+            })).join('') + (more.after || '');
         }).join('');
     }
 
@@ -496,43 +496,38 @@ class Character3DBuilder {
             { path: 'height', label: 'Height', natural: M.height.natural, extreme: M.height.extreme },
             { path: 'weight', label: 'Weight', natural: M.weight.natural, extreme: M.weight.extreme, ends: ['Thin', 'Heavy'] },
             { path: 'muscle', label: 'Muscle', natural: M.muscle.natural, extreme: M.muscle.extreme },
-            { path: 'headSize', label: 'Head size', natural: [0.8, 1.25], extreme: [0.5, 2.2], format: 'x' },
-            { path: 'cup', label: 'Bust', natural: M.cup.natural, extreme: M.cup.extreme },
-            { path: 'firmness', label: 'Firmness', natural: M.firmness.natural, extreme: M.firmness.extreme }
+            { path: 'headSize', label: 'Head size', natural: [0.8, 1.25], extreme: [0.5, 2.2], format: 'x' }
         ];
-        return this._extremeToggle() + this._section('Build') + macro.map(s => this._slider(s)).join('') + this._shapeSliders(['Proportions', 'Torso', 'Bust', 'Arms and legs'])
-            + this._slider({ path: 'morph.toes', label: 'Toe length', natural: [0.7, 1.5], extreme: [0.4, 3], format: 'x' })
-            + this._bodyHairSection() + this._anatomySection();
+        const a = this.recipe.anatomy, detail = a.detail, male = RRHumanBody.sexOf(this.recipe) === 'male';
+        const shownAs = detail ? this._select('anatomy.sex', 'Shown as', [['auto', 'By gender'], ['male', 'Male'], ['female', 'Female']]) : '';
+        const bustTop = this._slider({ path: 'cup', label: 'Bust size', natural: M.cup.natural, extreme: M.cup.extreme })
+            + this._slider({ path: 'firmness', label: 'Firmness', natural: M.firmness.natural, extreme: M.firmness.extreme });
+        const nipples = detail ? this._slider({ path: 'anatomy.areola', label: 'Areola size', natural: [0.6, 1.6], extreme: [0.4, 2.5], format: 'x' })
+            + this._slider({ path: 'anatomy.nipple', label: 'Nipple size', natural: [0.3, 2], extreme: [0, 3], format: 'x' })
+            + this._color('anatomy.areolaColor', 'Areola color', ['#c08070', '#a0605a', '#7a4a3a', '#4a2a22'], true) : '';
+        const toes = this._slider({ path: 'morph.toes', label: 'Toe length', natural: [0.7, 1.5], extreme: [0.4, 3], format: 'x' });
+        let genitals = '';
+        if (detail) {
+            genitals = this._section('Genitals') + (male
+                ? [['length', 'Length'], ['girth', 'Girth'], ['testicles', 'Testicles']].map(([k, label]) => this._slider({ path: `anatomy.${k}`, label, natural: [-1, 1], extreme: [-1, 2], format: 'signed' })).join('')
+                : this._slider({ path: 'anatomy.mons', label: 'Mons', natural: [0, 2], extreme: [0, 3], format: 'x' })
+                    + this._slider({ path: 'anatomy.labia', label: 'Labia', natural: [0, 2], extreme: [0, 3], format: 'x' })
+                    + this._slider({ path: 'anatomy.fold', label: 'Fold depth', natural: [0, 2], format: 'x' }));
+        }
+        return this._extremeToggle(true) + this._section('Build') + macro.map(s => this._slider(s)).join('') + shownAs
+            + this._shapeSliders(['Proportions', 'Torso', 'Bust', 'Arms and legs'], { Bust: { before: bustTop, after: nipples }, 'Arms and legs': { after: toes } })
+            + genitals + this._bodyHairSection();
     }
 
     /** Body hair: how much, by pattern or region by region, its color, and fur over it. */
     _bodyHairSection() {
         const b = this.recipe.bodyHair, K = RRCharacterSkin;
-        let html = this._section('Body hair', 'Body hair', K.HAIR_REGIONS.length) + this._slider({ path: 'bodyHair.amount', label: 'Amount', natural: [0, 1] })
-            + this._select('bodyHair.pattern', 'Pattern', K.BODY_HAIR_PATTERNS);
-        if (this.more['Body hair']) html += K.HAIR_REGIONS.map(([key, label]) => this._slider({ path: `bodyHair.regions.${key}`, label, natural: [0, 1] })).join('');
+        let html = this._section('Body hair') + this._slider({ path: 'bodyHair.amount', label: 'Amount', natural: [0, 1] })
+            + this._select('bodyHair.pattern', 'Pattern', K.BODY_HAIR_PATTERNS)
+            + K.HAIR_REGIONS.map(([key, label]) => this._slider({ path: `bodyHair.regions.${key}`, label, natural: [0, 1] })).join('');
         html += this._color('bodyHair.color', 'Color', ['#0e0c0b', '#2a1d15', '#6a4428', '#b8632a', '#d8b070', '#8a8a8a'], true)
             + this._slider({ path: 'bodyHair.fur', label: 'Fur', natural: [0, 1] });
         if (b.fur > 0) html += this._slider({ path: 'bodyHair.length', label: 'Fur length', natural: [0.5, 1.6], extreme: [0.3, 3], format: 'x' });
-        return html;
-    }
-
-    /** Anatomy: detail on or off, which sex it shows, and a man's sizes. */
-    _anatomySection() {
-        const a = this.recipe.anatomy;
-        let html = this._section('Anatomy') + this._check('anatomy.detail', 'Anatomical detail');
-        if (!a.detail) return html;
-        html += this._select('anatomy.sex', 'Shown as', [['auto', 'By gender'], ['male', 'Male'], ['female', 'Female']]);
-        html += this._slider({ path: 'anatomy.areola', label: 'Areola size', natural: [0.6, 1.6], extreme: [0.4, 2.5], format: 'x' })
-            + this._slider({ path: 'anatomy.nipple', label: 'Nipple size', natural: [0.3, 2], extreme: [0, 3], format: 'x' })
-            + this._color('anatomy.areolaColor', 'Areola color', ['#c08070', '#a0605a', '#7a4a3a', '#4a2a22'], true);
-        if (RRHumanBody.sexOf(this.recipe) === 'male') {
-            html += [['length', 'Length'], ['girth', 'Girth'], ['testicles', 'Testicles']].map(([k, label]) => this._slider({ path: `anatomy.${k}`, label, natural: [-1, 1], extreme: [-1, 2], format: 'signed' })).join('');
-        } else {
-            html += this._slider({ path: 'anatomy.mons', label: 'Mons', natural: [0, 2], extreme: [0, 3], format: 'x' })
-                + this._slider({ path: 'anatomy.labia', label: 'Labia', natural: [0, 2], extreme: [0, 3], format: 'x' })
-                + this._slider({ path: 'anatomy.fold', label: 'Fold depth', natural: [0, 2], format: 'x' });
-        }
         return html;
     }
 
@@ -792,8 +787,10 @@ class Character3DBuilder {
             if (!this._view || !this.pack || !this._result) { this._pumpThumbs(); return; }
             if (Date.now() - this._lastChange < 700) { this._pumpThumbs(); return; }
             // Only when the page is idle: a picture costs a build, never a frame the user is waiting on.
+            // Between frames when the page has time to spare; when it never has (the Idle playing on a fast
+            // screen), after a short wait anyway, so the pictures always come.
             if (typeof requestIdleCallback === 'function' && !this._idleOk) {
-                requestIdleCallback(deadline => { this._idleOk = deadline.timeRemaining() > 8; this._pumpThumbs(); }, { timeout: 1000 });
+                requestIdleCallback(deadline => { this._idleOk = true; this._pumpThumbs(); }, { timeout: 250 });
                 return;
             }
             this._idleOk = false;
@@ -1148,6 +1145,16 @@ class Character3DBuilder {
         }
     }
 
+    /** Whether the pictures a build shows are the ones the meshes already carry. */
+    _sameTextures(result) {
+        const view = this._view;
+        for (const [name, tex] of Object.entries(result.textures || {})) {
+            const kept = view.textures.get(name);
+            if (!kept || kept.data !== tex.data) return false;
+        }
+        return true;
+    }
+
     _clearModel() {
         const view = this._view;
         if (!view) return;
@@ -1156,6 +1163,7 @@ class Character3DBuilder {
         for (const b of view.bones) if (b.parent === view.group) view.group.remove(b);
         if (view.skeleton) view.skeleton.dispose();
         view.meshes = []; view.bones = []; view.skeleton = null; view.mixer = null; view.action = null;
+        view.structure = null;
     }
 
     _texture(name, tex) {
@@ -1225,15 +1233,63 @@ class Character3DBuilder {
         if (kind === 'skin') { m.roughness = 0.5; m.sheen = 0.35; m.sheenRoughness = 0.55; m.sheenColor = new THREE.Color('#d06a50'); m.specularIntensity = 0.45; }
         else if (kind === 'cloth') { m.sheen = 0.6; m.sheenRoughness = 0.8; m.sheenColor = new THREE.Color('#ffffff'); m.roughness = Math.max(m.roughness, 0.75); m.specularIntensity = 0.25; }
         else if (kind === 'metal') { m.metalness = Math.max(0.85, m.metalness); m.roughness = Math.min(0.4, m.roughness); m.clearcoat = 0.3; }
-        else if (kind === 'hair') { m.specularIntensity = 0.35; m.sheen = 0.5; m.sheenRoughness = 0.4; m.sheenColor = new THREE.Color('#ffffff').lerp(m.color, 0.5); }
+        // Hair takes its color from its vertices: no sheen of its own, which read as a grey film over it.
+        else if (kind === 'hair') { m.specularIntensity = 0.2; m.sheen = 0; }
         else if (kind === 'eye') { m.roughness = 0.08; m.clearcoat = 1; m.clearcoatRoughness = 0.03; }
         else if (kind === 'glass') { m.roughness = 0.02; m.metalness = 0; m.clearcoat = 1; m.envMapIntensity = 2; }
         return m;
     }
 
     /** The build in the view: a skeleton from its bones, a skinned mesh per part, its Idle ready to play. */
+    /** What the meshes in the view are made of: the same structure can be updated in place. */
+    _structure(result) {
+        return result.plan + '|' + result.bones.length + '|' + result.parts.map(p => [p.name, p.positions.length, p.index.length, p.texture || '', p.kind || '', p.doubleSided ? 1 : 0, p.opacity ?? 1].join(':')).join(';');
+    }
+
+    /**
+     * A slider moved and nothing was added or taken away: the same meshes take
+     * the new positions and normals, the skeleton its new joints. No buffers,
+     * materials or programs are made, so dragging stays smooth.
+     */
+    _update(result) {
+        const view = this._view;
+        const playing = view.action && this.pose === 'idle';
+        if (view.action) view.action.stop();
+        result.bones.forEach((b, i) => {
+            const parent = b.parent >= 0 ? result.bones[b.parent].head : [0, 0, 0];
+            const bone = view.bones[i];
+            bone.position.set(b.head[0] - parent[0], b.head[1] - parent[1], b.head[2] - parent[2]);
+            bone.quaternion.identity();
+            bone.userData.rest.p.copy(bone.position);
+        });
+        view.group.updateMatrixWorld(true);
+        view.skeleton.calculateInverses();
+        result.parts.forEach((part, k) => {
+            const g = view.meshes[k].geometry;
+            g.getAttribute('position').array.set(part.positions); g.getAttribute('position').needsUpdate = true;
+            g.getAttribute('normal').array.set(part.normals); g.getAttribute('normal').needsUpdate = true;
+            const c = g.getAttribute('color');
+            // Shading worked out for the last shape stays until this one's comes: it hardly differs.
+            if (c && part.colors && part.colors.length === c.array.length && !part.texture) { c.array.set(part.colors); c.needsUpdate = true; }
+            g.computeBoundingSphere();
+        });
+        if (playing) view.action.play();
+        const box = new THREE.Box3().setFromObject(view.group);
+        view.height = Math.max(0.2, result.height);
+        view.bodyHeight = result.bodyHeight || result.height;
+        view.depth = box.max.z;
+        view.extent = Math.max(view.height, box.max.x - box.min.x, box.max.z - box.min.z);
+        view.blob.scale.set(Math.max(0.25, (box.max.x - box.min.x) * 0.55), Math.max(0.25, (box.max.z - box.min.z) * 0.75 + 0.08), 1);
+        this._aim();
+        this._draw();
+    }
+
     _show(result) {
         const view = this._view;
+        // The same structure as what is shown: moved in place.
+        const structure = this._structure(result);
+        if (view.structure === structure && view.meshes.length && this._sameTextures(result)) { this._update(result); return; }
+        view.structure = structure;
         const time = view.action ? view.action.time : 0;
         this._clearModel();
         const bones = result.bones.map(b => { const bone = new THREE.Bone(); bone.name = b.name; return bone; });
@@ -1486,6 +1542,6 @@ Character3DBuilder.blobTexture = function() {
 };
 
 /** Bumped when the previews' look changes, so pictures kept on disk are drawn again. */
-Character3DBuilder.PREVIEW_VERSION = 3;
+Character3DBuilder.PREVIEW_VERSION = 4;
 
 if (typeof window !== 'undefined') window.Character3DBuilder = Character3DBuilder;

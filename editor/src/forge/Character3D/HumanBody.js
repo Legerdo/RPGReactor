@@ -28,10 +28,10 @@
      * Past the natural range a target blend is extrapolated.
      */
     const MACRO_RANGES = {
-        weight: { natural: [0, 1], extreme: [-0.4, 3] },
+        weight: { natural: [0, 1], extreme: [-1, 6] },
         muscle: { natural: [0, 1], extreme: [-0.3, 2.5] },
         height: { natural: [0, 1], extreme: [-0.6, 1.8] },
-        cup: { natural: [0, 1], extreme: [-0.2, 5] },
+        cup: { natural: [0, 1], extreme: [-0.2, 6] },
         firmness: { natural: [0, 1], extreme: [-0.5, 1.5] }
     };
 
@@ -162,11 +162,12 @@
         for (const g in genders) for (const a of AGES) {
             const ga = genders[g] * ages[a];
             if (ga <= 0) continue;
-            grid(r.muscle, r.weight, (m, w) => `macro/${g}-${a}-${m}muscle-${w}weight`, ga, add);
+            // Past a little beyond natural, weight is volume (inflate), not more of the target, which folds.
+            grid(r.muscle, clamp(r.weight, -1, 1.4), (m, w) => `macro/${g}-${a}-${m}muscle-${w}weight`, ga, add);
             for (const race of ANCESTRY) add(`race/${race}-${g}-${a}`, ga * r.ancestry[race]);
             add(`height/${g}-${a}-min`, ga * height.min);
             add(`height/${g}-${a}-max`, ga * height.max);
-            if (g === 'female') grid(r.cup, r.firmness, (c, f) => `cup/female-${a}-${c}cup-${f}firmness`, ga, add);
+            if (g === 'female') grid(clamp(r.cup, -0.2, 1.3), r.firmness, (c, f) => `cup/female-${a}-${c}cup-${f}firmness`, ga, add);
         }
         for (const k of ['length', 'girth', 'testicles']) {
             const v = r.anatomy[k];
@@ -175,11 +176,11 @@
         const shapes = Object.assign({}, r.shapes);
         const bulk = Math.max(0, (r.muscle - 0.5) * 2);
         for (const k in MUSCLE_BULK) shapes[k] += bulk * MUSCLE_BULK[k];
-        const fat = Math.max(0, r.weight - 1) * 2;
+        const fat = Math.min(0.8, Math.max(0, r.weight - 1) * 2);
         for (const k in FAT_SPREAD) shapes[k] += fat * FAT_SPREAD[k];
         for (const s of SLIDERS) {
             // Eye size past natural is a scale of the eye about its eyeball (morph), not more of the target.
-            const v = natural || s.key === 'eyeSize' ? clamp(shapes[s.key], s.paired ? -1 : 0, 1) : shapes[s.key];
+            const v = natural || s.key === 'eyeSize' || VOLUME[s.key] ? clamp(shapes[s.key], s.paired ? -1 : 0, VOLUME[s.key] ? 1.3 : 1) : shapes[s.key];
             if (!s.paired) add(`shape/${s.key}`, v);
             else if (v < 0) add(`shape/${s.key}-decr`, -v);
             else add(`shape/${s.key}-incr`, v);
@@ -339,8 +340,164 @@
             const eased = relax(pack, near, 4);
             for (let i = 0; i < positions.length; i++) positions[i] += eased[i];
         }
-        morph(pack, positions, normalizeRecipe(recipe));
+        const r = normalizeRecipe(recipe);
+        volume(pack, positions, r);
+        morph(pack, positions, r);
         return positions;
+    }
+
+    /**
+     * Sliders that are volume: past their natural range they swell. Each has
+     * the target its swelling takes its place from (where on the body, and
+     * how much where), how far a step past natural reaches (meters), and how
+     * much it sags.
+     */
+    const VOLUME = {
+        belly: { targets: ['shape/belly-incr'], reach: 0.075, sag: 0.35 },
+        butt: { targets: ['shape/butt-incr'], reach: 0.06, sag: 0.15 },
+        hips: { targets: ['shape/hips-incr'], reach: 0.04, sag: 0 },
+        thighFat: { targets: ['shape/thighFat-incr'], reach: 0.04, sag: 0.05 },
+        upperArmFat: { targets: ['shape/upperArmFat-incr'], reach: 0.03, sag: 0.1 },
+        calfFat: { targets: ['shape/calfFat-incr'], reach: 0.025, sag: 0 },
+        doubleChin: { targets: ['shape/doubleChin-incr'], reach: 0.025, sag: 0.3 }
+    };
+
+    /** A smooth 0..1 mask from how far some targets move each vertex, relaxed so its edge fades. */
+    function maskOf(pack, names, passes = 8) {
+        pack._masks = pack._masks || new Map();
+        const key = names.join('|');
+        if (pack._masks.has(key)) return pack._masks.get(key);
+        const field = new Float32Array(pack.vertexCount * 3);
+        for (const name of names) {
+            const t = pack.targets.get(name);
+            if (!t) continue;
+            for (let i = 0; i < t.index.length; i++) {
+                const m = Math.hypot(t.delta[i * 3], t.delta[i * 3 + 1], t.delta[i * 3 + 2]) * t.scale;
+                field[t.index[i] * 3] = Math.max(field[t.index[i] * 3], m);
+            }
+        }
+        const smooth = relax(pack, field, passes);
+        let max = 0;
+        for (let v = 0; v < pack.vertexCount; v++) max = Math.max(max, smooth[v * 3]);
+        const mask = new Float32Array(pack.vertexCount);
+        for (let v = 0; v < pack.vertexCount; v++) mask[v] = max > 0 ? Math.min(1, smooth[v * 3] / max * 1.25) : 0;
+        pack._masks.set(key, mask);
+        return mask;
+    }
+
+    /**
+     * Each breast's swelling, centered on its nipple (so the apex, the areola
+     * painted round the nipple and any sag move together): a smooth dome of
+     * the chest's front around it, none on the other breast or behind.
+     */
+    function breastMask(pack) {
+        if (pack._breastMask) return pack._breastMask;
+        const B = pack.positions, F = anatomyFields(pack), mask = new Float32Array(pack.vertexCount);
+        const R = 0.12;
+        for (const nip of F.nipples) {
+            const c = [B[nip.v * 3], B[nip.v * 3 + 1], B[nip.v * 3 + 2]], side = Math.sign(c[0]);
+            for (const v of pack.body.source) {
+                if (Math.sign(B[v * 3]) !== side && Math.abs(B[v * 3]) > 0.01) continue;
+                if (B[v * 3 + 2] < c[2] - 0.12) continue;
+                // A little taller than wide; more below the nipple than above (the breast's own shape).
+                const dx = B[v * 3] - c[0], dy = (B[v * 3 + 1] - c[1]) * (B[v * 3 + 1] < c[1] ? 0.85 : 1.25), dz = (B[v * 3 + 2] - c[2]) * 0.6;
+                const d = Math.hypot(dx, dy, dz) / R;
+                if (d < 1) mask[v] = Math.max(mask[v], (1 - d * d) ** 2);
+            }
+        }
+        return (pack._breastMask = mask);
+    }
+
+    /** Where fat goes on a heavy body: how far MakeHuman's heaviest build moves each vertex from the average. */
+    function fatMask(pack) {
+        if (pack._fatMask) return pack._fatMask;
+        const names = [];
+        for (const g of ['female', 'male']) names.push(`macro/${g}-young-averagemuscle-maxweight`);
+        const mask = maskOf(pack, names, 6).slice();
+        // The hands, feet and face take little; the trunk, the seat and the tops of the limbs the most.
+        const head = pack.bones.findIndex(b => b.name === 'Head');
+        const light = pack.bones.map((b, i) => (/Hand|Foot|ToeBase|Head$/.test(b.name) ? i : -1)).filter(i => i >= 0);
+        for (let v = 0; v < pack.vertexCount; v++) {
+            let lw = 0;
+            for (let k = 0; k < 4; k++) if (light.includes(pack.skinJoints[v * 4 + k])) lw += pack.skinWeights[v * 4 + k] * (pack.skinJoints[v * 4 + k] === head ? 0.6 : 0.85);
+            mask[v] = Math.max(0.12, mask[v]) * (1 - lw);
+        }
+        return (pack._fatMask = mask);
+    }
+
+    /** Each vertex off the body (helpers, joints) moves with its nearest body vertex. */
+    function followers(pack) {
+        if (pack._followers) return pack._followers;
+        const B = pack.positions, onBody = new Set(pack.body.source), cell = 0.03;
+        const grid = new Map(), key = (x, y, z) => x + ',' + y + ',' + z;
+        for (const v of onBody) {
+            const k = key(Math.floor(B[v * 3] / cell), Math.floor(B[v * 3 + 1] / cell), Math.floor(B[v * 3 + 2] / cell));
+            if (!grid.has(k)) grid.set(k, []);
+            grid.get(k).push(v);
+        }
+        const map = new Int32Array(pack.vertexCount).fill(-1);
+        for (let v = 0; v < pack.vertexCount; v++) {
+            if (onBody.has(v)) { map[v] = v; continue; }
+            const cx = Math.floor(B[v * 3] / cell), cy = Math.floor(B[v * 3 + 1] / cell), cz = Math.floor(B[v * 3 + 2] / cell);
+            let best = -1, bd = Infinity;
+            for (let r = 1; r <= 4 && best < 0; r++) for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) for (let k = -r; k <= r; k++) {
+                for (const u of grid.get(key(cx + i, cy + j, cz + k)) || []) {
+                    const d = (B[u * 3] - B[v * 3]) ** 2 + (B[u * 3 + 1] - B[v * 3 + 1]) ** 2 + (B[u * 3 + 2] - B[v * 3 + 2]) ** 2;
+                    if (d < bd) { bd = d; best = u; }
+                }
+            }
+            map[v] = best;
+        }
+        return (pack._followers = map);
+    }
+
+    /**
+     * Swelling and shrinking past the natural range: each volume slider, the
+     * bust and the weight push the skin out along its normals by their masks,
+     * in a few steps (the normals worked out again each step, so a swelling
+     * rounds out like a balloon rather than a cone), relaxed between steps,
+     * sagging a little under its own weight.
+     */
+    function volume(pack, P, r) {
+        const n = pack.vertexCount;
+        const amount = new Float32Array(n), sag = new Float32Array(n);
+        let any = false;
+        const addMask = (mask, meters, droop) => {
+            if (!meters) return;
+            any = true;
+            for (let v = 0; v < n; v++) if (mask[v] > 0) { amount[v] += mask[v] * meters; sag[v] += mask[v] * Math.abs(meters) * droop; }
+        };
+        for (const key in VOLUME) {
+            const past = (r.shapes[key] || 0) - 1.3;
+            if (past > 0) addMask(maskOf(pack, VOLUME[key].targets), past * VOLUME[key].reach, VOLUME[key].sag);
+        }
+        if (r.cup > 1.3 && r.gender < 0.9) {
+            const firm = clamp(r.firmness, 0, 1);
+            addMask(breastMask(pack), (r.cup - 1.3) * 0.045 * (1 - r.gender), 0.45 - 0.3 * firm);
+        }
+        if (r.weight > 1.4) addMask(fatMask(pack), (r.weight - 1.4) * 0.07, 0.2);
+        // Thin past natural: the soft parts drawn in toward the bone, never through it.
+        if (r.weight < 0) addMask(fatMask(pack), Math.max(-0.03, r.weight * 0.03), 0);
+        if (!any) return;
+        const follow = followers(pack);
+        const total = new Float32Array(n * 3);
+        const steps = 4;
+        for (let s = 0; s < steps; s++) {
+            const N = vertexNormals(pack, P);
+            const field = new Float32Array(n * 3);
+            for (let v = 0; v < n; v++) {
+                const b = follow[v];
+                if (b < 0 || !amount[b]) continue;
+                const a = amount[b] / steps, d = sag[b] / steps;
+                field[v * 3] = N[b * 3] * a; field[v * 3 + 1] = N[b * 3 + 1] * a - d; field[v * 3 + 2] = N[b * 3 + 2] * a;
+            }
+            const eased = relax(pack, field, 3);
+            for (let i = 0; i < P.length; i++) { P[i] += eased[i]; total[i] += eased[i]; }
+        }
+        // The floor stays the floor: nothing swells below the soles.
+        let low = Infinity;
+        for (const v of pack.body.source) low = Math.min(low, P[v * 3 + 1]);
+        void low;
     }
 
     /** Per pack vertex, how much the Head bone carries it; and the ear's own vertices, by how far the ear target moves them. */
@@ -492,7 +649,7 @@
         const crease = ids.filter(v => Math.abs(B[v * 3]) < 0.012 && B[v * 3 + 2] > B[low * 3 + 2] - 0.03 && B[v * 3 + 1] > B[low * 3 + 1] - 0.005 && B[v * 3 + 1] < B[low * 3 + 1] + 0.045)
             .map(v => [v, Math.abs(B[v * 3]) / 0.012, (B[v * 3 + 1] - B[low * 3 + 1]) / 0.045]);
         // The front of the pelvis below the belly: for the mons above the fold and the labia beside it.
-        const vulva = ids.filter(v => Math.abs(B[v * 3]) < 0.05 && B[v * 3 + 2] > B[low * 3 + 2] - 0.02 && B[v * 3 + 1] > B[low * 3 + 1] - 0.01 && B[v * 3 + 1] < B[low * 3 + 1] + 0.11)
+        const vulva = ids.filter(v => Math.abs(B[v * 3]) < 0.06 && B[v * 3 + 2] > B[low * 3 + 2] - 0.03 && B[v * 3 + 1] > B[low * 3 + 1] - 0.02 && B[v * 3 + 1] < B[low * 3 + 1] + 0.12)
             .map(v => [v, Math.abs(B[v * 3]), B[v * 3 + 1] - B[low * 3 + 1]]);
         return (pack._anatomyFields = { nipples, low, crease, vulva });
     }
@@ -531,10 +688,12 @@
         }
         if (female) for (const [v, x, up] of F.vulva) {
             // The mons: a soft rise over the pubic bone, above the fold.
-            const mons = r.anatomy.mons * 0.006 * Math.exp(-(((up - 0.07) / 0.028) ** 2)) * Math.exp(-((x / 0.035) ** 2));
-            // The labia: a soft ridge either side of the fold, along its length.
-            const labia = r.anatomy.labia * 0.0035 * Math.exp(-(((x - 0.009) / 0.0055) ** 2)) * Math.sin(Math.min(1, Math.max(0, (up + 0.004) / 0.05)) * Math.PI);
+            const mons = r.anatomy.mons * 0.008 * Math.exp(-(((up - 0.065) / 0.03) ** 2)) * Math.exp(-((x / 0.04) ** 2));
+            // The labia: a full ridge either side of the fold along its length, standing forward and a little down.
+            const along = Math.sin(Math.min(1, Math.max(0, (up + 0.012) / 0.06)) * Math.PI);
+            const labia = r.anatomy.labia * 0.0075 * Math.exp(-(((x - 0.011) / 0.008) ** 2)) * along;
             P[v * 3 + 2] += mons + labia;
+            P[v * 3 + 1] -= labia * 0.25;
         }
         if (female) for (const [v, across, up] of F.crease) {
             const depth = 0.0028 * r.anatomy.fold * Math.max(0, 1 - across * across * 4) * Math.sin(Math.min(1, Math.max(0, up)) * Math.PI);
@@ -832,7 +991,7 @@
         return '#' + ((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0');
     }
 
-    const api = { sexOf, anatomyFields, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
+    const api = { VOLUME, maskOf, fatMask, volume, sexOf, anatomyFields, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
     root.RRHumanBody = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

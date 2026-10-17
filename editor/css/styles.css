@@ -7305,6 +7305,8 @@ html.rr-web #database-viewer.rr-database-floating {
 .rr-c3d-plan .rr-btn-chip { flex: 1 1 0; }
 .rr-c3d-plan .rr-btn-chip.is-active, .rr-c3d-pose.is-active { color: var(--color-accent-bright); border-color: var(--color-accent-bright); }
 .rr-c3d-extreme { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 11px; color: var(--color-text); cursor: pointer; }
+.rr-c3d-switches { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0; }
+.rr-c3d-switches .rr-c3d-extreme { margin: 0; }
 .rr-c3d-choice select { grid-column: 2 / 4; min-width: 0; }
 .rr-c3d-check input { grid-column: 3; justify-self: end; }
 .rr-c3d-colorrow { grid-template-columns: 96px minmax(0, 1fr) auto; }
