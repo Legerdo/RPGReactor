@@ -373,6 +373,9 @@
         cache = cache || {};
         const items = normalizeOutfit(outfit);
         const entries = [];
+        // What laying needs of this body (its normals, the tights on its skin, a lookup of its vertices)
+        // is worked out once per build and never kept: the next build is another body.
+        const frame = {};
         const covered = new Float32Array(pack.vertexCount).fill(-1);
         items.forEach((item, layer) => {
             const g = BY_ID.get(item.id);
@@ -385,7 +388,7 @@
                 spec.lift = (spec.lift ?? 0.006) + layer * 0.0035;
                 const piece = O.cutFor(pack, spec);
                 if (!piece.index.length) return;
-                const laid = O.lay(pack, built, piece, spec, cache);
+                const laid = O.lay(pack, built, piece, spec, frame);
                 const look = Object.assign(lookOf(item, spec), { material: item.material });
                 const [roughness, metalness] = MATERIAL[item.material] || MATERIAL.cloth;
                 entries.push({ laid, look, skirt: spec.surface === 'skirt', name: g.label, roughness, metalness, doubleSided: spec.surface === 'skirt' });

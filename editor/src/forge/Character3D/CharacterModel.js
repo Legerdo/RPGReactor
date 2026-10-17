@@ -25,6 +25,7 @@
     const Species = need('RRCharacterSpecies', './CharacterSpecies.js');
     const Skin = need('RRCharacterSkin', './CharacterSkin.js');
     const Creature = need('RRCreatureBody', './CreatureBody.js');
+    const Shading = need('RRCharacterShading', './CharacterShading.js');
 
     /** A full recipe from a partial one; the plan decides which half it is. */
     function normalize(input) {
@@ -37,6 +38,7 @@
             features: Species.normalizeFeatures(r.features),
             skinPattern: Skin.normalizeSkin(r.skinPattern),
             eyes: Skin.normalizeEyes(r.eyes),
+            bodyHair: Skin.normalizeBodyHair(r.bodyHair),
             hair: Hair.normalizeHair(r.hair || (r.bald ? { style: 'bald', brows: { style: 'none' } } : undefined)),
             outfit: Wardrobe.normalizeOutfit(r.outfit),
             props: Props.normalizeProps(r.props)
@@ -79,6 +81,7 @@
         const r = normalize(recipe);
         if (r.plan === 'quadruped') {
             const built = Creature.build(r, { quality: o.quality || 'save' });
+            if (o.quality === 'save' || o.quality == null || o.shade) shade(built.parts);
             return { recipe: r, parts: built.parts, bones: built.bones, height: built.height, textures: {}, clips: built.clips, sidecar: Creature.sidecar(built), plan: 'quadruped' };
         }
         const built = Body.build(pack, r);
@@ -102,8 +105,13 @@
             body.index = Uint32Array.from(keep);
         }
         const skinSize = o.skinSize || (o.quality === 'preview' ? 512 : 1024);
-        const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize]);
-        if (cache.skinKey !== skinKey) { cache.skin = Skin.paint(pack, r.skin, r.skinPattern, { size: skinSize }); cache.skinKey = skinKey; }
+        // A man's shaved beard shadows his jaw, unless his species has no hair.
+        const beard = r.gender > 0.6 && r.age > 16 && !(Species.BY_ID.get(r.species)?.recipe || {}).bald ? Math.round((r.gender - 0.6) * 2.5 * 10) / 10 : 0;
+        const sex = Body.sexOf(r);
+        const anatomy = { detail: r.anatomy.detail, female: sex === 'female', cup: 0, areola: r.anatomy.areola, areolaColor: r.anatomy.areolaColor, fold: r.anatomy.fold };
+        const bodyHair = Object.assign({}, r.bodyHair, { color: r.bodyHair.color || r.hair.color });
+        const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair]);
+        if (cache.skinKey !== skinKey) { cache.skin = Skin.paint(pack, r.skin, r.skinPattern, { size: skinSize, beard, anatomy, bodyHair }); cache.skinKey = skinKey; }
         textures['skin.png'] = cache.skin;
         body.texture = 'skin.png';
         body.roughness = r.skinPattern.type === 'scales' || r.skinPattern.type === 'panels' ? 0.45 : 0.62;
@@ -120,6 +128,15 @@
         }
 
         const parts = [body, eyes];
+        // Fur: two shells over the uncovered skin, the outer cut thinner, so the fur tapers.
+        if (bodyHair.fur > 0.01) {
+            const furKey = textureKey('fur', [bodyHair, skinSize]);
+            if (cache.furKey !== furKey) { cache.fur = Skin.paintFur(pack, bodyHair, { size: skinSize }); cache.furKey = furKey; }
+            textures['fur.png'] = cache.fur;
+            parts.push(...furShells(pack, built, body, bodyHair, cache.fur));
+        }
+        // A man's genitals, MakeHuman's own, wearing the skin round them; left out under what covers them.
+        if (r.anatomy.detail && sex === 'male' && !outfit.hidden.has(Body.anatomyFields(pack).low)) parts.push(genitals(pack, built));
         // Under a helmet or a hood the hair is not drawn; under a closed helmet the beard neither.
         const covers = r.outfit.map(i => i.id);
         let hairRecipe = r.hair;
@@ -128,9 +145,16 @@
             hairRecipe = Object.assign({}, r.hair, { style: 'bald', facial: closed ? Object.assign({}, r.hair.facial, { style: 'none' }) : r.hair.facial });
         }
         const hair = Hair.build(pack, built, hairRecipe, { seed: r.seed, skin: r.skin });
+        if (hair.some(p => p.texture === 'lashes.png')) textures['lashes.png'] = cache.lashes || (cache.lashes = Hair.lashTexture(128));
         const L = Props.landmarks(pack, built);
         const props = Props.build(pack, built, r.props);
         const features = Species.build(pack, built, r.features, L);
+        // What each part is, for the view's materials: skin, eyes, cloth, metal, hair, a prop.
+        body.kind = 'skin'; eyes.kind = 'eye';
+        for (const p of outfit.parts) p.kind = p.metalness > 0.5 ? 'metal' : 'cloth';
+        for (const p of hair) p.kind = 'hair';
+        for (const p of props.parts) p.kind = p.opacity != null && p.opacity < 1 ? 'glass' : p.metalness > 0.5 ? 'metal' : 'prop';
+        for (const p of features.parts) p.kind = 'feature';
         parts.push(...outfit.parts, ...hair, ...props.parts, ...features.parts);
         const bones = built.bones.concat(features.bones.map(b => ({ name: b.name, parent: b.parent, head: b.head, tail: b.tail })));
         // The floor: shoes and boots stand on it.
@@ -145,7 +169,61 @@
         }
         let height = 0;
         for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) height = Math.max(height, p.positions[i]);
+        // Occlusion in the vertex colors: always in a file, in the view once the sliders rest (`shade`).
+        if (o.quality === 'save' || o.shade) shade(parts);
         return { recipe: r, parts, bones, height, bodyHeight: built.height - Math.min(0, floor), textures, clips: clipsFor(bones, r, built, pack), plan: 'human', built };
+    }
+
+    /**
+     * Fur shells: the body's triangles where fur grows (alpha in the picture
+     * at any of their corners), lifted along the skin's normals.
+     */
+    function furShells(pack, built, body, bodyHair, picture) {
+        const P = body.positions, N = body.normals, U = body.uvs, I = body.index;
+        const size = picture.width;
+        const alphaAt = i => picture.data[((Math.min(size - 1, Math.floor(U[i * 2 + 1] * size)) * size) + Math.min(size - 1, Math.floor(U[i * 2] * size))) * 4 + 3];
+        const keep = [];
+        for (let t = 0; t < I.length; t += 3) if (alphaAt(I[t]) > 20 || alphaAt(I[t + 1]) > 20 || alphaAt(I[t + 2]) > 20) keep.push(I[t], I[t + 1], I[t + 2]);
+        if (!keep.length) return [];
+        const reach = 0.004 + 0.008 * bodyHair.fur * bodyHair.length;
+        return [[0.45, 0.35], [1, 0.6]].map(([at, cut], k) => {
+            const positions = new Float32Array(P.length);
+            for (let i = 0; i < P.length; i += 3) for (let c = 0; c < 3; c++) positions[i + c] = P[i + c] + N[i + c] * reach * at;
+            return { name: 'Fur ' + (k + 1), positions, normals: N, uvs: U, index: Uint32Array.from(keep), joints: body.joints, weights: body.weights, texture: 'fur.png', cutout: true, alphaCutoff: cut, roughness: 0.8, kind: 'hair', doubleSided: true };
+        });
+    }
+
+    /** The genital helper as a part: its vertices take the picture coordinates of the skin nearest them. */
+    function genitals(pack, built) {
+        const h = pack.helpers.genital;
+        if (!pack._genitalUV) {
+            const B = pack.positions, body = pack.body, uv = new Float32Array(h.source.length * 2);
+            h.source.forEach((v, i) => {
+                let best = 0, bd = Infinity;
+                for (let k = 0; k < body.source.length; k++) {
+                    const u = body.source[k];
+                    const d = (B[u * 3] - B[v * 3]) ** 2 + (B[u * 3 + 1] - B[v * 3 + 1]) ** 2 + (B[u * 3 + 2] - B[v * 3 + 2]) ** 2;
+                    if (d < bd) { bd = d; best = k; }
+                }
+                uv[i * 2] = body.uv[best * 2]; uv[i * 2 + 1] = body.uv[best * 2 + 1];
+            });
+            pack._genitalUV = uv;
+        }
+        const P = built.shaped;
+        return {
+            name: 'Genitals', positions: Body.gather(P, h.source, 3), normals: Body.normals(P, h.source, h.index, pack.vertexCount), uvs: pack._genitalUV, index: h.index,
+            joints: Body.gather(pack.skinJoints, h.source, 4), weights: Body.gather(pack.skinWeights, h.source, 4), texture: 'skin.png', roughness: 0.6, kind: 'skin'
+        };
+    }
+
+    /** Bakes ambient occlusion into the parts' colors, in place. */
+    function shade(parts) {
+        const ao = Shading.ambientOcclusion(parts);
+        // The eyes sit inside the lids: occlusion would black them out, so they keep their own light.
+        parts.forEach((p, k) => { if (p.kind === 'eye' || p.name === 'Eyes') delete ao[k]; });
+        const shaded = Shading.applyOcclusion(parts, ao);
+        for (let k = 0; k < parts.length; k++) parts[k] = shaded[k];
+        return parts;
     }
 
     /**
@@ -207,7 +285,8 @@
             // A part with a picture shows it; its own colors are left for parts that have none.
             if (out.texture && !files[out.texture]) delete out.texture;
             if (!out.texture && !out.colors && !out.color) out.color = '#bbbbbb';
-            if (out.texture) delete out.colors;
+            // Colors on a part with a picture are its baked shading, multiplied with the picture.
+            if (out.texture && !out.shaded) delete out.colors;
             return out;
         });
         return Glb.toGlb({ parts, bones: result.bones }, { name, clips: result.clips, images: files });
@@ -249,7 +328,7 @@
         return normalize(r);
     }
 
-    const api = { normalize, withSpecies, build, toGlb, random, armAngle, clipsFor };
+    const api = { normalize, withSpecies, build, shade, toGlb, random, armAngle, clipsFor };
     root.RRCharacterModel = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

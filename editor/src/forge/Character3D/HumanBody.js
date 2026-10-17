@@ -47,12 +47,14 @@
         ancestry: Object.freeze({ african: 1 / 3, asian: 1 / 3, caucasian: 1 / 3 }),
         shapes: Object.freeze({}),
         headSize: 1,
-        morph: Object.freeze({ snout: 0, muzzle: 0, flat: 0, earsAway: 0 }),
+        // Anatomy: detail on or off, the sex shown ('auto' follows Gender), the genitals' size.
+        anatomy: Object.freeze({ detail: false, sex: 'auto', length: 0, girth: 0, testicles: 0, areola: 1, nipple: 1, areolaColor: '', fold: 1 }),
+        morph: Object.freeze({ snout: 0, muzzle: 0, flat: 0, earsAway: 0, toes: 1 }),
         skin: '#c69c7f'
     });
 
     /** Face morphs beyond the targets: a snout or muzzle (and how narrow), a face flattened for a beak, human ears tucked away. */
-    const MORPHS = { snout: [0, 1.5], muzzle: [0, 1], flat: [0, 1], earsAway: [0, 1] };
+    const MORPHS = { snout: [0, 1.5], muzzle: [0, 1], flat: [0, 1], earsAway: [0, 1], toes: [0.4, 3] };
 
     const MIN_AGE = 11, MAX_AGE = 90;
 
@@ -78,11 +80,18 @@
             ancestry: {},
             shapes: {},
             headSize: clamp(r.headSize ?? 1, 0.5, 2.2),
+            anatomy: {
+                detail: r.anatomy?.detail === true,
+                areola: clamp(r.anatomy?.areola ?? 1, 0.4, 2.5), nipple: clamp(r.anatomy?.nipple ?? 1, 0, 3), fold: clamp(r.anatomy?.fold ?? 1, 0, 2),
+                areolaColor: /^#[0-9a-f]{6}$/i.test(r.anatomy?.areolaColor || '') ? r.anatomy.areolaColor.toLowerCase() : '',
+                sex: ['auto', 'male', 'female'].includes(r.anatomy?.sex) ? r.anatomy.sex : 'auto',
+                length: clamp(r.anatomy?.length ?? 0, -1, 2), girth: clamp(r.anatomy?.girth ?? 0, -1, 2), testicles: clamp(r.anatomy?.testicles ?? 0, -1, 2)
+            },
             morph: {},
             skin: /^#[0-9a-f]{6}$/i.test(r.skin || '') ? r.skin.toLowerCase() : DEFAULT_RECIPE.skin
         };
         if (Number.isFinite(r.seed)) out.seed = r.seed >>> 0;
-        for (const k in MORPHS) out.morph[k] = clamp(r.morph?.[k] ?? 0, MORPHS[k][0], MORPHS[k][1]);
+        for (const k in MORPHS) out.morph[k] = clamp(r.morph?.[k] ?? DEFAULT_RECIPE.morph[k], MORPHS[k][0], MORPHS[k][1]);
         let total = 0;
         for (const a of ANCESTRY) { out.ancestry[a] = clamp(r.ancestry?.[a] ?? DEFAULT_RECIPE.ancestry[a], 0, 1); total += out.ancestry[a]; }
         for (const a of ANCESTRY) out.ancestry[a] = total > 0 ? out.ancestry[a] / total : 1 / 3;
@@ -157,6 +166,10 @@
             add(`height/${g}-${a}-min`, ga * height.min);
             add(`height/${g}-${a}-max`, ga * height.max);
             if (g === 'female') grid(r.cup, r.firmness, (c, f) => `cup/female-${a}-${c}cup-${f}firmness`, ga, add);
+        }
+        for (const k of ['length', 'girth', 'testicles']) {
+            const v = r.anatomy[k];
+            if (v) add(`genital/${k}-${v < 0 ? 'decr' : 'incr'}`, Math.abs(v));
         }
         const shapes = Object.assign({}, r.shapes);
         const bulk = Math.max(0, (r.muscle - 0.5) * 2);
@@ -332,6 +345,109 @@
         return (pack._headFields = { head, w, ear, eyeIds });
     }
 
+    /** The sex a recipe shows: chosen, or by its Gender slider. */
+    function sexOf(r) {
+        const a = r.anatomy || {};
+        return a.sex === 'male' || a.sex === 'female' ? a.sex : (r.gender >= 0.5 ? 'male' : 'female');
+    }
+
+    /**
+     * Where anatomy sits, picked once on MakeHuman's base mesh: each nipple
+     * (the vertex the bust target moves most, per side) with the vertices
+     * around it, and the front of the crotch along the middle.
+     */
+    function anatomyFields(pack) {
+        if (pack._anatomyFields) return pack._anatomyFields;
+        const B = pack.positions, ids = [...new Set(pack.body.source)], onBody = new Set(ids);
+        // The nipple: the skin vertex MakeHuman's breast-point target moves most (it moves the nipple's tip).
+        const point = pack.targets.get('shape/breastPoint-incr') || pack.targets.get('cup/female-young-maxcup-averagefirmness');
+        const best = { 1: [-1, 0], '-1': [-1, 0] };
+        for (let i = 0; i < point.index.length; i++) {
+            const v = point.index[i];
+            if (!onBody.has(v)) continue;
+            const m = Math.hypot(point.delta[i * 3], point.delta[i * 3 + 1], point.delta[i * 3 + 2]);
+            const side = B[v * 3] > 0 ? 1 : -1;
+            if (m > best[side][1]) best[side] = [v, m];
+        }
+        const around = (center, r) => ids.filter(v => Math.hypot(B[v * 3] - B[center * 3], B[v * 3 + 1] - B[center * 3 + 1], B[v * 3 + 2] - B[center * 3 + 2]) < r)
+            .map(v => [v, Math.hypot(B[v * 3] - B[center * 3], B[v * 3 + 1] - B[center * 3 + 1], B[v * 3 + 2] - B[center * 3 + 2]) / r]);
+        const nipples = [best[1][0], best[-1][0]].map(v => ({ v, near: around(v, 0.012) }));
+        // The crotch: the lowest front point of the trunk between the legs, and the midline above it.
+        let low = -1;
+        for (const v of ids) {
+            if (Math.abs(B[v * 3]) > 0.004 || B[v * 3 + 2] < 0) continue;
+            if (B[v * 3 + 1] < -0.35 || B[v * 3 + 1] > 0.3) continue;
+            if (low < 0 || B[v * 3 + 1] < B[low * 3 + 1]) low = v;
+        }
+        const crease = ids.filter(v => Math.abs(B[v * 3]) < 0.012 && B[v * 3 + 2] > B[low * 3 + 2] - 0.03 && B[v * 3 + 1] > B[low * 3 + 1] - 0.005 && B[v * 3 + 1] < B[low * 3 + 1] + 0.045)
+            .map(v => [v, Math.abs(B[v * 3]) / 0.012, (B[v * 3 + 1] - B[low * 3 + 1]) / 0.045]);
+        return (pack._anatomyFields = { nipples, low, crease });
+    }
+
+    /** A vertex's normal on the shaped body, from its own triangles. */
+    function normalAt(pack, P, v) {
+        if (!pack._faceOf) {
+            pack._faceOf = new Map();
+            const src = pack.body.source, I = pack.body.index;
+            for (let t = 0; t < I.length; t += 3) for (let k = 0; k < 3; k++) {
+                const a = src[I[t + k]];
+                if (!pack._faceOf.has(a)) pack._faceOf.set(a, []);
+                pack._faceOf.get(a).push([src[I[t]], src[I[t + 1]], src[I[t + 2]]]);
+            }
+        }
+        const n = [0, 0, 0];
+        for (const [a, b, c] of pack._faceOf.get(v) || []) {
+            const u = [0, 1, 2].map(k => P[b * 3 + k] - P[a * 3 + k]), w = [0, 1, 2].map(k => P[c * 3 + k] - P[a * 3 + k]);
+            n[0] += u[1] * w[2] - u[2] * w[1]; n[1] += u[2] * w[0] - u[0] * w[2]; n[2] += u[0] * w[1] - u[1] * w[0];
+        }
+        const l = Math.hypot(n[0], n[1], n[2]) || 1;
+        return [n[0] / l, n[1] / l, n[2] / l];
+    }
+
+    /** Nipples raised a little, a woman's crotch given its crease; both in the body's own surface. */
+    function anatomyDetail(pack, P, r) {
+        const F = anatomyFields(pack), female = sexOf(r) === 'female';
+        const height = (female ? 0.0018 + 0.0012 * Math.min(2, Math.max(0, r.cup)) : 0.0012) * r.anatomy.nipple;
+        for (const nip of F.nipples) {
+            const n = normalAt(pack, P, nip.v);
+            for (const [v, d] of nip.near) {
+                // A small rise for the areola, a firmer one for the nipple.
+                const lift = height * (0.35 * Math.max(0, 1 - d * d) + Math.max(0, 1 - (d / 0.33) ** 2) ** 2);
+                P[v * 3] += n[0] * lift; P[v * 3 + 1] += n[1] * lift; P[v * 3 + 2] += n[2] * lift;
+            }
+        }
+        if (female) for (const [v, across, up] of F.crease) {
+            const depth = 0.0028 * r.anatomy.fold * Math.max(0, 1 - across * across * 4) * Math.sin(Math.min(1, Math.max(0, up)) * Math.PI);
+            P[v * 3 + 2] -= depth;
+        }
+    }
+
+    /** The toes drawn out (or in) along the foot from their own joint; the ball of the foot stays. */
+    function toes(pack, P, scale) {
+        if (!pack._toeWeights) {
+            const w = new Float32Array(pack.vertexCount), side = new Int8Array(pack.vertexCount);
+            pack.bones.forEach((b, i) => {
+                if (!/ToeBase$/.test(b.name)) return;
+                for (let v = 0; v < pack.vertexCount; v++) for (let k = 0; k < 4; k++) if (pack.skinJoints[v * 4 + k] === i) { w[v] += pack.skinWeights[v * 4 + k]; side[v] = b.name.startsWith('Left') ? 1 : -1; }
+            });
+            pack._toeWeights = { w, side, bones: pack.bones.map((b, i) => (/ToeBase$/.test(b.name) ? i : -1)).filter(i => i >= 0) };
+        }
+        const T = pack._toeWeights;
+        for (const i of T.bones) {
+            const head = meanOf(P, pack.bones[i].head), tail = meanOf(P, pack.bones[i].tail);
+            const s = pack.bones[i].name.startsWith('Left') ? 1 : -1;
+            const d = [tail[0] - head[0], 0, tail[2] - head[2]], l = Math.hypot(d[0], d[2]) || 1;
+            d[0] /= l; d[2] /= l;
+            for (let v = 0; v < T.w.length; v++) {
+                if (!T.w[v] || T.side[v] !== s) continue;
+                const along = (P[v * 3] - head[0]) * d[0] + (P[v * 3 + 2] - head[2]) * d[2];
+                if (along <= 0) continue;
+                const push = along * (scale - 1) * T.w[v];
+                P[v * 3] += d[0] * push; P[v * 3 + 2] += d[2] * push;
+            }
+        }
+    }
+
     const smooth01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
     /**
@@ -340,6 +456,8 @@
      */
     function morph(pack, P, r) {
         const m = r.morph, size = r.headSize;
+        if (m.toes !== 1) toes(pack, P, m.toes);
+        if (r.anatomy.detail) anatomyDetail(pack, P, r);
         if (size === 1 && !m.snout && !m.flat && !m.earsAway && !m.muzzle) return;
         const F = headFields(pack);
         const h = meanOf(P, pack.bones[F.head].head);
@@ -564,7 +682,7 @@
         return '#' + ((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0');
     }
 
-    const api = { MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
+    const api = { sexOf, anatomyFields, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
     root.RRHumanBody = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

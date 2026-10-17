@@ -91,6 +91,17 @@ test('garments stay outside the skin, however far the sliders go', () => {
     }
 });
 
+test('a kept cache lays the outfit on the body built now, not on the one before', () => {
+    const outfit = Wardrobe.PRESETS.find(p => p.id === 'winter').items;
+    const kept = {};
+    Model.build(pack, { outfit }, kept, { quality: 'preview' });
+    for (const body of [{ age: 11 }, { cup: 4, gender: 0 }, { weight: 3, gender: 1 }]) {
+        const reused = Model.build(pack, Object.assign({ outfit }, body), kept, { quality: 'preview' });
+        const fresh = Model.build(pack, Object.assign({ outfit }, body), {}, { quality: 'preview' });
+        for (let k = 0; k < fresh.parts.length; k++) assert.deepEqual(Array.from(reused.parts[k].positions), Array.from(fresh.parts[k].positions), fresh.parts[k].name + ' on ' + JSON.stringify(body));
+    }
+});
+
 test('the outfit and skin pictures are kept while the body changes, and repainted when the outfit does', () => {
     const cache = {};
     const a = Model.build(pack, { outfit: [{ id: 'tunic' }], weight: 0.2 }, cache, { quality: 'preview' });
@@ -101,7 +112,7 @@ test('the outfit and skin pictures are kept while the body changes, and repainte
     assert.notEqual(c.textures['outfit.png'], a.textures['outfit.png']);
 });
 
-test('lips, eye shadow and markings land where they belong; the iris changes, the white of the eye does not', () => {
+test('lips, eye shadow and markings land where they belong; the iris takes its color, the whites stay white', () => {
     const plain = Skin.paint(pack, '#c69c7f', {}, { size: 256 });
     const made = Skin.paint(pack, '#c69c7f', { lips: '#b02040', type: 'scales', color: '#203020' }, { size: 256 });
     let changed = 0;
@@ -111,7 +122,9 @@ test('lips, eye shadow and markings land where they belong; the iris changes, th
     const at = (u, v) => ((Math.floor(v * eyeSource.width) * eyeSource.width + Math.floor(u * eyeSource.width)) * 4);
     const iris = at(0.708 + 0.07, 0.259), white = at(0.5, 0.5);
     assert.ok(eyes[iris + 2] > eyes[iris], 'the iris turned blue');
-    assert.deepEqual([...eyes.slice(white, white + 3)], [...eyeSource.data.slice(white, white + 3)]);
+    // The whites are lifted from the picture's dim beige, and stay a white.
+    const [r, g, b] = eyes.slice(white, white + 3);
+    assert.ok(r > eyeSource.data[white] && Math.max(r, g, b) - Math.min(r, g, b) < 30, `whites ${r},${g},${b}`);
 });
 
 test('the GLB holds the pictures, the skinned parts, the tail and the Idle', async () => {
@@ -160,8 +173,21 @@ test('the arms hang clear of a wide body', () => {
 
 test('the editor page loads each module after the ones it needs', () => {
     const page = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-    const order = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin', 'CharacterHair', 'CreatureBody', 'CharacterGlb', 'CharacterModel', 'Character3DBuilder'];
+    const order = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin', 'CharacterHair', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterModel', 'Character3DBuilder'];
     const at = order.map(name => page.indexOf(`src/forge/Character3D/${name}.js`));
     assert.ok(at.every(i => i > 0), 'every module is loaded');
     assert.deepEqual(at.slice().sort((a, b) => a - b), at);
+});
+
+test('every module a builder file needs is on the page before it (in the editor, require resolves elsewhere)', () => {
+    const page = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const rel = 'src/forge/Character3D/';
+    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.js'))) {
+        const at = page.indexOf(rel + file);
+        assert.ok(at > 0, file + ' is loaded');
+        for (const m of fs.readFileSync(path.join(dir, file), 'utf8').matchAll(/require\('\.\/([A-Za-z0-9]+)\.js'\)/g)) {
+            const need = page.indexOf(rel + m[1] + '.js');
+            assert.ok(need > 0 && need < at, `${file} needs ${m[1]}.js loaded before it`);
+        }
+    }
 });

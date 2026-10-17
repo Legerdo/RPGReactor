@@ -66,7 +66,7 @@ const body = renderMesh(base);
 // Helper geometry rides on the same vertices and moves with every target: garments and hair are cut from it.
 const HELPERS = {
     tights: ['helper-tights'], skirt: ['helper-skirt'], hair: ['helper-hair'],
-    upperTeeth: ['helper-upper-teeth'], lowerTeeth: ['helper-lower-teeth'], tongue: ['helper-tongue'],
+    genital: ['helper-genital'], upperTeeth: ['helper-upper-teeth'], lowerTeeth: ['helper-lower-teeth'], tongue: ['helper-tongue'],
     lashes: ['helper-l-eyelashes-1', 'helper-l-eyelashes-2', 'helper-r-eyelashes-1', 'helper-r-eyelashes-2']
 };
 const helpers = {};
@@ -122,6 +122,13 @@ for (const a of AGES) for (const c of LEVELS) for (const f of LEVELS) {
     if (c === 'average' && f === 'average') continue;
     addTarget(`cup/female-${a}-${c}cup-${f}firmness`, [`breast/female-${a}-averagemuscle-averageweight-${c}cup-${f}firmness.target`]);
 }
+// Genitals: MakeHuman's size targets on its genital helper.
+for (const [name, file] of [['genital/length', 'penis-length'], ['genital/girth', 'penis-circ'], ['genital/testicles', 'penis-testicles']]) {
+    addTarget(name + '-decr', [`genitals/${file}-decr.target`]);
+    addTarget(name + '-incr', [`genitals/${file}-incr.target`]);
+}
+addTarget('genital/bulge-incr', ['pelvis/bulge-incr.target']);
+addTarget('genital/bulge-decr', ['pelvis/bulge-decr.target']);
 // Every slider of the shared catalog: a decrease and an increase target, or one target.
 const { SLIDERS } = require('../src/forge/Character3D/HumanTargets.js');
 const files = list => list.map(f => f + '.target');

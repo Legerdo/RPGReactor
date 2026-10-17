@@ -21,7 +21,9 @@
         ['neckLength', 'Neck length', 'Proportions', ['neck/neck-scale-vert-decr'], ['neck/neck-scale-vert-incr'], 2.5],
         ['handSize', 'Hand size', 'Proportions', ['armslegs/{s}-hand-scale-decr'], ['armslegs/{s}-hand-scale-incr'], 3],
         ['fingerLength', 'Finger length', 'Proportions', ['armslegs/{s}-hand-fingers-length-decr'], ['armslegs/{s}-hand-fingers-length-incr'], 3],
-        ['footSize', 'Foot size', 'Proportions', ['armslegs/{s}-foot-scale-decr'], ['armslegs/{s}-foot-scale-incr'], 3],
+        ['footSize', 'Foot size', 'Proportions', ['armslegs/{s}-foot-scale-decr'], ['armslegs/{s}-foot-scale-incr'], 3, true],
+        ['footLength', 'Foot length', 'Proportions', ['armslegs/{s}-foot-scale-depth-decr'], ['armslegs/{s}-foot-scale-depth-incr'], 3, true],
+        ['footWidth', 'Foot width', 'Proportions', ['armslegs/{s}-foot-scale-horiz-decr'], ['armslegs/{s}-foot-scale-horiz-incr'], 3],
 
         ['shoulders', 'Shoulders', 'Torso', ['torso/torso-scale-horiz-decr'], ['torso/torso-scale-horiz-incr'], 2.5, true],
         ['chest', 'Chest depth', 'Torso', ['torso/torso-scale-depth-decr'], ['torso/torso-scale-depth-incr'], 2.5],
@@ -46,8 +48,8 @@
         ['forearmMuscle', 'Forearms', 'Arms and legs', ['armslegs/{s}-lowerarm-muscle-decr'], ['armslegs/{s}-lowerarm-muscle-incr'], 4],
         ['thighFat', 'Thigh fat', 'Arms and legs', ['armslegs/{s}-upperleg-fat-decr'], ['armslegs/{s}-upperleg-fat-incr'], 4, true],
         ['thighMuscle', 'Thigh muscle', 'Arms and legs', ['armslegs/{s}-upperleg-muscle-decr'], ['armslegs/{s}-upperleg-muscle-incr'], 4, true],
-        ['calfFat', 'Calf fat', 'Arms and legs', ['armslegs/{s}-lowerleg-fat-decr'], ['armslegs/{s}-lowerleg-fat-incr'], 4],
-        ['calfMuscle', 'Calves', 'Arms and legs', ['armslegs/{s}-lowerleg-muscle-decr'], ['armslegs/{s}-lowerleg-muscle-incr'], 4],
+        ['calfFat', 'Calf fat', 'Arms and legs', ['armslegs/{s}-lowerleg-fat-decr'], ['armslegs/{s}-lowerleg-fat-incr'], 4, true],
+        ['calfMuscle', 'Calf muscle', 'Arms and legs', ['armslegs/{s}-lowerleg-muscle-decr'], ['armslegs/{s}-lowerleg-muscle-incr'], 4, true],
         ['bowLegs', 'Knees', 'Arms and legs', ['armslegs/{s}-leg-valgus-decr'], ['armslegs/{s}-leg-valgus-incr'], 2],
 
         ['neck', 'Neck thickness', 'Head and neck', ['neck/neck-scale-horiz-decr'], ['neck/neck-scale-horiz-incr'], 3],

@@ -133,7 +133,7 @@
                 pbrMetallicRoughness: { baseColorFactor: base, metallicFactor: part.metalness ?? 0, roughnessFactor: part.roughness ?? 0.6 }
             };
             if (texture !== null) material.pbrMetallicRoughness.baseColorTexture = { index: texture };
-            if (part.cutout) { material.alphaMode = 'MASK'; material.alphaCutoff = 0.5; }
+            if (part.cutout) { material.alphaMode = 'MASK'; material.alphaCutoff = part.alphaCutoff ?? 0.5; }
             else if (base[3] < 1) material.alphaMode = 'BLEND';
             if (part.doubleSided) material.doubleSided = true;
             json.materials.push(material);

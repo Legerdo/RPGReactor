@@ -7272,6 +7272,27 @@ html.rr-web #database-viewer.rr-database-floating {
 }
 .rr-c3d-tile:hover { border-color: var(--color-accent-border-strong); }
 .rr-c3d-tile.is-active { border-color: var(--color-accent-bright); color: var(--color-accent-bright); }
+.rr-c3d-thumbtile { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 3px 3px 4px; }
+.rr-c3d-thumb {
+    display: block; width: 100%; aspect-ratio: 1; border-radius: 2px; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--color-bg-deep) 70%, #5a5e68) 0%, var(--color-bg-deep) 75%);
+}
+.rr-c3d-thumb img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.rr-c3d-thumb:empty::after { content: ''; display: block; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-text-muted) 12%, transparent), transparent); background-size: 200% 100%; animation: rr-c3d-shimmer 1.2s linear infinite; }
+@keyframes rr-c3d-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.rr-c3d-tile-label { font-size: 10px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rr-c3d-pickrow { grid-template-columns: 96px minmax(0, 1fr); }
+.rr-c3d-pickcurrent {
+    display: flex; align-items: center; gap: 8px; min-width: 0; padding: 3px 8px 3px 3px; font-size: 11px; color: var(--color-text);
+    background: var(--color-bg-input); border: 1px solid var(--color-border-input); border-radius: var(--radius-sm, 3px); cursor: pointer; text-align: left;
+}
+.rr-c3d-pickcurrent:hover, .rr-c3d-pickcurrent.is-open { border-color: var(--color-accent-bright); }
+.rr-c3d-pickcurrent .rr-c3d-thumb { width: 40px; flex: 0 0 40px; }
+.rr-c3d-pickcurrent > span:nth-child(2) { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-c3d-caret { color: var(--color-text-muted); }
+.rr-c3d-pickgrid { margin: 2px 0 8px; padding: 6px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm, 3px); background: color-mix(in srgb, var(--color-bg-deep) 50%, var(--color-bg-panel)); }
+.rr-c3d-addbtn { width: 100%; margin: 4px 0 6px; }
+.rr-c3d-addbtn.is-active { color: var(--color-accent-bright); border-color: var(--color-accent-bright); }
 .rr-c3d-plan { display: flex; gap: 4px; margin: 8px 0 2px; }
 .rr-c3d-plan .rr-btn-chip { flex: 1 1 0; }
 .rr-c3d-plan .rr-btn-chip.is-active, .rr-c3d-pose.is-active { color: var(--color-accent-bright); border-color: var(--color-accent-bright); }
@@ -7336,7 +7357,10 @@ html.rr-web #database-viewer.rr-database-floating {
 .rr-c3d-swatch { width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--color-border-input); cursor: pointer; }
 .rr-c3d-swatch:hover, .rr-c3d-swatch:focus-visible { outline: 2px solid var(--color-accent-bright); outline-offset: 1px; }
 .rr-c3d-skin-input { width: 32px; height: 22px; padding: 0; border: 1px solid var(--color-border-input); background: none; cursor: pointer; }
-.rr-c3d-view { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.rr-c3d-view {
+    position: relative; min-width: 0; min-height: 0; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 38%, color-mix(in srgb, var(--color-bg-deep) 70%, #5a5e68) 0%, var(--color-bg-deep) 72%);
+}
 .rr-c3d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
 .rr-c3d-canvas:active { cursor: grabbing; }
 .rr-c3d-readout, .rr-c3d-hint {

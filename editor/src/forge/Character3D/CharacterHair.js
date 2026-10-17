@@ -1270,16 +1270,64 @@
         }
     }
 
+    /**
+     * MakeHuman's lash cards, given coordinates of their own: along the lid
+     * (the angle round the eye) by root to tip (the distance from it), so the
+     * strand picture (`lashTexture`) tapers each lash out from the lid.
+     */
     function buildLashes(H, m) {
         const h = H.pack.helpers && H.pack.helpers.lashes;
         if (!h) return;
         const base = m.pos.length / 3;
-        const col = [0.015, 0.012, 0.012];
-        for (let i = 0; i < h.source.length; i++) {
-            const v = h.source[i];
-            pushVert(m, H.P(v), [0, 0, 1], col);
-        }
+        const col = [0.03, 0.022, 0.02];
+        const pts = Array.from(h.source, v => H.P(v));
+        // Each eye's center: the mean of its side's lash vertices.
+        const center = side => {
+            const own = pts.filter(p => Math.sign(p[0]) === side);
+            return own.reduce((a, p) => [a[0] + p[0] / own.length, a[1] + p[1] / own.length, a[2] + p[2] / own.length], [0, 0, 0]);
+        };
+        const C = { 1: center(1), '-1': center(-1) };
+        // Mirrored per eye, so the angle runs 0 at the outer corner to π at the inner one over the top
+        // (and down to -π under it), and no lid crosses where the angle wraps.
+        const polar = pts.map(p => {
+            const side = Math.sign(p[0]) || 1, c = C[side];
+            return { a: Math.atan2(p[1] - c[1], (p[0] - c[0]) * side), r: Math.hypot(p[0] - c[0], p[1] - c[1]), up: p[1] > c[1] };
+        });
+        // Each lid (upper and lower, each side): along it by its own angles, root to tip by distance from the eye.
+        const span = {};
+        polar.forEach((q, i) => {
+            const k = Math.sign(pts[i][0]) + ':' + q.up;
+            const sp = span[k] || (span[k] = { r: [Infinity, -Infinity], a: [Infinity, -Infinity] });
+            sp.r[0] = Math.min(sp.r[0], q.r); sp.r[1] = Math.max(sp.r[1], q.r);
+            sp.a[0] = Math.min(sp.a[0], q.a); sp.a[1] = Math.max(sp.a[1], q.a);
+        });
+        m.uv = m.uv || [];
+        while (m.uv.length < base * 2) m.uv.push(0, 0);
+        polar.forEach((q, i) => {
+            pushVert(m, pts[i], [0, 0, 1], col);
+            const sp = span[Math.sign(pts[i][0]) + ':' + q.up];
+            m.uv.push((q.a - sp.a[0]) / Math.max(1e-5, sp.a[1] - sp.a[0]), (q.r - sp.r[0]) / Math.max(1e-5, sp.r[1] - sp.r[0]));
+        });
         for (let t = 0; t < h.index.length; t++) m.idx.push(base + h.index[t]);
+    }
+
+    /** Lash strands: thin dark lines across the lid, tapering from the root (v = 0) to the tip. */
+    function lashTexture(size = 128) {
+        const data = new Uint8Array(size * size * 4);
+        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+            const u = x / size, v = y / size, o = (y * size + x) * 4;
+            let a = 0;
+            const strands = 40;
+            for (let k = 0; k < strands; k++) {
+                const c = (k + 0.5) / strands + Math.sin(k * 7.1) * 0.006 + v * 0.012 * Math.sin(k * 3.3);
+                const width = 0.006 * (1 - v * 0.8);
+                const d = Math.abs(u - c);
+                a = Math.max(a, 1 - d / Math.max(0.004, width));
+            }
+            a *= 1 - Math.max(0, v - 0.85) / 0.15;
+            data[o] = 18; data[o + 1] = 13; data[o + 2] = 11; data[o + 3] = Math.round(Math.max(0, Math.min(1, a)) * 255);
+        }
+        return { width: size, height: size, data, name: 'lashes.png' };
     }
 
     // ── assembly ───────────────────────────────────────────────────────────
@@ -1351,7 +1399,7 @@
         if (hair.lashes) {
             const lashes = meshBuilder();
             buildLashes(H, lashes);
-            if (lashes.idx.length) parts.push(toPart(H, lashes, 'Lashes', { rigid: true, extra: { roughness: 0.8 } }));
+            if (lashes.idx.length) parts.push(toPart(H, lashes, 'Lashes', { rigid: true, extra: { roughness: 0.8, uvs: Float32Array.from(lashes.uv), texture: 'lashes.png', cutout: true, alphaCutoff: 0.35 } }));
         }
         return parts;
     }
@@ -1377,6 +1425,7 @@
     }
 
     const api = {
+        lashTexture,
         STYLES, FACIAL, BROWS, PARTS, DEFAULT_HAIR, normalizeHair, randomHair, build,
         _internal: { measure, headCoords, cutSurface, facialField, meshBuilder, addShell, addClump, addTube, addBlob, grow, curlStrand, scatter, tangent, rng, hash, linear }
     };
