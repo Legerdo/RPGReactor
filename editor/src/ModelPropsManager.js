@@ -235,9 +235,12 @@ class ModelPropsManager {
             if (id < 0) continue; // Event previews are selected through Events.
             const bounds = sprite.getBounds ? sprite.getLocalBounds() : null;
             if (!bounds) continue;
-            const left = sprite.x + bounds.x * (sprite.scale?.x || 1);
-            const top = sprite.y + bounds.y * (sprite.scale?.y || 1);
-            if (px >= left && px <= left + bounds.width && py >= top && py <= top + bounds.height) return this.prop(id);
+            // The box as drawn: a picture drawn smaller than its texture is hit only where it shows
+            // (its unscaled size reached tiles away and took clicks meant for empty ground).
+            const sx = sprite.scale?.x || 1, sy = sprite.scale?.y || 1;
+            const x1 = sprite.x + bounds.x * sx, x2 = sprite.x + (bounds.x + bounds.width) * sx;
+            const y1 = sprite.y + bounds.y * sy, y2 = sprite.y + (bounds.y + bounds.height) * sy;
+            if (px >= Math.min(x1, x2) && px <= Math.max(x1, x2) && py >= Math.min(y1, y2) && py <= Math.max(y1, y2)) return this.prop(id);
         }
         return null;
     }
@@ -906,6 +909,8 @@ class ModelPropsManager {
         if (!same) {
             this.fields.animations = [];
             this.fields.effects = [];
+            // Its size and turn too: a tree sized 2.8 and turned 45 degrees does not hand them to the next model.
+            Object.assign(this.fields, { size: 2, scale: 1, stretch: [1, 1, 1], direction: 2, z: 0, yaw: 0, pitch: 0, roll: 0 });
         }
         this.render();
         this._syncPanel();

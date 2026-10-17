@@ -5266,25 +5266,88 @@ Reactor3D.suppressFlatLighting = function(hide) {
  * that made it a 3D map at all.
  */
 Reactor3D.wantsLights3D = function(mapData) {
+    if (this.authoredLights3D(mapData)) return true;
+    // An AmbientLight command on an unlit map lights it, easing from its daylight (`ambientFor`);
+    // a map whose sidecar turns lighting off stays off.
+    return this.isMap3D(mapData) && this.mapLightingChoice(mapData) === null && this.ambientOverrideActive();
+};
+
+/** Whether the map lights itself in three dimensions, before any AmbientLight command. */
+Reactor3D.authoredLights3D = function(mapData) {
     if (!this.isMap3D(mapData)) return false;
-    const sidecar = mapData && mapData.reactor3d;
-    if (sidecar && sidecar.lighting && sidecar.lighting.enabled !== undefined) {
-        return !!sidecar.lighting.enabled;
-    }
-    // Native lights placed on the map are themselves the opt-in: an author
-    // who put a lamp somewhere wants to see it lit.
-    if (this.readMapLights(mapData).length) return true;
-    if (mapData && mapData.meta && mapData.meta["3d lights"]) return true;
+    const said = this.mapLightingChoice(mapData);
+    if (said !== null) return said;
+    const meta = this.mapMeta(mapData);
+    if (meta && meta["3d lights"]) return true;
     // So is a placed model whose light effect is burning right now.
     return this.hasLiveEffectLights();
+};
+
+/** Whether an AmbientLight command holds this map's ambient. */
+Reactor3D.ambientOverrideActive = function() {
+    const override = this.currentLightOverrides() && $gameMap._reactorAmbientOverride;
+    return !!override && override.mapId === this.currentLightMapId();
+};
+
+/**
+ * What the map's sidecar says about lighting: `true` or `false`, or `null`
+ * when it says nothing and the note or the placed models decide. The
+ * `enabled` flag is final. Otherwise placed lights opt in (an author who put
+ * a lamp somewhere wants to see it lit), and so does an ambient that darkens
+ * or tints: an author who set the map to night wants night. Full white
+ * daylight is the unlit look and asks for nothing.
+ */
+Reactor3D.mapLightingChoice = function(mapData) {
+    const sidecar = mapData && mapData.reactor3d;
+    const lighting = sidecar && sidecar.lighting;
+    if (lighting && lighting.enabled !== undefined) return !!lighting.enabled;
+    if (this.readMapLights(mapData).length) return true;
+    if (lighting && (lighting.ambient !== undefined || lighting.ambientColour !== undefined)) {
+        // Asked every frame by both renderers: worked out again only when the values change.
+        const memo = this._ambientAskMemo || (this._ambientAskMemo = { ambient: NaN, colour: NaN, asks: false });
+        if (memo.ambient !== lighting.ambient || memo.colour !== lighting.ambientColour) {
+            const level = lighting.ambient === undefined ? 0.25 : Number(lighting.ambient);
+            const colour = this.parseColour(lighting.ambientColour === undefined ? 0xffffff : lighting.ambientColour);
+            memo.ambient = lighting.ambient;
+            memo.colour = lighting.ambientColour;
+            memo.asks = !(level >= 1) || (colour & 0xffffff) !== 0xffffff;
+        }
+        if (memo.asks) return true;
+    }
+    return null;
+};
+
+/**
+ * The map's note tags: `meta` as the game's DataManager made it, or read from
+ * the note the same way when the map came without one (the editor's maps).
+ */
+Reactor3D.mapMeta = function(mapData) {
+    if (!mapData) return null;
+    if (mapData.meta) return mapData.meta;
+    const note = mapData.note;
+    if (typeof note !== "string" || note.indexOf("<") < 0) return null;
+    const cache = this._noteMetaCache || (this._noteMetaCache = { note: null, meta: null });
+    if (cache.note !== note) {
+        const meta = {};
+        const pattern = /<([^<>:]+)(:?)([^>]*)>/g;
+        let match;
+        while ((match = pattern.exec(note))) meta[match[1]] = match[2] === ":" ? match[3] : true;
+        cache.note = note;
+        cache.meta = meta;
+    }
+    return cache.meta;
 };
 
 /** How dark an unlit corner of a lit map is. */
 Reactor3D.ambientFor = function(mapData) {
     const sidecar = mapData && mapData.reactor3d;
     const lighting = (sidecar && sidecar.lighting) || {};
+    // With no ambient written, a lit map's dark corners are at a quarter; an unlit map is in full daylight,
+    // which is where an AmbientLight command on it eases from.
+    const unset = lighting.ambient === undefined;
     const authored = {
-        intensity: lighting.ambient === undefined ? 0.25 : lighting.ambient,
+        intensity: !unset ? lighting.ambient
+            : ((this.isMap3D(mapData) ? this.authoredLights3D(mapData) : this.authoredLighting(mapData)) ? 0.25 : 1),
         // The sidecar stores "#rrggbb"; the compositors bit-shift a number.
         // Passed through raw, the string shifted as NaN and the ambient
         // multiplied the whole world by black.
@@ -5462,15 +5525,20 @@ Reactor3D.readMapLights = function(mapData) {
  * Whether this map has native lighting at all, in either renderer.
  *
  * The sidecar's word is final when it says anything; otherwise placed lights
- * mean yes, and the map notes can ask for it by hand.
+ * or a darkened or tinted ambient mean yes (`mapLightingChoice`), and the map
+ * notes can ask for it by hand.
  */
 Reactor3D.lightingEnabled = function(mapData) {
-    const sidecar = mapData && mapData.reactor3d;
-    if (sidecar && sidecar.lighting && sidecar.lighting.enabled !== undefined) {
-        return !!sidecar.lighting.enabled;
-    }
-    if (this.readMapLights(mapData).length) return true;
-    const meta = mapData && mapData.meta;
+    if (this.authoredLighting(mapData)) return true;
+    // As in 3D (wantsLights3D): an AmbientLight command lights an unlit map.
+    return this.mapLightingChoice(mapData) === null && this.ambientOverrideActive();
+};
+
+/** Whether the map lights itself, before any AmbientLight command. */
+Reactor3D.authoredLighting = function(mapData) {
+    const said = this.mapLightingChoice(mapData);
+    if (said !== null) return said;
+    const meta = this.mapMeta(mapData);
     return !!(meta && (meta["3d lights"] || meta.lighting)) || this.hasLiveEffectLights();
 };
 

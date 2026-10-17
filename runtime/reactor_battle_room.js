@@ -133,7 +133,7 @@
                 record.scale = (spec.size || 2) * (spec.scale || 1) / Math.max(e.x,e.y,e.z,.001);
                 object.scale.setScalar(record.scale);
                 record.object = object; record.binding = R.prepareModelInstance(object, object.__reactorClips);
-                record.rules = R.readModelAnimationRules(sidecar); record.effects = R.readModelEffects(sidecar, spec);
+                record.rules = R.readModelAnimationRules(sidecar, object.__reactorClips); record.effects = R.readModelEffects(sidecar, spec);
                 // A vehicle's seat and grips ride its parts, for the actor who sits on it.
                 const points = R.readModelLandmarks?.(sidecar); if (points?.__rrVehicle) R.bindModelLandmarks(object, points);
                 record.chosenEffects=new Set(R.propEffectList(spec));record.media=new Map();

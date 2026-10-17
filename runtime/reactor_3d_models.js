@@ -4651,7 +4651,7 @@ Reactor3D.groundAnimatedTemplate = function(template, sidecar) {
     if (!clips.length || !THREE.AnimationMixer) return template;
     const content = template.children.find(child => child.name === "content");
     if (!content) return template;
-    const rules = sidecar ? this.readModelAnimationRules(sidecar) : [];
+    const rules = sidecar ? this.readModelAnimationRules(sidecar, clips) : [];
     const byTrigger = trigger => rules.find(rule => rule.type === "clip" && rule.trigger === trigger && rule.clip);
     const named = (byTrigger("idle") || byTrigger("always") || {}).clip;
     const clip = clips.find(entry => entry.name === named) || clips[0];
@@ -4978,8 +4978,10 @@ Reactor3D.flattenModelWorld = function(root) {
  * rules turn parts about their own recorded pivots. "parts" entries carve
  * regions the source file never named into parts of their own — see
  * readModelParts/carveModelParts below.
+ * `clips` (optional): the clips in the model's file (AnimationClips or
+ * names); those named for a movement state play in it (ownClipAnimations).
  */
-Reactor3D.readModelAnimationRules = function(json) {
+Reactor3D.readModelAnimationRules = function(json, clips) {
     const list = json && Array.isArray(json.animations) ? json.animations : [];
     const rules = [];
     const vec3 = (value, fallback) => {
@@ -5088,6 +5090,8 @@ Reactor3D.readModelAnimationRules = function(json) {
             // One of the rig's own default motions, not the model's (reactor_rig_motions.js).
             defaultMotion: !!raw.defaultMotion
         };
+        // A clip in the model's file playing in the state its name says, not an animation of the sidecar's.
+        if (raw.ownClip) rule.ownClip = true;
         // What a wheel and a steered part carry (a vehicle's rules), kept only on a rule that has them:
         // `exact` reaches the part by its whole name, not by prefix; `axisVector` is the line it turns
         // about (model space, kept at unit length) in place of `axis`; `radius` (model units) rolls a
@@ -5105,13 +5109,87 @@ Reactor3D.readModelAnimationRules = function(json) {
     // A rigged model plays its template's default motion for every state it
     // has none of its own for: it climbs, swims and jumps before anyone
     // animates it. `defaultMotions: false` in the sidecar turns that off.
+    const own = this.ownClipAnimations(list, clips, json);
+    const all = own.length ? list.concat(own) : list;
+    if (own.length) rules.push(...this.readModelAnimationRules({ animations: own }));
     const rig = json && json.rig && typeof json.rig === "object" ? json.rig : null;
     const presets = rig && json.defaultMotions !== false ? Reactor3D.rigMotionPresets() : null;
     if (presets && presets.defaultRules) {
-        const extra = presets.defaultRules(String(rig.template || "humanoid"), list);
+        const extra = presets.defaultRules(String(rig.template || "humanoid"), all);
         if (extra.length) return rules.concat(this.readModelAnimationRules({ animations: extra }));
     }
     return rules;
+};
+
+/**
+ * The words a clip in a model's file is named by for each movement state: "Walk" or "Walking"
+ * plays while walking, "Run" or "Sprint" while dashing, "Idle" or "Breathe" when still.
+ */
+Reactor3D.CLIP_STATE_NAMES = {
+    idle: ["idle", "breathe", "breathing", "stand", "standing"],
+    walking: ["walk", "walking"],
+    dashing: ["run", "running", "dash", "dashing", "sprint", "sprinting"],
+    jumping: ["jump", "jumping"],
+    swimming: ["swim", "swimming"],
+    treading: ["tread", "treading", "tread water", "treading water"],
+    climbing: ["climb", "climbing"],
+    riding: ["ride", "riding"]
+};
+
+/**
+ * The movement state a clip's name says it is for, or null: `{ state, exact }`. An exporter's
+ * "Armature|" prefix, a trailing number ("Idle_9") and "loop" or "in place" are not part of the
+ * name; `exact` is false when one of those was taken off.
+ */
+Reactor3D.clipStateOf = function(name) {
+    let text = String(name || "");
+    text = text.slice(text.lastIndexOf("|") + 1).replace(/([a-z])([A-Z])/g, "$1 $2")
+        .toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const whole = text;
+    for (let previous = null; previous !== text;) {
+        previous = text;
+        text = text.replace(/\s*(?:\d+|loop|looped|cycle|in ?place)$/, "").trim();
+    }
+    for (const state of Object.keys(this.CLIP_STATE_NAMES)) {
+        if (this.CLIP_STATE_NAMES[state].indexOf(text) >= 0) return { state, exact: text === whole };
+    }
+    return null;
+};
+
+/**
+ * Clip rules for the clips in a model's file that name a movement state its
+ * own animations leave open (`list`, the sidecar's), so a model with a
+ * "Walking" clip walks with it before anyone adds the clip. An animation set
+ * for the state wins over the clip, and the clip over the rig's default
+ * motion. A clip named exactly wins over a numbered or "in place" one, then
+ * the first in the file. A walk with no run beside it also plays while
+ * dashing, unless the rig's default run does.
+ */
+Reactor3D.ownClipAnimations = function(list, clips, json) {
+    if (!Array.isArray(clips) || !clips.length) return [];
+    const covers = state => (list || []).some(rule => rule && rule.trigger && (rule.trigger === state
+        || (rule.trigger === "moving" && (state === "walking" || state === "dashing"))
+        || (state === "treading" && rule.trigger === "swimming" && rule.type === "clip")));
+    const best = {};
+    for (const clip of clips) {
+        const name = clip && typeof clip === "object" ? clip.name : clip;
+        const match = name ? this.clipStateOf(name) : null;
+        if (!match || covers(match.state)) continue;
+        const kept = best[match.state];
+        if (!kept || (match.exact && !kept.exact)) best[match.state] = { name: String(name), exact: match.exact };
+    }
+    const out = [];
+    for (const state of Object.keys(this.CLIP_STATE_NAMES)) {
+        if (best[state]) out.push({ name: best[state].name, type: "clip", clip: best[state].name, trigger: state, ownClip: true });
+    }
+    const walk = out.find(rule => rule.trigger === "walking");
+    if (walk && !best.dashing && !covers("dashing")) {
+        const rig = json && json.rig && typeof json.rig === "object" ? json.rig : null;
+        const presets = rig && json.defaultMotions !== false ? this.rigMotionPresets() : null;
+        const table = presets && presets.DEFAULTS ? presets.DEFAULTS[String(rig.template || "humanoid")] : null;
+        if (!(table && table.dashing)) walk.trigger = "moving";
+    }
+    return out;
 };
 
 /** The rig presets (reactor_rig_motions.js), wherever this runs; null when absent. */
@@ -9275,7 +9353,7 @@ Reactor3D.updateEnemyModelSprite = function(sprite) {
             state.camera = camera;
             state.scale = scale;
             state.binding = this.prepareModelInstance(object, object.__reactorClips);
-            state.rules = sidecar ? this.readModelAnimationRules(sidecar) : [];
+            state.rules = sidecar ? this.readModelAnimationRules(sidecar, object.__reactorClips) : [];
             state.size = size;
             state.bitmap = new Bitmap(size, size);
             state.ready = true;
@@ -9470,7 +9548,7 @@ Reactor3D.updateActorModelSprite = function(sprite) {
             state.camera = camera;
             state.scale = scale;
             state.binding = this.prepareModelInstance(object, object.__reactorClips);
-            state.rules = sidecar ? this.readModelAnimationRules(sidecar) : [];
+            state.rules = sidecar ? this.readModelAnimationRules(sidecar, object.__reactorClips) : [];
             state.size = size;
             state.bitmap = new Bitmap(size, size);
             state.ready = true;
@@ -9762,7 +9840,7 @@ Reactor3D.updateMapModelSprite = function(sprite) {
             state.camera = camera;
             state.scale = 1 / span;
             state.binding = this.prepareModelInstance(object, object.__reactorClips);
-            state.rules = sidecar ? this.readModelAnimationRules(sidecar) : [];
+            state.rules = sidecar ? this.readModelAnimationRules(sidecar, object.__reactorClips) : [];
             state.effects = sidecar ? this.readModelEffects(sidecar, spec) : [];
             object.userData.glbSize = extent;
             this.bindModelLandmarks(object, this.readModelLandmarks(sidecar));
@@ -11060,7 +11138,7 @@ Reactor3D.MapScene.prototype.syncCharacterModels = function(characters) {
                 current.object = object;
                 current.binding = Reactor3D.prepareModelInstance(object, object.__reactorClips);
                 Reactor3D.bindModelLandmarks(object, Reactor3D.readModelLandmarks(sidecar));
-                current.rules = sidecar ? Reactor3D.readModelAnimationRules(sidecar) : [];
+                current.rules = sidecar ? Reactor3D.readModelAnimationRules(sidecar, object.__reactorClips) : [];
                 current.effects = sidecar ? Reactor3D.readModelEffects(sidecar, spec) : [];
                 current.variant = spec.variant || "";
                 group.add(object);

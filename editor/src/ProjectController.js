@@ -2020,7 +2020,7 @@ class ProjectController {
             id: newMapId,
             name: 'New Map',
             displayName: '',
-            tilesetId: 1,
+            tilesetId: this.newMapTilesetId(),
             width: 17,
             height: 13,
             scrollType: 0,
@@ -2046,6 +2046,18 @@ class ProjectController {
         };
 
         this.openMapPropertiesModal(newMap, true, afterMapId);
+    }
+
+    /**
+     * The tileset a new map starts on: the open map's, as a new map is most often made beside it;
+     * else the first tileset with a picture in it. Tileset 1 of a project can be an empty record.
+     */
+    newMapTilesetId() {
+        const tilesets = this.databaseManager?.data?.tilesets || [];
+        const current = this.tilemapManager?.currentMap?.tilesetId;
+        if (current && tilesets[current]) return current;
+        const drawn = tilesets.find(tileset => tileset && Array.isArray(tileset.tilesetNames) && tileset.tilesetNames.some(name => !!name));
+        return drawn ? drawn.id : 1;
     }
 
     getNextMapId() {

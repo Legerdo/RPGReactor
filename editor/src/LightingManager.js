@@ -438,6 +438,23 @@ class LightingManager {
             : { ambient: 0.25, ambientColour: '#ffffff' };
     }
 
+    /**
+     * Whether the game lights this map, by the runtime's rule
+     * (`Reactor3D.mapLightingChoice`, then the note or a placed model's light,
+     * `modelLights` being how many the caller resolved), or this tool is open
+     * and shows the darkness its panel sets. `threeD` reads the note as the
+     * 3D view does (`<3d lights>` only). An unlit map is drawn fully lit.
+     */
+    lit(map = this.map(), modelLights = 0, threeD = false) {
+        if (!map || typeof Reactor3D === 'undefined') return false;
+        if (!Reactor3D.mapLightingChoice) return this.active || modelLights > 0 || this.lights().length > 0;
+        const said = Reactor3D.mapLightingChoice(map);
+        if (said !== null) return said;
+        if (this.active || modelLights > 0) return true;
+        const meta = Reactor3D.mapMeta(map);
+        return !!(meta && (meta['3d lights'] || (!threeD && meta.lighting)));
+    }
+
     //-------------------------------------------------------------------------
     // 2D overlay
 
@@ -595,7 +612,7 @@ class LightingManager {
         state.darkness.height = map.height * tw;
         const props = this.projectController?.modelPropsManager;
         const lights = this.resolvedLights(frame).concat(props?.preview2D?.lights || []);
-        const enabled = ambient.enabled !== false && (this.active || lights.length > 0 || !!map.reactor3d?.lighting);
+        const enabled = this.lit(map, lights.length);
         state.darkness.visible = state.glow.visible = !!enabled;
         // Ambient stays below floor glows. Live model textures apply ambient
         // and surface lights themselves; the manager tints placeholders only
@@ -1360,13 +1377,18 @@ class LightingManager {
         const ambient = this.ambient();
         // Lights that placed models carry (a light-type model effect), resolved by the 3D view each frame.
         const modelLights = Array.isArray(Reactor3D._editorEffectLights) ? Reactor3D._editorEffectLights : [];
-        if (!this.lights().length && !modelLights.length && ambient.ambient === undefined) {
-            // Nothing placed and no ambient block: leave the compositor
-            // untouched so an unlit map never even builds the light pools.
+        if (!this.lit(this.map(), modelLights.length, true)) {
+            // Unlit, as the game draws it: no lights and an ambient of one.
+            // The scene repaints its materials once, not every frame.
             Reactor3D.setLights([]);
             Reactor3D.setAmbient(null);
+            if (this._unlitScene !== scene) {
+                this._unlitScene = scene;
+                scene.syncLights?.(null);
+            }
             return;
         }
+        this._unlitScene = null;
         // A flicker's or pulse's frame is read off the clock at the game's sixty a second, as a carried light's
         // is: the view draws an animated light about twenty times a second, and it plays at the speed the game shows.
         this._frame = Number.isFinite(now) ? Math.floor(now * 0.06) : this._frame + 1;

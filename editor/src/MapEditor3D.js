@@ -1258,29 +1258,21 @@ class MapEditor3D {
     }
 
     /**
-     * Give the scene a sky and some distance.
-     *
-     * Without them the map is a lit slab floating in a void, and its edge is a
-     * hard line against nothing. Fog fades the far side of a large map into the
-     * same colour as the sky, which reads as depth and hides that edge. The
-     * colour is taken from the editor's own theme so the viewport does not
-     * fight whatever palette is in use.
+     * Give the scene its backdrop: the editor's own theme colour behind the
+     * map, so the viewport does not fight whatever palette is in use. No fog:
+     * the game draws none, and a fog measured from the eye greyed out the far
+     * side of even a small map from the game's own camera distance.
      */
     applyAtmosphere(mapData) {
         if (!this.mapScene) return;
         const scene = this.mapScene.scene();
-        const colour = new THREE.Color(this.skyColour());
-        scene.background = colour;
-        // Starts fading beyond a screenful and is total at roughly twice the
-        // map's longest side, so a small map never fogs at all.
-        const span = Math.max(mapData.width, mapData.height);
-        scene.fog = new THREE.Fog(colour, span * 0.9, span * 2.2);
+        scene.background = new THREE.Color(this.skyColour());
+        scene.fog = null;
     }
 
     skyColour() {
         // `--color-bg-base`, not `--color-bg-deep`: deep is pure black on the
-        // dark themes, and a black sky gives fog nothing to fade into, so
-        // distance reads as the map simply ending.
+        // dark themes, where a map's dark edge tiles would vanish into it.
         const fallback = 0x1a1a1a;
         if (typeof window === 'undefined' || !window.getComputedStyle) return fallback;
         try {
@@ -3110,8 +3102,8 @@ class MapEditor3D {
 
     /**
      * The page of an event this view draws at real size: the one Preview
-     * Event chose, else, for a battle unit, the page it is a unit on. Null
-     * for an event shown by its marker alone.
+     * Event chose, else, for a battle unit, the page it is a unit on, else a
+     * first page given a model. Null for an event shown by its marker alone.
      */
     static previewEvents(map) {
         return typeof EventManager !== 'undefined' && EventManager.mapPreviewEvents
@@ -3123,7 +3115,9 @@ class MapEditor3D {
         if (typeof EventManager !== 'undefined' && typeof EventManager.previewPage === 'function') return EventManager.previewPage(mapData, event);
         const previews = mapData?.reactor3d?.eventPreviews;
         const page = previews ? previews[String(event?.id)] : undefined;
-        return Number.isInteger(page) && event?.pages?.[page] ? page : null;
+        if (Number.isInteger(page) && event?.pages?.[page]) return page;
+        // A first page given a model stands as it.
+        return event?.pages?.[0] && mapData?.reactor3d?.events?.[String(event.id)]?.['0']?.name ? 0 : null;
     }
 
     /** The model a previewed page stands as: its own, else (a battle unit with none) the one the Database gives its record, as in the game. */

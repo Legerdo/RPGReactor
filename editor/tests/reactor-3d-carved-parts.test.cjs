@@ -451,7 +451,7 @@ test('the game sync carves the clone before binding and reads rules from one sid
     const carve = source.indexOf('Reactor3D.carveModelParts(object, Reactor3D.readModelParts(sidecar))');
     const bind = source.indexOf('current.binding = Reactor3D.prepareModelInstance(object');
     assert.ok(carve > 0 && bind > carve, 'carve happens before the binding is prepared');
-    assert.match(source, /current\.rules = sidecar \? Reactor3D\.readModelAnimationRules\(sidecar\) : \[\]/);
+    assert.match(source, /current\.rules = sidecar \? Reactor3D\.readModelAnimationRules\(sidecar, object\.__reactorClips\) : \[\]/);
     // A missing model.json is a normal state: on disk it is stat-ed first
     // so no unsuppressible network error reaches the console.
     assert.match(source, /Reactor3D\.loadModelSidecar = function[\s\S]*?fs\.existsSync\(path\.join\(base, url\)\)/);

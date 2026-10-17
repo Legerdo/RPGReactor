@@ -1735,8 +1735,8 @@ class Database3DEditor {
 
     rebuildPlayback() {
         this.playRules = typeof Reactor3D !== 'undefined'
-            // With the rig, so the preview plays its default motions as the game does.
-            ? Reactor3D.readModelAnimationRules({ animations: this.rawAnimations, rig: this.customRig, defaultMotions: this.defaultMotions })
+            // With the rig and the file's clips, so the preview plays its default motions and the clips named for a state as the game does.
+            ? Reactor3D.readModelAnimationRules({ animations: this.rawAnimations, rig: this.customRig, defaultMotions: this.defaultMotions }, this._binding?.clips?.length ? this._binding.clips : this.embeddedClips || [])
             : [];
         if (this._binding) {
             this._binding.angles = {};
@@ -7734,7 +7734,76 @@ class Database3DEditor {
         const saved = this.customRig && this.customRig.template === this._rigTemplate ? this.customRig.markers : null;
         const size = this._template.userData.glbSize || { x: 1, y: 1.8, z: 1 };
         const placed = saved && ModelRigger.markersFor(this._rigTemplate).some(marker => Array.isArray(saved[marker.key]) && saved[marker.key].length === 3);
-        return placed ? ModelRigger.completeMarkers(saved, this._rigTemplate, size) : this._rigDefaultMarkers();
+        this._rigAutoNote = null;
+        this._rigGuessed = null;
+        if (placed) return ModelRigger.completeMarkers(saved, this._rigTemplate, size);
+        // A humanoid with no saved markers starts from the model itself: its skeleton, else its shape.
+        if (this._rigTemplate === 'humanoid') {
+            const auto = this._autoRigResult();
+            if (auto) return this._takeAutoMarkers(auto);
+        }
+        return this._rigDefaultMarkers();
+    }
+
+    /**
+     * The humanoid markers read off the model (ModelAutoRig): on its own skeleton's bones where it has them,
+     * else from its shape, else the guess from its size. Read once a model, from the file's model as it loads
+     * (no rig laid on it, its bones at rest).
+     */
+    _autoRigResult() {
+        if (typeof ModelAutoRig === 'undefined' || typeof THREE === 'undefined' || !this._template) return null;
+        if (this._autoRig && this._autoRig.template === this._template) return this._autoRig.result;
+        let result = null;
+        try {
+            const input = ModelAutoRig.inputFromObject(this._template, THREE, node => !!(node.userData && node.userData.__reactorOverlay));
+            input.size = this._template.userData.glbSize || null;
+            result = ModelAutoRig.autoMarkers(input);
+        } catch (error) {
+            console.warn('The markers could not be placed from the model.', error);
+            result = null;
+        }
+        this._autoRig = { template: this._template, result };
+        return result;
+    }
+
+    /** Auto-placed markers become the ones being edited; the bar says what was found and what was guessed. */
+    _takeAutoMarkers(auto) {
+        this._rigAutoNote = auto;
+        this._rigGuessed = new Set(auto.guessed);
+        this._rigAutoMarkers = JSON.stringify(auto.markers);
+        return JSON.parse(this._rigAutoMarkers);
+    }
+
+    /** The Rig bar's Auto-place: markers from the model, asking first when there are markers of the person's own to replace. */
+    async autoPlaceRigMarkers() {
+        if (!this._rigMode || this._rigFaceMode || this._rigTemplate !== 'humanoid') return;
+        const auto = this._autoRigResult();
+        if (!auto) return;
+        const saved = this.customRig && this.customRig.template === 'humanoid' && this.customRig.markers;
+        const own = JSON.stringify(this._rigMarkers) !== this._rigAutoMarkers && (!!saved || JSON.stringify(this._rigMarkers) !== JSON.stringify(this._rigDefaultMarkers()));
+        if (own) {
+            const ui = typeof window !== 'undefined' && window.reactor && window.reactor.uiManager;
+            const go = ui && ui.showConfirm
+                ? await ui.showConfirm(this._t('Auto-place markers'), this._t('Replace the markers on this model with ones placed from its skeleton and shape?'), this._t('Auto-place markers'))
+                : true;
+            if (!go || !this._rigMode || this._rigFaceMode || this._rigTemplate !== 'humanoid') return;
+        }
+        this._rigMarkers = this._takeAutoMarkers(auto);
+        this._buildRigVisuals();
+        this.renderRigBar();
+    }
+
+    /** The Rig bar's line on auto-placed markers: where they came from, and which parts were guessed (look there). */
+    _rigAutoNoteText() {
+        const auto = this._rigAutoNote;
+        if (!auto || this._rigTemplate !== 'humanoid') return '';
+        if (!auto.humanoid) return this._t('Not a humanoid shape: markers placed by the model\'s size.');
+        const from = auto.fromSkeleton && auto.fromShape ? this._t('Placed from the skeleton and the shape.')
+            : auto.fromSkeleton ? this._t('Placed from the skeleton.') : this._t('Placed from the model\'s shape.');
+        const guessed = ModelAutoRig.summarize(auto.guessed).guessed;
+        return from + ' ' + (guessed.length
+            ? this._t('Guessed: {parts}.', { parts: guessed.map(part => this._t(part)).join(', ') })
+            : this._t('Every marker was found.'));
     }
 
     /** Whether the chosen kind binds a skeleton, which a model with carved parts cannot take (both count the model's meshes and triangles uncarved). */
@@ -7886,7 +7955,10 @@ class Database3DEditor {
             sphere.userData.__reactorOverlay = true;
             // A dark rim, so a dot reads on a pale surface as well as a dark one.
             if (!this._rigFaceMode) {
-                const rim = new THREE.Mesh(sphere.geometry, new THREE.MeshBasicMaterial({ color: 0x000000, depthTest: false, transparent: true, opacity: 0.8 }));
+                // A guessed marker's rim is white: the place to look first.
+                const guessed = !!(this._rigGuessed && this._rigGuessed.has(marker.key));
+                const rim = new THREE.Mesh(sphere.geometry, new THREE.MeshBasicMaterial({ color: guessed ? 0xffffff : 0x000000, depthTest: false, transparent: true, opacity: 0.8 }));
+                rim.name = 'rig-marker-rim';
                 rim.scale.setScalar(1.35);
                 rim.renderOrder = 29.5;
                 rim.userData.__reactorOverlay = true;
@@ -8019,6 +8091,12 @@ class Database3DEditor {
         sphere.position.copy(local);
         this._placeRigLabel(key);
         const marker = this._rigMarkerDefinitions().find(entry => entry.key === key);
+        // A marker the person placed is no longer a guess (nor its twin).
+        if (this._rigGuessed) for (const placed of [key, marker && marker.mirror]) {
+            if (!placed || !this._rigGuessed.delete(placed)) continue;
+            const rim = this._rigMarkerMeshes[placed] && this._rigMarkerMeshes[placed].getObjectByName('rig-marker-rim');
+            if (rim) rim.material.color.setHex(0x000000);
+        }
         if (marker && marker.mirror) {
             const twin = this._rigMirrorPoint(local);
             this._rigMarkers[marker.mirror] = twin;
@@ -8096,10 +8174,21 @@ class Database3DEditor {
         reset.textContent = this._t('Reset markers');
         reset.addEventListener('click', () => {
             this._rigMarkers = this._rigDefaultMarkers();
+            this._rigAutoNote = null;
+            this._rigGuessed = null;
             this._buildRigVisuals();
-            this._refreshUnsaved();
+            this.renderRigBar();
         });
         bar.appendChild(reset);
+        if (this._rigTemplate === 'humanoid' && typeof ModelAutoRig !== 'undefined') {
+            const auto = sized(document.createElement('button'));
+            auto.type = 'button';
+            auto.className = 'rr-btn-secondary r3d-rig-auto';
+            auto.textContent = this._t('Auto-place markers');
+            auto.title = this._t('Places the markers from the model\'s own skeleton, or from its shape.');
+            auto.addEventListener('click', () => this.autoPlaceRigMarkers());
+            bar.appendChild(auto);
+        }
         if (this.customRig && !riding) {
             const remove = sized(document.createElement('button'));
             remove.type = 'button';
@@ -8123,6 +8212,14 @@ class Database3DEditor {
         if (carved) hint.style.color = 'var(--color-warning-text, var(--color-text))';
         hint.title = this._t('Markers snap into the model; a faint one floats outside it.') + ' ' + this._t('Wheel zooms toward the pointer; Shift-drag pans.');
         bar.appendChild(hint);
+        const noteText = !carved && !riding ? this._rigAutoNoteText() : '';
+        if (noteText) {
+            const note = document.createElement('span');
+            note.className = 'r3d-rig-auto-note';
+            note.style.cssText = 'flex:1 1 100%;color:var(--color-text-muted);';
+            note.textContent = noteText;
+            bar.appendChild(note);
+        }
         this._refreshUnsaved();
     }
 
@@ -8735,10 +8832,10 @@ class Database3DEditor {
             this._rigChanged();
             if (status) {
                 const total = meshes.reduce((sum, mesh) => sum + mesh.positions.length / 3, 0);
-                status.textContent = this._t('Rig bound — {bones} bones, {vertices} vertices', {
-                    bones: bones.length,
-                    vertices: total
-                });
+                // A model with a skeleton of its own: the rig's joints map onto its bones, and no vertex is weighted.
+                status.textContent = total > 0
+                    ? this._t('Rig bound — {bones} bones, {vertices} vertices', { bones: bones.length, vertices: total })
+                    : this._t("Rig bound to the model's own skeleton — {bones} joints", { bones: bones.length });
             }
         }, 30);
     }
@@ -9077,7 +9174,9 @@ class Database3DEditor {
         if (!states.includes(this.previewState())) { this._sim.walking = this._sim.dashing = this._sim.jumping = this._sim.swimming = this._sim.climbing = this._sim.riding = false; }
         const held = this.playRules.some(rule => rule.type === 'pose' && rule.hold);
         // A model that only "moves" (a car, a drone) is Idle or Moving; one that walks is Standing or Walking.
-        const walker = (this.rawAnimations || []).concat(this.rawEffects || []).some(raw => raw && ['walking', 'dashing', 'jumping', 'swimming', 'treading', 'climbing', 'riding'].includes(raw.trigger));
+        // A clip in its file named for a state (Walking, Idle) makes it one that walks.
+        const walker = (this.playRules || []).some(rule => rule.ownClip)
+            || (this.rawAnimations || []).concat(this.rawEffects || []).some(raw => raw && ['walking', 'dashing', 'jumping', 'swimming', 'treading', 'climbing', 'riding'].includes(raw.trigger));
         const names = { standing: walker ? 'Standing' : 'Idle', walking: walker ? 'Walking' : 'Moving', dashing: 'Dashing', jumping: 'Jumping', swimming: 'Swimming', treading: 'Treading', climbing: 'Climbing', riding: 'Riding' };
         const current = this.previewState();
         bar.innerHTML = states.map(state => `<button type="button" class="r3d-preview-state${state === current ? ' active' : ''}" data-state="${state}" aria-pressed="${state === current}">${this._t(names[state])}</button>`).join('')
@@ -9207,7 +9306,10 @@ class Database3DEditor {
         list.appendChild(header);
         for (const clipName of clips) {
             const added = this.rawAnimations.some(raw => raw.type === 'clip' && raw.clip === clipName);
-            const row = this._row({ icon: 'clip', name: clipName, actions: [
+            // A clip named for a state the model has no animation for plays in it: its row says when.
+            const plays = (this.playRules || []).find(rule => rule.ownClip && rule.clip === clipName);
+            const note = plays ? this.ruleSummary(plays).split(' · ').pop() : '';
+            const row = this._row({ icon: 'clip', name: clipName, note, actions: [
                 { icon: 'play', title: this._t('Play'), run: () => this.playEmbeddedClip(clipName) },
                 { icon: added ? 'check' : 'add', title: this._t('Add'), disabled: added, run: () => this.addEmbeddedClipRule(clipName) }
             ] });

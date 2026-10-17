@@ -1223,7 +1223,7 @@ class EventManager {
         if (!sprite) return;
         // A sized event's footprint takes the tone with its square.
         if (sprite._rrArea) this._drawEventFootprint(sprite._rrArea, this._eventFootprint(eventId), isSelected);
-        if (sprite._rrSquare) this._drawEventSquare(sprite._rrSquare, isSelected);
+        if (sprite._rrSquare) this._drawEventSquare(sprite._rrSquare, isSelected, sprite._rrSquareAlpha ?? 0.75);
         // Its outline over a preview follows too.
         const outline = this.eventOutlines?.get(eventId);
         const event = outline && (this.currentMap?.events || []).find(e => e && e.id === eventId);
@@ -2556,6 +2556,13 @@ class EventManager {
         return rule && typeof rule.color === 'function' ? rule.color(team) : EventManager.SIDE_COLORS[team] || EventManager.SIDE_COLORS.neutral;
     }
 
+    /** Whether page `index` of an event is given a 3D model in the map's Reactor sidecar. */
+    static pageHasModel(map, event, index) {
+        const pages = map && map.reactor3d && map.reactor3d.events && event ? map.reactor3d.events[String(event.id)] : null;
+        const spec = pages && typeof pages === 'object' ? pages[String(index)] : null;
+        return !!(spec && spec.name);
+    }
+
     /** The page of an event Preview Event chose; null when none is chosen. */
     static chosenPreviewPage(map, event) {
         const previews = map && map.reactor3d ? map.reactor3d.eventPreviews : null;
@@ -2566,14 +2573,18 @@ class EventManager {
     /**
      * The page of an event the map draws at real size: the one Preview Event
      * chose, else, for a battle unit, the page it is a unit on (its first
-     * page for a row or a Note tag). Null: the event is its square alone.
+     * page for a row or a Note tag), else its first page when that page is
+     * given a 3D model (the game stands the event as the model, as it stands
+     * a page's character as its sprite). Null: the event is its square alone.
      */
     static previewPage(map, event) {
         const chosen = EventManager.chosenPreviewPage(map, event);
         if (chosen !== null) return chosen;
         const unit = EventManager.unitOf(event);
         if (!unit || !event.pages) {
-            return typeof RRVehicles !== 'undefined' && RRVehicles.vehicleOf(event) && event.pages?.[0] ? 0 : null;
+            if (!event?.pages?.[0]) return null;
+            if (typeof RRVehicles !== 'undefined' && RRVehicles.vehicleOf(event)) return 0;
+            return EventManager.pageHasModel(map, event, 0) ? 0 : null;
         }
         const index = unit.page > 0 ? unit.page - 1 : 0;
         return event.pages[index] ? index : null;
@@ -3651,9 +3662,13 @@ class EventManager {
         container.addChild(marker);
         container._rrMarker = marker;
 
-        // Always draw the black background box with white border (RPG Maker style)
+        // The black background box with white border (RPG Maker style). An event that stands as its
+        // model is drawn under this box (with the placed models): there the box is faint, so the model shows.
         const graphics = new PIXI.Graphics();
-        this._drawEventSquare(graphics, isSelected, isDragging ? 0.9 : 0.75);
+        const previewPage = this.getEventPreviewPage(event);
+        const asModel = previewPage !== null && !!this.previewModelRaw(event, previewPage)?.name;
+        container._rrSquareAlpha = asModel ? 0.15 : (isDragging ? 0.9 : 0.75);
+        this._drawEventSquare(graphics, isSelected, container._rrSquareAlpha);
         marker.addChild(graphics);
         container._rrSquare = graphics;
 

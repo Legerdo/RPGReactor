@@ -311,7 +311,7 @@ class ModelPropsPreview2D {
      * count. Hashed as it goes rather than joined into a string, so an idle
      * frame builds no strings to compare.
      */
-    idleKey(mapLights, ambient, lightingRevision) {
+    idleKey(mapLights, ambient, lightingRevision, lit = true) {
         let hash = 2166136261;
         const mix = value => {
             const number = typeof value === 'number' ? value : typeof value === 'boolean' ? (value ? 1 : 0) : NaN;
@@ -339,8 +339,9 @@ class ModelPropsPreview2D {
                 'priorityRadius', 'colour', 'occlude', 'shadow']) mix(light[key]);
         }
         if (ambient) for (const key of Object.keys(ambient).sort()) { mix(key); mix(ambient[key]); }
-        // Any edit in the Lighting tool, however it arrived.
+        // Any edit in the Lighting tool, however it arrived, and whether the map is lit at all.
         mix(lightingRevision);
+        mix(lit);
         return hash >>> 0;
     }
 
@@ -381,7 +382,7 @@ class ModelPropsPreview2D {
         // out exactly as they did last frame. Skip the posing, projection,
         // light packing and shadow work until one of those inputs moves.
         if (!this.isLive(mapLights)) {
-            const key = this.idleKey(mapLights, rawAmbient, lighting?.revision);
+            const key = this.idleKey(mapLights, rawAmbient, lighting?.revision, lighting?.lit ? lighting.lit() : true);
             if (key === this._idleKey) {
                 this._lastModelTick = now;
                 return;
@@ -425,7 +426,8 @@ class ModelPropsPreview2D {
             }
         }
         const allLights = lights.concat(mapLights);
-        const enabled = rawAmbient?.enabled !== false;
+        // Lit only where the game lights the map; an unlit one is drawn fully lit.
+        const enabled = lighting?.lit ? lighting.lit(lighting.map(), lights.length) : rawAmbient?.enabled !== false;
         const ambient = enabled && rawAmbient ? { intensity: rawAmbient.ambient ?? 1,
             colour: Number.parseInt((rawAmbient.ambientColour || '#ffffff').slice(1), 16) } : { intensity: 1, colour: 0xffffff };
         for (const entry of this.entries.values()) {

@@ -772,10 +772,11 @@ test('a raycast hit becomes a tile coordinate', () => {
         'quadrant tools get pixel offsets in the project\'s tile size');
 });
 
-test('the scene has a sky and fog scaled to the map', () => {
-    // Without them the map is a slab in a void and its edge is a hard line
-    // against nothing.
-    assert.match(source, /scene\.background = colour/);
-    assert.match(source, /new THREE\.Fog\(colour/);
-    assert.match(source, /--color-bg-base/, 'deep is pure black, which fog cannot fade into');
+test('the scene has the theme backdrop and no fog, as the game draws none', () => {
+    // A fog measured from the eye greyed out the far side of a small map from
+    // the game's own camera distance; the editor draws what the game draws.
+    assert.match(source, /scene\.background = new THREE\.Color\(this\.skyColour\(\)\)/);
+    assert.match(source, /scene\.fog = null;/);
+    assert.doesNotMatch(source, /new THREE\.Fog\(/);
+    assert.match(source, /--color-bg-base/, 'deep is pure black against the dark themes');
 });
