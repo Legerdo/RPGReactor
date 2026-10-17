@@ -149,12 +149,12 @@
      * each strand's triangle (pack vertex ids), its place in it, its lean,
      * length, curl and lane on the strand picture.
      */
-    function hairStrands(pack, bodyHair, hidden) {
+    function hairStrands(pack, bodyHair, hidden, mode = 'tuft') {
         const Skin = root.RRCharacterSkin || require('./CharacterSkin.js');
         const Body = root.RRHumanBody || require('./HumanBody.js');
-        const key = JSON.stringify([bodyHair.regions, bodyHair.amount, bodyHair.fur, bodyHair.length]) + '|' + (hidden ? hidden.size : 0);
-        pack._strandCache = pack._strandCache || { key: null };
-        if (pack._strandCache.key === key) return pack._strandCache.strands;
+        const key = mode + JSON.stringify([bodyHair.regions, bodyHair.amount, bodyHair.fur, bodyHair.length, bodyHair.budget]) + '|' + (hidden ? hidden.size : 0);
+        pack._strandCache = pack._strandCache || new Map();
+        if (pack._strandCache.has(key)) return pack._strandCache.get(key);
         const an = Outfit.anatomy(pack), R = an.rest;
         const fields = Skin.fieldsOf(pack);
         const src = pack.body.source, I = pack.body.index;
@@ -170,7 +170,8 @@
         }
         const fur = bodyHair.fur || 0;
         // Tufts per square meter at full density: each carries several strands (fur's, more and finer).
-        const perM2 = (bodyHair.budget || 1) * (16000 + 4000 * fur);
+        // Single strands for body hair (about four a square centimeter at full), tufts for fur.
+        const perM2 = (bodyHair.budget || 1) * (mode === 'strand' ? 40000 : 16000 + 4000 * fur);
         const rand = rng(1234);
         const strands = [];
         for (let t = 0; t < I.length; t += 3) {
@@ -178,6 +179,8 @@
             if (hidden && hidden.has(a) && hidden.has(b) && hidden.has(c)) continue;
             const d = (dens[a] + dens[b] + dens[c]) / 3;
             if (d < 0.02) continue;
+            // Where hair is sparse it is fine and short (vellus); where thick, full-length terminal hair.
+            const full = Math.min(1, d * 1.6);
             const ux = R[b * 3] - R[a * 3], uy = R[b * 3 + 1] - R[a * 3 + 1], uz = R[b * 3 + 2] - R[a * 3 + 2];
             const vx = R[c * 3] - R[a * 3], vy = R[c * 3 + 1] - R[a * 3 + 1], vz = R[c * 3 + 2] - R[a * 3 + 2];
             const area = 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
@@ -196,12 +199,13 @@
                 const chest = fam === 0 && sv > 0.6 && sv < 3.9;
                 const base = face ? 0.009 : coarse ? 0.024 : chest ? 0.019 : fam >= 3 ? 0.014 : 0.012;
                 strands.push({ tri: [a, b, c], w: [1 - s1 - s2, s1, s2],
-                    len: base * (0.65 + 0.7 * rand()) * (1 + fur * 0.9 * (bodyHair.length || 1)),
+                    len: base * (0.65 + 0.7 * rand()) * (mode === 'strand' ? 0.35 + 0.65 * full : 1 + fur * 0.9 * (bodyHair.length || 1)), fine: full,
                     lean: 0.1 + 0.12 * rand() + fur * 0.2, curl: coarse ? 0.9 : chest ? 0.45 * rand() : 0.2 * rand(), twist: (rand() - 0.5) * 0.9,
                     lane: (fur > 0.3 && rand() < fur ? 2 : 0) + Math.floor(rand() * 2), shade: 0.75 + 0.3 * rand(), fam, x: R[a * 3] });
             }
         }
-        pack._strandCache = { key, strands };
+        if (pack._strandCache.size > 6) pack._strandCache.clear();
+        pack._strandCache.set(key, strands);
         return strands;
     }
 
@@ -226,51 +230,57 @@
         const rgb = Outfit.linear(color || '#2a1d15');
         let vi = 0, ii = 0;
         // A tuft is a few millimeters across: its picture holds the strands.
-        const width = 0.0022 * (o.width || 1);
-        for (const s of strands) {
-            const [a, b, c] = s.tri, [wa, wb, wc] = s.w;
-            const root3 = [0, 1, 2].map(k => P[a * 3 + k] * wa + P[b * 3 + k] * wb + P[c * 3 + k] * wc);
-            let nn = [0, 1, 2].map(k => normals[a * 3 + k] * wa + normals[b * 3 + k] * wb + normals[c * 3 + k] * wc);
-            const nl = Math.hypot(...nn) || 1; nn = nn.map(x => x / nl);
-            let f = flowAt(s);
-            f = [f[0] + s.twist * 0.5, f[1], f[2] + s.twist * 0.5];
-            const fd = f[0] * nn[0] + f[1] * nn[1] + f[2] * nn[2];
-            f = [f[0] - nn[0] * fd, f[1] - nn[1] * fd, f[2] - nn[2] * fd];
-            const fl = Math.hypot(...f) || 1; f = f.map(x => x / fl);
-            // Across the card: on the skin's plane, square to the flow.
-            const side = [nn[1] * f[2] - nn[2] * f[1], nn[2] * f[0] - nn[0] * f[2], nn[0] * f[1] - nn[1] * f[0]];
-            const u0 = s.lane * 0.25, u1 = u0 + 0.25;
-            const base = vi;
-            let p = root3.slice();
+        const single = o.mode === 'strand';
+        const width = single ? 0.00028 * (o.width || 1) : 0.0022 * (o.width || 1);
+        const SKJ = pack.skinJoints, SKW = pack.skinWeights;
+        for (let si = 0; si < n; si++) {
+            const s = strands[si], a = s.tri[0], b = s.tri[1], c = s.tri[2], wa = s.w[0], wb = s.w[1], wc = s.w[2];
+            let px = P[a * 3] * wa + P[b * 3] * wb + P[c * 3] * wc, py = P[a * 3 + 1] * wa + P[b * 3 + 1] * wb + P[c * 3 + 1] * wc, pz = P[a * 3 + 2] * wa + P[b * 3 + 2] * wb + P[c * 3 + 2] * wc;
+            let nx = normals[a * 3] * wa + normals[b * 3] * wb + normals[c * 3] * wc, ny = normals[a * 3 + 1] * wa + normals[b * 3 + 1] * wb + normals[c * 3 + 1] * wc, nz = normals[a * 3 + 2] * wa + normals[b * 3 + 2] * wb + normals[c * 3 + 2] * wc;
+            let l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+            // The flow at the root, on the skin's plane.
+            let fx, fy = -0.95, fz = 0;
+            if (s.fam === 1 || s.fam === 2) { fx = Math.sign(s.x) * 0.55; fy = -0.83; } else if (s.fam === 0) fx = -Math.sign(s.x) * 0.3; else { fx = 0; fy = -1; }
+            fx += s.twist * 0.5; fz += s.twist * 0.5;
+            const fd = fx * nx + fy * ny + fz * nz;
+            fx -= nx * fd; fy -= ny * fd; fz -= nz * fd;
+            l = Math.hypot(fx, fy, fz) || 1; fx /= l; fy /= l; fz /= l;
+            const sx = ny * fz - nz * fy, sy = nz * fx - nx * fz, sz = nx * fy - ny * fx;
+            const u0 = single ? 0 : s.lane * 0.25, u1 = single ? 1 : u0 + 0.25;
+            const base = vi, step = s.len / (SEG - 1);
+            // Fine hair is fainter: lighter toward the skin it grows on.
+            const faint = single ? 0.55 * (1 - (s.fine ?? 1)) : 0;
+            const cr = (rgb[0] + (0.55 - rgb[0]) * faint) * s.shade, cg = (rgb[1] + (0.42 - rgb[1]) * faint) * s.shade, cb = (rgb[2] + (0.35 - rgb[2]) * faint) * s.shade;
             for (let g = 0; g < SEG; g++) {
                 const t = g / (SEG - 1);
                 if (g > 0) {
                     // Out of the skin at first, lying down along the flow further out; curl turns it sideways.
                     const lift = s.lean * (1 - t * 0.6), turn = Math.sin(t * Math.PI * s.curl) * s.curl * 0.8;
-                    const dir = [f[0] + nn[0] * lift + side[0] * turn, f[1] + nn[1] * lift + side[1] * turn, f[2] + nn[2] * lift + side[2] * turn];
-                    const dl = Math.hypot(...dir) || 1;
-                    p = p.map((x, k) => x + dir[k] / dl * s.len / (SEG - 1));
+                    let dx = fx + nx * lift + sx * turn, dy = fy + ny * lift + sy * turn, dz = fz + nz * lift + sz * turn;
+                    const dl = Math.hypot(dx, dy, dz) || 1;
+                    px += dx / dl * step; py += dy / dl * step; pz += dz / dl * step;
                 }
-                const w = width * (1 - t * 0.5);
-                for (const k of [-1, 1]) {
-                    positions.set([p[0] + side[0] * w * k, p[1] + side[1] * w * k, p[2] + side[2] * w * k], vi * 3);
-                    nrm.set(nn, vi * 3);
-                    uvs.set([k < 0 ? u0 : u1, 0.05 + t * 0.9], vi * 2);
-                    colors.set(rgb.map(x => x * s.shade * (0.85 + 0.15 * t)), vi * 3);
-                    joints.set(pack.skinJoints.subarray(a * 4, a * 4 + 4), vi * 4);
-                    weights.set(pack.skinWeights.subarray(a * 4, a * 4 + 4), vi * 4);
+                const w = width * (single ? 1 - t * 0.65 : 1 - t * 0.5), tone = 0.85 + 0.15 * t;
+                for (let k = -1; k <= 1; k += 2) {
+                    const o3 = vi * 3, o4 = vi * 4;
+                    positions[o3] = px + sx * w * k; positions[o3 + 1] = py + sy * w * k; positions[o3 + 2] = pz + sz * w * k;
+                    nrm[o3] = nx; nrm[o3 + 1] = ny; nrm[o3 + 2] = nz;
+                    uvs[vi * 2] = k < 0 ? u0 : u1; uvs[vi * 2 + 1] = 0.05 + t * 0.9;
+                    colors[o3] = cr * tone; colors[o3 + 1] = cg * tone; colors[o3 + 2] = cb * tone;
+                    joints[o4] = SKJ[a * 4]; joints[o4 + 1] = SKJ[a * 4 + 1]; joints[o4 + 2] = SKJ[a * 4 + 2]; joints[o4 + 3] = SKJ[a * 4 + 3];
+                    weights[o4] = SKW[a * 4]; weights[o4 + 1] = SKW[a * 4 + 1]; weights[o4 + 2] = SKW[a * 4 + 2]; weights[o4 + 3] = SKW[a * 4 + 3];
                     source[vi] = a;
                     vi++;
                 }
             }
             for (let g = 0; g + 1 < SEG; g++) {
                 const q = base + g * 2;
-                index.set([q, q + 2, q + 1, q + 1, q + 2, q + 3], ii);
+                index[ii] = q; index[ii + 1] = q + 2; index[ii + 2] = q + 1; index[ii + 3] = q + 1; index[ii + 4] = q + 2; index[ii + 5] = q + 3;
                 ii += 6;
             }
         }
-        return { name: o.name || 'Body hair', positions, normals: nrm, uvs, colors, index, joints, weights, texture: 'bodyhair.png', cutout: true, alphaCutoff: 0.35,
-            keepColors: true, doubleSided: true, roughness: 0.75, kind: 'hair', source };
+        return { name: o.name || 'Body hair', positions, normals: nrm, uvs, colors, index, joints, weights, texture: single ? 'strand.png' : 'bodyhair.png', cutout: true, alphaCutoff: single ? 0.3 : 0.35,
+            keepColors: true, doubleSided: true, roughness: 0.75, kind: 'hair', source, noShade: true };
     }
 
     /**
@@ -302,7 +312,20 @@
         return { width: size, height: size, data, name: 'bodyhair.png' };
     }
 
-    const api = { areolaPatches, areolaTexture, areolaPart, hairStrands, hairPart, bodyHairTexture };
+    /** One strand across its card: a soft round section, darker at its core, tapering to its tip. */
+    function strandTexture(w = 32, h = 128) {
+        const data = new Uint8Array(w * h * 4);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const u = (x + 0.5) / w * 2 - 1, v = (y + 0.5) / h, o = (y * w + x) * 4;
+            const width = 0.8 * (1 - v * 0.75);
+            const a = Math.max(0, 1 - (u / width) ** 2) * Math.min(1, (1 - v) * 6);
+            const l = Math.round(200 + 55 * (1 - Math.abs(u) / Math.max(0.05, width)));
+            data[o] = data[o + 1] = data[o + 2] = Math.min(255, l); data[o + 3] = Math.round(255 * a);
+        }
+        return { width: w, height: h, data, name: 'strand.png' };
+    }
+
+    const api = { strandTexture, areolaPatches, areolaTexture, areolaPart, hairStrands, hairPart, bodyHairTexture };
     root.RRCharacterDetail = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

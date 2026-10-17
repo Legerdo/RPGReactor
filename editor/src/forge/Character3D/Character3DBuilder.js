@@ -349,7 +349,11 @@ class Character3DBuilder {
             if (!committed) return;
             if (path === 'eyeStyle') { this._applyEyeStyle(value); return; }
             // A body hair pattern sets every region to its own values.
-            if (path === 'bodyHair.pattern' && value !== 'custom') this._set('bodyHair.regions', Object.assign({}, RRCharacterSkin.HAIR_PRESETS[value]));
+            // On a woman, Natural and Light are a woman's own patterns.
+            if (path === 'bodyHair.pattern' && value !== 'custom') {
+                const female = RRHumanBody.sexOf(this.recipe) === 'female', P = RRCharacterSkin.HAIR_PRESETS;
+                this._set('bodyHair.regions', Object.assign({}, (female && P[value + 'Female']) || P[value]));
+            }
             this._set(path, value);
             this._commit();
             this._renderPanel();
@@ -1020,7 +1024,7 @@ class Character3DBuilder {
         const fill = new THREE.DirectionalLight(0xdce8ff, 0.5);
         fill.position.set(-2.5, 1.4, 1.6);
         scene.add(fill);
-        const rim = new THREE.DirectionalLight(0xc8d8ff, 1.6);
+        const rim = new THREE.DirectionalLight(0xdfe6f2, 1.3);
         rim.position.set(-1.2, 2.4, -2.8);
         scene.add(rim);
         const floor = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshStandardMaterial({ color: 0x34373e, roughness: 0.95 }));
@@ -1240,7 +1244,7 @@ class Character3DBuilder {
         if (!view || !this.pack) return;
         let result;
         try {
-            result = RRCharacterModel.build(this.pack, this.recipe, this.cache, { quality: 'preview', eyeSource: this.eyeSource, paintSkin: (key, args) => this._paintSkin(key, args) });
+            result = RRCharacterModel.build(this.pack, this.recipe, this.cache, { quality: 'preview', eyeSource: this.eyeSource, paintSkin: (key, args) => this._paintSkin(key, args), hairBudget: this._weak ? 0.45 : 1 });
         } catch (error) {
             console.error('[Character3DBuilder] build', error);
             this._status(this._t('This character could not be built.'), 'error');
@@ -1271,7 +1275,10 @@ class Character3DBuilder {
             }
             view.textures.delete(name);
             const fresh = this._texture(name, tex);
-            for (const m of view.meshes) if (m.material.map === old) { m.material.map = fresh; m.material.needsUpdate = true; }
+            for (const m of view.meshes) {
+                if (m.material.map === old) { m.material.map = fresh; m.material.needsUpdate = true; }
+                if (m.material.sheenColorMap === old) { m.material.sheenColorMap = fresh; m.material.needsUpdate = true; }
+            }
             old.dispose();
         }
         // The painted skin is in: no tint stands in for it any more.
@@ -1366,11 +1373,22 @@ class Character3DBuilder {
         // Hair: matte, warm, hardly a reflection of the room.
         if (kind === 'hair') { m.roughness = 0.78; m.metalness = 0; m.envMapIntensity = 0.25; }
         if (this._weak) { if (kind === 'eye' || kind === 'glass') m.roughness = 0.08; return m; }
-        if (kind === 'skin') { m.roughness = 0.5; m.sheen = 0.35; m.sheenRoughness = 0.55; m.sheenColor = new THREE.Color('#d06a50'); m.specularIntensity = 0.45; }
+        // Skin: a soft sheen in the skin's own color (from its picture), so it warms skin and stays dark on a
+        // painted scalp, stubble or markings.
+        if (kind === 'skin') { m.roughness = 0.52; m.sheen = 0.3; m.sheenRoughness = 0.55; m.sheenColor = new THREE.Color(0.9, 0.7, 0.62); if (m.map) m.sheenColorMap = m.map; m.specularIntensity = 0.4; }
         else if (kind === 'cloth') { m.sheen = 0.6; m.sheenRoughness = 0.8; m.sheenColor = new THREE.Color('#ffffff'); m.roughness = Math.max(m.roughness, 0.75); m.specularIntensity = 0.25; }
         else if (kind === 'metal') { m.metalness = Math.max(0.85, m.metalness); m.roughness = Math.min(0.4, m.roughness); m.clearcoat = 0.3; }
-        // Hair takes its color from its vertices: no sheen of its own, which read as a grey film over it.
-        else if (kind === 'hair') { m.specularIntensity = 0.2; m.sheen = 0; }
+        // Hair: its highlight is a band running across the strands (anisotropic, along each card's strand
+        // direction), as real hair shines; no sheen, which read as a grey film.
+        else if (kind === 'hair') {
+            m.sheen = 0;
+            // A soft band in the hair's own color; brows and lashes stay matte.
+            const own = part.colors ? new THREE.Color(part.colors[0], part.colors[1], part.colors[2]) : new THREE.Color(0x444444);
+            if (part.tangents && part.name === 'Hair') {
+                m.anisotropy = 0.5; m.anisotropyRotation = Math.PI / 2; m.roughness = 0.62; m.specularIntensity = 0.14;
+                m.specularColor = own.clone().lerp(new THREE.Color(0x9a948e), 0.55); m.envMapIntensity = 0.05;
+            } else { m.specularIntensity = 0.12; m.envMapIntensity = 0.1; }
+        }
         else if (kind === 'eye') { m.roughness = 0.08; m.clearcoat = 1; m.clearcoatRoughness = 0.03; }
         else if (kind === 'glass') { m.roughness = 0.02; m.metalness = 0; m.clearcoat = 1; m.envMapIntensity = 2; }
         return m;
@@ -1443,6 +1461,12 @@ class Character3DBuilder {
             g.setAttribute('normal', new THREE.BufferAttribute(Float32Array.from(part.normals), 3));
             if (part.uvs) g.setAttribute('uv', new THREE.BufferAttribute(Float32Array.from(part.uvs), 2));
             if (part.colors) g.setAttribute('color', new THREE.BufferAttribute(Float32Array.from(part.colors), 3));
+            // The strand's direction, for highlights that run along the hair.
+            if (part.tangents && part.tangents.length === part.positions.length) {
+                const t4 = new Float32Array(part.positions.length / 3 * 4);
+                for (let i = 0; i < t4.length / 4; i++) { t4[i * 4] = part.tangents[i * 3]; t4[i * 4 + 1] = part.tangents[i * 3 + 1]; t4[i * 4 + 2] = part.tangents[i * 3 + 2]; t4[i * 4 + 3] = 1; }
+                g.setAttribute('tangent', new THREE.BufferAttribute(t4, 4));
+            }
             g.setAttribute('skinIndex', new THREE.BufferAttribute(Uint16Array.from(part.joints), 4));
             g.setAttribute('skinWeight', new THREE.BufferAttribute(Float32Array.from(part.weights), 4));
             g.setIndex(new THREE.BufferAttribute(Uint32Array.from(part.index), 1));
@@ -1506,7 +1530,7 @@ class Character3DBuilder {
             const worker = this._shadingWorker();
             if (!worker) { apply(RRCharacterShading.ambientOcclusion(result.parts)); return; }
             const id = (this._shadeJob = (this._shadeJob || 0) + 1);
-            const parts = result.parts.map(p => ({ positions: Float32Array.from(p.positions), normals: Float32Array.from(p.normals), index: Uint32Array.from(p.index), doubleSided: !!p.doubleSided }));
+            const parts = result.parts.map(p => (p.noShade ? { positions: new Float32Array(0), normals: new Float32Array(0), index: new Uint32Array(0) } : { positions: Float32Array.from(p.positions), normals: Float32Array.from(p.normals), index: Uint32Array.from(p.index), doubleSided: !!p.doubleSided }));
             worker.onmessage = e => { if (e.data.id === id) apply(e.data.ao); };
             worker.postMessage({ id, parts });
         }, 300);
@@ -1773,6 +1797,6 @@ Character3DBuilder.bodyPath = function(path) {
 };
 
 /** Bumped when the previews' look changes, so pictures kept on disk are drawn again. */
-Character3DBuilder.PREVIEW_VERSION = 4;
+Character3DBuilder.PREVIEW_VERSION = 5;
 
 if (typeof window !== 'undefined') window.Character3DBuilder = Character3DBuilder;

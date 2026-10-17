@@ -263,7 +263,7 @@ test('body hair is strands grown out of the skin where its regions say, and cove
     const hairy = Model.build(pack, { gender: 1, bodyHair: { amount: 1, pattern: 'natural' } }, {}, { quality: 'preview' });
     const part = hairy.parts.find(p => p.name === 'Body hair');
     assert.ok(part && part.index.length / 3 > 2000, 'thousands of strands');
-    assert.ok(part.cutout && part.texture === 'bodyhair.png');
+    assert.ok(part.cutout && part.texture === 'strand.png' && part.noShade, 'single strands, not shaded');
     const dressed = Model.build(pack, { gender: 1, bodyHair: { amount: 1, pattern: 'natural' }, outfit: Wardrobe.PRESETS.find(p => p.id === 'knight').items }, {}, { quality: 'preview' });
     const under = dressed.parts.find(p => p.name === 'Body hair');
     assert.ok(!under || under.index.length < part.index.length * 0.5, 'armor covers most of it');

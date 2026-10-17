@@ -39,7 +39,9 @@
             features: Species.normalizeFeatures(r.features),
             skinPattern: Skin.normalizeSkin(r.skinPattern),
             eyes: Skin.normalizeEyes(r.eyes),
-            bodyHair: Skin.normalizeBodyHair(r.bodyHair),
+            // A pattern without regions of its own: a woman's Natural and Light are a woman's.
+            bodyHair: Skin.normalizeBodyHair(r.bodyHair && !r.bodyHair.regions && Body.sexOf(body) === 'female' && Skin.HAIR_PRESETS[(r.bodyHair.pattern || 'natural') + 'Female']
+                ? Object.assign({}, r.bodyHair, { regions: Skin.HAIR_PRESETS[(r.bodyHair.pattern || 'natural') + 'Female'] }) : r.bodyHair),
             hair: Hair.normalizeHair(r.hair || (r.bald ? { style: 'bald', brows: { style: 'none' } } : undefined)),
             outfit: Wardrobe.normalizeOutfit(r.outfit),
             props: Props.normalizeProps(r.props)
@@ -114,9 +116,11 @@
         const anatomy = { detail: r.anatomy.detail, female: sex === 'female', cup: 0, areola: r.anatomy.areola, areolaColor: r.anatomy.areolaColor, fold: r.anatomy.fold };
         const bodyHair = Object.assign({}, r.bodyHair, { color: r.bodyHair.color || r.hair.color });
         const earHoles = r.morph.earsAway > 0.6 && r.morph.earHoles > 0;
-        const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair, earHoles]);
+        // A style with hair over the scalp colors the scalp under it (not for the shortest crops or a bald head).
+        const scalp = r.hair.style !== 'bald' && !['buzz'].includes(r.hair.style) && !r.outfit.some(i => HAIR_COVERS.has(i.id)) ? { color: r.hair.color, recede: r.hair.hairline || 0 } : null;
+        const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair, earHoles, scalp]);
         if (cache.skinKey !== skinKey) {
-            const args = { skin: r.skin, pattern: r.skinPattern, options: { size: skinSize, beard, anatomy, bodyHair, earHoles } };
+            const args = { skin: r.skin, pattern: r.skinPattern, options: { size: skinSize, beard, anatomy, bodyHair, earHoles, scalp } };
             // A painter off the page (the builder's worker) answers later; until then the last skin stays.
             const painted = o.paintSkin ? o.paintSkin(skinKey, args) : Skin.paint(pack, args.skin, args.pattern, args.options);
             if (painted) { cache.skin = painted; cache.skinKey = skinKey; }
@@ -140,11 +144,20 @@
         const parts = [body, eyes];
         // Body hair and fur: strands grown out of the uncovered skin.
         const skinNormals = Body.vertexNormals(pack, built.shaped);
-        if (bodyHair.amount > 0.01 || bodyHair.fur > 0.01) {
-            const strands = Detail.hairStrands(pack, Object.assign({}, bodyHair, { amount: Math.max(bodyHair.amount, bodyHair.fur), budget: o.hairBudget || 1 }), outfit.hidden);
+        // Body hair: single strands where it grows; fur: dense tufts over it.
+        const budget = o.hairBudget || 1;
+        if (bodyHair.amount > 0.01) {
+            const strands = Detail.hairStrands(pack, Object.assign({}, bodyHair, { budget }), outfit.hidden, 'strand');
             if (strands.length) {
+                textures['strand.png'] = cache.strandTex || (cache.strandTex = Detail.strandTexture());
+                parts.push(Detail.hairPart(pack, built.shaped, skinNormals, strands, bodyHair.color, { mode: 'strand' }));
+            }
+        }
+        if (bodyHair.fur > 0.05) {
+            const tufts = Detail.hairStrands(pack, Object.assign({}, bodyHair, { amount: Math.max(bodyHair.amount, bodyHair.fur), budget }), outfit.hidden, 'tuft');
+            if (tufts.length) {
                 textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
-                parts.push(Detail.hairPart(pack, built.shaped, skinNormals, strands, bodyHair.color, { width: 1 + bodyHair.fur }));
+                parts.push(Detail.hairPart(pack, built.shaped, skinNormals, tufts, bodyHair.color, { width: 1 + bodyHair.fur, name: 'Fur' }));
             }
         }
         // The areolas: their own patch with its own picture, sharp at any distance.

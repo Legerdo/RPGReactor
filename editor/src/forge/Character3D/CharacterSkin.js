@@ -106,6 +106,9 @@
         natural: Object.assign({}, zero, { chest: 0.7, belly: 0.65, pubic: 1, armpits: 1, upperArms: 0.3, forearms: 0.8, hands: 0.35, thighs: 0.55, shins: 0.85, feet: 0.45, buttocks: 0.25, back: 0.05, shoulders: 0.05 }),
         hairy: Object.assign({}, zero, { chest: 1, belly: 0.95, pubic: 1, armpits: 1, upperArms: 0.7, forearms: 1, hands: 0.6, thighs: 0.9, shins: 1, feet: 0.7, buttocks: 0.7, back: 0.85, shoulders: 0.8, neck: 0.35 }),
         furry: Object.assign(Object.fromEntries(HAIR_REGIONS.map(r => [r[0], 1])), { face: 0 }),
+        // A woman's: fine hair on the forearms and lower legs, the armpits and groin; none on the chest or back.
+        naturalFemale: Object.assign({}, zero, { pubic: 1, armpits: 0.9, forearms: 0.2, shins: 0.35, thighs: 0.05, feet: 0.08 }),
+        lightFemale: Object.assign({}, zero, { pubic: 0.6, armpits: 0.4, forearms: 0.15, shins: 0.2 }),
         werewolf: Object.fromEntries(HAIR_REGIONS.map(r => [r[0], 1]))
     };
     const BODY_HAIR_PATTERNS = [['none', 'None'], ['light', 'Light'], ['natural', 'Natural'], ['hairy', 'Very hairy'], ['furry', 'Furry body'], ['werewolf', 'Werewolf'], ['custom', 'Custom']];
@@ -351,9 +354,18 @@
         // Body hair, painted: darker strands thickening with the amount.
         if (s.bodyHair && s.bodyHair.amount > 0) {
             const bh = s.bodyHair, dens = hairDensity(bh.regions, p) * bh.amount;
-            // Only an undertone where it grows: the hair itself is strands over the skin (RRCharacterDetail).
-            // Under fur, the skin itself takes the fur's color, so none shows between the strands.
-            if (dens > 0.01) rgb = mix(rgb, bh.rgb, Math.min(1, dens) * Math.max(0.12, (bh.fur || 0) * 0.92));
+            // The hair itself is strands over the skin (RRCharacterDetail); only under fur does the skin take
+            // the fur's color, so none shows between them.
+            if (dens > 0.01 && bh.fur > 0.05) rgb = mix(rgb, bh.rgb, Math.min(1, dens) * bh.fur * 0.92);
+        }
+        // Under head hair the scalp takes the hair's root color, so nothing pale shows between the locks.
+        if (s.scalp && p.fam === 0 && p.s > 4.6) {
+            const front = Math.cos(p.ang), side = Math.abs(Math.sin(p.ang));
+            // The hairline: high on the forehead, down over the temples, low at the nape; a little uneven.
+            const line = front > 0 ? 5.64 - 0.3 * side * side + s.scalp.recede * 0.25 * (1 - side) : 5.34 - 0.3 * Math.min(1, -front * 1.4);
+            const wobble = (noise3(x * 60, y * 60, z * 60) - 0.5) * 0.05;
+            const cover = smooth(line - 0.03, line + 0.04, p.s + wobble) * (1 - smooth(0.25, 0.6, p.ears || 0));
+            if (cover > 0) rgb = mix(rgb, s.scalp.rgb, cover * 0.95);
         }
         // With the ears folded away, the ear's own skin is the inside of the ear hole: dark.
         if (s.earHoles && p.ears > 0.45) rgb = mix(rgb, rgb.map(c => c * 0.12), smooth(0.45, 0.85, p.ears));
@@ -391,6 +403,7 @@
         const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, lids: 0, cheeks: 0, nose: 0, ears: 0, jaw: 0 };
         s.beard = Math.max(0, Math.min(1, (options && options.beard) || 0));
         s.earHoles = !!(options && options.earHoles);
+        if (options && options.scalp) s.scalp = { rgb: Outfit.linear(options.scalp.color).map(c => c * 0.75), recede: options.scalp.recede || 0 };
         if (options && options.bodyHair && options.bodyHair.amount > 0) s.bodyHair = Object.assign({}, options.bodyHair, { rgb: Outfit.linear(options.bodyHair.color || '#2a1d15') });
         // Anatomy: the areolas (sized by the bust) and a woman's crotch, at their places on the average body.
         const A = options && options.anatomy;

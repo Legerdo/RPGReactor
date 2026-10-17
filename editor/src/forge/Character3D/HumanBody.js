@@ -417,10 +417,15 @@
         // The hands, feet and face take little; the trunk, the seat and the tops of the limbs the most.
         const head = pack.bones.findIndex(b => b.name === 'Head');
         const light = pack.bones.map((b, i) => (/Hand|Foot|ToeBase|Head$/.test(b.name) ? i : -1)).filter(i => i >= 0);
+        // The eyes stay open on any body: round each eye (lids, sockets, the cheek under it) nothing swells.
+        const B = pack.positions, eyeIds = [...new Set(pack.eyes.refs)];
+        const eyeC = [1, -1].map(sd => { const own = eyeIds.filter(v => Math.sign(B[v * 3]) === sd); return [0, 1, 2].map(k => own.reduce((a, v) => a + B[v * 3 + k], 0) / own.length); });
         for (let v = 0; v < pack.vertexCount; v++) {
             let lw = 0;
             for (let k = 0; k < 4; k++) if (light.includes(pack.skinJoints[v * 4 + k])) lw += pack.skinWeights[v * 4 + k] * (pack.skinJoints[v * 4 + k] === head ? 0.6 : 0.85);
-            mask[v] = Math.max(0.12, mask[v]) * (1 - lw);
+            let eye = 1;
+            for (const c of eyeC) { const d = Math.hypot(B[v * 3] - c[0], B[v * 3 + 1] - c[1], B[v * 3 + 2] - c[2]); eye = Math.min(eye, Math.max(0, Math.min(1, (d - 0.022) / 0.03))); }
+            mask[v] = Math.max(0.12, mask[v]) * (1 - lw) * eye * eye;
         }
         return (pack._fatMask = mask);
     }
@@ -678,7 +683,7 @@
     function anatomyDetail(pack, P, r) {
         const F = anatomyFields(pack), female = sexOf(r) === 'female', B = pack.positions;
         const nb = neighbors(pack);
-        const height = (female ? 0.003 : 0.0012) * r.anatomy.nipple, tipR = (female ? 0.0052 : 0.0034) * Math.max(0.6, Math.sqrt(r.anatomy.nipple));
+        const height = (female ? 0.0019 : 0.0009) * r.anatomy.nipple, tipR = (female ? 0.0045 : 0.003) * Math.max(0.6, Math.sqrt(r.anatomy.nipple));
         for (const nip of F.nipples) {
             const c = [B[nip.v * 3], B[nip.v * 3 + 1], B[nip.v * 3 + 2]];
             const zone = (nip.zone = nip.zone || [...new Set(pack.body.source)].map(v => [v, Math.hypot(B[v * 3] - c[0], B[v * 3 + 1] - c[1], B[v * 3 + 2] - c[2])]).filter(x => x[1] < 0.02));
@@ -694,8 +699,9 @@
             const n = normalAt(pack, P, nip.v);
             for (const [v, d] of zone) {
                 // A soft rise of the areola, then the nipple: a rounded column, its top a dome.
-                const areola = (female ? 0.0008 : 0.0003) * r.anatomy.areola * Math.max(0, 1 - (d / 0.02) ** 2);
-                const column = height * (1 - smooth01(tipR * 0.55, tipR, d));
+                // The areola barely rises; the nipple is a soft dome, wider at its base, its edge eased into the areola.
+                const areola = (female ? 0.0003 : 0) * r.anatomy.areola * Math.max(0, 1 - (d / 0.018) ** 2);
+                const column = height * Math.pow(1 - smooth01(0, tipR * 1.6, d), 1.5);
                 const lift = areola + column;
                 P[v * 3] += n[0] * lift; P[v * 3 + 1] += n[1] * lift; P[v * 3 + 2] += n[2] * lift;
             }

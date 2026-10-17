@@ -34,8 +34,11 @@
      * `options`: radius (meters reached, 0.12), strength (1), floor (how dark at most, 0.35).
      */
     function ambientOcclusion(parts, options) {
-        const o = Object.assign({ radius: 0.1, strength: 1.6, floor: 0.3, step: 4 }, options);
+        // Gentle: creases deepen, never go dirty (under a bust, the collarbones, the elbows).
+        const o = Object.assign({ radius: 0.08, strength: 1.05, floor: 0.55, step: 4 }, options);
         // Every vertex of every part as one cloud: position, normal, area.
+        // Parts that shade nothing and are shaded by nothing (fine body hair) are left out.
+        parts = parts.map(p => (p.noShade ? Object.assign({}, p, { positions: new Float32Array(0), normals: new Float32Array(0), index: new Uint32Array(0) }) : p));
         let total = 0;
         for (const p of parts) total += p.positions.length / 3;
         const pos = new Float32Array(total * 3), nrm = new Float32Array(total * 3), area = new Float32Array(total), two = new Uint8Array(total);
@@ -122,7 +125,7 @@
         };
         return parts.map((p, k) => {
             const a = ao[k];
-            if (!a) return p;
+            if (!a || p.noShade || a.length !== p.positions.length / 3) return p;
             const n = p.positions.length / 3, colors = new Float32Array(n * 3);
             const base = p.colors || null, flat = !base && !p.texture ? linear(p.color) : [1, 1, 1];
             for (let v = 0; v < n; v++) for (let c = 0; c < 3; c++) colors[v * 3 + c] = (base ? base[v * 3 + c] : flat[c]) * a[v];

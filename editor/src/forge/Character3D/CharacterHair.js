@@ -374,10 +374,12 @@
 
     // ── mesh builder ───────────────────────────────────────────────────────
     function meshBuilder() {
-        return { pos: [], nrm: [], col: [], idx: [], uv: [] };
+        return { pos: [], nrm: [], col: [], idx: [], uv: [], tan: [] };
     }
     // A vertex; `uv` places it on the strand picture (a card), solid geometry sits on its root row.
-    const pushVert = (m, p, n, c, uv) => { m.pos.push(p[0], p[1], p[2]); m.nrm.push(n[0], n[1], n[2]); m.col.push(c[0], c[1], c[2]); m.uv.push(uv ? uv[0] : 0.5, uv ? uv[1] : 0.02); return m.pos.length / 3 - 1; };
+    // A vertex; `uv` places it on the strand picture (a card), `tan` is the strand's direction there
+    // (for highlights that run along the hair); solid geometry sits on the picture's root row.
+    const pushVert = (m, p, n, c, uv, tan) => { m.pos.push(p[0], p[1], p[2]); m.nrm.push(n[0], n[1], n[2]); m.col.push(c[0], c[1], c[2]); m.uv.push(uv ? uv[0] : 0.5, uv ? uv[1] : 0.02); m.tan.push(tan ? tan[0] : 0, tan ? tan[1] : -1, tan ? tan[2] : 0); return m.pos.length / 3 - 1; };
 
     /** A shell over a cut surface: each point raised by `lift(i)` along its normal, colored by `color(i)`. */
     function addShell(m, surf, lift, color) {
@@ -465,7 +467,10 @@
                     // The middle stands proud (a lock is round); the edges stay at the strand's own height.
                     const p = add(add(pts[i], mul(B, k * w * 0.5)), mul(N, k === 0 ? bow : 0));
                     const shade = k === 0 ? 1 : 0.86;
-                    pushVert(m, p, norm(add(N, mul(B, k * 0.35))), shadeRgb(col, shade), [u0 + (k + 1) / 2 * (u1 - u0), t * 0.98 + 0.01]);
+                    // Lit as part of the whole head of hair, not as a flat strip: the normal leans out from
+                    // the head's middle (the card's own facing mixed in), and the strand runs along T.
+                    const out = norm(sub(p, opts.center || [0, 0, 0]));
+                    pushVert(m, p, norm(add(mul(out, 0.7), mul(norm(add(N, mul(B, k * 0.35))), 0.3))), shadeRgb(col, shade), [u0 + (k + 1) / 2 * (u1 - u0), t * 0.98 + 0.01], T);
                 }
             }
             for (let i = 0; i + 1 < n; i++) {
@@ -484,8 +489,13 @@
         const data = new Uint8Array(size * size * 4);
         const rnd = rng(77);
         const strands = [];
-        for (let lane = 0; lane < 4; lane++) for (let k = 0; k < 26; k++) {
-            strands.push({ u: lane * 0.25 + (k + rnd()) / 26 * 0.25, len: 0.55 + 0.45 * rnd(), wob: (rnd() - 0.5) * 0.006, freq: 4 + rnd() * 6, ph: rnd() * 6.28, light: 0.72 + 0.28 * rnd(), lane });
+        // Strands gathered in loose clumps across each lane, each its own length, drift and lightness.
+        for (let lane = 0; lane < 4; lane++) {
+            const clumps = Array.from({ length: 5 }, () => lane * 0.25 + 0.03 + rnd() * 0.19);
+            for (let k = 0; k < 44; k++) {
+                const c = clumps[k % clumps.length] + (rnd() - 0.5) * 0.05;
+                strands.push({ u: Math.min(lane * 0.25 + 0.245, Math.max(lane * 0.25 + 0.005, c)), len: 0.5 + 0.5 * rnd(), wob: (rnd() - 0.5) * 0.008, freq: 3 + rnd() * 5, ph: rnd() * 6.28, light: 0.65 + 0.35 * rnd(), lane });
+            }
         }
         const alpha = new Float32Array(size * size), lum = new Float32Array(size * size).fill(0.85);
         for (const st of strands) {
@@ -493,7 +503,7 @@
                 const v = (y + 0.5) / size;
                 if (v > st.len) break;
                 const tip = 1 - v / st.len;
-                const width = (0.0026 + 0.0022 * Math.min(1, tip * 2)) * size;
+                const width = (0.0016 + 0.0016 * Math.min(1, tip * 2)) * size;
                 const cu = (st.u + st.wob * Math.sin(v * st.freq * 6.28 + st.ph)) * size;
                 const laneMin = st.lane * 0.25 * size, laneMax = (st.lane + 1) * 0.25 * size - 1;
                 for (let x = Math.max(laneMin, Math.floor(cu - width - 1)); x <= Math.min(laneMax, Math.ceil(cu + width + 1)); x++) {
@@ -507,9 +517,11 @@
         }
         for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
             const o = y * size + x, v = (y + 0.5) / size;
-            // Full at the root, so no scalp shows between cards.
-            const a = Math.max(alpha[o], Math.max(0, 0.9 - v * 4));
-            const l = Math.round(255 * lum[o]);
+            // A card's sides fade, so no lock shows a straight edge; a little fuller at the very root.
+            const lu = ((x + 0.5) / size % 0.25) / 0.25, side = Math.min(1, Math.min(lu, 1 - lu) * 6);
+            const a = Math.max(alpha[o] * (0.35 + 0.65 * side), Math.max(0, 0.6 - v * 9) * side);
+            // Darker at the root, lighter toward the tips, as hair is.
+            const l = Math.round(255 * lum[o] * (0.72 + 0.28 * Math.min(1, v * 1.6)));
             data[o * 4] = l; data[o * 4 + 1] = l; data[o * 4 + 2] = l; data[o * 4 + 3] = Math.round(255 * Math.min(1, a));
         }
         return { width: size, height: size, data, name: 'hair.png' };
@@ -1438,6 +1450,7 @@
             joints, weights,
             colors: Float32Array.from(m.col),
             uvs: Float32Array.from(m.uv),
+            tangents: Float32Array.from(m.tan),
             roughness: 0.55,
             doubleSided: true
         }, opts.extra || {});
