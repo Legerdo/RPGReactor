@@ -135,10 +135,11 @@ class Database3DEditor {
      */
     static THUMBNAIL_CACHE_VERSION = 4;
 
-    static thumbnailCacheName(sourcePath, size, mtimeMs) {
+    /** `worn` (ModelVariantsPanel.lookStamp): what the use wears; a picture of another look is another entry. */
+    static thumbnailCacheName(sourcePath, size, mtimeMs, worn = '') {
         const crypto = require('crypto');
         return crypto.createHash('sha1')
-            .update(`${sourcePath}|${size}|${Math.round(mtimeMs)}|v${Database3DEditor.THUMBNAIL_CACHE_VERSION}`)
+            .update((worn ? `${worn}|` : '') + `${sourcePath}|${size}|${Math.round(mtimeMs)}|v${Database3DEditor.THUMBNAIL_CACHE_VERSION}`)
             .digest('hex') + '.png';
     }
 
@@ -895,7 +896,7 @@ class Database3DEditor {
         });
     }
 
-    /** Desktop only: the source file's path, size, and mtime name the cache entry. */
+    /** Desktop only: the source file's path, size, and mtime, and what the entry wears (`entry.worn`), name the cache entry. */
     _thumbnailCachePath(entry) {
         if (typeof require !== 'function' || typeof process === 'undefined') return null;
         try {
@@ -908,7 +909,8 @@ class Database3DEditor {
             const sourcePath = fs.existsSync(next) ? next : path.join(project.path, '3d', 'source', file);
             const stat = fs.statSync(sourcePath);
             const root = Database3DEditor.thumbnailCacheRoot(process, path, require('os'));
-            return path.join(root, Database3DEditor.thumbnailCacheName(sourcePath, stat.size, stat.mtimeMs));
+            const worn = entry.worn && typeof ModelVariantsPanel !== 'undefined' ? ModelVariantsPanel.lookStamp(entry.worn) : '';
+            return path.join(root, Database3DEditor.thumbnailCacheName(sourcePath, stat.size, stat.mtimeMs, worn));
         } catch (error) {
             return null;
         }
@@ -962,6 +964,22 @@ class Database3DEditor {
         // Bound-model previews also request thumbnails outside the 3D tab.
         // Their caller owns the lifetime; the model list retains its detail guard.
         if (options.isCurrent ? !options.isCurrent() : (!this._detail || !this._detail.isConnected)) return null;
+        const object = Reactor3D.cloneModelTemplate
+            ? Reactor3D.cloneModelTemplate(template)
+            : template.clone(true);
+        const disposeObject = () => object.traverse(node => {
+            const materials = Array.isArray(node.material) ? node.material : [node.material];
+            for (const material of materials) material?.dispose?.();
+        });
+        // `entry.worn` (ModelVariantsPanel.lookOf): the surface and look a use of the model
+        // shows, its variant's or the model's own. A variant's own picture loads after this.
+        if (entry.worn && typeof ModelVariantsPanel !== 'undefined') {
+            ModelVariantsPanel.applyWorn(object, entry.worn);
+            if (entry.worn.look && entry.worn.look.texture) {
+                await Database3DEditor.whenTexturesDecoded(ModelPreview3D.collectTextures(object), 6000);
+                if (options.isCurrent ? !options.isCurrent() : (!this._detail || !this._detail.isConnected)) { disposeObject(); return null; }
+            }
+        }
         if (!this._thumbRenderer) {
             const canvas = document.createElement('canvas');
             canvas.width = 512;
@@ -972,9 +990,6 @@ class Database3DEditor {
             this._thumbScene = new THREE.Scene();
             this._thumbCamera = Reactor3D.createCamera({ fov: 40 });
         }
-        const object = Reactor3D.cloneModelTemplate
-            ? Reactor3D.cloneModelTemplate(template)
-            : template.clone(true);
         const extent = template.userData.glbSize || { x: 1, y: 1, z: 1 };
         const span = Math.max(extent.x, extent.y, extent.z, 0.0001);
         const scale = 1.6 / span;
@@ -989,10 +1004,7 @@ class Database3DEditor {
         this._thumbCamera.updateProjectionMatrix();
         this._thumbRenderer.render(this._thumbScene, this._thumbCamera);
         this._thumbScene.remove(object);
-        object.traverse(node => {
-            const materials = Array.isArray(node.material) ? node.material : [node.material];
-            for (const material of materials) material?.dispose?.();
-        });
+        disposeObject();
         // The thumbnail is a picture from here on: a model loaded only to draw it is given back
         // (one drawn before its textures landed is kept for the late re-render), and the renderer
         // goes with its context a few seconds after the last thumbnail.

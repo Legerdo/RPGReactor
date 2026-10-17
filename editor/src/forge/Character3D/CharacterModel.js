@@ -84,9 +84,9 @@
         const o = options || {};
         const r = normalize(recipe);
         if (r.plan === 'quadruped') {
-            const built = Creature.build(r, { quality: o.quality || 'save' });
+            const built = Creature.build(r, { quality: o.quality || 'save', hairBudget: o.hairBudget });
             if (o.quality === 'save' || o.quality == null || o.shade) shade(built.parts);
-            return { recipe: r, parts: built.parts, bones: built.bones, height: built.height, textures: {}, clips: built.clips, sidecar: Creature.sidecar(built), plan: 'quadruped' };
+            return { recipe: r, parts: built.parts, bones: built.bones, height: built.height, textures: built.textures || {}, clips: built.clips, sidecar: Creature.sidecar(built), plan: 'quadruped' };
         }
         const built = Body.build(pack, r);
         const textures = {};
@@ -96,6 +96,7 @@
         if (o.atlasSize) cache.wardrobe.atlasSize = o.atlasSize;
         const outfit = Wardrobe.build(pack, built, r.outfit, cache.wardrobe);
         if (outfit.texture) textures[outfit.texture.name] = outfit.texture;
+        for (const t of outfit.textures || []) textures[t.name] = t;
 
         // The body: its painted skin, the covered triangles dropped.
         const body = Object.assign({}, built.parts[0]);

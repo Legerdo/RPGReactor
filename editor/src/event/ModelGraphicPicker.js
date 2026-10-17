@@ -1133,7 +1133,8 @@ class ModelGraphicPicker {
             this._applyModelRotation();
             this._rebuildFaceMarkers();
             this._scene.add(this._object);
-            if (this.selectedVariant) this._wearVariant();
+            // The surface and look the game gives this use: the chosen variant's, or the model's own.
+            this._wearVariant();
             // A GLB's images decode after the first draw; their version
             // numbers tell the idle loop when one has landed.
             this._previewTextures = ModelPreview3D.collectTextures(template, this._object);

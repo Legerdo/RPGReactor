@@ -144,7 +144,7 @@ class Character3DBuilder {
     _tabs() {
         return this.human
             ? [['species', 'Species'], ['body', 'Body'], ['face', 'Face'], ['hair', 'Hair'], ['outfit', 'Outfit'], ['props', 'Accessories'], ['colors', 'Colors']]
-            : [['species', 'Species'], ['body', 'Body'], ['colors', 'Colors']];
+            : [['species', 'Species'], ['body', 'Body'], ['gear', 'Gear'], ['colors', 'Colors']];
     }
 
     _renderPage() {
@@ -174,7 +174,7 @@ class Character3DBuilder {
                         <div class="rr-c3d-readout"></div>
                         <div class="rr-c3d-poses" role="group" aria-label="${this._t('Pose')}">
                             <div class="rr-c3d-poses-title">${this._t('Pose')}</div>
-                            ${[['apose', 'A-pose'], ['idle', 'Idle']].concat(RRCharacterPoses.POSES.map(p => [p.id, p.label])).map(([id, label]) => `<button class="rr-btn-chip rr-c3d-pose" data-pose="${id}">${this._t(label)}</button>`).join('')}
+                            <div class="rr-c3d-pose-list"></div>
                         </div>
                         <div class="rr-c3d-viewbar">
                             <button class="rr-btn-chip rr-c3d-frame" data-frame="body">${this._t('Whole body')}</button>
@@ -192,10 +192,10 @@ class Character3DBuilder {
         q('.rr-c3d-random').addEventListener('click', () => this._randomize());
         q('.rr-c3d-random-scope').addEventListener('change', e => { this.randomScope = e.target.value; });
         // Reset: back to the species' (or the creature kind's) own starting point.
-        q('.rr-c3d-reset').addEventListener('click', () => this._replace(this.human ? RRCharacterModel.withSpecies({}, this.recipe.species) : Object.assign({ plan: 'quadruped' }, RRCreatureBody.kindRecipe(this.recipe.kind))));
+        q('.rr-c3d-reset').addEventListener('click', () => this._replace(this.human ? RRCharacterModel.withSpecies({}, this.recipe.species) : this._creature(this.recipe.kind)));
         q('.rr-c3d-open').addEventListener('click', () => this._showGallery());
         q('.rr-c3d-save').addEventListener('click', () => this.save());
-        this.root.querySelectorAll('.rr-c3d-pose').forEach(b => b.addEventListener('click', () => { this.pose = b.dataset.pose; this._syncPose(); }));
+        q('.rr-c3d-poses').addEventListener('click', e => { const b = e.target.closest('.rr-c3d-pose'); if (b) { this.pose = b.dataset.pose; this._syncPose(); } });
         this.root.querySelectorAll('.rr-c3d-frame').forEach(b => b.addEventListener('click', () => this._frame(b.dataset.frame)));
         this.root.querySelector('.rr-c3d-tabs').addEventListener('click', e => {
             const b = e.target.closest('[data-tab]');
@@ -227,7 +227,7 @@ class Character3DBuilder {
         const top = panel.scrollTop;
         const make = {
             species: () => this._speciesTab(), body: () => this._bodyTab(), face: () => this._faceTab(), hair: () => this._hairTab(),
-            outfit: () => this._outfitTab(), props: () => this._propsTab(), colors: () => this._colorsTab()
+            outfit: () => this._outfitTab(), props: () => this._propsTab(), colors: () => this._colorsTab(), gear: () => this._gearTab()
         }[this.tab];
         panel.innerHTML = make();
         this._cardify(panel);
@@ -407,7 +407,10 @@ class Character3DBuilder {
             return;
         }
         if (act === 'species') { this._replace(RRCharacterModel.withSpecies(this.recipe, b.dataset.id)); return; }
-        if (act === 'kind') { this._replace(Object.assign({ plan: 'quadruped' }, RRCreatureBody.kindRecipe(b.dataset.id))); return; }
+        if (act === 'kind') { this._replace(this._creature(b.dataset.id)); return; }
+        if (act === 'gear-preset') { r.gear = RRCreatureGear.presetGear(b.dataset.id); this._replace(r); return; }
+        if (act === 'add-gear') { r.gear = (r.gear || []).filter(g => (RRCreatureGear.ITEMS.find(i => i.id === g.id) || {}).slot !== (RRCreatureGear.ITEMS.find(i => i.id === b.dataset.id) || {}).slot).concat([{ id: b.dataset.id }]); this.openPicker = null; this._replace(r); return; }
+        if (act === 'remove-gear') { r.gear = (r.gear || []).filter(g => g.id !== b.dataset.id); this._replace(r); return; }
         if (act === 'color') {
             // The editor's own color picker, live while dragging; one undo step when let go.
             const path = b.dataset.path;
@@ -507,7 +510,8 @@ class Character3DBuilder {
     _bodyTab() {
         if (!this.human) {
             const sections = [...new Set(RRCreatureBody.SLIDERS.map(s => s.section))].filter(s => s !== 'Coat');
-            return this._extremeToggle() + sections.map(sec => this._section(sec) + RRCreatureBody.SLIDERS.filter(s => s.section === sec).map(s => this._slider({
+            const shownAs = this.recipe.anatomy && this.recipe.anatomy.detail ? this._select('anatomy.sex', 'Shown as', [['male', 'Male'], ['female', 'Female']]) : '';
+            return this._extremeToggle(true) + shownAs + sections.map(sec => this._section(sec) + RRCreatureBody.SLIDERS.filter(s => s.section === sec).map(s => this._slider({
                 path: s.key, label: s.label, natural: s.natural || [s.min, s.max], extreme: [s.min, s.max], step: s.step, format: s.unit === 'm' ? 'm' : s.unit === 'deg' || /Angle|Pitch/.test(s.key) ? 'deg' : 'x'
             })).join('')).join('');
         }
@@ -631,6 +635,30 @@ class Character3DBuilder {
         return [...new Set(W.GARMENTS.map(g => g.group))].map(group => ({ group, items: W.GARMENTS.filter(g => g.group === group).map(g => [g.id, g.label]) }));
     }
 
+    /** A creature of a kind, keeping what the person chose that is not the kind's: anatomy shown, gear worn. */
+    _creature(kind) {
+        const r = Object.assign({ plan: 'quadruped' }, RRCreatureBody.kindRecipe(kind));
+        if (this.recipe && this.recipe.plan === 'quadruped') { r.anatomy = this.recipe.anatomy; r.gear = (this.recipe.gear || []).filter(g => RRCreatureGear.fits(g.id, r)); }
+        return r;
+    }
+
+    /** A four-legged creature's gear: a preset to start from, pieces one by one, each with its colors and material. */
+    _gearTab() {
+        const G = RRCreatureGear, r = this.recipe;
+        const presets = `<div class="rr-c3d-tiles">${G.PRESETS.map(p => this._tile('gear-preset', p.id, p.label, 'gearset', false)).join('')}</div>`;
+        const add = this._addPicker('gear', 'Add gear', G.ITEMS.filter(i => G.fits(i.id, r)).map(i => ({ id: i.id, label: i.label, group: i.group })), 'add-gear');
+        const items = (r.gear || []).map((g, i) => {
+            const def = G.ITEMS.find(x => x.id === g.id);
+            if (!def) return null;
+            let html = this._color(`gear.${i}.color`, 'Color', ['#8a2a22', '#2f4468', '#1f1f24', '#5a3d22', '#3e5a32', '#c9a35a', '#d8d8e0']);
+            if (def.defaults.color2) html += this._color(`gear.${i}.color2`, 'Second color', []);
+            if ((def.materials || []).length > 1) html += this._select(`gear.${i}.material`, 'Material', def.materials.map(m => [m, this._cap(m)]));
+            return { id: g.id, label: def.label, html };
+        }).filter(Boolean);
+        return this._section('Dress as') + presets + this._section('Gear') + add
+            + (items.length ? this._cards(items, 'remove-gear') : `<p class="rr-c3d-note">${this._t('Nothing worn. Pick a set above or add pieces one by one.')}</p>`);
+    }
+
     _outfitTab() {
         const W = RRCharacterWardrobe;
         const presets = [...new Set(W.PRESETS.map(p => p.group))].map(g => `<div class="rr-c3d-subhead">${this._t(g)}</div><div class="rr-c3d-tiles">${W.PRESETS.filter(p => p.group === g)
@@ -639,7 +667,16 @@ class Character3DBuilder {
         const knobs = { sleeves: ['Sleeves', [0, 1]], length: ['Length', [0, 1], [0, 1.4]], fit: ['Looseness', [0, 1], [0, 1.5]], flare: ['Flare', [0, 1], [0, 1.5]], bell: ['Bell sleeves', [0, 1]], open: ['Open front', [0, 1]], face: ['Covers face', [0, 1]], bulk: ['Bulk', [0, 1], [0, 1.5]] };
         const items = this.recipe.outfit.map((item, i) => {
             const g = W.BY_ID.get(item.id);
-            let html = this._color(`outfit.${i}.color`, 'Color', ['#f2f0ea', '#1f1f24', '#2f4468', '#7a3b3b', '#3e5a32', '#5a3d22', '#8a8e96', '#c9a35a']);
+            const swatches = ['#f2f0ea', '#1f1f24', '#2f4468', '#7a3b3b', '#3e5a32', '#5a3d22', '#8a8e96', '#c9a35a'];
+            // A modeled garment shows its own picture until a color is chosen (cleared, it comes back); its
+            // pattern and trim are in the picture.
+            if (g.modeled) {
+                const fitted = typeof RRCharacterClothes !== 'undefined' && RRCharacterClothes.load(this.pack).garments.get(item.id);
+                let html = this._color(`outfit.${i}.color`, 'Color', swatches, true);
+                if (fitted && fitted.regions > 1) html += this._color(`outfit.${i}.color2`, 'Second color', [], true);
+                return { id: item.id, label: g.label, html };
+            }
+            let html = this._color(`outfit.${i}.color`, 'Color', swatches);
             html += this._color(`outfit.${i}.color2`, 'Second color', []) + this._color(`outfit.${i}.trim`, 'Trim', [], true);
             html += this._select(`outfit.${i}.pattern`, 'Pattern', W.PATTERNS.concat(item.pattern && !W.PATTERNS.some(p => p[0] === item.pattern) ? [[item.pattern, this._cap(item.pattern)]] : []));
             html += this._select(`outfit.${i}.material`, 'Material', Object.keys(W.MATERIAL).map(m => [m, this._cap(m)]));
@@ -740,6 +777,7 @@ class Character3DBuilder {
         if (kind === 'garment' || kind === 'prop') return body + JSON.stringify(r.hair);
         if (kind === 'dress') return body + JSON.stringify(r.hair) + JSON.stringify(r.props);
         if (kind === 'species') return JSON.stringify([r.gender, r.age, r.outfit, r.props]);
+        if (kind === 'gear' || kind === 'gearset') return JSON.stringify(Object.assign({}, r, { gear: [] }));
         return 'kind';
     }
 
@@ -845,6 +883,10 @@ class Character3DBuilder {
         const r = this.recipe, pack = this.pack;
         const preview = { quality: 'preview', skinSize: 256, atlasSize: 256, eyeSource: this.eyeSource };
         if (item.kind === 'kind') return { result: RRCharacterModel.build(pack, Object.assign({ plan: 'quadruped' }, RRCreatureBody.kindRecipe(item.id)), {}, preview), frame: 'side' };
+        if (item.kind === 'gear' || item.kind === 'gearset') {
+            const gear = item.kind === 'gear' ? [{ id: item.id }] : RRCreatureGear.presetGear(item.id);
+            return { result: RRCharacterModel.build(pack, Object.assign({}, r, { gear }), {}, preview), frame: 'side' };
+        }
         if (item.kind === 'species') return { result: RRCharacterModel.build(pack, RRCharacterModel.withSpecies(r, item.id), this._thumbCache.species || (this._thumbCache.species = {}), preview), frame: 'body' };
         if (item.kind === 'dress') {
             const preset = RRCharacterWardrobe.PRESETS.find(p => p.id === item.id);
@@ -1131,12 +1173,17 @@ class Character3DBuilder {
     _syncPose() {
         const view = this._view;
         if (!this.root) return;
+        // The poses the body plan has: a person's, or a four-legged creature's own (those its kind can take).
         const human = !view || view.plan !== 'quadruped';
-        if (!human && this.pose !== 'apose' && this.pose !== 'idle') this.pose = 'idle';
-        this.root.querySelectorAll('.rr-c3d-pose').forEach(b => {
-            b.classList.toggle('is-active', b.dataset.pose === this.pose);
-            b.hidden = !human && b.dataset.pose !== 'apose' && b.dataset.pose !== 'idle';
-        });
+        const poses = human ? RRCharacterPoses.POSES : RRCreatureBody.POSES.filter(p => !view.boneDefs || RRCreatureBody.poseClip(view.boneDefs, p.id, this.recipe));
+        const list = [['apose', 'A-pose'], ['idle', 'Idle']].concat(poses.map(p => [p.id, p.label]));
+        if (!list.some(([id]) => id === this.pose)) this.pose = 'idle';
+        const holder = this.root.querySelector('.rr-c3d-pose-list'), sig = list.map(p => p[0]).join(',');
+        if (holder && holder.dataset.sig !== sig) {
+            holder.dataset.sig = sig;
+            holder.innerHTML = list.map(([id, label]) => `<button class="rr-btn-chip rr-c3d-pose" data-pose="${id}">${this._t(label)}</button>`).join('');
+        }
+        this.root.querySelectorAll('.rr-c3d-pose').forEach(b => b.classList.toggle('is-active', b.dataset.pose === this.pose));
         if (!view) return;
         cancelAnimationFrame(view.loop);
         view.loop = 0;
@@ -1170,7 +1217,7 @@ class Character3DBuilder {
         const view = this._view;
         if (!view || !view.mixer || !view.bones.length) return null;
         if (view.actions.has(id)) return view.actions.get(id).action;
-        const made = id === 'idle' ? view.idleClip : (view.plan === 'quadruped' ? null : RRCharacterPoses.clip(view.boneDefs, id));
+        const made = id === 'idle' ? view.idleClip : view.plan === 'quadruped' ? RRCreatureBody.poseClip(view.boneDefs, id, this.recipe) : RRCharacterPoses.clip(view.boneDefs, id);
         if (!made) return null;
         const tracks = made.tracks.map(t => new THREE.QuaternionKeyframeTrack(view.bones[t.bone].name + '.quaternion', Array.from(made.times), Array.from(t.values)));
         const action = view.mixer.clipAction(new THREE.AnimationClip(made.name || id, -1, tracks));

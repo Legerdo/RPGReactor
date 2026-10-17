@@ -7379,6 +7379,7 @@ html.rr-web #database-viewer.rr-database-floating {
 .rr-c3d-poses-title { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-dim); padding: 0 2px 3px; }
 .rr-c3d-poses .rr-c3d-pose { width: 100%; justify-content: flex-start; text-align: left; }
 .rr-c3d-poses .rr-c3d-pose[hidden] { display: none; }
+.rr-c3d-pose-list { display: flex; flex-direction: column; gap: 3px; }
 .rr-c3d-gallery {
     position: absolute; inset: 24px; display: flex; flex-direction: column; min-height: 0; padding: 10px 12px;
     background: var(--color-bg-panel); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md, 6px);

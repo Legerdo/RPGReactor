@@ -135,3 +135,98 @@ test('a preview build is quick enough for a live slider', () => {
     for (const kind of ['dog', 'horse', 'drake']) Creature.build(Creature.kindRecipe(kind), { quality: 'preview' });
     assert.ok((Date.now() - start) / 3 < 400, 'preview ' + (Date.now() - start) / 3 + ' ms');
 });
+
+test('anatomical detail: off by default, a sex of its own, kept by Randomize', () => {
+    const lion = Creature.kindRecipe('lion');
+    assert.deepEqual(lion.anatomy, { detail: false, sex: 'male' });
+    assert.deepEqual(Creature.normalizeRecipe({ anatomy: { detail: 'yes', sex: 'other' } }).anatomy, { detail: false, sex: 'male' });
+    assert.deepEqual(Creature.normalizeRecipe({ anatomy: { detail: true, sex: 'female' } }).anatomy, { detail: true, sex: 'female' });
+    const roll = Creature.randomRecipe(9, 'lion');
+    assert.ok(!('anatomy' in roll) && !('gear' in roll), 'a random roll carries no anatomy or gear');
+    const kept = Creature.normalizeRecipe(Object.assign({}, lion, { anatomy: { detail: true, sex: 'female' } }, roll));
+    assert.deepEqual(kept.anatomy, { detail: true, sex: 'female' });
+});
+
+test('anatomical detail builds each sex as the species is made, and nothing when off', () => {
+    const verts = r => Creature.build(r, { quality: 'preview', hairBudget: 0 }).parts.find(p => p.name === 'Body').positions.length / 3;
+    for (const kind of ['lion', 'dog', 'horse', 'bull']) {
+        const base = Creature.kindRecipe(kind);
+        const off = verts(base), male = verts(Object.assign({}, base, { anatomy: { detail: true, sex: 'male' } })), female = verts(Object.assign({}, base, { anatomy: { detail: true, sex: 'female' } }));
+        assert.notEqual(male, off, kind + ' male differs');
+        assert.notEqual(female, off, kind + ' female differs');
+        assert.notEqual(male, female, kind + ' sexes differ');
+    }
+    // A drake keeps its cloaca hidden: the male has no outer genitalia.
+    const drake = Creature.kindRecipe('drake');
+    const a = Creature.build(drake, { quality: 'preview' }).parts.find(p => p.name === 'Body').index.length;
+    const b = Creature.build(Object.assign({}, drake, { anatomy: { detail: true, sex: 'male' } }), { quality: 'preview' }).parts.find(p => p.name === 'Body').index.length;
+    assert.equal(a, b);
+});
+
+test('a lion has a mane of strand cards and a tufted tail; the cards follow the hair budget', () => {
+    const lion = Creature.kindRecipe('lion');
+    const full = Creature.build(lion, { quality: 'preview' }), weak = Creature.build(lion, { quality: 'preview', hairBudget: 0.45 }), none = Creature.build(lion, { quality: 'preview', hairBudget: 0 });
+    const fur = b => b.parts.find(p => p.name === 'Fur');
+    assert.ok(fur(full) && fur(full).texture === 'creaturefur.png' && full.textures['creaturefur.png'].data.length === 128 * 256 * 4);
+    assert.ok(fur(weak).index.length < fur(full).index.length * 0.6, 'a weak budget grows fewer');
+    assert.ok(!fur(none));
+    for (const b of [full]) {
+        const f = fur(b);
+        assert.equal(f.uvs.length / 2, f.positions.length / 3);
+        for (let v = 0; v < f.positions.length / 3; v++) assert.ok(Math.abs(f.weights[v * 4] + f.weights[v * 4 + 1] + f.weights[v * 4 + 2] + f.weights[v * 4 + 3] - 1) < 1e-4);
+    }
+    // A lioness without her mane has no mane cards, only the tail's tuft.
+    const lioness = Creature.build(Object.assign({}, lion, { mane: 'none' }), { quality: 'preview' });
+    assert.ok(fur(lioness).index.length < fur(full).index.length * 0.2);
+    // A lion stands at a lion's height: about 1.1 to 1.25 m at the withers.
+    const withers = Math.max(...full.parts.find(p => p.name === 'Body').positions.filter((_, i) => i % 3 === 1));
+    assert.ok(full.bones.find(b => b.name === 'Chest').tail[1] > 0.7 && withers > 1.0 && withers < 1.5, 'lion height ' + withers);
+});
+
+test('the saved body is meshed finer than the preview and reduced to a sane count', () => {
+    const lion = Creature.kindRecipe('lion');
+    const body = q => Creature.build(lion, { quality: q, hairBudget: 0 }).parts.find(p => p.name === 'Body').index.length / 3;
+    const save = body('save'), preview = body('preview');
+    assert.ok(save > 20000 && save < 36000, 'save ' + save);
+    assert.ok(preview > 15000 && preview < 60000, 'preview ' + preview);
+});
+
+test('poses: every pose builds on the creature\'s own bones, in the poses\' clip format, on the floor', () => {
+    assert.deepEqual(Creature.POSES.map(p => p.id), ['walk', 'trot', 'gallop', 'stalk', 'pounce', 'sit', 'lieDown', 'lieSide', 'rear', 'playBow']);
+    for (const kind of ['lion', 'horse', 'dog', 'bear']) {
+        const r = Creature.kindRecipe(kind), built = Creature.build(r, { quality: 'preview', hairBudget: 0 });
+        for (const { id } of Creature.POSES) {
+            const clip = Creature.poseClip(built.bones, id, r);
+            if (id === 'rear' && (kind === 'lion' || kind === 'dog')) { assert.equal(clip, null, kind + ' does not rear'); continue; }
+            if (id === 'playBow' && kind === 'horse') { assert.equal(clip, null); continue; }
+            assert.ok(clip, kind + ' ' + id);
+            assert.equal(clip.heights.length, clip.times.length);
+            for (const t of clip.tracks) {
+                assert.ok(t.bone >= 0 && t.bone < built.bones.length);
+                assert.equal(t.values.length, clip.times.length * 4);
+                for (let i = 0; i < t.values.length; i += 4) assert.ok(Math.abs(Math.hypot(t.values[i], t.values[i + 1], t.values[i + 2], t.values[i + 3]) - 1) < 1e-4);
+            }
+            for (const x of [0, 0.3, 1.7]) assert.ok(Number.isFinite(clip.lift(x)));
+            assert.equal(typeof clip.skin, 'boolean');
+        }
+    }
+});
+
+test('gaits keep real footfall: a walk sets down left hind, left fore, right hind, right fore; a trot moves diagonal pairs', () => {
+    const r = Creature.kindRecipe('dog'), built = Creature.build(r, { quality: 'preview', hairBudget: 0 });
+    // The middle of each leg's swing: the paw folded furthest (front) or the stifle bent most (hind).
+    const peak = (clip, name) => {
+        const bone = /Front/.test(name) ? name.replace('UpperLeg', 'Foot') : name.replace('UpperLeg', 'LowerLeg');
+        const tr = clip.tracks.find(t => built.bones[t.bone].name === bone);
+        let best = 0, bestX = -Infinity;
+        for (let i = 0; i + 1 < clip.times.length; i++) { const x = Math.abs(tr.values[i * 4]); if (x > bestX) { bestX = x; best = i; } }
+        return best / (clip.times.length - 1);
+    };
+    const walk = Creature.poseClip(built.bones, 'walk', r);
+    const order = ['LeftRearUpperLeg', 'LeftFrontUpperLeg', 'RightRearUpperLeg', 'RightFrontUpperLeg'].map(n => peak(walk, n));
+    const gaps = order.map((p, i) => ((order[(i + 1) % 4] - p) % 1 + 1) % 1);
+    for (const g of gaps) assert.ok(Math.abs(g - 0.25) < 0.06, 'walk beats ' + gaps.join(','));
+    const trot = Creature.poseClip(built.bones, 'trot', r);
+    assert.ok(Math.abs(peak(trot, 'LeftFrontUpperLeg') - peak(trot, 'RightRearUpperLeg')) < 0.04);
+    assert.ok(Math.abs(Math.abs(peak(trot, 'LeftFrontUpperLeg') - peak(trot, 'RightFrontUpperLeg')) - 0.5) < 0.06);
+});

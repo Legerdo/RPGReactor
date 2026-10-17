@@ -1,12 +1,13 @@
 /**
  * RRCharacterWardrobe - the Character Builder's garments and outfits.
  *
- * Every garment is one or more pieces cut by RRCharacterOutfit from the
- * body's clothing helpers (or its skin, for gloves and hoods): where along
- * the spine, arms and legs it starts and ends, how far it stands off the
- * body, how it drapes and flares, how it is colored. An outfit is a list
+ * Every garment but the modeled ones is one or more pieces cut by
+ * RRCharacterOutfit from the body's clothing helpers (or its skin, for gloves
+ * and hoods): where along the spine, arms and legs it starts and ends, how
+ * far it stands off the body, how it drapes and flares, how it is colored. An outfit is a list
  * of garments, one per slot; Fantasy, Armor and Sci-fi pieces mix freely
- * with everyday ones.
+ * with everyday ones. Modeled garments are MakeHuman's own meshes, fitted by
+ * RRCharacterClothes.
  *
  * Chain positions (see RRCharacterOutfit.CHAINS), on any body:
  *   spine  crotch -0.65, hip joint 0, top of hips 0.6, navel 1, waist 1.2,
@@ -123,6 +124,10 @@
 
     const plates = (base, bands) => Object.assign(base, { bands });
 
+    // A top worn with a skirt piece of its own: its hem (spine 0.4) under the skirt's waistband (0.7 in front,
+    // 0.9 behind), so no skin shows between them on any body.
+    const BODICE = 0.75;
+
     // ── the catalog ───────────────────────────────────────────────────────
     // slot: one garment per slot. group: where the picker lists it.
     const GARMENTS = [
@@ -146,11 +151,11 @@
         { id: 'skirt', label: 'Skirt', slot: 'bottom', group: 'Everyday', knobs: ['length', 'flare'], defaults: { color: '#5b3a6e', length: 0.35, flare: 0.35, material: 'cloth', trimWidth: 0.04 },
             pieces: i => [skirtPiece(i)] },
         { id: 'dress', label: 'Dress', slot: 'dress', group: 'Everyday', knobs: ['sleeves', 'length', 'flare', 'neckline'], defaults: { color: '#a8324a', sleeves: 0.25, length: 0.7, flare: 0.5, neckline: 'scoop', material: 'silk', trimWidth: 0.04 },
-            pieces: i => [top(Object.assign({}, i, { length: 0.55 }), { lift: 0.006, drape: 3 }), skirtPiece(i)] },
+            pieces: i => [top(Object.assign({}, i, { length: BODICE }), { lift: 0.006, drape: 3 }), skirtPiece(i)] },
         { id: 'suitjacket', label: 'Suit jacket', slot: 'over', group: 'Everyday', knobs: ['length', 'fit'], defaults: { color: '#2b2e36', length: 0.75, fit: 0.4, material: 'cloth', open: 0.25, neckline: 'deepv', trimWidth: 0.04, trim: '#1e2026' },
             pieces: i => [top(Object.assign({}, i, { sleeves: 1, neckline: 'deepv' }), { lift: 0.022, drape: 6 }), lapels(i)] },
         { id: 'trenchcoat', label: 'Long coat', slot: 'over', group: 'Everyday', knobs: ['length', 'fit', 'flare'], defaults: { color: '#7b6345', length: 0.85, flare: 0.25, fit: 0.5, material: 'leather', open: 0.2, trimWidth: 0.05, trim: '#5e4a32' },
-            pieces: i => [top(Object.assign({}, i, { sleeves: 1, length: 0.58, neckline: 'high' }), { lift: 0.024, drape: 6 }), skirtPiece(Object.assign({}, i, { open: 0.25 }), { lift: 0.03 })] },
+            pieces: i => [top(Object.assign({}, i, { sleeves: 1, length: BODICE, neckline: 'high' }), { lift: 0.024, drape: 6 }), skirtPiece(Object.assign({}, i, { open: 0.25 }), { lift: 0.03 })] },
         { id: 'sneakers', label: 'Sneakers', slot: 'feet', group: 'Everyday', knobs: ['color2'], defaults: { color: '#f4f4f4', color2: '#d03a3a', length: 0.05, bulk: 0.35, material: 'rubber', pattern: 'sole', trimWidth: 0.08, trim: '#e8e8e8' },
             pieces: i => [feet(i)] },
         { id: 'shoes', label: 'Dress shoes', slot: 'feet', group: 'Everyday', defaults: { color: '#1b1612', length: 0.02, bulk: 0.15, material: 'leather' },
@@ -164,13 +169,13 @@
 
         // Fantasy and medieval
         { id: 'tunic', label: 'Tunic', slot: 'top', group: 'Fantasy', knobs: ['sleeves', 'length', 'neckline', 'fit'], defaults: { color: '#6b7a3a', sleeves: 0.85, length: 0.55, neckline: 'v', fit: 0.6, material: 'cloth', trim: '#c9a35a', trimWidth: 0.07 },
-            pieces: i => [top(Object.assign({}, i, { length: 0.58 }), { lift: 0.014 }), skirtPiece({ length: (i.length ?? 0.55) * 0.55, flare: 0.25, slits: 0.5 }, { lift: 0.018, look: 'same' })] },
+            pieces: i => [top(Object.assign({}, i, { length: BODICE }), { lift: 0.014 }), skirtPiece({ length: (i.length ?? 0.55) * 0.55, flare: 0.25, slits: 0.5 }, { lift: 0.018, look: 'same' })] },
         { id: 'peasant', label: 'Peasant blouse', slot: 'top', group: 'Fantasy', knobs: ['sleeves', 'length'], defaults: { color: '#ece3cf', sleeves: 0.9, length: 0.45, neckline: 'boat', fit: 0.8, material: 'cloth', bell: 0.5 },
             pieces: i => [top(Object.assign({}, i, { neckline: 'boat' }), { liftAt: bellSleeves(i.bell ?? 0.5) })] },
         { id: 'robe', label: 'Robe', slot: 'dress', group: 'Fantasy', knobs: ['length', 'flare', 'bell', 'neckline'], defaults: { color: '#2e3f8a', length: 1, flare: 0.45, bell: 0.8, neckline: 'v', material: 'cloth', trim: '#d4af37', trimWidth: 0.08 },
-            pieces: i => [top(Object.assign({}, i, { sleeves: 1, length: 0.58, fit: 0.7 }), { liftAt: bellSleeves(i.bell ?? 0.8) }), skirtPiece(i, { lift: 0.02 })] },
+            pieces: i => [top(Object.assign({}, i, { sleeves: 1, length: BODICE, fit: 0.7 }), { liftAt: bellSleeves(i.bell ?? 0.8) }), skirtPiece(i, { lift: 0.02 })] },
         { id: 'gown', label: 'Gown', slot: 'dress', group: 'Fantasy', knobs: ['sleeves', 'flare', 'neckline'], defaults: { color: '#7c2a6b', color2: '#d8b4d0', sleeves: 0, length: 1, flare: 0.9, neckline: 'strapless', material: 'silk', trim: '#e8d39a', trimWidth: 0.05, pattern: 'gradient', from: 0.5, to: -3 },
-            pieces: i => [top(Object.assign({}, i, { length: 0.58, fit: 0.05 }), { lift: 0.005, drape: 2 }), skirtPiece(Object.assign({}, i, { length: 1 }), { lift: 0.02 })] },
+            pieces: i => [top(Object.assign({}, i, { length: BODICE, fit: 0.05 }), { lift: 0.005, drape: 2 }), skirtPiece(Object.assign({}, i, { length: 1 }), { lift: 0.02 })] },
         { id: 'vest', label: 'Vest', slot: 'over', group: 'Fantasy', knobs: ['length', 'open'], defaults: { color: '#5a3d22', length: 0.45, open: 0.1, material: 'leather', neckline: 'deepv', trim: '#3a2614', trimWidth: 0.06 },
             pieces: i => [top(Object.assign({}, i, { sleeves: 0, neckline: 'deepv', fit: 0.3 }), { lift: 0.02, drape: 5 })] },
         { id: 'corset', label: 'Corset', slot: 'waist', group: 'Fantasy', defaults: { color: '#3a1e2a', color2: '#5a3040', material: 'leather', pattern: 'vstripes', scale: 1.5, trim: '#c9a35a', trimWidth: 0.08 },
@@ -192,7 +197,7 @@
         { id: 'leatherarmor', label: 'Leather armor', slot: 'armor', group: 'Armor', defaults: { color: '#6a4426', color2: '#4e301a', material: 'leather', pattern: 'stripes', scale: 0.7, trim: '#3a2414', trimWidth: 0.06 },
             pieces: i => [{ surface: 'tights', rules: { spine: a => [0.45, NECKLINES.crew(a) - 0.05], arms: [-1, 1.05] }, lift: 0.024, drape: 8 }] },
         { id: 'chainmail', label: 'Chain mail', slot: 'armor', group: 'Armor', knobs: ['sleeves', 'length'], defaults: { color: '#8c9198', color2: '#6d7278', sleeves: 0.6, length: 0.7, material: 'metal', pattern: 'mail', neckline: 'crew' },
-            pieces: i => [top(Object.assign({}, i, { length: 0.58, fit: 0.5 }), { lift: 0.018 }), skirtPiece({ length: (i.length ?? 0.7) * 0.5, flare: 0.2, slits: 0.6 }, { lift: 0.022, look: 'same' })] },
+            pieces: i => [top(Object.assign({}, i, { length: BODICE, fit: 0.5 }), { lift: 0.018 }), skirtPiece({ length: (i.length ?? 0.7) * 0.5, flare: 0.2, slits: 0.6 }, { lift: 0.022, look: 'same' })] },
         { id: 'breastplate', label: 'Breastplate', slot: 'armor', group: 'Armor', defaults: { color: '#b6bcc4', color2: '#8e949c', material: 'metal', trim: '#d4af37', trimWidth: 0.05 },
             pieces: i => [plates({ surface: 'tights', rules: { spine: a => [0.5, 3.9 - 0.1 * front(a)] }, lift: 0.04, drape: 18, hard: true }, { spine: [0.5, 1.7, 3, 0.07] })] },
         { id: 'pauldrons', label: 'Pauldrons', slot: 'shoulders', group: 'Armor', knobs: ['bulk'], defaults: { color: '#b6bcc4', material: 'metal', bulk: 0.5, trim: '#d4af37', trimWidth: 0.08 },
@@ -226,8 +231,36 @@
         { id: 'visorhelm', label: 'Visor helmet', slot: 'head', group: 'Sci-fi', defaults: { color: '#e4e7eb', color2: '#1a2a40', length: 1.1, face: 1, material: 'plastic', pattern: 'visor' },
             pieces: i => [headPiece(Object.assign({}, i, { face: 1, length: 1.25 }), { lift: 0.04, drape: 22, hard: true, value: greatHelmValue })] },
         { id: 'magboots', label: 'Mag boots', slot: 'feet', group: 'Sci-fi', defaults: { color: '#5a606a', color2: '#36c2ff', length: 0.45, bulk: 0.9, material: 'metal', pattern: 'panels', trim: '#2a2e34', trimWidth: 0.08 },
-            pieces: i => [plates(feet(i, { hard: true, drape: 8 }), { legs: [1.2, 3.4, 3, 0.05] })] }
+            pieces: i => [plates(feet(i, { hard: true, drape: 8 }), { legs: [1.2, 3.4, 3, 0.05] })] },
+
+        // Modeled: MakeHuman's own garments (RRCharacterClothes), fitted to the body, in their own colors until one is chosen.
+        modeled('mh_tee_jeans', 'T-shirt and jeans', 'dress'),
+        modeled('mh_fitted_jeans', 'Fitted tee and jeans', 'dress'),
+        modeled('mh_tee_shorts', 'Tee and denim shorts', 'dress'),
+        modeled('mh_jacket_jeans', 'Jacket and jeans', 'dress'),
+        modeled('mh_sport', 'Crop top and leggings', 'dress'),
+        modeled('mh_overalls', 'Overalls', 'dress'),
+        modeled('mh_suit', 'Suit and tie', 'dress'),
+        modeled('mh_skirtsuit', 'Blouse and pencil skirt', 'dress'),
+        modeled('mh_sundress', 'Sundress', 'dress'),
+        modeled('mh_uniform', 'Star uniform', 'dress'),
+        modeled('mh_sweater', 'Knit sweater', 'top'),
+        modeled('mh_viking_tunic', 'Viking tunic', 'top'),
+        modeled('mh_viking_trousers', 'Viking trousers', 'bottom'),
+        modeled('mh_loafers', 'Loafers', 'feet', 'leather', 0),
+        modeled('mh_sneakers', 'Running shoes', 'feet', 'rubber', 0),
+        modeled('mh_boots', 'Tall boots', 'feet', 'leather', 2),
+        modeled('mh_viking_boots', 'Viking boots', 'feet', 'leather', 2)
     ];
+
+    /**
+     * A modeled garment: no pieces to cut; `color` and `color2` recolor its own
+     * picture when set. `rank`: shoes 0 (under trouser hems), clothes 1, tall
+     * boots 2 (over them).
+     */
+    function modeled(id, label, slot, material, rank) {
+        return { id, label, slot, group: 'Modeled', modeled: true, rank: rank ?? 1, knobs: [], defaults: { material: material || 'cloth' }, pieces: () => [] };
+    }
 
     function collar(i) {
         return { surface: 'tights', rules: { spine: a => [3.92 - 0.25 * front(a) ** 6, 4.18 + 0.06 * (1 - front(a))] }, lift: 0.016, drape: 4, liftAt: f => (f.s > 4.05 ? (f.s - 4.05) * 0.18 : 0), look: 'same' };
@@ -352,7 +385,13 @@
         { id: 'trooper', label: 'Power armor', group: 'Sci-fi', items: [{ id: 'bodysuit' }, { id: 'powerarmor' }, { id: 'visorhelm', color: '#5d6b4a', color2: '#ffb020' }] },
         { id: 'marine', label: 'Space marine', group: 'Sci-fi', items: [{ id: 'bodysuit', color: '#1a2030' }, { id: 'powerarmor', color: '#2a4a8a', color2: '#e8e8f0', bulk: 1.1, trim: '#d4af37' }, { id: 'visorhelm', color: '#2a4a8a', color2: '#ff3030' }] },
         { id: 'cyberpunk', label: 'Cyberpunk', group: 'Sci-fi', items: [{ id: 'tanktop', color: '#1a1a20' }, { id: 'leggings', color: '#16141c' }, { id: 'cyberjacket' }, { id: 'boots', color: '#16141c', length: 0.6 }, { id: 'gloves', color: '#ff2bd6', length: 0.05 }] },
-        { id: 'soldier', label: 'Soldier', group: 'Sci-fi', items: [{ id: 'shirt', color: '#4a5240', pattern: 'camo', color2: '#353b2e' }, { id: 'jeans', color: '#4a5240', pattern: 'camo', color2: '#353b2e', fit: 0.5 }, { id: 'tacvest' }, { id: 'boots', color: '#2a2620', length: 0.4 }, { id: 'gloves', color: '#2a2620', length: 0.1 }] }
+        { id: 'soldier', label: 'Soldier', group: 'Sci-fi', items: [{ id: 'shirt', color: '#4a5240', pattern: 'camo', color2: '#353b2e' }, { id: 'jeans', color: '#4a5240', pattern: 'camo', color2: '#353b2e', fit: 0.5 }, { id: 'tacvest' }, { id: 'boots', color: '#2a2620', length: 0.4 }, { id: 'gloves', color: '#2a2620', length: 0.1 }] },
+        { id: 'mhcasual', label: 'Jeans and tee', group: 'Modeled', items: [{ id: 'mh_tee_jeans' }, { id: 'mh_sneakers' }] },
+        { id: 'mhbusiness', label: 'Business suit', group: 'Modeled', items: [{ id: 'mh_suit' }, { id: 'mh_loafers' }] },
+        { id: 'mhskirtsuit', label: 'Skirt suit', group: 'Modeled', items: [{ id: 'mh_skirtsuit' }, { id: 'mh_loafers', color: '#1b1612' }] },
+        { id: 'mhsundress', label: 'Sundress', group: 'Modeled', items: [{ id: 'mh_sundress' }, { id: 'mh_sneakers' }] },
+        { id: 'mhviking', label: 'Viking', group: 'Modeled', items: [{ id: 'mh_viking_tunic' }, { id: 'mh_viking_trousers' }, { id: 'mh_viking_boots' }] },
+        { id: 'mhstarcrew', label: 'Star crew', group: 'Modeled', items: [{ id: 'mh_uniform' }, { id: 'mh_boots' }] }
     ];
 
     // ── building ──────────────────────────────────────────────────────────
@@ -377,8 +416,10 @@
         // is worked out once per build and never kept: the next build is another body.
         const frame = {};
         const covered = new Float32Array(pack.vertexCount).fill(-1);
+        const modeledItems = [];
         items.forEach((item, layer) => {
             const g = BY_ID.get(item.id);
+            if (g.modeled) { modeledItems.push(item); return; }
             const specs = g.pieces(item);
             specs.forEach((raw, pi) => {
                 const spec = Object.assign({}, raw);
@@ -398,13 +439,27 @@
         });
         const hidden = new Set();
         for (let v = 0; v < covered.length; v++) if (covered[v] > 0.1) hidden.add(v);
-        if (!entries.length) return { parts: [], hidden, items, texture: null };
-        // The picture depends on the outfit only: kept while the body changes.
+        // Modeled garments: each its own part and picture, hiding the skin it covers.
+        const modeledParts = [], textures = [];
+        if (modeledItems.length) {
+            const Clothes = root.RRCharacterClothes || require('./CharacterClothes.js');
+            const wear = modeledItems.map(item => {
+                const g = BY_ID.get(item.id), [roughness, metalness] = MATERIAL[item.material] || MATERIAL.cloth;
+                return { item, rank: g.rank, look: { name: g.label, roughness, metalness } };
+            });
+            for (const made of Clothes.buildAll(pack, built, wear, frame)) {
+                modeledParts.push(made.part);
+                textures.push(made.texture);
+                for (const v of made.hidden) hidden.add(v);
+            }
+        }
+        if (!entries.length) return { parts: modeledParts, hidden, items, texture: null, textures };
+        // The picture depends on the cut garments only: kept while the body changes.
         const Atlas = root.RRCharacterAtlas || require('./CharacterAtlas.js');
-        const key = JSON.stringify([items, cache.atlasSize || 1024]);
+        const key = JSON.stringify([items.filter(i => !BY_ID.get(i.id).modeled), cache.atlasSize || 1024]);
         const store = cache.atlas || (cache.atlas = { key: null, layout: null });
         if (store.key !== key) { store.layout = Atlas.layout(pack, entries, { size: cache.atlasSize || 1024 }); store.key = key; }
-        return { parts: Atlas.apply(store.layout, entries), hidden, items, texture: store.layout.texture, textureKey: key };
+        return { parts: Atlas.apply(store.layout, entries).concat(modeledParts), hidden, items, texture: store.layout.texture, textureKey: key, textures };
     }
 
     function cutSettings(item) {

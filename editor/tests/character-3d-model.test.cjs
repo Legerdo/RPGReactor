@@ -288,3 +288,115 @@ test('every pose to try a character in plays on the built skeleton, its turns wh
     }
     assert.equal(Poses.clip(built.bones, 'nonsense'), null);
 });
+
+test('a top worn with its own skirt reaches under the skirt: no bare waist between them on any body', () => {
+    const an = Outfit.anatomy(pack);
+    // The trunk from just above the hips to above the navel, where the bodice meets the skirt's waistband.
+    const waist = [...new Set(pack.body.source)].filter(v => an.member[v * 5] > 0.9 && an.s[v * 5] > 0.6 && an.s[v * 5] < 1.2);
+    for (const body of [{ gender: 0 }, { gender: 0, weight: 1, cup: 1 }, { gender: 1, muscle: 1 }, { gender: 0, extreme: true, weight: 4 }]) {
+        const built = Body.build(pack, Body.normalizeRecipe(body));
+        for (const id of ['dress', 'gown', 'robe', 'tunic', 'chainmail']) {
+            const out = Wardrobe.build(pack, built, [{ id }], {});
+            const bare = waist.filter(v => !out.hidden.has(v));
+            assert.equal(bare.length, 0, `${id} on ${JSON.stringify(body)}: ${bare.length} waist vertices bare`);
+        }
+    }
+});
+
+const Clothes = load('CharacterClothes');
+const MODELED = Wardrobe.GARMENTS.filter(g => g.modeled);
+
+test('every modeled garment builds on an average and an extreme body, outside the skin, hiding what it covers', () => {
+    assert.ok(MODELED.length >= 10, 'modeled garments in the catalog');
+    const clothes = Clothes.load(pack);
+    for (const g of MODELED) assert.ok(clothes.garments.has(g.id), g.id + ' is in the clothes pack');
+    const bodies = [{}, { extreme: true, weight: 4 }, { gender: 1, extreme: true, muscle: 2, weight: 0.3 }, { gender: 0, cup: 1, weight: 0.8 }];
+    for (const body of bodies) {
+        const built = Body.build(pack, Body.normalizeRecipe(body));
+        const normals = Body.vertexNormals(pack, built.shaped);
+        const ids = [...new Set(pack.body.source)];
+        const isBody = new Uint8Array(pack.vertexCount);
+        for (const v of ids) isBody[v] = 1;
+        const grid = Outfit.pointGrid(built.shaped, new Set(ids), 0.04);
+        const bare = Model.build(pack, Object.assign({}, body, { outfit: [] }), {}, { quality: 'preview' });
+        for (const g of MODELED) {
+            const label = `${g.id} on ${JSON.stringify(body)}`;
+            const result = Model.build(pack, Object.assign({}, body, { outfit: [{ id: g.id }] }), {}, { quality: 'preview' });
+            assertSound(result, label);
+            const part = result.parts.find(p => p.name === g.label);
+            assert.ok(part, label + ' is worn');
+            assert.equal(part.kind, 'cloth', label + ' is cloth to the view');
+            assert.ok(result.textures[part.texture] && result.textures[part.texture].data.length === result.textures[part.texture].width * result.textures[part.texture].height * 4, label + ' has its picture');
+            // The drag's fast path: each vertex knows the skin vertex it rides on.
+            assert.equal(part.source.length, part.positions.length / 3, label + ' source per vertex');
+            for (const v of part.source) assert.ok(isBody[v], label + ' rides on the skin');
+            // Outside the skin.
+            const out = Wardrobe.build(pack, built, [{ id: g.id }], {});
+            const P = built.shaped, Q = out.parts[0].positions;
+            let inside = 0, total = 0;
+            for (let i = 0; i < Q.length; i += 3) {
+                const q = grid.nearest(Q[i], Q[i + 1], Q[i + 2], 2);
+                if (q < 0) continue;
+                const d = (Q[i] - P[q * 3]) * normals[q * 3] + (Q[i + 1] - P[q * 3 + 1]) * normals[q * 3 + 1] + (Q[i + 2] - P[q * 3 + 2]) * normals[q * 3 + 2];
+                total++;
+                if (d < -0.004) inside++;
+            }
+            assert.ok(inside / Math.max(1, total) < 0.01, `${label}: ${inside} of ${total} vertices under the skin`);
+            // The skin it covers is left out.
+            for (const v of clothes.garments.get(g.id).hidden) assert.ok(out.hidden.has(v), label + ' hides vertex ' + v);
+            assert.ok(result.parts[0].index.length < bare.parts[0].index.length, label + ' leaves the covered skin out');
+        }
+    }
+});
+
+test('a modeled garment shows its own picture until a color is chosen; a color keeps the weave and folds', () => {
+    const clothes = Clothes.load(pack);
+    const g = clothes.garments.get('mh_tee_jeans');
+    const own = Clothes.picture(clothes, g);
+    const plain = Model.build(pack, { outfit: [{ id: 'mh_tee_jeans' }] }, {}, { quality: 'preview' });
+    assert.equal(plain.textures['cloth-mh_tee_jeans.png'].data, own.data, 'own picture, untouched');
+    const red = Model.build(pack, { outfit: [{ id: 'mh_tee_jeans', color: '#b02020', color2: '#6a6a6a' }] }, {}, { quality: 'preview' }).textures['cloth-mh_tee_jeans.png'];
+    assert.notEqual(red.data, own.data);
+    // Sample the texels the shirt and the trousers use.
+    const part = plain.parts.find(p => p.name === 'T-shirt and jeans'), size = red.width;
+    const stats = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
+    for (let i = 0; i < part.uvs.length / 2; i++) {
+        const o = (Math.min(size - 1, Math.floor(part.uvs[i * 2 + 1] * size)) * size + Math.min(size - 1, Math.floor(part.uvs[i * 2] * size))) * 4;
+        const r = g.region[i], s = stats[r];
+        const l = red.data[o] * 0.3 + red.data[o + 1] * 0.59 + red.data[o + 2] * 0.11;
+        s[0] += red.data[o]; s[1] += red.data[o + 1]; s[2] += red.data[o + 2]; s[3] += l * l; s[4]++;
+    }
+    const [shirt, trousers] = stats;
+    assert.ok(shirt[0] > shirt[2] * 2 && shirt[0] > shirt[1] * 2, 'the shirt is red: ' + shirt.slice(0, 3).map(x => Math.round(x / shirt[4])));
+    // The trousers grey, their faded denim still showing.
+    const mean = (trousers[0] * 0.3 + trousers[1] * 0.59 + trousers[2] * 0.11) / trousers[4], spread = Math.sqrt(trousers[3] / trousers[4] - mean * mean);
+    assert.ok(Math.abs(trousers[0] - trousers[2]) / trousers[4] < 8, 'the trousers are grey');
+    assert.ok(spread > 10, 'the denim keeps its fading, spread ' + spread.toFixed(1));
+});
+
+test('boots go over trouser legs, shoes under trouser hems', () => {
+    const built = Body.build(pack, Body.normalizeRecipe({}));
+    const count = list => Wardrobe.build(pack, built, list, {}).parts.map(p => [p.name, p.index.length / 3]);
+    const alone = Object.fromEntries(count([{ id: 'mh_jacket_jeans' }]).concat(count([{ id: 'mh_viking_boots' }]), count([{ id: 'mh_sneakers' }])));
+    const booted = Object.fromEntries(count([{ id: 'mh_jacket_jeans' }, { id: 'mh_viking_boots' }]));
+    assert.ok(booted['Jacket and jeans'] < alone['Jacket and jeans'], 'the trouser legs inside the boots are not drawn');
+    assert.equal(booted['Viking boots'], alone['Viking boots'], 'the boots whole');
+    const shod = Object.fromEntries(count([{ id: 'mh_jacket_jeans' }, { id: 'mh_sneakers' }]));
+    assert.equal(shod['Jacket and jeans'], alone['Jacket and jeans'], 'the trousers whole');
+    assert.ok(shod['Running shoes'] < alone['Running shoes'] && shod['Running shoes'] > alone['Running shoes'] * 0.7, 'the socks under the hems are not drawn, the shoes are');
+});
+
+test('modeled garments save into the GLB with their pictures', async () => {
+    const result = Model.build(pack, { outfit: [{ id: 'mh_suit' }, { id: 'mh_loafers', color: '#3a2a1a' }] }, {}, { eyeSource });
+    const glb = await Model.toGlb(result, 'Suit', tex => { const png = new PNG({ width: tex.width, height: tex.height }); png.data = Buffer.from(tex.data); return new Uint8Array(PNG.sync.write(png)); });
+    const { json } = Optimizer.parseGlb(glb);
+    for (const [name, image] of [['Suit and tie', 'cloth-mh_suit.png'], ['Loafers', 'cloth-mh_loafers.png']]) {
+        const mesh = json.meshes.find(m => m.name === name);
+        assert.ok(mesh, name + ' mesh saved');
+        const material = json.materials[mesh.primitives[0].material];
+        const tex = material.pbrMetallicRoughness.baseColorTexture;
+        assert.ok(tex, name + ' has a picture');
+        assert.equal(json.images[json.textures[tex.index].source].name, image);
+        assert.ok(mesh.primitives[0].attributes.JOINTS_0 != null && mesh.primitives[0].attributes.TEXCOORD_0 != null, name + ' skinned and mapped');
+    }
+});

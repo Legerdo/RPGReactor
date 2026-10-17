@@ -177,7 +177,9 @@
         const genders = { female: 1 - r.gender, male: r.gender };
         const ages = ageWeights(r.age);
         // MakeHuman's height targets run from 1.2 m to 2.4 m; the slider spans about 1.45 to 2.05 m for an average man.
-        const height = r.height < 0.5 ? { min: (0.5 - r.height) * 1.4, max: 0 } : { min: 0, max: (r.height - 0.5) * 0.9 };
+        // Past each target's own end (1.2 m and 2.4 m) the body is scaled whole instead (heightScale): pushed
+        // further, the targets bulge the knees and fold the joints.
+        const height = r.height < 0.5 ? { min: Math.min(1, (0.5 - r.height) * 1.4), max: 0 } : { min: 0, max: Math.min(1, (r.height - 0.5) * 0.9) };
         for (const g in genders) for (const a of AGES) {
             const ga = genders[g] * ages[a];
             if (ga <= 0) continue;
@@ -366,7 +368,21 @@
         const r = normalizeRecipe(recipe);
         volume(pack, positions, r);
         morph(pack, positions, r);
+        const k = heightScale(r);
+        if (k !== 1) {
+            let floor = Infinity;
+            for (const v of pack.body.source) floor = Math.min(floor, positions[v * 3 + 1]);
+            for (let i = 0; i < positions.length; i += 3) { positions[i] *= k; positions[i + 1] = floor + (positions[i + 1] - floor) * k; positions[i + 2] *= k; }
+        }
         return positions;
+    }
+
+    /** The whole body's scale for a height past its targets' ends: on from 1.2 m down and 2.4 m up, in proportion. */
+    function heightScale(r) {
+        const below = (0.5 - r.height) * 1.4 - 1, above = (r.height - 0.5) * 0.9 - 1;
+        if (below > 0) return Math.max(0.35, 1 - 0.42 * below);
+        if (above > 0) return 1 + 0.29 * above;
+        return 1;
     }
 
     /**
