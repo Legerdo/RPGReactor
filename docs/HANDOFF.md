@@ -6,6 +6,7 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 ## Where things stand (2026-10-16)
 
+- **Start here (2026-10-17):** the owner has not reviewed the 3D Character Builder yet. First, a five-minute look: Forge › 3D Character Builder, move sliders, Randomize, Save to Project, then open the saved model in Database › 3D Models (Rig, Idle). Take the owner's notes on the look and the slider set, then build clothing and hair (plan in the 2026-10-16 builder entry). Nothing is pushed; last commit `8431c3ce`.
 - **0.99.1** in development at runtime **20261016.8**, synced to all 19 bundled projects. Committed locally; nothing pushed.
 - **User-path sweeps:** 1 to 13 done and committed. Owner questions: the three sweeps entries below.
 - **Editor windows:** the event editor and the Database each open in a frameless window of their own (`utils/DetachedWindow.js`), both at once, on any monitor; `PopoutBridge` serves several windows. The web editor floats them in the page.

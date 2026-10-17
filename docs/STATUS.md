@@ -64,6 +64,7 @@ Each system has a guide; the guide is the authority on its behaviour and limits.
 
 The one list of open threads. Remove an item when it is done; record the doing in the changelog.
 
+- **3D Character Builder** (Forge, first pass 2026-10-16): owner review, then clothing and hair, eye colors, crowds, actor binding, species. [HANDOFF](HANDOFF.md).
 - **Waiting on the owner:**
   - Questions from the 2026-10-15 user-path sweeps: [HANDOFF › User-path sweeps](HANDOFF.md).
   - The Demo's motorcycles are still vehicle events (five on North Haven; Open Road: Forest event 1 in the older `yaw`/`key` form): move them to Starting Positions (close the editor on the Demo first), and decide whether Forest Road keeps a second motorcycle.
