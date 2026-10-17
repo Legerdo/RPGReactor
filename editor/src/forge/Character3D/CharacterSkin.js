@@ -47,12 +47,12 @@
 
     const PATTERNS = [['none', 'None'], ['freckles', 'Freckles'], ['scales', 'Scales'], ['stripes', 'Stripes'], ['spots', 'Spots'], ['fur', 'Fur'], ['feathers', 'Feathers'], ['decay', 'Decay'], ['panels', 'Panels'], ['tribal', 'Tribal marks'], ['vitiligo', 'Patches']];
 
-    const DEFAULT_SKIN = Object.freeze({ type: 'none', color: '#5a4030', belly: '', amount: 1, scale: 1, lips: '', blush: 0, eyeshadow: '', shadowAmount: 0.7 });
+    const DEFAULT_SKIN = Object.freeze({ type: 'none', color: '#5a4030', belly: '', amount: 1, scale: 1, lips: '', nose: '', blush: 0, eyeshadow: '', shadowAmount: 0.7 });
 
     function normalizeSkin(input) {
         const s = Object.assign({}, DEFAULT_SKIN, input || {});
         if (!PATTERNS.some(p => p[0] === s.type)) s.type = 'none';
-        for (const k of ['color', 'belly', 'lips', 'eyeshadow']) if (s[k] && !/^#[0-9a-f]{6}$/i.test(s[k])) s[k] = '';
+        for (const k of ['color', 'belly', 'lips', 'nose', 'eyeshadow']) if (s[k] && !/^#[0-9a-f]{6}$/i.test(s[k])) s[k] = '';
         s.amount = Math.max(0, Math.min(1, +s.amount || 0));
         s.scale = Math.max(0.3, Math.min(3, +s.scale || 1));
         s.blush = Math.max(0, Math.min(1, +s.blush || 0));
@@ -427,6 +427,8 @@
         // With the ears folded away, the ear's own skin is the inside of the ear hole: dark.
         if (s.earHoles && p.ears > 0.7) rgb = mix(rgb, rgb.map(c => c * 0.12), smooth(0.7, 0.95, p.ears));
         // Blush, lips and eye shadow on the face.
+        // An animal's nose pad: its own color over the tip of the nose, where the nose stands furthest out.
+        if (s.nose && p.nose > 0.45 && p.n[2] > -0.2) rgb = mix(rgb, Outfit.linear(s.nose), smooth(0.45, 0.8, p.nose) * smooth(-0.2, 0.3, p.n[2]));
         if (s.blush) rgb = mix(rgb, mix(rgb, Outfit.linear('#c0484a'), 0.6), p.cheeks * s.blush * 0.6);
         if (p.lips > 0.25) {
             const lip = s.lips ? Outfit.linear(s.lips) : rgb.map((c, i) => c * [0.84, 0.56, 0.58][i]);
