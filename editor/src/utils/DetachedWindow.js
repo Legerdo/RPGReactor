@@ -21,7 +21,8 @@
  *   win.hidePopout()       it closed: its window hides and keeps its place
  *
  * config: overlayId, panelSelector, headerSelector, titleSelector, title (fallback), page (the
- * blank HTML page its window loads), storageKey, popoutKey, minWidth, minHeight,
+ * blank HTML page its window loads), storageKey, popoutKey, minWidth, minHeight, defaultWidth and
+ * defaultHeight (the first-open size's cap, 1400 × 1000 unless given),
  * floatingClass, poppedClass, gripClass, dockedEvent (fired on window when it comes back into
  * the editor window), isOpen(overlay), closeFromFrame() (closed by Alt+F4 or the taskbar: close
  * as its own × does, asking first about unapplied edits; resolves when answered).
@@ -75,8 +76,8 @@
 
         /** Today's dialog size, centered on the view: what the window is before it has been moved. */
         function defaultRect(view) {
-            const width = Math.min(1400, Math.round(view.width * 0.95));
-            const height = Math.min(1000, Math.round(view.height * 0.97));
+            const width = Math.min(config.defaultWidth || 1400, Math.round(view.width * 0.95));
+            const height = Math.min(config.defaultHeight || 1000, Math.round(view.height * 0.97));
             return { left: (view.left || 0) + Math.round((view.width - width) / 2), top: (view.top || 0) + Math.round((view.height - height) / 2), width, height };
         }
 

@@ -121,6 +121,19 @@ test('a model keeps only the bytes it reads: its accessors packed and aligned, i
     assert.equal(split.json.images[2].rrBlob, undefined, 'and a picture nothing names');
 });
 
+test('every material that names a packed picture gets its bytes, not only the first', async () => {
+    const buffer = glbWithPictures();
+    const split = R._workerParts.splitGlb(buffer);
+    const picture = Array.from(new Uint8Array(buffer, split.bin.offset + split.json.bufferViews[split.json.images[0].bufferView].byteOffset, 12));
+    // Hair and brows drawn from one sheet, as the 3D Character Builder writes them.
+    split.json.materials.push({ pbrMetallicRoughness: { baseColorTexture: { index: 0 } } });
+    const packed = new Uint8Array(R._workerParts.compactGlb(split.json, buffer, split.bin.offset, split.bin.length));
+    for (const use of ['first', 'second']) {
+        const blob = R._glbImageBlob(split.json, packed, split.json.images[0]);
+        assert.deepEqual(Array.from(new Uint8Array(await blob.arrayBuffer())), picture, `the ${use} texture reads the picture`);
+    }
+});
+
 test('the GLB worker sends back the packed bytes when asked, and the model built from them matches one built from the file', async () => {
     const source = R._glbWorkerSource();
     const posted = [];

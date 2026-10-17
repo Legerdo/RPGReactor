@@ -159,11 +159,76 @@ test('the editor encoder runs as a classic worker script made from the shipped e
     assert.doesNotMatch(classic, /export\s+default|import\.meta/);
     assert.match(classic, /self\.BASIS = BASIS;/);
     assert.ok(fs.existsSync(path.join(repoRoot, 'runtime', 'libs', 'basis', 'basis_transcoder.wasm')));
-    // The 3D database offers the action, and the import dialog the option (off unless ticked).
+    // Import and the 3D database's Optimize offer it as one option of the same dialog (off unless ticked).
     const editor = fs.readFileSync(path.join(repoRoot, 'editor', 'src', 'database', 'Database3DEditor.js'), 'utf8');
-    assert.match(editor, /r3d-compress[\s\S]*compressSelectedModelTextures/);
+    assert.doesNotMatch(editor, /r3d-compress|compressSelectedModelTextures/, 'no second way in beside Optimize');
+    assert.match(editor, /\? \{ compress: false \} : null;/);
     const ui = fs.readFileSync(path.join(repoRoot, 'editor', 'src', 'UIManager.js'), 'utf8');
     assert.match(ui, /compressBox\.checked = !!compression\.compress;/);
     const resources = fs.readFileSync(path.join(repoRoot, 'editor', 'src', 'ResourceManager.js'), 'utf8');
     assert.match(resources, /const compression = \{ compress: false \};/);
+});
+
+/** The 3D database's Optimize on a model file in a temp folder, the dialog answered with `mode` and the box `ticked`. */
+async function optimizeInDatabase(t, mode, ticked) {
+    const vm = require('node:vm'), os = require('node:os');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-optimize-compress-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const model = path.join(dir, 'model.glb');
+    fs.writeFileSync(model, Buffer.from('original'));
+    const calls = { optimize: [], compress: [], released: 0, offered: null };
+    const window = {
+        RRGlbOptimizer: {
+            analyze: () => ({ bytes: 8 }), PRESETS: { optimize: {} }, canvasEncoder: () => null,
+            optimize: async bytes => { calls.optimize.push(Buffer.from(bytes).toString()); return { bytes: new Uint8Array(Buffer.from('reduced')) }; },
+            compressTextures: async (bytes, options) => {
+                calls.compress.push(Buffer.from(bytes).toString());
+                options.onProgress(0, 1);
+                return { bytes: new Uint8Array(Buffer.from(Buffer.from(bytes).toString() + '+ktx2')), compressed: 1 };
+            }
+        },
+        RRTextureCompressor: { encode: async () => new Uint8Array(4), release: () => { calls.released++; } }
+    };
+    const source = fs.readFileSync(path.join(repoRoot, 'editor', 'src', 'database', 'Database3DEditor.js'), 'utf8');
+    const Editor = vm.runInNewContext(`${source}\nDatabase3DEditor;`, { window, require, console, process, Buffer, Uint8Array });
+    const editor = Object.create(Editor.prototype);
+    const status = { textContent: '' };
+    Object.assign(editor, {
+        selectedName: 'model', listModels: () => [{ name: 'model', ext: '.glb' }], sourcePath: () => model,
+        rulesPath: () => path.join(dir, 'model.json'),
+        _t: (text, params = {}) => Object.entries(params).reduce((value, [key, to]) => value.split(`{${key}}`).join(String(to)), text),
+        _detail: { querySelector: selector => selector === '.r3d-status' ? status : null }, _templates: {},
+        _releaseTemplate() {}, selectModel: async () => {},
+        projectController: { uiManager: { showModelOptimizeDialog: async options => {
+            calls.offered = !!options.compression && options.compression.compress === false;
+            if (options.compression) options.compression.compress = ticked;
+            return mode;
+        } } }
+    });
+    await editor.optimizeSelectedModel();
+    return { calls, status: status.textContent, file: fs.readFileSync(model, 'utf8'), backup: fs.existsSync(model + '.orig') ? fs.readFileSync(model + '.orig', 'utf8') : null };
+}
+
+test('Optimize in the 3D database offers texture compression, unticked, and runs it on what the reduction left', async t => {
+    const both = await optimizeInDatabase(t, 'optimize', true);
+    assert.equal(both.calls.offered, true, 'offered, off by default');
+    assert.deepEqual(both.calls.optimize, ['original']);
+    assert.deepEqual(both.calls.compress, ['reduced'], 'compressed after the reduction');
+    assert.equal(both.calls.released, 1, 'the encoder is let go');
+    assert.equal(both.file, 'reduced+ktx2');
+    assert.equal(both.backup, 'original');
+    assert.match(both.status, /\+ 1 compressed texture/);
+
+    const alone = await optimizeInDatabase(t, 'keep', true);
+    assert.deepEqual(alone.calls.optimize, [], 'Do not reduce leaves the mesh alone');
+    assert.deepEqual(alone.calls.compress, ['original']);
+    assert.equal(alone.file, 'original+ktx2');
+    assert.match(alone.status, /Compressed 1 texture\(s\) of model/);
+
+    const reduceOnly = await optimizeInDatabase(t, 'optimize', false);
+    assert.deepEqual(reduceOnly.calls.compress, [], 'unticked, as before');
+    assert.equal(reduceOnly.file, 'reduced');
+
+    const nothing = await optimizeInDatabase(t, 'keep', false);
+    assert.deepEqual([nothing.calls.optimize, nothing.calls.compress, nothing.file, nothing.backup], [[], [], 'original', null], 'declining changes nothing');
 });

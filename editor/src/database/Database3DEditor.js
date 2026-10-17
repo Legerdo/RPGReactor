@@ -260,18 +260,16 @@ class Database3DEditor {
                         <div class="r3d-toolbar" style="position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;"></div>
                         <div class="r3d-hint" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);padding:3px 10px;background:color-mix(in srgb, var(--color-bg-panel) 80%, transparent);border-radius:10px;font-size:11px;color:var(--color-text-muted);pointer-events:none;display:none;"></div>
                         <div class="r3d-select-bar" style="position:absolute;top:8px;left:50%;transform:translateX(-50%);display:none;align-items:center;gap:8px;padding:4px 10px;background:var(--color-bg-panel);border:1px solid var(--color-accent);border-radius:4px;font-size:12px;color:var(--color-text);"></div>
-                        <div class="r3d-rig-bar" style="position:absolute;top:8px;left:50%;transform:translateX(-50%);display:none;align-items:center;gap:8px;padding:4px 10px;background:var(--color-bg-panel);border:1px solid var(--color-accent);border-radius:4px;font-size:12px;color:var(--color-text);"></div>
+                        <div class="r3d-rig-bar" style="display:none;"></div>
                         <div class="r3d-sim-bar r3d-preview-states" role="group"></div>
                         <div class="r3d-marquee" style="position:absolute;display:none;border:1px dashed var(--color-accent);background:color-mix(in srgb, var(--color-accent) 15%, transparent);pointer-events:none;"></div>
                         <div class="r3d-card" style="position:absolute;right:10px;top:10px;width:280px;max-width:calc(100% - 56px);box-sizing:border-box;display:none;background:var(--color-bg-panel);border:1px solid var(--color-border);border-radius:6px;padding:10px 12px;box-shadow:0 4px 18px rgba(0,0,0,0.35);"></div>
                         <div class="r3d-stats-card" style="position:absolute;left:8px;bottom:8px;width:272px;max-width:calc(100% - 16px);max-height:55%;display:flex;flex-direction:column;border:1px solid var(--color-border);border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,0.35);overflow:hidden;">
                             <div class="sidebar-header r3d-sec-header" data-sec="stats" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:5px 10px 5px 7px;font-size:11px;">
                                 <span class="r3d-sec-toggle" style="flex:0 0 12px;font-size:10px;color:var(--color-text-muted);">▾</span>
-                                <span style="flex:1;">${this._t('Model Specifications')}</span>
-                                <button type="button" class="rr-btn-secondary r3d-optimize" style="text-transform:none;font-size:11px;padding:2px 8px;"
+                                <span class="r3d-stats-title">${this._t('Model Specifications')}</span>
+                                <button type="button" class="rr-btn-secondary r3d-optimize"
                                     title="${this._t('Shrink this model in place. The original is kept beside it.')}">${this._t('Optimize…')}</button>
-                                <button type="button" class="rr-btn-secondary r3d-compress" style="text-transform:none;font-size:11px;padding:2px 8px;"
-                                    title="${this._t('Add a compressed copy of each texture for the graphics card. The original is kept beside it.')}">${this._t('Compress textures')}</button>
                             </div>
                             <div class="r3d-stats" style="flex:1 1 auto;min-height:0;overflow-y:auto;padding:6px 10px 8px 10px;font-size:11px;"></div>
                         </div>
@@ -311,8 +309,6 @@ class Database3DEditor {
             </div>`;
         const optimize = detailEl.querySelector('.r3d-optimize');
         if (optimize) optimize.addEventListener('click', () => this.optimizeSelectedModel());
-        const compress = detailEl.querySelector('.r3d-compress');
-        if (compress) compress.addEventListener('click', () => this.compressSelectedModelTextures());
         const search = detailEl.querySelector('.r3d-model-search');
         search.addEventListener('input', () => this.renderModelList(true));
         search.addEventListener('focus', () => {
@@ -1388,15 +1384,21 @@ class Database3DEditor {
             if (!ui || typeof ui.showModelOptimizeDialog !== 'function') {
                 return say(this._t('The optimizer dialog is unavailable.'));
             }
+            // Off by default; ticked, the textures are compressed after any reduction, and on their own with "Do not reduce".
+            const compression = window.RRTextureCompressor && typeof window.RRGlbOptimizer.compressTextures === 'function'
+                ? { compress: false } : null;
             const mode = await ui.showModelOptimizeDialog({
                 fileName: path.basename(filePath),
                 analysis,
+                compression,
                 title: this._t('Optimize 3D Model'),
                 confirmLabel: this._t('Optimize'),
-                keepLabel: this._t('Leave it alone'),
-                keepDetail: this._t('Make no change to this model.')
+                keepLabel: this._t('Do not reduce'),
+                keepDetail: this._t('Keep the mesh and texture sizes as they are.')
             });
-            if (mode === null || mode === 'keep') return;
+            const compress = !!(compression && compression.compress);
+            if (mode === null || (mode === 'keep' && !compress)) return;
+            const reduce = mode !== 'keep';
 
             const sidecarPath = this.rulesPath(entry.name);
             // Invalid settings must stop optimization before any model or
@@ -1408,42 +1410,53 @@ class Database3DEditor {
             }
 
             const carvedParts = (previous.parts || []).length;
-            const settings = Object.assign({
-                encodeImage: window.RRGlbOptimizer.canvasEncoder()
-            }, window.RRGlbOptimizer.PRESETS[mode]);
-
-            say(this._t('Optimizing {name}…', { name: entry.name }));
-            let optimized = await window.RRGlbOptimizer.optimize(original, settings);
-
-            // A carved part is stored as runs of triangle indices, and both
-            // reordering and reducing invalidate them: the part that should
-            // animate becomes a scattered wrong set and swings through the
-            // model. The indices are only how the part is written down though
-            // - it is really a region of the surface, and that survives, so it
-            // is re-derived from the new geometry rather than the user being
-            // told they cannot optimize this model.
+            let bytes = original;
             let remappedParts = null;
             let partsNote = '';
-            if (carvedParts && optimized && optimized.bytes) {
-                remappedParts = window.RRGlbOptimizer.remapParts
-                    ? window.RRGlbOptimizer.remapParts(original, optimized.bytes, previous.parts)
-                    : null;
-                if (remappedParts) {
-                    partsNote = ' ' + this._t('{count} carved part(s) re-derived.', { count: carvedParts });
-                } else {
-                    // The two models could not be paired. Keeping the parts
-                    // working matters more than the reduction, so fall back to
-                    // the passes that leave the triangle list alone.
-                    settings.meshRatio = 0;
-                    settings.meshCells = 0;
-                    settings.cacheOrder = false;
-                    say(this._t('Re-running without geometry changes to keep this model’s parts…'));
-                    optimized = await window.RRGlbOptimizer.optimize(original, settings);
-                    partsNote = ' ' + this._t('Textures only: its carved parts could not be re-derived.');
+            if (reduce) {
+                const settings = Object.assign({
+                    encodeImage: window.RRGlbOptimizer.canvasEncoder()
+                }, window.RRGlbOptimizer.PRESETS[mode]);
+
+                say(this._t('Optimizing {name}…', { name: entry.name }));
+                let optimized = await window.RRGlbOptimizer.optimize(original, settings);
+
+                // A carved part is stored as runs of triangle indices, and both
+                // reordering and reducing invalidate them: the part that should
+                // animate becomes a scattered wrong set and swings through the
+                // model. The indices are only how the part is written down though
+                // - it is really a region of the surface, and that survives, so it
+                // is re-derived from the new geometry rather than the user being
+                // told they cannot optimize this model.
+                if (carvedParts && optimized && optimized.bytes) {
+                    remappedParts = window.RRGlbOptimizer.remapParts
+                        ? window.RRGlbOptimizer.remapParts(original, optimized.bytes, previous.parts)
+                        : null;
+                    if (remappedParts) {
+                        partsNote = ' ' + this._t('{count} carved part(s) re-derived.', { count: carvedParts });
+                    } else {
+                        // The two models could not be paired. Keeping the parts
+                        // working matters more than the reduction, so fall back to
+                        // the passes that leave the triangle list alone.
+                        settings.meshRatio = 0;
+                        settings.meshCells = 0;
+                        settings.cacheOrder = false;
+                        say(this._t('Re-running without geometry changes to keep this model’s parts…'));
+                        optimized = await window.RRGlbOptimizer.optimize(original, settings);
+                        partsNote = ' ' + this._t('Textures only: its carved parts could not be re-derived.');
+                    }
                 }
+                bytes = optimized && optimized.bytes ? optimized.bytes : null;
             }
-            const bytes = optimized && optimized.bytes ? optimized.bytes : null;
-            if (!bytes || (bytes === original && !conversion)) return say(this._t('Nothing left to reduce in this model.'));
+            // The same compression the import offers, on whatever the reduction left.
+            let compressed = 0;
+            if (compress && bytes) {
+                const result = await this._compressModelTextures(bytes, entry.name, say);
+                if (result.compressed) { bytes = result.bytes; compressed = result.compressed; }
+            }
+            if (!bytes || (bytes === original && !conversion)) {
+                return say(reduce ? this._t('Nothing left to reduce in this model.') : this._t('This model has no texture to compress.'));
+            }
 
             // Prove the result loads before it replaces anything. Importing
             // puts every model through this gate; writing in place has to use
@@ -1477,10 +1490,11 @@ class Database3DEditor {
             // reduction itself is the win; the base model carries it at every
             // distance. Any levels cut from the OLD geometry are cleared,
             // because they no longer describe the mesh that is now on disk and
-            // would snap a prop back to its old shape as it receded.
+            // would snap a prop back to its old shape as it receded. Compressing
+            // textures alone leaves the geometry, and so its levels, as they were.
             let levelNote = '';
             let sidecarChanged = false;
-            if ((previous.lods || []).length) {
+            if (reduce && (previous.lods || []).length) {
                 const dir = path.dirname(filePath);
                 let cleared = 0;
                 for (const old of previous.lods) {
@@ -1517,7 +1531,11 @@ class Database3DEditor {
             const before = ((conversion ? conversion.sourceBytes : original.length) / 1048576).toFixed(1);
             const after = (bytes.length / 1048576).toFixed(1);
             const converted = conversion ? this._t('Converted from {ext} with {count} texture(s) embedded.', { ext: sourceExt.slice(1).toUpperCase(), count: conversion.images }) + ' ' : '';
-            const summary = converted + `${this._t('Optimized')} ${entry.name}: ${before}MB → ${after}MB${levelNote}.${partsNote} ` +
+            const compressNote = !compressed ? ''
+                : ' ' + (compressed === 1 ? this._t('+ 1 compressed texture') : this._t('+ {count} compressed textures', { count: compressed }));
+            const summary = converted + (reduce
+                ? `${this._t('Optimized')} ${entry.name}: ${before}MB → ${after}MB${levelNote}${compressNote}.${partsNote} `
+                : this._t('Compressed {count} texture(s) of {name}: {before}MB → {after}MB on disk.', { count: compressed, name: entry.name, before, after }) + ' ') +
                 this._t('Original kept as {file}', { file: path.basename(backup) });
             say(summary);
             const stats = this._detail && this._detail.querySelector('.r3d-stats');
@@ -1533,56 +1551,17 @@ class Database3DEditor {
     }
 
     /**
-     * Add a compressed copy (KTX2) of each texture the game draws to the selected model, beside the
-     * picture itself, encoded in a worker. The file is checked to load before it replaces anything,
-     * and the first original stays beside it.
+     * A compressed copy (KTX2) of each texture the game draws, beside the picture itself, encoded in
+     * a worker that is let go afterwards. Resolves to RRGlbOptimizer.compressTextures's result.
      */
-    async compressSelectedModelTextures() {
-        const status = this._detail && this._detail.querySelector('.r3d-status');
-        const say = message => { if (status) status.textContent = message; };
-        const entry = this.listModels().find(m => m.name === this.selectedName);
-        if (!entry) return say(this._t('Select a model first.'));
-        if (!window.RRGlbOptimizer || typeof window.RRGlbOptimizer.compressTextures !== 'function' || !window.RRTextureCompressor) {
-            return say(this._t('The model optimizer is unavailable.'));
-        }
-        const fs = require('fs');
-        const path = require('path');
-        const filePath = this.sourcePath(entry);
-        if (!filePath) return say(this._t('This model’s source file could not be found.'));
-        if (path.extname(filePath).toLowerCase() !== '.glb') return say(this._t('Optimize this model first: textures are compressed in a GLB.'));
+    async _compressModelTextures(bytes, name, say) {
         try {
-            const original = new Uint8Array(fs.readFileSync(filePath));
-            const result = await window.RRGlbOptimizer.compressTextures(original, {
+            return await window.RRGlbOptimizer.compressTextures(bytes, {
                 encodeImage: (data, mimeType) => window.RRTextureCompressor.encode(data, mimeType),
-                onProgress: (done, total) => { if (total) say(this._t('Compressing texture {done} of {total} for {name}…', { done: Math.min(total, done + 1), total, name: entry.name })); }
+                onProgress: (done, total) => { if (total) say(this._t('Compressing texture {done} of {total} for {name}…', { done: Math.min(total, done + 1), total, name })); }
             });
+        } finally {
             window.RRTextureCompressor.release();
-            if (!result.compressed) return say(this._t('This model has no texture to compress.'));
-            if (typeof ResourceManager !== 'undefined' && ResourceManager.validateModelBytes) {
-                try {
-                    ResourceManager.validateModelBytes(result.bytes, '.glb', window.Reactor3D);
-                } catch (error) {
-                    return say(`${this._t('Optimizing produced a model that will not load; nothing was changed')}: ` + (error && error.message ? error.message : error));
-                }
-            }
-            const backup = filePath + '.orig';
-            if (!fs.existsSync(backup)) fs.copyFileSync(filePath, backup);
-            this._writeFileAtomic(fs, filePath, Buffer.from(result.bytes));
-            this._releaseTemplate(entry.name, true);
-            delete this._templates[entry.name];
-            this._statsCache = null;
-            if (typeof RREventPreviewModels !== 'undefined' && RREventPreviewModels.clear) RREventPreviewModels.clear();
-            const controller = this.projectController && typeof this.projectController.refreshMap3DView === 'function'
-                ? this.projectController : (window.reactor && window.reactor.projectController);
-            if (controller && typeof controller.refreshMap3DView === 'function') controller.refreshMap3DView();
-            await this.selectModel(entry);
-            say(this._t('Compressed {count} texture(s) of {name}: {before}MB → {after}MB on disk.', {
-                count: result.compressed, name: entry.name,
-                before: (original.length / 1048576).toFixed(1), after: (result.bytes.length / 1048576).toFixed(1)
-            }) + ' ' + this._t('Original kept as {file}', { file: path.basename(backup) }));
-        } catch (error) {
-            window.RRTextureCompressor.release();
-            say(`${this._t('Could not compress this model’s textures')}: ${error && error.message ? error.message : error}`);
         }
     }
 
@@ -8118,21 +8097,27 @@ class Database3DEditor {
             bar.style.display = 'none';
             return;
         }
+        // One panel: the kind beside its title, the marker tools on an even two-column grid,
+        // one line of what to do, and Close | Save at its foot.
         bar.style.display = 'flex';
-        bar.style.width = '';
-        bar.style.maxWidth = 'calc(100% - 64px)';
-        bar.style.boxSizing = 'border-box';
-        bar.style.flexDirection = 'row';
-        bar.style.alignItems = 'center';
-        bar.style.flexWrap = 'wrap';
         bar.innerHTML = '';
-        const label = document.createElement('span');
-        label.style.fontWeight = 'bold';
-        label.textContent = this._t('Rig');
-        bar.appendChild(label);
-        const templatePick = document.createElement('select');
-        templatePick.style.cssText = 'padding:2px 6px;background:var(--color-bg-surface);color:var(--color-text);border:1px solid var(--color-border-input);border-radius:3px;font-size:12px;';
         const riding = !!(ModelRigger.TEMPLATES[this._rigTemplate] || {}).vehicle, carved = this._rigNeedsUncarved();
+        const button = (className, text, onClick) => {
+            const element = document.createElement('button');
+            element.type = 'button';
+            element.className = className;
+            element.textContent = text;
+            element.addEventListener('click', onClick);
+            return element;
+        };
+        const head = document.createElement('div');
+        head.className = 'r3d-rig-head';
+        const label = document.createElement('span');
+        label.className = 'r3d-rig-title';
+        label.textContent = this._t('Rig');
+        const templatePick = document.createElement('select');
+        templatePick.className = 'r3d-rig-kind';
+        templatePick.setAttribute('aria-label', this._t('Rig'));
         for (const entry of ModelRigger.templates()) {
             const option = document.createElement('option');
             option.value = entry.id;
@@ -8146,80 +8131,53 @@ class Database3DEditor {
             this._buildRigVisuals();
             this.renderRigBar();
         });
-        bar.appendChild(templatePick);
-        // The rig's buttons share one size: the main action highlighted, removing in red.
-        const sized = button => { button.style.cssText = 'height:26px;padding:0 12px;font-size:12px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;white-space:nowrap;'; return button; };
-        const bind = sized(document.createElement('button'));
-        bind.type = 'button';
-        // The one button that saves the rig: it writes the markers, and binds the model to the skeleton they make.
-        bind.className = 'rr-button-primary r3d-save';
-        bind.dataset.kind = 'rig';
-        bind.textContent = this._t(riding ? 'Save rider' : 'Save rig');
-        bind.title = this._t(riding ? 'Saves where a rider sits, holds on and rests its feet to the model.' : 'Saves the rig to the model. With a skeleton, the model is bound to it too.');
-        bind.addEventListener('click', () => this.saveRigFromBar());
-        bind.disabled = carved;
-        if (carved) { bind.style.opacity = '0.5'; bind.style.cursor = 'not-allowed'; }
-        bar.appendChild(bind);
-        if (!riding) {
-            const face = sized(document.createElement('button'));
-            face.type = 'button';
-            face.className = 'rr-btn-secondary';
-            face.textContent = this._t('Face points');
-            face.addEventListener('click', () => this.requestTool('face'));
-            bar.appendChild(face);
+        head.append(label, templatePick);
+        bar.appendChild(head);
+
+        const tools = document.createElement('div');
+        tools.className = 'r3d-rig-tools';
+        if (this._rigTemplate === 'humanoid' && typeof ModelAutoRig !== 'undefined') {
+            const auto = button('rr-btn-secondary r3d-rig-auto', this._t('Auto-place markers'), () => this.autoPlaceRigMarkers());
+            auto.title = this._t('Places the markers from the model\'s own skeleton, or from its shape.');
+            tools.appendChild(auto);
         }
-        const reset = sized(document.createElement('button'));
-        reset.type = 'button';
-        reset.className = 'rr-btn-secondary';
-        reset.textContent = this._t('Reset markers');
-        reset.addEventListener('click', () => {
+        tools.appendChild(button('rr-btn-secondary', this._t('Reset markers'), () => {
             this._rigMarkers = this._rigDefaultMarkers();
             this._rigAutoNote = null;
             this._rigGuessed = null;
             this._buildRigVisuals();
             this.renderRigBar();
-        });
-        bar.appendChild(reset);
-        if (this._rigTemplate === 'humanoid' && typeof ModelAutoRig !== 'undefined') {
-            const auto = sized(document.createElement('button'));
-            auto.type = 'button';
-            auto.className = 'rr-btn-secondary r3d-rig-auto';
-            auto.textContent = this._t('Auto-place markers');
-            auto.title = this._t('Places the markers from the model\'s own skeleton, or from its shape.');
-            auto.addEventListener('click', () => this.autoPlaceRigMarkers());
-            bar.appendChild(auto);
-        }
-        if (this.customRig && !riding) {
-            const remove = sized(document.createElement('button'));
-            remove.type = 'button';
-            remove.className = 'rr-button-danger';
-            remove.textContent = this._t('Remove rig');
-            remove.addEventListener('click', () => this.removeRig());
-            bar.appendChild(remove);
-        }
-        // The way out of the tool, in the bar that says the tool is on.
-        const leave = sized(document.createElement('button'));
-        leave.type = 'button';
-        leave.className = 'rr-btn-secondary';
-        leave.textContent = this._t('Close');
-        leave.addEventListener('click', () => this.requestTool('orbit'));
-        bar.appendChild(leave);
+        }));
+        if (!riding) tools.appendChild(button('rr-btn-secondary', this._t('Face points'), () => this.requestTool('face')));
+        if (this.customRig && !riding) tools.appendChild(button('rr-button-danger', this._t('Remove rig'), () => this.removeRig()));
+        bar.appendChild(tools);
+
         // One line of what to do; the finer points wait in its tooltip.
-        const hint = document.createElement('span');
-        hint.style.cssText = 'flex:1 1 100%;color:var(--color-text-muted);';
+        const hint = document.createElement('div');
+        hint.className = 'r3d-rig-hint' + (carved ? ' is-warning' : '');
         hint.textContent = this._t(carved ? 'This rig type binds a skeleton, which a model with carved parts cannot take. Remove its parts first, or choose a type that only places markers.'
             : riding ? 'Drag the dots to where a rider sits, holds on and rests its feet; sides mirror.' : 'Drag the markers onto the joints; sides mirror.');
-        if (carved) hint.style.color = 'var(--color-warning-text, var(--color-text))';
         hint.title = this._t('Markers snap into the model; a faint one floats outside it.') + ' ' + this._t('Wheel zooms toward the pointer; Shift-drag pans.');
         bar.appendChild(hint);
         const noteText = !carved && !riding ? this._rigAutoNoteText() : '';
         if (noteText) {
-            const note = document.createElement('span');
-            note.className = 'r3d-rig-auto-note';
-            note.style.cssText = 'flex:1 1 100%;color:var(--color-text-muted);';
+            const note = document.createElement('div');
+            note.className = 'r3d-rig-hint r3d-rig-auto-note';
             note.textContent = noteText;
             bar.appendChild(note);
         }
+
+        const foot = document.createElement('div');
+        foot.className = 'r3d-rig-foot';
+        // The way out of the tool, in the panel that says the tool is on.
+        foot.appendChild(button('rr-btn-secondary', this._t('Close'), () => this.requestTool('orbit')));
+        // The one button that saves the rig: it writes the markers, and binds the model to the skeleton they make.
+        const bind = button('rr-button-primary r3d-save', this._t(riding ? 'Save rider' : 'Save rig'), () => this.saveRigFromBar());
+        bind.dataset.kind = 'rig';
+        bind.title = this._t(riding ? 'Saves where a rider sits, holds on and rests its feet to the model.' : 'Saves the rig to the model. With a skeleton, the model is bound to it too.');
+        bind.disabled = carved;
+        foot.appendChild(bind);
+        bar.appendChild(foot);
         this._refreshUnsaved();
     }
 

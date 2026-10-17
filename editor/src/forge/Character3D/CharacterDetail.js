@@ -151,27 +151,18 @@
      */
     function hairStrands(pack, bodyHair, hidden, mode = 'tuft') {
         const Skin = root.RRCharacterSkin || require('./CharacterSkin.js');
-        const Body = root.RRHumanBody || require('./HumanBody.js');
         const key = mode + JSON.stringify([bodyHair.regions, bodyHair.amount, bodyHair.fur, bodyHair.length, bodyHair.budget]) + '|' + (hidden ? hidden.size : 0);
         pack._strandCache = pack._strandCache || new Map();
         if (pack._strandCache.has(key)) return pack._strandCache.get(key);
         const an = Outfit.anatomy(pack), R = an.rest;
-        const fields = Skin.fieldsOf(pack);
         const src = pack.body.source, I = pack.body.index;
         const famOf = v => { let best = 0; for (let fi = 1; fi < 5; fi++) if (an.member[v * 5 + fi] > an.member[v * 5 + best]) best = fi; return best; };
         // Density at each vertex, from the regions; strands per square meter at full density.
-        const dens = new Float32Array(pack.vertexCount);
-        const seen = new Set(src);
-        for (const v of seen) {
-            const fam = famOf(v);
-            const p = { fam, s: an.s[v * 5 + fam], ang: an.angle[v * 5 + fam], n: [fields.normals[v * 3], fields.normals[v * 3 + 1], fields.normals[v * 3 + 2]],
-                rest: [R[v * 3], R[v * 3 + 1], R[v * 3 + 2]], lips: fields.lips[v], lids: fields.lids[v], nose: fields.nose[v] };
-            dens[v] = Skin.hairDensity(bodyHair.regions, p) * bodyHair.amount;
-        }
+        const field = Skin.hairField(pack, bodyHair.regions), dens = field.map(d => d * bodyHair.amount);
         const fur = bodyHair.fur || 0;
         // Tufts per square meter at full density: each carries several strands (fur's, more and finer).
         // Single strands for body hair (about four a square centimeter at full), tufts for fur.
-        const perM2 = (bodyHair.budget || 1) * (mode === 'strand' ? 40000 : 16000 + 4000 * fur);
+        const perM2 = (bodyHair.budget || 1) * (mode === 'strand' ? 40000 : mode === 'clump' ? 16000 : 16000 + 4000 * fur);
         const rand = rng(1234);
         const strands = [];
         for (let t = 0; t < I.length; t += 3) {
@@ -199,9 +190,12 @@
                 const chest = fam === 0 && sv > 0.6 && sv < 3.9;
                 const base = face ? 0.009 : coarse ? 0.024 : chest ? 0.019 : fam >= 3 ? 0.014 : 0.012;
                 strands.push({ tri: [a, b, c], w: [1 - s1 - s2, s1, s2],
-                    len: base * (0.65 + 0.7 * rand()) * (mode === 'strand' ? 0.35 + 0.65 * full : 1 + fur * 0.9 * (bodyHair.length || 1)), fine: full,
-                    lean: 0.1 + 0.12 * rand() + fur * 0.2, curl: coarse ? 0.9 : chest ? 0.45 * rand() : 0.2 * rand(), twist: (rand() - 0.5) * 0.9,
-                    lane: (fur > 0.3 && rand() < fur ? 2 : 0) + Math.floor(rand() * 2), shade: 0.75 + 0.3 * rand(), fam, x: R[a * 3] });
+                    len: base * (0.65 + 0.7 * rand()) * (mode === 'clump' ? (0.6 + 0.9 * full) * (bodyHair.length || 1) : mode === 'strand' ? 0.35 + 0.65 * full : 1 + fur * 1.4 * (bodyHair.length || 1)), fine: full,
+                    // A coat stands off the skin and lies one way, combed; single hairs lie close and stray more.
+                    lean: mode !== 'tuft' ? 0.1 + 0.12 * rand() : 0.28 + 0.22 * rand() + fur * 0.25,
+                    curl: coarse ? 0.9 : chest ? 0.45 * rand() : 0.2 * rand(), twist: (rand() - 0.5) * (mode !== 'tuft' ? 0.9 : 0.4),
+                    // A clump carries more hairs where hair grows thick (the picture's lanes run sparse to dense).
+                    lane: mode === 'clump' ? Math.min(3, Math.floor(d * 3.2 + rand() * 0.8)) : (fur > 0.3 && rand() < fur ? 2 : 0) + Math.floor(rand() * 2), shade: mode !== 'tuft' ? 0.75 + 0.3 * rand() : 0.82 + 0.36 * rand(), fam, x: R[a * 3] });
             }
         }
         if (pack._strandCache.size > 6) pack._strandCache.clear();
@@ -227,11 +221,11 @@
         const SEG = 3, perStrand = SEG * 2;
         const positions = new Float32Array(n * perStrand * 3), nrm = new Float32Array(n * perStrand * 3), uvs = new Float32Array(n * perStrand * 2), colors = new Float32Array(n * perStrand * 3);
         const joints = new Uint8Array(n * perStrand * 4), weights = new Float32Array(n * perStrand * 4), index = new Uint32Array(n * (SEG - 1) * 6), source = new Int32Array(n * perStrand);
-        const rgb = Outfit.linear(color || '#2a1d15');
+        const rgb = Outfit.linear(color || '#2a1d15'), skin = Outfit.linear(o.skin || '#c69c7f');
         let vi = 0, ii = 0;
         // A tuft is a few millimeters across: its picture holds the strands.
-        const single = o.mode === 'strand';
-        const width = single ? 0.00028 * (o.width || 1) : 0.0022 * (o.width || 1);
+        const single = o.mode === 'strand', clump = o.mode === 'clump';
+        const width = (single ? 0.00028 : clump ? 0.0032 : 0.0022) * (o.width || 1);
         const SKJ = pack.skinJoints, SKW = pack.skinWeights;
         for (let si = 0; si < n; si++) {
             const s = strands[si], a = s.tri[0], b = s.tri[1], c = s.tri[2], wa = s.w[0], wb = s.w[1], wc = s.w[2];
@@ -248,9 +242,9 @@
             const sx = ny * fz - nz * fy, sy = nz * fx - nx * fz, sz = nx * fy - ny * fx;
             const u0 = single ? 0 : s.lane * 0.25, u1 = single ? 1 : u0 + 0.25;
             const base = vi, step = s.len / (SEG - 1);
-            // Fine hair is fainter: lighter toward the skin it grows on.
-            const faint = single ? 0.55 * (1 - (s.fine ?? 1)) : 0;
-            const cr = (rgb[0] + (0.55 - rgb[0]) * faint) * s.shade, cg = (rgb[1] + (0.42 - rgb[1]) * faint) * s.shade, cb = (rgb[2] + (0.35 - rgb[2]) * faint) * s.shade;
+            // Fine hair is fainter: toward the color of the skin it grows on.
+            const faint = single || clump ? 0.55 * (1 - (s.fine ?? 1)) : 0;
+            const cr = (rgb[0] + (skin[0] - rgb[0]) * faint) * s.shade, cg = (rgb[1] + (skin[1] - rgb[1]) * faint) * s.shade, cb = (rgb[2] + (skin[2] - rgb[2]) * faint) * s.shade;
             for (let g = 0; g < SEG; g++) {
                 const t = g / (SEG - 1);
                 if (g > 0) {
@@ -260,7 +254,9 @@
                     const dl = Math.hypot(dx, dy, dz) || 1;
                     px += dx / dl * step; py += dy / dl * step; pz += dz / dl * step;
                 }
-                const w = width * (single ? 1 - t * 0.65 : 1 - t * 0.5), tone = 0.85 + 0.15 * t;
+                // Darker at the root; a tuft's tips catch the light, so a coat reads soft rather than speckled.
+                // A clump's hairs fan out from its root, so its card keeps its width.
+                const w = width * (single ? 1 - t * 0.65 : clump ? 0.8 + t * 0.2 : 1 - t * 0.5), tone = single || clump ? 0.85 + 0.15 * t : 0.78 + 0.45 * t * t;
                 for (let k = -1; k <= 1; k += 2) {
                     const o3 = vi * 3, o4 = vi * 4;
                     positions[o3] = px + sx * w * k; positions[o3 + 1] = py + sy * w * k; positions[o3 + 2] = pz + sz * w * k;
@@ -279,8 +275,8 @@
                 ii += 6;
             }
         }
-        return { name: o.name || 'Body hair', positions, normals: nrm, uvs, colors, index, joints, weights, texture: single ? 'strand.png' : 'bodyhair.png', cutout: true, alphaCutoff: single ? 0.3 : 0.35,
-            keepColors: true, doubleSided: true, roughness: 0.75, kind: 'hair', source, noShade: true };
+        return { name: o.name || 'Body hair', positions, normals: nrm, uvs, colors, index, joints, weights, texture: single ? 'strand.png' : 'bodyhair.png', cutout: true, alphaCutoff: clump ? 0.15 : single ? 0.3 : 0.35,
+            keepColors: true, doubleSided: true, roughness: 0.75, kind: 'hair', onSkin: true, source, noShade: true };
     }
 
     /**
@@ -291,23 +287,34 @@
     function bodyHairTexture(size = 256) {
         const data = new Uint8Array(size * size * 4);
         const rand = rng(5);
-        const strands = [];
+        const alpha = new Float32Array(size * size), tone = new Float32Array(size * size).fill(1);
         for (let lane = 0; lane < 4; lane++) {
-            const count = lane < 2 ? 4 + lane : 9, fine = lane < 2 ? 0.8 : 0.55;
-            // Strands bunched irregularly (never evenly spaced), each its own darkness and drift.
-            for (let k = 0; k < count; k++) strands.push({ u: lane * 0.25 + 0.025 + rand() * 0.2, len: 0.45 + rand() * 0.55, wob: (rand() - 0.5) * 0.09, lane, fine: fine * (0.7 + 0.6 * rand()), ink: 0.55 + 0.45 * rand() });
-        }
-        for (const st of strands) for (let y = 0; y < size; y++) {
-            const v = (y + 0.5) / size;
-            if (v > st.len) break;
-            const tip = 1 - v / st.len, w = (0.004 + 0.006 * tip) * st.fine * size, cu = (st.u + st.wob * v * v) * size;
-            for (let x = Math.floor(cu - w - 1); x <= Math.ceil(cu + w + 1); x++) {
-                if (x < st.lane * size / 4 || x >= (st.lane + 1) * size / 4) continue;
-                const d = Math.abs(x + 0.5 - cu) / w;
-                if (d > 1) continue;
-                const o = (y * size + x) * 4, a = Math.round(255 * (1 - d * d) * Math.min(1, tip * 5) * st.ink);
-                if (a > data[o + 3]) { data[o] = data[o + 1] = data[o + 2] = 235; data[o + 3] = a; }
+            // A lock of hairs, sparse to dense (6, 10, 14, 20). No two start at the same place or run the
+            // same way: each grows from its own point near the root, leans its own way and stops at its
+            // own length, so a lock never shows a root line, a tip line or an outline.
+            const count = [6, 10, 14, 20][lane], fine = lane < 2 ? 0.8 : 0.65;
+            for (let k = 0; k < count; k++) {
+                const u0 = lane * 0.25 + 0.125 + (rand() - 0.5) * 0.12, v0 = rand() * 0.22;
+                const lean = (rand() - 0.5) * 0.5, bend = (rand() - 0.5) * 0.35, len = 0.45 + rand() * 0.5;
+                const w0 = (0.0035 + 0.003 * rand()) * fine * size, ink = 0.6 + 0.4 * rand(), shade = 0.75 + 0.45 * rand();
+                const steps = Math.ceil(len * size * 1.4);
+                for (let i = 0; i <= steps; i++) {
+                    const t = i / steps, v = v0 + t * len;
+                    if (v >= 1) break;
+                    const cu = (u0 + (lean + bend * t) * t * len * 0.5) * size, cy = v * size, w = w0 * (1 - 0.8 * t);
+                    for (let x = Math.floor(cu - w - 1); x <= Math.ceil(cu + w + 1); x++) {
+                        if (x < lane * size / 4 + 1 || x >= (lane + 1) * size / 4 - 1) continue;
+                        const d = Math.abs(x + 0.5 - cu) / Math.max(0.5, w);
+                        if (d > 1) continue;
+                        const o = Math.floor(cy) * size + x, a = (1 - d * d) * ink * Math.min(1, (1 - t) * 4);
+                        if (a > alpha[o]) { alpha[o] = a; tone[o] = shade; }
+                    }
+                }
             }
+        }
+        for (let o = 0; o < size * size; o++) {
+            const l = Math.min(255, Math.round(225 * tone[o]));
+            data[o * 4] = data[o * 4 + 1] = data[o * 4 + 2] = l; data[o * 4 + 3] = Math.round(255 * Math.min(1, alpha[o]));
         }
         return { width: size, height: size, data, name: 'bodyhair.png' };
     }

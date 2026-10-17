@@ -32,7 +32,9 @@
         muscle: { natural: [0, 1], extreme: [-0.3, 2.5] },
         height: { natural: [0, 1], extreme: [-0.6, 1.8] },
         cup: { natural: [0, 1], extreme: [-0.2, 6] },
-        firmness: { natural: [0, 1], extreme: [-0.5, 1.5] }
+        firmness: { natural: [0, 1], extreme: [-0.5, 1.5] },
+        // 0 MakeHuman's average build, 1 its idealized one (face and body).
+        proportions: { natural: [0, 1], extreme: [0, 1.6] }
     };
 
     const DEFAULT_RECIPE = Object.freeze({
@@ -44,6 +46,7 @@
         height: 0.5,
         cup: 0.5,
         firmness: 0.5,
+        proportions: 0.7,
         ancestry: Object.freeze({ african: 1 / 3, asian: 1 / 3, caucasian: 1 / 3 }),
         shapes: Object.freeze({}),
         headSize: 1,
@@ -77,6 +80,7 @@
             height: macro(r, 'height'),
             cup: macro(r, 'cup'),
             firmness: macro(r, 'firmness'),
+            proportions: macro(r, 'proportions'),
             ancestry: {},
             shapes: {},
             headSize: clamp(r.headSize ?? 1, 0.5, 2.2),
@@ -116,6 +120,21 @@
      * limb, chest and back bulk targets on top of the build blend, so a
      * strong body grows instead of only leaning out.
      */
+    /**
+     * The face the Proportions macro refines toward at 1, per gender (shape
+     * slider values, added under the recipe's own): an oval face (squarer on a
+     * man), relaxed lids over larger eyes without bags, lips at rest with their corners lifted, a finer nose, defined
+     * cheekbones; a woman's jaw and brow softer, a man's jaw and chin firmer.
+     */
+    const APPEAL = {
+        female: { headWidth: -0.25, headFat: -0.3, cheeks: -0.25, cheekBones: 0.45, jaw: -0.4, chin: 0.1, chinWidth: -0.3, eyeSize: 0.35, eyeOpen: -0.15, eyeSlant: 0.2, eyeBags: -0.5, eyeSpacing: -0.1, headOval: 0.55,
+            browRidge: -0.4, browHeight: -0.1, noseWidth: -0.45, noseVolume: -0.3, noseLength: -0.2, noseTip: 0.2, nostrils: -0.2, upperLip: 0.35, lowerLip: 0.12, mouthWidth: -0.1, mouthCorners: 0.3, neck: -0.3 },
+        male: { headWidth: -0.15, headFat: -0.3, cheeks: -0.3, cheekBones: 0.4, jaw: 0.4, chin: 0.3, chinWidth: 0.15, eyeOpen: -0.2, eyeBags: -0.5, headSquare: 0.35, headOval: 0.2, noseWidth: -0.15, noseHump: -0.1,
+            upperLip: 0.1, lowerLip: 0, mouthCorners: 0.15, browHeight: -0.15, neck: 0.15 }
+    };
+    /** With them, a defined upper lip: its own target (appeal/…), per gender. */
+    const APPEAL_MOUTH = { female: { cupidsBow: 0.6 }, male: { cupidsBow: 0.3 } };
+
     const MUSCLE_BULK = { upperArmMuscle: 0.7, shoulderMuscle: 0.7, forearmMuscle: 0.6, thighMuscle: 0.55, calfMuscle: 0.5, pecs: 0.6, lats: 0.55, vshape: 0.3, neck: 0.45 };
     /** And a heavy one its fat: past the heaviest natural build, the belly, chin and limbs keep filling. */
     const FAT_SPREAD = { belly: 0.7, doubleChin: 0.6, upperArmFat: 0.5, forearmFat: 0.35, thighFat: 0.5, calfFat: 0.35, butt: 0.4, headFat: 0.35, waist: 0.5, neck: 0.3 };
@@ -165,6 +184,7 @@
             // Past a little beyond natural, weight is volume (inflate), not more of the target, which folds.
             grid(r.muscle, clamp(r.weight, -1, 1.4), (m, w) => `macro/${g}-${a}-${m}muscle-${w}weight`, ga, add);
             for (const race of ANCESTRY) add(`race/${race}-${g}-${a}`, ga * r.ancestry[race]);
+            add(`proportion/${g}-${a}-ideal`, ga * r.proportions);
             add(`height/${g}-${a}-min`, ga * height.min);
             add(`height/${g}-${a}-max`, ga * height.max);
             if (g === 'female') grid(clamp(r.cup, -0.2, 1.3), r.firmness, (c, f) => `cup/female-${a}-${c}cup-${f}firmness`, ga, add);
@@ -174,6 +194,9 @@
             if (v) add(`genital/${k}-${v < 0 ? 'decr' : 'incr'}`, Math.abs(v));
         }
         const shapes = Object.assign({}, r.shapes);
+        const appeal = Math.min(1, r.proportions);
+        for (const [g, w] of [['female', 1 - r.gender], ['male', r.gender]]) for (const k in APPEAL[g]) shapes[k] = (shapes[k] || 0) + appeal * w * APPEAL[g][k];
+        for (const [g, w] of [['female', 1 - r.gender], ['male', r.gender]]) for (const k in APPEAL_MOUTH[g]) add(`appeal/${k}`, appeal * w * APPEAL_MOUTH[g][k]);
         const bulk = Math.max(0, (r.muscle - 0.5) * 2);
         for (const k in MUSCLE_BULK) shapes[k] += bulk * MUSCLE_BULK[k];
         const fat = Math.min(0.8, Math.max(0, r.weight - 1) * 2);
@@ -643,7 +666,31 @@
         }
         const around = (center, r) => ids.filter(v => Math.hypot(B[v * 3] - B[center * 3], B[v * 3 + 1] - B[center * 3 + 1], B[v * 3 + 2] - B[center * 3 + 2]) < r)
             .map(v => [v, Math.hypot(B[v * 3] - B[center * 3], B[v * 3 + 1] - B[center * 3 + 1], B[v * 3 + 2] - B[center * 3 + 2]) / r]);
-        const nipples = [best[1][0], best[-1][0]].map(v => ({ v, near: around(v, 0.012) }));
+        // That vertex sits about a centimeter above the nipple the mesh models on a breast: the nipple is the
+        // middle of the small rise there, on a woman's natural bust (the bust's swell centers on it too).
+        const P = Float32Array.from(B), nb = neighbors(pack);
+        applyTargets(pack, targetWeights(normalizeRecipe({ gender: 0, cup: 0.75 }), true), P);
+        const N = vertexNormals(pack, P);
+        const rise = v => {
+            const s = nb.offsets[v], e = nb.offsets[v + 1];
+            let h = 0;
+            for (let i = s; i < e; i++) for (let k = 0; k < 3; k++) h += (P[v * 3 + k] - P[nb.flat[i] * 3 + k]) * N[v * 3 + k];
+            return e > s ? h / (e - s) : 0;
+        };
+        const modeled = top => {
+            const near = ids.filter(v => Math.hypot(P[v * 3] - P[top * 3], P[v * 3 + 1] - P[top * 3 + 1], P[v * 3 + 2] - P[top * 3 + 2]) < 0.016)
+                .map(v => [v, rise(v)]).sort((a, b) => b[1] - a[1]).slice(0, 6);
+            const w = near.reduce((sum, x) => sum + Math.max(0, x[1]), 0);
+            if (!(w > 0)) return top;
+            const c = [0, 1, 2].map(k => near.reduce((sum, x) => sum + P[x[0] * 3 + k] * Math.max(0, x[1]), 0) / w);
+            let pick = top, dist = Infinity;
+            for (const [v] of near.concat([[top]])) {
+                const d = Math.hypot(P[v * 3] - c[0], P[v * 3 + 1] - c[1], P[v * 3 + 2] - c[2]);
+                if (d < dist) { dist = d; pick = v; }
+            }
+            return pick;
+        };
+        const nipples = [best[1][0], best[-1][0]].map(modeled).map(v => ({ v, near: around(v, 0.012) }));
         // The crotch: the lowest front point of the trunk between the legs, and the midline above it.
         let low = -1;
         for (const v of ids) {
@@ -984,12 +1031,12 @@
     function randomRecipe(seed, ranges) {
         let s = (seed >>> 0) || 1;
         const rand = () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
-        const R = Object.assign({ gender: [0, 1], age: [18, 70], muscle: [0.2, 0.8], weight: [0.2, 0.8], height: [0.25, 0.75], cup: [0.3, 0.7], shapes: [-0.6, 0.6] }, ranges || {});
+        const R = Object.assign({ gender: [0, 1], age: [18, 70], muscle: [0.2, 0.8], weight: [0.2, 0.8], height: [0.25, 0.75], cup: [0.3, 0.7], proportions: [0.4, 0.95], shapes: [-0.6, 0.6] }, ranges || {});
         const pick = ([lo, hi]) => lo + (hi - lo) * rand();
         const gender = rand() < 0.5 ? pick([0, 0.15]) : pick([0.85, 1]);
         const r = {
             gender: R.gender[0] === 0 && R.gender[1] === 1 ? gender : pick(R.gender),
-            age: pick(R.age), muscle: pick(R.muscle), weight: pick(R.weight), height: pick(R.height), cup: pick(R.cup),
+            age: pick(R.age), muscle: pick(R.muscle), weight: pick(R.weight), height: pick(R.height), cup: pick(R.cup), proportions: pick(R.proportions),
             ancestry: { african: rand() ** 2, asian: rand() ** 2, caucasian: rand() ** 2 },
             shapes: {}
         };

@@ -3615,13 +3615,13 @@ Reactor3D._glbImageUrl = function(json, bin, image, baseUrl) {
     return URL.createObjectURL(this._glbImageBlob(json, bin, image));
 };
 
-/** An embedded picture's bytes as a Blob: the one the GLB worker made, else cut from the binary chunk. */
+/**
+ * An embedded picture's bytes as a Blob: the one the GLB worker made, else cut from the binary chunk.
+ * The worker's Blob serves every texture that names the picture (materials sharing one sheet): a
+ * compacted chunk no longer holds those bytes.
+ */
 Reactor3D._glbImageBlob = function(json, bin, image) {
-    if (image.rrBlob) {
-        const made = image.rrBlob;
-        delete image.rrBlob;
-        return made;
-    }
+    if (image.rrBlob) return image.rrBlob;
     const view = json.bufferViews[image.bufferView];
     const bytes = bin.subarray(view.byteOffset || 0, (view.byteOffset || 0) + view.byteLength);
     return new Blob([bytes], { type: image.mimeType || "image/png" });

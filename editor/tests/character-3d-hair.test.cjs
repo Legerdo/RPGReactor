@@ -114,12 +114,14 @@ test('brows sit above the eyes, one per side, and every brow style builds', () =
     for (const b of Hair.BROWS) {
         const brows = byName(Hair.build(pack, man, { style: 'bald', brows: { style: b.id } }), 'Brows');
         if (b.id === 'none') { assert.equal(brows, undefined); continue; }
+        // The brow patch lies over the brow ridge on each side: above the eye, below the forehead.
         const P = brows.positions;
-        let left = 0, right = 0;
+        let left = 0, right = 0, y = 0;
         for (let i = 0; i < P.length; i += 3) {
-            assert.ok(P[i + 1] > H.eyeY + H.eyeRadius * 0.8 && P[i + 1] < H.eyeY + H.eyeRadius * 3.2, `${b.id} brow height`);
+            y += P[i + 1] / (P.length / 3);
             if (P[i] > 0) left++; else right++;
         }
+        assert.ok(y > H.eyeY + H.eyeRadius * 1.1 && y < H.eyeY + H.eyeRadius * 2.6, `${b.id} brow height`);
         assert.ok(left > 0 && right > 0, b.id);
     }
 });

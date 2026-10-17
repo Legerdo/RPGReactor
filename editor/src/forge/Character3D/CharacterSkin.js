@@ -136,50 +136,87 @@
      * The palms, the soles, the lips, the lids and the nose tip grow none.
      */
     function hairDensity(regions, p) {
-        const R = regions, s = p.s, n = p.n, x = Math.abs(p.rest[0]);
-        let d = 0;
-        // Neighboring regions fade into each other over a joint: their shares add, so the knee is not a gap.
-        const add = (key, mask) => { if (R[key] > 0 && mask > 0) d += R[key] * mask; };
+        const R = regions, s = p.s, n = p.n;
+        // Each region is a band along its chain; neighbors cross at a shared edge with eased halves, so their
+        // shares add to one and equal settings make an even coat without a seam.
+        const band = (lo, hi, w = 0.12) => (lo === -Infinity ? 1 : smooth(lo - w, lo + w, s)) * (hi === Infinity ? 1 : 1 - smooth(hi - w, hi + w, s));
+        // Below full, a region keeps the shape hair grows in there (a line down the belly, the middle of the
+        // chest); toward full it spreads over the whole band.
+        const grow = (key, shape) => { const v = R[key] || 0; return v * (shape + (1 - shape) * smooth(0.55, 1, v)); };
         if (p.fam === 0) {
-            const front = Math.cos(p.ang), back = -front;
             if (s > 4.35) {
                 // The face and head: not on the lips, the lids, the nose's tip; thinner toward the eyes.
-                // The eyes, the nose and the mouth stay clear; the fur thickens out to the cheeks, jaw and brow.
                 const open = Math.max(smooth(0.06, 0.22, p.lips || 0), smooth(0.04, 0.18, p.lids || 0), smooth(0.2, 0.5, p.nose || 0));
-                add('face', (1 - open) * (0.55 + 0.45 * smooth(0.2, 0.9, Math.abs(Math.sin(p.ang)))));
-                return Math.min(1, d);
+                const face = (R.face || 0) * (1 - open) * (0.55 + 0.45 * smooth(0.2, 0.9, Math.abs(Math.sin(p.ang))));
+                // Under the jaw and behind, the neck's hair carries on up.
+                const neck = (R.neck || 0) * (1 - smooth(4.35, 4.6, s)) * (0.5 + 0.5 * smooth(0.3, -0.3, Math.cos(p.ang)));
+                return Math.min(1, face + neck);
             }
-            add('neck', smooth(3.85, 4.05, s) * (0.5 + 0.5 * smooth(-0.2, -0.7, front)) + smooth(3.85, 4.05, s) * 0.4 * R.face);
-            add('chest', smooth(2.2, 2.7, s) * (1 - smooth(3.55, 3.85, s)) * smooth(0.2, 0.6, front) * (1 - smooth(0.11, 0.17, x)));
-            add('chest', (1 - smooth(0.02, 0.045, x)) * smooth(1.0, 1.4, s) * (1 - smooth(3.6, 3.9, s)) * smooth(0.3, 0.6, front));
-            add('belly', smooth(0.4, 0.8, s) * (1 - smooth(2.0, 2.4, s)) * smooth(0.3, 0.6, front) * (1 - smooth(0.07, 0.14, x)));
-            add('belly', (1 - smooth(0.012, 0.03, x)) * smooth(0.3, 0.6, front) * smooth(0.0, 0.3, s) * (1 - smooth(2.1, 2.4, s)));
-            add('pubic', smooth(0.2, 0.55, front) * smooth(-0.85, -0.6, s) * (1 - smooth(0.45, 0.7, s)) * (1 - smooth(0.08, 0.13, x)));
-            add('pubic', smooth(-0.6, -0.2, -s) * smooth(-1, -0.6, s) * (1 - smooth(0.02, 0.05, x)));
-            add('buttocks', smooth(0.2, 0.5, back) * smooth(-0.7, -0.4, s) * (1 - smooth(0.6, 0.9, s)));
-            add('back', smooth(0.1, 0.4, back) * smooth(0.6, 1.0, s) * (1 - smooth(3.4, 3.8, s)));
-            add('shoulders', smooth(3.2, 3.6, s) * (1 - smooth(3.9, 4.1, s)) * smooth(0.08, 0.14, x) + smooth(3.2, 3.7, s) * smooth(0.2, 0.5, back) * 0.8);
-            // A body furred all over covers the gaps between regions too.
-            add('chest', (R.belly > 0.9 && R.back > 0.9 ? 1 : 0) * smooth(0.6, 0.9, s));
-            add('belly', (R.chest > 0.9 && R.back > 0.9 ? 1 : 0));
+            const c = Math.cos(p.ang), front = smooth(-0.3, 0.3, c), back = 1 - front, x = Math.abs(p.rest[0]);
+            const chest = Math.max(smooth(0.2, 0.6, c) * (1 - smooth(0.11, 0.17, x)), (1 - smooth(0.02, 0.045, x)) * smooth(0.3, 0.6, c));
+            const belly = Math.max(smooth(0.3, 0.6, c) * (1 - smooth(0.07, 0.14, x)) * smooth(0.4, 0.9, s), (1 - smooth(0.012, 0.03, x)) * smooth(0.3, 0.6, c));
+            const pubic = Math.max(smooth(0.2, 0.55, c) * (1 - smooth(0.08, 0.13, x)), smooth(0.2, -0.2, s) * (1 - smooth(0.02, 0.05, x)));
+            let d = 0;
+            d += grow('pubic', pubic) * band(-Infinity, 0.5) * front;
+            d += grow('buttocks', 1) * band(-Infinity, 0.5) * back;
+            d += grow('belly', belly) * band(0.5, 2.25) * front;
+            d += grow('chest', chest) * band(2.25, 3.75) * front;
+            d += grow('back', 1) * band(0.5, 3.75) * back;
+            d += grow('shoulders', smooth(0.08, 0.14, x) + 0.8 * back) * band(3.75, 3.95, 0.08);
+            d += grow('neck', 0.5 + 0.5 * back) * band(3.95, Infinity, 0.08);
             return Math.min(1, d);
         }
         if (p.fam === 1 || p.fam === 2) {
-            const top = n[1], down = -n[1];
-            add('armpits', smooth(0.5, 0.75, s) * (1 - smooth(1.05, 1.3, s)) * smooth(0.1, 0.5, down));
-            add('shoulders', (1 - smooth(0.8, 1.1, s)) * smooth(0, 0.5, top));
-            add('upperArms', smooth(0.7, 1.0, s) * (1 - smooth(1.9, 2.1, s)) * (0.55 + 0.45 * smooth(-0.3, 0.4, top)));
-            add('forearms', smooth(1.85, 2.05, s) * (1 - smooth(2.95, 3.1, s)) * (0.45 + 0.55 * smooth(-0.3, 0.5, top)));
+            const top = smooth(-0.3, 0.5, n[1]);
+            let d = grow('shoulders', smooth(0, 0.5, n[1])) * band(-Infinity, 0.95) + grow('upperArms', 0.55 + 0.45 * top) * band(0.95, 1.95) + grow('forearms', 0.45 + 0.55 * top) * band(1.95, 3.0, 0.08);
             // The backs of the hands and fingers; never the palms.
-            add('hands', smooth(2.95, 3.1, s) * smooth(-0.1, 0.35, top));
+            d += (R.hands || 0) * band(3.0, Infinity, 0.08) * smooth(-0.15, 0.3, n[1]);
+            // The armpits: a patch of their own over the top of the arm's inside.
+            d = Math.max(d, (R.armpits || 0) * smooth(0.5, 0.75, s) * (1 - smooth(1.05, 1.3, s)) * smooth(0.1, 0.5, -n[1]));
             return Math.min(1, d);
         }
-        const top = n[1];
-        add('thighs', smooth(-0.1, 0.15, s) * (1 - smooth(0.9, 1.1, s)) * (0.6 + 0.4 * smooth(-0.3, 0.6, Math.abs(n[0]) + n[2])));
-        add('shins', smooth(0.9, 1.1, s) * (1 - smooth(1.95, 2.1, s)));
-        // The tops of the feet and toes; never the soles.
-        add('feet', smooth(1.95, 2.1, s) * smooth(0.0, 0.4, top));
+        // Legs: thigh, shin, the tops of the feet and toes; never the soles.
+        let d = grow('thighs', 0.6 + 0.4 * smooth(-0.3, 0.6, Math.abs(n[0]) + n[2])) * band(-Infinity, 1.0) + grow('shins', 1) * band(1.0, 2.0, 0.08);
+        d += (R.feet || 0) * band(2.0, Infinity, 0.08) * smooth(-0.1, 0.35, n[1]);
         return Math.min(1, d);
+    }
+
+    /**
+     * Body hair density at every body vertex (0..1, before the amount), the
+     * regions' bands relaxed over the mesh so the chains' joins (hip, shoulder,
+     * wrist) blend. The skin's tint and the strands both read it, so they agree.
+     */
+    function hairField(pack, regions) {
+        const key = JSON.stringify(regions);
+        pack._hairFields = pack._hairFields || new Map();
+        if (pack._hairFields.has(key)) return pack._hairFields.get(key);
+        const Body = root.RRHumanBody || require('./HumanBody.js');
+        const F = fields(pack), an = F.an, R = an.rest, N = F.normals;
+        const famOf = v => { let best = 0; for (let fi = 1; fi < 5; fi++) if (an.member[v * 5 + fi] > an.member[v * 5 + best]) best = fi; return best; };
+        let a = new Float32Array(pack.vertexCount);
+        const verts = [...new Set(pack.body.source)];
+        const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, lids: 0, nose: 0 };
+        for (const v of verts) {
+            const fam = famOf(v);
+            p.fam = fam; p.s = an.s[v * 5 + fam]; p.ang = an.angle[v * 5 + fam];
+            for (let k = 0; k < 3; k++) { p.rest[k] = R[v * 3 + k]; p.n[k] = N[v * 3 + k]; }
+            p.lips = F.lips[v]; p.lids = F.lids[v]; p.nose = F.nose[v];
+            a[v] = hairDensity(regions, p);
+        }
+        const { offsets, flat } = Body.neighbors(pack);
+        let b = new Float32Array(a.length);
+        for (let pass = 0; pass < 4; pass++) {
+            for (const v of verts) {
+                const s0 = offsets[v], e = offsets[v + 1];
+                let sum = 0;
+                for (let i = s0; i < e; i++) sum += a[flat[i]];
+                b[v] = e > s0 ? 0.5 * a[v] + 0.5 * sum / (e - s0) : a[v];
+            }
+            [a, b] = [b, a];
+        }
+        if (pack._hairFields.size > 6) pack._hairFields.clear();
+        pack._hairFields.set(key, a);
+        return a;
     }
 
     /**
@@ -353,10 +390,19 @@
         }
         // Body hair, painted: darker strands thickening with the amount.
         if (s.bodyHair && s.bodyHair.amount > 0) {
-            const bh = s.bodyHair, dens = hairDensity(bh.regions, p) * bh.amount;
-            // The hair itself is strands over the skin (RRCharacterDetail); only under fur does the skin take
-            // the fur's color, so none shows between them.
-            if (dens > 0.01 && bh.fur > 0.05) rgb = mix(rgb, bh.rgb, Math.min(1, dens) * bh.fur * 0.92);
+            const bh = s.bodyHair, here = p.hair ?? hairDensity(bh.regions, p);
+            // The hair itself is strands over the skin (RRCharacterDetail). Under fur the skin takes the fur's
+            // color, so none shows between the tufts; under thick hair it darkens a little toward the hair's.
+            if (bh.fur > 0.05) rgb = mix(rgb, bh.rgb, Math.min(1, here * Math.max(bh.amount, bh.fur)) * Math.min(1, bh.fur * 1.4) * 0.95);
+            // Under the locks, as on a scalp, the skin takes on the hair's color in fine streaks along its
+            // lie: what thick hair reads as from across a room, where single hairs are too fine to see.
+            if (bh.amount > 0.01) {
+                const dens = here * bh.amount;
+                if (dens > 0.05) {
+                    const streak = noise3(x * 420, y * 70, z * 420) * 0.6 + noise3(x * 900, y * 140, z * 900) * 0.4;
+                    rgb = mix(rgb, bh.rgb, smooth(0.05, 1, dens) * 0.45 * (0.55 + 0.9 * streak));
+                }
+            }
         }
         // Under head hair the scalp takes the hair's root color, so nothing pale shows between the locks.
         if (s.scalp && p.fam === 0 && p.s > 4.6) {
@@ -372,7 +418,7 @@
         // Blush, lips and eye shadow on the face.
         if (s.blush) rgb = mix(rgb, mix(rgb, Outfit.linear('#c0484a'), 0.6), p.cheeks * s.blush * 0.6);
         if (p.lips > 0.25) {
-            const lip = s.lips ? Outfit.linear(s.lips) : rgb.map((c, i) => c * [0.82, 0.62, 0.62][i]);
+            const lip = s.lips ? Outfit.linear(s.lips) : rgb.map((c, i) => c * [0.84, 0.56, 0.58][i]);
             rgb = mix(rgb, lip, smooth(0.25, 0.55, p.lips));
         }
         if (s.eyeshadow && p.lids > 0.2) rgb = mix(rgb, Outfit.linear(s.eyeshadow), smooth(0.2, 0.6, p.lids) * s.shadowAmount);
@@ -404,7 +450,10 @@
         s.beard = Math.max(0, Math.min(1, (options && options.beard) || 0));
         s.earHoles = !!(options && options.earHoles);
         if (options && options.scalp) s.scalp = { rgb: Outfit.linear(options.scalp.color).map(c => c * 0.75), recede: options.scalp.recede || 0 };
-        if (options && options.bodyHair && options.bodyHair.amount > 0) s.bodyHair = Object.assign({}, options.bodyHair, { rgb: Outfit.linear(options.bodyHair.color || '#2a1d15') });
+        if (options && options.bodyHair && (options.bodyHair.amount > 0.01 || options.bodyHair.fur > 0.05)) {
+            s.bodyHair = Object.assign({}, options.bodyHair, { rgb: Outfit.linear(options.bodyHair.color || '#2a1d15') });
+            s.hairField = hairField(pack, s.bodyHair.regions);
+        }
         // Anatomy: the areolas (sized by the bust) and a woman's crotch, at their places on the average body.
         const A = options && options.anatomy;
         if (A && A.detail) {
@@ -455,6 +504,7 @@
                 p.nose = W.reduce((sum, w, k) => sum + w * F.nose[v[k]], 0);
                 p.ears = W.reduce((sum, w, k) => sum + w * F.ears[v[k]], 0);
                 p.jaw = W.reduce((sum, w, k) => sum + w * F.jaw[v[k]], 0);
+                if (s.hairField) p.hair = s.hairField[v[0]] * w0 + s.hairField[v[1]] * w1 + s.hairField[v[2]] * w2;
                 let rgb, alpha = 255;
                 if (fur) {
                     const dens = Math.min(1, hairDensity(fur.regions, p) * (0.4 + fur.fur * 0.8));
@@ -476,7 +526,7 @@
 
     // ── eyes ──────────────────────────────────────────────────────────────
     const PUPILS = [['round', 'Round'], ['slit', 'Slit'], ['goat', 'Bar'], ['none', 'None']];
-    const DEFAULT_EYES = Object.freeze({ color: '#6a4a2a', pupil: 'round', sclera: '', size: 1, pupilSize: 1, catchlight: false });
+    const DEFAULT_EYES = Object.freeze({ color: '#6a4a2a', pupil: 'round', sclera: '', size: 1.1, pupilSize: 1, catchlight: true });
     // The picture holds two eyeballs; each iris is centered here, about 0.11 of the picture across.
     const IRIS = [[0.708, 0.259], [0.292, 0.671]], IRIS_R = 0.108, PUPIL_R = 0.042;
 
@@ -541,7 +591,7 @@
         return out;
     }
 
-    const api = { fieldsOf: fields, HAIR_REGIONS, HAIR_PRESETS, BODY_HAIR_PATTERNS, DEFAULT_BODY_HAIR, normalizeBodyHair, hairDensity, paintFur, PATTERNS, PUPILS, DEFAULT_SKIN, DEFAULT_EYES, normalizeSkin, normalizeEyes, paint, paintEyes, shadeSkin, regionOf };
+    const api = { fieldsOf: fields, HAIR_REGIONS, HAIR_PRESETS, BODY_HAIR_PATTERNS, DEFAULT_BODY_HAIR, normalizeBodyHair, hairDensity, hairField, paintFur, PATTERNS, PUPILS, DEFAULT_SKIN, DEFAULT_EYES, normalizeSkin, normalizeEyes, paint, paintEyes, shadeSkin, regionOf };
     root.RRCharacterSkin = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

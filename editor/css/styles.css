@@ -5646,6 +5646,26 @@
 .r3d-face-save { width:100%; margin-top:8px; padding:5px 8px; }
 .r3d-face-help { margin-top:8px; font-size:11px; line-height:1.45; color:var(--color-text-muted); }
 
+/* Rig panel over the preview: the kind beside its title, the marker tools on an even
+   two-column grid, one line of help, and Close | Save at its foot. */
+.r3d-rig-bar { position:absolute; top:8px; left:50%; transform:translateX(-50%); width:min(360px, calc(100% - 140px)); box-sizing:border-box;
+    flex-direction:column; gap:8px; padding:8px 10px 10px; background:var(--color-bg-panel); border:1px solid var(--color-accent); border-radius:6px;
+    box-shadow:0 4px 18px rgba(0,0,0,0.35); font-size:12px; color:var(--color-text); }
+.r3d-rig-head { display:grid; grid-template-columns:auto minmax(0, 1fr); align-items:center; column-gap:10px; }
+.r3d-rig-title { font-weight:700; }
+.r3d-rig-kind { height:26px; min-width:0; box-sizing:border-box; padding:0 6px; background:var(--color-bg-surface); color:var(--color-text);
+    border:1px solid var(--color-border-input); border-radius:3px; font-size:12px; }
+.r3d-rig-tools { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:6px; }
+.r3d-rig-bar button { min-width:0; min-height:26px; box-sizing:border-box; padding:3px 10px; font-size:12px; line-height:1.2; text-transform:none; }
+.r3d-rig-bar button:disabled { opacity:0.5; cursor:not-allowed; }
+.r3d-rig-hint { color:var(--color-text-muted); line-height:1.4; }
+.r3d-rig-hint.is-warning { color:var(--color-warning-text, var(--color-text)); }
+.r3d-rig-foot { display:flex; justify-content:flex-end; gap:6px; padding-top:8px; border-top:1px solid var(--color-border); }
+.r3d-rig-foot button { min-width:84px; }
+/* The specifications card's header: one line of title, one header-sized action. */
+.r3d-stats-title { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.r3d-stats-card .r3d-optimize { flex:0 0 auto; height:22px; box-sizing:border-box; padding:0 10px; font-size:11px; line-height:1; text-transform:none; }
+
 .rr-speech-overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.7); }
 .rr-speech-modal { display:flex; flex-direction:column; width:min(560px,92vw); max-height:90vh; overflow:hidden; background:var(--color-bg-surface); color:var(--color-text); border:1px solid var(--color-border); border-radius:8px; font-size:13px; box-shadow:0 8px 32px rgba(0,0,0,0.4); }
 .rr-speech-modal .rr-modal-header { padding:14px 18px; background:var(--color-bg-panel); border-bottom:1px solid var(--color-border); font-size:16px; font-weight:600; }

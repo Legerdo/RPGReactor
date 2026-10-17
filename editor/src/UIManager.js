@@ -1324,7 +1324,9 @@ class UIManager {
         let compressBox = null;
         if (compression && typeof compression === 'object') {
             const row = document.createElement('label');
-            row.style.cssText = 'display:grid;grid-template-columns:auto 1fr;column-gap:10px;align-items:start;margin-top:10px;cursor:pointer;';
+            // Inset like the choices above, so its box lines up with their radios.
+            row.style.cssText = 'display:grid;grid-template-columns:auto 1fr;column-gap:10px;align-items:start;margin-top:10px;' +
+                'padding:8px 10px;border:1px solid var(--color-border);border-radius:var(--radius-sm, 4px);cursor:pointer;';
             compressBox = document.createElement('input');
             compressBox.type = 'checkbox';
             compressBox.className = 'rr-model-optimize-compress';
@@ -1336,7 +1338,7 @@ class UIManager {
             strong.textContent = tt('Compress textures for the graphics card');
             const small = document.createElement('div');
             small.style.cssText = 'color:var(--color-text-muted);font-size:12px;';
-            small.textContent = tt('Adds a compressed copy of each texture that takes a quarter of the graphics memory. Slow to import: a few seconds per texture.');
+            small.textContent = tt('Adds a compressed copy of each texture that takes a quarter of the graphics memory. Takes a few seconds per texture.');
             text.append(strong, small);
             row.append(compressBox, text);
             body.appendChild(row);

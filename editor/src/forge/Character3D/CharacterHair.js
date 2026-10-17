@@ -382,9 +382,9 @@
     const pushVert = (m, p, n, c, uv, tan) => { m.pos.push(p[0], p[1], p[2]); m.nrm.push(n[0], n[1], n[2]); m.col.push(c[0], c[1], c[2]); m.uv.push(uv ? uv[0] : 0.5, uv ? uv[1] : 0.02); m.tan.push(tan ? tan[0] : 0, tan ? tan[1] : -1, tan ? tan[2] : 0); return m.pos.length / 3 - 1; };
 
     /** A shell over a cut surface: each point raised by `lift(i)` along its normal, colored by `color(i)`. */
-    function addShell(m, surf, lift, color) {
+    function addShell(m, surf, lift, color, uv) {
         const base = m.pos.length / 3;
-        for (let i = 0; i < surf.pos.length; i++) pushVert(m, add(surf.pos[i], mul(surf.nrm[i], lift(i))), surf.nrm[i], color(i));
+        for (let i = 0; i < surf.pos.length; i++) pushVert(m, add(surf.pos[i], mul(surf.nrm[i], lift(i))), surf.nrm[i], color(i), uv ? uv(i) : null);
         for (let t = 0; t < surf.index.length; t += 3) m.idx.push(base + surf.index[t], base + surf.index[t + 1], base + surf.index[t + 2]);
         return base;
     }
@@ -447,8 +447,10 @@
         const u0 = lane * 0.25, u1 = u0 + 0.25;
         for (const [scale, twist] of [[1, 0], [0.6, 1]]) {
             const base = m.pos.length / 3;
+            // The crossing strip gives the lock body near the head; past halfway the lock is flat anyway.
+            const rows = twist ? Math.max(2, Math.ceil(n * 0.5)) : n;
             let prevB = null;
-            for (let i = 0; i < n; i++) {
+            for (let i = 0; i < rows; i++) {
                 const t = i / (n - 1);
                 const T = norm(sub(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)]));
                 const out = opts.outAt ? opts.outAt(pts[i], i) : norm(sub(pts[i], opts.center));
@@ -473,7 +475,7 @@
                     pushVert(m, p, norm(add(mul(out, 0.7), mul(norm(add(N, mul(B, k * 0.35))), 0.3))), shadeRgb(col, shade), [u0 + (k + 1) / 2 * (u1 - u0), t * 0.98 + 0.01], T);
                 }
             }
-            for (let i = 0; i + 1 < n; i++) {
+            for (let i = 0; i + 1 < rows; i++) {
                 const a = base + i * 3;
                 m.idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
             }
@@ -492,8 +494,9 @@
         // Strands gathered in loose clumps across each lane, each its own length, drift and lightness.
         for (let lane = 0; lane < 4; lane++) {
             const clumps = Array.from({ length: 5 }, () => lane * 0.25 + 0.03 + rnd() * 0.19);
-            for (let k = 0; k < 44; k++) {
-                const c = clumps[k % clumps.length] + (rnd() - 0.5) * 0.05;
+            for (let k = 0; k < 60; k++) {
+                // Half spread evenly over the lane, half in its clumps: a lock reads full, with some grouping.
+                const c = k % 2 ? lane * 0.25 + 0.01 + rnd() * 0.23 : clumps[k % clumps.length] + (rnd() - 0.5) * 0.05;
                 strands.push({ u: Math.min(lane * 0.25 + 0.245, Math.max(lane * 0.25 + 0.005, c)), len: 0.5 + 0.5 * rnd(), wob: (rnd() - 0.5) * 0.008, freq: 3 + rnd() * 5, ph: rnd() * 6.28, light: 0.65 + 0.35 * rnd(), lane });
             }
         }
@@ -503,7 +506,7 @@
                 const v = (y + 0.5) / size;
                 if (v > st.len) break;
                 const tip = 1 - v / st.len;
-                const width = (0.0016 + 0.0016 * Math.min(1, tip * 2)) * size;
+                const width = (0.0024 + 0.002 * Math.min(1, tip * 2)) * size;
                 const cu = (st.u + st.wob * Math.sin(v * st.freq * 6.28 + st.ph)) * size;
                 const laneMin = st.lane * 0.25 * size, laneMax = (st.lane + 1) * 0.25 * size - 1;
                 for (let x = Math.max(laneMin, Math.floor(cu - width - 1)); x <= Math.min(laneMax, Math.ceil(cu + width + 1)); x++) {
@@ -517,11 +520,13 @@
         }
         for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
             const o = y * size + x, v = (y + 0.5) / size;
-            // A card's sides fade, so no lock shows a straight edge; a little fuller at the very root.
+            // Full at the root, so no scalp shows between cards; a card's sides thin a little, so no lock
+            // shows a straight edge.
             const lu = ((x + 0.5) / size % 0.25) / 0.25, side = Math.min(1, Math.min(lu, 1 - lu) * 6);
-            const a = Math.max(alpha[o] * (0.35 + 0.65 * side), Math.max(0, 0.6 - v * 9) * side);
+            const a = Math.max(alpha[o], Math.max(0, 0.9 - v * 7)) * (0.6 + 0.4 * side);
             // Darker at the root, lighter toward the tips, as hair is.
-            const l = Math.round(255 * lum[o] * (0.72 + 0.28 * Math.min(1, v * 1.6)));
+            // Its lightness averages one, so a lock shows the color chosen for it.
+            const l = Math.min(255, Math.round(255 * 1.22 * lum[o] * (0.84 + 0.16 * Math.min(1, v * 1.6))));
             data[o * 4] = l; data[o * 4 + 1] = l; data[o * 4 + 2] = l; data[o * 4 + 3] = Math.round(255 * Math.min(1, a));
         }
         return { width: size, height: size, data, name: 'hair.png' };
@@ -838,7 +843,7 @@
 
     // ── layer builders ─────────────────────────────────────────────────────
     function colorRamp(hair) {
-        const rootC = shadeRgb(linear(hair.color), 0.78);
+        const rootC = shadeRgb(linear(hair.color), 0.88);
         const tipC = hair.tipColor ? linear(hair.tipColor) : shadeRgb(linear(hair.color), 1.12);
         const hi = mixRgb(linear(hair.color), [0.9, 0.82, 0.62], 0.5);
         return (t, variance, highlight) => {
@@ -851,13 +856,17 @@
     function buildCap(H, hair, m, layer, ramp) {
         const surf = cutSurface(H, scalpField(H, hair, layer.zone));
         const soft = 7;
-        addShell(m, surf, i => layer.thickness * smooth(0, soft, surf.val[i]), () => ramp(0.15, 0.92, false));
+        // Its edge runs out through the strand picture's roots, so the hairline breaks up into hairs
+        // rather than ending in a cut edge.
+        addShell(m, surf, i => layer.thickness * smooth(0, soft, surf.val[i]), () => ramp(0.15, 0.92, false),
+            i => [0.125 + 0.11 * Math.sin((surf.pos[i][0] + surf.pos[i][2]) * 260), 0.02 + 0.2 * (1 - smooth(0, soft, surf.val[i]))]);
         return surf;
     }
 
     function buildStrands(H, hair, m, layer, ramp, rand) {
         const surf = cutSurface(H, scalpField(H, hair, layer.zone));
-        const roots = scatter(surf, layer.count, rand);
+        // A third more locks than a style names: with the crossing strips shortened, the same triangles.
+        const roots = scatter(surf, Math.round(layer.count * 1.35), rand);
         for (const r of roots) {
             if (r.f < 1.5) continue;
             const c = headCoords(H, r.p);
@@ -869,7 +878,7 @@
             const front = (layer.drape === 'split' && Math.abs(c.az) > 30 && Math.abs(c.az) < 100 && rand() < 0.75) || !!layer.frontDrape;
             let pts = grow(H, r.p, r.n, dir, {
                 steps: layer.steps, length, layer: layer.layer * (0.6 + 0.8 * rand()), lift, gravity: layer.gravity, stiff: layer.stiff,
-                hug: layer.hug, release: H.earBottom, fringe, stopY: layer.stopY ? layer.stopY(c) : null,
+                hug: layer.hug, release: H.earBottom, fringe, stopY: layer.stopY ? layer.stopY(c) - rand() * 0.012 : null,
                 front,
                 bias: front ? mul(AXIS.front, 0.25) : (Math.abs(c.az) > 60 ? mul(AXIS.back, 0.6) : null)
             });
@@ -904,7 +913,8 @@
             const pts = grow(H, p, n, layer.comb(p, n, c, rand), {
                 steps: layer.steps, length: layer.length(c, rand), layer: layer.layer * 0.8, lift: typeof layer.lift === 'function' ? layer.lift(c) : layer.lift,
                 gravity: layer.gravity, stiff: layer.stiff, hug: layer.hug, release: H.earBottom, fringe: false,
-                stopY: layer.stopY ? layer.stopY(c) : null, front: false, bias: Math.abs(c.az) > 60 ? mul(AXIS.back, 0.6) : null
+                // A cut line is never ruled: each lock ends a little higher or lower.
+                stopY: layer.stopY ? layer.stopY(c) - rand() * 0.012 : null, front: false, bias: Math.abs(c.az) > 60 ? mul(AXIS.back, 0.6) : null
             });
             guides.push(pts.length === layer.steps + 1 ? pts : null);
         }
@@ -919,8 +929,11 @@
                 if (len(sub(a[i], b[i])) > gap) break;
                 const t = i / (a.length - 1);
                 const out = norm(sub(lerp(a[i], b[i], 0.5), H.center));
-                pushVert(m, a[i], out, col(t));
-                pushVert(m, b[i], out, col(t));
+                // On the strand picture (the middle of a lane, clear of its thinned sides), so the sheet's
+                // ends and edges break up into hair like the locks over it.
+                const u0 = (k % 4) * 0.25 + 0.04;
+                pushVert(m, a[i], out, col(t), [u0, t * 0.98 + 0.01]);
+                pushVert(m, b[i], out, col(t), [u0 + 0.17, t * 0.98 + 0.01]);
                 rows++;
             }
             for (let i = 0; i + 1 < rows; i++) {
@@ -1336,34 +1349,115 @@
         return { p, n: Number.isFinite(s.d) ? s.n : [0, 0, 1] };
     }
 
-    function buildBrows(H, hair, m, rand) {
-        const b = hair.brows;
-        if (b.style === 'none') return;
-        const shape = browShape(b.style);
-        const color = b.color || hair.color;
-        const base = shadeRgb(linear(color), 0.8);
-        const er = H.eyeRadius;
-        const thickness = (0.6 + 0.8 * b.thickness) * shape[4];
-        for (const eye of [H.eyeL, H.eyeR]) {
-            const side = Math.sign(eye[0] - H.center[0]) || 1;
-            const inner = eye[0] - side * er * 1.15, outer = eye[0] + side * er * 1.75;
-            const count = Math.round(shape[5] * (0.7 + 0.6 * b.thickness));
-            for (let k = 0; k < count; k++) {
-                const u = (k + rand()) / count;
-                const hgt = u < shape[3] ? mix(shape[0], shape[1], Math.sin((u / shape[3]) * Math.PI / 2)) : mix(shape[1], shape[2], 1 - Math.cos(((u - shape[3]) / (1 - shape[3])) * Math.PI / 2));
-                const band = (rand() - 0.5) * er * 0.38 * thickness * (1 - 0.6 * u);
-                const x = mix(inner, outer, u), y = eye[1] + er * hgt + band;
-                const start = onSkin(H, [x, y, eye[2] + er * 1.5], 0.0006 * H.scale);
-                // Hairs point outward along the brow, the inner ones more upward.
-                const along = norm([side * 1, mix(1.4, -0.15, u), 0]);
-                const dir = tangent(along, start.n);
-                const hl = er * (0.4 + 0.35 * rand()) * (u < 0.15 ? 0.7 : 1);
-                const mid = onSkin(H, add(start.p, mul(dir, hl * 0.5)), 0.0009 * H.scale).p;
-                const end = onSkin(H, add(start.p, mul(dir, hl)), 0.0007 * H.scale).p;
-                const shade = 0.75 + 0.35 * rand();
-                addClump(m, [start.p, mid, end], { width: er * 0.2 * thickness, flat: 0.25, sides: 3, center: H.center, color: () => shadeRgb(base, shade) });
+    /**
+     * The brows' patch: the skin over each eye, found once on MakeHuman's
+     * neutral face, with each vertex's place on the brow picture (inner end
+     * to outer, mirrored for the other side, so one picture serves both).
+     * A brow drawn there rides the brow ridge on any face.
+     */
+    function browPatch(pack) {
+        if (pack._browPatch) return pack._browPatch;
+        const B = pack.positions, N = root.RRHumanBody ? root.RRHumanBody.vertexNormals(pack, B) : vertexNormals(pack, B);
+        const meanOf = (a, z) => { const c = [0, 0, 0]; for (let v = a; v <= z; v++) for (let k = 0; k < 3; k++) c[k] += B[v * 3 + k] / (z - a + 1); return c; };
+        const eyes = [meanOf(14598, 14669), meanOf(14670, 14741)];
+        let er = 0;
+        for (let v = 14598; v <= 14669; v++) er = Math.max(er, Math.hypot(B[v * 3] - eyes[0][0], B[v * 3 + 1] - eyes[0][1], B[v * 3 + 2] - eyes[0][2]));
+        const src = pack.body.source, I = pack.body.index;
+        const ids = [], index = [], uvs = [];
+        for (const eye of eyes) {
+            const side = Math.sign(eye[0]) || 1, x0 = eye[0] - side * er * BROW_BOX[0], y0 = eye[1] + er * BROW_BOX[2];
+            const place = v => [side * (B[v * 3] - x0) / (er * BROW_BOX[1]), 1 - (B[v * 3 + 1] - y0) / (er * BROW_BOX[3])];
+            const at = new Map();
+            for (let t = 0; t < I.length; t += 3) {
+                const tri = [src[I[t]], src[I[t + 1]], src[I[t + 2]]];
+                if (!tri.every(v => { const q = place(v); return q[0] > -0.05 && q[0] < 1.05 && q[1] > -0.05 && q[1] < 1.05 && N[v * 3 + 2] > 0.15 && B[v * 3 + 2] > eye[2]; })) continue;
+                for (const v of tri) {
+                    if (!at.has(v)) { at.set(v, ids.length); ids.push(v); uvs.push(...place(v).map(q => clamp(q, 0, 1))); }
+                    index.push(at.get(v));
+                }
             }
         }
+        return (pack._browPatch = { ids, index, uvs });
+    }
+    // The brow picture's box round an eye, in eye radii: starts this far toward the nose, this wide,
+    // starts this high above the eye's center, this tall.
+    const BROW_BOX = [1.6, 3.9, 0.7, 2.1];
+
+    /**
+     * The brow picture: hundreds of fine hairs along the style's line, the
+     * inner ones short and rising, the rest lying outward, over a faint fill
+     * of the brow's color so it reads full; alpha everywhere else.
+     */
+    function browTexture(brows, color) {
+        const W = 512, Ht = 256, b = brows, shape = browShape(b.style);
+        const data = new Uint8Array(W * Ht * 4);
+        if (!shape) return { width: W, height: Ht, data, name: 'brows.png' };
+        const rgb = linear(color || '#3a2a1a'), rand = rng(hash(b.style) ^ Math.round(b.thickness * 1000));
+        const alpha = new Float32Array(W * Ht), tone = new Float32Array(W * Ht).fill(1);
+        const thickness = (0.6 + 0.8 * b.thickness) * shape[4];
+        // Eye radii to picture pixels.
+        const px = x => (x + BROW_BOX[0]) / BROW_BOX[1] * W, py = y => (1 - (y - BROW_BOX[2]) / BROW_BOX[3]) * Ht;
+        const lineAt = u => (u < shape[3] ? mix(shape[0], shape[1], Math.sin((u / shape[3]) * Math.PI / 2)) : mix(shape[1], shape[2], 1 - Math.cos(((u - shape[3]) / (1 - shape[3])) * Math.PI / 2)));
+        const plot = (x, y, a, t) => {
+            const ix = Math.floor(x), iy = Math.floor(y);
+            for (let dy = 0; dy <= 1; dy++) for (let dx = 0; dx <= 1; dx++) {
+                const X = ix + dx, Y = iy + dy;
+                if (X < 0 || Y < 0 || X >= W || Y >= Ht) continue;
+                const w = (1 - Math.abs(x - X)) * (1 - Math.abs(y - Y)) * a, o = Y * W + X;
+                if (w <= 0) continue;
+                alpha[o] = 1 - (1 - alpha[o]) * (1 - w);
+                tone[o] = mix(tone[o], t, Math.min(1, w));
+            }
+        };
+        // The fill: the brow's body, densest along its line, softer at its ends.
+        for (let y = 0; y < Ht; y++) for (let x = 0; x < W; x++) {
+            const ex = x / W * BROW_BOX[1] - BROW_BOX[0], ey = BROW_BOX[2] + (1 - y / Ht) * BROW_BOX[3];
+            const u = (ex + 1.15) / 2.9;
+            if (u < -0.05 || u > 1.05) continue;
+            const half = 0.19 * thickness * (1 - 0.6 * Math.min(1, Math.max(0, u))) + 0.04;
+            const d = Math.abs(ey - lineAt(Math.min(1, Math.max(0, u)))) / half;
+            const ends = smooth(-0.05, 0.12, u) * (1 - smooth(0.85, 1.05, u));
+            alpha[y * W + x] = Math.max(0, 1 - d * d) * ends * 0.22;
+        }
+        // The hairs.
+        const count = Math.round(shape[5] * (0.7 + 0.6 * b.thickness) * 9);
+        for (let k = 0; k < count; k++) {
+            const u = rand();
+            const band = (rand() - 0.5) * 0.38 * thickness * (1 - 0.6 * u);
+            let x = mix(-1.15, 1.75, u), y = lineAt(u) + band;
+            const dir = norm([1, mix(1.4, -0.15, Math.min(1, u * 1.4)), 0]);
+            const lenH = (0.32 + 0.3 * rand()) * (u < 0.15 ? 0.7 : 1), bend = (rand() - 0.3) * 0.5;
+            const a0 = 0.55 + 0.4 * rand(), t0 = 0.55 + 0.35 * rand();
+            const steps = Math.ceil(lenH / BROW_BOX[1] * W * 1.5);
+            for (let i = 0; i <= steps; i++) {
+                const t = i / steps, ang = bend * t;
+                const dx = dir[0] * Math.cos(ang) - dir[1] * Math.sin(ang), dy = dir[0] * Math.sin(ang) + dir[1] * Math.cos(ang);
+                plot(px(x), py(y), a0 * (1 - t * 0.55), t0);
+                x += dx * lenH / steps; y += dy * lenH / steps;
+            }
+        }
+        for (let o = 0; o < W * Ht; o++) {
+            const k = tone[o];
+            data[o * 4] = Math.round(255 * Math.pow(Math.min(1, rgb[0] * k), 1 / 2.2));
+            data[o * 4 + 1] = Math.round(255 * Math.pow(Math.min(1, rgb[1] * k), 1 / 2.2));
+            data[o * 4 + 2] = Math.round(255 * Math.pow(Math.min(1, rgb[2] * k), 1 / 2.2));
+            data[o * 4 + 3] = Math.round(255 * Math.min(1, alpha[o]));
+        }
+        return { width: W, height: Ht, data, name: 'brows.png' };
+    }
+
+    /** The brows as a part: the brow patch over the shaped face, a hair off the skin. */
+    function buildBrows(H, hair) {
+        if (hair.brows.style === 'none' || !browShape(hair.brows.style)) return null;
+        const patch = browPatch(H.pack), pack = H.pack, n = patch.ids.length;
+        const positions = new Float32Array(n * 3), normals = new Float32Array(n * 3), joints = new Uint8Array(n * 4), weights = new Float32Array(n * 4);
+        patch.ids.forEach((v, i) => {
+            for (let k = 0; k < 3; k++) { normals[i * 3 + k] = H.normals[v * 3 + k]; positions[i * 3 + k] = H.S[v * 3 + k] + H.normals[v * 3 + k] * 0.0003; }
+            joints.set(pack.skinJoints.subarray(v * 4, v * 4 + 4), i * 4);
+            weights.set(pack.skinWeights.subarray(v * 4, v * 4 + 4), i * 4);
+        });
+        return { name: 'Brows', positions, normals, colors: new Float32Array(n * 3).fill(1), uvs: Float32Array.from(patch.uvs), index: Uint32Array.from(patch.index), joints, weights,
+            texture: 'brows.png', opacity: 0.999, roughness: 0.7, source: Int32Array.from(patch.ids), decal: true, onSkin: true };
     }
 
     /**
@@ -1483,7 +1577,7 @@
             else if (layer.type === 'braid') buildBraid(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'locks') buildLocks(H, hair, head, layer, ramp, rand);
         }
-        const strands = { texture: 'hair.png', cutout: true, alphaCutoff: 0.42, keepColors: true };
+        const strands = { texture: 'hair.png', cutout: true, alphaCutoff: 0.3, keepColors: true };
         // Cards are wider than the strands they stand for: whatever of them sinks into the body is lifted out.
         for (let i = 0; i < head.pos.length; i += 3) {
             const p = [head.pos[i], head.pos[i + 1], head.pos[i + 2]], s = H.surface(p);
@@ -1496,9 +1590,8 @@
         const facial = meshBuilder();
         buildFacial(H, hair, facial, rand, hexOk(o.skin) ? o.skin : (built.recipe && built.recipe.skin));
         if (facial.idx.length) parts.push(toPart(H, facial, 'Facial hair', { rigid: true, extra: strands }));
-        const brows = meshBuilder();
-        buildBrows(H, hair, brows, rng(seed ^ 0xb40));
-        if (brows.idx.length) parts.push(toPart(H, brows, 'Brows', { rigid: true, extra: strands }));
+        const brows = buildBrows(H, hair);
+        if (brows) parts.push(brows);
         if (hair.lashes) {
             const lashes = meshBuilder();
             buildLashes(H, lashes);
@@ -1528,7 +1621,7 @@
     }
 
     const api = {
-        lashTexture, hairTexture,
+        lashTexture, hairTexture, browTexture,
         STYLES, FACIAL, BROWS, PARTS, DEFAULT_HAIR, normalizeHair, randomHair, build,
         _internal: { measure, headCoords, cutSurface, facialField, meshBuilder, addShell, addClump, addTube, addBlob, grow, curlStrand, scatter, tangent, rng, hash, linear }
     };

@@ -147,17 +147,18 @@
         // Body hair: single strands where it grows; fur: dense tufts over it.
         const budget = o.hairBudget || 1;
         if (bodyHair.amount > 0.01) {
-            const strands = Detail.hairStrands(pack, Object.assign({}, bodyHair, { budget }), outfit.hidden, 'strand');
+            // In clumps of fine hairs, like locks of head hair: many hairs to a card.
+            const strands = Detail.hairStrands(pack, Object.assign({}, bodyHair, { budget }), outfit.hidden, 'clump');
             if (strands.length) {
-                textures['strand.png'] = cache.strandTex || (cache.strandTex = Detail.strandTexture());
-                parts.push(Detail.hairPart(pack, built.shaped, skinNormals, strands, bodyHair.color, { mode: 'strand' }));
+                textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
+                parts.push(Detail.hairPart(pack, built.shaped, skinNormals, strands, bodyHair.color, { mode: 'clump', skin: r.skin }));
             }
         }
         if (bodyHair.fur > 0.05) {
             const tufts = Detail.hairStrands(pack, Object.assign({}, bodyHair, { amount: Math.max(bodyHair.amount, bodyHair.fur), budget }), outfit.hidden, 'tuft');
             if (tufts.length) {
                 textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
-                parts.push(Detail.hairPart(pack, built.shaped, skinNormals, tufts, bodyHair.color, { width: 1 + bodyHair.fur, name: 'Fur' }));
+                parts.push(Detail.hairPart(pack, built.shaped, skinNormals, tufts, bodyHair.color, { width: 1 + bodyHair.fur, name: 'Fur', skin: r.skin }));
             }
         }
         // The areolas: their own patch with its own picture, sharp at any distance.
@@ -180,6 +181,11 @@
         const hair = Hair.build(pack, built, hairRecipe, { seed: r.seed, skin: r.skin });
         if (hair.some(p => p.texture === 'lashes.png')) textures['lashes.png'] = cache.lashes || (cache.lashes = Hair.lashTexture(128));
         if (hair.some(p => p.texture === 'hair.png')) textures['hair.png'] = cache.hairStrands || (cache.hairStrands = Hair.hairTexture(256));
+        if (hair.some(p => p.texture === 'brows.png')) {
+            const browKey = JSON.stringify([hairRecipe.brows, hairRecipe.color]);
+            if (cache.browKey !== browKey) { cache.brows = Hair.browTexture(Hair.normalizeHair(hairRecipe).brows, (hairRecipe.brows && hairRecipe.brows.color) || hairRecipe.color); cache.browKey = browKey; }
+            textures['brows.png'] = cache.brows;
+        }
         const L = Props.landmarks(pack, built);
         const props = Props.build(pack, built, r.props);
         const features = Species.build(pack, built, r.features, L);

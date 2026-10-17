@@ -117,6 +117,12 @@ for (const r of ['african', 'asian', 'caucasian']) for (const g of GENDERS) for 
 for (const g of GENDERS) for (const a of AGES) for (const h of ['min', 'max']) {
     addTarget(`height/${g}-${a}-${h}`, [`macrodetails/height/${g}-${a}-averagemuscle-averageweight-${h}height.target`]);
 }
+// Proportions: MakeHuman's own idealized build of each gender and age (the face and body both).
+for (const g of GENDERS) for (const a of AGES) {
+    addTarget(`proportion/${g}-${a}-ideal`, [`macrodetails/proportions/${g}-${a}-averagemuscle-averageweight-idealproportions.target`]);
+}
+// The Proportions macro's defined upper lip.
+addTarget('appeal/cupidsBow', ['mouth/mouth-cupidsbow-incr.target']);
 // Breasts: size by firmness, each pair but the average one an offset of its own.
 for (const a of AGES) for (const c of LEVELS) for (const f of LEVELS) {
     if (c === 'average' && f === 'average') continue;

@@ -45,7 +45,7 @@
   "optSideView": true,
   "optSlipDeath": false,
   "optTransparent": false,
-  "partyMembers": [1,2,3,4,5],
+  "partyMembers": [1,2,3,4,5,6],
   "ship": {"bgm":{"name":"Psychronic - Cybertech Flight","pan":0,"pitch":100,"volume":90},"characterIndex":1,"characterName":"Vehicle","startMapId":0,"startX":0,"startY":0},
   "skillTypes": ["","Magic","\\i[578] SPECIAL"],
   "sounds": [
@@ -90,7 +90,7 @@
   "titleBgm": {"name":"Psychronic - Forest Trek","pan":0,"pitch":100,"volume":90},
   "titleCommandWindow": {"background":0,"offsetX":0,"offsetY":0},
   "variables": ["","Battle result","","","","","","","","","","","","","","","","","","",""],
-  "versionId": 31120747,
+  "versionId": 65837982,
   "victoryMe": {"name":"Victory1","pan":0,"pitch":100,"volume":90},
   "weaponTypes": ["","Dagger","Sword","Flail","Axe","Whip","Staff","Bow","Crossbow","Gun","Claw","Glove","Spear","Pistol","Rifle","Shotgun","Cannon"],
   "windowTone": [0,0,0,0],

@@ -450,6 +450,9 @@
     },
     "5": {
       "mode": "inherit"
+    },
+    "6": {
+      "mode": "inherit"
     }
   },
   "enemies": {

@@ -575,7 +575,7 @@ test('the 3D database can optimize a model already in the project', () => {
     assert.match(editor, /async optimizeSelectedModel\(\)/);
     assert.match(editor, /showModelOptimizeDialog\(\{/, 'the same choices the import offers');
     assert.match(editor, /PRESETS\[mode\]/);
-    assert.match(editor, /if \(mode === null \|\| mode === 'keep'\) return;/, 'declining changes nothing');
+    assert.match(editor, /if \(mode === null \|\| \(mode === 'keep' && !compress\)\) return;/, 'declining changes nothing');
     // Reversible, and never clobbering an older backup.
     assert.match(editor, /filePath \+ '\.orig'/);
     assert.match(editor, /if \(!fs\.existsSync\(backup\)\) fs\.copyFileSync\(filePath, backup\);/);

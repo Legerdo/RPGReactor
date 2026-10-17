@@ -512,6 +512,7 @@ class Character3DBuilder {
             { path: 'height', label: 'Height', natural: M.height.natural, extreme: M.height.extreme },
             { path: 'weight', label: 'Weight', natural: M.weight.natural, extreme: M.weight.extreme, ends: ['Thin', 'Heavy'] },
             { path: 'muscle', label: 'Muscle', natural: M.muscle.natural, extreme: M.muscle.extreme },
+            { path: 'proportions', label: 'Proportions', natural: M.proportions.natural, extreme: M.proportions.extreme, ends: ['Average', 'Ideal'] },
             { path: 'headSize', label: 'Head size', natural: [0.8, 1.25], extreme: [0.5, 2.2], format: 'x' }
         ];
         const a = this.recipe.anatomy, detail = a.detail, male = RRHumanBody.sexOf(this.recipe) === 'male';
@@ -1021,6 +1022,16 @@ class Character3DBuilder {
         const key = new THREE.DirectionalLight(0xfff0e0, 2.4);
         key.position.set(1.6, 3.2, 2.4);
         scene.add(key, key.target);
+        // Soft shadows from the key (the nose on the cheek, the brow over the eyes, the jaw on the neck)
+        // where the GPU can afford them; the box they cover follows the character.
+        if (!this._weak) {
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            key.castShadow = true;
+            key.shadow.mapSize.set(2048, 2048);
+            key.shadow.bias = -0.0003;
+            key.shadow.normalBias = 0.012;
+        }
         const fill = new THREE.DirectionalLight(0xdce8ff, 0.5);
         fill.position.set(-2.5, 1.4, 1.6);
         scene.add(fill);
@@ -1371,23 +1382,27 @@ class Character3DBuilder {
         // Cut-out strands (hair, lashes, fur) get soft edges from the antialiasing itself.
         if (part.cutout && kind === 'hair') { m.alphaToCoverage = true; m.alphaTest = Math.min(m.alphaTest, 0.3); }
         // Hair: matte, warm, hardly a reflection of the room.
-        if (kind === 'hair') { m.roughness = 0.78; m.metalness = 0; m.envMapIntensity = 0.25; }
+        if (kind === 'hair') { m.roughness = 0.78; m.metalness = 0; m.envMapIntensity = 0.55; }
+        // Body hair and fur take the room's light as the skin under them does, so hair of the skin's tint
+        // matches it instead of showing as dark specks.
+        // Their hairs are finer than a pixel from afar: a low cut keeps them as the picture shrinks.
+        if (kind === 'hair' && part.onSkin) { m.envMapIntensity = 0.85; if (part.cutout) m.alphaTest = 0.12; }
         if (this._weak) { if (kind === 'eye' || kind === 'glass') m.roughness = 0.08; return m; }
         // Skin: a soft sheen in the skin's own color (from its picture), so it warms skin and stays dark on a
         // painted scalp, stubble or markings.
-        if (kind === 'skin') { m.roughness = 0.52; m.sheen = 0.3; m.sheenRoughness = 0.55; m.sheenColor = new THREE.Color(0.9, 0.7, 0.62); if (m.map) m.sheenColorMap = m.map; m.specularIntensity = 0.4; }
+        if (kind === 'skin') {
+            m.roughness = 0.52; m.sheen = 0.3; m.sheenRoughness = 0.55; m.sheenColor = new THREE.Color(0.9, 0.7, 0.62); if (m.map) m.sheenColorMap = m.map; m.specularIntensity = 0.4;
+            // Pores and fine lines, tiled small over the skin: the light breaks up on it as on real skin.
+            if (m.map) { m.normalMap = Character3DBuilder.skinDetail(); m.normalScale = new THREE.Vector2(0.3, 0.3); }
+        }
         else if (kind === 'cloth') { m.sheen = 0.6; m.sheenRoughness = 0.8; m.sheenColor = new THREE.Color('#ffffff'); m.roughness = Math.max(m.roughness, 0.75); m.specularIntensity = 0.25; }
         else if (kind === 'metal') { m.metalness = Math.max(0.85, m.metalness); m.roughness = Math.min(0.4, m.roughness); m.clearcoat = 0.3; }
-        // Hair: its highlight is a band running across the strands (anisotropic, along each card's strand
-        // direction), as real hair shines; no sheen, which read as a grey film.
+        // Hair: matte, its soft highlight in its own color; no sheen and no anisotropic band, which both
+        // read as grey panels over dark hair.
         else if (kind === 'hair') {
-            m.sheen = 0;
-            // A soft band in the hair's own color; brows and lashes stay matte.
+            m.sheen = 0; m.specularIntensity = 0.2;
             const own = part.colors ? new THREE.Color(part.colors[0], part.colors[1], part.colors[2]) : new THREE.Color(0x444444);
-            if (part.tangents && part.name === 'Hair') {
-                m.anisotropy = 0.5; m.anisotropyRotation = Math.PI / 2; m.roughness = 0.62; m.specularIntensity = 0.14;
-                m.specularColor = own.clone().lerp(new THREE.Color(0x9a948e), 0.55); m.envMapIntensity = 0.05;
-            } else { m.specularIntensity = 0.12; m.envMapIntensity = 0.1; }
+            m.specularColor = own.clone().lerp(new THREE.Color(0xffffff), 0.35);
         }
         else if (kind === 'eye') { m.roughness = 0.08; m.clearcoat = 1; m.clearcoatRoughness = 0.03; }
         else if (kind === 'glass') { m.roughness = 0.02; m.metalness = 0; m.clearcoat = 1; m.envMapIntensity = 2; }
@@ -1472,6 +1487,9 @@ class Character3DBuilder {
             g.setIndex(new THREE.BufferAttribute(Uint32Array.from(part.index), 1));
             const mesh = new THREE.SkinnedMesh(g, this._material(part, result));
             mesh.frustumCulled = false;
+            // Hair finer than the shadow's own texels (body hair, brows, lashes) casts none.
+            mesh.castShadow = !part.onSkin && part.name !== 'Lashes';
+            mesh.receiveShadow = true;
             mesh.bind(skeleton);
             view.group.add(mesh);
             view.meshes.push(mesh);
@@ -1496,6 +1514,13 @@ class Character3DBuilder {
         view.extent = Math.max(view.height, box.max.x - box.min.x, box.max.z - box.min.z);
         view.floor.scale.setScalar(Math.max(0.7, Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * 0.75));
         if (firstFrame) this._frame('body');
+        if (view.key.castShadow) {
+            const c = view.key.shadow.camera, r = view.extent * 0.75 + 0.2, mid = new THREE.Vector3(0, view.height / 2, 0);
+            view.key.target.position.copy(mid);
+            view.key.position.copy(mid).add(new THREE.Vector3(1.6, 3.2, 2.4).normalize().multiplyScalar(r * 3));
+            c.left = -r; c.right = r; c.top = r; c.bottom = -r; c.near = 0.1; c.far = r * 6;
+            c.updateProjectionMatrix();
+        }
         // The contact shadow as wide as what stands on it.
         view.blob.scale.set(Math.max(0.25, (box.max.x - box.min.x) * 0.55), Math.max(0.25, (box.max.z - box.min.z) * 0.75 + 0.08), 1);
         view.blob.position.x = (box.max.x + box.min.x) / 2; view.blob.position.z = (box.max.z + box.min.z) / 2;
@@ -1791,9 +1816,49 @@ Character3DBuilder.blobTexture = function() {
     return (Character3DBuilder._blob = t);
 };
 
+/**
+ * Skin's fine detail as a tiling normal map: pores (small soft pits, a few
+ * to a millimeter's spacing at the tiling the skin uses) over a faint grain.
+ */
+Character3DBuilder.skinDetail = function() {
+    if (Character3DBuilder._skinDetail) return Character3DBuilder._skinDetail;
+    const n = 256, h = new Float32Array(n * n);
+    let seed = 7;
+    const rand = () => { seed ^= seed << 13; seed >>>= 0; seed ^= seed >> 17; seed ^= seed << 5; seed >>>= 0; return seed / 4294967296; };
+    // The grain: a few octaves of value noise, wrapping at the edge so the tiles meet.
+    for (const [cells, amp] of [[16, 0.35], [32, 0.25], [64, 0.15]]) {
+        const g = Array.from({ length: cells * cells }, rand), at = (x, y) => g[((y + cells) % cells) * cells + (x + cells) % cells];
+        for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+            const fx = x / n * cells, fy = y / n * cells, ix = Math.floor(fx), iy = Math.floor(fy), u = fx - ix, v = fy - iy;
+            const a = at(ix, iy), b = at(ix + 1, iy), c = at(ix, iy + 1), d = at(ix + 1, iy + 1);
+            h[y * n + x] += amp * (a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v);
+        }
+    }
+    // The pores.
+    for (let k = 0; k < 900; k++) {
+        const cx = rand() * n, cy = rand() * n, r = 1.2 + rand() * 1.6, depth = 0.5 + rand() * 0.5;
+        for (let y = Math.floor(cy - r - 1); y <= cy + r + 1; y++) for (let x = Math.floor(cx - r - 1); x <= cx + r + 1; x++) {
+            const d = Math.hypot(x - cx, y - cy) / r;
+            if (d < 1) h[((y + n) % n) * n + (x + n) % n] -= depth * (1 - d * d) ** 2;
+        }
+    }
+    const data = new Uint8Array(n * n * 4);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        const dx = h[y * n + (x + 1) % n] - h[y * n + (x + n - 1) % n], dy = h[((y + 1) % n) * n + x] - h[((y + n - 1) % n) * n + x];
+        const l = Math.hypot(dx, dy, 0.5), o = (y * n + x) * 4;
+        data[o] = Math.round((-dx / l * 0.5 + 0.5) * 255); data[o + 1] = Math.round((-dy / l * 0.5 + 0.5) * 255); data[o + 2] = Math.round((0.5 / l * 0.5 + 0.5) * 255); data[o + 3] = 255;
+    }
+    const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(40, 40);
+    t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+    t.needsUpdate = true;
+    return (Character3DBuilder._skinDetail = t);
+};
+
 /** Sliders that only reshape the body: the drag's fast path can follow them. */
 Character3DBuilder.bodyPath = function(path) {
-    return /^(shapes\.|morph\.|anatomy\.(length|girth|testicles|mons|labia|fold|nipple)$|gender$|age$|height$|weight$|muscle$|cup$|firmness$|headSize$)/.test(path);
+    return /^(shapes\.|morph\.|anatomy\.(length|girth|testicles|mons|labia|fold|nipple)$|gender$|age$|height$|weight$|muscle$|cup$|firmness$|proportions$|headSize$)/.test(path);
 };
 
 /** Bumped when the previews' look changes, so pictures kept on disk are drawn again. */
