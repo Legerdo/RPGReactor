@@ -1264,15 +1264,24 @@
         const stubble = f.style === 'stubble';
         // Thinner over the upper lip, so a heavy beard's mustache does not climb the nose.
         const lipThin = p => mix(1, Math.min(1, 0.006 * S / Math.max(thick, 1e-6)), smooth(H.lipBottom, H.lipTop + 0.004 * S, p[1]));
-        addShell(m, surf, i => thick * smooth(0, 8, surf.val[i]) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]),
-            i => (stubble ? mixRgb(linear(skin || '#c69c7f'), shadeRgb(linear(color), 1.28), smooth(0, 10, surf.val[i])) : ramp(0.3, 0.85 + 0.15 * lumps(surf.pos[i]), false)));
+        // The beard's body: toward its edge it lies flatter and its color gives way to the skin's, as a beard
+        // thins at the cheek, the neck and round the mouth; the hairs over it carry the strands.
+        // How far in from the beard's edge a place is, against how far its middle is (the field's own scale
+        // differs by style and face).
+        const skinRgb = linear(skin || '#c69c7f');
+        const sorted = Array.from(surf.val).sort((a, b) => a - b), deep = Math.max(1, sorted[Math.floor(sorted.length * 0.9)]);
+        const inward = v => Math.min(1, v / deep);
+        addShell(m, surf, i => thick * (stubble ? smooth(0, 8, surf.val[i]) : smooth(0, 0.45, inward(surf.val[i]))) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]),
+            i => (stubble ? mixRgb(skinRgb, shadeRgb(linear(color), 1.28), smooth(0, 10, surf.val[i])) : mixRgb(skinRgb, ramp(0.6, 1.05 + 0.15 * lumps(surf.pos[i]), false), smooth(0, 0.35, inward(surf.val[i])))));
         if (f.style === 'stubble') return;
         // Strands: short over the beard, long below the chin for the long styles.
         const long = { longBeard: 0.16, wizardBeard: 0.32, braidedBeard: 0.12, fullBeard: 0.05 }[f.style];
         const mustache = ['mustache', 'handlebar', 'walrus', 'horseshoe', 'goatee', 'fullBeard', 'longBeard', 'wizardBeard', 'braidedBeard', 'shortBeard'].includes(f.style);
-        const roots = scatter(surf, Math.min(long ? 300 : 420, Math.round(surf.index.length / 3 * 0.6)), rand);
+        const roots = scatter(surf, Math.min(long ? 520 : 700, Math.round(surf.index.length / 3 * 0.9)), rand);
         for (const r of roots) {
-            if (r.f < 2) continue;
+            if (r.f < 0.3) continue;
+            // Toward the beard's edge the hairs grow sparser, so it thins into the skin.
+            if (rand() > smooth(0, 0.4, inward(r.f)) * 0.8 + 0.2) continue;
             const isLip = r.p[1] > H.lipBottom && Math.abs(r.p[0] - H.center[0]) < H.lipHalf * 1.4 && r.p[1] < H.noseTip[1];
             if (isLip && r.p[2] < H.lipFront - 0.012 * S) continue;
             if (isLip && !mustache) continue;
@@ -1293,7 +1302,7 @@
             const stopY = isLip && f.style !== 'walrus' ? H.lipTop - (H.lipTop - H.lipBottom) * 0.2 : null;
             const pts = grow(H, r.p, r.n, dir, { steps: long ? 10 : 4, length, layer: thick * 0.6, lift: 0.3, gravity: long ? 0.6 : 0.2, stiff: 0.3, hug: long ? 0.3 : 0.8, release: H.chin[1], fringe: true, stopY, front: true });
             const variance = 0.82 + 0.3 * rand();
-            addClump(m, long ? curlStrand(H, pts, 0.004 * S * (1 - V * 0.5), 0.05 * S, false, rand() * 6) : pts, { width: (long ? 0.014 : 0.008) * S, flat: 0.45, sides: 3, center: H.mouth, color: t => ramp(0.3 + 0.7 * t, variance, false) });
+            addClump(m, long ? curlStrand(H, pts, 0.004 * S * (1 - V * 0.5), 0.05 * S, false, rand() * 6) : pts, { width: (long ? 0.014 : 0.011) * S, flat: 0.45, sides: 3, center: H.mouth, color: t => ramp(0.55 + 0.45 * t, variance * 1.15, false) });
         }
         if (f.style === 'handlebar') {
             for (const side of [1, -1]) {

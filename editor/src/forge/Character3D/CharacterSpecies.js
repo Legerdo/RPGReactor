@@ -51,7 +51,7 @@
         { id: 'human', label: 'Human', group: 'Common', recipe: {} },
         { id: 'elf', label: 'Elf', group: 'Fantasy', recipe: { height: 0.68, weight: 0.32, muscle: 0.4, shapes: { earsPointed: 2.6, earSize: 0.5, cheekBones: 0.7, chinPointed: 0.5, eyeSlant: 0.6, jaw: -0.4, neckLength: 0.5 } } },
         { id: 'darkelf', label: 'Dark elf', group: 'Fantasy', recipe: { height: 0.62, weight: 0.3, shapes: { earsPointed: 3, earSize: 0.6, cheekBones: 0.9, chinPointed: 0.6, eyeSlant: 0.8, jaw: -0.4 }, skin: '#5e5470', eyes: { color: '#d8302a' } } },
-        { id: 'dwarf', label: 'Dwarf', group: 'Fantasy', recipe: { height: 0.12, weight: 0.78, muscle: 0.85, headSize: 1.08, hair: { facial: { style: 'longBeard' }, brows: { style: 'bushy' } }, shapes: { legLength: -1.6, armLength: -0.6, shoulders: 1.2, chest: 1, noseDepth: 1.2, noseWidth: 1, browRidge: 0.8, handSize: 0.6, neck: 0.8 } } },
+        { id: 'dwarf', label: 'Dwarf', group: 'Fantasy', recipe: { height: 0.12, weight: 0.78, muscle: 0.85, headSize: 1.08, hair: { facial: { style: 'longBeard' }, brows: { style: 'bushy' } }, shapes: { legLength: -1, armLength: -0.5, shoulders: 1.2, chest: 1, noseDepth: 1.2, noseWidth: 1, browRidge: 0.8, handSize: 0.6, neck: 0.8 } } },
         { id: 'halfling', label: 'Halfling', group: 'Fantasy', recipe: { height: -0.35, weight: 0.6, headSize: 1.14, shapes: { legLength: -0.6, footSize: 1.6, earsPointed: 0.9, cheeks: 0.8, headFat: 0.5 } } },
         { id: 'gnome', label: 'Gnome', group: 'Fantasy', recipe: { height: -0.6, weight: 0.5, headSize: 1.3, shapes: { noseDepth: 2.2, noseVolume: 1.5, earsPointed: 1.4, earSize: 1, legLength: -0.8, cheeks: 1 } } },
         { id: 'orc', label: 'Orc', group: 'Fantasy', recipe: { height: 0.75, weight: 0.7, muscle: 1.35, hair: { style: 'mohawk', color: '#1a1410' }, shapes: { jaw: 1.6, underbite: 1.2, browRidge: 2.2, noseWidth: 1.6, noseHump: -1.2, noseTip: 1, earsPointed: 1.3, neck: 1.5, mouthWidth: 0.8 }, skin: '#6a8a4a', eyes: { color: '#c8a020' }, features: { tusks: { type: 'small' } } } },
@@ -261,13 +261,8 @@
             const shoulder = add(root, [side * 0.18 * s, 0.16 * s, -0.12 * s]);
             const wrist = add(root, [side * 0.55 * s, 0.32 * s, -0.22 * s]);
             const tip = add(root, [side * 0.95 * s, 0.05 * s, -0.25 * s]);
-            if (f.type === 'fairy') {
-                for (const [dir, len, wid] of [[[side * 0.7, 0.7, -0.25], 0.42, 0.13], [[side * 0.8, -0.35, -0.2], 0.3, 0.09]]) {
-                    const d = norm(dir), right = norm(cross(d, [0, 0, 1]));
-                    m.loft(10, (i, t) => ({ center: add(root, mul(d, t * len * s)), x: right, y: [0, 0, 1], rx: Math.sin(Math.max(0.05, t) * Math.PI) * wid * s + 0.002, ry: 0.0015 }), 10, (t) => mixRgb(main, second, t), skin, true);
-                }
-                continue;
-            }
+            // Fairy wings are their own veined, see-through part (fairyWing).
+            if (f.type === 'fairy') continue;
             const arm = [root, shoulder, wrist, tip];
             if (f.type === 'bat') {
                 m.tube([root, shoulder, wrist], t => 0.014 * s * (1 - t * 0.5), 6, second, skin);
@@ -383,6 +378,66 @@
         return { name: 'Wings', positions: Float32Array.from(pos), normals: Float32Array.from(nrm), uvs: Float32Array.from(uv), colors: Float32Array.from(col),
             joints: new Uint8Array(n * 4).map((_, i) => (i % 4 === 0 ? spine : 0)), weights: new Float32Array(n * 4).map((_, i) => (i % 4 === 0 ? 1 : 0)),
             index: Uint32Array.from(idx), texture: 'feather.png', cutout: true, alphaCutoff: 0.4, keepColors: true, doubleSided: true, roughness: 0.8, metalness: 0 };
+    }
+
+    /**
+     * A fairy's wings as an insect's: a fore and a hind pair from the shoulder
+     * blades, each a thin membrane cupped a little, broad toward its tip, on
+     * the wing picture (`fairywing.png`: veins branching from the base, cross
+     * veins between them, a darker edge, see-through between), tinted from
+     * the wing's second color at the base to its color at the tip.
+     */
+    function fairyWing(L, f) {
+        const spine = L.boneIndex('Spine2'), s = f.size;
+        const y = L.bone('Spine2').head[1] + 0.08, z0 = L.backAt(y, 0.05);
+        const main = linear(f.color), second = linear(f.color2 || f.color);
+        const pos = [], nrm = [], uv = [], col = [], idx = [];
+        const U = 12, V = 8;
+        for (const side of [1, -1]) {
+            const root = [side * 0.05, y, (isFinite(z0) ? z0 : -0.12) - 0.012];
+            // Fore wing up and out, hind wing out and down; [direction, length, width, sweep back].
+            for (const [dir, len, wid, lane] of [[[side * 0.75, 0.6, -0.28], 0.46, 0.17, 0], [[side * 0.85, -0.42, -0.3], 0.32, 0.12, 1]]) {
+                const d = norm(dir), across = norm(cross([0, 0, -1], d)), out = norm(cross(d, across));
+                const base = pos.length / 3;
+                for (let i = 0; i <= U; i++) for (let j = 0; j <= V; j++) {
+                    const u = i / U, v = j / V * 2 - 1;
+                    // Broad toward the tip, narrow at the base; the leading edge straighter than the trailing.
+                    const w = wid * s * Math.pow(Math.sin(Math.PI * Math.min(1, u * 0.85 + 0.08)), 0.8) * (v < 0 ? 0.55 : 1) * (0.35 + 0.65 * u);
+                    const cup = 0.02 * s * (1 - v * v) * Math.sin(Math.PI * u);
+                    const p = add(add(add(root, mul(d, len * s * u)), mul(across, w * v * (lane ? -1 : 1) * side)), mul(out, cup));
+                    pos.push(...p); nrm.push(...out); uv.push(lane * 0.5 + (v + 1) * 0.25, u);
+                    col.push(...mixRgb(second, main, u));
+                }
+                for (let i = 0; i < U; i++) for (let j = 0; j < V; j++) {
+                    const a = base + i * (V + 1) + j, b = a + V + 1;
+                    idx.push(a, b, a + 1, a + 1, b, b + 1);
+                }
+            }
+        }
+        const n = pos.length / 3;
+        return { name: 'Wings', positions: Float32Array.from(pos), normals: Float32Array.from(nrm), uvs: Float32Array.from(uv), colors: Float32Array.from(col),
+            joints: new Uint8Array(n * 4).map((_, i) => (i % 4 === 0 ? spine : 0)), weights: new Float32Array(n * 4).map((_, i) => (i % 4 === 0 ? 1 : 0)),
+            index: Uint32Array.from(idx), texture: 'fairywing.png', opacity: 0.92, keepColors: true, doubleSided: true, roughness: 0.25, metalness: 0, envMapIntensity: 1.4 };
+    }
+
+    /** The fairy wing picture: two lanes (fore and hind), veins and cross veins over a faint, see-through membrane. */
+    function fairyWingTexture(W = 256, H = 256) {
+        const data = new Uint8Array(W * H * 4);
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+            const lane = x < W / 2 ? 0 : 1, v = ((x % (W / 2)) + 0.5) / (W / 2) * 2 - 1, u = (y + 0.5) / H;
+            // Veins fanning from the base: lines of constant angle across the wing, branching toward the tip.
+            const fan = v * (1 + u * 1.6) * (lane ? 4 : 5);
+            const vein = Math.max(0, 1 - Math.abs(fan - Math.round(fan)) * 14 * (0.6 + u));
+            const cross = Math.max(0, 1 - Math.abs(Math.sin(u * 22 + Math.round(fan) * 1.7)) * 9) * (u > 0.2 ? 1 : 0) * 0.6;
+            const edge = 1 - Math.min(1, (1 - Math.abs(v)) * 9);
+            const line = Math.min(1, Math.max(vein, cross, edge));
+            const a = 0.22 + 0.7 * line, l = 0.78 + 0.22 * (1 - line);
+            const o = (y * W + x) * 4, g = Math.round(255 * l);
+            // A faint shift of hue along the wing, as thin films catch light.
+            data[o] = Math.min(255, g + Math.round(20 * Math.sin(u * 9))); data[o + 1] = g; data[o + 2] = Math.min(255, g + Math.round(20 * Math.cos(u * 7)));
+            data[o + 3] = Math.round(255 * a);
+        }
+        return { width: W, height: H, data, name: 'fairywing.png' };
     }
 
     /**
@@ -547,7 +602,7 @@
         if (F.ears.type !== 'none') animalEars(soft, L, F.ears);
         if (F.tail.type !== 'none') tail(soft, pack, L, F.tail, bones, built.bones.length);
         if (F.wings.type !== 'none') wings(soft, L, F.wings);
-        const featherPart = F.wings.type === 'feathered' ? featheredWing(L, F.wings) : null;
+        const featherPart = F.wings.type === 'feathered' ? featheredWing(L, F.wings) : F.wings.type === 'fairy' ? fairyWing(L, F.wings) : null;
         if (F.beak.type !== 'none') beak(hard, L, F.beak);
         if (F.tusks.type !== 'none') tusks(hard, pack, L, F.tusks);
         if (F.spines.type !== 'none') spines(hard, pack, L, F.spines);
@@ -558,11 +613,11 @@
         if (featherPart) parts.push(featherPart);
         if (!lenses.empty) parts.push(lenses.part('Alien eyes', { roughness: 0.06, metalness: 0, kind: 'eye', doubleSided: true, envMapIntensity: 0.15 }));
         if (!hard.empty) parts.push(hard.part('Horns and claws', { roughness: 0.4, metalness: 0 }));
-        if (!soft.empty) parts.push(soft.part('Features', { roughness: 0.8, metalness: 0, doubleSided: true, opacity: F.wings.type === 'fairy' ? 0.55 : undefined }));
+        if (!soft.empty) parts.push(soft.part('Features', { roughness: 0.8, metalness: 0, doubleSided: true }));
         return { parts, bones, features: F };
     }
 
-    const api = { FEATURES, SPECIES, BY_ID, normalizeFeatures, speciesRecipe, build, tailShape, featherTexture };
+    const api = { FEATURES, SPECIES, BY_ID, normalizeFeatures, speciesRecipe, build, tailShape, featherTexture, fairyWingTexture };
     root.RRCharacterSpecies = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
