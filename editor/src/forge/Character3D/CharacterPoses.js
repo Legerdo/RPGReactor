@@ -8,12 +8,19 @@
  *
  * Bones rest unrotated (each one's frame is the world's), as the builder
  * saves them; the character faces +z with its left toward +x. A track holds
- * one quaternion per time. `lift(t)` is how far the whole body stands off
- * its rest height at time t: worked out here by following the skeleton joint
- * by joint, so the lowest foot, knee, hip or back touches the floor (a jump
- * or a fall leaves it), smoothed so support passing from foot to foot never
- * jolts. A pose resting the body itself on the floor (sitting, kneeling,
- * lying) says `skin`: the view then sets its lowest skin on the floor.
+ * one quaternion per time. The motions are motion capture
+ * (RRCharacterPosesData, from the CMU Graphics Lab Motion Capture Database):
+ * per frame, each mapped bone's frame in the world, a direction along it and
+ * one across it. Each body's own joints are turned to match them, so a
+ * motion holds for any height, limb length or build; a heavy body's arms
+ * swing out clear of its flanks, and hands stay off the face. The fingers
+ * stay at rest, or close in a fist where the pose says so. `lift(t)` is how
+ * far the whole body stands off its rest height at time t: worked out by
+ * following the skeleton joint by joint, so the lowest heel, ball or toe
+ * touches the floor, and for a jump or a run's flight the capture's own
+ * height off it added, in leg lengths. A pose resting the body itself on the
+ * floor (sitting, kneeling, lying) says `skin`: the view then sets its
+ * lowest skin on the floor.
  */
 (function (root) {
     'use strict';
@@ -35,250 +42,272 @@
         const [x, y, z, w] = q, ix = w * v[0] + y * v[2] - z * v[1], iy = w * v[1] + z * v[0] - x * v[2], iz = w * v[2] + x * v[1] - y * v[0], iw = -x * v[0] - y * v[1] - z * v[2];
         return [ix * w + iw * -x + iy * -z - iz * -y, iy * w + iw * -y + iz * -x - ix * -z, iz * w + iw * -z + ix * -y - iy * -x];
     };
-    /** A joint's turn: first about z (out to the side), then y (twist), then x (forward and back). */
-    const turn = (x = 0, y = 0, z = 0) => mul(quat(1, 0, 0, x), mul(quat(0, 1, 0, y), quat(0, 0, 1, z)));
-    const TAU = Math.PI * 2;
-    const S = p => Math.sin(TAU * p), C = p => Math.cos(TAU * p);
-    /** A smooth periodic bump centered on c, w wide (a phase of a cycle, wrapping). */
-    const bump = (p, c, w) => { const d = ((p - c) % 1 + 1.5) % 1 - 0.5; return Math.exp(-(d * d) / (2 * w * w)); };
-    const ease = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
-
-    /**
-     * Walking, from measured gait (one stride, q 0 at this foot's heel strike):
-     * hip flexion, knee flexion, ankle dorsiflexion and the toes' push-off, radians.
-     */
-    const gait = {
-        hip: q => 0.17 + 0.33 * C(q - 0.92),
-        knee: q => 0.06 + 0.3 * bump(q, 0.15, 0.06) + 1.02 * bump(q, 0.72, 0.1),
-        ankle: q => 0.03 - 0.1 * bump(q, 0.06, 0.04) + 0.17 * bump(q, 0.42, 0.12) - 0.36 * bump(q, 0.62, 0.05),
-        toe: q => 0.45 * bump(q, 0.6, 0.05)
-    };
-    /** Running, the same way: a longer swing, a deeper bend, and push-off sooner. */
-    const stride = {
-        hip: q => 0.35 + 0.55 * C(q - 0.88),
-        knee: q => 0.32 + 0.3 * bump(q, 0.12, 0.06) + 1.5 * bump(q, 0.68, 0.12),
-        ankle: q => 0.08 + 0.18 * bump(q, 0.14, 0.06) - 0.5 * bump(q, 0.42, 0.06),
-        toe: q => 0.4 * bump(q, 0.42, 0.05)
-    };
-    /** One leg by its curves: the thigh swings forward with flexion, the foot follows the ankle. */
-    const leg = (side, g, q, out = 0) => ({
-        [side + 'UpLeg']: turn(-g.hip(q), 0, side === 'Left' ? out : -out),
-        [side + 'Leg']: turn(g.knee(q)),
-        [side + 'Foot']: turn(-g.ankle(q)),
-        [side + 'ToeBase']: turn(-g.toe(q))
-    });
-
-    /**
-     * Each pose: its length in seconds; when its feet are on the floor
-     * (`ground(p)`, all the time when left out; never for a fall); a lift on
-     * top of that; and the joints' turns at phase p (0..1). `down` is the
-     * angle that brings the A-pose's arms to hang at the sides; `E.L(a)` and
-     * `E.R(a)` bend an elbow to a in all (0 straight), the hand coming forward. Signs: a leg or a
-     * hanging arm swings forward with a negative x; a knee bends with a
-     * positive x; the spine leans forward and the head nods with a positive x;
-     * the left arm lowers with a negative z and the right with a positive one.
-     */
-    const DEFS = {
-        walk: { period: 1.1, at: (p, down, E) => {
-            // The arms swing against the legs, a little behind them; the pelvis turns and dips with the
-            // stride and the shoulders turn against it, so the head travels straight.
-            const arm = C(p - 0.06);
-            return Object.assign(leg('Left', gait, p, 0.02), leg('Right', gait, p + 0.5, 0.02), {
-                Hips: turn(0.04, -0.08 * C(p), 0.05 * S(p)),
-                Spine: turn(0.02, 0.03 * C(p), -0.025 * S(p)), Spine1: turn(0.01, 0.04 * C(p)), Spine2: turn(0.01, 0.03 * C(p), -0.02 * S(p)),
-                Neck: turn(-0.02), Head: turn(-0.02 + 0.015 * C(2 * p), -0.02 * C(p)),
-                LeftArm: turn(-0.04 + 0.26 * arm, 0, -down - 0.04), RightArm: turn(-0.04 - 0.26 * arm, 0, down + 0.04),
-                LeftForeArm: E.L(0.28 + 0.22 * (1 - arm) / 2), RightForeArm: E.R(0.28 + 0.22 * (1 + arm) / 2),
-                LeftHand: turn(0.1), RightHand: turn(0.1)
-            });
-        } },
-        run: { period: 0.68, lift: p => 0.045 * (bump(p, 0.36, 0.08) + bump(p, 0.86, 0.08)), at: (p, down, E) => {
-            const arm = C(p - 0.04);
-            return Object.assign(leg('Left', stride, p, 0.03), leg('Right', stride, p + 0.5, 0.03), {
-                Hips: turn(0.1, -0.13 * C(p), 0.06 * S(p)),
-                Spine: turn(0.1, 0.06 * C(p)), Spine1: turn(0.05, 0.07 * C(p)), Spine2: turn(0.03, 0.06 * C(p), -0.03 * S(p)),
-                Neck: turn(-0.1), Head: turn(-0.12 + 0.03 * C(2 * p), -0.04 * C(p)),
-                LeftArm: turn(-0.2 + 0.62 * arm, 0, -down + 0.06), RightArm: turn(-0.2 - 0.62 * arm, 0, down - 0.06),
-                LeftForeArm: E.L(1.55 - 0.25 * arm), RightForeArm: E.R(1.55 + 0.25 * arm),
-                LeftHand: turn(0.15), RightHand: turn(0.15)
-            });
-        } },
-        crouch: { period: 3.2, at: (p, down, E) => ({
-            Hips: turn(0.22), Spine: turn(0.24 + 0.02 * S(p)), Spine1: turn(0.1 + 0.01 * S(p)), Spine2: turn(0.05), Neck: turn(-0.2), Head: turn(-0.28),
-            LeftUpLeg: turn(-1.35, -0.12, 0.2), RightUpLeg: turn(-1.35, 0.12, -0.2),
-            LeftLeg: turn(2.1), RightLeg: turn(2.1),
-            LeftFoot: turn(-0.62, 0.1), RightFoot: turn(-0.62, -0.1), LeftToeBase: turn(-0.3), RightToeBase: turn(-0.3),
-            LeftArm: turn(-0.7, 0, -down + 0.12), RightArm: turn(-0.7, 0, down - 0.12),
-            LeftForeArm: E.L(0.7), RightForeArm: E.R(0.7), LeftHand: turn(0.2), RightHand: turn(0.2)
-        }) },
-        // Down into the crouch, up and off with the arms thrown up, tucked at the top, then down and absorbed.
-        jump: { period: 1.6, ground: p => p < 0.33 || p > 0.78,
-            lift: p => (p > 0.33 && p < 0.78 ? 0.5 * Math.sin(Math.PI * (p - 0.33) / 0.45) : 0),
-            at: (p, down, E) => {
-                const set = p < 0.33 ? Math.sin(Math.PI * ease(p / 0.33)) * (p < 0.26 ? 1 : 1 - (p - 0.26) / 0.07) : 0;
-                const land = p > 0.78 ? Math.sin(Math.PI * (p - 0.78) / 0.22) * 0.85 : 0;
-                const crouch = Math.max(set, land), tuck = p > 0.4 && p < 0.72 ? Math.sin(Math.PI * (p - 0.4) / 0.32) : 0;
-                const reach = p > 0.25 && p < 0.62 ? Math.sin(Math.PI * (p - 0.25) / 0.37) : 0;
-                return {
-                    Hips: turn(0.3 * crouch), Spine: turn(0.32 * crouch - 0.08 * reach), Neck: turn(-0.1 * crouch), Head: turn(-0.22 * crouch),
-                    LeftUpLeg: turn(-1.05 * crouch - 0.85 * tuck, 0, 0.06), RightUpLeg: turn(-1.05 * crouch - 0.85 * tuck, 0, -0.06),
-                    LeftLeg: turn(0.05 + 1.75 * crouch + 1.25 * tuck), RightLeg: turn(0.05 + 1.75 * crouch + 1.25 * tuck),
-                    LeftFoot: turn(-0.65 * crouch + 0.35 * tuck + 0.4 * reach * (1 - tuck)), RightFoot: turn(-0.65 * crouch + 0.35 * tuck + 0.4 * reach * (1 - tuck)),
-                    LeftArm: turn(0.55 * crouch - 2.2 * reach, 0, -down * (1 - 0.7 * reach)), RightArm: turn(0.55 * crouch - 2.2 * reach, 0, down * (1 - 0.7 * reach)),
-                    LeftForeArm: E.L(0.35 + 0.6 * tuck), RightForeArm: E.R(0.35 + 0.6 * tuck)
-                };
-            } },
-        fall: { period: 1.3, ground: () => false, lift: p => 0.3 + 0.03 * S(p), at: (p, down, E) => ({
-            Hips: turn(-0.1), Spine: turn(-0.14), Spine1: turn(-0.08), Head: turn(-0.25),
-            LeftUpLeg: turn(-0.4 - 0.25 * S(p), 0, 0.14), RightUpLeg: turn(-0.4 + 0.25 * S(p), 0, -0.14),
-            LeftLeg: turn(0.7 + 0.3 * S(p + 0.25)), RightLeg: turn(0.7 - 0.3 * S(p + 0.25)), LeftFoot: turn(0.3), RightFoot: turn(0.3),
-            LeftArm: turn(-0.25 * S(p), 0, 1.45 + 0.25 * S(2 * p)), RightArm: turn(0.25 * S(p), 0, -1.45 - 0.25 * S(2 * p + 0.3)),
-            LeftForeArm: E.L(0.6 + 0.3 * S(2 * p)), RightForeArm: E.R(0.6 + 0.3 * S(2 * p + 0.5))
-        }) },
-        fight: { period: 1.2, at: (p, down, E) => {
-            // A boxer's guard, weight on the balls of the feet, bouncing.
-            const b = S(2 * p);
-            return {
-                Hips: turn(0.1, 0.5), Spine: turn(0.05, -0.15), Spine1: turn(0.08, -0.15), Spine2: turn(0.06, -0.1), Neck: turn(0.05, -0.05), Head: turn(-0.02, -0.12),
-                LeftUpLeg: turn(-0.5, -0.3, 0.12), RightUpLeg: turn(0.2, -0.2, -0.14),
-                LeftLeg: turn(0.55 + 0.08 * b), RightLeg: turn(0.5 + 0.08 * b), LeftFoot: turn(-0.05 - 0.04 * b), RightFoot: turn(-0.35 - 0.04 * b), RightToeBase: turn(-0.3),
-                LeftArm: turn(-0.55, 0, -down - 0.08), RightArm: turn(-0.4, 0, down + 0.08),
-                LeftForeArm: E.L(2.3 - 0.05 * b), RightForeArm: E.R(2.4 - 0.05 * b),
-                LeftHand: turn(0, 0, 0.2), RightHand: turn(0, 0, -0.2)
-            };
-        } },
-        wave: { period: 1.4, at: (p, down, E) => ({
-            Hips: turn(0, 0, 0.03), Spine1: turn(0, 0.05, -0.03), Head: turn(0.02, 0.12, 0.05),
-            LeftUpLeg: turn(0.02, 0, 0.02), RightUpLeg: turn(-0.05, 0.1, -0.06), RightLeg: turn(0.12),
-            LeftArm: turn(0.02, 0, -down - 0.04), LeftForeArm: E.L(0.3),
-            RightArm: turn(-0.3, 0, -0.95), RightForeArm: turn(0, 0, -1.25 + 0.38 * S(2 * p)), RightHand: turn(0, 0, 0.18 * S(2 * p - 0.1))
-        }) },
-        armsUp: { period: 3.2, at: p => ({
-            Spine: turn(-0.03), Spine1: turn(-0.04 - 0.01 * S(p)), Head: turn(-0.12),
-            LeftArm: turn(-0.1, 0, 2.15 + 0.03 * S(p)), RightArm: turn(-0.1, 0, -2.15 - 0.03 * S(p)),
-            LeftForeArm: turn(0, 0, 0.12), RightForeArm: turn(0, 0, -0.12)
-        }) },
-        kneel: { skin: true, period: 3.2, at: (p, down, E) => ({
-            Hips: turn(0.05), Spine: turn(0.06 + 0.015 * S(p)), Head: turn(0.06),
-            LeftUpLeg: turn(-1.45, 0, 0.1), LeftLeg: turn(1.5), LeftFoot: turn(-0.05),
-            RightUpLeg: turn(0.05, 0, -0.06), RightLeg: turn(1.55), RightFoot: turn(0.6), RightToeBase: turn(-0.6),
-            LeftArm: turn(-0.5, 0, -down), RightArm: turn(0.1, 0, down), LeftForeArm: E.L(1.2), RightForeArm: E.R(0.35)
-        }) },
-        sit: { skin: true, period: 3.2, at: (p, down, E) => ({
-            // On the floor, leaning back a little on the hands, one knee up.
-            Hips: turn(-0.12), Spine: turn(0.1 + 0.015 * S(p)), Spine1: turn(0.04), Head: turn(0.1, 0.1),
-            LeftUpLeg: turn(-1.5, 0.15, 0.14), RightUpLeg: turn(-2.1, -0.1, -0.1),
-            LeftLeg: turn(0.3), RightLeg: turn(1.9), LeftFoot: turn(-0.35, 0.2), RightFoot: turn(-0.2),
-            LeftArm: turn(0.6, 0, -down + 0.08), RightArm: turn(0.6, 0, down - 0.08), LeftForeArm: E.L(0.1), RightForeArm: E.R(0.1),
-            LeftHand: turn(-0.9), RightHand: turn(-0.9)
-        }) },
-        lieBack: { skin: true, period: 4, reach: { Hips: 0.03, Spine: 0.08, Spine1: 0.09, Spine2: 0.1, Head: 0.09, Arm: 0.04, ForeArm: 0.03, Hand: 0.02, UpLeg: 0.07, Leg: 0.05 }, at: (p, down, E) => ({
-            // On the back, face up, breathing; the back, legs and arms resting on the floor, the feet falling open.
-            Hips: turn(-Math.PI / 2), Spine: turn(-0.08), Spine1: turn(-0.04), Spine2: turn(0.015 * S(p)), Neck: turn(0.05), Head: turn(0.08, 0.1),
-            LeftUpLeg: turn(0.03, -0.15, 0.08), RightUpLeg: turn(0.03, 0.15, -0.08), LeftLeg: turn(0.1), RightLeg: turn(0.1),
-            LeftFoot: turn(0.55, -0.25), RightFoot: turn(0.55, 0.25),
-            LeftArm: turn(0.55, 0, -down + 0.18), RightArm: turn(0.55, 0, down - 0.18), LeftForeArm: E.L(0.3), RightForeArm: E.R(0.3),
-            LeftHand: turn(0.2, 0, -0.2), RightHand: turn(0.2, 0, 0.2)
-        }) },
-        lieSide: { skin: true, period: 4, reach: { Hips: 0.15, Spine: 0.13, Spine1: 0.13, Spine2: 0.15, Neck: 0.08, Head: 0.07 }, at: (p, down, E) => ({
-            // On the right side, the head on the lower arm stretched out beyond it, the upper hand on the floor before
-            // the chest, the knees drawn up, the upper one fallen forward over the lower.
-            Hips: turn(0, 0, Math.PI / 2), Spine: turn(0.1), Spine1: turn(0.06), Spine2: turn(0.04 + 0.015 * S(p)), Neck: turn(0.1, 0, 0.2), Head: turn(0.08, 0, 0.12),
-            LeftUpLeg: turn(-1.15, 0, -0.5), RightUpLeg: turn(-0.6, 0, 0.05), LeftLeg: turn(1.35), RightLeg: turn(0.95),
-            LeftFoot: turn(0.4), RightFoot: turn(0.4),
-            RightArm: turn(-0.15, 0, -2.3), RightForeArm: E.R(0.6), RightHand: turn(0.1),
-            LeftArm: turn(-1.05, 0, -down - 0.2), LeftForeArm: E.L(0.9), LeftHand: turn(-0.3)
-        }) }
-    };
-
     /** How far each joint's flesh reaches below it, by name (meters on a 1.7 m body): the floor stops it there. */
     const REACH = { Hips: 0.11, Spine: 0.1, Spine1: 0.1, Spine2: 0.11, Neck: 0.06, Head: 0.1, Arm: 0.05, ForeArm: 0.04, Hand: 0.025, UpLeg: 0.085, Leg: 0.055 };
 
-    function clip(bones, id) {
-        const def = DEFS[id];
-        const index = new Map(bones.map((b, i) => [b.name, i]));
-        if (!def || !index.has('LeftArm') || !index.has('LeftForeArm') || !index.has('LeftUpLeg')) return null;
-        // The A-pose's arm angle from straight down, so 'down' brings the arms to hang at the sides.
-        const a = bones[index.get('LeftArm')].head, f = bones[index.get('LeftForeArm')].head;
-        const down = Math.atan2(Math.abs(f[0] - a[0]), a[1] - f[1]) - 0.08;
-        // Each elbow's hinge: square to the plane of the upper arm and forearm at rest. The rest pose
-        // already bends the elbow (the hands forward), so a pose's bend is the whole bend, that subtracted.
-        const hinge = side => {
-            const at = n => bones[index.get(side + n)] && bones[index.get(side + n)].head;
-            const s0 = at('Arm'), s1 = at('ForeArm'), s2 = at('Hand');
-            const u = [s1[0] - s0[0], s1[1] - s0[1], s1[2] - s0[2]], f = s2 ? [s2[0] - s1[0], s2[1] - s1[1], s2[2] - s1[2]] : u;
-            let ax = [u[1] * f[2] - u[2] * f[1], u[2] * f[0] - u[0] * f[2], u[0] * f[1] - u[1] * f[0]], l = Math.hypot(...ax);
-            const rest = l > 1e-6 ? Math.atan2(l, u[0] * f[0] + u[1] * f[1] + u[2] * f[2]) : 0;
-            // A straight arm at rest: the level hinge that brings the hand forward.
-            if (l < 1e-6) { ax = [u[1], -u[0], 0]; l = Math.hypot(...ax) || 1; }
-            ax = ax.map(x => x / l);
-            return bend => quat(ax[0], ax[1], ax[2], bend - rest);
-        };
-        const E = { L: hinge('Left'), R: hinge('Right') };
-        const steps = Math.max(16, Math.round(def.period * 30) + 1);
-        const times = new Float32Array(steps);
-        const frames = [];
-        for (let i = 0; i < steps; i++) { times[i] = def.period * i / (steps - 1); frames.push(def.at(i / (steps - 1), down, E)); }
+    const DATA = root.RRCharacterPosesData || (typeof require === 'function' ? (() => { try { return require('./CharacterPosesData.js'); } catch (e) { return null; } })() : null);
+    const decoded = new Map();
+    /** A base64 run of little-endian Int16 as numbers in -1..1. */
+    function decode(text) {
+        let bytes;
+        if (typeof Buffer !== 'undefined') bytes = Buffer.from(text, 'base64');
+        else { const raw = atob(text); bytes = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i); }
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), out = new Float32Array(bytes.byteLength >> 1);
+        for (let i = 0; i < out.length; i++) out[i] = view.getInt16(i * 2, true) / 32767;
+        return out;
+    }
+    function take(id) {
+        if (decoded.has(id)) return decoded.get(id);
+        const p = DATA && DATA.poses && DATA.poses[id];
+        const t = p ? { frames: p.frames, air: p.air, skin: !!p.skin, fist: !!p.fist, rise: decode(p.rise), bones: Object.fromEntries(Object.entries(p.bones).map(([n, v]) => [n, decode(v)])) } : null;
+        decoded.set(id, t);
+        return t;
+    }
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const unit = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+    const square = (s, d) => { const k = dot(s, d); return unit([s[0] - d[0] * k, s[1] - d[1] * k, s[2] - d[2] * k]); };
+    const conj = q => [-q[0], -q[1], -q[2], q[3]];
+    /** The turn taking x to d and y to s (made square to d). */
+    function frameQuat(d, s) {
+        const a = unit(d), b = square(s, a), c = cross(a, b);
+        const m00 = a[0], m01 = b[0], m02 = c[0], m10 = a[1], m11 = b[1], m12 = c[1], m20 = a[2], m21 = b[2], m22 = c[2], t = m00 + m11 + m22;
+        let q;
+        if (t > 0) { const k = 0.5 / Math.sqrt(t + 1); q = [(m21 - m12) * k, (m02 - m20) * k, (m10 - m01) * k, 0.25 / k]; }
+        else if (m00 > m11 && m00 > m22) { const k = 2 * Math.sqrt(1 + m00 - m11 - m22); q = [0.25 * k, (m01 + m10) / k, (m02 + m20) / k, (m21 - m12) / k]; }
+        else if (m11 > m22) { const k = 2 * Math.sqrt(1 + m11 - m00 - m22); q = [(m01 + m10) / k, 0.25 * k, (m12 + m21) / k, (m02 - m20) / k]; }
+        else { const k = 2 * Math.sqrt(1 + m22 - m00 - m11); q = [(m02 + m20) / k, (m12 + m21) / k, 0.25 * k, (m10 - m01) / k]; }
+        const l = Math.hypot(...q);
+        return q.map(v => v / l);
+    }
 
-        // Where the body meets the floor in each frame: the joints followed down the skeleton from the hips.
+    /**
+     * Each mapped bone's own frame at rest, as the capture's frames are made.
+     * The trunk, neck and head stand straight up and the collarbones straight
+     * out, facing front, so they take the capture's turns from its rest and
+     * keep the body's own posture; a limb runs along the bone toward the next
+     * joint (the toes straight ahead), across it toward the front, up for a
+     * foot, toward where the elbow bends for an arm, toward the thumb for a
+     * hand, and follows the captured directions.
+     */
+    function restFrames(bones, index) {
+        const at = n => index.has(n) ? bones[index.get(n)].head : null;
+        const along = (n, next, fallback) => (at(n) && at(next) ? sub(at(next), at(n)) : fallback);
+        const F = [0, 0, 1], U = [0, 1, 0], out = {};
+        const put = (n, d, s) => { if (index.has(n)) out[n] = frameQuat(d, s); };
+        for (const n of ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head']) put(n, U, F);
+        for (const S of ['Left', 'Right']) {
+            put(S + 'Shoulder', [S === 'Left' ? 1 : -1, 0, 0], F);
+            const u = along(S + 'Arm', S + 'ForeArm', [S === 'Left' ? 1 : -1, -1, 0]), f = along(S + 'ForeArm', S + 'Hand', u);
+            // A straight arm at rest bends its elbow toward the front.
+            const bend = Math.abs(dot(unit(u), unit(f))) > 0.999 ? F : f;
+            put(S + 'Arm', u, bend);
+            put(S + 'ForeArm', f, Math.abs(dot(unit(u), unit(f))) > 0.999 ? F : u.map(v => -v));
+            const knuckles = at(S + 'HandIndex1') && at(S + 'HandPinky1') ? sub(at(S + 'HandIndex1'), at(S + 'HandPinky1')) : F;
+            put(S + 'Hand', along(S + 'Hand', S + 'HandMiddle1', f), knuckles);
+            put(S + 'UpLeg', along(S + 'UpLeg', S + 'Leg', [0, -1, 0]), F);
+            put(S + 'Leg', along(S + 'Leg', S + 'Foot', [0, -1, 0]), F);
+            put(S + 'Foot', along(S + 'Foot', S + 'ToeBase', F), U);
+            put(S + 'ToeBase', F, U);
+        }
+        return out;
+    }
+
+    /** Points under each foot that bear on the floor: the heel, the ball and the toe tip, off the ankle and the ball joint (meters on a 1.7 m body). */
+    const SOLE = { Foot: [[0, -0.065, -0.055]], ToeBase: [[0, 0, 0], [0, -0.012, 0.06]] };
+
+    /** How far each finger joint closes in a fist (radians), knuckle to tip; the thumb's last two joints bend a little. */
+    const CURL = { 1: 1.55, 2: 1.75, 3: 1.2 }, THUMB = { 2: 0.3, 3: 0.4 };
+    /**
+     * The hands closed: each finger turns about the line of the knuckles,
+     * toward the palm (the side facing the body at rest), and the thumb
+     * swings in across the front of the curled fingers.
+     */
+    function fists(bones, index, steps) {
+        const out = [];
+        const hold = (i, q) => { const values = new Float32Array(steps * 4); for (let n = 0; n < steps; n++) values.set(q, n * 4); out.push({ bone: i, values }); };
+        for (const [S, m] of [['Left', 1], ['Right', -1]]) {
+            const at = n => index.has(S + n) ? bones[index.get(S + n)].head : null;
+            const hand = at('Hand'), mid = at('HandMiddle1'), a = at('HandIndex1'), b = at('HandPinky1');
+            if (!hand || !mid || !a || !b) continue;
+            const along = unit(sub(mid, hand));
+            let axis = square(sub(a, b), along);
+            // The palm faces the body's middle at rest; the fingers close toward it.
+            if (dot(cross(axis, along), [-hand[0], 0, 0]) < 0) axis = axis.map(v => -v);
+            const palm = cross(axis, along);
+            for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) for (const k of [1, 2, 3]) {
+                const i = index.get(S + 'Hand' + f + k);
+                if (i !== undefined) hold(i, quat(axis[0], axis[1], axis[2], CURL[k]));
+            }
+            // The thumb turns about the hand's length and toward the palm, the same both sides in the mirror,
+            // and its joints bend in toward the palm.
+            const t1 = index.get(S + 'HandThumb1'), ta = at('HandThumb1'), tb = at('HandThumb2');
+            if (t1 !== undefined) hold(t1, mul(quat(along[0], along[1], along[2], 0.3 * m), quat(palm[0], palm[1], palm[2], -0.3 * m)));
+            const bend = ta && tb ? unit(cross(unit(sub(tb, ta)), palm)) : axis;
+            for (const k of [2, 3]) {
+                const i = index.get(S + 'HandThumb' + k);
+                if (i !== undefined) hold(i, quat(bend[0], bend[1], bend[2], THUMB[k]));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * A heavy body's arms kept off its flanks: hips set wide for the shoulders
+     * mean a wide waist, so an arm hanging closer to the trunk than the body
+     * allows swings out, the forearm and hand with it, about the chest's
+     * front-to-back line. A slim body (hips well inside the shoulders) is left
+     * as captured.
+     */
+    function clearFlanks(bones, index, names, world, steps) {
+        const at = n => index.has(n) ? bones[index.get(n)].head : null;
+        const hip = at('LeftUpLeg'), arm = at('LeftArm'), elbow = at('LeftForeArm'), chest = names.indexOf('Spine2');
+        if (!hip || !arm || !elbow || chest < 0) return;
+        const wide = Math.max(0, Math.min(1, (Math.abs(hip[0]) / Math.abs(arm[0]) - 0.65) / 0.35));
+        if (wide <= 0) return;
+        // The least angle out from the trunk's side, up to that of the body's own rest.
+        const rest = Math.atan2(Math.abs(elbow[0] - arm[0]), arm[1] - elbow[1]), least = wide * Math.min(rest, 0.55);
+        for (const [S, out] of [['Left', 1], ['Right', -1]]) {
+            const k = ['Arm', 'ForeArm', 'Hand'].map(n => names.indexOf(S + n));
+            if (k[0] < 0) continue;
+            const a = at(S + 'Arm'), e = at(S + 'ForeArm'), dir = unit(sub(e, a));
+            for (let f = 0; f < steps; f++) {
+                const T = world[chest][f], v = rotate(conj(T), rotate(world[k[0]][f], dir));
+                if (v[1] >= 0) continue;
+                const angle = Math.atan2(v[0] * out, -v[1]), short = least - angle;
+                if (short <= 0) continue;
+                // Eased, so an arm swinging across its limit never kinks.
+                const turn = short * Math.min(1, -v[1] * 2), axis = rotate(T, [0, 0, 1]), q = quat(axis[0], axis[1], axis[2], turn * out);
+                for (const i of k) if (i >= 0) world[i][f] = mul(q, world[i][f]);
+            }
+        }
+    }
+
+    /** Points of a hand that come near the face, and the ball round the face they keep out of (meters on a 1.7 m body, off the head joint). */
+    const HAND_POINTS = ['Hand', 'HandIndex1', 'HandMiddle1', 'HandPinky1', 'HandThumb2'], FACE = { at: [0, -0.01, 0.03], radius: 0.18 };
+    /**
+     * Hands kept off the face: a body's arms and head differ in size from the
+     * captured one's, so a hand brought to the chin (a boxer's guard) can
+     * land in the mouth. A hand inside the ball round the face swings out,
+     * the whole arm about the shoulder, to its surface.
+     */
+    function clearFace(bones, index, names, world, steps, place, scale) {
+        const head = index.get('Head');
+        if (head === undefined) return;
+        const radius = FACE.radius * scale;
+        for (const S of ['Left', 'Right']) {
+            const chain = ['Arm', 'ForeArm', 'Hand'].map(n => names.indexOf(S + n)), shoulder = index.get(S + 'Arm');
+            const points = HAND_POINTS.map(n => index.get(S + n)).filter(i => i !== undefined);
+            if (chain[0] < 0 || shoulder === undefined) continue;
+            for (let f = 0; f < steps; f++) {
+                const { rot, pos } = place(f), c = rotate(rot[head], FACE.at.map(v => v * scale)), centre = [pos[head][0] + c[0], pos[head][1] + c[1], pos[head][2] + c[2]];
+                let pts = points.map(i => pos[i]);
+                const s = pos[shoulder];
+                // A few small swings, each moving the deepest point out to the surface.
+                for (let pass = 0; pass < 3; pass++) {
+                    let deep = null, most = 0;
+                    for (const p of pts) { const d = radius - Math.hypot(...sub(p, centre)); if (d > most) { most = d; deep = p; } }
+                    if (!deep) break;
+                    const out = unit(sub(deep, centre)), to = [centre[0] + out[0] * radius, centre[1] + out[1] * radius, centre[2] + out[2] * radius];
+                    const a = unit(sub(deep, s)), b = unit(sub(to, s)), axis = cross(a, b), l = Math.hypot(...axis);
+                    if (l < 1e-6) break;
+                    const q = quat(axis[0] / l, axis[1] / l, axis[2] / l, Math.atan2(l, dot(a, b)));
+                    for (const k of chain) if (k >= 0) world[k][f] = mul(q, world[k][f]);
+                    pts = pts.map(p => { const r = rotate(q, sub(p, s)); return [s[0] + r[0], s[1] + r[1], s[2] + r[2]]; });
+                }
+            }
+        }
+    }
+
+    function captured(bones, id, cap) {
+        const index = new Map(bones.map((b, i) => [b.name, i]));
+        const rest = restFrames(bones, index);
+        const names = DATA.bones.filter(n => rest[n] && cap.bones[n]);
+        const steps = cap.frames, times = new Float32Array(steps);
+        for (let i = 0; i < steps; i++) times[i] = i / DATA.fps;
+        // A bone's world turn per frame: its captured frame over its rest frame; unmapped bones keep their parent's.
+        const world = names.map(n => {
+            const v = cap.bones[n], r = conj(rest[n]), out = new Array(steps);
+            for (let i = 0; i < steps; i++) out[i] = mul([v[i * 4], v[i * 4 + 1], v[i * 4 + 2], v[i * 4 + 3]], r);
+            return out;
+        });
+        const slot = new Map(names.map((n, k) => [index.get(n), k]));
+        clearFlanks(bones, index, names, world, steps);
+        const turnAt = (i, f) => {
+            for (let b = i; b >= 0; b = bones[b].parent) if (slot.has(b)) return world[slot.get(b)][f];
+            return [0, 0, 0, 1];
+        };
+        /** Every joint's turn and place at frame f, the hips at rest. */
+        const place = f => {
+            const rot = [], pos = [];
+            bones.forEach((b, i) => {
+                rot[i] = turnAt(i, f);
+                if (b.parent < 0) pos[i] = b.head.slice();
+                else { const r = rotate(rot[b.parent], sub(b.head, bones[b.parent].head)); pos[i] = [pos[b.parent][0] + r[0], pos[b.parent][1] + r[1], pos[b.parent][2] + r[2]]; }
+            });
+            return { rot, pos };
+        };
         let top = 0;
         for (const b of bones) top = Math.max(top, b.head[1]);
         const scale = top / 1.7 || 1;
-        // A lying pose rests on its own side of each joint (the back, a hip), so it gives its own reach.
-        const reachOf = Object.assign({}, REACH, def.reach || {});
-        const reach = bones.map(b => {
-            if (/^(Left|Right)(Foot|ToeBase)$/.test(b.name)) return b.head[1];
-            const key = b.name.replace(/^(Left|Right)/, '');
-            return reachOf[key] !== undefined ? reachOf[key] * scale : null;
+        clearFace(bones, index, names, world, steps, place, scale);
+        const tracks = names.map((n, k) => {
+            const i = index.get(n), values = new Float32Array(steps * 4);
+            let last = null;
+            for (let f = 0; f < steps; f++) {
+                const p = bones[i].parent;
+                let q = mul(conj(p >= 0 ? turnAt(p, f) : [0, 0, 0, 1]), world[k][f]);
+                const l = Math.hypot(...q);
+                q = q.map(x => x / l);
+                // Each frame on the same side of the sphere as the one before, so the turns blend the short way.
+                if (last && dot4(q, last) < 0) q = q.map(x => -x);
+                values.set(q, f * 4);
+                last = q;
+            }
+            return { bone: i, values };
         });
-        const floor = frames.map(fr => {
-            const rot = [], pos = [];
+
+        if (cap.fist) for (const t of fists(bones, index, steps)) tracks.push(t);
+
+        // Where the body meets the floor: the skeleton followed joint by joint from the hips.
+        const leg = side => { const a = index.get(side + 'UpLeg'), k = index.get(side + 'Leg'), f = index.get(side + 'Foot'); return a === undefined || k === undefined || f === undefined ? 0.85 * scale : Math.hypot(...sub(bones[k].head, bones[a].head)) + Math.hypot(...sub(bones[f].head, bones[k].head)); };
+        const legLength = (leg('Left') + leg('Right')) / 2;
+        const reach = bones.map(b => {
+            const key = b.name.replace(/^(Left|Right)/, '');
+            if (SOLE[key]) return SOLE[key].map(o => o.map(v => v * scale));
+            return cap.skin && REACH[key] !== undefined ? REACH[key] * scale : null;
+        });
+        const heights = new Float32Array(steps);
+        for (let f = 0; f < steps; f++) {
+            const { rot, pos } = place(f);
             let need = -Infinity;
             bones.forEach((b, i) => {
-                const q = fr[b.name] || [0, 0, 0, 1];
-                if (b.parent < 0) { rot[i] = q; pos[i] = b.head.slice(); }
-                else {
-                    const pb = bones[b.parent], off = [b.head[0] - pb.head[0], b.head[1] - pb.head[1], b.head[2] - pb.head[2]], r = rotate(rot[b.parent], off);
-                    pos[i] = [pos[b.parent][0] + r[0], pos[b.parent][1] + r[1], pos[b.parent][2] + r[2]];
-                    rot[i] = mul(rot[b.parent], q);
-                }
-                if (reach[i] !== null) need = Math.max(need, reach[i] - pos[i][1]);
+                const c = reach[i];
+                if (c === null) return;
+                if (typeof c === 'number') { need = Math.max(need, c - pos[i][1]); return; }
+                // A sole point: wherever it is at rest is on the floor.
+                for (const o of c) need = Math.max(need, b.head[1] + o[1] - (pos[i][1] + rotate(rot[i], o)[1]));
             });
-            return Number.isFinite(need) ? need : 0;
-        });
-        // Frames off the floor (a jump) take the height between the last and next on it; then a soft
-        // smoothing round the loop, so the weight passing from foot to foot rolls rather than jolts.
-        const ground = def.ground || (() => true), on = frames.map((_, i) => ground(i / (steps - 1)));
-        let base = floor.slice(0, steps - 1);
-        const n = base.length;
-        if (on.some(Boolean) && !on.every(Boolean)) {
-            base = base.map((v, i) => {
-                if (on[i]) return v;
-                let b = i, f = i, db = 0, df = 0;
-                while (!on[b]) { b = (b - 1 + n) % n; db++; }
-                while (!on[f]) { f = (f + 1) % n; df++; }
-                return base[b] + (base[f] - base[b]) * db / (db + df);
-            });
-        } else if (!on.some(Boolean)) base = base.map(() => 0);
-        for (let pass = 0; pass < 3; pass++) base = base.map((v, i) => (base[(i - 1 + n) % n] + 2 * v + base[(i + 1) % n]) / 4);
-        const lift = def.lift || (() => 0);
-        const heights = Float32Array.from({ length: steps }, (_, i) => base[i % n] + lift(i / (steps - 1)));
-
-        const names = new Set(frames.flatMap(fr => Object.keys(fr)));
-        const tracks = [];
-        for (const name of names) {
-            if (!index.has(name)) continue;
-            const values = new Float32Array(steps * 4);
-            frames.forEach((fr, i) => values.set(fr[name] || [0, 0, 0, 1], i * 4));
-            tracks.push({ bone: index.get(name), values });
+            heights[f] = (Number.isFinite(need) ? need : 0) + (cap.air ? cap.rise[f] * legLength : 0);
         }
+        const period = times[steps - 1] || 1;
         return {
-            name: id, times, tracks, heights, skin: !!def.skin,
+            name: id, times, tracks, heights, skin: !!cap.skin,
             lift: t => {
-                const x = ((t % def.period) + def.period) % def.period / def.period * (steps - 1), i = Math.floor(x), k = x - i;
+                const x = ((t % period) + period) % period * DATA.fps, i = Math.min(steps - 1, Math.floor(x)), k = x - i;
                 return heights[i] + (heights[Math.min(steps - 1, i + 1)] - heights[i]) * k;
             }
         };
+    }
+    const dot4 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+
+    function clip(bones, id) {
+        if (!POSES.some(p => p.id === id)) return null;
+        const index = new Set(bones.map(b => b.name));
+        if (!index.has('LeftArm') || !index.has('LeftForeArm') || !index.has('LeftUpLeg')) return null;
+        const cap = take(id);
+        return cap ? captured(bones, id, cap) : null;
     }
 
     const api = { POSES, clip };

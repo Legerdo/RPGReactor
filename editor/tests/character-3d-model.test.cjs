@@ -289,6 +289,71 @@ test('every pose to try a character in plays on the built skeleton, its turns wh
     assert.equal(Poses.clip(built.bones, 'nonsense'), null);
 });
 
+test('the poses are motion capture fitted to each body: loops close, feet meet the floor, heavy arms clear the flanks', () => {
+    const Poses = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterPoses.js'));
+    const Data = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterPosesData.js'));
+    const mul = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+    const rot = (q, v) => { const c = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], u = [q[0], q[1], q[2]], t = c(u, v).map(x => 2 * x), t2 = c(u, t); return [v[0] + q[3] * t[0] + t2[0], v[1] + q[3] * t[1] + t2[1], v[2] + q[3] * t[2] + t2[2]]; };
+    /** Every joint's place at frame f, the body lifted as the clip says. */
+    const place = (bones, clip, f) => {
+        const local = bones.map(() => [0, 0, 0, 1]), W = [], pos = [];
+        for (const t of clip.tracks) local[t.bone] = Array.from(t.values.slice(f * 4, f * 4 + 4));
+        bones.forEach((b, i) => {
+            if (b.parent < 0) { W[i] = local[i]; pos[i] = [b.head[0], b.head[1] + clip.heights[f], b.head[2]]; return; }
+            W[i] = mul(W[b.parent], local[i]);
+            const o = rot(W[b.parent], b.head.map((v, k) => v - bones[b.parent].head[k]));
+            pos[i] = pos[b.parent].map((v, k) => v + o[k]);
+        });
+        return { pos, W };
+    };
+    /** How far the lowest point under either foot (heel, ball, toe tip) is above where it stands at rest. */
+    const soleClear = (bones, clip, f) => {
+        const { pos, W } = place(bones, clip, f), at = n => bones.findIndex(b => b.name === n);
+        const s = Math.max(...bones.map(b => b.head[1])) / 1.7;
+        let low = Infinity;
+        for (const S of ['Left', 'Right']) for (const [n, o] of [['Foot', [0, -0.065, -0.055]], ['ToeBase', [0, 0, 0]], ['ToeBase', [0, -0.012, 0.06]]]) {
+            const i = at(S + n), d = rot(W[i], o.map(v => v * s));
+            low = Math.min(low, pos[i][1] + d[1] - (bones[i].head[1] + o[1] * s));
+        }
+        return low;
+    };
+    assert.deepEqual(Object.keys(Data.poses).sort(), Poses.POSES.map(p => p.id).sort(), 'every pose captured');
+    for (const recipe of [{ gender: 1 }, { gender: 0, age: 0.3 }, { gender: 1, extreme: true, weight: 4 }]) {
+        const { bones } = Model.build(pack, recipe, {}, { quality: 'preview' });
+        for (const pose of Poses.POSES) {
+            const clip = Poses.clip(bones, pose.id), last = clip.times.length - 1;
+            for (const t of clip.tracks) {
+                const a = t.values.slice(0, 4), b = t.values.slice(last * 4, last * 4 + 4);
+                assert.ok(Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]) > 0.9999, `${pose.id} loops back to its first frame`);
+            }
+            assert.ok(Math.abs(clip.heights[0] - clip.heights[last]) < 1e-3, `${pose.id} height loops`);
+        }
+        // Walking and running: some sole on the floor except in a run's flight, never one under it.
+        for (const id of ['walk', 'run', 'fight', 'crouch']) {
+            const clip = Poses.clip(bones, id);
+            let flying = 0;
+            for (let f = 0; f < clip.times.length; f++) {
+                const low = soleClear(bones, clip, f);
+                assert.ok(low > -0.01, `${id} frame ${f}: a foot ${low.toFixed(3)} m under the floor`);
+                if (low > 0.025) flying++;
+            }
+            if (id === 'run') assert.ok(flying > 0 && flying < clip.times.length / 2, `run has a short flight (${flying} frames)`);
+            else assert.equal(flying, 0, `${id} keeps a foot down`);
+        }
+        // The jump leaves the floor and comes back.
+        const jump = Poses.clip(bones, 'jump');
+        assert.ok(Math.max(...jump.heights) > 0.2 && Math.abs(jump.heights[0]) < 0.1, 'jump rises off the floor');
+    }
+    // A heavy body's hanging arm is held further from its trunk than a slim one's.
+    const out = recipe => {
+        const { bones } = Model.build(pack, recipe, {}, { quality: 'preview' }), clip = Poses.clip(bones, 'walk'), at = n => bones.findIndex(b => b.name === n);
+        let least = Infinity;
+        for (let f = 0; f < clip.times.length; f++) { const { pos } = place(bones, clip, f); least = Math.min(least, Math.abs(pos[at('LeftForeArm')][0] - pos[at('Spine1')][0])); }
+        return least / Math.abs(bones[at('LeftArm')].head[0]);
+    };
+    assert.ok(out({ gender: 1, extreme: true, weight: 4 }) > out({ gender: 1 }) + 0.2, 'heavy arms swing out');
+});
+
 test('a top worn with its own skirt reaches under the skirt: no bare waist between them on any body', () => {
     const an = Outfit.anatomy(pack);
     // The trunk from just above the hips to above the navel, where the bodice meets the skirt's waistband.
