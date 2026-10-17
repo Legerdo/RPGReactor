@@ -796,6 +796,8 @@
         records: new Map(),
         /** The border crossing under way: `{ from, to, side, offset }`, from the step over the border until the map past it has started. */
         crossing: null,
+        /** The map the crossing under way leaves, as the game held it (`begin`), until the map entered takes its world (`adopt`). */
+        leftMap: null,
         /** The 3D state of the map being played (the spriteset's), as last updated. */
         live: null,
         stats: { read: 0, built: 0, adopted: 0, crossed: 0, faded: 0, buildMs: 0 }
@@ -918,9 +920,12 @@
     /** The step over a border begins: `exit` is Reactor3D.neighborExit's. True when it will be crossed without a break. */
     N.begin = function(exit, fromMapId) {
         N.crossing = null;
+        N.leftMap = null;
         if (!N.ready(exit.side)) { N.stats.faded++; return false; }
         const body = N.live.scene._neighborBodies[exit.side];
         N.crossing = { from: fromMapId, to: exit.mapId, side: exit.side, offset: { x: body.offset.x, z: body.offset.z } };
+        // The map left, as the game held it: what the world it leaves behind past the border is lit by.
+        N.leftMap = root.$dataMap || null;
         // What the leader rides goes with it, model and all (the event it is on the map entered has another number).
         const ride = root.$gamePlayer && root.$gamePlayer._rrRide;
         if (ride && ride.id) N.crossing.ride = "e" + ride.id;
@@ -1255,6 +1260,66 @@
         return Math.hypot(dx, dz);
     };
 
+    /** The scene of the map being played (the game's spriteset's), or null outside a game or for any other map. */
+    N.playedScene = function(mapData) {
+        const scene = root.SceneManager && root.SceneManager._scene, live = scene && scene._spriteset && scene._spriteset._reactor3d;
+        return live && live.scene && root.$dataMap === mapData ? live.scene : null;
+    };
+
+    /**
+     * Whether a point past the edge of the map played (`mapData`, in its tiles) is in the ground, or in
+     * something built, of the neighboring map whose world stands there (Reactor3D.cameraArmBlocked): a camera
+     * by a border keeps out of the rock past it as it does out of this map's. `what`: "ground" or "pieces"
+     * for only that, else either. False where no world stands.
+     */
+    N.solidAt = function(mapData, x, y, z, thin, doors, what) {
+        const bodies = N.enabled ? (N.playedScene(mapData) || {})._neighborBodies : null;
+        if (!bodies) return false;
+        for (const side of R.SURROUND_SIDES) {
+            const body = bodies[side], map = body ? (body.record && body.record.map) || body.mapData : null;
+            if (!map) continue;
+            const lx = x - body.offset.x, lz = z - body.offset.z;
+            if (!(lx >= 0 && lz >= 0 && lx < map.width && lz < map.height)) continue;
+            return N.within(map, body.scene._neighborGlobals, () => {
+                if (what !== "pieces" && R.terrainHeightAt && R.elevationAt && y < R.elevationAt(map, Math.floor(lx), Math.floor(lz)) + R.terrainHeightAt(map, lx, lz) + R.CAMERA_GROUND_MARGIN) return true;
+                return what !== "ground" && !!(R.hasPieces && R.hasPieces(map) && R.pieceSolidAt(map, lx, y, lz, null, thin, doors));
+            });
+        }
+        return false;
+    };
+
+    /** Tiles each side of a border over which the lighting of the two maps meets (`lightBlend`). */
+    N.LIGHT_BAND = 16;
+    /** The steps it meets in, across the whole band: each step moves a sun once, and redraws its shadows once. */
+    N.LIGHT_STEPS = 16;
+
+    /**
+     * How far toward the lighting of a neighboring map the lighting stands where the player is
+     * (Reactor3D.seamAmbient, Reactor3D.blendSeamSun): `{ home, weight, map, offset, globals }`, `home`
+     * the map played, `weight` from 0 (its own) to 1, `map` the neighbor whose world stands in `scene`,
+     * `offset` where that map's first tile lies in this map's tiles; null with none in reach. Worked
+     * from how much nearer the player is to this map than to the neighbor's: one half on the border,
+     * and at every place the same lighting reckoned from either map, so crossing changes nothing.
+     */
+    N.lightBlend = function(scene, mapData, player) {
+        const bodies = scene && scene._neighborBodies;
+        if (!N.enabled || !bodies || !mapData || !player) return null;
+        const x = player._realX + 0.5, y = player._realY + 0.5, band = N.LIGHT_BAND, steps = N.LIGHT_STEPS;
+        const inside = N.gap(x, y, ZERO, mapData.width, mapData.height);
+        let best = null;
+        for (const side of R.SURROUND_SIDES) {
+            const body = bodies[side], map = body ? (body.record && body.record.map) || body.mapData : null;
+            if (!map) continue;
+            const lead = N.gap(x, y, body.offset, map.width, map.height) - inside;
+            if (lead >= band) continue;
+            const t = Math.max(0, Math.min(1, 0.5 - lead / (2 * band)));
+            // Stepped evenly either side of the half, so either map's reckoning lands on the same step.
+            const u = t * t * (3 - 2 * t) - 0.5, weight = 0.5 + Math.sign(u) * Math.round(Math.abs(u) * steps) / steps;
+            if (weight > 0 && (!best || weight > best.weight)) best = { home: mapData, weight, map, offset: body.offset, globals: body.scene._neighborGlobals || null };
+        }
+        return best;
+    };
+
     /**
      * Once a frame on a 3D map: every map within `DEPTH` maps of the one played is read and its world built
      * (one part a frame, the nearest first; several while the screen fades in), each map once however many
@@ -1406,12 +1471,17 @@
         old.scene._neighborGlobals = globalsOf();
         scene._neighborKept = false;
         if (scene._neighborGlobals) setGlobals(scene._neighborGlobals);
-        if (R.Reflections && R.Reflections.reset) R.Reflections.reset();
+        // The reflections go on from the capture they had: the same world, in the entered map's tiles.
+        if (R.Reflections && R.Reflections.shift) R.Reflections.shift(cross.offset);
         if (scene._sky) scene._sky.visible = true;
         // The map left stands past the border come over, kept by its old spriteset no longer.
         old.scene._neighborKept = true;
         const back = N.OPPOSITE[cross.side];
-        N.attach(scene, back, old.scene, cross.from, { x: -cross.offset.x, z: -cross.offset.z }, N.records.get(cross.from) || null).settle = 0;
+        const left = N.attach(scene, back, old.scene, cross.from, { x: -cross.offset.x, z: -cross.offset.z }, N.records.get(cross.from) || null);
+        left.settle = 0;
+        // Its map is known before its file is read again (a map played was never read as a neighbor): its lighting meets this map's at once.
+        left.mapData = N.leftMap || null;
+        N.leftMap = null;
         // Its plants were last sorted into seen and unseen from a camera that had already gone over the border with
         // the party (all unseen): they are seen until its next sorting, a frame or two on.
         const plants = old.scene._foliageGroup;

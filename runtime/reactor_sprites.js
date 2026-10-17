@@ -5418,11 +5418,16 @@ Spriteset_Map.prototype.releaseReactor3D = function(now) {
         if (!(kept && Reactor3D.Neighbors && Reactor3D.Neighbors.crossing)) this._reactor3d.viewport.setVisible(false);
         this._reactor3d = null;
         this.destroyReactor3DSprite();
-        // Whatever this map borrowed from the lighting plugin is given back.
+        // Whatever this map borrowed from the lighting plugin is given back, unless the next map's
+        // spriteset has lit its own already (it updates while its map loads, before this one is let go).
         if (this._reactor3dLit) {
-            Reactor3D.suppressFlatLighting(false);
-            Reactor3D.setLights([]);
-            Reactor3D.setAmbient(null);
+            if (!Reactor3D._lightingOwner || Reactor3D._lightingOwner === this) {
+                Reactor3D.suppressFlatLighting(false);
+                Reactor3D.setLights([]);
+                Reactor3D.setAmbient(null);
+                Reactor3D._seamLight = null;
+                Reactor3D._lightingOwner = null;
+            }
             this._reactor3dLit = false;
         }
     }
@@ -5967,15 +5972,20 @@ Spriteset_Map.prototype.drawReactor3D = function(state) {
  */
 Spriteset_Map.prototype.updateReactor3DLights = function(state) {
     const wants = Reactor3D.wantsLights3D($dataMap);
+    // The lighting is this spriteset's until another takes it: one left behind gives back only its own.
+    Reactor3D._lightingOwner = this;
+    // Near a border with a neighboring map's world past it, the two maps' lighting meets (Neighbors.lightBlend).
+    Reactor3D._seamLight = wants && Reactor3D.Neighbors && Reactor3D.Neighbors.lightBlend
+        ? Reactor3D.Neighbors.lightBlend(state.scene, $dataMap, $gamePlayer) : null;
     if (wants !== this._reactor3dLit) {
         this._reactor3dLit = wants;
         this._reactor3dAmbientKey = null;
-        Reactor3D.setAmbient(wants ? Reactor3D.ambientFor($dataMap) : null);
+        Reactor3D.setAmbient(wants ? Reactor3D.seamAmbient(Reactor3D.ambientFor($dataMap)) : null);
     } else if (wants) {
         // An AmbientLight command eases the map's ambient over time; only a
         // changed value reaches the compositor, so a steady frame allocates
         // nothing.
-        const ambient = Reactor3D.ambientFor($dataMap);
+        const ambient = Reactor3D.seamAmbient(Reactor3D.ambientFor($dataMap));
         const key = ambient.intensity * 16777216 + ambient.colour;
         if (key !== this._reactor3dAmbientKey) {
             this._reactor3dAmbientKey = key;

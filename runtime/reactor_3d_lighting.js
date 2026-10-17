@@ -1505,10 +1505,14 @@ Reactor3D.cameraArm = function(mapData, focus, to, least, margin, step, how) {
         d = Math.min(length, d + (here ? stride / 2 : stride));
     }
 };
-/** One point of `cameraArm`'s way: under the ground (and a margin over it), or inside a piece. */
+/**
+ * One point of `cameraArm`'s way: under the ground (and a margin over it), or inside a piece. Past the
+ * map's edge, the neighboring map whose world stands there answers (`Neighbors.solidAt`).
+ */
 Reactor3D.cameraArmBlocked = function(mapData, focus, dx, dy, dz, t, built, cut, thin, doors) {
     const x = focus.x + dx * t, y = focus.y + dy * t, z = focus.z + dz * t;
-    if (x >= 0 && z >= 0 && x < mapData.width && z < mapData.height && this.terrainHeightAt && this.elevationAt
+    if (!(x >= 0 && z >= 0 && x < mapData.width && z < mapData.height)) return !!(this.Neighbors && this.Neighbors.solidAt && this.Neighbors.solidAt(mapData, x, y, z, thin, doors));
+    if (this.terrainHeightAt && this.elevationAt
         && y < this.elevationAt(mapData, Math.floor(x), Math.floor(z)) + this.terrainHeightAt(mapData, x, z) + this.CAMERA_GROUND_MARGIN) return true;
     return built && this.pieceSolidAt(mapData, x, y, z, cut, thin, doors);
 };
@@ -1525,11 +1529,16 @@ Reactor3D.cameraArmBlocked = function(mapData, focus, dx, dy, dz, t, built, cut,
  * pieces.
  */
 Reactor3D.clearCameraPath = function(camera, focus, mapData) {
-    if (!camera || !focus || !mapData || !this.hasPieces(mapData)) return false;
+    if (!camera || !focus || !mapData) return false;
+    const to = camera.position, own = this.hasPieces(mapData);
+    // Past the map's edge the pieces of the neighboring map standing there (Neighbors.solidAt).
+    const past = (x, z) => !(x >= 0 && z >= 0 && x < mapData.width && z < mapData.height) && !!(this.Neighbors && this.Neighbors.solidAt);
+    if (!own && !past(to.x, to.z)) return false;
     const shared = this._cutawayUniforms;
     const cut = shared && shared.rrCutRadius.value > 0 ? { top: shared.rrCutTop.value, box: shared.rrCutBox.value } : null;
-    const to = camera.position;
-    if (!this.pieceSolidAt(mapData, to.x, to.y, to.z, cut, 0, this.DOORS_OPEN)) return false;
+    const solid = (x, y, z) => past(x, z) ? this.Neighbors.solidAt(mapData, x, y, z, 0, this.DOORS_OPEN, "pieces")
+        : own && this.pieceSolidAt(mapData, x, y, z, cut, 0, this.DOORS_OPEN);
+    if (!solid(to.x, to.y, to.z)) return false;
     const from = focus;
     const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
     const length = Math.hypot(dx, dy, dz);
@@ -1538,7 +1547,7 @@ Reactor3D.clearCameraPath = function(camera, focus, mapData) {
     let free = 0.5;
     for (let d = length - step; d >= 0.5; d -= step) {
         const t = d / length;
-        if (!this.pieceSolidAt(mapData, from.x + dx * t, from.y + dy * t, from.z + dz * t, cut, 0, this.DOORS_OPEN)) { free = Math.max(0.5, d - 0.3); break; }
+        if (!solid(from.x + dx * t, from.y + dy * t, from.z + dz * t)) { free = Math.max(0.5, d - 0.3); break; }
     }
     const t = free / length;
     camera.position.set(from.x + dx * t, from.y + dy * t, from.z + dz * t);
@@ -1557,7 +1566,9 @@ Reactor3D.CAMERA_GROUND_MARGIN = 0.35;
 Reactor3D.clearCameraGround = function(camera, focus, mapData) {
     if (!camera || !focus || !mapData || !this.terrainHeightAt || !this.elevationAt) return false;
     const ground = (x, z) => this.elevationAt(mapData, Math.floor(x), Math.floor(z)) + this.terrainHeightAt(mapData, x, z);
-    const inside = (x, y, z) => x >= 0 && z >= 0 && x < mapData.width && z < mapData.height && y < ground(x, z) + this.CAMERA_GROUND_MARGIN;
+    // Past the map's edge, the ground of the neighboring map standing there (Neighbors.solidAt).
+    const inside = (x, y, z) => x >= 0 && z >= 0 && x < mapData.width && z < mapData.height ? y < ground(x, z) + this.CAMERA_GROUND_MARGIN
+        : !!(this.Neighbors && this.Neighbors.solidAt && this.Neighbors.solidAt(mapData, x, y, z, 0, 0, "ground"));
     const to = camera.position;
     if (!inside(to.x, to.y, to.z)) return false;
     const dx = to.x - focus.x, dy = to.y - focus.y, dz = to.z - focus.z;
@@ -2078,6 +2089,20 @@ Reactor3D.Reflections = {
             if (typeof before === "function") before.apply(this, arguments);
             Reactor3D.Reflections.bind(renderer);
         };
+    },
+
+    /**
+     * A border crossed without a break (`Neighbors.adopt`): the world drawn is
+     * the same, now counted from the map entered, whose first tile stood at
+     * `offset` (x, z). The capture goes on as it was: where it was taken moves
+     * with the world, and what shines still shines. Only the face owed from
+     * the map left is dropped (it names that map's scene).
+     */
+    shift(offset) {
+        if (this._probe && offset) { this._probe.x -= Number(offset.x) || 0; this._probe.z -= Number(offset.z) || 0; }
+        this._owed = null;
+        const record = this._owedRecord;
+        if (record) record.renderer = record.mapScene = record.scene = record.camera = null;
     },
 
     /** A new map: no capture carries over, and nothing is known to shine yet. */
@@ -5339,13 +5364,14 @@ Reactor3D.mapMeta = function(mapData) {
 };
 
 /** How dark an unlit corner of a lit map is. */
-Reactor3D.ambientFor = function(mapData) {
+/** A map's ambient as its sidecar writes it, before any AmbientLight command. */
+Reactor3D.authoredAmbient = function(mapData) {
     const sidecar = mapData && mapData.reactor3d;
     const lighting = (sidecar && sidecar.lighting) || {};
     // With no ambient written, a lit map's dark corners are at a quarter; an unlit map is in full daylight,
     // which is where an AmbientLight command on it eases from.
     const unset = lighting.ambient === undefined;
-    const authored = {
+    return {
         intensity: !unset ? lighting.ambient
             : ((this.isMap3D(mapData) ? this.authoredLights3D(mapData) : this.authoredLighting(mapData)) ? 0.25 : 1),
         // The sidecar stores "#rrggbb"; the compositors bit-shift a number.
@@ -5354,6 +5380,10 @@ Reactor3D.ambientFor = function(mapData) {
         colour: this.parseColour(
             lighting.ambientColour === undefined ? 0xffffff : lighting.ambientColour)
     };
+};
+
+Reactor3D.ambientFor = function(mapData) {
+    const authored = this.authoredAmbient(mapData);
     // An AmbientLight command eases the map away from what it authored.
     const override = this.currentLightOverrides() && $gameMap._reactorAmbientOverride;
     if (!override || override.mapId !== this.currentLightMapId()) return authored;
@@ -5369,6 +5399,90 @@ Reactor3D.ambientFor = function(mapData) {
         intensity: fromI + (toI - fromI) * t,
         colour: this.mixColour(fromC, toC, t)
     };
+};
+
+//-----------------------------------------------------------------------------
+// Lighting across a border
+//
+// Beside a neighboring map's world (Reactor3D.Neighbors) the light of the two
+// maps meets: `_seamLight` (`Neighbors.lightBlend`, set by the spriteset each
+// frame) says how far toward the neighbor's the lighting stands at the
+// player's place, and the ambient (the time of day) and the sun are taken
+// that far toward the neighbor's own. Halfway on the border, from either side,
+// so the step over it changes nothing; this map's own outside the band.
+
+/** The ambient `ambient` of the map played, taken toward the neighbor's as far as `_seamLight` says. */
+Reactor3D.seamAmbient = function(ambient, mapData) {
+    const seam = this._seamLight;
+    if (!ambient || !seam || !(seam.weight > 0) || seam.home !== (mapData || (typeof $dataMap !== "undefined" ? $dataMap : null))) return ambient;
+    const other = this.authoredAmbient(seam.map), w = seam.weight;
+    return {
+        intensity: ambient.intensity + (other.intensity - ambient.intensity) * w,
+        colour: this.mixColour(ambient.colour, other.colour, w)
+    };
+};
+
+/** The neighbor's sun, as `{ light, ground }` (its authored light and the ground under it), or null: read once per map. */
+Reactor3D.seamSunOf = function(seam) {
+    const cache = this._seamSuns || (this._seamSuns = new WeakMap());
+    if (cache.has(seam.map)) return cache.get(seam.map);
+    const light = this.readMapLights(seam.map).find(entry => entry.type === this.LIGHT_SUN && entry.on && !entry.attach) || null;
+    let found = null;
+    if (light) {
+        const x = Math.round(light.x), y = Math.round(light.y), N = this.Neighbors;
+        const ground = N && N.within ? N.within(seam.map, seam.globals || null, () => this.surfaceHeightAt(seam.map, x, y)) : 0;
+        found = { light, ground: Number.isFinite(ground) ? ground : 0 };
+    }
+    cache.set(seam.map, found);
+    return found;
+};
+
+/**
+ * The map's lights (`out`, from `nativeLights`) with its sun taken toward the
+ * neighbor's as far as `_seamLight` says: its place, the ground it stands
+ * over, its height, reach, colour and brightness, both at the time of day
+ * `day`. A sun only one of the two maps has fades toward none. It keeps its
+ * id, so its shadow row stays its own.
+ */
+Reactor3D.blendSeamSun = function(out, map, day) {
+    const seam = this._seamLight;
+    if (!seam || seam.home !== map || !(seam.weight > 0)) return out;
+    const w = seam.weight, mix = (a, b) => a + (b - a) * w;
+    let own = null;
+    for (const light of out) if (light.type === this.LIGHT_SUN) { own = light; break; }
+    const found = this.seamSunOf(seam);
+    if (!own && !found) return out;
+    let other = null;
+    if (found) {
+        const light = found.light;
+        const sun = light.daylight !== "fixed" && day ? this.sunAtDaylight(light, light.color, light.intensity, day, {}) : { colour: light.color, intensity: light.intensity };
+        other = { x: light.x + seam.offset.x, y: light.y + seam.offset.z, ground: found.ground, height: light.height, radius: light.radius, colour: sun.colour, intensity: sun.intensity };
+    }
+    if (own && other) {
+        const ground = this.surfaceHeightAt(map, Math.round(own.x), Math.round(own.y));
+        own.groundY = mix(Number.isFinite(ground) ? ground : 0, other.ground);
+        own.x = mix(own.x, other.x);
+        own.y = mix(own.y, other.y);
+        own.height = mix(own.height, other.height);
+        own.radius = mix(own.radius, other.radius);
+        if (own.priorityRadius !== undefined) own.priorityRadius = mix(own.priorityRadius, other.radius);
+        own.colour = this.mixColour(own.colour, other.colour, w);
+        own.intensity = mix(own.intensity, other.intensity);
+        if (own.priorityIntensity !== undefined) own.priorityIntensity = mix(own.priorityIntensity, other.intensity);
+    } else if (own) {
+        own.intensity *= 1 - w;
+        if (own.priorityIntensity !== undefined) own.priorityIntensity *= 1 - w;
+    } else {
+        const light = found.light;
+        out.push({
+            id: "seam:" + light.id, type: light.type, x: other.x, y: other.y, groundY: other.ground, height: other.height,
+            radius: other.radius, colour: other.colour, intensity: other.intensity * w,
+            priorityRadius: other.radius, priorityIntensity: other.intensity * w,
+            angle: light.angle, width: light.width, yaw: -light.yaw, pitch: light.pitch, occlude: light.occlude,
+            shadow: light.shadow, body: light.body, baseRadius: undefined
+        });
+    }
+    return out;
 };
 
 /** Display-space ambient tint for the flat multiply overlay. */
@@ -5786,7 +5900,7 @@ Reactor3D.animateLight = function(spec, frame, seedIndex, radius, intensity) {
 Reactor3D.nativeLights = function(mapData) {
     const map = mapData || (typeof $dataMap !== "undefined" ? $dataMap : null);
     const authored = this.readMapLights(map);
-    if (!authored.length) return [];
+    if (!authored.length && !(this._seamLight && this._seamLight.home === map)) return [];
     const out = [];
     const frame = typeof Graphics !== "undefined" && Graphics.frameCount
         ? Graphics.frameCount : 0;
@@ -5843,7 +5957,7 @@ Reactor3D.nativeLights = function(mapData) {
         // A sun at the map's time of day (the flicker's base scaled alike, so it reads as no flicker).
         let lit = colour, priorityIntensity = animated.priorityIntensity;
         if (light.type === this.LIGHT_SUN && light.daylight !== "fixed") {
-            const day = this.daylight(this.ambientFor(map));
+            const day = this.daylight(this.seamAmbient(this.ambientFor(map), map));
             const sun = this.sunAtDaylight(light, colour, intensity, day, this._sunScratch || (this._sunScratch = {}));
             lit = sun.colour; intensity = sun.intensity;
             if (priorityIntensity !== undefined) priorityIntensity *= day.sun;
@@ -5856,6 +5970,9 @@ Reactor3D.nativeLights = function(mapData) {
             shadow: light.shadow, body: light.body, baseRadius: baseRadius
         });
     }
+    // Beside a neighboring map's world the sun stands toward that map's own (`blendSeamSun`).
+    const seam = this._seamLight;
+    if (seam && seam.home === map && seam.weight > 0) this.blendSeamSun(out, map, this.daylight(this.seamAmbient(this.ambientFor(map), map)));
     return out;
 };
 
