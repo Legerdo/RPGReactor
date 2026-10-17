@@ -374,9 +374,10 @@
 
     // ── mesh builder ───────────────────────────────────────────────────────
     function meshBuilder() {
-        return { pos: [], nrm: [], col: [], idx: [] };
+        return { pos: [], nrm: [], col: [], idx: [], uv: [] };
     }
-    const pushVert = (m, p, n, c) => { m.pos.push(p[0], p[1], p[2]); m.nrm.push(n[0], n[1], n[2]); m.col.push(c[0], c[1], c[2]); return m.pos.length / 3 - 1; };
+    // A vertex; `uv` places it on the strand picture (a card), solid geometry sits on its root row.
+    const pushVert = (m, p, n, c, uv) => { m.pos.push(p[0], p[1], p[2]); m.nrm.push(n[0], n[1], n[2]); m.col.push(c[0], c[1], c[2]); m.uv.push(uv ? uv[0] : 0.5, uv ? uv[1] : 0.02); return m.pos.length / 3 - 1; };
 
     /** A shell over a cut surface: each point raised by `lift(i)` along its normal, colored by `color(i)`. */
     function addShell(m, surf, lift, color) {
@@ -394,6 +395,7 @@
     function addClump(m, pts, opts) {
         const n = pts.length;
         if (n < 2) return;
+        if (opts.card !== false && !opts.solid) return addCard(m, pts, opts);
         const sides = opts.sides || 4;
         const w0 = opts.width, flat = opts.flat ?? 0.35;
         const base = m.pos.length / 3;
@@ -431,9 +433,91 @@
         for (let s = 0; s < sides; s++) m.idx.push(rc, base + s, base + (s + 1) % sides);
     }
 
+    /**
+     * A hair card: a strip along the clump, three vertices across, curved
+     * a little round its middle like a lock of hair, carrying the strand
+     * picture (u across, v root to tip). Wider than the clump's solid would
+     * be, since the picture leaves only its strands; a second, narrower
+     * strip crosses it so the lock has body from the side too.
+     */
+    function addCard(m, pts, opts) {
+        const n = pts.length, w0 = opts.width * 1.7, lane = opts.lane ?? (m._lane = ((m._lane || 0) + 1) % 4);
+        const u0 = lane * 0.25, u1 = u0 + 0.25;
+        for (const [scale, twist] of [[1, 0], [0.6, 1]]) {
+            const base = m.pos.length / 3;
+            let prevB = null;
+            for (let i = 0; i < n; i++) {
+                const t = i / (n - 1);
+                const T = norm(sub(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)]));
+                const out = opts.outAt ? opts.outAt(pts[i], i) : norm(sub(pts[i], opts.center));
+                let B = cross(T, out);
+                if (len(B) < 1e-6) B = prevB || cross(T, [0, 0, 1]);
+                B = norm(B);
+                if (prevB && dot(B, prevB) < 0) B = mul(B, -1);
+                prevB = B;
+                let N = norm(cross(B, T));
+                // The crossing strip stands across the first one.
+                if (twist) { const x = B; B = N; N = mul(x, -1); }
+                const taper = opts.taper ? opts.taper(t) : (1 - Math.pow(t, 1.6) * 0.7);
+                const w = w0 * scale * Math.max(0.25, taper), bow = w * 0.18;
+                const col = opts.color(t);
+                for (let k = -1; k <= 1; k++) {
+                    // The middle stands proud (a lock is round); the edges stay at the strand's own height.
+                    const p = add(add(pts[i], mul(B, k * w * 0.5)), mul(N, k === 0 ? bow : 0));
+                    const shade = k === 0 ? 1 : 0.86;
+                    pushVert(m, p, norm(add(N, mul(B, k * 0.35))), shadeRgb(col, shade), [u0 + (k + 1) / 2 * (u1 - u0), t * 0.98 + 0.01]);
+                }
+            }
+            for (let i = 0; i + 1 < n; i++) {
+                const a = base + i * 3;
+                m.idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
+            }
+        }
+    }
+
+    /**
+     * The strand picture: four lanes of strands (a card takes one), each
+     * strand a fine line of its own length, waviness and lightness, tapering
+     * to its tip; thicker at the root so a card is full where it grows.
+     */
+    function hairTexture(size = 256) {
+        const data = new Uint8Array(size * size * 4);
+        const rnd = rng(77);
+        const strands = [];
+        for (let lane = 0; lane < 4; lane++) for (let k = 0; k < 26; k++) {
+            strands.push({ u: lane * 0.25 + (k + rnd()) / 26 * 0.25, len: 0.55 + 0.45 * rnd(), wob: (rnd() - 0.5) * 0.006, freq: 4 + rnd() * 6, ph: rnd() * 6.28, light: 0.72 + 0.28 * rnd(), lane });
+        }
+        const alpha = new Float32Array(size * size), lum = new Float32Array(size * size).fill(0.85);
+        for (const st of strands) {
+            for (let y = 0; y < size; y++) {
+                const v = (y + 0.5) / size;
+                if (v > st.len) break;
+                const tip = 1 - v / st.len;
+                const width = (0.0026 + 0.0022 * Math.min(1, tip * 2)) * size;
+                const cu = (st.u + st.wob * Math.sin(v * st.freq * 6.28 + st.ph)) * size;
+                const laneMin = st.lane * 0.25 * size, laneMax = (st.lane + 1) * 0.25 * size - 1;
+                for (let x = Math.max(laneMin, Math.floor(cu - width - 1)); x <= Math.min(laneMax, Math.ceil(cu + width + 1)); x++) {
+                    const d = Math.abs(x + 0.5 - cu) / width;
+                    if (d > 1) continue;
+                    const a = (1 - d * d) * Math.min(1, tip * 6);
+                    const o = y * size + x;
+                    if (a > alpha[o]) { alpha[o] = a; lum[o] = st.light * (0.85 + 0.15 * (1 - d)); }
+                }
+            }
+        }
+        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+            const o = y * size + x, v = (y + 0.5) / size;
+            // Full at the root, so no scalp shows between cards.
+            const a = Math.max(alpha[o], Math.max(0, 0.9 - v * 4));
+            const l = Math.round(255 * lum[o]);
+            data[o * 4] = l; data[o * 4 + 1] = l; data[o * 4 + 2] = l; data[o * 4 + 3] = Math.round(255 * Math.min(1, a));
+        }
+        return { width: size, height: size, data, name: 'hair.png' };
+    }
+
     /** A tube of round section `radius(t)` along `pts` (braids, locks, tails). */
     function addTube(m, pts, radius, color, sides = 6) {
-        addClump(m, pts, { width: 2, flat: 1, sides, center: [0, 0, 0], outAt: (p, i) => {
+        addClump(m, pts, { width: 2, flat: 1, sides, solid: true, center: [0, 0, 0], outAt: (p, i) => {
             const T = norm(sub(pts[Math.min(pts.length - 1, i + 1)], pts[Math.max(0, i - 1)]));
             const up = Math.abs(T[1]) > 0.9 ? [0, 0, 1] : [0, 1, 0];
             return norm(cross(T, up));
@@ -1301,12 +1385,9 @@
             sp.r[0] = Math.min(sp.r[0], q.r); sp.r[1] = Math.max(sp.r[1], q.r);
             sp.a[0] = Math.min(sp.a[0], q.a); sp.a[1] = Math.max(sp.a[1], q.a);
         });
-        m.uv = m.uv || [];
-        while (m.uv.length < base * 2) m.uv.push(0, 0);
         polar.forEach((q, i) => {
-            pushVert(m, pts[i], [0, 0, 1], col);
             const sp = span[Math.sign(pts[i][0]) + ':' + q.up];
-            m.uv.push((q.a - sp.a[0]) / Math.max(1e-5, sp.a[1] - sp.a[0]), (q.r - sp.r[0]) / Math.max(1e-5, sp.r[1] - sp.r[0]));
+            pushVert(m, pts[i], [0, 0, 1], col, [(q.a - sp.a[0]) / Math.max(1e-5, sp.a[1] - sp.a[0]), (q.r - sp.r[0]) / Math.max(1e-5, sp.r[1] - sp.r[0])]);
         });
         for (let t = 0; t < h.index.length; t++) m.idx.push(base + h.index[t]);
     }
@@ -1356,6 +1437,7 @@
             index: Uint32Array.from(m.idx),
             joints, weights,
             colors: Float32Array.from(m.col),
+            uvs: Float32Array.from(m.uv),
             roughness: 0.55,
             doubleSided: true
         }, opts.extra || {});
@@ -1388,14 +1470,22 @@
             else if (layer.type === 'braid') buildBraid(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'locks') buildLocks(H, hair, head, layer, ramp, rand);
         }
-        if (head.idx.length) parts.push(toPart(H, head, 'Hair', {}));
+        const strands = { texture: 'hair.png', cutout: true, alphaCutoff: 0.42, keepColors: true };
+        // Cards are wider than the strands they stand for: whatever of them sinks into the body is lifted out.
+        for (let i = 0; i < head.pos.length; i += 3) {
+            const p = [head.pos[i], head.pos[i + 1], head.pos[i + 2]], s = H.surface(p);
+            if (!Number.isFinite(s.d) || s.d >= 0.002 * H.scale) continue;
+            const q = add(p, mul(s.n, 0.002 * H.scale - s.d));
+            head.pos[i] = q[0]; head.pos[i + 1] = q[1]; head.pos[i + 2] = q[2];
+        }
+        if (head.idx.length) parts.push(toPart(H, head, 'Hair', { extra: strands }));
         rand = rng(seed ^ 0x51ed);
         const facial = meshBuilder();
         buildFacial(H, hair, facial, rand, hexOk(o.skin) ? o.skin : (built.recipe && built.recipe.skin));
-        if (facial.idx.length) parts.push(toPart(H, facial, 'Facial hair', { rigid: true }));
+        if (facial.idx.length) parts.push(toPart(H, facial, 'Facial hair', { rigid: true, extra: strands }));
         const brows = meshBuilder();
         buildBrows(H, hair, brows, rng(seed ^ 0xb40));
-        if (brows.idx.length) parts.push(toPart(H, brows, 'Brows', { rigid: true }));
+        if (brows.idx.length) parts.push(toPart(H, brows, 'Brows', { rigid: true, extra: strands }));
         if (hair.lashes) {
             const lashes = meshBuilder();
             buildLashes(H, lashes);
@@ -1425,7 +1515,7 @@
     }
 
     const api = {
-        lashTexture,
+        lashTexture, hairTexture,
         STYLES, FACIAL, BROWS, PARTS, DEFAULT_HAIR, normalizeHair, randomHair, build,
         _internal: { measure, headCoords, cutSurface, facialField, meshBuilder, addShell, addClump, addTube, addBlob, grow, curlStrand, scatter, tangent, rng, hash, linear }
     };

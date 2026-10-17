@@ -173,6 +173,7 @@ test('the arms hang clear of a wide body', () => {
 
 test('the editor page loads each module after the ones it needs', () => {
     const page = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    assert.ok(page.indexOf('src/utils/ColorPopover.js') > 0 && page.indexOf('src/utils/ColorPopover.js') < page.indexOf('src/forge/Character3D/Character3DBuilder.js'), 'the color picker is loaded before the builder');
     const order = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin', 'CharacterHair', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterModel', 'Character3DBuilder'];
     const at = order.map(name => page.indexOf(`src/forge/Character3D/${name}.js`));
     assert.ok(at.every(i => i > 0), 'every module is loaded');
@@ -190,4 +191,55 @@ test('every module a builder file needs is on the page before it (in the editor,
             assert.ok(need > 0 && need < at, `${file} needs ${m[1]}.js loaded before it`);
         }
     }
+});
+
+test('body hair grows where its pattern says, and never on the palms', () => {
+    const K = Skin;
+    const at = (fam, s, ang, n, x = 0.05) => ({ fam, s, ang, n, rest: [x, 1, 0], lips: 0, lids: 0, nose: 0 });
+    const chest = at(0, 3.0, 0, [0, 0, 1]), back = at(0, 2.0, Math.PI, [0, 0, -1]), face = at(0, 5.0, 1.2, [0.9, 0, 0.4], 0.06);
+    const palm = at(1, 3.4, 0, [0, -1, 0]), handBack = at(1, 3.4, 0, [0, 1, 0]), knee = at(3, 1.0, 0, [0, 0, 1]);
+    const natural = K.normalizeBodyHair({ pattern: 'natural' }).regions, wolf = K.normalizeBodyHair({ pattern: 'werewolf' }).regions;
+    assert.ok(K.hairDensity(natural, chest) > 0.5, 'a natural chest');
+    assert.ok(K.hairDensity(natural, back) < 0.1, 'a natural back is bare');
+    assert.equal(K.hairDensity(natural, face), 0);
+    assert.ok(K.hairDensity(wolf, face) > 0.9, 'a werewolf cheek');
+    assert.ok(K.hairDensity(wolf, knee) > 0.9, 'no gap at the knee where thigh and shin meet');
+    assert.ok(K.hairDensity(wolf, handBack) > 0.5);
+    assert.equal(K.hairDensity(wolf, palm), 0);
+    // A region moved by hand keeps its value under the pattern's others.
+    assert.equal(K.normalizeBodyHair({ pattern: 'custom', regions: { back: 0.4 } }).regions.back, 0.4);
+});
+
+test('toe length lengthens all five toes, and leaves the heel', () => {
+    const across = recipe => {
+        const b = Body.build(pack, recipe), P = b.shaped;
+        const ids = [...new Set(pack.body.source)].filter(v => P[v * 3] > 0.03 && P[v * 3 + 1] < 0.06);
+        let mn = 1, mx = 0, heel = 1;
+        for (const v of ids) { mn = Math.min(mn, P[v * 3]); mx = Math.max(mx, P[v * 3]); heel = Math.min(heel, P[v * 3 + 2]); }
+        const tips = [-1, -1, -1, -1, -1];
+        for (const v of ids) { const k = Math.min(4, Math.floor((P[v * 3] - mn) / (mx - mn) * 5)); tips[k] = Math.max(tips[k], P[v * 3 + 2]); }
+        return { tips, heel };
+    };
+    const a = across({}), b = across({ morph: { toes: 2 } });
+    a.tips.forEach((t, k) => assert.ok(b.tips[k] - t > 0.03, `strip ${k} grew ${b.tips[k] - t}`));
+    assert.ok(Math.abs(b.heel - a.heel) < 0.002, 'the heel stays');
+});
+
+test('eye size reaches big eyes past natural, eyeballs included; width and tallness shape them', () => {
+    const span = recipe => {
+        const b = Body.build(pack, recipe), eyes = b.parts.find(p => p.name === 'Eyes').positions;
+        let mn = [9, 9], mx = [-9, -9];
+        for (let i = 0; i < eyes.length; i += 3) if (eyes[i] > 0) { mn[0] = Math.min(mn[0], eyes[i]); mx[0] = Math.max(mx[0], eyes[i]); mn[1] = Math.min(mn[1], eyes[i + 1]); mx[1] = Math.max(mx[1], eyes[i + 1]); }
+        return [mx[0] - mn[0], mx[1] - mn[1]];
+    };
+    const base = span({}), big = span({ shapes: { eyeSize: 4 } }), wide = span({ shapes: { eyeSize: 2 }, morph: { eyeWide: 2 } }), nat = span({ shapes: { eyeSize: 1 } });
+    assert.ok(nat[0] > base[0] * 1.08, 'the natural slider grows the eyeballs too');
+    assert.ok(big[0] > base[0] * 2, 'big eyes at the far end: ' + (big[0] / base[0]).toFixed(2));
+    assert.ok(wide[0] / wide[1] > base[0] / base[1] * 1.4, 'width widens');
+});
+
+test('hidden ears leave ear holes, not nubs', () => {
+    const out = recipe => { const P = Body.build(pack, recipe).shaped, F = Body.headFields(pack); let m = 0; for (let v = 0; v < F.ear.length; v++) if (F.ear[v] > 0.6 && P[v * 3] > 0) m = Math.max(m, P[v * 3]); return m; };
+    const ears = out({}), hidden = out({ morph: { earsAway: 1 } });
+    assert.ok(ears - hidden > 0.015, 'the ear lies flat against the head');
 });

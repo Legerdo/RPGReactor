@@ -55,9 +55,10 @@
         const preset = Species.speciesRecipe(id);
         const next = Object.assign({}, preset, {
             plan: 'human', gender: old.gender, age: preset.age ?? old.age, ancestry: old.ancestry,
+            bodyHair: preset.bodyHair || (Species.BY_ID.get(old.species)?.recipe || {}).bodyHair ? (preset.bodyHair || {}) : old.bodyHair,
             outfit: old.outfit, props: (preset.props || []).concat(old.props.filter(p => !(preset.props || []).some(q => q.id === p.id))),
             // Hair follows a species bald by nature; leaving one, the hair grows back.
-            hair: preset.bald ? { style: 'bald', brows: { style: 'none' }, lashes: false }
+            hair: preset.hair ? Object.assign({}, old.hair, preset.hair) : preset.bald ? { style: 'bald', brows: { style: 'none' }, lashes: false }
                 : (Species.BY_ID.get(old.species)?.recipe || {}).bald ? Hair.randomHair(((old.seed ?? 1) ^ 0x5bd1e995) >>> 0, { gender: old.gender > 0.5 ? 'male' : 'female' }) : old.hair
         });
         if (old.seed != null) next.seed = old.seed;
@@ -110,8 +111,9 @@
         const sex = Body.sexOf(r);
         const anatomy = { detail: r.anatomy.detail, female: sex === 'female', cup: 0, areola: r.anatomy.areola, areolaColor: r.anatomy.areolaColor, fold: r.anatomy.fold };
         const bodyHair = Object.assign({}, r.bodyHair, { color: r.bodyHair.color || r.hair.color });
-        const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair]);
-        if (cache.skinKey !== skinKey) { cache.skin = Skin.paint(pack, r.skin, r.skinPattern, { size: skinSize, beard, anatomy, bodyHair }); cache.skinKey = skinKey; }
+        const earHoles = r.morph.earsAway > 0.6 && r.morph.earHoles > 0;
+        const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair, earHoles]);
+        if (cache.skinKey !== skinKey) { cache.skin = Skin.paint(pack, r.skin, r.skinPattern, { size: skinSize, beard, anatomy, bodyHair, earHoles }); cache.skinKey = skinKey; }
         textures['skin.png'] = cache.skin;
         body.texture = 'skin.png';
         body.roughness = r.skinPattern.type === 'scales' || r.skinPattern.type === 'panels' ? 0.45 : 0.62;
@@ -146,6 +148,7 @@
         }
         const hair = Hair.build(pack, built, hairRecipe, { seed: r.seed, skin: r.skin });
         if (hair.some(p => p.texture === 'lashes.png')) textures['lashes.png'] = cache.lashes || (cache.lashes = Hair.lashTexture(128));
+        if (hair.some(p => p.texture === 'hair.png')) textures['hair.png'] = cache.hairStrands || (cache.hairStrands = Hair.hairTexture(256));
         const L = Props.landmarks(pack, built);
         const props = Props.build(pack, built, r.props);
         const features = Species.build(pack, built, r.features, L);
@@ -182,11 +185,18 @@
         const P = body.positions, N = body.normals, U = body.uvs, I = body.index;
         const size = picture.width;
         const alphaAt = i => picture.data[((Math.min(size - 1, Math.floor(U[i * 2 + 1] * size)) * size) + Math.min(size - 1, Math.floor(U[i * 2] * size))) * 4 + 3];
+        // Not on the head: the face's fur is partial by nature (clear round the eyes, nose and mouth), and
+        // shells there break into patches; it stays painted.
+        const an = (root.RRCharacterOutfit || require('./CharacterOutfit.js')).anatomy(pack), src = pack.body.source;
+        const onHead = i => an.member[src[i] * 5] > 0.6 && an.s[src[i] * 5] > 4.3;
         const keep = [];
-        for (let t = 0; t < I.length; t += 3) if (alphaAt(I[t]) > 20 || alphaAt(I[t + 1]) > 20 || alphaAt(I[t + 2]) > 20) keep.push(I[t], I[t + 1], I[t + 2]);
+        for (let t = 0; t < I.length; t += 3) {
+            if (onHead(I[t]) || onHead(I[t + 1]) || onHead(I[t + 2])) continue;
+            if (alphaAt(I[t]) > 20 || alphaAt(I[t + 1]) > 20 || alphaAt(I[t + 2]) > 20) keep.push(I[t], I[t + 1], I[t + 2]);
+        }
         if (!keep.length) return [];
         const reach = 0.004 + 0.008 * bodyHair.fur * bodyHair.length;
-        return [[0.45, 0.35], [1, 0.6]].map(([at, cut], k) => {
+        return [[0.45, 0.3], [1, 0.62]].map(([at, cut], k) => {
             const positions = new Float32Array(P.length);
             for (let i = 0; i < P.length; i += 3) for (let c = 0; c < 3; c++) positions[i + c] = P[i + c] + N[i + c] * reach * at;
             return { name: 'Fur ' + (k + 1), positions, normals: N, uvs: U, index: Uint32Array.from(keep), joints: body.joints, weights: body.weights, texture: 'fur.png', cutout: true, alphaCutoff: cut, roughness: 0.8, kind: 'hair', doubleSided: true };
@@ -286,7 +296,7 @@
             if (out.texture && !files[out.texture]) delete out.texture;
             if (!out.texture && !out.colors && !out.color) out.color = '#bbbbbb';
             // Colors on a part with a picture are its baked shading, multiplied with the picture.
-            if (out.texture && !out.shaded) delete out.colors;
+            if (out.texture && !out.shaded && !out.keepColors) delete out.colors;
             return out;
         });
         return Glb.toGlb({ parts, bones: result.bones }, { name, clips: result.clips, images: files });

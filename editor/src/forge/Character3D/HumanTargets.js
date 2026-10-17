@@ -67,7 +67,7 @@
         ['browHeight', 'Brow height', 'Forehead and brows', ['eyebrows/eyebrows-trans-down'], ['eyebrows/eyebrows-trans-up'], 2.5],
         ['browAngle', 'Brow angle', 'Forehead and brows', ['eyebrows/eyebrows-angle-down'], ['eyebrows/eyebrows-angle-up'], 2.5],
 
-        ['eyeSize', 'Eye size', 'Eyes', ['eyes/{s}-eye-scale-decr'], ['eyes/{s}-eye-scale-incr'], 3, true],
+        ['eyeSize', 'Eye size', 'Eyes', ['eyes/{s}-eye-scale-decr'], ['eyes/{s}-eye-scale-incr'], 4, true],
         ['eyeHeight', 'Eye height', 'Eyes', ['eyes/{s}-eye-trans-down'], ['eyes/{s}-eye-trans-up'], 2.5],
         ['eyeSpacing', 'Eye spacing', 'Eyes', ['eyes/{s}-eye-trans-in'], ['eyes/{s}-eye-trans-out'], 2.5, true],
         ['eyeSlant', 'Eye slant', 'Eyes', ['eyes/{s}-eye-eyefold-angle-down'], ['eyes/{s}-eye-eyefold-angle-up'], 2.5],

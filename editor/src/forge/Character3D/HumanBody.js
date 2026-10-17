@@ -48,13 +48,13 @@
         shapes: Object.freeze({}),
         headSize: 1,
         // Anatomy: detail on or off, the sex shown ('auto' follows Gender), the genitals' size.
-        anatomy: Object.freeze({ detail: false, sex: 'auto', length: 0, girth: 0, testicles: 0, areola: 1, nipple: 1, areolaColor: '', fold: 1 }),
-        morph: Object.freeze({ snout: 0, muzzle: 0, flat: 0, earsAway: 0, toes: 1 }),
+        anatomy: Object.freeze({ detail: false, sex: 'auto', length: 0, girth: 0, testicles: 0, areola: 1, nipple: 1, areolaColor: '', fold: 1, mons: 1, labia: 1 }),
+        morph: Object.freeze({ snout: 0, muzzle: 0, flat: 0, earsAway: 0, earHoles: 0.6, toes: 1, eyeWide: 1, eyeTall: 1 }),
         skin: '#c69c7f'
     });
 
     /** Face morphs beyond the targets: a snout or muzzle (and how narrow), a face flattened for a beak, human ears tucked away. */
-    const MORPHS = { snout: [0, 1.5], muzzle: [0, 1], flat: [0, 1], earsAway: [0, 1], toes: [0.4, 3] };
+    const MORPHS = { snout: [0, 1.5], muzzle: [0, 1], flat: [0, 1], earsAway: [0, 1], earHoles: [0, 2], toes: [0.4, 3], eyeWide: [0.5, 2.5], eyeTall: [0.5, 2.5] };
 
     const MIN_AGE = 11, MAX_AGE = 90;
 
@@ -83,6 +83,7 @@
             anatomy: {
                 detail: r.anatomy?.detail === true,
                 areola: clamp(r.anatomy?.areola ?? 1, 0.4, 2.5), nipple: clamp(r.anatomy?.nipple ?? 1, 0, 3), fold: clamp(r.anatomy?.fold ?? 1, 0, 2),
+                mons: clamp(r.anatomy?.mons ?? 1, 0, 3), labia: clamp(r.anatomy?.labia ?? 1, 0, 3),
                 areolaColor: /^#[0-9a-f]{6}$/i.test(r.anatomy?.areolaColor || '') ? r.anatomy.areolaColor.toLowerCase() : '',
                 sex: ['auto', 'male', 'female'].includes(r.anatomy?.sex) ? r.anatomy.sex : 'auto',
                 length: clamp(r.anatomy?.length ?? 0, -1, 2), girth: clamp(r.anatomy?.girth ?? 0, -1, 2), testicles: clamp(r.anatomy?.testicles ?? 0, -1, 2)
@@ -177,7 +178,8 @@
         const fat = Math.max(0, r.weight - 1) * 2;
         for (const k in FAT_SPREAD) shapes[k] += fat * FAT_SPREAD[k];
         for (const s of SLIDERS) {
-            const v = natural ? clamp(shapes[s.key], s.paired ? -1 : 0, 1) : shapes[s.key];
+            // Eye size past natural is a scale of the eye about its eyeball (morph), not more of the target.
+            const v = natural || s.key === 'eyeSize' ? clamp(shapes[s.key], s.paired ? -1 : 0, 1) : shapes[s.key];
             if (!s.paired) add(`shape/${s.key}`, v);
             else if (v < 0) add(`shape/${s.key}-decr`, -v);
             else add(`shape/${s.key}-incr`, v);
@@ -301,6 +303,9 @@
     }
 
     const EXTREME_PASSES = 24;
+    const FACE_SECTIONS = new Set(['Head shape', 'Forehead and brows', 'Eyes', 'Nose', 'Mouth and jaw', 'Ears']);
+    const FACE_KEYS = new Set(SLIDERS.filter(s => FACE_SECTIONS.has(s.section)).map(s => s.key));
+    const LOCAL_TARGET = /^shape\//;
 
     /**
      * Shaped positions (meters, MakeHuman's frame: y up, facing +z) for a recipe.
@@ -320,10 +325,19 @@
             if (Math.abs(d) > 1e-5) { extra[name] = d; any = true; }
         }
         if (any) {
+            // A face slider's target is a small local shape that does not fold: carried past natural as it is.
+            // The body's are relaxed, or smoothing would erase a nose or a lip altogether.
+            const local = {}, broad = {};
+            for (const name in extra) (LOCAL_TARGET.test(name) && FACE_KEYS.has(name.slice(6).replace(/-(incr|decr)$/, '')) ? local : broad)[name] = extra[name];
             const field = new Float32Array(positions.length);
-            applyTargets(pack, extra, field);
+            applyTargets(pack, broad, field);
             const smooth = relax(pack, field, EXTREME_PASSES);
             for (let i = 0; i < positions.length; i++) positions[i] += smooth[i];
+            // Face targets past natural: a light relax, enough to iron out creases, not the feature.
+            const near = new Float32Array(positions.length);
+            applyTargets(pack, local, near);
+            const eased = relax(pack, near, 4);
+            for (let i = 0; i < positions.length; i++) positions[i] += eased[i];
         }
         morph(pack, positions, normalizeRecipe(recipe));
         return positions;
@@ -343,6 +357,102 @@
         }
         const eyeIds = [...new Set(pack.eyes.refs)];
         return (pack._headFields = { head, w, ear, eyeIds });
+    }
+
+    /**
+     * The eyes: MakeHuman's eye-size target grows the sockets and lids but
+     * not the eyeballs, so the eyeballs are scaled to match it (by how much
+     * the target widens the lids, measured once); past natural, socket, lids
+     * and eyeball scale together about the eyeball, up to two and a half
+     * times at the far end.
+     */
+    function eyes(pack, P, value, wide = 1, tall = 1) {
+        if (!pack._eyeFields) {
+            const t = pack.targets.get('shape/eyeSize-incr'), B = pack.positions;
+            const eyeIds = [...new Set(pack.eyes.refs)];
+            const side = v => (B[v * 3] > 0 ? 1 : -1);
+            const center = sd => { const own = eyeIds.filter(v => side(v) === sd); return [0, 1, 2].map(k => own.reduce((a, v) => a + B[v * 3 + k], 0) / own.length); };
+            const C = { 1: center(1), '-1': center(-1) };
+            let grow = 0, n = 0;
+            for (let i = 0; i < t.index.length; i++) {
+                const v = t.index[i], d = [t.delta[i * 3] * t.scale, t.delta[i * 3 + 1] * t.scale];
+                // How far the lids move outward from their eye, against how far they stand from it.
+                if (v >= 14742 && v <= 14991) {
+                    const c = C[side(v)], o = [B[v * 3] - c[0], B[v * 3 + 1] - c[1]], r = Math.hypot(o[0], o[1]) || 1;
+                    grow += (o[0] * d[0] + o[1] * d[1]) / (r * r); n++;
+                }
+            }
+            // The eyeball's radius, across the face.
+            let radius = 0;
+            for (const v of eyeIds) radius = Math.max(radius, Math.abs(B[v * 3] - C[side(v)][0]));
+            // The face in front of the eyes, the only skin a socket may move.
+            const head = pack.bones.findIndex(b => b.name === 'Head');
+            const face = [];
+            for (let v = 0; v < pack.vertexCount; v++) {
+                let hw = 0;
+                for (let k = 0; k < 4; k++) if (pack.skinJoints[v * 4 + k] === head) hw += pack.skinWeights[v * 4 + k];
+                if (hw > 0.5 && B[v * 3 + 2] > C[side(v)][2] - radius * 2.5 && !eyeIds.includes(v)) face.push(v);
+            }
+            const w = { face, radius };
+            pack._eyeFields = { eyeIds, side, weights: w, natural: n ? grow / n : 0.25 };
+        }
+        const F = pack._eyeFields;
+        const nat = Math.max(-1, Math.min(1, value || 0));
+        const extra = value > 1 ? 1 + (value - 1) * 0.5 : value < -1 ? 1 + (value + 1) * 0.2 : 1;
+        // Width and tallness: the eye's own shape, across and up and down.
+        const ex = extra * wide, ey = extra * tall;
+        if (!nat && ex === 1 && ey === 1) return;
+        const R = F.weights.radius;
+        const smoothstep = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+        // The skin's moves gathered first, relaxed over the face, then laid on: the socket flows into the cheek.
+        const field = new Float32Array(P.length);
+        let moved = false;
+        for (const sd of [1, -1]) {
+            const own = F.eyeIds.filter(v => F.side(v) === sd);
+            const c = [0, 1, 2].map(k => own.reduce((a, v) => a + P[v * 3 + k], 0) / own.length);
+            // The eyeball: across by the whole scale, in depth by its square root, so it does not jut.
+            // Across by the whole scale; in depth hardly at all, so big eyes are wide, not bulging.
+            const base = 1 + F.natural * nat, ballX = base * ex, ballY = base * ey, deep = 1 + (base * Math.max(ex, ey) - 1) * 0.2;
+            for (const v of own) {
+                P[v * 3] = c[0] + (P[v * 3] - c[0]) * ballX;
+                P[v * 3 + 1] = c[1] + (P[v * 3 + 1] - c[1]) * ballY;
+                P[v * 3 + 2] = c[2] + (P[v * 3 + 2] - c[2]) * deep;
+            }
+            if (ex === 1 && ey === 1) continue;
+            // The socket, in the face's plane: the lid opening widens with the eyeball, the skin
+            // round it is pushed out less and less until, far enough out never to fold, not at all.
+            // A falloff kept close to the eye, so the eye changes and the head does not, and shorter below
+            // it, so the cheek and mouth stay; the relax below irons the compression it leaves.
+            const dev = Math.max(0, Math.max(ex, ey) - 1, 1 - Math.min(ex, ey));
+            const inner = R * 1.6, outer = inner * (1 + 0.9 * dev) + R * 0.6, outerDown = inner * (1 + 0.45 * dev) + R * 0.3;
+            const along = (d, e, o) => (d <= inner ? d * e : d + (e - 1) * inner * (1 - smoothstep((d - inner) / (o - inner))));
+            for (const v of F.weights.face) {
+                if (F.side(v) !== sd) continue;
+                const dx = P[v * 3] - c[0], dy = P[v * 3 + 1] - c[1], d = Math.hypot(dx, dy);
+                const reach = dy < 0 ? outerDown : outer;
+                if (d >= reach || d < 1e-6) continue;
+                const kx = along(d, ex, reach) / d, ky = along(d, ey, reach) / d;
+                // Toward the middle of the face the sideways push fades out, so the bridge of the nose
+                // is pressed smoothly, never bunched or crossed.
+                const mid = smoothstep(Math.abs(P[v * 3]) / Math.max(1e-4, Math.abs(c[0])));
+                const push = dx * (kx - 1);
+                field[v * 3] = push < 0 === sd > 0 ? push * mid * mid : push;
+                field[v * 3 + 1] = dy * (ky - 1);
+                // The lid rim, right at the eyeball, comes forward with its front.
+                field[v * 3 + 2] = (deep - 1) * R * (1 - smoothstep((d - inner * 0.85) / (inner * 0.35)));
+                moved = true;
+            }
+        }
+        if (!moved) return;
+        const eased = relax(pack, field, 10);
+        // Laid on wherever the relaxed move reaches (past the face's own vertices too, so no edge shows);
+        // the lid rim keeps more of its own move, so the eyeball stays covered.
+        const own = new Set(F.eyeIds);
+        for (let v = 0; v < pack.vertexCount; v++) {
+            if (own.has(v)) continue;
+            const keep = Math.abs(field[v * 3 + 2]) > 1e-5 ? 0.6 : 0;
+            for (let k = 0; k < 3; k++) P[v * 3 + k] += eased[v * 3 + k] * (1 - keep) + field[v * 3 + k] * keep;
+        }
     }
 
     /** The sex a recipe shows: chosen, or by its Gender slider. */
@@ -381,7 +491,10 @@
         }
         const crease = ids.filter(v => Math.abs(B[v * 3]) < 0.012 && B[v * 3 + 2] > B[low * 3 + 2] - 0.03 && B[v * 3 + 1] > B[low * 3 + 1] - 0.005 && B[v * 3 + 1] < B[low * 3 + 1] + 0.045)
             .map(v => [v, Math.abs(B[v * 3]) / 0.012, (B[v * 3 + 1] - B[low * 3 + 1]) / 0.045]);
-        return (pack._anatomyFields = { nipples, low, crease });
+        // The front of the pelvis below the belly: for the mons above the fold and the labia beside it.
+        const vulva = ids.filter(v => Math.abs(B[v * 3]) < 0.05 && B[v * 3 + 2] > B[low * 3 + 2] - 0.02 && B[v * 3 + 1] > B[low * 3 + 1] - 0.01 && B[v * 3 + 1] < B[low * 3 + 1] + 0.11)
+            .map(v => [v, Math.abs(B[v * 3]), B[v * 3 + 1] - B[low * 3 + 1]]);
+        return (pack._anatomyFields = { nipples, low, crease, vulva });
     }
 
     /** A vertex's normal on the shaped body, from its own triangles. */
@@ -416,34 +529,48 @@
                 P[v * 3] += n[0] * lift; P[v * 3 + 1] += n[1] * lift; P[v * 3 + 2] += n[2] * lift;
             }
         }
+        if (female) for (const [v, x, up] of F.vulva) {
+            // The mons: a soft rise over the pubic bone, above the fold.
+            const mons = r.anatomy.mons * 0.006 * Math.exp(-(((up - 0.07) / 0.028) ** 2)) * Math.exp(-((x / 0.035) ** 2));
+            // The labia: a soft ridge either side of the fold, along its length.
+            const labia = r.anatomy.labia * 0.0035 * Math.exp(-(((x - 0.009) / 0.0055) ** 2)) * Math.sin(Math.min(1, Math.max(0, (up + 0.004) / 0.05)) * Math.PI);
+            P[v * 3 + 2] += mons + labia;
+        }
         if (female) for (const [v, across, up] of F.crease) {
             const depth = 0.0028 * r.anatomy.fold * Math.max(0, 1 - across * across * 4) * Math.sin(Math.min(1, Math.max(0, up)) * Math.PI);
             P[v * 3 + 2] -= depth;
         }
     }
 
-    /** The toes drawn out (or in) along the foot from their own joint; the ball of the foot stays. */
+    /**
+     * The toes drawn out (or in) along the foot. The skeleton keeps one toe
+     * bone per foot, so the toes are found by place, not by weight: the foot's
+     * vertices in front of the ball of the foot (that bone's joint) move
+     * forward in proportion to how far in front they are, ramping in from
+     * the ball, so all five lengthen and the ball stays.
+     */
     function toes(pack, P, scale) {
-        if (!pack._toeWeights) {
-            const w = new Float32Array(pack.vertexCount), side = new Int8Array(pack.vertexCount);
-            pack.bones.forEach((b, i) => {
-                if (!/ToeBase$/.test(b.name)) return;
-                for (let v = 0; v < pack.vertexCount; v++) for (let k = 0; k < 4; k++) if (pack.skinJoints[v * 4 + k] === i) { w[v] += pack.skinWeights[v * 4 + k]; side[v] = b.name.startsWith('Left') ? 1 : -1; }
-            });
-            pack._toeWeights = { w, side, bones: pack.bones.map((b, i) => (/ToeBase$/.test(b.name) ? i : -1)).filter(i => i >= 0) };
+        if (!pack._toeFeet) {
+            const footBones = pack.bones.map((b, i) => (/(Foot|ToeBase)$/.test(b.name) ? i : -1)).filter(i => i >= 0);
+            const onFoot = new Float32Array(pack.vertexCount);
+            for (let v = 0; v < pack.vertexCount; v++) for (let k = 0; k < 4; k++) if (footBones.includes(pack.skinJoints[v * 4 + k])) onFoot[v] += pack.skinWeights[v * 4 + k];
+            pack._toeFeet = { onFoot, toes: pack.bones.map((b, i) => (/ToeBase$/.test(b.name) ? i : -1)).filter(i => i >= 0) };
         }
-        const T = pack._toeWeights;
-        for (const i of T.bones) {
+        const T = pack._toeFeet;
+        for (const i of T.toes) {
             const head = meanOf(P, pack.bones[i].head), tail = meanOf(P, pack.bones[i].tail);
-            const s = pack.bones[i].name.startsWith('Left') ? 1 : -1;
-            const d = [tail[0] - head[0], 0, tail[2] - head[2]], l = Math.hypot(d[0], d[2]) || 1;
-            d[0] /= l; d[2] /= l;
-            for (let v = 0; v < T.w.length; v++) {
-                if (!T.w[v] || T.side[v] !== s) continue;
-                const along = (P[v * 3] - head[0]) * d[0] + (P[v * 3 + 2] - head[2]) * d[2];
+            const side = pack.bones[i].name.startsWith('Left') ? 1 : -1;
+            const d = [tail[0] - head[0], tail[2] - head[2]], l = Math.hypot(d[0], d[1]) || 1;
+            d[0] /= l; d[1] /= l;
+            // The ball of the foot sits a little behind the middle toe's joint.
+            const ball = -0.012;
+            for (let v = 0; v < T.onFoot.length; v++) {
+                if (T.onFoot[v] < 0.5 || Math.sign(P[v * 3]) !== side) continue;
+                const along = (P[v * 3] - head[0]) * d[0] + (P[v * 3 + 2] - head[2]) * d[1] - ball;
                 if (along <= 0) continue;
-                const push = along * (scale - 1) * T.w[v];
-                P[v * 3] += d[0] * push; P[v * 3 + 2] += d[2] * push;
+                const ramp = Math.min(1, along / 0.02);
+                const push = along * (scale - 1) * ramp * Math.min(1, T.onFoot[v]);
+                P[v * 3] += d[0] * push; P[v * 3 + 2] += d[1] * push;
             }
         }
     }
@@ -457,6 +584,7 @@
     function morph(pack, P, r) {
         const m = r.morph, size = r.headSize;
         if (m.toes !== 1) toes(pack, P, m.toes);
+        eyes(pack, P, r.shapes.eyeSize, m.eyeWide, m.eyeTall);
         if (r.anatomy.detail) anatomyDetail(pack, P, r);
         if (size === 1 && !m.snout && !m.flat && !m.earsAway && !m.muzzle) return;
         const F = headFields(pack);
@@ -466,6 +594,7 @@
         const eye = meanOf(P, F.eyeIds);
         const H = crown - h[1];
         if (m.earsAway) {
+            const before = Float32Array.from(P);
             // Each ear folds in toward the middle of its own vertices.
             for (const side of [1, -1]) {
                 let c = [0, 0, 0], n = 0;
@@ -477,8 +606,29 @@
                 for (let v = 0; v < F.ear.length; v++) {
                     const e = F.ear[v] * m.earsAway;
                     if (!e || Math.sign(P[v * 3]) !== side) continue;
-                    for (let k = 0; k < 3; k++) P[v * 3 + k] += (c[k] - P[v * 3 + k]) * e * 0.85;
+                    // Laid flat on the skull's side at about its own size: nothing stretches, nothing pinches.
+                    P[v * 3] += (c[0] - P[v * 3]) * e;
+                    P[v * 3 + 1] += (c[1] - P[v * 3 + 1]) * e * 0.45;
+                    P[v * 3 + 2] += (c[2] - P[v * 3 + 2]) * e * 0.45;
                 }
+                // With the ear gone, an ear hole: a pit in the side of the head, as wide as asked.
+                if (m.earsAway > 0.6 && m.earHoles > 0) {
+                    const r = 0.004 + 0.007 * m.earHoles, depth = (0.004 + 0.006 * m.earHoles) * (m.earsAway - 0.6) / 0.4;
+                    for (let v = 0; v < F.w.length; v++) {
+                        if (F.w[v] < 0.5 || Math.sign(P[v * 3]) !== side) continue;
+                        const d = Math.hypot(P[v * 3 + 1] - c[1], P[v * 3 + 2] - c[2]);
+                        if (d > r || Math.abs(P[v * 3] - c[0]) > 0.03) continue;
+                        P[v * 3] -= side * depth * (1 - (d / r) ** 2);
+                    }
+                }
+            }
+            // The fold relaxed over the side of the head, so the skin closes over the ear smoothly.
+            const field = new Float32Array(P.length);
+            for (let i = 0; i < P.length; i++) field[i] = P[i] - before[i];
+            const eased = relax(pack, field, 10);
+            for (let v = 0; v < F.ear.length; v++) {
+                if (!F.ear[v] && !F.w[v]) continue;
+                for (let k = 0; k < 3; k++) P[v * 3 + k] = before[v * 3 + k] + eased[v * 3 + k];
             }
         }
         if (m.snout || m.flat || m.muzzle) {
