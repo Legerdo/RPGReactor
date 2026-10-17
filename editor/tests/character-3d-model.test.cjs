@@ -272,3 +272,19 @@ test('body hair is strands grown out of the skin where its regions say, and cove
     assert.ok(!under || under.index.length < part.index.length * 0.5, 'armor covers most of it');
     assert.ok(!Model.build(pack, { gender: 1 }, {}, { quality: 'preview' }).parts.some(p => p.name === 'Body hair'), 'none by default');
 });
+
+test('every pose to try a character in plays on the built skeleton, its turns whole quaternions', () => {
+    const Poses = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterPoses.js'));
+    const built = Model.build(pack, { gender: 0 }, {}, { quality: 'preview' });
+    for (const pose of Poses.POSES) {
+        const clip = Poses.clip(built.bones, pose.id);
+        assert.ok(clip && clip.tracks.length >= 4, pose.id);
+        for (const t of clip.tracks) {
+            assert.ok(t.bone >= 0 && t.bone < built.bones.length, `${pose.id} bone`);
+            assert.equal(t.values.length, clip.times.length * 4, `${pose.id} track length`);
+            for (let i = 0; i < t.values.length; i += 4) assert.ok(Math.abs(Math.hypot(t.values[i], t.values[i + 1], t.values[i + 2], t.values[i + 3]) - 1) < 1e-5, `${pose.id} unit quaternion`);
+        }
+        assert.ok(Number.isFinite(clip.lift(0.3)), `${pose.id} lift`);
+    }
+    assert.equal(Poses.clip(built.bones, 'nonsense'), null);
+});

@@ -172,9 +172,11 @@ class Character3DBuilder {
                     <div class="rr-c3d-view">
                         <canvas class="rr-c3d-canvas"></canvas>
                         <div class="rr-c3d-readout"></div>
+                        <div class="rr-c3d-poses" role="group" aria-label="${this._t('Pose')}">
+                            <div class="rr-c3d-poses-title">${this._t('Pose')}</div>
+                            ${[['apose', 'A-pose'], ['idle', 'Idle']].concat(RRCharacterPoses.POSES.map(p => [p.id, p.label])).map(([id, label]) => `<button class="rr-btn-chip rr-c3d-pose" data-pose="${id}">${this._t(label)}</button>`).join('')}
+                        </div>
                         <div class="rr-c3d-viewbar">
-                            <button class="rr-btn-chip rr-c3d-pose" data-pose="apose">${this._t('A-pose')}</button>
-                            <button class="rr-btn-chip rr-c3d-pose" data-pose="idle">${this._t('Idle')}</button>
                             <button class="rr-btn-chip rr-c3d-frame" data-frame="body">${this._t('Whole body')}</button>
                             <button class="rr-btn-chip rr-c3d-frame" data-frame="face">${this._t('Face')}</button>
                         </div>
@@ -1016,10 +1018,11 @@ class Character3DBuilder {
         renderer.setClearColor(0x000000, 0);
         const scene = new THREE.Scene();
         scene.environment = this._studio(renderer);
-        scene.environmentIntensity = 0.65;
+        scene.environmentIntensity = 0.8;
         const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 80);
-        scene.add(new THREE.HemisphereLight(0xfff4e8, 0x3a3430, 0.35));
-        const key = new THREE.DirectionalLight(0xfff0e0, 2.4);
+        scene.add(new THREE.HemisphereLight(0xfff4e8, 0x3a3430, 0.4));
+        // The key a little softer than the room, so its shadows shade rather than black out.
+        const key = new THREE.DirectionalLight(0xfff0e0, this._weak ? 2.4 : 2.0);
         key.position.set(1.6, 3.2, 2.4);
         scene.add(key, key.target);
         // Soft shadows from the key (the nose on the cheek, the brow over the eyes, the jaw on the neck)
@@ -1117,18 +1120,30 @@ class Character3DBuilder {
         view.renderer.render(view.scene, c);
     }
 
-    /** The Idle plays while the pose says so; otherwise the view draws only when asked. */
+    /**
+     * The chosen pose plays (Idle or one of RRCharacterPoses, a creature has
+     * Idle only); A-pose stands still, and the view draws only when asked.
+     */
     _syncPose() {
         const view = this._view;
         if (!this.root) return;
-        this.root.querySelectorAll('.rr-c3d-pose').forEach(b => b.classList.toggle('is-active', b.dataset.pose === this.pose));
+        const human = !view || view.plan !== 'quadruped';
+        if (!human && this.pose !== 'apose' && this.pose !== 'idle') this.pose = 'idle';
+        this.root.querySelectorAll('.rr-c3d-pose').forEach(b => {
+            b.classList.toggle('is-active', b.dataset.pose === this.pose);
+            b.hidden = !human && b.dataset.pose !== 'apose' && b.dataset.pose !== 'idle';
+        });
         if (!view) return;
         cancelAnimationFrame(view.loop);
         view.loop = 0;
-        if (view.action) {
-            if (this.pose === 'idle') view.action.play(); else { view.action.stop(); view.mixer.setTime(0); for (const b of view.bones) { b.position.copy(b.userData.rest.p); b.quaternion.identity(); } }
-        }
-        if (this.pose === 'idle' && view.mixer) {
+        const time = view.action ? view.action.time : (view.resumeAt || 0);
+        if (view.action) view.action.stop();
+        for (const b of view.bones) { b.position.copy(b.userData.rest.p); b.quaternion.identity(); }
+        view.group.position.y = 0;
+        view.action = this.pose === 'apose' ? null : this._poseAction(this.pose);
+        view.poseMeta = view.action ? view.actions.get(this.pose).meta : null;
+        if (view.action) { view.action.time = time % (view.action.getClip().duration || 1); view.action.play(); }
+        if (view.action && view.mixer) {
             view.clock.getDelta();
             let carried = 0;
             const tick = () => {
@@ -1139,10 +1154,57 @@ class Character3DBuilder {
                 if (this._weak && carried < 1 / 32) return;
                 view.mixer.update(carried);
                 carried = 0;
+                this._plant();
                 this._render();
             };
             view.loop = requestAnimationFrame(tick);
         } else this._draw();
+    }
+
+    /** A pose's action on this build's skeleton: Idle from the build, the others from RRCharacterPoses. */
+    _poseAction(id) {
+        const view = this._view;
+        if (!view || !view.mixer || !view.bones.length) return null;
+        if (view.actions.has(id)) return view.actions.get(id).action;
+        const made = id === 'idle' ? view.idleClip : (view.plan === 'quadruped' ? null : RRCharacterPoses.clip(view.boneDefs, id));
+        if (!made) return null;
+        const tracks = made.tracks.map(t => new THREE.QuaternionKeyframeTrack(view.bones[t.bone].name + '.quaternion', Array.from(made.times), Array.from(t.values)));
+        const action = view.mixer.clipAction(new THREE.AnimationClip(made.name || id, -1, tracks));
+        view.actions.set(id, { action, meta: { plant: !!made.plant, lift: made.lift || null } });
+        return action;
+    }
+
+    /** Where each joint stands at rest, for standing a pose on the floor. */
+    _restHeights(bones) {
+        if (this._view) this._view.boneRest = new Map(bones.map(b => [b.name, b.head[1]]));
+    }
+
+    /**
+     * Stands the pose on the floor: lowered or raised until the lowest of the
+     * feet, knees, hips and seat is where it touches the floor (a foot at its
+     * resting height, a knee or the seat a little above), then lifted by the
+     * pose's own lift (a jump, a fall).
+     */
+    _plant() {
+        const view = this._view, m = view && view.poseMeta;
+        if (!view) return;
+        view.group.position.y = 0;
+        if (!m || (!m.plant && !m.lift)) return;
+        let offset = 0;
+        if (m.plant && view.boneRest) {
+            const s = (view.bodyHeight || 1.7) / 1.7, at = new THREE.Vector3();
+            const clear = { LeftLeg: 0.055 * s, RightLeg: 0.055 * s, LeftUpLeg: 0.09 * s, RightUpLeg: 0.09 * s, Hips: 0.1 * s };
+            view.group.updateMatrixWorld(true);
+            offset = -Infinity;
+            for (const b of view.bones) {
+                const c = clear[b.name] ?? (/^(Left|Right)(Foot|ToeBase)$/.test(b.name) ? view.boneRest.get(b.name) : undefined);
+                if (c === undefined) continue;
+                b.getWorldPosition(at);
+                offset = Math.max(offset, c - at.y);
+            }
+            if (!Number.isFinite(offset)) offset = 0;
+        }
+        view.group.position.y = offset + (m.lift ? m.lift(view.action ? view.action.time : 0) : 0);
     }
 
     /**
@@ -1191,7 +1253,7 @@ class Character3DBuilder {
         });
         view.group.updateMatrixWorld(true);
         view.skeleton.calculateInverses();
-        if (view.action && this.pose === 'idle') view.action.play();
+        if (view.action) view.action.play();
         this._lastChange = Date.now();
         this._draw();
         return true;
@@ -1317,6 +1379,7 @@ class Character3DBuilder {
         for (const b of view.bones) if (b.parent === view.group) view.group.remove(b);
         if (view.skeleton) view.skeleton.dispose();
         view.meshes = []; view.bones = []; view.skeleton = null; view.mixer = null; view.action = null;
+        view.group.position.y = 0;
         view.structure = null;
     }
 
@@ -1422,7 +1485,7 @@ class Character3DBuilder {
      */
     _update(result) {
         const view = this._view;
-        const playing = view.action && this.pose === 'idle';
+        const playing = !!view.action;
         if (view.action) view.action.stop();
         result.bones.forEach((b, i) => {
             const parent = b.parent >= 0 ? result.bones[b.parent].head : [0, 0, 0];
@@ -1442,6 +1505,8 @@ class Character3DBuilder {
             if (c && part.colors && part.colors.length === c.array.length && !part.texture) { c.array.set(part.colors); c.needsUpdate = true; }
             g.computeBoundingSphere();
         });
+        this._restHeights(result.bones);
+        view.group.position.y = 0;
         if (playing) view.action.play();
         const box = new THREE.Box3().setFromObject(view.group);
         view.height = Math.max(0.2, result.height);
@@ -1496,13 +1561,13 @@ class Character3DBuilder {
         }
         view.bones = bones;
         view.skeleton = skeleton;
-        const clip = result.clips && result.clips[0];
-        if (clip) {
-            view.mixer = new THREE.AnimationMixer(view.group);
-            const tracks = clip.tracks.map(t => new THREE.QuaternionKeyframeTrack(bones[t.bone].name + '.quaternion', Array.from(clip.times), Array.from(t.values)));
-            view.action = view.mixer.clipAction(new THREE.AnimationClip(clip.name || 'Idle', -1, tracks));
-            view.action.time = time % (view.action.getClip().duration || 1);
-        }
+        // The poses' clips are made when first chosen (_poseAction); the one playing carries on from its time.
+        view.mixer = new THREE.AnimationMixer(view.group);
+        view.idleClip = (result.clips && result.clips[0]) || null;
+        view.boneDefs = result.bones;
+        view.actions = new Map();
+        view.resumeAt = time;
+        this._restHeights(result.bones);
         // Frame what was built: its height, and for a creature its length.
         const box = new THREE.Box3().setFromObject(view.group);
         // A new body plan, or a body far bigger or smaller than the last, is framed afresh.

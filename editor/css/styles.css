@@ -7370,6 +7370,15 @@ html.rr-web #database-viewer.rr-database-floating {
 .rr-c3d-group { display: inline-flex; gap: 2px; align-items: center; }
 .rr-c3d-random-scope { max-width: 120px; }
 .rr-c3d-viewbar { position: absolute; top: 8px; right: 10px; display: flex; gap: 4px; }
+/* The poses to try the character in: a column down the view's right edge, under the framing buttons. */
+.rr-c3d-poses {
+    position: absolute; top: 44px; right: 10px; width: 128px; display: flex; flex-direction: column; gap: 3px; padding: 6px;
+    background: color-mix(in srgb, var(--color-bg-panel) 82%, transparent); border: 1px solid var(--color-border-subtle);
+    border-left: 3px solid var(--color-accent); border-radius: var(--radius-md, 6px);
+}
+.rr-c3d-poses-title { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-dim); padding: 0 2px 3px; }
+.rr-c3d-poses .rr-c3d-pose { width: 100%; justify-content: flex-start; text-align: left; }
+.rr-c3d-poses .rr-c3d-pose[hidden] { display: none; }
 .rr-c3d-gallery {
     position: absolute; inset: 24px; display: flex; flex-direction: column; min-height: 0; padding: 10px 12px;
     background: var(--color-bg-panel); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md, 6px);
