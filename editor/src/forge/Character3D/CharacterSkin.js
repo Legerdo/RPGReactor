@@ -182,6 +182,17 @@
     }
 
     /**
+     * How much the skin under body hair takes the hair's color at a place of
+     * density `here` (0..1, the regions' field): fully under fur, toward it
+     * under thick hair. What the skin painter lays on, without its streaks.
+     */
+    function hairCover(bh, here) {
+        const fur = bh.fur > 0.05 ? Math.min(1, here * Math.max(bh.amount, bh.fur)) * Math.min(1, bh.fur * 1.4) * 0.95 : 0;
+        const dens = here * bh.amount, hair = bh.amount > 0.01 && dens > 0.05 ? smooth(0.05, 1, dens) * 0.45 : 0;
+        return 1 - (1 - fur) * (1 - hair);
+    }
+
+    /**
      * Body hair density at every body vertex (0..1, before the amount), the
      * regions' bands relaxed over the mesh so the chains' joins (hip, shoulder,
      * wrist) blend. The skin's tint and the strands both read it, so they agree.
@@ -591,7 +602,7 @@
         return out;
     }
 
-    const api = { fieldsOf: fields, HAIR_REGIONS, HAIR_PRESETS, BODY_HAIR_PATTERNS, DEFAULT_BODY_HAIR, normalizeBodyHair, hairDensity, hairField, paintFur, PATTERNS, PUPILS, DEFAULT_SKIN, DEFAULT_EYES, normalizeSkin, normalizeEyes, paint, paintEyes, shadeSkin, regionOf };
+    const api = { fieldsOf: fields, HAIR_REGIONS, HAIR_PRESETS, BODY_HAIR_PATTERNS, DEFAULT_BODY_HAIR, normalizeBodyHair, hairDensity, hairField, hairCover, paintFur, PATTERNS, PUPILS, DEFAULT_SKIN, DEFAULT_EYES, normalizeSkin, normalizeEyes, paint, paintEyes, shadeSkin, regionOf };
     root.RRCharacterSkin = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

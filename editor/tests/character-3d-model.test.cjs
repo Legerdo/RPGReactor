@@ -266,7 +266,7 @@ test('body hair is strands grown out of the skin where its regions say, and cove
     assert.ok(part.cutout && part.texture === 'bodyhair.png' && part.noShade, 'clumps of strands on their picture, not shaded');
     // Many hairs to a triangle: a full werewolf coat stays well inside a weak GPU's reach.
     const wolf = Model.build(pack, { gender: 1, bodyHair: { amount: 1, pattern: 'werewolf' } }, {}, { quality: 'preview' }).parts.find(p => p.name === 'Body hair');
-    assert.ok(wolf.index.length / 3 < 130000, `werewolf body hair ${wolf.index.length / 3} triangles`);
+    assert.ok(wolf.index.length / 3 < 160000, `werewolf body hair ${wolf.index.length / 3} triangles`);
     const dressed = Model.build(pack, { gender: 1, bodyHair: { amount: 1, pattern: 'natural' }, outfit: Wardrobe.PRESETS.find(p => p.id === 'knight').items }, {}, { quality: 'preview' });
     const under = dressed.parts.find(p => p.name === 'Body hair');
     assert.ok(!under || under.index.length < part.index.length * 0.5, 'armor covers most of it');

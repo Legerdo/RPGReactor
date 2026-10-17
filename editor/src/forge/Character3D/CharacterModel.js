@@ -164,8 +164,10 @@
         // The areolas: their own patch with its own picture, sharp at any distance.
         if (r.anatomy.detail && !outfit.hidden.has(Body.anatomyFields(pack).nipples[0].v)) {
             const reach = (sex === 'female' ? 0.026 : 0.014) * r.anatomy.areola;
-            const areolaKey = textureKey('areola', [r.skin, r.anatomy.areolaColor, r.anatomy.nipple, sex]);
-            if (cache.areolaKey !== areolaKey) { cache.areola = Detail.areolaTexture(r.skin, { color: r.anatomy.areolaColor, nippleScale: Math.sqrt(r.anatomy.nipple), male: sex === 'male' }); cache.areolaKey = areolaKey; }
+            const nip = Body.anatomyFields(pack).nipples[0].v;
+            const cover = bodyHair.amount > 0.01 || bodyHair.fur > 0.05 ? Skin.hairCover(bodyHair, Skin.hairField(pack, bodyHair.regions)[nip]) : 0;
+            const areolaKey = textureKey('areola', [r.skin, r.anatomy.areolaColor, r.anatomy.nipple, sex, cover.toFixed(3), bodyHair.color]);
+            if (cache.areolaKey !== areolaKey) { cache.areola = Detail.areolaTexture(r.skin, { color: r.anatomy.areolaColor, nippleScale: Math.sqrt(r.anatomy.nipple), male: sex === 'male', under: bodyHair.color, cover }); cache.areolaKey = areolaKey; }
             textures['areola.png'] = cache.areola;
             parts.push(Detail.areolaPart(pack, built.shaped, skinNormals, reach, body));
         }

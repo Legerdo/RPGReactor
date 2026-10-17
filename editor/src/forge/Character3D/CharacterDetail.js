@@ -32,6 +32,42 @@
         return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
     }
 
+    /** Smooth 3D value noise, 0..1, for patterns over the body that drift rather than jump. */
+    function noise3(x, y, z) {
+        const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z), fx = x - ix, fy = y - iy, fz = z - iz;
+        const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), w = fz * fz * (3 - 2 * fz);
+        let out = 0;
+        for (let k = 0; k < 8; k++) {
+            const dx = k & 1, dy = (k >> 1) & 1, dz = (k >> 2) & 1;
+            const h = Math.sin((ix + dx) * 127.1 + (iy + dy) * 311.7 + (iz + dz) * 74.7) * 43758.5453;
+            out += (h - Math.floor(h)) * (dx ? u : 1 - u) * (dy ? v : 1 - v) * (dz ? w : 1 - w);
+        }
+        return out;
+    }
+
+    /**
+     * Which way body hair grows at a place on the average body, as it does on
+     * people: on the upper chest out from the breastbone and up toward the
+     * shoulders, lower down in toward the middle and down it in a trail to
+     * the groin; on the back down and out over the shoulders; down the limbs
+     * toward the hands and feet.
+     */
+    function flowOf(fam, sv, p, front) {
+        const sx = Math.sign(p[0]) || 1, mid = Math.min(1, Math.abs(p[0]) / 0.04);
+        if (fam === 0) {
+            if (sv > 4.35) return [sx * 0.15, -1, 0.15];
+            if (front) {
+                if (sv > 2.6) return [sx * 0.75 * mid, -0.25 + 0.6 * mid, 0];
+                if (sv > 0.4) return [-sx * 0.45 * mid, -0.95, 0];
+                return [-sx * 0.3 * mid, -0.95, 0];
+            }
+            if (sv > 3.4) return [sx * 0.8, -0.35, 0];
+            return [sx * 0.25, -0.95, 0];
+        }
+        if (fam === 1 || fam === 2) return [sx * 0.55, -0.83, 0];
+        return [sx * 0.15, -1, 0];
+    }
+
     // ── areolas ───────────────────────────────────────────────────────────
     /**
      * Each areola's patch, worked out once on the average body: the body
@@ -83,7 +119,13 @@
         // A natural areola: the skin's own color, deeper and rosier, more so on fair skin.
         const lum = skin[0] * 0.3 + skin[1] * 0.59 + skin[2] * 0.11;
         // Close to the skin's own tone: a little deeper, a little rosier, never orange.
-        const base = o.color ? Outfit.linear(o.color) : skin.map((c, i) => c * [0.8, 0.66, 0.66][i] * (0.92 + 0.08 * (1 - lum)));
+        let base = o.color ? Outfit.linear(o.color) : skin.map((c, i) => c * [0.8, 0.66, 0.66][i] * (0.92 + 0.08 * (1 - lum)));
+        // Under body hair or fur the skin round the areola takes the hair's color as the skin painter lays it,
+        // and the areola mostly gives way to it, so no bare disc shows through the coat.
+        if (o.under && o.cover > 0) {
+            const u = Outfit.linear(o.under);
+            for (let k = 0; k < 3; k++) { skin[k] += (u[k] - skin[k]) * o.cover; base[k] += (u[k] - base[k]) * o.cover * 0.8; }
+        }
         const nipple = base.map((c, i) => c * [0.88, 0.78, 0.78][i]);
         const R = o.areolaFrac || 0.36, tipR = R * (o.male ? 0.34 : 0.3) * (o.nippleScale || 1);
         const data = new Uint8Array(size * size * 4);
@@ -162,7 +204,7 @@
         const fur = bodyHair.fur || 0;
         // Tufts per square meter at full density: each carries several strands (fur's, more and finer).
         // Single strands for body hair (about four a square centimeter at full), tufts for fur.
-        const perM2 = (bodyHair.budget || 1) * (mode === 'strand' ? 40000 : mode === 'clump' ? 16000 : 16000 + 4000 * fur);
+        const perM2 = (bodyHair.budget || 1) * (mode === 'strand' ? 40000 : mode === 'clump' ? 16000 : 10000 + 16000 * fur);
         const rand = rng(1234);
         const strands = [];
         for (let t = 0; t < I.length; t += 3) {
@@ -175,7 +217,10 @@
             const ux = R[b * 3] - R[a * 3], uy = R[b * 3 + 1] - R[a * 3 + 1], uz = R[b * 3 + 2] - R[a * 3 + 2];
             const vx = R[c * 3] - R[a * 3], vy = R[c * 3 + 1] - R[a * 3 + 1], vz = R[c * 3 + 2] - R[a * 3 + 2];
             const area = 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
-            let count = area * perM2 * d;
+            // Hair grows thicker in some patches than others; at its fullest, everywhere.
+            const cx = (R[a * 3] + R[b * 3] + R[c * 3]) / 3, cy = (R[a * 3 + 1] + R[b * 3 + 1] + R[c * 3 + 1]) / 3, cz = (R[a * 3 + 2] + R[b * 3 + 2] + R[c * 3 + 2]) / 3;
+            const patch = 0.45 + 1.1 * noise3(cx * 14 + 3, cy * 14, cz * 14), even = Math.min(1, d * 1.15) ** 3;
+            let count = area * perM2 * d * (mode === 'clump' ? 0.7 + 0.7 * d : 1) * (patch + (1 - patch) * even);
             while (count > 0) {
                 if (count < 1 && rand() > count) break;
                 count -= 1;
@@ -188,12 +233,17 @@
                 // Lengths as people grow them: chest and belly 1.5 to 2.5 cm, the groin and armpits longer
                 // and curled, forearms and shins a little over a centimeter, a furred face short.
                 const chest = fam === 0 && sv > 0.6 && sv < 3.9;
-                const base = face ? 0.009 : coarse ? 0.024 : chest ? 0.019 : fam >= 3 ? 0.014 : 0.012;
+                const base = mode === 'clump' ? (face ? 0.01 : coarse ? 0.03 : chest ? 0.024 : fam >= 3 ? 0.017 : 0.015) : face ? 0.009 : coarse ? 0.024 : chest ? 0.019 : fam >= 3 ? 0.014 : 0.012;
+                const at = [R[a * 3], R[a * 3 + 1], R[a * 3 + 2]], front = Math.cos(an.angle[a * 5 + fam]) > 0;
                 strands.push({ tri: [a, b, c], w: [1 - s1 - s2, s1, s2],
                     len: base * (0.65 + 0.7 * rand()) * (mode === 'clump' ? (0.6 + 0.9 * full) * (bodyHair.length || 1) : mode === 'strand' ? 0.35 + 0.65 * full : 1 + fur * 1.4 * (bodyHair.length || 1)), fine: full,
                     // A coat stands off the skin and lies one way, combed; single hairs lie close and stray more.
                     lean: mode !== 'tuft' ? 0.1 + 0.12 * rand() : 0.28 + 0.22 * rand() + fur * 0.25,
-                    curl: coarse ? 0.9 : chest ? 0.45 * rand() : 0.2 * rand(), twist: (rand() - 0.5) * (mode !== 'tuft' ? 0.9 : 0.4),
+                    // The lie: the place's own flow, turned by a slow drift over the body (neighbors comb the same
+                    // way, whorls form) and a little by each lock; the curliest hair, at the groin, every way.
+                    flow: flowOf(fam, sv, at, front),
+                    curl: coarse ? 0.9 : chest ? 0.45 * rand() : 0.2 * rand(),
+                    twist: (noise3(at[0] * 9, at[1] * 9, at[2] * 9) - 0.5) * 1.3 + (rand() - 0.5) * (coarse ? 2.5 : 0.3),
                     // A clump carries more hairs where hair grows thick (the picture's lanes run sparse to dense).
                     lane: mode === 'clump' ? Math.min(3, Math.floor(d * 3.2 + rand() * 0.8)) : (fur > 0.3 && rand() < fur ? 2 : 0) + Math.floor(rand() * 2), shade: mode !== 'tuft' ? 0.75 + 0.3 * rand() : 0.82 + 0.36 * rand(), fam, x: R[a * 3] });
             }
@@ -201,13 +251,6 @@
         if (pack._strandCache.size > 6) pack._strandCache.clear();
         pack._strandCache.set(key, strands);
         return strands;
-    }
-
-    /** Which way hair lies at a place: down, out to the sides on the limbs and face, in toward the middle lower on the chest. */
-    function flowAt(s) {
-        if (s.fam === 1 || s.fam === 2) return [Math.sign(s.x) * 0.55, -0.83, 0];
-        if (s.fam === 0) return [-Math.sign(s.x) * 0.3, -0.95, 0];
-        return [0, -1, 0];
     }
 
     /**
@@ -232,13 +275,15 @@
             let px = P[a * 3] * wa + P[b * 3] * wb + P[c * 3] * wc, py = P[a * 3 + 1] * wa + P[b * 3 + 1] * wb + P[c * 3 + 1] * wc, pz = P[a * 3 + 2] * wa + P[b * 3 + 2] * wb + P[c * 3 + 2] * wc;
             let nx = normals[a * 3] * wa + normals[b * 3] * wb + normals[c * 3] * wc, ny = normals[a * 3 + 1] * wa + normals[b * 3 + 1] * wb + normals[c * 3 + 1] * wc, nz = normals[a * 3 + 2] * wa + normals[b * 3 + 2] * wb + normals[c * 3 + 2] * wc;
             let l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
-            // The flow at the root, on the skin's plane.
-            let fx, fy = -0.95, fz = 0;
-            if (s.fam === 1 || s.fam === 2) { fx = Math.sign(s.x) * 0.55; fy = -0.83; } else if (s.fam === 0) fx = -Math.sign(s.x) * 0.3; else { fx = 0; fy = -1; }
-            fx += s.twist * 0.5; fz += s.twist * 0.5;
+            // The flow at the root, on the skin's plane, turned about the skin's normal by the lock's twist.
+            let [fx, fy, fz] = s.flow || [0, -1, 0];
             const fd = fx * nx + fy * ny + fz * nz;
             fx -= nx * fd; fy -= ny * fd; fz -= nz * fd;
             l = Math.hypot(fx, fy, fz) || 1; fx /= l; fy /= l; fz /= l;
+            {
+                const cs = Math.cos(s.twist), sn = Math.sin(s.twist), ox = ny * fz - nz * fy, oy = nz * fx - nx * fz, oz = nx * fy - ny * fx;
+                fx = fx * cs + ox * sn; fy = fy * cs + oy * sn; fz = fz * cs + oz * sn;
+            }
             const sx = ny * fz - nz * fy, sy = nz * fx - nx * fz, sz = nx * fy - ny * fx;
             const u0 = single ? 0 : s.lane * 0.25, u1 = single ? 1 : u0 + 0.25;
             const base = vi, step = s.len / (SEG - 1);
