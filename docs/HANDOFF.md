@@ -12,6 +12,14 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 - **Event lists** draw tree rails beside branches, choices, loops and battle branches (map, troop and common event lists).
 - **Savior & Religion** (`template/Savior & Religion`, not in git; a deployed, encrypted MV game the owner is trying as a template): boots, plays its opening and draws its ULDS maps (2, 5, 19); its index.html is in MV mode now.
 - **Contrast pass:** done in light and dark (committed); the owner keeps the current look.
+- **3D Character Builder** (Forge): first pass in; body, face, ancestry and skin sliders, Randomize, save as a rigged GLB with an Idle clip. Next: clothing and hair (entry below).
+
+## 2026-10-16 — Forge › 3D Character Builder, first pass
+
+- **Asked for** (owner): a Fallout-style creator for whole casts and towns; sliders for body, clothing and fit; high quality, easy export; other species later. Plan agreed: one base body per species, sliders as shape targets, clothes fitted to the same base so they follow the sliders, Mixamo bone names so rigs and clips work.
+- **In:** body, face, ancestry and skin sliders, Randomize (seeded, seed kept in the recipe), Open saved, Save to Project. Checked in the harness (`scratchpad/user-path-sweeps/char3d/check.cjs`): sliders, wheel zoom, Randomize by a real click, save, the GLB read back through `Reactor3D.readModelAsync` with 52 live bones and its Idle clip posed, `ModelAutoRig` finding all 35 markers from the bones with none guessed.
+- **Next, in order:** clothing and hair (MakeHuman's `.mhclo` fitting is the same as the eyes': `fit()` in `HumanBody.js`); MakeHuman's community clothes and hair have mixed licenses, so take only CC0 pieces or make our own. Then eye colors (the iris is in one picture), a crowd generator with per-slider ranges, binding a saved character to an actor, species presets (elf, dwarf, orc) on the human base, then other body plans as packs.
+- **To know:** the viewer shows the A-pose unskinned; the Idle clip lowers the arms by `Character3DBuilder.armAngle(recipe)`. MakeHuman's height targets run 1.2 to 2.4 m; `targetWeights` damps them to about 1.45 to 2.05 m for a man. Rebuilding the pack: `node editor/build-scripts/build-human-pack.cjs <makehuman checkout>/makehuman/data` (a sparse clone of `3dobjs rigs targets eyes` is enough). The eye picture is 610 KB and could be smaller.
 
 ## 2026-10-16 — Sweeps 12 and 13, the Database in its own window (runtime 20261016.6)
 

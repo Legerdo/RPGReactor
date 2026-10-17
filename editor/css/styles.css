@@ -7228,3 +7228,63 @@ html.rr-web #database-viewer.rr-database-floating {
 #database-viewer.rr-database-popped > .database-window > .database-header :is(button, input, select, a) {
     -webkit-app-region: no-drag;
 }
+
+/* Forge › 3D Character Builder */
+.rr-c3d-empty { padding: 40px; text-align: center; color: var(--color-text-muted); font-size: 12px; }
+.rr-c3d { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.rr-c3d-toolbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 10px 16px; background: var(--color-bg-panel); border-bottom: 1px solid var(--color-border-subtle); flex-shrink: 0;
+}
+.rr-c3d-toolbar .rr-btn-chip { padding: 6px 14px; }
+.rr-c3d-name { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-muted); }
+.rr-c3d-name-input { width: 180px; padding: 4px 8px; font-size: 12px; }
+.rr-c3d-open { max-width: 180px; }
+.rr-c3d-spacer { flex: 1 1 auto; }
+.rr-c3d-status { font-size: 11px; color: var(--color-text-muted); }
+.rr-c3d-status[data-kind="ok"] { color: var(--color-success); }
+.rr-c3d-status[data-kind="error"] { color: var(--color-danger); }
+.rr-c3d-save { color: var(--color-accent-bright); font-weight: 600; }
+.rr-c3d-body { display: grid; grid-template-columns: 320px minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
+.rr-c3d-panel { overflow-y: auto; padding: 4px 14px 16px; border-right: 1px solid var(--color-border-subtle); background: var(--color-bg-panel); }
+.rr-c3d-section {
+    margin: 12px 0 4px; padding-bottom: 4px; font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase; color: var(--color-accent-bright); border-bottom: 1px solid var(--color-border-subtle);
+}
+.rr-c3d-row {
+    display: grid; grid-template-columns: 96px minmax(0, 1fr) 56px; align-items: center; gap: 2px 8px;
+    padding: 3px 0; font-size: 11px; color: var(--color-text);
+}
+.rr-c3d-label { color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rr-c3d-value { text-align: right; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.rr-c3d-ends { grid-column: 2; display: flex; justify-content: space-between; font-size: 9px; color: var(--color-text-muted); margin-top: -2px; }
+.rr-c3d-row input[type="range"] {
+    appearance: none; -webkit-appearance: none; width: 100%; min-width: 0; height: 14px; margin: 0; padding: 0;
+    border: 0; background: transparent; outline: none; cursor: pointer;
+}
+.rr-c3d-row input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px; border-radius: 3px; border: 1px solid var(--color-border-input);
+    background: linear-gradient(to right, var(--color-accent) 0, var(--color-accent) var(--rr-fill, 0%), var(--color-bg-input) var(--rr-fill, 0%), var(--color-bg-input) 100%);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.rr-c3d-row input[type="range"]::-webkit-slider-thumb {
+    appearance: none; -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
+    background: var(--color-accent-bright); border: 2px solid var(--color-bg-input);
+    box-shadow: 0 0 0 1px var(--color-accent-border-strong), 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.rr-c3d-row input[type="range"]:hover::-webkit-slider-thumb,
+.rr-c3d-row input[type="range"]:focus-visible::-webkit-slider-thumb { background: var(--color-accent-hover); }
+.rr-c3d-skin { grid-template-columns: 96px minmax(0, 1fr) 36px; }
+.rr-c3d-swatches { display: flex; gap: 4px; flex-wrap: wrap; }
+.rr-c3d-swatch { width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--color-border-input); cursor: pointer; }
+.rr-c3d-swatch:hover, .rr-c3d-swatch:focus-visible { outline: 2px solid var(--color-accent-bright); outline-offset: 1px; }
+.rr-c3d-skin-input { width: 32px; height: 22px; padding: 0; border: 1px solid var(--color-border-input); background: none; cursor: pointer; }
+.rr-c3d-view { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.rr-c3d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+.rr-c3d-canvas:active { cursor: grabbing; }
+.rr-c3d-readout, .rr-c3d-hint {
+    position: absolute; left: 12px; font-size: 11px; color: var(--color-text-muted); pointer-events: none;
+    background: color-mix(in srgb, var(--color-bg-panel) 70%, transparent); padding: 3px 8px; border-radius: var(--radius-sm, 3px);
+}
+.rr-c3d-readout { top: 10px; }
+.rr-c3d-hint { bottom: 10px; }
