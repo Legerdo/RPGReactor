@@ -1170,13 +1170,15 @@ class Character3DBuilder {
         if (!made) return null;
         const tracks = made.tracks.map(t => new THREE.QuaternionKeyframeTrack(view.bones[t.bone].name + '.quaternion', Array.from(made.times), Array.from(t.values)));
         const action = view.mixer.clipAction(new THREE.AnimationClip(made.name || id, -1, tracks));
-        view.actions.set(id, { action, meta: { plant: !!made.plant, lift: made.lift || null } });
+        view.actions.set(id, { action, meta: { plant: !!made.plant, lift: made.lift || null, skin: !!made.skin } });
         return action;
     }
 
-    /** Where each joint stands at rest, for standing a pose on the floor. */
+    /** Where each joint stands at rest, for standing a pose on the floor; a new shape measures its skin again. */
     _restHeights(bones) {
-        if (this._view) this._view.boneRest = new Map(bones.map(b => [b.name, b.head[1]]));
+        if (!this._view) return;
+        this._view.boneRest = new Map(bones.map(b => [b.name, b.head[1]]));
+        if (this._view.actions) for (const a of this._view.actions.values()) delete a.meta.skinFloor;
     }
 
     /**
@@ -1205,6 +1207,18 @@ class Character3DBuilder {
             if (!Number.isFinite(offset)) offset = 0;
         }
         view.group.position.y = offset + (m.lift ? m.lift(view.action ? view.action.time : 0) : 0);
+        // A pose lying, sitting or kneeling on the body itself: its lowest skin set on the floor, measured
+        // once on the skinned body (a sample of its vertices) and kept while the shape stands.
+        if (m.skin && view.meshes[0]) {
+            if (m.skinFloor === undefined) {
+                const mesh = view.meshes[0], at = new THREE.Vector3(), count = mesh.geometry.getAttribute('position').count;
+                view.group.updateMatrixWorld(true);
+                let low = Infinity;
+                for (let i = 0; i < count; i += 7) { mesh.getVertexPosition(i, at); at.applyMatrix4(mesh.matrixWorld); low = Math.min(low, at.y); }
+                m.skinFloor = Number.isFinite(low) ? -low : 0;
+            }
+            view.group.position.y += m.skinFloor;
+        }
     }
 
     /**
@@ -1237,9 +1251,10 @@ class Character3DBuilder {
                 g.getAttribute('normal').needsUpdate = true;
             }
         });
-        // The skeleton: each joint by how far the body's own joint moved.
+        // The skeleton: each joint by how far the body's own joint moved, bound again standing on the
+        // floor, then the pose playing taken up again where it was (stopping it would start it over).
         const joints = RRHumanBody.joints(pack, shaped);
-        if (view.action) view.action.stop();
+        view.group.position.y = 0;
         const heads = result.bones.map((b, i) => {
             const j = i < joints.length ? joints[i].head : null, o = i < F.joints.length ? F.joints[i] : null;
             const hip = joints[0].head, hip0 = F.joints[0];
@@ -1253,7 +1268,8 @@ class Character3DBuilder {
         });
         view.group.updateMatrixWorld(true);
         view.skeleton.calculateInverses();
-        if (view.action) view.action.play();
+        if (view.actions) for (const a of view.actions.values()) delete a.meta.skinFloor;
+        this._resumePose();
         this._lastChange = Date.now();
         this._draw();
         return true;
@@ -1485,8 +1501,7 @@ class Character3DBuilder {
      */
     _update(result) {
         const view = this._view;
-        const playing = !!view.action;
-        if (view.action) view.action.stop();
+        view.group.position.y = 0;
         result.bones.forEach((b, i) => {
             const parent = b.parent >= 0 ? result.bones[b.parent].head : [0, 0, 0];
             const bone = view.bones[i];
@@ -1506,16 +1521,23 @@ class Character3DBuilder {
             g.computeBoundingSphere();
         });
         this._restHeights(result.bones);
-        view.group.position.y = 0;
-        if (playing) view.action.play();
         const box = new THREE.Box3().setFromObject(view.group);
         view.height = Math.max(0.2, result.height);
         view.bodyHeight = result.bodyHeight || result.height;
         view.depth = box.max.z;
         view.extent = Math.max(view.height, box.max.x - box.min.x, box.max.z - box.min.z);
         view.blob.scale.set(Math.max(0.25, (box.max.x - box.min.x) * 0.55), Math.max(0.25, (box.max.z - box.min.z) * 0.75 + 0.08), 1);
+        this._resumePose();
         this._aim();
         this._draw();
+    }
+
+    /** The pose playing laid on the skeleton at its current time and stood on the floor, before a draw. */
+    _resumePose() {
+        const view = this._view;
+        if (!view || !view.action || !view.mixer) return;
+        view.mixer.update(0);
+        this._plant();
     }
 
     _show(result) {

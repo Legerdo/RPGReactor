@@ -18,7 +18,7 @@ Forge › 3D Character Builder makes a character with sliders and pickers and sa
 
 Hair styles, facial hair, brows, species, outfits, garments and accessories are chosen from pictures of each one on the character as it stands; the pictures fill in a moment after the sliders rest and are kept in the editor's data folder, so opening the builder again shows them at once. Every section folds by its header.
 
-**Randomize** rolls a new character, or only the part chosen beside it (Body, Face, Hair, Outfit, Colors). **Reset** returns to the species' starting point. **↶ ↷** undo and redo. In the view, drag to turn and use the wheel to zoom; the **Pose** panel on the right plays the character in the A-pose, its saved Idle, or walking, running, crouching, jumping, falling, a fighting stance, waving, arms up, kneeling and sitting (to see how the body, clothes and hair hold up; only Idle is saved); **Whole body** and **Face** frame the view.
+**Randomize** rolls a new character, or only the part chosen beside it (Body, Face, Hair, Outfit, Colors). **Reset** returns to the species' starting point. **↶ ↷** undo and redo. In the view, drag to turn and use the wheel to zoom; the **Pose** panel on the right plays the character in the A-pose, its saved Idle, or walking, running, crouching, jumping, falling, a fighting stance, waving, arms up, kneeling, sitting and lying on the back or side (to see how the body, clothes and hair hold up; only Idle is saved); **Whole body** and **Face** frame the view.
 
 ## Saving and opening
 

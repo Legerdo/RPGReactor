@@ -57,9 +57,17 @@
         // Character's left is +x: lowering the left arm turns it about -z.
         track('LeftArm', w => multiply(axisAngle(0, 0, 1, -lower - 0.015 * w), axisAngle(1, 0, 0, -0.05)));
         track('RightArm', w => multiply(axisAngle(0, 0, 1, lower + 0.015 * w), axisAngle(1, 0, 0, -0.05)));
-        // Elbows a little bent, hands forward.
-        track('LeftForeArm', () => axisAngle(1, 0, 0, -0.2));
-        track('RightForeArm', () => axisAngle(1, 0, 0, -0.2));
+        // Elbows a little bent, the hands relaxed at the sides: the bend about each elbow's own hinge (square
+        // to the arm's rest plane), the rest pose's own bend (hands well forward) taken off.
+        for (const side of ['Left', 'Right']) {
+            const u0 = bones[index(side + 'Arm')], u1 = bones[index(side + 'ForeArm')], u2 = bones[index(side + 'Hand')];
+            if (!u0 || !u1) continue;
+            const u = [0, 1, 2].map(k => u1.head[k] - u0.head[k]), f = u2 ? [0, 1, 2].map(k => u2.head[k] - u1.head[k]) : u;
+            let ax = [u[1] * f[2] - u[2] * f[1], u[2] * f[0] - u[0] * f[2], u[0] * f[1] - u[1] * f[0]], l = Math.hypot(ax[0], ax[1], ax[2]);
+            const rest = l > 1e-6 ? Math.atan2(l, u[0] * f[0] + u[1] * f[1] + u[2] * f[2]) : 0;
+            if (l < 1e-6) { ax = [u[1], -u[0], 0]; l = Math.hypot(ax[0], ax[1]) || 1; }
+            track(side + 'ForeArm', () => axisAngle(ax[0] / l, ax[1] / l, ax[2] / l, 0.35 - rest));
+        }
         track('Spine1', w => axisAngle(1, 0, 0, -0.012 * w));
         track('Spine2', w => axisAngle(1, 0, 0, -0.018 * w));
         track('Head', w => axisAngle(1, 0, 0, 0.012 * w));
