@@ -71,7 +71,7 @@
         { id: 'angel', label: 'Angel', group: 'Otherworldly', recipe: { height: 0.75, shapes: { cheekBones: 0.5 }, skin: '#f0d8c4', eyes: { color: '#5aa8e8' }, features: { wings: { type: 'feathered', size: 0.95, color: '#ffffff', color2: '#e8e4dc' } }, props: [{ id: 'halo' }] } },
         { id: 'fairy', label: 'Fairy', group: 'Otherworldly', recipe: { height: -0.5, weight: 0.2, headSize: 1.12, shapes: { earsPointed: 2.2, eyeSize: 1.5, chinPointed: 0.8 }, skin: '#f2dcd0', eyes: { color: '#40c8a0' }, features: { wings: { type: 'fairy', color: '#bfeaff', color2: '#ffffff' } } } },
         { id: 'undead', label: 'Undead', group: 'Otherworldly', recipe: { weight: -0.2, muscle: 0.1, shapes: { headFat: -1.5, cheeks: -2, eyeBags: 2, headAge: 1.5 }, age: 60, skin: '#8a9a80', skinPattern: { type: 'decay', color: '#5a6a50' }, eyes: { color: '#e8f0e0', pupil: 'none', sclera: '#2a3028' } } },
-        { id: 'alien', label: 'Grey alien', group: 'Otherworldly', recipe: { height: 0.2, weight: 0.05, headSize: 1.45, morph: { earsAway: 1, earHoles: 0.6, flat: 0.35 }, shapes: { eyeSize: 1.2, noseDepth: -1.6, noseVolume: -1, noseWidth: -1, nostrils: 1.5, noseHump: -1, mouthWidth: -1.3, upperLip: -1.3, lowerLip: -1.3, mouthCorners: -0.8, chinPointed: 1.2, chinHeight: -1, jaw: -1.5, chinWidth: -1.2, cheeks: -1, headFat: -1, neck: -1.5, headWidth: 0.5 }, skin: '#737c84', skinPattern: { lips: '#666e75' }, eyes: { color: '#0a0a0e', pupil: 'none', sclera: '#0a0a0e', catchlight: false }, features: { alienEyes: { type: 'almond' } }, bald: true } },
+        { id: 'alien', label: 'Grey alien', group: 'Otherworldly', recipe: { height: 0.2, weight: 0.05, headSize: 1.45, morph: { earsAway: 1, earHoles: 0.6, flat: 0.35, eyeSocket: 1 }, shapes: { eyeSize: 1.2, noseDepth: -1.6, noseVolume: -1, noseWidth: -1, nostrils: 1.5, noseHump: -1, mouthWidth: -1.3, upperLip: -1.3, lowerLip: -1.3, mouthCorners: -0.8, chinPointed: 1.2, chinHeight: -1, jaw: -1.5, chinWidth: -1.2, cheeks: -1, headFat: -1, neck: -1.5, headWidth: 0.5 }, skin: '#737c84', skinPattern: { lips: '#666e75' }, eyes: { color: '#0a0a0e', pupil: 'none', sclera: '#0a0a0e', catchlight: false }, features: { alienEyes: { type: 'almond' } }, bald: true } },
         { id: 'android', label: 'Android', group: 'Otherworldly', recipe: { skin: '#d8dce2', skinPattern: { type: 'panels', color: '#8a9098' }, eyes: { color: '#30b8ff', pupil: 'none' }, bald: true } }
     ];
     const BY_ID = new Map(SPECIES.map(s => [s.id, s]));
@@ -393,77 +393,42 @@
     }
 
     /**
-     * A grey's eyes: a large glossy lens over each eye, almond-shaped (rounder
-     * toward the nose, drawn to a point at the outer corner and tilted up
-     * there) or round, laid on the face's own surface and domed a little.
+     * A grey's eyes: a large glossy lens in each eye's socket, on the almond
+     * frame the body's socket was pressed to (RRHumanBody.almondEye), so its
+     * edge tucks under the rim. A smooth dome in rings from its middle out to
+     * the outline, the two mirrored, so both catch the light alike. Round
+     * lenses keep the frame with a round outline.
      */
-    function alienEyes(m, pack, built, L, f) {
-        const head = L.boneIndex('Head'), skin = Props.rigid(head), rgb = linear(f.color);
-        const P = built.shaped, ids = pack._bodyIds || (pack._bodyIds = [...new Set(pack.body.source)]);
-        const almond = f.type === 'almond';
-        for (const E of [L.eyeL, L.eyeR]) {
-            const side = Math.sign(E.center[0]) || 1;
-            const a = E.radius * 1.45 * f.size, b = a * (almond ? 0.68 : 0.85), tilt = almond ? 0.38 * side : 0;
-            const c = add(E.center, [side * a * 0.03, a * 0.08, 0]);
-            // The front surface under each point of the lens: the face's triangles and the eyeball's, the
-            // nearest to the viewer where several lie under it.
-            const tris = [];
-            const keep = (A, B, C) => {
-                const xs = [A[0], B[0], C[0]], ys = [A[1], B[1], C[1]];
-                if (Math.max(...xs) < c[0] - a * 1.4 || Math.min(...xs) > c[0] + a * 1.4 || Math.max(...ys) < c[1] - a * 1.2 || Math.min(...ys) > c[1] + a * 1.2) return;
-                if (Math.min(A[2], B[2], C[2]) < E.center[2] - E.radius * 2) return;
-                tris.push([A, B, C]);
+    function alienEyes(m, built, pack, f) {
+        const Body = root.RRHumanBody || require('./HumanBody.js'), A = Body.almondEye;
+        const head = built.bones.findIndex(b => b.name === 'Head'), skin = Props.rigid(head), rgb = linear(f.color);
+        const half = f.type === 'round' ? out => Math.sqrt(Math.max(0, 1 - out * out)) : A.half;
+        const RINGS = 10, AROUND = 40;
+        for (const side of [1, -1]) {
+            const fr = A.frame(pack, built.shaped, side, f.size);
+            const at = (rr, t) => {
+                const x = rr * Math.cos(t), y = rr * Math.sin(t) * half(Math.cos(t) * side);
+                const h = fr.lens(rr * 0.985);
+                return [0, 1, 2].map(k => fr.c[k] + fr.U[k] * fr.a * x + fr.V[k] * fr.b * y + fr.F[k] * h);
             };
-            const src = pack.body.source, I = pack.body.index, at3 = v => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
-            for (let t = 0; t < I.length; t += 3) keep(at3(src[I[t]]), at3(src[I[t + 1]]), at3(src[I[t + 2]]));
-            const eyes = built.parts.find(p => p.name === 'Eyes');
-            if (eyes) {
-                const Q = eyes.positions, at = k => [Q[k * 3], Q[k * 3 + 1], Q[k * 3 + 2]];
-                for (let t = 0; t < eyes.index.length; t += 3) keep(at(eyes.index[t]), at(eyes.index[t + 1]), at(eyes.index[t + 2]));
-            }
-            const skinZ = (x, y) => {
-                let z = -Infinity;
-                for (const [A, B, C] of tris) {
-                    const d = (B[1] - C[1]) * (A[0] - C[0]) + (C[0] - B[0]) * (A[1] - C[1]);
-                    if (Math.abs(d) < 1e-12) continue;
-                    const w0 = ((B[1] - C[1]) * (x - C[0]) + (C[0] - B[0]) * (y - C[1])) / d, w1 = ((C[1] - A[1]) * (x - C[0]) + (A[0] - C[0]) * (y - C[1])) / d, w2 = 1 - w0 - w1;
-                    if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
-                    z = Math.max(z, w0 * A[2] + w1 * B[2] + w2 * C[2]);
-                }
-                return Number.isFinite(z) ? z : E.center[2] + E.radius;
+            const normalAt = (rr, t) => {
+                const e = 1e-3, p0 = at(Math.max(0, rr - e), t), p1 = at(Math.min(1, rr + e), t), q0 = at(Math.max(rr, 0.02), t - e), q1 = at(Math.max(rr, 0.02), t + e);
+                let n = norm(cross(sub(p1, p0), sub(q1, q0)));
+                if (n[0] * fr.F[0] + n[1] * fr.F[1] + n[2] * fr.F[2] < 0) n = mul(n, -1);
+                return n;
             };
-            const cols = 16, rows = 10, grid = [];
-            for (let i = 0; i <= cols; i++) {
-                const u = -1 + 2 * i / cols, out = u * side;
-                // The outline's half height across: an almond, fuller toward the nose, pointed at the outer corner.
-                const half = almond ? Math.pow(Math.max(0, 1 - u * u), 0.42) * (1 - 0.22 * out) : Math.sqrt(Math.max(0, 1 - u * u));
-                const col = [];
-                for (let j = 0; j <= rows; j++) {
-                    const v = (-1 + 2 * j / rows) * half;
-                    const lx = u * a, ly = v * b;
-                    const x = c[0] + lx * Math.cos(tilt) - ly * Math.sin(tilt), y = c[1] + lx * Math.sin(tilt) + ly * Math.cos(tilt);
-                    const dome = Math.max(0, 1 - u * u - (half > 1e-4 ? (v / half) ** 2 : 1));
-                    // Set into the face: the edge dives under the skin round it, so the lids close over the lens.
-                    const rr = Math.min(1, Math.hypot(u, half > 1e-4 ? v / half : 1));
-                    const z = skinZ(x, y) + 0.0025 + dome * a * 0.1 - 0.006 * Math.max(0, (rr - 0.78) / 0.22) ** 2;
-                    col.push([x, y, z]);
-                }
-                grid.push(col);
+            const mid = m.vertex(at(0, 0), fr.F, rgb, skin), rings = [];
+            for (let k = 1; k <= RINGS; k++) {
+                const rr = k / RINGS, row = [];
+                for (let j = 0; j < AROUND; j++) { const t = (j / AROUND) * Math.PI * 2; row.push(m.vertex(at(rr, t), normalAt(rr, t), rgb, skin)); }
+                rings.push(row);
             }
-            const at = (i, j) => grid[Math.max(0, Math.min(cols, i))][Math.max(0, Math.min(rows, j))];
-            const idx = [];
-            for (let i = 0; i <= cols; i++) {
-                idx.push([]);
-                for (let j = 0; j <= rows; j++) {
-                    const du = sub(at(i + 1, j), at(i - 1, j)), dv = sub(at(i, j + 1), at(i, j - 1));
-                    let n = norm(cross(du, dv));
-                    if (n[2] < 0) n = mul(n, -1);
-                    idx[i].push(m.vertex(grid[i][j], n, rgb, skin));
-                }
-            }
-            for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
-                const p00 = idx[i][j], p10 = idx[i + 1][j], p01 = idx[i][j + 1], p11 = idx[i + 1][j + 1];
-                if (side > 0) { m.tri(p00, p10, p11); m.tri(p00, p11, p01); } else { m.tri(p00, p11, p10); m.tri(p00, p01, p11); }
+            // Wound to face forward on both sides.
+            const tri = (p, q, r) => (side > 0 ? m.tri(p, q, r) : m.tri(p, r, q));
+            for (let j = 0; j < AROUND; j++) tri(mid, rings[0][j], rings[0][(j + 1) % AROUND]);
+            for (let k = 0; k + 1 < RINGS; k++) for (let j = 0; j < AROUND; j++) {
+                const a0 = rings[k][j], a1 = rings[k][(j + 1) % AROUND], b0 = rings[k + 1][j], b1 = rings[k + 1][(j + 1) % AROUND];
+                tri(a0, b0, b1); tri(a0, b1, a1);
             }
         }
     }
@@ -483,9 +448,9 @@
         if (F.spines.type !== 'none') spines(hard, pack, L, F.spines);
         if (F.whiskers.type !== 'none') whiskers(soft, L, F.whiskers);
         const lenses = new Props.Mesh();
-        if (F.alienEyes.type !== 'none') alienEyes(lenses, pack, built, L, F.alienEyes);
+        if (F.alienEyes.type !== 'none') alienEyes(lenses, built, pack, F.alienEyes);
         const parts = [];
-        if (!lenses.empty) parts.push(lenses.part('Alien eyes', { roughness: 0.06, metalness: 0, kind: 'eye', doubleSided: true, envMapIntensity: 0.3 }));
+        if (!lenses.empty) parts.push(lenses.part('Alien eyes', { roughness: 0.06, metalness: 0, kind: 'eye', doubleSided: true, envMapIntensity: 0.15 }));
         if (!hard.empty) parts.push(hard.part('Horns and claws', { roughness: 0.4, metalness: 0 }));
         if (!soft.empty) parts.push(soft.part('Features', { roughness: 0.8, metalness: 0, doubleSided: true, opacity: F.wings.type === 'fairy' ? 0.55 : undefined }));
         return { parts, bones, features: F };

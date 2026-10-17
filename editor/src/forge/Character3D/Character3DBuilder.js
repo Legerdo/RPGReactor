@@ -904,7 +904,7 @@ class Character3DBuilder {
             if (part.uvs) g.setAttribute('uv', new THREE.BufferAttribute(part.uvs, 2));
             if (part.colors) g.setAttribute('color', new THREE.BufferAttribute(part.colors, 3));
             g.setIndex(new THREE.BufferAttribute(part.index, 1));
-            const mesh = new THREE.Mesh(g, this._material(part, result, textureFor));
+            const mesh = new THREE.Mesh(g, this._material(part, result, textureFor, this._thumbView && this._thumbView.scene));
             group.add(mesh);
             made.push(mesh);
             g.computeBoundingBox();
@@ -1449,7 +1449,7 @@ class Character3DBuilder {
     }
 
     /** The view's material for a part, by what it is: skin with a warm sheen, cloth, metal, hair, wet eyes, glass. */
-    _material(part, result, textureFor) {
+    _material(part, result, textureFor, scene) {
         const tex = part.texture && result.textures[part.texture];
         const opaque = !(part.opacity != null && part.opacity < 1);
         const kind = part.kind || (part.metalness > 0.5 ? 'metal' : 'prop');
@@ -1470,7 +1470,14 @@ class Character3DBuilder {
         // matches it instead of showing as dark specks.
         // Their hairs are finer than a pixel from afar: a low cut keeps them as the picture shrinks.
         if (kind === 'hair' && part.onSkin) { m.envMapIntensity = 0.85; if (part.cutout) m.alphaTest = 0.12; }
-        if (this._weak) { if (kind === 'eye' || kind === 'glass') m.roughness = 0.08; return m; }
+        // three gives every material the scene's own environment strength unless the material holds the map
+        // itself: a part reflecting more or less of the room than the rest holds it.
+        const ownRoom = () => {
+            if (part.envMapIntensity != null) m.envMapIntensity = part.envMapIntensity;
+            if (scene && scene.environment && m.envMapIntensity !== 1) { m.envMap = scene.environment; m.envMapIntensity *= scene.environmentIntensity; }
+            return m;
+        };
+        if (this._weak) { if (kind === 'eye' || kind === 'glass') m.roughness = 0.08; return ownRoom(); }
         // Skin: a soft sheen in the skin's own color (from its picture), so it warms skin and stays dark on a
         // painted scalp, stubble or markings.
         if (kind === 'skin') {
@@ -1492,8 +1499,7 @@ class Character3DBuilder {
         else if (kind === 'eye') { m.roughness = 0.08; m.clearcoat = 1; m.clearcoatRoughness = 0.03; }
         else if (kind === 'glass') { m.roughness = 0.02; m.metalness = 0; m.clearcoat = 1; m.envMapIntensity = 2; }
         // A part may hold how much of the room it reflects (a grey's black lenses, the floor kept out of them).
-        if (part.envMapIntensity != null) m.envMapIntensity = part.envMapIntensity;
-        return m;
+        return ownRoom();
     }
 
     /** The build in the view: a skeleton from its bones, a skinned mesh per part, its Idle ready to play. */
@@ -1580,7 +1586,7 @@ class Character3DBuilder {
             g.setAttribute('skinIndex', new THREE.BufferAttribute(Uint16Array.from(part.joints), 4));
             g.setAttribute('skinWeight', new THREE.BufferAttribute(Float32Array.from(part.weights), 4));
             g.setIndex(new THREE.BufferAttribute(Uint32Array.from(part.index), 1));
-            const mesh = new THREE.SkinnedMesh(g, this._material(part, result));
+            const mesh = new THREE.SkinnedMesh(g, this._material(part, result, null, view.scene));
             mesh.frustumCulled = false;
             // Hair finer than the shadow's own texels (body hair, brows, lashes) casts none.
             mesh.castShadow = !part.onSkin && part.name !== 'Lashes';

@@ -52,12 +52,12 @@
         headSize: 1,
         // Anatomy: detail on or off, the sex shown ('auto' follows Gender), the genitals' size.
         anatomy: Object.freeze({ detail: false, sex: 'auto', length: 0, girth: 0, testicles: 0, areola: 1, nipple: 1, areolaColor: '', fold: 1, mons: 1, labia: 1 }),
-        morph: Object.freeze({ snout: 0, muzzle: 0, flat: 0, earsAway: 0, earHoles: 0.6, toes: 1, eyeWide: 1, eyeTall: 1 }),
+        morph: Object.freeze({ snout: 0, muzzle: 0, flat: 0, earsAway: 0, earHoles: 0.6, toes: 1, eyeWide: 1, eyeTall: 1, eyeSocket: 0 }),
         skin: '#c69c7f'
     });
 
     /** Face morphs beyond the targets: a snout or muzzle (and how narrow), a face flattened for a beak, human ears tucked away. */
-    const MORPHS = { snout: [0, 1.5], muzzle: [0, 1], flat: [0, 1], earsAway: [0, 1], earHoles: [0, 2], toes: [0.4, 3], eyeWide: [0.5, 2.5], eyeTall: [0.5, 2.5] };
+    const MORPHS = { snout: [0, 1.5], muzzle: [0, 1], flat: [0, 1], earsAway: [0, 1], earHoles: [0, 2], toes: [0.4, 3], eyeWide: [0.5, 2.5], eyeTall: [0.5, 2.5], eyeSocket: [0, 1.5] };
 
     const MIN_AGE = 11, MAX_AGE = 90;
 
@@ -643,6 +643,70 @@
         }
     }
 
+    /**
+     * A grey's almond eye, one shape for its socket and the lens in it: the
+     * eye's frame (forward a little out to the side, across tilted up toward
+     * the outer corner), the outline's half height across it (fuller toward
+     * the nose, drawn to a point at the outer corner), and the lens's height
+     * off the frame at each ring of the outline (a dome, its edge set back).
+     */
+    const ALMOND = { width: 1.65, height: 0.64, tilt: 0.38, dome: 0.2, back: 0.06 };
+    const almondHalf = out => (Math.abs(out) >= 1 ? 0 : Math.pow(1 - out * out, 0.42) * (1 - 0.22 * out));
+    function almondFrame(pack, P, side, size = 1) {
+        const ids = [...new Set(pack.eyes.refs)].filter(v => Math.sign(pack.positions[v * 3]) === side);
+        const c0 = [0, 1, 2].map(k => ids.reduce((t, v) => t + P[v * 3 + k], 0) / ids.length);
+        let R = 0;
+        for (const v of ids) R = Math.max(R, Math.abs(P[v * 3] - c0[0]));
+        const head = pack.bones.find(b => b.name === 'Head'), h = meanOf(P, head.head);
+        const out = [c0[0] - h[0], 0, c0[2] - h[2]], ol = Math.hypot(out[0], out[2]) || 1;
+        let F = [0.35 * out[0] / ol, 0, 0.65 + 0.35 * out[2] / ol];
+        const fl = Math.hypot(...F); F = F.map(x => x / fl);
+        const U0 = [F[2], 0, -F[0]], V0 = [0, 1, 0];
+        const t = ALMOND.tilt * side, ct = Math.cos(t), st = Math.sin(t);
+        const U = [0, 1, 2].map(k => U0[k] * ct + V0[k] * st), V = [0, 1, 2].map(k => -U0[k] * st + V0[k] * ct);
+        const a = R * ALMOND.width * size, b = a * ALMOND.height;
+        const c = [0, 1, 2].map(k => c0[k] + F[k] * R * 0.9 + U0[k] * side * a * 0.04 + V0[k] * a * 0.06);
+        return { c, U, V, F, a, b, side, R, lens: rr => a * (ALMOND.dome * Math.sqrt(Math.max(0, 1 - rr * rr)) - ALMOND.back * rr * rr) };
+    }
+    /** Where a point lies on an almond frame: across (-1..1, + outward), up, out along forward, and its ring (1 the outline). */
+    function almondAt(fr, p) {
+        const d = [p[0] - fr.c[0], p[1] - fr.c[1], p[2] - fr.c[2]];
+        const x = (d[0] * fr.U[0] + d[1] * fr.U[1] + d[2] * fr.U[2]) / fr.a, y = (d[0] * fr.V[0] + d[1] * fr.V[1] + d[2] * fr.V[2]) / fr.b;
+        const f = d[0] * fr.F[0] + d[1] * fr.F[1] + d[2] * fr.F[2], half = almondHalf(x * fr.side);
+        return { x, y, f, rr: Math.abs(x) >= 1 ? Math.hypot(x, y / 0.05) : Math.hypot(x, y / Math.max(0.05, half)) };
+    }
+
+    /**
+     * Sockets for a grey's almond eyes: the skin inside each outline pressed
+     * back behind where the lens lies, and a soft rim raised round it, so
+     * the lens sits in the face with the lids closing over its edge.
+     */
+    function eyeSockets(pack, P, size) {
+        const face = pack._eyeFields && pack._eyeFields.weights.face;
+        if (!face) return;
+        const field = new Float32Array(P.length), clamp = [];
+        for (const side of [1, -1]) {
+            const fr = almondFrame(pack, P, side, size), rimH = fr.a * 0.07;
+            for (const v of face) {
+                if (Math.sign(P[v * 3]) !== side) continue;
+                const q = almondAt(fr, [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
+                let to = null;
+                if (q.rr < 1) to = Math.min(q.f, fr.lens(q.rr) - 0.003);
+                else if (q.rr < 1.5 && q.f > fr.lens(1) - fr.a * 0.35) to = Math.max(q.f, fr.lens(1) + 0.0015 + rimH * Math.exp(-(((q.rr - 1.08) / 0.15) ** 2)));
+                if (to === null || to === q.f) continue;
+                for (let k = 0; k < 3; k++) field[v * 3 + k] = fr.F[k] * (to - q.f);
+                if (q.rr < 1) clamp.push([v, fr, q.rr]);
+            }
+        }
+        const eased = relax(pack, field, 3);
+        for (let v = 0; v < pack.vertexCount; v++) for (let k = 0; k < 3; k++) P[v * 3 + k] += eased[v * 3 + k];
+        // Inside the outline the skin stays behind the lens however the easing spread it.
+        for (const [v, fr, rr] of clamp) {
+            const q = almondAt(fr, [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]), to = fr.lens(rr) - 0.003;
+            if (q.f > to) for (let k = 0; k < 3; k++) P[v * 3 + k] += fr.F[k] * (to - q.f);
+        }
+    }
+
     /** The sex a recipe shows: chosen, or by its Gender slider. */
     function sexOf(r) {
         const a = r.anatomy || {};
@@ -814,6 +878,7 @@
         const m = r.morph, size = r.headSize;
         if (m.toes !== 1) toes(pack, P, m.toes);
         eyes(pack, P, r.shapes.eyeSize, m.eyeWide, m.eyeTall);
+        if (m.eyeSocket) eyeSockets(pack, P, m.eyeSocket);
         if (r.anatomy.detail) anatomyDetail(pack, P, r);
         if (size === 1 && !m.snout && !m.flat && !m.earsAway && !m.muzzle) return;
         const F = headFields(pack);
@@ -1063,7 +1128,7 @@
         return '#' + ((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0');
     }
 
-    const api = { VOLUME, maskOf, fatMask, volume, sexOf, anatomyFields, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
+    const api = { almondEye: { frame: almondFrame, half: almondHalf, at: almondAt }, VOLUME, maskOf, fatMask, volume, sexOf, anatomyFields, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
     root.RRHumanBody = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
