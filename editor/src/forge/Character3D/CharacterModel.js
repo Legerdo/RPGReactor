@@ -26,6 +26,7 @@
     const Skin = need('RRCharacterSkin', './CharacterSkin.js');
     const Creature = need('RRCreatureBody', './CreatureBody.js');
     const Shading = need('RRCharacterShading', './CharacterShading.js');
+    const Detail = need('RRCharacterDetail', './CharacterDetail.js');
 
     /** A full recipe from a partial one; the plan decides which half it is. */
     function normalize(input) {
@@ -105,7 +106,8 @@
             }
             body.index = Uint32Array.from(keep);
         }
-        const skinSize = o.skinSize || (o.quality === 'preview' ? 512 : 1024);
+        // The skin picture: 1024 in the view (painted once per skin setting), 2048 in a saved file.
+        const skinSize = o.skinSize || (o.quality === 'preview' ? 1024 : 2048);
         // A man's shaved beard shadows his jaw, unless his species has no hair.
         const beard = r.gender > 0.6 && r.age > 16 && !(Species.BY_ID.get(r.species)?.recipe || {}).bald ? Math.round((r.gender - 0.6) * 2.5 * 10) / 10 : 0;
         const sex = Body.sexOf(r);
@@ -113,7 +115,13 @@
         const bodyHair = Object.assign({}, r.bodyHair, { color: r.bodyHair.color || r.hair.color });
         const earHoles = r.morph.earsAway > 0.6 && r.morph.earHoles > 0;
         const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair, earHoles]);
-        if (cache.skinKey !== skinKey) { cache.skin = Skin.paint(pack, r.skin, r.skinPattern, { size: skinSize, beard, anatomy, bodyHair, earHoles }); cache.skinKey = skinKey; }
+        if (cache.skinKey !== skinKey) {
+            const args = { skin: r.skin, pattern: r.skinPattern, options: { size: skinSize, beard, anatomy, bodyHair, earHoles } };
+            // A painter off the page (the builder's worker) answers later; until then the last skin stays.
+            const painted = o.paintSkin ? o.paintSkin(skinKey, args) : Skin.paint(pack, args.skin, args.pattern, args.options);
+            if (painted) { cache.skin = painted; cache.skinKey = skinKey; }
+            else if (!cache.skin) cache.skin = flatPicture(r.skin);
+        }
         textures['skin.png'] = cache.skin;
         body.texture = 'skin.png';
         body.roughness = r.skinPattern.type === 'scales' || r.skinPattern.type === 'panels' ? 0.45 : 0.62;
@@ -130,12 +138,22 @@
         }
 
         const parts = [body, eyes];
-        // Fur: two shells over the uncovered skin, the outer cut thinner, so the fur tapers.
-        if (bodyHair.fur > 0.01) {
-            const furKey = textureKey('fur', [bodyHair, skinSize]);
-            if (cache.furKey !== furKey) { cache.fur = Skin.paintFur(pack, bodyHair, { size: skinSize }); cache.furKey = furKey; }
-            textures['fur.png'] = cache.fur;
-            parts.push(...furShells(pack, built, body, bodyHair, cache.fur));
+        // Body hair and fur: strands grown out of the uncovered skin.
+        const skinNormals = Body.vertexNormals(pack, built.shaped);
+        if (bodyHair.amount > 0.01 || bodyHair.fur > 0.01) {
+            const strands = Detail.hairStrands(pack, Object.assign({}, bodyHair, { amount: Math.max(bodyHair.amount, bodyHair.fur), budget: o.hairBudget || 1 }), outfit.hidden);
+            if (strands.length) {
+                textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
+                parts.push(Detail.hairPart(pack, built.shaped, skinNormals, strands, bodyHair.color, { width: 1 + bodyHair.fur }));
+            }
+        }
+        // The areolas: their own patch with its own picture, sharp at any distance.
+        if (r.anatomy.detail && !outfit.hidden.has(Body.anatomyFields(pack).nipples[0].v)) {
+            const reach = (sex === 'female' ? 0.026 : 0.014) * r.anatomy.areola;
+            const areolaKey = textureKey('areola', [r.skin, r.anatomy.areolaColor, r.anatomy.nipple, sex]);
+            if (cache.areolaKey !== areolaKey) { cache.areola = Detail.areolaTexture(r.skin, { color: r.anatomy.areolaColor, nippleScale: Math.sqrt(r.anatomy.nipple), male: sex === 'male' }); cache.areolaKey = areolaKey; }
+            textures['areola.png'] = cache.areola;
+            parts.push(Detail.areolaPart(pack, built.shaped, skinNormals, reach, body));
         }
         // A man's genitals, MakeHuman's own, wearing the skin round them; left out under what covers them.
         if (r.anatomy.detail && sex === 'male' && !outfit.hidden.has(Body.anatomyFields(pack).low)) parts.push(genitals(pack, built));
@@ -224,6 +242,13 @@
             name: 'Genitals', positions: Body.gather(P, h.source, 3), normals: Body.normals(P, h.source, h.index, pack.vertexCount), uvs: pack._genitalUV, index: h.index,
             joints: Body.gather(pack.skinJoints, h.source, 4), weights: Body.gather(pack.skinWeights, h.source, 4), texture: 'skin.png', roughness: 0.6, kind: 'skin'
         };
+    }
+
+    /** A tiny picture of one color: the skin before its own is painted. */
+    function flatPicture(hex) {
+        const n = parseInt(String(hex || '#c69c7f').slice(1), 16), data = new Uint8Array(4 * 4 * 4);
+        for (let i = 0; i < 16; i++) { data[i * 4] = (n >> 16) & 255; data[i * 4 + 1] = (n >> 8) & 255; data[i * 4 + 2] = n & 255; data[i * 4 + 3] = 255; }
+        return { width: 4, height: 4, data, name: 'skin.png' };
     }
 
     /** Bakes ambient occlusion into the parts' colors, in place. */

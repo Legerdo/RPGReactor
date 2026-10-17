@@ -69,6 +69,7 @@ class Character3DBuilder {
         this._clearModel();
         for (const t of view.textures.values()) t.texture.dispose();
         if (this._worker) { this._worker.terminate(); this._worker = undefined; }
+        if (this._skinWorkerRef) { this._skinWorkerRef.terminate(); this._skinWorkerRef = undefined; this._painter = null; }
         for (const t of this._envTargets || []) t.dispose();
         this._envTargets = [];
         if (this._thumbView) { this._thumbView.renderer.dispose(); this._thumbView.renderer.forceContextLoss?.(); this._thumbView = null; }
@@ -375,6 +376,11 @@ class Character3DBuilder {
         }
         if (el.type === 'range') this._syncSliders();
         if (committed) this._commit();
+        // A body slider moving: the fast path while the drag lasts, the whole character when it ends.
+        if (el.type === 'range' && Character3DBuilder.bodyPath(path) && this.human) {
+            if (!committed && this._fastShape()) { clearTimeout(this._settle); this._settle = setTimeout(() => this._queueRebuild(), 220); return; }
+            this._fast = null;
+        }
         this._queueRebuild();
     }
 
@@ -397,7 +403,13 @@ class Character3DBuilder {
             const path = b.dataset.path;
             RRColorPopover.open(b, {
                 value: this._get(path) || '#808080',
-                onInput: hex => { this._set(path, hex); b.style.setProperty('--rr-c3d-swatch', hex); delete b.dataset.empty; this._queueRebuild(); },
+                onInput: hex => {
+                    this._set(path, hex); b.style.setProperty('--rr-c3d-swatch', hex); delete b.dataset.empty;
+                    // The skin while dragging: the body tinted at once from the painted skin toward the new color;
+                    // the new skin is painted once the color rests.
+                    if (path === 'skin' && this._tintSkin(hex)) return;
+                    this._queueRebuild();
+                },
                 onChange: hex => { this._set(path, hex); b.style.setProperty('--rr-c3d-swatch', hex); b.title = hex; this._commit(); this._queueRebuild(); }
             });
             return;
@@ -1118,6 +1130,105 @@ class Character3DBuilder {
         } else this._draw();
     }
 
+    /**
+     * The drag's fast path: only the body is shaped again (its targets and
+     * swellings, a few milliseconds), and every other vertex (clothes, hair,
+     * eyes, accessories, features) moves with the skin vertex under it, the
+     * skeleton with the body's joints. No garment is cut, no hair grown, no
+     * picture painted; the whole character is built once the slider rests.
+     */
+    _fastShape() {
+        const view = this._view, result = this._result, pack = this.pack;
+        if (!view || !result || result.plan !== 'human' || !result.built || !view.meshes.length || view.meshes.length !== result.parts.length) return false;
+        if (!this._fast || this._fast.result !== result) this._fast = this._fastStart(result);
+        const F = this._fast;
+        const shaped = RRHumanBody.shape(pack, this.recipe);
+        let floor = Infinity;
+        for (const v of pack.body.source) floor = Math.min(floor, shaped[v * 3 + 1]);
+        const lift = F.floor - floor;
+        result.parts.forEach((part, k) => {
+            const map = F.maps[k], base = F.bases[k], g = view.meshes[k].geometry, pos = g.getAttribute('position'), a = pos.array;
+            for (let i = 0; i < map.length; i++) {
+                const v = map[i] * 3;
+                a[i * 3] = base[i * 3] + shaped[v] - F.shaped[v];
+                a[i * 3 + 1] = base[i * 3 + 1] + shaped[v + 1] - F.shaped[v + 1] + lift;
+                a[i * 3 + 2] = base[i * 3 + 2] + shaped[v + 2] - F.shaped[v + 2];
+            }
+            pos.needsUpdate = true;
+            if (k === 0) {
+                g.getAttribute('normal').array.set(RRHumanBody.normals(shaped, pack.body.source, pack.body.index, pack.vertexCount));
+                g.getAttribute('normal').needsUpdate = true;
+            }
+        });
+        // The skeleton: each joint by how far the body's own joint moved.
+        const joints = RRHumanBody.joints(pack, shaped);
+        if (view.action) view.action.stop();
+        const heads = result.bones.map((b, i) => {
+            const j = i < joints.length ? joints[i].head : null, o = i < F.joints.length ? F.joints[i] : null;
+            const hip = joints[0].head, hip0 = F.joints[0];
+            const d = j && o ? [j[0] - o[0], j[1] - o[1], j[2] - o[2]] : [hip[0] - hip0[0], hip[1] - hip0[1], hip[2] - hip0[2]];
+            return [b.head[0] + d[0], b.head[1] + d[1] + lift, b.head[2] + d[2]];
+        });
+        result.bones.forEach((b, i) => {
+            const parent = b.parent >= 0 ? heads[b.parent] : [0, 0, 0];
+            view.bones[i].position.set(heads[i][0] - parent[0], heads[i][1] - parent[1], heads[i][2] - parent[2]);
+            view.bones[i].quaternion.identity();
+        });
+        view.group.updateMatrixWorld(true);
+        view.skeleton.calculateInverses();
+        if (view.action && this.pose === 'idle') view.action.play();
+        this._lastChange = Date.now();
+        this._draw();
+        return true;
+    }
+
+    /** What the fast path moves by: each part vertex's skin vertex, and where everything stood. */
+    _fastStart(result) {
+        const pack = this.pack, built = result.built, P = built.shaped;
+        const body = [...new Set(pack.body.source)];
+        const cell = 0.03, grid = new Map(), key = (x, y, z) => x + ',' + y + ',' + z;
+        for (const v of body) {
+            const k = key(Math.floor(P[v * 3] / cell), Math.floor(P[v * 3 + 1] / cell), Math.floor(P[v * 3 + 2] / cell));
+            if (!grid.has(k)) grid.set(k, []);
+            grid.get(k).push(v);
+        }
+        // The model may stand higher than the body (boots): every part's own lift off the body.
+        let floorModel = Infinity, floorBody = Infinity;
+        for (const p of result.parts) for (let i = 1; i < p.positions.length; i += 3) floorModel = Math.min(floorModel, p.positions[i]);
+        for (const v of pack.body.source) floorBody = Math.min(floorBody, P[v * 3 + 1]);
+        const shift = Math.max(0, -floorModel);
+        const nearest = (x, y, z) => {
+            const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell);
+            let best = body[0], bd = Infinity;
+            for (let r = 1; r <= 6; r++) {
+                for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) for (let k = -r; k <= r; k++) {
+                    if (Math.max(Math.abs(i), Math.abs(j), Math.abs(k)) !== r && r > 1) continue;
+                    for (const u of grid.get(key(cx + i, cy + j, cz + k)) || []) {
+                        const d = (P[u * 3] - x) ** 2 + (P[u * 3 + 1] - y) ** 2 + (P[u * 3 + 2] - z) ** 2;
+                        if (d < bd) { bd = d; best = u; }
+                    }
+                }
+                if (bd < Infinity) break;
+            }
+            return best;
+        };
+        const maps = result.parts.map((part, k) => {
+            const n = part.positions.length / 3;
+            if (k === 0) return Int32Array.from(pack.body.source);
+            if (part.name === 'Genitals') return Int32Array.from(pack.helpers.genital.source);
+            // Parts that know the skin vertex each of theirs rides on (areolas, body hair).
+            if (part.source && part.source.length === n) return Int32Array.from(part.source);
+            const m = new Int32Array(n);
+            for (let i = 0; i < n; i++) m[i] = nearest(part.positions[i * 3], part.positions[i * 3 + 1] - shift, part.positions[i * 3 + 2]);
+            return m;
+        });
+        return {
+            result, maps, shaped: Float32Array.from(P), floor: floorBody,
+            bases: result.parts.map(p => Float32Array.from(p.positions)),
+            joints: RRHumanBody.joints(pack, P).map(j => j.head.slice())
+        };
+    }
+
     _queueRebuild() {
         this._lastChange = Date.now();
         if (this._pending) return;
@@ -1129,7 +1240,7 @@ class Character3DBuilder {
         if (!view || !this.pack) return;
         let result;
         try {
-            result = RRCharacterModel.build(this.pack, this.recipe, this.cache, { quality: 'preview', eyeSource: this.eyeSource });
+            result = RRCharacterModel.build(this.pack, this.recipe, this.cache, { quality: 'preview', eyeSource: this.eyeSource, paintSkin: (key, args) => this._paintSkin(key, args) });
         } catch (error) {
             console.error('[Character3DBuilder] build', error);
             this._status(this._t('This character could not be built.'), 'error');
@@ -1142,6 +1253,31 @@ class Character3DBuilder {
         if (readout) {
             const tris = result.parts.reduce((s, p) => s + p.index.length / 3, 0);
             readout.textContent = this._t('Height {m} m', { m: result.height.toFixed(2) }) + ' · ' + this._t('{n} triangles', { n: Math.round(tris).toLocaleString() });
+        }
+    }
+
+    /** New pictures into the materials that show them, in place: nothing else is made again. */
+    _swapTextures(result) {
+        const view = this._view;
+        for (const [name, tex] of Object.entries(result.textures || {})) {
+            const kept = view.textures.get(name);
+            if (!kept || kept.data === tex.data) continue;
+            const old = kept.texture;
+            if (old.image.width === tex.width && old.image.height === tex.height) {
+                old.image.data = tex.data;
+                old.needsUpdate = true;
+                kept.data = tex.data;
+                continue;
+            }
+            view.textures.delete(name);
+            const fresh = this._texture(name, tex);
+            for (const m of view.meshes) if (m.material.map === old) { m.material.map = fresh; m.material.needsUpdate = true; }
+            old.dispose();
+        }
+        // The painted skin is in: no tint stands in for it any more.
+        const body = view.meshes[0];
+        if (body && body.material.userData.tinted && this.cache.skinKey !== body.material.userData.tintFrom) {
+            body.material.color.set(0xffffff); body.material.userData.tinted = false;
         }
     }
 
@@ -1288,7 +1424,7 @@ class Character3DBuilder {
         const view = this._view;
         // The same structure as what is shown: moved in place.
         const structure = this._structure(result);
-        if (view.structure === structure && view.meshes.length && this._sameTextures(result)) { this._update(result); return; }
+        if (view.structure === structure && view.meshes.length) { this._swapTextures(result); this._update(result); return; }
         view.structure = structure;
         const time = view.action ? view.action.time : 0;
         this._clearModel();
@@ -1374,6 +1510,91 @@ class Character3DBuilder {
             worker.onmessage = e => { if (e.data.id === id) apply(e.data.ao); };
             worker.postMessage({ id, parts });
         }, 300);
+    }
+
+    /** Tints the body's material from the skin it shows toward `hex`; false when there is nothing to tint. */
+    _tintSkin(hex) {
+        const view = this._view, mesh = view && view.meshes[0], painted = this._result && this._result.recipe.skin;
+        if (!mesh || !painted || this.recipe.plan === 'quadruped') return false;
+        const a = new THREE.Color(painted), b = new THREE.Color(hex);
+        mesh.material.color.setRGB(Math.min(4, b.r / Math.max(0.02, a.r)), Math.min(4, b.g / Math.max(0.02, a.g)), Math.min(4, b.b / Math.max(0.02, a.b)));
+        if (!mesh.material.userData.tinted) mesh.material.userData.tintFrom = this.cache.skinKey;
+        mesh.material.userData.tinted = true;
+        this._draw();
+        return true;
+    }
+
+    /**
+     * The skin is painted off the page: a picture is a second or more of work
+     * at full size. Asked for a skin it has, the painter hands it over;
+     * otherwise it starts on it (the latest asked for only) and the view is
+     * built again when it is done.
+     */
+    _paintSkin(key, args) {
+        const P = this._painter || (this._painter = { ready: new Map(), busy: null, next: null });
+        if (P.ready.has(key)) return P.ready.get(key);
+        const worker = this._skinWorker();
+        if (!worker) return null;
+        P.next = { key, args };
+        this._pumpPainter();
+        return null;
+    }
+
+    _pumpPainter() {
+        const P = this._painter, worker = this._skinWorker();
+        if (!P || P.busy || !P.next || !worker) return;
+        const job = P.busy = P.next;
+        P.next = null;
+        worker.onmessage = e => {
+            const { key, width, height, data } = e.data;
+            P.busy = null;
+            // Only the newest few are kept.
+            P.ready.set(key, { width, height, data: new Uint8Array(data), name: 'skin.png' });
+            while (P.ready.size > 4) P.ready.delete(P.ready.keys().next().value);
+            if (P.next) this._pumpPainter();
+            else this._queueRebuild();
+        };
+        worker.postMessage({ key: job.key, args: job.args });
+    }
+
+    /** One skin painted by a painter of its own, for Save (the view's painter keeps its queue). */
+    _paintSkinNow(args) {
+        return new Promise(resolve => {
+            const keep = this._skinWorkerRef;
+            this._skinWorkerRef = undefined;
+            const worker = this._skinWorker();
+            this._skinWorkerRef = keep;
+            if (!worker) { resolve(null); return; }
+            worker.onmessage = e => { resolve({ width: e.data.width, height: e.data.height, data: new Uint8Array(e.data.data), name: 'skin.png' }); worker.terminate(); };
+            worker.onerror = () => { resolve(null); worker.terminate(); };
+            worker.postMessage({ key: 'save', args });
+        });
+    }
+
+    /** The skin painter: the body's own modules and data, loaded into a worker once. */
+    _skinWorker() {
+        if (this._skinWorkerRef !== undefined) return this._skinWorkerRef;
+        try {
+            const fs = require('fs'), path = require('path');
+            const dir = path.join(RRHumanBody.dataFolder(), '..');
+            const code = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterSkin'].map(f => fs.readFileSync(path.join(dir, f + '.js'), 'utf8')).join('\n;\n') + `
+                let pack = null;
+                self.onmessage = e => {
+                    if (e.data.init) { pack = self.RRHumanBody.openPack(e.data.json, new Uint8Array(e.data.bin)); return; }
+                    const a = e.data.args, t = self.RRCharacterSkin.paint(pack, a.skin, a.pattern, a.options);
+                    self.postMessage({ key: e.data.key, width: t.width, height: t.height, data: t.data.buffer }, [t.data.buffer]);
+                };`;
+            const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+            const data = RRHumanBody.dataFolder();
+            const bin = fs.readFileSync(path.join(data, 'human.bin'));
+            const buffer = bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength);
+            worker.postMessage({ init: true, json: JSON.parse(fs.readFileSync(path.join(data, 'human.json'), 'utf8')), bin: buffer }, [buffer]);
+            this._skinWorkerRef = worker;
+        } catch (error) {
+            console.warn('[Character3DBuilder] skin painter', error);
+            this._skinWorkerRef = null;
+        }
+        return this._skinWorkerRef;
     }
 
     /** The shading worker: CharacterShading.js itself, run off the page. */
@@ -1493,7 +1714,12 @@ class Character3DBuilder {
         this._status(this._t('Saving…'));
         try {
             // The file at full quality: its own build, the outfit's picture shared with the view's.
-            const result = RRCharacterModel.build(this.pack, this.recipe, { wardrobe: this.cache.wardrobe }, { quality: 'save', eyeSource: this.eyeSource });
+            // The full-size skin painted off the page first, then the file built with it.
+            let wanted = null;
+            const probe = { wardrobe: this.cache.wardrobe };
+            RRCharacterModel.build(this.pack, this.recipe, probe, { quality: 'save', eyeSource: this.eyeSource, paintSkin: (key, args) => { wanted = { key, args }; return null; } });
+            const skin = wanted ? await this._paintSkinNow(wanted.args) : null;
+            const result = RRCharacterModel.build(this.pack, this.recipe, { wardrobe: this.cache.wardrobe }, { quality: 'save', eyeSource: this.eyeSource, paintSkin: skin ? () => skin : undefined });
             const glb = await RRCharacterModel.toGlb(result, name, tex => this._png(tex));
             // Written whole or not at all: a save cut short leaves the last good file.
             const atomic = window.RRWriteFileAtomicSync || ((io, target, data) => io.writeFileSync(target, data));
@@ -1539,6 +1765,11 @@ Character3DBuilder.blobTexture = function() {
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
     return (Character3DBuilder._blob = t);
+};
+
+/** Sliders that only reshape the body: the drag's fast path can follow them. */
+Character3DBuilder.bodyPath = function(path) {
+    return /^(shapes\.|morph\.|anatomy\.(length|girth|testicles|mons|labia|fold|nipple)$|gender$|age$|height$|weight$|muscle$|cup$|firmness$|headSize$)/.test(path);
 };
 
 /** Bumped when the previews' look changes, so pictures kept on disk are drawn again. */

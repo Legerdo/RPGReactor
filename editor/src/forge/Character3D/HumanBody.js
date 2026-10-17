@@ -676,13 +676,27 @@
 
     /** Nipples raised a little, a woman's crotch given its crease; both in the body's own surface. */
     function anatomyDetail(pack, P, r) {
-        const F = anatomyFields(pack), female = sexOf(r) === 'female';
-        const height = (female ? 0.0018 + 0.0012 * Math.min(2, Math.max(0, r.cup)) : 0.0012) * r.anatomy.nipple;
+        const F = anatomyFields(pack), female = sexOf(r) === 'female', B = pack.positions;
+        const nb = neighbors(pack);
+        const height = (female ? 0.003 : 0.0012) * r.anatomy.nipple, tipR = (female ? 0.0052 : 0.0034) * Math.max(0.6, Math.sqrt(r.anatomy.nipple));
         for (const nip of F.nipples) {
+            const c = [B[nip.v * 3], B[nip.v * 3 + 1], B[nip.v * 3 + 2]];
+            const zone = (nip.zone = nip.zone || [...new Set(pack.body.source)].map(v => [v, Math.hypot(B[v * 3] - c[0], B[v * 3 + 1] - c[1], B[v * 3 + 2] - c[2])]).filter(x => x[1] < 0.02));
+            // The base mesh's own modeled nipple smoothed away, so only one stands: this one.
+            for (let pass = 0; pass < 10; pass++) for (const [v, d] of zone) {
+                if (d > 0.018) continue;
+                const s = nb.offsets[v], e = nb.offsets[v + 1];
+                let m0 = 0, m1 = 0, m2 = 0;
+                for (let i = s; i < e; i++) { const u = nb.flat[i]; m0 += P[u * 3]; m1 += P[u * 3 + 1]; m2 += P[u * 3 + 2]; }
+                const k = 1 / (e - s), w = 0.7 * (1 - d / 0.018);
+                P[v * 3] += (m0 * k - P[v * 3]) * w; P[v * 3 + 1] += (m1 * k - P[v * 3 + 1]) * w; P[v * 3 + 2] += (m2 * k - P[v * 3 + 2]) * w;
+            }
             const n = normalAt(pack, P, nip.v);
-            for (const [v, d] of nip.near) {
-                // A small rise for the areola, a firmer one for the nipple.
-                const lift = height * (0.35 * Math.max(0, 1 - d * d) + Math.max(0, 1 - (d / 0.33) ** 2) ** 2);
+            for (const [v, d] of zone) {
+                // A soft rise of the areola, then the nipple: a rounded column, its top a dome.
+                const areola = (female ? 0.0008 : 0.0003) * r.anatomy.areola * Math.max(0, 1 - (d / 0.02) ** 2);
+                const column = height * (1 - smooth01(tipR * 0.55, tipR, d));
+                const lift = areola + column;
                 P[v * 3] += n[0] * lift; P[v * 3 + 1] += n[1] * lift; P[v * 3 + 2] += n[2] * lift;
             }
         }

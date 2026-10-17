@@ -332,8 +332,8 @@
             }
         }
         if (s.type !== 'none') rgb = mix(rgb, s.type === 'vitiligo' ? Outfit.linear('#f2e6dc') : accent, Math.max(0, Math.min(1, t)) * s.amount);
-        // Areolas: darker, warmer skin round each nipple, the nipple darker still.
-        if (s.nipples) for (const c of s.nipples) {
+        // Areolas are a patch of their own (RRCharacterDetail); a painted one is kept only when asked.
+        if (s.nipples && s.paintAreolas) for (const c of s.nipples) {
             const d = Math.hypot(x - c[0], y - c[1], z - c[2]);
             if (d > s.areola * 1.2) continue;
             const area = 1 - smooth(s.areola * 0.8, s.areola * 1.15, d), tip = 1 - smooth(s.areola * 0.22, s.areola * 0.32, d);
@@ -351,12 +351,9 @@
         // Body hair, painted: darker strands thickening with the amount.
         if (s.bodyHair && s.bodyHair.amount > 0) {
             const bh = s.bodyHair, dens = hairDensity(bh.regions, p) * bh.amount;
-            if (dens > 0.01) {
-                // Strands over a faint shadow of the hair's color where it grows thick.
-                const cover = strandCover(p, Math.min(1, dens), 0.009 + 0.006 * dens, s.texel, s.strands || (s.strands = new Map()));
-                rgb = mix(rgb, mix(rgb, bh.rgb, 0.4), dens * 0.45);
-                rgb = mix(rgb, bh.rgb, cover * 0.9);
-            }
+            // Only an undertone where it grows: the hair itself is strands over the skin (RRCharacterDetail).
+            // Under fur, the skin itself takes the fur's color, so none shows between the strands.
+            if (dens > 0.01) rgb = mix(rgb, bh.rgb, Math.min(1, dens) * Math.max(0.12, (bh.fur || 0) * 0.92));
         }
         // With the ears folded away, the ear's own skin is the inside of the ear hole: dark.
         if (s.earHoles && p.ears > 0.45) rgb = mix(rgb, rgb.map(c => c * 0.12), smooth(0.45, 0.85, p.ears));
@@ -531,7 +528,7 @@
         return out;
     }
 
-    const api = { HAIR_REGIONS, HAIR_PRESETS, BODY_HAIR_PATTERNS, DEFAULT_BODY_HAIR, normalizeBodyHair, hairDensity, paintFur, PATTERNS, PUPILS, DEFAULT_SKIN, DEFAULT_EYES, normalizeSkin, normalizeEyes, paint, paintEyes, shadeSkin, regionOf };
+    const api = { fieldsOf: fields, HAIR_REGIONS, HAIR_PRESETS, BODY_HAIR_PATTERNS, DEFAULT_BODY_HAIR, normalizeBodyHair, hairDensity, paintFur, PATTERNS, PUPILS, DEFAULT_SKIN, DEFAULT_EYES, normalizeSkin, normalizeEyes, paint, paintEyes, shadeSkin, regionOf };
     root.RRCharacterSkin = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -6,7 +6,7 @@ Forge › 3D Character Builder makes a character with sliders and pickers and sa
 
 - **Species:** Humanoid or Four-legged. A species tile (Elf, Dwarf, Orc, Lizardfolk, Catfolk, Tiefling, Android and more) sets the body, face, skin, eyes and features to start from; everything stays editable. Features add horns, animal ears, a tail, wings, a beak, tusks, spines or whiskers to any humanoid, each with its size and colors. Four-legged offers cat, lion, tiger, dog, wolf, fox, deer, horse, bear, boar, rabbit, bull, ram and drake, with ears, tail, horns, feet, wings and mane.
 - **Body:** gender, age, height, weight, muscle, head size, bust and firmness, then proportions (limb lengths, hand, foot size, length and width), torso, bust, arms and legs (fat and muscle per limb, calves), and toe length. Muscle past average adds bulk; weight and muscle combine (heavy and strong).
-- **Body hair:** an amount, a pattern (light, natural, very hairy, furry body, werewolf) and every region on its own (face, neck, chest, belly, back, shoulders, upper arms, forearms, hands, armpits, pubic, buttocks, thighs, lower legs, feet); its color is the hair's unless chosen. **Fur** adds a fur coat over the skin, with its length. The Werewolf species starts furred all over.
+- **Body hair:** real strands grown out of the skin. An amount, a pattern (light, natural, very hairy, furry body, werewolf) and every region on its own (face, neck, chest, belly, back, shoulders, upper arms, forearms, hands, armpits, pubic, buttocks, thighs, lower legs, feet); its color is the hair's unless chosen. **Fur** adds a fur coat over the skin, with its length. The Werewolf species starts furred all over.
 - **Anatomy:** off unless **Anatomical detail** is checked (Randomize leaves it as set). Then nipples and areolas (size, color), and genitals by **Shown as** (by gender, male or female): length, girth and testicles, or mons, labia and fold depth. Clothing covers them.
 - **Face:** head shape, forehead and brows, eyes (an **Eye style**: natural, anime or small; eye size up to very large, width and tallness), nose, mouth and jaw, ears, a snout or muzzle, a flat face (for a beak), hidden ears with ear holes, and the ancestry mix.
 - **Hair:** 35 styles with color, tip color, length, volume, curl, bangs, receding hairline, highlights and part; facial hair; brows and lashes.
@@ -24,7 +24,7 @@ Hair styles, facial hair, brows, species, outfits, garments and accessories are 
 
 **Save to Project** writes `3d/Characters/<name>/`:
 
-- `source/<name>.glb`: the model, skinned on a humanoid skeleton named the Mixamo way (a tail adds `Tail`…`Tail5`), with its pictures inside (`skin.png`, `eyes.png`, `outfit.png`, `lashes.png`, `fur.png`), shading baked into its vertex colors (creases, under the chin, where clothes overlap), and an Idle clip.
+- `source/<name>.glb`: the model, skinned on a humanoid skeleton named the Mixamo way (a tail adds `Tail`…`Tail5`), with its pictures inside (`skin.png`, `eyes.png`, `outfit.png`, `hair.png`, `lashes.png`, and `bodyhair.png` and `areola.png` when used), shading baked into its vertex colors (creases, under the chin, where clothes overlap), and an Idle clip.
 - `character.json`: the recipe. **Open…** shows every saved character as a picture; choosing one loads it to edit, and saving under the same name replaces the model.
 - `thumbnail.png`: the picture Open shows.
 - `model.json` (four-legged only): the quadruped rig, so the built-in walk and idle motions play. Other settings the 3D Models page keeps there stay.

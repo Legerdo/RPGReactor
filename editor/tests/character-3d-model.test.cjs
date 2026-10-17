@@ -11,7 +11,7 @@ const root = path.join(__dirname, '..');
 const dir = path.join(root, 'src', 'forge', 'Character3D');
 const load = name => require(path.join(dir, name + '.js'));
 const Body = load('HumanBody');
-for (const name of ['HumanTargets', 'CharacterOutfit', 'CharacterAtlas', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin', 'CharacterHair', 'CreatureBody', 'CharacterGlb']) load(name);
+for (const name of ['HumanTargets', 'CharacterOutfit', 'CharacterAtlas', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin', 'CharacterHair', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail']) load(name);
 const Model = load('CharacterModel');
 const Outfit = load('CharacterOutfit');
 const Wardrobe = load('CharacterWardrobe');
@@ -174,7 +174,7 @@ test('the arms hang clear of a wide body', () => {
 test('the editor page loads each module after the ones it needs', () => {
     const page = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     assert.ok(page.indexOf('src/utils/ColorPopover.js') > 0 && page.indexOf('src/utils/ColorPopover.js') < page.indexOf('src/forge/Character3D/Character3DBuilder.js'), 'the color picker is loaded before the builder');
-    const order = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin', 'CharacterHair', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterModel', 'Character3DBuilder'];
+    const order = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin', 'CharacterHair', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterModel', 'Character3DBuilder'];
     const at = order.map(name => page.indexOf(`src/forge/Character3D/${name}.js`));
     assert.ok(at.every(i => i > 0), 'every module is loaded');
     assert.deepEqual(at.slice().sort((a, b) => a - b), at);
@@ -242,4 +242,30 @@ test('hidden ears leave ear holes, not nubs', () => {
     const out = recipe => { const P = Body.build(pack, recipe).shaped, F = Body.headFields(pack); let m = 0; for (let v = 0; v < F.ear.length; v++) if (F.ear[v] > 0.6 && P[v * 3] > 0) m = Math.max(m, P[v * 3]); return m; };
     const ears = out({}), hidden = out({ morph: { earsAway: 1 } });
     assert.ok(ears - hidden > 0.015, 'the ear lies flat against the head');
+});
+
+test('anatomical detail: one sharp areola patch per nipple, centered on it, and none without the switch', () => {
+    const on = Model.build(pack, { gender: 0, anatomy: { detail: true } }, {}, { quality: 'preview' });
+    const off = Model.build(pack, { gender: 0 }, {}, { quality: 'preview' });
+    assert.ok(!off.parts.some(p => p.name === 'Areolas' || p.name === 'Genitals'), 'nothing anatomical by default');
+    const patch = on.parts.find(p => p.name === 'Areolas');
+    assert.ok(patch && on.textures['areola.png'].width >= 256, 'a patch with its own picture');
+    // Each patch's middle (uv 0.5) is the nipple: the patch vertex nearest it sits on the nipple vertex.
+    const F = Body.anatomyFields(pack);
+    for (const nip of F.nipples) {
+        const i = Array.from(patch.source).indexOf(nip.v);
+        assert.ok(i >= 0, 'the nipple is in its patch');
+        assert.ok(Math.abs(patch.uvs[i * 2] - 0.5) < 0.02 && Math.abs(patch.uvs[i * 2 + 1] - 0.5) < 0.02, 'centered on it');
+    }
+});
+
+test('body hair is strands grown out of the skin where its regions say, and covered skin grows none', () => {
+    const hairy = Model.build(pack, { gender: 1, bodyHair: { amount: 1, pattern: 'natural' } }, {}, { quality: 'preview' });
+    const part = hairy.parts.find(p => p.name === 'Body hair');
+    assert.ok(part && part.index.length / 3 > 2000, 'thousands of strands');
+    assert.ok(part.cutout && part.texture === 'bodyhair.png');
+    const dressed = Model.build(pack, { gender: 1, bodyHair: { amount: 1, pattern: 'natural' }, outfit: Wardrobe.PRESETS.find(p => p.id === 'knight').items }, {}, { quality: 'preview' });
+    const under = dressed.parts.find(p => p.name === 'Body hair');
+    assert.ok(!under || under.index.length < part.index.length * 0.5, 'armor covers most of it');
+    assert.ok(!Model.build(pack, { gender: 1 }, {}, { quality: 'preview' }).parts.some(p => p.name === 'Body hair'), 'none by default');
 });
