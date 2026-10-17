@@ -15,7 +15,7 @@
 
     const Props = root.RRCharacterProps || (typeof require === 'function' ? require('./CharacterProps.js') : null);
     const Outfit = root.RRCharacterOutfit || (typeof require === 'function' ? require('./CharacterOutfit.js') : null);
-    const { add, sub, mul, norm, lerp, cross } = Props.vec;
+    const { add, sub, mul, dot, norm, lerp, cross } = Props.vec;
     const linear = hex => Outfit.linear(hex);
     const mixRgb = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
@@ -293,7 +293,8 @@
                 void edge;
                 continue;
             }
-            // Feathered: rows of feathers hanging from the arm, longest at the hand.
+            // Feathered wings are built as feathers on their own part (featheredWing).
+            if (f.type === 'feathered') continue;
             m.tube(arm, t => 0.03 * s * (1 - t * 0.6), 8, main, skin);
             const rows = [[1, 0.42, 14, main], [0.62, 0.26, 16, mixRgb(main, second, 0.4)], [0.35, 0.14, 18, second]];
             for (const [reach, length, count, color] of rows) {
@@ -310,6 +311,109 @@
                 }
             }
         }
+    }
+
+    /**
+     * A feathered wing as a bird's (and a painted angel's) is made: an arm
+     * from the shoulder blade up over the shoulder to the wrist and out to the
+     * hand, half spread behind the back; on it the flight feathers (primaries
+     * fanning from the hand, secondaries along the forearm, tertials by the
+     * body), overlapped by three rows of coverts growing shorter toward the
+     * leading edge and the scapulars over the root. Each feather is a curved
+     * card on the feather picture (`feather.png`), tinted from the wing's
+     * color at its tip to its second color at its base. Returns a part.
+     */
+    function featheredWing(L, f) {
+        const spine = L.boneIndex('Spine2'), s = f.size;
+        const y = L.bone('Spine2').head[1] + 0.1, z0 = L.backAt(y, 0.06);
+        const main = linear(f.color), second = linear(f.color2 || f.color);
+        const pos = [], nrm = [], uv = [], col = [], idx = [];
+        const card = (from, dir, across, len, wid, bend, tint, lane) => {
+            // Along the feather in four segments, curving back off the wing a little; two vertices across.
+            const out = norm(cross(dir, across)), base = pos.length / 3;
+            for (let k = 0; k <= 4; k++) {
+                const t = k / 4, c = add(add(from, mul(dir, len * t)), mul(out, bend * len * t * t));
+                const w = wid * (k === 0 ? 0.55 : 1);
+                for (const e of [-1, 1]) {
+                    const p = add(c, mul(across, e * w * 0.5));
+                    pos.push(...p); nrm.push(...out); uv.push(lane * 0.5 + (e < 0 ? 0 : 0.5), 1 - t);
+                    const rgb = mixRgb(second, main, Math.min(1, t * 1.3)).map(x => x * tint);
+                    col.push(...rgb);
+                }
+            }
+            for (let k = 0; k < 4; k++) { const a = base + k * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+        };
+        for (const side of [1, -1]) {
+            const root = [side * 0.07, y, (isFinite(z0) ? z0 : -0.12) - 0.015];
+            // The arm: up and out behind the shoulder, the wrist high, the hand reaching out and a little down.
+            const knots = [root, add(root, [side * 0.12 * s, 0.12 * s, -0.08 * s]), add(root, [side * 0.3 * s, 0.32 * s, -0.16 * s]),
+                add(root, [side * 0.5 * s, 0.42 * s, -0.22 * s]), add(root, [side * 0.7 * s, 0.34 * s, -0.27 * s])];
+            const armAt = t => {
+                const x = t * (knots.length - 1), i = Math.min(knots.length - 2, Math.floor(x)), u = x - i;
+                const p0 = knots[Math.max(0, i - 1)], p1 = knots[i], p2 = knots[i + 1], p3 = knots[Math.min(knots.length - 1, i + 2)];
+                return [0, 1, 2].map(k => 0.5 * (2 * p1[k] + (-p0[k] + p2[k]) * u + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * u * u + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * u * u * u));
+            };
+            const alongAt = t => norm(sub(armAt(Math.min(1, t + 0.01)), armAt(Math.max(0, t - 0.01))));
+            // The way a feather hangs at t: down by the body, fanning out to point along the hand at the tip.
+            const hangAt = t => {
+                const spread = Math.pow(Math.max(0, (t - 0.55) / 0.45), 1.4);
+                return norm(add(mul([side * 0.12, -1, -0.12], 1 - spread), mul(alongAt(t), spread * 1.15)));
+            };
+            const across = (t, dir) => { let a = norm(sub(alongAt(t), mul(dir, dot(alongAt(t), dir)))); if (!isFinite(a[0])) a = [side, 0, 0]; return a; };
+            const lay = (t, len, wid, depth, tint, lane) => {
+                const dir = hangAt(t), a = across(t, dir), from = add(armAt(t), [0, 0, -depth]);
+                card(from, dir, a, len, wid, 0.06, tint, lane);
+            };
+            // Flight feathers: tertials, secondaries and primaries, longest at the hand, the last few shorter.
+            const flight = [];
+            for (let k = 0; k < 5; k++) flight.push([0.12 + k * 0.05, 0.36 + k * 0.03, 0.13]);
+            for (let k = 0; k < 13; k++) flight.push([0.37 + k * 0.035, 0.5 + k * 0.012, 0.15]);
+            for (let k = 0; k < 10; k++) flight.push([0.83 + k * 0.019, 0.72 + Math.sin(Math.min(1, k / 7) * Math.PI * 0.5) * 0.22 - (k > 7 ? (k - 7) * 0.12 : 0), 0.12]);
+            flight.forEach(([t, len, w], k) => lay(t, len * s, w * s, 0.002 + k * 0.0006, 0.93 + 0.07 * ((k * 7) % 3) / 2, 0));
+            // Coverts in three rows over the flight feathers' bases, then the small ones along the leading edge.
+            const rows = [[0.32, 0.12, 24, 0.012], [0.18, 0.09, 28, 0.02], [0.09, 0.06, 32, 0.027]];
+            for (const [len, w, count, depth] of rows) for (let k = 0; k < count; k++) {
+                const t = 0.08 + 0.9 * k / (count - 1);
+                lay(t, len * s * (1 - 0.25 * t), w * s, depth + k * 0.0003, 0.97, 1);
+            }
+            // Scapulars over the root, laid down the back.
+            for (let k = 0; k < 6; k++) lay(0.02 + k * 0.02, (0.2 - k * 0.012) * s, 0.09 * s, 0.03 + k * 0.001, 1, 1);
+        }
+        const n = pos.length / 3;
+        return { name: 'Wings', positions: Float32Array.from(pos), normals: Float32Array.from(nrm), uvs: Float32Array.from(uv), colors: Float32Array.from(col),
+            joints: new Uint8Array(n * 4).map((_, i) => (i % 4 === 0 ? spine : 0)), weights: new Float32Array(n * 4).map((_, i) => (i % 4 === 0 ? 1 : 0)),
+            index: Uint32Array.from(idx), texture: 'feather.png', cutout: true, alphaCutoff: 0.4, keepColors: true, doubleSided: true, roughness: 0.8, metalness: 0 };
+    }
+
+    /**
+     * The feather picture: two lanes, a flight feather (a stiff shaft, the
+     * outer vane narrower, barbs angled toward the tip, a split or two in the
+     * vane) and a covert (softer, rounder, downy at its base). Gray scale,
+     * tinted by the wing's colors.
+     */
+    function featherTexture(W = 128, H = 256) {
+        const data = new Uint8Array(W * H * 4);
+        const rand = (() => { let q = 99; return () => { q ^= q << 13; q >>>= 0; q ^= q >> 17; q ^= q << 5; q >>>= 0; return q / 4294967296; }; })();
+        const splits = [0, 1].map(() => Array.from({ length: 3 }, () => [0.25 + rand() * 0.6, rand() < 0.5 ? -1 : 1]));
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+            const lane = x < W / 2 ? 0 : 1, u = ((x % (W / 2)) + 0.5) / (W / 2) * 2 - 1, v = 1 - (y + 0.5) / H;
+            // The vane's half width along the feather: rounded at the tip, narrowing to the quill.
+            const tip = lane ? 0.92 : 0.96, prof = v > tip ? 0 : Math.sqrt(Math.max(0, 1 - Math.pow(v / tip, lane ? 2.2 : 3.5))) * Math.min(1, v * (lane ? 3 : 6));
+            const half = prof * (u < 0 ? (lane ? 0.95 : 0.6) : 0.95);
+            const shaft = Math.abs(u) < 0.06 * (1 - v * 0.7) && v < tip + 0.02;
+            let a = Math.abs(u) <= half ? 1 : 0;
+            // Barbs: fine lines angled toward the tip; a split or two parts them.
+            const barb = 0.5 + 0.5 * Math.sin((v * 90 + Math.abs(u) * 26) * Math.PI);
+            for (const [sv, sd] of splits[lane]) if (Math.sign(u) === sd && Math.abs(v - sv - Math.abs(u) * 0.3) < 0.006 && Math.abs(u) > 0.15) a = 0;
+            // Downy at a covert's base: ragged and soft.
+            if (lane && v < 0.25) a *= 0.5 + 0.5 * barb;
+            const edge = Math.abs(u) > half * 0.92 ? 0.85 : 1;
+            let l = (0.92 + 0.08 * barb) * edge * (0.92 + 0.08 * v);
+            if (shaft) { a = 1; l = 0.98; }
+            const o = (y * W + x) * 4, g = Math.round(255 * Math.min(1, l));
+            data[o] = data[o + 1] = data[o + 2] = g; data[o + 3] = Math.round(255 * a);
+        }
+        return { width: W, height: H, data, name: 'feather.png' };
     }
 
     function beak(m, L, f) {
@@ -443,6 +547,7 @@
         if (F.ears.type !== 'none') animalEars(soft, L, F.ears);
         if (F.tail.type !== 'none') tail(soft, pack, L, F.tail, bones, built.bones.length);
         if (F.wings.type !== 'none') wings(soft, L, F.wings);
+        const featherPart = F.wings.type === 'feathered' ? featheredWing(L, F.wings) : null;
         if (F.beak.type !== 'none') beak(hard, L, F.beak);
         if (F.tusks.type !== 'none') tusks(hard, pack, L, F.tusks);
         if (F.spines.type !== 'none') spines(hard, pack, L, F.spines);
@@ -450,13 +555,14 @@
         const lenses = new Props.Mesh();
         if (F.alienEyes.type !== 'none') alienEyes(lenses, built, pack, F.alienEyes);
         const parts = [];
+        if (featherPart) parts.push(featherPart);
         if (!lenses.empty) parts.push(lenses.part('Alien eyes', { roughness: 0.06, metalness: 0, kind: 'eye', doubleSided: true, envMapIntensity: 0.15 }));
         if (!hard.empty) parts.push(hard.part('Horns and claws', { roughness: 0.4, metalness: 0 }));
         if (!soft.empty) parts.push(soft.part('Features', { roughness: 0.8, metalness: 0, doubleSided: true, opacity: F.wings.type === 'fairy' ? 0.55 : undefined }));
         return { parts, bones, features: F };
     }
 
-    const api = { FEATURES, SPECIES, BY_ID, normalizeFeatures, speciesRecipe, build, tailShape };
+    const api = { FEATURES, SPECIES, BY_ID, normalizeFeatures, speciesRecipe, build, tailShape, featherTexture };
     root.RRCharacterSpecies = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
