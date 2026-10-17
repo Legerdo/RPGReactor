@@ -594,9 +594,9 @@ class EventCommandList {
      */
     static coveredByDialog(editorModal) {
         if (!editorModal) return false;
-        const doc = editorModal.ownerDocument || document;
-        const view = doc.defaultView || window;
-        if (typeof doc.elementFromPoint !== 'function' || !(view.innerWidth > 0)) return false;
+        const doc = editorModal.ownerDocument || (typeof document !== 'undefined' ? document : null);
+        const view = (doc && doc.defaultView) || (typeof window !== 'undefined' ? window : null);
+        if (!doc || !view || typeof doc.elementFromPoint !== 'function' || !(view.innerWidth > 0)) return false;
         const top = doc.elementFromPoint(view.innerWidth / 2, view.innerHeight / 2);
         return !!top && !editorModal.contains(top);
     }
