@@ -163,10 +163,15 @@ test('anatomical detail builds each sex as the species is made, and nothing when
     assert.equal(a, b);
 });
 
-/** How many separate pieces of skin a part is made of (pieces of a few faces aside). */
+/** How many separate pieces of skin a part is made of (pieces of a few faces aside); vertices split for a picture's seams count as one. */
 const pieces = part => {
     const n = part.positions.length / 3, parent = Int32Array.from({ length: n }, (_, i) => i);
     const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+    const seen = new Map();
+    for (let i = 0; i < n; i++) {
+        const key = part.positions[i * 3] + ',' + part.positions[i * 3 + 1] + ',' + part.positions[i * 3 + 2];
+        if (seen.has(key)) parent[i] = seen.get(key); else seen.set(key, i);
+    }
     for (let t = 0; t < part.index.length; t += 3) { const a = find(part.index[t]), b = find(part.index[t + 1]), c = find(part.index[t + 2]); parent[b] = a; parent[find(c)] = a; }
     const size = new Map();
     for (let i = 0; i < n; i++) { const r = find(i); size.set(r, (size.get(r) || 0) + 1); }
@@ -183,10 +188,28 @@ test('a male\'s sheath and scrotum are part of the body\'s skin, never a piece f
 
 test('the body holds together at the sliders\' ends: hips high or low, the thinnest legs', () => {
     const count = r => pieces(Creature.build(r, { quality: 'preview', hairBudget: 0 }).parts.find(p => p.name === 'Body'));
-    for (const [kind, over] of [['dog', { hipHeight: 0.5 }], ['dog', { hipHeight: 1.6 }], ['horse', { legThickness: 0.3 }], ['bull', { legThickness: 0.3 }], ['deer', { headSize: 2.6 }]]) {
+    for (const [kind, over] of [['dog', { hipHeight: 0.5 }], ['dog', { hipHeight: 1.6 }], ['horse', { hipHeight: 1.6 }], ['horse', { legThickness: 0.3 }], ['bull', { legThickness: 0.3 }], ['bull', { girth: 2.6 }], ['deer', { headSize: 2.6 }], ['drake', { bodyLength: 2.5 }]]) {
         const base = Creature.kindRecipe(kind);
         assert.equal(count(Object.assign({}, base, over)), count(base), kind + ' ' + JSON.stringify(over));
     }
+});
+
+test('a fine coat pattern is painted into a picture over the body; a plain coat stays in the vertex colors', () => {
+    for (const quality of ['save', 'preview']) {
+        const tiger = Creature.build(Creature.kindRecipe('tiger'), { quality, hairBudget: 0 });
+        const body = tiger.parts.find(p => p.name === 'Body');
+        assert.equal(body.texture, 'creaturecoat.png');
+        assert.ok(body.keepColors && body.uvs.length === body.positions.length / 3 * 2);
+        const pic = tiger.textures['creaturecoat.png'];
+        assert.equal(pic.data.length, pic.width * pic.height * 4);
+        for (let i = 0; i < body.uvs.length; i++) assert.ok(body.uvs[i] >= 0 && body.uvs[i] <= 1);
+        // The stripes: dark and light texels both.
+        let dark = 0, light = 0;
+        for (let i = 0; i < pic.data.length; i += 4) { const l = pic.data[i] + pic.data[i + 1]; if (l < 120) dark++; else if (l > 300) light++; }
+        assert.ok(dark > 1000 && light > 1000, quality + ' ' + dark + ' / ' + light);
+    }
+    const horse = Creature.build(Creature.kindRecipe('horse'), { quality: 'preview', hairBudget: 0 });
+    assert.ok(!horse.parts.find(p => p.name === 'Body').texture && !horse.textures['creaturecoat.png']);
 });
 
 test('a female wears no lion\'s mane and no antlers; the recipe keeps what was chosen', () => {
