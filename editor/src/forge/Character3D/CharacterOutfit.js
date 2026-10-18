@@ -265,13 +265,15 @@
     }
 
     /** Pushes points out of the body wherever they lie within `gap` of the skin or under it. */
-    function collide(pack, built, positions, start, end, gap, cache) {
+    function collide(pack, built, positions, start, end, gap, cache, only) {
         if (!cache.bodyGrid) {
             cache.bodyNormals = Body.vertexNormals(pack, built.shaped);
             cache.bodyGrid = pointGrid(built.shaped, new Set(pack.body.source), 0.04);
         }
         const P = built.shaped, N = cache.bodyNormals;
-        for (let i = start; i < end; i++) {
+        const count = only ? only.length : end - start;
+        for (let n = 0; n < count; n++) {
+            const i = only ? only[n] : start + n;
             const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
             const q = cache.bodyGrid.nearest(x, y, z, 2);
             if (q < 0) continue;
@@ -555,6 +557,8 @@
                 const x = pos; pos = next; next = x;
             }
         }
+        // The cut edge eased along itself, so a hem or a cuff runs smooth rather than stepping with the mesh under it.
+        smoothBorder(piece, pos, base, spec.edgeSmooth ?? 4);
         // Whatever still lies in the skin (a slider pushed past what the helper follows) is lifted out.
         if (spec.collide !== false) collide(pack, built, pos, 0, count, lift * 0.7, cache);
         // The rim: each border vertex gets a twin back down at the body, a strip between them.
@@ -582,9 +586,33 @@
             }
         }
         const out = Float32Array.from(positions);
+        // The rim folds back to the body, never into it (a helper a slider pushed under the skin).
+        if (spec.collide !== false && out.length / 3 > count) collide(pack, built, out, count, out.length / 3, 0.001, cache);
         const joints = new Uint8Array(skins.length * 4), weights = new Float32Array(skins.length * 4);
         skins.forEach((s, i) => { joints.set(s.joints, i * 4); weights.set(s.weights, i * 4); });
         return { positions: out, normals: triangleNormals(out, index), uvs: Float32Array.from(uvs), index: Uint32Array.from(index), joints, weights, field: fields, vals: Float32Array.from(vals), base, rimStart: count, origin: Int32Array.from(origin), piece };
+    }
+
+    /** Each border vertex moved toward the middle of its two neighbors along the border, `passes` times (the body point under it too). */
+    function smoothBorder(piece, pos, base, passes) {
+        if (!passes || !piece.border.length) return;
+        if (!piece.borderNext) {
+            const near = new Map();
+            for (const [a, b] of piece.border) {
+                if (!near.has(a)) near.set(a, []);
+                if (!near.has(b)) near.set(b, []);
+                near.get(a).push(b); near.get(b).push(a);
+            }
+            piece.borderNext = [...near.entries()].filter(([, n]) => n.length === 2);
+        }
+        const list = piece.borderNext;
+        for (let p = 0; p < passes; p++) {
+            const next = list.map(([v, [a, b]]) => [0, 1, 2].map(k => 0.5 * pos[v * 3 + k] + 0.25 * (pos[a * 3 + k] + pos[b * 3 + k])));
+            // The body point under each moves with it, so the rim folds back by the same depth.
+            list.forEach(([v], i) => {
+                for (let k = 0; k < 3; k++) { base[v * 3 + k] += next[i][k] - pos[v * 3 + k]; pos[v * 3 + k] = next[i][k]; }
+            });
+        }
     }
 
     // ── patterns ──────────────────────────────────────────────────────────
@@ -630,7 +658,763 @@
         return colors;
     }
 
-    const api = { binding, boundPositions, collide, pointGrid, FAMILIES, CHAINS, linear, anatomy, coverage, cut, cutFor, lay, paint, mixSkin, surfaceNormals, triangleNormals, relaxScalar };
+    // ── footwear ──────────────────────────────────────────────────────────
+    /**
+     * Shoes and boots are built around the foot, not cut from it: a last
+     * measured on the body (its footprint widened into a sole outline, its
+     * top smoothed into an upper over the toes and instep), a sole of its own
+     * thickness under it with a welt standing past the upper, and for boots a
+     * shaft up the leg. The upper is a grid: columns run round the sole
+     * outline (from the heel, in, round the toe, out, back to the heel) and
+     * rows climb from the welt up the wall, over the foot toward the ankle,
+     * then up the leg. The collar is cut across that grid once per style, on
+     * the average body, so the same shoe (and its picture) fits every slider.
+     *
+     * A style: { cols, collar: {front, side, back} (heights in ankle heights,
+     * for a low shoe), top (the shaft's top along the leg chain, for a boot),
+     * gap, toe (meters past the toes), point (0 round .. 1 pointed), width,
+     * sole, welt, heel (0 flat .. 1 a raised waist), spring, lames (rows to a
+     * painted plate), sandal (straps on a footbed), lining }. Armor's plates are painted along the rows.
+     */
+    const SHOE_COLS = 40, SHOE_DOME = 10, SHOE_WALL = 2;
+
+    /** The foot's own frame: the ankle joint, forward along the floor toward the toe tip, outward. */
+    function footFrame(built, side) {
+        const B = n => built.bones.find(b => b.name === (side ? 'Right' : 'Left') + n);
+        const ankle = B('Foot').head, tip = B('ToeBase').tail, knee = B('Leg').head, hip = B('UpLeg').head;
+        let fx = tip[0] - ankle[0], fz = tip[2] - ankle[2];
+        const l = Math.hypot(fx, fz) || 1; fx /= l; fz /= l;
+        const s = side ? -1 : 1;
+        return { ankle, knee, hip, fwd: [fx, fz], lat: [fz * s, -fx * s], sign: s, a: ankle[1] };
+    }
+    const toPlan = (F, x, z) => { const dx = x - F.ankle[0], dz = z - F.ankle[2]; return [dx * F.fwd[0] + dz * F.fwd[1], dx * F.lat[0] + dz * F.lat[1]]; };
+    const fromPlan = (F, f, l) => [F.ankle[0] + F.fwd[0] * f + F.lat[0] * l, F.ankle[2] + F.fwd[1] * f + F.lat[1] * l];
+
+    /** The skin of one leg from mid-thigh down (pack vertex ids), kept per pack. */
+    function legSkin(pack, side) {
+        pack._legSkin = pack._legSkin || [];
+        if (pack._legSkin[side]) return pack._legSkin[side];
+        const an = anatomy(pack), fam = side ? 4 : 3;
+        const ids = [...new Set(pack.body.source)].filter(v => an.member[v * 5 + fam] > 0.5 && an.s[v * 5 + fam] > 0.45);
+        return (pack._legSkin[side] = Int32Array.from(ids));
+    }
+
+    /** A point on the leg's axis at chain position s (hip 0, knee 1, ankle 2). */
+    function legAxis(F, s) {
+        const [a, b, t] = s >= 1 ? [F.knee, F.ankle, Math.min(1.2, s - 1)] : [F.hip, F.knee, s];
+        return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    }
+
+    const circBlur = (arr, passes) => {
+        const n = arr.length;
+        let a = Float64Array.from(arr), b = new Float64Array(n);
+        for (let p = 0; p < passes; p++) {
+            for (let i = 0; i < n; i++) b[i] = 0.25 * a[(i + n - 1) % n] + 0.5 * a[i] + 0.25 * a[(i + 1) % n];
+            const x = a; a = b; b = x;
+        }
+        return a;
+    };
+
+    /**
+     * The upper's grid on one foot of a built body: positions per (row, column),
+     * the columns' plan directions, and what the sole needs (the outline and
+     * its outward normals). `extra`: points of garments already laid that a
+     * boot's shaft goes over.
+     */
+    function shoeGrid(pack, built, style, side, extra) {
+        const F = footFrame(built, side), P = built.shaped, a = F.a;
+        const shaft = style.top != null;
+        // Where the foot meets the leg: just over the ankle bones.
+        const yj = a * 1.42;
+        const sj = 2 - (yj - F.ankle[1]) / Math.max(1e-3, F.knee[1] - F.ankle[1]);
+        const ids = legSkin(pack, side);
+        const pts = [];
+        for (const v of ids) pts.push(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
+        const own = pts.length;
+        // Garment points round this leg only, on its own side (not the other leg's trousers).
+        if (shaft && extra) for (let i = 0; i < extra.length; i += 3) {
+            const y = extra[i + 1], s = 2 - (y - F.ankle[1]) / Math.max(1e-3, F.knee[1] - F.ankle[1]);
+            const c = legAxis(F, Math.max(-0.5, s));
+            if (extra[i] * F.sign > 0 && Math.hypot(extra[i] - c[0], extra[i + 2] - c[2]) < 0.3) pts.push(extra[i], y, extra[i + 2]);
+        }
+        const gap = style.gap ?? 0.004;
+        // The footprint and the top of the foot as a height field in the foot's plan, 4 mm cells.
+        const cell = 0.004;
+        let f0 = Infinity, f1 = -Infinity, l0 = Infinity, l1 = -Infinity;
+        const plan = new Float32Array(own / 3 * 2);
+        for (let i = 0, k = 0; i < own; i += 3, k++) {
+            const [f, l] = toPlan(F, pts[i], pts[i + 2]);
+            plan[k * 2] = f; plan[k * 2 + 1] = l;
+            if (pts[i + 1] > yj) continue;
+            f0 = Math.min(f0, f); f1 = Math.max(f1, f); l0 = Math.min(l0, l); l1 = Math.max(l1, l);
+        }
+        const pad = 0.04;
+        f0 -= pad; f1 += pad + (style.toe || 0); l0 -= pad; l1 += pad;
+        const W = Math.ceil((f1 - f0) / cell) + 1, Hn = Math.ceil((l1 - l0) / cell) + 1;
+        let hf = new Float32Array(W * Hn);
+        for (let k = 0; k < own / 3; k++) {
+            const y = pts[k * 3 + 1];
+            if (y > yj) continue;
+            const ci = Math.round((plan[k * 2] - f0) / cell), cj = Math.round((plan[k * 2 + 1] - l0) / cell);
+            const o = cj * W + ci;
+            if (y > hf[o]) hf[o] = y;
+        }
+        // Grown by 8 mm (the gaps between skin vertices closed, the toes' clefts filled), then softened.
+        const grow = (src, r) => {
+            const out = new Float32Array(src.length);
+            for (let j = 0; j < Hn; j++) for (let i = 0; i < W; i++) {
+                let m = 0;
+                for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) {
+                    if (di * di + dj * dj > r * r + 0.5) continue;
+                    const x = i + di, y = j + dj;
+                    if (x < 0 || y < 0 || x >= W || y >= Hn) continue;
+                    m = Math.max(m, src[y * W + x]);
+                }
+                out[j * W + i] = m;
+            }
+            return out;
+        };
+        const blur = src => {
+            let s = src;
+            for (let p = 0; p < 3; p++) {
+                const out = new Float32Array(s.length);
+                for (let j = 0; j < Hn; j++) for (let i = 0; i < W; i++) {
+                    let sum = 0, n = 0;
+                    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+                        const x = i + di, y = j + dj;
+                        if (x < 0 || y < 0 || x >= W || y >= Hn) continue;
+                        const w = (di ? 1 : 2) * (dj ? 1 : 2); sum += s[y * W + x] * w; n += w;
+                    }
+                    out[j * W + i] = sum / n;
+                }
+                s = out;
+            }
+            return s;
+        };
+        const grown = grow(hf, 2);
+        const soft = blur(grown);
+        for (let i = 0; i < hf.length; i++) hf[i] = Math.max(grown[i], soft[i]);
+        const heightAt = (f, l) => {
+            const x = (f - f0) / cell, y = (l - l0) / cell;
+            const i = Math.max(0, Math.min(W - 2, Math.floor(x))), j = Math.max(0, Math.min(Hn - 2, Math.floor(y)));
+            const u = Math.max(0, Math.min(1, x - i)), w = Math.max(0, Math.min(1, y - j));
+            return (hf[j * W + i] * (1 - u) + hf[j * W + i + 1] * u) * (1 - w) + (hf[(j + 1) * W + i] * (1 - u) + hf[(j + 1) * W + i + 1] * u) * w;
+        };
+        // The leg's rings: per height, the farthest skin (or garment) in each direction round the leg's axis.
+        const cols = style.cols || SHOE_COLS;
+        const ringAt = (s, dirs) => {
+            const c = legAxis(F, s), y = c[1], half = 0.016;
+            const r = new Float64Array(dirs.length);
+            const win = Math.PI * 2 / dirs.length * 1.6;
+            const [cf, cl] = toPlan(F, c[0], c[2]);
+            for (let i = 0; i < pts.length; i += 3) {
+                if (Math.abs(pts[i + 1] - y) > half) continue;
+                const [f, l] = toPlan(F, pts[i], pts[i + 2]);
+                const df = f - cf, dl = l - cl, d = Math.hypot(df, dl), ang = Math.atan2(dl, df);
+                for (let k = 0; k < dirs.length; k++) {
+                    let da = Math.abs(ang - dirs[k]); if (da > Math.PI) da = Math.PI * 2 - da;
+                    if (da < win) r[k] = Math.max(r[k], d * Math.cos(da));
+                }
+            }
+            const sm = circBlur(r, 2);
+            return { c, y, r: Array.from(r, (x, k) => Math.max(x, sm[k]) + gap + 0.002) };
+        };
+        // The sole's outline: the footprint's reach in each direction round the ankle, widened by the gap.
+        const N = 180, reach = new Float64Array(N);
+        for (let k = 0; k < own / 3; k++) {
+            if (pts[k * 3 + 1] > yj) continue;
+            const f = plan[k * 2], l = plan[k * 2 + 1], d = Math.hypot(f, l), ang = Math.atan2(l, f);
+            for (let q = -2; q <= 2; q++) {
+                const bin = ((Math.round((ang / (Math.PI * 2)) * N) + q) % N + N) % N;
+                const da = ang - bin / N * Math.PI * 2;
+                reach[bin] = Math.max(reach[bin], d * Math.cos(da));
+            }
+        }
+        const sm = circBlur(reach, 3);
+        const junctionDirs = Array.from({ length: N }, (_, b) => b / N * Math.PI * 2);
+        const junction = ringAt(sj, junctionDirs);
+        const outline = [];
+        for (let b = 0; b < N; b++) {
+            const ang = b / N * Math.PI * 2;
+            let r = Math.max(reach[b], sm[b]) + gap + (style.width || 0) * Math.abs(Math.sin(ang));
+            // Round the toe, or draw it to a point, past the toes.
+            const ahead = Math.max(0, Math.cos(ang));
+            r += (style.toe || 0) * Math.pow(ahead, 2 + (style.point || 0) * 10);
+            // Never inside the leg as it leaves the shoe.
+            r = Math.max(r, junction.r[b] + 0.008);
+            outline.push([Math.cos(ang) * r, Math.sin(ang) * r]);
+        }
+        // Columns at even steps along the outline, from the heel (behind the ankle) round.
+        const start = N / 2;
+        const len = [0];
+        for (let b = 1; b <= N; b++) { const p = outline[(start + b - 1) % N], q = outline[(start + b) % N]; len.push(len[b - 1] + Math.hypot(q[0] - p[0], q[1] - p[1])); }
+        const O = [], dirs = [];
+        for (let j = 0; j < cols; j++) {
+            const target = len[N] * j / cols;
+            let b = 0; while (b < N - 1 && len[b + 1] < target) b++;
+            const t = (target - len[b]) / ((len[b + 1] - len[b]) || 1);
+            const p = outline[(start + b) % N], q = outline[(start + b + 1) % N];
+            const o = [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+            O.push(o); dirs.push(Math.atan2(o[1], o[0]));
+        }
+        // Outward normals of the outline in the plan.
+        const out = O.map((o, j) => {
+            const p = O[(j + cols - 1) % cols], q = O[(j + 1) % cols];
+            let nx = q[1] - p[1], ny = -(q[0] - p[0]);
+            const l = Math.hypot(nx, ny) || 1; nx /= l; ny /= l;
+            if (nx * o[0] + ny * o[1] < 0) { nx = -nx; ny = -ny; }
+            return [nx, ny];
+        });
+        // Rows: the wall, the upper over the foot to the junction ring, then the shaft's rings.
+        const rings = [ringAt(sj, dirs)];
+        const shaftRows = shaft ? Math.max(1, Math.ceil((1.92 - style.top) / 0.085)) : 0;
+        for (let r = 1; r <= shaftRows; r++) rings.push(ringAt(sj + (style.top - sj) * r / shaftRows, dirs));
+        // Rings of a boot's shaft fall straight: each no narrower than the one above it less a little, smoothed up the leg.
+        for (let k = 0; k < cols; k++) {
+            const col = rings.map(g => g.r[k]);
+            const smooth = col.map((x, i) => Math.max(x, ((col[i - 1] ?? x) + 2 * x + (col[i + 1] ?? x)) / 4));
+            rings.forEach((g, i) => { g.r[k] = smooth[i]; });
+        }
+        const rows = SHOE_WALL + SHOE_DOME + 1 + shaftRows;
+        const G = new Float32Array(rows * (cols + 1) * 3);
+        const minWall = style.wall ?? 0.022;
+        const put = (row, j, x, y, z) => { const o = (row * (cols + 1) + j) * 3; G[o] = x; G[o + 1] = y; G[o + 2] = z; };
+        const domeH = [];
+        for (let j = 0; j < cols; j++) {
+            const o = O[j], g0 = rings[0];
+            const [cf, cl] = toPlan(F, g0.c[0], g0.c[2]);
+            const L = [cf + Math.cos(dirs[j]) * g0.r[j], cl + Math.sin(dirs[j]) * g0.r[j]];
+            // The upper along this column: from the outline toward the junction ring, over the foot's smoothed top.
+            const heights = [];
+            for (let i = 0; i <= SHOE_DOME; i++) {
+                const t = i / SHOE_DOME;
+                const f = o[0] + (L[0] - o[0]) * t, l = o[1] + (L[1] - o[1]) * t;
+                heights.push(i === SHOE_DOME ? yj : Math.max(heightAt(f, l) + gap, minWall + (yj - minWall) * Math.pow(t, 3)));
+            }
+            // Never lower toward the ankle than nearer the toe (a smooth climb, no dips between toes and instep),
+            // and eased toward the least arch over the foot, so the upper bends in a curve, never a crease.
+            for (let i = 1; i <= SHOE_DOME; i++) heights[i] = Math.max(heights[i], heights[i - 1]);
+            const arch = concaveOver(heights);
+            for (let i = 0; i <= SHOE_DOME; i++) heights[i] = Math.max(heights[i], heights[i] * 0.4 + arch[i] * 0.6);
+            domeH.push(heights);
+        }
+        // Each row eased across its neighbors too, never below what it encloses: first raised to the highest
+        // of each three side by side (no teeth where the heel's wall meets the ankle), then softened.
+        {
+            const prev = domeH.map(h => h.slice());
+            for (let j = 0; j < cols; j++) for (let i = 0; i < SHOE_DOME; i++) domeH[j][i] = Math.max(prev[(j + cols - 1) % cols][i], prev[j][i], prev[(j + 1) % cols][i]);
+        }
+        for (let pass = 0; pass < 3; pass++) {
+            const prev = domeH.map(h => h.slice());
+            for (let j = 0; j < cols; j++) for (let i = 0; i < SHOE_DOME; i++) {
+                const m = 0.25 * prev[(j + cols - 1) % cols][i] + 0.5 * prev[j][i] + 0.25 * prev[(j + 1) % cols][i];
+                domeH[j][i] = Math.max(domeH[j][i], m);
+            }
+        }
+        for (let j = 0; j < cols; j++) {
+            const o = O[j], g0 = rings[0];
+            const [cf, cl] = toPlan(F, g0.c[0], g0.c[2]);
+            const L = [cf + Math.cos(dirs[j]) * g0.r[j], cl + Math.sin(dirs[j]) * g0.r[j]];
+            const heights = domeH[j];
+            const edge = heights[0];
+            const wall = [0, edge * 0.55];
+            const [x0, z0] = fromPlan(F, o[0], o[1]);
+            put(0, j, x0, wall[0], z0);
+            const bulge = 0.0008;
+            const [x1, z1] = fromPlan(F, o[0] + out[j][0] * bulge, o[1] + out[j][1] * bulge);
+            put(1, j, x1, wall[1], z1);
+            for (let i = 0; i <= SHOE_DOME; i++) {
+                const t = i / SHOE_DOME;
+                const f = o[0] + (L[0] - o[0]) * t, l = o[1] + (L[1] - o[1]) * t;
+                const [x, z] = fromPlan(F, f, l);
+                put(SHOE_WALL + i, j, x, heights[i], z);
+            }
+            for (let r = 1; r <= shaftRows; r++) {
+                const g = rings[r], [gf, gl] = toPlan(F, g.c[0], g.c[2]);
+                const flare = r === shaftRows ? 0.003 : 0;
+                const [x, z] = fromPlan(F, gf + Math.cos(dirs[j]) * (g.r[j] + flare), gl + Math.sin(dirs[j]) * (g.r[j] + flare));
+                put(SHOE_WALL + SHOE_DOME + r, j, x, g.y, z);
+            }
+        }
+        // The seam column behind repeats the first.
+        for (let row = 0; row < rows; row++) for (let k = 0; k < 3; k++) G[(row * (cols + 1) + cols) * 3 + k] = G[(row * (cols + 1)) * 3 + k];
+        return { F, G, rows, cols, O, out, dirs, yj, shaftRows, rings };
+    }
+
+    /** The least concave curve over evenly spaced values (their upper hull), sampled back at each. */
+    function concaveOver(h) {
+        const hull = [0];
+        for (let i = 1; i < h.length; i++) {
+            while (hull.length >= 2) {
+                const a = hull[hull.length - 2], b = hull[hull.length - 1];
+                // b lies under the chord a..i: not on the hull.
+                if ((h[b] - h[a]) * (i - a) <= (h[i] - h[a]) * (b - a)) hull.pop(); else break;
+            }
+            hull.push(i);
+        }
+        const out = new Array(h.length);
+        for (let k = 0; k + 1 < hull.length; k++) {
+            const a = hull[k], b = hull[k + 1];
+            for (let i = a; i <= b; i++) out[i] = h[a] + (h[b] - h[a]) * (i - a) / ((b - a) || 1);
+        }
+        return out;
+    }
+
+    /** Vertices at the same place share one normal (the mean of theirs). */
+    function weldNormals(P, N) {
+        const groups = new Map();
+        for (let i = 0; i < P.length / 3; i++) {
+            const k = Math.round(P[i * 3] * 1e5) + ',' + Math.round(P[i * 3 + 1] * 1e5) + ',' + Math.round(P[i * 3 + 2] * 1e5);
+            const g = groups.get(k);
+            if (g) g.push(i); else groups.set(k, [i]);
+        }
+        for (const g of groups.values()) {
+            if (g.length < 2) continue;
+            let x = 0, y = 0, z = 0;
+            for (const i of g) { x += N[i * 3]; y += N[i * 3 + 1]; z += N[i * 3 + 2]; }
+            const l = Math.hypot(x, y, z);
+            if (l < 1e-6) continue;
+            for (const i of g) { N[i * 3] = x / l; N[i * 3 + 1] = y / l; N[i * 3 + 2] = z / l; }
+        }
+    }
+
+    /** Outward normals of the grid's vertices. */
+    function gridNormals(grid) {
+        const { G, rows, cols, F } = grid, C = cols + 1, N = new Float32Array(G.length);
+        const at = (r, j, k) => G[(Math.max(0, Math.min(rows - 1, r)) * C + ((j + cols) % cols)) * 3 + k];
+        for (let r = 0; r < rows; r++) for (let j = 0; j <= cols; j++) {
+            const tj = [0, 1, 2].map(k => at(r, j + 1, k) - at(r, j - 1, k));
+            const tr = [0, 1, 2].map(k => at(r + 1, j, k) - at(r - 1, j, k));
+            let n = [tr[1] * tj[2] - tr[2] * tj[1], tr[2] * tj[0] - tr[0] * tj[2], tr[0] * tj[1] - tr[1] * tj[0]];
+            const l = Math.hypot(...n) || 1; n = n.map(x => x / l);
+            // Away from the foot's middle at that height.
+            const o = (r * C + j) * 3, cx = G[o] - F.ankle[0], cz = G[o + 2] - F.ankle[2];
+            if (n[0] * cx + n[2] * cz + n[1] * (r >= SHOE_WALL + 2 && r < SHOE_WALL + SHOE_DOME ? 0.5 : 0) < 0) n = n.map(x => -x);
+            N[o] = n[0]; N[o + 1] = n[1]; N[o + 2] = n[2];
+        }
+        return N;
+    }
+
+    /** A shoe style's fixed layout: the grid's cut along the collar, the sole's rings, measured once on the average body. */
+    function shoeTemplate(pack, style) {
+        pack._shoes = pack._shoes || new Map();
+        const key = JSON.stringify(style);
+        if (pack._shoes.has(key)) return pack._shoes.get(key);
+        const avg = pack._avgBuilt || (pack._avgBuilt = Body.build(pack, Body.DEFAULT_RECIPE));
+        const grid = shoeGrid(pack, avg, style, 0, null);
+        const { rows, cols, G, F } = grid, C = cols + 1;
+        // The grid as a surface to cut: its own vertices, uvs round (u) and up (v).
+        const n = rows * C, source = new Uint32Array(n), uv = new Float32Array(n * 2), index = [];
+        const V_UPPER = 0.78;
+        for (let r = 0; r < rows; r++) for (let j = 0; j <= cols; j++) {
+            const i = r * C + j;
+            source[i] = i; uv[i * 2] = j / cols; uv[i * 2 + 1] = r / (rows - 1) * V_UPPER;
+        }
+        // Each quad split along its shorter diagonal on the average body.
+        const d2 = (p, q) => (G[p * 3] - G[q * 3]) ** 2 + (G[p * 3 + 1] - G[q * 3 + 1]) ** 2 + (G[p * 3 + 2] - G[q * 3 + 2]) ** 2;
+        for (let r = 0; r + 1 < rows; r++) for (let j = 0; j < cols; j++) {
+            const a = r * C + j, b = a + 1, c = a + C, d = c + 1;
+            if (d2(a, d) < d2(b, c)) index.push(a, b, d, a, d, c); else index.push(a, b, c, b, d, c);
+        }
+        // The collar: in a low shoe, where each column climbs past the collar's height there.
+        const value = new Float32Array(n).fill(1);
+        const collarRow = new Float32Array(cols + 1).fill(rows - 1);
+        if (style.collar) {
+            const want = [];
+            for (let j = 0; j < cols; j++) {
+                const ang = grid.dirs[j], c = Math.cos(ang), s2 = Math.sin(ang) ** 2;
+                const k = c > 0 ? style.collar.front : style.collar.back;
+                want.push(F.a * (k * c * c + style.collar.side * s2));
+            }
+            // Cut at the collar's height on the average body, so the edge runs level however the rows climb.
+            const smooth = circBlur(want, 2);
+            const rowOf = j => {
+                for (let r = SHOE_WALL; r < rows - 1; r++) {
+                    const y0 = G[(r * C + j) * 3 + 1], y1 = G[((r + 1) * C + j) * 3 + 1];
+                    if (y1 >= smooth[j]) return r + Math.max(0, Math.min(1, (smooth[j] - y0) / ((y1 - y0) || 1)));
+                }
+                return rows - 1;
+            };
+            for (let j = 0; j < cols; j++) collarRow[j] = rowOf(j);
+            collarRow[cols] = collarRow[0];
+            for (let r = 0; r < rows; r++) for (let j = 0; j <= cols; j++) value[r * C + j] = (smooth[j % cols] - G[(r * C + j) * 3 + 1]) * 40 + (r < SHOE_WALL ? 1 : 0);
+        } else {
+            for (let r = 0; r < rows; r++) for (let j = 0; j <= cols; j++) value[r * C + j] = rows - 1 - r + 1e-3;
+        }
+        let piece;
+        if (style.sandal) piece = { verts: [], uvs: new Float32Array(0), vals: new Float32Array(0), index: new Uint32Array(0) };
+        else piece = cut({ source, uv, index: Uint32Array.from(index) }, value);
+        // The collar's edge (the cut line, or a boot's top row), not the welt's.
+        piece.border = borderEdges(piece.index).filter(([a, b]) => piece.vals[a] < 0.01 && piece.vals[b] < 0.01);
+        const t = { key, style, rows, cols, piece, collarRow };
+        pack._shoes.set(key, t);
+        // What the picture and the hidden skin are measured on: the shoes laid on the average body.
+        const laid = layShoes(pack, avg, t, null, { measure: true }, {});
+        t.paint = laid.paint;
+        t.hidden = shoeHidden(pack, avg, laid, style);
+        return t;
+    }
+
+    /** The skin a pair of shoes covers, on the average body: under the collar, less a margin seen into from above. */
+    function shoeHidden(pack, built, laid, style) {
+        const hidden = new Set(), P = built.shaped, margin = style.sandal ? 0 : (style.margin ?? 0.016);
+        for (let side = 0; side < 2; side++) {
+            const F = footFrame(built, side), top = laid.collar[side];
+            const bins = top.length;
+            for (const v of legSkin(pack, side)) {
+                const y = P[v * 3 + 1];
+                if (style.sandal) { if (y < 0.0045) hidden.add(v); continue; }
+                const [f, l] = toPlan(F, P[v * 3], P[v * 3 + 2]);
+                const b = ((Math.round(Math.atan2(l, f) / (Math.PI * 2) * bins) % bins) + bins) % bins;
+                if (y < top[b] - margin) hidden.add(v);
+            }
+        }
+        return hidden;
+    }
+
+    /**
+     * A pair of shoes on a built body: one part's arrays (both feet), and in
+     * a measuring run what the picture is painted from. `extra`: points of
+     * garments already laid (trouser legs a boot goes over).
+     */
+    function layShoes(pack, built, t, extra, options, frame) {
+        const style = t.style, measure = options && options.measure;
+        const positions = [], uvs = [], index = [], paint = [], collar = [], lining = [], shafts = [];
+        const joints = [], weights = [], source = [];
+        const sole = style.sole ?? 0.012, welt = style.welt ?? 0.004;
+        for (let side = 0; side < 2; side++) {
+            const grid = shoeGrid(pack, built, style, side, extra);
+            shafts.push(grid);
+            const { G, cols, rows, F, O, out } = grid, C = cols + 1;
+            const N = gridNormals(grid);
+            const indexStart = index.length;
+            const add = (p, u, v, attr) => {
+                positions.push(p[0], p[1], p[2]); uvs.push(u, v);
+                if (measure) paint.push(attr);
+                return positions.length / 3 - 1;
+            };
+            const fRange = [Math.min(...O.map(o => o[0])), Math.max(...O.map(o => o[0]))];
+            const fNorm = f => (f - fRange[0]) / ((fRange[1] - fRange[0]) || 1);
+            const attrOf = (p, region, extraAttr) => {
+                const [f, l] = toPlan(F, p[0], p[2]);
+                return Object.assign({ region, f: fNorm(f), fm: f, l, y: p[1] }, extraAttr);
+            };
+            // The upper.
+            const pc = t.piece, upperStart = positions.length / 3;
+            pc.verts.forEach(({ a, b, t: w }, i) => {
+                const p = [0, 1, 2].map(k => G[a * 3 + k] * (1 - w) + G[b * 3 + k] * w);
+                const row = Math.floor(a / C) * (1 - w) + Math.floor(b / C) * w;
+                const col = (a % C) * (1 - w) + (b % C) * w;
+                add(p, pc.uvs[i * 2], pc.uvs[i * 2 + 1], measure ? attrOf(p, 'upper', { row, col, below: t.collarRow[Math.round(col)] - row }) : null);
+            });
+            for (let i = 0; i < pc.index.length; i += 3) index.push(upperStart + pc.index[i], upperStart + pc.index[i + 1], upperStart + pc.index[i + 2]);
+            // Wherever the leg reaches past the upper (a calf between two rings), it stands out of it; the
+            // collar's roll and lining are laid from where it ends up.
+            const upperSoft = [];
+            for (let i = 0; i < pc.verts.length; i++) if (pc.verts[i].a >= C * SHOE_WALL) upperSoft.push(upperStart + i);
+            collide(pack, built, positions, 0, 0, 0.0025, frame || {}, upperSoft);
+            // The collar's edge rolled over, and the lining a little way down inside.
+                const rimOf = new Map();
+            const rimFor = i => {
+                if (rimOf.has(i)) return rimOf.get(i);
+                const p = [positions[(upperStart + i) * 3], positions[(upperStart + i) * 3 + 1], positions[(upperStart + i) * 3 + 2]];
+                // Inward: level, toward the leg's axis at this height.
+                const ax = legAxis(F, 2 - (p[1] - F.ankle[1]) / Math.max(1e-3, F.knee[1] - F.ankle[1]));
+                let nx = p[0] - ax[0], nz = p[2] - ax[2];
+                const nl = Math.hypot(nx, nz) || 1;
+                const n = [nx / nl, 0, nz / nl], u = pc.uvs[i * 2];
+                const th = style.lining ?? 0.003;
+                const ring = [
+                    [p[0], p[1], p[2]],
+                    [p[0] - n[0] * th * 0.5, p[1] + th * 0.55, p[2] - n[2] * th * 0.5],
+                    [p[0] - n[0] * th, p[1], p[2] - n[2] * th],
+                    [p[0] - n[0] * th, p[1] - 0.012, p[2] - n[2] * th]
+                ];
+                const ids = ring.map((q, k) => add(q, u, 0.79 + k * 0.004, measure ? attrOf(q, k < 2 ? 'roll' : 'lining', { k }) : null));
+                lining.push([ids[2], ids[3], ax, nl]);
+                rimOf.set(i, ids);
+                return ids;
+            };
+            const collarTop = new Float32Array(72).fill(-1);
+            for (const [ea, eb] of pc.border) {
+                const A = rimFor(ea), B = rimFor(eb);
+                for (let k = 0; k < 3; k++) index.push(A[k], B[k], B[k + 1], A[k], B[k + 1], A[k + 1]);
+                if (measure) for (const e of [ea, eb]) {
+                    const q = [positions[(upperStart + e) * 3], positions[(upperStart + e) * 3 + 1], positions[(upperStart + e) * 3 + 2]];
+                    const [f, l] = toPlan(F, q[0], q[2]);
+                    const bin = ((Math.round(Math.atan2(l, f) / (Math.PI * 2) * 72) % 72) + 72) % 72;
+                    collarTop[bin] = Math.max(collarTop[bin], q[1]);
+                }
+            }
+            if (measure) {
+                // Bins the collar never crossed take their neighbors' heights (round the leg, the nearest set bins).
+                for (let pass = 0; pass < 72 && collarTop.some(x => x < 0); pass++) {
+                    const prev = Float32Array.from(collarTop);
+                    for (let b = 0; b < 72; b++) if (prev[b] < 0) { const m = Math.max(prev[(b + 71) % 72], prev[(b + 1) % 72]); if (m >= 0) collarTop[b] = m; }
+                }
+                if (style.sandal) collarTop.fill(0);
+                collar.push(collarTop);
+            }
+            // The sole: welt, edge and tread, with the toe sprung up and a heeled shoe's waist raised.
+            const ringsDef = [[0, 0, 0], [welt, 0, 1], [welt, -0.25, 2], [welt, -0.8, 3], [welt - 0.0015, -1, 4]];
+            const lift = f => (style.spring ?? 0.006) * Math.pow(smoothstep(0.7, 1.02, f), 2) + (style.heel ? style.heel * sole * 0.45 * smoothstep(0.22, 0.3, f) * (1 - smoothstep(0.5, 0.62, f)) : 0);
+            const soleRings = ringsDef.length + 2;
+            const soleIds = [];
+            const cx = O.reduce((s, o) => s + o[0], 0) / cols, cl = O.reduce((s, o) => s + o[1], 0) / cols;
+            for (let j = 0; j <= cols; j++) {
+                const jj = j % cols, o = O[jj], n = out[jj], u = j / cols;
+                const fN = fNorm(o[0]);
+                const col = [];
+                ringsDef.forEach(([w, dy, k]) => {
+                    const [x, z] = fromPlan(F, o[0] + n[0] * w, o[1] + n[1] * w);
+                    let y = dy * sole;
+                    if (k >= 3) y += lift(fN) * (k === 3 ? 0.7 : 1);
+                    col.push(add([x, y, z], u, 0.82 + k * 0.03, measure ? attrOf([x, y, z], 'sole', { ring: k, depth: -dy }) : null));
+                });
+                for (const s of [0.62, 0.25]) {
+                    const f = cx + (o[0] - cx) * s, l = cl + (o[1] - cl) * s;
+                    const [x, z] = fromPlan(F, f, l);
+                    const y = -sole + lift(fNorm(f));
+                    col.push(add([x, y, z], u, s > 0.5 ? 0.98 : 0.995, measure ? attrOf([x, y, z], 'tread', {}) : null));
+                }
+                soleIds.push(col);
+            }
+            for (let j = 0; j < cols; j++) for (let k = 0; k + 1 < soleRings; k++) {
+                const a = soleIds[j][k], b = soleIds[j + 1][k], c = soleIds[j][k + 1], d = soleIds[j + 1][k + 1];
+                index.push(a, c, d, a, d, b);
+            }
+            // The tread's middle closes in a fan; a sandal's footbed closes the top.
+            const mid = (() => { const [x, z] = fromPlan(F, cx, cl); return add([x, -sole + lift(fNorm(cx)), z], 0.5, 1, measure ? attrOf([x, -sole, z], 'tread', {}) : null); })();
+            for (let j = 0; j < cols; j++) index.push(soleIds[j][soleRings - 1], mid, soleIds[j + 1][soleRings - 1]);
+            if (style.sandal) {
+                const bed = [];
+                for (let j = 0; j <= cols; j++) {
+                    const o = O[j % cols], col = [soleIds[j][0]];
+                    for (const s of [0.82, 0.5, 0.2]) {
+                        const f = cx + (o[0] - cx) * s, l = cl + (o[1] - cl) * s;
+                        const [x, z] = fromPlan(F, f, l);
+                        col.push(add([x, 0, z], j / cols, 0.805, measure ? attrOf([x, 0, z], 'bed', {}) : null));
+                    }
+                    bed.push(col);
+                }
+                const top = (() => { const [x, z] = fromPlan(F, cx, cl); return add([x, 0, z], 0.5, 0.805, measure ? attrOf([x, 0, z], 'bed', {}) : null); })();
+                for (let j = 0; j < cols; j++) {
+                    for (let k = 0; k < 3; k++) { const a = bed[j][k], b = bed[j + 1][k], c = bed[j][k + 1], d = bed[j + 1][k + 1]; index.push(a, d, c, a, b, d); }
+                    index.push(bed[j][3], bed[j + 1][3], top);
+                }
+            }
+            // The right foot's frame is mirrored: its triangles turn the other way.
+            if (side) for (let i = indexStart; i < index.length; i += 3) { const x = index[i + 1]; index[i + 1] = index[i + 2]; index[i + 2] = x; }
+        }
+        const P = Float32Array.from(positions);
+        const n = P.length / 3;
+        // The lining stands out of the leg too, but never past the collar it hangs from.
+        const lined = lining.flatMap(([a, b]) => [a, b]);
+        collide(pack, built, P, 0, 0, 0.001, frame || {}, lined);
+        for (const [a, b, ax, edge] of lining) for (const i of [a, b]) {
+            const dx = P[i * 3] - ax[0], dz = P[i * 3 + 2] - ax[2], d = Math.hypot(dx, dz), most = edge - 0.0008;
+            if (d > most && d > 0) { P[i * 3] = ax[0] + dx / d * most; P[i * 3 + 2] = ax[2] + dz / d * most; }
+        }
+        // Skin weights from the skin round each vertex, measured once on the average body (the shoe rides
+        // the same skin on every body).
+        if (!t.skin) {
+            const nearest = skinPicker(pack, built);
+            for (let i = 0; i < n; i++) {
+                const s = nearest(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+                for (let k = 0; k < 4; k++) { joints.push(s.joints[k]); weights.push(s.weights[k]); }
+                source.push(s.v);
+            }
+            t.skin = { joints: Uint8Array.from(joints), weights: Float32Array.from(weights), source: Int32Array.from(source) };
+        }
+        const I = Uint32Array.from(index);
+        // One normal where the grid's seam behind (and the collar's roll) meets itself.
+        const normals = triangleNormals(P, I);
+        weldNormals(P, normals);
+        return {
+            positions: P, normals, uvs: Float32Array.from(uvs), index: I,
+            joints: t.skin.joints, weights: t.skin.weights, source: t.skin.source,
+            paint: measure ? { attrs: paint, index: I, uvs: Float32Array.from(uvs) } : null, collar,
+            tuck: points => tuckInto(shafts, style, points)
+        };
+    }
+
+    /**
+     * Garment points inside a boot's shaft kept there: each point round a leg,
+     * below the shaft's top, is drawn in toward the leg's axis until it lies a
+     * few millimeters inside the shaft. Returns whether any moved.
+     */
+    function tuckInto(grids, style, P) {
+        if (style.top == null) return false;
+        let moved = false;
+        for (const g of grids) {
+            const { rings, dirs, F, cols } = g;
+            const top = rings[rings.length - 1].y, bottom = rings[0].y;
+            for (let i = 0; i < P.length; i += 3) {
+                const y = P[i + 1];
+                // Just over the top too, easing out, so a trouser triangle reaching over the top stays inside.
+                if (y > top + 0.04 || y < bottom * 0.5) continue;
+                let r = 0;
+                while (r + 1 < rings.length - 1 && rings[r + 1].y < y) r++;
+                const A = rings[r], B = rings[Math.min(rings.length - 1, r + 1)];
+                const t = B === A ? 0 : Math.max(0, Math.min(1, (y - A.y) / (B.y - A.y)));
+                const cx = A.c[0] + (B.c[0] - A.c[0]) * t, cz = A.c[2] + (B.c[2] - A.c[2]) * t;
+                const [pf, pl] = toPlan(F, P[i], P[i + 2]), [cf, cl] = toPlan(F, cx, cz);
+                const df = pf - cf, dl = pl - cl, d = Math.hypot(df, dl);
+                if (P[i] * F.sign <= 0 || d > 0.3 || d < 1e-6) continue;
+                const ang = Math.atan2(dl, df);
+                // The two columns either side of this direction.
+                let k = 0, best = Infinity;
+                for (let j = 0; j < cols; j++) { let da = ang - dirs[j]; da = Math.atan2(Math.sin(da), Math.cos(da)); if (Math.abs(da) < best) { best = Math.abs(da); k = j; } }
+                let da = Math.atan2(Math.sin(ang - dirs[k]), Math.cos(ang - dirs[k]));
+                const k2 = (k + (da > 0 ? 1 : cols - 1)) % cols;
+                const span = Math.abs(Math.atan2(Math.sin(dirs[k2] - dirs[k]), Math.cos(dirs[k2] - dirs[k]))) || 1;
+                const w = Math.min(1, Math.abs(da) / span);
+                const R = (A.r[k] * (1 - w) + A.r[k2] * w) * (1 - t) + (B.r[k] * (1 - w) + B.r[k2] * w) * t;
+                const most = R - 0.003 + Math.max(0, y - top) * 0.8;
+                if (d <= most || d > R + 0.08) continue;
+                const s = most / d;
+                const [x, z] = fromPlan(F, cf + df * s, cl + dl * s);
+                P[i] = x; P[i + 2] = z;
+                moved = true;
+            }
+        }
+        return moved;
+    }
+
+    /** Skin weights for points near the given skin (the lower legs by default): the skin round each point, weighted by nearness. */
+    function skinPicker(pack, built, only) {
+        const P = built.shaped, ids = only || [...legSkin(pack, 0), ...legSkin(pack, 1)];
+        const cell = 0.025, map = new Map(), key = (x, y, z) => x + ',' + y + ',' + z;
+        for (const v of ids) {
+            const k = key(Math.floor(P[v * 3] / cell), Math.floor(P[v * 3 + 1] / cell), Math.floor(P[v * 3 + 2] / cell));
+            let list = map.get(k); if (!list) map.set(k, list = []); list.push(v);
+        }
+        return (x, y, z) => {
+            const cx = Math.floor(x / cell), cy = Math.floor(Math.max(y, 0.002) / cell), cz = Math.floor(z / cell);
+            const sum = new Map();
+            let best = -1, bd = Infinity;
+            for (let r = 1; r <= 4 && (best < 0 || r <= 1); r++) {
+                for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) for (let k = -r; k <= r; k++) {
+                    for (const v of map.get(key(cx + i, cy + j, cz + k)) || []) {
+                        const d = (P[v * 3] - x) ** 2 + (Math.max(y, 0.002) - P[v * 3 + 1]) ** 2 + (P[v * 3 + 2] - z) ** 2;
+                        if (d < bd) { bd = d; best = v; }
+                        if (d > 0.03 * 0.03) continue;
+                        const w = 1 / (d + 1e-4);
+                        for (let q = 0; q < 4; q++) {
+                            const jt = pack.skinJoints[v * 4 + q], wt = pack.skinWeights[v * 4 + q] * w;
+                            if (wt > 0) sum.set(jt, (sum.get(jt) || 0) + wt);
+                        }
+                    }
+                }
+            }
+            if (!sum.size && best >= 0) for (let q = 0; q < 4; q++) if (pack.skinWeights[best * 4 + q] > 0) sum.set(pack.skinJoints[best * 4 + q], pack.skinWeights[best * 4 + q]);
+            const top = [...sum.entries()].sort((p, q) => q[1] - p[1]).slice(0, 4);
+            const total = top.reduce((s, e) => s + e[1], 0) || 1;
+            const joints = [0, 0, 0, 0], weights = [0, 0, 0, 0];
+            top.forEach(([j, w], k) => { joints[k] = j; weights[k] = w / total; });
+            if (!top.length) weights[0] = 1;
+            return { joints, weights, v: Math.max(0, best) };
+        };
+    }
+
+    // ── belts ─────────────────────────────────────────────────────────────
+    /** The trunk's skin (pack vertex ids), kept per pack. */
+    function trunkSkin(pack) {
+        if (pack._trunkSkin) return pack._trunkSkin;
+        const an = anatomy(pack);
+        return (pack._trunkSkin = Int32Array.from([...new Set(pack.body.source)].filter(v => an.member[v * 5] > 0.5)));
+    }
+
+    /**
+     * A belt: a stiff band round the trunk between two spine positions,
+     * standing level round whatever is widest there (a belly, the garments
+     * under it), with a thickness at its edges. `extra`: points of garments
+     * already laid. Returns one part's arrays.
+     */
+    function band(pack, built, spec, extra) {
+        const ch = chainPoints(built.bones, 'spine'), P = built.shaped;
+        const yAt = s => ch[0][1] + s / 4 * (ch[4][1] - ch[0][1]);
+        const centerAt = y => {
+            for (let i = 0; i + 1 < 4; i++) if (y <= ch[i + 1][1] || i === 2) { const t = (y - ch[i][1]) / ((ch[i + 1][1] - ch[i][1]) || 1); return [ch[i][0] + (ch[i + 1][0] - ch[i][0]) * t, ch[i][2] + (ch[i + 1][2] - ch[i][2]) * t]; }
+            return [ch[0][0], ch[0][2]];
+        };
+        const cols = 48, y0 = yAt(spec.from), y1 = yAt(spec.to), gap = spec.gap ?? 0.004, th = spec.thick ?? 0.004;
+        const yc = (y0 + y1) / 2, [cx, cz] = centerAt(yc), half = (y1 - y0) / 2 + 0.008;
+        const dirs = Array.from({ length: cols }, (_, j) => Math.PI + j / cols * Math.PI * 2);
+        const win = Math.PI * 2 / cols * 1.6;
+        const reach = (pts, limit) => {
+            const r = new Float64Array(cols);
+            for (let i = 0; i < pts.length; i += 3) {
+                if (Math.abs(pts[i + 1] - yc) > half) continue;
+                const dx = pts[i] - cx, dz = pts[i + 2] - cz, d = Math.hypot(dx, dz), ang = Math.atan2(dx, dz);
+                for (let k = 0; k < cols; k++) {
+                    let da = Math.abs(ang - dirs[k]) % (Math.PI * 2); if (da > Math.PI) da = Math.PI * 2 - da;
+                    if (da < win && (!limit || d < limit[k])) r[k] = Math.max(r[k], d * Math.cos(da));
+                }
+            }
+            return r;
+        };
+        const skin = [];
+        for (const v of trunkSkin(pack)) skin.push(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
+        const r = reach(skin);
+        // Garments under it, but not a sleeve hanging beside the waist.
+        if (extra && extra.length) {
+            const g = reach(extra, Array.from(r, x => x + 0.05));
+            for (let k = 0; k < cols; k++) r[k] = Math.max(r[k], g[k]);
+        }
+        const sm = circBlur(r, 2);
+        const R = Array.from(r, (x, k) => Math.max(x, sm[k]) + gap);
+        // The cross-section: the outer face bottom to top, over the top edge, the inner face back down.
+        const section = [[0, y0], [0, (y0 + y1) / 2], [0, y1], [-th * 0.5, y1 + th * 0.4], [-th, y1], [-th, y0], [-th * 0.5, y0 - th * 0.4], [0, y0]];
+        const positions = [], uvs = [], index = [];
+        for (let j = 0; j <= cols; j++) {
+            const a = dirs[j % cols], sx = Math.sin(a), sz = Math.cos(a), rr = R[j % cols];
+            section.forEach(([dr, y], k) => {
+                positions.push(cx + sx * (rr + dr), y, cz + sz * (rr + dr));
+                uvs.push(j / cols, k / (section.length - 1));
+            });
+        }
+        const S = section.length;
+        for (let j = 0; j < cols; j++) for (let k = 0; k + 1 < S; k++) {
+            const a = j * S + k, b = a + S;
+            index.push(a, b, b + 1, a, b + 1, a + 1);
+        }
+        const Pos = Float32Array.from(positions), I = Uint32Array.from(index);
+        const pick = skinPicker(pack, built, trunkSkin(pack));
+        const n = Pos.length / 3, joints = new Uint8Array(n * 4), weights = new Float32Array(n * 4), source = new Int32Array(n);
+        for (let i = 0; i < n; i++) {
+            const q = pick(Pos[i * 3], Pos[i * 3 + 1], Pos[i * 3 + 2]);
+            joints.set(q.joints, i * 4); weights.set(q.weights, i * 4); source[i] = q.v;
+        }
+        // What is worn over the belt (a coat) is pushed out round it, easing off above and below it.
+        const cover = Q => {
+            let moved = false;
+            for (let i = 0; i < Q.length; i += 3) {
+                const y = Q[i + 1], over = Math.max(y0 - y, y - y1, 0);
+                if (over > 0.03) continue;
+                const dx = Q[i] - cx, dz = Q[i + 2] - cz, d = Math.hypot(dx, dz);
+                if (d < 1e-6) continue;
+                let a = Math.atan2(dx, dz) - Math.PI; a = ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+                const x = a / (Math.PI * 2) * cols, j = Math.floor(x) % cols, w = x - Math.floor(x);
+                const want = (R[j] * (1 - w) + R[(j + 1) % cols] * w) + th + 0.003;
+                const need = (want - d) * (1 - smoothstep(0, 0.03, over));
+                if (need <= 0) continue;
+                Q[i] += dx / d * need; Q[i + 2] += dz / d * need;
+                moved = true;
+            }
+            return moved;
+        };
+        return { positions: Pos, normals: triangleNormals(Pos, I), uvs: Float32Array.from(uvs), index: I, joints, weights, source, cover };
+    }
+
+    /** A pair of shoes in a style on a built body: { part arrays, hidden (pack vertex ids), template }. */
+    function shoes(pack, built, style, extra, frame) {
+        const t = shoeTemplate(pack, style);
+        const laid = layShoes(pack, built, t, extra, null, frame);
+        return Object.assign(laid, { hidden: t.hidden, template: t });
+    }
+
+    const api = { binding, boundPositions, collide, pointGrid, FAMILIES, CHAINS, linear, anatomy, coverage, cut, cutFor, lay, paint, mixSkin, surfaceNormals, triangleNormals, relaxScalar, shoes, footFrame, band };
     root.RRCharacterOutfit = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

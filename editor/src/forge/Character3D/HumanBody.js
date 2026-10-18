@@ -1159,7 +1159,8 @@
             const mask = earMask(pack), { offsets, flat } = neighbors(pack);
             const own = new Float32Array(F.w.length), free = [];
             for (let v = 0; v < F.w.length; v++) {
-                own[v] = Math.max(F.ear[v], mask[v]);
+                // The outer ear and its root; not the cheek and temple the ear-size target also carries.
+                own[v] = mask[v] > 0.02 ? Math.max(F.ear[v], mask[v]) : 0;
                 if (own[v] > 0.02 && F.w[v] > 0.5) free.push(v);
             }
             const Q = Float32Array.from(P);
@@ -1218,10 +1219,11 @@
                 const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
                 const vert = smooth01(bottom - H * 0.12, bottom + H * 0.12, y) * (1 - smooth01(top - H * 0.16, top + H * 0.04, y));
                 const f = vert * smooth01(back, eye[2] - H * 0.1, z) * w;
-                if (f && m.flat) P[v * 3 + 2] -= m.flat * f * Math.max(0, z - back) * 0.35;
+                const c = eyeAt[x > 0 ? 0 : 1], de = Math.hypot(x - c[0], y - c[1], z - c[2]);
+                // The eyes and the skin round them stay, so lids and sockets keep their fit.
+                if (f && m.flat) P[v * 3 + 2] -= m.flat * f * Math.max(0, z - back) * 0.35 * smooth01(R * 1.3, R * 3.2, de);
                 if (!m.snout && !m.muzzle) continue;
                 const low = smooth01(bottom - H * 0.12, bottom + H * 0.12, y), up = 1 - smooth01(eye[1] - H * 0.16, eye[1] + H * 0.03, y);
-                const c = eyeAt[x > 0 ? 0 : 1], de = Math.hypot(x - c[0], y - c[1], z - c[2]);
                 const s = low * up * smooth01(zb, zf, z) * smooth01(R * 1.15, R * 2.6, de) * w;
                 if (!s) continue;
                 const above = smooth01(mouth[1] - H * 0.02, eye[1], y), jaw = 1 - 0.15 * smooth01(mouth[1], mouth[1] - H * 0.1, y);
@@ -1236,7 +1238,7 @@
                 const { offsets, flat } = neighbors(pack), lipW = new Map();
                 for (let v = 0; v < F.w.length; v++) {
                     if (F.w[v] < 0.5 || P[v * 3 + 2] < teethFront - 0.002) continue;
-                    const d = Math.hypot(P[v * 3] / (mouthHalf * 1.35), (P[v * 3 + 1] - mouth[1] + H * 0.035) / (H * 0.14));
+                    const d = Math.hypot(P[v * 3] / (mouthHalf * 1.4), (P[v * 3 + 1] - mouth[1] + H * 0.06) / (H * 0.19));
                     if (d < 1) lipW.set(v, 1 - d);
                 }
                 const Q = Float32Array.from(P);

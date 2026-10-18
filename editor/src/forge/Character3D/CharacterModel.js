@@ -44,8 +44,23 @@
                 ? Object.assign({}, r.bodyHair, { regions: Skin.HAIR_PRESETS[(r.bodyHair.pattern || 'natural') + 'Female'] }) : r.bodyHair),
             hair: Hair.normalizeHair(r.hair || (r.bald ? { style: 'bald', brows: { style: 'none' } } : undefined)),
             outfit: Wardrobe.normalizeOutfit(r.outfit),
-            props: Props.normalizeProps(r.props)
+            props: Props.normalizeProps(r.props),
+            head: normalizeHead(r.head)
         });
+    }
+
+    /**
+     * An animal head in place of the human one: { kind } of a four-legged
+     * creature, with any of its head settings (snout, ears, mane, pattern,
+     * horns, colors) over the kind's own; null for the human head.
+     */
+    function normalizeHead(h) {
+        if (!h || !Creature.KINDS.some(k => k.kind === h.kind)) return null;
+        const out = { kind: h.kind };
+        for (const s of Creature.SLIDERS) if (Number.isFinite(+h[s.key]) && h[s.key] !== '' && h[s.key] != null) out[s.key] = +h[s.key];
+        for (const o of Creature.OPTIONS) if (o.choices.some(c => c.id === h[o.key])) out[o.key] = h[o.key];
+        if (h.colors) { out.colors = {}; for (const c of Creature.COLORS) if (/^#[0-9a-f]{6}$/i.test(h.colors[c.key] || '')) out.colors[c.key] = h.colors[c.key]; }
+        return out;
     }
 
     /**
@@ -98,6 +113,13 @@
         }
         const built = Body.build(pack, r);
         const textures = {};
+        const graftKind = r.head ? r.head.kind : null;
+        let strandHidden = null;
+        if (graftKind) {
+            strandHidden = new Set();
+            const head = built.bones.findIndex(b => b.name === 'Head');
+            for (const v of pack.body.source) { let w = 0; for (let k = 0; k < 4; k++) if (pack.skinJoints[v * 4 + k] === head) w += pack.skinWeights[v * 4 + k]; if (w > 0.6) strandHidden.add(v); }
+        }
 
         // The outfit, and the skin it covers left out.
         cache.wardrobe = cache.wardrobe || {};
@@ -126,7 +148,7 @@
         const bodyHair = Object.assign({}, r.bodyHair, { color: r.bodyHair.color || r.hair.color });
         const earHoles = r.morph.earsAway > 0.6 && r.morph.earHoles > 0;
         // A style with hair over the scalp colors the scalp under it (not for the shortest crops or a bald head).
-        const scalp = r.hair.style !== 'bald' && !r.outfit.some(i => HAIR_COVERS.has(i.id)) ? { color: r.hair.color, recede: r.hair.hairline || 0 } : null;
+        const scalp = r.hair.style !== 'bald' && !r.outfit.some(i => HAIR_COVERS.has(i.id)) ? { color: r.hair.color, recede: r.hair.hairline || 0, style: r.hair.style } : null;
         // Facial hair paints its zone into the skin under it (not under a closed helmet).
         const facial = r.hair.facial.style !== 'none' && !r.outfit.some(i => FACE_COVERS.has(i.id)) ? { style: r.hair.facial.style, color: r.hair.facial.color || r.hair.color } : null;
         const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair, earHoles, scalp, Skin.ageStep(r.age), facial]);
@@ -153,21 +175,22 @@
             eyes.texture = 'eyes.png';
         }
 
-        const parts = [body, eyes];
+        // An animal head brings its own eyes.
+        const parts = graftKind ? [body] : [body, eyes];
         // Body hair and fur: strands grown out of the uncovered skin.
         const skinNormals = Body.vertexNormals(pack, built.shaped);
         // Body hair: single strands where it grows; fur: dense tufts over it.
         const budget = o.hairBudget || 1;
         if (bodyHair.amount > 0.01) {
             // In clumps of fine hairs, like locks of head hair: many hairs to a card.
-            const strands = Detail.hairStrands(pack, Object.assign({}, bodyHair, { budget }), outfit.hidden, 'clump');
+            const strands = Detail.hairStrands(pack, Object.assign({}, bodyHair, { budget }), strandHidden ? new Set([...outfit.hidden, ...strandHidden]) : outfit.hidden, 'clump');
             if (strands.length) {
                 textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
                 parts.push(Detail.hairPart(pack, built.shaped, skinNormals, strands, bodyHair.color, { mode: 'clump', skin: r.skin }));
             }
         }
         if (bodyHair.fur > 0.05) {
-            const tufts = Detail.hairStrands(pack, Object.assign({}, bodyHair, { amount: Math.max(bodyHair.amount, bodyHair.fur), budget }), outfit.hidden, 'tuft');
+            const tufts = Detail.hairStrands(pack, Object.assign({}, bodyHair, { amount: Math.max(bodyHair.amount, bodyHair.fur), budget }), strandHidden ? new Set([...outfit.hidden, ...strandHidden]) : outfit.hidden, 'tuft');
             if (tufts.length) {
                 textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
                 parts.push(Detail.hairPart(pack, built.shaped, skinNormals, tufts, bodyHair.color, { width: 1 + bodyHair.fur, name: 'Fur', skin: r.skin }));
@@ -192,6 +215,7 @@
             const closed = covers.some(id => FACE_COVERS.has(id));
             hairRecipe = Object.assign({}, r.hair, { style: 'bald', facial: closed ? Object.assign({}, r.hair.facial, { style: 'none' }) : r.hair.facial });
         }
+        if (graftKind) hairRecipe = Object.assign({}, hairRecipe, { style: 'bald', brows: { style: 'none' }, lashes: false, facial: Object.assign({}, r.hair.facial, { style: 'none' }) });
         const hair = Hair.build(pack, built, hairRecipe, { seed: r.seed, skin: r.skin, budget: o.hairBudget });
         if (hair.some(p => p.texture === 'lashes.png')) textures['lashes.png'] = cache.lashes || (cache.lashes = Hair.lashTexture(128));
         if (hair.some(p => p.texture === 'hair.png')) textures['hair.png'] = cache.hairStrands || (cache.hairStrands = Hair.hairTexture(256));
@@ -220,6 +244,11 @@
         for (const p of features.parts) p.kind = p.kind || 'feature';
         if (features.parts.some(p => p.texture === 'feather.png')) textures['feather.png'] = cache.feather || (cache.feather = Species.featherTexture());
         if (features.parts.some(p => p.texture === 'fairywing.png')) textures['fairywing.png'] = cache.fairyWing || (cache.fairyWing = Species.fairyWingTexture());
+        if (graftKind) {
+            const g = graftHead(pack, built, L, r, body, eyes, cache, budget, skinNormals, o.quality === 'preview' && o.skinSize && o.skinSize <= 512 ? 'preview' : 'save');
+            for (const [k, t] of Object.entries(g.textures)) textures[k] = t;
+            features.parts.push(...g.parts);
+        }
         parts.push(...outfit.parts, ...hair, ...props.parts, ...features.parts);
         const bones = built.bones.concat(features.bones.map(b => ({ name: b.name, parent: b.parent, head: b.head, tail: b.tail })));
         // The floor: shoes and boots stand on it.
@@ -263,6 +292,166 @@
             for (let i = 0; i < P.length; i += 3) for (let c = 0; c < 3; c++) positions[i + c] = P[i + c] + N[i + c] * reach * at;
             return { name: 'Fur ' + (k + 1), positions, normals: N, uvs: U, index: Uint32Array.from(keep), joints: body.joints, weights: body.weights, texture: 'fur.png', cutout: true, alphaCutoff: cut, roughness: 0.8, kind: 'hair', doubleSided: true };
         });
+    }
+
+    /**
+     * An animal's head on the body in place of the human one: the head of
+     * the four-legged creature of that kind (its skin weighed to its Head
+     * bone, its eyes, horns and fur), in the species' own colors, turned to
+     * look ahead, scaled to the human skull's width and set on the top of the
+     * neck where the human head sat; the human head's skin, eyes, brows and
+     * lashes left out. Its rim is drawn onto the neck's skin so the two meet
+     * without a seam, and a furred head hides the join under a collar of fur.
+     */
+    function graftHead(pack, built, L, r, body, eyes, cache, budget, skinNormals, quality) {
+        const h = r.head, base = Creature.kindRecipe(h.kind), furred = r.bodyHair.fur > 0.05;
+        const coat = furred ? r.bodyHair.color || r.skin : r.skin;
+        const colors = Object.assign({}, base.colors, { coat, mane: coat, eye: r.eyes.color }, r.skinPattern.color ? { marking: r.skinPattern.color } : {},
+            r.skinPattern.belly ? { light: r.skinPattern.belly } : {}, r.skinPattern.nose ? { nose: r.skinPattern.nose } : {}, h.colors || {});
+        const rec = Object.assign({ plan: 'quadruped' }, base, h, { colors });
+        const key = JSON.stringify([rec, quality, budget]);
+        // The last few heads kept: switching back and forth builds none again.
+        cache.graft = cache.graft instanceof Map ? cache.graft : new Map();
+        let cr = cache.graft.get(key);
+        if (!cr) {
+            cr = Creature.build(rec, { quality, hairBudget: budget });
+            cache.graft.set(key, cr);
+            if (cache.graft.size > 6) cache.graft.delete(cache.graft.keys().next().value);
+        }
+        const hb = cr.bones.findIndex(b => b.name === 'Head'), nb = cr.bones.findIndex(b => b.name === 'Neck');
+        const headW = (p, v) => { let w = 0; for (let k = 0; k < 4; k++) { const j = p.joints[v * 4 + k]; if (j === hb) w += p.weights[v * 4 + k]; else if (j === nb) w += 0.3 * p.weights[v * 4 + k]; } return w; };
+        const eyePart = cr.parts.find(p => p.name === 'Eyes'), bodyPart = cr.parts.find(p => p.name === 'Body');
+        const sideMean = sd => { const c = [0, 0, 0]; let n = 0; for (let i = 0; i < eyePart.positions.length; i += 3) if (Math.sign(eyePart.positions[i]) === sd) { c[0] += eyePart.positions[i]; c[1] += eyePart.positions[i + 1]; c[2] += eyePart.positions[i + 2]; n++; } return c.map(x => x / (n || 1)); };
+        const eL = sideMean(1), eR = sideMean(-1), Ec = Props.vec.lerp(eL, eR, 0.5), spread = Math.abs(eL[0] - eR[0]);
+        const A = cr.bones[hb].head, T = cr.bones[hb].tail;
+        // Turned about the across axis so the muzzle points ahead and a little down.
+        const ang = Math.atan2(-0.12, 1) - Math.atan2(T[1] - A[1], T[2] - A[2]), ca = Math.cos(ang), sa = Math.sin(ang);
+        const turn = d => [d[0], d[1] * ca + d[2] * sa, -d[1] * sa + d[2] * ca];
+        // The creature's skull across at its eyes, behind them (not the ears or the muzzle).
+        let cw = 0;
+        for (let v = 0; v < bodyPart.positions.length / 3; v++) {
+            if (headW(bodyPart, v) < 0.9) continue;
+            const d = turn([bodyPart.positions[v * 3] - Ec[0], bodyPart.positions[v * 3 + 1] - Ec[1], bodyPart.positions[v * 3 + 2] - Ec[2]]);
+            if (Math.abs(d[1]) < spread * 0.35 && d[2] < -spread * 0.15) cw = Math.max(cw, Math.abs(d[0]));
+        }
+        const ring = L.ring(L.eyeY, 0.015), headBone = built.bones.find(b => b.name === 'Head');
+        const s = ring && cw ? (ring.rx / cw) * 1.1 : 1;
+        // Set halfway between its skull's base on the top of the neck and its eyes on the human eyes.
+        const At = turn(A), Et = turn(Ec), Eh = Props.vec.lerp(L.eyeL.center, L.eyeR.center, 0.5);
+        const anchor = Props.vec.lerp(headBone.head, Eh, 0.5), from = Props.vec.lerp(At, Et, 0.5);
+        const place = p => { const d = turn(p); return [anchor[0] + (d[0] - from[0]) * s, anchor[1] + (d[1] - from[1]) * s, anchor[2] + (d[2] - from[2]) * s]; };
+        const Ah = anchor;
+        const head = L.boneIndex('Head'), neck = L.boneIndex('Neck');
+        // The human head left out: its skin above the neck, its eyes.
+        const src = pack.body.source, I = body.index, SW = pack.skinWeights, SJ = pack.skinJoints, P = built.shaped, keepTri = [];
+        const hw = v => { let w = 0; for (let k = 0; k < 4; k++) if (SJ[v * 4 + k] === head) w += SW[v * 4 + k]; return w; };
+        for (let t = 0; t < I.length; t += 3) {
+            if (hw(src[I[t]]) > 0.85 && hw(src[I[t + 1]]) > 0.85 && hw(src[I[t + 2]]) > 0.85) continue;
+            keepTri.push(I[t], I[t + 1], I[t + 2]);
+        }
+        body.index = Uint32Array.from(keepTri);
+        // The neck's top: the skin the head's rim is drawn onto.
+        const rim = [];
+        // Kept skin next to the hidden head.
+        const hidden = new Set();
+        for (let t = 0; t < I.length; t += 3) if (hw(src[I[t]]) > 0.85 && hw(src[I[t + 1]]) > 0.85 && hw(src[I[t + 2]]) > 0.85) { hidden.add(src[I[t]]); hidden.add(src[I[t + 1]]); hidden.add(src[I[t + 2]]); }
+        // The neck's skin just under the hidden head: the head's rim lies on it, a little out from it.
+        for (const v of new Set(src)) { const w = hw(v); if (w > 0.2 && !hidden.has(v)) rim.push(v); }
+        const parts = [], collar = [], cutY = L.chin - 0.005;
+        // The neck's girth at its top, by bearing round it: where the head's rim is laid.
+        const BINS = 32, neckTop = headBone.head[1] - 0.005, neckC = [0, neckTop, 0], neckR = new Float32Array(BINS);
+        let nc = 0;
+        for (const v of rim) if (Math.abs(P[v * 3 + 1] - neckTop) < 0.03) { neckC[0] += P[v * 3]; neckC[2] += P[v * 3 + 2]; nc++; }
+        if (nc) { neckC[0] /= nc; neckC[2] /= nc; }
+        for (const v of rim) {
+            if (Math.abs(P[v * 3 + 1] - neckTop) > 0.03) continue;
+            const a = Math.atan2(P[v * 3] - neckC[0], P[v * 3 + 2] - neckC[2]), b = ((Math.round((a / (Math.PI * 2)) * BINS) % BINS) + BINS) % BINS;
+            neckR[b] = Math.max(neckR[b], Math.hypot(P[v * 3] - neckC[0], P[v * 3 + 2] - neckC[2]) + 0.002);
+        }
+        for (let pass = 0; pass < 3; pass++) for (let b = 0; b < BINS; b++) if (!neckR[b]) neckR[b] = Math.max(neckR[(b + 1) % BINS], neckR[(b + BINS - 1) % BINS]);
+        for (const p of cr.parts) {
+            // The creature's strand fur stays behind: cut at the neck its locks would end in stubs.
+            if (p.name === 'Fur') continue;
+            const n = p.positions.length / 3, own = new Float32Array(n);
+            // How much each vertex is the head's, smoothed over the skin so the cut behind the skull runs clean;
+            // nothing below the chin.
+            for (let v = 0; v < n; v++) own[v] = headW(p, v);
+            if (p === bodyPart) {
+                const nb2 = Array.from({ length: n }, () => []);
+                for (let t = 0; t < p.index.length; t += 3) for (const [a, b] of [[p.index[t], p.index[t + 1]], [p.index[t + 1], p.index[t + 2]], [p.index[t + 2], p.index[t]]]) { nb2[a].push(b); nb2[b].push(a); }
+                for (let pass = 0; pass < 6; pass++) {
+                    const next = Float32Array.from(own);
+                    for (let v = 0; v < n; v++) if (nb2[v].length) { let t = 0; for (const u of nb2[v]) t += own[u]; next[v] = 0.5 * own[v] + 0.5 * t / nb2[v].length; }
+                    own.set(next);
+                }
+            }
+            for (let v = 0; v < n; v++) if (place([p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]])[1] < cutY) own[v] = 0;
+            const map = new Int32Array(n).fill(-1), pos = [], nrm = [], col = [], uv = [], idx = [], jn = [], wt = [], ownOf = [];
+            for (let t = 0; t < p.index.length; t += 3) {
+                const a = p.index[t], b = p.index[t + 1], c = p.index[t + 2];
+                if (own[a] < 0.45 || own[b] < 0.45 || own[c] < 0.45) continue;
+                for (const v of [a, b, c]) {
+                    if (map[v] < 0) {
+                        map[v] = pos.length / 3;
+                        pos.push(...place([p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]]));
+                        nrm.push(...turn([p.normals[v * 3], p.normals[v * 3 + 1], p.normals[v * 3 + 2]]));
+                        if (p.colors) col.push(p.colors[v * 3], p.colors[v * 3 + 1], p.colors[v * 3 + 2]);
+                        if (p.uvs) uv.push(p.uvs[v * 2], p.uvs[v * 2 + 1]);
+                        ownOf.push(own[v]);
+                    }
+                    idx.push(map[v]);
+                }
+            }
+            if (!idx.length) continue;
+            const m = pos.length / 3;
+            if (p === bodyPart && rim.length) {
+                // The cut edge (edges of one face only) drawn onto the nearest skin of the neck, the skin near it
+                // following less and less, so the head runs on into the neck.
+                const edges = new Map();
+                for (let t = 0; t < idx.length; t += 3) for (const [a, b] of [[idx[t], idx[t + 1]], [idx[t + 1], idx[t + 2]], [idx[t + 2], idx[t]]]) { const k = a < b ? a * m + b : b * m + a; edges.set(k, (edges.get(k) || 0) + 1); }
+                const edge = new Set();
+                for (const [k, c] of edges) if (c === 1) for (const v of [Math.floor(k / m), k % m]) if (ownOf[v] < 0.95) edge.add(v);
+                // Each point of the rim to the neck's surface at its own bearing round the neck, at the neck's top.
+                const pull = [];
+                for (const v of edge) {
+                    const q = [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]];
+                    const a = Math.atan2(q[0] - neckC[0], q[2] - neckC[2]), bin = neckR[((Math.round((a / (Math.PI * 2)) * BINS) % BINS) + BINS) % BINS];
+                    const y = Math.min(q[1], neckTop);
+                    pull.push([q, [neckC[0] + Math.sin(a) * bin - q[0], y - q[1], neckC[2] + Math.cos(a) * bin - q[2]]]);
+                }
+                const R = 0.035;
+                const moved = Float32Array.from(pos);
+                for (let v = 0; v < m; v++) {
+                    let wx = 0, wy = 0, wz = 0, wsum = 0, near = 0;
+                    for (const [q, d] of pull) {
+                        const dd = (pos[v * 3] - q[0]) ** 2 + (pos[v * 3 + 1] - q[1]) ** 2 + (pos[v * 3 + 2] - q[2]) ** 2;
+                        if (dd > R * R * 4) continue;
+                        const w = Math.exp(-dd / (R * R * 0.5));
+                        wx += d[0] * w; wy += d[1] * w; wz += d[2] * w; wsum += w; near = Math.max(near, w);
+                    }
+                    if (!wsum) continue;
+                    const k = edge.has(v) ? 1 : near;
+                    moved[v * 3] += wx / wsum * k; moved[v * 3 + 1] += wy / wsum * k; moved[v * 3 + 2] += wz / wsum * k;
+                    if (edge.has(v) && furred && collar.length < 700) collar.push({ q: [moved[v * 3], moved[v * 3 + 1], moved[v * 3 + 2]] });
+                }
+                for (let i = 0; i < pos.length; i++) pos[i] = moved[i];
+            }
+            for (let v = 0; v < m; v++) { const toNeck = Math.max(0, Math.min(1, (0.75 - ownOf[v]) / 0.3)); jn.push(head, neck, 0, 0); wt.push(1 - toNeck * 0.6, toNeck * 0.6, 0, 0); }
+            parts.push(Object.assign({}, p, { name: 'Head ' + p.name, positions: Float32Array.from(pos), normals: Float32Array.from(nrm), colors: p.colors ? Float32Array.from(col) : undefined,
+                uvs: p.uvs ? Float32Array.from(uv) : undefined, index: Uint32Array.from(idx), joints: Uint8Array.from(jn), weights: Float32Array.from(wt), kind: p.name === 'Eyes' ? 'eye' : p.kind }));
+        }
+        // A furred head's join hidden under a collar of fur, combed down the neck.
+        let fur = null;
+        if (collar.length) {
+            const rgb = (root.RRCharacterOutfit || require('./CharacterOutfit.js')).linear(coat), roots = [];
+            for (let k = 0; k < collar.length; k++) {
+                const c = collar[k].q, out = Props.vec.norm([c[0], 0, c[2] - Ah[2]]);
+                for (let j = 0; j < 2; j++) roots.push({ p: c, n: out, flow: [out[0] * 0.3, -1, out[2] * 0.3], len: 0.035 + 0.02 * ((k * 7 + j * 3) % 5) / 5, width: 0.005, color: rgb.map(x => x * 0.92), tip: rgb, lift: 0.35, droop: 0.1, joints: [neck, head, 0, 0], weights: [0.7, 0.3, 0, 0] });
+            }
+            fur = Detail.furCards(roots, { name: 'Head fur', seed: 17 });
+            parts.push(fur);
+        }
+        return { parts, textures: Object.assign({}, cr.textures || {}, fur ? { 'bodyhair.png': cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256)) } : {}) };
     }
 
     /** The genital helper as a part: its vertices take the picture coordinates of the skin nearest them. */

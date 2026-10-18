@@ -867,7 +867,7 @@
             // Curls fall as many fine, narrow locks waving in their own plane (a lock twisted round a helix reads
             // as tiles), over a soft pile of short coils at the scalp that gives the head its volume.
             case 'curly': return withFringe([cap(0.012 + 0.008 * V), { type: 'coils', count: 600, length: () => (0.02 + 0.012 * V) * L, width: 0.006 * S, coil: 0.004 * S, comb: (p, n, c) => combDown(n, c), stand: 0.6 },
-                strands({ count: 160, comb: partComb, length: () => 0.3 * L, width: 0.015 * S, hug: 0.5, lift: 0.35 + 0.3 * V, gravity: 0.55, steps: 24, waves: 0.008 + 0.004 * V, wavePeriod: 0.05, stopY: () => H.shoulderY - 0.05 * S * hair.length })]);
+                strands({ count: 150, comb: partComb, length: () => 0.3 * L, width: 0.011 * S, hug: 0.5, lift: 0.35 + 0.3 * V, gravity: 0.55, steps: 30, waves: 0.009 + 0.004 * V, wavePeriod: 0.075, stopY: () => H.shoulderY - 0.05 * S * hair.length })]);
             case 'animeSpikes': return [cap(0.01), { type: 'spikes', count: 34, length: 0.13 * L, width: 0.05 * S, up: 0.3, anime: true }, { type: 'spikes', count: 9, length: 0.11 * L, width: 0.04 * S, up: -0.8, front: true, zone: c => 50 - Math.abs(c.az) }];
             case 'long': return withFringe([cap(0.007), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.5 * L, width: 0.028 * S, hug: 0.85, gravity: 0.65, steps: 12, drape: 'split' })]);
             case 'longWavy': return withFringe([cap(0.008), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.52 * L, width: 0.028 * S, drape: 'split', hug: 0.8, lift: 0.15 + 0.25 * V, gravity: 0.6, steps: 19, waves: 0.012 + 0.012 * V })]);
@@ -924,7 +924,9 @@
             if (length < 0.004) continue;
             const lift = typeof layer.lift === 'function' ? layer.lift(c) : layer.lift;
             const fringe = layer.fringe || layer.fringeAll;
-            const front = (layer.drape === 'split' && Math.abs(c.az) > 30 && Math.abs(c.az) < 100 && rand() < 0.75) || !!layer.frontDrape;
+            // Under a long beard the hair falls behind the shoulders, so beard and hair stay apart on the chest.
+            const longBeard = ['longBeard', 'wizardBeard', 'braidedBeard'].includes(hair.facial.style);
+            const front = !longBeard && ((layer.drape === 'split' && Math.abs(c.az) > 30 && Math.abs(c.az) < 100 && rand() < 0.75) || !!layer.frontDrape);
             let pts = grow(H, r.p, r.n, dir, {
                 steps: layer.steps, length, layer: layer.layer * (0.6 + 0.8 * rand()), lift, gravity: layer.gravity, stiff: layer.stiff,
                 hug: layer.hug, release: H.earBottom, fringe, stopY: layer.stopY ? layer.stopY(c) - rand() * (layer.fringe ? 0.005 : 0.018) * H.scale : null,
@@ -1317,8 +1319,11 @@
             const nrm = [H.normals[v * 3], H.normals[v * 3 + 1], H.normals[v * 3 + 2]];
             if (x < H.lipHalf * 1.4 && p[1] > H.lipBottom - 0.003 * H.scale && p[1] < H.noseTip[1] && p[2] < H.lipFront - 0.02 * H.scale && dot(nrm, [0, 0, 1]) < 0.5) return -10;
             if (dot(nrm, norm(sub(p, H.center))) < 0.05 && p[1] > H.chin[1]) return -10;
-            // Only the front of the head and neck, in front of the ears.
-            if (p[2] < H.earBack + (H.earFront - H.earBack) * 0.5) return -10;
+            // Only the front of the head and neck, in front of the ears; at the sideburn's back the zone fades
+            // over a few millimeters, unevenly, instead of ending in a straight line.
+            const backLimit = H.earBack + (H.earFront - H.earBack) * 0.5 + (Math.sin(p[1] * 900) * 0.5 + Math.sin(p[1] * 2300 + 1.3) * 0.5) * 0.002 * H.scale;
+            if (p[2] < backLimit - 0.004 * H.scale) return -10;
+            const behind = (p[2] - backLimit) / H.radii[2] * 60;
             // The cheek line runs from beside the nose out and up to the sideburn's foot by the ear's lobe;
             // only the sideburn itself, a strip just in front of the ear, climbs toward the ear's top.
             // Measured front to back, from the lips (0) to the ear's front (1): the cheekbone is as wide as
@@ -1326,14 +1331,14 @@
             const back = clamp((H.lipFront - p[2]) / Math.max(1e-6, H.lipFront - H.earFront), 0, 1);
             const diag = mix(noseBase - (noseBase - mouthY) * 0.1, mix(H.earBottom, H.earTop, 0.3), smooth(0.25, 0.9, back) * smooth(0.2, 0.55, ax));
             // The sideburn joins the cheek line in a gentle curve, not a step.
-            const cheekLine = mix(diag, H.earTop - H.radii[1] * 0.15, smooth(0.72, 1.0, back) * smooth(0.55, 0.85, ax));
+            const cheekLine = mix(diag, H.earTop + H.radii[1] * 0.05, smooth(0.72, 1.0, back) * smooth(0.55, 0.85, ax));
             const above = (cheekLine - p[1]) / H.radii[1] * 60;
             const neckLine = H.neckBone.head[1] + (H.headBone.head[1] - H.neckBone.head[1]) * 0.08;
             const below = (p[1] - neckLine) / H.radii[1] * 60;
             // The mouth stays open: an ellipse around the lips.
-            const mx = x / lipW, my = (p[1] - mouthY) / (lipH * 1.05);
+            const mx = x / (lipW * 0.93), my = (p[1] - mouthY) / (lipH * 0.98);
             const mouthOut = open ? (Math.hypot(mx, my) - 1) * 6 : Infinity;
-            let f = Math.min(above, below, mouthOut);
+            let f = Math.min(above, below, mouthOut, behind);
             // A mustache's shape: under the nose its top follows the nostrils down toward the mouth's corners,
             // and its ends round off past them, so it is never a rectangle.
             const mx2 = Math.min(1.3, x / (lipW * 1.15));
@@ -1810,7 +1815,8 @@
     /** A seeded random hair recipe; men get facial hair now and then. */
     function randomHair(seed, opts) {
         const rand = rng(seed);
-        const male = (opts && opts.gender != null ? opts.gender : rand()) >= 0.5;
+        // `gender`: 'male' / 'female' or the Gender slider's value.
+        const g = opts && opts.gender, male = g === 'male' ? true : g === 'female' ? false : (g != null ? g : rand()) >= 0.5;
         const pick = list => list[Math.floor(rand() * list.length)];
         const short = ['buzz', 'crew', 'sidePart', 'undercut', 'quiff', 'slickBack', 'messy', 'curlyShort', 'spiky', 'mullet', 'pompadour'];
         const long = ['bob', 'shoulder', 'long', 'longWavy', 'ponytail', 'bun', 'braid', 'pigtails', 'hime', 'curly', 'sweptBangs', 'pixie', 'twinBraids', 'bunLow', 'ponytailLow'];
@@ -1830,7 +1836,7 @@
     const api = {
         lashTexture, hairTexture, browTexture,
         STYLES, FACIAL, BROWS, PARTS, STYLE_FRINGE, withStyle, DEFAULT_HAIR, normalizeHair, randomHair, build,
-        _internal: { measure, headCoords, cutSurface, facialField, scalpField, meshBuilder, addShell, addClump, addTube, addBlob, grow, curlStrand, scatter, tangent, rng, hash, linear }
+        _internal: { measure, headCoords, cutSurface, facialField, scalpField, styleLayers, meshBuilder, addShell, addClump, addTube, addBlob, grow, curlStrand, scatter, tangent, rng, hash, linear }
     };
     root.RRCharacterHair = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

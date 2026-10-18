@@ -222,7 +222,7 @@
         K('boar', { size: 0.58, legLength: 0.75, hipHeight: 0.93, girth: 1.22, chestDepth: 1.25, hump: 0.65, belly: -0.1, neckLength: 0.45, neckAngle: 10, neckThickness: 1.5, headSize: 1.12, snoutLength: 1.1, snoutWidth: 0.95, headPitch: 25, eyeSize: 0.6, eyeSide: 0.6, earSize: 0.85, ears: 'pointed', earDroop: 0.2, tail: 'tufted', tailLength: 0.35, tailThickness: 0.6, tailCurl: -0.8, feet: 'hoof', tuskSize: 1, legThickness: 0.85, pattern: 'solid', fluff: 0.8, mane: 'horse', maneSize: 0.5 },
             { coat: '#4a3a30', marking: '#2a201a', light: '#6a5a4a', nose: '#3a2a26', horn: '#ece4d0', eye: '#1a1010', mane: '#2a2018' }),
         K('rabbit', { size: 0.15, bodyLength: 0.8, legLength: 0.5, hipHeight: 1.2, girth: 1.15, chestDepth: 1.05, neckLength: 0.4, neckAngle: 40, headSize: 1.3, snoutLength: 0.38, snoutWidth: 0.95, headPitch: 20, eyeSize: 1.2, eyeSide: 1, earSize: 2.1, ears: 'long', earDroop: -0.5, tail: 'stub', tailLength: 0.25, tailThickness: 1.4, tailCurl: 1, plantigrade: 1, pattern: 'countershade', fluff: 0.95 },
-            { coat: '#9a8470', marking: '#5a4a3a', light: '#f2ece4', nose: '#b08480', eye: '#3a2216', mane: '#9a8470' }),
+            { coat: '#9a8470', marking: '#5a4a3a', light: '#f2ece4', nose: '#8a6a64', eye: '#3a2216', mane: '#9a8470' }),
         K('bull', { size: 0.95, legLength: 1.0, girth: 1.35, chestDepth: 1.3, belly: 0.25, hump: 0.45, neckLength: 0.6, neckAngle: 15, neckThickness: 1.5, headSize: 1.15, snoutLength: 1.0, snoutWidth: 1.15, headPitch: 35, eyeSize: 1.2, eyeSide: 0.85, earSize: 0.8, ears: 'round', earDroop: 0.7, tail: 'tufted', tailLength: 1, tailThickness: 0.7, tailCurl: -1, feet: 'hoof', horns: 'bull', hornSize: 1, pattern: 'piebald', legThickness: 1.22, fluff: 0.05 },
             { coat: '#2a2220', marking: '#f0ece4', light: '#3a302a', nose: '#c08a8a', horn: '#e0d4b8', eye: '#1a1010', mane: '#1a1412' }),
         K('ram', { size: 0.55, legLength: 0.92, girth: 1.22, chestDepth: 1.1, belly: 0.3, neckLength: 0.7, neckAngle: 35, headSize: 1, snoutLength: 0.85, snoutWidth: 0.85, headPitch: 35, eyeSize: 1, eyeSide: 0.9, earSize: 0.75, ears: 'narrow', earDroop: 0.6, tail: 'stub', tailLength: 0.3, feet: 'hoof', horns: 'ram', hornSize: 1.1, pattern: 'points', legThickness: 0.7, fluff: 1.3 },
@@ -540,6 +540,8 @@
         // and narrows on to the hips, so the underline rises in one sweep.
         const across = chestR / (0.19 * g);
         flatten(C(chestA, ribEnd, chestR, ribR, 'Chest', 0.1 * g, 'torso'), 0, across);
+        // A big cat's breastbone stands forward between the forelegs: the chest is keeled, not square.
+        if (prof.bigcat) E([0, yS - 0.1 * gv * cd, zS + 0.11], [0.05 * g, 0.17 * gv * cd, 0.07], 'Chest', 0.07 * g, 'torso');
         // The breast between the forelegs: rounded, blended wide on a big cat so the chest's front is one curve.
         for (const s of [1, -1]) E([s * 0.06 * g, yS - 0.05 * gv * cd, zS + 0.05], [0.08 * g, 0.14 * gv * cd, 0.1], 'Chest', (prof.bigcat ? 0.12 : 0.08) * g, 'torso');
         // A cat's spine runs low between its shoulder blades, which stand above it.
@@ -637,6 +639,13 @@
         maneShapes(r, lay, S, E, C);
         // ── anatomy: the sheath and scrotum or the vulva, and an udder where the species has one.
         if (r.anatomy && r.anatomy.detail) anatomyShapes(r, lay, S, E, C, prof);
+        // A fleece: the wool over the trunk, neck and upper legs grows in lumpy locks; the face and the lower
+        // legs are bare of it.
+        if (prof.face === 'sheep' && r.fluff > 0.3) {
+            const woolly = new Set(['torso', 'belly', 'rump', 'back', 'hump', 'neck', 'scapula', 'thigh', 'upperleg']);
+            const amt = 0.022 * g * Math.min(1.6, r.fluff);
+            for (const sh of S) if (!sh.cut && woolly.has(sh.tag) && sh.bone !== 'Head') Object.assign(sh, { bump: amt, bumpScale: 34 / g, bumpSeed: 37 });
+        }
         return S;
     }
 
@@ -709,10 +718,15 @@
         // front edge, the facial crest running forward under the eye, a narrow bony bridge down the nose, and
         // the hollow above each eye.
         const faceKind = profileOf(r).face;
+        if (faceKind === 'bear') {
+            // A bear's face is broad: full furred cheeks behind the eyes, a wide brow.
+            for (const s of [1, -1]) e(H(s * 0.6, -0.15, -0.1), [0.42, 0.45, 0.55], 0.25, 'cheek');
+            e(H(0, 0.38, 0.1), [0.7, 0.28, 0.5], 0.2, 'skull');
+        }
         if (faceKind === 'rabbit') {
             // Round full cheeks, a soft muzzle that pouts under the nose.
             for (const s of [1, -1]) e(H(s * 0.48, -0.2, 0.32), [0.36, 0.36, 0.45], 0.2, 'cheek');
-            e(H(0, -0.12, zt - 0.2), [0.24 * sw, 0.2, 0.16], 0.14, 'snout');
+            e(H(0, -0.14, zt - 0.24), [0.2 * sw, 0.18, 0.14], 0.14, 'snout');
         }
         if (faceKind === 'sheep') {
             // The Roman nose: the bridge arched from the brow to the nostrils.
@@ -730,7 +744,7 @@
             for (const s of [1, -1]) {
                 e(H(s * (0.5 + 0.05 * fine), -0.62, 0.05), [0.16 * fine, 0.46 * (0.8 + 0.2 * fine), 0.46], 0.07, 'cheek');
                 c(H(s * 0.47, -0.2, 0.0), H(s * 0.36, -0.28, z0 + 0.45), 0.075 * fine, 0.04 * fine, 0.05, 'cheek');
-                S.push(cut(ellipsoid(H(s * 0.4, 0.5, 0.05), [0.13, 0.11, 0.15].map(v => v * sr), B, 0.08 * sr, 'skull', hd, hu)));
+                if (faceKind !== 'deer') S.push(cut(ellipsoid(H(s * 0.4, 0.5, 0.05), [0.13, 0.11, 0.15].map(v => v * sr), B, 0.08 * sr, 'skull', hd, hu)));
             }
             c(H(0, 0.38, z0 - 0.05), H(0, 0.16, zt - 0.32), 0.17 * sw, 0.13 * sw, 0.06, 'snout');
         }
@@ -1008,6 +1022,45 @@
         return { positions, index, t: tv };
     }
 
+    /**
+     * An ear: a thin cupped shell along `path`, `width(t)` across and `thick(t)` through, its front hollowed
+     * by `cup` (a share of its width), its rim rolled round, its tip closed soft. Like `loft`, but each
+     * vertex also carries `face` (-1 on the inside of the cup, 1 on the back) and `u` (-1..1 across).
+     */
+    function earShell(path, width, thick, flat, cup, sides) {
+        const n = path.length, positions = [], index = [], tv = [], face = [], uv = [];
+        const rings = [];
+        for (let i = 0; i < n; i++) {
+            const t = i / (n - 1);
+            const tan = norm(i === 0 ? sub(path[1], path[0]) : i === n - 1 ? sub(path[n - 1], path[n - 2]) : sub(path[i + 1], path[i - 1]));
+            const N = norm(sub(flat, mul(tan, dot(flat, tan)))), Bv = norm(cross(tan, N));
+            const w = Math.max(width(t), 1e-4), th = thick(t);
+            const ring = [];
+            for (let k = 0; k < sides; k++) {
+                // Angles bunched toward the rim, so the roll of the edge is round.
+                const a = (k / sides) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+                const across = Math.sign(ca) * Math.pow(Math.abs(ca), 0.7);
+                const hollow = cup * w * (1 - across * across) * (1 - 0.5 * t);
+                const through = sa * th * (0.55 + 0.9 * across * across);
+                ring.push(positions.length / 3);
+                const p = add(path[i], add(mul(N, across * w), mul(Bv, hollow + through)));
+                positions.push(p[0], p[1], p[2]); tv.push(t); face.push(sa); uv.push(across);
+            }
+            rings.push(ring);
+        }
+        for (let i = 0; i + 1 < n; i++) for (let k = 0; k < sides; k++) {
+            const a = rings[i][k], b = rings[i][(k + 1) % sides], c = rings[i + 1][k], d = rings[i + 1][(k + 1) % sides];
+            index.push(a, b, c, b, d, c);
+        }
+        // The tip closes on a point just past the last ring.
+        const endTan = norm(sub(path[n - 1], path[n - 2]));
+        const tip = add(path[n - 1], mul(endTan, Math.max(width(1), thick(1)) * 0.5));
+        const ti = positions.length / 3;
+        positions.push(tip[0], tip[1], tip[2]); tv.push(1); face.push(0); uv.push(0);
+        for (let k = 0; k < sides; k++) index.push(rings[n - 1][k], rings[n - 1][(k + 1) % sides], ti);
+        return { positions, index, t: tv, face, u: uv };
+    }
+
     /** A smooth path through control points (Catmull-Rom), `count` points. */
     function curve(points, count) {
         const out = [];
@@ -1058,20 +1111,20 @@
             }[r.ears];
             for (const ear of lay.ears) {
                 const side = ear.side;
-                const base = add(ear.base, mul(J.hup, -0.08 * sr));
                 const droop = (spec.droop || 0) + r.earDroop;
                 const dir = norm([side * spec.out, spec.up - droop * 0.9, -spec.back - Math.max(0, droop) * 0.15]);
                 const L = spec.len * es;
-                const pts = curve([base, add(base, mul(dir, L * 0.5)), add(add(base, mul(dir, L)), [0, -Math.max(0, droop) * L * 0.25, 0])], 8);
+                // The root starts inside the head, so the ear grows out of the skin rather than sitting on it.
+                const base = add(add(ear.base, mul(J.hup, -0.08 * sr)), mul(dir, -0.12 * L));
+                const pts = curve([base, add(base, mul(dir, L * 0.55)), add(add(base, mul(dir, L * 1.12)), [0, -Math.max(0, droop) * L * 0.25, 0])], 18);
                 // Wide across the head, thin front to back: the ear opens forward.
                 const flatDir = norm([1, 0, side * 0.35]);
-                // A long ear is a leaf: narrow at the root, widest near the middle, round at the tip.
-                const mesh = loft(pts, t => {
-                    const w = spec.wide * es * (spec.leaf
-                        ? (t < 0.45 ? 0.55 + 0.45 * Math.sin(t / 0.45 * Math.PI / 2) : Math.pow(Math.max(0, 1 - Math.pow((t - 0.45) / 0.55, 2.4)), 0.5))
-                        : t < 0.35 ? 0.8 + t * 0.6 : (1 - t) / 0.65 * (1 - spec.tip) + spec.tip * Math.sqrt(Math.max(0, 1 - Math.pow((t - 0.35) / 0.65, 2))));
-                    return [Math.max(w, 0.003 * es), Math.max(0.008 * es, w * 0.14)];
-                }, 12, flatDir, false, spec.cup * (droop > 0.6 ? 0.2 : 1));
+                // The outline: from the root's width out to the widest, then rounding to the tip (a leaf narrows
+                // at the root); the tip is round or pointed, never a corner.
+                const tm = spec.leaf ? 0.45 : 0.32, b0 = spec.leaf ? 0.55 : 0.8, pr = 1.15 + 1.6 * spec.tip;
+                const width = t => spec.wide * es * (t < tm ? b0 + (1 - b0) * Math.sin(t / tm * Math.PI / 2) : Math.pow(Math.max(0, 1 - Math.pow((t - tm) / (1 - tm), pr)), 1 / pr));
+                const thick = t => spec.wide * es * (0.09 + 0.16 * Math.pow(1 - t, 3));
+                const mesh = earShell(pts, width, thick, flatDir, spec.cup * (droop > 0.6 ? 0.25 : 1), 20);
                 out.push({ mesh, kind: 'coat', weights: rigid('Head'), tag: 'ear' });
             }
         }
@@ -1140,9 +1193,20 @@
                     const pts = curve([base, add(base, s([0.12 * hs, 0.01 * hs, 0])), add(base, s([0.2 * hs, 0.07 * hs, 0.05 * hs])), add(base, s([0.23 * hs, 0.15 * hs, 0.08 * hs]))], 12);
                     out.push({ mesh: hornTube(pts, 0.028 * hs, 0.004), kind: 'horn', weights: rigid('Head'), tag: 'horn' });
                 } else if (r.horns === 'ram') {
-                    const center = add(top, s([sr * 0.85, sr * 0.1, -sr * 0.35]));
-                    const pts = spiral(center, s([1, 0, 0.1]), add(base, s([0, 0.02, -0.02])), 1.15 * clamp(hs, 0.4, 2), 0.55, 22).map(p => add(center, mul(sub(p, center), Math.max(0.5, hs))));
-                    out.push({ mesh: hornTube(pts, 0.04 * hs, 0.008), kind: 'horn', weights: rigid('Head'), tag: 'horn' });
+                    // From the top of the skull above and behind the eye, the horn sweeps back, down past the ear
+                    // and forward again beside the cheek, close against the head, thick at the root and ridged.
+                    const H = lay.H, k = clamp(hs / ht, 0.4, 2.2), hu = J.hup;
+                    const root = H(side * 0.42, 0.55, -0.12), turns = 0.95 + 0.25 * Math.min(1, k);
+                    const R0 = 0.78 * sr * Math.sqrt(k), cen = sub(root, add(mul(hu, R0 * 0.87), mul(hd, R0 * 0.5)));
+                    const pts = [];
+                    for (let i = 0; i <= 28; i++) {
+                        const t = i / 28, a = (-30 + 360 * turns * t) * DEG, rad = R0 * (1 - 0.5 * t);
+                        const q = add(cen, add(mul(hu, Math.cos(a) * rad), mul(hd, -Math.sin(a) * rad)));
+                        pts.push(add(q, [side * (0.12 + 0.5 * t) * sr * Math.sqrt(k), 0, 0]));
+                    }
+                    const r0 = 0.22 * sr * Math.sqrt(k);
+                    const mesh = loft(pts, t => { const v = (r0 * (1 - 0.82 * t) + 0.004) * (1 + 0.07 * Math.sin(t * 90)); return [v, v * 0.82]; }, 12, null, true);
+                    out.push({ mesh, kind: 'horn', weights: rigid('Head'), tag: 'horn' });
                 } else if (r.horns === 'goat') {
                     const pts = curve([base, add(base, s([0.02, 0.12 * hs, -0.06 * hs])), add(base, s([0.05 * hs, 0.17 * hs, -0.2 * hs])), add(base, s([0.07 * hs, 0.12 * hs, -0.3 * hs]))], 12);
                     out.push({ mesh: hornTube(pts, 0.024 * hs, 0.003), kind: 'horn', weights: rigid('Head'), tag: 'horn' });
@@ -1540,7 +1604,9 @@
             let wd = norm(cross(nr, f));
             const turn = (rand() - 0.5) * 1.2;
             wd = norm(add(mul(wd, Math.cos(turn)), mul(nr, Math.sin(turn))));
-            const lane = Math.floor(rand() * 4), u0 = lane * 0.25, u1 = u0 + 0.25;
+            const lane = s.lane != null ? s.lane : Math.floor(rand() * 4), u0 = lane * 0.25, u1 = u0 + 0.25;
+            // A card may start past the picture's solid root band (`v0`), so it shows only loose hairs.
+            const v0 = s.v0 != null ? s.v0 : 0.02;
             const base = vi;
             let p = s.p.slice();
             const step = s.len / SEG;
@@ -1557,7 +1623,7 @@
                     const q = add(p, mul(wd, w * side));
                     positions.set(q, vi * 3);
                     normals.set(nr, vi * 3);
-                    uvs[vi * 2] = side < 0 ? u0 : u1; uvs[vi * 2 + 1] = 0.02 + t * 0.96;
+                    uvs[vi * 2] = side < 0 ? u0 : u1; uvs[vi * 2 + 1] = v0 + t * (0.98 - v0);
                     colors.set(col, vi * 3);
                     joints.set(s.joints, vi * 4); weights.set(s.weights, vi * 4);
                     vi++;
@@ -1597,7 +1663,7 @@
         }
         if (face === 'bear') return onHead ? smooth(zt - 0.75, zt - 0.4, hz) * smooth(0.25, 0.0, hy) * 0.55 : 0;
         if (face === 'rabbit') {
-            const muzzle = onHead ? smooth(-0.12, -0.3, hy) * smooth(zt - 0.5, zt - 0.3, hz) * 0.7 : 0;
+            const muzzle = onHead ? smooth(-0.22, -0.36, hy) * smooth(zt - 0.45, zt - 0.3, hz) * 0.55 : 0;
             return clamp(muzzle + (tag === 'chin' ? 0.8 : 0) + (onHead ? ring() * 0.8 : 0) + ((tag === 'neck' || tag === 'jaw') ? smooth(0.3, 0.8, under) * 0.8 : 0), 0, 1);
         }
         if (face === 'reptile') return onHead ? smooth(-0.3, -0.45, hy) * smooth(z0, z0 + 0.3, hz) + ((tag === 'neck' || tag === 'jaw') ? smooth(0.2, 0.8, under) : 0) : smooth(0.2, 0.8, under) * (tag === 'neck' ? 1 : 0);
@@ -1732,6 +1798,11 @@
             }
         }
         if (tag === 'nosepad') col = C.nose;
+        // A bull's curly poll: the curls between the horns, each lit on its crown and dark between.
+        if (faceKind === 'cattle' && onHead && hy > 0.5 && hz < 0.25) {
+            const f = 9 / sr, [d1, d2] = worley(p[0] * f, p[1] * f, p[2] * f, 13);
+            col = mul(mixRgb(col, C.coat, 0.15), 0.72 + 0.28 * smooth(0.0, 0.3, d2 - d1) * smooth(0.5, 0.65, hy));
+        }
         // A cow's wide bare muzzle plate, wet and a little darker at its edge.
         if (faceKind === 'cattle' && onHead) col = mixRgb(col, mixRgb(C.nose, [0.25, 0.15, 0.15], smooth(0.2, 0.45, hx) * 0.4), smooth(zt - 0.32, zt - 0.2, hz) * smooth(-0.42, -0.3, hy));
         // A deer's bare nose: the whole tip of the muzzle above the lip, dark.
@@ -1770,24 +1841,43 @@
             const d = len(sub(p, lay.anus));
             if (d < 0.03 * g) col = mixRgb(col, mixRgb(C.nose, [0.1, 0.07, 0.07], 0.5), smooth(0.03 * g, 0.012 * g, d));
         }
-        // A little mottling so a solid coat is not flat paint.
-        const mottle = 1 + 0.06 * fbm(p[0] * 20, p[1] * 20, p[2] * 20, seed + 5, 2);
+        // A little mottling so a solid coat is not flat paint, a touch darker along the back and paler under.
+        const mottle = (1 + 0.06 * fbm(p[0] * 20, p[1] * 20, p[2] * 20, seed + 5, 2)) * (1 - 0.08 * smooth(0.2, 0.9, n[1]) + 0.06 * under);
         return [col[0] * mottle, col[1] * mottle, col[2] * mottle];
     }
 
     // ── assembly ───────────────────────────────────────────────────────────
+    /**
+     * The grain of a furred coat at a point, as a brightness factor about 1: fine streaks along the hair's
+     * flow (back along the body, down the legs, back from the face), or a fleece's crimp: each lock lit on
+     * its crown and dark in the crevices between.
+     */
+    function coatGrain(r, lay, p, n, tag) {
+        const g = lay.g;
+        if (profileOf(r).face === 'sheep' && !HEAD_TAGS.has(tag) && !LOW_LEG_TAGS.has(tag)) {
+            // Locks shaded darker toward their roots between them, each crimped in fine waves.
+            const f = 30 / g, [d1, d2] = worley(p[0] * f, p[1] * f, p[2] * f, 41);
+            const crimp = valueNoise(p[0] * 160 / g, p[1] * 160 / g, p[2] * 160 / g, 5);
+            return 0.93 + 0.07 * smooth(0.0, 0.35, d2 - d1) * (1 - 0.6 * d1) + 0.05 * crimp;
+        }
+        const flow = norm(LEG_TAGS.has(tag) ? [0, -1, -0.15] : HEAD_TAGS.has(tag) ? mul(lay.J.hdir, -1) : [0, -0.45, -1]);
+        const f = norm(sub(flow, mul(n, dot(flow, n)))), side = norm(cross(n, f));
+        const a = dot(p, f) / g * 14, b = dot(p, side) / g * 260;
+        const streak = valueNoise(b, a, dot(p, n) / g * 30, 77) * 0.6 + valueNoise(b * 2.3, a * 1.7, 0, 78) * 0.4;
+        return 1 + 0.16 * streak * Math.min(1, r.fluff * 1.5);
+    }
     const FINE_PATTERNS = new Set(['stripes', 'tabby', 'spots', 'rosettes', 'dapple', 'piebald', 'scales']);
     /**
      * The coat painted into a picture for a fine pattern (stripes and spots finer than the saved mesh's
      * faces): the body's faces are grouped into charts by the axis they face, each chart laid flat along
      * that axis and packed into the picture, every texel painted with the coat at its place on the body,
      * and the charts' edges grown out so filtering never reaches the background. A vertex shared by two
-     * charts is split, the copies numbered from `first`. A face whose corners all keep their `own` vertex
-     * colors is white in the picture. A strip along the bottom stays white, for the pieces
+     * charts is split, the copies numbered from `first`. A chart most of whose faces are `fine` (the face,
+     * with its lids, lips and nose) gets several times the texels. A strip along the bottom stays white, for the pieces
      * painted by their own colors (`white`, its middle's uv). Returns { uvs, index, extra (each copy's
      * source and uv), white, texture }, or null when the charts do not fit.
      */
-    function coatAtlas(positions, index, normals, tags, own, colorAt, size, first) {
+    function coatAtlas(positions, index, normals, tags, fine, colorAt, size, first) {
         const n = positions.length / 3, T = index.length / 3;
         const P = v => [positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]];
         // Each face's axis: the one its normal leans along most (0..5 for +x, -x, +y, -y, +z, -z).
@@ -1816,7 +1906,8 @@
                     if (chart[u] < 0 && axis[u] === axis[t0]) { chart[u] = id; faces.push(u); }
                 }
             }
-            charts.push({ faces, axis: axis[t0] });
+            let k = 0; for (const t of faces) if (fine[index[t * 3]] && fine[index[t * 3 + 1]] && fine[index[t * 3 + 2]]) k++;
+            charts.push({ faces, axis: axis[t0], s: k * 2 > faces.length ? 2.8 : 1 });
         }
         // Each chart flat on its axis's plane, in body units: its corner and extent.
         const flat = (p, ax) => (ax < 2 ? [p[2], p[1]] : ax < 4 ? [p[0], p[2]] : [p[0], p[1]]);
@@ -1824,7 +1915,7 @@
         for (const ch of charts) {
             let lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
             for (const t of ch.faces) for (let k = 0; k < 3; k++) { const q = flat(P(index[t * 3 + k]), ch.axis); lo = [Math.min(lo[0], q[0]), Math.min(lo[1], q[1])]; hi = [Math.max(hi[0], q[0]), Math.max(hi[1], q[1])]; }
-            ch.lo = lo; ch.w = hi[0] - lo[0]; ch.h = hi[1] - lo[1];
+            ch.lo = lo; ch.w = (hi[0] - lo[0]) * ch.s; ch.h = (hi[1] - lo[1]) * ch.s;
             area += ch.w * ch.h;
         }
         // Shelf packing at a texel density that fills about two thirds of the picture, smaller until it fits.
@@ -1847,7 +1938,7 @@
         // The vertices: one per chart that uses it.
         const uvs = new Float32Array(n * 2), owner = new Int32Array(n).fill(-1), extra = [], out = Array.from(index);
         const copies = new Map();
-        const uvOf = (p, ch) => { const q = flat(p, ch.axis); return [(ch.ox + (q[0] - ch.lo[0]) * density) / size, (ch.oy + (q[1] - ch.lo[1]) * density) / size]; };
+        const uvOf = (p, ch) => { const q = flat(p, ch.axis); return [(ch.ox + (q[0] - ch.lo[0]) * density * ch.s) / size, (ch.oy + (q[1] - ch.lo[1]) * density * ch.s) / size]; };
         charts.forEach((ch, ci) => {
             for (const t of ch.faces) for (let k = 0; k < 3; k++) {
                 const v = index[t * 3 + k];
@@ -1886,7 +1977,7 @@
                 const p = [0, 1, 2].map(i => w[0] * positions[vs[0] * 3 + i] + w[1] * positions[vs[1] * 3 + i] + w[2] * positions[vs[2] * 3 + i]);
                 const nn = norm([0, 1, 2].map(i => w[0] * normals[vs[0] * 3 + i] + w[1] * normals[vs[1] * 3 + i] + w[2] * normals[vs[2] * 3 + i]));
                 const main = w0 >= w1 && w0 >= w2 ? vs[0] : w1 >= w2 ? vs[1] : vs[2];
-                const c = own[vs[0]] && own[vs[1]] && own[vs[2]] ? [1, 1, 1] : colorAt(p, nn, tags[main]);
+                const c = colorAt(p, nn, tags[main]);
                 data[o * 4] = Math.round(clamp(c[0], 0, 1) * 255); data[o * 4 + 1] = Math.round(clamp(c[1], 0, 1) * 255); data[o * 4 + 2] = Math.round(clamp(c[2], 0, 1) * 255); data[o * 4 + 3] = 255;
                 filled[o] = inside ? 2 : 1;
             }
@@ -2045,10 +2136,13 @@
                 } else if (piece.tag === 'ear') {
                     const n = [pn[i * 3], pn[i * 3 + 1], pn[i * 3 + 2]];
                     c = coatColor(r, lay, p, n, 'ear', C);
-                    // The ear's back: dark on a cat's; its inside: pale, furred.
-                    const back = smooth(-0.1, -0.6, n[2]);
-                    if (prof.padColor && r.pattern !== 'solid') c = mixRgb(c, C.marking, back * 0.75 * r.patternAmount * smooth(0.2, 0.6, t));
-                    c = mixRgb(c, mixRgb(C.light, [0.85, 0.7, 0.66], 0.25), smooth(0.1, 0.6, n[2]) * 0.6 * smooth(0.95, 0.5, t));
+                    // The ear's back: the coat, dark on a cat's. Its hollow: pale skin under fine light hairs
+                    // that run up from the root, the rim round it the coat's own color.
+                    const f = m.face[i], u = m.u[i], inside = smooth(0.15, -0.35, f) * smooth(0.95, 0.7, Math.abs(u));
+                    if (prof.padColor && r.pattern !== 'solid') c = mixRgb(c, C.marking, smooth(0.0, 0.5, f) * 0.75 * r.patternAmount * smooth(0.2, 0.6, t));
+                    const hairs = 0.5 + 0.5 * Math.sin(u * 37 + 3 * Math.sin(t * 9)) * Math.sin(u * 23 - t * 5);
+                    const lining = mixRgb(mixRgb(C.light, [0.86, 0.72, 0.68], 0.3), C.light, hairs * smooth(0.1, 0.5, t));
+                    c = mixRgb(c, mixRgb(lining, mul(lining, 0.72), smooth(0.25, 0.0, t)), inside * 0.9);
                 } else {
                     c = coatColor(r, lay, p, [0, 0, 1], piece.tag, C);
                     if (piece.tag === 'tail' && r.pattern === 'points') c = mixRgb(c, C.marking, smooth(0.4, 0.9, t) * r.patternAmount);
@@ -2134,16 +2228,13 @@
         const textures = {};
         // A fine pattern (stripes, spots) is painted into a picture over the body: finer than its faces.
         let atlas = null;
-        if (FINE_PATTERNS.has(r.pattern) && r.patternAmount > 0.15) {
+        const furry = r.fluff > 0.3;
+        if ((FINE_PATTERNS.has(r.pattern) && r.patternAmount > 0.15) || furry) {
             const total = coat.positions.length / 3;
-            // The head keeps its own finely meshed colors (lids, lips, nose, whisker spots): white in the picture
-            // there. A head vertex on a face that reaches the neck takes the picture as the neck does.
-            const own = new Uint8Array(vcount), I = coat.index;
-            // (A scaled head has no fine face marks: it is painted with the rest, its scales as fine.)
-            for (let v = 0; v < vcount; v++) own[v] = HEAD_TAGS.has(tags[v]) && r.pattern !== 'scales' ? 1 : 0;
-            const keep = Uint8Array.from(own);
-            for (let t = 0; t < bodyFaces; t += 3) if (!(own[I[t]] && own[I[t + 1]] && own[I[t + 2]])) keep[I[t]] = keep[I[t + 1]] = keep[I[t + 2]] = 0;
-            atlas = coatAtlas(positions, I.slice(0, bodyFaces), normals, tags, keep, (p, n, tag) => coatColor(r, lay, p, n, tag, C), save ? 512 : 384, total);
+            // The face (its lids, lips, nose, whisker spots) is painted finer than the rest.
+            const I = coat.index, keep = new Uint8Array(vcount);
+            for (let v = 0; v < vcount; v++) keep[v] = HEAD_TAGS.has(tags[v]) ? 1 : 0;
+            atlas = coatAtlas(positions, I.slice(0, bodyFaces), normals, tags, keep, (p, n, tag) => { const c = coatColor(r, lay, p, n, tag, C); return furry ? mul(c, coatGrain(r, lay, p, n, tag)) : c; }, save ? 1024 : 384, total);
             if (atlas) {
                 const uvs = new Float32Array((total + atlas.extra.length) * 2);
                 uvs.set(atlas.uvs);
@@ -2152,11 +2243,10 @@
                     const v = total + k;
                     coat.positions.push(positions[e.from * 3], positions[e.from * 3 + 1], positions[e.from * 3 + 2]);
                     coat.joints.push(...coat.joints.slice(e.from * 4, e.from * 4 + 4)); coat.weights.push(...coat.weights.slice(e.from * 4, e.from * 4 + 4));
-                    const hc = keep[e.from];
-                    coat.colors.push(hc ? coat.colors[e.from * 3] : 1, hc ? coat.colors[e.from * 3 + 1] : 1, hc ? coat.colors[e.from * 3 + 2] : 1);
+                    coat.colors.push(1, 1, 1);
                     uvs[v * 2] = e.uv[0]; uvs[v * 2 + 1] = e.uv[1];
                 });
-                for (let v = 0; v < vcount; v++) if (!keep[v]) coat.colors[v * 3] = coat.colors[v * 3 + 1] = coat.colors[v * 3 + 2] = 1;
+                for (let v = 0; v < vcount * 3; v++) coat.colors[v] = 1;
                 coat.index = atlas.index.concat(coat.index.slice(bodyFaces));
                 coat.uvs = uvs;
                 textures['creaturecoat.png'] = atlas.texture;
@@ -2186,6 +2276,13 @@
                 texture: 'creaturefur.png', cutout: true, alphaCutoff: 0.3, keepColors: true, doubleSided: true, roughness: 0.8, kind: 'hair', noShade: true });
             textures['creaturefur.png'] = lockTexture();
         }
+        // The coat's own strands: fine, sparse, lit as the skin under them is.
+        if (cards.coat.length) {
+            const c = strandCards(cards.coat, rng(seed + 23));
+            parts.push({ name: 'Coat fur', positions: place(c.positions), normals: c.normals, uvs: c.uvs, colors: Float32Array.from(c.colors, toLinear), index: c.index, joints: c.joints, weights: c.weights,
+                texture: 'creaturefur.png', cutout: true, alphaCutoff: 0.3, keepColors: true, doubleSided: true, roughness: 0.8, kind: 'hair', onSkin: true, noShade: true });
+            textures['creaturefur.png'] = lockTexture();
+        }
         const scalePoint = p => [p[0] * S, (p[1] - minY) * S, p[2] * S];
         const outBones = bones.map(b => ({ name: b.name, parent: b.parent, head: scalePoint(b.head), tail: scalePoint(b.tail) }));
         let top = 0;
@@ -2197,7 +2294,7 @@
     /** The places strand cards grow, with their lie, length and color. */
     function furRoots(r, lay, coat, tags, normals, vcount, C, boneIndex, budget, save) {
         const roots = [];
-        if (budget <= 0) return { roots };
+        if (budget <= 0) return { roots, coat: [] };
         const rand = rng((r.seed % 997) + 101);
         const { J, g, sr } = lay;
         const P = coat.positions, I = coat.index, CO = coat.colors;
@@ -2286,9 +2383,12 @@
                     color: mixRgb(C.mane, [0, 0, 0], 0.15 * rand()), tipColor: mixRgb(C.mane, C.coat, 0.15), joints: [head, 0, 0, 0], weights: [1, 0, 0, 0] });
             }
         }
+        const coat2 = [];
         if (coatTris.length && coatCap > 0) {
-            const density = 900 * r.fluff * budget * (save ? 1 : 0.55);
-            const count = Math.min(coatCap, Math.round(coatArea * density));
+            // Fine strands lying close along the hair's flow; a fleece's wool is in the surface, its strands few.
+            const wool = profileOf(r).face === 'sheep' ? 0.3 : 1;
+            const density = 1500 * r.fluff * budget * (save ? 1 : 0.55) * wool;
+            const count = Math.min(Math.round(coatCap * 1.6 * wool), Math.round(coatArea * density));
             for (let i = 0; i < count; i++) {
                 const { p, n, v } = pick(coatTris, coatArea);
                 const tag = tags[v];
@@ -2296,11 +2396,12 @@
                 const flow = LEG_TAGS.has(tag) ? [0, -1, -0.15] : HEAD_TAGS.has(tag) ? mul(J.hdir, -1) : [0, -0.45, -1];
                 // A fine pattern is finer than the vertices: the hair takes the coat at its own root.
                 const color = fineCoat ? coatColor(r, lay, p, n, tag, C) : [CO[v * 3], CO[v * 3 + 1], CO[v * 3 + 2]];
-                roots.push(Object.assign({ p, n, flow, len: (0.018 + 0.03 * r.fluff) * g * (0.7 + 0.6 * rand()), width: 0.012 * g * (0.8 + 0.4 * rand()), lift: 0.35 + 0.2 * rand(), droop: 0.2,
-                    color: mul(color, 0.97), tipColor: mixRgb(color, C.light, 0.15) }, skinOf(v)));
+                const shade = 0.9 + 0.2 * rand();
+                coat2.push(Object.assign({ p, n, flow, len: (0.02 + 0.035 * r.fluff) * g * (0.7 + 0.6 * rand()), width: 0.007 * g * (0.8 + 0.4 * rand()), lift: 0.12 + 0.18 * rand(), droop: 0.25,
+                    color: mul(color, shade), tipColor: mixRgb(mul(color, shade), C.light, 0.12), lane: rand() < 0.5 ? 0 : 1, v0: 0.2 }, skinOf(v)));
             }
         }
-        return { roots };
+        return { roots, coat: coat2 };
     }
 
     /** Teats in pairs along the belly's two rows, or on an udder, each a short round-ended cone set on the skin. */

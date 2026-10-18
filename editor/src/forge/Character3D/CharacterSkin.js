@@ -90,6 +90,32 @@
     }
 
     /**
+     * The lips' field filled in toward the mouth: the lip targets move the
+     * lips' outer faces, not the inner roll where the lips meet, which would
+     * otherwise show as a pale band of skin. Skin within a few millimeters of
+     * a lip that faces up, down or back (into the mouth's slot, not out onto
+     * the face) takes the lip's value.
+     */
+    function innerLips(pack, lips, R, N) {
+        const on = [...new Set(pack.body.source)], core = on.filter(v => lips[v] > 0.45);
+        if (!core.length) return lips;
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (const v of core) { x0 = Math.min(x0, R[v * 3]); x1 = Math.max(x1, R[v * 3]); y0 = Math.min(y0, R[v * 3 + 1]); y1 = Math.max(y1, R[v * 3 + 1]); }
+        const out = Float32Array.from(lips), reach = 0.004;
+        for (const v of on) {
+            const x = R[v * 3], y = R[v * 3 + 1], z = R[v * 3 + 2];
+            if (lips[v] > 0.6 || x < x0 - 0.008 || x > x1 + 0.008 || y < y0 - 0.002 || y > y1 + 0.002 || N[v * 3 + 2] > 0.75) continue;
+            let d = Infinity;
+            for (const u of core) d = Math.min(d, Math.hypot(R[u * 3] - x, R[u * 3 + 1] - y, R[u * 3 + 2] - z));
+            if (d < reach) out[v] = Math.max(out[v], 0.75 * (1 - d / reach) + 0.25);
+        }
+        // How much of each vertex's value is the filled-in inner roll (in the upper lip's shade).
+        out.inner = new Float32Array(out.length);
+        for (let v = 0; v < out.length; v++) out.inner[v] = Math.max(0, out[v] - lips[v]);
+        return out;
+    }
+
+    /**
      * Where the lips meet, 0..1: each lip's skin within a few millimeters of
      * the other lip (the mouth's line, where a closed mouth shows dark).
      */
@@ -108,7 +134,7 @@
         const an = Outfit.anatomy(pack);
         const Body = root.RRHumanBody || require('./HumanBody.js');
         const normals = Body.vertexNormals(pack, an.rest);
-        const lips = regionOf(pack, ['shape/upperLip-incr', 'shape/lowerLip-incr']);
+        const lips = innerLips(pack, regionOf(pack, ['shape/upperLip-incr', 'shape/lowerLip-incr']), an.rest, normals);
         const lids = regionOf(pack, ['shape/eyeOpen-incr', 'shape/eyeFold-incr']);
         const cheeks = regionOf(pack, ['shape/cheeks-incr']);
         const nose = regionOf(pack, ['shape/noseVolume-incr', 'shape/noseDepth-incr']);
@@ -119,7 +145,7 @@
         // The outer ear alone: the ear-size target also moves the cheek in front of the ear.
         const ears = Body.earMask ? Body.earMask(pack) : regionOf(pack, ['shape/earSize-incr']);
         const jaw = regionOf(pack, ['shape/jaw-incr', 'shape/chin-incr', 'shape/chinWidth-incr', 'shape/doubleChin-incr']);
-        return (pack._skinFields = { an, normals, lips, lids, bags, seam, cheeks, nose, noseTip, ears, jaw, marks: faceMarks(pack, an.rest, lips, noseTip) });
+        return (pack._skinFields = { an, normals, lips, innerLip: lips.inner, lids, bags, seam, cheeks, nose, noseTip, ears, jaw, marks: faceMarks(pack, an.rest, lips, noseTip) });
     }
 
     /**
@@ -214,6 +240,36 @@
         for (let v = 0; v < pack.vertexCount; v++) out[v] = Math.min(1, eased[v * 3]);
         pack._beardFields.set(style, out);
         return out;
+    }
+
+    /**
+     * Where a hair style covers the scalp, per vertex of the average body
+     * (0..1, softened over a few millimeters at the hairline), from the
+     * style's own layers: the union of their zones, so a mohawk paints its
+     * strip and an undercut its top. `amount`: how much a thin crop colors
+     * the scalp (a buzz cut lets skin show through).
+     */
+    function scalpZone(pack, style, recede) {
+        pack._scalpZones = pack._scalpZones || new Map();
+        const key = style + '|' + recede;
+        if (pack._scalpZones.has(key)) return pack._scalpZones.get(key);
+        const Hair = root.RRCharacterHair, Body = root.RRHumanBody || require('./HumanBody.js');
+        if (!Hair || !Hair._internal || !Hair._internal.styleLayers) return null;
+        const built = pack._averageBuilt || (pack._averageBuilt = Body.build(pack, Body.DEFAULT_RECIPE));
+        const I = Hair._internal, H = I.measure(pack, built), hair = Hair.normalizeHair({ style, hairline: recede });
+        const layers = I.styleLayers(H, hair);
+        if (!layers.length) return null;
+        let thick = 0;
+        for (const l of layers) if (l.type === 'cap') thick = Math.max(thick, l.thickness / H.scale);
+        const fields = layers.map(l => I.scalpField(H, hair, l.zone || null));
+        const f = new Float32Array(pack.vertexCount * 3);
+        for (const v of H.headVerts) { let best = -Infinity; for (const fn of fields) best = Math.max(best, fn(v)); f[v * 3] = smooth(-4, 8, best); }
+        const eased = Body.relax(pack, f, 2), field = new Float32Array(pack.vertexCount);
+        for (let v = 0; v < pack.vertexCount; v++) field[v] = Math.min(1, eased[v * 3]);
+        const zone = { field, amount: thick > 0 ? Math.min(1, 0.3 + thick / 0.008) : 1 };
+        if (pack._scalpZones.size > 12) pack._scalpZones.clear();
+        pack._scalpZones.set(key, zone);
+        return zone;
     }
 
     /** An age in years as the step its skin is painted at: none below 35, then each five years. */
@@ -458,7 +514,7 @@
         // same zone carries a faint cool stubble shadow.
         if (p.beardD > 0.01) {
             // A beard grows right up to the lips' edge.
-            const d = p.beardD, lips = 1 - smooth(0.38, 0.52, p.lips);
+            const d = p.beardD, lips = 1 - smooth(0.45, 0.62, p.lips);
             const [d1] = cells(x, y, z, 0.0012);
             const grain = (d1 < 0.34 ? 1 - d1 / 0.34 : 0) * (hash3(Math.floor(x * 830), Math.floor(y * 830), Math.floor(z * 830)) < 0.25 + 0.65 * d ? 1 : 0);
             if (s.facial) {
@@ -466,7 +522,7 @@
                 // fine darker grain over it, so the beard's edge reads as hair thinning, not a cut line.
                 // Stubble reads cooler than the hair itself: the hairs under the skin seen through it.
                 const under = s.facial.rgb.map((c, i) => Math.min(rgb[i], c * 1.25) * (1 - s.facial.stubble * 0.35) + rgb[i] * [0.62, 0.64, 0.7][i] * s.facial.stubble * 0.35), a = s.facial.amount;
-                rgb = mix(rgb, under, d * (0.55 + 0.15 * s.facial.stubble) * lips * a);
+                rgb = mix(rgb, under, d * (0.7 + 0.05 * s.facial.stubble) * lips * a);
                 rgb = mix(rgb, s.facial.rgb, grain * (0.4 + 0.3 * s.facial.stubble) * Math.sqrt(d) * lips * a);
             } else if (s.beard) {
                 rgb = mix(rgb, rgb.map((c, i) => c * [0.74, 0.77, 0.84][i]), d * lips * s.beard * (0.3 + 0.25 * grain));
@@ -582,7 +638,13 @@
             }
         }
         // Under head hair the scalp takes the hair's root color, so nothing pale shows between the locks.
-        if (s.scalp && p.fam === 0 && p.s > 4.6) {
+        if (s.scalp && s.scalpField && p.fam === 0) {
+            // The scalp under the style's own hair zone (the same one its locks grow from), so paint and hair agree;
+            // its edge breaks into fine hairs along their lie, not a band of shade.
+            let cover = p.scalpD;
+            if (cover > 0 && cover < 1) cover *= Math.min(1, 0.2 + 1.6 * cover * (0.35 + 0.65 * noise3(x * 1100, y * 140, z * 1100)));
+            if (cover > 0) rgb = mix(rgb, s.scalp.rgb, cover * 0.95 * s.scalp.amount);
+        } else if (s.scalp && p.fam === 0 && p.s > 4.6) {
             const front = Math.cos(p.ang), side = Math.abs(Math.sin(p.ang));
             // The hairline: high on the forehead, down over the temples, low at the nape; a little uneven.
             const line = front > 0 ? 5.64 - 0.42 * side * side + s.scalp.recede * 0.25 * (1 - side) : 5.22 - 0.3 * Math.min(1, -front * 1.4);
@@ -607,12 +669,15 @@
         // An animal's nose pad: its own color over the tip of the nose, where the nose stands furthest out.
         if (s.nose && p.noseTip > 0.35 && p.n[2] > -0.2) rgb = mix(rgb, Outfit.linear(s.nose), smooth(0.35, 0.7, p.noseTip) * smooth(-0.2, 0.3, p.n[2]));
         if (s.blush) rgb = mix(rgb, mix(rgb, Outfit.linear('#c0484a'), 0.6), p.cheeks * s.blush * 0.6);
-        if (p.lips > 0.25) {
-            // The lip's own color, rosier and deeper than the skin, its border a touch darker, so the lips read
-            // as their own shape and not a stain.
-            const lip = s.lips ? Outfit.linear(s.lips) : rgb.map((c, i) => c * [0.74, 0.47, 0.52][i]);
-            const edge = smooth(0.25, 0.38, p.lips) * (1 - smooth(0.42, 0.6, p.lips));
-            rgb = mix(rgb, lip.map(c => c * (1 - 0.14 * edge)), smooth(0.25, 0.5, p.lips));
+        if (p.lips > 0.12) {
+            // The lip's own color, rosier and deeper than the skin, blending into it over a soft vermilion
+            // border (no outline); fine upright lines across the lips, fainter toward their edge.
+            const lip = s.lips ? Outfit.linear(s.lips) : rgb.map((c, i) => c * [0.76, 0.5, 0.54][i]);
+            // Under a beard the lip's border is narrower: the hair covers the skin up to the vermilion.
+            const body = s.facial ? smooth(0.3, 0.7, p.lips) : smooth(0.12, 0.62, p.lips);
+            const lines = smooth(0.5, 0.9, p.lips) * (0.5 + 0.5 * Math.sin(x * 2600 + noise3(x * 300, y * 900, z * 300) * 5)) * (0.5 + 0.5 * noise3(x * 500, y * 140, z * 500));
+            // The inner roll where the lips meet lies in the other lip's shade.
+            rgb = mix(rgb, lip.map(c => c * (1 - 0.08 * lines) * (1 - 0.45 * Math.min(1, p.innerLip * 1.5))), body);
         }
         // The line where the lips meet, in shade.
         if (p.seam > 0.05) rgb = mix(rgb, rgb.map((c, i) => c * [0.58, 0.46, 0.48][i]), Math.min(1, p.seam) * 0.6);
@@ -641,7 +706,7 @@
         const base = Outfit.linear(skinHex || '#c69c7f');
         const data = new Uint8Array(size * size * 4), filled = new Uint8Array(size * size);
         const body = pack.body;
-        const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, lids: 0, bags: 0, seam: 0, beardD: 0, cheeks: 0, nose: 0, noseTip: 0, ears: 0, jaw: 0 };
+        const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, innerLip: 0, lids: 0, bags: 0, seam: 0, beardD: 0, scalpD: 0, cheeks: 0, nose: 0, noseTip: 0, ears: 0, jaw: 0 };
         s.beard = Math.max(0, Math.min(1, (options && options.beard) || 0));
         s.earHoles = !!(options && options.earHoles);
         // Age (years, from ageStep): the face's lines grow in from 35 and deepen to 85.
@@ -651,7 +716,11 @@
         if (facial) s.facial = { rgb: Outfit.linear(facial.color || '#2a1d15').map(c => c * 0.85), amount: 1, stubble: facial.style === 'stubble' ? 1 : 0 };
         s.beardField = facial || s.beard ? beardField(pack, facial ? facial.style : 'fullBeard') : null;
         if (s.ageing) s.marks = F.marks;
-        if (options && options.scalp) s.scalp = { rgb: Outfit.linear(options.scalp.color).map(c => c * 0.9), recede: options.scalp.recede || 0 };
+        if (options && options.scalp) {
+            s.scalp = { rgb: Outfit.linear(options.scalp.color).map(c => c * 0.9), recede: options.scalp.recede || 0, amount: 1 };
+            const zone = options.scalp.style ? scalpZone(pack, options.scalp.style, s.scalp.recede) : null;
+            if (zone) { s.scalpField = zone.field; s.scalp.amount = zone.amount; }
+        }
         if (options && options.bodyHair && (options.bodyHair.amount > 0.01 || options.bodyHair.fur > 0.05)) {
             s.bodyHair = Object.assign({}, options.bodyHair, { rgb: Outfit.linear(options.bodyHair.color || '#2a1d15') });
             s.hairField = hairField(pack, s.bodyHair.regions);
@@ -704,12 +773,14 @@
                 p.lids = W.reduce((sum, w, k) => sum + w * F.lids[v[k]], 0);
                 p.cheeks = W.reduce((sum, w, k) => sum + w * F.cheeks[v[k]], 0);
                 p.bags = W.reduce((sum, w, k) => sum + w * F.bags[v[k]], 0);
+                p.innerLip = W.reduce((sum, w, k) => sum + w * F.innerLip[v[k]], 0);
                 p.seam = W.reduce((sum, w, k) => sum + w * F.seam[v[k]], 0);
                 p.nose = W.reduce((sum, w, k) => sum + w * F.nose[v[k]], 0);
                 p.noseTip = W.reduce((sum, w, k) => sum + w * F.noseTip[v[k]], 0);
                 p.ears = W.reduce((sum, w, k) => sum + w * F.ears[v[k]], 0);
                 p.jaw = W.reduce((sum, w, k) => sum + w * F.jaw[v[k]], 0);
                 if (s.hairField) p.hair = s.hairField[v[0]] * w0 + s.hairField[v[1]] * w1 + s.hairField[v[2]] * w2;
+                p.scalpD = s.scalpField ? s.scalpField[v[0]] * w0 + s.scalpField[v[1]] * w1 + s.scalpField[v[2]] * w2 : 0;
                 p.beardD = s.beardField ? s.beardField[v[0]] * w0 + s.beardField[v[1]] * w1 + s.beardField[v[2]] * w2 : 0;
                 let rgb, alpha = 255;
                 if (fur) {

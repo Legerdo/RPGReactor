@@ -76,7 +76,8 @@ test('leaving a species leaves what it brought: its halo, its age, its beard, it
 });
 
 test('furred features wear fur like the body\'s; a reptile\'s tail is scaled; both follow the tail\'s bones', () => {
-    const wolf = Model.build(pack, Model.withSpecies({ gender: 1 }, 'wolffolk'), {}, { quality: 'preview' });
+    const furry = Object.assign(Model.withSpecies({ gender: 1 }, 'human'), { bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.9, length: 1.1, color: '#6a6460' }, features: { ears: { type: 'wolf' }, tail: { type: 'fox' } } });
+    const wolf = Model.build(pack, furry, {}, { quality: 'preview' });
     const fur = wolf.parts.filter(p => p.name === 'Feature fur');
     assert.equal(fur.length, 2, 'fur on the ears and on the tail');
     for (const p of fur) {
@@ -86,7 +87,7 @@ test('furred features wear fur like the body\'s; a reptile\'s tail is scaled; bo
     }
     const tail = wolf.bones.findIndex(b => b.name === 'Tail');
     assert.ok(fur.some(p => p.joints.some(j => j >= tail)), 'the tail\'s fur moves with the tail');
-    const weak = Model.build(pack, Model.withSpecies({ gender: 1 }, 'wolffolk'), {}, { quality: 'preview', hairBudget: 0.4 });
+    const weak = Model.build(pack, furry, {}, { quality: 'preview', hairBudget: 0.4 });
     const tris = r => r.parts.filter(p => p.name === 'Feature fur').reduce((n, p) => n + p.index.length / 3, 0);
     assert.ok(tris(weak) < tris(wolf) * 0.6, 'a weak budget grows less');
     assert.ok(tris(wolf) < 30000, 'feature fur ' + tris(wolf) + ' triangles');
@@ -94,6 +95,27 @@ test('furred features wear fur like the body\'s; a reptile\'s tail is scaled; bo
     const scaled = lizard.parts.find(p => p.texture === 'scales.png');
     assert.ok(scaled && scaled.uvs && lizard.textures['scales.png'], 'the tail carries the scale picture');
     assert.ok(scaled.joints.some(j => j >= lizard.bones.findIndex(b => b.name === 'Tail')));
+});
+
+test('beastfolk wear a real animal head: the creature\'s head on the neck, the human head left out, gone again with the species', () => {
+    const human = Model.build(pack, Model.withSpecies({ gender: 1 }, 'human'), {}, { quality: 'preview' });
+    for (const [id, kind] of [['wolffolk', 'wolf'], ['lizardfolk', 'drake'], ['minotaur', 'bull']]) {
+        const r = Model.withSpecies({ gender: 1 }, id);
+        assert.equal(r.head.kind, kind);
+        const built = Model.build(pack, r, {}, { quality: 'preview' });
+        const head = built.parts.find(p => p.name === 'Head Body');
+        assert.ok(head && head.index.length > 3000, id + ' has its animal head');
+        assert.ok(built.parts.some(p => p.name === 'Head Eyes' && p.kind === 'eye'), id + ' sees with its own eyes');
+        assert.ok(!built.parts.some(p => p.name === 'Eyes'), id + ' has no human eyes left');
+        assert.ok(built.parts[0].index.length < human.parts[0].index.length * 0.9, id + ' leaves the human head out');
+        const headBone = built.bones.findIndex(b => b.name === 'Head');
+        assert.ok(head.joints.some(j => j === headBone), id + ' head moves with the Head bone');
+        // The head sits on the neck, where the human head was.
+        let top = 0;
+        for (let i = 1; i < head.positions.length; i += 3) top = Math.max(top, head.positions[i]);
+        assert.ok(top > built.bodyHeight * 0.85 && top < built.bodyHeight * 1.2, id + ' head top at ' + top + ' of ' + built.bodyHeight);
+    }
+    assert.equal(Model.withSpecies(Model.withSpecies({}, 'wolffolk'), 'elf').head, null, 'leaving the species takes its head with it');
 });
 
 test('every outfit preset and every accessory builds on an average and an extreme body', () => {
@@ -167,9 +189,9 @@ test('the GLB holds the pictures, the skinned parts, the tail and the Idle', asy
     const result = Model.build(pack, Object.assign(Model.withSpecies({}, 'dragonborn'), { outfit: Wardrobe.PRESETS.find(p => p.id === 'knight').items, props: [{ id: 'cape' }] }), {}, { eyeSource });
     const glb = await Model.toGlb(result, 'Test', tex => { const png = new PNG({ width: tex.width, height: tex.height }); png.data = Buffer.from(tex.data); return new Uint8Array(PNG.sync.write(png)); });
     const { json } = Optimizer.parseGlb(glb);
-    // The skin, eyes and outfit pictures, and the scales of the dragon's tail.
+    // The skin, outfit and shoe pictures, the scales of the dragon's tail and its animal head's own coat.
     const images = json.images.map(i => i.name);
-    for (const name of ['eyes.png', 'outfit.png', 'skin.png', 'scales.png']) assert.ok(images.includes(name), name + ' in ' + images.join(', '));
+    for (const name of ['outfit.png', 'skin.png', 'scales.png', 'shoes.png', 'creaturecoat.png']) assert.ok(images.includes(name), name + ' in ' + images.join(', '));
     assert.equal(json.meshes.length, result.parts.length);
     for (const node of json.nodes.filter(n => n.mesh != null)) assert.equal(node.skin, 0);
     const names = json.skins[0].joints.map(j => json.nodes[j].name);
@@ -482,6 +504,76 @@ test('a modeled garment shows its own picture until a color is chosen; a color k
     const mean = (trousers[0] * 0.3 + trousers[1] * 0.59 + trousers[2] * 0.11) / trousers[4], spread = Math.sqrt(trousers[3] / trousers[4] - mean * mean);
     assert.ok(Math.abs(trousers[0] - trousers[2]) / trousers[4] < 8, 'the trousers are grey');
     assert.ok(spread > 10, 'the denim keeps its fading, spread ' + spread.toFixed(1));
+});
+
+test('footwear is built round the foot: a sole under it, the foot hidden inside, a boot over the trouser legs', () => {
+    const FEET = Wardrobe.GARMENTS.filter(g => g.slot === 'feet' && !g.modeled);
+    for (const body of [{}, { gender: 1, extreme: true, weight: 3, muscle: 2 }, { gender: 0, extreme: true, weight: -0.5, height: -0.4 }]) {
+        const built = Body.build(pack, Body.normalizeRecipe(body));
+        const an = Outfit.anatomy(pack);
+        // The forefoot (a low shoe's throat leaves the instep open).
+        const foot = [...new Set(pack.body.source)].filter(v => an.member[v * 5 + 3] > 0.5 && an.s[v * 5 + 3] > 2.7);
+        for (const g of FEET) {
+            const label = g.id + ' on ' + JSON.stringify(body);
+            const out = Wardrobe.build(pack, built, [{ id: 'jeans' }, { id: g.id }], {});
+            const part = out.parts.find(p => p.name === g.label && /^shoes/.test(p.texture || ''));
+            assert.ok(part, label + ' is a pair of shoes with its own picture');
+            assert.ok(out.textures.some(t => t.name === part.texture && t.data.length === t.width * t.height * 4), label + ' picture');
+            let low = Infinity;
+            for (let i = 1; i < part.positions.length; i += 3) low = Math.min(low, part.positions[i]);
+            // A sole of its own thickness under the foot: the character stands on it.
+            assert.ok(low < -0.008, `${label}: sole ${low.toFixed(3)} under the foot`);
+            if (g.id !== 'sandals') assert.ok(foot.every(v => out.hidden.has(v)), label + ' hides the foot inside it');
+            else assert.ok(foot.filter(v => out.hidden.has(v)).length < foot.length / 2, label + ' shows the foot');
+        }
+        // A boot's shaft goes over the trouser leg: a ray out from the leg's axis through any trouser point
+        // round the shin meets the boot further out.
+        const out = Wardrobe.build(pack, built, [{ id: 'jeans', fit: 1 }, { id: 'boots', length: 0.6 }], {});
+        const boot = out.parts.find(p => p.name === 'Boots'), cloth = out.parts.find(p => p.name.includes('Trousers'));
+        const F = Outfit.footFrame(built, 0), B = boot.positions, I = boot.index;
+        const axis = y => { const t = (y - F.ankle[1]) / (F.knee[1] - F.ankle[1]); return [F.ankle[0] + (F.knee[0] - F.ankle[0]) * t, y, F.ankle[2] + (F.knee[2] - F.ankle[2]) * t]; };
+        const farthest = (o, dir) => {
+            let far = 0;
+            for (let t = 0; t < I.length; t += 3) {
+                const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+                const e1 = [B[b] - B[a], B[b + 1] - B[a + 1], B[b + 2] - B[a + 2]], e2 = [B[c] - B[a], B[c + 1] - B[a + 1], B[c + 2] - B[a + 2]];
+                const pv = [dir[1] * e2[2] - dir[2] * e2[1], dir[2] * e2[0] - dir[0] * e2[2], dir[0] * e2[1] - dir[1] * e2[0]];
+                const det = e1[0] * pv[0] + e1[1] * pv[1] + e1[2] * pv[2];
+                if (Math.abs(det) < 1e-12) continue;
+                const tv = [o[0] - B[a], o[1] - B[a + 1], o[2] - B[a + 2]], u = (tv[0] * pv[0] + tv[1] * pv[1] + tv[2] * pv[2]) / det;
+                if (u < 0 || u > 1) continue;
+                const qv = [tv[1] * e1[2] - tv[2] * e1[1], tv[2] * e1[0] - tv[0] * e1[2], tv[0] * e1[1] - tv[1] * e1[0]], v = (dir[0] * qv[0] + dir[1] * qv[1] + dir[2] * qv[2]) / det;
+                if (v < 0 || u + v > 1) continue;
+                far = Math.max(far, (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]) / det);
+            }
+            return far;
+        };
+        let top = 0;
+        for (let i = 1; i < B.length; i += 3) top = Math.max(top, B[i]);
+        let inside = 0, past = 0;
+        for (let i = 0; i < cloth.positions.length; i += 3) {
+            const q = [cloth.positions[i], cloth.positions[i + 1], cloth.positions[i + 2]];
+            if (q[0] < 0 || q[1] < 0.12 || q[1] > top - 0.02) continue;
+            const o = axis(q[1]), d = Math.hypot(q[0] - o[0], q[2] - o[2]);
+            const far = farthest(o, [(q[0] - o[0]) / d, 0, (q[2] - o[2]) / d]);
+            if (d > far + 0.002) past++; else inside++;
+        }
+        assert.ok(inside > 20 && past === 0, `${past} trouser points out past the boot, ${inside} inside, on ${JSON.stringify(body)}`);
+    }
+});
+
+test('a belt goes round over what is under it, unbroken, on a heavy belly too', () => {
+    for (const body of [{}, { gender: 0.1, extreme: true, weight: 2.5 }]) {
+        const built = Body.build(pack, Body.normalizeRecipe(body));
+        const out = Wardrobe.build(pack, built, [{ id: 'robe' }, { id: 'sash' }], {});
+        const belt = out.parts.find(p => p.name === 'Belt'), robe = out.parts.filter(p => p.name === 'Robe');
+        // Straight out from the middle in front, the belt is the outermost thing at its own height.
+        let beltZ = -Infinity, robeZ = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (let i = 0; i < belt.positions.length; i += 3) if (Math.abs(belt.positions[i]) < 0.02 && belt.positions[i + 2] > 0) { beltZ = Math.max(beltZ, belt.positions[i + 2]); y0 = Math.min(y0, belt.positions[i + 1]); y1 = Math.max(y1, belt.positions[i + 1]); }
+        for (const p of robe) for (let i = 0; i < p.positions.length; i += 3) if (Math.abs(p.positions[i]) < 0.02 && p.positions[i + 1] > y0 && p.positions[i + 1] < y1) robeZ = Math.max(robeZ, p.positions[i + 2]);
+        assert.ok(beltZ > robeZ, `belt ${beltZ.toFixed(3)} over the robe ${robeZ.toFixed(3)} on ${JSON.stringify(body)}`);
+        assert.ok(out.textures.some(t => t.name === belt.texture), 'the belt has its picture');
+    }
 });
 
 test('boots go over trouser legs, shoes under trouser hems', () => {

@@ -21,6 +21,7 @@
     const TAU = Math.PI * 2;
     const toByte = c => Math.max(0, Math.min(255, Math.round((c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055) * 255)));
     const fract = x => x - Math.floor(x);
+    const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
     const hash = (x, y) => fract(Math.sin(x * 127.1 + y * 311.7) * 43758.5453);
     function noise(x, y) {
         const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
@@ -65,7 +66,7 @@
             const R = an.radius[fam] * (fam === 0 ? 1.35 : 1.15), U = an.unit[fam];
             const corners = values.map((x, k) => ({
                 v: c[k], cu: x.ang * R, cv: (fam === 5 ? x.u : x.s) * U, s: x.s, ang: x.ang, rest: x.rest,
-                y: x.rest[1], val: laid.vals[c[k]], fam: fam === 5 ? 0 : fam, u: x.u
+                y: x.rest[1], val: laid.vals[c[k]], vm: laid.vals[c[k]] * (fam === 5 ? an.unit[5] / 4 : an.unit[fam]), fam: fam === 5 ? 0 : fam, u: x.u
             }));
             let chart = byKey.get(fam);
             if (!chart) byKey.set(fam, chart = { fam, tris: [], min: [Infinity, Infinity], max: [-Infinity, -Infinity] });
@@ -94,6 +95,35 @@
     }
 
     // ── painting ──────────────────────────────────────────────────────────
+    /**
+     * Soft folds in the cloth where a body bends it: bunched rings at the
+     * inner elbow and the wrist, behind the knee and over the ankle, a few
+     * pulls from the armpits and across the waist. A brightness factor near 1.
+     */
+    function folds(p, material) {
+        const amount = material === 'silk' ? 0.55 : material === 'leather' || material === 'rubber' ? 0.6 : 1;
+        const wob = noise(p.cu * 18, p.cv * 4) - 0.5;
+        const ring = (period, phase) => Math.sin((p.cv / period + wob * 0.8 + phase) * Math.PI * 2);
+        let f = 0;
+        if (p.fam === 1 || p.fam === 2) {
+            // About the limb's axis, the inside of the elbow is where its angle is near the front.
+            const inner = Math.max(0, Math.cos(p.ang)) * 0.6 + 0.4;
+            f += ring(0.014, 0) * Math.exp(-((p.s - 2) ** 2) / 0.02) * inner * 0.08;
+            f += ring(0.01, 0.3) * Math.exp(-((p.s - 2.85) ** 2) / 0.01) * 0.06;
+        } else if (p.fam === 3 || p.fam === 4) {
+            const behind = Math.max(0, -Math.cos(p.ang)) * 0.7 + 0.3;
+            f += ring(0.016, 0) * Math.exp(-((p.s - 1) ** 2) / 0.012) * behind * 0.08;
+            f += ring(0.018, 0.5) * smoothstep(1.7, 1.95, p.s) * 0.07;
+            // Pulls from the crotch out across the thighs.
+            f += Math.sin((p.cu * 60 + p.cv * 40 + wob) * 1.2) * Math.exp(-((p.s - 0.15) ** 2) / 0.02) * 0.035;
+        } else if (p.fam === 0) {
+            const sideOf = Math.abs(Math.sin(p.ang));
+            f += ring(0.02, 0) * Math.exp(-((p.s - 1.05) ** 2) / 0.03) * 0.045;
+            f += Math.sin((p.cv * 55 - Math.sign(p.ang) * p.cu * 45 + wob) * 1.0) * Math.exp(-((p.s - 2.6) ** 2) / 0.08) * sideOf * 0.04;
+        }
+        return 1 + f * amount;
+    }
+
     /** A texel's linear color for a look at a point described by `p` (chart and body values). */
     function shade(look, colors, p) {
         const [c1, c2, trim] = colors;
@@ -141,7 +171,6 @@
                 t = q ? 1 : 0;
                 break;
             }
-            case 'sole': t = p.y < 0.03 ? 2 : (p.ang > 0.6 && p.ang < 2.4 && p.s > 2.3 ? 1 : 0); break;
             case 'visor': t = p.fam === 0 && Math.abs(a) < 1.0 && p.s > 5.0 && p.s < 5.62 ? 1 : 0; break;
             case 'studs': {
                 const fx = fract(p.cu / 0.03) - 0.5, fy = fract(p.cv / 0.03) - 0.5;
@@ -151,13 +180,34 @@
             default: t = 0;
         }
         let rgb = t >= 2 ? trim : t <= 0 ? c1 : t >= 1 ? c2 : [c1[0] + (c2[0] - c1[0]) * t, c1[1] + (c2[1] - c1[1]) * t, c1[2] + (c2[2] - c1[2]) * t];
-        if (look.trimWidth && p.val >= 0 && p.val < look.trimWidth) rgb = trim;
-        // The cloth's own grain: a slight unevenness, finer for metal.
-        const grain = look.material === 'metal' || look.material === 'gold'
-            ? 0.94 + 0.08 * noise(p.cu * 60, p.cv * 6)
-            : 0.92 + 0.1 * noise(p.cu * 140, p.cv * 140) + 0.04 * noise(p.cu * 9, p.cv * 9);
+        const trimmed = look.trimWidth && p.val >= 0 && p.val < look.trimWidth;
+        if (trimmed) rgb = trim;
+        const hard = look.material === 'metal' || look.material === 'gold';
+        let k;
+        if (hard) {
+            // Brushed metal, its cut edges catching the light like a rolled rim.
+            k = 0.94 + 0.08 * noise(p.cu * 60, p.cv * 6) + 0.18 * (1 - smoothstep(0, 0.006, p.vm));
+        } else {
+            const leather = look.material === 'leather' || look.material === 'rubber';
+            // The weave or the hide's grain, and a slow unevenness over it.
+            k = leather
+                ? 0.9 + 0.12 * noise(p.cu * 220, p.cv * 220) + 0.05 * noise(p.cu * 14, p.cv * 14)
+                : 0.93 + 0.07 * noise(p.cu * 160, p.cv * 160) + 0.03 * (fract(p.cu * 900) < 0.5 ? 1 : -1) * (fract(p.cv * 900) < 0.5 ? 1 : -1) + 0.04 * noise(p.cu * 9, p.cv * 9);
+            k *= folds(p, look.material);
+            // A hem: the edge turned under (a little darker for the double layer), stitched a finger's width in.
+            if (p.vm >= 0 && p.vm < 0.014 && !trimmed) {
+                k *= 0.95;
+                const along = p.fam === 0 || p.fam === 5 ? p.cu : p.cu;
+                if (Math.abs(p.vm - 0.0085) < 0.0011 && fract(along / 0.005) < 0.6) {
+                    const lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+                    k *= lum > 0.25 ? 0.72 : 1.45;
+                }
+            }
+            // Leather and rubber: the cut edge burnished darker.
+            if (leather && p.vm >= 0 && p.vm < 0.003) k *= 0.78;
+        }
         // The rim's inner face, toward the body, in shadow.
-        const k = (p.val < 0 ? 0.6 : 1) * grain;
+        if (p.val < 0) k *= 0.6;
         return [rgb[0] * k, rgb[1] * k, rgb[2] * k];
     }
 
@@ -176,7 +226,7 @@
         });
         let area = 0;
         for (const c of all) area += (c.max[0] - c.min[0] + 0.01) * (c.max[1] - c.min[1] + 0.01);
-        let scale = Math.min(450, Math.sqrt(size * size * 0.62 / Math.max(area, 1e-6)));
+        let scale = Math.min(700, Math.sqrt(size * size * 0.62 / Math.max(area, 1e-6)));
         while (scale > 8 && !pack_(all, size, scale, pad)) scale *= 0.92;
 
         const data = new Uint8Array(size * size * 4);
@@ -242,7 +292,7 @@
         if (Math.abs(area) < 1e-9) return;
         const x0 = Math.max(0, Math.floor(Math.min(...px)) - 1), x1 = Math.min(size - 1, Math.ceil(Math.max(...px)) + 1);
         const y0 = Math.max(0, Math.floor(Math.min(...py)) - 1), y1 = Math.min(size - 1, Math.ceil(Math.max(...py)) + 1);
-        const p = { fam: tri[0].fam, s: 0, ang: 0, cu: 0, cv: 0, y: 0, val: 0, u: 0, rest: [0, 0, 0] };
+        const p = { fam: tri[0].fam, s: 0, ang: 0, cu: 0, cv: 0, y: 0, val: 0, vm: 0, u: 0, rest: [0, 0, 0] };
         for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
             const cx = x + 0.5, cy = y + 0.5;
             let w0 = ((px[1] - cx) * (py[2] - cy) - (px[2] - cx) * (py[1] - cy)) / area;
@@ -257,7 +307,7 @@
             w0 = Math.max(0, w0); w1 = Math.max(0, w1); w2 = Math.max(0, w2);
             const ws = w0 + w1 + w2; w0 /= ws; w1 /= ws; w2 /= ws;
             const k = (name) => tri[0][name] * w0 + tri[1][name] * w1 + tri[2][name] * w2;
-            p.s = k('s'); p.ang = k('ang'); p.cu = k('cu'); p.cv = k('cv'); p.y = k('y'); p.val = k('val'); p.u = k('u');
+            p.s = k('s'); p.ang = k('ang'); p.cu = k('cu'); p.cv = k('cv'); p.y = k('y'); p.val = k('val'); p.vm = k('vm'); p.u = k('u');
             for (let q = 0; q < 3; q++) p.rest[q] = tri[0].rest[q] * w0 + tri[1].rest[q] * w1 + tri[2].rest[q] * w2;
             const rgb = color(p);
             data[o * 4] = toByte(rgb[0]); data[o * 4 + 1] = toByte(rgb[1]); data[o * 4 + 2] = toByte(rgb[2]); data[o * 4 + 3] = 255;
@@ -286,7 +336,205 @@
         }
     }
 
-    const api = { build, layout, apply, charts, shade, noise };
+    // ── footwear ──────────────────────────────────────────────────────────
+    const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const scale3 = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+    const band = (x, c, w) => Math.abs(x - c) < w;
+    const stitch = (along, period) => fract(along / period) < 0.55;
+
+    /**
+     * A pair of shoes' picture: painted from where each texel lies on the shoe
+     * (its region, how far forward and out on the foot, its height, how far
+     * under the collar), so seams, stitches, laces and the sole's edge land in
+     * place on every style. `t`: RRCharacterOutfit's shoe template; `look`:
+     * { kind, color, color2, trim, material, laces }.
+     */
+    function shoePicture(t, look, size) {
+        const W = size || 512, Hh = W;
+        const data = new Uint8Array(W * Hh * 4), filled = new Uint8Array(W * Hh);
+        const A = t.paint.attrs, U = t.paint.uvs, I = t.paint.index;
+        const c1 = Outfit.linear(look.color), c2 = Outfit.linear(look.color2 || look.color), trim = Outfit.linear(look.trim || look.color2 || look.color);
+        const kind = look.kind || 'dress';
+        const metal = look.material === 'metal' || look.material === 'gold';
+        const keys = ['f', 'fm', 'l', 'y', 'row', 'col', 'below', 'ring', 'depth', 'k'];
+        const pt = {};
+        const paint = (p, tx, ty) => {
+            const grain = metal ? 0.95 + 0.07 * noise(tx * 0.08, ty * 1.6) : 0.9 + 0.08 * noise(tx * 0.9, ty * 0.9) + 0.05 * noise(tx * 0.12, ty * 0.12);
+            const side = Math.abs(p.l);
+            let rgb;
+            if (p.region === 'lining') rgb = kind === 'sneaker' ? scale3(c2, 0.55) : mix3(scale3(c1, 0.5), [0.32, 0.22, 0.14], 0.5);
+            else if (p.region === 'roll') rgb = kind === 'sneaker' ? c2 : kind === 'boot' && look.trim ? trim : scale3(c1, 0.82);
+            else if (p.region === 'bed') {
+                // The footbed: lighter, worn darker where the heel and the ball press.
+                const worn = Math.exp(-((p.f - 0.2) ** 2) / 0.01) + Math.exp(-((p.f - 0.7) ** 2) / 0.012);
+                rgb = scale3(mix3(c1, [0.6, 0.45, 0.3], 0.25), 1.15 - 0.2 * Math.min(1, worn));
+            } else if (p.region === 'sole' || p.region === 'tread') rgb = soleColor(p, kind, c1, c2, trim, metal);
+            else rgb = upperColor(p, kind, c1, c2, trim, metal, tx, look);
+            const k = p.region === 'tread' ? 0.85 : grain;
+            return scale3(rgb, k);
+        };
+        for (let tI = 0; tI < I.length; tI += 3) {
+            const c = [I[tI], I[tI + 1], I[tI + 2]];
+            const px = c.map(v => U[v * 2] * W), py = c.map(v => U[v * 2 + 1] * Hh);
+            const area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
+            if (Math.abs(area) < 1e-9) continue;
+            const x0 = Math.max(0, Math.floor(Math.min(...px)) - 1), x1 = Math.min(W - 1, Math.ceil(Math.max(...px)) + 1);
+            const y0 = Math.max(0, Math.floor(Math.min(...py)) - 1), y1 = Math.min(Hh - 1, Math.ceil(Math.max(...py)) + 1);
+            const tol = -0.75 / Math.sqrt(Math.abs(area));
+            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+                const cx = x + 0.5, cy = y + 0.5;
+                let w0 = ((px[1] - cx) * (py[2] - cy) - (px[2] - cx) * (py[1] - cy)) / area;
+                let w1 = ((px[2] - cx) * (py[0] - cy) - (px[0] - cx) * (py[2] - cy)) / area;
+                let w2 = 1 - w0 - w1;
+                if (w0 < tol || w1 < tol || w2 < tol) continue;
+                const o = y * W + x;
+                if (filled[o] === 2) continue;
+                const inside = w0 >= 0 && w1 >= 0 && w2 >= 0;
+                w0 = Math.max(0, w0); w1 = Math.max(0, w1); w2 = Math.max(0, w2);
+                const ws = w0 + w1 + w2; w0 /= ws; w1 /= ws; w2 /= ws;
+                const a = A[c[0]], b = A[c[1]], d = A[c[2]];
+                for (const key of keys) pt[key] = (a[key] ?? 0) * w0 + (b[key] ?? 0) * w1 + (d[key] ?? 0) * w2;
+                pt.region = (w0 >= w1 && w0 >= w2 ? a : w1 >= w2 ? b : d).region;
+                const rgb = paint(pt, x, y);
+                data[o * 4] = toByte(rgb[0]); data[o * 4 + 1] = toByte(rgb[1]); data[o * 4 + 2] = toByte(rgb[2]); data[o * 4 + 3] = 255;
+                filled[o] = inside ? 2 : 1;
+            }
+        }
+        dilate(data, filled, W, 4);
+        for (let o = 0; o < W * Hh; o++) if (!filled[o]) { data[o * 4] = toByte(c1[0]); data[o * 4 + 1] = toByte(c1[1]); data[o * 4 + 2] = toByte(c1[2]); data[o * 4 + 3] = 255; }
+        return { width: W, height: Hh, data };
+    }
+
+    /** The sole's edge and tread by style: a stacked heel, a sneaker's white midsole over a dark outsole, a mag boot's glowing band. */
+    function soleColor(p, kind, c1, c2, trim, metal) {
+        if (p.region === 'tread') {
+            const base = kind === 'sneaker' ? [0.05, 0.05, 0.055] : kind === 'mag' ? [0.03, 0.03, 0.035] : kind === 'sandal' ? scale3(c1, 0.55) : [0.03, 0.025, 0.02];
+            return base;
+        }
+        const d = p.depth;
+        if (kind === 'sneaker') {
+            // Midsole white with a line moulded round it, the outsole dark beneath.
+            if (d > 0.78) return [0.05, 0.05, 0.055];
+            if (band(d, 0.5, 0.035)) return scale3(trim, 0.75);
+            return mix3(trim, [0.9, 0.9, 0.88], 0.5);
+        }
+        if (kind === 'mag') {
+            if (band(d, 0.45, 0.09)) return scale3(c2, 1.6);
+            return [0.05, 0.055, 0.06];
+        }
+        if (kind === 'sabaton') return scale3(c1, 0.45);
+        if (kind === 'sandal') return d < 0.1 ? scale3(c1, 0.8) : scale3(c1, 0.5 + 0.1 * (fract(d * 3) < 0.5 ? 1 : 0));
+        // Leather: the welt's stitched top, a dark edge, a stacked heel at the back.
+        const edge = [0.035, 0.026, 0.02];
+        if (p.ring < 1.2) return stitch(p.col * 6, 1) && p.ring > 0.55 && p.ring < 0.85 ? [0.24, 0.19, 0.13] : scale3(edge, 1.3);
+        if (p.f < 0.25 && kind !== 'sabaton') return scale3(edge, fract(d * 4) < 0.15 ? 0.6 : 1.5);
+        return edge;
+    }
+
+    /** The upper by style: seams, stitching, a toe cap, laces over the instep, a sneaker's stripe and heel tab. */
+    function upperColor(p, kind, c1, c2, trim, metal, tx, look) {
+        const below = p.below, side = Math.abs(p.l), f = p.f, y = p.y;
+        let rgb = c1;
+        if (metal) {
+            // Plates: a dark groove where each lame overlaps the next, rivets along it.
+            if (kind === 'sabaton' || kind === 'mag') {
+                // Each plate darkest where it tucks under the next, catching the light along its own edge.
+                const lames = look.lames || (kind === 'sabaton' ? 2 : 3), r = (p.row - 3) / lames;
+                if (p.row > 3) {
+                    const q = fract(r);
+                    if (q < 0.05) return scale3(c1, 0.3);
+                    const rivet = Math.hypot((fract(p.col / 2.5) - 0.5) * 2.5, (q - 0.16) * 9);
+                    if (kind === 'sabaton' && rivet < 0.35) return scale3(c1, 1.45 - rivet);
+                    return scale3(c1, 0.78 + 0.32 * smoothstep(0.05, 0.14, q) - 0.18 * smoothstep(0.6, 1, q));
+                }
+            }
+            if (kind === 'mag' && band(y, 0.035, 0.002)) return scale3(c2, 1.6);
+            if (y < 0.004) return scale3(c1, 0.6);
+            return scale3(rgb, 0.92 + 0.12 * smoothstep(0.6, 0.95, f));
+        }
+        // The collar: a binding, its stitching just under it.
+        if (below >= 0 && below < 0.18) return kind === 'sneaker' ? c2 : scale3(look.trim ? trim : c1, 0.75);
+        if (below > 0.32 && below < 0.42 && stitch(p.col, 0.45)) return mix3(c1, [0.8, 0.74, 0.62], 0.28);
+        // Where the upper is stitched to the sole.
+        if (y > 0.004 && y < 0.006 && stitch(p.col, 0.4)) return mix3(c1, [0.8, 0.74, 0.62], kind === 'sneaker' ? 0.15 : 0.28);
+        if (y < 0.004) rgb = scale3(c1, 0.75);
+        const laces = look.laces;
+        if (kind === 'sneaker') {
+            // Canvas: a fine weave.
+            const weave = fract(tx / 2) < 0.5 ? 0.96 : 1.04;
+            rgb = scale3(rgb, weave);
+            if (f > 0.86 && y < 0.032) rgb = trim;
+            // A stripe sweeping back along each side.
+            const yc = 0.018 + 0.026 * (1 - f), along = smoothstep(0.22, 0.32, f) * (1 - smoothstep(0.68, 0.78, f));
+            if (side > 0.02 && along > 0 && Math.abs(y - yc) < 0.006 * along + 0.0005) rgb = c2;
+            // A heel tab behind.
+            if (f < 0.07 && below < 1.2) rgb = c2;
+        } else if (kind === 'dress' || kind === 'boot') {
+            // A toe cap with a perforated seam, polished lighter toward the toe.
+            const cap = 0.79 + 0.05 * Math.max(0, 1 - (side / 0.04) ** 2);
+            if (band(f, cap, 0.004) && y > 0.01) return scale3(c1, 0.6);
+            if (kind === 'dress' && band(f, cap - 0.02, 0.0045) && fract(p.col * 1.5) < 0.4) return scale3(c1, 0.45);
+            rgb = scale3(rgb, 1 + 0.18 * smoothstep(0.75, 0.97, f));
+            // The quarter's seam, from under the collar down toward the welt.
+            if (band(f, 0.42 - y * 1.2, 0.0035) && side > 0.015 && y > 0.01 && below > 0.5) return scale3(c1, 0.62);
+            // A boot's seam up the back.
+            if (kind === 'boot' && p.fm < 0 && side < 0.003 && y > 0.05) return scale3(c1, 0.6);
+        }
+        if (laces) {
+            // Over the instep: a tongue, two rows of eyelets and the laces crossed between them.
+            const front = p.fm > 0 && f < 0.78;
+            const yMin = kind === 'boot' ? 0.045 : 0.04;
+            if (front && side < 0.019 && y > yMin && below > -0.5) {
+                const tongue = kind === 'sneaker' ? scale3(c1, 0.9) : scale3(c1, 0.85);
+                const step = 0.011, at = p.y / step + p.fm * 5;
+                // Eyelets: small metal rings, dark inside.
+                const er = Math.hypot((side - 0.0145) / 0.0022, (fract(at) - 0.15) / 0.22);
+                if (er < 1) return er < 0.55 ? [0.02, 0.02, 0.02] : kind === 'sneaker' ? scale3(c1, 0.8) : [0.32, 0.3, 0.26];
+                const L = Math.abs(2 * fract(at) - 1) * 0.0145;
+                const lace = Math.min(Math.abs(side - L), Math.abs(side + L - 0.029));
+                const laceColor = look.laceColor || (kind === 'sneaker' ? mix3(c2, [0.9, 0.9, 0.88], 0.35) : [0.16, 0.11, 0.07]);
+                if (lace < 0.0016 && side < 0.0135) return scale3(laceColor, 0.75 + 0.4 * (1 - lace / 0.0016));
+                // The laces' shadow on the tongue under them.
+                if (lace < 0.0026 && side < 0.0135) return scale3(tongue, 0.6);
+                if (side < 0.0115) return tongue;
+            }
+        }
+        return rgb;
+    }
+
+    /**
+     * A belt's picture: its leather (or cloth) with stitching along both
+     * edges, a buckle and its holes at the front. u runs round the belt from
+     * behind, v across it (the outer face is the first half).
+     */
+    function beltPicture(look, size) {
+        const W = size || 1024, H = 64, data = new Uint8Array(W * H * 4);
+        const c1 = Outfit.linear(look.color), metal = Outfit.linear(look.buckle || '#b89a5a');
+        const cloth = look.material === 'cloth' || look.material === 'silk';
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+            const u = (x + 0.5) / W, v = (y + 0.5) / H, o = (y * W + x) * 4;
+            // Across the outer face: 0 at the bottom edge, 1 at the top.
+            const across = v / (2 / 7);
+            let rgb = c1, k = cloth ? 0.92 + 0.08 * noise(x * 0.9, y * 2.5) + 0.04 * Math.sin(across * 18) : 0.9 + 0.1 * noise(x * 0.8, y * 0.8);
+            if (across <= 1.02) {
+                const du = Math.abs(u - 0.5);
+                if (!cloth && (Math.abs(across - 0.12) < 0.035 || Math.abs(across - 0.88) < 0.035) && fract(x / 4) < 0.6) k *= 1.35;
+                // The buckle: a frame round a bar, the tongue's end in the middle.
+                if (du < 0.022 && across > 0.02 && across < 0.98) {
+                    const frame = du > 0.016 || across < 0.16 || across > 0.84;
+                    if (frame) { rgb = metal; k = 1.05 + 0.15 * (1 - across); }
+                    else if (du < 0.004) { rgb = metal; k = 0.9; }
+                    else k *= 0.7;
+                }
+                // Holes past the buckle.
+                if (!cloth && u > 0.53 && u < 0.6 && Math.abs(across - 0.5) < 0.12 && fract((u - 0.53) / 0.014) < 0.3) k *= 0.25;
+            } else k *= 0.7;
+            data[o] = toByte(rgb[0] * k); data[o + 1] = toByte(rgb[1] * k); data[o + 2] = toByte(rgb[2] * k); data[o + 3] = 255;
+        }
+        return { width: W, height: H, data };
+    }
+
+    const api = { build, layout, apply, charts, shade, noise, shoePicture, beltPicture };
     root.RRCharacterAtlas = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
