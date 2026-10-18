@@ -211,6 +211,11 @@ class UIManager {
                     this.callbacks.openForgeTool('character-3d-builder');
                 }
                 break;
+            case 'forge-prop-builder':
+                if (this.callbacks.openForgeTool) {
+                    this.callbacks.openForgeTool('prop-builder');
+                }
+                break;
             case 'forge-animation-generator':
                 if (this.callbacks.openForgeTool) {
                     this.callbacks.openForgeTool('animation-generator');

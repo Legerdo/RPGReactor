@@ -142,8 +142,12 @@
             };
             if (texture !== null) material.pbrMetallicRoughness.baseColorTexture = { index: texture };
             if (part.cutout) { material.alphaMode = 'MASK'; material.alphaCutoff = part.alphaCutoff ?? 0.5; }
-            else if (base[3] < 1) material.alphaMode = 'BLEND';
+            // `blend`: blended by its picture's own alpha (Slimefolk goo).
+            else if (base[3] < 1 || part.blend) material.alphaMode = 'BLEND';
             if (part.doubleSided) material.doubleSided = true;
+            // A relief picture (`normalTexture`, a name in `images`), at `normalScale`.
+            const normal = part.normalTexture ? textureFor(part.normalTexture) : null;
+            if (normal !== null) material.normalTexture = Object.assign({ index: normal }, part.normalScale != null ? { scale: part.normalScale } : {});
             json.materials.push(material);
             const b = bounds(part.positions);
             const big = part.positions.length / 3 > 65535;
@@ -159,18 +163,44 @@
                 material: json.materials.length - 1
             };
             if (part.colors) primitive.attributes.COLOR_0 = accessor(Float32Array.from(part.colors), 'VEC3', 5126, 34962);
-            json.meshes.push({ name: part.name, primitives: [primitive] });
+            const mesh = { name: part.name, primitives: [primitive] };
+            // Expressions hook: the face's named morph targets (built.morphs, RRCharacterExpressions.morphTargets) as
+            // sparse position deltas; a target that leaves this part still has its slot, all zero.
+            const partIndex = built.parts.indexOf(part);
+            const own = (built.morphs || []).map(t => t.parts.find(e => e.part === partIndex) || null);
+            if (own.some(Boolean)) {
+                const count = part.positions.length / 3;
+                primitive.targets = own.map(entry => {
+                    if (!entry || !entry.indices.length) { json.accessors.push({ componentType: 5126, count, type: 'VEC3', min: [0, 0, 0], max: [0, 0, 0] }); return { POSITION: json.accessors.length - 1 }; }
+                    const min = [0, 0, 0], max = [0, 0, 0];
+                    for (let i = 0; i < entry.deltas.length; i++) { min[i % 3] = Math.min(min[i % 3], entry.deltas[i]); max[i % 3] = Math.max(max[i % 3], entry.deltas[i]); }
+                    const small = count <= 65535;
+                    json.accessors.push({
+                        componentType: 5126, count, type: 'VEC3', min, max,
+                        sparse: { count: entry.indices.length, indices: { bufferView: view(small ? Uint16Array.from(entry.indices) : Uint32Array.from(entry.indices)), componentType: small ? 5123 : 5125 }, values: { bufferView: view(Float32Array.from(entry.deltas)) } }
+                    });
+                    return { POSITION: json.accessors.length - 1 };
+                });
+                mesh.weights = own.map(() => 0);
+                mesh.extras = { targetNames: built.morphs.map(t => t.name) };
+            }
+            json.meshes.push(mesh);
             json.nodes.push({ name: part.name, mesh: json.meshes.length - 1, skin: 0 });
             json.scenes[0].nodes.push(json.nodes.length - 1);
         }
-        // Clips: `clips` ([{ name, times, tracks: [{ bone, values (quaternions) }] }]) as given, else the humanoid Idle.
+        // Clips: `clips` ([{ name, times, tracks: [{ bone, values, path? }] }]) as given, else the humanoid Idle. A track's
+        // values are quaternions, or with path 'translation' positions (relative to the bone's parent), or with path 'scale' scales.
         const clips = settings.clips || [idleClip(bones, settings.idle || {})].filter(Boolean).map(c => Object.assign({ name: 'Idle' }, c));
         for (const clip of clips) {
             const times = accessor(Float32Array.from(clip.times), 'SCALAR', 5126, null, { min: [clip.times[0]], max: [clip.times[clip.times.length - 1]] });
             const animation = { name: clip.name, channels: [], samplers: [] };
+            // A track may carry its own `times` (cloth keys at their own rate); tracks sharing one array share its accessor.
+            const ownTimes = new Map();
             for (const track of clip.tracks) {
-                animation.samplers.push({ input: times, output: accessor(Float32Array.from(track.values), 'VEC4', 5126), interpolation: 'LINEAR' });
-                animation.channels.push({ sampler: animation.samplers.length - 1, target: { node: track.bone, path: 'rotation' } });
+                const moves = track.path === 'translation' || track.path === 'scale';
+                const input = !track.times ? times : ownTimes.get(track.times) ?? ownTimes.set(track.times, accessor(Float32Array.from(track.times), 'SCALAR', 5126, null, { min: [track.times[0]], max: [track.times[track.times.length - 1]] })).get(track.times);
+                animation.samplers.push({ input, output: accessor(Float32Array.from(track.values), moves ? 'VEC3' : 'VEC4', 5126), interpolation: 'LINEAR' });
+                animation.channels.push({ sampler: animation.samplers.length - 1, target: { node: track.bone, path: moves ? track.path : 'rotation' } });
             }
             (json.animations = json.animations || []).push(animation);
         }

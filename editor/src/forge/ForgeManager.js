@@ -38,6 +38,9 @@ const FORGE_ICONS = {
     // A figure in front of a cube's edges: a body built in 3D.
     character3dBuilder: (size) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display: block;" aria-hidden="true"><path d="M3 7.5 L9 4.5 L15 7.5"/><path d="M3 7.5 V15"/><circle cx="15" cy="9" r="2.6"/><path d="M10.5 21v-1.5a4.5 4.5 0 0 1 9 0V21"/><path d="M15 13.5v3"/></svg>`,
 
+    // A flag flying from its pole.
+    propBuilder: (size) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="display: block;" aria-hidden="true"><path d="M5 21V3"/><path d="M5 4c3-1.5 5 1.5 8 0s4.5-.5 6 .5v8c-1.5-1-3-1.5-6 0s-5-1.5-8 0"/></svg>`,
+
     animationGenerator: (size) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display: block;" aria-hidden="true"><rect x="2.5" y="9" width="19" height="11.5" rx="1"/><path d="M2.5 9 L6 4 L22.5 4 L22.5 9 Z"/><line x1="8" y1="9" x2="11.5" y2="4"/><line x1="14" y1="9" x2="17.5" y2="4"/><line x1="20" y1="9" x2="22.2" y2="6.5"/></svg>`,
 
     // Speaker with two sound waves.
@@ -66,6 +69,14 @@ const FORGE_TOOLS = [
         icon: FORGE_ICONS.character3dBuilder,
         ctor: () => new Character3DBuilder(),
         getter: 'character3dBuilder'
+    },
+    {
+        id: 'prop-builder',
+        nameKey: 'menu.propBuilder',
+        descriptionKey: 'forge.propBuilder.description',
+        icon: FORGE_ICONS.propBuilder,
+        ctor: () => new PropBuilder(),
+        getter: 'propBuilder'
     },
     {
         id: 'animation-generator',

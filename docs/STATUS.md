@@ -41,6 +41,7 @@ Each system has a guide; the guide is the authority on its behaviour and limits.
 | Equipment slots of a class | [AUTHORING.md](AUTHORING.md#class-equipment-slots) | `data/Classes.json` › `rrEquipSlots` |
 | Performance method and measurements | [PERFORMANCE.md](PERFORMANCE.md) | `editor/tests/perf/` |
 | 3D Character Builder: humans, species, outfits, hair, accessories, four-legged creatures | [CHARACTER-BUILDER.md](CHARACTER-BUILDER.md) | `3d/Characters/<name>/` (GLB, `character.json` recipe, thumbnail); `editor/src/forge/Character3D/` |
+| Prop Builder: flags, cut-outs, turned and framed props | [PROP-BUILDER.md](PROP-BUILDER.md) | `3d/Props/<name>/` (GLB, `prop.json`, `model.json`); `editor/src/forge/Props/` |
 
 ## Runtime defaults that supersede older notes
 

@@ -7446,3 +7446,42 @@ html.rr-window-square #database-viewer.rr-database-popped > .database-window > *
 }
 .rr-c3d-readout { top: 10px; }
 .rr-c3d-hint { bottom: 10px; }
+/* Export sprite sheet: a small panel at the view's top left, on the builder's row grid. */
+.rr-c3d-export {
+    position: absolute; top: 40px; left: 12px; width: 300px; max-height: calc(100% - 56px); overflow-y: auto; box-sizing: border-box;
+    display: flex; flex-direction: column; padding: 8px 10px; z-index: 2;
+    background: var(--color-bg-panel); border: 1px solid var(--color-border-subtle); border-left: 3px solid var(--color-accent);
+    border-radius: var(--radius-md, 6px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.rr-c3d-export-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: var(--color-text); padding-bottom: 4px; margin-bottom: 2px; border-bottom: 1px solid var(--color-border-subtle); }
+.rr-c3d-export .rr-c3d-row > select, .rr-c3d-export .rr-c3d-row > .rr-shim-wrapper { grid-column: 2 / 4; min-width: 0; width: 100%; }
+.rr-c3d-export .rr-c3d-row > input[type="number"] { min-width: 0; width: 100%; box-sizing: border-box; }
+.rr-c3d-export .rr-c3d-colorrow > select, .rr-c3d-export .rr-c3d-colorrow > .rr-shim-wrapper { grid-column: 2; }
+.rr-c3d-export-faces { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; padding: 2px 0 4px 104px; }
+.rr-c3d-export-faces select, .rr-c3d-export-faces .rr-shim-wrapper { min-width: 0; width: 100%; font-size: 10px; }
+.rr-c3d-export-file { grid-column: 2 / 4; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); font-family: var(--font-mono, monospace); font-size: 10px; }
+.rr-c3d-export-progress { height: 4px; margin: 6px 0 2px; border-radius: 2px; background: var(--color-bg-input); overflow: hidden; }
+.rr-c3d-export-progress[hidden], .rr-c3d-export-preview[hidden] { display: none; }
+.rr-c3d-export-progress > div { width: 0; height: 100%; background: var(--color-accent-bright); transition: width 0.1s linear; }
+.rr-c3d-export-preview { display: block; width: 100%; margin: 6px 0 0; image-rendering: pixelated; border-radius: 2px; background: repeating-conic-gradient(var(--color-bg-input) 0 25%, var(--color-bg-deep) 0 50%) 0 0 / 12px 12px; }
+.rr-c3d-export-foot { display: flex; justify-content: flex-end; gap: 4px; margin-top: 8px; }
+.rr-c3d-export-status { margin-top: 6px; font-size: 10px; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.rr-c3d-export-status:empty { display: none; }
+.rr-c3d-export-status[data-kind="ok"] { color: var(--color-success, var(--color-text)); }
+.rr-c3d-export-status[data-kind="error"] { color: var(--color-danger); }
+.rr-c3d.is-exporting .rr-c3d-side, .rr-c3d.is-exporting .rr-c3d-toolbar, .rr-c3d.is-exporting .rr-c3d-poses, .rr-c3d.is-exporting .rr-c3d-viewbar { pointer-events: none; opacity: 0.6; }
+
+/* Forge › Prop Builder (laid out on the 3D Character Builder's classes) */
+.rr-prop-kinds { display: flex; gap: 4px; padding: 8px 8px 2px; }
+.rr-prop-kinds .rr-btn-chip { flex: 1 1 0; }
+.rr-prop-kinds .rr-btn-chip.is-active, .rr-prop .rr-c3d-pose.is-active { color: var(--color-accent-bright); border-color: var(--color-accent-bright); }
+.rr-prop-tiles2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rr-prop .rr-prop-mini { aspect-ratio: 8 / 5; }
+.rr-prop .rr-prop-mini img { object-fit: fill; }
+.rr-prop-picturerow { grid-template-columns: 96px minmax(0, 1fr) auto; }
+.rr-prop-picturename { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); }
+.rr-prop-motion[hidden] { display: none; }
+.rr-prop-picturename { display: flex; align-items: center; gap: 6px; }
+.rr-prop-pictureimg { width: 32px; height: 32px; object-fit: contain; border-radius: 2px; background: var(--color-bg-deep); flex: 0 0 32px; }
+.rr-prop-profile { display: flex; justify-content: center; padding: 4px 0 6px; }
+.rr-prop-profile-canvas { width: 100%; max-width: 300px; aspect-ratio: 1; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm, 3px); background: var(--color-bg-deep); cursor: crosshair; touch-action: none; }
