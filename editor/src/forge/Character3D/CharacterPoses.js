@@ -214,17 +214,15 @@
      * and out of the trunk's measured skin; the deepest one inside swings
      * out, the whole arm about the shoulder, to the surface.
      */
-    function clearBody(bones, index, names, world, steps, place, scale, body, resting) {
+    function clearBody(bones, index, names, world, steps, place, scale, body) {
         const head = index.get('Head'), faceRadius = FACE.radius * scale;
-        // An arm resting on the body (lying, sitting, kneeling) may lie on its skin, so only its bones keep
-        // out, swung no further than a little; elsewhere no arm swings further than this, so a pose stays
-        // the captured one.
-        const give = resting ? 0 : 1, most = resting ? 0.3 : 0.6;
+        // No arm swings further than this, so a pose stays the captured one.
+        const most = 0.6;
         for (const S of ['Left', 'Right']) {
             const chain = ['Arm', 'ForeArm', 'Hand'].map(n => names.indexOf(S + n)), shoulder = index.get(S + 'Arm');
             const joint = n => index.get(S + n), need = ['Arm', 'ForeArm', 'Hand', 'HandMiddle1', 'HandIndex1', 'HandPinky1'];
             if (chain[0] < 0 || shoulder === undefined || need.some(n => joint(n) === undefined)) continue;
-            const flesh = n => ((body && body.thick.get(joint(n))) || 0.03 * scale) * give;
+            const flesh = n => (body && body.thick.get(joint(n))) || 0.03 * scale;
             for (let f = 0; f < steps; f++) {
                 const { rot, pos } = place(f), s = pos[shoulder], at = n => pos[joint(n)];
                 const mid = (a, b) => a.map((v, k) => (v + b[k]) / 2);
@@ -343,7 +341,7 @@
         let top = 0;
         for (const b of bones) top = Math.max(top, b.head[1]);
         const scale = top / 1.7 || 1;
-        clearBody(bones, index, names, world, steps, place, scale, measure(bones, index, body, scale), cap.skin);
+        clearBody(bones, index, names, world, steps, place, scale, measure(bones, index, body, scale));
         // Where the body meets the floor: the skeleton followed joint by joint from the hips.
         const leg = side => { const a = index.get(side + 'UpLeg'), k = index.get(side + 'Leg'), f = index.get(side + 'Foot'); return a === undefined || k === undefined || f === undefined ? 0.85 * scale : Math.hypot(...sub(bones[k].head, bones[a].head)) + Math.hypot(...sub(bones[f].head, bones[k].head)); };
         const legLength = (leg('Left') + leg('Right')) / 2;

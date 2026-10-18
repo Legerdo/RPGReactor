@@ -192,10 +192,12 @@ function frames(asf, values, sides) {
  * a body lying down the line from its hips toward its head given). A loop
  * looks within the stretch for a cycle of `cycle` seconds whose ends meet; a
  * `swing` plays a held pose's stretch forward and back over `period`
- * seconds; otherwise the whole stretch plays. `air` keeps the take's own
- * height off the floor (a jump, a run's flight), `hover` holds the body that
- * many leg lengths up (a fall), and `skin` rests the body itself on the floor.
- * `borrow` takes some bones from another take instead; `fist` closes the hands.
+ * seconds; otherwise the whole stretch plays, at `speed` times the captured
+ * pace when given (a wave slowed to a friendly one). `air` keeps the take's
+ * own height off the floor (a jump, a run's flight), `hover` holds the body
+ * that many leg lengths up (a fall), and `skin` rests the body itself on the
+ * floor. `borrow` takes some bones from another take instead; `fist` closes
+ * the hands.
  */
 let TAKES = {
     walk: { trial: '35_01', from: 0.1, to: 2.9, cycle: [0.9, 1.4] },
@@ -204,7 +206,7 @@ let TAKES = {
     jump: { trial: '13_39', from: 0, to: 2.9, air: true },
     fall: { trial: '82_04', from: 1.9, to: 2.35, swing: true, period: 1.4, hover: 0.35 },
     fight: { trial: '14_01', from: 8.8, to: 11.3, cycle: [1.0, 1.4], fist: true },
-    wave: { trial: '143_25', from: 2.2, to: 3.12, cycle: [0.45, 0.85], mirror: true },
+    wave: { trial: '143_25', from: 2.2, to: 3.12, speed: 0.6, cycle: [0.75, 1.4], mirror: true },
     armsUp: { trial: '13_10', from: 8.1, to: 9.0, swing: true, period: 2.6 },
     kneel: { trial: '23_03', from: 2.0, to: 3.8, swing: true, period: 3.6, skin: true, borrow: { trial: '111_28', from: 1.0, to: 2.8, bones: ['RightArm', 'RightForeArm', 'RightHand'] } },
     sit: { trial: '82_05', from: 2.0, to: 6.5, cycle: [2.0, 4.4], skin: true },
@@ -225,8 +227,9 @@ function load(dir, trial) {
 /** The frames of a stretch of the take at FPS, turned and mirrored as asked. */
 function sample(src, take, from, to) {
     const { asf, amc } = src, sides = restSides(asf), step = take.rate || 120;
-    // A swing plays the stretch forward and back again, easing at each end, over `period` seconds.
-    const n = Math.round((take.swing ? take.period : to - from) * FPS) + 1, out = [];
+    // A swing plays the stretch forward and back again, easing at each end, over `period` seconds;
+    // otherwise it plays at `speed` (1 as captured).
+    const n = Math.round((take.swing ? take.period : (to - from) / (take.speed || 1)) * FPS) + 1, out = [];
     for (let i = 0; i < n; i++) {
         const u = take.swing ? (1 - Math.cos(2 * Math.PI * i / (n - 1))) / 2 : i / (n - 1);
         const t = from + (to - from) * u, k = Math.min(amc.length - 1, Math.max(0, Math.round(t * step)));
@@ -317,7 +320,7 @@ function build(dir) {
         let list = orient(sample(src, take, take.from, take.to), take);
         if (take.cycle) {
             const c = bestCycle(list, take);
-            console.log(`${id}: cycle ${(c.T / FPS).toFixed(2)} s from ${(take.from + c.a / FPS).toFixed(2)} s, seam ${c.e.toFixed(3)}`);
+            console.log(`${id}: cycle ${(c.T / FPS).toFixed(2)} s from ${(take.from + c.a / FPS * (take.speed || 1)).toFixed(2)} s, seam ${c.e.toFixed(3)}`);
             list = list.slice(c.a, c.a + c.T + 1);
         } else console.log(`${id}: ${(take.to - take.from).toFixed(2)} s, seam ${distance(list[0], list[list.length - 1]).toFixed(3)}`);
         // Bones borrowed from another take, played over the same frames (an arm at rest by the side).
