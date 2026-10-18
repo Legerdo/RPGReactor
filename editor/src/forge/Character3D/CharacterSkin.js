@@ -98,9 +98,11 @@
         const lids = regionOf(pack, ['shape/eyeOpen-incr', 'shape/eyeFold-incr']);
         const cheeks = regionOf(pack, ['shape/cheeks-incr']);
         const nose = regionOf(pack, ['shape/noseVolume-incr', 'shape/noseDepth-incr']);
+        // The tip and the nostrils alone (the nose pad of a muzzle), not the bridge.
+        const noseTip = regionOf(pack, ['shape/noseTip-incr', 'shape/nostrils-incr']);
         const ears = regionOf(pack, ['shape/earSize-incr']);
         const jaw = regionOf(pack, ['shape/jaw-incr', 'shape/chin-incr', 'shape/chinWidth-incr', 'shape/doubleChin-incr']);
-        return (pack._skinFields = { an, normals, lips, lids, cheeks, nose, ears, jaw });
+        return (pack._skinFields = { an, normals, lips, lids, cheeks, nose, noseTip, ears, jaw });
     }
 
     /**
@@ -452,7 +454,7 @@
         if (s.earHoles && p.ears > 0.7) rgb = mix(rgb, rgb.map(c => c * 0.12), smooth(0.7, 0.95, p.ears));
         // Blush, lips and eye shadow on the face.
         // An animal's nose pad: its own color over the tip of the nose, where the nose stands furthest out.
-        if (s.nose && p.nose > 0.45 && p.n[2] > -0.2) rgb = mix(rgb, Outfit.linear(s.nose), smooth(0.45, 0.8, p.nose) * smooth(-0.2, 0.3, p.n[2]));
+        if (s.nose && p.noseTip > 0.35 && p.n[2] > -0.2) rgb = mix(rgb, Outfit.linear(s.nose), smooth(0.35, 0.7, p.noseTip) * smooth(-0.2, 0.3, p.n[2]));
         if (s.blush) rgb = mix(rgb, mix(rgb, Outfit.linear('#c0484a'), 0.6), p.cheeks * s.blush * 0.6);
         if (p.lips > 0.25) {
             const lip = s.lips ? Outfit.linear(s.lips) : rgb.map((c, i) => c * [0.84, 0.56, 0.58][i]);
@@ -483,7 +485,7 @@
         const base = Outfit.linear(skinHex || '#c69c7f');
         const data = new Uint8Array(size * size * 4), filled = new Uint8Array(size * size);
         const body = pack.body;
-        const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, lids: 0, cheeks: 0, nose: 0, ears: 0, jaw: 0 };
+        const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, lids: 0, cheeks: 0, nose: 0, noseTip: 0, ears: 0, jaw: 0 };
         s.beard = Math.max(0, Math.min(1, (options && options.beard) || 0));
         s.earHoles = !!(options && options.earHoles);
         if (options && options.scalp) s.scalp = { rgb: Outfit.linear(options.scalp.color).map(c => c * 0.75), recede: options.scalp.recede || 0 };
@@ -539,6 +541,7 @@
                 p.lids = W.reduce((sum, w, k) => sum + w * F.lids[v[k]], 0);
                 p.cheeks = W.reduce((sum, w, k) => sum + w * F.cheeks[v[k]], 0);
                 p.nose = W.reduce((sum, w, k) => sum + w * F.nose[v[k]], 0);
+                p.noseTip = W.reduce((sum, w, k) => sum + w * F.noseTip[v[k]], 0);
                 p.ears = W.reduce((sum, w, k) => sum + w * F.ears[v[k]], 0);
                 p.jaw = W.reduce((sum, w, k) => sum + w * F.jaw[v[k]], 0);
                 if (s.hairField) p.hair = s.hairField[v[0]] * w0 + s.hairField[v[1]] * w1 + s.hairField[v[2]] * w2;
