@@ -3744,6 +3744,32 @@ Reactor3D.carrySurfaceData = function(from, to) {
     return to;
 };
 
+/**
+ * Per vertex, the way the picture's v runs over the surface (dP/dv), summed
+ * over the triangles a vertex shares and normalized: a hair card's strand
+ * direction, root to tip, smooth along the card. Zero where it cannot be told.
+ */
+Reactor3D.hairStrandDirections = function(geometry) {
+    const pos = geometry.attributes.position, uv = geometry.attributes.uv, n = pos.count, out = new Float32Array(n * 3);
+    const index = geometry.index ? geometry.index.array : null, count = index ? index.length : n;
+    for (let t = 0; t + 2 < count; t += 3) {
+        const a = index ? index[t] : t, b = index ? index[t + 1] : t + 1, c = index ? index[t + 2] : t + 2;
+        const e1x = pos.getX(b) - pos.getX(a), e1y = pos.getY(b) - pos.getY(a), e1z = pos.getZ(b) - pos.getZ(a);
+        const e2x = pos.getX(c) - pos.getX(a), e2y = pos.getY(c) - pos.getY(a), e2z = pos.getZ(c) - pos.getZ(a);
+        const du1 = uv.getX(b) - uv.getX(a), dv1 = uv.getY(b) - uv.getY(a), du2 = uv.getX(c) - uv.getX(a), dv2 = uv.getY(c) - uv.getY(a);
+        const det = du1 * dv2 - du2 * dv1;
+        if (!(Math.abs(det) > 1e-12)) continue;
+        const r = 1 / det;
+        const bx = (e2x * du1 - e1x * du2) * r, by = (e2y * du1 - e1y * du2) * r, bz = (e2z * du1 - e1z * du2) * r;
+        for (const v of [a, b, c]) { out[v * 3] += bx; out[v * 3 + 1] += by; out[v * 3 + 2] += bz; }
+    }
+    for (let v = 0; v < n; v++) {
+        const x = out[v * 3], y = out[v * 3 + 1], z = out[v * 3 + 2], l = Math.hypot(x, y, z);
+        if (l > 1e-12) { out[v * 3] = x / l; out[v * 3 + 1] = y / l; out[v * 3 + 2] = z / l; }
+    }
+    return out;
+};
+
 Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
     if (typeof THREE === "undefined") throw new Error("three.js is not loaded");
     const root = new THREE.Group();
@@ -3876,6 +3902,10 @@ Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
                 material.vertexColors = true;
                 material.__reactorModel = true;
                 Reactor3D.litMaterial(material);
+            }
+            // Hair: the way each strand runs, smooth along the card, for its sheen.
+            if (material.userData && material.userData.rrHair && geometry.attributes.uv) {
+                geometry.setAttribute("rrHairDir", new THREE.BufferAttribute(Reactor3D.hairStrandDirections(geometry), 3));
             }
             group.add(new THREE.Mesh(geometry, material));
         }

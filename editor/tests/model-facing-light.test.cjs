@@ -105,10 +105,15 @@ test('hair takes a two-lobe strand sheen along its picture\'s v, from the key li
     const shader = { uniforms: {}, vertexShader: 'void main() {\n#include <project_vertex>\n}', fragmentShader: 'void main() {\n#include <opaque_fragment>\n}' };
     Reactor3D.injectSurfaceGlow(hair, shader);
     const f = shader.fragmentShader;
-    assert.match(f, /vec3 rrHT = \(rrQ1 \* rrS0\.x - rrQ0 \* rrS1\.x\) \* \(rrHD < 0\.0 \? -1\.0 : 1\.0\);/, 'the way v runs on the surface');
+    assert.match(f, /vec3 rrHT = dot\(vRRHairDir, vRRHairDir\) > 1e-8 \? vRRHairDir : \(rrQ1 \* rrS0\.x - rrQ0 \* rrS1\.x\) \* \(rrHD < 0\.0 \? -1\.0 : 1\.0\);/, 'the loader\'s smooth strand direction, else the way v runs on the surface');
+    assert.match(shader.vertexShader, /rrHD = \(skinMatrix \* vec4\(rrHD, 0\.0\)\)\.xyz;/, 'skinned with the hair');
+    // A card running up v: every vertex's strand points up the card.
+    const quad = { attributes: { position: { count: 4, getX: i => [0, 1, 0, 1][i], getY: i => [0, 0, 2, 2][i], getZ: () => 0 }, uv: { getX: i => [0, 1, 0, 1][i], getY: i => [0, 0, 1, 1][i] } }, index: { array: [0, 1, 2, 2, 1, 3] } };
+    const dirs = Reactor3D.hairStrandDirections(quad);
+    for (let v = 0; v < 4; v++) assert.deepEqual(Array.from(dirs.slice(v * 3, v * 3 + 3)).map(x => +x.toFixed(6)), [0, 1, 0]);
     assert.ok(f.indexOf('dFdx(vMapUv)') < f.indexOf('if (rrHTL > 1e-14)'), 'derivatives before the branch');
     assert.match(f, /rrHC \*= 1\.0 - clamp\(rrSunShaded, 0\.0, 1\.0\);/, 'no sheen where the sun is shadowed');
-    assert.match(f, /outgoingLight \+= rrHC \* rrHNL \* \(0\.100 \* rrP \+ 0\.320 \* rrSec \* diffuseColor\.rgb\);/);
+    assert.match(f, /outgoingLight \+= rrHC \* rrHNL \* \(0\.060 \* rrP \* mix\(vec3\(1\.0\), diffuseColor\.rgb, 0\.5\) \+ 0\.300 \* rrSec \* diffuseColor\.rgb\);/);
     assert.match(shader.vertexShader, /vRRWorldNormal = /);
     const source = require('./helpers/runtime-3d-source.cjs').source3D();
     assert.match(source, /if \(\/\^\(Hair\|Beard\|Brows\|Lashes\)\\b\/\.test\(String\(def\.name \|\| ""\)\)\) mat\.userData\.rrHair = true;/);
@@ -123,4 +128,19 @@ test('a clone keeps the normal and glow pictures and its own glow', () => {
     assert.equal(to.userData.rrEmissiveMap, from.userData.rrEmissiveMap);
     assert.notEqual(to.userData.rrEmissive, glow); assert.equal(to.userData.rrEmissive.isColor, true);
     assert.equal(to.userData.rrHair, true);
+});
+
+test('on the weak tier no light in the loop is weighed by facing: the whole light takes the share once, whole-size or quarter-size', () => {
+    const model = () => ({ __reactorModel: true, userData: {} });
+    const saved = Reactor3D.gpuTierOverride;
+    try {
+        Reactor3D.gpuTierOverride = 'weak';
+        assert.equal(Reactor3D.facesPerLight(), false);
+        const f = compile(model()).fragmentShader;
+        assert.match(f, /float rrFaceKeep = rrFace;\n\trrFace = 0\.0;\n\tif \(rrSelfLit < 1\.0\) diffuseColor\.rgb \*= mix\(rrLight\(vRRWorldPos\), vec3\(1\.0\), rrSelfLit\);\n\tif \(rrFaceKeep > 0\.0 && rrSelfLit < 1\.0\) diffuseColor\.rgb \*= rrFaceShare\(rrFaceN\);/);
+        assert.match(Reactor3D.litMaterial(model()).customProgramCacheKey(), /\|face-share/);
+        Reactor3D.gpuTierOverride = 'full';
+        assert.doesNotMatch(compile(model()).fragmentShader, /rrFaceKeep/, 'every light weighed on a capable GPU');
+        assert.doesNotMatch(Reactor3D.litMaterial(model()).customProgramCacheKey(), /-share/);
+    } finally { Reactor3D.gpuTierOverride = saved; }
 });

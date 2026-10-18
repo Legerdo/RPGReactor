@@ -876,6 +876,11 @@ Reactor3D.injectWorldNormal = function(shader) {
     if (shader.fragmentShader.indexOf("RR_WORLD_NORMAL") < 0) shader.fragmentShader = this.WORLD_NORMAL_VARYING + shader.fragmentShader;
 };
 
+/** Whether each light in the loop is weighed by a model's facing: on every tier but the weak one. */
+Reactor3D.facesPerLight = function() {
+    return this.tier() !== "weak";
+};
+
 /** Whether a material is lit by which way its faces point (a model's, see MODEL_FACING). */
 Reactor3D.facesLight = function(material) {
     return !!(this.MODEL_FACING && material && material.__reactorModel && !material.__reactorSelfLit);
@@ -949,6 +954,9 @@ Reactor3D.injectLightShader = function(shader, renderer, material) {
     if (faces) {
         this.injectWorldNormal(shader);
         face = this.faceGlsl(normalMap);
+        // On the weak tier the loop does not weigh each light: the whole light takes the sun's and the
+        // sky's share of the facing (rrFaceShare), as a model lit in the quarter-size pass does.
+        if (!this.facesPerLight()) face += "float rrFaceKeep = rrFace;\n\trrFace = 0.0;\n\t";
         if (normalMap) {
             faceDecl = this.PERTURB_NORMAL_GLSL;
             shader.uniforms.rrNormalMap = { value: material.userData.rrNormalMap };
@@ -959,13 +967,15 @@ Reactor3D.injectLightShader = function(shader, renderer, material) {
         && shader.fragmentShader.indexOf("vec4 diffuseColor = vec4( diffuse, opacity );") >= 0) {
         shader.fragmentShader = faceDecl + glsl + shader.fragmentShader.replace(
             "#include <alphahash_fragment>",
-            "#include <alphahash_fragment>\n\t" + face + "if (rrSelfLit < 1.0) diffuseColor.rgb *= mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);\n\t" + this.LIT_MARK
+            "#include <alphahash_fragment>\n\t" + face + "if (rrSelfLit < 1.0) diffuseColor.rgb *= mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);\n\t"
+                + (faces && !this.facesPerLight() ? "if (rrFaceKeep > 0.0 && rrSelfLit < 1.0) diffuseColor.rgb *= rrFaceShare(rrFaceN);\n\t" : "") + this.LIT_MARK
         );
         return;
     }
     shader.fragmentShader = faceDecl + glsl + shader.fragmentShader.replace(
         "vec4 diffuseColor = vec4( diffuse, opacity );",
-        face + "vec3 rrLightTerm = mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);\n\tvec4 diffuseColor = vec4( diffuse * rrLightTerm, opacity );"
+        face + "vec3 rrLightTerm = mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);\n\t"
+            + (faces && !this.facesPerLight() ? "if (rrFaceKeep > 0.0) rrLightTerm *= rrFaceShare(rrFaceN);\n\t" : "") + "vec4 diffuseColor = vec4( diffuse * rrLightTerm, opacity );"
     );
 };
 /** Where the lit colour is final, for what blends over it (see injectBlendColor). */
@@ -3182,12 +3192,12 @@ Reactor3D.injectShine = function(material, shader) {
  *
  * Hair (a model material named Hair, Beard, Brows or Lashes,
  * `userData.rrHair`) takes a two-lobe strand sheen (Kajiya-Kay) from the key
- * light: a narrow white one shifted toward the tip and a broad one in the
+ * light: a narrow pale one shifted toward the tip and a broad one in the
  * hair's own colour shifted toward the root, the strand running the way its
  * picture's v runs (root to tip on the builder's cards). Lit by the sun where
  * there is one, else by a share of the ambient from above.
  */
-Reactor3D.HAIR_SHEEN = { primary: 0.1, secondary: 0.32, sharp: 90, soft: 22, shift: 0.14 };
+Reactor3D.HAIR_SHEEN = { primary: 0.06, secondary: 0.3, sharp: 110, soft: 24, shift: 0.14 };
 Reactor3D.glowKey = function(material) {
     const data = material && material.userData;
     if (!data) return "";
@@ -3209,6 +3219,20 @@ Reactor3D.injectSurfaceGlow = function(material, shader) {
     }
     if (/\|hair/.test(key)) {
         this.injectWorldNormal(shader);
+        // The strand direction the loader worked out (Reactor3D.hairStrandDirections), skinned with the hair.
+        if (shader.vertexShader.indexOf("rrHairDir") < 0) {
+            shader.vertexShader = "attribute vec3 rrHairDir;\nvarying vec3 vRRHairDir;\n" + shader.vertexShader.replace("#include <project_vertex>", [
+                "#include <project_vertex>",
+                "{",
+                "\tvec3 rrHD = rrHairDir;",
+                "#ifdef USE_SKINNING",
+                "\trrHD = (skinMatrix * vec4(rrHD, 0.0)).xyz;",
+                "#endif",
+                "\tvRRHairDir = mat3(modelMatrix) * rrHD;",
+                "}"
+            ].join("\n"));
+            decl.push("varying vec3 vRRHairDir;");
+        }
         const h = this.HAIR_SHEEN, f = v => Number(v).toFixed(3);
         lines.push(
             "\t{",
@@ -3218,7 +3242,7 @@ Reactor3D.injectSurfaceGlow = function(material, shader) {
             "\t\tvec3 rrQ0 = dFdx(vRRWorldPos), rrQ1 = dFdy(vRRWorldPos);",
             "\t\tvec2 rrS0 = dFdx(vMapUv), rrS1 = dFdy(vMapUv);",
             "\t\tfloat rrHD = rrS0.x * rrS1.y - rrS1.x * rrS0.y;",
-            "\t\tvec3 rrHT = (rrQ1 * rrS0.x - rrQ0 * rrS1.x) * (rrHD < 0.0 ? -1.0 : 1.0);",
+            "\t\tvec3 rrHT = dot(vRRHairDir, vRRHairDir) > 1e-8 ? vRRHairDir : (rrQ1 * rrS0.x - rrQ0 * rrS1.x) * (rrHD < 0.0 ? -1.0 : 1.0);",
             "\t\trrHT -= rrHN * dot(rrHT, rrHN);",
             "\t\tfloat rrHTL = dot(rrHT, rrHT);",
             "\t\tvec3 rrHL = normalize(rrKeyLight.w < 0.5 ? rrKeyLight.xyz : rrKeyLight.xyz - vRRWorldPos);",
@@ -3233,7 +3257,7 @@ Reactor3D.injectSurfaceGlow = function(material, shader) {
             "\t\t\tfloat rrD1 = dot(rrT1, rrHH), rrD2 = dot(rrT2, rrHH);",
             "\t\t\tfloat rrP = pow(sqrt(max(0.0, 1.0 - rrD1 * rrD1)), " + f(h.sharp) + "), rrSec = pow(sqrt(max(0.0, 1.0 - rrD2 * rrD2)), " + f(h.soft) + ");",
             "\t\t\tfloat rrHNL = clamp(dot(rrHN, rrHL) * 0.5 + 0.5, 0.0, 1.0);",
-            "\t\t\toutgoingLight += rrHC * rrHNL * (" + f(h.primary) + " * rrP + " + f(h.secondary) + " * rrSec * diffuseColor.rgb);",
+            "\t\t\toutgoingLight += rrHC * rrHNL * (" + f(h.primary) + " * rrP * mix(vec3(1.0), diffuseColor.rgb, 0.5) + " + f(h.secondary) + " * rrSec * diffuseColor.rgb);",
             "\t\t}",
             "\t}"
         );
@@ -3266,7 +3290,7 @@ Reactor3D.litMaterial = function(material) {
         return (typeof earlierKey === "function" ? earlierKey.call(this) : "") + "|reactor3d-lit" + (this.__reactorPieces ? "|cutaway" : this.__reactorModel ? "|sightline" : "") + (this.__reactorGhost ? "|ghost" : "")
             + (Reactor3D.Shadows.active() ? "|shadows" + Reactor3D.Shadows.quality().taps : "")
             + (Reactor3D.shineOf(this) ? "|shine" : "")
-            + (Reactor3D.facesLight(this) ? (this.userData && this.userData.rrNormalMap && this.userData.rrNormalMap.isTexture && this.map ? "|face-nmap" : "|face") : "")
+            + (Reactor3D.facesLight(this) ? (this.userData && this.userData.rrNormalMap && this.userData.rrNormalMap.isTexture && this.map ? "|face-nmap" : "|face") + (Reactor3D.facesPerLight() ? "" : "-share") : "")
             + (Reactor3D.glowKey ? Reactor3D.glowKey(this) : "")
             + (Reactor3D.lookOf && Reactor3D.lookOf(this) ? "|look" : "")
             + (Reactor3D.detailProgramKey ? Reactor3D.detailProgramKey(this) : "");
