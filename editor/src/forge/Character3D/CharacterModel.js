@@ -618,22 +618,15 @@
         const r = Object.assign({}, body);
         if (o.species && o.species !== 'human') Object.assign(r, withSpecies(r, o.species));
         const theme = o.theme || pick(['Everyday', 'Everyday', 'Fantasy', 'Armor', 'Sci-fi']);
-        const presets = Wardrobe.PRESETS.filter(p => p.group === theme);
-        const preset = pick(presets.length ? presets : Wardrobe.PRESETS);
-        // Two colors for the whole outfit, on its cloth and leather only: metal and the preset's own accents stay.
-        const palettes = [['#2f4468', '#d8d0c0'], ['#7a3b3b', '#2b2e36'], ['#3e5a32', '#5a3d22'], ['#2b2e36', '#8a6a44'], ['#6a2a6a', '#c8a040'], ['#1f1f24', '#8a1a2a'], ['#3a6a8a', '#e8e4dc'], ['#5a3d22', '#d8c8a0']];
-        const [main, second] = pick(palettes);
-        r.outfit = Wardrobe.dressFor(preset.items, Body.sexOf(body) === 'female').map((item, k) => {
-            const def = Wardrobe.BY_ID.get(item.id);
-            const material = item.material || (def && def.defaults.material);
-            if (rand() < 0.35 || material === 'metal' || material === 'gold') return Object.assign({}, item);
-            return Object.assign({}, item, { color: k % 2 ? second : main });
-        });
+        // An outfit of the setting in its colors, with an accessory that belongs to it.
+        const dressed = Wardrobe.dressRandom(rand, theme, Body.sexOf(body) === 'female');
+        r.outfit = dressed.outfit;
         const gender = r.gender > 0.5 ? 'male' : 'female';
         const bald = o.species && (Species.BY_ID.get(o.species)?.recipe || {}).bald;
         r.hair = bald ? { style: 'bald', brows: { style: 'none' }, lashes: false } : Hair.randomHair(scramble(seed + 2), { gender, people: body.ancestry.people, age: body.age });
-        const extras = Props.PROPS.filter(p => (theme === 'Fantasy' ? ['Hats', 'Jewelry', 'Back'] : theme === 'Sci-fi' ? ['Face', 'Back'] : ['Face', 'Hats', 'Jewelry']).includes(p.group));
-        r.props = rand() < 0.45 ? [{ id: pick(extras).id }] : [];
+        // Under a hat, hair that lies close.
+        if (dressed.hat && !bald) r.hair = Wardrobe.hairUnderHat(r.hair, rand, gender === 'male');
+        r.props = dressed.props;
         const skinTones = ['#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26', '#3f2618'];
         if (!o.species || o.species === 'human') r.skin = body.skin || pick(skinTones);
         // Eye colors as they occur in the character's people.

@@ -265,7 +265,7 @@
     }
 
     /** Pushes points out of the body wherever they lie within `gap` of the skin or under it. */
-    function collide(pack, built, positions, start, end, gap, cache, only) {
+    function collide(pack, built, positions, start, end, gap, cache, only, gaps) {
         if (!cache.bodyGrid) {
             cache.bodyNormals = Body.vertexNormals(pack, built.shaped);
             cache.bodyGrid = pointGrid(built.shaped, new Set(pack.body.source), 0.04);
@@ -278,8 +278,9 @@
             const q = cache.bodyGrid.nearest(x, y, z, 2);
             if (q < 0) continue;
             const d = (x - P[q * 3]) * N[q * 3] + (y - P[q * 3 + 1]) * N[q * 3 + 1] + (z - P[q * 3 + 2]) * N[q * 3 + 2];
-            if (d < gap) {
-                const k = gap - d;
+            const g = gaps ? gaps[i] : gap;
+            if (d < g) {
+                const k = g - d;
                 positions[i * 3] += N[q * 3] * k; positions[i * 3 + 1] += N[q * 3 + 1] * k; positions[i * 3 + 2] += N[q * 3 + 2] * k;
             }
         }
@@ -517,9 +518,11 @@
         });
         const lift = spec.lift ?? 0.006;
         let pos = new Float32Array(count * 3);
+        const stand = new Float32Array(count);
         for (let i = 0; i < count; i++) {
             const extra = spec.liftAt ? spec.liftAt(piece.field[i], piece.vals[i]) : 0;
-            for (let k = 0; k < 3; k++) pos[i * 3 + k] = base[i * 3 + k] + normal[i * 3 + k] * (lift + extra);
+            stand[i] = Math.max(0.002, lift + extra);
+            for (let k = 0; k < 3; k++) pos[i * 3 + k] = base[i * 3 + k] + normal[i * 3 + k] * stand[i];
         }
         if (spec.flare) {
             const hips = built.bones.find(b => b.name === 'Hips').head;
@@ -546,11 +549,12 @@
                     next[i * 3] = 0.5 * pos[i * 3] + 0.5 * x * k;
                     next[i * 3 + 1] = 0.5 * pos[i * 3 + 1] + 0.5 * y * k;
                     next[i * 3 + 2] = 0.5 * pos[i * 3 + 2] + 0.5 * z * k;
-                    // Never closer to the body than its lift.
+                    // Never closer to the body than its lift (where it is lifted less, as little).
                     const ox = next[i * 3] - base[i * 3], oy = next[i * 3 + 1] - base[i * 3 + 1], oz = next[i * 3 + 2] - base[i * 3 + 2];
                     const d = ox * normal[i * 3] + oy * normal[i * 3 + 1] + oz * normal[i * 3 + 2];
-                    if (d < lift * 0.85) {
-                        const push = lift * 0.85 - d;
+                    const least = Math.min(lift, stand[i]) * 0.85;
+                    if (d < least) {
+                        const push = least - d;
                         next[i * 3] += normal[i * 3] * push; next[i * 3 + 1] += normal[i * 3 + 1] * push; next[i * 3 + 2] += normal[i * 3 + 2] * push;
                     }
                 }
@@ -558,9 +562,10 @@
             }
         }
         // The cut edge eased along itself, so a hem or a cuff runs smooth rather than stepping with the mesh under it.
-        smoothBorder(piece, pos, base, spec.edgeSmooth ?? 4);
+        // Hard plates and open fronts run straightest.
+        smoothBorder(piece, pos, base, spec.edgeSmooth ?? (spec.hard || (spec.rules && spec.rules.open) ? 16 : 8));
         // Whatever still lies in the skin (a slider pushed past what the helper follows) is lifted out.
-        if (spec.collide !== false) collide(pack, built, pos, 0, count, lift * 0.7, cache);
+        if (spec.collide !== false) collide(pack, built, pos, 0, count, lift * 0.7, cache, null, spec.liftAt ? Float32Array.from(stand, x => Math.min(lift, x) * 0.7) : null);
         // The rim: each border vertex gets a twin back down at the body, a strip between them.
         const index = Array.from(piece.index);
         const positions = Array.from(pos), uvs = Array.from(piece.uvs);
@@ -571,7 +576,13 @@
             if (rimOf.has(i)) return rimOf.get(i);
             const j = positions.length / 3;
             origin.push(i);
-            const depth = spec.rimDepth ?? 0.85;
+            let depth = spec.rimDepth ?? 0.85;
+            // A hem standing far off the body (a flared skirt's) folds back only a few millimeters.
+            if (spec.rimReach) {
+                const off = Math.hypot(pos[i * 3] - base[i * 3], pos[i * 3 + 1] - base[i * 3 + 1], pos[i * 3 + 2] - base[i * 3 + 2]);
+                const most = spec.rimReach(piece.field[i]);
+                if (off * depth > most) depth = most / off;
+            }
             for (let k = 0; k < 3; k++) positions.push(pos[i * 3 + k] - (pos[i * 3 + k] - base[i * 3 + k]) * depth);
             uvs.push(piece.uvs[i * 2], piece.uvs[i * 2 + 1]);
             fields.push(piece.field[i]); skins.push(piece.skins[i]); vals.push(-1);
@@ -1317,6 +1328,338 @@
         };
     }
 
+    // ── helmets ───────────────────────────────────────────────────────────
+    /**
+     * A helmet: a smooth shell round the head (its section at each height
+     * fitted by a rounded square or an ellipse, never following the nose or
+     * the lips), from the neck to over the crown, rigid on the head's bone.
+     * A face opening or a visor window is cut across it once per style on the
+     * average body; a visor is its own glossy shell standing just out of it.
+     *
+     * A style: { square (2 round .. 4 boxy), flat (0 domed .. 1 flat-topped),
+     * gap, bottom (where it ends on the neck, 0 at its base .. 1 at the jaw),
+     * window: { half (radians either side of the front), low, high (meters
+     * from the eyes' height) }, visor (the window holds a visor), open (the
+     * window is left open, a face opening) }.
+     */
+    const HELM_COLS = 44, HELM_RINGS = 20, HELM_CAP = 6;
+
+    function headSkin(pack) {
+        if (pack._headSkin) return pack._headSkin;
+        const an = anatomy(pack);
+        return (pack._headSkin = Int32Array.from([...new Set(pack.body.source)].filter(v => an.member[v * 5] > 0.6 && an.s[v * 5] > 4.15)));
+    }
+
+    /** The helmet's grid on a built body: positions per (ring, column), and the eyes' height. */
+    function helmGrid(pack, built, style) {
+        const P = built.shaped, B = n => built.bones.find(b => b.name === n);
+        const neck = B('Neck').head, head = B('Head').head;
+        const eyes = built.parts.find(p => p.name === 'Eyes').positions;
+        let eyeY = 0;
+        for (let i = 1; i < eyes.length; i += 3) eyeY += eyes[i];
+        eyeY /= eyes.length / 3;
+        const ids = headSkin(pack);
+        let crown = -Infinity;
+        for (const v of ids) crown = Math.max(crown, P[v * 3 + 1]);
+        const gap = style.gap ?? 0.012;
+        const y0 = neck[1] + (head[1] - neck[1]) * (style.bottom ?? 0.35), y1 = crown - 0.035;
+        // Each height's extents: forward, back, out to either side.
+        const rings = [];
+        for (let r = 0; r < HELM_RINGS; r++) {
+            const y = y0 + (y1 - y0) * r / (HELM_RINGS - 1), band = (y1 - y0) / HELM_RINGS + 0.006;
+            let f = -Infinity, bk = Infinity, side = 0, n = 0, cx = 0;
+            for (const v of ids) {
+                if (Math.abs(P[v * 3 + 1] - y) > band) continue;
+                f = Math.max(f, P[v * 3 + 2]); bk = Math.min(bk, P[v * 3 + 2]); side = Math.max(side, Math.abs(P[v * 3])); cx += P[v * 3]; n++;
+            }
+            rings.push({ y, f, b: bk, side, cx: n ? cx / n : 0 });
+        }
+        // Each extent grown to the most of its neighbors and softened up the head, so the shell bulges only smoothly.
+        for (const key of ['f', 'side']) {
+            const raw = rings.map(g => g[key]);
+            rings.forEach((g, i) => { g[key] = Math.max(...raw.slice(Math.max(0, i - 3), i + 4)); });
+        }
+        { const raw = rings.map(g => g.b); rings.forEach((g, i) => { g.b = Math.min(...raw.slice(Math.max(0, i - 3), i + 4)); }); }
+        for (let pass = 0; pass < 4; pass++) for (const key of ['f', 'side', 'b']) {
+            const prev = rings.map(g => g[key]);
+            rings.forEach((g, i) => { const m = (prev[Math.max(0, i - 1)] + 2 * prev[i] + prev[Math.min(rings.length - 1, i + 1)]) / 4; g[key] = key === 'b' ? Math.min(prev[i], m) : Math.max(prev[i], m); });
+        }
+        const e = style.square ?? 2.4, cols = HELM_COLS, C = cols + 1;
+        const rows = HELM_RINGS + HELM_CAP;
+        const G = new Float32Array(rows * C * 3);
+        const put = (r, j, x, y, z) => { const o = (r * C + j) * 3; G[o] = x; G[o + 1] = y; G[o + 2] = z; };
+        const section = (g, a, grow) => {
+            const cz = (g.f + g.b) / 2, front = (g.f - g.b) / 2 + gap, sideR = g.side + gap;
+            const ca = Math.cos(a), sa = Math.sin(a);
+            const rad = 1 / Math.pow(Math.pow(Math.abs(ca) / front, e) + Math.pow(Math.abs(sa) / sideR, e), 1 / e);
+            return [g.cx + sa * rad * grow, cz + ca * rad * grow];
+        };
+        for (let r = 0; r < HELM_RINGS; r++) for (let j = 0; j <= cols; j++) {
+            const a = Math.PI + j / cols * Math.PI * 2, [x, z] = section(rings[r], a, 1);
+            put(r, j, x, rings[r].y, z);
+        }
+        // The cap: from the last ring over the crown, rounded or flat.
+        const top = rings[HELM_RINGS - 1], peak = crown + gap, flat = style.flat ?? 0;
+        for (let k = 1; k <= HELM_CAP; k++) {
+            const phi = k / HELM_CAP * Math.PI / 2;
+            const grow = k === HELM_CAP ? 0.0001 : Math.cos(phi) ** (1 - flat * 0.8);
+            const rise = Math.sin(phi) ** (1 + flat * 2);
+            for (let j = 0; j <= cols; j++) {
+                const a = Math.PI + j / cols * Math.PI * 2, [x, z] = section(top, a, grow);
+                put(HELM_RINGS - 1 + k, j, x, top.y + (peak - top.y) * rise, z);
+            }
+        }
+        return { G, rows, cols, eyeY, y0, peak, head };
+    }
+
+    /** A helmet style's fixed layout: the shell, and the window cut from it (a visor or a face opening). */
+    function helmTemplate(pack, style) {
+        pack._helms = pack._helms || new Map();
+        const key = JSON.stringify(style);
+        if (pack._helms.has(key)) return pack._helms.get(key);
+        const avg = pack._avgBuilt || (pack._avgBuilt = Body.build(pack, Body.DEFAULT_RECIPE));
+        const grid = helmGrid(pack, avg, style);
+        const { G, rows, cols } = grid, C = cols + 1, n = rows * C;
+        const source = new Uint32Array(n), uv = new Float32Array(n * 2), index = [];
+        for (let r = 0; r < rows; r++) for (let j = 0; j <= cols; j++) { const i = r * C + j; source[i] = i; uv[i * 2] = j / cols; uv[i * 2 + 1] = r / (rows - 1); }
+        for (let r = 0; r + 1 < rows; r++) for (let j = 0; j < cols; j++) { const a = r * C + j; index.push(a, a + 1, a + C + 1, a, a + C + 1, a + C); }
+        const surface = { source, uv, index: Uint32Array.from(index) };
+        // The window, by direction round the head and height from the eyes, its corners rounded.
+        const w = style.window;
+        const win = new Float32Array(n).fill(-1);
+        if (w) for (let r = 0; r < rows; r++) for (let j = 0; j <= cols; j++) {
+            const o = r * C + j, a = Math.atan2(G[o * 3], G[o * 3 + 2] - grid.head[2]), dy = G[o * 3 + 1] - grid.eyeY;
+            const mid = (w.high + w.low) / 2, half = (w.high - w.low) / 2;
+            win[o] = 1 - Math.pow(Math.pow(Math.abs(a) / w.half, 4) + Math.pow(Math.abs(dy - mid) / half, 4), 0.25);
+        }
+        const shell = cut(surface, Float32Array.from(win, x => -x));
+        const visor = w && w.visor ? cut(surface, Float32Array.from(win, x => x + 0.06)) : null;
+        const t = { key, style, rows, cols, shell, visor, eyeV: 0, grid };
+        // Where the eyes fall up the picture, for painting a slit.
+        let best = 0;
+        for (let r = 0; r < rows; r++) if (Math.abs(G[(r * C) * 3 + 1] - grid.eyeY) < Math.abs(G[(best * C) * 3 + 1] - grid.eyeY)) best = r;
+        t.eyeV = best / (rows - 1);
+        t.hidden = new Set();
+        const P = avg.shaped;
+        // The skin under it, less a margin above its rim and round its opening.
+        for (const v of headSkin(pack)) {
+            const y = P[v * 3 + 1];
+            if (y < grid.y0 + 0.015) continue;
+            if (w && w.open) {
+                const a = Math.atan2(P[v * 3], P[v * 3 + 2] - grid.head[2]), dy = y - grid.eyeY, mid = (w.high + w.low) / 2, half = (w.high - w.low) / 2;
+                if (1 - Math.pow(Math.pow(Math.abs(a) / w.half, 4) + Math.pow(Math.abs(dy - mid) / half, 4), 0.25) > -0.25) continue;
+            }
+            t.hidden.add(v);
+        }
+        pack._helms.set(key, t);
+        return t;
+    }
+
+    /** A helmet on a built body: { shell, visor } part arrays (visor null without one), hidden, template. */
+    function helmet(pack, built, style, frame) {
+        const t = helmTemplate(pack, style), grid = helmGrid(pack, built, style);
+        const headBone = built.bones.findIndex(b => b.name === 'Head');
+        const make = (piece, push) => {
+            if (!piece || !piece.index.length) return null;
+            const n = piece.verts.length, P = new Float32Array(n * 3);
+            piece.verts.forEach(({ a, b, t: w }, i) => { for (let k = 0; k < 3; k++) P[i * 3 + k] = grid.G[a * 3 + k] * (1 - w) + grid.G[b * 3 + k] * w; });
+            if (push) {
+                // Out from the head's middle by `push`.
+                for (let i = 0; i < n; i++) {
+                    const dx = P[i * 3] - grid.head[0], dy = P[i * 3 + 1] - grid.eyeY, dz = P[i * 3 + 2] - grid.head[2], l = Math.hypot(dx, dy, dz) || 1;
+                    P[i * 3] += dx / l * push; P[i * 3 + 1] += dy / l * push; P[i * 3 + 2] += dz / l * push;
+                }
+            }
+            collide(pack, built, P, 0, n, 0.006, frame || {});
+            const joints = new Uint8Array(n * 4), weights = new Float32Array(n * 4);
+            for (let i = 0; i < n; i++) { joints[i * 4] = headBone; weights[i * 4] = 1; }
+            const I = piece.index, normals = triangleNormals(P, I);
+            weldNormals(P, normals);
+            return { positions: P, normals, uvs: piece.uvs, index: I, joints, weights };
+        };
+        return { shell: make(t.shell, 0), visor: make(t.visor, 0.004), hidden: t.hidden, template: t };
+    }
+
+    // ── pauldrons ─────────────────────────────────────────────────────────
+    /**
+     * Pauldrons: a cap of overlapping plates over each shoulder, from the
+     * collarbone over the shoulder's top and down the upper arm, each plate a
+     * little wider than the one above it. Its reach in each direction from the
+     * shoulder's joint is the farthest skin or garment there (a breastplate's
+     * edge, a mail shirt), smoothed and stood off, so it sits on what is worn.
+     * A style: { plates, gap, reach (how far down the arm, 0..1), wide
+     * (how far round the front and back, radians) }.
+     */
+    const PAUL_COLS = 22, PAUL_ROWS = 6;
+
+    function armSkin(pack, side) {
+        pack._armSkin = pack._armSkin || [];
+        if (pack._armSkin[side]) return pack._armSkin[side];
+        const an = anatomy(pack), fam = side ? 2 : 1;
+        const ids = [...new Set(pack.body.source)].filter(v => (an.member[v * 5 + fam] > 0.3 && an.s[v * 5 + fam] < 1.8) || (an.member[v * 5] > 0.5 && an.s[v * 5] > 2.4 && an.s[v * 5] < 4.1 && Math.sign(an.rest[v * 3] || 1) === (side ? -1 : 1)));
+        return (pack._armSkin[side] = Int32Array.from(ids));
+    }
+
+    function pauldrons(pack, built, style, extra) {
+        const P = built.shaped, plates = style.plates || 3, gap = style.gap ?? 0.012;
+        const wide = style.wide ?? 1.75, reach = style.reach ?? 0.55;
+        const positions = [], uvs = [], index = [], joints = [], weights = [];
+        const ids = [...armSkin(pack, 0), ...armSkin(pack, 1)];
+        const pick = skinPicker(pack, built, ids);
+        for (let side = 0; side < 2; side++) {
+            const B = n => built.bones.find(b => b.name === (side ? 'Right' : 'Left') + n);
+            const J = B('Arm').head, E = B('ForeArm').head;
+            const a = norm3([E[0] - J[0], E[1] - J[1], E[2] - J[2]]);
+            const up = norm3([-a[0] * a[1], 1 - a[1] * a[1], -a[2] * a[1]]);
+            const fw = norm3(cross3(a, up));
+            const sign = side ? -1 : 1;
+            // Directions: polar angle from the arm's way out (0) back over toward the neck; round the arm from the front to the back over the top.
+            const t0 = 0.5 - reach * 0.35, t1 = 2.25;
+            const dirOf = (th, ps) => {
+                const st = Math.sin(th), ct = Math.cos(th), sp = Math.sin(ps), cp = Math.cos(ps);
+                return [a[0] * ct + (up[0] * cp + fw[0] * sp * sign) * st, a[1] * ct + (up[1] * cp + fw[1] * sp * sign) * st, a[2] * ct + (up[2] * cp + fw[2] * sp * sign) * st];
+            };
+            const pts = [];
+            for (const v of armSkin(pack, side)) pts.push(P[v * 3] - J[0], P[v * 3 + 1] - J[1], P[v * 3 + 2] - J[2]);
+            if (extra) for (let i = 0; i < extra.length; i += 3) {
+                const dx = extra[i] - J[0], dy = extra[i + 1] - J[1], dz = extra[i + 2] - J[2];
+                if (dx * dx + dy * dy + dz * dz < 0.04 && dx * sign > -0.08) pts.push(dx, dy, dz);
+            }
+            const rows = plates * PAUL_ROWS, cols = PAUL_COLS;
+            const R = new Float64Array((rows + 1) * (cols + 1));
+            const thOf = r => t1 - (t1 - t0) * r / rows, psOf = j => -wide + 2 * wide * j / cols;
+            for (let r = 0; r <= rows; r++) for (let j = 0; j <= cols; j++) {
+                const d = dirOf(thOf(r), psOf(j));
+                let m = 0.04;
+                for (let i = 0; i < pts.length; i += 3) {
+                    const x = pts[i], y = pts[i + 1], z = pts[i + 2], l = Math.hypot(x, y, z);
+                    if (l < 1e-6) continue;
+                    const c = (x * d[0] + y * d[1] + z * d[2]) / l;
+                    if (c > 0.94) m = Math.max(m, l * c);
+                }
+                R[r * (cols + 1) + j] = m;
+            }
+            // Grown to its neighbors' and softened: a smooth dome, never inside what it covers.
+            const W = cols + 1, raw = Float64Array.from(R);
+            for (let r = 0; r <= rows; r++) for (let j = 0; j <= cols; j++) {
+                let m = 0;
+                for (let dr = -1; dr <= 1; dr++) for (let dj = -1; dj <= 1; dj++) { const rr = r + dr, jj = j + dj; if (rr >= 0 && rr <= rows && jj >= 0 && jj <= cols) m = Math.max(m, raw[rr * W + jj]); }
+                R[r * W + j] = m;
+            }
+            for (let pass = 0; pass < 3; pass++) {
+                const prev = Float64Array.from(R);
+                for (let r = 0; r <= rows; r++) for (let j = 0; j <= cols; j++) {
+                    let sum = 0, n = 0;
+                    for (let dr = -1; dr <= 1; dr++) for (let dj = -1; dj <= 1; dj++) { const rr = r + dr, jj = j + dj; if (rr >= 0 && rr <= rows && jj >= 0 && jj <= cols) { sum += prev[rr * W + jj]; n++; } }
+                    R[r * W + j] = Math.max(raw[r * W + j], sum / n);
+                }
+            }
+            // Each plate a shell with its edge turned in; the lower plates tuck under the one above (the top plate is outermost).
+            for (let k = 0; k < plates; k++) {
+                const ra = k * PAUL_ROWS, rb = Math.min(rows, (k + 1) * PAUL_ROWS + 1);
+                const out = gap + (plates - 1 - k) * 0.004;
+                const start = positions.length / 3;
+                for (let r = ra; r <= rb; r++) {
+                    for (let j = 0; j <= cols; j++) {
+                        const d = dirOf(thOf(r), psOf(j)), rad = R[Math.min(rows, r) * W + j] + out;
+                        positions.push(J[0] + d[0] * rad, J[1] + d[1] * rad, J[2] + d[2] * rad);
+                        uvs.push(j / cols, (k + (r - ra) / (rb - ra)) / plates);
+                    }
+                }
+                const nr = rb - ra + 1;
+                for (let r = 0; r + 1 < nr; r++) for (let j = 0; j < cols; j++) {
+                    const p0 = start + r * W + j;
+                    index.push(p0, p0 + W, p0 + 1, p0 + 1, p0 + W, p0 + W + 1);
+                }
+                // The turned-in edge all round: a strip 5 mm in toward the joint.
+                const edge = [];
+                for (let j = 0; j <= cols; j++) edge.push(start + j);
+                for (let r = 1; r < nr; r++) edge.push(start + r * W + cols);
+                for (let j = cols - 1; j >= 0; j--) edge.push(start + (nr - 1) * W + j);
+                for (let r = nr - 2; r >= 1; r--) edge.push(start + r * W);
+                const inn = edge.map(i => {
+                    const x = positions[i * 3] - J[0], y = positions[i * 3 + 1] - J[1], z = positions[i * 3 + 2] - J[2], l = Math.hypot(x, y, z) || 1;
+                    positions.push(positions[i * 3] - x / l * 0.005, positions[i * 3 + 1] - y / l * 0.005, positions[i * 3 + 2] - z / l * 0.005);
+                    uvs.push(uvs[i * 2], uvs[i * 2 + 1]);
+                    return positions.length / 3 - 1;
+                });
+                for (let e = 0; e < edge.length; e++) {
+                    const a0 = edge[e], b0 = edge[(e + 1) % edge.length], a1 = inn[e], b1 = inn[(e + 1) % edge.length];
+                    index.push(a0, a1, b0, b0, a1, b1);
+                }
+            }
+        }
+        const Pos = Float32Array.from(positions), I = Uint32Array.from(index);
+        const n = Pos.length / 3, J4 = new Uint8Array(n * 4), W4 = new Float32Array(n * 4);
+        for (let i = 0; i < n; i++) { const q = pick(Pos[i * 3], Pos[i * 3 + 1], Pos[i * 3 + 2]); J4.set(q.joints, i * 4); W4.set(q.weights, i * 4); }
+        const normals = triangleNormals(Pos, I);
+        weldNormals(Pos, normals);
+        return { positions: Pos, normals, uvs: Float32Array.from(uvs), index: I, joints: J4, weights: W4 };
+    }
+    const norm3 = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+    const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+
+    // ── collars ───────────────────────────────────────────────────────────
+    /**
+     * A shirt's collar: a band standing round the base of the neck over the
+     * shirt, folded down over itself, its fall drawn into points at the front
+     * either side of the opening. Its section is the neck's own (with the
+     * shirt under it) where the neck is clear of the shoulders and the chin,
+     * a little wider at the bottom, stood off a few millimeters.
+     * A style: { open (radians either side of the front left open), stand,
+     * fall (meters), point (meters the points reach below the fall) }.
+     */
+    function collarBand(pack, built, spec, extra) {
+        const B = n => built.bones.find(b => b.name === n), P = built.shaped;
+        const base = B('Neck').head, top = B('Head').head;
+        const an = anatomy(pack);
+        const ids = pack._neckSkin || (pack._neckSkin = Int32Array.from([...new Set(pack.body.source)].filter(v => an.member[v * 5] > 0.6 && an.s[v * 5] > 3.88 && an.s[v * 5] < 4.45)));
+        const stand = spec.stand ?? 0.032, fall = spec.fall ?? 0.03, open = spec.open ?? 0.22, point = spec.point ?? 0.022, gap = spec.gap ?? 0.004;
+        const y0 = base[1] + 0.004, cols = 40;
+        const centerAt = y => { const t = (y - base[1]) / ((top[1] - base[1]) || 1); return [base[0] + (top[0] - base[0]) * t, base[2] + (top[2] - base[2]) * t]; };
+        const pts = [];
+        for (const v of ids) pts.push(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
+        // The shirt under it, but only round the neck (not out over the shoulders).
+        let neckR = 0;
+        { const [cx, cz] = centerAt(y0 + stand / 2); for (let i = 0; i < pts.length; i += 3) if (Math.abs(pts[i + 1] - y0 - stand / 2) < stand / 2) neckR = Math.max(neckR, Math.hypot(pts[i] - cx, pts[i + 2] - cz)); }
+        if (extra) for (let i = 0; i < extra.length; i += 3) {
+            if (Math.abs(extra[i + 1] - y0 - stand / 2) > stand / 2) continue;
+            const [cx, cz] = centerAt(extra[i + 1]);
+            if (Math.hypot(extra[i] - cx, extra[i + 2] - cz) < neckR + 0.01) pts.push(extra[i], extra[i + 1], extra[i + 2]);
+        }
+        const angs = Array.from({ length: cols + 1 }, (_, j) => open + (Math.PI * 2 - 2 * open) * j / cols);
+        // The neck's section where it is clean of the shoulders and the chin: its reach forward, back and to each side.
+        const yc = y0 + stand * 0.35, [cx0, cz0] = centerAt(yc);
+        const fs = [], bs = [], ss = [];
+        for (let i = 0; i < pts.length; i += 3) {
+            if (Math.abs(pts[i + 1] - yc) > 0.007) continue;
+            const dx = pts[i] - cx0, dz = pts[i + 2] - cz0;
+            if (Math.abs(dx) < 0.015) (dz > 0 ? fs : bs).push(Math.abs(dz));
+            if (Math.abs(dz) < 0.02) ss.push(Math.abs(dx));
+        }
+        // Most of the way out (the odd point of the jaw or a shoulder left out).
+        const most = (list, d) => { list.sort((p, q) => p - q); return list.length ? list[Math.floor(list.length * 0.85)] : d; };
+        const f = most(fs, 0.055), bk = most(bs, 0.05), sd = most(ss, 0.055);
+        const radius = a => { const ca = Math.cos(a), sa = Math.sin(a), half = ca > 0 ? f : bk; return 1 / Math.sqrt((ca / half) ** 2 + (sa / sd) ** 2); };
+        const tip = j => { const e = Math.min(j, cols - j) / cols; return point * Math.max(0, 1 - e * 9) ** 1.5; };
+        const ring = (y, grow, add, drop) => {
+            const [cx, cz] = centerAt(y);
+            return angs.map((a, j) => { const r = radius(a) * grow + gap + add; return [cx + Math.sin(a) * r, y - (drop ? drop(j) : 0), cz + Math.cos(a) * r]; });
+        };
+        const rows = [ring(y0, 1.04, 0), ring(y0 + stand, 1.0, 0), ring(y0 + stand + 0.003, 1.0, 0.004), ring(y0 + stand - fall * 0.5, 1.03, 0.006, j => tip(j) * 0.5), ring(y0 + stand - fall, 1.06, 0.008, tip)];
+        const positions = [], uvs = [], index = [];
+        rows.forEach((row, r) => row.forEach((p, j) => { positions.push(...p); uvs.push(j / cols, r / (rows.length - 1)); }));
+        const W = cols + 1;
+        for (let r = 0; r + 1 < rows.length; r++) for (let j = 0; j < cols; j++) { const a = r * W + j; index.push(a, a + 1, a + W + 1, a, a + W + 1, a + W); }
+        const Pos = Float32Array.from(positions), I = Uint32Array.from(index);
+        const pick = skinPicker(pack, built, ids);
+        const n = Pos.length / 3, joints = new Uint8Array(n * 4), weights = new Float32Array(n * 4);
+        for (let i = 0; i < n; i++) { const q = pick(Pos[i * 3], Pos[i * 3 + 1], Pos[i * 3 + 2]); joints.set(q.joints, i * 4); weights.set(q.weights, i * 4); }
+        collide(pack, built, Pos, 0, n, 0.003, {});
+        const normals = triangleNormals(Pos, I);
+        return { positions: Pos, normals, uvs: Float32Array.from(uvs), index: I, joints, weights, rows: rows.length, cols };
+    }
+
     // ── belts ─────────────────────────────────────────────────────────────
     /** The trunk's skin (pack vertex ids), kept per pack. */
     function trunkSkin(pack) {
@@ -1414,7 +1757,7 @@
         return Object.assign(laid, { hidden: t.hidden, template: t });
     }
 
-    const api = { binding, boundPositions, collide, pointGrid, FAMILIES, CHAINS, linear, anatomy, coverage, cut, cutFor, lay, paint, mixSkin, surfaceNormals, triangleNormals, relaxScalar, shoes, footFrame, band };
+    const api = { binding, boundPositions, collide, pointGrid, FAMILIES, CHAINS, linear, anatomy, coverage, cut, cutFor, lay, paint, mixSkin, surfaceNormals, triangleNormals, relaxScalar, shoes, footFrame, band, helmet, pauldrons, collarBand };
     root.RRCharacterOutfit = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

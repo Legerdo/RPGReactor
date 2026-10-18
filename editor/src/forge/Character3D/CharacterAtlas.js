@@ -274,7 +274,10 @@
                 normals[i * 3] = L.normals[v * 3]; normals[i * 3 + 1] = L.normals[v * 3 + 1]; normals[i * 3 + 2] = L.normals[v * 3 + 2];
                 for (let q = 0; q < 4; q++) { joints[i * 4 + q] = L.joints[v * 4 + q]; weights[i * 4 + q] = L.weights[v * 4 + q]; }
             }
-            return { name: g.name, positions, normals, uvs: g.uvs, joints, weights, index: g.index, roughness: g.roughness, metalness: g.metalness, doubleSided: g.doubleSided, texture: lay.texture.name };
+            // Each vertex's reach down a hanging skirt (RRCharacterCloth), -1 off it; only on a part with some.
+            let hang = null;
+            for (let i = 0; i < n; i++) { const L = entries[g.refs[i * 2]].laid; if (L.hang) { hang = hang || new Float32Array(n).fill(-1); hang[i] = L.hang[g.refs[i * 2 + 1]]; } }
+            return Object.assign({ name: g.name, positions, normals, uvs: g.uvs, joints, weights, index: g.index, roughness: g.roughness, metalness: g.metalness, doubleSided: g.doubleSided, texture: lay.texture.name }, hang ? { hang } : {});
         });
     }
 
@@ -534,7 +537,74 @@
         return { width: W, height: H, data };
     }
 
-    const api = { build, layout, apply, charts, shade, noise, shoePicture, beltPicture };
+    /**
+     * A helmet's picture, by where each texel lies on the shell: its height
+     * against the eyes' and its direction round the head. A rim at the
+     * bottom, a great helm's eye slit, ridge and breaths, a visor helmet's
+     * seam round its window. `t`: RRCharacterOutfit's helmet template;
+     * `look`: { color, trim, material, kind }.
+     */
+    function helmPicture(t, look, size) {
+        const W = size || 256, H = W, data = new Uint8Array(W * H * 4);
+        const c1 = Outfit.linear(look.color), trim = Outfit.linear(look.trim || look.color);
+        const G = t.grid.G, C = t.cols + 1, rows = t.rows, eyeY = t.grid.eyeY;
+        const rowY = Array.from({ length: rows }, (_, r) => G[(r * C) * 3 + 1]);
+        const metal = look.material === 'metal' || look.material === 'gold';
+        const w = t.style.window;
+        for (let y = 0; y < H; y++) {
+            const fr = (y + 0.5) / H * (rows - 1), r0 = Math.min(rows - 2, Math.floor(fr)), height = rowY[r0] + (rowY[r0 + 1] - rowY[r0]) * (fr - r0);
+            const dy = height - eyeY, fromRim = height - rowY[0];
+            for (let x = 0; x < W; x++) {
+                const a = ((x + 0.5) / W) * Math.PI * 2 - Math.PI, o = (y * W + x) * 4, aa = Math.abs(a);
+                let rgb = c1, k = metal ? 0.94 + 0.08 * noise(x * 0.1, y * 2) : 0.95 + 0.05 * noise(x * 0.5, y * 0.5);
+                // The rim, turned and riveted.
+                if (fromRim < 0.012) { rgb = trim; k *= fromRim < 0.004 ? 0.8 : 1.08; if (metal && fromRim > 0.006 && fromRim < 0.009 && fract(a * 7) < 0.15) k *= 1.4; }
+                if (t.style.slit) {
+                    if (aa < 1.05 && dy > -0.005 && dy < 0.006) k *= 0.05;
+                    else if (aa < 1.1 && (Math.abs(dy + 0.0065) < 0.0015 || Math.abs(dy - 0.0075) < 0.0015)) k *= 1.25;
+                    if (aa < 0.05 && dy < -0.006) k *= 0.75;
+                    if (a > 0.25 && a < 0.85 && dy < -0.025 && dy > -0.07 && fract(a * 14) < 0.35 && fract(dy * 90) < 0.35) k *= 0.08;
+                }
+                if (w && !w.open) {
+                    const mid = (w.high + w.low) / 2, half = (w.high - w.low) / 2;
+                    const inside = 1 - Math.pow(Math.pow(aa / w.half, 4) + Math.pow(Math.abs(dy - mid) / half, 4), 0.25);
+                    // A seam round the window, the shell's edge darker against the visor.
+                    if (inside > -0.12 && inside < 0.08) { rgb = trim; k *= inside > -0.03 ? 0.6 : 1; }
+                }
+                if (w && w.open) {
+                    const mid = (w.high + w.low) / 2, half = (w.high - w.low) / 2;
+                    const inside = 1 - Math.pow(Math.pow(aa / w.half, 4) + Math.pow(Math.abs(dy - mid) / half, 4), 0.25);
+                    if (inside > -0.1) { rgb = trim; k *= 1.05; }
+                }
+                // A ridge over the crown, front to back.
+                if (aa < 0.05 || aa > Math.PI - 0.05) if (dy > 0.06) k *= 1.15;
+                data[o] = toByte(rgb[0] * k); data[o + 1] = toByte(rgb[1] * k); data[o + 2] = toByte(rgb[2] * k); data[o + 3] = 255;
+            }
+        }
+        return { width: W, height: H, data };
+    }
+
+    /** Pauldron plates' picture: v runs down the plates in turn; each plate's lower edge trimmed, rivets along its top. */
+    function platePicture(look, plates, size) {
+        const W = size || 256, H = W, data = new Uint8Array(W * H * 4);
+        const c1 = Outfit.linear(look.color), trim = Outfit.linear(look.trim || look.color);
+        for (let y = 0; y < H; y++) {
+            const f = (y + 0.5) / H * plates, q = f - Math.floor(f);
+            for (let x = 0; x < W; x++) {
+                const u = (x + 0.5) / W, o = (y * W + x) * 4;
+                let rgb = c1, k = 0.94 + 0.08 * noise(x * 0.08, y * 1.5);
+                // Lighter where each plate bulges, darker toward where it tucks under.
+                k *= 0.85 + 0.25 * Math.sin(q * Math.PI);
+                if (q > 0.86) { rgb = trim; k = q > 0.95 ? 0.75 : 1.1; }
+                if (q < 0.14 && q > 0.05 && Math.abs(fract(u * 6) - 0.5) < 0.06) k *= 1.5;
+                if (u < 0.03 || u > 0.97) { rgb = trim; k *= 0.95; }
+                data[o] = toByte(rgb[0] * k); data[o + 1] = toByte(rgb[1] * k); data[o + 2] = toByte(rgb[2] * k); data[o + 3] = 255;
+            }
+        }
+        return { width: W, height: H, data };
+    }
+
+    const api = { build, layout, apply, charts, shade, noise, shoePicture, beltPicture, helmPicture, platePicture };
     root.RRCharacterAtlas = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

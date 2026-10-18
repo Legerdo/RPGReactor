@@ -236,7 +236,7 @@
         { id: 'goggles', label: 'Goggles', slot: 'eyes', group: 'Face', defaults: { color: '#5a3d22', color2: '#7a9a6a', up: 0 }, make: (m, L, o) => goggles(m, L, o) },
         { id: 'visor', label: 'Cyber visor', slot: 'eyes', group: 'Face', defaults: { color: '#202024', color2: '#ff2bd6' }, make: (m, L, o) => visor(m, L, o) },
         // Head
-        { id: 'wizardhat', label: 'Wizard hat', slot: 'hat', group: 'Hats', defaults: { color: '#2e3f8a', color2: '#d4af37', size: 1, height: 1 }, make: (m, L, o) => coneHat(m, L, o, { brim: 1.95, tall: 0.42, bend: 0.12 }) },
+        { id: 'wizardhat', label: 'Wizard hat', slot: 'hat', group: 'Hats', defaults: { color: '#2e3f8a', color2: '#d4af37', size: 1, height: 1 }, make: (m, L, o) => coneHat(m, L, o, { brim: 1.7, tall: 0.4, bend: 0.14 }) },
         { id: 'witchhat', label: 'Witch hat', slot: 'hat', group: 'Hats', defaults: { color: '#1a1a1e', color2: '#6a2a8a', size: 1, height: 1 }, make: (m, L, o) => coneHat(m, L, o, { brim: 2.3, tall: 0.36, bend: 0.2 }) },
         { id: 'tophat', label: 'Top hat', slot: 'hat', group: 'Hats', defaults: { color: '#141416', color2: '#5a1a1a', size: 1, height: 1 }, make: (m, L, o) => crownHat(m, L, o, { brim: 1.45, tall: 0.17, flare: 1.08, top: 'flat', band: 0.025 }) },
         { id: 'fedora', label: 'Fedora', slot: 'hat', group: 'Hats', defaults: { color: '#5a4a3a', color2: '#2a2018', size: 1, height: 1 }, make: (m, L, o) => crownHat(m, L, o, { brim: 1.55, tall: 0.11, flare: 0.92, top: 'pinch', band: 0.018, curl: 0.25 }) },
@@ -256,7 +256,8 @@
         { id: 'choker', label: 'Choker', slot: 'neck', group: 'Jewelry', defaults: { color: '#141414', color2: '#c0203a' }, make: (m, L, o) => choker(m, L, o) },
         { id: 'bracelets', label: 'Bracelets', slot: 'wristwear', group: 'Jewelry', defaults: { color: '#e0b84a', size: 1 }, make: (m, L, o) => bracelets(m, L, o) },
         // Worn on the back and about the neck
-        { id: 'cape', label: 'Cape', slot: 'back', group: 'Back', defaults: { color: '#8a1a2a', color2: '#d4af37', length: 0.8, width: 1 }, make: (m, L, o) => cape(m, L, o) },
+        // `cloth`: hangs as cloth from that bone (RRCharacterCloth).
+        { id: 'cape', label: 'Cape', slot: 'back', group: 'Back', defaults: { color: '#8a1a2a', color2: '#d4af37', length: 0.8, width: 1 }, cloth: { anchor: 'Spine2' }, make: (m, L, o) => cape(m, L, o) },
         { id: 'scarf', label: 'Scarf', slot: 'scarf', group: 'Back', defaults: { color: '#c8a040', color2: '#8a2a2a', length: 0.5 }, make: (m, L, o) => scarf(m, L, o) },
         { id: 'backpack', label: 'Backpack', slot: 'back', group: 'Back', defaults: { color: '#4a5a3a', color2: '#2a3020', size: 1 }, make: (m, L, o) => backpack(m, L, o) },
         { id: 'quiver', label: 'Quiver', slot: 'back', group: 'Back', defaults: { color: '#6a4426', color2: '#e8e0d0', size: 1 }, make: (m, L, o) => quiver(m, L, o) },
@@ -372,10 +373,11 @@
 
     /** The hat line: just above the brow, its section scaled out a little for the hair under it. */
     function hatRing(L, o, raise = 0.012) {
-        const y = L.brow + raise;
+        const y = L.brow + raise + 0.006;
         const ring = L.ring(y, 0.015) || { center: [0, y, 0], rx: 0.08, rz: 0.1 };
-        const fit = 1.07 * (o.size || 1);
-        return { center: ring.center, rx: ring.rx * fit + 0.008, rz: ring.rz * fit + 0.008 };
+        // Room for the hair it sits on (close-lying hair under a hat).
+        const fit = 1.08 * (o.size || 1);
+        return { center: ring.center, rx: ring.rx * fit + 0.014, rz: ring.rz * fit + 0.014 };
     }
 
     function brim(m, R, out, rgb, skin, curl = 0, fold = 0) {
@@ -692,23 +694,38 @@
         return [...bySlot.values()];
     }
 
+    const FINISH = {
+        felt: { name: 'Hat', roughness: 0.88, metalness: 0 },
+        leather: { name: 'Leather', roughness: 0.6, metalness: 0 },
+        metal: { name: 'Accessories', roughness: 0.3, metalness: 0.85 },
+        plastic: { name: 'Plastic', roughness: 0.4, metalness: 0 }
+    };
+    const FELT = new Set(['wizardhat', 'witchhat', 'tophat', 'fedora', 'cowboy', 'bowler', 'tricorn', 'cap', 'headband', 'bowtie', 'eyepatch']);
+    const LEATHER = new Set(['quiver', 'goggles', 'choker']);
+    const PLASTIC = new Set(['glasses', 'sunglasses', 'visor', 'backpack']);
+    function finishOf(def) { return FELT.has(def.id) ? 'felt' : LEATHER.has(def.id) ? 'leather' : PLASTIC.has(def.id) ? 'plastic' : 'metal'; }
+
     /** Parts for the accessories on a built body, merged by finish. */
     function build(pack, built, list) {
         const items = normalizeProps(list);
         if (!items.length) return { parts: [], items };
         const L = landmarks(pack, built);
-        const solid = new Mesh(), cloth = new Mesh(), extras = [];
+        const cloth = new Mesh(), extras = [], finishes = new Map(), hanging = [];
         for (const item of items) {
             const def = BY_ID.get(item.id);
             const m = new Mesh();
             const more = def.make(m, L, item) || [];
             const soft = more.some(x => x.extra && x.extra.doubleSided);
-            merge(soft ? cloth : solid, m);
+            // Cloth that hangs: the item's vertices in the merged part and the bone it hangs from.
+            if (soft && def.cloth) hanging.push({ start: cloth.p.length / 3, count: m.p.length / 3, anchor: def.cloth.anchor });
+            if (soft) merge(cloth, m);
+            else { const f = finishOf(def); if (!finishes.has(f)) finishes.set(f, new Mesh()); merge(finishes.get(f), m); }
             for (const x of more) if (x.mesh && !x.mesh.empty) extras.push(x.mesh.part(x.extra.name || def.label, x.extra));
         }
         const parts = [];
-        if (!solid.empty) parts.push(solid.part('Accessories', { roughness: 0.35, metalness: 0.6 }));
-        if (!cloth.empty) parts.push(cloth.part('Cape', { roughness: 0.85, metalness: 0, doubleSided: true }));
+        // Each finish its own part: felt and leather hats matte, jewelry and helmets metal, frames and packs plastic.
+        for (const [finish, m] of finishes) if (!m.empty) parts.push(m.part(FINISH[finish].name, { roughness: FINISH[finish].roughness, metalness: FINISH[finish].metalness }));
+        if (!cloth.empty) parts.push(cloth.part('Cape', Object.assign({ roughness: 0.85, metalness: 0, doubleSided: true }, hanging.length ? { cloth: hanging } : {})));
         return { parts: parts.concat(extras), items, landmarks: L };
     }
 
