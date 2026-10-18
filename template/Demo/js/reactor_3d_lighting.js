@@ -389,7 +389,20 @@ Reactor3D.lightUniforms = function() {
         rrShadowDynAtlas: { value: null },
         // 1/faces across, 1/rows in the static atlas, 1/rows in the dynamic
         // one, and one texel in face units.
-        rrShadowGrid: { value: new Float32Array([1 / 6, 1, 1, 1 / 512]) }
+        rrShadowGrid: { value: new Float32Array([1 / 6, 1, 1, 1 / 512]) },
+        // The sun's cascades (Reactor3D.SUN_SHADOW_MAP): world to each cascade's clip space.
+        rrSunShadowMatrix: { value: new Float32Array(32) },
+        // One texel of a cascade, the filter's spread in texels, the cascades whose moving casters are drawn
+        // (bit per cascade), the cascades drawn at all (bit per cascade).
+        rrSunShadowInfo: { value: new Float32Array([1 / 512, 1, 0, 0]) },
+        // Where the cascades' band starts and how tall it is, in the static atlas, then in the dynamic one.
+        rrSunShadowBand: { value: new Float32Array([0, 1, 0, 1]) },
+        // Each cascade's compare offset in depth, and one cascade's width across either atlas.
+        rrSunShadowBias: { value: new Float32Array([0, 0, 0.5, 0]) },
+        // The share of the ambient the sun's shadow takes away (Reactor3D.SUN_SHADE).
+        rrSunShade: { value: 0 },
+        rrSunShadowDir: { value: new Float32Array([0, 1, 0, 0]) },
+        rrSunShadowTexel: { value: new Float32Array([0.03, 0.12, 0.1, 0]) }
     };
     return this._lightUniforms;
 };
@@ -467,6 +480,78 @@ Reactor3D.shadowGlsl = function(taps) {
         "\tif (dynamic) s = min(s, texture(rrShadowDynAtlas, vec3(dynBase + q * dynScale, dp)));",
         "\treturn s;",
         "#endif",
+        "}",
+        // The sun: the nearest cascade whose square holds the point, its
+        // static casters in the band under the static atlas's rows and its
+        // moving ones in the same place under the dynamic atlas's. Depth is
+        // the orthographic camera's, linear, so one offset holds at any range.
+        "uniform mat4 rrSunShadowMatrix[2];",
+        "uniform vec4 rrSunShadowInfo;",
+        "uniform vec4 rrSunShadowBand;",
+        "uniform vec4 rrSunShadowBias;",
+        // The way toward the sun (xyz), and each cascade's texel in tiles (x, y) with the near cascade's blend band (z, in its uv).
+        "uniform vec4 rrSunShadowDir;",
+        "uniform vec4 rrSunShadowTexel;",
+        // How much of the ambient a point in the sun's shadow loses, and how shaded this point is.
+        "uniform float rrSunShade;",
+        "float rrSunShaded;",
+        // The surface's own facing, from rrLight's derivatives (taken where every pixel runs them).
+        "vec3 rrSunNormal;",
+        "float rrSunCascade(int c, vec3 s) {",
+        "\tfloat ref = s.z - (c == 0 ? rrSunShadowBias.x : rrSunShadowBias.y);",
+        "\tbool dyn = mod(floor(rrSunShadowInfo.z / (c == 0 ? 1.0 : 2.0)), 2.0) > 0.5;",
+        "\tfloat u0 = float(c) * rrSunShadowBias.z;",
+        "#if RR_SHADOW_TAPS > 1",
+        "\tfloat phi = rrShadowNoise(gl_FragCoord.xy) * 6.283185307179586;",
+        "\tfloat a = 0.0, b = 0.0;",
+        "\tfor (int i = 0; i < 5; i++) {",
+        "\t\tvec2 q = s.xy + rrShadowTap(i, phi) * (rrSunShadowInfo.x * rrSunShadowInfo.y);",
+        "\t\tfloat u = u0 + q.x * rrSunShadowBias.z;",
+        "\t\ta += texture(rrShadowAtlas, vec3(u, rrSunShadowBand.x + q.y * rrSunShadowBand.y, ref));",
+        "\t\tif (dyn) b += texture(rrShadowDynAtlas, vec3(u, rrSunShadowBand.z + q.y * rrSunShadowBand.w, ref));",
+        "\t}",
+        "\treturn dyn ? min(a, b) * 0.2 : a * 0.2;",
+        "#else",
+        // Four hardware-filtered taps half a texel about the point: an edge ramps over two texels
+        // with no grain, where one tap shows each texel's step.
+        // The far cascade lies where a texel is a pixel or less: one tap.
+        "\tif (c > 0) {",
+        "\t\tfloat u = u0 + s.x * rrSunShadowBias.z;",
+        "\t\tfloat a = texture(rrShadowAtlas, vec3(u, rrSunShadowBand.x + s.y * rrSunShadowBand.y, ref));",
+        "\t\treturn dyn ? min(a, texture(rrShadowDynAtlas, vec3(u, rrSunShadowBand.z + s.y * rrSunShadowBand.w, ref))) : a;",
+        "\t}",
+        "\tfloat h = 0.5 * rrSunShadowInfo.x, a = 0.0, b = 0.0;",
+        "\tfor (int i = 0; i < 4; i++) {",
+        "\t\tvec2 q = s.xy + vec2(i == 0 || i == 2 ? -h : h, i < 2 ? -h : h);",
+        "\t\tfloat u = u0 + q.x * rrSunShadowBias.z;",
+        "\t\ta += texture(rrShadowAtlas, vec3(u, rrSunShadowBand.x + q.y * rrSunShadowBand.y, ref));",
+        "\t\tif (dyn) b += texture(rrShadowDynAtlas, vec3(u, rrSunShadowBand.z + q.y * rrSunShadowBand.w, ref));",
+        "\t}",
+        "\treturn dyn ? min(a, b) * 0.25 : a * 0.25;",
+        "#endif",
+        "}",
+        "float rrSunShadowAt(vec3 p) {",
+        "\tfloat edge = rrSunShadowInfo.x * (rrSunShadowInfo.y + 1.0);",
+        // Off the surface along its facing, turned toward the sun, by a texel and a half of each
+        // cascade: a surface never reads its own depth, at any angle to the sun.
+        "\tfloat nl = length(rrSunNormal);",
+        "\tvec3 n = nl > 0.0 ? rrSunNormal / nl : vec3(0.0);",
+        "\tif (dot(n, rrSunShadowDir.xyz) < 0.0) n = -n;",
+        "\tfloat sum = 0.0, left = 1.0;",
+        "\tfor (int c = 0; c < 2; c++) {",
+        "\t\tif (mod(floor(rrSunShadowInfo.w / (c == 0 ? 1.0 : 2.0)), 2.0) < 0.5) continue;",
+        "\t\tvec3 q = p + n * ((c == 0 ? rrSunShadowTexel.x : rrSunShadowTexel.y) * " + (this.SUN_SHADOW_NORMAL_OFFSET || 1.5).toFixed(2) + ");",
+        "\t\tvec3 s = (rrSunShadowMatrix[c] * vec4(q, 1.0)).xyz * 0.5 + 0.5;",
+        "\t\tfloat inside = min(min(s.x, s.y), min(1.0 - s.x, 1.0 - s.y)) - edge;",
+        "\t\tif (inside <= 0.0) continue;",
+        "\t\tfloat v = s.z >= 1.0 || s.z <= 0.0 ? 1.0 : rrSunCascade(c, s);",
+        // The near cascade hands over to the far one across its last band, so sharpness never steps.
+        "\t\tfloat w = c == 0 ? clamp(inside / rrSunShadowTexel.z, 0.0, 1.0) : 1.0;",
+        "\t\tsum += left * w * v;",
+        "\t\tleft *= 1.0 - w;",
+        "\t\tif (left <= 0.0) return sum;",
+        "\t}",
+        "\treturn sum + left;",
         "}"
     ];
     return lines.join("\n") + "\n";
@@ -485,6 +570,7 @@ Reactor3D.lightGlsl = function(shadows, taps) {
         "varying vec3 vRRWorldPos;",
         "vec3 rrLight(vec3 p) {",
         "\tvec3 sum = rrAmbient;",
+        shadows ? "\trrSunShaded = 0.0;\n\trrSunNormal = cross(dFdx(p), dFdy(p));" : "",
         "\tfor (int i = 0; i < " + this.SHADER_LIGHTS + "; i++) {",
         "\t\tif (i >= rrLightCount) break;",
         "\t\tvec4 lp = rrLightPos[i];",
@@ -526,9 +612,11 @@ Reactor3D.lightGlsl = function(shadows, taps) {
         "\t\t\tif (fall <= 0.0) continue;",
         "\t\t}",
         "\t\t}",
-        shadows ? "\t\tfloat sh = rrLightShadow[i];\n\t\tif (sh >= 0.0) fall *= rrShadowAt(int(sh + 0.5), p);" : "",
+        shadows ? "\t\tfloat sh = rrLightShadow[i];\n\t\tif (sh > " + ((this.SUN_SHADOW_ROW || 64) - 0.5).toFixed(1) + ") { float sv = rrSunShadowAt(p); rrSunShaded = fall * (1.0 - sv); fall *= sv; }\n\t\telse if (sh >= 0.0) fall *= rrShadowAt(int(sh + 0.5), p);" : "",
         "\t\tsum += lc.rgb * fall;",
         "\t}",
+        // What stands between a point and the sun also hides part of the sky.
+        shadows ? "\tsum -= rrAmbient * (rrSunShade * rrSunShaded);" : "",
         "\treturn sum;",
         "}"
     ].filter(line => line !== "").join("\n") + "\n";
@@ -579,6 +667,9 @@ Reactor3D.packLightUniforms = function(lights, ambient, uniforms = this.lightUni
         const rgb = light.colour === undefined ? 0xffffff : light.colour;
         const gain = (light.intensity === undefined ? 1 : light.intensity) * this.LIGHT_GAIN * this.VOLUME_LIGHT_GAIN;
         let ax = 0, ay = -1, az = 0, shape = -1;
+        const sunDir = light.type === this.LIGHT_SUN
+            ? (light.sunDir || this.sunDirection(-(light.yaw || 0), light.pitch, light.daylight === "fixed" ? null : this.daylight(ambient || null), light.daylight === "fixed")) : null;
+        if (sunDir) { ax = sunDir[0]; ay = sunDir[1]; az = sunDir[2]; }
         if (spot || beam) {
             const yaw = ((light.yaw || 0) * Math.PI) / 180;
             const pitch = ((light.pitch || 0) * Math.PI) / 180;
@@ -606,7 +697,7 @@ Reactor3D.packLightUniforms = function(lights, ambient, uniforms = this.lightUni
                 id: light.id !== undefined && light.id !== null ? String(light.id) : "#" + count,
                 x, y: y + Math.max(0, this.SHADOW_LIFT - height), z, radius: castReach,
                 gap: focus ? Math.hypot(x - focus.x, z - focus.z) - light.radius : 0,
-                lightY: y, spot: spot || beam, beam, ax, ay, az, cosHalf: spot ? shape : -1,
+                lightY: y, spot: spot || beam, beam, sun, dir: sunDir, ax, ay, az, cosHalf: spot ? shape : -1,
                 width: beam ? shape * 2 : 0,
                 priorityRadius: sun ? castReach : light.radius,
                 strength: (light.intensity === undefined ? 1 : light.intensity) * (((rgb >> 16) & 255) + ((rgb >> 8) & 255) + (rgb & 255)) / 765,
@@ -627,8 +718,12 @@ Reactor3D.setKeyLight = function(uniforms, count) {
     const key = uniforms.rrKeyLight && uniforms.rrKeyLight.value;
     if (!key) return;
     const pos = uniforms.rrLightPos.value, col = uniforms.rrLightColor.value;
+    const aim = uniforms.rrLightAim && uniforms.rrLightAim.value;
     for (let i = 0; i < count; i++) {
-        if (col[i * 4 + 3] > 2.5) { key[0] = pos[i * 4]; key[1] = pos[i * 4 + 1]; key[2] = pos[i * 4 + 2]; key[3] = 1; return; }
+        if (col[i * 4 + 3] <= 2.5) continue;
+        // A sun is directional: the way toward it, as its aim holds it.
+        if (aim && aim[i * 4 + 1] > 0) { key[0] = aim[i * 4]; key[1] = aim[i * 4 + 1]; key[2] = aim[i * 4 + 2]; key[3] = 0; return; }
+        key[0] = pos[i * 4]; key[1] = pos[i * 4 + 1]; key[2] = pos[i * 4 + 2]; key[3] = 1; return;
     }
     key.set(this.KEY_LIGHT_DEFAULT);
 };
@@ -3150,9 +3245,60 @@ Reactor3D.SHADOW_SLOTS = 8;
  * budget takes one such character, the full tier a party of them.
  */
 Reactor3D.SHADOW_QUALITY = {
-    full: { slots: 8, dynamicSlots: 3, size: 512, taps: 5, dynamicTriangles: 600000, staticPerFrame: 2, dynamicPerFrame: 2, dynamicInterval: 1 },
-    weak: { slots: 4, dynamicSlots: 2, size: 256, taps: 1, dynamicTriangles: 200000, staticPerFrame: 1, dynamicPerFrame: 1, dynamicInterval: 2 }
+    full: { slots: 8, dynamicSlots: 3, size: 512, taps: 5, dynamicTriangles: 600000, staticPerFrame: 2, dynamicPerFrame: 2, dynamicInterval: 1, sunSize: 1024, sunSpans: [24, 96], dynamicRowsWithSun: true },
+    weak: { slots: 4, dynamicSlots: 2, size: 256, taps: 1, dynamicTriangles: 200000, staticPerFrame: 1, dynamicPerFrame: 1, dynamicInterval: 2, sunSize: 768, sunSpans: [16, 64], dynamicRowsWithSun: false }
 };
+/**
+ * A sun casts along one direction through an orthographic map that follows
+ * the focus, not through six cube faces from where it hangs: a cube face
+ * from 150 tiles up spreads one texel over a tile or more of ground, and its
+ * perspective depth spends the compare offset on tens of tiles, so every
+ * caster shaded its own lit side and nothing under it kept a shape.
+ *
+ * `sunSize` is one cascade's side in texels and `sunSpans` the ground each
+ * cascade covers, in tiles, nearest first: two square cascades sit side by
+ * side in a band under the rows of both atlases (static casters in the
+ * static atlas, moving ones in the dynamic atlas), so a lit program keeps
+ * its two shadow samplers. False draws the sun through a cube row, as before.
+ *
+ * `dynamicRowsWithSun` false (the weak tier): while the sun's cascades cast,
+ * the characters cast through them alone, and the lamps' rows hold only the
+ * props and buildings. Redrawing a walking party into a lamp's cube faces
+ * every other frame cost more than every other shadow together.
+ */
+Reactor3D.SUN_SHADOW_MAP = true;
+/** Where the sun reads in `rrLightShadow`: any value above the cube rows. */
+Reactor3D.SUN_SHADOW_ROW = 64;
+/** A cascade is laid again round the focus once it strays this share of the cascade's span from its centre. */
+Reactor3D.SUN_SHADOW_RECENTER = 0.125;
+/** The sun's direction is taken again once it turns this far from the one the cascades hold, in radians. */
+Reactor3D.SUN_SHADOW_TURN = 0.0175;
+/** How far the cascade's box reaches toward the sun and away from it from the focus, in tiles. */
+Reactor3D.SUN_SHADOW_REACH = 64;
+/**
+ * The compare offset toward the sun: this many texels of the cascade, and
+ * never less than `SUN_SHADOW_BIAS_MIN` tiles. The receiver also steps off
+ * its surface along its facing by SUN_SHADOW_NORMAL_OFFSET texels, and the
+ * casters are drawn back faces first with a slope-scaled offset
+ * (SHADOW_SLOPE_BIAS), so the depth offset itself stays small and shadows
+ * stay under what casts them.
+ */
+Reactor3D.SUN_SHADOW_BIAS_TEXELS = 0.75;
+Reactor3D.SUN_SHADOW_BIAS_MIN = 0.02;
+Reactor3D.SUN_SHADOW_NORMAL_OFFSET = 1.5;
+/** The share of the near cascade, at its edge, over which it hands over to the far one. */
+Reactor3D.SUN_SHADOW_BLEND = 0.12;
+/** The filter's spread, in texels of a cascade. */
+Reactor3D.SUN_SHADOW_SOFTNESS = 1.25;
+/**
+ * How much of the ambient the sun's shadow also takes away, at a sun two
+ * thirds as bright as the ambient or brighter (a dimmer sun takes its share). The
+ * ambient is the sky's light, and what blocks the sun blocks part of the
+ * sky: without it a day map's shade, lit by an ambient of one under a sun of
+ * a fraction of that, was nearly as bright as the sunlit ground. Lit ground
+ * is unchanged; shade never falls below the rest of the ambient.
+ */
+Reactor3D.SUN_SHADE = 0.6;
 /**
  * The six faces of a row, in atlas order: the direction each camera looks
  * and its up. `shadowGlsl` picks the face from the major axis of the
@@ -3359,6 +3505,7 @@ Reactor3D.Shadows = {
             for (const root of list) if (under(root)) { list.delete(root); dropped++; }
         }
         if (dropped) this._generation++;
+        if (this._sun && this._sun.scene === scene) this._sun = null;
         return dropped;
     },
 
@@ -3527,11 +3674,12 @@ Reactor3D.Shadows = {
      * one-byte colour attachment nothing writes to. Cleared once here, so
      * every row reads as fully lit until it is rendered, and so the depth
      * texture exists before any program names it — a shadow sampler bound
-     * to three's empty fallback texture fails the draw outright.
+     * to three's empty fallback texture fails the draw outright. `band` is
+     * the height of the strip under the rows that holds the sun's cascades.
      */
-    _makeAtlas(renderer, size, rows) {
+    _makeAtlas(renderer, size, rows, band = 0) {
         const width = size * 6;
-        const height = size * rows;
+        const height = size * rows + band;
         const target = new THREE.WebGLRenderTarget(width, height, {
             format: THREE.RedFormat,
             type: THREE.UnsignedByteType,
@@ -3556,7 +3704,7 @@ Reactor3D.Shadows = {
         renderer.setRenderTarget(target);
         renderer.clear(true, true, false);
         renderer.setRenderTarget(was);
-        return { target, size, rows };
+        return { target, size, rows, band, width, height };
     },
 
     /**
@@ -3601,10 +3749,13 @@ Reactor3D.Shadows = {
         const max = (renderer.capabilities && renderer.capabilities.maxTextureSize) || 4096;
         let size = quality.size;
         while (size * 6 > max && size > 64) size >>= 1;
-        const rows = Math.max(1, Math.min(quality.slots, Reactor3D.SHADOW_SLOTS, Math.floor(max / size)));
-        const dynRows = Math.max(1, Math.min(quality.dynamicSlots, Reactor3D.SHADOW_SLOTS, Math.floor(max / size)));
-        this._atlas = this._makeAtlas(renderer, size, rows);
-        this._dynAtlas = this._makeAtlas(renderer, size, dynRows);
+        // Two cascades side by side across the six faces' width.
+        const band = Reactor3D.SUN_SHADOW_MAP ? Math.min(quality.sunSize || size * 2, size * 3, max) : 0;
+        const rows = Math.max(1, Math.min(quality.slots, Reactor3D.SHADOW_SLOTS, Math.floor((max - band) / size)));
+        const dynRows = Math.max(1, Math.min(quality.dynamicSlots, Reactor3D.SHADOW_SLOTS, Math.floor((max - band) / size)));
+        this._atlas = this._makeAtlas(renderer, size, rows, band);
+        this._dynAtlas = this._makeAtlas(renderer, size, dynRows, band);
+        this._sun = null;
         this._tiles = [];
         for (let k = 0; k < rows; k++) this._tiles.push(this._makeTile());
         this._dynTiles = [];
@@ -3633,6 +3784,8 @@ Reactor3D.Shadows = {
         this._tiles = null;
         this._dynTiles = null;
         this._camera = null;
+        this._sun = null;
+        this._sunCamera = null;
         this._sentinel = null;
         this._pending = null;
         this._renderer = null;
@@ -3647,6 +3800,7 @@ Reactor3D.Shadows = {
         uniforms.rrShadowAtlas.value = null;
         uniforms.rrShadowDynAtlas.value = null;
         uniforms.rrShadowInfo.value.fill(-1);
+        uniforms.rrSunShadowInfo.value[2] = uniforms.rrSunShadowInfo.value[3] = 0;
     },
 
     dispose() {
@@ -4155,6 +4309,7 @@ Reactor3D.Shadows = {
         this.lastRenderAt = typeof performance !== "undefined" ? performance.now() : Date.now();
         const want = Reactor3D.shadowsWanted(mapData);
         if (!want) {
+            this._sun = null;
             if (this._active) {
                 this._active = false;
                 (this._lightSet || uniforms).rrLightShadow.value.fill(-1);
@@ -4183,8 +4338,12 @@ Reactor3D.Shadows = {
         // first to the lights that actually land on the player.
         const farById = new Map();
         for (const tile of tiles) if (tile.id !== null) farById.set(tile.id, tile.far);
+        // The brightest sun casts through its own cascades and takes no row.
+        const sun = Reactor3D.SUN_SHADOW_MAP && this._atlas.band > 0 ? this._pickSun() : null;
+        const sunJobs = this._planSun(sun, focus, scene, staticChange, dynamicChange, quality);
         const wanted = [];
         for (const candidate of this._candidates) {
+            if (sunJobs && candidate === sun) continue;
             candidate.far = this.farFor(candidate.radius, farById.get(candidate.id) || 0);
             candidate.rank = this._rankFor(candidate, focus, this._smoothedIncident(candidate, focus));
             if (this._castersWithin(candidate, candidate.far)) wanted.push(candidate);
@@ -4235,7 +4394,7 @@ Reactor3D.Shadows = {
                 }
                 if (staticChange.all || this._touches(staticChange.points, tile.origin, tile.far)) tile.dirty = true;
             }
-            if (this._dynamicWithin(candidate, far)) dynWanted.push({ id: candidate.id, gap: candidate.gap, rank: candidate.rank, tile: k });
+            if ((!sunJobs || quality.dynamicRowsWithSun !== false) && this._dynamicWithin(candidate, far)) dynWanted.push({ id: candidate.id, gap: candidate.gap, rank: candidate.rank, tile: k });
         }
         // The dynamic rows go to the best-ranked of those lights with a
         // character in reach, and follow their light's static row.
@@ -4290,9 +4449,10 @@ Reactor3D.Shadows = {
         this.backlog = tiles.filter(t => t.id !== null && t.dirty).length - staticJobs.length
             + dynTiles.filter(d => d.id !== null && d.dirty).length - dynJobs.length;
         this._publish(uniforms);
-        this._pending = { renderer, scene, statics: staticJobs, dynamics: dynJobs, activate: !this._active };
+        this._pending = { renderer, scene, statics: staticJobs, dynamics: dynJobs, sun: sunJobs, activate: !this._active };
         this.lastFrame = {
             statics: staticJobs.length, dynamics: dynJobs.length,
+            sunStatics: sunJobs ? sunJobs.statics.length : 0, sunDynamics: sunJobs ? sunJobs.dynamics.length : 0,
             slots: assigned.filter(Boolean).length, dynamicSlots: dynAssigned.filter(Boolean).length,
             candidates: this._candidates.length, wanted: wanted.length, backlog: this.backlog
         };
@@ -4302,7 +4462,8 @@ Reactor3D.Shadows = {
             this._reported = true;
             console.info("RPG Reactor shadows: " + Reactor3D.tier() + " tier, " + tiles.length + " casting light row(s), "
                 + dynTiles.length + " moving-caster row(s), " + quality.dynamicTriangles + " moving-caster triangles per row, faces "
-                + this._atlas.size + "px");
+                + this._atlas.size + "px" + (this._atlas.band > 0 ? ", sun cascades " + this._atlas.band + "px over "
+                + (quality.sunSpans || []).join(" and ") + " tiles" : ""));
         }
     },
 
@@ -4339,6 +4500,223 @@ Reactor3D.Shadows = {
             if (!tile || !tile.valid || tile.id !== row.id || tile.key !== row.key) continue;
             info[row.tile * 4 + 2] = j;
         }
+        // The sun reads every cascade drawn so far, each from where it was drawn.
+        const sun = this._sun, sunInfo = uniforms.rrSunShadowInfo.value;
+        let drawn = 0, moving = 0;
+        if (sun && sun.candidate) {
+            const matrices = uniforms.rrSunShadowMatrix.value, bias = uniforms.rrSunShadowBias.value;
+            for (let k = 0; k < sun.cascades.length; k++) {
+                const cascade = sun.cascades[k];
+                if (!cascade.valid) continue;
+                drawn |= 1 << k;
+                if (cascade.dynValid && cascade.hasDyn) moving |= 1 << k;
+                matrices.set(cascade.matrix, k * 16);
+                bias[k] = cascade.bias;
+            }
+            if (drawn) shadowOf[sun.candidate.index] = Reactor3D.SUN_SHADOW_ROW;
+        }
+        sunInfo[2] = moving;
+        sunInfo[3] = drawn;
+        uniforms.rrSunShade.value = drawn ? this.sunShade(this._lightSet || uniforms, sun.candidate.index) : 0;
+        if (drawn) {
+            const dir = uniforms.rrSunShadowDir.value, texel = uniforms.rrSunShadowTexel.value, band = this._atlas ? this._atlas.band : 512;
+            const pose = sun.cascades[0].pose || sun.cascades[1].pose;
+            if (pose) { dir[0] = pose.dir[0]; dir[1] = pose.dir[1]; dir[2] = pose.dir[2]; }
+            texel[0] = sun.cascades[0].span / band;
+            texel[1] = sun.cascades[1].span / band;
+            texel[2] = Reactor3D.SUN_SHADOW_BLEND;
+        }
+    },
+
+    /** The share of the ambient the sun's shadow takes (SUN_SHADE), from the light set's sun and ambient as packed. */
+    sunShade(set, index) {
+        const col = set && set.rrLightColor && set.rrLightColor.value, amb = set && set.rrAmbient && set.rrAmbient.value;
+        if (!col || !amb || !(Reactor3D.SUN_SHADE > 0)) return 0;
+        const sun = (col[index * 4] + col[index * 4 + 1] + col[index * 4 + 2]) / 3;
+        const ambient = (amb[0] + amb[1] + amb[2]) / 3;
+        if (!(sun > 0) || !(ambient > 0)) return 0;
+        return Reactor3D.SUN_SHADE * Math.min(1, (1.5 * sun) / ambient);
+    },
+
+    /** The sun that casts through the cascades: the brightest of this frame's suns. */
+    _pickSun() {
+        let best = null;
+        for (const candidate of this._candidates) {
+            if (!candidate.sun) continue;
+            if (!best || (candidate.strength || 0) > (best.strength || 0)) best = candidate;
+        }
+        return best;
+    },
+
+    /** Whether the sun's cascades still have drawing to do (the editor draws until they are done). */
+    sunPending() {
+        const sun = this._sun;
+        if (!sun) return false;
+        for (const cascade of sun.cascades) if (!cascade.valid || cascade.dirty || cascade.dynDirty) return true;
+        return false;
+    },
+
+    /**
+     * Which of the sun's cascades are drawn this frame. Each cascade is a
+     * square of ground round the focus, seen straight down the sun's
+     * direction, centred on whole texels: it is laid again only once the
+     * focus strays past SUN_SHADOW_RECENTER of its span, the sun turns past
+     * SUN_SHADOW_TURN, or a caster in it changes, so a still view and a short
+     * walk draw nothing. The static half of a cascade is drawn no more than
+     * one cascade a frame, and its moving half with it, so the two always
+     * share a pose; the moving half alone follows the characters in it,
+     * the far cascade at half the near one's rate. Null when no sun casts.
+     */
+    _planSun(sun, focus, scene, staticChange, dynamicChange, quality) {
+        if (!sun || !focus || !Number.isFinite(focus.x)) { this._sun = null; return null; }
+        // Directional: its own direction when it has one, else from the focus toward where it stands.
+        const lx = sun.dir ? sun.dir[0] : sun.x - focus.x, ly = sun.dir ? sun.dir[1] : (sun.lightY !== undefined ? sun.lightY : sun.y) - focus.y;
+        const lz = sun.dir ? sun.dir[2] : sun.z - focus.z;
+        const length = Math.sqrt(lx * lx + ly * ly + lz * lz);
+        // A sun at or under the focus's own level lights it from the side or below: nothing to cast down.
+        if (!(length > 0.001) || ly <= 0) { this._sun = null; return null; }
+        let state = this._sun;
+        const spans = (quality.sunSpans || [24, 96]).slice(0, 2);
+        if (!state || state.id !== sun.id || state.scene !== scene || state.cascades.length !== spans.length) {
+            state = this._sun = { id: sun.id, scene, candidate: sun, dir: null, cascades: spans.map(span => ({
+                span, valid: false, dynValid: false, hasDyn: false, dirty: true, dynDirty: true, want: null,
+                pose: null, matrix: new Float32Array(16), bias: 0, stamp: -1e9, dynStamp: -1e9
+            })) };
+        }
+        state.candidate = sun;
+        const dx = lx / length, dy = ly / length, dz = lz / length;
+        const held = state.dir;
+        if (!held || held[0] * dx + held[1] * dy + held[2] * dz < Math.cos(Reactor3D.SUN_SHADOW_TURN)) {
+            // Right and up across the sun's view, as an orthographic camera looking down it has them.
+            const ref = Math.abs(dz) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+            let rx = ref[1] * dz - ref[2] * dy, ry = ref[2] * dx - ref[0] * dz, rz = ref[0] * dy - ref[1] * dx;
+            const rl = Math.sqrt(rx * rx + ry * ry + rz * rz) || 1;
+            rx /= rl; ry /= rl; rz /= rl;
+            state.dir = [dx, dy, dz];
+            state.right = [rx, ry, rz];
+            state.up = [dy * rz - dz * ry, dz * rx - dx * rz, dx * ry - dy * rx];
+        }
+        const D = state.dir, R = state.right, U = state.up, band = this._atlas.band;
+        const fa = focus.x * R[0] + focus.y * R[1] + focus.z * R[2];
+        const fb = focus.x * U[0] + focus.y * U[1] + focus.z * U[2];
+        const fc = focus.x * D[0] + focus.y * D[1] + focus.z * D[2];
+        const recenter = Reactor3D.SUN_SHADOW_RECENTER, reach = Reactor3D.SUN_SHADOW_REACH;
+        // Kept on the state: read by this frame's flush, filled again by the next frame's plan.
+        const jobs = state.jobs || (state.jobs = { statics: [], dynamics: [] });
+        jobs.statics.length = 0;
+        jobs.dynamics.length = 0;
+        for (let k = 0; k < state.cascades.length; k++) {
+            const cascade = state.cascades[k], texel = cascade.span / band, pose = cascade.pose;
+            const strayed = !cascade.valid || !pose || pose.dir !== D || Math.abs(fa - pose.a) > cascade.span * recenter
+                || Math.abs(fb - pose.b) > cascade.span * recenter || Math.abs(fc - pose.c) > reach * 0.25;
+            if (strayed) {
+                const want = cascade.want;
+                if (!want || want.dir !== D || Math.abs(fa - want.a) > texel || Math.abs(fb - want.b) > texel || Math.abs(fc - want.c) > texel) {
+                    cascade.want = { dir: D, right: R, up: U, a: Math.round(fa / texel) * texel, b: Math.round(fb / texel) * texel, c: fc };
+                }
+                cascade.dirty = true;
+            } else cascade.want = null;
+            const at = cascade.want || pose;
+            if (staticChange.all || this._sunTouches(staticChange.points, cascade, at)) cascade.dirty = true;
+            if (dynamicChange.points.length && this._sunTouches(dynamicChange.points, cascade, at)) cascade.dynDirty = true;
+        }
+        const interval = Reactor3D.SHADOW_STATIC_INTERVAL, dynInterval = quality.dynamicInterval || 1;
+        // Nothing yet first, then the nearest cascade.
+        let chosen = null;
+        for (const cascade of state.cascades) {
+            if (!cascade.dirty || (cascade.valid && this._frame - cascade.stamp < interval && !cascade.want)) continue;
+            if (!chosen || (chosen.valid && !cascade.valid)) chosen = cascade;
+        }
+        if (chosen) {
+            jobs.statics.push(chosen);
+            jobs.dynamics.push(chosen);
+        }
+        for (let k = 0; k < state.cascades.length; k++) {
+            const cascade = state.cascades[k];
+            if (cascade === chosen || !cascade.valid || !cascade.dynDirty) continue;
+            if (this._frame - cascade.dynStamp < dynInterval * (k + 1)) continue;
+            jobs.dynamics.push(cascade);
+        }
+        return jobs;
+    },
+
+    /** Whether any reported place lies over a cascade's square, as posed at `pose`. */
+    _sunTouches(points, cascade, pose) {
+        if (!pose || !points.length) return false;
+        const R = pose.right, U = pose.up, half = cascade.span * 0.5;
+        for (const p of points) {
+            const r = (p.r || 0) + 1;
+            const a = p.x * R[0] + p.y * R[1] + p.z * R[2] - pose.a;
+            const b = p.x * U[0] + p.y * U[1] + p.z * U[2] - pose.b;
+            if (Math.abs(a) <= half + r && Math.abs(b) <= half + r) return true;
+        }
+        return false;
+    },
+
+    /** The orthographic camera of one cascade at `pose`, its layers set to `layer`. */
+    _aimSun(pose, span, layer) {
+        const camera = this._sunCamera || (this._sunCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1));
+        const half = span * 0.5, reach = Reactor3D.SUN_SHADOW_REACH, D = pose.dir, R = pose.right, U = pose.up;
+        camera.left = -half; camera.right = half; camera.top = half; camera.bottom = -half;
+        camera.near = 0; camera.far = reach * 2;
+        camera.updateProjectionMatrix();
+        const cx = R[0] * pose.a + U[0] * pose.b + D[0] * pose.c;
+        const cy = R[1] * pose.a + U[1] * pose.b + D[1] * pose.c;
+        const cz = R[2] * pose.a + U[2] * pose.b + D[2] * pose.c;
+        camera.position.set(cx + D[0] * reach, cy + D[1] * reach, cz + D[2] * reach);
+        camera.up.set(U[0], U[1], U[2]);
+        camera.lookAt(cx, cy, cz);
+        camera.updateMatrixWorld(true);
+        camera.layers.set(layer);
+        return camera;
+    },
+
+    /**
+     * One half of a cascade: its square of the band cleared and the casters
+     * on `layer` drawn into it from the sun, each at the level of detail a
+     * texel of the cascade allows. `dynamic` picks the dynamic atlas's band.
+     */
+    _renderSunCascade(renderer, scene, k, cascade, pose, layer, roots, dynamic) {
+        const atlas = dynamic ? this._dynAtlas : this._atlas, band = atlas.band, target = atlas.target;
+        target.viewport.set(k * band, atlas.size * atlas.rows, band, band);
+        target.scissor.copy(target.viewport);
+        target.scissorTest = true;
+        renderer.setRenderTarget(target);
+        renderer.clear(false, true, false);
+        const camera = this._aimSun(pose, cascade.span, layer);
+        const detail = Reactor3D.GeometryDetail, swapped = [];
+        if (detail && detail.shadowLevel && detail.enabled && !detail._failed && typeof Worker !== "undefined") {
+            // A texel of the cascade, as the cube faces' test takes it: focal over distance.
+            const perUnit = band / cascade.span, far = 1000;
+            for (const root of roots) {
+                if (!root || !root.visible || !root.parent) continue;
+                root.traverseVisible(object => {
+                    const selected = detail.shadowLevel(object, perUnit * far, Reactor3D.SHADOW_NEAR, null, far);
+                    if (!selected || selected === object.geometry) return;
+                    swapped.push([object, object.geometry]);
+                    object.geometry = selected;
+                });
+            }
+        }
+        try {
+            this.renderFace(renderer, scene, camera);
+        } finally {
+            if (swapped.length) detail.end(swapped);
+        }
+        return camera;
+    },
+
+    /** Whether a casting character stands over a cascade's square at `pose`. */
+    _sunHasMoving(cascade, pose) {
+        const R = pose.right, U = pose.up, half = cascade.span * 0.5;
+        for (const root of this._casting || this._dynamic) {
+            if (!root.parent || !root.visible || root.userData.rrShadowCasts === false) continue;
+            const e = root.matrixWorld.elements, r = (Reactor3D.instanceSpan(root) || 1) + 1;
+            const a = e[12] * R[0] + e[13] * R[1] + e[14] * R[2] - pose.a;
+            const b = e[12] * U[0] + e[13] * U[1] + e[14] * U[2] - pose.b;
+            if (Math.abs(a) <= half + r && Math.abs(b) <= half + r) return true;
+        }
+        return false;
     },
 
     /**
@@ -4555,7 +4933,9 @@ Reactor3D.Shadows = {
         if (!pending) return;
         this._pending = null;
         const { renderer, scene, statics, dynamics } = pending;
-        if (statics.length || dynamics.length) {
+        const sunJobs = pending.sun && this._sun ? pending.sun : null;
+        const sunStatics = sunJobs ? sunJobs.statics : [], sunDynamics = sunJobs ? sunJobs.dynamics : [];
+        if (statics.length || dynamics.length || sunStatics.length || sunDynamics.length) {
             const target = renderer.getRenderTarget();
             const autoClear = renderer.autoClear;
             const autoUpdate = scene.matrixWorldAutoUpdate;
@@ -4564,7 +4944,7 @@ Reactor3D.Shadows = {
             scene.matrixWorldAutoUpdate = false;
             scene.background = null;
             try {
-                if (statics.length) {
+                if (statics.length || sunStatics.length) {
                     const swapped = this._swapCasters(this._static);
                     try {
                         this._atCoarsestLod(() => {
@@ -4574,6 +4954,12 @@ Reactor3D.Shadows = {
                                     const to = tile.want || tile;
                                     this._renderTile(renderer, scene, this._atlas, this._tiles.indexOf(tile), to.origin, to.far,
                                         Reactor3D.SHADOW_LAYER_STATIC, this._static, tile.candidate && tile.candidate.carrier);
+                                }
+                                for (const cascade of sunStatics) {
+                                    const camera = this._renderSunCascade(renderer, scene, this._sun.cascades.indexOf(cascade), cascade,
+                                        cascade.want || cascade.pose, Reactor3D.SHADOW_LAYER_STATIC, this._static, false);
+                                    cascade.drawnMatrix = (cascade.drawnStore || (cascade.drawnStore = new THREE.Matrix4()))
+                                        .multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
                                 }
                             } finally {
                                 this._showAgain(others);
@@ -4594,7 +4980,7 @@ Reactor3D.Shadows = {
                         tile.stamp = this._frame;
                     }
                 }
-                if (dynamics.length) {
+                if (dynamics.length || sunDynamics.length) {
                     const roots = this._casting || this._dynamic;
                     const swapped = this._swapCasters(roots);
                     let others = null;
@@ -4605,6 +4991,15 @@ Reactor3D.Shadows = {
                             if (!tile || tile.id !== row.id) continue;
                             this._renderTile(renderer, scene, this._dynAtlas, this._dynTiles.indexOf(row), tile.origin, tile.far,
                                 Reactor3D.SHADOW_LAYER_DYNAMIC, roots, tile.candidate && tile.candidate.carrier);
+                        }
+                        for (const cascade of sunDynamics) {
+                            const pose = sunStatics.includes(cascade) ? cascade.want || cascade.pose : cascade.pose;
+                            if (!pose) continue;
+                            cascade.hasDyn = this._sunHasMoving(cascade, pose);
+                            // An empty square needs one clear, and is not read after it.
+                            if (cascade.hasDyn || cascade.dynValid) this._renderSunCascade(renderer, scene, this._sun.cascades.indexOf(cascade), cascade,
+                                pose, Reactor3D.SHADOW_LAYER_DYNAMIC, roots, true);
+                            cascade.dynDone = true;
                         }
                     } finally {
                         this._showAgain(others);
@@ -4617,6 +5012,27 @@ Reactor3D.Shadows = {
                         row.dirty = false;
                         row.stamp = this._frame;
                     }
+                }
+                // A cascade's two halves land together, under the pose they were drawn at.
+                const band = this._atlas.band, reach = Reactor3D.SUN_SHADOW_REACH;
+                for (const cascade of sunStatics) {
+                    if (!cascade.drawnMatrix) continue;
+                    if (cascade.want) cascade.pose = cascade.want;
+                    cascade.want = null;
+                    cascade.matrix.set(cascade.drawnMatrix.elements);
+                    cascade.drawnMatrix = null;
+                    const texel = cascade.span / band;
+                    cascade.bias = Math.max(Reactor3D.SUN_SHADOW_BIAS_MIN, Reactor3D.SUN_SHADOW_BIAS_TEXELS * texel) / (reach * 2);
+                    cascade.valid = true;
+                    cascade.dirty = false;
+                    cascade.stamp = this._frame;
+                }
+                for (const cascade of sunDynamics) {
+                    if (!cascade.dynDone) continue;
+                    cascade.dynDone = false;
+                    cascade.dynValid = cascade.valid;
+                    cascade.dynDirty = false;
+                    cascade.dynStamp = this._frame;
                 }
             } finally {
                 renderer.setRenderTarget(target);
@@ -4657,9 +5073,18 @@ Reactor3D.Shadows = {
         uniforms.rrShadowDynAtlas.value = dyn ? dyn.target.depthTexture : null;
         const grid = uniforms.rrShadowGrid.value;
         grid[0] = 1 / 6;
-        grid[1] = atlas ? 1 / atlas.rows : 1;
-        grid[2] = dyn ? 1 / dyn.rows : 1;
+        // One row's share of each atlas's height: the sun's band sits under the rows.
+        grid[1] = atlas ? atlas.size / atlas.height : 1;
+        grid[2] = dyn ? dyn.size / dyn.height : 1;
         grid[3] = atlas ? 1 / atlas.size : 1 / 512;
+        const band = uniforms.rrSunShadowBand.value;
+        if (atlas && dyn && atlas.band > 0) {
+            band[0] = (atlas.size * atlas.rows) / atlas.height; band[1] = atlas.band / atlas.height;
+            band[2] = (dyn.size * dyn.rows) / dyn.height; band[3] = dyn.band / dyn.height;
+            uniforms.rrSunShadowInfo.value[0] = 1 / atlas.band;
+            uniforms.rrSunShadowInfo.value[1] = Reactor3D.SUN_SHADOW_SOFTNESS;
+            uniforms.rrSunShadowBias.value[2] = atlas.band / atlas.width;
+        }
     }
 };
 
@@ -4783,6 +5208,40 @@ Reactor3D.daylight = function(ambient = this._ambient) {
  * A sun's colour and brightness at this time of day (`day` from `daylight`),
  * into `out`: as authored for a fixed sun or anything that is not a sun.
  */
+/**
+ * Where a sun's light comes from. A sun is directional: it shines the way its
+ * yaw and pitch aim it, as a spotlight is aimed (yaw 0 shines south, and a
+ * pitch below level shines down at that angle). A sun left level (pitch 0,
+ * as the Sun preset makes it) stands at SUN_ELEVATION, and one left at yaw 0
+ * as well shines along SUN_BEARING (degrees from south toward east): mostly
+ * east, so shadows fall to the side of what casts them in a view facing north
+ * or south, the way most maps are seen. One that follows the
+ * time of day sinks to SUN_TWILIGHT_ELEVATION as day turns to twilight; the
+ * moon stands as high as the sun. Where the sun stands on the map says only
+ * how far its light reaches.
+ */
+Reactor3D.SUN_ELEVATION = 50;
+Reactor3D.SUN_BEARING = 70;
+Reactor3D.SUN_TWILIGHT_ELEVATION = 18;
+/**
+ * The unit vector toward a sun, into `out`, from its authored `yaw` and
+ * `pitch` in degrees (as the sidecar holds them) and the time of day `day`
+ * (from `daylight`; null or a fixed sun keeps its elevation).
+ */
+Reactor3D.sunDirection = function(yaw, pitch, day, fixed, out) {
+    out = out || [0, 1, 0];
+    const authoredPitch = Number(pitch) || 0, authoredYaw = Number(yaw) || 0;
+    let elevation = authoredPitch < 0 ? Math.min(90, -authoredPitch) : this.SUN_ELEVATION;
+    const bearing = authoredPitch < 0 || authoredYaw !== 0 ? authoredYaw : -this.SUN_BEARING;
+    if (day && !fixed) elevation = elevation * (day.day + day.night) + this.SUN_TWILIGHT_ELEVATION * day.twilight;
+    const e = (Math.max(1, elevation) * Math.PI) / 180, b = (-bearing * Math.PI) / 180;
+    // The light travels along (sin b, -, cos b) as a spot's aim does; the sun lies the other way.
+    out[0] = -Math.sin(b) * Math.cos(e);
+    out[1] = Math.sin(e);
+    out[2] = -Math.cos(b) * Math.cos(e);
+    return out;
+};
+
 Reactor3D.sunAtDaylight = function(light, colour, intensity, day, out) {
     out = out || {};
     out.colour = colour; out.intensity = intensity;
@@ -5456,7 +5915,8 @@ Reactor3D.blendSeamSun = function(out, map, day) {
     if (found) {
         const light = found.light;
         const sun = light.daylight !== "fixed" && day ? this.sunAtDaylight(light, light.color, light.intensity, day, {}) : { colour: light.color, intensity: light.intensity };
-        other = { x: light.x + seam.offset.x, y: light.y + seam.offset.z, ground: found.ground, height: light.height, radius: light.radius, colour: sun.colour, intensity: sun.intensity };
+        other = { x: light.x + seam.offset.x, y: light.y + seam.offset.z, ground: found.ground, height: light.height, radius: light.radius, colour: sun.colour, intensity: sun.intensity,
+            sunDir: this.sunDirection(light.yaw, light.pitch, light.daylight !== "fixed" ? day : null, light.daylight === "fixed") };
     }
     if (own && other) {
         const ground = this.surfaceHeightAt(map, Math.round(own.x), Math.round(own.y));
@@ -5468,6 +5928,12 @@ Reactor3D.blendSeamSun = function(out, map, day) {
         if (own.priorityRadius !== undefined) own.priorityRadius = mix(own.priorityRadius, other.radius);
         own.colour = this.mixColour(own.colour, other.colour, w);
         own.intensity = mix(own.intensity, other.intensity);
+        // The direction too, so the shadows turn across the border rather than jump at it.
+        if (own.sunDir && other.sunDir) {
+            const d = own.sunDir, o = other.sunDir;
+            const x = mix(d[0], o[0]), y = mix(d[1], o[1]), z = mix(d[2], o[2]), l = Math.hypot(x, y, z) || 1;
+            own.sunDir = [x / l, y / l, z / l];
+        }
         if (own.priorityIntensity !== undefined) own.priorityIntensity = mix(own.priorityIntensity, other.intensity);
     } else if (own) {
         own.intensity *= 1 - w;
@@ -5479,7 +5945,7 @@ Reactor3D.blendSeamSun = function(out, map, day) {
             radius: other.radius, colour: other.colour, intensity: other.intensity * w,
             priorityRadius: other.radius, priorityIntensity: other.intensity * w,
             angle: light.angle, width: light.width, yaw: -light.yaw, pitch: light.pitch, occlude: light.occlude,
-            shadow: light.shadow, body: light.body, baseRadius: undefined
+            shadow: light.shadow, body: light.body, baseRadius: undefined, sunDir: other.sunDir
         });
     }
     return out;
@@ -5955,19 +6421,24 @@ Reactor3D.nativeLights = function(mapData) {
         radius = animated.radius;
         intensity = animated.intensity;
         // A sun at the map's time of day (the flicker's base scaled alike, so it reads as no flicker).
-        let lit = colour, priorityIntensity = animated.priorityIntensity;
-        if (light.type === this.LIGHT_SUN && light.daylight !== "fixed") {
-            const day = this.daylight(this.seamAmbient(this.ambientFor(map), map));
-            const sun = this.sunAtDaylight(light, colour, intensity, day, this._sunScratch || (this._sunScratch = {}));
-            lit = sun.colour; intensity = sun.intensity;
-            if (priorityIntensity !== undefined) priorityIntensity *= day.sun;
+        let lit = colour, priorityIntensity = animated.priorityIntensity, sunDir;
+        if (light.type === this.LIGHT_SUN) {
+            const fixed = light.daylight === "fixed";
+            const day = fixed ? null : this.daylight(this.seamAmbient(this.ambientFor(map), map));
+            if (!fixed) {
+                const sun = this.sunAtDaylight(light, colour, intensity, day, this._sunScratch || (this._sunScratch = {}));
+                lit = sun.colour; intensity = sun.intensity;
+                if (priorityIntensity !== undefined) priorityIntensity *= day.sun;
+            }
+            sunDir = this.sunDirection(yaw, pitch, day, fixed);
         }
         out.push({
             id: light.id, type: light.type, x: x, y: y, height: height,
             radius: radius, colour: lit, intensity: intensity,
             priorityRadius: animated.priorityRadius, priorityIntensity: priorityIntensity,
             angle: angle, width: width, yaw: -(yaw + facing), pitch: pitch, occlude: light.occlude,
-            shadow: light.shadow, body: light.body, baseRadius: baseRadius
+            shadow: light.shadow, body: light.body, baseRadius: baseRadius,
+            sunDir
         });
     }
     // Beside a neighboring map's world the sun stands toward that map's own (`blendSeamSun`).
@@ -6251,6 +6722,8 @@ Reactor3D.LightVolume = {
     /** A light's shadow state: its static row and when it was last drawn; null for a moving-caster row. */
     shadowKey(id) {
         const S = Reactor3D.Shadows, tiles = S._tiles || [], dyn = S._dynTiles || [];
+        // The sun's cascades follow the focus: never baked.
+        if (S._sun && S._sun.id === id) return null;
         for (const row of dyn) if (row && row.id === id && row.valid) return null;
         for (let k = 0; k < tiles.length; k++) {
             const tile = tiles[k];
@@ -6430,7 +6903,9 @@ Reactor3D.LightVolume = {
             rrBakeCells: { value: new Float32Array(3) }, rrBakeTiles: { value: new Float32Array(2) }
         };
         Object.assign(uniforms, Reactor3D.WaterLight.bakeUniforms());
-        if (shadows) for (const key of ["rrShadowInfo", "rrShadowPos", "rrShadowBias", "rrShadowAtlas", "rrShadowDynAtlas", "rrShadowGrid"]) uniforms[key] = shared[key];
+        if (shadows) for (const key of ["rrShadowInfo", "rrShadowPos", "rrShadowBias", "rrShadowAtlas", "rrShadowDynAtlas", "rrShadowGrid",
+            "rrSunShadowMatrix", "rrSunShadowInfo", "rrSunShadowBand", "rrSunShadowBias", "rrSunShade",
+            "rrSunShadowDir", "rrSunShadowTexel"]) uniforms[key] = shared[key];
         const material = new THREE.ShaderMaterial({
             uniforms, fragmentShader: fragment,
             vertexShader: "void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }",
@@ -7834,7 +8309,8 @@ Reactor3D.HalfLight = {
         // derivatives across a half-size grid step over leaves and edges.
         const glsl = Reactor3D.LightGrid.glsl(shadows ? Reactor3D.lightGlsl(true, taps) : Reactor3D.LIGHT_GLSL)
             .replace("varying vec3 vRRWorldPos;", "vec3 rrPassNormal;")
-            .replace("vec3 rrVN = cross(dFdx(p), dFdy(p));", "vec3 rrVN = rrPassNormal;") + "\n" + [
+            .replace("vec3 rrVN = cross(dFdx(p), dFdy(p));", "vec3 rrVN = rrPassNormal;")
+            .replace("rrSunNormal = cross(dFdx(p), dFdy(p));", "rrSunNormal = rrPassNormal;") + "\n" + [
             ...HALF_LIGHT_WORLD.slice(0, 2),
             "uniform vec2 rrLightStep;",
             "uniform mat4 rrLightView;",

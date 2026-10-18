@@ -6251,6 +6251,8 @@ class MapEditor3D {
         if (this.projectController?.mediaSurfacePreviewManager?.previewActive?.()) return true;
         if (this.effectsAnimate()) return true;
         if (this.modelsAnimate()) return true;
+        // The sun's cascades laid again round a moved view, drawn over the next frames.
+        if (typeof Reactor3D !== 'undefined' && Reactor3D.Shadows?.sunPending?.()) return true;
         return typeof Reactor3D !== 'undefined' && !!Reactor3D.LightVolume?.baking?.();
     }
 

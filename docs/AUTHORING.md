@@ -833,6 +833,17 @@ that should keep its authored light whatever the hour says
 Lamps, fires and Glow materials keep their own light, so they stand out
 at night. A map with no sun and no sky (indoors) is unchanged.
 
+A sun is directional. Where it stands and its radius say how far its light
+reaches; its `yaw` and `pitch` say where the light comes from, aimed as a
+spotlight is (yaw 0 shines south, pitch -40 shines down at 40 degrees). A
+sun left level (pitch 0, as the Sun preset makes it) stands 50 degrees up,
+and one also left at yaw 0 shines mostly east, so shadows fall beside what
+casts them in a view facing north or south. A sun that follows the time of
+day sinks to 18 degrees at dusk; the moon stands as high as the sun. The
+brightest sun casts through its own shadow map round the player (the view
+in the editor); a point in its shadow also loses part of the ambient, so
+shade reads clearly by day and never goes black.
+
 ## What is not here yet
 
 Furniture inside rooms, hip roofs, and a per-transfer floor (a transfer always lands on the ground

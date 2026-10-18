@@ -8935,6 +8935,9 @@ Reactor3D.MapScene.prototype.syncVolumeLights = function(declared, focus) {
 
         let ax = 0, ay = -1, az = 0, cosHalf = -1;
         let angle = 0;
+        // A sun's aim is the way toward it (Reactor3D.sunDirection): the key light and its shadows follow it.
+        const sunDir = sun ? (light.sunDir || Reactor3D.sunDirection(-(light.yaw || 0), light.pitch, null, true)) : null;
+        if (sunDir) { ax = sunDir[0]; ay = sunDir[1]; az = sunDir[2]; }
         if (spot) {
             const yaw = ((light.yaw || 0) * Math.PI) / 180;
             const pitch = ((light.pitch || 0) * Math.PI) / 180;
@@ -9004,7 +9007,7 @@ Reactor3D.MapScene.prototype.syncVolumeLights = function(declared, focus) {
                 // What `Shadows._incident` needs to say how much of this
                 // light lands on the player: where it really is, its shape
                 // and aim, and how bright it is.
-                lightY: y, spot, beam, ax, ay, az, cosHalf, width,
+                lightY: y, spot, beam, sun, dir: sunDir, ax, ay, az, cosHalf, width,
                 priorityRadius: sun ? castReach : light.priorityRadius === undefined ? radius : light.priorityRadius,
                 strength: (light.priorityIntensity === undefined ? (light.intensity === undefined ? 1 : light.intensity) : light.priorityIntensity) * (r + g + b) / 3,
                 carrier: light.carrier || null
