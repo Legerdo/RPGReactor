@@ -265,7 +265,7 @@
         for (const l of layers) if (l.type === 'cap') thick = Math.max(thick, l.thickness / H.scale);
         const fields = layers.map(l => I.scalpField(H, hair, l.zone || null));
         const f = new Float32Array(pack.vertexCount * 3);
-        for (const v of H.headVerts) { let best = -Infinity; for (const fn of fields) best = Math.max(best, fn(v)); f[v * 3] = smooth(-4, 8, best); }
+        for (const v of H.headVerts) { let best = -Infinity; for (const fn of fields) best = Math.max(best, fn(v)); f[v * 3] = smooth(-3.5, 3, best); }
         const eased = Body.relax(pack, f, 2), field = new Float32Array(pack.vertexCount);
         for (let v = 0; v < pack.vertexCount; v++) field[v] = Math.min(1, eased[v * 3]);
         const zone = { field, amount: thick > 0 ? Math.min(1, 0.3 + thick / 0.008) : 1 };
@@ -646,7 +646,9 @@
             // its edge breaks into fine hairs along their lie, not a band of shade.
             let cover = p.scalpD;
             if (cover > 0 && cover < 1) cover *= Math.min(1, 0.2 + 1.6 * cover * (0.35 + 0.65 * noise3(x * 1100, y * 140, z * 1100)));
-            if (cover > 0) rgb = mix(rgb, s.scalp.rgb, cover * 0.95 * s.scalp.amount);
+            // In fine streaks along the hair's lie, lighter and darker, so the painted roots read as hair, not a cap.
+            const streak = noise3(x * 700, y * 90, z * 700) * 0.65 + noise3(x * 1500, y * 200, z * 1500) * 0.35;
+            if (cover > 0) rgb = mix(rgb, s.scalp.rgb.map(c => c * (0.78 + 0.4 * streak)), cover * (0.82 + 0.15 * streak) * s.scalp.amount);
         } else if (s.scalp && p.fam === 0 && p.s > 4.6) {
             const front = Math.cos(p.ang), side = Math.abs(Math.sin(p.ang));
             // The hairline: high on the forehead, down over the temples, low at the nape; a little uneven.

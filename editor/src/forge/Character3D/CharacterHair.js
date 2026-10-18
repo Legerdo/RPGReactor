@@ -894,11 +894,26 @@
         const rootC = shadeRgb(linear(hair.color), 0.88 * HAIR_LIFT);
         const tipC = shadeRgb(hair.tipColor ? linear(hair.tipColor) : shadeRgb(linear(hair.color), 1.12), HAIR_LIFT);
         const hi = mixRgb(linear(hair.color), [0.9, 0.82, 0.62], 0.5);
-        return (t, variance, highlight) => {
+        const ramp = (t, variance, highlight, lock) => {
             let c = mixRgb(rootC, tipC, smooth(0, 1, t));
             if (highlight) c = mixRgb(c, hi, 0.55 * t);
+            if (lock) c = mixRgb(c, lock[0], lock[1]);
             return shadeRgb(c, variance);
         };
+        // Grey and white hair is never one color: each lock is whiter, greyer or still dark, as hair greys
+        // strand by strand. `ramp.lock(rand)` picks a lock's own shade for that (null for other hair).
+        const base = linear(hair.color), mx = Math.max(...base), mn = Math.min(...base);
+        const greying = mx > 0.12 && (mx - mn) / mx < 0.2;
+        ramp.lock = rand => {
+            if (!greying) return null;
+            const r = rand();
+            if (r < 0.3) return [[0.86, 0.86, 0.84], 0.55];
+            if (r < 0.42 && mx < 0.7) return [[0.07, 0.055, 0.045], 0.3];
+            if (r < 0.7) return [shadeRgb(base, 0.7), 0.5];
+            return null;
+        };
+        ramp.greying = greying;
+        return ramp;
     }
 
     function buildCap(H, hair, m, layer, ramp) {
@@ -944,13 +959,13 @@
             const curlAmt = (layer.curl ? layer.curl.amount : 0) + hair.curl * 0.01 * H.scale;
             if (curlAmt > 0) pts = curlStrand(H, pts, curlAmt, (layer.curl ? layer.curl.period : 0.04 * H.scale) * (0.85 + 0.3 * rand()), false, rand() * 6.28);
             const variance = 0.85 + 0.3 * rand();
-            const highlight = rand() < hair.highlights * 0.5;
+            const highlight = rand() < hair.highlights * 0.5, lock = ramp.lock(rand);
             // Near the hairline the locks are narrower and drawn from past the picture's full root, so the
             // edge breaks up into hairs instead of blocks.
             const edge = smooth(1.5, 9, r.f);
             // At the hairline a lock grows from a point, so the locks' roots there are a scatter, not stair steps.
             const rootW = 0.4 + 0.6 * edge;
-            addClump(m, pts, { H, single: layer.single, taper: t => (rootW + (1 - rootW) * smooth(0, 0.2, t)) * (1 - Math.pow(t, 1.6) * 0.7), width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight) });
+            addClump(m, pts, { H, single: layer.single, taper: t => (rootW + (1 - rootW) * smooth(0, 0.2, t)) * (1 - Math.pow(t, 1.6) * 0.7), width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight, lock) });
             // Flyaways: here and there at the hairline, and now and then over the head, a few stray hairs
             // lift off the lock and wander, so the edge of the hair is never a clean line.
             if (rand() < (edge < 0.7 ? 0.22 : 0.05) && pts.length > 2) {
@@ -958,7 +973,7 @@
                 const stray = grow(H, r.p, r.n, norm(add(dir, mul(norm([rand() - 0.5, rand() * 0.6, rand() - 0.5]), 0.9))), {
                     steps: 4, length: flyLength, layer: layer.layer * 1.6, lift: 0.45, gravity: 0.1, stiff: 0.5, hug: 0.2, release: H.earBottom, fringe: true, front: false
                 });
-                addCard(m, stray, { width: 0.0035 * H.scale, single: true, center: H.center, vFrom: 0.45, color: t => ramp(0.4 + 0.6 * t, variance * 1.05, highlight) });
+                addCard(m, stray, { width: 0.0035 * H.scale, single: true, center: H.center, vFrom: 0.45, color: t => ramp(0.4 + 0.6 * t, variance * 1.05, highlight, lock) });
             }
         }
     }
@@ -984,14 +999,17 @@
                 stopY: layer.stopY ? layer.stopY(c) - rand() * 0.012 : null, front: false,
                 bias: ['longBeard', 'wizardBeard', 'braidedBeard'].includes(hair.facial.style) && Math.abs(c.az) > 35 ? mul(AXIS.back, 1.1) : Math.abs(c.az) > 60 ? mul(AXIS.back, 0.6) : null
             });
-            guides.push(pts.length === layer.steps + 1 ? pts : null);
+            // Under wavy hair the curtain waves too, its phase running smoothly round the head, so the back is
+            // not one flat sheet behind the locks.
+            const waved = layer.waves && pts.length === layer.steps + 1 ? curlStrand(H, pts, layer.waves * H.scale * hair.length * 0.8, (layer.wavePeriod || 0.08) * H.scale, false, k * 0.45) : pts;
+            guides.push(pts.length === layer.steps + 1 ? waved : null);
         }
         const gap = 0.045 * H.scale;
-        const col = t => shadeRgb(ramp(t, 0.8, false), 0.92);
+        const col = (t, lock) => shadeRgb(ramp(t, 0.8, false, lock), 0.92);
         for (let k = 0; k < ring; k++) {
             const a = guides[k], b = guides[(k + 1) % ring];
             if (!a || !b) continue;
-            const base = m.pos.length / 3;
+            const base = m.pos.length / 3, lock = ramp.lock(rand);
             let rows = 0;
             for (let i = 0; i < a.length; i++) {
                 if (len(sub(a[i], b[i])) > gap) break;
@@ -1001,8 +1019,8 @@
                 // On the strand picture (the middle of a lane, clear of its thinned sides), so the sheet's
                 // ends and edges break up into hair like the locks over it.
                 const u0 = (k % 4) * 0.25 + 0.04;
-                pushVert(m, a[i], out, col(t), [u0, t * 0.98 + 0.01]);
-                pushVert(m, b[i], out, col(t), [u0 + 0.17, t * 0.98 + 0.01]);
+                pushVert(m, a[i], out, col(t, lock), [u0, t * 0.98 + 0.01]);
+                pushVert(m, b[i], out, col(t, lock), [u0 + 0.17, t * 0.98 + 0.01]);
                 rows++;
             }
             for (let i = 0; i + 1 < rows; i++) {
@@ -1077,8 +1095,8 @@
                 if (layer.stopY) { const sy = layer.stopY(c); if (p[1] < sy && r.p[1] > sy) p = [p[0], sy, p[2]]; }
                 pts.push(p);
             }
-            const variance = 0.8 + 0.4 * rand();
-            addCard(m, pts, { width: layer.width * (0.7 + 0.6 * rand()), single: true, center: H.center, vFrom: 0.25 + 0.2 * (1 - edge), taper: t => 1 - 0.5 * t, color: t => ramp(0.35 + 0.6 * t, variance, false) });
+            const variance = 0.8 + 0.4 * rand(), lock = ramp.lock(rand);
+            addCard(m, pts, { width: layer.width * (0.7 + 0.6 * rand()), single: true, center: H.center, vFrom: 0.25 + 0.2 * (1 - edge), taper: t => 1 - 0.5 * t, color: t => ramp(0.35 + 0.6 * t, variance, false, lock) });
         }
     }
 
@@ -1122,7 +1140,9 @@
         }
         for (let t = 0; t < surf.index.length; t += 3) m.idx.push(base + surf.index[t], base + surf.index[t + 1], base + surf.index[t + 2]);
         // A fuzz of short coiled strands standing out of the mass all over, so its outline is soft.
-        const roots = scatter(surf, 1400, rand);
+        // Light hair shows each fuzz card as a pale fleck: the lighter the hair, the fewer stand out.
+        const lightness = Math.max(...linear(hair.color));
+        const roots = scatter(surf, Math.round(1100 * H.budget * (1 - 0.75 * smooth(0.15, 0.6, lightness))), rand);
         for (const r of roots) {
             const s = shellAt(r.p, r.n, r.f);
             if (s.edge < 0.25) continue;
@@ -1133,7 +1153,9 @@
                 const t = i / 4;
                 pts.push(add(add(s.q, mul(out, L * t - 0.002 * H.scale)), mul(side, Math.sin(ph + t * 5) * 0.0025 * H.scale * t)));
             }
-            addCard(m, pts, { width: (0.007 + 0.005 * rand()) * H.scale, single: true, center: center, vFrom: 0.3, taper: t => 1 - 0.5 * t, color: () => ramp(0.6, 0.66 + 0.34 * rand(), false) });
+            // Fine: on light hair a broad fuzz card shows as a pale shard.
+            const lock = ramp.lock(rand), tone = 0.66 + 0.34 * rand();
+            addCard(m, pts, { width: (0.003 + 0.002 * rand()) * H.scale, single: true, center: center, vFrom: 0.55, taper: t => 1 - 0.6 * t, color: t => ramp(0.5, tone * 0.9, false, lock) });
         }
     }
 
@@ -1626,8 +1648,11 @@
             const band = (rand() - 0.5) * 0.38 * thickness * (1 - 0.6 * u);
             let x = mix(-1.15, 1.75, u), y = lineAt(u) + band;
             const dir = norm([1, mix(1.4, -0.15, Math.min(1, u * 1.4)), 0]);
-            const lenH = (0.32 + 0.3 * rand()) * (u < 0.15 ? 0.7 : 1), bend = (rand() - 0.3) * 0.5;
-            const a0 = 0.55 + 0.4 * rand(), t0 = 0.55 + 0.35 * rand();
+            // The tail thins to a few fine, short hairs; the head near the nose is soft.
+            const tail = smooth(0.7, 1, u);
+            if (rand() < tail * 0.55) continue;
+            const lenH = (0.32 + 0.3 * rand()) * (u < 0.15 ? 0.7 : 1) * (1 - 0.5 * tail), bend = (rand() - 0.3) * 0.5;
+            const a0 = (0.55 + 0.4 * rand()) * (0.55 + 0.45 * smooth(0, 0.18, u)) * (1 - 0.4 * tail), t0 = 0.55 + 0.35 * rand();
             const steps = Math.ceil(lenH / BROW_BOX[1] * W * 1.5);
             for (let i = 0; i <= steps; i++) {
                 const t = i / steps, ang = bend * t;
@@ -1636,6 +1661,8 @@
                 x += dx * lenH / steps; y += dy * lenH / steps;
             }
         }
+        // Nothing reaches the picture's edges, so the patch's own outline never shows.
+        for (let y = 0; y < Ht; y++) for (let x = 0; x < W; x++) alpha[y * W + x] *= smooth(0, 0.06, x / W) * smooth(0, 0.12, 1 - x / W) * smooth(0, 0.1, y / Ht) * smooth(0, 0.1, 1 - y / Ht);
         for (let o = 0; o < W * Ht; o++) {
             const k = tone[o];
             data[o * 4] = Math.round(255 * Math.pow(Math.min(1, rgb[0] * k), 1 / 2.2));
@@ -1696,43 +1723,52 @@
             const sp = span[Math.sign(pts[i][0]) + ':' + q.up];
             // The upper lid takes the picture's left half (long, dense lashes), the lower its right half (short, sparse).
             const along = (q.a - sp.a[0]) / Math.max(1e-5, sp.a[1] - sp.a[0]);
-            pushVert(m, pts[i], [0, 0, 1], col, [q.up ? along * 0.5 : 0.5 + along * 0.5, (q.r - sp.r[0]) / Math.max(1e-5, sp.r[1] - sp.r[0])]);
+            // A man's lashes are shorter: the strands reach their tips sooner along the card.
+            pushVert(m, pts[i], [0, 0, 1], col, [q.up ? along * 0.5 : 0.5 + along * 0.5, Math.min(1, (q.r - sp.r[0]) / Math.max(1e-5, sp.r[1] - sp.r[0]) * (1 + 0.45 * (H.gender || 0)))]);
         });
         for (let t = 0; t < h.index.length; t++) m.idx.push(base + h.index[t]);
     }
 
     /**
      * Lash strands, root (v = 0) to tip: the picture's left half the upper
-     * lid's (a dark lash line at the root, many lashes thinning to their
-     * tips, thicker in the middle of the lid), its right half the lower
-     * lid's (fewer, finer and shorter).
+     * lid's, its right half the lower lid's. Each lash is a fine hair curving
+     * out as it grows, tapering to its tip, darkest at its root; they thin
+     * out toward both corners. The lower lid's are few, short and faint.
      */
-    function lashTexture(size = 256) {
-        size = Math.max(256, size);
-        const data = new Uint8Array(size * size * 4);
-        const strands = (u0, count, len, width, k0) => {
-            const out = [];
+    function lashTexture(size = 512) {
+        size = Math.max(512, size);
+        const data = new Uint8Array(size * size * 4), alpha = new Float32Array(size * size);
+        const rnd = rng(31);
+        const draw = (u0, count, len, width, opacity) => {
             for (let k = 0; k < count; k++) {
-                const h = Math.sin((k + k0) * 12.9898) * 43758.5453, r = h - Math.floor(h);
-                out.push({ c: u0 + (k + 0.5 + (r - 0.5) * 0.6) / count * 0.5, len: len * (0.75 + 0.4 * r), w: width * (0.8 + 0.4 * r), lean: (r - 0.5) * 0.02 });
+                const along = (k + rnd()) / count, mid = Math.sin(along * Math.PI);
+                // Sparse at the corners: a lash there is often missing, and shorter.
+                if (rnd() > 0.25 + 0.75 * mid) continue;
+                const c0 = u0 + along * 0.5, L = len * (0.55 + 0.45 * mid) * (0.75 + 0.4 * rnd()), curl = (rnd() - 0.5) * 0.006 + (along - 0.5) * 0.012;
+                const w0 = width * (0.8 + 0.4 * rnd()) * size, a0 = opacity * (0.75 + 0.25 * rnd());
+                for (let y = 0; y < size; y++) {
+                    const v = (y + 0.5) / size;
+                    if (v > L) break;
+                    const t = v / L, cu = (c0 + curl * t * t) * size, w = Math.max(0.5, w0 * (1 - 0.85 * t));
+                    for (let x = Math.floor(cu - w - 1); x <= Math.ceil(cu + w + 1); x++) {
+                        if (x < Math.floor(u0 * size) || x >= Math.ceil((u0 + 0.5) * size)) continue;
+                        const d = Math.abs(x + 0.5 - cu) / w;
+                        if (d >= 1) continue;
+                        const o = y * size + x, al = (1 - d * d) * a0 * (1 - 0.55 * t) * Math.min(1, w0 / 0.9);
+                        alpha[o] = 1 - (1 - alpha[o]) * (1 - al);
+                    }
+                }
             }
-            return out;
         };
-        const upper = strands(0, 70, 1, 0.0045, 1), lower = strands(0.5, 22, 0.45, 0.0025, 7);
-        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-            const u = x / size, v = y / size, o = (y * size + x) * 4;
-            const top = u < 0.5, along = top ? u * 2 : (u - 0.5) * 2;
-            // Fuller in the middle of the lid, thinning toward both corners.
-            const mid = 0.45 + 0.55 * Math.sin(Math.min(1, Math.max(0, along)) * Math.PI);
-            let a = top ? (1 - Math.min(1, v / 0.12)) * 0.9 * mid : (1 - Math.min(1, v / 0.05)) * 0.25 * mid;
-            for (const s of top ? upper : lower) {
-                if (v > s.len * mid) continue;
-                const t = v / (s.len * mid), c = s.c + s.lean * t * t;
-                const w = s.w * (1 - 0.85 * t) * (top ? 1 : 0.8);
-                const d = Math.abs(u - c), half = Math.max(w * 1.5, 1.3 / size);
-                if (d < half) a = Math.max(a, (1 - d / half) * (1 - 0.25 * t) * Math.min(1, w * 1.5 / half + 0.35));
-            }
-            data[o] = 16; data[o + 1] = 12; data[o + 2] = 10; data[o + 3] = Math.round(Math.max(0, Math.min(1, a)) * 255);
+        draw(0, 80, 0.95, 0.0028, 1);
+        draw(0.5, 16, 0.4, 0.0018, 0.5);
+        for (let o = 0; o < size * size; o++) {
+            const v = Math.floor(o / size) / size, u = (o % size) / size;
+            // The upper lid's lash line: the roots close together, a soft dark line along the lid.
+            if (u < 0.5) alpha[o] = 1 - (1 - alpha[o]) * (1 - 0.55 * Math.sin(u * 2 * Math.PI) ** 0.5 * (1 - smooth(0.0, 0.07, v)));
+            // Darkest at the root, a little browner toward the tips.
+            data[o * 4] = Math.round(14 + 22 * v); data[o * 4 + 1] = Math.round(11 + 14 * v); data[o * 4 + 2] = Math.round(9 + 10 * v);
+            data[o * 4 + 3] = Math.round(255 * Math.min(1, alpha[o]));
         }
         return { width: size, height: size, data, name: 'lashes.png' };
     }
@@ -1798,6 +1834,8 @@
         const H = measure(pack, built);
         // `options.budget` (0.25..1): the share of locks grown, for weak hardware.
         H.budget = clamp(o.budget ?? 1, 0.25, 1);
+        // `options.gender` (0 female .. 1 male): a man's lashes are shorter.
+        H.gender = clamp(o.gender ?? 0, 0, 1);
         const seed = (o.seed >>> 0) || hash(hair.style);
         const parts = [];
         const ramp = colorRamp(hair);
@@ -1871,8 +1909,8 @@
             part: pick(PARTS), fringe: (STYLE_FRINGE[style] || [0])[0] * (0.6 + 0.8 * rand()), hairline: male && rand() < 0.25 ? rand() * 0.8 : 0,
             highlights: rand() < 0.2 ? rand() : 0,
             facial: { style: male && rand() < 0.45 ? pick(FACIAL.slice(1)).id : 'none', length: 0.7 + rand() * 0.6, volume: rand(), color: dyed ? pick(natural) : '' },
-            // Dyed hair leaves the brows and beard their own natural color.
-            brows: { style: pick(['natural', 'natural', 'thin', 'thick', 'arched', 'straight', 'bushy']), thickness: male ? 0.5 + rand() * 0.5 : rand() * 0.6, color: dyed ? pick(natural) : '' }
+            // Dyed hair leaves the brows and beard their own natural color; brows grey later than the hair.
+            brows: { style: pick(['natural', 'natural', 'thin', 'thick', 'arched', 'straight', 'bushy']), thickness: male ? 0.5 + rand() * 0.5 : rand() * 0.6, color: dyed ? pick(natural) : grey ? mixHex(pick(natural), grey, 0.45) : '' }
         });
     }
 
