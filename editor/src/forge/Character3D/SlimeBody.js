@@ -818,7 +818,7 @@
         const k = hexRgb(r.core), g = r.glow;
         for (let x = 0; x < W; x++) {
             const t = x < 176 ? clamp((x - 0.5) / 159, 0, 1) : 1;
-            const e = x < 176 ? 0.22 * g * t * t : 0.6 * g * g + 0.12 * g;
+            const e = x < 176 ? 0.35 * g * Math.pow(t, 1.5) : Math.min(1, 1.25 * g);
             for (let y = 0; y < H; y++) {
                 const o = (y * W + x) * 4;
                 for (let c = 0; c < 3; c++) data[o + c] = Math.round(clamp(k[c] * e, 0, 1) * 255);
@@ -886,7 +886,7 @@
         const t0 = Date.now();
         const lay = layout(r), F = fieldOf(lay), S = lay.S, save = quality === 'save';
         // A draft (while a slider is dragged) is meshed coarse and quick.
-        const cell = save ? 0.0105 * S : quality === 'draft' ? 0.036 * S : lay.cell;
+        const cell = save ? 0.0105 * S : quality === 'draft' ? 0.042 * S : lay.cell;
         // Bounds: every piece and its blend.
         const lo = [Infinity, 0, Infinity], hi = [-Infinity, -Infinity, -Infinity];
         const grow = (c, rx, ry, rz) => { lo[0] = Math.min(lo[0], c[0] - rx); lo[2] = Math.min(lo[2], c[2] - rz); hi[0] = Math.max(hi[0], c[0] + rx); hi[1] = Math.max(hi[1], c[1] + ry); hi[2] = Math.max(hi[2], c[2] + rz); };
@@ -917,7 +917,7 @@
         const thick = (P, N, v) => {
             const p = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]], n = [-N[v * 3], -N[v * 3 + 1], -N[v * 3 + 2]];
             let t = cell * 0.8;
-            for (let it = 0; it < 18 && t < 1.2 * S; it++) {
+            for (let it = 0; it < (quality === 'draft' ? 8 : 18) && t < 1.2 * S; it++) {
                 const d = F.all(add(p, mul(n, t)));
                 if (d > 0) break;
                 t += Math.max(-d, cell);
@@ -1025,7 +1025,8 @@
         for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) height = Math.max(height, p.positions[i]);
         const result = {
             recipe: r, parts, bones: bones.map(b => ({ name: b.name, parent: b.parent, head: b.head.slice(), tail: b.tail.slice() })),
-            height, bodyHeight: height, textures: { 'goo.png': rampTexture(r), 'goo-glow.png': glowTexture(r) }, clips: clipsFor(bones, r), plan: 'slime', shaded: true,
+            // The view's Face frame and the pictures aim at the eyes, as on a person.
+            height, bodyHeight: Math.min(height, eyes[0].center[1] / 0.93), textures: { 'goo.png': rampTexture(r), 'goo-glow.png': glowTexture(r) }, clips: clipsFor(bones, r), plan: 'slime', shaded: true,
             sidecar: sidecar(r), buildMs: shape.ms
         };
         return result;
