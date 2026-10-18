@@ -65,7 +65,7 @@ The model shows in Database › 3D Models like an imported one. A humanoid's Rig
 | Side-view battler | `img/sv_actors/Name.png` | 9 × 6 cells, default 64 px |
 | Face portraits | `img/faces/Name.png` | 4 × 2 portraits, the project's face size |
 
-**Frame size** sets the cell. **Camera angle** is how far the camera looks down (30° by default; 15° for a battler). **Outline** draws a one-pixel dark edge. Portraits are head and shoulders, front or three-quarter, eight expressions from a preset (Everyday, Battle, Story) or picked one by one, the eyes on one line in every cell, on a transparent or solid background. Every frame uses one scale, centered, its feet on the same baseline.
+**Frame size** sets the cell. **Style** is Realistic or RPG chibi (a big head, short limbs, big hands and feet; only the sheet changes, not the character). **Camera angle** is how far the camera looks down (30° by default; 15° for a battler). **Look** is Smooth or Pixel art (hard edges, a 32-color palette). **Outline** draws a one-pixel dark edge. Portraits are head and shoulders, front or three-quarter, eight expressions from a preset (Everyday, Battle, Story) or picked one by one, the eyes on one line in every cell, on a transparent or solid background. Every frame uses one scale, the largest at which all of them fit, centered, its feet on the same baseline.
 
 The [8D] sheet, by blocks of 3 frames × 4 rows (rows down, left, right, up; diagonal rows down-left, down-right, up-left, up-right):
 

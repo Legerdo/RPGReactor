@@ -160,7 +160,7 @@
         return {
             w, h,
             side: Math.max(1, Math.round(w * 0.04)) + pad,
-            top: Math.max(1, Math.round(h * 0.04)) + pad,
+            top: Math.max(1, Math.round(h * 0.02)) + pad,
             baseline: h - Math.max(1, Math.round(h * 0.03)) - pad
         };
     }
@@ -249,7 +249,7 @@
                 const nx = x + dx, ny = y + dy;
                 if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
                 const n = (ny * w + nx) * 4;
-                if (src[n + 3] >= 160 && src[n + 3] > ba) { ba = src[n + 3]; best = n; }
+                if (src[n + 3] >= 96 && src[n + 3] > ba) { ba = src[n + 3]; best = n; }
             }
             if (best < 0) continue;
             px[o] = src[best] * 0.28; px[o + 1] = src[best + 1] * 0.25; px[o + 2] = src[best + 2] * 0.28; px[o + 3] = 255;
@@ -281,27 +281,29 @@
         const r = JSON.parse(JSON.stringify(recipe || {}));
         const sh = r.shapes = r.shapes || {};
         const add = (key, by, lo, hi) => { sh[key] = Math.max(lo, Math.min(hi, (Number(sh[key]) || 0) + by)); };
-        r.headSize = Math.min(2.2, Math.max(1, Number(r.headSize) || 1) * 1.7);
-        add('legLength', -1.8, -2.5, 2.5);
-        add('armLength', -1.3, -2.5, 2.5);
+        r.headSize = Math.min(2.2, Math.max(1, Number(r.headSize) || 1) * 2);
+        add('legLength', -2.2, -2.5, 2.5);
+        add('armLength', -1.6, -2.5, 2.5);
         add('torsoLength', -0.8, -2.5, 2.5);
         add('neckLength', -1.4, -2.5, 2.5);
         add('handSize', 0.9, -3, 3);
+        add('shoulders', 0.8, -2.5, 2.5);
         add('footSize', 1, -3, 3);
         return r;
     }
 
     /**
-     * Stock-art values: the darks lifted (a dark outfit keeps its folds), a
-     * little more color and contrast. Straight-alpha RGBA, in place.
+     * Stock-art values (the darkest tenth, the mean and the color of MZ's own
+     * sheets): the darks opened up so a dark outfit keeps its folds, then
+     * more contrast and color. Straight-alpha RGBA, in place.
      */
     function grade(px) {
         const lut = new Uint8ClampedArray(256);
-        for (let v = 0; v < 256; v++) { const x = Math.pow(v / 255, 0.8); lut[v] = Math.round(255 * Math.min(1, Math.max(0, (x - 0.5) * 1.08 + 0.5))); }
+        for (let v = 0; v < 256; v++) { const x = Math.pow(v / 255, 0.82); lut[v] = Math.round(255 * Math.min(1, Math.max(0, (x - 0.36) * 1.38 + 0.36))); }
         for (let i = 0; i < px.length; i += 4) {
             if (!px[i + 3]) continue;
             const r = lut[px[i]], g = lut[px[i + 1]], b = lut[px[i + 2]], y = 0.299 * r + 0.587 * g + 0.114 * b;
-            px[i] = y + (r - y) * 1.15; px[i + 1] = y + (g - y) * 1.15; px[i + 2] = y + (b - y) * 1.15;
+            px[i] = y + (r - y) * 1.22; px[i + 1] = y + (g - y) * 1.22; px[i + 2] = y + (b - y) * 1.22;
         }
         return px;
     }
@@ -403,7 +405,8 @@
             const found = { stepA: 0, pass: 0.25, stepB: 0.5, key: 0.5, overhead: -1 };
             const yaw = view.group.rotation.y;
             view.group.rotation.y = 0;
-            const top = hands.length === 2 ? crownOf() : Infinity;
+            // Hands held overhead stop at the brow: the frame keeps the head's height.
+            const top = hands.length === 2 ? crownOf() - 0.14 * (view.bodyHeight || 1.7) : Infinity;
             let hi = -Infinity, lo = Infinity, mid = Infinity, far = -1, start = null, held = -Infinity;
             for (let i = 0; i < STEP_SAMPLES; i++) {
                 const t = i / STEP_SAMPLES;
@@ -529,11 +532,21 @@
         };
     }
 
+    /** RPG proportions past the sliders' reach: the head, hands and feet grown on their joints. */
+    const CHIBI_BONES = { Head: 1.75, LeftHand: 1.35, RightHand: 1.35, LeftFoot: 1.2, RightFoot: 1.2 };
+    function enlarge(view) {
+        const grown = view.bones.filter(b => CHIBI_BONES[b.name]);
+        for (const b of grown) b.scale.setScalar(CHIBI_BONES[b.name]);
+        view.group.updateMatrixWorld(true);
+        return () => { for (const b of grown) b.scale.setScalar(1); view.group.updateMatrixWorld(true); };
+    }
+
     async function render(builder, settings, progress) {
         const THREE = root.THREE, view = builder._view;
         if (!THREE || !view || !view.meshes.length || !view.mixer) throw new Error('The character is not built yet.');
         const l = layout(settings.layout), size = Math.max(16, Math.min(512, Math.round(settings.frame || l.frame)));
         const restore = settings.style === 'chibi' && settings.layout !== 'face' ? showChibi(builder) : null;
+        const shrink = restore ? enlarge(view) : null;
         const elevation = settings.layout === 'face' ? l.elevation : Math.max(0, Math.min(75, Number.isFinite(settings.elevation) ? settings.elevation : l.elevation));
         const cells = plan(settings.layout, { expressions: settings.expressions, view: settings.view });
         const poses = view.plan === 'quadruped' ? (root.RRCreatureBody && root.RRCreatureBody.POSES) : (root.RRCharacterPoses && root.RRCharacterPoses.POSES);
@@ -631,6 +644,7 @@
             view.mixer.stopAllAction();
             view.action = restore ? null : saved.action;
             canvas.style.visibility = saved.visibility;
+            if (shrink) shrink();
             if (restore) restore();
             builder._syncPose();
         }

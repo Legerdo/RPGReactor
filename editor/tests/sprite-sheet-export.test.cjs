@@ -210,11 +210,13 @@ test('RPG chibi draws a copy with a big head and short limbs; the recipe is left
 });
 
 test('the grade lifts darks and color; pixel art is hard-edged and on a small palette', () => {
-    const px = new Uint8ClampedArray([30, 30, 30, 255, 200, 100, 50, 255, 9, 9, 9, 0]);
+    const px = new Uint8ClampedArray([40, 40, 40, 255, 60, 60, 60, 255, 200, 100, 50, 255, 9, 9, 9, 0, 180, 180, 180, 255]);
     S.grade(px);
-    assert.ok(px[0] > 30 && px[0] < 80, 'a dark lifted, still dark');
-    assert.ok(px[4] - px[6] > 150, 'more color');
-    assert.deepEqual(Array.from(px.slice(8)), [9, 9, 9, 0], 'empty pixels untouched');
+    assert.ok(px[0] > 15, 'a dark outfit is not crushed to black');
+    assert.ok(px[4] - px[0] > 20, 'its folds keep their contrast');
+    assert.ok(px[8] - px[10] > 150, 'more color');
+    assert.deepEqual(Array.from(px.slice(12, 16)), [9, 9, 9, 0], 'empty pixels untouched');
+    assert.ok(px[16] > 180, 'lights brighter');
     const edge = new Uint8ClampedArray([0, 0, 0, 100, 0, 0, 0, 200]);
     assert.deepEqual(Array.from(S.threshold(edge)).filter((_, i) => i % 4 === 3), [0, 255]);
     const n = 64 * 64, many = new Uint8ClampedArray(n * 4);
