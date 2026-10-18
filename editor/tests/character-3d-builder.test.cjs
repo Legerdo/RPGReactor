@@ -110,6 +110,9 @@ test('ancestry names the world\'s peoples: each a blend, face offsets and its ow
         assert.ok(lum(rr.skin) <= lum(tones[0]) + 2 && lum(rr.skin) >= lum(tones[tones.length - 1]) - 2, rr.ancestry.people + ' tone ' + rr.skin);
     }
     assert.ok(seen.size >= 9, 'random peoples ' + [...seen]);
+    // Eye colors as they occur: blue and green are among Europeans, never drawn for Sub-Saharan Africans.
+    const blue = id => Array.from({ length: 40 }, (_, k) => Body.irisFor(id, k / 40)).filter(c => c === '#3a8ad8').length;
+    assert.ok(blue('european') > 0 && blue('subSaharan') === 0 && blue('eastAsian') === 0);
 });
 
 test('a big ear grows from the head: the cheek in front of it stays where it was', () => {

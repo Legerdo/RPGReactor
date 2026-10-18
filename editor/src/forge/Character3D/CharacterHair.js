@@ -736,7 +736,7 @@
         const a = Math.abs(az);
         // Round the ear the line climbs over its top and drops behind it to the nape at once, as hair grows:
         // no bare patch above and behind the ear.
-        const pts = [[0, 40], [25, 37], [42, 30], [58, 18], [70, 8], [78, -16], [86, -20], [93, 4], [102, 0], [114, -14], [130, -24], [150, -32], [180, -38]];
+        const pts = [[0, 40], [25, 37], [42, 30], [56, 20], [68, 8], [78, -12], [86, -20], [93, 4], [102, 0], [114, -14], [130, -24], [150, -32], [180, -38]];
         let el = pts[pts.length - 1][1];
         for (let i = 0; i + 1 < pts.length; i++) {
             const [a0, e0] = pts[i], [a1, e1] = pts[i + 1];
@@ -867,7 +867,7 @@
             // Curls fall as many fine, narrow locks waving in their own plane (a lock twisted round a helix reads
             // as tiles), over a soft pile of short coils at the scalp that gives the head its volume.
             case 'curly': return withFringe([cap(0.012 + 0.008 * V), { type: 'coils', count: 600, length: () => (0.02 + 0.012 * V) * L, width: 0.006 * S, coil: 0.004 * S, comb: (p, n, c) => combDown(n, c), stand: 0.6 },
-                strands({ count: 150, comb: partComb, length: () => 0.3 * L, width: 0.011 * S, hug: 0.5, lift: 0.35 + 0.3 * V, gravity: 0.55, steps: 30, waves: 0.009 + 0.004 * V, wavePeriod: 0.075, stopY: () => H.shoulderY - 0.05 * S * hair.length })]);
+                strands({ count: 250, single: true, comb: partComb, length: () => 0.3 * L, width: 0.0075 * S, hug: 0.5, lift: 0.35 + 0.3 * V, gravity: 0.55, steps: 22, waves: 0.009 + 0.004 * V, wavePeriod: 0.075, stopY: () => H.shoulderY - 0.05 * S * hair.length })]);
             case 'animeSpikes': return [cap(0.01), { type: 'spikes', count: 34, length: 0.13 * L, width: 0.05 * S, up: 0.3, anime: true }, { type: 'spikes', count: 9, length: 0.11 * L, width: 0.04 * S, up: -0.8, front: true, zone: c => 50 - Math.abs(c.az) }];
             case 'long': return withFringe([cap(0.007), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.5 * L, width: 0.028 * S, hug: 0.85, gravity: 0.65, steps: 12, drape: 'split' })]);
             case 'longWavy': return withFringe([cap(0.008), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.52 * L, width: 0.028 * S, drape: 'split', hug: 0.8, lift: 0.15 + 0.25 * V, gravity: 0.6, steps: 19, waves: 0.012 + 0.012 * V })]);
@@ -907,7 +907,7 @@
         // left, so the hairline breaks up into single hairs over the scalp painted under it, never a cut
         // edge; its color is the locks' own middle, so no darker scalp shows between them.
         addShell(m, surf, i => layer.thickness * smooth(0, soft, surf.val[i]), () => ramp(0.4, 0.97, false),
-            i => [0.125 + 0.11 * Math.sin((surf.pos[i][0] + surf.pos[i][2]) * 260), 0.02 + 0.75 * Math.pow(1 - smooth(0, soft * 0.6, surf.val[i]), 2)]);
+            i => [0.125 + 0.11 * Math.sin((surf.pos[i][0] + surf.pos[i][2]) * 260), 0.02 + 0.85 * Math.pow(1 - smooth(0, soft, surf.val[i]), 1.3)]);
         return surf;
     }
 
@@ -931,7 +931,7 @@
                 steps: layer.steps, length, layer: layer.layer * (0.6 + 0.8 * rand()), lift, gravity: layer.gravity, stiff: layer.stiff,
                 hug: layer.hug, release: H.earBottom, fringe, stopY: layer.stopY ? layer.stopY(c) - rand() * (layer.fringe ? 0.005 : 0.018) * H.scale : null,
                 front,
-                bias: front ? mul(AXIS.front, 0.25) : (Math.abs(c.az) > 60 ? mul(AXIS.back, 0.6) : null)
+                bias: front ? mul(AXIS.front, 0.25) : longBeard && Math.abs(c.az) > 35 ? mul(AXIS.back, 1.1) : (Math.abs(c.az) > 60 ? mul(AXIS.back, 0.6) : null)
             });
             if (layer.inCurl && pts.length > 3) {
                 // Ends turned under (a bob): the last points move toward the neck.
@@ -949,7 +949,7 @@
             const edge = smooth(1.5, 9, r.f);
             // At the hairline a lock grows from a point, so the locks' roots there are a scatter, not stair steps.
             const rootW = 0.4 + 0.6 * edge;
-            addClump(m, pts, { H, taper: t => (rootW + (1 - rootW) * smooth(0, 0.2, t)) * (1 - Math.pow(t, 1.6) * 0.7), width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight) });
+            addClump(m, pts, { H, single: layer.single, taper: t => (rootW + (1 - rootW) * smooth(0, 0.2, t)) * (1 - Math.pow(t, 1.6) * 0.7), width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight) });
             // Flyaways: here and there at the hairline, and now and then over the head, a few stray hairs
             // lift off the lock and wander, so the edge of the hair is never a clean line.
             if (rand() < (edge < 0.7 ? 0.22 : 0.05) && pts.length > 2) {
@@ -980,7 +980,8 @@
                 steps: layer.steps, length: layer.length(c, rand), layer: layer.layer * 0.8, lift: typeof layer.lift === 'function' ? layer.lift(c) : layer.lift,
                 gravity: layer.gravity, stiff: layer.stiff, hug: layer.hug, release: H.earBottom, fringe: false,
                 // A cut line is never ruled: each lock ends a little higher or lower.
-                stopY: layer.stopY ? layer.stopY(c) - rand() * 0.012 : null, front: false, bias: Math.abs(c.az) > 60 ? mul(AXIS.back, 0.6) : null
+                stopY: layer.stopY ? layer.stopY(c) - rand() * 0.012 : null, front: false,
+                bias: ['longBeard', 'wizardBeard', 'braidedBeard'].includes(hair.facial.style) && Math.abs(c.az) > 35 ? mul(AXIS.back, 1.1) : Math.abs(c.az) > 60 ? mul(AXIS.back, 0.6) : null
             });
             guides.push(pts.length === layer.steps + 1 ? pts : null);
         }
@@ -1062,6 +1063,8 @@
         for (const r of roots) {
             if (r.f < 1) continue;
             const c = headCoords(H, r.p), edge = smooth(1, 8, r.f);
+            // Sparser toward the hairline, so it thins into the skin instead of ending in a line.
+            if (rand() > 0.35 + 0.65 * smooth(1, 10, r.f)) continue;
             const dir = norm(add(mul(layer.comb(r.p, r.n, c, rand), 1 - layer.stand), mul(r.n, layer.stand)));
             const L = layer.length(c, rand) * (0.6 + 0.7 * rand()) * (0.5 + 0.5 * edge);
             const side = norm(cross(dir, r.n)), up = norm(cross(side, dir)), ph = rand() * 6.28, turns = 0.6 + 0.8 * rand();
@@ -1321,9 +1324,9 @@
             if (dot(nrm, norm(sub(p, H.center))) < 0.05 && p[1] > H.chin[1]) return -10;
             // Only the front of the head and neck, in front of the ears; at the sideburn's back the zone fades
             // over a few millimeters, unevenly, instead of ending in a straight line.
-            const backLimit = H.earBack + (H.earFront - H.earBack) * 0.5 + (Math.sin(p[1] * 900) * 0.5 + Math.sin(p[1] * 2300 + 1.3) * 0.5) * 0.002 * H.scale;
-            if (p[2] < backLimit - 0.004 * H.scale) return -10;
-            const behind = (p[2] - backLimit) / H.radii[2] * 60;
+            const backLimit = H.earBack + (H.earFront - H.earBack) * 0.55 + (Math.sin(p[1] * 700) * 0.6 + Math.sin(p[1] * 1900 + 1.3) * 0.4) * 0.004 * H.scale;
+            if (p[2] < backLimit - 0.006 * H.scale) return -10;
+            const behind = (p[2] - backLimit) / H.radii[2] * 45;
             // The cheek line runs from beside the nose out and up to the sideburn's foot by the ear's lobe;
             // only the sideburn itself, a strip just in front of the ear, climbs toward the ear's top.
             // Measured front to back, from the lips (0) to the ear's front (1): the cheekbone is as wide as
@@ -1391,8 +1394,11 @@
         const inward = v => Math.min(1, v / deep);
         // How deep inside the beard's outline a place is, the mouth not counted: at the lips the beard stays
         // dense right up to them (the cut round the mouth is its edge there, not a thinning outline).
+        // Round the mouth the beard is always dense: the lips there are not its outline.
+        const mouthY0 = (H.lipTop + H.lipBottom) / 2;
+        const byMouth = p => 1 - smooth(H.lipHalf * 1.25, H.lipHalf * 1.9, Math.hypot(p[0] - H.center[0], (p[1] - mouthY0) * 1.6));
         const closed = facialField(H, f.style, false), outlineAt = p => { const v = H.nearest(p); return v < 0 ? 0 : inward(Math.max(0, closed(v))); };
-        const outline = surf.pos.map(outlineAt);
+        const outline = surf.pos.map(p => Math.max(byMouth(p), outlineAt(p)));
         // The body is low (the hairs over it carry the volume), so its edge never stands as a step.
         // Stubble is in the skin's own picture alone (its shadow and follicles): no geometry stands over it.
         if (stubble) return;

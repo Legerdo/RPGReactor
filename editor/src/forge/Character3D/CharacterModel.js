@@ -590,8 +590,8 @@
         r.props = rand() < 0.45 ? [{ id: pick(extras).id }] : [];
         const skinTones = ['#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26', '#3f2618'];
         if (!o.species || o.species === 'human') r.skin = body.skin || pick(skinTones);
-        const irises = ['#6a4a2a', '#3a2414', '#3a8ad8', '#4a8a4a', '#8a8a5a', '#5a6a7a'];
-        r.eyes = Object.assign({}, r.eyes, { color: pick(irises) });
+        // Eye colors as they occur in the character's people.
+        r.eyes = Object.assign({}, r.eyes, { color: Body.irisFor(r.ancestry && r.ancestry.people, rand()) });
         r.seed = seed >>> 0;
         return normalize(r);
     }

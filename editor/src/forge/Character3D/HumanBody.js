@@ -84,6 +84,19 @@
     ];
     const PEOPLE_BY_ID = new Map(PEOPLES.map(p => [p.id, p]));
 
+    /** Eye colors as they occur among each people: most brown; blue, green and grey mostly among Europeans. */
+    const BROWNS = ['#3a2414', '#4a2e1a', '#5a3820', '#3a2414', '#2e1c10'];
+    const IRISES = {
+        european: ['#3a8ad8', '#5a8ab0', '#4a8a4a', '#6a7a5a', '#7a7468', '#5a3820', '#6a4a2a', '#8a6a3a'],
+        middleEastern: BROWNS.concat(['#6a4a2a', '#8a6a3a', '#5a6a4a']), centralAsian: BROWNS.concat(['#6a4a2a', '#5a6a4a', '#5a7a8a']),
+        southAsian: BROWNS.concat(['#6a4a2a']), latinAmerican: BROWNS.concat(['#6a4a2a', '#8a6a3a']), mixed: BROWNS.concat(['#6a4a2a', '#4a8a4a', '#5a8ab0'])
+    };
+    /** An eye color for a people, `t` 0..1 picking among its own. */
+    function irisFor(id, t) {
+        const list = IRISES[id] || BROWNS;
+        return list[Math.min(list.length - 1, Math.floor(Math.max(0, t) * list.length))];
+    }
+
     /** A people chosen on a recipe: its blend set, its middle skin tone (unless `keepSkin`), its id kept with the blend. */
     function withPeople(recipe, id, keepSkin) {
         const p = PEOPLE_BY_ID.get(id);
@@ -1464,7 +1477,7 @@
         return '#' + ((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0');
     }
 
-    const api = { PEOPLES, PEOPLE_BY_ID, withPeople, earMask, almondEye: { frame: almondFrame, half: almondHalf, at: almondAt }, VOLUME, maskOf, fatMask, volume, sexOf, anatomyFields, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
+    const api = { PEOPLES, PEOPLE_BY_ID, withPeople, irisFor, earMask, almondEye: { frame: almondFrame, half: almondHalf, at: almondAt }, VOLUME, maskOf, fatMask, volume, sexOf, anatomyFields, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
     root.RRHumanBody = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

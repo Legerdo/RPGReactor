@@ -99,15 +99,17 @@
     function innerLips(pack, lips, R, N) {
         const on = [...new Set(pack.body.source)], core = on.filter(v => lips[v] > 0.45);
         if (!core.length) return lips;
+        const U = regionOf(pack, ['shape/upperLip-incr']), upper = core.filter(v => U[v] > 0.3), lower = core.filter(v => !(U[v] > 0.3));
         let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
         for (const v of core) { x0 = Math.min(x0, R[v * 3]); x1 = Math.max(x1, R[v * 3]); y0 = Math.min(y0, R[v * 3 + 1]); y1 = Math.max(y1, R[v * 3 + 1]); }
         const out = Float32Array.from(lips), reach = 0.004;
         for (const v of on) {
             const x = R[v * 3], y = R[v * 3 + 1], z = R[v * 3 + 2];
             if (lips[v] > 0.6 || x < x0 - 0.008 || x > x1 + 0.008 || y < y0 - 0.002 || y > y1 + 0.002 || N[v * 3 + 2] > 0.75) continue;
-            let d = Infinity;
-            for (const u of core) d = Math.min(d, Math.hypot(R[u * 3] - x, R[u * 3 + 1] - y, R[u * 3 + 2] - z));
-            if (d < reach) out[v] = Math.max(out[v], 0.75 * (1 - d / reach) + 0.25);
+            // Only between the lips (near both of them), never round their outer edge onto the face.
+            const near = list => { let m = Infinity; for (const u of list) m = Math.min(m, Math.hypot(R[u * 3] - x, R[u * 3 + 1] - y, R[u * 3 + 2] - z)); return m; };
+            const d = Math.min(near(upper), near(lower));
+            if (d < reach && Math.max(near(upper), near(lower)) < 0.006) out[v] = Math.max(out[v], 0.75 * (1 - d / reach) + 0.25);
         }
         // How much of each vertex's value is the filled-in inner roll (in the upper lip's shade).
         out.inner = new Float32Array(out.length);
@@ -522,7 +524,8 @@
                 // fine darker grain over it, so the beard's edge reads as hair thinning, not a cut line.
                 // Stubble reads cooler than the hair itself: the hairs under the skin seen through it.
                 const under = s.facial.rgb.map((c, i) => Math.min(rgb[i], c * 1.25) * (1 - s.facial.stubble * 0.35) + rgb[i] * [0.62, 0.64, 0.7][i] * s.facial.stubble * 0.35), a = s.facial.amount;
-                rgb = mix(rgb, under, d * (0.7 + 0.05 * s.facial.stubble) * lips * a);
+                // Not much darker than skin: under a dark albedo the skin's own shine reads as a grey film.
+                rgb = mix(rgb, under, d * (0.45 + 0.3 * s.facial.stubble) * lips * a);
                 rgb = mix(rgb, s.facial.rgb, grain * (0.4 + 0.3 * s.facial.stubble) * Math.sqrt(d) * lips * a);
             } else if (s.beard) {
                 rgb = mix(rgb, rgb.map((c, i) => c * [0.74, 0.77, 0.84][i]), d * lips * s.beard * (0.3 + 0.25 * grain));
@@ -673,11 +676,10 @@
             // The lip's own color, rosier and deeper than the skin, blending into it over a soft vermilion
             // border (no outline); fine upright lines across the lips, fainter toward their edge.
             const lip = s.lips ? Outfit.linear(s.lips) : rgb.map((c, i) => c * [0.76, 0.5, 0.54][i]);
-            // Under a beard the lip's border is narrower: the hair covers the skin up to the vermilion.
-            const body = s.facial ? smooth(0.3, 0.7, p.lips) : smooth(0.12, 0.62, p.lips);
+            const body = smooth(0.12, 0.62, p.lips);
             const lines = smooth(0.5, 0.9, p.lips) * (0.5 + 0.5 * Math.sin(x * 2600 + noise3(x * 300, y * 900, z * 300) * 5)) * (0.5 + 0.5 * noise3(x * 500, y * 140, z * 500));
             // The inner roll where the lips meet lies in the other lip's shade.
-            rgb = mix(rgb, lip.map(c => c * (1 - 0.08 * lines) * (1 - 0.45 * Math.min(1, p.innerLip * 1.5))), body);
+            rgb = mix(rgb, lip.map(c => c * (1 - 0.08 * lines) * (1 - 0.6 * Math.min(1, p.innerLip * 2))), body);
         }
         // The line where the lips meet, in shade.
         if (p.seam > 0.05) rgb = mix(rgb, rgb.map((c, i) => c * [0.58, 0.46, 0.48][i]), Math.min(1, p.seam) * 0.6);
