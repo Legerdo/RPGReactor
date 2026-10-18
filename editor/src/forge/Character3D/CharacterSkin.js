@@ -419,7 +419,7 @@
         if (s.scalp && p.fam === 0 && p.s > 4.6) {
             const front = Math.cos(p.ang), side = Math.abs(Math.sin(p.ang));
             // The hairline: high on the forehead, down over the temples, low at the nape; a little uneven.
-            const line = front > 0 ? 5.64 - 0.3 * side * side + s.scalp.recede * 0.25 * (1 - side) : 5.34 - 0.3 * Math.min(1, -front * 1.4);
+            const line = front > 0 ? 5.64 - 0.42 * side * side + s.scalp.recede * 0.25 * (1 - side) : 5.22 - 0.3 * Math.min(1, -front * 1.4);
             const wobble = (noise3(x * 60, y * 60, z * 60) - 0.5) * 0.05;
             const cover = smooth(line - 0.03, line + 0.04, p.s + wobble) * (1 - smooth(0.25, 0.6, p.ears || 0));
             if (cover > 0) rgb = mix(rgb, s.scalp.rgb, cover * 0.95);

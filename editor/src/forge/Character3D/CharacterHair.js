@@ -230,6 +230,10 @@
         for (const v of targetVerts(pack, 'shape/earSize-incr', 0.25)) {
             if (Math.abs(S[v * 3] - center[0]) > radii[0] * 0.8 && S[v * 3 + 2] < center[2] + radii[2] * 0.45) ears[v] = 1;
         }
+        // The ear itself, for the scalp to leave bare: what the ear target moves most (the quarter-share set
+        // above spills onto the side of the head, where hair grows).
+        const earCore = new Uint8Array(pack.vertexCount);
+        for (const v of targetVerts(pack, 'shape/earSize-incr', 0.33)) if (ears[v]) earCore[v] = 1;
         const lips = new Uint8Array(pack.vertexCount);
         for (const name of ['shape/upperLip-incr', 'shape/lowerLip-incr']) for (const v of targetVerts(pack, name, 0.1)) lips[v] = 1;
         let earBottom = Infinity, earTop = -Infinity, earBack = Infinity, earFront = -Infinity;
@@ -290,7 +294,7 @@
         };
 
         return {
-            pack, built, S, P, normals, weightOn, bodySet, headVerts, ears, lips,
+            pack, built, S, P, normals, weightOn, bodySet, headVerts, ears, earCore, lips,
             bones: { head, neck, chest, spine1: boneIndex(built, 'Spine1') },
             headBone, neckBone, chestBone, shoulderY, shoulderHalf,
             center, radii, eyeL, eyeR, eyeY, eyeRadius, mouth, chin, noseTip,
@@ -700,7 +704,9 @@
     /** The hairline's elevation (degrees) at each azimuth; `recede` raises the front and temples. */
     function hairlineAt(az, recede) {
         const a = Math.abs(az);
-        const pts = [[0, 40], [25, 37], [42, 30], [58, 18], [70, 8], [78, -16], [86, -20], [93, 4], [104, 12], [122, 6], [140, -18], [160, -34], [180, -38]];
+        // Round the ear the line climbs over its top and drops behind it to the nape at once, as hair grows:
+        // no bare patch above and behind the ear.
+        const pts = [[0, 40], [25, 37], [42, 30], [58, 18], [70, 8], [78, -16], [86, -20], [93, 4], [102, 0], [114, -14], [130, -24], [150, -32], [180, -38]];
         let el = pts[pts.length - 1][1];
         for (let i = 0; i + 1 < pts.length; i++) {
             const [a0, e0] = pts[i], [a1, e1] = pts[i + 1];
@@ -716,7 +722,7 @@
         const noise = rng(hash('hairline'));
         const jitter = new Float32Array(64).map(() => noise() * 2 - 1);
         return v => {
-            if (H.ears[v]) return -12;
+            if (H.earCore[v]) return -12;
             const c = headCoords(H, H.P(v));
             // A soft irregular edge: real hairlines are not ruled lines.
             const j = jitter[Math.floor(((c.az + 180) / 360) * 63)] * 1.4;
@@ -986,7 +992,8 @@
     function buildAfro(H, hair, m, layer, rand) {
         // The scalp and its edges, then every point pushed out to a round mass centered above and behind the
         // skull's middle, so the sides and back fill in and the face stays clear.
-        const surf = cutSurface(H, scalpField(H, hair, c => c.el - hairlineAt(c.az, hair.hairline) + 4));
+        // Reaching lower than other styles, it leaves the whole ear bare, not only its middle.
+        const surf = cutSurface(H, scalpField(H, hair, (c, v) => (H.ears[v] ? -12 : c.el - hairlineAt(c.az, hair.hairline) + 4)));
         const ramp = colorRamp(hair);
         const R = layer.radius;
         const center = add(H.center, [0, H.radii[1] * 0.28, -H.radii[2] * 0.12]);
@@ -996,6 +1003,9 @@
             const x = p[0] * freq, y = p[1] * freq, z = p[2] * freq;
             return 0.5 + 0.25 * Math.sin(x * 1.7 + Math.cos(y * 1.3)) * Math.cos(z * 1.9 + Math.sin(x)) + 0.25 * Math.sin(y * 2.3 + z * 0.7);
         };
+        // How far in from the hairline a place is, against the scalp's middle (the field's scale differs by head).
+        const sorted = Array.from(surf.val).sort((x, y) => x - y), deep = Math.max(1, sorted[Math.floor(sorted.length * 0.9)]);
+        const inward = v => Math.min(1, v / deep);
         const base = m.pos.length / 3;
         for (let i = 0; i < surf.pos.length; i++) {
             const p = surf.pos[i];
@@ -1007,10 +1017,10 @@
             // At the hairline the mass curls down to the scalp.
             const hc = headCoords(H, p);
             // Over the forehead the slope down to the hairline is long, so the mass has no ledge.
-            const edge = smooth(0, mix(14, 40, smooth(20, 0, Math.abs(hc.az)) * smooth(0, 0.5, hc.z)), surf.val[i]);
+            const edge = smooth(0, mix(0.18, 0.5, smooth(20, 0, Math.abs(hc.az)) * smooth(0, 0.5, hc.z)), inward(surf.val[i]));
             const front = mix(1, 0.6, smooth(0.2, 0.7, hc.z));
             // Below the ears it thins to a close crop: the sideburns and nape do not flare.
-            const low = smooth(-22, 18, hc.el);
+            const low = smooth(-38, 2, hc.el);
             const q = add(p, mul(surf.nrm[i], (0.004 * H.scale + reach * front * low) * edge));
             pushVert(m, q, surf.nrm[i], ramp(0.5, 0.72 + 0.32 * lumps(p), false));
         }
@@ -1018,12 +1028,12 @@
         // Tight curls over the surface, so the edge is not a hard shell.
         const roots = scatter(surf, 220, rand);
         for (const r of roots) {
-            if (r.f < 6) continue;
+            if (inward(r.f) < 0.08) continue;
             const d = norm(sub(r.p, center));
             const k = 1 / Math.hypot(d[0] / size[0], d[1] / size[1], d[2] / size[2]);
             const tip = add(center, mul(d, k * (0.98 + 0.08 * rand())));
             const hc = headCoords(H, r.p);
-            const edge = smooth(0, mix(14, 40, smooth(20, 0, Math.abs(hc.az)) * smooth(0, 0.5, hc.z)), r.f);
+            const edge = smooth(0, mix(0.18, 0.5, smooth(20, 0, Math.abs(hc.az)) * smooth(0, 0.5, hc.z)), inward(r.f));
             if (edge < 0.6 || hc.el < 5) continue;
             const reach = Math.max(0, dot(sub(tip, r.p), r.n)) * mix(1, 0.6, smooth(0.2, 0.7, hc.z)) * edge;
             const start = add(r.p, mul(r.n, reach * 0.75));
@@ -1632,7 +1642,7 @@
     const api = {
         lashTexture, hairTexture, browTexture,
         STYLES, FACIAL, BROWS, PARTS, DEFAULT_HAIR, normalizeHair, randomHair, build,
-        _internal: { measure, headCoords, cutSurface, facialField, meshBuilder, addShell, addClump, addTube, addBlob, grow, curlStrand, scatter, tangent, rng, hash, linear }
+        _internal: { measure, headCoords, cutSurface, facialField, scalpField, meshBuilder, addShell, addClump, addTube, addBlob, grow, curlStrand, scatter, tangent, rng, hash, linear }
     };
     root.RRCharacterHair = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
