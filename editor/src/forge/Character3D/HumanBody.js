@@ -1153,24 +1153,37 @@
         const eye = meanOf(P, F.eyeIds);
         const H = crown - h[1];
         if (m.earsAway) {
-            const before = Float32Array.from(P);
-            // Each ear folds in toward the middle of its own vertices.
+            // The ear drawn in as a membrane over its root: its skin settles where the head's would be
+            // without it (each vertex at the mean of its neighbors, the head round it held), so the
+            // skin closes over the ear smooth, with no gathered creases running into the head.
+            const mask = earMask(pack), { offsets, flat } = neighbors(pack);
+            const own = new Float32Array(F.w.length), free = [];
+            for (let v = 0; v < F.w.length; v++) {
+                own[v] = Math.max(F.ear[v], mask[v]);
+                if (own[v] > 0.02 && F.w[v] > 0.5) free.push(v);
+            }
+            const Q = Float32Array.from(P);
+            for (let pass = 0; pass < 140; pass++) for (const v of free) {
+                const s0 = offsets[v], s1 = offsets[v + 1];
+                if (s1 === s0) continue;
+                let x = 0, y = 0, z = 0;
+                for (let i = s0; i < s1; i++) { const u = flat[i] * 3; x += Q[u]; y += Q[u + 1]; z += Q[u + 2]; }
+                const k = 1 / (s1 - s0);
+                Q[v * 3] = x * k; Q[v * 3 + 1] = y * k; Q[v * 3 + 2] = z * k;
+            }
             for (const side of [1, -1]) {
-                let c = [0, 0, 0], n = 0;
-                for (let v = 0; v < F.ear.length; v++) if (F.ear[v] > 0.6 && Math.sign(P[v * 3]) === side) { c[0] += P[v * 3]; c[1] += P[v * 3 + 1]; c[2] += P[v * 3 + 2]; n++; }
+                // The membrane spans the root flat; the skull rounds out over it a little.
+                let c = [0, 0, 0], n = 0, reach = 0;
+                for (const v of free) if (own[v] > 0.6 && Math.sign(P[v * 3]) === side) { c[0] += Q[v * 3]; c[1] += Q[v * 3 + 1]; c[2] += Q[v * 3 + 2]; n++; }
                 if (!n) continue;
                 c = c.map(x => x / n);
-                // In toward the skull too: the side of the head under the ear, deeper the more it is put away.
-                c[0] -= side * (0.012 + 0.01 * Math.max(0, m.earsAway - 0.6) / 0.4);
-                for (let v = 0; v < F.ear.length; v++) {
-                    const e = F.ear[v] * m.earsAway;
-                    if (!e || Math.sign(P[v * 3]) !== side) continue;
-                    // Laid flat on the skull's side at about its own size: nothing stretches, nothing pinches.
-                    P[v * 3] += (c[0] - P[v * 3]) * e;
-                    // Put all the way away, it gathers to its middle too, so no nub stands out of the head.
-                    const gather = 0.45 + 0.45 * Math.max(0, m.earsAway - 0.6) / 0.4;
-                    P[v * 3 + 1] += (c[1] - P[v * 3 + 1]) * e * gather;
-                    P[v * 3 + 2] += (c[2] - P[v * 3 + 2]) * e * gather;
+                for (const v of free) if (Math.sign(P[v * 3]) === side) reach = Math.max(reach, Math.hypot(Q[v * 3 + 1] - c[1], Q[v * 3 + 2] - c[2]));
+                for (const v of free) {
+                    if (Math.sign(P[v * 3]) !== side) continue;
+                    const d = Math.hypot(Q[v * 3 + 1] - c[1], Q[v * 3 + 2] - c[2]) / (reach || 1);
+                    Q[v * 3] += side * 0.004 * Math.max(0, 1 - d * d);
+                    const e = Math.min(1, own[v] * 1.5) * m.earsAway;
+                    for (let k = 0; k < 3; k++) P[v * 3 + k] += (Q[v * 3 + k] - P[v * 3 + k]) * e;
                 }
                 // With the ear gone, an ear hole: a pit in the side of the head, as wide as asked.
                 if (m.earsAway > 0.6 && m.earHoles > 0) {
@@ -1183,32 +1196,60 @@
                     }
                 }
             }
-            // The fold relaxed over the side of the head, so the skin closes over the ear smoothly.
-            const field = new Float32Array(P.length);
-            for (let i = 0; i < P.length; i++) field[i] = P[i] - before[i];
-            const eased = relax(pack, field, 20);
-            for (let v = 0; v < F.ear.length; v++) {
-                if (!F.ear[v] && !F.w[v]) continue;
-                for (let k = 0; k < 3; k++) P[v * 3 + k] = before[v * 3 + k] + eased[v * 3 + k];
-            }
         }
         if (m.snout || m.flat || m.muzzle) {
             // The face below the eyes and in front of them: the mouth, the nose, the jaw.
             // From under the chin (about 0.62 of the head's height below the eyes) up to just under the eyes.
             const top = eye[1] - H * 0.02, bottom = eye[1] - H * 0.66, back = eye[2] - H * 0.42;
+            const mouth = meanOf(P, pack.helpers.upperTeeth.source);
+            let teethFront = -Infinity, mouthHalf = 0;
+            for (const v of pack.helpers.upperTeeth.source) { teethFront = Math.max(teethFront, P[v * 3 + 2]); mouthHalf = Math.max(mouthHalf, Math.abs(P[v * 3])); }
+            const eyeAt = [1, -1].map(sd => meanOf(P, F.eyeIds.filter(v => Math.sign(P[v * 3]) === sd)));
+            let R = 0;
+            for (const v of F.eyeIds) { const c = eyeAt[P[v * 3] > 0 ? 0 : 1]; R = Math.max(R, Math.abs(P[v * 3] - c[0])); }
+            // A snout is the face stretched forward, not slid: the further forward a point lies (the nose,
+            // the lips) the further it goes, so the muzzle tapers from the cheeks to its tip. Its top
+            // slopes down from the stop under the brow to the nose, it narrows (more at the top), and the
+            // lower jaw comes most of the way.
+            const len = m.snout * H * 0.75, zb = eye[2] - H * 0.3, zf = eye[2] + H * 0.1;
             for (let v = 0; v < F.w.length; v++) {
                 const w = F.w[v];
                 if (w <= 0) continue;
                 const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
                 const vert = smooth01(bottom - H * 0.12, bottom + H * 0.12, y) * (1 - smooth01(top - H * 0.16, top + H * 0.04, y));
-                // The whole face block from the cheeks forward moves as one, so a snout keeps its width and depth.
-                const fwd = smooth01(back, eye[2] - H * 0.1, z);
-                const f = vert * fwd * w;
-                if (!f) continue;
-                const tip = smooth01(eye[2] - H * 0.1, eye[2] + H * 0.2, z);
-                P[v * 3 + 2] += m.snout * H * 0.75 * f - m.flat * f * Math.max(0, z - back) * 0.35;
-                P[v * 3 + 1] -= m.snout * f * tip * H * 0.06;
-                P[v * 3] *= 1 - (m.muzzle * 0.4 * (0.5 + 0.5 * tip) + m.snout * 0.1) * f;
+                const f = vert * smooth01(back, eye[2] - H * 0.1, z) * w;
+                if (f && m.flat) P[v * 3 + 2] -= m.flat * f * Math.max(0, z - back) * 0.35;
+                if (!m.snout && !m.muzzle) continue;
+                const low = smooth01(bottom - H * 0.12, bottom + H * 0.12, y), up = 1 - smooth01(eye[1] - H * 0.16, eye[1] + H * 0.03, y);
+                const c = eyeAt[x > 0 ? 0 : 1], de = Math.hypot(x - c[0], y - c[1], z - c[2]);
+                const s = low * up * smooth01(zb, zf, z) * smooth01(R * 1.15, R * 2.6, de) * w;
+                if (!s) continue;
+                const above = smooth01(mouth[1] - H * 0.02, eye[1], y), jaw = 1 - 0.15 * smooth01(mouth[1], mouth[1] - H * 0.1, y);
+                P[v * 3 + 2] += len * s * jaw;
+                P[v * 3 + 1] -= len * s * (0.18 * above + 0.04);
+                P[v * 3] = x * (1 - (m.muzzle * 0.36 + m.snout * 0.1 + m.snout * 0.16 * above) * s);
+            }
+            if (m.flat) {
+                // A flat face's lips settle into it: the skin in front of the teeth drawn to where the face
+                // round it would run (each vertex at its neighbors' mean, the face round it held), leaving
+                // only the line where they meet.
+                const { offsets, flat } = neighbors(pack), lipW = new Map();
+                for (let v = 0; v < F.w.length; v++) {
+                    if (F.w[v] < 0.5 || P[v * 3 + 2] < teethFront - 0.002) continue;
+                    const d = Math.hypot(P[v * 3] / (mouthHalf * 1.35), (P[v * 3 + 1] - mouth[1] + H * 0.035) / (H * 0.14));
+                    if (d < 1) lipW.set(v, 1 - d);
+                }
+                const Q = Float32Array.from(P);
+                for (let pass = 0; pass < 60; pass++) for (const v of lipW.keys()) {
+                    const s0 = offsets[v], s1 = offsets[v + 1];
+                    if (s1 === s0) continue;
+                    let x = 0, y = 0, z = 0;
+                    for (let i = s0; i < s1; i++) { const u = flat[i] * 3; x += Q[u]; y += Q[u + 1]; z += Q[u + 2]; }
+                    const k = 1 / (s1 - s0);
+                    Q[v * 3] = x * k; Q[v * 3 + 1] = y * k; Q[v * 3 + 2] = z * k;
+                }
+                const amount = Math.min(1, m.flat * 1.8);
+                for (const [v, wl] of lipW) { const t = Math.min(1, wl * 3) * amount; for (let k = 0; k < 3; k++) P[v * 3 + k] += (Q[v * 3 + k] - P[v * 3 + k]) * t; }
             }
         }
         if (size !== 1) {

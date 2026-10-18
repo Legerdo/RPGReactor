@@ -1533,7 +1533,7 @@ class Character3DBuilder {
         // Skin: a soft sheen in the skin's own color (from its picture), so it warms skin and stays dark on a
         // painted scalp, stubble or markings.
         if (kind === 'skin') {
-            m.roughness = 0.52; m.sheen = 0.3; m.sheenRoughness = 0.55; m.sheenColor = new THREE.Color(0.9, 0.7, 0.62); if (m.map) m.sheenColorMap = m.map; m.specularIntensity = 0.4;
+            m.roughness = Math.max(0.52, part.roughness ?? 0); m.sheen = 0.3; m.sheenRoughness = 0.55; m.sheenColor = new THREE.Color(0.9, 0.7, 0.62); if (m.map) m.sheenColorMap = m.map; m.specularIntensity = 0.4;
             // Pores and fine lines, tiled small over the skin: the light breaks up on it as on real skin.
             if (m.map) { m.normalMap = Character3DBuilder.skinDetail(); m.normalScale = new THREE.Vector2(0.3, 0.3); }
         }
