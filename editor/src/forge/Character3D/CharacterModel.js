@@ -204,14 +204,14 @@
         const budget = o.hairBudget || 1;
         if (bodyHair.amount > 0.01) {
             // In clumps of fine hairs, like locks of head hair: many hairs to a card.
-            const strands = Detail.hairStrands(pack, Object.assign({}, bodyHair, { budget }), strandHidden ? new Set([...outfit.hidden, ...strandHidden]) : outfit.hidden, 'clump');
+            const strands = Detail.hairStrands(pack, Object.assign({}, bodyHair, { budget }), strandHidden ? new Set([...(outfit.noHair || outfit.hidden), ...strandHidden]) : (outfit.noHair || outfit.hidden), 'clump');
             if (strands.length) {
                 textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
                 parts.push(Detail.hairPart(pack, built.shaped, skinNormals, strands, bodyHair.color, { mode: 'clump', skin: r.skin }));
             }
         }
         if (bodyHair.fur > 0.05) {
-            const tufts = Detail.hairStrands(pack, Object.assign({}, bodyHair, { amount: Math.max(bodyHair.amount, bodyHair.fur), budget }), strandHidden ? new Set([...outfit.hidden, ...strandHidden]) : outfit.hidden, 'tuft');
+            const tufts = Detail.hairStrands(pack, Object.assign({}, bodyHair, { amount: Math.max(bodyHair.amount, bodyHair.fur), budget }), strandHidden ? new Set([...(outfit.noHair || outfit.hidden), ...strandHidden]) : (outfit.noHair || outfit.hidden), 'tuft');
             if (tufts.length) {
                 textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
                 parts.push(Detail.hairPart(pack, built.shaped, skinNormals, tufts, bodyHair.color, { width: 1 + bodyHair.fur, name: 'Fur', skin: r.skin }));

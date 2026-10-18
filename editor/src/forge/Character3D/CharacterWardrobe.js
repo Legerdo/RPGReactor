@@ -384,7 +384,7 @@
             garment('eveningGown', 'Evening gown', 'dress', 'Formal', { color: '#962f48', neckline: 'deepv', sleeves: 0, length: 1, flare: 0.15, slits: 0.5, material: 'silk' }, gown, ['neckline', 'sleeves', 'length', 'flare']),
             garment('tailcoat', 'Tailcoat', 'over', 'Formal', { color: '#24242c', sleeves: 1, neckline: 'deepv', length: 0.75, fit: 0.3, open: 0.35 }, i => [top(Object.assign({}, i, { length: BODICE }), { lift: 0.025 }), skirtPiece(Object.assign({}, i, { open: 1.7, flare: 0.15 }), { lift: 0.03 })], ['length', 'fit']),
             garment('apron', 'Apron', 'over', 'Workwear', { color: '#e8dfc8', length: 0.7 }, i => [top(i, { rules: { spine: [0.5, 3.2], open: 0 }, value: (an, v) => an.member[v * 5] > 0.7 ? Math.min(an.s[v * 5] - 0.5, 3.2 - an.s[v * 5], (0.85 - Math.abs(an.angle[v * 5])) * 2) : -1, lift: 0.022 }), skirtPiece(Object.assign({}, i, { flare: 0.2 }), { value: (an, v) => Math.min((i.length - an.skirtU[v]) * 4, (0.95 - Math.abs(an.angle[v * 5])) * 2), lift: 0.025 })], ['length']),
-            garment('coveralls', 'Coveralls', 'dress', 'Workwear', { color: '#405a78', sleeves: 1, length: 1, pattern: 'panels' }, allInOne, ['sleeves', 'length']),
+            garment('coveralls', 'Coveralls', 'dress', 'Workwear', { color: '#405a78', color2: '#2e4359', sleeves: 1, length: 1, pattern: 'panels' }, allInOne, ['sleeves', 'length']),
             garment('scrubs', 'Medical scrubs', 'dress', 'Workwear', { color: '#54a29a', sleeves: 0.3, length: 1 }, allInOne, ['sleeves', 'length']),
             garment('uniform', 'Service uniform', 'dress', 'Workwear', { color: '#34445e', sleeves: 1, length: 1, pattern: 'panels', trim: '#d4af37' }, i => [...allInOne(i), { collar: { open: 0.12 } }], ['sleeves', 'length']),
             garment('swimBriefs', 'Swim briefs', 'underwearBottom', 'Swimwear', { color: '#367cad', material: 'rubber' }, brief),
@@ -498,7 +498,8 @@
     // ── building ──────────────────────────────────────────────────────────
     /** The color look of a piece: the item's colors, or the trim for a trim piece. */
     function lookOf(item, spec) {
-        const look = { color: item.color, color2: item.color2, trim: item.trim, pattern: item.pattern || 'solid', trimWidth: item.trimWidth || 0, scale: item.scale, from: item.from, to: item.to };
+        // Without a trim color of its own, an edge is bound in the garment's own color, a shade darker.
+        const look = { color: item.color, color2: item.color2, trim: item.trim || (item.color ? shadeHex(item.color, 0.8) : undefined), pattern: item.pattern || 'solid', trimWidth: item.trimWidth || 0, scale: item.scale, from: item.from, to: item.to };
         if (spec.look === 'trim') return { color: item.trim || item.color2 || item.color, pattern: 'solid' };
         return look;
     }
