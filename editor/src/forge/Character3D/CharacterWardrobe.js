@@ -86,8 +86,11 @@
         }, extra);
     };
 
+    // A shoe's or glove's opening is looked into: the skin stays a little way in under its edge, so a
+    // boot's top shows the leg inside instead of the boot's empty inside.
     const feet = (item, extra) => Object.assign({
         surface: 'tights',
+        hideMargin: 0.12,
         rules: { legs: [1.98 - (item.length ?? 0.1) * 1.6, 9] },
         lift: 0.012 + (item.bulk ?? 0.3) * 0.02,
         drape: 2
@@ -95,6 +98,7 @@
 
     const hands = (item, extra) => Object.assign({
         surface: 'body',
+        hideMargin: 0.12,
         rules: { arms: [3.0 - (item.length ?? 0.15) * 1.0, 9] },
         lift: 0.003 + (item.bulk ?? 0) * 0.02,
         drape: 0,
@@ -326,7 +330,7 @@
     const BY_ID = new Map(GARMENTS.map(g => [g.id, g]));
     const SLOTS = [...new Set(GARMENTS.map(g => g.slot))];
     // Outward order: a later slot is laid over an earlier one.
-    const LAYER = { under: 0, bottom: 1, top: 2, dress: 2, feet: 2, hands: 2, waist: 3, wrists: 3, legarmor: 3, armor: 4, hips: 4, over: 5, shoulders: 6, head: 6 };
+    const LAYER = { under: 0, bottom: 1, top: 2, dress: 2, feet: 3, hands: 2, waist: 3, wrists: 3, legarmor: 3, armor: 4, hips: 4, over: 5, shoulders: 6, head: 6 };
 
     /** A full outfit item: catalog defaults under what the recipe chose. */
     function normalizeItem(item) {
@@ -497,11 +501,19 @@
         };
     }
 
+    /**
+     * The skin a piece covers. A piece with an opening that is looked into (`hideMargin`) leaves the
+     * skin a little way in under its edge, measured on the coverage smoothed over the skin as the
+     * piece's own cut is over its surface.
+     */
     function markCovered(pack, O, spec, covered) {
         const an = O.anatomy(pack);
         const ids = pack._bodyIds || (pack._bodyIds = [...new Set(pack.body.source)]);
+        const raw = new Float32Array(pack.vertexCount).fill(-1);
+        for (const v of ids) raw[v] = spec.value ? spec.value(an, v) : O.coverage(an, v, spec.rules);
+        const eased = spec.hideMargin ? O.relaxScalar(pack.body, raw, (spec.smoothCut ?? 3) + 2) : raw;
         for (const v of ids) {
-            const c = spec.value ? spec.value(an, v) : O.coverage(an, v, spec.rules);
+            const c = Math.min(raw[v], eased[v]) - (spec.hideMargin || 0);
             if (c > covered[v]) covered[v] = c;
         }
     }
