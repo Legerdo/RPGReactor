@@ -96,6 +96,21 @@
 
     const PARTS = ['center', 'left', 'right', 'none'];
 
+    /**
+     * Each cut's own bangs, as a hairdresser cuts it: how much (the Bangs
+     * slider's value when the style is chosen) and their kind: blunt (cut
+     * straight above the brows), wispy (uneven, see-through), curtain (parted
+     * in the middle and swept to the sides). Styles not named have none.
+     */
+    const STYLE_FRINGE = {
+        messy: [0.45, 'wispy'], shag: [0.6, 'wispy'], bob: [0.55, 'blunt'], shoulder: [0.4, 'curtain'], curly: [0.35, 'wispy'],
+        longWavy: [0.35, 'curtain'], pigtails: [0.6, 'blunt'], twinBraids: [0.5, 'blunt'], bun: [0.3, 'curtain']
+    };
+    /** A hair recipe with a new style and that style's own bangs. */
+    function withStyle(hair, id) {
+        return Object.assign({}, hair, { style: id, fringe: (STYLE_FRINGE[id] || [0])[0] });
+    }
+
     const DEFAULT_HAIR = Object.freeze({
         style: 'sidePart',
         color: '#3b2a1e',
@@ -105,7 +120,7 @@
         volume: 0.5,
         curl: 0,
         part: 'left',
-        fringe: 0.5,
+        fringe: 0,
         hairline: 0,
         facial: Object.freeze({ style: 'none', color: '', length: 1, volume: 0.5 }),
         brows: Object.freeze({ style: 'natural', thickness: 0.5, color: '' }),
@@ -129,7 +144,7 @@
             volume: clamp(h.volume ?? 0.5, 0, 1),
             curl: clamp(h.curl ?? 0, 0, 1),
             part: PARTS.includes(h.part) ? h.part : DEFAULT_HAIR.part,
-            fringe: clamp(h.fringe ?? 0.5, 0, 1),
+            fringe: clamp(h.fringe ?? (STYLE_FRINGE[pickId(STYLES, h.style, DEFAULT_HAIR.style)] || [0])[0], 0, 1),
             hairline: clamp(h.hairline ?? 0, 0, 1),
             facial: {
                 style: pickId(FACIAL, f.style, 'none'),
@@ -479,27 +494,27 @@
                     const shade = k === 0 ? 1 : 0.86;
                     // Lit as part of the whole head of hair, not as a flat strip: the normal leans out from
                     // the head's middle (the card's own facing mixed in), and the strand runs along T.
-                    // Below the head, hanging hair faces out from the neck and back, not down from the skull.
-                    const c0 = opts.center || [0, 0, 0], d0 = sub(p, c0), hang = smooth(0.05, 0.16, c0[1] - p[1]);
-                    const out = norm(lerp(norm(d0), norm([d0[0], 0.15 * Math.abs(d0[1]), d0[2]]), hang));
+                    let out = hairOut(opts.center || [0, 0, 0], p);
+                    // Hair lying on the body below the head (over the chest, the shoulders, the back) faces the
+                    // way the skin under it does, so it takes the light the body takes there.
+                    if (opts.H && p[1] < opts.H.chin[1]) {
+                        const sf = opts.H.surface(p);
+                        if (Number.isFinite(sf.d) && sf.d < 0.04 * opts.H.scale) out = norm(lerp(out, sf.n, 0.7 * (1 - smooth(0.015, 0.04, sf.d / opts.H.scale))));
+                    }
                     pushVert(m, p, norm(add(mul(out, 0.7), mul(norm(add(N, mul(B, k * 0.35))), 0.3))), shadeRgb(col, shade), [u0 + (k + 1) / 2 * (u1 - u0), v0 + t * (0.99 - v0)], T);
                 }
             }
-            // Wound so its front faces out from the head: a two-sided card seen from outside is then lit by
-            // its own normal on both sides of the face (in the game's renderer too), not turned dark when its
-            // back happens to face the eye.
-            let facing = 0;
-            for (let i = 0; i + 1 < rows; i++) {
-                const a = (base + i * 3) * 3, b = (base + i * 3 + 3) * 3, c = (base + i * 3 + 2) * 3, P = m.pos, Nn = m.nrm;
-                const e1 = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], e2 = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
-                facing += dot(cross(e1, e2), [Nn[a + 3], Nn[a + 4], Nn[a + 5]]);
-            }
             for (let i = 0; i + 1 < rows; i++) {
                 const a = base + i * 3;
-                if (facing >= 0) m.idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
-                else m.idx.push(a, a + 1, a + 3, a + 1, a + 4, a + 3, a + 1, a + 2, a + 4, a + 2, a + 5, a + 4);
+                m.idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
             }
         }
+    }
+
+    /** Which way hair at `p` faces: out from the head's middle; below the head, out from the neck and back, not down. */
+    function hairOut(c0, p) {
+        const d0 = sub(p, c0), hang = smooth(0.05, 0.16, c0[1] - p[1]);
+        return norm(lerp(norm(d0), norm([d0[0], 0.15 * Math.abs(d0[1]), d0[2]]), hang));
     }
 
     /**
@@ -814,22 +829,26 @@
         const cap = (t, zone) => ({ type: 'cap', thickness: t * S, zone });
         const base = { layer: (0.004 + 0.008 * V) * S, lift: 0.05 + 0.25 * V, gravity: 0.35, stiff: 0.35, hug: 0.8, steps: 10 };
         const strands = o => Object.assign({ type: 'strands' }, base, o);
-        const frontBangs = (len, sweep) => strands({
-            count: Math.round(40 + 50 * fringe), zone: c => (fringeZone(c) ? 30 - Math.abs(c.az) * 0.5 : -1) + (c.el - 25),
-            comb: (p, n, c) => tangent(add(add(AXIS.front, mul(AXIS.down, 0.9)), mul(AXIS.left, (sweep || 0) + c.x * 0.4)), n),
-            length: () => len, stopY: () => browY - (sweep ? 0.012 * S : 0), fringe: true, width: 0.014 * S, hug: 0.9, gravity: 0.6, stiff: 0.2
+        const kind = (STYLE_FRINGE[hair.style] || [0, 'blunt'])[1];
+        const frontBangs = (len, sweep, how = 'blunt') => strands({
+            count: Math.round((how === 'wispy' ? 30 : 40) + 50 * fringe), zone: c => (fringeZone(c) ? 30 - Math.abs(c.az) * 0.5 : -1) + (c.el - 25),
+            // Curtain bangs part in the middle and sweep out to each side; wispy ones fall loosely, a little apart.
+            comb: (p, n, c, r) => tangent(add(add(AXIS.front, mul(AXIS.down, 0.9)), mul(AXIS.left, how === 'curtain' ? Math.sign(c.x || 1) * 0.9 : (sweep || 0) + c.x * 0.4 + (how === 'wispy' ? (r() - 0.5) * 0.6 : 0))), n),
+            length: (c, r) => len * (how === 'curtain' ? 1 + 1.4 * Math.min(1, Math.abs(c.x) * 3) : how === 'wispy' ? 0.7 + 0.5 * r() : 1),
+            stopY: c => (how === 'curtain' ? browY - (0.004 + 0.03 * Math.min(1, Math.abs(c.x) * 3)) * S : browY - (sweep ? 0.012 * S : how === 'wispy' ? 0.006 * S : 0)),
+            fringe: true, width: (how === 'wispy' ? 0.011 : 0.014) * S, hug: 0.9, gravity: 0.6, stiff: 0.2
         });
-        const withFringe = layers => (fringe > 0.05 ? layers.concat([frontBangs(0.12 * S * (0.6 + fringe * 0.6))]) : layers);
+        const withFringe = layers => (fringe > 0.05 ? layers.concat([frontBangs(0.12 * S * (0.6 + fringe * 0.6), 0, kind)]) : layers);
         const partComb = (p, n, c) => combFromPart(H, hair, p, n, c);
         const curl = hair.curl;
         switch (hair.style) {
             case 'bald': return [];
-            case 'buzz': return [cap(0.0025 + 0.002 * V)];
+            case 'buzz': return [cap(0.0012 + 0.0012 * V)];
             case 'crew': return [cap(0.006 + 0.004 * V), strands({ count: 220, comb: (p, n, c) => (c.el > 30 ? tangent(add(AXIS.front, mul(AXIS.up, 0.6)), n) : combDown(n, c)), length: c => (c.el > 30 ? 0.03 : 0.015) * S * hair.length, width: 0.012 * S, hug: 1, gravity: 0.05, lift: 0.25, steps: 4, sides: 3 })];
             case 'sidePart': return [cap(0.006), strands({ count: 260, comb: partComb, length: c => (c.el > 20 ? 0.075 : 0.04) * L, width: 0.016 * S, hug: 1, gravity: 0.2, steps: 6 })];
             case 'undercut': return [cap(0.0018), cap(0.008, c => (c.el - 40) * 2), strands({ count: 220, zone: c => (c.el - 42) * 2, comb: (p, n, c) => tangent(add(add(mul(AXIS.left, hair.part === 'right' ? -1 : 1), mul(AXIS.back, 0.5)), mul(AXIS.up, 0.2)), n), length: () => 0.13 * L, width: 0.02 * S, hug: 0.55, lift: 0.3 + 0.35 * V, gravity: 0.25, stiff: 0.5, steps: 8 })];
-            case 'quiff': return [cap(0.003), strands({ count: 130, zone: c => c.el - 30, comb: (p, n, c) => tangent(add(mul(AXIS.back, 0.6), mul(AXIS.up, 0.9)), n), length: c => (c.z > 0.2 ? 0.09 : 0.06) * L, width: 0.018 * S, hug: 0.1, lift: 0.55 + 0.3 * V, gravity: 0.05, steps: 6 }), strands({ count: 120, zone: c => 30 - c.el, comb: (p, n, c) => combBack(n, c), length: () => 0.03 * S, width: 0.012 * S, hug: 1, gravity: 0.1, steps: 3, sides: 3 })];
-            case 'pompadour': return [cap(0.004), strands({ count: 120, zone: c => Math.min(c.el - 28, 70 - Math.abs(c.az)), comb: (p, n, c) => norm(add(mul(AXIS.up, 1.3), mul(AXIS.back, 0.35))), length: c => (0.07 + 0.06 * Math.max(0, c.z)) * L, width: 0.022 * S, hug: 0, lift: 0.6, gravity: 0.5, stiff: 0.5, steps: 8, fringeAll: true, bias: AXIS.back }), strands({ count: 200, comb: (p, n, c) => combBack(n, c), length: c => (c.el > 25 ? 0.1 : 0.04) * L, width: 0.018 * S, hug: 0.95, gravity: 0.2, stiff: 0.5, steps: 7 })];
+            case 'quiff': return [cap(0.006), strands({ count: 130, zone: c => c.el - 30, comb: (p, n, c) => tangent(add(mul(AXIS.back, 0.6), mul(AXIS.up, 0.9)), n), length: c => (c.z > 0.2 ? 0.09 : 0.06) * L, width: 0.018 * S, hug: 0.1, lift: 0.55 + 0.3 * V, gravity: 0.05, steps: 6 }), strands({ count: 120, zone: c => 30 - c.el, comb: (p, n, c) => combBack(n, c), length: () => 0.03 * S, width: 0.012 * S, hug: 1, gravity: 0.1, steps: 3, sides: 3 })];
+            case 'pompadour': return [cap(0.008), strands({ count: 120, zone: c => Math.min(c.el - 28, 70 - Math.abs(c.az)), comb: (p, n, c) => norm(add(mul(AXIS.up, 1.3), mul(AXIS.back, 0.35))), length: c => (0.07 + 0.06 * Math.max(0, c.z)) * L, width: 0.022 * S, hug: 0, lift: 0.6, gravity: 0.5, stiff: 0.5, steps: 8, fringeAll: true, bias: AXIS.back }), strands({ count: 200, comb: (p, n, c) => combBack(n, c), length: c => (c.el > 25 ? 0.1 : 0.04) * L, width: 0.018 * S, hug: 0.95, gravity: 0.2, stiff: 0.5, steps: 7 })];
             case 'slickBack': return [cap(0.004), strands({ count: 260, comb: (p, n, c) => combBack(n, c), length: () => 0.11 * L, width: 0.016 * S, hug: 1, lift: 0.02, gravity: 0.25, stiff: 0.6, steps: 8 })];
             case 'spiky': return [cap(0.006), { type: 'spikes', count: 70, length: 0.06 * L, width: 0.022 * S, up: 0.6 }];
             case 'messy': return withFringe([cap(0.007), strands({ count: 260, comb: (p, n, c, r) => tangent(norm([r() * 2 - 1, r() * 1.2 - 0.8, r() * 2 - 1]), n), length: () => (0.06 + 0.04 * V) * L, width: 0.016 * S, hug: 0.5, lift: 0.35 + 0.3 * V, gravity: 0.3, steps: 6, waves: 0.008 })]);
@@ -846,7 +865,7 @@
             case 'curly': return withFringe([cap(0.012 + 0.008 * V), strands({ count: 300, comb: partComb, length: () => 0.3 * L, width: 0.016 * S, hug: 0.5, lift: 0.35 + 0.3 * V, gravity: 0.55, steps: 16, curl: { amount: (0.01 + 0.008 * V) * S, period: 0.035 * S, helix: true }, stopY: () => H.shoulderY - 0.05 * S * hair.length })]);
             case 'animeSpikes': return [cap(0.01), { type: 'spikes', count: 34, length: 0.13 * L, width: 0.05 * S, up: 0.3, anime: true }, { type: 'spikes', count: 9, length: 0.11 * L, width: 0.04 * S, up: -0.8, front: true, zone: c => 50 - Math.abs(c.az) }];
             case 'long': return withFringe([cap(0.007), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.5 * L, width: 0.028 * S, hug: 0.85, gravity: 0.65, steps: 12, drape: 'split' })]);
-            case 'longWavy': return withFringe([cap(0.008), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.52 * L, width: 0.028 * S, drape: 'split', hug: 0.8, lift: 0.15 + 0.25 * V, gravity: 0.6, steps: 16, waves: 0.012 + 0.012 * V })]);
+            case 'longWavy': return withFringe([cap(0.008), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.52 * L, width: 0.028 * S, drape: 'split', hug: 0.8, lift: 0.15 + 0.25 * V, gravity: 0.6, steps: 19, waves: 0.012 + 0.012 * V })]);
             case 'veryLong': return withFringe([cap(0.007), strands({ sheet: true, count: 330, comb: partComb, length: () => 0.85 * L, width: 0.028 * S, drape: 'split', hug: 0.85, gravity: 0.7, steps: 16 })]);
             case 'hime': return [cap(0.007), frontBangs(0.13 * S, 0), strands({ count: 70, zone: c => (Math.abs(c.az) > 45 && Math.abs(c.az) < 100 ? 1 : -1) * 20, comb: (p, n, c) => combDown(n, c), length: () => 0.3 * L, width: 0.02 * S, hug: 0.9, gravity: 0.8, steps: 10, stopY: () => chinY - 0.01 * S, frontDrape: true }), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.6 * L, width: 0.026 * S, hug: 0.85, gravity: 0.7, steps: 14 })];
             case 'dreadlocks': return [cap(0.01), { type: 'locks', count: 64, length: 0.4 * L, radius: (0.009 + 0.004 * V) * S }];
@@ -878,11 +897,12 @@
 
     function buildCap(H, hair, m, layer, ramp) {
         const surf = cutSurface(H, scalpField(H, hair, layer.zone));
-        const soft = 7;
-        // Its edge runs out through the strand picture's roots, so the hairline breaks up into hairs
-        // rather than ending in a cut edge.
-        addShell(m, surf, i => layer.thickness * smooth(0, soft, surf.val[i]), () => ramp(0.15, 0.92, false),
-            i => [0.125 + 0.11 * Math.sin((surf.pos[i][0] + surf.pos[i][2]) * 260), 0.02 + 0.2 * (1 - smooth(0, soft, surf.val[i]))]);
+        const soft = 10;
+        // Its edge runs out through the strand picture toward the tips, where only scattered strands are
+        // left, so the hairline breaks up into single hairs over the scalp painted under it, never a cut
+        // edge; its color is the locks' own middle, so no darker scalp shows between them.
+        addShell(m, surf, i => layer.thickness * smooth(0, soft, surf.val[i]), () => ramp(0.4, 0.97, false),
+            i => [0.125 + 0.11 * Math.sin((surf.pos[i][0] + surf.pos[i][2]) * 260), 0.02 + 0.75 * Math.pow(1 - smooth(0, soft * 0.6, surf.val[i]), 2)]);
         return surf;
     }
 
@@ -902,7 +922,7 @@
             const front = (layer.drape === 'split' && Math.abs(c.az) > 30 && Math.abs(c.az) < 100 && rand() < 0.75) || !!layer.frontDrape;
             let pts = grow(H, r.p, r.n, dir, {
                 steps: layer.steps, length, layer: layer.layer * (0.6 + 0.8 * rand()), lift, gravity: layer.gravity, stiff: layer.stiff,
-                hug: layer.hug, release: H.earBottom, fringe, stopY: layer.stopY ? layer.stopY(c) - rand() * 0.018 * H.scale : null,
+                hug: layer.hug, release: H.earBottom, fringe, stopY: layer.stopY ? layer.stopY(c) - rand() * (layer.fringe ? 0.005 : 0.018) * H.scale : null,
                 front,
                 bias: front ? mul(AXIS.front, 0.25) : (Math.abs(c.az) > 60 ? mul(AXIS.back, 0.6) : null)
             });
@@ -919,7 +939,7 @@
             // Near the hairline the locks are narrower and drawn from past the picture's full root, so the
             // edge breaks up into hairs instead of blocks.
             const edge = smooth(1.5, 9, r.f);
-            addClump(m, pts, { width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight) });
+            addClump(m, pts, { H, width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight) });
             // Flyaways: here and there at the hairline, and now and then over the head, a few stray hairs
             // lift off the lock and wander, so the edge of the hair is never a clean line.
             if (rand() < (edge < 0.7 ? 0.22 : 0.05) && pts.length > 2) {
@@ -955,7 +975,7 @@
             guides.push(pts.length === layer.steps + 1 ? pts : null);
         }
         const gap = 0.045 * H.scale;
-        const col = t => shadeRgb(ramp(t, 0.8, false), 0.85);
+        const col = t => shadeRgb(ramp(t, 0.8, false), 0.92);
         for (let k = 0; k < ring; k++) {
             const a = guides[k], b = guides[(k + 1) % ring];
             if (!a || !b) continue;
@@ -964,7 +984,8 @@
             for (let i = 0; i < a.length; i++) {
                 if (len(sub(a[i], b[i])) > gap) break;
                 const t = i / (a.length - 1);
-                const out = norm(sub(lerp(a[i], b[i], 0.5), H.center));
+                let out = hairOut(H.center, lerp(a[i], b[i], 0.5));
+                if (a[i][1] < H.chin[1]) { const sf = H.surface(lerp(a[i], b[i], 0.5)); if (Number.isFinite(sf.d) && sf.d < 0.04 * H.scale) out = norm(lerp(out, sf.n, 0.7 * (1 - smooth(0.015, 0.04, sf.d / H.scale)))); }
                 // On the strand picture (the middle of a lane, clear of its thinned sides), so the sheet's
                 // ends and edges break up into hair like the locks over it.
                 const u0 = (k % 4) * 0.25 + 0.04;
@@ -1028,48 +1049,49 @@
         const R = layer.radius;
         const center = add(H.center, [0, H.radii[1] * 0.28, -H.radii[2] * 0.12]);
         const size = [H.radii[0] + R, H.radii[1] * 0.75 + R, H.radii[2] + R * 0.9];
-        const freq = 1 / (0.011 * H.scale);
-        const lumps = p => {
+        // Coils: a fine, even texture of tight curls in the mass's color (no dents in its shape).
+        const freq = 1 / (0.0045 * H.scale);
+        const coil = p => {
             const x = p[0] * freq, y = p[1] * freq, z = p[2] * freq;
-            return 0.5 + 0.25 * Math.sin(x * 1.7 + Math.cos(y * 1.3)) * Math.cos(z * 1.9 + Math.sin(x)) + 0.25 * Math.sin(y * 2.3 + z * 0.7);
+            return 0.5 + 0.25 * Math.sin(x * 1.7 + Math.cos(y * 1.3) * 2) * Math.cos(z * 1.9 + Math.sin(x) * 2) + 0.25 * Math.sin(y * 2.3 + z * 0.7 + Math.cos(x * 0.9) * 2);
         };
         // How far in from the hairline a place is, against the scalp's middle (the field's scale differs by head).
         const sorted = Array.from(surf.val).sort((x, y) => x - y), deep = Math.max(1, sorted[Math.floor(sorted.length * 0.9)]);
         const inward = v => Math.min(1, v / deep);
-        const base = m.pos.length / 3;
-        for (let i = 0; i < surf.pos.length; i++) {
-            const p = surf.pos[i];
+        const shellAt = (p, nrm, f) => {
             const d = norm(sub(p, center));
             // Where a ray from the mass's center leaves the ellipsoid, never inside the head.
             const k = 1 / Math.hypot(d[0] / size[0], d[1] / size[1], d[2] / size[2]);
-            const target = add(center, mul(d, k * (0.92 + 0.12 * lumps(p))));
-            const reach = Math.max(0, dot(sub(target, p), surf.nrm[i]));
-            // At the hairline the mass curls down to the scalp.
+            const reach = Math.max(0, dot(sub(add(center, mul(d, k)), p), nrm));
             const hc = headCoords(H, p);
-            // Over the forehead the slope down to the hairline is long, so the mass has no ledge.
-            const edge = smooth(0, mix(0.18, 0.5, smooth(20, 0, Math.abs(hc.az)) * smooth(0, 0.5, hc.z)), inward(surf.val[i]));
-            const front = mix(1, 0.6, smooth(0.2, 0.7, hc.z));
+            // At the hairline the mass curls down to the scalp; over the forehead the slope is long, so no ledge.
+            const edge = smooth(0, mix(0.18, 0.5, smooth(20, 0, Math.abs(hc.az)) * smooth(0, 0.5, hc.z)), inward(f));
             // Below the ears it thins to a close crop: the sideburns and nape do not flare.
-            const low = smooth(-38, 2, hc.el);
-            const q = add(p, mul(surf.nrm[i], (0.004 * H.scale + reach * front * low) * edge));
-            pushVert(m, q, surf.nrm[i], ramp(0.5, 0.72 + 0.32 * lumps(p), false));
+            const low = smooth(-38, 2, hc.el), front = mix(1, 0.8, smooth(0.3, 0.8, hc.z));
+            const q = add(p, mul(nrm, (0.004 * H.scale + reach * front * low) * edge));
+            // Lit as the round mass it is, blending to the scalp's own facing at its edge.
+            const g = sub(q, center), en = norm([g[0] / (size[0] * size[0]), g[1] / (size[1] * size[1]), g[2] / (size[2] * size[2])]);
+            return { q, n: norm(lerp(nrm, en, edge * low)), edge, low, hc };
+        };
+        const base = m.pos.length / 3;
+        for (let i = 0; i < surf.pos.length; i++) {
+            const s = shellAt(surf.pos[i], surf.nrm[i], surf.val[i]);
+            pushVert(m, s.q, s.n, ramp(0.5, 0.62 + 0.3 * coil(surf.pos[i]), false));
         }
         for (let t = 0; t < surf.index.length; t += 3) m.idx.push(base + surf.index[t], base + surf.index[t + 1], base + surf.index[t + 2]);
-        // Tight curls over the surface, so the edge is not a hard shell.
-        const roots = scatter(surf, 220, rand);
+        // A fuzz of short coiled strands standing out of the mass all over, so its outline is soft.
+        const roots = scatter(surf, 1400, rand);
         for (const r of roots) {
-            if (inward(r.f) < 0.08) continue;
-            const d = norm(sub(r.p, center));
-            const k = 1 / Math.hypot(d[0] / size[0], d[1] / size[1], d[2] / size[2]);
-            const tip = add(center, mul(d, k * (0.98 + 0.08 * rand())));
-            const hc = headCoords(H, r.p);
-            const edge = smooth(0, mix(0.18, 0.5, smooth(20, 0, Math.abs(hc.az)) * smooth(0, 0.5, hc.z)), inward(r.f));
-            if (edge < 0.6 || hc.el < 5) continue;
-            const reach = Math.max(0, dot(sub(tip, r.p), r.n)) * mix(1, 0.6, smooth(0.2, 0.7, hc.z)) * edge;
-            const start = add(r.p, mul(r.n, reach * 0.75));
+            const s = shellAt(r.p, r.n, r.f);
+            if (s.edge < 0.25) continue;
+            const out = s.n, L = (0.008 + 0.012 * rand()) * H.scale * (0.6 + 0.4 * s.low);
+            const side = norm(cross(out, Math.abs(out[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0])), ph = rand() * 6.28;
             const pts = [];
-            for (let i = 0; i <= 6; i++) { const a = i * 1.4 + rand(); pts.push(add(add(start, mul(r.n, reach * 0.3 * i / 6)), mul(norm(cross(r.n, [0, 1, 0.3])), Math.sin(a) * 0.006 * H.scale))); }
-            addClump(m, pts, { width: 0.016 * H.scale, flat: 0.8, sides: 4, center: H.center, color: t => ramp(0.6, 0.75 + 0.3 * rand(), false) });
+            for (let i = 0; i <= 4; i++) {
+                const t = i / 4;
+                pts.push(add(add(s.q, mul(out, L * t - 0.002 * H.scale)), mul(side, Math.sin(ph + t * 5) * 0.0025 * H.scale * t)));
+            }
+            addCard(m, pts, { width: (0.007 + 0.005 * rand()) * H.scale, single: true, center: center, vFrom: 0.3, taper: t => 1 - 0.5 * t, color: () => ramp(0.6, 0.66 + 0.34 * rand(), false) });
         }
     }
 
@@ -1241,7 +1263,8 @@
     }
 
     // ── facial hair ────────────────────────────────────────────────────────
-    function facialField(H, style) {
+    /** `open` false: the zone runs right up to the lips (the skin under a beard), not round an open mouth. */
+    function facialField(H, style, open = true) {
         const rx = H.radii[0];
         const noseBase = mix(H.lipTop, H.noseTip[1], 0.55);
         const mouthY = (H.lipTop + H.lipBottom) / 2;
@@ -1265,15 +1288,20 @@
             // the sideburn, but well forward of it.
             const back = clamp((H.lipFront - p[2]) / Math.max(1e-6, H.lipFront - H.earFront), 0, 1);
             const diag = mix(noseBase - (noseBase - mouthY) * 0.1, mix(H.earBottom, H.earTop, 0.3), smooth(0.25, 0.9, back) * smooth(0.2, 0.55, ax));
-            const cheekLine = mix(diag, H.earTop - H.radii[1] * 0.15, smooth(0.8, 0.95, back) * smooth(0.65, 0.82, ax));
+            // The sideburn joins the cheek line in a gentle curve, not a step.
+            const cheekLine = mix(diag, H.earTop - H.radii[1] * 0.15, smooth(0.72, 1.0, back) * smooth(0.55, 0.85, ax));
             const above = (cheekLine - p[1]) / H.radii[1] * 60;
             const neckLine = H.neckBone.head[1] + (H.headBone.head[1] - H.neckBone.head[1]) * 0.08;
             const below = (p[1] - neckLine) / H.radii[1] * 60;
             // The mouth stays open: an ellipse around the lips.
             const mx = x / lipW, my = (p[1] - mouthY) / (lipH * 1.25);
-            const mouthOut = (Math.hypot(mx, my) - 1) * 6;
+            const mouthOut = open ? (Math.hypot(mx, my) - 1) * 6 : Infinity;
             let f = Math.min(above, below, mouthOut);
-            const mustacheBand = Math.min((noseBase - p[1]) / H.radii[1] * 60, (p[1] - (H.lipTop + lipH * 0.05)) / H.radii[1] * 60, (lipW * 1.15 - x) / rx * 60);
+            // A mustache's shape: under the nose its top follows the nostrils down toward the mouth's corners,
+            // and its ends round off past them, so it is never a rectangle.
+            const mx2 = Math.min(1.3, x / (lipW * 1.15));
+            const mustacheTop = noseBase - (noseBase - H.lipTop) * 0.55 * mx2 * mx2, mustacheLow = H.lipTop + lipH * 0.05 - lipH * 0.6 * smooth(0.7, 1.1, mx2);
+            const mustacheBand = Math.min((mustacheTop - p[1]) / H.radii[1] * 60, (p[1] - mustacheLow) / H.radii[1] * 60, (lipW * 1.15 - x) / rx * 60 + (1 - mx2 * mx2) * 2);
             const chinZone = (lipW * 1.4 - x) / rx * 60;
             switch (style) {
                 case 'goatee': f = Math.max(Math.min(f, chinZone, (mouthY + lipH - p[1]) / H.radii[1] * 60, (p[1] - (H.chin[1] - 0.012 * H.scale)) / H.radii[1] * 60), mustacheBand); break;
@@ -1284,7 +1312,7 @@
                     break;
                 }
                 case 'muttonChops': f = Math.min(f, (x - lipW * 1.9) / rx * 60); break;
-                case 'mustache': case 'pencil': case 'handlebar': case 'walrus': f = mustacheBand; if (style === 'pencil') f = Math.min(f, ((H.lipTop + lipH * 1.3) - p[1]) / H.radii[1] * 60); if (style === 'walrus') f = Math.max(mustacheBand, Math.min((lipW * 1.3 - x) / rx * 60, (noseBase - p[1]) / H.radii[1] * 60, (p[1] - mouthY) / H.radii[1] * 60)); break;
+                case 'mustache': case 'pencil': case 'handlebar': case 'walrus': f = mustacheBand; if (style === 'pencil') f = Math.min(f, ((H.lipTop + lipH * 1.3) - p[1]) / H.radii[1] * 60); if (style === 'walrus') { const mid = (noseBase + mouthY) / 2, hh = (noseBase - mouthY) / 2 * 1.15; f = Math.max(mustacheBand, (1 - Math.hypot(x / (lipW * 1.35), (p[1] - mid) / hh)) * 14); } break;
                 case 'horseshoe': f = Math.max(mustacheBand, Math.min((lipW * 1.4 - x) / rx * 60, (x - lipW * 0.95) / rx * 60, (noseBase - p[1]) / H.radii[1] * 60, (p[1] - (H.chin[1] - 0.004)) / H.radii[1] * 60)); break;
                 default: f = Math.max(f, mustacheBand);
             }
@@ -1314,14 +1342,16 @@
         // thins at the cheek, the neck and round the mouth; the hairs over it carry the strands.
         // How far in from the beard's edge a place is, against how far its middle is (the field's own scale
         // differs by style and face).
-        const skinRgb = linear(skin || '#c69c7f');
+        // The skin under a beard is painted with the beard's own shade (RRCharacterSkin): where the beard
+        // thins at its edge it gives way to that, not to bare skin, so no pale rim shows.
+        const skinRgb = (() => { const sk = linear(skin || '#c69c7f'), hc = linear(color); return mixRgb(sk, sk.map((c, i) => Math.min(c, hc[i] * 1.25)), 0.55); })();
         const sorted = Array.from(surf.val).sort((a, b) => a - b), deep = Math.max(1, sorted[Math.floor(sorted.length * 0.9)]);
         const inward = v => Math.min(1, v / deep);
         // The body is low (the hairs over it carry the volume), so its edge never stands as a step.
-        const body = stubble ? 1 : 0.3;
-        addShell(m, surf, i => thick * body * (stubble ? smooth(0, 8, surf.val[i]) : smooth(0, 0.7, inward(surf.val[i]))) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]),
-            i => (stubble ? mixRgb(skinRgb, shadeRgb(linear(color), 1.28), smooth(0, 10, surf.val[i])) : mixRgb(skinRgb, ramp(0.6, 1.05 + 0.15 * lumps(surf.pos[i]), false), smooth(0.04, 0.85, inward(surf.val[i])) * 0.92)));
-        if (f.style === 'stubble') return;
+        // Stubble is in the skin's own picture alone (its shadow and follicles): no geometry stands over it.
+        if (stubble) return;
+        addShell(m, surf, i => thick * 0.3 * smooth(0, 0.7, inward(surf.val[i])) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]),
+            i => mixRgb(skinRgb, ramp(0.6, 1.05 + 0.15 * lumps(surf.pos[i]), false), smooth(0.04, 0.85, inward(surf.val[i])) * 0.92));
         // Strands: many short, narrow locks lying along the face over the beard (single strips, so twice
         // the locks cost what the crossed ones did), long below the chin for the long styles.
         const long = { longBeard: 0.16, wizardBeard: 0.32, braidedBeard: 0.12, fullBeard: 0.05 }[f.style];
@@ -1609,6 +1639,22 @@
         return { width: size, height: size, data, name: 'lashes.png' };
     }
 
+    /**
+     * Every triangle wound so its front faces the way its vertices' normals
+     * do. A two-sided card is lit by its normal from the side its front
+     * faces and by the reverse from the other: wound against its normals,
+     * hair seen from outside would be lit from inside, and turn dark.
+     */
+    function faceOut(m) {
+        const P = m.pos, N = m.nrm, I = m.idx;
+        for (let t = 0; t < I.length; t += 3) {
+            const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+            const e1 = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], e2 = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
+            const f = cross(e1, e2), n = [N[a] + N[b] + N[c], N[a + 1] + N[b + 1] + N[c + 1], N[a + 2] + N[b + 2] + N[c + 2]];
+            if (dot(f, n) < 0) { const k = I[t + 1]; I[t + 1] = I[t + 2]; I[t + 2] = k; }
+        }
+    }
+
     // ── assembly ───────────────────────────────────────────────────────────
     /** Rigid on the head; below the head bone a blend toward Neck, below the neck toward Spine2. */
     function skinOf(H, y, rigid) {
@@ -1680,10 +1726,12 @@
         // Left out of the baked occlusion: hundreds of cards packed over the scalp would shade the skin round
         // the hairline into a dark blotch on the cheek, and each other into a dark helmet. The strands carry
         // their own root-to-tip shading.
+        faceOut(head);
         if (head.idx.length) parts.push(toPart(H, head, 'Hair', { extra: Object.assign({ noShade: true }, strands) }));
         rand = rng(seed ^ 0x51ed);
         const facial = meshBuilder();
         buildFacial(H, hair, facial, rand, hexOk(o.skin) ? o.skin : (built.recipe && built.recipe.skin));
+        faceOut(facial);
         if (facial.idx.length) parts.push(toPart(H, facial, 'Facial hair', { rigid: true, extra: strands }));
         const brows = buildBrows(H, hair);
         if (brows) parts.push(brows);
@@ -1708,7 +1756,7 @@
         const color = rand() < 0.08 ? pick(['#6a2fa0', '#2f6ad0', '#d02f6a', '#2fa06a', '#e0e0f0']) : pick(natural);
         return normalizeHair({
             style, color, length: 0.8 + rand() * 0.5, volume: rand(), curl: rand() < 0.2 ? rand() : 0,
-            part: pick(PARTS), fringe: rand() < 0.5 ? rand() : 0, hairline: male && rand() < 0.25 ? rand() * 0.8 : 0,
+            part: pick(PARTS), fringe: (STYLE_FRINGE[style] || [0])[0] * (0.6 + 0.8 * rand()), hairline: male && rand() < 0.25 ? rand() * 0.8 : 0,
             highlights: rand() < 0.2 ? rand() : 0,
             facial: { style: male && rand() < 0.45 ? pick(FACIAL.slice(1)).id : 'none', length: 0.7 + rand() * 0.6, volume: rand() },
             brows: { style: pick(['natural', 'natural', 'thin', 'thick', 'arched', 'straight', 'bushy']), thickness: male ? 0.5 + rand() * 0.5 : rand() * 0.6 }
@@ -1717,7 +1765,7 @@
 
     const api = {
         lashTexture, hairTexture, browTexture,
-        STYLES, FACIAL, BROWS, PARTS, DEFAULT_HAIR, normalizeHair, randomHair, build,
+        STYLES, FACIAL, BROWS, PARTS, STYLE_FRINGE, withStyle, DEFAULT_HAIR, normalizeHair, randomHair, build,
         _internal: { measure, headCoords, cutSurface, facialField, scalpField, meshBuilder, addShell, addClump, addTube, addBlob, grow, curlStrand, scatter, tangent, rng, hash, linear }
     };
     root.RRCharacterHair = api;

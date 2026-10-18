@@ -93,7 +93,8 @@ test('every beard and mustache grows on the lower face and leaves the mouth open
         const parts = Hair.build(pack, man, { style: 'bald', facial: { style: f.id } });
         assertWellFormed(parts, man, f.id);
         const facial = byName(parts, 'Facial hair');
-        if (f.id === 'none') { assert.equal(facial, undefined); continue; }
+        // Stubble is painted into the skin (RRCharacterSkin), with no geometry of its own.
+        if (f.id === 'none' || f.id === 'stubble') { assert.equal(facial, undefined); continue; }
         assert.ok(facial && facial.index.length > 0, f.id);
         const P = facial.positions;
         const lipW = H.lipHalf * 0.8, mouthY = (H.lipTop + H.lipBottom) / 2, lipH = (H.lipTop - H.lipBottom) / 2;

@@ -439,7 +439,12 @@ class Character3DBuilder {
         if (act === 'remove-garment') { r.outfit = r.outfit.filter(i => i.id !== b.dataset.id); this._replace(r); return; }
         if (act === 'remove-prop') { r.props = r.props.filter(i => i.id !== b.dataset.id); this._replace(r); return; }
         if (act === 'picker') { this.openPicker = this.openPicker === b.dataset.id ? null : b.dataset.id; this._renderPanel(); return; }
-        if (act === 'pick') { this._set(b.dataset.path, b.dataset.id); this._commit(); this._renderPanel(); this._queueRebuild(); return; }
+        if (act === 'pick') {
+            // A new haircut comes with its own bangs.
+            if (b.dataset.path === 'hair.style') this._set('hair', RRCharacterHair.withStyle(this.recipe.hair, b.dataset.id));
+            else this._set(b.dataset.path, b.dataset.id);
+            this._commit(); this._renderPanel(); this._queueRebuild(); return;
+        }
         if (act === 'add-garment' || act === 'add-prop') {
             const id = b.dataset.id;
             if (!id) return;
@@ -898,7 +903,7 @@ class Character3DBuilder {
         }
         // The rest show one thing on the character as it stands, without its outfit or other accessories.
         const base = Object.assign({}, r, { outfit: [], props: [] });
-        if (item.kind === 'hair') base.hair = Object.assign({}, r.hair, { style: item.id });
+        if (item.kind === 'hair') base.hair = RRCharacterHair.withStyle(r.hair, item.id);
         if (item.kind === 'facial') base.hair = Object.assign({}, r.hair, { facial: Object.assign({}, r.hair.facial, { style: item.id }) });
         if (item.kind === 'brows') base.hair = Object.assign({}, r.hair, { brows: Object.assign({}, r.hair.brows, { style: item.id }) });
         if (item.kind === 'garment') base.outfit = [{ id: item.id }];
@@ -1783,7 +1788,7 @@ class Character3DBuilder {
         try {
             const fs = require('fs'), path = require('path');
             const dir = path.join(RRHumanBody.dataFolder(), '..');
-            const code = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterSkin'].map(f => fs.readFileSync(path.join(dir, f + '.js'), 'utf8')).join('\n;\n') + `
+            const code = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterHair', 'CharacterSkin'].map(f => fs.readFileSync(path.join(dir, f + '.js'), 'utf8')).join('\n;\n') + `
                 let pack = null;
                 self.onmessage = e => {
                     if (e.data.init) { pack = self.RRHumanBody.openPack(e.data.json, new Uint8Array(e.data.bin)); return; }

@@ -194,6 +194,28 @@
         return d;
     }
 
+    /**
+     * How densely a facial hair style grows at each vertex of the average
+     * body, 0..1: the style's own zone (RRCharacterHair's), full well inside
+     * it and fading over a couple of centimeters at its edge.
+     */
+    function beardField(pack, style) {
+        pack._beardFields = pack._beardFields || new Map();
+        if (pack._beardFields.has(style)) return pack._beardFields.get(style);
+        // The hair module is loaded after this one (in the editor page and the skin painter alike).
+        const Hair = root.RRCharacterHair;
+        const Body = root.RRHumanBody || require('./HumanBody.js');
+        if (!Hair || !Hair._internal) return null;
+        const built = pack._averageBuilt || (pack._averageBuilt = Body.build(pack, Body.DEFAULT_RECIPE));
+        const H = Hair._internal.measure(pack, built), field = Hair._internal.facialField(H, style, false);
+        const f = new Float32Array(pack.vertexCount * 3);
+        for (const v of H.headVerts) f[v * 3] = smooth(-2.5, 6, field(v));
+        const eased = Body.relax(pack, f, 3), out = new Float32Array(pack.vertexCount);
+        for (let v = 0; v < pack.vertexCount; v++) out[v] = Math.min(1, eased[v * 3]);
+        pack._beardFields.set(style, out);
+        return out;
+    }
+
     /** An age in years as the step its skin is painted at: none below 35, then each five years. */
     function ageStep(years) {
         return years < 35 ? 0 : Math.min(90, Math.round(years / 5) * 5);
@@ -431,10 +453,24 @@
         const deep = 1 - Math.min(1, (base[0] * 0.3 + base[1] * 0.55 + base[2] * 0.15) * 2.2);
         const palm = (p.fam === 1 || p.fam === 2) ? smooth(2.9, 3.1, p.s) * smooth(-0.1, -0.5, p.n[1]) : (p.fam === 3 || p.fam === 4) ? smooth(1.9, 2.05, p.s) * smooth(-0.3, -0.7, p.n[1]) : 0;
         if (palm > 0) rgb = mix(rgb, rgb.map((c, i) => Math.min(1, c * [1.7, 1.6, 1.5][i])), palm * (0.15 + 0.45 * deep));
-        // A shaved beard's shadow on a man's jaw, chin and upper lip: fine stubble, cool and stippled.
-        if (s.beard && p.jaw > 0.2 && p.lips < 0.3) {
-            const stub = 0.45 + 0.55 * smooth(0.45, 0.75, hash3(Math.floor(x * 1400), Math.floor(y * 1400), Math.floor(z * 1400)));
-            rgb = mix(rgb, rgb.map((c, i) => c * [0.74, 0.77, 0.84][i]), smooth(0.2, 0.6, p.jaw) * (1 - smooth(0.15, 0.3, p.lips)) * s.beard * 0.5 * stub);
+        // Where a beard grows: under facial hair, its color in the skin, a shadow and the grain of its
+        // follicles, thinning at a soft edge, so skin shows between the hairs there; on a shaved man the
+        // same zone carries a faint cool stubble shadow.
+        if (p.beardD > 0.01) {
+            // A beard grows right up to the lips' edge.
+            const d = p.beardD, lips = 1 - smooth(0.22, 0.4, p.lips);
+            const [d1] = cells(x, y, z, 0.0012);
+            const grain = (d1 < 0.34 ? 1 - d1 / 0.34 : 0) * (hash3(Math.floor(x * 830), Math.floor(y * 830), Math.floor(z * 830)) < 0.25 + 0.65 * d ? 1 : 0);
+            if (s.facial) {
+                // The hair's own color laid into the skin, densest well inside the zone; the follicles a
+                // fine darker grain over it, so the beard's edge reads as hair thinning, not a cut line.
+                // Stubble reads cooler than the hair itself: the hairs under the skin seen through it.
+                const under = s.facial.rgb.map((c, i) => Math.min(rgb[i], c * 1.25) * (1 - s.facial.stubble * 0.35) + rgb[i] * [0.62, 0.64, 0.7][i] * s.facial.stubble * 0.35), a = s.facial.amount;
+                rgb = mix(rgb, under, d * (0.55 + 0.15 * s.facial.stubble) * lips * a);
+                rgb = mix(rgb, s.facial.rgb, grain * (0.4 + 0.3 * s.facial.stubble) * Math.sqrt(d) * lips * a);
+            } else if (s.beard) {
+                rgb = mix(rgb, rgb.map((c, i) => c * [0.74, 0.77, 0.84][i]), d * lips * s.beard * (0.3 + 0.25 * grain));
+            }
         }
         // A paler front: the belly, the throat, the insides of the limbs.
         if (belly) {
@@ -605,13 +641,17 @@
         const base = Outfit.linear(skinHex || '#c69c7f');
         const data = new Uint8Array(size * size * 4), filled = new Uint8Array(size * size);
         const body = pack.body;
-        const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, lids: 0, bags: 0, seam: 0, cheeks: 0, nose: 0, noseTip: 0, ears: 0, jaw: 0 };
+        const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, lids: 0, bags: 0, seam: 0, beardD: 0, cheeks: 0, nose: 0, noseTip: 0, ears: 0, jaw: 0 };
         s.beard = Math.max(0, Math.min(1, (options && options.beard) || 0));
         s.earHoles = !!(options && options.earHoles);
         // Age (years, from ageStep): the face's lines grow in from 35 and deepen to 85.
         s.ageing = options && options.age ? smooth(35, 85, options.age) : 0;
+        // Facial hair: { style, color } paints its zone into the skin; a shaved man's shadow uses a full beard's zone.
+        const facial = options && options.facial && options.facial.style && options.facial.style !== 'none' ? options.facial : null;
+        if (facial) s.facial = { rgb: Outfit.linear(facial.color || '#2a1d15').map(c => c * 0.85), amount: 1, stubble: facial.style === 'stubble' ? 1 : 0 };
+        s.beardField = facial || s.beard ? beardField(pack, facial ? facial.style : 'fullBeard') : null;
         if (s.ageing) s.marks = F.marks;
-        if (options && options.scalp) s.scalp = { rgb: Outfit.linear(options.scalp.color).map(c => c * 0.75), recede: options.scalp.recede || 0 };
+        if (options && options.scalp) s.scalp = { rgb: Outfit.linear(options.scalp.color).map(c => c * 0.9), recede: options.scalp.recede || 0 };
         if (options && options.bodyHair && (options.bodyHair.amount > 0.01 || options.bodyHair.fur > 0.05)) {
             s.bodyHair = Object.assign({}, options.bodyHair, { rgb: Outfit.linear(options.bodyHair.color || '#2a1d15') });
             s.hairField = hairField(pack, s.bodyHair.regions);
@@ -670,6 +710,7 @@
                 p.ears = W.reduce((sum, w, k) => sum + w * F.ears[v[k]], 0);
                 p.jaw = W.reduce((sum, w, k) => sum + w * F.jaw[v[k]], 0);
                 if (s.hairField) p.hair = s.hairField[v[0]] * w0 + s.hairField[v[1]] * w1 + s.hairField[v[2]] * w2;
+                p.beardD = s.beardField ? s.beardField[v[0]] * w0 + s.beardField[v[1]] * w1 + s.beardField[v[2]] * w2 : 0;
                 let rgb, alpha = 255;
                 if (fur) {
                     const dens = Math.min(1, hairDensity(fur.regions, p) * (0.4 + fur.fur * 0.8));
