@@ -129,6 +129,21 @@ Reactor3D.SHADER_LIGHTS = 32;
  */
 Reactor3D.VOLUME_LIGHT_GAIN = 2;
 
+/**
+ * Models are lit by which way each face points: a light lands at its full
+ * strength on a face turned to it, wrapped round the edge by
+ * MODEL_FACING_WRAP (0 is plain Lambert), and a face turned away keeps
+ * MODEL_FACING_FLOOR of it, so the shaded side of a figure reads as form and
+ * never as a black cut-out. The ambient takes MODEL_SKY_FALLOFF less on a face
+ * turned straight down. Map tiles, pieces and terrain keep their own shading.
+ * False lights every model by distance alone, as before (read when a
+ * material compiles).
+ */
+Reactor3D.MODEL_FACING = true;
+Reactor3D.MODEL_FACING_WRAP = 0.5;
+Reactor3D.MODEL_FACING_FLOOR = 0.3;
+Reactor3D.MODEL_SKY_FALLOFF = 0.12;
+
 /** How strongly a light's own body glows, before its intensity. */
 Reactor3D.VOLUME_GLOW = 0.55;
 /** The largest glow ball a point light's body grows to, in tiles. */
@@ -375,6 +390,8 @@ Reactor3D.lightUniforms = function() {
         // The light a material's relief is shaded against: the map's sun where it stands (w 1),
         // else a direction from above (w 0).
         rrKeyLight: { value: new Float32Array(Reactor3D.KEY_LIGHT_DEFAULT) },
+        // The key light's color when it is a sun (what shiny surfaces take a highlight from), else black.
+        rrKeyColor: { value: new Float32Array(3) },
         // Which shadow tile each light samples, -1 for none.
         rrLightShadow: { value: new Float32Array(n).fill(-1) },
         // Per tile: near, far, its dynamic tile (-1 for none), softness (in face units).
@@ -494,7 +511,7 @@ Reactor3D.shadowGlsl = function(taps) {
         "uniform vec4 rrSunShadowTexel;",
         // How much of the ambient a point in the sun's shadow loses, and how shaded this point is.
         "uniform float rrSunShade;",
-        "float rrSunShaded;",
+        "float rrSunShaded = 0.0;",
         // The surface's own facing, from rrLight's derivatives (taken where every pixel runs them).
         "vec3 rrSunNormal;",
         "float rrSunCascade(int c, vec3 s) {",
@@ -568,6 +585,22 @@ Reactor3D.lightGlsl = function(shadows, taps) {
         "uniform vec4 rrKeyLight;",
         "uniform float rrSelfLit;",
         "varying vec3 vRRWorldPos;",
+        // A model's facing (Reactor3D.MODEL_FACING): its normal and how much it counts, set
+        // by the material before it asks for the light; 0 everywhere else, as before.
+        "vec3 rrFaceN = vec3(0.0, 1.0, 0.0);",
+        "float rrFace = 0.0;",
+        "uniform vec3 rrKeyColor;",
+        // The facing a light computed elsewhere (the quarter-size pass) is short of: the sun's
+        // share of the light at its facing, and the sky's share at the face's tilt.
+        "float rrFaceShare(vec3 n) {",
+        "\tfloat k = dot(rrKeyColor, vec3(0.333)), a = dot(rrAmbient, vec3(0.333));",
+        "\tfloat w = rrKeyLight.w < 0.5 ? k / max(k + a, 1e-4) : 0.0;",
+        "\tfloat t = " + (this.MODEL_FACING_FLOOR || 0).toFixed(3) + " + " + (1 - (this.MODEL_FACING_FLOOR || 0)).toFixed(3) + " * clamp((dot(n, normalize(rrKeyLight.xyz)) + " + (this.MODEL_FACING_WRAP || 0).toFixed(3) + ") / " + (1 + (this.MODEL_FACING_WRAP || 0)).toFixed(3) + ", 0.0, 1.0);",
+        "\treturn (1.0 - w) * (1.0 - " + (this.MODEL_SKY_FALLOFF || 0).toFixed(3) + " * (1.0 - n.y)) + w * t;",
+        "}",
+        // About the light the quarter-size combine will multiply a surface by: what a glow or a
+        // sheen added before it is divided by, so it comes out near its own strength.
+        "float rrLightGuess() { return max(dot(rrAmbient + rrKeyColor, vec3(0.333)), 0.25); }",
         "vec3 rrLight(vec3 p) {",
         "\tvec3 sum = rrAmbient;",
         shadows ? "\trrSunShaded = 0.0;\n\trrSunNormal = cross(dFdx(p), dFdy(p));" : "",
@@ -613,10 +646,18 @@ Reactor3D.lightGlsl = function(shadows, taps) {
         "\t\t}",
         "\t\t}",
         shadows ? "\t\tfloat sh = rrLightShadow[i];\n\t\tif (sh > " + ((this.SUN_SHADOW_ROW || 64) - 0.5).toFixed(1) + ") { float sv = rrSunShadowAt(p); rrSunShaded = fall * (1.0 - sv); fall *= sv; }\n\t\telse if (sh >= 0.0) fall *= rrShadowAt(int(sh + 0.5), p);" : "",
+        // Toward the light (a sun's direction is its aim): the side facing away keeps a floor of it.
+        "\t\tif (rrFace > 0.0) {",
+        "\t\t\tvec3 rrDL = lc.w > 2.5 ? rrLightAim[i].xyz : -d;",
+        "\t\t\tfloat rrNL = dot(rrFaceN, rrDL) * inversesqrt(max(dot(rrDL, rrDL), 1e-8));",
+        "\t\t\tfall *= mix(1.0, " + (this.MODEL_FACING_FLOOR || 0).toFixed(3) + " + " + (1 - (this.MODEL_FACING_FLOOR || 0)).toFixed(3) + " * clamp((rrNL + " + (this.MODEL_FACING_WRAP || 0).toFixed(3) + ") / " + (1 + (this.MODEL_FACING_WRAP || 0)).toFixed(3) + ", 0.0, 1.0), rrFace);",
+        "\t\t}",
         "\t\tsum += lc.rgb * fall;",
         "\t}",
         // What stands between a point and the sun also hides part of the sky.
         shadows ? "\tsum -= rrAmbient * (rrSunShade * rrSunShaded);" : "",
+        // The sky's light comes from above: a face turned down takes less of the ambient.
+        "\tif (rrFace > 0.0) sum -= rrAmbient * (rrFace * " + (this.MODEL_SKY_FALLOFF || 0).toFixed(3) + " * (1.0 - rrFaceN.y));",
         "\treturn sum;",
         "}"
     ].filter(line => line !== "").join("\n") + "\n";
@@ -719,8 +760,11 @@ Reactor3D.setKeyLight = function(uniforms, count) {
     if (!key) return;
     const pos = uniforms.rrLightPos.value, col = uniforms.rrLightColor.value;
     const aim = uniforms.rrLightAim && uniforms.rrLightAim.value;
+    const tint = uniforms.rrKeyColor && uniforms.rrKeyColor.value;
+    if (tint) tint.fill(0);
     for (let i = 0; i < count; i++) {
         if (col[i * 4 + 3] <= 2.5) continue;
+        if (tint) { tint[0] = col[i * 4]; tint[1] = col[i * 4 + 1]; tint[2] = col[i * 4 + 2]; }
         // A sun is directional: the way toward it, as its aim holds it.
         if (aim && aim[i * 4 + 1] > 0) { key[0] = aim[i * 4]; key[1] = aim[i * 4 + 1]; key[2] = aim[i * 4 + 2]; key[3] = 0; return; }
         key[0] = pos[i * 4]; key[1] = pos[i * 4 + 1]; key[2] = pos[i * 4 + 2]; key[3] = 1; return;
@@ -808,7 +852,71 @@ Reactor3D.cacheUniformArrays = function(renderer) {
 /** False reads every linked program's uniforms as the draw begins (a wait on the GPU process per new program). */
 Reactor3D.lazyUniformArrays = true;
 
-Reactor3D.injectLightShader = function(shader, renderer) {
+/** The world-space normal a lit material's fragment reads (`vRRWorldNormal`), declared once whoever asks first. */
+Reactor3D.WORLD_NORMAL_VARYING = "#ifndef RR_WORLD_NORMAL\n#define RR_WORLD_NORMAL\nvarying vec3 vRRWorldNormal;\n#endif\n";
+Reactor3D.injectWorldNormal = function(shader) {
+    if (shader.vertexShader.indexOf("vRRWorldNormal = ") >= 0) return;
+    shader.vertexShader = this.WORLD_NORMAL_VARYING + shader.vertexShader.replace(
+        "#include <project_vertex>",
+        [
+            "#include <project_vertex>",
+            "{",
+            "#ifdef USE_SKINNING",
+            "\tvec3 rrObjN = objectNormal;",
+            "#else",
+            "\tvec3 rrObjN = normal;",
+            "#endif",
+            "#ifdef USE_INSTANCING",
+            "\trrObjN = mat3(instanceMatrix) * rrObjN;",
+            "#endif",
+            "\tvRRWorldNormal = normalize(mat3(modelMatrix) * rrObjN);",
+            "}"
+        ].join("\n")
+    );
+    if (shader.fragmentShader.indexOf("RR_WORLD_NORMAL") < 0) shader.fragmentShader = this.WORLD_NORMAL_VARYING + shader.fragmentShader;
+};
+
+/** Whether a material is lit by which way its faces point (a model's, see MODEL_FACING). */
+Reactor3D.facesLight = function(material) {
+    return !!(this.MODEL_FACING && material && material.__reactorModel && !material.__reactorSelfLit);
+};
+
+/**
+ * The GLSL that sets a model's facing before its light is asked for: its
+ * normal, turned toward the eye (a double-sided leaf or cloth lights from the
+ * side seen), bent by its normal map where it has one.
+ */
+Reactor3D.faceGlsl = function(normalMap) {
+    return [
+        // A mesh without normals lights as before. No branch: the normal map's derivatives need every pixel.
+        "{",
+        "\tfloat rrFL = dot(vRRWorldNormal, vRRWorldNormal);",
+        "\tvec3 rrFN = rrFL > 1e-8 ? vRRWorldNormal * inversesqrt(rrFL) : vec3(0.0, 1.0, 0.0);",
+        "\tif (dot(rrFN, cameraPosition - vRRWorldPos) < 0.0) rrFN = -rrFN;",
+        normalMap ? "\trrFN = rrPerturbNormal(vRRWorldPos, rrFN, texture2D(rrNormalMap, vMapUv).xyz * 2.0 - 1.0, vMapUv);" : "",
+        "\trrFaceN = rrFN;",
+        "\trrFace = rrFL > 1e-8 ? 1.0 : 0.0;",
+        "}"
+    ].filter(Boolean).join("\n\t") + "\n\t";
+};
+
+/** A normal map's normal on a surface with no tangents: the frame from the screen derivatives of place and uv. */
+Reactor3D.PERTURB_NORMAL_GLSL = [
+    "uniform sampler2D rrNormalMap;",
+    "uniform vec2 rrNormalScale;",
+    "vec3 rrPerturbNormal(vec3 pos, vec3 n, vec3 m, vec2 uv) {",
+    "\tvec3 q0 = dFdx(pos), q1 = dFdy(pos);",
+    "\tvec2 st0 = dFdx(uv), st1 = dFdy(uv);",
+    "\tvec3 q1p = cross(q1, n), q0p = cross(n, q0);",
+    "\tvec3 t = q1p * st0.x + q0p * st1.x, b = q1p * st0.y + q0p * st1.y;",
+    "\tfloat det = max(dot(t, t), dot(b, b));",
+    "\tfloat k = det == 0.0 ? 0.0 : inversesqrt(det);",
+    "\tm.xy *= rrNormalScale;",
+    "\treturn normalize(t * (m.x * k) + b * (m.y * k) + n * m.z);",
+    "}"
+].join("\n") + "\n";
+
+Reactor3D.injectLightShader = function(shader, renderer, material) {
     const uniforms = this.lightUniforms();
     this.LightGrid.ensure(uniforms);
     if (this.LightVolume) this.LightVolume.uniforms();
@@ -834,17 +942,30 @@ Reactor3D.injectLightShader = function(shader, renderer) {
     // is first set: a fragment about to be thrown away never pays for the
     // light loop. The product is the same, taken in another order. A
     // self-lit material (a Glow) skips the loop outright: its term is 1.
+    // A model: lit by which way its faces point (and its normal map, where it has one beside its picture).
+    const faces = this.facesLight(material);
+    const normalMap = faces && !!(material.userData && material.userData.rrNormalMap && material.userData.rrNormalMap.isTexture) && !!material.map;
+    let face = "", faceDecl = "";
+    if (faces) {
+        this.injectWorldNormal(shader);
+        face = this.faceGlsl(normalMap);
+        if (normalMap) {
+            faceDecl = this.PERTURB_NORMAL_GLSL;
+            shader.uniforms.rrNormalMap = { value: material.userData.rrNormalMap };
+            shader.uniforms.rrNormalScale = { value: material.userData.rrNormalScale || new THREE.Vector2(1, 1) };
+        }
+    }
     if (this.lateLighting !== false && shader.fragmentShader.indexOf("#include <alphahash_fragment>") >= 0
         && shader.fragmentShader.indexOf("vec4 diffuseColor = vec4( diffuse, opacity );") >= 0) {
-        shader.fragmentShader = glsl + shader.fragmentShader.replace(
+        shader.fragmentShader = faceDecl + glsl + shader.fragmentShader.replace(
             "#include <alphahash_fragment>",
-            "#include <alphahash_fragment>\n\tif (rrSelfLit < 1.0) diffuseColor.rgb *= mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);\n\t" + this.LIT_MARK
+            "#include <alphahash_fragment>\n\t" + face + "if (rrSelfLit < 1.0) diffuseColor.rgb *= mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);\n\t" + this.LIT_MARK
         );
         return;
     }
-    shader.fragmentShader = glsl + shader.fragmentShader.replace(
+    shader.fragmentShader = faceDecl + glsl + shader.fragmentShader.replace(
         "vec4 diffuseColor = vec4( diffuse, opacity );",
-        "vec3 rrLightTerm = mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);\n\tvec4 diffuseColor = vec4( diffuse * rrLightTerm, opacity );"
+        face + "vec3 rrLightTerm = mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);\n\tvec4 diffuseColor = vec4( diffuse * rrLightTerm, opacity );"
     );
 };
 /** Where the lit colour is final, for what blends over it (see injectBlendColor). */
@@ -2010,6 +2131,10 @@ Reactor3D.waterVolumeMaterial = function(material) {
 /** The cube capture's face size: sharp enough to read a room in chrome (half on a middling GPU, see `reflectionSize`). */
 Reactor3D.REFLECTION_SIZE = 512;
 Reactor3D.reflectionSize = function() { return this.tier() === "full" ? this.REFLECTION_SIZE : this.REFLECTION_SIZE / 2; };
+/** The brightest a shiny surface's sun highlight gets, times the sun's color. */
+Reactor3D.SHINE_HIGHLIGHT_MAX = 4;
+/** The sharpest mip a shiny surface reads from the live capture: 2 is a 128-texel face at 512. */
+Reactor3D.REFLECTION_MIN_LOD = 2;
 
 Reactor3D.Reflections = {
     _target: null,
@@ -2966,23 +3091,7 @@ Reactor3D.injectShine = function(material, shader) {
     for (const name of Object.keys(mirror)) shader.uniforms[name] = mirror[name];
     shader.uniforms.rrShine = { value: shine.vector };
     shader.uniforms.rrShineTint = { value: shine.tint };
-    shader.vertexShader = "varying vec3 vRRWorldNormal;\n" + shader.vertexShader.replace(
-        "#include <project_vertex>",
-        [
-            "#include <project_vertex>",
-            "{",
-            "#ifdef USE_SKINNING",
-            "\tvec3 rrObjN = objectNormal;",
-            "#else",
-            "\tvec3 rrObjN = normal;",
-            "#endif",
-            "#ifdef USE_INSTANCING",
-            "\trrObjN = mat3(instanceMatrix) * rrObjN;",
-            "#endif",
-            "\tvRRWorldNormal = normalize(mat3(modelMatrix) * rrObjN);",
-            "}"
-        ].join("\n")
-    );
+    this.injectWorldNormal(shader);
     shader.fragmentShader = [
         "uniform samplerCube rrEnvMap;",
         "uniform float rrEnvMaxLod;",
@@ -2994,7 +3103,7 @@ Reactor3D.injectShine = function(material, shader) {
         "uniform float rrMirrorTolerance;",
         "uniform vec4 rrShine;",
         "uniform vec3 rrShineTint;",
-        "varying vec3 vRRWorldNormal;"
+        this.WORLD_NORMAL_VARYING
     ].join("\n") + "\n" + shader.fragmentShader.replace(
         "#include <opaque_fragment>",
         [
@@ -3021,7 +3130,13 @@ Reactor3D.injectShine = function(material, shader) {
             "\t\tif (rrH > 0.0) rrR = normalize(rrL + rrR * (-rrB + sqrt(rrH)));",
             "\t}",
             "\trrR.x *= rrEnvFlip;",
-            "\tvec3 rrEnv = textureLod(rrEnvMap, rrR, rrShine.y * rrEnvMaxLod).rgb;",
+            // The capture's mips are box filtered: a lobe as wide as roughness spreads it
+            // reads the level whose texel covers it (sigma = pi r^2 / (1 + r) of the face),
+            // and never finer than REFLECTION_MIN_LOD, past which a point capture's near
+            // detail (grass a tile below) only speckles a curved surface. The studio has one level.
+            "\tfloat rrLod = rrEnvMaxLod > 0.0 ? clamp(rrEnvMaxLod + log2(max(3.14159265 * rrShine.y * rrShine.y / (1.0 + rrShine.y), 1e-6)), "
+                + (Reactor3D.REFLECTION_MIN_LOD || 0).toFixed(2) + ", rrEnvMaxLod) : 0.0;",
+            "\tvec3 rrEnv = textureLod(rrEnvMap, rrR, rrLod).rgb;",
             // A live capture holds sRGB (flip 1); the studio cube is decoded by the GPU (flip -1).
             "\tif (rrEnvFlip > 0.0) rrEnv = rrSRGBToLinear(rrEnv);",
             // The studio is a noon sky: dimmed and tinted to the map's time of day.
@@ -3039,10 +3154,91 @@ Reactor3D.injectShine = function(material, shader) {
             "\tvec3 rrMirror = mix(outgoingLight, rrRefl, rrA * (1.0 - rrShine.w));",
             "\tvec3 rrGlaze = clamp(rrRefl * rrRefl * rrRefl * 1.6 * rrA * rrShine.w, 0.0, 1.0);",
             "\toutgoingLight = rrMirror + rrGlaze - rrMirror * rrGlaze;",
+            // The sun's highlight: a GGX lobe as wide as the roughness, in the reflection's
+            // tint, gone where the sun is shadowed. What gives a metal its shape and its
+            // color under an open sky; a mirror's is a small bright point.
+            "\tif (rrKeyLight.w < 0.5 && dot(rrKeyColor, rrKeyColor) > 0.0) {",
+            "\t\tvec3 rrKL = normalize(rrKeyLight.xyz), rrKH = normalize(rrKL + rrV);",
+            "\t\tfloat rrKNL = max(dot(rrN, rrKL), 0.0), rrKNH = max(dot(rrN, rrKH), 0.0);",
+            "\t\tfloat rrKA = max(rrShine.y * rrShine.y, 0.002), rrKA2 = rrKA * rrKA, rrKD = rrKNH * rrKNH * (rrKA2 - 1.0) + 1.0;",
+            "\t\tfloat rrKGGX = min(rrKA2 / (3.14159265 * rrKD * rrKD) * rrKNL * 0.25, " + (Reactor3D.SHINE_HIGHLIGHT_MAX || 4).toFixed(2) + ");",
+            "#ifdef RR_SHADOW_TAPS",
+            "\t\trrKGGX *= 1.0 - clamp(rrSunShaded, 0.0, 1.0);",
+            "#endif",
+            "\t\toutgoingLight += rrKeyColor * rrShineTint * (rrKGGX * rrShine.x * rrF0);",
+            "\t}",
             "}",
             "#include <opaque_fragment>"
         ].join("\n")
     );
+};
+
+/**
+ * A model's glTF emissive (`emissiveFactor`, times `KHR_materials_emissive_strength`,
+ * times its `emissiveTexture` where it shares the picture's coordinates):
+ * `material.userData.rrEmissive`, a THREE.Color changed in place to animate it,
+ * and `rrEmissiveMap`. Added over the lit colour, so no shade, shadow or
+ * darkness dims it.
+ *
+ * Hair (a model material named Hair, Beard, Brows or Lashes,
+ * `userData.rrHair`) takes a two-lobe strand sheen (Kajiya-Kay) from the key
+ * light: a narrow white one shifted toward the tip and a broad one in the
+ * hair's own colour shifted toward the root, the strand running the way its
+ * picture's v runs (root to tip on the builder's cards). Lit by the sun where
+ * there is one, else by a share of the ambient from above.
+ */
+Reactor3D.HAIR_SHEEN = { primary: 0.1, secondary: 0.32, sharp: 90, soft: 22, shift: 0.14 };
+Reactor3D.glowKey = function(material) {
+    const data = material && material.userData;
+    if (!data) return "";
+    const emit = data.rrEmissive && (data.rrEmissive.r > 0 || data.rrEmissive.g > 0 || data.rrEmissive.b > 0);
+    return (emit ? (data.rrEmissiveMap && data.rrEmissiveMap.isTexture && material.map ? "|emit-map" : "|emit") : "") + (data.rrHair && material.map ? "|hair" : "");
+};
+Reactor3D.injectSurfaceGlow = function(material, shader) {
+    const key = this.glowKey(material);
+    if (!key || !shader || shader.fragmentShader.indexOf("#include <opaque_fragment>") < 0) return;
+    const data = material.userData, lines = [], decl = [];
+    if (/\|emit/.test(key)) {
+        shader.uniforms.rrEmissive = { value: data.rrEmissive };
+        decl.push("uniform vec3 rrEmissive;");
+        if (/emit-map/.test(key)) {
+            shader.uniforms.rrEmissiveMap = { value: data.rrEmissiveMap };
+            decl.push("uniform sampler2D rrEmissiveMap;");
+            lines.push("\toutgoingLight += rrEmissive * texture2D(rrEmissiveMap, vMapUv).rgb;");
+        } else lines.push("\toutgoingLight += rrEmissive;");
+    }
+    if (/\|hair/.test(key)) {
+        this.injectWorldNormal(shader);
+        const h = this.HAIR_SHEEN, f = v => Number(v).toFixed(3);
+        lines.push(
+            "\t{",
+            "\t\tvec3 rrHN = normalize(vRRWorldNormal), rrHV = normalize(cameraPosition - vRRWorldPos);",
+            "\t\tif (dot(rrHN, rrHV) < 0.0) rrHN = -rrHN;",
+            // The strand: the way the picture's v runs on the surface, from the screen derivatives (taken before any branch).
+            "\t\tvec3 rrQ0 = dFdx(vRRWorldPos), rrQ1 = dFdy(vRRWorldPos);",
+            "\t\tvec2 rrS0 = dFdx(vMapUv), rrS1 = dFdy(vMapUv);",
+            "\t\tfloat rrHD = rrS0.x * rrS1.y - rrS1.x * rrS0.y;",
+            "\t\tvec3 rrHT = (rrQ1 * rrS0.x - rrQ0 * rrS1.x) * (rrHD < 0.0 ? -1.0 : 1.0);",
+            "\t\trrHT -= rrHN * dot(rrHT, rrHN);",
+            "\t\tfloat rrHTL = dot(rrHT, rrHT);",
+            "\t\tvec3 rrHL = normalize(rrKeyLight.w < 0.5 ? rrKeyLight.xyz : rrKeyLight.xyz - vRRWorldPos);",
+            "\t\tvec3 rrHC = rrKeyLight.w < 0.5 && dot(rrKeyColor, rrKeyColor) > 0.0 ? rrKeyColor : rrAmbient * 0.6;",
+            "#ifdef RR_SHADOW_TAPS",
+            "\t\trrHC *= 1.0 - clamp(rrSunShaded, 0.0, 1.0);",
+            "#endif",
+            "\t\tif (rrHTL > 1e-14) {",
+            "\t\t\trrHT *= inversesqrt(rrHTL);",
+            "\t\t\tvec3 rrHH = normalize(rrHL + rrHV);",
+            "\t\t\tvec3 rrT1 = normalize(rrHT + rrHN * " + f(h.shift) + "), rrT2 = normalize(rrHT - rrHN * " + f(h.shift) + ");",
+            "\t\t\tfloat rrD1 = dot(rrT1, rrHH), rrD2 = dot(rrT2, rrHH);",
+            "\t\t\tfloat rrP = pow(sqrt(max(0.0, 1.0 - rrD1 * rrD1)), " + f(h.sharp) + "), rrSec = pow(sqrt(max(0.0, 1.0 - rrD2 * rrD2)), " + f(h.soft) + ");",
+            "\t\t\tfloat rrHNL = clamp(dot(rrHN, rrHL) * 0.5 + 0.5, 0.0, 1.0);",
+            "\t\t\toutgoingLight += rrHC * rrHNL * (" + f(h.primary) + " * rrP + " + f(h.secondary) + " * rrSec * diffuseColor.rgb);",
+            "\t\t}",
+            "\t}"
+        );
+    }
+    shader.fragmentShader = decl.join("\n") + "\n" + shader.fragmentShader.replace("#include <opaque_fragment>", lines.join("\n") + "\n#include <opaque_fragment>");
 };
 
 Reactor3D.litMaterial = function(material) {
@@ -3051,7 +3247,7 @@ Reactor3D.litMaterial = function(material) {
     const earlier = material.onBeforeCompile;
     material.onBeforeCompile = function(shader, renderer) {
         if (typeof earlier === "function") earlier.call(this, shader, renderer);
-        Reactor3D.injectLightShader(shader, renderer);
+        Reactor3D.injectLightShader(shader, renderer, this);
         if (Reactor3D.injectMaterialDetail) Reactor3D.injectMaterialDetail(this, shader);
         // A self-lit material (a Glow) ignores the lights: its own uniform, one per material.
         shader.uniforms.rrSelfLit = { value: this.__reactorSelfLit ? 1 : 0 };
@@ -3062,12 +3258,16 @@ Reactor3D.litMaterial = function(material) {
         Reactor3D.injectShine(this, shader);
         // A model variant's color adjustment, last: the texel is adjusted before anything above mixes over it.
         if (Reactor3D.injectLook) Reactor3D.injectLook(this, shader);
+        // What a surface gives off over its light, last: its glow and a hair strand's sheen.
+        Reactor3D.injectSurfaceGlow(this, shader);
     };
     const earlierKey = material.customProgramCacheKey;
     material.customProgramCacheKey = function() {
         return (typeof earlierKey === "function" ? earlierKey.call(this) : "") + "|reactor3d-lit" + (this.__reactorPieces ? "|cutaway" : this.__reactorModel ? "|sightline" : "") + (this.__reactorGhost ? "|ghost" : "")
             + (Reactor3D.Shadows.active() ? "|shadows" + Reactor3D.Shadows.quality().taps : "")
             + (Reactor3D.shineOf(this) ? "|shine" : "")
+            + (Reactor3D.facesLight(this) ? (this.userData && this.userData.rrNormalMap && this.userData.rrNormalMap.isTexture && this.map ? "|face-nmap" : "|face") : "")
+            + (Reactor3D.glowKey ? Reactor3D.glowKey(this) : "")
             + (Reactor3D.lookOf && Reactor3D.lookOf(this) ? "|look" : "")
             + (Reactor3D.detailProgramKey ? Reactor3D.detailProgramKey(this) : "");
     };
@@ -6844,6 +7044,9 @@ Reactor3D.LightVolume = {
         const shadowPart = shadows ? Reactor3D.shadowGlsl(1).replace("uniform float rrLightShadow[" + n + "];", "") : "";
         const fragment = [
             shadowPart,
+            // The bake lights air, not a face.
+            "vec3 rrFaceN = vec3(0.0, 1.0, 0.0);",
+            "float rrFace = 0.0;",
             "uniform vec4 rrBakePos[" + n + "];",
             "uniform vec4 rrBakeColor[" + n + "];",
             "uniform vec4 rrBakeAim[" + n + "];",
@@ -7998,9 +8201,15 @@ Reactor3D.HalfLight = {
         twin.onBeforeCompile = function(shader, renderer) {
             material.onBeforeCompile.call(this, shader, renderer);
             // The water's sheen and tint go over the lit colour: the combine lays them on (`finishGlsl`).
+            // A model keeps its facing: the quarter-size light knows no normals, so its picture takes
+            // the sun's and the sky's share of it (rrFaceShare) and the combine multiplies the rest.
             shader.fragmentShader = shader.fragmentShader
-                .replace("if (rrSelfLit < 1.0) diffuseColor.rgb *= mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);", "")
+                .replace("if (rrSelfLit < 1.0) diffuseColor.rgb *= mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);",
+                    Reactor3D.facesLight(this) ? "if (rrFace > 0.0 && rrSelfLit < 1.0) diffuseColor.rgb *= rrFaceShare(rrFaceN);" : "")
                 .replace("vec3 rrLightTerm = mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);", "vec3 rrLightTerm = vec3(1.0);")
+                // A glow and a sheen go in before the combine multiplies by the light: divided by about that light.
+                .replace(/outgoingLight \+= rrEmissive/g, "outgoingLight += (1.0 / rrLightGuess()) * rrEmissive")
+                .replace("outgoingLight += rrHC * rrHNL", "outgoingLight += (1.0 / rrLightGuess()) * rrHC * rrHNL")
                 .replace(Reactor3D.WaterLight.SHEEN_GLSL + "\n", "")
                 .replace("outgoingLight = rrWaterTint(outgoingLight);", "");
         };

@@ -46,7 +46,10 @@ function bridgeWorld() {
     main.doc._active = { id: 'map-canvas' };
     Document.prototype.getElementById = function(id) { return main.ids[id] || null; };
     Document.prototype.querySelector = function(selector) { return selector === '.in-main' ? { where: 'main' } : null; };
-    Document.prototype.querySelectorAll = function(selector) { return selector === '.overlay' ? [{ where: 'main' }] : []; };
+    Document.prototype.querySelectorAll = function(selector) {
+        if (selector === 'link[rel="stylesheet"], style') return this.styles || [];
+        return selector === '.overlay' ? [{ where: 'main' }] : [];
+    };
     child.doc.getElementById = id => child.ids[id] || null;
     child.doc.querySelector = selector => (selector === '.in-child' ? { where: 'child' } : null);
     child.doc.querySelectorAll = selector => (selector === '.overlay' ? [{ where: 'child' }] : []);
@@ -139,6 +142,23 @@ test('an attach hook runs for each pop-out and its cleanup on detach', () => {
     bridge.detach();
     bridge.attach(childWindow);
     assert.deepEqual(seen, ['attach', 'detach', 'attach']);
+});
+
+test('the copied theme waits for every stylesheet, including failed loads', async () => {
+    const { bridge, main, child } = bridgeWorld();
+    const copies = [];
+    main.styles = ['LINK', 'STYLE', 'LINK'].map(tagName => ({ cloneNode: () => Object.assign(fakeTarget(), { tagName }) }));
+    child.head.appendChild = node => copies.push(node);
+    let ready = false;
+    const loaded = bridge.dressLike(child).then(() => { ready = true; });
+    await Promise.resolve();
+    assert.equal(ready, false, 'copying link elements does not mean the CSS is available');
+    copies[0].fire('load');
+    await Promise.resolve();
+    assert.equal(ready, false, 'all external styles must finish');
+    copies[2].fire('error');
+    await loaded;
+    assert.equal(ready, true, 'a missing optional stylesheet does not leave the window hidden forever');
 });
 
 

@@ -784,6 +784,33 @@
             border-radius: 0;
             background-color: var(--color-bg-deep);
         }
+        .media-surfaces-panel .rr-modal-header { gap: 8px; padding: 10px 12px; border-left: 3px solid var(--color-accent); }
+        .media-surfaces-icon { width: 20px; height: 20px; flex: 0 0 auto; }
+        .media-surfaces-panel .rr-modal-title { flex: 1; min-width: 0; font-size: 13px; }
+        .media-surfaces-body { flex: 1; min-height: 0; padding: 12px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+        .media-surfaces-body > * { flex-shrink: 0; }
+        .media-surfaces-help { margin: 0; color: var(--color-text-muted); font-size: 11px; line-height: 1.5; }
+        .media-surfaces-empty { margin: 0; padding: 24px 12px; text-align: center; color: var(--color-text-muted); font-size: 12px; border: 1px dashed var(--color-border-input); border-radius: var(--radius-lg); }
+        .media-surface-card { min-width: 0; overflow: hidden; background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
+        .media-surface-card:hover, .media-surface-card:focus-within { border-color: var(--color-accent-border-strong); }
+        .media-surface-open.rr-button { width: 100%; min-width: 0; display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; padding: 8px; text-align: start; white-space: normal; border: 0; border-radius: 0; background: transparent; color: var(--color-text); }
+        .media-surface-open.rr-button:hover { background: var(--color-bg-hover); }
+        .media-surface-open:focus-visible { outline: 2px solid var(--color-accent-bright); outline-offset: -2px; }
+        .media-surface-thumbnail { position: relative; display: grid; place-items: center; width: 88px; height: 64px; overflow: hidden; border-radius: var(--radius-sm); color: var(--color-accent-bright); background-color: var(--color-bg-deep); background-image: linear-gradient(45deg, var(--color-bg-hover) 25%, transparent 25%, transparent 75%, var(--color-bg-hover) 75%), linear-gradient(45deg, var(--color-bg-hover) 25%, transparent 25%, transparent 75%, var(--color-bg-hover) 75%); background-size: 12px 12px; background-position: 0 0, 6px 6px; }
+        .media-surface-thumbnail > svg { width: 28px; height: 28px; }
+        .media-surface-thumbnail > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+        .media-surface-thumbnail.is-loaded > svg { visibility: hidden; }
+        .media-surface-thumbnail.is-unavailable > svg { color: var(--color-text-muted); }
+        .media-surface-info { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 5px; min-width: 0; }
+        .media-surface-name { color: var(--color-text-strong); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+        .media-surface-meta { display: flex; align-items: center; gap: 6px; font-size: 10px; }
+        .media-surface-id { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+        .media-surface-kind { padding: 1px 6px; border-radius: 3px; color: var(--color-accent-bright); background: var(--color-accent-tint-15); }
+        .media-surface-position { color: var(--color-text-muted); font-size: 10px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+        .media-surface-actions { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; padding: 6px 8px; border-top: 1px solid var(--color-border-subtle); background: var(--color-bg-panel); }
+        .media-surface-actions > button { padding: 3px 8px; font-size: 11px; }
+        .media-surfaces-history { display: flex; flex: 0 0 auto; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--color-border); background: var(--color-bg-toolbar); }
+        .media-surfaces-history > button { flex: 1; }
         #canvas-container {
             flex: 1;
             background-color: var(--color-bg-panel);
@@ -6320,32 +6347,33 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 }
 .map-props-card > .map-props-card-header .map-props-btn { text-transform: none; letter-spacing: 0; }
 
-/* 3D Models: the Motion editor, one motion on one timeline, docked over the viewport's foot. */
+/* The timeline gets its own row across the 3D workspace: preview controls and model
+   specifications keep their own space above it, even after the window is resized. */
+.r3d-model-workspace { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; container: model-workspace / inline-size; }
+.r3d-model-columns { overflow: hidden; }
 .r3d-motion {
-    position: absolute;
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
-    z-index: 5;
+    position: relative;
+    flex: 0 1 260px;
+    min-height: 170px;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    max-height: 44%;
+    max-height: 48%;
     background-color: var(--color-bg-surface);
     border: 1px solid var(--color-border);
-    border-radius: 6px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+    border-radius: 0;
     overflow: hidden;
     font-size: 12px;
     color: var(--color-text);
 }
-.r3d-motion .r3d-motion-head { flex-wrap: wrap; gap: 8px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.r3d-motion .r3d-motion-head { flex: 0 0 auto; flex-wrap: wrap; gap: 8px; text-transform: none; letter-spacing: 0; font-weight: 500; }
 .r3d-motion-name { width: 140px; font-weight: 600 !important; }
 .r3d-motion-length { width: 68px; }
 .r3d-motion-field { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; color: var(--color-text-muted); }
 .r3d-motion-play { min-width: 34px; padding: 2px 8px; }
 .r3d-motion-close { background: none; border: none; color: var(--color-text-muted); font-size: 16px; cursor: pointer; padding: 0 4px; }
 .r3d-motion-close:hover { color: var(--color-text); }
-.r3d-motion-body { display: flex; min-height: 0; flex: 1; }
+.r3d-motion-body { display: flex; min-height: 0; flex: 1; overflow: hidden; }
 .r3d-motion-tracks {
     flex: 0 0 150px;
     display: flex;
@@ -6413,9 +6441,16 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .r3d-motion-pose-title em { font-weight: 400; font-style: normal; color: var(--color-text-muted); }
 .r3d-motion-slider { display: grid; grid-template-columns: 34px 1fr 60px; align-items: center; gap: 6px; }
 .r3d-motion-slider > span { color: var(--color-text-muted); }
+.r3d-motion-slider input[type="range"] { width: 100%; min-width: 0; }
 .r3d-motion-slider input[type="number"] { width: 100%; box-sizing: border-box; }
 .r3d-motion-pose-actions { display: flex; gap: 6px; margin-top: 4px; }
 .r3d-motion-pose-actions > button { flex: 1; font-size: 11px; padding: 3px 6px; }
+@container model-workspace (max-width: 1000px) {
+    .r3d-browser-column { width: 170px !important; flex-basis: 170px !important; }
+    .r3d-record-column { width: 250px !important; flex-basis: 250px !important; }
+    .r3d-motion-tracks { flex-basis: 120px; }
+    .r3d-motion-pose { flex-basis: 200px; min-width: 0; box-sizing: border-box; }
+}
 
 /* RRContextMenu: right-click menus for models and built pieces (the event menu's look). */
 .rr-context-menu { position: fixed; z-index: 10001; min-width: 190px; padding: 4px 0; background-color: var(--color-bg-menubar); border: 1px solid var(--color-border); border-radius: 4px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3); font-size: 13px; color: var(--color-text); }
@@ -7188,7 +7223,9 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
     -webkit-app-region: no-drag;
 }
 .rr-event-editor-grip,
-.rr-database-grip {
+.rr-database-grip,
+.rr-forge-grip,
+.rr-plugin-grip {
     position: fixed;
     right: 2px;
     bottom: 2px;
@@ -7212,6 +7249,7 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
     min-width: 900px;
     min-height: 560px;
     resize: both;
+    border-radius: var(--radius-lg);
 }
 #database-viewer.rr-database-floating > .database-window > .database-header {
     cursor: move;
@@ -7249,14 +7287,94 @@ html.rr-web #database-viewer.rr-database-floating {
 #database-viewer.rr-database-popped > .database-window > .database-header :is(button, input, select, a) {
     -webkit-app-region: no-drag;
 }
-/* A window that cannot be seen through (Linux, DetachedWindow.seeThrough): the panel is square,
-   filling its window to the corners. */
-html.rr-window-square #event-editor-modal.rr-event-editor-popped > .rr-modal,
-html.rr-window-square #event-editor-modal.rr-event-editor-popped > .rr-modal > *,
-html.rr-window-square #database-viewer.rr-database-popped > .database-window,
-html.rr-window-square #database-viewer.rr-database-popped > .database-window > * {
-    border-radius: 0;
+/* Forge uses the same persistent frame as the Database and event editor. */
+#forge-workspace {
+    position: fixed; inset: 0; align-items: center; justify-content: center;
+    z-index: 1000; background: transparent; pointer-events: none;
 }
+#forge-workspace > .rr-forge-window {
+    pointer-events: auto; position: fixed; margin: 0; width: 95vw; height: 95vh;
+    min-width: 900px; min-height: 560px; max-width: none; max-height: none;
+    display: flex; flex-direction: column; resize: both; overflow: hidden;
+    background: var(--color-bg-surface); border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg); box-sizing: border-box; box-shadow: var(--shadow-modal);
+}
+#forge-workspace > .rr-forge-window > .rr-modal-header {
+    display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+    padding: 12px 18px; border-bottom: 1px solid var(--color-border-subtle);
+    border-left: 3px solid var(--color-accent); background: var(--color-bg-toolbar);
+    cursor: move; user-select: none;
+}
+.rr-forge-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rr-forge-brand { color: var(--color-accent-bright); line-height: 1; display: inline-flex; }
+#forge-workspace .rr-modal-title { font-size: 15px; font-weight: 700; color: var(--color-text-strong); }
+.rr-forge-close { background: none; border: none; color: var(--color-text-muted); font-size: 22px; cursor: pointer; line-height: 1; }
+.rr-forge-close:hover { color: var(--color-text-strong); }
+.rr-forge-workspace-body { display: grid; grid-template-columns: 200px minmax(0, 1fr); flex: 1; min-height: 0; }
+#forge-workspace.rr-forge-popped { pointer-events: auto; }
+#forge-workspace.rr-forge-popped > .rr-forge-window {
+    position: static; width: 100% !important; height: 100% !important;
+    min-width: 0; min-height: 0; resize: none; box-shadow: none;
+}
+#forge-workspace.rr-forge-popped > .rr-forge-window > .rr-modal-header { cursor: default; -webkit-app-region: drag; }
+#forge-workspace.rr-forge-popped > .rr-forge-window > .rr-modal-header :is(button, input, select, a) { -webkit-app-region: no-drag; }
+
+/* Plugin settings share the same transparent, rounded floating frame. */
+#plugin-manager-modal.rr-plugin-floating { position: fixed; inset: 0; background: transparent; pointer-events: none; z-index: 1000; align-items: center; justify-content: center; }
+#plugin-manager-modal > .rr-plugin-window {
+    position: fixed; pointer-events: auto; display: flex; flex-direction: column;
+    width: 95vw; height: 95vh; min-width: 800px; min-height: 480px;
+    box-sizing: border-box; resize: both; overflow: hidden;
+    background: var(--color-bg-surface); border: 1px solid var(--color-border-input);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-modal);
+}
+.rr-plugin-header { border-left: 3px solid var(--color-accent); }
+#plugin-manager-modal.rr-plugin-popped { pointer-events: auto; }
+#plugin-manager-modal.rr-plugin-popped > .rr-plugin-window {
+    position: static; width: 100% !important; height: 100% !important;
+    min-width: 0; min-height: 0; resize: none; box-shadow: none;
+}
+#plugin-manager-modal.rr-plugin-popped .rr-plugin-header { -webkit-app-region: drag; }
+#plugin-manager-modal.rr-plugin-popped .rr-plugin-header :is(button, input, select, a) { -webkit-app-region: no-drag; }
+
+/* Clip the complete native document too: composited canvases, header strips and
+   the body-level resize grip all stay inside the same transparent rounded edge. */
+html.rr-detached-window {
+    width: 100%; height: 100%; overflow: hidden;
+    clip-path: inset(0 round var(--radius-lg));
+}
+/* In-page floating frames need the same clipping as native frames. */
+#event-editor-modal.rr-event-editor-floating > .rr-modal,
+#database-viewer.rr-database-floating > .database-window,
+#forge-workspace > .rr-forge-window,
+#plugin-manager-modal > .rr-plugin-window,
+#event-editor-modal.rr-event-editor-popped > .rr-modal,
+#database-viewer.rr-database-popped > .database-window,
+#forge-workspace.rr-forge-popped > .rr-forge-window,
+#plugin-manager-modal.rr-plugin-popped > .rr-plugin-window {
+    clip-path: inset(0 round var(--radius-lg));
+    isolation: isolate;
+}
+
+.plugin-details-header, .plugin-help-section {
+    margin: 10px 10px 0; border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg); overflow: hidden; background: var(--color-bg-surface);
+}
+.plugin-details-title, .plugin-help-heading { padding: 10px 12px; }
+.plugin-details-description { padding: 10px 12px; font-size: 12px; line-height: 1.5; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.plugin-details-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 9px 12px; border-top: 1px solid var(--color-border-subtle); background: var(--color-bg-panel); }
+.plugin-meta-item { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; font-size: 12px; }
+.plugin-meta-label { color: var(--color-text-muted); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.plugin-meta-value { color: var(--color-text-strong); overflow-wrap: anywhere; }
+.plugin-meta-url { color: var(--color-text-strong); text-decoration: underline; text-decoration-color: var(--color-accent); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.plugin-meta-url:hover { color: var(--color-accent-bright); }
+.plugin-help-heading { margin: 0; font-size: 12px; text-transform: none; letter-spacing: 0; list-style: none; }
+.plugin-help-heading::-webkit-details-marker { display: none; }
+.plugin-help-heading::before { content: ''; flex: 0 0 6px; width: 6px; height: 6px; margin-right: 4px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); }
+.plugin-help-section[open] > .plugin-help-heading::before { transform: rotate(45deg); }
+.plugin-help-heading:focus-visible { outline: 2px solid var(--color-accent-bright); outline-offset: -2px; }
+.rr-plugin-dialog-header { border-left: 3px solid var(--color-accent); }
+.rr-plugin-group-description { text-transform: none; letter-spacing: 0; font-weight: 400; }
 
 /* Forge › 3D Character Builder */
 .rr-c3d-empty { padding: 40px; text-align: center; color: var(--color-text-muted); font-size: 12px; }
@@ -7379,16 +7497,19 @@ html.rr-window-square #database-viewer.rr-database-popped > .database-window > *
 .rr-c3d-group { display: inline-flex; gap: 2px; align-items: center; }
 .rr-c3d-random-scope { max-width: 120px; }
 .rr-c3d-viewbar { position: absolute; top: 8px; right: 10px; display: flex; gap: 4px; }
-/* The poses to try the character in: a column down the view's right edge, under the framing buttons. */
+/* Searchable poses stay compact under the framing buttons. */
 .rr-c3d-poses {
-    position: absolute; top: 44px; right: 10px; width: 128px; display: flex; flex-direction: column; gap: 3px; padding: 6px;
+    position: absolute; top: 44px; right: 10px; width: 210px; max-width: calc(100% - 20px); box-sizing: border-box; display: flex; flex-direction: column; gap: 3px; padding: 6px;
     background: color-mix(in srgb, var(--color-bg-panel) 82%, transparent); border: 1px solid var(--color-border-subtle);
     border-left: 3px solid var(--color-accent); border-radius: var(--radius-md, 6px);
 }
 .rr-c3d-poses-title { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-dim); padding: 0 2px 3px; }
 .rr-c3d-poses .rr-c3d-pose { width: 100%; justify-content: flex-start; text-align: left; }
 .rr-c3d-poses .rr-c3d-pose[hidden] { display: none; }
+.rr-c3d-pose-picker { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+.rr-c3d-poses .rr-shim-wrapper { width: 100%; max-width: 100%; }
 .rr-c3d-pose-list { display: flex; flex-direction: column; gap: 3px; }
+.rr-prop-motion { width: 142px; }
 .rr-c3d-gallery {
     position: absolute; inset: 24px; display: flex; flex-direction: column; min-height: 0; padding: 10px 12px;
     background: var(--color-bg-panel); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md, 6px);
@@ -7448,7 +7569,7 @@ html.rr-window-square #database-viewer.rr-database-popped > .database-window > *
 .rr-c3d-hint { bottom: 10px; }
 /* Export sprite sheet: a small panel at the view's top left, on the builder's row grid. */
 .rr-c3d-export {
-    position: absolute; top: 40px; left: 12px; width: 300px; max-height: calc(100% - 56px); overflow-y: auto; box-sizing: border-box;
+    position: absolute; top: 40px; left: 12px; width: 360px; max-height: calc(100% - 56px); overflow-y: auto; overflow-x: hidden; box-sizing: border-box;
     display: flex; flex-direction: column; padding: 8px 10px; z-index: 2;
     background: var(--color-bg-panel); border: 1px solid var(--color-border-subtle); border-left: 3px solid var(--color-accent);
     border-radius: var(--radius-md, 6px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
@@ -7456,9 +7577,12 @@ html.rr-window-square #database-viewer.rr-database-popped > .database-window > *
 .rr-c3d-export-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: var(--color-text); padding-bottom: 4px; margin-bottom: 2px; border-bottom: 1px solid var(--color-border-subtle); }
 .rr-c3d-export .rr-c3d-row > select, .rr-c3d-export .rr-c3d-row > .rr-shim-wrapper { grid-column: 2 / 4; min-width: 0; width: 100%; }
 .rr-c3d-export .rr-c3d-row > input[type="number"] { min-width: 0; width: 100%; box-sizing: border-box; }
+.rr-c3d-export .rr-c3d-colorrow { grid-template-columns: 96px minmax(0, 1fr) auto; }
 .rr-c3d-export .rr-c3d-colorrow > select, .rr-c3d-export .rr-c3d-colorrow > .rr-shim-wrapper { grid-column: 2; }
-.rr-c3d-export-faces { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; padding: 2px 0 4px 104px; }
+.rr-c3d-export .rr-c3d-colorrow:has(> .rr-c3d-color[hidden]) > select, .rr-c3d-export .rr-c3d-colorrow:has(> .rr-c3d-color[hidden]) > .rr-shim-wrapper { grid-column: 2 / 4; }
+.rr-c3d-export-faces { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; padding: 2px 0 4px; }
 .rr-c3d-export-faces select, .rr-c3d-export-faces .rr-shim-wrapper { min-width: 0; width: 100%; font-size: 10px; }
+.rr-c3d-export-faces .rr-shim-trigger { padding-left: 6px !important; padding-right: 18px !important; }
 .rr-c3d-export-file { grid-column: 2 / 4; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); font-family: var(--font-mono, monospace); font-size: 10px; }
 .rr-c3d-export-progress { height: 4px; margin: 6px 0 2px; border-radius: 2px; background: var(--color-bg-input); overflow: hidden; }
 .rr-c3d-export-progress[hidden], .rr-c3d-export-preview[hidden] { display: none; }
@@ -7472,9 +7596,7 @@ html.rr-window-square #database-viewer.rr-database-popped > .database-window > *
 .rr-c3d.is-exporting .rr-c3d-side, .rr-c3d.is-exporting .rr-c3d-toolbar, .rr-c3d.is-exporting .rr-c3d-poses, .rr-c3d.is-exporting .rr-c3d-viewbar { pointer-events: none; opacity: 0.6; }
 
 /* Forge › Prop Builder (laid out on the 3D Character Builder's classes) */
-.rr-prop-kinds { display: flex; gap: 4px; padding: 8px 8px 2px; }
-.rr-prop-kinds .rr-btn-chip { flex: 1 1 0; }
-.rr-prop-kinds .rr-btn-chip.is-active, .rr-prop .rr-c3d-pose.is-active { color: var(--color-accent-bright); border-color: var(--color-accent-bright); }
+.rr-prop .rr-c3d-pose.is-active { color: var(--color-accent-bright); border-color: var(--color-accent-bright); }
 .rr-prop-tiles2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .rr-prop .rr-prop-mini { aspect-ratio: 8 / 5; }
 .rr-prop .rr-prop-mini img { object-fit: fill; }
@@ -7485,3 +7607,34 @@ html.rr-window-square #database-viewer.rr-database-popped > .database-window > *
 .rr-prop-pictureimg { width: 32px; height: 32px; object-fit: contain; border-radius: 2px; background: var(--color-bg-deep); flex: 0 0 32px; }
 .rr-prop-profile { display: flex; justify-content: center; padding: 4px 0 6px; }
 .rr-prop-profile-canvas { width: 100%; max-width: 300px; aspect-ratio: 1; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm, 3px); background: var(--color-bg-deep); cursor: crosshair; touch-action: none; }
+/* Prop Builder: what to make, in a column of categories at the left */
+.rr-prop-body { grid-template-columns: clamp(170px, 14vw, 220px) clamp(300px, 26vw, 360px) minmax(0, 1fr); }
+.rr-prop-types { display: flex; flex-direction: column; min-height: 0; gap: 6px; padding: 8px; border-right: 1px solid var(--color-border-subtle); background: var(--color-bg-panel); }
+.rr-prop-search { width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: 12px; }
+.rr-prop-typelist { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.rr-prop-cathead { cursor: pointer; }
+.rr-prop-cathead:focus-visible { outline: 2px solid var(--color-accent-bright); outline-offset: -2px; }
+.rr-prop-cathead .r3d-sec-toggle { flex: 0 0 10px; font-size: 10px; color: var(--color-text-muted); }
+.rr-prop-cat.is-collapsed .rr-prop-catbody { display: none; }
+.rr-prop-catbody { gap: 1px; padding: 4px; }
+.rr-prop-type {
+    display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 5px 8px; font-size: 12px; text-align: left;
+    color: var(--color-text); background: transparent; border: 0; border-left: 2px solid transparent; border-radius: var(--radius-sm, 3px); cursor: pointer;
+}
+.rr-prop-type svg { flex: 0 0 16px; color: var(--color-text-muted); }
+.rr-prop-type span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-prop-type:hover { background: var(--color-bg-hover); }
+.rr-prop-type.is-active { color: var(--color-accent-bright); background: var(--color-bg-hover); border-left-color: var(--color-accent-bright); }
+.rr-prop-type.is-active svg { color: var(--color-accent-bright); }
+.rr-prop-none { padding: 0 4px; }
+.rr-prop-tiles5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.rr-prop-tiles5 .rr-c3d-tile { padding: 2px; }
+.rr-prop-layers { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }
+.rr-prop-layer { display: flex; align-items: center; gap: 6px; padding: 3px 4px; font-size: 11px; color: var(--color-text); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm, 3px); background: var(--color-bg-input); cursor: pointer; }
+.rr-prop-layer.is-active { border-color: var(--color-accent-bright); color: var(--color-accent-bright); }
+.rr-prop-layer img { width: 32px; height: 20px; border-radius: 2px; flex: 0 0 32px; }
+.rr-prop-layer span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-prop-layer button[disabled] { opacity: 0.3; cursor: default; }
+.rr-prop-which { display: flex; gap: 4px; margin: 8px 0 0; }
+.rr-prop-which .rr-btn-chip { flex: 1 1 0; }
+.rr-prop-which .rr-btn-chip.is-active { color: var(--color-accent-bright); border-color: var(--color-accent-bright); }

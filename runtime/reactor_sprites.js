@@ -6802,6 +6802,74 @@ Sprite_Character.prototype.characterBlockX = function() {
 };
 
 //-----------------------------------------------------------------------------
+// Character sheets tagged "[8D]" (ImageManager.isEightDirCharacter): eight
+// blocks of 3 frames x 4 rows, cut as an eight-character sheet whatever the
+// "$" says. Blocks 0, 2 and 4 face down, left, right and up; the block to the
+// right of each holds its diagonals, rows down-left, down-right, up-left and
+// up-right. A character on block 0 shows block 2 while it dashes; on block 0,
+// 2 or 4 it shows the block to the right while it faces or steps diagonally.
+// Blocks 1, 3, 5, 6 and 7 show as chosen. A sheet without the tag is cut as
+// it always was.
+//-----------------------------------------------------------------------------
+
+Sprite_Character.RR_DIAGONAL_ROW = Object.freeze({ 1: 0, 3: 1, 7: 2, 9: 3 });
+
+/** The way a character faces among eight: the step it is taking, else the diagonal it last took, else its direction. */
+Sprite_Character.rrFacing8 = function(character) {
+    if (character.isDirectionFixed()) return character.direction();
+    if (character.isMoving()) {
+        const dx = character._x - character._realX, dy = character._y - character._realY;
+        if (Math.abs(dx) > 0.001 && Math.abs(dy) > 0.001) return dy > 0 ? (dx > 0 ? 3 : 1) : (dx > 0 ? 9 : 7);
+        if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) return character.direction();
+    }
+    const d8 = character._reactorDir8;
+    return d8 === 1 || d8 === 3 || d8 === 7 || d8 === 9 ? d8 : character.direction();
+};
+
+/** Whether a character is dashing as it moves: the player, or a follower keeping up with a dashing player. */
+Sprite_Character.rrRunning8 = function(character) {
+    if (!character.isMoving()) return false;
+    if (character.isDashing()) return true;
+    return typeof Game_Follower !== "undefined" && character instanceof Game_Follower && !character._rrOrder
+        && (!!character._rrRun || (typeof $gamePlayer !== "undefined" && !!$gamePlayer && $gamePlayer.isDashing()));
+};
+
+const _rr8DUpdateCharacterFrame = Sprite_Character.prototype.updateCharacterFrame;
+Sprite_Character.prototype.updateCharacterFrame = function() {
+    if (this._rr8DName !== this._characterName) {
+        this._rr8DName = this._characterName;
+        this._rr8DSheet = !!this._characterName && ImageManager.isEightDirCharacter(this._characterName);
+    }
+    this._rr8D = null;
+    if (this._rr8DSheet) {
+        const character = this._character, base = character.characterIndex();
+        let block = base, row = -1;
+        if (base === 0 || base === 2 || base === 4) {
+            if (base === 0 && Sprite_Character.rrRunning8(character)) block = 2;
+            const diagonal = Sprite_Character.RR_DIAGONAL_ROW[Sprite_Character.rrFacing8(character)];
+            if (diagonal !== undefined) { block += 1; row = diagonal; }
+        }
+        this._rr8D = { block, row };
+    }
+    _rr8DUpdateCharacterFrame.call(this);
+};
+
+const _rr8DBlockX = Sprite_Character.prototype.characterBlockX;
+Sprite_Character.prototype.characterBlockX = function() {
+    return this._rr8D ? (this._rr8D.block % 4) * 3 : _rr8DBlockX.call(this);
+};
+
+const _rr8DBlockY = Sprite_Character.prototype.characterBlockY;
+Sprite_Character.prototype.characterBlockY = function() {
+    return this._rr8D ? Math.floor(this._rr8D.block / 4) * 4 : _rr8DBlockY.call(this);
+};
+
+const _rr8DPatternY = Sprite_Character.prototype.characterPatternY;
+Sprite_Character.prototype.characterPatternY = function() {
+    return this._rr8D && this._rr8D.row >= 0 ? this._rr8D.row : _rr8DPatternY.call(this);
+};
+
+//-----------------------------------------------------------------------------
 // The look of a battle unit with no picture of its own. Such an event is
 // never invisible (ReactorFight.eventLook, by the rule in
 // reactor_fight_look.js): it stands as its record's character sheet, as an

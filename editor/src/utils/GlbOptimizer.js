@@ -702,13 +702,20 @@
 
     /**
      * The material slots the runtime draws with: the base color (a
-     * specular-glossiness material's diffuse). Normal, metal-roughness,
-     * occlusion, emissive and every extension's maps are never sampled.
+     * specular-glossiness material's diffuse), and a normal or emissive map
+     * beside a base color map on the same coordinates (`keepsBeside`).
+     * Metal-roughness, occlusion and every extension's maps are never sampled.
      */
     function sampledTexture(material) {
         const pbr = material.pbrMetallicRoughness || {};
         const specgloss = material.extensions && material.extensions.KHR_materials_pbrSpecularGlossiness;
         return pbr.baseColorTexture || (specgloss && specgloss.diffuseTexture) || null;
+    }
+
+    /** Whether the runtime draws a map in this slot (`normalTexture`, `emissiveTexture`): one on the base color map's own coordinates. */
+    function keepsBeside(material, slot) {
+        const base = sampledTexture(material), info = material[slot];
+        return !!(base && info && !(info.texCoord > 0) && !(base.texCoord > 0));
     }
 
     /**
@@ -727,8 +734,9 @@
             const keep = sampledTexture(material);
             const pbr = material.pbrMetallicRoughness;
             if (pbr && pbr.metallicRoughnessTexture) { delete pbr.metallicRoughnessTexture; slots++; }
-            for (const key of ['normalTexture', 'occlusionTexture']) if (material[key]) { delete material[key]; slots++; }
-            if (material.emissiveTexture) { delete material.emissiveTexture; delete material.emissiveFactor; slots++; }
+            if (material.normalTexture && !keepsBeside(material, 'normalTexture')) { delete material.normalTexture; slots++; }
+            if (material.occlusionTexture) { delete material.occlusionTexture; slots++; }
+            if (material.emissiveTexture && !keepsBeside(material, 'emissiveTexture')) { delete material.emissiveTexture; delete material.emissiveFactor; slots++; }
             const extensions = material.extensions || {};
             for (const name of Object.keys(extensions)) {
                 const extension = extensions[name];

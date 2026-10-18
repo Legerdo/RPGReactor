@@ -27,15 +27,25 @@
     const Creature = need('RRCreatureBody', './CreatureBody.js');
     const Shading = need('RRCharacterShading', './CharacterShading.js');
     const Detail = need('RRCharacterDetail', './CharacterDetail.js');
+    const Cloth = need('RRCharacterCloth', './CharacterCloth.js');
+    // Expressions hook (RRCharacterExpressions): the teeth and tongue, the mouth's inside, the saved face morphs.
+    const Expressions = (() => { try { return need('RRCharacterExpressions', './CharacterExpressions.js'); } catch (_) { return null; } })();
+    // Slimefolk hook (RRSlimeBody): a body plan of goo of its own.
+    const Slime = (() => { try { return need('RRSlimeBody', './SlimeBody.js'); } catch (_) { return null; } })();
+    const slimeSpecies = id => !!Slime && (Species.BY_ID.get(id) || {}).plan === 'slime';
+    // Merfolk hook (RRMerfolkBody): a fish's tail in place of the legs, its fins, its clips.
+    const Merfolk = (() => { try { return need('RRMerfolkBody', './MerfolkBody.js'); } catch (_) { return null; } })();
 
     /** A full recipe from a partial one; the plan decides which half it is. */
     function normalize(input) {
         const r = input || {};
         if (r.plan === 'quadruped') return Object.assign(Creature.normalizeRecipe(r), { plan: 'quadruped' });
+        // Slimefolk hook: a goo recipe of its own.
+        if (Slime && (r.plan === 'slime' || (r.plan == null && slimeSpecies(r.species)))) return Slime.normalizeRecipe(r);
         const body = Body.normalizeRecipe(r);
-        return Object.assign(body, {
+        const out = Object.assign(body, {
             plan: 'human',
-            species: Species.BY_ID.has(r.species) ? r.species : 'human',
+            species: Species.BY_ID.has(r.species) && !Species.BY_ID.get(r.species).plan ? r.species : 'human',
             features: Species.normalizeFeatures(r.features),
             skinPattern: Skin.normalizeSkin(r.skinPattern),
             eyes: Skin.normalizeEyes(r.eyes),
@@ -47,6 +57,8 @@
             props: Props.normalizeProps(r.props),
             head: normalizeHead(r.head)
         });
+        // Merfolk hook: the tail's settings, and nothing a tail cannot wear.
+        return Merfolk ? Merfolk.normalizeRecipe(out, r) : out;
     }
 
     /**
@@ -71,6 +83,9 @@
      * with it; what was chosen for a species without its own is kept.
      */
     function withSpecies(recipe, id) {
+        // Slimefolk hook: becoming goo starts from the Slimefolk's own recipe; leaving it, from the new species' own.
+        if (slimeSpecies(id)) return Slime.normalizeRecipe(recipe && recipe.seed != null ? { seed: recipe.seed } : {});
+        if (recipe && recipe.plan === 'slime') recipe = recipe.seed != null ? { seed: recipe.seed } : {};
         const old = normalize(recipe);
         const preset = Species.speciesRecipe(id);
         const was = (Species.BY_ID.get(old.species) || {}).recipe || {};
@@ -91,8 +106,8 @@
         return normalize(next);
     }
 
-    const HAIR_COVERS = new Set(['helm', 'greathelm', 'visorhelm', 'hood', 'hoodie']);
-    const FACE_COVERS = new Set(['greathelm', 'visorhelm']);
+    const HAIR_COVERS = new Set(['helm', 'greathelm', 'visorhelm', 'powerhelm', 'hood', 'hoodie']);
+    const FACE_COVERS = new Set(['greathelm', 'visorhelm', 'powerhelm']);
 
     function textureKey(name, settings) { return name + ':' + JSON.stringify(settings); }
 
@@ -106,6 +121,8 @@
         cache = cache || {};
         const o = options || {};
         const r = normalize(recipe);
+        // Slimefolk hook: the goo body, its eyes, bubbles and hats (RRSlimeBody.build).
+        if (r.plan === 'slime') return Slime.build(r, cache, o);
         if (r.plan === 'quadruped') {
             const built = Creature.build(r, { quality: o.quality || 'save', hairBudget: o.hairBudget });
             if (o.quality === 'save' || o.quality == null || o.shade) shade(built.parts);
@@ -120,6 +137,9 @@
             const head = built.bones.findIndex(b => b.name === 'Head');
             for (const v of pack.body.source) { let w = 0; for (let k = 0; k < 4; k++) if (pack.skinJoints[v * 4 + k] === head) w += pack.skinWeights[v * 4 + k]; if (w > 0.45) strandHidden.add(v); }
         }
+        // Merfolk hook: the skin below the scale line is the tail's, and grows no hair.
+        const mer = Merfolk && r.species === 'merfolk' ? Merfolk.cutOf(pack) : null;
+        if (mer) strandHidden = new Set([...(strandHidden || []), ...mer.hidden]);
 
         // The outfit, and the skin it covers left out.
         cache.wardrobe = cache.wardrobe || {};
@@ -130,11 +150,12 @@
 
         // The body: its painted skin, the covered triangles dropped.
         const body = Object.assign({}, built.parts[0]);
-        if (outfit.hidden.size) {
+        if (outfit.hidden.size || mer) {
             const keep = [];
             const src = pack.body.source, I = body.index;
+            const gone = v => outfit.hidden.has(v) || (!!mer && mer.hidden.has(v));
             for (let t = 0; t < I.length; t += 3) {
-                if (outfit.hidden.has(src[I[t]]) && outfit.hidden.has(src[I[t + 1]]) && outfit.hidden.has(src[I[t + 2]])) continue;
+                if (gone(src[I[t]]) && gone(src[I[t + 1]]) && gone(src[I[t + 2]])) continue;
                 keep.push(I[t], I[t + 1], I[t + 2]);
             }
             body.index = Uint32Array.from(keep);
@@ -207,7 +228,7 @@
             parts.push(Detail.areolaPart(pack, built.shaped, skinNormals, reach, body));
         }
         // A man's genitals, MakeHuman's own, wearing the skin round them; left out under what covers them.
-        if (r.anatomy.detail && sex === 'male' && !outfit.hidden.has(Body.anatomyFields(pack).low)) parts.push(genitals(pack, built));
+        if (r.anatomy.detail && sex === 'male' && !mer && !outfit.hidden.has(Body.anatomyFields(pack).low)) parts.push(genitals(pack, built));
         // Under a helmet or a hood the hair is not drawn; under a closed helmet the beard neither.
         const covers = r.outfit.map(i => i.id);
         let hairRecipe = r.hair;
@@ -216,7 +237,10 @@
             hairRecipe = Object.assign({}, r.hair, { style: 'bald', facial: closed ? Object.assign({}, r.hair.facial, { style: 'none' }) : r.hair.facial });
         }
         if (graftKind) hairRecipe = Object.assign({}, hairRecipe, { style: 'bald', brows: { style: 'none' }, lashes: false, facial: Object.assign({}, r.hair.facial, { style: 'none' }) });
+        // Merfolk hook: wet hair lies flat.
+        if (mer && r.merfolk.wetHair) hairRecipe = Object.assign({}, hairRecipe, { volume: Math.min(hairRecipe.volume, 0.12) });
         const hair = Hair.build(pack, built, hairRecipe, { seed: r.seed, skin: r.skin, budget: o.hairBudget, gender: r.gender });
+        if (mer && r.merfolk.wetHair) Merfolk.wetHair(hair);
         if (hair.some(p => p.texture === 'lashes.png')) textures['lashes.png'] = cache.lashes || (cache.lashes = Hair.lashTexture(128));
         if (hair.some(p => p.texture === 'hair.png')) textures['hair.png'] = cache.hairStrands || (cache.hairStrands = Hair.hairTexture(256));
         if (hair.some(p => p.texture === 'brows.png')) {
@@ -225,7 +249,8 @@
             textures['brows.png'] = cache.brows;
         }
         const L = Props.landmarks(pack, built);
-        const props = Props.build(pack, built, r.props);
+        const coveredHands = r.outfit.some(item => Wardrobe.BY_ID.get(item.id)?.slot === 'hands' && item.id !== 'fingerlessGloves');
+        const props = Props.build(pack, built, coveredHands ? r.props.filter(item => item.id !== 'nails' && item.id !== 'claws') : r.props, hair, { outfitParts: outfit.parts });
         // Furred features grow the body's coat when it has one (its length and color), a coat of their own when not.
         const furred = bodyHair.fur > 0.05;
         const features = Species.build(pack, built, r.features, L, { coat: { length: furred ? bodyHair.length || 1 : 1, color: furred ? bodyHair.color : null, budget } });
@@ -249,8 +274,19 @@
             for (const [k, t] of Object.entries(g.textures)) textures[k] = t;
             features.parts.push(...g.parts);
         }
+        // Merfolk hook: the tail, its fins and the loose scales above the scale line, on a chain of bones of its own.
+        if (mer) {
+            const tail = Merfolk.build(pack, built, r, L, { skinNormals, outfitHidden: outfit.hidden, boneBase: built.bones.length + features.bones.length });
+            features.parts.push(...tail.parts);
+            features.bones.push(...tail.bones);
+            Object.assign(textures, tail.textures);
+        }
+        // Expressions hook: the teeth and the tongue behind the lips, the mouth's inside darkened in the body's colors.
+        if (Expressions && !graftKind) { Expressions.tintMouth(pack, built, body); parts.push(...Expressions.mouthParts(pack, built, r)); }
         parts.push(...outfit.parts, ...hair, ...props.parts, ...features.parts);
         const bones = built.bones.concat(features.bones.map(b => ({ name: b.name, parent: b.parent, head: b.head, tail: b.tail })));
+        // Merfolk hook: the leg bones carry no skin; what they held, the hips hold.
+        if (mer) parts.splice(0, parts.length, ...Merfolk.liftLegs(parts, bones));
         // The floor: shoes and boots stand on it.
         let floor = 0;
         for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) floor = Math.min(floor, p.positions[i]);
@@ -261,11 +297,17 @@
             }
             for (const b of bones) { b.head = [b.head[0], b.head[1] - floor, b.head[2]]; if (b.tail) b.tail = [b.tail[0], b.tail[1] - floor, b.tail[2]]; }
         }
+        // Loose cloth (a cape, a skirt, a robe, a coat's tails) on cloth bones of its own, the cape settled where it hangs.
+        const hung = Cloth ? { plan: 'human', parts, bones } : null;
+        if (hung && Cloth.rig(hung)) parts.splice(0, parts.length, ...hung.parts);
         let height = 0;
         for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) height = Math.max(height, p.positions[i]);
         // Occlusion in the vertex colors: always in a file, in the view once the sliders rest (`shade`).
         if (o.quality === 'save' || o.shade) shade(parts);
-        return { recipe: r, parts, bones, height, bodyHeight: built.height - Math.min(0, floor), textures, clips: clipsFor(bones, r, built, pack), plan: 'human', built };
+        const result = { recipe: r, parts, bones, height, bodyHeight: built.height - Math.min(0, floor), textures, clips: clipsFor(bones, r, built, pack), plan: 'human', built, cloth: hung ? hung.cloth : null };
+        // Expressions hook: a saved file carries the expressions and visemes as named morph targets.
+        if (Expressions && (o.quality === 'save' || o.quality == null || o.morphs)) result.morphs = Expressions.morphTargets(pack, result);
+        return result;
     }
 
     /**
@@ -346,6 +388,10 @@
         // The human head left out: its skin above the neck, its eyes.
         const src = pack.body.source, I = body.index, SW = pack.skinWeights, SJ = pack.skinJoints, P = built.shaped, keepTri = [];
         const hw = v => { let w = 0; for (let k = 0; k < 4; k++) if (SJ[v * 4 + k] === head) w += SW[v * 4 + k]; return w; };
+        // Where the animal head is cut from its own neck: level under the jaw, sloping up behind it.
+        const cutY = L.chin - 0.005, eyeAt = place(Ec), cutAt = q => cutY + Math.max(0, eyeAt[2] - q[2] - 0.03) * 0.7;
+        // The human head goes above that cut, a little under it, so the human neck runs up inside the animal's and no gap opens.
+        const gone = v => hw(v) > 0.5 && P[v * 3 + 1] > cutAt([P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]) - 0.012;
         for (let t = 0; t < I.length; t += 3) {
             if (gone(src[I[t]]) && gone(src[I[t + 1]]) && gone(src[I[t + 2]])) continue;
             keepTri.push(I[t], I[t + 1], I[t + 2]);
@@ -398,17 +444,26 @@
                     lift: 0.3, droop: 0.1, joints: [head, neck, 0, 0], weights: [1 - toNeck * 0.6, toNeck * 0.6, 0, 0] });
             }
         };
-        // The neck's girth at its top, by bearing round it: where the head's rim is laid.
-        const BINS = 32, neckTop = headBone.head[1] - 0.005, neckC = [0, neckTop, 0], neckR = new Float32Array(BINS);
-        let nc = 0;
-        for (const v of rim) if (Math.abs(P[v * 3 + 1] - neckTop) < 0.03) { neckC[0] += P[v * 3]; neckC[2] += P[v * 3 + 2]; nc++; }
-        if (nc) { neckC[0] /= nc; neckC[2] /= nc; }
+        // The neck's girth by height and bearing round it, from the person's neck skin that stays: where the
+        // animal's neck is drawn to. Above the highest kept skin the top ring holds.
+        const BINS = 32, LEVEL = 0.01, levels = new Map();
         for (const v of rim) {
-            if (Math.abs(P[v * 3 + 1] - neckTop) > 0.03) continue;
-            const a = Math.atan2(P[v * 3] - neckC[0], P[v * 3 + 2] - neckC[2]), b = ((Math.round((a / (Math.PI * 2)) * BINS) % BINS) + BINS) % BINS;
-            neckR[b] = Math.max(neckR[b], Math.hypot(P[v * 3] - neckC[0], P[v * 3 + 2] - neckC[2]) + 0.002);
+            const lv = Math.round(P[v * 3 + 1] / LEVEL);
+            if (!levels.has(lv)) levels.set(lv, { c: [0, 0], n: 0, ids: [] });
+            const L2 = levels.get(lv); L2.c[0] += P[v * 3]; L2.c[1] += P[v * 3 + 2]; L2.n++; L2.ids.push(v);
         }
-        for (let pass = 0; pass < 3; pass++) for (let b = 0; b < BINS; b++) if (!neckR[b]) neckR[b] = Math.max(neckR[(b + 1) % BINS], neckR[(b + BINS - 1) % BINS]);
+        for (const L2 of levels.values()) {
+            L2.c = [L2.c[0] / L2.n, L2.c[1] / L2.n]; L2.r = new Float32Array(BINS);
+            for (const v of L2.ids) {
+                const a = Math.atan2(P[v * 3] - L2.c[0], P[v * 3 + 2] - L2.c[1]), b = ((Math.round((a / (Math.PI * 2)) * BINS) % BINS) + BINS) % BINS;
+                L2.r[b] = Math.max(L2.r[b], Math.hypot(P[v * 3] - L2.c[0], P[v * 3 + 2] - L2.c[1]));
+            }
+            for (let pass = 0; pass < 4; pass++) for (let b = 0; b < BINS; b++) if (!L2.r[b]) L2.r[b] = Math.max(L2.r[(b + 1) % BINS], L2.r[(b + BINS - 1) % BINS]);
+        }
+        const keys = [...levels.keys()].filter(k => levels.get(k).n >= 12).sort((a, b) => a - b);
+        const levelAt = y => { const k = Math.round(y / LEVEL); let best = keys[0]; for (const q of keys) if (Math.abs(q - k) < Math.abs(best - k)) best = q; return levels.get(best); };
+        const neckAxis = y => { const L2 = levelAt(y); return [L2.c[0], y, L2.c[1]]; };
+        const neckGirth = (y, a) => { const L2 = levelAt(y); return L2.r[((Math.round((a / (Math.PI * 2)) * BINS) % BINS) + BINS) % BINS]; };
         for (const p of cr.parts) {
             // The creature's strand fur stays behind: cut at the neck its locks would end in stubs.
             if (p.name === 'Fur') continue;
@@ -427,10 +482,6 @@
             }
             // The cut slopes up behind the jaw, so the back of the head ends under the skull, on the neck.
             for (let v = 0; v < n; v++) { const q = place([p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]]); if (q[1] < cutAt(q)) own[v] = 0; }
-        // Where the animal head is cut from its own neck: level under the jaw, sloping up behind it.
-        const cutY = L.chin - 0.005, eyeAt = place(Ec), cutAt = q => cutY + Math.max(0, eyeAt[2] - q[2] - 0.03) * 0.7;
-        // The human head goes above that cut, a little under it, so the human neck runs up inside the animal's and no gap opens.
-        const gone = v => hw(v) > 0.5 && P[v * 3 + 1] > cutAt([P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]) - 0.012;
             const map = new Int32Array(n).fill(-1), pos = [], nrm = [], col = [], uv = [], idx = [], jn = [], wt = [], ownOf = [];
             for (let t = 0; t < p.index.length; t += 3) {
                 const a = p.index[t], b = p.index[t + 1], c = p.index[t + 2];
@@ -449,41 +500,56 @@
             }
             if (!idx.length) continue;
             const m = pos.length / 3;
-            if (p === bodyPart && rim.length) {
+            if (p === bodyPart && keys.length) {
                 // The cut edge (edges of one face only) drawn onto the nearest skin of the neck, the skin near it
                 // following less and less, so the head runs on into the neck.
                 const edges = new Map();
                 for (let t = 0; t < idx.length; t += 3) for (const [a, b] of [[idx[t], idx[t + 1]], [idx[t + 1], idx[t + 2]], [idx[t + 2], idx[t]]]) { const k = a < b ? a * m + b : b * m + a; edges.set(k, (edges.get(k) || 0) + 1); }
                 const edge = new Set();
                 for (const [k, c] of edges) if (c === 1) for (const v of [Math.floor(k / m), k % m]) if (ownOf[v] < 0.95) edge.add(v);
-                // Each point of the rim to the neck's surface at its own bearing round the neck, at the neck's top.
-                const pull = [];
-                for (const v of edge) {
-                    const q = [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]];
-                    const a = Math.atan2(q[0] - neckC[0], q[2] - neckC[2]), bin = neckR[((Math.round((a / (Math.PI * 2)) * BINS) % BINS) + BINS) % BINS];
-                    const y = Math.min(q[1], neckTop);
-                    pull.push([q, [neckC[0] + Math.sin(a) * bin - q[0], y - q[1], neckC[2] + Math.cos(a) * bin - q[2]]]);
-                }
-                const R = 0.05;
-                const moved = Float32Array.from(pos);
+                // The animal's neck flows into the person's: from the skull's base down to the cut, each point is
+                // drawn round the neck's axis to the neck's own girth at that height and bearing, more the lower it
+                // lies, so the two necks meet at one thickness with no step from any side.
+                const yTop = headBone.head[1] + 0.03;
                 for (let v = 0; v < m; v++) {
-                    let wx = 0, wy = 0, wz = 0, wsum = 0, near = 0;
-                    for (const [q, d] of pull) {
-                        const dd = (pos[v * 3] - q[0]) ** 2 + (pos[v * 3 + 1] - q[1]) ** 2 + (pos[v * 3 + 2] - q[2]) ** 2;
-                        if (dd > R * R * 4) continue;
-                        const w = Math.exp(-dd / (R * R * 0.5));
-                        wx += d[0] * w; wy += d[1] * w; wz += d[2] * w; wsum += w; near = Math.max(near, w);
-                    }
-                    if (!wsum) continue;
-                    const k = edge.has(v) ? 1 : near;
-                    moved[v * 3] += wx / wsum * k; moved[v * 3 + 1] += wy / wsum * k; moved[v * 3 + 2] += wz / wsum * k;
-                    if (edge.has(v) && furred && collar.length < 1400) collar.push({ q: [moved[v * 3], moved[v * 3 + 1], moved[v * 3 + 2]] });
+                    const q = [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]], low = cutAt(q);
+                    if (q[1] >= yTop) continue;
+                    const t = Math.min(1, Math.max(0, (yTop - q[1]) / Math.max(0.01, yTop - low)));
+                    // The neck only: the skull, jaw and muzzle (the head's own, fully) keep their shape.
+                    const neckness = 1 - Math.min(1, Math.max(0, (ownOf[v] - 0.6) / 0.35));
+                    const k = t * t * (3 - 2 * t) * neckness * neckness;
+                    if (!k) continue;
+                    const c = neckAxis(q[1]), dx = q[0] - c[0], dz = q[2] - c[2], rr = Math.hypot(dx, dz) || 1e-6;
+                    const want = neckGirth(q[1], Math.atan2(dx, dz)) + 0.002;
+                    // Only drawn in or out toward the neck, never past the jaw's own underside in front.
+                    const to = rr + (want - rr) * k;
+                    pos[v * 3] = c[0] + dx / rr * to; pos[v * 3 + 2] = c[2] + dz / rr * to;
                 }
-                for (let i = 0; i < pos.length; i++) pos[i] = moved[i];
+                for (const v of edge) if (furred && collar.length < 1400) collar.push({ q: [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]] });
+                // Normals again over the reshaped neck.
+                const fn = new Float32Array(m * 3);
+                for (let t = 0; t < idx.length; t += 3) {
+                    const i0 = idx[t] * 3, i1 = idx[t + 1] * 3, i2 = idx[t + 2] * 3;
+                    const u = [pos[i1] - pos[i0], pos[i1 + 1] - pos[i0 + 1], pos[i1 + 2] - pos[i0 + 2]], w = [pos[i2] - pos[i0], pos[i2 + 1] - pos[i0 + 1], pos[i2 + 2] - pos[i0 + 2]];
+                    const n3 = Props.vec.cross(u, w);
+                    for (const i of [i0, i1, i2]) { fn[i] += n3[0]; fn[i + 1] += n3[1]; fn[i + 2] += n3[2]; }
+                }
+                for (let v = 0; v < m; v++) {
+                    if (pos[v * 3 + 1] >= yTop + 0.02) continue;
+                    const l = Math.hypot(fn[v * 3], fn[v * 3 + 1], fn[v * 3 + 2]);
+                    if (!l) continue;
+                    let n3 = [fn[v * 3] / l, fn[v * 3 + 1] / l, fn[v * 3 + 2] / l];
+                    // Face normals follow the winding; keep the creature's outward sense.
+                    if (n3[0] * nrm[v * 3] + n3[1] * nrm[v * 3 + 1] + n3[2] * nrm[v * 3 + 2] < 0) n3 = n3.map(x => -x);
+                    nrm[v * 3] = n3[0]; nrm[v * 3 + 1] = n3[1]; nrm[v * 3 + 2] = n3[2];
+                }
             }
             for (let v = 0; v < m; v++) { const toNeck = Math.max(0, Math.min(1, (0.75 - ownOf[v]) / 0.3)); jn.push(head, neck, 0, 0); wt.push(1 - toNeck * 0.6, toNeck * 0.6, 0, 0); }
+            if (p === bodyPart && furred) coatRoots(pos, nrm, idx, ownOf);
             parts.push(Object.assign({}, p, { name: 'Head ' + p.name, positions: Float32Array.from(pos), normals: Float32Array.from(nrm), colors: p.colors ? Float32Array.from(col) : undefined,
-                uvs: p.uvs ? Float32Array.from(uv) : undefined, index: Uint32Array.from(idx), joints: Uint8Array.from(jn), weights: Float32Array.from(wt), kind: p.name === 'Eyes' ? 'eye' : p.kind }));
+                uvs: p.uvs ? Float32Array.from(uv) : undefined, index: Uint32Array.from(idx), joints: Uint8Array.from(jn), weights: Float32Array.from(wt), kind: p.name === 'Eyes' ? 'eye' : p.kind,
+                // Fur lies on the head as the body's does: it casts no shadow of its own cards down the chest.
+                onSkin: p.onSkin || p.kind === 'hair' || undefined }));
         }
         // A furred head's join hidden under a collar of fur, combed down the neck.
         let fur = null;
@@ -523,7 +589,6 @@
     }
 
     /** A tiny picture of one color: the skin before its own is painted. */
-            if (p === bodyPart && furred) coatRoots(pos, nrm, idx, ownOf);
     function flatPicture(hex) {
         const n = parseInt(String(hex || '#c69c7f').slice(1), 16), data = new Uint8Array(4 * 4 * 4);
         for (let i = 0; i < 16; i++) { data[i * 4] = (n >> 16) & 255; data[i * 4 + 1] = (n >> 8) & 255; data[i * 4 + 2] = n & 255; data[i * 4 + 3] = 255; }
@@ -570,6 +635,8 @@
 
     /** The humanoid Idle, with a tail swaying when there is one. */
     function clipsFor(bones, r, built, pack) {
+        // Merfolk hook: the tail's own clips (Idle first).
+        if (Merfolk && r.species === 'merfolk') return Merfolk.clips(bones, r, built, pack, armAngle(r, built, pack));
         const idle = Glb.idleClip(bones, { armAngle: armAngle(r, built, pack) });
         if (!idle) return [];
         const steps = idle.times.length;
@@ -603,7 +670,9 @@
             if (out.texture && !out.shaded && !out.keepColors) delete out.colors;
             return out;
         });
-        return Glb.toGlb({ parts, bones: result.bones }, { name, clips: result.clips, images: files });
+        // Every clip with its cloth worked out (RRCharacterCloth): the game only plays the keys.
+        const clips = Cloth && result.cloth && result.clips ? await Cloth.bakeAllAsync(result, result.clips, { quality: 'save' }) : result.clips;
+        return Glb.toGlb({ parts, bones: result.bones, morphs: result.morphs }, { name, clips, images: files });
     }
 
     /** A seeded random character: a body, then a fitting outfit, hair and maybe accessories. */
@@ -614,6 +683,8 @@
         const rand = () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
         const pick = list => list[Math.floor(rand() * list.length)];
         const o = options || {};
+        // Slimefolk hook: a random goo.
+        if (slimeSpecies(o.species)) return Slime.randomRecipe(seed);
         const body = Body.randomRecipe(scramble(seed + 1));
         const r = Object.assign({}, body);
         if (o.species && o.species !== 'human') Object.assign(r, withSpecies(r, o.species));

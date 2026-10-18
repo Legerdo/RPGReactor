@@ -382,6 +382,8 @@ test('the poses are motion capture fitted to each body: loops close, feet meet t
         const built = Model.build(pack, recipe, {}, { quality: 'preview' }), bones = built.bones, body = built.parts.find(p => p.name === 'Body');
         for (const pose of Poses.POSES) {
             const clip = Poses.clip(bones, pose.id, body), last = clip.times.length - 1;
+            // A motion played once (a fall, a flip) ends where it ends.
+            if (clip.once) continue;
             for (const t of clip.tracks) {
                 const a = t.values.slice(0, 4), b = t.values.slice(last * 4, last * 4 + 4);
                 assert.ok(Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]) > 0.9999, `${pose.id} loops back to its first frame`);
@@ -507,7 +509,7 @@ test('a modeled garment shows its own picture until a color is chosen; a color k
 });
 
 test('footwear is built round the foot: a sole under it, the foot hidden inside, a boot over the trouser legs', () => {
-    const FEET = Wardrobe.GARMENTS.filter(g => g.slot === 'feet' && !g.modeled);
+    const FEET = Wardrobe.GARMENTS.filter(g => g.slot === 'feet' && !g.modeled && !g.transfer);
     for (const body of [{}, { gender: 1, extreme: true, weight: 3, muscle: 2 }, { gender: 0, extreme: true, weight: -0.5, height: -0.4 }]) {
         const built = Body.build(pack, Body.normalizeRecipe(body));
         const an = Outfit.anatomy(pack);

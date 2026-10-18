@@ -324,7 +324,7 @@ class UIManager {
         fileMenu.append(new nw.MenuItem({ type: 'separator' }));
         fileMenu.append(new nw.MenuItem({
             label: 'Exit',
-            click: () => nw.App.quit()
+            click: () => this.callbacks.exit()
         }));
 
         menubar.append(new nw.MenuItem({
@@ -898,6 +898,8 @@ class UIManager {
     }
 
     isEditorModalOpenForGlobalShortcuts() {
+        if (typeof RRForgeWindow !== 'undefined' && RRForgeWindow.ownsKeys()) return true;
+        if (typeof RRPluginManagerWindow !== 'undefined' && RRPluginManagerWindow.ownsKeys()) return true;
         // The Database beside a live map has the keys only after a click or Tab into it.
         if (typeof RRDatabaseWindow !== 'undefined') {
             if (RRDatabaseWindow.ownsKeys()) return true;
@@ -909,8 +911,7 @@ class UIManager {
         const modalIds = [
             'map-properties-modal',
             'image-picker-modal',
-            'audio-player-modal',
-            'plugin-manager-modal'
+            'audio-player-modal'
         ];
 
         if (modalIds.some(id => {
@@ -922,8 +923,8 @@ class UIManager {
         // behind it takes no keys. The event editor is handled key by key by the caller.
         // A dialog in another window (the Database's, the event editor's) only while that window was the last one worked in.
         const worked = (typeof RRDetachedWindow !== 'undefined' && RRDetachedWindow.lastWorked()?.ownerDocument) || document;
-        return Array.from(document.querySelectorAll?.('.rr-modal-overlay, .modal-overlay, .modal') || [])
-            .some(el => el.id !== 'event-editor-modal' && (!el.ownerDocument || el.ownerDocument === document || el.ownerDocument === worked) && el.getClientRects?.().length > 0);
+        return Array.from(document.querySelectorAll?.('.rr-modal-overlay, .modal-overlay, .modal, .plugin-manager-child-modal') || [])
+            .some(el => !['event-editor-modal', 'forge-workspace', 'plugin-manager-modal'].includes(el.id) && (!el.ownerDocument || el.ownerDocument === document || el.ownerDocument === worked) && el.getClientRects?.().length > 0);
     }
 
     /**

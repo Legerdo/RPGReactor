@@ -246,7 +246,8 @@ class Database3DEditor {
                             <button type="button" class="r3d-sec-add ${add}" title="${this._t('Add')}" aria-label="${this._t('Add')}">${Database3DEditor.icon('add')}</button>
                         </div>`;
         detailEl.innerHTML = `
-            <div style="display:flex;flex-direction:row;gap:0;height:100%;min-height:0;">
+            <div class="r3d-model-workspace">
+            <div class="r3d-model-columns" style="display:flex;flex-direction:row;gap:0;flex:1;min-height:0;">
                 <div class="r3d-browser-column" style="width:220px;flex:0 0 220px;display:flex;flex-direction:column;border-right:1px solid var(--color-border);min-height:0;">
                     <div class="database-section-title">${window.I18n?.tDbType ? window.I18n.tDbType('reactor3d', '3D Models') : '3D Models'}</div>
                     <div class="database-search-container" style="padding:8px;background-color:var(--color-bg-menubar);border-bottom:1px solid var(--color-border);flex-shrink:0;">
@@ -255,7 +256,7 @@ class Database3DEditor {
                     </div>
                     <div class="r3d-model-list" style="flex:1;overflow-y:auto;min-height:0;"></div>
                 </div>
-                <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--color-bg-deep);min-height:0;">
+                <div class="r3d-preview-column" style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--color-bg-deep);min-height:0;">
                     <div class="r3d-canvas-wrap" style="position:relative;flex:1;min-height:0;">
                         <canvas class="r3d-db-canvas" style="position:absolute;inset:0;width:100%;height:100%;cursor:grab;"></canvas>
                         <div class="r3d-toolbar" style="position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;"></div>
@@ -307,6 +308,7 @@ class Database3DEditor {
                     </div>
                     <div class="r3d-status" role="status" aria-live="polite"></div>
                 </div>
+            </div>
             </div>`;
         const optimize = detailEl.querySelector('.r3d-optimize');
         if (optimize) optimize.addEventListener('click', () => this.optimizeSelectedModel());

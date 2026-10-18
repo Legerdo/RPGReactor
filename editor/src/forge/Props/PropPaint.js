@@ -65,6 +65,10 @@
     }
 
     const STAR = starPolygon(5, 0.382);
+    // A crown: a band with three points, drawn in [-1, 1] (y down).
+    const CROWN = [-0.85, 0.7, 0.85, 0.7, 0.85, 0.42, 0.7, -0.62, 0.4, 0.02, 0, -0.92, -0.4, 0.02, -0.7, -0.62, -0.85, 0.42];
+    // A sword point up: blade, crossguard, grip.
+    const SWORD = [0, -1, 0.11, -0.78, 0.11, 0.42, 0.42, 0.42, 0.42, 0.54, 0.08, 0.54, 0.08, 0.78, -0.08, 0.78, -0.08, 0.54, -0.42, 0.54, -0.42, 0.42, -0.11, 0.42, -0.11, -0.78];
     // An eagle with raised wings, from the front, for a pole's top: drawn in a 100 x 100 box.
     const EAGLE = [
         50, 30, 54, 34, 58, 40, 66, 30, 74, 18, 86, 6, 96, 2, 92, 14, 98, 18, 88, 28, 94, 34,
@@ -89,7 +93,33 @@
             const r = Math.hypot(x, y), a = Math.atan2(y, x);
             return r <= 0.52 || (r <= 1 && r >= 0.6 && Math.cos(a * 12) > 0.35 + (r - 0.6) * 1.2);
         },
-        eagle: (x, y) => pointInPolygon(EAGLE, x, y)
+        eagle: (x, y) => pointInPolygon(EAGLE, x, y),
+        cross: (x, y) => (Math.abs(x) <= 0.28 && Math.abs(y) <= 0.95) || (Math.abs(y) <= 0.28 && Math.abs(x) <= 0.95),
+        crown: (x, y) => pointInPolygon(CROWN, x, y) || [-0.7, 0, 0.7].some((cx, k) => Math.hypot(x - cx, y - (k === 1 ? -0.92 : -0.62)) < 0.13),
+        sword: (x, y) => pointInPolygon(SWORD, x, y) || Math.hypot(x, y - 0.86) < 0.11,
+        laurel: (x, y) => {
+            // Two branches of leaves curving up round an open top, tied at the foot.
+            for (let k = 0; k < 9; k++) for (const s of [-1, 1]) {
+                const a = Math.PI * (0.62 + k * 0.105), cx = s * Math.cos(a) * 0.72, cy = -Math.sin(a) * 0.72 + 0.05;
+                const ang = a + Math.PI / 2, dx = x - cx, dy = y - cy;
+                const lx = dx * Math.cos(ang) * s + dy * Math.sin(ang), ly = -dx * Math.sin(ang) * s + dy * Math.cos(ang);
+                if ((lx / 0.2) ** 2 + (ly / 0.09) ** 2 <= 1) return true;
+            }
+            const r = Math.hypot(x, y - 0.05);
+            return r < 0.76 && r > 0.69 && y > -0.2 || (Math.abs(x) < 0.12 && Math.abs(y - 0.8) < 0.08);
+        },
+        gear: (x, y) => {
+            const r = Math.hypot(x, y), a = Math.atan2(y, x);
+            if (r < 0.3) return false;
+            return r <= 0.72 || (r <= 0.95 && Math.cos(a * 8) > 0.15);
+        },
+        skull: (x, y) => {
+            const head = (x / 0.78) ** 2 + ((y + 0.15) / 0.72) ** 2 <= 1 || (Math.abs(x) < 0.42 && y > 0.25 && y < 0.82);
+            const eyes = Math.hypot(Math.abs(x) - 0.3, y + 0.05) < 0.19, nose = y > 0.22 && y < 0.42 && Math.abs(x) < (y - 0.22) * 0.5;
+            const teeth = y > 0.62 && y < 0.82 && Math.abs(x) < 0.4 && Math.abs(((x + 0.4) / 0.16) % 1 - 0.5) < 0.08;
+            return head && !eyes && !nose && !teeth;
+        },
+        tree: (x, y) => (Math.abs(x) < 0.12 && y > 0.3 && y < 0.95) || Math.hypot(x, y + 0.25) < 0.5 || Math.hypot(x - 0.38, y + 0.02) < 0.36 || Math.hypot(x + 0.38, y + 0.02) < 0.36 || (y > 0.88 && y < 0.95 && Math.abs(x) < 0.5)
     };
 
     /**
@@ -163,7 +193,20 @@
         return { width, height, data };
     }
 
-    const api = { hex, random, noise, fractal, pointInPolygon, starPolygon, EMBLEMS, EAGLE, paint, sampleImage, weaveHeight, normalMap };
+    /** Wood: long grain with rings and a few knots, 256 x 256, repeating. */
+    function wood(base, seed) {
+        const c = hex(base), n1 = noise(seed || 3, 8), n2 = fractal((seed || 3) + 9, 16, 3);
+        const pic = paint(256, 256, (u, v, out) => {
+            const warp = n1(u, v * 0.25) * 6;
+            const ring = 0.5 + 0.5 * Math.sin((u * 18 + warp) * Math.PI * 2);
+            const k = 0.78 + 0.16 * ring + 0.12 * (n2(u * 2, v * 0.5) - 0.5);
+            out[0] = c[0] * k; out[1] = c[1] * k; out[2] = c[2] * k; out[3] = 255;
+        }, 1);
+        pic.name = 'wood.png';
+        return pic;
+    }
+
+    const api = { wood, hex, random, noise, fractal, pointInPolygon, starPolygon, EMBLEMS, EAGLE, paint, sampleImage, weaveHeight, normalMap };
     root.RRPropPaint = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

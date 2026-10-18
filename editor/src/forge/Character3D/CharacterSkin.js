@@ -57,7 +57,17 @@
         return { c, p: [x, y, z], d1: Math.sqrt(d1), d2: Math.sqrt(d2) };
     }
 
-    const PATTERNS = [['none', 'None'], ['freckles', 'Freckles'], ['scales', 'Scales'], ['stripes', 'Stripes'], ['spots', 'Spots'], ['fur', 'Fur'], ['feathers', 'Feathers'], ['decay', 'Decay'], ['panels', 'Panels'], ['tribal', 'Tribal marks'], ['vitiligo', 'Patches']];
+    const PATTERNS = [['none', 'None'], ['freckles', 'Freckles'], ['scales', 'Scales'], ['stripes', 'Stripes'], ['spots', 'Spots'], ['fur', 'Fur'], ['feathers', 'Feathers'], ['decay', 'Decay'], ['panels', 'Panels'], ['tribal', 'Tribal marks'], ['vitiligo', 'Patches'], ['moles', 'Moles'], ['scars', 'Scars'], ['veins', 'Veins'], ['stone', 'Stone'], ['marble', 'Marble'], ['lava', 'Lava cracks']];
+    const LOOKS = [
+        { id: 'freckled', label: 'Freckled', skin: '#d9ad91', settings: { type: 'freckles', color: '#8e5032', amount: 0.7 } },
+        { id: 'moles', label: 'Beauty marks', skin: '#a8795a', settings: { type: 'moles', color: '#4b2c24', amount: 0.8 } },
+        { id: 'scarred', label: 'Scarred', skin: '#bb9176', settings: { type: 'scars', color: '#dfb6aa', amount: 0.7 } },
+        { id: 'stone', label: 'Stone', skin: '#84827a', settings: { type: 'stone', color: '#353b3a', scale: 1.2 } },
+        { id: 'marble', label: 'Marble', skin: '#e0e2dd', settings: { type: 'marble', color: '#52616e', amount: 0.8 } },
+        { id: 'lava', label: 'Volcanic', skin: '#292327', settings: { type: 'lava', color: '#ed682a', amount: 1 } },
+        { id: 'frost', label: 'Frost', skin: '#8abacc', settings: { type: 'veins', color: '#e7f5fa', amount: 0.85 } },
+        { id: 'moss', label: 'Moss', skin: '#65744b', settings: { type: 'stone', color: '#aeb97a', amount: 0.6, scale: 0.6 } }
+    ];
 
     const DEFAULT_SKIN = Object.freeze({ type: 'none', color: '#5a4030', belly: '', amount: 1, scale: 1, lips: '', nose: '', blush: 0, eyeshadow: '', shadowAmount: 0.7 });
 
@@ -539,6 +549,37 @@
         const k = s.scale;
         let t = 0;
         switch (s.type) {
+            case 'moles': {
+                const cell = cellSeed(x, y, z, 0.065 / k);
+                t = cell.d1 < 0.065 && hash3(...cell.c) > 0.87 ? 1 : 0;
+                break;
+            }
+            case 'scars': {
+                const seam = Math.abs(x + y * 0.18 + Math.sin(z * 14) * 0.012 - 0.31);
+                const stitches = Math.abs(fract(y * 65) - 0.5) < 0.08;
+                t = seam < 0.0025 / k || (seam < 0.008 / k && stitches) ? smooth(0.1, 0.7, p.n[2]) : 0;
+                break;
+            }
+            case 'veins': {
+                const [a, b] = cells(x, y * 0.5, z, 0.055 / k);
+                t = (1 - smooth(0.005, 0.025, b - a)) * 0.8;
+                break;
+            }
+            case 'stone': {
+                const [a, b] = cells(x, y, z, 0.06 / k);
+                t = (1 - smooth(0.01, 0.045, b - a)) * 0.7 + noise3(x * 160, y * 160, z * 160) * 0.3;
+                break;
+            }
+            case 'marble': {
+                const v = Math.sin((x * 16 + y * 9 + noise3(x * 8, y * 8, z * 8) * 8) * k);
+                t = (1 - smooth(0.02, 0.13, Math.abs(v))) * 0.9;
+                break;
+            }
+            case 'lava': {
+                const [a, b] = cells(x, y, z, 0.085 / k);
+                t = 1 - smooth(0.01, 0.065, b - a);
+                break;
+            }
             case 'freckles': {
                 const [d1] = cells(x, y, z, 0.006 / k);
                 const where = p.fam === 0 ? smooth(4.6, 5.0, p.s) * smooth(0.3, 0.8, p.n[2]) + smooth(3.3, 3.8, p.s) * (1 - smooth(4.0, 4.2, p.s)) * 0.6 : 0.3;
@@ -889,7 +930,7 @@
         return out;
     }
 
-    const api = { ageStep, wrinkles, fieldsOf: fields, HAIR_REGIONS, HAIR_PRESETS, BODY_HAIR_PATTERNS, DEFAULT_BODY_HAIR, normalizeBodyHair, hairDensity, hairField, hairCover, paintFur, PATTERNS, PUPILS, DEFAULT_SKIN, DEFAULT_EYES, normalizeSkin, normalizeEyes, paint, paintEyes, shadeSkin, regionOf };
+    const api = { ageStep, wrinkles, fieldsOf: fields, HAIR_REGIONS, HAIR_PRESETS, BODY_HAIR_PATTERNS, DEFAULT_BODY_HAIR, normalizeBodyHair, hairDensity, hairField, hairCover, paintFur, PATTERNS, LOOKS, PUPILS, DEFAULT_SKIN, DEFAULT_EYES, normalizeSkin, normalizeEyes, paint, paintEyes, shadeSkin, regionOf };
     root.RRCharacterSkin = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

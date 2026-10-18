@@ -1341,7 +1341,13 @@ ImageManager.isObjectCharacter = function(filename) {
     return sign && sign[0].includes("!");
 };
 
+// A sheet tagged [8D] is cut as eight blocks of 3 x 4 frames whatever its "$" says (reactor_sprites.js).
+ImageManager.isEightDirCharacter = function(filename) {
+    return /\[8D\]/i.test(Utils.extractFileName(filename || ""));
+};
+
 ImageManager.isBigCharacter = function(filename) {
+    if (ImageManager.isEightDirCharacter(filename)) return false;
     const sign = Utils.extractFileName(filename).match(/^[!$]+/);
     return sign && sign[0].includes("$");
 };

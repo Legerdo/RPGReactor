@@ -157,12 +157,18 @@
         state.mass = Math.max(1e-5, fabric.density * state.area / state.n);
         for (let c = state.shear; c < state.ck.length; c++) state.ck[c] = fabric.bend;
         state.wind = makeWind(setup.wind || {});
+        // Pins that move: the pinned edge swings as a whole with what it hangs from (a rope in the wind),
+        // `amp` meters each way, round once a loop.
+        state.sway = setup.sway && setup.sway.amp ? { amp: setup.sway.amp.slice(), phase: setup.sway.phase || 0 } : null;
+        state.pin = [0, 0, 0];
         // Steps a second: more in a hard wind, where the cloth moves farthest in a step.
         state.rate = state.wind.speed > 10 ? 360 : 240;
     }
 
     function substep(state, h) {
         const { pos, prev, pinned, dv, n } = state;
+        swayAt(state, state.time + h);
+        const pin = state.pin;
         const f = state.fabric, wind = state.wind, w = state.scratch, tris = state.tris, m = state.mass;
         dv.fill(0);
         const cn = 0.5 * AIR * f.drag, ct = 0.5 * AIR * 0.03;
@@ -203,7 +209,7 @@
         const most = state.spacing * 0.9;
         for (let p = 0; p < n; p++) {
             const k = p * 3;
-            if (pinned[p]) { prev[k] = pos[k] = state.rest[k]; prev[k + 1] = pos[k + 1] = state.rest[k + 1]; prev[k + 2] = pos[k + 2] = state.rest[k + 2]; continue; }
+            if (pinned[p]) { prev[k] = pos[k]; prev[k + 1] = pos[k + 1]; prev[k + 2] = pos[k + 2]; pos[k] = state.rest[k] + pin[0]; pos[k + 1] = state.rest[k + 1] + pin[1]; pos[k + 2] = state.rest[k + 2] + pin[2]; continue; }
             let mx = (pos[k] - prev[k]) * keep + dv[k] * h;
             let my = (pos[k + 1] - prev[k + 1]) * keep + dv[k + 1] * h - g;
             let mz = (pos[k + 2] - prev[k + 2]) * keep + dv[k + 2] * h;
@@ -219,7 +225,7 @@
     }
 
     /** Constraints, tethers and pins, `iterations` times over the first `count` links. */
-    function project(state, iterations, count) {
+    function project(state, iterations, count, keepPins) {
         const { pos, pinned, ca, cb, cl, ck, tether, tetherLength } = state;
         for (let it = 0; it < iterations; it++) {
             for (let c = 0; c < count; c++) {
@@ -247,7 +253,9 @@
             const dd = dx * dx + dy * dy + dz * dz, L = tetherLength[p] * 1.01;
             if (dd > L * L) { const d = Math.sqrt(dd); const s = L / d; pos[P] = pos[Q] + dx * s; pos[P + 1] = pos[Q + 1] + dy * s; pos[P + 2] = pos[Q + 2] + dz * s; }
         }
-        for (let p = 0; p < state.n; p++) if (pinned[p]) { const k = p * 3; pos[k] = state.rest[k]; pos[k + 1] = state.rest[k + 1]; pos[k + 2] = state.rest[k + 2]; }
+        if (keepPins) return;
+        const pin = state.pin || [0, 0, 0];
+        for (let p = 0; p < state.n; p++) if (pinned[p]) { const k = p * 3; pos[k] = state.rest[k] + pin[0]; pos[k + 1] = state.rest[k + 1] + pin[1]; pos[k + 2] = state.rest[k + 2] + pin[2]; }
     }
 
     /** Out of the pole (and any capsule), then out of itself. */
@@ -309,6 +317,15 @@
         }
     }
 
+    /** Where a moving pinned edge is at time `t`, into `state.pin`. */
+    function swayAt(state, t) {
+        const s = state.sway, out = state.pin;
+        if (!s) { out[0] = out[1] = out[2] = 0; return out; }
+        const w = Math.sin(2 * Math.PI * t / state.wind.loop + s.phase);
+        out[0] = s.amp[0] * w; out[1] = s.amp[1] * Math.abs(w); out[2] = s.amp[2] * w;
+        return out;
+    }
+
     /** Runs the sheet on by `seconds` of its own time, in fixed steps; at most `limit` steps a call. */
     function advance(state, seconds, limit) {
         const h = 1 / state.rate;
@@ -332,9 +349,12 @@
         const state = create(setup);
         const L = state.wind.loop, N = Math.round(L * fps);
         const fade = Math.max(2, Math.round((o.crossfade ?? 0.5) * fps));
-        const search = Math.round(Math.min(L, 1) * fps);
+        // A sheet hung from something that swings starts its loop on a whole loop, in step with it (and with any
+        // other sheet on it); a still edge starts wherever the sheet comes back closest to itself.
+        const search = state.sway ? 0 : Math.round(Math.min(L, 1) * fps);
         // Until it has settled: a calm cloth takes longer to fall into its folds.
-        advance(state, o.warm ?? 3 + 4 * Math.max(0, 1 - state.wind.speed / 3));
+        const warm = o.warm ?? 3 + 4 * Math.max(0, 1 - state.wind.speed / 3);
+        advance(state, state.sway ? Math.ceil(warm / L) * L : warm);
         const recorded = [];
         for (let k = 0; k <= N + search + fade + 1; k++) {
             recorded.push(Float32Array.from(state.pos));
@@ -361,7 +381,7 @@
         }
         // Lengths restored on every frame alike (a blend of two sheets is a little short).
         const fix = Object.assign({}, state, { pos: null });
-        for (const frame of frames) { fix.pos = frame; project(fix, 3, state.shear); }
+        for (const frame of frames) { fix.pos = frame; project(fix, 3, state.shear, true); }
         frames.push(Float32Array.from(frames[0]));
         return { frames, fps, duration: N / fps, nx: state.nx, ny: state.ny, closing: Math.sqrt(bestCost / recorded[0].length) };
     }
@@ -381,7 +401,7 @@
     function boneGrid(nx, ny, maxBones, lead) {
         let bx = Math.ceil(nx / 2) + (nx % 2 ? 0 : 1), by = Math.ceil(ny / 2) + (ny % 2 ? 0 : 1);
         // Over the budget, both ways thinned alike: each keeps its share of the particles.
-        while (bx * by > (maxBones || 120) && (bx > 3 || by > 3)) { if (bx / nx >= by / ny && bx > 3) bx--; else by--; }
+        while (bx * by > (maxBones || 120) && (bx > 2 || by > 2)) { if (bx / nx >= by / ny && bx > 2) bx--; else if (by > 2) by--; else bx--; }
         const bi = spread(nx, bx), bj = spread(ny, by);
         const joints = new Uint16Array(nx * ny * 4), weights = new Float32Array(nx * ny * 4);
         const cellOf = (list, v) => { let k = 0; while (k + 2 < list.length && list[k + 1] <= v) k++; return [k, (v - list[k]) / (list[k + 1] - list[k])]; };
@@ -539,7 +559,7 @@
         }
     }
 
-    const api = { FABRICS, create, configure, advance, bake, boneGrid, posesFor, tracks, skin, sample, windAt, makeWind };
+    const api = { swayAt, FABRICS, create, configure, advance, bake, boneGrid, posesFor, tracks, skin, sample, windAt, makeWind };
     root.RRPropCloth = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

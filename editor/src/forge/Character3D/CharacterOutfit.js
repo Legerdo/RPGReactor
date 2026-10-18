@@ -444,6 +444,34 @@
         const piece = cut(surface, smooth);
         piece.neighbors = pieceNeighbors(piece.verts.length, piece.index);
         piece.border = borderEdges(piece.index);
+        piece.onBorder = new Uint8Array(piece.verts.length);
+        for (const [a, b] of piece.border) { piece.onBorder[a] = 1; piece.onBorder[b] = 1; }
+        // How far each vertex lies from the cut edge, in meters over the average body: hems and trims follow it
+        // as an even band, never the coarse steps of the cut value between vertices.
+        {
+            const R = an.rest, n = piece.verts.length;
+            const at = i => { const { a, b, t } = piece.verts[i]; return [0, 1, 2].map(k => R[a * 3 + k] * (1 - t) + R[b * 3 + k] * t); };
+            const pts = piece.verts.map((_, i) => at(i));
+            const edgeIds = [...new Set(piece.border.flat())];
+            // Measured from the edge as it is laid (eased along itself), so the band runs even with the hem.
+            const flat = new Float32Array(n * 3);
+            pts.forEach((p, i) => flat.set(p, i * 3));
+            smoothBorder(piece, flat, new Float32Array(n * 3), 8);
+            pts.forEach((p, i) => { if (piece.onBorder[i]) { p[0] = flat[i * 3]; p[1] = flat[i * 3 + 1]; p[2] = flat[i * 3 + 2]; } });
+            piece.edgeDist = new Float32Array(n);
+            for (let i = 0; i < n; i++) {
+                let best = Infinity;
+                const p = pts[i];
+                for (const e of piece.border) {
+                    const A = pts[e[0]], B = pts[e[1]];
+                    const ab = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], l2 = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2 || 1e-12;
+                    const t = Math.max(0, Math.min(1, ((p[0] - A[0]) * ab[0] + (p[1] - A[1]) * ab[1] + (p[2] - A[2]) * ab[2]) / l2));
+                    const d = (p[0] - A[0] - ab[0] * t) ** 2 + (p[1] - A[1] - ab[1] * t) ** 2 + (p[2] - A[2] - ab[2] * t) ** 2;
+                    if (d < best) best = d;
+                }
+                piece.edgeDist[i] = edgeIds.length ? Math.sqrt(best) : 1;
+            }
+        }
         // Fields at each piece vertex, for patterns: spine/limb position and angle, blended like the vertex.
         piece.field = piece.verts.map(({ a, b, t }) => {
             const f = v => {
@@ -539,6 +567,9 @@
         if (passes > 0) {
             let next = new Float32Array(pos.length);
             const N = piece.neighbors;
+            // The edge keeps its outline: its vertices follow the smoothing only straight out from the body,
+            // never in across the piece (which frays a hem into a sawtooth).
+            const edge = piece.onBorder;
             for (let p = 0; p < passes; p++) {
                 for (let i = 0; i < count; i++) {
                     const near = N[i];
@@ -549,6 +580,11 @@
                     next[i * 3] = 0.5 * pos[i * 3] + 0.5 * x * k;
                     next[i * 3 + 1] = 0.5 * pos[i * 3 + 1] + 0.5 * y * k;
                     next[i * 3 + 2] = 0.5 * pos[i * 3 + 2] + 0.5 * z * k;
+                    if (edge[i]) {
+                        const mx = next[i * 3] - pos[i * 3], my = next[i * 3 + 1] - pos[i * 3 + 1], mz = next[i * 3 + 2] - pos[i * 3 + 2];
+                        const along = mx * normal[i * 3] + my * normal[i * 3 + 1] + mz * normal[i * 3 + 2];
+                        next[i * 3] = pos[i * 3] + normal[i * 3] * along; next[i * 3 + 1] = pos[i * 3 + 1] + normal[i * 3 + 1] * along; next[i * 3 + 2] = pos[i * 3 + 2] + normal[i * 3 + 2] * along;
+                    }
                     // Never closer to the body than its lift (where it is lifted less, as little).
                     const ox = next[i * 3] - base[i * 3], oy = next[i * 3 + 1] - base[i * 3 + 1], oz = next[i * 3 + 2] - base[i * 3 + 2];
                     const d = ox * normal[i * 3] + oy * normal[i * 3 + 1] + oz * normal[i * 3 + 2];
@@ -572,6 +608,12 @@
         const fields = piece.field.slice(), skins = piece.skins.slice(), vals = Array.from(piece.vals);
         const origin = piece.verts.map((_, i) => i);
         const rimOf = new Map();
+        // The piece's normals, facing out from the body (as it was lifted), for folding its edge under.
+        const rimNormals = triangleNormals(pos, piece.index);
+        for (let i = 0; i < count; i++) {
+            const o = (pos[i * 3] - base[i * 3]) * rimNormals[i * 3] + (pos[i * 3 + 1] - base[i * 3 + 1]) * rimNormals[i * 3 + 1] + (pos[i * 3 + 2] - base[i * 3 + 2]) * rimNormals[i * 3 + 2];
+            if (o < 0) { rimNormals[i * 3] *= -1; rimNormals[i * 3 + 1] *= -1; rimNormals[i * 3 + 2] *= -1; }
+        }
         const rim = i => {
             if (rimOf.has(i)) return rimOf.get(i);
             const j = positions.length / 3;
@@ -583,7 +625,11 @@
                 const most = spec.rimReach(piece.field[i]);
                 if (off * depth > most) depth = most / off;
             }
-            for (let k = 0; k < 3; k++) positions.push(pos[i * 3 + k] - (pos[i * 3 + k] - base[i * 3 + k]) * depth);
+            // Straight back in under the edge, along the piece's own normal there (an even fold, not a sawtooth).
+            const n0 = rimNormals[i * 3], n1 = rimNormals[i * 3 + 1], n2 = rimNormals[i * 3 + 2];
+            const off = (pos[i * 3] - base[i * 3]) * n0 + (pos[i * 3 + 1] - base[i * 3 + 1]) * n1 + (pos[i * 3 + 2] - base[i * 3 + 2]) * n2;
+            const back = Math.max(0.002, Math.abs(off) * depth);
+            positions.push(pos[i * 3] - n0 * back, pos[i * 3 + 1] - n1 * back, pos[i * 3 + 2] - n2 * back);
             uvs.push(piece.uvs[i * 2], piece.uvs[i * 2 + 1]);
             fields.push(piece.field[i]); skins.push(piece.skins[i]); vals.push(-1);
             rimOf.set(i, j);
@@ -601,7 +647,9 @@
         if (spec.collide !== false && out.length / 3 > count) collide(pack, built, out, count, out.length / 3, 0.001, cache);
         const joints = new Uint8Array(skins.length * 4), weights = new Float32Array(skins.length * 4);
         skins.forEach((s, i) => { joints.set(s.joints, i * 4); weights.set(s.weights, i * 4); });
-        return { positions: out, normals: triangleNormals(out, index), uvs: Float32Array.from(uvs), index: Uint32Array.from(index), joints, weights, field: fields, vals: Float32Array.from(vals), base, rimStart: count, origin: Int32Array.from(origin), piece };
+        const edge = new Float32Array(out.length / 3);
+        edge.set(piece.edgeDist || []);
+        return { positions: out, normals: triangleNormals(out, index), uvs: Float32Array.from(uvs), index: Uint32Array.from(index), joints, weights, field: fields, vals: Float32Array.from(vals), edge, base, rimStart: count, origin: Int32Array.from(origin), piece };
     }
 
     /** Each border vertex moved toward the middle of its two neighbors along the border, `passes` times (the body point under it too). */

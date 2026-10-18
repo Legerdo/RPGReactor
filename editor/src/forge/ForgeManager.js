@@ -118,6 +118,15 @@ class ForgeManager {
         this.projectController = projectController;
         this.workspaceModal = null;
         this.activeToolId = null;
+        this._mountedTool = null;
+        window.addEventListener('rr-forge-docked', () => {
+            // A destroyed native window loses its DOM listeners. Rebuild the shell before reopening.
+            const shown = this.workspaceModal && this.workspaceModal.style.display !== 'none';
+            this._detachTool();
+            this.workspaceModal?.remove();
+            this.workspaceModal = null;
+            if (shown) this._open();
+        });
         // Tool instances are lazy-cached on this object via tool.getter.
         window.addEventListener('rr-language-changed', () => {
             if (!this.workspaceModal || this.workspaceModal.style.display === 'none') return;
@@ -140,23 +149,29 @@ class ForgeManager {
 
     /** Open the workspace and activate a specific tool by id. */
     openTool(toolId) {
-        this._open();
-        this._activateTool(toolId);
+        if (FORGE_TOOLS.some(tool => tool.id === toolId)) this._open(toolId);
     }
 
-    _open() {
+    _open(toolId = this.activeToolId) {
         if (!this.workspaceModal) this._createWorkspace();
-        this._renderWorkspace();
+        const shownBefore = this.workspaceModal.style.display !== 'none';
+        if (!shownBefore || toolId !== this.activeToolId) {
+            this.activeToolId = toolId;
+            this._renderWorkspace();
+        }
         this.workspaceModal.style.display = 'flex';
+        if (typeof RRForgeWindow !== 'undefined') RRForgeWindow.open(this.workspaceModal, { shownBefore });
+    }
+
+    _detachTool() {
+        if (this._mountedTool && typeof this._mountedTool.detach === 'function') this._mountedTool.detach();
+        this._mountedTool = null;
     }
 
     close() {
-        if (this.activeToolId) {
-            const tool = FORGE_TOOLS.find(t => t.id === this.activeToolId);
-            const instance = tool && this[tool.getter];
-            if (instance && typeof instance.detach === 'function') instance.detach();
-        }
+        this._detachTool();
         if (this.workspaceModal) this.workspaceModal.style.display = 'none';
+        if (typeof RRForgeWindow !== 'undefined') RRForgeWindow.hidePopout();
     }
 
     /**
@@ -171,6 +186,7 @@ class ForgeManager {
             if ('projectPath' in instance) instance.projectPath = null;
             if (instance.imageCache && typeof instance.imageCache.clear === 'function') instance.imageCache.clear();
         }
+        this._mountedTool = null;
         if (this.workspaceModal && this.workspaceModal.style.display !== 'none') {
             this._renderWorkspace();
         }
@@ -178,16 +194,29 @@ class ForgeManager {
 
     _createWorkspace() {
         this.workspaceModal = document.createElement('div');
+        this.workspaceModal.id = 'forge-workspace';
         this.workspaceModal.className = 'rr-modal-overlay forge-workspace-overlay';
-        this.workspaceModal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 10400;';
-        // Intentionally NO click-outside-to-close: Forge tools hold in-progress
-        // work (character composites, future canvas edits, etc.) so the user
-        // closes via the [×] button. Don't risk an accidental click on the
-        // dimmed area discarding work.
+        this.workspaceModal.style.display = 'none';
+        // Keep the frame itself mounted: its drag handlers, size observer and native window
+        // belong to this panel, even when a tool or the language changes inside it.
+        this.workspaceModal.innerHTML = `
+            <div class="rr-modal rr-forge-window">
+                <div class="rr-modal-header">
+                    <div class="rr-forge-heading">
+                        <span class="rr-forge-brand">${FORGE_ICONS.forge(22)}</span>
+                        <div class="rr-modal-title"></div>
+                    </div>
+                    <button type="button" class="rr-forge-close" aria-label="${this._t('common.close')}">&times;</button>
+                </div>
+                <div class="rr-forge-workspace-body"></div>
+            </div>`;
+        this.workspaceModal.querySelector('.rr-forge-close').addEventListener('click', () => this.close());
         document.body.appendChild(this.workspaceModal);
+        if (typeof RRForgeWindow !== 'undefined') RRForgeWindow.install(this.workspaceModal);
     }
 
     _renderWorkspace() {
+        this._detachTool();
         const sidebarHtml = FORGE_TOOLS.map(tool => {
             const active = tool.id === this.activeToolId;
             const name = this._t(tool.nameKey);
@@ -202,17 +231,9 @@ class ForgeManager {
         const activeTool = FORGE_TOOLS.find(t => t.id === this.activeToolId);
         const titleSuffix = activeTool ? ` | ${this._t(activeTool.nameKey)}` : '';
 
-        this.workspaceModal.innerHTML = `
-            <div class="rr-modal" style="width: 98vw; height: 96vh; background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: 8px; display: flex; flex-direction: column; box-shadow: var(--shadow-modal); overflow: hidden;">
-                <div class="rr-modal-header" style="padding: 12px 18px; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-toolbar); display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; flex-shrink: 0;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <span style="color: var(--color-accent-bright); line-height: 1; display: inline-flex;">${FORGE_ICONS.forge(22)}</span>
-                        <div class="rr-modal-title" style="font-size: 15px; font-weight: 700; color: var(--color-text-strong);">${this._t('menu.forge')}${titleSuffix}</div>
-                    </div>
-                    <button class="rr-forge-close" style="background: none; border: none; color: var(--color-text-muted); font-size: 22px; cursor: pointer; line-height: 1;">&times;</button>
-                </div>
-
-                <div style="display: grid; grid-template-columns: 200px 1fr; flex: 1; min-height: 0;">
+        this.workspaceModal.querySelector('.rr-modal-title').textContent = this._t('menu.forge') + titleSuffix;
+        this.workspaceModal.querySelector('.rr-forge-close').setAttribute('aria-label', this._t('common.close'));
+        this.workspaceModal.querySelector('.rr-forge-workspace-body').innerHTML = `
                     <div class="rr-forge-sidebar" style="background: var(--color-bg-panel); border-right: 1px solid var(--color-border); overflow-y: auto; padding: 8px 0;">
                         <div style="padding: 6px 14px 8px; font-size: 9px; font-weight: 700; color: var(--color-accent-bright); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border-subtle);">${this._t('forge.tools')}</div>
                         ${sidebarHtml}
@@ -220,11 +241,7 @@ class ForgeManager {
                     <div class="rr-forge-content" style="overflow: hidden; min-width: 0; display: flex; flex-direction: column;">
                         ${this.activeToolId ? '' : this._renderWelcome()}
                     </div>
-                </div>
-            </div>
         `;
-
-        this.workspaceModal.querySelector('.rr-forge-close').addEventListener('click', () => this.close());
 
         this.workspaceModal.querySelectorAll('.rr-forge-sidebar-item').forEach(el => {
             el.addEventListener('mouseenter', () => {
@@ -256,6 +273,7 @@ class ForgeManager {
             if (tool && contentEl) {
                 if (!this[tool.getter]) this[tool.getter] = tool.ctor();
                 this[tool.getter].renderInto(contentEl, this.projectController);
+                this._mountedTool = this[tool.getter];
             }
         }
     }
@@ -283,7 +301,7 @@ class ForgeManager {
         // Inline script not used — wire events after innerHTML in _renderWorkspace.
         // We return the welcome HTML and wire tile handlers in a postprocess hook.
         return `
-            <div class="rr-forge-welcome" style="padding: 40px; display: flex; flex-direction: column; gap: 20px; align-items: center; justify-content: flex-start;">
+            <div class="rr-forge-welcome" style="padding: 40px; display: flex; flex-direction: column; gap: 20px; align-items: center; justify-content: flex-start; overflow-y: auto;">
                 <div style="text-align: center; display: flex; flex-direction: column; align-items: center;">
                     <div style="color: var(--color-accent-bright); margin-bottom: 8px; display: inline-flex;">${FORGE_ICONS.forge(44)}</div>
                     <div style="font-size: 18px; font-weight: 700; color: var(--color-text-strong);">${this._t('menu.forge')}</div>
@@ -298,14 +316,7 @@ class ForgeManager {
 
     _activateTool(toolId) {
         const tool = FORGE_TOOLS.find(t => t.id === toolId);
-        if (!tool) return;
-
-        // Detach the previously-active tool (stop timers etc.) before swapping.
-        if (this.activeToolId && this.activeToolId !== toolId) {
-            const prev = FORGE_TOOLS.find(t => t.id === this.activeToolId);
-            const prevInstance = prev && this[prev.getter];
-            if (prevInstance && typeof prevInstance.detach === 'function') prevInstance.detach();
-        }
+        if (!tool || this.activeToolId === toolId) return;
 
         if (!this[tool.getter]) this[tool.getter] = tool.ctor();
         this.activeToolId = toolId;

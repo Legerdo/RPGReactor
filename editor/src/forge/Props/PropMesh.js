@@ -263,7 +263,56 @@
         return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(c => toLinear(c / 255));
     }
 
-    const api = { lathe, tube, sphere, box, extrude, inset, transform, merge, computeNormals, basis, shade };
+    /** Planar wood grain uvs (meters / `scale`), the grain running along the longer side of each face. */
+    function planarUv(mesh, scale) {
+        const P = mesh.positions, N = mesh.normals, uv = new Float32Array(P.length / 3 * 2);
+        for (let i = 0; i < P.length / 3; i++) {
+            const nx = Math.abs(N[i * 3]), ny = Math.abs(N[i * 3 + 1]), nz = Math.abs(N[i * 3 + 2]);
+            const x = P[i * 3] / scale, y = P[i * 3 + 1] / scale, z = P[i * 3 + 2] / scale;
+            if (nz >= nx && nz >= ny) { uv[i * 2] = x; uv[i * 2 + 1] = y * 0.25; }
+            else if (nx >= ny) { uv[i * 2] = z; uv[i * 2 + 1] = y * 0.25; }
+            else { uv[i * 2] = x; uv[i * 2 + 1] = z * 0.25; }
+        }
+        mesh.uvs = uv;
+        return mesh;
+    }
+
+    /**
+     * A round bar along a path of points (a bent crossguard, a basket's bow,
+     * a coil): `radius` a number or a function of the point's index; rings
+     * turned along the path without twisting; ends closed when `caps`.
+     */
+    function polyTube(points, radius, segments, options) {
+        const o = options || {}, seg = Math.max(3, segments | 0), n = points.length, P = [], N = [], T = [], I = [];
+        const rOf = typeof radius === 'function' ? radius : () => radius;
+        const tangent = k => norm(sub(points[Math.min(n - 1, k + 1)], points[Math.max(0, k - 1)]));
+        let [u, v] = basis(tangent(0));
+        for (let k = 0; k < n; k++) {
+            const t = tangent(k);
+            // Carry the frame along: take out of u what now points along the path.
+            const d = u[0] * t[0] + u[1] * t[1] + u[2] * t[2];
+            u = norm([u[0] - t[0] * d, u[1] - t[1] * d, u[2] - t[2] * d]); v = cross(t, u);
+            const r = rOf(k);
+            for (let s = 0; s <= seg; s++) {
+                const a = s / seg * Math.PI * 2, c = Math.cos(a), si = Math.sin(a);
+                const dir = [u[0] * c + v[0] * si, u[1] * c + v[1] * si, u[2] * c + v[2] * si];
+                P.push(points[k][0] + dir[0] * r, points[k][1] + dir[1] * r, points[k][2] + dir[2] * r); N.push(dir[0], dir[1], dir[2]); T.push(s / seg, k / (n - 1));
+            }
+        }
+        for (let k = 0; k < n - 1; k++) for (let s = 0; s < seg; s++) { const a = k * (seg + 1) + s, b = a + seg + 1; I.push(a, a + 1, b, b, a + 1, b + 1); }
+        const mesh = make(P, N, T, I);
+        if (!o.caps) return mesh;
+        const caps = [0, n - 1].map(k => Mesh_disc(points[k], k ? tangent(k) : tangent(k).map(x => -x), rOf(k), seg));
+        return merge([mesh].concat(caps));
+    }
+    function Mesh_disc(center, normal, r, seg) {
+        const [u, v] = basis(normal), P = [center[0], center[1], center[2]], N = [normal[0], normal[1], normal[2]], T = [0.5, 0.5], I = [];
+        for (let s = 0; s <= seg; s++) { const a = s / seg * Math.PI * 2; P.push(center[0] + (u[0] * Math.cos(a) + v[0] * Math.sin(a)) * r, center[1] + (u[1] * Math.cos(a) + v[1] * Math.sin(a)) * r, center[2] + (u[2] * Math.cos(a) + v[2] * Math.sin(a)) * r); N.push(normal[0], normal[1], normal[2]); T.push(0.5, 0.5); }
+        for (let s = 1; s <= seg; s++) I.push(0, s, s + 1);
+        return make(P, N, T, I);
+    }
+
+    const api = { planarUv, polyTube, lathe, tube, sphere, box, extrude, inset, transform, merge, computeNormals, basis, shade };
     root.RRPropMesh = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

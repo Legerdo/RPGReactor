@@ -62,7 +62,17 @@
         { id: 'bunLow', label: 'Low bun', group: 'Tied hair' },
         { id: 'topKnot', label: 'Top knot', group: 'Tied hair' },
         { id: 'braid', label: 'Braid', group: 'Tied hair' },
-        { id: 'twinBraids', label: 'Twin braids', group: 'Tied hair' }
+        { id: 'twinBraids', label: 'Twin braids', group: 'Tied hair' },
+        { id: 'flatTop', label: 'Flat top', group: 'Short hair' },
+        { id: 'fauxHawk', label: 'Faux hawk', group: 'Short hair' },
+        { id: 'asymmetricBob', label: 'Asymmetric bob', group: 'Medium hair' },
+        { id: 'ringlets', label: 'Ringlets', group: 'Long hair' },
+        { id: 'shortLocs', label: 'Short locs', group: 'Medium hair' },
+        { id: 'sideBraid', label: 'Side braid', group: 'Tied hair' },
+        { id: 'doubleBun', label: 'Double buns', group: 'Tied hair' },
+        { id: 'halfUp', label: 'Half-up ponytail', group: 'Tied hair' },
+        { id: 'braidedPonytail', label: 'Braided ponytail', group: 'Tied hair' },
+        { id: 'cornrows', label: 'Cornrows', group: 'Braided hair' }
     ];
 
     const FACIAL = [
@@ -80,7 +90,12 @@
         { id: 'pencil', label: 'Pencil mustache', group: 'Mustache' },
         { id: 'handlebar', label: 'Handlebar', group: 'Mustache' },
         { id: 'walrus', label: 'Walrus', group: 'Mustache' },
-        { id: 'horseshoe', label: 'Horseshoe', group: 'Mustache' }
+        { id: 'horseshoe', label: 'Horseshoe', group: 'Mustache' },
+        { id: 'soulPatch', label: 'Soul patch', group: 'Beard' },
+        { id: 'anchorBeard', label: 'Anchor beard', group: 'Beard' },
+        { id: 'chinCurtain', label: 'Chin curtain', group: 'Beard' },
+        { id: 'sideburns', label: 'Sideburns', group: 'Beard' },
+        { id: 'chevron', label: 'Chevron mustache', group: 'Mustache' }
     ];
 
     const BROWS = [
@@ -104,7 +119,8 @@
      */
     const STYLE_FRINGE = {
         messy: [0.45, 'wispy'], shag: [0.6, 'wispy'], bob: [0.55, 'blunt'], shoulder: [0.4, 'curtain'], curly: [0.35, 'wispy'],
-        longWavy: [0.35, 'curtain'], pigtails: [0.6, 'blunt'], twinBraids: [0.5, 'blunt'], bun: [0.3, 'curtain']
+        longWavy: [0.35, 'curtain'], pigtails: [0.6, 'blunt'], twinBraids: [0.5, 'blunt'], bun: [0.3, 'curtain'],
+        asymmetricBob: [0.4, 'wispy'], ringlets: [0.25, 'curtain'], doubleBun: [0.35, 'curtain'], halfUp: [0.3, 'curtain']
     };
     /** A hair recipe with a new style and that style's own bangs. */
     function withStyle(hair, id) {
@@ -119,6 +135,9 @@
         length: 1,
         volume: 0.5,
         curl: 0,
+        density: 1,
+        frizz: 0,
+        strandWidth: 1,
         part: 'left',
         fringe: 0,
         hairline: 0,
@@ -143,6 +162,9 @@
             length: clamp(h.length ?? 1, 0.3, 2.5),
             volume: clamp(h.volume ?? 0.5, 0, 1),
             curl: clamp(h.curl ?? 0, 0, 1),
+            density: clamp(h.density ?? 1, 0.3, 1.5),
+            frizz: clamp(h.frizz ?? 0, 0, 1),
+            strandWidth: clamp(h.strandWidth ?? 1, 0.5, 1.8),
             part: PARTS.includes(h.part) ? h.part : DEFAULT_HAIR.part,
             fringe: clamp(h.fringe ?? (STYLE_FRINGE[pickId(STYLES, h.style, DEFAULT_HAIR.style)] || [0])[0], 0, 1),
             hairline: clamp(h.hairline ?? 0, 0, 1),
@@ -850,6 +872,16 @@
         const partComb = (p, n, c) => combFromPart(H, hair, p, n, c);
         const curl = hair.curl;
         switch (hair.style) {
+            case 'flatTop': return [cap(0.003), strands({ count: 240, zone: c => c.el - 30, comb: () => AXIS.up, length: c => Math.max(0.012, 0.075 - c.y * 0.04) * L, width: 0.012 * S, hug: 0, lift: 0.6, gravity: 0, steps: 4 })];
+            case 'fauxHawk': return [cap(0.006), { type: 'spikes', count: 40, length: 0.07 * L, width: 0.022 * S, up: 0.8, zone: c => (0.55 - Math.abs(c.x)) * 30 }];
+            case 'asymmetricBob': return withFringe([cap(0.007), strands({ sheet: true, count: 320, comb: partComb, length: c => (c.x > 0 ? 0.34 : 0.22) * L, width: 0.023 * S, hug: 0.85, gravity: 0.6, steps: 12, stopY: c => chinY + (c.x > 0 ? -0.06 : 0.035) * S, inCurl: 0.3 })]);
+            case 'ringlets': return withFringe([cap(0.012), { type: 'coils', count: 380, length: () => 0.16 * L, width: 0.005 * S, coil: 0.008 * S, comb: (p, n, c) => combDown(n, c), stand: 0.2, stopY: () => H.shoulderY - 0.08 * L }]);
+            case 'shortLocs': return [cap(0.008), { type: 'locks', count: 72, length: 0.17 * L, radius: (0.007 + 0.003 * V) * S }];
+            case 'sideBraid': return withFringe([cap(0.005), { type: 'braid', ties: [[105, -8]], length: 0.42 * L, radius: (0.018 + 0.006 * V) * S }]);
+            case 'doubleBun': return withFringe([cap(0.005), ...[-1, 1].map(side => ({ type: 'bun', tie: [side * 105, 45], radius: (0.03 + 0.015 * V) * S }))]);
+            case 'halfUp': return withFringe([cap(0.005), strands({ sheet: true, count: 220, zone: c => 35 - c.el, comb: partComb, length: () => 0.43 * L, width: 0.025 * S, hug: 0.85, gravity: 0.65, steps: 12, drape: 'split' }), { type: 'tail', ties: [[180, 40]], length: 0.3 * L, radius: (0.016 + 0.008 * V) * S }]);
+            case 'braidedPonytail': return [cap(0.005), { type: 'braid', ties: [[180, 46]], length: 0.48 * L, radius: (0.018 + 0.006 * V) * S }];
+            case 'cornrows': return [cap(0.001), { type: 'cornrows', rows: 9, radius: (0.003 + 0.002 * V) * S }];
             case 'bald': return [];
             case 'buzz': return [cap(0.0012 + 0.0012 * V)];
             // Short hair stands as a soft pile: a dense layer of strands with many short, fine ones standing
@@ -941,7 +973,7 @@
     function buildStrands(H, hair, m, layer, ramp, rand) {
         const surf = cutSurface(H, scalpField(H, hair, layer.zone));
         // A third more locks than a style names: with the crossing strips shortened, the same triangles.
-        const roots = scatter(surf, Math.round(layer.count * 1.35 * H.budget), rand);
+        const roots = scatter(surf, Math.round(layer.count * 1.35 * H.budget * hair.density), rand);
         for (const r of roots) {
             if (r.f < 1.5) continue;
             const c = headCoords(H, r.p);
@@ -969,6 +1001,7 @@
             // Curl waves each lock in its own plane: twisted round a helix, a flat card reads as a row of tiles.
             const curlAmt = (layer.curl ? layer.curl.amount : 0) + hair.curl * 0.01 * H.scale;
             if (curlAmt > 0) pts = curlStrand(H, pts, curlAmt, (layer.curl ? layer.curl.period : 0.04 * H.scale) * (0.85 + 0.3 * rand()), false, rand() * 6.28);
+            if (hair.frizz > 0) pts = curlStrand(H, pts, hair.frizz * 0.006 * H.scale, 0.018 * H.scale, true, rand() * 6.28);
             // Lock-to-lock lightness: light hair shows every difference, so it varies less.
             const variance = 1 + (rand() - 0.5) * (ramp.light > 0.3 ? 0.14 : 0.3);
             const highlight = rand() < hair.highlights * 0.5, lock = ramp.lock(rand);
@@ -977,7 +1010,7 @@
             const edge = smooth(1.5, 9, r.f);
             // At the hairline a lock grows from a point, so the locks' roots there are a scatter, not stair steps.
             const rootW = 0.4 + 0.6 * edge;
-            addClump(m, pts, { H, single: layer.single, taper: t => (rootW + (1 - rootW) * smooth(0, 0.2, t)) * (1 - Math.pow(t, 1.6) * 0.7), width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight, lock) });
+            addClump(m, pts, { H, single: layer.single, taper: t => (rootW + (1 - rootW) * smooth(0, 0.2, t)) * (1 - Math.pow(t, 1.6) * 0.7), width: layer.width * hair.strandWidth * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight, lock) });
             // Flyaways: here and there at the hairline, and now and then over the head, a few stray hairs
             // lift off the lock and wander, so the edge of the hair is never a clean line.
             if (rand() < (edge < 0.7 ? 0.22 : 0.05) && pts.length > 2) {
@@ -1090,7 +1123,7 @@
      */
     function buildCoils(H, hair, m, layer, ramp, rand) {
         const surf = cutSurface(H, scalpField(H, hair, layer.zone));
-        const roots = scatter(surf, Math.round(layer.count * H.budget), rand);
+        const roots = scatter(surf, Math.round(layer.count * H.budget * hair.density), rand);
         for (const r of roots) {
             if (r.f < 1) continue;
             const c = headCoords(H, r.p), edge = smooth(1, 8, r.f);
@@ -1108,7 +1141,7 @@
                 pts.push(p);
             }
             const variance = 0.8 + 0.4 * rand(), lock = ramp.lock(rand);
-            addCard(m, pts, { width: layer.width * (0.7 + 0.6 * rand()), single: true, center: H.center, vFrom: 0.25 + 0.2 * (1 - edge), taper: t => 1 - 0.5 * t, color: t => ramp(0.35 + 0.6 * t, variance, false, lock) });
+            addCard(m, pts, { width: layer.width * hair.strandWidth * (0.7 + 0.6 * rand()), single: true, center: H.center, vFrom: 0.25 + 0.2 * (1 - edge), taper: t => 1 - 0.5 * t, color: t => ramp(0.35 + 0.6 * t, variance, false, lock) });
         }
     }
 
@@ -1154,7 +1187,7 @@
         for (let t = 0; t < surf.index.length; t += 3) m.idx.push(base + surf.index[t], base + surf.index[t + 1], base + surf.index[t + 2]);
         // A fuzz of short coiled strands standing out of the mass all over, so its outline is soft.
         // Light hair shows each fuzz card as a pale fleck: the lighter the hair, the fewer stand out.
-        const roots = scatter(surf, Math.round(1100 * H.budget * (1 - 0.4 * smooth(0.15, 0.6, lightness))), rand);
+        const roots = scatter(surf, Math.round(1100 * H.budget * hair.density * (1 - 0.4 * smooth(0.15, 0.6, lightness))), rand);
         for (const r of roots) {
             const s = shellAt(r.p, r.n, r.f);
             if (s.edge < 0.25) continue;
@@ -1384,6 +1417,11 @@
             const mustacheBand = Math.min((mustacheTop - p[1]) / H.radii[1] * 60, (p[1] - mustacheLow) / H.radii[1] * 60, (lipW * 1.15 - x) / rx * 60 + (1 - mx2 * mx2) * 2);
             const chinZone = (lipW * 1.4 - x) / rx * 60;
             switch (style) {
+                case 'soulPatch': f = Math.min(f, (lipW * 0.5 - x) / rx * 60, (H.lipBottom - 0.002 * H.scale - p[1]) / H.radii[1] * 60, (p[1] - (H.chin[1] + 0.012 * H.scale)) / H.radii[1] * 60); break;
+                case 'anchorBeard': f = Math.max(mustacheBand, Math.min(f, (lipW * 1.5 - x) / rx * 60, (H.lipBottom - p[1]) / H.radii[1] * 60, (H.chin[1] + 0.03 * H.scale + x * 0.25 - p[1]) / H.radii[1] * 60)); break;
+                case 'chinCurtain': f = Math.min(f, (H.lipBottom - 0.008 * H.scale - p[1]) / H.radii[1] * 60); break;
+                case 'sideburns': f = Math.min(f, (ax - 0.65) * 40, (p[1] - H.earBottom + 0.01 * H.scale) / H.radii[1] * 60); break;
+                case 'chevron': f = Math.min(mustacheBand, (p[1] - H.lipTop - lipH * 0.5 + x * 0.13) / H.radii[1] * 60); break;
                 case 'goatee': f = Math.max(Math.min(f, chinZone, (mouthY + lipH - p[1]) / H.radii[1] * 60, (p[1] - (H.chin[1] - 0.012 * H.scale)) / H.radii[1] * 60), mustacheBand); break;
                 case 'chinStrap': {
                     // A band along the jaw's edge, from the sideburns round the chin.
@@ -1414,6 +1452,24 @@
         return (pack._lipShare = out);
     }
 
+    function buildCornrows(H, m, layer, ramp) {
+        for (let row = 0; row < layer.rows; row++) {
+            const x = (row / (layer.rows - 1) * 2 - 1) * 0.82;
+            for (let strand = 0; strand < 3; strand++) {
+                const points = [];
+                for (let k = 0; k <= 40; k++) {
+                    const t = k / 40, phi = 0.25 + t * 2.65;
+                    const yz = Math.sqrt(1 - x * x), dy = Math.sin(phi) * yz, dz = Math.cos(phi) * yz;
+                    const root = scalpPoint(H, Math.atan2(x, dz) * 180 / Math.PI, Math.asin(dy) * 180 / Math.PI, layer.radius * 1.3);
+                    const twist = t * Math.PI * 22 + strand * Math.PI * 2 / 3;
+                    const across = norm(cross(root.n, [0, 1, 0]));
+                    points.push(add(root.p, add(mul(across, Math.cos(twist) * layer.radius * 0.6), mul(root.n, Math.sin(twist) * layer.radius * 0.6))));
+                }
+                addTube(m, points, () => layer.radius * 0.5, t => ramp(t * 0.2, 0.9 + strand * 0.08, false), 5);
+            }
+        }
+    }
+
     function buildFacial(H, hair, m, rand, skin) {
         const f = hair.facial;
         if (f.style === 'none') return;
@@ -1424,7 +1480,7 @@
         const surf = cutSurface(H, facialField(H, f.style));
         if (!surf.index.length) return;
         const V = f.volume, Lf = f.length;
-        const thick = { stubble: 0.0008, goatee: 0.006, chinStrap: 0.004, shortBeard: 0.006, fullBeard: 0.012, longBeard: 0.014, wizardBeard: 0.016, braidedBeard: 0.013, muttonChops: 0.008, mustache: 0.006, pencil: 0.0025, handlebar: 0.006, walrus: 0.01, horseshoe: 0.007 }[f.style] * S * (0.6 + 0.8 * V);
+        const thick = { stubble: 0.0008, goatee: 0.006, chinStrap: 0.004, shortBeard: 0.006, fullBeard: 0.012, longBeard: 0.014, wizardBeard: 0.016, braidedBeard: 0.013, muttonChops: 0.008, mustache: 0.006, pencil: 0.0025, handlebar: 0.006, walrus: 0.01, horseshoe: 0.007, soulPatch: 0.003, anchorBeard: 0.005, chinCurtain: 0.009, sideburns: 0.004, chevron: 0.007 }[f.style] * S * (0.6 + 0.8 * V);
         const freq = 1 / (0.006 * S);
         const lumps = p => 0.75 + 0.25 * Math.sin(p[0] * freq * 1.3 + Math.sin(p[1] * freq)) * Math.cos(p[2] * freq * 1.1 + p[1] * freq * 0.7);
         // Thicker toward the chin, thin at the cheek edge.
@@ -1479,7 +1535,7 @@
         // toward the chin; long styles hang below the chin in layers. Their lightness varies lock to lock,
         // and some catch the light, so the beard is never one flat dark.
         const long = { longBeard: 0.16, wizardBeard: 0.32, braidedBeard: 0.12, fullBeard: 0.05 }[f.style];
-        const mustache = ['mustache', 'handlebar', 'walrus', 'horseshoe', 'goatee', 'fullBeard', 'longBeard', 'wizardBeard', 'braidedBeard', 'shortBeard'].includes(f.style);
+        const mustache = ['mustache', 'handlebar', 'walrus', 'horseshoe', 'goatee', 'fullBeard', 'longBeard', 'wizardBeard', 'braidedBeard', 'shortBeard', 'anchorBeard', 'chevron'].includes(f.style);
         const roots = scatter(surf, Math.round(Math.min(long ? 1500 : 1700, surf.index.length / 3 * 2.2) * H.budget), rand);
         for (const r of roots) {
             if (r.f < 0.3) continue;
@@ -1909,6 +1965,7 @@
             else if (layer.type === 'bun') buildBun(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'braid') buildBraid(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'locks') buildLocks(H, hair, head, layer, ramp, rand);
+            else if (layer.type === 'cornrows') buildCornrows(H, head, layer, ramp);
         }
         // Hair shades itself: deeper layers lie in the shadow of the ones over them.
         depthShade(H, head, 0, afroFrom);

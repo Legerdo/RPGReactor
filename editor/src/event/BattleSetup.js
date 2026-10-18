@@ -806,7 +806,7 @@
             if (look.kind === 'character') {
                 const image = await loadImage(imageUrl('characters', look.characterName));
                 if (image) {
-                    const name = String(look.characterName).split('/').pop(), big = /^[!$]+/.test(name) && name.match(/^[!$]+/)[0].includes('$');
+                    const name = String(look.characterName).split('/').pop(), big = /^[!$]+/.test(name) && name.match(/^[!$]+/)[0].includes('$') && !/\[8D\]/i.test(name);
                     const fw = image.width / (big ? 3 : 12), fh = image.height / (big ? 4 : 8);
                     const index = big ? 0 : look.characterIndex || 0, row = (facing - 2) / 2;
                     const canvas = canvasOf(fw, fh);

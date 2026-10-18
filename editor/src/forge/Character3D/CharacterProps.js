@@ -204,8 +204,13 @@
             for (const v of torso) if (Math.abs(P[v * 3 + 1] - y) < 0.03 && Math.abs(P[v * 3] - x) < 0.04) z = Math.min(z, P[v * 3 + 2]);
             return z;
         };
+        const frontAt = (y, x) => {
+            let z = -Infinity;
+            for (const v of torso) if (Math.abs(P[v * 3 + 1] - y) < 0.03 && Math.abs(P[v * 3] - x) < 0.04) z = Math.max(z, P[v * 3 + 2]);
+            return z;
+        };
         return {
-            P, bone, boneIndex, eyeL, eyeR, eyeY, brow, crown, ring, earL: ear(1), earR: ear(-1), noseTip, mouth, chin, neck, backAt, torsoIds: torso,
+            P, bone, boneIndex, eyeL, eyeR, eyeY, brow, crown, ring, earL: ear(1), earR: ear(-1), noseTip, mouth, chin, neck, backAt, frontAt, torsoIds: torso,
             height: built.height, headIds
         };
     }
@@ -262,7 +267,8 @@
         { id: 'backpack', label: 'Backpack', slot: 'back', group: 'Back', defaults: { color: '#4a5a3a', color2: '#2a3020', size: 1 }, make: (m, L, o) => backpack(m, L, o) },
         { id: 'quiver', label: 'Quiver', slot: 'back', group: 'Back', defaults: { color: '#6a4426', color2: '#e8e0d0', size: 1 }, make: (m, L, o) => quiver(m, L, o) },
         { id: 'jetpack', label: 'Jetpack', slot: 'back', group: 'Back', defaults: { color: '#9aa0a8', color2: '#ff8a20', size: 1 }, make: (m, L, o) => jetpack(m, L, o) },
-        { id: 'bowtie', label: 'Bow tie', slot: 'tie', group: 'Jewelry', defaults: { color: '#141416' }, make: (m, L, o) => bowtie(m, L, o) }
+        { id: 'bowtie', label: 'Bow tie', slot: 'tie', group: 'Jewelry', defaults: { color: '#141416' }, make: (m, L, o) => bowtie(m, L, o) },
+        ...generatedProps()
     ];
     const BY_ID = new Map(PROPS.map(p => [p.id, p]));
 
@@ -372,12 +378,25 @@
     }
 
     /** The hat line: just above the brow, its section scaled out a little for the hair under it. */
-    function hatRing(L, o, raise = 0.012) {
-        const y = L.brow + raise + 0.006;
+    function hatRing(L, o, raise = 0.012, tall = 0) {
+        let y = L.brow + raise + 0.006;
         const ring = L.ring(y, 0.015) || { center: [0, y, 0], rx: 0.08, rz: 0.1 };
-        // Room for the hair it sits on (close-lying hair under a hat).
         const fit = 1.08 * (o.size || 1);
-        return { center: ring.center, rx: ring.rx * fit + 0.014, rz: ring.rz * fit + 0.014 };
+        let rx = ring.rx * fit + 0.008, rz = ring.rz * fit + 0.008;
+        // Over the hair: round the hair at the hat's line, and up on hair standing taller than its crown.
+        const H = L.hair;
+        if (H && H.length) {
+            let hx = 0, hf = -Infinity, hb = Infinity, top = -Infinity;
+            for (let i = 0; i < H.length; i += 3) {
+                const x = H[i] - ring.center[0], z = H[i + 2] - ring.center[2];
+                if (Math.abs(x) > ring.rx * 1.8 || z > ring.rz * 2 || z < -ring.rz * 2.2) continue;
+                if (Math.abs(H[i + 1] - y) < 0.012) { hx = Math.max(hx, Math.abs(x)); hf = Math.max(hf, z); hb = Math.min(hb, z); }
+                if (Math.abs(x) < ring.rx * 0.7 && Math.abs(z) < ring.rz * 0.7) top = Math.max(top, H[i + 1]);
+            }
+            if (hx) { rx = Math.max(rx, hx * 1.02 + 0.004); rz = Math.max(rz, (hf - hb) / 2 * 1.02 + 0.004); }
+            if (tall && top > y + tall * 0.85) y += Math.min(0.04, top - (y + tall * 0.85));
+        } else { rx += 0.006; rz += 0.006; }
+        return { center: [ring.center[0], y, ring.center[2]], rx, rz };
     }
 
     function brim(m, R, out, rgb, skin, curl = 0, fold = 0) {
@@ -406,7 +425,7 @@
 
     function coneHat(m, L, o, k) {
         const head = L.boneIndex('Head'), skin = rigid(head);
-        const R = hatRing(L, o), tall = k.tall * (o.height || 1) * (o.size || 1);
+        const tall = k.tall * (o.height || 1) * (o.size || 1), R = hatRing(L, o, 0.012, tall);
         brim(m, R, k.brim, linear(o.color), skin);
         const band = linear(o.color2 || o.color);
         m.loft(20, (i, t) => {
@@ -419,7 +438,7 @@
 
     function crownHat(m, L, o, k) {
         const head = L.boneIndex('Head'), skin = rigid(head);
-        const R = hatRing(L, o), tall = k.tall * (o.height || 1) * (o.size || 1);
+        const tall = k.tall * (o.height || 1) * (o.size || 1), R = hatRing(L, o, 0.012, tall);
         brim(m, R, k.brim, linear(o.color), skin, k.curl || 0, k.fold || 0);
         const base = m.p.length;
         const band = linear(o.color2 || o.color);
@@ -674,6 +693,217 @@
         return [];
     }
 
+    /** Original, parameterized equipment and body details, measured on this character. */
+    function generatedProps() {
+        const prop = (id, label, slot, group, make, defaults, finish = 'leather', frame = 'body') => ({ id, label, slot, group, make,
+            defaults: Object.assign({ color: '#62503c', color2: '#b8bcc4', size: 1 }, defaults), finish, frame });
+        return [
+            prop('eyeMask', 'Domino mask', 'eyes', 'Masks', (m, L, o) => faceMask(m, L, o, 'eyes'), { color: '#24202c' }, 'felt', 'head'),
+            prop('mouthMask', 'Cloth face mask', 'mask', 'Masks', (m, L, o) => faceMask(m, L, o, 'mouth'), { color: '#9abac8' }, 'felt', 'head'),
+            prop('respirator', 'Respirator', 'mask', 'Masks', respirator, { color: '#303638', color2: '#9a9e90' }, 'plastic', 'head'),
+            prop('nails', 'Fingernails', 'nails', 'Body details', (m, L, o) => nails(m, L, o, false), { color: '#cf9f94', length: 0.25 }, 'plastic', 'hands'),
+            prop('claws', 'Finger claws', 'nails', 'Body details', (m, L, o) => nails(m, L, o, true), { color: '#ded3b8', length: 0.7 }, 'plastic', 'hands'),
+            prop('satchel', 'Shoulder satchel', 'bag', 'Bags and tools', (m, L, o) => beltGear(m, L, o, 'satchel'), { color: '#735239', side: 'left' }),
+            prop('beltPouch', 'Belt pouch', 'pouch', 'Bags and tools', (m, L, o) => beltGear(m, L, o, 'pouch'), { side: 'right' }),
+            prop('canteen', 'Canteen', 'canteen', 'Bags and tools', (m, L, o) => beltGear(m, L, o, 'canteen'), { color: '#5b6850', side: 'left' }, 'plastic'),
+            prop('sword', 'Sword', 'held', 'Weapons', (m, L, o) => heldGear(m, L, o, 'sword'), { side: 'right', length: 0.7 }, 'metal'),
+            prop('dagger', 'Dagger', 'held', 'Weapons', (m, L, o) => heldGear(m, L, o, 'dagger'), { side: 'right', length: 0.35 }, 'metal'),
+            prop('axe', 'Axe', 'held', 'Weapons', (m, L, o) => heldGear(m, L, o, 'axe'), { side: 'right', length: 0.6 }, 'metal'),
+            prop('spear', 'Spear', 'held', 'Weapons', (m, L, o) => heldGear(m, L, o, 'spear'), { side: 'right', length: 1 }, 'metal'),
+            prop('staff', 'Staff', 'held', 'Weapons', (m, L, o) => heldGear(m, L, o, 'staff'), { side: 'right', length: 1, color2: '#5fa5db' }),
+            prop('bow', 'Bow', 'held', 'Weapons', (m, L, o) => heldGear(m, L, o, 'bow'), { side: 'left', length: 0.8 }),
+            prop('shield', 'Round shield', 'held', 'Weapons', (m, L, o) => heldGear(m, L, o, 'shield'), { side: 'left', color: '#465e86' }, 'metal'),
+            prop('hammer', 'Hammer', 'held', 'Bags and tools', (m, L, o) => heldGear(m, L, o, 'hammer'), { side: 'right', length: 0.4 }, 'metal'),
+            prop('pickaxe', 'Pickaxe', 'held', 'Bags and tools', (m, L, o) => heldGear(m, L, o, 'pickaxe'), { side: 'right', length: 0.65 }, 'metal'),
+            prop('lantern', 'Lantern', 'held', 'Bags and tools', (m, L, o) => heldGear(m, L, o, 'lantern'), { side: 'left', color: '#4e4840', color2: '#f0c86a' }, 'metal'),
+            prop('book', 'Book', 'held', 'Bags and tools', (m, L, o) => heldGear(m, L, o, 'book'), { side: 'left', color: '#71373c', color2: '#e1d4b5' }),
+            prop('umbrella', 'Umbrella', 'held', 'Bags and tools', (m, L, o) => heldGear(m, L, o, 'umbrella'), { side: 'right', length: 0.8, color: '#426792' }, 'felt'),
+            prop('beret', 'Beret', 'hat', 'Hats', (m, L, o) => crownHat(m, L, o, { brim: 1.05, tall: 0.055, flare: 1.4, top: 'dome', band: 0.008 }), { color: '#693530', height: 1 }, 'felt', 'head'),
+            prop('sunhat', 'Sun hat', 'hat', 'Hats', (m, L, o) => crownHat(m, L, o, { brim: 2.3, tall: 0.1, flare: 0.95, top: 'dome', band: 0.02, curl: 0.2 }), { color: '#c6aa72', color2: '#71464a', height: 1 }, 'felt', 'head'),
+            prop('neckTie', 'Necktie', 'tie', 'Jewelry', neckTie, { color: '#803e49', length: 0.65 }, 'felt'),
+            prop('suitcase', 'Suitcase', 'held', 'Bags and tools', (m, L, o) => heldGear(m, L, o, 'suitcase'), { side: 'left', color: '#463a35' }),
+            prop('microphone', 'Microphone', 'held', 'Performance', (m, L, o) => heldGear(m, L, o, 'microphone'), { side: 'right', color: '#303038' }, 'metal'),
+            prop('guitar', 'Guitar', 'held', 'Performance', (m, L, o) => heldGear(m, L, o, 'guitar'), { side: 'left', color: '#a96930', color2: '#d6c5a1' }),
+            prop('tennisRacket', 'Tennis racket', 'held', 'Sports', (m, L, o) => heldGear(m, L, o, 'tennisRacket'), { side: 'right', color: '#477ca2', color2: '#d5d8dc' }, 'plastic'),
+            prop('headset', 'Headset', 'headset', 'Face', headset, { color: '#30333b', color2: '#545e72' }, 'plastic', 'head'),
+            prop('stethoscope', 'Stethoscope', 'medical', 'Bags and tools', stethoscope, { color: '#324c71', color2: '#bcc5cc' }, 'plastic')
+        ];
+    }
+
+    function faceMask(m, L, o, kind) {
+        const skin = rigid(L.boneIndex('Head')), s = o.size;
+        const centerY = kind === 'eyes' ? L.eyeY : L.mouth[1];
+        const halfY = (kind === 'eyes' ? 0.026 : 0.038) * s;
+        const halfX = Math.abs(L.eyeL.center[0] - L.eyeR.center[0]) * (kind === 'eyes' ? 1.05 : 0.75) * s;
+        const rows = 12, cols = 32, ids = [];
+        for (let y = 0; y <= rows; y++) {
+            const line = [];
+            for (let x = 0; x <= cols; x++) {
+                const px = L.mouth[0] + (x / cols * 2 - 1) * halfX, py = centerY + (y / rows * 2 - 1) * halfY;
+                const ring = L.ring(py, 0.02);
+                let z = ring ? ring.center[2] + ring.rz * Math.sqrt(Math.max(0, 1 - ((px - ring.center[0]) / Math.max(0.001, ring.rx)) ** 2)) : L.mouth[2];
+                for (const v of L.headIds) if (Math.abs(L.P[v * 3] - px) < 0.012 && Math.abs(L.P[v * 3 + 1] - py) < 0.009) z = Math.max(z, L.P[v * 3 + 2]);
+                line.push(m.vertex([px, py, z + 0.006], [0, 0, 1], linear(o.color), skin));
+            }
+            ids.push(line);
+        }
+        for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+            const px = L.mouth[0] + ((x + 0.5) / cols * 2 - 1) * halfX, py = centerY + ((y + 0.5) / rows * 2 - 1) * halfY;
+            if (kind === 'eyes' && [L.eyeL, L.eyeR].some(e => Math.hypot((px - e.center[0]) / (e.radius * 1.4), (py - e.center[1]) / (e.radius * 0.9)) < 1.15)) continue;
+            const a = ids[y][x], b = ids[y][x + 1], c = ids[y + 1][x], d = ids[y + 1][x + 1];
+            m.tri(a, b, c); m.tri(b, d, c); m.tri(c, b, a); m.tri(c, d, b);
+        }
+        const band = L.ring(centerY, 0.025);
+        if (band) {
+            const pts = Array.from({ length: 33 }, (_, k) => { const a = Math.PI * (0.32 + k / 32 * 1.36); return [band.center[0] + Math.sin(a) * (band.rx + 0.007), centerY, band.center[2] + Math.cos(a) * (band.rz + 0.007)]; });
+            m.tube(pts, 0.0025, 6, linear(o.color), skin);
+        }
+    }
+
+    function respirator(m, L, o) {
+        faceMask(m, L, o, 'mouth');
+        const skin = rigid(L.boneIndex('Head')), center = [L.mouth[0], L.mouth[1], Math.max(L.mouth[2], L.noseTip[2]) + 0.018];
+        m.sphere(center, 0.035 * o.size, linear(o.color), skin, 8, 16, [1.3, 0.85, 0.65]);
+        for (const side of [-1, 1]) m.sphere(add(center, [side * 0.038 * o.size, 0, 0.005]), 0.019 * o.size, linear(o.color2), skin, 6, 12, [1, 1, 0.7]);
+    }
+
+    function nails(m, L, o, claws) {
+        for (const side of ['Left', 'Right']) for (const finger of ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']) {
+            const name = side + 'Hand' + finger + '3', bone = L.bone(name);
+            if (!bone) continue;
+            const along = norm(sub(bone.tail, bone.head));
+            const across = norm(cross(along, [0, 0, 1]));
+            const dorsal = norm(cross(across, along));
+            const length = len(sub(bone.tail, bone.head));
+            const start = add(lerp(bone.head, bone.tail, 0.6), mul(dorsal, 0.0035));
+            const reach = length * (0.4 + o.length * (claws ? 2.5 : 1.2));
+            const skin = rigid(L.boneIndex(name));
+            m.loft(5, (k, t) => ({ center: add(start, add(mul(along, reach * t), mul(dorsal, claws ? -reach * t * t * 0.3 : 0))),
+                x: across, y: dorsal, rx: Math.max(0.0003, length * 0.18 * o.size * (claws ? 1 - t : 1 - 0.65 * t)), ry: 0.001 * (1 - 0.7 * t) }), 8, linear(o.color), skin, true);
+        }
+    }
+
+    function beltGear(m, L, o, kind) {
+        const hip = L.bone('Hips').head, side = o.side === 'right' ? -1 : 1, s = o.size * L.height / 1.7;
+        const torso = L.torsoIds.map(v => Math.abs(L.P[v * 3]));
+        const wide = Math.max(0.08, ...torso);
+        const center = [hip[0] + side * (wide + 0.025), hip[1] - (kind === 'satchel' ? 0.14 : 0.04), hip[2]];
+        const skin = rigid(L.boneIndex('Hips')), axes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        if (kind === 'canteen') m.sphere(center, 0.075 * s, linear(o.color), skin, 10, 16, [0.65, 1, 0.9]);
+        else {
+            const half = kind === 'satchel' ? [0.045, 0.1, 0.11] : [0.035, 0.055, 0.06];
+            m.box(center, axes, half.map(x => x * s), linear(o.color), skin);
+            m.box(add(center, [side * half[0] * s, 0.015 * s, 0]), axes, [0.005 * s, 0.018 * s, 0.02 * s], linear(o.color2), skin);
+        }
+        if (kind === 'satchel') {
+            const shoulder = L.bone(side > 0 ? 'RightArm' : 'LeftArm').head;
+            const pts = [add(center, [0, 0.1 * s, 0.07 * s]), add(shoulder, [0, 0.015, 0.035]), add(shoulder, [0, 0.015, -0.04]), add(center, [0, 0.1 * s, -0.07 * s])];
+            m.tube(pts, 0.01 * s, 8, linear(o.color), spineSkin(L));
+        }
+    }
+
+    function heldGear(m, L, o, kind) {
+        const handName = (o.side === 'left' ? 'Left' : 'Right') + 'Hand';
+        const hand = L.bone(handName), skin = rigid(L.boneIndex(handName));
+        const s = o.size * L.height / 1.7, reach = (o.length ?? 0.6) * s;
+        const center = lerp(hand.head, hand.tail, 0.8), axes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        const at = (x, y, z = 0) => add(center, [x * s, y * s, z * s]);
+        const rod = (a, b, r, color = o.color) => m.tube([a, b], r * s, 8, linear(color), skin);
+        const box = (p, half, color = o.color) => m.box(p, axes, half.map(x => x * s), linear(color), skin);
+        if (kind === 'shield') {
+            const c = at(0, 0, 0.07), r = 0.24 * s;
+            m.loft(3, (k, t) => ({ center: add(c, [0, 0, (t - 0.5) * 0.028 * s]), x: [1, 0, 0], y: [0, 1, 0], rx: r, ry: r }), 32, linear(o.color), skin, true);
+            m.sphere(add(c, [0, 0, 0.03 * s]), 0.05 * s, linear(o.color2), skin, 6, 12, [1, 1, 0.5]);
+        } else if (kind === 'suitcase') {
+            m.tube([at(-0.04, 0), at(-0.04, -0.04), at(0.04, -0.04), at(0.04, 0)], 0.008 * s, 6, linear(o.color2), skin);
+            box(at(0, -0.2), [0.2, 0.14, 0.065]);
+            for (const x of [-0.12, 0.12]) box(at(x, -0.065, 0.067), [0.018, 0.012, 0.004], o.color2);
+        } else if (kind === 'microphone') {
+            rod(at(0, -0.06), at(0, 0.12), 0.015);
+            m.sphere(at(0, 0.15), 0.033 * s, linear(o.color2), skin);
+        } else if (kind === 'guitar') {
+            m.sphere(at(0, -0.22), 0.15 * s, linear(o.color), skin, 12, 20, [0.85, 1.1, 0.25]);
+            m.sphere(at(0, -0.1), 0.1 * s, linear(o.color), skin, 10, 16, [0.9, 1, 0.3]);
+            box(at(0, 0.16), [0.025, 0.2, 0.014], o.color2);
+            box(at(0, 0.4), [0.038, 0.05, 0.015]);
+            m.disk(at(0, -0.18, 0.04), [0, 0, 1], 0.035 * s, linear('#30241e'), skin);
+            for (let i = 0; i < 6; i++) rod(at((i - 2.5) * 0.006, -0.28, 0.044), at((i - 2.5) * 0.006, 0.4, 0.03), 0.0006, o.color2);
+        } else if (kind === 'tennisRacket') {
+            rod(at(0, -0.08), at(0, 0.2), 0.015);
+            const pts = Array.from({ length: 33 }, (_, i) => at(Math.sin(i / 32 * Math.PI * 2) * 0.12, 0.35 + Math.cos(i / 32 * Math.PI * 2) * 0.17));
+            m.tube(pts, 0.01 * s, 8, linear(o.color), skin);
+            for (let i = -4; i <= 4; i++) {
+                const u = i / 5, half = Math.sqrt(1 - u * u);
+                rod(at(u * 0.12, 0.35 - half * 0.17), at(u * 0.12, 0.35 + half * 0.17), 0.0007, o.color2);
+                rod(at(-half * 0.12, 0.35 + u * 0.17), at(half * 0.12, 0.35 + u * 0.17), 0.0007, o.color2);
+            }
+        } else if (kind === 'book') {
+            box(at(0, 0, 0.025), [0.075, 0.105, 0.018], o.color2);
+            for (const z of [0.003, 0.047]) box(at(0, 0, z), [0.08, 0.11, 0.004]);
+            box(at(-0.078, 0, 0.025), [0.005, 0.11, 0.026]);
+        } else if (kind === 'lantern') {
+            m.tube([at(0, 0), at(-0.055, -0.06), at(-0.055, -0.12), at(0.055, -0.12), at(0.055, -0.06), at(0, 0)], 0.006 * s, 6, linear(o.color), skin);
+            box(at(0, -0.2), [0.06, 0.075, 0.06], o.color2);
+            for (const y of [-0.28, -0.12]) box(at(0, y), [0.075, 0.01, 0.075]);
+            for (const x of [-0.06, 0.06]) for (const z of [-0.06, 0.06]) rod(at(x, -0.12, z), at(x, -0.28, z), 0.004);
+        } else if (kind === 'bow') {
+            const pts = Array.from({ length: 17 }, (_, k) => { const t = k / 16 * Math.PI; return at(Math.sin(t) * 0.18, (k / 16 - 0.5) * (o.length + 0.25)); });
+            m.tube(pts, 0.012 * s, 8, linear(o.color), skin);
+            rod(pts[0], pts[16], 0.001, o.color2);
+        } else {
+            rod(at(0, -0.12), add(center, [0, reach, 0]), kind === 'staff' ? 0.018 : 0.012);
+            if (kind === 'sword' || kind === 'dagger' || kind === 'spear') {
+                const start = kind === 'spear' ? reach * 0.85 : 0.08 * s, end = kind === 'spear' ? reach + 0.2 * s : reach;
+                if (kind !== 'spear') box(at(0, 0.07), [kind === 'sword' ? 0.075 : 0.04, 0.012, 0.018], o.color2);
+                m.loft(4, (k, t) => ({ center: add(center, [0, start + (end - start) * t, 0]), x: [1, 0, 0], y: [0, 0, 1], rx: Math.max(0.0003, (kind === 'sword' ? 0.028 : 0.018) * s * (t < 0.7 ? 1 : (1 - t) / 0.3)), ry: 0.004 * s }), 4, linear(o.color2), skin, true);
+            } else if (kind === 'axe') box(add(center, [0.065 * s, reach - 0.02 * s, 0]), [0.09, 0.09, 0.012], o.color2);
+            else if (kind === 'hammer') box(add(center, [0, reach, 0]), [0.08, 0.035, 0.035], o.color2);
+            else if (kind === 'pickaxe') m.tube([add(center, [-0.2 * s, reach - 0.06 * s, 0]), add(center, [0, reach, 0]), add(center, [0.2 * s, reach - 0.06 * s, 0])], [0.002 * s, 0.025 * s, 0.002 * s], 8, linear(o.color2), skin);
+            else if (kind === 'staff') m.sphere(add(center, [0, reach + 0.035 * s, 0]), 0.045 * s, linear(o.color2), skin);
+            else if (kind === 'umbrella') {
+                const top = add(center, [0, reach + 0.12 * s, 0]);
+                m.loft(8, (k, t) => ({ center: add(top, [0, -t * t * 0.14 * s, 0]), x: [1, 0, 0], y: [0, 0, 1], rx: Math.max(0.001, t * 0.4 * s), ry: Math.max(0.001, t * 0.4 * s) }), 24, linear(o.color), skin, true);
+            }
+        }
+    }
+
+    function neckTie(m, L, o) {
+        const N = L.neck, skin = spineSkin(L), length = 0.18 + o.length * 0.22;
+        const c = [N.center[0], N.center[1] - 0.02, N.center[2] + N.rz + 0.024];
+        m.loft(12, (k, t) => {
+            const center = add(c, [0, -length * t, 0.01 + t * 0.02]), z = L.frontAt(center[1], center[0]);
+            if (isFinite(z)) center[2] = Math.max(center[2], z + 0.026);
+            return { center, x: [1, 0, 0], y: [0, 0, 1], rx: (t < 0.8 ? 0.009 + t * 0.018 : Math.max(0.001, (1 - t) * 0.15)) * o.size, ry: 0.002 };
+        }, 4, linear(o.color), skin, true);
+    }
+
+    function headset(m, L, o) {
+        const ring = L.ring(L.brow, 0.02), skin = rigid(L.boneIndex('Head'));
+        if (!ring) return;
+        const pts = Array.from({ length: 21 }, (_, k) => { const a = k / 20 * Math.PI; return [ring.center[0] + Math.cos(a) * (ring.rx + 0.018), L.eyeY + Math.sin(a) * (L.crown - L.eyeY + 0.018), ring.center[2]]; });
+        m.tube(pts, 0.009 * o.size, 8, linear(o.color), skin);
+        for (const side of [-1, 1]) m.sphere([ring.center[0] + side * (ring.rx + 0.02), L.eyeY, ring.center[2]], 0.035 * o.size, linear(o.color2), skin, 8, 12, [0.5, 1, 0.8]);
+        const mic = [[ring.center[0] - ring.rx - 0.02, L.eyeY, ring.center[2]], [L.mouth[0] - 0.045, L.mouth[1], L.mouth[2] + 0.04], [L.mouth[0] - 0.01, L.mouth[1], L.mouth[2] + 0.045]];
+        m.tube(mic, 0.003, 6, linear(o.color), skin);
+    }
+
+    function stethoscope(m, L, o) {
+        const N = L.neck, skin = spineSkin(L), color = linear(o.color), metal = linear(o.color2);
+        const chest = [N.center[0], N.center[1] - 0.24 * o.size, N.center[2] + N.rz + 0.06];
+        const front = L.frontAt(chest[1], chest[0]);
+        if (isFinite(front)) chest[2] = Math.max(chest[2], front + 0.03);
+        for (const side of [-1, 1]) {
+            const start = [N.center[0] + side * (N.rx + 0.015), N.center[1] + 0.025, N.center[2]];
+            const path = Array.from({ length: 13 }, (_, i) => {
+                const p = lerp(start, chest, i / 12), z = L.frontAt(p[1], p[0]);
+                if (isFinite(z)) p[2] = Math.max(p[2], z + 0.028);
+                return p;
+            });
+            m.tube(path, 0.004, 8, color, skin);
+        }
+        m.sphere(chest, 0.018 * o.size, metal, skin, 6, 12, [1, 1, 0.3]);
+    }
+
     // ── building ──────────────────────────────────────────────────────────
     function normalizeProp(item) {
         const def = BY_ID.get(item && item.id);
@@ -681,6 +911,7 @@
         const out = Object.assign({ id: def.id }, def.defaults, item);
         for (const k of ['color', 'color2']) if (out[k] && !/^#[0-9a-f]{6}$/i.test(out[k])) out[k] = def.defaults[k];
         for (const k of ['size', 'height', 'length', 'width', 'up']) if (out[k] != null) out[k] = Math.max(0, Math.min(3, +out[k] || 0));
+        if (def.defaults.side && !['left', 'right'].includes(out.side)) out.side = def.defaults.side;
         return out;
     }
 
@@ -689,7 +920,10 @@
         const bySlot = new Map();
         for (const raw of Array.isArray(list) ? list : []) {
             const item = normalizeProp(raw);
-            if (item) bySlot.set(BY_ID.get(item.id).slot, item);
+            if (item) {
+                const slot = BY_ID.get(item.id).slot;
+                bySlot.set(slot === 'held' ? 'held-' + item.side : slot, item);
+            }
         }
         return [...bySlot.values()];
     }
@@ -703,13 +937,26 @@
     const FELT = new Set(['wizardhat', 'witchhat', 'tophat', 'fedora', 'cowboy', 'bowler', 'tricorn', 'cap', 'headband', 'bowtie', 'eyepatch']);
     const LEATHER = new Set(['quiver', 'goggles', 'choker']);
     const PLASTIC = new Set(['glasses', 'sunglasses', 'visor', 'backpack']);
-    function finishOf(def) { return FELT.has(def.id) ? 'felt' : LEATHER.has(def.id) ? 'leather' : PLASTIC.has(def.id) ? 'plastic' : 'metal'; }
+    function finishOf(def) { return def.finish || (FELT.has(def.id) ? 'felt' : LEATHER.has(def.id) ? 'leather' : PLASTIC.has(def.id) ? 'plastic' : 'metal'); }
 
-    /** Parts for the accessories on a built body, merged by finish. */
-    function build(pack, built, list) {
+    /** Parts for the accessories on a built body, merged by finish; `hair` (the built hair's parts) lifts and widens hats over it. */
+    function build(pack, built, list, hair, options = {}) {
         const items = normalizeProps(list);
         if (!items.length) return { parts: [], items };
         const L = landmarks(pack, built);
+        if (options.outfitParts?.length) {
+            const skinFront = L.frontAt;
+            L.frontAt = (y, x) => {
+                let z = skinFront(y, x);
+                for (const part of options.outfitParts) for (let i = 0; i < part.positions.length; i += 3) {
+                    if (Math.abs(part.positions[i] - x) < 0.04 && Math.abs(part.positions[i + 1] - y) < 0.03) z = Math.max(z, part.positions[i + 2]);
+                }
+                return z;
+            };
+        }
+        // The head's hair as built, for hats to sit over.
+        const scalp = (hair || []).filter(p => /^Hair/.test(p.name || '') && p.positions);
+        if (scalp.length) { const all = []; for (const p of scalp) for (let i = 0; i < p.positions.length; i += 3) if (p.positions[i + 1] > L.eyeY) all.push(p.positions[i], p.positions[i + 1], p.positions[i + 2]); L.hair = all; }
         const cloth = new Mesh(), extras = [], finishes = new Map(), hanging = [];
         for (const item of items) {
             const def = BY_ID.get(item.id);

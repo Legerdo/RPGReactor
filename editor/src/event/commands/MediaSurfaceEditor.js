@@ -1627,36 +1627,34 @@ class MediaSurfaceEditor {
         const height = Math.max(420, Math.round(rect.height));
         nw.Window.open('media-surface-panel.html', {
             width, height, min_width: 320, min_height: 360,
-            frame: true, show: true, resizable: true, icon: 'images/icon.png'
+            frame: true, show: false, resizable: true, icon: 'images/icon.png'
         }, win => {
+            if (this.popout !== popout) { try { win?.close(true); } catch (_) {} return; }
             if (!win) { this.popout = null; return; }
             popout.win = win;
             const mount = () => {
-                if (this.popout !== popout) return;
+                if (this.popout !== popout || popout.mounted) return;
+                popout.mounted = true;
                 const doc = win.window.document;
                 doc.title = this._t(this.context.mapSurface ? 'Map Media Surface' : MediaSurfaceEditor.OPERATIONS[this.operation]);
-                for (const link of document.querySelectorAll('link[rel="stylesheet"]')) {
-                    const copy = doc.createElement('link');
-                    copy.rel = 'stylesheet';
-                    copy.href = link.href;
-                    doc.head.appendChild(copy);
-                }
-                const theme = document.documentElement.getAttribute('data-theme');
-                if (theme) doc.documentElement.setAttribute('data-theme', theme);
+                const stylesReady = window.RRPopoutBridge.dressLike(doc);
                 doc.body.style.cssText = 'margin:0;height:100vh;display:flex;background:var(--color-bg-deep,#111);';
                 dialog.style.cssText = 'display:flex;flex-direction:column;width:100%;height:100%;min-height:0;';
                 if (body) body.style.gridTemplateColumns = 'minmax(260px,1fr)';
                 if (popout.button) popout.button.style.display = 'none';
                 doc.body.appendChild(dialog);
-                // The manifest's main-window minimum wins over the requested
-                // size until the child window has settled, so size it afterwards.
-                const size = () => {
+                // Settle the manifest's inherited minimum and geometry before revealing it.
+                Promise.resolve(stylesReady).then(() => {
                     if (this.popout !== popout) return;
-                    try { win.setMinimumSize(320, 360); win.resizeTo(width, height); } catch (_) {}
-                };
-                setTimeout(size, 50);
-                setTimeout(size, 400);
-                this._previewManager()?.revealAuthoringSurface?.();
+                    win.setMinimumSize(320, 360);
+                    win.resizeTo(width, height);
+                    setTimeout(() => {
+                        if (this.popout !== popout) return;
+                        win.show();
+                        win.focus();
+                        this._previewManager()?.revealAuthoringSurface?.();
+                    }, 50);
+                });
             };
             const ready = () => win.window?.document?.readyState === 'complete';
             if (ready()) mount(); else win.on('loaded', mount);

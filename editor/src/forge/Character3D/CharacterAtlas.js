@@ -32,6 +32,17 @@
 
     /** The values of one piece vertex on chain `fam`: its position along it and angle about it. */
     function chainValue(an, laid, i, fam) {
+        // A rim vertex (the edge folded under) shows the cloth a little way in from the edge, so the fold carries
+        // the weave and the color rather than one line of texels drawn out.
+        if (laid.rimStart != null && i >= laid.rimStart && laid.piece.onBorder) {
+            const o = laid.origin[i], inner = laid.piece.neighbors[o].filter(q => !laid.piece.onBorder[q]);
+            const own = chainValue(an, laid, o, fam);
+            if (!inner.length) return own;
+            const vals = inner.map(q => chainValue(an, laid, q, fam));
+            const mean = k => vals.reduce((sum, x) => sum + x[k], 0) / vals.length;
+            const w = 0.6, ang = vals.map(x => (x.ang - own.ang > Math.PI ? x.ang - TAU : own.ang - x.ang > Math.PI ? x.ang + TAU : x.ang)).reduce((p, q) => p + q, 0) / vals.length;
+            return { s: own.s * (1 - w) + mean('s') * w, ang: own.ang * (1 - w) + ang * w, u: own.u * (1 - w) + mean('u') * w, rest: own.rest.map((x, k) => x * (1 - w) + vals.reduce((sum, v) => sum + v.rest[k], 0) / vals.length * w) };
+        }
         const { a, b, t } = laid.piece.verts[laid.origin[i]];
         let ga = an.angle[a * 5 + fam], gb = an.angle[b * 5 + fam];
         if (gb - ga > Math.PI) gb -= TAU; else if (ga - gb > Math.PI) gb += TAU;
@@ -66,7 +77,7 @@
             const R = an.radius[fam] * (fam === 0 ? 1.35 : 1.15), U = an.unit[fam];
             const corners = values.map((x, k) => ({
                 v: c[k], cu: x.ang * R, cv: (fam === 5 ? x.u : x.s) * U, s: x.s, ang: x.ang, rest: x.rest,
-                y: x.rest[1], val: laid.vals[c[k]], vm: laid.vals[c[k]] * (fam === 5 ? an.unit[5] / 4 : an.unit[fam]), fam: fam === 5 ? 0 : fam, u: x.u
+                y: x.rest[1], val: laid.vals[c[k]], vm: laid.edge ? (laid.vals[c[k]] < 0 ? -0.001 : laid.edge[c[k]]) : laid.vals[c[k]] * (fam === 5 ? an.unit[5] / 4 : an.unit[fam]), fam: fam === 5 ? 0 : fam, u: x.u
             }));
             let chart = byKey.get(fam);
             if (!chart) byKey.set(fam, chart = { fam, tris: [], min: [Infinity, Infinity], max: [-Infinity, -Infinity] });
@@ -180,8 +191,10 @@
             default: t = 0;
         }
         let rgb = t >= 2 ? trim : t <= 0 ? c1 : t >= 1 ? c2 : [c1[0] + (c2[0] - c1[0]) * t, c1[1] + (c2[1] - c1[1]) * t, c1[2] + (c2[2] - c1[2]) * t];
-        const trimmed = look.trimWidth && p.val >= 0 && p.val < look.trimWidth;
-        if (trimmed) rgb = trim;
+        // A trim: an even band in from the cut edge (its width in the garment's own units, about 15 cm each).
+        const trimmed = look.trimWidth && p.vm >= 0 && p.vm < look.trimWidth * 0.15;
+        // Its inner edge blended over a millimeter, a clean line rather than a stair of texels.
+        if (look.trimWidth && p.vm >= 0) { const t2 = 1 - smoothstep(look.trimWidth * 0.15 - 0.0008, look.trimWidth * 0.15 + 0.0008, p.vm); if (t2 > 0) rgb = [rgb[0] + (trim[0] - rgb[0]) * t2, rgb[1] + (trim[1] - rgb[1]) * t2, rgb[2] + (trim[2] - rgb[2]) * t2]; }
         const hard = look.material === 'metal' || look.material === 'gold';
         let k;
         if (hard) {

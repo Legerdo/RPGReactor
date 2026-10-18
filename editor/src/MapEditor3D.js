@@ -4299,7 +4299,7 @@ class MapEditor3D {
 
         const big = window.RRAssetFiles?.isBigCharacter
             ? window.RRAssetFiles.isBigCharacter(image.characterName)
-            : /^[!$]*\$/.test(image.characterName);
+            : /^[!$]*\$/.test(image.characterName) && !/\[8D\]/i.test(image.characterName);
         const directionRow = { 2: 0, 4: 1, 6: 2, 8: 3 }[image.direction || 2] || 0;
 
         let frameWidth, frameHeight, baseX, baseY;
@@ -5911,8 +5911,10 @@ class MapEditor3D {
         const target = event.target;
         if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT'
             || target.isContentEditable)) return false;
-        return ![...document.querySelectorAll('.modal-overlay, .rr-modal-overlay, #database-modal')]
+        return ![...document.querySelectorAll('.modal-overlay, .rr-modal-overlay, #database-modal, .plugin-manager-child-modal')]
             .some(modal => modal.getClientRects().length > 0
+                && !(modal.id === 'forge-workspace' && typeof RRForgeWindow !== 'undefined' && !RRForgeWindow.ownsKeys())
+                && !(modal.id === 'plugin-manager-modal' && typeof RRPluginManagerWindow !== 'undefined' && !RRPluginManagerWindow.ownsKeys())
                 && (!modal.classList.contains('video-surface-editor-modal') || !this.projectController?.mediaSurfacePreviewManager?.authoring));
     }
 

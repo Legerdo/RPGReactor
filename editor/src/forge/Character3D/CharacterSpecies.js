@@ -24,7 +24,9 @@
         horns: { label: 'Horns', types: [['none', 'None'], ['demon', 'Demon'], ['ram', 'Ram'], ['bull', 'Bull'], ['goat', 'Goat'], ['dragon', 'Dragon'], ['unicorn', 'Unicorn'], ['antlers', 'Antlers'], ['nubs', 'Nubs']], defaults: { size: 1, color: '#3a2a22', color2: '#d8c8a8' } },
         ears: { label: 'Animal ears', types: [['none', 'None'], ['cat', 'Cat'], ['fox', 'Fox'], ['wolf', 'Wolf'], ['rabbit', 'Rabbit'], ['bear', 'Bear'], ['mouse', 'Mouse'], ['floppy', 'Floppy']], defaults: { size: 1, color: '#8a6a4a', color2: '#e8b8a8' } },
         tail: { label: 'Tail', types: [['none', 'None'], ['lizard', 'Lizard'], ['dragon', 'Dragon'], ['cat', 'Cat'], ['fox', 'Bushy'], ['demon', 'Demon'], ['monkey', 'Monkey'], ['horse', 'Horse'], ['bull', 'Tufted'], ['rabbit', 'Puff'], ['bird', 'Feathers']], defaults: { size: 1, length: 1, color: '#6a7a4a', color2: '#d8d0b0' } },
-        wings: { label: 'Wings', types: [['none', 'None'], ['feathered', 'Feathered'], ['bat', 'Bat'], ['fairy', 'Fairy']], defaults: { size: 1, color: '#f2efe8', color2: '#c8c0b0' } },
+        wings: { label: 'Wings', types: [['none', 'None'], ['feathered', 'Feathered'], ['bat', 'Bat'], ['fairy', 'Fairy'], ['insect', 'Insect']], defaults: { size: 1, color: '#f2efe8', color2: '#c8c0b0' } },
+        antennae: { label: 'Antennae', types: [['none', 'None'], ['insect', 'Curved'], ['moth', 'Feathery']], defaults: { size: 1, color: '#503c30', color2: '#bdae88' } },
+        fangs: { label: 'Fangs', types: [['none', 'None'], ['small', 'Small'], ['long', 'Long']], defaults: { size: 1, color: '#ece2cc' } },
         beak: { label: 'Beak', types: [['none', 'None'], ['raptor', 'Hooked'], ['crow', 'Pointed'], ['duck', 'Flat']], defaults: { size: 1, color: '#e0a830', color2: '#3a2a1a' } },
         tusks: { label: 'Tusks', types: [['none', 'None'], ['small', 'Small'], ['large', 'Large']], defaults: { size: 1, color: '#ece2c8' } },
         spines: { label: 'Spines', types: [['none', 'None'], ['ridge', 'Back ridge'], ['crest', 'Head crest'], ['both', 'Ridge and crest']], defaults: { size: 1, color: '#4a3a2a' } },
@@ -49,6 +51,8 @@
     // body: recipe fields; shapes; morph; skin; eyes; features; hair hints (none: bald by nature).
     const SPECIES = [
         { id: 'human', label: 'Human', group: 'Common', recipe: {} },
+        { id: 'vampire', label: 'Vampire', group: 'Fantasy', recipe: { skin: '#cebdc2', eyes: { color: '#9c2936' }, features: { fangs: { type: 'small' } }, shapes: { cheekBones: 0.7, chinPointed: 0.3 } } },
+        { id: 'insectfolk', label: 'Insectfolk', group: 'Beastfolk', recipe: { skin: '#718755', skinPattern: { type: 'panels', color: '#3e4e35' }, eyes: { color: '#452c21' }, features: { antennae: { type: 'insect' }, wings: { type: 'insect', color: '#c7cfa9', color2: '#596843' } } } },
         { id: 'elf', label: 'Elf', group: 'Fantasy', recipe: { height: 0.68, weight: 0.32, muscle: 0.4, shapes: { earsPointed: 2.6, earSize: 0.5, cheekBones: 0.7, chinPointed: 0.5, eyeSlant: 0.6, jaw: -0.4, neckLength: 0.5 } } },
         { id: 'darkelf', label: 'Dark elf', group: 'Fantasy', recipe: { height: 0.62, weight: 0.3, shapes: { earsPointed: 3, earSize: 0.6, cheekBones: 0.9, chinPointed: 0.6, eyeSlant: 0.8, jaw: -0.4 }, skin: '#5e5470', eyes: { color: '#d8302a' } } },
         { id: 'dwarf', label: 'Dwarf', group: 'Fantasy', recipe: { height: 0.12, weight: 0.78, muscle: 0.85, headSize: 1.08, hair: { facial: { style: 'longBeard' }, brows: { style: 'bushy' } }, shapes: { legLength: -1, armLength: -0.5, shoulders: 1.2, chest: 1, noseDepth: 1.2, noseWidth: 1, browRidge: 0.8, handSize: 0.6, neck: 0.8 } } },
@@ -58,23 +62,50 @@
         { id: 'goblin', label: 'Goblin', group: 'Fantasy', recipe: { height: -0.7, weight: 0.18, muscle: 0.3, headSize: 1.28, shapes: { earsPointed: 3.4, earSize: 2.6, earOut: 1.5, noseDepth: 2.2, noseLength: 1.4, chinPointed: 1, mouthWidth: 1.2, eyeSize: 0.8 }, skin: '#7a9a3a', eyes: { color: '#e8c020', pupil: 'slit' } } },
         { id: 'troll', label: 'Troll', group: 'Fantasy', recipe: { height: 1.55, weight: 0.55, muscle: 1.1, shapes: { armLength: 2.2, handSize: 2, noseDepth: 2.8, noseLength: 2.2, browRidge: 2.5, earsPointed: 2, jaw: 1, shoulders: 1.4, torsoLength: -0.6 }, skin: '#6e8a86', eyes: { color: '#e8a020' }, features: { tusks: { type: 'small', size: 0.8 } } } },
         { id: 'ogre', label: 'Ogre', group: 'Fantasy', recipe: { height: 1.45, weight: 2.1, muscle: 1.4, headSize: 0.9, shapes: { underbite: 1.6, jaw: 2, browRidge: 2, noseWidth: 2, earSize: 1 }, skin: '#a8946a', features: { tusks: { type: 'large', size: 0.9 } } } },
-        { id: 'lizardfolk', label: 'Lizardfolk', group: 'Beastfolk', recipe: { head: { kind: 'drake', horns: 'none', ears: 'none', snoutLength: 0.85, pattern: 'scales' }, height: 0.75, weight: 0.7, muscle: 1.2, shapes: { neck: 2.2, neckLength: -0.3, shoulders: 1.2 }, skin: '#5a8a4a', skinPattern: { type: 'scales', color: '#3e6a34', belly: '#c8c890' }, eyes: { color: '#e0c030', pupil: 'slit' }, features: { tail: { type: 'lizard', color: '#5a8a4a', color2: '#c8c890' }, spines: { type: 'ridge', size: 0.6, color: '#3e5a2a' } }, bald: true } },
-        { id: 'dragonborn', label: 'Dragonborn', group: 'Beastfolk', recipe: { head: { kind: 'drake', snoutLength: 1.0, pattern: 'scales', colors: { horn: '#2a1e18' } }, height: 0.8, muscle: 0.9, shapes: { neck: 1.2, shoulders: 1 }, skin: '#a8402c', skinPattern: { type: 'scales', color: '#7a2a1c', belly: '#e0b070' }, eyes: { color: '#ffb020', pupil: 'slit' }, features: { tail: { type: 'dragon', color: '#a8402c', color2: '#e0b070' } }, bald: true } },
+        // Merfolk hook (RRMerfolkBody): from the hips down a fish's tail; its settings under `merfolk`.
+        { id: 'merfolk', label: 'Merfolk', group: 'Fantasy', recipe: { merfolk: {} } },
+        { id: 'lizardfolk', label: 'Lizardfolk', group: 'Beastfolk', recipe: { head: { id: 'reptile', kind: 'drake', horns: 'none', ears: 'none', snoutLength: 0.85, pattern: 'scales' }, height: 0.75, weight: 0.7, muscle: 1.2, shapes: { neck: 2.2, neckLength: -0.3, shoulders: 1.2 }, skin: '#5a8a4a', skinPattern: { type: 'scales', color: '#3e6a34', belly: '#c8c890' }, eyes: { color: '#e0c030', pupil: 'slit' }, features: { tail: { type: 'lizard', color: '#5a8a4a', color2: '#c8c890' }, spines: { type: 'ridge', size: 0.6, color: '#3e5a2a' } }, bald: true } },
+        { id: 'dragonborn', label: 'Dragonborn', group: 'Beastfolk', recipe: { head: { id: 'dragon', kind: 'drake', snoutLength: 1.0, pattern: 'scales', colors: { horn: '#2a1e18' } }, height: 0.8, muscle: 0.9, shapes: { neck: 1.2, shoulders: 1 }, skin: '#a8402c', skinPattern: { type: 'scales', color: '#7a2a1c', belly: '#e0b070' }, eyes: { color: '#ffb020', pupil: 'slit' }, features: { tail: { type: 'dragon', color: '#a8402c', color2: '#e0b070' } }, bald: true } },
         { id: 'birdfolk', label: 'Birdfolk', group: 'Beastfolk', recipe: { weight: 0.3, morph: { flat: 0.55, earsAway: 1, earHoles: 0 }, skin: '#8a6a4a', skinPattern: { type: 'feathers', color: '#7a5a3e', belly: '#e8dcc8', lips: '#6a5038', shadowAmount: 0 }, eyes: { color: '#e8a020', size: 1.6, sclera: '#6a4a14' }, shapes: { noseDepth: -3, noseVolume: -2, upperLip: -1.5, lowerLip: -1.5, mouthWidth: -1, eyeSize: 1.3, eyeSpacing: 0.6, neckLength: 0.8 }, features: { beak: { type: 'raptor', size: 1.6 }, wings: { type: 'feathered', size: 0.75, color: '#7a5a3a', color2: '#e8dcc8' }, tail: { type: 'bird', color: '#6a4a2a', color2: '#f0e8d8' } }, bald: true } },
-        { id: 'catfolk', label: 'Catfolk', group: 'Beastfolk', recipe: { head: { kind: 'cat', pattern: 'tabby' }, weight: 0.38, bald: true, bodyHair: { amount: 0.85, pattern: 'werewolf', fur: 0.6, length: 0.65, color: '#c8924a' }, skin: '#c8924a', skinPattern: { type: 'stripes', color: '#7a4a1a', belly: '#f0e0c8', nose: '#d07a78' }, eyes: { color: '#7ad040', pupil: 'slit' }, features: { tail: { type: 'cat', color: '#c8924a', color2: '#7a4a1a' } } } },
-        { id: 'werewolf', label: 'Werewolf', group: 'Beastfolk', recipe: { head: { kind: 'wolf', snoutLength: 0.85, pattern: 'saddle' }, height: 0.7, muscle: 1.1, weight: 0.55, shapes: { shoulders: 1, handSize: 0.6 }, skin: '#6a5240', skinPattern: { color: '#2a1e16', belly: '#8a7260', nose: '#141210' }, eyes: { color: '#f0c020' }, features: { tail: { type: 'fox', color: '#4a3424', color2: '#7a6250' } }, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.75, length: 1.2, color: '#4a3424' }, bald: true } },
-        { id: 'wolffolk', label: 'Wolffolk', group: 'Beastfolk', recipe: { head: { kind: 'wolf', pattern: 'saddle' }, height: 0.65, muscle: 0.8, bald: true, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.9, length: 1.1, color: '#6a6460' }, shapes: { neck: 1 }, skin: '#7a7470', skinPattern: { type: 'fur', color: '#4a4440', belly: '#d8d4cc', nose: '#141210' }, eyes: { color: '#e8c030' }, features: { tail: { type: 'fox', color: '#6a6460', color2: '#d8d4cc' } } } },
-        { id: 'rabbitfolk', label: 'Rabbitfolk', group: 'Beastfolk', recipe: { head: { kind: 'rabbit' }, height: 0.35, weight: 0.4, bald: true, bodyHair: { amount: 0.9, pattern: 'werewolf', fur: 0.75, length: 0.8, color: '#d8c8b0' }, shapes: { footSize: 2 }, skin: '#c8b8a0', skinPattern: { type: 'fur', color: '#a89878', belly: '#f2ece2', nose: '#d89a98' }, eyes: { color: '#6a3a1a' }, features: { tail: { type: 'rabbit', color: '#f2ece2' } } } },
-        { id: 'minotaur', label: 'Minotaur', group: 'Beastfolk', recipe: { head: { kind: 'bull', pattern: 'solid', colors: { horn: '#e8dcc0', nose: '#3a2a24' } }, height: 1.5, weight: 0.8, muscle: 1.7, bald: true, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.7, length: 1, color: '#6a4428' }, shapes: { neck: 2.4, shoulders: 1.6 }, skin: '#8a6040', skinPattern: { type: 'fur', color: '#5a3a24', belly: '#a8845e', nose: '#3a2a24' }, eyes: { color: '#4a2a14' }, features: { tail: { type: 'bull', color: '#5a3a24', color2: '#4a3020' } } } },
+        { id: 'catfolk', label: 'Catfolk', group: 'Beastfolk', recipe: { head: { id: 'cat', kind: 'cat', pattern: 'tabby' }, weight: 0.38, bald: true, bodyHair: { amount: 0.85, pattern: 'werewolf', fur: 0.6, length: 0.65, color: '#c8924a' }, shapes: { neck: 0.8 }, skin: '#c8924a', skinPattern: { type: 'stripes', color: '#7a4a1a', belly: '#f0e0c8', nose: '#d07a78' }, eyes: { color: '#7ad040', pupil: 'slit' }, features: { tail: { type: 'cat', color: '#c8924a', color2: '#7a4a1a' } } } },
+        { id: 'werewolf', label: 'Werewolf', group: 'Beastfolk', recipe: { head: { id: 'wolf', kind: 'wolf', snoutLength: 0.85, pattern: 'saddle' }, height: 0.7, muscle: 1.1, weight: 0.55, shapes: { shoulders: 1, handSize: 0.6, neck: 1.3 }, skin: '#6a5240', skinPattern: { color: '#2a1e16', belly: '#8a7260', nose: '#141210' }, eyes: { color: '#f0c020' }, features: { tail: { type: 'fox', color: '#4a3424', color2: '#7a6250' } }, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.75, length: 1.2, color: '#4a3424' }, bald: true } },
+        { id: 'wolffolk', label: 'Wolffolk', group: 'Beastfolk', recipe: { head: { id: 'wolf', kind: 'wolf', pattern: 'saddle' }, height: 0.65, muscle: 0.8, bald: true, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.9, length: 1.1, color: '#6a6460' }, shapes: { neck: 1.2 }, skin: '#7a7470', skinPattern: { type: 'fur', color: '#4a4440', belly: '#d8d4cc', nose: '#141210' }, eyes: { color: '#e8c030' }, features: { tail: { type: 'fox', color: '#6a6460', color2: '#d8d4cc' } } } },
+        { id: 'rabbitfolk', label: 'Rabbitfolk', group: 'Beastfolk', recipe: { head: { id: 'rabbit', kind: 'rabbit' }, height: 0.35, weight: 0.4, bald: true, bodyHair: { amount: 0.9, pattern: 'werewolf', fur: 0.75, length: 0.8, color: '#d8c8b0' }, shapes: { footSize: 2, neck: 0.7 }, skin: '#c8b8a0', skinPattern: { type: 'fur', color: '#a89878', belly: '#f2ece2', nose: '#d89a98' }, eyes: { color: '#6a3a1a' }, features: { tail: { type: 'rabbit', color: '#f2ece2' } } } },
+        { id: 'minotaur', label: 'Minotaur', group: 'Beastfolk', recipe: { head: { id: 'bull', kind: 'bull', pattern: 'solid', colors: { horn: '#e8dcc0', nose: '#3a2a24' } }, height: 1.5, weight: 0.8, muscle: 1.7, bald: true, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.7, length: 1, color: '#6a4428' }, shapes: { neck: 2.4, shoulders: 1.6 }, skin: '#8a6040', skinPattern: { type: 'fur', color: '#5a3a24', belly: '#a8845e', nose: '#3a2a24' }, eyes: { color: '#4a2a14' }, features: { tail: { type: 'bull', color: '#5a3a24', color2: '#4a3020' } } } },
         { id: 'tiefling', label: 'Tiefling', group: 'Otherworldly', recipe: { shapes: { cheekBones: 0.8, chinPointed: 0.6, earsPointed: 1.6 }, skin: '#b0463e', eyes: { color: '#f0d020', pupil: 'none' }, features: { horns: { type: 'demon', color: '#2a1e1e', color2: '#5a4a4a' }, tail: { type: 'demon', color: '#b0463e' } } } },
         { id: 'demon', label: 'Demon', group: 'Otherworldly', recipe: { height: 1.4, muscle: 1.6, weight: 0.7, shapes: { browRidge: 2.5, cheekBones: 1.5, jaw: 1.2, earsPointed: 2.5, chinPointed: 1 }, skin: '#7a1e1e', skinPattern: { type: 'scales', color: '#5a1212', belly: '#3a0a0a' }, eyes: { color: '#ffd020', pupil: 'slit', sclera: '#1a0808' }, features: { horns: { type: 'ram', size: 1.3, color: '#1a1414', color2: '#6a5a50' }, tail: { type: 'demon', color: '#7a1e1e' }, wings: { type: 'bat', color: '#3a1010', color2: '#5a1818' } }, bald: true } },
         { id: 'angel', label: 'Angel', group: 'Otherworldly', recipe: { height: 0.75, shapes: { cheekBones: 0.5 }, skin: '#f0d8c4', eyes: { color: '#5aa8e8' }, features: { wings: { type: 'feathered', size: 0.95, color: '#ffffff', color2: '#e8e4dc' } }, props: [{ id: 'halo' }] } },
         { id: 'fairy', label: 'Fairy', group: 'Otherworldly', recipe: { height: -0.5, weight: 0.2, headSize: 1.12, shapes: { earsPointed: 2.2, eyeSize: 1.5, chinPointed: 0.8 }, skin: '#f2dcd0', eyes: { color: '#40c8a0' }, features: { wings: { type: 'fairy', color: '#bfeaff', color2: '#ffffff' } } } },
         { id: 'undead', label: 'Undead', group: 'Otherworldly', recipe: { weight: -0.2, muscle: 0.1, shapes: { headFat: -1.5, cheeks: -2, eyeBags: 2, headAge: 1.5 }, age: 60, skin: '#8a9a80', skinPattern: { type: 'decay', color: '#5a6a50' }, eyes: { color: '#e8f0e0', pupil: 'none', sclera: '#2a3028' } } },
         { id: 'alien', label: 'Grey alien', group: 'Otherworldly', recipe: { height: 0.2, weight: 0.05, headSize: 1.45, morph: { earsAway: 0.7, earHoles: 0, flat: 0.5, eyeSocket: 1, muzzle: 0.2 }, shapes: { earSize: -1, earOut: -1, headTriangle: 1.3, headRound: 1, foreheadHeight: 1, temples: 0.8, browRidge: -1.2, headAge: -1, headFat: 0.2, cheekBones: 0.2, eyeSize: 1.3, noseDepth: -1.6, noseVolume: -1.3, noseWidth: -1.2, noseLength: -0.6, nostrils: -0.6, noseHump: -1, mouthWidth: -0.8, upperLip: -1.4, lowerLip: -1.4, jaw: -1.3, chinWidth: -1, neck: -1.4, neckLength: 0.4 }, skin: '#7a838b', skinPattern: { lips: '#7a838b' }, eyes: { color: '#0a0a0e', pupil: 'none', sclera: '#0a0a0e', catchlight: false }, features: { alienEyes: { type: 'almond' } }, bald: true } },
-        { id: 'android', label: 'Android', group: 'Otherworldly', recipe: { skin: '#d8dce2', skinPattern: { type: 'panels', color: '#8a9098' }, eyes: { color: '#30b8ff', pupil: 'none' }, bald: true } }
+        { id: 'android', label: 'Android', group: 'Otherworldly', recipe: { skin: '#d8dce2', skinPattern: { type: 'panels', color: '#8a9098' }, eyes: { color: '#30b8ff', pupil: 'none' }, bald: true } },
+        // Slimefolk: a body plan of its own (RRSlimeBody), from a goo mound to a goo person.
+        { id: 'slimefolk', label: 'Slimefolk', group: 'Otherworldly', plan: 'slime', recipe: {} }
     ];
     const BY_ID = new Map(SPECIES.map(s => [s.id, s]));
+
+    /**
+     * Heads any body may wear: its own, or an animal's from the four-legged
+     * creatures (a kind and its head settings). A bird's is listed once the
+     * creatures have one.
+     */
+    const HEAD_PRESETS = [
+        ['human', 'Human', null],
+        ['wolf', 'Wolf', { kind: 'wolf', pattern: 'saddle' }],
+        ['cat', 'Cat', { kind: 'cat', pattern: 'tabby' }],
+        ['rabbit', 'Rabbit', { kind: 'rabbit' }],
+        ['bull', 'Bull', { kind: 'bull', pattern: 'solid' }],
+        ['reptile', 'Reptile', { kind: 'drake', horns: 'none', ears: 'none', snoutLength: 0.85, pattern: 'scales' }],
+        ['dragon', 'Dragon', { kind: 'drake', snoutLength: 1, pattern: 'scales' }],
+        ['bird', 'Bird', { kind: 'bird' }]
+    ];
+    const creatureKinds = () => { const C = root.RRCreatureBody || (typeof require === 'function' ? require('./CreatureBody.js') : null); return new Set(C ? C.KINDS.map(k => k.kind) : []); };
+    /** The heads offered: [id, label], those whose creature exists. */
+    function heads() { const k = creatureKinds(); return HEAD_PRESETS.filter(h => !h[2] || k.has(h[2].kind)).map(h => [h[0], h[1]]); }
+    /** A head choice as a recipe's head (null: the body's own). */
+    function headPreset(id) { const h = HEAD_PRESETS.find(x => x[0] === id); return h && h[2] && creatureKinds().has(h[2].kind) ? Object.assign({ id }, JSON.parse(JSON.stringify(h[2]))) : null; }
+    /** Which head choice a recipe's head is. */
+    function headId(head) { if (!head) return 'human'; if (head.id && HEAD_PRESETS.some(h => h[0] === head.id)) return head.id; const h = HEAD_PRESETS.find(x => x[2] && x[2].kind === head.kind); return h ? h[0] : 'human'; }
 
     /** A recipe for a species: its preset over the average body, keeping the name, gender and age asked for. */
     function speciesRecipe(id, keep) {
@@ -494,6 +525,7 @@
     const fract = x => x - Math.floor(x);
 
     function wings(m, L, f) {
+        if (f.type === 'insect') { insectWings(m, L, f); return; }
         const spine = L.boneIndex('Spine2'), skin = Props.rigid(spine), s = f.size;
         const y = L.bone('Spine2').head[1] + 0.1;
         const z0 = L.backAt(y, 0.06);
@@ -847,6 +879,42 @@
      * group per feature, with the body vertex it rides on) for the caller
      * to lay as tufts on the body fur's picture.
      */
+    function insectWings(m, L, f) {
+        const skin = Props.rigid(L.boneIndex('Spine2')), back = L.bone('Spine2').head;
+        const z = L.backAt(back[1], 0);
+        const base = [back[0], back[1], (isFinite(z) ? z : back[2]) - 0.035];
+        for (const side of [-1, 1]) for (const upper of [true, false]) {
+            const end = add(base, [side * (upper ? 0.7 : 0.5) * f.size, (upper ? 0.35 : -0.25) * f.size, -0.1 * f.size]);
+            const axis = norm(sub(end, base)), across = norm(cross(axis, [0, 0, 1]));
+            const rows = [];
+            for (let r = 0; r <= 12; r++) {
+                const t = r / 12, c = lerp(base, end, t), width = Math.sin(t * Math.PI) * (upper ? 0.13 : 0.1) * f.size;
+                rows.push([-1, 0, 1].map(q => m.vertex(add(c, mul(across, q * width)), [0, 0, -1], linear(q === 0 || r % 3 === 0 ? f.color2 : f.color), skin)));
+            }
+            for (let r = 0; r < 12; r++) for (let c = 0; c < 2; c++) { m.tri(rows[r][c], rows[r + 1][c], rows[r][c + 1]); m.tri(rows[r][c + 1], rows[r + 1][c], rows[r + 1][c + 1]); }
+        }
+    }
+
+    function antennae(m, L, f) {
+        const skin = Props.rigid(L.boneIndex('Head')), ring = L.ring(L.brow, 0.025);
+        for (const side of [-1, 1]) {
+            const base = [L.noseTip[0] + side * (ring?.rx || 0.07) * 0.6, L.crown - 0.025, ring?.center[2] || 0];
+            const pts = Array.from({ length: 10 }, (_, i) => { const t = i / 9; return add(base, [side * t * 0.1 * f.size, Math.sin(t * Math.PI * 0.7) * 0.19 * f.size, t * 0.07 * f.size]); });
+            m.tube(pts, t => (0.006 * (1 - t) + 0.001) * f.size, 7, linear(f.color), skin);
+            if (f.type === 'moth') for (let i = 1; i < 9; i++) for (const dir of [-1, 1]) m.tube([pts[i], add(pts[i], [dir * 0.028 * Math.sin(i / 9 * Math.PI) * f.size, 0.012 * f.size, 0])], [0.002 * f.size, 0.0004], 5, linear(f.color2), skin);
+        }
+    }
+
+    function fangs(m, L, f) {
+        const skin = Props.rigid(L.boneIndex('Head')), span = Math.abs(L.eyeL.center[0] - L.eyeR.center[0]);
+        for (const side of [-1, 1]) {
+            const base = [L.mouth[0] + side * span * 0.25, L.mouth[1] + 0.004, L.mouth[2] + 0.018];
+            for (const v of L.headIds) if (Math.abs(L.P[v * 3] - base[0]) < 0.01 && Math.abs(L.P[v * 3 + 1] - base[1]) < 0.01) base[2] = Math.max(base[2], L.P[v * 3 + 2] + 0.003);
+            const length = (f.type === 'long' ? 0.027 : 0.014) * f.size;
+            m.tube([base, add(base, [side * 0.002, -length * 0.55, 0.006]), add(base, [0, -length, 0.003])], [0.004 * f.size, 0.0025 * f.size, 0.0002], 8, linear(f.color), skin);
+        }
+    }
+
     function build(pack, built, features, landmarks, options) {
         const F = normalizeFeatures(features);
         const L = landmarks || Props.landmarks(pack, built);
@@ -860,6 +928,8 @@
             return best;
         };
         if (F.horns.type !== 'none') horns(hard, L, F.horns);
+        if (F.antennae.type !== 'none') antennae(hard, L, F.antennae);
+        if (F.fangs.type !== 'none') fangs(hard, L, F.fangs);
         if (F.ears.type !== 'none') {
             const roots = animalEars(soft, L, F.ears, coat);
             if (roots.length) fur.push({ roots, anchor: nearest([0, L.crown - 0.01, L.ring(L.brow)?.center[2] || 0], L.headIds) });
@@ -871,7 +941,6 @@
         }
         if (F.wings.type !== 'none') wings(soft, L, F.wings);
         const featherPart = F.wings.type === 'feathered' ? featheredWing(L, F.wings) : F.wings.type === 'fairy' ? fairyWing(L, F.wings) : null;
-        // The beak shades nothing: its base sits close on the face and would darken the eyes and cheeks round it.
         const bill = new Props.Mesh();
         if (F.beak.type !== 'none') beak(bill, L, F.beak);
         if (F.tusks.type !== 'none') tusks(hard, pack, L, F.tusks);
@@ -890,7 +959,7 @@
         return { parts, bones, features: F, fur };
     }
 
-    const api = { FEATURES, SPECIES, BY_ID, normalizeFeatures, speciesRecipe, build, tailShape, featherTexture, fairyWingTexture, scaleTexture };
+    const api = { FEATURES, SPECIES, BY_ID, HEAD_PRESETS, heads, headPreset, headId, normalizeFeatures, speciesRecipe, build, tailShape, featherTexture, fairyWingTexture, scaleTexture };
     root.RRCharacterSpecies = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -63,7 +63,7 @@ test('the light loop reads the sun from the same two samplers as the rows, and t
         assert.match(glsl, /texture\(rrShadowAtlas, vec3\(u, rrSunShadowBand\.x \+ /);
         assert.match(glsl, /texture\(rrShadowDynAtlas, vec3\(u, rrSunShadowBand\.z \+ /);
         assert.match(glsl, /if \(sh > 63\.5\) \{ float sv = rrSunShadowAt\(p\); rrSunShaded = fall \* \(1\.0 - sv\); fall \*= sv; \}\n\t\telse if \(sh >= 0\.0\) fall \*= rrShadowAt\(int\(sh \+ 0\.5\), p\);/);
-        assert.match(glsl, /\tsum -= rrAmbient \* \(rrSunShade \* rrSunShaded\);\n\treturn sum;\n\}/);
+        assert.match(glsl, /\tsum -= rrAmbient \* \(rrSunShade \* rrSunShaded\);\n\tif \(rrFace > 0\.0\) sum -= rrAmbient \* \(rrFace \* [0-9.]+ \* \(1\.0 - rrFaceN\.y\)\);\n\treturn sum;\n\}/);
         assert.match(glsl, /\tvec3 sum = rrAmbient;\n\trrSunShaded = 0\.0;\n\trrSunNormal = cross\(dFdx\(p\), dFdy\(p\)\);\n\tfor \(int i = 0; i < 32; i\+\+\) \{\n\t\tif \(i >= rrLightCount\) break;/,
             'the anchors the light grid and the volume rewrite are still there');
         // Orthographic depth: a fixed offset in depth units, toward the sun.
@@ -305,4 +305,31 @@ test('on the weak tier a casting sun carries the characters, and the lamps\' row
     assert.equal(Reactor3D.SHADOW_QUALITY.weak.dynamicRowsWithSun, false);
     assert.equal(Reactor3D.SHADOW_QUALITY.full.dynamicRowsWithSun, true);
     assert.match(source3D(), /if \(\(!sunJobs \|\| quality\.dynamicRowsWithSun !== false\) && this\._dynamicWithin\(candidate, far\)\) dynWanted\.push\(/);
+});
+
+test('shiny surfaces read the capture at a mip matched to their roughness, and take the sun as a highlight', () => {
+    const shader = { uniforms: {}, vertexShader: 'void main() {\n#include <project_vertex>\n}', fragmentShader: 'void main() {\n#include <opaque_fragment>\n}' };
+    const material = { userData: { rrShine: { vector: { x: 1, y: 0.15, z: 1, w: 0.2, isVector4: false }, tint: { r: 1, g: 0.8, b: 0.33 } } } };
+    if (typeof THREE !== 'undefined') Reactor3D.injectShine(material, shader);
+    const source = source3D();
+    // The lobe's width in the box-filtered mips: sigma = pi r^2 / (1 + r) of a face, never sharper than REFLECTION_MIN_LOD.
+    assert.match(source, /float rrLod = rrEnvMaxLod > 0\.0 \? clamp\(rrEnvMaxLod \+ log2\(max\(3\.14159265 \* rrShine\.y \* rrShine\.y \/ \(1\.0 \+ rrShine\.y\), 1e-6\)\), "/);
+    assert.match(source, /"\\tvec3 rrEnv = textureLod\(rrEnvMap, rrR, rrLod\)\.rgb;"/);
+    assert.ok(Reactor3D.REFLECTION_MIN_LOD >= 1 && Reactor3D.REFLECTION_MIN_LOD <= 3);
+    const lod = (r, max = 9) => Math.min(max, Math.max(Reactor3D.REFLECTION_MIN_LOD, max + Math.log2(Math.max(Math.PI * r * r / (1 + r), 1e-6))));
+    assert.equal(lod(0), Reactor3D.REFLECTION_MIN_LOD, 'a mirror reads the sharpest level allowed');
+    assert.ok(lod(0.15) > 4 && lod(0.15) < 6, 'the Gold preset reads a soft level');
+    assert.ok(lod(0.5) >= 8, 'a rough metal reads close to the coarsest');
+    // The sun's highlight: a GGX lobe, in the reflection's tint, shadowed with the sun.
+    assert.match(source, /if \(rrKeyLight\.w < 0\.5 && dot\(rrKeyColor, rrKeyColor\) > 0\.0\) \{/);
+    assert.match(source, /float rrKA = max\(rrShine\.y \* rrShine\.y, 0\.002\), rrKA2 = rrKA \* rrKA, rrKD = rrKNH \* rrKNH \* \(rrKA2 - 1\.0\) \+ 1\.0;/);
+    assert.match(source, /"#ifdef RR_SHADOW_TAPS",\n\s*"\\t\\trrKGGX \*= 1\.0 - clamp\(rrSunShaded, 0\.0, 1\.0\);",/);
+    // The key color is the packed sun's, and black with no sun (indoors: no highlight).
+    const u = { rrLightPos: { value: new Float32Array(8) }, rrLightColor: { value: new Float32Array([0.8, 0.7, 0.6, 3, 0, 0, 0, 0]) }, rrLightAim: { value: new Float32Array([0, 1, 0, -1, 0, 0, 0, 0]) }, rrKeyLight: { value: new Float32Array(4) }, rrKeyColor: { value: new Float32Array(3) } };
+    Reactor3D.setKeyLight(u, 1);
+    assert.deepEqual(Array.from(u.rrKeyColor.value).map(v => +v.toFixed(3)), [0.8, 0.7, 0.6]);
+    u.rrLightColor.value[3] = 0;
+    Reactor3D.setKeyLight(u, 1);
+    assert.deepEqual(Array.from(u.rrKeyColor.value), [0, 0, 0]);
+    assert.match(Reactor3D.lightGlsl(true, 1), /float rrSunShaded = 0\.0;/, 'zero where the light term is skipped (a self-lit or half-size twin)');
 });

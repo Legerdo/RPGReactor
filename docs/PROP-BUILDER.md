@@ -1,6 +1,12 @@
 # Prop Builder
 
-Forge › Prop Builder makes props and saves them to the project as 3D models. Pick what to make at the top of the panel: **Flag** or **From picture**.
+Forge › Prop Builder makes props and saves them to the project as 3D models. Pick a type in the searchable catalog: flags, pictures, or **Equipment**.
+
+## Equipment
+
+All 59 Character Builder accessories also build here as standalone models: weapons, tools, bags, hats, masks, eyewear, jewelry, instruments and body details. They use the same procedural generators, with a neutral body used only for sizing; the saved prop contains the accessory alone.
+
+Edit its colors and available shape, side and size controls. **Material** keeps the original finish or applies metal, leather, plastic or fabric. **Placement** controls overall scale and rotation. **Origin** chooses the bottom (for placing on a map), center, or attachment point (for attaching equipment to a character). Held equipment uses its grip as the attachment point; wearable pieces use their carrying joint. Save and reopen these choices with the ordinary prop recipe. Equipment is saved in its resting shape, without character animations or cloth simulation; assign the resulting model through the existing Database equipment workflow.
 
 ## Flag
 

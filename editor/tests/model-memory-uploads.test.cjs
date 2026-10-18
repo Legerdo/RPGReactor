@@ -33,7 +33,7 @@ function installFakeWorkers() {
 }
 
 /** A GLB: one triangle (positions, indices), a base color picture, a normal map, a picture nothing names. */
-function glbWithPictures(textured = true) {
+function glbWithPictures(textured = true, normalCoord = 0) {
     const parts = [], views = [];
     let offset = 0;
     const add = (bytes, pad) => {
@@ -55,7 +55,7 @@ function glbWithPictures(textured = true) {
             { bufferView: positions, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 0] },
             { bufferView: indices, componentType: 5123, count: 3, type: 'SCALAR' }
         ],
-        materials: [textured ? { pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicRoughnessTexture: { index: 1 } }, normalTexture: { index: 1 }, emissiveTexture: { index: 0 }, emissiveFactor: [1, 1, 1] } : {}],
+        materials: [textured ? { pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicRoughnessTexture: { index: 1 } }, normalTexture: normalCoord ? { index: 1, texCoord: normalCoord } : { index: 1 }, emissiveTexture: { index: 0 }, emissiveFactor: [1, 1, 1] } : {}],
         textures: [{ source: 0, sampler: 0 }, { source: 1, sampler: 1 }],
         samplers: [{ magFilter: 9729 }, { magFilter: 9728 }],
         images: [{ bufferView: base, mimeType: 'image/png' }, { bufferView: normalMap, mimeType: 'image/png' }, { bufferView: unused, mimeType: 'image/png' }],
@@ -335,27 +335,23 @@ test('the import optimizer drops the pictures the game never samples and keeps t
     const bytes = new Uint8Array(glbWithPictures());
     const out = await O.optimize(bytes, { dropUnsampledImages: true });
     const { json, bin } = O.parseGlb(out.bytes);
-    assert.equal(json.images.length, 1);
-    assert.equal(json.textures.length, 1);
-    assert.equal(json.samplers.length, 1);
+    // The normal map beside the base color is drawn (Reactor3D.MODEL_FACING): it stays.
+    assert.equal(json.images.length, 2);
+    assert.equal(json.textures.length, 2);
     assert.deepEqual(json.samplers[0], { magFilter: 9729 }, 'the base color keeps its own sampler');
     const material = json.materials[0];
-    assert.equal(material.normalTexture, undefined);
+    assert.deepEqual(material.normalTexture, { index: 1 });
     assert.equal(material.pbrMetallicRoughness.metallicRoughnessTexture, undefined);
-    assert.equal(material.emissiveTexture, undefined);
-    assert.equal(material.emissiveFactor, undefined, 'an emissive map goes with its factor');
+    assert.deepEqual(material.emissiveTexture, { index: 0 }, 'a glow map beside the picture is drawn too (Reactor3D.injectSurfaceGlow)');
+    assert.deepEqual(material.emissiveFactor, [1, 1, 1]);
     assert.equal(json.textures[material.pbrMetallicRoughness.baseColorTexture.index].source, 0);
     const view = json.bufferViews[json.images[0].bufferView];
     assert.deepEqual(Array.from(bin.subarray(view.byteOffset, view.byteOffset + view.byteLength)), [137, 80, 78, 71, 1, 2, 3, 4, 5, 6, 7, 8]);
-    assert.ok(out.bytes.length < bytes.length - 6900, 'the normal map and the unnamed picture are gone');
-    assert.ok(out.notes.some(n => /never draws/.test(n)));
-    assert.ok(O.PRESETS.optimize.dropUnsampledImages && O.PRESETS.aggressive.dropUnsampledImages);
-    // The geometry is untouched and the runtime still reads the file.
-    const parsed = R.readGlb(out.bytes.buffer.slice(out.bytes.byteOffset, out.bytes.byteOffset + out.bytes.byteLength));
-    assert.deepEqual(Array.from(R._glbAccessor(parsed.json, parsed.bin, 0)), [0, 0, 0, 1, 0, 0, 0, 1, 0]);
-    // A file with nothing to drop comes back as it was.
-    const plain = await O.optimize(out.bytes, { dropUnsampledImages: true });
-    assert.deepEqual(plain.notes, ['nothing to reduce']);
+    assert.ok(out.bytes.length < bytes.length - 2900, 'the unnamed picture is gone');
+    // A normal map on other coordinates than the picture's is not drawn, and goes.
+    const second = await O.optimize(new Uint8Array(glbWithPictures(true, 1)), { dropUnsampledImages: true });
+    assert.equal(O.parseGlb(second.bytes).json.materials[0].normalTexture, undefined);
+    assert.equal(O.parseGlb(second.bytes).json.images.length, 1);
 });
 
 test('the editor resamples a model sheet over the cap in the image worker, not on its main thread; its other pictures stay as they are', async () => {

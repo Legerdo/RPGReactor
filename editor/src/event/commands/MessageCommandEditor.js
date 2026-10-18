@@ -816,7 +816,7 @@ class MessageCommandEditor {
         if (sheet) {
             const sign = (/^[!$]+/.exec(sheet.split('/').pop()) || [''])[0];
             if (sign.includes('!') || !this._hasFaceFile(sheet)) return none;
-            return { state: 'face', name: sheet, index: sign.includes('$') ? 0 : (image.characterIndex || 0), hint: this._t('The face of %1.').replace('%1', name) };
+            return { state: 'face', name: sheet, index: sign.includes('$') && !/\[8D\]/i.test(sheet) ? 0 : (image.characterIndex || 0), hint: this._t('The face of %1.').replace('%1', name) };
         }
         // A battle unit with no picture of its own wears the model the Database binds to its record.
         const unit = /<unit\s*:\s*([^>]+)>/i.exec(String(event.note || ''));

@@ -1,10 +1,12 @@
 /**
  * RRCharacterPoses - poses and motions to try a humanoid character in: the
  * 3D Character Builder's view plays them to show where a body, its clothes
- * and its hair hold up and where they do not.
+ * and its hair hold up and where they do not, and a saved character carries
+ * them as clips.
  *
- *   RRCharacterPoses.POSES             [{ id, label }], in the panel's order
- *   RRCharacterPoses.clip(bones, id, body)   { name, times, tracks: [{ bone, values }], heights, lift, skin } or null
+ *   RRCharacterPoses.POSES             [{ id, label, group }], in the panel's order (GROUPS)
+ *   RRCharacterPoses.clip(bones, id, body)   { name, times, tracks: [{ bone, values }], heights, lift, skin, once } or null
+ *   RRCharacterPoses.gameClips(bones, body, set)   the clips a saved character carries (GAME_CLIPS)
  *
  * `body` (optional) is the built body's skin at rest, { positions, joints,
  * weights } as the model's Body part holds them: the arms then keep out of
@@ -13,27 +15,70 @@
  * Bones rest unrotated (each one's frame is the world's), as the builder
  * saves them; the character faces +z with its left toward +x. A track holds
  * one quaternion per time. The motions are motion capture
- * (RRCharacterPosesData, from the CMU Graphics Lab Motion Capture Database):
- * per frame, each mapped bone's frame in the world, a direction along it and
- * one across it. Each body's own joints are turned to match them, so a
- * motion holds for any height, limb length or build; the arms keep out of
- * the body's own trunk, and the hands off the face. The fingers
- * stay at rest, or close in a fist where the pose says so. `lift(t)` is how
+ * (RRCharacterPosesData, from the CMU Graphics Lab Motion Capture Database),
+ * some with authored layers over it: per frame, each mapped bone's frame in
+ * the world, a direction along it and one across it. Each body's own joints
+ * are turned to match them, so a motion holds for any height, limb length or
+ * build; the arms keep out of the body's own trunk, and the hands off the
+ * face. The wrists hang as a hand hangs (the capture's twist kept, its bend
+ * not), the fingers take the pose's hand shapes (HAND_SHAPES), closing until
+ * they meet the palm, and the hands (and for a climb the feet) reach where
+ * the pose's aim sets them on this body: a gun on the eye's line, a rifle in
+ * the shoulder, both hands on one hilt, rungs and holds. `lift(t)` is how
  * far the whole body stands off its rest height at time t: worked out by
  * following the skeleton joint by joint, so the lowest heel, ball or toe
- * touches the floor, and for a jump or a run's flight the capture's own
- * height off it added, in leg lengths. A pose resting the body itself on the
- * floor (sitting, kneeling, lying) says `skin`: the view then sets its
- * lowest skin on the floor.
+ * touches the floor, and for a jump, a flip or a run's flight the capture's
+ * own height off it added, in leg lengths. A pose resting the body itself on
+ * the floor (sitting, kneeling, lying) says `skin`: the view then sets its
+ * lowest skin on the floor. A motion that plays once (a fall, a flip, a
+ * throw) says `once`.
  */
 (function (root) {
     'use strict';
+    const DEG = Math.PI / 180;
 
+    /**
+     * Each pose: `group` the list it shows under (GROUPS), `hands` the shape
+     * each hand holds (a HAND_SHAPES name, or keys over time), `wrist` how
+     * the wrists bend when not relaxed, `aim` the hands and feet it sets on
+     * each body (AIMS).
+     */
+    const GROUPS = [{ id: 'move', label: 'Move' }, { id: 'fight', label: 'Fight' }, { id: 'rest', label: 'Rest' }];
+    /** The wrists' relaxed bend (degrees toward the palm, toward the little finger). */
+    const WRIST = { flex: 8, bend: 6 };
+    const both = shape => ({ Left: shape, Right: shape });
     const POSES = [
-        { id: 'walk', label: 'Walking' }, { id: 'run', label: 'Running' }, { id: 'crouch', label: 'Crouching' }, { id: 'jump', label: 'Jumping' },
-        { id: 'fall', label: 'Falling' }, { id: 'fight', label: 'Fighting stance' }, { id: 'wave', label: 'Waving' }, { id: 'armsUp', label: 'Arms up' },
-        { id: 'kneel', label: 'Kneeling' }, { id: 'sit', label: 'Sitting' }, { id: 'lieBack', label: 'Lying on the back' }, { id: 'lieSide', label: 'Lying on the side' }
+        { id: 'walk', label: 'Walking', group: 'move', hands: both('relaxed') }, { id: 'run', label: 'Running', group: 'move', hands: both('looseFist'), wrist: { flex: 4, bend: 2 } },
+        { id: 'crouch', label: 'Crouching', group: 'rest', hands: both('relaxed') }, { id: 'jump', label: 'Jumping', group: 'move', hands: both('relaxed') },
+        { id: 'fall', label: 'Falling', group: 'move', hands: both('open'), wrist: { flex: -10, bend: 0 } }, { id: 'fight', label: 'Fighting stance', group: 'fight', hands: both('fist'), wrist: { flex: 0, bend: 4 } },
+        { id: 'wave', label: 'Waving', group: 'rest', hands: { Left: 'relaxed', Right: 'open' }, wrist: { Left: WRIST, Right: { flex: -6, bend: 0 } } },
+        { id: 'armsUp', label: 'Arms up', group: 'rest', hands: both('open'), wrist: { flex: -8, bend: 0 } },
+        { id: 'kneel', label: 'Kneeling', group: 'rest', hands: both('relaxed') }, { id: 'sit', label: 'Sitting', group: 'rest', hands: both('relaxed') },
+        { id: 'lieBack', label: 'Lying on the back', group: 'rest', hands: both('relaxed') }, { id: 'lieSide', label: 'Lying on the side', group: 'rest', hands: both('relaxed') },
+        { id: 'pistol', label: 'Pistol aim', group: 'fight', hands: { Left: 'relaxed', Right: 'gun' }, aim: 'pistol', wrist: { Left: WRIST, Right: { flex: 0, bend: 0 } } },
+        { id: 'pistolTwo', label: 'Pistol aim, two hands', group: 'fight', hands: { Left: 'support', Right: 'gun' }, aim: 'pistolTwo' },
+        { id: 'rifle', label: 'Rifle aim', group: 'fight', hands: { Left: 'support', Right: 'gun' }, aim: 'rifle' },
+        { id: 'kneelAim', label: 'Kneeling aim', group: 'fight', hands: { Left: 'support', Right: 'gun' }, aim: 'rifle' },
+        { id: 'prone', label: 'Lying face down', group: 'rest', hands: both('relaxed') },
+        { id: 'proneAim', label: 'Prone aim', group: 'fight', hands: { Left: 'support', Right: 'gun' }, aim: 'rifle', aimPitch: 0.04, elbowDown: true },
+        { id: 'crouchWalk', label: 'Walking crouched', group: 'move', hands: both('relaxed') },
+        { id: 'sword', label: 'Sword swing', group: 'fight', hands: both('sword'), aim: 'hilt', wrist: { flex: 0, bend: [[0, -10], [0.3, -38], [0.5, -34], [0.66, 6], [0.8, 32], [0.92, 20], [1, -10]] } },
+        { id: 'defend', label: 'Guarding', group: 'fight', hands: both('fist'), wrist: { flex: 0, bend: 4 } },
+        { id: 'hit', label: 'Taking a hit', group: 'fight', hands: both('looseFist'), wrist: { flex: 0, bend: 4 } },
+        { id: 'death', label: 'Falling dead', group: 'fight', hands: both('relaxed') },
+        { id: 'cast', label: 'Casting a spell', group: 'fight', hands: { Left: [[0, 'relaxed'], [0.5, 'grab'], [1.3, 'grab'], [1.5, 'open'], [2.2, 'open'], [2.8, 'relaxed']], Right: [[0, 'relaxed'], [0.5, 'grab'], [1.3, 'grab'], [1.5, 'open'], [2.2, 'open'], [2.8, 'relaxed']] }, aim: 'cast', freeWrist: true, aimMix: [[0, 0], [0.55, 1], [2.25, 1], [3, 0]] },
+        { id: 'throw', label: 'Throwing', group: 'fight', hands: { Left: 'relaxed', Right: 'grab' } },
+        { id: 'dodge', label: 'Dodging', group: 'fight', hands: both('looseFist') },
+        { id: 'roll', label: 'Rolling', group: 'move', hands: both('relaxed') },
+        { id: 'frontFlip', label: 'Front flip', group: 'move', hands: both('relaxed') }, { id: 'backFlip', label: 'Back flip', group: 'move', hands: both('relaxed') },
+        { id: 'climbLadder', label: 'Climbing a ladder', group: 'move', hands: both('grab'), aim: 'ladder' }, { id: 'climbWall', label: 'Climbing a wall', group: 'move', hands: both('grab'), aim: 'wall' },
+        { id: 'swim', label: 'Swimming', group: 'move', hands: both('flat'), wrist: { flex: 0, bend: 0 } }, { id: 'tread', label: 'Treading water', group: 'move', hands: both('flat'), aim: 'tread' }
     ];
+    // The panel's order: by group, then as a person would look for them.
+    const ORDER = ['walk', 'run', 'crouchWalk', 'jump', 'fall', 'roll', 'frontFlip', 'backFlip', 'climbLadder', 'climbWall', 'swim', 'tread',
+        'fight', 'defend', 'sword', 'pistol', 'pistolTwo', 'rifle', 'kneelAim', 'proneAim', 'throw', 'cast', 'dodge', 'hit', 'death',
+        'crouch', 'kneel', 'sit', 'lieBack', 'lieSide', 'prone', 'wave', 'armsUp'];
+    POSES.sort((x, y) => ORDER.indexOf(x.id) - ORDER.indexOf(y.id));
 
     const quat = (x, y, z, a) => { const s = Math.sin(a / 2); return [x * s, y * s, z * s, Math.cos(a / 2)]; };
     const mul = (a, b) => [
@@ -63,7 +108,7 @@
     function take(id) {
         if (decoded.has(id)) return decoded.get(id);
         const p = DATA && DATA.poses && DATA.poses[id];
-        const t = p ? { frames: p.frames, air: p.air, skin: !!p.skin, fist: !!p.fist, rise: decode(p.rise), bones: Object.fromEntries(Object.entries(p.bones).map(([n, v]) => [n, decode(v)])) } : null;
+        const t = p ? { frames: p.frames, fps: p.fps || DATA.fps, air: p.air, skin: !!p.skin, once: !!p.once, hang: !!p.hang, rise: decode(p.rise), bones: Object.fromEntries(Object.entries(p.bones).map(([n, v]) => [n, decode(v)])) } : null;
         decoded.set(id, t);
         return t;
     }
@@ -121,41 +166,216 @@
     /** Points under each foot that bear on the floor: the heel, the ball and the toe tip, off the ankle and the ball joint (meters on a 1.7 m body). */
     const SOLE = { Foot: [[0, -0.065, -0.055]], ToeBase: [[0, 0, 0], [0, -0.012, 0.06]] };
 
-    /** How far each finger joint closes in a fist (radians), knuckle to tip; the thumb's last two joints bend a little. */
-    const CURL = { 1: 1.55, 2: 1.75, 3: 1.2 }, THUMB = { 2: 0.5, 3: 0.6 };
     /**
-     * The hands closed: each finger turns about the line of the knuckles,
-     * toward the palm (the side facing the body at rest), and the thumb
-     * folds across the front of the curled fingers.
+     * Hand shapes, in degrees from the hand at rest. A finger: its knuckle,
+     * middle and end joints closing toward the palm, and `spread`, how far
+     * it fans out from the middle finger. The thumb: `base` swings it across
+     * in front of the palm, `roll` turns its pad toward the fingers, then its
+     * two joints close. `gap` is what the hand holds (meters across, on a
+     * 1.7 m body): a finger closes until its tip meets the palm's skin, or
+     * the handle, and no further.
      */
-    function fists(bones, index, steps) {
-        const out = [];
-        const hold = (i, q) => { const values = new Float32Array(steps * 4); for (let n = 0; n < steps; n++) values.set(q, n * 4); out.push({ bone: i, values }); };
-        for (const [S, m] of [['Left', 1], ['Right', -1]]) {
-            const at = n => index.has(S + n) ? bones[index.get(S + n)].head : null;
+    const finger = (k, m, e) => [k, m, e];
+    const HAND_SHAPES = {
+        relaxed: { Index: finger(12, 18, 8), Middle: finger(16, 22, 10), Ring: finger(20, 26, 12), Pinky: finger(24, 30, 14), spread: 3, thumb: [6, 4, 8, 6] },
+        looseFist: { Index: finger(58, 78, 38), Middle: finger(62, 82, 40), Ring: finger(66, 84, 42), Pinky: finger(70, 84, 42), spread: -2, thumb: [22, 14, 22, 16] },
+        fist: { Index: finger(86, 100, 56), Middle: finger(88, 102, 56), Ring: finger(90, 102, 56), Pinky: finger(90, 100, 54), spread: -3, thumb: [32, 22, 30, 26] },
+        blade: { Index: finger(0, 2, 2), Middle: finger(0, 2, 2), Ring: finger(0, 2, 2), Pinky: finger(0, 2, 2), spread: -4, thumb: [-4, 0, 2, 0] },
+        open: { Index: finger(4, 4, 2), Middle: finger(4, 4, 2), Ring: finger(6, 6, 3), Pinky: finger(8, 6, 3), spread: 14, thumb: [-12, 0, 0, 0] },
+        gun: { Index: finger(30, 40, 18), Middle: finger(80, 96, 50), Ring: finger(84, 96, 50), Pinky: finger(86, 94, 48), spread: -2, thumb: [26, 18, 26, 14], gap: 0.026 },
+        support: { Index: finger(46, 54, 28), Middle: finger(52, 60, 30), Ring: finger(56, 62, 30), Pinky: finger(60, 62, 30), spread: -2, thumb: [24, 12, 20, 10], gap: 0.04 },
+        sword: { Index: finger(78, 94, 50), Middle: finger(82, 96, 50), Ring: finger(86, 96, 50), Pinky: finger(88, 94, 48), spread: -2, thumb: [30, 18, 30, 22], gap: 0.03 },
+        grab: { Index: finger(60, 76, 40), Middle: finger(64, 80, 42), Ring: finger(68, 80, 42), Pinky: finger(72, 80, 42), spread: 2, thumb: [24, 12, 22, 16], gap: 0.03 },
+        flat: { Index: finger(-8, 0, 0), Middle: finger(-8, 0, 0), Ring: finger(-8, 0, 0), Pinky: finger(-8, 0, 0), spread: 6, thumb: [-14, 0, 0, 0] }
+    };
+    /** How far each finger joint turns (degrees): knuckle, middle, end; the spread; the thumb's base, roll and two joints. */
+    const FINGER_RANGE = { knuckle: [-20, 95], middle: [0, 110], end: [0, 85], spread: [-10, 25], thumbBase: [-20, 60], thumbRoll: [-10, 50], thumbJoint: [-10, 80] };
+    const FINGERS = ['Index', 'Middle', 'Ring', 'Pinky'];
+
+    /**
+     * Each hand's own frame at rest, and the axis every finger joint closes
+     * about. The palm is the side the resting fingers curl toward; a
+     * finger joint closes about the line square to its bone and the palm,
+     * so it curls in one plane, and spreads about the palm's normal. The
+     * thumb closes toward the palm's middle.
+     */
+    function handFrames(bones, index) {
+        const out = {};
+        for (const S of ['Left', 'Right']) {
+            const at = n => index.has(S + n) ? bones[index.get(S + n)] : null;
             const hand = at('Hand'), mid = at('HandMiddle1'), a = at('HandIndex1'), b = at('HandPinky1');
             if (!hand || !mid || !a || !b) continue;
-            const along = unit(sub(mid, hand));
-            let axis = square(sub(a, b), along);
-            // The palm faces the body's middle at rest; the fingers close toward it.
-            if (dot(cross(axis, along), [-hand[0], 0, 0]) < 0) axis = axis.map(v => -v);
-            const palm = cross(axis, along);
-            for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) for (const k of [1, 2, 3]) {
-                const i = index.get(S + 'Hand' + f + k);
-                if (i !== undefined) hold(i, quat(axis[0], axis[1], axis[2], CURL[k]));
+            const along = unit(sub(mid.head, hand.head)), thumbward = square(sub(a.head, b.head), along);
+            let palm = unit(cross(thumbward, along)), curl = [0, 0, 0];
+            for (const f of FINGERS) {
+                const one = at('Hand' + f + '1'), three = at('Hand' + f + '3');
+                if (one && three) curl = curl.map((v, k) => v + dir(three)[k] - dir(one)[k]);
             }
-            // The thumb swings about the hand's length, round past the palm to lie across the curled fingers
-            // (the same turn both sides in the mirror), and its joints bend in.
-            const t1 = index.get(S + 'HandThumb1'), ta = at('HandThumb1'), tb = at('HandThumb2');
-            if (t1 !== undefined) hold(t1, quat(along[0], along[1], along[2], 1.6 * m));
-            const bend = ta && tb ? unit(cross(unit(sub(tb, ta)), palm)) : axis;
-            for (const k of [2, 3]) {
-                const i = index.get(S + 'HandThumb' + k);
-                if (i !== undefined) hold(i, quat(bend[0], bend[1], bend[2], THUMB[k]));
+            const toward = dot(curl, palm) !== 0 ? dot(curl, palm) : dot([-hand.head[0], 0, 0], palm);
+            if (toward < 0) palm = palm.map(v => -v);
+            const scale = Math.hypot(...sub(mid.head, hand.head));
+            const joints = [];
+            for (const f of FINGERS) {
+                const fan = square(sub(at('Hand' + f + '1').head, mid.head), along);
+                for (const k of [1, 2, 3]) {
+                    const bone = at('Hand' + f + k);
+                    if (!bone) continue;
+                    const d = dir(bone), n = square(palm, d), axis = unit(cross(d, n));
+                    // Spreading turns the finger about the palm's normal, away from the middle finger.
+                    let spin = n;
+                    if (f === 'Middle' || dot(cross(n, d), fan) < 0) spin = n.map(v => -v);
+                    joints.push({ bone: index.get(S + 'Hand' + f + k), finger: f, k, axis, spin: f === 'Middle' ? null : spin });
+                }
+            }
+            // The thumb closes toward the palm's middle, a little in front of it.
+            const centre = [0, 1, 2].map(k => (a.head[k] + mid.head[k]) / 2 + palm[k] * scale * 0.25);
+            for (const k of [1, 2, 3]) {
+                const bone = at('HandThumb' + k);
+                if (!bone) continue;
+                const d = dir(bone), c = square(sub(centre, bone.head), d);
+                joints.push({ bone: index.get(S + 'HandThumb' + k), finger: 'Thumb', k, axis: unit(cross(d, c)), roll: d });
+            }
+            const chains = {};
+            for (const f of FINGERS) chains[f] = [1, 2, 3].map(k => at('Hand' + f + k)).filter(Boolean).map(b => ({ head: b.head, tail: b.tail || b.head }));
+            out[S] = { along, palm, thumbward, joints, chains, hand: hand.head, length: scale };
+        }
+        return out;
+    }
+    const dir = b => unit(sub(b.tail || b.head, b.head));
+
+    /** A hand shape's turn for one joint of its frame. */
+    function jointTurn(j, shape) {
+        if (j.finger === 'Thumb') {
+            const [base, roll, k2, k3] = shape.thumb;
+            if (j.k === 1) return mul(quat(...j.axis, base * DEG), quat(...j.roll, roll * DEG));
+            return quat(...j.axis, (j.k === 2 ? k2 : k3) * DEG);
+        }
+        const close = quat(...j.axis, shape[j.finger][j.k - 1] * DEG * (shape.reach ? shape.reach[j.finger] : 1));
+        return j.k === 1 && j.spin ? mul(quat(...j.spin, (shape.spread || 0) * DEG * (j.finger === 'Index' ? 0.8 : j.finger === 'Pinky' ? 1.3 : 1)), close) : close;
+    }
+    /** The palm's skin over its bones and a fingertip's flesh, in hand lengths: a tip's middle stays this far off the palm. */
+    const PALM_FLESH = 0.21;
+    /**
+     * How far each finger of a shape closes on this hand (1 the shape's
+     * whole angles): its tip, followed joint by joint at rest, stops where
+     * it would pass into the palm (or into what the hand holds), so short
+     * fingers on a deep palm never curl through it.
+     */
+    function closing(frame, shape, joints) {
+        const reach = {};
+        const need = PALM_FLESH * frame.length + (shape.gap || 0) * frame.length / 0.105;
+        for (const f of FINGERS) {
+            const chain = frame.chains[f], js = joints.filter(j => j.finger === f).sort((a, b) => a.k - b.k);
+            if (chain.length !== 3 || js.length !== 3) { reach[f] = 1; continue; }
+            const tipAt = u => {
+                // Each joint turned by its share, the turns compounding down the finger.
+                let turn = [0, 0, 0, 1], p = chain[0].head;
+                for (let k = 0; k < 3; k++) {
+                    turn = mul(turn, quat(...js[k].axis, shape[f][k] * DEG * u));
+                    const seg = rotate(turn, sub(chain[k].tail, chain[k].head));
+                    p = [p[0] + seg[0], p[1] + seg[1], p[2] + seg[2]];
+                }
+                return p;
+            };
+            const clear = u => {
+                const tip = sub(tipAt(u), frame.hand), over = dot(tip, frame.along) / frame.length;
+                return over < 0.1 || over > 1.05 || dot(tip, frame.palm) >= need;
+            };
+            let u = 1;
+            if (!clear(1)) {
+                let lo = 0;
+                for (let k = 1; k <= 20; k++) if (!clear(k / 20)) { u = k / 20; lo = (k - 1) / 20; break; }
+                for (let i = 0; i < 8; i++) { const m = (lo + u) / 2; if (clear(m)) lo = m; else u = m; }
+                u = lo;
+            }
+            reach[f] = u;
+        }
+        return reach;
+    }
+    /** A shape part way to another (angles blended). */
+    function blendShape(a, b, k) {
+        if (k <= 0) return a;
+        if (k >= 1) return b;
+        const mix = (x, y) => x.map((v, i) => v + (y[i] - v) * k);
+        const out = { spread: a.spread + (b.spread - a.spread) * k, thumb: mix(a.thumb, b.thumb) };
+        for (const f of FINGERS) out[f] = mix(a[f], b[f]);
+        return out;
+    }
+    /** The shape a hand holds at time t: a shape's name, or keys [[seconds, name], ...] eased from one to the next. */
+    function shapeAt(spec, t) {
+        if (!spec) return HAND_SHAPES.relaxed;
+        if (typeof spec === 'string') return HAND_SHAPES[spec] || HAND_SHAPES.relaxed;
+        if (t <= spec[0][0]) return HAND_SHAPES[spec[0][1]];
+        for (let i = 1; i < spec.length; i++) {
+            if (t > spec[i][0]) continue;
+            const [t0, a] = spec[i - 1], [t1, b] = spec[i], u = (t - t0) / ((t1 - t0) || 1);
+            return blendShape(HAND_SHAPES[a], HAND_SHAPES[b], u * u * (3 - 2 * u));
+        }
+        return HAND_SHAPES[spec[spec.length - 1][1]];
+    }
+    /** Every finger and thumb joint's track for the pose's hands (`hands`: { Left, Right } shape specs). */
+    function handTracks(frames, hands, times) {
+        const out = [];
+        for (const S of ['Left', 'Right']) {
+            const frame = frames[S];
+            if (!frame) continue;
+            const spec = hands && hands[S];
+            // Each frame's shape closed as far as this hand allows (worked out once a shape).
+            const shapes = Array.from(times, t => shapeAt(spec, t)), fitted = new Map();
+            const fit = shape => {
+                if (!fitted.has(shape)) fitted.set(shape, Object.assign({}, shape, { reach: closing(frame, shape, frame.joints) }));
+                return fitted.get(shape);
+            };
+            for (const j of frame.joints) {
+                const values = new Float32Array(times.length * 4);
+                let last = null;
+                for (let f = 0; f < times.length; f++) {
+                    let q = jointTurn(j, fit(shapes[f]));
+                    if (last && dot4(q, last) < 0) q = q.map(v => -v);
+                    values.set(q, f * 4);
+                    last = q;
+                }
+                out.push({ bone: j.bone, values });
             }
         }
         return out;
     }
+
+    /**
+     * The wrist held as a hand holds it, not as captured: a capture's hand
+     * markers are the least reliable of all, and they cock the hand off
+     * the forearm. The hand keeps its captured twist about its length (the
+     * forearm's roll, within a wrist's reach) and bends at the wrist by the
+     * pose's own `wrist` ({ flex, bend } in degrees: toward the palm, toward
+     * the little finger), a relaxed hang when the pose gives none.
+     */
+    const WRIST_TWIST = 70 * DEG;
+    function holdWrists(bones, index, names, world, steps, frames, pose, turnAt) {
+        for (const S of ['Left', 'Right']) {
+            const h = names.indexOf(S + 'Hand'), fore = index.get(S + 'ForeArm'), frame = frames[S];
+            if (h < 0 || fore === undefined || !frame) continue;
+            const w = Object.assign({}, WRIST, pose && pose.wrist && (pose.wrist[S] || pose.wrist));
+            const a = frame.along, flexAxis = unit(cross(a, frame.palm)), bendAxis = unit(cross(a, frame.thumbward.map(v => -v)));
+            // A bend may follow keys through the clip ([[share of the clip, degrees], ...]): a swing cocks the wrist and lets it go.
+            const at = (v, f) => Array.isArray(v) ? keyed(v, f / Math.max(1, steps - 1)) : (v || 0);
+            let was;
+            for (let f = 0; f < steps; f++) {
+                const bend = mul(quat(...bendAxis, at(w.bend, f) * DEG), quat(...flexAxis, at(w.flex, f) * DEG));
+                const parent = turnAt(fore, f), local = mul(conj(parent), world[h][f]);
+                // The twist about the hand's length (the part of the turn along it), followed from frame to
+                // frame so it never jumps a whole turn, and held within a wrist's reach.
+                let angle = 2 * Math.atan2(dot(local, a), local[3]);
+                if (was !== undefined) angle += 2 * Math.PI * Math.round((was - angle) / (2 * Math.PI));
+                was = angle;
+                // A captured hand turned further off its forearm than a wrist goes (past 60 degrees, gone by 100)
+                // is the markers lost: its twist fades out with it.
+                const off = 2 * Math.acos(Math.min(1, Math.abs(local[3]))), trust = Math.max(0, Math.min(1, (100 * DEG - off) / (40 * DEG)));
+                const twist = quat(...a, Math.max(-WRIST_TWIST, Math.min(WRIST_TWIST, angle)) * trust);
+                world[h][f] = mul(parent, mul(twist, bend));
+            }
+        }
+    }
+    const unit4 = q => { const l = Math.hypot(q[0], q[1], q[2], q[3]) || 1; return [q[0] / l, q[1] / l, q[2] / l, q[3] / l]; };
 
     /** The ball round the face a hand keeps out of, off the head joint (meters on a 1.7 m body). */
     const FACE = { at: [0, -0.01, 0.03], radius: 0.22 };
@@ -214,7 +434,7 @@
      * and out of the trunk's measured skin; the deepest one inside swings
      * out, the whole arm about the shoulder, to the surface.
      */
-    function clearBody(bones, index, names, world, steps, place, scale, body) {
+    function clearBody(bones, index, names, world, steps, place, scale, body, loop) {
         const head = index.get('Head'), faceRadius = FACE.radius * scale;
         // No arm swings further than this, so a pose stays the captured one.
         const most = 0.6;
@@ -223,7 +443,9 @@
             const joint = n => index.get(S + n), need = ['Arm', 'ForeArm', 'Hand', 'HandMiddle1', 'HandIndex1', 'HandPinky1'];
             if (chain[0] < 0 || shoulder === undefined || need.some(n => joint(n) === undefined)) continue;
             const flesh = n => (body && body.thick.get(joint(n))) || 0.03 * scale;
+            const swings = new Array(steps);
             for (let f = 0; f < steps; f++) {
+                swings[f] = [0, 0, 0, 1];
                 const { rot, pos } = place(f), s = pos[shoulder], at = n => pos[joint(n)];
                 const mid = (a, b) => a.map((v, k) => (v + b[k]) / 2);
                 // Each point with the flesh round it; the hand's own points keep off the face too.
@@ -267,9 +489,27 @@
                     const angle = Math.min(Math.atan2(l, dot(a, b)), most - swung);
                     swung += angle;
                     const q = quat(axis[0] / l, axis[1] / l, axis[2] / l, angle);
-                    for (const k of chain) if (k >= 0) world[k][f] = mul(q, world[k][f]);
+                    swings[f] = mul(q, swings[f]);
                     pts = pts.map(([p, r, hand]) => { const v = rotate(q, sub(p, s)); return [[s[0] + v[0], s[1] + v[1], s[2] + v[2]], r, hand]; });
                 }
+            }
+            // Each frame's swing eased with its neighbors' (two frames either side), so an arm brushing the
+            // body is moved off it smoothly and never snaps out from one frame to the next.
+            const log = q => { const w = Math.max(-1, Math.min(1, q[3])), a = 2 * Math.acos(w), k = a > 1e-6 ? a / Math.sin(a / 2) : 2; return [q[0] * k, q[1] * k, q[2] * k]; };
+            const logs = swings.map(log);
+            for (let f = 0; f < steps; f++) {
+                const r = [0, 0, 0];
+                let n = 0;
+                for (let k = -2; k <= 2; k++) {
+                    // Round the loop when it is one (its last frame is its first), held at the ends when not.
+                    const g = loop ? (((f + k) % (steps - 1)) + (steps - 1)) % (steps - 1) : Math.max(0, Math.min(steps - 1, f + k)), wgt = 3 - Math.abs(k);
+                    for (let i = 0; i < 3; i++) r[i] += logs[g][i] * wgt;
+                    n += wgt;
+                }
+                const a = Math.hypot(r[0], r[1], r[2]) / n;
+                if (a < 1e-6) continue;
+                const q = quat(r[0] / (a * n), r[1] / (a * n), r[2] / (a * n), a);
+                for (const k of chain) if (k >= 0) world[k][f] = mul(q, world[k][f]);
             }
         }
     }
@@ -281,12 +521,13 @@
      * point rests where it would standing; the turn fades out as the foot
      * rises further, so a foot lifting off never jumps.
      */
-    function settleFeet(bones, index, names, world, steps, place, heights, scale) {
+    function settleFeet(bones, index, names, world, steps, place, heights, scale, loop) {
         const near = 0.06 * scale, far = 0.14 * scale, most = 0.8;
         for (const S of ['Left', 'Right']) {
             const foot = index.get(S + 'Foot'), toe = index.get(S + 'ToeBase'), chain = [names.indexOf(S + 'Foot'), names.indexOf(S + 'ToeBase')];
             if (foot === undefined || toe === undefined || chain[0] < 0) continue;
             const sole = [[foot, SOLE.Foot[0]], [toe, SOLE.ToeBase[0]], [toe, SOLE.ToeBase[1]]].map(([i, o]) => [i, o.map(v => v * scale)]);
+            const turns = new Float32Array(steps), hinges = [];
             for (let f = 0; f < steps; f++) {
                 const { rot, pos } = place(f), ankle = pos[foot], hinge = rotate(rot[foot], [1, 0, 0]);
                 // Each sole point's height over where it stands at rest, the foot turned by a about the ankle's hinge.
@@ -299,24 +540,332 @@
                     }
                     return h;
                 };
+                hinges[f] = hinge;
                 const off = low(0);
                 if (off <= 0.005 * scale || off >= far) continue;
                 // The smallest turn either way that brings the foot down, if there is one.
                 let turn = null;
                 for (let a = 0.02; a <= most && turn === null; a += 0.02) for (const t of [a, -a]) if (turn === null && low(t) <= 0) turn = t;
                 if (turn === null) continue;
-                const fade = off <= near ? 1 : (far - off) / (far - near), q = quat(hinge[0], hinge[1], hinge[2], turn * fade);
+                turns[f] = turn * (off <= near ? 1 : (far - off) / (far - near));
+            }
+            // The turns eased through time (a few frames either side, round the loop when it is one), so a foot
+            // settling never snaps from one frame to the next.
+            const eased = new Float32Array(steps), R = 3;
+            for (let f = 0; f < steps; f++) {
+                let sum = 0, n = 0;
+                for (let k = -R; k <= R; k++) {
+                    let g = f + k;
+                    if (loop) g = ((g % (steps - 1)) + (steps - 1)) % (steps - 1);
+                    else g = Math.max(0, Math.min(steps - 1, g));
+                    sum += turns[g] * (R + 1 - Math.abs(k)); n += R + 1 - Math.abs(k);
+                }
+                eased[f] = sum / n;
+            }
+            for (let f = 0; f < steps; f++) {
+                if (!eased[f]) continue;
+                const h = hinges[f], q = quat(h[0], h[1], h[2], eased[f]);
                 for (const k of chain) if (k >= 0) world[k][f] = mul(q, world[k][f]);
             }
         }
     }
 
-    function captured(bones, id, cap, body) {
+    // ── hands set where a pose needs them: an aim, a grip with both hands ──
+    /** The turn taking unit vector a to unit vector b, the short way. */
+    function fromTo(a, b) {
+        const c = cross(a, b), d = dot(a, b);
+        if (d < -0.999999) { const o = Math.abs(a[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0], ax = unit(cross(a, o)); return [ax[0], ax[1], ax[2], 0]; }
+        return unit4([c[0], c[1], c[2], 1 + d]);
+    }
+    /** A turn part way (0..1) round from no turn, the short way. */
+    function partOf(q, k) {
+        const w = Math.max(-1, Math.min(1, q[3] < 0 ? -q[3] : q[3])), sign = q[3] < 0 ? -1 : 1, a = Math.acos(w), sa = Math.sin(a);
+        if (sa < 1e-9) return [0, 0, 0, 1];
+        const f = Math.sin(a * k) / sa;
+        return [q[0] * f * sign, q[1] * f * sign, q[2] * f * sign, Math.cos(a * k)];
+    }
+    const along3 = (p, d, t) => [p[0] + d[0] * t, p[1] + d[1] * t, p[2] + d[2] * t];
+    /** Where a hand's grip is (the middle of its closed palm, where a handle lies), off the wrist in its rest frame. */
+    const gripOf = (F, gap) => [0, 1, 2].map(k => F.along[k] * F.length * 0.62 + F.palm[k] * F.length * (PALM_FLESH * 0.6 + (gap || 0.03) / 0.105 * 0.5));
+
+    /**
+     * A limb reaching a target: the wrist (or ankle) to `to` (two-bone
+     * reach, the elbow or knee bending toward `pole`), the hand (or foot)
+     * turned to `turn` (world); an arm's forearm takes half the hand's roll
+     * so the wrist never wrings. `weight` eases the limb from where it was.
+     */
+    const CHAINS = { arm: ['Arm', 'ForeArm', 'Hand'], leg: ['UpLeg', 'Leg', 'Foot', 'ToeBase'] };
+    function reachLimb(ctx, f, S, limb, to, turn, pole, weight) {
+        const { index, names, world, place, bones, rest } = ctx, chain = CHAINS[limb];
+        const slots = chain.map(n => names.indexOf(S + n)), [top, mid, end] = slots;
+        if (top < 0 || mid < 0 || end < 0 || !rest[S + chain[0]] || !rest[S + chain[1]]) return;
+        const w = weight === undefined ? 1 : weight;
+        const { pos } = place(f), at = n => pos[index.get(S + n)], restAt = n => bones[index.get(S + n)].head;
+        const sh = at(chain[0]);
+        const a = Math.hypot(...sub(restAt(chain[1]), restAt(chain[0]))), b = Math.hypot(...sub(restAt(chain[2]), restAt(chain[1])));
+        const off = sub(to, sh), d = Math.max(Math.abs(a - b) + 1e-4, Math.min(a + b - 1e-4, Math.hypot(...off))), u = unit(off);
+        const v = square(pole, u);
+        const cosA = Math.max(-1, Math.min(1, (a * a + d * d - b * b) / (2 * a * d))), sinA = Math.sqrt(1 - cosA * cosA);
+        const elbow = [0, 1, 2].map(i => sh[i] + (u[i] * cosA + v[i] * sinA) * a), reachTo = along3(sh, u, d);
+        // Each bone's frame built from where its joints now are, as the poses' frames are made (along the
+        // bone, and across it toward the bend), so the limb's roll follows the bend and never flips.
+        const upper = unit(sub(elbow, sh)), lower = unit(sub(reachTo, elbow)), back = v.map(x => -x);
+        let qTop, qMid;
+        if (limb === 'arm') {
+            // Across the upper arm toward where the forearm bends, across the forearm back toward the upper arm:
+            // taken from the bend while there is one, from the pole's side while the arm is near straight (each
+            // alone fails, one with the arm straight, the other with it folded square).
+            const bend = 1 - Math.abs(dot(upper, lower)), off = (x, y) => sub(x, y.map(k => k * dot(x, y)));
+            const sideUp = unit(along3(off(lower, upper).map(k => k * bend * 4), off(back, upper), 1 - Math.min(1, bend * 4) * 0.9));
+            const sideLow = unit(along3(off(upper.map(k => -k), lower).map(k => k * bend * 4), off(back, lower), 1 - Math.min(1, bend * 4) * 0.9));
+            qTop = mul(frameQuat(upper, sideUp), conj(rest[S + 'Arm']));
+            qMid = mul(frameQuat(lower, sideLow), conj(rest[S + 'ForeArm']));
+        } else {
+            qTop = mul(frameQuat(upper, v), conj(rest[S + 'UpLeg']));
+            qMid = mul(frameQuat(lower, square(v, lower)), conj(rest[S + 'Leg']));
+        }
+        const old = slots.map(i => (i >= 0 ? world[i][f] : null));
+        // A hand given only where its fingers point (and roughly where its palm faces) follows the forearm's own
+        // roll and swings to point there, turned toward the palm's way by no more than a wrist allows.
+        if (turn && turn.along && limb === 'arm') {
+            const F = ctx.F[S], follow = mul(fromTo(unit(rotate(qMid, F.along)), turn.along), qMid);
+            let roll = 0;
+            if (turn.palm) {
+                const p0 = square(rotate(follow, F.palm), turn.along), p1 = square(turn.palm, turn.along);
+                roll = Math.max(-70 * DEG, Math.min(70 * DEG, Math.atan2(dot(cross(p0, p1), turn.along), dot(p0, p1))));
+            }
+            turn = mul(quat(...turn.along, roll), follow);
+        }
+        let qEnd = turn || mul(qMid, mul(conj(old[1]), old[2]));
+        if (limb === 'arm' && turn && !ctx.pose.freeWrist) {
+            // Half the hand's roll about the forearm goes into the forearm (within a forearm's reach).
+            // The roll is followed from frame to frame (never jumping a whole turn) and held within reach.
+            const fr = ctx.restAlong[S + 'ForeArm'], local = mul(conj(qMid), turn), t = dot(local, fr);
+            let roll = 2 * Math.atan2(t, local[3]);
+            const was = ctx.roll[S];
+            if (was !== undefined) roll += 2 * Math.PI * Math.round((was - roll) / (2 * Math.PI));
+            ctx.roll[S] = roll;
+            qMid = mul(qMid, quat(...fr, Math.max(-120 * DEG, Math.min(120 * DEG, roll)) / 2));
+        }
+        const blend = (was, now) => (w < 1 ? slerp4(was, now, w) : now);
+        world[top][f] = blend(old[0], qTop);
+        world[mid][f] = blend(old[1], qMid);
+        world[end][f] = blend(old[2], qEnd);
+        // The toes keep their bend at the ball as the foot turns.
+        if (slots[3] >= 0) world[slots[3]][f] = mul(world[end][f], mul(conj(old[2]), old[3]));
+    }
+    function slerp4(a, b, k) {
+        const c = dot4(a, b) < 0 ? b.map(v => -v) : b;
+        return unit4(mul(partOf(mul(c, conj(a)), k), a));
+    }
+    /** The world turn that sets a hand's rest frame (along to the knuckles, toward the thumb) along d and t. */
+    const handTurn = (F, d, t) => mul(frameQuat(d, t), conj(frameQuat(F.along, F.thumbward)));
+    const yawBy = (v, deg) => { const c = Math.cos(deg * DEG), s = Math.sin(deg * DEG); return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c]; };
+    /** Where an eye is off the head joint (meters on a 1.7 m body; x toward the body's left). */
+    const EYE = [0.031, 0.062, 0.078];
+    const UP = [0, 1, 0];
+
+    /**
+     * Aims and grips, each worked out frame by frame on this body, aimed
+     * along the body's facing (+z) turned by the pose's `aimYaw`:
+     *   pistol      the right arm out along the line from the right eye, the gun hand level
+     *   pistolTwo   the same, the left hand wrapped round the right fist
+     *   rifle       the stock in the right shoulder, the cheek down on it, the left hand under the forend
+     *   hilt        the left hand under the right on one handle (a two-handed sword)
+     */
+    const AIMS = {
+        pistol(ctx, f, two) {
+            const { index, place, scale, F } = ctx, { rot, pos } = place(f);
+            const front = yawBy([0, 0, 1], ctx.pose.aimYaw || 0), head = index.get('Head');
+            const eye = along3(pos[head], rotate(rot[head], [-EYE[0] * scale, EYE[1] * scale, EYE[2] * scale]), 1);
+            const sh = pos[index.get('RightArm')], R = ctx.reach.Right * (two ? 0.93 : 0.995);
+            // The point on the line ahead of the eye at the arm's reach from the shoulder; the sights a little under the eye.
+            const o = sub(eye, sh), bq = dot(front, o), c = dot(o, o) - R * R, t = -bq + Math.sqrt(Math.max(0, bq * bq - c));
+            const grip = along3(along3(eye, front, t), UP, -0.07 * scale);
+            const down = unit(along3(front, UP, -0.36)), thumb = unit(along3(UP, front, 0.36));
+            const turnR = handTurn(F.Right, down, thumb);
+            const out = [{ S: 'Right', wrist: sub(grip, rotate(turnR, ctx.grip.Right)), turn: turnR, pole: unit([-0.5, -1, 0]) }];
+            if (two) {
+                // The left hand round the right fist: its palm on the right's fingers, its fingers down the far side.
+                const side = unit(cross(UP, front)), palmR = rotate(turnR, F.Right.palm);
+                const turnL = handTurn(F.Left, unit(along3(along3(side.map(v => -v), UP, -1.1), front, 0.25)), unit(along3(front, UP, 0.5)));
+                const gripL = along3(along3(grip, palmR, 0.035 * scale), UP, -0.012 * scale);
+                out.push({ S: 'Left', wrist: sub(gripL, rotate(turnL, ctx.grip.Left)), turn: turnL, pole: unit([0.5, -1, 0]) });
+            }
+            return out;
+        },
+        pistolTwo(ctx, f) { return AIMS.pistol(ctx, f, true); },
+        rifle(ctx, f) {
+            const { index, place, scale, F, pose } = ctx, { rot, pos } = place(f);
+            // The muzzle points ahead (a right-handed shooter's body stands turned to the right of it).
+            const front = yawBy([0, 0, 1], pose.aimYaw || 0);
+            const side = unit(cross(UP, front)), sh = pos[index.get('RightArm')];
+            // The bore's line where it meets the butt plate, the plate in the hollow in front of the shoulder joint.
+            const butt = along3(along3(along3(sh, side, 0.045 * scale), front, 0.075 * scale), UP, 0.1 * scale);
+            const bore = unit(along3(front, UP, pose.aimPitch || 0));
+            const gripR = along3(along3(butt, bore, 0.22 * scale), UP, -0.08 * scale), gripL = along3(along3(butt, bore, 0.5 * scale), UP, -0.04 * scale);
+            const turnR = handTurn(F.Right, unit(along3(bore, UP, -0.75)), unit(along3(UP, bore, 0.75)));
+            const turnL = handTurn(F.Left, unit(along3(side.map(v => -v), bore, 0.55)), bore);
+            ctx.cheek = { butt, bore };
+            return [
+                { S: 'Right', wrist: sub(gripR, rotate(turnR, ctx.grip.Right)), turn: turnR, pole: unit(along3(side.map(v => -v), UP, pose.elbowDown ? -1.5 : -0.6)) },
+                { S: 'Left', wrist: sub(gripL, rotate(turnL, ctx.grip.Left)), turn: turnL, pole: unit(along3(UP.map(v => -v), side, 0.35)) }
+            ];
+        },
+        hilt(ctx, f) {
+            const { index, place, scale, F, world, names } = ctx, { pos } = place(f);
+            const turnR = world[names.indexOf('RightHand')][f], wristR = pos[index.get('RightHand')];
+            const gripR = along3(wristR, rotate(turnR, ctx.grip.Right), 1), axis = rotate(turnR, F.Right.thumbward), palmR = rotate(turnR, F.Right.palm);
+            // The same handle a hand's width toward the pommel, wrapped from the other side.
+            const gripL = along3(gripR, axis, -0.085 * scale), turnL = mul(frameQuat(axis, palmR.map(v => -v)), conj(frameQuat(F.Left.thumbward, F.Left.palm)));
+            // The elbow bends out and down from the body, as it does on a two-handed grip.
+            return [{ S: 'Left', wrist: sub(gripL, rotate(turnL, ctx.grip.Left)), turn: turnL, pole: unit([0.7, -1, -0.3]) }];
+        }
+    };
+
+    const ease = k => k * k * (3 - 2 * k);
+    /** The world turn that sets a foot's rest frame (ankle to the ball, its top up) along d, its top toward up. */
+    const footTurn = (ctx, S, d, up) => mul(frameQuat(d, up), conj(frameQuat(ctx.foot[S].along, [0, 1, 0])));
+    /** A foot's ankle for its ball at `ball`, the foot turned by `turn`. */
+    const ankleFor = (ctx, S, ball, turn) => sub(ball, rotate(turn, ctx.foot[S].ball));
+    /**
+     * Climbing in place: the body still, the holds passing down past it as
+     * it climbs two rungs a cycle. A hand grips its rung for 64% of the
+     * cycle, moving down with it, then lets go and reaches up to the next;
+     * a foot stands half the cycle and steps up the other half, with the
+     * hand on the other side. `wall` spreads the hands and feet to holds
+     * and brings the body close in.
+     */
+    function climb(ctx, f, wall) {
+        const { index, place, scale, times, period } = ctx, { pos } = place(f), u = (times[f] / period) % 1;
+        const hips = pos[index.get('Hips')], shoulder = pos[index.get('RightArm')][1], step = 0.28 * scale;
+        const near = hips[2] + (wall ? 0.36 : 0.4) * scale, out = [];
+        for (const [S, m, phase] of [['Right', -1, 0], ['Left', 1, 0.5]]) {
+            const p = (u + phase) % 1, top = shoulder + (wall ? 0.4 : 0.45) * scale + (wall ? m * 0.03 * scale : 0), low = top - 1.28 * step;
+            let y, back = 0;
+            if (p < 0.64) y = top - 1.28 * step * (p / 0.64);
+            else { const k = (p - 0.64) / 0.36; y = low + (top - low) * ease(k); back = 0.07 * scale * Math.sin(Math.PI * k); }
+            const grip = [m * (wall ? 0.33 : 0.19) * scale, y, near - 0.02 * scale - back];
+            const turn = handTurn(ctx.F[S], unit([0, 0.75, 0.66]), [-m, 0, 0]);
+            out.push({ S, limb: 'arm', wrist: sub(grip, rotate(turn, ctx.grip[S])), turn, pole: unit([m * 0.6, -1, -0.3]) });
+        }
+        for (const [S, m, phase] of [['Left', 1, 0], ['Right', -1, 0.5]]) {
+            const p = (u + phase) % 1, top = hips[1] - (wall ? 0.5 : 0.55) * scale, low = top - step;
+            let y, back = 0;
+            if (p < 0.5) y = top - step * (p / 0.5);
+            else { const k = (p - 0.5) / 0.5; y = low + step * ease(k) + 0.05 * scale * Math.sin(Math.PI * k); back = 0.1 * scale * Math.sin(Math.PI * k); }
+            const ball = [m * (wall ? 0.2 : 0.11) * scale, y, near - 0.03 * scale - back];
+            const turn = footTurn(ctx, S, unit([m * (wall ? 0.4 : 0.05), -0.15, 1]), [0, 1, 0]);
+            out.push({ S, limb: 'leg', wrist: ankleFor(ctx, S, ball, turn), turn, pole: unit([m * (wall ? 0.7 : 0.25), 0, 1]) });
+        }
+        return out;
+    }
+    /**
+     * Treading water: the hands scull flat before the chest, out and in,
+     * the palm tipping to the way it moves; the legs beat in turn, each
+     * foot circling under its knee.
+     */
+    function tread(ctx, f) {
+        const { index, place, scale, times, period } = ctx, { pos } = place(f), u = (times[f] / period) % 1;
+        const chest = pos[index.get('Spine2')], hips = pos[index.get('Hips')], shoulder = pos[index.get('RightArm')][1], out = [];
+        for (const [S, m] of [['Left', 1], ['Right', -1]]) {
+            const a = 2 * Math.PI * 2 * u, sweep = Math.sin(a), x = m * (0.24 + 0.11 * sweep) * scale;
+            const grip = [x, shoulder - 0.2 * scale, chest[2] + (0.32 + 0.03 * Math.cos(a)) * scale];
+            // Palm down, fingers ahead; tipped about the length toward the way the hand sweeps.
+            const tip = 0.35 * Math.cos(a) * m, thumb = unit([-m * Math.cos(tip), -Math.sin(Math.abs(tip)) * Math.sign(tip) * m, 0]);
+            const turn = handTurn(ctx.F[S], [0, 0, 1], thumb);
+            out.push({ S, limb: 'arm', wrist: sub(grip, rotate(turn, ctx.grip[S])), turn, pole: unit([m, -0.6, -0.4]) });
+        }
+        for (const [S, m, phase] of [['Left', 1, 0], ['Right', -1, 0.5]]) {
+            const a = 2 * Math.PI * (2 * u + phase);
+            const ball = [m * (0.27 + 0.08 * Math.cos(a)) * scale, hips[1] - 0.66 * scale + 0.05 * scale * Math.sin(a), hips[2] - 0.02 * scale + 0.1 * scale * Math.sin(a)];
+            const turn = footTurn(ctx, S, unit([m * 0.5, -0.5, 0.7]), [0, 1, 0]);
+            out.push({ S, limb: 'leg', wrist: ankleFor(ctx, S, ball, turn), turn, pole: unit([m * 0.8, 0.2, 1]) });
+        }
+        return out;
+    }
+    /**
+     * Casting a spell: the hands draw in before the chest, palms to each
+     * other, as the body leans back to gather; then thrust out together,
+     * palms ahead at shoulder height, as it leans in; hold; and come back
+     * to the sides. Keys are shares of the clip; the arms ease in and out
+     * of the body's own swing.
+     */
+    function cast(ctx, f) {
+        const { index, place, scale, times, period } = ctx, { pos } = place(f), u = times[f] / period;
+        const chest = pos[index.get('Spine2')], sh = pos[index.get('RightArm')], out = [];
+        const gather = m => ({ at: [m * 0.06 * scale, sh[1] - 0.12 * scale, chest[2] + 0.2 * scale], d: unit([-m * 0.3, 0.8, 0.5]), p: [-m, 0, 0] });
+        const draw = m => ({ at: [m * 0.05 * scale, sh[1] - 0.16 * scale, chest[2] + 0.13 * scale], d: unit([-m * 0.3, 0.85, 0.4]), p: [-m, 0, 0] });
+        const thrust = m => ({ at: [m * 0.12 * scale, sh[1] + 0.05 * scale, sh[2] + ctx.reach.Right * 0.86], d: unit([-m * 0.1, 0.62, 0.78]), p: [0, -0.3, 1] });
+        const keys = [[0.18, gather], [0.4, draw], [0.5, thrust], [0.72, thrust]];
+        for (const [S, m] of [['Left', 1], ['Right', -1]]) {
+            let i = 0;
+            while (i < keys.length - 1 && u > keys[i + 1][0]) i++;
+            const [ua, fa] = keys[i], [ub, fb] = keys[Math.min(keys.length - 1, i + 1)], k = ub > ua ? ease(Math.max(0, Math.min(1, (u - ua) / (ub - ua)))) : 0;
+            const A = fa(m), B = fb(m);
+            const at = A.at.map((v, j) => v + (B.at[j] - v) * k), d = unit(A.d.map((v, j) => v + (B.d[j] - v) * k)), p = unit(A.p.map((v, j) => v + (B.p[j] - v) * k));
+            // Where the wrist goes for the palm's middle to be there, the hand pointing d with its palm toward p.
+            const turn = handTurn(ctx.F[S], d, square(cross(p, d).map(v => v * m), d));
+            out.push({ S, limb: 'arm', wrist: sub(at, rotate(turn, ctx.grip[S])), turn: { along: d, palm: p }, pole: unit([m * 0.8, -1, -0.2]) });
+        }
+        return out;
+    }
+    AIMS.cast = cast;
+    AIMS.ladder = (ctx, f) => climb(ctx, f, false);
+    AIMS.wall = (ctx, f) => climb(ctx, f, true);
+    AIMS.tread = tread;
+
+    /** The head bowed and rolled onto the stock, the right eye over the sights (at most 40 degrees). */
+    function cheekDown(ctx, f) {
+        const { index, names, world, place, scale } = ctx, c = ctx.cheek;
+        if (!c) return;
+        const { rot, pos } = place(f), head = index.get('Head'), neck = pos[index.get('Neck')];
+        const eye = along3(pos[head], rotate(rot[head], [-EYE[0] * scale, EYE[1] * scale, EYE[2] * scale]), 1);
+        const on = along3(c.butt, c.bore, dot(sub(eye, c.butt), c.bore)), want = along3(on, UP, 0.065 * scale);
+        let q = fromTo(unit(sub(eye, neck)), unit(sub(want, neck)));
+        const angle = 2 * Math.acos(Math.min(1, Math.abs(q[3])));
+        if (angle > 40 * DEG) q = partOf(q, 40 * DEG / angle);
+        const half = partOf(q, 0.5), n = names.indexOf('Neck'), h = names.indexOf('Head');
+        if (n >= 0) world[n][f] = mul(half, world[n][f]);
+        if (h >= 0) world[h][f] = mul(q, world[h][f]);
+    }
+
+    /** The arms set by the pose's aim or grip, every frame, eased in and out by its `aimMix` keys [[seconds, weight], ...]. */
+    function aimArms(bones, index, names, world, steps, place, turnAt, scale, frames, pose, times) {
+        const kinds = [].concat(pose.aim || []);
+        if (!kinds.length || !frames.Left || !frames.Right) return;
+        const reach = {}, grip = {}, restAlong = {}, foot = {};
+        for (const S of ['Left', 'Right']) {
+            const p = n => bones[index.get(S + n)].head;
+            reach[S] = Math.hypot(...sub(p('ForeArm'), p('Arm'))) + Math.hypot(...sub(p('Hand'), p('ForeArm'))) + frames[S].length * 0.62;
+            grip[S] = gripOf(frames[S], 0.03);
+            restAlong[S + 'ForeArm'] = unit(sub(p('Hand'), p('ForeArm')));
+            if (index.has(S + 'ToeBase')) foot[S] = { along: unit(sub(p('ToeBase'), p('Foot'))), ball: sub(p('ToeBase'), p('Foot')) };
+        }
+        const period = times[times.length - 1] || 1;
+        const ctx = { bones, index, names, world, place, turnAt, scale, F: frames, pose, reach, grip, restAlong, foot, times, period, rest: restFrames(bones, index), roll: {} };
+        for (let f = 0; f < steps; f++) {
+            const w = pose.aimMix ? Math.max(0, Math.min(1, keyed(pose.aimMix, times[f]))) : 1;
+            if (w <= 0) continue;
+            for (const kind of kinds) {
+                for (const r of AIMS[kind](ctx, f)) reachLimb(ctx, f, r.S, r.limb || 'arm', r.wrist, r.turn, r.pole, w);
+                if (kind === 'rifle' && w > 0) cheekDown(ctx, f);
+            }
+        }
+    }
+    /** A value along keys [[seconds, value], ...], eased between keys. */
+    function keyed(keys, t) {
+        if (t <= keys[0][0]) return keys[0][1];
+        for (let i = 1; i < keys.length; i++) if (t <= keys[i][0]) { const u = (t - keys[i - 1][0]) / ((keys[i][0] - keys[i - 1][0]) || 1); return keys[i - 1][1] + (keys[i][1] - keys[i - 1][1]) * u * u * (3 - 2 * u); }
+        return keys[keys.length - 1][1];
+    }
+
+    function captured(bones, id, cap, body, pose) {
         const index = new Map(bones.map((b, i) => [b.name, i]));
         const rest = restFrames(bones, index);
         const names = DATA.bones.filter(n => rest[n] && cap.bones[n]);
         const steps = cap.frames, times = new Float32Array(steps);
-        for (let i = 0; i < steps; i++) times[i] = i / DATA.fps;
+        for (let i = 0; i < steps; i++) times[i] = i / cap.fps;
         // A bone's world turn per frame: its captured frame over its rest frame; unmapped bones keep their parent's.
         const world = names.map(n => {
             const v = cap.bones[n], r = conj(rest[n]), out = new Array(steps);
@@ -341,7 +890,10 @@
         let top = 0;
         for (const b of bones) top = Math.max(top, b.head[1]);
         const scale = top / 1.7 || 1;
-        clearBody(bones, index, names, world, steps, place, scale, measure(bones, index, body, scale));
+        const frames = handFrames(bones, index);
+        holdWrists(bones, index, names, world, steps, frames, pose, turnAt);
+        clearBody(bones, index, names, world, steps, place, scale, measure(bones, index, body, scale), !cap.once);
+        if (pose && pose.aim) aimArms(bones, index, names, world, steps, place, turnAt, scale, frames, pose, times);
         // Where the body meets the floor: the skeleton followed joint by joint from the hips.
         const leg = side => { const a = index.get(side + 'UpLeg'), k = index.get(side + 'Leg'), f = index.get(side + 'Foot'); return a === undefined || k === undefined || f === undefined ? 0.85 * scale : Math.hypot(...sub(bones[k].head, bones[a].head)) + Math.hypot(...sub(bones[f].head, bones[k].head)); };
         const legLength = (leg('Left') + leg('Right')) / 2;
@@ -362,12 +914,12 @@
                     // A sole point: wherever it is at rest is on the floor.
                     for (const o of c) need = Math.max(need, b.head[1] + o[1] - (pos[i][1] + rotate(rot[i], o)[1]));
                 });
-                heights[f] = (Number.isFinite(need) ? need : 0) + (cap.air ? cap.rise[f] * legLength : 0);
+                heights[f] = cap.hang ? cap.rise[f] * legLength : (Number.isFinite(need) ? need : 0) + (cap.air ? cap.rise[f] * legLength : 0);
             }
             return heights;
         };
         // Resting on the body (kneeling, sitting, lying), a foot just off the floor turns at the ankle to rest on it.
-        if (cap.skin) settleFeet(bones, index, names, world, steps, place, stand(), scale);
+        if (cap.skin) settleFeet(bones, index, names, world, steps, place, stand(), scale, !cap.once);
         const heights = stand();
         const tracks = names.map((n, k) => {
             const i = index.get(n), values = new Float32Array(steps * 4);
@@ -385,13 +937,14 @@
             return { bone: i, values };
         });
 
-        if (cap.fist) for (const t of fists(bones, index, steps)) tracks.push(t);
+        for (const t of handTracks(frames, pose && pose.hands, times)) tracks.push(t);
 
         const period = times[steps - 1] || 1;
         return {
-            name: id, times, tracks, heights, skin: !!cap.skin,
+            name: id, times, tracks, heights, skin: !!cap.skin, once: !!cap.once,
             lift: t => {
-                const x = ((t % period) + period) % period * DATA.fps, i = Math.min(steps - 1, Math.floor(x)), k = x - i;
+                // A motion played once holds its last frame; a loop goes round.
+                const x = (cap.once ? Math.max(0, Math.min(t, period)) : ((t % period) + period) % period) * cap.fps, i = Math.min(steps - 1, Math.floor(x)), k = x - i;
                 return heights[i] + (heights[Math.min(steps - 1, i + 1)] - heights[i]) * k;
             }
         };
@@ -403,10 +956,128 @@
         const index = new Set(bones.map(b => b.name));
         if (!index.has('LeftArm') || !index.has('LeftForeArm') || !index.has('LeftUpLeg')) return null;
         const cap = take(id);
-        return cap ? captured(bones, id, cap, body) : null;
+        return cap ? captured(bones, id, cap, body, POSES.find(p => p.id === id)) : null;
     }
 
-    const api = { POSES, clip };
+    // ── clips for the saved model ───────────────────────────────────────
+    /**
+     * The motions a saved character carries, by the clip names the game
+     * plays on its own (Walk, Run, Jump, Swim, Tread Water, Climb) and by
+     * plain names for the rest. `useful` marks the set saved by default.
+     */
+    const GAME_CLIPS = [
+        ['walk', 'Walk', true], ['run', 'Run', true], ['jump', 'Jump', true], ['crouchWalk', 'Crouch Walk', true], ['climbLadder', 'Climb', true],
+        ['swim', 'Swim', true], ['tread', 'Tread Water', true], ['fight', 'Fight Stance', true], ['sword', 'Sword Swing', true], ['defend', 'Guard', true],
+        ['hit', 'Hit', true], ['death', 'Death', true], ['cast', 'Cast Spell', true], ['throw', 'Throw', true], ['dodge', 'Dodge', true],
+        ['pistol', 'Pistol Aim', true], ['rifle', 'Rifle Aim', true],
+        ['pistolTwo', 'Pistol Aim Two Hands', false], ['kneelAim', 'Kneel Aim', false], ['proneAim', 'Prone Aim', false], ['roll', 'Roll', false],
+        ['frontFlip', 'Front Flip', false], ['backFlip', 'Back Flip', false], ['climbWall', 'Climb Wall', false], ['crouch', 'Crouch', false],
+        ['kneel', 'Kneel', false], ['sit', 'Sit', false], ['prone', 'Prone', false], ['lieBack', 'Lie Back', false], ['lieSide', 'Lie Side', false],
+        ['fall', 'Fall', false], ['wave', 'Wave', false], ['armsUp', 'Arms Up', false]
+    ].map(([id, name, useful]) => ({ id, name, useful }));
+
+    /** The lowest point of the body's skin at each frame of a clip (a sample of its vertices skinned). */
+    function skinLows(bones, clip, body) {
+        const P = body.positions, J = body.joints, W = body.weights, n = P.length / 3, every = Math.max(1, Math.floor(n / 1500));
+        const local = bones.map(() => [0, 0, 0, 1]), lows = new Float32Array(clip.times.length);
+        for (let f = 0; f < clip.times.length; f++) {
+            for (const t of clip.tracks) if (!t.path) local[t.bone] = [t.values[f * 4], t.values[f * 4 + 1], t.values[f * 4 + 2], t.values[f * 4 + 3]];
+            const rot = [], pos = [];
+            bones.forEach((b, i) => {
+                if (b.parent < 0) { rot[i] = local[i]; pos[i] = [b.head[0], b.head[1] + clip.heights[f], b.head[2]]; return; }
+                rot[i] = mul(rot[b.parent], local[i]);
+                pos[i] = along3(pos[b.parent], rotate(rot[b.parent], sub(b.head, bones[b.parent].head)), 1);
+            });
+            let low = Infinity;
+            for (let v = 0; v < n; v += every) {
+                let y = 0;
+                for (let k = 0; k < 4; k++) {
+                    const w = W[v * 4 + k];
+                    if (!w) continue;
+                    const j = J[v * 4 + k];
+                    y += w * (pos[j][1] + rotate(rot[j], [P[v * 3] - bones[j].head[0], P[v * 3 + 1] - bones[j].head[1], P[v * 3 + 2] - bones[j].head[2]])[1]);
+                }
+                low = Math.min(low, y);
+            }
+            lows[f] = low;
+        }
+        return lows;
+    }
+
+    /**
+     * The keys a track can do without: each track keeps only the frames
+     * its neighbors' interpolation misses by more than `turnTol` radians
+     * (or `moveTol` meters for the hips' place), on times of its own; a
+     * track that never moves keeps two keys.
+     */
+    function reduceKeys(times, tracks, turnTol, moveTol) {
+        // Tracks keyed on the same frames share one times array (the file then holds it once).
+        const n = times.length, shared = new Map();
+        return tracks.map(t => {
+            const d = t.path ? 3 : 4, at = i => t.values.subarray(i * d, i * d + d);
+            // How far key i is from the line between keys a and b (the turn between them blended evenly and
+            // normalized, close to a slerp over the short spans kept).
+            const cosTol = Math.cos(turnTol / 2);
+            const fits = (a, b) => {
+                const va = at(a), vb = at(b);
+                for (let i = a + 1; i < b; i++) {
+                    const u = (times[i] - times[a]) / (times[b] - times[a]), vi = at(i);
+                    if (d === 3) { for (let k = 0; k < 3; k++) if (Math.abs(va[k] + (vb[k] - va[k]) * u - vi[k]) > moveTol) return false; continue; }
+                    const x = va[0] + (vb[0] - va[0]) * u, y = va[1] + (vb[1] - va[1]) * u, z = va[2] + (vb[2] - va[2]) * u, w = va[3] + (vb[3] - va[3]) * u;
+                    if (Math.abs(x * vi[0] + y * vi[1] + z * vi[2] + w * vi[3]) / (Math.hypot(x, y, z, w) || 1) < cosTol) return false;
+                }
+                return true;
+            };
+            const keep = [0];
+            if (fits(0, n - 1)) keep.push(n - 1);
+            else {
+                let a = 0;
+                for (let b = 2; b < n; b++) if (!fits(a, b)) { keep.push(b - 1); a = b - 1; }
+                keep.push(n - 1);
+            }
+            const values = new Float32Array(keep.length * d);
+            keep.forEach((i, j) => values.set(at(i), j * d));
+            const sig = keep.join(',');
+            if (!shared.has(sig)) shared.set(sig, Float32Array.from(keep, i => times[i]));
+            return Object.assign({}, t, { times: shared.get(sig), values });
+        });
+    }
+
+    /**
+     * The clips a saved character carries ([{ name, times, tracks }], a
+     * track's own `times` when it holds still), the hips' height in a
+     * translation track so a jump leaves the floor and a body lying down
+     * lies on it. `set`: 'useful' (the default), 'all' or 'none'.
+     */
+    function gameClips(bones, body, set) {
+        const which = set || 'useful';
+        if (which === 'none') return [];
+        const hips = bones.findIndex(b => b.parent < 0);
+        const out = [];
+        for (const g of GAME_CLIPS) {
+            if (which === 'useful' && !g.useful) continue;
+            const c = clip(bones, g.id, body);
+            if (!c) continue;
+            const heights = Float32Array.from(c.heights);
+            // A body resting on itself: its lowest skin on the floor, frame by frame.
+            if (c.skin && body && body.positions) {
+                const lows = skinLows(bones, c, body);
+                for (let f = 0; f < heights.length; f++) heights[f] -= lows[f];
+            }
+            const move = new Float32Array(heights.length * 3), h = bones[hips].head;
+            for (let f = 0; f < heights.length; f++) move.set([h[0], h[1] + heights[f], h[2]], f * 3);
+            const tracks = c.tracks.concat([{ bone: hips, path: 'translation', values: move }]);
+            out.push({ name: g.name, times: c.times, tracks: reduceKeys(c.times, tracks, 0.4 * DEG, 0.002), loop: !c.once });
+        }
+        return out;
+    }
+
+    const frameOf = bones => handFrames(bones, new Map(bones.map((b, i) => [b.name, i])));
+    const api = {
+        POSES, GROUPS, clip, gameClips, GAME_CLIPS, HAND_SHAPES, FINGER_RANGE, handFrames: frameOf,
+        /** One still frame of both hands in a shape: the finger tracks. */
+        handShape: (bones, shape) => handTracks(frameOf(bones), both(shape), [0])
+    };
     root.RRCharacterPoses = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -212,6 +212,37 @@ test('a fine coat pattern is painted into a picture over the body; a plain coat 
     assert.ok(!horse.parts.find(p => p.name === 'Body').texture && !horse.textures['creaturecoat.png']);
 });
 
+test('a furred coat grows fine strand cards that follow the hair budget; a furred coat is painted into the coat picture', () => {
+    const bear = Creature.kindRecipe('bear');
+    const coat = b => b.parts.find(p => p.name === 'Coat fur');
+    const full = Creature.build(bear, { quality: 'preview' }), weak = Creature.build(bear, { quality: 'preview', hairBudget: 0.45 }), none = Creature.build(bear, { quality: 'preview', hairBudget: 0 });
+    assert.ok(coat(full) && coat(full).texture === 'creaturefur.png' && coat(full).onSkin);
+    assert.ok(coat(weak).index.length < coat(full).index.length * 0.6);
+    assert.ok(!coat(none));
+    const f = coat(full);
+    for (let v = 0; v < f.positions.length / 3; v++) assert.ok(Math.abs(f.weights[v * 4] + f.weights[v * 4 + 1] + f.weights[v * 4 + 2] + f.weights[v * 4 + 3] - 1) < 1e-4);
+    assert.equal(full.parts.find(p => p.name === 'Body').texture, 'creaturecoat.png');
+    // A short-coated horse grows none.
+    assert.ok(!coat(Creature.build(Creature.kindRecipe('horse'), { quality: 'preview' })));
+});
+
+test('bird heads: a hooked or straight beak, eyes on the sides, a crest by choice; not listed among the creatures', () => {
+    assert.ok(!Creature.KINDS.some(k => k.kind === 'bird' || k.kind === 'crow'));
+    assert.deepEqual(Creature.HEAD_KINDS.map(k => k.kind), ['bird', 'crow']);
+    assert.equal(Creature.kindRecipe('bird').beak, 'hooked');
+    assert.equal(Creature.kindRecipe('crow').beak, 'straight');
+    assert.equal(Creature.normalizeRecipe({ beak: 'spoon' }).beak, 'hooked');
+    const horns = r => Creature.build(r, { quality: 'preview', hairBudget: 0 }).parts.find(p => p.name === 'Horns').index.length;
+    const bird = Creature.kindRecipe('bird');
+    assert.ok(horns(bird) > 0, 'the beak');
+    const plain = Creature.build(bird, { quality: 'preview', hairBudget: 0 }), crested = Creature.build(Object.assign({}, bird, { mane: 'ruff', maneSize: 1 }), { quality: 'preview', hairBudget: 0 });
+    const bodyTris = b => b.parts.find(p => p.name === 'Body').index.length;
+    assert.ok(bodyTris(crested) > bodyTris(plain), 'the crest');
+    const eyes = plain.parts.find(p => p.name === 'Eyes'), head = plain.bones.find(b => b.name === 'Head');
+    let x = 0; for (let i = 0; i < eyes.positions.length; i += 3) x = Math.max(x, Math.abs(eyes.positions[i] - head.head[0]));
+    assert.ok(x > 0.02, 'eyes on the sides ' + x);
+});
+
 test('a female wears no lion\'s mane and no antlers; the recipe keeps what was chosen', () => {
     const lion = Creature.kindRecipe('lion');
     const fur = b => (b.parts.find(p => p.name === 'Fur') || { index: [] }).index.length;

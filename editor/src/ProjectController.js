@@ -533,7 +533,9 @@ class ProjectController {
             if (typeof nw === 'undefined') return false;
             this.allowApplicationClose = true;
             this.releaseProjectLock();
-            nw.Window.get().close(true);
+            // Closing only the main window strands pop-outs whose handlers live in it.
+            // The unsaved-changes decision is complete: quit this editor instance and all its windows.
+            nw.App.quit();
             return true;
         })();
         this.applicationCloseRequest.then(result => {
@@ -548,6 +550,7 @@ class ProjectController {
             const reactor = typeof window !== 'undefined' ? window.reactor : null;
             const forge = reactor?.forgeManager || null;
             if (forge && typeof forge.onProjectChanged === 'function') forge.onProjectChanged();
+            reactor?.pluginManager?.onProjectChanged?.();
             const resources = reactor?.resourceManager || null;
             if (resources && typeof resources.onProjectChanged === 'function') resources.onProjectChanged();
             this.mediaSurfacePreviewManager?.onProjectChanged?.();

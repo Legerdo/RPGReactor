@@ -171,6 +171,11 @@ function restSides(asf) {
     return out;
 }
 
+/** Most a wrist twists from the elbow either way (radians). */
+const TWIST = 100 * DEG;
+/** v turned about the unit axis a by angle t. */
+const turnAbout = (v, a, t) => { const c = Math.cos(t), s = Math.sin(t), k = dot(a, v) * (1 - c), x = cross(a, v); return [v[0] * c + x[0] * s + a[0] * k, v[1] * c + x[1] * s + a[1] * k, v[2] * c + x[2] * s + a[2] * k]; };
+
 /** One frame of the take as the mapped bones' world frames, plus where the joints are. */
 function frames(asf, values, sides) {
     const { rot, pos } = pose(asf, values), out = {};
@@ -178,8 +183,14 @@ function frames(asf, values, sides) {
         let d = m.rest ? mv(rot[m.twist], m.rest) : sub(pos[m.to], pos[m.from]);
         let s = mv(rot[m.twist], sides[name]);
         // A bone made of two takes half of each (the neck); the forearm turns half way to the wrist's
-        // twist, so the twist spreads along it.
-        if (m.also) { s = add(s, mv(rot[m.also], sides[name])); if (m.rest) d = add(d, mv(rot[m.also], m.rest)); }
+        // twist, so the twist spreads along it. The half is taken as an angle about the bone, kept
+        // within a forearm's reach (no wrist twists further than this from the elbow).
+        if (m.also) {
+            if (m.rest) d = add(d, mv(rot[m.also], m.rest));
+            const a = norm(d), s1 = orth(s, a), s2 = orth(mv(rot[m.also], sides[name]), a);
+            const twist = Math.max(-TWIST, Math.min(TWIST, Math.atan2(dot(cross(s1, s2), a), dot(s1, s2))));
+            s = turnAbout(s1, a, twist / 2);
+        }
         out[name] = { d: norm(d), s: orth(s, norm(d)) };
     }
     return { bones: out, pos };
@@ -195,24 +206,151 @@ function frames(asf, values, sides) {
  * seconds; otherwise the whole stretch plays, at `speed` times the captured
  * pace when given (a wave slowed to a friendly one). `air` keeps the take's
  * own height off the floor (a jump, a run's flight), `hover` holds the body
- * that many leg lengths up (a fall), and `skin` rests the body itself on the
- * floor. `borrow` takes some bones from another take instead; `fist` closes
- * the hands.
+ * that many leg lengths up (a fall), `hang` holds the hips that many leg
+ * lengths up whatever the feet do (a ladder, the water; `bob` [amount,
+ * cycles] moves them), and `skin` rests the body itself on the floor.
+ * `borrow` takes some bones from another take instead. `once` plays the
+ * stretch once, its ends kept as they are (a fall, a flip); `reverse` plays
+ * it backward; `fps` samples it finer than 30 frames a second (fast
+ * motion), `smooth` eases its jitter by that many passes; `rate` is the
+ * take's own capture rate when not 120; `pitch`
+ * tilts the whole body forward that many degrees; `face.first` takes the
+ * heading from the first frames only (a body that turns over). `layer`
+ * lays authored bone frames and turns over the take (see `overlay`).
  */
 let TAKES = {
     walk: { trial: '35_01', from: 0.1, to: 2.9, cycle: [0.9, 1.4] },
     run: { trial: '09_01', from: 0.05, to: 1.2, cycle: [0.55, 0.85], air: true },
     crouch: { trial: '136_09', from: 1.5, to: 2.3, swing: true, period: 2.4 },
     jump: { trial: '13_39', from: 0, to: 2.9, air: true },
-    fall: { trial: '82_04', from: 1.9, to: 2.35, swing: true, period: 1.4, hover: 0.35 },
-    fight: { trial: '14_01', from: 8.8, to: 11.3, cycle: [1.0, 1.4], fist: true },
+    fall: { trial: '82_04', from: 1.9, to: 2.22, swing: true, period: 1.4, hover: 0.35 },
+    fight: { trial: '14_01', from: 8.8, to: 11.3, cycle: [1.0, 1.4], },
     wave: { trial: '143_25', from: 2.2, to: 3.12, speed: 0.6, cycle: [0.75, 1.4], mirror: true },
     armsUp: { trial: '13_10', from: 8.1, to: 9.0, swing: true, period: 2.6 },
     kneel: { trial: '23_03', from: 2.0, to: 3.8, swing: true, period: 3.6, skin: true, borrow: { trial: '111_28', from: 1.0, to: 2.8, bones: ['RightArm', 'RightForeArm', 'RightHand'] } },
     sit: { trial: '82_05', from: 2.0, to: 6.5, cycle: [2.0, 4.4], skin: true },
     lieBack: { trial: '113_08', from: 5.5, to: 9.0, cycle: [2.0, 3.4], skin: true, face: { bone: 'Hips', to: [0, 0, -1] } },
-    lieSide: { trial: '140_04', from: 0, to: 1.3, swing: true, period: 3.2, skin: true, mirror: true, face: { bone: 'Hips', to: [-1, 0, 0] } }
+    lieSide: { trial: '140_04', from: 0, to: 1.3, swing: true, period: 3.2, skin: true, mirror: true, face: { bone: 'Hips', to: [-1, 0, 0] } },
+    // Aims: a standing body (its arms set on each body by RRCharacterPoses).
+    pistol: { trial: '79_96', rate: 60, from: 4.2, to: 5.8, swing: true, period: 3.2, face: { bone: 'Spine2', side: true, to: [0.26, 0, 0.97] }, borrow: { trial: '79_96', rate: 60, from: 0.4, to: 1.8, bones: ['LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand'], face: { bone: 'Spine2', side: true, to: [0.26, 0, 0.97] } } },
+    pistolTwo: { trial: '79_96', rate: 60, from: 4.2, to: 5.8, swing: true, period: 3.2, face: { bone: 'Spine2', side: true, to: [0, 0, 1] } },
+    rifle: { trial: '79_96', rate: 60, from: 4.2, to: 5.8, swing: true, period: 3.2, face: { bone: 'Spine2', side: true, to: [-0.45, 0, 0.89] } },
+    kneelAim: { trial: '23_03', from: 2.0, to: 3.8, swing: true, period: 3.6, skin: true, face: { bone: 'Spine2', side: true, to: [-0.45, 0, 0.89] } },
+    // Lying face down, the head toward +z.
+    prone: { trial: '77_16', rate: 60, from: 0.1, to: 1.0, swing: true, period: 3.6, skin: true, face: { bone: 'Hips', to: [0, 0, 1] } },
+    proneAim: { trial: '77_16', rate: 60, from: 0.1, to: 1.0, swing: true, period: 3.6, skin: true, face: { bone: 'Hips', to: [0, 0, 1] }, layer: { turn: { Spine1: [[0, [-12, 0, 0]]], Spine2: [[0, [-15, 0, 0]]], Neck: [[0, [-20, 0, 0]]], Head: [[0, [-10, 0, 0]]] } } },
+    crouchWalk: { trial: '136_09', from: 0.3, to: 8.5, cycle: [0.9, 1.7] },
+    // A full two-handed swing: up overhead, down through the strike to the follow-through, and up again.
+    sword: { trial: '02_07', from: 1.5, to: 6.0, cycle: [1.8, 2.4] },
+    // Guarding: the boxer's stance with both forearms raised before the face.
+    defend: { trial: '14_01', from: 8.8, to: 11.3, cycle: [1.0, 1.4], layer: { set: {
+        LeftArm: [[0, [0.3, -0.42, 0.86], [0, 1, 0]]], LeftForeArm: [[0, [-0.2, 0.93, 0.3], [-0.3, 0.42, -0.86]]],
+        RightArm: [[0, [-0.3, -0.42, 0.86], [0, 1, 0]]], RightForeArm: [[0, [0.2, 0.93, 0.3], [0.3, 0.42, -0.86]]]
+    } } },
+    // Struck: the chest and head snap back, the arms fly out a little, then the guard comes back.
+    hit: { trial: '14_01', from: 8.8, to: 11.3, cycle: [1.0, 1.4], layer: { turn: {
+        Spine: [[0, [0, 0, 0]], [0.07, [-10, 3, 3]], [0.25, [-5, 1, 1]], [0.55, [0, 0, 0]], [1, [0, 0, 0]]],
+        Spine1: [[0, [0, 0, 0]], [0.08, [-20, 6, 5]], [0.22, [-11, 3, 2]], [0.55, [0, 0, 0]], [1, [0, 0, 0]]],
+        Spine2: [[0, [0, 0, 0]], [0.09, [-15, 9, 0]], [0.25, [-6, 3, 0]], [0.6, [0, 0, 0]], [1, [0, 0, 0]]],
+        Neck: [[0, [0, 0, 0]], [0.1, [-32, 16, -9]], [0.3, [-10, 5, -2]], [0.65, [0, 0, 0]], [1, [0, 0, 0]]],
+        LeftArm: [[0, [0, 0, 0]], [0.12, [8, 0, 14]], [0.4, [0, 0, 2]], [0.7, [0, 0, 0]], [1, [0, 0, 0]]],
+        RightArm: [[0, [0, 0, 0]], [0.12, [8, 0, -14]], [0.4, [0, 0, -2]], [0.7, [0, 0, 0]], [1, [0, 0, 0]]]
+    } } },
+    // Falling dead: the legs go from under the body and it lands on its back, then lies still.
+    death: { trial: '90_18', from: 0.5, to: 2.4, once: true, skin: true, face: { bone: 'Hips', side: true, to: [0, 0, 1], first: 6 } },
+    // Casting a spell: standing, the body leaning back to gather and in to thrust (the hands set by RRCharacterPoses).
+    cast: { trial: '79_96', rate: 60, from: 0.4, to: 1.8, swing: true, period: 3.0, layer: { turn: {
+        Spine: [[0, [0, 0, 0]], [0.4, [-4, 0, 0]], [0.5, [6, 0, 0]], [0.72, [5, 0, 0]], [1, [0, 0, 0]]],
+        Spine1: [[0, [0, 0, 0]], [0.2, [-5, 0, 0]], [0.4, [-9, 0, 0]], [0.5, [10, 0, 0]], [0.72, [8, 0, 0]], [1, [0, 0, 0]]],
+        Neck: [[0, [0, 0, 0]], [0.4, [7, 0, 0]], [0.5, [-12, 0, 0]], [0.72, [-10, 0, 0]], [1, [0, 0, 0]]]
+    } } },
+    // An overhand throw: the wind-up, the front leg's lift, the release over the shoulder and the follow-through.
+    throw: { trial: '124_01', from: 1.6, to: 5.0, once: true, fps: 60, face: { bone: 'Hips', side: true, to: [0, 0, 1], first: 6 } },
+    // Ducking under a swing.
+    dodge: { trial: '76_03', from: 6.4, to: 8.2, once: true, face: { bone: 'Hips', side: true, to: [0, 0, 1], first: 6 } },
+    roll: { trial: '127_23', from: 0.0, to: 2.4, once: true, skin: true, face: { bone: 'Hips', side: true, to: [0, 0, 1], first: 4 } },
+    backFlip: { trial: '87_04', rate: 60, from: 1.3, to: 3.5, once: true, air: true, fps: 60, smooth: 2, face: { bone: 'Hips', side: true, to: [0, 0, 1], first: 8 } },
+    // A front tuck: a back flip played backward turns the other way through the same flight.
+    frontFlip: { trial: '88_01', from: 0.0, to: 2.6, rate: 60, fps: 60, smooth: 2, once: true, air: true, reverse: true, face: { bone: 'Hips', side: true, to: [0, 0, 1], first: 8 } },
+    // Climbing: a body standing still, its hands and feet set on the rungs or holds by RRCharacterPoses.
+    climbLadder: { trial: '79_96', rate: 60, from: 0.4, to: 1.8, swing: true, period: 2.4, hang: 0, layer: { turn: { Spine: [[0, [4, 0, 0]]], Neck: [[0, [-12, 0, 0]]] } } },
+    climbWall: { trial: '79_96', rate: 60, from: 0.4, to: 1.8, swing: true, period: 2.6, hang: 0, layer: { turn: { Spine: [[0, [8, 0, 0]]], Neck: [[0, [-18, 0, 0]]] } } },
+    // Breaststroke, the body laid along the water, face down.
+    swim: { trial: '125_01', from: 10.0, to: 20.0, cycle: [1.3, 1.8], hang: 0.3, face: { bone: 'Hips', to: [0, 0, 1] } },
+    // Treading water: upright and leaning a little ahead, head up (the hands and feet set by RRCharacterPoses).
+    tread: { trial: '79_96', rate: 60, from: 0.4, to: 1.8, swing: true, period: 2.4, hang: 0, bob: [0.02, 2], layer: { turn: { Spine: [[0, [10, 0, 0]]], Neck: [[0, [-12, 0, 0]]] } } }
 };
+
+// ── authored layers over a take ─────────────────────────────────────────
+/** Each mapped bone's children, down the builder's skeleton. */
+const CHILDREN = { Hips: ['Spine', 'LeftUpLeg', 'RightUpLeg'], Spine: ['Spine1'], Spine1: ['Spine2'], Spine2: ['Neck', 'LeftShoulder', 'RightShoulder'], Neck: ['Head'] };
+for (const S of ['Left', 'Right']) Object.assign(CHILDREN, {
+    [S + 'Shoulder']: [S + 'Arm'], [S + 'Arm']: [S + 'ForeArm'], [S + 'ForeArm']: [S + 'Hand'],
+    [S + 'UpLeg']: [S + 'Leg'], [S + 'Leg']: [S + 'Foot'], [S + 'Foot']: [S + 'ToeBase']
+});
+const below = n => [n].concat(...(CHILDREN[n] || []).map(below));
+/**
+ * A value along keys [[u, value], ...] (u from 0 to 1 over the take; a
+ * value a number or a list of them), on a smooth curve through every key
+ * (Catmull-Rom), level before the first key and after the last.
+ */
+function curve(keys, u) {
+    const val = k => keys[Math.max(0, Math.min(keys.length - 1, k))];
+    if (u <= keys[0][0]) return keys[0][1];
+    if (u >= keys[keys.length - 1][0]) return keys[keys.length - 1][1];
+    let i = 0;
+    while (keys[i + 1][0] < u) i++;
+    const [t1, p1] = val(i), [t2, p2] = val(i + 1), [t0, p0] = i > 0 ? val(i - 1) : [t1, p1], [t3, p3] = i + 2 < keys.length ? val(i + 2) : [t2, p2];
+    const h = t2 - t1, x = (u - t1) / (h || 1), x2 = x * x, x3 = x2 * x;
+    const one = (a0, a1, a2, a3) => {
+        // Tangents scaled to the span (keys need not be evenly spaced); level at the ends.
+        const m1 = i > 0 ? (a2 - a0) / (t2 - t0) * h : 0, m2 = i + 2 < keys.length ? (a3 - a1) / (t3 - t1) * h : 0;
+        return (2 * x3 - 3 * x2 + 1) * a1 + (x3 - 2 * x2 + x) * m1 + (-2 * x3 + 3 * x2) * a2 + (x3 - x2) * m2;
+    };
+    return Array.isArray(p1) ? p1.map((_, k) => one(p0[k], p1[k], p2[k], p3[k])) : one(p0, p1, p2, p3);
+}
+/** A world turn from degrees about x, then y, then z (the facing frame: x the body's left, y up, z its front). */
+const turnOf = ([x, y, z]) => mm(rz(z * DEG), mm(ry(y * DEG), rx(x * DEG)));
+/**
+ * An authored layer laid over a take's frames:
+ *   set:  { Bone: [[u, d, s], ...] }   the bone's world frame (along it, across it) at each key
+ *   turn: { Bone: [[u, [x, y, z]], ...] } degrees turning the bone and every bone below it
+ *   mix:  [[u, weight], ...]          how much of `set` shows (1 when not given)
+ * Turns are laid on after the set frames, in the order given.
+ */
+function overlay(list, layer) {
+    const N = list.length - 1;
+    return list.map((f, i) => {
+        const u = N ? i / N : 0, bones = Object.assign({}, f.bones);
+        const w = layer.mix ? Math.max(0, Math.min(1, curve(layer.mix, u))) : 1;
+        for (const [name, keys] of Object.entries(layer.set || {})) {
+            const q = keys.map(([t, d, s]) => [t, matQuat(frame(d, s))]);
+            for (let k = 1; k < q.length; k++) if (dot4(q[k][1], q[k - 1][1]) < 0) q[k][1] = q[k][1].map(v => -v);
+            let at = norm4(curve(q, u));
+            const was = matQuat(frame(bones[name].d, bones[name].s));
+            if (w < 1) at = slerp(was, at, w);
+            const M = quatMat(at);
+            bones[name] = { d: [M[0], M[3], M[6]], s: [M[1], M[4], M[7]] };
+        }
+        for (const [name, keys] of Object.entries(layer.turn || {})) {
+            const R = turnOf(curve(keys, u));
+            for (const n of below(name)) if (bones[n]) bones[n] = { d: mv(R, bones[n].d), s: mv(R, bones[n].s) };
+        }
+        return { pos: f.pos, bones };
+    });
+}
+/** The whole take pitched forward by deg about the body's left-right line (a swimmer laid flat). */
+function tilt(list, deg) {
+    const R = rx(deg * DEG);
+    return list.map(f => ({
+        bones: Object.fromEntries(Object.entries(f.bones).map(([n, b]) => [n, { d: mv(R, b.d), s: mv(R, b.s) }])),
+        pos: Object.fromEntries(Object.entries(f.pos).map(([n, p]) => [n, mv(R, p)]))
+    }));
+}
+/** The rotation matrix of a unit quaternion. */
+function quatMat([x, y, z, w]) {
+    return [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w), 2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w), 2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)];
+}
 
 /** A world turn about y by a. */
 const yaw = a => [Math.cos(a), 0, Math.sin(a), 0, 1, 0, -Math.sin(a), 0, Math.cos(a)];
@@ -220,8 +358,34 @@ const yaw = a => [Math.cos(a), 0, Math.sin(a), 0, 1, 0, -Math.sin(a), 0, Math.co
 function load(dir, trial) {
     const subject = trial.split('_')[0];
     const asf = parseAsf(fs.readFileSync(path.join(dir, subject + '.asf'), 'utf8'));
-    const amc = parseAmc(fs.readFileSync(path.join(dir, trial + '.amc'), 'utf8'));
+    const amc = steady(asf, parseAmc(fs.readFileSync(path.join(dir, trial + '.amc'), 'utf8')));
     return { asf, amc };
+}
+
+/**
+ * Angles kept continuous from sample to sample. A whole turn (360 degrees) is
+ * the same rotation and comes off every angle. A joint turning on fewer than
+ * three axes (a hand, a wrist) also comes back by half turns: the capture's
+ * solver sometimes jumps such an angle by 180 degrees between two samples,
+ * which flips the hand over, and no hand turns that far in a 120th of a
+ * second. A joint on three axes keeps its half turns, as there the other two
+ * angles change with it and the rotation is the same.
+ */
+function steady(asf, frames) {
+    const last = {};
+    for (const frame of frames) for (const [name, values] of Object.entries(frame)) {
+        const bone = asf.bones[name];
+        if (!bone || name === 'root') continue;
+        const turns = bone.dof.filter(d => d[0] === 'r').length, step = turns < 3 ? 180 : 360;
+        const before = last[name];
+        if (before) for (let k = 0; k < values.length; k++) {
+            if (bone.dof[k] && bone.dof[k][0] !== 'r') continue;
+            const jump = values[k] - before[k];
+            if (Math.abs(jump) > step / 2) values[k] -= step * Math.round(jump / step);
+        }
+        last[name] = values;
+    }
+    return frames;
 }
 
 /** The frames of a stretch of the take at FPS, turned and mirrored as asked. */
@@ -229,9 +393,11 @@ function sample(src, take, from, to) {
     const { asf, amc } = src, sides = restSides(asf), step = take.rate || 120;
     // A swing plays the stretch forward and back again, easing at each end, over `period` seconds;
     // otherwise it plays at `speed` (1 as captured).
-    const n = Math.round((take.swing ? take.period : (to - from) / (take.speed || 1)) * FPS) + 1, out = [];
+    const n = Math.round((take.swing ? take.period : (to - from) / (take.speed || 1)) * (take.fps || FPS)) + 1, out = [];
     for (let i = 0; i < n; i++) {
-        const u = take.swing ? (1 - Math.cos(2 * Math.PI * i / (n - 1))) / 2 : i / (n - 1);
+        let u = take.swing ? (1 - Math.cos(2 * Math.PI * i / (n - 1))) / 2 : i / (n - 1);
+        // A take played backward (a back flip run backward is a front flip: the same flight, turned the other way).
+        if (take.reverse) u = 1 - u;
         const t = from + (to - from) * u, k = Math.min(amc.length - 1, Math.max(0, Math.round(t * step)));
         out.push(frames(asf, amc[k], sides));
     }
@@ -253,7 +419,8 @@ function orient(list, take) {
     // Facing: the heading that brings the chosen line round to its direction, averaged over the stretch.
     let sx = 0, sz = 0;
     const face = take.face || { bone: 'Hips', side: true, to: [0, 0, 1] };
-    for (const f of list) {
+    // A body that turns over (a flip, a roll) takes its heading from its first frames only.
+    for (const f of face.first ? list.slice(0, face.first) : list) {
         const b = f.bones[face.bone], v = face.side ? b.s : b.d;
         sx += v[0]; sz += v[2];
     }
@@ -284,18 +451,62 @@ function bestCycle(list, take) {
     return best;
 }
 
-/** Bone frames as quaternions; a loop's mismatch at its seam spread evenly over it, so the last frame is the first. */
-function seal(list) {
+/** Bone frames as quaternions; a loop's mismatch at its seam spread evenly over it, so the last frame is the first (a motion played once keeps both ends). */
+function seal(list, once, smooth) {
     const qs = list.map(f => Object.fromEntries(BONES.map(n => [n, matQuat(frame(f.bones[n].d, f.bones[n].s))])));
     const N = qs.length - 1;
     for (const n of BONES) {
         for (let i = 1; i <= N; i++) if (dot4(qs[i][n], qs[i - 1][n]) < 0) qs[i][n] = qs[i][n].map(v => -v);
-        const miss = qmul(qs[0][n], qinv(qs[N][n]));
+        despike(qs, n);
+        // A fast take eased a little ([1 2 1] passes over its frames, the ends kept): the markers' jitter
+        // through a flip's spin goes, the motion stays.
+        for (let pass = 0; pass < (smooth || 0); pass++) {
+            const was = qs.map(q => q[n]);
+            for (let i = 1; i < N; i++) qs[i][n] = norm4([0, 1, 2, 3].map(k => was[i - 1][k] + 2 * was[i][k] + was[i + 1][k]));
+        }
+        // The seam's mismatch the short way round: its far sign is the same turn plus a whole one, which
+        // spread over the loop spins the bone once round.
+        if (once) continue;
+        let miss = qmul(qs[0][n], qinv(qs[N][n]));
+        if (miss[3] < 0) miss = miss.map(v => -v);
         for (let i = 0; i <= N; i++) qs[i][n] = norm4(qmul(qpow(miss, i / N), qs[i][n]));
     }
     return qs;
 }
 const dot4 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+/** The angle between two turns (radians). */
+const apart = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(dot4(a, b))));
+/** A turn part way from a to b, the short way. */
+function slerp(a, b, k) {
+    const c = dot4(a, b) < 0 ? b.map(v => -v) : b;
+    return norm4(qmul(qpow(qmul(c, qinv(a)), k), a));
+}
+/** Most a bone turns in one frame (radians): faster than any joint moves, so a frame past it is the capture losing its markers. */
+const SPIKE = 1.0;
+/**
+ * A bone's frames that jump further from the last sound frame than it
+ * could turn in that time, filled in between the sound frames on either
+ * side. A run of jumps longer than a few frames is the capture's own
+ * motion and stays.
+ */
+function despike(qs, n) {
+    const N = qs.length - 1, bad = new Array(N + 1).fill(false);
+    let good = 0;
+    for (let i = 1; i <= N; i++) {
+        if (apart(qs[good][n], qs[i][n]) <= SPIKE * (i - good)) { good = i; continue; }
+        if (i - good > 6) { good = i; continue; }
+        bad[i] = true;
+    }
+    for (let i = 1; i <= N; i++) {
+        if (!bad[i]) continue;
+        let j = i;
+        while (j <= N && bad[j]) j++;
+        const a = qs[i - 1][n], b = j <= N ? qs[j][n] : a;
+        for (let k = i; k < j; k++) qs[k][n] = slerp(a, b, (k - i + 1) / (j - i + 1));
+        i = j;
+    }
+    for (let i = 1; i <= N; i++) if (dot4(qs[i][n], qs[i - 1][n]) < 0) qs[i][n] = qs[i][n].map(v => -v);
+}
 const norm4 = q => { const l = Math.hypot(...q); return q.map(v => v / l); };
 
 /** The body's height above its standing height (the lowest foot's lift off the floor), per frame, in leg lengths. */
@@ -329,7 +540,9 @@ function build(dir) {
             const from = orient(sample(other, Object.assign({}, take, o, { period: take.swing ? take.period : (list.length - 1) / FPS }), o.from, o.to), o);
             list = list.map((f, i) => ({ pos: f.pos, bones: Object.assign({}, f.bones, Object.fromEntries(o.bones.map(n => [n, from[Math.min(from.length - 1, i)].bones[n]]))) }));
         }
-        const qs = seal(list);
+        if (take.pitch) list = tilt(list, take.pitch);
+        if (take.layer) list = overlay(list, take.layer);
+        const qs = seal(list, take.once, take.smooth);
         // Leg length, and the standing heights of the ankles, balls and toe tips, from the skeleton at rest.
         const b = src.asf.bones, m = src.asf.meters;
         const leg = (b.lfemur.length + b.ltibia.length) * m;
@@ -338,13 +551,15 @@ function build(dir) {
         // The take's floor: where its lowest foot stands through most of the stance (a quarter of the
         // frames lower still), so the feet's small rolls on the floor read as standing, not as flight.
         const lows = clearance(list, leg, floor), base = lows.slice().sort((a, b) => a - b)[Math.floor(lows.length / 4)];
-        // A body held off the floor (a fall) stands `hover` leg lengths above it throughout.
-        const air = take.hover ? list.map(() => take.hover) : lows.map(v => Math.max(0, v - base));
+        // A body held off the floor (a fall) stands `hover` leg lengths above it throughout; one hung in
+        // place (on a ladder, in the water) keeps its hips `hang` leg lengths up, bobbing by `bob` [amount, cycles].
+        const bob = (i, n) => take.bob ? take.bob[0] * Math.sin(2 * Math.PI * take.bob[1] * i / Math.max(1, n - 1)) : 0;
+        const air = take.hang !== undefined ? list.map((_, i) => take.hang + bob(i, list.length)) : take.hover ? list.map(() => take.hover) : lows.map(v => Math.max(0, v - base));
         // Seam the height too, so the loop never steps.
-        const N = air.length - 1, gap = air[N] - air[0];
+        const N = air.length - 1, gap = take.once ? 0 : air[N] - air[0];
         const rise = air.map((v, i) => v - gap * i / N);
         out[id] = {
-            frames: qs.length, air: !!(take.air || take.hover), skin: !!take.skin, fist: !!take.fist,
+            frames: qs.length, air: !!(take.air || take.hover), skin: !!take.skin, once: !!take.once, hang: take.hang !== undefined, fps: take.fps || FPS,
             rise: encode(rise.map(v => Math.max(-1, Math.min(1, v)))),
             bones: Object.fromEntries(BONES.map(n => [n, encode(qs.flatMap(q => q[n]))]))
         };
@@ -362,4 +577,4 @@ if (require.main === module) {
     console.log(`wrote ${file} (${(fs.statSync(file).size / 1024).toFixed(0)} KB)`);
 }
 
-module.exports = { TAKES, setTakes: t => { TAKES = t; }, build, load, pose, restSides, BONES, mv };
+module.exports = { TAKES, setTakes: t => { TAKES = t; }, build, load, pose, restSides, BONES, mv, curve };

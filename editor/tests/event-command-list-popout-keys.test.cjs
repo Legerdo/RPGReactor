@@ -2,7 +2,7 @@
 // The event editor in a window of its own (owner report, 2026-10-17): Delete, the clipboard keys,
 // Ctrl+Z and Enter on the command list act there again. Whether a dialog covers the editor is
 // read from the window the editor is in; the editor window's middle (the map) said "covered" and
-// every key was dropped. On Linux the window cannot be seen through, so its panel is square.
+// every key was dropped. All floating panels now request transparent rounded corners.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -101,19 +101,22 @@ test('Enter on a Fight command dialog\'s page reads the dialog\'s own window', (
     assert.match(source, /event\.target === \(modal\.ownerDocument \|\| document\)\.body/, 'the page is the dialog\'s own window\'s body');
 });
 
-test('on Linux the event editor\'s and the Database\'s windows are square: nothing shows past their corners', () => {
-    for (const win of [EventEditorWindow, DatabaseWindow]) assert.equal(win.seeThrough(), process.platform !== 'linux');
+test('floating panels request clear rounded corners on every platform without an opaque frame', () => {
+    const ForgeWindow = require('../src/forge/ForgeWindow.js');
+    const PluginWindow = require('../src/PluginManagerWindow.js');
+    for (const win of [EventEditorWindow, DatabaseWindow, ForgeWindow, PluginWindow]) assert.equal(win.seeThrough(), true);
     const source = fs.readFileSync(path.join(editorRoot, 'src', 'utils', 'DetachedWindow.js'), 'utf8');
-    assert.match(source, /if \(!seeThrough\(\)\) doc\.documentElement\.classList\.add\('rr-window-square'\);/);
+    assert.match(source, /frame: false, transparent: true/);
+    assert.match(source, /doc\.documentElement\.style\.cssText = 'background:transparent !important;'/);
+    assert.doesNotMatch(source, /rr-window-square|var\(--color-bg-deep\)/);
     const css = fs.readFileSync(path.join(editorRoot, 'css', 'styles.css'), 'utf8');
-    const square = css.slice(css.indexOf('html.rr-window-square #event-editor-modal'));
-    const rule = square.slice(0, square.indexOf('}'));
-    for (const selector of ['#event-editor-modal.rr-event-editor-popped > .rr-modal,', '#event-editor-modal.rr-event-editor-popped > .rr-modal > *,',
-        '#database-viewer.rr-database-popped > .database-window,', '#database-viewer.rr-database-popped > .database-window > * {']) {
-        assert.ok(rule.includes(selector), selector);
+    assert.doesNotMatch(css, /rr-window-square/);
+    for (const selector of ['#event-editor-modal.rr-event-editor-popped > .rr-modal {', '#database-viewer.rr-database-popped > .database-window {', '#forge-workspace.rr-forge-popped > .rr-forge-window {', '#plugin-manager-modal.rr-plugin-popped > .rr-plugin-window {']) {
+        const start = css.indexOf(selector);
+        assert.ok(start >= 0, selector);
+        assert.match(css.slice(start, css.indexOf('}',start)), /box-shadow: none;/);
     }
-    assert.match(rule, /border-radius: 0;/);
-    // A shadow would paint into the corners of a window exactly the panel's size.
-    const popped = css.slice(css.indexOf('#event-editor-modal.rr-event-editor-popped > .rr-modal {'));
-    assert.match(popped.slice(0, popped.indexOf('}')), /box-shadow: none;/);
+    const args = JSON.parse(fs.readFileSync(path.join(editorRoot, 'package.json'), 'utf8'))['chromium-args'];
+    assert.ok(args.includes('--enable-transparent-visuals'));
+    assert.ok(!args.includes('--disable-gpu'), '3D rendering stays accelerated');
 });

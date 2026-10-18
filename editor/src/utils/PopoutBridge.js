@@ -231,10 +231,18 @@
         return last;
     }
 
-    /** The main window's stylesheets, theme and language in a new window's document. */
+    /** Copy the theme and resolve once its stylesheets have loaded, before a new window shows. */
     function dressLike(childDoc) {
+        const loading = [];
         for (const link of native.querySelectorAll.call(document, 'link[rel="stylesheet"], style')) {
-            childDoc.head.appendChild(link.cloneNode(true));
+            const copy = link.cloneNode(true);
+            if (copy.tagName === 'LINK' && !copy.disabled) {
+                loading.push(new Promise(resolve => {
+                    copy.addEventListener('load', resolve, { once: true });
+                    copy.addEventListener('error', resolve, { once: true });
+                }));
+            }
+            childDoc.head.appendChild(copy);
         }
         for (const name of ['data-theme', 'lang', 'dir']) {
             const value = document.documentElement.getAttribute(name);
@@ -242,12 +250,15 @@
         }
         // The theme follows the main window while the pop-out is open.
         if (typeof MutationObserver === 'function') {
-            new MutationObserver(() => {
+            const observer = new MutationObserver(() => {
                 const theme = document.documentElement.getAttribute('data-theme');
                 if (theme) childDoc.documentElement.setAttribute('data-theme', theme);
                 else childDoc.documentElement.removeAttribute('data-theme');
-            }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+            });
+            observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+            childDoc.defaultView?.addEventListener('unload', () => observer.disconnect(), { once: true });
         }
+        return Promise.all(loading);
     }
 
     root.RRPopoutBridge = { attach, detach, dressLike, inPopout, onAttach, active, setAsleep, bringToWindowInUse, windows: () => Array.from(children.keys()), recordedCount: () => recorded.document.length + recorded.window.length };

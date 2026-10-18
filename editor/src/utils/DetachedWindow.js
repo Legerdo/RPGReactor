@@ -3,8 +3,8 @@
  * its own: its header drags it, its corner sizes it, its × closes it, and it keeps its place
  * between openings and between sessions. It stays in front of the editor while Reactor is the
  * app in use, and drops behind other apps with it. The map stays live; keys go where the person
- * last worked. The event editor and the Database are each one (EventEditorWindow.js,
- * DatabaseWindow.js), and both can be open at once.
+ * last worked. EventEditorWindow.js, DatabaseWindow.js, ForgeWindow.js and
+ * PluginManagerWindow.js each use one, and all can be open at once.
  *
  * Where the desktop app can open windows (NW.js) that is the only way it shows. Without it (the
  * web editor) the dialog floats inside the page instead: no backdrop, dragged by its header,
@@ -18,13 +18,13 @@
  *   win.ownsKeys()         open, and the last click or focus landed in it
  *   win.clamp(rect, view)  a rectangle kept wholly on screen
  *   win.isPoppedOut()      it lives in a window of its own now
- *   win.seeThrough()       its window shows the desktop at its rounded corners (not on Linux:
- *                          there the panel is square, html.rr-window-square)
+ *   win.seeThrough()       its window requests transparent pixels outside its rounded panel
  *   win.hidePopout()       it closed: its window hides and keeps its place
  *
  * config: overlayId, panelSelector, headerSelector, titleSelector, title (fallback), page (the
  * blank HTML page its window loads), storageKey, popoutKey, minWidth, minHeight, defaultWidth and
- * defaultHeight (the first-open size's cap, 1400 × 1000 unless given),
+ * defaultHeight (the first-open size's cap, 1400 × 1000 unless given), sizeToScreen (use the
+ * editor's monitor for the initial size, even when the editor itself is smaller),
  * floatingClass, poppedClass, gripClass, dockedEvent (fired on window when it comes back into
  * the editor window), isOpen(overlay), closeFromFrame() (closed by Alt+F4 or the taskbar: close
  * as its own × does, asking first about unapplied edits; resolves when answered).
@@ -147,15 +147,8 @@
             return !!popped;
         }
 
-        /**
-         * Whether a window of its own shows what is behind it through its clear pixels. On Linux
-         * NW.js paints them black (X11 and Wayland alike), so there the panel fills its window
-         * square to the corners.
-         */
-        function seeThrough() {
-            const host = typeof process !== 'undefined' ? process : root.process;
-            return !(host && host.platform === 'linux');
-        }
+        /** Request transparent corners on every platform; never substitute an opaque frame. */
+        function seeThrough() { return true; }
 
         /** The work areas of the connected screens, as rectangles. */
         function screens() {
@@ -183,6 +176,11 @@
                 if (home) return clamp(saved, home);
             }
             const editor = { left: main.x, top: main.y, width: main.width, height: main.height };
+            if (config.sizeToScreen) {
+                const home = shown.find(area => editor.left + editor.width / 2 >= area.left && editor.left + editor.width / 2 < area.left + area.width
+                    && editor.top + editor.height / 2 >= area.top && editor.top + editor.height / 2 < area.top + area.height);
+                if (home) return clamp(defaultRect(home), home);
+            }
             return defaultRect(editor);
         }
 
@@ -244,39 +242,53 @@
             const main = nw.Window.get();
             const rect = windowRect(main);
             const options = { x: rect.left, y: rect.top, width: rect.width, height: rect.height, min_width: MIN_WIDTH, min_height: MIN_HEIGHT,
-                frame: false, transparent: true, show: true, resizable: true, icon: 'images/icon.png', title };
-            const state = { win: null, child: null, panelStyle: panel.style.cssText, closing: false, overlay, unhook: [], focused: true };
+                frame: false, transparent: true, show: false, resizable: true, icon: 'images/icon.png', title };
+            const state = { win: null, child: null, panelStyle: panel.style.cssText, closing: false, overlay, unhook: [],
+                focused: false, ready: false, wantsVisible: true };
             if (sizeObserver) sizeObserver.disconnect();
             popped = state;
             // Not shown in the editor window while its own opens: it appears there, not first over the map.
             overlay.style.visibility = 'hidden';
             nw.Window.open(config.page, options, win => {
+                if (popped !== state) { try { win?.close(true); } catch (error) { /* gone */ } return; }
                 if (!win) { popped = null; overlay.style.visibility = ''; return; }
                 state.win = win;
                 const mount = () => {
-                    if (popped !== state) return;
+                    if (popped !== state || state.child) return;
                     const doc = win.window.document;
-                    root.RRPopoutBridge.dressLike(doc);
+                    const stylesReady = root.RRPopoutBridge.dressLike(doc);
                     doc.title = title;
-                    // Transparent around the panel, so its rounded corners show the desktop behind them;
-                    // square where the window cannot be seen through.
+                    // Only the rounded panel paints a background. Everything outside it stays clear.
+                    doc.documentElement.classList.add('rr-detached-window');
                     doc.documentElement.style.cssText = 'background:transparent !important;';
-                    if (!seeThrough()) doc.documentElement.classList.add('rr-window-square');
                     doc.body.style.cssText = 'margin:0;height:100vh;overflow:hidden;background:transparent !important;';
                     state.child = win.window;
                     root.RRPopoutBridge.attach(win.window);
+                    root.RRPopoutBridge.setAsleep(win.window, true);
                     overlay.classList.add(config.poppedClass);
                     panel.style.cssText = '';
                     doc.body.appendChild(overlay);
                     addResizeGrip(doc, win);
                     overlay.style.visibility = '';
-                    // The window manager settles a new window after it shows: the place asked for stands.
-                    setTimeout(() => { try { if (popped === state) { win.moveTo(rect.left, rect.top); win.resizeTo(rect.width, rect.height); } } catch (error) { /* kept as shown */ } }, 300);
+                    // The manifest can supply the main window's minimum/size during creation.
+                    // Load the theme and apply the final geometry while hidden, including the
+                    // native window manager's settling turn. No resize runs after we reveal it.
+                    Promise.resolve(stylesReady).then(() => {
+                        if (popped !== state) return;
+                        win.setMinimumSize(MIN_WIDTH, MIN_HEIGHT);
+                        win.moveTo(rect.left, rect.top);
+                        win.resizeTo(rect.width, rect.height);
+                        setTimeout(() => {
+                            if (popped !== state) return;
+                            state.ready = true;
+                            if (state.wantsVisible && isOpen()) showPopout();
+                        }, 50);
+                    });
                 };
                 const ready = () => win.window && win.window.document && win.window.document.readyState === 'complete';
                 if (ready()) mount(); else win.on('loaded', mount);
-                win.on('move', () => { if (popped === state) keepWindowRect(win); });
-                win.on('resize', () => { if (popped === state) keepWindowRect(win); });
+                win.on('move', () => { if (popped === state && state.ready) keepWindowRect(win); });
+                win.on('resize', () => { if (popped === state && state.ready) keepWindowRect(win); });
                 stayInFrontOfEditor(main, win, state);
                 // Closing it another way than its × (Alt+F4, the taskbar) closes the dialog as its × does,
                 // asking first about unapplied edits; the window hides and waits for the next opening.
@@ -334,15 +346,18 @@
 
         /** The dialog closed: its window hides and keeps its place for the next opening. */
         function hidePopout(state = popped) {
-            if (!state || state !== popped || !state.win) return;
+            if (!state || state !== popped) return;
+            state.wantsVisible = false;
             state.focused = false;
             if (root.RRPopoutBridge && state.child) root.RRPopoutBridge.setAsleep(state.child, true);
-            try { state.win.hide(); } catch (error) { /* gone */ }
+            try { state.win?.hide(); } catch (error) { /* gone */ }
         }
 
         /** It opens again: its window comes back where it was. */
         function showPopout() {
-            if (!popped || !popped.win) return;
+            if (!popped) return;
+            popped.wantsVisible = true;
+            if (!popped.win || !popped.ready) return;
             if (root.RRPopoutBridge && popped.child) root.RRPopoutBridge.setAsleep(popped.child, false);
             try { popped.win.show(); popped.win.focus(); } catch (error) { /* gone */ }
         }

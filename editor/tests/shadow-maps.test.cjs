@@ -114,7 +114,7 @@ test('the shadow variant of the light shader reads two atlases, however many lig
     assert.match(Reactor3D.lightGlsl(true, 1), /float s = texture\(rrShadowAtlas, vec3\(base \+ q \* scale, dp\)\);\n\tif \(dynamic\) s = min\(s, texture\(rrShadowDynAtlas, vec3\(dynBase \+ q \* dynScale, dp\)\)\);/);
     assert.equal((soft.match(/face = d\.x > 0\.0/g) || []).length, 1, 'one face selection, not one per atlas');
     // Sampled inside the light loop, before the light adds in.
-    assert.match(soft, /float sh = rrLightShadow\[i\];\n\t\tif \(sh > 63\.5\) \{ float sv = rrSunShadowAt\(p\); rrSunShaded = fall \* \(1\.0 - sv\); fall \*= sv; \}\n\t\telse if \(sh >= 0\.0\) fall \*= rrShadowAt\(int\(sh \+ 0\.5\), p\);\n\t\tsum \+= lc\.rgb \* fall;/);
+    assert.match(soft, /float sh = rrLightShadow\[i\];\n\t\tif \(sh > 63\.5\) \{ float sv = rrSunShadowAt\(p\); rrSunShaded = fall \* \(1\.0 - sv\); fall \*= sv; \}\n\t\telse if \(sh >= 0\.0\) fall \*= rrShadowAt\(int\(sh \+ 0\.5\), p\);\n\t\tif \(rrFace > 0\.0\) \{[\s\S]*?\n\t\t\}\n\t\tsum \+= lc\.rgb \* fall;/);
     // Each row measures from where it was rendered, not from the light.
     assert.match(soft, /vec3 d = p - rrShadowPos\[slot\]\.xyz;/);
 

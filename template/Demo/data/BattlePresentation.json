@@ -452,7 +452,10 @@
       "mode": "inherit"
     },
     "6": {
-      "mode": "inherit"
+      "mode": "inherit",
+      "graphic": {
+        "mode": "auto"
+      }
     }
   },
   "enemies": {

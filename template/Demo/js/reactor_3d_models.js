@@ -2360,7 +2360,10 @@ function reactorSplitGlb(buffer) {
  */
 function reactorCompactGlb(json, buffer, binOffset, binLength) {
     const views = json.bufferViews || [], read = {}, drawn = {};
-    for (const accessor of json.accessors || []) if (accessor.bufferView != null) read[accessor.bufferView] = true;
+    for (const accessor of json.accessors || []) {
+        if (accessor.bufferView != null) read[accessor.bufferView] = true;
+        if (accessor.sparse) { read[accessor.sparse.indices.bufferView] = true; read[accessor.sparse.values.bufferView] = true; }
+    }
     for (const material of json.materials || []) {
         const pbr = material.pbrMetallicRoughness || {}, specgloss = material.extensions && material.extensions.KHR_materials_pbrSpecularGlossiness;
         const info = pbr.baseColorTexture || (specgloss && specgloss.diffuseTexture);
@@ -3323,6 +3326,9 @@ Reactor3D.buildMeshTemplate = function(mesh, baseUrl, textureFile) {
 
 Reactor3D._glbAccessor = function(json, bin, index) {
     const accessor = json.accessors[index];
+    // Without a view the values start as zeros; sparse values are laid over
+    // them (a face's morph targets move only a few vertices).
+    if (accessor.bufferView == null || accessor.sparse) return this._glbSparseAccessor(json, bin, accessor);
     const view = json.bufferViews[accessor.bufferView];
     const offset = (view.byteOffset || 0) + (accessor.byteOffset || 0);
     const comps = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT3: 9, MAT4: 16 }[accessor.type] || 1;
@@ -3702,6 +3708,42 @@ Reactor3D._loadGlbTexture = function(json, bin, texInfo, baseUrl, textures, bitm
     return map;
 };
 
+Reactor3D._glbSparseAccessor = function(json, bin, accessor) {
+    const comps = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT3: 9, MAT4: 16 }[accessor.type] || 1;
+    const out = new Float32Array(accessor.count * comps);
+    const views = json.bufferViews;
+    const dense = (bufferView, byteOffset, componentType, count, type) =>
+        this._glbAccessor({ accessors: [{ bufferView, byteOffset, componentType, count, type }], bufferViews: views }, bin, 0);
+    if (accessor.bufferView != null) {
+        const base = dense(accessor.bufferView, accessor.byteOffset || 0, accessor.componentType, accessor.count, accessor.type);
+        const scale = accessor.normalized ? ({ 5120: 127, 5121: 255, 5122: 32767, 5123: 65535 }[accessor.componentType] || 1) : 1;
+        for (let i = 0; i < out.length; i++) out[i] = Math.max(-1, base[i] / scale);
+    }
+    const sparse = accessor.sparse;
+    if (!sparse || !sparse.count) return out;
+    const indices = dense(sparse.indices.bufferView, sparse.indices.byteOffset || 0, sparse.indices.componentType, sparse.count, "SCALAR");
+    const values = dense(sparse.values.bufferView, sparse.values.byteOffset || 0, accessor.componentType, sparse.count, accessor.type);
+    // Normalized integers (KHR_mesh_quantization) read as -1..1.
+    const unit = accessor.normalized ? ({ 5120: 127, 5121: 255, 5122: 32767, 5123: 65535 }[accessor.componentType] || 1) : 1;
+    for (let i = 0; i < sparse.count; i++) for (let c = 0; c < comps; c++) out[indices[i] * comps + c] = Math.max(-1, values[i * comps + c] / unit);
+    return out;
+};
+
+/**
+ * What Material.clone loses of a model material's surface (it copies userData
+ * through JSON): its normal and emissive pictures, shared, and its glow, its
+ * own (so one instance's glow can be changed alone).
+ */
+Reactor3D.carrySurfaceData = function(from, to) {
+    const a = from && from.userData, b = to && to.userData;
+    if (!a || !b) return to;
+    if (a.rrNormalMap && a.rrNormalMap.isTexture) { b.rrNormalMap = a.rrNormalMap; b.rrNormalScale = a.rrNormalScale && a.rrNormalScale.clone ? a.rrNormalScale.clone() : a.rrNormalScale; }
+    if (a.rrEmissiveMap && a.rrEmissiveMap.isTexture) b.rrEmissiveMap = a.rrEmissiveMap;
+    if (a.rrEmissive && a.rrEmissive.isColor) b.rrEmissive = a.rrEmissive.clone();
+    if (a.rrHair) b.rrHair = true;
+    return to;
+};
+
 Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
     if (typeof THREE === "undefined") throw new Error("three.js is not loaded");
     const root = new THREE.Group();
@@ -3736,6 +3778,35 @@ Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
         const map = this._loadGlbTexture(
             json, bin, texInfo, baseUrl, textures, bitmaps, usedBitmaps);
         if (map) mat.map = map;
+        // Its normal map, where it shares the picture's coordinates: lit by which way each texel faces
+        // (Reactor3D.MODEL_FACING). Kept linear; a block-compressed copy is left out (its format is a color's).
+        const normalInfo = def.normalTexture;
+        if (map && normalInfo && !(normalInfo.texCoord > 0) && (!texInfo || !(texInfo.texCoord > 0))) {
+            const normal = this._loadGlbTexture(json, bin, normalInfo, baseUrl, textures, bitmaps, usedBitmaps);
+            if (normal && !normal.isCompressedTexture) {
+                normal.colorSpace = THREE.NoColorSpace || "";
+                normal.needsUpdate = true;
+                mat.userData.rrNormalMap = normal;
+                const k = normalInfo.scale != null ? Number(normalInfo.scale) : 1;
+                mat.userData.rrNormalScale = new THREE.Vector2(k, k);
+            }
+        }
+        // Its glow (emissiveFactor x KHR_materials_emissive_strength, times its emissive picture where that
+        // shares the base picture's coordinates): added over the light (Reactor3D.injectSurfaceGlow).
+        const emissive = Array.isArray(def.emissiveFactor) ? def.emissiveFactor : null;
+        if (emissive && (emissive[0] > 0 || emissive[1] > 0 || emissive[2] > 0)) {
+            const strength = def.extensions && def.extensions.KHR_materials_emissive_strength
+                && Number(def.extensions.KHR_materials_emissive_strength.emissiveStrength) > 0
+                ? Number(def.extensions.KHR_materials_emissive_strength.emissiveStrength) : 1;
+            mat.userData.rrEmissive = new THREE.Color(emissive[0] * strength, emissive[1] * strength, emissive[2] * strength);
+            const emitInfo = def.emissiveTexture;
+            if (map && emitInfo && !(emitInfo.texCoord > 0) && (!texInfo || !(texInfo.texCoord > 0))) {
+                const glow = this._loadGlbTexture(json, bin, emitInfo, baseUrl, textures, bitmaps, usedBitmaps);
+                if (glow) mat.userData.rrEmissiveMap = glow;
+            }
+        }
+        // Hair, as the Character Builder names it: a strand sheen over the light.
+        if (/^(Hair|Beard|Brows|Lashes)\b/.test(String(def.name || ""))) mat.userData.rrHair = true;
         // A file's own polished metal is remembered as a starting point for its
         // Surface; nothing reflects until the model's surface says so.
         const metallic = pbr.metallicFactor != null ? pbr.metallicFactor : 1;
@@ -3778,6 +3849,17 @@ Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
                 const idx = this._glbAccessor(json, bin, prim.indices);
                 geometry.setIndex(new THREE.BufferAttribute(idx, 1));
             }
+            // Morph targets (relative POSITION deltas), named from the mesh's extras.targetNames so
+            // every Mesh made over this geometry finds them by name in its morphTargetDictionary.
+            if (prim.targets && prim.targets.length && prim.targets.every(t => t.POSITION != null)) {
+                const names = (mesh.extras && mesh.extras.targetNames) || [];
+                geometry.morphAttributes.position = prim.targets.map((t, i) => {
+                    const attribute = new THREE.BufferAttribute(this._glbAccessor(json, bin, t.POSITION), 3);
+                    attribute.name = names[i] || "morph" + i;
+                    return attribute;
+                });
+                geometry.morphTargetsRelative = true;
+            }
             // After the index: computed without it, the vertices were taken three at a time as
             // triangles, and reading past the last one left a vector holding undefined, which boxes
             // every number three's vectors are given for the rest of the session.
@@ -3788,7 +3870,9 @@ Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
             }
             let material = materials[prim.material] || defaultMat;
             if (prim.attributes.COLOR_0 != null) {
+                const source = material;
                 material = material.clone();
+                Reactor3D.carrySurfaceData(source, material);
                 material.vertexColors = true;
                 material.__reactorModel = true;
                 Reactor3D.litMaterial(material);
@@ -4775,6 +4859,7 @@ Reactor3D.cloneModelTemplate = function(template) {
             && !cloned.userData.baseColor.isColor) {
             cloned.userData.baseColor = new THREE.Color(cloned.userData.baseColor);
         }
+        Reactor3D.carrySurfaceData(mat, cloned);
         return cloned;
     };
     clone.traverse(child => {

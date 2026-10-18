@@ -22,6 +22,7 @@
     const Paint = need('RRPropPaint', './PropPaint.js');
     const Mesh = need('RRPropMesh', './PropMesh.js');
     const Flag = need('RRFlagProp', './FlagProp.js');
+    const Framed = need('RRFramedProp', './FramedProp.js');
 
     const clamp = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
     const color = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : d);
@@ -34,8 +35,7 @@
     const STANDS = [['none', 'None'], ['stand', 'Stand'], ['post', 'Post']];
     const BACKINGS = [['plate', 'Backing plate'], ['none', 'None']];
     const SURFACES = [['picture', 'The picture'], ['clay', 'Clay'], ['glazed', 'Glazed'], ['wood', 'Wood'], ['metal', 'Polished metal'], ['stone', 'Stone']];
-    const OBJECTS = [['painting', 'Framed painting'], ['poster', 'Poster'], ['banner', 'Hanging banner'], ['crate', 'Crate'], ['book', 'Book']];
-    const FRAMES = [['gilded', 'Gilded'], ['wood', 'Wooden'], ['black', 'Black'], ['none', 'None']];
+    const OBJECTS = Framed.OBJECTS;
     /** A vase, bottom to top: [radius, height] with the height 1. */
     const VASE = [[0.16, 0], [0.24, 0.08], [0.3, 0.3], [0.27, 0.55], [0.13, 0.78], [0.11, 0.9], [0.15, 1]];
 
@@ -43,7 +43,7 @@
         kind: 'picture', mode: 'cutout', image: '',
         cutout: { outline: 'auto', tolerance: 0.25, size: 1, thickness: 0.04, edge: 'bevel', back: 'wood', backColor: '#5a4632', stand: 'none', backing: 'plate' },
         turned: { profile: VASE, fromPicture: true, height: 0.6, segments: 28, top: 'open', wall: 0.015, surface: 'picture', color: '#b86a44' },
-        framed: { object: 'painting', frame: 'gilded', size: 0.8, color: '#5a2a22' }
+        framed: Framed.DEFAULT
     };
 
     function normalize(input) {
@@ -67,7 +67,7 @@
                 top: pick(t.top, ['open', 'closed'], 'open'), wall: clamp(t.wall, 0, 0.2, d.turned.wall),
                 surface: pick(t.surface, SURFACES.map(s => s[0]), 'picture'), color: color(t.color, d.turned.color)
             },
-            framed: { object: pick(f.object, OBJECTS.map(o => o[0]), 'painting'), frame: pick(f.frame, FRAMES.map(o => o[0]), 'gilded'), size: clamp(f.size, 0.1, 6, d.framed.size), color: color(f.color, d.framed.color) }
+            framed: Framed.normalize(f)
         };
     }
 
@@ -281,18 +281,7 @@
     }
 
     // ── pictures the props are made of ─────────────────────────────────────
-    /** Wood: long grain with rings and a few knots, 256 x 256, repeating. */
-    function woodPicture(base, seed) {
-        const c = Paint.hex(base), n1 = Paint.noise(seed || 3, 8), n2 = Paint.fractal((seed || 3) + 9, 16, 3);
-        const pic = Paint.paint(256, 256, (u, v, out) => {
-            const warp = n1(u, v * 0.25) * 6;
-            const ring = 0.5 + 0.5 * Math.sin((u * 18 + warp) * Math.PI * 2);
-            const k = 0.78 + 0.16 * ring + 0.12 * (n2(u * 2, v * 0.5) - 0.5);
-            out[0] = c[0] * k; out[1] = c[1] * k; out[2] = c[2] * k; out[3] = 255;
-        }, 1);
-        pic.name = 'wood.png';
-        return pic;
-    }
+    const woodPicture = (base, seed) => Paint.wood(base, seed);
 
     // ── Cut-out ────────────────────────────────────────────────────────────
     function cutout(r, img, cache) {
@@ -373,19 +362,7 @@
         return { parts, pieces: list.length, textures: { 'picture.png': picture, 'wood.png': wood ? woodPicture(o.back === 'wood' ? '#8a6440' : '#7a5838', 5) : null } };
     }
 
-    /** Planar wood grain uvs (meters / `scale`), the grain running along the longer side of each face. */
-    function woodUv(mesh, scale) {
-        const P = mesh.positions, N = mesh.normals, uv = new Float32Array(P.length / 3 * 2);
-        for (let i = 0; i < P.length / 3; i++) {
-            const nx = Math.abs(N[i * 3]), ny = Math.abs(N[i * 3 + 1]), nz = Math.abs(N[i * 3 + 2]);
-            const x = P[i * 3] / scale, y = P[i * 3 + 1] / scale, z = P[i * 3 + 2] / scale;
-            if (nz >= nx && nz >= ny) { uv[i * 2] = x; uv[i * 2 + 1] = y * 0.25; }
-            else if (nx >= ny) { uv[i * 2] = z; uv[i * 2 + 1] = y * 0.25; }
-            else { uv[i * 2] = x; uv[i * 2 + 1] = z * 0.25; }
-        }
-        mesh.uvs = uv;
-        return mesh;
-    }
+    const woodUv = (mesh, scale) => Mesh.planarUv(mesh, scale);
 
     // ── Turned ─────────────────────────────────────────────────────────────
     /**
@@ -525,105 +502,6 @@
         return { parts: [part], textures, guide, outline };
     }
 
-    // ── Framed ─────────────────────────────────────────────────────────────
-    /**
-     * A molding swept around a rectangle (w x h, centered, in the x-y plane,
-     * its back at z = 0): `profile` [[out, z], ...] from the inner edge to
-     * the outer, `out` measured outward from the opening.
-     */
-    function frameSweep(w, h, profile) {
-        const P = [], N = [], T = [], I = [];
-        const corners = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
-        for (let side = 0; side < 4; side++) {
-            const a = corners[side], b = corners[(side + 1) % 4];
-            const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy);
-            const ox = dy / l, oy = -dx / l; // outward
-            // Mitred ends: each profile point at the corner lies along the diagonal.
-            const start = P.length / 3;
-            profile.forEach(([out, z], k) => {
-                const prev = profile[Math.max(0, k - 1)], nxt = profile[Math.min(profile.length - 1, k + 1)];
-                const dOut = nxt[0] - prev[0], dz = nxt[1] - prev[1], ll = Math.hypot(dOut, dz) || 1;
-                const nOut = dz / ll, nz = -dOut / ll;
-                for (const [c, s] of [[a, -1], [b, 1]]) {
-                    const along = [dx / l * s, dy / l * s];
-                    P.push(c[0] + ox * out + along[0] * out, c[1] + oy * out + along[1] * out, z);
-                    N.push(-ox * nOut, -oy * nOut, -nz);
-                    T.push(s < 0 ? 0 : 1, k / (profile.length - 1));
-                }
-            });
-            for (let k = 0; k < profile.length - 1; k++) {
-                const i0 = start + k * 2, i1 = i0 + 2;
-                I.push(i0, i1, i0 + 1, i0 + 1, i1, i1 + 1);
-            }
-        }
-        return { positions: Float32Array.from(P), normals: Float32Array.from(N), uvs: Float32Array.from(T), index: Uint32Array.from(I) };
-    }
-
-    function framed(r, img) {
-        const o = r.framed, a = img ? img.height / img.width : 0.75;
-        const w = a >= 1 ? o.size / a : o.size, h = a >= 1 ? o.size : o.size * a;
-        const picture = img ? Object.assign({}, img, { data: Uint8Array.from(img.data), name: 'picture.png' }) : null;
-        if (picture) for (let i = 3; i < picture.data.length; i += 4) picture.data[i] = 255;
-        const plane = (pw, ph, z, flip) => {
-            const m = { positions: Float32Array.from([-pw / 2, -ph / 2, z, pw / 2, -ph / 2, z, pw / 2, ph / 2, z, -pw / 2, ph / 2, z]), normals: Float32Array.from([0, 0, flip ? -1 : 1, 0, 0, flip ? -1 : 1, 0, 0, flip ? -1 : 1, 0, 0, flip ? -1 : 1]), uvs: Float32Array.from([0, 1, 1, 1, 1, 0, 0, 0]), index: Uint32Array.from(flip ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]) };
-            return m;
-        };
-        const lift = mesh => Mesh.transform(mesh, ([x, y, z]) => [x, y + h / 2, z]);
-        const parts = [], textures = { 'picture.png': picture };
-        if (o.object === 'painting') {
-            const depth = 0.025, fw = o.frame === 'none' ? 0 : Math.max(0.03, o.size * 0.07);
-            parts.push(Object.assign(lift(plane(w, h, depth * 0.6)), { name: 'Painting', texture: 'picture.png', roughness: 0.6 }));
-            // The canvas's back and sides.
-            parts.push(Object.assign(lift(Mesh.merge([Mesh.box([0, 0, depth * 0.28], [w, h, depth * 0.56])])), { name: 'Canvas', color: '#d8d0bc', roughness: 0.9 }));
-            if (o.frame !== 'none') {
-                const profile = o.frame === 'gilded'
-                    ? [[-0.004, depth * 0.6], [0, depth * 1.1], [fw * 0.15, depth * 1.6], [fw * 0.35, depth * 1.4], [fw * 0.55, depth * 2.2], [fw * 0.8, depth * 2.0], [fw, depth * 1.2], [fw, 0]]
-                    : o.frame === 'wood' ? [[-0.004, depth * 0.6], [0, depth * 1.4], [fw * 0.2, depth * 1.6], [fw, depth * 1.6], [fw, 0]]
-                        : [[-0.004, depth * 0.6], [0, depth * 1.2], [fw, depth * 1.2], [fw, 0]];
-                const f = lift(frameSweep(w, h, profile));
-                const look = { gilded: ['#c8a040', 0.35, 0.85], wood: ['#5a3a22', 0.7, 0], black: ['#1a1a1c', 0.4, 0.1] }[o.frame];
-                parts.push(Object.assign(f, { name: 'Frame', color: look[0], roughness: look[1], metalness: look[2] }));
-            }
-        } else if (o.object === 'poster') {
-            // A sheet a little curled at its corners, pinned to the wall.
-            const nx = 8, ny = 8, P = [], N = [], T = [], I = [];
-            for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
-                const u = i / nx, v = j / ny, curl = 0.012 * o.size * (Math.pow(Math.abs(u - 0.5) * 2, 4) * Math.pow(Math.abs(v - 0.5) * 2, 4));
-                P.push((u - 0.5) * w, (1 - v) * h, 0.003 + curl); N.push(0, 0, 1); T.push(u, v);
-            }
-            for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { const q = j * (nx + 1) + i; I.push(q, q + nx + 1, q + 1, q + 1, q + nx + 1, q + nx + 2); }
-            const sheet = Mesh.computeNormals({ positions: Float32Array.from(P), normals: Float32Array.from(N), uvs: Float32Array.from(T), index: Uint32Array.from(I) });
-            parts.push(Object.assign(sheet, { name: 'Poster', texture: 'picture.png', roughness: 0.5, doubleSided: true }));
-            const pins = [[-w / 2 + 0.02, h - 0.02], [w / 2 - 0.02, h - 0.02], [-w / 2 + 0.02, 0.02], [w / 2 - 0.02, 0.02]].map(([x, y]) => Mesh.sphere([x, y, 0.006], 0.006, 8));
-            parts.push(Object.assign(Mesh.merge(pins), { name: 'Pins', color: o.color, roughness: 0.4, metalness: 0.2 }));
-        } else if (o.object === 'crate') {
-            // A wooden crate with the picture on its four sides, slats along its edges.
-            const s = o.size, t = s * 0.08;
-            const sides = [];
-            for (let k = 0; k < 4; k++) {
-                const m = plane(s * 0.98, s * 0.98, s / 2 + 0.002, false);
-                const ang = k * Math.PI / 2, c = Math.cos(ang), si = Math.sin(ang);
-                Mesh.transform(m, ([x, y, z]) => [x * c + z * si, y + s / 2, -x * si + z * c], ([x, y, z]) => [x * c + z * si, y, -x * si + z * c]);
-                sides.push(m);
-            }
-            parts.push(Object.assign(Mesh.merge(sides), { name: 'Sides', texture: 'picture.png', roughness: 0.8 }));
-            const slats = [Mesh.box([0, s / 2, 0], [s * 0.97, s * 0.97, s * 0.97])];
-            for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) slats.push(Mesh.box([x * (s / 2 - t / 2 + 0.006), s / 2, z * (s / 2 - t / 2 + 0.006)], [t, s, t]));
-            for (const y of [t / 2, s - t / 2]) { slats.push(Mesh.box([0, y, s / 2 - t / 2 + 0.006], [s, t, t]), Mesh.box([0, y, -s / 2 + t / 2 - 0.006], [s, t, t]), Mesh.box([s / 2 - t / 2 + 0.006, y, 0], [t, t, s]), Mesh.box([-s / 2 + t / 2 - 0.006, y, 0], [t, t, s])); }
-            parts.push(Object.assign(woodUv(Mesh.merge(slats), 0.5), { name: 'Slats', texture: 'wood.png', roughness: 0.85 }));
-            textures['wood.png'] = woodPicture('#9a7448', 11);
-        } else if (o.object === 'book') {
-            // Lying on its back cover: boards a little larger than the pages, the picture on the front.
-            const bw = w, bd = h, thick = Math.max(0.02, o.size * 0.12), board = Math.max(0.003, thick * 0.08);
-            const cover = plane(bw, bd, 0, false);
-            Mesh.transform(cover, ([x, y]) => [x, thick + 0.0005, -y], () => [0, 1, 0]);
-            parts.push(Object.assign(cover, { name: 'Cover', texture: 'picture.png', roughness: 0.55 }));
-            parts.push(Object.assign(Mesh.merge([Mesh.box([0, thick - board / 2, 0], [bw, board, bd]), Mesh.box([0, board / 2, 0], [bw, board, bd]), Mesh.box([-bw / 2 + board / 2, thick / 2, 0], [board, thick, bd])]), { name: 'Binding', color: o.color, roughness: 0.6 }));
-            parts.push(Object.assign(Mesh.box([board * 0.5, thick / 2, 0], [bw - board * 2.5, thick - board * 2, bd - board * 2]), { name: 'Pages', color: '#eee6d2', roughness: 0.95 }));
-        }
-        return { parts, textures };
-    }
-
     // ── the build ──────────────────────────────────────────────────────────
     const rigid = mesh => {
         const n = mesh.positions.length / 3, w = new Float32Array(n * 4);
@@ -652,19 +530,29 @@
         let made = null;
         if (r.mode === 'turned') made = turned(r, img, c);
         else if (img && r.mode === 'cutout') made = cutout(r, img, c);
-        else if (r.mode === 'framed') made = framed(r, img || placeholder());
+        else if (r.mode === 'framed') made = Framed.build(r.framed, img || placeholder());
         if (!made) made = { parts: [Object.assign(Mesh.box([0, 0.25, 0], [0.5, 0.5, 0.02]), { name: 'Board', color: '#8a8a8a', roughness: 0.8 })], textures: {} };
         const parts = made.parts.map(p => rigid(p));
         const textures = {};
         for (const [k, t] of Object.entries(made.textures || {})) if (t) textures[k] = t;
         for (const p of parts) if (p.texture && !textures[p.texture]) { delete p.texture; p.color = p.color || '#9a9a9a'; }
         for (const p of parts) Mesh.shade(p);
+        // What stands rests on the floor; what hangs on a wall keeps its height.
+        const wall = !!made.wall;
+        if (!wall) settle(parts);
         let height = 0;
         for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) height = Math.max(height, p.positions[i]);
         return {
             kind: 'picture', recipe: r, parts, bones: [{ name: 'Prop', head: [0, 0, 0], parent: -1 }], clips: [], loop: null, textures, cloth: null,
-            height: Math.max(0.1, height), guide: made.guide || null, pieces: made.pieces || 1, imageName: r.image, imageMissing: !!r.image && !img, noPicture: !r.image
+            height: Math.max(0.1, height), wall: wall ? { normal: [0, 0, 1], at: 0 } : null, guide: made.guide || null, pieces: made.pieces || 1, imageName: r.image, imageMissing: !!r.image && !img, noPicture: !r.image
         };
+    }
+
+    /** Moves the parts up or down so their lowest point is on the floor (y = 0). */
+    function settle(parts) {
+        let low = Infinity;
+        for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) low = Math.min(low, p.positions[i]);
+        if (Number.isFinite(low) && low !== 0) for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) p.positions[i] -= low;
     }
 
     /** A plain picture to stand in until one is chosen. */
@@ -673,9 +561,13 @@
         return p;
     }
 
-    const api = { MODES, OUTLINES, EDGES, BACKS, STANDS, BACKINGS, dilate, SURFACES, OBJECTS, FRAMES, VASE, DEFAULT, normalize, maskOf, trace, shapes, simplify, signedArea, profileFromPicture, turnedOutline, revolve, bannerRecipe, build };
+    const api = { settle, MODES, OUTLINES, EDGES, BACKS, STANDS, BACKINGS, dilate, SURFACES, OBJECTS, VASE, DEFAULT, normalize, maskOf, trace, shapes, simplify, signedArea, profileFromPicture, turnedOutline, revolve, bannerRecipe, build };
     root.RRPictureProp = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
+    const Catalog = root.RRPropCatalog || (typeof require === 'function' ? require('./PropCatalog.js') : null);
+    if (Catalog) for (const [mode, label, icon, keywords] of [['cutout', 'Cut-out', 'cutout', 'sign board silhouette'], ['turned', 'Turned', 'turned', 'vase pot bottle column lathe'], ['framed', 'Framed', 'framed', 'painting poster crate book frame']]) {
+        Catalog.add({ id: 'picture-' + mode, category: 'picture', label, icon, kind: 'picture', keywords, start: from => normalize({ mode, image: from && from.kind === 'picture' ? from.image : '' }), matches: r => r.mode === mode });
+    }
     const Model = root.RRPropModel;
     if (Model && Model.register) Model.register({ id: 'picture', label: 'From picture', normalize, build });
 })(typeof window !== 'undefined' ? window : globalThis);

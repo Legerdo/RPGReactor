@@ -4,6 +4,8 @@
 
 Source: https://github.com/makehumancommunity/makehuman (`makehuman/data`). These assets were released by their copyright holders under CC0 1.0 Universal in September 2020 (`LICENSE.ASSETS.md` in that repository): no rights reserved, no attribution required. Original copyright (C) 2014 Manuel Bastioni; (C) 2020 Data Collection AB, Joel Palmius, Jonas Hauquier.
 
+`expressions.json` and `expressions.bin` (the face's expression units) are converted from MakeHuman's expression unit targets (`targets/expression/units`, one set per ancestry) by `editor/build-scripts/build-expression-pack.cjs`, from the same repository and under the same CC0 1.0 release.
+
 # Motion data
 
 `../CharacterPosesData.js` (the poses and motions of the Pose panel) is converted from trials of the Carnegie Mellon University Graphics Lab Motion Capture Database by `editor/build-scripts/build-poses.cjs`: subjects 9, 13, 14, 23, 35, 82, 111, 113, 136, 140 and 143, from the original ASF/AMC files.

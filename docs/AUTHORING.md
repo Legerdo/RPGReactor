@@ -279,6 +279,10 @@ A class with no `rrEquipSlots` has one slot per equipment type, with a second we
 
 In the editor: Database › Classes › **Equipment Slots**. Add a slot, pick its type from the dropdown, drag a slot by its grip (or use the arrow keys on the grip) to change the order, delete it with ×. A new class starts with Weapon, Shield, Head, Body and Accessory. An equipment type added under Types is a slot of no class until it is added there. Changing a class's slots moves the starting equipment of its actors and vehicles with each slot's type.
 
+## 8-direction character sheets
+
+A file in `img/characters` whose name has `[8D]` (`$Hero[8D].png`) is cut as eight blocks of 3 × 4 frames, whatever its `$` says. Block 0 walks down, left, right and up; block 1 holds its diagonals (rows down-left, down-right, up-left, up-right); block 2 is the dash, block 3 its diagonals. A character set to block 0 dashes on block 2, and shows the block to the right while it steps or faces diagonally; blocks 2 and 4 take their own diagonals the same way. Blocks 1, 3, 5, 6 and 7 show as picked in the event's graphic. The player, followers and events all follow it (the player steps diagonally with Database › System 1 › Options › Diagonal movement on). Sheets without the tag are cut as in MZ. Forge › 3D Character Builder › Export sprite sheet makes one.
+
 ## Pieces
 
 ```json

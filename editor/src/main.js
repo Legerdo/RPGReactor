@@ -158,7 +158,7 @@ class RPGReactor {
             const appWindow = nw.Window.get();
             appWindow.on('close', () => {
                 if (this.projectController.allowApplicationClose) {
-                    appWindow.close(true);
+                    nw.App.quit();
                     return;
                 }
                 this.projectController.requestApplicationClose();

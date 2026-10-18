@@ -1631,6 +1631,8 @@ Game_CharacterBase.prototype.moveDiagonally = function(horz, vert) {
     if (this._direction === this.reverseDir(vert)) {
         this.setDirection(vert);
     }
+    // The turn to a straight direction above keeps the diagonal as the way it faces among eight.
+    if (d8 && this._reactorCanFace(d8)) this._reactorDir8 = d8;
 };
 
 Game_CharacterBase.prototype.jump = function(xPlus, yPlus) {

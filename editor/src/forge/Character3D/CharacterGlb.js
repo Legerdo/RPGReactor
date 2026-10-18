@@ -132,6 +132,7 @@
             return imageIndex.get(name);
         };
 
+        let quantized = false;
         for (const part of built.parts) {
             const texture = part.texture ? textureFor(part.texture) : null;
             const base = part.texture || part.colors ? [1, 1, 1, 1] : hexColor(part.color);
@@ -148,6 +149,8 @@
             // A relief picture (`normalTexture`, a name in `images`), at `normalScale`.
             const normal = part.normalTexture ? textureFor(part.normalTexture) : null;
             if (normal !== null) material.normalTexture = Object.assign({ index: normal }, part.normalScale != null ? { scale: part.normalScale } : {});
+            // A part that shines in its own light: `emissive` (hex), `emissiveTexture` (a name in `images`).
+            if (part.emissive) { material.emissiveFactor = hexColor(part.emissive).slice(0, 3); const glow = part.emissiveTexture ? textureFor(part.emissiveTexture) : null; if (glow !== null) material.emissiveTexture = { index: glow }; }
             json.materials.push(material);
             const b = bounds(part.positions);
             const big = part.positions.length / 3 > 65535;
@@ -165,24 +168,28 @@
             if (part.colors) primitive.attributes.COLOR_0 = accessor(Float32Array.from(part.colors), 'VEC3', 5126, 34962);
             const mesh = { name: part.name, primitives: [primitive] };
             // Expressions hook: the face's named morph targets (built.morphs, RRCharacterExpressions.morphTargets) as
-            // sparse position deltas; a target that leaves this part still has its slot, all zero.
+            // sparse position deltas; each mesh carries the targets that move it, named in its extras.targetNames.
             const partIndex = built.parts.indexOf(part);
-            const own = (built.morphs || []).map(t => t.parts.find(e => e.part === partIndex) || null);
-            if (own.some(Boolean)) {
+            const own = [];
+            for (const t of built.morphs || []) { const entry = t.parts.find(e => e.part === partIndex); if (entry && entry.indices.length) own.push({ name: t.name, entry }); }
+            if (own.length) {
                 const count = part.positions.length / 3;
-                primitive.targets = own.map(entry => {
-                    if (!entry || !entry.indices.length) { json.accessors.push({ componentType: 5126, count, type: 'VEC3', min: [0, 0, 0], max: [0, 0, 0] }); return { POSITION: json.accessors.length - 1 }; }
+                primitive.targets = own.map(({ entry }) => {
                     const min = [0, 0, 0], max = [0, 0, 0];
                     for (let i = 0; i < entry.deltas.length; i++) { min[i % 3] = Math.min(min[i % 3], entry.deltas[i]); max[i % 3] = Math.max(max[i % 3], entry.deltas[i]); }
-                    const small = count <= 65535;
+                    // Deltas as normalized shorts (KHR_mesh_quantization): a step of 1/32767 m, far under what shows.
+                    const small = count <= 65535, values = new Int16Array(entry.deltas.length);
+                    for (let i = 0; i < values.length; i++) values[i] = Math.round(Math.max(-1, Math.min(1, entry.deltas[i])) * 32767);
+                    for (let k = 0; k < 3; k++) { min[k] = Math.max(-1, Math.round(min[k] * 32767) / 32767); max[k] = Math.min(1, Math.round(max[k] * 32767) / 32767); }
                     json.accessors.push({
-                        componentType: 5126, count, type: 'VEC3', min, max,
-                        sparse: { count: entry.indices.length, indices: { bufferView: view(small ? Uint16Array.from(entry.indices) : Uint32Array.from(entry.indices)), componentType: small ? 5123 : 5125 }, values: { bufferView: view(Float32Array.from(entry.deltas)) } }
+                        componentType: 5122, normalized: true, count, type: 'VEC3', min, max,
+                        sparse: { count: entry.indices.length, indices: { bufferView: view(small ? Uint16Array.from(entry.indices) : Uint32Array.from(entry.indices)), componentType: small ? 5123 : 5125 }, values: { bufferView: view(values) } }
                     });
+                    quantized = true;
                     return { POSITION: json.accessors.length - 1 };
                 });
                 mesh.weights = own.map(() => 0);
-                mesh.extras = { targetNames: built.morphs.map(t => t.name) };
+                mesh.extras = { targetNames: own.map(t => t.name) };
             }
             json.meshes.push(mesh);
             json.nodes.push({ name: part.name, mesh: json.meshes.length - 1, skin: 0 });
@@ -205,6 +212,7 @@
             (json.animations = json.animations || []).push(animation);
         }
         json.buffers.push({ byteLength: length });
+        if (quantized) { json.extensionsUsed = ['KHR_mesh_quantization']; json.extensionsRequired = ['KHR_mesh_quantization']; }
 
         const jsonBytes = new TextEncoder().encode(JSON.stringify(json));
         const jsonPad = (4 - (jsonBytes.length % 4)) % 4;
