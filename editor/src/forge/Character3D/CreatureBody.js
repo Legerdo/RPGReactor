@@ -384,14 +384,16 @@
         const chestTop = yS + 0.36 * g, chestBottom = yS - 0.24 * g * cd;
         // Front leg: the humerus down and back to the elbow, the forearm down to the carpus, the paw ahead of it.
         const wristY = hoof ? yS * 0.36 : yS * (0.22 - 0.17 * plant);
-        const hockY = hoof ? yH * 0.44 : yH * (0.36 - 0.3 * plant);
+        const hockY = hoof ? yH * 0.42 : yH * (0.33 - 0.27 * plant);
         J.frontKnee = [halfW * 1.1, yS * 0.6, zS - 0.1 * L];
         J.frontAnkle = [halfW * 1.05, wristY, zS - 0.05 * L];
         J.frontToe = [halfW * 1.05, 0, zS + (hoof ? 0.0 : 0.03 * L) + 0.12 * plant];
-        // Hind leg: the femur down and forward to the stifle, the tibia down and back to the hock, the paw under it.
-        J.rearKnee = [halfW * 1.15, yH * 0.58, zH + 0.17 * L * (1 - 0.4 * plant)];
-        J.rearAnkle = [halfW, hockY, zH - 0.13 * L * (1 - 0.5 * plant)];
-        J.rearToe = [halfW, 0, zH - (hoof ? 0.1 : 0.06) * L + 0.2 * plant];
+        // Hind leg: the femur down and forward to the stifle, the tibia down and back to the hock (steeper
+        // than it is long back, as a standing animal holds it), the cannon or paw under it. Laid out from
+        // the hip's height, so a long or short leg keeps the same angles.
+        J.rearKnee = [halfW * 1.15, yH * (hoof ? 0.67 : 0.62), zH + (hoof ? 0.12 : 0.13 * (1 - 0.4 * plant)) * yH];
+        J.rearAnkle = [halfW, hockY, zH - (hoof ? 0.07 : 0.1 * (1 - 0.5 * plant)) * yH];
+        J.rearToe = [halfW, 0, zH - (hoof ? 0.05 : 0.04) * yH + 0.2 * plant];
         // Neck: from its root out and up at the raise angle.
         const na = r.neckAngle * DEG, nlen = 0.34 * r.neckLength;
         J.atlas = add(J.neck, mul([0, Math.sin(na), Math.cos(na)], nlen));
@@ -532,7 +534,7 @@
             C(m([halfW * 0.8, yH + 0.05 * g, zH - 0.17]), m(add(lerp(st, hk, 0.3), [0, 0, -0.035 * lw])), 0.075 * lw, 0.042 * lw, P + 'RearUpperLeg', 0.065 * g, 'thigh');
             E(m(add(st, [0.008, 0.012, 0.028 * lw])), [0.042 * lw, 0.045 * lw, 0.04 * lw], P + 'RearLowerLeg', 0.03 * g, 'thigh');
             // The flank's fold from the belly to the stifle.
-            C([0.1 * g * side, yH + 0.0, zH + 0.3 * bl], m(add(st, [-0.01, 0.06, 0])), 0.05 * g, 0.045 * lw, 'Spine', 0.05 * g, 'belly');
+            C([0.1 * g * side, yH + 0.0, zH + 0.3 * bl], m(add(st, [-0.01, 0.06, 0])), 0.075 * g, 0.05 * lw, 'Spine', 0.08 * g, 'belly');
             // The gaskin: the tibia, the calf behind it, the tendon down to the point of the hock.
             C(m(st), m(hk), 0.048 * lw, 0.028 * lw, P + 'RearLowerLeg', 0.03 * g, 'lowerleg');
             E(m(add(lerp(st, hk, 0.3), [0, 0, -0.03 * lw])), [0.038 * lw, 0.042 * lw, Math.max(0.05, len(sub(hk, st)) * 0.28)], P + 'RearLowerLeg', 0.03 * g, 'lowerleg', m(sub(hk, st)));
