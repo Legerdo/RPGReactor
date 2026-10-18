@@ -505,7 +505,7 @@
         if (p.fam === 3 || p.fam === 4) warm += smooth(0.14, 0, Math.abs(p.s - 1.0)) * Math.max(0, p.n[2]) * 0.3;
         rgb = mix(rgb, flush, Math.min(1, warm) * 0.55);
         // The eyelids a little darker, cooler; under the eyes a faint shadow of the same hue.
-        if (p.lids > 0.15) rgb = mix(rgb, rgb.map((c, i) => c * [0.8, 0.74, 0.8][i]), smooth(0.15, 0.6, p.lids) * 0.5);
+        if (p.lids > 0.15) rgb = mix(rgb, rgb.map((c, i) => c * [0.8, 0.74, 0.8][i]), smooth(0.15, 0.6, p.lids) * 0.22);
         if (p.bags > 0.2) rgb = mix(rgb, rgb.map((c, i) => c * [0.88, 0.82, 0.88][i]), smooth(0.2, 0.7, p.bags) * 0.3 * (1 - smooth(0.15, 0.4, p.lids)));
         // The palms and soles paler, the more so on deep skin.
         const deep = 1 - Math.min(1, (base[0] * 0.3 + base[1] * 0.55 + base[2] * 0.15) * 2.2);
@@ -657,6 +657,18 @@
             if (cover > 0 && cover < 1) cover *= Math.min(1, 0.25 + 1.5 * cover * (0.35 + 0.65 * noise3(x * 1100, y * 140, z * 1100)));
             if (cover > 0) rgb = mix(rgb, s.scalp.rgb, cover * 0.95);
         }
+        // Round the eye: the caruncle a soft pink at the inner corner, the lower lid's wet rim a little pinker
+        // and lighter.
+        if (p.fam === 0 && p.s > 4.4 && s.marks) {
+            const e = s.marks.eye, R = s.marks.eyeR, dx = Math.abs(x) - e[0], dy = y - e[1];
+            if (Math.abs(dx) < R * 1.4 && Math.abs(dy) < R && z > e[2] - R * 0.4) {
+                // The lids' margins: an ellipse round the opening.
+                const q = Math.hypot(dx / (R * 0.95), dy / (R * 0.46)), band = Math.max(0, 1 - Math.abs(q - 1) / 0.2);
+                if (band > 0 && dy < 0) rgb = mix(rgb, rgb.map((c, i) => Math.min(1, c * [1.12, 0.9, 0.9][i])), band * 0.5 * smooth(-0.1, -0.35, dy / R));
+                const caruncle = Math.max(0, 1 - Math.hypot((dx + R * 0.86) / (R * 0.16), dy / (R * 0.16)));
+                if (caruncle > 0) rgb = mix(rgb, rgb.map((c, i) => c * [1.08, 0.7, 0.7][i]), Math.min(1, caruncle * 1.5) * 0.7);
+            }
+        }
         // An aged face: its lines, darker and a little warmer in their depth; and age spots on the face.
         if (s.ageing > 0 && p.fam === 0 && p.s > 4.0) {
             const w = wrinkles(s.marks, p, s.ageing);
@@ -717,7 +729,7 @@
         const facial = options && options.facial && options.facial.style && options.facial.style !== 'none' ? options.facial : null;
         if (facial) s.facial = { rgb: Outfit.linear(facial.color || '#2a1d15').map(c => c * 0.85), amount: 1, stubble: facial.style === 'stubble' ? 1 : 0 };
         s.beardField = facial || s.beard ? beardField(pack, facial ? facial.style : 'fullBeard') : null;
-        if (s.ageing) s.marks = F.marks;
+        s.marks = F.marks;
         if (options && options.scalp) {
             s.scalp = { rgb: Outfit.linear(options.scalp.color).map(c => c * 0.9), recede: options.scalp.recede || 0, amount: 1 };
             const zone = options.scalp.style ? scalpZone(pack, options.scalp.style, s.scalp.recede) : null;
@@ -805,7 +817,8 @@
 
     // ── eyes ──────────────────────────────────────────────────────────────
     const PUPILS = [['round', 'Round'], ['slit', 'Slit'], ['goat', 'Bar'], ['none', 'None']];
-    const DEFAULT_EYES = Object.freeze({ color: '#6a4a2a', pupil: 'round', sclera: '', size: 1.25, pupilSize: 1, catchlight: true });
+    // No painted catchlight by default: the eye's wet surface reflects the scene's own lights.
+    const DEFAULT_EYES = Object.freeze({ color: '#6a4a2a', pupil: 'round', sclera: '', size: 1.25, pupilSize: 1, catchlight: false });
     // The picture holds two eyeballs; each iris is centered here, about 0.11 of the picture across.
     const IRIS = [[0.708, 0.259], [0.292, 0.671]], IRIS_R = 0.108, PUPIL_R = 0.042;
 
@@ -839,10 +852,14 @@
             const lum = (srgb(src[o] / 255) * 0.3 + srgb(src[o + 1] / 255) * 0.5 + srgb(src[o + 2] / 255) * 0.2);
             let rgb = null;
             if (best < irisR * 1.08) {
-                // Iris: its fibers from the picture's lightness, on the new color; a dark ring at its edge.
-                const r = best / irisR;
+                // Iris: its fibers from the picture's lightness, on the new color, with radial fibers of its own,
+                // a lighter ring round the pupil (the collarette) and a soft dark limbal ring at its edge.
+                const r = best / irisR, ang = Math.atan2(dv, du);
                 const detail = Math.min(1.6, 0.35 + lum * 9);
-                rgb = iris.map(c => c * detail * (r > 0.88 ? 0.55 : 1));
+                const fibers = 0.82 + 0.18 * Math.sin(ang * 70 + Math.sin(ang * 13) * 2.5) * (0.6 + 0.4 * Math.sin(ang * 23 + r * 9)) + 0.08 * Math.sin(ang * 150);
+                const collar = 1 + 0.22 * Math.exp(-(((r - 0.5) / 0.09) ** 2));
+                const limbal = 1 - 0.55 * smooth(0.74, 0.97, r);
+                rgb = iris.map(c => c * detail * fibers * collar * limbal);
                 // The pupil.
                 const pr = Math.min(irisR * 0.95, PUPIL_R * e.size * e.pupilSize);
                 let inPupil = false;

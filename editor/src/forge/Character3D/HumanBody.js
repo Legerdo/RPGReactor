@@ -178,7 +178,7 @@
     const APPEAL = {
         female: { headWidth: -0.25, headFat: -0.1, cheeks: 0.1, cheekBones: 0.45, jaw: -0.4, chin: 0.25, chinWidth: -0.3, mouthHeight: 0.12, eyeSize: 0.35, eyeOpen: -0.45, eyeSlant: 0.2, eyeBags: -0.5, eyeSpacing: -0.1, headOval: 0.55,
             browRidge: -0.7, browHeight: -0.1, underbite: -0.25, noseWidth: -0.45, noseVolume: -0.3, noseLength: -0.2, noseTip: 0.2, nostrils: -0.2, upperLip: 0.35, lowerLip: -0.2, mouthWidth: -0.1, mouthCorners: 0.3, neck: -0.3 },
-        male: { headWidth: -0.15, headFat: -0.15, cheeks: -0.1, cheekBones: 0.4, jaw: 0.4, chin: 0.3, chinWidth: 0.15, eyeOpen: -0.32, eyeBags: -0.5, headSquare: 0.35, headOval: 0.2, noseWidth: -0.15, noseHump: -0.1,
+        male: { headWidth: -0.15, headFat: -0.05, cheeks: 0, cheekBones: 0.4, jaw: 0.4, chin: 0.3, chinWidth: 0.15, eyeOpen: -0.32, eyeBags: -0.5, headSquare: 0.35, headOval: 0.2, noseWidth: -0.15, noseHump: -0.1,
             upperLip: 0.1, lowerLip: -0.15, mouthCorners: 0.15, browHeight: -0.15, browRidge: -0.35, temples: -0.3, underbite: -0.2, neck: 0.15 }
     };
     /** With them, by their own targets (appeal/…): a defined upper lip, the mouth drawn back, an upright forehead, a younger skull. */
@@ -1464,6 +1464,8 @@
             r.shapes[s.key] = s.paired ? pick(R.shapes) * (s.key === 'belly' ? Math.max(0, r.weight - 0.3) * 1.5 : 1) : Math.max(0, pick(R.shapes)) * 0.5;
         }
         r.shapes.earsPointed = 0;
+        // A random face is never gaunt: hollow cheeks and a thin face are a choice, not a chance.
+        for (const k of ['headFat', 'cheeks']) if (r.shapes[k] != null) r.shapes[k] = Math.max(-0.15, r.shapes[k]);
         const tones = people.tones;
         const t = rand() * (tones.length - 1), i = Math.floor(t), f = t - i;
         r.skin = mix(tones[i], tones[Math.min(i + 1, tones.length - 1)], f);

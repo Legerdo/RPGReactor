@@ -870,7 +870,8 @@
                 strands({ count: 250, single: true, comb: partComb, length: () => 0.3 * L, width: 0.0075 * S, hug: 0.5, lift: 0.35 + 0.3 * V, gravity: 0.55, steps: 22, waves: 0.009 + 0.004 * V, wavePeriod: 0.075, stopY: () => H.shoulderY - 0.05 * S * hair.length })]);
             case 'animeSpikes': return [cap(0.01), { type: 'spikes', count: 34, length: 0.13 * L, width: 0.05 * S, up: 0.3, anime: true }, { type: 'spikes', count: 9, length: 0.11 * L, width: 0.04 * S, up: -0.8, front: true, zone: c => 50 - Math.abs(c.az) }];
             case 'long': return withFringe([cap(0.007), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.5 * L, width: 0.028 * S, hug: 0.85, gravity: 0.65, steps: 12, drape: 'split' })]);
-            case 'longWavy': return withFringe([cap(0.008), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.52 * L, width: 0.028 * S, drape: 'split', hug: 0.8, lift: 0.15 + 0.25 * V, gravity: 0.6, steps: 19, waves: 0.012 + 0.012 * V })]);
+            // Waves in many narrow single locks: wide waving cards read as shingles.
+            case 'longWavy': return withFringe([cap(0.008), strands({ sheet: true, single: true, count: 460, comb: partComb, length: () => 0.52 * L, width: 0.018 * S, drape: 'split', hug: 0.8, lift: 0.15 + 0.25 * V, gravity: 0.6, steps: 19, waves: 0.012 + 0.012 * V })]);
             case 'veryLong': return withFringe([cap(0.007), strands({ sheet: true, count: 330, comb: partComb, length: () => 0.85 * L, width: 0.028 * S, drape: 'split', hug: 0.85, gravity: 0.7, steps: 16 })]);
             case 'hime': return [cap(0.007), frontBangs(0.13 * S, 0), strands({ count: 70, zone: c => (Math.abs(c.az) > 45 && Math.abs(c.az) < 100 ? 1 : -1) * 20, comb: (p, n, c) => combDown(n, c), length: () => 0.3 * L, width: 0.02 * S, hug: 0.9, gravity: 0.8, steps: 10, stopY: () => chinY - 0.01 * S, frontDrape: true }), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.6 * L, width: 0.026 * S, hug: 0.85, gravity: 0.7, steps: 14 })];
             case 'dreadlocks': return [cap(0.01), { type: 'locks', count: 64, length: 0.4 * L, radius: (0.009 + 0.004 * V) * S }];
@@ -1365,6 +1366,20 @@
         };
     }
 
+    /** Per pack vertex, how much the lip targets move it against their largest move (1 the lips' red, 0 off them). */
+    function lipShare(pack) {
+        if (pack._lipShare) return pack._lipShare;
+        const out = new Float32Array(pack.vertexCount);
+        for (const name of ['shape/upperLip-incr', 'shape/lowerLip-incr']) {
+            const t = pack.targets.get(name);
+            if (!t) continue;
+            let max = 0;
+            for (let i = 0; i < t.index.length; i++) max = Math.max(max, Math.hypot(t.delta[i * 3], t.delta[i * 3 + 1], t.delta[i * 3 + 2]));
+            for (let i = 0; i < t.index.length; i++) out[t.index[i]] = Math.max(out[t.index[i]], Math.hypot(t.delta[i * 3], t.delta[i * 3 + 1], t.delta[i * 3 + 2]) / (max || 1));
+        }
+        return (pack._lipShare = out);
+    }
+
     function buildFacial(H, hair, m, rand, skin) {
         const f = hair.facial;
         if (f.style === 'none') return;
@@ -1413,6 +1428,19 @@
         const height = i => thick * smooth(0, 0.7, inward(surf.val[i])) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]);
         addShell(m, surf, i => Math.max(0.0008 * S, height(i) * 0.35), i => mixRgb(skinRgb, ramp(0.55, tone(i), false), smooth(0.04, 0.85, outline[i]) * 0.92), i => shellUv(i, 0.02, 0.8));
         addShell(m, surf, i => height(i) * 0.8, i => ramp(0.7, tone(i) * 1.08, false), i => shellUv(i, 0.3, 0.55));
+        // Round the mouth the beard runs right to the lips' red: a thin, dense layer of short hair over the strip
+        // of skin the beard's cut leaves between them, so no bare skin shines there.
+        if (f.style !== 'pencil') {
+            const share = lipShare(H.pack), ring = cutSurface(H, v => {
+                const p = H.P(v), near = byMouth(p);
+                if (near < 0.05) return -1;
+                // Never in the slot where the lips meet.
+                const slot = Math.max((Math.abs(p[1] - mouthY0) / Math.max(1e-4, (H.lipTop - H.lipBottom) / 2) - 0.6) * 40, (Math.abs(p[0] - H.center[0]) / H.lipHalf - 0.95) * 40);
+                return Math.min(closed(v) + 2, (0.42 - share[v]) * 60, (near - 0.05) * 40, slot);
+            });
+            if (ring.index.length) addShell(m, ring, i => 0.0005 * S + 0.0007 * S * smooth(0, 6, ring.val[i]), i => ramp(0.5, (0.85 + 0.3 * lumps(ring.pos[i])) * 0.95, false),
+                i => [0.125 + 0.1 * Math.sin((ring.pos[i][0] * 1.7 + ring.pos[i][1]) * 330), 0.02 + 0.3 * (1 - smooth(0, 6, ring.val[i]))]);
+        }
         // Locks over it: many fine, flat, overlapping cards (one strip each), laid along the jaw and falling
         // toward the chin; long styles hang below the chin in layers. Their lightness varies lock to lock,
         // and some catch the light, so the beard is never one flat dark.
@@ -1690,13 +1718,13 @@
             }
             return out;
         };
-        const upper = strands(0, 70, 1, 0.0045, 1), lower = strands(0.5, 34, 0.5, 0.003, 7);
+        const upper = strands(0, 70, 1, 0.0045, 1), lower = strands(0.5, 22, 0.45, 0.0025, 7);
         for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
             const u = x / size, v = y / size, o = (y * size + x) * 4;
             const top = u < 0.5, along = top ? u * 2 : (u - 0.5) * 2;
             // Fuller in the middle of the lid, thinning toward both corners.
             const mid = 0.45 + 0.55 * Math.sin(Math.min(1, Math.max(0, along)) * Math.PI);
-            let a = top ? (1 - Math.min(1, v / 0.12)) * 0.9 * mid : (1 - Math.min(1, v / 0.06)) * 0.45 * mid;
+            let a = top ? (1 - Math.min(1, v / 0.12)) * 0.9 * mid : (1 - Math.min(1, v / 0.05)) * 0.25 * mid;
             for (const s of top ? upper : lower) {
                 if (v > s.len * mid) continue;
                 const t = v / (s.len * mid), c = s.c + s.lean * t * t;
@@ -1828,14 +1856,23 @@
         const long = ['bob', 'shoulder', 'long', 'longWavy', 'ponytail', 'bun', 'braid', 'pigtails', 'hime', 'curly', 'sweptBangs', 'pixie', 'twinBraids', 'bunLow', 'ponytailLow'];
         const any = ['afro', 'dreadlocks', 'shag', 'mohawk', 'topKnot', 'bald'];
         const style = rand() < 0.12 ? pick(any) : pick(male ? (rand() < 0.8 ? short : long) : (rand() < 0.8 ? long : short));
-        const natural = ['#0e0b09', '#22170f', '#3b2a1e', '#5a3d26', '#7a5532', '#a0763f', '#c99a5b', '#e0c48a', '#8c3b1c', '#b2552a', '#9c9c9c', '#dcdcdc'];
-        const color = rand() < 0.08 ? pick(['#6a2fa0', '#2f6ad0', '#d02f6a', '#2fa06a', '#e0e0f0']) : pick(natural);
+        // Natural colors as they occur among the people (`opts.people`, RRHumanBody's): blond and red mostly
+        // among Europeans; grey with age (`opts.age`).
+        const dark = ['#0e0b09', '#0e0b09', '#22170f', '#22170f', '#3b2a1e'];
+        const fair = ['#0e0b09', '#22170f', '#3b2a1e', '#5a3d26', '#7a5532', '#a0763f', '#c99a5b', '#e0c48a', '#8c3b1c', '#b2552a'];
+        const people = opts && opts.people;
+        const natural = !people || people === 'european' ? fair : ['mixed', 'latinAmerican', 'middleEastern', 'centralAsian'].includes(people) ? dark.concat(['#3b2a1e', '#5a3d26', '#7a5532']) : dark;
+        const age = opts && opts.age;
+        const grey = age > 45 && rand() < smooth(45, 75, age) ? pick(['#9c9c9c', '#bdbdbd', '#dcdcdc']) : null;
+        const dyed = rand() < 0.08;
+        const color = dyed ? pick(['#6a2fa0', '#2f6ad0', '#d02f6a', '#2fa06a', '#e0e0f0']) : grey || pick(natural);
         return normalizeHair({
             style, color, length: 0.8 + rand() * 0.5, volume: rand(), curl: rand() < 0.2 ? rand() : 0,
             part: pick(PARTS), fringe: (STYLE_FRINGE[style] || [0])[0] * (0.6 + 0.8 * rand()), hairline: male && rand() < 0.25 ? rand() * 0.8 : 0,
             highlights: rand() < 0.2 ? rand() : 0,
-            facial: { style: male && rand() < 0.45 ? pick(FACIAL.slice(1)).id : 'none', length: 0.7 + rand() * 0.6, volume: rand() },
-            brows: { style: pick(['natural', 'natural', 'thin', 'thick', 'arched', 'straight', 'bushy']), thickness: male ? 0.5 + rand() * 0.5 : rand() * 0.6 }
+            facial: { style: male && rand() < 0.45 ? pick(FACIAL.slice(1)).id : 'none', length: 0.7 + rand() * 0.6, volume: rand(), color: dyed ? pick(natural) : '' },
+            // Dyed hair leaves the brows and beard their own natural color.
+            brows: { style: pick(['natural', 'natural', 'thin', 'thick', 'arched', 'straight', 'bushy']), thickness: male ? 0.5 + rand() * 0.5 : rand() * 0.6, color: dyed ? pick(natural) : '' }
         });
     }
 

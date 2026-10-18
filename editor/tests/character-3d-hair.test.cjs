@@ -162,6 +162,16 @@ test('a full beard is a soft volume of flat strand cards; a budget thins hair an
     }
 });
 
+test('random hair colors follow the people and age; dyed hair keeps natural brows', () => {
+    const blond = ['#c99a5b', '#e0c48a', '#a0763f'];
+    for (let seed = 1; seed < 120; seed++) {
+        const h = Hair.randomHair(seed, { gender: 'female', people: 'eastAsian' });
+        assert.ok(!blond.includes(h.color), 'no blond East Asian by chance: ' + h.color);
+        if (['#6a2fa0', '#2f6ad0', '#d02f6a', '#2fa06a', '#e0e0f0'].includes(h.color)) assert.ok(h.brows.color && h.brows.color !== h.color && h.facial.color !== h.color, 'dyed hair, natural brows and beard');
+    }
+    assert.ok(Array.from({ length: 40 }, (_, k) => Hair.randomHair(k + 1, { gender: 'male', people: 'european', age: 80 }).color).filter(c => ['#9c9c9c', '#bdbdbd', '#dcdcdc'].includes(c)).length > 15, 'old men mostly grey');
+});
+
 test('hair follows an exaggerated head and body', () => {
     const big = Body.build(pack, { gender: 1, weight: 3, shapes: { headWidth: 2.5, headHeight: 2.5, neck: 3 } });
     const small = Body.build(pack, { gender: 0, age: 11 });

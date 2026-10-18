@@ -585,7 +585,7 @@
         });
         const gender = r.gender > 0.5 ? 'male' : 'female';
         const bald = o.species && (Species.BY_ID.get(o.species)?.recipe || {}).bald;
-        r.hair = bald ? { style: 'bald', brows: { style: 'none' }, lashes: false } : Hair.randomHair(scramble(seed + 2), { gender });
+        r.hair = bald ? { style: 'bald', brows: { style: 'none' }, lashes: false } : Hair.randomHair(scramble(seed + 2), { gender, people: body.ancestry.people, age: body.age });
         const extras = Props.PROPS.filter(p => (theme === 'Fantasy' ? ['Hats', 'Jewelry', 'Back'] : theme === 'Sci-fi' ? ['Face', 'Back'] : ['Face', 'Hats', 'Jewelry']).includes(p.group));
         r.props = rand() < 0.45 ? [{ id: pick(extras).id }] : [];
         const skinTones = ['#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26', '#3f2618'];
