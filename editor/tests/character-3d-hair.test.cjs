@@ -61,7 +61,9 @@ test('every head style builds on a man and a woman, within budget, skinned to th
         const hair = byName(parts, 'Hair');
         if (style.id === 'bald') { assert.equal(hair, undefined); continue; }
         assert.ok(hair, `${style.id} has hair`);
-        assert.ok(tris(parts) < 45000, `${style.id}/${label} ${tris(parts)} triangles`);
+        // The budget is the geometry: the blended twin over the cut-out hair is the same cards drawn again.
+        const own = parts.filter(p => !p.soft);
+        assert.ok(tris(own) < 45000, `${style.id}/${label} ${tris(own)} triangles`);
         // Above the neck everything rides on the head alone.
         const P = hair.positions, J = hair.joints, W = hair.weights;
         for (let v = 0; v < P.length / 3; v++) if (P[v * 3 + 1] > built.bones[headIndex].head[1]) assert.ok(J[v * 4] === headIndex && W[v * 4] === 1);
@@ -160,6 +162,32 @@ test('a full beard is a soft volume of flat strand cards; a budget thins hair an
         const a = tris(Hair.build(pack, man, recipe)), b = tris(Hair.build(pack, man, recipe, { budget: 0.4 }));
         assert.ok(b < a * 0.6, `${JSON.stringify(recipe)}: ${a} → ${b}`);
     }
+});
+
+test('the strand picture: card sides and ends fade to single strands; solid hair (buns, braids, an afro) is opaque', () => {
+    const T = Hair.hairTexture(512), a = (u, v) => T.data[(Math.floor(v * 512) * 512 + Math.floor(u * 512)) * 4 + 3];
+    assert.ok(a(0.125, 0.02) > 200, 'the root row in a lane\'s middle, where solid hair sits');
+    assert.ok(a(0.5, 0.02) < 20 && a(0.25, 0.5) < 20, 'a card\'s border is clear');
+    let end = 0;
+    for (let x = 0; x < 512; x++) end = Math.max(end, T.data[(511 * 512 + x) * 4 + 3]);
+    assert.ok(end < 40, 'a card never ends in a cut line: ' + end);
+    // Every vertex of a bun or braid (solid, no picture coordinates of its own) samples the opaque middle.
+    for (const style of ['bun', 'braid', 'afro']) {
+        const hair = byName(Hair.build(pack, woman, { style }), 'Hair'), U = hair.uvs;
+        let clear = 0;
+        for (let i = 0; i < U.length; i += 2) if (U[i + 1] < 0.03 && a(U[i], U[i + 1]) < 60) clear++;
+        assert.ok(clear / (U.length / 2) < 0.2, `${style}: ${clear} of ${U.length / 2} root vertices on clear picture`);
+    }
+});
+
+test('hair is drawn twice: a cut-out core and a blended twin for its soft edges; weak hardware gets the core alone', () => {
+    const parts = Hair.build(pack, woman, { style: 'long' });
+    const core = byName(parts, 'Hair'), soft = byName(parts, 'Hair soft');
+    assert.ok(core.cutout && core.alphaCutoff >= 0.5);
+    assert.ok(soft && !soft.cutout && soft.opacity < 1 && soft.positions === core.positions, 'the same cards, blended');
+    const weak = Hair.build(pack, woman, { style: 'long' }, { budget: 0.5 });
+    assert.equal(byName(weak, 'Hair soft'), undefined);
+    assert.ok(byName(weak, 'Hair').alphaCutoff < 0.5, 'a lower cut keeps the core full on its own');
 });
 
 test('random hair colors follow the people and age; dyed hair keeps natural brows', () => {

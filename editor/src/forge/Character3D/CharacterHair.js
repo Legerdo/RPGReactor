@@ -398,10 +398,10 @@
     function meshBuilder() {
         return { pos: [], nrm: [], col: [], idx: [], uv: [], tan: [] };
     }
-    // A vertex; `uv` places it on the strand picture (a card), solid geometry sits on its root row.
     // A vertex; `uv` places it on the strand picture (a card), `tan` is the strand's direction there
-    // (for highlights that run along the hair); solid geometry sits on the picture's root row.
-    const pushVert = (m, p, n, c, uv, tan) => { m.pos.push(p[0], p[1], p[2]); m.nrm.push(n[0], n[1], n[2]); m.col.push(c[0], c[1], c[2]); m.uv.push(uv ? uv[0] : 0.5, uv ? uv[1] : 0.02); m.tan.push(tan ? tan[0] : 0, tan ? tan[1] : -1, tan ? tan[2] : 0); return m.pos.length / 3 - 1; };
+    // (for highlights that run along the hair); solid geometry sits on the picture's root row, in the middle
+    // of a lane, where the picture is opaque.
+    const pushVert = (m, p, n, c, uv, tan) => { m.pos.push(p[0], p[1], p[2]); m.nrm.push(n[0], n[1], n[2]); m.col.push(c[0], c[1], c[2]); m.uv.push(uv ? uv[0] : 0.125, uv ? uv[1] : 0.02); m.tan.push(tan ? tan[0] : 0, tan ? tan[1] : -1, tan ? tan[2] : 0); return m.pos.length / 3 - 1; };
 
     /** A shell over a cut surface: each point raised by `lift(i)` along its normal, colored by `color(i)`. */
     function addShell(m, surf, lift, color, uv) {
@@ -467,6 +467,8 @@
     function addCard(m, pts, opts) {
         const n = pts.length, w0 = opts.width * 2.0, lane = opts.lane ?? (m._lane = ((m._lane || 0) + 1) % 4);
         const u0 = lane * 0.25, u1 = u0 + 0.25, v0 = opts.vFrom || 0.01;
+        const seed = Math.sin(pts[0][0] * 9157.3 + pts[0][1] * 3373.1 + pts[0][2] * 6619.7) * 43758.5453;
+        const roll = opts.roll ?? (seed - Math.floor(seed) - 0.5) * 0.7;
         // A lock lying flat on the skin (`single`) needs no crossing strip.
         for (const [scale, twist] of opts.single ? [[1, 0]] : [[1, 0], [0.6, 1]]) {
             const base = m.pos.length / 3;
@@ -483,6 +485,9 @@
                 if (prevB && dot(B, prevB) < 0) B = mul(B, -1);
                 prevB = B;
                 let N = norm(cross(B, T));
+                // Each card rolled a little about its strand, its own way, so neighboring cards' edges never
+                // line up and catch the light together.
+                if (roll) { const cr = Math.cos(roll), sr = Math.sin(roll), b2 = add(mul(B, cr), mul(N, sr)); N = add(mul(N, cr), mul(B, -sr)); B = b2; }
                 // The crossing strip stands across the first one.
                 if (twist) { const x = B; B = N; N = mul(x, -1); }
                 const taper = opts.taper ? opts.taper(t) : (1 - Math.pow(t, 1.6) * 0.7);
@@ -501,7 +506,8 @@
                         const sf = opts.H.surface(p);
                         if (Number.isFinite(sf.d) && sf.d < 0.04 * opts.H.scale) out = norm(lerp(out, sf.n, 0.7 * (1 - smooth(0.015, 0.04, sf.d / opts.H.scale))));
                     }
-                    pushVert(m, p, norm(add(mul(out, 0.7), mul(norm(add(N, mul(B, k * 0.35))), 0.3))), shadeRgb(col, shade), [u0 + (k + 1) / 2 * (u1 - u0), v0 + t * (0.99 - v0)], T);
+                    // Mostly the volume's facing: the cards shade as one head of hair, not as flat strips.
+                    pushVert(m, p, norm(add(mul(out, 0.85), mul(norm(add(N, mul(B, k * 0.35))), 0.15))), shadeRgb(col, shade), [u0 + (k + 1) / 2 * (u1 - u0), v0 + t * (0.99 - v0)], T);
                 }
             }
             for (let i = 0; i + 1 < rows; i++) {
@@ -535,7 +541,7 @@
             for (let k = 0; k < 170; k++) {
                 const u0 = lo + 0.008 + rnd() * 0.234, clump = clumps.reduce((best, c) => (Math.abs(c - u0) < Math.abs(best - u0) ? c : best), clumps[0]);
                 // Most strands run the card's length; the rest stop short, scattering the tips.
-                const L = rnd() < 0.6 ? 0.82 + 0.18 * rnd() : 0.4 + 0.45 * rnd();
+                const L = rnd() < 0.5 ? 0.8 + 0.17 * rnd() : 0.35 + 0.45 * rnd();
                 const gatherK = 0.35 + 0.45 * rnd(), wob = (rnd() - 0.5) * 0.006, freq = 2 + rnd() * 4, ph = rnd() * 6.28;
                 const light = 0.62 + 0.5 * rnd(), a0 = 0.75 + 0.25 * rnd(), w0 = (0.0026 + 0.0018 * rnd()) * size;
                 for (let y = 0; y < size; y++) {
@@ -555,9 +561,11 @@
         }
         for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
             const o = y * size + x, v = (y + 0.5) / size;
-            // A card's sides thin a little, so no lock shows a straight edge.
-            const lu = ((x + 0.5) / size % 0.25) / 0.25, side = Math.min(1, Math.min(lu, 1 - lu) * 10);
-            const a = Math.max(alpha[o], Math.max(0, 0.95 - v * 8)) * (0.8 + 0.2 * side);
+            // A card's sides fade out to single strands and nothing at its border, so neighboring cards melt
+            // together and no card shows as a strip; its own end is never reached by a strand at full strength,
+            // so it never ends in a cut line. The root is fuller (no scalp between cards), fading the same way.
+            const lu = ((x + 0.5) / size % 0.25) / 0.25, side = smooth(0, 0.3, Math.min(lu, 1 - lu));
+            const a = Math.max(alpha[o] * (1 - smooth(0.86, 0.985, v)) * (0.35 + 0.65 * side), Math.max(0, 0.8 - v * 7) * side);
             // Darker at the root, lighter toward the tips, as hair is; its lightness averages about one, so a
             // lock shows the color chosen for it.
             const l = Math.min(255, Math.round(255 * 1.15 * lum[o] * (0.8 + 0.2 * Math.min(1, v * 1.6))));
@@ -896,7 +904,8 @@
         const hi = mixRgb(linear(hair.color), [0.9, 0.82, 0.62], 0.5);
         const ramp = (t, variance, highlight, lock) => {
             let c = mixRgb(rootC, tipC, smooth(0, 1, t));
-            if (highlight) c = mixRgb(c, hi, 0.55 * t);
+            // Highlights lighten a lock toward its tip, never to a pale sheet.
+            if (highlight) c = mixRgb(c, hi, 0.3 * t);
             if (lock) c = mixRgb(c, lock[0], lock[1]);
             return shadeRgb(c, variance);
         };
@@ -907,12 +916,13 @@
         ramp.lock = rand => {
             if (!greying) return null;
             const r = rand();
-            if (r < 0.3) return [[0.86, 0.86, 0.84], 0.55];
-            if (r < 0.42 && mx < 0.7) return [[0.07, 0.055, 0.045], 0.3];
-            if (r < 0.7) return [shadeRgb(base, 0.7), 0.5];
+            if (r < 0.3) return [[0.86, 0.86, 0.84], 0.4];
+            if (r < 0.4 && mx < 0.7) return [[0.12, 0.1, 0.085], 0.25];
+            if (r < 0.7) return [shadeRgb(base, 0.78), 0.4];
             return null;
         };
         ramp.greying = greying;
+        ramp.light = mx;
         return ramp;
     }
 
@@ -922,8 +932,9 @@
         // Its edge runs out through the strand picture toward the tips, where only scattered strands are
         // left, so the hairline breaks up into single hairs over the scalp painted under it, never a cut
         // edge; its color is the locks' own middle, so no darker scalp shows between them.
-        addShell(m, surf, i => layer.thickness * smooth(0, soft, surf.val[i]), () => ramp(0.4, 0.97, false),
-            i => [0.125 + 0.11 * Math.sin((surf.pos[i][0] + surf.pos[i][2]) * 260), 0.02 + 0.85 * Math.pow(1 - smooth(0, soft, surf.val[i]), 1.3)]);
+        // Light hair shows the cap between its locks: there its shade is the locks' own, so no darker patches show.
+        addShell(m, surf, i => layer.thickness * smooth(0, soft, surf.val[i]), () => ramp(ramp.light > 0.3 ? 0.6 : 0.4, ramp.light > 0.3 ? 1 : 0.97, false),
+            i => [0.125 + 0.06 * Math.sin((surf.pos[i][0] + surf.pos[i][2]) * 260), 0.02 + 0.62 * Math.pow(1 - smooth(0, soft * 0.5, surf.val[i]), 2)]);
         return surf;
     }
 
@@ -958,7 +969,8 @@
             // Curl waves each lock in its own plane: twisted round a helix, a flat card reads as a row of tiles.
             const curlAmt = (layer.curl ? layer.curl.amount : 0) + hair.curl * 0.01 * H.scale;
             if (curlAmt > 0) pts = curlStrand(H, pts, curlAmt, (layer.curl ? layer.curl.period : 0.04 * H.scale) * (0.85 + 0.3 * rand()), false, rand() * 6.28);
-            const variance = 0.85 + 0.3 * rand();
+            // Lock-to-lock lightness: light hair shows every difference, so it varies less.
+            const variance = 1 + (rand() - 0.5) * (ramp.light > 0.3 ? 0.14 : 0.3);
             const highlight = rand() < hair.highlights * 0.5, lock = ramp.lock(rand);
             // Near the hairline the locks are narrower and drawn from past the picture's full root, so the
             // edge breaks up into hairs instead of blocks.
@@ -1018,9 +1030,9 @@
                 if (a[i][1] < H.chin[1]) { const sf = H.surface(lerp(a[i], b[i], 0.5)); if (Number.isFinite(sf.d) && sf.d < 0.04 * H.scale) out = norm(lerp(out, sf.n, 0.7 * (1 - smooth(0.015, 0.04, sf.d / H.scale)))); }
                 // On the strand picture (the middle of a lane, clear of its thinned sides), so the sheet's
                 // ends and edges break up into hair like the locks over it.
-                const u0 = (k % 4) * 0.25 + 0.04;
+                const u0 = (k % 4) * 0.25 + 0.06;
                 pushVert(m, a[i], out, col(t, lock), [u0, t * 0.98 + 0.01]);
-                pushVert(m, b[i], out, col(t, lock), [u0 + 0.17, t * 0.98 + 0.01]);
+                pushVert(m, b[i], out, col(t, lock), [u0 + 0.13, t * 0.98 + 0.01]);
                 rows++;
             }
             for (let i = 0; i + 1 < rows; i++) {
@@ -1133,16 +1145,16 @@
             const g = sub(q, center), en = norm([g[0] / (size[0] * size[0]), g[1] / (size[1] * size[1]), g[2] / (size[2] * size[2])]);
             return { q, n: norm(lerp(nrm, en, edge * low)), edge, low, hc };
         };
-        const base = m.pos.length / 3;
+        const base = m.pos.length / 3, lightness = Math.max(...linear(hair.color));
         for (let i = 0; i < surf.pos.length; i++) {
             const s = shellAt(surf.pos[i], surf.nrm[i], surf.val[i]);
-            pushVert(m, s.q, s.n, ramp(0.5, 0.62 + 0.3 * coil(surf.pos[i]), false));
+            // On light hair the coils need more contrast to read at all.
+            pushVert(m, s.q, s.n, ramp(0.5, lightness > 0.3 ? 0.5 + 0.48 * coil(surf.pos[i]) : 0.62 + 0.3 * coil(surf.pos[i]), false));
         }
         for (let t = 0; t < surf.index.length; t += 3) m.idx.push(base + surf.index[t], base + surf.index[t + 1], base + surf.index[t + 2]);
         // A fuzz of short coiled strands standing out of the mass all over, so its outline is soft.
         // Light hair shows each fuzz card as a pale fleck: the lighter the hair, the fewer stand out.
-        const lightness = Math.max(...linear(hair.color));
-        const roots = scatter(surf, Math.round(1100 * H.budget * (1 - 0.75 * smooth(0.15, 0.6, lightness))), rand);
+        const roots = scatter(surf, Math.round(1100 * H.budget * (1 - 0.4 * smooth(0.15, 0.6, lightness))), rand);
         for (const r of roots) {
             const s = shellAt(r.p, r.n, r.f);
             if (s.edge < 0.25) continue;
@@ -1154,7 +1166,7 @@
                 pts.push(add(add(s.q, mul(out, L * t - 0.002 * H.scale)), mul(side, Math.sin(ph + t * 5) * 0.0025 * H.scale * t)));
             }
             // Fine: on light hair a broad fuzz card shows as a pale shard.
-            const lock = ramp.lock(rand), tone = 0.66 + 0.34 * rand();
+            const lock = ramp.lock(rand), tone = 0.6 + 0.3 * rand();
             addCard(m, pts, { width: (0.003 + 0.002 * rand()) * H.scale, single: true, center: center, vFrom: 0.55, taper: t => 1 - 0.6 * t, color: t => ramp(0.5, tone * 0.9, false, lock) });
         }
     }
@@ -1443,7 +1455,7 @@
         // hair all through, never a solid. The inner one is dense (the picture's full roots well inside, its
         // sparse tips at the outline); the outer one stands off it and is drawn from the strands' gappy middle,
         // so light passes through the beard's surface and its outline is wispy.
-        const shellUv = (i, from, reach) => [0.125 + 0.1 * Math.sin((surf.pos[i][0] * 1.7 + surf.pos[i][1]) * 330) + 0.25 * (Math.floor(Math.abs(surf.pos[i][0]) * 90) % 4),
+        const shellUv = (i, from, reach) => [0.125 + 0.06 * Math.sin((surf.pos[i][0] * 1.7 + surf.pos[i][1]) * 330) + 0.25 * (Math.floor(Math.abs(surf.pos[i][0]) * 90) % 4),
             from + reach * Math.pow(1 - smooth(0, 0.7, outline[i]), 0.7)];
         const tone = i => 0.85 + 0.3 * lumps(surf.pos[i]);
         // Low at any edge (round the mouth too), so it never stands as a ledge over the lips.
@@ -1461,7 +1473,7 @@
                 return Math.min(closed(v) + 2, (0.42 - share[v]) * 60, (near - 0.05) * 40, slot);
             });
             if (ring.index.length) addShell(m, ring, i => 0.0005 * S + 0.0007 * S * smooth(0, 6, ring.val[i]), i => ramp(0.5, (0.85 + 0.3 * lumps(ring.pos[i])) * 0.95, false),
-                i => [0.125 + 0.1 * Math.sin((ring.pos[i][0] * 1.7 + ring.pos[i][1]) * 330), 0.02 + 0.3 * (1 - smooth(0, 6, ring.val[i]))]);
+                i => [0.125 + 0.06 * Math.sin((ring.pos[i][0] * 1.7 + ring.pos[i][1]) * 330), 0.02 + 0.3 * (1 - smooth(0, 6, ring.val[i]))]);
         }
         // Locks over it: many fine, flat, overlapping cards (one strip each), laid along the jaw and falling
         // toward the chin; long styles hang below the chin in layers. Their lightness varies lock to lock,
@@ -1512,7 +1524,7 @@
             // Toward the edge the locks thin to a few hairs over the skin: drawn from the picture's sparse
             // tips, and their color giving way to the skin's as so little hair covers it.
             addCard(m, pts, {
-                H, width: (lowLong ? 0.009 : 0.0055) * S * edge * (0.7 + 0.6 * rand()), single: true, center: H.mouth, vFrom: lowLong ? 0.05 : 0.3 + 0.3 * (1 - thin),
+                H, roll: isLip ? 0 : undefined, width: (lowLong ? 0.009 : 0.0055) * S * edge * (0.7 + 0.6 * rand()), single: true, center: H.mouth, vFrom: lowLong ? 0.05 : 0.3 + 0.3 * (1 - thin),
                 // Narrow where it grows, so the beard's edge (the sideburn's top, the cheek line) is a scatter of
                 // roots, not a row of blunt card ends.
                 taper: t => (0.45 + 0.55 * smooth(0, 0.3, t)) * (1 - Math.pow(t, 1.2) * 0.6), color: t => mixRgb(skinRgb, ramp(0.5 + 0.5 * t, variance, false), 0.55 + 0.45 * thin) });
@@ -1646,7 +1658,7 @@
         for (let k = 0; k < count; k++) {
             const u = rand();
             const band = (rand() - 0.5) * 0.38 * thickness * (1 - 0.6 * u);
-            let x = mix(-1.15, 1.75, u), y = lineAt(u) + band;
+            let x = mix(-1.15, 1.6, u), y = lineAt(u) + band;
             const dir = norm([1, mix(1.4, -0.15, Math.min(1, u * 1.4)), 0]);
             // The tail thins to a few fine, short hairs; the head near the nose is soft.
             const tail = smooth(0.7, 1, u);
@@ -1662,7 +1674,8 @@
             }
         }
         // Nothing reaches the picture's edges, so the patch's own outline never shows.
-        for (let y = 0; y < Ht; y++) for (let x = 0; x < W; x++) alpha[y * W + x] *= smooth(0, 0.06, x / W) * smooth(0, 0.12, 1 - x / W) * smooth(0, 0.1, y / Ht) * smooth(0, 0.1, 1 - y / Ht);
+        // The tail fades well inside it: at the temple the skin turns away and the patch may end sooner.
+        for (let y = 0; y < Ht; y++) for (let x = 0; x < W; x++) alpha[y * W + x] *= smooth(0, 0.06, x / W) * (1 - smooth(0.72, 0.86, x / W)) * smooth(0, 0.1, y / Ht) * smooth(0, 0.1, 1 - y / Ht);
         for (let o = 0; o < W * Ht; o++) {
             const k = tone[o];
             data[o * 4] = Math.round(255 * Math.pow(Math.min(1, rgb[0] * k), 1 / 2.2));
@@ -1773,6 +1786,48 @@
         return { width: size, height: size, data, name: 'lashes.png' };
     }
 
+    /** A hair part's blended twin: the same cards, its picture's partial alpha blended over the cut-out core. */
+    function softEdges(part, name) {
+        return Object.assign({}, part, { name, cutout: false, opacity: 0.999, alphaCutoff: undefined, soft: true });
+    }
+
+    /**
+     * Self-shadowing for hair, baked into its vertex colors (so the game's
+     * renderer shows it too): directions from the head's middle are binned;
+     * in each bin the outermost hair is lit, the innermost (the layers under
+     * it, the roots) darker, by how deep it lies between them. Vertices from
+     * `skipFrom` on are left alone.
+     */
+    function depthShade(H, m, from, skipFrom) {
+        const P = m.pos, C = m.col, n = Math.min(P.length / 3, skipFrom), c0 = H.center;
+        const AZ = 48, EL = 24, lo = new Float32Array(AZ * EL).fill(Infinity), hi = new Float32Array(AZ * EL).fill(-Infinity), bin = new Int32Array(n), rad = new Float32Array(n);
+        for (let i = from; i < n; i++) {
+            const d = [P[i * 3] - c0[0], P[i * 3 + 1] - c0[1], P[i * 3 + 2] - c0[2]], r = len(d) || 1;
+            const az = Math.floor((Math.atan2(d[0], d[2]) / Math.PI + 1) / 2 * AZ) % AZ, el = Math.min(EL - 1, Math.floor((Math.asin(clamp(d[1] / r, -1, 1)) / Math.PI + 0.5) * EL));
+            const b = el * AZ + az;
+            bin[i] = b; rad[i] = r;
+            lo[b] = Math.min(lo[b], r); hi[b] = Math.max(hi[b], r);
+        }
+        // Each bin's span widened by its neighbors', so the shading changes smoothly from bin to bin.
+        const L2 = Float32Array.from(lo), H2 = Float32Array.from(hi);
+        for (let el = 0; el < EL; el++) for (let az = 0; az < AZ; az++) {
+            const b = el * AZ + az;
+            for (let de = -1; de <= 1; de++) for (let da = -1; da <= 1; da++) {
+                const e = el + de;
+                if (e < 0 || e >= EL) continue;
+                const o = e * AZ + (az + da + AZ) % AZ;
+                if (Number.isFinite(lo[o])) { L2[b] = Math.min(L2[b], lo[o]); H2[b] = Math.max(H2[b], hi[o]); }
+            }
+        }
+        const minSpan = 0.004 * H.scale;
+        for (let i = from; i < n; i++) {
+            const b = bin[i], span = H2[b] - L2[b];
+            if (!(span > minSpan)) continue;
+            const t = clamp((rad[i] - L2[b]) / span, 0, 1), k = 0.6 + 0.4 * Math.pow(t, 0.75);
+            C[i * 3] *= k; C[i * 3 + 1] *= k; C[i * 3 + 2] *= k;
+        }
+    }
+
     /**
      * Every triangle wound so its front faces the way its vertices' normals
      * do. A two-sided card is lit by its normal from the side its front
@@ -1840,7 +1895,7 @@
         const parts = [];
         const ramp = colorRamp(hair);
         const head = meshBuilder();
-        let rand = rng(seed);
+        let rand = rng(seed), afroFrom = Infinity;
         for (const layer of styleLayers(H, hair)) {
             if (layer.type === 'cap') buildCap(H, hair, head, layer, ramp);
             else if (layer.type === 'strands') {
@@ -1848,14 +1903,21 @@
                 buildStrands(H, hair, head, layer, ramp, rand);
             }
             else if (layer.type === 'spikes') buildSpikes(H, hair, head, layer, ramp, rand);
-            else if (layer.type === 'afro') buildAfro(H, hair, head, layer, rand);
+            else if (layer.type === 'afro') { afroFrom = head.pos.length / 3; buildAfro(H, hair, head, layer, rand); }
             else if (layer.type === 'coils') buildCoils(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'tail') buildTail(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'bun') buildBun(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'braid') buildBraid(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'locks') buildLocks(H, hair, head, layer, ramp, rand);
         }
-        const strands = { texture: 'hair.png', cutout: true, alphaCutoff: 0.3, keepColors: true };
+        // Hair shades itself: deeper layers lie in the shadow of the ones over them.
+        depthShade(H, head, 0, afroFrom);
+        // Two passes, as hair is drawn in games: a cut-out core at a firm cut, then the same cards again,
+        // blended and drawn over it, so each strand's fine, partly clear edge shows soft and the cards'
+        // outlines dissolve (no blur: the strands keep their own sharpness). On weak hardware (a hair
+        // budget below 0.75) the core alone.
+        const soft = H.budget >= 0.75;
+        const strands = { texture: 'hair.png', cutout: true, alphaCutoff: soft ? 0.5 : 0.3, keepColors: true };
         // Cards are wider than the strands they stand for: whatever of them sinks into the body is lifted out.
         for (let i = 0; i < head.pos.length; i += 3) {
             const p = [head.pos[i], head.pos[i + 1], head.pos[i + 2]], s = H.surface(p);
@@ -1868,12 +1930,15 @@
         // their own root-to-tip shading.
         faceOut(head);
         if (head.idx.length) parts.push(toPart(H, head, 'Hair', { extra: Object.assign({ noShade: true }, strands) }));
+        if (head.idx.length && soft) parts.push(softEdges(parts[parts.length - 1], 'Hair soft'));
         rand = rng(seed ^ 0x51ed);
         const facial = meshBuilder();
         buildFacial(H, hair, facial, rand, hexOk(o.skin) ? o.skin : (built.recipe && built.recipe.skin));
+        depthShade(H, facial, 0, Infinity);
         faceOut(facial);
         // Left out of the baked occlusion, as the head's hair is: its layers would shade each other black.
         if (facial.idx.length) parts.push(toPart(H, facial, 'Facial hair', { rigid: true, extra: Object.assign({ noShade: true }, strands) }));
+        if (facial.idx.length && soft) parts.push(softEdges(parts[parts.length - 1], 'Facial hair soft'));
         const brows = buildBrows(H, hair);
         if (brows) parts.push(brows);
         if (hair.lashes) {
