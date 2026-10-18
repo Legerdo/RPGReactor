@@ -56,6 +56,8 @@
     function withSpecies(recipe, id) {
         const old = normalize(recipe);
         const preset = Species.speciesRecipe(id);
+        // A species' beard is a man's: a woman keeps her own face.
+        if (preset.hair && preset.hair.facial && old.gender < 0.5) preset.hair = Object.assign({}, preset.hair, { facial: old.hair.facial });
         const next = Object.assign({}, preset, {
             plan: 'human', gender: old.gender, age: preset.age ?? old.age, ancestry: old.ancestry,
             bodyHair: preset.bodyHair || (Species.BY_ID.get(old.species)?.recipe || {}).bodyHair ? (preset.bodyHair || {}) : old.bodyHair,

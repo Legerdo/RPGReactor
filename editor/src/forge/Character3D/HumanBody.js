@@ -45,7 +45,7 @@
         weight: 0.5,
         height: 0.5,
         cup: 0.5,
-        firmness: 0.5,
+        firmness: 0.75,
         proportions: 0.7,
         ancestry: Object.freeze({ african: 1 / 3, asian: 1 / 3, caucasian: 1 / 3 }),
         shapes: Object.freeze({}),
