@@ -884,7 +884,8 @@
         parts.push(...extra);
         if (!lenses.empty) parts.push(lenses.part('Alien eyes', { roughness: 0.06, metalness: 0, kind: 'eye', doubleSided: true, envMapIntensity: 0.15, noShade: true }));
         if (!hard.empty) parts.push(hard.part('Horns and claws', { roughness: 0.4, metalness: 0 }));
-        if (!bill.empty) parts.push(bill.part('Beak', { roughness: 0.4, metalness: 0, noShade: true }));
+        // Sat on the face like the skin's own detail: it shades nothing and casts no shadow over the eyes and cheeks.
+        if (!bill.empty) parts.push(bill.part('Beak', { roughness: 0.4, metalness: 0, noShade: true, onSkin: true }));
         if (!soft.empty) parts.push(soft.part('Features', { roughness: 0.8, metalness: 0, doubleSided: true }));
         return { parts, bones, features: F, fur };
     }

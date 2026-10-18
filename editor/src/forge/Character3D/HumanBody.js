@@ -1173,7 +1173,7 @@
             const own = new Float32Array(F.w.length), free = [];
             for (let v = 0; v < F.w.length; v++) {
                 // The outer ear and its root; not the cheek and temple the ear-size target also carries.
-                own[v] = mask[v] > 0.02 ? Math.max(F.ear[v], mask[v]) : 0;
+                own[v] = mask[v] > 0.02 || F.ear[v] > 0.6 ? Math.max(F.ear[v], mask[v]) : 0;
                 if (own[v] > 0.02 && F.w[v] > 0.5) free.push(v);
             }
             const Q = Float32Array.from(P);
@@ -1195,7 +1195,7 @@
                 for (const v of free) {
                     if (Math.sign(P[v * 3]) !== side) continue;
                     const d = Math.hypot(Q[v * 3 + 1] - c[1], Q[v * 3 + 2] - c[2]) / (reach || 1);
-                    Q[v * 3] += side * 0.004 * Math.max(0, 1 - d * d);
+                    Q[v * 3] += side * 0.002 * Math.max(0, 1 - d * d);
                     const e = Math.min(1, own[v] * 1.5) * m.earsAway;
                     for (let k = 0; k < 3; k++) P[v * 3 + k] += (Q[v * 3 + k] - P[v * 3 + k]) * e;
                 }
