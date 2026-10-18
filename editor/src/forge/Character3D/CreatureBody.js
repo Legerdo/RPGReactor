@@ -170,22 +170,25 @@
      * What a kind is, beyond its sliders: its pupil ('round', 'slit' upright,
      * 'bar' across), whether its hooves are cloven, where a male's sheath and
      * testes lie ('belly' sheath ahead of the thighs with the scrotum between
-     * them, 'perineal' both under the tail as in cats and boars, 'pendulous'
-     * a hanging scrotum as in bulls and rams, 'cloaca' none outside), and its
-     * teats: pairs along the belly from `from` (0 the chest) to `to` (1 the
-     * groin), or an udder between the thighs.
+     * them, 'perineal' the scrotum under the tail as in cats and boars, with
+     * the sheath just below it or, where `sheath` is 'belly' (a boar), on the
+     * belly, 'pendulous' a hanging scrotum as in bulls and rams, 'cloaca' none
+     * outside), its teats: pairs along the belly from `from` (0 the chest) to
+     * `to` (1 the groin), or an udder between the thighs; `padColor` for ear
+     * backs darker than the coat, `felid` for a cat's pale patches under the
+     * eyes.
      */
     const PROFILE = {
-        cat: { pupil: 'slit', genital: 'perineal', teats: { pairs: 4, from: 0.15, to: 0.95 }, padColor: true },
-        lion: { pupil: 'round', genital: 'perineal', teats: { pairs: 2, from: 0.55, to: 0.92 }, padColor: true },
-        tiger: { pupil: 'round', genital: 'perineal', teats: { pairs: 2, from: 0.55, to: 0.92 }, padColor: true },
+        cat: { pupil: 'slit', genital: 'perineal', teats: { pairs: 4, from: 0.15, to: 0.95 }, padColor: true, felid: true },
+        lion: { pupil: 'round', genital: 'perineal', teats: { pairs: 2, from: 0.55, to: 0.92 }, padColor: true, felid: true },
+        tiger: { pupil: 'round', genital: 'perineal', teats: { pairs: 2, from: 0.55, to: 0.92 }, padColor: true, felid: true },
         dog: { pupil: 'round', genital: 'belly', teats: { pairs: 5, from: 0.1, to: 0.95 }, padColor: true },
         wolf: { pupil: 'round', genital: 'belly', teats: { pairs: 5, from: 0.1, to: 0.95 }, padColor: true },
         fox: { pupil: 'slit', genital: 'belly', teats: { pairs: 4, from: 0.2, to: 0.95 }, padColor: true },
         deer: { pupil: 'bar', cloven: true, genital: 'belly', teats: { udder: 0.5, count: 4 } },
         horse: { pupil: 'bar', genital: 'belly', teats: { udder: 0.45, count: 2 } },
         bear: { pupil: 'round', genital: 'belly', teats: { pairs: 3, from: 0.0, to: 0.95 }, padColor: true },
-        boar: { pupil: 'round', cloven: true, genital: 'perineal', teats: { pairs: 6, from: 0.05, to: 0.95 } },
+        boar: { pupil: 'round', cloven: true, genital: 'perineal', sheath: 'belly', teats: { pairs: 6, from: 0.05, to: 0.95 } },
         rabbit: { pupil: 'round', genital: 'perineal', teats: { pairs: 4, from: 0.1, to: 0.95 } },
         bull: { pupil: 'bar', cloven: true, genital: 'pendulous', teats: { udder: 1, count: 4 } },
         ram: { pupil: 'bar', cloven: true, genital: 'pendulous', teats: { udder: 0.7, count: 2 } },
@@ -196,11 +199,11 @@
     const K = (kind, over, colors) => ({ kind, over, colors });
     /** Presets: recipes over the defaults, sized as the grown animal (shoulder to hip joint, in meters). */
     const KINDS = [
-        K('cat', { size: 0.21, legLength: 0.96, girth: 0.82, chestDepth: 0.92, belly: -0.2, neckLength: 0.7, neckAngle: 34, headSize: 1.22, snoutLength: 0.26, snoutWidth: 0.92, headPitch: 6, eyeSize: 1.4, eyeSide: 0.05, earSize: 1.05, ears: 'pointed', tail: 'long', tailLength: 1.2, tailThickness: 0.75, tailCurl: 0.3, pattern: 'tabby', pawSize: 0.9, legThickness: 0.82, fluff: 0.3 },
+        K('cat', { size: 0.21, bodyLength: 0.95, legLength: 0.9, girth: 0.95, chestDepth: 0.95, belly: -0.1, neckLength: 0.6, neckAngle: 34, headSize: 1.42, snoutLength: 0.26, snoutWidth: 0.92, headPitch: 6, eyeSize: 1.35, eyeSide: 0.05, earSize: 1.05, ears: 'pointed', tail: 'long', tailLength: 1.1, tailThickness: 1.25, tailCurl: 0.3, pattern: 'tabby', pawSize: 0.9, legThickness: 0.88, fluff: 0.3 },
             { coat: '#b58a5a', marking: '#4a3220', light: '#efe2cc', nose: '#c87a78', eye: '#8db040', mane: '#b58a5a' }),
-        K('lion', { size: 0.86, bodyLength: 1, legLength: 0.97, girth: 1.08, chestDepth: 1.05, belly: -0.25, hump: 0, neckLength: 0.6, neckThickness: 1.2, neckAngle: 22, headSize: 1.35, snoutLength: 0.56, snoutWidth: 1.05, headPitch: 8, eyeSize: 0.9, eyeSide: 0.04, earSize: 0.62, ears: 'round', tail: 'tufted', tailLength: 1.05, tailThickness: 0.95, tailCurl: -0.35, mane: 'lion', maneSize: 1.1, pattern: 'countershade', pawSize: 1.2, legThickness: 1.28, fluff: 0.15 },
+        K('lion', { size: 0.86, bodyLength: 1, legLength: 0.97, girth: 1.08, chestDepth: 1.05, belly: -0.25, hump: 0, neckLength: 0.6, neckThickness: 1.2, neckAngle: 22, headSize: 1.45, snoutLength: 0.7, snoutWidth: 1.12, headPitch: 10, eyeSize: 1.1, eyeSide: 0.04, earSize: 0.62, ears: 'round', tail: 'tufted', tailLength: 1.05, tailThickness: 0.95, tailCurl: -0.35, mane: 'lion', maneSize: 1.0, pattern: 'countershade', pawSize: 1.2, legThickness: 1.28, fluff: 0.15 },
             { coat: '#c49556', marking: '#3a2618', light: '#ead6ae', nose: '#a8645a', eye: '#b98a32', mane: '#6e4322' }),
-        K('tiger', { size: 0.88, bodyLength: 1.08, legLength: 0.9, girth: 1.02, chestDepth: 1.02, belly: -0.3, neckLength: 0.8, neckThickness: 1.05, neckAngle: 22, headSize: 1.1, snoutLength: 0.6, snoutWidth: 1.05, headPitch: 8, eyeSize: 0.9, eyeSide: 0.04, earSize: 0.8, ears: 'round', tail: 'long', tailLength: 1.15, tailThickness: 1, tailCurl: -0.25, mane: 'ruff', maneSize: 0.35, pattern: 'stripes', pawSize: 1.2, legThickness: 1.12, fluff: 0.2 },
+        K('tiger', { size: 0.88, bodyLength: 1.08, legLength: 0.9, girth: 1.02, chestDepth: 1.02, belly: -0.3, neckLength: 0.8, neckThickness: 1.05, neckAngle: 22, headSize: 1.1, snoutLength: 0.68, snoutWidth: 1.1, headPitch: 10, eyeSize: 1.1, eyeSide: 0.04, earSize: 0.8, ears: 'round', tail: 'long', tailLength: 1.15, tailThickness: 1, tailCurl: -0.25, mane: 'ruff', maneSize: 0.35, pattern: 'stripes', pawSize: 1.2, legThickness: 1.12, fluff: 0.2 },
             { coat: '#d8782a', marking: '#1e1610', light: '#f2e8d8', nose: '#c07a70', eye: '#d0a030', mane: '#d8782a' }),
         K('dog', { size: 0.42, legLength: 1.02, girth: 0.95, chestDepth: 1.05, belly: -0.4, neckLength: 1, neckAngle: 38, headSize: 1.15, snoutLength: 0.85, snoutWidth: 1, headPitch: 14, tailThickness: 1.1, earSize: 1.1, earDroop: 0.35, tailCurl: 0.25, legThickness: 0.95 }, {}),
         K('wolf', { size: 0.55, legLength: 1.12, girth: 0.92, chestDepth: 1.1, belly: -0.6, neckLength: 1, neckAngle: 30, headSize: 1.08, snoutLength: 0.92, snoutWidth: 0.95, headPitch: 15, eyeSize: 0.85, earSize: 1, ears: 'pointed', tail: 'bushy', tailLength: 0.85, tailThickness: 1.2, tailCurl: -0.6, mane: 'ruff', maneSize: 0.6, pattern: 'saddle', fluff: 0.55, legThickness: 0.9 },
@@ -209,7 +212,7 @@
             { coat: '#d06a24', marking: '#2a1c14', light: '#f4ece0', nose: '#1a1412', eye: '#c08a20', mane: '#d06a24' }),
         K('deer', { size: 0.6, legLength: 1.32, girth: 0.85, chestDepth: 1.05, belly: -0.3, neckLength: 1.45, neckAngle: 55, headSize: 0.98, snoutLength: 1.05, snoutWidth: 0.8, headPitch: 42, eyeSize: 1.25, eyeSide: 0.85, earSize: 1.3, ears: 'narrow', earDroop: -0.3, tail: 'stub', tailLength: 0.35, feet: 'hoof', horns: 'antlers', hornSize: 1.1, legThickness: 0.72, pattern: 'countershade', fluff: 0.05 },
             { coat: '#9a6a40', marking: '#5a3a22', light: '#f0e6d6', nose: '#1e1816', horn: '#c8b090', eye: '#2a1a10', mane: '#9a6a40' }),
-        K('horse', { size: 0.95, legLength: 1.36, girth: 1.08, belly: 0.1, neckLength: 1.55, neckAngle: 52, neckThickness: 1.25, headSize: 1.3, snoutLength: 1.2, snoutWidth: 1.05, headPitch: 58, chestDepth: 1.2, eyeSize: 1, eyeSide: 0.9, earSize: 1.1, ears: 'narrow', tail: 'horse', tailLength: 1.05, tailThickness: 1.2, tailCurl: -0.9, feet: 'hoof', mane: 'horse', maneSize: 1, pattern: 'socks', legThickness: 0.92, fluff: 0.05 },
+        K('horse', { size: 0.95, legLength: 1.36, girth: 1.08, belly: 0.1, neckLength: 1.55, neckAngle: 52, neckThickness: 1.25, headSize: 1.3, snoutLength: 1.2, snoutWidth: 1.05, headPitch: 58, chestDepth: 1.2, eyeSize: 1.3, eyeSide: 0.9, earSize: 1.1, ears: 'narrow', tail: 'horse', tailLength: 1.05, tailThickness: 1.2, tailCurl: -0.9, feet: 'hoof', mane: 'horse', maneSize: 1, pattern: 'socks', legThickness: 0.92, fluff: 0.05 },
             { coat: '#7a4a2a', marking: '#f2ede4', light: '#d8c4a8', nose: '#2a2220', eye: '#2a1810', mane: '#1e1612' }),
         K('bear', { size: 0.78, legLength: 0.98, girth: 1.22, chestDepth: 1.05, belly: 0.4, hump: 0.7, hipHeight: 0.96, neckLength: 0.7, neckAngle: 16, neckThickness: 1.35, headSize: 1.08, snoutLength: 0.82, snoutWidth: 1.05, headPitch: 14, eyeSize: 0.7, earSize: 0.75, ears: 'round', tail: 'stub', tailLength: 0.15, feet: 'claw', plantigrade: 1, pawSize: 1.15, legThickness: 1.38, pattern: 'solid', fluff: 0.7 },
             { coat: '#5a3c26', marking: '#3a261a', light: '#7a5a3a', nose: '#1a1412', eye: '#1a1010', mane: '#5a3c26' }),
@@ -217,7 +220,7 @@
             { coat: '#4a3a30', marking: '#2a201a', light: '#6a5a4a', nose: '#3a2a26', horn: '#ece4d0', eye: '#1a1010', mane: '#2a2018' }),
         K('rabbit', { size: 0.15, bodyLength: 0.8, legLength: 0.5, hipHeight: 1.2, girth: 1.15, chestDepth: 1.05, neckLength: 0.4, neckAngle: 40, headSize: 1.3, snoutLength: 0.38, snoutWidth: 0.95, headPitch: 20, eyeSize: 1.5, eyeSide: 1, earSize: 2.1, ears: 'long', earDroop: -0.5, tail: 'stub', tailLength: 0.25, tailThickness: 1.4, tailCurl: 1, plantigrade: 1, pattern: 'countershade', fluff: 0.95 },
             { coat: '#9a8470', marking: '#5a4a3a', light: '#f2ece4', nose: '#d89aa0', eye: '#1a1210', mane: '#9a8470' }),
-        K('bull', { size: 0.95, legLength: 0.95, girth: 1.4, chestDepth: 1.28, belly: 0.6, hump: 0.45, neckLength: 0.6, neckAngle: 15, neckThickness: 1.5, headSize: 1.15, snoutLength: 1.0, snoutWidth: 1.15, headPitch: 35, eyeSize: 0.9, eyeSide: 0.85, earSize: 0.8, ears: 'round', earDroop: 0.7, tail: 'tufted', tailLength: 1, tailThickness: 0.7, tailCurl: -1, feet: 'hoof', horns: 'bull', hornSize: 1, pattern: 'piebald', legThickness: 1.08, fluff: 0.05 },
+        K('bull', { size: 0.95, legLength: 0.95, girth: 1.4, chestDepth: 1.28, belly: 0.6, hump: 0.45, neckLength: 0.6, neckAngle: 15, neckThickness: 1.5, headSize: 1.15, snoutLength: 1.0, snoutWidth: 1.15, headPitch: 35, eyeSize: 1.2, eyeSide: 0.85, earSize: 0.8, ears: 'round', earDroop: 0.7, tail: 'tufted', tailLength: 1, tailThickness: 0.7, tailCurl: -1, feet: 'hoof', horns: 'bull', hornSize: 1, pattern: 'piebald', legThickness: 1.08, fluff: 0.05 },
             { coat: '#2a2220', marking: '#f0ece4', light: '#3a302a', nose: '#c08a8a', horn: '#e0d4b8', eye: '#1a1010', mane: '#1a1412' }),
         K('ram', { size: 0.55, legLength: 0.92, girth: 1.22, chestDepth: 1.1, belly: 0.3, neckLength: 0.7, neckAngle: 35, headSize: 1, snoutLength: 0.85, snoutWidth: 0.85, headPitch: 35, eyeSize: 1, eyeSide: 0.9, earSize: 0.75, ears: 'narrow', earDroop: 0.6, tail: 'stub', tailLength: 0.3, feet: 'hoof', horns: 'ram', hornSize: 1.1, pattern: 'points', legThickness: 0.7, fluff: 1.3 },
             { coat: '#e8e0d0', marking: '#3a3430', light: '#f4f0e8', nose: '#2a2624', horn: '#b8a888', eye: '#a07830', mane: '#e8e0d0' }),
@@ -290,10 +293,21 @@
     }
 
     // ── shapes ─────────────────────────────────────────────────────────────
+    /**
+     * Every shape carries the same fields in the same order (one object layout keeps the field's hot loop
+     * fast): a cone's ends and radii, an ellipsoid's center, radii and axes, its bone, blend, tag and box,
+     * and what may be set on it after: cut away, roughened, flattened, its blend narrowed at the midline,
+     * an envelope of coat.
+     */
+    function shape(o) {
+        return { type: o.type, a: o.a || null, b: o.b || null, ra: o.ra || 0, rb: o.rb || 0, c: o.c || null, r: o.r || null, m: o.m || 0, mr: o.mr || 0,
+            ax: o.ax || null, ay: o.ay || null, az: o.az || null, bone: o.bone, k: o.k, tag: o.tag, lo: o.lo, hi: o.hi,
+            cut: false, bump: 0, bumpScale: 12, bumpSeed: 7, fx: 0, x0: 0, mid: null, envelope: false };
+    }
     /** A rounded cone from a (radius ra) to b (radius rb). */
     function cone(a, b, ra, rb, bone, k, tag) {
         const lo = [0, 1, 2].map(i => Math.min(a[i] - ra, b[i] - rb)), hi = [0, 1, 2].map(i => Math.max(a[i] + ra, b[i] + rb));
-        return { type: 0, a, b, ra, rb, bone, k: k ?? 0.03, tag, lo, hi };
+        return shape({ type: 0, a, b, ra, rb, bone, k: k ?? 0.03, tag, lo, hi });
     }
     /**
      * An ellipsoid at c with radii r along the axes x (side), y (up) and z
@@ -307,10 +321,12 @@
         side = norm(side);
         const up = norm(cross(f, side));
         const m = Math.max(r[0], r[1], r[2]);
-        return { type: 1, c, r, ax: side, ay: up, az: f, bone, k: k ?? 0.03, tag, lo: sub(c, [m, m, m]), hi: add(c, [m, m, m]) };
+        return shape({ type: 1, c, r, m, mr: Math.min(r[0], r[1], r[2]), ax: side, ay: up, az: f, bone, k: k ?? 0.03, tag, lo: sub(c, [m, m, m]), hi: add(c, [m, m, m]) });
     }
     /** The same shape, smoothly cut away from what is built. */
     const cut = s => Object.assign(s, { cut: true });
+    /** A cone made `f` times thinner across x about the plane x = x0 (a muscle mass flat against the body). */
+    const flatten = (s, x0, f) => Object.assign(s, { fx: f, x0, a: [x0 + (s.a[0] - x0) * f, s.a[1], s.a[2]], b: [x0 + (s.b[0] - x0) * f, s.b[1], s.b[2]] });
 
     function shapeDistance(s, p) {
         if (s.type === 1) {
@@ -320,11 +336,18 @@
             const z = (dx * s.az[0] + dy * s.az[1] + dz * s.az[2]) / s.r[2];
             const k0 = Math.sqrt(x * x + y * y + z * z);
             const k1 = Math.sqrt(x * x / (s.r[0] * s.r[0]) + y * y / (s.r[1] * s.r[1]) + z * z / (s.r[2] * s.r[2]));
-            return k1 > 1e-9 ? k0 * (k0 - 1) / k1 : -Math.min(s.r[0], s.r[1], s.r[2]);
+            if (k1 < 1e-9) return -s.mr;
+            const d = k0 * (k0 - 1) / k1;
+            // Outside, the estimate runs short far from a flat ellipsoid: never nearer than its bounding
+            // sphere, so a shape past its box (as the mesher culls it) never reaches into a blend. Inside, it
+            // runs deep along a long axis: never deeper than the shortest radius allows, so the field never
+            // falls faster than the distance and the mesher's far-block test holds.
+            return k0 < 1 ? Math.max(d, (k0 - 1) * s.mr) : Math.max(d, Math.sqrt(dx * dx + dy * dy + dz * dz) - s.m);
         }
-        // Round cone (Inigo Quilez's exact distance).
+        // Round cone (Inigo Quilez's exact distance), in the flattened frame of a flat one.
+        const px = s.fx ? s.x0 + (p[0] - s.x0) * s.fx : p[0];
         const bax = s.b[0] - s.a[0], bay = s.b[1] - s.a[1], baz = s.b[2] - s.a[2], l2 = bax * bax + bay * bay + baz * baz;
-        const pax = p[0] - s.a[0], pay = p[1] - s.a[1], paz = p[2] - s.a[2];
+        const pax = px - s.a[0], pay = p[1] - s.a[1], paz = p[2] - s.a[2];
         if (l2 < 1e-12) return Math.hypot(pax, pay, paz) - Math.max(s.ra, s.rb);
         const rr = s.ra - s.rb, a2 = l2 - rr * rr, il2 = 1 / l2;
         const y = pax * bax + pay * bay + paz * baz, z = y - l2;
@@ -347,8 +370,8 @@
     function bumpedDistance(s, p) {
         const d = shapeDistance(s, p);
         if (!s.bump || d > s.bump * 2) return d;
-        const f = s.bumpScale || 12;
-        return d - s.bump * (0.5 + 0.5 * fbm(p[0] * f, p[1] * f * 0.6, p[2] * f, s.bumpSeed || 7, 2));
+        const f = s.bumpScale;
+        return d - s.bump * (0.5 + 0.5 * fbm(p[0] * f, p[1] * f * 0.6, p[2] * f, s.bumpSeed, 2));
     }
 
     /** The field at p over a list of shapes: unions first, then cuts; nothing below the floor. */
@@ -357,7 +380,13 @@
         for (let i = 0; i < list.length; i++) {
             const s = list[i];
             const v = s.bump ? bumpedDistance(s, p) : shapeDistance(s, p);
-            d = s.cut ? smax(d, -v, s.k) : smin(d, v, s.k);
+            // A limb's wide blend into the trunk narrows toward the midline, so the two legs of a pair never web together.
+            let k = s.k;
+            if (s.mid) {
+                const t = (Math.abs(p[0]) - s.mid[0]) / (s.mid[1] - s.mid[0]);
+                if (t < 1) k *= t <= 0 ? s.mid[2] : s.mid[2] + (1 - s.mid[2]) * t * t * (3 - 2 * t);
+            }
+            d = s.cut ? smax(d, -v, k) : smin(d, v, k);
         }
         return Math.max(d, -p[1]);
     }
@@ -490,15 +519,17 @@
         const lw = lt * (0.55 + 0.45 * g);
         // ── torso: the rib cage deep and long, the waist narrower and tucked up, the croup and buttocks behind.
         const ribZ = zS - 0.27 * bl, ribLen = 0.34 * bl + 0.05;
-        E([0, (chestTop + chestBottom) / 2, ribZ], [0.19 * g, (chestTop - chestBottom) / 2, ribLen], 'Chest', 0.05 * g, 'torso');
+        E([0, (chestTop + chestBottom) / 2, ribZ], [0.19 * g, (chestTop - chestBottom) / 2, ribLen], 'Chest', 0.08 * g, 'torso');
         for (const s of [1, -1]) E([s * 0.06 * g, yS - 0.05 * g * cd, zS + 0.05], [0.08 * g, 0.14 * g * cd, 0.1], 'Chest', 0.08 * g, 'torso');
-        C(add(J.withers, [0, -0.06 * g, 0.1]), [0, chestTop - 0.04 * g, -0.05 * bl], 0.07 * g, 0.09 * g, 'Chest', 0.05 * g, 'back');
+        // The middle of the trunk follows the spine from the shoulders' height down (or up) to the hips'.
+        const spineY = z => yH + (yS - yH) * clamp((z - zH) / (zS - zH), 0, 1);
+        C(add(J.withers, [0, -0.06 * g, 0.1]), [0, spineY(-0.05 * bl) + (chestTop - 0.04 * g - yS), -0.05 * bl], 0.07 * g, 0.09 * g, 'Chest', 0.08 * g, 'back');
         const sag = r.belly * 0.06 * g;
         const bw = 1 + Math.max(0, r.belly) * 0.25;
-        E([0, yH + 0.17 * g - sag, -0.1 * bl], [0.165 * g * bw, 0.23 * g * (1 + 0.3 * Math.max(-0.6, r.belly)), 0.33 * bl + 0.02], 'Spine', 0.06 * g, 'belly');
-        C([0, yH + 0.31 * g, 0.05 * bl], [0, yH + 0.3 * g, zH + 0.05], 0.1 * g, 0.115 * g, 'Spine', 0.05 * g, 'back');
-        E([0, yH + 0.22 * g, zH - 0.03], [0.15 * g, 0.16 * g, 0.2], 'Hips', 0.05 * g, 'rump');
-        E([0, yH + 0.08 * g, zH - 0.19], [0.12 * g, 0.12 * g, 0.09], 'Hips', 0.05 * g, 'rump');
+        E([0, spineY(-0.1 * bl) + 0.17 * g - sag, -0.1 * bl], [0.165 * g * bw, 0.23 * g * (1 + 0.3 * Math.max(-0.6, r.belly)), 0.33 * bl + 0.02], 'Spine', 0.1 * g, 'belly');
+        C([0, spineY(0.05 * bl) + 0.31 * g, 0.05 * bl], [0, yH + 0.3 * g, zH + 0.05], 0.1 * g, 0.115 * g, 'Spine', 0.08 * g, 'back');
+        E([0, yH + 0.22 * g, zH - 0.03], [0.15 * g, 0.16 * g, 0.2], 'Hips', 0.08 * g, 'rump');
+        E([0, yH + 0.08 * g, zH - 0.19], [0.12 * g, 0.12 * g, 0.09], 'Hips', 0.07 * g, 'rump');
         if (r.hump > 0) E(add(J.withers, [0, -0.02 * g, 0.02]), [0.12 * g, 0.12 * g * r.hump, 0.2 * Math.max(0.7, bl)], 'Chest', 0.05 * g, 'hump');
         // ── neck: the column, the crest of muscle over it, the throat under it.
         const nt = r.neckThickness * g;
@@ -507,40 +538,51 @@
         C([0, yS + 0.04 * g, zS + 0.1], add(J.atlas, [0, -0.06 * nt, 0.02]), 0.1 * nt, 0.07 * nt, 'Neck', 0.05 * g, 'neck');
         // ── head.
         headShapes(r, lay, S, E, C);
-        // ── legs.
+        // ── legs. The upper leg lies inside the trunk's skin down to the elbow and the stifle, its muscle
+        // flat against the body and blended into it wide (narrowing toward the midline, so a pair never
+        // webs together); below, the leg stands free with tighter joints and tendons.
         const ps = r.pawSize;
+        const mid = [0.04 * g, 0.12 * g, 0.2];
+        const M = s => Object.assign(s, { mid });
+        // The upper legs' muscle follows the body's build as much as the leg's.
+        const tw = 0.5 * lw + 0.5 * g;
+        // Below the elbow and stifle a leg thins only so far, so the thinnest still holds together.
+        const ll = Math.max(lw, 0.5 * Math.max(1, 0.9 * g));
         for (const side of [1, -1]) {
             const m = side > 0 ? same : mirror;
             const P = side > 0 ? 'Left' : 'Right';
             const sh = J.shoulder, el = J.frontKnee, wr = J.frontAnkle;
-            // The shoulder blade on the ribs, up and back from the point of the shoulder to the withers.
-            const sTop = [0.11 * g, J.withers[1] - 0.06 * g, zS - 0.22], sLow = add(sh, [0.03 * g, 0.05 * g, 0.04]);
-            const sMid = lerp(sLow, sTop, 0.5); sMid[0] = 0.15 * g;
-            E(m(sMid), [0.035 * g, 0.1 * g, len(sub(sTop, sLow)) / 2 + 0.03], 'Chest', 0.06 * g, 'scapula', m(sub(sTop, sLow)));
-            // The upper arm: the point of the shoulder, the humerus, the triceps behind it, the elbow's point.
-            E(m(add(sh, [0.02 * g, 0.01, 0.03])), [0.06 * lw, 0.075 * lw, 0.08 * lw], P + 'FrontUpperLeg', 0.08 * g, 'upperleg');
-            C(m(add(sh, [0.02 * g, 0, 0])), m(el), 0.072 * lw, 0.056 * lw, P + 'FrontUpperLeg', 0.06 * g, 'upperleg');
-            E(m(add(lerp(sh, el, 0.5), [0.0, 0, -0.055 * lw])), [0.055 * lw, 0.065 * lw, 0.15 * Math.max(0.6, r.legLength)], P + 'FrontUpperLeg', 0.06 * g, 'upperleg', m(sub(el, sh)));
-            E(m(add(el, [0, 0.012, -0.042 * lw])), [0.033 * lw, 0.04 * lw, 0.036 * lw], P + 'FrontLowerLeg', 0.025 * g, 'lowerleg');
-            // The forearm, thick with muscle at the top, slim at the carpus.
-            C(m(el), m(wr), 0.058 * lw, 0.036 * lw, P + 'FrontLowerLeg', 0.04 * g, 'lowerleg');
-            E(m(add(lerp(el, wr, 0.28), [0.004, 0, 0.012 * lw])), [0.052 * lw, 0.056 * lw, Math.max(0.05, len(sub(wr, el)) * 0.32)], P + 'FrontLowerLeg', 0.045 * g, 'lowerleg', m(sub(wr, el)));
-            E(m(wr), [0.036 * lw, 0.038 * lw, 0.04 * lw], P + 'FrontFoot', 0.025 * g, 'lowerleg');
-            footShapes(r, lay, S, E, C, m, P + 'FrontFoot', wr, J.frontToe, ps, lw, true, prof);
+            // The shoulder blade flat on the ribs, up and back from the point of the shoulder to the withers.
+            const sTop = [0.1 * g, J.withers[1] - 0.07 * g, zS - 0.22], sLow = add(sh, [0.02 * g, 0.05 * g, 0.03]);
+            const sMid = lerp(sLow, sTop, 0.5); sMid[0] = 0.13 * g;
+            M(E(m(sMid), [0.035 * g, 0.1 * g, len(sub(sTop, sLow)) / 2 + 0.02], 'Chest', 0.1 * g, 'scapula', m(sub(sTop, sLow))));
+            // The upper arm: the point of the shoulder down to the elbow, the triceps filling the angle behind it.
+            const ax = side * (sh[0] + 0.01 * g);
+            M(flatten(C(m(add(sh, [0.01 * g, 0.02, 0.0])), m(add(el, [0, 0.03, 0.0])), 0.085 * tw, 0.05 * tw, P + 'FrontUpperLeg', 0.1 * g, 'upperleg'), ax, 1.5));
+            M(flatten(C(m([sh[0], sh[1] + 0.03 * g, sh[2] - 0.13]), m(add(el, [0, 0.025, -0.03 * lw])), 0.075 * tw, 0.045 * tw, P + 'FrontUpperLeg', 0.09 * g, 'upperleg'), ax, 1.45));
+            E(m(add(el, [0, 0.01, -0.04 * ll])), [0.032 * ll, 0.038 * ll, 0.034 * ll], P + 'FrontLowerLeg', 0.035 * g, 'lowerleg');
+            // The forearm, full of muscle at the top and in front, slim at the carpus.
+            C(m(el), m(wr), 0.06 * ll, 0.038 * ll, P + 'FrontLowerLeg', 0.05 * g, 'lowerleg');
+            E(m(add(lerp(el, wr, 0.26), [0.003, 0, 0.01 * ll])), [0.055 * ll, 0.058 * ll, Math.max(0.05, len(sub(wr, el)) * 0.34)], P + 'FrontLowerLeg', 0.05 * g, 'lowerleg', m(sub(wr, el)));
+            E(m(wr), [0.038 * ll, 0.038 * ll, 0.04 * ll], P + 'FrontFoot', 0.03 * g, 'lowerleg');
+            footShapes(r, lay, S, E, C, m, P + 'FrontFoot', wr, J.frontToe, ps, ll, true, prof);
             const hp = J.hip, st = J.rearKnee, hk = J.rearAnkle;
-            // The haunch: gluteal muscle over the hip, the thigh down to the stifle, the hamstring from the buttock to the calf.
-            E(m(add(hp, [0.025 * g, 0.07 * g, -0.03])), [0.08 * g, 0.1 * g, 0.15], P + 'RearUpperLeg', 0.08 * g, 'thigh');
-            E(m(add(lerp(hp, st, 0.45), [0.035 * g, 0, -0.025])), [0.085 * lw, 0.14 * lw, Math.max(0.1, len(sub(st, hp)) * 0.55)], P + 'RearUpperLeg', 0.075 * g, 'thigh', m(sub(st, hp)));
-            C(m([halfW * 0.8, yH + 0.05 * g, zH - 0.17]), m(add(lerp(st, hk, 0.3), [0, 0, -0.035 * lw])), 0.075 * lw, 0.042 * lw, P + 'RearUpperLeg', 0.065 * g, 'thigh');
-            E(m(add(st, [0.008, 0.012, 0.028 * lw])), [0.042 * lw, 0.045 * lw, 0.04 * lw], P + 'RearLowerLeg', 0.03 * g, 'thigh');
-            // The flank's fold from the belly to the stifle.
-            C([0.1 * g * side, yH + 0.0, zH + 0.3 * bl], m(add(st, [-0.01, 0.06, 0])), 0.075 * g, 0.05 * lw, 'Spine', 0.08 * g, 'belly');
+            // The haunch: one broad mass from the point of the hip to the point of the buttock, tapering down
+            // to the stifle; the hamstrings behind it down to the calf; its outside no wider than the ribs.
+            const hx = side * halfW * 0.9, femL = len(sub(st, hp));
+            M(flatten(C(m([halfW * 0.9, hp[1] + 0.02 * g, hp[2] - 0.04]), m(add(lerp(hp, st, 0.82), [0, 0, -0.005])), 0.11 * tw + 0.12 * femL, 0.06 * tw, P + 'RearUpperLeg', 0.11 * g, 'thigh'), hx, 1.9));
+            M(flatten(C(m([halfW * 0.75, yH + 0.03 * g, zH - 0.16]), m(add(lerp(st, hk, 0.3), [0, 0, -0.032 * lw])), 0.07 * tw, 0.04 * lw, P + 'RearUpperLeg', 0.08 * g, 'thigh'), hx, 1.35));
+            E(m(add(st, [0.006, 0.01, 0.022 * lw])), [0.038 * lw, 0.04 * lw, 0.036 * lw], P + 'RearLowerLeg', 0.04 * g, 'thigh');
+            // The flank's fold: a thin web of skin from the belly down to the front of the stifle, filling the
+            // angle between the belly and the thigh.
+            const fa = [0.115 * g, yH + 0.04 * g - Math.max(0, r.belly) * 0.04 * g, zH + 0.22 * bl], fb = add(st, [-0.01 * g, 0.03, 0.01]);
+            M(flatten(C(m(fa), m(fb), 0.1 * g + 0.08 * femL, 0.04 * tw, 'Spine', 0.12 * g, 'belly'), side * 0.115 * g, 2.0));
             // The gaskin: the tibia, the calf behind it, the tendon down to the point of the hock.
-            C(m(st), m(hk), 0.048 * lw, 0.028 * lw, P + 'RearLowerLeg', 0.03 * g, 'lowerleg');
-            E(m(add(lerp(st, hk, 0.3), [0, 0, -0.03 * lw])), [0.038 * lw, 0.042 * lw, Math.max(0.05, len(sub(hk, st)) * 0.28)], P + 'RearLowerLeg', 0.03 * g, 'lowerleg', m(sub(hk, st)));
-            C(m(add(lerp(st, hk, 0.55), [0, 0, -0.045 * lw])), m(add(hk, [0, 0.012, -0.038 * lw])), 0.022 * lw, 0.022 * lw, P + 'RearLowerLeg', 0.025 * g, 'lowerleg');
-            E(m(hk), [0.032 * lw, 0.034 * lw, 0.036 * lw], P + 'RearFoot', 0.025 * g, 'lowerleg');
-            footShapes(r, lay, S, E, C, m, P + 'RearFoot', hk, J.rearToe, ps * 0.92, lw, false, prof);
+            C(m(st), m(hk), 0.05 * ll, 0.03 * ll, P + 'RearLowerLeg', 0.04 * g, 'lowerleg');
+            E(m(add(lerp(st, hk, 0.3), [0, 0, -0.028 * ll])), [0.038 * ll, 0.044 * ll, Math.max(0.05, len(sub(hk, st)) * 0.3)], P + 'RearLowerLeg', 0.045 * g, 'lowerleg', m(sub(hk, st)));
+            C(m(add(lerp(st, hk, 0.55), [0, 0, -0.042 * ll])), m(add(hk, [0, 0.012, -0.036 * ll])), 0.022 * ll, 0.021 * ll, P + 'RearLowerLeg', 0.03 * g, 'lowerleg');
+            E(m(hk), [0.031 * ll, 0.033 * ll, 0.035 * ll], P + 'RearFoot', 0.03 * g, 'lowerleg');
+            footShapes(r, lay, S, E, C, m, P + 'RearFoot', hk, J.rearToe, ps * 0.92, ll, false, prof);
         }
         // ── a thick coat rounds the trunk over the muscles: one soft mass from the chest to the buttocks
         // and over each haunch, filling the waist and the hollows between shoulder and thigh. It shapes the
@@ -548,7 +590,7 @@
         if (r.fluff > 0.35) {
             const a = clamp((r.fluff - 0.35) / 0.6, 0, 1), top = Math.max(chestTop, yH + 0.3 * g);
             E([0, (chestBottom + top) / 2 + 0.01 * g, (zS + zH) / 2 - 0.03], [(0.16 + 0.03 * a) * g, (top - chestBottom) / 2 * (0.86 + 0.08 * a), (zS - zH) / 2 + 0.1], 'Spine', 0.09 * g * a, 'torso').envelope = true;
-            for (const side of [1, -1]) E([side * 0.1 * g, yH + 0.1 * g, zH - 0.04], [0.11 * g, (0.18 + 0.04 * a) * g, 0.2], 'Hips', 0.08 * g * a, 'rump').envelope = true;
+            for (const side of [1, -1]) M(E([side * 0.1 * g, yH + 0.1 * g, zH - 0.04], [0.11 * g, (0.18 + 0.04 * a) * g, 0.2], 'Hips', 0.08 * g * a, 'rump')).envelope = true;
         }
         // ── manes: a lion's around the face, down the neck and over the chest; a horse's crest; a ruff at the throat.
         maneShapes(r, lay, S, E, C);
@@ -567,25 +609,38 @@
         const head = [];
         const e = (c, rad, k, tag) => { const s = E(c, rad.map(v => v * sr), B, k * sr, tag, hd, hu); head.push(s); return s; };
         const c = (a, b, ra, rb, k, tag) => { const s = C(a, b, ra * sr, rb * sr, B, k * sr, tag); head.push(s); return s; };
-        e(H(0, 0.08, -0.12), [0.86, 0.78, 0.95], 0.2, 'skull');
-        e(H(0, 0.4, 0.36), [0.52, 0.32, 0.45], 0.18, 'skull');
+        // The braincase behind the eyes, the forehead flat and broad over them, the brows, the cheekbones.
+        e(H(0, 0.06, -0.14), [0.84, 0.72, 0.95], 0.2, 'skull');
+        e(H(0, 0.36, 0.34), [0.54, 0.27, 0.48], 0.18, 'skull');
         for (const s of [1, -1]) {
-            e(H(s * 0.33, 0.32, 0.64), [0.26, 0.14, 0.22], 0.1, 'brow');
-            e(H(s * 0.56 * (1 - 0.2 * Math.min(1, long)), -0.18, 0.22 + 0.15 * long), [0.32, 0.3 + 0.06 * long, 0.55 + 0.2 * long], 0.3, 'cheek');
+            e(H(s * 0.33, 0.3, 0.62), [0.27, 0.13, 0.22], 0.1, 'brow');
+            e(H(s * (0.54 - 0.1 * Math.min(1, long)), -0.16, 0.2 + 0.15 * long), [0.29, 0.27 + 0.06 * long, 0.52 + 0.2 * long], 0.3, 'cheek');
             if (long > 0.35) e(H(s * 0.42, -0.5, 0.05), [0.3, 0.45, 0.55].map(v => v * Math.min(1, long)), 0.2, 'cheek');
         }
-        // The muzzle and the bridge of the nose over it.
-        c(H(0, -0.02, z0), H(0, -0.12, zt - 0.3), (0.5 - 0.06 * Math.min(1, long)) * sw, (0.38 - 0.12 * Math.min(1, long)) * sw, 0.15, 'snout');
-        c(H(0, 0.32, z0 + 0.05), H(0, 0.1, zt - 0.18), 0.27 * sw, 0.19 * sw, 0.12, 'snout');
-        // Whisker pads either side of the philtrum, fullest on a cat's short face.
+        // The muzzle and the bridge of the nose over it, straight and broad from the brows to the nose; a
+        // cat's short muzzle wider than it is deep, square in front.
+        c(H(0, -0.04, z0), H(0, -0.13, zt - 0.3), (0.5 - 0.06 * Math.min(1, long)) * sw * (1 - 0.25 * cat), (0.39 - 0.12 * Math.min(1, long)) * sw * (1 - 0.25 * cat), 0.16, 'snout');
+        // (A small cat's short face has a small muzzle; a big cat's a deep one.)
+        const deep = 0.72 + 0.28 * Math.min(1, mL / 1.25);
+        if (cat > 0) e(H(0, -0.16 * deep, (z0 + zt) / 2 + 0.04), [0.47 * sw * deep, 0.42 * deep, (zt - z0) / 2 + 0.06].map(v => v * (0.75 + 0.25 * cat)), 0.16, 'snout');
+        c(H(0, 0.3, z0 + 0.05), H(0, 0.12, zt - 0.17), 0.28 * sw, 0.21 * sw, 0.14, 'snout');
+        // The upper lips either side of the philtrum, full over the whisker beds and hanging past the chin.
         const hoofFace = r.feet === 'hoof' && r.kind !== 'boar' && long > 0.3;
         const pad = (0.75 + 0.25 * cat) * (hoofFace ? 0.8 : 1);
-        for (const s of [1, -1]) e(H(s * 0.22 * sw, -0.25, zt - 0.3), [0.29 * sw * pad, 0.27 * pad, 0.32], 0.1, 'whisker');
-        S.push(cut(cone(H(0, -0.06, zt - 0.02), H(0, -0.34, zt - 0.12), 0.05 * sr, 0.04 * sr, B, 0.04 * sr, 'snout')));
-        // The nose pad, and a boar's flat disc.
+        for (const s of [1, -1]) e(H(s * 0.21 * sw, -0.28 - 0.04 * cat * deep, zt - 0.3), [0.28 * sw * pad * (0.85 + 0.15 * deep), (0.3 + 0.04 * cat) * pad * deep, 0.34], 0.16, 'whisker');
+        // The nose leather set into the muzzle's end, broad and flat on top; a boar's flat disc.
         const disc = r.kind === 'boar' ? 1 : 0;
         if (hoofFace) e(H(0, -0.1, zt - 0.14), [0.4 * sw, 0.36, 0.3], 0.12, 'snout');
-        e(H(0, 0.02, zt + 0.0 + 0.05 * disc), [0.22 * sw * (1 + 0.5 * disc) * (hoofFace ? 0.7 : 1), 0.14 * (1 + 0.8 * disc), 0.12], 0.06, 'nosepad');
+        e(H(0, 0.04, zt + 0.0 + 0.05 * disc), [0.22 * sw * (1 + 0.5 * disc) * (hoofFace ? 0.7 : 1), 0.12 * (1 + 0.8 * disc), 0.12], 0.05, 'nosepad');
+        // A paw animal's leather narrows down to the philtrum: a rounded triangle seen from the front.
+        if (!disc && !hoofFace) c(H(0, 0.03, zt - 0.03), H(0, -0.12, zt - 0.05), 0.13 * sw, 0.045, 0.04, 'nosepad');
+        // A paw animal's philtrum: a groove down the front of the muzzle from the nose to the lip, set where
+        // the muzzle's front stands.
+        if (!hoofFace && !disc) {
+            const front = y => { const from = H(0, y, zt - 0.7); for (let i = 0; i < 60; i++) { const p = add(from, mul(hd, i * sr * 0.025)); if (fieldAt(head, p) > 0) return p; } return H(0, y, zt); };
+            const a = front(-0.08), b = front(-0.36);
+            S.push(cut(cone(sub(a, mul(hd, 0.01 * sr)), sub(b, mul(hd, 0.015 * sr)), 0.045 * sr, 0.035 * sr, B, 0.04 * sr, 'snout')));
+        }
         // The nostrils, set into the surface where it stands: a hoofed long face's wide and tall on the
         // muzzle's front corners; a boar's two holes in its disc; a paw animal's small, in the pad.
         const hoofed = hoofFace;
@@ -605,8 +660,8 @@
             lay.nostrils.push({ shape: hole, R: nr[0] });
         }
         // The lower jaw from its angle to the chin, and the floor between its halves.
-        for (const s of [1, -1]) c(H(s * 0.5, -0.42, -0.05), H(s * 0.13 * sw, -0.5, zt - 0.42), 0.2, 0.12, 0.12, 'jaw');
-        e(H(0, -0.52, zt - 0.42), [0.22 * sw, 0.15, 0.18], 0.1, 'chin');
+        for (const s of [1, -1]) c(H(s * 0.5, -0.42 - 0.04 * cat, -0.05), H(s * 0.13 * sw, -0.52 - 0.04 * cat, zt - 0.44), 0.2 + 0.03 * cat, 0.12 + 0.03 * cat, 0.12, 'jaw');
+        e(H(0, -0.54 - 0.05 * cat, zt - 0.46), [0.2 * sw, 0.14 + 0.03 * cat, 0.17], 0.12, 'chin');
         e(H(0, -0.48, 0.2), [0.36, 0.22, 0.45], 0.2, 'jaw');
         // The eyes: out from the skull along their facing, to the surface, set into sockets cut around them.
         const eyeR = 0.15 * sr * r.eyeSize;
@@ -619,9 +674,10 @@
                 const p = add(from, mul(facing, i * sr * 0.025));
                 if (fieldAt(head, p) > 0) { at = p; break; }
             }
-            const center = sub(at, mul(facing, eyeR * 0.85));
-            // An almond opening, its outer corner a little higher.
-            S.push(cut(ellipsoid(add(center, mul(facing, eyeR * 0.45)), [eyeR * 1.15, eyeR * 0.7, eyeR * 0.9], B, eyeR * 0.5, 'skull', facing, add(hu, [s * 0.22, 0, 0]))));
+            // The eye sits back in its socket, its front at the face's surface; the lids close round it in an
+            // almond, the outer corner a little higher, their edges crisp.
+            const center = sub(at, mul(facing, eyeR * 0.95));
+            S.push(cut(ellipsoid(add(center, mul(facing, eyeR * 0.6)), [eyeR * 1.02, eyeR * 0.64, eyeR * 0.75], B, eyeR * 0.28, 'skull', facing, add(hu, [s * 0.22, 0, 0]))));
             lay.eyes.push({ center, facing, R: eyeR, side: s });
         }
         // The ears' roots on the skull.
@@ -681,7 +737,10 @@
                 const out = norm(add(mul([Math.sin(phi) * 0.5, 0, 0], 1), add(mul(hu, Math.cos(phi) * 0.5), mul(hd, -1))));
                 lumpy(E(at, [0.34 * sr * size, 0.34 * sr * size, 0.58 * sr * size], 'Head', 0.22 * sr, 'mane', out));
             }
-            lumpy(C(H(0, -0.1, -1.3), [0, J.withers[1] - 0.06 * g, zS - 0.1], (0.12 + 0.09 * ms) * nt, (0.12 + 0.08 * ms) * nt, 'Neck', 0.07 * g, 'mane'));
+            // Down the neck it is full for a lion's length of neck behind the head, then thins to a crest to the withers.
+            const nape = H(0, -0.1, -1.3), wit = [0, J.withers[1] - 0.06 * g, zS - 0.1], full = lerp(nape, wit, Math.min(1, 0.42 / Math.max(1e-3, len(sub(wit, nape)))));
+            lumpy(C(nape, full, (0.12 + 0.09 * ms) * nt, (0.12 + 0.08 * ms) * nt, 'Neck', 0.07 * g, 'mane'));
+            if (len(sub(wit, full)) > 0.05) lumpy(C(full, wit, (0.12 + 0.08 * ms) * nt * 0.6, (0.12 + 0.08 * ms) * nt, 'Neck', 0.07 * g, 'mane'));
             lumpy(C(H(0, -0.85, -0.7), [0, yS - 0.02 * g, zS + 0.1], (0.1 + 0.07 * ms) * nt, (0.1 + 0.07 * ms) * g, 'Neck', 0.07 * g, 'mane'));
             lumpy(E([0, yS - 0.08 * g, zS + 0.09], [0.13 * g * (0.6 + 0.4 * ms), 0.2 * g * (0.6 + 0.4 * ms), 0.11 * (0.6 + 0.4 * ms)], 'Chest', 0.07 * g, 'mane'));
             lumpy(E([0, J.withers[1] - 0.02 * g, zS - 0.08], [0.17 * g * ms, 0.07 * g * ms + 0.02, 0.18 * ms], 'Chest', 0.07 * g, 'mane'));
@@ -699,6 +758,18 @@
         }
     }
 
+    /** The underside of the shapes built so far straight below `from`: down into them, then out at the bottom. */
+    function surfaceBelow(S, from, g) {
+        const list = S.filter(s => !s.cut);
+        let entered = false;
+        for (let y = from[1] + 0.6 * g; y > 0; y -= 0.004 * g) {
+            const q = [from[0], y, from[2]], inside = fieldAt(list, q) < 0;
+            if (inside) entered = true;
+            else if (entered) return q;
+        }
+        return from;
+    }
+
     /**
      * External genitalia and udders as a veterinary model shows them: a male's
      * sheath (prepuce) on the belly or under the tail and the scrotum, a
@@ -710,19 +781,34 @@
         const male = r.anatomy.sex === 'male';
         const tailBase = [0, yH + 0.12 * g, zH - 0.26];
         if (prof.genital === 'cloaca') return;
+        /** The sheath on the belly's midline ahead of the thighs, its root in the skin, opening forward. */
+        const belly = () => {
+            const pend = prof.genital === 'pendulous';
+            const root = surfaceBelow(S, [0, yH + 0.1 * g, zH + 0.24 * bl], g), front = surfaceBelow(S, [0, yH + 0.1 * g, zH + 0.46 * bl], g);
+            const tip = add(front, [0, -0.012 * g - (pend ? 0.015 * g : 0), 0.015]);
+            C(add(root, [0, 0.02 * g, 0]), tip, 0.03 * g, 0.026 * g, 'Spine', 0.035 * g, 'sheath');
+            lay.sheathTip = tip;
+        };
         if (male) {
             if (prof.genital === 'perineal') {
-                // Testes in a furred scrotum just below the anus, the sheath below and behind the thighs.
-                for (const s of [1, -1]) E([s * 0.032 * g, yH - 0.02 * g, zH - 0.22], [0.034 * g, 0.042 * g, 0.034 * g], 'Hips', 0.02 * g, 'scrotum');
-                E([0, yH - 0.1 * g, zH - 0.16], [0.022 * g, 0.03 * g, 0.03 * g], 'Hips', 0.02 * g, 'sheath', [0, -0.6, -1]);
+                // Testes in a furred scrotum set close under the anus, its neck in the skin of the perineum.
+                const sy = yH - 0.015 * g, sz = zH - 0.215;
+                C([0, yH + 0.07 * g, zH - 0.235], [0, sy + 0.012 * g, sz + 0.005], 0.03 * g, 0.036 * g, 'Hips', 0.03 * g, 'scrotum');
+                for (const s of [1, -1]) E([s * 0.03 * g, sy, sz], [0.032 * g, 0.04 * g, 0.034 * g], 'Hips', 0.024 * g, 'scrotum');
+                if (prof.sheath === 'belly') belly();
+                else {
+                    // The prepuce at the scrotum's lower front, a small furred mound opening back and down.
+                    E([0, sy - 0.045 * g, sz + 0.03], [0.018 * g, 0.024 * g, 0.026 * g], 'Hips', 0.03 * g, 'sheath', [0, -0.55, -1]);
+                    lay.sheathTip = [0, sy - 0.06 * g, sz + 0.012];
+                }
             } else {
                 // The sheath along the belly's midline ahead of the thighs, opening forward; the scrotum between the thighs.
                 const pend = prof.genital === 'pendulous';
-                const tip = [0, yH - 0.12 * g - (pend ? 0.02 * g : 0), zH + 0.48 * bl];
-                C([0, yH - 0.04 * g, zH + 0.22 * bl], tip, 0.034 * g, 0.026 * g, 'Spine', 0.03 * g, 'sheath');
-                lay.sheathTip = tip;
-                const sy = pend ? yH * 0.62 : yH - 0.06 * g, sz = zH + 0.02;
-                C([0, yH - 0.02 * g, sz], [0, sy + 0.02 * g, sz - 0.02], 0.035 * g, 0.03 * g, 'Hips', 0.02 * g, 'scrotum');
+                belly();
+                // Its neck rises into the skin between the thighs, so it hangs from the body.
+                const sz = zH + 0.02, root = surfaceBelow(S, [0, yH + 0.1 * g, sz], g);
+                const sy = Math.min(root[1] - 0.04 * g, pend ? yH * 0.62 : yH - 0.06 * g);
+                C(add(root, [0, 0.03 * g, 0]), [0, sy + 0.02 * g, sz - 0.02], 0.035 * g, 0.03 * g, 'Hips', 0.025 * g, 'scrotum');
                 for (const s of [1, -1]) E([s * 0.03 * g, sy, sz - 0.02], [0.034 * g, (pend ? 0.06 : 0.042) * g, 0.036 * g], 'Hips', 0.018 * g, 'scrotum');
             }
         } else {
@@ -734,7 +820,10 @@
             const t = prof.teats;
             if (t && t.udder) {
                 const u = t.udder;
-                E([0, yH - 0.08 * g - 0.04 * u * g, zH + 0.08], [0.09 * g * (0.6 + 0.4 * u), 0.07 * g * (0.5 + 0.5 * u), 0.1 * (0.6 + 0.4 * u)], 'Hips', 0.04 * g, 'udder');
+                // Hung from the skin between the thighs, never below it.
+                const top = surfaceBelow(S, [0, yH, zH + 0.08], g)[1], ry = 0.07 * g * (0.5 + 0.5 * u);
+                lay.udder = [0, Math.max(yH - 0.08 * g - 0.04 * u * g, top - 0.5 * ry), zH + 0.08];
+                E(lay.udder, [0.09 * g * (0.6 + 0.4 * u), ry, 0.1 * (0.6 + 0.4 * u)], 'Hips', 0.04 * g, 'udder');
             }
         }
         lay.anus = tailBase;
@@ -878,7 +967,7 @@
                 else if (horse) rr = 0.035 * tt + 0.06 * tt * smooth(0.05, 0.4, t) * (1 - 0.5 * t);
                 else if (thick) rr = 0.085 * tt * (1 - t * 0.92) + 0.005;
                 else if (r.tail === 'stub') rr = 0.06 * tt * (1 - 0.6 * t);
-                else rr = (0.036 + 0.02 * (1 - smooth(0, 0.18, t))) * tt * (1 - t * 0.5);
+                else rr = (0.04 + 0.022 * (1 - smooth(0, 0.2, t))) * tt * (1 - t * 0.5);
                 return horse ? [rr * 1.3, rr * 0.6] : [rr, rr];
             };
             // A tail that reaches the ground lies on it, never through it.
@@ -1052,7 +1141,8 @@
      * it. Returns { positions, index, near(p) → the shape list for a point }.
      */
     function surfaceNet(shapes, cell, fieldNoise) {
-        const list = shapes.filter(s => !s.cut).concat(shapes.filter(s => s.cut));
+        // The widest blends first, so each shape's reach is its own blend and the details settle onto the masses.
+        const list = shapes.filter(s => !s.cut).sort((a, b) => b.k - a.k).concat(shapes.filter(s => s.cut));
         const noiseAmp = fieldNoise ? fieldNoise.amp : 0;
         let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
         for (const s of list) {
@@ -1070,7 +1160,10 @@
         const blockAt = new Int32Array(BX * BY * BZ).fill(-1);
         const lists = new Array(BX * BY * BZ);
         const pool = [];
-        const reachOf = list.map(s => s.k + (s.bump || 0) + cell * 2 + noiseAmp);
+        // A shape reaches as far as its own blend, or a later one's: the nearest shape so far sets what the next blends with.
+        const laterK = new Float64Array(list.length);
+        for (let i = list.length - 2; i >= 0; i--) laterK[i] = Math.max(laterK[i + 1], list[i + 1].k);
+        const reachOf = list.map((s, i) => Math.max(s.k, laterK[i]) + (s.bump || 0) + cell * 2 + noiseAmp);
         const half = (BS - 1) / 2 * cell * Math.sqrt(3);
         const p = [0, 0, 0];
         const sample = fieldNoise && fieldNoise.amp > 0
@@ -1082,15 +1175,18 @@
             const x0 = lo[0] + bi * BS * cell, y0 = lo[1] + bj * BS * cell, z0 = lo[2] + bk * BS * cell;
             const x1 = x0 + (BS - 1) * cell, y1 = y0 + (BS - 1) * cell, z1 = z0 + (BS - 1) * cell;
             const cand = [];
+            // A flattened shape's field grows faster than the distance by its flattening: the block is judged by that.
+            let lip = 1;
             for (let s = 0; s < list.length; s++) {
                 const sh = list[s], rc = reachOf[s];
                 if (sh.lo[0] - rc > x1 || sh.hi[0] + rc < x0 || sh.lo[1] - rc > y1 || sh.hi[1] + rc < y0 || sh.lo[2] - rc > z1 || sh.hi[2] + rc < z0) continue;
                 cand.push(sh);
+                if (sh.fx > lip) lip = sh.fx;
             }
             if (!cand.length || cand.every(s => s.cut)) { blockValue[b] = 1e3; continue; }
             p[0] = (x0 + x1) / 2; p[1] = (y0 + y1) / 2; p[2] = (z0 + z1) / 2;
             const d0 = fieldAt(cand, p);
-            if (Math.abs(d0) > half * 1.6 + cell * 2 + noiseAmp * 2) { blockValue[b] = d0; continue; }
+            if (Math.abs(d0) > (half * 1.6 + cell * 2 + noiseAmp * 2) * lip) { blockValue[b] = d0; continue; }
             lists[b] = cand;
             blockAt[b] = pool.length;
             const vals = new Float32Array(BS * BS * BS);
@@ -1389,8 +1485,11 @@
             col = mixRgb(col, C.marking, k(clamp(ring * (1 - (lowLeg || onHead ? 1 : 0)) + dotSpot, 0, 1) * (1 - belly * 0.7)));
         } else if (pat === 'stripes' || pat === 'tabby') {
             const warp = fbm(p[0] * 4, p[1] * 4, p[2] * 4, seed, 3) * 0.35;
-            const along = onLeg ? p[1] * 1.3 : tag === 'neck' || onHead ? p[2] * 0.8 + p[1] * 0.6 : p[2];
-            const s = Math.sin((along * 22 / ps + warp * 6) * Math.PI);
+            // Upright bands down the trunk and the haunches, rings round the legs below the elbow and stifle.
+            const knee = p[2] > 0 ? J.frontKnee[1] : J.rearKnee[1];
+            const ring = onLeg ? 1 - smooth(knee, knee + 0.12 * g, p[1]) : 0;
+            const along = tag === 'neck' || onHead ? p[2] * 0.8 + p[1] * 0.6 : p[2] + (p[1] * 1.3 - p[2]) * ring;
+            const s = Math.sin((along * 22 / ps + warp * (pat === 'tabby' ? 2.5 : 4.5)) * Math.PI);
             const stripe = smooth(pat === 'tabby' ? 0.35 : 0.55, pat === 'tabby' ? 0.75 : 0.8, s) * (1 - belly) * (1 - muzzle);
             col = mixRgb(col, C.marking, k(stripe * (pat === 'tabby' ? 0.75 : 1)));
         } else if (pat === 'socks' || pat === 'points') {
@@ -1425,14 +1524,14 @@
         if (onHead && r.feet !== 'hoof') {
             // Lips: a dark line where the upper lip meets the chin, out to the mouth's corner.
             const lipY = -0.4 - 0.05 * clamp((hz - z0) / (zt - z0), 0, 1);
-            const lip = smooth(0.08, 0.025, Math.abs(hy - lipY)) * smooth(z0 + 0.1, z0 + 0.45, hz) * smooth(zt + 0.05, zt - 0.2, hz);
-            col = mixRgb(col, mixRgb(C.nose, C.marking, 0.5), lip * 0.75);
+            const lip = smooth(0.055, 0.015, Math.abs(hy - lipY)) * smooth(z0 + 0.1, z0 + 0.45, hz) * smooth(zt + 0.05, zt - 0.2, hz);
+            col = mixRgb(col, mixRgb(C.nose, C.marking, 0.6), lip * 0.65);
         }
-        // The eyes' rims dark, a pale patch under each for a cat's face.
+        // The lids' rims dark bare skin, a pale patch under each eye of a cat's face.
         for (const eye of lay.eyes) {
             const d = len(sub(p, eye.center)) / eye.R;
-            if (d < 1.4) col = mixRgb(col, mixRgb(C.marking, C.nose, 0.3), smooth(1.4, 1.15, d) * 0.85);
-            else if (d < 2.4 && profileOf(r).padColor && r.pattern !== 'solid') col = mixRgb(col, C.light, smooth(2.4, 1.7, d) * smooth(0.2, -0.4, dot(sub(p, eye.center), J.hup) / eye.R) * 0.5 * amt);
+            if (d < 1.4) col = mixRgb(col, mixRgb(C.nose, [0.05, 0.04, 0.04], 0.55), smooth(1.4, 1.12, d) * 0.85);
+            else if (d < 2.4 && profileOf(r).felid && r.pattern !== 'solid') col = mixRgb(col, C.light, smooth(2.4, 1.7, d) * smooth(0.2, -0.4, dot(sub(p, eye.center), J.hup) / eye.R) * 0.5 * amt);
         }
         if (tag === 'nosepad') col = C.nose;
         // Inside each nostril: dark, shading off at its rim.
@@ -1460,13 +1559,20 @@
     }
 
     // ── assembly ───────────────────────────────────────────────────────────
+    /** The recipe as its sex wears it: a female grows no lion's mane and no antlers. */
+    function asShown(r) {
+        if (r.anatomy.sex !== 'female' || (r.mane !== 'lion' && r.horns !== 'antlers')) return r;
+        return Object.assign({}, r, { mane: r.mane === 'lion' ? 'none' : r.mane, horns: r.horns === 'antlers' ? 'none' : r.horns });
+    }
+
     /**
      * The whole creature: { parts, bones, height, plan, rig, clips, textures }.
      * `options.quality` 'preview' (coarser, for live sliders) or 'save';
      * `options.hairBudget` scales the strand cards (1 full; weak graphics less).
      */
     function build(recipe, options) {
-        const r = normalizeRecipe(recipe);
+        const given = normalizeRecipe(recipe);
+        const r = asShown(given);
         const o = options || {};
         const quality = o.quality || 'save';
         const save = quality !== 'preview';
@@ -1492,7 +1598,20 @@
         if (save && Decimator) {
             const target = 30000;
             if (index.length / 3 > target * 1.1) {
-                const d = Decimator.decimate({ positions, indices: Uint32Array.from(index) }, target, { boundaryWeight: 100 });
+                // The finely painted face keeps its small faces: the muzzle and lips ahead of the eyes, the lids and rims round them.
+                const locked = new Uint8Array(positions.length / 3);
+                const { J } = lay, sk = J.skull, faceFrom = (J.mouth.z0 - 0.3) * J.skullR;
+                const keep = lay.eyes.map(e => [e.center, e.R * 2.1]);
+                let face = 0;
+                for (let v = 0; v < locked.length; v++) {
+                    const x = positions[v * 3], y = positions[v * 3 + 1], z = positions[v * 3 + 2];
+                    const hz = ((y - sk[1]) * J.hdir[1] + (z - sk[2]) * J.hdir[2]) / J.skullR, hy = ((y - sk[1]) * J.hup[1] + (z - sk[2]) * J.hup[2]) / J.skullR;
+                    if (hz > faceFrom / J.skullR && hz < J.mouth.zt + 0.5 && hy < 0.6 && hy > -1.1 && Math.abs(x) < 1.2 * J.skullR) { locked[v] = 2; face++; continue; }
+                    for (const [c, rad] of keep) if ((x - c[0]) ** 2 + (y - c[1]) ** 2 + (z - c[2]) ** 2 < rad * rad) { locked[v] = 1; break; }
+                }
+                // A head grown huge keeps only its eyes' faces, so the body still comes down to its count.
+                if (face > locked.length * 0.1) for (let v = 0; v < locked.length; v++) if (locked[v] === 2) locked[v] = 0;
+                const d = Decimator.decimate({ positions, indices: Uint32Array.from(index), locked }, target, { boundaryWeight: 100 });
                 positions = d.positions; index = Array.from(d.indices);
             }
         }
@@ -1681,7 +1800,7 @@
         let top = 0;
         for (const part of parts) for (let i = 1; i < part.positions.length; i += 3) top = Math.max(top, part.positions[i]);
         const markers = markersOf(lay, scalePoint);
-        return { parts, bones: outBones, height: top, plan: 'quadruped', rig: { template: 'quadruped', markers }, clips: [idleClip(outBones)], textures, recipe: r };
+        return { parts, bones: outBones, height: top, plan: 'quadruped', rig: { template: 'quadruped', markers }, clips: [idleClip(outBones)], textures, recipe: given };
     }
 
     /** The places strand cards grow, with their lie, length and color. */
@@ -1786,7 +1905,7 @@
         const spots = [];
         if (t.udder) {
             const u = t.udder;
-            const c = [0, yH - 0.08 * g - 0.04 * u * g, zH + 0.08];
+            const c = lay.udder || [0, yH - 0.08 * g - 0.04 * u * g, zH + 0.08];
             const n = t.count;
             for (let i = 0; i < n; i++) {
                 const x = (n === 2 ? (i ? 1 : -1) * 0.03 : ((i % 2) ? 1 : -1) * 0.045) * g * (0.6 + 0.4 * u);

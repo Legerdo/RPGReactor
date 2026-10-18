@@ -249,7 +249,22 @@
             const main = item.material;
             const neckAxis = norm(sub(J.atlas, J.neck));
             const midY = z => z > zS - 0.3 ? (chestTop + chestBottom) / 2 : z < zH + 0.2 ? yH + 0.18 * g : lerp([0, yH + 0.18 * g, 0], [0, (chestTop + chestBottom) / 2, 0], (z - zH - 0.2) / (zS - zH - 0.5))[1];
-            /** A drape over the back from z0 to z1, down each side from the spine to `drop` (radians from the top), falling straight from its widest to `hem`. */
+            /** How far out the body reaches on one side at height y and depth z: from outside, in to its skin. */
+            const outerX = (y, z, side) => {
+                const step = 0.008 * g;
+                for (let x = 0.7 * g; x > 0; x -= step) {
+                    if (ctx.inside([side * x, y, z]) < 0) {
+                        let a = x, b = x + step;
+                        for (let k = 0; k < 5; k++) { const m = (a + b) / 2; if (ctx.inside([side * m, y, z]) < 0) a = m; else b = m; }
+                        return b;
+                    }
+                }
+                return 0;
+            };
+            /**
+             * A drape over the back from z0 to z1, down each side from the spine to `drop` (radians from the
+             * top), falling straight from its widest to `hem`, clear of whatever stands out below (a thigh, an elbow).
+             */
             const drape = (z0, z1, rows, drop, cols, hem, thick, colorAt, lift) => {
                 const grid = [];
                 for (let i = 0; i < rows; i++) {
@@ -257,6 +272,12 @@
                     const c = [0, midY(z), z];
                     const row = [];
                     let widest = null;
+                    const clear = {};
+                    if (hem != null) for (const side of [1, -1]) {
+                        let x = 0;
+                        for (let k = 0; k <= 6; k++) x = Math.max(x, outerX(hem + (c[1] - hem) * k / 6, z, side));
+                        clear[side] = x;
+                    }
                     for (let j = 0; j < cols; j++) {
                         const a = -drop + 2 * drop * j / (cols - 1);
                         const side = Math.sign(a) || 1, aa = Math.abs(a);
@@ -269,7 +290,8 @@
                             const top = F.surface(c, [side, 0, 0]) || s;
                             const f = (aa - Math.PI / 2) / (drop - Math.PI / 2 || 1);
                             const y = top.p[1] + (hem - top.p[1]) * f;
-                            s = { p: [top.p[0] + side * 0.01 * g * f, y, top.p[2]], n: [side, 0, 0] };
+                            const x = side * Math.max(Math.abs(top.p[0]), clear[side] + 0.008 * g * f);
+                            s = { p: [x + side * 0.01 * g * f, y, top.p[2]], n: [side, 0, 0] };
                         } else if (aa > Math.PI / 2 - 0.2) widest = s;
                         if (lift) s = { p: add(s.p, mul(s.n, lift(i / (rows - 1), j / (cols - 1)))), n: s.n };
                         row.push(s);

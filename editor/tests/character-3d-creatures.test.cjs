@@ -163,6 +163,47 @@ test('anatomical detail builds each sex as the species is made, and nothing when
     assert.equal(a, b);
 });
 
+/** How many separate pieces of skin a part is made of (pieces of a few faces aside). */
+const pieces = part => {
+    const n = part.positions.length / 3, parent = Int32Array.from({ length: n }, (_, i) => i);
+    const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+    for (let t = 0; t < part.index.length; t += 3) { const a = find(part.index[t]), b = find(part.index[t + 1]), c = find(part.index[t + 2]); parent[b] = a; parent[find(c)] = a; }
+    const size = new Map();
+    for (let i = 0; i < n; i++) { const r = find(i); size.set(r, (size.get(r) || 0) + 1); }
+    return [...size.values()].filter(v => v > 60).length;
+};
+
+test('a male\'s sheath and scrotum are part of the body\'s skin, never a piece floating apart from it', () => {
+    for (const kind of ['lion', 'cat', 'tiger', 'dog', 'horse', 'bull', 'ram', 'boar', 'rabbit', 'deer']) {
+        const r = Creature.kindRecipe(kind);
+        const count = anatomy => pieces(Creature.build(Object.assign({}, r, { anatomy }), { quality: 'preview', hairBudget: 0 }).parts.find(p => p.name === 'Body'));
+        assert.equal(count({ detail: true, sex: 'male' }), count({ detail: false, sex: 'male' }), kind);
+    }
+});
+
+test('the body holds together at the sliders\' ends: hips high or low, the thinnest legs', () => {
+    const count = r => pieces(Creature.build(r, { quality: 'preview', hairBudget: 0 }).parts.find(p => p.name === 'Body'));
+    for (const [kind, over] of [['dog', { hipHeight: 0.5 }], ['dog', { hipHeight: 1.6 }], ['horse', { legThickness: 0.3 }], ['bull', { legThickness: 0.3 }], ['deer', { headSize: 2.6 }]]) {
+        const base = Creature.kindRecipe(kind);
+        assert.equal(count(Object.assign({}, base, over)), count(base), kind + ' ' + JSON.stringify(over));
+    }
+});
+
+test('a female wears no lion\'s mane and no antlers; the recipe keeps what was chosen', () => {
+    const lion = Creature.kindRecipe('lion');
+    const fur = b => (b.parts.find(p => p.name === 'Fur') || { index: [] }).index.length;
+    const male = Creature.build(lion, { quality: 'preview' }), lioness = Creature.build(Object.assign({}, lion, { anatomy: { detail: false, sex: 'female' } }), { quality: 'preview' });
+    assert.ok(fur(lioness) < fur(male) * 0.2, 'mane cards ' + fur(lioness) + ' / ' + fur(male));
+    assert.equal(lioness.recipe.mane, 'lion');
+    const deer = Creature.kindRecipe('deer');
+    assert.ok(Creature.build(deer, { quality: 'preview', hairBudget: 0 }).parts.some(p => p.name === 'Horns'));
+    assert.ok(!Creature.build(Object.assign({}, deer, { anatomy: { detail: true, sex: 'female' } }), { quality: 'preview', hairBudget: 0 }).parts.some(p => p.name === 'Horns'));
+    // A horse's crest and a wolf's ruff are both sexes'.
+    const horse = Creature.kindRecipe('horse');
+    const body = r => Creature.build(r, { quality: 'preview', hairBudget: 0 }).parts.find(p => p.name === 'Body').index.length;
+    assert.equal(body(Object.assign({}, horse, { anatomy: { detail: false, sex: 'female' } })), body(horse));
+});
+
 test('a lion has a mane of strand cards and a tufted tail; the cards follow the hair budget', () => {
     const lion = Creature.kindRecipe('lion');
     const full = Creature.build(lion, { quality: 'preview' }), weak = Creature.build(lion, { quality: 'preview', hairBudget: 0.45 }), none = Creature.build(lion, { quality: 'preview', hairBudget: 0 });
