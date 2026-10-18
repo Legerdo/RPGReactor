@@ -71,7 +71,7 @@
         { id: 'angel', label: 'Angel', group: 'Otherworldly', recipe: { height: 0.75, shapes: { cheekBones: 0.5 }, skin: '#f0d8c4', eyes: { color: '#5aa8e8' }, features: { wings: { type: 'feathered', size: 0.95, color: '#ffffff', color2: '#e8e4dc' } }, props: [{ id: 'halo' }] } },
         { id: 'fairy', label: 'Fairy', group: 'Otherworldly', recipe: { height: -0.5, weight: 0.2, headSize: 1.12, shapes: { earsPointed: 2.2, eyeSize: 1.5, chinPointed: 0.8 }, skin: '#f2dcd0', eyes: { color: '#40c8a0' }, features: { wings: { type: 'fairy', color: '#bfeaff', color2: '#ffffff' } } } },
         { id: 'undead', label: 'Undead', group: 'Otherworldly', recipe: { weight: -0.2, muscle: 0.1, shapes: { headFat: -1.5, cheeks: -2, eyeBags: 2, headAge: 1.5 }, age: 60, skin: '#8a9a80', skinPattern: { type: 'decay', color: '#5a6a50' }, eyes: { color: '#e8f0e0', pupil: 'none', sclera: '#2a3028' } } },
-        { id: 'alien', label: 'Grey alien', group: 'Otherworldly', recipe: { height: 0.2, weight: 0.05, headSize: 1.45, morph: { earsAway: 1, earHoles: 0.6, flat: 0.35, eyeSocket: 1 }, shapes: { eyeSize: 1.2, noseDepth: -1.6, noseVolume: -1, noseWidth: -1, nostrils: 1.5, noseHump: -1, mouthWidth: -1.3, upperLip: -1.3, lowerLip: -1.3, mouthCorners: -0.8, chinPointed: 1.2, chinHeight: -1, jaw: -1.5, chinWidth: -1.2, cheeks: -1, headFat: -1, neck: -1.5, headWidth: 0.5 }, skin: '#737c84', skinPattern: { lips: '#666e75' }, eyes: { color: '#0a0a0e', pupil: 'none', sclera: '#0a0a0e', catchlight: false }, features: { alienEyes: { type: 'almond' } }, bald: true } },
+        { id: 'alien', label: 'Grey alien', group: 'Otherworldly', recipe: { height: 0.2, weight: 0.05, headSize: 1.45, morph: { earsAway: 1, earHoles: 0.6, flat: 0.35, eyeSocket: 1 }, shapes: { eyeSize: 1.2, noseDepth: -2, noseVolume: -1.6, noseWidth: -1.4, nostrils: 0.6, noseHump: -1, mouthWidth: -1.3, upperLip: -1.3, lowerLip: -1.3, mouthCorners: -0.3, chinPointed: 1.2, chinHeight: -1, jaw: -1.5, chinWidth: -1.2, cheeks: 0.3, headFat: 0, neck: -1.5, headWidth: 0.5 }, skin: '#737c84', skinPattern: { lips: '#666e75' }, eyes: { color: '#0a0a0e', pupil: 'none', sclera: '#0a0a0e', catchlight: false }, features: { alienEyes: { type: 'almond' } }, bald: true } },
         { id: 'android', label: 'Android', group: 'Otherworldly', recipe: { skin: '#d8dce2', skinPattern: { type: 'panels', color: '#8a9098' }, eyes: { color: '#30b8ff', pupil: 'none' }, bald: true } }
     ];
     const BY_ID = new Map(SPECIES.map(s => [s.id, s]));
@@ -570,7 +570,7 @@
             const fr = A.frame(pack, built.shaped, side, f.size);
             const at = (rr, t) => {
                 const x = rr * Math.cos(t), y = rr * Math.sin(t) * half(Math.cos(t) * side);
-                const h = fr.lens(rr * 0.985);
+                const h = fr.surf(x, rr * 0.985);
                 return [0, 1, 2].map(k => fr.c[k] + fr.U[k] * fr.a * x + fr.V[k] * fr.b * y + fr.F[k] * h);
             };
             const normalAt = (rr, t) => {

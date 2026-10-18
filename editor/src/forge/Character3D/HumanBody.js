@@ -664,9 +664,11 @@
      * eye's frame (forward a little out to the side, across tilted up toward
      * the outer corner), the outline's half height across it (fuller toward
      * the nose, drawn to a point at the outer corner), and the lens's height
-     * off the frame at each ring of the outline (a dome, its edge set back).
+     * off the frame (`surf(x, rr)`: a dome, its edge set back, the whole lens
+     * wrapping back round the skull toward the outer corner and a little
+     * toward the nose, so it lies in the face instead of standing off it).
      */
-    const ALMOND = { width: 1.65, height: 0.64, tilt: 0.38, dome: 0.2, back: 0.06 };
+    const ALMOND = { width: 1.5, height: 0.66, tilt: 0.38, dome: 0.17, back: 0.06, wrapOut: 0.9, wrapIn: 0.15 };
     const almondHalf = out => (Math.abs(out) >= 1 ? 0 : Math.pow(1 - out * out, 0.42) * (1 - 0.22 * out));
     function almondFrame(pack, P, side, size = 1) {
         const ids = [...new Set(pack.eyes.refs)].filter(v => Math.sign(pack.positions[v * 3]) === side);
@@ -682,7 +684,9 @@
         const U = [0, 1, 2].map(k => U0[k] * ct + V0[k] * st), V = [0, 1, 2].map(k => -U0[k] * st + V0[k] * ct);
         const a = R * ALMOND.width * size, b = a * ALMOND.height;
         const c = [0, 1, 2].map(k => c0[k] + F[k] * R * 0.9 + U0[k] * side * a * 0.04 + V0[k] * a * 0.06);
-        return { c, U, V, F, a, b, side, R, lens: rr => a * (ALMOND.dome * Math.sqrt(Math.max(0, 1 - rr * rr)) - ALMOND.back * rr * rr) };
+        const lens = rr => a * (ALMOND.dome * Math.sqrt(Math.max(0, 1 - rr * rr)) - ALMOND.back * rr * rr);
+        const wrap = x => { const o = x * side; return a * (o > 0 ? ALMOND.wrapOut : ALMOND.wrapIn) * o * o; };
+        return { c, U, V, F, a, b, side, R, lens, surf: (x, rr) => lens(rr) - wrap(x) };
     }
     /** Where a point lies on an almond frame: across (-1..1, + outward), up, out along forward, and its ring (1 the outline). */
     function almondAt(fr, p) {
@@ -707,18 +711,19 @@
                 if (Math.sign(P[v * 3]) !== side) continue;
                 const q = almondAt(fr, [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
                 let to = null;
-                if (q.rr < 1) to = Math.min(q.f, fr.lens(q.rr) - 0.003);
-                else if (q.rr < 1.5 && q.f > fr.lens(1) - fr.a * 0.35) to = Math.max(q.f, fr.lens(1) + 0.0015 + rimH * Math.exp(-(((q.rr - 1.08) / 0.15) ** 2)));
+                const xe = Math.max(-1, Math.min(1, q.x));
+                if (q.rr < 1) to = Math.min(q.f, fr.surf(xe, q.rr) - 0.003);
+                else if (q.rr < 1.5 && q.f > fr.surf(xe, 1) - fr.a * 0.35) to = Math.max(q.f, fr.surf(xe, 1) + 0.0015 + rimH * Math.exp(-(((q.rr - 1.08) / 0.15) ** 2)));
                 if (to === null || to === q.f) continue;
                 for (let k = 0; k < 3; k++) field[v * 3 + k] = fr.F[k] * (to - q.f);
-                if (q.rr < 1) clamp.push([v, fr, q.rr]);
+                if (q.rr < 1) clamp.push([v, fr, q.rr, xe]);
             }
         }
         const eased = relax(pack, field, 3);
         for (let v = 0; v < pack.vertexCount; v++) for (let k = 0; k < 3; k++) P[v * 3 + k] += eased[v * 3 + k];
         // Inside the outline the skin stays behind the lens however the easing spread it.
-        for (const [v, fr, rr] of clamp) {
-            const q = almondAt(fr, [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]), to = fr.lens(rr) - 0.003;
+        for (const [v, fr, rr, xe] of clamp) {
+            const q = almondAt(fr, [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]), to = fr.surf(xe, rr) - 0.003;
             if (q.f > to) for (let k = 0; k < 3; k++) P[v * 3 + k] += fr.F[k] * (to - q.f);
         }
     }
