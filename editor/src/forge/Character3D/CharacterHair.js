@@ -232,8 +232,11 @@
         }
         // The ear itself, for the scalp to leave bare: what the ear target moves most (the quarter-share set
         // above spills onto the side of the head, where hair grows).
+        // The ear's bowl barely moves as the ear grows (it sits at the root): the target that lifts the
+        // whole ear marks it.
         const earCore = new Uint8Array(pack.vertexCount);
         for (const v of targetVerts(pack, 'shape/earSize-incr', 0.33)) if (ears[v]) earCore[v] = 1;
+        for (const v of targetVerts(pack, 'shape/earHeight-incr', 0.6)) if (Math.abs(S[v * 3] - center[0]) > radii[0] * 0.75) earCore[v] = 1;
         const lips = new Uint8Array(pack.vertexCount);
         for (const name of ['shape/upperLip-incr', 'shape/lowerLip-incr']) for (const v of targetVerts(pack, name, 0.1)) lips[v] = 1;
         let earBottom = Infinity, earTop = -Infinity, earBack = Infinity, earFront = -Infinity;
@@ -448,8 +451,9 @@
      */
     function addCard(m, pts, opts) {
         const n = pts.length, w0 = opts.width * 1.7, lane = opts.lane ?? (m._lane = ((m._lane || 0) + 1) % 4);
-        const u0 = lane * 0.25, u1 = u0 + 0.25;
-        for (const [scale, twist] of [[1, 0], [0.6, 1]]) {
+        const u0 = lane * 0.25, u1 = u0 + 0.25, v0 = opts.vFrom || 0.01;
+        // A lock lying flat on the skin (`single`) needs no crossing strip.
+        for (const [scale, twist] of opts.single ? [[1, 0]] : [[1, 0], [0.6, 1]]) {
             const base = m.pos.length / 3;
             // The crossing strip gives the lock body near the head; past halfway the lock is flat anyway.
             const rows = twist ? Math.max(2, Math.ceil(n * 0.5)) : n;
@@ -476,7 +480,7 @@
                     // Lit as part of the whole head of hair, not as a flat strip: the normal leans out from
                     // the head's middle (the card's own facing mixed in), and the strand runs along T.
                     const out = norm(sub(p, opts.center || [0, 0, 0]));
-                    pushVert(m, p, norm(add(mul(out, 0.7), mul(norm(add(N, mul(B, k * 0.35))), 0.3))), shadeRgb(col, shade), [u0 + (k + 1) / 2 * (u1 - u0), t * 0.98 + 0.01], T);
+                    pushVert(m, p, norm(add(mul(out, 0.7), mul(norm(add(N, mul(B, k * 0.35))), 0.3))), shadeRgb(col, shade), [u0 + (k + 1) / 2 * (u1 - u0), v0 + t * (0.99 - v0)], T);
                 }
             }
             for (let i = 0; i + 1 < rows; i++) {
@@ -1219,7 +1223,7 @@
         const lipW = H.lipHalf * 1.12;
         return v => {
             const p = H.P(v);
-            if (H.ears[v]) return -10;
+            if (H.ears[v] || H.earCore[v]) return -10;
             const x = Math.abs(p[0] - H.center[0]);
             const ax = x / rx;
             // The mouth's inside (the body mesh carries it behind the lips) is never bearded: there the
@@ -1229,7 +1233,13 @@
             if (dot(nrm, norm(sub(p, H.center))) < 0.05 && p[1] > H.chin[1]) return -10;
             // Only the front of the head and neck, in front of the ears.
             if (p[2] < H.earBack + (H.earFront - H.earBack) * 0.5) return -10;
-            const cheekLine = mix(noseBase - (noseBase - mouthY) * 0.1, H.earTop - H.radii[1] * 0.1, smooth(0.42, 0.98, ax));
+            // The cheek line runs from beside the nose out and up to the sideburn's foot by the ear's lobe;
+            // only the sideburn itself, a strip just in front of the ear, climbs toward the ear's top.
+            // Measured front to back, from the lips (0) to the ear's front (1): the cheekbone is as wide as
+            // the sideburn, but well forward of it.
+            const back = clamp((H.lipFront - p[2]) / Math.max(1e-6, H.lipFront - H.earFront), 0, 1);
+            const diag = mix(noseBase - (noseBase - mouthY) * 0.1, mix(H.earBottom, H.earTop, 0.3), smooth(0.25, 0.9, back) * smooth(0.2, 0.55, ax));
+            const cheekLine = mix(diag, H.earTop - H.radii[1] * 0.15, smooth(0.88, 0.98, back) * smooth(0.7, 0.85, ax));
             const above = (cheekLine - p[1]) / H.radii[1] * 60;
             const neckLine = H.neckBone.head[1] + (H.headBone.head[1] - H.neckBone.head[1]) * 0.08;
             const below = (p[1] - neckLine) / H.radii[1] * 60;
@@ -1240,7 +1250,7 @@
             const mustacheBand = Math.min((noseBase - p[1]) / H.radii[1] * 60, (p[1] - (H.lipTop + lipH * 0.05)) / H.radii[1] * 60, (lipW * 1.15 - x) / rx * 60);
             const chinZone = (lipW * 1.4 - x) / rx * 60;
             switch (style) {
-                case 'goatee': f = Math.max(Math.min(f, chinZone, (mouthY + lipH - p[1]) / H.radii[1] * 60), mustacheBand); break;
+                case 'goatee': f = Math.max(Math.min(f, chinZone, (mouthY + lipH - p[1]) / H.radii[1] * 60, (p[1] - (H.chin[1] - 0.012 * H.scale)) / H.radii[1] * 60), mustacheBand); break;
                 case 'chinStrap': {
                     // A band along the jaw's edge, from the sideburns round the chin.
                     const edge = mix(H.chin[1] + 0.003 * H.scale, H.earBottom - 0.012 * H.scale, smooth(0.25, 0.95, ax));
@@ -1281,13 +1291,16 @@
         const skinRgb = linear(skin || '#c69c7f');
         const sorted = Array.from(surf.val).sort((a, b) => a - b), deep = Math.max(1, sorted[Math.floor(sorted.length * 0.9)]);
         const inward = v => Math.min(1, v / deep);
-        addShell(m, surf, i => thick * (stubble ? smooth(0, 8, surf.val[i]) : smooth(0, 0.45, inward(surf.val[i]))) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]),
-            i => (stubble ? mixRgb(skinRgb, shadeRgb(linear(color), 1.28), smooth(0, 10, surf.val[i])) : mixRgb(skinRgb, ramp(0.6, 1.05 + 0.15 * lumps(surf.pos[i]), false), smooth(0, 0.35, inward(surf.val[i])))));
+        // The body is low (the hairs over it carry the volume), so its edge never stands as a step.
+        const body = stubble ? 1 : 0.45;
+        addShell(m, surf, i => thick * body * (stubble ? smooth(0, 8, surf.val[i]) : smooth(0, 0.7, inward(surf.val[i]))) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]),
+            i => (stubble ? mixRgb(skinRgb, shadeRgb(linear(color), 1.28), smooth(0, 10, surf.val[i])) : mixRgb(skinRgb, ramp(0.6, 1.05 + 0.15 * lumps(surf.pos[i]), false), smooth(0, 0.6, inward(surf.val[i])) * 0.92)));
         if (f.style === 'stubble') return;
-        // Strands: short over the beard, long below the chin for the long styles.
+        // Strands: many short, narrow locks lying along the face over the beard (single strips, so twice
+        // the locks cost what the crossed ones did), long below the chin for the long styles.
         const long = { longBeard: 0.16, wizardBeard: 0.32, braidedBeard: 0.12, fullBeard: 0.05 }[f.style];
         const mustache = ['mustache', 'handlebar', 'walrus', 'horseshoe', 'goatee', 'fullBeard', 'longBeard', 'wizardBeard', 'braidedBeard', 'shortBeard'].includes(f.style);
-        const roots = scatter(surf, Math.min(long ? 520 : 700, Math.round(surf.index.length / 3 * 0.9)), rand);
+        const roots = scatter(surf, Math.min(long ? 900 : 1400, Math.round(surf.index.length / 3 * 1.6)), rand);
         for (const r of roots) {
             if (r.f < 0.3) continue;
             // Toward the beard's edge the hairs grow sparser, so it thins into the skin.
@@ -1304,15 +1317,20 @@
                 length = (0.012 + long * low) * S * Lf;
                 dir = norm(add(mul(AXIS.down, 1), mul(r.n, 0.3)));
             } else {
-                length = 0.012 * S * Lf;
-                dir = norm(add(mul(AXIS.down, 1), mul(r.n, 0.2)));
+                // Down the cheek and a little in toward the chin, as a beard grows.
+                length = 0.016 * S * Lf;
+                dir = norm(add(add(mul(AXIS.down, 1), mul(r.n, 0.12)), [-0.3 * Math.sign(r.p[0] - H.center[0]) * smooth(H.mouth[1], H.chin[1], r.p[1]), 0, 0.15]));
             }
             if (f.style === 'pencil' || f.style === 'muttonChops' || f.style === 'chinStrap') length *= 0.6;
             // A mustache hangs to the lip, not over the mouth (the walrus does).
             const stopY = isLip && f.style !== 'walrus' ? H.lipTop - (H.lipTop - H.lipBottom) * 0.2 : null;
-            const pts = grow(H, r.p, r.n, dir, { steps: long ? 10 : 4, length, layer: thick * 0.6, lift: 0.3, gravity: long ? 0.6 : 0.2, stiff: 0.3, hug: long ? 0.3 : 0.8, release: H.chin[1], fringe: true, stopY, front: true });
+            const lowLong = long && r.p[1] < H.mouth[1];
+            const pts = grow(H, r.p, r.n, dir, { steps: lowLong ? 10 : 4, length, layer: thick * 0.5, lift: 0.2, gravity: long ? 0.6 : 0.2, stiff: 0.3, hug: lowLong ? 0.3 : 0.9, release: H.chin[1], fringe: true, stopY, front: true });
             const variance = 0.82 + 0.3 * rand();
-            addClump(m, long ? curlStrand(H, pts, 0.004 * S * (1 - V * 0.5), 0.05 * S, false, rand() * 6) : pts, { width: (long ? 0.014 : 0.011) * S, flat: 0.45, sides: 3, center: H.mouth, color: t => ramp(0.55 + 0.45 * t, variance * 1.15, false) });
+            // Narrower toward the beard's edge, and drawn from past the picture's full root, so the edge
+            // breaks up into single hairs instead of blocks.
+            const edge = 0.45 + 0.55 * smooth(0, 0.35, inward(r.f));
+            addClump(m, lowLong ? curlStrand(H, pts, 0.004 * S * (1 - V * 0.5), 0.05 * S, false, rand() * 6) : pts, { width: (lowLong ? 0.012 : 0.0075) * S * edge, flat: 0.45, sides: 3, center: H.mouth, single: !lowLong, vFrom: lowLong ? 0.01 : 0.22, color: t => ramp(0.55 + 0.45 * t, variance * 1.15, false) });
         }
         if (f.style === 'handlebar') {
             for (const side of [1, -1]) {
