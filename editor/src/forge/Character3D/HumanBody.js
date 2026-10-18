@@ -61,6 +61,39 @@
 
     const MIN_AGE = 11, MAX_AGE = 90;
 
+    /**
+     * The world's peoples, for the Ancestry choice: each a blend of the three
+     * ancestry targets, small face-shape offsets added under the recipe's own
+     * sliders, and its range of skin tones (light to deep; the middle one is
+     * set when the people is chosen, the randomizer picks within the range).
+     * Mixed is the even blend with no offsets.
+     */
+    const PEOPLES = [
+        { id: 'mixed', label: 'Mixed', mix: { african: 1 / 3, asian: 1 / 3, caucasian: 1 / 3 }, face: {}, tones: ['#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26'] },
+        { id: 'european', label: 'European', mix: { african: 0, asian: 0, caucasian: 1 }, face: {}, tones: ['#f3d6c4', '#ecc4a8', '#e2b291', '#d29f7c', '#bf8a66'] },
+        { id: 'middleEastern', label: 'Middle Eastern and North African', mix: { african: 0.12, asian: 0.05, caucasian: 0.83 }, face: { noseHump: 0.25, noseLength: 0.1, browRidge: 0.1, eyeSize: 0.05 }, tones: ['#e8c09c', '#d9a982', '#c6956c', '#ad7d55', '#90623d'] },
+        { id: 'subSaharan', label: 'Sub-Saharan African', mix: { african: 1, asian: 0, caucasian: 0 }, face: {}, tones: ['#a8795a', '#8a5a3c', '#70472d', '#5e3b26', '#4a2c1c', '#3a2216'] },
+        { id: 'southAsian', label: 'South Asian', mix: { african: 0.25, asian: 0.15, caucasian: 0.6 }, face: { eyeSize: 0.1, noseWidth: 0.1, lowerLip: 0.1, browRidge: -0.05 }, tones: ['#e0b48c', '#c99a70', '#ad7d55', '#8f603c', '#6e4529'] },
+        { id: 'centralAsian', label: 'Central Asian', mix: { african: 0, asian: 0.55, caucasian: 0.45 }, face: { cheekBones: 0.2 }, tones: ['#efcfb2', '#e3ba98', '#d4a47f', '#bd8c66'] },
+        { id: 'eastAsian', label: 'East Asian', mix: { african: 0, asian: 0.95, caucasian: 0.05 }, face: {}, tones: ['#f2d4ba', '#e8c19f', '#dcae88', '#c99a72'] },
+        { id: 'southeastAsian', label: 'Southeast Asian', mix: { african: 0.12, asian: 0.78, caucasian: 0.1 }, face: { noseWidth: 0.15, lowerLip: 0.05 }, tones: ['#e6c09a', '#d2a67c', '#b98a60', '#9c6f48', '#7e5636'] },
+        { id: 'nativeAmerican', label: 'Native American', mix: { african: 0.05, asian: 0.65, caucasian: 0.3 }, face: { cheekBones: 0.35, noseHump: 0.2, jaw: 0.1, eyeFold: -0.15 }, tones: ['#dcae86', '#c69468', '#ae7c52', '#93633e', '#7a4f31'] },
+        { id: 'latinAmerican', label: 'Latin American', mix: { african: 0.15, asian: 0.3, caucasian: 0.55 }, face: { cheekBones: 0.1 }, tones: ['#ecc6a4', '#ddb08a', '#c99a72', '#b1825a', '#93663f', '#6e4a2e'] },
+        { id: 'pacificIslander', label: 'Pacific Islander', mix: { african: 0.3, asian: 0.5, caucasian: 0.2 }, face: { noseWidth: 0.15, cheekBones: 0.15, jaw: 0.15, lowerLip: 0.1 }, tones: ['#c99a6c', '#b08154', '#966a42', '#7c5434'] },
+        { id: 'aboriginalAustralian', label: 'Aboriginal Australian', mix: { african: 0.6, asian: 0.1, caucasian: 0.3 }, face: { browRidge: 0.35, noseWidth: 0.3, noseLength: -0.1, lowerLip: 0.1 }, tones: ['#8a5e40', '#714a30', '#5e3b26', '#4a2e1e'] }
+    ];
+    const PEOPLE_BY_ID = new Map(PEOPLES.map(p => [p.id, p]));
+
+    /** A people chosen on a recipe: its blend set, its middle skin tone (unless `keepSkin`), its id kept with the blend. */
+    function withPeople(recipe, id, keepSkin) {
+        const p = PEOPLE_BY_ID.get(id);
+        const r = Object.assign({}, recipe);
+        if (!p) { r.ancestry = Object.assign({}, r.ancestry, { people: '' }); return r; }
+        r.ancestry = Object.assign({}, p.mix, { people: p.id });
+        if (!keepSkin) r.skin = p.tones[Math.floor((p.tones.length - 1) / 2)];
+        return r;
+    }
+
     const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, Number.isFinite(+x) ? +x : lo));
 
     const macro = (r, key) => {
@@ -100,6 +133,8 @@
         let total = 0;
         for (const a of ANCESTRY) { out.ancestry[a] = clamp(r.ancestry?.[a] ?? DEFAULT_RECIPE.ancestry[a], 0, 1); total += out.ancestry[a]; }
         for (const a of ANCESTRY) out.ancestry[a] = total > 0 ? out.ancestry[a] / total : 1 / 3;
+        // The people chosen (PEOPLES), kept with the blend; none for a blend made by hand.
+        out.ancestry.people = PEOPLE_BY_ID.has(r.ancestry?.people) ? r.ancestry.people : '';
         for (const s of SLIDERS) {
             // Recipes from the first builder kept Pointed ears beside the shapes.
             const v = r.shapes?.[s.key] ?? (s.key === 'earsPointed' ? r.earsPointed : 0) ?? 0;
@@ -123,13 +158,14 @@
     /**
      * The face the Proportions macro refines toward at 1, per gender (shape
      * slider values, added under the recipe's own): an oval face (squarer on a
-     * man), relaxed lids over larger eyes without bags, lips at rest with their corners lifted, a finer nose, defined
-     * cheekbones; a woman's jaw and brow softer, a man's jaw and chin firmer.
+     * man), relaxed lids resting over the top of the iris on larger eyes without bags, lips at rest with their
+     * corners lifted, a finer nose, defined cheekbones over cheeks kept full (hollow cheeks read gaunt); a woman's
+     * jaw and brow softer, a man's jaw and chin firmer.
      */
     const APPEAL = {
-        female: { headWidth: -0.25, headFat: -0.3, cheeks: -0.25, cheekBones: 0.45, jaw: -0.4, chin: 0.25, chinWidth: -0.3, mouthHeight: 0.12, eyeSize: 0.35, eyeOpen: -0.15, eyeSlant: 0.2, eyeBags: -0.5, eyeSpacing: -0.1, headOval: 0.55,
+        female: { headWidth: -0.25, headFat: -0.1, cheeks: 0.1, cheekBones: 0.45, jaw: -0.4, chin: 0.25, chinWidth: -0.3, mouthHeight: 0.12, eyeSize: 0.35, eyeOpen: -0.45, eyeSlant: 0.2, eyeBags: -0.5, eyeSpacing: -0.1, headOval: 0.55,
             browRidge: -0.7, browHeight: -0.1, underbite: -0.25, noseWidth: -0.45, noseVolume: -0.3, noseLength: -0.2, noseTip: 0.2, nostrils: -0.2, upperLip: 0.35, lowerLip: -0.2, mouthWidth: -0.1, mouthCorners: 0.3, neck: -0.3 },
-        male: { headWidth: -0.15, headFat: -0.3, cheeks: -0.3, cheekBones: 0.4, jaw: 0.4, chin: 0.3, chinWidth: 0.15, eyeOpen: -0.2, eyeBags: -0.5, headSquare: 0.35, headOval: 0.2, noseWidth: -0.15, noseHump: -0.1,
+        male: { headWidth: -0.15, headFat: -0.15, cheeks: -0.1, cheekBones: 0.4, jaw: 0.4, chin: 0.3, chinWidth: 0.15, eyeOpen: -0.32, eyeBags: -0.5, headSquare: 0.35, headOval: 0.2, noseWidth: -0.15, noseHump: -0.1,
             upperLip: 0.1, lowerLip: -0.15, mouthCorners: 0.15, browHeight: -0.15, browRidge: -0.35, temples: -0.3, underbite: -0.2, neck: 0.15 }
     };
     /** With them, by their own targets (appeal/…): a defined upper lip, the mouth drawn back, an upright forehead, a younger skull. */
@@ -199,18 +235,43 @@
         const appeal = Math.min(1, r.proportions);
         for (const [g, w] of [['female', 1 - r.gender], ['male', r.gender]]) for (const k in APPEAL[g]) shapes[k] = (shapes[k] || 0) + appeal * w * APPEAL[g][k];
         for (const [g, w] of [['female', 1 - r.gender], ['male', r.gender]]) for (const k in APPEAL_MOUTH[g]) add(`appeal/${k}`, appeal * w * APPEAL_MOUTH[g][k]);
+        // The bust's shape targets are made for a woman's breasts (as the cup is): on a man's flat chest they
+        // pinch the breastbone and raise cones, so they follow the body's femaleness.
+        for (const k of ['breastSpacing', 'breastHeight', 'breastPoint', 'breastFullness']) if (shapes[k]) shapes[k] *= 1 - r.gender;
+        const people = PEOPLE_BY_ID.get(r.ancestry.people);
+        if (people) for (const k in people.face) shapes[k] = (shapes[k] || 0) + people.face[k];
         const bulk = Math.max(0, (r.muscle - 0.5) * 2);
         for (const k in MUSCLE_BULK) shapes[k] += bulk * MUSCLE_BULK[k];
         const fat = Math.min(0.8, Math.max(0, r.weight - 1) * 2);
         for (const k in FAT_SPREAD) shapes[k] += fat * FAT_SPREAD[k];
         for (const s of SLIDERS) {
             // Eye size past natural is a scale of the eye about its eyeball (morph), not more of the target.
-            const v = natural || s.key === 'eyeSize' || VOLUME[s.key] ? clamp(shapes[s.key], s.paired ? -1 : 0, VOLUME[s.key] ? 1.3 : 1) : shapes[s.key];
+            let v = natural || s.key === 'eyeSize' || VOLUME[s.key] ? clamp(shapes[s.key], s.paired ? -1 : 0, VOLUME[s.key] ? 1.3 : 1) : shapes[s.key];
+            if (!natural) v = eased(s.key, v);
             if (!s.paired) add(`shape/${s.key}`, v);
             else if (v < 0) add(`shape/${s.key}-decr`, -v);
             else add(`shape/${s.key}-incr`, v);
         }
         return out;
+    }
+
+    /**
+     * Targets that fold when carried far past natural, eased there: each
+     * end's reach past natural (in target lengths) runs out smoothly instead
+     * of carrying on. Shrinking a nose or a mouth past its own size turns it
+     * inside out; a cheekbone or cheek raised too far stands as a ridge; the
+     * bust's shape targets carried far draw a flat chest into cones and
+     * creases; very short legs fold at the hip; knees carried far cross.
+     */
+    const EASE = { noseWidth: [0.55, 0], noseLength: [0.55, 0], noseDepth: [0.6, 0], noseVolume: [0.5, 0], nostrils: [0.6, 0], mouthWidth: [0.5, 0], upperLip: [0.7, 0], lowerLip: [0.7, 0], cheekBones: [0, 0.9], cheeks: [0.7, 0.9], chin: [0.7, 0], chinHeight: [0.6, 0], underbite: [0.7, 0], mouthCorners: [0.8, 0.8],
+        breastSpacing: [0.5, 0.5], breastHeight: [0.4, 0.6], breastPoint: [0.5, 0.6], breastFullness: [0.6, 0.6], chest: [0.8, 0.8], pecs: [0.8, 1], legLength: [0.7, 0], armLength: [0.8, 0], bowLegs: [0.6, 0.4] };
+    function eased(key, v) {
+        const e = EASE[key];
+        if (!e) return v;
+        const carry = (past, reach) => (reach > 0 ? reach * (1 - Math.exp(-past / reach)) : past);
+        if (v < -1 && e[0]) return -1 - carry(-1 - v, e[0]);
+        if (v > 1 && e[1]) return 1 + carry(v - 1, e[1]);
+        return v;
     }
 
     /** The pack's typed views over its binary. */
@@ -331,7 +392,97 @@
     const EXTREME_PASSES = 24;
     const FACE_SECTIONS = new Set(['Head shape', 'Forehead and brows', 'Eyes', 'Nose', 'Mouth and jaw', 'Ears']);
     const FACE_KEYS = new Set(SLIDERS.filter(s => FACE_SECTIONS.has(s.section)).map(s => s.key));
+    const EAR_KEYS = new Set(SLIDERS.filter(s => s.section === 'Ears').map(s => s.key));
     const LOCAL_TARGET = /^shape\//;
+
+    /**
+     * Targets laid on relaxed (passes each): MakeHuman's cheekbone target
+     * stops short in the middle of the cheek, so even within its natural
+     * range its back edge stands as a ledge with a dark crease under it.
+     */
+    const SOFT_PASSES = { cheekBones: 8 };
+    const SOFT_TARGET = new RegExp('^shape/(' + Object.keys(SOFT_PASSES).join('|') + ')-(?:incr|decr)$');
+
+    /** The vertices a soft target's relaxed move can reach: its own and as many rings round them as it relaxes. */
+    function softRegion(pack, key) {
+        pack._softRegions = pack._softRegions || new Map();
+        if (pack._softRegions.has(key)) return pack._softRegions.get(key);
+        const { offsets, flat } = neighbors(pack), seen = new Set();
+        let ring = [];
+        for (const name of ['shape/' + key + '-incr', 'shape/' + key + '-decr']) { const t = pack.targets.get(name); if (t) for (const v of t.index) if (!seen.has(v)) { seen.add(v); ring.push(v); } }
+        for (let r = 0; r < SOFT_PASSES[key]; r++) {
+            const next = [];
+            for (const v of ring) for (let i = offsets[v]; i < offsets[v + 1]; i++) if (!seen.has(flat[i])) { seen.add(flat[i]); next.push(flat[i]); }
+            ring = next;
+        }
+        const region = Uint32Array.from(seen);
+        pack._softRegions.set(key, region);
+        return region;
+    }
+
+    /** `relax`, worked only over `region` (a field zero outside it stays zero there). */
+    function relaxIn(pack, field, passes, region) {
+        const { offsets, flat } = neighbors(pack);
+        let a = field, b = Float32Array.from(field);
+        for (let p = 0; p < passes; p++) {
+            for (const v of region) {
+                const s = offsets[v], e = offsets[v + 1];
+                if (e === s) continue;
+                let x = 0, y = 0, z = 0;
+                for (let i = s; i < e; i++) { const u = flat[i] * 3; x += a[u]; y += a[u + 1]; z += a[u + 2]; }
+                const k = 1 / (e - s);
+                b[v * 3] = 0.5 * a[v * 3] + 0.5 * x * k;
+                b[v * 3 + 1] = 0.5 * a[v * 3 + 1] + 0.5 * y * k;
+                b[v * 3 + 2] = 0.5 * a[v * 3 + 2] + 0.5 * z * k;
+            }
+            const t = a; a = b; b = t;
+        }
+        return a;
+    }
+
+    /** Per vertex, how near the core of some target it is: its move against that target's largest, 0..1. */
+    function coreOf(pack, weights) {
+        const core = new Float32Array(pack.vertexCount);
+        pack._targetMax = pack._targetMax || new Map();
+        for (const name in weights) {
+            const t = pack.targets.get(name);
+            if (!t) continue;
+            let max = pack._targetMax.get(name);
+            if (max == null) {
+                max = 0;
+                for (let i = 0; i < t.index.length; i++) max = Math.max(max, Math.hypot(t.delta[i * 3], t.delta[i * 3 + 1], t.delta[i * 3 + 2]));
+                pack._targetMax.set(name, max);
+            }
+            for (let i = 0; i < t.index.length; i++) core[t.index[i]] = Math.max(core[t.index[i]], Math.hypot(t.delta[i * 3], t.delta[i * 3 + 1], t.delta[i * 3 + 2]) / (max || 1));
+        }
+        return core;
+    }
+
+    /**
+     * The ear's own skin, 0..1: 1 on the outer ear, 0 on the head round it.
+     * Measured by the targets that move the outer ear alone (sticking out,
+     * pointed, lobe, round); its root, which those barely move, fades out.
+     * The ear-size, -height and -tilt targets also carry the cheek and
+     * temple in front of the ear: past natural, only this part of them is
+     * carried on, so a big ear grows from the head instead of dragging the
+     * cheek out into a flap.
+     */
+    function earMask(pack) {
+        if (pack._earMask) return pack._earMask;
+        const ratio = new Float32Array(pack.vertexCount);
+        for (const name of ['shape/earOut-incr', 'shape/earOut-decr', 'shape/earsPointed', 'shape/earLobe-incr', 'shape/earLobe-decr', 'shape/earsRound']) {
+            const t = pack.targets.get(name);
+            if (!t) continue;
+            let max = 0;
+            for (let i = 0; i < t.index.length; i++) max = Math.max(max, Math.hypot(t.delta[i * 3], t.delta[i * 3 + 1], t.delta[i * 3 + 2]));
+            for (let i = 0; i < t.index.length; i++) ratio[t.index[i]] = Math.max(ratio[t.index[i]], Math.hypot(t.delta[i * 3], t.delta[i * 3 + 1], t.delta[i * 3 + 2]) / (max || 1));
+        }
+        const field = new Float32Array(pack.vertexCount * 3);
+        for (let v = 0; v < pack.vertexCount; v++) { const t = Math.max(0, Math.min(1, (ratio[v] - 0.06) / 0.3)); field[v * 3] = t * t * (3 - 2 * t); }
+        const smooth = relax(pack, field, 1), mask = new Float32Array(pack.vertexCount);
+        for (let v = 0; v < pack.vertexCount; v++) mask[v] = Math.min(1, smooth[v * 3] * 1.15);
+        return (pack._earMask = mask);
+    }
 
     /**
      * Shaped positions (meters, MakeHuman's frame: y up, facing +z) for a recipe.
@@ -343,18 +494,32 @@
         const positions = out && out.length === pack.positions.length ? out : new Float32Array(pack.positions.length);
         positions.set(pack.positions);
         const natural = targetWeights(recipe, true), full = targetWeights(recipe);
+        // Targets whose edge stands as a ledge are laid on relaxed, whole (natural and past it).
+        const soft = {};
+        for (const name in full) { const k = SOFT_TARGET.exec(name); if (k) { soft[k[1]] = soft[k[1]] || {}; soft[k[1]][name] = full[name]; } }
+        for (const key in soft) for (const name in soft[key]) delete natural[name];
         applyTargets(pack, natural, positions);
+        for (const key in soft) {
+            const field = new Float32Array(positions.length);
+            applyTargets(pack, soft[key], field);
+            const region = softRegion(pack, key), eased = relaxIn(pack, field, SOFT_PASSES[key], region);
+            for (const v of region) for (let k = 0; k < 3; k++) positions[v * 3 + k] += eased[v * 3 + k] * 1.15;
+        }
         const extra = {};
         let any = false;
         for (const name of new Set([...Object.keys(natural), ...Object.keys(full)])) {
+            if (SOFT_TARGET.test(name)) continue;
             const d = (full[name] || 0) - (natural[name] || 0);
             if (Math.abs(d) > 1e-5) { extra[name] = d; any = true; }
         }
         if (any) {
             // A face slider's target is a small local shape that does not fold: carried past natural as it is.
             // The body's are relaxed, or smoothing would erase a nose or a lip altogether.
-            const local = {}, broad = {};
-            for (const name in extra) (LOCAL_TARGET.test(name) && FACE_KEYS.has(name.slice(6).replace(/-(incr|decr)$/, '')) ? local : broad)[name] = extra[name];
+            const local = {}, broad = {}, ear = {};
+            for (const name in extra) {
+                const key = LOCAL_TARGET.test(name) ? name.slice(6).replace(/-(incr|decr)$/, '') : '';
+                (EAR_KEYS.has(key) ? ear : FACE_KEYS.has(key) ? local : broad)[name] = extra[name];
+            }
             const field = new Float32Array(positions.length);
             applyTargets(pack, broad, field);
             const smooth = relax(pack, field, EXTREME_PASSES);
@@ -362,8 +527,19 @@
             // Face targets past natural: a light relax, enough to iron out creases, not the feature.
             const near = new Float32Array(positions.length);
             applyTargets(pack, local, near);
-            const eased = relax(pack, near, 4);
-            for (let i = 0; i < positions.length; i++) positions[i] += eased[i];
+            // Ear targets past natural move the outer ear only.
+            if (Object.keys(ear).length) {
+                const ears = new Float32Array(positions.length), mask = earMask(pack);
+                applyTargets(pack, ear, ears);
+                for (let v = 0; v < pack.vertexCount; v++) for (let k = 0; k < 3; k++) near[v * 3 + k] += ears[v * 3 + k] * mask[v];
+            }
+            // The feature itself takes a light relax; the skin a target barely moves round it (where its small
+            // unevenness, carried three times as far, would crumple the cheek) takes a thorough one.
+            const eased = relax(pack, near, 4), ironed = relax(pack, near, 16), core = coreOf(pack, Object.assign({}, local, ear));
+            for (let v = 0; v < pack.vertexCount; v++) {
+                const c = core[v], w = c >= 0.5 ? 1 : c <= 0.12 ? 0 : ((c - 0.12) / 0.38) ** 2 * (3 - 2 * (c - 0.12) / 0.38);
+                for (let k = 0; k < 3; k++) positions[v * 3 + k] += eased[v * 3 + k] * w + ironed[v * 3 + k] * (1 - w);
+            }
         }
         const r = normalizeRecipe(recipe);
         volume(pack, positions, r);
@@ -1073,6 +1249,29 @@
         return n;
     }
 
+    /**
+     * The eyeballs' own shade (linear vertex colors, 1 lit): the white darkens
+     * up under the upper lid and toward the corners, a little under the lower
+     * lid, as the lids and the socket shade a living eye.
+     */
+    function eyeShade(V) {
+        const n = V.length / 3, out = new Float32Array(n * 3).fill(1);
+        for (const side of [1, -1]) {
+            const own = [];
+            for (let i = 0; i < n; i++) if (Math.sign(V[i * 3]) === side) own.push(i);
+            if (!own.length) continue;
+            const c = meanOf(V, own);
+            let R = 0;
+            for (const i of own) R = Math.max(R, Math.abs(V[i * 3] - c[0]));
+            for (const i of own) {
+                const dy = (V[i * 3 + 1] - c[1]) / R, dx = Math.abs(V[i * 3] - c[0]) / R;
+                const k = (1 - 0.38 * smooth01(0.05, 0.8, dy)) * (1 - 0.3 * smooth01(0.45, 0.95, dx)) * (1 - 0.15 * smooth01(0.3, 0.9, -dy));
+                out[i * 3] = k; out[i * 3 + 1] = k * 0.98; out[i * 3 + 2] = k * 0.97;
+            }
+        }
+        return out;
+    }
+
     /** Render-vertex attribute from a per-source one. */
     function gather(values, source, size) {
         const out = new values.constructor(source.length * size);
@@ -1109,7 +1308,9 @@
             index: eyes.index,
             joints: gather(eyeSkin.joints, eyes.source, 4),
             weights: gather(eyeSkin.weights, eyes.source, 4),
-            texture: eyes.texture
+            texture: eyes.texture,
+            colors: gather(eyeShade(eyeVerts), eyes.source, 3),
+            keepColors: true
         });
         const bones = joints(pack, shaped);
         let top = 0;
@@ -1128,15 +1329,18 @@
         const r = {
             gender: R.gender[0] === 0 && R.gender[1] === 1 ? gender : pick(R.gender),
             age: pick(R.age), muscle: pick(R.muscle), weight: pick(R.weight), height: pick(R.height), cup: pick(R.cup), proportions: pick(R.proportions),
-            ancestry: { african: rand() ** 2, asian: rand() ** 2, caucasian: rand() ** 2 },
             shapes: {}
         };
+        // One of the world's peoples, its blend nudged a little and a skin tone from its own range.
+        const people = PEOPLES[Math.floor(rand() * PEOPLES.length)];
+        r.ancestry = { people: people.id };
+        for (const a of ANCESTRY) r.ancestry[a] = Math.max(0, people.mix[a] + (rand() - 0.5) * 0.12);
         for (const s of SLIDERS) {
             if (!s.basic && rand() < 0.6) continue;
             r.shapes[s.key] = s.paired ? pick(R.shapes) * (s.key === 'belly' ? Math.max(0, r.weight - 0.3) * 1.5 : 1) : Math.max(0, pick(R.shapes)) * 0.5;
         }
         r.shapes.earsPointed = 0;
-        const tones = ['#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26', '#3f2618'];
+        const tones = people.tones;
         const t = rand() * (tones.length - 1), i = Math.floor(t), f = t - i;
         r.skin = mix(tones[i], tones[Math.min(i + 1, tones.length - 1)], f);
         r.seed = seed >>> 0;
@@ -1149,7 +1353,7 @@
         return '#' + ((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0');
     }
 
-    const api = { almondEye: { frame: almondFrame, half: almondHalf, at: almondAt }, VOLUME, maskOf, fatMask, volume, sexOf, anatomyFields, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
+    const api = { PEOPLES, PEOPLE_BY_ID, withPeople, earMask, almondEye: { frame: almondFrame, half: almondHalf, at: almondAt }, VOLUME, maskOf, fatMask, volume, sexOf, anatomyFields, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
     root.RRHumanBody = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

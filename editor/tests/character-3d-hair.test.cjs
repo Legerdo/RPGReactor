@@ -126,6 +126,21 @@ test('brows sit above the eyes, one per side, and every brow style builds', () =
     }
 });
 
+test('brows stay out of the baked shading; lashes: the upper lid long and dense, the lower short', () => {
+    const parts = Hair.build(pack, woman, { style: 'bald' });
+    assert.equal(byName(parts, 'Brows').noShade, true, 'a sheet over the skin shades nothing under it');
+    const lashes = byName(parts, 'Lashes'), T = Hair.lashTexture(128);
+    // The picture: the left half (upper lid) holds far more lash than the right (lower lid).
+    let upper = 0, lower = 0;
+    for (let y = 0; y < T.height; y++) for (let x = 0; x < T.width; x++) (x < T.width / 2 ? (upper += T.data[(y * T.width + x) * 4 + 3]) : (lower += T.data[(y * T.width + x) * 4 + 3]));
+    assert.ok(upper > lower * 2, `upper ${upper}, lower ${lower}`);
+    // Each lid's cards on its own half: those above the eye on the left, below it on the right.
+    const P = lashes.positions, U = lashes.uvs, H = Hair._internal.measure(pack, woman);
+    let wrong = 0;
+    for (let i = 0; i < P.length / 3; i++) if (Math.abs(P[i * 3 + 1] - H.eyeY) > H.eyeRadius * 0.5 && (P[i * 3 + 1] > H.eyeY) !== (U[i * 2] <= 0.5)) wrong++;
+    assert.equal(wrong, 0, 'lash cards on the wrong half');
+});
+
 test('hair follows an exaggerated head and body', () => {
     const big = Body.build(pack, { gender: 1, weight: 3, shapes: { headWidth: 2.5, headHeight: 2.5, neck: 3 } });
     const small = Body.build(pack, { gender: 0, age: 11 });

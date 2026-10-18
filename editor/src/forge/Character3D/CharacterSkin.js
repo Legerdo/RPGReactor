@@ -89,6 +89,20 @@
         return out;
     }
 
+    /**
+     * Where the lips meet, 0..1: each lip's skin within a few millimeters of
+     * the other lip (the mouth's line, where a closed mouth shows dark).
+     */
+    function lipSeam(pack) {
+        const U = regionOf(pack, ['shape/upperLip-incr']), L = regionOf(pack, ['shape/lowerLip-incr']), P = pack.positions;
+        const up = [], low = [], out = new Float32Array(pack.vertexCount);
+        for (const v of new Set(pack.body.source)) { if (U[v] > 0.05) up.push(v); else if (L[v] > 0.05) low.push(v); }
+        const near = (a, list) => { let m = Infinity; for (const b of list) m = Math.min(m, Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2])); return m; };
+        for (const v of up) out[v] = 1 - smooth(0.0012, 0.0034, near(v, low));
+        for (const v of low) out[v] = 1 - smooth(0.0012, 0.0034, near(v, up));
+        return out;
+    }
+
     function fields(pack) {
         if (pack._skinFields) return pack._skinFields;
         const an = Outfit.anatomy(pack);
@@ -98,11 +112,14 @@
         const lids = regionOf(pack, ['shape/eyeOpen-incr', 'shape/eyeFold-incr']);
         const cheeks = regionOf(pack, ['shape/cheeks-incr']);
         const nose = regionOf(pack, ['shape/noseVolume-incr', 'shape/noseDepth-incr']);
+        const bags = regionOf(pack, ['shape/eyeBags-incr']);
+        const seam = lipSeam(pack);
         // The tip and the nostrils alone (the nose pad of a muzzle), not the bridge.
         const noseTip = regionOf(pack, ['shape/noseTip-incr', 'shape/nostrils-incr']);
-        const ears = regionOf(pack, ['shape/earSize-incr']);
+        // The outer ear alone: the ear-size target also moves the cheek in front of the ear.
+        const ears = Body.earMask ? Body.earMask(pack) : regionOf(pack, ['shape/earSize-incr']);
         const jaw = regionOf(pack, ['shape/jaw-incr', 'shape/chin-incr', 'shape/chinWidth-incr', 'shape/doubleChin-incr']);
-        return (pack._skinFields = { an, normals, lips, lids, cheeks, nose, noseTip, ears, jaw });
+        return (pack._skinFields = { an, normals, lips, lids, bags, seam, cheeks, nose, noseTip, ears, jaw });
     }
 
     /**
@@ -319,19 +336,29 @@
         const accent = Outfit.linear(s.color || '#5a4030'), belly = s.belly ? Outfit.linear(s.belly) : null;
         let rgb = base;
         const [x, y, z] = p.rest;
-        // Skin's own unevenness: pores, and broad mottling.
-        const n = noise3(x * 90, y * 90, z * 90) * 0.5 + noise3(x * 13, y * 13, z * 13) * 0.35 + noise3(x * 400, y * 400, z * 400) * 0.15;
-        rgb = rgb.map(c => c * (0.93 + 0.12 * n));
+        // Skin's own unevenness, each in its own hue: broad patches where blood shows more (redder) or less,
+        // a finer mottle of pigment (browner), and the grain of the pores.
+        const blood = noise3(x * 14, y * 14, z * 14) - 0.5 + (noise3(x * 37 + 5.2, y * 37, z * 37) - 0.5) * 0.5;
+        const pigment = noise3(x * 75 + 3.1, y * 75, z * 75) - 0.5, grain = noise3(x * 400, y * 400, z * 400) - 0.5;
+        rgb = [rgb[0] * (1 + 0.06 * blood - 0.05 * pigment + 0.05 * grain), rgb[1] * (1 - 0.04 * blood - 0.07 * pigment + 0.05 * grain), rgb[2] * (1 - 0.035 * blood - 0.09 * pigment + 0.05 * grain)];
         // Where blood shows: the nose, the ears, the cheeks; the knuckles, elbows and knees.
         const flush = mix(rgb, rgb.map((c, i) => c * [1.12, 0.78, 0.74][i]), 1);
-        let warm = p.nose * 0.45 + p.ears * 0.5 + p.cheeks * 0.25;
+        let warm = p.nose * 0.45 + p.ears * 0.5 + p.cheeks * 0.32;
         if (p.fam === 1 || p.fam === 2) warm += smooth(0.07, 0, Math.abs(p.s - 3.25)) * 0.35 + smooth(0.12, 0, Math.abs(p.s - 2.0)) * Math.max(0, -p.n[2]) * 0.3;
         if (p.fam === 3 || p.fam === 4) warm += smooth(0.14, 0, Math.abs(p.s - 1.0)) * Math.max(0, p.n[2]) * 0.3;
         rgb = mix(rgb, flush, Math.min(1, warm) * 0.55);
-        // The eyelids a little darker, cooler.
+        // The eyelids a little darker, cooler; under the eyes a faint shadow of the same hue.
         if (p.lids > 0.15) rgb = mix(rgb, rgb.map((c, i) => c * [0.8, 0.74, 0.8][i]), smooth(0.15, 0.6, p.lids) * 0.5);
-        // A shaved beard's shadow, on a man's jaw and upper lip.
-        if (s.beard && p.jaw > 0.2 && p.lips < 0.3) rgb = mix(rgb, rgb.map((c, i) => c * [0.78, 0.8, 0.86][i]), smooth(0.2, 0.6, p.jaw) * s.beard * 0.6);
+        if (p.bags > 0.2) rgb = mix(rgb, rgb.map((c, i) => c * [0.88, 0.82, 0.88][i]), smooth(0.2, 0.7, p.bags) * 0.3 * (1 - smooth(0.15, 0.4, p.lids)));
+        // The palms and soles paler, the more so on deep skin.
+        const deep = 1 - Math.min(1, (base[0] * 0.3 + base[1] * 0.55 + base[2] * 0.15) * 2.2);
+        const palm = (p.fam === 1 || p.fam === 2) ? smooth(2.9, 3.1, p.s) * smooth(-0.1, -0.5, p.n[1]) : (p.fam === 3 || p.fam === 4) ? smooth(1.9, 2.05, p.s) * smooth(-0.3, -0.7, p.n[1]) : 0;
+        if (palm > 0) rgb = mix(rgb, rgb.map((c, i) => Math.min(1, c * [1.7, 1.6, 1.5][i])), palm * (0.15 + 0.45 * deep));
+        // A shaved beard's shadow on a man's jaw, chin and upper lip: fine stubble, cool and stippled.
+        if (s.beard && p.jaw > 0.2 && p.lips < 0.3) {
+            const stub = 0.45 + 0.55 * smooth(0.45, 0.75, hash3(Math.floor(x * 1400), Math.floor(y * 1400), Math.floor(z * 1400)));
+            rgb = mix(rgb, rgb.map((c, i) => c * [0.74, 0.77, 0.84][i]), smooth(0.2, 0.6, p.jaw) * (1 - smooth(0.15, 0.3, p.lips)) * s.beard * 0.5 * stub);
+        }
         // A paler front: the belly, the throat, the insides of the limbs.
         if (belly) {
             const front = p.fam === 0 ? smooth(0.35, 0.85, p.n[2]) * smooth(-0.4, 0.2, p.s) * (1 - smooth(4.4, 4.9, p.s)) : smooth(0.2, 0.9, -p.n[1]) * 0.8;
@@ -447,7 +474,9 @@
             // The hairline: high on the forehead, down over the temples, low at the nape; a little uneven.
             const line = front > 0 ? 5.64 - 0.42 * side * side + s.scalp.recede * 0.25 * (1 - side) : 5.22 - 0.3 * Math.min(1, -front * 1.4);
             const wobble = (noise3(x * 60, y * 60, z * 60) - 0.5) * 0.05;
-            const cover = smooth(line - 0.03, line + 0.04, p.s + wobble) * (1 - smooth(0.25, 0.6, p.ears || 0));
+            let cover = smooth(line - 0.05, line + 0.05, p.s + wobble) * (1 - smooth(0.25, 0.6, p.ears || 0));
+            // At its edge the hairline breaks into fine hairs along their lie, not a soft band of shade.
+            if (cover > 0 && cover < 1) cover *= Math.min(1, 0.25 + 1.5 * cover * (0.35 + 0.65 * noise3(x * 1100, y * 140, z * 1100)));
             if (cover > 0) rgb = mix(rgb, s.scalp.rgb, cover * 0.95);
         }
         // With the ears folded away, the ear's own skin is the inside of the ear hole: dark.
@@ -457,9 +486,14 @@
         if (s.nose && p.noseTip > 0.35 && p.n[2] > -0.2) rgb = mix(rgb, Outfit.linear(s.nose), smooth(0.35, 0.7, p.noseTip) * smooth(-0.2, 0.3, p.n[2]));
         if (s.blush) rgb = mix(rgb, mix(rgb, Outfit.linear('#c0484a'), 0.6), p.cheeks * s.blush * 0.6);
         if (p.lips > 0.25) {
-            const lip = s.lips ? Outfit.linear(s.lips) : rgb.map((c, i) => c * [0.84, 0.56, 0.58][i]);
-            rgb = mix(rgb, lip, smooth(0.25, 0.55, p.lips));
+            // The lip's own color, rosier and deeper than the skin, its border a touch darker, so the lips read
+            // as their own shape and not a stain.
+            const lip = s.lips ? Outfit.linear(s.lips) : rgb.map((c, i) => c * [0.74, 0.47, 0.52][i]);
+            const edge = smooth(0.25, 0.38, p.lips) * (1 - smooth(0.42, 0.6, p.lips));
+            rgb = mix(rgb, lip.map(c => c * (1 - 0.14 * edge)), smooth(0.25, 0.5, p.lips));
         }
+        // The line where the lips meet, in shade.
+        if (p.seam > 0.05) rgb = mix(rgb, rgb.map((c, i) => c * [0.58, 0.46, 0.48][i]), Math.min(1, p.seam) * 0.6);
         if (s.eyeshadow && p.lids > 0.2) rgb = mix(rgb, Outfit.linear(s.eyeshadow), smooth(0.2, 0.6, p.lids) * s.shadowAmount);
         return rgb;
     }
@@ -485,7 +519,7 @@
         const base = Outfit.linear(skinHex || '#c69c7f');
         const data = new Uint8Array(size * size * 4), filled = new Uint8Array(size * size);
         const body = pack.body;
-        const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, lids: 0, cheeks: 0, nose: 0, noseTip: 0, ears: 0, jaw: 0 };
+        const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, lids: 0, bags: 0, seam: 0, cheeks: 0, nose: 0, noseTip: 0, ears: 0, jaw: 0 };
         s.beard = Math.max(0, Math.min(1, (options && options.beard) || 0));
         s.earHoles = !!(options && options.earHoles);
         if (options && options.scalp) s.scalp = { rgb: Outfit.linear(options.scalp.color).map(c => c * 0.75), recede: options.scalp.recede || 0 };
@@ -540,6 +574,8 @@
                 p.lips = W.reduce((sum, w, k) => sum + w * F.lips[v[k]], 0);
                 p.lids = W.reduce((sum, w, k) => sum + w * F.lids[v[k]], 0);
                 p.cheeks = W.reduce((sum, w, k) => sum + w * F.cheeks[v[k]], 0);
+                p.bags = W.reduce((sum, w, k) => sum + w * F.bags[v[k]], 0);
+                p.seam = W.reduce((sum, w, k) => sum + w * F.seam[v[k]], 0);
                 p.nose = W.reduce((sum, w, k) => sum + w * F.nose[v[k]], 0);
                 p.noseTip = W.reduce((sum, w, k) => sum + w * F.noseTip[v[k]], 0);
                 p.ears = W.reduce((sum, w, k) => sum + w * F.ears[v[k]], 0);
@@ -566,7 +602,7 @@
 
     // ── eyes ──────────────────────────────────────────────────────────────
     const PUPILS = [['round', 'Round'], ['slit', 'Slit'], ['goat', 'Bar'], ['none', 'None']];
-    const DEFAULT_EYES = Object.freeze({ color: '#6a4a2a', pupil: 'round', sclera: '', size: 1.1, pupilSize: 1, catchlight: true });
+    const DEFAULT_EYES = Object.freeze({ color: '#6a4a2a', pupil: 'round', sclera: '', size: 1.25, pupilSize: 1, catchlight: true });
     // The picture holds two eyeballs; each iris is centered here, about 0.11 of the picture across.
     const IRIS = [[0.708, 0.259], [0.292, 0.671]], IRIS_R = 0.108, PUPIL_R = 0.042;
 
@@ -623,7 +659,7 @@
             } else {
                 // The picture's whites are a dim beige: lifted to a living white, its veins kept.
                 const src3 = [srgb(src[o] / 255), srgb(src[o + 1] / 255), srgb(src[o + 2] / 255)];
-                rgb = src3.map((c, i) => Math.min(1, c * [1.85, 1.9, 1.95][i]));
+                rgb = src3.map((c, i) => Math.min(1, c * [1.72, 1.72, 1.7][i]));
             }
             if (!rgb) continue;
             out[o] = toByte(rgb[0]); out[o + 1] = toByte(rgb[1]); out[o + 2] = toByte(rgb[2]);

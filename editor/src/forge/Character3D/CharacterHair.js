@@ -852,9 +852,11 @@
     }
 
     // ── layer builders ─────────────────────────────────────────────────────
+    // A little lighter than the color chosen: the lock shading (root dark, strands varying) averages below it.
+    const HAIR_LIFT = 1.1;
     function colorRamp(hair) {
-        const rootC = shadeRgb(linear(hair.color), 0.88);
-        const tipC = hair.tipColor ? linear(hair.tipColor) : shadeRgb(linear(hair.color), 1.12);
+        const rootC = shadeRgb(linear(hair.color), 0.88 * HAIR_LIFT);
+        const tipC = shadeRgb(hair.tipColor ? linear(hair.tipColor) : shadeRgb(linear(hair.color), 1.12), HAIR_LIFT);
         const hi = mixRgb(linear(hair.color), [0.9, 0.82, 0.62], 0.5);
         return (t, variance, highlight) => {
             let c = mixRgb(rootC, tipC, smooth(0, 1, t));
@@ -1297,7 +1299,7 @@
         // The body is low (the hairs over it carry the volume), so its edge never stands as a step.
         const body = stubble ? 1 : 0.45;
         addShell(m, surf, i => thick * body * (stubble ? smooth(0, 8, surf.val[i]) : smooth(0, 0.7, inward(surf.val[i]))) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]),
-            i => (stubble ? mixRgb(skinRgb, shadeRgb(linear(color), 1.28), smooth(0, 10, surf.val[i])) : mixRgb(skinRgb, ramp(0.6, 1.05 + 0.15 * lumps(surf.pos[i]), false), smooth(0, 0.6, inward(surf.val[i])) * 0.92)));
+            i => (stubble ? mixRgb(skinRgb, shadeRgb(linear(color), 1.28), smooth(0, 10, surf.val[i])) : mixRgb(skinRgb, ramp(0.6, 1.05 + 0.15 * lumps(surf.pos[i]), false), smooth(0.04, 0.85, inward(surf.val[i])) * 0.92)));
         if (f.style === 'stubble') return;
         // Strands: many short, narrow locks lying along the face over the beard (single strips, so twice
         // the locks cost what the crossed ones did), long below the chin for the long styles.
@@ -1307,7 +1309,7 @@
         for (const r of roots) {
             if (r.f < 0.3) continue;
             // Toward the beard's edge the hairs grow sparser, so it thins into the skin.
-            if (rand() > smooth(0, 0.4, inward(r.f)) * 0.55 + 0.45) continue;
+            if (rand() > smooth(0, 0.6, inward(r.f)) * 0.65 + 0.35) continue;
             const isLip = r.p[1] > H.lipBottom && Math.abs(r.p[0] - H.center[0]) < H.lipHalf * 1.4 && r.p[1] < H.noseTip[1];
             if (isLip && r.p[2] < H.lipFront - 0.012 * S) continue;
             if (isLip && !mustache) continue;
@@ -1497,7 +1499,8 @@
             weights.set(pack.skinWeights.subarray(v * 4, v * 4 + 4), i * 4);
         });
         return { name: 'Brows', positions, normals, colors: new Float32Array(n * 3).fill(1), uvs: Float32Array.from(patch.uvs), index: Uint32Array.from(patch.index), joints, weights,
-            texture: 'brows.png', opacity: 0.999, roughness: 0.7, source: Int32Array.from(patch.ids), decal: true, onSkin: true };
+            // Left out of the baked occlusion: a sheet this close over the skin would shade the whole patch under it.
+            texture: 'brows.png', opacity: 0.999, roughness: 0.7, source: Int32Array.from(patch.ids), decal: true, onSkin: true, noShade: true };
     }
 
     /**
@@ -1533,26 +1536,45 @@
         });
         polar.forEach((q, i) => {
             const sp = span[Math.sign(pts[i][0]) + ':' + q.up];
-            pushVert(m, pts[i], [0, 0, 1], col, [(q.a - sp.a[0]) / Math.max(1e-5, sp.a[1] - sp.a[0]), (q.r - sp.r[0]) / Math.max(1e-5, sp.r[1] - sp.r[0])]);
+            // The upper lid takes the picture's left half (long, dense lashes), the lower its right half (short, sparse).
+            const along = (q.a - sp.a[0]) / Math.max(1e-5, sp.a[1] - sp.a[0]);
+            pushVert(m, pts[i], [0, 0, 1], col, [q.up ? along * 0.5 : 0.5 + along * 0.5, (q.r - sp.r[0]) / Math.max(1e-5, sp.r[1] - sp.r[0])]);
         });
         for (let t = 0; t < h.index.length; t++) m.idx.push(base + h.index[t]);
     }
 
-    /** Lash strands: thin dark lines across the lid, tapering from the root (v = 0) to the tip. */
-    function lashTexture(size = 128) {
+    /**
+     * Lash strands, root (v = 0) to tip: the picture's left half the upper
+     * lid's (a dark lash line at the root, many lashes thinning to their
+     * tips, thicker in the middle of the lid), its right half the lower
+     * lid's (fewer, finer and shorter).
+     */
+    function lashTexture(size = 256) {
+        size = Math.max(256, size);
         const data = new Uint8Array(size * size * 4);
+        const strands = (u0, count, len, width, k0) => {
+            const out = [];
+            for (let k = 0; k < count; k++) {
+                const h = Math.sin((k + k0) * 12.9898) * 43758.5453, r = h - Math.floor(h);
+                out.push({ c: u0 + (k + 0.5 + (r - 0.5) * 0.6) / count * 0.5, len: len * (0.75 + 0.4 * r), w: width * (0.8 + 0.4 * r), lean: (r - 0.5) * 0.02 });
+            }
+            return out;
+        };
+        const upper = strands(0, 70, 1, 0.0045, 1), lower = strands(0.5, 34, 0.5, 0.003, 7);
         for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
             const u = x / size, v = y / size, o = (y * size + x) * 4;
-            let a = 0;
-            const strands = 40;
-            for (let k = 0; k < strands; k++) {
-                const c = (k + 0.5) / strands + Math.sin(k * 7.1) * 0.006 + v * 0.012 * Math.sin(k * 3.3);
-                const width = 0.006 * (1 - v * 0.8);
-                const d = Math.abs(u - c);
-                a = Math.max(a, 1 - d / Math.max(0.004, width));
+            const top = u < 0.5, along = top ? u * 2 : (u - 0.5) * 2;
+            // Fuller in the middle of the lid, thinning toward both corners.
+            const mid = 0.45 + 0.55 * Math.sin(Math.min(1, Math.max(0, along)) * Math.PI);
+            let a = top ? (1 - Math.min(1, v / 0.12)) * 0.9 * mid : (1 - Math.min(1, v / 0.06)) * 0.45 * mid;
+            for (const s of top ? upper : lower) {
+                if (v > s.len * mid) continue;
+                const t = v / (s.len * mid), c = s.c + s.lean * t * t;
+                const w = s.w * (1 - 0.85 * t) * (top ? 1 : 0.8);
+                const d = Math.abs(u - c), half = Math.max(w * 1.5, 1.3 / size);
+                if (d < half) a = Math.max(a, (1 - d / half) * (1 - 0.25 * t) * Math.min(1, w * 1.5 / half + 0.35));
             }
-            a *= 1 - Math.max(0, v - 0.85) / 0.15;
-            data[o] = 18; data[o + 1] = 13; data[o + 2] = 11; data[o + 3] = Math.round(Math.max(0, Math.min(1, a)) * 255);
+            data[o] = 16; data[o + 1] = 12; data[o + 2] = 10; data[o + 3] = Math.round(Math.max(0, Math.min(1, a)) * 255);
         }
         return { width: size, height: size, data, name: 'lashes.png' };
     }
@@ -1625,7 +1647,10 @@
             const q = add(p, mul(s.n, 0.002 * H.scale - s.d));
             head.pos[i] = q[0]; head.pos[i + 1] = q[1]; head.pos[i + 2] = q[2];
         }
-        if (head.idx.length) parts.push(toPart(H, head, 'Hair', { extra: strands }));
+        // Left out of the baked occlusion: hundreds of cards packed over the scalp would shade the skin round
+        // the hairline into a dark blotch on the cheek, and each other into a dark helmet. The strands carry
+        // their own root-to-tip shading.
+        if (head.idx.length) parts.push(toPart(H, head, 'Hair', { extra: Object.assign({ noShade: true }, strands) }));
         rand = rng(seed ^ 0x51ed);
         const facial = meshBuilder();
         buildFacial(H, hair, facial, rand, hexOk(o.skin) ? o.skin : (built.recipe && built.recipe.skin));
@@ -1635,7 +1660,7 @@
         if (hair.lashes) {
             const lashes = meshBuilder();
             buildLashes(H, lashes);
-            if (lashes.idx.length) parts.push(toPart(H, lashes, 'Lashes', { rigid: true, extra: { roughness: 0.8, uvs: Float32Array.from(lashes.uv), texture: 'lashes.png', cutout: true, alphaCutoff: 0.35 } }));
+            if (lashes.idx.length) parts.push(toPart(H, lashes, 'Lashes', { rigid: true, extra: { roughness: 0.8, uvs: Float32Array.from(lashes.uv), texture: 'lashes.png', cutout: true, alphaCutoff: 0.3, kind: 'hair' } }));
         }
         return parts;
     }

@@ -85,6 +85,61 @@ test('a seed gives the same character every time', () => {
     assert.equal(Body.randomRecipe(99).seed, 99);
 });
 
+test('ancestry names the world\'s peoples: each a blend, face offsets and its own skin tones', () => {
+    const ids = Body.PEOPLES.map(p => p.id);
+    for (const id of ['european', 'subSaharan', 'eastAsian', 'southAsian', 'southeastAsian', 'middleEastern', 'nativeAmerican', 'latinAmerican', 'pacificIslander', 'aboriginalAustralian']) assert.ok(ids.includes(id), id);
+    for (const p of Body.PEOPLES) {
+        assert.ok(Math.abs(Body.ANCESTRY.reduce((s, a) => s + p.mix[a], 0) - 1) < 1e-6, p.id + ' blend sums to one');
+        assert.ok(p.tones.length >= 3 && p.tones.every(t => /^#[0-9a-f]{6}$/.test(t)), p.id + ' tones');
+        for (const k in p.face) assert.ok(Body.SLIDER_BY_KEY.has(k) && Math.abs(p.face[k]) <= 0.5, p.id + ' ' + k);
+    }
+    const r = Body.normalizeRecipe(Body.withPeople({}, 'nativeAmerican'));
+    assert.equal(r.ancestry.people, 'nativeAmerican');
+    assert.ok(r.ancestry.asian > r.ancestry.caucasian && r.ancestry.caucasian > r.ancestry.african);
+    assert.ok(Body.PEOPLE_BY_ID.get('nativeAmerican').tones.includes(r.skin));
+    const w = Body.targetWeights(r), plain = Body.targetWeights(Object.assign({}, r, { ancestry: Object.assign({}, r.ancestry, { people: '' }) }));
+    assert.ok((w['shape/cheekBones-incr'] || 0) > (plain['shape/cheekBones-incr'] || 0), 'the people shapes the face');
+    assert.equal(Body.normalizeRecipe({ ancestry: { african: 1, asian: 0, caucasian: 0 } }).ancestry.people, '', 'a blend made by hand names no people');
+    assert.equal(Body.normalizeRecipe(Body.withPeople({ skin: '#6a8a4a' }, 'european', true)).skin, '#6a8a4a', 'a species skin is kept');
+    // Random bodies come from every corner of the world, each with a tone of its own people's range.
+    const seen = new Set();
+    for (let seed = 1; seed < 80; seed++) {
+        const rr = Body.randomRecipe(seed);
+        seen.add(rr.ancestry.people);
+        const tones = Body.PEOPLE_BY_ID.get(rr.ancestry.people).tones, lum = h => parseInt(h.slice(1, 3), 16) + parseInt(h.slice(3, 5), 16) + parseInt(h.slice(5, 7), 16);
+        assert.ok(lum(rr.skin) <= lum(tones[0]) + 2 && lum(rr.skin) >= lum(tones[tones.length - 1]) - 2, rr.ancestry.people + ' tone ' + rr.skin);
+    }
+    assert.ok(seen.size >= 9, 'random peoples ' + [...seen]);
+});
+
+test('a big ear grows from the head: the cheek in front of it stays where it was', () => {
+    const mask = Body.earMask(pack), B = pack.positions, t = pack.targets.get('shape/earSize-incr');
+    const cheek = [];
+    for (let i = 0; i < t.index.length; i++) if (mask[t.index[i]] === 0 && B[t.index[i] * 3 + 2] > 0.08) cheek.push(t.index[i]);
+    assert.ok(cheek.length > 10, 'the ear-size target moves the cheek');
+    const natural = Body.shape(pack, { shapes: { earSize: 1 } }), big = Body.shape(pack, { shapes: { earSize: 3 } });
+    let drift = 0, ear = 0;
+    for (const v of cheek) drift = Math.max(drift, Math.hypot(big[v * 3] - natural[v * 3], big[v * 3 + 1] - natural[v * 3 + 1], big[v * 3 + 2] - natural[v * 3 + 2]));
+    for (let v = 0; v < pack.vertexCount; v++) if (mask[v] > 0.99) ear = Math.max(ear, Math.hypot(big[v * 3] - natural[v * 3], big[v * 3 + 1] - natural[v * 3 + 1], big[v * 3 + 2] - natural[v * 3 + 2]));
+    assert.ok(ear > 0.008, 'the ear grows ' + ear);
+    assert.ok(drift < ear * 0.25, `the cheek moves ${drift}, the ear ${ear}`);
+});
+
+test('the eye white is shaded under the upper lid and at the corners; extremes ease out where targets fold', () => {
+    const built = Body.build(pack, {}), eyes = built.parts.find(p => p.name === 'Eyes');
+    assert.ok(eyes.colors && eyes.keepColors, 'the eyes carry their own shade');
+    const P = eyes.positions, C = eyes.colors;
+    let cy = 0, n = 0, top = 1, mid = 0;
+    for (let i = 0; i < P.length; i += 3) if (P[i] > 0) { cy += P[i + 1]; n++; }
+    cy /= n;
+    for (let i = 0; i < P.length; i += 3) if (P[i] > 0) { if (P[i + 1] > cy + 0.008) top = Math.min(top, C[i]); if (Math.abs(P[i + 1] - cy) < 0.001) mid = Math.max(mid, C[i]); }
+    assert.ok(top < mid - 0.2, `top ${top}, middle ${mid}`);
+    // A nose shrunk past natural runs out instead of turning inside out; a man's chest takes no bust shape.
+    const w = slider => Body.targetWeights({ shapes: slider })['shape/noseWidth-decr'];
+    assert.ok(w({ noseWidth: -3 }) < 1.6 && w({ noseWidth: -3 }) > w({ noseWidth: -1.5 }));
+    assert.equal(Body.targetWeights({ gender: 1, shapes: { breastPoint: 2 } })['shape/breastPoint-incr'], undefined);
+});
+
 test('the saved model is a skinned GLB with Mixamo bones and an Idle clip', () => {
     const built = Body.build(pack, { gender: 1 });
     built.parts[0].color = '#c69c7f';

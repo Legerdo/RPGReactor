@@ -351,6 +351,8 @@ class Character3DBuilder {
         if (el.tagName === 'SELECT') {
             if (!committed) return;
             if (path === 'eyeStyle') { this._applyEyeStyle(value); return; }
+            // A people sets the blend and, on a species with skin of its own color, keeps that skin.
+            if (path === 'ancestry.people') { this._replace(RRHumanBody.withPeople(this.recipe, value, !!(RRCharacterSpecies.BY_ID.get(this.recipe.species)?.recipe || {}).skin)); return; }
             // A body hair pattern sets every region to its own values.
             // On a woman, Natural and Light are a woman's own patterns.
             if (path === 'bodyHair.pattern' && value !== 'custom') {
@@ -561,7 +563,7 @@ class Character3DBuilder {
     /** Eye styles: a set of eye size, shape, iris, pupil and catchlights. */
     static get EYE_STYLES() {
         return {
-            natural: { shapes: { eyeSize: 0 }, morph: { eyeWide: 1, eyeTall: 1 }, eyes: { size: 1, pupilSize: 1, catchlight: false } },
+            natural: { shapes: { eyeSize: 0 }, morph: { eyeWide: 1, eyeTall: 1 }, eyes: { size: 1.25, pupilSize: 1, catchlight: false } },
             anime: { shapes: { eyeSize: 2.4 }, morph: { eyeWide: 1.1, eyeTall: 1.55 }, eyes: { size: 1.45, pupilSize: 1.15, catchlight: true } },
             beady: { shapes: { eyeSize: -1.2 }, morph: { eyeWide: 0.85, eyeTall: 0.85 }, eyes: { size: 0.85, pupilSize: 1.3, catchlight: false } }
         };
@@ -597,10 +599,12 @@ class Character3DBuilder {
             { path: 'morph.eyeWide', label: 'Eye width', natural: [0.7, 1.4], extreme: [0.5, 2.5], format: 'x' },
             { path: 'morph.eyeTall', label: 'Eye tallness', natural: [0.7, 1.4], extreme: [0.5, 2.5], format: 'x' }
         ];
-        const ancestry = RRHumanBody.ANCESTRY.map(a => this._slider({ path: `ancestry.${a}`, label: { african: 'African', asian: 'Asian', caucasian: 'European' }[a], natural: [0, 1] })).join('');
-        return this._extremeToggle() + this._shapeSliders(['Head and neck', 'Head shape', 'Forehead and brows', 'Eyes']) + eyeStyle + eyeShape.map(s => this._slider(s)).join('')
+        // One choice of people; the blend under it fine-tunes the face.
+        const ancestry = this._select('ancestry.people', 'Heritage', RRHumanBody.PEOPLES.map(p => [p.id, p.label]), this.recipe.ancestry.people || 'mixed')
+            + RRHumanBody.ANCESTRY.map(a => this._slider({ path: `ancestry.${a}`, label: { african: 'African', asian: 'Asian', caucasian: 'European' }[a], natural: [0, 1] })).join('');
+        return this._extremeToggle() + this._section('Ancestry') + ancestry + this._shapeSliders(['Head and neck', 'Head shape', 'Forehead and brows', 'Eyes']) + eyeStyle + eyeShape.map(s => this._slider(s)).join('')
             + this._shapeSliders(['Nose', 'Mouth and jaw', 'Ears'])
-            + this._section('Muzzle and face') + morph.map(s => this._slider(s)).join('') + this._section('Ancestry') + ancestry;
+            + this._section('Muzzle and face') + morph.map(s => this._slider(s)).join('');
     }
 
     _hairTab() {
@@ -997,7 +1001,8 @@ class Character3DBuilder {
             case 'hair': r.hair = RRCharacterHair.randomHair(seed, { gender: r.gender > 0.5 ? 'male' : 'female' }); break;
             case 'outfit': r.outfit = roll.outfit; r.props = roll.props; break;
             case 'colors':
-                if (r.species === 'human') r.skin = roll.skin;
+                // A tone from the chosen people's own range.
+                if (r.species === 'human') { const tones = (RRHumanBody.PEOPLE_BY_ID.get(r.ancestry.people) || RRHumanBody.PEOPLE_BY_ID.get('mixed')).tones; r.skin = tones[seed % tones.length]; }
                 r.eyes = Object.assign({}, r.eyes, { color: roll.eyes.color });
                 r.hair = Object.assign({}, r.hair, { color: roll.hair.color, tipColor: roll.hair.tipColor });
                 r.outfit = r.outfit.map((item, k) => Object.assign({}, item, roll.outfit[k % Math.max(1, roll.outfit.length)] ? { color: roll.outfit[k % roll.outfit.length].color } : {}));
