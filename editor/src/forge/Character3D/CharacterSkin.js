@@ -44,6 +44,18 @@
         }
         return [Math.sqrt(d1), Math.sqrt(d2)];
     }
+    /** The nearest cell's seed (in cell units) and the point's own, for patterns shaded from the seed. */
+    function cellSeed(x, y, z, size) {
+        x /= size; y /= size; z /= size;
+        const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+        let d1 = 9, d2 = 9, c = null;
+        for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) {
+            const cx = ix + i + hash3(ix + i, iy + j, iz + k), cy = iy + j + hash3(iy + j, iz + k, ix + i), cz = iz + k + hash3(iz + k, ix + i, iy + j);
+            const d = (x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2;
+            if (d < d1) { d2 = d1; d1 = d; c = [cx, cy, cz]; } else if (d < d2) d2 = d;
+        }
+        return { c, p: [x, y, z], d1: Math.sqrt(d1), d2: Math.sqrt(d2) };
+    }
 
     const PATTERNS = [['none', 'None'], ['freckles', 'Freckles'], ['scales', 'Scales'], ['stripes', 'Stripes'], ['spots', 'Spots'], ['fur', 'Fur'], ['feathers', 'Feathers'], ['decay', 'Decay'], ['panels', 'Panels'], ['tribal', 'Tribal marks'], ['vitiligo', 'Patches']];
 
@@ -332,11 +344,23 @@
                 t = d1 < 0.22 && hash3(Math.floor(x * 500), Math.floor(y * 500), Math.floor(z * 500)) > 0.4 ? where : 0;
                 break;
             }
-            case 'scales': case 'feathers': {
-                const size = (s.type === 'feathers' ? 0.022 : 0.012) / k;
-                const [d1, d2] = cells(x, y * (s.type === 'feathers' ? 0.7 : 1), z, size);
+            case 'scales': {
+                const [d1, d2] = cells(x, y, z, 0.012 / k);
                 const edge = 1 - smooth(0.0, 0.12, d2 - d1);
                 t = edge * 0.85 + d1 * 0.25;
+                break;
+            }
+            case 'feathers': {
+                // Overlapping feathers, tips down: each one's upper part lies in the shadow of the one
+                // above, its rounded tip catches the light with a fine dark outline, and a shaft runs
+                // down its middle.
+                const f = cellSeed(x, y * 1.35, z, 0.016 / k);
+                const v = f.p[1] - f.c[1], across = Math.hypot(f.p[0] - f.c[0], f.p[2] - f.c[2]);
+                const edge = 1 - smooth(0.0, 0.08, f.d2 - f.d1);
+                const covered = smooth(-0.15, 0.45, v);
+                const tip = edge * smooth(0.05, -0.2, v);
+                const shaft = smooth(0.06, 0.02, across) * smooth(0.35, -0.1, v) * 0.5;
+                t = covered * 0.55 + tip * 0.7 + shaft - smooth(0.0, -0.35, v) * (1 - edge) * 0.15;
                 break;
             }
             case 'stripes': {
