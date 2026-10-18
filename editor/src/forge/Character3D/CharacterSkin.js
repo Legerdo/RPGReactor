@@ -458,7 +458,7 @@
         // same zone carries a faint cool stubble shadow.
         if (p.beardD > 0.01) {
             // A beard grows right up to the lips' edge.
-            const d = p.beardD, lips = 1 - smooth(0.3, 0.45, p.lips);
+            const d = p.beardD, lips = 1 - smooth(0.38, 0.52, p.lips);
             const [d1] = cells(x, y, z, 0.0012);
             const grain = (d1 < 0.34 ? 1 - d1 / 0.34 : 0) * (hash3(Math.floor(x * 830), Math.floor(y * 830), Math.floor(z * 830)) < 0.25 + 0.65 * d ? 1 : 0);
             if (s.facial) {

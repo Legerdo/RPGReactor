@@ -844,7 +844,9 @@
         switch (hair.style) {
             case 'bald': return [];
             case 'buzz': return [cap(0.0012 + 0.0012 * V)];
-            case 'crew': return [cap(0.006 + 0.004 * V), strands({ count: 220, comb: (p, n, c) => (c.el > 30 ? tangent(add(AXIS.front, mul(AXIS.up, 0.6)), n) : combDown(n, c)), length: c => (c.el > 30 ? 0.03 : 0.015) * S * hair.length, width: 0.012 * S, hug: 1, gravity: 0.05, lift: 0.25, steps: 4, sides: 3 })];
+            // Short hair stands as a soft pile: a dense layer of strands with many short, fine ones standing
+            // out of it, so its outline is soft and it never reads as rows of tiles.
+            case 'crew': return [cap(0.006 + 0.004 * V), { type: 'coils', count: 1100, length: c => (c.el > 30 ? 0.022 : 0.012) * S * hair.length, width: 0.0045 * S, coil: 0.0012 * S, comb: (p, n, c) => (c.el > 30 ? tangent(add(AXIS.front, mul(AXIS.up, 0.6)), n) : combDown(n, c)), stand: 0.45 }];
             case 'sidePart': return [cap(0.006), strands({ count: 260, comb: partComb, length: c => (c.el > 20 ? 0.075 : 0.04) * L, width: 0.016 * S, hug: 1, gravity: 0.2, steps: 6 })];
             case 'undercut': return [cap(0.0018), cap(0.008, c => (c.el - 40) * 2), strands({ count: 220, zone: c => (c.el - 42) * 2, comb: (p, n, c) => tangent(add(add(mul(AXIS.left, hair.part === 'right' ? -1 : 1), mul(AXIS.back, 0.5)), mul(AXIS.up, 0.2)), n), length: () => 0.13 * L, width: 0.02 * S, hug: 0.55, lift: 0.3 + 0.35 * V, gravity: 0.25, stiff: 0.5, steps: 8 })];
             case 'quiff': return [cap(0.006), strands({ count: 130, zone: c => c.el - 30, comb: (p, n, c) => tangent(add(mul(AXIS.back, 0.6), mul(AXIS.up, 0.9)), n), length: c => (c.z > 0.2 ? 0.09 : 0.06) * L, width: 0.018 * S, hug: 0.1, lift: 0.55 + 0.3 * V, gravity: 0.05, steps: 6 }), strands({ count: 120, zone: c => 30 - c.el, comb: (p, n, c) => combBack(n, c), length: () => 0.03 * S, width: 0.012 * S, hug: 1, gravity: 0.1, steps: 3, sides: 3 })];
@@ -853,7 +855,7 @@
             case 'spiky': return [cap(0.006), { type: 'spikes', count: 70, length: 0.06 * L, width: 0.022 * S, up: 0.6 }];
             case 'messy': return withFringe([cap(0.007), strands({ count: 260, comb: (p, n, c, r) => tangent(norm([r() * 2 - 1, r() * 1.2 - 0.8, r() * 2 - 1]), n), length: () => (0.06 + 0.04 * V) * L, width: 0.016 * S, hug: 0.5, lift: 0.35 + 0.3 * V, gravity: 0.3, steps: 6, waves: 0.008 })]);
             case 'pixie': return [cap(0.005), strands({ count: 240, comb: (p, n, c) => (Math.abs(c.az) < 70 && c.el > 15 ? tangent(add(add(AXIS.front, AXIS.down), mul(AXIS.left, hair.part === 'right' ? -0.8 : 0.8)), n) : combDown(n, c)), length: c => (Math.abs(c.az) < 70 && c.el > 15 ? 0.1 : 0.05) * L, width: 0.016 * S, hug: 0.95, gravity: 0.4, steps: 7, fringeAll: true, stopY: () => browY - 0.004 * S })];
-            case 'curlyShort': return [cap(0.01 + 0.01 * V), strands({ count: 240, comb: (p, n, c) => combDown(n, c), length: () => 0.07 * L, width: 0.013 * S, hug: 0.5, lift: 0.5, gravity: 0.2, steps: 10, curl: { amount: 0.008 * S, period: 0.022 * S, helix: true }, fringeAll: true, stopY: () => browY + 0.005 * S })];
+            case 'curlyShort': return [cap(0.012 + 0.01 * V), { type: 'coils', count: 1300, length: () => (0.022 + 0.012 * V) * L, width: 0.006 * S, coil: (0.0035 + 0.002 * hair.curl) * S, comb: (p, n, c) => combDown(n, c), stand: 0.7, stopY: () => browY + 0.006 * S }];
             case 'mohawk': return [cap(0.0015), cap(0.005, c => (0.26 - Math.abs(c.x)) * 120), { type: 'spikes', count: 16, length: 0.12 * L, width: 0.035 * S, up: 1, zone: c => (0.2 - Math.abs(c.x)) * 120, row: true }];
             case 'mohawkFlat': return [cap(0.0015), cap(0.006, c => (0.27 - Math.abs(c.x)) * 120), strands({ count: 120, zone: c => (0.22 - Math.abs(c.x)) * 120, comb: (p, n, c) => tangent(add(AXIS.back, mul(AXIS.up, 0.4)), n), length: () => 0.1 * L, width: 0.02 * S, hug: 0.6, lift: 0.4 + 0.3 * V, gravity: 0.15, steps: 7 })];
             case 'mullet': return [cap(0.006), strands({ count: 160, zone: c => 125 - Math.abs(c.az), comb: partComb, length: () => 0.06 * L, width: 0.016 * S, hug: 1, gravity: 0.3, steps: 6 }), strands({ count: 110, zone: c => Math.abs(c.az) - 115, comb: (p, n, c) => combDown(n, c), length: () => 0.24 * L, width: 0.018 * S, hug: 0.6, gravity: 0.6, steps: 11, stopY: () => H.shoulderY - 0.08 * S * hair.length })];
@@ -862,7 +864,10 @@
             case 'shoulder': return withFringe([cap(0.007), strands({ sheet: true, count: 340, comb: partComb, length: () => 0.32 * L, width: 0.024 * S, drape: 'split', hug: 0.85, gravity: 0.6, steps: 12, stopY: () => H.shoulderY - 0.03 * S * hair.length })]);
             case 'sweptBangs': return [cap(0.007), strands({ sheet: true, count: 280, comb: partComb, length: () => 0.3 * L, width: 0.022 * S, hug: 0.85, gravity: 0.6, steps: 12, stopY: () => H.shoulderY - 0.02 * S }), frontBangs(0.15 * S, hair.part === 'right' ? -1.1 : 1.1)];
             case 'afro': return [{ type: 'afro', radius: (0.05 + 0.07 * V) * hair.length * S }];
-            case 'curly': return withFringe([cap(0.012 + 0.008 * V), strands({ count: 300, comb: partComb, length: () => 0.3 * L, width: 0.016 * S, hug: 0.5, lift: 0.35 + 0.3 * V, gravity: 0.55, steps: 16, curl: { amount: (0.01 + 0.008 * V) * S, period: 0.035 * S, helix: true }, stopY: () => H.shoulderY - 0.05 * S * hair.length })]);
+            // Curls fall as many fine, narrow locks waving in their own plane (a lock twisted round a helix reads
+            // as tiles), over a soft pile of short coils at the scalp that gives the head its volume.
+            case 'curly': return withFringe([cap(0.012 + 0.008 * V), { type: 'coils', count: 600, length: () => (0.02 + 0.012 * V) * L, width: 0.006 * S, coil: 0.004 * S, comb: (p, n, c) => combDown(n, c), stand: 0.6 },
+                strands({ count: 160, comb: partComb, length: () => 0.3 * L, width: 0.015 * S, hug: 0.5, lift: 0.35 + 0.3 * V, gravity: 0.55, steps: 24, waves: 0.008 + 0.004 * V, wavePeriod: 0.05, stopY: () => H.shoulderY - 0.05 * S * hair.length })]);
             case 'animeSpikes': return [cap(0.01), { type: 'spikes', count: 34, length: 0.13 * L, width: 0.05 * S, up: 0.3, anime: true }, { type: 'spikes', count: 9, length: 0.11 * L, width: 0.04 * S, up: -0.8, front: true, zone: c => 50 - Math.abs(c.az) }];
             case 'long': return withFringe([cap(0.007), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.5 * L, width: 0.028 * S, hug: 0.85, gravity: 0.65, steps: 12, drape: 'split' })]);
             case 'longWavy': return withFringe([cap(0.008), strands({ sheet: true, count: 320, comb: partComb, length: () => 0.52 * L, width: 0.028 * S, drape: 'split', hug: 0.8, lift: 0.15 + 0.25 * V, gravity: 0.6, steps: 19, waves: 0.012 + 0.012 * V })]);
@@ -931,15 +936,18 @@
                 const k = pts.length;
                 for (let i = Math.floor(k * 0.7); i < k; i++) { const t = (i - k * 0.7) / (k * 0.3); pts[i] = lerp(pts[i], [H.center[0] + (pts[i][0] - H.center[0]) * 0.85, pts[i][1] + 0.004 * H.scale * t, H.center[2] + (pts[i][2] - H.center[2]) * 0.85], layer.inCurl * t); }
             }
-            if (layer.waves) pts = curlStrand(H, pts, layer.waves * H.scale * hair.length, 0.08 * H.scale, false, rand() * 6.28);
-            const curlAmt = (layer.curl ? layer.curl.amount : 0) + hair.curl * 0.012 * H.scale;
-            if (curlAmt > 0) pts = curlStrand(H, pts, curlAmt, layer.curl ? layer.curl.period : 0.04 * H.scale, true, rand() * 6.28);
+            if (layer.waves) pts = curlStrand(H, pts, layer.waves * H.scale * hair.length, (layer.wavePeriod || 0.08) * H.scale * (0.85 + 0.3 * rand()), false, rand() * 6.28);
+            // Curl waves each lock in its own plane: twisted round a helix, a flat card reads as a row of tiles.
+            const curlAmt = (layer.curl ? layer.curl.amount : 0) + hair.curl * 0.01 * H.scale;
+            if (curlAmt > 0) pts = curlStrand(H, pts, curlAmt, (layer.curl ? layer.curl.period : 0.04 * H.scale) * (0.85 + 0.3 * rand()), false, rand() * 6.28);
             const variance = 0.85 + 0.3 * rand();
             const highlight = rand() < hair.highlights * 0.5;
             // Near the hairline the locks are narrower and drawn from past the picture's full root, so the
             // edge breaks up into hairs instead of blocks.
             const edge = smooth(1.5, 9, r.f);
-            addClump(m, pts, { H, width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight) });
+            // At the hairline a lock grows from a point, so the locks' roots there are a scatter, not stair steps.
+            const rootW = 0.4 + 0.6 * edge;
+            addClump(m, pts, { H, taper: t => (rootW + (1 - rootW) * smooth(0, 0.2, t)) * (1 - Math.pow(t, 1.6) * 0.7), width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight) });
             // Flyaways: here and there at the hairline, and now and then over the head, a few stray hairs
             // lift off the lock and wander, so the edge of the hair is never a clean line.
             if (rand() < (edge < 0.7 ? 0.22 : 0.05) && pts.length > 2) {
@@ -1037,6 +1045,34 @@
             }
             const variance = 0.88 + 0.24 * rand();
             addClump(m, pts, { width: layer.width * s.scale, flat: layer.anime || layer.front ? 0.45 : 0.8, sides: 4, center: H.center, taper: t => 1 - t * 0.97, color: t => ramp(t, variance, false) });
+        }
+    }
+
+    /**
+     * Short strands standing out of the cap: each a fine card a little off
+     * the scalp, combed `comb`, standing `stand` (0 lying, 1 upright), coiled
+     * `coil` (meters round), its tip thinning to a few hairs; thousands of
+     * them over the head make a soft, even pile with a fuzzy outline.
+     */
+    function buildCoils(H, hair, m, layer, ramp, rand) {
+        const surf = cutSurface(H, scalpField(H, hair, layer.zone));
+        const roots = scatter(surf, Math.round(layer.count * H.budget), rand);
+        for (const r of roots) {
+            if (r.f < 1) continue;
+            const c = headCoords(H, r.p), edge = smooth(1, 8, r.f);
+            const dir = norm(add(mul(layer.comb(r.p, r.n, c, rand), 1 - layer.stand), mul(r.n, layer.stand)));
+            const L = layer.length(c, rand) * (0.6 + 0.7 * rand()) * (0.5 + 0.5 * edge);
+            const side = norm(cross(dir, r.n)), up = norm(cross(side, dir)), ph = rand() * 6.28, turns = 0.6 + 0.8 * rand();
+            const start = add(r.p, mul(r.n, 0.002 * H.scale));
+            const pts = [];
+            for (let i = 0; i <= 4; i++) {
+                const t = i / 4, a = ph + t * turns * 6.28, k = layer.coil * Math.min(1, t * 2);
+                let p = add(add(add(start, mul(dir, L * t)), mul(side, Math.cos(a) * k)), mul(up, Math.sin(a) * k));
+                if (layer.stopY) { const sy = layer.stopY(c); if (p[1] < sy && r.p[1] > sy) p = [p[0], sy, p[2]]; }
+                pts.push(p);
+            }
+            const variance = 0.8 + 0.4 * rand();
+            addCard(m, pts, { width: layer.width * (0.7 + 0.6 * rand()), single: true, center: H.center, vFrom: 0.25 + 0.2 * (1 - edge), taper: t => 1 - 0.5 * t, color: t => ramp(0.35 + 0.6 * t, variance, false) });
         }
     }
 
@@ -1277,8 +1313,9 @@
             const ax = x / rx;
             // The mouth's inside (the body mesh carries it behind the lips) is never bearded: there the
             // skin faces the head's middle instead of away from it.
-            if (x < H.lipHalf * 1.4 && p[1] > H.lipBottom - 0.012 * H.scale && p[1] < H.noseTip[1] && p[2] < H.lipFront - 0.02 * H.scale) return -10;
+            // Below the lower lip the skin is the chin's, bearded right up to the lip.
             const nrm = [H.normals[v * 3], H.normals[v * 3 + 1], H.normals[v * 3 + 2]];
+            if (x < H.lipHalf * 1.4 && p[1] > H.lipBottom - 0.003 * H.scale && p[1] < H.noseTip[1] && p[2] < H.lipFront - 0.02 * H.scale && dot(nrm, [0, 0, 1]) < 0.5) return -10;
             if (dot(nrm, norm(sub(p, H.center))) < 0.05 && p[1] > H.chin[1]) return -10;
             // Only the front of the head and neck, in front of the ears.
             if (p[2] < H.earBack + (H.earFront - H.earBack) * 0.5) return -10;
@@ -1294,7 +1331,7 @@
             const neckLine = H.neckBone.head[1] + (H.headBone.head[1] - H.neckBone.head[1]) * 0.08;
             const below = (p[1] - neckLine) / H.radii[1] * 60;
             // The mouth stays open: an ellipse around the lips.
-            const mx = x / lipW, my = (p[1] - mouthY) / (lipH * 1.25);
+            const mx = x / lipW, my = (p[1] - mouthY) / (lipH * 1.05);
             const mouthOut = open ? (Math.hypot(mx, my) - 1) * 6 : Infinity;
             let f = Math.min(above, below, mouthOut);
             // A mustache's shape: under the nose its top follows the nostrils down toward the mouth's corners,
@@ -1312,7 +1349,7 @@
                     break;
                 }
                 case 'muttonChops': f = Math.min(f, (x - lipW * 1.9) / rx * 60); break;
-                case 'mustache': case 'pencil': case 'handlebar': case 'walrus': f = mustacheBand; if (style === 'pencil') f = Math.min(f, ((H.lipTop + lipH * 1.3) - p[1]) / H.radii[1] * 60); if (style === 'walrus') { const mid = (noseBase + mouthY) / 2, hh = (noseBase - mouthY) / 2 * 1.15; f = Math.max(mustacheBand, (1 - Math.hypot(x / (lipW * 1.35), (p[1] - mid) / hh)) * 14); } break;
+                case 'mustache': case 'pencil': case 'handlebar': case 'walrus': f = mustacheBand; if (style === 'pencil') f = Math.min(f, ((H.lipTop + lipH * 1.3) - p[1]) / H.radii[1] * 60); if (style === 'walrus') { const mid = (noseBase + H.lipTop) / 2, hh = (noseBase - H.lipTop) / 2 * 1.3; f = Math.max(mustacheBand, (1 - Math.hypot(x / (lipW * 1.4), (p[1] - mid) / hh)) * 14); } break;
                 case 'horseshoe': f = Math.max(mustacheBand, Math.min((lipW * 1.4 - x) / rx * 60, (x - lipW * 0.95) / rx * 60, (noseBase - p[1]) / H.radii[1] * 60, (p[1] - (H.chin[1] - 0.004)) / H.radii[1] * 60)); break;
                 default: f = Math.max(f, mustacheBand);
             }
@@ -1347,6 +1384,10 @@
         const skinRgb = (() => { const sk = linear(skin || '#c69c7f'), hc = linear(color); return mixRgb(sk, sk.map((c, i) => Math.min(c, hc[i] * 1.25)), 0.55); })();
         const sorted = Array.from(surf.val).sort((a, b) => a - b), deep = Math.max(1, sorted[Math.floor(sorted.length * 0.9)]);
         const inward = v => Math.min(1, v / deep);
+        // How deep inside the beard's outline a place is, the mouth not counted: at the lips the beard stays
+        // dense right up to them (the cut round the mouth is its edge there, not a thinning outline).
+        const closed = facialField(H, f.style, false), outlineAt = p => { const v = H.nearest(p); return v < 0 ? 0 : inward(Math.max(0, closed(v))); };
+        const outline = surf.pos.map(outlineAt);
         // The body is low (the hairs over it carry the volume), so its edge never stands as a step.
         // Stubble is in the skin's own picture alone (its shadow and follicles): no geometry stands over it.
         if (stubble) return;
@@ -1355,10 +1396,11 @@
         // sparse tips at the outline); the outer one stands off it and is drawn from the strands' gappy middle,
         // so light passes through the beard's surface and its outline is wispy.
         const shellUv = (i, from, reach) => [0.125 + 0.1 * Math.sin((surf.pos[i][0] * 1.7 + surf.pos[i][1]) * 330) + 0.25 * (Math.floor(Math.abs(surf.pos[i][0]) * 90) % 4),
-            from + reach * Math.pow(1 - smooth(0, 0.7, inward(surf.val[i])), 0.7)];
+            from + reach * Math.pow(1 - smooth(0, 0.7, outline[i]), 0.7)];
         const tone = i => 0.85 + 0.3 * lumps(surf.pos[i]);
+        // Low at any edge (round the mouth too), so it never stands as a ledge over the lips.
         const height = i => thick * smooth(0, 0.7, inward(surf.val[i])) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]);
-        addShell(m, surf, i => height(i) * 0.35, i => mixRgb(skinRgb, ramp(0.55, tone(i), false), smooth(0.04, 0.85, inward(surf.val[i])) * 0.92), i => shellUv(i, 0.02, 0.8));
+        addShell(m, surf, i => Math.max(0.0008 * S, height(i) * 0.35), i => mixRgb(skinRgb, ramp(0.55, tone(i), false), smooth(0.04, 0.85, outline[i]) * 0.92), i => shellUv(i, 0.02, 0.8));
         addShell(m, surf, i => height(i) * 0.8, i => ramp(0.7, tone(i) * 1.08, false), i => shellUv(i, 0.3, 0.55));
         // Locks over it: many fine, flat, overlapping cards (one strip each), laid along the jaw and falling
         // toward the chin; long styles hang below the chin in layers. Their lightness varies lock to lock,
@@ -1369,7 +1411,8 @@
         for (const r of roots) {
             if (r.f < 0.3) continue;
             // Toward the beard's edge the hairs grow sparser, so it thins into the skin.
-            if (rand() > smooth(0, 0.6, inward(r.f)) * 0.65 + 0.35) continue;
+            const deepIn = outlineAt(r.p);
+            if (rand() > smooth(0, 0.6, deepIn) * 0.65 + 0.35) continue;
             const isLip = r.p[1] > H.lipBottom && Math.abs(r.p[0] - H.center[0]) < H.lipHalf * 1.4 && r.p[1] < H.noseTip[1];
             if (isLip && r.p[2] < H.lipFront - 0.012 * S) continue;
             if (isLip && !mustache) continue;
@@ -1377,7 +1420,7 @@
             let length, dir;
             if (isLip) {
                 // A mustache combs down and out from the middle of the lip.
-                length = (f.style === 'walrus' ? 0.026 : 0.013) * S * Lf * (0.8 + 0.4 * rand());
+                length = (f.style === 'walrus' ? 0.022 : 0.013) * S * Lf * (0.8 + 0.4 * rand());
                 dir = norm(add(mul(AXIS.down, 1), mul([sideX, 0, 0], 0.55 + 0.3 * Math.min(1, Math.abs(r.p[0] - H.center[0]) / H.lipHalf))));
             } else if (long) {
                 // Layered: locks from under the chin fall longest, those from the cheeks shorter over them;
@@ -1385,28 +1428,33 @@
                 const low = smooth(H.mouth[1], H.chin[1] - 0.005 * S, r.p[1]);
                 length = (0.014 + long * low * (0.5 + 0.65 * rand())) * S * Lf;
                 const inX = -sideX * smooth(0, H.lipHalf * 2.5, Math.abs(r.p[0] - H.center[0])) * 0.35;
-                dir = norm(add(add(mul(AXIS.down, 1), mul(r.n, 0.3)), [inX + (rand() - 0.5) * 0.2, 0, (rand() - 0.5) * 0.1]));
+                // Loose, not combed: each lock leans its own way.
+                dir = norm(add(add(mul(AXIS.down, 1), mul(r.n, 0.3)), [inX + (rand() - 0.5) * 0.45, 0, (rand() - 0.5) * 0.25]));
             } else {
                 // Along the jaw and down toward the chin, as a beard grows.
                 length = 0.017 * S * Lf * (0.75 + 0.5 * rand());
                 dir = norm(add(add(mul(AXIS.down, 1), mul(r.n, 0.12)), [-0.35 * sideX * smooth(H.mouth[1], H.chin[1], r.p[1]), 0, 0.15]));
             }
             if (f.style === 'pencil' || f.style === 'muttonChops' || f.style === 'chinStrap') length *= 0.6;
-            // A mustache hangs to the lip, not over the mouth (the walrus does).
-            const stopY = isLip && f.style !== 'walrus' ? H.lipTop - (H.lipTop - H.lipBottom) * 0.2 : null;
+            // A mustache hangs to the lip, not over the mouth. A walrus covers the upper lip and droops a little
+            // over the mouth, just past its corners at the sides.
+            const corner = smooth(H.lipHalf * 0.7, H.lipHalf * 1.2, Math.abs(r.p[0] - H.center[0]));
+            const stopY = !isLip ? null : f.style === 'walrus' ? mix(H.lipBottom + (H.lipTop - H.lipBottom) * 0.35, H.lipBottom - 0.004 * S, corner) - rand() * 0.002 * S : H.lipTop - (H.lipTop - H.lipBottom) * 0.2;
             const lowLong = long && r.p[1] < H.mouth[1];
             // Inner locks lie close; outer ones stand a little off them, so the beard has layers and depth.
             const outer = rand() < 0.5;
             let pts = grow(H, r.p, r.n, dir, { steps: lowLong ? 7 : 3, length: length * (outer ? 1 : 0.8), layer: thick * (outer ? 0.75 : 0.4), lift: outer ? 0.22 : 0.1, gravity: long ? 0.65 : 0.25, stiff: 0.3, hug: lowLong ? 0.35 : 0.9, release: H.chin[1], fringe: true, stopY, front: true });
-            if (lowLong) pts = curlStrand(H, pts, (0.002 + 0.003 * rand()) * S * (1 - V * 0.5), (0.04 + 0.03 * rand()) * S, false, rand() * 6);
+            if (lowLong) pts = curlStrand(H, pts, (0.003 + 0.006 * rand()) * S * (1 - V * 0.3), (0.05 + 0.05 * rand()) * S, rand() < 0.4, rand() * 6);
             const light = rand() < 0.18 ? 1.3 : 1;
             const variance = ((outer ? 0.95 : 0.8) + 0.35 * rand()) * light;
-            const edge = 0.45 + 0.55 * smooth(0, 0.35, inward(r.f)), thin = smooth(0, 0.5, inward(r.f));
+            const edge = 0.45 + 0.55 * smooth(0, 0.35, deepIn), thin = smooth(0, 0.5, deepIn);
             // Toward the edge the locks thin to a few hairs over the skin: drawn from the picture's sparse
             // tips, and their color giving way to the skin's as so little hair covers it.
             addCard(m, pts, {
                 H, width: (lowLong ? 0.009 : 0.0055) * S * edge * (0.7 + 0.6 * rand()), single: true, center: H.mouth, vFrom: lowLong ? 0.05 : 0.3 + 0.3 * (1 - thin),
-                taper: t => 1 - Math.pow(t, 1.2) * 0.6, color: t => mixRgb(skinRgb, ramp(0.5 + 0.5 * t, variance, false), 0.55 + 0.45 * thin) });
+                // Narrow where it grows, so the beard's edge (the sideburn's top, the cheek line) is a scatter of
+                // roots, not a row of blunt card ends.
+                taper: t => (0.45 + 0.55 * smooth(0, 0.3, t)) * (1 - Math.pow(t, 1.2) * 0.6), color: t => mixRgb(skinRgb, ramp(0.5 + 0.5 * t, variance, false), 0.55 + 0.45 * thin) });
         }
         if (f.style === 'handlebar') {
             for (const side of [1, -1]) {
@@ -1724,6 +1772,7 @@
             }
             else if (layer.type === 'spikes') buildSpikes(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'afro') buildAfro(H, hair, head, layer, rand);
+            else if (layer.type === 'coils') buildCoils(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'tail') buildTail(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'bun') buildBun(H, hair, head, layer, ramp, rand);
             else if (layer.type === 'braid') buildBraid(H, hair, head, layer, ramp, rand);
