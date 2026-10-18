@@ -1217,7 +1217,7 @@ class Character3DBuilder {
         const view = this._view;
         if (!view || !view.mixer || !view.bones.length) return null;
         if (view.actions.has(id)) return view.actions.get(id).action;
-        const made = id === 'idle' ? view.idleClip : view.plan === 'quadruped' ? RRCreatureBody.poseClip(view.boneDefs, id, this.recipe) : RRCharacterPoses.clip(view.boneDefs, id);
+        const made = id === 'idle' ? view.idleClip : view.plan === 'quadruped' ? RRCreatureBody.poseClip(view.boneDefs, id, this.recipe) : RRCharacterPoses.clip(view.boneDefs, id, view.bodySkin);
         if (!made) return null;
         const tracks = made.tracks.map(t => new THREE.QuaternionKeyframeTrack(view.bones[t.bone].name + '.quaternion', Array.from(made.times), Array.from(t.values)));
         const action = view.mixer.clipAction(new THREE.AnimationClip(made.name || id, -1, tracks));
@@ -1648,6 +1648,8 @@ class Character3DBuilder {
         view.mixer = new THREE.AnimationMixer(view.group);
         view.idleClip = (result.clips && result.clips[0]) || null;
         view.boneDefs = result.bones;
+        // The body's skin at rest, so a pose's arms keep out of this body's trunk.
+        view.bodySkin = result.parts.find(p => p.name === 'Body') || null;
         view.actions = new Map();
         view.resumeAt = time;
         this._restHeights(result.bones);

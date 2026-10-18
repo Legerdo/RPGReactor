@@ -205,11 +205,11 @@ let TAKES = {
     fall: { trial: '82_04', from: 1.9, to: 2.35, swing: true, period: 1.4, hover: 0.35 },
     fight: { trial: '14_01', from: 8.8, to: 11.3, cycle: [1.0, 1.4], fist: true },
     wave: { trial: '143_25', from: 2.2, to: 3.12, cycle: [0.45, 0.85], mirror: true },
-    armsUp: { trial: '13_10', from: 0.75, to: 3.25, cycle: [1.0, 2.4] },
+    armsUp: { trial: '13_10', from: 8.1, to: 9.0, swing: true, period: 2.6 },
     kneel: { trial: '23_03', from: 2.0, to: 3.8, swing: true, period: 3.6, skin: true, borrow: { trial: '111_28', from: 1.0, to: 2.8, bones: ['RightArm', 'RightForeArm', 'RightHand'] } },
     sit: { trial: '82_05', from: 2.0, to: 6.5, cycle: [2.0, 4.4], skin: true },
     lieBack: { trial: '113_08', from: 5.5, to: 9.0, cycle: [2.0, 3.4], skin: true, face: { bone: 'Hips', to: [0, 0, -1] } },
-    lieSide: { trial: '140_04', from: 0, to: 1.3, swing: true, period: 3.2, skin: true, face: { bone: 'Hips', to: [-1, 0, 0] } }
+    lieSide: { trial: '140_04', from: 0, to: 1.3, swing: true, period: 3.2, skin: true, mirror: true, face: { bone: 'Hips', to: [-1, 0, 0] } }
 };
 
 /** A world turn about y by a. */

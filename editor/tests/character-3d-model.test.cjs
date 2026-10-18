@@ -289,7 +289,7 @@ test('every pose to try a character in plays on the built skeleton, its turns wh
     assert.equal(Poses.clip(built.bones, 'nonsense'), null);
 });
 
-test('the poses are motion capture fitted to each body: loops close, feet meet the floor, heavy arms clear the flanks', () => {
+test('the poses are motion capture fitted to each body: loops close, feet meet the floor, arms clear the trunk and the face', () => {
     const Poses = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterPoses.js'));
     const Data = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterPosesData.js'));
     const mul = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
@@ -319,9 +319,9 @@ test('the poses are motion capture fitted to each body: loops close, feet meet t
     };
     assert.deepEqual(Object.keys(Data.poses).sort(), Poses.POSES.map(p => p.id).sort(), 'every pose captured');
     for (const recipe of [{ gender: 1 }, { gender: 0, age: 0.3 }, { gender: 1, extreme: true, weight: 4 }]) {
-        const { bones } = Model.build(pack, recipe, {}, { quality: 'preview' });
+        const built = Model.build(pack, recipe, {}, { quality: 'preview' }), bones = built.bones, body = built.parts.find(p => p.name === 'Body');
         for (const pose of Poses.POSES) {
-            const clip = Poses.clip(bones, pose.id), last = clip.times.length - 1;
+            const clip = Poses.clip(bones, pose.id, body), last = clip.times.length - 1;
             for (const t of clip.tracks) {
                 const a = t.values.slice(0, 4), b = t.values.slice(last * 4, last * 4 + 4);
                 assert.ok(Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]) > 0.9999, `${pose.id} loops back to its first frame`);
@@ -330,7 +330,7 @@ test('the poses are motion capture fitted to each body: loops close, feet meet t
         }
         // Walking and running: some sole on the floor except in a run's flight, never one under it.
         for (const id of ['walk', 'run', 'fight', 'crouch']) {
-            const clip = Poses.clip(bones, id);
+            const clip = Poses.clip(bones, id, body);
             let flying = 0;
             for (let f = 0; f < clip.times.length; f++) {
                 const low = soleClear(bones, clip, f);
@@ -340,13 +340,20 @@ test('the poses are motion capture fitted to each body: loops close, feet meet t
             if (id === 'run') assert.ok(flying > 0 && flying < clip.times.length / 2, `run has a short flight (${flying} frames)`);
             else assert.equal(flying, 0, `${id} keeps a foot down`);
         }
+        // A boxer's guard keeps the fists off the face, whatever the body's proportions.
+        const fight = Poses.clip(bones, 'fight', body), head = bones.findIndex(b => b.name === 'Head'), s = Math.max(...bones.map(b => b.head[1])) / 1.7;
+        for (let f = 0; f < fight.times.length; f++) {
+            const { pos, W } = place(bones, fight, f), c = rot(W[head], [0, -0.01 * s, 0.03 * s]), face = pos[head].map((v, k) => v + c[k]);
+            for (const n of ['LeftHand', 'RightHand', 'LeftHandMiddle1', 'RightHandMiddle1']) assert.ok(Math.hypot(...pos[bones.findIndex(b => b.name === n)].map((v, k) => v - face[k])) > 0.19 * s, `fight frame ${f}: ${n} in the face`);
+        }
         // The jump leaves the floor and comes back.
-        const jump = Poses.clip(bones, 'jump');
+        const jump = Poses.clip(bones, 'jump', body);
         assert.ok(Math.max(...jump.heights) > 0.2 && Math.abs(jump.heights[0]) < 0.1, 'jump rises off the floor');
     }
-    // A heavy body's hanging arm is held further from its trunk than a slim one's.
+    // A heavy body's hanging arm is held further from its trunk than a slim one's, as its skin says.
     const out = recipe => {
-        const { bones } = Model.build(pack, recipe, {}, { quality: 'preview' }), clip = Poses.clip(bones, 'walk'), at = n => bones.findIndex(b => b.name === n);
+        const built = Model.build(pack, recipe, {}, { quality: 'preview' }), bones = built.bones, at = n => bones.findIndex(b => b.name === n);
+        const clip = Poses.clip(bones, 'walk', built.parts.find(p => p.name === 'Body'));
         let least = Infinity;
         for (let f = 0; f < clip.times.length; f++) { const { pos } = place(bones, clip, f); least = Math.min(least, Math.abs(pos[at('LeftForeArm')][0] - pos[at('Spine1')][0])); }
         return least / Math.abs(bones[at('LeftArm')].head[0]);
