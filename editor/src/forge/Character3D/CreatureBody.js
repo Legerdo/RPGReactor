@@ -442,7 +442,7 @@
             J.wing = { root: rootW, elbow, wrist, tips, flank };
         }
         return { J, H, sr, mL, hd, hu, zS, zH, yS, yH, halfW, g, bl, L, ht, lt, cd, chestTop, chestBottom,
-            spineF: [0, J.withers[1] - 0.02 * g, J.withers[2]], spineR: [0, yH + 0.32 * g, zH], toes: [], eyes: [], ears: [] };
+            spineF: [0, J.withers[1] - 0.02 * g, J.withers[2]], spineR: [0, yH + 0.32 * g, zH], toes: [], eyes: [], ears: [], nostrils: [] };
     }
 
     function bonesOf(lay) {
@@ -576,12 +576,32 @@
         c(H(0, -0.02, z0), H(0, -0.12, zt - 0.3), (0.5 - 0.06 * Math.min(1, long)) * sw, (0.38 - 0.12 * Math.min(1, long)) * sw, 0.15, 'snout');
         c(H(0, 0.32, z0 + 0.05), H(0, 0.1, zt - 0.18), 0.27 * sw, 0.19 * sw, 0.12, 'snout');
         // Whisker pads either side of the philtrum, fullest on a cat's short face.
-        const pad = 0.75 + 0.25 * cat;
+        const hoofFace = r.feet === 'hoof' && r.kind !== 'boar' && long > 0.3;
+        const pad = (0.75 + 0.25 * cat) * (hoofFace ? 0.8 : 1);
         for (const s of [1, -1]) e(H(s * 0.22 * sw, -0.25, zt - 0.3), [0.29 * sw * pad, 0.27 * pad, 0.32], 0.1, 'whisker');
         S.push(cut(cone(H(0, -0.06, zt - 0.02), H(0, -0.34, zt - 0.12), 0.05 * sr, 0.04 * sr, B, 0.04 * sr, 'snout')));
         // The nose pad, and a boar's flat disc.
         const disc = r.kind === 'boar' ? 1 : 0;
-        e(H(0, 0.02, zt + 0.0 + 0.05 * disc), [0.22 * sw * (1 + 0.5 * disc), 0.14 * (1 + 0.8 * disc), 0.12], 0.06, 'nosepad');
+        if (hoofFace) e(H(0, -0.1, zt - 0.14), [0.4 * sw, 0.36, 0.3], 0.12, 'snout');
+        e(H(0, 0.02, zt + 0.0 + 0.05 * disc), [0.22 * sw * (1 + 0.5 * disc) * (hoofFace ? 0.7 : 1), 0.14 * (1 + 0.8 * disc), 0.12], 0.06, 'nosepad');
+        // The nostrils, set into the surface where it stands: a hoofed long face's wide and tall on the
+        // muzzle's front corners; a boar's two holes in its disc; a paw animal's small, in the pad.
+        const hoofed = hoofFace;
+        for (const s of [1, -1]) {
+            const facing = hoofed ? norm(add(mul(hd, 0.75), [s * 0.66, 0, 0])) : norm(add(hd, [s * (disc ? 0.08 : 0.3), 0, 0]));
+            const from = hoofed ? H(s * 0.1 * sw, -0.02, zt - 0.12) : H(s * (disc ? 0.12 : 0.07) * sw, disc ? 0.0 : 0.01, zt - 0.05);
+            let at = null;
+            for (let i = 0; i < 40; i++) {
+                const p = add(from, mul(facing, i * sr * 0.02));
+                if (fieldAt(head, p) > 0) { at = p; break; }
+            }
+            if (!at) continue;
+            const nr = (hoofed ? [0.08, 0.16, 0.14] : disc ? [0.06, 0.08, 0.1] : [0.045, 0.035, 0.07]).map(v => v * sr * Math.sqrt(sw));
+            const tilt = hoofed ? add(hu, [s * -0.35, 0, 0]) : hu;
+            const hole = cut(ellipsoid(sub(at, mul(facing, nr[2] * 0.55)), nr, B, nr[0] * 0.5, 'nosepad', facing, tilt));
+            S.push(hole);
+            lay.nostrils.push({ shape: hole, R: nr[0] });
+        }
         // The lower jaw from its angle to the chin, and the floor between its halves.
         for (const s of [1, -1]) c(H(s * 0.5, -0.42, -0.05), H(s * 0.13 * sw, -0.5, zt - 0.42), 0.2, 0.12, 0.12, 'jaw');
         e(H(0, -0.52, zt - 0.42), [0.22 * sw, 0.15, 0.18], 0.1, 'chin');
@@ -1413,6 +1433,11 @@
             else if (d < 2.4 && profileOf(r).padColor && r.pattern !== 'solid') col = mixRgb(col, C.light, smooth(2.4, 1.7, d) * smooth(0.2, -0.4, dot(sub(p, eye.center), J.hup) / eye.R) * 0.5 * amt);
         }
         if (tag === 'nosepad') col = C.nose;
+        // Inside each nostril: dark, shading off at its rim.
+        if (onHead) for (const no of lay.nostrils) {
+            const d = shapeDistance(no.shape, p);
+            if (d < no.R * 0.6) col = mixRgb(col, mul(C.nose, 0.35), smooth(no.R * 0.6, no.R * 0.1, d) * 0.9);
+        }
         if (tag === 'hoof') col = C.hoof;
         // Pads under the paws, dark and bare.
         if ((tag === 'pad' || tag === 'toe' || tag === 'paw') && r.feet !== 'hoof' && n[1] < -0.35 && p[1] < 0.06 * g) col = mixRgb(C.nose, [0.08, 0.06, 0.06], 0.6);
