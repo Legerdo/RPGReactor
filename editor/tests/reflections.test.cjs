@@ -148,6 +148,25 @@ test('near a mirror-bright model the capture stands inside it, with it hidden an
     assert.deepEqual([near.position.x, near.position.z], [10, 10], 'from the model\'s middle');
     assert.deepEqual(near.hidden, [tank], 'only the model itself is left out: the hero is in the mirror');
     assert.ok(near.toward, 'and the face toward the camera is kept fresh');
+    // What stands inside the capture's reach is left out too: filmed from within, or a hand's width
+    // off, it filled the cube with its own dark insides (the party on one tile at a map's arrival,
+    // a motorcycle beside the player), and every shiny surface near it reflected black.
+    const stacked = new THREE.Group(); stacked.add(new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1))); stacked.position.set(10, 1, 10);
+    const bike = new THREE.Group(); bike.add(new THREE.Mesh(new THREE.BoxGeometry(2, 1, 1))); bike.position.set(11, 0, 10);
+    scene.add(stacked, bike); scene.updateMatrixWorld(true);
+    fake._modelInstances.set(3, { object: stacked }); fake._modelInstances.set(4, { object: bike });
+    fake._probeChoice = null;
+    const crowded = Reactor3D.MapScene.prototype.reflectionProbe.call(fake, { position: new THREE.Vector3(10, 4, 18) });
+    assert.deepEqual(crowded.hidden, [tank, stacked, bike], 'the model, and what stands inside its reach; the hero three tiles off is still in the mirror');
+    // Another shiny model a few tiles off is left out as well: it would reflect a close-up of itself.
+    const chrome = new THREE.Group(); chrome.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), shiny)); chrome.position.set(14, 0, 10);
+    const distant = new THREE.Group(); distant.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), shiny)); distant.position.set(10 + Reactor3D.MIRROR_HIDE_REACH + 3, 0, 10);
+    scene.add(chrome, distant); scene.updateMatrixWorld(true);
+    fake._modelInstances.set(5, { object: chrome }); fake._modelInstances.set(6, { object: distant });
+    fake._probeChoice = null;
+    const shinyNear = Reactor3D.MapScene.prototype.reflectionProbe.call(fake, { position: new THREE.Vector3(10, 4, 18) });
+    assert.ok(shinyNear.hidden.includes(chrome) && !shinyNear.hidden.includes(distant) && !shinyNear.hidden.includes(hero), 'a shiny neighbor is left out; one past MIRROR_HIDE_REACH and the plain hero stay');
+    for (const k of [3, 4, 5, 6]) fake._modelInstances.delete(k);
     fake._probeChoice = null;
     const far = Reactor3D.MapScene.prototype.reflectionProbe.call(fake, { position: new THREE.Vector3(80, 4, 80) });
     assert.equal(far.position.x, 80, 'out of reach, from the camera');

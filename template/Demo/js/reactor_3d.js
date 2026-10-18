@@ -9029,12 +9029,20 @@ Reactor3D.MapScene.prototype.syncVolumeLights = function(declared, focus) {
  *
  * Near a shiny model (a chrome car, a mirror-bright tank) the capture moves
  * into it: from its middle, with it hidden, so its faces reflect what stands
- * around it, the party included, as a mirror would. Anywhere else it stands
+ * around it, as a mirror would. Every other model inside its reach is hidden
+ * too: the party stacked on one tile at a map's arrival, a vehicle beside
+ * the player. Filmed from inside or from a hand's width away, they filled the
+ * cube with their own dark insides, and every shiny surface near them
+ * reflected that as black and flat grey. So is every other shiny model
+ * within MIRROR_HIDE_REACH: a surface that finds itself in a capture taken
+ * a few tiles off reflects a close-up of its own dark side. Anywhere else it stands
  * at the camera and leaves the characters out (they would fill the cube from
  * there). The nearest shiny model within MIRROR_REACH of the camera wins;
  * the choice is made again every few frames, its place every frame.
  */
 Reactor3D.MIRROR_REACH = 18;
+/** How near the capture another shiny model stands to be left out of it, in tiles. */
+Reactor3D.MIRROR_HIDE_REACH = 8;
 Reactor3D.MapScene.prototype.reflectionProbe = function(camera) {
     if (!camera) return null;
     // Outside a game (the editor, a battle preview) the calls themselves keep time.
@@ -9042,10 +9050,13 @@ Reactor3D.MapScene.prototype.reflectionProbe = function(camera) {
     const box = this._probeBox || (this._probeBox = new THREE.Box3());
     if (!this._probeChoice || frame - this._probeChoice.frame >= 15 || frame < this._probeChoice.frame) {
         let best = null;
+        const shiny = (this._probeChoice && this._probeChoice.shiny) || [];
+        shiny.length = 0;
         for (const holder of this.reflectionHolders()) {
             const object = holder && holder.object;
             if (!object || !object.visible) continue;
             const reflect = Reactor3D.mirrorOf(object);
+            if (reflect > 0) shiny.push(object);
             if (reflect < 0.5) continue;
             box.setFromObject(object);
             if (box.isEmpty()) continue;
@@ -9054,7 +9065,7 @@ Reactor3D.MapScene.prototype.reflectionProbe = function(camera) {
             if (distance > Reactor3D.MIRROR_REACH) continue;
             if (!best || distance < best.distance) best = { object, distance, offset: centre.clone().sub(object.position), reach: box.getBoundingSphere(new THREE.Sphere()).radius + 0.5 };
         }
-        this._probeChoice = { frame, best };
+        this._probeChoice = { frame, best, shiny };
     }
     const best = this._probeChoice.best;
     if (best && best.object.parent && best.object.visible) {
@@ -9064,7 +9075,24 @@ Reactor3D.MapScene.prototype.reflectionProbe = function(camera) {
         const subject = this.reflectionSubject();
         let radius = subject ? subject.object.position.distanceTo(position) : 0;
         if (!(radius > 0)) radius = camera.position.distanceTo(position) * 0.5;
-        return { position, hidden: [best.object], toward: camera.position, radius: Math.max(1.5, Math.min(40, radius)), reach: best.reach };
+        const hidden = this._probeHidden || (this._probeHidden = []);
+        hidden.length = 0;
+        hidden.push(best.object);
+        const reach = best.reach;
+        for (const holder of this.reflectionHolders()) {
+            const object = holder && holder.object;
+            if (!object || object === best.object || !object.visible || !object.parent) continue;
+            const span = Reactor3D.instanceSpan(object), dx = object.position.x - position.x, dz = object.position.z - position.z, near = reach + span * 0.25;
+            if (dx * dx + dz * dz > near * near) continue;
+            if (object.position.y > position.y + reach || object.position.y + span < position.y - reach) continue;
+            hidden.push(object);
+        }
+        const far = Reactor3D.MIRROR_HIDE_REACH * Reactor3D.MIRROR_HIDE_REACH;
+        for (const object of this._probeChoice.shiny) {
+            if (object === best.object || !object.visible || !object.parent || hidden.includes(object)) continue;
+            if (object.position.distanceToSquared(position) <= far) hidden.push(object);
+        }
+        return { position, hidden, toward: camera.position, radius: Math.max(1.5, Math.min(40, radius)), reach };
     }
     return { position: camera.position, hidden: this.reflectionHidden(), toward: null };
 };
