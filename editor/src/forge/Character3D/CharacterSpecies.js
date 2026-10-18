@@ -58,20 +58,20 @@
         { id: 'goblin', label: 'Goblin', group: 'Fantasy', recipe: { height: -0.7, weight: 0.18, muscle: 0.3, headSize: 1.28, shapes: { earsPointed: 3.4, earSize: 2.6, earOut: 1.5, noseDepth: 2.2, noseLength: 1.4, chinPointed: 1, mouthWidth: 1.2, eyeSize: 0.8 }, skin: '#7a9a3a', eyes: { color: '#e8c020', pupil: 'slit' } } },
         { id: 'troll', label: 'Troll', group: 'Fantasy', recipe: { height: 1.55, weight: 0.55, muscle: 1.1, shapes: { armLength: 2.2, handSize: 2, noseDepth: 2.8, noseLength: 2.2, browRidge: 2.5, earsPointed: 2, jaw: 1, shoulders: 1.4, torsoLength: -0.6 }, skin: '#6e8a86', eyes: { color: '#e8a020' }, features: { tusks: { type: 'small', size: 0.8 } } } },
         { id: 'ogre', label: 'Ogre', group: 'Fantasy', recipe: { height: 1.45, weight: 2.1, muscle: 1.4, headSize: 0.9, shapes: { underbite: 1.6, jaw: 2, browRidge: 2, noseWidth: 2, earSize: 1 }, skin: '#a8946a', features: { tusks: { type: 'large', size: 0.9 } } } },
-        { id: 'lizardfolk', label: 'Lizardfolk', group: 'Beastfolk', recipe: { height: 0.75, weight: 0.7, muscle: 1.2, morph: { snout: 0.42, muzzle: 0.1, earsAway: 1 }, shapes: { noseDepth: -1.5, noseVolume: -1, upperLip: -1, lowerLip: -1, mouthWidth: 1.8, browRidge: 1.2, browHeight: -0.6, headWidth: 1.4, jaw: 2, chinWidth: 1.4, chin: 0.6, cheekBones: 1.2, eyeSize: 1.5, eyeSpacing: 0.6, headHeight: -1.6, headSquare: 1, headBack: -1, neck: 2.2, neckLength: -0.3, shoulders: 1.2 }, skin: '#5a8a4a', skinPattern: { type: 'scales', color: '#3e6a34', belly: '#c8c890', lips: '#46703a' }, eyes: { color: '#e0c030', pupil: 'slit' }, features: { tail: { type: 'lizard', color: '#5a8a4a', color2: '#c8c890' }, spines: { type: 'ridge', size: 0.6, color: '#3e5a2a' } }, bald: true } },
+        { id: 'lizardfolk', label: 'Lizardfolk', group: 'Beastfolk', recipe: { height: 0.75, weight: 0.7, muscle: 1.2, morph: { snout: 0.7, muzzle: 0.35, earsAway: 1 }, shapes: { noseDepth: -1.5, noseVolume: -1, upperLip: -1, lowerLip: -1, mouthWidth: 1.2, browRidge: 1.6, browHeight: -0.6, headWidth: 0.8, jaw: 1, chinWidth: 1.4, chin: 0.6, cheekBones: 1.2, eyeSize: 1.5, eyeSpacing: 1, headHeight: -0.8, neck: 2.2, neckLength: -0.3, shoulders: 1.2 }, skin: '#5a8a4a', skinPattern: { type: 'scales', color: '#3e6a34', belly: '#c8c890', lips: '#46703a' }, eyes: { color: '#e0c030', pupil: 'slit' }, features: { tail: { type: 'lizard', color: '#5a8a4a', color2: '#c8c890' }, spines: { type: 'ridge', size: 0.6, color: '#3e5a2a' } }, bald: true } },
         { id: 'dragonborn', label: 'Dragonborn', group: 'Beastfolk', recipe: { height: 0.8, muscle: 0.9, morph: { snout: 0.8, muzzle: 0.25, earsAway: 1 }, shapes: { browRidge: 2, noseDepth: -1.2, upperLip: -1, lowerLip: -1, neck: 1.2, shoulders: 1 }, skin: '#a8402c', skinPattern: { type: 'scales', color: '#7a2a1c', belly: '#e0b070' }, eyes: { color: '#ffb020', pupil: 'slit' }, features: { horns: { type: 'dragon', color: '#2a1e18', color2: '#e8d8b8' }, tail: { type: 'dragon', color: '#a8402c', color2: '#e0b070' }, spines: { type: 'crest', color: '#5a2414' } }, bald: true } },
         { id: 'birdfolk', label: 'Birdfolk', group: 'Beastfolk', recipe: { weight: 0.3, morph: { flat: 1, earsAway: 1 }, shapes: { noseDepth: -3, noseVolume: -2, upperLip: -1.5, lowerLip: -1.5, mouthWidth: -1, eyeSize: 1.2, neckLength: 0.8 }, skin: '#8a6a4a', skinPattern: { type: 'feathers', color: '#5a4030', belly: '#e8dcc8', lips: '#6a5038' }, eyes: { color: '#e8a020' }, features: { beak: { type: 'raptor', size: 1.6 }, wings: { type: 'feathered', size: 0.75, color: '#7a5a3a', color2: '#e8dcc8' }, tail: { type: 'bird', color: '#6a4a2a', color2: '#f0e8d8' } }, bald: true } },
-        { id: 'catfolk', label: 'Catfolk', group: 'Beastfolk', recipe: { weight: 0.38, bald: true, bodyHair: { amount: 0.85, pattern: 'werewolf', fur: 0.6, length: 0.65, color: '#c8924a' }, morph: { snout: 0.42, muzzle: 0.6, earsAway: 1 }, shapes: { noseDepth: -1, noseWidth: -0.4, eyeSize: 1, eyeSlant: 0.9, cheekBones: 0.6, upperLip: -0.6, lowerLip: -0.6, chin: -0.6 }, skin: '#c8924a', skinPattern: { type: 'stripes', color: '#7a4a1a', belly: '#f0e0c8', nose: '#d07a78', lips: '#5a3424' }, eyes: { color: '#7ad040', pupil: 'slit' }, features: { ears: { type: 'cat', color: '#c8924a' }, tail: { type: 'cat', color: '#c8924a', color2: '#7a4a1a' }, whiskers: { type: 'long' } } } },
-        { id: 'werewolf', label: 'Werewolf', group: 'Beastfolk', recipe: { height: 0.7, muscle: 1.1, weight: 0.55, morph: { snout: 0.8, muzzle: 0.35, earsAway: 1 }, shapes: { browRidge: 1.6, noseDepth: -1, upperLip: -0.8, noseWidth: 0.6, jaw: 0.9, cheekBones: 0.8, shoulders: 1, handSize: 0.6 }, skin: '#6a5240', skinPattern: { nose: '#141210', lips: '#2a201a' }, eyes: { color: '#f0c020' }, features: { ears: { type: 'wolf', color: '#4a3424' } }, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.75, length: 1.2, color: '#4a3424' }, bald: true } },
-        { id: 'wolffolk', label: 'Wolffolk', group: 'Beastfolk', recipe: { height: 0.65, muscle: 0.8, bald: true, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.9, length: 1.1, color: '#6a6460' }, morph: { snout: 1.0, muzzle: 0.45, earsAway: 1 }, shapes: { noseDepth: -1, upperLip: -0.8, lowerLip: -0.6, browRidge: 1, neck: 1 }, skin: '#7a7470', skinPattern: { type: 'fur', color: '#4a4440', belly: '#d8d4cc', nose: '#141210', lips: '#2a2624' }, eyes: { color: '#e8c030' }, features: { ears: { type: 'wolf', color: '#6a6460' }, tail: { type: 'fox', color: '#7a7470', color2: '#d8d4cc' } } } },
+        { id: 'catfolk', label: 'Catfolk', group: 'Beastfolk', recipe: { weight: 0.38, bald: true, bodyHair: { amount: 0.85, pattern: 'werewolf', fur: 0.6, length: 0.65, color: '#c8924a' }, morph: { snout: 0.42, muzzle: 0.6, earsAway: 1 }, shapes: { noseDepth: -1, noseWidth: -0.4, eyeSize: 1, eyeSlant: 0.9, cheekBones: 0.6, upperLip: -0.6, lowerLip: -0.6, chin: -0.6 }, skin: '#c8924a', skinPattern: { type: 'stripes', color: '#7a4a1a', belly: '#f0e0c8', nose: '#d07a78', lips: '#5a3424' }, eyes: { color: '#7ad040', pupil: 'slit' }, features: { ears: { type: 'cat', color: '#c8924a', color2: '#e8c8b0' }, tail: { type: 'cat', color: '#c8924a', color2: '#7a4a1a' }, whiskers: { type: 'long' } } } },
+        { id: 'werewolf', label: 'Werewolf', group: 'Beastfolk', recipe: { height: 0.7, muscle: 1.1, weight: 0.55, morph: { snout: 0.7, muzzle: 0.85, earsAway: 1 }, shapes: { browRidge: 1.8, noseDepth: -1, noseHump: 0.8, upperLip: -0.8, noseWidth: 0.2, jaw: 0.6, cheekBones: 0.8, eyeSlant: 0.7, shoulders: 1, handSize: 0.6 }, skin: '#6a5240', skinPattern: { nose: '#141210', lips: '#2a201a' }, eyes: { color: '#f0c020' }, features: { ears: { type: 'wolf', color: '#4a3424', color2: '#a08070' }, tail: { type: 'fox', color: '#4a3424', color2: '#7a6250' } }, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.75, length: 1.2, color: '#4a3424' }, bald: true } },
+        { id: 'wolffolk', label: 'Wolffolk', group: 'Beastfolk', recipe: { height: 0.65, muscle: 0.8, bald: true, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.9, length: 1.1, color: '#6a6460' }, morph: { snout: 0.65, muzzle: 1, earsAway: 1 }, shapes: { noseDepth: -1, noseWidth: -0.5, noseHump: 1, upperLip: -0.8, lowerLip: -0.6, browRidge: 1.5, headWidth: -0.4, eyeSlant: 0.6, neck: 1 }, skin: '#7a7470', skinPattern: { type: 'fur', color: '#4a4440', belly: '#d8d4cc', nose: '#141210', lips: '#2a2624' }, eyes: { color: '#e8c030' }, features: { ears: { type: 'wolf', color: '#6a6460', color2: '#c8b8b0' }, tail: { type: 'fox', color: '#6a6460', color2: '#d8d4cc' } } } },
         { id: 'rabbitfolk', label: 'Rabbitfolk', group: 'Beastfolk', recipe: { height: 0.35, weight: 0.4, bald: true, bodyHair: { amount: 0.9, pattern: 'werewolf', fur: 0.75, length: 0.8, color: '#d8c8b0' }, morph: { snout: 0.3, muzzle: 0.65, earsAway: 1 }, shapes: { noseDepth: -0.8, noseWidth: -0.3, footSize: 2, upperLip: -0.6, lowerLip: -0.4, chin: -0.5, cheeks: 0.5, eyeSize: 1.15 }, skin: '#c8b8a0', skinPattern: { type: 'fur', color: '#a89878', belly: '#f2ece2', nose: '#d89a98', lips: '#8a6a5a' }, eyes: { color: '#6a3a1a' }, features: { ears: { type: 'rabbit', color: '#c8b8a0' }, tail: { type: 'rabbit', color: '#f2ece2' }, whiskers: { type: 'short' } } } },
-        { id: 'minotaur', label: 'Minotaur', group: 'Beastfolk', recipe: { height: 1.5, weight: 0.8, muscle: 1.7, bald: true, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.7, length: 1, color: '#6a4428' }, morph: { snout: 0.95, muzzle: 0, earsAway: 0.6 }, shapes: { noseWidth: 2.2, nostrils: 2.2, noseDepth: -0.6, upperLip: -0.6, neck: 2.4, shoulders: 1.6, browRidge: 1.5, headWidth: 0.8 }, skin: '#8a6040', skinPattern: { type: 'fur', color: '#5a3a24', belly: '#a8845e', nose: '#3a2a24', lips: '#3a2a24' }, eyes: { color: '#4a2a14' }, features: { horns: { type: 'bull', size: 1.3, color: '#e8dcc0', color2: '#3a2a1a' }, tail: { type: 'horse', color: '#2a1a10' } } } },
+        { id: 'minotaur', label: 'Minotaur', group: 'Beastfolk', recipe: { height: 1.5, weight: 0.8, muscle: 1.7, bald: true, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.7, length: 1, color: '#6a4428' }, morph: { snout: 0.95, muzzle: 0, earsAway: 0.6 }, shapes: { noseWidth: 2.2, nostrils: 2.2, noseDepth: -0.6, upperLip: -0.6, neck: 2.4, shoulders: 1.6, browRidge: 1.5, headWidth: 0.8 }, skin: '#8a6040', skinPattern: { type: 'fur', color: '#5a3a24', belly: '#a8845e', nose: '#3a2a24', lips: '#3a2a24' }, eyes: { color: '#4a2a14' }, features: { horns: { type: 'bull', size: 1.1, color: '#e8dcc0', color2: '#3a2a1a' }, tail: { type: 'horse', color: '#2a1a10' } } } },
         { id: 'tiefling', label: 'Tiefling', group: 'Otherworldly', recipe: { shapes: { cheekBones: 0.8, chinPointed: 0.6, earsPointed: 1.6 }, skin: '#b0463e', eyes: { color: '#f0d020', pupil: 'none' }, features: { horns: { type: 'demon', color: '#2a1e1e', color2: '#5a4a4a' }, tail: { type: 'demon', color: '#b0463e' } } } },
         { id: 'demon', label: 'Demon', group: 'Otherworldly', recipe: { height: 1.4, muscle: 1.6, weight: 0.7, shapes: { browRidge: 2.5, cheekBones: 1.5, jaw: 1.2, earsPointed: 2.5, chinPointed: 1 }, skin: '#7a1e1e', skinPattern: { type: 'scales', color: '#5a1212', belly: '#3a0a0a' }, eyes: { color: '#ffd020', pupil: 'slit', sclera: '#1a0808' }, features: { horns: { type: 'ram', size: 1.3, color: '#1a1414', color2: '#6a5a50' }, tail: { type: 'demon', color: '#7a1e1e' }, wings: { type: 'bat', color: '#3a1010', color2: '#5a1818' } }, bald: true } },
         { id: 'angel', label: 'Angel', group: 'Otherworldly', recipe: { height: 0.75, shapes: { cheekBones: 0.5 }, skin: '#f0d8c4', eyes: { color: '#5aa8e8' }, features: { wings: { type: 'feathered', size: 0.95, color: '#ffffff', color2: '#e8e4dc' } }, props: [{ id: 'halo' }] } },
         { id: 'fairy', label: 'Fairy', group: 'Otherworldly', recipe: { height: -0.5, weight: 0.2, headSize: 1.12, shapes: { earsPointed: 2.2, eyeSize: 1.5, chinPointed: 0.8 }, skin: '#f2dcd0', eyes: { color: '#40c8a0' }, features: { wings: { type: 'fairy', color: '#bfeaff', color2: '#ffffff' } } } },
         { id: 'undead', label: 'Undead', group: 'Otherworldly', recipe: { weight: -0.2, muscle: 0.1, shapes: { headFat: -1.5, cheeks: -2, eyeBags: 2, headAge: 1.5 }, age: 60, skin: '#8a9a80', skinPattern: { type: 'decay', color: '#5a6a50' }, eyes: { color: '#e8f0e0', pupil: 'none', sclera: '#2a3028' } } },
-        { id: 'alien', label: 'Grey alien', group: 'Otherworldly', recipe: { height: 0.2, weight: 0.05, headSize: 1.45, morph: { earsAway: 1, earHoles: 0.6, flat: 0.35, eyeSocket: 1 }, shapes: { eyeSize: 1.2, noseDepth: -2, noseVolume: -1.6, noseWidth: -1.4, nostrils: 0.6, noseHump: -1, mouthWidth: -1.3, upperLip: -1.3, lowerLip: -1.3, mouthCorners: -0.3, chinPointed: 1.2, chinHeight: -1, jaw: -1.5, chinWidth: -1.2, cheeks: 0.3, headFat: 0, neck: -1.5, headWidth: 0.5 }, skin: '#737c84', skinPattern: { lips: '#666e75' }, eyes: { color: '#0a0a0e', pupil: 'none', sclera: '#0a0a0e', catchlight: false }, features: { alienEyes: { type: 'almond' } }, bald: true } },
+        { id: 'alien', label: 'Grey alien', group: 'Otherworldly', recipe: { height: 0.2, weight: 0.05, headSize: 1.45, morph: { earsAway: 0.7, earHoles: 0, flat: 0.5, eyeSocket: 1, muzzle: 0.2 }, shapes: { earSize: -1, earOut: -1, headTriangle: 1.3, headRound: 1, foreheadHeight: 1, temples: 0.8, browRidge: -1.2, headAge: -1, headFat: 0.2, cheekBones: 0.2, eyeSize: 1.3, noseDepth: -1.6, noseVolume: -1.3, noseWidth: -1.2, noseLength: -0.6, nostrils: -0.6, noseHump: -1, mouthWidth: -0.8, upperLip: -1.4, lowerLip: -1.4, chinPointed: 0.8, chin: -0.5, chinHeight: -1, jaw: -1.3, chinWidth: -1, neck: -1.4, neckLength: 0.4 }, skin: '#7a838b', skinPattern: { lips: '#7a838b' }, eyes: { color: '#0a0a0e', pupil: 'none', sclera: '#0a0a0e', catchlight: false }, features: { alienEyes: { type: 'almond' } }, bald: true } },
         { id: 'android', label: 'Android', group: 'Otherworldly', recipe: { skin: '#d8dce2', skinPattern: { type: 'panels', color: '#8a9098' }, eyes: { color: '#30b8ff', pupil: 'none' }, bald: true } }
     ];
     const BY_ID = new Map(SPECIES.map(s => [s.id, s]));
@@ -118,10 +118,12 @@
         }
         for (const side of [1, -1]) {
             let at, path;
-            const P = (t, fn) => fn(t);
             if (f.type === 'ram') {
-                at = headPoint(L, L.crown - H * 0.25, side * 1.05, -0.008);
-                path = t => { const a = t * Math.PI * 1.7; const r = 0.055 * s * (1 - t * 0.35); return add(at.p, [side * (0.02 + t * 0.03) * s, Math.sin(a) * r + 0.01, -Math.cos(a) * r + r * 0.8 - 0.02]); };
+                // Up and back off the crown, down behind the ear and forward under it, curling in to the cheek.
+                at = headPoint(L, L.crown - H * 0.18, side * 1.05, -0.01);
+                const R0 = 0.062 * s;
+                // The coil opens outward as it turns, so the tip stands clear of the cheek.
+                path = t => { const a = t * Math.PI * 1.55, r = R0 * (1 - t * 0.3); return add(at.p, [side * (0.006 + 0.13 * t * t) * s, -R0 + Math.cos(a) * r, -0.02 * s - Math.sin(a) * r]); };
             } else if (f.type === 'bull') {
                 at = headPoint(L, L.crown - H * 0.25, side * 1.2, -0.008);
                 path = t => add(at.p, [side * t * 0.2 * s, Math.pow(t, 2.2) * 0.12 * s, t * 0.06 * s]);
@@ -139,54 +141,123 @@
                 at = headPoint(L, L.brow + H * 0.3, side * 0.42, -0.006);
                 path = t => add(at.p, [side * t * 0.035 * s, Math.sin(t * 1.6) * 0.13 * s, -Math.pow(t, 1.8) * 0.1 * s]);
             }
-            const pts = [];
-            for (let k = 0; k <= 14; k++) pts.push(P(k / 14, path));
-            const r0 = (f.type === 'nubs' ? 0.012 : f.type === 'bull' ? 0.024 : f.type === 'ram' ? 0.026 : 0.018) * Math.sqrt(s);
-            m.tube(pts, t => r0 * (1 - t * 0.92), 9, color, skin);
+            const r0 = (f.type === 'nubs' ? 0.012 : f.type === 'bull' ? 0.024 : f.type === 'ram' ? 0.042 : 0.018) * Math.sqrt(s);
+            // Growth rings round a ram's and a goat's horn.
+            const rings = f.type === 'ram' ? 70 : f.type === 'goat' ? 40 : 0;
+            const steps = f.type === 'ram' ? 56 : 14;
+            const fine = [];
+            for (let k = 0; k <= steps; k++) fine.push(path(k / steps));
+            m.tube(fine, t => r0 * (1 - t * (f.type === 'ram' ? 0.85 : 0.92)) * (1 + (rings ? 0.07 * Math.max(0, Math.sin(t * rings)) * (1 - t) : 0)), f.type === 'ram' ? 10 : 9, color, skin);
         }
     }
 
-    function animalEars(m, L, f) {
+    function rng(seed) { let q = (seed >>> 0) || 1; return () => { q ^= q << 13; q >>>= 0; q ^= q >> 17; q ^= q << 5; q >>>= 0; return q / 4294967296; }; }
+
+    /**
+     * Animal ears: each a cup, its hollow front lined in the second color
+     * and facing forward and a little out, its root sunk into the skull so
+     * no seam shows. Furred: the back coated in short fur combed up to the
+     * tip, tufts growing in from the rim over the hollow, and longer fur
+     * round the root where the ear meets the head. Returns the fur roots.
+     */
+    function animalEars(m, L, f, coat) {
         const head = L.boneIndex('Head'), skin = Props.rigid(head), s = f.size;
         const outer = linear(f.color), inner = linear(f.color2 || '#e8b8a8');
         const H = L.crown - L.brow;
-        const shape = { cat: [0.07, 0.045, 0], fox: [0.1, 0.05, 0], wolf: [0.095, 0.045, 0], rabbit: [0.24, 0.055, 0.05], bear: [0.04, 0.04, 0], mouse: [0.05, 0.06, 0], floppy: [0.13, 0.05, -1] }[f.type] || [0.07, 0.045, 0];
+        const shape = { cat: [0.075, 0.04, 0], fox: [0.1, 0.045, 0], wolf: [0.095, 0.042, 0], rabbit: [0.24, 0.05, 0.05], bear: [0.045, 0.038, 0], mouse: [0.055, 0.058, 0], floppy: [0.13, 0.05, -1] }[f.type] || [0.07, 0.045, 0];
         const [tall, wide, lean] = shape;
+        const round = f.type === 'bear' || f.type === 'mouse';
+        const roots = [], rand = rng(911 + f.type.length * 7);
+        // Short velvet on a mouse's ears; a full coat on the others.
+        const furry = f.type !== 'mouse';
+        const sink = 0.022 * s;
+        const coatRgb = coat && coat.color ? linear(coat.color) : outer;
         for (const side of [1, -1]) {
-            const at = headPoint(L, L.crown - H * (f.type === 'floppy' ? 0.45 : 0.3), side * (f.type === 'rabbit' ? 0.55 : 0.85), -0.012);
-            const up = norm(add(mul(at.n, f.type === 'floppy' ? 1.2 : 0.45), [0, 1, 0]));
-            const fwd = norm(cross(up, [side, 0, 0]));
-            const round = f.type === 'bear' || f.type === 'mouse';
-            // Each ear is a cup: a hollow front lined in the inner color, sides
-            // bowed out a little and the tip rounded off.
-            m.loft(13, (i, t) => {
+            const at = headPoint(L, L.crown - H * (f.type === 'floppy' ? 0.45 : f.type === 'rabbit' ? 0.22 : 0.3), side * (f.type === 'rabbit' ? 0.5 : f.type === 'bear' || f.type === 'mouse' ? 0.95 : 0.82), -0.006);
+            const up = norm(add(mul(at.n, f.type === 'floppy' ? 1.2 : f.type === 'rabbit' ? 0.25 : 0.42), [0, 1, 0]));
+            // Facing forward and a little out on both sides.
+            const face = [side * (f.type === 'rabbit' ? 0.15 : 0.32), 0, 1];
+            const fwd = norm(sub(face, mul(up, dot(face, up))));
+            const ring = t => {
                 let dir = up;
                 if (lean < 0) dir = norm(lerp(up, [side * 0.4, -1, 0.15], t));
-                const center = add(at.p, mul(dir, t * tall * s));
+                // The root runs down into the skull.
+                const center = add(add(at.p, mul(up, -sink)), mul(dir, t * (tall * s + sink)));
+                const q = Math.min(1, Math.max(0, t));
                 // A rabbit's is a leaf: narrow at the root, widest near the middle, round at the tip.
-                const w = round ? Math.sqrt(Math.max(0, 1 - Math.pow(t * 2 - 1, 2))) * wide
-                    : f.type === 'rabbit' ? wide * (t < 0.45 ? 0.55 + 0.45 * Math.sin(t / 0.45 * Math.PI / 2) : Math.sqrt(Math.max(0, 1 - Math.pow((t - 0.45) / 0.55, 2.4))))
-                    : wide * (1 - t) * (1 + 0.45 * t) * Math.sqrt(1 - Math.pow(t, 6) * 0.5) * (lean < 0 ? 0.9 + 0.3 * Math.sin(t * Math.PI) : 1);
-                return { center, x: norm(cross(fwd, dir)), y: fwd, rx: Math.max(0.0015, w * s), ry: Math.max(0.001, w * s * 0.24), cup: 0.42 * (1 - t * 0.7) };
-            }, 16, (t, a) => (Math.sin(a) > 0.15 && t < 0.86 ? inner : outer), skin, true);
+                const w = round ? Math.sqrt(Math.max(0, 1 - Math.pow(q * 2 - 1, 2))) * wide * (q < 0.2 ? 0.6 + 2 * q : 1)
+                    : f.type === 'rabbit' ? wide * (q < 0.45 ? 0.55 + 0.45 * Math.sin(q / 0.45 * Math.PI / 2) : Math.sqrt(Math.max(0, 1 - Math.pow((q - 0.45) / 0.55, 2.4))))
+                    : wide * Math.pow(1 - q, 0.9) * (1 + 0.4 * q) * Math.sqrt(1 - Math.pow(q, 6) * 0.5) * (lean < 0 ? 0.9 + 0.3 * Math.sin(q * Math.PI) : 1);
+                const x = norm(cross(fwd, dir));
+                return { center, dir, x, y: norm(cross(dir, x)), rx: Math.max(0.0015, w * s), ry: Math.max(0.001, w * s * 0.28), cup: 0.45 * (1 - q * 0.7) };
+            };
+            const ROWS = 15, SIDES = 18;
+            m.loft(ROWS, (i, t) => ring(t), SIDES, (t, a) => (Math.sin(a) > 0.15 && t < 0.88 ? inner : outer), skin, true);
+            if (!coat) continue;
+            const pointAt = (t, a) => {
+                const R = ring(t), bend = R.cup * R.rx * (1 - Math.cos(a) ** 2);
+                const off = add(mul(R.x, Math.cos(a) * R.rx), mul(R.y, Math.sin(a) * R.ry - bend));
+                return { p: add(R.center, off), n: norm(off), R };
+            };
+            const furLen = (furry ? 0.011 : 0.004) * Math.sqrt(s) * coat.length;
+            const tufts = Math.round((furry ? 300 : 120) * coat.budget * Math.sqrt(s));
+            for (let k = 0; k < tufts; k++) {
+                // Over the back of the ear and its rim, thinning toward the tip.
+                const t0 = (sink / (tall * s + sink)) * 0.6, t = t0 + Math.pow(rand(), 1.3) * (0.95 - t0);
+                const a = Math.PI + (rand() - 0.5) * Math.PI * 1.25;
+                const q = pointAt(t, a);
+                const color = mixRgb(outer, coatRgb, 0.5);
+                roots.push({ p: q.p, n: q.n, flow: add(q.R.dir, mul(q.R.x, Math.cos(a) * 0.3)), len: furLen * (0.7 + 0.6 * rand()) * (1 - t * 0.4), width: 0.0028 * (0.8 + 0.4 * rand()),
+                    color: mul(color, 0.92), tip: mixRgb(color, [1, 1, 1], 0.08), lift: 0.3, joints: skin.joints, weights: skin.weights });
+            }
+            if (!furry) continue;
+            // Tufts from the rim over the hollow, lighter, longest low in the ear.
+            const lining = Math.round(110 * coat.budget * Math.sqrt(s));
+            const light = mixRgb(inner, [0.9, 0.86, 0.8], 0.6);
+            for (let k = 0; k < lining; k++) {
+                const t = 0.12 + rand() * 0.7, e = rand() < 0.5 ? 1 : -1;
+                const a = e > 0 ? 0.25 + rand() * 0.35 : Math.PI - 0.25 - rand() * 0.35;
+                const q = pointAt(t, a);
+                roots.push({ p: q.p, n: norm(add(q.R.y, mul(q.R.x, e * 0.4))), flow: add(mul(q.R.x, -e), mul(q.R.dir, 0.9)), len: 0.014 * Math.sqrt(s) * coat.length * (1 - t * 0.6) * (0.7 + 0.6 * rand()),
+                    width: 0.0024, color: mul(light, 0.95), tip: light, lift: 0.6, joints: skin.joints, weights: skin.weights });
+            }
+            // A collar of longer fur round the root, combed up the ear, hiding where it meets the head.
+            const collar = Math.round(90 * coat.budget * Math.sqrt(s));
+            for (let k = 0; k < collar; k++) {
+                const a = rand() * Math.PI * 2, t = (sink / (tall * s + sink)) * (0.75 + rand() * 0.5);
+                const q = pointAt(t, a);
+                const n = norm(add(q.n, mul(q.R.dir, -0.3)));
+                const color = mixRgb(outer, coatRgb, 0.6);
+                roots.push({ p: add(q.p, mul(n, -0.002)), n, flow: q.R.dir, len: 0.018 * Math.sqrt(s) * coat.length * (0.7 + 0.6 * rand()), width: 0.0034, color: mul(color, 0.95), tip: color, lift: 0.45,
+                    joints: skin.joints, weights: skin.weights });
+            }
         }
+        return roots;
     }
 
-    /** The tail's path from the base of the spine, and its thickness along it. */
+    /**
+     * The tail's path from the base of the spine, and its thickness along it.
+     * A furred tail's thickness is its core; the fur on it makes its bulk.
+     */
     function tailShape(type, len, s) {
         const T = {
-            lizard: { r: t => 0.065 * s * Math.pow(1 - t, 1.3) + 0.004, path: t => [0, -0.45 * t * t * len, -len * t] },
-            dragon: { r: t => 0.08 * s * Math.pow(1 - t, 1.2) + 0.005, path: t => [Math.sin(t * 3) * 0.08 * len, -0.4 * t * t * len, -len * t * 1.1] },
-            cat: { r: t => 0.018 * s * (1 - t * 0.4), path: t => [0, Math.sin(t * Math.PI * 0.9) * 0.25 * len - t * 0.1 * len, -Math.cos(t * 0.6) * t * len * 0.8] },
-            fox: { r: t => (0.03 + 0.07 * Math.sin(Math.min(1, t * 1.15) * Math.PI)) * s + 0.006, path: t => [0, Math.sin(t * Math.PI * 0.6) * 0.18 * len - 0.12 * t * len, -t * len * 0.8] },
+            // Heavy at the root, flaring into the hips, sweeping down and back, the tip lifting off the ground.
+            lizard: { r: t => 0.058 * s * Math.pow(1 - t, 1.2) + 0.022 * s * Math.exp(-t * 10) + 0.003, path: t => [Math.sin(t * 2.4) * 0.05 * len * t, -len * (0.5 * t + 0.35 * t * t - 0.4 * t * t * t), -len * (0.55 * t + 0.35 * t * t)] },
+            dragon: { r: t => 0.074 * s * Math.pow(1 - t, 1.1) + 0.026 * s * Math.exp(-t * 10) + 0.004, path: t => [Math.sin(t * 3) * 0.08 * len, -len * (0.42 * t + 0.3 * t * t - 0.32 * t * t * t), -len * (0.65 * t + 0.45 * t * t)] },
+            cat: { r: t => 0.012 * s * (1 - t * 0.3), path: t => [0, Math.sin(t * Math.PI * 0.9) * 0.25 * len - t * 0.1 * len, -Math.cos(t * 0.6) * t * len * 0.8] },
+            // Hanging as a wolf's or a fox's does at rest: out from the rump, then down in a soft curve.
+            fox: { r: t => (0.022 + 0.024 * Math.sin(Math.min(1, t * 1.1) * Math.PI * 0.9)) * s * (1 - 0.55 * t * t), path: t => [Math.sin(t * 2.4) * 0.03 * len * t, -len * (0.12 * t + 0.5 * t * t), -len * (0.42 * t - 0.12 * t * t)] },
             demon: { r: t => 0.012 * s * (1 - t * 0.5), path: t => [Math.sin(t * 4) * 0.05 * len, -0.35 * Math.sin(t * Math.PI * 0.7) * len + t * 0.15 * len, -t * len * 0.85] },
-            monkey: { r: t => 0.014 * s, path: t => { const curl = Math.max(0, t - 0.7) / 0.3; return [0, Math.sin(t * Math.PI * 0.8) * 0.3 * len + Math.sin(curl * 5) * 0.06, -t * len * 0.8 + (1 - Math.cos(curl * 5)) * 0.04]; } },
+            monkey: { r: t => 0.012 * s, path: t => { const curl = Math.max(0, t - 0.7) / 0.3; return [0, Math.sin(t * Math.PI * 0.8) * 0.3 * len + Math.sin(curl * 5) * 0.06, -t * len * 0.8 + (1 - Math.cos(curl * 5)) * 0.04]; } },
             horse: { r: t => (0.03 + t * 0.03) * s, path: t => [0, -t * len * 0.7, -0.08 * len - t * 0.12 * len] },
-            rabbit: { r: t => Math.sqrt(Math.max(0, 1 - Math.pow(t * 2 - 1, 2))) * 0.045 * s + 0.001, path: t => [0, 0, -t * 0.08 * s] },
+            rabbit: { r: t => Math.sqrt(Math.max(0, 1 - Math.pow(t * 2 - 1, 2))) * 0.028 * s + 0.001, path: t => [0, 0.004 * t, -t * 0.05 * s] },
             bird: { r: t => 0.02 * s, path: t => [0, -t * 0.15 * len, -t * 0.12 * len] }
         };
         return T[type] || T.lizard;
     }
+
+    /** Fur on a tail: [count at full budget, length, width, lift, droop, how far it stands out from the tail (0 along it, 1 straight out)]. */
+    const TAIL_FUR = { fox: [3200, 0.095, 0.0075, 0.35, 0.1, 0.36], cat: [1500, 0.03, 0.0038, 0.35, 0, 0.32], rabbit: [520, 0.026, 0.0045, 0.9, 0, 0.85], monkey: [520, 0.007, 0.0024, 0.15, 0, 0.1] };
 
     /** The tail's base: the back of the pelvis, just above the seat. */
     function tailBase(pack, L) {
@@ -201,11 +272,27 @@
         return best || add(L.bone('Hips').head, [0, 0, -0.1]);
     }
 
-    function tail(m, pack, L, f, bones, boneBase) {
+    /** A frame along a path at each point: forward, side and up, carried along so it never flips. */
+    function pathFrames(pts) {
+        const n = pts.length, out = [];
+        let side = null;
+        for (let k = 0; k < n; k++) {
+            const d = norm(sub(pts[Math.min(n - 1, k + 1)], pts[Math.max(0, k - 1)]));
+            if (!side) side = norm(cross(d, Math.abs(d[1]) < 0.95 ? [0, 1, 0] : [0, 0, 1]));
+            side = norm(sub(side, mul(d, dot(side, d))));
+            const up = norm(cross(side, d));
+            out.push({ d, side, up });
+        }
+        return out;
+    }
+
+    function tail(m, hard, pack, L, f, bones, boneBase, coat, spinesF) {
         const s = f.size, len = 0.9 * (f.length || 1);
         const shape = tailShape(f.type, len, s);
-        const base = add(tailBase(pack, L), [0, 0, 0.015]);
-        const count = 24;
+        const reptile = f.type === 'lizard' || f.type === 'dragon';
+        // A reptile's tail grows out of the hips from inside them, so its root has no rim.
+        const base = add(tailBase(pack, L), [0, 0, reptile ? 0.045 * s : 0.015]);
+        const count = reptile ? 48 : 24;
         const pts = Array.from({ length: count + 1 }, (_, k) => add(base, shape.path(k / count)));
         // The tail's bones: a chain from the hips, five along the tail.
         const chain = 5, hips = L.boneIndex('Hips');
@@ -213,7 +300,7 @@
         for (let b = 0; b < chain; b++) bones.push({ name: b ? 'Tail' + (b + 1) : 'Tail', parent: b ? bones.length - 1 + boneBase : hips, head: at(b / chain), tail: at((b + 1) / chain), local: true });
         const first = boneBase + bones.length - chain;
         const skinAt = t => {
-            const x = Math.min(chain - 1e-6, t * chain), i = Math.floor(x), w = x - i;
+            const x = Math.min(chain - 1e-6, Math.max(0, t) * chain), i = Math.floor(x), w = x - i;
             const next = Math.min(chain - 1, i + 1);
             return { joints: [first + i, first + next, 0, 0], weights: [1 - w * 0.5, w * 0.5, 0, 0] };
         };
@@ -226,22 +313,33 @@
                 const right = norm(cross(dir, [0, 1, 0]));
                 m.loft(6, (i, t) => ({ center: lerp(a, b, t), x: right, y: [0, 1, 0], rx: 0.022 * s * Math.sin(Math.max(0.15, t) * Math.PI) + 0.002, ry: 0.002 }), 6, t => mixRgb(main, tip, t > 0.8 ? 1 : 0), skinAt(0.3), true);
             }
-            return;
+            return {};
         }
         if (f.type === 'horse') {
-            for (let k = 0; k < 14; k++) {
-                const off = [Math.cos(k * 2.3) * 0.02, 0, Math.sin(k * 2.3) * 0.02];
-                const strand = Array.from({ length: 9 }, (_, q) => add(add(pts[Math.round(q / 8 * count)], mul(off, 1 + q * 0.3)), [0, 0, 0]));
-                m.tube(strand, t => 0.012 * (1 - t * 0.7), 4, t => mixRgb(main, tip, t), p => skinAt(Math.min(1, (base[1] - p[1]) / (len * 0.7))), true);
+            // The dock, short and tapering, and the long hair falling from it to below the hocks.
+            const dock = Array.from({ length: 9 }, (_, q) => add(base, [0, -0.11 * len * (q / 8) ** 1.2, -0.06 * len * Math.sin(q / 8 * Math.PI / 2)]));
+            m.tube(dock, t => (0.026 - 0.012 * t) * s, 10, main, p => skinAt(Math.min(1, (base[1] - p[1]) / (len * 0.7))), true);
+            if (!coat) return {};
+            const frames = pathFrames(dock), rand = rng(3301), roots = [];
+            const locks = Math.round(700 * coat.budget * Math.sqrt(s));
+            for (let k = 0; k < locks; k++) {
+                const t = 0.15 + rand() * 0.85, q = Math.min(7, Math.floor(t * 8)), F = frames[q];
+                const a = rand() * Math.PI * 2, radial = norm(add(mul(F.side, Math.cos(a)), mul(F.up, Math.sin(a))));
+                const color = mul(main, 0.85 + 0.3 * rand());
+                roots.push({ p: add(lerp(dock[q], dock[q + 1], t * 8 - q), mul(radial, 0.015 * s)), n: radial, flow: norm(add([0, -1, -0.2], mul(radial, 0.07))),
+                    len: len * (0.38 + 0.28 * rand()), width: 0.009 * s * (0.8 + 0.4 * rand()), color: mul(color, 0.9), tip: mixRgb(color, [1, 1, 1], 0.05),
+                    lift: 0.12, droop: 0.35, twist: 0.3, lane: 3, ...skinAt(Math.min(1, t * 0.5 + 0.2)) });
             }
-            return;
+            return { roots };
         }
-        m.tube(pts, t => shape.r(t), 12, (t, a) => {
-            // Lighter underneath.
-            const under = Math.max(0, Math.sin(a)) ** 2;
-            const c = mixRgb(main, tip, f.type === 'cat' ? (t > 0.88 ? 1 : 0) : under * 0.6);
-            return f.type === 'fox' && t > 0.85 ? linear('#f4f0e8') : c;
-        }, p => {
+        if (reptile) return { part: reptileTail(hard, pts, shape, f, skinAt, spinesF) };
+        // Lighter underneath; a cat's tip and a bushy tail's tip in their own color.
+        const colorAt = (t, under) => {
+            // A bushy tail darkens to its tip, as a wolf's does.
+            if (f.type === 'fox' && t > 0.7) return mixRgb(mixRgb(main, tip, under * 0.5), [0.03, 0.025, 0.02], Math.min(0.8, (t - 0.7) / 0.2 * 0.8));
+            return mixRgb(main, tip, f.type === 'cat' ? (t > 0.88 ? 1 : 0) : under * 0.6);
+        };
+        m.tube(pts, t => shape.r(t), 12, (t, a) => colorAt(t, Math.max(0, Math.sin(a)) ** 2), p => {
             let best = 0, bd = Infinity;
             for (let k = 0; k <= count; k++) { const d = (p[0] - pts[k][0]) ** 2 + (p[1] - pts[k][1]) ** 2 + (p[2] - pts[k][2]) ** 2; if (d < bd) { bd = d; best = k; } }
             return skinAt(best / count);
@@ -252,8 +350,134 @@
             const side = norm(cross(dir, [0, 1, 0]));
             m.loft(6, (i, t) => ({ center: add(end, mul(dir, t * 0.06 * s)), x: side, y: norm(cross(side, dir)), rx: 0.03 * s * Math.sin(Math.max(0.1, Math.min(1, t * 1.6)) * Math.PI * 0.75) + 0.001, ry: 0.004 }), 8, main, skinAt(1), true);
         }
-        if (f.type === 'dragon' || f.type === 'lizard') return pts;
+        const furSpec = TAIL_FUR[f.type];
+        if (!furSpec || !coat) return {};
+        // Fur over the whole tail, combed toward its tip, longest round the middle of a bushy one.
+        const [full, flen, width, lift, droop, out] = furSpec;
+        const frames = pathFrames(pts), rand = rng(5101 + f.type.length);
+        const tufts = Math.round(full * coat.budget * Math.sqrt(s * (f.type === 'rabbit' ? 1 : f.length || 1)));
+        const roots = [];
+        for (let k = 0; k < tufts; k++) {
+            const t = f.type === 'rabbit' ? 0.1 + rand() * 0.8 : Math.min(0.995, Math.pow(rand(), 0.9));
+            const x = t * count, i = Math.min(count - 1, Math.floor(x)), u = x - i;
+            const p0 = lerp(pts[i], pts[i + 1], u), F = frames[i];
+            const a = rand() * Math.PI * 2, radial = norm(add(mul(F.side, Math.cos(a)), mul(F.up, Math.sin(a))));
+            const r = shape.r(t);
+            const bulk = f.type === 'fox' ? 0.45 + 0.75 * Math.sin(Math.min(1, t * 1.05 + 0.08) * Math.PI) : f.type === 'rabbit' ? 1 : 1 - t * 0.25;
+            const color = colorAt(t, Math.max(0, -Math.sin(a)) ** 2);
+            roots.push({ p: add(p0, mul(radial, r * 0.85)), n: radial, flow: add(mul(F.d, 1 - out), mul(radial, out)),
+                len: flen * s * coat.length * bulk * (0.7 + 0.6 * rand()), width: width * Math.sqrt(s) * (0.8 + 0.4 * rand()),
+                color: mul(color, 0.94), tip: mixRgb(color, [1, 1, 1], 0.06), lift, droop, ...skinAt(t) });
+        }
+        return { roots };
     }
+
+    /**
+     * A lizard's or a dragon's tail: wide where it leaves the hips and a
+     * little taller than wide toward the tip, laid with scales from the
+     * scale picture (`scales.png`: rows of overlapping scales round the
+     * tail, broad plates down the belly), its own color above and the
+     * underside's below, with faint darker bands. A row of spines runs down
+     * its top when the back has a ridge, and a dragon's always carries plates.
+     */
+    function reptileTail(hard, pts, shape, f, skinAt, spinesF) {
+        const s = f.size, n = pts.length - 1, SIDES = 28;
+        const frames = pathFrames(pts), main = linear(f.color), belly = linear(f.color2 || f.color);
+        const dragon = f.type === 'dragon';
+        const pos = [], nrm = [], uv = [], col = [], jn = [], wt = [], idx = [];
+        const smooth = (a, b, x) => { const q = Math.max(0, Math.min(1, (x - a) / (b - a))); return q * q * (3 - 2 * q); };
+        for (let k = 0; k <= n; k++) {
+            const t = k / n, F = frames[k], r = shape.r(t);
+            const root = Math.exp(-t * 10);
+            const rx = r * (1 + 0.18 * (1 - t) * (1 - t)) * (1 - 0.12 * t), ry = r * (1 + 0.12 * t) * (1 - 0.22 * root);
+            const band = dragon ? 1 : 0.88 + 0.12 * Math.cos(t * Math.PI * 14 + 0.6);
+            const sk = skinAt(t);
+            for (let j = 0; j <= SIDES; j++) {
+                const u = j / SIDES, a = -Math.PI / 2 + (u - 0.5) * Math.PI * 2;
+                const c = Math.cos(a), si = Math.sin(a);
+                const p = add(pts[k], add(mul(F.side, c * rx), mul(F.up, si * ry)));
+                pos.push(...p); nrm.push(...norm(add(mul(F.side, c / rx), mul(F.up, si / ry))));
+                uv.push(u, Math.min(1, t));
+                const under = smooth(0.3, 0.75, -si);
+                const rgb = mixRgb(main.map(x => x * band), belly, under);
+                col.push(...rgb);
+                jn.push(...sk.joints); wt.push(...sk.weights);
+            }
+        }
+        for (let k = 0; k < n; k++) for (let j = 0; j < SIDES; j++) {
+            const a = k * (SIDES + 1) + j, b = a + SIDES + 1;
+            idx.push(a, b, a + 1, a + 1, b, b + 1);
+        }
+        // The tip closed to a point.
+        const end = pos.length / 3, last = pts[n], F = frames[n];
+        pos.push(...add(last, mul(F.d, 0.006 * s))); nrm.push(...F.d); uv.push(0.5, 1); col.push(...main); jn.push(...skinAt(1).joints); wt.push(...skinAt(1).weights);
+        for (let j = 0; j < SIDES; j++) idx.push(n * (SIDES + 1) + j, end, n * (SIDES + 1) + j + 1);
+        // Down the top: a dragon's plates, or a ridge's spines carried on from the back.
+        const ridge = spinesF && (spinesF.type === 'ridge' || spinesF.type === 'both');
+        if (dragon || ridge) {
+            const spineColor = linear(ridge ? spinesF.color : f.color2 || f.color), ss = ridge ? spinesF.size : 1;
+            const rows = dragon ? 16 : 20;
+            for (let q = 0; q < rows; q++) {
+                const t = 0.04 + 0.9 * q / (rows - 1), k = Math.round(t * n), Fk = frames[k], r = shape.r(t);
+                const root = add(pts[k], mul(Fk.up, r * (1 + 0.12 * t) * 0.9));
+                const h = (dragon ? 0.045 : 0.022) * s * ss * (1 - t * 0.7) + 0.003;
+                if (dragon) {
+                    // A flat, back-swept plate.
+                    const back = mul(Fk.d, h * 0.7), sk = skinAt(t);
+                    hard.loft(5, (i, v) => ({ center: add(add(root, mul(Fk.up, v * h)), mul(back, v)), x: Fk.d, y: Fk.side, rx: Math.max(0.0012, h * 0.55 * (1 - v)), ry: Math.max(0.0008, 0.004 * s * (1 - v)) }), 6, spineColor, sk, true);
+                } else hard.tube([root, add(root, add(mul(Fk.up, h * 0.6), mul(Fk.d, h * 0.4))), add(root, add(mul(Fk.up, h), mul(Fk.d, h * 0.8)))], [0.006 * s * ss * (1 - t * 0.6) + 0.001, 0.003 * s, 0.0006], 6, spineColor, skinAt(t));
+            }
+        }
+        return { name: 'Tail', positions: Float32Array.from(pos), normals: Float32Array.from(nrm), uvs: Float32Array.from(uv), colors: Float32Array.from(col),
+            joints: Uint8Array.from(jn), weights: Float32Array.from(wt), index: Uint32Array.from(idx), texture: 'scales.png', keepColors: true, roughness: 0.55, metalness: 0, kind: 'skin' };
+    }
+
+    /**
+     * The scale picture for a reptile's tail, gray, tinted by the tail's
+     * colors: across, once round the tail (the top at the edges, the belly
+     * in the middle); down, root to tip. Rows of overlapping scales, each
+     * a low dome lit on its free edge with a groove round it and its own
+     * shade; down the belly, broad plates spanning it.
+     */
+    function scaleTexture(W = 512, H = 1024) {
+        const data = new Uint8Array(W * H * 4);
+        const ROWS = 54, COLS = 24;
+        const h2 = (x, y) => fract(Math.sin(x * 127.1 + y * 311.7) * 43758.5453);
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+            const u = (x + 0.5) / W, v = (y + 0.5) / H;
+            const fv = v * ROWS, row = Math.floor(fv);
+            const bellyW = Math.abs(u - 0.5);
+            let l;
+            if (bellyW < 0.11) {
+                // A belly plate: the full band wide, one row long, its back edge tucked under the one before.
+                const fy = fv - row, fx = bellyW / 0.11;
+                const groove = Math.min(1, fy / 0.12) * Math.min(1, (1 - fx) / 0.12);
+                l = (0.66 + 0.3 * groove + 0.08 * fy) * (0.95 + 0.08 * h2(row, 7));
+            } else {
+                // Staggered rows; the nearest scale and the next nearest, for the groove between them.
+                const fu = u * COLS;
+                let d1 = 9, d2 = 9, cell = [0, 0], fyAt = 0;
+                for (let dr = -1; dr <= 1; dr++) {
+                    const rr = row + dr, off = (rr & 1) * 0.5;
+                    const cc = Math.floor(fu - off);
+                    for (let dc = -1; dc <= 1; dc++) {
+                        const cx = cc + dc + off + 0.5, cy = rr + 0.5;
+                        const du = fu - cx, dv = (fv - cy) * 1.15;
+                        const d = Math.hypot(du, dv);
+                        if (d < d1) { d2 = d1; d1 = d; cell = [cc + dc, rr]; fyAt = fv - cy; } else if (d < d2) d2 = d;
+                    }
+                }
+                const edge = Math.min(1, (d2 - d1) / 0.16);
+                const dome = Math.max(0, 1 - d1 * d1 * 1.6);
+                // Lit toward its free edge (toward the tip), shaded toward its root under the scale before.
+                l = (0.72 + 0.2 * dome + 0.1 * Math.max(-1, Math.min(1, fyAt * 1.6))) * (0.6 + 0.4 * edge) * (0.92 + 0.14 * h2(((cell[0] % COLS) + COLS) % COLS, cell[1]));
+            }
+            const o = (y * W + x) * 4, g = Math.max(0, Math.min(255, Math.round(255 * Math.min(1, l))));
+            data[o] = data[o + 1] = data[o + 2] = g; data[o + 3] = 255;
+        }
+        return { width: W, height: H, data, name: 'scales.png' };
+    }
+    const fract = x => x - Math.floor(x);
 
     function wings(m, L, f) {
         const spine = L.boneIndex('Spine2'), skin = Props.rigid(spine), s = f.size;
@@ -597,15 +821,36 @@
         }
     }
 
-    /** Feature parts on a built body, and the bones they bring (a tail's chain). */
-    function build(pack, built, features, landmarks) {
+    /**
+     * Feature parts on a built body, and the bones they bring (a tail's
+     * chain). `options.coat` ({ length, color, budget }) is the fur furred
+     * features grow (animal ears, a cat's, a bushy, a puff or a monkey's
+     * tail); without it they stay bare. Fur comes back as roots (`fur`: one
+     * group per feature, with the body vertex it rides on) for the caller
+     * to lay as tufts on the body fur's picture.
+     */
+    function build(pack, built, features, landmarks, options) {
         const F = normalizeFeatures(features);
         const L = landmarks || Props.landmarks(pack, built);
+        const o = options || {};
+        const coat = o.coat ? Object.assign({ length: 1, budget: 1 }, o.coat) : null;
         const hard = new Props.Mesh(), soft = new Props.Mesh();
-        const bones = [];
+        const bones = [], fur = [], extra = [];
+        const nearest = (p, ids) => {
+            let best = ids[0], bd = Infinity;
+            for (const v of ids) { const d = (L.P[v * 3] - p[0]) ** 2 + (L.P[v * 3 + 1] - p[1]) ** 2 + (L.P[v * 3 + 2] - p[2]) ** 2; if (d < bd) { bd = d; best = v; } }
+            return best;
+        };
         if (F.horns.type !== 'none') horns(hard, L, F.horns);
-        if (F.ears.type !== 'none') animalEars(soft, L, F.ears);
-        if (F.tail.type !== 'none') tail(soft, pack, L, F.tail, bones, built.bones.length);
+        if (F.ears.type !== 'none') {
+            const roots = animalEars(soft, L, F.ears, coat);
+            if (roots.length) fur.push({ roots, anchor: nearest([0, L.crown - 0.01, L.ring(L.brow)?.center[2] || 0], L.headIds) });
+        }
+        if (F.tail.type !== 'none') {
+            const made = tail(soft, hard, pack, L, F.tail, bones, built.bones.length, coat, F.spines) || {};
+            if (made.part) extra.push(made.part);
+            if (made.roots && made.roots.length) fur.push({ roots: made.roots, anchor: nearest(tailBase(pack, L), pack._bodyIds) });
+        }
         if (F.wings.type !== 'none') wings(soft, L, F.wings);
         const featherPart = F.wings.type === 'feathered' ? featheredWing(L, F.wings) : F.wings.type === 'fairy' ? fairyWing(L, F.wings) : null;
         if (F.beak.type !== 'none') beak(hard, L, F.beak);
@@ -616,13 +861,14 @@
         if (F.alienEyes.type !== 'none') alienEyes(lenses, built, pack, F.alienEyes);
         const parts = [];
         if (featherPart) parts.push(featherPart);
-        if (!lenses.empty) parts.push(lenses.part('Alien eyes', { roughness: 0.06, metalness: 0, kind: 'eye', doubleSided: true, envMapIntensity: 0.15 }));
+        parts.push(...extra);
+        if (!lenses.empty) parts.push(lenses.part('Alien eyes', { roughness: 0.06, metalness: 0, kind: 'eye', doubleSided: true, envMapIntensity: 0.15, noShade: true }));
         if (!hard.empty) parts.push(hard.part('Horns and claws', { roughness: 0.4, metalness: 0 }));
         if (!soft.empty) parts.push(soft.part('Features', { roughness: 0.8, metalness: 0, doubleSided: true }));
-        return { parts, bones, features: F };
+        return { parts, bones, features: F, fur };
     }
 
-    const api = { FEATURES, SPECIES, BY_ID, normalizeFeatures, speciesRecipe, build, tailShape, featherTexture, fairyWingTexture };
+    const api = { FEATURES, SPECIES, BY_ID, normalizeFeatures, speciesRecipe, build, tailShape, featherTexture, fairyWingTexture, scaleTexture };
     root.RRCharacterSpecies = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

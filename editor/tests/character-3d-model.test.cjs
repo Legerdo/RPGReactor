@@ -60,6 +60,42 @@ test('every species builds, with its features and its own bones', () => {
     }
 });
 
+test('leaving a species leaves what it brought: its halo, its age, its beard, its skin; what was chosen stays', () => {
+    const angel = Model.withSpecies({ gender: 1, props: [{ id: 'glasses' }] }, 'angel');
+    assert.ok(angel.props.some(p => p.id === 'halo') && angel.props.some(p => p.id === 'glasses'));
+    const grey = Model.withSpecies(angel, 'alien');
+    assert.deepEqual(grey.props.map(p => p.id), ['glasses'], 'the halo goes with the angel, the glasses stay');
+    assert.equal(grey.features.wings.type, 'none');
+    assert.equal(Model.withSpecies(Model.withSpecies({ age: 40 }, 'undead'), 'human').age, Body.DEFAULT_RECIPE.age, 'an undead age is the undead\'s');
+    assert.equal(Model.withSpecies({ age: 40 }, 'elf').age, 40, 'an age chosen for a species without its own is kept');
+    const elf = Model.withSpecies(Model.withSpecies({ gender: 1 }, 'dwarf'), 'elf');
+    assert.notEqual(elf.hair.facial.style, 'longBeard', 'the dwarf\'s beard is the dwarf\'s');
+    assert.equal(Model.withSpecies(Model.withSpecies({}, 'orc'), 'human').skin, Body.DEFAULT_RECIPE.skin);
+    assert.equal(Model.withSpecies({ skin: '#8a5a3c' }, 'elf').skin, '#8a5a3c', 'a skin tone chosen for a human stays on an elf');
+    assert.equal(Model.withSpecies(Model.withSpecies({}, 'lizardfolk'), 'human').skinPattern.type, 'none');
+});
+
+test('furred features wear fur like the body\'s; a reptile\'s tail is scaled; both follow the tail\'s bones', () => {
+    const wolf = Model.build(pack, Model.withSpecies({ gender: 1 }, 'wolffolk'), {}, { quality: 'preview' });
+    const fur = wolf.parts.filter(p => p.name === 'Feature fur');
+    assert.equal(fur.length, 2, 'fur on the ears and on the tail');
+    for (const p of fur) {
+        assert.equal(p.texture, 'bodyhair.png');
+        assert.ok(wolf.textures['bodyhair.png'], 'the body fur picture is there for them');
+        assert.equal(p.source.length, p.positions.length / 3, 'each tuft rides a body vertex on the drag path');
+    }
+    const tail = wolf.bones.findIndex(b => b.name === 'Tail');
+    assert.ok(fur.some(p => p.joints.some(j => j >= tail)), 'the tail\'s fur moves with the tail');
+    const weak = Model.build(pack, Model.withSpecies({ gender: 1 }, 'wolffolk'), {}, { quality: 'preview', hairBudget: 0.4 });
+    const tris = r => r.parts.filter(p => p.name === 'Feature fur').reduce((n, p) => n + p.index.length / 3, 0);
+    assert.ok(tris(weak) < tris(wolf) * 0.6, 'a weak budget grows less');
+    assert.ok(tris(wolf) < 30000, 'feature fur ' + tris(wolf) + ' triangles');
+    const lizard = Model.build(pack, Model.withSpecies({}, 'lizardfolk'), {}, { quality: 'preview' });
+    const scaled = lizard.parts.find(p => p.texture === 'scales.png');
+    assert.ok(scaled && scaled.uvs && lizard.textures['scales.png'], 'the tail carries the scale picture');
+    assert.ok(scaled.joints.some(j => j >= lizard.bones.findIndex(b => b.name === 'Tail')));
+});
+
 test('every outfit preset and every accessory builds on an average and an extreme body', () => {
     const bodies = [{}, { gender: 1, weight: 3, muscle: 2.2, headSize: 1.6 }, { gender: 0, weight: -0.3, height: -0.5, cup: 4 }];
     for (const body of bodies) {
@@ -131,16 +167,18 @@ test('the GLB holds the pictures, the skinned parts, the tail and the Idle', asy
     const result = Model.build(pack, Object.assign(Model.withSpecies({}, 'dragonborn'), { outfit: Wardrobe.PRESETS.find(p => p.id === 'knight').items, props: [{ id: 'cape' }] }), {}, { eyeSource });
     const glb = await Model.toGlb(result, 'Test', tex => { const png = new PNG({ width: tex.width, height: tex.height }); png.data = Buffer.from(tex.data); return new Uint8Array(PNG.sync.write(png)); });
     const { json } = Optimizer.parseGlb(glb);
-    assert.deepEqual(json.images.map(i => i.name).sort(), ['eyes.png', 'outfit.png', 'skin.png']);
+    // The skin, eyes and outfit pictures, and the scales of the dragon's tail.
+    const images = json.images.map(i => i.name);
+    for (const name of ['eyes.png', 'outfit.png', 'skin.png', 'scales.png']) assert.ok(images.includes(name), name + ' in ' + images.join(', '));
     assert.equal(json.meshes.length, result.parts.length);
     for (const node of json.nodes.filter(n => n.mesh != null)) assert.equal(node.skin, 0);
     const names = json.skins[0].joints.map(j => json.nodes[j].name);
     assert.ok(names.includes('Tail') && names.includes('Tail5') && names.includes('LeftHandThumb1'));
     assert.equal(json.animations[0].name, 'Idle');
-    // Vertex colors only on the parts without a picture.
+    // Vertex colors only on the parts without a picture, or tinting a gray one (the tail's scales).
     for (const [i, part] of result.parts.entries()) {
         const prim = json.meshes[i].primitives[0];
-        assert.equal(prim.attributes.COLOR_0 != null, !!part.colors && !part.texture, part.name);
+        assert.equal(prim.attributes.COLOR_0 != null, !!part.colors && (!part.texture || !!part.keepColors), part.name);
     }
 });
 

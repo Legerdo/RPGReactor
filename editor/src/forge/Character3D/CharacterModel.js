@@ -51,20 +51,26 @@
     /**
      * A species applied to a recipe: the species' preset over the average
      * body, the old recipe's gender, age, ancestry, outfit and accessories
-     * kept. Hair follows the species when it is bald by nature.
+     * kept. Hair follows the species when it is bald by nature. What the old
+     * species brought (its accessories, skin, markings, eyes, age, coat) goes
+     * with it; what was chosen for a species without its own is kept.
      */
     function withSpecies(recipe, id) {
         const old = normalize(recipe);
         const preset = Species.speciesRecipe(id);
+        const was = (Species.BY_ID.get(old.species) || {}).recipe || {};
         // A species' beard is a man's: a woman keeps her own face.
         if (preset.hair && preset.hair.facial && old.gender < 0.5) preset.hair = Object.assign({}, preset.hair, { facial: old.hair.facial });
+        const own = key => (preset[key] != null ? preset[key] : was[key] != null ? undefined : old[key]);
+        const brought = new Set((was.props || []).map(p => p.id));
+        const hairBase = was.bald || was.hair ? Hair.randomHair(((old.seed ?? 1) ^ 0x5bd1e995) >>> 0, { gender: old.gender > 0.5 ? 'male' : 'female' }) : old.hair;
         const next = Object.assign({}, preset, {
-            plan: 'human', gender: old.gender, age: preset.age ?? old.age, ancestry: old.ancestry,
-            bodyHair: preset.bodyHair || (Species.BY_ID.get(old.species)?.recipe || {}).bodyHair ? (preset.bodyHair || {}) : old.bodyHair,
-            outfit: old.outfit, props: (preset.props || []).concat(old.props.filter(p => !(preset.props || []).some(q => q.id === p.id))),
-            // Hair follows a species bald by nature; leaving one, the hair grows back.
-            hair: preset.hair ? Object.assign({}, old.hair, preset.hair) : preset.bald ? { style: 'bald', brows: { style: 'none' }, lashes: false }
-                : (Species.BY_ID.get(old.species)?.recipe || {}).bald ? Hair.randomHair(((old.seed ?? 1) ^ 0x5bd1e995) >>> 0, { gender: old.gender > 0.5 ? 'male' : 'female' }) : old.hair
+            plan: 'human', gender: old.gender, age: own('age'), ancestry: old.ancestry,
+            skin: own('skin'), skinPattern: own('skinPattern'), eyes: own('eyes'),
+            bodyHair: preset.bodyHair || was.bodyHair ? (preset.bodyHair || {}) : old.bodyHair,
+            outfit: old.outfit, props: (preset.props || []).concat(old.props.filter(p => !brought.has(p.id) && !(preset.props || []).some(q => q.id === p.id))),
+            // Hair follows a species bald by nature; leaving one, or one with its own hair or beard, the person's own grows back.
+            hair: preset.bald ? { style: 'bald', brows: { style: 'none' }, lashes: false } : Object.assign({}, hairBase, preset.hair)
         });
         if (old.seed != null) next.seed = old.seed;
         return normalize(next);
@@ -131,7 +137,8 @@
         }
         textures['skin.png'] = cache.skin;
         body.texture = 'skin.png';
-        body.roughness = r.skinPattern.type === 'scales' || r.skinPattern.type === 'panels' ? 0.45 : 0.62;
+        // Scales and panels shine; skin under a coat is as matte as the fur painted on it.
+        body.roughness = r.skinPattern.type === 'scales' || r.skinPattern.type === 'panels' ? 0.45 : r.bodyHair.fur > 0.3 ? 0.85 : 0.62;
 
         const eyes = Object.assign({}, built.parts[1], { roughness: 0.25, cutout: true });
         if (o.eyeSource) {
@@ -193,7 +200,16 @@
         }
         const L = Props.landmarks(pack, built);
         const props = Props.build(pack, built, r.props);
-        const features = Species.build(pack, built, r.features, L);
+        // Furred features grow the body's coat when it has one (its length and color), a coat of their own when not.
+        const furred = bodyHair.fur > 0.05;
+        const features = Species.build(pack, built, r.features, L, { coat: { length: furred ? bodyHair.length || 1 : 1, color: furred ? bodyHair.color : null, budget } });
+        for (const g of features.fur) {
+            const part = Detail.furCards(g.roots, { name: 'Feature fur', seed: 31 });
+            part.source = new Int32Array(part.positions.length / 3).fill(g.anchor);
+            features.parts.push(part);
+            textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
+        }
+        if (features.parts.some(p => p.texture === 'scales.png')) textures['scales.png'] = cache.scales || (cache.scales = Species.scaleTexture());
         // What each part is, for the view's materials: skin, eyes, cloth, metal, hair, a prop.
         body.kind = 'skin'; eyes.kind = 'eye';
         for (const p of outfit.parts) p.kind = p.metalness > 0.5 ? 'metal' : 'cloth';

@@ -182,7 +182,7 @@
         });
         void skinPart;
         return { name: 'Areolas', positions, normals: nrm, uvs: Float32Array.from(uvs), index: Uint32Array.from(index), joints, weights,
-            texture: 'areola.png', opacity: 0.999, roughness: 0.5, kind: 'skin', source: Int32Array.from(ids), decal: true };
+            texture: 'areola.png', opacity: 0.999, roughness: 0.5, kind: 'skin', source: Int32Array.from(ids), decal: true, noShade: true };
     }
 
     // ── body hair ─────────────────────────────────────────────────────────
@@ -325,6 +325,66 @@
     }
 
     /**
+     * Fur on a part that is not the body (a tail, an animal ear): tufts on
+     * the body fur's own picture, so the two coats read as one. `roots`:
+     * [{ p, n, flow, len, width, color (linear rgb), tip?, lift?, droop?,
+     * joints, weights }]. Each tuft grows out of the surface along `n`,
+     * lies down along `flow` and bends under its own weight; darker at the
+     * root, its tips catching the light, as the body's do. Returns a part.
+     */
+    function furCards(roots, options) {
+        const o = options || {}, n = roots.length, SEG = 3, per = SEG * 2;
+        const positions = new Float32Array(n * per * 3), nrm = new Float32Array(n * per * 3), uvs = new Float32Array(n * per * 2), colors = new Float32Array(n * per * 3);
+        const joints = new Uint8Array(n * per * 4), weights = new Float32Array(n * per * 4), index = new Uint32Array(n * (SEG - 1) * 6);
+        const rand = rng(o.seed || 77);
+        let vi = 0, ii = 0;
+        for (const s of roots) {
+            const N = s.n;
+            let fx = s.flow[0], fy = s.flow[1], fz = s.flow[2];
+            const fd = fx * N[0] + fy * N[1] + fz * N[2];
+            fx -= N[0] * fd; fy -= N[1] * fd; fz -= N[2] * fd;
+            let l = Math.hypot(fx, fy, fz) || 1; fx /= l; fy /= l; fz /= l;
+            // A little turn about the normal per tuft, so neighbors never comb in lockstep.
+            const tw = (rand() - 0.5) * (s.twist ?? 0.6), cs = Math.cos(tw), sn = Math.sin(tw);
+            const ox = N[1] * fz - N[2] * fy, oy = N[2] * fx - N[0] * fz, oz = N[0] * fy - N[1] * fx;
+            [fx, fy, fz] = [fx * cs + ox * sn, fy * cs + oy * sn, fz * cs + oz * sn];
+            const sx = N[1] * fz - N[2] * fy, sy = N[2] * fx - N[0] * fz, sz = N[0] * fy - N[1] * fx;
+            const lane = s.lane ?? (2 + Math.floor(rand() * 2)), u0 = lane * 0.25, u1 = u0 + 0.25;
+            const shade = 0.84 + 0.32 * rand(), step = s.len / (SEG - 1), lift = s.lift ?? 0.4, droop = s.droop ?? 0;
+            const tip = s.tip || s.color;
+            let px = s.p[0], py = s.p[1], pz = s.p[2];
+            const base = vi;
+            for (let g = 0; g < SEG; g++) {
+                const t = g / (SEG - 1);
+                if (g > 0) {
+                    const up = lift * (1 - t * 0.6);
+                    let dx = fx + N[0] * up, dy = fy + N[1] * up - droop * t, dz = fz + N[2] * up;
+                    const dl = Math.hypot(dx, dy, dz) || 1;
+                    px += dx / dl * step; py += dy / dl * step; pz += dz / dl * step;
+                }
+                const w = s.width * (1 - t * 0.45), tone = (0.78 + 0.45 * t * t) * shade;
+                const c = mix(s.color, tip, t);
+                for (let k = -1; k <= 1; k += 2) {
+                    const o3 = vi * 3, o4 = vi * 4;
+                    positions[o3] = px + sx * w * k; positions[o3 + 1] = py + sy * w * k; positions[o3 + 2] = pz + sz * w * k;
+                    nrm[o3] = N[0]; nrm[o3 + 1] = N[1]; nrm[o3 + 2] = N[2];
+                    uvs[vi * 2] = k < 0 ? u0 : u1; uvs[vi * 2 + 1] = 0.05 + t * 0.9;
+                    colors[o3] = c[0] * tone; colors[o3 + 1] = c[1] * tone; colors[o3 + 2] = c[2] * tone;
+                    for (let q = 0; q < 4; q++) { joints[o4 + q] = s.joints[q] || 0; weights[o4 + q] = s.weights[q] || 0; }
+                    vi++;
+                }
+            }
+            for (let g = 0; g + 1 < SEG; g++) {
+                const q = base + g * 2;
+                index[ii] = q; index[ii + 1] = q + 2; index[ii + 2] = q + 1; index[ii + 3] = q + 1; index[ii + 4] = q + 2; index[ii + 5] = q + 3;
+                ii += 6;
+            }
+        }
+        return { name: o.name || 'Feature fur', positions, normals: nrm, uvs, colors, index, joints, weights, texture: 'bodyhair.png', cutout: true, alphaCutoff: 0.35,
+            keepColors: true, doubleSided: true, roughness: 0.75, kind: 'hair', onSkin: true, noShade: true };
+    }
+
+    /**
      * Body hair's strand picture: four lanes, each a tuft (two of three or four
      * strands for body hair, two of eight finer ones for fur), each strand its
      * own length and drift, tapering to its tip.
@@ -377,7 +437,7 @@
         return { width: w, height: h, data, name: 'strand.png' };
     }
 
-    const api = { strandTexture, areolaPatches, areolaTexture, areolaPart, hairStrands, hairPart, bodyHairTexture };
+    const api = { strandTexture, areolaPatches, areolaTexture, areolaPart, hairStrands, hairPart, furCards, bodyHairTexture };
     root.RRCharacterDetail = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

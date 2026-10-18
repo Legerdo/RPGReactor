@@ -844,7 +844,7 @@
      * wrapping back round the skull toward the outer corner and a little
      * toward the nose, so it lies in the face instead of standing off it).
      */
-    const ALMOND = { width: 1.5, height: 0.66, tilt: 0.38, dome: 0.17, back: 0.06, wrapOut: 0.9, wrapIn: 0.15 };
+    const ALMOND = { width: 1.5, height: 0.66, tilt: 0.38, dome: 0.26, back: 0.11, wrapOut: 0.9, wrapIn: 0.15 };
     const almondHalf = out => (Math.abs(out) >= 1 ? 0 : Math.pow(1 - out * out, 0.42) * (1 - 0.22 * out));
     function almondFrame(pack, P, side, size = 1) {
         const ids = [...new Set(pack.eyes.refs)].filter(v => Math.sign(pack.positions[v * 3]) === side);
