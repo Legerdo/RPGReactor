@@ -70,17 +70,17 @@
      */
     const PEOPLES = [
         { id: 'mixed', label: 'Mixed', mix: { african: 1 / 3, asian: 1 / 3, caucasian: 1 / 3 }, face: {}, tones: ['#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26'] },
-        { id: 'european', label: 'European', mix: { african: 0, asian: 0, caucasian: 1 }, face: {}, tones: ['#f3d6c4', '#ecc4a8', '#e2b291', '#d29f7c', '#bf8a66'] },
-        { id: 'middleEastern', label: 'Middle Eastern and North African', mix: { african: 0.12, asian: 0.05, caucasian: 0.83 }, face: { noseHump: 0.25, noseLength: 0.1, browRidge: 0.1, eyeSize: 0.05 }, tones: ['#e8c09c', '#d9a982', '#c6956c', '#ad7d55', '#90623d'] },
-        { id: 'subSaharan', label: 'Sub-Saharan African', mix: { african: 1, asian: 0, caucasian: 0 }, face: {}, tones: ['#a8795a', '#8a5a3c', '#70472d', '#5e3b26', '#4a2c1c', '#3a2216'] },
-        { id: 'southAsian', label: 'South Asian', mix: { african: 0.25, asian: 0.15, caucasian: 0.6 }, face: { eyeSize: 0.1, noseWidth: 0.1, lowerLip: 0.1, browRidge: -0.05 }, tones: ['#e0b48c', '#c99a70', '#ad7d55', '#8f603c', '#6e4529'] },
-        { id: 'centralAsian', label: 'Central Asian', mix: { african: 0, asian: 0.55, caucasian: 0.45 }, face: { cheekBones: 0.2 }, tones: ['#efcfb2', '#e3ba98', '#d4a47f', '#bd8c66'] },
-        { id: 'eastAsian', label: 'East Asian', mix: { african: 0, asian: 0.95, caucasian: 0.05 }, face: {}, tones: ['#f2d4ba', '#e8c19f', '#dcae88', '#c99a72'] },
-        { id: 'southeastAsian', label: 'Southeast Asian', mix: { african: 0.12, asian: 0.78, caucasian: 0.1 }, face: { noseWidth: 0.15, lowerLip: 0.05 }, tones: ['#e6c09a', '#d2a67c', '#b98a60', '#9c6f48', '#7e5636'] },
-        { id: 'nativeAmerican', label: 'Native American', mix: { african: 0.05, asian: 0.65, caucasian: 0.3 }, face: { cheekBones: 0.35, noseHump: 0.2, jaw: 0.1, eyeFold: -0.15 }, tones: ['#dcae86', '#c69468', '#ae7c52', '#93633e', '#7a4f31'] },
-        { id: 'latinAmerican', label: 'Latin American', mix: { african: 0.15, asian: 0.3, caucasian: 0.55 }, face: { cheekBones: 0.1 }, tones: ['#ecc6a4', '#ddb08a', '#c99a72', '#b1825a', '#93663f', '#6e4a2e'] },
-        { id: 'pacificIslander', label: 'Pacific Islander', mix: { african: 0.3, asian: 0.5, caucasian: 0.2 }, face: { noseWidth: 0.15, cheekBones: 0.15, jaw: 0.15, lowerLip: 0.1 }, tones: ['#c99a6c', '#b08154', '#966a42', '#7c5434'] },
-        { id: 'aboriginalAustralian', label: 'Aboriginal Australian', mix: { african: 0.6, asian: 0.1, caucasian: 0.3 }, face: { browRidge: 0.35, noseWidth: 0.3, noseLength: -0.1, lowerLip: 0.1 }, tones: ['#8a5e40', '#714a30', '#5e3b26', '#4a2e1e'] }
+        { id: 'european', label: 'European', mix: { african: 0, asian: 0, caucasian: 1 }, face: { noseHump: 0.1, noseWidth: -0.1, browRidge: 0.1, eyeSize: -0.05 }, tones: ['#f3d6c4', '#ecc4a8', '#e2b291', '#d29f7c', '#bf8a66'] },
+        { id: 'middleEastern', label: 'Middle Eastern and North African', mix: { african: 0.12, asian: 0.05, caucasian: 0.83 }, face: { noseHump: 0.5, noseLength: 0.2, noseTip: -0.15, browRidge: 0.3, browHeight: -0.2, eyeSize: 0.1, lowerLip: 0.1, jaw: 0.1 }, tones: ['#e8c09c', '#d9a982', '#c6956c', '#ad7d55', '#90623d'] },
+        { id: 'subSaharan', label: 'Sub-Saharan African', mix: { african: 1, asian: 0, caucasian: 0 }, face: { noseWidth: 0.2, lowerLip: 0.15, upperLip: 0.1, cheekBones: 0.15 }, tones: ['#a8795a', '#8a5a3c', '#70472d', '#5e3b26', '#4a2c1c', '#3a2216'] },
+        { id: 'southAsian', label: 'South Asian', mix: { african: 0.25, asian: 0.15, caucasian: 0.6 }, face: { eyeSize: 0.15, noseHump: 0.15, noseLength: 0.1, noseWidth: 0.1, lowerLip: 0.15, browHeight: -0.1, chin: -0.1 }, tones: ['#e0b48c', '#c99a70', '#ad7d55', '#8f603c', '#6e4529'] },
+        { id: 'centralAsian', label: 'Central Asian', mix: { african: 0, asian: 0.55, caucasian: 0.45 }, face: { cheekBones: 0.45, headWidth: 0.25, noseHump: -0.1, eyeOpen: -0.1, jaw: 0.15 }, tones: ['#efcfb2', '#e3ba98', '#d4a47f', '#bd8c66'] },
+        { id: 'eastAsian', label: 'East Asian', mix: { african: 0, asian: 0.95, caucasian: 0.05 }, face: { noseHump: -0.3, browRidge: -0.2, headWidth: 0.1, noseWidth: 0.05, chin: -0.05 }, tones: ['#f2d4ba', '#e8c19f', '#dcae88', '#c99a72'] },
+        { id: 'southeastAsian', label: 'Southeast Asian', mix: { african: 0.1, asian: 0.82, caucasian: 0.08 }, face: { noseWidth: 0.45, noseHump: -0.5, noseLength: -0.2, noseTip: 0.25, lowerLip: 0.25, upperLip: 0.2, headHeight: -0.25, headRound: 0.3, eyeSize: 0.15, browRidge: -0.15, cheeks: 0.1 }, tones: ['#e6c09a', '#d2a67c', '#b98a60', '#9c6f48', '#7e5636'] },
+        { id: 'nativeAmerican', label: 'Native American', mix: { african: 0.05, asian: 0.6, caucasian: 0.35 }, face: { cheekBones: 0.6, headWidth: 0.35, noseHump: 0.55, noseLength: 0.2, noseTip: -0.15, jaw: 0.3, browRidge: 0.2, browHeight: -0.1, eyeOpen: -0.2, eyeSize: -0.1, mouthWidth: 0.1, headSquare: 0.2 }, tones: ['#dcae86', '#c69468', '#ae7c52', '#93633e', '#7a4f31'] },
+        { id: 'latinAmerican', label: 'Latin American', mix: { african: 0.15, asian: 0.3, caucasian: 0.55 }, face: { cheekBones: 0.2, noseHump: 0.15, noseWidth: 0.1, lowerLip: 0.1 }, tones: ['#ecc6a4', '#ddb08a', '#c99a72', '#b1825a', '#93663f', '#6e4a2e'] },
+        { id: 'pacificIslander', label: 'Pacific Islander', mix: { african: 0.25, asian: 0.5, caucasian: 0.25 }, face: { headWidth: 0.5, headSquare: 0.3, cheeks: 0.25, cheekBones: 0.2, jaw: 0.45, noseWidth: 0.5, noseHump: -0.2, lowerLip: 0.35, upperLip: 0.25, browRidge: 0.2, headFat: 0.15 }, tones: ['#c99a6c', '#b08154', '#966a42', '#7c5434'] },
+        { id: 'aboriginalAustralian', label: 'Aboriginal Australian', mix: { african: 0.6, asian: 0.1, caucasian: 0.3 }, face: { noseWidth: 0.6, nostrils: 0.3, noseLength: -0.15, noseHump: -0.1, browRidge: 0.6, browHeight: -0.15, lowerLip: 0.35, upperLip: 0.3, jaw: 0.2, eyeSize: -0.05 }, tones: ['#8a5e40', '#714a30', '#5e3b26', '#4a2e1e'] }
     ];
     const PEOPLE_BY_ID = new Map(PEOPLES.map(p => [p.id, p]));
 
@@ -248,6 +248,8 @@
             // Eye size past natural is a scale of the eye about its eyeball (morph), not more of the target.
             let v = natural || s.key === 'eyeSize' || VOLUME[s.key] ? clamp(shapes[s.key], s.paired ? -1 : 0, VOLUME[s.key] ? 1.3 : 1) : shapes[s.key];
             if (!natural) v = eased(s.key, v);
+            // Legs shorter than half the target's reach are pressed whole (shortLegs): the target crushes the thigh.
+            if (s.key === 'legLength') v = Math.max(-0.5, v);
             if (!s.paired) add(`shape/${s.key}`, v);
             else if (v < 0) add(`shape/${s.key}-decr`, -v);
             else add(`shape/${s.key}-incr`, v);
@@ -264,7 +266,7 @@
      * creases; very short legs fold at the hip; knees carried far cross.
      */
     const EASE = { noseWidth: [0.55, 0], noseLength: [0.55, 0], noseDepth: [0.6, 0], noseVolume: [0.5, 0], nostrils: [0.6, 0], mouthWidth: [0.5, 0], upperLip: [0.7, 0], lowerLip: [0.7, 0], cheekBones: [0, 0.9], cheeks: [0.7, 0.9], chin: [0.7, 0], chinHeight: [0.6, 0], underbite: [0.7, 0], mouthCorners: [0.8, 0.8],
-        breastSpacing: [0.5, 0.5], breastHeight: [0.4, 0.6], breastPoint: [0.5, 0.6], breastFullness: [0.6, 0.6], chest: [0.8, 0.8], pecs: [0.8, 1], legLength: [0.7, 0], armLength: [0.8, 0], bowLegs: [0.6, 0.4] };
+        breastSpacing: [0.5, 0.5], breastHeight: [0.4, 0.6], breastPoint: [0.5, 0.6], breastFullness: [0.6, 0.6], chest: [0.8, 0.8], pecs: [0.8, 1], armLength: [0.8, 0], bowLegs: [0.6, 0.4] };
     function eased(key, v) {
         const e = EASE[key];
         if (!e) return v;
@@ -398,9 +400,10 @@
     /**
      * Targets laid on relaxed (passes each): MakeHuman's cheekbone target
      * stops short in the middle of the cheek, so even within its natural
-     * range its back edge stands as a ledge with a dark crease under it.
+     * range its back edge stands as a ledge with a dark crease under it;
+     * its chest-depth target scales the modeled nipples forward into points.
      */
-    const SOFT_PASSES = { cheekBones: 8 };
+    const SOFT_PASSES = { cheekBones: 8, chest: 6 };
     const SOFT_TARGET = new RegExp('^shape/(' + Object.keys(SOFT_PASSES).join('|') + ')-(?:incr|decr)$');
 
     /** The vertices a soft target's relaxed move can reach: its own and as many rings round them as it relaxes. */
@@ -542,6 +545,7 @@
             }
         }
         const r = normalizeRecipe(recipe);
+        shortLegs(pack, positions, r);
         volume(pack, positions, r);
         morph(pack, positions, r);
         const k = heightScale(r);
@@ -551,6 +555,29 @@
             for (let i = 0; i < positions.length; i += 3) { positions[i] *= k; positions[i + 1] = floor + (positions[i + 1] - floor) * k; positions[i + 2] *= k; }
         }
         return positions;
+    }
+
+    /**
+     * Legs shorter than half the leg-length target's reach: the legs pressed
+     * toward the hip joints (by how much the leg bones carry each vertex),
+     * so they shorten whole, thigh and shin alike, instead of the target
+     * crushing the top of the thigh into a fold.
+     */
+    function shortLegs(pack, P, r) {
+        const past = -(r.shapes.legLength || 0) - 0.5;
+        if (past <= 0) return;
+        if (!pack._legWeight) {
+            const legs = pack.bones.map((b, i) => (/(UpLeg|Leg|Foot|ToeBase)$/.test(b.name) ? i : -1)).filter(i => i >= 0);
+            const w = new Float32Array(pack.vertexCount);
+            for (let v = 0; v < pack.vertexCount; v++) for (let k = 0; k < 4; k++) if (legs.includes(pack.skinJoints[v * 4 + k])) w[v] += pack.skinWeights[v * 4 + k];
+            pack._legWeight = w;
+        }
+        const up = pack.bones.find(b => b.name === 'LeftUpLeg'), hip = meanOf(P, up.head)[1];
+        const k = Math.max(0.55, 1 - 0.156 * past);
+        for (let v = 0; v < pack.vertexCount; v++) {
+            const w = pack._legWeight[v], y = P[v * 3 + 1];
+            if (w > 0 && y < hip) P[v * 3 + 1] = y + (hip + (y - hip) * k - y) * w;
+        }
     }
 
     /** The whole body's scale for a height past its targets' ends: on from 1.2 m down and 2.4 m up, in proportion. */
@@ -873,6 +900,46 @@
     }
 
     /**
+     * A grey's skull: the cranium above the brow and round the back laid on
+     * one smooth dome (an ellipsoid through the head's own width, height and
+     * depth, fuller in front than behind), so whatever the sliders made of
+     * the human skull, no dent, ridge or lump is left on it.
+     */
+    function greyDome(pack, P) {
+        const F = headFields(pack), own = new Set(F.eyeIds);
+        const eye = meanOf(P, F.eyeIds), h = meanOf(P, pack.bones[F.head].head);
+        let crown = -Infinity;
+        for (let v = 0; v < F.w.length; v++) if (F.w[v] > 0.9 && P[v * 3 + 1] > crown) crown = P[v * 3 + 1];
+        const H = crown - h[1], brow = eye[1] + H * 0.12;
+        let ax = 0, zmin = Infinity, zmax = -Infinity;
+        for (let v = 0; v < F.w.length; v++) {
+            if (F.w[v] < 0.9 || own.has(v) || P[v * 3 + 1] < brow) continue;
+            ax = Math.max(ax, Math.abs(P[v * 3])); zmin = Math.min(zmin, P[v * 3 + 2]); zmax = Math.max(zmax, P[v * 3 + 2]);
+        }
+        if (!isFinite(zmin)) return;
+        // A little fuller than the skull it replaces, most of all upward: the large cranium over a small face.
+        const cy = eye[1] - H * 0.05, cz = (zmin + zmax) / 2, by = (crown - cy) * 1.1, front = (zmax - cz) * 1.04, back = (cz - zmin) * 1.06;
+        ax *= 1.05;
+        const field = new Float32Array(P.length);
+        for (let v = 0; v < F.w.length; v++) {
+            if (F.w[v] <= 0 || own.has(v)) continue;
+            const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+            // Above the brow everywhere; behind the head's middle down to the nape.
+            // In front it starts higher, over the forehead, so the brow over the eyes keeps its own line.
+            const rise = smooth01(cz, zmax, z), top = smooth01(brow - H * 0.08 + rise * H * 0.1, brow + H * 0.06 + rise * H * 0.22, y), nape = smooth01(cz + H * 0.05, cz - H * 0.15, z) * smooth01(cy - H * 0.45, cy - H * 0.1, y);
+            const wd = Math.max(top, nape) * smooth01(0.5, 0.95, F.w[v]);
+            if (!wd) continue;
+            const dx = x / ax, dy = (y - cy) / by, dz = (z - cz) / (z > cz ? front : back);
+            const e = Math.hypot(dx, Math.max(dy, -1), dz);
+            if (e < 1e-6) continue;
+            const k = 1 / e - 1;
+            field[v * 3] = x * k * wd; field[v * 3 + 1] = (y - cy) * k * wd; field[v * 3 + 2] = (z - cz) * k * wd;
+        }
+        const eased = relax(pack, field, 2);
+        for (let v = 0; v < F.w.length; v++) if (!own.has(v)) for (let k = 0; k < 3; k++) P[v * 3 + k] += eased[v * 3 + k];
+    }
+
+    /**
      * Sockets for a grey's almond eyes: the skin inside each outline pressed
      * back behind where the lens lies, and a soft rim raised round it, so
      * the lens sits in the face with the lids closing over its edge.
@@ -880,6 +947,7 @@
     function eyeSockets(pack, P, size) {
         const face = pack._eyeFields && pack._eyeFields.weights.face;
         if (!face) return;
+        greyDome(pack, P);
         const field = new Float32Array(P.length), clamp = [];
         for (const side of [1, -1]) {
             const fr = almondFrame(pack, P, side, size), rimH = fr.a * 0.07;

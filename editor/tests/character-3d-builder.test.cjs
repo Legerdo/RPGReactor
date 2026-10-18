@@ -91,7 +91,7 @@ test('ancestry names the world\'s peoples: each a blend, face offsets and its ow
     for (const p of Body.PEOPLES) {
         assert.ok(Math.abs(Body.ANCESTRY.reduce((s, a) => s + p.mix[a], 0) - 1) < 1e-6, p.id + ' blend sums to one');
         assert.ok(p.tones.length >= 3 && p.tones.every(t => /^#[0-9a-f]{6}$/.test(t)), p.id + ' tones');
-        for (const k in p.face) assert.ok(Body.SLIDER_BY_KEY.has(k) && Math.abs(p.face[k]) <= 0.5, p.id + ' ' + k);
+        for (const k in p.face) assert.ok(Body.SLIDER_BY_KEY.has(k) && Math.abs(p.face[k]) <= 0.6, p.id + ' ' + k);
     }
     const r = Body.normalizeRecipe(Body.withPeople({}, 'nativeAmerican'));
     assert.equal(r.ancestry.people, 'nativeAmerican');
@@ -138,6 +138,22 @@ test('the eye white is shaded under the upper lid and at the corners; extremes e
     const w = slider => Body.targetWeights({ shapes: slider })['shape/noseWidth-decr'];
     assert.ok(w({ noseWidth: -3 }) < 1.6 && w({ noseWidth: -3 }) > w({ noseWidth: -1.5 }));
     assert.equal(Body.targetWeights({ gender: 1, shapes: { breastPoint: 2 } })['shape/breastPoint-incr'], undefined);
+});
+
+test('very short legs shorten whole; an aged skin carries the face\'s lines, a young one none', () => {
+    const hip = r => Body.build(pack, r).bones.find(b => b.name === 'LeftUpLeg').head[1];
+    const a = hip({ shapes: { legLength: -1 } }), b = hip({ shapes: { legLength: -1.8 } }), c = hip({ shapes: { legLength: -2.5 } });
+    assert.ok(a > b + 0.05 && b > c + 0.05, `hips at ${a}, ${b}, ${c}`);
+    // The leg-length target itself never goes past half its reach (it crushes the thigh); the rest is pressing.
+    assert.ok(Body.targetWeights({ shapes: { legLength: -2.5 } })['shape/legLength-decr'] <= 0.5 + 1e-9);
+    const Skin = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterSkin.js'));
+    assert.equal(Skin.ageStep(25), 0);
+    assert.equal(Skin.ageStep(62), 60);
+    const young = Skin.paint(pack, '#c69c7f', {}, { size: 256 }), none = Skin.paint(pack, '#c69c7f', {}, { size: 256, age: 0 }), old = Skin.paint(pack, '#c69c7f', {}, { size: 256, age: 85 });
+    assert.deepEqual(Array.from(none.data), Array.from(young.data), 'no age, no lines');
+    let darker = 0;
+    for (let i = 0; i < old.data.length; i += 4) if (old.data[i] < young.data[i] - 3) darker++;
+    assert.ok(darker > 150, 'lines painted: ' + darker);
 });
 
 test('the saved model is a skinned GLB with Mixamo bones and an Idle clip', () => {

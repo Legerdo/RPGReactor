@@ -1547,6 +1547,8 @@ class Character3DBuilder {
             m.sheen = 0; m.specularIntensity = 0.2;
             const own = part.colors ? new THREE.Color(part.colors[0], part.colors[1], part.colors[2]) : new THREE.Color(0x444444);
             m.specularColor = own.clone().lerp(new THREE.Color(0xffffff), 0.35);
+            // A head of hair keeps a soft shine of its own color.
+            if (!part.onSkin && part.name === 'Hair') { m.roughness = 0.62; m.specularIntensity = 0.32; m.specularColor = own.clone().lerp(new THREE.Color(0xffffff), 0.25); }
         }
         else if (kind === 'eye') { m.roughness = 0.08; m.clearcoat = 1; m.clearcoatRoughness = 0.03; }
         else if (kind === 'glass') { m.roughness = 0.02; m.metalness = 0; m.clearcoat = 1; m.envMapIntensity = 2; }

@@ -450,7 +450,7 @@
      * strip crosses it so the lock has body from the side too.
      */
     function addCard(m, pts, opts) {
-        const n = pts.length, w0 = opts.width * 1.7, lane = opts.lane ?? (m._lane = ((m._lane || 0) + 1) % 4);
+        const n = pts.length, w0 = opts.width * 2.0, lane = opts.lane ?? (m._lane = ((m._lane || 0) + 1) % 4);
         const u0 = lane * 0.25, u1 = u0 + 0.25, v0 = opts.vFrom || 0.01;
         // A lock lying flat on the skin (`single`) needs no crossing strip.
         for (const [scale, twist] of opts.single ? [[1, 0]] : [[1, 0], [0.6, 1]]) {
@@ -479,62 +479,73 @@
                     const shade = k === 0 ? 1 : 0.86;
                     // Lit as part of the whole head of hair, not as a flat strip: the normal leans out from
                     // the head's middle (the card's own facing mixed in), and the strand runs along T.
-                    const out = norm(sub(p, opts.center || [0, 0, 0]));
+                    // Below the head, hanging hair faces out from the neck and back, not down from the skull.
+                    const c0 = opts.center || [0, 0, 0], d0 = sub(p, c0), hang = smooth(0.05, 0.16, c0[1] - p[1]);
+                    const out = norm(lerp(norm(d0), norm([d0[0], 0.15 * Math.abs(d0[1]), d0[2]]), hang));
                     pushVert(m, p, norm(add(mul(out, 0.7), mul(norm(add(N, mul(B, k * 0.35))), 0.3))), shadeRgb(col, shade), [u0 + (k + 1) / 2 * (u1 - u0), v0 + t * (0.99 - v0)], T);
                 }
             }
+            // Wound so its front faces out from the head: a two-sided card seen from outside is then lit by
+            // its own normal on both sides of the face (in the game's renderer too), not turned dark when its
+            // back happens to face the eye.
+            let facing = 0;
+            for (let i = 0; i + 1 < rows; i++) {
+                const a = (base + i * 3) * 3, b = (base + i * 3 + 3) * 3, c = (base + i * 3 + 2) * 3, P = m.pos, Nn = m.nrm;
+                const e1 = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], e2 = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
+                facing += dot(cross(e1, e2), [Nn[a + 3], Nn[a + 4], Nn[a + 5]]);
+            }
             for (let i = 0; i + 1 < rows; i++) {
                 const a = base + i * 3;
-                m.idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
+                if (facing >= 0) m.idx.push(a, a + 3, a + 1, a + 1, a + 3, a + 4, a + 1, a + 4, a + 2, a + 2, a + 4, a + 5);
+                else m.idx.push(a, a + 1, a + 3, a + 1, a + 4, a + 3, a + 1, a + 2, a + 4, a + 2, a + 5, a + 4);
             }
         }
     }
 
     /**
-     * The strand picture: four lanes of strands (a card takes one), each
-     * strand a fine line of its own length, waviness and lightness, tapering
-     * to its tip; thicker at the root so a card is full where it grows.
+     * The strand picture: four lanes of strands (a card takes one). In each
+     * lane the strands gather into a few clumps that draw together toward
+     * their tips, as locks of real hair do; each strand has its own length
+     * (so a card ends in scattered points, never a cut edge), lightness and
+     * a tip that thins to nothing. A band at the root is full, so no scalp
+     * shows between cards.
      */
-    function hairTexture(size = 256) {
+    function hairTexture(size = 512) {
+        size = Math.max(512, size);
         const data = new Uint8Array(size * size * 4);
         const rnd = rng(77);
-        const strands = [];
-        // Strands gathered in loose clumps across each lane, each its own length, drift and lightness.
-        for (let lane = 0; lane < 4; lane++) {
-            const clumps = Array.from({ length: 5 }, () => lane * 0.25 + 0.03 + rnd() * 0.19);
-            for (let k = 0; k < 60; k++) {
-                // Half spread evenly over the lane, half in its clumps: a lock reads full, with some grouping.
-                const c = k % 2 ? lane * 0.25 + 0.01 + rnd() * 0.23 : clumps[k % clumps.length] + (rnd() - 0.5) * 0.05;
-                strands.push({ u: Math.min(lane * 0.25 + 0.245, Math.max(lane * 0.25 + 0.005, c)), len: 0.5 + 0.5 * rnd(), wob: (rnd() - 0.5) * 0.008, freq: 3 + rnd() * 5, ph: rnd() * 6.28, light: 0.65 + 0.35 * rnd(), lane });
-            }
-        }
         const alpha = new Float32Array(size * size), lum = new Float32Array(size * size).fill(0.85);
-        for (const st of strands) {
-            for (let y = 0; y < size; y++) {
-                const v = (y + 0.5) / size;
-                if (v > st.len) break;
-                const tip = 1 - v / st.len;
-                const width = (0.0024 + 0.002 * Math.min(1, tip * 2)) * size;
-                const cu = (st.u + st.wob * Math.sin(v * st.freq * 6.28 + st.ph)) * size;
-                const laneMin = st.lane * 0.25 * size, laneMax = (st.lane + 1) * 0.25 * size - 1;
-                for (let x = Math.max(laneMin, Math.floor(cu - width - 1)); x <= Math.min(laneMax, Math.ceil(cu + width + 1)); x++) {
-                    const d = Math.abs(x + 0.5 - cu) / width;
-                    if (d > 1) continue;
-                    const a = (1 - d * d) * Math.min(1, tip * 6);
-                    const o = y * size + x;
-                    if (a > alpha[o]) { alpha[o] = a; lum[o] = st.light * (0.85 + 0.15 * (1 - d)); }
+        for (let lane = 0; lane < 4; lane++) {
+            const lo = lane * 0.25, clumps = Array.from({ length: 6 }, (_, k) => lo + 0.02 + (k + 0.5) / 6 * 0.21 + (rnd() - 0.5) * 0.02);
+            for (let k = 0; k < 170; k++) {
+                const u0 = lo + 0.008 + rnd() * 0.234, clump = clumps.reduce((best, c) => (Math.abs(c - u0) < Math.abs(best - u0) ? c : best), clumps[0]);
+                // Most strands run the card's length; the rest stop short, scattering the tips.
+                const L = rnd() < 0.4 ? 0.85 + 0.15 * rnd() : 0.3 + 0.55 * rnd();
+                const gatherK = 0.35 + 0.45 * rnd(), wob = (rnd() - 0.5) * 0.006, freq = 2 + rnd() * 4, ph = rnd() * 6.28;
+                const light = 0.62 + 0.5 * rnd(), a0 = 0.75 + 0.25 * rnd(), w0 = (0.0026 + 0.0018 * rnd()) * size;
+                for (let y = 0; y < size; y++) {
+                    const v = (y + 0.5) / size;
+                    if (v > L) break;
+                    const t = v / L, tip = smooth(0, 0.3, 1 - t);
+                    const cu = (mix(u0, clump, gatherK * Math.pow(t, 1.4)) + wob * Math.sin(v * freq * 6.28 + ph)) * size;
+                    const width = Math.max(0.55, w0 * (0.35 + 0.65 * tip));
+                    for (let x = Math.max(Math.floor(lo * size), Math.floor(cu - width - 1)); x <= Math.min(Math.ceil((lo + 0.25) * size) - 1, Math.ceil(cu + width + 1)); x++) {
+                        const d = Math.abs(x + 0.5 - cu) / width;
+                        if (d > 1) continue;
+                        const al = (1 - d * d) * a0 * tip * Math.min(1, width / 0.9), o = y * size + x;
+                        if (al > alpha[o]) { alpha[o] = 1 - (1 - alpha[o]) * (1 - al); lum[o] = light * (0.85 + 0.15 * (1 - d)); }
+                    }
                 }
             }
         }
         for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
             const o = y * size + x, v = (y + 0.5) / size;
-            // Full at the root, so no scalp shows between cards; a card's sides thin a little, so no lock
-            // shows a straight edge.
-            const lu = ((x + 0.5) / size % 0.25) / 0.25, side = Math.min(1, Math.min(lu, 1 - lu) * 6);
-            const a = Math.max(alpha[o], Math.max(0, 0.9 - v * 7)) * (0.6 + 0.4 * side);
-            // Darker at the root, lighter toward the tips, as hair is.
-            // Its lightness averages one, so a lock shows the color chosen for it.
-            const l = Math.min(255, Math.round(255 * 1.22 * lum[o] * (0.84 + 0.16 * Math.min(1, v * 1.6))));
+            // A card's sides thin a little, so no lock shows a straight edge.
+            const lu = ((x + 0.5) / size % 0.25) / 0.25, side = Math.min(1, Math.min(lu, 1 - lu) * 8);
+            const a = Math.max(alpha[o], Math.max(0, 0.95 - v * 8)) * (0.55 + 0.45 * side);
+            // Darker at the root, lighter toward the tips, as hair is; its lightness averages about one, so a
+            // lock shows the color chosen for it.
+            const l = Math.min(255, Math.round(255 * 1.15 * lum[o] * (0.8 + 0.2 * Math.min(1, v * 1.6))));
             data[o * 4] = l; data[o * 4 + 1] = l; data[o * 4 + 2] = l; data[o * 4 + 3] = Math.round(255 * Math.min(1, a));
         }
         return { width: size, height: size, data, name: 'hair.png' };
@@ -883,14 +894,15 @@
             if (r.f < 1.5) continue;
             const c = headCoords(H, r.p);
             const dir = layer.comb(r.p, r.n, c, rand);
-            const length = layer.length(c, rand) * (0.85 + 0.3 * rand());
+            // Locks of their own lengths: a cut is never ruled, and long hair is layered.
+            const length = layer.length(c, rand) * (0.78 + 0.4 * rand());
             if (length < 0.004) continue;
             const lift = typeof layer.lift === 'function' ? layer.lift(c) : layer.lift;
             const fringe = layer.fringe || layer.fringeAll;
             const front = (layer.drape === 'split' && Math.abs(c.az) > 30 && Math.abs(c.az) < 100 && rand() < 0.75) || !!layer.frontDrape;
             let pts = grow(H, r.p, r.n, dir, {
                 steps: layer.steps, length, layer: layer.layer * (0.6 + 0.8 * rand()), lift, gravity: layer.gravity, stiff: layer.stiff,
-                hug: layer.hug, release: H.earBottom, fringe, stopY: layer.stopY ? layer.stopY(c) - rand() * 0.012 : null,
+                hug: layer.hug, release: H.earBottom, fringe, stopY: layer.stopY ? layer.stopY(c) - rand() * 0.018 * H.scale : null,
                 front,
                 bias: front ? mul(AXIS.front, 0.25) : (Math.abs(c.az) > 60 ? mul(AXIS.back, 0.6) : null)
             });
@@ -908,6 +920,15 @@
             // edge breaks up into hairs instead of blocks.
             const edge = smooth(1.5, 9, r.f);
             addClump(m, pts, { width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight) });
+            // Flyaways: here and there at the hairline, and now and then over the head, a few stray hairs
+            // lift off the lock and wander, so the edge of the hair is never a clean line.
+            if (rand() < (edge < 0.7 ? 0.22 : 0.05) && pts.length > 2) {
+                const flyLength = Math.min(length, (0.025 + 0.04 * rand()) * H.scale);
+                const stray = grow(H, r.p, r.n, norm(add(dir, mul(norm([rand() - 0.5, rand() * 0.6, rand() - 0.5]), 0.9))), {
+                    steps: 4, length: flyLength, layer: layer.layer * 1.6, lift: 0.45, gravity: 0.1, stiff: 0.5, hug: 0.2, release: H.earBottom, fringe: true, front: false
+                });
+                addCard(m, stray, { width: 0.0035 * H.scale, single: true, center: H.center, vFrom: 0.45, color: t => ramp(0.4 + 0.6 * t, variance * 1.05, highlight) });
+            }
         }
     }
 
@@ -1297,7 +1318,7 @@
         const sorted = Array.from(surf.val).sort((a, b) => a - b), deep = Math.max(1, sorted[Math.floor(sorted.length * 0.9)]);
         const inward = v => Math.min(1, v / deep);
         // The body is low (the hairs over it carry the volume), so its edge never stands as a step.
-        const body = stubble ? 1 : 0.45;
+        const body = stubble ? 1 : 0.3;
         addShell(m, surf, i => thick * body * (stubble ? smooth(0, 8, surf.val[i]) : smooth(0, 0.7, inward(surf.val[i]))) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]),
             i => (stubble ? mixRgb(skinRgb, shadeRgb(linear(color), 1.28), smooth(0, 10, surf.val[i])) : mixRgb(skinRgb, ramp(0.6, 1.05 + 0.15 * lumps(surf.pos[i]), false), smooth(0.04, 0.85, inward(surf.val[i])) * 0.92)));
         if (f.style === 'stubble') return;
@@ -1305,7 +1326,7 @@
         // the locks cost what the crossed ones did), long below the chin for the long styles.
         const long = { longBeard: 0.16, wizardBeard: 0.32, braidedBeard: 0.12, fullBeard: 0.05 }[f.style];
         const mustache = ['mustache', 'handlebar', 'walrus', 'horseshoe', 'goatee', 'fullBeard', 'longBeard', 'wizardBeard', 'braidedBeard', 'shortBeard'].includes(f.style);
-        const roots = scatter(surf, Math.min(long ? 900 : 1400, Math.round(surf.index.length / 3 * 1.6)), rand);
+        const roots = scatter(surf, Math.min(long ? 1100 : 1500, Math.round(surf.index.length / 3 * 1.8)), rand);
         for (const r of roots) {
             if (r.f < 0.3) continue;
             // Toward the beard's edge the hairs grow sparser, so it thins into the skin.
@@ -1318,9 +1339,12 @@
                 length = (f.style === 'walrus' ? 0.03 : 0.014) * S * Lf;
                 dir = norm(add(mul(AXIS.down, 1), mul([Math.sign(r.p[0] - H.center[0]), 0, 0], 0.5)));
             } else if (long) {
+                // Layered: locks from under the chin fall longest, those from the cheeks shorter over them;
+                // each a length of its own, all drawn in toward the beard's middle as they fall.
                 const low = smooth(H.mouth[1], H.chin[1] - 0.005 * S, r.p[1]);
-                length = (0.012 + long * low) * S * Lf;
-                dir = norm(add(mul(AXIS.down, 1), mul(r.n, 0.3)));
+                length = (0.012 + long * low * (0.55 + 0.6 * rand())) * S * Lf;
+                const inX = -Math.sign(r.p[0] - H.center[0]) * smooth(0, H.lipHalf * 2.5, Math.abs(r.p[0] - H.center[0])) * 0.35;
+                dir = norm(add(add(mul(AXIS.down, 1), mul(r.n, 0.3)), [inX + (rand() - 0.5) * 0.2, 0, (rand() - 0.5) * 0.1]));
             } else {
                 // Down the cheek and a little in toward the chin, as a beard grows.
                 length = 0.016 * S * Lf;
@@ -1330,12 +1354,18 @@
             // A mustache hangs to the lip, not over the mouth (the walrus does).
             const stopY = isLip && f.style !== 'walrus' ? H.lipTop - (H.lipTop - H.lipBottom) * 0.2 : null;
             const lowLong = long && r.p[1] < H.mouth[1];
-            const pts = grow(H, r.p, r.n, dir, { steps: lowLong ? 10 : 4, length, layer: thick * 0.5, lift: 0.2, gravity: long ? 0.6 : 0.2, stiff: 0.3, hug: lowLong ? 0.3 : 0.9, release: H.chin[1], fringe: true, stopY, front: true });
-            const variance = 0.82 + 0.3 * rand();
+            // Inner locks lie close; outer ones stand a little off them, so the beard has layers and depth.
+            const outer = rand() < 0.5;
+            const pts = grow(H, r.p, r.n, dir, { steps: lowLong ? 10 : 4, length: length * (outer ? 1 : 0.75), layer: thick * (outer ? 0.6 : 0.3), lift: outer ? 0.25 : 0.12, gravity: long ? 0.6 : 0.2, stiff: 0.3, hug: lowLong ? 0.3 : 0.9, release: H.chin[1], fringe: true, stopY, front: true });
+            const variance = (outer ? 0.9 : 0.75) + 0.3 * rand();
             // Narrower toward the beard's edge, and drawn from past the picture's full root, so the edge
             // breaks up into single hairs instead of blocks.
-            const edge = 0.45 + 0.55 * smooth(0, 0.35, inward(r.f));
-            addClump(m, lowLong ? curlStrand(H, pts, 0.004 * S * (1 - V * 0.5), 0.05 * S, false, rand() * 6) : pts, { width: (lowLong ? 0.012 : 0.0075) * S * edge, flat: 0.45, sides: 3, center: H.mouth, single: !lowLong, vFrom: lowLong ? 0.01 : 0.22, color: t => ramp(0.55 + 0.45 * t, variance * 1.15, false) });
+            const edge = 0.45 + 0.55 * smooth(0, 0.35, inward(r.f)), thin = smooth(0, 0.5, inward(r.f));
+            // Toward the edge the locks thin to a few hairs over the skin: drawn from the picture's sparse
+            // tips, and their color giving way to the skin's as so little hair covers it.
+            addClump(m, lowLong ? curlStrand(H, pts, (0.003 + 0.004 * rand()) * S * (1 - V * 0.5), (0.035 + 0.03 * rand()) * S, false, rand() * 6) : pts, {
+                width: (lowLong ? 0.009 : 0.0065) * S * edge * (0.7 + 0.6 * rand()), flat: 0.45, sides: 3, center: H.mouth, single: !lowLong, vFrom: lowLong ? 0.01 : 0.4 + 0.25 * (1 - thin),
+                taper: t => 1 - Math.pow(t, 1.3) * 0.75, color: t => mixRgb(skinRgb, ramp(0.55 + 0.45 * t, variance * 1.12, false), 0.55 + 0.45 * thin) });
         }
         if (f.style === 'handlebar') {
             for (const side of [1, -1]) {

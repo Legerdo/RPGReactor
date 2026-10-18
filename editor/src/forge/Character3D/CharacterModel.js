@@ -127,9 +127,9 @@
         const earHoles = r.morph.earsAway > 0.6 && r.morph.earHoles > 0;
         // A style with hair over the scalp colors the scalp under it (not for the shortest crops or a bald head).
         const scalp = r.hair.style !== 'bald' && !['buzz'].includes(r.hair.style) && !r.outfit.some(i => HAIR_COVERS.has(i.id)) ? { color: r.hair.color, recede: r.hair.hairline || 0 } : null;
-        const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair, earHoles, scalp]);
+        const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair, earHoles, scalp, Skin.ageStep(r.age)]);
         if (cache.skinKey !== skinKey) {
-            const args = { skin: r.skin, pattern: r.skinPattern, options: { size: skinSize, beard, anatomy, bodyHair, earHoles, scalp } };
+            const args = { skin: r.skin, pattern: r.skinPattern, options: { size: skinSize, beard, anatomy, bodyHair, earHoles, scalp, age: Skin.ageStep(r.age) } };
             // A painter off the page (the builder's worker) answers later; until then the last skin stays.
             const painted = o.paintSkin ? o.paintSkin(skinKey, args) : Skin.paint(pack, args.skin, args.pattern, args.options);
             if (painted) { cache.skin = painted; cache.skinKey = skinKey; }

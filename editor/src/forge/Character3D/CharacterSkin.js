@@ -119,7 +119,84 @@
         // The outer ear alone: the ear-size target also moves the cheek in front of the ear.
         const ears = Body.earMask ? Body.earMask(pack) : regionOf(pack, ['shape/earSize-incr']);
         const jaw = regionOf(pack, ['shape/jaw-incr', 'shape/chin-incr', 'shape/chinWidth-incr', 'shape/doubleChin-incr']);
-        return (pack._skinFields = { an, normals, lips, lids, bags, seam, cheeks, nose, noseTip, ears, jaw });
+        return (pack._skinFields = { an, normals, lips, lids, bags, seam, cheeks, nose, noseTip, ears, jaw, marks: faceMarks(pack, an.rest, lips, noseTip) });
+    }
+
+    /**
+     * Where a face's lines fall, on the average body (one side; the other is
+     * its mirror): the eye's center and outer corner, the nose's wing, the
+     * mouth's corner, the brow line.
+     */
+    function faceMarks(pack, R, lips, noseTip) {
+        const mean = list => [0, 1, 2].map(k => list.reduce((a, v) => a + R[v * 3 + k], 0) / Math.max(1, list.length));
+        const eyeIds = [...new Set(pack.eyes.refs)].filter(v => R[v * 3] > 0), eye = mean(eyeIds);
+        let eyeR = 0;
+        for (const v of eyeIds) eyeR = Math.max(eyeR, Math.abs(R[v * 3] - eye[0]));
+        const on = [...new Set(pack.body.source)];
+        const lipIds = on.filter(v => lips[v] > 0.3 && R[v * 3] >= 0), mouth = mean(lipIds);
+        let corner = 0;
+        for (const v of lipIds) corner = Math.max(corner, R[v * 3]);
+        const tipIds = on.filter(v => noseTip[v] > 0.3 && R[v * 3] >= 0), tip = mean(tipIds);
+        let wing = 0;
+        for (const v of tipIds) wing = Math.max(wing, R[v * 3]);
+        return { eye, eyeR, mouth, corner, tip, wing };
+    }
+
+    /**
+     * How deep an aged face's lines lie at a place (0..1, darkening): the
+     * forehead's level lines, crow's feet fanning from the eye's outer
+     * corner, a line under the eye, the folds from the nose's wing to the
+     * mouth's corner and on down toward the jaw, and rings round the neck.
+     * `a` is the age's strength (0 young .. 1 very old).
+     */
+    function wrinkles(M, p, a) {
+        const [x0, y, z] = p.rest, x = Math.abs(x0), n = p.n;
+        if (p.fam !== 0 || a <= 0) return 0;
+        const line = (d, w) => Math.max(0, 1 - Math.abs(d) / w);
+        const e = M.eye, R = M.eyeR;
+        let d = 0;
+        if (p.s > 4.6 && n[2] > 0.35) {
+            // The forehead: level lines, gently waved, from above the brows to below the hairline.
+            const up = y - e[1];
+            if (up > R * 2.4 && up < R * 5 && x < e[0] + R * 1.4) {
+                const t = up / (R * 0.75) + 0.25 * Math.sin(x * 70);
+                d = Math.max(d, line(t - Math.round(t), 0.13) * smooth(R * 2.4, R * 3, up) * (1 - smooth(R * 4.2, R * 5, up)) * (1 - smooth(e[0], e[0] + R * 1.4, x)) * smooth(0.25, 0.75, a));
+            }
+            // Between the brows: two short upright lines.
+            if (up > R * 1.4 && up < R * 2.6) d = Math.max(d, line(x - R * 0.55, R * 0.1) * smooth(0.5, 0.9, a) * 0.8);
+        }
+        if (p.s > 4.4) {
+            // Crow's feet: rays out from the eye's outer corner.
+            const cx = e[0] + R * 1.05, dx = x - cx, dy = y - (e[1] - R * 0.1), r = Math.hypot(dx, dy);
+            if (dx > -R * 0.15 && r > R * 0.2 && r < R * 1.3 && n[0] * Math.sign(x0 || 1) > 0.1) {
+                const ang = Math.atan2(dy, Math.max(1e-5, dx));
+                d = Math.max(d, line(Math.sin(ang * 4.5), 0.25) * (1 - smooth(R * 0.7, R * 1.3, r)) * smooth(0.15, 0.6, a));
+            }
+            // Under the eye: an arc below the lower lid.
+            const ux = (x - e[0]) / (R * 1.25), uy = (y - (e[1] - R * 1.05)) / R;
+            if (Math.abs(ux) < 1 && n[2] > 0.2) d = Math.max(d, line(uy - 0.3 * ux * ux, 0.12) * (1 - ux * ux) * smooth(0.3, 0.8, a) * 0.8);
+            // From the nose's wing round the mouth's corner, and on down toward the jaw.
+            const top = [M.wing + R * 0.15, M.tip[1] - R * 0.2], low = [M.corner + R * 0.25, M.mouth[1] - R * 0.15], jaw = [M.corner + R * 0.1, M.mouth[1] - R * 1.7];
+            if (n[2] > 0.25 && y < top[1] + R * 0.2 && y > jaw[1]) {
+                const fold = (P, Q, w) => {
+                    const t = Math.max(0, Math.min(1, (y - P[1]) / (Q[1] - P[1])));
+                    const xs = P[0] + (Q[0] - P[0]) * t + Math.sin(t * Math.PI) * R * 0.25;
+                    return y <= Math.max(P[1], Q[1]) && y >= Math.min(P[1], Q[1]) ? line(x - xs, w) : 0;
+                };
+                d = Math.max(d, fold(top, low, R * 0.16) * smooth(0.05, 0.5, a), fold(low, jaw, R * 0.13) * smooth(0.45, 0.9, a) * 0.8);
+            }
+        }
+        // The neck: soft rings in front.
+        if (p.s > 4.0 && p.s < 4.4 && n[2] > 0.3) {
+            const t = y / 0.012;
+            d = Math.max(d, line(t - Math.round(t), 0.12) * smooth(0.4, 0.9, a) * 0.7 * (1 - smooth(0.04, 0.07, x)));
+        }
+        return d;
+    }
+
+    /** An age in years as the step its skin is painted at: none below 35, then each five years. */
+    function ageStep(years) {
+        return years < 35 ? 0 : Math.min(90, Math.round(years / 5) * 5);
     }
 
     /**
@@ -479,6 +556,15 @@
             if (cover > 0 && cover < 1) cover *= Math.min(1, 0.25 + 1.5 * cover * (0.35 + 0.65 * noise3(x * 1100, y * 140, z * 1100)));
             if (cover > 0) rgb = mix(rgb, s.scalp.rgb, cover * 0.95);
         }
+        // An aged face: its lines, darker and a little warmer in their depth; and age spots on the face.
+        if (s.ageing > 0 && p.fam === 0 && p.s > 4.0) {
+            const w = wrinkles(s.marks, p, s.ageing);
+            if (w > 0) rgb = mix(rgb, rgb.map((c, i) => c * [0.74, 0.66, 0.66][i]), w * 0.55);
+            if (p.s > 4.4 && s.ageing > 0.4) {
+                const [d1] = cells(x, y, z, 0.009);
+                if (d1 < 0.16 && hash3(Math.floor(x * 110), Math.floor(y * 110), Math.floor(z * 110)) > 0.82) rgb = mix(rgb, rgb.map((c, i) => c * [0.82, 0.72, 0.62][i]), (s.ageing - 0.4) * 0.5 * (1 - d1 / 0.16));
+            }
+        }
         // With the ears folded away, the ear's own skin is the inside of the ear hole: dark.
         if (s.earHoles && p.ears > 0.7) rgb = mix(rgb, rgb.map(c => c * 0.12), smooth(0.7, 0.95, p.ears));
         // Blush, lips and eye shadow on the face.
@@ -522,6 +608,9 @@
         const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, lids: 0, bags: 0, seam: 0, cheeks: 0, nose: 0, noseTip: 0, ears: 0, jaw: 0 };
         s.beard = Math.max(0, Math.min(1, (options && options.beard) || 0));
         s.earHoles = !!(options && options.earHoles);
+        // Age (years, from ageStep): the face's lines grow in from 35 and deepen to 85.
+        s.ageing = options && options.age ? smooth(35, 85, options.age) : 0;
+        if (s.ageing) s.marks = F.marks;
         if (options && options.scalp) s.scalp = { rgb: Outfit.linear(options.scalp.color).map(c => c * 0.75), recede: options.scalp.recede || 0 };
         if (options && options.bodyHair && (options.bodyHair.amount > 0.01 || options.bodyHair.fur > 0.05)) {
             s.bodyHair = Object.assign({}, options.bodyHair, { rgb: Outfit.linear(options.bodyHair.color || '#2a1d15') });
@@ -667,7 +756,7 @@
         return out;
     }
 
-    const api = { fieldsOf: fields, HAIR_REGIONS, HAIR_PRESETS, BODY_HAIR_PATTERNS, DEFAULT_BODY_HAIR, normalizeBodyHair, hairDensity, hairField, hairCover, paintFur, PATTERNS, PUPILS, DEFAULT_SKIN, DEFAULT_EYES, normalizeSkin, normalizeEyes, paint, paintEyes, shadeSkin, regionOf };
+    const api = { ageStep, wrinkles, fieldsOf: fields, HAIR_REGIONS, HAIR_PRESETS, BODY_HAIR_PATTERNS, DEFAULT_BODY_HAIR, normalizeBodyHair, hairDensity, hairField, hairCover, paintFur, PATTERNS, PUPILS, DEFAULT_SKIN, DEFAULT_EYES, normalizeSkin, normalizeEyes, paint, paintEyes, shadeSkin, regionOf };
     root.RRCharacterSkin = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
