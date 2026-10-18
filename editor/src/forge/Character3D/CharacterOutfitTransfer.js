@@ -851,7 +851,6 @@
         for (let v = 0; v < headish.length; v++) { let hs = 0; for (let k = 0; k < 4; k++) if (model.roles[mesh.joints[v * 4 + k]] === 'Head') hs += mesh.weights[v * 4 + k]; headish[v] = hs > 0.4 ? 1 : 0; }
         const cutModel = { positions: mesh.positions, index: mesh.index };
         if (o.drawIn !== false) Q = drawIn(pack, Q, cutModel, t => !(headish[mesh.index[t * 3]] || headish[mesh.index[t * 3 + 1]] || headish[mesh.index[t * 3 + 2]]), o);
-        if (o.inspect) o.inspect({ posed: Q, moves, ours: Lo, theirs: Lt });
         const QS = surfacePositions(pack, Q, null);
         // The skirt as the pose lays it: drawing the legs in to the trousers under a robe must not bend the robe's hang.
         {
@@ -915,7 +914,6 @@
             }
         }
 
-        if (o.inspect) { const by = {}; for (let i = 0; i < count; i++) { const r = pointRole[i] || '?'; (by[r] || (by[r] = [])).push(offset[i * 3]); } const out = {}; for (const [r, l] of Object.entries(by)) { l.sort((a, b) => a - b); out[r] = [l.length, l[Math.floor(l.length * 0.1)].toFixed(3), l[Math.floor(l.length * 0.5)].toFixed(3), l[Math.floor(l.length * 0.9)].toFixed(3)]; } o.inspect({ offsets: out }); }
         // Each point's garment, or none: what rides the head's skin is the model's own head or hair.
         const partDefs = o.parts && o.parts.length ? o.parts : [{ id: 'outfit' }];
         const an = Outfit.anatomy(pack);
@@ -987,8 +985,6 @@
         const pointHeadish = new Uint8Array(count);
         for (let r = 0; r < headish.length; r++) if (headish[r]) pointHeadish[w.id[r]] = 1;
         if (o.skinCut !== false) for (let i = 0; i < count; i++) if (band[i] && (offset[i * 3] < 0.04 || an.s[tri[i * 3] * 5] > 3.85 || pointHeadish[i]) && isHeadTone(colors.subarray(i * 3, i * 3 + 3))) pointPart[i] = DROP;
-        if (o.debug) { const st = []; for (let i = 0; i < count; i++) if (an.s[tri[i * 3] * 5] > 3.9 && pointPart[i] !== DROP) { const c = colors.subarray(i * 3, i * 3 + 3), q = look(c); st.push([+offset[i * 3].toFixed(3), +nearest(headTones, q).toFixed(2), +nearest(clothTones, q).toFixed(2), +q[0].toFixed(2), +q[1].toFixed(2), +q[2].toFixed(2)]); } st.sort((a, b) => b[3] - a[3]); o.debug({ neck: st.slice(0, 12) }); }
-        if (o.debug) o.debug({ headDropped: headDropped.length, clothKept: clothKept.length, band: band.reduce((a, b) => a + b, 0), headTones, clothTones, dropped: [...pointPart].filter((x, i) => x === DROP && band[i]).length });
         // Triangles by their points' garment (all three in it); crumbs left out.
         const parts = [];
         partDefs.forEach((d, k) => {
@@ -1038,7 +1034,7 @@
         const renderPos = new Float32Array(renderPoint.length * 3);
         renderPoint.forEach((p, i) => { const q = pointOrder[p]; renderPos[i * 3] = point[q * 3]; renderPos[i * 3 + 1] = point[q * 3 + 1]; renderPos[i * 3 + 2] = point[q * 3 + 2]; });
         // Each part's covered skin, its edges judged against the whole outfit (no skin left between two of its parts).
-        const raw = parts.map(part => coveredSkin(pack, Q, NB, { positions: renderPos }, part.index, o.hideReach ?? 0.06, true));
+        const raw = parts.map(part => coveredSkin(pack, Q, NB, { positions: renderPos }, part.index, o.hideReach ?? 0.14, true));
         const union = new Uint8Array(pack.vertexCount);
         for (const r of raw) for (let v = 0; v < r.length; v++) if (r[v]) union[v] = 1;
         const nbs = pack._skinNeighbors || (pack._skinNeighbors = neighborLists(bindSurfaces(pack).body, pack.vertexCount));
@@ -1417,9 +1413,10 @@
             facing[i] = nx;
         }
         keepLegsApart(pack, built, outfit, out, frame, facing);
-        // Only points riding within a few centimeters of the skin can reach into it.
         // Cloth riding the skirt hangs free of the skin: pushing each of its points out alone would press a panel's two faces together.
-        const near = outfit._near || (outfit._near = Uint32Array.from({ length: n }, (_, i) => i).filter(i => D[i * 3] < 0.03 && outfit.surface[i] !== 2));
+        const near = outfit._near || (outfit._near = Uint32Array.from({ length: n }, (_, i) => i).filter(i => outfit.surface[i] !== 2));
+        // Twice: in a hollow the skin nearest a point pushed out is another than before.
+        Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
         Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
         return out;
     }
@@ -1756,10 +1753,168 @@
         return (outfit._anchor = Int32Array.from({ length: outfit.count }, (_, i) => { const v = outfit.tri[i * 3]; return via.has(v) ? via.get(v) : v; }));
     }
 
+    // ── a project's own models ────────────────────────────────────────────
+    /** Texels no part's triangle shows (a few past each edge kept for the smaller mip levels) made the outfit's mean color. */
+    function flatten(pic, outfit) {
+        const W = pic.width, H = pic.height, used = new Uint8Array(W * H), U = outfit.render.uvs;
+        for (const part of outfit.parts) for (let t = 0; t < part.index.length; t += 3) {
+            const px = [0, 1, 2].map(k => U[part.index[t + k] * 2] * W), py = [0, 1, 2].map(k => U[part.index[t + k] * 2 + 1] * H);
+            const area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
+            if (Math.abs(area) < 1e-9) continue;
+            const tol = -3 / Math.sqrt(Math.abs(area));
+            for (let y = Math.max(0, Math.floor(Math.min(...py)) - 4); y <= Math.min(H - 1, Math.ceil(Math.max(...py)) + 4); y++)
+                for (let x = Math.max(0, Math.floor(Math.min(...px)) - 4); x <= Math.min(W - 1, Math.ceil(Math.max(...px)) + 4); x++) {
+                    const cx = x + 0.5, cy = y + 0.5;
+                    const w0 = ((px[1] - cx) * (py[2] - cy) - (px[2] - cx) * (py[1] - cy)) / area, w1 = ((px[2] - cx) * (py[0] - cy) - (px[0] - cx) * (py[2] - cy)) / area;
+                    if (w0 >= tol && w1 >= tol && 1 - w0 - w1 >= tol) used[y * W + x] = 1;
+                }
+        }
+        const mean = [0, 0, 0];
+        let n = 0;
+        for (let q = 0; q < W * H; q++) if (used[q]) { mean[0] += pic.data[q * 4]; mean[1] += pic.data[q * 4 + 1]; mean[2] += pic.data[q * 4 + 2]; n++; }
+        const data = Uint8Array.from(pic.data);
+        for (let q = 0; q < W * H; q++) if (!used[q]) { data[q * 4] = mean[0] / Math.max(1, n); data[q * 4 + 1] = mean[1] / Math.max(1, n); data[q * 4 + 2] = mean[2] / Math.max(1, n); data[q * 4 + 3] = 255; }
+        return { width: W, height: H, data, used: n / (W * H) };
+    }
+
+    /** The humanoid roles an outfit can be taken from: a model needs all of them. */
+    const NEEDS = ['Hips', 'Head', 'LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm', 'LeftUpLeg', 'RightUpLeg', 'LeftLeg', 'RightLeg'];
+
+    /** Whether a GLB holds a skinned humanoid, from its JSON alone. */
+    function isHumanoid(bytes) {
+        try {
+            const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+            const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+            if (u8.byteLength < 20 || dv.getUint32(0, true) !== 0x46546c67) return false;
+            const json = JSON.parse(new TextDecoder().decode(u8.subarray(20, 20 + dv.getUint32(12, true))));
+            const node = (json.nodes || []).find(n => n.mesh != null && n.skin != null);
+            if (!node) return false;
+            const joints = json.skins[node.skin].joints, parentOf = new Map();
+            json.nodes.forEach((n, i) => (n.children || []).forEach(c => parentOf.set(c, i)));
+            const roles = new Set(roleMap(joints.map(j => ({ name: json.nodes[j].name || '', parent: joints.indexOf(parentOf.get(j)) }))));
+            return NEEDS.every(r => roles.has(r));
+        } catch (error) { return false; }
+    }
+
+    /** A project's humanoid models (under its 3d folder, not the builder's own characters): [{ name, file }]. */
+    function listModels(projectPath) {
+        const fs = require('fs'), path = require('path');
+        const out = [], top = path.join(projectPath, '3d');
+        const walk = (dir, depth) => {
+            let list = [];
+            try { list = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+            for (const e of list.sort((a, b) => a.name.localeCompare(b.name))) {
+                const at = path.join(dir, e.name);
+                if (e.isDirectory()) { if (depth < 4 && !(depth === 0 && (e.name === 'Characters' || e.name === 'Outfits'))) walk(at, depth + 1); continue; }
+                if (!/\.glb$/i.test(e.name)) continue;
+                // Only the JSON chunk is read to tell what the model is.
+                let head = null;
+                try {
+                    const fd = fs.openSync(at, 'r'), first = Buffer.alloc(20);
+                    fs.readSync(fd, first, 0, 20, 0);
+                    const size = first.readUInt32LE(12);
+                    head = Buffer.alloc(20 + size);
+                    fs.readSync(fd, head, 0, 20 + size, 0);
+                    fs.closeSync(fd);
+                } catch (error) { continue; }
+                if (!isHumanoid(head)) continue;
+                const parent = path.basename(path.dirname(at));
+                out.push({ name: parent === 'source' ? path.basename(path.dirname(path.dirname(at))) : path.basename(at, path.extname(at)), file: at });
+            }
+        };
+        walk(top, 0);
+        return out;
+    }
+
+    /** A garment and an outfit for a taken outfit, in the wardrobe's catalog (once). */
+    function register(Wardrobe, key, label) {
+        const id = 'taken_' + String(key).replace(/^project:/, '').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+        if (!Wardrobe.BY_ID.has(id)) {
+            const g = { id, label, slot: 'dress', group: 'From 3D models', transfer: key, part: 'outfit', roughness: 0.6, metalness: 0, knobs: [], defaults: { material: 'cloth' }, pieces: () => [] };
+            Wardrobe.GARMENTS.push(g);
+            Wardrobe.BY_ID.set(id, g);
+            Wardrobe.PRESETS.push({ id, label, group: 'From 3D models', items: [{ id }] });
+        }
+        return id;
+    }
+
+    /** The outfits a project has taken from its models (3d/Outfits/<name>/outfit.*), in the wardrobe's catalog. */
+    function registerProject(Wardrobe, projectPath) {
+        const fs = require('fs'), path = require('path');
+        const dir = path.join(projectPath, '3d', 'Outfits'), ids = [];
+        let list = [];
+        try { list = fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort(); } catch (e) { return ids; }
+        for (const name of list) {
+            const at = path.join(dir, name);
+            if (!fs.existsSync(path.join(at, 'outfit.json'))) continue;
+            const key = 'project:' + name;
+            store.folders.set(key, { dir: at, name: 'outfit' });
+            let label = name;
+            try { label = JSON.parse(fs.readFileSync(path.join(at, 'outfit.json'), 'utf8')).label || name; } catch (e) { /* the folder's name */ }
+            ids.push(register(Wardrobe, key, label));
+        }
+        return ids;
+    }
+
+    /** RGBA from an encoded picture (a page's decoder). */
+    async function decodeBytes(bytes, mime) {
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: mime || 'image/png' }));
+        const canvas = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(bitmap.width, bitmap.height) : Object.assign(document.createElement('canvas'), { width: bitmap.width, height: bitmap.height });
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0);
+        return { width: bitmap.width, height: bitmap.height, data: new Uint8Array(ctx.getImageData(0, 0, bitmap.width, bitmap.height).data.buffer) };
+    }
+
+    async function encodeJpeg(pic) {
+        const canvas = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(pic.width, pic.height) : Object.assign(document.createElement('canvas'), { width: pic.width, height: pic.height });
+        const ctx = canvas.getContext('2d');
+        ctx.putImageData(new ImageData(new Uint8ClampedArray(pic.data.buffer, pic.data.byteOffset, pic.data.length), pic.width, pic.height), 0, 0);
+        const blob = canvas.convertToBlob ? await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.88 }) : await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.88));
+        return new Uint8Array(await blob.arrayBuffer());
+    }
+
+    /**
+     * Takes the outfit off a project's model (a page: it decodes and encodes
+     * pictures) and keeps it in the project's 3d/Outfits/<name>: the model's
+     * head and hands left out, measured on a body of `recipe`'s build.
+     * Returns the garment id in the wardrobe's catalog, or null when the model
+     * gives no outfit.
+     */
+    async function takeFrom(pack, Wardrobe, file, projectPath, recipe) {
+        const fs = require('fs'), path = require('path');
+        const model = readModel(fs.readFileSync(file));
+        if (!model) return null;
+        const pic = await decodeBytes(model.image.bytes, model.image.mime);
+        const outfit = transfer(pack, model, {
+            picture: pic, recipe: { gender: recipe && recipe.gender != null ? recipe.gender : 0.5 }, gap: 0.004, reach: 0.008, swell: 0.008, triangles: 30000,
+            parts: [{ id: null, test: i => i.arm > 2.95 }, { id: 'outfit' }]
+        });
+        if (!outfit.parts.length || outfit.parts.every(p => p.index.length < 300)) return null;
+        const flat = flatten(outfit.picture || pic, outfit);
+        outfit.keys = colorKeys(outfit, flat);
+        const listed = listModels(projectPath).find(m => m.file === file);
+        const label = (listed && listed.name) || path.basename(file, path.extname(file));
+        let name = label.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Outfit';
+        const dir = path.join(projectPath, '3d', 'Outfits', name);
+        const { json, bytes } = encode(outfit, { id: name, label, picture: 'outfit.jpg', size: [flat.width, flat.height], source: path.relative(projectPath, file).split(path.sep).join('/') });
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'outfit.json'), JSON.stringify(json));
+        fs.writeFileSync(path.join(dir, 'outfit.bin'), bytes);
+        fs.writeFileSync(path.join(dir, 'outfit.jpg'), await encodeJpeg(flat));
+        const key = 'project:' + name;
+        store.folders.set(key, { dir, name: 'outfit' });
+        store.outfits.delete(key); store.pictures.delete(key); store.pending.delete(key);
+        for (const k of [...store.tints.keys()]) if (k.startsWith(key + ':')) store.tints.delete(k);
+        const loaded = load(key);
+        if (loaded) store.pictures.set(key, { width: flat.width, height: flat.height, data: flat.data });
+        return register(Wardrobe, key, label);
+    }
+
     const api = {
         GAP, readModel, normalizeModel, roleMap, landmarks, skeletonMoves, poseBody, drawIn, keepVertices, cutMesh, weld,
         transfer, fit, pointSkin, frameAt, bindSurfaces, surfacePositions, triangleGrid, nearestTriangle, rayHits,
-        BUILT_IN, colorKeys, recolor, encode, decode, load, picture, preload, onPicture, pictureFor, buildAll, store
+        BUILT_IN, colorKeys, recolor, encode, decode, load, picture, preload, onPicture, pictureFor, buildAll, store,
+        flatten, isHumanoid, listModels, register, registerProject, takeFrom
     };
     root.RRCharacterOutfitTransfer = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

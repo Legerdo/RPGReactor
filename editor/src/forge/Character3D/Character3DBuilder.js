@@ -764,7 +764,9 @@ class Character3DBuilder {
             html += this._slider({ path: `outfit.${i}.trimWidth`, label: 'Trim width', natural: [0, 0.25] });
             return { id: item.id, label: g.label, html };
         });
-        return this._section('Dress as') + presets + this._section('Garments') + add
+        // [outfit transfer] An outfit taken off one of the project's own humanoid models.
+        const take = window.RRCharacterOutfitTransfer && this._project() ? `<div class="rr-c3d-row"><span class="rr-c3d-label"></span><button class="rr-btn-chip" data-act="take-outfit">${this._t('Take outfit from a 3D model…')}</button></div>` : '';
+        return this._section('Dress as') + presets + take + this._section('Garments') + add
             + (items.length ? this._cards(items, 'remove-garment') : `<p class="rr-c3d-note">${this._t('Nothing worn. Pick an outfit above or add garments one by one.')}</p>`);
     }
 
@@ -2077,6 +2079,43 @@ class Character3DBuilder {
             this.extreme = this.extreme || JSON.stringify(RRHumanBody.naturalRecipe ? RRHumanBody.naturalRecipe(recipe) : recipe) !== JSON.stringify(RRHumanBody.normalizeRecipe(recipe));
             this._replace(recipe);
             this._status(this._t('Opened {name}.', { name }), 'ok');
+    /**
+     * [outfit transfer] The project's humanoid models, to take an outfit off one: it is kept in
+     * 3d/Outfits, listed with the outfits under From 3D models, and worn at once.
+     */
+    _showModels() {
+        const T = RRCharacterOutfitTransfer, project = this._project();
+        const box = this.root.querySelector('.rr-c3d-gallery');
+        const models = T.listModels(project.path);
+        const cards = models.map((m, k) => `<button class="rr-c3d-saved" data-model="${k}"><span>${rrEscapeHtml(m.name)}</span></button>`).join('');
+        box.innerHTML = `<div class="rr-c3d-gallery-head"><span>${this._t('Take outfit from a 3D model')}</span><button class="rr-c3d-remove" data-close title="${this._t('Close')}">✕</button></div>
+            <div class="rr-c3d-gallery-grid">${cards || `<p class="rr-c3d-note">${this._t('No humanoid 3D models in this project.')}</p>`}</div>`;
+        box.hidden = false;
+        const close = () => { box.hidden = true; document.removeEventListener('keydown', onKey, true); };
+        const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+        document.addEventListener('keydown', onKey, true);
+        box.onclick = async e => {
+            if (e.target.closest('[data-close]')) { close(); return; }
+            const card = e.target.closest('[data-model]');
+            if (!card) return;
+            close();
+            const model = models[+card.dataset.model];
+            this._status(this._t('Taking the outfit off {name}…', { name: model.name }));
+            await new Promise(r => requestAnimationFrame(() => setTimeout(r, 30)));
+            try {
+                const id = await T.takeFrom(this.pack, RRCharacterWardrobe, model.file, project.path, this.recipe);
+                if (!id) { this._status(this._t('{name} has no outfit to take.', { name: model.name }), 'error'); return; }
+                const r = JSON.parse(JSON.stringify(this.recipe));
+                r.outfit = (r.outfit || []).concat([{ id }]);
+                this._replace(r);
+                this._status(this._t('Took the outfit off {name}.', { name: model.name }), 'ok');
+            } catch (error) {
+                console.error('[Character3DBuilder] take outfit', error);
+                this._status(this._t('The outfit could not be taken off {name}.', { name: model.name }), 'error');
+            }
+        };
+    }
+
         } catch (error) {
             console.error('[Character3DBuilder] open', error);
             this._status(this._t('{name} could not be opened.', { name }), 'error');

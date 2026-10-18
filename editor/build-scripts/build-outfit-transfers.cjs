@@ -52,7 +52,7 @@ const OUTFITS = {
         file: 'Jolt Eagle/source/Jolt Eagle.glb', label: 'Power Armor (Jolt Eagle)',
         options: { recipe: { gender: 1, muscle: 0.5 }, gap: 0.004, reach: 0.003, swell: 0, triangles: 30000, headClear: 1, skinCut: false, repaint: false, hang: false,
             // The eagle's white ruff at the neck and the clawed gauntlets are his own.
-            parts: armorParts(1.8, i => (i.spine > 3.0 && lum(i.color) > 0.4 && sat(i.color) < 0.2 && i.arm < 0) || i.arm > 2.95) }
+            parts: armorParts(1.8, i => (i.spine > 3.0 && lum(i.color) > 0.4 && sat(i.color) < 0.2 && i.arm < 0) || (i.spine > 3.95 && sat(i.color) < 0.3 && i.arm < 0) || i.arm > 2.95) }
     },
     max: {
         file: 'Max Triton/source/Max-Triton.glb', label: 'Power Armor (Max Triton)',
@@ -84,29 +84,6 @@ function writeJpeg(pic, file) {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
-/** Texels no part's triangle shows (a few past each edge kept for the smaller mip levels) made the mean color. */
-function flatten(pic, outfit) {
-    const W = pic.width, H = pic.height, used = new Uint8Array(W * H), U = outfit.render.uvs;
-    for (const part of outfit.parts) for (let t = 0; t < part.index.length; t += 3) {
-        const px = [0, 1, 2].map(k => U[part.index[t + k] * 2] * W), py = [0, 1, 2].map(k => U[part.index[t + k] * 2 + 1] * H);
-        const area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
-        if (Math.abs(area) < 1e-9) continue;
-        const tol = -3 / Math.sqrt(Math.abs(area));
-        for (let y = Math.max(0, Math.floor(Math.min(...py)) - 4); y <= Math.min(H - 1, Math.ceil(Math.max(...py)) + 4); y++)
-            for (let x = Math.max(0, Math.floor(Math.min(...px)) - 4); x <= Math.min(W - 1, Math.ceil(Math.max(...px)) + 4); x++) {
-                const cx = x + 0.5, cy = y + 0.5;
-                const w0 = ((px[1] - cx) * (py[2] - cy) - (px[2] - cx) * (py[1] - cy)) / area, w1 = ((px[2] - cx) * (py[0] - cy) - (px[0] - cx) * (py[2] - cy)) / area;
-                if (w0 >= tol && w1 >= tol && 1 - w0 - w1 >= tol) used[y * W + x] = 1;
-            }
-    }
-    const mean = [0, 0, 0];
-    let n = 0;
-    for (let q = 0; q < W * H; q++) if (used[q]) { mean[0] += pic.data[q * 4]; mean[1] += pic.data[q * 4 + 1]; mean[2] += pic.data[q * 4 + 2]; n++; }
-    const data = Uint8Array.from(pic.data);
-    for (let q = 0; q < W * H; q++) if (!used[q]) { data[q * 4] = mean[0] / n; data[q * 4 + 1] = mean[1] / n; data[q * 4 + 2] = mean[2] / n; data[q * 4 + 3] = 255; }
-    return { width: W, height: H, data, used: n / (W * H) };
-}
-
 (async () => {
     const pack = await Body.loadPack();
     fs.mkdirSync(OUT, { recursive: true });
@@ -117,7 +94,7 @@ function flatten(pic, outfit) {
         const model = Transfer.readModel(fs.readFileSync(path.join(ACTORS, cfg.file)));
         const picture = decodeJpeg(model.image.bytes);
         const outfit = Transfer.transfer(pack, model, Object.assign({ picture }, cfg.options));
-        const pic = flatten(outfit.picture || picture, outfit);
+        const pic = Transfer.flatten(outfit.picture || picture, outfit);
         outfit.keys = Transfer.colorKeys(outfit, pic);
         const { json, bytes } = Transfer.encode(outfit, {
             id, label: cfg.label, picture: id + '.jpg', size: [pic.width, pic.height],
