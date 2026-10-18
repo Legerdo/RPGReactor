@@ -215,7 +215,7 @@
             { coat: '#5a3c26', marking: '#3a261a', light: '#7a5a3a', nose: '#1a1412', eye: '#1a1010', mane: '#5a3c26' }),
         K('boar', { size: 0.58, legLength: 0.72, girth: 1.28, chestDepth: 1.22, hump: 0.4, belly: 0.2, neckLength: 0.45, neckAngle: 10, neckThickness: 1.5, headSize: 1.12, snoutLength: 1.1, snoutWidth: 0.95, headPitch: 25, eyeSize: 0.6, eyeSide: 0.6, earSize: 0.85, ears: 'pointed', earDroop: 0.2, tail: 'tufted', tailLength: 0.35, tailThickness: 0.6, tailCurl: -0.8, feet: 'hoof', tuskSize: 1, legThickness: 0.85, pattern: 'solid', fluff: 0.8, mane: 'horse', maneSize: 0.5 },
             { coat: '#4a3a30', marking: '#2a201a', light: '#6a5a4a', nose: '#3a2a26', horn: '#ece4d0', eye: '#1a1010', mane: '#2a2018' }),
-        K('rabbit', { size: 0.15, bodyLength: 0.8, legLength: 0.55, hipHeight: 1.45, girth: 1.15, chestDepth: 1.05, neckLength: 0.4, neckAngle: 40, headSize: 1.3, snoutLength: 0.38, snoutWidth: 0.95, headPitch: 20, eyeSize: 1.5, eyeSide: 1, earSize: 2.1, ears: 'long', earDroop: -0.5, tail: 'stub', tailLength: 0.25, tailThickness: 1.4, tailCurl: 1, plantigrade: 0.6, pattern: 'countershade', fluff: 0.5 },
+        K('rabbit', { size: 0.15, bodyLength: 0.8, legLength: 0.5, hipHeight: 1.2, girth: 1.15, chestDepth: 1.05, neckLength: 0.4, neckAngle: 40, headSize: 1.3, snoutLength: 0.38, snoutWidth: 0.95, headPitch: 20, eyeSize: 1.5, eyeSide: 1, earSize: 2.1, ears: 'long', earDroop: -0.5, tail: 'stub', tailLength: 0.25, tailThickness: 1.4, tailCurl: 1, plantigrade: 1, pattern: 'countershade', fluff: 0.95 },
             { coat: '#9a8470', marking: '#5a4a3a', light: '#f2ece4', nose: '#d89aa0', eye: '#1a1210', mane: '#9a8470' }),
         K('bull', { size: 0.95, legLength: 0.95, girth: 1.4, chestDepth: 1.28, belly: 0.6, hump: 0.45, neckLength: 0.6, neckAngle: 15, neckThickness: 1.5, headSize: 1.15, snoutLength: 1.0, snoutWidth: 1.15, headPitch: 35, eyeSize: 0.9, eyeSide: 0.85, earSize: 0.8, ears: 'round', earDroop: 0.7, tail: 'tufted', tailLength: 1, tailThickness: 0.7, tailCurl: -1, feet: 'hoof', horns: 'bull', hornSize: 1, pattern: 'piebald', legThickness: 1.08, fluff: 0.05 },
             { coat: '#2a2220', marking: '#f0ece4', light: '#3a302a', nose: '#c08a8a', horn: '#e0d4b8', eye: '#1a1010', mane: '#1a1412' }),
@@ -540,6 +540,14 @@
             E(m(hk), [0.032 * lw, 0.034 * lw, 0.036 * lw], P + 'RearFoot', 0.025 * g, 'lowerleg');
             footShapes(r, lay, S, E, C, m, P + 'RearFoot', hk, J.rearToe, ps * 0.92, lw, false, prof);
         }
+        // ── a thick coat rounds the trunk over the muscles: one soft mass from the chest to the buttocks
+        // and over each haunch, filling the waist and the hollows between shoulder and thigh. It shapes the
+        // surface only; skin weights and coat colors come from the shapes under it.
+        if (r.fluff > 0.35) {
+            const a = clamp((r.fluff - 0.35) / 0.6, 0, 1), top = Math.max(chestTop, yH + 0.3 * g);
+            E([0, (chestBottom + top) / 2 + 0.01 * g, (zS + zH) / 2 - 0.03], [(0.16 + 0.03 * a) * g, (top - chestBottom) / 2 * (0.86 + 0.08 * a), (zS - zH) / 2 + 0.1], 'Spine', 0.09 * g * a, 'torso').envelope = true;
+            for (const side of [1, -1]) E([side * 0.1 * g, yH + 0.1 * g, zH - 0.04], [0.11 * g, (0.18 + 0.04 * a) * g, 0.2], 'Hips', 0.08 * g * a, 'rump').envelope = true;
+        }
         // ── manes: a lion's around the face, down the neck and over the chest; a horse's crest; a ruff at the throat.
         maneShapes(r, lay, S, E, C);
         // ── anatomy: the sheath and scrotum or the vulva, and an udder where the species has one.
@@ -813,7 +821,7 @@
                 pointed: { len: 0.13, wide: 0.07, tip: 0.0, out: 0.5, up: 0.9, back: -0.05, cup: 0.35 },
                 round: { len: 0.075, wide: 0.06, tip: 0.75, out: 0.62, up: 0.8, back: 0.1, cup: 0.45 },
                 floppy: { len: 0.16, wide: 0.07, tip: 0.6, out: 1, up: 0.0, back: 0.1, droop: 1.3, cup: 0.1 },
-                long: { len: 0.3, wide: 0.06, tip: 0.45, out: 0.3, up: 1, back: 0.25, cup: 0.4 },
+                long: { len: 0.3, wide: 0.06, tip: 0.45, out: 0.3, up: 1, back: 0.25, cup: 0.4, leaf: true },
                 narrow: { len: 0.13, wide: 0.045, tip: 0.1, out: 0.85, up: 0.6, back: 0.2, cup: 0.4 },
                 small: { len: 0.06, wide: 0.04, tip: 0.2, out: 0.8, up: 0.5, back: 0.4, cup: 0.2 }
             }[r.ears];
@@ -826,8 +834,11 @@
                 const pts = curve([base, add(base, mul(dir, L * 0.5)), add(add(base, mul(dir, L)), [0, -Math.max(0, droop) * L * 0.25, 0])], 8);
                 // Wide across the head, thin front to back: the ear opens forward.
                 const flatDir = norm([1, 0, side * 0.35]);
+                // A long ear is a leaf: narrow at the root, widest near the middle, round at the tip.
                 const mesh = loft(pts, t => {
-                    const w = spec.wide * es * (t < 0.35 ? 0.8 + t * 0.6 : (1 - t) / 0.65 * (1 - spec.tip) + spec.tip * Math.sqrt(Math.max(0, 1 - Math.pow((t - 0.35) / 0.65, 2))));
+                    const w = spec.wide * es * (spec.leaf
+                        ? (t < 0.45 ? 0.55 + 0.45 * Math.sin(t / 0.45 * Math.PI / 2) : Math.pow(Math.max(0, 1 - Math.pow((t - 0.45) / 0.55, 2.4)), 0.5))
+                        : t < 0.35 ? 0.8 + t * 0.6 : (1 - t) / 0.65 * (1 - spec.tip) + spec.tip * Math.sqrt(Math.max(0, 1 - Math.pow((t - 0.35) / 0.65, 2))));
                     return [Math.max(w, 0.003 * es), Math.max(0.008 * es, w * 0.14)];
                 }, 12, flatDir, false, spec.cup * (droop > 0.6 ? 0.2 : 1));
                 out.push({ mesh, kind: 'coat', weights: rigid('Head'), tag: 'ear' });
@@ -1467,7 +1478,7 @@
         const joints = new Uint8Array(vcount * 4), weights = new Float32Array(vcount * 4);
         const tags = new Array(vcount);
         const blend = 0.035 * lay.g;
-        const unions = shapes.filter(s => !s.cut);
+        const unions = shapes.filter(s => !s.cut && !s.envelope);
         const limbOf = unions.map(sh => { const m = /^(Left|Right)(Front|Rear)/.exec(sh.bone); return m ? m[0] : ''; });
         const upper = unions.map(sh => sh.tag === 'upperleg' || sh.tag === 'thigh');
         const unionBone = unions.map(sh => boneIndex.get(sh.bone));
@@ -1626,8 +1637,8 @@
         // Gear, fitted to this body and skinned as it is.
         if (Gear && r.gear.length) {
             const skinAt = p => { weigh(p); const j4 = new Uint8Array(4), w4 = new Float32Array(4); setSkin(j4, w4, 0, byBone); return [Array.from(j4), Array.from(w4)]; };
-            const headShapes = shapes.filter(s => s.bone === 'Head');
-            const gearParts = Gear.build(r.gear, { r, lay, inside: p => fieldAt(net.near(p), p), insideHead: p => fieldAt(headShapes, p), skin: skinAt, loft, curve });
+            const headOnly = shapes.filter(s => s.bone === 'Head');
+            const gearParts = Gear.build(r.gear, { r, lay, inside: p => fieldAt(net.near(p), p), insideHead: p => fieldAt(headOnly, p), skin: skinAt, loft, curve });
             for (const gp of gearParts) finish(gp.name, gp, { kind: gp.kind, roughness: gp.roughness, metalness: gp.metalness, doubleSided: true });
         }
         const textures = {};
