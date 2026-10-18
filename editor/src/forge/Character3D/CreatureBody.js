@@ -177,7 +177,9 @@
      * `to` (1 the groin), or an udder between the thighs; `padColor` for ear
      * backs darker than the coat, `felid` for a cat's face and build, `bigcat`
      * for a big cat's heavy forequarters, `lightFace` for a face its color points
-     * leave unmarked (a fox: dark ears and legs only).
+     * leave unmarked (a fox: dark ears and legs only), `face` for a face built
+     * and marked as that animal's ('deer', 'cattle', 'rabbit', 'bear', 'sheep',
+     * 'reptile').
      */
     const PROFILE = {
         cat: { pupil: 'slit', genital: 'perineal', teats: { pairs: 4, from: 0.15, to: 0.95 }, padColor: true, felid: true },
@@ -186,14 +188,14 @@
         dog: { pupil: 'round', genital: 'belly', teats: { pairs: 5, from: 0.1, to: 0.95 }, padColor: true },
         wolf: { pupil: 'round', genital: 'belly', teats: { pairs: 5, from: 0.1, to: 0.95 }, padColor: true },
         fox: { pupil: 'slit', genital: 'belly', teats: { pairs: 4, from: 0.2, to: 0.95 }, padColor: true, lightFace: true },
-        deer: { pupil: 'bar', cloven: true, genital: 'belly', teats: { udder: 0.5, count: 4 } },
+        deer: { pupil: 'bar', cloven: true, genital: 'belly', teats: { udder: 0.5, count: 4 }, face: 'deer' },
         horse: { pupil: 'bar', genital: 'belly', teats: { udder: 0.45, count: 2 } },
-        bear: { pupil: 'round', genital: 'belly', teats: { pairs: 3, from: 0.0, to: 0.95 }, padColor: true },
+        bear: { pupil: 'round', genital: 'belly', teats: { pairs: 3, from: 0.0, to: 0.95 }, padColor: true, face: 'bear' },
         boar: { pupil: 'round', cloven: true, genital: 'perineal', sheath: 'belly', teats: { pairs: 6, from: 0.05, to: 0.95 } },
-        rabbit: { pupil: 'round', genital: 'perineal', teats: { pairs: 4, from: 0.1, to: 0.95 } },
-        bull: { pupil: 'bar', cloven: true, genital: 'pendulous', teats: { udder: 1, count: 4 } },
-        ram: { pupil: 'bar', cloven: true, genital: 'pendulous', teats: { udder: 0.7, count: 2 } },
-        drake: { pupil: 'slit', genital: 'cloaca', teats: null }
+        rabbit: { pupil: 'round', genital: 'perineal', teats: { pairs: 4, from: 0.1, to: 0.95 }, face: 'rabbit' },
+        bull: { pupil: 'bar', cloven: true, genital: 'pendulous', teats: { udder: 1, count: 4 }, face: 'cattle' },
+        ram: { pupil: 'bar', cloven: true, genital: 'pendulous', teats: { udder: 0.7, count: 2 }, face: 'sheep' },
+        drake: { pupil: 'slit', genital: 'cloaca', teats: null, face: 'reptile' }
     };
     const profileOf = r => PROFILE[r.kind] || PROFILE.dog;
 
@@ -211,16 +213,16 @@
             { coat: '#8c8478', marking: '#3a3632', light: '#ddd6c8', nose: '#1e1c1a', eye: '#c8a040', mane: '#7a746a' }),
         K('fox', { size: 0.3, legLength: 0.92, girth: 0.82, chestDepth: 0.98, belly: -0.4, neckLength: 0.9, neckAngle: 34, headSize: 1.05, snoutLength: 0.9, snoutWidth: 0.78, headPitch: 12, eyeSize: 1, earSize: 1.45, ears: 'pointed', tail: 'bushy', tailLength: 1.15, tailThickness: 1.5, tailCurl: -0.25, pattern: 'points', fluff: 0.45, legThickness: 0.8 },
             { coat: '#d06a24', marking: '#2a1c14', light: '#f4ece0', nose: '#1a1412', eye: '#c08a20', mane: '#d06a24' }),
-        K('deer', { size: 0.6, legLength: 1.32, girth: 0.88, chestDepth: 1.08, belly: -0.3, neckLength: 1.35, neckThickness: 1.15, neckAngle: 55, headSize: 1.05, snoutLength: 1.05, snoutWidth: 0.8, headPitch: 42, eyeSize: 1.25, eyeSide: 0.85, earSize: 1.3, ears: 'narrow', earDroop: -0.3, tail: 'stub', tailLength: 0.35, feet: 'hoof', horns: 'antlers', hornSize: 1.1, legThickness: 0.72, pattern: 'countershade', fluff: 0.05 },
+        K('deer', { size: 0.6, legLength: 1.32, girth: 0.88, chestDepth: 1.08, belly: -0.3, neckLength: 1.35, neckThickness: 1.15, neckAngle: 55, headSize: 1.05, snoutLength: 1.05, snoutWidth: 0.8, headPitch: 42, eyeSize: 1.35, eyeSide: 0.85, earSize: 1.85, ears: 'round', earDroop: 0.35, tail: 'stub', tailLength: 0.35, feet: 'hoof', horns: 'antlers', hornSize: 1.1, legThickness: 0.72, pattern: 'countershade', fluff: 0.05 },
             { coat: '#9a6a40', marking: '#5a3a22', light: '#f0e6d6', nose: '#1e1816', horn: '#c8b090', eye: '#2a1a10', mane: '#9a6a40' }),
         K('horse', { size: 0.95, legLength: 1.36, girth: 1.08, belly: 0.1, neckLength: 1.55, neckAngle: 52, neckThickness: 1.25, headSize: 1.3, snoutLength: 1.2, snoutWidth: 1.05, headPitch: 58, chestDepth: 1.2, eyeSize: 1.3, eyeSide: 0.9, earSize: 1.1, ears: 'narrow', tail: 'horse', tailLength: 1.05, tailThickness: 1.2, tailCurl: -0.9, feet: 'hoof', mane: 'horse', maneSize: 1, pattern: 'socks', legThickness: 0.92, fluff: 0.05 },
             { coat: '#7a4a2a', marking: '#f2ede4', light: '#d8c4a8', nose: '#2a2220', eye: '#2a1810', mane: '#1e1612' }),
-        K('bear', { size: 0.78, legLength: 0.98, girth: 1.22, chestDepth: 1.05, belly: 0.4, hump: 0.7, hipHeight: 0.96, neckLength: 0.7, neckAngle: 16, neckThickness: 1.35, headSize: 1.08, snoutLength: 0.82, snoutWidth: 1.05, headPitch: 14, eyeSize: 0.7, earSize: 0.75, ears: 'round', tail: 'stub', tailLength: 0.15, feet: 'claw', plantigrade: 1, pawSize: 1.15, legThickness: 1.38, pattern: 'solid', fluff: 0.7 },
-            { coat: '#5a3c26', marking: '#3a261a', light: '#7a5a3a', nose: '#1a1412', eye: '#1a1010', mane: '#5a3c26' }),
+        K('bear', { size: 0.78, legLength: 0.98, girth: 1.22, chestDepth: 1.05, belly: 0.4, hump: 1.1, hipHeight: 0.96, neckLength: 0.7, neckAngle: 16, neckThickness: 1.35, headSize: 1.16, snoutLength: 0.98, snoutWidth: 1.02, headPitch: 14, eyeSize: 0.55, earSize: 0.66, ears: 'round', tail: 'stub', tailLength: 0.15, feet: 'claw', plantigrade: 1, pawSize: 1.15, legThickness: 1.38, pattern: 'solid', fluff: 0.7 },
+            { coat: '#5a3c26', marking: '#3a261a', light: '#a08060', nose: '#1a1412', eye: '#2a1810', mane: '#5a3c26' }),
         K('boar', { size: 0.58, legLength: 0.75, hipHeight: 0.93, girth: 1.22, chestDepth: 1.25, hump: 0.65, belly: -0.1, neckLength: 0.45, neckAngle: 10, neckThickness: 1.5, headSize: 1.12, snoutLength: 1.1, snoutWidth: 0.95, headPitch: 25, eyeSize: 0.6, eyeSide: 0.6, earSize: 0.85, ears: 'pointed', earDroop: 0.2, tail: 'tufted', tailLength: 0.35, tailThickness: 0.6, tailCurl: -0.8, feet: 'hoof', tuskSize: 1, legThickness: 0.85, pattern: 'solid', fluff: 0.8, mane: 'horse', maneSize: 0.5 },
             { coat: '#4a3a30', marking: '#2a201a', light: '#6a5a4a', nose: '#3a2a26', horn: '#ece4d0', eye: '#1a1010', mane: '#2a2018' }),
-        K('rabbit', { size: 0.15, bodyLength: 0.8, legLength: 0.5, hipHeight: 1.2, girth: 1.15, chestDepth: 1.05, neckLength: 0.4, neckAngle: 40, headSize: 1.3, snoutLength: 0.38, snoutWidth: 0.95, headPitch: 20, eyeSize: 1.5, eyeSide: 1, earSize: 2.1, ears: 'long', earDroop: -0.5, tail: 'stub', tailLength: 0.25, tailThickness: 1.4, tailCurl: 1, plantigrade: 1, pattern: 'countershade', fluff: 0.95 },
-            { coat: '#9a8470', marking: '#5a4a3a', light: '#f2ece4', nose: '#d89aa0', eye: '#1a1210', mane: '#9a8470' }),
+        K('rabbit', { size: 0.15, bodyLength: 0.8, legLength: 0.5, hipHeight: 1.2, girth: 1.15, chestDepth: 1.05, neckLength: 0.4, neckAngle: 40, headSize: 1.3, snoutLength: 0.38, snoutWidth: 0.95, headPitch: 20, eyeSize: 1.2, eyeSide: 1, earSize: 2.1, ears: 'long', earDroop: -0.5, tail: 'stub', tailLength: 0.25, tailThickness: 1.4, tailCurl: 1, plantigrade: 1, pattern: 'countershade', fluff: 0.95 },
+            { coat: '#9a8470', marking: '#5a4a3a', light: '#f2ece4', nose: '#b08480', eye: '#3a2216', mane: '#9a8470' }),
         K('bull', { size: 0.95, legLength: 1.0, girth: 1.35, chestDepth: 1.3, belly: 0.25, hump: 0.45, neckLength: 0.6, neckAngle: 15, neckThickness: 1.5, headSize: 1.15, snoutLength: 1.0, snoutWidth: 1.15, headPitch: 35, eyeSize: 1.2, eyeSide: 0.85, earSize: 0.8, ears: 'round', earDroop: 0.7, tail: 'tufted', tailLength: 1, tailThickness: 0.7, tailCurl: -1, feet: 'hoof', horns: 'bull', hornSize: 1, pattern: 'piebald', legThickness: 1.22, fluff: 0.05 },
             { coat: '#2a2220', marking: '#f0ece4', light: '#3a302a', nose: '#c08a8a', horn: '#e0d4b8', eye: '#1a1010', mane: '#1a1412' }),
         K('ram', { size: 0.55, legLength: 0.92, girth: 1.22, chestDepth: 1.1, belly: 0.3, neckLength: 0.7, neckAngle: 35, headSize: 1, snoutLength: 0.85, snoutWidth: 0.85, headPitch: 35, eyeSize: 1, eyeSide: 0.9, earSize: 0.75, ears: 'narrow', earDroop: 0.6, tail: 'stub', tailLength: 0.3, feet: 'hoof', horns: 'ram', hornSize: 1.1, pattern: 'points', legThickness: 0.7, fluff: 1.3 },
@@ -538,7 +540,8 @@
         // and narrows on to the hips, so the underline rises in one sweep.
         const across = chestR / (0.19 * g);
         flatten(C(chestA, ribEnd, chestR, ribR, 'Chest', 0.1 * g, 'torso'), 0, across);
-        for (const s of [1, -1]) E([s * 0.06 * g, yS - 0.05 * gv * cd, zS + 0.05], [0.08 * g, 0.14 * gv * cd, 0.1], 'Chest', 0.08 * g, 'torso');
+        // The breast between the forelegs: rounded, blended wide on a big cat so the chest's front is one curve.
+        for (const s of [1, -1]) E([s * 0.06 * g, yS - 0.05 * gv * cd, zS + 0.05], [0.08 * g, 0.14 * gv * cd, 0.1], 'Chest', (prof.bigcat ? 0.12 : 0.08) * g, 'torso');
         // A cat's spine runs low between its shoulder blades, which stand above it.
         const blades = prof.felid ? 1 : 0;
         flatten(C(add(J.withers, [0, -0.06 * gv - 0.02 * gv * blades, 0.1]), [0, spineY(-0.05 * bl) + (chestTop - 0.04 * gv - yS), -0.05 * bl], 0.07 * gv, 0.09 * gv, 'Chest', 0.12 * g, 'back'), 0, gv / g);
@@ -566,6 +569,11 @@
         C(add(J.neck, [0, -0.02 * g, -0.04]), J.atlas, 0.18 * nt, 0.115 * nt * Math.sqrt(r.headSize) * nb, 'Neck', 0.06 * g, 'neck');
         C([0, J.withers[1] - 0.05 * gv, zS - 0.1], add(J.atlas, mul(hu, 0.05 * nt * nb)), 0.1 * nt, 0.08 * nt * nb, 'Neck', 0.05 * g, 'neck');
         C([0, yS + 0.04 * gv, zS + 0.1], add(J.atlas, [0, -0.06 * nt * nb, 0.02]), 0.1 * nt, 0.07 * nt * nb, 'Neck', 0.05 * g, 'neck');
+        // A bull's dewlap: a fold of skin hanging under the throat and down the front of the chest.
+        if (prof.face === 'cattle') {
+            const a = add(J.atlas, mul(hu, -0.9 * sr)), b = [0, chestBottom + 0.1 * gv, zS + 0.12];
+            flatten(C(a, b, 0.07 * nt, 0.12 * nt, 'Neck', 0.08 * g, 'neck'), 0, 3.2);
+        }
         // ── head.
         headShapes(r, lay, S, E, C);
         // ── legs. The upper leg lies inside the trunk's skin down to the elbow and the stifle, its muscle
@@ -589,10 +597,9 @@
             if (blades) E(m([0.07 * g, J.withers[1] - 0.025 * g, zS - 0.19]), [0.035 * g, 0.045 * g, 0.12], 'Chest', 0.1 * g, 'scapula', [0, 0.35, 1]);
             // The upper arm: the point of the shoulder down to the elbow, the triceps filling the angle behind it.
             // A big cat's forequarters are its power: a heavy shoulder, a thick forearm, a broad paw.
-            const ax = side * (sh[0] + 0.01 * g), fq = prof.bigcat ? 1.2 : 1;
-            M(flatten(C(m(add(sh, [0.01 * g, 0.02, 0.0])), m(add(el, [0, 0.03, 0.0])), 0.085 * tw * fq, 0.05 * tw * fq, P + 'FrontUpperLeg', 0.1 * g, 'upperleg'), ax, 1.5));
-            M(flatten(C(m([sh[0], sh[1] + 0.03 * g, sh[2] - 0.13]), m(add(el, [0, 0.025, -0.03 * lw])), 0.075 * tw * fq, 0.045 * tw * fq, P + 'FrontUpperLeg', 0.09 * g, 'upperleg'), ax, 1.45));
-            if (prof.bigcat) M(E(m(add(sh, [0.025 * g, 0.03, 0.02])), [0.05 * tw, 0.09 * tw, 0.075 * tw], P + 'FrontUpperLeg', 0.1 * g, 'upperleg', m(sub(sh, el))));
+            const ax = side * (sh[0] + 0.01 * g), fq = prof.bigcat ? 1.12 : 1, kq = prof.bigcat ? 1.35 : 1;
+            M(flatten(C(m(add(sh, [0.01 * g, 0.02, 0.0])), m(add(el, [0, 0.03, 0.0])), 0.085 * tw * fq, 0.05 * tw * fq, P + 'FrontUpperLeg', 0.1 * g * kq, 'upperleg'), ax, 1.5));
+            M(flatten(C(m([sh[0], sh[1] + 0.03 * g, sh[2] - 0.13]), m(add(el, [0, 0.025, -0.03 * lw])), 0.075 * tw * fq, 0.045 * tw * fq, P + 'FrontUpperLeg', 0.09 * g * kq, 'upperleg'), ax, 1.45));
             E(m(add(el, [0, 0.01, -0.04 * ll])), [0.032 * ll * fq, 0.038 * ll * fq, 0.034 * ll * fq], P + 'FrontLowerLeg', 0.035 * g, 'lowerleg');
             // The forearm, full of muscle at the top and in front, slim at the carpus.
             C(m(el), m(wr), 0.06 * ll * fq, 0.038 * ll * fq, P + 'FrontLowerLeg', 0.05 * g, 'lowerleg');
@@ -672,25 +679,57 @@
         lay.whiskerPad = { y: -0.28 - 0.04 * cat * deep, z: zt - 0.3 - 0.06 * bigPad };
         // The nose leather set into the muzzle's end, broad and flat on top; a boar's flat disc.
         const disc = r.kind === 'boar' ? 1 : 0;
-        if (hoofFace) e(H(0, -0.1, zt - 0.14), [0.4 * sw, 0.36, 0.3], 0.12, 'snout');
-        e(H(0, 0.04, zt + 0.0 + 0.05 * disc), [(0.22 + 0.04 * felid) * sw * (1 + 0.5 * disc) * (hoofFace ? 0.7 : 1), (0.12 - 0.015 * felid) * (1 + 0.8 * disc), 0.12], 0.05, 'nosepad');
+        if (hoofFace) e(H(0, -0.1, zt - 0.14), [0.4 * sw, 0.36, 0.3].map(v => v * (profileOf(r).face === 'deer' ? 0.78 : 1)), 0.12, 'snout');
+        const reptile = profileOf(r).face === 'reptile';
+        if (!reptile) e(H(0, 0.04, zt + 0.0 + 0.05 * disc), [(0.22 + 0.04 * felid) * sw * (1 + 0.5 * disc) * (hoofFace ? 0.7 : 1), (0.12 - 0.015 * felid) * (1 + 0.8 * disc), 0.12], 0.05, 'nosepad');
         // A paw animal's leather narrows down to the philtrum: a rounded triangle seen from the front.
-        if (!disc && !hoofFace) c(H(0, 0.03, zt - 0.03), H(0, -0.12, zt - 0.05), 0.13 * sw, 0.045, 0.04, 'nosepad');
+        if (!disc && !hoofFace && !reptile) c(H(0, 0.03, zt - 0.03), H(0, -0.12, zt - 0.05), 0.13 * sw, 0.045, 0.04, 'nosepad');
+        // A rabbit's nose is a small Y: two slanting slits meeting over the cleft lip.
+        if (profileOf(r).face === 'rabbit') for (const s of [1, -1]) c(H(0, -0.04, zt - 0.02), H(s * 0.14 * sw, 0.08, zt - 0.06), 0.035, 0.03, 0.02, 'nosepad');
+        // A reptile's head: heavy brow ridges over the eyes running back over the skull, the jaw's line
+        // standing out along the lips, a scaled knob over each nostril at the snout's tip.
+        if (reptile) {
+            for (const s of [1, -1]) {
+                c(H(s * 0.34, 0.4, 0.68), H(s * 0.42, 0.42, -0.35), 0.21, 0.12, 0.07, 'brow');
+                c(H(s * 0.42, -0.36, 0.1), H(s * 0.2 * sw, -0.4, zt - 0.2), 0.12, 0.07, 0.06, 'jaw');
+                e(H(s * 0.12 * sw, 0.12, zt - 0.12), [0.13, 0.1, 0.16], 0.06, 'snout');
+            }
+        }
         // A paw animal's philtrum: a groove down the front of the muzzle from the nose to the lip, set where
         // the muzzle's front stands.
-        if (!hoofFace && !disc) {
+        if (!hoofFace && !disc && !reptile) {
             const front = y => { const from = H(0, y, zt - 0.7); for (let i = 0; i < 60; i++) { const p = add(from, mul(hd, i * sr * 0.025)); if (fieldAt(head, p) > 0) return p; } return H(0, y, zt); };
             const a = front(-0.08), b = front(-0.36);
-            S.push(cut(cone(add(a, mul(hd, 0.005 * sr)), add(b, mul(hd, 0.005 * sr)), 0.032 * sr, 0.026 * sr, B, 0.035 * sr, 'snout')));
+            // A rabbit's upper lip is split from the nose down: a deep cleft.
+            const split = profileOf(r).face === 'rabbit' ? 1 : 0;
+            S.push(cut(cone(add(a, mul(hd, 0.005 * sr)), add(b, mul(hd, (0.005 - 0.03 * split) * sr)), (0.032 + 0.012 * split) * sr, (0.026 + 0.02 * split) * sr, B, 0.035 * sr, 'snout')));
             lay.philtrum = [a, b];
         }
         // A long grazing face is bone under thin skin: the cheek's flat muscle plate behind the jaw with a clear
         // front edge, the facial crest running forward under the eye, a narrow bony bridge down the nose, and
         // the hollow above each eye.
+        const faceKind = profileOf(r).face;
+        if (faceKind === 'rabbit') {
+            // Round full cheeks, a soft muzzle that pouts under the nose.
+            for (const s of [1, -1]) e(H(s * 0.48, -0.2, 0.32), [0.36, 0.36, 0.45], 0.2, 'cheek');
+            e(H(0, -0.12, zt - 0.2), [0.24 * sw, 0.2, 0.16], 0.14, 'snout');
+        }
+        if (faceKind === 'sheep') {
+            // The Roman nose: the bridge arched from the brow to the nostrils.
+            e(H(0, 0.24, (z0 + zt) / 2 - 0.05), [0.24 * sw, 0.16, (zt - z0) / 2 + 0.05], 0.12, 'snout');
+        }
+        if (faceKind === 'cattle') {
+            // Broad and flat across the forehead between the horns, a curly poll on top, a wide square muzzle.
+            e(H(0, 0.5, 0.15), [0.72, 0.16, 0.55], 0.12, 'skull');
+            Object.assign(e(H(0, 0.72, -0.15), [0.5, 0.14, 0.3], 0.1, 'skull'), { bump: 0.05 * sr, bumpScale: 2.5 / sr, bumpSeed: 23 });
+            e(H(0, -0.18, zt - 0.2), [0.5 * sw, 0.36, 0.26], 0.12, 'snout');
+        }
         if (hoofFace) {
+            // A deer's face is fine: light jowls, a slim bridge.
+            const fine = faceKind === 'deer' ? 0.6 : 1;
             for (const s of [1, -1]) {
-                e(H(s * 0.55, -0.62, 0.05), [0.16, 0.46, 0.46], 0.07, 'cheek');
-                c(H(s * 0.47, -0.2, 0.0), H(s * 0.36, -0.28, z0 + 0.45), 0.075, 0.04, 0.05, 'cheek');
+                e(H(s * (0.5 + 0.05 * fine), -0.62, 0.05), [0.16 * fine, 0.46 * (0.8 + 0.2 * fine), 0.46], 0.07, 'cheek');
+                c(H(s * 0.47, -0.2, 0.0), H(s * 0.36, -0.28, z0 + 0.45), 0.075 * fine, 0.04 * fine, 0.05, 'cheek');
                 S.push(cut(ellipsoid(H(s * 0.4, 0.5, 0.05), [0.13, 0.11, 0.15].map(v => v * sr), B, 0.08 * sr, 'skull', hd, hu)));
             }
             c(H(0, 0.38, z0 - 0.05), H(0, 0.16, zt - 0.32), 0.17 * sw, 0.13 * sw, 0.06, 'snout');
@@ -759,7 +798,9 @@
             lay.eyes.push({ center, facing, R: eyeR, side: s, lids, tear });
         }
         // The ears' roots on the skull.
-        for (const s of [1, -1]) lay.ears.push({ base: H(s * 0.52, 0.66, -0.3), side: s });
+        // A deer's ears are set low and wide behind its antlers.
+        // A bear's small round ears stand far apart on the top of its broad head.
+        for (const s of [1, -1]) lay.ears.push({ base: faceKind === 'deer' ? H(s * 0.58, 0.5, -0.45) : faceKind === 'bear' ? H(s * 0.64, 0.6, -0.35) : H(s * 0.52, 0.66, -0.3), side: s });
         J.mouth = { z0, zt };
         lay.headShapes = head;
     }
@@ -1537,6 +1578,33 @@
     const TORSO_TAGS = new Set(['torso', 'belly', 'rump', 'back', 'hump', 'neck', 'mane', 'scapula']);
 
     /**
+     * How pale an animal's own face markings make a point of its head and throat (0 to 1, toward the light
+     * fur): a deer's white chin, the band behind its nose, its throat patch and eye rings; a bear's pale
+     * muzzle tip; a rabbit's pale eye rings, muzzle and chin; a sheep's face is its own color (none here);
+     * a reptile's pale lips and throat.
+     */
+    function faceMarks(r, lay, p, n, tag, hx, hy, hz, under) {
+        const { J, sr } = lay, { z0, zt } = J.mouth, face = profileOf(r).face;
+        const onHead = HEAD_TAGS.has(tag);
+        const ring = () => { let v = 0; for (const e of lay.eyes) { const d = len(sub(p, e.center)) / e.R; v = Math.max(v, smooth(1.2, 1.35, d) * smooth(1.75, 1.45, d)); } return v; };
+        if (face === 'deer') {
+            const chin = onHead ? smooth(-0.32, -0.45, hy) * smooth(zt - 0.75, zt - 0.5, hz) : 0;
+            const band = onHead ? smooth(zt - 0.62, zt - 0.5, hz) * smooth(zt - 0.22, zt - 0.32, hz) * smooth(0.15, -0.05, hy) : 0;
+            // The throat patch: a bright white bib high under the throat, behind the jaw.
+            const tp = add(J.atlas, add(mul(J.hup, -0.85 * sr), mul(J.hdir, -0.3 * sr)));
+            const patch = (tag === 'neck' || tag === 'jaw') ? smooth(0.55 * sr, 0.3 * sr, len(sub(p, tp))) * smooth(0, 0.4, under + 0.2) : 0;
+            return clamp(chin + band + patch + (onHead ? ring() * 0.7 : 0), 0, 1);
+        }
+        if (face === 'bear') return onHead ? smooth(zt - 0.75, zt - 0.4, hz) * smooth(0.25, 0.0, hy) * 0.55 : 0;
+        if (face === 'rabbit') {
+            const muzzle = onHead ? smooth(-0.12, -0.3, hy) * smooth(zt - 0.5, zt - 0.3, hz) * 0.7 : 0;
+            return clamp(muzzle + (tag === 'chin' ? 0.8 : 0) + (onHead ? ring() * 0.8 : 0) + ((tag === 'neck' || tag === 'jaw') ? smooth(0.3, 0.8, under) * 0.8 : 0), 0, 1);
+        }
+        if (face === 'reptile') return onHead ? smooth(-0.3, -0.45, hy) * smooth(z0, z0 + 0.3, hz) + ((tag === 'neck' || tag === 'jaw') ? smooth(0.2, 0.8, under) : 0) : smooth(0.2, 0.8, under) * (tag === 'neck' ? 1 : 0);
+        return (tag === 'neck' || tag === 'jaw') ? smooth(0.2, 0.8, under) * 0.9 : 0;
+    }
+
+    /**
      * The coat color at a body point: the pattern, the light underside and
      * muzzle, the dark nose pad, lips and eye rims, the pads under the paws,
      * and the bare skin of the genitalia and teats. `tag` is the nearest
@@ -1563,9 +1631,11 @@
         const throat = tag === 'neck' || tag === 'jaw' ? smooth(0.2, 0.8, under) : 0;
         const pat = r.pattern;
         const k = x => x * amt;
+        const faceKind = profileOf(r).face;
         if (pat === 'countershade' || pat === 'points' || pat === 'tabby' || pat === 'saddle' || pat === 'stripes' || pat === 'spots' || pat === 'rosettes' || pat === 'scales') {
-            col = mixRgb(col, C.light, k(clamp(belly + inner * 0.35 + muzzle * 0.85 + throat * 0.9, 0, 1)));
-        }
+            const pale = faceKind ? faceMarks(r, lay, p, n, tag, hx, hy, hz, under) : muzzle * 0.85 + throat * 0.9;
+            col = mixRgb(col, C.light, k(clamp(belly + inner * 0.35 + pale, 0, 1)));
+        } else if (faceKind === 'bear') col = mixRgb(col, C.light, k(faceMarks(r, lay, p, n, tag, hx, hy, hz, under)));
         if (pat === 'spots' || pat === 'dapple') {
             const [d1] = worley(p[0] * 9 / ps, p[1] * 9 / ps, p[2] * 9 / ps, seed);
             const spot = 1 - smooth(0.22, 0.32, d1);
@@ -1589,7 +1659,9 @@
         } else if (pat === 'socks' || pat === 'points') {
             const sockTop = J.frontKnee[1] * (pat === 'socks' ? 0.75 : 1);
             const sock = lowLeg ? smooth(sockTop + 0.04, sockTop - 0.04, p[1]) : 0;
-            const point = pat === 'points' ? clamp((tag === 'ear' ? 1 : 0) + (tag === 'snout' || tag === 'jaw' ? (profileOf(r).lightFace ? 0 : 0.5) : 0) + sock, 0, 1) : sock;
+            // A sheep's face and legs are bare of wool and all one color, the wool ending in a clean line.
+            const bareFace = faceKind === 'sheep' && (onHead || tag === 'ear') ? smooth(-0.2, -0.32, -hz) * (tag === 'ear' ? 1 : 1) : 0;
+            const point = pat === 'points' ? clamp((tag === 'ear' ? 1 : 0) + (faceKind === 'sheep' ? bareFace : tag === 'snout' || tag === 'jaw' ? (profileOf(r).lightFace ? 0 : 0.5) : 0) + sock, 0, 1) : sock;
             col = mixRgb(col, C.marking, k(point));
             if (pat === 'socks') {
                 // A blaze down the face.
@@ -1598,11 +1670,24 @@
             }
         } else if (pat === 'piebald') {
             const v = fbm(p[0] * 2.4 / ps, p[1] * 2.4 / ps, p[2] * 2.4 / ps, seed, 3);
-            col = mixRgb(col, C.marking, k(smooth(0.0, 0.08, v)));
+            let white = smooth(0.0, 0.08, v);
+            if (faceKind === 'cattle') {
+                // A cow's patches lie on the neck, back and flanks: the face is white but for patches round the
+                // eyes and ears, and the belly, the lower legs and the tail's switch are white.
+                const eyes = onHead ? Math.max(...lay.eyes.map(e => smooth(3.2, 2.2, len(sub(p, e.center)) / e.R))) * smooth(0.45, 0.6, hx) : 0;
+                if (onHead || tag === 'ear') white = tag === 'ear' || hz < -0.55 ? Math.min(white, 0.3) : 1 - eyes;
+                if (lowLeg) white = Math.max(white, smooth(J.frontKnee[1] * 1.1, J.frontKnee[1] * 0.9, p[1]));
+                white = Math.max(white, belly);
+            }
+            col = mixRgb(col, C.marking, k(white));
         } else if (pat === 'scales') {
-            const [d1, d2] = worley(p[0] * 30 / ps, p[1] * 30 / ps, p[2] * 30 / ps, seed);
-            const edge = 1 - smooth(0.0, 0.12, d2 - d1);
-            col = mixRgb(col, C.marking, k(edge * 0.8 * (1 - belly)));
+            // Each scale a cell: darker in the seams between, lit a little toward its middle, each its own shade.
+            const f = (onHead ? 20 : 13) / ps, x = p[0] * f, y = p[1] * f, z = p[2] * f;
+            const [d1, d2] = worley(x, y, z, seed);
+            const edge = 1 - smooth(0.02, 0.16, d2 - d1);
+            const tone = hash3(Math.floor(x + 0.5), Math.floor(y + 0.5), Math.floor(z + 0.5), seed + 9) - 0.5;
+            col = mixRgb(col, tone > 0 ? C.light : C.marking, k(Math.abs(tone) * 0.25 * (1 - belly)));
+            col = mixRgb(col, C.marking, k(edge * 0.75 * (1 - belly * 0.5)));
             // Darker along the back.
             col = mixRgb(col, C.marking, k(smooth(0.1, 0.9, n[1]) * 0.35));
         }
@@ -1620,6 +1705,11 @@
             const lipY = -0.4 - 0.05 * clamp((hz - z0) / (zt - z0), 0, 1);
             const lip = smooth(0.045, 0.012, Math.abs(hy - lipY)) * smooth(zt - 0.6, zt - 0.38, hz) * smooth(zt + 0.05, zt - 0.2, hz);
             col = mixRgb(col, mixRgb(C.nose, C.marking, 0.6), lip * 0.55);
+            // A reptile's teeth: a row of small pale points along the upper lip's edge.
+            if (faceKind === 'reptile' && hz > z0 && hz < zt - 0.05 && hx > 0.12) {
+                const t = (hz - z0) / 0.11, f = t - Math.floor(t), tip = lipY - 0.07 * (1 - Math.abs(f * 2 - 1));
+                if (hy < lipY + 0.015 && hy > tip) col = mixRgb(col, [0.88, 0.85, 0.74], 0.9);
+            }
         }
         // The lids' rims dark bare skin, a pale patch under each eye of a cat's face.
         for (const eye of lay.eyes) {
@@ -1642,6 +1732,10 @@
             }
         }
         if (tag === 'nosepad') col = C.nose;
+        // A cow's wide bare muzzle plate, wet and a little darker at its edge.
+        if (faceKind === 'cattle' && onHead) col = mixRgb(col, mixRgb(C.nose, [0.25, 0.15, 0.15], smooth(0.2, 0.45, hx) * 0.4), smooth(zt - 0.32, zt - 0.2, hz) * smooth(-0.42, -0.3, hy));
+        // A deer's bare nose: the whole tip of the muzzle above the lip, dark.
+        if (faceKind === 'deer' && onHead) col = mixRgb(col, C.nose, smooth(zt - 0.3, zt - 0.2, hz) * smooth(-0.3, -0.2, hy));
         // A cat's whisker spots: the dark roots of the whiskers in rows across each pad.
         if (profileOf(r).felid && tag === 'whisker' && lay.whiskerPad && Math.abs(n[0]) > 0.25) {
             const wp = lay.whiskerPad, row = (hy - wp.y + 0.14) / 0.085, col2 = (hz - wp.z + 0.2) / 0.1;
@@ -1682,7 +1776,7 @@
     }
 
     // ── assembly ───────────────────────────────────────────────────────────
-    const FINE_PATTERNS = new Set(['stripes', 'tabby', 'spots', 'rosettes', 'dapple']);
+    const FINE_PATTERNS = new Set(['stripes', 'tabby', 'spots', 'rosettes', 'dapple', 'piebald', 'scales']);
     /**
      * The coat painted into a picture for a fine pattern (stripes and spots finer than the saved mesh's
      * faces): the body's faces are grouped into charts by the axis they face, each chart laid flat along
@@ -1846,7 +1940,11 @@
         const cell = Math.max(save ? 0.0068 : 0.019, longest / (save ? 360 : 150)) * Math.min(1.25, Math.max(0.85, lay.g));
         const seed = r.seed % 997;
         const fur = r.fluff * 0.006 * lay.g;
-        const net = surfaceNet(shapes, cell, fur > 0 ? { amp: fur, at: (x, y, z) => fbm(x * 40, y * 40, z * 40, seed, 2) * 0.5 + 0.5 * Math.abs(valueNoise(x * 90, y * 90, z * 90, seed + 3)) } : null);
+        // The coat's roughness: none over the face ahead of the eyes, where the hair is short (a sheep's wool
+        // stops in a clean line behind its face).
+        const Jf = lay.J, faceLine = profileOf(r).face === 'sheep' ? -0.35 : 0.15;
+        const shortFace = (x, y, z) => { const dy = y - Jf.skull[1], dz = z - Jf.skull[2]; return smooth(faceLine + 0.15, faceLine, (dy * Jf.hdir[1] + dz * Jf.hdir[2]) / Jf.skullR); };
+        const net = surfaceNet(shapes, cell, fur > 0 ? { amp: fur, at: (x, y, z) => (fbm(x * 40, y * 40, z * 40, seed, 2) * 0.5 + 0.5 * Math.abs(valueNoise(x * 90, y * 90, z * 90, seed + 3))) * shortFace(x, y, z) } : null);
         let positions = relaxMesh(net.positions, net.index, 1);
         positions = projectMesh(positions, net, cell);
         let index = net.index;
@@ -2041,7 +2139,8 @@
             // The head keeps its own finely meshed colors (lids, lips, nose, whisker spots): white in the picture
             // there. A head vertex on a face that reaches the neck takes the picture as the neck does.
             const own = new Uint8Array(vcount), I = coat.index;
-            for (let v = 0; v < vcount; v++) own[v] = HEAD_TAGS.has(tags[v]) ? 1 : 0;
+            // (A scaled head has no fine face marks: it is painted with the rest, its scales as fine.)
+            for (let v = 0; v < vcount; v++) own[v] = HEAD_TAGS.has(tags[v]) && r.pattern !== 'scales' ? 1 : 0;
             const keep = Uint8Array.from(own);
             for (let t = 0; t < bodyFaces; t += 3) if (!(own[I[t]] && own[I[t + 1]] && own[I[t + 2]])) keep[I[t]] = keep[I[t + 1]] = keep[I[t + 2]] = 0;
             atlas = coatAtlas(positions, I.slice(0, bodyFaces), normals, tags, keep, (p, n, tag) => coatColor(r, lay, p, n, tag, C), save ? 512 : 384, total);
@@ -2123,7 +2222,7 @@
                 const n = [normals[a * 3], normals[a * 3 + 1], normals[a * 3 + 2]];
                 // None on the soles or the face's front.
                 if (n[1] < -0.8 && pa[1] < 0.1 * g) continue;
-                if (HEAD_TAGS.has(tag) && dot(sub(pa, J.skull), J.hdir) / sr > 0.3) continue;
+                if (HEAD_TAGS.has(tag) && dot(sub(pa, J.skull), J.hdir) / sr > (profileOf(r).face === 'sheep' ? -0.35 : 0.3)) continue;
                 coatArea += area; coatTris.push([t, coatArea]);
             }
         }
