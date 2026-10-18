@@ -111,12 +111,12 @@
     // ── fitting ────────────────────────────────────────────────────────────
     /**
      * The builder for one creature. `ctx`: { r, lay, inside(p) → field value
-     * (negative inside the body), skin(p) → [joints4, weights4], loft, curve }.
+     * (negative inside the body), insideHead(p) (the same for the head alone), skin(p) → [joints4, weights4], loft, curve }.
      * Pieces are written into per-material buckets of positions, index,
      * colors, joints and weights, in body units.
      */
-    function fitter(ctx) {
-        const buckets = new Map();
+    function fitter(ctx, shared) {
+        const buckets = shared || new Map();
         const bucket = material => {
             if (!buckets.has(material)) buckets.set(material, { positions: [], index: [], colors: [], joints: [], weights: [] });
             return buckets.get(material);
@@ -344,21 +344,34 @@
                 }
             } else if (item.id === 'bridle') {
                 const { z0, zt } = J.mouth;
-                // The crownpiece behind the ears and the throatlatch under the jaw; the noseband; cheek straps between.
-                const crownC = H(0, -0.05, -0.4), noseC = H(0, -0.15, z0 + 0.35 * (zt - z0));
-                F.band(crownC, hd, mul(hu, -1), 0.03 * g, gap, 0.008 * g, main, () => P.c1);
-                F.band(noseC, hd, mul(hu, -1), 0.03 * g, gap, 0.008 * g, main, () => P.c1);
-                F.band(H(0, 0.35, 0.65), hu, hd, 0.025 * g, gap, 0.006 * g, main, () => P.c2, -55 * DEG, 55 * DEG, 12);
+                // The crownpiece over the poll behind the ears, down to the cheeks; the throatlatch from its ends
+                // under the jaw; the noseband; the cheek straps from the poll down to the bit.
+                const crownC = H(0, -0.05, -0.4), noseC = H(0, -0.15, z0 + 0.35 * (zt - z0)), bitIn = H(0, -0.42, z0 + 0.2);
+                // Fitted to the head: on the body only where it lies close over the head, so on a short
+                // thick neck no strap lands on the hump behind.
+                const near = 0.3 * sr;
+                const onHead = ctx.insideHead ? p => { const h = ctx.insideHead(p); return Math.min(h, Math.max(ctx.inside(p), h - near)); } : ctx.inside;
+                const FH = fitter(Object.assign({}, ctx, { inside: onHead }), F.buckets);
+                const poll = norm(add(hd, neckAxis));
+                const crown = FH.band(crownC, poll, [0, -1, 0], 0.03 * g, gap, 0.008 * g, main, () => P.c1, Math.PI / 2 - 0.45, 1.5 * Math.PI + 0.45, 18);
+                const jaw = FH.surface(lerp(crownC, bitIn, 0.3), mul(hu, -1));
+                if (jaw) {
+                    const under = add(jaw.p, add(mul(jaw.n, 0.012 * g), mul(hd, -0.03 * g)));
+                    const ends = [crown[0], crown[crown.length - 1]].map(e => add(e.p, mul(e.n, gap + 0.004 * g)));
+                    F.tube(ctx.curve([ends[0], under, ends[1]], 16), () => [0.007 * g, 0.0025 * g], 4, main, () => P.c1, false);
+                }
+                FH.band(noseC, hd, mul(hu, -1), 0.03 * g, gap, 0.008 * g, main, () => P.c1);
+                FH.band(H(0, -0.05, -0.16), hd, hu, 0.022 * g, gap, 0.006 * g, main, () => P.c2, -78 * DEG, 78 * DEG, 14);
                 for (const side of [1, -1]) {
                     const rows = [];
                     for (let i = 0; i < 8; i++) {
-                        const t = i / 7, c = lerp(crownC, noseC, t);
+                        const t = i / 7, c = lerp(crownC, bitIn, t);
                         const dir = [side, -0.1, 0];
-                        rows.push([-0.012, 0.012].map(dz => F.surface(add(c, mul(hd, dz * g)), dir) || { p: add(c, [side * 0.1 * g, 0, 0]), n: [side, 0, 0] }));
+                        rows.push([-0.012, 0.012].map(dz => FH.surface(add(c, mul(hd, dz * g)), dir) || { p: add(c, [side * 0.1 * g, 0, 0]), n: [side, 0, 0] }));
                     }
-                    F.shell(rows.map(row => row), gap, 0.007 * g, main, () => P.c1, false);
+                    FH.shell(rows, gap, 0.007 * g, main, () => P.c1, false);
                     // The bit's rings at the mouth's corners, and the reins from them back to the withers.
-                    const corner = F.surface(H(0, -0.42, z0 + 0.2), [side, 0, 0]);
+                    const corner = FH.surface(bitIn, [side, 0, 0]);
                     const bitC = corner ? add(corner.p, [side * 0.012 * g, 0, 0]) : H(side * 0.5, -0.42, z0 + 0.2);
                     const circle = [];
                     for (let k = 0; k <= 12; k++) { const a = k / 12 * Math.PI * 2; circle.push(add(bitC, add(mul(hd, Math.cos(a) * 0.02 * g), mul(hu, Math.sin(a) * 0.02 * g)))); }

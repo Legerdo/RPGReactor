@@ -39,7 +39,9 @@
         tri(a, b, c) { this.i.push(a, b, c); }
         /**
          * Rings swept along a path: `ring(i, t)` gives {center, x, y, rx, ry}
-         * (axes of the ring's plane and its radii). Caps close the ends.
+         * (axes of the ring's plane and its radii) and an optional `cup`, which
+         * bows the ring back along -y by that share of rx (a hollow front).
+         * Caps close the ends.
          */
         loft(count, ring, sides, rgb, skin, caps) {
             const rows = [];
@@ -49,7 +51,8 @@
                 const row = [];
                 for (let k = 0; k < sides; k++) {
                     const a = k / sides * Math.PI * 2;
-                    const off = add(mul(R.x, Math.cos(a) * R.rx), mul(R.y, Math.sin(a) * R.ry));
+                    const bend = R.cup ? R.cup * R.rx * (1 - Math.cos(a) * Math.cos(a)) : 0;
+                    const off = add(mul(R.x, Math.cos(a) * R.rx), mul(R.y, Math.sin(a) * R.ry - bend));
                     const pos = add(R.center, off);
                     const color = typeof rgb === 'function' ? rgb(t, a, pos) : rgb;
                     row.push(this.vertex(pos, norm(off), color, skin));

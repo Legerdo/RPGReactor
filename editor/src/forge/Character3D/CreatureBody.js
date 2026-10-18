@@ -1626,7 +1626,8 @@
         // Gear, fitted to this body and skinned as it is.
         if (Gear && r.gear.length) {
             const skinAt = p => { weigh(p); const j4 = new Uint8Array(4), w4 = new Float32Array(4); setSkin(j4, w4, 0, byBone); return [Array.from(j4), Array.from(w4)]; };
-            const gearParts = Gear.build(r.gear, { r, lay, inside: p => fieldAt(net.near(p), p), skin: skinAt, loft, curve });
+            const headShapes = shapes.filter(s => s.bone === 'Head');
+            const gearParts = Gear.build(r.gear, { r, lay, inside: p => fieldAt(net.near(p), p), insideHead: p => fieldAt(headShapes, p), skin: skinAt, loft, curve });
             for (const gp of gearParts) finish(gp.name, gp, { kind: gp.kind, roughness: gp.roughness, metalness: gp.metalness, doubleSided: true });
         }
         const textures = {};
