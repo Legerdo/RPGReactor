@@ -902,7 +902,10 @@
             if (curlAmt > 0) pts = curlStrand(H, pts, curlAmt, layer.curl ? layer.curl.period : 0.04 * H.scale, true, rand() * 6.28);
             const variance = 0.85 + 0.3 * rand();
             const highlight = rand() < hair.highlights * 0.5;
-            addClump(m, pts, { width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume), flat: 0.35, sides: layer.sides || 3, center: H.center, color: t => ramp(t, variance, highlight) });
+            // Near the hairline the locks are narrower and drawn from past the picture's full root, so the
+            // edge breaks up into hairs instead of blocks.
+            const edge = smooth(1.5, 9, r.f);
+            addClump(m, pts, { width: layer.width * (0.75 + 0.5 * rand()) * (0.8 + 0.4 * hair.volume) * (0.5 + 0.5 * edge), flat: 0.35, sides: layer.sides || 3, center: H.center, vFrom: 0.01 + 0.2 * (1 - edge), color: t => ramp(t, variance, highlight) });
         }
     }
 
@@ -1239,7 +1242,7 @@
             // the sideburn, but well forward of it.
             const back = clamp((H.lipFront - p[2]) / Math.max(1e-6, H.lipFront - H.earFront), 0, 1);
             const diag = mix(noseBase - (noseBase - mouthY) * 0.1, mix(H.earBottom, H.earTop, 0.3), smooth(0.25, 0.9, back) * smooth(0.2, 0.55, ax));
-            const cheekLine = mix(diag, H.earTop - H.radii[1] * 0.15, smooth(0.88, 0.98, back) * smooth(0.7, 0.85, ax));
+            const cheekLine = mix(diag, H.earTop - H.radii[1] * 0.15, smooth(0.8, 0.95, back) * smooth(0.65, 0.82, ax));
             const above = (cheekLine - p[1]) / H.radii[1] * 60;
             const neckLine = H.neckBone.head[1] + (H.headBone.head[1] - H.neckBone.head[1]) * 0.08;
             const below = (p[1] - neckLine) / H.radii[1] * 60;
@@ -1304,7 +1307,7 @@
         for (const r of roots) {
             if (r.f < 0.3) continue;
             // Toward the beard's edge the hairs grow sparser, so it thins into the skin.
-            if (rand() > smooth(0, 0.4, inward(r.f)) * 0.8 + 0.2) continue;
+            if (rand() > smooth(0, 0.4, inward(r.f)) * 0.55 + 0.45) continue;
             const isLip = r.p[1] > H.lipBottom && Math.abs(r.p[0] - H.center[0]) < H.lipHalf * 1.4 && r.p[1] < H.noseTip[1];
             if (isLip && r.p[2] < H.lipFront - 0.012 * S) continue;
             if (isLip && !mustache) continue;
