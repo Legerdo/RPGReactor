@@ -1708,6 +1708,85 @@
         return { positions: Pos, normals, uvs: Float32Array.from(uvs), index: I, joints, weights, rows: rows.length, cols };
     }
 
+    // ── coverage ──────────────────────────────────────────────────────────
+    /**
+     * The hidden skin that some garment really covers: from each hidden body
+     * vertex a short ray straight out along the skin's normal must meet a
+     * garment's surface within `reach` meters, or the vertex is shown again (a
+     * slit, an armhole, a gap between plates, a tear in a garment taken from a
+     * model). Garment triangles sit in a grid of `cell` meters; each ray walks
+     * the cells it crosses and stops at its first hit. Returns the vertices
+     * shown again.
+     */
+    function uncovered(pack, built, parts, hidden, frame, reach = 0.1) {
+        const out = [];
+        if (!hidden.size || !parts.length) return Array.from(hidden);
+        const P = built.shaped;
+        const N = (frame && frame.bodyNormals) || Body.vertexNormals(pack, P);
+        if (frame && !frame.bodyNormals) frame.bodyNormals = N;
+        const cell = 0.03, inv = 1 / cell;
+        let total = 0;
+        for (const part of parts) total += part.index.length / 3;
+        const T = new Float32Array(total * 9);
+        const grid = new Map(), hashOf = (x, y, z) => (x * 73856093) ^ (y * 19349663) ^ (z * 83492791);
+        let t = 0;
+        for (const part of parts) {
+            const Q = part.positions, I = part.index;
+            for (let k = 0; k < I.length; k += 3, t++) {
+                const a = I[k] * 3, b = I[k + 1] * 3, c = I[k + 2] * 3, o = t * 9;
+                T[o] = Q[a]; T[o + 1] = Q[a + 1]; T[o + 2] = Q[a + 2]; T[o + 3] = Q[b]; T[o + 4] = Q[b + 1]; T[o + 5] = Q[b + 2]; T[o + 6] = Q[c]; T[o + 7] = Q[c + 1]; T[o + 8] = Q[c + 2];
+                const x0 = Math.floor(Math.min(Q[a], Q[b], Q[c]) * inv), x1 = Math.floor(Math.max(Q[a], Q[b], Q[c]) * inv);
+                const y0 = Math.floor(Math.min(Q[a + 1], Q[b + 1], Q[c + 1]) * inv), y1 = Math.floor(Math.max(Q[a + 1], Q[b + 1], Q[c + 1]) * inv);
+                const z0 = Math.floor(Math.min(Q[a + 2], Q[b + 2], Q[c + 2]) * inv), z1 = Math.floor(Math.max(Q[a + 2], Q[b + 2], Q[c + 2]) * inv);
+                // A huge triangle (a sole's fan) is filed under each cell it spans, up to a few on a side.
+                if ((x1 - x0) * (y1 - y0) * (z1 - z0) > 512) continue;
+                for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) {
+                    const h = hashOf(x, y, z);
+                    let list = grid.get(h); if (!list) grid.set(h, list = []);
+                    list.push(t);
+                }
+            }
+        }
+        const seen = new Int32Array(total).fill(-1);
+        let ray = 0;
+        const hits = (ox, oy, oz, dx, dy, dz, list) => {
+            for (const id of list) {
+                if (seen[id] === ray) continue;
+                seen[id] = ray;
+                const o = id * 9;
+                const e1x = T[o + 3] - T[o], e1y = T[o + 4] - T[o + 1], e1z = T[o + 5] - T[o + 2];
+                const e2x = T[o + 6] - T[o], e2y = T[o + 7] - T[o + 1], e2z = T[o + 8] - T[o + 2];
+                const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+                const det = e1x * px + e1y * py + e1z * pz;
+                if (Math.abs(det) < 1e-12) continue;
+                const f = 1 / det, tx = ox - T[o], ty = oy - T[o + 1], tz = oz - T[o + 2];
+                const u = (tx * px + ty * py + tz * pz) * f;
+                if (u < 0 || u > 1) continue;
+                const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+                const v = (dx * qx + dy * qy + dz * qz) * f;
+                if (v < 0 || u + v > 1) continue;
+                const d = (e2x * qx + e2y * qy + e2z * qz) * f;
+                if (d > -0.004 && d < reach) return true;
+            }
+            return false;
+        };
+        for (const vtx of hidden) {
+            const ox = P[vtx * 3], oy = P[vtx * 3 + 1], oz = P[vtx * 3 + 2];
+            const dx = N[vtx * 3], dy = N[vtx * 3 + 1], dz = N[vtx * 3 + 2];
+            ray++;
+            let covered = false, last = null;
+            for (let step = -0.006; step <= reach && !covered; step += cell * 0.33) {
+                const h = hashOf(Math.floor((ox + dx * step) * inv), Math.floor((oy + dy * step) * inv), Math.floor((oz + dz * step) * inv));
+                if (h === last) continue;
+                last = h;
+                const list = grid.get(h);
+                if (list && hits(ox, oy, oz, dx, dy, dz, list)) covered = true;
+            }
+            if (!covered) out.push(vtx);
+        }
+        return out;
+    }
+
     // ── belts ─────────────────────────────────────────────────────────────
     /** The trunk's skin (pack vertex ids), kept per pack. */
     function trunkSkin(pack) {
@@ -1805,7 +1884,7 @@
         return Object.assign(laid, { hidden: t.hidden, template: t });
     }
 
-    const api = { binding, boundPositions, collide, pointGrid, FAMILIES, CHAINS, linear, anatomy, coverage, cut, cutFor, lay, paint, mixSkin, surfaceNormals, triangleNormals, relaxScalar, shoes, footFrame, band, helmet, pauldrons, collarBand };
+    const api = { binding, boundPositions, collide, pointGrid, FAMILIES, CHAINS, linear, anatomy, coverage, cut, cutFor, lay, paint, mixSkin, surfaceNormals, triangleNormals, relaxScalar, shoes, footFrame, band, helmet, pauldrons, collarBand, uncovered };
     root.RRCharacterOutfit = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

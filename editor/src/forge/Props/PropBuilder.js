@@ -1,5 +1,5 @@
 /**
- * PropBuilder - Forge › Prop Builder.
+ * PropBuilder - Forge › 3D Prop Builder.
  *
  * One recipe (RRPropModel) describes the prop; its kind (Flag, From
  * picture) decides the tabs. Every control edits the recipe and the view
@@ -19,6 +19,8 @@ class PropBuilder {
         this.tab = null;
         this.motion = 'live';
         this.folded = {};
+        this.randomScope = 'all';
+        try { for (const k of JSON.parse(sessionStorage.getItem(PropBuilder.FOLDED_KEY) || '[]')) this.folded[k] = true; } catch (e) { /* nothing remembered */ }
         this._undo = [];
         this._redo = [];
         this._committed = JSON.stringify(this.recipe);
@@ -133,7 +135,10 @@ class PropBuilder {
                     <label class="rr-c3d-name"><span>${this._t('Name')}</span><input type="text" class="rr-c3d-name-input rr-input" maxlength="48" placeholder="${this._t(this._ui().placeholder)}" value="${rrEscapeHtml(this.name)}"></label>
                     <button class="rr-btn-chip rr-prop-undo" title="${this._t('Undo')}" disabled>↶</button>
                     <button class="rr-btn-chip rr-prop-redo" title="${this._t('Redo')}" disabled>↷</button>
-                    <button class="rr-btn-chip rr-prop-random" title="${this._t('A new design and colors')}">🎲 ${this._t('Randomize')}</button>
+                    <span class="rr-c3d-group rr-prop-randomgroup">
+                        <button class="rr-btn-chip rr-prop-random" title="${this._t('Roll something new for the part chosen beside it')}">🎲 ${this._t('Randomize')}</button>
+                        <select class="rr-c3d-random-scope rr-prop-random-scope rr-select" title="${this._t('What Randomize changes')}"></select>
+                    </span>
                     <button class="rr-btn-chip rr-prop-reset">↻ ${this._t('Reset')}</button>
                     <button class="rr-btn-chip rr-prop-open">${this._t('Open…')}</button>
                     <span class="rr-c3d-spacer"></span>
@@ -173,6 +178,7 @@ class PropBuilder {
         q('.rr-prop-undo').addEventListener('click', () => this._history(-1));
         q('.rr-prop-redo').addEventListener('click', () => this._history(1));
         q('.rr-prop-random').addEventListener('click', () => this._randomize());
+        q('.rr-prop-random-scope').addEventListener('change', e => { this.randomScope = e.target.value; });
         q('.rr-prop-reset').addEventListener('click', () => this._replace(this._ui().reset(this.recipe)));
         q('.rr-prop-open').addEventListener('click', () => this._showGallery());
         q('.rr-prop-save').addEventListener('click', () => this.save());
@@ -214,19 +220,23 @@ class PropBuilder {
         if (!list) return;
         const current = RRPropCatalog.typeOf(this.recipe), searching = !!String(this.search || '').trim();
         const groups = RRPropCatalog.grouped(this.search, s => this._t(s));
-        list.innerHTML = groups.map(({ category, types }) => {
-            const folded = !searching && !!this.folded['cat:' + category.id] && !types.includes(current);
+        const row = t => `<button class="rr-prop-type${t === current ? ' is-active' : ''}" data-type="${rrEscapeHtml(t.id)}" title="${rrEscapeHtml(this._t(t.label))}">${RRPropCatalog.icon(t.icon, 16)}<span>${rrEscapeHtml(this._t(t.label))}</span></button>`;
+        list.innerHTML = groups.map(({ category, own, groups: subs, types }) => {
+            const folded = !searching && !!this.folded['cat:' + category.id];
             return `<div class="lit-section rr-prop-cat${folded ? ' is-collapsed' : ''}">
-                <div class="lit-section-header rr-prop-cathead" data-cat="${category.id}" tabindex="0" role="button" aria-expanded="${!folded}">
+                <div class="lit-section-header rr-prop-cathead" data-cat="${rrEscapeHtml(category.id)}" tabindex="0" role="button" aria-expanded="${!folded}">
                     <span class="r3d-sec-toggle">${folded ? '▸' : '▾'}</span><span class="r3d-sec-title">${rrEscapeHtml(this._t(category.label))}</span><span class="lit-section-meta">${types.length}</span></div>
-                <div class="lit-section-body rr-prop-catbody">${types.map(t => `<button class="rr-prop-type${t === current ? ' is-active' : ''}" data-type="${rrEscapeHtml(t.id)}" title="${rrEscapeHtml(this._t(t.label))}">${RRPropCatalog.icon(t.icon, 16)}<span>${rrEscapeHtml(this._t(t.label))}</span></button>`).join('')}</div>
+                <div class="lit-section-body rr-prop-catbody">${own.map(row).join('')}${subs.map(g => `<div class="rr-prop-subhead">${rrEscapeHtml(this._t(g.category.label))}</div>${g.types.map(row).join('')}`).join('')}</div>
             </div>`;
         }).join('') || `<p class="rr-c3d-note rr-prop-none">${this._t('No props match.')}</p>`;
     }
 
     _foldCategory(id) {
         this.folded['cat:' + id] = !this.folded['cat:' + id];
+        try { sessionStorage.setItem(PropBuilder.FOLDED_KEY, JSON.stringify(Object.keys(this.folded).filter(k => k.startsWith('cat:') && this.folded[k]))); } catch (e) { /* state stays for this window */ }
         this._renderTypes();
+        const head = [...this.root.querySelectorAll('.rr-prop-cathead')].find(h => h.dataset.cat === id);
+        if (head) head.focus();
     }
 
     _renderPanel() {
@@ -243,8 +253,15 @@ class PropBuilder {
         this._syncSliders();
         this._syncMotion();
         this._profileEditor();
-        const random = this.root.querySelector('.rr-prop-random');
-        if (random) random.hidden = !RRPropModel.kindOf(this.recipe).random;
+        const kind = RRPropModel.kindOf(this.recipe), group = this.root.querySelector('.rr-prop-randomgroup');
+        if (group) {
+            group.hidden = !kind.random;
+            const scopes = kind.randomScopes || [['all', 'Everything']];
+            if (!scopes.some(s => s[0] === this.randomScope)) this.randomScope = 'all';
+            const select = group.querySelector('select');
+            select.innerHTML = scopes.map(([id, label]) => `<option value="${id}"${id === this.randomScope ? ' selected' : ''}>${this._t(label)}</option>`).join('');
+            select.hidden = scopes.length < 2;
+        }
         const type = RRPropCatalog.typeOf(this.recipe), input = this.root.querySelector('.rr-c3d-name-input');
         if (input) input.placeholder = this._t(type ? type.label : ui.placeholder);
     }
@@ -380,8 +397,8 @@ class PropBuilder {
     }
 
     _randomize() {
-        const random = RRPropModel.kindOf(this.recipe).random;
-        if (random) this._replace(random((Math.random() * 4294967296) >>> 0, this.recipe));
+        const kind = RRPropModel.kindOf(this.recipe);
+        if (kind.random) this._replace(kind.random((Math.random() * 4294967296) >>> 0, this.recipe, this.randomScope || 'all'));
     }
 
     _status(text, kind) {
@@ -498,6 +515,8 @@ class PropBuilder {
 
     _advance(dt) {
         const view = this._view, result = this._result;
+        // Containers: a build's own clip (its lights) plays in the view as the game plays it.
+        if (view && result && view.clipAction && !RRPropModel.moves(result)) { view.mixer.update(dt); return true; }
         if (!view || !result || !RRPropModel.moves(result) || !view.bones.length) return false;
         if (this.motion === 'loop' && view.mixer && view.action) { view.mixer.update(dt); return true; }
         if (!view.sims || !view.sims.length) return false;
@@ -625,6 +644,7 @@ class PropBuilder {
             this._applyMaterials(result);
         } else { this._show(result, structure); view.layout = layout; }
         if (!same) this._stage(result);
+        this._playClip(result);
         // The running cloth takes a new wind or fabric as it flies.
         if (view.sims) RRPropModel.clothsOf(result).forEach((c, i) => { if (view.sims[i]) { view.sims[i].cloth = c; RRPropCloth.configure(view.sims[i].state, c.setup); } });
         this._loopFor = null;
@@ -648,6 +668,7 @@ class PropBuilder {
         for (const b of view.bones) if (b.parent === view.group) view.group.remove(b);
         if (view.skeleton) view.skeleton.dispose();
         view.meshes = []; view.bones = []; view.skeleton = null; view.mixer = null; view.action = null; view.sim = null; view.structure = null;
+        view.clipAction = null; view.clipKey = null;
     }
 
     _texture(name, tex, color) {
@@ -675,7 +696,7 @@ class PropBuilder {
             if (!tex) continue;
             const kept = this._view.textures.get(name);
             const fresh = this._texture(name, tex, !/normal/.test(name));
-            if (kept && kept.texture !== fresh) for (const m of this._view.meshes) { if (m.material.map === kept.texture) m.material.map = fresh; if (m.material.normalMap === kept.texture) m.material.normalMap = fresh; m.material.needsUpdate = true; }
+            if (kept && kept.texture !== fresh) for (const m of this._view.meshes) { if (m.material.map === kept.texture) m.material.map = fresh; if (m.material.normalMap === kept.texture) m.material.normalMap = fresh; if (m.material.emissiveMap === kept.texture) m.material.emissiveMap = fresh; m.material.needsUpdate = true; }
         }
     }
 
@@ -712,6 +733,9 @@ class PropBuilder {
         if (normal) { m.normalMap = this._texture(part.normalTexture, normal, false); m.normalScale = new THREE.Vector2(part.normalScale ?? 1, part.normalScale ?? 1); }
         if (part.cutout) m.alphaToCoverage = true;
         if (part.emissive) { m.emissive = new THREE.Color(part.emissive); m.emissiveIntensity = 1.4; }
+        // Containers: a glow drawn from its picture (lamps, a display), halos blended by their alpha.
+        if (part.emissive && part.emissiveTexture && result.textures[part.emissiveTexture]) m.emissiveMap = this._texture(part.emissiveTexture, result.textures[part.emissiveTexture], true);
+        if (part.blend) { m.transparent = true; m.depthWrite = false; }
         // Cloth: a soft sheen at grazing angles in its own colors; silk shines more.
         if (cloth && m.isMeshPhysicalMaterial) { m.sheen = result.recipe.cloth && result.recipe.cloth.fabric === 'silk' ? 0.6 : 0.25; m.sheenRoughness = 0.5; m.sheenColor = new THREE.Color(0.85, 0.85, 0.85); if (m.map) m.sheenColorMap = m.map; m.specularIntensity = 0.25; }
         return m;
@@ -798,6 +822,29 @@ class PropBuilder {
             c.updateProjectionMatrix();
         }
         if (first) { view.framedFor = extent; this._frame('all'); }
+    }
+
+    /**
+     * Containers: a build's own clip, when it has one and nothing simulated
+     * moves it, played on the view's bones; made again when its keys change.
+     */
+    _playClip(result) {
+        const view = this._view;
+        const clip = !RRPropModel.moves(result) && result.clips && result.clips[0];
+        const key = clip ? view.structure + '|' + clip.tracks.map(t => t.bone + t.path + Array.from(t.times || clip.times).join(',')).join('|') : null;
+        if (view.clipKey === key && (view.clipAction || !clip)) return;
+        if (view.clipAction) { view.clipAction.stop(); view.clipAction = null; }
+        view.clipKey = key;
+        if (!clip || !view.mixer) return;
+        const tracks = clip.tracks.map(t => {
+            const name = view.bones[t.bone].name, times = Array.from(t.times || clip.times), values = Array.from(t.values);
+            if (t.path === 'translation') return new THREE.VectorKeyframeTrack(name + '.position', times, values);
+            if (t.path === 'scale') return new THREE.VectorKeyframeTrack(name + '.scale', times, values);
+            return new THREE.QuaternionKeyframeTrack(name + '.quaternion', times, values);
+        });
+        view.mixer.uncacheRoot(view.group);
+        view.clipAction = view.mixer.clipAction(new THREE.AnimationClip(clip.name, -1, tracks));
+        view.clipAction.play();
     }
 
     // ── the saved loop ─────────────────────────────────────────────────────
@@ -902,7 +949,7 @@ class PropBuilder {
         if (!folder || !picker || typeof picker.showImagePicker !== 'function' || !assets) return;
         let files = [];
         try { files = assets.listImageReferences(folder); } catch (error) { files = []; }
-        if (!files.length) { RRDialog.alert(this._t('No pictures in img/pictures yet. Add one there to use it here.'), { title: this._t('Prop Builder') }); return; }
+        if (!files.length) { RRDialog.alert(this._t('No pictures in img/pictures yet. Add one there to use it here.'), { title: this._t('3D Prop Builder') }); return; }
         picker.showImagePicker(this._t('Choose a picture'), files, name => { if (name) onPick(name); }, name => assets.imageUrlFor(folder, name), current || undefined,
             { selectButtonLabel: this._t('Use This Picture'), zIndex: 10500 });
     }
@@ -1088,7 +1135,7 @@ RRPropCatalog.ui('flag', {
                 let html = this._section('Size') + this._select('cloth.aspect', 'Shape', F.ASPECTS.map(a => [a[0], a[1]]))
                     + this._slider({ path: 'cloth.width', label: 'Width', range: [0.15, 6], step: 0.05, format: 'm' })
                     + this._slider({ path: 'cloth.height', label: 'Height', range: [0.1, Math.max(0.2, Math.round(cap * 100) / 100)], step: 0.05, format: 'm' })
-                    + this._select('cloth.cut', 'Cut', F.CUTS);
+                    + this._select('cloth.cut', 'Fly end', F.CUTS);
                 html += this._section('Fabric') + this._tiles('fabric', F.FABRICS.map(([id, label]) => ({ id, label })), r.cloth.fabric, 2);
                 if (r.cloth.fabric === 'tattered') html += this._slider({ path: 'cloth.wear', label: 'Wear', range: [0, 1] });
                 return html;
@@ -1157,7 +1204,7 @@ RRPropCatalog.ui('picture', {
             + this._slider({ path: 'framed.size', label: 'Size', range: [0.1, 3], step: 0.05, format: 'm' });
         const F = RRFramedProp, f = r.framed;
         if (f.object === 'painting' || f.object === 'poster') {
-            html += this._section('Frame') + this._tiles('frame-preset', F.PRESETS.map(p => ({ id: p.id, label: p.label })), null, 2)
+            html += this._section('Picture frame') + this._tiles('frame-preset', F.PRESETS.map(p => ({ id: p.id, label: p.label })), null, 2)
                 + this._select('framed.style', 'Style', F.STYLES);
             if (f.style !== 'none' && f.style !== 'clip') {
                 html += this._slider({ path: 'framed.width', label: 'Width', range: [0.01, 0.3], step: 0.005, format: 'm' })
@@ -1166,11 +1213,11 @@ RRPropCatalog.ui('picture', {
             }
             if (f.style !== 'none') html += this._select('framed.material', 'Material', F.MATERIALS) + (f.material === 'painted' ? this._color('framed.paint', 'Color', ['#f2f0ea', '#1b1b1f', '#2b3a55', '#5a2a22', '#3e5a32']) : '');
             if (f.style !== 'none' && f.style !== 'clip') {
-                html += this._check('framed.mat', 'Mat');
+                html += this._check('framed.mat', 'Mat board');
                 if (f.mat) html += this._slider({ path: 'framed.matWidth', label: 'Mat width', range: [0.01, 0.4], step: 0.005, format: 'm' }) + this._color('framed.matColor', 'Mat color', ['#f7f5ef', '#e8e0cc', '#1b1b1f', '#2b3a55']);
             }
             if (f.style !== 'none') html += this._check('framed.glass', 'Glass');
-            if (!(f.object === 'poster' && f.style === 'none')) html += this._select('framed.mount', 'Mount', F.MOUNTS);
+            if (!(f.object === 'poster' && f.style === 'none')) html += this._select('framed.mount', 'Displayed on', F.MOUNTS);
             if (f.object === 'poster' && f.style === 'none') html += this._color('framed.color', 'Pins', ['#c8a040', '#1b1b1f', '#a51f2b', '#1f3c78']);
         } else if (f.object === 'crate') {
             html += this._section('Crate') + this._select('framed.wood', 'Wood', F.WOODS) + this._select('framed.banding', 'Banding', F.BANDINGS) + this._select('framed.faces', 'Picture on', F.FACES);
@@ -1309,7 +1356,7 @@ PropBuilder.prototype._designPanel = function(path) {
     const D = RRFlagDesign, g = this._get(path), f = g.field;
     const mini = (key, design) => this._mini(key, () => PropBuilder.designPicture(design, 64, 40, this._images));
     let html = this._section('Presets') + this._tiles('design-preset', D.PRESETS.map(p => ({ id: p.id, label: p.label, picture: mini('preset:' + p.id, p.design) })), null);
-    html += this._section('Field') + this._tiles('field', D.LAYOUTS.map(l => ({ id: l.id, label: l.label, picture: l.id === 'image' ? '' : mini('field:' + l.id, { field: Object.assign({}, f, { layout: l.id }), layers: [] }) })), f.layout);
+    html += this._section('Background pattern') + this._tiles('field', D.LAYOUTS.map(l => ({ id: l.id, label: l.label, picture: l.id === 'image' ? '' : mini('field:' + l.id, { field: Object.assign({}, f, { layout: l.id }), layers: [] }) })), f.layout);
     const orient = this._select(`${path}.field.orient`, 'Direction', [['h', 'Horizontal'], ['v', 'Vertical']]);
     if (f.layout === 'image') html += `<div class="rr-c3d-row rr-prop-picturerow"><span class="rr-c3d-label">${this._t('Picture')}</span><span class="rr-prop-picturename">${rrEscapeHtml(g.image || this._t('None'))}</span><button class="rr-btn-chip" data-act="field-image">${this._t('Choose…')}</button></div>`;
     if (f.layout === 'bands') {
@@ -1345,8 +1392,8 @@ PropBuilder.prototype._designPanel = function(path) {
         html += this._select(`${base}.place`, 'Place', D.PLACES);
         if (l.place === 'free') html += this._slider({ path: `${base}.x`, label: 'Across', range: [0, 1] }) + this._slider({ path: `${base}.y`, label: 'Down', range: [0, 1] });
         html += this._slider({ path: `${base}.size`, label: 'Size', range: [0.05, 1.2] }) + this._slider({ path: `${base}.rotate`, label: 'Turn', range: [-180, 180], step: 1, format: 'deg' })
-            + this._check(`${base}.mirror`, 'Mirror') + this._select(`${base}.repeat`, 'Repeat', D.REPEATS);
-        if (l.repeat !== 'none') html += this._slider({ path: `${base}.count`, label: 'Count', range: [2, 24], step: 1, format: 'int' }) + this._slider({ path: `${base}.spread`, label: 'Spread', range: [0.1, 2], step: 0.01 });
+            + this._check(`${base}.mirror`, 'Mirror') + this._select(`${base}.repeat`, 'Repeat as', D.REPEATS);
+        if (l.repeat !== 'none') html += this._slider({ path: `${base}.count`, label: 'Copies', range: [2, 24], step: 1, format: 'int' }) + this._slider({ path: `${base}.spread`, label: 'Spread', range: [0.1, 2], step: 0.01 });
     }
     return html;
 };
@@ -1389,4 +1436,5 @@ PropBuilder.prototype._mini = function(key, make) {
     return url;
 };
 
+PropBuilder.FOLDED_KEY = 'rr.propBuilder.foldedCategories';
 if (typeof window !== 'undefined') window.PropBuilder = PropBuilder;

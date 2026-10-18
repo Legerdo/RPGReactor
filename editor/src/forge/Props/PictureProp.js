@@ -19,6 +19,7 @@
     'use strict';
 
     const need = (name, file) => root[name] || (typeof require === 'function' ? require(file) : null);
+    const Rand = need('RRPropRandom', './PropRandom.js');
     const Paint = need('RRPropPaint', './PropPaint.js');
     const Mesh = need('RRPropMesh', './PropMesh.js');
     const Flag = need('RRFlagProp', './FlagProp.js');
@@ -455,8 +456,8 @@
             const a = ringAt(k, n0[0], n0[1]), b = ringAt(k + 1, n1[0], n1[1]);
             const flatA = outline[k][0] === 0, flatB = outline[k + 1][0] === 0;
             for (let s = 0; s < seg; s++) {
-                if (!flatA) I.push(a + s, b + s, a + s + 1);
-                if (!flatB) I.push(a + s + 1, b + s, b + s + 1);
+                if (!flatA) I.push(a + s, a + s + 1, b + s);
+                if (!flatB) I.push(a + s + 1, b + s + 1, b + s);
             }
         }
         return { positions: Float32Array.from(P), normals: Float32Array.from(N), uvs: Float32Array.from(T), index: Uint32Array.from(I) };
@@ -561,7 +562,47 @@
         return p;
     }
 
-    const api = { settle, MODES, OUTLINES, EDGES, BACKS, STANDS, BACKINGS, dilate, SURFACES, OBJECTS, VASE, DEFAULT, normalize, maskOf, trace, shapes, simplify, signedArea, profileFromPicture, turnedOutline, revolve, bannerRecipe, build };
+    /**
+     * A random picture prop of the same mode and picture. Cut-out: its size,
+     * board, edge, stand and back; turned: its height, top, wall and glaze;
+     * framed: a frame from its presets with its own size, mat and colors.
+     */
+    function random(seed, recipe, scope) {
+        const R = Rand.roll(seed), r = normalize(recipe), has = part => Rand.covers(scope, part);
+        if (r.mode === 'cutout') {
+            const c = r.cutout;
+            if (has('shape')) Object.assign(c, { size: R.range(0.5, 2.2), thickness: R.range(0.015, 0.07), edge: R.pick(['bevel', 'round', 'square']) });
+            if (has('details')) Object.assign(c, { stand: R.weighted([['none', 2], ['stand', 2], ['post', 1]]), backing: R.chance(0.8) ? 'plate' : 'none' });
+            if (has('colors')) Object.assign(c, { back: R.pick(['mirror', 'color', 'wood']), backColor: R.pick(Rand.PALETTES.wood.concat(Rand.PALETTES.paint)) });
+        } else if (r.mode === 'turned') {
+            const t = r.turned;
+            if (has('shape')) Object.assign(t, { height: R.range(0.25, 1.2), segments: R.int(24, 40) });
+            if (has('details')) Object.assign(t, { top: R.chance(0.75) ? 'open' : 'closed', wall: R.range(0.008, 0.03) });
+            if (has('colors')) Object.assign(t, { surface: R.weighted([['picture', r.image ? 3 : 0], ['clay', 2], ['glazed', 3], ['wood', 1.5], ['metal', 1], ['stone', 1]]), color: R.pick(['#b86a44', '#8a3a2a', '#2a5a7a', '#e8e0d0', '#3a6a4a', '#c8a050', '#6a4a8a', '#1b1b1f']) });
+        } else {
+            const f = r.framed, wall = f.object === 'painting' || f.object === 'poster' || f.object === 'banner';
+            if (has('details') && wall) {
+                const preset = R.pick(Framed.PRESETS.filter(p => f.object !== 'poster' || p.id !== 'museum'));
+                Object.assign(f, preset.set, { mount: R.weighted([['wall', 4], ['easel', 1], ['stand', f.size < 0.7 ? 1.5 : 0.2]]) });
+                if (R.chance(0.35)) Object.assign(f, { mat: true, matWidth: R.range(0.03, 0.1) });
+            }
+            if (has('details') && f.object === 'crate') Object.assign(f, { banding: R.pick(['none', 'metal', 'rope']), faces: R.pick(['all', 'front']) });
+            if (has('details') && f.object === 'book') f.bands = R.chance(0.6);
+            if (has('shape')) {
+                f.size = f.object === 'book' ? R.range(0.18, 0.35) : f.object === 'crate' ? R.range(0.4, 0.9) : R.range(0.4, 1.4);
+                if (wall && f.style !== 'none') { f.width = R.jitter(f.width, 0.25, 0.01, 0.3); f.depth = R.jitter(f.depth, 0.2, 0.008, 0.15); }
+                if (f.object === 'book') f.thickness = R.range(0.02, 0.09);
+            }
+            if (has('colors')) {
+                if (wall && f.style !== 'none' && f.style !== 'clip') f.material = f.style === 'ornate' ? R.pick(['gold', 'gold', 'silver']) : f.style === 'rustic' ? R.pick(['darkwood', 'lightwood']) : R.pick(['painted', 'blackmetal', 'darkwood', 'lightwood', 'silver']);
+                f.paint = R.pick(Rand.PALETTES.paint); f.matColor = R.pick(['#f2eee4', '#f7f5ef', '#e8e0d0', '#1b1b1f', '#2a3a55', '#5a2a2a']);
+                f.color = R.pick(Rand.PALETTES.cloth.concat(Rand.PALETTES.leather)); f.wood = R.pick(['pine', 'oak', 'dark']);
+            }
+        }
+        return normalize(r);
+    }
+
+    const api = { random, settle, MODES, OUTLINES, EDGES, BACKS, STANDS, BACKINGS, dilate, SURFACES, OBJECTS, VASE, DEFAULT, normalize, maskOf, trace, shapes, simplify, signedArea, profileFromPicture, turnedOutline, revolve, bannerRecipe, build };
     root.RRPictureProp = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     const Catalog = root.RRPropCatalog || (typeof require === 'function' ? require('./PropCatalog.js') : null);
@@ -569,5 +610,5 @@
         Catalog.add({ id: 'picture-' + mode, category: 'picture', label, icon, kind: 'picture', keywords, start: from => normalize({ mode, image: from && from.kind === 'picture' ? from.image : '' }), matches: r => r.mode === mode });
     }
     const Model = root.RRPropModel;
-    if (Model && Model.register) Model.register({ id: 'picture', label: 'From picture', normalize, build });
+    if (Model && Model.register) Model.register({ id: 'picture', label: 'From picture', normalize, build, random, randomScopes: [Rand.SCOPES.all, Rand.SCOPES.shape, Rand.SCOPES.details, Rand.SCOPES.colors] });
 })(typeof window !== 'undefined' ? window : globalThis);

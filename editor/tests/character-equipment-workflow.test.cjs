@@ -62,7 +62,8 @@ test('every accessory is searchable in the prop catalog and exports without its 
     for(const def of Props.PROPS) {
         const type=Catalog.TYPES.find(t=>t.id==='accessory-'+def.id),r=type.start(),snapshot=JSON.stringify(r);
         assert.equal(Catalog.typeOf(r).id,type.id);
-        assert.ok(Catalog.grouped(def.label).some(g=>g.types.includes(type)));
+        // Swords, daggers and books are listed once, under their own builders: their accessories stay unlisted.
+        assert.equal(Catalog.grouped(def.label).some(g=>g.types.includes(type)),!type.hidden,def.id);
         const result=Model.build(r);
         assert.equal(JSON.stringify(r),snapshot,'build does not mutate '+def.id);
         assert.equal(result.bones.length,1);assert.equal(result.clips.length,0);assert.equal(Model.moves(result),false);

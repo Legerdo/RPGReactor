@@ -631,33 +631,66 @@
     }
 
     /**
-     * The mouth's inside, darker and redder the deeper it lies behind the
-     * lips: written into the body part's colors (1 where nothing changes).
+     * Whether a covering (a full-face helmet) hides the mouth: most of the
+     * lips are among the skin vertices it hides (`hidden`, the outfit's set).
      */
-    function tintMouth(pack, built, body) {
+    function mouthCovered(pack, hidden) {
+        if (!hidden || !hidden.size) return false;
+        const F = packFields(pack);
+        let n = 0;
+        for (const v of F.lips) if (hidden.has(v)) n++;
+        return n > F.lips.length * 0.5;
+    }
+
+    /** The skin of the mouth's inside, by pack vertex (behind the lips, facing the mouth's middle). */
+    function mouthInside(pack, built) {
         const S = built.shaped, F = packFields(pack);
         const teeth = F.upperTeeth.concat(F.lowerTeeth);
         let x1 = 0, y0 = Infinity, y1 = -Infinity, zf = -Infinity, zb = Infinity;
         for (const v of teeth) { x1 = Math.max(x1, Math.abs(S[v * 3])); y0 = Math.min(y0, S[v * 3 + 1]); y1 = Math.max(y1, S[v * 3 + 1]); zf = Math.max(zf, S[v * 3 + 2]); zb = Math.min(zb, S[v * 3 + 2]); }
-        const src = pack.body.source, n = src.length, colors = body.colors ? Float32Array.from(body.colors) : new Float32Array(n * 3).fill(1);
-        const H = F.head, depth = Math.max(1e-4, zf - zb), hy = (y1 - y0);
-        const C = meanOf(S, teeth), N = Body.vertexNormals(pack, S);
-        let any = false;
-        for (let i = 0; i < n; i++) {
-            const v = src[i];
+        const C = meanOf(S, teeth), N = Body.vertexNormals(pack, S), H = F.head, hy = y1 - y0, depth = Math.max(1e-4, zf - zb);
+        const out = new Map();
+        for (const v of new Set(pack.body.source)) {
             if (H.w[v] < 0.5) continue;
             const x = Math.abs(S[v * 3]), y = S[v * 3 + 1], z = S[v * 3 + 2];
             if (x > x1 * 1.35 || y < y0 - hy * 0.9 || y > y1 + hy * 0.9 || z > zf + 0.002) continue;
-            // The inside faces the mouth's middle; the cheek's and the jaw's outer skin faces away from it.
-            const inward = N[v * 3] * (C[0] - S[v * 3]) + N[v * 3 + 1] * (C[1] - y) + N[v * 3 + 2] * (C[2] - z);
-            if (inward <= 0) continue;
+            if (N[v * 3] * (C[0] - S[v * 3]) + N[v * 3 + 1] * (C[1] - y) + N[v * 3 + 2] * (C[2] - z) <= 0) continue;
             const deep = smooth(zf + 0.002, zf - depth * 0.35, z) * (1 - smooth(x1 * 1.05, x1 * 1.35, x));
-            if (deep <= 0) continue;
-            any = true;
-            const tint = [0.5, 0.16, 0.17];
+            if (deep > 0) out.set(v, deep);
+        }
+        return out;
+    }
+
+    /**
+     * Under a covering that hides the mouth, the mouth's inside and what is
+     * left of the lips go with it: their triangles are dropped from the body
+     * part (in place), as the covering drops the face's.
+     */
+    function hideMouth(pack, built, body, hidden) {
+        const gone = new Set(hidden || []);
+        for (const v of mouthInside(pack, built).keys()) gone.add(v);
+        for (const v of packFields(pack).lips) gone.add(v);
+        const src = pack.body.source, I = body.index, keep = [];
+        for (let t = 0; t < I.length; t += 3) if (!(gone.has(src[I[t]]) && gone.has(src[I[t + 1]]) && gone.has(src[I[t + 2]]))) keep.push(I[t], I[t + 1], I[t + 2]);
+        body.index = Uint32Array.from(keep);
+        return body;
+    }
+
+    /**
+     * The mouth's inside, darker and redder the deeper it lies behind the
+     * lips: written into the body part's colors (1 where nothing changes).
+     */
+    function tintMouth(pack, built, body) {
+        const inside = mouthInside(pack, built);
+        if (!inside.size) return body;
+        const src = pack.body.source, n = src.length, colors = body.colors ? Float32Array.from(body.colors) : new Float32Array(n * 3).fill(1);
+        const tint = [0.5, 0.16, 0.17];
+        for (let i = 0; i < n; i++) {
+            const deep = inside.get(src[i]);
+            if (!deep) continue;
             for (let k = 0; k < 3; k++) colors[i * 3 + k] *= 1 + (tint[k] * (1 - 0.6 * smooth(0.3, 1, deep)) - 1) * deep;
         }
-        if (any) { body.colors = colors; body.keepColors = true; }
+        body.colors = colors; body.keepColors = true;
         return body;
     }
 
@@ -927,7 +960,9 @@
                 M.unitCache.set(key, pt);
             }
             const strength = Math.min(1, f.blush);
-            out.push(make('Blush', Object.assign({}, pt, { alpha: pt.alpha.map(a => a * 0.3 * strength) }), [0.66, 0.16, 0.14], 0.0004, { blend: 'multiply', roughness: 0.6 }));
+            // A flush: the skin's own color multiplied a little toward red (green and blue held back), so light skin
+            // pinks and deep skin darkens a touch; never paint over it.
+            out.push(make('Blush', Object.assign({}, pt, { alpha: pt.alpha.map(a => a * 0.42 * strength) }), [0.96, 0.68, 0.66], 0.0004, { blend: 'multiply', roughness: 0.6 }));
         }
         if (f.tears > 0.01) {
             const key = 'tears';
@@ -951,7 +986,7 @@
                 M.unitCache.set(key, pt);
             }
             // Water on skin: the skin under it a little darker and deeper, with the shine of a wet surface.
-            out.push(make('Tears', Object.assign({}, pt, { alpha: pt.alpha.map(a => a * 0.6 * Math.min(1, f.tears)) }), [0.62, 0.6, 0.62], 0.0006, { roughness: 0.04, wet: true, blend: 'multiply' }));
+            out.push(make('Tears', Object.assign({}, pt, { alpha: pt.alpha.map(a => a * 0.5 * Math.min(1, f.tears)) }), [0.78, 0.76, 0.78], 0.0006, { roughness: 0.04, wet: true, blend: 'multiply' }));
         }
         return out;
     }
@@ -1010,25 +1045,38 @@
             g.computeBoundingSphere && g.computeBoundingSphere();
         });
         for (const m of view.expressionOverlays || []) { m.removeFromParent(); m.geometry.dispose(); m.material.dispose(); }
+        // (a wet overlay's two meshes share one geometry; disposing it twice is harmless)
         view.expressionOverlays = [];
         if (p && THREE) for (const o of p.overlays) {
             const g = new THREE.BufferGeometry();
             g.setAttribute('position', new THREE.BufferAttribute(o.positions, 3));
             g.setAttribute('normal', new THREE.BufferAttribute(o.normals, 3));
+            const multiply = o.blend === 'multiply';
+            // Multiplied overlays are unlit: what is under them is kept at (1 - a) + a·tint of its own color,
+            // lit as it already is (the tint premultiplied by its alpha, blended DstColor + OneMinusSrcAlpha).
             const rgba = new Float32Array(o.alpha.length * 4);
-            for (let i = 0; i < o.alpha.length; i++) { rgba[i * 4] = o.colors[i * 3]; rgba[i * 4 + 1] = o.colors[i * 3 + 1]; rgba[i * 4 + 2] = o.colors[i * 3 + 2]; rgba[i * 4 + 3] = o.alpha[i]; }
+            for (let i = 0; i < o.alpha.length; i++) {
+                const a = o.alpha[i], k = multiply ? a : 1;
+                rgba[i * 4] = o.colors[i * 3] * k; rgba[i * 4 + 1] = o.colors[i * 3 + 1] * k; rgba[i * 4 + 2] = o.colors[i * 3 + 2] * k; rgba[i * 4 + 3] = a;
+            }
             g.setAttribute('color', new THREE.BufferAttribute(rgba, 4));
             g.setIndex(new THREE.BufferAttribute(o.index, 1));
             g.setAttribute('skinIndex', new THREE.BufferAttribute(Uint16Array.from(o.joints), 4));
             g.setAttribute('skinWeight', new THREE.BufferAttribute(o.weights, 4));
-            const mat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, depthWrite: false, roughness: o.roughness ?? 0.5, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-            if (o.blend === 'multiply') { mat.blending = THREE.CustomBlending; mat.blendEquation = THREE.AddEquation; mat.blendSrc = THREE.DstColorFactor; mat.blendDst = THREE.OneMinusSrcAlphaFactor; }
+            const common = { vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 };
+            const mat = multiply ? new THREE.MeshBasicMaterial(Object.assign(common, { toneMapped: false })) : new THREE.MeshStandardMaterial(Object.assign(common, { roughness: o.roughness ?? 0.5, metalness: 0 }));
+            if (multiply) { mat.blending = THREE.CustomBlending; mat.blendEquation = THREE.AddEquation; mat.blendSrc = THREE.DstColorFactor; mat.blendDst = THREE.OneMinusSrcAlphaFactor; }
             const body = view.meshes[0];
-            const mesh = body.isSkinnedMesh ? new THREE.SkinnedMesh(g, mat) : new THREE.Mesh(g, mat);
-            if (mesh.isSkinnedMesh) mesh.bind(body.skeleton, body.bindMatrix);
-            mesh.renderOrder = 2;
-            (body.parent || view.group).add(mesh);
-            view.expressionOverlays.push(mesh);
+            const add = material => {
+                const mesh = body.isSkinnedMesh ? new THREE.SkinnedMesh(g, material) : new THREE.Mesh(g, material);
+                if (mesh.isSkinnedMesh) mesh.bind(body.skeleton, body.bindMatrix);
+                mesh.renderOrder = 2;
+                (body.parent || view.group).add(mesh);
+                view.expressionOverlays.push(mesh);
+            };
+            add(mat);
+            // Tears also shine: a clear, glossy film over the darkened skin, lit by the room.
+            if (o.wet) add(new THREE.MeshStandardMaterial(Object.assign({}, common, { color: 0x000000, roughness: 0.04, metalness: 0, opacity: 1, transparent: true, blending: THREE.AdditiveBlending, envMapIntensity: 1.4 })));
         }
         return true;
     }
@@ -1155,7 +1203,7 @@
     const api = {
         BASE_UNITS, OWN_UNITS, EXPRESSIONS, BY_ID, VISEMES, VISEME_BY_ID, LETTER_VISEMES, SHEETS, MORPH_NAMES,
         openUnits, units, preload, definition, weights, blend, measure, supports, field, pose, posedParts,
-        mouthParts, tintMouth, morphTargets, applyToView, attachViewMorphs, detachViewMorphs, lineVisemes, eyeBalls,
+        mouthParts, tintMouth, mouthCovered, mouthInside, hideMouth, morphTargets, applyToView, attachViewMorphs, detachViewMorphs, lineVisemes, eyeBalls,
         ALIASES, apply, talk, SAMPLE_LINE
     };
     root.RRCharacterExpressions = api;

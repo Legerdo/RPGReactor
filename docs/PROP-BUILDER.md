@@ -1,40 +1,64 @@
-# Prop Builder
+# 3D Prop Builder
 
-Forge › Prop Builder makes props and saves them to the project as 3D models. Pick a type in the searchable catalog: flags, pictures, or **Equipment**.
+Forge › 3D Prop Builder makes props and saves them to the project as 3D models. Pick a type in the left column: sections (Banners & Flags, From Picture, Weapons, Wearables, Tools & Gear, and more as kinds are added) hold short groups. Click a section's header, or press Enter or Space on it, to fold it; folds last for the session. A search shows every matching type, its section open.
 
-## Equipment
+**Randomize** rolls a new take on the current type; the list beside it picks what changes: **Everything**, or only the **Shape**, the **Colors**, or the **Design** or **Details**. Undo takes a roll back.
 
-All 59 Character Builder accessories also build here as standalone models: weapons, tools, bags, hats, masks, eyewear, jewelry, instruments and body details. They use the same procedural generators, with a neutral body used only for sizing; the saved prop contains the accessory alone.
+## Banners & Flags
 
-Edit its colors and available shape, side and size controls. **Material** keeps the original finish or applies metal, leather, plastic or fabric. **Placement** controls overall scale and rotation. **Origin** chooses the bottom (for placing on a map), center, or attachment point (for attaching equipment to a character). Held equipment uses its grip as the attachment point; wearable pieces use their carrying joint. Save and reopen these choices with the ordinary prop recipe. Equipment is saved in its resting shape, without character animations or cloth simulation; assign the resulting model through the existing Database equipment workflow.
+- **Flag, Streamer, Banner:** a flag on a pole, a long pointed streamer, or a tall banner down the pole.
+- **Pole:** a metal flagpole, a wooden staff, a wall bracket or a crossbar banner. Height, finial (ball, spearhead, eagle, none), the halyard rope on a metal pole, and colors.
+- **Cloth:** shape (1:2 to 1:1, streamer, pennant, swallowtail, the tall 3:2, 2:1 and pole banner, or Custom), width 0.15 to 6 m, height up to the pole, the fly end (square-cut, swallowtail, pointed) and fabric (cotton, silk, heavy wool, worn and tattered).
+- **Design:** a background pattern and up to eight emblems over it.
+  - Patterns: solid, bands (2 to 5 either way, each its own size), stripes, cross (its arm width, centered or toward the hoist), saltire, quartered, checkered, diagonal bend, canton (its size, corner and a grid of stars), hoist triangle, border, or a whole-flag picture. Each region has its color.
+  - Emblems: star, circle, crescent, shield, sun, eagle, cross, crown, sword, laurel wreath, cogwheel, skull, tree, or a picture from `img/pictures` (its own colors or one color). Place one at a snap point or freely, then its size, turn, color and mirror; repeat it as a ring or a row. ▲ ▼ reorder the list, ✕ removes one.
+  - Presets: made-up kingdoms, cities, guilds, houses, a republic and an order.
+- **Wind:** calm to storm, gusts, and the direction.
+- **Hanging banners:** banners on a pole, an iron rod, a rope or a wire, 1 to 8 tiles long. Its ends rest on wall brackets or posts, or run from wall to wall. A rope or wire sags in a catenary. Banners come as rectangles, swallowtails, points or bunting. Each banner can have its own place and length, and every other banner can carry the second design. The prop's origin is the middle of the span on the ground, and the span runs along x. Turn it 90° for a north–south street. The readout gives the size to place it at.
 
-## Flag
+## From Picture
 
-- **Pole:** a metal flagpole, a wooden staff, a wall bracket or a crossbar banner, each with its own starting height, cloth and finial. Then the height (the bracket's length), the finial (ball, spearhead, eagle or none), the halyard rope on a metal pole, and the pole's and finial's colors.
-- **Cloth:** width, shape (1:2, 3:5, 2:3, 3:4, 1:1, the tall 3:2 and 2:1, or Custom with its own height) and fabric: cotton bunting, silk, heavy wool, or worn and tattered (faded, soiled, holed and frayed at the fly, as much as **Wear** says).
-- **Design:** solid, two or three bands either way, Nordic cross, saltire, canton, hoist triangle, border, a centered emblem, or **Picture**, an image from `img/pictures` laid over the whole cloth. Each layout shows its colors. An emblem (star, circle, crescent, shield, sun, eagle) goes in the center, the canton or by the hoist, in its color and size.
-- **Wind:** strength from calm (the flag hangs in folds) to storm (it snaps), gusts, and the direction across the pole.
+Choose a picture from `img/pictures`, then:
 
-The view runs the cloth live as the sliders move. **Saved loop** in the Motion panel plays the loop Save writes.
+- **Cut-out:** the picture's outline as a solid board, from its transparency or with its border color taken away. Height, thickness, edge, back and stand. A picture in pieces sits on a backing plate.
+- **Turned:** half an outline turned round: a pot, vase, bottle or column, from the picture's silhouette or points dragged over it. Height, segments, top, wall thickness and surface.
+- **Framed:** a painting, poster, hanging banner, crate or book.
+  - Frames: plain modern, ornate gilded (carved molding, rosettes and shells), rustic wood, thin metal, shadow box, clip frame, or none. Each has a width, depth, rounded or beveled edge, and material (gold leaf, silver, dark or light wood, painted, black metal).
+  - A frame can have a mat and glass. It hangs from a wall hook or stands on an easel or a table stand.
+  - Presets: museum gilded, gallery modern, rustic, poster in a clip frame.
+  - A crate takes its wood, metal or rope banding, and its picture on all sides or the front only; a book takes its cover color, thickness and spine bands.
 
-## From picture
+## Weapons
 
-Choose a picture from `img/pictures`, then how to make it:
+- **Swords & Blades:** longsword, katana, scimitar, rapier, greatsword, dagger, machete, falchion.
+  - Blade: length, width, curve, taper, thickness, tip, single or double edge, fuller and serrations.
+  - Hilt: crossguard, disc or basket guard with its size and the bend of its arms; the grip's length, wrap and color; the pommel.
+  - Look: steel, damascus or bronze; steel, gilded, bronze or black iron trim; a glowing edge or blade.
+- **Firearms:** pistol, revolver, rifle, shotgun, submachine gun, sniper rifle. **Sci-fi:** energy sword, blaster pistol and rifle, plasma cannon, laser rifle.
+  - Parts: barrel, receiver, grip angle, magazine (box, drum, revolver cylinder, tube, energy cell, none), stock, sight, muzzle (plain, brake, suppressor, emitter), rails, forend, glowing coils and vents.
+  - Finish: gunmetal, polymer, chrome or painted panels; wood or polymer furniture; the glow color.
+- **Axes, Bows & Shields:** the Character Builder's axe, spear, staff, bow and round shield.
 
-- **Cut-out:** the picture's outline becomes a solid board with the picture on its face. The outline comes from the picture's transparency or, with **Background color**, from the color around its border taken away (**Tolerance** says how near a color counts). Its height, board thickness, edge (beveled, rounded, square-cut), back (the picture, a color, or wood) and what it stands on (nothing, a stand, a post). Holes in the picture stay holes. A picture in several pieces (a logo and its lettering) sits on a backing plate that joins them, unless **Backing** is None.
-- **Turned:** half an outline turned into a round solid: a pot, vase, bottle or column. **Follow the picture** takes the outline from the picture's silhouette; drag the points over the picture to change it (double-click adds a point, right-click removes one). Height, segments, an open or closed top, the wall thickness (0 is solid), and the surface: the picture laid on from the front, or clay, glaze, wood, polished metal or stone in a color.
-- **Framed:** the picture on an object: a framed painting (gilded, wooden, black or no frame), a poster, a hanging banner (a crossbar banner in the wind, as Flag makes), a crate or a book.
+Every sword and gun saves a hand rig (`rig.template` blade or gun, with its markers) in `model.json`. A character holds it through Database › Weapons the same way it holds an imported weapon.
+
+## Wearables and Tools & Gear
+
+The 3D Character Builder's accessories, each a standalone model: hats, face, masks, jewelry and ties, capes and packs, nails and claws, bags, tools, instruments and sports. Swords, daggers and books are listed once, under Swords & Blades and Framed; saved recipes of the accessory versions still open.
+
+- **Shape:** overall size, then what the accessory has: style, fit, height or length, and its own options. A choker has its band (leather, velvet, metal links, lace), width, thickness, charm and studs.
+- **Look:** the colors it shows, and a material for each of its parts (original, metal, leather, plastic, fabric, velvet, glass).
+- **Placement:** origin (bottom for a map, center, or the attachment point for a character), the side it is worn on, and rotation. Single-layer pieces such as lenses and bands are two-sided.
 
 ## Saving
 
 **Save to Project** writes `3d/Props/<name>/`:
 
-- `source/<name>.glb`: the model with its pictures inside. A flag or banner is skinned to a grid of bones and carries its loop as the clip **Wave**: three seconds, the cloth simulated in the tool and baked, its end running on into its start. The game plays it; nothing is simulated while the game runs.
-- `model.json`: the Wave clip playing always, and the model's own origin (the pole's foot, the bottom of a sign) placed where the prop stands. Other settings the 3D Models page keeps there stay.
+- `source/<name>.glb`: the model with its pictures inside. Cloth is skinned to bones and carries its loop as the clip **Wave**. The loop lasts three seconds and is baked from the cloth simulated in the tool, so nothing is simulated in the game.
+- `model.json`: the Wave clip playing always and the model's origin placed where the prop stands. Every prop rests on the floor except wall-hung ones (a painting on a hook, a bracket flag, a span on brackets), which keep their height. Weapons add their hand rig; hanging banners add `span` (length in tiles, axis, origin).
 - `prop.json`: the recipe, for **Open…**. `thumbnail.png`: the picture Open shows.
 
 The model shows in Database › 3D Models like an imported one.
 
 ## In the game
 
-The game lights models by the lights around them, not by the direction each face turns. Still props keep their form in their colors, shaded as if lit from above and in front. A flag's folds show by its outline and its moving picture; the builder's view also shades them.
+The game lights each face by the way it turns. Still props also carry a soft form shading in their colors, so carving reads under any light. Glowing edges, coils and emitters glow (glTF emissive).

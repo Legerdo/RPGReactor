@@ -8,6 +8,4 @@ Source: https://github.com/makehumancommunity/makehuman (`makehuman/data`). Thes
 
 # Motion data
 
-`../CharacterPosesData.js` (the poses and motions of the Pose panel) is converted from trials of the Carnegie Mellon University Graphics Lab Motion Capture Database by `editor/build-scripts/build-poses.cjs`: subjects 9, 13, 14, 23, 35, 82, 111, 113, 136, 140 and 143, from the original ASF/AMC files.
-
-Source: http://mocap.cs.cmu.edu/ ("This dataset of motions is free for all uses."; FAQ: "The motion capture data may be copied, modified, or redistributed without permission."). The data used here was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217.
+The builder's poses and motions are the runtime's shared motion library: its data and credit are in `runtime/reactor_3d_motions.LICENSE.md`.

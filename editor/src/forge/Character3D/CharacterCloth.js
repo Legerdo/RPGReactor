@@ -30,25 +30,29 @@
  * bone's offset from its parent), with `heights` and `skin` as
  * RRCharacterPoses makes them. No DOM and no three.js.
  */
-(function (root) {
+(function rrCharacterCloth(root) {
     'use strict';
 
-    /** At most this many cloth bones on one character, these grids, keys 30 a second; a bone moving less than keyError radians keeps two. */
-    const LIMITS = { bones: 72, cape: { columns: 6, rows: 5 }, skirt: { chains: 10, rows: 4 }, fps: 30, keyError: 0.003 };
+    /** At most this many cloth bones on one character, these grids, keys worked out 30 a second and kept where a straight blend misses by more than keyError radians. */
+    const LIMITS = { bones: 72, cape: { columns: 6, rows: 5 }, skirt: { chains: 10, rows: 4 }, fps: 30, keyError: 0.004 };
     const QUALITY = {
         preview: { substeps: 3, iterations: 6, settle: 30, fix: 4, stride: 1, lead: 40 },
-        save: { substeps: 4, iterations: 8, settle: 40, fix: 8, lead: 30 }
+        save: { substeps: 4, iterations: 8, settle: 40, fix: 14, lead: 30 }
     };
     /** How far the cloth keeps off the body's surface (meters). */
     const GAP = 0.008;
     /** How much of a push out of the body the cloth keeps as its own speed's share left out (1 keeps none). */
     const CARRY = 0.85;
-    /** How much of its own speed cloth touching the body loses each step (friction). */
-    const GRIP = 0.5;
+    /** How much of its slide along the body cloth touching it keeps from making each step (friction). */
+    const GRIP = 0.7;
     /** How far above the hip joints a skirt is held (meters): above the thighs' roots, so a raised thigh lifts the cloth. */
     const PIN_ABOVE_HIP = 0.07;
     /** How far below its hold a skirt must hang to hang as cloth (meters). */
     const MIN_HANG = 0.28;
+    /** The fastest cloth moves (meters a second). */
+    const MAX_SPEED = 6;
+    /** Passes of easing the cloth's turns over time. */
+    const SMOOTH = 3;
 
     // ── math ──────────────────────────────────────────────────────────────
     const qmul = (a, b) => [
@@ -506,6 +510,65 @@
     }
 
     /**
+     * Skirts let hang at rest: their vertices under gravity, held round the
+     * hips, every edge kept from stretching (free to gather), kept out of
+     * the body, and drawn a little back toward the shape they were cut to,
+     * so a flared dress falls close and even instead of standing out like a
+     * bell. Mutates result.parts (new position and normal arrays).
+     */
+    function drapeSkirts(result, marks, bones, index) {
+        const upL = index.get('LeftUpLeg'), upR = index.get('RightUpLeg');
+        if (upL === undefined || upR === undefined) return;
+        const hipY = (bones[upL].head[1] + bones[upR].head[1]) / 2;
+        const skip = new Map();
+        for (const [pi, hang] of marks) skip.set(pi, Uint8Array.from(hang, u => (u >= 0 ? 1 : 0)));
+        const cols = colliders(result, skip);
+        if (!cols.length) return;
+        const ps = { R: bones.map(() => [0, 0, 0, 1]), P: bones.map(b => b.head) }, C = new Float32Array(cols.length * 16), push = [0, 0, 0];
+        cols.forEach((c, i) => placeCollider(c, ps, C, i));
+        // Held where the skirt sits on the hips (above the hip joints), free toward the hem.
+        let uTop = Infinity;
+        for (const [pi, hang] of marks) { const P = result.parts[pi].positions; for (let v = 0; v < hang.length; v++) if (hang[v] >= 0 && Math.abs(P[v * 3 + 1] - hipY) < 0.02) uTop = Math.min(uTop, hang[v]); }
+        if (!isFinite(uTop)) return;
+        for (const [pi, hang] of marks) {
+            // [outfit transfer] Cloth taken from a model already hangs as it was made (its vertices split at picture seams).
+            if (result.parts[pi].keepShape) continue;
+            const part = result.parts[pi], n = hang.length, X0 = part.positions, x = Float32Array.from(X0), free = new Float32Array(n);
+            for (let v = 0; v < n; v++) if (hang[v] >= 0) free[v] = smoothstep(uTop, uTop + 0.15, hang[v]);
+            const seen = new Set(), E = [];
+            for (let t = 0; t < part.index.length; t += 3) for (const [a, b] of [[part.index[t], part.index[t + 1]], [part.index[t + 1], part.index[t + 2]], [part.index[t + 2], part.index[t]]]) {
+                if (!(free[a] + free[b]) || hang[a] < 0 || hang[b] < 0) continue;
+                const k = a < b ? a * n + b : b * n + a;
+                if (seen.has(k)) continue;
+                seen.add(k);
+                E.push(a, b, Math.hypot(X0[a * 3] - X0[b * 3], X0[a * 3 + 1] - X0[b * 3 + 1], X0[a * 3 + 2] - X0[b * 3 + 2]));
+            }
+            if (!E.length) continue;
+            for (let it = 0; it < 80; it++) {
+                for (let v = 0; v < n; v++) {
+                    if (!free[v]) continue;
+                    x[v * 3 + 1] -= 0.0015 * free[v];
+                    for (let c = 0; c < 3; c++) x[v * 3 + c] += (X0[v * 3 + c] - x[v * 3 + c]) * 0.03 * free[v];
+                }
+                for (let e = 0; e < E.length; e += 3) {
+                    const a = E[e], b = E[e + 1], rest = E[e + 2], wa = free[a], wb = free[b], ws = wa + wb;
+                    const dx = x[b * 3] - x[a * 3], dy = x[b * 3 + 1] - x[a * 3 + 1], dz = x[b * 3 + 2] - x[a * 3 + 2], d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-9;
+                    const goal = d > rest ? rest : d < rest * 0.7 ? rest * 0.7 : d;
+                    if (goal === d) continue;
+                    const f = (d - goal) / d / ws;
+                    x[a * 3] += dx * f * wa; x[a * 3 + 1] += dy * f * wa; x[a * 3 + 2] += dz * f * wa;
+                    x[b * 3] -= dx * f * wb; x[b * 3 + 1] -= dy * f * wb; x[b * 3 + 2] -= dz * f * wb;
+                }
+                if (it % 4 === 3 || it === 79) for (let v = 0; v < n; v++) {
+                    if (!free[v]) continue;
+                    for (let k = 0; k < cols.length; k++) if (insideAt(C, k, cols[k], 0.006, x[v * 3], x[v * 3 + 1], x[v * 3 + 2], push) < 1) { x[v * 3] = push[0]; x[v * 3 + 1] = push[1]; x[v * 3 + 2] = push[2]; }
+                }
+            }
+            result.parts[pi] = Object.assign({}, part, { positions: x, normals: normalsOf(x, part.index) });
+        }
+    }
+
+    /**
      * A skirt's chains: hanging round the hips from where the skirt leaves the
      * body (the hip joints' height) to the lowest hem, one chain at each
      * bearing where cloth hangs, each only as long as the cloth under it.
@@ -573,7 +636,8 @@
         }
         return {
             kind: 'skirt', anchor: hips, chains: K, rows: S, ring: true, rest, length, center, uPin, uHem, verts, step, startSkin,
-            stiff: 0.01, drag: 0.03, gap: GAP
+            // A skirt has the slack to stretch across spread knees.
+            stiff: 0.02, drag: 0.03, gap: GAP, give: 1.15
         };
     }
 
@@ -638,6 +702,7 @@
         const regions = [];
         let room = Math.max(0, Math.min(LIMITS.bones, 255 - bones.length));
         const capeBudget = LIMITS.cape, skirtBudget = LIMITS.skirt;
+        if (marks.length) drapeSkirts(result, marks, bones, index);
         if (marks.length && room >= 4) {
             const s = skirtRegion(result, marks, bones, index, skirtBudget);
             if (s) regions.push(s);
@@ -676,6 +741,8 @@
         }
         const cols = colliders({ bones, parts }, exclude);
         const capeCols = capeRegions.length && regions.some(g => g.kind === 'skirt') ? colliders({ bones, parts }, overCape) : cols;
+        // A skirt keeps out of the legs and trunk; hands brought down beside it would only puff it out.
+        const skirtCols = cols.filter(c => !/(Shoulder|Arm|Hand)$/.test(c.name));
         // The cape lies over everything else, a skirt or a coat's tails included.
         const own = new Map();
         for (const g of capeRegions) { const m = own.get(g.part) || new Uint8Array(parts[g.part].positions.length / 3); for (const v of g.sheet) m[v] = 1; own.set(g.part, m); }
@@ -687,7 +754,7 @@
         for (const g of regions) for (let i = 0; i < g.rest.length; i += 7) key = (key * 31 + Math.round(g.rest[i] * 1e4)) | 0;
         for (const c of cols.concat(capeCols === cols ? [] : capeCols)) for (let i = 0; i < c.r.length; i += 5) key = (key * 31 + Math.round(c.r[i] * 1e4)) | 0;
         result.cloth = {
-            regions: regions.map(g => ({ kind: g.kind, anchor: g.anchor, chains: g.chains, rows: g.rows, ring: g.ring, rest: g.rest, length: g.length, boneIds: g.boneIds, links: g.links, stiff: g.stiff, drag: g.drag, gap: g.gap, part: g.part, sheet: g.sheet ? Int32Array.from(g.sheet) : null, verts: g.kind === 'skirt' ? g.verts.map(q => [q[0], q[1]]) : null, center: g.center || null, startSkin: g.startSkin || null, colliders: g.kind === 'cape' && capeCols !== cols ? capeCols : null })),
+            regions: regions.map(g => ({ kind: g.kind, anchor: g.anchor, chains: g.chains, rows: g.rows, ring: g.ring, rest: g.rest, length: g.length, boneIds: g.boneIds, links: g.links, stiff: g.stiff, drag: g.drag, gap: g.gap, give: g.give || 1.03, part: g.part, sheet: g.sheet ? Int32Array.from(g.sheet) : null, verts: g.kind === 'skirt' ? g.verts.map(q => [q[0], q[1]]) : null, center: g.center || null, startSkin: g.startSkin || null, colliders: g.kind === 'cape' ? (capeCols !== cols ? capeCols : null) : skirtCols })),
             colliders: cols, key: String(key >>> 0) + ':' + bones.length, bones: bones.length
         };
         return result.cloth;
@@ -848,6 +915,8 @@
                 const a = ((ang / g.step) % g.chains + g.chains) % g.chains;
                 if (u < g.uPin) { const [J, W] = own(pi, v); const [J2, W2] = blendSkin(J, W, anchorJ, anchorW, smoothstep(g.uPin - band, g.uPin, u)); write(o, v, J2, W2); continue; }
                 const [J, W] = gridSkin(g, a, (u - g.uPin) / span * S, present);
+                // [outfit transfer] Where no chain reaches (an open front, a slit) the vertex keeps its own skin.
+                if (!(W[0] + W[1] + W[2] + W[3] > 0)) { const [J0, W0] = own(pi, v); write(o, v, J0, W0); continue; }
                 write(o, v, J, W);
             }
         }
@@ -865,13 +934,18 @@
         for (let i = 0; i < n; i++) {
             if (!inv[i]) continue;
             const o = i * 3;
-            for (let c = 0; c < 3; c++) { const v = (x[o + c] - prev[o + c]) * keep; prev[o + c] = x[o + c]; x[o + c] += v; }
+            // No faster than cloth flies (a push through a limb never throws it).
+            let vx = (x[o] - prev[o]) * keep, vy = (x[o + 1] - prev[o + 1]) * keep, vz = (x[o + 2] - prev[o + 2]) * keep;
+            const sp = Math.sqrt(vx * vx + vy * vy + vz * vz), most = MAX_SPEED * h;
+            if (sp > most) { const k = most / sp; vx *= k; vy *= k; vz *= k; }
+            prev[o] = x[o]; prev[o + 1] = x[o + 1]; prev[o + 2] = x[o + 2];
+            x[o] += vx; x[o + 1] += vy; x[o + 2] += vz;
             x[o + 1] -= g;
             if (sim.target && sim.stiff) for (let c = 0; c < 3; c++) x[o + c] += (sim.target[o + c] - x[o + c]) * sim.stiff;
         }
         for (let it = 0; it < iterations; it++) {
             solve(x, inv, links.down, 1, 1, 1);
-            solve(x, inv, links.across, 0.9, 1.03, 0.958);
+            solve(x, inv, links.across, 0.9, sim.give || 1.03, 0.958);
             solve(x, inv, links.shear, 0.5, 1.06, 0.916);
             solve(x, inv, links.bend, 0.3, Infinity, 0.62);
             if (it === iterations - 1 || it % 3 === 2) collide(sim);
@@ -897,6 +971,29 @@
         }
     }
 
+    /**
+     * How deep each sample along each link lies in each collider at rest (1
+     * outside): `pairs` (a, b point ids), at the shares `lams` along them.
+     * Where the cloth already crosses a collider at rest (a straight link
+     * from the hips over the curve of the seat) it is pushed only when it
+     * goes deeper than that, never out to the surface of the curve it spans.
+     */
+    function restDepths(rest, pairs, lams, cols, bones) {
+        const m = cols.length, out = new Float32Array((pairs.length / 2) * lams.length * m).fill(1);
+        const ps = { R: bones.map(() => [0, 0, 0, 1]), P: bones.map(b => b.head) }, C = new Float32Array(m * 16);
+        cols.forEach((c, i) => placeCollider(c, ps, C, i));
+        for (let e = 0; e < pairs.length / 2; e++) {
+            const a = pairs[e * 2] * 3, b = pairs[e * 2 + 1] * 3;
+            lams.forEach((lam, li) => {
+                const px = rest[a] + (rest[b] - rest[a]) * lam, py = rest[a + 1] + (rest[b + 1] - rest[a + 1]) * lam, pz = rest[a + 2] + (rest[b + 2] - rest[a + 2]) * lam;
+                for (let k = 0; k < m; k++) out[(e * lams.length + li) * m + k] = Math.min(1, insideAt(C, k, cols[k], GAP, px, py, pz, null));
+            });
+        }
+        return out;
+    }
+
+    const LINK_LAMS = [0.5, 0.25, 0.75], CLEAR_LAMS = [0.34, 0.67, 1];
+
     function reaches(cols) {
         const reach = new Float32Array(cols.length), mids = new Float32Array(cols.length);
         cols.forEach((c, i) => { const b = boundOf(c); reach[i] = b.radius * b.radius; mids[i] = b.mid; });
@@ -915,11 +1012,16 @@
                 if (dx * dx + dy * dy + dz * dz > reach[k]) continue;
                 from[0] = prev[o]; from[1] = prev[o + 1]; from[2] = prev[o + 2];
                 if (insideAt(C, k, cols[k], gap, x[o], x[o + 1], x[o + 2], push, from) < 1) {
-                    // Where the body rests on the floor the cloth under it lies flat on the floor, never under it.
-                    if (push[1] < sim.floor + gap) push[1] = sim.floor + gap;
-                    // Carried by the limb rather than thrown: the push takes most of its own speed with it, and cloth
-                    // lying on the body grips it (a robe stays on a raised thigh rather than sliding off the knee).
-                    for (let c = 0; c < 3; c++) { const d = push[c] - x[o + c]; x[o + c] = push[c]; prev[o + c] += d * CARRY; prev[o + c] += (x[o + c] - prev[o + c]) * GRIP; }
+                    // Where the body rests on the floor the cloth under it stays pressed flat between them.
+                    if (push[1] < sim.floor + gap * 2) continue;
+                    // Carried by the limb rather than thrown: the push takes most of its own speed with it. Cloth
+                    // lying on the body grips it: most of its slide along the surface this step is held back (a robe
+                    // stays on a raised thigh rather than creeping off the knee).
+                    const nx = push[0] - x[o], ny = push[1] - x[o + 1], nz = push[2] - x[o + 2], nl = Math.hypot(nx, ny, nz) || 1;
+                    for (let c = 0; c < 3; c++) { const d = push[c] - x[o + c]; x[o + c] = push[c]; prev[o + c] += d * CARRY; }
+                    const mx = x[o] - prev[o], my = x[o + 1] - prev[o + 1], mz = x[o + 2] - prev[o + 2], along = (mx * nx + my * ny + mz * nz) / nl;
+                    const tx = mx - nx / nl * along, ty = my - ny / nl * along, tz = mz - nz / nl * along;
+                    x[o] -= tx * GRIP; x[o + 1] -= ty * GRIP; x[o + 2] -= tz * GRIP;
                 }
             }
             if (sim.shell && sim.shell.push(x[o], x[o + 1], x[o + 2], gap, push)) for (let c = 0; c < 3; c++) { const d = push[c] - x[o + c]; x[o + c] = push[c]; prev[o + c] += d * CARRY; }
@@ -927,17 +1029,27 @@
         // A link through a limb pushed out at its deepest point; a limb holding the link's upper end (its pin) is left to it.
         for (const L of [sim.links.down, sim.links.across]) for (let e = 0; e < L.length; e += 3) {
             const i = L[e], j = L[e + 1], a = i * 3, b = j * 3;
+            // Only the colliders near the link at all, then the exact test at three points along it.
+            const cx = (x[a] + x[b]) / 2, cy = (x[a + 1] + x[b + 1]) / 2, cz = (x[a + 2] + x[b + 2]) / 2, half = L[e + 2] * 0.6;
+            let close = 0;
+            for (let k = 0; k < m; k++) {
+                const at = k * 16, dx = cx - C[at] - C[at + 3] * mids[k], dy = cy - C[at + 1] - C[at + 4] * mids[k], dz = cz - C[at + 2] - C[at + 5] * mids[k], r = Math.sqrt(reach[k]) + half;
+                if (dx * dx + dy * dy + dz * dz <= r * r) close |= 1 << k;
+            }
+            if (!close) continue;
             let held = 0;
-            for (let k = 0; k < m && !inv[i]; k++) if (insideAt(C, k, cols[k], gap, x[a], x[a + 1], x[a + 2], null) < 1) held |= 1 << k;
-            for (const lam of [0.5, 0.25, 0.75]) {
-                const px = x[a] + (x[b] - x[a]) * lam, py = x[a + 1] + (x[b + 1] - x[a + 1]) * lam, pz = x[a + 2] + (x[b + 2] - x[a + 2]) * lam;
+            for (let k = 0; k < m && !inv[i]; k++) if ((close & (1 << k)) && insideAt(C, k, cols[k], gap, x[a], x[a + 1], x[a + 2], null) < 1) held |= 1 << k;
+            const depth = L === sim.links.down ? sim.depthDown : sim.depthAcross;
+            for (let li = 0; li < 3; li++) {
+                const lam = LINK_LAMS[li], px = x[a] + (x[b] - x[a]) * lam, py = x[a + 1] + (x[b + 1] - x[a + 1]) * lam, pz = x[a + 2] + (x[b + 2] - x[a + 2]) * lam;
                 for (let k = 0; k < m; k++) {
-                    if (held & (1 << k)) continue;
+                    if (!(close & (1 << k)) || (held & (1 << k))) continue;
                     const at = k * 16, dx = px - C[at] - C[at + 3] * mids[k], dy = py - C[at + 1] - C[at + 4] * mids[k], dz = pz - C[at + 2] - C[at + 5] * mids[k];
                     if (dx * dx + dy * dy + dz * dz > reach[k]) continue;
-                    if (insideAt(C, k, cols[k], gap, px, py, pz, push, null) >= 1) continue;
+                    if (insideAt(C, k, cols[k], gap, px, py, pz, push, null) >= (depth ? depth[((e / 3) * 3 + li) * m + k] * 0.9 : 1)) continue;
                     const wi = inv[i] * (1 - lam), wj = inv[j] * lam, ws = wi * (1 - lam) + wj * lam;
                     if (ws <= 0) continue;
+                    if (push[1] < sim.floor + gap * 2) continue;
                     const mx = push[0] - px, my = push[1] - py, mz = push[2] - pz;
                     x[a] += mx * wi / ws; x[a + 1] += my * wi / ws; x[a + 2] += mz * wi / ws;
                     x[b] += mx * wj / ws; x[b + 1] += my * wj / ws; x[b + 2] += mz * wj / ws;
@@ -991,13 +1103,14 @@
             if (j === 0) for (let c = 0; c < m; c++) if (insideAt(C, c, cols[c], sim.gap, x[a], x[a + 1], x[a + 2], null) < 1) held |= 1 << c;
             for (let pass = 0; pass < 4; pass++) {
                 let turned = false;
-                for (const lam of [0.34, 0.67, 1]) {
+                for (let li = 0; li < 3; li++) {
+                    const lam = CLEAR_LAMS[li];
                     let px = x[a] + dx * L * lam, py = x[a + 1] + dy * L * lam, pz = x[a + 2] + dz * L * lam, hit = false;
                     if (ref) { from[0] = ref[a] + (ref[b] - ref[a]) * lam; from[1] = ref[a + 1] + (ref[b + 1] - ref[a + 1]) * lam; from[2] = ref[a + 2] + (ref[b + 2] - ref[a + 2]) * lam; }
                     for (let c = 0; c < m; c++) {
                         if ((held & (1 << c)) && lam < 1) continue;
                         if (!near(px, py, pz, c)) continue;
-                        if (insideAt(C, c, cols[c], sim.gap, px, py, pz, push, ref ? from : null) < 1) { px = push[0]; py = Math.max(push[1], floor); pz = push[2]; hit = true; }
+                        if (insideAt(C, c, cols[c], sim.gap, px, py, pz, push, ref ? from : null) < (sim.depthChain ? sim.depthChain[((k * S + j) * 3 + li) * m + c] * 0.9 : 1) && push[1] >= floor + sim.gap) { px = push[0]; py = push[1]; pz = push[2]; hit = true; }
                     }
                     if (sim.shell && sim.shell.push(px, py, pz, sim.gap, push)) { px = push[0]; py = push[1]; pz = push[2]; hit = true; }
                     if (lam === 1 && py < floor) { py = floor; hit = true; }
@@ -1017,7 +1130,7 @@
                     if (i % (S + 1) !== j + 1) continue;
                     const pa = i * 3, pb = q * 3, rest = A[e + 2];
                     const dx = x[pb] - x[pa], dy = x[pb + 1] - x[pa + 1], dz = x[pb + 2] - x[pa + 2], d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-9;
-                    const goal = d > rest * 1.06 ? rest * 1.06 : d < rest * 0.8 ? rest * 0.8 : d;
+                    const goal = d > rest * (sim.give || 1.03) * 1.03 ? rest * (sim.give || 1.03) * 1.03 : d < rest * 0.8 ? rest * 0.8 : d;
                     if (goal === d) continue;
                     const f = (d - goal) / d * 0.5;
                     x[pa] += dx * f; x[pa + 1] += dy * f; x[pa + 2] += dz * f;
@@ -1026,7 +1139,7 @@
                 for (let k = 0; k < K; k++) if (j < g.length[k]) relay(k, j);
             }
             for (let k = 0; k < K; k++) if (j < g.length[k]) clear(k, j);
-            // A limb between two neighbors of the row sends both out together, so it never parts them.
+            // A limb between two neighbors of the row (a thigh pushing between them) sends both out together, so it never parts them.
             for (let pass = 0; pass < 2; pass++) for (let e = 0; e < A.length; e += 3) {
                 const i = A[e], q = A[e + 1];
                 if (i % (S + 1) !== j + 1) continue;
@@ -1036,10 +1149,11 @@
                     let hit = false;
                     for (let c = 0; c < m && !hit; c++) {
                         if (!near(px, py, pz, c)) continue;
-                        if (insideAt(C, c, cols[c], sim.gap, px, py, pz, push, null) < 1) hit = true;
+                        // Deep inside only: the straight line between neighbors round a body dips a little into it anyway.
+                        if (insideAt(C, c, cols[c], sim.gap, px, py, pz, push, null) < 0.75 && push[1] >= floor + sim.gap) hit = true;
                     }
                     if (!hit) continue;
-                    const dx = push[0] - px, dy = Math.max(push[1], floor) - py, dz = push[2] - pz;
+                    const dx = push[0] - px, dy = push[1] - py, dz = push[2] - pz;
                     x[pa] += dx; x[pa + 1] += dy; x[pa + 2] += dz; x[pb] += dx; x[pb + 1] += dy; x[pb + 2] += dz;
                     relay(Math.floor(i / (S + 1)), j); relay(Math.floor(q / (S + 1)), j);
                     break;
@@ -1092,7 +1206,7 @@
             out.push(Math.hypot(lx, lz) - (r0 < 0 ? r1 : r1 < 0 ? r0 : r0 + (r1 - r0) * fa));
         }
         out.sort((x, y) => x - y);
-        const offset = Math.max(0.01, Math.min(0.08, (out.length ? out[Math.floor(out.length * 0.98)] : 0.02) + 0.015));
+        const offset = Math.max(0.01, Math.min(0.08, (out.length ? out[Math.floor(out.length * 0.98)] : 0.02) + 0.03));
         return {
             offset,
             set(f0, f1, k) {
@@ -1133,7 +1247,7 @@
         let h = clip.times.length * 131 + Math.round((clip.times[clip.times.length - 1] || 0) * 1000);
         for (const t of clip.tracks) { if (t.cloth) continue; h = (h * 31 + t.bone) | 0; const v = t.values; for (let i = 0; i < v.length; i += 3) h = (h * 31 + Math.round(v[i] * 1e4)) | 0; }
         if (clip.heights) for (let i = 0; i < clip.heights.length; i += 2) h = (h * 31 + Math.round(clip.heights[i] * 1e3)) | 0;
-        return (clip.name || '') + ':' + (h >>> 0);
+        return (clip.name || '') + (clip.once ? '!' : '') + ':' + (h >>> 0);
     }
 
     /** Whether a clip ends in the pose it starts in (within `tolerance` radians on every track). */
@@ -1159,7 +1273,7 @@
         const lift = t => { const x = Math.max(0, Math.min(clip.heights.length - 1, t * fps)), i = Math.floor(x), k = x - i; return clip.heights[i] + ((clip.heights[Math.min(clip.heights.length - 1, i + 1)] - clip.heights[i]) * k); };
         let low = 0;
         if (clip.skin) {
-            const body = result.parts.find(p => p.name === 'Body');
+            const body = result.parts.find(p => p && p.name === 'Body');
             const sample = [];
             if (body) for (let v = 0; v < body.positions.length / 3; v += 7) sample.push(v);
             low = Infinity;
@@ -1179,28 +1293,92 @@
      * The clip with its cloth: the cloth bones' keys added (a clip already
      * baked for this rig comes back as it is). Null without a rig.
      */
-    function bake(result, clip, options) {
-        const cloth = result && result.cloth;
-        if (!cloth || !clip || !clip.times || clip.times.length < 2) return clip;
-        if (clip.cloth === cloth.key) return clip;
-        const quality = QUALITY[(options && options.quality) || 'save'] || QUALITY.save;
-        const key = cloth.key + '|' + clipKey(clip) + '|' + ((options && options.quality) || 'save');
-        let tracks = bakes.get(key);
-        if (!tracks) {
-            tracks = simulateClip(result, clip, quality);
-            bakes.set(key, tracks);
-            if (bakes.size > 48) bakes.delete(bakes.keys().next().value);
-        }
+    function bakeKey(result, clip, options) { return result.cloth.key + '|' + clipKey(clip) + '|' + ((options && options.quality) || 'save'); }
+    function withTracks(result, clip, tracks) {
         const keep = clip.tracks.filter(t => !t.cloth && !(result.bones[t.bone] && result.bones[t.bone].cloth));
-        return Object.assign({}, clip, { tracks: keep.concat(tracks), cloth: cloth.key });
+        return Object.assign({}, clip, { tracks: keep.concat(tracks), cloth: result.cloth.key });
+    }
+    function remember(key, tracks) { bakes.set(key, tracks); if (bakes.size > 48) bakes.delete(bakes.keys().next().value); }
+    const needsBake = (result, clip) => !!(result && result.cloth && clip && clip.times && clip.times.length >= 2 && clip.cloth !== result.cloth.key);
+
+    function bake(result, clip, options) {
+        if (!needsBake(result, clip)) return clip;
+        const quality = QUALITY[(options && options.quality) || 'save'] || QUALITY.save;
+        const key = bakeKey(result, clip, options);
+        let tracks = bakes.get(key);
+        if (!tracks) { tracks = simulateClip(result, clip, quality); remember(key, tracks); }
+        return withTracks(result, clip, tracks);
+    }
+
+    /** The clip with its cloth when that is already worked out, else null. */
+    function baked(result, clip, options) {
+        if (!needsBake(result, clip)) return clip;
+        const tracks = bakes.get(bakeKey(result, clip, options));
+        return tracks ? withTracks(result, clip, tracks) : null;
     }
 
     function bakeAll(result, clips, options) { return (clips || []).map(c => bake(result, c, options)); }
 
-    /** bakeAll, letting the page draw between clips (a save with many clips stays responsive). */
+    // ── off the page ──────────────────────────────────────────────────────
+    /**
+     * The cloth worked out in a worker, so the page never waits on it: this
+     * module's own code, loaded once. A build is sent once (only what the
+     * bake reads: bones, the rig, the parts' skin and shape); each clip
+     * after it is a small message. Where there is no worker the work is done
+     * here.
+     */
+    let worker = undefined, sent = new WeakMap(), nextId = 1;
+    const waiting = new Map();
+    function workerOf() {
+        if (worker !== undefined) return worker;
+        worker = null;
+        try {
+            if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL || typeof document === 'undefined') return null;
+            const code = '(' + rrCharacterCloth.toString() + ')(self);\nself.onmessage = e => self.RRCharacterCloth._serve(e.data);';
+            worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+            worker.onmessage = e => { const w = waiting.get(e.data.job); if (!w) return; waiting.delete(e.data.job); if (e.data.error) w.reject(new Error(e.data.error)); else w.resolve(e.data.tracks); };
+            worker.onerror = () => { for (const w of waiting.values()) w.reject(new Error('cloth worker failed')); waiting.clear(); worker.terminate(); worker = null; };
+        } catch (error) { worker = null; }
+        return worker;
+    }
+    /** What of a build the bake reads, for sending: hair, eyes and the like left out (their places kept). */
+    function slim(result) {
+        return {
+            bones: result.bones, cloth: result.cloth,
+            parts: result.parts.map(p => (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) ? null : { name: p.name, kind: p.kind, cloth: p.cloth, positions: p.positions.slice(), normals: p.normals ? p.normals.slice() : null, joints: p.joints.slice(), weights: p.weights.slice() }))
+        };
+    }
+    const builds = new Map();
+    /** The worker's side: keeps the builds it is sent (the last few) and answers each clip with its cloth tracks. */
+    function serve(msg) {
+        if (msg.build) { builds.set(msg.id, msg.build); while (builds.size > 4) builds.delete(builds.keys().next().value); return; }
+        try {
+            const result = builds.get(msg.id);
+            if (!result) throw new Error('unknown build');
+            const quality = QUALITY[(msg.options && msg.options.quality) || 'save'] || QUALITY.save;
+            root.postMessage({ job: msg.job, tracks: simulateClip(result, msg.clip, quality) });
+        } catch (error) { root.postMessage({ job: msg.job, error: String(error && error.message || error) }); }
+    }
+
+    /** bake, off the page: resolves to the clip with its cloth. */
+    function bakeAsync(result, clip, options) {
+        if (!needsBake(result, clip)) return Promise.resolve(clip);
+        const key = bakeKey(result, clip, options);
+        if (bakes.has(key)) return Promise.resolve(withTracks(result, clip, bakes.get(key)));
+        const w = workerOf();
+        if (!w) return new Promise(done => setTimeout(() => done(bake(result, clip, options)), 0));
+        let id = sent.get(result.cloth) || 0;
+        if (!id) { id = nextId++; sent.set(result.cloth, id); w.postMessage({ id, build: slim(result) }); }
+        const job = nextId++, plain = { name: clip.name, times: clip.times, tracks: clip.tracks.filter(t => !t.cloth), heights: clip.heights, skin: clip.skin };
+        return new Promise((resolve, reject) => { waiting.set(job, { resolve, reject }); w.postMessage({ id, job, clip: plain, options: { quality: (options && options.quality) || 'save' } }); })
+            .then(tracks => { remember(key, tracks); return withTracks(result, clip, tracks); })
+            .catch(() => bake(result, clip, options));
+    }
+
+    /** Every clip baked off the page, one after another. */
     async function bakeAllAsync(result, clips, options) {
         const out = [];
-        for (const c of clips || []) { out.push(bake(result, c, options)); await new Promise(done => setTimeout(done, 0)); }
+        for (const c of clips || []) out.push(await bakeAsync(result, c, options));
         return out;
     }
 
@@ -1216,7 +1394,8 @@
         const clipFloor = floors(result, clip, times, clipPoses);
         // A lead-in: the body eased from its rest pose into the first frame, so a sitting body's thighs lift the
         // skirt over them rather than rising through it.
-        const cyclic = loops(clip, 0.35);
+        // A clip played once (a death, a hit) starts from rest and is not closed; a loop is.
+        const cyclic = !clip.once && loops(clip, 0.35);
         // A loop is warmed up over its last second, so its first frame starts from the motion that leads into it.
         const start = cyclic ? Math.max(0, F - 1 - Math.round(1 / (duration / (F - 1)))) : 0;
         const LEAD = quality.lead;
@@ -1240,14 +1419,39 @@
         const dt = duration / (F - 1);
         const sub = quality.substeps, h = dt / sub;
         for (const st of states) {
-            const g = st.g, n = st.n, cols = g.colliders || cloth.colliders, m = cols.length, { Cf, reach, mids } = setOf(cols);
+            const g = st.g, n = st.n, S1 = g.rows + 1, cols = g.colliders || cloth.colliders, m = cols.length, { Cf, reach, mids } = setOf(cols);
             const placeRest = (A, into) => { for (let i = 0; i < n; i++) { const o = i * 3, r = rotate(A.R, [g.rest[o] - A.h[0], g.rest[o + 1] - A.h[1], g.rest[o + 2] - A.h[2]]); into[o] = A.P[0] + r[0]; into[o + 1] = A.P[1] + r[1]; into[o + 2] = A.P[2] + r[2]; } };
             const x = new Float32Array(n * 3), prev = new Float32Array(n * 3), target = new Float32Array(n * 3);
             const C = new Float32Array(m * 16);
             // A cape keeps outside a skirt worked out before it.
             const shell = g.kind === 'cape' ? (states.find(o => o.g.kind === 'skirt' && o.rec) || {}).shell || null : null;
-            const sim = { x, prev, inv: st.inv, n, links: g.links, C, cols, reach, mids, gap: g.gap, drag: g.drag, stiff: g.stiff, target, floor: 0, shell };
+            const sim = { x, prev, inv: st.inv, n, links: g.links, C, cols, reach, mids, gap: g.gap, drag: g.drag, stiff: g.stiff, target, floor: 0, shell, give: g.give || 1.03 };
             x.set(g.rest); prev.set(x);
+            // How deep the cloth's own links cross the colliders at rest, once per region and collider set.
+            g._depths = g._depths || new Map();
+            if (!g._depths.has(cols)) {
+                const pairs = L => { const out = []; for (let e = 0; e < L.length; e += 3) out.push(L[e], L[e + 1]); return out; };
+                const chain = [];
+                for (let k = 0; k < g.chains; k++) for (let j = 0; j < g.rows; j++) chain.push(k * S1 + j, k * S1 + j + 1);
+                g._depths.set(cols, { down: restDepths(g.rest, pairs(g.links.down), LINK_LAMS, cols, bones), across: restDepths(g.rest, pairs(g.links.across), LINK_LAMS, cols, bones), chain: restDepths(g.rest, chain, CLEAR_LAMS, cols, bones) });
+            }
+            const depths = g._depths.get(cols);
+            sim.depthDown = depths.down; sim.depthAcross = depths.across; sim.depthChain = depths.chain;
+            // Where the skin nearest each point would carry it at a pose (a skirt's): what it starts from and is drawn to.
+            const carry = new Float32Array(3), vv = [0, 0, 0];
+            const carried = (ps, i) => {
+                const sk = g.startSkin[i];
+                carry[0] = carry[1] = carry[2] = 0;
+                for (let q = 0; q < 4; q++) {
+                    const w = sk[1][q], b = sk[0][q];
+                    if (!w) continue;
+                    const hd = bones[b].head;
+                    vv[0] = g.rest[i * 3] - hd[0]; vv[1] = g.rest[i * 3 + 1] - hd[1]; vv[2] = g.rest[i * 3 + 2] - hd[2];
+                    const o = rotate(ps.R[b], vv);
+                    carry[0] += w * (o[0] + ps.P[b][0]); carry[1] += w * (o[1] + ps.P[b][1]); carry[2] += w * (o[2] + ps.P[b][2]);
+                }
+                return carry;
+            };
             // Between two frames: the body's capsules, the anchor and the floor eased from one to the next.
             // Frame numbers count from the clip's first frame; the lead-in's run below zero.
             const at = (f0, f1, k) => {
@@ -1259,26 +1463,19 @@
                 const pa = poses[f0], pb = poses[f1];
                 const A = { R: nlerp(pa.R[g.anchor], pb.R[g.anchor], k), P: [0, 1, 2].map(c => pa.P[g.anchor][c] + (pb.P[g.anchor][c] - pa.P[g.anchor][c]) * k), h: bones[g.anchor].head };
                 placeRest(A, target);
+                // A skirt is drawn a little toward where the body would carry it (over a raised thigh, along legs lying
+                // down), not toward hanging straight down from the hips.
+                if (g.startSkin) for (let i = 0; i < n; i++) {
+                    if (!st.inv[i] || !g.startSkin[i]) continue;
+                    const a = carried(pa, i), ax = a[0], ay = a[1], az = a[2], b = carried(pb, i);
+                    target[i * 3] = ax + (b[0] - ax) * k; target[i * 3 + 1] = ay + (b[1] - ay) * k; target[i * 3 + 2] = az + (b[2] - az) * k;
+                }
                 for (let i = 0; i < n; i++) if (!st.inv[i]) { const o = i * 3; x[o] = target[o]; x[o + 1] = target[o + 1]; x[o + 2] = target[o + 2]; prev[o] = x[o]; prev[o + 1] = x[o + 1]; prev[o + 2] = x[o + 2]; }
             };
             // A skirt starts carried by the body as the garment was (over the thighs of a body already sitting); a cape is
             // eased in from rest. Then settled, and (a loop) its last second played to warm it up.
             if (g.startSkin) {
-                const ps = clipPoses[start], v = [0, 0, 0];
-                for (let i = 0; i < n; i++) {
-                    const sk = g.startSkin[i];
-                    if (!sk) continue;
-                    let px = 0, py = 0, pz = 0;
-                    for (let q = 0; q < 4; q++) {
-                        const w = sk[1][q], b = sk[0][q];
-                        if (!w) continue;
-                        const hd = bones[b].head;
-                        v[0] = g.rest[i * 3] - hd[0]; v[1] = g.rest[i * 3 + 1] - hd[1]; v[2] = g.rest[i * 3 + 2] - hd[2];
-                        const o = rotate(ps.R[b], v);
-                        px += w * (o[0] + ps.P[b][0]); py += w * (o[1] + ps.P[b][1]); pz += w * (o[2] + ps.P[b][2]);
-                    }
-                    x[i * 3] = px; x[i * 3 + 1] = py; x[i * 3 + 2] = pz;
-                }
+                for (let i = 0; i < n; i++) if (g.startSkin[i]) x.set(carried(clipPoses[start], i), i * 3);
                 at(start, start, 0);
                 prev.set(x);
                 project(sim, g);
@@ -1307,11 +1504,14 @@
                 }
                 rec[F - 1].set(rec[0]);
             }
+            if (g.kind === 'cape') sim.under = underOf(result, g, states, clipPoses);
             fixFrames(result, g, rec, clipPoses, Cf.slice(LEAD), clipFloor, sim, at, quality.fix, quality.stride || 1);
+            smoothRec(g, rec, clipPoses, cyclic, SMOOTH);
+            fixFrames(result, g, rec, clipPoses, Cf.slice(LEAD), clipFloor, sim, at, Math.ceil(quality.fix / 2), quality.stride || 1);
             if (cyclic && loops(clip, 0.02)) rec[F - 1].set(rec[0]);
             st.rec = rec;
             if (g.kind === 'skirt') st.shell = shellOf(g, rec, clipPoses, bones, skirtPoints(result, g));
-            out.push(...tracksOf(g, rec, clipPoses, bones, times, useOwn));
+            out.push(...tracksOf(g, rec, clipPoses, bones, times));
         }
         return out;
     }
@@ -1347,9 +1547,30 @@
     /** The cloth bones' turns in the model that lay each chain through the points X. */
     function chainTurns(g, X, anchorTurn) {
         const S = g.rows, rt = restTurns(g), out = new Array(g.chains * S).fill(null);
-        for (let k = 0; k < g.chains; k++) for (let j = 0; j < g.length[k]; j++) {
-            const a = acrossAt(g, X, k, j) || rotate(anchorTurn, rt.across[k * S + j]);
-            out[k * S + j] = qmul(frameQuat(segment(g, X, k, j), a), rt.inverse[k * S + j]);
+        for (let k = 0; k < g.chains; k++) {
+            // Down the chain from the anchor: each link the smallest swing from the one above onto its own line, then
+            // twisted toward the line across to its neighbors, as far as that line is clear (not along the link).
+            let up = anchorTurn;
+            for (let j = 0; j < g.length[k]; j++) {
+                const slot = k * S + j, d0 = segment(g, g.rest, k, j), d = unit(segment(g, X, k, j));
+                const was = unit(rotate(up, d0));
+                const ax = cross(was, d), sl = Math.hypot(ax[0], ax[1], ax[2]), c = Math.max(-1, Math.min(1, dot(was, d)));
+                let w = up;
+                if (sl > 1e-7) { const half = Math.atan2(sl, c) / 2, sn = Math.sin(half) / sl; w = qmul([ax[0] * sn, ax[1] * sn, ax[2] * sn, Math.cos(half)], up); }
+                else if (c < 0) { const o = unit(Math.abs(d[1]) < 0.9 ? cross(d, [0, 1, 0]) : cross(d, [1, 0, 0])); w = qmul([o[0], o[1], o[2], 0], up); }
+                const a = acrossAt(g, X, k, j);
+                if (a) {
+                    const want = sub(a, d.map(v => v * dot(a, d))), wl = Math.hypot(want[0], want[1], want[2]), al = Math.hypot(a[0], a[1], a[2]) || 1;
+                    const a0 = rt.across[slot], has = rotate(w, a0), hv = sub(has, d.map(v => v * dot(has, d))), hl = Math.hypot(hv[0], hv[1], hv[2]);
+                    const sure = Math.max(0, Math.min(1, (wl / al - 0.3) / 0.4));
+                    if (wl > 1e-6 && hl > 1e-6 && sure > 0) {
+                        const t = Math.atan2(dot(cross(hv, want), d), dot(hv, want)) * sure, sn = Math.sin(t / 2);
+                        w = qmul([d[0] * sn, d[1] * sn, d[2] * sn, Math.cos(t / 2)], w);
+                    }
+                }
+                out[slot] = w;
+                up = w;
+            }
         }
         return out;
     }
@@ -1386,6 +1607,78 @@
         return (g._bound = out);
     }
 
+    /** A grid cell's key as one number. */
+    const cellKey = (x, y, z) => ((x + 1024) * 2048 + (y + 1024)) * 2048 + (z + 1024);
+
+    /**
+     * What lies under a cape, frame by frame: the clothes and any skirt near
+     * it (the skirt as it was worked out), as points with their normals in a
+     * grid, so the cape is checked against the very surface under it and not
+     * only the limbs' colliders. `at(f)` picks the frame; `near(x, y, z)`
+     * gives the nearest such point within half a cell (2 cm), or null.
+     */
+    function underOf(result, g, states, poses) {
+        const bones = result.bones, cell = 0.04;
+        const sheetPts = Array.from(g.sheet, v => result.parts[g.part].positions.subarray(v * 3, v * 3 + 3));
+        const skirt = states.find(o => o.g.kind === 'skirt' && o.rec);
+        const restGrid = new Set(), key = (x, y, z) => cellKey(Math.floor(x / 0.12), Math.floor(y / 0.12), Math.floor(z / 0.12));
+        for (const q of sheetPts) restGrid.add(key(q[0], q[1], q[2]));
+        const nearSheet = (x, y, z) => {
+            const cx = Math.floor(x / 0.12), cy = Math.floor(y / 0.12), cz = Math.floor(z / 0.12);
+            for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) if (restGrid.has(cellKey(cx + i, cy + j, cz + k))) return true;
+            return false;
+        };
+        const lists = [];
+        result.parts.forEach(p => {
+            // Bare skin is the colliders' to keep; here the garments over it.
+            if (!p || SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) || p.cloth || !p.normals || p.kind === 'skin' || p.name === 'Body') return;
+            const ids = [];
+            for (let v = 0; v < p.positions.length / 3; v += 2) if (nearSheet(p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2])) ids.push(v);
+            if (ids.length) lists.push([p, Int32Array.from(ids)]);
+        });
+        let grid = new Map(), pts = [], frame = -1;
+        const v3 = [0, 0, 0];
+        return {
+            at(f) {
+                if (f === frame) return;
+                frame = f;
+                let ps = poses[f];
+                if (skirt) {
+                    // The skirt's bones as it was worked out at this frame.
+                    const gs = skirt.g, X = skirt.rec[f], turns = chainTurns(gs, X, ps.R[gs.anchor]), R = ps.R.slice(), P = ps.P.slice();
+                    for (let i = 0; i < gs.boneIds.length; i++) { const id = gs.boneIds[i]; if (id < 0 || !turns[i]) continue; const a = pointOf(gs, Math.floor(i / gs.rows), i % gs.rows); R[id] = turns[i]; P[id] = [X[a], X[a + 1], X[a + 2]]; }
+                    ps = { R, P };
+                }
+                grid = new Map(); pts = [];
+                for (const [p, ids] of lists) {
+                    const s = skin(p, bones, ps, ids);
+                    for (let i = 0; i < ids.length; i++) {
+                        const v = ids[i];
+                        let j = p.joints[v * 4], w = p.weights[v * 4];
+                        for (let k = 1; k < 4; k++) if (p.weights[v * 4 + k] > w) { w = p.weights[v * 4 + k]; j = p.joints[v * 4 + k]; }
+                        v3[0] = p.normals[v * 3]; v3[1] = p.normals[v * 3 + 1]; v3[2] = p.normals[v * 3 + 2];
+                        const nrm = rotate(ps.R[j], v3), x = s[i * 3], y = s[i * 3 + 1], z = s[i * 3 + 2];
+                        const k = cellKey(Math.floor(x / cell), Math.floor(y / cell), Math.floor(z / cell));
+                        let list = grid.get(k);
+                        if (!list) grid.set(k, list = []);
+                        list.push(pts.length);
+                        pts.push([x, y, z, nrm[0], nrm[1], nrm[2]]);
+                    }
+                }
+            },
+            near(x, y, z) {
+                // The eight cells round the point (the block whose corner is nearest it): every point within half a cell.
+                const cx = Math.floor(x / cell - 0.5), cy = Math.floor(y / cell - 0.5), cz = Math.floor(z / cell - 0.5);
+                let best = null, bd = cell * cell;
+                for (let i = 0; i <= 1; i++) for (let j = 0; j <= 1; j++) for (let k = 0; k <= 1; k++) {
+                    const list = grid.get(cellKey(cx + i, cy + j, cz + k));
+                    if (list) for (const q of list) { const p = pts[q], d = (p[0] - x) ** 2 + (p[1] - y) ** 2 + (p[2] - z) ** 2; if (d < bd) { bd = d; best = p; } }
+                }
+                return best;
+            }
+        };
+    }
+
     /**
      * Frames checked vertex by vertex: wherever the skinned cloth (between
      * its points) still dips into the body or below the floor, the points of the bones that
@@ -1405,6 +1698,7 @@
             for (let pass = 0; pass <= passes; pass++) {
                 const X = rec[f], ps = poses[f], turns = chainTurns(g, X, ps.R[g.anchor]);
                 sim.C = Cf[f];
+                if (sim.under) sim.under.at(f);
                 if (sim.shell) sim.shell.set(f, f, 0);
                 want.fill(0); most.fill(0);
                 let bad = 0;
@@ -1427,6 +1721,14 @@
                         if (insideAt(sim.C, c, cols[c], sim.gap * 0.6, px + dx, py + dy, pz + dz, push, f > 0 ? from : null) < 1) { dx = push[0] - px; dy = push[1] - py; dz = push[2] - pz; hit = true; }
                     }
                     if (sim.shell && sim.shell.push(px + dx, py + dy, pz + dz, sim.gap * 0.6, push)) { dx = push[0] - px; dy = push[1] - py; dz = push[2] - pz; hit = true; }
+                    if (sim.under) {
+                        // Clear of the very surface under the cape (a robe's back as the arms lift it, a skirt as it swings).
+                        const q = sim.under.near(px + dx, py + dy, pz + dz);
+                        if (q) {
+                            const d = (px + dx - q[0]) * q[3] + (py + dy - q[1]) * q[4] + (pz + dz - q[2]) * q[5];
+                            if (d < sim.gap * 0.4 && d > -0.05) { const k = sim.gap - d; dx += q[3] * k; dy += q[4] * k; dz += q[5] * k; hit = true; }
+                        }
+                    }
                     if (py + dy < floors[f] + sim.gap * 0.5) { dy = floors[f] + sim.gap * 0.5 - py; hit = true; }
                     now[i * 3] = px + dx; now[i * 3 + 1] = py + dy; now[i * 3 + 2] = pz + dz;
                     if (!hit) continue;
@@ -1437,9 +1739,11 @@
                         const k = Math.floor(slot / S), j = slot % S, head = k * (S + 1) + j, norm = lam * lam + (1 - lam) * (1 - lam);
                         // Under a held head the whole move falls to the tail, which carries the point by its share along.
                         const pinned = !sim.inv[head];
-                        for (const [pt, share] of [[head + 1, pinned ? 1 / Math.max(lam, 0.15) : lam / norm], [head, (1 - lam) / norm]]) {
+                        for (const [pt, share] of [[head + 1, pinned ? 1 / Math.max(lam, 0.4) : lam / norm], [head, (1 - lam) / norm]]) {
                             if (!sim.inv[pt] || share <= 0) continue;
-                            const kk = w * share, mag = Math.hypot(dx, dy, dz) * kk;
+                            // A few centimeters a pass at most: a slight dip by a held edge must not throw the hem out.
+                            let kk = w * share, mag = Math.hypot(dx, dy, dz) * kk;
+                            if (mag > 0.03) { kk *= 0.03 / mag; mag = 0.03; }
                             if (mag > most[pt]) { most[pt] = mag; want[pt * 3] = dx * kk; want[pt * 3 + 1] = dy * kk; want[pt * 3 + 2] = dz * kk; }
                         }
                     }
@@ -1457,23 +1761,70 @@
     }
 
     /**
-     * A cloth bone that hardly moves over the clip (within `error` radians
-     * of its first key) keeps two keys, sharing `ends` (the clip's first and
-     * last time); the rest keep every frame, on the clip's own times
-     * (`times` null) or on `times`.
+     * A cloth bone's keys, thinned: a key is left out wherever the straight
+     * blend between the keys kept either side of it comes within `error`
+     * radians of it at every frame between them, so cloth hanging still keeps
+     * two keys and cloth swinging slowly keeps few. The first and last keys
+     * stay, so a loop still closes.
      */
-    function keysOf(times, values, error, ends) {
-        const lim = Math.cos(error / 2);
-        for (let i = 1; i < values.length / 4; i++) {
-            if (Math.abs(values[0] * values[i * 4] + values[1] * values[i * 4 + 1] + values[2] * values[i * 4 + 2] + values[3] * values[i * 4 + 3]) < lim) return times ? { times, values } : { values };
-        }
-        const v = new Float32Array(8);
-        v.set(values.subarray(0, 4), 0); v.set(values.subarray(0, 4), 4);
-        return { times: ends, values: v };
+    function keysOf(times, values, error) {
+        const F = times.length, lim = Math.cos(error / 2), keep = [0];
+        const fits = (a, b) => {
+            for (let i = a + 1; i < b; i++) {
+                const k = (times[i] - times[a]) / ((times[b] - times[a]) || 1), A = a * 4, B = b * 4;
+                const s = values[A] * values[B] + values[A + 1] * values[B + 1] + values[A + 2] * values[B + 2] + values[A + 3] * values[B + 3] < 0 ? -1 : 1;
+                let q0 = values[A] + (values[B] * s - values[A]) * k, q1 = values[A + 1] + (values[B + 1] * s - values[A + 1]) * k, q2 = values[A + 2] + (values[B + 2] * s - values[A + 2]) * k, q3 = values[A + 3] + (values[B + 3] * s - values[A + 3]) * k;
+                const l = Math.sqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3) || 1;
+                if (Math.abs((q0 * values[i * 4] + q1 * values[i * 4 + 1] + q2 * values[i * 4 + 2] + q3 * values[i * 4 + 3]) / l) < lim) return false;
+            }
+            return true;
+        };
+        let a = 0;
+        for (let b = 2; b < F; b++) if (!fits(a, b)) { keep.push(b - 1); a = b - 1; }
+        if (F > 1) keep.push(F - 1);
+        const t = new Float32Array(keep.length), v = new Float32Array(keep.length * 4);
+        keep.forEach((f, i) => { t[i] = times[f]; v.set(values.subarray(f * 4, f * 4 + 4), i * 4); });
+        return { times: t, values: v };
     }
 
+    /**
+     * The worked-out cloth eased over time, so cloth held against a limb or
+     * the floor never shivers from frame to frame (a loop round its seam):
+     * each link's turn from the one above it blended with its neighbors in
+     * time, the points laid down the chains again from those turns, every
+     * link at its own length.
+     */
+    function smoothRec(g, rec, poses, cyclic, passes) {
+        const S = g.rows, F = rec.length;
+        const world = rec.map((X, f) => chainTurns(g, X, poses[f].R[g.anchor]));
+        for (let k = 0; k < g.chains; k++) for (let j = 0; j < g.length[k]; j++) {
+            const slot = k * S + j;
+            let local = world.map((w, f) => qmul(conj(j === 0 ? poses[f].R[g.anchor] : w[slot - 1]), w[slot]));
+            for (let f = 1; f < F; f++) if (dot4(local[f], local[f - 1]) < 0) local[f] = local[f].map(v => -v);
+            for (let pass = 0; pass < passes; pass++) {
+                const was = local.map(q => q.slice());
+                for (let f = 0; f < F; f++) {
+                    if (!cyclic && (f === 0 || f === F - 1)) continue;
+                    const a = cyclic ? (f + F - 2) % (F - 1) : f - 1, b = cyclic ? (f + 1) % (F - 1) : f + 1, q = [0, 0, 0, 0];
+                    for (const [i, w] of [[a, 0.25], [f, 0.5], [b, 0.25]]) { const sg = dot4(was[i], was[f]) < 0 ? -w : w; for (let c = 0; c < 4; c++) q[c] += was[i][c] * sg; }
+                    const l = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+                    local[f] = q.map(v => v / l);
+                }
+                if (cyclic) local[F - 1] = local[0].slice();
+            }
+            // Down the chain again: each link's turn in the model from its parent's, its tail from its head.
+            for (let f = 0; f < F; f++) {
+                const up = j === 0 ? poses[f].R[g.anchor] : world[f][slot - 1];
+                world[f][slot] = qmul(up, local[f]);
+                const X = rec[f], h = pointOf(g, k, j), t = h + 3, d0 = segment(g, g.rest, k, j), d = rotate(world[f][slot], d0);
+                X[t] = X[h] + d[0]; X[t + 1] = X[h + 1] + d[1]; X[t + 2] = X[h + 2] + d[2];
+            }
+        }
+    }
+    const dot4 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+
     /** The cloth bones' turns that put each chain through its points, frame by frame, each from its parent's. */
-    function tracksOf(g, rec, poses, bones, times, own) {
+    function tracksOf(g, rec, poses, bones, times) {
         const S = g.rows, F = rec.length, ends = Float32Array.of(times[0], times[F - 1]);
         const turns = rec.map((X, f) => chainTurns(g, X, poses[f].R[g.anchor]));
         const tracks = [];
@@ -1491,12 +1842,14 @@
                 values.set(q, f * 4);
                 last = q;
             }
-            tracks.push(Object.assign({ bone: id, cloth: true }, keysOf(own ? null : times, values, LIMITS.keyError, ends)));
+
+            tracks.push(Object.assign({ bone: id, cloth: true }, keysOf(times, values, LIMITS.keyError)));
         }
         return tracks;
     }
 
-    const api = { LIMITS, QUALITY, COLLIDERS, rig, bake, bakeAll, bakeAllAsync, colliders, collidersAt, pose, skin, inside, loops, floors, frameQuat };
+
+    const api = { LIMITS, QUALITY, COLLIDERS, rig, bake, baked, bakeAsync, bakeAll, bakeAllAsync, _serve: serve, colliders, collidersAt, pose, skin, inside, loops, floors, frameQuat };
     root.RRCharacterCloth = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

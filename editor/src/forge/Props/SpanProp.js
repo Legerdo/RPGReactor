@@ -18,6 +18,7 @@
     const Mesh = need('RRPropMesh', './PropMesh.js');
     const Design = need('RRFlagDesign', './FlagDesign.js');
     const Flag = need('RRFlagProp', './FlagProp.js');
+    const Rand = need('RRPropRandom', './PropRandom.js');
 
     const clamp = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
     const color = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : d);
@@ -129,7 +130,7 @@
             }
             void t;
         }
-        for (let k = 0; k < N; k++) for (let s = 0; s < seg; s++) { const a = k * (seg + 1) + s, b = a + seg + 1; I.push(a, b, a + 1, a + 1, b, b + 1); }
+        for (let k = 0; k < N; k++) for (let s = 0; s < seg; s++) { const a = k * (seg + 1) + s, b = a + seg + 1; I.push(a, a + 1, b, b, a + 1, b + 1); }
         const spanPart = { name: 'Span', kind: r.span.type === 'rope' ? 'prop' : 'metal', positions: Float32Array.from(P), normals: Float32Array.from(N3), uvs: Float32Array.from(T), index: Uint32Array.from(I), joints: Uint16Array.from(J), weights: Float32Array.from(W), color: r.span.color, roughness: look.roughness, metalness: look.metalness, moves: moving };
         parts.push(spanPart);
 
@@ -259,11 +260,46 @@
         };
     }
 
-    const api = { SPANS, MOUNTS, SHAPES, DEFAULT, MAX, MAX_BUNTING, normalize, curve, centers, swing, build };
+    /**
+     * Random hanging banners: 'shape' the line (what it hangs from, how long,
+     * how high, its sag and ends) and the banners' shape, count and size;
+     * 'details' (Design) two new designs; 'colors' the designs recolored and the line's color.
+     */
+    function random(seed, recipe, scope) {
+        const R = Rand.roll(seed), r = normalize(recipe), has = part => Rand.covers(scope, part);
+        if (has('shape')) {
+            const type = R.weighted([['rope', 3], ['wire', 1], ['rod', 1], ['pole', 1]]), shape = R.weighted([['swallowtail', 2], ['rectangle', 2], ['pointed', 1.5], ['bunting', 1.5]]);
+            const length = Math.round(R.range(2, 6) * 2) / 2, bunting = shape === 'bunting';
+            r.span = Object.assign(r.span, { type, length, height: R.range(2.2, 4), mounts: R.weighted([['brackets', 3], ['posts', 1.5], ['none', 1]]), sag: type === 'rope' || type === 'wire' ? R.range(0.15, 0.6) : r.span.sag });
+            const width = bunting ? R.range(0.2, 0.35) : R.range(0.35, 0.8);
+            r.banners = Object.assign(r.banners, {
+                shape, width, shared: true, spacing: 'even', positions: [], lengths: [],
+                count: bunting ? Math.min(MAX_BUNTING, Math.round(length / (width * 1.15))) : Math.max(1, Math.min(MAX, Math.floor(length / (width * 1.6)), R.int(2, 5))),
+                length: bunting ? width * R.range(1, 1.4) : Math.min(r.span.height - 0.6, R.range(0.8, 1.8))
+            });
+        }
+        if (has('details')) {
+            r.design = Flag.randomDesign(R.int(1, 1e9), { kind: 'flag' }).design;
+            r.design2 = Flag.randomDesign(R.int(1, 1e9), { kind: 'flag', design: { field: { layout: 'solid', colors: r.design.field.colors.slice().reverse() } } }).design;
+            r.design2.field.colors = r.design.field.colors.slice().reverse();
+            r.banners.alternate = R.chance(0.5);
+        }
+        if (has('colors')) {
+            if (!has('details')) {
+                const palette = R.pick(Flag.PALETTE_SETS), map = new Map(), swap = c => { if (!map.has(c)) map.set(c, palette[map.size % palette.length]); return map.get(c); };
+                for (const key of ['design', 'design2']) { r[key].field.colors = r[key].field.colors.map(swap); r[key].layers = r[key].layers.map(l => Object.assign({}, l, { color: swap(l.color) })); }
+            }
+            r.span.color = r.span.type === 'pole' ? R.pick(['#6e4a2c', '#5a3a22', '#8a5a32']) : r.span.type === 'rope' ? R.pick(['#b39a6a', '#c8b48a', '#8a7a5a']) : R.pick(['#2a2a2e', '#3a3a3e', '#c3c7cc']);
+        }
+        r.seed = seed >>> 0 || 1;
+        return normalize(r);
+    }
+
+    const api = { SPANS, MOUNTS, SHAPES, DEFAULT, MAX, MAX_BUNTING, normalize, curve, centers, swing, build, random };
     root.RRSpanProp = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     const Model = root.RRPropModel, Catalog = root.RRPropCatalog || (typeof require === 'function' ? require('./PropCatalog.js') : null);
-    if (Model && Model.register) Model.register({ id: 'span', label: 'Hanging banners', normalize, build });
+    if (Model && Model.register) Model.register({ id: 'span', label: 'Hanging banners', normalize, build, random, randomScopes: [Rand.SCOPES.all, Rand.SCOPES.shape, Rand.SCOPES.design, Rand.SCOPES.colors] });
     // The page: the span, its banners, their designs (the second for every other banner), the breeze.
     if (Catalog) Catalog.ui('span', {
         placeholder: 'Hanging banners',
@@ -277,7 +313,7 @@
                     + this._slider({ path: 'span.length', label: 'Length', range: [1, 8], step: 0.1, format: 'tiles' })
                     + this._slider({ path: 'span.height', label: 'Height', range: [1, 6], step: 0.05, format: 'tiles' })
                     + (rope ? this._slider({ path: 'span.sag', label: 'Sag', range: [0.02, 1], step: 0.01, format: 'tiles' }) : '')
-                    + this._select('span.mounts', 'Ends', MOUNTS) + this._color('span.color', 'Color', ['#6e4a2c', '#2a2a2e', '#b39a6a', '#c3c7cc']);
+                    + this._select('span.mounts', 'Ends on', MOUNTS) + this._color('span.color', 'Color', ['#6e4a2c', '#2a2a2e', '#b39a6a', '#c3c7cc']);
             }
             if (tab === 'banners') {
                 const b = r.banners, bunting = b.shape === 'bunting';
@@ -285,7 +321,7 @@
                     + this._slider({ path: 'banners.count', label: bunting ? 'Pennants' : 'Banners', range: bunting ? [4, MAX_BUNTING] : [1, MAX], step: 1, format: 'int' })
                     + this._slider({ path: 'banners.width', label: 'Width', range: [0.1, 2], step: 0.01, format: 'tiles' });
                 if (!bunting) {
-                    html += this._select('banners.spacing', 'Spacing', [['even', 'Even'], ['custom', 'Custom']]);
+                    html += this._select('banners.spacing', 'Spacing', [['even', 'Evenly'], ['custom', 'Custom']]);
                     if (b.spacing === 'custom') for (let k = 0; k < b.count; k++) html += this._slider({ path: `banners.positions.${k}`, label: this._t('Banner {n} place', { n: k + 1 }), range: [0.02, 0.98] });
                     html += this._check('banners.shared', 'Same length');
                 }

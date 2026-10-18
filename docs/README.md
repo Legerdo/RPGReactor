@@ -15,7 +15,7 @@ Guides for authoring with the engine, the current verified state, and maintainer
 - [Vehicles](AUTHORING.md#authoring-vehicles): database types, event setup, classes and equipment, map travel and engine sound; [ride the Demo motorcycle](AUTHORING.md#riding-the-demo-motorcycle).
 - [Rigging a 3D model](RIGGING-MODELS.md): templates, hand markers, placing markers precisely, what the runtime reads.
 - [3D Character Builder](CHARACTER-BUILDER.md): shaping a human with sliders in the Forge and saving it as a rigged model.
-- [Prop Builder](PROP-BUILDER.md): flags in the wind and props made from a picture (cut-out, turned, framed), saved as models.
+- [3D Prop Builder](PROP-BUILDER.md): flags and hanging banners in the wind, props made from a picture, frames, swords, firearms and wearables, saved as models.
 - [Model face points and speech](3D-FACE-AND-SPEECH.md): eye placement, mouth and lip authoring, spoken dialogue, per-prop animation speed.
 - [Media surfaces](MEDIA-SURFACES.md): image and video placement on maps, models and the screen; transforms and proportions.
 - [Custom user interfaces](DESIGN-USER-INTERFACES.md): the User Interfaces database section, its node set, actor bindings, opt-in stock-scene replacement and explicit boundaries.

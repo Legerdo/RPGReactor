@@ -15,6 +15,7 @@
     'use strict';
 
     const need = (name, file) => root[name] || (typeof require === 'function' ? require(file) : null);
+    const Rand = need('RRPropRandom', './PropRandom.js');
     const Mesh = need('RRPropMesh', './PropMesh.js');
     const Paint = need('RRPropPaint', './PropPaint.js');
 
@@ -22,13 +23,13 @@
     const color = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : d);
     const pick = (v, list, d) => (list.includes(v) ? v : d);
 
-    const TIPS = [['point', 'Point'], ['leaf', 'Leaf'], ['swept', 'Swept to the back'], ['clip', 'Clipped'], ['round', 'Rounded'], ['square', 'Square']];
+    const TIPS = [['point', 'Sharp point'], ['leaf', 'Leaf-shaped'], ['swept', 'Swept to the back'], ['clip', 'Clipped'], ['round', 'Rounded'], ['square', 'Squared']];
     const EDGES = [['double', 'Double-edged'], ['single', 'Single-edged']];
     const GUARDS = [['cross', 'Crossguard'], ['disc', 'Disc'], ['basket', 'Basket'], ['none', 'None']];
     const WRAPS = [['leather', 'Leather'], ['cord', 'Cord'], ['wire', 'Wire'], ['wood', 'Wood']];
     const POMMELS = [['ball', 'Ball'], ['disc', 'Disc'], ['spike', 'Spike'], ['none', 'None']];
     const METALS = [['steel', 'Steel'], ['damascus', 'Damascus'], ['bronze', 'Bronze']];
-    const TRIMS = [['steel', 'Steel'], ['gold', 'Gold'], ['bronze', 'Bronze'], ['black', 'Black iron']];
+    const TRIMS = [['steel', 'Steel'], ['gold', 'Gilded'], ['bronze', 'Bronze'], ['black', 'Black iron']];
     const LOOK = {
         steel: { color: '#c8ccd2', roughness: 0.26, metalness: 0.95 }, damascus: { color: '#ffffff', roughness: 0.3, metalness: 0.9 }, bronze: { color: '#b08a4a', roughness: 0.34, metalness: 0.9 },
         gold: { color: '#d4ad48', roughness: 0.28, metalness: 0.95 }, black: { color: '#2a2a2e', roughness: 0.45, metalness: 0.75 }
@@ -149,14 +150,14 @@
                 const a0 = place(rings[k], rings[k].pts[seg]), a1 = place(rings[k], rings[k].pts[(seg + 1) % 12]);
                 const b0 = place(rings[k + 1], rings[k + 1].pts[seg]), b1 = place(rings[k + 1], rings[k + 1].pts[(seg + 1) % 12]);
                 const e1 = [b0[0] - a0[0], b0[1] - a0[1], b0[2] - a0[2]], e2 = [a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]];
-                let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+                let n = [e2[1] * e1[2] - e2[2] * e1[1], e2[2] * e1[0] - e2[0] * e1[2], e2[0] * e1[1] - e2[1] * e1[0]];
                 const l = Math.hypot(n[0], n[1], n[2]);
-                if (l < 1e-14) { const e3 = [b1[0] - a1[0], b1[1] - a1[1], b1[2] - a1[2]]; n = [e3[1] * e2[2] - e3[2] * e2[1], e3[2] * e2[0] - e3[0] * e2[2], e3[0] * e2[1] - e3[1] * e2[0]]; }
+                if (l < 1e-14) { const e3 = [b1[0] - a1[0], b1[1] - a1[1], b1[2] - a1[2]]; n = [e2[1] * e3[2] - e2[2] * e3[1], e2[2] * e3[0] - e2[0] * e3[2], e2[0] * e3[1] - e2[1] * e3[0]]; }
                 const nl = Math.hypot(n[0], n[1], n[2]) || 1;
                 n = n.map(v => v / nl);
                 const base = into.P.length / 3;
                 for (const [p, u, v] of [[a0, rings[k].s / o.L, seg / 12], [a1, rings[k].s / o.L, (seg + 1) / 12], [b0, rings[k + 1].s / o.L, seg / 12], [b1, rings[k + 1].s / o.L, (seg + 1) / 12]]) { into.P.push(...p); into.N.push(...n); into.T.push(u, v); }
-                into.I.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+                into.I.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
             }
         }
         const make = m => ({ positions: Float32Array.from(m.P), normals: Float32Array.from(m.N), uvs: Float32Array.from(m.T), index: Uint32Array.from(m.I) });
@@ -291,11 +292,49 @@
         };
     }
 
-    const api = { TIPS, EDGES, GUARDS, WRAPS, POMMELS, METALS, TRIMS, PRESETS, normalize, outline, build };
+    /**
+     * A random sword: a believable blade of one family (its own when only
+     * the shape or details roll), sized and bent a little off its preset;
+     * details swap the fuller, teeth, guard, wrap and pommel; colors the steel, trim, grip and glow.
+     */
+    function random(seed, recipe, scope) {
+        const R = Rand.roll(seed), cur = normalize(recipe), out = JSON.parse(JSON.stringify(cur)), has = part => Rand.covers(scope, part);
+        const family = has('shape') && (!scope || scope === 'all') ? R.weighted(PRESETS.map(p => [p, p[0] === 'energy' ? 0.4 : 1])) : PRESETS.find(p => p[0] === cur.preset);
+        const base = family[2], energy = family[0] === 'energy';
+        out.preset = family[0];
+        if (has('shape')) {
+            const b = base.blade;
+            out.blade = Object.assign(out.blade, {
+                length: R.jitter(b.length, 0.14, 0.12, 1.6), width: R.jitter(b.width, 0.16, 0.012, 0.12), thickness: R.jitter(b.thickness, 0.12, 0.003, 0.016),
+                curve: b.curve ? R.jitter(b.curve, 0.3, 0, 1) : (R.chance(0.12) ? R.range(0, 0.1) : 0), taper: Math.max(-0.4, Math.min(0.9, b.taper + R.range(-0.12, 0.12))),
+                tip: b.tip, edge: b.edge
+            });
+            out.guard = Object.assign(out.guard, { type: base.guard.type, size: R.jitter(base.guard.size, 0.18, 0.4, 2.2), curl: Math.max(-1, Math.min(1, base.guard.curl + R.range(-0.2, 0.2))) });
+            out.grip.length = R.jitter(base.grip.length, 0.15, Math.max(0.09, base.grip.length * 0.8), 0.5);
+        }
+        if (has('details')) {
+            const single = out.blade.edge === 'single';
+            out.blade.fuller = energy ? 0 : base.blade.fuller ? R.range(0.3, 0.9) : (R.chance(0.25) ? R.range(0.2, 0.6) : 0);
+            out.blade.serrations = !energy && R.chance(0.1) ? R.range(0.2, 0.6) : 0;
+            if (!energy && R.chance(0.3)) out.blade.tip = R.pick(single ? ['clip', 'swept', 'point', 'square'] : ['point', 'leaf', 'round']);
+            if (!energy && R.chance(0.25)) out.guard.type = R.pick(out.blade.length < 0.3 ? ['cross', 'none'] : out.blade.curve > 0.25 ? ['disc', 'cross'] : ['cross', 'disc', 'basket']);
+            out.grip.wrap = energy ? 'wire' : R.weighted([['leather', 3], ['cord', 2], ['wire', 1], ['wood', 1.5]]);
+            out.pommel = energy ? 'disc' : out.guard.type === 'disc' ? R.pick(['disc', 'none']) : R.weighted([['ball', 3], ['disc', 2], ['spike', 1], ['none', 0.5]]);
+        }
+        if (has('colors')) {
+            out.metal = energy ? 'steel' : R.weighted([['steel', 6], ['damascus', 2], ['bronze', out.blade.length < 0.8 ? 1.5 : 0.5]]);
+            out.trim = out.metal === 'bronze' ? R.pick(['bronze', 'gold']) : R.weighted([['steel', 3], ['gold', 1.5], ['bronze', 1], ['black', 2]]);
+            out.grip.color = out.grip.wrap === 'wood' ? R.pick(Rand.PALETTES.wood) : out.grip.wrap === 'wire' ? R.pick(['#a07a3a', '#2a2a2e', '#b8bcc4']) : R.pick(Rand.PALETTES.leather.concat(['#2a4a6a', '#5a1a1a']));
+            out.glow = energy ? { on: true, blade: true, color: R.pick(Rand.PALETTES.glow) } : { on: R.chance(0.08), blade: false, color: R.pick(Rand.PALETTES.glow) };
+        }
+        return normalize(out);
+    }
+
+    const api = { TIPS, EDGES, GUARDS, WRAPS, POMMELS, METALS, TRIMS, PRESETS, normalize, outline, build, random };
     root.RRSwordProp = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     const Model = root.RRPropModel, Catalog = root.RRPropCatalog || (typeof require === 'function' ? require('./PropCatalog.js') : null);
-    if (Model && Model.register) Model.register({ id: 'sword', label: 'Sword', normalize, build });
+    if (Model && Model.register) Model.register({ id: 'sword', label: 'Sword', normalize, build, random, randomScopes: [Rand.SCOPES.all, Rand.SCOPES.shape, Rand.SCOPES.details, Rand.SCOPES.colors] });
     if (Catalog) {
         const icon = { katana: 'curved', scimitar: 'curved', falchion: 'curved', dagger: 'dagger', machete: 'curved' };
         for (const [id, label] of PRESETS) Catalog.add({ id: 'sword-' + id, category: id === 'energy' ? 'scifi' : 'swords', label, icon: icon[id] || 'sword', kind: 'sword', keywords: 'blade weapon melee ' + id, start: () => normalize({ preset: id }), matches: r => r.preset === id });
@@ -308,17 +347,17 @@
                 if (tab === 'blade') {
                     return this._section('Blade') + this._slider({ path: 'blade.length', label: 'Length', range: [0.12, 1.6], step: 0.01, format: 'm' })
                         + this._slider({ path: 'blade.width', label: 'Width', range: [0.012, 0.12], step: 0.001, format: 'm' })
-                        + this._slider({ path: 'blade.curve', label: 'Curve', range: [0, 1], ends: ['Straight', 'Scimitar'] })
+                        + this._slider({ path: 'blade.curve', label: 'Curve', range: [0, 1], ends: ['No curve', 'Scimitar'] })
                         + this._slider({ path: 'blade.taper', label: 'Taper', range: [-0.4, 0.9], ends: ['Wider at the tip', 'Narrow at the tip'] })
                         + this._slider({ path: 'blade.thickness', label: 'Thickness', range: [0.003, 0.016], step: 0.0005, format: 'm' })
                         + this._select('blade.tip', 'Tip', TIPS) + this._select('blade.edge', 'Edge', EDGES)
                         + this._slider({ path: 'blade.fuller', label: 'Fuller', range: [0, 1] }) + this._slider({ path: 'blade.serrations', label: 'Serrations', range: [0, 1] });
                 }
                 if (tab === 'hilt') {
-                    return this._section('Guard') + this._select('guard.type', 'Guard', GUARDS)
+                    return this._section('Hand guard') + this._select('guard.type', 'Hand guard', GUARDS)
                         + (r.guard.type !== 'none' ? this._slider({ path: 'guard.size', label: 'Size', range: [0.4, 2.2], format: 'x' }) : '')
-                        + (r.guard.type === 'cross' || r.guard.type === 'basket' ? this._slider({ path: 'guard.curl', label: 'Curl', range: [-1, 1], ends: ['Toward the grip', 'Toward the blade'] }) : '')
-                        + this._section('Grip') + this._slider({ path: 'grip.length', label: 'Length', range: [0.06, 0.5], step: 0.005, format: 'm' }) + this._select('grip.wrap', 'Wrap', WRAPS)
+                        + (r.guard.type === 'cross' || r.guard.type === 'basket' ? this._slider({ path: 'guard.curl', label: 'Bend of the arms', range: [-1, 1], ends: ['Toward the grip', 'Toward the blade'] }) : '')
+                        + this._section('Grip') + this._slider({ path: 'grip.length', label: 'Length', range: [0.06, 0.5], step: 0.005, format: 'm' }) + this._select('grip.wrap', 'Grip wrap', WRAPS)
                         + this._color('grip.color', 'Color', ['#4a2c1c', '#1b1b22', '#5a2a1a', '#a07a3a', '#2a4a6a'])
                         + this._section('Pommel') + this._select('pommel', 'Pommel', POMMELS);
                 }

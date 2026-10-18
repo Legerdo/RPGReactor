@@ -122,8 +122,9 @@
             const m = mott(x * 0.35, y * 0.35) - 0.5, gr = grain(x * 3, y * 3) - 0.5;
             let r = c[0] * (0.97 + 0.12 * m + 0.03 * gr), g = c[1] * (0.97 + 0.12 * m + 0.03 * gr), b = c[2] * (0.97 + 0.12 * m + 0.03 * gr);
             if (wear > 0) {
-                const ch = chip(x * 0.6, y * 0.6) + e * 0.32 * wear;
-                const t = 1 - wear * 0.42;
+                // Small chips with ragged edges, most where it is knocked: rims, ribs, corners.
+                const ch = chip(x * 1.6, y * 1.6) * 0.75 + chip(x * 5.3 + 7, y * 5.3) * 0.25 + e * 0.42 * wear;
+                const t = 1 - wear * 0.36 + (1 - e) * 0.06;
                 if (ch > t) {
                     // Chipped: a dark rim of lifted paint, then primer, then bare steel, rusting.
                     const deep = smooth(t, t + 0.06, ch);
@@ -155,7 +156,8 @@
             const m = n(x * 0.8, y * 0.8), k = 0.85 + 0.3 * (m - 0.5) + 0.1 * (f(x * 4, y * 4) - 0.5);
             let r = c[0] * k, g = c[1] * k, b = c[2] * k;
             const rust = smooth(0.62 - wear * 0.45, 0.95 - wear * 0.3, m) * (0.25 + wear * 0.75);
-            r = mix(r, 0.42 + 0.08 * m, rust); g = mix(g, 0.2 + 0.04 * m, rust); b = mix(b, 0.09, rust);
+            // Rust: a dark brown scale, redder where it is fresh.
+            r = mix(r, 0.27 + 0.1 * m, rust); g = mix(g, 0.14 + 0.04 * m, rust); b = mix(b, 0.08, rust);
             out[0] = r; out[1] = g; out[2] = b;
         };
     }
@@ -181,22 +183,30 @@
         };
     }
 
-    /** Gold coins heaped: overlapping discs, each lit across its face, dark between. */
+    /** Gold coins heaped: overlapping discs at every tilt, each with its raised rim and stamped face, more gold between. */
     function coins(seed) {
         const rand = Paint.random((seed >>> 0) + 51), list = [];
-        for (let i = 0; i < 90; i++) list.push([rand(), rand(), 0.045 + rand() * 0.03, rand()]);
+        for (let i = 0; i < 300; i++) { const tilt = 0.45 + rand() * 0.55; list.push([rand(), rand(), 0.03 + rand() * 0.02, rand(), tilt, rand() * Math.PI]); }
+        // Coins on a grid of cells, for a quick look-up.
+        const cells = 12, grid = Array.from({ length: cells * cells }, () => []);
+        for (const cn of list) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const gx = ((Math.floor(cn[0] * cells) + dx) % cells + cells) % cells, gy = ((Math.floor(cn[1] * cells) + dy) % cells + cells) % cells; grid[gy * cells + gx].push(cn); }
+        const glint = Paint.noise((seed >>> 0) + 52, 64);
         return (x, y, out) => {
             let best = null;
-            for (const cn of list) {
+            for (const cn of grid[Math.min(cells - 1, Math.floor(y * cells)) * cells + Math.min(cells - 1, Math.floor(x * cells))]) {
                 let dx = x - cn[0], dy = y - cn[1];
                 dx -= Math.round(dx); dy -= Math.round(dy);
-                const d = Math.hypot(dx, dy) / cn[2];
-                if (d < 1 && (!best || cn[3] > best[1])) best = [d, cn[3], dx / cn[2], dy / cn[2]];
+                // A tilted coin is an ellipse.
+                const c = Math.cos(cn[5]), sn = Math.sin(cn[5]), u = (dx * c + dy * sn) / cn[2], v = (-dx * sn + dy * c) / (cn[2] * cn[4]);
+                const d = Math.hypot(u, v);
+                if (d < 1 && (!best || cn[3] > best.z)) best = { d, z: cn[3], u, v, tilt: cn[4] };
             }
-            if (!best) { out[0] = 0.22; out[1] = 0.14; out[2] = 0.03; return; }
-            const rim = smooth(0.78, 0.95, best[0]);
-            const k = 0.75 + 0.35 * (-best[2] * 0.5 - best[3] * 0.6) * (1 - rim) + 0.25 * rim;
-            out[0] = 1 * k; out[1] = 0.76 * k; out[2] = 0.28 * k;
+            if (!best) { const g = 0.7 + 0.25 * glint(x * 8, y * 8); out[0] = 0.85 * g; out[1] = 0.62 * g; out[2] = 0.18 * g; return; }
+            const { d, u, v } = best;
+            const rim = d > 0.84 ? (d > 0.93 ? 0.7 : 1.15) : 1;
+            const face = 0.82 + 0.28 * (-u * 0.45 - v * 0.55) + (d < 0.55 && Math.abs(Math.sin(u * 9)) < 0.18 ? -0.12 : 0);
+            const k = Math.max(0.35, face * rim) * (0.85 + 0.25 * best.tilt);
+            out[0] = Math.min(1, 0.98 * k + 0.05); out[1] = Math.min(1, 0.74 * k); out[2] = Math.min(1, 0.26 * k);
         };
     }
 
@@ -477,68 +487,99 @@
 
     // ── the glow sheet ─────────────────────────────────────────────────────
     /** Display content: what the screen shows, frame by frame. */
+    const LOOP_FALLBACK = 8;
     const DISPLAY_MODES = [['none', 'Nothing'], ['text', 'Scrolling text'], ['numbers', 'Numbers'], ['progress', 'Progress bar'], ['picture', 'Picture']];
     const DISPLAY_STYLES = [['led', 'LED dots'], ['screen', 'Screen']];
     /** The display's dots across and down; a frame is painted this many pixels a dot. */
-    const DOTS = [40, 10], DOT_PX = 3;
+    const DOTS = [48, 10], DOT_PX = 3;
+
+    /** A 5 x 7 dot font for LED displays: each glyph its rows, '#' lit; narrow marks are narrower. */
+    const DOT_FONT = {
+        A: [' ### ', '#   #', '#   #', '#####', '#   #', '#   #', '#   #'], B: ['#### ', '#   #', '#   #', '#### ', '#   #', '#   #', '#### '],
+        C: [' ### ', '#   #', '#    ', '#    ', '#    ', '#   #', ' ### '], D: ['#### ', '#   #', '#   #', '#   #', '#   #', '#   #', '#### '],
+        E: ['#####', '#    ', '#    ', '#### ', '#    ', '#    ', '#####'], F: ['#####', '#    ', '#    ', '#### ', '#    ', '#    ', '#    '],
+        G: [' ### ', '#   #', '#    ', '# ###', '#   #', '#   #', ' ####'], H: ['#   #', '#   #', '#   #', '#####', '#   #', '#   #', '#   #'],
+        I: [' ### ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  ', ' ### '], J: ['  ###', '   # ', '   # ', '   # ', '   # ', '#  # ', ' ##  '],
+        K: ['#   #', '#  # ', '# #  ', '##   ', '# #  ', '#  # ', '#   #'], L: ['#    ', '#    ', '#    ', '#    ', '#    ', '#    ', '#####'],
+        M: ['#   #', '## ##', '# # #', '# # #', '#   #', '#   #', '#   #'], N: ['#   #', '#   #', '##  #', '# # #', '#  ##', '#   #', '#   #'],
+        O: [' ### ', '#   #', '#   #', '#   #', '#   #', '#   #', ' ### '], P: ['#### ', '#   #', '#   #', '#### ', '#    ', '#    ', '#    '],
+        Q: [' ### ', '#   #', '#   #', '#   #', '# # #', '#  # ', ' ## #'], R: ['#### ', '#   #', '#   #', '#### ', '# #  ', '#  # ', '#   #'],
+        S: [' ####', '#    ', '#    ', ' ### ', '    #', '    #', '#### '], T: ['#####', '  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  '],
+        U: ['#   #', '#   #', '#   #', '#   #', '#   #', '#   #', ' ### '], V: ['#   #', '#   #', '#   #', '#   #', '#   #', ' # # ', '  #  '],
+        W: ['#   #', '#   #', '#   #', '# # #', '# # #', '# # #', ' # # '], X: ['#   #', '#   #', ' # # ', '  #  ', ' # # ', '#   #', '#   #'],
+        Y: ['#   #', '#   #', ' # # ', '  #  ', '  #  ', '  #  ', '  #  '], Z: ['#####', '    #', '   # ', '  #  ', ' #   ', '#    ', '#####'],
+        0: [' ### ', '#   #', '#  ##', '# # #', '##  #', '#   #', ' ### '], 1: ['  #  ', ' ##  ', '  #  ', '  #  ', '  #  ', '  #  ', ' ### '],
+        2: [' ### ', '#   #', '    #', '   # ', '  #  ', ' #   ', '#####'], 3: ['#####', '   # ', '  #  ', '   # ', '    #', '#   #', ' ### '],
+        4: ['   # ', '  ## ', ' # # ', '#  # ', '#####', '   # ', '   # '], 5: ['#####', '#    ', '#### ', '    #', '    #', '#   #', ' ### '],
+        6: ['  ## ', ' #   ', '#    ', '#### ', '#   #', '#   #', ' ### '], 7: ['#####', '    #', '   # ', '  #  ', ' #   ', ' #   ', ' #   '],
+        8: [' ### ', '#   #', '#   #', ' ### ', '#   #', '#   #', ' ### '], 9: [' ### ', '#   #', '#   #', ' ####', '    #', '   # ', ' ##  '],
+        '-': ['    ', '    ', '    ', '####', '    ', '    ', '    '], '.': ['  ', '  ', '  ', '  ', '  ', '##', '##'], ':': ['  ', '##', '##', '  ', '##', '##', '  '],
+        ',': ['  ', '  ', '  ', '  ', ' #', ' #', '# '], '/': ['    #', '    #', '   # ', '  #  ', ' #   ', '#    ', '#    '], '!': ['#', '#', '#', '#', '#', ' ', '#'],
+        '%': ['##   ', '##  #', '   # ', '  #  ', ' #   ', '#  ##', '   ##'], '+': ['     ', '  #  ', '  #  ', '#####', '  #  ', '  #  ', '     '],
+        '#': [' # # ', ' # # ', '#####', ' # # ', '#####', ' # # ', ' # # '], '>': ['#   ', ' #  ', '  # ', '   #', '  # ', ' #  ', '#   '],
+        '<': ['   #', '  # ', ' #  ', '#   ', ' #  ', '  # ', '   #'], '=': ['    ', '    ', '####', '    ', '####', '    ', '    '],
+        '_': ['     ', '     ', '     ', '     ', '     ', '     ', '#####'], '|': ['#', '#', '#', '#', '#', '#', '#']
+    };
+
+    /** Text in the dot font: { width (dots), at(x, y) lit or not, x and y whole dots from its top left }. */
+    function dotLayout(text) {
+        const cols = [];
+        for (const ch of String(text)) {
+            if (ch === ' ') { for (let i = 0; i < 3; i++) cols.push(0); continue; }
+            const g = DOT_FONT[ch];
+            if (!g) { for (let i = 0; i < 3; i++) cols.push(0); continue; }
+            for (let x = 0; x < g[0].length; x++) { let bits = 0; for (let y = 0; y < 7; y++) if (g[y][x] === '#') bits |= 1 << y; cols.push(bits); }
+            cols.push(0);
+        }
+        if (cols.length) cols.pop();
+        return { width: cols.length, at: (x, y) => (x >= 0 && x < cols.length && y >= 0 && y < 7 ? (cols[x] >> y) & 1 : 0) };
+    }
 
     /**
-     * What each frame of a display shows: { frames, lit(frame, col, row) in
-     * 0..1 } on a DOTS grid, and for the screen look the same at its pixels.
-     * Frames step evenly through the loop (`loop` seconds).
+     * What each frame of a display shows, frame by frame: `draw(f)` gives
+     * { texts: [{ text, x, y }] (dots from the top left, 7 dots tall), bars:
+     * [[x0, y0, x1, y1, strength]] }; frames step every `period` seconds and
+     * a whole number of them fill the loop (`loop` seconds).
      */
     function displayScript(display, loop, seed) {
-        const [cols, rows] = DOTS;
+        const [cols, rows] = DOTS, top = (rows - 7) / 2;
         const mode = display.mode;
         if (mode === 'text') {
             const text = cleanText(display.text, 32) || 'CARGO';
-            const L = layout(text), widthDots = Math.ceil(L.width + 1);
-            const top = (rows - 7) / 2;
-            if (widthDots <= cols) {
+            const width = Math.max(dotLayout(text).width, Math.ceil(layout(text).width * 7 / 6));
+            if (width <= cols - 3) {
                 // It fits: shown still, a block cursor blinking after it.
-                const left = Math.floor((cols - widthDots) / 2);
-                return { frames: 2, cell: (f, c, r) => Math.max(dot(L, c - left, r - top), f === 0 && c >= left + widthDots && c < left + widthDots + 2 && r >= top && r < top + 7 ? 1 : 0) };
+                const left = Math.floor((cols - width - 3) / 2);
+                return { frames: 2, period: 0.5, draw: f => ({ texts: [{ text, x: left, y: top }], bars: f === 0 ? [[left + width + 1, top, left + width + 3, top + 7, 1]] : [] }) };
             }
-            // Wider than the screen: it scrolls past, about twelve dots a second.
-            const span = widthDots + cols, frames = Math.min(64, Math.max(16, Math.round(loop * 8)));
-            const step = span / frames;
-            return { frames, cell: (f, c, r) => dot(L, c - cols + Math.floor(f * step), r - top) };
+            // Wider than the screen: it scrolls past, a dot or two a frame.
+            const span = width + cols, frames = Math.min(64, Math.max(16, Math.round(loop * 8))), step = span / frames;
+            return { frames, period: loop / frames, draw: f => ({ texts: [{ text, x: cols - Math.round(f * step), y: top }], bars: [] }) };
         }
         if (mode === 'numbers') {
-            // A reading that wanders: a label, then a value moving a little twice a second.
+            // A reading that wanders: a label, then a value moving a little twice a second, back where it began by the loop's end.
             const label = cleanText(display.text, 4).replace(/[^A-Z ]/g, '').trim();
             const rand = Paint.random((seed >>> 0) + 71), frames = Math.max(8, Math.round(loop * 2));
             let v = 40 + rand() * 50;
             const values = [];
             for (let f = 0; f < frames; f++) { v += (rand() - 0.5) * 4; values.push(v); }
-            // Back where it began by the loop's end.
             const drift = values[frames - 1] - values[0];
-            const layouts = values.map((x, f) => layout((label ? label + ' ' : '') + (x - drift * f / frames).toFixed(1)));
-            return { frames, cell: (f, c, r) => { const L = layouts[f], left = Math.floor((cols - L.width - 1) / 2); return dot(L, c - left, r - 1.5); } };
+            const texts = values.map((x, f) => (label ? label + ' ' : '') + (x - drift * f / frames).toFixed(1));
+            return { frames, period: loop / frames, draw: f => { const w = dotLayout(texts[f]).width; return { texts: [{ text: texts[f], x: Math.floor((cols - w) / 2), y: top }], bars: [] }; } };
         }
         if (mode === 'progress') {
             // Filling over three quarters of the loop, then full, blinking.
             const frames = 32;
             return {
-                frames, cell: (f, c, r) => {
-                    const p = Math.min(1, f / (frames * 0.75));
-                    const full = p >= 1, blinkOff = full && f % 2 === 1;
-                    const L = layout(full ? 'FULL' : Math.round(p * 100) + '%');
-                    const left = Math.floor((cols - L.width) / 2);
-                    if (r < 7) return blinkOff ? 0 : dot(L, c - left, r);
-                    if (r >= 8) return c >= 1 && c < cols - 1 && (c - 1) / (cols - 2) <= p ? 1 : (c === 0 || c === cols - 1 ? 0.35 : 0.08);
-                    return 0;
+                frames, period: loop / frames, draw: f => {
+                    const p = Math.min(1, f / (frames * 0.75)), full = p >= 1;
+                    const text = full ? 'FULL' : Math.round(p * 100) + '%', w = dotLayout(text).width;
+                    const bars = [[1, 8, cols - 1, 10, 0.12], [1, 8, 1 + Math.round((cols - 2) * p), 10, 1]];
+                    return { texts: full && f % 2 ? [] : [{ text, x: Math.floor((cols - w) / 2), y: 0 }], bars };
                 }
             };
         }
-        return { frames: 1, cell: () => 0 };
-    }
-
-    /** One dot of the text: lit where a stroke passes (x, y in dots, the text's top left at 0). */
-    function dot(L, x, y) {
-        if (x < -1 || y < -1 || y > 7.5 || x > L.width + 1) return 0;
-        const c = coverage(L, x, y * 1, 1.1, false, 0, 0.5);
-        return c > 0.45 ? 1 : 0;
+        return { frames: 1, period: loop, draw: () => ({ texts: [], bars: [] }) };
     }
 
     /**
@@ -564,15 +605,15 @@
             for (const lv of levels) {
                 const rect = region(a, 12, 12);
                 // Hot at full strength: the middle runs toward white.
-                fill(a, rect, (s, t, out) => { const k = lv, hot = lv >= 1 ? 0.35 : 0; out[0] = mix(c[0] * k, 1, hot * 0.5); out[1] = mix(c[1] * k, 1, hot * 0.5); out[2] = mix(c[2] * k, 1, hot * 0.5); out[3] = 1; });
+                fill(a, rect, (s, t, out) => { const k = lv, hot = lv >= 1 ? 0.12 : 0; out[0] = mix(c[0] * k, 1, hot); out[1] = mix(c[1] * k, 1, hot); out[2] = mix(c[2] * k, 1, hot); out[3] = 1; });
                 row.push(rect);
             }
             swatches.set(hexc, row);
             const hr = region(a, 48, 48);
             fill(a, hr, (s, t, out) => {
                 const d = Math.hypot(s - 0.5, t - 0.5) * 2;
-                const f = Math.pow(clamp01(1 - d), 2.2);
-                out[0] = mix(c[0], 1, f * 0.4); out[1] = mix(c[1], 1, f * 0.4); out[2] = mix(c[2], 1, f * 0.4); out[3] = f * 0.85;
+                const f = Math.pow(clamp01(1 - d), 2.6);
+                out[0] = mix(c[0], 1, f * 0.12); out[1] = mix(c[1], 1, f * 0.12); out[2] = mix(c[2], 1, f * 0.12); out[3] = f * 0.6;
             });
             halos.set(hexc, hr);
         }
@@ -584,26 +625,32 @@
             const led = display.style !== 'screen';
             // New shelf for the frames.
             a.shelfY += a.shelfH; a.shelfH = 0; a.cursorX = 0;
+            const layouts = new Map(), strokes = new Map();
+            const dotsOf = t => layouts.get(t) || layouts.set(t, dotLayout(t)).get(t);
+            const strokesOf = t => strokes.get(t) || strokes.set(t, layout(t)).get(t);
             for (let f = 0; f < script.frames; f++) {
-                const rect = region(a, fw, fh);
+                const rect = region(a, fw, fh), d = script.draw(f);
+                // LED: each dot lit by the dot font or a bar. Screen: smooth letters and bars at the pixel.
                 const lit = new Float32Array(cols * rows);
-                for (let r = 0; r < rows; r++) for (let col = 0; col < cols; col++) lit[r * cols + col] = script.cell(f, col, r);
+                if (led) {
+                    for (const t of d.texts) { const L = dotsOf(t.text); for (let r = 0; r < rows; r++) for (let col = 0; col < cols; col++) if (L.at(col - t.x, r - Math.round(t.y))) lit[r * cols + col] = 1; }
+                    for (const [x0, y0, x1, y1, k] of d.bars) for (let r = Math.max(0, y0); r < Math.min(rows, y1); r++) for (let col = Math.max(0, x0); col < Math.min(cols, x1); col++) lit[r * cols + col] = Math.max(lit[r * cols + col], k);
+                }
                 fill(a, rect, (s, t, out) => {
-                    const px = s * cols, py = t * rows, col = Math.min(cols - 1, Math.floor(px)), r = Math.min(rows - 1, Math.floor(py));
-                    const v = lit[r * cols + col];
+                    const px = s * cols, py = t * rows;
                     if (led) {
                         // Round dots on black; an unlit dot still faintly there.
-                        const d = Math.hypot(frac(px) - 0.5, frac(py) - 0.5);
-                        const disc = clamp01((0.42 - d) * 8);
-                        const k = (v > 0 ? 1 : 0.07) * disc;
-                        out[0] = mix(0.02, c[0], k) + (v > 0 ? 0.25 * disc * disc : 0); out[1] = mix(0.02, c[1], k) + (v > 0 ? 0.25 * disc * disc : 0); out[2] = mix(0.025, c[2], k) + (v > 0 ? 0.25 * disc * disc : 0);
+                        const col = Math.min(cols - 1, Math.floor(px)), r = Math.min(rows - 1, Math.floor(py)), v = lit[r * cols + col];
+                        const dd = Math.hypot(frac(px) - 0.5, frac(py) - 0.5), disc = clamp01((0.42 - dd) * 8);
+                        const k = Math.max(0.07, v) * disc, hot = v > 0.5 ? 0.25 * disc * disc : 0;
+                        out[0] = mix(0.02, c[0], k) + hot; out[1] = mix(0.02, c[1], k) + hot; out[2] = mix(0.025, c[2], k) + hot;
                     } else {
-                        // A screen: soft-edged glyphs, faint scan lines, a dark tint of the color behind.
-                        let sum = 0, n = 0;
-                        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const cc = col + dx, rr = r + dy; if (cc >= 0 && cc < cols && rr >= 0 && rr < rows) { sum += lit[rr * cols + cc] * (dx || dy ? 0.12 : 1); n++; } }
-                        const k = clamp01(v * 0.9 + sum * 0.25);
-                        const scan = 0.86 + 0.14 * Math.sin(t * fh * Math.PI);
-                        out[0] = (mix(c[0] * 0.08, mix(c[0], 1, 0.25), k)) * scan; out[1] = (mix(c[1] * 0.08, mix(c[1], 1, 0.25), k)) * scan; out[2] = (mix(c[2] * 0.1, mix(c[2], 1, 0.25), k)) * scan;
+                        let v = 0;
+                        for (const tx of d.texts) { const L = strokesOf(tx.text); v = Math.max(v, coverage(L, (px - tx.x) * 6 / 7, (py - tx.y) * 6 / 7, 0.95, false, 0, 6 / 7 / DOT_PX)); }
+                        for (const [x0, y0, x1, y1, k] of d.bars) if (px >= x0 && px < x1 && py >= y0 && py < y1) v = Math.max(v, k);
+                        // A screen: glowing glyphs, faint scan lines, a dark tint of the color behind.
+                        const scan = 0.84 + 0.16 * Math.sin(t * fh * Math.PI);
+                        out[0] = mix(c[0] * 0.07, mix(c[0], 1, 0.3), v) * scan; out[1] = mix(c[1] * 0.07, mix(c[1], 1, 0.3), v) * scan; out[2] = mix(c[2] * 0.09, mix(c[2], 1, 0.3), v) * scan;
                     }
                     out[3] = 1;
                 });
@@ -635,13 +682,13 @@
             picture: { width: W, height: H, data: a.data, name: 'glow.png' },
             swatch: (hexc, level) => { const row = swatches.get(hexc); const r = row ? row[Math.max(0, Math.min(3, level || 0))] : null; return r ? [(r.x + r.w / 2) / W, (r.y + r.h / 2) / H] : [0, 0]; },
             halo: hexc => (halos.has(hexc) ? uvRect(halos.get(hexc)) : null),
-            frames: frames.map(uvRect),
+            frames: frames.map(uvRect), period: script ? script.period : LOOP_FALLBACK,
             pictureRect: pictureRect ? uvRect(pictureRect) : null,
             levels
         };
     }
 
-    const api = { atlas, region, fill, uvIn, rgb, wood, paintedMetal, iron, rope, straw, coins, GLYPHS, cleanText, layout, coverage, SYMBOLS, symbolAt, markings, DISPLAY_MODES, DISPLAY_STYLES, DOTS, displayScript, glowSheet, smooth, mix, clamp01, frac };
+    const api = { DOT_FONT, dotLayout, atlas, region, fill, uvIn, rgb, wood, paintedMetal, iron, rope, straw, coins, GLYPHS, cleanText, layout, coverage, SYMBOLS, symbolAt, markings, DISPLAY_MODES, DISPLAY_STYLES, DOTS, displayScript, glowSheet, smooth, mix, clamp01, frac };
     root.RRContainerPaint = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

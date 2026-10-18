@@ -188,6 +188,16 @@
     /** And a heavy one its fat: past the heaviest natural build, the belly, chin and limbs keep filling. */
     const FAT_SPREAD = { belly: 0.7, doubleChin: 0.6, upperArmFat: 0.5, forearmFat: 0.35, thighFat: 0.5, calfFat: 0.35, butt: 0.4, headFat: 0.35, waist: 0.5, neck: 0.3 };
 
+    /** The build's own share of the shape sliders, added to `shapes`: a strong body's muscles, a heavy body's fat. */
+    function addBuild(shapes, r) {
+        const bulk = Math.max(0, (r.muscle - 0.5) * 2);
+        // On a woman the pecs grow less: they lie under the breasts, whose own shape stays.
+        for (const k in MUSCLE_BULK) shapes[k] = (shapes[k] || 0) + bulk * MUSCLE_BULK[k] * (k === 'pecs' ? 0.35 + 0.65 * r.gender : 1);
+        const fat = Math.min(0.8, Math.max(0, r.weight - 1) * 2);
+        for (const k in FAT_SPREAD) shapes[k] = (shapes[k] || 0) + fat * FAT_SPREAD[k];
+        return shapes;
+    }
+
     /** Age in years onto child (11), young (25) and old (90). */
     function ageWeights(years) {
         if (years <= 25) { const child = (25 - years) / 14; return { child, young: 1 - child, old: 0 }; }
@@ -233,7 +243,9 @@
             const ga = genders[g] * ages[a];
             if (ga <= 0) continue;
             // Past a little beyond natural, weight is volume (inflate), not more of the target, which folds.
-            grid(r.muscle, clamp(r.weight, -1, 1.4), (m, w) => `macro/${g}-${a}-${m}muscle-${w}weight`, ga, add);
+            // Muscle past natural is the muscles' own swelling (VOLUME, from MUSCLE_BULK), not more of the build
+            // target, which raises humps over the shoulders and folds at the armpits.
+            grid(Math.min(r.muscle, 1), clamp(r.weight, -1, 1.4), (m, w) => `macro/${g}-${a}-${m}muscle-${w}weight`, ga, add);
             for (const race of ANCESTRY) add(`race/${race}-${g}-${a}`, ga * r.ancestry[race]);
             add(`proportion/${g}-${a}-ideal`, ga * r.proportions);
             add(`height/${g}-${a}-min`, ga * height.min);
@@ -253,10 +265,7 @@
         for (const k of ['breastSpacing', 'breastHeight', 'breastPoint', 'breastFullness']) if (shapes[k]) shapes[k] *= 1 - r.gender;
         const people = PEOPLE_BY_ID.get(r.ancestry.people);
         if (people) for (const k in people.face) shapes[k] = (shapes[k] || 0) + people.face[k];
-        const bulk = Math.max(0, (r.muscle - 0.5) * 2);
-        for (const k in MUSCLE_BULK) shapes[k] += bulk * MUSCLE_BULK[k];
-        const fat = Math.min(0.8, Math.max(0, r.weight - 1) * 2);
-        for (const k in FAT_SPREAD) shapes[k] += fat * FAT_SPREAD[k];
+        addBuild(shapes, r);
         for (const s of SLIDERS) {
             // Eye size past natural is a scale of the eye about its eyeball (morph), not more of the target.
             let v = natural || s.key === 'eyeSize' || VOLUME[s.key] ? clamp(shapes[s.key], s.paired ? -1 : 0, VOLUME[s.key] ? 1.3 : 1) : shapes[s.key];
@@ -614,7 +623,18 @@
         thighFat: { targets: ['shape/thighFat-incr'], reach: 0.04, sag: 0.05 },
         upperArmFat: { targets: ['shape/upperArmFat-incr'], reach: 0.03, sag: 0.1 },
         calfFat: { targets: ['shape/calfFat-incr'], reach: 0.025, sag: 0 },
-        doubleChin: { targets: ['shape/doubleChin-incr'], reach: 0.025, sag: 0.3 }
+        doubleChin: { targets: ['shape/doubleChin-incr'], reach: 0.025, sag: 0.3 },
+        // Muscle: past its natural range a muscle grows round along its own shape, never by carrying its
+        // target's moves further, which raise fins and ridges where the target ends; its mask softened
+        // further (`soft` relax passes), so neighboring muscles' swellings meet without a crease.
+        upperArmMuscle: { targets: ['shape/upperArmMuscle-incr'], reach: 0.016, sag: 0, soft: 14 },
+        shoulderMuscle: { targets: ['shape/shoulderMuscle-incr'], reach: 0.015, sag: 0, soft: 14 },
+        forearmMuscle: { targets: ['shape/forearmMuscle-incr'], reach: 0.013, sag: 0, soft: 14 },
+        thighMuscle: { targets: ['shape/thighMuscle-incr'], reach: 0.014, sag: 0, soft: 14 },
+        calfMuscle: { targets: ['shape/calfMuscle-incr'], reach: 0.014, sag: 0, soft: 14 },
+        pecs: { targets: ['shape/pecs-incr'], reach: 0.011, sag: 0, soft: 14 },
+        lats: { targets: ['shape/lats-incr'], reach: 0.012, sag: 0, soft: 14 },
+        neck: { targets: ['shape/neck-incr'], reach: 0.01, sag: 0, soft: 14 }
     };
 
     /** A smooth 0..1 mask from how far some targets move each vertex, relaxed so its edge fades. */
@@ -730,9 +750,12 @@
             any = true;
             for (let v = 0; v < n; v++) if (mask[v] > 0) { amount[v] += mask[v] * meters; sag[v] += mask[v] * Math.abs(meters) * droop; }
         };
+        // The sliders with the build's share (a strong body's muscles) added: past natural, that share swells too.
+        const built = addBuild(Object.assign({}, r.shapes), r);
         for (const key in VOLUME) {
-            const past = (r.shapes[key] || 0) - 1.3;
-            if (past > 0) addMask(maskOf(pack, VOLUME[key].targets), past * VOLUME[key].reach, VOLUME[key].sag);
+            // A woman's muscles swell less past natural: an athlete's build, not a man's mass.
+            const past = ((built[key] || 0) - 1.3) * (MUSCLE_BULK[key] ? 0.7 + 0.3 * r.gender : 1);
+            if (past > 0) addMask(maskOf(pack, VOLUME[key].targets, VOLUME[key].soft || 8), past * VOLUME[key].reach, VOLUME[key].sag);
         }
         if (r.cup > 1.3 && r.gender < 0.9) {
             const firm = clamp(r.firmness, 0, 1);
@@ -741,6 +764,8 @@
         if (r.weight > 1.4) addMask(fatMask(pack), (r.weight - 1.4) * 0.07, 0.2);
         // Thin past natural: the soft parts drawn in toward the bone, never through it.
         if (r.weight < 0) addMask(fatMask(pack), Math.max(-0.03, r.weight * 0.03), 0);
+        // Very strong and not heavy: ripped, the soft fat drawn in so the muscles stand out and the waist narrows.
+        if (r.muscle > 1 && r.weight < 0.8) addMask(fatMask(pack), -Math.min(0.009, (r.muscle - 1) * 0.006) * (1 - smooth01(0.4, 0.8, r.weight)), 0);
         if (!any) return;
         const follow = followers(pack);
         const total = new Float32Array(n * 3);

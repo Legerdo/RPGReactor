@@ -7627,6 +7627,9 @@ html.rr-detached-window {
 .rr-prop-type.is-active { color: var(--color-accent-bright); background: var(--color-bg-hover); border-left-color: var(--color-accent-bright); }
 .rr-prop-type.is-active svg { color: var(--color-accent-bright); }
 .rr-prop-none { padding: 0 4px; }
+.rr-prop-subhead { padding: 6px 8px 2px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-text-muted); }
+.rr-prop-subhead:first-child { padding-top: 2px; }
+.rr-prop-randomgroup[hidden], .rr-prop-random-scope[hidden] { display: none; }
 .rr-prop-tiles5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .rr-prop-tiles5 .rr-c3d-tile { padding: 2px; }
 .rr-prop-layers { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }

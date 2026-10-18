@@ -2,7 +2,8 @@
  * RRPropModel - the Prop Builder's kinds, and what every kind's build
  * becomes on Save: a skinned GLB (RRCharacterGlb) and its model.json.
  *
- * A kind is { id, label, normalize, build, random?, prepare?, ready? }.
+ * A kind is { id, label, normalize, build, random?, randomScopes?, prepare?, ready? }:
+ * random(seed, recipe, scope) rolls a new recipe, scope one of randomScopes ([id, label]).
  * Optional prepare() loads its reference data once; ready() lets the view
  * wait without blocking other kinds. Saving awaits prepare() as well.
  * Build gives { parts,
@@ -150,7 +151,7 @@
     root.RRPropModel = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     const flag = root.RRFlagProp || (typeof require === 'function' ? require('./FlagProp.js') : null);
-    if (flag) register({ id: 'flag', label: 'Flag', normalize: flag.normalize, build: flag.build, random: flag.random });
+    if (flag) register({ id: 'flag', label: 'Flag', normalize: flag.normalize, build: flag.build, random: flag.random, randomScopes: [['all', 'Everything'], ['shape', 'Shape'], ['details', 'Design'], ['colors', 'Colors']] });
     // From picture registers itself when it loads (after this file on the page).
     if (!root.RRPictureProp && typeof require === 'function' && typeof module !== 'undefined') require('./PictureProp.js');
     if (!root.RRSpanProp && typeof require === 'function' && typeof module !== 'undefined') require('./SpanProp.js');

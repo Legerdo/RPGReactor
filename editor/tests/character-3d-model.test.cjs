@@ -116,6 +116,15 @@ test('beastfolk wear a real animal head: the creature\'s head on the neck, the h
         assert.ok(top > built.bodyHeight * 0.85 && top < built.bodyHeight * 1.2, id + ' head top at ' + top + ' of ' + built.bodyHeight);
     }
     assert.equal(Model.withSpecies(Model.withSpecies({}, 'wolffolk'), 'elf').head, null, 'leaving the species takes its head with it');
+    // The Head choice: any body may wear any animal's head, or its own again; a bird's among them.
+    const ids = Species.heads().map(h => h[0]);
+    for (const id of ['human', 'wolf', 'cat', 'rabbit', 'bull', 'reptile', 'dragon', 'bird']) assert.ok(ids.includes(id), id + ' offered');
+    const elf = Model.normalize(Object.assign(Model.withSpecies({ gender: 0 }, 'elf'), { headId: 'cat' }));
+    assert.equal(Species.headId(elf.head), 'cat');
+    assert.equal(Model.normalize(Object.assign({}, elf, { headId: 'human' })).head, null);
+    assert.equal(Species.headId(Model.withSpecies({}, 'birdfolk').head), 'bird');
+    const bird = Model.build(pack, Model.withSpecies({ gender: 1 }, 'birdfolk'), {}, { quality: 'preview' });
+    assert.ok(bird.parts.some(p => p.name === 'Head Body') && !bird.parts.some(p => p.name === 'Beak'), 'a bird\'s own head and beak, not a beak on a face');
 });
 
 test('every outfit preset and every accessory builds on an average and an extreme body', () => {
@@ -351,7 +360,6 @@ test('every pose to try a character in plays on the built skeleton, its turns wh
 
 test('the poses are motion capture fitted to each body: loops close, feet meet the floor, arms clear the trunk and the face', () => {
     const Poses = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterPoses.js'));
-    const Data = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterPosesData.js'));
     const mul = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
     const rot = (q, v) => { const c = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], u = [q[0], q[1], q[2]], t = c(u, v).map(x => 2 * x), t2 = c(u, t); return [v[0] + q[3] * t[0] + t2[0], v[1] + q[3] * t[1] + t2[1], v[2] + q[3] * t[2] + t2[2]]; };
     /** Every joint's place at frame f, the body lifted as the clip says. */
@@ -377,7 +385,7 @@ test('the poses are motion capture fitted to each body: loops close, feet meet t
         }
         return low;
     };
-    assert.deepEqual(Object.keys(Data.poses).sort(), Poses.POSES.map(p => p.id).sort(), 'every pose captured');
+    { const built0 = Model.build(pack, { gender: 1 }, {}, { quality: 'preview' }); for (const pose of Poses.POSES) assert.ok(Poses.clip(built0.bones, pose.id), pose.id + ' captured'); }
     for (const recipe of [{ gender: 1 }, { gender: 0, age: 0.3 }, { gender: 1, extreme: true, weight: 4 }]) {
         const built = Model.build(pack, recipe, {}, { quality: 'preview' }), bones = built.bones, body = built.parts.find(p => p.name === 'Body');
         for (const pose of Poses.POSES) {
@@ -506,6 +514,52 @@ test('a modeled garment shows its own picture until a color is chosen; a color k
     const mean = (trousers[0] * 0.3 + trousers[1] * 0.59 + trousers[2] * 0.11) / trousers[4], spread = Math.sqrt(trousers[3] / trousers[4] - mean * mean);
     assert.ok(Math.abs(trousers[0] - trousers[2]) / trousers[4] < 8, 'the trousers are grey');
     assert.ok(spread > 10, 'the denim keeps its fading, spread ' + spread.toFixed(1));
+});
+
+test('only skin a garment really covers is hidden: every preset and random outfit, on average and extreme bodies', () => {
+    // An independent look: from each hidden skin vertex, straight out along its normal, some garment triangle within 10 cm.
+    const uncoveredShare = (built, out) => {
+        const P = built.shaped, N = Body.vertexNormals(pack, P), cell = 0.04, grid = new Map(), key = (x, y, z) => x + ',' + y + ',' + z, tris = [];
+        for (const part of out.parts) for (let k = 0; k < part.index.length; k += 3) {
+            const t = [0, 1, 2].map(q => { const i = part.index[k + q] * 3; return [part.positions[i], part.positions[i + 1], part.positions[i + 2]]; });
+            const id = tris.push(t) - 1, lo = [0, 1, 2].map(a => Math.floor(Math.min(t[0][a], t[1][a], t[2][a]) / cell)), hi = [0, 1, 2].map(a => Math.floor(Math.max(t[0][a], t[1][a], t[2][a]) / cell));
+            if ((hi[0] - lo[0] + 1) * (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1) > 4096) continue;
+            for (let x = lo[0]; x <= hi[0]; x++) for (let y = lo[1]; y <= hi[1]; y++) for (let z = lo[2]; z <= hi[2]; z++) { const kk = key(x, y, z); (grid.get(kk) || grid.set(kk, []).get(kk)).push(id); }
+        }
+        const hit = (o, d) => {
+            for (let step = -0.006; step <= 0.1; step += 0.01) {
+                for (const id of grid.get(key(...[0, 1, 2].map(a => Math.floor((o[a] + d[a] * step) / cell)))) || []) {
+                    const [a, b, c] = tris[id], e1 = [0, 1, 2].map(q => b[q] - a[q]), e2 = [0, 1, 2].map(q => c[q] - a[q]);
+                    const pv = [d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0]], det = e1[0] * pv[0] + e1[1] * pv[1] + e1[2] * pv[2];
+                    if (Math.abs(det) < 1e-12) continue;
+                    const tv = [0, 1, 2].map(q => o[q] - a[q]), u = (tv[0] * pv[0] + tv[1] * pv[1] + tv[2] * pv[2]) / det;
+                    if (u < 0 || u > 1) continue;
+                    const qv = [tv[1] * e1[2] - tv[2] * e1[1], tv[2] * e1[0] - tv[0] * e1[2], tv[0] * e1[1] - tv[1] * e1[0]], v = (d[0] * qv[0] + d[1] * qv[1] + d[2] * qv[2]) / det;
+                    if (v < 0 || u + v > 1) continue;
+                    const t = (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]) / det;
+                    if (t > -0.004 && t < 0.1) return true;
+                }
+            }
+            return false;
+        };
+        let n = 0, bare = 0, k = 0;
+        for (const v of out.hidden) {
+            if (k++ % 20) continue;
+            n++;
+            if (!hit([P[v * 3], P[v * 3 + 1], P[v * 3 + 2]], [N[v * 3], N[v * 3 + 1], N[v * 3 + 2]])) bare++;
+        }
+        return n ? bare / n : 0;
+    };
+    const outfits = Wardrobe.PRESETS.filter(p => p.items.length).map(p => [p.id, p.items]);
+    for (let seed = 1; seed <= 24; seed++) outfits.push(['seed ' + seed, Model.random(seed).outfit]);
+    for (const body of [{}, { gender: 0, extreme: true, weight: 3 }, { gender: 1, extreme: true, muscle: 2, height: 1.2 }]) {
+        const built = Body.build(pack, Body.normalizeRecipe(body)), cache = {};
+        for (const [name, items] of body.weight || body.muscle ? outfits.filter((_, i) => i % 5 === 0) : outfits) {
+            const share = uncoveredShare(built, Wardrobe.build(pack, built, items, cache));
+            // The two looks walk the ray's grid cells differently; at a fingertip or a hem's very edge a few vertices disagree.
+            assert.ok(share < 0.01, `${name} on ${JSON.stringify(body)}: ${(share * 100).toFixed(2)}% of the hidden skin has no garment over it`);
+        }
+    }
 });
 
 test('footwear is built round the foot: a sole under it, the foot hidden inside, a boot over the trouser legs', () => {

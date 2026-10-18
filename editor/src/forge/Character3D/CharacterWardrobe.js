@@ -38,7 +38,7 @@
     // Materials: [roughness, metalness]
     const MATERIAL = { cloth: [0.9, 0], silk: [0.45, 0], leather: [0.55, 0], metal: [0.32, 0.85], gold: [0.28, 0.95], plastic: [0.35, 0], rubber: [0.7, 0] };
 
-    const PATTERNS = [['solid', 'Solid'], ['stripes', 'Stripes'], ['pinstripes', 'Pinstripes'], ['vstripes', 'Vertical stripes'], ['checker', 'Checks'], ['plaid', 'Plaid'], ['gradient', 'Fade'], ['halves', 'Two halves'], ['camo', 'Camouflage'], ['panels', 'Panel lines'], ['mail', 'Chain mail'], ['scales', 'Scales'], ['quilted', 'Quilted'], ['studs', 'Studded']];
+    const PATTERNS = [['solid', 'Solid'], ['stripes', 'Stripes'], ['pinstripes', 'Pinstripes'], ['vstripes', 'Vertical stripes'], ['checker', 'Checks'], ['plaid', 'Plaid'], ['gradient', 'Fade'], ['halves', 'Two halves'], ['camo', 'Camouflage'], ['panels', 'Panel lines'], ['mail', 'Chain mail'], ['scales', 'Scales'], ['quilted', 'Quilted'], ['studs', 'Studded'], ['floral', 'Floral'], ['paisley', 'Paisley'], ['emblem', 'Emblem']];
 
     /**
      * Knobs a garment shows: `length` (0..1, garment's own reach), `sleeves`
@@ -489,7 +489,7 @@
         { id: 'mhviking', label: 'Viking', group: 'Modeled', items: [{ id: 'mh_viking_tunic' }, { id: 'mh_viking_trousers' }, { id: 'mh_viking_boots' }] },
         { id: 'mhstarcrew', label: 'Star crew', group: 'Modeled', items: [{ id: 'mh_uniform' }, { id: 'mh_boots' }] },
         // [outfit transfer] The Star Shift actors' outfits; gloves, gauntlets and heeled boots are the builder's own, in their colors.
-        { id: 'ss_carol', label: "Captain's Uniform (Carol Everson)", group: 'Star Shift', items: [{ id: 'ss_carol_uniform' }, { id: 'gloves', color: '#141b2e', length: 0.12, material: 'leather' }, { id: 'boots', color: '#131b31', trim: '#8c96a6', length: 0.2, material: 'leather' }] },
+        { id: 'ss_carol', label: "Captain's Uniform (Carol Everson)", group: 'Star Shift', items: [{ id: 'ss_carol_uniform' }, { id: 'gloves', color: '#141b2e', length: 0.12, material: 'leather' }, { id: 'boots', color: '#131b31', trim: '#8c96a6', length: 0.42, material: 'leather' }] },
         { id: 'ss_jolt', label: 'Power Armor (Jolt Eagle)', group: 'Star Shift', items: [{ id: 'ss_jolt_armor' }, { id: 'ss_jolt_legs' }, { id: 'ss_jolt_boots' }, { id: 'powergauntlets', color: '#1d2d5e', trim: '#1c2028', color2: '#3ccaff' }] },
         { id: 'ss_max', label: 'Power Armor (Max Triton)', group: 'Star Shift', items: [{ id: 'ss_max_armor' }, { id: 'ss_max_legs' }, { id: 'ss_max_boots' }, { id: 'powergauntlets', color: '#8c1c1c', trim: '#26262b', color2: '#ff7a30' }] },
         { id: 'ss_vay', label: 'Royal Robes (Vay Drokan)', group: 'Star Shift', items: [{ id: 'ss_vay_robes' }, { id: 'ss_vay_boots' }] }
@@ -644,6 +644,18 @@
             }
         }
         modeledParts.push(...shoeParts); textures.push(...shoeTextures);
+        // The cut garments' parts, their picture kept while the body changes (it depends on the outfit only).
+        let cutParts = [], atlasTexture = null, key = null;
+        if (entries.length) {
+            const Atlas = root.RRCharacterAtlas || require('./CharacterAtlas.js');
+            key = JSON.stringify([items.filter(i => !BY_ID.get(i.id).modeled && !BY_ID.get(i.id).transfer), cache.atlasSize || 1024]);
+            const store = cache.atlas || (cache.atlas = { key: null, layout: null });
+            if (store.key !== key) { store.layout = Atlas.layout(pack, entries, { size: cache.atlasSize || 1024 }); store.key = key; }
+            cutParts = Atlas.apply(store.layout, entries);
+            atlasTexture = store.layout.texture;
+        }
+        // Only skin a garment really covers stays hidden: none is left out under a slit, an opening or a tear.
+        for (const v of O.uncovered(pack, built, cutParts.concat(modeledParts), hidden, frame)) hidden.delete(v);
         // Skin under a garment and just past its edge, where no body hair or fur grows (it would poke out under a
         // cuff or over a boot's top).
         const noHair = new Set(hidden);
@@ -657,12 +669,7 @@
             }
         }
         if (!entries.length) return { parts: modeledParts, hidden, noHair, items, texture: null, textures };
-        // The picture depends on the cut garments only: kept while the body changes.
-        const Atlas = root.RRCharacterAtlas || require('./CharacterAtlas.js');
-        const key = JSON.stringify([items.filter(i => !BY_ID.get(i.id).modeled && !BY_ID.get(i.id).transfer), cache.atlasSize || 1024]);
-        const store = cache.atlas || (cache.atlas = { key: null, layout: null });
-        if (store.key !== key) { store.layout = Atlas.layout(pack, entries, { size: cache.atlasSize || 1024 }); store.key = key; }
-        return { parts: Atlas.apply(store.layout, entries).concat(modeledParts), hidden, noHair, items, texture: store.layout.texture, textureKey: key, textures };
+        return { parts: cutParts.concat(modeledParts), hidden, noHair, items, texture: atlasTexture, textureKey: key, textures };
     }
 
     /**

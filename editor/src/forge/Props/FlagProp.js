@@ -35,7 +35,7 @@
     const ASPECTS = [['1:2', '1:2', 0.5], ['3:5', '3:5', 0.6], ['2:3', '2:3', 2 / 3], ['3:4', '3:4', 0.75], ['1:1', '1:1', 1],
         ['streamer', 'Streamer', 1 / 8, 'pointed'], ['pennant', 'Pennant', 1 / 3, 'pointed'], ['swallowtail', 'Swallowtail', 0.6, 'swallowtail'],
         ['3:2', '3:2 (tall)', 1.5], ['2:1', '2:1 (tall)', 2], ['banner', 'Pole banner', 4.5], ['custom', 'Custom', 0]];
-    const CUTS = [['straight', 'Straight'], ['swallowtail', 'Swallowtail'], ['pointed', 'Pointed']];
+    const CUTS = [['straight', 'Square-cut'], ['swallowtail', 'Swallowtail'], ['pointed', 'Pointed']];
     /** The types a flag starts as: a flag, a long streamer, a tall banner down the pole. */
     const FORMS = [
         { id: 'flag', label: 'Flag', recipe: {} },
@@ -443,15 +443,55 @@
 
     function hasAlpha(img) { for (let i = 3; i < img.data.length; i += 16) if (img.data[i] < 128) return true; return false; }
 
-    /** A random flag: a field and its colors, maybe an emblem or two; the pole and cloth stay. */
-    function random(seed, recipe) {
+    /**
+     * A random flag. 'details' (Design): a new field, emblems and colors;
+     * 'colors': the same design in another palette, and the pole's colors;
+     * 'shape': the pole's height, the cloth's size, shape and fabric, kept to
+     * the flag's form; 'all' every one.
+     */
+    function random(seed, recipe, scope) {
+        const has = part => !scope || scope === 'all' || scope === part;
+        let r = normalize(recipe);
+        if (has('details')) r = randomDesign(seed, r);
+        const R = Paint.random((seed ^ 0x5bd1e995) >>> 0), pickOf = list => list[Math.floor(R() * list.length)];
+        if (has('colors') && !has('details')) {
+            const palette = pickOf(PALETTE_SETS).slice(), map = new Map();
+            const swap = c => { if (!map.has(c)) map.set(c, palette[map.size % palette.length]); return map.get(c); };
+            r.design.field.colors = r.design.field.colors.map(swap);
+            r.design.layers = r.design.layers.map(l => Object.assign({}, l, { color: swap(l.color) }));
+        }
+        if (has('colors')) {
+            const pole = POLE_BY_ID.get(r.pole.type);
+            r.pole.color = r.pole.type === 'staff' || r.pole.type === 'crossbar' ? pickOf(['#7a5434', '#5a3a22', '#8a5a32', '#3a2a1a']) : r.pole.type === 'bracket' ? pickOf(['#2a2a2e', '#3a3a3e', '#5a4a3a']) : pickOf(['#c3c7cc', '#e8e8ec', '#8a8e96', pole.color]);
+            r.pole.finialColor = pickOf(['#d4a940', '#c9a03c', '#b8b8be', '#e8e8ec']);
+        }
+        if (has('shape')) {
+            const form = r.form || 'flag', pole = POLE_BY_ID.get(r.pole.type), [lo, hi] = pole.height;
+            r.pole.height = Math.max(lo, Math.min(hi, pole.height[2] * (0.8 + R() * 0.45)));
+            const cap = clothCap(r.pole.type, r.pole.height);
+            if (form === 'flag') {
+                r.cloth.aspect = pickOf(['2:3', '2:3', '3:5', '1:2', '3:4', '1:1', 'swallowtail', 'pennant']);
+                r.cloth.cut = (ASPECTS.find(x => x[0] === r.cloth.aspect) || [])[3] || (R() < 0.12 ? 'swallowtail' : 'straight');
+                r.cloth.width = Math.min(pole.width * (0.75 + R() * 0.55), cap / Math.max(0.3, ratioOf(r.cloth.aspect)) * 0.6);
+            } else if (form === 'streamer') r.cloth.width = Math.min(6, Math.max(1.5, r.pole.height * (0.35 + R() * 0.3)));
+            else { r.cloth.width = 0.6 + R() * 0.5; r.cloth.cut = pickOf(['swallowtail', 'pointed', 'straight']); }
+            r.cloth.fabric = pickOf(['cotton', 'cotton', 'silk', 'wool', R() < 0.3 ? 'tattered' : 'cotton']);
+            if (r.cloth.fabric === 'tattered') r.cloth.wear = 0.3 + R() * 0.5;
+        }
+        r.seed = seed >>> 0 || 1;
+        return normalize(r);
+    }
+
+    const PALETTE_SETS = [
+        ['#8c1c1c', '#d9b23c', '#f2efe6', '#1f3c78', '#1d5c34'], ['#1f3c78', '#f2efe6', '#b3202a', '#d9b23c', '#1b1b1f'], ['#1d5c34', '#f2efe6', '#c8a032', '#1b1b1f', '#8c1c1c'],
+        ['#2b2b30', '#c9a03c', '#8c1c1c', '#f2efe6', '#1f3c78'], ['#5a2a6e', '#e8c45a', '#f2efe6', '#1f1f24', '#0f5c78'], ['#0f5c78', '#f0e6c8', '#c84a2a', '#1b1b1f', '#d9b23c'],
+        ['#c8501e', '#f2efe6', '#1f3c78', '#2b2b30', '#d9b23c'], ['#f2efe6', '#a51f2b', '#1f3c78', '#d9b23c', '#1d5c34'], ['#3a5a2a', '#d8c27a', '#7a2a1a', '#f2efe6', '#1b1b1f']
+    ];
+
+    /** A random design: a field and its colors, maybe an emblem or two. */
+    function randomDesign(seed, recipe) {
         const rand = Paint.random(seed), r = normalize(recipe), pickOf = list => list[Math.floor(rand() * list.length)];
-        const palettes = [
-            ['#8c1c1c', '#d9b23c', '#f2efe6', '#1f3c78', '#1d5c34'], ['#1f3c78', '#f2efe6', '#b3202a', '#d9b23c', '#1b1b1f'], ['#1d5c34', '#f2efe6', '#c8a032', '#1b1b1f', '#8c1c1c'],
-            ['#2b2b30', '#c9a03c', '#8c1c1c', '#f2efe6', '#1f3c78'], ['#5a2a6e', '#e8c45a', '#f2efe6', '#1f1f24', '#0f5c78'], ['#0f5c78', '#f0e6c8', '#c84a2a', '#1b1b1f', '#d9b23c'],
-            ['#c8501e', '#f2efe6', '#1f3c78', '#2b2b30', '#d9b23c'], ['#f2efe6', '#a51f2b', '#1f3c78', '#d9b23c', '#1d5c34'], ['#3a5a2a', '#d8c27a', '#7a2a1a', '#f2efe6', '#1b1b1f']
-        ];
-        const colors = pickOf(palettes).slice();
+        const colors = pickOf(PALETTE_SETS).slice();
         if (rand() < 0.5) colors.reverse();
         const layout = pickOf(Design.LAYOUTS.filter(l => l.id !== 'image')).id;
         const field = { layout, colors, count: 2 + Math.floor(rand() * 3), orient: rand() < 0.7 ? 'h' : 'v', offset: rand() < 0.5 ? 'nordic' : 'center', arm: 0.12 + rand() * 0.14, outline: rand() < 0.4 ? 0.04 : 0, rows: layout === 'canton' && rand() < 0.5 ? 3 : 0, cols: 4, count2: 0 };
@@ -461,11 +501,10 @@
         for (let k = 0; k < n; k++) layers.push({ shape: pickOf(Design.SHAPES)[0], color: k ? colors[2] : accent, size: k ? 0.25 + rand() * 0.15 : 0.4 + rand() * 0.3, place: layout === 'canton' ? 'canton' : layout === 'triangle' ? 'hoist' : 'center' });
         if (layers.length && rand() < 0.25) Object.assign(layers[layers.length - 1], { shape: 'star', size: 0.12, repeat: 'ring', count: 6 + Math.floor(rand() * 7), spread: 1 + rand() * 0.4 });
         r.design = { field, layers, image: r.design.image };
-        r.seed = seed >>> 0 || 1;
         return normalize(r);
     }
 
-    const api = { POLES, POLE_BY_ID, FINIALS, FABRICS, ASPECTS, CUTS, FORMS, withForm, clothCap, waveClip, paintCloth, paintNormal, wearAt, DEFAULT, LOOP, normalize, withPole, windSpeed, layout, build, random, ratioOf };
+    const api = { POLES, POLE_BY_ID, FINIALS, FABRICS, ASPECTS, CUTS, FORMS, withForm, clothCap, waveClip, paintCloth, paintNormal, wearAt, DEFAULT, LOOP, normalize, withPole, windSpeed, layout, build, random, randomDesign, PALETTE_SETS, ratioOf };
     root.RRFlagProp = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     const Catalog = root.RRPropCatalog || (typeof require === 'function' ? require('./PropCatalog.js') : null);

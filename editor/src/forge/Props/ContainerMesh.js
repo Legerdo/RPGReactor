@@ -50,11 +50,12 @@
      * over a rim, down the inside), each span its own band of faces. The
      * outside faces out when the outline runs up the outside. `o.radius(s,
      * y, r)` may move a point in or out (staves, dents); `o.phase` turns
-     * the start (s = 0 at the back, -z, by default). Uvs: [s around 0..1,
+     * the start (s = 0 at the back, -z, by default) and `o.turn` how much of
+     * a full turn it makes (1). Uvs: [s around 0..1,
      * meters along the outline]. Points on the axis close as fans.
      */
     function revolve(profile, segments, o) {
-        const opt = o || {}, seg = Math.max(3, segments | 0), phase = opt.phase ?? Math.PI;
+        const opt = o || {}, seg = Math.max(1, segments | 0), phase = opt.phase ?? Math.PI, turn = opt.turn ?? 1;
         const P = [], N = [], T = [], I = [];
         let along = 0;
         const lengths = [0];
@@ -62,7 +63,7 @@
         const ring = (k) => {
             const [r0, y] = profile[k], start = P.length / 3;
             for (let s = 0; s <= seg; s++) {
-                const f = s / seg, a = phase + f * Math.PI * 2;
+                const f = s / seg * turn, a = phase + f * Math.PI * 2;
                 const r = opt.radius && r0 > 0 ? opt.radius(f, y, r0, k) : r0;
                 P.push(r * Math.sin(a), y, r * Math.cos(a)); N.push(Math.sin(a), 0, Math.cos(a)); T.push(f, lengths[k]);
             }
@@ -72,8 +73,9 @@
             const a = ring(k), b = ring(k + 1);
             const onA = profile[k][0] <= 0, onB = profile[k + 1][0] <= 0;
             for (let s = 0; s < seg; s++) {
-                if (!onA) I.push(a + s, b + s, a + s + 1);
-                if (!onB) I.push(a + s + 1, b + s, b + s + 1);
+                // Winding (Prop Builder fix 2026-10-18): counterclockwise seen from outside.
+                if (!onA) I.push(a + s, a + s + 1, b + s);
+                if (!onB) I.push(a + s + 1, b + s + 1, b + s);
             }
         }
         const m = make(P, N, T, I);
@@ -262,7 +264,7 @@
         }
         for (let i = 0; i + 1 < n; i++) {
             const a = rings[i].start, b = rings[i + 1].start;
-            for (let s = 0; s < sd; s++) I.push(a + s, b + s, a + s + 1, a + s + 1, b + s, b + s + 1);
+            for (let s = 0; s < sd; s++) I.push(a + s, a + s + 1, b + s, a + s + 1, b + s + 1, b + s); // winding fix 2026-10-18: faces out
         }
         const m = make(P, N, T, I);
         // The ring order winds its faces inward on some paths: turned out by the normals.
@@ -338,8 +340,12 @@
 
     /** A low dome (a lamp's lens) on a frame: radius `r`, `height`, `sides` around. Uvs all at (0.5, 0.5). */
     function dome(F, cu, cv, r, height, sides) {
-        const prof = [[r, 0], [r * 0.92, height * 0.55], [r * 0.55, height * 0.92], [0, height]];
-        const m = revolve(prof, sides || 8, { phase: 0, crease: 0.2 });
+        return revolveOn(F, cu, cv, [[r, 0], [r * 0.92, height * 0.55], [r * 0.55, height * 0.92], [0, height]], sides || 8, 0.2);
+    }
+
+    /** An outline turned about the frame's normal at (cu, cv): heights along the normal. Uvs all at (0.5, 0.5). */
+    function revolveOn(F, cu, cv, prof, sides, crease) {
+        const m = revolve(prof, sides || 8, { phase: 0, crease: crease ?? 0.5 });
         // From the revolve's y-up to the frame: x along u, y along n, z along v.
         const P = m.positions, N = m.normals;
         for (let i = 0; i < P.length; i += 3) {
@@ -426,7 +432,7 @@
         return out;
     }
 
-    const api = { Geo, make, revolve, smoothNormals, chamferBox, planarAt, slab, insetConvex, rect, frame, sweep, orientOutward, bezel, plate, dome, transform, yaw, pitch, copy, mapUv, skin, occlude, merge, vec: { sub, add, scale, dot, cross, norm } };
+    const api = { Geo, make, revolve, revolveOn, smoothNormals, chamferBox, planarAt, slab, insetConvex, rect, frame, sweep, orientOutward, bezel, plate, dome, transform, yaw, pitch, copy, mapUv, skin, occlude, merge, vec: { sub, add, scale, dot, cross, norm } };
     root.RRContainerMesh = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

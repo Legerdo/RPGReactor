@@ -335,6 +335,69 @@
     }
     const apply = (mv, p) => (p ? add(mv.to, apply3(mv.m, sub(p, mv.from))) : null);
 
+    // ── re-posing the model ───────────────────────────────────────────────
+    /**
+     * The model re-posed into the builder's rest pose by its own skin: each
+     * limb bone turned (about its joint, its length kept) to point the way
+     * the builder's bone does, the trunk, neck and head left as they are.
+     * Returns a copy with moved positions and joints; the cloth then lies on
+     * the builder's body as it was made, not stretched across two poses.
+     */
+    function repose(model, ours) {
+        const L = landmarks(model.bones.map(b => b.head), model.roles, model.positions, model.joints, model.weights, model.positions.length / 3, true);
+        const moves = {};
+        const still = { from: [0, 0, 0], to: [0, 0, 0], m: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] };
+        for (const r of ['Hips', 'Spine', 'Neck', 'Head']) moves[r] = still;
+        const turnAbout = (pivotOld, pivotNew, a0, a1, b0, b1) => {
+            const da = sub(a1, a0), db = sub(b1, b0);
+            if (len(da) < 1e-6 || len(db) < 1e-6) return { from: pivotOld, to: pivotNew, m: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] };
+            return { from: pivotOld, to: pivotNew, m: turn(unit(da), unit(db)) };
+        };
+        for (const side of ['Left', 'Right']) {
+            const t = r => L[side + r], o = r => ours[side + r];
+            // Each bone turns from where its parent's turn left it.
+            const chain = [['Shoulder', 'Arm'], ['Arm', 'ForeArm'], ['ForeArm', 'Hand']];
+            let at = t('Shoulder') ? t('Shoulder') : null, parent = still;
+            for (const [part, end] of chain) {
+                if (!t(part) || !t(end) || !o(part) || !o(end)) { moves[side + part] = parent; continue; }
+                const start = apply(parent, t(part));
+                const mv = turnAbout(t(part), start, t(part), t(end), o(part), o(end));
+                moves[side + part] = mv; parent = mv; at = start;
+            }
+            const hEnd = L.ends[side + 'Hand'], oEnd = ours.ends[side + 'Hand'];
+            moves[side + 'Hand'] = t('Hand') && hEnd && o('Hand') && oEnd ? turnAbout(t('Hand'), apply(parent, t('Hand')), t('Hand'), hEnd, o('Hand'), oEnd) : parent;
+            parent = still;
+            for (const [part, end] of [['UpLeg', 'Leg'], ['Leg', 'Foot']]) {
+                if (!t(part) || !t(end) || !o(part) || !o(end)) { moves[side + part] = parent; continue; }
+                const mv = turnAbout(t(part), apply(parent, t(part)), t(part), t(end), o(part), o(end));
+                moves[side + part] = mv; parent = mv;
+            }
+            // The foot keeps its own set to the shin (a boot, a heel) and stands on the floor below.
+            moves[side + 'Foot'] = moves[side + 'ToeBase'] = parent;
+            void at;
+        }
+        const P = model.positions, n = P.length / 3, out = new Float32Array(P.length);
+        const mvOf = model.bones.map((b, j) => moves[model.roles[j]] || still);
+        for (let v = 0; v < n; v++) {
+            const p = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
+            let x = 0, y = 0, z = 0, ws = 0;
+            for (let k = 0; k < 4; k++) {
+                const w = model.weights[v * 4 + k];
+                if (w <= 0) continue;
+                const q = apply(mvOf[model.joints[v * 4 + k]], p);
+                x += q[0] * w; y += q[1] * w; z += q[2] * w; ws += w;
+            }
+            if (ws <= 0) { out.set(p, v * 3); continue; }
+            out[v * 3] = x / ws; out[v * 3 + 1] = y / ws; out[v * 3 + 2] = z / ws;
+        }
+        // Back on the floor: the legs turned may have lifted or sunk the feet.
+        let lo = Infinity;
+        for (let i = 1; i < out.length; i += 3) lo = Math.min(lo, out[i]);
+        for (let i = 1; i < out.length; i += 3) out[i] -= lo;
+        const bones = model.bones.map((b, j) => { const q = apply(mvOf[j], b.head); return Object.assign({}, b, { head: [q[0], q[1] - lo, q[2]] }); });
+        return Object.assign({}, model, { positions: out, bones });
+    }
+
     // ── surfaces ──────────────────────────────────────────────────────────
     /** The faces of a pack surface as triples of pack vertices. */
     function packFaces(surface) {
@@ -368,11 +431,19 @@
             for (const [a, list] of ring) if (grown[a]) for (const b of list) next[b] = 1;
             grown = next;
         }
-        // Inside of that: the skin the tights stand for. Outside: bare skin, bound directly.
-        const inner = new Uint8Array(pack.vertexCount);
-        for (const [a, list] of ring) if (under[a] && list.every(b => grown[b])) inner[a] = 1;
+        // Bare skin, bound directly: only where the tights do not reach at all (hands, feet, the neck and head),
+        // never a patch inside them where their coarse binding happens to miss a vertex.
+        let reach = grown;
+        for (let r = 0; r < 4; r++) {
+            const next = Uint8Array.from(reach);
+            for (const [a, list] of ring) if (reach[a]) for (const b of list) next[b] = 1;
+            reach = next;
+        }
+        const an = Outfit.anatomy(pack);
+        const beyond = v => !reach[v] || (an.member[v * 5 + 1] > 0.5 && an.s[v * 5 + 1] > 2.9) || (an.member[v * 5 + 2] > 0.5 && an.s[v * 5 + 2] > 2.9)
+            || (an.member[v * 5 + 3] > 0.5 && an.s[v * 5 + 3] > 1.95) || (an.member[v * 5 + 4] > 0.5 && an.s[v * 5 + 4] > 1.95) || (an.member[v * 5] > 0.5 && an.s[v * 5] > 4.2);
         const bare = [];
-        for (let t = 0; t < body.length; t += 3) if (!(inner[body[t]] && inner[body[t + 1]] && inner[body[t + 2]])) bare.push(body[t], body[t + 1], body[t + 2]);
+        for (let t = 0; t < body.length; t += 3) if (beyond(body[t]) || beyond(body[t + 1]) || beyond(body[t + 2])) bare.push(body[t], body[t + 1], body[t + 2]);
         return (pack._transferSurfaces = { tights, skirt, skin: Uint32Array.from(bare), body });
     }
 
@@ -825,6 +896,8 @@
         // Landmarks on both skeletons, the same way.
         const S = built.shaped;
         const Lo = landmarks(ours.map(b => b.head), roleOurs, S, pack.skinJoints, pack.skinWeights, pack.vertexCount);
+        // The model in the builder's rest pose first, by its own skin.
+        if (o.repose !== false) model = repose(model, Lo);
         const Lt = landmarks(model.bones.map(b => b.head), model.roles, model.positions, model.joints, model.weights, model.positions.length / 3, o.symmetric !== false);
         const moves = skeletonMoves(Lo, Lt, o);
 
@@ -833,7 +906,7 @@
         let mesh = cutMesh(model, keep, o.minPiece);
         const lighten = o.simplify || (Simplify && Simplify.simplify);
         if (lighten && o.triangles && mesh.index.length / 3 > o.triangles) {
-            const lighter = lighten(mesh.positions, mesh.uvs, mesh.index, o.triangles);
+            const lighter = lighten(mesh.positions, mesh.uvs, mesh.index, o.triangles, { maxEdge: o.maxEdge ?? 0.03 });
             const keepFrom = lighter.origin;
             mesh = {
                 positions: lighter.positions, uvs: lighter.uvs, index: lighter.index,
@@ -877,8 +950,12 @@
             const pic = o.picture, x = Math.min(pic.width - 1, Math.max(0, Math.floor(mesh.uvs[r * 2] * pic.width))), y = Math.min(pic.height - 1, Math.max(0, Math.floor(mesh.uvs[r * 2 + 1] * pic.height))), q = (y * pic.width + x) * 4;
             pointColor[w.id[r] * 3] = toLinear(pic.data[q]); pointColor[w.id[r] * 3 + 1] = toLinear(pic.data[q + 1]); pointColor[w.id[r] * 3 + 2] = toLinear(pic.data[q + 2]);
         }
-        const loose = looseCloth(pack, QS, F, point, count, mesh, w, Lt, o, pointRole, o.picture ? i => pointColor.subarray(i * 3, i * 3 + 3) : null);
+        const loose = looseCloth(pack, QS, F, point, count, mesh, w, Lt, o, pointRole);
         const grid = triangleGrid(QS, F.all, 0.03);
+        const an0 = Outfit.anatomy(pack);
+        // `headFree`: nothing rides the head (a high collar stands on the neck and shoulders, whatever head it was made round).
+        const onHead = new Uint8Array(F.all.length / 3);
+        if (o.headFree) for (let t = 0; t < onHead.length; t++) { let up = 0; for (let k = 0; k < 3; k++) if (an0.member[F.all[t * 3 + k] * 5] > 0.5 && an0.s[F.all[t * 3 + k] * 5] > 4.35) up++; onHead[t] = up >= 2 ? 1 : 0; }
         const famOfFace = faceFamilies(pack, F);
         const hipAxis = Lt.pelvis, faceBearing = new Float32Array(F.all.length / 3);
         for (let t = 0; t < faceBearing.length; t++) {
@@ -887,30 +964,93 @@
             for (let k = 0; k < 3; k++) { x += QS[F.all[t * 3 + k] * 3]; z += QS[F.all[t * 3 + k] * 3 + 2]; }
             faceBearing[t] = Math.atan2(x / 3 - hipAxis[0], z / 3 - hipAxis[2]);
         }
-        const tri = new Uint16Array(count * 3), bary = new Float32Array(count * 3), offset = new Float32Array(count * 3), surface = new Uint8Array(count);
-        const world = new Float32Array(count * 3), farness = new Uint8Array(count);
-        for (let i = 0; i < count; i++) {
-            const p = [point[i * 3], point[i * 3 + 1], point[i * 3 + 2]];
-            const want = loose[i] ? 2 : -1, fam = familyOfRole(pointRole[i]);
+        /** A point's binding to the posed body: on the skirt (want 2) or the body's other surfaces. */
+        const bindOne = (i, want) => {
+            const p = [point[i * 3], point[i * 3 + 1], point[i * 3 + 2]], fam = familyOfRole(pointRole[i]);
             // A point rides its own limb or the trunk: never a hand hanging beside a coat's tails.
             // Skirt cloth rides the skirt at its own bearing round the hips, never the far side of it.
             const bearing = Math.atan2(p[0] - hipAxis[0], p[2] - hipAxis[2]);
             const fits = t => (want === 2 ? F.kind[t] === 2 && Math.abs(Math.atan2(Math.sin(faceBearing[t] - bearing), Math.cos(faceBearing[t] - bearing))) < 0.5
-                : F.kind[t] !== 2 && (famOfFace[t] === fam || famOfFace[t] === 0 || (fam === 0 && famOfFace[t] >= 3)));
+                : F.kind[t] !== 2 && !(o.headFree && onHead[t]) && (famOfFace[t] === fam || famOfFace[t] === 0 || (fam === 0 && famOfFace[t] >= 3)));
             let hit = nearestTriangle(grid, p, 0.6, fits);
             if (!hit) hit = nearestTriangle(grid, p, 0.6, t => (want === 2 ? F.kind[t] === 2 : F.kind[t] !== 2));
-            if (!hit) continue;
+            if (!hit) return null;
             const a = F.all[hit.t * 3], b = F.all[hit.t * 3 + 1], c = F.all[hit.t * 3 + 2];
-            tri[i * 3] = a; tri[i * 3 + 1] = b; tri[i * 3 + 2] = c;
-            bary.set(hit.bary, i * 3);
             const fr = frameAt(QS, NQ, a, b, c, hit.bary);
             const d = sub(p, fr.o);
-            offset[i * 3] = dot(d, fr.n); offset[i * 3 + 1] = dot(d, fr.u); offset[i * 3 + 2] = dot(d, fr.v);
-            surface[i] = F.kind[hit.t];
             // Far off the trunk or the legs the offset is kept along the world's axes: a frame's turn would swing it.
-            if (fam === 0 || fam >= 3 || loose[i]) {
-                const far = Math.max(0, Math.min(1, (len(d) - (o.farFrom ?? 0.015)) / 0.025));
-                if (far > 0) { world[i * 3] = d[0]; world[i * 3 + 1] = d[1]; world[i * 3 + 2] = d[2]; farness[i] = Math.round(far * 255); }
+            let far = 0;
+            if (fam === 0 || fam >= 3 || want === 2) far = Math.max(0, Math.min(1, (len(d) - (o.farFrom ?? 0.015)) / 0.025));
+            return { tri: [a, b, c], bary: hit.bary, offset: [dot(d, fr.n), dot(d, fr.u), dot(d, fr.v)], world: far > 0 ? d : [0, 0, 0], far: Math.round(far * 255), surface: F.kind[hit.t] };
+        };
+        const tri = new Uint16Array(count * 3), bary = new Float32Array(count * 3), offset = new Float32Array(count * 3), surface = new Uint8Array(count);
+        const world = new Float32Array(count * 3), farness = new Uint8Array(count);
+        const put = (i, r, T, B, D, Wd, Fr, S) => { if (!r) return; T.set(r.tri, i * 3); B.set(r.bary, i * 3); D.set(r.offset, i * 3); Wd.set(r.world, i * 3); Fr[i] = r.far; if (S) S[i] = r.surface; };
+        // How far each point rides the skirt rather than the body: 1 on loose cloth, 0 elsewhere, eased across
+        // a few rings where the two meet so that seam bends instead of tearing on a body far from this one.
+        // The coat leaves the body for the skirt across the hips, by height, the same all round.
+        const rampTop = Lt.pelvis[1] + 0.04, rampLow = Lt.pelvis[1] - 0.12;
+        const mix = Float32Array.from(loose, (l, i) => l * Math.max(0, Math.min(1, (rampTop - point[i * 3 + 1]) / (rampTop - rampLow))));
+        {
+            const nb = new Array(count);
+            for (let t = 0; t < mesh.index.length; t += 3) for (let k = 0; k < 3; k++) {
+                const x = w.id[mesh.index[t + k]], y = w.id[mesh.index[t + (k + 1) % 3]];
+                if (x !== y) { (nb[x] || (nb[x] = new Set())).add(y); (nb[y] || (nb[y] = new Set())).add(x); }
+            }
+            for (let pass = 0; pass < (o.blendRings ?? 3); pass++) {
+                const next = Float32Array.from(mix);
+                for (let i = 0; i < count; i++) {
+                    if (!nb[i] || point[i * 3 + 1] > Lt.pelvis[1] + 0.12) continue;
+                    let sum = mix[i];
+                    for (const j of nb[i]) sum += mix[j];
+                    next[i] = sum / (nb[i].size + 1);
+                }
+                mix.set(next);
+            }
+        }
+        const blendIds = [], btri = new Uint16Array(count * 3), bbary = new Float32Array(count * 3), boff = new Float32Array(count * 3), bworld = new Float32Array(count * 3), bfar = new Uint8Array(count);
+        for (let i = 0; i < count; i++) {
+            if (mix[i] >= 0.99) { put(i, bindOne(i, 2), tri, bary, offset, world, farness, surface); continue; }
+            put(i, bindOne(i, -1), tri, bary, offset, world, farness, surface);
+            if (mix[i] > 0.01) { put(i, bindOne(i, 2), btri, bbary, boff, bworld, bfar, null); blendIds.push(i); }
+        }
+
+        // Each point's skin under it and its clearance above that skin, held on any body (a bulge never comes through).
+        const skinTri = new Uint16Array(count * 3), skinBary = new Float32Array(count * 3), skinH = new Float32Array(count);
+        {
+            const skinFaces = bindSurfaces(pack).body, sg = triangleGrid(Q, skinFaces, 0.03), NS = Body.vertexNormals(pack, Q);
+            const famOfSkin = new Uint8Array(skinFaces.length / 3);
+            for (let t = 0; t < famOfSkin.length; t++) {
+                const m = [0, 0, 0, 0, 0];
+                for (let k = 0; k < 3; k++) { const v = skinFaces[t * 3 + k]; for (let f = 0; f < 5; f++) m[f] += an0.member[v * 5 + f]; }
+                let best = 0; for (let f = 1; f < 5; f++) if (m[f] > m[best]) best = f;
+                famOfSkin[t] = m[best] > m[0] * 1.5 ? best : 0;
+            }
+            for (let i = 0; i < count; i++) {
+                // Only cloth riding the body alone: what eases onto the skirt hangs by its own rules.
+                if (mix[i] > 0.01 || loose[i]) continue;
+                const p = [point[i * 3], point[i * 3 + 1], point[i * 3 + 2]], fam = familyOfRole(pointRole[i]);
+                const hit = nearestTriangle(sg, p, 0.3, t => famOfSkin[t] === fam || famOfSkin[t] === 0 || (fam === 0 && famOfSkin[t] >= 3)) || nearestTriangle(sg, p, 0.3);
+                if (!hit) continue;
+                const a = skinFaces[hit.t * 3], b = skinFaces[hit.t * 3 + 1], c = skinFaces[hit.t * 3 + 2];
+                skinTri.set([a, b, c], i * 3); skinBary.set(hit.bary, i * 3);
+                const n = unit([0, 1, 2].map(k => NS[a * 3 + k] * hit.bary[0] + NS[b * 3 + k] * hit.bary[1] + NS[c * 3 + k] * hit.bary[2]));
+                skinH[i] = dot(sub(p, hit.q), n);
+            }
+        }
+
+        // `collar` [from, to] on the spine: a standing collar carried whole by the neck's joint, eased in over that span,
+        // so it keeps its own shape round any neck instead of clinging to the skin under it.
+        const rigidW = new Uint8Array(count), rigidOff = new Float32Array(count * 3);
+        if (o.collar) {
+            const neck = Body.joints(pack, Q).find(j => j.name === 'Neck').head, [c0, c1] = o.collar;
+            for (let i = 0; i < count; i++) {
+                if (mix[i] > 0.01) continue;
+                const v = tri[i * 3], sp = an0.member[v * 5] > 0.3 ? an0.s[v * 5] : -9;
+                const f = Math.max(0, Math.min(1, (sp - c0) / (c1 - c0)));
+                if (f <= 0 || familyOfRole(pointRole[i]) === 1 || familyOfRole(pointRole[i]) === 2) continue;
+                rigidW[i] = Math.round(f * 255);
+                rigidOff[i * 3] = point[i * 3] - neck[0]; rigidOff[i * 3 + 1] = point[i * 3 + 1] - neck[1]; rigidOff[i * 3 + 2] = point[i * 3 + 2] - neck[2];
             }
         }
 
@@ -1035,6 +1175,21 @@
         renderPoint.forEach((p, i) => { const q = pointOrder[p]; renderPos[i * 3] = point[q * 3]; renderPos[i * 3 + 1] = point[q * 3 + 1]; renderPos[i * 3 + 2] = point[q * 3 + 2]; });
         // Each part's covered skin, its edges judged against the whole outfit (no skin left between two of its parts).
         const raw = parts.map(part => coveredSkin(pack, Q, NB, { positions: renderPos }, part.index, o.hideReach ?? 0.14, true));
+        // The skin under every point that rides close on it is covered whatever the rays found (coarse cloth over a bulge).
+        {
+            const via = new Map(), tb = Outfit.binding(pack, 'tights');
+            tb.ids.forEach((v, i) => via.set(v, [tb.tri[i * 3], tb.tri[i * 3 + 1], tb.tri[i * 3 + 2]]));
+            parts.forEach((part, k) => {
+                const seen = new Set();
+                for (let i = 0; i < part.index.length; i++) {
+                    const p = pointOrder[renderPoint[part.index[i]]];
+                    if (seen.has(p)) continue;
+                    seen.add(p);
+                    if (surface[p] === 2 || offset[p * 3] > 0.05) continue;
+                    for (let c = 0; c < 3; c++) { const v = tri[p * 3 + c]; for (const u of via.get(v) || [v]) raw[k][u] = 1; }
+                }
+            });
+        }
         const union = new Uint8Array(pack.vertexCount);
         for (const r of raw) for (let v = 0; v < r.length; v++) if (r[v]) union[v] = 1;
         const nbs = pack._skinNeighbors || (pack._skinNeighbors = neighborLists(bindSurfaces(pack).body, pack.vertexCount));
@@ -1047,13 +1202,43 @@
             format: 1, height: built.height, recipe: o.recipe || {}, picture,
             count: pointOrder.length, tri: pick(tri, 3), bary: pick(bary, 3), offset: pick(offset, 3), surface: pick(surface, 1), hang: any ? hang : null,
             world: pick(world, 3), farness: pick(farness, 1),
+            skin: { tri: pick(skinTri, 3), bary: pick(skinBary, 3), height: pick(skinH, 1) },
+            rigid: rigidW.some(x => x) ? { w: pick(rigidW, 1), offset: pick(rigidOff, 3) } : null,
+            blend: (() => {
+                const ids = [], at = new Int32Array(count).fill(-1);
+                pointOrder.forEach((p, k) => { at[p] = k; });
+                const list = blendIds.filter(p => at[p] >= 0);
+                const g = (arr, k) => { const out = new arr.constructor(list.length * k); list.forEach((p, n) => { for (let j = 0; j < k; j++) out[n * k + j] = arr[p * k + j]; }); return out; };
+                return { ids: Uint16Array.from(list, p => at[p]), mix: Uint8Array.from(list, p => Math.round(mix[p] * 255)), tri: g(btri, 3), bary: g(bbary, 3), offset: g(boff, 3), world: g(bworld, 3), farness: g(bfar, 1) };
+            })(),
             render: { point: Uint32Array.from(renderPoint), uvs: Float32Array.from(uvList) },
             parts: parts.filter(p => p.index.length),
             roughness: o.roughness ?? model.roughness ?? 0.8, metalness: o.metalness ?? 0
         };
         // Triangles torn open on the body at rest (where an inner layer joined cloth hanging over it) are left out.
         if (o.tears !== false) {
-            const rest = fit(pack, built, outfit, {});
+            const restFrame = {}, rest = fit(pack, built, outfit, restFrame);
+            // Small pieces floating off the body (a blade beyond a hand, a lone shard) are no part of the garment.
+            {
+                const S = built.shaped, G = restFrame.bodyGrid, RP = outfit.render.point;
+                for (const part of outfit.parts) {
+                    const I = part.index, parent = new Map();
+                    const find = x => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+                    for (let i = 0; i < I.length; i++) { const p = RP[I[i]]; if (!parent.has(p)) parent.set(p, p); }
+                    for (let t = 0; t < I.length; t += 3) { const a = find(RP[I[t]]), b = find(RP[I[t + 1]]); parent.set(a, b); parent.set(find(RP[I[t + 2]]), find(b)); }
+                    const size = new Map(), far = new Map();
+                    for (let t = 0; t < I.length; t += 3) {
+                        const r = find(RP[I[t]]), p = RP[I[t]];
+                        size.set(r, (size.get(r) || 0) + 1);
+                        const q = G.nearest(rest[p * 3], rest[p * 3 + 1], rest[p * 3 + 2], 3);
+                        const d = q < 0 ? 1 : Math.hypot(rest[p * 3] - S[q * 3], rest[p * 3 + 1] - S[q * 3 + 1], rest[p * 3 + 2] - S[q * 3 + 2]);
+                        far.set(r, Math.min(far.get(r) ?? 1, d));
+                    }
+                    const total = I.length / 3, keep = [];
+                    for (let t = 0; t < I.length; t += 3) { const r = find(RP[I[t]]); if (!(size.get(r) < total * 0.03 && far.get(r) > 0.05)) keep.push(I[t], I[t + 1], I[t + 2]); }
+                    part.index = Uint32Array.from(keep);
+                }
+            }
             const at = (P, i) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]];
             const src = i => at(point, pointOrder[i]);
             for (const part of outfit.parts) {
@@ -1245,41 +1430,43 @@
     }
 
     /**
-     * Points of cloth hanging free below the hips: further than `free` from
-     * the legs and the trunk, in pieces joined over the mesh (a panel touching
-     * a thigh stays with its panel).
+     * Points of cloth hanging free below the hips (a coat's tails, a robe's
+     * skirt): an outer layer, with more of the model's cloth between it and
+     * the body (a coat over trousers), or clear of the body by `free`.
+     * Trousers, boots and knee pads lie on the legs with nothing under them
+     * and stay on the legs.
      */
-    function looseCloth(pack, QS, F, point, count, mesh, w, Lt, o, roles, colorOf) {
+    function looseCloth(pack, QS, F, point, count, mesh, w, Lt, o, roles) {
         const free = o.free ?? 0.03;
         const out = new Uint8Array(count);
         if (o.hang === false) return out;
-        const grid = triangleGrid(QS, F.all, 0.03, t => F.kind[t] !== 2);
-        const top = Lt.pelvis[1] + 0.02, tight = o.tight ?? 0.012;
-        const dist = new Float32Array(count).fill(-1), shin = new Float32Array(count);
-        const an = Outfit.anatomy(pack);
+        // Measured to the skin itself: the tights stand off it and may lie outside an inner layer.
+        const grid = triangleGrid(QS, bindSurfaces(pack).body, 0.03);
+        const cloth = triangleGrid(mesh.positions, mesh.index, 0.02);
+        const skirtGrid = triangleGrid(QS, F.all, 0.04, t => F.kind[t] === 2);
+        const top = Lt.pelvis[1] + 0.06;
         for (let i = 0; i < count; i++) {
             const p = [point[i * 3], point[i * 3 + 1], point[i * 3 + 2]];
             if (p[1] > top) continue;
             // An arm hanging by the hips is no skirt.
             const f = familyOfRole(roles[i]);
             if (f === 1 || f === 2) continue;
-            const hit = nearestTriangle(grid, p, free + 0.03);
-            dist[i] = hit ? hit.d : 1;
-            if (hit) { const v = F.all[hit.t * 3]; shin[i] = Math.max(an.member[v * 5 + 3] > 0.5 ? an.s[v * 5 + 3] : 0, an.member[v * 5 + 4] > 0.5 ? an.s[v * 5 + 4] : 0); }
+            const hit = nearestTriangle(grid, p, free + 0.05);
+            if (!hit || hit.d > free) { out[i] = 1; continue; }
+            // An outer layer near where a skirt would hang (a coat's tails over trousers), not armor round a leg inside it.
+            const sk = nearestTriangle(skirtGrid, p, 0.2);
+            if (!sk) continue;
+            const a = F.all[sk.t * 3] * 3, b = F.all[sk.t * 3 + 1] * 3, c = F.all[sk.t * 3 + 2] * 3;
+            const e1 = [QS[b] - QS[a], QS[b + 1] - QS[a + 1], QS[b + 2] - QS[a + 2]], e2 = [QS[c] - QS[a], QS[c + 1] - QS[a + 1], QS[c + 2] - QS[a + 2]];
+            let nrm = unit(cross(e1, e2));
+            const mid3 = [(QS[a] + QS[b] + QS[c]) / 3 - Lt.pelvis[0], 0, (QS[a + 2] + QS[b + 2] + QS[c + 2]) / 3 - Lt.pelvis[2]];
+            if (dot(nrm, mid3) < 0) nrm = mul(nrm, -1);
+            if (dot(sub(p, sk.q), nrm) < -(o.skirtInside ?? 0.035)) continue;
+            // Toward the body: another layer of cloth on the way there.
+            const toward = sub(hit.q, p), d = len(toward);
+            if (d < 0.006) continue;
+            if (rayHits(cloth, p, mul(toward, 1 / d), 0.004, d - 0.002).length) out[i] = 1;
         }
-        // Whole panels: grown over the mesh from what hangs clearly free, through all that does not hug the legs.
-        const nb = new Array(count);
-        for (let t = 0; t < mesh.index.length; t += 3) for (let k = 0; k < 3; k++) {
-            const a = w.id[mesh.index[t + k]], b = w.id[mesh.index[t + (k + 1) % 3]];
-            if (a !== b) { (nb[a] || (nb[a] = [])).push(b); (nb[b] || (nb[b] = [])).push(a); }
-        }
-        const queue = [];
-        for (let i = 0; i < count; i++) if (dist[i] > free) { out[i] = 1; queue.push(i); }
-                // Not across a change of color (a robe's panel into the trousers under it).
-        const same = (i, j) => !colorOf || Math.hypot(...[0, 1, 2].map(c => Math.sqrt(colorOf(i)[c]) - Math.sqrt(colorOf(j)[c]))) < (o.looseColor ?? 0.15);
-        for (let q = 0; q < queue.length; q++) for (const j of nb[queue[q]] || []) if (!out[j] && dist[j] > tight && familyOfRole(roles[j]) !== 1 && familyOfRole(roles[j]) !== 2 && (dist[j] > free || same(queue[q], j))) { out[j] = 1; queue.push(j); }
-        // Then on through cloth of the same color however close it hangs, down to the shins (not into the boots).
-        for (let q = 0; q < queue.length; q++) for (const j of nb[queue[q]] || []) if (!out[j] && dist[j] >= 0 && shin[j] < (o.bootTop ?? 1.6) && familyOfRole(roles[j]) !== 1 && familyOfRole(roles[j]) !== 2 && same(queue[q], j)) { out[j] = 1; queue.push(j); }
         smoothLabels(out, mesh.index, w.id, count, 2);
         return out;
     }
@@ -1382,6 +1569,41 @@
      * body's height), then lifted out of the skin. `frame` is the outfit
      * build's scratch (shared with the other garments).
      */
+    /** One binding laid on the body (P, smooth normals N, height ratio k): the point into out[o], its normal's x into facing. */
+    function lay(P, N, k, T, Bw, D, Wd, Fr, i, out, o) {
+        const A = T[i * 3] * 3, B = T[i * 3 + 1] * 3, C = T[i * 3 + 2] * 3;
+        if (A === B && B === C && A === 0) return 0;
+        const w0 = Bw[i * 3], w1 = Bw[i * 3 + 1], w2 = Bw[i * 3 + 2];
+        const ox = P[A] * w0 + P[B] * w1 + P[C] * w2, oy = P[A + 1] * w0 + P[B + 1] * w1 + P[C + 1] * w2, oz = P[A + 2] * w0 + P[B + 2] * w1 + P[C + 2] * w2;
+        let nx = N[A] * w0 + N[B] * w1 + N[C] * w2, ny = N[A + 1] * w0 + N[B + 1] * w1 + N[C + 1] * w2, nz = N[A + 2] * w0 + N[B + 2] * w1 + N[C + 2] * w2;
+        let l = Math.hypot(nx, ny, nz) || 1;
+        nx /= l; ny /= l; nz /= l;
+        let ex = P[B] - P[A], ey = P[B + 1] - P[A + 1], ez = P[B + 2] - P[A + 2];
+        const d = ex * nx + ey * ny + ez * nz;
+        ex -= nx * d; ey -= ny * d; ez -= nz * d;
+        l = Math.hypot(ex, ey, ez);
+        if (l < 1e-9) { ex = 0; ey = nz; ez = -ny; l = Math.hypot(ey, ez) || 1; }
+        ex /= l; ey /= l; ez /= l;
+        const vx = ny * ez - nz * ey, vy = nz * ex - nx * ez, vz = nx * ey - ny * ex;
+        const h = D[i * 3] * k, u = D[i * 3 + 1] * k, v = D[i * 3 + 2] * k;
+        let px = nx * h + ex * u + vx * v, py = ny * h + ey * u + vy * v, pz = nz * h + ez * u + vz * v;
+        const f = Fr ? Fr[i] / 255 : 0;
+        if (f > 0) { px += (Wd[i * 3] * k - px) * f; py += (Wd[i * 3 + 1] * k - py) * f; pz += (Wd[i * 3 + 2] * k - pz) * f; }
+        out[o] = ox + px; out[o + 1] = oy + py; out[o + 2] = oz + pz;
+        return nx;
+    }
+
+    /** Each point's neighbors over the outfit's triangles, kept on the outfit. */
+    function pointGraph(outfit) {
+        if (outfit._graph) return outfit._graph;
+        const sets = Array.from({ length: outfit.count }, () => new Set()), R = outfit.render.point;
+        for (const part of outfit.parts) for (let t = 0; t < part.index.length; t += 3) for (let k = 0; k < 3; k++) {
+            const a = R[part.index[t + k]], b = R[part.index[t + (k + 1) % 3]];
+            if (a !== b) { sets[a].add(b); sets[b].add(a); }
+        }
+        return (outfit._graph = sets.map(x => Int32Array.from(x)));
+    }
+
     function fit(pack, built, outfit, frame) {
         frame = frame || {};
         const P = surfacePositions(pack, built.shaped, frame);
@@ -1389,28 +1611,25 @@
         const N = frame['transfer:normals'] || (frame['transfer:normals'] = faceNormals(P, F.all, pack.vertexCount, 2));
         const k = built.height / (outfit.height || built.height);
         const n = outfit.count, out = new Float32Array(n * 3), facing = new Float32Array(n);
-        const T = outfit.tri, Bw = outfit.bary, D = outfit.offset, Wd = outfit.world, Fr = outfit.farness;
-        for (let i = 0; i < n; i++) {
-            const A = T[i * 3] * 3, B = T[i * 3 + 1] * 3, C = T[i * 3 + 2] * 3;
-            if (A === B && B === C && A === 0) continue;
-            const w0 = Bw[i * 3], w1 = Bw[i * 3 + 1], w2 = Bw[i * 3 + 2];
-            const ox = P[A] * w0 + P[B] * w1 + P[C] * w2, oy = P[A + 1] * w0 + P[B + 1] * w1 + P[C + 1] * w2, oz = P[A + 2] * w0 + P[B + 2] * w1 + P[C + 2] * w2;
-            let nx = N[A] * w0 + N[B] * w1 + N[C] * w2, ny = N[A + 1] * w0 + N[B + 1] * w1 + N[C + 1] * w2, nz = N[A + 2] * w0 + N[B + 2] * w1 + N[C + 2] * w2;
-            let l = Math.hypot(nx, ny, nz) || 1;
-            nx /= l; ny /= l; nz /= l;
-            let ex = P[B] - P[A], ey = P[B + 1] - P[A + 1], ez = P[B + 2] - P[A + 2];
-            const d = ex * nx + ey * ny + ez * nz;
-            ex -= nx * d; ey -= ny * d; ez -= nz * d;
-            l = Math.hypot(ex, ey, ez);
-            if (l < 1e-9) { ex = 0; ey = nz; ez = -ny; l = Math.hypot(ey, ez) || 1; }
-            ex /= l; ey /= l; ez /= l;
-            const vx = ny * ez - nz * ey, vy = nz * ex - nx * ez, vz = nx * ey - ny * ex;
-            const h = D[i * 3] * k, u = D[i * 3 + 1] * k, v = D[i * 3 + 2] * k;
-            let px = nx * h + ex * u + vx * v, py = ny * h + ey * u + vy * v, pz = nz * h + ez * u + vz * v;
-            const f = Fr ? Fr[i] / 255 : 0;
-            if (f > 0) { px += (Wd[i * 3] * k - px) * f; py += (Wd[i * 3 + 1] * k - py) * f; pz += (Wd[i * 3 + 2] * k - pz) * f; }
-            out[i * 3] = ox + px; out[i * 3 + 1] = oy + py; out[i * 3 + 2] = oz + pz;
-            facing[i] = nx;
+        for (let i = 0; i < n; i++) facing[i] = lay(P, N, k, outfit.tri, outfit.bary, outfit.offset, outfit.world, outfit.farness, i, out, i * 3);
+        // Where cloth leaves the body for the skirt: the two bindings eased into each other.
+        const B = outfit.blend;
+        if (B && B.ids.length) {
+            const tmp = new Float32Array(3);
+            for (let j = 0; j < B.ids.length; j++) {
+                const i = B.ids[j], m = B.mix[j] / 255;
+                if (!lay(P, N, k, B.tri, B.bary, B.offset, B.world, B.farness, j, tmp, 0) && B.tri[j * 3] === 0 && B.tri[j * 3 + 2] === 0) continue;
+                for (let c = 0; c < 3; c++) out[i * 3 + c] += (tmp[c] - out[i * 3 + c]) * m;
+            }
+        }
+        const Rg = outfit.rigid;
+        if (Rg) {
+            const neck = built.bones.find(b => b.name === 'Neck').head;
+            for (let i = 0; i < n; i++) {
+                const f = Rg.w[i] / 255;
+                if (!f) continue;
+                for (let c = 0; c < 3; c++) out[i * 3 + c] += (neck[c] + Rg.offset[i * 3 + c] * k - out[i * 3 + c]) * f;
+            }
         }
         keepLegsApart(pack, built, outfit, out, frame, facing);
         // Cloth riding the skirt hangs free of the skin: pushing each of its points out alone would press a panel's two faces together.
@@ -1418,7 +1637,143 @@
         // Twice: in a hollow the skin nearest a point pushed out is another than before.
         Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
         Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
+        holdClearance(pack, built, outfit, out, frame);
+        // Twice: a lifted point can uncover the skin by its neighbor.
+        clearSkin(pack, built, outfit, out, frame);
+        clearSkin(pack, built, outfit, out, frame);
+        pushSkirtOut(pack, built, outfit, out, frame);
         return out;
+    }
+
+    /**
+     * Each point kept most of its own clearance above the skin it was taken
+     * over (its skin triangle and height, scaled with the body), so a body
+     * that swells between the cloth's bindings never comes through it.
+     */
+    function holdClearance(pack, built, outfit, out, frame) {
+        const K = outfit.skin;
+        if (!K) return;
+        Outfit.collide(pack, built, new Float32Array(3), 0, 0, 0, frame);
+        const S = built.shaped, N = frame.bodyNormals, k = built.height / (outfit.height || built.height);
+        for (let i = 0; i < outfit.count; i++) {
+            const a = K.tri[i * 3], b = K.tri[i * 3 + 1], c = K.tri[i * 3 + 2];
+            if (!a && !b && !c) continue;
+            const w0 = K.bary[i * 3], w1 = K.bary[i * 3 + 1], w2 = K.bary[i * 3 + 2];
+            let nx = N[a * 3] * w0 + N[b * 3] * w1 + N[c * 3] * w2, ny = N[a * 3 + 1] * w0 + N[b * 3 + 1] * w1 + N[c * 3 + 1] * w2, nz = N[a * 3 + 2] * w0 + N[b * 3 + 2] * w1 + N[c * 3 + 2] * w2;
+            const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+            const sx = S[a * 3] * w0 + S[b * 3] * w1 + S[c * 3] * w2, sy = S[a * 3 + 1] * w0 + S[b * 3 + 1] * w1 + S[c * 3 + 1] * w2, sz = S[a * 3 + 2] * w0 + S[b * 3 + 2] * w1 + S[c * 3 + 2] * w2;
+            const want = Math.max(GAP, Math.min(0.08, K.height[i] * k * 0.8));
+            const d = (out[i * 3] - sx) * nx + (out[i * 3 + 1] - sy) * ny + (out[i * 3 + 2] - sz) * nz;
+            if (d >= want) continue;
+            out[i * 3] += nx * (want - d); out[i * 3 + 1] += ny * (want - d); out[i * 3 + 2] += nz * (want - d);
+        }
+    }
+
+    /**
+     * The cloth kept clear of the skin it covers between its own vertices: each
+     * covered skin vertex lifts the cloth point nearest it until the cloth
+     * stands `gap` off that skin (a bulge under coarse cloth), the lift spread
+     * over the cloth's neighbors so it stays smooth.
+     */
+    function clearSkin(pack, built, outfit, out, frame) {
+        const gap = 0.005;
+        if (!outfit._covered) {
+            const all = new Set();
+            for (const part of outfit.parts) for (const v of part.hidden) all.add(v);
+            outfit._covered = Uint32Array.from(all);
+            const eased = new Uint8Array(outfit.count), H = outfit.hang;
+            if (outfit.blend) for (const i of outfit.blend.ids) eased[i] = 1;
+            outfit._close = Uint32Array.from({ length: outfit.count }, (_, i) => i).filter(i => outfit.surface[i] !== 2 && !eased[i] && !(H && H[i] >= 0) && outfit.offset[i * 3] < 0.12);
+        }
+        if (!outfit._covered.length || !outfit._close.length) return;
+        Outfit.collide(pack, built, new Float32Array(3), 0, 0, 0, frame);
+        const S = built.shaped, N = frame.bodyNormals;
+        const grid = Outfit.pointGrid(out, outfit._close, 0.02);
+        const need = new Float32Array(outfit.count), dir = new Float32Array(outfit.count * 3);
+        let any = false;
+        for (const v of outfit._covered) {
+            const x = S[v * 3], y = S[v * 3 + 1], z = S[v * 3 + 2], nx = N[v * 3], ny = N[v * 3 + 1], nz = N[v * 3 + 2];
+            const q = grid.nearest(x, y, z, 5);
+            if (q < 0) continue;
+            const e = (out[q * 3] - x) * nx + (out[q * 3 + 1] - y) * ny + (out[q * 3 + 2] - z) * nz;
+            if (e >= gap || e < -0.15) continue;
+            if (gap - e > need[q]) { need[q] = gap - e; dir[q * 3] = nx; dir[q * 3 + 1] = ny; dir[q * 3 + 2] = nz; any = true; }
+        }
+        if (!any) return;
+        const G = pointGraph(outfit);
+        let lift = Float32Array.from(need);
+        for (let pass = 0; pass < 2; pass++) {
+            const next = Float32Array.from(lift);
+            for (const i of outfit._close) for (const j of G[i]) if (lift[j] * 0.7 > next[i]) { next[i] = lift[j] * 0.7; if (!need[i]) { dir[i * 3] = dir[j * 3]; dir[i * 3 + 1] = dir[j * 3 + 1]; dir[i * 3 + 2] = dir[j * 3 + 2]; } }
+            lift = next;
+        }
+        for (const i of outfit._close) {
+            if (!lift[i]) continue;
+            out[i * 3] += dir[i * 3] * lift[i]; out[i * 3 + 1] += dir[i * 3 + 1] * lift[i]; out[i * 3 + 2] += dir[i * 3 + 2] * lift[i];
+        }
+    }
+
+    /** The height of a body's hips' top, a little over the hip joints. */
+    function hipTopOf(built) {
+        const l = built.bones.find(b => b.name === 'LeftUpLeg'), r = built.bones.find(b => b.name === 'RightUpLeg');
+        return (l && r ? (l.head[1] + r.head[1]) / 2 : built.height * 0.53) + 0.12;
+    }
+
+    /**
+     * Skirt cloth a body swells into is lifted out of it as a whole: each
+     * point's need (how far under `gap` off the skin it hangs) spread over
+     * its neighbors and eased, so a panel's faces and folds move together.
+     */
+    function pushSkirtOut(pack, built, outfit, out, frame) {
+        // The loose cloth: what hangs (a coat's tails, its eased band over the hips), or what rides the skirt.
+        const H = outfit.hang;
+        const ids = outfit._loose || (outfit._loose = Uint32Array.from({ length: outfit.count }, (_, i) => i).filter(i => (H ? H[i] >= 0 : false) || outfit.surface[i] === 2));
+        if (!ids.length) return;
+        Outfit.collide(pack, built, new Float32Array(3), 0, 0, 0, frame);
+        const S = built.shaped, Nb = frame.bodyNormals, grid = frame.bodyGrid, gap = 0.012, layerGap = 0.005;
+        // The outfit's own inner layer (trousers under a coat): the loose cloth stays outside it too.
+        const isLoose = new Uint8Array(outfit.count);
+        for (const i of ids) isLoose[i] = 1;
+        const hipTop = hipTopOf(built), innerIds = [];
+        for (let i = 0; i < outfit.count; i++) if (!isLoose[i] && out[i * 3 + 1] < hipTop) innerIds.push(i);
+        const inner = Outfit.pointGrid(out, innerIds, 0.02);
+        const need = new Float32Array(outfit.count), dir = new Float32Array(outfit.count * 3);
+        let any = false;
+        for (const i of ids) {
+            const q = grid.nearest(out[i * 3], out[i * 3 + 1], out[i * 3 + 2], 2);
+            if (q < 0) continue;
+            const nx = Nb[q * 3], ny = Nb[q * 3 + 1], nz = Nb[q * 3 + 2];
+            const d = (out[i * 3] - S[q * 3]) * nx + (out[i * 3 + 1] - S[q * 3 + 1]) * ny + (out[i * 3 + 2] - S[q * 3 + 2]) * nz;
+            dir[i * 3] = nx; dir[i * 3 + 1] = ny; dir[i * 3 + 2] = nz;
+            let k = gap - d;
+            const j = innerIds.length ? inner.nearest(out[i * 3], out[i * 3 + 1], out[i * 3 + 2], 2) : -1;
+            if (j >= 0) {
+                const ex = out[i * 3] - out[j * 3], ey = out[i * 3 + 1] - out[j * 3 + 1], ez = out[i * 3 + 2] - out[j * 3 + 2];
+                const e = ex * nx + ey * ny + ez * nz, side = Math.hypot(ex - nx * e, ey - ny * e, ez - nz * e);
+                if (side < 0.02 && e < layerGap) k = Math.max(k, layerGap - e);
+            }
+            if (k > 0) { need[i] = k; any = true; }
+        }
+        if (!any) return;
+        const G = pointGraph(outfit);
+        // Spread: a point lifts at least most of what its neighbors need, then the lift is eased.
+        let lift = Float32Array.from(need);
+        for (let pass = 0; pass < 6; pass++) {
+            const next = Float32Array.from(lift);
+            for (const i of ids) for (const j of G[i]) if (lift[j] * 0.85 > next[i]) next[i] = lift[j] * 0.85;
+            lift = next;
+        }
+        for (let pass = 0; pass < 3; pass++) {
+            const next = Float32Array.from(lift);
+            for (const i of ids) { let s = lift[i] * 2, c = 2; for (const j of G[i]) { s += lift[j]; c++; } next[i] = Math.max(need[i], s / c); }
+            lift = next;
+        }
+        for (const i of ids) {
+            if (!lift[i]) continue;
+            let dx = dir[i * 3], dy = dir[i * 3 + 1], dz = dir[i * 3 + 2];
+            if (!dx && !dy && !dz) continue;
+            out[i * 3] += dx * lift[i]; out[i * 3 + 1] += dy * lift[i]; out[i * 3 + 2] += dz * lift[i];
+        }
     }
 
     /**
@@ -1571,6 +1926,7 @@
         let maxOffset = 1e-6, maxWorld = 1e-6;
         for (const x of outfit.offset) maxOffset = Math.max(maxOffset, Math.abs(x));
         for (const x of outfit.world) maxWorld = Math.max(maxWorld, Math.abs(x));
+        if (outfit.blend) { for (const x of outfit.blend.offset) maxOffset = Math.max(maxOffset, Math.abs(x)); for (const x of outfit.blend.world) maxWorld = Math.max(maxWorld, Math.abs(x)); }
         const offsetScale = maxOffset / 32767, worldScale = maxWorld / 32767;
         const bary = new Uint16Array(n * 2);
         for (let i = 0; i < n; i++) { bary[i * 2] = Math.round(Math.max(0, Math.min(1, outfit.bary[i * 3])) * 65535); bary[i * 2 + 1] = Math.round(Math.max(0, Math.min(1, outfit.bary[i * 3 + 1])) * 65535); }
@@ -1583,6 +1939,26 @@
             point: put(Uint16Array.from(outfit.render.point)), uv: put(Uint16Array.from(outfit.render.uvs, x => Math.round(Math.max(0, Math.min(1, x)) * 65535)))
         };
         if (outfit.hang) layout.hang = put(Int16Array.from(outfit.hang, x => Math.round(Math.max(-1, Math.min(3, x)) * 10000)));
+        if (outfit.skin) {
+            const sb = new Uint16Array(n * 2), K = outfit.skin;
+            for (let i = 0; i < n; i++) { sb[i * 2] = Math.round(Math.max(0, Math.min(1, K.bary[i * 3])) * 65535); sb[i * 2 + 1] = Math.round(Math.max(0, Math.min(1, K.bary[i * 3 + 1])) * 65535); }
+            layout.skin = { tri: put(Uint16Array.from(K.tri)), bary: put(sb), height: put(Int16Array.from(K.height, x => Math.round(Math.max(-0.3, Math.min(0.3, x)) / 0.3 * 32767))) };
+        }
+        if (outfit.rigid) {
+            let mr = 1e-6;
+            for (const x of outfit.rigid.offset) mr = Math.max(mr, Math.abs(x));
+            layout.rigid = { w: put(Uint8Array.from(outfit.rigid.w)), offset: put(Int16Array.from(outfit.rigid.offset, x => Math.round(x / mr * 32767))), scale: mr / 32767 };
+        }
+        const B = outfit.blend;
+        if (B && B.ids.length) {
+            const bb = new Uint16Array(B.ids.length * 2);
+            for (let i = 0; i < B.ids.length; i++) { bb[i * 2] = Math.round(Math.max(0, Math.min(1, B.bary[i * 3])) * 65535); bb[i * 2 + 1] = Math.round(Math.max(0, Math.min(1, B.bary[i * 3 + 1])) * 65535); }
+            layout.blend = {
+                ids: put(Uint16Array.from(B.ids)), mix: put(Uint8Array.from(B.mix)), tri: put(Uint16Array.from(B.tri)), bary: put(bb),
+                offset: put(Int16Array.from(B.offset, x => Math.round(Math.max(-maxOffset, Math.min(maxOffset, x)) / offsetScale))),
+                world: put(Int16Array.from(B.world, x => Math.round(Math.max(-maxWorld, Math.min(maxWorld, x)) / worldScale))), farness: put(Uint8Array.from(B.farness))
+            };
+        }
         const parts = outfit.parts.map(p => ({ id: p.id, triangles: p.index.length / 3, index: put(Index.from(p.index)), hidden: put(Uint16Array.from(p.hidden)) }));
         const bytes = new Uint8Array(offset);
         let at = 0;
@@ -1610,6 +1986,18 @@
             world: Float32Array.from(view(Int16Array, L.world), x => x * json.worldScale),
             farness: view(Uint8Array, L.farness), surface: view(Uint8Array, L.surface),
             hang: L.hang ? Float32Array.from(view(Int16Array, L.hang), x => x / 10000) : null,
+            rigid: L.rigid ? { w: view(Uint8Array, L.rigid.w), offset: Float32Array.from(view(Int16Array, L.rigid.offset), x => x * L.rigid.scale) } : null,
+            skin: L.skin ? (() => {
+                const raw3 = view(Uint16Array, L.skin.bary), by = new Float32Array(n * 3);
+                for (let i = 0; i < n; i++) { const x = raw3[i * 2] / 65535, y = raw3[i * 2 + 1] / 65535; by[i * 3] = x; by[i * 3 + 1] = y; by[i * 3 + 2] = Math.max(0, 1 - x - y); }
+                return { tri: view(Uint16Array, L.skin.tri), bary: by, height: Float32Array.from(view(Int16Array, L.skin.height), x => x / 32767 * 0.3) };
+            })() : null,
+            blend: L.blend ? (() => {
+                const b = L.blend, raw2 = view(Uint16Array, b.bary), m = raw2.length / 2, by = new Float32Array(m * 3);
+                for (let i = 0; i < m; i++) { const x = raw2[i * 2] / 65535, y = raw2[i * 2 + 1] / 65535; by[i * 3] = x; by[i * 3 + 1] = y; by[i * 3 + 2] = Math.max(0, 1 - x - y); }
+                return { ids: view(Uint16Array, b.ids), mix: view(Uint8Array, b.mix), tri: view(Uint16Array, b.tri), bary: by,
+                    offset: Float32Array.from(view(Int16Array, b.offset), x => x * json.offsetScale), world: Float32Array.from(view(Int16Array, b.world), x => x * json.worldScale), farness: view(Uint8Array, b.farness) };
+            })() : null,
             render: { point: view(Uint16Array, L.point), uvs: Float32Array.from(view(Uint16Array, L.uv), x => x / 65535) },
             parts: json.parts.map(p => ({ id: p.id, index: Uint32Array.from(view(Index, p.index)), hidden: view(Uint16Array, p.hidden) })),
             picture: json.picture, size: json.size, json
@@ -1739,7 +2127,7 @@
                 source: Int32Array.from(R.point, p => anchor[p]), texture: texture.name,
                 roughness: def.roughness ?? outfit.roughness ?? 0.8, metalness: def.metalness ?? outfit.metalness ?? 0, doubleSided: true
             };
-            if (hang && hang.some(x => x >= 0)) part.hang = hang;
+            if (hang && hang.some(x => x >= 0)) { part.hang = hang; part.keepShape = true; }
             out.push({ part, texture, hidden: piece.hidden });
         }
         return out;
@@ -1911,7 +2299,7 @@
     }
 
     const api = {
-        GAP, readModel, normalizeModel, roleMap, landmarks, skeletonMoves, poseBody, drawIn, keepVertices, cutMesh, weld,
+        GAP, readModel, normalizeModel, repose, roleMap, landmarks, skeletonMoves, poseBody, drawIn, keepVertices, cutMesh, weld,
         transfer, fit, pointSkin, frameAt, bindSurfaces, surfacePositions, triangleGrid, nearestTriangle, rayHits,
         BUILT_IN, colorKeys, recolor, encode, decode, load, picture, preload, onPicture, pictureFor, buildAll, store,
         flatten, isHumanoid, listModels, register, registerProject, takeFrom

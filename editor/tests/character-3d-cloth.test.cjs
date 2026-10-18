@@ -71,7 +71,7 @@ function checkClips(label, recipe, quality) {
         assert.equal(tracks.length, clothBones.length, name + ': a track for every cloth bone');
         for (const t of tracks) for (const v of t.values) assert.ok(Number.isFinite(v), name + ': finite keys');
         // A loop's cloth ends where it starts.
-        if (Cloth.loops(raw, 0.02)) for (const t of tracks) {
+        if (!raw.once && Cloth.loops(raw, 0.02)) for (const t of tracks) {
             const v = t.values, n = v.length / 4 - 1, d = Math.abs(v[0] * v[n * 4] + v[1] * v[n * 4 + 1] + v[2] * v[n * 4 + 2] + v[3] * v[n * 4 + 3]);
             assert.ok(d > 1 - 1e-5, `${name}: ${result.bones[t.bone].name} loops closed`);
         }
@@ -111,7 +111,7 @@ function checkClips(label, recipe, quality) {
     }
     assert.ok(checked > 10000, label + ' checked ' + checked);
     assert.ok(deep / checked < 0.0005, `${label}: ${deep} of ${checked} cloth points more than ${DEEP * 100} cm into a collider`);
-    assert.ok(sunk / points < 0.002, `${label}: ${sunk} of ${points} cloth points more than 1.2 cm into the floor`);
+    assert.ok(sunk / points < 0.0005, `${label}: ${sunk} of ${points} cloth points more than 1.2 cm into the floor`);
     return result;
 }
 

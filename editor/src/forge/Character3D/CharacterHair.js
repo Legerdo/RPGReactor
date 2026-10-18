@@ -1982,6 +1982,8 @@
             const q = add(p, mul(s.n, 0.002 * H.scale - s.d));
             head.pos[i] = q[0]; head.pos[i + 1] = q[1]; head.pos[i + 2] = q[2];
         }
+        // Hair lying over the shoulders, the back and the chest lies on the clothes worn there, never through them.
+        if (o.outfitParts && o.outfitParts.length) overClothes(H, head, o.outfitParts);
         // Left out of the baked occlusion: hundreds of cards packed over the scalp would shade the skin round
         // the hairline into a dark blotch on the cheek, and each other into a dark helmet. The strands carry
         // their own root-to-tip shading.
@@ -2004,6 +2006,50 @@
             if (lashes.idx.length) parts.push(toPart(H, lashes, 'Lashes', { rigid: true, extra: { roughness: 0.8, uvs: Float32Array.from(lashes.uv), texture: 'lashes.png', cutout: true, alphaCutoff: 0.3, kind: 'hair' } }));
         }
         return parts;
+    }
+
+    /**
+     * Strand points below the neck pushed out over the garments there: each
+     * stands at least a few millimeters further off the skin (along the skin's
+     * normal under it) than the nearest garment point within 3 cm of it. Head
+     * coverings are left alone (hair under them is not drawn).
+     */
+    function overClothes(H, mesh, parts) {
+        const top = H.bones && H.built.bones[H.bones.neck] ? H.built.bones[H.bones.neck].head[1] + 0.02 * H.scale : H.shoulderY + 0.06;
+        const cell = 0.03, grid = new Map(), key = (x, y, z) => ((x + 1024) * 2048 + (y + 1024)) * 2048 + (z + 1024);
+        for (const part of parts) {
+            const Q = part.positions;
+            for (let i = 0; i < Q.length; i += 3) {
+                if (Q[i + 1] > top + 0.04) continue;
+                const k = key(Math.floor(Q[i] / cell), Math.floor(Q[i + 1] / cell), Math.floor(Q[i + 2] / cell));
+                let list = grid.get(k); if (!list) grid.set(k, list = []);
+                list.push(Q[i], Q[i + 1], Q[i + 2]);
+            }
+        }
+        if (!grid.size) return;
+        const lift = 0.004 * H.scale, P = mesh.pos;
+        for (let i = 0; i < P.length; i += 3) {
+            if (P[i + 1] > top) continue;
+            const p = [P[i], P[i + 1], P[i + 2]], s = H.surface(p);
+            if (!Number.isFinite(s.d) || !s.n) continue;
+            // The farthest garment point off the skin near this one, measured along the skin's normal here.
+            let off = -Infinity;
+            const cx = Math.floor(p[0] / cell), cy = Math.floor(p[1] / cell), cz = Math.floor(p[2] / cell);
+            for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+                const list = grid.get(key(cx + dx, cy + dy, cz + dz));
+                if (!list) continue;
+                for (let k = 0; k < list.length; k += 3) {
+                    const ex = list[k] - p[0], ey = list[k + 1] - p[1], ez = list[k + 2] - p[2];
+                    const along = ex * s.n[0] + ey * s.n[1] + ez * s.n[2];
+                    const side = ex * ex + ey * ey + ez * ez - along * along;
+                    if (side > 0.0009) continue;
+                    off = Math.max(off, s.d + along);
+                }
+            }
+            if (off === -Infinity || off > 0.08 || s.d >= off + lift) continue;
+            const push = off + lift - s.d;
+            P[i] += s.n[0] * push; P[i + 1] += s.n[1] * push; P[i + 2] += s.n[2] * push;
+        }
     }
 
     /** A seeded random hair recipe; men get facial hair now and then. */

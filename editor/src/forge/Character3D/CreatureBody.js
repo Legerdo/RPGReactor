@@ -205,7 +205,7 @@
     const K = (kind, over, colors) => ({ kind, over, colors });
     /** Presets: recipes over the defaults, sized as the grown animal (shoulder to hip joint, in meters). */
     const KINDS = [
-        K('cat', { size: 0.21, bodyLength: 0.95, legLength: 0.9, girth: 0.95, chestDepth: 0.95, belly: -0.1, neckLength: 0.6, neckAngle: 34, headSize: 1.42, snoutLength: 0.26, snoutWidth: 0.92, headPitch: 6, eyeSize: 1.0, eyeSide: 0.05, earSize: 0.88, ears: 'pointed', tail: 'long', tailLength: 1.1, tailThickness: 1.25, tailCurl: 0.3, pattern: 'tabby', pawSize: 0.9, legThickness: 0.88, fluff: 0.3 },
+        K('cat', { size: 0.21, bodyLength: 0.95, legLength: 0.9, girth: 0.95, chestDepth: 0.95, belly: -0.1, neckLength: 0.6, neckAngle: 34, headSize: 1.42, snoutLength: 0.26, snoutWidth: 0.92, headPitch: 6, eyeSize: 1.0, eyeSide: 0.05, earSize: 0.72, ears: 'pointed', tail: 'long', tailLength: 1.1, tailThickness: 1.25, tailCurl: 0.3, pattern: 'tabby', pawSize: 0.9, legThickness: 0.88, fluff: 0.3 },
             { coat: '#b58a5a', marking: '#4a3220', light: '#efe2cc', nose: '#c87a78', eye: '#8db040', mane: '#b58a5a' }),
         K('lion', { size: 0.86, bodyLength: 1.08, legLength: 1.05, girth: 1.0, chestDepth: 1.15, belly: -0.35, hump: 0, neckLength: 0.75, neckThickness: 0.95, neckAngle: 22, headSize: 1.4, snoutLength: 0.86, snoutWidth: 1.12, headPitch: 10, eyeSize: 0.85, eyeSide: 0.04, earSize: 0.7, ears: 'round', tail: 'tufted', tailLength: 1.05, tailThickness: 0.95, tailCurl: -0.35, mane: 'lion', maneSize: 1.0, pattern: 'countershade', pawSize: 1.2, legThickness: 1.28, fluff: 0.15 },
             { coat: '#c49556', marking: '#3a2618', light: '#ead6ae', nose: '#a8645a', eye: '#b98a32', mane: '#6e4322' }),
@@ -224,7 +224,7 @@
             { coat: '#5a3c26', marking: '#3a261a', light: '#a08060', nose: '#1a1412', eye: '#2a1810', mane: '#5a3c26' }),
         K('boar', { size: 0.58, legLength: 0.75, hipHeight: 0.93, girth: 1.22, chestDepth: 1.25, hump: 0.65, belly: -0.1, neckLength: 0.45, neckAngle: 10, neckThickness: 1.5, headSize: 1.12, snoutLength: 1.1, snoutWidth: 0.95, headPitch: 25, eyeSize: 0.6, eyeSide: 0.6, earSize: 0.85, ears: 'pointed', earDroop: 0.2, tail: 'tufted', tailLength: 0.35, tailThickness: 0.6, tailCurl: -0.8, feet: 'hoof', tuskSize: 1, legThickness: 0.85, pattern: 'solid', fluff: 0.8, mane: 'horse', maneSize: 0.5 },
             { coat: '#4a3a30', marking: '#2a201a', light: '#6a5a4a', nose: '#3a2a26', horn: '#ece4d0', eye: '#1a1010', mane: '#2a2018' }),
-        K('rabbit', { size: 0.15, bodyLength: 0.8, legLength: 0.5, hipHeight: 1.2, girth: 1.15, chestDepth: 1.05, neckLength: 0.4, neckAngle: 40, headSize: 1.3, snoutLength: 0.38, snoutWidth: 0.95, headPitch: 20, eyeSize: 1.2, eyeSide: 1, earSize: 2.1, ears: 'long', earDroop: -0.5, tail: 'stub', tailLength: 0.25, tailThickness: 1.4, tailCurl: 1, plantigrade: 1, pattern: 'countershade', fluff: 0.95 },
+        K('rabbit', { size: 0.15, bodyLength: 0.8, legLength: 0.5, hipHeight: 1.2, girth: 1.15, chestDepth: 1.05, neckLength: 0.4, neckAngle: 40, headSize: 1.3, snoutLength: 0.38, snoutWidth: 0.78, headPitch: 20, eyeSize: 1.2, eyeSide: 1, earSize: 2.1, ears: 'long', earDroop: -0.5, tail: 'stub', tailLength: 0.25, tailThickness: 1.4, tailCurl: 1, plantigrade: 1, pattern: 'countershade', fluff: 0.95 },
             { coat: '#9a8470', marking: '#5a4a3a', light: '#f2ece4', nose: '#8a6a64', eye: '#3a2216', mane: '#9a8470' }),
         K('bull', { size: 0.95, legLength: 1.0, girth: 1.35, chestDepth: 1.3, belly: 0.25, hump: 0.45, neckLength: 0.6, neckAngle: 15, neckThickness: 1.5, headSize: 1.15, snoutLength: 1.0, snoutWidth: 1.15, headPitch: 35, eyeSize: 1.2, eyeSide: 0.85, earSize: 0.8, ears: 'round', earDroop: 0.7, tail: 'tufted', tailLength: 1, tailThickness: 0.7, tailCurl: -1, feet: 'hoof', horns: 'bull', hornSize: 1, pattern: 'piebald', legThickness: 1.22, fluff: 0.05 },
             { coat: '#2a2220', marking: '#f0ece4', light: '#3a302a', nose: '#c08a8a', horn: '#e0d4b8', eye: '#1a1010', mane: '#1a1412' }),
@@ -241,7 +241,7 @@
         K('bird', { size: 0.45, neckLength: 0.45, neckThickness: 0.85, neckAngle: 55, headSize: 1.15, snoutLength: 0.55, snoutWidth: 0.9, headPitch: 6, eyeSize: 1.15, eyeSide: 0.75, ears: 'none', tail: 'bushy', tailLength: 0.6, tailThickness: 1.2, tailCurl: -0.2, feet: 'claw', wings: 'feathered', wingSize: 1.2, pattern: 'countershade', fluff: 0.1, beak: 'hooked', legThickness: 0.8 },
             { coat: '#6a4a2a', marking: '#3a2616', light: '#ece2cc', nose: '#e0b030', horn: '#3a3638', eye: '#d8a020', mane: '#5a3e24' }),
         K('crow', { size: 0.35, neckLength: 0.4, neckThickness: 0.85, neckAngle: 50, headSize: 1.1, snoutLength: 0.7, snoutWidth: 0.85, headPitch: 4, eyeSize: 0.9, eyeSide: 0.8, ears: 'none', tail: 'bushy', tailLength: 0.7, tailThickness: 1.1, tailCurl: -0.2, feet: 'claw', wings: 'feathered', wingSize: 1.2, pattern: 'solid', fluff: 0.1, beak: 'straight', legThickness: 0.75 },
-            { coat: '#1c1e24', marking: '#101216', light: '#2a2e38', nose: '#1a1a1c', horn: '#16161a', eye: '#1a1410', mane: '#1c1e24' })
+            { coat: '#24272f', marking: '#3c4458', light: '#34384a', nose: '#1e1e22', horn: '#18181c', eye: '#2a1e14', mane: '#24272f' })
     ];
     const KIND_BY_ID = new Map(KINDS.concat(HEAD_KINDS).map(k => [k.kind, k]));
 
@@ -695,7 +695,8 @@
         c(H(0, 0.3, z0 + 0.05), H(0, 0.12, zt - 0.17), 0.28 * sw, 0.21 * sw, 0.14, 'snout');
         // The upper lips either side of the philtrum, full over the whisker beds and hanging past the chin.
         const hoofFace = grazer === 1;
-        const pad = (0.75 + 0.25 * cat) * (hoofFace ? 0.8 : 1);
+        // A rabbit's whisker beds are small, tucked under its nose.
+        const pad = (0.75 + 0.25 * cat) * (hoofFace ? 0.8 : 1) * (profileOf(r).face === 'rabbit' ? 0.72 : 1);
         // A big cat's pads are broad and long, set out to the sides, so the muzzle is square from the front.
         const bigPad = profileOf(r).bigcat ? 1 : 0;
         for (const s of [1, -1]) e(H(s * (0.21 + 0.04 * bigPad) * sw, -0.28 - 0.04 * cat * deep, zt - 0.3 - 0.06 * bigPad), [0.28 * sw * pad * (0.85 + 0.15 * deep), (0.3 + 0.04 * cat) * pad * deep, 0.34 + 0.12 * bigPad], 0.16, 'whisker');
@@ -858,8 +859,10 @@
         // The eyes: big, on the sides, looking out and a little forward.
         const eyeR = 0.2 * sr * r.eyeSize;
         for (const s of [1, -1]) {
-            const facing = norm(add([s * 0.85, 0, 0], add(mul(hu, 0.08), mul(hd, 0.45 * (1 - r.eyeSide * 0.6)))));
-            const from = H(s * 0.2, 0.18, 0.3);
+            // A bird of prey's eyes look well forward (it sees ahead with both); a crow's more to the sides.
+            const ahead = 0.45 * (1 - r.eyeSide * 0.6) + 0.45 * hooked;
+            const facing = norm(add([s * 0.85, 0, 0], add(mul(hu, 0.08), mul(hd, ahead))));
+            const from = H(s * 0.2, 0.18, 0.3 + 0.1 * hooked);
             const built = S.filter(q => !q.cut);
             let at = from;
             for (let i = 0; i < 80; i++) { const p = add(from, mul(facing, i * sr * 0.025)); if (fieldAt(head, p) > 0 && fieldAt(built, p) > 0) { at = p; break; } }
@@ -1240,11 +1243,15 @@
             const lo = curve([H(0, -0.28, zb - 0.1), H(0, -0.3, (zb + zt) / 2 - 0.1), H(0, -0.3 - 0.03 * hooked, zb + (zt - zb) * (0.85 - 0.15 * hooked))], 12);
             out.push({ mesh: loft(lo, t => [sr * (0.24 * sw * Math.pow(1 - t, 0.7) + 0.012), sr * (0.14 * (1 - 0.6 * t) + 0.01)], 10, [1, 0, 0], true), kind: 'horn', weights: rigid('Head'), tag: 'beak' });
             if (r.mane !== 'none' && r.maneSize > 0) {
-                for (let k = 0; k < 7; k++) {
-                    const f = k / 6, base = H(0, 0.72 - 0.1 * f, 0.25 - 0.6 * f), dir = norm(add(mul(J.hup, 1 - 0.55 * f), mul(hd, -0.35 - 0.7 * f)));
-                    const L = sr * r.maneSize * (0.55 + 0.35 * Math.sin(Math.PI * (0.25 + 0.6 * f)));
+                // Rows of feathers fanned out sideways as well as back, so the crest is full from the front.
+                for (let k = 0; k < 7; k++) for (const col of [-1, 0, 1]) {
+                    const f = k / 6, x = col * (0.2 - 0.06 * f), base = H(x, 0.7 - 0.12 * f - 0.05 * Math.abs(col), 0.25 - 0.6 * f);
+                    const dir = norm(add(add(mul(J.hup, 1 - 0.55 * f), mul(hd, -0.35 - 0.7 * f)), [col * 0.45, 0, 0]));
+                    const L = sr * r.maneSize * (0.55 + 0.35 * Math.sin(Math.PI * (0.25 + 0.6 * f))) * (col ? 0.82 : 1);
                     const pts = curve([base, add(base, mul(dir, L * 0.5)), add(add(base, mul(dir, L)), mul(hd, -0.15 * L))], 8);
-                    out.push({ mesh: loft(pts, t => { const w = sr * 0.11 * Math.sqrt(Math.max(0, Math.sin(Math.PI * Math.min(1, t * 0.95 + 0.05)))) + 0.002; return [w, Math.max(0.006 * sr, w * 0.12)]; }, 8, hd, false), kind: 'coat', weights: rigid('Head'), tag: 'crest' });
+                    // Each feather broad across the head, so it shows from the front and the side alike.
+                    const flatF = norm(add(mul(hd, 0.55), [col === 0 ? (k % 2 ? 0.8 : -0.8) : col, 0, 0]));
+                    out.push({ mesh: loft(pts, t => { const w = sr * 0.12 * Math.sqrt(Math.max(0, Math.sin(Math.PI * Math.min(1, t * 0.95 + 0.05)))) + 0.002; return [w, Math.max(0.008 * sr, w * 0.14)]; }, 8, flatF, false), kind: 'coat', weights: rigid('Head'), tag: 'crest' });
                 }
             }
         }
@@ -1875,6 +1882,8 @@
             }
         }
         if (tag === 'nosepad') col = C.nose;
+        // A black bird's plumage: a blue-violet sheen where the feathers face the light, so its form reads.
+        if (faceKind === 'bird' && pat === 'solid') col = mixRgb(col, C.marking, smooth(-0.1, 0.8, n[1] * 0.6 + n[2] * 0.3 + Math.abs(n[0]) * 0.2) * 0.4);
         if (faceKind === 'bird' && onHead) {
             // The bare ring round a bird's eye, the cere's color.
             for (const e of lay.eyes) { const d = len(sub(p, e.center)) / e.R; col = mixRgb(col, C.nose, smooth(1.42, 1.25, d) * smooth(0.95, 1.1, d)); }
@@ -2007,7 +2016,7 @@
             area += ch.w * ch.h;
         }
         // Shelf packing at a texel density that fills about two thirds of the picture, smaller until it fits.
-        const pad = 2;
+        const pad = 3;
         let density = Math.sqrt(size * size * 0.78 / Math.max(area, 1e-6)), placed = false;
         const order = charts.slice().sort((a, b) => b.h - a.h);
         for (let tries = 0; tries < 12 && !placed; tries++) {
@@ -2038,15 +2047,18 @@
             }
         });
         // Paint: every texel a face covers (a texel past its edge as well), the coat at that place on the body.
-        const data = new Uint8Array(size * size * 4), filled = new Uint8Array(size * size);
+        const data = new Uint8Array(size * size * 4), filled = new Uint8Array(size * size), near = new Float32Array(size * size), haloF = new Int32Array(size * size), haloW = new Float32Array(size * size * 2);
+        const atP = new Float32Array(size * size * 3), atN = new Float32Array(size * size * 3), atF = new Int32Array(size * size), atV = new Int32Array(size * size);
         const uvAt = v => (v < n ? [uvs[v * 2], uvs[v * 2 + 1]] : extra[v - first].uv);
         const src = v => (v < n ? v : extra[v - first].from);
         for (let t = 0; t < T; t++) {
             const ids = [out[t * 3], out[t * 3 + 1], out[t * 3 + 2]], q = ids.map(uvAt).map(u => [u[0] * size, u[1] * size]), vs = ids.map(src);
             const area2 = (q[1][0] - q[0][0]) * (q[2][1] - q[0][1]) - (q[2][0] - q[0][0]) * (q[1][1] - q[0][1]);
             if (Math.abs(area2) < 1e-9) continue;
-            const x0 = Math.max(0, Math.floor(Math.min(q[0][0], q[1][0], q[2][0]) - 1)), x1 = Math.min(size - 1, Math.ceil(Math.max(q[0][0], q[1][0], q[2][0]) + 1));
-            const y0 = Math.max(0, Math.floor(Math.min(q[0][1], q[1][1], q[2][1]) - 1)), y1 = Math.min(size - 1, Math.ceil(Math.max(q[0][1], q[1][1], q[2][1]) + 1));
+            const x0 = Math.max(0, Math.floor(Math.min(q[0][0], q[1][0], q[2][0]) - 2)), x1 = Math.min(size - 1, Math.ceil(Math.max(q[0][0], q[1][0], q[2][0]) + 2));
+            const y0 = Math.max(0, Math.floor(Math.min(q[0][1], q[1][1], q[2][1]) - 2)), y1 = Math.min(size - 1, Math.ceil(Math.max(q[0][1], q[1][1], q[2][1]) + 2));
+            // How far a texel lies past each edge, in texels.
+            const elen = [[1, 2], [2, 0], [0, 1]].map(([a, b]) => Math.hypot(q[b][0] - q[a][0], q[b][1] - q[a][1]) || 1);
             for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
                 const o = y * size + x;
                 if (filled[o] === 2) continue;
@@ -2056,10 +2068,14 @@
                 let w0 = 1 - w1 - w2;
                 const inside = w0 >= -1e-6 && w1 >= -1e-6 && w2 >= -1e-6;
                 if (!inside) {
-                    // Just past the edge: painted only if nothing inside a face has been, from the nearest point of this face.
-                    if (filled[o] || Math.min(w0, w1, w2) < -1.5 / Math.sqrt(Math.abs(area2))) continue;
-                    w0 = Math.max(0, w0); w1 = Math.max(0, w1); w2 = Math.max(0, w2);
-                    const s = w0 + w1 + w2 || 1; w0 /= s; w1 /= s; w2 /= s;
+                    // Past the edge, up to a few texels: the coat as it runs on across the edge (the face's plane
+                    // carried on), so the filtered picture meets the next chart's colors and no stair-step shows.
+                    // The nearest face to a texel paints it.
+                    const past = Math.max(-w0 * Math.abs(area2) / elen[0], -w1 * Math.abs(area2) / elen[1], -w2 * Math.abs(area2) / elen[2]);
+                    if (filled[o] === 2 || past > 1.6 || (haloF[o] && near[o] <= past)) continue;
+                    // Painted once all faces are in, from the nearest.
+                    near[o] = past; haloF[o] = t + 1; haloW[o * 2] = w0; haloW[o * 2 + 1] = w1;
+                    continue;
                 }
                 const w = [w0, w1, w2];
                 const p = [0, 1, 2].map(i => w[0] * positions[vs[0] * 3 + i] + w[1] * positions[vs[1] * 3 + i] + w[2] * positions[vs[2] * 3 + i]);
@@ -2068,7 +2084,50 @@
                 const c = colorAt(p, nn, tags[main]);
                 data[o * 4] = Math.round(clamp(c[0], 0, 1) * 255); data[o * 4 + 1] = Math.round(clamp(c[1], 0, 1) * 255); data[o * 4 + 2] = Math.round(clamp(c[2], 0, 1) * 255); data[o * 4 + 3] = 255;
                 filled[o] = inside ? 2 : 1;
+                // Where it lies on the body and on which face, so an edge texel can be painted again finer.
+                atP[o * 3] = p[0]; atP[o * 3 + 1] = p[1]; atP[o * 3 + 2] = p[2];
+                atN[o * 3] = nn[0]; atN[o * 3 + 1] = nn[1]; atN[o * 3 + 2] = nn[2];
+                atF[o] = t + 1; atV[o] = main;
             }
+        }
+        for (let o = 0; o < size * size; o++) {
+            if (filled[o] || !haloF[o]) continue;
+            const t = haloF[o] - 1, vs = [src(out[t * 3]), src(out[t * 3 + 1]), src(out[t * 3 + 2])];
+            const w = [haloW[o * 2], haloW[o * 2 + 1], 1 - haloW[o * 2] - haloW[o * 2 + 1]];
+            const p = [0, 1, 2].map(i => w[0] * positions[vs[0] * 3 + i] + w[1] * positions[vs[1] * 3 + i] + w[2] * positions[vs[2] * 3 + i]);
+            const nn = norm([0, 1, 2].map(i => w[0] * normals[vs[0] * 3 + i] + w[1] * normals[vs[1] * 3 + i] + w[2] * normals[vs[2] * 3 + i]));
+            const c = colorAt(p, nn, tags[w[0] >= w[1] && w[0] >= w[2] ? vs[0] : w[1] >= w[2] ? vs[1] : vs[2]]);
+            data[o * 4] = Math.round(clamp(c[0], 0, 1) * 255); data[o * 4 + 1] = Math.round(clamp(c[1], 0, 1) * 255); data[o * 4 + 2] = Math.round(clamp(c[2], 0, 1) * 255); data[o * 4 + 3] = 255;
+            filled[o] = 1;
+        }
+        // Texels on a sharp edge of the pattern (a stripe's, a spot's) painted again as the mean of four
+        // samples within them, so the edge is smooth in the picture rather than stepped.
+        const lumOf = o => data[o * 4] * 0.3 + data[o * 4 + 1] * 0.55 + data[o * 4 + 2] * 0.15;
+        const redo = [];
+        for (let y = 1; y < size - 1; y++) for (let x = 1; x < size - 1; x++) {
+            const o = y * size + x;
+            if (!atF[o]) continue;
+            const l = lumOf(o);
+            if (Math.abs(lumOf(o + 1) - l) > 34 || Math.abs(lumOf(o - 1) - l) > 34 || Math.abs(lumOf(o + size) - l) > 34 || Math.abs(lumOf(o - size) - l) > 34) redo.push(o);
+        }
+        // The body's step for one texel along the picture's two axes on a face.
+        const stepOf = t => {
+            const ids = [out[t * 3], out[t * 3 + 1], out[t * 3 + 2]], q = ids.map(uvAt).map(u => [u[0] * size, u[1] * size]), vs = ids.map(src);
+            const area2 = (q[1][0] - q[0][0]) * (q[2][1] - q[0][1]) - (q[2][0] - q[0][0]) * (q[1][1] - q[0][1]), inv = 1 / area2;
+            const P0 = vs.map(v => [positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]]), e1 = sub(P0[1], P0[0]), e2 = sub(P0[2], P0[0]);
+            const du = [(q[2][1] - q[0][1]) * inv, -(q[1][1] - q[0][1]) * inv], dv = [-(q[2][0] - q[0][0]) * inv, (q[1][0] - q[0][0]) * inv];
+            return [add(mul(e1, du[0]), mul(e2, du[1])), add(mul(e1, dv[0]), mul(e2, dv[1]))];
+        };
+        const steps = new Map();
+        for (const o of redo) {
+            const t = atF[o] - 1;
+            if (!steps.has(t)) steps.set(t, stepOf(t));
+            const du = steps.get(t), p = [atP[o * 3], atP[o * 3 + 1], atP[o * 3 + 2]], nn = [atN[o * 3], atN[o * 3 + 1], atN[o * 3 + 2]], tag = tags[atV[o]], sum = [0, 0, 0];
+            for (const [a, b] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]]) {
+                const c = colorAt(add(p, add(mul(du[0], a), mul(du[1], b))), nn, tag);
+                sum[0] += c[0] / 4; sum[1] += c[1] / 4; sum[2] += c[2] / 4;
+            }
+            for (let k = 0; k < 3; k++) data[o * 4 + k] = Math.round(clamp(sum[k], 0, 1) * 255);
         }
         // Grow every chart's edge outward a few texels, so filtering and smaller mip levels stay on coat.
         for (let pass = 0; pass < 6; pass++) {

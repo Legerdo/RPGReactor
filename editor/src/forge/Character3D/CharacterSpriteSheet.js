@@ -276,20 +276,68 @@
     const STYLES = [{ id: 'realistic', label: 'Realistic' }, { id: 'chibi', label: 'RPG chibi' }];
     const LOOKS = [{ id: 'smooth', label: 'Smooth' }, { id: 'pixel', label: 'Pixel art' }];
 
-    /** A human recipe with RPG proportions: a big head, short limbs and trunk, big hands and feet. */
+    /** The builder's anime eyes: large irises with a catchlight. */
+    const ANIME_EYES = { shapes: { eyeSize: 2.4 }, morph: { eyeWide: 1.1, eyeTall: 1.55 }, eyes: { size: 1.45, pupilSize: 1.15, catchlight: true } };
+
+    /**
+     * A human recipe drawn as RPG art: short limbs and trunk, a broad build,
+     * big hands and feet, a young soft face (round cheeks, a small jaw, nose
+     * and mouth) and anime eyes. The head's size is set when drawing
+     * (headScale), so the figure is about 2.7 heads tall.
+     */
     function chibiRecipe(recipe) {
         const r = JSON.parse(JSON.stringify(recipe || {}));
         const sh = r.shapes = r.shapes || {};
         const add = (key, by, lo, hi) => { sh[key] = Math.max(lo, Math.min(hi, (Number(sh[key]) || 0) + by)); };
-        r.headSize = Math.min(2.2, Math.max(1, Number(r.headSize) || 1) * 2);
+        const set = (key, to) => { sh[key] = to; };
+        r.headSize = Math.min(2.2, Math.max(1, Number(r.headSize) || 1) * 1.25);
+        r.age = Math.max(16, Math.min(20, Number(r.age) || 20));
         add('legLength', -2.2, -2.5, 2.5);
         add('armLength', -1.6, -2.5, 2.5);
         add('torsoLength', -0.8, -2.5, 2.5);
-        add('neckLength', -1.4, -2.5, 2.5);
-        add('handSize', 0.9, -3, 3);
-        add('shoulders', 0.8, -2.5, 2.5);
-        add('footSize', 1, -3, 3);
+        add('neckLength', -1.8, -2.5, 2.5);
+        add('handSize', 1, -3, 3);
+        add('footSize', 1.2, -3, 3);
+        add('shoulders', 1.2, -2.5, 2.5);
+        add('chest', 0.4, -2.5, 2.5);
+        add('hips', 0.3, -3, 3);
+        // The face: round and young, its features small.
+        add('headFat', 0.9, -3, 3);
+        set('cheeks', 0.8); set('cheekBones', -0.4);
+        set('jaw', -1); set('chin', -0.6); set('chinWidth', -0.4); set('chinPointed', 0); set('chinCleft', 0); set('underbite', 0);
+        set('noseWidth', -0.8); set('noseLength', -0.9); set('noseDepth', -1); set('noseVolume', -0.6); set('noseHump', -0.5);
+        set('mouthWidth', -0.8); set('headAge', -1); set('eyeBags', 0); set('doubleChin', 0);
+        Object.assign(sh, ANIME_EYES.shapes);
+        r.morph = Object.assign({}, r.morph, ANIME_EYES.morph);
+        r.eyes = Object.assign({}, r.eyes, ANIME_EYES.eyes);
         return r;
+    }
+
+    /**
+     * The head's scale that makes a figure `heads` heads tall, the head
+     * grown up from its chin: the chin at `chin` above the feet, the head
+     * `tall` from chin to crown.
+     */
+    function headScale(chin, tall, heads = 2.8) {
+        if (!(chin > 0) || !(tall > 0)) return 1;
+        return Math.max(1, Math.min(2.6, chin / ((heads - 1) * tall)));
+    }
+
+    /** A built human's head: its joint's height, its chin and its crown (the body's own skin, at rest). */
+    function headMeasure(result) {
+        const bi = result && result.bones ? result.bones.findIndex(b => b.name === 'Head') : -1;
+        const body = result && result.parts && result.parts.find(p => p.name === 'Body');
+        if (bi < 0 || !body) return null;
+        const P = body.positions, J = body.joints, W = body.weights;
+        let crown = -Infinity, chin = Infinity;
+        for (let v = 0; v < P.length / 3; v++) {
+            const y = P[v * 3 + 1];
+            if (y > crown) crown = y;
+            let w = 0;
+            for (let k = 0; k < 4; k++) if (J[v * 4 + k] === bi) w += W[v * 4 + k];
+            if (w > 0.95 && y < chin) chin = y;
+        }
+        return Number.isFinite(chin) ? { joint: result.bones[bi].head[1], chin, crown } : null;
     }
 
     /**
@@ -303,9 +351,19 @@
         for (let i = 0; i < px.length; i += 4) {
             if (!px[i + 3]) continue;
             const r = lut[px[i]], g = lut[px[i + 1]], b = lut[px[i + 2]], y = 0.299 * r + 0.587 * g + 0.114 * b;
-            px[i] = y + (r - y) * 1.22; px[i + 1] = y + (g - y) * 1.22; px[i + 2] = y + (b - y) * 1.22;
+            const k = 1.22 - 0.3 * skinLike(r, g, b);
+            px[i] = y + (r - y) * k; px[i + 1] = y + (g - y) * k; px[i + 2] = y + (b - y) * k;
         }
         return px;
+    }
+
+    /** How much a color reads as skin (0..1): red over green over blue, an orange hue, neither gray nor vivid. */
+    function skinLike(r, g, b) {
+        if (!(r >= g && g >= b) || r - b < 8) return 0;
+        const hue = 60 * (g - b) / (r - b), sat = (r - b) / r;
+        const h = hue < 8 || hue > 52 ? 0 : hue < 14 ? (hue - 8) / 6 : hue > 42 ? (52 - hue) / 10 : 1;
+        const s = sat < 0.1 || sat > 0.8 ? 0 : sat < 0.18 ? (sat - 0.1) / 0.08 : sat > 0.68 ? (0.8 - sat) / 0.12 : 1;
+        return h * s;
     }
 
     /** Hard edges: every pixel fully drawn or empty. */
@@ -532,13 +590,26 @@
         };
     }
 
-    /** RPG proportions past the sliders' reach: the head, hands and feet grown on their joints. */
-    const CHIBI_BONES = { Head: 1.75, LeftHand: 1.35, RightHand: 1.35, LeftFoot: 1.2, RightFoot: 1.2 };
-    function enlarge(view) {
-        const grown = view.bones.filter(b => CHIBI_BONES[b.name]);
-        for (const b of grown) b.scale.setScalar(CHIBI_BONES[b.name]);
+    /** RPG proportions past the sliders' reach: the hands and feet grown on their joints, the head to 2.7 heads tall. */
+    const CHIBI_BONES = { LeftHand: 1.3, RightHand: 1.3, LeftFoot: 1.3, RightFoot: 1.3 };
+    function enlarge(view, result) {
+        const scales = Object.assign({}, CHIBI_BONES), head = view.bones.find(b => b.name === 'Head'), m = headMeasure(result);
+        let lift = null;
+        if (head && m) {
+            // The head grows up from its chin: its joint rises by what the head grows below it.
+            scales.Head = headScale(m.chin, m.crown - m.chin);
+            lift = head.userData.rest.p.clone();
+            head.userData.rest.p.y += (scales.Head - 1) * (m.joint - m.chin);
+            head.position.copy(head.userData.rest.p);
+        }
+        const grown = view.bones.filter(b => scales[b.name]);
+        for (const b of grown) b.scale.setScalar(scales[b.name]);
         view.group.updateMatrixWorld(true);
-        return () => { for (const b of grown) b.scale.setScalar(1); view.group.updateMatrixWorld(true); };
+        return () => {
+            for (const b of grown) b.scale.setScalar(1);
+            if (lift) { head.userData.rest.p.copy(lift); head.position.copy(lift); }
+            view.group.updateMatrixWorld(true);
+        };
     }
 
     async function render(builder, settings, progress) {
@@ -546,7 +617,7 @@
         if (!THREE || !view || !view.meshes.length || !view.mixer) throw new Error('The character is not built yet.');
         const l = layout(settings.layout), size = Math.max(16, Math.min(512, Math.round(settings.frame || l.frame)));
         const restore = settings.style === 'chibi' && settings.layout !== 'face' ? showChibi(builder) : null;
-        const shrink = restore ? enlarge(view) : null;
+        const shrink = restore ? enlarge(view, builder._result) : null;
         const elevation = settings.layout === 'face' ? l.elevation : Math.max(0, Math.min(75, Number.isFinite(settings.elevation) ? settings.elevation : l.elevation));
         const cells = plan(settings.layout, { expressions: settings.expressions, view: settings.view });
         const poses = view.plan === 'quadruped' ? (root.RRCreatureBody && root.RRCreatureBody.POSES) : (root.RRCharacterPoses && root.RRCharacterPoses.POSES);
@@ -805,7 +876,7 @@
     const api = {
         LAYOUTS, CLIPS, SV_MOTIONS, SV_CLIPS, FACE_PRESETS, YAW, SV_YAW, CARDINAL, DIAGONAL,
         STYLES, LOOKS, layout, plan, resolveClip, blockOrigin, cellMetrics, fit, fitFace, frustum, project,
-        downsample, outline, grade, threshold, quantize, chibiRecipe, blit, alphaBounds, fileName, safeName, render, openPanel, expressionList
+        downsample, outline, grade, skinLike, threshold, quantize, chibiRecipe, headScale, headMeasure, blit, alphaBounds, fileName, safeName, render, openPanel, expressionList
     };
     root.RRCharacterSpriteSheet = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

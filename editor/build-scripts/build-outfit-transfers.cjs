@@ -44,24 +44,24 @@ const armorParts = (boot, drop) => [
 const OUTFITS = {
     carol: {
         file: 'Captain_Carol_Everson_Reduced/source/Captain_Carol_Everson_Reduced.glb', label: "Captain's Uniform (Carol Everson)",
-        options: { recipe: { gender: 0 }, gap: 0.004, reach: 0.015, swell: 0.02, triangles: 32000,
+        options: { recipe: { gender: 0 }, gap: 0.004, reach: 0.015, swell: 0.02, triangles: 40000,
             // Her heeled boots and gloves are left to the builder's own, on a body that stands flat.
             parts: [{ id: null, test: i => i.leg > 1.74 || i.arm > 2.98 }, { id: 'uniform' }] }
     },
     jolt: {
         file: 'Jolt Eagle/source/Jolt Eagle.glb', label: 'Power Armor (Jolt Eagle)',
-        options: { recipe: { gender: 1, muscle: 0.5 }, gap: 0.004, reach: 0.003, swell: 0, triangles: 30000, headClear: 1, skinCut: false, repaint: false, hang: false,
+        options: { recipe: { gender: 1, muscle: 0.5 }, gap: 0.004, reach: 0.003, swell: 0, triangles: 40000, headClear: 1, skinCut: false, repaint: false, hang: false,
             // The eagle's white ruff at the neck and the clawed gauntlets are his own.
             parts: armorParts(1.8, i => (i.spine > 3.0 && lum(i.color) > 0.4 && sat(i.color) < 0.2 && i.arm < 0) || (i.spine > 3.95 && sat(i.color) < 0.3 && i.arm < 0) || i.arm > 2.95) }
     },
     max: {
         file: 'Max Triton/source/Max-Triton.glb', label: 'Power Armor (Max Triton)',
-        options: { recipe: { gender: 1, muscle: 0.5 }, gap: 0.004, reach: 0.003, swell: 0, triangles: 30000, headClear: 1, hang: false,
+        options: { recipe: { gender: 1, muscle: 0.5 }, gap: 0.004, reach: 0.003, swell: 0, triangles: 40000, headClear: 1, hang: false,
             parts: armorParts(1.8, i => i.arm > 2.95) }
     },
     vay: {
         file: 'Vay Drokan/source/Vay Drokan.glb', label: 'Royal Robes (Vay Drokan)',
-        options: { recipe: { gender: 1, muscle: 0.5 }, gap: 0.004, reach: 0.006, swell: 0.005, triangles: 30000, headClear: 1,
+        options: { recipe: { gender: 1, muscle: 0.5 }, gap: 0.004, reach: 0.006, swell: 0.005, triangles: 40000, headClear: 1, headFree: true, collar: [3.3, 3.8], skinCut: false, repaint: false,
             parts: [{ id: null, test: i => i.arm > 2.95 || /Hand$/.test(i.role) }, { id: 'boots', score: i => (i.loose ? -2 : clamp((i.leg - 1.8) * 10)) }, { id: 'robes', score: () => 0 }] }
     }
 };

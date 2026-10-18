@@ -13,7 +13,8 @@
  * moves only along that edge; where seams or edges meet nothing moves. No
  * collapse folds a face over, turns its picture coordinates round or makes
  * the surface non-manifold. `origin` gives each kept vertex's index in the
- * input. `options.maxError` (meters) stops it early.
+ * input. `options.maxError` (meters) stops it early; `options.maxEdge`
+ * (meters) keeps every edge shorter than that.
  *
  * Deterministic: the same input gives the same mesh.
  */
@@ -24,7 +25,7 @@
 
     function simplify(positions, uvs, index, target, options) {
         const o = options || {};
-        const maxError = o.maxError ?? Infinity;
+        const maxError = o.maxError ?? Infinity, maxEdge = o.maxEdge ?? Infinity;
         const n = positions.length / 3, triCount = index.length / 3;
         // Welded places: each render vertex's place.
         const placeOf = new Int32Array(n);
@@ -177,6 +178,11 @@
                 map.set(rp, rq);
             }
             for (const w of kp.wedges) if (!map.has(w)) return null;
+            // No edge left longer than `maxEdge`: a big flat triangle cannot follow a body that curves under it.
+            if (maxEdge < Infinity) for (const t of kept) for (const x of P(t)) {
+                if (x === p) continue;
+                if (Math.hypot(X[x * 3] - X[q * 3], X[x * 3 + 1] - X[q * 3 + 1], X[x * 3 + 2] - X[q * 3 + 2]) > maxEdge) return null;
+            }
             // No face folds over or turns its picture round.
             for (const t of kept) {
                 const r = [corner[t * 3], corner[t * 3 + 1], corner[t * 3 + 2]];

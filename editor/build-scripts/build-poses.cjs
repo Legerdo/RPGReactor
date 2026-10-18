@@ -5,7 +5,8 @@
  *
  *   node editor/build-scripts/build-poses.cjs <folder of CMU .asf/.amc files>
  *
- * Writes src/forge/Character3D/CharacterPosesData.js. The folder holds the
+ * Writes runtime/reactor_3d_motions.bin (the shared motion library's data,
+ * read by runtime/reactor_3d_motions.js in the game and the editor). The folder holds the
  * subjects' skeletons (`35.asf`) and the trials named in TAKES (`35_01.amc`),
  * as served at http://mocap.cs.cmu.edu/subjects/<subject>/.
  *
@@ -14,7 +15,7 @@
  * Every mapped bone is kept as a frame in the world: the direction from its
  * joint to the next one, and a second direction across it (where the elbow
  * bends, the front of a thigh, the thumb side of a hand) that carries its
- * twist. CharacterPoses.js turns these into each body's own joint turns, so
+ * twist. reactor_3d_motions.js turns these into each body's own joint turns, so
  * the motions hold for any height, limb length or build. The loop's last
  * frame repeats the first.
  */
@@ -567,14 +568,34 @@ function build(dir) {
     return out;
 }
 
+/**
+ * The motions as one binary file: "RRMO", a version, the length of a JSON
+ * index, the index (per pose its frames, rate and flags, and where its
+ * height and each bone's quaternions sit in the samples, counted in
+ * samples), then every sample as a little-endian Int16 (value * 32767).
+ */
+function pack(data) {
+    const chunks = [], index = { fps: FPS, bones: BONES, poses: {} };
+    let at = 0;
+    const put = text => { const bytes = Buffer.from(text, 'base64'); chunks.push(bytes); const span = [at, bytes.length / 2]; at += bytes.length / 2; return span; };
+    for (const [id, p] of Object.entries(data)) {
+        const entry = { frames: p.frames, fps: p.fps, air: p.air, skin: p.skin, once: p.once, hang: p.hang, rise: put(p.rise), bones: {} };
+        for (const [name, text] of Object.entries(p.bones)) entry.bones[name] = put(text);
+        index.poses[id] = entry;
+    }
+    let json = Buffer.from(JSON.stringify(index), 'utf8');
+    if (json.length % 2) json = Buffer.concat([json, Buffer.from(' ')]);
+    const head = Buffer.alloc(12);
+    head.writeUInt32LE(0x4f4d5252, 0); head.writeUInt32LE(1, 4); head.writeUInt32LE(json.length, 8);
+    return Buffer.concat([head, json, ...chunks]);
+}
+
 if (require.main === module) {
     const dir = process.argv[2];
     if (!dir || !fs.existsSync(dir)) { console.error('usage: build-poses.cjs <folder of CMU .asf/.amc files>'); process.exit(1); }
-    const data = build(dir);
-    const file = path.join(__dirname, '..', 'src', 'forge', 'Character3D', 'CharacterPosesData.js');
-    const body = JSON.stringify({ fps: FPS, bones: BONES, poses: data });
-    fs.writeFileSync(file, `/**\n * RRCharacterPosesData - motion capture for RRCharacterPoses, made by\n * editor/build-scripts/build-poses.cjs from the CMU Graphics Lab Motion\n * Capture Database (mocap.cs.cmu.edu; see data/LICENSE.md). Per pose, each\n * bone's world frame per frame as Int16 quaternions (base64), and \`rise\`,\n * the body's height off the floor in leg lengths.\n */\n(function (root) {\n    'use strict';\n    const data = ${body};\n    root.RRCharacterPosesData = data;\n    if (typeof module !== 'undefined' && module.exports) module.exports = data;\n})(typeof window !== 'undefined' ? window : globalThis);\n`);
+    const file = path.join(__dirname, '..', '..', 'runtime', 'reactor_3d_motions.bin');
+    fs.writeFileSync(file, pack(build(dir)));
     console.log(`wrote ${file} (${(fs.statSync(file).size / 1024).toFixed(0)} KB)`);
 }
 
-module.exports = { TAKES, setTakes: t => { TAKES = t; }, build, load, pose, restSides, BONES, mv, curve };
+module.exports = { TAKES, setTakes: t => { TAKES = t; }, build, pack, load, pose, restSides, BONES, mv, curve };

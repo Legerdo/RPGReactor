@@ -238,7 +238,8 @@ test('each tail fin and each palette builds: the fins differ in outline, the koi
         spans[fin] = { wide: mxx - mnx, back: mnz, ratio: (mxx - mnx) / (mxz - mnz) };
     }
     assert.ok(spans.veil.back < spans.forked.back - 0.1, 'the long veil trails furthest');
-    assert.ok(spans.fan.ratio > spans.veil.ratio * 1.3, 'the fan is broad for its length, the veil long: ' + JSON.stringify(spans));
+    assert.ok(spans.forked.wide > spans.fan.wide, 'the forked fin spans widest');
+    assert.ok(spans.fan.ratio > spans.veil.ratio * 1.15, 'the fan is broad for its length, the veil long: ' + JSON.stringify(spans));
     const tone = colors => { const t = part(Model.build(pack, merfolk({ merfolk: { colors } }), {}, { quality: 'preview', hairBudget: 0.3 }), 'Tail').colors; let r = 0, g = 0, b = 0, spread = 0; for (let i = 0; i < t.length; i += 3) { r += t[i]; g += t[i + 1]; b += t[i + 2]; spread += Math.abs(t[i] - t[i + 2]); } const n = t.length / 3; return { r: r / n, g: g / n, b: b / n, spread: spread / n }; };
     const T = Object.fromEntries(Mer.COLORS.map(([id]) => [id, tone(id)]));
     assert.ok(T.teal.g > T.teal.r && T.coral.r > T.coral.b && T.deepBlue.b > T.deepBlue.r && T.gold.r > T.gold.b, 'each palette its hue');

@@ -5225,9 +5225,15 @@ Reactor3D.readModelAnimationRules = function(json, clips) {
     // has none of its own for: it climbs, swims and jumps before anyone
     // animates it. `defaultMotions: false` in the sidecar turns that off.
     const own = this.ownClipAnimations(list, clips, json);
-    const all = own.length ? list.concat(own) : list;
+    let all = own.length ? list.concat(own) : list;
     if (own.length) rules.push(...this.readModelAnimationRules({ animations: own }));
     const rig = json && json.rig && typeof json.rig === "object" ? json.rig : null;
+    // The shared library's motions (attachLibraryMotions) for the states still open, then the rig's own procedural ones.
+    const library = rig && json.defaultMotions !== false ? this.libraryMotionRules(all, clips) : [];
+    if (library.length) {
+        rules.push(...this.readModelAnimationRules({ animations: library }));
+        all = all.concat(library);
+    }
     const presets = rig && json.defaultMotions !== false ? Reactor3D.rigMotionPresets() : null;
     if (presets && presets.defaultRules) {
         const extra = presets.defaultRules(String(rig.template || "humanoid"), all);
@@ -5315,6 +5321,279 @@ Reactor3D.rigMotionPresets = function() {
         try { return require("./reactor_rig_motions.js"); } catch (error) { return null; }
     }
     return null;
+};
+
+/**
+ * The shared motion library (reactor_3d_motions.js, its data in
+ * reactor_3d_motions.bin beside it): the motion-captured walk, run, jump,
+ * swim, treading and ladder climb a rigged humanoid plays in each state it
+ * has no motion of its own for. Read from the disk the first time a rigged
+ * humanoid's model.json loads; a browser fetches it then (whenMotionLibrary).
+ * Null while it is not in.
+ */
+Reactor3D.motionLibrary = function() {
+    const root = typeof window !== "undefined" ? window : globalThis;
+    let library = root.RRMotionLibrary || null;
+    if (!library && !this._motionLibraryTried) {
+        this._motionLibraryTried = true;
+        try {
+            if (typeof window === "undefined" && typeof require === "function") library = require("./reactor_3d_motions.js");
+            else if (typeof require === "function" && typeof document !== "undefined" && typeof process !== "undefined" && process.mainModule) {
+                const fs = require("fs");
+                const path = require("path");
+                const file = path.join(path.dirname(process.mainModule.filename), "js", "reactor_3d_motions.js");
+                if (fs.existsSync(file)) {
+                    // On the page itself, so its arrays are the page's own.
+                    const script = document.createElement("script");
+                    script.textContent = fs.readFileSync(file, "utf8") + "\n//# sourceURL=" + file;
+                    document.head.appendChild(script);
+                    script.remove();
+                    library = root.RRMotionLibrary || null;
+                    if (library && !library.dataPath) library.dataPath = path.join(path.dirname(file), "reactor_3d_motions.bin");
+                }
+            }
+        } catch (error) {
+            library = null;
+        }
+    }
+    if (!library || !library.STATE_MOTIONS) return null;
+    if (library.ready()) return library;
+    if (this._motionLibraryUnread) return null;
+    if (library.load()) return library;
+    // Where the disk can be read and holds no data, it is not looked for again.
+    if (typeof require === "function") this._motionLibraryUnread = true;
+    return null;
+};
+
+/** Resolves once the motion library is in, or will not be, for a model.json whose rig is a humanoid's. */
+Reactor3D.whenMotionLibrary = function(json) {
+    const rig = json && json.rig;
+    if (!rig || typeof rig !== "object" || (rig.template && rig.template !== "humanoid") || json.defaultMotions === false
+        || this.motionLibrary() || typeof document === "undefined" || typeof window === "undefined") return Promise.resolve();
+    if (!this._motionLibraryLoading) {
+        this._motionLibraryLoading = new Promise(resolve => {
+            const fetchData = () => {
+                const library = window.RRMotionLibrary;
+                if (!library) { resolve(); return; }
+                library.loadAsync("js/reactor_3d_motions.bin").then(resolve, resolve);
+            };
+            if (window.RRMotionLibrary) { fetchData(); return; }
+            const script = document.createElement("script");
+            script.src = "js/reactor_3d_motions.js";
+            script.async = true;
+            script.onload = fetchData;
+            script.onerror = () => resolve();
+            document.head.appendChild(script);
+        });
+    }
+    return this._motionLibraryLoading;
+};
+
+/** The names the motion library knows a humanoid rig's joints by. */
+Reactor3D.LIBRARY_BONE_NAMES = {
+    Hips: "Hips", Spine: "Spine", Chest: "Spine2", Neck: "Neck", Head: "Head",
+    LeftUpperArm: "LeftArm", LeftLowerArm: "LeftForeArm", LeftHand: "LeftHand",
+    LeftUpperLeg: "LeftUpLeg", LeftLowerLeg: "LeftLeg", LeftFoot: "LeftFoot",
+    RightUpperArm: "RightArm", RightLowerArm: "RightForeArm", RightHand: "RightHand",
+    RightUpperLeg: "RightUpLeg", RightLowerLeg: "RightLeg", RightFoot: "RightFoot"
+};
+
+/** The start of a library motion's clip name: no movement state reads it as its own (clipStateOf). */
+Reactor3D.LIBRARY_CLIP_PREFIX = "__reactor_motion_";
+
+/**
+ * A rigged humanoid's skeleton at rest, as the motion library reads one:
+ * its joints in the root's frame (the rig's), in order, parents first, each
+ * one's parent the nearest joint above it the library moves. Besides the
+ * rig's own joints, a file's collarbones, the joint between the spine and
+ * the chest and the toes. `holders` are the file's other joints, which the
+ * motions keep at rest. Null without the hips, an arm and a leg.
+ */
+Reactor3D.libraryRestSkeleton = function(root) {
+    const byRig = new Map();
+    root.traverse(node => {
+        const part = node.userData && node.userData.__reactorRigBone && node.userData.parts && node.userData.parts[0];
+        if (part && !byRig.has(part.name)) byRig.set(part.name, node);
+    });
+    const picked = new Map();
+    for (const name of Object.keys(this.LIBRARY_BONE_NAMES)) if (byRig.has(name)) picked.set(byRig.get(name), this.LIBRARY_BONE_NAMES[name]);
+    const fileJoint = node => !!node && node !== root && this.isRigJoint(node) && !(node.userData && node.userData.__reactorFinger);
+    const chest = byRig.get("Chest"), spine = byRig.get("Spine");
+    for (const side of ["Left", "Right"]) {
+        const arm = byRig.get(side + "UpperArm");
+        if (arm && chest && fileJoint(arm.parent) && !picked.has(arm.parent) && arm.parent.parent === chest) picked.set(arm.parent, side + "Shoulder");
+        const foot = byRig.get(side + "Foot");
+        const toe = foot ? foot.children.find(child => fileJoint(child) && !picked.has(child)) : null;
+        if (toe) picked.set(toe, side + "ToeBase");
+    }
+    if (spine && chest && fileJoint(chest.parent) && !picked.has(chest.parent) && chest.parent.parent === spine) picked.set(chest.parent, "Spine1");
+    const named = new Set(picked.values());
+    if (!["Hips", "LeftArm", "LeftForeArm", "LeftUpLeg"].every(name => named.has(name))) return null;
+    root.updateMatrixWorld(true);
+    const unturn = root.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const toRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
+    const turn = new THREE.Quaternion();
+    const turnOf = node => (node && node !== root ? unturn.clone().multiply(node.getWorldQuaternion(turn)) : new THREE.Quaternion()).toArray();
+    const order = [];
+    const holders = [];
+    root.traverse(node => {
+        if (picked.has(node)) order.push(node);
+        else if (fileJoint(node) && (node.isBone || (node.userData && node.userData.__reactorClipBone))) holders.push({ node, rest: node.quaternion.toArray() });
+    });
+    const at = new Map(order.map((node, i) => [node, i]));
+    const round = v => Math.round(v * 1e4) / 1e4;
+    const joints = order.map(node => {
+        let above = node.parent;
+        while (above && above !== root && !at.has(above)) above = above.parent;
+        const head = node.getWorldPosition(new THREE.Vector3()).applyMatrix4(toRoot).toArray();
+        const joint = { node, name: picked.get(node), parent: above && at.has(above) ? at.get(above) : -1, head,
+            rest: turnOf(node), parentRest: turnOf(node.parent), position: node.position.toArray() };
+        if (joint.parent < 0 && node.parent) {
+            // A rise in the root's frame, in the hips' parent's own (turned, and scaled for a file's armature).
+            const toParent = new THREE.Matrix4().copy(toRoot).multiply(node.parent.matrixWorld).invert();
+            const origin = new THREE.Vector3().applyMatrix4(toParent);
+            joint.up = new THREE.Vector3(0, 1, 0).applyMatrix4(toParent).sub(origin).toArray();
+        }
+        return joint;
+    });
+    const signature = joints.map(j => [j.name, j.parent, ...j.head, ...j.rest, ...j.parentRest, ...j.position, ...(j.up || [])].map(v => typeof v === "number" ? round(v) : v).join(","))
+        .concat(holders.map(h => h.rest.map(round).join(","))).join("|");
+    return { joints, holders, signature };
+};
+
+/**
+ * Gives a rigged humanoid (applyModelRig) the library's motions as clips,
+ * one for each state the file's own clips are not named for. A clip holds
+ * no keys until it first plays (resolveLibraryMotion); readModelAnimationRules
+ * plays each in its state where the model's own animations leave it open.
+ */
+Reactor3D.attachLibraryMotions = function(root, rig) {
+    if (!root || !rig || (rig.template || "humanoid") !== "humanoid" || typeof THREE === "undefined" || !THREE.AnimationMixer) return;
+    const library = this.motionLibrary();
+    if (!library) return;
+    const own = root.__reactorClips || [];
+    const named = new Set();
+    for (const clip of own) {
+        const match = clip && clip.name ? this.clipStateOf(clip.name) : null;
+        if (match) named.add(match.state);
+    }
+    const wanted = library.STATE_MOTIONS.filter(motion => !named.has(motion.state));
+    if (!wanted.length) return;
+    const skeleton = this.libraryRestSkeleton(root);
+    if (!skeleton) return;
+    const clips = wanted.map(motion => {
+        const clip = new THREE.AnimationClip(this.LIBRARY_CLIP_PREFIX + motion.id, 1, []);
+        clip.__reactorLibrary = { id: motion.id, state: motion.state, name: motion.name, skeleton, resolved: false };
+        return clip;
+    });
+    root.__reactorClips = own.concat(clips);
+    // The rig's own bones follow the clips as a file's do, and a pose bends them from the clip's pose.
+    for (const joint of skeleton.joints) if (joint.node.isBone) joint.node.userData.__reactorClipBone = true;
+};
+
+/** The rules that play a model's library motions (attachLibraryMotions) in the states `list` leaves open. */
+Reactor3D.libraryMotionRules = function(list, clips) {
+    if (!Array.isArray(clips) || !clips.length) return [];
+    const presets = this.rigMotionPresets();
+    const covers = presets && presets.covers ? presets.covers : (rules, state) => rules.some(rule => rule && rule.trigger === state);
+    const out = [];
+    for (const clip of clips) {
+        const info = clip && clip.__reactorLibrary;
+        if (!info || covers(list || [], info.state) || out.some(rule => rule.trigger === info.state)) continue;
+        out.push({ name: info.name, type: "clip", clip: clip.name, trigger: info.state, defaultMotion: true });
+    }
+    return out;
+};
+
+/**
+ * Fills a library motion's clip with its keys the first time it plays: the
+ * library's motion made for this skeleton, each joint's turn carried into
+ * its own frame, worked out once for every copy of the model.
+ */
+Reactor3D.resolveLibraryMotion = function(clip) {
+    const info = clip && clip.__reactorLibrary;
+    if (!info || info.resolved) return clip;
+    info.resolved = true;
+    const cache = this._libraryMotions || (this._libraryMotions = new Map());
+    let made = cache.get(info.skeleton.signature);
+    if (!made) {
+        made = new Map();
+        cache.set(info.skeleton.signature, made);
+        if (cache.size > 48) cache.delete(cache.keys().next().value);
+    }
+    let data = made.get(info.id);
+    if (data === undefined) {
+        const library = this.motionLibrary();
+        data = library ? this.retargetLibraryMotion(library, info.skeleton, info.id) : null;
+        made.set(info.id, data);
+    }
+    if (!data) return clip;
+    const { joints, holders } = info.skeleton;
+    for (const track of data.tracks) {
+        const node = track.joint >= 0 ? joints[track.joint].node : holders[track.holder].node;
+        const Track = track.path === "position" ? THREE.VectorKeyframeTrack : THREE.QuaternionKeyframeTrack;
+        clip.tracks.push(new Track(node.uuid + "." + track.path, track.times, track.values));
+    }
+    clip.duration = data.duration;
+    return clip;
+};
+
+/**
+ * One library motion on a skeleton (libraryRestSkeleton): { duration,
+ * tracks: [{ joint | holder, path, times, values }] }. The library turns
+ * joints that rest unturned; a joint of this skeleton turns by its parent's
+ * rest frame undone, the library's turn, then its own rest frame. The hips
+ * rise in their parent's frame.
+ */
+Reactor3D.retargetLibraryMotion = function(library, skeleton, id) {
+    const bones = skeleton.joints.map(joint => ({ name: joint.name, parent: joint.parent, head: joint.head }));
+    let motion = null;
+    try {
+        motion = library.stateClip(bones, id);
+    } catch (error) {
+        console.error("Reactor3D: the motion library's " + id + " could not be made for this model.", error);
+        return null;
+    }
+    if (!motion || !motion.times.length) return null;
+    const mul = (a, b, out, o) => {
+        out[o] = a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1];
+        out[o + 1] = a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0];
+        out[o + 2] = a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3];
+        out[o + 3] = a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2];
+    };
+    const duration = Math.max(1 / 30, motion.times[motion.times.length - 1]);
+    const tracks = [];
+    const left = [0, 0, 0, 1], key = [0, 0, 0, 1], step = [0, 0, 0, 0];
+    for (const track of motion.tracks) {
+        const joint = skeleton.joints[track.bone];
+        const times = track.times || motion.times;
+        if (!joint) continue;
+        if (track.path === "translation") {
+            if (!joint.up) continue;
+            const values = new Float32Array(times.length * 3);
+            for (let f = 0; f < times.length; f++) {
+                const rise = track.values[f * 3 + 1] - joint.head[1];
+                for (let k = 0; k < 3; k++) values[f * 3 + k] = joint.position[k] + joint.up[k] * rise;
+            }
+            tracks.push({ joint: track.bone, path: "position", times, values });
+            continue;
+        }
+        const p = joint.parentRest;
+        left[0] = -p[0]; left[1] = -p[1]; left[2] = -p[2]; left[3] = p[3];
+        const values = new Float32Array(times.length * 4);
+        for (let f = 0; f < times.length; f++) {
+            for (let k = 0; k < 4; k++) key[k] = track.values[f * 4 + k];
+            mul(left, key, step, 0);
+            mul(step, joint.rest, values, f * 4);
+        }
+        tracks.push({ joint: track.bone, path: "quaternion", times, values });
+    }
+    // The file's other joints hold their rest through the motion, whatever a clip before it left them at.
+    const still = Float32Array.of(0, duration);
+    skeleton.holders.forEach((holder, index) => {
+        tracks.push({ holder: index, joint: -1, path: "quaternion", times: still, values: Float32Array.from(holder.rest.concat(holder.rest)) });
+    });
+    return { duration, tracks };
 };
 
 /**
@@ -7809,7 +8088,10 @@ Reactor3D.isRigJoint = function(node) {
 
 Reactor3D.applyModelRig = function(root, rig) {
     if (typeof THREE === "undefined" || !root || !rig || !rig.bones.length) return;
-    if (this.mapRigToSkeleton(root, rig)) return;
+    if (this.mapRigToSkeleton(root, rig)) {
+        this.attachLibraryMotions(root, rig);
+        return;
+    }
     const meshes = this.carveTargetMeshes(root);
     const bones = rig.bones.map(def => {
         const bone = new THREE.Bone();
@@ -7910,6 +8192,7 @@ Reactor3D.applyModelRig = function(root, rig) {
     }
     root.userData.rigged = true;
     this.presetSkinnedBounds(root);
+    this.attachLibraryMotions(root, rig);
 };
 
 Reactor3D.modelAnimationUrl = function(name) {
@@ -8002,16 +8285,18 @@ Reactor3D.loadModelSidecar = function(name) {
             // collision footprint asks per step.
             if (!Reactor3D._sidecarJson) Reactor3D._sidecarJson = {};
             Reactor3D._sidecarJson[name] = parsed || null;
+            // A rigged humanoid's motions come from the shared library: in before the model is.
+            const done = () => Reactor3D.whenMotionLibrary(parsed).then(() => resolve(parsed));
             const rig = parsed && parsed.rig;
             if (!rig || !rig.weightsFile || rig.weights) {
-                resolve(parsed);
+                done();
                 return;
             }
             // The pointer is a bare filename inside the model's folder;
             // anything path-like is refused.
             const file = String(rig.weightsFile);
             if (/[\\/]/.test(file) || file.indexOf("..") >= 0) {
-                resolve(parsed);
+                done();
                 return;
             }
             const binUrl = "3d/" + name + "/" + file;
@@ -8022,9 +8307,9 @@ Reactor3D.loadModelSidecar = function(name) {
                 if (binXhr.status < 400 && binXhr.response) {
                     rig.weightsBin = Reactor3D.decodeRigWeightsBinary(binXhr.response);
                 }
-                resolve(parsed);
+                done();
             };
-            binXhr.onerror = () => resolve(parsed);
+            binXhr.onerror = () => done();
             binXhr.send();
         };
         const xhr = new XMLHttpRequest();
@@ -8443,7 +8728,7 @@ Reactor3D.rulesForPlacement = function(rules, animation, repeat) {
 
 Reactor3D.modelRuleDuration = function(rule, clips) {
     if (rule.type === "clip") {
-        const clip = (clips || []).find(c => c.name === rule.clip);
+        const clip = Reactor3D.resolveLibraryMotion((clips || []).find(c => c.name === rule.clip));
         return clip ? Math.max(1, Math.round(clip.duration * 60 / (rule.rate || 1))) : 60;
     }
     // A pose goes there and back: in over one period, out over another —
@@ -9196,7 +9481,7 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
             const previous = binding.clipAction;
             let next = null;
             if (desired) {
-                const clip = binding.clips.find(c => c.name === desired);
+                const clip = Reactor3D.resolveLibraryMotion(binding.clips.find(c => c.name === desired));
                 if (clip) {
                     next = binding.mixer.clipAction(clip);
                     next.reset();

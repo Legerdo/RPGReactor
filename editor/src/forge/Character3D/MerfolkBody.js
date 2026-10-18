@@ -536,7 +536,7 @@
             }
             // At the scale line the small first scales are paler, as pearly as the belly's.
             const fade = 1 - smooth(0, fadeLen, a - rows[0].a - lineDrop(b));
-            return mix(col, mix(col, rgb.belly, 0.5), fade * 0.45);
+            return mix(col, mix(col, rgb.belly, 0.5), fade * 0.18);
         };
 
         // The tail's skin, row by row.
@@ -737,7 +737,7 @@
                     const p = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]], n = [NB[v * 3], NB[v * 3 + 1], NB[v * 3 + 2]];
                     const b = Math.atan2(p[0], p[2] - C0[2]);
                     const h = clamp((p[1] - ringMinY + lineDrop(b) * 0.5) / bandH, 0, 1);
-                    const id = D.vertex(add(p, mul(n, 0.0008 * sc)), n, [Math.abs(b) / Math.PI, h], colorAt(rows[0].a, b, p), bodySkin(pack, v, hips, legSet));
+                    const id = D.vertex(add(p, mul(n, 0.0008 * sc)), n, [Math.abs(b) / Math.PI, h], mix(colorAt(rows[0].a + fadeLen, b, p), rgb.belly, 0.12), bodySkin(pack, v, hips, legSet));
                     made.set(v, id);
                     return id;
                 });
@@ -873,9 +873,9 @@
             // Joints: short pale gaps along each ray, closer toward the edge.
             const joint = v > 0.25 ? smooth(0.07, 0.0, Math.abs(((v * (14 + 10 * v)) % 1) - 0.5) - 0.42) : 0;
             const rayA = ray * (1 - 0.5 * joint);
-            const membrane = 0.42 - 0.18 * v + 0.05 * Math.sin(u * 90 + v * 7);
+            const membrane = 0.66 - 0.2 * v + 0.04 * Math.sin(u * 90 + v * 7);
             const edge = smooth(0.985, 0.94, v);
-            const a = clamp(Math.max(membrane, 0.88 * rayA) * edge, 0, 1);
+            const a = clamp(Math.max(membrane, 0.96 * rayA) * edge, 0, 1);
             const l = 0.93 - 0.18 * rayA + 0.07 * (1 - v);
             const o = (y * W + x) * 4, g = Math.round(255 * clamp(l, 0, 1));
             data[o] = g; data[o + 1] = g; data[o + 2] = Math.min(255, g + 4); data[o + 3] = Math.round(255 * a);
@@ -912,7 +912,7 @@
                     const d = Math.hypot(dx * (dy > 0 ? 1 + 0.35 * dy : 1), dy);
                     if (d > 1) continue;
                     const xx = clamp(x, 0, W - 1), o = (y * W + xx) * 4;
-                    const l = 0.74 + 0.16 * shade + 0.08 * (1 - d) - 0.22 * smooth(0.78, 1, d) * smooth(0, -0.6, dy);
+                    const l = 0.7 + 0.12 * shade + 0.1 * (1 - d) - 0.26 * smooth(0.78, 1, d) * smooth(0, -0.6, dy);
                     data[o] = data[o + 1] = data[o + 2] = Math.round(255 * clamp(l, 0, 1)); data[o + 3] = 255;
                 }
             }

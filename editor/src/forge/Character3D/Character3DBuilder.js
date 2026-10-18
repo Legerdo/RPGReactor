@@ -455,6 +455,7 @@ class Character3DBuilder {
         const act = b.dataset.act, r = JSON.parse(JSON.stringify(this.recipe));
         if (act === 'fold') { this._fold(b); return; }
         if (act === 'talk') { this._toggleTalk(); return; }
+        if (act === 'take-outfit') { this._showModels(); return; }
         if (act === 'extreme') { this.extreme = !this.extreme; this._renderPanel(); return; }
         if (act === 'plan') {
             if ((b.dataset.plan === 'quadruped') === !this.human) return;
@@ -546,7 +547,9 @@ class Character3DBuilder {
             }
             return html;
         }).join('');
-        return plan + this._section('Species') + `<p class="rr-c3d-note">${this._t('A species sets the body, face, skin and features to start from. Everything stays editable.')}</p>` + tiles + features;
+        // Any body may wear an animal's head in place of its own.
+        const head = this.slime ? '' : this._select('headId', 'Head', RRCharacterSpecies.heads(), RRCharacterSpecies.headId(this.recipe.head));
+        return plan + this._section('Species') + `<p class="rr-c3d-note">${this._t('A species sets the body, face, skin and features to start from. Everything stays editable.')}</p>` + tiles + head + features;
     }
 
     _cap(s) { return String(s).charAt(0).toUpperCase() + String(s).slice(1); }
@@ -1106,6 +1109,7 @@ class Character3DBuilder {
             // [outfit transfer] The pictures of the outfits taken from models, decoded before the first build;
             // one that comes in later (a project's own) builds the view again.
             if (window.RRCharacterOutfitTransfer) {
+                if (this._project()) RRCharacterOutfitTransfer.registerProject(RRCharacterWardrobe, this._project().path);
                 if (!this._takenPictures) this._takenPictures = RRCharacterOutfitTransfer.onPicture(() => this._queueRebuild());
                 await RRCharacterOutfitTransfer.preload(RRCharacterOutfitTransfer.BUILT_IN);
             }
@@ -1272,7 +1276,15 @@ class Character3DBuilder {
         const holder = this.root.querySelector('.rr-c3d-pose-picker'), sig = JSON.stringify(list);
         if (holder && holder.dataset.sig !== sig) {
             holder.dataset.sig = sig;
-            holder.innerHTML = list.map(([id, label]) => `<option value="${rrEscapeHtml(id)}">${rrEscapeHtml(label)}</option>`).join('');
+            const option = ([id, label]) => `<option value="${rrEscapeHtml(id)}">${rrEscapeHtml(label)}</option>`;
+            // A person's poses under their groups (Move, Fight, Rest), each group in the same order; the still poses first.
+            const groups = human && !slime && !mer && RRCharacterPoses.GROUPS, groupOf = new Map(poses.map(p => [p.id, p.group]));
+            holder.innerHTML = groups
+                ? list.filter(([id]) => !groupOf.get(id)).map(option).join('') + groups.map(g => {
+                    const mine = list.filter(([id]) => groupOf.get(id) === g.id);
+                    return mine.length ? `<optgroup label="${rrEscapeHtml(this._t(g.label))}">${mine.map(option).join('')}</optgroup>` : '';
+                }).join('')
+                : list.map(option).join('');
         }
         if (holder) holder.value = this.pose;
         if (!view) return;
@@ -1335,14 +1347,36 @@ class Character3DBuilder {
         const mer = !!window.RRMerfolkBody && RRMerfolkBody.hasTail(view.boneDefs);
         let made = id === 'idle' ? view.idleClip : view.plan === 'slime' ? RRSlimeBody.poseClip(view.boneDefs, id, this.recipe) : view.plan === 'quadruped' ? RRCreatureBody.poseClip(view.boneDefs, id, this.recipe) : mer ? RRMerfolkBody.poseClip(view.boneDefs, id, view.bodySkin, this.recipe) : RRCharacterPoses.clip(view.boneDefs, id, view.bodySkin);
         if (!made) return null;
-        // Loose cloth worked out over the clip (RRCharacterCloth, coarser in the view; kept per clip, body and garment).
+        // Loose cloth worked out over the clip off the page (RRCharacterCloth, coarser in the view; kept per clip, body and
+        // garment): until it is ready the cloth rides its anchor, then the pose takes it up where it is.
         const result = this._result;
-        if (window.RRCharacterCloth && result && result.cloth && result.bones.length === view.bones.length) made = RRCharacterCloth.bake(result, made, { quality: 'preview' });
+        if (window.RRCharacterCloth && result && result.cloth && result.bones.length === view.bones.length) {
+            const ready = RRCharacterCloth.baked(result, made, { quality: 'preview' });
+            if (ready) made = ready;
+            else RRCharacterCloth.bakeAsync(result, made, { quality: 'preview' }).then(() => this._clothReady(id, result));
+        }
         // A track turns its bone, or with a path moves it ('translation') or squashes it ('scale').
         const tracks = made.tracks.map(t => new (t.path ? THREE.VectorKeyframeTrack : THREE.QuaternionKeyframeTrack)(view.bones[t.bone].name + (t.path === 'scale' ? '.scale' : t.path === 'translation' ? '.position' : '.quaternion'), Array.from(t.times || made.times), Array.from(t.values)));
         const action = view.mixer.clipAction(new THREE.AnimationClip(made.name || id, -1, tracks));
         view.actions.set(id, { action, meta: { plant: !!made.plant, lift: made.lift || null, skin: !!made.skin, once: !!made.once, seat: made.seat || null } });
         return action;
+    }
+
+    /** A pose's cloth is worked out: its action is made again with it, carrying on from the pose's own time. */
+    _clothReady(id, result) {
+        const view = this._view, entry = view && view.actions && view.actions.get(id);
+        if (!entry || this._result !== result) return;
+        const old = entry.action, playing = view.action === old;
+        view.actions.delete(id);
+        const action = this._poseAction(id);
+        if (!action) { view.actions.set(id, entry); return; }
+        if (playing) {
+            action.time = old.time; action.paused = old.paused; action.play();
+            old.stop();
+            view.action = action; view.poseMeta = view.actions.get(id).meta;
+            if (old.paused) { view.mixer.update(0); this._plant(); this._draw(); }
+        }
+        view.mixer.uncacheClip(old.getClip());
     }
 
     /** Where each joint stands at rest, for standing a pose on the floor; a new shape measures its skin again. */
@@ -2067,18 +2101,6 @@ class Character3DBuilder {
         };
     }
 
-    _openSaved(name) {
-        const fs = require('fs'), path = require('path');
-        try {
-            const data = JSON.parse(fs.readFileSync(path.join(this._charactersDir(), name, 'character.json'), 'utf8'));
-            this.name = name;
-            const input = this.root.querySelector('.rr-c3d-name-input');
-            if (input) input.value = name;
-            const recipe = RRCharacterModel.normalize(data.recipe || data);
-            // A recipe past the natural ranges opens with Extreme on, so its sliders reach its values.
-            this.extreme = this.extreme || JSON.stringify(RRHumanBody.naturalRecipe ? RRHumanBody.naturalRecipe(recipe) : recipe) !== JSON.stringify(RRHumanBody.normalizeRecipe(recipe));
-            this._replace(recipe);
-            this._status(this._t('Opened {name}.', { name }), 'ok');
     /**
      * [outfit transfer] The project's humanoid models, to take an outfit off one: it is kept in
      * 3d/Outfits, listed with the outfits under From 3D models, and worn at once.
@@ -2116,6 +2138,18 @@ class Character3DBuilder {
         };
     }
 
+    _openSaved(name) {
+        const fs = require('fs'), path = require('path');
+        try {
+            const data = JSON.parse(fs.readFileSync(path.join(this._charactersDir(), name, 'character.json'), 'utf8'));
+            this.name = name;
+            const input = this.root.querySelector('.rr-c3d-name-input');
+            if (input) input.value = name;
+            const recipe = RRCharacterModel.normalize(data.recipe || data);
+            // A recipe past the natural ranges opens with Extreme on, so its sliders reach its values.
+            this.extreme = this.extreme || JSON.stringify(RRHumanBody.naturalRecipe ? RRHumanBody.naturalRecipe(recipe) : recipe) !== JSON.stringify(RRHumanBody.normalizeRecipe(recipe));
+            this._replace(recipe);
+            this._status(this._t('Opened {name}.', { name }), 'ok');
         } catch (error) {
             console.error('[Character3DBuilder] open', error);
             this._status(this._t('{name} could not be opened.', { name }), 'error');
@@ -2167,6 +2201,9 @@ class Character3DBuilder {
             RRCharacterModel.build(this.pack, this.recipe, probe, { quality: 'save', eyeSource: this.eyeSource, paintSkin: (key, args) => { wanted = { key, args }; return null; } });
             const skin = wanted ? await this._paintSkinNow(wanted.args) : null;
             const result = RRCharacterModel.build(this.pack, this.recipe, { wardrobe: this.cache.wardrobe }, { quality: 'save', eyeSource: this.eyeSource, paintSkin: skin ? () => skin : undefined });
+            // A person saved ready to use: its poses and motions as clips, rigged, each motion where the game plays it.
+            const ready = window.RRCharacterPoses && RRCharacterPoses.savedModel ? RRCharacterPoses.savedModel(result, this.motions || 'useful') : null;
+            if (ready) result.clips = (result.clips || []).concat(ready.clips);
             const glb = await RRCharacterModel.toGlb(result, name, tex => this._png(tex));
             // Written whole or not at all: a save cut short leaves the last good file.
             const atomic = window.RRWriteFileAtomicSync || ((io, target, data) => io.writeFileSync(target, data));
@@ -2175,12 +2212,20 @@ class Character3DBuilder {
             atomic(fs, path.join(folder, 'character.json'), JSON.stringify({ builder: 'character3d', version: 2, recipe: this.recipe }, null, 2) + '\n');
             const thumb = this._thumbnail();
             if (thumb) atomic(fs, path.join(folder, 'thumbnail.png'), thumb);
-            if (result.sidecar) {
-                // A creature's rig goes in its model.json; what else the 3D Models page keeps there stays.
+            if (result.sidecar || ready) {
+                // A creature's rig, or a person's rig and motions, go in its model.json; what else the 3D Models page
+                // keeps there stays, an animation edited there by hand among it.
                 const sidecarFile = path.join(folder, 'model.json');
                 let kept = {};
                 try { kept = JSON.parse(fs.readFileSync(sidecarFile, 'utf8')); } catch (_) { kept = {}; }
-                atomic(fs, sidecarFile, JSON.stringify(Object.assign(kept, result.sidecar), null, 2) + '\n');
+                const next = Object.assign(kept, result.sidecar || {});
+                if (ready) {
+                    const own = Array.isArray(kept.animations) ? kept.animations.filter(a => a && typeof a === 'object') : [], have = new Set(own.map(a => a.name));
+                    next.animations = own.concat(ready.sidecar.animations.filter(a => !have.has(a.name)));
+                    if (ready.sidecar.rig) next.rig = ready.sidecar.rig;
+                }
+                atomic(fs, sidecarFile, JSON.stringify(next, null, 2) + '\n');
+                if (ready && ready.rigBinary) atomic(fs, path.join(folder, 'model.rig.bin'), Buffer.from(ready.rigBinary));
             }
             this._status(this._t('Saved to 3D Models › Characters/{name}.', { name }), 'ok');
             window.dispatchEvent(new CustomEvent('rr-models-changed', { detail: { name: 'Characters/' + name } }));

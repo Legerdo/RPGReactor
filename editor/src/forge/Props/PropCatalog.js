@@ -2,10 +2,14 @@
  * RRPropCatalog - what the 3D Prop Builder offers to make, in the left
  * column: categories, and in them the types a person picks.
  *
- * A category: { id, label, order }. A type: { id, category, label, icon,
- * kind, start(), matches(recipe), keywords? }: `kind` is a model kind
+ * A category: { id, label, order, parent? }: one with no parent is a top
+ * section of the list (Weapons), one with a parent a short group inside it
+ * (Firearms). A type: { id, category, label, icon, kind, start(),
+ * matches(recipe), keywords?, hidden? }: `kind` is a model kind
  * registered with RRPropModel (its normalize and build), `start` gives
- * the recipe the type starts from, `matches` says which type a recipe is.
+ * the recipe the type starts from, `matches` says which type a recipe is;
+ * a hidden type is not listed (another type makes the same thing) but still
+ * names the recipes it matches.
  * A kind's page is registered once with `ui(kind, page)`: { placeholder,
  * tabs: [[id, label]], panel(tab), act?(act, button), choose?(path, value),
  * moves?(recipe), reset(recipe) }, its functions called on the builder (so
@@ -45,19 +49,30 @@
         return TYPES.find(t => t.kind === kind && t.matches(recipe)) || TYPES.find(t => t.kind === kind) || null;
     }
 
-    /** Types under each category, those matching `query` (by their label, keywords or category), in order. */
+    /**
+     * The list as shown: each top category with the types right in it and
+     * its groups ({ category, types }), only types matching `query` (by
+     * label, keywords, group or section), empty groups and sections left out.
+     * `types` of a section is every type it shows, its groups' included.
+     */
     function grouped(query, translate) {
         const t = translate || (s => s);
         const q = String(query || '').trim().toLowerCase();
-        return CATEGORIES.map(c => {
-            const types = TYPES.filter(x => x.category === c.id).filter(x => {
-                if (!q) return true;
-                const words = [t(x.label), x.label, x.keywords, t(c.label), c.label].join(' ').toLowerCase();
-                return q.split(/\s+/).every(w => words.includes(w));
-            });
-            return { category: c, types };
+        const fits = (x, ...cats) => {
+            if (x.hidden) return false;
+            if (!q) return true;
+            const words = [t(x.label), x.label, x.keywords, ...cats.flatMap(c => [t(c.label), c.label])].join(' ').toLowerCase();
+            return q.split(/\s+/).every(w => words.includes(w));
+        };
+        return CATEGORIES.filter(c => !c.parent).map(top => {
+            const own = TYPES.filter(x => x.category === top.id && fits(x, top));
+            const groups = CATEGORIES.filter(c => c.parent === top.id).map(g => ({ category: g, types: TYPES.filter(x => x.category === g.id && fits(x, g, top)) })).filter(g => g.types.length);
+            return { category: top, own, groups, types: own.concat(...groups.map(g => g.types)) };
         }).filter(g => g.types.length);
     }
+
+    /** The top section a category sits in. */
+    function topOf(id) { let c = CATEGORIES.find(x => x.id === id); while (c && c.parent) c = CATEGORIES.find(x => x.id === c.parent); return c || null; }
 
     /** Small line icons (24 x 24, currentColor) the types are shown with. */
     const ICONS = {
@@ -86,11 +101,14 @@
     // The categories this builder starts with; more slot in by order (furniture, containers, lights...).
     category({ id: 'banners', label: 'Banners & Flags', order: 10 });
     category({ id: 'picture', label: 'From Picture', order: 20 });
-    category({ id: 'swords', label: 'Weapons › Swords & Blades', order: 40 });
-    category({ id: 'firearms', label: 'Weapons › Firearms', order: 41 });
-    category({ id: 'scifi', label: 'Weapons › Sci-fi', order: 42 });
+    category({ id: 'weapons', label: 'Weapons', order: 40 });
+    category({ id: 'swords', label: 'Swords & Blades', order: 41, parent: 'weapons' });
+    category({ id: 'firearms', label: 'Firearms', order: 42, parent: 'weapons' });
+    category({ id: 'scifi', label: 'Sci-fi', order: 43, parent: 'weapons' });
+    category({ id: 'wearables', label: 'Wearables', order: 60 });
+    category({ id: 'gear', label: 'Tools & Gear', order: 70 });
 
-    const api = { CATEGORIES, TYPES, UI, ICONS, category, add, ui, typeOf, grouped, icon };
+    const api = { CATEGORIES, TYPES, UI, ICONS, category, add, ui, typeOf, grouped, topOf, icon };
     root.RRPropCatalog = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

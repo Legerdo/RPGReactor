@@ -27,8 +27,8 @@
         { id: 'cross', label: 'Cross', regions: ['Background', 'Cross', 'Outline'] },
         { id: 'saltire', label: 'Saltire', regions: ['Background', 'Cross'] },
         { id: 'quartered', label: 'Quartered', regions: ['Upper hoist', 'Upper fly', 'Lower hoist', 'Lower fly'] },
-        { id: 'checker', label: 'Checker', regions: ['Background', 'Second color'] },
-        { id: 'bend', label: 'Diagonal bend', regions: ['Upper', 'Bend', 'Lower'] },
+        { id: 'checker', label: 'Checkered', regions: ['Background', 'Second color'] },
+        { id: 'bend', label: 'Diagonal bend', regions: ['Upper part', 'Bend', 'Lower part'] },
         { id: 'canton', label: 'Canton', regions: ['Background', 'Canton', 'Stars'] },
         { id: 'triangle', label: 'Hoist triangle', regions: ['Top band', 'Bottom band', 'Hoist triangle'] },
         { id: 'border', label: 'Border', regions: ['Background', 'Border'] },
@@ -36,8 +36,8 @@
     ];
     const LAYOUT_BY_ID = new Map(LAYOUTS.map(l => [l.id, l]));
     const SHAPES = [['star', 'Star'], ['circle', 'Circle'], ['crescent', 'Crescent'], ['shield', 'Shield'], ['sun', 'Sun'], ['eagle', 'Eagle'],
-        ['cross', 'Cross'], ['crown', 'Crown'], ['sword', 'Sword'], ['laurel', 'Laurel wreath'], ['gear', 'Gear'], ['skull', 'Skull'], ['tree', 'Tree']];
-    const PLACES = [['center', 'Center'], ['hoist', 'Hoist'], ['fly', 'Fly'], ['canton', 'Canton'], ['tl', 'Top hoist corner'], ['tr', 'Top fly corner'], ['bl', 'Bottom hoist corner'], ['br', 'Bottom fly corner'], ['free', 'Free']];
+        ['cross', 'Cross'], ['crown', 'Crown'], ['sword', 'Sword'], ['laurel', 'Laurel wreath'], ['gear', 'Cogwheel'], ['skull', 'Skull'], ['tree', 'Tree']];
+    const PLACES = [['center', 'Center'], ['hoist', 'Hoist'], ['fly', 'Fly side'], ['canton', 'Canton'], ['tl', 'Top hoist corner'], ['tr', 'Top fly corner'], ['bl', 'Bottom hoist corner'], ['br', 'Bottom fly corner'], ['free', 'Free placement']];
     const REPEATS = [['none', 'None'], ['ring', 'Ring'], ['row', 'Row']];
     const CORNERS = [['tl', 'Top hoist corner'], ['tr', 'Top fly corner'], ['bl', 'Bottom hoist corner'], ['br', 'Bottom fly corner']];
     const MAX_LAYERS = 8;

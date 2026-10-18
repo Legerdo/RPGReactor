@@ -105,6 +105,76 @@
         return true;
     }
 
+    // ── prints ────────────────────────────────────────────────────────────
+    const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    /** One cell of a staggered repeat (`size` meters), local coordinates -0.5..0.5 and a fixed random per cell. */
+    function cell(p, size) {
+        const y = p.cv / size, row = Math.floor(y), x = p.cu / size + (row & 1) * 0.5, col = Math.floor(x);
+        return { x: fract(x) - 0.5, y: fract(y) - 0.5, r: hash(col * 1.7 + 0.3, row * 2.3 + 0.7), row, col };
+    }
+
+    /** A floral print: five-petaled flowers with their centers and two leaves, staggered, turned a little each. */
+    function floral(p, scale, c1, c2, trim) {
+        const k = cell(p, 0.048 / scale), turn = k.r * Math.PI * 2;
+        const ox = (k.r - 0.5) * 0.12, oy = (hash(k.col, k.row) - 0.5) * 0.12;
+        const x = k.x - ox, y = k.y - oy, r = Math.hypot(x, y), th = Math.atan2(y, x) + turn;
+        const leafA = [x - 0.24, y + 0.2];
+        const leaf = Math.hypot(leafA[0] * 1.9, leafA[1] * 0.9) < 0.14 || Math.hypot((x + 0.22) * 0.9, (y + 0.22) * 1.9) < 0.12;
+        const petal = 0.16 + 0.16 * Math.abs(Math.cos(2.5 * th));
+        if (r < 0.06) return mixc(trim, [0.9, 0.7, 0.2], 0.5);
+        if (r < petal) return mixc(c2, [1, 1, 1], 0.25 * (1 - r / petal));
+        if (r < petal + 0.018) return mixc(c2, c1, 0.6);
+        if (leaf) return mixc(c1, [0.12, 0.3, 0.12], 0.55);
+        return c1;
+    }
+
+    /** A paisley print: teardrops with a curled tip, outlined, ringed with dots, alternating their lean. */
+    function paisley(p, scale, c1, c2, trim) {
+        const k = cell(p, 0.065 / scale), lean = (k.row + k.col) & 1 ? 0.9 : -0.9;
+        const cs = Math.cos(lean), sn = Math.sin(lean);
+        const x = k.x * cs - k.y * sn, y = k.x * sn + k.y * cs + 0.06;
+        const r = Math.hypot(x, y), th = Math.atan2(y, x);
+        // The drop: round, drawn out into a curled point on one side.
+        const reach = 0.21 * (1 + 1.1 * Math.max(0, Math.sin(th - 0.6)) ** 6);
+        if (Math.abs(r - reach) < 0.018) return c2;
+        if (r < reach) {
+            if (Math.abs(r - reach * 0.6) < 0.012) return trim;
+            if (r < reach * 0.25) return mixc(c2, trim, 0.5);
+            return mixc(c1, c2, 0.2);
+        }
+        // Dots round the drop.
+        const dot = Math.abs(r - reach - 0.05) < 0.016 && fract(th / (Math.PI * 2) * 14) < 0.35;
+        return dot ? trim : c1;
+    }
+
+    /**
+     * An emblem on the left breast: a shield with a star (or the project's
+     * picture, `look.emblemPicture`, RGBA), its own color on its border.
+     */
+    function emblem(p, look, c1, c2, trim) {
+        const R = p.rest;
+        if (p.fam !== 0 || R[2] < 0.02) return c1;
+        const dx = (R[0] - 0.085) / 0.034, dy = (R[1] - 1.255) / 0.04;
+        const pic = look.emblemPicture;
+        if (pic && pic.width) {
+            if (Math.abs(dx) > 1 || Math.abs(dy) > 1) return c1;
+            const u = Math.min(pic.width - 1, Math.floor((dx + 1) / 2 * pic.width)), v = Math.min(pic.height - 1, Math.floor((1 - dy) / 2 * pic.height));
+            const o = (v * pic.width + u) * 4, al = pic.data[o + 3] / 255;
+            const lin = c => Math.pow(c / 255, 2.2);
+            return mixc(c1, [lin(pic.data[o]), lin(pic.data[o + 1]), lin(pic.data[o + 2])], al);
+        }
+        // A shield: square shoulders, a pointed foot.
+        const half = dy > -0.25 ? 1 : Math.max(0, (dy + 1) / 0.75);
+        if (Math.abs(dx) > half || dy > 1 || dy < -1) return c1;
+        const edge = Math.min(half - Math.abs(dx), 1 - dy, (dy + 1) * 0.75);
+        if (edge < 0.12) return trim;
+        // A five-pointed star in the middle.
+        const sx = dx / 0.62, sy = (dy - 0.08) / 0.62, sr = Math.hypot(sx, sy), sa = Math.atan2(sx, sy);
+        const star = 0.42 + 0.58 * (0.5 + 0.5 * Math.cos(sa * 5)) ** 3;
+        if (sr < star * 0.95) return trim;
+        return c2;
+    }
+
     // ── painting ──────────────────────────────────────────────────────────
     /**
      * Soft folds in the cloth where a body bends it: bunched rings at the
@@ -138,7 +208,7 @@
     /** A texel's linear color for a look at a point described by `p` (chart and body values). */
     function shade(look, colors, p) {
         const [c1, c2, trim] = colors;
-        let t = 0;
+        let t = 0, direct = null;
         const s = (p.fam === 0 ? p.y * 7.3 : p.s * 1.2) * (look.scale || 1), a = p.ang;
         switch (look.pattern) {
             case 'stripes': t = fract(s * 2) < 0.5 ? 1 : 0; break;
@@ -188,9 +258,12 @@
                 t = Math.hypot(fx, fy) < 0.18 ? 2 : 0;
                 break;
             }
+            case 'floral': direct = floral(p, look.scale || 1, c1, c2, trim); break;
+            case 'paisley': direct = paisley(p, look.scale || 1, c1, c2, trim); break;
+            case 'emblem': direct = emblem(p, look, c1, c2, trim); break;
             default: t = 0;
         }
-        let rgb = t >= 2 ? trim : t <= 0 ? c1 : t >= 1 ? c2 : [c1[0] + (c2[0] - c1[0]) * t, c1[1] + (c2[1] - c1[1]) * t, c1[2] + (c2[2] - c1[2]) * t];
+        let rgb = direct || (t >= 2 ? trim : t <= 0 ? c1 : t >= 1 ? c2 : [c1[0] + (c2[0] - c1[0]) * t, c1[1] + (c2[1] - c1[1]) * t, c1[2] + (c2[2] - c1[2]) * t]);
         // A trim: an even band in from the cut edge (its width in the garment's own units, about 15 cm each).
         const trimmed = look.trimWidth && p.vm >= 0 && p.vm < look.trimWidth * 0.15;
         // Its inner edge blended over a millimeter, a clean line rather than a stair of texels.
@@ -378,7 +451,8 @@
             const grain = metal ? 0.95 + 0.07 * noise(tx * 0.08, ty * 1.6) : 0.9 + 0.08 * noise(tx * 0.9, ty * 0.9) + 0.05 * noise(tx * 0.12, ty * 0.12);
             const side = Math.abs(p.l);
             let rgb;
-            if (p.region === 'lining') rgb = kind === 'sneaker' ? scale3(c2, 0.55) : mix3(scale3(c1, 0.5), [0.32, 0.22, 0.14], 0.5);
+            // The lining in a shade of the shoe's own color (a tan lining read as bare skin in a dark boot's top).
+            if (p.region === 'lining') rgb = kind === 'sneaker' ? scale3(c2, 0.55) : scale3(c1, 0.55);
             else if (p.region === 'roll') rgb = kind === 'sneaker' ? c2 : kind === 'boot' && look.trim ? trim : scale3(c1, 0.82);
             else if (p.region === 'bed') {
                 // The footbed: lighter, worn darker where the heel and the ball press.

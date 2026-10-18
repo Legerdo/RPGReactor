@@ -115,7 +115,7 @@
             color: color(r.color, d.color), trim: color(r.trim, d.trim), accent: color(r.accent, d.accent),
             wear: clamp(r.wear, 0, 1, d.wear),
             marks: { text: text(m.text, '', 24), style: pick(m.style, MARK_STYLES.map(x => x[0]), 'stencil'), color: color(m.color, d.marks.color), symbol: pick(m.symbol, CP.SYMBOLS.map(x => x[0]), 'none'), hazard: !!m.hazard, image: text(m.image, '', 200) },
-            lights: { count: Math.round(clamp(l.count, 0, MAX_LIGHTS, 0)), color: color(l.color, d.lights.color), pattern: pick(l.pattern, PATTERNS.map(p => p[0]), d.lights.pattern) },
+            lights: { count: Math.round(clamp(l.count, 0, form === 'canister' ? 6 : MAX_LIGHTS, 0)), color: color(l.color, d.lights.color), pattern: pick(l.pattern, PATTERNS.map(p => p[0]), d.lights.pattern) },
             strips: { on: !!s.on, color: color(s.color, d.strips.color), pattern: pick(s.pattern, PATTERNS.map(p => p[0]), d.strips.pattern) },
             display: { mode: pick(dp.mode, CP.DISPLAY_MODES.map(x => x[0]), 'none'), text: text(dp.text, d.display.text, 32), style: pick(dp.style, CP.DISPLAY_STYLES.map(x => x[0]), 'led'), color: color(dp.color, d.display.color), image: text(dp.image, '', 200) },
             seed: (Number(r.seed) >>> 0) || d.seed
@@ -268,7 +268,7 @@
     function barrel(k, options) {
         const r = k.r, H = r.height, Rb = r.width / 2, Rh = Rb * (1 - 0.05 - 0.17 * r.bulge);
         const radiusAt = y => Rh + (Rb - Rh) * (1 - Math.pow(2 * y / H - 1, 2));
-        const staves = Math.max(12, Math.min(24, Math.round(Math.PI * 2 * Rb / 0.1)));
+        const staves = Math.max(12, Math.min(20, Math.round(Math.PI * 2 * Rb / 0.1)));
         const seg = staves * 2, t = Math.max(0.014, Math.min(0.028, Rb * 0.065)), recess = Math.max(0.018, H * 0.034);
         const rand = Paint.random(r.seed + 3), jitter = Array.from({ length: staves }, () => rand() - 0.5);
         const lying = r.lying;
@@ -280,7 +280,9 @@
         const img = marksImage(k, options);
         // Staves: around the barrel, the front at the middle of the picture.
         const sw = C / staves;
-        const marks = CP.markings(r.marks, { x: markF * C - Math.min(C * 0.2, H * 0.55) / 2, y: H * 0.5 - H * 0.09, w: Math.min(C * 0.2, H * 0.55), h: H * 0.18 }, { wear: r.wear * 0.7, seed: r.seed, image: img, pixel: 1 / dens });
+        // Upright, the words run around the barrel; on its side, along it (x from the left end, y down from the top).
+        const markBox = lying ? { x: H * 0.22, y: markF * C - Math.min(C * 0.07, 0.12), w: H * 0.56, h: Math.min(C * 0.14, 0.24) } : { x: markF * C - Math.min(C * 0.2, H * 0.55) / 2, y: H * 0.5 - H * 0.09, w: Math.min(C * 0.2, H * 0.55), h: H * 0.18 };
+        const marks = CP.markings(r.marks, markBox, { wear: r.wear * 0.7, seed: r.seed, image: img, pixel: 1 / dens });
         const staveRect = paintRegion(k, px(dens, C), px(dens, H), (s, tt, out) => {
             const x = s * C, y = tt * H, f = s * staves, i = Math.min(staves - 1, Math.floor(f)), local = (f - i) * sw;
             wood(local + i * 0.37, y * 1.0, out, i, CP.smooth(H * 0.82, H, y) + CP.smooth(H * 0.18, 0, y) * 0.5);
@@ -289,14 +291,14 @@
             // A cooper's chalk-free stave: darker toward its ends where the hoops bear.
             const ends = 0.9 + 0.1 * Math.sin(Math.PI * Math.max(0, Math.min(1, y / H)));
             out[0] *= seam * ends; out[1] *= seam * ends; out[2] *= seam * ends;
-            marks.apply(x, y, out);
+            if (lying) marks.apply(H - y, x, out); else marks.apply(x, y, out);
         });
         const headRect = paintRegion(k, px(dens, Rh * 2, k.S * 0.3), px(dens, Rh * 2, k.S * 0.3), plankFace({ w: Rh * 2, h: Rh * 2, planks: Math.max(3, Math.round(Rh * 2 / 0.11)), along: 'x', wood, board: 40, seed: r.seed }));
         const hoopRect = paintRegion(k, Math.min(k.S - 8, px(dens, C)), 24, (s, tt, out) => iron(s * C, tt * 0.05, out));
 
         // The staves: bulging, crowned (each a little proud of its seams), each a hair off its neighbors.
         const outer = [];
-        const rows = 12;
+        const rows = 10;
         const profile = [];
         const inner = y => radiusAt(y) - t;
         // Bottom: the head's underside edge, down the chime, across the stave ends.
@@ -336,8 +338,10 @@
         const thick = 0.0045 + 0.004 * Rb * (1 + r.wear);
         for (const f of HOOPS[r.hoops]) {
             const w = Math.max(0.025, H * 0.045), y0 = Math.max(0.004, f * H - w / 2), y1 = Math.min(H - 0.004, f * H + w / 2);
-            const hp = [[radiusAt(y0) + 0.0012, y0], [radiusAt(y0) + thick, y0 + 0.0015], [radiusAt(y1) + thick, y1 - 0.0015], [radiusAt(y1) + 0.0012, y1]];
-            const hoop = CM.revolve(hp, seg, { crease: 0.5 });
+            // Fewer sides than the staves: its corners pushed out so its flats still clear them.
+            const hseg = Math.max(18, Math.round(staves * 1.15)), out = 1 / Math.cos(Math.PI / hseg);
+            const hp = [[(radiusAt(y0) + 0.0012) * out, y0], [(radiusAt(y0) + thick) * out, y0 + 0.0015], [(radiusAt(y1) + thick) * out, y1 - 0.0015], [(radiusAt(y1) + 0.0012) * out, y1]];
+            const hoop = CM.revolve(hp, hseg, { crease: 0.5 });
             CM.mapUv(hoop, (u, v) => uvAt(k, hoopRect, u, Math.min(1, v / (w + thick * 2))));
             k.trim.push(hoop);
         }
@@ -364,7 +368,7 @@
     function layDown(k, H) {
         const point = p => [p[1] - H / 2, p[2], p[0]], turn = n => [n[1], n[2], n[0]];
         for (const list of [k.body, k.trim, k.glass, k.glow, k.halo]) for (const m of list) CM.transform(m, point, turn);
-        for (const b of k.bones) b.head = point(b.head);
+        for (const b of k.bones.slice(1)) b.head = point(b.head);
         for (const a of k.anim) { if (a.hide.move) a.hide.move = turn(a.hide.move); if (a.hide.shrink) { const s = a.hide.shrink; a.hide.shrink = [s[1], s[2], s[0]]; } }
         k.lyingAxis = true;
     }
@@ -374,7 +378,7 @@
         // The barrel's lowest point, before it is lifted: its belly at -Rb.
         const lift = Math.max(0.05, Rb * 0.22);
         for (const m of [k.body, k.trim, k.glass, k.glow, k.halo].flat()) CM.transform(m, p => [p[0], p[1] + Rb + lift, p[2]]);
-        for (const b of k.bones) b.head = [b.head[0], b.head[1] + Rb + lift, b.head[2]];
+        for (const b of k.bones.slice(1)) b.head = [b.head[0], b.head[1] + Rb + lift, b.head[2]];
         const rect = paintRegion(k, 128, 48, plankFace({ w: 0.6, h: 0.2, planks: 1, along: 'x', wood, board: 70, seed: k.r.seed }));
         const thick = Math.max(0.05, H * 0.07), half = Rb * 0.78, steps = 10;
         for (const xs of [-0.3, 0.3]) {
@@ -464,7 +468,7 @@
             if (Math.abs(N[i * 3 + 1]) > 0.85 && Math.hypot(x, z) < R - 0.008) return uvAt(k, headRect, 0.5 + x / (2 * R), 0.5 + z / (2 * R));
             return uvAt(k, sideRect, u, 1 - yy / H);
         });
-        CM.occlude(body, (x, yy, z, nx, ny) => (r.top === 'open' && Math.hypot(x, z) < R - 0.011 && yy < H - 0.02 ? 0.3 + 0.35 * yy / H : 1));
+        CM.occlude(body, (x, yy, z, nx, ny) => (r.top === 'open' && Math.hypot(x, z) < R - 0.011 && yy < H - 0.02 ? 0.16 + 0.34 * yy / H : 1));
         k.body.push(body);
         if (r.top !== 'open') {
             // Bungs: a large and a small threaded cap in the top head.
@@ -487,7 +491,7 @@
      * the lights and the display.
      */
     function canister(k, options) {
-        const r = k.r, H = r.height, R = r.width / 2, Rs = R * 0.955, seg = 32;
+        const r = k.r, H = r.height, R = r.width / 2, Rs = R * 0.955, seg = 24;
         const capH = Math.min(H * 0.15, R * 0.55 + 0.03);
         const C = Math.PI * 2 * Rs, sleeveH = H - capH * 2 + 0.02, dens = Math.min(k.S / C, k.S * 0.5 / sleeveH);
         const img = marksImage(k, options);
@@ -497,8 +501,8 @@
         const trimMetal = CP.paintedMetal(r.trim, r.seed + 5, r.wear * 0.9, '#7a8088');
         const plate = FUTURE.has(r.form) && (r.lights.count > 0 || r.display.mode !== 'none');
         // Markings: below the plate when there is one, else about the middle; the band of stripes above the lower groove.
-        const mh = Math.min(sleeveH * 0.16, C * 0.08), mw = Math.min(C * 0.34, mh * 4);
-        const markY = plate ? H - (capH + sleeveH * 0.29) : H - (capH + sleeveH * 0.5);
+        const mh = Math.min(sleeveH * (plate ? 0.11 : 0.16), C * 0.08), mw = Math.min(C * 0.34, mh * 4.4);
+        const markY = plate ? H - (capH + sleeveH * 0.335) : H - (capH + sleeveH * 0.5);
         const band = r.marks.hazard ? [H - grooves[0] - sleeveH * 0.08 - 0.012, H - grooves[0] - 0.012] : null;
         const marks = CP.markings(r.marks, { x: (r.core ? (markF + 0.25) % 1 : markF) * C - mw / 2, y: markY - mh / 2, w: mw, h: mh }, { wear: r.wear * 0.8, seed: r.seed, image: img, pixel: 1 / dens, band, stripe: 0.06 });
         const sleeveRect = paintRegion(k, px(dens, C), px(dens, H), (s, t, out) => {
@@ -517,7 +521,7 @@
         let top;
         if (r.caps === 'domed') {
             top = [[0, H - capH], [Rs * 0.97, H - capH], [R * 0.985, H - capH + 0.004], [R, H - capH + 0.014], [R, H - capH * 0.62]];
-            for (let i = 1; i <= 5; i++) { const a = i / 5 * Math.PI / 2; top.push([R * Math.cos(a) * (i === 5 ? 0 : 1), H - capH * 0.62 + capH * 0.62 * Math.sin(a)]); }
+            for (let i = 1; i <= 4; i++) { const a = i / 4 * Math.PI / 2; top.push([R * Math.cos(a) * (i === 4 ? 0 : 1), H - capH * 0.62 + capH * 0.62 * Math.sin(a)]); }
         } else top = [[0, H - capH], [Rs * 0.97, H - capH], [R * 0.985, H - capH + 0.004], [R, H - capH + 0.014], [R, H - 0.016], [R * 0.9, H], [0, H]];
         for (const prof of [bottom, top]) {
             const cap = CM.revolve(prof, seg, { crease: 0.6 });
@@ -544,14 +548,15 @@
             // Struts around a dark inner tube; the glowing column inside it shows between them.
             for (let i = 0; i < 6; i++) {
                 const a = Math.PI + (i + 0.5) / 6 * Math.PI * 2, w = Math.max(0.03, R * 0.16);
-                const strut = CM.chamferBox([0, (y0 + y1) / 2, Rs - w * 0.4], [w, y1 - y0 + 0.01, w * 0.8], 0.006);
+                const strut = CM.chamferBox([0, (y0 + y1) / 2, Rs - w * 0.4], [w, y1 - y0 + 0.01, w * 0.8], 0.006, ['+y', '-y']);
                 const turnA = CM.yaw(a);
                 CM.transform(strut, turnA.point, turnA.normal);
                 CM.mapUv(strut, (u, v) => uvAt(k, capRect, (u + 2) % 1, 0.2));
                 k.trim.push(strut);
             }
-            for (const [ya, yb] of [[y0 - 0.002, y0 + 0.012], [y1 - 0.012, y1 + 0.002]]) {
-                const ring = CM.revolve([[Rs * 0.7, ya], [Rs * 1.004, ya], [Rs * 1.004, yb], [Rs * 0.7, yb]], seg, { crease: 0.5 });
+            // Rings at the cage's ends: their face toward the cage and their outside (the rest is inside the collars).
+            for (const prof of [[[Rs * 1.004, y0 - 0.002], [Rs * 1.004, y0 + 0.012], [Rs * 0.7, y0 + 0.012]], [[Rs * 0.7, y1 - 0.012], [Rs * 1.004, y1 - 0.012], [Rs * 1.004, y1 + 0.002]]]) {
+                const ring = CM.revolve(prof, seg, { crease: 0.5 });
                 CM.mapUv(ring, u => uvAt(k, capRect, u, 0.5));
                 k.trim.push(ring);
             }
@@ -565,7 +570,7 @@
             CM.mapUv(pipe, u => uvAt(k, capRect, u, 0.5));
             k.trim.push(pipe);
             const wheelR = Math.max(0.035, R * 0.22), wy = yTop + pipeH * 0.7, path = [];
-            for (let i = 0; i <= 16; i++) { const a = i / 16 * Math.PI * 2; path.push([Math.cos(a) * wheelR, wy, Math.sin(a) * wheelR]); }
+            for (let i = 0; i <= 12; i++) { const a = i / 12 * Math.PI * 2; path.push([Math.cos(a) * wheelR, wy, Math.sin(a) * wheelR]); }
             const wheel = CM.sweep(path, Math.max(0.0045, wheelR * 0.11), 6, false);
             const spokes = [CM.sweep([[-wheelR, wy, 0], [wheelR, wy, 0]], wheelR * 0.07, 5, false), CM.sweep([[0, wy, -wheelR], [0, wy, wheelR]], wheelR * 0.07, 5, false)];
             const accentRect = paintRegion(k, 32, 16, (s, t, o2) => { const c = CP.rgb(r.accent); o2[0] = c[0] * (0.85 + 0.15 * t); o2[1] = c[1] * (0.85 + 0.15 * t); o2[2] = c[2] * (0.85 + 0.15 * t); });
@@ -714,7 +719,7 @@
             if (slat) for (const b of f.slats) list.push(b);
             for (const p of list) {
                 const flat = []; for (const q of p.poly) flat.push(q[0], q[1]);
-                const m = CM.slab(flat, p.boardSlat ? f.inner : f.F, p.boardSlat ? shell : tb, p.boardSlat ? 0.002 : 0.0035);
+                const m = CM.slab(flat, p.boardSlat ? f.inner : f.F, p.boardSlat ? shell : tb, p.boardSlat ? 0 : 0.0035);
                 mapFace(k, m, f);
                 body.push(m);
             }
@@ -814,7 +819,7 @@
             else if (hasBrace) for (const b of braces(r.brace, u0 + wb, v0 + wb, u1 - wb, v1 - wb, wb * 0.92)) pieces.push(b);
             // Slats: the boards themselves, a gap between each.
             const slats = [];
-            const n = planksOf(v1 - tb), ph = (v1 - tb) / n;
+            const n = Math.max(2, Math.round((v1 - tb) / 0.16)), ph = (v1 - tb) / n;
             for (let i = 0; i < n; i++) slats.push({ poly: rectPoly(u0 + inset, tb + i * ph + 0.006, u1 - inset, tb + (i + 1) * ph - 0.006), dir: [1, 0], boardSlat: true });
             const inner = CM.frame(sub(F.o, scale(F.n, 0.016)), F.u, F.v);
             return { name, F, inner, u0, u1, v0, v1, w: u1 - u0, h: v1 - v0, pieces, slats };
@@ -847,8 +852,9 @@
             }));
         }
         // Slat boards are drawn by their face's picture too: no battens on them, so they read as boards.
-        faces.rope = paintRegion(k, 96, 24, (s, t, out) => CP.rope('#b39a6c', r.seed)(s, t, out));
-        faces.straw = r.open ? paintRegion(k, px(dens, W, 256), px(dens, D, 256), (s, t, out) => CP.straw(r.seed)(s * W * 3, t * D * 3, out)) : null;
+        const ropeFn = CP.rope('#b39a6c', r.seed), strawFn = CP.straw(r.seed);
+        faces.rope = paintRegion(k, 96, 24, ropeFn);
+        faces.straw = r.open ? paintRegion(k, px(dens, W, 256), px(dens, D, 256), (s, t, out) => strawFn(s * W * 3, t * D * 3, out)) : null;
         faces.handleY = handleY;
         const into = { body: [], trim2: [] };
         const copies = r.stack === 'two' ? [[0, 0, 0, 0], [0.012, H, -0.01, 0.07]] : r.stack === 'three' ? [[-W / 2 - 0.012, 0, 0, -0.03], [W / 2 + 0.012, 0, 0.02, 0.04], [0.01, H, 0.005, 0.1]] : [[0, 0, 0, 0]];
@@ -862,3 +868,671 @@
         k.body.push(...into.body);
         return { height: H * (r.stack === 'one' ? 1 : 2) };
     }
+
+    /** A box's points mapped through the faces they turn to (crate faces: front, back, right, left, top). */
+    function mapByFaces(k, m, faces, inward) {
+        const P = m.positions, N = m.normals;
+        return CM.mapUv(m, (u, v, i) => {
+            let nx = N[i * 3], ny = N[i * 3 + 1], nz = N[i * 3 + 2];
+            if (inward) { nx = -nx; ny = -ny; nz = -nz; }
+            const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+            const f = ay >= ax && ay >= az ? faces.top : az >= ax ? (nz > 0 ? faces.front : faces.back) : (nx > 0 ? faces.right : faces.left);
+            const q = sub([P[i * 3], P[i * 3 + 1], P[i * 3 + 2]], f.F.o);
+            const uu = q[0] * f.F.u[0] + q[1] * f.F.u[1] + q[2] * f.F.u[2], vv = q[0] * f.F.v[0] + q[1] * f.F.v[1] + q[2] * f.F.v[2];
+            return uvAt(k, f.rect, (uu - f.u0) / f.w, (f.v1 - vv) / f.h);
+        });
+    }
+
+    /** Flat slabs on a face from rectangles [u0, v0, u1, v1], mapped through `face`. */
+    function slabsOn(k, face, rects, depth, bevel) {
+        return rects.map(([u0, v0, u1, v1]) => mapFace(k, CM.slab(CM.rect((u0 + u1) / 2, (v0 + v1) / 2, u1 - u0, v1 - v0), face.F, depth, bevel), face));
+    }
+
+    // ── chest ──────────────────────────────────────────────────────────────
+    function chest(k, options) {
+        const r = k.r, W = r.width, D = W * 0.58, Hb = W * 0.44, sc = W / 0.86;
+        const lr = 0.05 * sc, Hd = Math.min(D * 0.48, 0.24 * W), lt = 0.09 * sc, wt = 0.02 * sc;
+        const domed = r.lid === 'domed';
+        const wood = CP.wood(r.color, r.seed, r.wear);
+        const dens = Math.min(k.S * 0.42 / W, k.S * 0.3 / Hb);
+        const iron = CP.iron(r.trim, r.seed, r.wear);
+        const brass = r.trim;
+        const img = marksImage(k, options);
+        // Faces of the body.
+        const face = (name, o, u, v, u0, u1, v0, v1) => ({ name, F: CM.frame(o, u, v), u0, u1, v0, v1, w: u1 - u0, h: v1 - v0 });
+        const faces = {
+            front: face('front', [0, 0, D / 2], [1, 0, 0], [0, 1, 0], -W / 2, W / 2, 0, Hb), back: face('back', [0, 0, -D / 2], [-1, 0, 0], [0, 1, 0], -W / 2, W / 2, 0, Hb),
+            right: face('right', [W / 2, 0, 0], [0, 0, -1], [0, 1, 0], -D / 2, D / 2, 0, Hb), left: face('left', [-W / 2, 0, 0], [0, 0, 1], [0, 1, 0], -D / 2, D / 2, 0, Hb),
+            top: face('top', [0, Hb, 0], [1, 0, 0], [0, 0, -1], -W / 2, W / 2, -D / 2, D / 2)
+        };
+        const low = y => CP.smooth(Hb - 0.1, Hb, y);
+        for (const f of Object.values(faces)) {
+            const marks = f.name === 'front' && (r.marks.text || r.marks.symbol !== 'none' || r.marks.image) ? CP.markings(r.marks, { x: W * 0.18, y: Hb * 0.48, w: W * 0.64, h: Hb * 0.2 }, { wear: r.wear, seed: r.seed, image: img, pixel: 1 / dens }) : null;
+            f.rect = paintRegion(k, px(dens, f.w), px(dens, f.h), boardFace(k, { w: f.w, h: f.h, u0: f.u0, v1: f.v1, pieces: [], planks: Math.max(2, Math.round((f.name === 'top' ? D : Hb) / 0.12)), along: 'x', wood, board: { front: 0, back: 10, right: 20, left: 30, top: 40 }[f.name], marks, low: f.name === 'top' ? null : low }));
+        }
+        const arc = [];
+        const steps = 12;
+        if (domed) for (let i = 0; i <= steps; i++) { const a = i / steps * Math.PI; arc.push([Math.cos(a) * D / 2, Math.sin(a) * Hd, a]); }
+        let L = 0;
+        const along = arc.map((p, i) => (i ? (L += Math.hypot(p[0] - arc[i - 1][0], p[1] - arc[i - 1][1])) : 0));
+        const lidRect = paintRegion(k, px(dens, W), px(dens, domed ? L : D), boardFace(k, { w: W, h: domed ? L : D, u0: 0, v1: 0, pieces: [], planks: Math.max(3, Math.round((domed ? L : D) / 0.1)), along: 'x', wood, board: 60 }));
+        const endRect = paintRegion(k, px(dens, D), px(dens, Math.max(Hd, lt) + lr), boardFace(k, { w: D, h: Math.max(Hd, lt) + lr, u0: 0, v1: 0, pieces: [], planks: 3, along: 'x', wood, board: 70 }));
+        const ironRect = paintRegion(k, 256, 64, (s, t, out) => iron(s * 1.2, t * 0.3, out));
+        const lockRect = paintRegion(k, 64, 64, (s, t, out) => {
+            iron(s * 0.1 + 5, t * 0.1, out);
+            const c = CP.rgb(brass); out[0] = c[0] * (0.8 + 0.3 * (1 - t)); out[1] = c[1] * (0.8 + 0.3 * (1 - t)); out[2] = c[2] * (0.8 + 0.3 * (1 - t));
+            const x = s - 0.5, y = t - 0.45, hole = Math.hypot(x, y) < 0.08 || (Math.abs(x) < 0.035 && y > 0 && y < 0.22);
+            if (hole) { out[0] = out[1] = out[2] = 0.03; }
+            for (const [rx, ry] of [[0.15, 0.12], [0.85, 0.12], [0.15, 0.88], [0.85, 0.88]]) if (Math.hypot(s - rx, t - ry) < 0.06) { out[0] *= 0.6; out[1] *= 0.6; out[2] *= 0.6; }
+        });
+        const liningRect = r.open ? paintRegion(k, 128, 128, (s, t, out) => { const c = CP.rgb('#6a1420'), n = 0.85 + 0.15 * Math.sin(s * 120) * Math.sin(t * 120); out[0] = c[0] * n; out[1] = c[1] * n; out[2] = c[2] * n; }) : null;
+        const goldRect = r.open && r.gold ? paintRegion(k, 256, 192, CP.coins(r.seed)) : null;
+        const trimMap = m => CM.mapUv(m, (u, v) => uvAt(k, ironRect, (Math.abs(u) * 2) % 1, (Math.abs(v) * 3) % 1));
+        const body = [], lid = [], trim = [], lidTrim = [];
+        // The body: walls of boards; open, its inside lined and its rim's top.
+        const box = CM.chamferBox([0, Hb / 2, 0], [W, Hb, D], 0.006, ['+y', '-y']);
+        mapByFaces(k, box, faces);
+        body.push(box);
+        if (r.open) {
+            const inner = flipInside(CM.chamferBox([0, Hb / 2 + 0.01, 0], [W - wt * 2, Hb - 0.02, D - wt * 2], 0, ['+y']));
+            CM.mapUv(inner, (u, v) => uvAt(k, liningRect, (Math.abs(u) * 3) % 1, (Math.abs(v) * 3) % 1));
+            CM.occlude(inner, (x, y) => 0.35 + 0.5 * y / Hb);
+            body.push(inner);
+            const g = new CM.Geo(), ow = W / 2, od = D / 2, iw = W / 2 - wt, id = D / 2 - wt;
+            for (const q of [[[-ow, -od], [ow, -od], [iw, -id], [-iw, -id]], [[ow, -od], [ow, od], [iw, id], [iw, -id]], [[ow, od], [-ow, od], [-iw, id], [iw, id]], [[-ow, od], [-ow, -od], [-iw, -id], [-iw, id]]]) g.poly(q.map(p => [p[0], Hb, p[1]]), q.map(p => uvAt(k, faces.top.rect, (p[0] + W / 2) / W, (p[1] + D / 2) / D)), [0, 1, 0]);
+            body.push(g.done());
+            if (r.gold) {
+                const mound = CM.revolve([[0, -0.01], [1, 0], [0.96, 0.28], [0.82, 0.58], [0.56, 0.84], [0.26, 0.97], [0, 1]], 18, { crease: 0.3 });
+                const sx = W / 2 - wt - 0.008, sz = D / 2 - wt - 0.008, sy = Math.max(0.06, W * 0.13), y0 = Hb * 0.74;
+                CM.transform(mound, p => [p[0] * sx, y0 + p[1] * sy, p[2] * sz], n => [n[0] / sx, n[1] / sy, n[2] / sz]);
+                CM.mapUv(mound, (u, v, i) => uvAt(k, goldRect, 0.5 + mound.positions[i * 3] / (2 * sx) * 0.9, 0.5 + mound.positions[i * 3 + 2] / (2 * sz) * 0.9));
+                body.push(mound);
+            }
+        }
+        // The lid: a rim, then the dome (or a flat board top).
+        const rim = CM.chamferBox([0, Hb + lr / 2, 0], [W + 0.004, lr, D + 0.004], 0.005, domed ? ['+y'] : ['-y']);
+        CM.mapUv(rim, (u, v, i) => uvAt(k, endRect, (Math.abs(u) / D) % 1, 0.92));
+        lid.push(rim);
+        if (domed) {
+            const P = [], N = [], T = [], I = [];
+            arc.forEach(([z, y, a], i) => {
+                const n = norm([0, Math.sin(a) / Hd, Math.cos(a) / (D / 2)]);
+                for (const x of [-W / 2 - 0.002, W / 2 + 0.002]) { P.push(x, Hb + lr + y, z); N.push(n[0], n[1], n[2]); T.push(...uvAt(k, lidRect, (x + W / 2) / W, along[i] / L)); }
+            });
+            for (let i = 0; i < steps; i++) { const a = i * 2; I.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+            lid.push(CM.orientOutward(CM.make(P, N, T, I)));
+            if (r.open) {
+                // The lid's underside, lined, seen when it stands open.
+                const under = CM.copy(lid[lid.length - 1]);
+                CM.transform(under, p => [p[0] * 0.995, Hb + lr * 0.4 + (p[1] - Hb - lr) * 0.94, p[2] * 0.96]);
+                flipInside(under);
+                CM.mapUv(under, (u, v) => uvAt(k, liningRect, (Math.abs(u) * 7) % 1, (Math.abs(v) * 7) % 1));
+                CM.occlude(under, () => 0.55);
+                lid.push(under);
+            }
+            for (const side of [-1, 1]) {
+                const g = new CM.Geo(), pts = arc.map(([z, y]) => [side * (W / 2 + 0.002), Hb + lr + y, z]);
+                g.poly(pts, pts.map(p => uvAt(k, endRect, (p[2] + D / 2) / D, 1 - (p[1] - Hb) / (Hd + lr))), [side, 0, 0]);
+                lid.push(g.done());
+            }
+        } else {
+            const top = CM.chamferBox([0, Hb + lr + lt / 2 - 0.002, 0], [W + 0.004, lt, D + 0.004], 0.006, ['-y']);
+            CM.mapUv(top, (u, v, i) => uvAt(k, lidRect, (top.positions[i * 3] + W / 2) / W, (top.positions[i * 3 + 2] + D / 2) / D));
+            lid.push(top);
+        }
+        // Iron: bands round the body's foot and rim, straps up the front and back and over the lid.
+        const sw = 0.05 * sc, bw = 0.042 * sc, dep = 0.004 * sc;
+        for (const f of [faces.front, faces.back]) {
+            trim.push(...slabsOn(k, f, [[f.u0 - dep, 0, f.u1 + dep, bw], [f.u0 - dep, Hb - bw, f.u1 + dep, Hb]], dep, dep * 0.6));
+            for (const x of [-0.3 * W, 0.3 * W]) trim.push(...slabsOn(k, f, [[x - sw / 2, bw, x + sw / 2, Hb - bw]], dep, dep * 0.6));
+        }
+        for (const f of [faces.right, faces.left]) trim.push(...slabsOn(k, f, [[f.u0, 0, f.u1, bw], [f.u0, Hb - bw, f.u1, Hb]], dep, dep * 0.6));
+        trim.forEach(trimMap);
+        const lidFront = face('lidfront', [0, 0, D / 2 + 0.002], [1, 0, 0], [0, 1, 0], -W / 2, W / 2, Hb, Hb + lr);
+        lidFront.rect = ironRect;
+        lidTrim.push(...slabsOn(k, lidFront, [[-W / 2 - 0.002, Hb + lr * 0.15, W / 2 + 0.002, Hb + lr * 0.85]], dep, dep * 0.6));
+        if (domed) for (const x of [-0.3 * W, 0.3 * W]) {
+            // A strap over the dome: its outer face and its two edges.
+            const g = new CM.Geo(), out = arc.map(([z, y, a]) => [z * (1 + 2 * dep / D) , y + dep * Math.sin(a) * 1.5, a]);
+            for (let i = 0; i < steps; i++) {
+                const a = out[i], b = out[i + 1], ia = arc[i], ib = arc[i + 1], n = norm([0, Math.sin((a[2] + b[2]) / 2) / Hd, Math.cos((a[2] + b[2]) / 2) / (D / 2)]);
+                const Y = y => Hb + lr + y;
+                g.poly([[x - sw / 2, Y(a[1]), a[0]], [x + sw / 2, Y(a[1]), a[0]], [x + sw / 2, Y(b[1]), b[0]], [x - sw / 2, Y(b[1]), b[0]]], [[0, 0], [1, 0], [1, 0.1], [0, 0.1]], n);
+                for (const sx of [-1, 1]) g.poly([[x + sx * sw / 2, Y(ia[1]), ia[0]], [x + sx * sw / 2, Y(a[1]), a[0]], [x + sx * sw / 2, Y(b[1]), b[0]], [x + sx * sw / 2, Y(ib[1]), ib[0]]], [[0, 0], [0, 0.05], [0.1, 0.05], [0.1, 0]], [sx, 0, 0]);
+            }
+            lidTrim.push(trimMap(g.done()));
+        } else for (const x of [-0.3 * W, 0.3 * W]) {
+            const tf = face('lidtop', [0, Hb + lr + lt - 0.002, 0], [1, 0, 0], [0, 0, -1], -W / 2, W / 2, -D / 2, D / 2);
+            tf.rect = ironRect;
+            lidTrim.push(...slabsOn(k, tf, [[x - sw / 2, -D / 2 - 0.002, x + sw / 2, D / 2 + 0.002]], dep, dep * 0.6).map(trimMap));
+        }
+        lidTrim.forEach(trimMap);
+        if (r.corners) {
+            const cs = 0.075 * sc, o = 0.005;
+            for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+                for (const cy of [cs / 2 - 0.003, Hb - cs / 2 + 0.001]) trim.push(trimMap(CM.chamferBox([sx * (W / 2 - cs / 2 + o), cy, sz * (D / 2 - cs / 2 + o)], [cs, cs, cs], 0.006)));
+                lidTrim.push(trimMap(CM.chamferBox([sx * (W / 2 - cs / 2 + o + 0.002), Hb + lr / 2 + 0.001, sz * (D / 2 - cs / 2 + o + 0.002)], [cs, lr + 0.004, cs], 0.005)));
+            }
+        }
+        if (r.lock) {
+            const lp = mapLock(k, CM.slab(CM.rect(0, Hb - 0.065 * sc, 0.09 * sc, 0.1 * sc), faces.front.F, 0.006 * sc, 0.002), faces.front.F, 0, Hb - 0.065 * sc, 0.09 * sc, 0.1 * sc, lockRect);
+            trim.push(lp);
+            lidTrim.push(trimMap(CM.slab(CM.rect(0, Hb + lr * 0.2, 0.04 * sc, lr * 1.3 + 0.03 * sc), lidFront.F, 0.009 * sc, 0.002)));
+        }
+        // Iron handles on the ends.
+        for (const side of [1, -1]) {
+            const f = side > 0 ? faces.right : faces.left, yc = Hb * 0.68, hr = 0.06 * sc;
+            trim.push(trimMap(CM.slab(CM.rect(0, yc, hr * 2.6, 0.035 * sc), f.F, 0.008 * sc, 0.002)));
+            const path = [];
+            for (let i = 0; i <= 10; i++) { const a = i / 10 * Math.PI; path.push([side * (W / 2 + 0.014 * sc), yc - Math.sin(a) * hr, Math.cos(a) * hr]); }
+            trim.push(trimMap(CM.sweep(path, 0.0065 * sc, 6, true)));
+        }
+        if (r.open) {
+            const t = CM.pitch(-105 * Math.PI / 180, [0, Hb, -D / 2 - 0.002]);
+            for (const m of [...lid, ...lidTrim]) CM.transform(m, t.point, t.normal);
+        }
+        k.body.push(...body, ...lid);
+        k.trim.push(...trim, ...lidTrim);
+        return { height: Hb + lr + (domed ? Hd : lt) };
+    }
+
+    /** The lock plate's front through its own picture. */
+    function mapLock(k, m, F, cu, cv, w, h, rect) {
+        const P = m.positions;
+        return CM.mapUv(m, (u, v, i) => {
+            const q = sub([P[i * 3], P[i * 3 + 1], P[i * 3 + 2]], F.o);
+            const uu = q[0] * F.u[0] + q[1] * F.u[1] + q[2] * F.u[2], vv = q[0] * F.v[0] + q[1] * F.v[1] + q[2] * F.v[2];
+            return uvAt(k, rect, (uu - cu) / w + 0.5, 0.5 - (vv - cv) / h);
+        });
+    }
+
+    // ── sci-fi cargo crate ─────────────────────────────────────────────────
+    function cargo(k, options) {
+        const r = k.r, ratio = RATIOS[r.proportions], W = r.width, H = Math.max(0.25, W * ratio[1]), D = Math.max(0.25, W * ratio[2]);
+        const sc = Math.max(0.5, Math.min(1.6, Math.min(W, H * 1.6, D * 1.6) / 0.8));
+        const ys = H * (r.proportions === 'cube' ? 0.8 : 0.74), b = 0.022 * sc, m = 0.045 * sc + b, pd = 0.006, wt = 0.03 * sc;
+        const dens = Math.min(k.S * 0.45 / Math.max(W, H), k.S * 0.3 / Math.max(D, H));
+        const img = marksImage(k, options);
+        const ctl = r.lights.count > 0 || r.display.mode !== 'none';
+        const face = (name, o, u, v, u0, u1, v0, v1) => ({ name, F: CM.frame(o, u, v), u0, u1, v0, v1, w: u1 - u0, h: v1 - v0 });
+        const faces = {
+            front: face('front', [0, 0, D / 2], [1, 0, 0], [0, 1, 0], -W / 2, W / 2, 0, H), back: face('back', [0, 0, -D / 2], [-1, 0, 0], [0, 1, 0], -W / 2, W / 2, 0, H),
+            right: face('right', [W / 2, 0, 0], [0, 0, -1], [0, 1, 0], -D / 2, D / 2, 0, H), left: face('left', [-W / 2, 0, 0], [0, 0, 1], [0, 1, 0], -D / 2, D / 2, 0, H),
+            top: face('top', [0, H, 0], [1, 0, 0], [0, 0, -1], -W / 2, W / 2, -D / 2, D / 2)
+        };
+        const bandV = [H * 0.05, H * 0.13];
+        for (const f of Object.values(faces)) {
+            const top = f.name === 'top', side = f.name === 'right' || f.name === 'left';
+            let box = null;
+            if (f.name === 'front') box = ctl ? { x: f.w * 0.2, y: H - ys * 0.34 - H * 0.05, w: f.w * 0.6, h: H * 0.1 } : { x: f.w * 0.14, y: H - ys * 0.5 - H * 0.07, w: f.w * 0.72, h: H * 0.14 };
+            else if (f.name === 'right') box = { x: f.w * 0.15, y: H - ys * 0.32 - H * 0.04, w: f.w * 0.7, h: H * 0.08 };
+            const mk = box && (f.name === 'front' ? r.marks : Object.assign({}, r.marks, { symbol: 'none', image: '' }));
+            const marks = box && mk && (mk.text || mk.symbol !== 'none' || mk.image) ? CP.markings(Object.assign({}, mk, { hazard: !top && r.marks.hazard }), box, { wear: r.wear, seed: r.seed + f.name.length, image: f.name === 'front' ? img : null, pixel: 1 / dens, band: !top && r.marks.hazard ? [H - bandV[1], H - bandV[0]] : null, stripe: 0.06 * sc })
+                : (!top && r.marks.hazard ? CP.markings({ text: '', symbol: 'none', hazard: true }, { x: 0, y: 0, w: 1, h: 1 }, { wear: r.wear, seed: r.seed, band: [H - bandV[1], H - bandV[0]], stripe: 0.06 * sc }) : null);
+            const rivets = [];
+            const pu0 = m - (side ? 0 : 0), pv0 = top ? m : H - ys + m, pu1 = f.w - m, pv1 = top ? f.h - m : H - m;
+            for (const [x, y] of [[pu0 + 0.012, pv0 + 0.012], [pu1 - 0.012, pv0 + 0.012], [pu0 + 0.012, pv1 - 0.012], [pu1 - 0.012, pv1 - 0.012]]) rivets.push([x, y]);
+            f.rect = paintRegion(k, px(dens, f.w), px(dens, f.h), metalFace({ w: f.w, h: f.h, color: r.color, seed: r.seed + f.name.length * 3, wear: r.wear, edgeBand: 0.06 * sc, marks, rivets, lines: top ? [0.5] : [], low: (x, y) => (top ? 0 : CP.smooth(H - 0.12, H, y)) }));
+        }
+        const trimFn = CP.paintedMetal(r.trim, r.seed + 9, r.wear * 0.7, '#6d7278');
+        const trimRect = paintRegion(k, 128, 64, (s, t, out) => trimFn(s * 0.4, t * 0.2, out, CP.smooth(0.8, 1, t), 0));
+        const darkRect = paintRegion(k, 32, 32, (s, t, out) => { out[0] = out[1] = out[2] = 0.04; });
+        const foamRect = r.open ? paintRegion(k, 128, 128, (s, t, out) => { const v = 0.1 + 0.05 * Math.sin(s * 40) * Math.sin(t * 40); out[0] = out[1] = out[2] = v; }) : null;
+        const trimMap = mm => CM.mapUv(mm, (u, v) => uvAt(k, trimRect, (Math.abs(u) * 3) % 1, (Math.abs(v) * 3) % 1));
+        const lower = [], lid = [], trim = [], lidTrim = [];
+        const lowBox = CM.chamferBox([0, ys / 2, 0], [W, ys, D], b, r.open ? ['-y', '+y'] : ['-y']);
+        mapByFaces(k, lowBox, faces);
+        lower.push(lowBox);
+        const lidBox = CM.chamferBox([0, ys + (H - ys) / 2 + 0.001, 0], [W, H - ys - 0.002, D], b, r.open ? [] : ['-y']);
+        mapByFaces(k, lidBox, faces);
+        lid.push(lidBox);
+        // Raised panels on every side, below the seam and on the lid's top.
+        for (const f of [faces.front, faces.back, faces.right, faces.left]) lower.push(...slabsOn(k, f, [[f.u0 + m, m, f.u1 - m, ys - m]], pd, 0.004));
+        lid.push(...slabsOn(k, faces.top, [[-W / 2 + m, -D / 2 + m, W / 2 - m, D / 2 - m]], pd, 0.004));
+        if (r.bumpers) {
+            const cs = Math.max(0.06, 0.11 * sc), o = 0.012;
+            for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+                trim.push(trimMap(CM.chamferBox([sx * (W / 2 - cs / 2 + o), cs / 2 - o, sz * (D / 2 - cs / 2 + o)], [cs, cs, cs], 0.012)));
+                lidTrim.push(trimMap(CM.chamferBox([sx * (W / 2 - cs / 2 + o), H - cs / 2 + o, sz * (D / 2 - cs / 2 + o)], [cs, cs, cs], 0.012)));
+            }
+        }
+        if (r.latches) for (const f of [faces.front, faces.back]) for (const x of [-0.32 * W, 0.32 * W]) {
+            trim.push(trimMap(CM.slab(CM.rect(x, ys - 0.04 * sc, 0.06 * sc, 0.07 * sc), f.F, 0.008, 0.003)));
+            trim.push(trimMap(CM.slab(CM.rect(x, ys - 0.025 * sc, 0.034 * sc, 0.075 * sc), f.F, 0.016, 0.004)));
+            lidTrim.push(trimMap(CM.slab(CM.rect(x, ys + 0.022 * sc, 0.05 * sc, 0.03 * sc), f.F, 0.009, 0.003)));
+        }
+        if (r.handles) for (const f of [faces.right, faces.left]) {
+            const yh = ys * 0.58;
+            const pocket = CM.slab(CM.rect(0, yh, 0.2 * sc, 0.07 * sc), CM.frame(add(f.F.o, scale(f.F.n, pd)), f.F.u, f.F.v), 0.002, 0.001);
+            CM.mapUv(pocket, () => uvAt(k, darkRect, 0.5, 0.5));
+            CM.occlude(pocket, () => 0.5);
+            trim.push(pocket);
+            trim.push(trimMap(CM.slab(CM.rect(0, yh + 0.012 * sc, 0.16 * sc, 0.02 * sc), CM.frame(add(f.F.o, scale(f.F.n, pd)), f.F.u, f.F.v), 0.026 * sc, 0.006)));
+        }
+        if (r.open) {
+            const inner = flipInside(CM.chamferBox([0, ys / 2 + 0.02, 0], [W - wt * 2, ys - 0.02, D - wt * 2], 0, ['+y']));
+            CM.mapUv(inner, (u, v) => uvAt(k, foamRect, (Math.abs(u) * 2) % 1, (Math.abs(v) * 2) % 1));
+            CM.occlude(inner, (x, y) => 0.4 + 0.5 * y / ys);
+            lower.push(inner);
+            const g = new CM.Geo(), ow = W / 2 - b, od = D / 2 - b, iw = W / 2 - wt, id = D / 2 - wt;
+            for (const q of [[[-ow, -od], [ow, -od], [iw, -id], [-iw, -id]], [[ow, -od], [ow, od], [iw, id], [iw, -id]], [[ow, od], [-ow, od], [-iw, id], [iw, id]], [[-ow, od], [-ow, -od], [-iw, -id], [-iw, id]]]) g.poly(q.map(p => [p[0], ys, p[1]]), q.map(() => uvAt(k, trimRect, 0.5, 0.5)), [0, 1, 0]);
+            lower.push(g.done());
+            const t = CM.pitch(-100 * Math.PI / 180, [0, ys, -D / 2]);
+            for (const mm of [...lid, ...lidTrim]) CM.transform(mm, t.point, t.normal);
+        }
+        k.body.push(...lower, ...lid);
+        k.trim.push(...trim, ...lidTrim);
+        // The front panel's face, for the lights, strips and display; the ends' for their strips.
+        const at = f => CM.frame(add(f.F.o, scale(f.F.n, pd)), f.F.u, f.F.v);
+        return {
+            height: H,
+            panel: ctl ? { F: at(faces.front), u0: -W / 2 + m + 0.03, u1: W / 2 - m - 0.03, v0: ys * 0.46, v1: ys - m - 0.025 } : null,
+            strips: [faces.left, faces.front, faces.right].map(f => ({ F: at(f), u0: f.u0 + m + 0.02, u1: f.u1 - m - 0.02, v: H * 0.2 }))
+        };
+    }
+
+    // ── lights, strips and the display ─────────────────────────────────────
+    const fracT = v => v - Math.floor(v);
+    /** Pulse: full at the start of each period, dimmest half way; the level (0 full .. 3 dim) at time t. */
+    const pulseLevel = (t, period) => Math.round((0.5 - 0.5 * Math.cos(2 * Math.PI * t / period)) * 3);
+    /** Chase: which of `n` is lit at time t, each lit for about `each` seconds, a whole number of rounds in the loop. */
+    const chaseAt = (t, n, each) => { const rounds = Math.max(1, Math.round(LOOP / (n * each))), step = LOOP / (n * rounds); return Math.floor(t / step + 1e-9) % n; };
+
+    /** Uvs of a mesh all at one spot of the glow sheet. */
+    const swatchUv = (m, uv) => CM.mapUv(m, () => uv);
+    /** A plate's uvs (0..1 across) into a rectangle of the glow sheet. */
+    const rectUv = (m, rc) => CM.mapUv(m, (u, v) => [rc.u0 + u * (rc.u1 - rc.u0), rc.v0 + v * (rc.v1 - rc.v0)]);
+
+    /**
+     * The lit copies of a part for a pattern: `make(level)` gives a mesh of
+     * the lit part at a strength (0 full .. 3 dim) and `hide` how its bone
+     * hides it; `key` names the timing so parts sharing it share bones;
+     * `chase` { index, count, each } places it in a chase.
+     */
+    function lit(k, pattern, key, head, hide, make, chase) {
+        const add = (mesh, b) => { if (b) CM.skin(mesh, b); k.glow.push(mesh); return mesh; };
+        if (pattern === 'steady') return [add(make(0), 0)];
+        if (pattern === 'blink') return [add(make(0), bone(k, key + ':blink', head, hide, t => fracT(t) < 0.5))];
+        if (pattern === 'pulse') return [0, 1, 2, 3].map(l => add(make(l), bone(k, key + ':pulse' + l, head, hide, t => pulseLevel(t, 2) === l)));
+        // Chase: lit at full in its turn, at half the turn after.
+        const c = chase || { index: 0, count: 1, each: 0.2 };
+        return [
+            add(make(0), bone(k, key + ':chase' + c.index, head, hide, t => chaseAt(t, c.count, c.each) === c.index)),
+            add(make(2), bone(k, key + ':trail' + c.index, head, hide, t => chaseAt(t, c.count, c.each) === (c.index + 1) % c.count))
+        ];
+    }
+
+    /** A lamp's lens: a low six-sided dome, a ring and a cap. */
+    const lamp = (F, u, v, r, h) => CM.revolveOn(F, u, v, [[r, 0], [r * 0.8, h * 0.72], [0, h]], 6, 0.2);
+
+    /** A panel's lights (a row) and display (above them), laid out to fit it. */
+    function panelControls(k, sheet, panel, housingUv) {
+        const r = k.r, F = panel.F, w = panel.u1 - panel.u0, h = panel.v1 - panel.v0, cu = (panel.u0 + panel.u1) / 2;
+        const n = r.lights.count, hasDisp = r.display.mode !== 'none';
+        const rl = n ? Math.max(0.006, Math.min(0.016, w / (n * 3.4), h * 0.12)) : 0;
+        const rowH = n ? rl * 4.2 : 0;
+        let dispBottom = panel.v1;
+        if (hasDisp) {
+            const border = Math.max(0.008, Math.min(0.016, w * 0.04));
+            let dw = Math.min(w * 0.94, ((h - rowH) - 2 * border) * 4 + 2 * border);
+            dw = Math.max(0.06, dw);
+            const dh = (dw - 2 * border) / 4 + 2 * border, dv = panel.v1 - dh / 2;
+            dispBottom = dv - dh / 2;
+            const Fd = CM.frame(add(F.o, add(scale(F.u, cu), scale(F.v, dv))), F.u, F.v);
+            const depth = 0.012, recess = 0.005, b = CM.bezel(Fd, dw, dh, depth, border, recess);
+            housingUv(b.housing); k.trim.push(b.housing);
+            swatchUv(b.floor, sheet.swatch(r.display.color, 3)); k.glow.push(b.floor);
+            if (r.display.mode === 'picture') {
+                if (sheet.pictureRect) k.glow.push(rectUv(CM.plate(Fd, 0, 0, b.width, b.height, depth - recess + 0.0035), sheet.pictureRect));
+            } else {
+                const frames = sheet.frames, count = frames.length, period = sheet.period;
+                const G1 = Math.ceil(Math.sqrt(count)), G2 = Math.ceil(count / G1);
+                // Hidden frames step back: half way for one bone off, all the way for both.
+                const move = scale(Fd.n, -0.012), at = t => Math.floor(t / period + 1e-9) % count;
+                const rows = Array.from({ length: G1 }, (_, i) => bone(k, 'display-a' + i, Fd.o, { move }, t => at(t) % G1 === i));
+                const cols = Array.from({ length: G2 }, (_, j) => bone(k, 'display-b' + j, Fd.o, { move }, t => Math.floor(at(t) / G1) === j));
+                frames.forEach((rc, f) => {
+                    const q = rectUv(CM.plate(Fd, 0, 0, b.width, b.height, depth - recess + 0.0035 - f * 0.00004), rc);
+                    CM.skin(q, count > 1 ? [rows[f % G1], cols[Math.floor(f / G1)]] : [0], count > 1 ? [0.5, 0.5] : [1]);
+                    k.glow.push(q);
+                });
+            }
+        }
+        if (n) {
+            const v = hasDisp ? Math.max(panel.v0 + rl * 1.6, dispBottom - rowH / 2) : (panel.v0 + panel.v1) / 2;
+            const lens = CP.rgb(r.lights.color).map(c => Math.round((c * 0.22 + 0.03) * 255));
+            const lensHex = '#' + lens.map(c => c.toString(16).padStart(2, '0')).join('');
+            k.lensColor = lensHex;
+            const spacing = rl * 3;
+            const hideMove = scale(F.n, -(rl * 0.62 + 0.005));
+            for (let i = 0; i < n; i++) {
+                const u = cu + (i - (n - 1) / 2) * spacing;
+                const ring = CM.revolveOn(F, u, v, [[rl * 1.5, 0], [rl * 1.08, 0.003]], 8, 0.5);
+                housingUv(ring); k.trim.push(ring);
+                k.glass.push(lamp(F, u, v, rl, rl * 0.5));
+                const head = add(F.o, add(scale(F.u, u), scale(F.v, v)));
+                const halo = sheet.halo(r.lights.color);
+                const made = lit(k, r.lights.pattern, 'light' + (r.lights.pattern === 'chase' ? i : ''), head, { move: hideMove }, l => swatchUv(lamp(F, u, v, rl * 1.06, rl * 0.56), sheet.swatch(r.lights.color, l)), { index: i, count: n, each: 0.22 });
+                // Each lit copy brings its halo on the same bone, smaller as it dims.
+                for (const m of made) {
+                    const lv = r.lights.pattern === 'pulse' ? made.indexOf(m) : r.lights.pattern === 'chase' && made.indexOf(m) === 1 ? 2 : 0;
+                    const size = rl * [3.8, 3.3, 2.8, 2.3][lv];
+                    const q = rectUv(CM.plate(F, u, v, size, size, 0.0012 + 0.0001 * lv), halo);
+                    CM.skin(q, m.joints ? m.joints[0] : 0);
+                    k.halo.push(q);
+                }
+            }
+        }
+    }
+
+    /** Glowing strips along runs on flat faces: a dark channel, a faint diffuser, its lit copies. */
+    function stripRuns(k, sheet, runs, housingUv, height) {
+        const r = k.r, sh = height || 0.014, segLen = 0.07;
+        let total = 0;
+        const per = runs.map(run => { const n = Math.max(2, Math.round((run.u1 - run.u0) / segLen)); total += n; return n; });
+        let g = 0;
+        runs.forEach((run, ri) => {
+            const F = run.F, len = run.u1 - run.u0, cu = (run.u0 + run.u1) / 2;
+            const channel = CM.slab(CM.rect(cu, run.v, len + 0.008, sh + 0.008), F, 0.004, 0.0015);
+            housingUv(channel); k.trim.push(channel);
+            k.glow.push(swatchUv(CM.plate(F, cu, run.v, len, sh, 0.0042), sheet.swatch(r.strips.color, 3)));
+            const Fo = F, hide = { move: scale(F.n, -0.009) };
+            const head = add(Fo.o, add(scale(Fo.u, cu), scale(Fo.v, run.v)));
+            if (r.strips.pattern === 'chase') {
+                const n = per[ri], sl = len / n;
+                for (let i = 0; i < n; i++, g++) {
+                    const u = run.u0 + sl * (i + 0.5), gi = g;
+                    lit(k, 'chase', 'strip' + ri + ':' + i, head, hide, l => swatchUv(CM.plate(F, u, run.v, sl - 0.003, sh, 0.0047), sheet.swatch(r.strips.color, l)), { index: gi, count: total, each: 0.09 });
+                }
+            } else lit(k, r.strips.pattern, 'strip' + ri, head, hide, l => swatchUv(CM.plate(F, cu, run.v, len, sh, 0.0047), sheet.swatch(r.strips.color, l)));
+        });
+    }
+
+    /** Glowing bands around a canister (lit copies shrink into the sleeve while off); chased, in arcs. */
+    function bandRings(k, sheet, bands, H) {
+        const r = k.r, hide = { shrink: [0.9, 1, 0.9] }, head = [0, H / 2, 0], arcs = 12;
+        for (const b of bands) k.glow.push(swatchUv(CM.revolve([[b.r - 0.0006, b.y0], [b.r - 0.0006, b.y1]], 24, { crease: 0.9 }), sheet.swatch(r.strips.color, 3)));
+        if (r.strips.pattern === 'chase') {
+            for (let a = 0; a < arcs; a++) lit(k, 'chase', 'band' + a, head, hide, l => CM.merge(bands.map(b => swatchUv(CM.revolve([[b.r, b.y0], [b.r, b.y1]], 3, { phase: Math.PI + a / arcs * Math.PI * 2, turn: 1 / arcs, crease: 0.9 }), sheet.swatch(r.strips.color, l)))), { index: a, count: arcs, each: 0.08 });
+        } else lit(k, r.strips.pattern, 'band', head, hide, l => CM.merge(bands.map(b => swatchUv(CM.revolve([[b.r, b.y0], [b.r, b.y1]], 24, { crease: 0.9 }), sheet.swatch(r.strips.color, l)))));
+    }
+
+    /** A coolant cell's glowing column, breathing: four strengths, each shrinking into the axis while another shows. */
+    function coreColumn(k, sheet, core, H) {
+        const r = k.r;
+        for (let l = 0; l < 4; l++) {
+            // Its ends are inside the cage's rings: only its side is drawn.
+            const m = swatchUv(CM.revolve([[core.r, core.y0 - 0.004], [core.r, core.y1 + 0.004]], 20, { crease: 0.6 }), sheet.swatch(r.strips.color, l));
+            CM.skin(m, bone(k, 'core' + l, [0, H / 2, 0], { shrink: [0, 1, 0] }, t => pulseLevel(t, 3.2) === l));
+            k.glow.push(m);
+        }
+    }
+
+    /**
+     * The clip: for every glow bone, its translation (or scale) at rest while
+     * on and hidden while off, changing in a step (two keys a millisecond
+     * apart), the loop's end equal to its start.
+     */
+    function clipOf(k) {
+        const tracks = [], rate = 240, N = LOOP * rate, eps = 0.0002;
+        for (const a of k.anim) {
+            const b = k.bones[a.bone];
+            const shown = a.hide.move ? b.head : [1, 1, 1], hidden = a.hide.move ? add(b.head, a.hide.move) : a.hide.shrink;
+            const times = [], values = [];
+            let state = !!a.on(0);
+            times.push(0); values.push(...(state ? shown : hidden));
+            for (let i = 1; i < N; i++) {
+                const t = i / rate, s = !!a.on(t);
+                if (s !== state) { times.push(t - eps); values.push(...(state ? shown : hidden)); times.push(t); values.push(...(s ? shown : hidden)); state = s; }
+            }
+            const first = !!a.on(0);
+            if (first !== state) { times.push(LOOP - eps); values.push(...(state ? shown : hidden)); }
+            times.push(LOOP); values.push(...(first ? shown : hidden));
+            tracks.push({ bone: a.bone, path: a.hide.move ? 'translation' : 'scale', times: Float32Array.from(times), values: Float32Array.from(values) });
+        }
+        return tracks.length ? [{ name: 'Lights', times: Float32Array.from([0, LOOP]), tracks }] : [];
+    }
+
+    /** Where a bone is at time t in a clip (its translation and scale), for the view and the tests. */
+    function sampleTrack(track, t) {
+        const T = track.times, V = track.values, n = 3;
+        if (t <= T[0]) return Array.from(V.subarray(0, n));
+        for (let i = 1; i < T.length; i++) if (t <= T[i]) { const f = (t - T[i - 1]) / (T[i] - T[i - 1] || 1); return [0, 1, 2].map(c => V[(i - 1) * n + c] + (V[i * n + c] - V[(i - 1) * n + c]) * f); }
+        return Array.from(V.subarray(V.length - n));
+    }
+
+    // ── the build ──────────────────────────────────────────────────────────
+    const BUILD = { barrel, drum, canister, crate, chest, cargo };
+
+    /** Light from above and in front kept in the colors (RRPropMesh.shade), times each point's occlusion and the ground's. */
+    function shadePart(part, ao) {
+        PropMesh.shade(part);
+        const C = part.colors, P = part.positions;
+        for (let v = 0; v < C.length / 3; v++) {
+            const y = P[v * 3 + 1], ground = 0.78 + 0.22 * Math.min(1, y / 0.07);
+            const k = (ao ? ao[v] : 1) * ground;
+            C[v * 3] *= k; C[v * 3 + 1] *= k; C[v * 3 + 2] *= k;
+        }
+        return part;
+    }
+
+    /**
+     * Everything the view and the file need: { parts, bones, clips,
+     * textures }. `options.textureSize` the body picture's side (1024),
+     * `options.images` project pictures by name.
+     */
+    function build(recipe, cache, options) {
+        const r = normalize(recipe), o = options || {}, c = cache || {};
+        const S = o.textureSize || 1024;
+        const k = kit(r, S);
+        const future = FUTURE.has(r.form);
+        const dispImg = r.display.mode === 'picture' && r.display.image ? (o.images || {})[r.display.image] || null : null;
+        if (r.display.mode === 'picture' && r.display.image && !dispImg) k.missing = r.display.image;
+        let sheet = null;
+        if (future) {
+            const key = JSON.stringify([r.lights.color, r.strips.color, r.display, dispImg ? [dispImg.width, dispImg.height, dispImg.version || 0] : 0, r.seed]);
+            if (c.sheetKey !== key) { c.sheet = CP.glowSheet([r.lights.color, r.strips.color], r.display, LOOP, r.seed, dispImg); c.sheetKey = key; }
+            sheet = c.sheet;
+        }
+        const info = BUILD[r.form](k, o) || {};
+        // The panel's housing and channels: the trim's color, from a small picture of their own.
+        const housingFn = future ? CP.paintedMetal(r.trim, r.seed + 31, r.wear * 0.5, '#6d7278') : null;
+        const housingRect = future ? paintRegion(k, 64, 32, (s, t, out) => housingFn(s * 0.3, t * 0.15, out, 0, 0)) : null;
+        const housingUv = m => CM.mapUv(m, (u, v) => uvAt(k, housingRect, 0.1 + (Math.abs(u) * 4) % 0.8, 0.1 + (Math.abs(v) * 4) % 0.8));
+        if (future) {
+            if (info.panel) {
+                const p = info.panel;
+                panelControls(k, sheet, p.u0 != null ? p : { F: p.F, u0: -p.w / 2, u1: p.w / 2, v0: -p.h / 2, v1: p.h / 2 }, housingUv);
+            }
+            if (r.strips.on && info.strips) stripRuns(k, sheet, info.strips, housingUv, Math.max(0.01, 0.014 * Math.min(1.4, r.width / 1.1)));
+            if (r.strips.on && info.bands) bandRings(k, sheet, info.bands, r.height);
+            if (info.core) coreColumn(k, sheet, info.core, r.height);
+            if (r.form === 'canister' && r.lying) layDown(k, r.height);
+            if (r.form === 'cargo' && r.stack !== 'one') {
+                // Stacked: copies of the whole crate, its lights on the same bones.
+                const H = info.height, W = r.width;
+                const places = r.stack === 'two' ? [[0.015, H, -0.012, 0.06]] : [[W + 0.03, 0, 0.02, 0.035], [W / 2 + 0.02, H, 0.01, 0.09]];
+                const shift = r.stack === 'three' ? -W / 2 - 0.015 : 0;
+                for (const list of [k.body, k.trim, k.glass, k.glow, k.halo]) {
+                    const base = list.slice();
+                    for (const m of base) CM.transform(m, p => [p[0] + shift, p[1], p[2]]);
+                    for (const [x, y, z, a] of places) { const t = CM.yaw(a, [x + shift, y, z]); for (const m of base) list.push(CM.transform(CM.copy(m), t.point, t.normal)); }
+                }
+                for (const b of k.bones.slice(1)) b.head = [b.head[0] + shift, b.head[1], b.head[2]];
+            }
+        }
+        // On the floor exactly, the footprint centered.
+        const lists = [k.body, k.trim, k.glass, k.glow, k.halo];
+        let minY = Infinity, minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (const list of lists) for (const m of list) { const P = m.positions; for (let i = 0; i < P.length; i += 3) { minY = Math.min(minY, P[i + 1]); minX = Math.min(minX, P[i]); maxX = Math.max(maxX, P[i]); minZ = Math.min(minZ, P[i + 2]); maxZ = Math.max(maxZ, P[i + 2]); } }
+        const d = [-(minX + maxX) / 2, -minY, -(minZ + maxZ) / 2];
+        for (const list of lists) for (const m of list) CM.transform(m, p => [p[0] + d[0], p[1] + d[1], p[2] + d[2]]);
+        for (const b of k.bones.slice(1)) b.head = add(b.head, d);
+        // The body picture, painted again only when what it shows has changed.
+        const bodyKey = JSON.stringify([Object.assign({}, r, { lights: r.lights.count > 0, strips: null, display: r.display.mode !== 'none', preset: null }), S, k.atlas.width, (o.images || {})[r.marks.image] ? [(o.images[r.marks.image]).width, o.images[r.marks.image].version || 0] : 0]);
+        if (c.bodyKey !== bodyKey) {
+            for (const job of k.jobs) CP.fill(k.atlas, job.rect, job.fn);
+            c.body = { width: k.atlas.width, height: k.atlas.height, data: k.atlas.data, name: 'body.png' };
+            c.bodyKey = bodyKey;
+        }
+        const wooden = r.form === 'barrel' || r.form === 'crate' || r.form === 'chest';
+        const parts = [];
+        const part = (list, props) => {
+            if (!list.length) return null;
+            const m = CM.merge(list);
+            const ao = m.ao;
+            delete m.ao;
+            const p = Object.assign(m, props);
+            parts.push(p);
+            return { p, ao };
+        };
+        const body = part(k.body, { name: 'Body', texture: 'body.png', roughness: wooden ? 0.82 : 0.42, metalness: wooden ? 0 : 0.15 });
+        const trim = part(k.trim, { name: 'Trim', texture: 'body.png', roughness: wooden ? 0.55 : 0.4, metalness: wooden ? 0.55 : 0.6 });
+        const glass = part(k.glass, { name: 'Lenses', color: k.lensColor || '#203024', roughness: 0.12, metalness: 0 });
+        for (const x of [body, trim, glass]) if (x) shadePart(x.p, x.ao);
+        part(k.glow, { name: 'Glow', texture: 'glow.png', emissive: '#ffffff', emissiveTexture: 'glow.png', roughness: 0.3, metalness: 0 });
+        part(k.halo, { name: 'HaloGlow', texture: 'glow.png', emissive: '#ffffff', emissiveTexture: 'glow.png', blend: true, doubleSided: false, roughness: 1, metalness: 0 });
+        let height = 0;
+        for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) height = Math.max(height, p.positions[i]);
+        const clips = clipOf(k);
+        return {
+            kind: 'container', recipe: r, parts, bones: k.bones, clips, loop: null, textures: { 'body.png': c.body, 'glow.png': sheet ? sheet.picture : null }, cloth: null,
+            height: Math.max(0.1, height), imageName: k.missing, imageMissing: !!k.missing,
+            // Which timing each glow bone keeps (by bone index), for the tests.
+            boneKeys: Object.fromEntries([...k.boneKeys].map(([key, i]) => [i, key]))
+        };
+    }
+
+    /** A random container of the same form: its colors, wear, markings and, for a futuristic one, its lights. */
+    function random(seed, recipe) {
+        const rand = Paint.random(seed), r = normalize(recipe), any = list => list[Math.floor(rand() * list.length)];
+        const woods = ['#8a5a32', '#93673f', '#a87c4c', '#6e4226', '#7a4428', '#b08856', '#5a3a22'];
+        const paints = { drum: ['#1f4e8c', '#a3221b', '#2f6b34', '#d9a531', '#2b2b2e', '#7d8288', '#c8501e'], canister: ['#d2d6da', '#2f3740', '#d9a531', '#9aa8b4', '#e8e2d4'], cargo: ['#d3d7db', '#2c333b', '#d9a531', '#4f5a33', '#c8501e', '#3a4a5a'], crate: ['#4f5a33', '#7a2a1a', '#2b3a55'] };
+        const glows = ['#4dff7a', '#3ad0ff', '#ffb02e', '#ff4a3a', '#c07aff', '#f4f8ff'];
+        const words = { barrel: ['', 'ALE', 'RUM', 'VINO 1742', 'WATER', 'XXX'], drum: ['MOTOR OIL', 'DIESEL', 'FLAMMABLE', 'KEROSENE', 'TOXIC', 'EXPLOSIVE'], canister: ['H2 FUEL', 'COOLANT', 'PLASMA', 'O2', 'CELL 7'], crate: ['SUPPLIES', 'FRAGILE', 'TOOLS', 'RATIONS', 'MEDICAL', 'CARGO'], chest: [''], cargo: ['CRG-0417', 'MED-12', 'AMMO', 'FRAGILE', 'HAZMAT', 'SUP-88'] };
+        if (r.form === 'barrel' || r.form === 'chest' || (r.form === 'crate' && rand() < 0.65)) { r.color = any(woods); if (r.form === 'crate') r.finish = 'natural'; }
+        else { r.color = any(paints[r.form] || paints.cargo); if (r.form === 'crate') r.finish = 'painted'; }
+        r.wear = Math.round(rand() * 85) / 100;
+        r.marks.text = any(words[r.form]);
+        r.marks.hazard = (r.form === 'drum' || r.form === 'canister' || r.form === 'cargo') && rand() < 0.4;
+        r.marks.symbol = r.form === 'chest' || r.form === 'barrel' ? 'none' : any(['none', 'none', 'flammable', 'explosive', 'radiation', 'warning', 'arrows']);
+        if (FUTURE.has(r.form)) {
+            r.lights = { count: Math.floor(rand() * 6), color: any(glows), pattern: any(PATTERNS)[0] };
+            r.strips = { on: rand() < 0.7, color: any(glows), pattern: any(PATTERNS)[0] };
+        }
+        r.seed = seed >>> 0 || 1;
+        r.preset = recipe.preset || null;
+        return normalize(r);
+    }
+
+    const api = { FORMS, FUTURE, PRESETS, PRESET_BY_ID, DEFAULT, LOOP, SIZES, PROPORTIONS, PATTERNS, normalize, fromPreset, build, random, clipOf, sampleTrack, pulseLevel, chaseAt };
+    root.RRContainerProp = api;
+    if (typeof module !== 'undefined' && module.exports) module.exports = api;
+
+    // ── the 3D Prop Builder's list and page ────────────────────────────────
+    const Model = root.RRPropModel || (typeof require === 'function' ? require('./PropModel.js') : null);
+    const Catalog = root.RRPropCatalog || (typeof require === 'function' ? require('./PropCatalog.js') : null);
+    if (Model && Model.register) Model.register({ id: 'container', label: 'Containers', normalize, build, random });
+    if (Catalog) {
+        Object.assign(Catalog.ICONS, {
+            barrel: '<path d="M7.5 3h9c1.8 3.5 1.8 14.5 0 18h-9c-1.8-3.5-1.8-14.5 0-18z"/><path d="M6.3 8h11.4M6.3 16h11.4"/>',
+            drum: '<rect x="6" y="3" width="12" height="18" rx="1.5"/><path d="M6 9h12M6 15h12"/><path d="M9 3V2"/>',
+            crate: '<rect x="4" y="4" width="16" height="16"/><path d="M4 8h16M4 16h16"/><path d="M8 8l8 8M16 8l-8 8"/>',
+            crates: '<rect x="3" y="12" width="9" height="9"/><rect x="12" y="12" width="9" height="9"/><rect x="7.5" y="3" width="9" height="9"/>',
+            chest: '<path d="M3 11h18v9H3z"/><path d="M3 11c0-4 4-6 9-6s9 2 9 6"/><path d="M11 10h2v4h-2z"/>',
+            cargo: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M7 14.5h5"/><path d="M16 14.5h1"/>',
+            canister: '<rect x="7" y="4" width="10" height="17" rx="3"/><path d="M7 9h10M7 16h10"/><path d="M12 1.5V4"/>'
+        });
+        Catalog.category({ id: 'containers', label: 'Containers', order: 30 });
+        for (const p of PRESETS) Catalog.add({ id: 'container-' + p.id, category: 'containers', label: p.label, icon: p.icon, kind: 'container', keywords: p.keywords + ' barrel crate box container', start: () => fromPreset(p.id), matches: r => r.preset === p.id });
+        const SYMBOL_ICONS = CP.SYMBOLS;
+        const TAB_OLD = [['shape', 'Shape'], ['look', 'Look'], ['markings', 'Markings']];
+        const TAB_NEW = TAB_OLD.concat([['lights', 'Lights']]);
+        const pictureRow = function(label, name, act) {
+            return `<div class="rr-c3d-row rr-prop-picturerow"><span class="rr-c3d-label">${this._t(label)}</span><span class="rr-prop-picturename">${rrEscapeHtml(name || this._t('None'))}</span>`
+                + `<button class="rr-btn-chip" data-act="${act}">${this._t('Choose…')}</button>${name ? `<button class="rr-btn-chip" data-act="${act}-none">${this._t('Remove')}</button>` : ''}</div>`;
+        };
+        const textRow = function(path, label, max) {
+            return `<label class="rr-c3d-row"><span class="rr-c3d-label">${this._t(label)}</span><input type="text" class="rr-input rr-prop-text" data-path="${path}" maxlength="${max}" value="${rrEscapeHtml(this._get(path) || '')}" spellcheck="false"></label>`;
+        };
+        Catalog.ui('container', {
+            get placeholder() { const p = current && PRESET_BY_ID.get(current.preset); return p ? p.label : 'Container'; },
+            get tabs() { return current && FUTURE.has(current.form) ? TAB_NEW : TAB_OLD; },
+            reset: recipe => fromPreset((recipe && recipe.preset) || PRESETS.find(p => p.recipe.form === (recipe && recipe.form))?.id || 'barrel'),
+            moves: () => false,
+            panel(tab) {
+                const r = this.recipe, f = r.form, sz = SIZES[f];
+                const size = (path, label, range) => this._slider({ path, label, range: [range[0], range[1]], step: 0.01, format: 'tiles' });
+                if (tab === 'shape') {
+                    let html = this._section('Shape');
+                    if (f === 'barrel') {
+                        html += size('height', 'Height', sz.height) + size('width', 'Girth', sz.width)
+                            + this._slider({ path: 'bulge', label: 'Bulge', range: [0, 1], ends: ['Straight', 'Round'] })
+                            + this._slider({ path: 'hoops', label: 'Hoops', range: [2, 8], step: 1, format: 'int' })
+                            + this._select('top', 'Top', TOPS) + this._check('lying', 'On its side') + (r.lying ? this._check('cradle', 'Cradle') : '');
+                    } else if (f === 'drum') {
+                        html += size('height', 'Height', sz.height) + size('width', 'Width', sz.width)
+                            + this._slider({ path: 'ribs', label: 'Rolling ribs', range: [0, 3], step: 1, format: 'int' })
+                            + this._select('top', 'Top', [['lid', 'Closed'], ['open', 'Open']]) + this._check('lying', 'On its side');
+                    } else if (f === 'canister') {
+                        html += size('height', 'Height', sz.height) + size('width', 'Width', sz.width)
+                            + this._select('caps', 'End caps', CAPS) + this._check('valves', 'Valve and gauge') + this._check('core', 'Glowing core') + this._check('lying', 'On its side');
+                    } else if (f === 'crate' || f === 'cargo') {
+                        html += this._tiles('proportions', PROPORTIONS.map(([id, label]) => ({ id, label })), r.proportions) + size('width', 'Size', sz.width);
+                        if (f === 'crate') html += this._select('brace', 'Braces', BRACES) + this._check('slats', 'Gaps between boards') + this._check('handles', 'Rope handles');
+                        else html += this._check('bumpers', 'Corner bumpers') + this._check('latches', 'Latches') + this._check('handles', 'Handles');
+                        html += this._select('stack', 'Stack', STACKS) + (r.stack === 'one' ? this._check('open', 'Lid open') : '');
+                    } else if (f === 'chest') {
+                        html += size('width', 'Size', sz.width) + this._select('lid', 'Lid', LIDS) + this._check('corners', 'Metal corners') + this._check('lock', 'Lock')
+                            + this._check('open', 'Lid open') + (r.open ? this._check('gold', 'Full of gold') : '');
+                    }
+                    return html;
+                }
+                if (tab === 'look') {
+                    const woody = f === 'barrel' || f === 'chest' || (f === 'crate' && r.finish === 'natural');
+                    let html = this._section('Look');
+                    if (f === 'crate') html += this._select('finish', 'Finish', FINISHES);
+                    html += this._color('color', woody ? 'Wood' : 'Paint', woody ? ['#93673f', '#a87c4c', '#7a4428', '#6e4226', '#b08856', '#5a3a22'] : ['#d3d7db', '#1f4e8c', '#a3221b', '#4f5a33', '#d9a531', '#2c333b']);
+                    const trimLabel = { barrel: 'Hoops', drum: 'Caps', canister: 'End caps', chest: 'Metalwork', cargo: 'Trim' }[f];
+                    if (trimLabel) html += this._color('trim', trimLabel, f === 'chest' ? ['#b8892f', '#2b2a28', '#8a8d91'] : ['#2b2a28', '#33373d', '#7d8288', '#15181c']);
+                    if (f === 'canister' && r.valves) html += this._color('accent', 'Valve wheel', ['#c8501e', '#a3221b', '#d9a531', '#1f4e8c']);
+                    html += this._slider({ path: 'wear', label: 'Wear', range: [0, 1], ends: ['Clean', 'Battered'] });
+                    return html;
+                }
+                if (tab === 'markings') {
+                    const m = r.marks;
+                    let html = this._section('Words') + textRow.call(this, 'marks.text', 'Text', 24) + this._select('marks.style', 'Style', MARK_STYLES)
+                        + (m.style !== 'burned' ? this._color('marks.color', 'Ink', ['#f2efe6', '#1d1b19', '#e8d27a', '#a3221b', '#2a2e33']) : '');
+                    html += this._section('Symbol') + this._tiles('mark-symbol', SYMBOL_ICONS.map(([id, label]) => ({ id, label })), m.symbol, 2);
+                    if (f === 'drum' || f === 'canister' || f === 'cargo') html += this._check('marks.hazard', 'Hazard stripes');
+                    html += this._section('Picture') + pictureRow.call(this, 'Picture', m.image, 'mark-image');
+                    return html;
+                }
+                const L = r.lights, S2 = r.strips, Dp = r.display;
+                let html = this._section('Status lights') + this._slider({ path: 'lights.count', label: 'Count', range: [0, f === 'canister' ? 6 : MAX_LIGHTS], step: 1, format: 'int' });
+                if (L.count) html += this._color('lights.color', 'Color', ['#4dff7a', '#ffb02e', '#ff4a3a', '#3ad0ff', '#f4f8ff']) + this._select('lights.pattern', 'Pattern', PATTERNS);
+                html += this._section(f === 'canister' ? 'Glowing bands' : 'Glowing strips') + this._check('strips.on', f === 'canister' ? 'Glowing bands' : 'Glowing strips');
+                if (S2.on || r.core) html += this._color('strips.color', 'Color', ['#3ad0ff', '#2f8cff', '#ff8a1f', '#4dff7a', '#c07aff', '#f4f8ff']);
+                if (S2.on) html += this._select('strips.pattern', 'Pattern', PATTERNS);
+                html += this._section('Display') + this._select('display.mode', 'Shows', CP.DISPLAY_MODES);
+                if (Dp.mode !== 'none') {
+                    if (Dp.mode === 'text' || Dp.mode === 'numbers') html += textRow.call(this, 'display.text', Dp.mode === 'numbers' ? 'Label' : 'Text', Dp.mode === 'numbers' ? 4 : 32);
+                    if (Dp.mode === 'picture') html += pictureRow.call(this, 'Picture', Dp.image, 'display-image');
+                    html += this._select('display.style', 'Look', CP.DISPLAY_STYLES);
+                    if (Dp.mode !== 'picture') html += this._color('display.color', 'Color', ['#ffb340', '#3ae0ff', '#4dff7a', '#ff4a3a', '#f4f8ff']);
+                }
+                return html;
+            },
+            act(act, b) {
+                const r = JSON.parse(JSON.stringify(this.recipe));
+                const setImage = (path, name) => { const n = JSON.parse(JSON.stringify(this.recipe)); path.split('.').reduce((o, key, i, all) => (i === all.length - 1 ? (o[key] = name) : o[key]), n); this._replace(n); };
+                if (act === 'proportions') { r.proportions = b.dataset.id; this._replace(r); return; }
+                if (act === 'mark-symbol') { r.marks.symbol = b.dataset.id; this._replace(r); return; }
+                if (act === 'mark-image') { this._choosePicture(r.marks.image, name => setImage('marks.image', name)); return; }
+                if (act === 'mark-image-none') { r.marks.image = ''; this._replace(r); return; }
+                if (act === 'display-image') { this._choosePicture(r.display.image, name => setImage('display.image', name)); return; }
+                if (act === 'display-image-none') { r.display.image = ''; this._replace(r); }
+            }
+        });
+    }
+})(typeof window !== 'undefined' ? window : globalThis);

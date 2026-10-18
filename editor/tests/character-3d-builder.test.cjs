@@ -159,6 +159,25 @@ test('very short legs shorten whole; an aged skin carries the face\'s lines, a y
     assert.ok(darker > 150, 'lines painted: ' + darker);
 });
 
+test('extreme muscle bulks round: no fins, spikes or humps, and the muscles really grow', () => {
+    const B0 = pack.positions, nips = Body.anatomyFields(pack).nipples.map(n => n.v);
+    const body = [...new Set(pack.body.source)].filter(v => nips.every(n => Math.hypot(B0[v * 3] - B0[n * 3], B0[v * 3 + 1] - B0[n * 3 + 1], B0[v * 3 + 2] - B0[n * 3 + 2]) > 0.025));
+    const arm = Body.maskOf(pack, ['shape/upperArmMuscle-incr']);
+    for (const gender of [0, 1]) for (const weight of [0, 0.5, 1, 1.5]) {
+        const r = { gender, weight, muscle: 2.5 }, P = Body.shape(pack, r), Q = Body.shape(pack, Object.assign({}, r, { muscle: 1 }));
+        // What the extra muscle moves, against that move smoothed over the mesh: a fin, a ridge or a hump is
+        // a place moved far more (or less) than the skin round it.
+        const d = new Float32Array(P.length);
+        for (let i = 0; i < P.length; i++) d[i] = P[i] - Q[i];
+        const sm = Body.relax(pack, Float32Array.from(d), 8);
+        let rough = 0, grow = 0;
+        for (const v of body) rough = Math.max(rough, Math.hypot(d[v * 3] - sm[v * 3], d[v * 3 + 1] - sm[v * 3 + 1], d[v * 3 + 2] - sm[v * 3 + 2]));
+        for (let v = 0; v < pack.vertexCount; v++) if (arm[v] > 0.9) grow = Math.max(grow, Math.hypot(d[v * 3], d[v * 3 + 1], d[v * 3 + 2]));
+        assert.ok(rough < 0.011, `gender ${gender}, weight ${weight}: the bulk is uneven by ${(rough * 1000).toFixed(1)} mm`);
+        assert.ok(grow > 0.03, `gender ${gender}, weight ${weight}: the biceps grow ${(grow * 100).toFixed(1)} cm`);
+    }
+});
+
 test('the saved model is a skinned GLB with Mixamo bones and an Idle clip', () => {
     const built = Body.build(pack, { gender: 1 });
     built.parts[0].color = '#c69c7f';

@@ -148,7 +148,7 @@ test('neutral is the face exactly as built, in data and on a view', () => {
     const view = { meshes: result.parts.map(part => new THREE.Mesh(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(Float32Array.from(part.positions), 3)).setAttribute('normal', new THREE.BufferAttribute(Float32Array.from(part.normals || part.positions), 3)))), group: new THREE.Group() };
     view.meshes.forEach(m => view.group.add(m));
     assert.ok(X.applyToView(view, result, pack, 'crying', 1, THREE));
-    assert.ok(view.expressionOverlays.length === 2, 'tears and blush shown');
+    assert.ok(view.expressionOverlays.length === 3, 'blush, tears and their shine shown');
     assert.ok(view.meshes[0].geometry.getAttribute('position').array.some((x, i) => x !== result.parts[0].positions[i]));
     X.applyToView(view, result, pack, 'neutral', 1, THREE);
     view.meshes.forEach((m, k) => assert.deepEqual(Array.from(m.geometry.getAttribute('position').array), Array.from(result.parts[k].positions), result.parts[k].name));
@@ -182,6 +182,21 @@ test('the mouth has teeth and a tongue, and the jaw carries the lower teeth', ()
     const cat = Model.build(pack, Model.withSpecies({ gender: 0 }, 'catfolk'), {}, { quality: 'preview', skinSize: 64 });
     assert.ok(!cat.parts.some(q => q.name === 'Teeth'));
     assert.equal(X.supports(pack, cat), false);
+});
+
+test('under a full-face helmet nothing of the mouth shows: no teeth, no tongue, no inside of the mouth', () => {
+    for (const helmet of ['greathelm', 'visorhelm', 'powerhelm']) {
+        const result = Model.build(pack, { gender: 1, outfit: [{ id: helmet }] }, {}, { quality: 'preview', skinSize: 64 });
+        assert.ok(!result.parts.some(p => p.name === 'Teeth' || p.name === 'Tongue'), helmet + ': no teeth or tongue');
+        const inside = X.mouthInside(pack, result.built), lips = new Set(X.measure(pack, result).F.lips);
+        const body = result.parts[0], src = pack.body.source, I = body.index;
+        let shown = 0;
+        for (let t = 0; t < I.length; t += 3) if ([0, 1, 2].every(j => inside.has(src[I[t + j]]) || lips.has(src[I[t + j]])) && [0, 1, 2].some(j => inside.has(src[I[t + j]]))) shown++;
+        assert.equal(shown, 0, helmet + ': mouth-inside triangles left');
+    }
+    // Bare-faced, the mouth is all there.
+    const open = face('man');
+    assert.ok(open.parts.some(p => p.name === 'Teeth') && open.parts.some(p => p.name === 'Tongue'));
 });
 
 test('the saved GLB carries every expression and viseme as a named, sparse morph target the game reads', async () => {

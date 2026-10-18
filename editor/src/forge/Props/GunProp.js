@@ -13,6 +13,7 @@
     'use strict';
 
     const need = (name, file) => root[name] || (typeof require === 'function' ? require(file) : null);
+    const Rand = need('RRPropRandom', './PropRandom.js');
     const Mesh = need('RRPropMesh', './PropMesh.js');
     const Paint = need('RRPropPaint', './PropPaint.js');
 
@@ -20,9 +21,9 @@
     const color = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : d);
     const pick = (v, list, d) => (list.includes(v) ? v : d);
 
-    const MAGAZINES = [['box', 'Box'], ['drum', 'Drum'], ['cylinder', 'Revolver cylinder'], ['tube', 'Tube under the barrel'], ['cell', 'Energy cell'], ['none', 'None']];
-    const STOCKS = [['none', 'None'], ['folding', 'Folding'], ['full', 'Full']];
-    const SIGHTS = [['iron', 'Iron sights'], ['dot', 'Red dot'], ['scope', 'Scope'], ['none', 'None']];
+    const MAGAZINES = [['box', 'Box magazine'], ['drum', 'Drum magazine'], ['cylinder', 'Revolver cylinder'], ['tube', 'Tube under the barrel'], ['cell', 'Energy cell'], ['none', 'None']];
+    const STOCKS = [['none', 'None'], ['folding', 'Folding stock'], ['full', 'Full stock']];
+    const SIGHTS = [['iron', 'Iron sights'], ['dot', 'Red dot'], ['scope', 'Telescopic sight'], ['none', 'None']];
     const MUZZLES = [['plain', 'Plain'], ['brake', 'Muzzle brake'], ['suppressor', 'Suppressor'], ['emitter', 'Emitter']];
     const FRAMES = [['gunmetal', 'Gunmetal'], ['polymer', 'Polymer'], ['chrome', 'Chrome'], ['painted', 'Painted panels']];
     const FURNITURE = [['polymer', 'Polymer'], ['wood', 'Wood'], ['painted', 'Painted']];
@@ -206,16 +207,49 @@
         };
     }
 
-    const api = { MAGAZINES, STOCKS, SIGHTS, MUZZLES, FRAMES, FURNITURE, PRESETS, normalize, build };
+    /**
+     * A random firearm of one family (its own when only the shape or details
+     * roll): sizes a little off its preset; details swap muzzle, sight, stock,
+     * rails and magazine where the family allows; colors the frame, furniture, paint and glow.
+     */
+    function random(seed, recipe, scope) {
+        const R = Rand.roll(seed), cur = normalize(recipe), out = JSON.parse(JSON.stringify(cur)), has = part => Rand.covers(scope, part);
+        const family = !scope || scope === 'all' ? R.pick(PRESETS) : PRESETS.find(p => p[0] === cur.preset);
+        const base = family[3], scifi = family[2] === 'scifi', long = base.stock !== 'none' || base.barrel.length > 0.3;
+        out.preset = family[0];
+        if (has('shape')) {
+            out.barrel = { length: R.jitter(base.barrel.length, 0.15, 0.04, 1.2), thickness: R.jitter(base.barrel.thickness, 0.12, 0.006, 0.07) };
+            out.receiver = { length: R.jitter(base.receiver.length, 0.12, 0.08, 0.7), height: R.jitter(base.receiver.height, 0.12, 0.025, 0.14) };
+            out.grip = { angle: Math.max(0, Math.min(40, base.grip.angle + R.range(-5, 5))), length: R.jitter(base.grip.length, 0.1, 0.06, 0.16) };
+            out.magSize = R.jitter(base.magSize || 1, 0.2, 0.4, 2);
+        }
+        if (has('details')) {
+            const keep = (key, d) => (base[key] !== undefined ? base[key] : d);
+            out.muzzle = scifi ? 'emitter' : R.chance(0.35) ? R.pick(['plain', 'brake', 'suppressor']) : keep('muzzle', 'plain');
+            out.sight = R.chance(0.35) ? R.pick(long ? ['iron', 'dot', 'scope'] : ['iron', 'dot', 'none']) : keep('sight', 'iron');
+            out.rails = long ? R.chance(0.6) : R.chance(0.2);
+            out.stock = base.stock === 'none' ? 'none' : R.chance(0.25) ? R.pick(['folding', 'full']) : base.stock;
+            out.magazine = base.magazine === 'cylinder' || base.magazine === 'tube' || base.magazine === 'none' ? base.magazine : scifi ? R.pick(['cell', 'cell', 'drum']) : R.chance(0.2) ? 'drum' : base.magazine;
+            if (scifi) { out.coils = Math.max(0, Math.min(8, (base.coils || 0) + R.int(-1, 2))); out.vents = R.chance(0.7); }
+            out.forend = long ? R.chance(0.7) : !!base.forend;
+        }
+        if (has('colors')) {
+            if (scifi) { out.frame = R.weighted([['painted', 4], ['chrome', 1], ['gunmetal', 1]]); out.furniture = R.pick(['painted', 'polymer']); out.paint = R.pick(Rand.PALETTES.paint); out.glow = R.pick(Rand.PALETTES.glow); }
+            else { out.frame = R.weighted([['gunmetal', 4], ['polymer', base.frame === 'polymer' ? 3 : 1], ['chrome', family[0] === 'revolver' ? 2 : 0.4], ['painted', 0.6]]); out.furniture = R.weighted([['polymer', 3], ['wood', long || family[0] === 'revolver' ? 2.5 : 0.5], ['painted', 0.5]]); out.paint = R.pick(['#5a6a3a', '#3a3f4a', '#7a6a4a', '#1b1b1f', '#8a8a7a']); }
+        }
+        return normalize(out);
+    }
+
+    const api = { MAGAZINES, STOCKS, SIGHTS, MUZZLES, FRAMES, FURNITURE, PRESETS, normalize, build, random };
     root.RRGunProp = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     const Model = root.RRPropModel, Catalog = root.RRPropCatalog || (typeof require === 'function' ? require('./PropCatalog.js') : null);
-    if (Model && Model.register) Model.register({ id: 'gun', label: 'Gun', normalize, build });
+    if (Model && Model.register) Model.register({ id: 'gun', label: 'Firearm', normalize, build, random, randomScopes: [Rand.SCOPES.all, Rand.SCOPES.shape, Rand.SCOPES.details, Rand.SCOPES.colors] });
     if (Catalog) {
         const icon = { pistol: 'pistol', revolver: 'pistol', rifle: 'rifle', shotgun: 'shotgun', smg: 'rifle', sniper: 'rifle', blasterPistol: 'blaster', blasterRifle: 'blaster', plasma: 'cannon', laser: 'blaster' };
         for (const [id, label, category] of PRESETS) Catalog.add({ id: 'gun-' + id, category, label, icon: icon[id], kind: 'gun', keywords: 'gun weapon firearm ranged ' + id, start: () => normalize({ preset: id }), matches: r => r.preset === id });
         Catalog.ui('gun', {
-            placeholder: 'Gun',
+            placeholder: 'Firearm',
             tabs: [['body', 'Body'], ['parts', 'Parts'], ['look', 'Look']],
             reset: recipe => normalize({ preset: recipe.preset }),
             panel(tab) {
@@ -232,7 +266,7 @@
                         + this._select('stock', 'Stock', STOCKS) + this._select('sight', 'Sight', SIGHTS) + this._check('rails', 'Rails') + this._check('forend', 'Forend')
                         + this._section('Sci-fi') + this._slider({ path: 'coils', label: 'Glowing coils', range: [0, 8], step: 1, format: 'int' }) + this._check('vents', 'Vents');
                 }
-                return this._section('Materials') + this._select('frame', 'Frame', FRAMES) + this._select('furniture', 'Grip and stock', FURNITURE)
+                return this._section('Materials') + this._select('frame', 'Body finish', FRAMES) + this._select('furniture', 'Grip and stock', FURNITURE)
                     + (r.frame === 'painted' || r.furniture === 'painted' ? this._color('paint', 'Paint', ['#d8dce4', '#3a3f4a', '#5a6a3a', '#7a2a22', '#1b1b1f']) : '')
                     + this._color('glow', 'Glow color', ['#38c8ff', '#ff5a3a', '#7aff6a', '#c86aff', '#ffd24a']);
             }

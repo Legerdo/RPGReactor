@@ -59,19 +59,28 @@
                 }
                 rows.push({ row, R });
             }
+            // Winding (Prop Builder fix 2026-10-18): the caps wind with the sides, and the whole
+            // loft faces outward, whatever the handedness of its ring frames.
+            const first = this.i.length;
             for (let r = 0; r + 1 < rows.length; r++) for (let k = 0; k < sides; k++) {
                 const a = rows[r].row[k], b = rows[r].row[(k + 1) % sides], c = rows[r + 1].row[k], d = rows[r + 1].row[(k + 1) % sides];
                 this.tri(a, c, b); this.tri(b, c, d);
             }
-            if (caps) for (const [end, flip] of [[rows[0], true], [rows[rows.length - 1], false]]) {
-                const R = end.R, axis = norm(cross(R.x, R.y));
-                const color = typeof rgb === 'function' ? rgb(flip ? 0 : 1, 0, R.center) : rgb;
-                const center = this.vertex(R.center, flip ? mul(axis, -1) : axis, color, skin);
+            const P = this.p, at = v => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
+            const volume = (a, b, c) => dot(a, cross(b, c)) / 6;
+            let shut = 0;
+            for (const [end, start] of [[rows[0], true], [rows[rows.length - 1], false]]) {
+                const R = end.R;
+                const color = typeof rgb === 'function' ? rgb(start ? 0 : 1, 0, R.center) : rgb;
+                const center = caps ? this.vertex(R.center, [0, 1, 0], color, skin) : -1;
                 for (let k = 0; k < sides; k++) {
                     const a = end.row[k], b = end.row[(k + 1) % sides];
-                    if (flip) this.tri(center, b, a); else this.tri(center, a, b);
+                    const [p, q] = start ? [a, b] : [b, a];
+                    if (caps) this.tri(center, p, q); else shut += volume(R.center, at(p), at(q));
                 }
             }
+            for (let t = first; t < this.i.length; t += 3) shut += volume(at(this.i[t]), at(this.i[t + 1]), at(this.i[t + 2]));
+            if (shut < 0) for (let t = first; t < this.i.length; t += 3) { const v = this.i[t + 1]; this.i[t + 1] = this.i[t + 2]; this.i[t + 2] = v; }
             this.computeNormals();
             return rows;
         }
@@ -112,9 +121,11 @@
             const faces = [[X, [1, -1, -1], [1, 1, -1], [1, 1, 1], [1, -1, 1]], [mul(X, -1), [-1, -1, 1], [-1, 1, 1], [-1, 1, -1], [-1, -1, -1]],
                 [Y, [-1, 1, -1], [-1, 1, 1], [1, 1, 1], [1, 1, -1]], [mul(Y, -1), [-1, -1, 1], [-1, -1, -1], [1, -1, -1], [1, -1, 1]],
                 [Z, [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]], [mul(Z, -1), [1, -1, -1], [-1, -1, -1], [-1, 1, -1], [1, 1, -1]]];
+            // Winding (Prop Builder fix 2026-10-18): mirrored axes keep the faces outward.
+            const mirrored = dot(cross(X, Y), Z) < 0;
             for (const [n, ...cs] of faces) {
                 const ids = cs.map(s => this.vertex(corner(...s), n, rgb, skin));
-                this.tri(ids[0], ids[1], ids[2]); this.tri(ids[0], ids[2], ids[3]);
+                if (mirrored) { this.tri(ids[0], ids[2], ids[1]); this.tri(ids[0], ids[3], ids[2]); } else { this.tri(ids[0], ids[1], ids[2]); this.tri(ids[0], ids[2], ids[3]); }
             }
         }
         computeNormals() {
@@ -258,7 +269,9 @@
         { id: 'hoops', label: 'Hoop earrings', slot: 'earrings', group: 'Jewelry', defaults: { color: '#e0b84a', size: 1 }, make: (m, L, o) => earrings(m, L, o, 'hoop') },
         { id: 'studs', label: 'Stud earrings', slot: 'earrings', group: 'Jewelry', defaults: { color: '#e8e8f0', size: 1 }, make: (m, L, o) => earrings(m, L, o, 'stud') },
         { id: 'necklace', label: 'Necklace', slot: 'neck', group: 'Jewelry', defaults: { color: '#e0b84a', color2: '#3a8ad8', length: 0.5 }, make: (m, L, o) => necklace(m, L, o) },
-        { id: 'choker', label: 'Choker', slot: 'neck', group: 'Jewelry', defaults: { color: '#141414', color2: '#c0203a' }, make: (m, L, o) => choker(m, L, o) },
+        { id: 'choker', label: 'Choker', slot: 'neck', group: 'Jewelry', defaults: { color: '#141414', color2: '#c0203a', shape: 'leather', size: 1, width: 1, thick: 1, charm: 'gem', studs: false },
+            shapes: [['leather', 'Leather'], ['velvet', 'Velvet'], ['metal', 'Metal links'], ['lace', 'Lace']],
+            options: { charm: [['none', 'None'], ['gem', 'Gem'], ['bell', 'Bell'], ['cross', 'Cross'], ['ring', 'Ring']], studs: 'check', thick: [0.4, 3] }, make: (m, L, o) => choker(m, L, o) },
         { id: 'bracelets', label: 'Bracelets', slot: 'wristwear', group: 'Jewelry', defaults: { color: '#e0b84a', size: 1 }, make: (m, L, o) => bracelets(m, L, o) },
         // Worn on the back and about the neck
         // `cloth`: hangs as cloth from that bone (RRCharacterCloth).
@@ -268,6 +281,8 @@
         { id: 'quiver', label: 'Quiver', slot: 'back', group: 'Back', defaults: { color: '#6a4426', color2: '#e8e0d0', size: 1 }, make: (m, L, o) => quiver(m, L, o) },
         { id: 'jetpack', label: 'Jetpack', slot: 'back', group: 'Back', defaults: { color: '#9aa0a8', color2: '#ff8a20', size: 1 }, make: (m, L, o) => jetpack(m, L, o) },
         { id: 'bowtie', label: 'Bow tie', slot: 'tie', group: 'Jewelry', defaults: { color: '#141416' }, make: (m, L, o) => bowtie(m, L, o) },
+        { id: 'necktie', label: 'Tie', slot: 'tie', group: 'Jewelry', defaults: { color: '#6a1a2a', color2: '#2a1018', shape: 'straight', length: 1 },
+            shapes: [['straight', 'Straight'], ['bow', 'Bow tie'], ['cravat', 'Cravat']], make: (m, L, o) => necktie(m, L, o) },
         ...generatedProps()
     ];
     const BY_ID = new Map(PROPS.map(p => [p.id, p]));
@@ -557,11 +572,31 @@
         return [];
     }
 
+    // Choker options (Prop Builder 2026-10-18): `shape` the band (leather, velvet, metal links,
+    // lace with a scalloped edge), `width` its height, `thick` its thickness, `charm` at the front, `studs`.
     function choker(m, L, o) {
-        const skin = spineSkin(L), N = L.neck;
-        const y = N.center[1] + 0.035;
-        m.loft(2, (i, t) => ({ center: [N.center[0], y + t * 0.014, N.center[2]], x: [1, 0, 0], y: [0, 0, 1], rx: N.rx * 0.92 + 0.004, ry: N.rz * 0.92 + 0.004 }), 32, linear(o.color), skin, false);
-        m.sphere([N.center[0], y + 0.004, N.center[2] + N.rz * 0.92 + 0.008], 0.005, linear(o.color2 || o.color), skin, 4, 8);
+        const skin = spineSkin(L), N = L.neck, s = o.size || 1;
+        const y = N.center[1] + 0.035, h = 0.014 * (o.width ?? 1), t = 0.0025 * (o.thick ?? 1);
+        const rx = (N.rx * 0.92 + 0.004) * s, rz = (N.rz * 0.92 + 0.004) * s, base = m.p.length;
+        // A closed band: inner foot, outer foot, outer top, inner top, round to the inner foot.
+        const rows = [[0, 0], [t, 0], [t, h], [0, h], [0, 0]];
+        m.loft(rows.length, i => ({ center: [N.center[0], y + rows[i][1], N.center[2]], x: [1, 0, 0], y: [0, 0, 1], rx: rx + rows[i][0], ry: rz + rows[i][0] }), 48, linear(o.color), skin, false);
+        for (let v = base; v < m.p.length; v += 3) {
+            const dx = (m.p[v] - N.center[0]) / rx, dz = (m.p[v + 2] - N.center[2]) / rz, a = Math.atan2(dx, dz), d = Math.hypot(dx, dz);
+            if (o.shape === 'metal' && d > 1.0001) { const k = 1 + 0.35 * Math.abs(Math.cos(a * 12)); m.p[v] = N.center[0] + (m.p[v] - N.center[0]) * (1 + (k - 1) * t / rx); m.p[v + 2] = N.center[2] + (m.p[v + 2] - N.center[2]) * (1 + (k - 1) * t / rz); }
+            if (o.shape === 'lace' && m.p[v + 1] < y + h * 0.5) m.p[v + 1] -= h * 0.45 * Math.abs(Math.sin(a * 12));
+        }
+        m.computeNormals();
+        const front = [N.center[0], y + h * 0.5, N.center[2] + rz + t];
+        if (o.studs) for (let k = -4; k <= 4; k++) {
+            const a = k * 0.32;
+            m.sphere([N.center[0] + Math.sin(a) * (rx + t), y + h * 0.5, N.center[2] + Math.cos(a) * (rz + t)], 0.0022 * (o.width ?? 1), linear(o.color2 || o.color), skin, 3, 6);
+        }
+        const charm = o.charm || 'gem', accent = linear(o.color2 || o.color), drop = add(front, [0, -h * 0.5 - 0.006, 0.002]);
+        if (charm === 'gem') m.sphere(add(front, [0, -h * 0.1, 0.004]), 0.005, accent, skin, 4, 8);
+        if (charm === 'bell') { m.sphere(drop, 0.0055, accent, skin, 5, 10, [1, 1.2, 1]); m.tube([add(front, [0, -h * 0.3, 0.001]), add(drop, [0, 0.005, 0])], 0.0008, 4, accent, skin); }
+        if (charm === 'cross') { m.box(add(drop, [0, -0.003, 0]), [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0014, 0.009, 0.0012], accent, skin); m.box(add(drop, [0, 0.0015, 0]), [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0055, 0.0014, 0.0012], accent, skin); }
+        if (charm === 'ring') loop(m, ringPath(1, 20, a => add(drop, [Math.sin(a) * 0.006, Math.cos(a) * 0.006, 0])), 0.0011, accent, skin, 5);
         return [];
     }
 
@@ -690,6 +725,60 @@
         const c = [N.center[0], N.center[1] + 0.005, N.center[2] + N.rz + 0.02];
         for (const side of [1, -1]) m.tube([c, add(c, [side * 0.03, 0.012, -0.004]), add(c, [side * 0.04, 0, -0.004]), add(c, [side * 0.03, -0.012, -0.004]), c], [0.006, 0.01, 0.012, 0.01, 0.006], 6, linear(o.color), skin);
         m.sphere(c, 0.007, linear(o.color), skin, 4, 6);
+        return [];
+    }
+
+    /**
+     * Where the shirt front lies at a height, on the middle line: the outermost
+     * garment there (an open jacket leaves the middle line to the shirt), or the
+     * skin itself.
+     */
+    function shirtFrontAt(L, y) {
+        const skin = L.frontAt0 ? L.frontAt0(y, 0) : L.frontAt(y, 0);
+        let z = -Infinity;
+        for (const part of L.outfitParts || []) {
+            const P = part.positions;
+            for (let i = 0; i < P.length; i += 3) if (Math.abs(P[i]) < 0.012 && Math.abs(P[i + 1] - y) < 0.014 && P[i + 2] > skin - 0.002 && P[i + 2] < skin + 0.08) z = Math.max(z, P[i + 2]);
+        }
+        return isFinite(z) ? Math.max(z, skin) : skin;
+    }
+
+    /**
+     * A tie: a straight necktie (a four-in-hand knot under the collar, its blade
+     * widening as it falls down the shirt front to a point), a bow tie, or a
+     * cravat (a soft knot with gathered folds spilling over the chest). It rides
+     * the shirt's front where one is worn.
+     */
+    function necktie(m, L, o) {
+        if (o.shape === 'bow') return bowtie(m, L, o);
+        const skin = spineSkin(L), N = L.neck, rgb = linear(o.color), dark = linear(o.color2 || o.color);
+        const top = N.center[1] - 0.004, knotZ = Math.max(N.center[2] + N.rz + 0.008, shirtFrontAt(L, top) + 0.006);
+        const along = (y, lift) => [0, y, Math.max(shirtFrontAt(L, y), L.frontAt0 ? L.frontAt0(y, 0) : L.frontAt(y, 0)) + lift];
+        if (o.shape === 'cravat') {
+            // The knot, then folds that fan out and spill a hand's length down.
+            m.loft(4, (i, t) => ({ center: [0, top - t * 0.03, knotZ + 0.004 * (1 - t)], x: [1, 0, 0], y: [0, 0, 1], rx: 0.022 + t * 0.006, ry: 0.012 }), 12, rgb, skin, true);
+            const rows = 12, len = 0.1 * (o.length || 1);
+            m.loft(rows, (i, t) => {
+                const y = top - 0.025 - t * len, c = along(y, 0.007 + Math.sin(t * Math.PI) * 0.005);
+                return { center: c, x: [1, 0, 0], y: [0, 0, 1], rx: 0.02 + Math.sin(t * Math.PI * 0.9) * 0.018, ry: 0.006 * (1 - t * 0.5) };
+            }, 24, (t, a) => (Math.sin(a * 9 + t * 3) > 0.3 ? rgb : dark), skin, true);
+            // Gathered folds: the cloth's edge rippled.
+            for (let v = 0; v < m.p.length; v += 3) if (m.p[v + 1] < top - 0.03) m.p[v + 2] += Math.sin(m.p[v] * 160) * 0.0025;
+            m.computeNormals();
+            return [];
+        }
+        // A four-in-hand knot: narrower at the bottom, tucked under the collar.
+        m.loft(5, (i, t) => ({ center: [0, top - t * 0.032, knotZ - t * 0.002], x: [1, 0, 0], y: [0, 0.25, 1], rx: 0.019 - t * 0.008, ry: 0.009 - t * 0.003 }), 12, dark, skin, true);
+        // The blade: from under the knot, widening, down the shirt front, cut to a point.
+        const rows = 18, len = 0.42 * (o.length || 1) * (L.height / 1.7);
+        m.loft(rows + 1, (i, t) => {
+            const y = top - 0.03 - t * len, c = along(y, 0.005);
+            const w = 0.012 + 0.03 * Math.min(1, t * 1.4), tip = t > 0.94 ? (1 - t) / 0.06 : 1;
+            const next = along(y - len / rows, 0.005), dz = next[2] - c[2], dy = -len / rows, l = Math.hypot(dy, dz) || 1;
+            // Its face turned to the chest's own slope under it.
+            const n = [0, -dz / l, -dy / l];
+            return { center: c, x: [1, 0, 0], y: n[2] < 0 ? [0, -n[1], -n[2]] : n, rx: Math.max(0.0015, w * tip), ry: 0.0025 };
+        }, 10, (t, a) => (Math.abs(((a / Math.PI) * 4 + t * 30) % 2 - 1) < 0.18 ? dark : rgb), skin, true);
         return [];
     }
 
@@ -911,6 +1000,12 @@
         const out = Object.assign({ id: def.id }, def.defaults, item);
         for (const k of ['color', 'color2']) if (out[k] && !/^#[0-9a-f]{6}$/i.test(out[k])) out[k] = def.defaults[k];
         for (const k of ['size', 'height', 'length', 'width', 'up']) if (out[k] != null) out[k] = Math.max(0, Math.min(3, +out[k] || 0));
+        // `options` (Prop Builder 2026-10-18): a choice list, 'check' (on/off) or a [min, max] range per key.
+        for (const [k, spec] of Object.entries(def.options || {})) {
+            if (spec === 'check') out[k] = !!out[k];
+            else if (Array.isArray(spec[0])) { if (!spec.some(c => c[0] === out[k])) out[k] = def.defaults[k]; }
+            else out[k] = Math.max(spec[0], Math.min(spec[1], Number.isFinite(+out[k]) ? +out[k] : def.defaults[k]));
+        }
         if (def.defaults.side && !['left', 'right'].includes(out.side)) out.side = def.defaults.side;
         return out;
     }
@@ -929,12 +1024,12 @@
     }
 
     const FINISH = {
-        felt: { name: 'Hat', roughness: 0.88, metalness: 0 },
+        felt: { name: 'Felt and cloth', roughness: 0.88, metalness: 0 },
         leather: { name: 'Leather', roughness: 0.6, metalness: 0 },
         metal: { name: 'Accessories', roughness: 0.3, metalness: 0.85 },
         plastic: { name: 'Plastic', roughness: 0.4, metalness: 0 }
     };
-    const FELT = new Set(['wizardhat', 'witchhat', 'tophat', 'fedora', 'cowboy', 'bowler', 'tricorn', 'cap', 'headband', 'bowtie', 'eyepatch']);
+    const FELT = new Set(['wizardhat', 'witchhat', 'tophat', 'fedora', 'cowboy', 'bowler', 'tricorn', 'cap', 'headband', 'bowtie', 'necktie', 'eyepatch']);
     const LEATHER = new Set(['quiver', 'goggles', 'choker']);
     const PLASTIC = new Set(['glasses', 'sunglasses', 'visor', 'backpack']);
     function finishOf(def) { return def.finish || (FELT.has(def.id) ? 'felt' : LEATHER.has(def.id) ? 'leather' : PLASTIC.has(def.id) ? 'plastic' : 'metal'); }
@@ -944,6 +1039,8 @@
         const items = normalizeProps(list);
         if (!items.length) return { parts: [], items };
         const L = landmarks(pack, built);
+        L.outfitParts = options.outfitParts || [];
+        L.frontAt0 = L.frontAt;
         if (options.outfitParts?.length) {
             const skinFront = L.frontAt;
             L.frontAt = (y, x) => {
@@ -982,7 +1079,7 @@
         for (const x of m.i) into.i.push(x + base);
     }
 
-    const api = { PROPS, BY_ID, Mesh, landmarks, rigid, spineSkin, normalizeProp, normalizeProps, build, vec: { add, sub, mul, dot, cross, len, norm, lerp } };
+    const api = { PROPS, BY_ID, Mesh, landmarks, rigid, spineSkin, normalizeProp, normalizeProps, finishOf, build, vec: { add, sub, mul, dot, cross, len, norm, lerp } };
     root.RRCharacterProps = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

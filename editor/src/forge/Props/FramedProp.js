@@ -75,7 +75,9 @@
      * `profile` [[out, z], ...] from the opening's edge outward, `out`
      * measured out from the opening, mitered at the corners.
      */
-    function sweep(w, h, profile) {
+    function sweep(w, h, open) {
+        // The profile closes behind: down its outer back edge, across the back, up to the inner lip.
+        const last = open[open.length - 1], profile = open.concat([[open[0][0], last[1]], open[0]]);
         const P = [], N = [], T = [], I = [];
         const corners = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
         for (let side = 0; side < 4; side++) {
@@ -156,7 +158,7 @@
             parts.push(Object.assign(plane(w, h, zp + 0.0006), { name: poster ? 'Poster' : 'Painting', texture: 'picture.png', roughness: poster ? 0.45 : 0.6 }));
             // The backing board closing the frame's back.
             parts.push(Object.assign(Mesh.box([0, 0, zp / 2], [ow + 0.002, oh + 0.002, zp]), { name: 'Backing', color: '#3a2c20', roughness: 0.9 }));
-            if (mat) parts.push(Object.assign(sweep(w, h, [[0, zp + 0.0008], [0.003, zp + 0.003], [mat + 0.0005, zp + 0.003]]), { name: 'Mat', color: o.matColor, roughness: 0.9 }));
+            if (mat) parts.push(Object.assign(sweep(w, h, [[0, zp + 0.0008], [0.003, zp + 0.003], [mat + 0.0005, zp + 0.003], [mat + 0.0005, zp + 0.0008]]), { name: 'Mat', color: o.matColor, roughness: 0.9 }));
             const front = style === 'clip' ? zp + 0.004 : o.depth;
             if (o.glass) parts.push(Object.assign(plane(ow, oh, Math.min(front - 0.001, zp + (mat ? 0.006 : 0.003))), { name: 'Glass', color: '#ffffff', opacity: 0.14, roughness: 0.05, metalness: 0 }));
             const m = material(o);
@@ -178,7 +180,7 @@
                     const orn = [], r = fw * 0.42, zf = o.depth * 1.15;
                     for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) orn.push(rosette([sx * (ow / 2 + fw * 0.5), sy * (oh / 2 + fw * 0.5), zf], r));
                     for (const sy of [-1, 1]) orn.push(shell([0, sy * (oh / 2 + fw * 0.55), zf], fw * 0.8, sy));
-                    parts.push(Object.assign(Mesh.merge(orn), { name: 'Ornament', color: m.color, roughness: m.roughness, metalness: m.metalness }));
+                    parts.push(Object.assign(Mesh.merge(orn), { name: 'Ornament', color: m.color, roughness: m.roughness, metalness: m.metalness, doubleSided: true }));
                     depth = o.depth * 1.35 + r * 0.6;
                 }
                 if (style === 'rustic') {
@@ -214,7 +216,7 @@
         }
         for (let j = 0; j < rows; j++) for (let i = 0; i < ribs; i++) {
             const q = j * (ribs + 1) + i;
-            if (up > 0) I.push(q, q + 1, q + ribs + 1, q + 1, q + ribs + 2, q + ribs + 1); else I.push(q, q + ribs + 1, q + 1, q + 1, q + ribs + 1, q + ribs + 2);
+            if (up < 0) I.push(q, q + 1, q + ribs + 1, q + 1, q + ribs + 2, q + ribs + 1); else I.push(q, q + ribs + 1, q + 1, q + 1, q + ribs + 1, q + ribs + 2);
         }
         return Mesh.computeNormals({ positions: Float32Array.from(P), normals: new Float32Array(P.length), uvs: new Float32Array(P.length / 3 * 2), index: Uint32Array.from(I) });
     }

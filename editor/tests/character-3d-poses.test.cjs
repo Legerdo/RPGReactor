@@ -252,3 +252,56 @@ test('a saved character carries its motions as clips the game plays by name, key
     const death = clips.find(c => c.name === 'Death'), t = death.tracks.find(x => x.path === 'translation');
     assert.ok(t.values[t.values.length - 2] < bones[hips].head[1] * 0.45, 'the fallen body lies low');
 });
+
+test('every pose sits in one of the list\'s groups, and the builder\'s pose picker shows them under those groups', () => {
+    const vm = require('node:vm'), fs = require('node:fs');
+    const ids = new Set(Poses.GROUPS.map(g => g.id));
+    for (const p of Poses.POSES) assert.ok(ids.has(p.group), `${p.id} has a group`);
+    const picker = { dataset: {}, innerHTML: '', value: '' };
+    const ctx = { window: {}, rrEscapeHtml: s => String(s).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;'), RRCharacterPoses: Poses };
+    vm.runInNewContext(fs.readFileSync(path.join(dir, 'Character3DBuilder.js'), 'utf8'), ctx);
+    const b = Object.create(ctx.window.Character3DBuilder.prototype);
+    Object.assign(b, { pose: 'rifle', root: { querySelector: () => picker }, _t: s => s });
+    b._syncPose();
+    assert.equal(picker.value, 'rifle');
+    const groups = [...picker.innerHTML.matchAll(/<optgroup label="([^"]*)">(.*?)<\/optgroup>/g)];
+    assert.deepEqual(groups.map(m => m[1]), Poses.GROUPS.map(g => g.label));
+    for (const [, label, body] of groups) {
+        const names = [...body.matchAll(/<option[^>]*>(.*?)<\/option>/g)].map(m => m[1]);
+        const want = Poses.POSES.filter(p => Poses.GROUPS.find(g => g.label === label).id === p.group).map(p => p.label);
+        assert.deepEqual(names.slice().sort(), want.slice().sort(), `${label} holds its poses`);
+        assert.deepEqual(names, names.slice().sort((x, y) => x.localeCompare(y)), `${label} in order`);
+    }
+});
+
+test('every leg joint stays within its reach in every clip: hip, knee a hinge never past straight, ankle, toes; a standing foot points near where its knee does', () => {
+    const R = Poses.LEG_RANGE, slack = 1.5;
+    const logOf = q => { const w = q[3] < 0 ? -1 : 1, c = Math.min(1, q[3] * w), a = 2 * Math.acos(c), k = a > 1e-6 ? a / Math.sin(a / 2) : 2; return [q[0] * w * k * DEG, q[1] * w * k * DEG, q[2] * w * k * DEG]; };
+    const conj = q => [-q[0], -q[1], -q[2], q[3]];
+    for (const [name] of BODIES) {
+        const { bones, body } = bodyOf(name), at = n => bones.findIndex(b => b.name === n);
+        for (const pose of Poses.POSES) {
+            const clip = Poses.clip(bones, pose.id, body);
+            for (let f = 0; f < clip.times.length; f++) {
+                const { W } = posed(bones, clip, f);
+                for (const S of ['Left', 'Right']) {
+                    const parentOf = { UpLeg: 'Hips', Leg: S + 'UpLeg', Foot: S + 'Leg', ToeBase: S + 'Foot' };
+                    for (const n of ['UpLeg', 'Leg', 'Foot', 'ToeBase']) {
+                        const v = logOf(mul(conj(W[at(parentOf[n])]), W[at(S + n)])), r = R[n], label = `${pose.id} on ${name}: ${S}${n} at frame ${f}`;
+                        assert.ok(v[0] >= r.x[0] - slack && v[0] <= r.x[1] + slack, `${label} bends ${v[0].toFixed(0)}`);
+                        assert.ok(Math.abs(v[1]) <= r.y + slack && Math.abs(v[2]) <= r.z + slack, `${label} turns ${v[1].toFixed(0)}, tilts ${v[2].toFixed(0)}`);
+                    }
+                    // The foot against the knee: both read square to the shin, on a level foot.
+                    const leg = at(S + 'Leg'), foot = at(S + 'Foot'), shin = rot(W[leg], sub(bones[foot].head, bones[leg].head)).map(v => v / Math.hypot(...sub(bones[foot].head, bones[leg].head)));
+                    const off = (v, d) => { const k = dot(v, d); const o = v.map((x, i) => x - d[i] * k), l = Math.hypot(...o) || 1; return o.map(x => x / l); };
+                    const fr = sub(bones[at(S + 'ToeBase')].head, bones[foot].head), fw = rot(W[foot], fr.map(v => v / Math.hypot(...fr)));
+                    // (A leg standing: its shin near upright, its foot near level.)
+                    if (Math.abs(fw[1]) > 0.5 || shin[1] > -0.75) continue;
+                    const knee = off(rot(W[leg], [0, 0, 1]), shin), toe = off(fw, shin);
+                    const angle = Math.acos(Math.max(-1, Math.min(1, dot(knee, toe)))) * DEG;
+                    assert.ok(angle < 40, `${pose.id} on ${name}: the ${S.toLowerCase()} foot points ${angle.toFixed(0)} degrees off its knee at frame ${f}`);
+                }
+            }
+        }
+    }
+});
