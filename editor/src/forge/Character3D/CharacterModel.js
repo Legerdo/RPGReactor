@@ -192,7 +192,7 @@
             const closed = covers.some(id => FACE_COVERS.has(id));
             hairRecipe = Object.assign({}, r.hair, { style: 'bald', facial: closed ? Object.assign({}, r.hair.facial, { style: 'none' }) : r.hair.facial });
         }
-        const hair = Hair.build(pack, built, hairRecipe, { seed: r.seed, skin: r.skin });
+        const hair = Hair.build(pack, built, hairRecipe, { seed: r.seed, skin: r.skin, budget: o.hairBudget });
         if (hair.some(p => p.texture === 'lashes.png')) textures['lashes.png'] = cache.lashes || (cache.lashes = Hair.lashTexture(128));
         if (hair.some(p => p.texture === 'hair.png')) textures['hair.png'] = cache.hairStrands || (cache.hairStrands = Hair.hairTexture(256));
         if (hair.some(p => p.texture === 'brows.png')) {

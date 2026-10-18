@@ -535,7 +535,7 @@
             for (let k = 0; k < 170; k++) {
                 const u0 = lo + 0.008 + rnd() * 0.234, clump = clumps.reduce((best, c) => (Math.abs(c - u0) < Math.abs(best - u0) ? c : best), clumps[0]);
                 // Most strands run the card's length; the rest stop short, scattering the tips.
-                const L = rnd() < 0.4 ? 0.85 + 0.15 * rnd() : 0.3 + 0.55 * rnd();
+                const L = rnd() < 0.6 ? 0.82 + 0.18 * rnd() : 0.4 + 0.45 * rnd();
                 const gatherK = 0.35 + 0.45 * rnd(), wob = (rnd() - 0.5) * 0.006, freq = 2 + rnd() * 4, ph = rnd() * 6.28;
                 const light = 0.62 + 0.5 * rnd(), a0 = 0.75 + 0.25 * rnd(), w0 = (0.0026 + 0.0018 * rnd()) * size;
                 for (let y = 0; y < size; y++) {
@@ -543,7 +543,7 @@
                     if (v > L) break;
                     const t = v / L, tip = smooth(0, 0.3, 1 - t);
                     const cu = (mix(u0, clump, gatherK * Math.pow(t, 1.4)) + wob * Math.sin(v * freq * 6.28 + ph)) * size;
-                    const width = Math.max(0.55, w0 * (0.35 + 0.65 * tip));
+                    const width = Math.max(0.55, w0 * (0.5 + 0.5 * tip));
                     for (let x = Math.max(Math.floor(lo * size), Math.floor(cu - width - 1)); x <= Math.min(Math.ceil((lo + 0.25) * size) - 1, Math.ceil(cu + width + 1)); x++) {
                         const d = Math.abs(x + 0.5 - cu) / width;
                         if (d > 1) continue;
@@ -556,8 +556,8 @@
         for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
             const o = y * size + x, v = (y + 0.5) / size;
             // A card's sides thin a little, so no lock shows a straight edge.
-            const lu = ((x + 0.5) / size % 0.25) / 0.25, side = Math.min(1, Math.min(lu, 1 - lu) * 8);
-            const a = Math.max(alpha[o], Math.max(0, 0.95 - v * 8)) * (0.55 + 0.45 * side);
+            const lu = ((x + 0.5) / size % 0.25) / 0.25, side = Math.min(1, Math.min(lu, 1 - lu) * 10);
+            const a = Math.max(alpha[o], Math.max(0, 0.95 - v * 8)) * (0.8 + 0.2 * side);
             // Darker at the root, lighter toward the tips, as hair is; its lightness averages about one, so a
             // lock shows the color chosen for it.
             const l = Math.min(255, Math.round(255 * 1.15 * lum[o] * (0.8 + 0.2 * Math.min(1, v * 1.6))));
@@ -909,7 +909,7 @@
     function buildStrands(H, hair, m, layer, ramp, rand) {
         const surf = cutSurface(H, scalpField(H, hair, layer.zone));
         // A third more locks than a style names: with the crossing strips shortened, the same triangles.
-        const roots = scatter(surf, Math.round(layer.count * 1.35), rand);
+        const roots = scatter(surf, Math.round(layer.count * 1.35 * H.budget), rand);
         for (const r of roots) {
             if (r.f < 1.5) continue;
             const c = headCoords(H, r.p);
@@ -1350,13 +1350,22 @@
         // The body is low (the hairs over it carry the volume), so its edge never stands as a step.
         // Stubble is in the skin's own picture alone (its shadow and follicles): no geometry stands over it.
         if (stubble) return;
-        addShell(m, surf, i => thick * 0.3 * smooth(0, 0.7, inward(surf.val[i])) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]),
-            i => mixRgb(skinRgb, ramp(0.6, 1.05 + 0.15 * lumps(surf.pos[i]), false), smooth(0.04, 0.85, inward(surf.val[i])) * 0.92));
-        // Strands: many short, narrow locks lying along the face over the beard (single strips, so twice
-        // the locks cost what the crossed ones did), long below the chin for the long styles.
+        // The beard's soft volume: two shells over the face, each carrying the strand picture, so the beard is
+        // hair all through, never a solid. The inner one is dense (the picture's full roots well inside, its
+        // sparse tips at the outline); the outer one stands off it and is drawn from the strands' gappy middle,
+        // so light passes through the beard's surface and its outline is wispy.
+        const shellUv = (i, from, reach) => [0.125 + 0.1 * Math.sin((surf.pos[i][0] * 1.7 + surf.pos[i][1]) * 330) + 0.25 * (Math.floor(Math.abs(surf.pos[i][0]) * 90) % 4),
+            from + reach * Math.pow(1 - smooth(0, 0.7, inward(surf.val[i])), 0.7)];
+        const tone = i => 0.85 + 0.3 * lumps(surf.pos[i]);
+        const height = i => thick * smooth(0, 0.7, inward(surf.val[i])) * lumps(surf.pos[i]) * chinBoost(surf.pos[i]) * lipThin(surf.pos[i]);
+        addShell(m, surf, i => height(i) * 0.35, i => mixRgb(skinRgb, ramp(0.55, tone(i), false), smooth(0.04, 0.85, inward(surf.val[i])) * 0.92), i => shellUv(i, 0.02, 0.8));
+        addShell(m, surf, i => height(i) * 0.8, i => ramp(0.7, tone(i) * 1.08, false), i => shellUv(i, 0.3, 0.55));
+        // Locks over it: many fine, flat, overlapping cards (one strip each), laid along the jaw and falling
+        // toward the chin; long styles hang below the chin in layers. Their lightness varies lock to lock,
+        // and some catch the light, so the beard is never one flat dark.
         const long = { longBeard: 0.16, wizardBeard: 0.32, braidedBeard: 0.12, fullBeard: 0.05 }[f.style];
         const mustache = ['mustache', 'handlebar', 'walrus', 'horseshoe', 'goatee', 'fullBeard', 'longBeard', 'wizardBeard', 'braidedBeard', 'shortBeard'].includes(f.style);
-        const roots = scatter(surf, Math.min(long ? 1100 : 1500, Math.round(surf.index.length / 3 * 1.8)), rand);
+        const roots = scatter(surf, Math.round(Math.min(long ? 1500 : 1700, surf.index.length / 3 * 2.2) * H.budget), rand);
         for (const r of roots) {
             if (r.f < 0.3) continue;
             // Toward the beard's edge the hairs grow sparser, so it thins into the skin.
@@ -1364,21 +1373,23 @@
             const isLip = r.p[1] > H.lipBottom && Math.abs(r.p[0] - H.center[0]) < H.lipHalf * 1.4 && r.p[1] < H.noseTip[1];
             if (isLip && r.p[2] < H.lipFront - 0.012 * S) continue;
             if (isLip && !mustache) continue;
+            const sideX = Math.sign(r.p[0] - H.center[0]);
             let length, dir;
             if (isLip) {
-                length = (f.style === 'walrus' ? 0.03 : 0.014) * S * Lf;
-                dir = norm(add(mul(AXIS.down, 1), mul([Math.sign(r.p[0] - H.center[0]), 0, 0], 0.5)));
+                // A mustache combs down and out from the middle of the lip.
+                length = (f.style === 'walrus' ? 0.026 : 0.013) * S * Lf * (0.8 + 0.4 * rand());
+                dir = norm(add(mul(AXIS.down, 1), mul([sideX, 0, 0], 0.55 + 0.3 * Math.min(1, Math.abs(r.p[0] - H.center[0]) / H.lipHalf))));
             } else if (long) {
                 // Layered: locks from under the chin fall longest, those from the cheeks shorter over them;
                 // each a length of its own, all drawn in toward the beard's middle as they fall.
                 const low = smooth(H.mouth[1], H.chin[1] - 0.005 * S, r.p[1]);
-                length = (0.012 + long * low * (0.55 + 0.6 * rand())) * S * Lf;
-                const inX = -Math.sign(r.p[0] - H.center[0]) * smooth(0, H.lipHalf * 2.5, Math.abs(r.p[0] - H.center[0])) * 0.35;
+                length = (0.014 + long * low * (0.5 + 0.65 * rand())) * S * Lf;
+                const inX = -sideX * smooth(0, H.lipHalf * 2.5, Math.abs(r.p[0] - H.center[0])) * 0.35;
                 dir = norm(add(add(mul(AXIS.down, 1), mul(r.n, 0.3)), [inX + (rand() - 0.5) * 0.2, 0, (rand() - 0.5) * 0.1]));
             } else {
-                // Down the cheek and a little in toward the chin, as a beard grows.
-                length = 0.016 * S * Lf;
-                dir = norm(add(add(mul(AXIS.down, 1), mul(r.n, 0.12)), [-0.3 * Math.sign(r.p[0] - H.center[0]) * smooth(H.mouth[1], H.chin[1], r.p[1]), 0, 0.15]));
+                // Along the jaw and down toward the chin, as a beard grows.
+                length = 0.017 * S * Lf * (0.75 + 0.5 * rand());
+                dir = norm(add(add(mul(AXIS.down, 1), mul(r.n, 0.12)), [-0.35 * sideX * smooth(H.mouth[1], H.chin[1], r.p[1]), 0, 0.15]));
             }
             if (f.style === 'pencil' || f.style === 'muttonChops' || f.style === 'chinStrap') length *= 0.6;
             // A mustache hangs to the lip, not over the mouth (the walrus does).
@@ -1386,16 +1397,16 @@
             const lowLong = long && r.p[1] < H.mouth[1];
             // Inner locks lie close; outer ones stand a little off them, so the beard has layers and depth.
             const outer = rand() < 0.5;
-            const pts = grow(H, r.p, r.n, dir, { steps: lowLong ? 10 : 4, length: length * (outer ? 1 : 0.75), layer: thick * (outer ? 0.6 : 0.3), lift: outer ? 0.25 : 0.12, gravity: long ? 0.6 : 0.2, stiff: 0.3, hug: lowLong ? 0.3 : 0.9, release: H.chin[1], fringe: true, stopY, front: true });
-            const variance = (outer ? 0.9 : 0.75) + 0.3 * rand();
-            // Narrower toward the beard's edge, and drawn from past the picture's full root, so the edge
-            // breaks up into single hairs instead of blocks.
+            let pts = grow(H, r.p, r.n, dir, { steps: lowLong ? 7 : 3, length: length * (outer ? 1 : 0.8), layer: thick * (outer ? 0.75 : 0.4), lift: outer ? 0.22 : 0.1, gravity: long ? 0.65 : 0.25, stiff: 0.3, hug: lowLong ? 0.35 : 0.9, release: H.chin[1], fringe: true, stopY, front: true });
+            if (lowLong) pts = curlStrand(H, pts, (0.002 + 0.003 * rand()) * S * (1 - V * 0.5), (0.04 + 0.03 * rand()) * S, false, rand() * 6);
+            const light = rand() < 0.18 ? 1.3 : 1;
+            const variance = ((outer ? 0.95 : 0.8) + 0.35 * rand()) * light;
             const edge = 0.45 + 0.55 * smooth(0, 0.35, inward(r.f)), thin = smooth(0, 0.5, inward(r.f));
             // Toward the edge the locks thin to a few hairs over the skin: drawn from the picture's sparse
             // tips, and their color giving way to the skin's as so little hair covers it.
-            addClump(m, lowLong ? curlStrand(H, pts, (0.003 + 0.004 * rand()) * S * (1 - V * 0.5), (0.035 + 0.03 * rand()) * S, false, rand() * 6) : pts, {
-                width: (lowLong ? 0.009 : 0.0065) * S * edge * (0.7 + 0.6 * rand()), flat: 0.45, sides: 3, center: H.mouth, single: !lowLong, vFrom: lowLong ? 0.01 : 0.4 + 0.25 * (1 - thin),
-                taper: t => 1 - Math.pow(t, 1.3) * 0.75, color: t => mixRgb(skinRgb, ramp(0.55 + 0.45 * t, variance * 1.12, false), 0.55 + 0.45 * thin) });
+            addCard(m, pts, {
+                H, width: (lowLong ? 0.009 : 0.0055) * S * edge * (0.7 + 0.6 * rand()), single: true, center: H.mouth, vFrom: lowLong ? 0.05 : 0.3 + 0.3 * (1 - thin),
+                taper: t => 1 - Math.pow(t, 1.2) * 0.6, color: t => mixRgb(skinRgb, ramp(0.5 + 0.5 * t, variance, false), 0.55 + 0.45 * thin) });
         }
         if (f.style === 'handlebar') {
             for (const side of [1, -1]) {
@@ -1691,12 +1702,15 @@
     /**
      * The hair parts for a built body: Hair, Facial hair, Brows, Lashes
      * (those present). `options.seed` varies the scatter; the same recipe
-     * and seed grow the same hair. `options.skin` (hex) tints stubble.
+     * and seed grow the same hair. `options.skin` (hex) tints the skin under a beard; `options.budget`
+     * (0.25..1) thins the locks for weak hardware.
      */
     function build(pack, built, hairInput, options) {
         const hair = normalizeHair(hairInput);
         const o = options || {};
         const H = measure(pack, built);
+        // `options.budget` (0.25..1): the share of locks grown, for weak hardware.
+        H.budget = clamp(o.budget ?? 1, 0.25, 1);
         const seed = (o.seed >>> 0) || hash(hair.style);
         const parts = [];
         const ramp = colorRamp(hair);
@@ -1732,7 +1746,8 @@
         const facial = meshBuilder();
         buildFacial(H, hair, facial, rand, hexOk(o.skin) ? o.skin : (built.recipe && built.recipe.skin));
         faceOut(facial);
-        if (facial.idx.length) parts.push(toPart(H, facial, 'Facial hair', { rigid: true, extra: strands }));
+        // Left out of the baked occlusion, as the head's hair is: its layers would shade each other black.
+        if (facial.idx.length) parts.push(toPart(H, facial, 'Facial hair', { rigid: true, extra: Object.assign({ noShade: true }, strands) }));
         const brows = buildBrows(H, hair);
         if (brows) parts.push(brows);
         if (hair.lashes) {

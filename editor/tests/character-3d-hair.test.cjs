@@ -142,6 +142,26 @@ test('brows stay out of the baked shading; lashes: the upper lid long and dense,
     assert.equal(wrong, 0, 'lash cards on the wrong half');
 });
 
+test('a full beard is a soft volume of flat strand cards; a budget thins hair and beard alike', () => {
+    const full = byName(Hair.build(pack, man, { style: 'bald', facial: { style: 'fullBeard' } }), 'Facial hair');
+    assert.equal(full.texture, 'hair.png');
+    assert.equal(full.noShade, true, 'its layers stay out of the baked occlusion');
+    // Every triangle wound to face the way its normals do, so no lock is lit from inside.
+    const P = full.positions, N = full.normals, I = full.index;
+    let against = 0;
+    for (let t = 0; t < I.length; t += 3) {
+        const [a, b, c] = [I[t] * 3, I[t + 1] * 3, I[t + 2] * 3];
+        const e1 = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], e2 = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
+        const f = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+        if (f[0] * (N[a] + N[b] + N[c]) + f[1] * (N[a + 1] + N[b + 1] + N[c + 1]) + f[2] * (N[a + 2] + N[b + 2] + N[c + 2]) < 0) against++;
+    }
+    assert.equal(against, 0);
+    for (const recipe of [{ style: 'long' }, { style: 'bald', facial: { style: 'longBeard' } }]) {
+        const a = tris(Hair.build(pack, man, recipe)), b = tris(Hair.build(pack, man, recipe, { budget: 0.4 }));
+        assert.ok(b < a * 0.6, `${JSON.stringify(recipe)}: ${a} → ${b}`);
+    }
+});
+
 test('hair follows an exaggerated head and body', () => {
     const big = Body.build(pack, { gender: 1, weight: 3, shapes: { headWidth: 2.5, headHeight: 2.5, neck: 3 } });
     const small = Body.build(pack, { gender: 0, age: 11 });
