@@ -46,6 +46,27 @@ function assertSound(result, label) {
     }
 }
 
+/** Independent visibility probe: a ray from skin must cross fabric before reaching the viewer. */
+function garmentHit(parts, origin, direction, reach = 0.5) {
+    for (const part of parts) {
+        const P = part.positions, I = part.index;
+        for (let i = 0; i < I.length; i += 3) {
+            const a = I[i] * 3, b = I[i + 1] * 3, c = I[i + 2] * 3;
+            const e1 = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], e2 = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
+            const pv = [direction[1] * e2[2] - direction[2] * e2[1], direction[2] * e2[0] - direction[0] * e2[2], direction[0] * e2[1] - direction[1] * e2[0]];
+            const det = e1[0] * pv[0] + e1[1] * pv[1] + e1[2] * pv[2];
+            if (Math.abs(det) < 1e-12) continue;
+            const tv = [origin[0] - P[a], origin[1] - P[a + 1], origin[2] - P[a + 2]], u = (tv[0] * pv[0] + tv[1] * pv[1] + tv[2] * pv[2]) / det;
+            if (u < -1e-6 || u > 1 + 1e-6) continue;
+            const qv = [tv[1] * e1[2] - tv[2] * e1[1], tv[2] * e1[0] - tv[0] * e1[2], tv[0] * e1[1] - tv[1] * e1[0]], v = (direction[0] * qv[0] + direction[1] * qv[1] + direction[2] * qv[2]) / det;
+            if (v < -1e-6 || u + v > 1 + 1e-6) continue;
+            const t = (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]) / det;
+            if (t > -0.002 && t < reach) return true;
+        }
+    }
+    return false;
+}
+
 test('every species builds, with its features and its own bones', () => {
     for (const s of Species.SPECIES) {
         const result = Model.build(pack, Model.withSpecies({}, s.id), {}, { quality: 'preview' });
@@ -200,7 +221,10 @@ test('the GLB holds the pictures, the skinned parts, the tail and the Idle', asy
     const { json } = Optimizer.parseGlb(glb);
     // The skin, outfit and shoe pictures, the scales of the dragon's tail and its animal head's own coat.
     const images = json.images.map(i => i.name);
-    for (const name of ['outfit.png', 'skin.png', 'scales.png', 'shoes.png', 'creaturecoat.png']) assert.ok(images.includes(name), name + ' in ' + images.join(', '));
+    for (const name of ['outfit.png', 'skin.png', 'scales.png', 'creaturecoat.png']) assert.ok(images.includes(name), name + ' in ' + images.join(', '));
+    const boots = result.parts.find(p => p.name === 'Armored boots');
+    assert.ok(boots && /^shoes\d*\.png$/.test(boots.texture), 'the footwear has its own generated picture');
+    assert.ok(images.includes(boots.texture), 'the actual footwear picture is embedded, regardless of preceding armor parts');
     assert.equal(json.meshes.length, result.parts.length);
     for (const node of json.nodes.filter(n => n.mesh != null)) assert.equal(node.skin, 0);
     const names = json.skins[0].joints.map(j => json.nodes[j].name);
@@ -253,6 +277,12 @@ test('every module a builder file needs is on the page before it (in the editor,
     const page = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     const rel = 'src/forge/Character3D/';
     for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.js'))) {
+        if (file === 'CharacterPreviewBrowserEntry.js') {
+            const client = fs.readFileSync(path.join(dir, 'CharacterPreviewBrowser.js'), 'utf8');
+            assert.ok(client.includes(file), 'the preview client loads its dedicated worker entry');
+            assert.equal(page.includes(rel + file), false, 'the worker entry never executes on the page');
+            continue;
+        }
         const at = page.indexOf(rel + file);
         assert.ok(at > 0, file + ' is loaded');
         for (const m of fs.readFileSync(path.join(dir, file), 'utf8').matchAll(/require\('\.\/([A-Za-z0-9]+)\.js'\)/g)) {
@@ -439,9 +469,25 @@ test('a top worn with its own skirt reaches under the skirt: no bare waist betwe
         const built = Body.build(pack, Body.normalizeRecipe(body));
         for (const id of ['dress', 'gown', 'robe', 'tunic', 'chainmail']) {
             const out = Wardrobe.build(pack, built, [{ id }], {});
-            const bare = waist.filter(v => !out.hidden.has(v));
-            assert.equal(bare.length, 0, `${id} on ${JSON.stringify(body)}: ${bare.length} waist vertices bare`);
+            const hips = built.bones.find(b => b.name === 'Hips').head;
+            for (const v of waist) {
+                const p = Array.from(built.shaped.slice(v * 3, v * 3 + 3)), dx = p[0] - hips[0], dz = p[2] - hips[2], r = Math.hypot(dx, dz);
+                assert.ok(garmentHit(out.parts, p, [dx / r, 0, dz / r]), `${id} on ${JSON.stringify(body)}: waist vertex ${v} visible from outside`);
+            }
         }
+    }
+});
+
+test('a heavy body stays inside its dress around the hips and upper thighs', () => {
+    const built = Body.build(pack, Body.normalizeRecipe({ gender: 0, extreme: true, weight: 4 }));
+    const out = Wardrobe.build(pack, built, [{ id: 'dress' }], { atlasSize: 64 }), an = Outfit.anatomy(pack);
+    const hips = built.bones.find(b => b.name === 'Hips').head;
+    for (const v of new Set(pack.body.source)) {
+        const p = Array.from(built.shaped.slice(v * 3, v * 3 + 3));
+        if (p[1] < hips[1] * 0.65 || p[1] > hips[1] * 1.05 || an.member[v * 5 + 1] > 0.4 || an.member[v * 5 + 2] > 0.4) continue;
+        const dx = p[0] - hips[0], dz = p[2] - hips[2], r = Math.hypot(dx, dz);
+        if (r < 0.04) continue;
+        assert.ok(garmentHit(out.parts, p, [dx / r, 0, dz / r]), 'hip or upper thigh vertex ' + v + ' stays inside the dress');
     }
 });
 
@@ -485,7 +531,9 @@ test('every modeled garment builds on an average and an extreme body, outside th
             }
             assert.ok(inside / Math.max(1, total) < 0.01, `${label}: ${inside} of ${total} vertices under the skin`);
             // The skin it covers is left out.
-            for (const v of clothes.garments.get(g.id).hidden) assert.ok(out.hidden.has(v), label + ' hides vertex ' + v);
+            const authored = new Set(clothes.garments.get(g.id).hidden);
+            assert.ok(out.hidden.size > 0, label + ' hides covered skin');
+            for (const v of out.hidden) assert.ok(authored.has(v), label + ' only hides skin in its authored coverage');
             assert.ok(result.parts[0].index.length < bare.parts[0].index.length, label + ' leaves the covered skin out');
         }
     }
@@ -579,7 +627,12 @@ test('footwear is built round the foot: a sole under it, the foot hidden inside,
             for (let i = 1; i < part.positions.length; i += 3) low = Math.min(low, part.positions[i]);
             // A sole of its own thickness under the foot: the character stands on it.
             assert.ok(low < -0.008, `${label}: sole ${low.toFixed(3)} under the foot`);
-            if (g.id !== 'sandals') assert.ok(foot.every(v => out.hidden.has(v)), label + ' hides the foot inside it');
+            if (g.id !== 'sandals') for (const v of foot) {
+                // A toe cleft's normal can point inside the foot; its skin stays, below the shoe's upper.
+                if (out.hidden.has(v)) continue;
+                const p = Array.from(built.shaped.slice(v * 3, v * 3 + 3));
+                assert.ok(garmentHit([part], p, [0, 1, 0], 0.3), label + ' encloses forefoot vertex ' + v);
+            }
             else assert.ok(foot.filter(v => out.hidden.has(v)).length < foot.length / 2, label + ' shows the foot');
         }
         // A boot's shaft goes over the trouser leg: a ray out from the leg's axis through any trouser point
@@ -656,5 +709,45 @@ test('modeled garments save into the GLB with their pictures', async () => {
         assert.ok(tex, name + ' has a picture');
         assert.equal(json.images[json.textures[tex.index].source].name, image);
         assert.ok(mesh.primitives[0].attributes.JOINTS_0 != null && mesh.primitives[0].attributes.TEXCOORD_0 != null, name + ' skinned and mapped');
+    }
+});
+
+test('animal skulls keep their closed source shape and join the actual moving neck edge', () => {
+    for (const id of ['minotaur', 'rabbitfolk', 'birdfolk', 'catfolk']) {
+        const built = Model.build(pack, Model.withSpecies({ gender: 1 }, id), {}, { quality: 'preview', hairBudget: 0 });
+        const body = built.parts[0], skull = built.parts.find(p => p.name === 'Head Body'), neck = built.parts.find(p => p.name === 'Head neck');
+        assert.ok(neck && neck.index.length > 200, id + ' has a continuous neck');
+        const headJoint = built.bones.findIndex(b => b.name === 'Head');
+        for (let v = 0; v < skull.positions.length / 3; v++) {
+            let rigid = 0;
+            for (let k = 0; k < 4; k++) if (skull.joints[v * 4 + k] === headJoint) rigid += skull.weights[v * 4 + k];
+            assert.ok(rigid > 0.99999, id + ' closed skull stays rigid through nods and walking');
+        }
+        assert.ok([...neck.normals].every(Number.isFinite), id + ' smooth neck normals');
+        const visible = new Map();
+        const key = (p, v) => Array.from(p.positions.subarray(v * 3, v * 3 + 3), x => Math.round(x * 1e6)).join(',');
+        for (const v of body.index) visible.set(key(body, v), v);
+        const cols = neck.positions.length / 3 / 13;
+        for (let v = 0; v < cols; v++) {
+            const source = visible.get(key(neck, v));
+            assert.notEqual(source, undefined, id + ' neck starts exactly on retained skin');
+            const influences = p => {
+                const result = new Map();
+                for (let k = 0; k < 4; k++) result.set(p.joints[p.v * 4 + k], (result.get(p.joints[p.v * 4 + k]) || 0) + p.weights[p.v * 4 + k]);
+                return result;
+            };
+            const a = influences(Object.assign({ v }, neck)), b = influences(Object.assign({ v: source }, body));
+            for (const [joint, weight] of a) assert.ok(Math.abs(weight - (b.get(joint) || 0)) < 1e-5, id + ' keeps base skinning');
+        }
+        for (let v = 0; v < neck.weights.length; v += 4) {
+            const total = neck.weights[v] + neck.weights[v + 1] + neck.weights[v + 2] + neck.weights[v + 3];
+            assert.ok(Math.abs(total - 1) < 1e-5, id + ' normalized neck skinning');
+        }
+        const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+        for (let v = 0; v < skull.positions.length; v += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], skull.positions[v + k]); hi[k] = Math.max(hi[k], skull.positions[v + k]); }
+        for (let v = neck.positions.length - cols * 3; v < neck.positions.length; v += 3) for (let k = 0; k < 3; k++) {
+            assert.ok(neck.positions[v + k] > lo[k] && neck.positions[v + k] < hi[k], id + ' upper neck terminates inside skull bounds');
+        }
+        assert.ok(lo[1] > built.bodyHeight * 0.7, id + ' skull does not carry the animal torso');
     }
 });

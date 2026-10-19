@@ -1,4 +1,55 @@
-# Runtime performance checks
+# Performance checks
+
+## Legacy artwork cleanup during import (2026-10-18)
+
+Dither cleanup runs once in the existing import worker and adds no gameplay
+filter. Each eligible image is capped at4,194,304 pixels; larger images stay
+unchanged, and processing holds one image at a time. A local worst-size
+2048×2048 checkerboard diagnostic takes1.56s with peak90MB; a640×480 image
+is about125ms in that isolated helper measurement. These are CPU diagnostics,
+not whole-editor frame measurements. A real NW worker import of Sunset's65
+maps and217 eligible artwork files finishes the asset/data stage in4.37s
+(104 files/12,389 pixels changed). The disposable UI fixture excludes Music
+to avoid measuring MIDI conversion; source and original graphics are retained.
+No baseline speedup is claimed. Evidence: `scratchpad/rm2000-artwork-ui/` and
+`scratchpad/rm2000-text/artwork/`.
+
+## Shared asset picker sorting (2026-10-18)
+
+`PickerIndex.js` feeds image, audio and resource browsers. Previously every sorting comparison constructed grapheme segmenters and locale collation work, then repeated section and basename calculation. The helpers now live once per module; name metadata lives only within the current grouping/tree operation, so old libraries do not accumulate in a global name cache.
+
+Five warmed alternating before/after runs on the local Ryzen 9 9950X3D, with exact tree output checked each time:
+
+| Folder tree | Before median | After median |
+| --- | --- | --- |
+| Demo's 442 actual image names | 7.55 ms | 0.99 ms |
+| 5,000 mixed Unicode/numeric asset names | 689.78 ms | 32.58 ms |
+
+The old comparator remains in the optional benchmark as an executable reference: `node editor/tests/perf/picker-index.cjs`. Regression tests compare pairwise sorting, groups and folder trees against it, including NFC/NFD, multi-codepoint graphemes, numeric names, accent/case ties and missing Intl helpers. Ordering and search behavior remain the same; the work per operation is reduced.
+
+## Character Builder catalog pictures (2026-10-18)
+
+The Bikini redesign adds real narrow cords: standard worn geometry rises from2,366 to5,674 triangles. Static triangle/skin bindings are reused while positions are evaluated against the current body; a nine-sample warmed local diagnostic changes15.32→9.51ms median, with no whole-editor FPS claim. The final eight-variant browser-worker smoke, including Bikini and both knight presets, peaks at11.2ms on the independent heartbeat. Evidence: `scratchpad/bikini-quality/bench.json`.
+
+The medieval armor follow-up replaces body-following metal cuts with formed rigid sheets. On the same standard male Knight, worn outfit geometry falls from25,750 to21,851 triangles (15%); a small nine-sample warmed generation diagnostic is effectively unchanged at132.32→132.12ms median. This is not a whole-editor/FPS result. Local evidence: `scratchpad/knight-quality/bench.json`. The expanded eight-variant browser-worker smoke, including Knight/Dark knight, peaks at11.4ms on its independent heartbeat.
+
+Fresh isolated NW.js profiles, empty thumbnail caches, the same copied project and default character, 1366×900 window, Ryzen 9 9950X3D with AMD integrated graphics. Each phase also observes three seconds after the visible pictures finish, catching hidden work. Frame gaps, an independent 16 ms heartbeat and browser long tasks were recorded; images count only after decoding. These are single local before/after runs, not a hardware-wide guarantee.
+
+| Phase | All visible pictures, before → after | Worst frame, before → after | Hidden builds, before → after |
+| --- | --- | --- | --- |
+| First Species, 12 pictures | 7.19 → 4.55 s | 567 → 457 ms | 6 → 0 |
+| First Outfit, 15 pictures | 5.45 → 3.57 s | 467 → 34 ms | 8 → 0 |
+| Cached Species | 16 → 18 ms | 450 → 17 ms | 2 → 0 |
+| Cached Outfit | 15 → 14 ms | 334 → 17 ms | 3 → 0 |
+| Bottom Outfit, 13 pictures including imports | 20.12 → 10.38 s | 5,764 → 67 ms | 3 → 0 |
+
+The bottom-Outfit heartbeat gap fell from 5,771 to 95 ms. First Outfit has no long tasks after the change; bottom Outfit has two small 54–58 ms tasks. The first Species phase includes initial selected-character/model/WebGL setup, whose early main-thread stalls remain. The first small GPU preview render costs about 81 ms; later renders peak at 26–33 ms. Both successful runs have no unexpected console errors.
+
+Full character generation runs in one background worker; only visible tiles are requested. The Builder reads its desktop cache asynchronously, avoids duplicate jobs and discards stale results before GPU uploads. Recipe/choice changes cancel queued jobs while reusing the warmed worker; an already running build finishes off the page before the latest request. Hiding/closing the tool and timeouts still release the worker. Static arrays cross NW's Node/browser boundary as local typed views over the same buffers. Desktop source outfit textures, user imports and emblems are supplied as resource snapshots. Web builds load packs and decode images inside their dedicated worker.
+
+The second quality pass found a sustained-switching failure: terminating/recreating desktop workers on each obsolete preview drove renderer RSS toward 4 GB and crashed two isolated runs after 42–44 models. The same 59-model sequence completed with thumbnails disabled. Reusing one worker then completed all 59 with thumbnails enabled, 118 actual front/back renders and zero console/GL errors: sampled process RSS peaked at 2,112 MiB and ended at 1,554 MiB. This is one local stress run, not a memory guarantee for every project or platform. Reports, exact recipes and captures live in ignored `scratchpad/quality-pass2/catalog-gpu-{no-thumbs,reuse}/`; scheduler regressions verify reuse, stale-result rejection and disposal on teardown.
+
+Regression tests are `character-preview-{worker,browser-worker,scheduling}.test.cjs`. The real browser smoke `editor/tests/smoke/character-browser-preview.cjs` builds six variants, including heavy Captain, modeled clothes, a custom import and an emblem with no Node or Model on the page; its main heartbeat peaked at 10.1 ms while the heavy builds took about one second off the page. Disposable NW benchmark scripts, source hashes, screenshots and raw measurements are in `scratchpad/preview-perf/` locally.
 
 ## Draw batches, per-pixel light on a discrete GPU, the light volume's steps (2026-10-15, runtime 20261015.2)
 

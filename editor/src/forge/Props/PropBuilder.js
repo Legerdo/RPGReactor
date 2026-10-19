@@ -1126,6 +1126,7 @@ RRPropCatalog.ui('flag', {
                     + this._slider({ path: 'pole.height', label: r.pole.type === 'bracket' ? 'Length' : 'Height', range: def.height, step: 0.05, format: 'm' })
                     + this._select('pole.finial', 'Finial', F.FINIALS);
                 if (r.pole.type === 'metal') html += this._check('pole.rope', 'Halyard rope');
+                if (r.pole.type === 'bracket') html += this._section('Placement') + this._slider({ path: 'pole.mount', label: 'Height', range: [0.3, 8], step: 0.05, format: 'm' });
                 html += this._section('Colors') + this._color('pole.color', 'Pole', ['#c3c7cc', '#2a2a2e', '#7a5434', '#4a3020', '#e8e4dc'])
                     + this._color('pole.finialColor', 'Finial', ['#d4a940', '#b8b8be', '#2a2a2e', '#b06a3a']);
                 return html;

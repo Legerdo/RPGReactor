@@ -202,10 +202,16 @@ test('RPG chibi draws a copy with a big head and short limbs; the recipe is left
     const before = JSON.stringify(recipe);
     const c = S.chibiRecipe(recipe);
     assert.equal(JSON.stringify(recipe), before);
-    assert.ok(c.headSize > 1.5 && c.headSize <= 2.2);
+    assert.ok(c.headSize > recipe.headSize && c.headSize <= 2.2);
     assert.ok(c.shapes.legLength < -1 && c.shapes.armLength < 0 && c.shapes.torsoLength < 0);
     assert.equal(c.shapes.handSize, 3, 'held to the slider\'s reach');
     assert.ok(c.shapes.footSize > 0);
+    assert.ok(c.shapes.eyeSize > 1 && c.morph.eyeTall > 1 && c.eyes.catchlight);
+    // The rendered skeleton finishes the proportions by growing the head from its chin.
+    for (const [chin, tall] of [[0.85, 0.3], [1.1, 0.27]]) {
+        const head = tall * S.headScale(chin, tall);
+        assert.ok(Math.abs((chin + head) / head - 2.8) < 1e-6);
+    }
     assert.deepEqual(S.STYLES.map(s => s.id), ['realistic', 'chibi']);
 });
 

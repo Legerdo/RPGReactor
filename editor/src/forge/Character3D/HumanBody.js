@@ -245,7 +245,10 @@
             // Past a little beyond natural, weight is volume (inflate), not more of the target, which folds.
             // Muscle past natural is the muscles' own swelling (VOLUME, from MUSCLE_BULK), not more of the build
             // target, which raises humps over the shoulders and folds at the armpits.
-            grid(Math.min(r.muscle, 1), clamp(r.weight, -1, 1.4), (m, w) => `macro/${g}-${a}-${m}muscle-${w}weight`, ga, add);
+            // Below the thinnest/least muscular source body, extrapolating
+            // negative blend weights folds the trunk and limbs inside out.
+            // Further thinning is already handled by the bounded volume pass.
+            grid(clamp(r.muscle, 0, 1), clamp(r.weight, 0, 1.4), (m, w) => `macro/${g}-${a}-${m}muscle-${w}weight`, ga, add);
             for (const race of ANCESTRY) add(`race/${race}-${g}-${a}`, ga * r.ancestry[race]);
             add(`proportion/${g}-${a}-ideal`, ga * r.proportions);
             add(`height/${g}-${a}-min`, ga * height.min);
@@ -272,6 +275,9 @@
             if (!natural) v = eased(s.key, v);
             // Legs shorter than half the target's reach are pressed whole (shortLegs): the target crushes the thigh.
             if (s.key === 'legLength') v = Math.max(-0.5, v);
+            // The nape-to-waist target also crushes a small body's abdomen when
+            // extrapolated. Further shortening compresses the trunk whole.
+            if (s.key === 'torsoLength' || s.key === 'neckLength') v = Math.max(-0.5, v);
             if (!s.paired) add(`shape/${s.key}`, v);
             else if (v < 0) add(`shape/${s.key}-decr`, -v);
             else add(`shape/${s.key}-incr`, v);
@@ -519,6 +525,12 @@
         const positions = out && out.length === pack.positions.length ? out : new Float32Array(pack.positions.length);
         positions.set(pack.positions);
         const natural = targetWeights(recipe, true), full = targetWeights(recipe);
+        const narrowing = {};
+        for (const key of ['hips', 'shoulders']) {
+            const name = 'shape/' + key + '-decr';
+            if (full[name]) narrowing[name] = [natural[name] || 0, full[name]];
+            delete natural[name]; delete full[name];
+        }
         // Targets whose edge stands as a ledge are laid on relaxed, whole (natural and past it).
         const soft = {};
         for (const name in full) { const k = SOFT_TARGET.exec(name); if (k) { soft[k[1]] = soft[k[1]] || {}; soft[k[1]][name] = full[name]; } }
@@ -567,6 +579,25 @@
             }
         }
         const r = normalizeRecipe(recipe);
+        for (const name in narrowing) {
+            // A width target stores meter offsets on the source body. Applying
+            // that same offset to a much smaller body can cross its center.
+            // Preserve its relative width instead, on the already shaped body.
+            const [base, full] = narrowing[name], field = new Float32Array(positions.length);
+            let extra = field;
+            if (Math.abs(full - base) > 1e-5) {
+                applyTargets(pack, { [name]: full - base }, field);
+                extra = relax(pack, field, EXTREME_PASSES);
+            }
+            applyTargets(pack, { [name]: base }, extra);
+            for (let v = 0; v < positions.length; v += 3) {
+                const x = pack.positions[v];
+                if (Math.abs(x) > 1e-6) positions[v] *= Math.max(0.1, 1 + extra[v] / x);
+                positions[v + 1] += extra[v + 1]; positions[v + 2] += extra[v + 2];
+            }
+        }
+        shortSegment(pack, positions, r.shapes.torsoLength, 'Hips', 'Neck');
+        shortSegment(pack, positions, r.shapes.neckLength, 'Neck', 'Head');
         shortLegs(pack, positions, r);
         volume(pack, positions, r);
         morph(pack, positions, r);
@@ -577,6 +608,22 @@
             for (let i = 0; i < positions.length; i += 3) { positions[i] *= k; positions[i + 1] = floor + (positions[i + 1] - floor) * k; positions[i + 2] *= k; }
         }
         return positions;
+    }
+
+    /** Shorten the trunk or neck with a monotone vertical map, carrying the
+     * anatomy above it down together. An absolute target offset can otherwise
+     * pull the ribs through the waist, or the head through its neck. */
+    function shortSegment(pack, P, value, lower, upper) {
+        const past = -(value || 0) - 0.5;
+        if (past <= 0) return;
+        const low = pack.bones.find(b => b.name === lower), high = pack.bones.find(b => b.name === upper);
+        const bottom = meanOf(P, low.head)[1], top = meanOf(P, high.head)[1];
+        if (top <= bottom) return;
+        const scale = Math.max(0.55, 1 - 0.156 * past), shift = (top - bottom) * (1 - scale);
+        for (let i = 1; i < P.length; i += 3) {
+            const y = P[i];
+            if (y > bottom) P[i] = y < top ? bottom + (y - bottom) * scale : y - shift;
+        }
     }
 
     /**
@@ -767,7 +814,28 @@
         // Very strong and not heavy: ripped, the soft fat drawn in so the muscles stand out and the waist narrows.
         if (r.muscle > 1 && r.weight < 0.8) addMask(fatMask(pack), -Math.min(0.009, (r.muscle - 1) * 0.006) * (1 - smooth01(0.4, 0.8, r.weight)), 0);
         if (!any) return;
+        // An inward offset safe on an average body can pass through a thin
+        // wrist or waist. Limit shrinking to a fraction of the skin's current
+        // distance from its carrying bone, including already shortened limbs.
+        const shrinking = amount.some(x => x < 0);
+        if (shrinking) {
+            const axes = joints(pack, P);
+            for (let v = 0; v < n; v++) {
+                if (amount[v] >= 0) continue;
+                let radius = Infinity;
+                for (let k = 0; k < 4; k++) {
+                    if (pack.skinWeights[v * 4 + k] < 0.1) continue;
+                    const b = axes[pack.skinJoints[v * 4 + k]], a = b.head, end = b.tail || a;
+                    const dx = end[0] - a[0], dy = end[1] - a[1], dz = end[2] - a[2];
+                    const x = P[v * 3] - a[0], y = P[v * 3 + 1] - a[1], z = P[v * 3 + 2] - a[2];
+                    const t = Math.max(0, Math.min(1, (x * dx + y * dy + z * dz) / (dx * dx + dy * dy + dz * dz || 1)));
+                    radius = Math.min(radius, Math.hypot(x - dx * t, y - dy * t, z - dz * t));
+                }
+                if (Number.isFinite(radius)) amount[v] = Math.max(amount[v], -radius * 0.15);
+            }
+        }
         const follow = followers(pack);
+        const reference = shrinking ? Float32Array.from(P) : null;
         const total = new Float32Array(n * 3);
         const steps = 4;
         for (let s = 0; s < steps; s++) {
@@ -780,12 +848,34 @@
                 field[v * 3] = N[b * 3] * a; field[v * 3 + 1] = N[b * 3 + 1] * a - d; field[v * 3 + 2] = N[b * 3 + 2] * a;
             }
             const eased = relax(pack, field, 3);
-            for (let i = 0; i < P.length; i++) { P[i] += eased[i]; total[i] += eased[i]; }
+            const scale = reference ? inwardStep(pack, reference, P, eased) : 1;
+            for (let i = 0; i < P.length; i++) { P[i] += eased[i] * scale; total[i] += eased[i] * scale; }
         }
         // The floor stays the floor: nothing swells below the soles.
         let low = Infinity;
         for (const v of pack.body.source) low = Math.min(low, P[v * 3 + 1]);
         void low;
+    }
+
+    /** Back off an inward step before any skin triangle turns through its original surface. */
+    function inwardStep(pack, rest, P, field) {
+        const source = pack.body.source, index = pack.body.index;
+        let scale = 1;
+        for (let attempt = 0; attempt < 9; attempt++, scale *= 0.5) {
+            let safe = true;
+            for (let t = 0; t < index.length; t += 3) {
+                const a = source[index[t]] * 3, b = source[index[t + 1]] * 3, c = source[index[t + 2]] * 3;
+                const ux = rest[b] - rest[a], uy = rest[b + 1] - rest[a + 1], uz = rest[b + 2] - rest[a + 2];
+                const vx = rest[c] - rest[a], vy = rest[c + 1] - rest[a + 1], vz = rest[c + 2] - rest[a + 2];
+                const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, area2 = nx * nx + ny * ny + nz * nz;
+                if (area2 < 1e-22) continue;
+                const x = P[b] - P[a] + (field[b] - field[a]) * scale, y = P[b + 1] - P[a + 1] + (field[b + 1] - field[a + 1]) * scale, z = P[b + 2] - P[a + 2] + (field[b + 2] - field[a + 2]) * scale;
+                const X = P[c] - P[a] + (field[c] - field[a]) * scale, Y = P[c + 1] - P[a + 1] + (field[c + 1] - field[a + 1]) * scale, Z = P[c + 2] - P[a + 2] + (field[c + 2] - field[a + 2]) * scale;
+                if ((y * Z - z * Y) * nx + (z * X - x * Z) * ny + (x * Y - y * X) * nz < area2 * 0.02) { safe = false; break; }
+            }
+            if (safe) return scale;
+        }
+        return 0;
     }
 
     /** Per pack vertex, how much the Head bone carries it; and the ear's own vertices, by how far the ear target moves them. */
@@ -909,7 +999,7 @@
      * wrapping back round the skull toward the outer corner and a little
      * toward the nose, so it lies in the face instead of standing off it).
      */
-    const ALMOND = { width: 1.5, height: 0.66, tilt: 0.38, dome: 0.26, back: 0.11, wrapOut: 0.9, wrapIn: 0.15 };
+    const ALMOND = { width: 1.6, height: 0.6, tilt: 0.28, dome: 0.21, back: 0.11, wrapOut: 0.75, wrapIn: 0.15 };
     const almondHalf = out => (Math.abs(out) >= 1 ? 0 : Math.pow(1 - out * out, 0.42) * (1 - 0.22 * out));
     function almondFrame(pack, P, side, size = 1) {
         const ids = [...new Set(pack.eyes.refs)].filter(v => Math.sign(pack.positions[v * 3]) === side);
@@ -985,6 +1075,27 @@
     function eyeSockets(pack, P, size) {
         const face = pack._eyeFields && pack._eyeFields.weights.face;
         if (!face) return;
+        // The oversized sockets amplify small human facial ridges. Fair the
+        // skin before seating the lenses, keeping the eyes and mouth helpers
+        // fixed. Alternating steps soften creases without shrinking the skull.
+        const F = headFields(pack), { offsets, flat } = neighbors(pack);
+        const own = F.surface || (F.surface = [...new Set(pack.body.source)].filter(v => F.w[v] > 0.5));
+        const Q = Float32Array.from(P), next = Float32Array.from(P);
+        for (let pass = 0; pass < 16; pass++) {
+            const step = pass % 2 ? -0.46 : 0.5;
+            for (const v of own) {
+                const count = offsets[v + 1] - offsets[v];
+                if (!count) continue;
+                const w = smooth01(0.5, 0.95, F.w[v]);
+                for (let k = 0; k < 3; k++) {
+                    let mean = 0;
+                    for (let i = offsets[v]; i < offsets[v + 1]; i++) mean += Q[flat[i] * 3 + k];
+                    next[v * 3 + k] = Q[v * 3 + k] + step * w * (mean / count - Q[v * 3 + k]);
+                }
+            }
+            for (const v of own) for (let k = 0; k < 3; k++) Q[v * 3 + k] = next[v * 3 + k];
+        }
+        for (const v of own) for (let k = 0; k < 3; k++) P[v * 3 + k] = Q[v * 3 + k];
         greyDome(pack, P);
         const field = new Float32Array(P.length), clamp = [];
         for (const side of [1, -1]) {

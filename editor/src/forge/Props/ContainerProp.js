@@ -1403,25 +1403,48 @@
         };
     }
 
-    /** A random container of the same form: its colors, wear, markings and, for a futuristic one, its lights. */
-    function random(seed, recipe) {
+    /** A random container of the same form, changing only the selected group of settings. */
+    function random(seed, recipe, scope = 'all') {
         const rand = Paint.random(seed), r = normalize(recipe), any = list => list[Math.floor(rand() * list.length)];
+        const has = group => scope === 'all' || scope === group;
         const woods = ['#8a5a32', '#93673f', '#a87c4c', '#6e4226', '#7a4428', '#b08856', '#5a3a22'];
         const paints = { drum: ['#1f4e8c', '#a3221b', '#2f6b34', '#d9a531', '#2b2b2e', '#7d8288', '#c8501e'], canister: ['#d2d6da', '#2f3740', '#d9a531', '#9aa8b4', '#e8e2d4'], cargo: ['#d3d7db', '#2c333b', '#d9a531', '#4f5a33', '#c8501e', '#3a4a5a'], crate: ['#4f5a33', '#7a2a1a', '#2b3a55'] };
         const glows = ['#4dff7a', '#3ad0ff', '#ffb02e', '#ff4a3a', '#c07aff', '#f4f8ff'];
         const words = { barrel: ['', 'ALE', 'RUM', 'VINO 1742', 'WATER', 'XXX'], drum: ['MOTOR OIL', 'DIESEL', 'FLAMMABLE', 'KEROSENE', 'TOXIC', 'EXPLOSIVE'], canister: ['H2 FUEL', 'COOLANT', 'PLASMA', 'O2', 'CELL 7'], crate: ['SUPPLIES', 'FRAGILE', 'TOOLS', 'RATIONS', 'MEDICAL', 'CARGO'], chest: [''], cargo: ['CRG-0417', 'MED-12', 'AMMO', 'FRAGILE', 'HAZMAT', 'SUP-88'] };
-        if (r.form === 'barrel' || r.form === 'chest' || (r.form === 'crate' && rand() < 0.65)) { r.color = any(woods); if (r.form === 'crate') r.finish = 'natural'; }
-        else { r.color = any(paints[r.form] || paints.cargo); if (r.form === 'crate') r.finish = 'painted'; }
-        r.wear = Math.round(rand() * 85) / 100;
-        r.marks.text = any(words[r.form]);
-        r.marks.hazard = (r.form === 'drum' || r.form === 'canister' || r.form === 'cargo') && rand() < 0.4;
-        r.marks.symbol = r.form === 'chest' || r.form === 'barrel' ? 'none' : any(['none', 'none', 'flammable', 'explosive', 'radiation', 'warning', 'arrows']);
-        if (FUTURE.has(r.form)) {
-            r.lights = { count: Math.floor(rand() * 6), color: any(glows), pattern: any(PATTERNS)[0] };
-            r.strips = { on: rand() < 0.7, color: any(glows), pattern: any(PATTERNS)[0] };
+        if (has('shape')) {
+            const sizes = SIZES[r.form];
+            const jitter = (value, bounds) => Math.max(bounds[0], Math.min(bounds[1], value * (0.8 + rand() * 0.4)));
+            r.width = jitter(r.width, sizes.width);
+            if (sizes.height) r.height = jitter(r.height, sizes.height);
+            if (r.form === 'barrel') r.bulge = rand();
         }
-        r.seed = seed >>> 0 || 1;
-        r.preset = recipe.preset || null;
+        if (has('details')) {
+            r.wear = Math.round(rand() * 85) / 100;
+            r.marks.text = any(words[r.form]);
+            r.marks.hazard = (r.form === 'drum' || r.form === 'canister' || r.form === 'cargo') && rand() < 0.4;
+            r.marks.symbol = r.form === 'chest' || r.form === 'barrel' ? 'none' : any(['none', 'none', 'flammable', 'explosive', 'radiation', 'warning', 'arrows']);
+            if (r.form === 'barrel') r.hoops = 2 + Math.floor(rand() * 7);
+            if (r.form === 'drum') r.ribs = Math.floor(rand() * 4);
+            if (r.form === 'crate') r.brace = any(BRACES)[0];
+            if (FUTURE.has(r.form)) {
+                r.lights.count = Math.floor(rand() * 7);
+                r.lights.pattern = any(PATTERNS)[0];
+                r.strips.on = rand() < 0.7;
+                r.strips.pattern = any(PATTERNS)[0];
+            }
+            r.seed = seed >>> 0 || 1;
+        }
+        if (has('colors')) {
+            if (r.form === 'barrel' || r.form === 'chest' || (r.form === 'crate' && rand() < 0.65)) { r.color = any(woods); if (r.form === 'crate') r.finish = 'natural'; }
+            else { r.color = any(paints[r.form] || paints.cargo); if (r.form === 'crate') r.finish = 'painted'; }
+            r.trim = any(['#2b2a28', '#7d8288', '#a2854c', '#3b454f']);
+            r.accent = any(paints.drum);
+            if (FUTURE.has(r.form)) {
+                r.lights.color = any(glows);
+                r.strips.color = any(glows);
+                r.display.color = any(glows);
+            }
+        }
         return normalize(r);
     }
 
@@ -1432,7 +1455,8 @@
     // ── the 3D Prop Builder's list and page ────────────────────────────────
     const Model = root.RRPropModel || (typeof require === 'function' ? require('./PropModel.js') : null);
     const Catalog = root.RRPropCatalog || (typeof require === 'function' ? require('./PropCatalog.js') : null);
-    if (Model && Model.register) Model.register({ id: 'container', label: 'Containers', normalize, build, random });
+    if (Model && Model.register) Model.register({ id: 'container', label: 'Containers', normalize, build, random,
+        randomScopes: [['all', 'Everything'], ['shape', 'Shape'], ['colors', 'Colors'], ['details', 'Details']] });
     if (Catalog) {
         Object.assign(Catalog.ICONS, {
             barrel: '<path d="M7.5 3h9c1.8 3.5 1.8 14.5 0 18h-9c-1.8-3.5-1.8-14.5 0-18z"/><path d="M6.3 8h11.4M6.3 16h11.4"/>',

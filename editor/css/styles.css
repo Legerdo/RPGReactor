@@ -7522,6 +7522,26 @@ html.rr-detached-window {
 .rr-c3d-saved:hover { border-color: var(--color-accent-bright); }
 .rr-c3d-saved img, .rr-c3d-nothumb { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 2px; background: var(--color-bg-deep); }
 .rr-c3d-nothumb { display: flex; align-items: center; justify-content: center; font-size: 28px; color: var(--color-text-muted); }
+.rr-c3d-import-preset { position: relative; min-width: 0; }
+.rr-c3d-import-preset > .rr-c3d-tile { width: 100%; height: 100%; }
+.rr-c3d-import-delete { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 1px solid var(--color-border-input); color: var(--color-text); background: var(--color-bg-panel); cursor: pointer; }
+.rr-c3d-import-add { min-width: 0; }
+.rr-c3d-import-add .rr-c3d-nothumb { aspect-ratio: auto; height: 44px; }
+.rr-c3d-import-search { width: 100%; min-width: 0; margin-bottom: 8px; }
+.rr-c3d-import-parts { display: flex; flex-wrap: wrap; gap: 4px 12px; border: 1px solid var(--color-border-subtle); margin: 0 0 8px; padding: 4px 8px 8px; font-size: 11px; }
+.rr-c3d-import-parts label { display: flex; align-items: center; gap: 4px; }
+.rr-c3d-import-model { min-width: 0; }
+.rr-c3d-import-model > span:last-child { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-c3d-import-model[hidden], .rr-c3d-import-progress[hidden], .rr-c3d-import-actions[hidden] { display: none; }
+.rr-c3d-import-progress { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 11px; }
+.rr-c3d-import-progress progress { flex: 1; min-width: 0; }
+.rr-c3d-import-actions { display: flex; gap: 8px; }
+.rr-c3d-import-ready { inset: auto 12px 12px; }
+.rr-c3d-import-ready .rr-c3d-gallery-grid, .rr-c3d-import-ready .rr-c3d-import-search, .rr-c3d-import-ready .rr-c3d-import-parts { display: none; }
+.rr-c3d-importer .rr-c3d-gallery-head > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-c3d-emblem-row { grid-template-columns: 96px minmax(0, 1fr) auto; }
+.rr-c3d-emblem-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-c3d-emblem-row > [data-outfit-emblem-clear] { grid-column: 3; }
 .rr-c3d-row {
     display: grid; grid-template-columns: 96px minmax(0, 1fr) 56px; align-items: center; gap: 2px 8px;
     padding: 3px 0; font-size: 11px; color: var(--color-text);

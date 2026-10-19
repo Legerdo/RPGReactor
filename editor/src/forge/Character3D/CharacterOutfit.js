@@ -473,6 +473,10 @@
             }
         }
         // Fields at each piece vertex, for patterns: spine/limb position and angle, blended like the vertex.
+        if (spec.surface === 'skirt' && !an.skirtAxis) {
+            const ids = [...new Set(pack.helpers.skirt.source)];
+            an.skirtAxis = [0, 2].map(k => ids.reduce((sum, v) => sum + an.rest[v * 3 + k], 0) / ids.length);
+        }
         piece.field = piece.verts.map(({ a, b, t }) => {
             const f = v => {
                 let best = 0;
@@ -481,7 +485,11 @@
             };
             const fa = f(a), fb = f(b);
             const y = an.rest[a * 3 + 1] * (1 - t) + an.rest[b * 3 + 1] * t;
-            return { fam: fa.fam, s: fa.s * (1 - t) + (fa.fam === fb.fam ? fb.s : fa.s) * t, ang: fa.ang, u: fa.u * (1 - t) + fb.u * t, y };
+            const hip = an.chains.spine[0], neck = an.chains.spine[4], h = Math.max(0, Math.min(1, (y - hip[1]) / (neck[1] - hip[1])));
+            const cx = spec.surface === 'skirt' ? an.skirtAxis[0] : hip[0] * (1 - h) + neck[0] * h;
+            const cz = spec.surface === 'skirt' ? an.skirtAxis[1] : hip[2] * (1 - h) + neck[2] * h;
+            const spineAng = Math.atan2(an.rest[a * 3] * (1 - t) + an.rest[b * 3] * t - cx, an.rest[a * 3 + 2] * (1 - t) + an.rest[b * 3 + 2] * t - cz);
+            return { fam: fa.fam, s: fa.s * (1 - t) + (fa.fam === fb.fam ? fb.s : fa.s) * t, ang: fa.ang, spineAng, trunk: an.member[a * 5] * (1 - t) + an.member[b * 5] * t, u: fa.u * (1 - t) + fb.u * t, y };
         });
         // Distance from the cut line, along the surface, for hems and trims (in chain units, from the cut value).
         piece.skins = piece.verts.map(({ a, b, t }) => (t === 0 ? skinOf(pack, a) : mixSkin(pack, a, b, t)));
@@ -602,6 +610,9 @@
         smoothBorder(piece, pos, base, spec.edgeSmooth ?? (spec.hard || (spec.rules && spec.rules.open) ? 16 : 8));
         // Whatever still lies in the skin (a slider pushed past what the helper follows) is lifted out.
         if (spec.collide !== false) collide(pack, built, pos, 0, count, lift * 0.7, cache, null, spec.liftAt ? Float32Array.from(stand, x => Math.min(lift, x) * 0.7) : null);
+        if (spec.collide !== false && !spec.hard && (spec.surface === 'tights' || spec.surface === 'skirt')) {
+            encloseTrunk(pack, built, pos, base, piece.field, lift, cache, spec);
+        }
         // The rim: each border vertex gets a twin back down at the body, a strip between them.
         const index = Array.from(piece.index);
         const positions = Array.from(pos), uvs = Array.from(piece.uvs);
@@ -650,6 +661,54 @@
         const edge = new Float32Array(out.length / 3);
         edge.set(piece.edgeDist || []);
         return { positions: out, normals: triangleNormals(out, index), uvs: Float32Array.from(uvs), index: Uint32Array.from(index), joints, weights, field: fields, vals: Float32Array.from(vals), edge, base, rimStart: count, origin: Int32Array.from(origin), piece };
+    }
+
+    /** Heavy body folds sit inside the cloth's smooth cross-section instead of pulling it into the crease. */
+    function encloseTrunk(pack, built, positions, base, fields, lift, frame, spec) {
+        const skirt = spec.surface === 'skirt';
+        if (frame.trunkEnvelope === undefined) {
+            const an = anatomy(pack), P = built.shaped, ids = [...new Set(pack.body.source)];
+            let half = 0;
+            for (const v of ids) if (an.member[v * 5] > 0.9 && an.s[v * 5] > 0.4 && an.s[v * 5] < 2) half = Math.max(half, Math.abs(P[v * 3]));
+            frame.trunkEnvelope = null;
+            if (half > built.height * 0.15) {
+                const bins = new Map(), step = 0.02 * built.height / 1.7;
+                for (const v of ids) {
+                    if (an.member[v * 5 + 1] > 0.4 || an.member[v * 5 + 2] > 0.4 || an.s[v * 5] > 3.7) continue;
+                    const bin = Math.floor(P[v * 3 + 1] / step);
+                    for (let k = bin - 1; k <= bin + 1; k++) { if (!bins.has(k)) bins.set(k, []); bins.get(k).push(v); }
+                }
+                const hips = built.bones.find(b => b.name === 'Hips').head;
+                const hipBand = ids.filter(v => P[v * 3 + 1] > hips[1] * 0.65 && P[v * 3 + 1] < hips[1] * 1.15 && an.member[v * 5 + 1] < 0.4 && an.member[v * 5 + 2] < 0.4);
+                frame.trunkEnvelope = { bins, step, P, hips, hipBand, neck: built.bones.find(b => b.name === 'Neck').head, restHip: an.chains.spine[0][1], restNeck: an.chains.spine[4][1] };
+            }
+        }
+        const envelope = frame.trunkEnvelope;
+        if (!envelope) return;
+        const { bins, step, P, hips, hipBand, neck, restHip, restNeck } = envelope;
+        for (let i = 0; i < fields.length; i++) {
+            const field = fields[i];
+            if (!skirt && (field.fam === 1 || field.fam === 2 || field.y < restHip * 0.75 || field.y > restNeck - 0.03)) continue;
+            const o = i * 3;
+            let y = field.y < restHip ? field.y / restHip * hips[1] : hips[1] + (field.y - restHip) / (restNeck - restHip) * (neck[1] - hips[1]);
+            if (skirt) y += 0.12 * built.height / 1.7 * Math.max(0, 1 - field.u);
+            const band = bins.get(Math.floor(y / step));
+            if (!band || band.length < 3) continue;
+            const t = Math.max(0, Math.min(1, (y - hips[1]) / (neck[1] - hips[1]))), cz = hips[2] * (1 - t) + neck[2] * t;
+            const dx = positions[o], dz = positions[o + 2] - cz, distance = Math.hypot(dx, dz);
+            if (distance < 1e-6) continue;
+            const nx = Math.sin(field.spineAng), nz = Math.cos(field.spineAng);
+            let support = -Infinity;
+            for (const v of band) support = Math.max(support, P[v * 3] * nx + (P[v * 3 + 2] - cz) * nz);
+            if (skirt) for (const v of hipBand) support = Math.max(support, P[v * 3] * nx + (P[v * 3 + 2] - cz) * nz);
+            const radius = support + lift * 2 + (skirt && spec.flare ? Math.max(0, spec.flare(field)) : 0);
+            const blend = skirt || field.y < restHip + (restNeck - restHip) * 0.7 ? 1 : Math.max(0, Math.min(1, (field.trunk - 0.6) / 0.35));
+            const target = [nx * radius, y, cz + nz * radius];
+            for (let k = 0; k < 3; k++) {
+                const delta = (target[k] - positions[o + k]) * blend;
+                positions[o + k] += delta; base[o + k] += delta;
+            }
+        }
     }
 
     /** Each border vertex moved toward the middle of its two neighbors along the border, `passes` times (the body point under it too). */
@@ -862,7 +921,7 @@
         // The leg's rings: per height, the farthest skin (or garment) in each direction round the leg's axis.
         const cols = style.cols || SHOE_COLS;
         const ringAt = (s, dirs) => {
-            const c = legAxis(F, s), y = c[1], half = 0.016;
+            const c = legAxis(F, s), y = c[1], half = shaft ? 0.03 : 0.016;
             const r = new Float64Array(dirs.length);
             const win = Math.PI * 2 / dirs.length * 1.6;
             const [cf, cl] = toPlan(F, c[0], c[2]);
@@ -1280,6 +1339,23 @@
             const nearest = skinPicker(pack, built);
             for (let i = 0; i < n; i++) {
                 const s = nearest(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+                if (style.rigidFoot) {
+                    const side = P[i * 3] > 0 ? 'Left' : 'Right', foot = built.bones.findIndex(b => b.name === side + 'Foot'), toe = built.bones.findIndex(b => b.name === side + 'ToeBase');
+                    const ankle = built.bones[foot].head[1], scale = built.height / 1.7;
+                    const flex = smoothstep(ankle + 0.005 * scale, ankle + 0.05 * scale, P[i * 3 + 1]);
+                    if (flex < 1) {
+                        // The heel, sole and foot shell follow the foot; only the ankle sleeve blends into the shin.
+                        // Toe articulation stays in the toe cap, so push-off cannot pull toes through the upper.
+                        const sum = new Map();
+                        let toeWeight = 0;
+                        for (let k = 0; k < 4; k++) { if (s.joints[k] === toe) toeWeight += s.weights[k]; if (s.weights[k] > 0) sum.set(s.joints[k], (sum.get(s.joints[k]) || 0) + s.weights[k] * flex); }
+                        sum.set(foot, (sum.get(foot) || 0) + (1 - toeWeight) * (1 - flex));
+                        if (toeWeight) sum.set(toe, (sum.get(toe) || 0) + toeWeight * (1 - flex));
+                        const top = [...sum].sort((a, b) => b[1] - a[1]).slice(0, 4), total = top.reduce((v, q) => v + q[1], 0);
+                        s.joints.fill(0); s.weights.fill(0);
+                        top.forEach(([joint, weight], k) => { s.joints[k] = joint; s.weights[k] = weight / total; });
+                    }
+                }
                 for (let k = 0; k < 4; k++) { joints.push(s.joints[k]); weights.push(s.weights[k]); }
                 source.push(s.v);
             }
@@ -1884,7 +1960,92 @@
         return Object.assign(laid, { hidden: t.hidden, template: t });
     }
 
-    const api = { binding, boundPositions, collide, pointGrid, FAMILIES, CHAINS, linear, anatomy, coverage, cut, cutFor, lay, paint, mixSkin, surfaceNormals, triangleNormals, relaxScalar, shoes, footFrame, band, helmet, pauldrons, collarBand, uncovered };
+    /** Thin swimwear cords sampled on real skin triangles; narrow strips cannot survive a vertex-only cut. */
+    function swimStraps(pack, built, type, frame={}) {
+        const an=anatomy(pack), R=an.rest, P=built.shaped, scale=built.height/an.height;
+        const tris=pack._swimStrapTriangles || [];
+        if(!pack._swimStrapTriangles)for(let i=0;i<pack.body.index.length;i+=3) {
+            const ids=[0,1,2].map(k=>pack.body.source[pack.body.index[i+k]]);
+            const ys=ids.map(v=>R[v*3+1]);
+            if(Math.max(...ys)<.78||Math.min(...ys)>1.46)continue;
+            tris.push({ids,lo:Math.min(...ys),hi:Math.max(...ys),arm:ids.some(v=>an.member[v*5+1]>.45||an.member[v*5+2]>.45)});
+        }
+        pack._swimStrapTriangles=tris;
+        const bindings=pack._swimStrapBindings || (pack._swimStrapBindings=new Map());
+        const bodyNormals=frame.normals || (frame.normals={});
+        const N=bodyNormals.body || (bodyNormals.body=surfaceNormals(pack.body,P,pack.vertexCount));
+        const positions=[],normals=[],joints=[],weights=[],index=[];
+        const add=(a,b)=>a.map((x,k)=>x+b[k]), mul=(a,t)=>a.map(x=>x*t), sub=(a,b)=>a.map((x,k)=>x-b[k]);
+        const dot=(a,b)=>a.reduce((n,x,k)=>n+x*b[k],0);
+        function sample(y, angle, x) {
+            const hip=an.chains.spine[0], neck=an.chains.spine[4], t=Math.max(0,Math.min(1,(y-hip[1])/(neck[1]-hip[1])));
+            const axis=[0,y,hip[2]*(1-t)+neck[2]*t], dir=x==null?[Math.sin(angle),0,Math.cos(angle)]:[0,0,1];
+            const origin=x==null?axis:[x,y,-1];
+            const key=[y,angle,x].join(':'),cached=bindings.get(key);
+            let best=cached || null;
+            if(!cached)for(const tri of tris) {
+                // A horizontal torso cord must not wrap the arms. The front halter
+                // ray also needs clavicle skin, whose weights include shoulder bones.
+                if(x==null&&tri.arm)continue;
+                if(y<tri.lo-1e-7||y>tri.hi+1e-7)continue;
+                const [a,b,c]=tri.ids.map(v=>Array.from(R.subarray(v*3,v*3+3)));
+                const e1=sub(b,a),e2=sub(c,a),h=cross3(dir,e2),det=dot(e1,h);
+                if(Math.abs(det)<1e-12)continue;
+                const q=sub(origin,a),u=dot(q,h)/det,r=cross3(q,e1),v=dot(dir,r)/det,dist=dot(e2,r)/det;
+                if(u< -1e-7||v< -1e-7||u+v>1.0000001||dist<0)continue;
+                if(!best||dist>best.dist)best={ids:tri.ids,w:[1-u-v,u,v],dist};
+            }
+            if(!best)throw new Error('Bikini strap has no skin attachment at '+[y,angle,x]);
+            if(!cached)bindings.set(key,best);
+            const point=[0,0,0],normal=[0,0,0],influences=new Map();
+            best.ids.forEach((v,i)=>{
+                for(let k=0;k<3;k++){point[k]+=P[v*3+k]*best.w[i];normal[k]+=N[v*3+k]*best.w[i];}
+                for(let k=0;k<4;k++){const j=pack.skinJoints[v*4+k],w=pack.skinWeights[v*4+k]*best.w[i];influences.set(j,(influences.get(j)||0)+w);}
+            });
+            const skin=[...influences].filter(e=>e[1]>1e-8).sort((a,b)=>b[1]-a[1]).slice(0,4), total=skin.reduce((s,e)=>s+e[1],0);
+            return {point,normal:norm3(normal),skin:skin.map(([j,w])=>[j,w/total])};
+        }
+        function cord(points,closed=false,radius=.0018*scale) {
+            const sides=6,base=positions.length/3;
+            points.forEach((p,i)=>{
+                const prev=points[i?i-1:closed?points.length-1:0],next=points[i+1<points.length?i+1:closed?0:points.length-1];
+                const along=norm3(sub(next.point,prev.point)),across=norm3(cross3(along,p.normal));
+                const center=add(p.point,mul(p.normal,.0023*scale));
+                for(let k=0;k<sides;k++) {
+                    const a=k/sides*Math.PI*2,n=add(mul(p.normal,Math.cos(a)),mul(across,Math.sin(a)));
+                    positions.push(...add(center,mul(n,radius)));normals.push(...n);
+                    for(let q=0;q<4;q++){joints.push(p.skin[q]?.[0]||0);weights.push(p.skin[q]?.[1]||0);}
+                }
+            });
+            for(let r=0;r<(closed?points.length:points.length-1);r++)for(let k=0;k<sides;k++) {
+                const a=base+r*sides+k,b=base+r*sides+(k+1)%sides,c=base+(r+1)%points.length*sides+k,d=base+(r+1)%points.length*sides+(k+1)%sides;
+                index.push(a,b,d,a,d,c);
+            }
+        }
+        function bow(anchor,size=1) {
+            const across=norm3(cross3([0,1,0],anchor.normal));
+            const point=(y,x)=>Object.assign({},anchor,{point:add(anchor.point,add(mul(across,x*scale*size),[0,y*scale*size,0]))});
+            for(const sign of [-1,1]) {
+                cord([[0,0],[.005,.008],[.006,.015],[0,.017],[-.004,.010],[0,0]].map(([y,x])=>point(y,x*sign)));
+                cord([[0,0],[-.012,.007],[-.03,.012]].map(([y,x])=>point(y,x*sign)));
+            }
+        }
+        if(type==='top') {
+            cord(Array.from({length:72},(_,k)=>sample(1.173,k/72*Math.PI*2)),true);
+            for(const side of [-1,1])cord(Array.from({length:25},(_,k)=>{
+                const t=k/24;return sample(1.286+.132*t,0,side*(.081-.037*t));
+            }));
+            cord(Array.from({length:40},(_,k)=>sample(1.418,k/40*Math.PI*2)),true,.0016*scale);
+            bow(sample(1.173,Math.PI));bow(sample(1.418,Math.PI),.65);
+        } else {
+            const hip=an.chains.spine[0][1];
+            cord(Array.from({length:80},(_,k)=>{const a=k/80*Math.PI*2;return sample(hip+.018+.045*Math.abs(Math.sin(a))**1.3,a);}),true);
+            for(const side of [-1,1])bow(sample(hip+.063,side*Math.PI/2));
+        }
+        return {positions:Float32Array.from(positions),normals:Float32Array.from(normals),joints:Uint8Array.from(joints),weights:Float32Array.from(weights),index:Uint32Array.from(index)};
+    }
+
+    const api = { binding, boundPositions, collide, pointGrid, FAMILIES, CHAINS, linear, anatomy, coverage, cut, cutFor, lay, paint, mixSkin, surfaceNormals, triangleNormals, relaxScalar, shoes, footFrame, band, helmet, pauldrons, collarBand, uncovered, swimStraps };
     root.RRCharacterOutfit = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

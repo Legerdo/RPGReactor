@@ -18,7 +18,7 @@ const compile = (material, fragment = 'void main() {\n\tvec4 diffuseColor = vec4
 
 test('the light loop weighs each light by the facing a model sets, and nothing else changes', () => {
     for (const glsl of [Reactor3D.lightGlsl(false), Reactor3D.lightGlsl(true, 1), Reactor3D.lightGlsl(true, 5)]) {
-        assert.match(glsl, /vec3 rrFaceN = vec3\(0\.0, 1\.0, 0\.0\);\nfloat rrFace = 0\.0;\nuniform vec3 rrKeyColor;\nfloat rrFaceShare\(vec3 n\) \{/);
+        assert.match(glsl, /vec3 rrFaceN = vec3\(0\.0, 1\.0, 0\.0\);\nfloat rrFace = 0\.0;\nuniform vec3 rrKeyColor;\n#ifdef RR_VERTEX_FACE\nvarying vec4 vRRFaceLight;\nfloat rrFaceShare\(vec3 n\) \{/);
         assert.match(glsl, /\}\nvec3 rrLight\(vec3 p\) \{/);
         // A sun's direction is its aim; any other light's is from the point toward it.
         assert.match(glsl, /vec3 rrDL = lc\.w > 2\.5 \? rrLightAim\[i\]\.xyz : -d;/);
@@ -45,6 +45,8 @@ test('a model material sets its facing before its light; tiles and pieces do not
     const tile = compile({ userData: {} });
     assert.doesNotMatch(tile.fragmentShader, /rrFace = rrFL/);
     assert.doesNotMatch(tile.vertexShader, /vRRWorldNormal/);
+    assert.doesNotMatch(tile.fragmentShader, /#define RR_VERTEX_FACE/);
+    assert.match(shader.fragmentShader, /#define RR_VERTEX_FACE/);
     assert.equal(Reactor3D.facesLight({ __reactorModel: true, __reactorSelfLit: true }), false, 'a glow is not lit at all');
     // Its program is keyed apart, and the quarter-size light pass (which cannot see its normals) leaves it.
     const lit = Reactor3D.litMaterial({ __reactorModel: true, userData: {} });
@@ -67,13 +69,19 @@ test('a normal map beside the picture bends the facing; without a picture it is 
     assert.doesNotMatch(bare.fragmentShader, /rrNormalMap/);
 });
 
-test('on the weak tier a model stays in the quarter-size light, its picture taking the sun\'s and the sky\'s share of its facing', () => {
+test('on the weak tier models keep quarter-size lighting and local lights shape their facing', () => {
     const source = require('./helpers/runtime-3d-source.cjs').source3D();
     assert.match(source, /Reactor3D\.facesLight\(this\) \? "if \(rrFace > 0\.0 && rrSelfLit < 1\.0\) diffuseColor\.rgb \*= rrFaceShare\(rrFaceN\);" : ""/);
     assert.doesNotMatch(source, /if \(Reactor3D\.facesLight\(material\)\) return false;/, 'models are not taken out of the quarter-size pass (it cost the weak tier 6 ms on North Haven)');
     // The share as the shader has it: all sun at its facing term, all sky at the face's tilt.
     const glsl = Reactor3D.lightGlsl(false);
-    assert.match(glsl, /float w = rrKeyLight\.w < 0\.5 \? k \/ max\(k \+ a, 1e-4\) : 0\.0;/, 'only a sun counts, as a share of sun and ambient');
+    assert.match(glsl, /float w = k \/ max\(k \+ a, 1e-4\);/, 'all packed lights contribute alongside ambient');
+    const shader = compile({ __reactorModel: true, userData: {} });
+    assert.match(shader.vertexShader, /fall \*= smoothstep/);
+    assert.match(shader.vertexShader, /sum\.xyz \+= toward/);
+    assert.match(shader.vertexShader, /vRRFaceLight = rrVertexFaceLight\(vRRWorldPos\);/);
+    assert.match(glsl, /dot\(n, vRRFaceLight\.xyz\) \/ max\(k, 1e-4\)/);
+    assert.doesNotMatch(glsl.slice(glsl.indexOf('float rrFaceShare'), glsl.indexOf('float rrLightGuess')), /for \(/, 'no extra pixel light loop');
     assert.match(glsl, /return \(1\.0 - w\) \* \(1\.0 - 0\.120 \* \(1\.0 - n\.y\)\) \+ w \* t;/);
 });
 
@@ -116,7 +124,7 @@ test('hair takes a two-lobe strand sheen along its picture\'s v, from the key li
     assert.match(f, /outgoingLight \+= rrHC \* rrHNL \* \(0\.060 \* rrP \* mix\(vec3\(1\.0\), diffuseColor\.rgb, 0\.5\) \+ 0\.300 \* rrSec \* diffuseColor\.rgb\);/);
     assert.match(shader.vertexShader, /vRRWorldNormal = /);
     const source = require('./helpers/runtime-3d-source.cjs').source3D();
-    assert.match(source, /if \(\/\^\(Hair\|Beard\|Brows\|Lashes\)\\b\/\.test\(String\(def\.name \|\| ""\)\)\) mat\.userData\.rrHair = true;/);
+    assert.match(source, /if \(\/\^\(Hair\|Beard\)\\b\/\.test\(String\(def\.name \|\| ""\)\)\) mat\.userData\.rrHair = true;/);
 });
 
 test('a clone keeps the normal and glow pictures and its own glow', () => {

@@ -40,6 +40,24 @@ const bodyOf = name => {
 };
 test.before(async () => { pack = await Body.loadPack(); });
 
+test('thrust and bow have distinct one-shot arm motions and dedicated sprite/game clips', () => {
+    const Cloth = load('CharacterCloth');
+    const { bones, body } = bodyOf('man');
+    const index = new Map(bones.map((b, i) => [b.name, i]));
+    for (const id of ['swordThrust', 'bow']) {
+        const clip = Poses.clip(bones, id, body);
+        assert.ok(clip?.once, id + ' plays once');
+        assert.ok(Poses.GAME_CLIPS.some(c => c.id === id && c.useful));
+        const at = u => Cloth.pose(bones, clip, clip.times.at(-1) * u).P[index.get('RightHand')];
+        const a = at(0), b = at(0.5);
+        assert.ok(Math.hypot(...sub(b, a)) > 0.15, id + ' has a real draw or forward thrust');
+        const borrowed = Poses.clip(bones, id === 'bow' ? 'throw' : 'sword', body);
+        assert.notDeepEqual(clip.tracks.find(t => t.bone === index.get('RightArm')).values, borrowed.tracks.find(t => t.bone === index.get('RightArm')).values);
+    }
+    assert.ok(Poses.SLOTS.some(([id, , clip]) => id === 'thrust' && clip === 'Thrust'));
+    assert.ok(Poses.SLOTS.some(([id, , clip]) => id === 'missile' && clip === 'Bow'));
+});
+
 test('no bone turns faster than a joint can, every track keeps one hemisphere, and no loop winds a bone round', () => {
     // 65 degrees from one key to the next is past any joint's own turn (keys come 30 or 60 a second; a pitcher's
     // arm, the fastest turn a body makes, comes to about 50 at 60 a second): a flip or a capture glitch.
@@ -304,4 +322,112 @@ test('every leg joint stays within its reach in every clip: hip, knee a hinge ne
             }
         }
     }
+});
+
+test('Save to Project builds a humanoid rig sidecar and maps the saved mocap clips to game slots', async () => {
+    const Glb = load('CharacterGlb');
+    const Optimizer = require(path.join(root, 'src/utils/GlbOptimizer.js'));
+    const R = require(path.join(root, '..', 'runtime/reactor_3d.js'));
+    require(path.join(root, '..', 'runtime/reactor_3d_models.js'));
+    const { bones, body } = bodyOf('man'), result = { bones, parts: [body], clips: [{ name: 'Idle', ...Glb.idleClip(bones, {}) }] };
+    const ready = Poses.savedModel(result, 'useful');
+    assert.equal(ready.sidecar.rig.template, 'humanoid');
+    assert.ok(ready.rigBinary.byteLength > 0);
+    const sidecar = structuredClone(ready.sidecar);
+    sidecar.rig.weightsBin = R.decodeRigWeightsBinary(ready.rigBinary);
+    const rig = R.readModelRig(sidecar);
+    assert.ok(rig && rig.bones.length >= 17, 'the game reads the saved rig without rigging it again');
+    const bytes = Glb.toGlb(result, { name: 'Saved mocap', clips: result.clips.concat(ready.clips) });
+    const { json } = Optimizer.parseGlb(bytes);
+    const animations = json.animations.map(a => ({ name: a.name }));
+    const rules = R.readModelAnimationRules(sidecar, animations);
+    for (const [state, clip] of Object.entries({ walking: 'Walk', dashing: 'Run', jumping: 'Jump', swimming: 'Swim', treading: 'Tread Water', climbing: 'Climb' })) {
+        const rule = rules.find(r => r.trigger === state);
+        assert.equal(rule?.type, 'clip', state + ' uses the saved mocap');
+        assert.equal(rule.clip, clip);
+        assert.ok(json.animations.some(a => a.name === clip && a.channels.length > 20), clip + ' carries skeletal keys');
+    }
+    const none = Poses.savedModel(result, 'none');
+    assert.equal(none.clips.length, 0);
+    assert.equal(none.sidecar.rig.template, 'humanoid', 'rigging remains automatic with motion export disabled');
+});
+
+test('walking and running feet face forward through the stride on every body', () => {
+    for (const [name] of BODIES) {
+        const { bones, body } = bodyOf(name), at = n => bones.findIndex(b => b.name === n);
+        for (const id of ['walk', 'run']) {
+            const clip = Poses.clip(bones, id, body);
+            for (const [S, side] of [['Left', 1], ['Right', -1]]) {
+                const foot = at(S + 'Foot'), toe = at(S + 'ToeBase'), along = sub(bones[toe].head, bones[foot].head), headings = [];
+                for (let f = 0; f < clip.times.length; f++) {
+                    const { W } = posed(bones, clip, f), direction = rot(W[foot], along), front = rot(W[at('Hips')], [0, 0, 1]);
+                    // A pitched foot pushing off or swinging vertically has no meaningful horizontal heading.
+                    if (Math.abs(direction[1]) / Math.hypot(...direction) >= 0.6) continue;
+                    const a = Math.atan2(direction[0], direction[2]) - Math.atan2(front[0], front[2]);
+                    const outward = Math.atan2(Math.sin(a), Math.cos(a)) * DEG * side;
+                    headings.push(outward);
+                    // The ankle→ball marker sits about six degrees outside the sole's centerline. The
+                    // skin contour test below checks the visible heading, including that difference.
+                    assert.ok(outward > (id === 'walk' ? -1.5 : -3.5) && outward < 24.5, `${id} on ${name}: ${S} points ${outward.toFixed(1)} degrees outward at frame ${f}`);
+                }
+                assert.ok(headings.length > clip.times.length / 4, `${id}: enough level-foot frames`);
+                headings.sort((a, b) => a - b);
+                const neutral = headings[headings.length >> 1];
+                assert.ok(neutral > 2 && neutral < 14, `${id} on ${name}: ${S}'s neutral heading is ${neutral.toFixed(1)} degrees outward`);
+            }
+        }
+    }
+});
+
+test('walking visible heel-to-ball soles face forward without curling inward', () => {
+    const Cloth = load('CharacterCloth');
+    for (const [name] of BODIES) {
+        const { bones, body } = bodyOf(name), clip = Poses.clip(bones, 'walk', body);
+        for (const [S, side] of [['Left', 1], ['Right', -1]]) {
+            const foot = bones.find(b => b.name === S + 'Foot'), toe = bones.find(b => b.name === S + 'ToeBase');
+            const length = toe.head[2] - foot.head[2];
+            // Sample opposite edges at the heel, instep and ball, before the toe tips. A tip centroid
+            // is biased toward the long big toe and cannot measure a foot's anatomical forward axis.
+            const groups = [.18, .55, .88].map(fraction => {
+                const z = foot.head[2] + length * fraction, ids = [];
+                for (let v = 0; v < body.positions.length / 3; v++) {
+                    if (body.positions[v * 3 + 1] < foot.head[1] * .7 && Math.sign(body.positions[v * 3]) === side && Math.abs(body.positions[v * 3 + 2] - z) < length * .08) ids.push(v);
+                }
+                ids.sort((a, b) => body.positions[a * 3] - body.positions[b * 3]);
+                const n = Math.max(1, Math.floor(ids.length * .1));
+                assert.ok(ids.length >= 4, `${name} ${S}: sole cross section exists`);
+                return ids.slice(0, n).concat(ids.slice(-n));
+            });
+            const ids = groups.flat(), offsets = [0, groups[0].length, groups[0].length + groups[1].length];
+            const points = X => groups.map((g, i) => [0, 1, 2].map(k => g.reduce((sum, _, j) => sum + X[(offsets[i] + j) * 3 + k], 0) / g.length));
+            const yaw = (a, b) => Math.atan2(b[0] - a[0], b[2] - a[2]) * DEG * side;
+            const rest = points(new Float32Array(ids.flatMap(v => Array.from(body.positions.slice(v * 3, v * 3 + 3)))));
+            const restCurve = yaw(rest[1], rest[2]) - yaw(rest[0], rest[1]), headings = [];
+            for (const time of clip.times) {
+                const ps = Cloth.pose(bones, clip, time), p = points(Cloth.skin(body, bones, ps, ids));
+                const d = sub(p[2], p[0]);
+                if (Math.abs(d[1]) / Math.hypot(...d) >= .6) continue;
+                const heading = yaw(p[0], p[2]);
+                headings.push(heading);
+                assert.ok(heading > -4.5 && heading < 19, `${name} ${S}: visible sole heading ${heading.toFixed(1)} at ${time.toFixed(2)}`);
+                const curve = yaw(p[1], p[2]) - yaw(p[0], p[1]);
+                assert.ok(Math.abs(curve - restCurve) < 10, `${name} ${S}: foot gains an unnatural ${Math.abs(curve - restCurve).toFixed(1)} degree bend`);
+            }
+            headings.sort((a, b) => a - b);
+            assert.ok(headings.length > clip.times.length / 4, `${name} ${S}: level sole samples`);
+            const median = headings[headings.length >> 1];
+            assert.ok(median > 2 && median < 10, `${name} ${S}: visible sole neutral heading ${median.toFixed(1)}`);
+        }
+    }
+});
+
+test('a saved merfolk maps treading to its native tail motion', () => {
+    const { bones, body } = bodyOf('man');
+    const result = { bones, parts: [body], recipe: { species: 'merfolk' }, clips: ['Idle', 'Walk', 'Swim', 'Tread'].map(name => ({ name })) };
+    const ready = Poses.savedModel(result, 'useful');
+    const slots = Object.fromEntries(ready.sidecar.animations.map(a => [a.trigger, a.clip]));
+    assert.equal(slots.treading, 'Tread');
+    assert.equal(slots.walking, 'Walk'); assert.equal(slots.swimming, 'Swim'); assert.equal(slots.idle, 'Idle');
+    const none = Poses.savedModel(result, 'none');
+    assert.equal(none.sidecar.animations.find(a => a.trigger === 'treading').clip, 'Tread', 'native motions remain available without shared motion export');
 });

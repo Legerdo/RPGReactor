@@ -95,6 +95,17 @@ test('i18n manager reads, applies, and persists language preference', () => {
     assert.equal(document.documentElement.dir, 'rtl');
 });
 
+test('builder and movement labels use the selected language rather than copied Greek', () => {
+    const { catalogs } = loadI18nForTest();
+    const labels = ['Everything', 'This event keeps moving', 'Last action',
+        'The player keeps moving while this holds.', 'Face Ceiling', 'Face Ground', 'Stand Up', 'Rotate...'];
+    for (const [locale, table] of Object.entries(catalogs.text)) {
+        if (locale === 'el') continue;
+        for (const label of labels) assert.ok(!/[Α-Ωα-ω]/u.test(table[label]), `${locale}: ${label}`);
+    }
+    assert.equal(catalogs.text.de['Saving…'], 'Speichern…');
+});
+
 test('localized UI key references exist in the English dictionary', () => {
     const { RR_I18N_STRINGS } = loadI18nForTest();
     const knownKeys = new Set(Object.keys(RR_I18N_STRINGS.en));

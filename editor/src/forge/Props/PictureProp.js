@@ -78,8 +78,8 @@
     /**
      * Which pixels are the thing, at most `limit` on a side: solid where the
      * picture is opaque, or where it is not the background color (the
-     * color most common along its border) reached from the border within
-     * `tolerance`. Specks and pinholes smaller than a few pixels go.
+     * color most common along its border) within `tolerance`, including
+     * enclosed openings. Specks and pinholes smaller than a few pixels go.
      */
     function maskOf(img, outline, tolerance, limit) {
         const s = Math.min(1, (limit || 256) / Math.max(img.width, img.height));
@@ -103,13 +103,10 @@
             br /= bn; bg /= bn; bb /= bn;
             const limitD = 12 + tolerance * 160;
             const isBg = i => px[i * 4 + 3] < 128 || Math.hypot(px[i * 4] - br, px[i * 4 + 1] - bg, px[i * 4 + 2] - bb) < limitD;
-            m.fill(1);
-            const stack = [];
-            for (const i of border) if (isBg(i) && m[i]) { m[i] = 0; stack.push(i); }
-            while (stack.length) {
-                const i = stack.pop(), x = i % w, y = (i - x) / w;
-                for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (j >= 0 && m[j] && isBg(j)) { m[j] = 0; stack.push(j); }
-            }
+            // Color-key removal must also cut out the center of a ring or
+            // gaps enclosed by lettering. Flooding only from the border
+            // left those pixels solid despite selecting the same background.
+            for (let i = 0; i < m.length; i++) m[i] = isBg(i) ? 0 : 1;
         }
         clean(m, w, h);
         return { w, h, m, mode, scale: s };

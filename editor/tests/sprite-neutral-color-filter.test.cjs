@@ -96,3 +96,5 @@ test('only a sprite-made colour filter is skipped', () => {
     const plain = new x.C();
     assert.equal(plain.enabled, true, 'a filter a plugin makes keeps its pass');
 });
+
+test('legacy oversaturation retains its first pass when its final colour matrix is neutral',()=>{const {filter}=fixture();filter.setLegacyTone(true);filter.setColorTone([0,0,0,-255]);assert.equal(filter.enabled,true);filter.setColorTone([0,0,0,0]);assert.equal(filter.enabled,false);});

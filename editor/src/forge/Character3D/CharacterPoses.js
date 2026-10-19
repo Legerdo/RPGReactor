@@ -74,6 +74,11 @@
         const clips = Library.gameClips(result.bones, body, set);
         const names = new Set(['Idle'].concat(clips.map(c => c.name)));
         const animations = Library.SLOTS.filter(([, , clip]) => names.has(clip)).map(([name, trigger, clip]) => ({ name, type: 'clip', trigger, clip }));
+        if (result.recipe && result.recipe.species === 'merfolk' && (result.clips || []).some(c => c.name === 'Tread')) {
+            const tread = animations.find(a => a.trigger === 'treading');
+            if (tread) tread.clip = 'Tread';
+            else animations.push({ name: 'Tread Water', type: 'clip', trigger: 'treading', clip: 'Tread' });
+        }
         const rigged = humanoidRig(result.bones, result.parts);
         const sidecar = { animations };
         if (rigged) sidecar.rig = rigged.rig;

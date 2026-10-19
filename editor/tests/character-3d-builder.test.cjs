@@ -79,6 +79,39 @@ test('every body stands on the floor with its eyes in its head', () => {
     }
 });
 
+test('combined short and lean extremes thin the torso without turning it through its centerline', () => {
+    for (const gender of [0, 1]) {
+        const recipe = { gender, height: -0.6, weight: -1, muscle: -0.3, headSize: 0.5,
+            shapes: { legLength: -2.5, armLength: -2.5, neckLength: -2.5, headWidth: -2.5 } };
+        const built = Body.build(pack, recipe), thin = Body.build(pack, Object.assign({}, recipe, { weight: 0, muscle: 0 }));
+        let checked = 0, width = 0, naturalWidth = 0;
+        const trunk = new Set();
+        for (const v of new Set(pack.body.source)) {
+            let torso = 0;
+            for (let k = 0; k < 4; k++) if (/^(Hips|Spine[12]?)$/.test(pack.bones[pack.skinJoints[v * 4 + k]].name)) torso += pack.skinWeights[v * 4 + k];
+            if (torso < 0.85 || Math.abs(pack.positions[v * 3]) < 0.005) continue;
+            checked++;
+            trunk.add(v);
+            assert.ok(pack.positions[v * 3] * built.shaped[v * 3] > 0, 'torso skin stays on its own side of the spine');
+            width += Math.abs(built.shaped[v * 3]); naturalWidth += Math.abs(thin.shaped[v * 3]);
+        }
+        assert.ok(checked > 500, 'sampled the complete trunk');
+        assert.ok(width < naturalWidth, 'negative weight still produces a thinner body');
+        const cross = (P, a, b, c) => {
+            const x = P[b] - P[a], y = P[b + 1] - P[a + 1], z = P[b + 2] - P[a + 2];
+            const X = P[c] - P[a], Y = P[c + 1] - P[a + 1], Z = P[c + 2] - P[a + 2];
+            return [y * Z - z * Y, z * X - x * Z, x * Y - y * X];
+        };
+        for (let t = 0; t < pack.body.index.length; t += 3) {
+            const vertices = Array.from(pack.body.index.subarray(t, t + 3), i => pack.body.source[i]);
+            if (!vertices.every(v => trunk.has(v))) continue;
+            const ids = vertices.map(v => v * 3), before = cross(thin.shaped, ...ids), after = cross(built.shaped, ...ids);
+            const area = before.reduce((sum, x) => sum + x * x, 0);
+            if (area > 1e-22) assert.ok(before.reduce((sum, x, i) => sum + x * after[i], 0) > 0, 'shrinking does not reverse a torso face');
+        }
+    }
+});
+
 test('a seed gives the same character every time', () => {
     assert.deepEqual(Body.randomRecipe(1234), Body.randomRecipe(1234));
     assert.notDeepEqual(Body.randomRecipe(1234), Body.randomRecipe(1235));

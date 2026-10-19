@@ -265,7 +265,7 @@ test('battle shadows: the room\'s lights become shadow candidates with their own
     S._lightSet = null; S._tiles = null; S._dynTiles = null;
     const battle = fs.readFileSync(path.join(repoRoot, 'runtime', 'reactor_battle_room.js'), 'utf8');
     assert.match(battle, /id:'room:'\+index/, 'room lights: names repeat, so rows would swap between them');
-    assert.match(battle, /R\.Shadows\.markCaster\(object, !key\.startsWith\('prop:'\)\)/, 'props hold still, battlers move');
+    assert.match(battle, /R\.Shadows\.markCaster\(object, !key\.startsWith\('prop:'\) \|\| R\.modelCasterMoves\?\./, 'animated props and battlers cast moving shadows');
     assert.match(battle, /key\.call\(this\) \+ '\|battle-room' \+ \(view\._shadowed \? '\|room-shadows' : ''\)/, 'programs follow whether the room holds the rows');
     assert.match(battle, /if\(m\.__battleRoomLight\)\{m\.dispose\(\);m\.needsUpdate=true;\}/, 'and are compiled again, never reused, when that changes');
 });

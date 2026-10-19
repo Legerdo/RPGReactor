@@ -199,3 +199,27 @@ test('a jump keeps its time in the air and leaves the flight to the game; the li
     for (const motion of Library.STATE_MOTIONS) assert.ok(Library.stateClip(bones, motion.id), motion.id);
     assert.ok(performance.now() - started < 400, 'six motions made in well under half a second');
 });
+
+test('a 17-bone humanoid without toe markers keeps its walking feet forward', () => {
+    const object = plainModel(), walk = libraryClips(object).find(c => c.__reactorLibrary.id === 'walk');
+    const skeleton = walk.__reactorLibrary.skeleton;
+    assert.ok(!skeleton.joints.some(j => /ToeBase$/.test(j.name)));
+    const bones = skeleton.joints.map(j => ({ name: j.name, parent: j.parent, head: j.head })), clip = Library.clip(bones, 'walk');
+    const binding = R.prepareModelInstance(object, object.__reactorClips);
+    binding.mixer.clipAction(R.resolveLibraryMotion(walk)).play();
+    for (const [S, sign] of [['Left', 1], ['Right', -1]]) {
+        const foot = skeleton.joints.find(j => j.name === S + 'Foot'), hips = skeleton.joints.find(j => j.name === 'Hips'), headings = [];
+        for (const time of clip.times) {
+            binding.mixer.setTime(time);
+            object.updateMatrixWorld(true);
+            const relative = joint => joint.node.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion(...joint.rest).invert());
+            const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(relative(foot)), front = new THREE.Vector3(0, 0, 1).applyQuaternion(relative(hips));
+            if (Math.abs(forward.y) > 0.6) continue;
+            const a = Math.atan2(forward.x, forward.z) - Math.atan2(front.x, front.z), out = Math.atan2(Math.sin(a), Math.cos(a)) * 180 / Math.PI * sign;
+            assert.ok(out > -1.6 && out < 18.5, `${S} points ${out.toFixed(1)} degrees outward at ${time.toFixed(2)} seconds`);
+            headings.push(out);
+        }
+        headings.sort((a, b) => a - b);
+        assert.ok(headings[headings.length >> 1] > 2, `${S}'s neutral heading points slightly out`);
+    }
+});

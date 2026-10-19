@@ -31,6 +31,21 @@ const STAR_SHIFT = Wardrobe.PRESETS.filter(p => p.group === 'Star Shift');
 let pack;
 test.before(async () => { pack = await Body.loadPack(); });
 
+test('heavy Captain rear panels retain layer separation without the former large crossing cluster', () => {
+    const outfit = Transfer.load('carol'), map = outfit.render.point, index = outfit.parts[0].index;
+    const triangles = [];
+    for (let t = 0; t < index.length; t += 3) {
+        const ids = [0, 1, 2].map(k => map[index[t + k]]);
+        const center = [0, 1, 2].map(k => ids.reduce((sum, v) => sum + outfit.rest[v * 3 + k], 0) / 3);
+        if (center[1] < 0.92 && center[2] < -0.1) triangles.push(ids);
+    }
+    assert.ok(triangles.length > 3500, 'inspect the complete authored rear region');
+    const body = Body.build(pack, Body.normalizeRecipe({ gender: 1, weight: 4 }));
+    const positions = Transfer.fit(pack, body, outfit, {});
+    const pairs = require('./helpers/mesh-intersections.cjs').intersections(positions, triangles);
+    assert.ok(pairs.length <= 20, `${pairs.length} strict crossings; previous fit had 85 (residual source folds remain)`);
+});
+
 /** A JPEG's width and height from its frame header. */
 function jpegSize(bytes) {
     for (let i = 2; i < bytes.length - 9;) {
@@ -218,5 +233,116 @@ test('power gauntlets alone are the armor\'s hands: a glove and a plate on each 
     for (const v of out.hidden) {
         const hand = (an.member[v * 5 + 1] > 0.5 && an.s[v * 5 + 1] > 2.6) || (an.member[v * 5 + 2] > 0.5 && an.s[v * 5 + 2] > 2.6);
         assert.ok(hand, 'only hand skin is hidden (vertex ' + v + ')');
+    }
+});
+
+test('sparse bindings keep every clearance, panel, and collar through an encode/decode cycle', () => {
+    for (const key of Transfer.BUILT_IN) {
+        const source = Transfer.load(key), encoded = Transfer.encode(source, {});
+        const again = Transfer.decode(encoded.json, encoded.bytes);
+        assert.deepEqual(again.recipe, source.recipe);
+        for (const [name, a, b, tolerance] of [
+            ['world', source.world, again.world, 0.0001], ['panel', source.rest, again.rest, 0.0001],
+            ['clearance', source.skin.height, again.skin.height, 0.00002],
+            ['skin triangles', source.skin.tri, again.skin.tri, 0]
+        ]) {
+            assert.equal(a.length, b.length, key + ': ' + name + ' size');
+            for (let i = 0; i < a.length; i++) assert.ok(Math.abs(a[i] - b[i]) <= tolerance, key + ': ' + name + ' at ' + i);
+        }
+        if (source.rigid) {
+            assert.deepEqual(again.rigid.w, source.rigid.w);
+            for (let i = 0; i < source.rigid.offset.length; i++) if (source.rigid.w[(i / 3) | 0]) assert.ok(Math.abs(source.rigid.offset[i] - again.rigid.offset[i]) < 0.0001);
+        }
+    }
+});
+
+test('user outfit deletion is reversible, refuses built-ins and paths, and unregisters the deleted preset', () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-outfit-delete-'));
+    const wardrobe = { GARMENTS: [], PRESETS: [], BY_ID: new Map() };
+    try {
+        const at = path.join(project, '3d', 'Outfits', 'Test Outfit');
+        fs.mkdirSync(at, { recursive: true });
+        fs.writeFileSync(path.join(at, 'outfit.json'), JSON.stringify({ label: 'Test Outfit' }));
+        fs.writeFileSync(path.join(at, 'outfit.bin'), 'kept binary');
+        const [id] = Transfer.registerProject(wardrobe, project);
+        assert.ok(wardrobe.BY_ID.has(id));
+        assert.throws(() => Transfer.removeProject(wardrobe, project, 'carol'), /Only project/);
+        for (const key of ['project:..', 'project:../Actors', 'project:a/b', 'project:a\\b']) assert.throws(() => Transfer.removeProject(wardrobe, project, key), /Invalid outfit/);
+        const removal = Transfer.removeProject(wardrobe, project, 'project:Test Outfit');
+        assert.equal(fs.existsSync(at), false);
+        assert.equal(wardrobe.BY_ID.has(id), false);
+        assert.equal(wardrobe.PRESETS.length, 0);
+        assert.equal(removal.undo(), id);
+        assert.equal(fs.readFileSync(path.join(at, 'outfit.bin'), 'utf8'), 'kept binary');
+        assert.ok(wardrobe.BY_ID.has(id));
+        assert.equal(removal.undo(), null, 'undo happens once');
+    } finally { Transfer.unregister(wardrobe, 'project:Test Outfit'); fs.rmSync(project, { recursive: true, force: true }); }
+});
+
+test('project outfit names that share a slug keep separate catalog entries', () => {
+    const wardrobe = { GARMENTS: [], PRESETS: [], BY_ID: new Map() };
+    const a = Transfer.register(wardrobe, 'project:Blue Suit', 'Blue Suit');
+    const b = Transfer.register(wardrobe, 'project:Blue-Suit', 'Blue-Suit');
+    assert.notEqual(a, b);
+    assert.equal(Transfer.register(wardrobe, 'project:Blue-Suit', 'Blue-Suit'), b);
+    assert.equal(wardrobe.BY_ID.get(a).transfer, 'project:Blue Suit');
+    assert.equal(wardrobe.BY_ID.get(b).transfer, 'project:Blue-Suit');
+});
+
+test('import repairs a small interior hole with consistently wound faces and preserves the garment edge', () => {
+    const positions = [], render = [], uvs = [], index = [];
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { positions.push([x * 0.01, y * 0.01, 0]); render.push(render.length); uvs.push(x * 0.05, y * 0.05); }
+    for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) {
+        if (x === 1 && y === 1) continue;
+        const a = y * 4 + x; index.push(a, a + 1, a + 5, a, a + 5, a + 4);
+    }
+    const parts = [{ index: Uint32Array.from(index) }], picture = { width: 64, height: 64, data: new Uint8Array(64 * 64 * 4).fill(128) };
+    Transfer.fillHoles(parts, render, uvs, positions, picture, 0.06, new Array(16).fill(false), () => true);
+    assert.equal(parts[0].index.length, index.length + 6, 'the square hole gains two faces');
+    const edges = new Map();
+    for (let t = 0; t < parts[0].index.length; t += 3) {
+        const ids = Array.from(parts[0].index.subarray(t, t + 3), r => render[r]);
+        const [a, b, c] = ids.map(i => positions[i]);
+        assert.ok((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) > 0, 'every patch faces the same way as the cloth');
+        for (let k = 0; k < 3; k++) { const a = ids[k], b = ids[(k + 1) % 3], key = a < b ? a + ':' + b : b + ':' + a; edges.set(key, (edges.get(key) || 0) + 1); }
+    }
+    assert.equal([...edges.values()].filter(n => n === 1).length, 12, 'only the original outer edge stays open');
+});
+
+test('a cuff encloses the limb axis while a nearby pinhole is repaired', () => {
+    const L = { chest: [0, 0, 0], Head: [0, 1, 0], LeftForeArm: [1, 0, 0], LeftHand: [1, 1, 0] };
+    const ring = [[0.9, 0.8, -0.1], [1.1, 0.8, -0.1], [1.1, 0.8, 0.1], [0.9, 0.8, 0.1]];
+    assert.equal(Transfer.isGarmentOpening(ring, L), true);
+    assert.equal(Transfer.isGarmentOpening(ring.map(p => [p[0] + 0.3, p[1], p[2]]), L), false);
+    const concave = [[0, 0, 0], [2, 0, 0], [2, 2, 0], [1, 1, 0], [0, 2, 0]];
+    const tri = Transfer.triangulateLoop(concave);
+    assert.equal(tri.length, 9);
+    let area = 0;
+    for (let t = 0; t < tri.length; t += 3) { const [a, b, c] = tri.slice(t, t + 3).map(i => concave[i]); area += ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2; }
+    assert.equal(area, 3, 'concave repair neither crosses nor fills the missing corner');
+});
+
+test('Captain panels have real fabric backing with body skinning, confined to their authored coverage', () => {
+    const preset = STAR_SHIFT.find(p => p.id === 'ss_carol');
+    const built = Body.build(pack, Body.normalizeRecipe({ gender: 1, extreme: true, weight: 4 }));
+    const out = Wardrobe.build(pack, built, preset.items, {});
+    const lining = out.parts.filter(p => p.rrLining);
+    assert.ok(lining.length, 'backing is a garment mesh');
+    const authored = new Set(Transfer.load('carol').parts.find(p => p.id === 'uniform').hidden);
+    const overlap = new Set(authored);
+    for (let t = 0; t < pack.body.index.length; t += 3) {
+        const ids = [0, 1, 2].map(k => pack.body.source[pack.body.index[t + k]]);
+        if (ids.some(v => authored.has(v))) for (const v of ids) overlap.add(v);
+    }
+    const body = built.parts[0];
+    for (const part of lining) for (const v of new Set(part.index)) {
+        assert.ok(overlap.has(part.source[v]), 'lining stays within one ring of the source panels');
+        let clearance = 0;
+        for (let c = 0; c < 3; c++) clearance += (part.positions[v * 3 + c] - body.positions[v * 3 + c]) * body.normals[v * 3 + c];
+        assert.ok(clearance > 0.001 && clearance < 0.002, 'backing stands above skin and below the outer shell');
+        for (let k = 0; k < 4; k++) {
+            assert.equal(part.joints[v * 4 + k], body.joints[v * 4 + k]);
+            assert.equal(part.weights[v * 4 + k], body.weights[v * 4 + k]);
+        }
     }
 });

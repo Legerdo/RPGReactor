@@ -288,7 +288,97 @@
             // Triangles wholly over skin an outer garment hides are under it: not drawn.
             if (over.length) inner.under = a => over.some(outer => outer.covers.has(a));
         }
-        return fitted.map(({ w, g, verts, under }) => make(pack, clothes, g, verts, w.item, w.look, under));
+        const out = [];
+        for (const { w, g, verts, under } of fitted) {
+            const made = make(pack, clothes, g, verts, w.item, w.look, under);
+            out.push(made);
+            const lining = innerFabric(pack, built, g, made.part, under, frame);
+            if (lining) out.push({ part: lining, texture: made.texture, hidden: g.hidden });
+        }
+        return out;
+    }
+
+    /** A real fabric backing follows the skin under the modeled shell, including through bends.
+     * Its triangles stay wholly inside the garment author's coverage; necklines, cuffs and hems
+     * remain open. The original shell and its detailed silhouette are left intact. */
+    function innerFabric(pack, built, g, outer, under, frame) {
+        if (!g.hidden.length) return null;
+        if (!g._innerFabric) {
+            const covered = new Set(g.hidden), S = pack.body.source, I = pack.body.index;
+            const ids = [], index = [], seen = new Set(), remap = new Map();
+            const vertex = v => { if (!remap.has(v)) { remap.set(v, ids.length); ids.push(v); } return remap.get(v); };
+            for (let i = 0; i < I.length; i += 3) {
+                const a = S[I[i]], b = S[I[i + 1]], c = S[I[i + 2]];
+                if (!covered.has(a) || !covered.has(b) || !covered.has(c)) continue;
+                const key = [a, b, c].sort((x, y) => x - y).join(':');
+                if (seen.has(key)) continue;
+                seen.add(key); index.push(vertex(a), vertex(b), vertex(c));
+            }
+            if (!index.length) { g._innerFabric = { ids: new Uint16Array(), index: new Uint32Array(), uvs: new Float32Array() }; return null; }
+            // Project once in the reference shape: a distorted extreme fit must not choose a
+            // different texture island every time a slider moves.
+            const Taken = root.RRCharacterOutfitTransfer || (typeof require === 'function' ? require('./CharacterOutfitTransfer.js') : null);
+            if (!Taken) return null;
+            const reference = pack._clothesFabricReference || (pack._clothesFabricReference = Body.build(pack, Body.DEFAULT_RECIPE));
+            const fixedPart = fixed(pack, g), fitted = fit(pack, reference, g, {});
+            const positions = Body.gather(fitted, g.source, 3), grid = Taken.triangleGrid(positions, fixedPart.index, 0.04);
+            const uvs = new Float32Array(ids.length * 2);
+            const regionAt = t => {
+                const values = [0, 1, 2].map(k => g.region[fixedPart.index[t * 3 + k]] || 0);
+                return values[0] === values[1] || values[0] === values[2] ? values[0] : values[1];
+            };
+            const regions = new Uint8Array(ids.length);
+            const projectedUV = (i, region) => {
+                const hit = Taken.nearestTriangle(grid, reference.shaped.subarray(ids[i] * 3, ids[i] * 3 + 3), 0.5,
+                    region === undefined ? null : t => regionAt(t) === region);
+                if (!hit) return null;
+                const uv = [0, 0];
+                for (let k = 0; k < 3; k++) for (let c = 0; c < 2; c++) uv[c] += fixedPart.uvs[fixedPart.index[hit.t * 3 + k] * 2 + c] * hit.bary[k];
+                return { uv, region: regionAt(hit.t) };
+            };
+            for (let i = 0; i < ids.length; i++) {
+                const hit = projectedUV(i);
+                if (!hit) continue;
+                uvs.set(hit.uv, i * 2); regions[i] = hit.region;
+            }
+            // A shirt/trouser color boundary must not interpolate through unrelated atlas islands.
+            const splitIds = [], splitUVs = [], splitRegions = [], splitIndex = [], split = new Map();
+            for (let i = 0; i < index.length; i += 3) {
+                const v = index.slice(i, i + 3), r = v.map(k => regions[k]);
+                const region = r[0] === r[1] || r[0] === r[2] ? r[0] : r[1];
+                for (const old of v) {
+                    const key = old + ':' + region;
+                    if (!split.has(key)) {
+                        split.set(key, splitIds.length); splitIds.push(ids[old]); splitRegions.push(region);
+                        const uv = regions[old] === region ? uvs.subarray(old * 2, old * 2 + 2) : projectedUV(old, region)?.uv || uvs.subarray(old * 2, old * 2 + 2);
+                        splitUVs.push(...uv);
+                    }
+                    splitIndex.push(split.get(key));
+                }
+            }
+            g._innerFabric = { ids: Uint16Array.from(splitIds), index: Uint32Array.from(splitIndex), uvs: Float32Array.from(splitUVs), regions: Uint8Array.from(splitRegions) };
+        }
+        const template = g._innerFabric;
+        let index = template.index;
+        if (under) index = index.filter((v, i) => {
+            const first = i - i % 3;
+            return ![0, 1, 2].every(k => under(template.ids[template.index[first + k]]));
+        });
+        if (!index.length) return null;
+        let ids = template.ids, uvs = template.uvs;
+        if (index.length < template.index.length) {
+            const used = [...new Set(index)], remap = new Map(used.map((v, i) => [v, i]));
+            ids = Uint16Array.from(used, i => template.ids[i]); uvs = Body.gather(template.uvs, used, 2);
+            index = Uint32Array.from(index, i => remap.get(i));
+        }
+        const normals = frame.bodyNormals || (frame.bodyNormals = Body.vertexNormals(pack, built.shaped));
+        const positions = Body.gather(built.shaped, ids, 3), N = Body.gather(normals, ids, 3);
+        const lift = GAP * 0.15;
+        for (let i = 0; i < positions.length; i++) positions[i] += N[i] * lift;
+        return { name: outer.name + ' inner fabric', positions, normals: N, index, uvs,
+            joints: Body.gather(pack.skinJoints, ids, 4), weights: Body.gather(pack.skinWeights, ids, 4),
+            source: Int32Array.from(ids), texture: outer.texture, roughness: outer.roughness, metalness: outer.metalness,
+            doubleSided: true, rrLining: true, ...(g.cutout ? { cutout: true, alphaCutoff: 0.5 } : {}) };
     }
 
     /** One modeled garment on a built body: { part, texture, hidden }, or null when the pack has no such garment. */

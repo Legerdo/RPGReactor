@@ -332,7 +332,10 @@
         const dirA = norm(sub(Q, C0));
 
         // Cross-sections of the hidden hips and thighs, every 1.5 cm from under the cut to below the crotch.
-        const slabTop = ringMinY - 0.008 * sc, slabEnd = crotch - 0.07 * sc, slabStep = 0.015 * sc;
+        const slabTop = ringMinY - 0.008 * sc, slabStep = 0.015 * sc;
+        // A very deep hip fold can put the lowest cut vertex below the crotch. Keep a real
+        // section interval below that edge instead of producing an empty table.
+        const slabEnd = Math.min(crotch - 0.07 * sc, slabTop - slabStep);
         const slabs = [];
         for (let y = slabTop; y >= slabEnd; y -= slabStep) slabs.push({ y, pts: [] });
         for (const v of cut.hiddenIds) {
@@ -346,16 +349,28 @@
             s.hull = hull2(s.pts.concat(s.pts.map(p => [-p[0], p[1]])));
         }
 
-        // The tail's length: the hips' height times the length setting, the stem and fin added.
-        const total = Math.max(cut.hipY * 1.02, C0[1] * m.length);
         const bendR = 0.3 * sc;
         // At the last cross-section: half width, front and back.
         const last = slabs[slabs.length - 1];
         const cAt = a => add(C0, mul(dirA, a));
+        const sectionReach = (section, z, bearing) => {
+            // Extreme leg shortening can move a section wholly ahead of the straight tail axis.
+            // Measure its girth from an interior point, retaining its shape without zero radii.
+            if (section.reachZ !== z) {
+                section.reachZ = z;
+                section.reachCenter = z;
+                if ([0, Math.PI / 2, Math.PI, -Math.PI / 2].some(a => hullReach(section.hull, 0, z, a) < 1e-6 * sc)) {
+                    section.reachCenter = section.hull.length ? section.hull.reduce((sum, p) => sum + p[1], 0) / section.hull.length : z;
+                }
+            }
+            return Math.max(0.003 * sc, hullReach(section.hull, 0, section.reachCenter, bearing));
+        };
         const lc = cAt(last.a);
-        const W0 = (hullReach(last.hull, 0, lc[2], Math.PI / 2) + hullReach(last.hull, 0, lc[2], -Math.PI / 2)) / 2;
-        const F0 = hullReach(last.hull, 0, lc[2], 0) * 0.94, K0 = hullReach(last.hull, 0, lc[2], Math.PI) * 0.94;
+        const W0 = (sectionReach(last, lc[2], Math.PI / 2) + sectionReach(last, lc[2], -Math.PI / 2)) / 2;
+        const F0 = sectionReach(last, lc[2], 0) * 0.94, K0 = sectionReach(last, lc[2], Math.PI) * 0.94;
         const aM = last.a;
+        // The minimum belongs to this body's scale, rather than the unshaped reference pack.
+        const total = Math.max(cut.hipY * sc * 1.02, C0[1] * m.length, aM + 0.18 * sc);
 
         /** The section's reach at arc a and bearing b (0 the front, the belly). */
         const finRootW = 0.05 * sc;
@@ -366,7 +381,7 @@
                 let s0 = null, s1 = null;
                 for (const s of slabs) { if (s.a <= a) s0 = s; else { s1 = s; break; } }
                 const c = cAt(a);
-                const hr = sl => hullReach(sl.hull, 0, c[2], b);
+                const hr = sl => sectionReach(sl, c[2], b);
                 let rr;
                 if (!s0) rr = hr(slabs[0]);
                 else if (!s1) rr = hr(s0);
@@ -389,7 +404,7 @@
             // Below the crotch the sections blend from the thighs' outline into the rounded taper.
             const blend = smooth(aM, aM + 0.08 * sc, a);
             if (blend >= 1) return ra;
-            const rr = hullReach(last.hull, 0, cAt(aM)[2], b) * 0.94;
+            const rr = sectionReach(last, cAt(aM)[2], b) * 0.94;
             return rr * (1 - blend) + ra * blend;
         };
         // Down to past the thighs the sections come from a table: each bearing's reach along the tail with its

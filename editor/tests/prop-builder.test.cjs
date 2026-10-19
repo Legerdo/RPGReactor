@@ -19,6 +19,30 @@ const { PNG } = require(path.join(root, 'node_modules', 'pngjs'));
 const encode = t => { const p = new PNG({ width: t.width, height: t.height }); p.data = Buffer.from(t.data); return PNG.sync.write(p); };
 const finite = (list, what) => { for (let i = 0; i < list.length; i++) assert.ok(Number.isFinite(list[i]), `${what}[${i}] = ${list[i]}`); };
 
+test('still prop albedo has no fixed light baked into opposite faces', () => {
+    const Mesh = require(path.join(props, 'PropMesh.js'));
+    const part = { positions: new Float32Array(9), normals: Float32Array.of(1, 0, 0, -1, 0, 0, 0, -1, 0), color: '#c08040' };
+    Mesh.shade(part);
+    const base = [0xc0, 0x80, 0x40].map(v => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); });
+    for (let v = 0; v < 3; v++) for (let c = 0; c < 3; c++) assert.ok(Math.abs(part.colors[v * 3 + c] - base[c]) < 1e-7);
+    part.texture = 'paint.png';
+    Mesh.shade(part);
+    assert.ok(part.colors.every(c => c === 1), 'textured props keep the picture albedo');
+});
+
+test('a wall bracket preserves editable mounting height in geometry and saved placement', () => {
+    const low = Model.build({ kind: 'flag', pole: { type: 'bracket', mount: 1.1 } }, {}, { textureSize: 64 });
+    const high = Model.build({ kind: 'flag', pole: { type: 'bracket', mount: 3.6 } }, {}, { textureSize: 64 });
+    assert.deepEqual(low.wall, { normal: [1, 0, 0], at: 0 });
+    assert.equal(Flag.normalize({ pole: { type: 'bracket' } }).pole.mount, 2.4, 'old recipes retain their height');
+    for (let pi = 0; pi < low.parts.length; pi++) {
+        const a = low.parts[pi].positions, b = high.parts[pi].positions;
+        assert.equal(a.length, b.length);
+        for (let i = 0; i < a.length; i++) assert.ok(Math.abs(b[i] - a[i] - (i % 3 === 1 ? 2.5 : 0)) < 1e-5, low.parts[pi].name + ' moves with the mount');
+    }
+    assert.ok(Math.abs(Model.sidecar(high).transform.offset[1] - Model.sidecar(low).transform.offset[1] - 2.5) < 1e-4);
+});
+
 /** An accessor's numbers out of a parsed GLB. */
 function accessorData(json, bin, index) {
     const a = json.accessors[index], v = json.bufferViews[a.bufferView];
@@ -276,12 +300,15 @@ test('a traced outline keeps its holes as holes', () => {
         if (holes === 1) { assert.ok(!frontCovers(front, ...at(0.5, 0.5)), 'the ring is open in the middle'); assert.ok(frontCovers(front, ...at(0.5, 0.11))); }
         else { assert.ok(!frontCovers(front, ...at(0.25, 0.5)) && !frontCovers(front, ...at(0.75, 0.5)), 'both holes open'); assert.ok(frontCovers(front, ...at(0.5, 0.5))); }
     }
-    // A background color taken away from the border in, the picture's own pixels of that color inside kept.
+    // Color-key removal also opens enclosed background islands, as transparency tracing does.
     const boxed = picture(100, 100, (x, y) => x > 0.2 && x < 0.8 && y > 0.2 && y < 0.8 && !(x > 0.45 && x < 0.55 && y > 0.45 && y < 0.55), [255, 255, 255, 255], [30, 30, 160, 255]);
     const m = Picture.maskOf(boxed, 'color', 0.2, 256);
     assert.equal(m.mode, 'color');
     assert.equal(m.m[2 * m.w + 2], 0, 'the border background is gone');
-    assert.equal(m.m[50 * m.w + 50], 1, 'a white middle the background never reaches stays');
+    assert.equal(m.m[50 * m.w + 50], 0, 'an enclosed white opening is removed');
+    assert.equal(Picture.shapes(m, 400)[0].holes.length, 1, 'the opening survives triangulation');
+    const opaque = Picture.maskOf(boxed, 'alpha', 0.2, 256);
+    assert.equal(opaque.m[50 * opaque.w + 50], 1, 'alpha mode preserves opaque white details');
 });
 
 test('a busy picture keeps to the triangle budget; every mode builds whole, the turned body watertight', () => {
@@ -309,7 +336,7 @@ test('a busy picture keeps to the triangle budget; every mode builds whole, the 
             for (const i of p.index) assert.ok(i < p.positions.length / 3);
         }
         if (recipe.mode === 'turned') assert.equal(watertight(r.parts[0]), 0, what + ' open edges');
-        // A still prop keeps its form in its vertex colors (the game lights by place, not by facing).
+        // A still prop carries its albedo in vertex colors; runtime lighting supplies its form.
         if (!r.cloth) for (const p of r.parts) { assert.equal(p.colors.length, p.positions.length, what + ' ' + p.name + ' colors'); finite(p.colors, what + ' colors'); }
     }
     // The turned body follows the picture's silhouette: widest where the picture is.

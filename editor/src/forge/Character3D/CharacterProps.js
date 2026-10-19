@@ -172,6 +172,7 @@
             if (!noseTip || P[v * 3 + 2] > noseTip[2]) noseTip = [P[v * 3], y, P[v * 3 + 2]];
         }
         /** The head's cross-section about a height: center, half width and half depth (and front/back). */
+        let headEdges = null;
         const ring = (y, band = 0.012) => {
             let mnx = Infinity, mxx = -Infinity, mnz = Infinity, mxz = -Infinity;
             for (const v of headIds) {
@@ -180,7 +181,35 @@
                 if (earSet.has(v)) continue;
                 mnx = Math.min(mnx, P[v * 3]); mxx = Math.max(mxx, P[v * 3]); mnz = Math.min(mnz, P[v * 3 + 2]); mxz = Math.max(mxz, P[v * 3 + 2]);
             }
-            if (!isFinite(mnx)) return null;
+            if (!isFinite(mnx)) {
+                // Compressed or stretched heads can leave a requested slice between vertex rows.
+                // Intersect the real surface there instead of guessing a generic head radius.
+                if (!headEdges) {
+                    const head = new Set(headIds.filter(v => !earSet.has(v))), edges = new Map();
+                    const S = pack.body.source, I = pack.body.index;
+                    for (let i = 0; i < I.length; i += 3) for (let k = 0; k < 3; k++) {
+                        const a = S[I[i + k]], b = S[I[i + (k + 1) % 3]];
+                        if (head.has(a) && head.has(b)) edges.set(Math.min(a, b) + ':' + Math.max(a, b), [a, b]);
+                    }
+                    headEdges = [...edges.values()];
+                }
+                let low = Infinity, high = -Infinity;
+                for (const v of headIds) if (!earSet.has(v)) { low = Math.min(low, P[v * 3 + 1]); high = Math.max(high, P[v * 3 + 1]); }
+                // Hats may ask just above the crown. Use the nearest actual layer at that height.
+                const at = Math.max(low, Math.min(high, y));
+                if (at !== y) for (const v of headIds) {
+                    if (earSet.has(v) || Math.abs(P[v * 3 + 1] - at) > band) continue;
+                    mnx = Math.min(mnx, P[v * 3]); mxx = Math.max(mxx, P[v * 3]); mnz = Math.min(mnz, P[v * 3 + 2]); mxz = Math.max(mxz, P[v * 3 + 2]);
+                }
+                for (const [a, b] of headEdges) {
+                    const ay = P[a * 3 + 1], by = P[b * 3 + 1];
+                    if (at < Math.min(ay, by) - 1e-7 || at > Math.max(ay, by) + 1e-7) continue;
+                    const t = Math.abs(by - ay) > 1e-9 ? Math.max(0, Math.min(1, (at - ay) / (by - ay))) : 0;
+                    const x = P[a * 3] + (P[b * 3] - P[a * 3]) * t, z = P[a * 3 + 2] + (P[b * 3 + 2] - P[a * 3 + 2]) * t;
+                    mnx = Math.min(mnx, x); mxx = Math.max(mxx, x); mnz = Math.min(mnz, z); mxz = Math.max(mxz, z);
+                }
+                if (!isFinite(mnx)) return null;
+            }
             return { center: [(mnx + mxx) / 2, y, (mnz + mxz) / 2], rx: (mxx - mnx) / 2, rz: (mxz - mnz) / 2, front: mxz, back: mnz };
         };
         const earTarget = pack.targets.get('shape/earSize-incr');
@@ -734,11 +763,38 @@
      * skin itself.
      */
     function shirtFrontAt(L, y) {
-        const skin = L.frontAt0 ? L.frontAt0(y, 0) : L.frontAt(y, 0);
-        let z = -Infinity;
+        const front = part => {
+            const P = part.positions, I = part.index;
+            let z = -Infinity;
+            for (let i = 0; i < I.length; i += 3) {
+                const a = I[i] * 3, b = I[i + 1] * 3, c = I[i + 2] * 3;
+                if (Math.min(P[a], P[b], P[c]) > 0 || Math.max(P[a], P[b], P[c]) < 0 || y < Math.min(P[a + 1], P[b + 1], P[c + 1]) || y > Math.max(P[a + 1], P[b + 1], P[c + 1])) continue;
+                const ax = P[a] - P[c], ay = P[a + 1] - P[c + 1], bx = P[b] - P[c], by = P[b + 1] - P[c + 1];
+                const det = ax * by - ay * bx;
+                if (Math.abs(det) < 1e-12) continue;
+                const u = (-P[c] * by - (y - P[c + 1]) * bx) / det, v = (ax * (y - P[c + 1]) + ay * P[c]) / det;
+                if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) continue;
+                z = Math.max(z, P[c + 2] + u * (P[a + 2] - P[c + 2]) + v * (P[b + 2] - P[c + 2]));
+            }
+            return z;
+        };
+        let skin = L.bodyPart ? front(L.bodyPart) : (L.frontAt0 ? L.frontAt0(y, 0) : L.frontAt(y, 0));
+        // A long blade can reach below the torso's sampled region. Follow the nearest
+        // centerline skin there so the tip stays finite and follows the belly.
+        if (!Number.isFinite(skin)) {
+            let nearest = Infinity;
+            for (let i = 0; i < L.P.length; i += 3) {
+                if (Math.abs(L.P[i]) > 0.04) continue;
+                const distance = Math.abs(L.P[i + 1] - y);
+                if (distance < nearest - 0.003) { nearest = distance; skin = L.P[i + 2]; }
+                else if (distance <= nearest + 0.003) skin = Math.max(skin, L.P[i + 2]);
+            }
+            if (!Number.isFinite(skin)) skin = L.neck.center[2] + L.neck.rz;
+        }
+        let z = skin;
         for (const part of L.outfitParts || []) {
-            const P = part.positions;
-            for (let i = 0; i < P.length; i += 3) if (Math.abs(P[i]) < 0.012 && Math.abs(P[i + 1] - y) < 0.014 && P[i + 2] > skin - 0.002 && P[i + 2] < skin + 0.08) z = Math.max(z, P[i + 2]);
+            const surface = front(part);
+            if (surface >= skin - 0.002 && surface < skin + 0.08) z = Math.max(z, surface);
         }
         return isFinite(z) ? Math.max(z, skin) : skin;
     }
@@ -753,7 +809,7 @@
         if (o.shape === 'bow') return bowtie(m, L, o);
         const skin = spineSkin(L), N = L.neck, rgb = linear(o.color), dark = linear(o.color2 || o.color);
         const top = N.center[1] - 0.004, knotZ = Math.max(N.center[2] + N.rz + 0.008, shirtFrontAt(L, top) + 0.006);
-        const along = (y, lift) => [0, y, Math.max(shirtFrontAt(L, y), L.frontAt0 ? L.frontAt0(y, 0) : L.frontAt(y, 0)) + lift];
+        const along = (y, lift) => [0, y, shirtFrontAt(L, y) + lift];
         if (o.shape === 'cravat') {
             // The knot, then folds that fan out and spill a hand's length down.
             m.loft(4, (i, t) => ({ center: [0, top - t * 0.03, knotZ + 0.004 * (1 - t)], x: [1, 0, 0], y: [0, 0, 1], rx: 0.022 + t * 0.006, ry: 0.012 }), 12, rgb, skin, true);
@@ -1039,6 +1095,7 @@
         const items = normalizeProps(list);
         if (!items.length) return { parts: [], items };
         const L = landmarks(pack, built);
+        L.bodyPart = built.parts[0];
         L.outfitParts = options.outfitParts || [];
         L.frontAt0 = L.frontAt;
         if (options.outfitParts?.length) {

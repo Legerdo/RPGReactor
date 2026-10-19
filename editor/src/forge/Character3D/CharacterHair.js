@@ -487,6 +487,9 @@
      * strip crosses it so the lock has body from the side too.
      */
     function addCard(m, pts, opts) {
+        // A strand caught against an extreme cheek/jaw may stop at its root.
+        // There is no length to mesh (and no valid i/(n-1) texture coordinate).
+        if (pts.length < 2) return;
         const n = pts.length, w0 = opts.width * 2.0, lane = opts.lane ?? (m._lane = ((m._lane || 0) + 1) % 4);
         const u0 = lane * 0.25, u1 = u0 + 0.25, v0 = opts.vFrom || 0.01;
         const seed = Math.sin(pts[0][0] * 9157.3 + pts[0][1] * 3373.1 + pts[0][2] * 6619.7) * 43758.5453;
@@ -2011,8 +2014,9 @@
     /**
      * Strand points below the neck pushed out over the garments there: each
      * stands at least a few millimeters further off the skin (along the skin's
-     * normal under it) than the nearest garment point within 3 cm of it. Head
-     * coverings are left alone (hair under them is not drawn).
+     * normal under it) than nearby garment points or a garment face crossing
+     * that outward ray. Connected locks ease over plate edges. Head coverings
+     * are left alone (hair under them is not drawn).
      */
     function overClothes(H, mesh, parts) {
         const top = H.bones && H.built.bones[H.bones.neck] ? H.built.bones[H.bones.neck].head[1] + 0.02 * H.scale : H.shoulderY + 0.06;
@@ -2027,11 +2031,48 @@
             }
         }
         if (!grid.size) return;
+        // A nearby-vertex test alone misses the middle of broad armor plates:
+        // a ponytail's root and tip stay visible while its center lies inside
+        // the backpack. Query the actual garment faces along the same outward
+        // skin normal as well, including thick and sparsely tessellated imports.
+        const queries = root.RRCharacterOutfitTransfer || (typeof require === 'function' ? require('./CharacterOutfitTransfer.js') : null);
+        const Q = [], faces = [];
+        let low = top;
+        for (let i = 1; i < mesh.pos.length; i += 3) low = Math.min(low, mesh.pos[i]);
+        if (queries && low < top) for (const part of parts) {
+            if (part.rrLining || !part.index) continue;
+            const P = part.positions, accepted = [];
+            for (let f = 0; f < part.index.length; f += 3) {
+                const a = part.index[f], b = part.index[f + 1], c = part.index[f + 2];
+                if (Math.min(P[a * 3 + 1], P[b * 3 + 1], P[c * 3 + 1]) > top + 0.04 ||
+                    Math.max(P[a * 3 + 1], P[b * 3 + 1], P[c * 3 + 1]) < low - 0.04) continue;
+                accepted.push(a, b, c);
+            }
+            if (!accepted.length) continue;
+            const base = Q.length / 3;
+            for (const value of P) Q.push(value);
+            for (const index of accepted) faces.push(base + index);
+        }
+        const solid = faces.length ? queries.triangleGrid(Q, faces, 0.04 * H.scale) : null;
         const lift = 0.004 * H.scale, P = mesh.pos;
+        const rest = solid ? P.slice() : null, normals = solid ? new Float32Array(P.length) : null;
+        const pushes = solid ? new Float32Array(P.length / 3) : null;
+        let drape = false;
         for (let i = 0; i < P.length; i += 3) {
-            if (P[i + 1] > top) continue;
-            const p = [P[i], P[i + 1], P[i + 2]], s = H.surface(p);
+            if (P[i + 1] > top + (solid ? 0.06 * H.scale : 0)) continue;
+            const p = [P[i], P[i + 1], P[i + 2]];
+            let s = H.surface(p);
+            // A long gathered lock may already hang beyond the skin query's
+            // small neighborhood, while still lying inside a broad backpack.
+            // Its outward bearing from the spine remains well defined there.
+            if ((!Number.isFinite(s.d) || !s.n) && solid) {
+                const axis = H.chestBone.head;
+                const outward = norm([p[0] - axis[0], 0, p[2] - axis[2]]);
+                if (len(outward) > 0) s = { d: 0, n: outward };
+            }
             if (!Number.isFinite(s.d) || !s.n) continue;
+            if (normals) normals.set(s.n, i);
+            if (P[i + 1] > top) continue;
             // The farthest garment point off the skin near this one, measured along the skin's normal here.
             let off = -Infinity;
             const cx = Math.floor(p[0] / cell), cy = Math.floor(p[1] / cell), cz = Math.floor(p[2] / cell);
@@ -2046,9 +2087,34 @@
                     off = Math.max(off, s.d + along);
                 }
             }
-            if (off === -Infinity || off > 0.08 || s.d >= off + lift) continue;
+            // Keep the old local-support limit for unrelated nearby points;
+            // a real outward surface hit can support hair farther from skin.
+            if (off > 0.08) off = -Infinity;
+            const local = Math.max(s.d - lift, off);
+            if (solid) for (const hit of queries.rayHits(solid, p, s.n, -lift, 0.4 * H.scale)) off = Math.max(off, s.d + hit.s);
+            if (off === -Infinity || s.d >= off + lift) continue;
             const push = off + lift - s.d;
+            if (pushes) { pushes[i / 3] = push; if (off > local + lift) drape = true; }
             P[i] += s.n[0] * push; P[i + 1] += s.n[1] * push; P[i + 2] += s.n[2] * push;
+        }
+        // Ease contact along each connected lock, leaving its root pinned.
+        // Only spread clearance outward; averaging the fitted positions back
+        // toward the scalp would put the middle inside the armor again.
+        if (drape) {
+            const edges = [];
+            for (let f = 0; f < mesh.idx.length; f += 3) for (let k = 0; k < 3; k++) {
+                const a = mesh.idx[f + k], b = mesh.idx[f + (k + 1) % 3];
+                if ((!normals[a * 3] && !normals[a * 3 + 1] && !normals[a * 3 + 2]) ||
+                    (!normals[b * 3] && !normals[b * 3 + 1] && !normals[b * 3 + 2])) continue;
+                if (normals[a * 3] * normals[b * 3] + normals[a * 3 + 1] * normals[b * 3 + 1] + normals[a * 3 + 2] * normals[b * 3 + 2] < 0.7) continue;
+                edges.push(a, b, Math.hypot(rest[a * 3] - rest[b * 3], rest[a * 3 + 1] - rest[b * 3 + 1], rest[a * 3 + 2] - rest[b * 3 + 2]) * 0.9);
+            }
+            for (let pass = 0; pass < 4; pass++) for (let e = pass % 2 ? edges.length - 3 : 0; e >= 0 && e < edges.length; e += pass % 2 ? -3 : 3) {
+                const a = edges[e], b = edges[e + 1], fall = edges[e + 2];
+                pushes[a] = Math.max(pushes[a], pushes[b] - fall);
+                pushes[b] = Math.max(pushes[b], pushes[a] - fall);
+            }
+            for (let v = 0; v < pushes.length; v++) if (pushes[v] > 0) for (let c = 0; c < 3; c++) P[v * 3 + c] = rest[v * 3 + c] + normals[v * 3 + c] * pushes[v];
         }
     }
 

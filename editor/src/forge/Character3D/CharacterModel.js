@@ -371,7 +371,7 @@
         cache.graft = cache.graft instanceof Map ? cache.graft : new Map();
         let cr = cache.graft.get(key);
         if (!cr) {
-            cr = Creature.build(rec, { quality, hairBudget: budget });
+            cr = Creature.build(rec, { quality, hairBudget: budget, headOnly: true });
             cache.graft.set(key, cr);
             if (cache.graft.size > 6) cache.graft.delete(cache.graft.keys().next().value);
         }
@@ -397,21 +397,9 @@
         // Its skull's base on the top of the neck, a little toward the human eyes.
         const At = turn(A), Et = turn(Ec), Eh = Props.vec.lerp(L.eyeL.center, L.eyeR.center, 0.5);
         const anchor = Props.vec.lerp(headBone.head, Eh, 0.3), from = Props.vec.lerp(At, Et, 0.3);
-        // An animal's neck leaves its skull backward; a person's goes down. Behind the skull's base the neck
-        // is bent down about it, more the further along it lies, so it hangs into the person's neck.
-        const N0 = cr.bones[nb].head, back = Props.vec.norm(turn(Props.vec.sub(N0, A))), reachBack = Props.vec.len(Props.vec.sub(N0, A)) * 0.6;
-        const bendBy = Math.atan2(-1, 0) - Math.atan2(back[1], back[2]);
-        const bendAngle = d => {
-            const along = (d[1] - At[1]) * back[1] + (d[2] - At[2]) * back[2];
-            if (along <= 0) return 0;
-            const t = Math.min(1, along / reachBack);
-            return bendBy * t * t * (3 - 2 * t);
-        };
-        // Turned about the across axis by a (from +z toward +y).
-        const rotX = (v, a) => [v[0], v[2] * Math.sin(a) + v[1] * Math.cos(a), v[2] * Math.cos(a) - v[1] * Math.sin(a)];
-        const bend = d => { const a = bendAngle(d); if (!a) return d; const r2 = rotX([0, d[1] - At[1], d[2] - At[2]], a); return [d[0], At[1] + r2[1], At[2] + r2[2]]; };
-        const placeNormal = (p, n) => rotX(turn(n), bendAngle(turn(p)));
-        const place = p => { const d = bend(turn(p)); return [anchor[0] + (d[0] - from[0]) * s, anchor[1] + (d[1] - from[1]) * s, anchor[2] + (d[2] - from[2]) * s]; };
+        // The skull stays rigid; the cut neck is fitted to the human neck below, without folding skull faces through it.
+        const placeNormal = (p, n) => turn(n);
+        const place = p => { const d = turn(p); return [anchor[0] + (d[0] - from[0]) * s, anchor[1] + (d[1] - from[1]) * s, anchor[2] + (d[2] - from[2]) * s]; };
         const Ah = anchor;
         const head = L.boneIndex('Head'), neck = L.boneIndex('Neck');
         // The human head left out: its skin above the neck, its eyes.
@@ -420,19 +408,22 @@
         // Where the animal head is cut from its own neck: level under the jaw, sloping up behind it.
         const cutY = L.chin - 0.005, eyeAt = place(Ec), cutAt = q => cutY + Math.min(0.03, Math.max(0, eyeAt[2] - q[2] - 0.03) * 0.5);
         // The human head goes above that cut, a little under it, so the human neck runs up inside the animal's and no gap opens.
-        const gone = v => hw(v) > 0.5 && P[v * 3 + 1] > cutAt([P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]) - 0.012;
+        const gone = v => cr.headOnly ? hw(v) > 0.08 && P[v * 3 + 1] > cutY - 0.025
+            : hw(v) > 0.5 && P[v * 3 + 1] > cutAt([P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]) - 0.012;
         for (let t = 0; t < I.length; t += 3) {
-            if (gone(src[I[t]]) && gone(src[I[t + 1]]) && gone(src[I[t + 2]])) continue;
+            if (cr.headOnly ? gone(src[I[t]]) || gone(src[I[t + 1]]) || gone(src[I[t + 2]]) : gone(src[I[t]]) && gone(src[I[t + 1]]) && gone(src[I[t + 2]])) continue;
             keepTri.push(I[t], I[t + 1], I[t + 2]);
         }
         body.index = Uint32Array.from(keepTri);
         // The neck's top: the skin the head's rim is drawn onto.
         const rim = [];
         // Kept skin next to the hidden head.
-        const hidden = new Set();
-        for (let t = 0; t < I.length; t += 3) if (gone(src[I[t]]) && gone(src[I[t + 1]]) && gone(src[I[t + 2]])) { hidden.add(src[I[t]]); hidden.add(src[I[t + 1]]); hidden.add(src[I[t + 2]]); }
-        // The neck's skin just under the hidden head: the head's rim lies on it, a little out from it.
-        for (const v of new Set(src)) { const w = hw(v); if (w > 0.15 && !hidden.has(v)) rim.push(v); }
+        const visible = new Set(Array.from(body.index, v => src[v]));
+        for (const v of visible) {
+            let neckShare = 0;
+            for (let k = 0; k < 4; k++) if (SJ[v * 4 + k] === neck) neckShare += SW[v * 4 + k];
+            if ((hw(v) > 0.05 || neckShare > 0.3) && P[v * 3 + 1] > cutY - 0.16 && P[v * 3 + 1] < cutY + 0.04) rim.push(v);
+        }
         const parts = [], collar = [], headRoots = [];
         // The coat over the head, behind the eyes (the face stays short-furred, as painted): tufts like the
         // body's, of the coat's own color where it grows, combed back over the skull and down the neck.
@@ -525,9 +516,10 @@
             for (let v = 0; v < n; v++) {
                 const q = place([p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]]);
                 if (Math.hypot(q[0] - skullC[0], q[1] - skullC[1], q[2] - skullC[2]) < skullR * 0.75) own[v] = Math.max(own[v], 0.9);
-                // The neck's own skin is kept (at least as the neck's) down to the cut.
-                if (!locks && keepW(v) > 0.5) own[v] = Math.max(own[v], 0.5);
-                if (q[1] < cutAt(q) + (locks ? 0.03 : 0)) own[v] = 0;
+                // The continuous skin above the neck cut stays whole; source skinning weights only blend its motion.
+                if (p === bodyPart) own[v] = 1;
+                else if (!locks && keepW(v) > 0.5) own[v] = Math.max(own[v], 0.5);
+                if (p !== bodyPart && q[1] < cutAt(q) + (locks ? 0.03 : 0)) own[v] = 0;
             }
             // A lock (eight vertices, root first) stays whole or goes whole, by its root.
             if (locks) for (let v = 0; v < n; v += 8) { const keep = own[v] >= 0.7 && own.subarray(v, v + 8).every(x => x > 0); own.fill(keep ? 1 : 0, v, v + 8); }
@@ -542,14 +534,14 @@
                         nrm.push(...placeNormal([p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]], [p.normals[v * 3], p.normals[v * 3 + 1], p.normals[v * 3 + 2]]));
                         if (p.colors) col.push(p.colors[v * 3], p.colors[v * 3 + 1], p.colors[v * 3 + 2]);
                         if (p.uvs) uv.push(p.uvs[v * 2], p.uvs[v * 2 + 1]);
-                        ownOf.push(own[v]);
+                        ownOf.push(p === bodyPart ? (cr.headOnly ? 1 : headW(p, v)) : own[v]);
                     }
                     idx.push(map[v]);
                 }
             }
             if (!idx.length) continue;
             const m = pos.length / 3;
-            if (p === bodyPart && keys.length) {
+            if (p === bodyPart && keys.length && !cr.headOnly) {
                 // The cut edge (edges of one face only) drawn onto the nearest skin of the neck, the skin near it
                 // following less and less, so the head runs on into the neck.
                 const edges = new Map();
@@ -603,6 +595,74 @@
                 uvs: p.uvs ? Float32Array.from(uv) : undefined, index: Uint32Array.from(idx), joints: Uint8Array.from(jn), weights: Float32Array.from(wt), kind: p.name === 'Eyes' ? 'eye' : p.kind,
                 // The head casts no shadow onto the body: a muzzle's would fall as a long dark band down the chest.
                 onSkin: true }));
+        }
+        if (cr.headOnly) {
+            // Join the actual open human neck edge to an inset ring inside the closed skull.
+            // Reusing each boundary vertex keeps the shoulder/neck surface continuous in motion.
+            const edges = new Map();
+            for (let i = 0; i < body.index.length; i += 3) {
+                const ids = [src[body.index[i]], src[body.index[i + 1]], src[body.index[i + 2]]];
+                for (let k = 0; k < 3; k++) {
+                    const a = ids[k], b = ids[(k + 1) % 3], key = a < b ? a + ':' + b : b + ':' + a;
+                    const edge = edges.get(key);
+                    if (edge) edge.count++; else edges.set(key, { a, b, count: 1 });
+                }
+            }
+            const boundary = new Set();
+            for (const edge of edges.values()) if (edge.count === 1 && [edge.a, edge.b].every(v => P[v * 3 + 1] > cutY - 0.18 && P[v * 3 + 1] < cutY + 0.06)) {
+                boundary.add(edge.a); boundary.add(edge.b);
+            }
+            const base = [...boundary], center = [0, 0, 0], inside = [0, 0, 0];
+            for (const v of base) for (let k = 0; k < 3; k++) center[k] += P[v * 3 + k] / base.length;
+            base.sort((a, b) => Math.atan2(P[a * 3] - center[0], P[a * 3 + 2] - center[2]) - Math.atan2(P[b * 3] - center[0], P[b * 3 + 2] - center[2]));
+            for (let v = 0; v < bodyPart.positions.length; v += 3) {
+                const q = place(Array.from(bodyPart.positions.subarray(v, v + 3)));
+                for (let k = 0; k < 3; k++) inside[k] += q[k] / (bodyPart.positions.length / 3);
+            }
+            if (base.length > 2) {
+                const cols = base.length, rows = 12, pos = [], normal = [], uv = [], joints = [], weights = [], index = [];
+                for (let row = 0; row <= rows; row++) {
+                    const t = row / rows, eased = t * t * (3 - 2 * t);
+                    for (let col = 0; col <= cols; col++) {
+                        const v = base[col % cols], angle = Math.atan2(P[v * 3] - center[0], P[v * 3 + 2] - center[2]);
+                        const end = [inside[0] + Math.sin(angle) * 0.012, inside[1], inside[2] + Math.cos(angle) * 0.012];
+                        for (let k = 0; k < 3; k++) {
+                            const blend = k === 1 ? t : eased;
+                            pos.push(P[v * 3 + k] * (1 - blend) + end[k] * blend);
+                        }
+                        normal.push(Math.sin(angle), 0, Math.cos(angle));
+                        const render = src.indexOf(v);
+                        uv.push(render >= 0 ? body.uvs[render * 2] : 0, render >= 0 ? body.uvs[render * 2 + 1] : 0);
+                        const influence = new Map([[head, eased]]);
+                        for (let k = 0; k < 4; k++) { const joint = SJ[v * 4 + k]; influence.set(joint, (influence.get(joint) || 0) + SW[v * 4 + k] * (1 - eased)); }
+                        const top = [...influence].sort((a, b) => b[1] - a[1]).slice(0, 4), total = top.reduce((sum, [, w]) => sum + w, 0) || 1;
+                        for (let k = 0; k < 4; k++) { joints.push(top[k]?.[0] || 0); weights.push(top[k] ? top[k][1] / total : 0); }
+                    }
+                }
+                for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
+                    const a = row * (cols + 1) + col, b = a + cols + 1;
+                    index.push(a, a + 1, b, a + 1, b + 1, b);
+                }
+                normal.fill(0);
+                for (let i = 0; i < index.length; i += 3) {
+                    const a = index[i] * 3, b = index[i + 1] * 3, c = index[i + 2] * 3;
+                    const u = [pos[b] - pos[a], pos[b + 1] - pos[a + 1], pos[b + 2] - pos[a + 2]], w = [pos[c] - pos[a], pos[c + 1] - pos[a + 1], pos[c + 2] - pos[a + 2]];
+                    const n = Props.vec.cross(u, w);
+                    for (const v of [a, b, c]) for (let k = 0; k < 3; k++) normal[v + k] += n[k];
+                }
+                for (let row = 0; row <= rows; row++) {
+                    const a = row * (cols + 1) * 3, b = a + cols * 3;
+                    for (let k = 0; k < 3; k++) normal[a + k] = normal[b + k] = normal[a + k] + normal[b + k];
+                }
+                for (let v = 0; v < pos.length / 3; v++) {
+                    const row = Math.floor(v / (cols + 1)), source = src.indexOf(base[v % (cols + 1) % cols]);
+                    const blend = Math.min(1, row / 2), n = Props.vec.norm(normal.slice(v * 3, v * 3 + 3));
+                    const joined = Props.vec.norm(n.map((x, k) => x * blend + body.normals[source * 3 + k] * (1 - blend)));
+                    for (let k = 0; k < 3; k++) normal[v * 3 + k] = joined[k];
+                }
+                parts.push({ name: 'Head neck', positions: Float32Array.from(pos), normals: Float32Array.from(normal), uvs: Float32Array.from(uv), index: Uint32Array.from(index),
+                    joints: Uint8Array.from(joints), weights: Float32Array.from(weights), texture: body.texture, roughness: body.roughness, metalness: 0, onSkin: true });
+            }
         }
         // A furred head's join hidden under a collar of fur, combed down the neck.
         let fur = null;
@@ -759,7 +819,37 @@
         return normalize(r);
     }
 
-    const api = { normalize, withSpecies, build, shade, toGlb, random, armAngle, clipsFor };
+    /** Small framing metadata for static previews; skin arrays stay in the worker. */
+    function previewBounds(result) {
+        const bones = result.bones || [], head = bones.findIndex(b => b.name === 'Head');
+        if (head < 0) return {};
+        const feet = new Set(), hands = new Set();
+        bones.forEach((b, i) => {
+            if (/^(Left|Right)(Leg|Foot|ToeBase)$/.test(b.name)) feet.add(i);
+            if (/^LeftHand/.test(b.name)) hands.add(i);
+        });
+        const bounds = Object.fromEntries(['head', 'feet', 'hands'].map(k => [k, { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] }]));
+        for (const part of result.parts) {
+            const accessory = ['Felt and cloth', 'Leather', 'Accessories', 'Plastic', 'Lenses'].includes(part.name);
+            for (let v = 0; v < part.positions.length / 3; v++) {
+                let wh = 0, wf = 0, wa = 0;
+                for (let k = 0; k < 4; k++) {
+                    const j = part.joints[v * 4 + k], w = part.weights[v * 4 + k];
+                    if (j === head) wh += w;
+                    if (feet.has(j)) wf += w;
+                    if (hands.has(j)) wa += w;
+                }
+                for (const key of ['head', 'feet', 'hands']) {
+                    if (!(key === 'head' ? accessory || wh >= 0.75 : key === 'feet' ? wf >= 0.75 : wa >= 0.75)) continue;
+                    const b = bounds[key];
+                    for (let k = 0; k < 3; k++) { b.min[k] = Math.min(b.min[k], part.positions[v * 3 + k]); b.max[k] = Math.max(b.max[k], part.positions[v * 3 + k]); }
+                }
+            }
+        }
+        return Object.fromEntries(Object.entries(bounds).filter(([, b]) => Number.isFinite(b.min[0])));
+    }
+
+    const api = { normalize, withSpecies, build, shade, toGlb, random, armAngle, clipsFor, previewBounds };
     root.RRCharacterModel = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -39,20 +39,36 @@ Hair styles, facial hair, brows, species, outfits, garments and accessories are 
 
 **Randomize** rolls a new character, or only the part chosen beside it (Body, Face, Hair, Outfit, Colors). **Reset** returns to the species' starting point. **↶ ↷** undo and redo. In the view, drag to turn and use the wheel to zoom. The **Pose** dropdown on the right is searchable and sorts the translated names alphabetically. It offers the current body's poses, including A-pose (Still for slime) and Idle, without covering the preview with a long list; **Whole body** and **Face** frame the view. Preview poses do not change the saved Idle.
 
+Catalog pictures load progressively, with visible tiles first. Character generation runs in a background worker, so opening a picker and scrolling its pictures can leave the controls and animation responsive. Desktop previews reuse a disk cache between sessions; cached pictures also stay in memory when changing tabs. Closing the builder or changing the recipe cancels obsolete work. The initial character and WebGL setup can still cause a short startup stall.
+
+Long ponytails, braids and loose hair check actual garment faces when clearing bulky back armor. Connected locks spread the clearance along their length, keeping the middle from disappearing inside a backpack while its tip floats below. Sharp bends and small edge overlaps can remain on thick armor.
+
+**Knight** and **Dark knight** use a formed cuirass, overlapping shoulder/waist plates, separate thigh and shin armor, pointed knee guards and low sabatons. The plates fit around underlying mail and trousers and follow their carrying bones rigidly. The same pieces update Paladin, Gladiator and individually selected armor. Colors, finishes and the pieces' size controls remain editable. Existing character recipes retain their garment IDs; re-save an older GLB to rebuild its geometry.
+
 **Power armor** and **Space marine** use beveled chest/back plates, tapered limb housings, separate shoulder, elbow and knee protection, a dark flexible undersuit and a matching power helmet. Plate surfaces follow their carrying bones rigidly, with gaps at the joints. Bulk and colors remain editable. The same accessories offered here are also available as standalone equipment in [Prop Builder](PROP-BUILDER.md).
+
+**Swimwear › Bikini** uses separate triangular cups, thin continuous halter/back ties and a low-rise V bottom with tied hip strings. Both pieces remain editable: remove or replace either garment and change its colors, material and fit independently. Strings follow the shaped body and its bones rather than relying on narrow cuts in the body mesh.
+
+**+ From model…** opens the project's humanoid model catalog, with search and source thumbnails where available. Choose which body, arm, leg, boot and glove regions to take. Preparation runs in a worker, then previews the outfit on the current body. **Keep outfit** saves it in `3d/Outfits/`; **Discard** restores the previous outfit. The × or right-click on a saved imported outfit asks before deleting it; **Undo** restores it. Built-in Star Shift presets cannot be deleted this way. Boot preparation preserves the source sole pitch while aligning the heel-to-toe direction; foot/toe geometry is excluded from loose-cloth classification. The bundled Jolt Eagle, Max Triton and Vay Drokan fits have been rebuilt. Re-import older custom outfits to replace their previously prepared geometry, and re-save existing character GLBs to update their meshes.
+
+The Grey alien preset starts with a smooth, softly tapered face, wide almond eyes and silver-grey skin. **Face** frames the actual head, including unusually large or broad heads. Soft clothes use a more detailed fit when extreme body proportions exceed the usual fitting surface. The [catalog quality report](CHARACTER-QUALITY.md) records tested combinations and remaining visual issues.
+
+**Accessories › Preview › Weapon** lists saved project GLBs with Blade or Gun grip markers. It fits the selected weapon to the right palm while you inspect poses, including **Thrust** and **Bow**. This is a pose preview; equip the weapon separately in the game. Changing the selection or closing the builder releases the loaded preview.
 
 ## Saving and opening
 
 **Save to Project** writes `3d/Characters/<name>/`:
 
-- `source/<name>.glb`: the model, skinned on a humanoid skeleton named the Mixamo way (a tail adds `Tail`…`Tail5`), with its pictures inside (`skin.png`, `eyes.png`, `outfit.png`, `hair.png`, `lashes.png`, `brows.png`, and `bodyhair.png` and `areola.png` when used), shading baked into its vertex colors (creases, under the chin, where clothes overlap), and an Idle clip.
+- `source/<name>.glb`: the model, skinned on a humanoid skeleton named the Mixamo way (a tail adds `Tail`…`Tail5`), with its pictures inside (`skin.png`, `eyes.png`, `outfit.png`, `hair.png`, `lashes.png`, `brows.png`, and `bodyhair.png` and `areola.png` when used), shading baked into its vertex colors (creases, under the chin, where clothes overlap), and its movement clips.
 - `character.json`: the recipe. **Open…** shows every saved character as a picture; choosing one loads it to edit, and saving under the same name replaces the model.
 - `thumbnail.png`: the picture Open shows.
-- `model.json` (four-legged and Slimefolk): a creature's quadruped rig, so the built-in walk and idle motions play; a Slimefolk's wet surface. Other settings the 3D Models page keeps there stay.
+- `model.json`: a humanoid's automatically bound rig and motion assignments; a creature's quadruped rig; or a Slimefolk's wet surface. A humanoid also gets `model.rig.bin` for its existing skeleton. Other settings the 3D Models page keeps there stay.
 
 A Slimefolk's GLB carries its goo picture and glow picture (`goo.png`, `goo-glow.png`, the glow as the material's emissive) and six clips: Idle, Walk (a hop or an ooze), Attack, Hit, Death (a melt into a puddle) and Talk.
 
 The model shows in Database › 3D Models like an imported one. A humanoid's Rig tool places every marker from the bones.
+
+Humanoids use the same shared motion library in the builder and game. Saved movement assignments select the exported clips; an imported model's own clips and authored Motion-editor animations retain priority. Loose garments carry baked cloth movement in their clips. Changing a preview pose prepares its cloth in a worker while the pose remains usable. Re-save an existing character to update its generated geometry or embedded motion keys after a builder improvement.
 
 ## Sprite sheets
 
@@ -78,7 +94,7 @@ Each walk row is MZ's three frames: a step, standing, the other step. The side-v
 
 ## Not yet
 
-Crowds of characters at once, binding a saved character to an actor from the page, other body plans (birds, serpents, insects), and hair or clothes that move on their own.
+Crowds of characters at once, binding a saved character to an actor from the page, other body plans (birds, serpents, insects), and hair that moves on its own. Cloth movement is baked into saved clips rather than simulated during the game.
 
 ## Where the body comes from
 

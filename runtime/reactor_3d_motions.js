@@ -71,6 +71,8 @@
         { id: 'proneAim', label: 'Prone aim', group: 'fight', hands: { Left: 'support', Right: 'gun' }, aim: 'rifle', aimPitch: 0.04, elbowDown: true },
         { id: 'crouchWalk', label: 'Walking crouched', group: 'move', hands: both('relaxed') },
         { id: 'sword', label: 'Sword swing', group: 'fight', hands: both('sword'), aim: 'hilt', wrist: { flex: 0, bend: [[0, -10], [0.3, -38], [0.5, -34], [0.66, 6], [0.8, 32], [0.92, 20], [1, -10]] } },
+        { id: 'swordThrust', label: 'Thrust', group: 'fight', hands: both('sword'), aim: 'thrust' },
+        { id: 'bow', label: 'Bow', group: 'fight', hands: { Left: 'sword', Right: 'grab' }, aim: 'bow' },
         { id: 'defend', label: 'Guarding', group: 'fight', hands: both('fist'), wrist: { flex: 0, bend: 4 } },
         { id: 'hit', label: 'Taking a hit', group: 'fight', hands: both('looseFist'), wrist: { flex: 0, bend: 4 } },
         { id: 'death', label: 'Falling dead', group: 'fight', hands: both('relaxed') },
@@ -84,7 +86,7 @@
     ];
     // The panel's order: by group, then as a person would look for them.
     const ORDER = ['walk', 'run', 'crouchWalk', 'jump', 'fall', 'roll', 'frontFlip', 'backFlip', 'climbLadder', 'climbWall', 'swim', 'tread',
-        'fight', 'defend', 'sword', 'pistol', 'pistolTwo', 'rifle', 'kneelAim', 'proneAim', 'throw', 'cast', 'dodge', 'hit', 'death',
+        'fight', 'defend', 'sword', 'swordThrust', 'bow', 'pistol', 'pistolTwo', 'rifle', 'kneelAim', 'proneAim', 'throw', 'cast', 'dodge', 'hit', 'death',
         'crouch', 'kneel', 'sit', 'lieBack', 'lieSide', 'prone', 'wave', 'armsUp'];
     POSES.sort((x, y) => ORDER.indexOf(x.id) - ORDER.indexOf(y.id));
 
@@ -647,7 +649,8 @@
         };
         for (const S of ['Left', 'Right']) {
             const chain = ['UpLeg', 'Leg', 'Foot', 'ToeBase'].map(n => ({ n, k: names.indexOf(S + n), i: index.get(S + n) }));
-            if (chain.some(c => c.k < 0)) continue;
+            if (chain.slice(0, 3).some(c => c.k < 0)) continue;
+            if (chain[3].k < 0) chain.pop();
             // The thigh's parent, whatever it is (the hips).
             const top = chain[0].i, hipsParent = n => n;
             for (let f = 0; f < steps; f++) {
@@ -665,7 +668,7 @@
             }
             // A motion played once (a flip, a roll) has its foot and toes turn no faster than 35 degrees a frame on
             // their shin and foot: a capture's lost foot markers flicking the toes over are smoothed through.
-            if (once) for (const c of [2, 3]) {
+            if (once) for (let c = 2; c < chain.length; c++) {
                 let last = null;
                 for (let f = 0; f < steps; f++) {
                     const parent = world[chain[c - 1].k][f], local = mul(conj(parent), world[chain[c].k][f]);
@@ -684,7 +687,8 @@
             // An upright body's foot points about where it faces, a little out: one turned out past TOE_OUT
             // (the heel swung in) or in past TOE_IN rolls the whole leg about the thigh, knee and foot together.
             const hips = names.indexOf('Hips'), m = S === 'Left' ? 1 : -1;
-            const footDir = unit(sub(bones[index.get(S + 'ToeBase')].head, bones[index.get(S + 'Foot')].head));
+            const toe = index.get(S + 'ToeBase');
+            const footDir = toe === undefined ? [0, 0, 1] : unit(sub(bones[toe].head, bones[index.get(S + 'Foot')].head));
             const thighDir = unit(sub(bones[index.get(S + 'Leg')].head, bones[index.get(S + 'UpLeg')].head));
             // (Not on a body hung in place, its feet set on holds or kicking in the water.)
             if (hips < 0 || !upright) continue;
@@ -951,6 +955,25 @@
         return out;
     }
     AIMS.cast = cast;
+    // Dedicated sprite/action motions share the guarded lower-body stance,
+    // with body-relative arm IK instead of borrowing a slash or throw.
+    AIMS.thrust = (ctx, f) => {
+        const { pos } = ctx.place(f), sh = pos[ctx.index.get('RightArm')], u = ctx.times[f] / ctx.period;
+        const drive = ease(Math.max(0, Math.min(1, (u - 0.16) / 0.25))) * (1 - ease(Math.max(0, Math.min(1, (u - 0.57) / 0.28))));
+        const grip = [sh[0], sh[1] - 0.08 * ctx.scale, sh[2] + ctx.reach.Right * (0.3 + 0.55 * drive)];
+        const turn = handTurn(ctx.F.Right, [0, -1, 0], [0, 0, 1]);
+        return [{ S: 'Right', wrist: sub(grip, rotate(turn, ctx.grip.Right)), turn, pole: unit([-1, -1, -0.2]) }];
+    };
+    AIMS.bow = (ctx, f) => {
+        const { pos } = ctx.place(f), head = pos[ctx.index.get('Head')], sh = pos[ctx.index.get('LeftArm')], u = ctx.times[f] / ctx.period;
+        const draw = ease(Math.max(0, Math.min(1, (u - 0.1) / 0.3))), release = ease(Math.max(0, Math.min(1, (u - 0.62) / 0.1)));
+        const left = [sh[0] * 0.55, sh[1] + 0.04 * ctx.scale, sh[2] + ctx.reach.Left * 0.84];
+        const right = [head[0] - 0.075 * ctx.scale, sh[1] + 0.055 * ctx.scale, left[2] - ctx.reach.Right * (0.23 + 0.62 * draw) - 0.07 * ctx.scale * release];
+        return [['Left', left, [0, 0, 1], [0, 1, 0]], ['Right', right, [0, -1, 0], [0, 0, 1]]].map(([S, at, d, thumb]) => {
+            const turn = handTurn(ctx.F[S], d, thumb);
+            return { S, wrist: sub(at, rotate(turn, ctx.grip[S])), turn, pole: unit([S === 'Left' ? 1 : -1, -0.25, -0.5]) };
+        });
+    };
     AIMS.ladder = (ctx, f) => climb(ctx, f, false);
     AIMS.wall = (ctx, f) => climb(ctx, f, true);
     AIMS.tread = tread;
@@ -1097,7 +1120,9 @@
         if (!POSES.some(p => p.id === id)) return null;
         const index = new Set(bones.map(b => b.name));
         if (!index.has('LeftArm') || !index.has('LeftForeArm') || !index.has('LeftUpLeg')) return null;
-        const cap = take(id);
+        const authored = id === 'swordThrust' || id === 'bow';
+        const source = take(authored ? 'fight' : id);
+        const cap = authored && source ? Object.assign({}, source, { once: true }) : source;
         return cap ? captured(bones, id, cap, body, POSES.find(p => p.id === id), options) : null;
     }
 
@@ -1110,6 +1135,7 @@
     const GAME_CLIPS = [
         ['walk', 'Walk', true], ['run', 'Run', true], ['jump', 'Jump', true], ['crouchWalk', 'Crouch Walk', true], ['climbLadder', 'Climb', true],
         ['swim', 'Swim', true], ['tread', 'Tread Water', true], ['fight', 'Fight Stance', true], ['sword', 'Sword Swing', true], ['defend', 'Guard', true],
+        ['swordThrust', 'Thrust', true], ['bow', 'Bow', true],
         ['hit', 'Hit', true], ['death', 'Death', true], ['cast', 'Cast Spell', true], ['throw', 'Throw', true], ['dodge', 'Dodge', true],
         ['pistol', 'Pistol Aim', true], ['rifle', 'Rifle Aim', true], ['armsUp', 'Victory', true],
         ['pistolTwo', 'Pistol Aim Two Hands', false], ['kneelAim', 'Kneel Aim', false], ['proneAim', 'Prone Aim', false], ['roll', 'Roll', false],
@@ -1224,6 +1250,7 @@
         ['Idle', 'idle', 'Idle'], ['Walk', 'walking', 'Walk'], ['Run', 'dashing', 'Run'], ['Jump', 'jumping', 'Jump'],
         ['Swim', 'swimming', 'Swim'], ['Tread Water', 'treading', 'Tread Water'], ['Climb', 'climbing', 'Climb'],
         ['attack', 'action', 'Sword Swing'], ['skill', 'action', 'Cast Spell'], ['cast', 'action', 'Cast Spell'], ['item', 'action', 'Throw'],
+        ['thrust', 'action', 'Thrust'], ['missile', 'action', 'Bow'],
         ['guard', 'action', 'Guard'], ['damage', 'action', 'Hit'], ['dead', 'action', 'Death'], ['evade', 'action', 'Dodge'],
         ['victory', 'action', 'Victory'], ['shoot', 'action', 'Pistol Aim']
     ];

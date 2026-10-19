@@ -485,7 +485,7 @@ test('both viewports render the maps once a frame before the first pass, and the
     const three = source3D();
     assert.match(three, /scene\.updateMatrixWorld\(\);\n\s*\/\/ The shadow maps, while every group is still visible, then the reflections\.\n\s*Reactor3D\.prepareWorldFrame\(this\._renderer, mapScene, scene, this\._camera, undefined, this\.upscaled\(\) \? this\._scale : 1\);/);
     assert.match(three, /if \(shadows !== false && mapScene\.renderShadows\) mapScene\.renderShadows\(renderer, \(shadows && shadows\.mapData\) \|\| null, shadows \|\| undefined\);/);
-    assert.match(three, /group\.add\(object\);\n\s*\/\/ A prop never moves; its map is cached\. An event walks\.\n\s*Reactor3D\.Shadows\.markCaster\(object, !\(typeof character\.eventId === "function"\n\s*&& character\.eventId\(\) >= Reactor3D\.PROP_EVENT_BASE\)\);/);
+    assert.match(three, /Reactor3D\.Shadows\.markCaster\(object, Reactor3D\.modelCasterMoves\(character, current\.rules\)\);/);
     // The depth passes run from the sentinel's hook, inside the pass.
     assert.match(three, /mesh\.onBeforeRender = \(\) => this\._flush\(\);/);
     assert.match(three, /this\._pending = \{ renderer, scene, statics: staticJobs, dynamics: dynJobs, sun: sunJobs, activate: !this\._active \};/);
@@ -626,3 +626,15 @@ test('rows are ranked on smoothed incident light, so a sweeping cone does not ca
     }
 });
 
+
+
+test('placed flags with continuous clips cast moving shadows; still props retain cached shadows', () => {
+    const prop = { eventId: () => Reactor3D.PROP_EVENT_BASE + 1 };
+    const event = { eventId: () => 1 };
+    assert.equal(Reactor3D.modelCasterMoves(prop, [{ type: 'clip', clip: 'Wave', trigger: 'always' }]), true);
+    assert.equal(Reactor3D.modelCasterMoves(prop, [{ type: 'spin', trigger: 'idle' }]), true);
+    assert.equal(Reactor3D.modelCasterMoves(prop, []), false);
+    assert.equal(Reactor3D.modelCasterMoves(prop, [{ type: 'clip', trigger: 'action' }]), false);
+    assert.equal(Reactor3D.modelCasterMoves(event, []), true);
+    assert.equal(Reactor3D.modelCasterMoves(null, []), true);
+});

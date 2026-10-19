@@ -217,11 +217,14 @@ function frames(asf, values, sides) {
  * take's own capture rate when not 120; `pitch`
  * tilts the whole body forward that many degrees; `face.first` takes the
  * heading from the first frames only (a body that turns over). `layer`
- * lays authored bone frames and turns over the take (see `overlay`).
+ * lays authored bone frames and turns over the take (see `overlay`); `gaitForward`
+ * calibrates each leg's neutral stance heading in degrees outward.
  */
 let TAKES = {
-    walk: { trial: '35_01', from: 0.1, to: 2.9, cycle: [0.9, 1.4] },
-    run: { trial: '09_01', from: 0.05, to: 1.2, cycle: [0.55, 0.85], air: true },
+    // The ankle→ball marker lies six degrees outside the visible heel→ball sole axis on our neutral
+    // human feet. Eleven degrees at that marker leaves the actual sole about five degrees outward.
+    walk: { trial: '35_01', from: 0.1, to: 2.9, cycle: [0.9, 1.4], gaitForward: 11 },
+    run: { trial: '09_01', from: 0.05, to: 1.2, cycle: [0.55, 0.85], air: true, gaitForward: 11 },
     crouch: { trial: '136_09', from: 1.5, to: 2.3, swing: true, period: 2.4 },
     jump: { trial: '13_39', from: 0, to: 2.9, air: true },
     fall: { trial: '82_04', from: 1.9, to: 2.22, swing: true, period: 1.4, hover: 0.35 },
@@ -339,6 +342,30 @@ function overlay(list, layer) {
         }
         return { pos: f.pos, bones };
     });
+}
+/** A captured gait's neutral foot heading, with the knee and ankle turning together about the thigh. */
+function alignGait(list, outward) {
+    for (const [S, side] of [['Left', 1], ['Right', -1]]) {
+        const angles = [];
+        for (const f of list) {
+            const thigh = f.bones[S + 'UpLeg'].d, foot = f.bones[S + 'Foot'].d, front = f.bones.Hips.s;
+            if (thigh[1] > -0.7 || Math.abs(foot[1]) > 0.6) continue;
+            const a = Math.atan2(foot[0], foot[2]) - Math.atan2(front[0], front[2]);
+            angles.push(Math.atan2(Math.sin(a), Math.cos(a)) * side);
+        }
+        if (!angles.length) continue;
+        angles.sort((a, b) => a - b);
+        const correction = outward * DEG - angles[angles.length >> 1];
+        for (const f of list) {
+            const axis = f.bones[S + 'UpLeg'].d;
+            const angle = correction * side / Math.min(-0.4, axis[1]);
+            for (const name of below(S + 'UpLeg')) {
+                const b = f.bones[name];
+                f.bones[name] = { d: turnAbout(b.d, axis, angle), s: turnAbout(b.s, axis, angle) };
+            }
+        }
+    }
+    return list;
 }
 /** The whole take pitched forward by deg about the body's left-right line (a swimmer laid flat). */
 function tilt(list, deg) {
@@ -543,6 +570,7 @@ function build(dir) {
         }
         if (take.pitch) list = tilt(list, take.pitch);
         if (take.layer) list = overlay(list, take.layer);
+        if (take.gaitForward !== undefined) list = alignGait(list, take.gaitForward);
         const qs = seal(list, take.once, take.smooth);
         // Leg length, and the standing heights of the ankles, balls and toe tips, from the skeleton at rest.
         const b = src.asf.bones, m = src.asf.meters;

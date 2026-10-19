@@ -314,6 +314,11 @@ Scene_Boot.prototype.loadGameFonts = function() {
     const advanced = $dataSystem.advanced;
     FontManager.load("rmmz-mainfont", advanced.mainFontFilename);
     FontManager.load("rmmz-numberfont", advanced.numberFontFilename);
+    // Register both bitmap families before any windows (including restored saves) draw.
+    const fonts = $dataSystem.rrLegacyFonts;
+    for (const id of [0, 1]) {
+        if (fonts && fonts[id]) FontManager.load("rmmz-legacy-font-" + id, fonts[id].filename);
+    }
 };
 
 Scene_Boot.prototype.isPlayerDataLoaded = function() {

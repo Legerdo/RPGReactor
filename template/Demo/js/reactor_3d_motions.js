@@ -5,7 +5,8 @@
  * rigged humanoid first needs a motion of its own, and by the editor.
  *
  *   RRMotionLibrary.POSES             [{ id, label, group }], in the panel's order (GROUPS)
- *   RRMotionLibrary.clip(bones, id, body)   { name, times, tracks: [{ bone, values }], heights, lift, skin, once } or null
+ *   RRMotionLibrary.clip(bones, id, body, options)   { name, times, tracks: [{ bone, values }], heights, lift, skin, once } or null
+ *   RRMotionLibrary.stateClip(bones, id)   one of STATE_MOTIONS as the game plays it
  *   RRMotionLibrary.gameClips(bones, body, set)   the clips a saved character carries (GAME_CLIPS)
  *   RRMotionLibrary.load() / loadAsync(url)   reads the data (reactor_3d_motions.bin beside this file)
  *
@@ -70,6 +71,8 @@
         { id: 'proneAim', label: 'Prone aim', group: 'fight', hands: { Left: 'support', Right: 'gun' }, aim: 'rifle', aimPitch: 0.04, elbowDown: true },
         { id: 'crouchWalk', label: 'Walking crouched', group: 'move', hands: both('relaxed') },
         { id: 'sword', label: 'Sword swing', group: 'fight', hands: both('sword'), aim: 'hilt', wrist: { flex: 0, bend: [[0, -10], [0.3, -38], [0.5, -34], [0.66, 6], [0.8, 32], [0.92, 20], [1, -10]] } },
+        { id: 'swordThrust', label: 'Thrust', group: 'fight', hands: both('sword'), aim: 'thrust' },
+        { id: 'bow', label: 'Bow', group: 'fight', hands: { Left: 'sword', Right: 'grab' }, aim: 'bow' },
         { id: 'defend', label: 'Guarding', group: 'fight', hands: both('fist'), wrist: { flex: 0, bend: 4 } },
         { id: 'hit', label: 'Taking a hit', group: 'fight', hands: both('looseFist'), wrist: { flex: 0, bend: 4 } },
         { id: 'death', label: 'Falling dead', group: 'fight', hands: both('relaxed') },
@@ -83,7 +86,7 @@
     ];
     // The panel's order: by group, then as a person would look for them.
     const ORDER = ['walk', 'run', 'crouchWalk', 'jump', 'fall', 'roll', 'frontFlip', 'backFlip', 'climbLadder', 'climbWall', 'swim', 'tread',
-        'fight', 'defend', 'sword', 'pistol', 'pistolTwo', 'rifle', 'kneelAim', 'proneAim', 'throw', 'cast', 'dodge', 'hit', 'death',
+        'fight', 'defend', 'sword', 'swordThrust', 'bow', 'pistol', 'pistolTwo', 'rifle', 'kneelAim', 'proneAim', 'throw', 'cast', 'dodge', 'hit', 'death',
         'crouch', 'kneel', 'sit', 'lieBack', 'lieSide', 'prone', 'wave', 'armsUp'];
     POSES.sort((x, y) => ORDER.indexOf(x.id) - ORDER.indexOf(y.id));
 
@@ -646,7 +649,8 @@
         };
         for (const S of ['Left', 'Right']) {
             const chain = ['UpLeg', 'Leg', 'Foot', 'ToeBase'].map(n => ({ n, k: names.indexOf(S + n), i: index.get(S + n) }));
-            if (chain.some(c => c.k < 0)) continue;
+            if (chain.slice(0, 3).some(c => c.k < 0)) continue;
+            if (chain[3].k < 0) chain.pop();
             // The thigh's parent, whatever it is (the hips).
             const top = chain[0].i, hipsParent = n => n;
             for (let f = 0; f < steps; f++) {
@@ -664,7 +668,7 @@
             }
             // A motion played once (a flip, a roll) has its foot and toes turn no faster than 35 degrees a frame on
             // their shin and foot: a capture's lost foot markers flicking the toes over are smoothed through.
-            if (once) for (const c of [2, 3]) {
+            if (once) for (let c = 2; c < chain.length; c++) {
                 let last = null;
                 for (let f = 0; f < steps; f++) {
                     const parent = world[chain[c - 1].k][f], local = mul(conj(parent), world[chain[c].k][f]);
@@ -683,7 +687,8 @@
             // An upright body's foot points about where it faces, a little out: one turned out past TOE_OUT
             // (the heel swung in) or in past TOE_IN rolls the whole leg about the thigh, knee and foot together.
             const hips = names.indexOf('Hips'), m = S === 'Left' ? 1 : -1;
-            const footDir = unit(sub(bones[index.get(S + 'ToeBase')].head, bones[index.get(S + 'Foot')].head));
+            const toe = index.get(S + 'ToeBase');
+            const footDir = toe === undefined ? [0, 0, 1] : unit(sub(bones[toe].head, bones[index.get(S + 'Foot')].head));
             const thighDir = unit(sub(bones[index.get(S + 'Leg')].head, bones[index.get(S + 'UpLeg')].head));
             // (Not on a body hung in place, its feet set on holds or kicking in the water.)
             if (hips < 0 || !upright) continue;
@@ -950,6 +955,25 @@
         return out;
     }
     AIMS.cast = cast;
+    // Dedicated sprite/action motions share the guarded lower-body stance,
+    // with body-relative arm IK instead of borrowing a slash or throw.
+    AIMS.thrust = (ctx, f) => {
+        const { pos } = ctx.place(f), sh = pos[ctx.index.get('RightArm')], u = ctx.times[f] / ctx.period;
+        const drive = ease(Math.max(0, Math.min(1, (u - 0.16) / 0.25))) * (1 - ease(Math.max(0, Math.min(1, (u - 0.57) / 0.28))));
+        const grip = [sh[0], sh[1] - 0.08 * ctx.scale, sh[2] + ctx.reach.Right * (0.3 + 0.55 * drive)];
+        const turn = handTurn(ctx.F.Right, [0, -1, 0], [0, 0, 1]);
+        return [{ S: 'Right', wrist: sub(grip, rotate(turn, ctx.grip.Right)), turn, pole: unit([-1, -1, -0.2]) }];
+    };
+    AIMS.bow = (ctx, f) => {
+        const { pos } = ctx.place(f), head = pos[ctx.index.get('Head')], sh = pos[ctx.index.get('LeftArm')], u = ctx.times[f] / ctx.period;
+        const draw = ease(Math.max(0, Math.min(1, (u - 0.1) / 0.3))), release = ease(Math.max(0, Math.min(1, (u - 0.62) / 0.1)));
+        const left = [sh[0] * 0.55, sh[1] + 0.04 * ctx.scale, sh[2] + ctx.reach.Left * 0.84];
+        const right = [head[0] - 0.075 * ctx.scale, sh[1] + 0.055 * ctx.scale, left[2] - ctx.reach.Right * (0.23 + 0.62 * draw) - 0.07 * ctx.scale * release];
+        return [['Left', left, [0, 0, 1], [0, 1, 0]], ['Right', right, [0, -1, 0], [0, 0, 1]]].map(([S, at, d, thumb]) => {
+            const turn = handTurn(ctx.F[S], d, thumb);
+            return { S, wrist: sub(at, rotate(turn, ctx.grip[S])), turn, pole: unit([S === 'Left' ? 1 : -1, -0.25, -0.5]) };
+        });
+    };
     AIMS.ladder = (ctx, f) => climb(ctx, f, false);
     AIMS.wall = (ctx, f) => climb(ctx, f, true);
     AIMS.tread = tread;
@@ -999,7 +1023,7 @@
         return keys[keys.length - 1][1];
     }
 
-    function captured(bones, id, cap, body, pose) {
+    function captured(bones, id, cap, body, pose, options) {
         const index = new Map(bones.map((b, i) => [b.name, i]));
         const rest = restFrames(bones, index);
         const names = DATA.bones.filter(n => rest[n] && cap.bones[n]);
@@ -1053,7 +1077,7 @@
                     // A sole point: wherever it is at rest is on the floor.
                     for (const o of c) need = Math.max(need, b.head[1] + o[1] - (pos[i][1] + rotate(rot[i], o)[1]));
                 });
-                heights[f] = cap.hang ? cap.rise[f] * legLength : (Number.isFinite(need) ? need : 0) + (cap.air ? cap.rise[f] * legLength : 0);
+                heights[f] = cap.hang ? cap.rise[f] * legLength : (Number.isFinite(need) ? need : 0) + (cap.air && !(options && options.inPlace) ? cap.rise[f] * legLength : 0);
             }
             return heights;
         };
@@ -1091,12 +1115,15 @@
     }
     const dot4 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
 
-    function clip(bones, id, body) {
+    /** `options.inPlace`: the body's height off the floor leaves out the capture's own flight (a jump's, a run's). */
+    function clip(bones, id, body, options) {
         if (!POSES.some(p => p.id === id)) return null;
         const index = new Set(bones.map(b => b.name));
         if (!index.has('LeftArm') || !index.has('LeftForeArm') || !index.has('LeftUpLeg')) return null;
-        const cap = take(id);
-        return cap ? captured(bones, id, cap, body, POSES.find(p => p.id === id)) : null;
+        const authored = id === 'swordThrust' || id === 'bow';
+        const source = take(authored ? 'fight' : id);
+        const cap = authored && source ? Object.assign({}, source, { once: true }) : source;
+        return cap ? captured(bones, id, cap, body, POSES.find(p => p.id === id), options) : null;
     }
 
     // ── clips for the saved model ───────────────────────────────────────
@@ -1108,6 +1135,7 @@
     const GAME_CLIPS = [
         ['walk', 'Walk', true], ['run', 'Run', true], ['jump', 'Jump', true], ['crouchWalk', 'Crouch Walk', true], ['climbLadder', 'Climb', true],
         ['swim', 'Swim', true], ['tread', 'Tread Water', true], ['fight', 'Fight Stance', true], ['sword', 'Sword Swing', true], ['defend', 'Guard', true],
+        ['swordThrust', 'Thrust', true], ['bow', 'Bow', true],
         ['hit', 'Hit', true], ['death', 'Death', true], ['cast', 'Cast Spell', true], ['throw', 'Throw', true], ['dodge', 'Dodge', true],
         ['pistol', 'Pistol Aim', true], ['rifle', 'Rifle Aim', true], ['armsUp', 'Victory', true],
         ['pistolTwo', 'Pistol Aim Two Hands', false], ['kneelAim', 'Kneel Aim', false], ['proneAim', 'Prone Aim', false], ['roll', 'Roll', false],
@@ -1222,12 +1250,47 @@
         ['Idle', 'idle', 'Idle'], ['Walk', 'walking', 'Walk'], ['Run', 'dashing', 'Run'], ['Jump', 'jumping', 'Jump'],
         ['Swim', 'swimming', 'Swim'], ['Tread Water', 'treading', 'Tread Water'], ['Climb', 'climbing', 'Climb'],
         ['attack', 'action', 'Sword Swing'], ['skill', 'action', 'Cast Spell'], ['cast', 'action', 'Cast Spell'], ['item', 'action', 'Throw'],
+        ['thrust', 'action', 'Thrust'], ['missile', 'action', 'Bow'],
         ['guard', 'action', 'Guard'], ['damage', 'action', 'Hit'], ['dead', 'action', 'Death'], ['evade', 'action', 'Dodge'],
         ['victory', 'action', 'Victory'], ['shoot', 'action', 'Pistol Aim']
     ];
+    /**
+     * The motions the game plays a rigged humanoid in for its own states,
+     * where the model has none of its own: the state, the motion, and the
+     * name it shows by.
+     */
+    const STATE_MOTIONS = [
+        { state: 'walking', id: 'walk', name: 'Walk' }, { state: 'dashing', id: 'run', name: 'Run' }, { state: 'jumping', id: 'jump', name: 'Jump' },
+        { state: 'swimming', id: 'swim', name: 'Swim' }, { state: 'treading', id: 'tread', name: 'Tread Water' }, { state: 'climbing', id: 'climbLadder', name: 'Climb' }
+    ];
+    /**
+     * One motion as the game plays it, on a skeleton at rest (`bones` as for
+     * clip): { times, tracks, loop }, a track { bone, values, times } and the
+     * hips' place one with `path: 'translation'`, keys thinned. A jump keeps
+     * its time in the air, from just before the feet leave the floor to the
+     * landing, and leaves the flight's height to the game.
+     */
+    function stateClip(bones, id) {
+        const flight = id === 'jump';
+        const c = clip(bones, id, null, { inPlace: flight });
+        if (!c) return null;
+        let from = 0, to = c.times.length - 1;
+        if (flight) {
+            const rise = take(id).rise;
+            let a = -1, b = -1;
+            for (let f = 0; f < rise.length; f++) if (rise[f] > 0.04) { if (a < 0) a = f; b = f; }
+            if (a >= 0) { from = Math.max(0, a - 5); to = Math.min(to, b + 2); }
+        }
+        const n = to - from + 1, times = new Float32Array(n);
+        for (let i = 0; i < n; i++) times[i] = c.times[from + i] - c.times[from];
+        const hips = bones.findIndex(b => b.parent < 0), h = bones[hips].head, move = new Float32Array(n * 3);
+        for (let f = 0; f < n; f++) move.set([h[0], h[1] + c.heights[from + f], h[2]], f * 3);
+        const tracks = c.tracks.map(t => ({ bone: t.bone, values: t.values.slice(from * 4, (to + 1) * 4) })).concat([{ bone: hips, path: 'translation', values: move }]);
+        return { name: id, times, tracks: reduceKeys(times, tracks, 0.4 * DEG, 0.002), loop: !flight && !c.once };
+    }
     const frameOf = bones => handFrames(bones, new Map(bones.map((b, i) => [b.name, i])));
     const api = {
-        POSES, GROUPS, clip, gameClips, GAME_CLIPS, SLOTS, LEG_RANGE, TOE_OUT, load, loadAsync, open, ready: () => !!DATA, dataPath: null, HAND_SHAPES, FINGER_RANGE, handFrames: frameOf,
+        POSES, GROUPS, clip, gameClips, GAME_CLIPS, SLOTS, STATE_MOTIONS, stateClip, LEG_RANGE, TOE_OUT, load, loadAsync, open, ready: () => !!DATA, dataPath: null, HAND_SHAPES, FINGER_RANGE, handFrames: frameOf,
         /** One still frame of both hands in a shape: the finger tracks. */
         handShape: (bones, shape) => handTracks(frameOf(bones), both(shape), [0])
     };

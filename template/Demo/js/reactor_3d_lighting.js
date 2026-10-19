@@ -590,14 +590,25 @@ Reactor3D.lightGlsl = function(shadows, taps) {
         "vec3 rrFaceN = vec3(0.0, 1.0, 0.0);",
         "float rrFace = 0.0;",
         "uniform vec3 rrKeyColor;",
-        // The facing a light computed elsewhere (the quarter-size pass) is short of: the sun's
-        // share of the light at its facing, and the sky's share at the face's tilt.
+        // The light direction and strength interpolated from the model's vertices. This
+        // keeps local-light facing in the quarter-size path without another pixel light loop.
+        "#ifdef RR_VERTEX_FACE",
+        "varying vec4 vRRFaceLight;",
+        "float rrFaceShare(vec3 n) {",
+        "\tfloat k = vRRFaceLight.w, a = dot(rrAmbient, vec3(0.333));",
+        "\tfloat w = k / max(k + a, 1e-4);",
+        "\tfloat nl = dot(n, vRRFaceLight.xyz) / max(k, 1e-4);",
+        "\tfloat t = " + (this.MODEL_FACING_FLOOR || 0).toFixed(3) + " + " + (1 - (this.MODEL_FACING_FLOOR || 0)).toFixed(3) + " * clamp((nl + " + (this.MODEL_FACING_WRAP || 0).toFixed(3) + ") / " + (1 + (this.MODEL_FACING_WRAP || 0)).toFixed(3) + ", 0.0, 1.0);",
+        "\treturn (1.0 - w) * (1.0 - " + (this.MODEL_SKY_FALLOFF || 0).toFixed(3) + " * (1.0 - n.y)) + w * t;",
+        "}",
+        "#else",
         "float rrFaceShare(vec3 n) {",
         "\tfloat k = dot(rrKeyColor, vec3(0.333)), a = dot(rrAmbient, vec3(0.333));",
         "\tfloat w = rrKeyLight.w < 0.5 ? k / max(k + a, 1e-4) : 0.0;",
         "\tfloat t = " + (this.MODEL_FACING_FLOOR || 0).toFixed(3) + " + " + (1 - (this.MODEL_FACING_FLOOR || 0)).toFixed(3) + " * clamp((dot(n, normalize(rrKeyLight.xyz)) + " + (this.MODEL_FACING_WRAP || 0).toFixed(3) + ") / " + (1 + (this.MODEL_FACING_WRAP || 0)).toFixed(3) + ", 0.0, 1.0);",
         "\treturn (1.0 - w) * (1.0 - " + (this.MODEL_SKY_FALLOFF || 0).toFixed(3) + " * (1.0 - n.y)) + w * t;",
         "}",
+        "#endif",
         // About the light the quarter-size combine will multiply a surface by: what a glow or a
         // sheen added before it is divided by, so it comes out near its own strength.
         "float rrLightGuess() { return max(dot(rrAmbient + rrKeyColor, vec3(0.333)), 0.25); }",
@@ -921,6 +932,51 @@ Reactor3D.PERTURB_NORMAL_GLSL = [
     "}"
 ].join("\n") + "\n";
 
+/** Local light moments at vertices: all packed lights count, with no shadow or pixel light loop. */
+Reactor3D.injectVertexFacing = function(shader) {
+    if (shader.vertexShader.includes("varying vec4 vRRFaceLight;")) return;
+    const declarations = [
+        "uniform int rrLightCount;",
+        "uniform vec4 rrLightPos[" + this.SHADER_LIGHTS + "];",
+        "uniform vec4 rrLightColor[" + this.SHADER_LIGHTS + "];",
+        "uniform vec4 rrLightAim[" + this.SHADER_LIGHTS + "];",
+        "varying vec4 vRRFaceLight;",
+        "vec4 rrVertexFaceLight(vec3 p) {",
+        "\tvec4 sum = vec4(0.0);",
+        "\tfor (int i = 0; i < " + this.SHADER_LIGHTS + "; i++) {",
+        "\t\tif (i >= rrLightCount) break;",
+        "\t\tvec4 lp = rrLightPos[i], lc = rrLightColor[i];",
+        "\t\tvec3 d = p - lp.xyz;",
+        "\t\tfloat fall, dist = 0.0;",
+        "\t\tvec3 toward;",
+        "\t\tif (lc.w > 2.5) {",
+        "\t\t\tfall = smoothstep(lp.w, lp.w * 0.6, length(d.xz));",
+        "\t\t\ttoward = rrLightAim[i].xyz;",
+        "\t\t} else {",
+        "\t\t\tif (max(max(abs(d.x), abs(d.y)), abs(d.z)) >= max(lp.w, 0.001)) continue;",
+        "\t\t\tdist = length(d);",
+        "\t\t\tfall = max(0.0, 1.0 - dist / max(lp.w, 0.001)); fall *= fall;",
+        "\t\t\tvec4 aim = rrLightAim[i];",
+        "\t\t\tif (lc.w > 1.5) {",
+        "\t\t\t\tfloat along = dot(d, aim.xyz);",
+        "\t\t\t\tif (along < 0.0 || along > lp.w) continue;",
+        "\t\t\t\tfall = smoothstep(aim.w, aim.w * 0.35, length(d - aim.xyz * along)) * sqrt(max(0.0, 1.0 - along / max(lp.w, 0.001)));",
+        "\t\t\t} else if (lc.w > 0.5) {",
+        "\t\t\t\tfloat cone = dot(d / max(dist, 0.0001), aim.xyz);",
+        "\t\t\t\tfall *= smoothstep(aim.w, mix(aim.w, 1.0, 0.35), cone);",
+        "\t\t\t}",
+        "\t\t\ttoward = -d;",
+        "\t\t}",
+        "\t\tfloat energy = dot(lc.rgb, vec3(0.333)) * fall;",
+        "\t\tsum.xyz += toward * inversesqrt(max(dot(toward, toward), 1e-8)) * energy;",
+        "\t\tsum.w += energy;",
+        "\t}",
+        "\treturn sum;",
+        "}"
+    ].join("\n") + "\n";
+    shader.vertexShader = declarations + shader.vertexShader.replace(/}\s*$/, "\tvRRFaceLight = rrVertexFaceLight(vRRWorldPos);\n}");
+};
+
 Reactor3D.injectLightShader = function(shader, renderer, material) {
     const uniforms = this.lightUniforms();
     this.LightGrid.ensure(uniforms);
@@ -953,12 +1009,14 @@ Reactor3D.injectLightShader = function(shader, renderer, material) {
     let face = "", faceDecl = "";
     if (faces) {
         this.injectWorldNormal(shader);
+        this.injectVertexFacing(shader);
+        faceDecl = "#define RR_VERTEX_FACE\n";
         face = this.faceGlsl(normalMap);
-        // On the weak tier the loop does not weigh each light: the whole light takes the sun's and the
+        // On the weak tier the loop does not weigh each light: the whole light takes the direct light's and the
         // sky's share of the facing (rrFaceShare), as a model lit in the quarter-size pass does.
         if (!this.facesPerLight()) face += "float rrFaceKeep = rrFace;\n\trrFace = 0.0;\n\t";
         if (normalMap) {
-            faceDecl = this.PERTURB_NORMAL_GLSL;
+            faceDecl += this.PERTURB_NORMAL_GLSL;
             shader.uniforms.rrNormalMap = { value: material.userData.rrNormalMap };
             shader.uniforms.rrNormalScale = { value: material.userData.rrNormalScale || new THREE.Vector2(1, 1) };
         }
@@ -3190,7 +3248,7 @@ Reactor3D.injectShine = function(material, shader) {
  * and `rrEmissiveMap`. Added over the lit colour, so no shade, shadow or
  * darkness dims it.
  *
- * Hair (a model material named Hair, Beard, Brows or Lashes,
+ * Hair (a model material named Hair or Beard,
  * `userData.rrHair`) takes a two-lobe strand sheen (Kajiya-Kay) from the key
  * light: a narrow pale one shifted toward the tip and a broad one in the
  * hair's own colour shifted toward the root, the strand running the way its
@@ -8226,7 +8284,7 @@ Reactor3D.HalfLight = {
             material.onBeforeCompile.call(this, shader, renderer);
             // The water's sheen and tint go over the lit colour: the combine lays them on (`finishGlsl`).
             // A model keeps its facing: the quarter-size light knows no normals, so its picture takes
-            // the sun's and the sky's share of it (rrFaceShare) and the combine multiplies the rest.
+            // the local lights' and the sky's share of it (rrFaceShare) and the combine multiplies the rest.
             shader.fragmentShader = shader.fragmentShader
                 .replace("if (rrSelfLit < 1.0) diffuseColor.rgb *= mix(rrLight(vRRWorldPos), vec3(1.0), rrSelfLit);",
                     Reactor3D.facesLight(this) ? "if (rrFace > 0.0 && rrSelfLit < 1.0) diffuseColor.rgb *= rrFaceShare(rrFaceN);" : "")

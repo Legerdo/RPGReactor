@@ -50,7 +50,13 @@ class Character3DBuilder {
     holdsWork() { return false; }
 
     renderInto(containerEl, projectController) {
+        this._closeOutfitImport?.();
+        this._stopThumbs();
         this.projectController = projectController;
+        if (this._heldProject !== this._project()?.path) this._heldName = '';
+        this._heldProject = this._project()?.path;
+        if (this._outfitProjectPath !== this._project()?.path) this._outfitUndo = null;
+        this._outfitProjectPath = this._project()?.path;
         this.root = containerEl;
         if (!this._project()) {
             this.root.innerHTML = `<div class="rr-c3d-empty">${this._t('Open a project to use Forge tools.')}</div>`;
@@ -61,8 +67,11 @@ class Character3DBuilder {
     }
 
     detach() {
+        this._closeOutfitImport?.();
+        this._stopThumbs();
         const view = this._view;
         if (!view) return;
+        this._dropHeldPreview();
         cancelAnimationFrame(view.frame);
         cancelAnimationFrame(view.loop);
         view.resize?.disconnect();
@@ -214,6 +223,7 @@ class Character3DBuilder {
         panel.addEventListener('input', e => this._onInput(e, false));
         panel.addEventListener('change', e => this._onInput(e, true));
         panel.addEventListener('click', e => this._onClick(e));
+        panel.addEventListener('scroll', () => this._refreshThumbs(), { passive: true, capture: true });
         this._renderPanel();
         this._syncHistory();
     }
@@ -240,6 +250,7 @@ class Character3DBuilder {
         this._cardify(panel);
         panel.scrollTop = top;
         this._syncSliders();
+        this._refreshThumbs();
     }
 
     // ── expressions (RRCharacterExpressions) ───────────────────────────────
@@ -386,6 +397,7 @@ class Character3DBuilder {
         // A select is a choice: committed once, and it may change which controls show.
         if (el.tagName === 'SELECT') {
             if (!committed) return;
+            if (path === 'previewWeapon') { this._heldName = value; this._heldCatalog = null; this._syncHeldPreview(); return; }
             if (path === 'eyeStyle') { this._applyEyeStyle(value); return; }
             if (path === 'skinLook') {
                 const look = RRCharacterSkin.LOOKS.find(p => p.id === value);
@@ -731,8 +743,16 @@ class Character3DBuilder {
 
     _outfitTab() {
         const W = RRCharacterWardrobe;
+        this._loadOutfitEmblems();
+        if (this._outfitProjectPath !== this._project()?.path) this._outfitUndo = null;
+        this._outfitProjectPath = this._project()?.path;
+        this._bindOutfitActions();
         const presets = [...new Set(W.PRESETS.map(p => p.group))].map(g => `<div class="rr-c3d-subhead">${this._t(g)}</div><div class="rr-c3d-tiles">${W.PRESETS.filter(p => p.group === g)
-            .map(p => this._tile('dress', p.id, p.label, 'dress', false)).join('')}</div>`).join('');
+            .map(p => {
+                const key = W.BY_ID.get(p.items[0]?.id)?.transfer;
+                const tile = this._tile('dress', p.id, p.label, 'dress', false);
+                return key?.startsWith('project:') ? `<div class="rr-c3d-import-preset" data-user-outfit="${rrEscapeHtml(key)}">${tile}<button class="rr-c3d-import-delete" data-outfit-delete="${rrEscapeHtml(key)}" title="${this._t('Delete outfit')}" aria-label="${this._t('Delete outfit')}">×</button></div>` : tile;
+            }).join('')}</div>`).join('');
         // Merfolk hook: nothing for legs or feet on a tail.
         const fits = g => !(window.RRMerfolkBody && this.recipe.species === 'merfolk') || RRMerfolkBody.fitsGarment(g.id);
         const add = this._addPicker('garment', 'Add a garment', W.GARMENTS.filter(fits).map(g => ({ id: g.id, label: g.label, group: g.group })), 'add-garment');
@@ -757,6 +777,7 @@ class Character3DBuilder {
             let html = this._color(`outfit.${i}.color`, 'Color', swatches);
             html += this._color(`outfit.${i}.color2`, 'Second color', []) + this._color(`outfit.${i}.trim`, 'Trim', [], true);
             html += this._select(`outfit.${i}.pattern`, 'Pattern', W.PATTERNS.concat(item.pattern && !W.PATTERNS.some(p => p[0] === item.pattern) ? [[item.pattern, this._cap(item.pattern)]] : []));
+            if (item.pattern === 'emblem') html += `<div class="rr-c3d-row rr-c3d-emblem-row"><span class="rr-c3d-label">${this._t('Emblem picture')}</span><span class="rr-c3d-emblem-name" title="${rrEscapeHtml(item.emblemPicture || '')}">${rrEscapeHtml(item.emblemPicture || this._t('None'))}</span><button class="rr-btn-chip" data-outfit-emblem="${i}">${this._t('Choose…')}</button>${item.emblemPicture ? `<button class="rr-btn-chip" data-outfit-emblem-clear="${i}">${this._t('Clear')}</button>` : ''}</div>`;
             html += this._select(`outfit.${i}.material`, 'Material', Object.keys(W.MATERIAL).map(m => [m, this._cap(m)]));
             for (const k of g.knobs || Object.keys(knobs).filter(k => item[k] != null)) {
                 if (k === 'neckline') { html += this._select(`outfit.${i}.neckline`, 'Neckline', W.NECKLINE_CHOICES); continue; }
@@ -768,8 +789,9 @@ class Character3DBuilder {
             return { id: item.id, label: g.label, html };
         });
         // [outfit transfer] An outfit taken off one of the project's own humanoid models.
-        const take = window.RRCharacterOutfitTransfer && this._project() ? `<div class="rr-c3d-row"><span class="rr-c3d-label"></span><button class="rr-btn-chip" data-act="take-outfit">${this._t('Take outfit from a 3D model…')}</button></div>` : '';
-        return this._section('Dress as') + presets + take + this._section('Garments') + add
+        const take = window.RRCharacterOutfitTransfer && this._project() ? `<div class="rr-c3d-tiles"><button class="rr-c3d-tile rr-c3d-import-add" data-act="take-outfit"><span class="rr-c3d-nothumb">+</span><span class="rr-c3d-tile-label">${this._t('+ From model…')}</span></button></div>` : '';
+        const undo = this._outfitUndo ? `<button class="rr-btn-chip" data-outfit-undo>${this._t('Undo')}</button>` : '';
+        return this._section('Dress as') + take + undo + presets + this._section('Garments') + add
             + (items.length ? this._cards(items, 'remove-garment') : `<p class="rr-c3d-note">${this._t('Nothing worn. Pick an outfit above or add garments one by one.')}</p>`);
     }
 
@@ -786,7 +808,90 @@ class Character3DBuilder {
             for (const [k, [label, natural, extreme]] of Object.entries(knobs)) if (def.defaults[k] != null) html += this._slider({ path: `props.${i}.${k}`, label, natural, extreme: extreme || natural, format: k === 'length' || k === 'up' ? '' : 'x' });
             return { id: item.id, label: def.label, html };
         });
-        return this._section('Accessories') + add + (items.length ? this._cards(items, 'remove-prop') : this.slime ? '' : `<p class="rr-c3d-note">${this._t('Glasses, hats, jewelry, capes and packs. Each fits the head and body as they are shaped.')}</p>`);
+        const weapons = this.human && !this.slime ? this._heldModels() : [];
+        const held = weapons.length ? this._section('Preview') + `<label class="rr-c3d-row rr-c3d-choice"><span class="rr-c3d-label">${this._t('Weapon')}</span><select class="rr-select" data-path="previewWeapon"><option value="">${this._t('None')}</option>${weapons.map(m => `<option value="${rrEscapeHtml(m.name)}"${m.name === this._heldName ? ' selected' : ''}>${rrEscapeHtml(m.name)}</option>`).join('')}</select></label>` : '';
+        return this._section('Accessories') + add + (items.length ? this._cards(items, 'remove-prop') : this.slime ? '' : `<p class="rr-c3d-note">${this._t('Glasses, hats, jewelry, capes and packs. Each fits the head and body as they are shaped.')}</p>`) + held;
+    }
+
+    /** Project weapons with explicit grip markers, offered only for pose preview. */
+    _heldModels() {
+        const project = this._project();
+        if (!project || typeof ModelGraphicPicker === 'undefined' || typeof require !== 'function') return [];
+        const now = Date.now();
+        if (this._heldCatalog?.project === project.path && now - this._heldCatalog.at < 1000) return this._heldCatalog.models;
+        const fs = require('fs'), path = require('path');
+        const models = ModelGraphicPicker.listModels(project.path).filter(m => m.ext.toLowerCase() === '.glb').flatMap(m => {
+            try {
+                const sidecar = JSON.parse(fs.readFileSync(path.join(project.path, '3d', m.name, 'model.json'), 'utf8'));
+                if (!['blade', 'gun'].includes(sidecar.rig?.template)) return [];
+                return [Object.assign({}, m, { sidecar })];
+            } catch (_) { return []; }
+        });
+        this._heldCatalog = { project: project.path, at: now, models };
+        return models;
+    }
+
+    _dropHeldPreview() {
+        const view = this._view;
+        if (!view) return;
+        view.heldRequest = (view.heldRequest || 0) + 1;
+        if (view.held) Character3DBuilder.disposeHeldPreview(view.held);
+        view.held = null; view.heldName = ''; view.heldLoading = '';
+    }
+
+    _attachHeldPreview() {
+        const view = this._view, object = view?.held;
+        if (!object) return;
+        const id = view.boneDefs.findIndex(b => b.name === 'RightHand');
+        const frame = window.RRCharacterPoses?.handFrames(view.boneDefs).Right;
+        if (id < 0 || !frame || !this.human || this.slime) { object.removeFromParent(); return; }
+        const shape = Reactor3D.heldShape(object);
+        Character3DBuilder.fitHeldPreview(object, shape, frame, THREE);
+        view.bones[id].add(object);
+    }
+
+    async _syncHeldPreview() {
+        const view = this._view, project = this._project(), name = this._heldName || '';
+        if (!view || !project) return;
+        if (view.heldName === name && view.held) { this._attachHeldPreview(); return; }
+        if (view.heldLoading === name && name) return;
+        this._dropHeldPreview();
+        if (!name || !this.human || this.slime) { this._draw(); return; }
+        const model = this._heldModels().find(m => m.name === name);
+        if (!model) return;
+        const request = view.heldRequest, root = this.root;
+        const current = () => this._view === view && this.root === root && this._project()?.path === project.path && this._heldName === name && view.heldRequest === request;
+        view.heldLoading = name;
+        let object;
+        try {
+            if (!window.Reactor3D?.readModelAsync) await this.projectController?.mapEditor3D?.ensureLibraries?.();
+            if (!current()) return;
+            const fs = require('fs'), path = require('path');
+            const file = path.join(project.path, '3d', model.name, 'source', model.file + model.ext);
+            const data = await fs.promises.readFile(file);
+            if (!current()) return;
+            object = await Reactor3D.readModelAsync(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), model.ext, path.dirname(file) + '/', '', { beforeBuild: () => { if (!current()) throw new Error('Preview superseded'); } });
+            if (!current()) { Character3DBuilder.disposeHeldPreview(object); return; }
+            const rig = Reactor3D.readHeldRig(model.sidecar);
+            if (!rig) throw new Error('Weapon grip markers are missing');
+            object.userData.__heldRig = rig;
+            // The builder uses studio PBR materials, independently of map lighting.
+            const materials = new Map();
+            object.traverse(node => {
+                if (!node.isMesh) return;
+                const convert = old => {
+                    if (!materials.has(old)) materials.set(old, new THREE.MeshStandardMaterial({ color: old.color, map: old.map, vertexColors: !!node.geometry.attributes.color, side: old.side, transparent: old.transparent, opacity: old.opacity, alphaTest: old.alphaTest, normalMap: old.userData.rrNormalMap || null, normalScale: old.userData.rrNormalScale || new THREE.Vector2(1, 1), emissive: old.userData.rrEmissive || 0, emissiveMap: old.userData.rrEmissiveMap || null, roughness: 1 - (old.userData.glbShine?.gloss || 0.25), metalness: old.userData.glbShine?.metal || 0 }));
+                    return materials.get(old);
+                };
+                node.material = Array.isArray(node.material) ? node.material.map(convert) : convert(node.material);
+            });
+            for (const old of materials.keys()) old.dispose();
+            view.held = object; view.heldName = name;
+            this._attachHeldPreview(); this._draw();
+        } catch (error) {
+            if (object && view.held !== object) Character3DBuilder.disposeHeldPreview(object);
+            if (current()) this._status(this._t('{name} could not be opened.', { name }), 'error');
+        } finally { if (current()) view.heldLoading = ''; }
     }
 
     _colorsTab() {
@@ -818,7 +923,8 @@ class Character3DBuilder {
     _tile(act, id, label, kind, active, extra = '') {
         const key = kind ? kind + ':' + id : '';
         if (kind) this._wantThumb(kind, id);
-        const url = key && this._thumbs.get(key)?.url;
+        const saved = key && this._thumbs.get(key);
+        const url = saved && saved.sig === this._thumbSig(kind) ? saved.url : '';
         return `<button class="rr-c3d-tile rr-c3d-thumbtile${active ? ' is-active' : ''}" data-act="${act}" data-id="${rrEscapeHtml(id)}"${extra} title="${rrEscapeHtml(this._t(label))}">`
             + `<span class="rr-c3d-thumb" data-thumb="${rrEscapeHtml(key)}">${url ? `<img src="${url}" alt="">` : ''}</span><span class="rr-c3d-tile-label">${rrEscapeHtml(this._t(label))}</span></button>`;
     }
@@ -832,9 +938,11 @@ class Character3DBuilder {
     _picker(path, label, options, kind) {
         const current = this._get(path), open = this.openPicker === path;
         const now = options.find(o => o.id === current) || options[0];
+        const saved = this._thumbs.get(kind + ':' + now.id);
+        const url = saved && saved.sig === this._thumbSig(kind) ? saved.url : '';
         let html = `<div class="rr-c3d-row rr-c3d-pickrow"><span class="rr-c3d-label">${this._t(label)}</span>
             <button class="rr-c3d-pickcurrent${open ? ' is-open' : ''}" data-act="picker" data-id="${path}">`
-            + `<span class="rr-c3d-thumb" data-thumb="${kind}:${rrEscapeHtml(now.id)}">${this._thumbs.get(kind + ':' + now.id)?.url ? `<img src="${this._thumbs.get(kind + ':' + now.id).url}" alt="">` : ''}</span>`
+            + `<span class="rr-c3d-thumb" data-thumb="${kind}:${rrEscapeHtml(now.id)}">${url ? `<img src="${url}" alt="">` : ''}</span>`
             + `<span>${rrEscapeHtml(this._t(now.label))}</span><span class="rr-c3d-caret">${open ? '▴' : '▾'}</span></button></div>`;
         this._wantThumb(kind, now.id);
         if (open) html += `<div class="rr-c3d-pickgrid">${this._grid(options, o => this._tile('pick', o.id, o.label, kind, o.id === current, ` data-path="${path}"`))}</div>`;
@@ -851,15 +959,19 @@ class Character3DBuilder {
 
     /** What a kind of picture depends on: the recipe, less what the picture itself varies. */
     _thumbSig(kind) {
-        const r = this.recipe;
-        const pick = (o, keys) => JSON.stringify(keys.map(k => o[k]));
-        const body = JSON.stringify([r.plan, r.gender, r.age, r.height, r.weight, r.muscle, r.cup, r.firmness, r.headSize, r.shapes, r.morph, r.ancestry, r.skin, r.skinPattern, r.species, r.features]);
-        if (kind === 'hair' || kind === 'facial' || kind === 'brows') return body + pick(r.hair, ['color', 'tipColor', 'length', 'volume', 'curl', 'fringe', 'part']) + JSON.stringify(r.hair.facial) + JSON.stringify(r.hair.brows) + r.hair.style;
-        if (kind === 'garment' || kind === 'prop') return body + JSON.stringify(r.hair);
-        if (kind === 'dress') return body + JSON.stringify(r.hair) + JSON.stringify(r.props);
-        if (kind === 'species') return JSON.stringify([r.gender, r.age, r.outfit, r.props]);
-        if (kind === 'gear' || kind === 'gearset') return JSON.stringify(Object.assign({}, r, { gear: [] }));
-        return 'kind';
+        const project = this._project()?.path || '';
+        if (this._thumbSignatures?.recipe !== this.recipe || this._thumbSignatures.project !== project) {
+            this._thumbSignatures = { recipe: this.recipe, project, values: new Map() };
+        }
+        const values = this._thumbSignatures.values;
+        if (!values.has(kind)) {
+            const r = Object.assign({}, this.recipe);
+            if (['hair', 'facial', 'brows', 'garment', 'prop'].includes(kind)) { delete r.outfit; delete r.props; }
+            if (kind === 'dress') delete r.outfit;
+            if (kind === 'gear' || kind === 'gearset') delete r.gear;
+            values.set(kind, JSON.stringify([project, kind === 'kind' ? null : r]));
+        }
+        return values.get(kind);
     }
 
     _wantThumb(kind, id) {
@@ -867,12 +979,9 @@ class Character3DBuilder {
         const key = kind + ':' + id, sig = this._thumbSig(kind);
         const have = this._thumbs.get(key);
         if (have && have.sig === sig) return;
-        // Drawn before, in this session or an earlier one: read back from the editor's own folder.
-        const stored = this._storedThumb(key, sig);
-        if (stored) { this._thumbs.set(key, { url: stored, sig }); return; }
         const queued = this._thumbQueue.find(q => q.key === key);
-        if (queued) { queued.sig = sig; return; }
-        this._thumbQueue.push({ key, kind, id, sig });
+        if (queued) queued.sig = sig;
+        else this._thumbQueue.push({ key, kind, id, sig });
         this._pumpThumbs();
     }
 
@@ -901,13 +1010,13 @@ class Character3DBuilder {
         return require('path').join(dir, name + '.webp');
     }
 
-    _storedThumb(key, sig) {
+    async _storedThumb(key, sig) {
         try {
             const file = this._thumbFile(key, sig);
             if (!file) return null;
             const fs = require('fs');
-            if (!fs.existsSync(file)) return null;
-            return 'data:image/webp;base64,' + fs.readFileSync(file).toString('base64');
+            const bytes = fs.promises ? await fs.promises.readFile(file) : fs.readFileSync(file);
+            return 'data:image/webp;base64,' + Buffer.from(bytes).toString('base64');
         } catch (error) { return null; }
     }
 
@@ -919,59 +1028,159 @@ class Character3DBuilder {
         } catch (error) { /* a picture not kept is drawn again next time */ }
     }
 
-    /** One picture at a time, between frames, and only while the sliders rest. */
+    /** Stop background jobs even when the main view has not finished opening. */
+    _stopThumbs() {
+        clearTimeout(this._thumbTimer); this._thumbTimer = 0;
+        this._thumbDocument?.removeEventListener('visibilitychange', this._thumbVisibility);
+        this._thumbDocument = null; this._thumbVisibility = null;
+        this._previewWorker?.dispose(); this._previewWorker = null;
+        this._previewMarks = null;
+        this._thumbEpoch = (this._thumbEpoch || 0) + 1;
+        this._thumbJob = null; this._thumbQueue = [];
+    }
+
+    /** Only tiles intersecting the panel's visible area compete for background work. */
+    _visibleThumbs() {
+        if (!this.root || this.root.isConnected === false || this.root.ownerDocument?.hidden) return [];
+        const panel = this.root.querySelector('.rr-c3d-panel');
+        if (!panel) return [];
+        const clip = panel.getBoundingClientRect();
+        const host = this.root.ownerDocument?.defaultView || window;
+        const width = host.innerWidth || Infinity, height = host.innerHeight || Infinity;
+        return [...panel.querySelectorAll('.rr-c3d-thumb[data-thumb]')].filter(el => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && r.bottom > Math.max(0, clip.top) && r.top < Math.min(height, clip.bottom)
+                && r.right > Math.max(0, clip.left) && r.left < Math.min(width, clip.right);
+        });
+    }
+
+    _refreshThumbs() {
+        const doc = this.root?.ownerDocument;
+        if (doc && doc !== this._thumbDocument) {
+            this._thumbDocument?.removeEventListener('visibilitychange', this._thumbVisibility);
+            this._thumbDocument = doc;
+            this._thumbVisibility = () => this._refreshThumbs();
+            doc.addEventListener('visibilitychange', this._thumbVisibility);
+        }
+        if (doc?.hidden && this._previewWorker) {
+            this._previewWorker.dispose(); this._previewWorker = null; this._previewMarks = null;
+        }
+        const visible = this._visibleThumbs();
+        const keys = new Set(visible.map(el => el.dataset.thumb));
+        if (this._thumbJob && (!keys.has(this._thumbJob.key) || this._thumbJob.sig !== this._thumbSig(this._thumbJob.kind))) {
+            // Keep the one warmed worker. Repeatedly terminating and spawning
+            // NW Node workers while switching models retains large native
+            // allocations until the renderer runs out of memory. Cancel stale
+            // results/queued jobs; the active computation finishes off-page
+            // before the latest visible request. Teardown/hidden/timeout still
+            // terminate the worker and release its bounded caches.
+            this._previewWorker?.cancelAll();
+            this._thumbEpoch = (this._thumbEpoch || 0) + 1;
+            this._thumbJob = null;
+        }
+        for (const el of visible) {
+            const key = el.dataset.thumb, at = key.indexOf(':');
+            this._wantThumb(key.slice(0, at), key.slice(at + 1));
+        }
+        this._pumpThumbs();
+    }
+
+    _thumbCurrent(item) {
+        return !!this._view && this.root === item.root && this._thumbEpoch === item.epoch && item.sig === this._thumbSig(item.kind);
+    }
+
+    /** One build off the page, followed by one small render; no polling of hidden tiles. */
     _pumpThumbs() {
-        if (this._thumbTimer || !this._thumbQueue.length) return;
-        this._thumbTimer = setTimeout(() => {
+        if (this._thumbTimer || this._thumbJob || !this._thumbQueue.length) return;
+        this._thumbTimer = setTimeout(async () => {
             this._thumbTimer = 0;
             if (!this.root) return;
-            // Asked for before the view was up (the first tab draws first): wait for it.
             if (!this._view || !this.pack || !this._result) { this._pumpThumbs(); return; }
-            if (Date.now() - this._lastChange < 700) { this._pumpThumbs(); return; }
-            // Only when the page is idle: a picture costs a build, never a frame the user is waiting on.
-            // Between frames when the page has time to spare; when it never has (the Idle playing on a fast
-            // screen), after a short wait anyway, so the pictures always come.
-            if (typeof requestIdleCallback === 'function' && !this._idleOk) {
-                requestIdleCallback(deadline => { this._idleOk = true; this._pumpThumbs(); }, { timeout: 250 });
-                return;
-            }
-            this._idleOk = false;
-            // The tiles on screen first.
-            const visible = new Set([...this.root.querySelectorAll('.rr-c3d-thumb[data-thumb]')].map(e => e.dataset.thumb));
-            this._thumbQueue = this._thumbQueue.filter(q => visible.has(q.key));
-            const item = this._thumbQueue.shift();
-            if (item) {
-                try {
-                    const url = this._makeThumb(item);
-                    if (url) {
-                        this._thumbs.set(item.key, { url, sig: item.sig });
-                        this._storeThumb(item.key, item.sig, url);
-                        this.root.querySelectorAll(`.rr-c3d-thumb[data-thumb="${CSS.escape(item.key)}"]`).forEach(el => { el.innerHTML = `<img src="${url}" alt="">`; });
-                    }
-                } catch (error) {
-                    // One more try later; a second failure leaves the tile as its name.
+            if (Date.now() - this._lastChange < 350) { this._pumpThumbs(); return; }
+            const visible = this._visibleThumbs(), keys = new Set(visible.map(el => el.dataset.thumb));
+            const present = new Set([...this.root.querySelectorAll('.rr-c3d-thumb[data-thumb]')].map(el => el.dataset.thumb));
+            this._thumbQueue = this._thumbQueue.filter(q => present.has(q.key) && q.sig === this._thumbSig(q.kind));
+            const index = this._thumbQueue.findIndex(q => keys.has(q.key));
+            if (index < 0) return;
+            const item = this._thumbQueue.splice(index, 1)[0];
+            item.root = this.root; item.epoch = this._thumbEpoch;
+            this._thumbJob = item;
+            try {
+                let url = await this._storedThumb(item.key, item.sig);
+                if (!this._thumbCurrent(item)) return;
+                if (!url) {
+                    url = await this._makeThumb(item);
+                    if (!this._thumbCurrent(item)) return;
+                    if (url) this._storeThumb(item.key, item.sig, url);
+                }
+                if (url) {
+                    this._thumbs.set(item.key, { url, sig: item.sig });
+                    // Bound memory during long sessions with many different recipes.
+                    while (this._thumbs.size > 256) this._thumbs.delete(this._thumbs.keys().next().value);
+                    this.root.querySelectorAll(`.rr-c3d-thumb[data-thumb="${CSS.escape(item.key)}"]`).forEach(el => { el.innerHTML = `<img src="${url}" alt="">`; });
+                }
+            } catch (error) {
+                if (error.name !== 'AbortError' && this._thumbCurrent(item)) {
                     console.warn('[Character3DBuilder] preview', item.key, error);
                     if (item.tries) this._thumbs.set(item.key, { url: '', sig: item.sig });
                     else this._thumbQueue.push(Object.assign(item, { tries: 1 }));
                 }
+            } finally {
+                if (this._thumbJob === item) { this._thumbJob = null; this._pumpThumbs(); }
             }
-            this._pumpThumbs();
-        }, this._view && this._result ? 60 : 200);
+        }, this._view && this._result ? 16 : 120);
+    }
+
+    _previewPool() {
+        if (this._previewWorker) return this._previewWorker;
+        let PreviewWorker;
+        if (typeof process !== 'undefined' && process.versions?.node && typeof require === 'function') {
+            try { PreviewWorker = require(require('path').join(RRHumanBody.dataFolder(), '..', 'CharacterPreviewWorker.cjs')).PreviewWorker; }
+            catch (error) { console.warn('[Character3DBuilder] preview worker', error); }
+        }
+        PreviewWorker = PreviewWorker || window.RRCharacterPreviewWorker?.PreviewWorker;
+        if (!PreviewWorker) throw new Error('Character preview workers are unavailable');
+        this._previewWorker = new PreviewWorker();
+        this._previewMarks = null;
+        return this._previewWorker;
+    }
+
+    /** Pictures and imported garments are cloned once per resource revision, never per vertex. */
+    async _configurePreview(pool, recipe) {
+        const T = window.RRCharacterOutfitTransfer;
+        const keys = [...new Set((recipe.outfit || []).map(i => RRCharacterWardrobe.BY_ID.get(i.id)?.transfer).filter(Boolean))];
+        if (T && keys.length) await T.preload(keys);
+        await this._loadOutfitEmblems?.();
+        const transfers = [], marks = [this._project()?.path, this.eyeSource];
+        const seen = new Set();
+        if (T) for (const g of RRCharacterWardrobe.GARMENTS) {
+            const key = g.transfer;
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            const outfit = T.store.outfits.get(key), picture = T.store.pictures.get(key), folder = T.store.folders.get(key);
+            transfers.push({ key, id: T.BUILT_IN.includes(key) ? undefined : g.id, label: g.label, outfit, picture, folder });
+            marks.push(key, g.id, outfit, picture, folder);
+        }
+        const emblemPictures = this.cache.wardrobe?.emblemPictures || new Map();
+        for (const [key, picture] of emblemPictures) marks.push(key, picture);
+        if (!this._previewMarks || marks.length !== this._previewMarks.length || marks.some((v, i) => v !== this._previewMarks[i])) {
+            pool.configure({ projectPath: this._project()?.path, eyeSource: this.eyeSource, emblemPictures, transfers });
+            this._previewMarks = marks;
+        }
     }
 
     /** The parts a picture shows, and how it is framed. */
-    _thumbParts(item) {
-        const r = this.recipe, pack = this.pack;
-        const preview = { quality: 'preview', skinSize: 256, atlasSize: 256, eyeSource: this.eyeSource };
-        if (item.kind === 'kind') return { result: RRCharacterModel.build(pack, Object.assign({ plan: 'quadruped' }, RRCreatureBody.kindRecipe(item.id)), {}, preview), frame: 'side' };
+    _thumbRecipe(item) {
+        const r = this.recipe;
+        if (item.kind === 'kind') return { recipe: Object.assign({ plan: 'quadruped' }, RRCreatureBody.kindRecipe(item.id)), frame: 'side' };
         if (item.kind === 'gear' || item.kind === 'gearset') {
             const gear = item.kind === 'gear' ? [{ id: item.id }] : RRCreatureGear.presetGear(item.id);
-            return { result: RRCharacterModel.build(pack, Object.assign({}, r, { gear }), {}, preview), frame: 'side' };
+            return { recipe: Object.assign({}, r, { gear }), frame: 'side' };
         }
-        if (item.kind === 'species') return { result: RRCharacterModel.build(pack, RRCharacterModel.withSpecies(r, item.id), this._thumbCache.species || (this._thumbCache.species = {}), preview), frame: 'body' };
+        if (item.kind === 'species') return { recipe: RRCharacterModel.withSpecies(r, item.id), frame: 'body' };
         if (item.kind === 'dress') {
             const preset = RRCharacterWardrobe.PRESETS.find(p => p.id === item.id);
-            return { result: RRCharacterModel.build(pack, Object.assign({}, r, { outfit: RRCharacterWardrobe.dressFor(preset.items, RRHumanBody.sexOf(r) === 'female') }), this._thumbCache.dress || (this._thumbCache.dress = {}), preview), frame: 'body' };
+            return { recipe: Object.assign({}, r, { outfit: RRCharacterWardrobe.dressFor(preset.items, RRHumanBody.sexOf(r) === 'female') }), frame: 'body' };
         }
         // The rest show one thing on the character as it stands, without its outfit or other accessories.
         const base = Object.assign({}, r, { outfit: [], props: [] });
@@ -980,16 +1189,38 @@ class Character3DBuilder {
         if (item.kind === 'brows') base.hair = Object.assign({}, r.hair, { brows: Object.assign({}, r.hair.brows, { style: item.id }) });
         if (item.kind === 'garment') base.outfit = [{ id: item.id }];
         if (item.kind === 'prop') base.props = [{ id: item.id }];
-        const result = RRCharacterModel.build(pack, base, this._thumbCache[item.kind] || (this._thumbCache[item.kind] = {}), preview);
         let frame = 'body';
         if (item.kind === 'hair' || item.kind === 'facial') frame = 'head';
         if (item.kind === 'brows') frame = 'face';
         if (item.kind === 'prop') { const def = RRCharacterProps.BY_ID.get(item.id), g = def.group; frame = this.slime ? 'body' : def.frame || (g === 'Back' ? 'back' : g === 'Jewelry' && item.id === 'bracelets' ? 'body' : 'head'); }
         if (item.kind === 'garment') { const slot = RRCharacterWardrobe.BY_ID.get(item.id).slot; frame = slot === 'head' ? 'head' : slot === 'feet' ? 'feet' : 'body'; }
+        return { recipe: base, frame };
+    }
+
+    async _thumbParts(item) {
+        const { recipe, frame } = this._thumbRecipe(item), pool = this._previewPool();
+        const root = this.root, view = this._view;
+        await this._configurePreview(pool, recipe);
+        if (this.root !== root || this._view !== view || pool !== this._previewWorker) {
+            const error = new Error('Character preview canceled'); error.name = 'AbortError'; throw error;
+        }
+        const result = await pool.build({ key: item.key + '|' + item.sig, recipe, cacheKey: item.kind,
+            options: { quality: 'preview', skinSize: 256, atlasSize: 256 } });
         return { result, frame };
     }
 
-    _makeThumb(item) {
+    async _makeThumb(item) {
+        const root = this.root, view = this._view;
+        const prepared = await this._thumbParts(item);
+        // Yield the returned buffers to a frame; tab/recipe changes can discard them before a GPU upload.
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        if (this.root !== root || this._view !== view || item.sig !== this._thumbSig(item.kind) || (item.root && !this._thumbCurrent(item))) {
+            const error = new Error('Character preview canceled'); error.name = 'AbortError'; throw error;
+        }
+        return this._renderThumb(prepared);
+    }
+
+    _ensureThumbView() {
         if (!this._thumbView) {
             const size = 96, canvas = document.createElement('canvas');
             canvas.width = canvas.height = size;
@@ -1008,12 +1239,22 @@ class Character3DBuilder {
             const rim = new THREE.DirectionalLight(0xc8d8ff, 1.4); rim.position.set(-1.2, 2.4, -2.8); scene.add(rim);
             this._thumbView = { renderer, scene, camera: new THREE.PerspectiveCamera(28, 1, 0.02, 60), canvas };
         }
-        const tv = this._thumbView;
-        const { result, frame } = this._thumbParts(item);
+        return this._thumbView;
+    }
+
+    /** NW's Node workers use a different JS realm; WebGL needs views from the page's realm. */
+    _previewArray(value) {
+        const types = { Float32Array, Float64Array, Uint32Array, Uint16Array, Uint8Array, Uint8ClampedArray, Int32Array, Int16Array, Int8Array };
+        const Type = types[value.constructor.name] || Uint8Array;
+        return value instanceof Type ? value : new Type(value.buffer, value.byteOffset, value.length);
+    }
+
+    _renderThumb({ result, frame }) {
+        const tv = this._ensureThumbView();
         const group = new THREE.Group(), made = [], textures = new Map();
         const textureFor = (name, tex) => {
             if (!textures.has(name)) {
-                const t = new THREE.DataTexture(tex.data, tex.width, tex.height, THREE.RGBAFormat);
+                const t = new THREE.DataTexture(this._previewArray(tex.data), tex.width, tex.height, THREE.RGBAFormat);
                 t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.needsUpdate = true;
                 textures.set(name, t);
             }
@@ -1022,11 +1263,11 @@ class Character3DBuilder {
         const box = new THREE.Box3();
         for (const part of result.parts) {
             const g = new THREE.BufferGeometry();
-            g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
-            g.setAttribute('normal', new THREE.BufferAttribute(part.normals, 3));
-            if (part.uvs) g.setAttribute('uv', new THREE.BufferAttribute(part.uvs, 2));
-            if (part.colors) g.setAttribute('color', new THREE.BufferAttribute(part.colors, 3));
-            g.setIndex(new THREE.BufferAttribute(part.index, 1));
+            g.setAttribute('position', new THREE.BufferAttribute(this._previewArray(part.positions), 3));
+            g.setAttribute('normal', new THREE.BufferAttribute(this._previewArray(part.normals), 3));
+            if (part.uvs) g.setAttribute('uv', new THREE.BufferAttribute(this._previewArray(part.uvs), 2));
+            if (part.colors) g.setAttribute('color', new THREE.BufferAttribute(this._previewArray(part.colors), 3));
+            g.setIndex(new THREE.BufferAttribute(this._previewArray(part.index), 1));
             const mesh = new THREE.Mesh(g, this._material(part, result, textureFor, this._thumbView && this._thumbView.scene));
             group.add(mesh);
             made.push(mesh);
@@ -1045,6 +1286,12 @@ class Character3DBuilder {
         else if (frame === 'back') { target = new THREE.Vector3(0, h * 0.6, 0); distance = h * 1.7; yaw = Math.PI - 0.6; }
         else if (frame === 'side') { target = box.getCenter(new THREE.Vector3()); distance = Math.max(size.x, size.y, size.z) * 1.9; yaw = 1.0; pitch = 0.15; }
         else { target = new THREE.Vector3(0, h * 0.52, 0); distance = Math.max(h, size.x) * 2.15; }
+        const focus = result.focus && result.focus[frame];
+        if (focus || ['body', 'back', 'side'].includes(frame)) {
+            const bounds = focus || { min: box.min.toArray(), max: box.max.toArray() };
+            const fitted = Character3DBuilder.fitThumbnailFrame(bounds, yaw, pitch, cam.fov, cam.aspect);
+            target = new THREE.Vector3(...fitted.target); distance = fitted.distance;
+        }
         cam.position.set(target.x + Math.sin(yaw) * Math.cos(pitch) * distance, target.y + Math.sin(pitch) * distance, target.z + Math.cos(yaw) * Math.cos(pitch) * distance);
         cam.lookAt(target);
         tv.renderer.render(tv.scene, cam);
@@ -1121,6 +1368,7 @@ class Character3DBuilder {
         if (!this.root || !this.root.querySelector('.rr-c3d-canvas')) return;
         this._makeView();
         this._rebuild();
+        this._refreshThumbs();
         this._status('');
     }
 
@@ -1141,7 +1389,9 @@ class Character3DBuilder {
     }
 
     _makeView() {
+        const queued = this._thumbQueue;
         this.detach();
+        this._thumbQueue = queued;
         const canvas = this.root.querySelector('.rr-c3d-canvas');
         const host = canvas.parentElement;
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -1195,6 +1445,7 @@ class Character3DBuilder {
             renderer.setSize(w, h, false);
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
+            if (this._result) this._faceFrame(this._result);
             this._draw();
         };
         view.resize = new ResizeObserver(size);
@@ -1226,7 +1477,7 @@ class Character3DBuilder {
         if (!view) return;
         const h = view.bodyHeight || view.height || 1.7;
         // The whole body by its largest extent: a creature is longer than it is tall, and seen from its side.
-        view.distance = which === 'face' ? Math.max(0.5, h * 0.42) : Math.max(1.2, (view.extent || view.height || h) * 2.4 + 0.2);
+        view.distance = which === 'face' ? (view.faceDistance || Math.max(0.5, h * 0.42)) : Math.max(1.2, (view.extent || view.height || h) * 2.4 + 0.2);
         if (which !== 'face' && !this.human) view.yaw = 1.0;
         this._aim();
         this._draw();
@@ -1237,9 +1488,37 @@ class Character3DBuilder {
         if (!view) return;
         const h = view.height || 1.7, body = view.bodyHeight || h;
         // Closer in, the view rises to the face (a creature's head is at its front, low).
-        const near = Math.max(0, Math.min(1, (h * 1.9 - view.distance) / (h * 1.4)));
-        if (this.human) view.target.set(0, h * 0.52 + (body * 0.93 - h * 0.52) * near, 0);
+        const far = Math.max(h * 1.9, (view.faceDistance || 0) * 2.5);
+        const near = Math.max(0, Math.min(1, (far - view.distance) / Math.max(0.1, far - (view.faceDistance || h * 0.5))));
+        if (this.human) {
+            const face = view.faceCenter || [0, body * 0.93, 0];
+            view.target.set(face[0] * near, h * 0.52 + (face[1] - h * 0.52) * near, face[2] * near);
+        }
         else view.target.set(0, h * 0.5, (view.depth || 0) * near * 0.4);
+    }
+
+    /** Use the actual head, including extreme proportions, for the Face button. */
+    _faceFrame(result) {
+        const view = this._view, head = result.bones.findIndex(b => b.name === 'Head');
+        view.faceCenter = null; view.faceDistance = 0;
+        if (head < 0 || result.plan !== 'human') return;
+        const low = [Infinity, Infinity, Infinity], high = [-Infinity, -Infinity, -Infinity];
+        for (const part of result.parts) {
+            if (!/^(Body|Alien eyes|Head .*)$/.test(part.name)) continue;
+            for (let v = 0; v < part.positions.length / 3; v++) {
+                let weight = 0;
+                for (let k = 0; k < 4; k++) if (part.joints[v * 4 + k] === head) weight += part.weights[v * 4 + k];
+                if (weight < 0.85) continue;
+                for (let k = 0; k < 3; k++) { low[k] = Math.min(low[k], part.positions[v * 3 + k]); high[k] = Math.max(high[k], part.positions[v * 3 + k]); }
+            }
+        }
+        if (!Number.isFinite(low[0])) return;
+        view.faceCenter = low.map((x, k) => (x + high[k]) * 0.5);
+        // Fit a bounding sphere at any orbit angle, leaving room around the chin/crown.
+        const radius = Math.hypot(...low.map((x, k) => (high[k] - x) * 0.5));
+        const fov = (view.camera.fov || 35) * Math.PI / 180;
+        const halfAngle = Math.atan(Math.tan(fov * 0.5) * Math.min(1, view.camera.aspect || 1));
+        view.faceDistance = Math.max(0.5, radius * 1.12 / Math.sin(halfAngle));
     }
 
     _draw() {
@@ -1353,7 +1632,9 @@ class Character3DBuilder {
         if (window.RRCharacterCloth && result && result.cloth && result.bones.length === view.bones.length) {
             const ready = RRCharacterCloth.baked(result, made, { quality: 'preview' });
             if (ready) made = ready;
-            else RRCharacterCloth.bakeAsync(result, made, { quality: 'preview' }).then(() => this._clothReady(id, result));
+            else RRCharacterCloth.bakeAsync(result, made, { quality: 'preview' })
+                .then(() => this._clothReady(id, result))
+                .catch(error => console.error('[Character3DBuilder] cloth preview', error));
         }
         // A track turns its bone, or with a path moves it ('translation') or squashes it ('scale').
         const tracks = made.tracks.map(t => new (t.path ? THREE.VectorKeyframeTrack : THREE.QuaternionKeyframeTrack)(view.bones[t.bone].name + (t.path === 'scale' ? '.scale' : t.path === 'translation' ? '.position' : '.quaternion'), Array.from(t.times || made.times), Array.from(t.values)));
@@ -1371,10 +1652,18 @@ class Character3DBuilder {
         const action = this._poseAction(id);
         if (!action) { view.actions.set(id, entry); return; }
         if (playing) {
-            action.time = old.time; action.paused = old.paused; action.play();
+            const paused = old.paused;
+            action.setLoop(old.loop, old.repetitions);
+            action.clampWhenFinished = old.clampWhenFinished;
+            action.time = old.time;
+            action.setEffectiveTimeScale(old.timeScale);
+            action.setEffectiveWeight(old.weight);
+            action.enabled = old.enabled;
+            action.paused = paused;
             old.stop();
+            action.play();
             view.action = action; view.poseMeta = view.actions.get(id).meta;
-            if (old.paused) { view.mixer.update(0); this._plant(); this._draw(); }
+            if (paused) { view.mixer.update(0); this._plant(); this._draw(); }
         }
         view.mixer.uncacheClip(old.getClip());
     }
@@ -1607,6 +1896,7 @@ class Character3DBuilder {
         if (!view || !this.pack) return;
         let result;
         try {
+            this._loadOutfitEmblems?.();
             result = RRCharacterModel.build(this.pack, this.recipe, this.cache, { quality: 'preview', eyeSource: this.eyeSource, paintSkin: (key, args) => this._paintSkin(key, args), hairBudget: this._weak ? 0.45 : 1, draft: !!(this.slime && this._slimeDraft) });
         } catch (error) {
             console.error('[Character3DBuilder] build', error);
@@ -1671,6 +1961,7 @@ class Character3DBuilder {
     _clearModel() {
         const view = this._view;
         if (!view) return;
+        view.held?.removeFromParent();
         if (view.mixer) { view.mixer.stopAllAction(); view.mixer.uncacheRoot(view.group); }
         for (const m of view.meshes) { m.geometry.dispose(); m.material.dispose(); view.group.remove(m); }
         for (const b of view.bones) if (b.parent === view.group) view.group.remove(b);
@@ -1823,6 +2114,7 @@ class Character3DBuilder {
         const box = new THREE.Box3().setFromObject(view.group);
         view.height = Math.max(0.2, result.height);
         view.bodyHeight = result.bodyHeight || result.height;
+        this._faceFrame(result);
         view.depth = box.max.z;
         view.extent = Math.max(view.height, box.max.x - box.min.x, box.max.z - box.min.z);
         view.blob.scale.set(Math.max(0.25, (box.max.x - box.min.x) * 0.55), Math.max(0.25, (box.max.z - box.min.z) * 0.75 + 0.08), 1);
@@ -1844,6 +2136,7 @@ class Character3DBuilder {
         if (!view || !view.action || !view.mixer) return;
         view.mixer.update(0);
         this._plant();
+        this._attachHeldPreview();
     }
 
     _show(result) {
@@ -1905,6 +2198,7 @@ class Character3DBuilder {
         view.plan = result.plan;
         view.height = Math.max(0.2, result.height);
         view.bodyHeight = result.bodyHeight || result.height;
+        this._faceFrame(result);
         view.depth = box.max.z;
         view.extent = Math.max(view.height, box.max.x - box.min.x, box.max.z - box.min.z);
         view.floor.scale.setScalar(Math.max(0.7, Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * 0.75));
@@ -1921,6 +2215,7 @@ class Character3DBuilder {
         view.blob.position.x = (box.max.x + box.min.x) / 2; view.blob.position.z = (box.max.z + box.min.z) / 2;
         this._aim();
         this._syncPose();
+        this._syncHeldPreview();
     }
 
     /**
@@ -2101,41 +2396,320 @@ class Character3DBuilder {
         };
     }
 
-    /**
-     * [outfit transfer] The project's humanoid models, to take an outfit off one: it is kept in
-     * 3d/Outfits, listed with the outfits under From 3D models, and worn at once.
-     */
+    /** Bind project-outfit deletion and undo within this builder's panel. */
+    _bindOutfitActions() {
+        if (!this.root || this._outfitActionRoot === this.root) return;
+        this._outfitActionRoot = this.root;
+        this.root.addEventListener('click', event => {
+            const emblem = event.target.closest('[data-outfit-emblem]'), clear = event.target.closest('[data-outfit-emblem-clear]');
+            if (emblem || clear) {
+                event.preventDefault(); event.stopPropagation();
+                if (emblem) this._chooseOutfitPicture(+emblem.dataset.outfitEmblem);
+                else {
+                    const r = JSON.parse(JSON.stringify(this.recipe));
+                    if (r.outfit[+clear.dataset.outfitEmblemClear]) { delete r.outfit[+clear.dataset.outfitEmblemClear].emblemPicture; this._replace(r); }
+                }
+                return;
+            }
+            const remove = event.target.closest('[data-outfit-delete]');
+            const undo = event.target.closest('[data-outfit-undo]');
+            if (!remove && !undo) return;
+            event.preventDefault(); event.stopPropagation();
+            if (remove) this._deleteTakenOutfit(remove.dataset.outfitDelete);
+            else this._undoTakenOutfit();
+        });
+        this.root.addEventListener('contextmenu', event => {
+            const card = event.target.closest('[data-user-outfit]');
+            if (!card) return;
+            event.preventDefault(); event.stopPropagation();
+            this._deleteTakenOutfit(card.dataset.userOutfit);
+        });
+    }
+
+    /** Choose a validated project picture; recipes keep only its relative asset reference. */
+    _chooseOutfitPicture(index) {
+        const project = this._project(), item = this.recipe.outfit[index], assets = window.RRAssetFiles, picker = window.reactor?.databaseEditorUI;
+        if (!project || !item || !assets || !picker?.showImagePicker) return;
+        const folder = require('path').join(project.path, 'img', 'pictures');
+        const files = assets.listImageReferences(folder);
+        if (!files.length) { RRDialog.alert(this._t('No pictures in img/pictures yet. Add one there to use it here.'), { title: this._t('Emblem picture') }); return; }
+        const before = JSON.stringify(item);
+        picker.showImagePicker(this._t('Choose a picture'), files, reference => {
+            if (!reference || this._project()?.path !== project.path || JSON.stringify(this.recipe.outfit[index]) !== before || !assets.findImage(folder, reference)) return;
+            this._emblemFailed?.delete(reference);
+            const r = JSON.parse(JSON.stringify(this.recipe));
+            r.outfit[index].emblemPicture = reference;
+            this._replace(r);
+        }, reference => assets.imageUrlFor(folder, reference), item.emblemPicture || undefined, { selectButtonLabel: this._t('Use This Picture'), zIndex: 10500 });
+    }
+
+    /** Decode small emblem rasters once per project, shared by preview and save atlases. */
+    _loadOutfitEmblems() {
+        const project = this._project(), assets = window.RRAssetFiles;
+        if (!project || !assets) return Promise.resolve([]);
+        if (this._emblemProject !== project.path) {
+            this._emblemProject = project.path;
+            this._emblemPictures = new Map(); this._emblemPending = new Map(); this._emblemFailed = new Set();
+        }
+        const pictures = this._emblemPictures;
+        const share = () => {
+            this.cache.wardrobe = this.cache.wardrobe || {};
+            const caches = [this.cache.wardrobe];
+            for (const kind of ['dress', 'garment', 'species']) {
+                this._thumbCache[kind] = this._thumbCache[kind] || {};
+                this._thumbCache[kind].wardrobe = this._thumbCache[kind].wardrobe || {};
+                caches.push(this._thumbCache[kind].wardrobe);
+            }
+            for (const cache of caches) {
+                if (cache.emblemPictures !== pictures) delete cache.atlas;
+                cache.emblemPictures = pictures;
+            }
+            return caches;
+        };
+        share();
+        const folder = require('path').join(project.path, 'img', 'pictures');
+        for (const item of this.recipe.outfit || []) {
+            const name = item.emblemPicture;
+            if (item.pattern !== 'emblem' || typeof name !== 'string' || !name || pictures.has(name) || this._emblemPending.has(name) || this._emblemFailed.has(name)) continue;
+            if (/^(?:[a-z]+:|[\\/])/i.test(name) || name.replace(/\\/g, '/').split('/').includes('..') || !assets.findImage(folder, name)) { this._emblemFailed.add(name); continue; }
+            const pending = this._emblemPending, failed = this._emblemFailed, img = new Image();
+            let resolveReady, settled = false, watchdog;
+            const ready = new Promise(resolve => { resolveReady = resolve; });
+            const finish = value => { if (settled) return; settled = true; clearTimeout(watchdog); resolveReady(value); };
+            pending.set(name, ready);
+            img.onload = () => {
+                if (settled) return;
+                pending.delete(name);
+                if (this._project()?.path !== project.path || this._emblemPictures !== pictures || !this._view) { finish(false); return; }
+                try {
+                    const scale = Math.min(1, 256 / Math.max(img.naturalWidth, img.naturalHeight));
+                    const width = Math.max(1, Math.round(img.naturalWidth * scale)), height = Math.max(1, Math.round(img.naturalHeight * scale));
+                    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+                    const context = canvas.getContext('2d'); context.drawImage(img, 0, 0, width, height);
+                    pictures.set(name, { width, height, data: new Uint8Array(context.getImageData(0, 0, width, height).data.buffer) });
+                    const active = new Set((this.recipe.outfit || []).filter(i => i.pattern === 'emblem').map(i => i.emblemPicture));
+                    for (const ref of pictures.keys()) { if (pictures.size <= 16) break; if (!active.has(ref)) pictures.delete(ref); }
+                    for (const cache of share()) delete cache.atlas;
+                    this._queueRebuild();
+                    finish(true);
+                } catch (error) { failed.add(name); this._status(this._t('{name} could not be opened.', { name }), 'error'); finish(false); }
+            };
+            img.onerror = () => { if (settled) return; pending.delete(name); failed.add(name); if (this._project()?.path === project.path) this._status(this._t('{name} could not be opened.', { name }), 'error'); finish(false); };
+            watchdog = setTimeout(() => { img.onerror(); img.src = ''; }, 15000);
+            try { img.src = assets.imageUrlFor(folder, name); } catch (error) { img.onerror(); }
+        }
+        return Promise.all(this._emblemPending.values());
+    }
+
+    async _deleteTakenOutfit(key) {
+        const T = RRCharacterOutfitTransfer, W = RRCharacterWardrobe, project = this._project();
+        const def = W.GARMENTS.find(g => g.transfer === key);
+        if (!project || !def || !key.startsWith('project:')) return;
+        const root = this.root;
+        if (!await RRDialog.confirm(this._t('Delete {name}?', { name: def.label }), { title: this._t('Delete outfit'), ok: this._t('Delete'), danger: true })) return;
+        if (this.root !== root || this._project()?.path !== project.path) return;
+        try {
+            const removed = this.recipe.outfit.map((item, index) => ({ item, index })).filter(({ item }) => W.BY_ID.get(item.id)?.transfer === key);
+            const record = T.removeProject(W, project.path, key);
+            this._outfitUndo = { record, removed, projectPath: project.path };
+            const r = JSON.parse(JSON.stringify(this.recipe));
+            const ids = new Set(removed.map(p => p.item.id));
+            r.outfit = r.outfit.filter(item => !ids.has(item.id));
+            this._replace(r);
+            this._status(this._t('Deleted {name}.', { name: record.label }), 'ok');
+        } catch (error) { console.error('[Character3DBuilder] delete outfit', error); this._status(error.message, 'error'); }
+    }
+
+    _undoTakenOutfit() {
+        const undo = this._outfitUndo;
+        if (!undo || undo.projectPath !== this._project()?.path) return;
+        try {
+            const id = undo.record.undo();
+            if (!id) return;
+            this._outfitUndo = null;
+            const r = JSON.parse(JSON.stringify(this.recipe));
+            for (const { item, index } of undo.removed) r.outfit.splice(Math.min(index, r.outfit.length), 0, Object.assign({}, item, { id }));
+            this._replace(r);
+            this._status(this._t('Restored {name}.', { name: undo.record.label }), 'ok');
+        } catch (error) { console.error('[Character3DBuilder] restore outfit', error); this._status(error.message, 'error'); }
+    }
+
+    /** Fit an imported mesh in an expendable worker; closing the picker terminates it. */
+    _computeOutfitImport(model, picture, recipe, parts, trackCancel) {
+        return new Promise((resolve, reject) => {
+            const fs = require('fs'), path = require('path');
+            const dir = path.join(RRHumanBody.dataFolder(), '..');
+            const code = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterSimplify', 'CharacterOutfitTransfer'].map(name => fs.readFileSync(path.join(dir, name + '.js'), 'utf8')).join('\n;\n') + `
+                self.onmessage = e => {
+                    try {
+                        const a = e.data, pack = self.RRHumanBody.openPack(a.json, new Uint8Array(a.bin));
+                        const outfit = self.RRCharacterOutfitTransfer.importModel(pack, a.model, a.picture, a.recipe, a.parts);
+                        self.postMessage({ outfit });
+                    } catch (error) { self.postMessage({ error: String(error && error.stack || error) }); }
+                };`;
+            const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+            let worker;
+            const finish = (error, value) => { worker?.terminate(); URL.revokeObjectURL(url); trackCancel(null); error ? reject(error) : resolve(value); };
+            try {
+                worker = new Worker(url);
+                trackCancel(() => finish(new Error('Outfit import canceled')));
+                worker.onmessage = e => finish(e.data.error ? new Error(e.data.error) : null, e.data.outfit);
+                worker.onerror = e => finish(new Error(e.message || 'Outfit worker failed'));
+                const data = RRHumanBody.dataFolder(), bin = fs.readFileSync(path.join(data, 'human.bin'));
+                const buffer = bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength);
+                worker.postMessage({ json: JSON.parse(fs.readFileSync(path.join(data, 'human.json'), 'utf8')), bin: buffer, model, picture, recipe, parts }, [buffer]);
+            } catch (error) { finish(error); }
+        });
+    }
+
+    /** A model without a saved thumbnail is drawn once in the shared preview renderer. */
+    async _importModelThumbnail(file) {
+        const fs = require('fs'), projectPath = this._project()?.path, root = this.root;
+        const key = file + ':' + fs.statSync(file).mtimeMs;
+        const cache = this._importModelThumbs || (this._importModelThumbs = new Map());
+        if (cache.has(key)) return cache.get(key);
+        const model = RRCharacterOutfitTransfer.readModel(fs.readFileSync(file));
+        if (!model?.image) return '';
+        const bitmap = await createImageBitmap(new Blob([model.image.bytes], { type: model.image.mime }));
+        if (this.root !== root || this._project()?.path !== projectPath || !this._view) { bitmap.close(); return ''; }
+        const scale = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        const context = canvas.getContext('2d'); context.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+        this._ensureThumbView();
+        const view = this._thumbView, geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(model.positions, 3));
+        geometry.setAttribute('uv', new THREE.BufferAttribute(model.uvs, 2));
+        geometry.setIndex(new THREE.BufferAttribute(model.index, 1)); geometry.computeVertexNormals(); geometry.computeBoundingBox();
+        const texture = new THREE.DataTexture(new Uint8Array(pixels.data.buffer), canvas.width, canvas.height, THREE.RGBAFormat);
+        texture.colorSpace = THREE.SRGBColorSpace; texture.flipY = false; texture.needsUpdate = true;
+        const material = new THREE.MeshStandardMaterial({ map: texture, roughness: model.roughness ?? 0.8, metalness: 0, side: THREE.DoubleSide });
+        const mesh = new THREE.Mesh(geometry, material);
+        view.scene.add(mesh);
+        let url;
+        try {
+            const target = geometry.boundingBox.getCenter(new THREE.Vector3()), size = geometry.boundingBox.getSize(new THREE.Vector3());
+            const distance = Math.max(size.y, size.x) * 2.2;
+            view.camera.position.set(target.x + distance * 0.3, target.y + distance * 0.04, target.z + distance * 0.96);
+            view.camera.lookAt(target); view.renderer.render(view.scene, view.camera);
+            url = view.canvas.toDataURL('image/webp', 0.85);
+        } finally { view.scene.remove(mesh); geometry.dispose(); material.dispose(); texture.dispose(); }
+        cache.set(key, url);
+        while (cache.size > 24) cache.delete(cache.keys().next().value);
+        return url;
+    }
+
+    /** Search the project's models and preview selected parts before keeping an outfit. */
     _showModels() {
-        const T = RRCharacterOutfitTransfer, project = this._project();
+        const T = RRCharacterOutfitTransfer, W = RRCharacterWardrobe, project = this._project();
+        if (!project) return;
+        this._closeOutfitImport?.();
+        const importRoot = this.root;
         const box = this.root.querySelector('.rr-c3d-gallery');
         const models = T.listModels(project.path);
-        const cards = models.map((m, k) => `<button class="rr-c3d-saved" data-model="${k}"><span>${rrEscapeHtml(m.name)}</span></button>`).join('');
+        const fs = require('fs');
+        const cards = models.map((m, k) => {
+            let src = '';
+            if (m.thumbnail) { try { src = 'data:image/png;base64,' + fs.readFileSync(m.thumbnail).toString('base64'); } catch (error) { /* The model remains selectable without a thumbnail. */ } }
+            return `<button class="rr-c3d-saved rr-c3d-import-model" data-model="${k}" title="${rrEscapeHtml(m.name)}">${src ? `<img src="${src}" alt="">` : '<span class="rr-c3d-nothumb">3D</span>'}<span>${rrEscapeHtml(m.name)}</span></button>`;
+        }).join('');
+        box.classList.add('rr-c3d-importer');
         box.innerHTML = `<div class="rr-c3d-gallery-head"><span>${this._t('Take outfit from a 3D model')}</span><button class="rr-c3d-remove" data-close title="${this._t('Close')}">✕</button></div>
-            <div class="rr-c3d-gallery-grid">${cards || `<p class="rr-c3d-note">${this._t('No humanoid 3D models in this project.')}</p>`}</div>`;
+            <input class="rr-c3d-import-search" type="search" placeholder="${this._t('Search models')}" aria-label="${this._t('Search models')}">
+            <fieldset class="rr-c3d-import-parts"><legend>${this._t('Parts to take')}</legend>${T.IMPORT_PARTS.map(p => `<label><input type="checkbox" data-part="${p.id}" ${p.id === 'hands' ? '' : 'checked'}>${this._t(p.label)}</label>`).join('')}</fieldset>
+            <div class="rr-c3d-gallery-grid">${cards || `<p class="rr-c3d-note">${this._t('No humanoid 3D models in this project.')}</p>`}</div>
+            <div class="rr-c3d-import-progress" hidden><span></span><progress max="1" value="0"></progress></div>
+            <div class="rr-c3d-import-actions" hidden><button class="rr-btn-chip" data-keep>${this._t('Keep outfit')}</button><button class="rr-btn-chip" data-discard>${this._t('Discard')}</button></div>`;
         box.hidden = false;
-        const close = () => { box.hidden = true; document.removeEventListener('keydown', onKey, true); };
+        const original = JSON.parse(JSON.stringify(this.recipe));
+        let prepared = null, busy = false, closed = false, cancelCompute = null;
+        const close = () => {
+            if (closed) return;
+            closed = true;
+            cancelCompute?.();
+            if (prepared?.state === 'prepared') {
+                if (this.root === importRoot && this._project()?.path === project.path) this._replace(original);
+                T.discardPrepared(W, prepared);
+            }
+            box.hidden = true;
+            box.classList.remove('rr-c3d-importer', 'rr-c3d-import-ready');
+            box.onclick = null; box.oninput = null; box.onchange = null;
+            document.removeEventListener('keydown', onKey, true);
+            if (this._closeOutfitImport === close) this._closeOutfitImport = null;
+        };
+        this._closeOutfitImport = close;
         const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
         document.addEventListener('keydown', onKey, true);
-        box.onclick = async e => {
-            if (e.target.closest('[data-close]')) { close(); return; }
-            const card = e.target.closest('[data-model]');
-            if (!card) return;
-            close();
-            const model = models[+card.dataset.model];
-            this._status(this._t('Taking the outfit off {name}…', { name: model.name }));
-            await new Promise(r => requestAnimationFrame(() => setTimeout(r, 30)));
-            try {
-                const id = await T.takeFrom(this.pack, RRCharacterWardrobe, model.file, project.path, this.recipe);
-                if (!id) { this._status(this._t('{name} has no outfit to take.', { name: model.name }), 'error'); return; }
-                const r = JSON.parse(JSON.stringify(this.recipe));
-                r.outfit = (r.outfit || []).concat([{ id }]);
-                this._replace(r);
-                this._status(this._t('Took the outfit off {name}.', { name: model.name }), 'ok');
-            } catch (error) {
-                console.error('[Character3DBuilder] take outfit', error);
-                this._status(this._t('The outfit could not be taken off {name}.', { name: model.name }), 'error');
-            }
+        box.oninput = e => {
+            if (!e.target.matches('.rr-c3d-import-search')) return;
+            const query = e.target.value.trim().toLocaleLowerCase();
+            for (const card of box.querySelectorAll('[data-model]')) card.hidden = !models[+card.dataset.model].name.toLocaleLowerCase().includes(query);
         };
+        box.onchange = () => {
+            const any = [...box.querySelectorAll('[data-part]')].some(input => input.checked);
+            for (const card of box.querySelectorAll('[data-model]')) card.disabled = busy || !any;
+        };
+        box.onclick = async e => {
+            if (e.target.closest('[data-close], [data-discard]')) { close(); return; }
+            if (e.target.closest('[data-keep]')) {
+                if (!prepared || busy || this._project()?.path !== project.path) return;
+                busy = true;
+                const keep = box.querySelector('[data-keep]'); keep.disabled = true;
+                try {
+                    const thumb = await this._makeThumb({ key: 'dress:' + prepared.id, kind: 'dress', id: prepared.id, sig: this._thumbSig('dress') });
+                    if (closed || this.root !== importRoot || this._project()?.path !== project.path) return;
+                    const previewId = prepared.id;
+                    const id = await T.keepPrepared(W, prepared, thumb);
+                    if (closed || this.root !== importRoot || this._project()?.path !== project.path) { close(); return; }
+                    const r = JSON.parse(JSON.stringify(this.recipe));
+                    r.outfit = r.outfit.map(item => item.id === previewId ? Object.assign({}, item, { id }) : item);
+                    this._replace(r);
+                    this._status(this._t('Took the outfit off {name}.', { name: prepared.label }), 'ok');
+                    close();
+                } catch (error) {
+                    if (closed || this.root !== importRoot || this._project()?.path !== project.path || error.name === 'AbortError') return;
+                    console.error('[Character3DBuilder] keep outfit', error); this._status(error.message, 'error'); keep.disabled = false;
+                }
+                finally { busy = false; }
+                return;
+            }
+            const card = e.target.closest('[data-model]');
+            if (!card || busy) return;
+            const parts = [...box.querySelectorAll('[data-part]')].filter(input => input.checked).map(input => input.dataset.part);
+            if (!parts.length) return;
+            busy = true;
+            for (const input of box.querySelectorAll('input, [data-model]')) input.disabled = true;
+            const progress = box.querySelector('.rr-c3d-import-progress'); progress.hidden = false;
+            progress.querySelector('span').textContent = this._t('Preparing outfit…');
+            const model = models[+card.dataset.model];
+            try {
+                prepared = await T.prepareFrom(this.pack, W, model.file, project.path, this.recipe, { parts,
+                    compute: (model, picture, recipe, parts) => this._computeOutfitImport(model, picture, recipe, parts, cancel => { cancelCompute = cancel; }),
+                    progress: (stage, value) => { progress.querySelector('progress').value = value; } });
+                if (closed || this.root !== importRoot || this._project()?.path !== project.path) { T.discardPrepared(W, prepared); close(); return; }
+                if (!prepared) { this._status(this._t('{name} has no outfit to take.', { name: model.name }), 'error'); close(); return; }
+                const r = JSON.parse(JSON.stringify(original));
+                r.outfit = (r.outfit || []).concat([{ id: prepared.id }]);
+                this._replace(r);
+                box.classList.add('rr-c3d-import-ready');
+                progress.hidden = true;
+                box.querySelector('.rr-c3d-import-actions').hidden = false;
+                box.querySelector('.rr-c3d-gallery-head span').textContent = prepared.label;
+            } catch (error) { if (!closed) { console.error('[Character3DBuilder] prepare outfit', error); this._status(this._t('The outfit could not be taken off {name}.', { name: model.name }), 'error'); close(); } }
+            finally { busy = false; }
+        };
+        box.querySelector('.rr-c3d-import-search').focus();
+        (async () => {
+            for (let i = 0; i < models.length; i++) {
+                if (closed || busy) return;
+                if (models[i].thumbnail) continue;
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                const url = await this._importModelThumbnail(models[i].file);
+                if (closed || !url) return;
+                const placeholder = box.querySelector(`[data-model="${i}"] .rr-c3d-nothumb`);
+                if (placeholder) { const img = document.createElement('img'); img.src = url; img.alt = ''; placeholder.replaceWith(img); }
+            }
+        })().catch(error => console.warn('[Character3DBuilder] model thumbnail', error));
     }
 
     _openSaved(name) {
@@ -2194,6 +2768,7 @@ class Character3DBuilder {
         if (fs.existsSync(file) && !await RRDialog.confirm(this._t('Replace the saved character {name}?', { name }), { title: this._t('Save to Project'), ok: this._t('Replace'), danger: true })) return;
         this._status(this._t('Saving…'));
         try {
+            await this._loadOutfitEmblems?.();
             // The file at full quality: its own build, the outfit's picture shared with the view's.
             // The full-size skin painted off the page first, then the file built with it.
             let wanted = null;
@@ -2203,7 +2778,10 @@ class Character3DBuilder {
             const result = RRCharacterModel.build(this.pack, this.recipe, { wardrobe: this.cache.wardrobe }, { quality: 'save', eyeSource: this.eyeSource, paintSkin: skin ? () => skin : undefined });
             // A person saved ready to use: its poses and motions as clips, rigged, each motion where the game plays it.
             const ready = window.RRCharacterPoses && RRCharacterPoses.savedModel ? RRCharacterPoses.savedModel(result, this.motions || 'useful') : null;
-            if (ready) result.clips = (result.clips || []).concat(ready.clips);
+            if (ready) {
+                const names = new Set((result.clips || []).map(clip => clip.name));
+                result.clips = (result.clips || []).concat(ready.clips.filter(clip => !names.has(clip.name)));
+            }
             const glb = await RRCharacterModel.toGlb(result, name, tex => this._png(tex));
             // Written whole or not at all: a save cut short leaves the last good file.
             const atomic = window.RRWriteFileAtomicSync || ((io, target, data) => io.writeFileSync(target, data));
@@ -2299,12 +2877,64 @@ Character3DBuilder.skinDetail = function() {
     return (Character3DBuilder._skinDetail = t);
 };
 
+/** Fit every corner into the thumbnail's actual camera frustum, including tall or wide equipment. */
+Character3DBuilder.fitThumbnailFrame = function(bounds, yaw, pitch, fov, aspect = 1) {
+    const target = bounds.min.map((x, k) => (x + bounds.max[k]) * 0.5);
+    const sy = Math.sin(yaw), cy = Math.cos(yaw), sp = Math.sin(pitch), cp = Math.cos(pitch);
+    const forward = [sy * cp, sp, cy * cp], right = [cy, 0, -sy], up = [-sy * sp, cp, -cy * sp];
+    const vertical = Math.tan(fov * Math.PI / 360), horizontal = vertical * aspect;
+    let distance = 0.03;
+    for (const x of [bounds.min[0], bounds.max[0]]) for (const y of [bounds.min[1], bounds.max[1]]) for (const z of [bounds.min[2], bounds.max[2]]) {
+        const d = [x - target[0], y - target[1], z - target[2]];
+        const dot = axis => d.reduce((sum, v, k) => sum + v * axis[k], 0);
+        distance = Math.max(distance, dot(forward) + Math.max(Math.abs(dot(right)) / horizontal, Math.abs(dot(up)) / vertical) * 1.12);
+    }
+    return { target, distance };
+};
+
 /** Sliders that only reshape the body: the drag's fast path can follow them. */
 Character3DBuilder.bodyPath = function(path) {
     return /^(shapes\.|morph\.|anatomy\.(length|girth|testicles|mons|labia|fold|nipple)$|gender$|age$|height$|weight$|muscle$|cup$|firmness$|proportions$|headSize$)/.test(path);
 };
 
 /** Bumped when the previews' look changes, so pictures kept on disk are drawn again. */
-Character3DBuilder.PREVIEW_VERSION = 7;
+Character3DBuilder.PREVIEW_VERSION = 14;
+
+/** Rigidly fit authored grip markers in the hand's rest frame; its bone carries every pose. */
+Character3DBuilder.fitHeldPreview = function(object, shape, frame, T) {
+    const v = a => new T.Vector3().fromArray(a);
+    const gun = !!shape.handle;
+    const forward = v(gun ? frame.along : frame.thumbward).normalize();
+    const up = v(gun ? frame.thumbward : frame.along);
+    up.addScaledVector(forward, -up.dot(forward)).normalize();
+    const axis = v(shape.axis).normalize(), localUp = v(shape.up);
+    localUp.addScaledVector(axis, -localUp.dot(axis)).normalize();
+    const world = new T.Matrix4().makeBasis(forward, up, new T.Vector3().crossVectors(forward, up));
+    const local = new T.Matrix4().makeBasis(axis, localUp, new T.Vector3().crossVectors(axis, localUp));
+    object.quaternion.setFromRotationMatrix(world.multiply(local.transpose()));
+    object.scale.setScalar(1);
+    const radius = gun ? shape.handle.radius : shape.gripRadius;
+    const target = v(frame.along).multiplyScalar(frame.length * 0.62).addScaledVector(v(frame.palm), frame.length * 0.126 + Math.min(0.04, radius || 0.015));
+    const pivot = gun ? v(shape.handle.at) : v(shape.base).addScaledVector(axis, shape.marks?.handle ? shape.marks.handle * 0.65 : shape.length * shape.grip);
+    object.position.copy(target).sub(pivot.applyQuaternion(object.quaternion));
+    return target;
+};
+
+Character3DBuilder.disposeHeldPreview = function(object) {
+    object.removeFromParent();
+    const geometry = new Set(), materials = new Set(), textures = new Set(object.userData?.glbTextures || []);
+    object.traverse(node => {
+        if (node.geometry) geometry.add(node.geometry);
+        if (node.skeleton) node.skeleton.dispose();
+        for (const material of Array.isArray(node.material) ? node.material : node.material ? [node.material] : []) {
+            materials.add(material);
+            for (const value of Object.values(material)) if (value?.isTexture) textures.add(value);
+            for (const value of Object.values(material.userData || {})) if (value?.isTexture) textures.add(value);
+        }
+    });
+    for (const g of geometry) g.dispose();
+    for (const m of materials) m.dispose();
+    for (const t of textures) { t.dispose(); t.image?.close?.(); }
+};
 
 if (typeof window !== 'undefined') window.Character3DBuilder = Character3DBuilder;

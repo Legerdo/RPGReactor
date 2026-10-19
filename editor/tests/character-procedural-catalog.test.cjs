@@ -54,6 +54,32 @@ test('underwear and hosiery layer under separate outer garments and footwear', (
     for (const part of apron.parts) for (let i = 1; i < part.positions.length; i += 3) assert.ok(part.positions[i] > bodies[0].height * 0.12, 'an apron does not also cut sleeves or cover feet');
 });
 
+test('the Bikini preset has independent swimwear separates that cover anatomical detail on every build', () => {
+    const preset = Wardrobe.PRESETS.find(p => p.id === 'bikini');
+    assert.equal(preset.group, 'Swimwear');
+    assert.deepEqual(preset.items.map(i => i.id), ['bikiniTop', 'bikiniBottom']);
+    const recipes = [{ gender: 0 }, { gender: 1 }, { gender: 0, extreme: true, weight: 4, cup: 2 }, { gender: 1, extreme: true, muscle: 2, weight: 0 }];
+    for (const recipe of recipes) {
+        const built = Body.build(pack, Body.normalizeRecipe(recipe));
+        const out = Wardrobe.build(pack, built, preset.items, { atlasSize: 64 });
+        sound(out.parts, built.bones, 'bikini on ' + JSON.stringify(recipe));
+        const fields = Body.anatomyFields(pack);
+        assert.ok(out.hidden.has(fields.low), 'the bottom covers the genital detail anchor');
+        assert.ok(fields.nipples.every(n => out.hidden.has(n.v)), 'the top covers both nipple detail anchors');
+        const normalized = load('CharacterModel').normalize(JSON.parse(JSON.stringify(Object.assign({}, recipe, { outfit: preset.items }))));
+        assert.deepEqual(normalized.outfit.map(i => i.id), ['bikiniBottom', 'bikiniTop']);
+    }
+});
+
+test('project emblems keep their picture reference and paint the decoded project picture', () => {
+    const item = { id: 'tshirt', pattern: 'emblem', emblemPicture: 'Logos/Crew' };
+    assert.equal(Wardrobe.normalizeItem(item).emblemPicture, item.emblemPicture, 'canonical PNG references have no extension');
+    for (const ref of ['../Private.png', '/tmp/Badge.png', 'https://example.com/Badge.png', 'Badge.txt']) assert.equal(Wardrobe.normalizeItem(Object.assign({}, item, { emblemPicture: ref })).emblemPicture, undefined);
+    const atlas = rgb => Wardrobe.build(pack, bodies[0], [item], { atlasSize: 256, emblemPictures: new Map([[item.emblemPicture, { width: 1, height: 1, data: Uint8Array.from([...rgb, 255]) }]]) }).texture;
+    assert.notDeepEqual(atlas([240, 30, 20]).data, atlas([20, 40, 240]).data, 'the selected raster changes the emblem pixels');
+    assert.equal(load('CharacterModel').normalize({ outfit: [item] }).outfit[0].emblemPicture, item.emblemPicture, 'the picture reference survives the recipe');
+});
+
 test('hair density, frizz and lock thickness change generated strands and preserve old defaults', () => {
     const build = settings => Hair.build(pack, bodies[0], Object.assign({ style: 'sidePart', lashes: false, brows: { style: 'none' } }, settings), { seed: 74, budget: 0.5 });
     const sparse = build({ density: 0.3 }), dense = build({ density: 1.5 });
@@ -72,6 +98,29 @@ test('every new accessory builds finite, weighted geometry on both body shapes',
         assert.ok(def && def.frame, id + ' has a picker camera');
         sound(Props.build(pack, body, [{ id }]).parts, body.bones, id);
     }
+});
+
+test('tie styles stay finite through the full blade, on bare and clothed torsos', () => {
+    for (const body of bodies) {
+        const outfitParts = Wardrobe.build(pack, body, [{ id: 'shirt' }], { atlasSize: 64 }).parts;
+        for (const shape of ['straight', 'bow', 'cravat']) for (const worn of [[], outfitParts]) {
+            const made = Props.build(pack, body, [{ id: 'necktie', shape, length: 1.2 }], [], { outfitParts: worn });
+            sound(made.parts, body.bones, shape + ' tie');
+            for (const part of made.parts) for (let i = 2; i < part.positions.length; i += 3) assert.ok(Math.abs(part.positions[i]) < body.height, 'the blade stays near the torso');
+        }
+    }
+});
+
+test('closed power helmets enclose the face and suppress the mouth helpers', () => {
+    const Expressions = load('CharacterExpressions');
+    const HumanModel = load('CharacterModel');
+    for (const body of bodies) {
+        const helmet = Wardrobe.build(pack, body, [{ id: 'powerhelm' }], { atlasSize: 64 });
+        sound(helmet.parts, body.bones, 'power helmet');
+        assert.ok(Expressions.mouthCovered(pack, helmet.hidden), 'the lips are inside the helmet');
+    }
+    const result = HumanModel.build(pack, { outfit: [{ id: 'powerarmor' }, { id: 'powerhelm' }] }, {}, { quality: 'preview', skinSize: 64 });
+    assert.ok(!result.parts.some(p => /teeth|tongue|mouth/i.test(p.name)), 'mouth helpers follow the covered face');
 });
 
 test('equipment uses one slot per hand and follows that hand in the saved GLB', () => {

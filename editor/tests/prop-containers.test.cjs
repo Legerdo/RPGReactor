@@ -75,6 +75,35 @@ test('every preset builds whole, under budget, on the floor', () => {
     for (const p of C.PRESETS) check(C.fromPreset(p.id), p.id);
 });
 
+test('scoped Randomize keeps authored settings outside its group and never edits the source recipe', () => {
+    const shape = new Set(['width', 'height', 'bulge']);
+    const colors = new Set(['color', 'trim', 'accent', 'finish', 'lights.color', 'strips.color', 'display.color']);
+    const details = new Set(['wear', 'seed', 'hoops', 'ribs', 'brace', 'marks.text', 'marks.hazard', 'marks.symbol',
+        'lights.count', 'lights.pattern', 'strips.on', 'strips.pattern']);
+    const flatten = (o, prefix = '', out = {}) => {
+        for (const [key, value] of Object.entries(o)) {
+            const name = prefix + key;
+            if (value && typeof value === 'object') flatten(value, name + '.', out);
+            else out[name] = value;
+        }
+        return out;
+    };
+    for (const preset of C.PRESETS) {
+        const source = C.fromPreset(preset.id), before = JSON.stringify(source), fields = flatten(source);
+        for (const [scope, allowed] of [['shape', shape], ['colors', colors], ['details', details]]) {
+            const result = C.random(123, source, scope), after = flatten(result);
+            assert.equal(JSON.stringify(source), before, `${preset.id}: source unchanged`);
+            assert.deepEqual(C.random(123, source, scope), result, `${preset.id}: seeded ${scope}`);
+            for (const key of Object.keys(fields)) if (!allowed.has(key)) assert.equal(after[key], fields[key], `${preset.id}: ${scope} kept ${key}`);
+            assert.ok(Object.keys(fields).some(key => fields[key] !== after[key]), `${preset.id}: ${scope} changes something`);
+        }
+        // A color roll must preserve the actual mesh, including generated dents.
+        const a = Model.build(source, {}, { textureSize: 64 });
+        const b = Model.build(C.random(123, source, 'colors'), {}, { textureSize: 64 });
+        assert.deepEqual(b.parts.map(p => p.positions), a.parts.map(p => p.positions), `${preset.id}: colors preserve geometry`);
+    }
+});
+
 test('every form at its slider extremes and every switch builds whole, under budget, on the floor', () => {
     const forms = { barrel: 'barrel', drum: 'oil-drum', canister: 'fuel-canister', crate: 'supply-crate', chest: 'treasure-chest', cargo: 'cargo-crate' };
     for (const [form, preset] of Object.entries(forms)) {

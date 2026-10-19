@@ -372,8 +372,17 @@
                 const mv = turnAbout(t(part), apply(parent, t(part)), t(part), t(end), o(part), o(end));
                 moves[side + part] = mv; parent = mv;
             }
-            // The foot keeps its own set to the shin (a boot, a heel) and stands on the floor below.
-            moves[side + 'Foot'] = moves[side + 'ToeBase'] = parent;
+            // A rig's shin angle is not its shoe's sole angle. Carry the ankle with the shin,
+            // but preserve the source sole's pitch; only align its plan direction with our foot.
+            // Applying the shin's pitch here turns flat armored boots into raised toe caps.
+            const heel = L.ends[side + 'Heel'], tip = L.ends[side + 'ToeBase'];
+            const ownHeel = ours.ends[side + 'Heel'], ownTip = ours.ends[side + 'ToeBase'];
+            const flat = (a, b) => [b[0] - a[0], 0, b[2] - a[2]];
+            const b = ownHeel && ownTip ? flat(ownHeel, ownTip) : o('Foot') && o('ToeBase') ? flat(o('Foot'), o('ToeBase')) : null;
+            // Toe-less source rigs have no reliable foot heading; retain their source heading and sole.
+            const a = heel && tip ? flat(heel, tip) : t('Foot') && t('ToeBase') ? flat(t('Foot'), t('ToeBase')) : b;
+            moves[side + 'Foot'] = moves[side + 'ToeBase'] = t('Foot') && a && b && len(a) > 1e-6 && len(b) > 1e-6
+                ? { from: t('Foot'), to: apply(parent, t('Foot')), m: turn(unit(a), unit(b)) } : parent;
             void at;
         }
         const P = model.positions, n = P.length / 3, out = new Float32Array(P.length);
@@ -841,10 +850,20 @@
      * with its picture coordinate) and the welded points they share.
      */
     function cutMesh(model, keep, minPiece) {
-        const I = model.index, tris = [];
-        for (let t = 0; t < I.length; t += 3) if (keep[I[t]] && keep[I[t + 1]] && keep[I[t + 2]]) tris.push(I[t], I[t + 1], I[t + 2]);
+        const I = model.index, tris = [], w = weld(model.positions), faces = new Set(), P = model.positions;
+        for (let t = 0; t < I.length; t += 3) {
+            const a = I[t], b = I[t + 1], c = I[t + 2];
+            if (!keep[a] || !keep[b] || !keep[c]) continue;
+            const ids = [w.id[a], w.id[b], w.id[c]].sort((x, y) => x - y);
+            if (ids[0] === ids[1] || ids[1] === ids[2]) continue;
+            const key = ids.join(':');
+            if (faces.has(key)) continue;
+            const u = [P[b * 3] - P[a * 3], P[b * 3 + 1] - P[a * 3 + 1], P[b * 3 + 2] - P[a * 3 + 2]];
+            const v = [P[c * 3] - P[a * 3], P[c * 3 + 1] - P[a * 3 + 1], P[c * 3 + 2] - P[a * 3 + 2]];
+            if (len(cross(u, v)) < 1e-12) continue;
+            faces.add(key); tris.push(a, b, c);
+        }
         // Crumbs (a few triangles cut loose at the edge) left out.
-        const w = weld(model.positions);
         const parent = new Int32Array(w.count).map((_, i) => i);
         const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
         for (let t = 0; t < tris.length; t += 3) { const a = find(w.id[tris[t]]), b = find(w.id[tris[t + 1]]), c = find(w.id[tris[t + 2]]); parent[a] = b; parent[find(c)] = find(b); }
@@ -906,7 +925,7 @@
         let mesh = cutMesh(model, keep, o.minPiece);
         const lighten = o.simplify || (Simplify && Simplify.simplify);
         if (lighten && o.triangles && mesh.index.length / 3 > o.triangles) {
-            const lighter = lighten(mesh.positions, mesh.uvs, mesh.index, o.triangles, { maxEdge: o.maxEdge ?? 0.03 });
+            const lighter = lighten(mesh.positions, mesh.uvs, mesh.index, o.triangles, { maxEdge: o.maxEdge ?? 0.06 });
             const keepFrom = lighter.origin;
             mesh = {
                 positions: lighter.positions, uvs: lighter.uvs, index: lighter.index,
@@ -936,6 +955,8 @@
         // Welded points: each rides the nearest point of the posed body's surfaces.
         const w = weld(mesh.positions);
         const count = w.count, point = new Float32Array(count * 3), pointRole = new Array(count);
+        const rest = new Float32Array(count * 3);
+        const back = skeletonMoves(Lt, Lo, { footJoints: true }), flatBack = skeletonMoves(Lt, Lo);
         for (let i = 0; i < mesh.positions.length / 3; i++) {
             point[w.id[i] * 3] = mesh.positions[i * 3]; point[w.id[i] * 3 + 1] = mesh.positions[i * 3 + 1]; point[w.id[i] * 3 + 2] = mesh.positions[i * 3 + 2];
             if (!pointRole[w.id[i]]) {
@@ -943,6 +964,19 @@
                 for (let k = 0; k < 4; k++) { const r = model.roles[mesh.joints[i * 4 + k]]; if (mesh.weights[i * 4 + k] > bw) { bw = mesh.weights[i * 4 + k]; best = r; } }
                 pointRole[w.id[i]] = best || 'Spine';
             }
+            const p = Array.from(mesh.positions.subarray(i * 3, i * 3 + 3));
+            let total = 0;
+            const q = [0, 0, 0];
+            for (let k = 0; k < 4; k++) {
+                const weight = mesh.weights[i * 4 + k];
+                if (weight <= 0) continue;
+                const role = model.roles[mesh.joints[i * 4 + k]];
+                const mv = (/Foot$|ToeBase$/.test(role) ? flatBack[role] : back[role]) || back.Spine;
+                const v = apply(mv, p);
+                for (let c = 0; c < 3; c++) q[c] += v[c] * weight;
+                total += weight;
+            }
+            for (let c = 0; c < 3; c++) rest[w.id[i] * 3 + c] = total > 0 ? q[c] / total : p[c];
         }
         // Loose cloth below the hips (a coat's tails, a robe's skirt) rides the skirt helper.
         const pointColor = new Float32Array(count * 3);
@@ -1007,6 +1041,13 @@
                 }
                 mix.set(next);
             }
+        }
+        // Hanging panels follow one continuous hip-to-floor map across both legs.
+        for (let i = 0; i < count; i++) {
+            const f = mix[i];
+            if (!f) continue;
+            const q = [point[i * 3] - Lt.pelvis[0] + Lo.pelvis[0], point[i * 3 + 1] * Lo.pelvis[1] / Math.max(0.1, Lt.pelvis[1]), point[i * 3 + 2] - Lt.pelvis[2] + Lo.pelvis[2]];
+            for (let c = 0; c < 3; c++) rest[i * 3 + c] += (q[c] - rest[i * 3 + c]) * f;
         }
         const blendIds = [], btri = new Uint16Array(count * 3), bbary = new Float32Array(count * 3), boff = new Float32Array(count * 3), bworld = new Float32Array(count * 3), bfar = new Uint8Array(count);
         for (let i = 0; i < count; i++) {
@@ -1166,8 +1207,8 @@
             picture = picture || { width: pic.width, height: pic.height, data: Uint8Array.from(pic.data) };
             const P3 = pointOrder.map(p => [point[p * 3], point[p * 3 + 1], point[p * 3 + 2]]);
             // Not the openings: the neck, and where the hands and feet were cut away.
-            const opening = pointOrder.map(p => { const v = tri[p * 3]; return an.s[v * 5] > 3.9 || chain(v, 1, 2) > 2.85 || chain(v, 3, 4) > 1.6; });
-            fillHoles(parts, renderPoint, uvList, P3, picture, o.holeSize ?? 0.12, opening, c => !isHeadTone(c));
+            const opening = loop => isGarmentOpening(loop, Lt);
+            fillHoles(parts, renderPoint, uvList, P3, picture, o.holeSize ?? 0.22, opening, () => true);
         }
         // The skin each part hides: skin whose outward normal meets the part within 6 cm, its edges kept.
         const NB = Body.vertexNormals(pack, Q);
@@ -1201,7 +1242,7 @@
         const outfit = {
             format: 1, height: built.height, recipe: o.recipe || {}, picture,
             count: pointOrder.length, tri: pick(tri, 3), bary: pick(bary, 3), offset: pick(offset, 3), surface: pick(surface, 1), hang: any ? hang : null,
-            world: pick(world, 3), farness: pick(farness, 1),
+            world: pick(world, 3), farness: pick(farness, 1), rest: pick(rest, 3),
             skin: { tri: pick(skinTri, 3), bary: pick(skinBary, 3), height: pick(skinH, 1) },
             rigid: rigidW.some(x => x) ? { w: pick(rigidW, 1), offset: pick(rigidOff, 3) } : null,
             blend: (() => {
@@ -1215,7 +1256,7 @@
             parts: parts.filter(p => p.index.length),
             roughness: o.roughness ?? model.roughness ?? 0.8, metalness: o.metalness ?? 0
         };
-        // Triangles torn open on the body at rest (where an inner layer joined cloth hanging over it) are left out.
+        // Small disconnected pieces beyond the garment are left out.
         if (o.tears !== false) {
             const restFrame = {}, rest = fit(pack, built, outfit, restFrame);
             // Small pieces floating off the body (a blade beyond a hand, a lone shard) are no part of the garment.
@@ -1238,21 +1279,6 @@
                     for (let t = 0; t < I.length; t += 3) { const r = find(RP[I[t]]); if (!(size.get(r) < total * 0.03 && far.get(r) > 0.05)) keep.push(I[t], I[t + 1], I[t + 2]); }
                     part.index = Uint32Array.from(keep);
                 }
-            }
-            const at = (P, i) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]];
-            const src = i => at(point, pointOrder[i]);
-            for (const part of outfit.parts) {
-                const keep = [], I = part.index, RP = outfit.render.point;
-                for (let t = 0; t < I.length; t += 3) {
-                    const a = RP[I[t]], b = RP[I[t + 1]], c = RP[I[t + 2]];
-                    let worst = 0;
-                    for (const [x, y] of [[a, b], [b, c], [c, a]]) {
-                        const was = len(sub(src(x), src(y))), now = len(sub(at(rest, x), at(rest, y)));
-                        worst = Math.max(worst, now / Math.max(was, 0.004));
-                    }
-                    if (worst <= (o.tearAt ?? 4)) keep.push(I[t], I[t + 1], I[t + 2]);
-                }
-                part.index = Uint32Array.from(keep);
             }
         }
         return outfit;
@@ -1354,36 +1380,46 @@
         let next = 0;
         const texel = (u, v) => { const x = Math.min(W - 1, Math.max(0, Math.floor(u * W))), y = Math.min(H - 1, Math.max(0, Math.floor(v * H))); const q = (y * W + x) * 4; return [picture.data[q], picture.data[q + 1], picture.data[q + 2]]; };
         for (const part of parts) {
-            const I = part.index, edges = new Map();
+            const I = part.index, edges = new Map(), sides = new Array(I.length);
             for (let t = 0; t < I.length; t += 3) for (let k = 0; k < 3; k++) {
                 const a = renderPoint[I[t + k]], b = renderPoint[I[t + (k + 1) % 3]];
                 const key = a < b ? a + ':' + b : b + ':' + a;
-                const e = edges.get(key);
-                if (e) e.n++; else edges.set(key, { n: 1, a, b, r: I[t + k] });
+                const e = { a, b, r: I[t + k], t, key };
+                sides[t + k] = e;
+                if (!edges.has(key)) edges.set(key, []);
+                edges.get(key).push(e);
             }
-            // Border edges, each from a to b as its face runs; the hole runs back the other way.
-            const out = new Map();
-            for (const e of edges.values()) if (e.n === 1) { if (!out.has(e.b)) out.set(e.b, []); out.get(e.b).push(e); }
+            // Walk through the adjacent face fan, keeping separate holes that touch at one vertex.
+            const previous = edge => {
+                const vertex = edge.a;
+                let t = edge.t;
+                for (let guard = 0; guard < 128; guard++) {
+                    let corner = -1;
+                    for (let k = 0; k < 3; k++) if (renderPoint[I[t + k]] === vertex) corner = k;
+                    if (corner < 0) return null;
+                    const incoming = sides[t + (corner + 2) % 3], list = edges.get(incoming.key);
+                    if (list.length === 1) return incoming;
+                    if (list.length !== 2) return null;
+                    const other = list[0] === incoming ? list[1] : list[0];
+                    if (other.a !== vertex) return null;
+                    t = other.t;
+                }
+                return null;
+            };
+            const boundary = [...edges.values()].filter(list => list.length === 1).map(list => list[0]).sort((a, b) => a.b - b.b || a.a - b.a);
             const seen = new Set(), add = [];
-            for (const start of [...out.keys()].sort((a, b) => a - b)) {
+            for (const start of boundary) {
                 if (seen.has(start)) continue;
                 const loop = [];
-                let at = start, guard = 0, ok = true;
-                while (guard++ < 80) {
-                    const list = (out.get(at) || []).filter(e => !seen.has(e));
-                    if (list.length !== 1) { ok = list.length === 0 && at === start && loop.length > 2; break; }
-                    const e = list[0];
-                    seen.add(e);
-                    loop.push(e);
-                    at = e.a;
-                    if (at === start) break;
+                let edge = start;
+                while (edge && !seen.has(edge) && loop.length < 256) {
+                    seen.add(edge); loop.push(edge); edge = previous(edge);
                 }
-                if (!ok && at !== start) continue;
-                if (loop.length < 3) continue;
+                if (edge !== start || loop.length < 3) continue;
                 let perimeter = 0;
                 for (const e of loop) perimeter += len(sub(P3[e.a], P3[e.b]));
                 if (perimeter > size || next >= free.length) continue;
-                if (loop.filter(e => opening[e.a]).length > loop.length * 0.3) continue;
+                if (typeof opening === 'function' ? opening(loop.map(e => P3[e.a])) : loop.filter(e => opening[e.a]).length > loop.length * 0.3) continue;
                 const mean = [0, 0, 0];
                 let counted = 0;
                 for (const e of loop) {
@@ -1395,11 +1431,75 @@
                 const [bx, by] = free[next++];
                 for (let y = by; y < by + B; y++) for (let x = bx; x < bx + B; x++) { const q = (y * W + x) * 4; for (let c = 0; c < 3; c++) picture.data[q + c] = Math.round(mean[c] / counted); picture.data[q + 3] = 255; }
                 const u = (bx + B / 2) / W, v = (by + B / 2) / H;
+                const local = triangulateLoop(loop.map(e => P3[e.b]));
+                if (!local.length) continue;
                 const ids = loop.map(e => { renderPoint.push(e.b); uvs.push(u, v); return renderPoint.length - 1; });
-                for (let k = 1; k + 1 < ids.length; k++) add.push(ids[0], ids[k + 1], ids[k]);
+                for (const i of local) add.push(ids[i]);
             }
             if (add.length) { const merged = new Uint32Array(I.length + add.length); merged.set(I); merged.set(add, I.length); part.index = merged; }
         }
+    }
+
+    /** A neck, cuff, or ankle opening encloses its skeleton's axis; a pinhole beside it does not. */
+    function isGarmentOpening(points, landmarks) {
+        const center = [0, 0, 0], normal = [0, 0, 0];
+        for (const p of points) for (let c = 0; c < 3; c++) center[c] += p[c] / points.length;
+        for (let i = 0; i < points.length; i++) {
+            const n = cross(sub(points[i], center), sub(points[(i + 1) % points.length], center));
+            for (let c = 0; c < 3; c++) normal[c] += n[c];
+        }
+        const N = unit(normal), axis = Math.abs(N[0]) > Math.abs(N[1]) ? (Math.abs(N[0]) > Math.abs(N[2]) ? 0 : 2) : (Math.abs(N[1]) > Math.abs(N[2]) ? 1 : 2);
+        const axes = [[landmarks.chest, landmarks.Head]];
+        for (const side of ['Left', 'Right']) {
+            axes.push([landmarks[side + 'ForeArm'], landmarks[side + 'Hand']]);
+            axes.push([landmarks[side + 'Leg'], landmarks[side + 'Foot']]);
+        }
+        const u = (axis + 1) % 3, v = (axis + 2) % 3;
+        for (const [a, b] of axes) {
+            if (!a || !b) continue;
+            const direction = sub(b, a), d = dot(direction, N);
+            if (Math.abs(d) < len(direction) * 0.25) continue;
+            const t = dot(sub(center, a), N) / d;
+            // Only openings near this bone's span, not another ring reached by extending it through the body.
+            if (t < -0.2 || t > 1.3) continue;
+            const p = add(a, mul(direction, t));
+            let inside = false;
+            for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+                const A = points[i], B = points[j];
+                if ((A[v] > p[v]) !== (B[v] > p[v]) && p[u] < (B[u] - A[u]) * (p[v] - A[v]) / (B[v] - A[v]) + A[u]) inside = !inside;
+            }
+            if (inside) return true;
+        }
+        return false;
+    }
+
+    /** Ear clipping on the loop's dominant plane preserves concave hems and boundary winding. */
+    function triangulateLoop(points) {
+        const normal = [0, 0, 0];
+        for (let i = 0; i < points.length; i++) {
+            const a = points[i], b = points[(i + 1) % points.length];
+            normal[0] += (a[1] - b[1]) * (a[2] + b[2]);
+            normal[1] += (a[2] - b[2]) * (a[0] + b[0]);
+            normal[2] += (a[0] - b[0]) * (a[1] + b[1]);
+        }
+        const axis = Math.abs(normal[0]) > Math.abs(normal[1]) ? (Math.abs(normal[0]) > Math.abs(normal[2]) ? 0 : 2) : (Math.abs(normal[1]) > Math.abs(normal[2]) ? 1 : 2);
+        const uv = points.map(p => [p[(axis + 1) % 3], p[(axis + 2) % 3]]);
+        const area = uv.reduce((sum, p, i) => { const q = uv[(i + 1) % uv.length]; return sum + p[0] * q[1] - q[0] * p[1]; }, 0);
+        if (Math.abs(area) < 1e-12) return [];
+        const sign = Math.sign(area), cross2 = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+        const ring = points.map((_, i) => i), out = [];
+        while (ring.length > 3) {
+            let found = false;
+            for (let k = 0; k < ring.length; k++) {
+                const a = ring[(k + ring.length - 1) % ring.length], b = ring[k], c = ring[(k + 1) % ring.length];
+                if (cross2(uv[a], uv[b], uv[c]) * sign <= 1e-12) continue;
+                if (ring.some(i => i !== a && i !== b && i !== c && cross2(uv[a], uv[b], uv[i]) * sign >= -1e-12 && cross2(uv[b], uv[c], uv[i]) * sign >= -1e-12 && cross2(uv[c], uv[a], uv[i]) * sign >= -1e-12)) continue;
+                out.push(a, b, c); ring.splice(k, 1); found = true; break;
+            }
+            if (!found) return [];
+        }
+        out.push(...ring);
+        return out;
     }
 
     /** Triangles in connected pieces (over shared points) of fewer than `min` left out. */
@@ -1450,7 +1550,7 @@
             if (p[1] > top) continue;
             // An arm hanging by the hips is no skirt.
             const f = familyOfRole(roles[i]);
-            if (f === 1 || f === 2) continue;
+            if (f === 1 || f === 2 || /(?:Foot|ToeBase)$/.test(roles[i] || '')) continue;
             const hit = nearestTriangle(grid, p, free + 0.05);
             if (!hit || hit.d > free) { out[i] = 1; continue; }
             // An outer layer near where a skirt would hang (a coat's tails over trousers), not armor round a leg inside it.
@@ -1468,6 +1568,8 @@
             if (rayHits(cloth, p, mul(toward, 1 / d), 0.004, d - 0.002).length) out[i] = 1;
         }
         smoothLabels(out, mesh.index, w.id, count, 2);
+        // A boot's toe cap can be far from our skin; it still rides the foot, never the skirt.
+        for (let i = 0; i < count; i++) if (/(?:Foot|ToeBase)$/.test(roles[i] || '')) out[i] = 0;
         return out;
     }
 
@@ -1604,7 +1706,135 @@
         return (outfit._graph = sets.map(x => Int32Array.from(x)));
     }
 
-    function fit(pack, built, outfit, frame) {
+    /** The binding's displacement eased across each connected panel, with the source folds kept. */
+    function relaxPanels(outfit, out, scale, passes) {
+        if (!outfit.rest) return;
+        const graph = pointGraph(outfit), R = outfit.rest;
+        let delta = Float32Array.from(out, (v, i) => v - R[i] * scale);
+        for (let pass = 0; pass < passes; pass++) {
+            const next = Float32Array.from(delta);
+            for (let i = 0; i < outfit.count; i++) {
+                const nb = graph[i];
+                if (!nb.length) continue;
+                for (let c = 0; c < 3; c++) {
+                    let sum = 0;
+                    for (const j of nb) sum += delta[j * 3 + c];
+                    next[i * 3 + c] = delta[i * 3 + c] * 0.25 + sum / nb.length * 0.75;
+                }
+            }
+            delta = next;
+        }
+        for (let i = 0; i < out.length; i++) out[i] = R[i] * scale + delta[i];
+    }
+
+    /** Lift a face whose center crosses the skin, sharing its correction across its corners. */
+    function clearFaces(pack, built, outfit, out, frame) {
+        const S = built.shaped, N = frame.bodyNormals, grid = frame.bodyGrid, R = outfit.render.point;
+        const delta = new Float32Array(out.length), strongest = new Float32Array(outfit.count);
+        for (const part of outfit.parts) for (let t = 0; t < part.index.length; t += 3) {
+            const a = R[part.index[t]], b = R[part.index[t + 1]], c = R[part.index[t + 2]];
+            if (outfit.surface[a] === 2 && outfit.surface[b] === 2 && outfit.surface[c] === 2) continue;
+            const x = (out[a * 3] + out[b * 3] + out[c * 3]) / 3, y = (out[a * 3 + 1] + out[b * 3 + 1] + out[c * 3 + 1]) / 3, z = (out[a * 3 + 2] + out[b * 3 + 2] + out[c * 3 + 2]) / 3;
+            const v = grid.nearest(x, y, z, 2);
+            if (v < 0) continue;
+            const nx = N[v * 3], ny = N[v * 3 + 1], nz = N[v * 3 + 2];
+            const d = (x - S[v * 3]) * nx + (y - S[v * 3 + 1]) * ny + (z - S[v * 3 + 2]) * nz;
+            if (d >= GAP || d < -0.1) continue;
+            const push = GAP - d;
+            for (const p of [a, b, c]) if (push > strongest[p]) {
+                strongest[p] = push;
+                delta[p * 3] = nx * push; delta[p * 3 + 1] = ny * push; delta[p * 3 + 2] = nz * push;
+            }
+        }
+        for (let i = 0; i < out.length; i++) out[i] += delta[i];
+    }
+
+    /** On a very heavy build cloth bridges skin folds with a smooth convex cross-section. */
+    function smoothHeavyPanels(pack, built, outfit, out, frame, preserveLayers) {
+        const an = Outfit.anatomy(pack), ids = pack._bodyIdsTransfer || [...new Set(pack.body.source)];
+        let half = 0;
+        for (const v of ids) if (an.member[v * 5] > 0.9 && an.s[v * 5] > 0.4 && an.s[v * 5] < 2) half = Math.max(half, Math.abs(built.shaped[v * 3]));
+        if (half <= built.height * 0.15) return;
+        const envelope = body => {
+            const step = 0.02 * body.height / 1.7, bins = new Map(), P = body.shaped;
+            for (const v of ids) {
+                if (an.member[v * 5 + 1] > 0.4 || an.member[v * 5 + 2] > 0.4 || an.s[v * 5] > 3.7) continue;
+                const bin = Math.floor(P[v * 3 + 1] / step);
+                for (let k = bin - 1; k <= bin + 1; k++) { if (!bins.has(k)) bins.set(k, []); bins.get(k).push(v); }
+            }
+            return { P, bins, step, hip: body.bones.find(b => b.name === 'Hips').head, neck: body.bones.find(b => b.name === 'Neck').head };
+        };
+        const target = frame['transfer:envelope'] || (frame['transfer:envelope'] = envelope(built));
+        const reference = outfit._envelope || (outfit._envelope = envelope(Body.build(pack, Object.assign({}, Body.DEFAULT_RECIPE, outfit.recipe))));
+        const center = (e, y) => { const t = Math.max(0, Math.min(1, (y - e.hip[1]) / (e.neck[1] - e.hip[1]))); return e.hip[2] * (1 - t) + e.neck[2] * t; };
+        const support = (e, y, nx, nz) => {
+            const list = e.bins.get(Math.floor(y / e.step));
+            if (!list?.length) return null;
+            const cz = center(e, y); let radius = -Infinity;
+            for (const v of list) radius = Math.max(radius, e.P[v * 3] * nx + (e.P[v * 3 + 2] - cz) * nz);
+            return radius;
+        };
+        const k = built.height / outfit.height;
+        for (let i = 0; i < outfit.count; i++) {
+            const v = outfit.tri[i * 3], hanging = outfit.surface[i] === 2 || (outfit.hang && outfit.hang[i] >= 0);
+            if (an.member[v * 5 + 1] > 0.4 || an.member[v * 5 + 2] > 0.4) continue;
+            const y0 = outfit.rest[i * 3 + 1];
+            if (y0 > reference.neck[1] - 0.04 || (!hanging && y0 < reference.hip[1] * 0.88)) continue;
+            const cz0 = center(reference, y0), x0 = outfit.rest[i * 3], z0 = outfit.rest[i * 3 + 2] - cz0, distance = Math.hypot(x0, z0);
+            if (distance < 1e-6) continue;
+            const nx = x0 / distance, nz = z0 / distance;
+            const y = y0 < reference.hip[1] ? y0 / reference.hip[1] * target.hip[1] : target.hip[1] + (y0 - reference.hip[1]) / (reference.neck[1] - reference.hip[1]) * (target.neck[1] - target.hip[1]);
+            const at0 = hanging ? Math.max(y0, reference.hip[1] * 0.95) : y0, at = hanging ? Math.max(y, target.hip[1] * 0.95) : y;
+            const r0 = support(reference, at0, nx, nz), radius = support(target, at, nx, nz);
+            if (r0 == null || radius == null) continue;
+            // Keep the signed distance between overlapping loose panels. Clamping every
+            // inner fold to the same radius presses separate layers into one another.
+            const extra = preserveLayers ? distance - r0 : Math.max(0.003, Math.min(0.12, distance - r0)), r = radius + extra * k + GAP;
+            out[i * 3] = nx * r; out[i * 3 + 1] = y; out[i * 3 + 2] = center(target, at) + nz * r;
+        }
+        return true;
+    }
+
+    /** Ease the fitted lower fabric itself; restoring source creases here recreates crossings. */
+    function relaxHeavyFabric(outfit, out) {
+        const graph = pointGraph(outfit), hip = outfit._envelope.hip[1];
+        for (let pass = 0; pass < 6; pass++) {
+            const next = Float32Array.from(out);
+            for (let i = 0; i < outfit.count; i++) {
+                const neighbors = graph[i], weight = 0.35 * Math.max(0, Math.min(1, (hip + 0.18 - outfit.rest[i * 3 + 1]) / 0.18));
+                if (!neighbors.length || !weight) continue;
+                for (let c = 0; c < 3; c++) {
+                    let sum = 0;
+                    for (const j of neighbors) sum += out[j * 3 + c];
+                    next[i * 3 + c] = out[i * 3 + c] * (1 - weight) + sum / neighbors.length * weight;
+                }
+            }
+            out.set(next);
+        }
+    }
+
+    /** Keep a formerly sound small face from collapsing during the extra fabric relaxation. */
+    function retainSmallFaces(outfit, out, fallback, scale) {
+        const R = outfit.render.point;
+        const area = (P, a, b, c) => {
+            a *= 3; b *= 3; c *= 3;
+            const x = P[b] - P[a], y = P[b + 1] - P[a + 1], z = P[b + 2] - P[a + 2];
+            const u = P[c] - P[a], v = P[c + 1] - P[a + 1], w = P[c + 2] - P[a + 2];
+            return Math.hypot(y * w - z * v, z * u - x * w, x * v - y * u);
+        };
+        for (let pass = 0; pass < 8; pass++) {
+            const restore = new Set();
+            for (const part of outfit.parts) for (let t = 0; t < part.index.length; t += 3) {
+                const a = R[part.index[t]], b = R[part.index[t + 1]], c = R[part.index[t + 2]];
+                const threshold = area(outfit.rest, a, b, c) * scale * scale * 0.012;
+                if (area(out, a, b, c) < threshold && area(fallback, a, b, c) >= threshold) for (const v of [a, b, c]) restore.add(v);
+            }
+            if (!restore.size) break;
+            for (const v of restore) for (let c = 0; c < 3; c++) out[v * 3 + c] = fallback[v * 3 + c];
+        }
+    }
+
+    function laidBindings(pack, built, outfit, frame) {
         frame = frame || {};
         const P = surfacePositions(pack, built.shaped, frame);
         const F = allFaces(pack);
@@ -1631,9 +1861,54 @@
                 for (let c = 0; c < 3; c++) out[i * 3 + c] += (neck[c] + Rg.offset[i * 3 + c] * k - out[i * 3 + c]) * f;
             }
         }
+        return { out, facing };
+    }
+
+    function fit(pack, built, outfit, frame) {
+        frame = frame || {};
+        const k = built.height / (outfit.height || built.height), n = outfit.count;
+        const { out, facing } = laidBindings(pack, built, outfit, frame);
+        if (outfit.rest) {
+            if (!outfit._reference) {
+                const reference = Body.build(pack, Object.assign({}, Body.DEFAULT_RECIPE, outfit.recipe || {}));
+                outfit._reference = laidBindings(pack, reference, outfit, {}).out;
+            }
+            for (let i = 0; i < out.length; i++) out[i] += (outfit.rest[i] - outfit._reference[i]) * k;
+        }
+        relaxPanels(outfit, out, k, 16);
         keepLegsApart(pack, built, outfit, out, frame, facing);
         // Cloth riding the skirt hangs free of the skin: pushing each of its points out alone would press a panel's two faces together.
         const near = outfit._near || (outfit._near = Uint32Array.from({ length: n }, (_, i) => i).filter(i => outfit.surface[i] !== 2));
+        if (outfit.rest) {
+            // Collision displacement is shared across a panel before the next projection.
+            for (let pass = 0; pass < 8; pass++) {
+                Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
+                relaxPanels(outfit, out, k, 4);
+            }
+            pushSkirtOut(pack, built, outfit, out, frame);
+            for (let pass = 0; pass < 5; pass++) {
+                clearFaces(pack, built, outfit, out, frame);
+                relaxPanels(outfit, out, k, 4);
+                Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
+            }
+            clearFaces(pack, built, outfit, out, frame);
+            const loose = outfit.surface.some(s => s === 2), beforeEnvelope = loose ? Float32Array.from(out) : null;
+            if (smoothHeavyPanels(pack, built, outfit, out, frame)) {
+                relaxPanels(outfit, out, k, 6);
+                if (loose) {
+                    const fallback = Float32Array.from(out);
+                    for (let pass = 0; pass < 5; pass++) Outfit.collide(pack, built, fallback, 0, n, GAP, frame, near);
+                    out.set(beforeEnvelope);
+                    smoothHeavyPanels(pack, built, outfit, out, frame, true);
+                    relaxHeavyFabric(outfit, out);
+                    for (let pass = 0; pass < 5; pass++) Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
+                    retainSmallFaces(outfit, out, fallback, k);
+                    return out;
+                }
+            }
+            for (let pass = 0; pass < 5; pass++) Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
+            return out;
+        }
         // Twice: in a hollow the skin nearest a point pushed out is another than before.
         Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
         Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
@@ -1642,6 +1917,8 @@
         clearSkin(pack, built, outfit, out, frame);
         clearSkin(pack, built, outfit, out, frame);
         pushSkirtOut(pack, built, outfit, out, frame);
+        // Lifts of a hanging panel can change the nearest skin on its attached band.
+        for (let pass = 0; pass < 6; pass++) Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
         return out;
     }
 
@@ -1931,23 +2208,35 @@
         const bary = new Uint16Array(n * 2);
         for (let i = 0; i < n; i++) { bary[i * 2] = Math.round(Math.max(0, Math.min(1, outfit.bary[i * 3])) * 65535); bary[i * 2 + 1] = Math.round(Math.max(0, Math.min(1, outfit.bary[i * 3 + 1])) * 65535); }
         const Index = r > 65535 ? Uint32Array : Uint16Array;
+        const worldIds = Uint16Array.from({ length: n }, (_, i) => i).filter(i => outfit.farness[i]);
+        const sparseWorld = worldIds.length * 8 < n * 6;
         const layout = {
             tri: put(Uint16Array.from(outfit.tri)), bary: put(bary),
             offset: put(Int16Array.from(outfit.offset, x => Math.round(x / offsetScale))),
-            world: put(Int16Array.from(outfit.world, x => Math.round(x / worldScale))),
+            world: put(sparseWorld ? Int16Array.from({ length: worldIds.length * 3 }, (_, i) => Math.round(outfit.world[worldIds[(i / 3) | 0] * 3 + i % 3] / worldScale)) : Int16Array.from(outfit.world, x => Math.round(x / worldScale))),
             farness: put(Uint8Array.from(outfit.farness)), surface: put(Uint8Array.from(outfit.surface)),
             point: put(Uint16Array.from(outfit.render.point)), uv: put(Uint16Array.from(outfit.render.uvs, x => Math.round(Math.max(0, Math.min(1, x)) * 65535)))
         };
+        if (sparseWorld) layout.worldIds = put(worldIds);
         if (outfit.hang) layout.hang = put(Int16Array.from(outfit.hang, x => Math.round(Math.max(-1, Math.min(3, x)) * 10000)));
+        let restScale;
+        if (outfit.rest) {
+            let maxRest = 1e-6;
+            for (const x of outfit.rest) maxRest = Math.max(maxRest, Math.abs(x));
+            restScale = maxRest / 32767;
+            layout.rest = put(Int16Array.from(outfit.rest, x => Math.round(x / restScale)));
+        }
         if (outfit.skin) {
-            const sb = new Uint16Array(n * 2), K = outfit.skin;
-            for (let i = 0; i < n; i++) { sb[i * 2] = Math.round(Math.max(0, Math.min(1, K.bary[i * 3])) * 65535); sb[i * 2 + 1] = Math.round(Math.max(0, Math.min(1, K.bary[i * 3 + 1])) * 65535); }
-            layout.skin = { tri: put(Uint16Array.from(K.tri)), bary: put(sb), height: put(Int16Array.from(K.height, x => Math.round(Math.max(-0.3, Math.min(0.3, x)) / 0.3 * 32767))) };
+            const K = outfit.skin, ids = Uint16Array.from({ length: n }, (_, i) => i).filter(i => K.tri[i * 3] || K.tri[i * 3 + 1] || K.tri[i * 3 + 2]);
+            const sb = new Uint16Array(ids.length * 2);
+            ids.forEach((v, i) => { sb[i * 2] = Math.round(Math.max(0, Math.min(1, K.bary[v * 3])) * 65535); sb[i * 2 + 1] = Math.round(Math.max(0, Math.min(1, K.bary[v * 3 + 1])) * 65535); });
+            layout.skin = { ids: put(ids), tri: put(Uint16Array.from({ length: ids.length * 3 }, (_, i) => K.tri[ids[(i / 3) | 0] * 3 + i % 3])), bary: put(sb), height: put(Int16Array.from(ids, v => Math.round(Math.max(-0.3, Math.min(0.3, K.height[v])) / 0.3 * 32767))) };
         }
         if (outfit.rigid) {
             let mr = 1e-6;
             for (const x of outfit.rigid.offset) mr = Math.max(mr, Math.abs(x));
-            layout.rigid = { w: put(Uint8Array.from(outfit.rigid.w)), offset: put(Int16Array.from(outfit.rigid.offset, x => Math.round(x / mr * 32767))), scale: mr / 32767 };
+            const ids = Uint16Array.from({ length: n }, (_, i) => i).filter(i => outfit.rigid.w[i]);
+            layout.rigid = { ids: put(ids), w: put(Uint8Array.from(ids, v => outfit.rigid.w[v])), offset: put(Int16Array.from({ length: ids.length * 3 }, (_, i) => Math.round(outfit.rigid.offset[ids[(i / 3) | 0] * 3 + i % 3] / mr * 32767))), scale: mr / 32767 };
         }
         const B = outfit.blend;
         if (B && B.ids.length) {
@@ -1964,7 +2253,7 @@
         let at = 0;
         for (const c of chunks) { bytes.set(c, at); at += c.length; }
         const json = Object.assign({ format: 1 }, meta || {}, {
-            height: outfit.height, count: n, render: r, wide: Index === Uint32Array, offsetScale, worldScale, keys: outfit.keys || null,
+            height: outfit.height, recipe: outfit.recipe || {}, count: n, render: r, wide: Index === Uint32Array, offsetScale, worldScale, restScale, keys: outfit.keys || null,
             roughness: outfit.roughness, metalness: outfit.metalness, parts, layout
         });
         return { json, bytes };
@@ -1976,21 +2265,28 @@
         const buffer = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
         const view = (Type, [offset, length]) => new Type(buffer, offset, length);
         const L = json.layout, n = json.count;
+        const expand = (values, idsLayout, width) => {
+            if (!idsLayout) return values;
+            const ids = view(Uint16Array, idsLayout), out = new values.constructor(n * width);
+            ids.forEach((v, i) => { for (let c = 0; c < width; c++) out[v * width + c] = values[i * width + c]; });
+            return out;
+        };
         const raw = view(Uint16Array, L.bary), bary = new Float32Array(n * 3);
         for (let i = 0; i < n; i++) { const a = raw[i * 2] / 65535, b = raw[i * 2 + 1] / 65535; bary[i * 3] = a; bary[i * 3 + 1] = b; bary[i * 3 + 2] = Math.max(0, 1 - a - b); }
         const Index = json.wide ? Uint32Array : Uint16Array;
         return {
-            id: json.id, label: json.label, height: json.height, count: n, keys: json.keys, roughness: json.roughness, metalness: json.metalness,
+            id: json.id, label: json.label, height: json.height, recipe: json.recipe || {}, count: n, keys: json.keys, roughness: json.roughness, metalness: json.metalness,
             tri: view(Uint16Array, L.tri), bary,
             offset: Float32Array.from(view(Int16Array, L.offset), x => x * json.offsetScale),
-            world: Float32Array.from(view(Int16Array, L.world), x => x * json.worldScale),
+            world: expand(Float32Array.from(view(Int16Array, L.world), x => x * json.worldScale), L.worldIds, 3),
+            rest: L.rest ? Float32Array.from(view(Int16Array, L.rest), x => x * json.restScale) : null,
             farness: view(Uint8Array, L.farness), surface: view(Uint8Array, L.surface),
             hang: L.hang ? Float32Array.from(view(Int16Array, L.hang), x => x / 10000) : null,
-            rigid: L.rigid ? { w: view(Uint8Array, L.rigid.w), offset: Float32Array.from(view(Int16Array, L.rigid.offset), x => x * L.rigid.scale) } : null,
+            rigid: L.rigid ? { w: expand(view(Uint8Array, L.rigid.w), L.rigid.ids, 1), offset: expand(Float32Array.from(view(Int16Array, L.rigid.offset), x => x * L.rigid.scale), L.rigid.ids, 3) } : null,
             skin: L.skin ? (() => {
-                const raw3 = view(Uint16Array, L.skin.bary), by = new Float32Array(n * 3);
-                for (let i = 0; i < n; i++) { const x = raw3[i * 2] / 65535, y = raw3[i * 2 + 1] / 65535; by[i * 3] = x; by[i * 3 + 1] = y; by[i * 3 + 2] = Math.max(0, 1 - x - y); }
-                return { tri: view(Uint16Array, L.skin.tri), bary: by, height: Float32Array.from(view(Int16Array, L.skin.height), x => x / 32767 * 0.3) };
+                const raw3 = view(Uint16Array, L.skin.bary), by = new Float32Array(raw3.length / 2 * 3);
+                for (let i = 0; i < raw3.length / 2; i++) { const x = raw3[i * 2] / 65535, y = raw3[i * 2 + 1] / 65535; by[i * 3] = x; by[i * 3 + 1] = y; by[i * 3 + 2] = Math.max(0, 1 - x - y); }
+                return { tri: expand(view(Uint16Array, L.skin.tri), L.skin.ids, 3), bary: expand(by, L.skin.ids, 3), height: expand(Float32Array.from(view(Int16Array, L.skin.height), x => x / 32767 * 0.3), L.skin.ids, 1) };
             })() : null,
             blend: L.blend ? (() => {
                 const b = L.blend, raw2 = view(Uint16Array, b.bary), m = raw2.length / 2, by = new Float32Array(m * 3);
@@ -2107,7 +2403,7 @@
      * `defOf(item)`. Returns [{ part, texture, hidden }].
      */
     function buildAll(pack, built, items, frame, defOf) {
-        const out = [];
+        const out = [], lined = new Set();
         for (const item of items) {
             const def = defOf(item);
             const outfit = def && load(def.transfer);
@@ -2128,9 +2424,60 @@
                 roughness: def.roughness ?? outfit.roughness ?? 0.8, metalness: def.metalness ?? outfit.metalness ?? 0, doubleSided: true
             };
             if (hang && hang.some(x => x >= 0)) { part.hang = hang; part.keepShape = true; }
+            const lining = liningFor(pack, built, outfit, piece, pts, def.label, texture.name, lined);
+            if (lining) out.push({ part: lining, texture, hidden: piece.hidden });
             out.push({ part, texture, hidden: piece.hidden });
         }
         return out;
+    }
+
+    /** Fabric backing under covered panels shares the body's deformation and closes moving seams. */
+    function liningFor(pack, built, outfit, piece, points, label, texture, drawn) {
+        const body = built.parts[0], source = pack.body.source;
+        const cache = outfit._linings || (outfit._linings = new Map());
+        let lining = cache.get(piece.id);
+        if (!lining) {
+            const covered = new Set(piece.hidden), index = [];
+            const neighbors = pack._skinNeighbors || (pack._skinNeighbors = neighborLists(bindSurfaces(pack).body, pack.vertexCount));
+            // The backing overlaps panel edges by one skin ring so adjacent moving panels share fabric.
+            const edge = new Set();
+            for (const v of covered) for (const u of neighbors[v] || []) edge.add(u);
+            for (const v of edge) covered.add(v);
+            for (let t = 0; t < body.index.length; t += 3) {
+                const a = body.index[t], b = body.index[t + 1], c = body.index[t + 2];
+                if (covered.has(source[a]) && covered.has(source[b]) && covered.has(source[c])) index.push(a, b, c);
+            }
+            if (!index.length) { cache.set(piece.id, { index: new Uint32Array(0) }); return null; }
+            const positions = Body.gather(points, outfit.render.point, 3), grid = triangleGrid(positions, piece.index, 0.025);
+            const uvs = new Float32Array(source.length * 2), done = new Set();
+            for (const r of index) {
+                if (done.has(r)) continue;
+                done.add(r);
+                const p = Array.from(body.positions.subarray(r * 3, r * 3 + 3));
+                const hit = nearestTriangle(grid, p, 0.2);
+                if (!hit) continue;
+                for (let k = 0; k < 3; k++) {
+                    const v = piece.index[hit.t * 3 + k];
+                    uvs[r * 2] += outfit.render.uvs[v * 2] * hit.bary[k];
+                    uvs[r * 2 + 1] += outfit.render.uvs[v * 2 + 1] * hit.bary[k];
+                }
+            }
+            lining = { index: Uint32Array.from(index), uvs };
+            cache.set(piece.id, lining);
+        }
+        if (!lining.index.length) return null;
+        const index = [];
+        for (let t = 0; t < lining.index.length; t += 3) {
+            const ids = [lining.index[t], lining.index[t + 1], lining.index[t + 2]];
+            const key = outfit.key + ':' + ids.join(':');
+            if (drawn.has(key)) continue;
+            drawn.add(key); index.push(...ids);
+        }
+        if (!index.length) return null;
+        const positions = Float32Array.from(body.positions), gap = 0.0012 * built.height / 1.7;
+        for (let i = 0; i < positions.length; i++) positions[i] += body.normals[i] * gap;
+        return { name: label + ' lining', positions, normals: body.normals, uvs: lining.uvs, index: Uint32Array.from(index),
+            joints: body.joints, weights: body.weights, source, texture, roughness: outfit.roughness ?? 0.8, metalness: 0, doubleSided: true, rrLining: true };
     }
 
     /** Each point's skin vertex (the one its bound point rides, through a helper's own binding). */
@@ -2193,21 +2540,25 @@
             try { list = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
             for (const e of list.sort((a, b) => a.name.localeCompare(b.name))) {
                 const at = path.join(dir, e.name);
-                if (e.isDirectory()) { if (depth < 4 && !(depth === 0 && (e.name === 'Characters' || e.name === 'Outfits'))) walk(at, depth + 1); continue; }
+                if (e.isDirectory()) { if (depth < 4 && !e.name.startsWith('.') && !(depth === 0 && (e.name === 'Characters' || e.name === 'Outfits'))) walk(at, depth + 1); continue; }
                 if (!/\.glb$/i.test(e.name)) continue;
                 // Only the JSON chunk is read to tell what the model is.
-                let head = null;
+                let head = null, fd;
                 try {
-                    const fd = fs.openSync(at, 'r'), first = Buffer.alloc(20);
+                    fd = fs.openSync(at, 'r');
+                    const first = Buffer.alloc(20);
                     fs.readSync(fd, first, 0, 20, 0);
                     const size = first.readUInt32LE(12);
+                    if (size > 16 * 1024 * 1024 || size + 20 > fs.fstatSync(fd).size) continue;
                     head = Buffer.alloc(20 + size);
                     fs.readSync(fd, head, 0, 20 + size, 0);
-                    fs.closeSync(fd);
                 } catch (error) { continue; }
+                finally { if (fd != null) fs.closeSync(fd); }
                 if (!isHumanoid(head)) continue;
                 const parent = path.basename(path.dirname(at));
-                out.push({ name: parent === 'source' ? path.basename(path.dirname(path.dirname(at))) : path.basename(at, path.extname(at)), file: at });
+                const modelDir = parent === 'source' ? path.dirname(path.dirname(at)) : path.dirname(at);
+                const thumbnail = ['thumbnail.png', 'thumbnail.webp', 'thumbnail.jpg', 'preview.png', 'preview.webp', 'preview.jpg'].map(n => path.join(modelDir, n)).find(f => fs.existsSync(f)) || null;
+                out.push({ name: parent === 'source' ? path.basename(modelDir) : path.basename(at, path.extname(at)), file: at, thumbnail });
             }
         };
         walk(top, 0);
@@ -2216,7 +2567,9 @@
 
     /** A garment and an outfit for a taken outfit, in the wardrobe's catalog (once). */
     function register(Wardrobe, key, label) {
-        const id = 'taken_' + String(key).replace(/^project:/, '').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+        const base = 'taken_' + String(key).replace(/^project:/, '').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+        let id = base, suffix = 2;
+        while (Wardrobe.BY_ID.has(id) && Wardrobe.BY_ID.get(id).transfer !== key) id = base + '_' + suffix++;
         if (!Wardrobe.BY_ID.has(id)) {
             const g = { id, label, slot: 'dress', group: 'From 3D models', transfer: key, part: 'outfit', roughness: 0.6, metalness: 0, knobs: [], defaults: { material: 'cloth' }, pieces: () => [] };
             Wardrobe.GARMENTS.push(g);
@@ -2230,8 +2583,9 @@
     function registerProject(Wardrobe, projectPath) {
         const fs = require('fs'), path = require('path');
         const dir = path.join(projectPath, '3d', 'Outfits'), ids = [];
+        for (const g of [...Wardrobe.GARMENTS]) if (g.transfer && g.transfer.startsWith('project:')) unregister(Wardrobe, g.transfer);
         let list = [];
-        try { list = fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort(); } catch (e) { return ids; }
+        try { list = fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => e.name).sort(); } catch (e) { return ids; }
         for (const name of list) {
             const at = path.join(dir, name);
             if (!fs.existsSync(path.join(at, 'outfit.json'))) continue;
@@ -2261,48 +2615,141 @@
         return new Uint8Array(await blob.arrayBuffer());
     }
 
-    /**
-     * Takes the outfit off a project's model (a page: it decodes and encodes
-     * pictures) and keeps it in the project's 3d/Outfits/<name>: the model's
-     * head and hands left out, measured on a body of `recipe`'s build.
-     * Returns the garment id in the wardrobe's catalog, or null when the model
-     * gives no outfit.
-     */
-    async function takeFrom(pack, Wardrobe, file, projectPath, recipe) {
-        const fs = require('fs'), path = require('path');
-        const model = readModel(fs.readFileSync(file));
-        if (!model) return null;
-        const pic = await decodeBytes(model.image.bytes, model.image.mime);
-        const outfit = transfer(pack, model, {
-            picture: pic, recipe: { gender: recipe && recipe.gender != null ? recipe.gender : 0.5 }, gap: 0.004, reach: 0.008, swell: 0.008, triangles: 30000,
-            parts: [{ id: null, test: i => i.arm > 2.95 }, { id: 'outfit' }]
+    /** Remove a project's or preview's catalog entries and decoded resources. */
+    function unregister(Wardrobe, key) {
+        const ids = new Set(Wardrobe.GARMENTS.filter(g => g.transfer === key).map(g => g.id));
+        for (let i = Wardrobe.GARMENTS.length - 1; i >= 0; i--) if (ids.has(Wardrobe.GARMENTS[i].id)) Wardrobe.GARMENTS.splice(i, 1);
+        for (let i = Wardrobe.PRESETS.length - 1; i >= 0; i--) if (ids.has(Wardrobe.PRESETS[i].id)) Wardrobe.PRESETS.splice(i, 1);
+        for (const id of ids) Wardrobe.BY_ID.delete(id);
+        for (const field of ['outfits', 'folders', 'pictures', 'pending']) store[field].delete(key);
+        for (const k of [...store.tints.keys()]) if (k.startsWith(key + ':')) store.tints.delete(k);
+    }
+
+    const IMPORT_PARTS = [
+        { id: 'body', label: 'Body' }, { id: 'arms', label: 'Arms' }, { id: 'legs', label: 'Legs' },
+        { id: 'feet', label: 'Boots' }, { id: 'hands', label: 'Gloves' }
+    ];
+    let previewSerial = 0;
+
+    /** Fit selected anatomical regions; callable on the page or in its import worker. */
+    function importModel(pack, model, picture, recipe, parts) {
+        const selected = new Set(parts || IMPORT_PARTS.filter(p => p.id !== 'hands').map(p => p.id));
+        const region = i => /Hand$/.test(i.role) || i.arm > 2.95 ? 'hands'
+            : i.arm > -1 ? 'arms' : i.leg > 1.8 ? 'feet' : i.leg > -1 && !i.loose ? 'legs' : 'body';
+        return transfer(pack, model, {
+            picture, recipe: { gender: recipe && recipe.gender != null ? recipe.gender : 0.5 }, gap: 0.004, reach: 0.008, swell: 0.008, triangles: 26000,
+            parts: [{ id: null, test: i => !selected.has(region(i)) }, { id: 'outfit' }]
         });
-        if (!outfit.parts.length || outfit.parts.every(p => p.index.length < 300)) return null;
+    }
+
+    /** Prepare an in-memory outfit for Keep/Discard; no project files are written. */
+    async function prepareFrom(pack, Wardrobe, file, projectPath, recipe, options) {
+        const fs = require('fs'), path = require('path'), o = options || {};
+        const progress = async (stage, value) => {
+            if (o.progress) o.progress(stage, value);
+            await new Promise(resolve => setTimeout(resolve, 0));
+        };
+        await progress('read', 0.05);
+        const model = readModel(fs.readFileSync(file));
+        if (!model || !model.image) return null;
+        if (o.parts && !o.parts.length) return null;
+        const pic = await decodeBytes(model.image.bytes, model.image.mime);
+        await progress('fit', 0.2);
+        const outfit = o.compute ? await o.compute(model, pic, recipe, o.parts) : importModel(pack, model, pic, recipe, o.parts);
+        if (!outfit.parts.length || outfit.parts.every(p => p.index.length < 3)) return null;
+        await progress('picture', 0.8);
         const flat = flatten(outfit.picture || pic, outfit);
         outfit.keys = colorKeys(outfit, flat);
         const listed = listModels(projectPath).find(m => m.file === file);
         const label = (listed && listed.name) || path.basename(file, path.extname(file));
-        let name = label.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Outfit';
-        const dir = path.join(projectPath, '3d', 'Outfits', name);
-        const { json, bytes } = encode(outfit, { id: name, label, picture: 'outfit.jpg', size: [flat.width, flat.height], source: path.relative(projectPath, file).split(path.sep).join('/') });
-        fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(path.join(dir, 'outfit.json'), JSON.stringify(json));
-        fs.writeFileSync(path.join(dir, 'outfit.bin'), bytes);
-        fs.writeFileSync(path.join(dir, 'outfit.jpg'), await encodeJpeg(flat));
+        const key = 'preview:' + ++previewSerial;
+        outfit.key = key;
+        store.outfits.set(key, outfit);
+        store.pictures.set(key, flat);
+        const id = register(Wardrobe, key, label);
+        await progress('ready', 1);
+        return { key, id, label, outfit, picture: flat, file, projectPath, state: 'prepared' };
+    }
+
+    /** Keep a prepared outfit under a fresh folder name; existing outfits are preserved. */
+    async function keepPrepared(Wardrobe, prepared, thumbnail) {
+        if (!prepared || prepared.state !== 'prepared') throw new Error('Outfit is not prepared');
+        const fs = require('fs'), path = require('path');
+        const { outfit, picture: pic, file, projectPath, label } = prepared;
+        const stem = label.replace(/[\\/:*?"<>|]+/g, ' ').replace(/^\.+|\.+$/g, '').trim().slice(0, 80) || 'Outfit';
+        const top = path.join(projectPath, '3d', 'Outfits');
+        fs.mkdirSync(top, { recursive: true });
+        let name = stem, suffix = 2;
+        while (fs.existsSync(path.join(top, name))) name = stem + ' (' + suffix++ + ')';
+        const dir = path.join(top, name);
+        const { json, bytes } = encode(outfit, { id: name, label, picture: 'outfit.jpg', size: [pic.width, pic.height], source: path.relative(projectPath, file).split(path.sep).join('/') });
+        const jpg = await encodeJpeg(pic);
+        const staging = fs.mkdtempSync(path.join(top, '.import-'));
+        try {
+            fs.writeFileSync(path.join(staging, 'outfit.json'), JSON.stringify(json));
+            fs.writeFileSync(path.join(staging, 'outfit.bin'), bytes);
+            fs.writeFileSync(path.join(staging, 'outfit.jpg'), jpg);
+            const thumbnailType = thumbnail && /^data:image\/(png|webp|jpeg);base64,/.exec(thumbnail);
+            if (thumbnailType) fs.writeFileSync(path.join(staging, 'thumbnail.' + (thumbnailType[1] === 'jpeg' ? 'jpg' : thumbnailType[1])), Buffer.from(thumbnail.split(',')[1], 'base64'));
+            fs.renameSync(staging, dir);
+        } catch (error) { fs.rmSync(staging, { recursive: true, force: true }); throw error; }
         const key = 'project:' + name;
         store.folders.set(key, { dir, name: 'outfit' });
-        store.outfits.delete(key); store.pictures.delete(key); store.pending.delete(key);
-        for (const k of [...store.tints.keys()]) if (k.startsWith(key + ':')) store.tints.delete(k);
-        const loaded = load(key);
-        if (loaded) store.pictures.set(key, { width: flat.width, height: flat.height, data: flat.data });
-        return register(Wardrobe, key, label);
+        store.pictures.set(key, pic);
+        load(key);
+        const id = register(Wardrobe, key, label);
+        unregister(Wardrobe, prepared.key);
+        prepared.state = 'kept';
+        return id;
+    }
+
+    function discardPrepared(Wardrobe, prepared) {
+        if (!prepared || prepared.state !== 'prepared') return;
+        unregister(Wardrobe, prepared.key);
+        prepared.state = 'discarded';
+    }
+
+    /** Move a user outfit out of Outfits; the returned undo restores its files and catalog entry. */
+    function removeProject(Wardrobe, projectPath, key) {
+        if (typeof key !== 'string' || !key.startsWith('project:')) throw new Error('Only project outfits can be deleted');
+        const fs = require('fs'), path = require('path');
+        const name = key.slice(8);
+        if (!name || name === '.' || name === '..' || /[\\/]/.test(name)) throw new Error('Invalid outfit folder');
+        const top = path.resolve(projectPath, '3d', 'Outfits'), dir = path.join(top, name);
+        const def = Wardrobe.GARMENTS.find(g => g.transfer === key);
+        const label = def ? def.label : name;
+        const trash = path.join(projectPath, '3d', '.outfit-trash');
+        fs.mkdirSync(trash, { recursive: true });
+        const backup = fs.mkdtempSync(path.join(trash, 'outfit-'));
+        const saved = path.join(backup, name);
+        fs.renameSync(dir, saved);
+        unregister(Wardrobe, key);
+        let restored = false;
+        return { key, label, undo() {
+            if (restored) return null;
+            if (fs.existsSync(dir)) throw new Error('An outfit already occupies this folder');
+            fs.renameSync(saved, dir);
+            fs.rmdirSync(backup);
+            store.folders.set(key, { dir, name: 'outfit' });
+            const id = register(Wardrobe, key, label);
+            restored = true;
+            return id;
+        } };
+    }
+
+    /** Prepare and keep directly for callers that do not use the preview picker. */
+    async function takeFrom(pack, Wardrobe, file, projectPath, recipe, options) {
+        const prepared = await prepareFrom(pack, Wardrobe, file, projectPath, recipe, options);
+        if (!prepared) return null;
+        try { return await keepPrepared(Wardrobe, prepared); }
+        catch (error) { discardPrepared(Wardrobe, prepared); throw error; }
     }
 
     const api = {
         GAP, readModel, normalizeModel, repose, roleMap, landmarks, skeletonMoves, poseBody, drawIn, keepVertices, cutMesh, weld,
-        transfer, fit, pointSkin, frameAt, bindSurfaces, surfacePositions, triangleGrid, nearestTriangle, rayHits,
+        transfer, fit, pointSkin, frameAt, bindSurfaces, surfacePositions, triangleGrid, nearestTriangle, rayHits, fillHoles, triangulateLoop, isGarmentOpening,
         BUILT_IN, colorKeys, recolor, encode, decode, load, picture, preload, onPicture, pictureFor, buildAll, store,
-        flatten, isHumanoid, listModels, register, registerProject, takeFrom
+        flatten, isHumanoid, listModels, register, unregister, registerProject, IMPORT_PARTS, importModel, prepareFrom, keepPrepared, discardPrepared, removeProject, takeFrom
     };
     root.RRCharacterOutfitTransfer = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

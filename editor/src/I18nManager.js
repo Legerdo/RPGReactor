@@ -22623,3 +22623,272 @@ const RR_CHARACTER_3D_TIES_PRINTS = {
     tr: {"Tie": "Kravat", "Cravat": "Fular", "Floral": "Çiçekli", "Paisley": "Şal deseni"}
 };
 for (const [locale, labels] of Object.entries(RR_CHARACTER_3D_TIES_PRINTS)) for (const [source, text] of Object.entries(labels)) if (!RR_TEXT_TRANSLATIONS[locale][source] || RR_TEXT_TRANSLATIONS[locale][source] === source) RR_TEXT_TRANSLATIONS[locale][source] = text;
+
+const RR_BUILDER_CATALOG_LABELS = {
+    ja: { 'Apply skin finish': '肌の仕上げを適用', Density: '密度', Frizz: '縮れ', 'Lock thickness': '毛束の太さ', Everything: 'すべて' },
+    es: { 'Apply skin finish': 'Aplicar acabado de piel', Density: 'Densidad', Frizz: 'Encrespamiento', 'Lock thickness': 'Grosor de los mechones', Everything: 'Todo' },
+    'zh-Hant': { 'Apply skin finish': '套用皮膚外觀', Density: '密度', Frizz: '毛躁程度', 'Lock thickness': '髮束粗細', Everything: '全部' },
+    'zh-Hans': { 'Apply skin finish': '应用皮肤外观', Density: '密度', Frizz: '毛躁程度', 'Lock thickness': '发束粗细', Everything: '全部' },
+    ru: { 'Apply skin finish': 'Применить оформление кожи', Density: 'Густота', Frizz: 'Пушистость', 'Lock thickness': 'Толщина прядей', Everything: 'Всё' },
+    pt: { 'Apply skin finish': 'Aplicar acabamento da pele', Density: 'Densidade', Frizz: 'Frizz', 'Lock thickness': 'Espessura das mechas', Everything: 'Tudo' },
+    de: { 'Apply skin finish': 'Hautoberfläche anwenden', Density: 'Dichte', Frizz: 'Kräuselung', 'Lock thickness': 'Strähnendicke', Everything: 'Alles', 'Saving…': 'Speichern…' },
+    fr: { 'Apply skin finish': 'Appliquer la finition de peau', Density: 'Densité', Frizz: 'Frisottis', 'Lock thickness': 'Épaisseur des mèches', Everything: 'Tout' },
+    el: { 'Apply skin finish': 'Εφαρμογή υφής δέρματος', Density: 'Πυκνότητα', Frizz: 'Φριζάρισμα', 'Lock thickness': 'Πάχος τούφας', Everything: 'Όλα' },
+    ko: { 'Apply skin finish': '피부 마감 적용', Density: '밀도', Frizz: '부스스함', 'Lock thickness': '머리 다발 굵기', Everything: '모두' },
+    ar: { 'Apply skin finish': 'تطبيق مظهر البشرة', Density: 'الكثافة', Frizz: 'الهيشان', 'Lock thickness': 'سماكة الخصلات', Everything: 'الكل' },
+    it: { 'Apply skin finish': 'Applica finitura della pelle', Density: 'Densità', Frizz: 'Crespo', 'Lock thickness': 'Spessore delle ciocche', Everything: 'Tutto' },
+    pl: { 'Apply skin finish': 'Zastosuj wykończenie skóry', Density: 'Gęstość', Frizz: 'Puszenie', 'Lock thickness': 'Grubość pasm', Everything: 'Wszystko' },
+    id: { 'Apply skin finish': 'Terapkan tampilan kulit', Density: 'Kerapatan', Frizz: 'Rambut mengembang', 'Lock thickness': 'Ketebalan untaian', Everything: 'Semua' },
+    vi: { 'Apply skin finish': 'Áp dụng bề mặt da', Density: 'Mật độ', Frizz: 'Độ xù', 'Lock thickness': 'Độ dày lọn tóc', Everything: 'Tất cả' },
+    th: { 'Apply skin finish': 'ใช้ลักษณะผิว', Density: 'ความหนาแน่น', Frizz: 'ความชี้ฟู', 'Lock thickness': 'ความหนาของช่อผม', Everything: 'ทั้งหมด' },
+    tr: { 'Apply skin finish': 'Cilt görünümünü uygula', Density: 'Yoğunluk', Frizz: 'Kabarıklık', 'Lock thickness': 'Tutam kalınlığı', Everything: 'Her şey' }
+};
+for (const [locale, labels] of Object.entries(RR_BUILDER_CATALOG_LABELS)) Object.assign(RR_TEXT_TRANSLATIONS[locale], labels);
+
+const RR_MOVEMENT_LABELS = ['This event keeps moving', 'Last action', 'The player keeps moving while this holds.', 'Face Ceiling', 'Face Ground', 'Stand Up', 'Rotate...'];
+const RR_MOVEMENT_TRANSLATIONS = {
+    ja: ['このイベントは移動を続ける', '最後の動作', 'この間プレイヤーは移動を続けます。', '天井を向く', '地面を向く', '立ち上がる', '回転...'],
+    es: ['Este evento sigue moviéndose', 'Última acción', 'El jugador sigue moviéndose mientras se mantenga.', 'Mirar al techo', 'Mirar al suelo', 'Levantarse', 'Girar...'],
+    'zh-Hant': ['此事件持續移動', '最後動作', '持續期間玩家會繼續移動。', '面向天花板', '面向地面', '站起', '旋轉...'],
+    'zh-Hans': ['此事件持续移动', '最后动作', '持续期间玩家会继续移动。', '面向天花板', '面向地面', '站起', '旋转...'],
+    ru: ['Это событие продолжает движение', 'Последнее действие', 'Пока это действует, игрок продолжает движение.', 'Смотреть в потолок', 'Смотреть в землю', 'Встать', 'Повернуть...'],
+    pt: ['Este evento continua se movendo', 'Última ação', 'O jogador continua se movendo enquanto isso durar.', 'Olhar para o teto', 'Olhar para o chão', 'Levantar', 'Girar...'],
+    de: ['Dieses Ereignis bewegt sich weiter', 'Letzte Aktion', 'Der Spieler bewegt sich währenddessen weiter.', 'Zur Decke schauen', 'Zum Boden schauen', 'Aufstehen', 'Drehen...'],
+    fr: ['Cet événement continue de se déplacer', 'Dernière action', 'Le joueur continue de se déplacer pendant ce temps.', 'Regarder le plafond', 'Regarder le sol', 'Se lever', 'Tourner...'],
+    el: ['Αυτό το συμβάν συνεχίζει να κινείται', 'Τελευταία ενέργεια', 'Ο παίκτης συνεχίζει να κινείται όσο κρατά.', 'Προς την οροφή', 'Προς το έδαφος', 'Σήκωμα', 'Περιστροφή...'],
+    ko: ['이 이벤트는 계속 이동합니다', '마지막 동작', '이 상태가 유지되는 동안 플레이어는 계속 이동합니다.', '천장 보기', '땅 보기', '일어서기', '회전...'],
+    ar: ['يواصل هذا الحدث الحركة', 'الإجراء الأخير', 'يواصل اللاعب الحركة طوال هذه المدة.', 'النظر إلى السقف', 'النظر إلى الأرض', 'الوقوف', 'تدوير...'],
+    it: ['Questo evento continua a muoversi', 'Ultima azione', 'Il giocatore continua a muoversi per questa durata.', 'Guarda il soffitto', 'Guarda il terreno', 'Alzati', 'Ruota...'],
+    pl: ['To zdarzenie porusza się dalej', 'Ostatnia czynność', 'Gracz porusza się dalej przez ten czas.', 'Spójrz na sufit', 'Spójrz na ziemię', 'Wstań', 'Obróć...'],
+    id: ['Event ini terus bergerak', 'Aksi terakhir', 'Pemain terus bergerak selama ini berlangsung.', 'Menghadap langit-langit', 'Menghadap tanah', 'Berdiri', 'Putar...'],
+    vi: ['Sự kiện này tiếp tục di chuyển', 'Hành động cuối', 'Người chơi tiếp tục di chuyển trong thời gian này.', 'Nhìn lên trần', 'Nhìn xuống đất', 'Đứng dậy', 'Xoay...'],
+    th: ['เหตุการณ์นี้เคลื่อนที่ต่อไป', 'การกระทำล่าสุด', 'ผู้เล่นเคลื่อนที่ต่อไปตลอดช่วงเวลานี้', 'มองเพดาน', 'มองพื้น', 'ยืนขึ้น', 'หมุน...'],
+    tr: ['Bu olay hareket etmeyi sürdürür', 'Son eylem', 'Bu süre boyunca oyuncu hareket etmeyi sürdürür.', 'Tavana bak', 'Yere bak', 'Ayağa kalk', 'Döndür...']
+};
+for (const [locale, labels] of Object.entries(RR_MOVEMENT_TRANSLATIONS)) labels.forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_MOVEMENT_LABELS[i]] = text; });
+
+const RR_OUTFIT_IMPORT_LABELS = ['+ From model…', 'Search models', 'Parts to take', 'Preparing outfit…', 'Keep outfit', 'Delete outfit', 'Deleted {name}.', 'Restored {name}.', 'Preview outfit'];
+const RR_OUTFIT_IMPORT_TRANSLATIONS = {
+    ja: ['+ モデルから…', 'モデルを検索', '取り込む部位', '衣装を準備中…', '衣装を保存', '衣装を削除', '{name}を削除しました。', '{name}を復元しました。', '衣装をプレビュー'],
+    es: ['+ Desde modelo…', 'Buscar modelos', 'Partes a extraer', 'Preparando atuendo…', 'Guardar atuendo', 'Eliminar atuendo', 'Se eliminó {name}.', 'Se restauró {name}.', 'Vista previa del atuendo'],
+    'zh-Hant': ['+ 從模型…', '搜尋模型', '擷取部位', '正在準備服裝…', '保留服裝', '刪除服裝', '已刪除{name}。', '已還原{name}。', '預覽服裝'],
+    'zh-Hans': ['+ 从模型…', '搜索模型', '提取部位', '正在准备服装…', '保留服装', '删除服装', '已删除{name}。', '已恢复{name}。', '预览服装'],
+    ru: ['+ Из модели…', 'Поиск моделей', 'Извлекаемые части', 'Подготовка наряда…', 'Сохранить наряд', 'Удалить наряд', '{name} удалён.', '{name} восстановлен.', 'Предпросмотр наряда'],
+    pt: ['+ De modelo…', 'Buscar modelos', 'Partes a extrair', 'Preparando roupa…', 'Manter roupa', 'Excluir roupa', '{name} foi excluído.', '{name} foi restaurado.', 'Prévia da roupa'],
+    de: ['+ Aus Modell…', 'Modelle suchen', 'Zu übernehmende Teile', 'Kleidung wird vorbereitet…', 'Kleidung behalten', 'Kleidung löschen', '{name} gelöscht.', '{name} wiederhergestellt.', 'Kleidungsvorschau'],
+    fr: ['+ Depuis un modèle…', 'Rechercher des modèles', 'Parties à extraire', 'Préparation de la tenue…', 'Garder la tenue', 'Supprimer la tenue', '{name} supprimé.', '{name} restauré.', 'Aperçu de la tenue'],
+    el: ['+ Από μοντέλο…', 'Αναζήτηση μοντέλων', 'Μέρη για εξαγωγή', 'Προετοιμασία ενδυμασίας…', 'Διατήρηση ενδυμασίας', 'Διαγραφή ενδυμασίας', 'Διαγράφηκε το {name}.', 'Επαναφέρθηκε το {name}.', 'Προεπισκόπηση ενδυμασίας'],
+    ko: ['+ 모델에서…', '모델 검색', '가져올 부위', '의상 준비 중…', '의상 유지', '의상 삭제', '{name} 삭제됨.', '{name} 복원됨.', '의상 미리 보기'],
+    ar: ['+ من نموذج…', 'البحث عن نماذج', 'الأجزاء المراد استخراجها', 'جارٍ تجهيز الزي…', 'الاحتفاظ بالزي', 'حذف الزي', 'تم حذف {name}.', 'تمت استعادة {name}.', 'معاينة الزي'],
+    it: ['+ Da modello…', 'Cerca modelli', 'Parti da estrarre', 'Preparazione del completo…', 'Conserva completo', 'Elimina completo', '{name} eliminato.', '{name} ripristinato.', 'Anteprima completo'],
+    pl: ['+ Z modelu…', 'Szukaj modeli', 'Części do pobrania', 'Przygotowywanie stroju…', 'Zachowaj strój', 'Usuń strój', 'Usunięto {name}.', 'Przywrócono {name}.', 'Podgląd stroju'],
+    id: ['+ Dari model…', 'Cari model', 'Bagian yang diambil', 'Menyiapkan pakaian…', 'Simpan pakaian', 'Hapus pakaian', '{name} dihapus.', '{name} dipulihkan.', 'Pratinjau pakaian'],
+    vi: ['+ Từ mô hình…', 'Tìm mô hình', 'Bộ phận cần lấy', 'Đang chuẩn bị trang phục…', 'Giữ trang phục', 'Xóa trang phục', 'Đã xóa {name}.', 'Đã khôi phục {name}.', 'Xem trước trang phục'],
+    th: ['+ จากโมเดล…', 'ค้นหาโมเดล', 'ส่วนที่ต้องการนำมา', 'กำลังเตรียมชุด…', 'เก็บชุด', 'ลบชุด', 'ลบ {name} แล้ว', 'คืนค่า {name} แล้ว', 'ดูตัวอย่างชุด'],
+    tr: ['+ Modelden…', 'Model ara', 'Alınacak parçalar', 'Kıyafet hazırlanıyor…', 'Kıyafeti sakla', 'Kıyafeti sil', '{name} silindi.', '{name} geri yüklendi.', 'Kıyafeti önizle']
+};
+for (const [locale, labels] of Object.entries(RR_OUTFIT_IMPORT_TRANSLATIONS)) labels.forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_OUTFIT_IMPORT_LABELS[i]] = text; });
+
+const RR_SWIMWEAR_LABELS = ['Bikini', 'Bikini top', 'Bikini bottom', 'Swimwear', 'Emblem picture'];
+const RR_SWIMWEAR_TRANSLATIONS = {
+    ja: ['ビキニ', 'ビキニトップ', 'ビキニボトム', '水着', 'エンブレム画像'],
+    es: ['Bikini', 'Parte superior de bikini', 'Parte inferior de bikini', 'Ropa de baño', 'Imagen del emblema'],
+    'zh-Hant': ['比基尼', '比基尼上衣', '比基尼泳褲', '泳裝', '徽章圖片'],
+    'zh-Hans': ['比基尼', '比基尼上衣', '比基尼泳裤', '泳装', '徽章图片'],
+    ru: ['Бикини', 'Верх бикини', 'Низ бикини', 'Купальные костюмы', 'Изображение эмблемы'],
+    pt: ['Biquíni', 'Parte de cima do biquíni', 'Parte de baixo do biquíni', 'Moda praia', 'Imagem do emblema'],
+    de: ['Bikini', 'Bikinioberteil', 'Bikinihose', 'Bademode', 'Emblembild'],
+    fr: ['Bikini', 'Haut de bikini', 'Bas de bikini', 'Maillots de bain', 'Image de l’emblème'],
+    el: ['Μπικίνι', 'Πάνω μέρος μπικίνι', 'Κάτω μέρος μπικίνι', 'Μαγιό', 'Εικόνα εμβλήματος'],
+    ko: ['비키니', '비키니 상의', '비키니 하의', '수영복', '문양 이미지'],
+    ar: ['بيكيني', 'الجزء العلوي من البيكيني', 'الجزء السفلي من البيكيني', 'ملابس السباحة', 'صورة الشعار'],
+    it: ['Bikini', 'Parte superiore del bikini', 'Parte inferiore del bikini', 'Costumi da bagno', 'Immagine dello stemma'],
+    pl: ['Bikini', 'Góra bikini', 'Dół bikini', 'Stroje kąpielowe', 'Obraz emblematu'],
+    id: ['Bikini', 'Atasan bikini', 'Bawahan bikini', 'Pakaian renang', 'Gambar lambang'],
+    vi: ['Bikini', 'Áo bikini', 'Quần bikini', 'Đồ bơi', 'Hình biểu trưng'],
+    th: ['บิกินี', 'บิกินีท่อนบน', 'บิกินีท่อนล่าง', 'ชุดว่ายน้ำ', 'รูปตราสัญลักษณ์'],
+    tr: ['Bikini', 'Bikini üstü', 'Bikini altı', 'Mayo', 'Amblem resmi']
+};
+for (const [locale, labels] of Object.entries(RR_SWIMWEAR_TRANSLATIONS)) labels.forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_SWIMWEAR_LABELS[i]] = text; });
+
+// Legacy import artwork restoration.
+const RR_LEGACY_ART_LABELS = ["Artwork", "Dither cleanup", "Original artwork", "Reduce dithering in backgrounds and large pictures. Original artwork is kept."];
+const RR_LEGACY_ART_TRANSLATIONS = {
+    "ja": [
+        "アートワーク",
+        "ディザリングの軽減",
+        "オリジナルの画像",
+        "背景と大きな画像のディザリングを軽減します。元の画像は保持されます。"
+    ],
+    "es": [
+        "Ilustraciones",
+        "Limpieza del tramado",
+        "Ilustraciones originales",
+        "Reduce el tramado en fondos e imágenes grandes. Se conservan las ilustraciones originales."
+    ],
+    "zh-Hant": [
+        "美術素材",
+        "抖色清理",
+        "原始美術素材",
+        "減少背景和大型圖片的抖色。保留原始美術素材。"
+    ],
+    "zh-Hans": [
+        "美术素材",
+        "抖色清理",
+        "原始美术素材",
+        "减少背景和大型图片的抖色。保留原始美术素材。"
+    ],
+    "ru": [
+        "Графика",
+        "Устранение дизеринга",
+        "Исходная графика",
+        "Уменьшает дизеринг фонов и крупных изображений. Исходная графика сохраняется."
+    ],
+    "pt": [
+        "Arte",
+        "Limpeza do pontilhado",
+        "Arte original",
+        "Reduz o pontilhado em fundos e imagens grandes. A arte original é preservada."
+    ],
+    "de": [
+        "Grafik",
+        "Dithering bereinigen",
+        "Originalgrafik",
+        "Reduziert Dithering in Hintergründen und großen Bildern. Die Originalgrafik bleibt erhalten."
+    ],
+    "fr": [
+        "Graphismes",
+        "Réduction du tramage",
+        "Graphismes originaux",
+        "Réduit le tramage des arrière-plans et grandes images. Les graphismes originaux sont conservés."
+    ],
+    "el": [
+        "Γραφικά",
+        "Καθαρισμός χρωματικής διασποράς",
+        "Αρχικά γραφικά",
+        "Μειώνει τη χρωματική διασπορά σε φόντα και μεγάλες εικόνες. Τα αρχικά γραφικά διατηρούνται."
+    ],
+    "ko": [
+        "그래픽",
+        "디더링 정리",
+        "원본 그래픽",
+        "배경과 큰 이미지의 디더링을 줄입니다. 원본 그래픽은 보존됩니다."
+    ],
+    "ar": [
+        "الرسومات",
+        "تنظيف التنقيط اللوني",
+        "الرسومات الأصلية",
+        "تقليل التنقيط اللوني في الخلفيات والصور الكبيرة. تُحفظ الرسومات الأصلية."
+    ],
+    "it": [
+        "Grafica",
+        "Pulizia della retinatura",
+        "Grafica originale",
+        "Riduce la retinatura di sfondi e immagini grandi. La grafica originale viene conservata."
+    ],
+    "pl": [
+        "Grafika",
+        "Usuwanie ditheringu",
+        "Oryginalna grafika",
+        "Ogranicza dithering teł i dużych obrazów. Oryginalna grafika zostaje zachowana."
+    ],
+    "id": [
+        "Grafis",
+        "Pembersihan dithering",
+        "Grafis asli",
+        "Mengurangi dithering pada latar dan gambar besar. Grafis asli tetap disimpan."
+    ],
+    "vi": [
+        "Đồ họa",
+        "Làm sạch nhiễu màu",
+        "Đồ họa gốc",
+        "Giảm nhiễu màu ở nền và ảnh lớn. Đồ họa gốc được giữ lại."
+    ],
+    "th": [
+        "ภาพกราฟิก",
+        "ลดลายจุดไล่สี",
+        "ภาพกราฟิกต้นฉบับ",
+        "ลดการไล่สีแบบจุดในพื้นหลังและภาพขนาดใหญ่ โดยเก็บภาพต้นฉบับไว้"
+    ],
+    "tr": [
+        "Grafikler",
+        "Renk titreşimini temizle",
+        "Özgün grafikler",
+        "Arka planlarda ve büyük resimlerde renk titreşimini azaltır. Özgün grafikler korunur."
+    ]
+};
+for (const [locale, labels] of Object.entries(RR_LEGACY_ART_TRANSLATIONS)) labels.forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_LEGACY_ART_LABELS[i]] = text; });
+
+// Show the exact legacy import destination and explain an open-project conflict.
+const RR_IMPORT_DESTINATION_LABELS = ["Destination", "Close the project before importing into its folder."];
+const RR_IMPORT_DESTINATION_TRANSLATIONS = {
+    "ja": [
+        "保存先",
+        "同じフォルダーにインポートする前にプロジェクトを閉じてください。"
+    ],
+    "es": [
+        "Destino",
+        "Cierra el proyecto antes de importar en su carpeta."
+    ],
+    "zh-Hant": [
+        "目的地",
+        "匯入至專案資料夾前，請先關閉該專案。"
+    ],
+    "zh-Hans": [
+        "目标位置",
+        "导入到项目文件夹之前，请先关闭该项目。"
+    ],
+    "ru": [
+        "Папка назначения",
+        "Закройте проект перед импортом в его папку."
+    ],
+    "pt": [
+        "Destino",
+        "Feche o projeto antes de importar para sua pasta."
+    ],
+    "de": [
+        "Ziel",
+        "Schließe das Projekt, bevor du in seinen Ordner importierst."
+    ],
+    "fr": [
+        "Destination",
+        "Fermez le projet avant d’importer dans son dossier."
+    ],
+    "el": [
+        "Προορισμός",
+        "Κλείστε το έργο πριν από την εισαγωγή στον φάκελό του."
+    ],
+    "ko": [
+        "대상 경로",
+        "프로젝트 폴더로 가져오기 전에 프로젝트를 닫으세요."
+    ],
+    "ar": [
+        "الوجهة",
+        "أغلق المشروع قبل الاستيراد إلى مجلده."
+    ],
+    "it": [
+        "Destinazione",
+        "Chiudi il progetto prima di importare nella sua cartella."
+    ],
+    "pl": [
+        "Folder docelowy",
+        "Zamknij projekt przed importowaniem do jego folderu."
+    ],
+    "id": [
+        "Tujuan",
+        "Tutup proyek sebelum mengimpor ke foldernya."
+    ],
+    "vi": [
+        "Thư mục đích",
+        "Đóng dự án trước khi nhập vào thư mục của dự án."
+    ],
+    "th": [
+        "โฟลเดอร์ปลายทาง",
+        "ปิดโปรเจกต์ก่อนนำเข้าไปยังโฟลเดอร์ของโปรเจกต์"
+    ],
+    "tr": [
+        "Hedef",
+        "Projenin klasörüne içe aktarmadan önce projeyi kapatın."
+    ]
+};
+for (const [locale, labels] of Object.entries(RR_IMPORT_DESTINATION_TRANSLATIONS)) labels.forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_IMPORT_DESTINATION_LABELS[i]] = text; });

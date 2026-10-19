@@ -1673,6 +1673,12 @@ Reactor3D.bodyLetsOut = function(mover, event, x, y) {
     return from > 0 && this.bodyDepth(shape, x - event._x, y - event._y) < from;
 };
 
+/** Placed props with a continuous animation cast moving shadows, as walking events do. */
+Reactor3D.modelCasterMoves = function(character, rules) {
+    if (!(character && typeof character.eventId === "function" && character.eventId() >= this.PROP_EVENT_BASE)) return true;
+    return Array.isArray(rules) && rules.some(rule => rule && (rule.trigger === "always" || rule.trigger === "idle"));
+};
+
 /**
  * Whether two characters are within each other's height, as collision counts
  * it. A battle sequence lifts a character it has taken (a leap, a float) by
@@ -3832,7 +3838,7 @@ Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
             }
         }
         // Hair, as the Character Builder names it: a strand sheen over the light.
-        if (/^(Hair|Beard|Brows|Lashes)\b/.test(String(def.name || ""))) mat.userData.rrHair = true;
+        if (/^(Hair|Beard)\b/.test(String(def.name || ""))) mat.userData.rrHair = true;
         // A file's own polished metal is remembered as a starting point for its
         // Surface; nothing reflects until the model's surface says so.
         const metallic = pbr.metallicFactor != null ? pbr.metallicFactor : 1;
@@ -11542,9 +11548,8 @@ Reactor3D.MapScene.prototype.syncCharacterModels = function(characters) {
                 current.effects = sidecar ? Reactor3D.readModelEffects(sidecar, spec) : [];
                 current.variant = spec.variant || "";
                 group.add(object);
-                // A prop never moves; its map is cached. An event walks.
-                Reactor3D.Shadows.markCaster(object, !(typeof character.eventId === "function"
-                    && character.eventId() >= Reactor3D.PROP_EVENT_BASE));
+                // Animated prop silhouettes use the moving budget; still props keep cached rows.
+                Reactor3D.Shadows.markCaster(object, Reactor3D.modelCasterMoves(character, current.rules));
                 // The shadow budget is measured from the player, not the eye.
                 object.userData.reactorPlayer = typeof $gamePlayer !== "undefined" && character === $gamePlayer;
                 object.traverse(child => {

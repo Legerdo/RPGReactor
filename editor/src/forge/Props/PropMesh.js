@@ -5,7 +5,7 @@
  *
  * Outlines are triangulated by three's ShapeUtils (holes stay holes), so
  * extrusion needs THREE on the global object (the editor's page, or
- * require('three') in node).
+ * a caller-supplied THREE in Node).
  */
 (function(root) {
     'use strict';
@@ -236,22 +236,17 @@
     }
 
     const toLinear = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-    const KEY = (() => { const v = [0.35, 0.8, 0.5], l = Math.hypot(v[0], v[1], v[2]); return v.map(x => x / l); })();
-
     /**
-     * A still prop's form, kept in its vertex colors: faces toward a light
-     * high in front full, faces away darker, insides darker still. The game
-     * lights a model by where it stands, not by which way its faces turn,
-     * so a round pot in one color would show as a flat shape without it.
-     * An untextured part's own color is carried in them.
+     * Keep the authored albedo in vertex colors. Directional lighting is
+     * evaluated by the preview and game against the current surface normal;
+     * baking a second light here would leave a dark side fixed to the prop
+     * as it turns, and multiply that shadow by the real light.
      */
     function shade(part) {
-        const N = part.normals, n = N.length / 3, out = new Float32Array(n * 3);
+        const n = part.positions.length / 3, out = new Float32Array(n * 3);
         const base = part.texture ? [1, 1, 1] : hexLinear(part.color || '#9a9a9a');
         for (let v = 0; v < n; v++) {
-            const d = N[v * 3] * KEY[0] + N[v * 3 + 1] * KEY[1] + N[v * 3 + 2] * KEY[2];
-            const s = (0.66 + 0.34 * (0.5 + 0.5 * d)) * (0.92 + 0.08 * (0.5 + 0.5 * N[v * 3 + 1]));
-            out[v * 3] = base[0] * s; out[v * 3 + 1] = base[1] * s; out[v * 3 + 2] = base[2] * s;
+            out.set(base, v * 3);
         }
         part.colors = out;
         part.shaded = true;

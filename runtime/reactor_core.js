@@ -3783,7 +3783,9 @@ Bitmap.prototype.drawText = function(text, x, y, maxWidth, lineHeight, align) {
     const span = maxWidth || 0xffffffff;
     maxWidth = fixed ? 0xffffffff : span;
     let tx = x;
-    let ty = Math.round(y + lineHeight / 2 + (fixed || this.fontSize) * 0.35);
+    const legacyFont = Bitmap.legacyFontInfo?.();
+    let ty = legacyFont ? Math.round(y + 2 + legacyFont.ascent)
+        : Math.round(y + lineHeight / 2 + (fixed || this.fontSize) * 0.35);
     context.save();
     context.font = this._makeFontNameText();
     if (Bitmap.pixelText()) {
@@ -3869,9 +3871,18 @@ Bitmap.pixelText = function() {
  * RPG Maker 2000/2003 (System.json rrLegacyWindows): every text is drawn at the font's own size
  * (advanced.fontSize) and at its natural width, never squeezed; a pixel font at any other size blurs.
  */
+Bitmap.legacyFontInfo = function() {
+    const system = typeof $dataSystem !== "undefined" && $dataSystem;
+    if (!system?.rrLegacyWindows) return null;
+    const info = typeof $gameSystem !== "undefined" && $gameSystem?.legacyFontInfo?.();
+    return info && Number.isFinite(info.height) && info.height > 0 && info.height <= 1024
+        && Number.isFinite(info.ascent) && info.ascent > 0 && info.ascent <= info.height ? info : null;
+};
+
 Bitmap.fixedFontSize = function() {
     const system = typeof $dataSystem !== "undefined" && $dataSystem;
-    return (system && system.rrLegacyWindows && system.advanced && system.advanced.fontSize) || 0;
+    return Bitmap.legacyFontInfo?.()?.height
+        || (system && system.rrLegacyWindows && system.advanced && system.advanced.fontSize) || 0;
 };
 
 /** System.json advanced.rrTextShadow: text casts a sharp 1 px drop shadow instead of an outline, as 2000/2003 drew it. */
@@ -3881,12 +3892,19 @@ Bitmap.textShadow = function() {
 };
 
 Bitmap.prototype._drawTextOutline = function(text, tx, ty, maxWidth) {
+    if (this.outlineWidth <= 0) return;
     const context = this._drawingContext();
     if (this.outlineWidth > 0 && Bitmap.textShadow()) {
-        context.fillStyle = "#000000";
+        const paint = this._rrLegacyPaletteShadow && this.outlineColor === this._rrLegacyShadowCss
+            && typeof ColorManager !== "undefined" ? ColorManager.legacyTextPaint?.(20) : null;
+        if (paint && this._drawLegacyPaletteText(text, tx + 1, ty + 1, paint, true)) return;
+        const color = typeof $dataSystem !== "undefined" && $dataSystem?.rrLegacyTextPalette ? this.outlineColor : "#000000";
+        if (this._drawLegacyPixelText(text, tx + 1, ty + 1, color)) return;
+        context.fillStyle = color;
         context.fillText(text, tx + 1, ty + 1, maxWidth);
         return;
     }
+    if (this._drawLegacyPixelText(text, tx, ty, this.outlineColor, this.outlineWidth)) return;
     context.strokeStyle = this.outlineColor;
     context.lineWidth = this.outlineWidth;
     context.lineJoin = "round";
@@ -3894,9 +3912,140 @@ Bitmap.prototype._drawTextOutline = function(text, tx, ty, maxWidth) {
 };
 
 Bitmap.prototype._drawTextBody = function(text, tx, ty, maxWidth) {
+    const paint = this.textColor === this._rrLegacyPaletteCss && typeof ColorManager !== "undefined"
+        ? ColorManager.legacyTextPaint?.(this._rrLegacyPaletteIndex) : null;
+    if (paint && this._drawLegacyPaletteText(text, tx, ty, paint, false)) return;
+    if (this._drawLegacyPixelText(text, tx, ty, this.textColor)) return;
     const context = this._drawingContext();
     context.fillStyle = this.textColor;
     context.fillText(text, tx, ty, maxWidth);
+};
+
+/** Paint one source System colour cell through a monochrome glyph mask. */
+Bitmap.paintLegacyGlyph = function(pixels, width, height, pad, ascent, paint, shadow) {
+    const top = pad * 2 - ascent;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const at = (y * width + x) * 4;
+        if (pixels[at + 3] < 128) { pixels[at + 3] = 0; continue; }
+        // The native font box begins two pixels below the 16px text row.
+        // Source offsets (2,4) restart for every glyph; its 1px shadow uses
+        // the separate (16,32) cell from its own unshifted mask origin.
+        const sx = Math.max(0, Math.min(15, x - pad + (shadow ? 0 : 2)));
+        const sy = Math.max(0, Math.min(15, y - top + (shadow ? 0 : 4)));
+        const from = (sy * 16 + sx) * 4;
+        pixels[at] = paint.data[from]; pixels[at + 1] = paint.data[from + 1];
+        pixels[at + 2] = paint.data[from + 2]; pixels[at + 3] = 255;
+    }
+};
+
+Bitmap.prototype._drawLegacyPaletteText = function(text, tx, ty, paint, shadow) {
+    if (!Bitmap.fixedFontSize() || !Bitmap.pixelText()) return false;
+    const context = this._drawingContext(), value = String(text), font = this._makeFontNameText();
+    const size = Bitmap.fixedFontSize(), info = Bitmap.legacyFontInfo();
+    const ascent = info?.ascent || Math.round(size * 0.85);
+    const width = context.measureText(value).width;
+    if (width > 8192 || size > 256) return false;
+    if (context.textAlign === "center") tx -= width / 2;
+    else if (context.textAlign === "right" || context.textAlign === "end") tx -= width;
+    const cache = Bitmap._legacyPixelTextCache || (Bitmap._legacyPixelTextCache = new Map());
+    context.save(); context.imageSmoothingEnabled = false;
+    let advance = 0;
+    for (const glyph of value) {
+        const ready = !document.fonts || document.fonts.check(font, glyph);
+        const key = JSON.stringify(["palette", font, glyph, paint.key, shadow, ascent]);
+        let item = ready && cache.get(key);
+        if (!item) {
+            const pad = Math.ceil(size), canvas = document.createElement("canvas");
+            const glyphWidth = context.measureText(glyph).width;
+            canvas.width = Math.max(1, Math.ceil(glyphWidth) + pad * 2); canvas.height = pad * 3;
+            const ink = canvas.getContext("2d", { willReadFrequently: true });
+            ink.font = font; ink.textBaseline = "alphabetic"; ink.fillStyle = "#ffffff";
+            ink.fillText(glyph, pad, pad * 2);
+            const pixels = ink.getImageData(0, 0, canvas.width, canvas.height);
+            Bitmap.paintLegacyGlyph(pixels.data, canvas.width, canvas.height, pad, ascent, paint, shadow);
+            ink.putImageData(pixels, 0, 0);
+            item = { canvas, pad, advance: glyphWidth };
+            if (ready) {
+                cache.set(key, item);
+                Bitmap._legacyPixelTextPixels = (Bitmap._legacyPixelTextPixels || 0) + canvas.width * canvas.height;
+                while (cache.size > 128 || Bitmap._legacyPixelTextPixels > 1048576) {
+                    const oldest = cache.keys().next().value, old = cache.get(oldest);
+                    Bitmap._legacyPixelTextPixels -= old.canvas.width * old.canvas.height; cache.delete(oldest);
+                }
+            }
+        } else { cache.delete(key); cache.set(key, item); }
+        context.drawImage(item.canvas, Math.round(tx + advance) - item.pad, Math.round(ty) - item.pad * 2);
+        advance += item.advance;
+    }
+    context.restore();
+    return true;
+};
+
+/**
+ * 2000/2003 used monochrome glyph masks. Nearest texture sampling cannot
+ * remove antialiasing already baked into a browser-rendered fallback font.
+ * Cache native-size, hard-edged masks for these projects only; modern text
+ * and legacy projects with Pixelated Rendering disabled retain canvas text.
+ */
+Bitmap.prototype._drawLegacyPixelText = function(text, tx, ty, color, outline = 0) {
+    if (!Bitmap.fixedFontSize() || !Bitmap.pixelText()) return false;
+    const context = this._drawingContext();
+    const value = String(text);
+    const size = Bitmap.fixedFontSize();
+    const font = this._makeFontNameText();
+    // During a plugin font load, do not retain a mask made with its fallback.
+    const ready = !document.fonts || document.fonts.check(font, value);
+    const key = JSON.stringify([font, value, color, outline]);
+    const cache = Bitmap._legacyPixelTextCache || (Bitmap._legacyPixelTextCache = new Map());
+    let item = ready && cache.get(key);
+    if (!item) {
+        const pad = Math.ceil(size + outline);
+        const width = Math.ceil(context.measureText(value).width) + pad * 2;
+        const height = pad * 3;
+        // Bound allocations even for a plugin passing an unusually long line.
+        if (width > 8192 || height > 1024) return false;
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
+        const ink = canvas.getContext("2d", { willReadFrequently: true });
+        ink.font = font;
+        ink.textBaseline = "alphabetic";
+        ink.fillStyle = "#ffffff";
+        if (outline > 0) {
+            ink.strokeStyle = "#ffffff";
+            ink.lineWidth = outline;
+            ink.lineJoin = "round";
+            ink.strokeText(value, pad, pad * 2);
+        } else ink.fillText(value, pad, pad * 2);
+        const pixels = ink.getImageData(0, 0, canvas.width, canvas.height);
+        const data = pixels.data;
+        for (let i = 3; i < data.length; i += 4) data[i] = data[i] >= 128 ? 255 : 0;
+        ink.putImageData(pixels, 0, 0);
+        ink.globalCompositeOperation = "source-in";
+        ink.fillStyle = color;
+        ink.fillRect(0, 0, canvas.width, canvas.height);
+        item = { canvas, pad, advance: context.measureText(value).width };
+        if (ready) {
+            cache.set(key, item);
+            Bitmap._legacyPixelTextPixels = (Bitmap._legacyPixelTextPixels || 0) + canvas.width * canvas.height;
+            while (cache.size > 128 || Bitmap._legacyPixelTextPixels > 1048576) {
+                const oldest = cache.keys().next().value;
+                const old = cache.get(oldest);
+                Bitmap._legacyPixelTextPixels -= old.canvas.width * old.canvas.height;
+                cache.delete(oldest);
+            }
+        }
+    } else {
+        cache.delete(key);
+        cache.set(key, item);
+    }
+    if (context.textAlign === "center") tx -= item.advance / 2;
+    else if (context.textAlign === "right" || context.textAlign === "end") tx -= item.advance;
+    context.save();
+    context.imageSmoothingEnabled = false;
+    context.drawImage(item.canvas, Math.round(tx) - item.pad, Math.round(ty) - item.pad * 2);
+    context.restore();
+    return true;
 };
 
 /**

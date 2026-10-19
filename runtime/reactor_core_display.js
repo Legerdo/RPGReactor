@@ -4234,6 +4234,24 @@ Window.prototype._refreshBack = function() {
         return;
     }
     const tilingSprite = sprite.children[0];
+    const legacy = typeof $dataSystem !== "undefined" && $dataSystem?.rrLegacyWindows;
+    if (legacy) {
+        const tiled = $dataSystem.rrLegacySkins && typeof $gameSystem !== "undefined" && $gameSystem?.windowBackgroundMode?.() === 1;
+        sprite.bitmap = this._windowskin;
+        sprite.move(m, m);
+        sprite.setFrame(0, tiled ? 96 : 0, tiled ? 32 : 96, tiled ? 32 : 96);
+        sprite.scale.x = tiled ? 1 : w / 96;
+        sprite.scale.y = tiled ? 1 : h / 96;
+        if (tilingSprite) {
+            tilingSprite.bitmap = this._windowskin;
+            tilingSprite.setFrame(0, 96, 32, 32);
+            tilingSprite.move(0, 0, w, h);
+            tilingSprite.scale.x = tilingSprite.scale.y = 1;
+            tilingSprite.visible = !!tiled && w > 0 && h > 0;
+        }
+        if (sprite.setColorTone) sprite.setColorTone(this._colorTone);
+        return;
+    }
     // [Note] We use 95 instead of 96 here to avoid blurring edges.
     sprite.bitmap = this._windowskin;
     sprite.setFrame(0, 0, 95, 95);
@@ -4957,6 +4975,7 @@ ColorFilter._isIdentityMatrix = function(m) {
     return true;
 };
 ColorFilter._spritePassCanSkip = function(filter, owner) {
+    if (filter._rrLegacySaturationMatrix) return false;
     if (filter.alpha !== 1 || filter.resolution !== 1 || filter.padding !== 0 || filter.blendRequired ||
         !ColorFilter._isIdentityMatrix(filter.matrix)) return false;
     const filters = owner.filters;
@@ -4983,6 +5002,7 @@ ColorFilter._drawsStraight = function(node) {
     return true;
 };
 ColorFilter.isNeutralSceneMatrix = function(filter) {
+    if (filter._rrLegacySaturationMatrix) return false;
     if (filter.alpha !== 1 || filter.blendMode !== 'normal' || filter.resolution !== 1 ||
         filter.antialias !== 'off' || filter.padding !== 0 || filter.blendRequired) return false;
     const m = filter.matrix;
@@ -5195,6 +5215,60 @@ ColorFilter._matrixMultiply = function(a, b) {
     return out;
 };
 
+// Imported RPG Maker 2000/2003 tones use hard light around 128, rather
+// than MZ's additive RGB offsets. Keep their serialized MZ-shaped values
+// readable by older runtimes and select the different colour rule per pass.
+ColorFilter.prototype.setLegacyTone = function(enabled) {
+    enabled = !!enabled;
+    if (this._rrLegacyTone === enabled) return;
+    this._rrLegacyTone = enabled;
+    if (PIXI.GlProgram && PIXI.ColorMatrixFilter) this._rebuildColorMatrix();
+};
+ColorFilter.legacyToneMatrix = function(tone) {
+    const m = [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
+    // EasyRPG Bitmap::ToneBlit: Y'CbCr saturation precedes hard light.
+    // The command values retain the source percentage, including >100%.
+    const gray = Math.max(0, Math.min(255, 128 - (tone[3] || 0) * 128 / 255));
+    const sat = gray > 128 ? 1 + (gray - 128) / 64 : gray / 128;
+    const lum = [19595 / 65536, 38470 / 65536, 7471 / 65536];
+    for (let row = 0; row < 3; row++) {
+        const value = tone[row] || 0;
+        // At neutral the old engine bypasses the tone operation entirely.
+        const t = Math.max(0, Math.min(255, 128 + value * 128 / 255));
+        const scale = value === 0 ? 1 : t <= 128 ? 2 * t / 255 : 2 * (255 - t) / 255;
+        for (let col = 0; col < 3; col++) m[row * 5 + col] = scale * ((1 - sat) * lum[col] + (row === col ? sat : 0));
+        m[row * 5 + 4] = t > 128 ? 1 - scale : 0;
+    }
+    return m;
+};
+
+// Oversaturation must clamp before hard light. Only that legacy case
+// needs a second pass; its temporary target comes from PIXI's texture pool.
+// Resolve inherited hooks at call time so plugins loaded afterwards can
+// still replace ColorMatrixFilter/Filter behaviour.
+const _rrColorFilterApply = function() {
+    return Object.getPrototypeOf(ColorFilter.prototype).apply.apply(this, arguments);
+};
+ColorFilter.prototype.apply = function(manager, input, output, clear) {
+    if (!this._rrLegacySaturationMatrix || !PIXI.TexturePool) {
+        return _rrColorFilterApply.call(this, manager, input, output, clear);
+    }
+    const pass = this._rrSaturationPass || (this._rrSaturationPass = new PIXI.ColorMatrixFilter());
+    pass._loadMatrix(this._rrLegacySaturationMatrix, false);
+    const temp = PIXI.TexturePool.getSameSizeTexture(input);
+    try {
+        pass.apply(manager, input, temp, true);
+        _rrColorFilterApply.call(this, manager, temp, output, clear);
+    } finally {
+        PIXI.TexturePool.returnTexture(temp);
+    }
+};
+ColorFilter.prototype.destroy = function() {
+    this._rrSaturationPass?.destroy();
+    this._rrSaturationPass = null;
+    return Object.getPrototypeOf(ColorFilter.prototype).destroy?.apply(this, arguments);
+};
+
 // v8 only: combine hue/colorTone/blendColor/brightness into one 5x4 matrix
 // and push it to the inherited ColorMatrixFilter. Offsets are pre-normalized
 // to 0-1 because PIXI.ColorMatrixFilter's matrix setter writes the value to
@@ -5223,29 +5297,41 @@ ColorFilter.prototype._rebuildColorMatrix = function() {
         m = ColorFilter._matrixMultiply(hueM, m);
     }
 
-    // 2. Grayscale (saturation reduction) by colorTone[3] / 255.
-    const grayAmount =
-        Math.max(0, Math.min(255, this._colorTone[3] || 0)) / 255;
-    if (grayAmount > 0) {
-        const k = grayAmount;
-        const lr = 0.2125, lg = 0.7154, lb = 0.0721;
-        const grayM = [
-            lr * k + (1 - k), lg * k,            lb * k,            0, 0,
-            lr * k,           lg * k + (1 - k),  lb * k,            0, 0,
-            lr * k,           lg * k,            lb * k + (1 - k),  0, 0,
-            0, 0, 0, 1, 0
-        ];
-        m = ColorFilter._matrixMultiply(grayM, m);
-    }
+    this._rrLegacySaturationMatrix = null;
+    if (this._rrLegacyTone) {
+        if (this._colorTone[3] < 0) {
+            this._rrLegacySaturationMatrix = ColorFilter._matrixMultiply(
+                ColorFilter.legacyToneMatrix([0, 0, 0, this._colorTone[3]]), m);
+            m = ColorFilter.legacyToneMatrix([this._colorTone[0], this._colorTone[1], this._colorTone[2], 0]);
+        } else {
+            m = ColorFilter._matrixMultiply(ColorFilter.legacyToneMatrix(this._colorTone), m);
+        }
+    } else {
+        // 2. Grayscale (saturation reduction) by colorTone[3] / 255.
+        const grayAmount =
+            Math.max(0, Math.min(255, this._colorTone[3] || 0)) / 255;
+        if (grayAmount > 0) {
+            const k = grayAmount;
+            const lr = 0.2125, lg = 0.7154, lb = 0.0721;
+            const grayM = [
+                lr * k + (1 - k), lg * k,            lb * k,            0, 0,
+                lr * k,           lg * k + (1 - k),  lb * k,            0, 0,
+                lr * k,           lg * k,            lb * k + (1 - k),  0, 0,
+                0, 0, 0, 1, 0
+            ];
+            m = ColorFilter._matrixMultiply(grayM, m);
+        }
 
-    // 3. Additive color tone (RGB offsets, 0..255 input normalized to 0..1).
-    const r2 = (this._colorTone[0] || 0) / 255;
-    const g2 = (this._colorTone[1] || 0) / 255;
-    const b2 = (this._colorTone[2] || 0) / 255;
-    if (r2 !== 0 || g2 !== 0 || b2 !== 0) {
-        m[4]  += r2;
-        m[9]  += g2;
-        m[14] += b2;
+        // 3. Additive color tone (RGB offsets, 0..255 input normalized to 0..1).
+        const r2 = (this._colorTone[0] || 0) / 255;
+        const g2 = (this._colorTone[1] || 0) / 255;
+        const b2 = (this._colorTone[2] || 0) / 255;
+        if (r2 !== 0 || g2 !== 0 || b2 !== 0) {
+            m[4]  += r2;
+            m[9]  += g2;
+            m[14] += b2;
+        }
+
     }
 
     // 4. Blend color: output = output * (1 - i3) + blend * i3.

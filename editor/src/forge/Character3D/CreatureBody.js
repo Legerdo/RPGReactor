@@ -1383,6 +1383,11 @@
             const rows = A.length;
             const grid = [];
             for (let i = 0; i < rows; i++) {
+                if (len(sub(A[i], Bl[i])) < 1e-9) {
+                    // Fingers share the wrist: a single fan root avoids collapsed quads there.
+                    grid.push(Array(cols + 1).fill(put(A[i], key(i / (rows - 1), 0))));
+                    continue;
+                }
                 const row = [];
                 for (let j = 0; j <= cols; j++) {
                     const u = j / cols;
@@ -1397,7 +1402,8 @@
             }
             for (let i = 0; i + 1 < rows; i++) for (let j = 0; j < cols; j++) {
                 const a = grid[i][j], b2 = grid[i][j + 1], c = grid[i + 1][j], d = grid[i + 1][j + 1];
-                index.push(a, c, b2, b2, c, d);
+                if (a !== c && c !== b2 && a !== b2) index.push(a, c, b2);
+                if (b2 !== c && c !== d && b2 !== d) index.push(b2, c, d);
             }
         };
         const feather = (far, u) => (feathered ? (far > 0.55 ? (Math.floor(u * 8) % 2 ? 'marking' : 'flight') : 'coat') : 'membrane');
@@ -1610,20 +1616,28 @@
         let u = norm(sub(up, mul(f, dot(up, f))));
         const s = norm(cross(u, f));
         const positions = [], index = [], local = [];
-        for (let i = 0; i <= rows; i++) {
+        const put = (lx, ly, lz) => {
+            const d = add(add(mul(s, lx), mul(u, ly)), mul(f, lz));
+            positions.push(c[0] + d[0] * rad, c[1] + d[1] * rad, c[2] + d[2] * rad);
+            local.push(lx, ly, lz);
+        };
+        // One vertex per pole: repeated pole rings created zero-area triangles and unlit normals.
+        put(0, 0, 1);
+        for (let i = 1; i < rows; i++) {
             const th = Math.pow(i / rows, 1.35) * Math.PI;
-            for (let j = 0; j <= cols; j++) {
+            for (let j = 0; j < cols; j++) {
                 const ph = (j / cols) * Math.PI * 2;
-                const lx = Math.sin(th) * Math.cos(ph), ly = Math.sin(th) * Math.sin(ph), lz = Math.cos(th);
-                const d = add(add(mul(s, lx), mul(u, ly)), mul(f, lz));
-                positions.push(c[0] + d[0] * rad, c[1] + d[1] * rad, c[2] + d[2] * rad);
-                local.push(lx, ly, lz);
+                put(Math.sin(th) * Math.cos(ph), Math.sin(th) * Math.sin(ph), Math.cos(th));
             }
         }
-        for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) {
-            const a = i * (cols + 1) + j, b = a + cols + 1;
-            index.push(a, b, a + 1, a + 1, b, b + 1);
+        const end = positions.length / 3;
+        put(0, 0, -1);
+        for (let j = 0; j < cols; j++) index.push(0, 1 + j, 1 + (j + 1) % cols);
+        for (let i = 0; i < rows - 2; i++) for (let j = 0; j < cols; j++) {
+            const a = 1 + i * cols + j, b = a + cols, next = 1 + i * cols + (j + 1) % cols;
+            index.push(a, b, next, next, b, next + cols);
         }
+        for (let j = 0; j < cols; j++) index.push(end - cols + j, end, end - cols + (j + 1) % cols);
         return { positions, index, local };
     }
 
@@ -2168,8 +2182,8 @@
         const lay = layout(r);
         const bones = bonesOf(lay);
         const boneIndex = new Map(bones.map((b, i) => [b.name, i]));
-        const shapes = shapesOf(r, lay);
-        const lofts = loftsOf(r, lay);
+        const shapes = shapesOf(r, lay).filter(shape => !o.headOnly || shape.bone === 'Head');
+        const lofts = loftsOf(r, lay).filter(piece => !o.headOnly || ['ear', 'forelock', 'beak', 'crest', 'horn', 'tusk', 'tooth', 'tongue'].includes(piece.tag));
         const prof = profileOf(r);
         // Grid cell in body units, coarser for a very long body so the grid stays in bounds.
         let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
@@ -2444,7 +2458,7 @@
         let top = 0;
         for (const part of parts) for (let i = 1; i < part.positions.length; i += 3) top = Math.max(top, part.positions[i]);
         const markers = markersOf(lay, scalePoint);
-        return { parts, bones: outBones, height: top, plan: 'quadruped', rig: { template: 'quadruped', markers }, clips: [idleClip(outBones)], textures, recipe: given };
+        return { parts, bones: outBones, height: top, plan: 'quadruped', headOnly: !!o.headOnly, rig: { template: 'quadruped', markers }, clips: [idleClip(outBones)], textures, recipe: given };
     }
 
     /** The places strand cards grow, with their lie, length and color. */

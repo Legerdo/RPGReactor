@@ -325,3 +325,28 @@ test('gaits keep real footfall: a walk sets down left hind, left fore, right hin
     assert.ok(Math.abs(peak(trot, 'LeftFrontUpperLeg') - peak(trot, 'RightRearUpperLeg')) < 0.04);
     assert.ok(Math.abs(Math.abs(peak(trot, 'LeftFrontUpperLeg') - peak(trot, 'RightFrontUpperLeg')) - 0.5) < 0.06);
 });
+
+test('head-only source keeps eyes and head features without carrying the quadruped torso', () => {
+    for (const kind of ['bull', 'rabbit', 'bird', 'crow']) {
+        const recipe = Creature.kindRecipe(kind), full = Creature.build(recipe, { quality: 'preview', hairBudget: 0 });
+        const head = Creature.build(recipe, { quality: 'preview', hairBudget: 0, headOnly: true });
+        const a = full.parts.find(p => p.name === 'Body'), b = head.parts.find(p => p.name === 'Body');
+        assert.ok(b.index.length < a.index.length, kind + ' omits torso');
+        assert.ok(head.height < full.height * 0.8, kind + ' has no low torso');
+        const local = (built, part) => { const origin = built.bones.find(b => b.name === 'Head').head; return Array.from(part.positions, (x, i) => x - origin[i % 3]); };
+        const equalLocal = (a, b, label) => { assert.equal(a.length, b.length, label); a.forEach((x, i) => assert.ok(Math.abs(x - b[i]) < 1e-6, label)); };
+        equalLocal(local(head, head.parts.find(p => p.name === 'Eyes')), local(full, full.parts.find(p => p.name === 'Eyes')), kind + ' eyes unchanged');
+        const features = full.parts.find(p => p.name === 'Horns');
+        if (features) {
+            const retained = local(head, head.parts.find(p => p.name === 'Horns')), original = local(full, features);
+            assert.ok(retained.length > 0, kind + ' retains beak/horns');
+            for (let i = 0; i < retained.length; i += 3) {
+                let found = false;
+                for (let j = 0; j < original.length && !found; j += 3) found = Math.hypot(retained[i] - original[j], retained[i + 1] - original[j + 1], retained[i + 2] - original[j + 2]) < 1e-6;
+                assert.ok(found, kind + ' original head feature shape');
+            }
+        }
+        const again = Creature.build(recipe, { quality: 'preview', hairBudget: 0 });
+        assert.deepEqual(again.parts.find(p => p.name === 'Body').positions, a.positions, kind + ' regular creature unaffected');
+    }
+});

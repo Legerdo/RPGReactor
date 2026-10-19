@@ -294,7 +294,7 @@
         const eyes=built.parts.find(p=>p.name==='Eyes').positions;
         let eyeY=0;for(let i=1;i<eyes.length;i+=3)eyeY+=eyes[i];eyeY/=eyes.length/3;
         const crown=Math.max(...ids.map(v=>P[v*3+1])), neckY=C.bone('Neck').head[1]+.012*s;
-        const gap=.016*s, SIDES=28, e=2.6;
+        const gap=.016*s, SIDES=44, e=2.6;
         // Section extents at a height: forward, back, out to the sides (ears included), grown to their neighbors'.
         const extent=y=>{
             let f=-Infinity,b=Infinity,w=0,cx=0,n=0;
@@ -305,7 +305,7 @@
         const vLow=eyeY-.03*s, vHigh=eyeY+.026*s;
         const ys=[neckY, neckY+(vLow-neckY)*.3, neckY+(vLow-neckY)*.6, vLow-.008*s, vLow, eyeY, vHigh, vHigh+.008*s, vHigh+(crown-vHigh)*.45, crown-.03*s];
         const secs=ys.map(extent);
-        for(let i=0;i<secs.length;i++) if(!secs[i]) secs[i]=secs[i-1]||secs.find(Boolean);
+        for(let i=0;i<secs.length;i++) if(!secs[i]) secs[i]=Object.assign({},secs[i-1]||secs.find(Boolean));
         for(const k of ['f','w']){ const raw=secs.map(x=>x[k]); secs.forEach((x,i)=>{ x[k]=Math.max(...raw.slice(Math.max(0,i-2),i+3)); }); }
         { const raw=secs.map(x=>x.b); secs.forEach((x,i)=>{ x.b=Math.min(...raw.slice(Math.max(0,i-2),i+3)); }); }
         // The neck ring narrower than the head: the shell closes under the jaw onto the collar.
@@ -325,6 +325,7 @@
         const center=[0,eyeY,(secs[5].f+secs[5].b)/2];
         const shade=(r,k)=>{ const a=k/SIDES*Math.PI*2; const front=Math.cos(a)>Math.cos(1.0)&&r>=4&&r<=6; return front?mul(C.trim,.7):r===0?mul(C.color,.8):C.color; };
         C.shell.loft(rings,C.color,head,()=>center,shade);
+        C.shell.face(rings[rings.length-1],C.color,head,Y);
         // The visor: a curved, dark glass band in the recess, just off its floor.
         const glass=[ringAt(secs[4],vLow+.002*s,1,.006*s),ringAt(secs[5],eyeY,1,.006*s),ringAt(secs[6],vHigh-.002*s,1,.006*s)].map(r=>r.filter((_,k)=>Math.cos(k/SIDES*Math.PI*2)>Math.cos(.95)));
         const order=r=>{ const front=r.map((p,k)=>[p,Math.atan2(p[0],p[2]-center[2])]).sort((a,b)=>a[1]-b[1]); return front.map(x=>x[0]); };
@@ -347,7 +348,188 @@
         const hidden=new Set(C.ids.filter(v=>C.an.member[v*5]>.5&&C.an.s[v*5]>4.3));
         return {parts:[C.shell.part('Power helmet plating',{roughness:.38,metalness:.65}),C.hardware.part('Power helmet visor',{roughness:.12,metalness:.6}),C.indicators.part('Power helmet indicators',{roughness:.3,metalness:.25})],hidden};
     }
-    const api={build,helmet};
+    /** Medieval plate uses broad formed sheets, rather than the clothing helper's muscle contours. */
+    function medieval(pack, built, item, kind, layers=[]) {
+        const C=context(pack,built,item), s=C.scale, metal=C.shell, edge=C.hardware;
+        const tint=Outfit.linear(item.trim || item.color2 || '#676d75');
+        const clearance=.025*s;
+        const fitted=C.ids.map(v=>({p:C.at(v),family:Array.from({length:5},(_,f)=>C.an.member[v*5+f]).reduce((a,b,f,all)=>b>all[a]?f:a,0)}));
+        for(const layer of layers)for(let v=0;v<(layer.rimStart??layer.positions.length/3);v++) {
+            const family=layer.field?.[v]?.fam;
+            if(family!=null)fitted.push({p:Array.from(layer.positions.subarray(v*3,v*3+3)),family});
+        }
+        const torsoPoints=fitted.filter(v=>v.family===0).map(v=>v.p);
+        function section(y) {
+            let points=torsoPoints.filter(p=>Math.abs(p[1]-y)<.035*s);
+            if(!points.length)return C.section(y);
+            const left=Math.min(...points.map(p=>p[0])),right=Math.max(...points.map(p=>p[0]));
+            return {left,right,width:Math.max(Math.abs(left),Math.abs(right)),front:Math.max(...points.map(p=>p[2])),back:Math.min(...points.map(p=>p[2]))};
+        }
+
+        // A formed oval encloses its sampled section. No per-vertex muscle/breast displacement
+        // is copied onto the plate; an axial keel gives the front its forged ridge.
+        function oval(center, rx, front, back, keel=0, n=32) {
+            return Array.from({length:n},(_,k)=>{
+                const a=k/n*Math.PI*2, sn=Math.sin(a), cs=Math.cos(a);
+                const r=1/Math.pow(Math.abs(sn)**3+Math.abs(cs)**3,1/3);
+                return [center[0]+sn*rx*r,center[1],center[2]+cs*r*(cs>=0?front:back)+keel*Math.max(0,cs)**10];
+            });
+        }
+        function rim(ring, joint, inside, amount=.0025*s) {
+            const out=ring.map(p=>add(p,mul(norm(sub(p,inside(p))),amount)));
+            edge.loft([out.map(p=>add(p,[0,-.0015*s,0])),out.map(p=>add(p,[0,.0015*s,0]))],tint,joint,inside);
+        }
+        function torsoRing(y, width, front, back, centerZ, keel=0) {
+            return oval([0,y,centerZ],width,front,back,keel);
+        }
+        function cuirass() {
+            const hip=C.bone('Hips').head[1], neck=C.bone('Neck').head[1];
+            const waist=C.bone('Spine1').head[1]+.015*s, top=neck-.045*s;
+            const chest=section(waist+(top-waist)*.65);
+            const cx=(chest.front+chest.back)/2;
+            // A single convex breast, shared across both sides. The waist is visibly pinched,
+            // while the chest is broad and gently keeled, without two inflated breast cups.
+            const rings=[0,.08,.38,.72,1].map((t,r)=>{
+                const y=waist+(top-waist)*t;
+                const q=section(y), center=(q.front+q.back)/2;
+                let w=q.width+clearance*.65, front=q.front-center+clearance*.8, back=center-q.back+clearance*.8, grow=1;
+                for(const p of torsoPoints)if(Math.abs(p[1]-y)<.05*s) {
+                    const dz=p[2]-center, depth=dz>0?front:back;
+                    grow=Math.max(grow,(Math.abs(p[0]/w)**3+Math.abs(dz/depth)**3)**(1/3)+.015);
+                }
+                w*=grow;
+                const ring=torsoRing(y,w,front*grow,back*grow,center,.024*s);
+                if(r===4)ring.forEach((p,k)=>{p[1]-=.048*s*Math.abs(Math.sin(k/ring.length*Math.PI*2))**4;});
+                if(r===0)ring.forEach((p,k)=>{p[1]-=.018*s*Math.max(0,Math.cos(k/ring.length*Math.PI*2))**8;});
+                return ring;
+            });
+            const inside=p=>[0,p[1],cx], joint=C.joint('Spine2');
+            metal.loft(rings,C.color,joint,inside);
+            rim(rings[0],joint,inside);rim(rings.at(-1),joint,inside);
+            // Real overlapping fauld lames below the breast, following successive spine bones.
+            const low=hip+.025*s, span=waist-low;
+            for(let row=0;row<3;row++) {
+                const y0=low+span*row/3, y1=low+span*(row+1)/3+.008*s;
+                const q=section((y0+y1)/2), cz=(q.front+q.back)/2;
+                const w=q.width+clearance+.006*s*(2-row);
+                const rings=[y0,y0+.004*s,y1].map((y,r)=>torsoRing(y,w+(r===0?.003*s:0),q.front-cz+clearance*1.7,cz-q.back+clearance*1.7,cz,.008*s));
+                const j=C.joint(row===2?'Spine1':'Spine'), axis=p=>[0,p[1],cz];
+                metal.loft(rings,C.color,j,axis);rim(rings[0],j,axis,.0015*s);
+            }
+        }
+        function limb(name, family, lo, hi) {
+            const E=C.envelope(name,family,lo,hi), joint=C.joint(name);
+            const count=5, rings=[];
+            for(let r=0;r<count;r++) {
+                const t=lo+(hi-lo)*r/(count-1), center=E.point(t), band=(hi-lo)/(count-1)*.6;
+                let rx=.012*s, rz=.012*s, samples=[];
+                for(const v of fitted) {
+                    if(v.family!==family)continue;
+                    const d=sub(v.p,E.B.head), u=dot(d,E.along)/E.length;
+                    if(u<lo||u>hi)continue;
+                    if(Math.abs(u-t)>band)continue;
+                    const x=dot(d,E.side), z=dot(d,E.front);
+                    rx=Math.max(rx,Math.abs(x));rz=Math.max(rz,Math.abs(z));samples.push([x,z]);
+                }
+                // With sparse sections, the whole segment is a conservative fallback.
+                if(!samples.length){rx=E.rx;rz=E.rz;}
+                rx+=clearance*1.15;rz+=clearance*1.15;
+                let grow=1;
+                for(const [x,z]of samples)grow=Math.max(grow,Math.hypot(x/rx,z/rz));
+                rx*=grow;rz*=grow;
+                const ring=roundSection(center,E.side,E.front,rx,rz,24,2);
+                // A shallow central ridge, rather than an extra bulb over the entire limb.
+                ring.forEach((p,k)=>{const cs=Math.cos(k/ring.length*Math.PI*2);if(cs>0)for(let a=0;a<3;a++)p[a]+=E.front[a]*.005*s*cs**8;});
+                rings.push(ring);
+            }
+            const axis=p=>E.point(dot(sub(p,E.B.head),E.along)/E.length);
+            metal.loft(rings,C.color,joint,axis);
+            // Rolled edges are narrow formed metal, not broad inflatable cuffs.
+            for(const ring of [rings[0],rings.at(-1)]) {
+                const rolled=ring.map(p=>add(p,mul(norm(sub(p,axis(p))),.002*s)));
+                edge.loft([rolled.map(p=>sub(p,mul(E.along,.0015*s))),rolled.map(p=>add(p,mul(E.along,.0015*s)))],tint,joint,axis);
+            }
+            return E;
+        }
+        function shoulder(name,family) {
+            const bulk=C.bulk, E=C.envelope(name,family,-.12,.48), joint=C.joint(name);
+            const up=norm(sub(Y,mul(E.along,dot(Y,E.along))));
+            const fw=norm(cross(E.along,up));
+            let radiusUp=E.rx, radiusFront=E.rz;
+            for(const v of fitted) {
+                const d=sub(v.p,E.B.head), t=dot(d,E.along)/E.length;
+                if(t<-.15||t>.6||Math.hypot(...d)>.17*s)continue;
+                radiusUp=Math.max(radiusUp,dot(d,up));radiusFront=Math.max(radiusFront,Math.abs(dot(d,fw)));
+            }
+            // Three open saddle lames wrap only the shoulder's upper/front/back arc.
+            // Their length and radius taper down the arm; no spherical cap reaches into the neck.
+            for(let row=0;row<3;row++) {
+                const lo=-.20+row*.17, hi=lo+.24, rx=radiusUp+(.014+.008*bulk-row*.004)*s;
+                const rz=radiusFront+(.012+.008*bulk-row*.004)*s;
+                const rings=[lo,(lo+hi)/2,hi].map((t,r)=>Array.from({length:17},(_,k)=>{
+                    const a=-1.8+k/16*3.6;
+                    const taper=row===0&&r===0?.45:r===2?.96:1;
+                    return add(E.point(t),add(mul(up,Math.cos(a)*rx*taper),mul(fw,Math.sin(a)*rz*taper)));
+                }));
+                // Share vertices over each curved sheet, keeping smooth reflections across the
+                // plate. Separate rolled edges retain the crisp break between overlapping lames.
+                const P=Float32Array.from(rings.flat(2)), I=[];
+                for(let r=0;r<2;r++)for(let k=0;k<16;k++) {
+                    const points=[rings[r][k],rings[r+1][k],rings[r+1][k+1],rings[r][k+1]];
+                    const n=norm(sub(lerp(points[0],points[2],.5),E.point((lo+hi)/2)));
+                    const ids=[r*17+k,(r+1)*17+k,(r+1)*17+k+1,r*17+k+1];
+                    if(dot(cross(sub(points[1],points[0]),sub(points[2],points[0])),n)<0)ids.reverse();
+                    I.push(ids[0],ids[1],ids[2],ids[0],ids[2],ids[3]);
+                    if(r===1) {
+                        const a=rings[2][k], b=rings[2][k+1];
+                        edge.face([a,b,add(b,mul(E.along,-.003*s)),add(a,mul(E.along,-.003*s))],tint,joint,n);
+                    }
+                }
+                const N=Outfit.triangleNormals(P,I), base=metal.p.length/3;
+                for(let v=0;v<P.length/3;v++) {
+                    metal.p.push(...P.subarray(v*3,v*3+3));metal.n.push(...N.subarray(v*3,v*3+3));
+                    metal.c.push(...C.color);metal.j.push(joint,0,0,0);metal.w.push(1,0,0,0);
+                }
+                metal.i.push(...I.map(i=>base+i));
+            }
+        }
+        if(kind==='breastplate')cuirass();
+        if(kind==='pauldrons')for(const [side,f]of [['Left',1],['Right',2]]) {
+            shoulder(side+'Arm',f);
+            limb(side+'Arm',f,.48,.88);
+        }
+        if(kind==='vambraces')for(const [side,f]of [['Left',1],['Right',2]])limb(side+'ForeArm',f,.16,.96);
+        if(kind==='greaves')for(const [side,f]of [['Left',3],['Right',4]]) {
+            limb(side+'UpLeg',f,.13,.89);
+            const shin=limb(side+'Leg',f,.09,.97);
+            const knee=add(shin.B.head,mul(shin.front,shin.rz+.026*s));
+            const joint=C.joint(side+'Leg'), width=shin.rx*.92, height=.065*s;
+            const shield=[[0,1],[.65,.65],[1,.2],[.8,-.6],[0,-1.2],[-.8,-.6],[-1,.2],[-.65,.65]];
+            const rings=[[1,0],[.94,.003],[.65,.012],[.08,.017]].map(([size,lift])=>shield.map(([x,y])=>
+                add(add(knee,mul(shin.front,lift*s)),add(mul(shin.side,x*width*size),mul(shin.along,y*height*size)))));
+            metal.loft(rings,C.color,joint,()=>sub(knee,mul(shin.front,.02*s)));
+            metal.face(rings.at(-1),C.color,joint,shin.front);
+        }
+        if(kind==='tassets') {
+            const hip=C.bone('Hips').head[1], q=C.section(hip), cz=(q.front+q.back)/2;
+            const h=(.08+Math.max(0,Math.min(1,item.length??.3))*.22)*s;
+            for(const side of [-1,1])for(const face of [-1,1]) {
+                const x=side*q.width*.54, z=(face>0?q.front:q.back)+face*.036*s;
+                const joint=C.joint(side>0?'LeftUpLeg':'RightUpLeg'), width=q.width*.82;
+                const points=[[-.5,0],[.5,0],[.44,-.84],[.24,-1],[-.44,-.94]].map(([u,v])=>[x+u*width,hip+.035*s+v*h,z-face*v*.015*s]);
+                plate(metal,points,[0,0,face],.004*s,.002*s,C.color,joint);
+            }
+        }
+        if(kind==='gauntlets')for(const side of ['Left','Right']) {
+            const hand=C.bone(side+'Hand'), index=C.bone(side+'HandIndex1'), pinky=C.bone(side+'HandPinky1');
+            const across=norm(sub(index.head,pinky.head)), along=norm(sub(lerp(index.head,pinky.head,.5),hand.head));
+            let normal=norm(cross(across,along));if(dot(normal,Z)>0)normal=mul(normal,-1);
+            const center=add(lerp(hand.head,lerp(index.head,pinky.head,.5),.5),mul(normal,.015*s));
+            guard(C,center,normal,across,along,Math.hypot(...sub(index.head,pinky.head))*.9,.062*s,C.joint(side+'Hand'));
+        }
+        return {parts:[metal.part('Medieval '+kind,{roughness:.34,metalness:.72}),edge.part('Medieval '+kind+' edges',{roughness:.4,metalness:.68})].filter(p=>p.index.length),hidden:new Set()};
+    }
+    const api={build,helmet,medieval};
     root.RRCharacterPowerArmor=api;
     if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

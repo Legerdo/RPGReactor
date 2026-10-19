@@ -142,7 +142,7 @@
                 record.shadowSize = Math.max(e.x, e.z, .001) * record.scale * .85;
                 this.light(object); this.scene.add(object); this.ensureShadow(key, record); this.place(key, position);
                 // Models cast in the shared shadow rows: props hold still, battlers move.
-                if (R.Shadows && this.settings.projection !== '2d') R.Shadows.markCaster(object, !key.startsWith('prop:'));
+                if (R.Shadows && this.settings.projection !== '2d') R.Shadows.markCaster(object, !key.startsWith('prop:') || R.modelCasterMoves?.({ eventId: () => R.PROP_EVENT_BASE }, record.rules) || record.sequence?.length > 0);
             } catch (error) { record.error = String(error); this.assets.warn?.(error); }
         }
         place(key, position) {
@@ -1345,7 +1345,7 @@
                     const plane=new T.Mesh(new T.PlaneGeometry(1,1),new T.MeshBasicMaterial({side:T.DoubleSide,toneMapped:false}));
                     media.plane=plane;plane.visible=false;plane.userData.__reactorOverlay=true;record.object.add(plane);
                     const ready=()=>{if(media.disposed||media.failed||!(image?element.naturalWidth:element.videoWidth))return;
-                        if(!media.texture){media.texture=image?new T.Texture(element):new T.VideoTexture(element);media.texture.colorSpace=T.SRGBColorSpace;media.texture.generateMipmaps=false;media.texture.minFilter=T.LinearFilter;media.texture.needsUpdate=true;plane.material.map=media.texture;plane.material.needsUpdate=true;}
+                        if(!media.texture){media.texture=image?new T.Texture(element):new T.VideoTexture(element);if(!image)root.RPGReactorMediaSurfaces?.watchVideoImport?.(media.texture,this.renderer);media.texture.colorSpace=T.SRGBColorSpace;media.texture.generateMipmaps=false;media.texture.minFilter=T.LinearFilter;media.texture.needsUpdate=true;plane.material.map=media.texture;plane.material.needsUpdate=true;}
                         plane.visible=true;
                     };
                     const failed=error=>{if(media.disposed||media.failed)return;media.failed=true;plane.visible=false;media.clearGesture?.();element.pause?.();this.assets.warn?.('Could not play room media: '+effect.video.file+(error?.message?' ('+error.message+')':''));};
@@ -1355,6 +1355,7 @@
                     else {element.onloadeddata=ready;element.loop=effect.video.loop!==false;element.muted=this.assets.muteMedia===true||!effect.video.audio;element.volume=Math.max(0,Math.min(1,(effect.video.volume??100)/100));element.defaultMuted=element.muted;element.preload='auto';element.playsInline=true;element.playbackRate=Math.max(.05,Math.min(16,effect.video.playbackRate||1));}
                     element.src=url;if(!image)this.playMedia(media);
                 }
+                if(media.texture?.userData?.rrImportFailed&&!media.failed)media.fail(new Error('Video frames cannot reach the drawing GPU'));
                 if(media.failed||!media.plane)continue;
                 if(effect.surface){this.updateMapMediaPlane(media,effect.surface);continue;}
                 const world=R.effectAnchorWorld(record.object,effect,new T.Vector3());if(!world)continue;

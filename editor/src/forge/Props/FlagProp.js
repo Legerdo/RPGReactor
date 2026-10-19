@@ -77,7 +77,7 @@
         return {
             kind: 'flag',
             pole: {
-                type, height: poleHeight,
+                type, height: poleHeight, mount: clamp(p.mount, 0.3, 8, 2.4),
                 finial: pick(p.finial, FINIALS.map(f => f[0]), def.finial), rope: p.rope !== false,
                 color: color(p.color, def.color), finialColor: color(p.finialColor, def.finialColor)
             },
@@ -282,7 +282,7 @@
             colliders.push({ a: [0, 0, 0], b: [0, h, 0], r: rr });
         } else if (P.type === 'bracket') {
             // Out from a wall (the y-z plane at x = 0) and up, at forty degrees.
-            const mount = 2.4, len = P.height, rr = 0.018, angle = 40 * Math.PI / 180;
+            const mount = P.mount, len = P.height, rr = 0.018, angle = 40 * Math.PI / 180;
             const d = [Math.cos(angle), Math.sin(angle), 0];
             const base = [0.07, mount, 0], tip = base.map((v, k) => v + d[k] * len);
             solids.pole.push(Mesh.box([0.008, mount + 0.04, 0], [0.016, 0.26, 0.11]));
@@ -419,7 +419,7 @@
         const triangles = parts.reduce((s, p) => s + p.index.length / 3, 0);
         return {
             kind: 'flag', recipe: r, parts, bones, clips, loop: o.loop || null, textures: { 'cloth.png': c.picture, 'cloth_normal.png': c.normal },
-            cloth: { setup, grid, restBones, part: 0 }, cloths: [{ setup, grid, offset: 0 }], restBones, wall: r.pole.type === 'bracket' ? { normal: [1, 0, 0], at: 0 } : null, height: Math.max(r.pole.type === 'bracket' ? 2.4 + r.pole.height : r.pole.height, 0.5),
+            cloth: { setup, grid, restBones, part: 0 }, cloths: [{ setup, grid, offset: 0 }], restBones, wall: r.pole.type === 'bracket' ? { normal: [1, 0, 0], at: 0 } : null, height: Math.max(r.pole.type === 'bracket' ? r.pole.mount + r.pole.height : r.pole.height, 0.5),
             triangles, imageName: missing, imageMissing: !!missing
         };
     }

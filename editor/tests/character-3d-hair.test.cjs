@@ -53,6 +53,15 @@ test('a hair recipe is completed and kept in range', () => {
     for (const list of [Hair.STYLES, Hair.FACIAL, Hair.BROWS]) assert.equal(new Set(list.map(s => s.id)).size, list.length);
 });
 
+test('beard strands caught against an extremely broad, short face stay finite', () => {
+    const built = Body.build(pack, { gender: 1, headSize: 2.2, height: 0.12, weight: 0.78, muscle: 0.85,
+        shapes: { headWidth: 2.5, headHeight: -2.5, headDepth: 2.5, jaw: 3, cheeks: 3, mouthWidth: 2.5, eyeSpacing: 2.5, eyeSize: 4, neck: 0.8, noseDepth: 1.2, noseWidth: 1, browRidge: 0.8 } });
+    const parts = Hair.build(pack, built, { style: 'sidePart', facial: { style: 'longBeard' }, brows: { style: 'bushy' } }, { budget: 0.3 });
+    assert.ok(byName(parts, 'Facial hair'), 'the beard still has real strands');
+    assertWellFormed(parts, built, 'compressed broad head');
+    for (const part of parts) for (const field of ['normals', 'uvs']) assert.ok(part[field].every(Number.isFinite), part.name + ' ' + field);
+});
+
 test('every head style builds on a man and a woman, within budget, skinned to the head', () => {
     const headIndex = man.bones.findIndex(b => b.name === 'Head');
     for (const style of Hair.STYLES) for (const [label, built] of [['man', man], ['woman', woman]]) {

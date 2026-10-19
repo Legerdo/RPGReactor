@@ -4,16 +4,47 @@ Dated notes for the cycle in progress, newest first. Read [STATUS.md](STATUS.md)
 
 An entry holds only what the next session needs and cannot find elsewhere: what is half-done, what to watch for, what waits on the owner, how to resume. What changed goes in the editor changelog; how the code works goes in the commit message and the guides. Size limits and the rollover are in [README.md](README.md#keeping-status-and-handoff-short); `docs-budget.test.cjs` enforces them.
 
-## Where things stand (2026-10-16)
+## Where things stand (2026-10-18)
 
-- **Start here (2026-10-18):** the owner asked (2026-10-17) for a far more comprehensive 3D Character Builder; it is in (entry below), not yet seen by the owner. First a look: Forge › 3D Character Builder, species tiles, Outfit › Dress as, Extreme proportions, Randomize, Save, Open…; take notes. Nothing is pushed.
-- **0.99.1** in development at runtime **20261016.8**, synced to all 19 bundled projects. Committed locally; nothing pushed.
+- **Start here:** resumed `c7638098`; two character quality passes and all thirteen Claude reports reconciled. Read [coverage](CHARACTER-QUALITY.md) and [remaining issues](CLAUDE-QUALITY-TRACKER.md). Preview/picker performance work remains intact.
+- **0.99.1** in development at runtime **20261018.11**, synced to all 19 bundled projects. Character preview revision 14; Sunset legacy fidelity and default dither cleanup are documented in [Import guide](IMPORTING-LEGACY-PROJECTS.md). Local closeout commit; no push or release.
 - **User-path sweeps:** 1 to 13 done and committed. Owner questions: the three sweeps entries below.
 - **Editor windows:** the event editor, Database, Forge and Plugin Manager each open in a frameless window of their own (`utils/DetachedWindow.js`), together, on any monitor; `PopoutBridge` serves several windows. The web editor floats them in the page. Database and Forge size initially to the monitor; All four request rounded corners and transparent pixels outside the panel; native Linux transparency still needs a live check.
 - **Event lists** draw tree rails beside branches, choices, loops and battle branches (map, troop and common event lists).
 - **Savior & Religion** (`template/Savior & Religion`, not in git; a deployed, encrypted MV game the owner is trying as a template): boots, plays its opening and draws its ULDS maps (2, 5, 19); its index.html is in MV mode now.
 - **Contrast pass:** done in light and dark (committed); the owner keeps the current look.
 - **3D Character Builder** (Forge): species, extremes, garments, hair, accessories, painted skins, four-legged creatures, a seven-tab page (entry below).
+
+## 2026-10-18 — Outfit follow-ups and Sunset import fidelity
+
+- Bikini triangles/continuous ties, source boot soles (Jolt/Max/Vay) and a reproduced backpack-buried ponytail repaired;55 model/hair/cloth and30 focused checks,1,314 equipment cases, actual18/72/6 captures pass. Re-import old custom prepared outfits; re-save old GLBs. [Coverage](CHARACTER-QUALITY.md) retains extreme folds/sharp hair bends.
+- Original RPG_RT ran in a disposable Wine copy through11→22→21→23→10. Exact reported roof issue is Map7→Map2: lower crop296 vs original304; legacy camera fixes8px. Native entry/scroll composites match source pixels. Cold background swaps, tones, cut/fade/zoom, crisp text and skins checked. No speculative Map10 offset; its layers already align. [Guide](IMPORTING-LEGACY-PROJECTS.md) covers supported effects and limits.
+- Dither cleanup is subtle and keeps originals;17-locale UI/CLI offer original mode. Destination previews/free-name suggestions and copied/open-lock guards cover deleted-folder reuse. New font/skin metadata needs a fresh import; preserve edited copies. Installed RTP fonts are found for complete games; both families,6px spacing, gradients, shadows and ascent are preserved. Proper native RTP-font fixtures supersede Wine fallback; natural intro uses SaveMeny, direct Map10 uses System. MZ's extra4px dialogue inset is removed. Show's initial tint was overwritten by Move, exposing roofs early; immediate tint fixes new imports and older ordinary event pairs. Evidence: `scratchpad/rm2000-{reference,font-palette-final,reveal-fixed-existing}/`. All65 maps convert; no full-game playthrough claim.
+
+## 2026-10-18 — Second character pass and Claude continuation
+
+- [Claude tracker](CLAUDE-QUALITY-TRACKER.md) covers all eleven paused agents plus lighting/props. [Coverage](CHARACTER-QUALITY.md): first401 models/1,752 equipment; second564/1,314 plus780 moving garments; commands, evidence and residuals retained.
+- Compact torso/neck/width composition and seated Human/Grey robe coverage repaired. Imported lower panels retain signed layer spacing and relax fitted fabric; Captain rear crossings85→13, broader folds remain. Thrust/Bow clips export; marked project weapons preview on RightHand. Cache revision13. Prop albedo no longer bakes a fixed light; color-key outlines cut enclosed holes; bracket mount height is editable.
+- Owner's Knight/Dark knight appearance follow-up: formed rigid plates replace inflated clothing cuts; shared Paladin/Gladiator pieces improve too. Seven regressions,1,314 static cases and30 actual NW captures checked; eight browser-worker variants pass. Evidence/limits in CHARACTER-QUALITY and `scratchpad/knight-quality/`.
+- Weak local lights shape model faces without leaving HalfLight; Brows/Lashes lose strand sheen. Battle Room video watcher/lifecycle and animated placed-prop shadow classification repaired. A candidate shader broke room floors/walls; its varying is now model-only. Actual NW weak/full×whole/HalfLight model/floor/wall/third-party smoke and Reactor Room itself pass with zero errors. Owner was asked to reload; no owner process was restarted.
+- Checks:136 core,42 motion/cloth/species,137 lighting/media/shadow,25 worker/scheduler and strict panel/palm regressions pass. No new full7k-suite claim. Actual59-model switching now completes with thumbnails after warmed-worker reuse fixes the reproduced memory crash; see PERFORMANCE. Artifacts: `scratchpad/{quality-pass2,lighting-audit}/`, `/tmp/rr-body-fresh/`, `/tmp/rr-transfer-newpass/`. All19 runtime copies synced.
+- Open aesthetic limits: extreme source folds, white-afro cap/rims, dense hair/body extremes and exact creature/chibi refinements. An afro shell trial failed visual review and was removed. The old seated-robe limitation below is superseded for the reproduced cases. No push or release.
+
+## 2026-10-18 — Character catalog previews off the UI thread
+
+- User prioritized faster previews and weaker PCs. `CharacterPreviewWorker.cjs` owns desktop builds; `CharacterPreviewBrowser.js` and its dedicated entry handle Web. Worker results contain static render arrays only. One worker, bounded queues/caches, context revisions, failure/timeout cleanup and cancellation; no expensive synchronous fallback. The Builder does the final small GPU render. Initial selected-character/WebGL setup still stalls separately.
+- Real NW measurements: first Outfit all-visible 5.45→3.57 s, worst frame 467→34 ms; bottom imported outfits 20.12→10.38 s, worst heartbeat 5.77 s→95 ms. Cached revisits 14–18 ms with no hidden jobs. Species all-visible 7.19→4.55 s. Same1366×900 fresh-profile/copied-project/empty-cache scenario on AMD integrated graphics. Evidence/reproducer in ignored `scratchpad/preview-perf/`; final output is `worker-post-fixed`, earlier post is a rejected cross-realm failure.
+- NW worker arrays need page-realm typed views for THREE (zero-copy); resource Maps need brand-safe entries across Node/window realms. Tests cover both, copied source buffers, painted resources and project import registrations. The browser smoke uses HTTP and no Node/Model on the page: `editor/tests/smoke/character-browser-preview.cjs`.
+- User then broadened the priority to app-wide performance on weaker PCs. Shared `PickerIndex.js` now reuses Intl helpers and operation-local sorting metadata. Five warmed runs: 442 Demo names 7.55→0.99 ms, 5,000 Unicode names 689.78→32.58 ms median, exact legacy order. Reproduce with `node editor/tests/perf/picker-index.cjs`. Fifteen picker/recursive-asset tests passed before the final combined checks.
+- Importer thumbnails now await worker output; model-catalog renderer initialization no longer triggers an extra character build. Final combined validation: 272 tests passed across 26 files, including picker consumers, worker/scheduler lifecycles, distribution staging, reproducible Web packaging and docs. Actual importer/emblem/detach checks passed; 45 changed JS files passed syntax checks. No owner window restarted; work included in the closeout commit.
+
+## 2026-10-18 — Resumed character quality pass
+
+- Continued the checkpoint's paused agents. Work is included in the closeout commit; no push, release, or owner-instance restart. Source thumbnails and cached character previews use a new cache revision. Read the current changelog and Character Builder guide for delivered behavior.
+- Real isolated NW.js editor checks covered importer Keep/Discard, failed Keep/retry, deletion/Undo, cancellation/project switches, all source thumbnails at 1366×768, project-picture emblems, Bikini, body extremes, helmets, and saved motions. Game checks covered humanoid rig/motion playback, dressed speech visemes, both merfolk sexes and container Lights clips, with no unexpected console errors.
+- At this checkpoint the robe slipped off seated knees and Captain's seat fabric folded. The second pass above repairs the reproduced robe slip; source folds remain. Rejected solver/fit trials are not retained.
+- Full Node sweep: 7,746 passed, 9 skipped, no failures; Web package reproducibility 6/6, final transfer/import lifecycle 25/25, and final graft checks 3/3 also passed. Syntax, patch hygiene and all 19 runtime copies checked.
+- Disposable evidence: `scratchpad/{resume-checks,outfit-resume}/`, `/tmp/rr-motion-qa/`, `/tmp/rr-resume-*.log`. Reload the editor and re-save older characters for changed geometry/motion keys.
 
 ## 2026-10-18 — Power armor, standalone equipment and searchable poses
 
@@ -149,16 +180,3 @@ The overnight round was finished on the Windows machine with code and Node tests
 - **Owner checks on real hardware:** Task Manager GPU column shows the RTX in a playtest and in the editor; Reactor Room GPU memory with 3D on and off; walking smoothness on the 180 Hz monitor; the Black Hole animation model (normals now correct); 1024 textures in close cameras; the reactor beam on Windows (Discord tester).
 - **Tests on this machine:** the full suite after the merge is in the commit message; the failures left are the Windows list in memory plus `passage-3d` "a stroke of edits", which fails only under parallel load (time-sliced; passes alone).
 - **Render thread:** a prototype only, about 2 to 3 months to production (gap list in `threads.md`). Not proposed.
-
-## 2026-10-14 — The 2026-10-10 audit's bugs fixed (runtime 20261014.1)
-
-All fourteen, plus the early border exit, are in `editor/changelog/0.99.1.md`. Tests: `audit-20261010-fight-core`, `audit-20261010-action`, `fight-classic`, `audit-20261010-left`, `layout-fit`, `vehicles-border-slide`. Screenshots before and after at three sizes were in `/tmp/rr-layout-shots/` (not kept).
-
-- **Changed rule, agreed by the owner:** a kept battle (Transfer Player with "keep") now ends as an escape when any other battle starts, encounters included; one `$gameFight` cannot hold two. `fight-flow.test.cjs` and two `vehicles-battle.test.cjs` tests were rewritten for it.
-- **Defeated enemies on the map are remembered now:** the Demo's North Haven raid and Map007's enemies stay gone after one win unless their enemy or event is set to Comes back (the owner sets the Demo).
-- **Action and First Person escape is by running** (`A.updateGetaway`, 15 tiles for 90 frames after an enemy came near); not yet played live.
-
-## 2026-10-14 — 0.99.1 opened; handoff archived, doc budgets enforced
-
-- Version surfaces name 0.99.1 (package, About box, `RR_APP_VERSION`, web host, legacy skeleton, runtime header via `sync-runtime.cjs`, the Demo's project file, READMEs, release checklist, plugin API examples). Both changelogs have a 0.99.1 file and index line.
-- The handoff had grown to 166 KB over two cycles. `editor/build-scripts/archive-handoff.cjs` moved the 0.98.8 and 0.99.0 entries to `archive/handoff/`; `cut-release.cjs` now runs it in every release commit. STATUS was rewritten to one bullet per area and took over the open lists, the owner decisions that stand, and the harness notes.

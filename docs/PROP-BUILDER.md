@@ -7,7 +7,7 @@ Forge › 3D Prop Builder makes props and saves them to the project as 3D models
 ## Banners & Flags
 
 - **Flag, Streamer, Banner:** a flag on a pole, a long pointed streamer, or a tall banner down the pole.
-- **Pole:** a metal flagpole, a wooden staff, a wall bracket or a crossbar banner. Height, finial (ball, spearhead, eagle, none), the halyard rope on a metal pole, and colors.
+- **Pole:** a metal flagpole, a wooden staff, a wall bracket or a crossbar banner. Height, finial (ball, spearhead, eagle, none), the halyard rope on a metal pole, and colors. Wall brackets have a separate Placement height; their studio wall and saved placement follow it.
 - **Cloth:** shape (1:2 to 1:1, streamer, pennant, swallowtail, the tall 3:2, 2:1 and pole banner, or Custom), width 0.15 to 6 m, height up to the pole, the fly end (square-cut, swallowtail, pointed) and fabric (cotton, silk, heavy wool, worn and tattered).
 - **Design:** a background pattern and up to eight emblems over it.
   - Patterns: solid, bands (2 to 5 either way, each its own size), stripes, cross (its arm width, centered or toward the hoist), saltire, quartered, checkered, diagonal bend, canton (its size, corner and a grid of stars), hoist triangle, border, or a whole-flag picture. Each region has its color.
@@ -45,9 +45,19 @@ Every sword and gun saves a hand rig (`rig.template` blade or gun, with its mark
 
 The 3D Character Builder's accessories, each a standalone model: hats, face, masks, jewelry and ties, capes and packs, nails and claws, bags, tools, instruments and sports. Swords, daggers and books are listed once, under Swords & Blades and Framed; saved recipes of the accessory versions still open.
 
+Background-color outlines remove matching color inside enclosed openings too, so rings and letters keep their holes. Use transparency outlines when same-colored interior details should remain solid. Still props keep their authored color; preview and game lighting shade their surfaces as they turn.
+
 - **Shape:** overall size, then what the accessory has: style, fit, height or length, and its own options. A choker has its band (leather, velvet, metal links, lace), width, thickness, charm and studs.
 - **Look:** the colors it shows, and a material for each of its parts (original, metal, leather, plastic, fabric, velvet, glass).
 - **Placement:** origin (bottom for a map, center, or the attachment point for a character), the side it is worn on, and rotation. Single-layer pieces such as lenses and bands are two-sided.
+
+## Containers
+
+The Containers section offers wine and wooden barrels, oil and explosive drums, supply and ammunition crates, stacked crates, a treasure chest, cargo crates, fuel canisters, coolant cells and data crates.
+
+**Shape** sets size and construction: barrel staves and hoops, drum ribs, crate braces and handles, chest lids and locks, and futuristic panels and bumpers. Round containers can lie on their sides; crates can stack. **Look** sets colors and wear. **Markings** adds text, symbols or a project picture. Futuristic containers also have **Lights**, with status lamps, glowing strips and text, numeric, progress or picture displays.
+
+Randomize keeps the current container type. Its scope chooses **Shape**, **Colors**, **Details** or **Everything**. A Colors roll preserves geometry and light timing; a Details roll preserves the chosen palette and size.
 
 ## Saving
 
@@ -58,6 +68,8 @@ The 3D Character Builder's accessories, each a standalone model: hats, face, mas
 - `prop.json`: the recipe, for **Open…**. `thumbnail.png`: the picture Open shows.
 
 The model shows in Database › 3D Models like an imported one.
+
+Animated container lights and displays use a saved **Lights** clip and emissive materials. The game plays the clip; it runs no container simulation. Ordinary barrels, crates and chests remain still.
 
 ## In the game
 

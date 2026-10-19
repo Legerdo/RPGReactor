@@ -1000,6 +1000,20 @@
         return { reach, mids };
     }
 
+    /**
+     * A skirt stays on the side of a limb that carries its fabric. Using
+     * yesterday's simulated point alone lets a coarse link tunnel through a
+     * raised thigh and then consistently resolve on its underside. Use the
+     * same skinned reference for points and links, including final layout.
+     * Capes retain their previous position as the contact reference.
+     */
+    function contactFrom(sim, a, b, lam, fallback, into) {
+        const ref = sim.support > 0.5 && sim.target ? sim.target : fallback;
+        if (!ref) return null;
+        for (let c = 0; c < 3; c++) into[c] = ref[a + c] + (ref[b + c] - ref[a + c]) * lam;
+        return into;
+    }
+
     /** Points and the links between them pushed out of the body, then off the floor. */
     function collide(sim) {
         const { x, prev, inv, n, C, cols, gap } = sim, push = [0, 0, 0], from = [0, 0, 0];
@@ -1010,7 +1024,7 @@
             for (let k = 0; k < m; k++) {
                 const at = k * 16, dx = x[o] - C[at] - C[at + 3] * mids[k], dy = x[o + 1] - C[at + 1] - C[at + 4] * mids[k], dz = x[o + 2] - C[at + 2] - C[at + 5] * mids[k];
                 if (dx * dx + dy * dy + dz * dz > reach[k]) continue;
-                from[0] = prev[o]; from[1] = prev[o + 1]; from[2] = prev[o + 2];
+                contactFrom(sim, o, o, 0, prev, from);
                 if (insideAt(C, k, cols[k], gap, x[o], x[o + 1], x[o + 2], push, from) < 1) {
                     // Where the body rests on the floor the cloth under it stays pressed flat between them.
                     if (push[1] < sim.floor + gap * 2) continue;
@@ -1046,7 +1060,7 @@
                     if (!(close & (1 << k)) || (held & (1 << k))) continue;
                     const at = k * 16, dx = px - C[at] - C[at + 3] * mids[k], dy = py - C[at + 1] - C[at + 4] * mids[k], dz = pz - C[at + 2] - C[at + 5] * mids[k];
                     if (dx * dx + dy * dy + dz * dz > reach[k]) continue;
-                    if (insideAt(C, k, cols[k], gap, px, py, pz, push, null) >= (depth ? depth[((e / 3) * 3 + li) * m + k] * 0.9 : 1)) continue;
+                    if (insideAt(C, k, cols[k], gap, px, py, pz, push, contactFrom(sim, a, b, lam, null, from)) >= (depth ? depth[((e / 3) * 3 + li) * m + k] * 0.9 : 1)) continue;
                     const wi = inv[i] * (1 - lam), wj = inv[j] * lam, ws = wi * (1 - lam) + wj * lam;
                     if (ws <= 0) continue;
                     if (push[1] < sim.floor + gap * 2) continue;
@@ -1106,11 +1120,11 @@
                 for (let li = 0; li < 3; li++) {
                     const lam = CLEAR_LAMS[li];
                     let px = x[a] + dx * L * lam, py = x[a + 1] + dy * L * lam, pz = x[a + 2] + dz * L * lam, hit = false;
-                    if (ref) { from[0] = ref[a] + (ref[b] - ref[a]) * lam; from[1] = ref[a + 1] + (ref[b + 1] - ref[a + 1]) * lam; from[2] = ref[a + 2] + (ref[b + 2] - ref[a + 2]) * lam; }
+                    const side = contactFrom(sim, a, b, lam, ref, from);
                     for (let c = 0; c < m; c++) {
                         if ((held & (1 << c)) && lam < 1) continue;
                         if (!near(px, py, pz, c)) continue;
-                        if (insideAt(C, c, cols[c], sim.gap, px, py, pz, push, ref ? from : null) < (sim.depthChain ? sim.depthChain[((k * S + j) * 3 + li) * m + c] * 0.9 : 1) && push[1] >= floor + sim.gap) { px = push[0]; py = push[1]; pz = push[2]; hit = true; }
+                        if (insideAt(C, c, cols[c], sim.gap, px, py, pz, push, side) < (sim.depthChain ? sim.depthChain[((k * S + j) * 3 + li) * m + c] * 0.9 : 1) && push[1] >= floor + sim.gap) { px = push[0]; py = push[1]; pz = push[2]; hit = true; }
                     }
                     if (sim.shell && sim.shell.push(px, py, pz, sim.gap, push)) { px = push[0]; py = push[1]; pz = push[2]; hit = true; }
                     if (lam === 1 && py < floor) { py = floor; hit = true; }
@@ -1150,7 +1164,7 @@
                     for (let c = 0; c < m && !hit; c++) {
                         if (!near(px, py, pz, c)) continue;
                         // Deep inside only: the straight line between neighbors round a body dips a little into it anyway.
-                        if (insideAt(C, c, cols[c], sim.gap, px, py, pz, push, null) < 0.75 && push[1] >= floor + sim.gap) hit = true;
+                        if (insideAt(C, c, cols[c], sim.gap, px, py, pz, push, contactFrom(sim, pa, pb, lam, null, from)) < 0.75 && push[1] >= floor + sim.gap) hit = true;
                     }
                     if (!hit) continue;
                     const dx = push[0] - px, dy = push[1] - py, dz = push[2] - pz;
@@ -1245,9 +1259,16 @@
     const bakes = new Map();
     function clipKey(clip) {
         let h = clip.times.length * 131 + Math.round((clip.times[clip.times.length - 1] || 0) * 1000);
-        for (const t of clip.tracks) { if (t.cloth) continue; h = (h * 31 + t.bone) | 0; const v = t.values; for (let i = 0; i < v.length; i += 3) h = (h * 31 + Math.round(v[i] * 1e4)) | 0; }
-        if (clip.heights) for (let i = 0; i < clip.heights.length; i += 2) h = (h * 31 + Math.round(clip.heights[i] * 1e3)) | 0;
-        return (clip.name || '') + (clip.once ? '!' : '') + ':' + (h >>> 0);
+        const hash = values => { for (const v of values) h = (Math.imul(h, 31) + Math.round(v * 1e6)) | 0; };
+        hash(clip.times);
+        for (const t of clip.tracks) {
+            if (t.cloth) continue;
+            h = (Math.imul(h, 31) + t.bone) | 0;
+            h = (Math.imul(h, 31) + (t.path === 'translation' ? 1 : t.path === 'scale' ? 2 : 0)) | 0;
+            hash(t.times || clip.times); hash(t.values);
+        }
+        if (clip.heights) hash(clip.heights);
+        return (clip.name || '') + (clip.once ? '!' : '') + (clip.skin ? '@' : '') + ':' + (h >>> 0);
     }
 
     /** Whether a clip ends in the pose it starts in (within `tolerance` radians on every track). */
@@ -1328,24 +1349,25 @@
      * here.
      */
     let worker = undefined, sent = new WeakMap(), nextId = 1;
-    const waiting = new Map();
+    const waiting = new Map(), resident = new Set(), pending = new Map();
     function workerOf() {
         if (worker !== undefined) return worker;
         worker = null;
         try {
             if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL || typeof document === 'undefined') return null;
             const code = '(' + rrCharacterCloth.toString() + ')(self);\nself.onmessage = e => self.RRCharacterCloth._serve(e.data);';
-            worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+            const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+            try { worker = new Worker(url); } finally { URL.revokeObjectURL(url); }
             worker.onmessage = e => { const w = waiting.get(e.data.job); if (!w) return; waiting.delete(e.data.job); if (e.data.error) w.reject(new Error(e.data.error)); else w.resolve(e.data.tracks); };
-            worker.onerror = () => { for (const w of waiting.values()) w.reject(new Error('cloth worker failed')); waiting.clear(); worker.terminate(); worker = null; };
+            worker.onerror = () => { for (const w of waiting.values()) w.reject(new Error('cloth worker failed')); waiting.clear(); worker.terminate(); worker = undefined; sent = new WeakMap(); resident.clear(); };
         } catch (error) { worker = null; }
         return worker;
     }
-    /** What of a build the bake reads, for sending: hair, eyes and the like left out (their places kept). */
+    /** What the bake reads, copied once by postMessage: hair and eyes left out (their places kept). */
     function slim(result) {
         return {
             bones: result.bones, cloth: result.cloth,
-            parts: result.parts.map(p => (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) ? null : { name: p.name, kind: p.kind, cloth: p.cloth, positions: p.positions.slice(), normals: p.normals ? p.normals.slice() : null, joints: p.joints.slice(), weights: p.weights.slice() }))
+            parts: result.parts.map(p => (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) ? null : { name: p.name, kind: p.kind, cloth: p.cloth, positions: p.positions, normals: p.normals || null, joints: p.joints, weights: p.weights }))
         };
     }
     const builds = new Map();
@@ -1366,13 +1388,22 @@
         const key = bakeKey(result, clip, options);
         if (bakes.has(key)) return Promise.resolve(withTracks(result, clip, bakes.get(key)));
         const w = workerOf();
-        if (!w) return new Promise(done => setTimeout(() => done(bake(result, clip, options)), 0));
+        if (!w) return new Promise((resolve, reject) => setTimeout(() => { try { resolve(bake(result, clip, options)); } catch (error) { reject(error); } }, 0));
+        if (pending.has(key)) return pending.get(key).then(tracks => withTracks(result, clip, tracks));
         let id = sent.get(result.cloth) || 0;
-        if (!id) { id = nextId++; sent.set(result.cloth, id); w.postMessage({ id, build: slim(result) }); }
-        const job = nextId++, plain = { name: clip.name, times: clip.times, tracks: clip.tracks.filter(t => !t.cloth), heights: clip.heights, skin: clip.skin };
-        return new Promise((resolve, reject) => { waiting.set(job, { resolve, reject }); w.postMessage({ id, job, clip: plain, options: { quality: (options && options.quality) || 'save' } }); })
-            .then(tracks => { remember(key, tracks); return withTracks(result, clip, tracks); })
-            .catch(() => bake(result, clip, options));
+        // The page mirrors the worker's four-build FIFO, so returning to an older build sends it again.
+        if (!id || !resident.has(id)) {
+            id = nextId++; sent.set(result.cloth, id); w.postMessage({ id, build: slim(result) });
+            resident.add(id); while (resident.size > 4) resident.delete(resident.values().next().value);
+        }
+        const job = nextId++, plain = { name: clip.name, once: clip.once, times: clip.times, tracks: clip.tracks.filter(t => !t.cloth), heights: clip.heights, skin: clip.skin };
+        const work = new Promise((resolve, reject) => {
+            waiting.set(job, { resolve, reject });
+            try { w.postMessage({ id, job, clip: plain, options: { quality: (options && options.quality) || 'save' } }); }
+            catch (error) { waiting.delete(job); reject(error); }
+        }).then(tracks => { remember(key, tracks); return tracks; }).finally(() => pending.delete(key));
+        pending.set(key, work);
+        return work.then(tracks => withTracks(result, clip, tracks));
     }
 
     /** Every clip baked off the page, one after another. */
@@ -1384,6 +1415,7 @@
 
     function simulateClip(result, clip, quality) {
         const cloth = result.cloth, bones = result.bones;
+        const thighs = ['Left', 'Right'].map(side => [bones.findIndex(b => b.name === side + 'UpLeg'), bones.findIndex(b => b.name === side + 'Leg')]).filter(pair => pair.every(i => i >= 0));
         const duration = clip.times[clip.times.length - 1];
         // The frames the cloth is worked out at: the clip's own when they come often and evenly, else 30 a second.
         const own = clip.times, even = own.length > 2 && own.every((t, i) => i === 0 || Math.abs((t - own[i - 1]) - duration / (own.length - 1)) < 1e-4);
@@ -1425,7 +1457,7 @@
             const C = new Float32Array(m * 16);
             // A cape keeps outside a skirt worked out before it.
             const shell = g.kind === 'cape' ? (states.find(o => o.g.kind === 'skirt' && o.rec) || {}).shell || null : null;
-            const sim = { x, prev, inv: st.inv, n, links: g.links, C, cols, reach, mids, gap: g.gap, drag: g.drag, stiff: g.stiff, target, floor: 0, shell, give: g.give || 1.03 };
+            const sim = { x, prev, inv: st.inv, n, links: g.links, C, cols, reach, mids, gap: g.gap, drag: g.drag, stiff: g.stiff, target, skirt: g.kind === 'skirt', floor: 0, shell, give: g.give || 1.03 };
             x.set(g.rest); prev.set(x);
             // How deep the cloth's own links cross the colliders at rest, once per region and collider set.
             g._depths = g._depths || new Map();
@@ -1461,6 +1493,19 @@
                 for (let i = 0; i < C.length; i++) C[i] = a[i] + (b[i] - a[i]) * k;
                 sim.floor = floor[f0] + (floor[f1] - floor[f0]) * k;
                 const pa = poses[f0], pb = poses[f1];
+                if (sim.skirt) {
+                    // Gravity can pull a free skirt down standing legs; a
+                    // raised thigh supports it from below. Only that posture
+                    // needs the stronger carried reference, keeping standing
+                    // dresses and kneeling hems free to settle as before.
+                    let raised = -1;
+                    for (const [hip, knee] of thighs) {
+                        const d = [0, 1, 2].map(c => (pa.P[knee][c] - pa.P[hip][c]) * (1 - k) + (pb.P[knee][c] - pb.P[hip][c]) * k);
+                        raised = Math.max(raised, d[1] / (Math.hypot(...d) || 1));
+                    }
+                    sim.support = smoothstep(-0.25, 0.15, raised);
+                    sim.stiff = g.stiff + 0.08 * sim.support;
+                }
                 const A = { R: nlerp(pa.R[g.anchor], pb.R[g.anchor], k), P: [0, 1, 2].map(c => pa.P[g.anchor][c] + (pb.P[g.anchor][c] - pa.P[g.anchor][c]) * k), h: bones[g.anchor].head };
                 placeRest(A, target);
                 // A skirt is drawn a little toward where the body would carry it (over a raised thigh, along legs lying

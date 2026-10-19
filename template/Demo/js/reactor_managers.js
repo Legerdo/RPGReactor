@@ -2965,13 +2965,42 @@ function ColorManager() {
 }
 
 ColorManager.loadWindowskin = function() {
-    this._windowskin = ImageManager.loadSystem("Window");
+    const name = typeof $gameSystem !== "undefined" && $gameSystem?.windowSkinName ? $gameSystem.windowSkinName() : "Window";
+    this._windowskin = ImageManager.loadSystem(name);
     this.clearTextColorCache();
 };
 
 ColorManager.clearTextColorCache = function() {
     this._textColorCache = null;
     this._textColorCacheSkin = null;
+    this._legacyTextPaints = null;
+    this._legacyTextPaintSkin = null;
+};
+
+// Ordinary CSS colours remain the public contract. A window explicitly
+// carries its palette index separately so duplicate sampled colours still
+// select different gradients, and a plugin's custom CSS stays a flat colour.
+ColorManager.legacyTextPaint = function(index) {
+    if (typeof $dataSystem === "undefined" || !$dataSystem?.rrLegacyTextPalette
+        || !Number.isInteger(index) || index < 0 || index > 20) return null;
+    const skin = this._windowskin;
+    if (!skin?.isReady()) return null;
+    if (this._legacyTextPaintSkin !== skin) {
+        this._legacyTextPaintSkin = skin;
+        this._legacyTextPaints = new Map();
+        this._legacyTextPaintAvailable = skin.getPixel(95, 191) === "#525232";
+    }
+    if (!this._legacyTextPaintAvailable) return null;
+    let paint = this._legacyTextPaints.get(index);
+    if (!paint) {
+        const x = (index % 6) * 16, y = 128 + Math.floor(index / 6) * 16;
+        const pixels = skin._drawingContext().getImageData(x, y, 16, 16).data;
+        this._legacyTextPaintSerial = (this._legacyTextPaintSerial || 0) + 1;
+        paint = { key: this._legacyTextPaintSerial, index,
+            data: pixels, css: skin.getPixel(x, y) };
+        this._legacyTextPaints.set(index, paint);
+    }
+    return paint;
 };
 
 ColorManager.readTextColor = function(n) {
@@ -3121,7 +3150,7 @@ ColorManager.damageColor = function(colorType) {
 };
 
 ColorManager.outlineColor = function() {
-    return "rgba(0, 0, 0, 0.6)";
+    return this.legacyTextPaint(20)?.css || "rgba(0, 0, 0, 0.6)";
 };
 
 ColorManager.dimColor1 = function() {
