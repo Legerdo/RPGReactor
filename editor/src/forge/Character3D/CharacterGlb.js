@@ -142,6 +142,17 @@
                 pbrMetallicRoughness: { baseColorFactor: base, metallicFactor: part.metalness ?? 0, roughnessFactor: part.roughness ?? 0.6 }
             };
             if (texture !== null) material.pbrMetallicRoughness.baseColorTexture = { index: texture };
+            const surface = part.metallicRoughnessTexture ? textureFor(part.metallicRoughnessTexture) : null;
+            if(surface !== null) material.pbrMetallicRoughness.metallicRoughnessTexture = {index:surface};
+            if(part.iridescence){
+                const extension={iridescenceFactor:part.iridescence,iridescenceIor:part.iridescenceIOR ?? 1.3,
+                    iridescenceThicknessMinimum:part.iridescenceThicknessRange?.[0] ?? 100,
+                    iridescenceThicknessMaximum:part.iridescenceThicknessRange?.[1] ?? 400};
+                const thickness=part.iridescenceThicknessTexture ? textureFor(part.iridescenceThicknessTexture) : null;
+                if(thickness !== null)extension.iridescenceThicknessTexture={index:thickness};
+                material.extensions={KHR_materials_iridescence:extension};
+                if(!json.extensionsUsed?.includes('KHR_materials_iridescence'))(json.extensionsUsed ||= []).push('KHR_materials_iridescence');
+            }
             if (part.cutout) { material.alphaMode = 'MASK'; material.alphaCutoff = part.alphaCutoff ?? 0.5; }
             // `blend`: blended by its picture's own alpha (Slimefolk goo).
             else if (base[3] < 1 || part.blend) material.alphaMode = 'BLEND';
@@ -150,7 +161,12 @@
             const normal = part.normalTexture ? textureFor(part.normalTexture) : null;
             if (normal !== null) material.normalTexture = Object.assign({ index: normal }, part.normalScale != null ? { scale: part.normalScale } : {});
             // A part that shines in its own light: `emissive` (hex), `emissiveTexture` (a name in `images`).
-            if (part.emissive) { material.emissiveFactor = hexColor(part.emissive).slice(0, 3); const glow = part.emissiveTexture ? textureFor(part.emissiveTexture) : null; if (glow !== null) material.emissiveTexture = { index: glow }; }
+            if (part.emissive) {
+                const intensity = Number.isFinite(part.emissiveIntensity) ? Math.max(0,Math.min(1,part.emissiveIntensity)) : 1;
+                material.emissiveFactor = hexColor(part.emissive).slice(0, 3).map(c => c * intensity);
+                const glow = part.emissiveTexture ? textureFor(part.emissiveTexture) : null;
+                if (glow !== null) material.emissiveTexture = { index: glow };
+            }
             json.materials.push(material);
             const b = bounds(part.positions);
             const big = part.positions.length / 3 > 65535;
@@ -212,7 +228,7 @@
             (json.animations = json.animations || []).push(animation);
         }
         json.buffers.push({ byteLength: length });
-        if (quantized) { json.extensionsUsed = ['KHR_mesh_quantization']; json.extensionsRequired = ['KHR_mesh_quantization']; }
+        if (quantized) { (json.extensionsUsed ||= []).push('KHR_mesh_quantization'); json.extensionsRequired = ['KHR_mesh_quantization']; }
 
         const jsonBytes = new TextEncoder().encode(JSON.stringify(json));
         const jsonPad = (4 - (jsonBytes.length % 4)) % 4;

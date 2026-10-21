@@ -1026,7 +1026,7 @@
         const result = {
             recipe: r, parts, bones: bones.map(b => ({ name: b.name, parent: b.parent, head: b.head.slice(), tail: b.tail.slice() })),
             // The view's Face frame and the pictures aim at the eyes, as on a person.
-            height, bodyHeight: Math.min(height, eyes[0].center[1] / 0.93), textures: { 'goo.png': rampTexture(r), 'goo-glow.png': glowTexture(r) }, clips: clipsFor(bones, r), plan: 'slime', shaded: true,
+            height, bodyHeight: Math.min(height, eyes[0].center[1] / 0.93), textures: { 'goo.png': rampTexture(r), 'goo-glow.png': glowTexture(r) }, clips: o.static ? [] : clipsFor(bones, r), plan: 'slime', shaded: true,
             sidecar: sidecar(r), buildMs: shape.ms
         };
         return result;
@@ -1244,7 +1244,7 @@
     function poseClip(bones, id, recipe) { return clipsFor(bones, recipe).find(c => c.id === id) || null; }
 
     // ── the page ───────────────────────────────────────────────────────────
-    /** The Slimefolk's controls in the Species tab, with the builder's own rows. */
+    /** The Slimefolk's controls in the Body tab, with the builder's own rows. */
     function panel(b) {
         const colors = PALETTE.map(p => p[0]), cores = PALETTE.map(p => p[1]).filter((c, i, a) => a.indexOf(c) === i).slice(0, 8);
         return b._section('Slime')

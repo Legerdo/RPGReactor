@@ -735,6 +735,7 @@
             if (part.name === 'Lashes' && pack.helpers.lashes && pack.helpers.lashes.source.length === n) return { mode: 'source', map: pack.helpers.lashes.source };
             if (part.name === 'Teeth') return { mode: 'teeth' };
             if (part.name === 'Tongue' && part.source && part.source.length === n) return { mode: 'tongue', map: part.source };
+            if ((part.name === 'Forehead detail' || part.chestDetail) && part.interpolation) return { mode: 'interpolation', map: part.interpolation };
             if (part.source && part.source.length === n && (part.name === 'Tongue' || part.name === 'Brows' || part.decal || part.onSkin)) return { mode: 'source', map: part.source };
             // Facial hair and the features on the face (tusks, a muzzle's whiskers): each strand or piece by its root.
             if (part.name === 'Facial hair' || part.kind === 'feature') return rigid(part, nearest, o);
@@ -819,7 +820,14 @@
             const m = b.maps[k];
             if (still || !m) { positions.push(null); normals.push(null); return; }
             const base = part.positions, n = base.length / 3;
-            if (m.mode === 'source') {
+            if (m.mode === 'interpolation') {
+                const P = Float32Array.from(base), bind = m.map;
+                for (let i = 0; i < n; i++) for (let j = bind.offsets[i]; j < bind.offsets[i + 1]; j++) {
+                    const v = bind.vertices[j], w = bind.weights[j];
+                    for (let c = 0; c < 3; c++) P[i * 3 + c] += D[v * 3 + c] * w;
+                }
+                positions.push(P); normals.push(Body.normals(P, Uint32Array.from({ length: n }, (_, i) => i), part.index, n));
+            } else if (m.mode === 'source') {
                 const P = Float32Array.from(base), map = m.map;
                 let any = false;
                 for (let i = 0; i < n; i++) {
@@ -1161,10 +1169,11 @@
         const names = handle.names, shapes = lineVisemes(o.line || SAMPLE_LINE);
         const weights = new Float32Array(names.length), target = new Float32Array(names.length);
         const ids = names.map(n => n.replace('viseme_', ''));
-        let frame = 0, last = -1, hold = 0, pause = 0, raf = 0, stopped = false, blinkAt = 40;
+        let frame = 0, last = -1, hold = 0, pause = 0, raf = 0, stopped = false, paused = false, blinkAt = 40;
         const text = o.line || SAMPLE_LINE;
         const step = () => {
-            if (stopped) return;
+            raf = 0;
+            if (stopped || paused) return;
             target.fill(0);
             const i = frame - 10;
             if (pause > 0) pause--;
@@ -1197,7 +1206,11 @@
             if (o.done) o.done();
         };
         raf = requestAnimationFrame(step);
-        return { stop: finish };
+        return { stop: finish, pause(value = true) {
+            paused = !!value;
+            if (paused) { cancelAnimationFrame(raf); raf = 0; }
+            else if (!stopped && !raf) raf = requestAnimationFrame(step);
+        } };
     }
 
     const api = {

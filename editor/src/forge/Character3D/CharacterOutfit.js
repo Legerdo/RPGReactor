@@ -540,7 +540,24 @@
     function lay(pack, built, piece, spec, cache) {
         cache.normals = cache.normals || {};
         const bound = spec.surface === 'tights';
-        const P = bound ? boundPositions(pack, built, 'tights', cache) : built.shaped, count = piece.verts.length;
+        let P = bound ? boundPositions(pack, built, 'tights', cache) : built.shaped;
+        if (spec.surface === 'skirt') {
+            if (!cache.skirtPositions) {
+                const fitted = boundPositions(pack, built, 'skirt', cache), an = anatomy(pack);
+                cache.skirtPositions = Float32Array.from(P);
+                // Seat the waistband on the same skin as the bodice. Let the
+                // lower fabric hang from the helper instead of following legs.
+                for (const v of new Set(pack.helpers.skirt.source)) {
+                    const blend = 1 - smoothstep(0.03, 0.28, an.skirtU[v]);
+                    for (let k = 0; k < 3; k++) cache.skirtPositions[v * 3 + k] += (fitted[v * 3 + k] - P[v * 3 + k]) * blend;
+                    // A small overlap remains under the bodice even when a
+                    // compact torso compresses its last row of cloth faces.
+                    cache.skirtPositions[v * 3 + 1] += built.height * .012 * (1 - smoothstep(.03,.12,an.skirtU[v]));
+                }
+            }
+            P = cache.skirtPositions;
+        }
+        const count = piece.verts.length;
         const surface = pack.helpers[spec.surface] || pack.body;
         const sn = cache.normals[spec.surface] || (cache.normals[spec.surface] = surfaceNormals(surface, P, pack.vertexCount));
         const base = new Float32Array(count * 3), normal = new Float32Array(count * 3);
@@ -668,10 +685,12 @@
         const skirt = spec.surface === 'skirt';
         if (frame.trunkEnvelope === undefined) {
             const an = anatomy(pack), P = built.shaped, ids = [...new Set(pack.body.source)];
-            let half = 0;
-            for (const v of ids) if (an.member[v * 5] > 0.9 && an.s[v * 5] > 0.4 && an.s[v * 5] < 2) half = Math.max(half, Math.abs(P[v * 3]));
+            let half = 0, front = -Infinity, back = Infinity;
+            for (const v of ids) if (an.member[v * 5] > 0.9 && an.s[v * 5] > 0.4 && an.s[v * 5] < 2) {
+                half = Math.max(half, Math.abs(P[v * 3])); front = Math.max(front,P[v*3+2]); back = Math.min(back,P[v*3+2]);
+            }
             frame.trunkEnvelope = null;
-            if (half > built.height * 0.15) {
+            if (half > built.height * 0.15 || front - back > built.height * .3) {
                 const bins = new Map(), step = 0.02 * built.height / 1.7;
                 for (const v of ids) {
                     if (an.member[v * 5 + 1] > 0.4 || an.member[v * 5 + 2] > 0.4 || an.s[v * 5] > 3.7) continue;
@@ -690,8 +709,11 @@
             const field = fields[i];
             if (!skirt && (field.fam === 1 || field.fam === 2 || field.y < restHip * 0.75 || field.y > restNeck - 0.03)) continue;
             const o = i * 3;
-            let y = field.y < restHip ? field.y / restHip * hips[1] : hips[1] + (field.y - restHip) / (restNeck - restHip) * (neck[1] - hips[1]);
-            if (skirt) y += 0.12 * built.height / 1.7 * Math.max(0, 1 - field.u);
+            // The fitted skin already follows each spine joint, body fold
+            // and proportion slider. A single hip-to-neck height mapping
+            // separated compact bodices from their skirts and raised heavy
+            // waistbands. This envelope only changes the horizontal contour.
+            const y = skirt ? positions[o + 1] : base[o + 1];
             const band = bins.get(Math.floor(y / step));
             if (!band || band.length < 3) continue;
             const t = Math.max(0, Math.min(1, (y - hips[1]) / (neck[1] - hips[1]))), cz = hips[2] * (1 - t) + neck[2] * t;
@@ -700,9 +722,34 @@
             const nx = Math.sin(field.spineAng), nz = Math.cos(field.spineAng);
             let support = -Infinity;
             for (const v of band) support = Math.max(support, P[v * 3] * nx + (P[v * 3 + 2] - cz) * nz);
-            if (skirt) for (const v of hipBand) support = Math.max(support, P[v * 3] * nx + (P[v * 3 + 2] - cz) * nz);
-            const radius = support + lift * 2 + (skirt && spec.flare ? Math.max(0, spec.flare(field)) : 0);
-            const blend = skirt || field.y < restHip + (restNeck - restHip) * 0.7 ? 1 : Math.max(0, Math.min(1, (field.trunk - 0.6) / 0.35));
+            if (skirt) {
+                let hipSupport = support;
+                for (const v of hipBand) hipSupport = Math.max(hipSupport, P[v * 3] * nx + (P[v * 3 + 2] - cz) * nz);
+                support += (hipSupport - support) * smoothstep(0.02, 0.32, field.u);
+            }
+            if (skirt) {
+                // Enclosure is an outward constraint, not a new skirt profile.
+                // Pulling a flared hem toward a partial rest-angle envelope let
+                // extreme hips and seats cross its back. Query its actual height
+                // and bearing, retain the existing flare, and clear the whole skin.
+                const radius = Math.max(distance,support + lift * 2);
+                // Keep the chart's angular order: skin collision can move
+                // neighboring helper points past one another around a deep fold.
+                const blend=smoothstep(.025,.14,field.u);
+                const tx=nx*radius,tz=cz+nz*radius;
+                const px=(tx-positions[o])*blend,pz=(tz-positions[o+2])*blend;
+                positions[o]+=px;positions[o+2]+=pz;base[o]+=px;base[o+2]+=pz;
+                // The transition next to the pinned waistband still needs
+                // full clearance, even while its angle blends into the chart.
+                const x=positions[o],z=positions[o+2]-cz,rho=Math.hypot(x,z),ax=x/rho,az=z/rho;
+                let reach=0;
+                for(const v of band)reach=Math.max(reach,P[v*3]*ax+(P[v*3+2]-cz)*az);
+                const outward=Math.max(0,reach+lift*2-rho);
+                positions[o]+=ax*outward;positions[o+2]+=az*outward;base[o]+=ax*outward;base[o+2]+=az*outward;
+                continue;
+            }
+            const radius = support + lift * 2;
+            const blend = skirt ? .3 + .7 * smoothstep(0.03, 0.28, field.u) : field.y < restHip + (restNeck - restHip) * 0.7 ? 1 : Math.max(0, Math.min(1, (field.trunk - 0.6) / 0.35));
             const target = [nx * radius, y, cz + nz * radius];
             for (let k = 0; k < 3; k++) {
                 const delta = (target[k] - positions[o + k]) * blend;
@@ -832,6 +879,22 @@
         }
         return a;
     };
+
+    /** A stiff boot and its lining share one foot articulation, with a flexible ankle sleeve. */
+    function rigidFootSkin(built, position, skin) {
+        const side=position[0]>0?'Left':'Right',foot=built.bones.findIndex(b=>b.name===side+'Foot');
+        if(foot<0)return skin;
+        const ankle=built.bones[foot].head[1],scale=built.height/1.7;
+        const flex=smoothstep(ankle+.04*scale,ankle+.11*scale,position[1]);
+        if(flex>=1)return skin;
+        const sum=new Map();
+        for(let k=0;k<4;k++)if(skin.weights[k]>0)sum.set(skin.joints[k],(sum.get(skin.joints[k])||0)+skin.weights[k]*flex);
+        sum.set(foot,(sum.get(foot)||0)+1-flex);
+        const top=[...sum].sort((a,b)=>b[1]-a[1]).slice(0,4),total=top.reduce((v,q)=>v+q[1],0);
+        skin.joints.fill(0);skin.weights.fill(0);
+        top.forEach(([joint,weight],k)=>{skin.joints[k]=joint;skin.weights[k]=weight/total;});
+        return skin;
+    }
 
     /**
      * The upper's grid on one foot of a built body: positions per (row, column),
@@ -1340,21 +1403,7 @@
             for (let i = 0; i < n; i++) {
                 const s = nearest(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
                 if (style.rigidFoot) {
-                    const side = P[i * 3] > 0 ? 'Left' : 'Right', foot = built.bones.findIndex(b => b.name === side + 'Foot'), toe = built.bones.findIndex(b => b.name === side + 'ToeBase');
-                    const ankle = built.bones[foot].head[1], scale = built.height / 1.7;
-                    const flex = smoothstep(ankle + 0.005 * scale, ankle + 0.05 * scale, P[i * 3 + 1]);
-                    if (flex < 1) {
-                        // The heel, sole and foot shell follow the foot; only the ankle sleeve blends into the shin.
-                        // Toe articulation stays in the toe cap, so push-off cannot pull toes through the upper.
-                        const sum = new Map();
-                        let toeWeight = 0;
-                        for (let k = 0; k < 4; k++) { if (s.joints[k] === toe) toeWeight += s.weights[k]; if (s.weights[k] > 0) sum.set(s.joints[k], (sum.get(s.joints[k]) || 0) + s.weights[k] * flex); }
-                        sum.set(foot, (sum.get(foot) || 0) + (1 - toeWeight) * (1 - flex));
-                        if (toeWeight) sum.set(toe, (sum.get(toe) || 0) + toeWeight * (1 - flex));
-                        const top = [...sum].sort((a, b) => b[1] - a[1]).slice(0, 4), total = top.reduce((v, q) => v + q[1], 0);
-                        s.joints.fill(0); s.weights.fill(0);
-                        top.forEach(([joint, weight], k) => { s.joints[k] = joint; s.weights[k] = weight / total; });
-                    }
+                    rigidFootSkin(built,P.subarray(i*3,i*3+3),s);
                 }
                 for (let k = 0; k < 4; k++) { joints.push(s.joints[k]); weights.push(s.weights[k]); }
                 source.push(s.v);
@@ -2045,7 +2094,7 @@
         return {positions:Float32Array.from(positions),normals:Float32Array.from(normals),joints:Uint8Array.from(joints),weights:Float32Array.from(weights),index:Uint32Array.from(index)};
     }
 
-    const api = { binding, boundPositions, collide, pointGrid, FAMILIES, CHAINS, linear, anatomy, coverage, cut, cutFor, lay, paint, mixSkin, surfaceNormals, triangleNormals, relaxScalar, shoes, footFrame, band, helmet, pauldrons, collarBand, uncovered, swimStraps };
+    const api = { binding, boundPositions, collide, pointGrid, rigidFootSkin, FAMILIES, CHAINS, linear, anatomy, coverage, cut, cutFor, lay, paint, mixSkin, surfaceNormals, triangleNormals, relaxScalar, shoes, footFrame, band, helmet, pauldrons, collarBand, uncovered, swimStraps };
     root.RRCharacterOutfit = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -123,7 +123,7 @@
             const f = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
             return [f(((n >> 16) & 255) / 255), f(((n >> 8) & 255) / 255), f((n & 255) / 255)];
         };
-        return parts.map((p, k) => {
+        const shaded = parts.map((p, k) => {
             const a = ao[k];
             if (!a || p.noShade || a.length !== p.positions.length / 3) return p;
             const n = p.positions.length / 3, colors = new Float32Array(n * 3);
@@ -133,6 +133,14 @@
             if (!p.texture) delete out.color;
             return out;
         });
+        // A pigment overlay shares its underlying skin's occlusion, without casting it a second time.
+        for (let k = 0; k < shaded.length; k++) if (shaded[k].shadeFrom) {
+            const source = shaded.find(p => p.name === shaded[k].shadeFrom);
+            if (source?.colors && source.positions.length === shaded[k].positions.length) {
+                shaded[k] = Object.assign({}, shaded[k], { colors: Float32Array.from(source.colors), shaded: true });
+            }
+        }
+        return shaded;
     }
 
     const api = { ambientOcclusion, applyOcclusion, vertexAreas };

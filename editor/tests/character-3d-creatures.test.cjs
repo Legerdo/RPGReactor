@@ -31,8 +31,8 @@ test('a recipe is completed and kept in its extreme range', () => {
     for (const s of Creature.SLIDERS) assert.ok(s.natural[0] >= s.min && s.natural[1] <= s.max, s.key);
 });
 
-test('every preset stands on the floor, faces +z and is the size it says', () => {
-    for (const kind of Creature.KINDS) {
+test('every four-legged preset stands on the floor, faces +z and is the size it says', () => {
+    for (const kind of Creature.KINDS.filter(k => !k.form)) {
         const built = Creature.build(Creature.kindRecipe(kind.kind), { quality: 'preview' });
         const { lo, hi } = bounds(built.parts.filter(p => p.name === 'Body'));
         assert.ok(Math.abs(lo[1]) < 1e-6, kind.kind + ' floor ' + lo[1]);
@@ -138,20 +138,20 @@ test('a preview build is quick enough for a live slider', () => {
 
 test('anatomical detail: off by default, a sex of its own, kept by Randomize', () => {
     const lion = Creature.kindRecipe('lion');
-    assert.deepEqual(lion.anatomy, { detail: false, sex: 'male' });
-    assert.deepEqual(Creature.normalizeRecipe({ anatomy: { detail: 'yes', sex: 'other' } }).anatomy, { detail: false, sex: 'male' });
-    assert.deepEqual(Creature.normalizeRecipe({ anatomy: { detail: true, sex: 'female' } }).anatomy, { detail: true, sex: 'female' });
+    assert.deepEqual(lion.anatomy, { ...Creature.DEFAULT_RECIPE.anatomy });
+    assert.deepEqual(Creature.normalizeRecipe({ anatomy: { detail: 'yes', sex: 'other' } }).anatomy, { ...Creature.DEFAULT_RECIPE.anatomy });
+    assert.deepEqual(Creature.normalizeRecipe({ anatomy: { ...Creature.DEFAULT_RECIPE.anatomy, detail: true, sex: 'female' } }).anatomy, { ...Creature.DEFAULT_RECIPE.anatomy, detail: true, sex: 'female' });
     const roll = Creature.randomRecipe(9, 'lion');
     assert.ok(!('anatomy' in roll) && !('gear' in roll), 'a random roll carries no anatomy or gear');
-    const kept = Creature.normalizeRecipe(Object.assign({}, lion, { anatomy: { detail: true, sex: 'female' } }, roll));
-    assert.deepEqual(kept.anatomy, { detail: true, sex: 'female' });
+    const kept = Creature.normalizeRecipe(Object.assign({}, lion, { anatomy: { ...Creature.DEFAULT_RECIPE.anatomy, detail: true, sex: 'female' } }, roll));
+    assert.deepEqual(kept.anatomy, { ...Creature.DEFAULT_RECIPE.anatomy, detail: true, sex: 'female' });
 });
 
 test('anatomical detail builds each sex as the species is made, and nothing when off', () => {
-    const verts = r => Creature.build(r, { quality: 'preview', hairBudget: 0 }).parts.find(p => p.name === 'Body').positions.length / 3;
+    const verts = r => Creature.build(r, { quality: 'preview', hairBudget: 0 }).parts.filter(p => p.name === 'Body' || p.name === 'Anatomy').reduce((sum, p) => sum + p.positions.length / 3, 0);
     for (const kind of ['lion', 'dog', 'horse', 'bull']) {
         const base = Creature.kindRecipe(kind);
-        const off = verts(base), male = verts(Object.assign({}, base, { anatomy: { detail: true, sex: 'male' } })), female = verts(Object.assign({}, base, { anatomy: { detail: true, sex: 'female' } }));
+        const off = verts(base), male = verts(Object.assign({}, base, { anatomy: { detail: true, sex: 'male' } })), female = verts(Object.assign({}, base, { anatomy: { ...Creature.DEFAULT_RECIPE.anatomy, detail: true, sex: 'female' } }));
         assert.notEqual(male, off, kind + ' male differs');
         assert.notEqual(female, off, kind + ' female differs');
         assert.notEqual(male, female, kind + ' sexes differ');
@@ -182,7 +182,7 @@ test('a male\'s sheath and scrotum are part of the body\'s skin, never a piece f
     for (const kind of ['lion', 'cat', 'tiger', 'dog', 'horse', 'bull', 'ram', 'boar', 'rabbit', 'deer']) {
         const r = Creature.kindRecipe(kind);
         const count = anatomy => pieces(Creature.build(Object.assign({}, r, { anatomy }), { quality: 'preview', hairBudget: 0 }).parts.find(p => p.name === 'Body'));
-        assert.equal(count({ detail: true, sex: 'male' }), count({ detail: false, sex: 'male' }), kind);
+        assert.equal(count({ detail: true, sex: 'male' }), count({ ...Creature.DEFAULT_RECIPE.anatomy }), kind);
     }
 });
 
@@ -194,7 +194,7 @@ test('the body holds together at the sliders\' ends: hips high or low, the thinn
     }
 });
 
-test('a fine coat pattern is painted into a picture over the body; a plain coat stays in the vertex colors', () => {
+test('selected creatures use sharper coat pictures including plain short-haired coats', () => {
     for (const quality of ['save', 'preview']) {
         const tiger = Creature.build(Creature.kindRecipe('tiger'), { quality, hairBudget: 0 });
         const body = tiger.parts.find(p => p.name === 'Body');
@@ -209,7 +209,8 @@ test('a fine coat pattern is painted into a picture over the body; a plain coat 
         assert.ok(dark > 1000 && light > 1000, quality + ' ' + dark + ' / ' + light);
     }
     const horse = Creature.build(Creature.kindRecipe('horse'), { quality: 'preview', hairBudget: 0 });
-    assert.ok(!horse.parts.find(p => p.name === 'Body').texture && !horse.textures['creaturecoat.png']);
+    assert.equal(horse.parts.find(p => p.name === 'Body').texture, 'creaturecoat.png');
+    assert.equal(horse.textures['creaturecoat.png'].width, 768);
 });
 
 test('a furred coat grows fine strand cards that follow the hair budget; a furred coat is painted into the coat picture', () => {
@@ -251,7 +252,7 @@ test('a female wears no lion\'s mane and no antlers; the recipe keeps what was c
     assert.equal(lioness.recipe.mane, 'lion');
     const deer = Creature.kindRecipe('deer');
     assert.ok(Creature.build(deer, { quality: 'preview', hairBudget: 0 }).parts.some(p => p.name === 'Horns'));
-    assert.ok(!Creature.build(Object.assign({}, deer, { anatomy: { detail: true, sex: 'female' } }), { quality: 'preview', hairBudget: 0 }).parts.some(p => p.name === 'Horns'));
+    assert.ok(!Creature.build(Object.assign({}, deer, { anatomy: { ...Creature.DEFAULT_RECIPE.anatomy, detail: true, sex: 'female' } }), { quality: 'preview', hairBudget: 0 }).parts.some(p => p.name === 'Horns'));
     // A horse's crest and a wolf's ruff are both sexes'.
     const horse = Creature.kindRecipe('horse');
     const body = r => Creature.build(r, { quality: 'preview', hairBudget: 0 }).parts.find(p => p.name === 'Body').index.length;
@@ -287,10 +288,10 @@ test('the saved body is meshed finer than the preview and reduced to a sane coun
 });
 
 test('poses: every pose builds on the creature\'s own bones, in the poses\' clip format, on the floor', () => {
-    assert.deepEqual(Creature.POSES.map(p => p.id), ['walk', 'trot', 'gallop', 'stalk', 'pounce', 'sit', 'lieDown', 'lieSide', 'rear', 'playBow']);
+    assert.deepEqual(Creature.posesFor(Creature.kindRecipe('dog')).map(p => p.id), ['walk', 'trot', 'gallop', 'stalk', 'pounce', 'sit', 'lieDown', 'lieSide', 'rear', 'playBow']);
     for (const kind of ['lion', 'horse', 'dog', 'bear']) {
         const r = Creature.kindRecipe(kind), built = Creature.build(r, { quality: 'preview', hairBudget: 0 });
-        for (const { id } of Creature.POSES) {
+        for (const { id } of Creature.posesFor(r)) {
             const clip = Creature.poseClip(built.bones, id, r);
             if (id === 'rear' && (kind === 'lion' || kind === 'dog')) { assert.equal(clip, null, kind + ' does not rear'); continue; }
             if (id === 'playBow' && kind === 'horse') { assert.equal(clip, null); continue; }

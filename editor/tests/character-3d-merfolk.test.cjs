@@ -27,6 +27,39 @@ const merfolk = over => Object.assign(Model.withSpecies({ gender: (over && over.
 const part = (result, name) => result.parts.find(p => p.name === name);
 const tris = (result, names) => result.parts.filter(p => names.includes(p.name)).reduce((s, p) => s + p.index.length / 3, 0);
 
+test('deep hip contours carry into the upper tail instead of dropping into a flat cylindrical wall',()=>{
+    let checked=0;
+    for(const p of require('./quality/character-outfit-accessory-quality.cjs').FRESH_PROFILES){
+        const result=Model.build(pack,Model.normalize(merfolk({...p.patch,outfit:[]})),{}, {static:true,skinSize:64,atlasSize:64,hairBudget:0});
+        const tail=part(result,'Tail'),count=Mer.cutOf(pack).ring.length;
+        const ys=Array.from({length:count},(_,i)=>tail.positions[i*3+1]),lo=Math.min(...ys),hi=Math.max(...ys);
+        if(hi-lo<=result.built.height*.10)continue;
+        const next=Array.from({length:64},(_,i)=>tail.positions[(count+i)*3+1]);
+        assert.ok(Math.max(...next)>hi-result.built.height*.045,p.id+' upper taper follows the high seat');
+        assert.ok(Math.min(...next)>lo-result.built.height*.045,p.id+' lower cut remains connected');checked++;
+    }
+    assert.ok(checked>=2,'contrasting deep body contours are exercised');
+});
+
+test('hip and back fin roots follow the raised tail contour on deep hips',()=>{
+    for(const profile of require('./quality/character-outfit-accessory-quality.cjs').FRESH_PROFILES.filter(p=>['pear-female','barrel-male'].includes(p.id))){
+        const r=Model.normalize(merfolk({...profile.patch,outfit:[],merfolk:{fin:'fan',length:2,hipFins:true,backFin:true}}));
+        const result=Model.build(pack,r,{}, {static:true,skinSize:64,atlasSize:64,hairBudget:0}),tail=part(result,'Tail'),fins=part(result,'Fins');
+        // The first membrane is the terminal fan, followed by two pelvic fins
+        // and the dorsal crest. Sample their embedded root row only.
+        let start=(Mer.FIN_SHAPES.fan.rays*4+3)*15,worst=0;
+        for(const [columns,stride]of [[15,9],[15,9],[25,7]]){
+            for(let c=0;c<columns;c++){
+                const root=(start+c*stride)*3;let nearest=Infinity;
+                for(let v=0;v<tail.positions.length;v+=3)nearest=Math.min(nearest,Math.hypot(...[0,1,2].map(k=>fins.positions[root+k]-tail.positions[v+k])));
+                worst=Math.max(worst,nearest);
+            }
+            start+=columns*stride;
+        }
+        assert.ok(worst<result.built.height*.025,profile.id+' fin roots remain within one sampled surface cell: '+worst.toFixed(4));
+    }
+});
+
 /** Every part well formed: finite numbers, skin indices in range, weights summing to one, pictures' coordinates in range. */
 function assertSound(result, label) {
     for (const p of result.parts) {
@@ -306,4 +339,31 @@ test('every label the merfolk controls and poses show is translated into all 17 
     for (const locale of ['ja', 'es', 'zh-Hant', 'zh-Hans', 'ru', 'pt', 'de', 'fr', 'el', 'ko', 'ar', 'it', 'pl', 'id', 'vi', 'th', 'tr']) {
         for (const l of labels) assert.ok(text[locale] && text[locale][l], `${locale}: "${l}"`);
     }
+});
+
+test('deep hip and seat folds cannot reverse the tail surface winding',async()=>{
+ const pack=await Body.loadPack();
+ const Q=require('./helpers/character-quality-matrix.cjs');
+ for(const profile of require('./quality/character-outfit-accessory-quality.cjs').FRESH_PROFILES){
+  const recipe=Q.Model.normalize({...Q.Model.withSpecies({age:35},'merfolk'),...profile.patch,merfolk:{fin:'fan'}}),built=Q.Model.build(pack,recipe,{}, {quality:'preview',static:true,skinSize:32}),tail=built.parts.find(p=>p.name==='Tail');
+  const P=tail.positions,I=tail.index,edges=new Map();let volume=0;
+  const at=i=>Array.from(P.subarray(i*3,i*3+3));
+  const det=(a,b,c)=>a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]);
+  for(let t=0;t<I.length;t+=3){const a=I[t],b=I[t+1],c=I[t+2];volume+=det(at(a),at(b),at(c))/6;for(const[u,v]of[[a,b],[b,c],[c,a]]){const k=u<v?u+':'+v:v+':'+u;if(edges.has(k))edges.delete(k);else edges.set(k,[u,v]);}}
+  // Close only the open cut and tiny stem cap for an orientation measurement.
+  const boundary=[...edges.values()],center=[0,0,0];for(const[a]of boundary)for(let k=0;k<3;k++)center[k]+=P[a*3+k]/boundary.length;
+  for(const[a,b]of boundary)volume+=det(center,at(b),at(a))/6;
+  assert.ok(volume>1e-7,profile.id+' tail exterior volume '+volume.toFixed(6));
+ }
+});
+
+test('merfolk scale-line edges follow the actual skin cut instead of sorting folded skin by bearing',async()=>{
+ const pack=await Body.loadPack(),cut=Mer.cutOf(pack),source=pack.body.source,expected=new Set(),hidden=new Set(cut.hiddenTris),edges=new Map();
+ const key=(a,b)=>a<b?a+':'+b:b+':'+a;
+ for(let t=0;t<pack.body.index.length;t+=3)for(let k=0;k<3;k++){
+  const a=source[pack.body.index[t+k]],b=source[pack.body.index[t+(k+1)%3]],id=key(a,b);if(!edges.has(id))edges.set(id,new Set());edges.get(id).add(hidden.has(t));
+ }
+ for(const[k,s]of edges)if(s.size===2)expected.add(k);
+ assert.equal(cut.ring.length,expected.size,'every cut edge belongs to the one joined loop');
+ for(let i=0;i<cut.ring.length;i++)assert.ok(expected.has(key(cut.ring[i],cut.ring[(i+1)%cut.ring.length])),'no cross-cut shortcut at '+i);
 });

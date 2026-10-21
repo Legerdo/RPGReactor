@@ -25,13 +25,15 @@
         ears: { label: 'Animal ears', types: [['none', 'None'], ['cat', 'Cat'], ['fox', 'Fox'], ['wolf', 'Wolf'], ['rabbit', 'Rabbit'], ['bear', 'Bear'], ['mouse', 'Mouse'], ['floppy', 'Floppy']], defaults: { size: 1, color: '#8a6a4a', color2: '#e8b8a8' } },
         tail: { label: 'Tail', types: [['none', 'None'], ['lizard', 'Lizard'], ['dragon', 'Dragon'], ['cat', 'Cat'], ['fox', 'Bushy'], ['demon', 'Demon'], ['monkey', 'Monkey'], ['horse', 'Horse'], ['bull', 'Tufted'], ['rabbit', 'Puff'], ['bird', 'Feathers']], defaults: { size: 1, length: 1, color: '#6a7a4a', color2: '#d8d0b0' } },
         wings: { label: 'Wings', types: [['none', 'None'], ['feathered', 'Feathered'], ['bat', 'Bat'], ['fairy', 'Fairy'], ['insect', 'Insect']], defaults: { size: 1, color: '#f2efe8', color2: '#c8c0b0' } },
-        antennae: { label: 'Antennae', types: [['none', 'None'], ['insect', 'Curved'], ['moth', 'Feathery']], defaults: { size: 1, color: '#503c30', color2: '#bdae88' } },
+        antennae: { label: 'Antennae', types: [['none', 'None'], ['insect', 'Curved'], ['moth', 'Feathery'], ['andorian', 'Andorian']], defaults: { size: 1, color: '#503c30', color2: '#bdae88' } },
         fangs: { label: 'Fangs', types: [['none', 'None'], ['small', 'Small'], ['long', 'Long']], defaults: { size: 1, color: '#ece2cc' } },
         beak: { label: 'Beak', types: [['none', 'None'], ['raptor', 'Hooked'], ['crow', 'Pointed'], ['duck', 'Flat']], defaults: { size: 1, color: '#e0a830', color2: '#3a2a1a' } },
         tusks: { label: 'Tusks', types: [['none', 'None'], ['small', 'Small'], ['large', 'Large']], defaults: { size: 1, color: '#ece2c8' } },
         spines: { label: 'Spines', types: [['none', 'None'], ['ridge', 'Back ridge'], ['crest', 'Head crest'], ['both', 'Ridge and crest']], defaults: { size: 1, color: '#4a3a2a' } },
         whiskers: { label: 'Whiskers', types: [['none', 'None'], ['short', 'Short'], ['long', 'Long']], defaults: { size: 1, color: '#f0ece4' } },
-        alienEyes: { label: 'Alien eyes', types: [['none', 'None'], ['almond', 'Almond'], ['round', 'Round']], defaults: { size: 1, color: '#050507' } }
+        alienEyes: { label: 'Alien eyes', types: [['none', 'None'], ['almond', 'Almond'], ['round', 'Round']], defaults: { size: 1, color: '#050507' } },
+        arms: { label: 'Extra arms', types: [['none', 'None'], ['insect', 'Insect arms']], defaults: { size: 1, color: '#718755', color2: '#3e4e35' } },
+        machinery: { label: 'Mechanical parts', types: [['none', 'None'], ['android', 'Android circuitry']], defaults: { size: 1, color: '#343e4d', color2: '#39d9e8' } }
     };
 
     function normalizeFeatures(input) {
@@ -52,7 +54,7 @@
     const SPECIES = [
         { id: 'human', label: 'Human', group: 'Common', recipe: {} },
         { id: 'vampire', label: 'Vampire', group: 'Fantasy', recipe: { skin: '#cebdc2', eyes: { color: '#9c2936' }, features: { fangs: { type: 'small' } }, shapes: { cheekBones: 0.7, chinPointed: 0.3 } } },
-        { id: 'insectfolk', label: 'Insectfolk', group: 'Beastfolk', recipe: { skin: '#718755', skinPattern: { type: 'panels', color: '#3e4e35' }, eyes: { color: '#452c21' }, features: { antennae: { type: 'insect' }, wings: { type: 'insect', color: '#c7cfa9', color2: '#596843' } } } },
+        { id: 'insectfolk', label: 'Insectfolk', group: 'Beastfolk', recipe: { skin: '#718755', skinPattern: { type: 'panels', color: '#3e4e35' }, eyes: { color: '#452c21' }, features: { arms: { type: 'insect' }, antennae: { type: 'insect' }, wings: { type: 'insect', color: '#c7cfa9', color2: '#596843' } } } },
         { id: 'elf', label: 'Elf', group: 'Fantasy', recipe: { height: 0.68, weight: 0.32, muscle: 0.4, shapes: { earsPointed: 2.6, earSize: 0.5, cheekBones: 0.7, chinPointed: 0.5, eyeSlant: 0.6, jaw: -0.4, neckLength: 0.5 } } },
         { id: 'darkelf', label: 'Dark elf', group: 'Fantasy', recipe: { height: 0.62, weight: 0.3, shapes: { earsPointed: 3, earSize: 0.6, cheekBones: 0.9, chinPointed: 0.6, eyeSlant: 0.8, jaw: -0.4 }, skin: '#5e5470', eyes: { color: '#d8302a' } } },
         { id: 'dwarf', label: 'Dwarf', group: 'Fantasy', recipe: { height: 0.12, weight: 0.78, muscle: 0.85, headSize: 1.08, hair: { facial: { style: 'longBeard' }, brows: { style: 'bushy' } }, shapes: { legLength: -1, armLength: -0.5, shoulders: 1.2, chest: 1, noseDepth: 1.2, noseWidth: 1, browRidge: 0.8, handSize: 0.6, neck: 0.8 } } },
@@ -67,7 +69,7 @@
         { id: 'lizardfolk', label: 'Lizardfolk', group: 'Beastfolk', recipe: { head: { id: 'reptile', kind: 'drake', horns: 'none', ears: 'none', snoutLength: 0.85, pattern: 'scales' }, height: 0.75, weight: 0.7, muscle: 1.2, shapes: { neck: 2.2, neckLength: -0.3, shoulders: 1.2 }, skin: '#5a8a4a', skinPattern: { type: 'scales', color: '#3e6a34', belly: '#c8c890' }, eyes: { color: '#e0c030', pupil: 'slit' }, features: { tail: { type: 'lizard', color: '#5a8a4a', color2: '#c8c890' }, spines: { type: 'ridge', size: 0.6, color: '#3e5a2a' } }, bald: true } },
         { id: 'dragonborn', label: 'Dragonborn', group: 'Beastfolk', recipe: { head: { id: 'dragon', kind: 'drake', snoutLength: 1.0, pattern: 'scales', colors: { horn: '#2a1e18' } }, height: 0.8, muscle: 0.9, shapes: { neck: 1.2, shoulders: 1 }, skin: '#a8402c', skinPattern: { type: 'scales', color: '#7a2a1c', belly: '#e0b070' }, eyes: { color: '#ffb020', pupil: 'slit' }, features: { tail: { type: 'dragon', color: '#a8402c', color2: '#e0b070' } }, bald: true } },
         { id: 'birdfolk', label: 'Birdfolk', group: 'Beastfolk', recipe: { head: { id: 'bird', kind: 'bird', beak: 'hooked', mane: 'ruff', maneSize: 0.5 }, weight: 0.3, skin: '#8a6a4a', skinPattern: { type: 'feathers', color: '#7a5a3e', belly: '#e8dcc8', shadowAmount: 0 }, eyes: { color: '#e8a020' }, shapes: { neckLength: 0.8 }, features: { wings: { type: 'feathered', size: 0.75, color: '#7a5a3a', color2: '#e8dcc8' }, tail: { type: 'bird', color: '#6a4a2a', color2: '#f0e8d8' } }, bald: true } },
-        { id: 'catfolk', label: 'Catfolk', group: 'Beastfolk', recipe: { head: { id: 'cat', kind: 'cat', pattern: 'tabby' }, weight: 0.38, bald: true, bodyHair: { amount: 0.85, pattern: 'werewolf', fur: 0.6, length: 0.65, color: '#c8924a' }, shapes: { neck: 0.8 }, skin: '#c8924a', skinPattern: { type: 'stripes', color: '#7a4a1a', belly: '#f0e0c8', nose: '#d07a78' }, eyes: { color: '#7ad040', pupil: 'slit' }, features: { tail: { type: 'cat', color: '#c8924a', color2: '#7a4a1a' } } } },
+        { id: 'catfolk', label: 'Catfolk', group: 'Beastfolk', recipe: { head: { id: 'cat', kind: 'cat', pattern: 'tabby' }, weight: 0.38, bald: true, bodyHair: { amount: 0.85, pattern: 'werewolf', fur: 0.4, length: 0.3, color: '#c8924a' }, shapes: { neck: 0.8 }, skin: '#c8924a', skinPattern: { type: 'stripes', color: '#7a4a1a', belly: '#f0e0c8', nose: '#d07a78' }, eyes: { color: '#a7ba71', pupil: 'slit' }, features: { tail: { type: 'cat', color: '#c8924a', color2: '#7a4a1a' } } } },
         { id: 'werewolf', label: 'Werewolf', group: 'Beastfolk', recipe: { head: { id: 'wolf', kind: 'wolf', snoutLength: 0.85, pattern: 'saddle' }, height: 0.7, muscle: 1.1, weight: 0.55, shapes: { shoulders: 1, handSize: 0.6, neck: 1.3 }, skin: '#6a5240', skinPattern: { color: '#2a1e16', belly: '#8a7260', nose: '#141210' }, eyes: { color: '#f0c020' }, features: { tail: { type: 'fox', color: '#4a3424', color2: '#7a6250' } }, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.75, length: 1.2, color: '#4a3424' }, bald: true } },
         { id: 'wolffolk', label: 'Wolffolk', group: 'Beastfolk', recipe: { head: { id: 'wolf', kind: 'wolf', pattern: 'saddle' }, height: 0.65, muscle: 0.8, bald: true, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.9, length: 1.1, color: '#6a6460' }, shapes: { neck: 1.2 }, skin: '#7a7470', skinPattern: { type: 'fur', color: '#4a4440', belly: '#d8d4cc', nose: '#141210' }, eyes: { color: '#e8c030' }, features: { tail: { type: 'fox', color: '#6a6460', color2: '#d8d4cc' } } } },
         { id: 'rabbitfolk', label: 'Rabbitfolk', group: 'Beastfolk', recipe: { head: { id: 'rabbit', kind: 'rabbit' }, height: 0.35, weight: 0.4, bald: true, bodyHair: { amount: 0.9, pattern: 'werewolf', fur: 0.75, length: 0.8, color: '#d8c8b0' }, shapes: { footSize: 2, neck: 0.7 }, skin: '#c8b8a0', skinPattern: { type: 'fur', color: '#a89878', belly: '#f2ece2', nose: '#d89a98' }, eyes: { color: '#6a3a1a' }, features: { tail: { type: 'rabbit', color: '#f2ece2' } } } },
@@ -78,11 +80,27 @@
         { id: 'fairy', label: 'Fairy', group: 'Otherworldly', recipe: { height: -0.5, weight: 0.2, headSize: 1.12, shapes: { earsPointed: 2.2, eyeSize: 1.5, chinPointed: 0.8 }, skin: '#f2dcd0', eyes: { color: '#40c8a0' }, features: { wings: { type: 'fairy', color: '#bfeaff', color2: '#ffffff' } } } },
         { id: 'undead', label: 'Undead', group: 'Otherworldly', recipe: { weight: -0.2, muscle: 0.1, shapes: { headFat: -1.5, cheeks: -2, eyeBags: 2, headAge: 1.5 }, age: 60, skin: '#8a9a80', skinPattern: { type: 'decay', color: '#5a6a50' }, eyes: { color: '#e8f0e0', pupil: 'none', sclera: '#2a3028' } } },
         { id: 'alien', label: 'Grey alien', group: 'Otherworldly', recipe: { height: 0.2, weight: 0.15, headSize: 1.38, morph: { earsAway: 1, earHoles: 0, flat: 0.35, eyeSocket: 1, muzzle: 0 }, shapes: { earSize: -1, earOut: -1, headTriangle: 0.65, headRound: 0.6, foreheadHeight: 0.65, temples: 0.45, browRidge: -0.65, headAge: -0.5, headFat: 0.35, cheeks: 0.15, cheekBones: 0.1, eyeSize: 1.15, noseDepth: -0.9, noseVolume: -0.8, noseWidth: -0.65, noseLength: -0.4, nostrils: -0.5, noseHump: -0.7, mouthWidth: -0.6, upperLip: -0.65, lowerLip: -0.65, jaw: -0.7, chinWidth: -0.55, chinPointed: 0.15, neck: -0.9, neckLength: 0.4 }, skin: '#929ba3', skinPattern: { lips: '#929ba3', shadowAmount: 0.35 }, eyes: { color: '#0a0a0e', pupil: 'none', sclera: '#0a0a0e', catchlight: false }, features: { alienEyes: { type: 'almond' } }, bald: true } },
-        { id: 'android', label: 'Android', group: 'Otherworldly', recipe: { skin: '#d8dce2', skinPattern: { type: 'panels', color: '#8a9098' }, eyes: { color: '#30b8ff', pupil: 'none' }, bald: true } },
+        { id: 'klingon', label: 'Klingon', group: 'Otherworldly', recipe: { skin: '#a77a52', muscle: 0.8, morph: { cranialRidges: 1.25 }, shapes: { browRidge: 1.2, noseWidth: 0.5, noseDepth: 0.4, cheekBones: 0.65, jaw: 0.65, neck: 0.5 }, hair: { style: 'shoulder', length: 0.9, volume: 0.3, fringe: 0, part: 'none', hairline: 0.8, color: '#19120f', brows: { style: 'bushy', thickness: 1, height: -0.45 } } } },
+        { id: 'vulcan', label: 'Vulcan', group: 'Otherworldly', recipe: { skin: '#d5b99f', skinPattern: { lips: '#b1947f' }, shapes: { earsPointed: 2.3, earSize: 0.65, earOut: 0.45, eyeSlant: 0.55, browAngle: 0.65, cheekBones: 0.6, jaw: -0.2 }, hair: { style: 'pixie', fringe: 0.8, color: '#151210', brows: { style: 'angry' } } } },
+        { id: 'ferengi', label: 'Ferengi', group: 'Otherworldly', recipe: { height: 0.25, headSize: 1.08, morph: { earBowls: 1.45, cranialLobes: 1.35, noseFolds: 1.25 }, shapes: { earSize: 2.6, earOut: 0.8, earsRound: 1.8, earLobe: 1, browRidge: 0.35, noseWidth: 0.8, noseDepth: 0.55, noseHump: 0.6, foreheadHeight: -0.25, headHeight: -0.15, headRound: 0.35 }, skin: '#bf895e', bald: true } },
+        { id: 'andorian', label: 'Andorian', group: 'Otherworldly', recipe: { skin: '#68aed0', skinPattern: { lips: '#578fae' }, eyes: { color: '#6287a8' }, shapes: { browRidge: 0.35, cheekBones: 0.3 }, hair: { style: 'slickBack', length: 0.55, volume: 0.15, fringe: 0, color: '#f3f2ec', tipColor: '', highlights: 0, brows: { style: 'natural', color: '#e5e7e5' } }, features: { antennae: { type: 'andorian', color: '#68aed0', color2: '#528fae' } } } },
+        { id: 'cardassian', label: 'Cardassian', group: 'Otherworldly', recipe: { skin: '#a6ada7', skinPattern: { lips: '#858c86', shadowAmount: 0.35 }, morph: { foreheadSpoon: 1, facialRidges: 1.2, neckWebbing: 1.3 }, shapes: { earSize: -0.3, earLobe: -0.5, browRidge: 0.6, cheekBones: 1, jaw: 0.5, neck: 0.7, neckLength: 0.2, foreheadHeight: -0.15 }, hair: { style: 'slickBack', fringe: 0, part: 'none', hairline: 0.45, color: '#181b1a', brows: { style: 'none' } } } },
+        { id: 'android', label: 'Android', group: 'Otherworldly', recipe: { skin: '#d8dce2', skinPattern: { type: 'none', color: '#8a9098' }, eyes: { color: '#30b8ff', pupil: 'none' }, features: { machinery: { type: 'android' } }, bald: true } },
         // Slimefolk: a body plan of its own (RRSlimeBody), from a goo mound to a goo person.
         { id: 'slimefolk', label: 'Slimefolk', group: 'Otherworldly', plan: 'slime', recipe: {} }
     ];
     const BY_ID = new Map(SPECIES.map(s => [s.id, s]));
+
+    // Suggested ranges, not restrictions: the Skin color picker still accepts any color.
+    const SKIN_TONES = Object.freeze({
+        klingon: Object.freeze(['#c29a73', '#b58a61', '#a77a52', '#8d6142', '#70472f', '#503326']),
+        vulcan: Object.freeze(['#efd6bd', '#e4c7ac', '#d5b99f', '#bc9e80', '#987959', '#6e543b']),
+        ferengi: Object.freeze(['#d6ac7c', '#cb9b6b', '#bf895e', '#a97649', '#8e5e3c', '#70482f']),
+        andorian: Object.freeze(['#9ccfdf', '#80bdd7', '#68aed0', '#5399bf', '#4183ab', '#346d97']),
+        cardassian: Object.freeze(['#d0d3cb', '#bcc3bb', '#a6ada7', '#8d9893', '#737f7b', '#56635f'])
+    });
+    const skinTones = id => SKIN_TONES[id] || [];
+
 
     /**
      * Heads any body may wear: its own, or an animal's from the four-legged
@@ -527,7 +545,7 @@
     const fract = x => x - Math.floor(x);
 
     function wings(m, L, f) {
-        if (f.type === 'insect') { insectWings(m, L, f); return; }
+        if (f.type === 'insect') return;
         const spine = L.boneIndex('Spine2'), skin = Props.rigid(spine), s = f.size;
         const y = L.bone('Spine2').head[1] + 0.1;
         const z0 = L.backAt(y, 0.06);
@@ -669,25 +687,32 @@
         const y = L.bone('Spine2').head[1] + 0.08, z0 = L.backAt(y, 0.05);
         const main = linear(f.color), second = linear(f.color2 || f.color);
         const pos = [], nrm = [], uv = [], col = [], idx = [];
-        const U = 12, V = 8;
+        const U = 32, V = 12;
         for (const side of [1, -1]) {
-            const root = [side * 0.05, y, (isFinite(z0) ? z0 : -0.12) - 0.012];
+            const root = [side * 0.05, y, (isFinite(z0) ? z0 : -0.12) + 0.004];
             // Fore wing up and out, hind wing out and down; [direction, length, width, sweep back].
             for (const [dir, len, wid, lane] of [[[side * 0.75, 0.6, -0.28], 0.46, 0.17, 0], [[side * 0.85, -0.42, -0.3], 0.32, 0.12, 1]]) {
                 const d = norm(dir), across = norm(cross([0, 0, -1], d)), out = norm(cross(d, across));
                 const base = pos.length / 3;
-                for (let i = 0; i <= U; i++) for (let j = 0; j <= V; j++) {
+                for (let i = 0; i < U; i++) for (let j = 0; j <= V; j++) {
                     const u = i / U, v = j / V * 2 - 1;
                     // Broad toward the tip, narrow at the base; the leading edge straighter than the trailing.
-                    const w = wid * s * Math.pow(Math.sin(Math.PI * Math.min(1, u * 0.85 + 0.08)), 0.8) * (v < 0 ? 0.55 : 1) * (0.35 + 0.65 * u);
+                    const w = wid * s * Math.pow(Math.sin(Math.PI * (0.03 + u * 0.97)), 0.55) * (v < 0 ? 0.55 : 1) * (0.35 + 0.65 * u);
                     const cup = 0.02 * s * (1 - v * v) * Math.sin(Math.PI * u);
                     const p = add(add(add(root, mul(d, len * s * u)), mul(across, w * v * (lane ? -1 : 1) * side)), mul(out, cup));
                     pos.push(...p); nrm.push(...out); uv.push(lane * 0.5 + (v + 1) * 0.25, u);
                     col.push(...mixRgb(second, main, u));
                 }
-                for (let i = 0; i < U; i++) for (let j = 0; j < V; j++) {
+                for (let i = 0; i < U - 1; i++) for (let j = 0; j < V; j++) {
                     const a = base + i * (V + 1) + j, b = a + V + 1;
                     idx.push(a, b, a + 1, a + 1, b, b + 1);
+                }
+                const tip = pos.length / 3;
+                pos.push(...add(root, mul(d, len * s))); nrm.push(...out);
+                uv.push(lane * 0.5 + 0.25, 1); col.push(...main);
+                for (let j = 0; j < V; j++) {
+                    const a = base + (U - 1) * (V + 1) + j;
+                    idx.push(a, tip, a + 1);
                 }
             }
         }
@@ -778,12 +803,16 @@
                 if (!best || score > best.score) best = { p, score };
             }
             if (!best) continue;
-            const a = best.p;
+            const a = best.p.slice();
+            // Start inside the lower gum. The old root was pushed outside the lip before the tube
+            // even began, leaving a flat ivory base suspended over the chin on broad-jawed species.
+            a[1] -= 0.008;
+            a[2] -= 0.004;
             // From the lower jaw out over the lip, curving up and a little out: thick at the root, a blunt
             // rounded point, ivory yellowing toward the gum.
             const big = f.type === 'large', len = (big ? 0.03 : 0.022) * s, r0 = (big ? 0.0062 : 0.0048) * Math.sqrt(s) * (big ? 1.25 : 1);
             const pts = [];
-            for (let k = 0; k <= 12; k++) { const t = k / 12; pts.push(add(a, [side * (0.004 + t * 0.008) * s, -0.004 + t * len, 0.004 + Math.sin(t * 1.6) * 0.012 * Math.sqrt(s)])); }
+            for (let k = 0; k <= 12; k++) { const t = k / 12; pts.push(add(a, [side * t * 0.006 * s, t * (len + 0.008), Math.sin(t * 1.6) * 0.014 * Math.sqrt(s)])); }
             const ivory = linear(f.color), root = mixRgb(ivory, [0.45, 0.33, 0.18], 0.35);
             m.tube(pts, t => r0 * Math.sqrt(Math.max(0.02, 1 - Math.pow(t, 2.4))) * (1 - 0.25 * t), 10, t => mixRgb(root, ivory, Math.min(1, t * 1.6)), skin);
         }
@@ -881,25 +910,28 @@
      * group per feature, with the body vertex it rides on) for the caller
      * to lay as tufts on the body fur's picture.
      */
-    function insectWings(m, L, f) {
-        const skin = Props.rigid(L.boneIndex('Spine2')), back = L.bone('Spine2').head;
-        const z = L.backAt(back[1], 0);
-        const base = [back[0], back[1], (isFinite(z) ? z : back[2]) - 0.035];
-        for (const side of [-1, 1]) for (const upper of [true, false]) {
-            const end = add(base, [side * (upper ? 0.7 : 0.5) * f.size, (upper ? 0.35 : -0.25) * f.size, -0.1 * f.size]);
-            const axis = norm(sub(end, base)), across = norm(cross(axis, [0, 0, 1]));
-            const rows = [];
-            for (let r = 0; r <= 12; r++) {
-                const t = r / 12, c = lerp(base, end, t), width = Math.sin(t * Math.PI) * (upper ? 0.13 : 0.1) * f.size;
-                rows.push([-1, 0, 1].map(q => m.vertex(add(c, mul(across, q * width)), [0, 0, -1], linear(q === 0 || r % 3 === 0 ? f.color2 : f.color), skin)));
-            }
-            for (let r = 0; r < 12; r++) for (let c = 0; c < 2; c++) { m.tri(rows[r][c], rows[r + 1][c], rows[r][c + 1]); m.tri(rows[r][c + 1], rows[r + 1][c], rows[r + 1][c + 1]); }
-        }
-    }
-
     function antennae(m, L, f) {
         const skin = Props.rigid(L.boneIndex('Head')), ring = L.ring(L.brow, 0.025);
         for (const side of [-1, 1]) {
+            if (f.type === 'andorian') {
+                // Fleshy stalks grow from the actual upper forehead, with flared sensory cups.
+                const target = [L.noseTip[0] + side * (ring?.rx || 0.07) * 0.64, L.crown - 0.018, (ring?.center[2] || 0) + (ring?.rz || 0.08) * 0.55];
+                let base = target, best = Infinity;
+                for (const v of L.headIds) {
+                    const p = Array.from(L.P.subarray(v * 3, v * 3 + 3)), d = Math.hypot(...sub(p, target));
+                    if (d < best) { best = d; base = p; }
+                }
+                base = add(base, [0, -0.005 * f.size, -0.002 * f.size]);
+                const pts = Array.from({ length: 18 }, (_, i) => { const t = i / 17; return add(base, [side * 0.012 * t * t * f.size, 0.068 * t * f.size, (0.018 * t + 0.008 * t * t) * f.size]); });
+                const color = linear(f.color), tip = pts[pts.length - 1];
+                m.tube(pts, t => (0.0065 - 0.002 * Math.sin(Math.PI * t) + 0.001 * t) * f.size, 14, color, skin);
+                m.loft(7, (i, t) => {
+                    const radius = (0.0075 + 0.003 * Math.sin(t * Math.PI * 0.8)) * f.size;
+                    return { center: add(tip, [0, t * 0.008 * f.size, 0]), x: [1, 0, 0], y: [0, 0, 1], rx: radius, ry: radius };
+                }, 16, color, skin, false);
+                m.sphere(add(tip, [0, 0.005 * f.size, 0]), 0.007 * f.size, linear(f.color2), skin, 6, 16, [1, 0.25, 1]);
+                continue;
+            }
             const base = [L.noseTip[0] + side * (ring?.rx || 0.07) * 0.6, L.crown - 0.025, ring?.center[2] || 0];
             const pts = Array.from({ length: 10 }, (_, i) => { const t = i / 9; return add(base, [side * t * 0.1 * f.size, Math.sin(t * Math.PI * 0.7) * 0.19 * f.size, t * 0.07 * f.size]); });
             m.tube(pts, t => (0.006 * (1 - t) + 0.001) * f.size, 7, linear(f.color), skin);
@@ -917,6 +949,230 @@
         }
     }
 
+    /** A second articulated arm pair, rooted below the first at the thorax. */
+    function insectArms(L, f, bones, boneBase) {
+        const shell = new Props.Mesh(), joints = new Props.Mesh(), green = linear(f.color), dark = linear(f.color2);
+        const scale = f.size, height = L.height, torso = L.boneIndex('Spine2');
+        for (const side of ['Left', 'Right']) {
+            const sign = side === 'Left' ? 1 : -1, origin = L.bone(side + 'Arm').head;
+            const anchor = [origin[0] * 0.94, origin[1] - height * 0.105, origin[2] + height * 0.006];
+            // Stagger the lower pair slightly forward. Full-length arms in the
+            // same plane put the lower hands through the upper elbows in climbs.
+            const c = Math.cos(0.22), s = Math.sin(0.22);
+            const transform = p => {
+                const d = sub(p, origin);
+                return add(anchor, mul([d[0] * c - sign * d[2] * s, d[1], sign * d[0] * s + d[2] * c], scale));
+            };
+            const ids = {};
+            for (const name of ['Shoulder', 'Arm', 'ForeArm', 'Hand']) {
+                const source = L.bone(side + name), i = boneBase + bones.length;
+                ids[name] = i;
+                bones.push({ name: side + 'Secondary' + name, motionSource: side + name,
+                    parent: name === 'Shoulder' ? torso : ids[name === 'Arm' ? 'Shoulder' : name === 'ForeArm' ? 'Arm' : 'ForeArm'],
+                    head: transform(source.head), tail: transform(source.tail) });
+            }
+            const shoulder = anchor, elbow = transform(L.bone(side + 'ForeArm').head), wrist = transform(L.bone(side + 'Hand').head);
+            const hand = transform(L.bone(side + 'Hand').tail), r = height * 0.020 * Math.sqrt(f.size);
+            const root = add(shoulder, [-sign * r * 2.2, 0, -r * 0.3]);
+            const skinRoot = p => { const w = Math.max(0, Math.min(1, Math.abs(p[0] - root[0]) / (r * 2.4))); return { joints: [torso, ids.Arm, 0, 0], weights: [1 - w, w, 0, 0] }; };
+            shell.tube([root, shoulder, lerp(shoulder, elbow, 0.45), elbow], [r * 1.25, r * 1.3, r, r * 0.65], 14, green, skinRoot);
+            joints.sphere(elbow, r * 0.82, dark, Props.rigid(ids.ForeArm));
+            shell.tube([elbow, lerp(elbow, wrist, 0.45), wrist], [r * 0.7, r * 1.05, r * 0.5], 14, green, Props.rigid(ids.ForeArm));
+            joints.sphere(wrist, r * 0.6, dark, Props.rigid(ids.Hand));
+            shell.tube([wrist, hand], [r * 0.55, r * 0.7], 12, green, Props.rigid(ids.Hand));
+            for (let digit = -1; digit <= 1; digit++) {
+                const start = add(hand, [0, digit * r * 0.8, 0]);
+                const tip = add(start, [sign * r * 1.4, -r * 0.8, r * (1.2 - Math.abs(digit) * 0.3)]);
+                shell.tube([start, lerp(start, tip, 0.6), tip], [r * 0.22, r * 0.18, r * 0.06], 8, green, Props.rigid(ids.Hand));
+            }
+        }
+        return [shell.part('Secondary arms', { roughness: 0.48, kind: 'skin' }), joints.part('Secondary arm joints', { roughness: 0.65, kind: 'skin' })];
+    }
+
+    /** Secondary chains keep the source chain's local turns in preview and saved clips. */
+    function followMotion(bones, clip) {
+        if (!clip) return clip;
+        const tracks = clip.tracks.slice(), names = new Map(bones.map((b, i) => [b.name, i]));
+        bones.forEach((b, i) => {
+            if (!b.motionSource || tracks.some(t => t.bone === i)) return;
+            const source = names.get(b.motionSource);
+            for (const track of clip.tracks) if (track.bone === source && (!track.path || track.path === 'rotation')) tracks.push({ ...track, bone: i });
+        });
+        return { ...clip, tracks };
+    }
+
+    /** A clear, fitted cranial shell with electronics underneath and recessed service panels. */
+    function androidParts(pack, built, L, f, body) {
+        const Body = root.RRHumanBody || require('./HumanBody.js');
+        const metal = new Props.Mesh(), circuit = new Props.Mesh(), brain = new Props.Mesh();
+        const headSkin = Props.rigid(L.boneIndex('Head')), dark = linear(f.color), cyan = linear(f.color2), silver = linear('#aeb9c7');
+        const cut = L.eyeY + (L.crown - L.eyeY) * 0.48, surface = built.parts[0], keep = [], clear = [];
+        const ears = Body.earMask(pack), source = pack.body.source;
+        for (let t = 0; t < body.index.length; t += 3) {
+            const ids = [body.index[t], body.index[t + 1], body.index[t + 2]];
+            (ids.every(i => surface.positions[i * 3 + 1] > cut && ears[source[i]] < 0.15) ? clear : keep).push(...ids);
+        }
+        body.index = Uint32Array.from(keep);
+        const parts = [{ ...surface, name: 'Transparent cranial shell', index: Uint32Array.from(clear), texture: null,
+            color: '#a0dce8', colors: null, opacity: 0.2, roughness: 0.12, metalness: 0.05, kind: 'glass', doubleSided: true, noShade: true }];
+        const ring = L.ring(cut + 0.006), rx = ring.rx * 0.83, rz = ring.rz * 0.82;
+        const center = [0, cut + (L.crown - cut) * 0.22, ring.center[2]];
+        const ry = (L.crown - cut) * 0.57;
+        brain.sphere(center, 1, linear('#182a32'), headSkin, 16, 32, [rx, ry, rz]);
+        // PCB traces sit on an ellipsoidal processor housing, with small gold terminal pads.
+        const at = (theta, phi, lift = 0) => [center[0] + (rx + lift) * Math.sin(theta) * Math.cos(phi), center[1] + (ry + lift) * Math.cos(theta), center[2] + (rz + lift) * Math.sin(theta) * Math.sin(phi)];
+        for (let row = 0; row < 7; row++) {
+            const theta = 0.35 + row * 0.28;
+            const path = Array.from({ length: 49 }, (_, k) => at(theta + ((Math.floor(k / 4) % 2) ? 0.045 : 0), k / 48 * Math.PI * 2, 0.001));
+            circuit.tube(path, path.map(() => 0.00065), 5, cyan, headSkin, false);
+            for (let k = 0; k < 8; k++) metal.sphere(at(theta, k / 8 * Math.PI * 2, 0.0015), 0.0015, linear('#d7b85e'), headSkin, 4, 6);
+        }
+        for (let k = 0; k < 8; k++) {
+            const phi = k / 8 * Math.PI * 2;
+            const path = Array.from({ length: 17 }, (_, j) => at(0.25 + j / 16 * 2, phi, 0.002));
+            metal.tube(path, path.map(() => 0.001), 6, silver, headSkin, false);
+        }
+        // The rim follows the exact opaque/clear boundary, rather than a generic head radius.
+        const edgeCounts = new Map();
+        for (let t = 0; t < clear.length; t += 3) for (let k = 0; k < 3; k++) {
+            const a = clear[t + k], b = clear[t + (k + 1) % 3], key = [source[a], source[b]].sort((a, b) => a - b).join(':');
+            const e = edgeCounts.get(key) || { a, b, count: 0 }; e.count++; edgeCounts.set(key, e);
+        }
+        for (const e of edgeCounts.values()) if (e.count === 1) {
+            // Fair the shared material boundary to a level cranial rim. Both skins
+            // keep the same source vertices and weights, including UV duplicates.
+            const sources = new Set([source[e.a], source[e.b]]);
+            if (body.positions === surface.positions) body.positions = Float32Array.from(body.positions);
+            if (parts[0].positions === surface.positions) parts[0].positions = Float32Array.from(surface.positions);
+            for (let i = 0; i < source.length; i++) if (sources.has(source[i])) {
+                body.positions[i * 3 + 1] = cut;
+                parts[0].positions[i * 3 + 1] = cut;
+            }
+            const a = Array.from(surface.positions.subarray(e.a * 3, e.a * 3 + 3)), b = Array.from(surface.positions.subarray(e.b * 3, e.b * 3 + 3));
+            a[1] = b[1] = cut;
+            metal.tube([a, b], [0.0016, 0.0016], 6, silver, headSkin);
+        }
+        // Cut actual apertures out of the skin. Their backplates, chips and
+        // mechanisms sit below its original surface; only a hairline rim is proud.
+        const recessed = new Props.Mesh(), walls = new Props.Mesh(), bindings = [];
+        const point = i => Array.from(body.positions.subarray(i * 3, i * 3 + 3));
+        const skinAt = i => ({ joints: Array.from(body.joints.subarray(i * 4, i * 4 + 4)), weights: Array.from(body.weights.subarray(i * 4, i * 4 + 4)) });
+        const panel = (center, up, halfWidth, halfLength, depth, accepts) => {
+            const xAxis = norm(cross(up, [0, 0, 1])), yAxis = norm(up), normal = [0, 0, 1];
+            const coords = p => [dot(sub(p, center), xAxis), dot(sub(p, center), yAxis)];
+            const selected = [], retained = [];
+            for (let t = 0; t < body.index.length; t += 3) {
+                const ids = Array.from(body.index.subarray(t, t + 3)), ps = ids.map(point);
+                const c = mul(ps.reduce(add, [0, 0, 0]), 1 / 3), [x, y] = coords(c);
+                const n = norm(cross(sub(ps[1], ps[0]), sub(ps[2], ps[0])));
+                const inside = (x / halfWidth) ** 4 + (y / halfLength) ** 4 < 1 && n[2] > 0.45 && accepts(ids, c);
+                (inside ? selected : retained).push(...ids);
+            }
+            if (selected.length < 6) return;
+            body.index = Uint32Array.from(retained);
+            const edges = new Map(), inset = new Map(), faces = [];
+            for (let t = 0; t < selected.length; t += 3) {
+                const ids = selected.slice(t, t + 3); faces.push(ids);
+                for (let k = 0; k < 3; k++) {
+                    const a = ids[k], b = ids[(k + 1) % 3], key = [source[a], source[b]].sort((a, b) => a - b).join(':');
+                    const e = edges.get(key) || { a, b, n: 0 }; e.n++; edges.set(key, e);
+                }
+            }
+            // Fair the shared aperture boundary into a rounded rectangle. The
+            // surrounding skin uses exactly the same adjusted vertices/weights.
+            const boundary = new Set([...edges.values()].filter(e => e.n === 1).flatMap(e => [e.a, e.b]));
+            const moved = new Map();
+            for (const i of boundary) {
+                const p = point(i), [x, y] = coords(p), radius = ((x / halfWidth) ** 8 + (y / halfLength) ** 8) ** (1 / 8);
+                if (radius < 1e-5) continue;
+                const target = add(p, add(mul(xAxis, x / radius - x), mul(yAxis, y / radius - y)));
+                moved.set(source[i], target);
+            }
+            if (body.positions === surface.positions) body.positions = Float32Array.from(body.positions);
+            for (let i = 0; i < source.length; i++) if (moved.has(source[i])) body.positions.set(moved.get(source[i]), i * 3);
+            for (const i of new Set(selected)) {
+                const p = sub(point(i), mul(normal, depth));
+                const v = recessed.vertex(p, Array.from(body.normals.subarray(i * 3, i * 3 + 3)), linear('#304853'), skinAt(i));
+                bindings[v] = source[i]; inset.set(i, { p, v });
+            }
+            for (const ids of faces) recessed.tri(...ids.map(i => inset.get(i).v));
+            for (const { a, b, n } of edges.values()) if (n === 1) {
+                const pa = point(a), pb = point(b), ia = inset.get(a).p, ib = inset.get(b).p;
+                const inward = norm(cross(sub(pb, pa), mul(normal, -1)));
+                const ids = [[pa, a], [pb, b], [ib, b], [ia, a]].map(([p, i]) => walls.vertex(p, inward, silver, skinAt(i)));
+                walls.tri(ids[0], ids[1], ids[2]); walls.tri(ids[0], ids[2], ids[3]);
+                const skin = p => {
+                    const d = sub(pb, pa), t = Math.max(0, Math.min(1, dot(sub(p, pa), d) / Math.max(1e-12, dot(d, d))));
+                    return skinAt(t < 0.5 ? a : b);
+                };
+                metal.tube([pa, pb], [0.00055, 0.00055], 5, silver, skin);
+            }
+            // Project onto the cut patch rather than placing a flat board on top
+            // of the curved body. Omit any route whose footprint leaves the opening.
+            const locate = (u, v, lift = 0.001) => {
+                const x = u * halfWidth, y = v * halfLength;
+                for (const ids of faces) {
+                    const q = ids.map(i => coords(point(i))), [a, b, c] = q;
+                    const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+                    if (Math.abs(d) < 1e-12) continue;
+                    const w = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d;
+                    const z = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d;
+                    if (w < 0 || z < 0 || w + z > 1) continue;
+                    const p = add(add(mul(inset.get(ids[0]).p, w), mul(inset.get(ids[1]).p, z)), mul(inset.get(ids[2]).p, 1 - w - z));
+                    return { p: add(p, mul(normal, lift)), skin: skinAt(ids[[w, z, 1 - w - z].indexOf(Math.max(w, z, 1 - w - z))]) };
+                }
+                return null;
+            };
+            for (const u of [-0.42, 0.42]) for (const v of [-0.5, 0, 0.5]) {
+                const q = locate(u, v, 0.0012), hw = Math.min(0.005, halfWidth * 0.15), hh = Math.min(0.007, halfLength * 0.12);
+                if (!q || ![[-hw, -hh], [hw, hh], [-hw, hh], [hw, -hh]].every(([x, y]) => locate(u + x / halfWidth, v + y / halfLength))) continue;
+                metal.box(q.p, [xAxis, yAxis, normal], [hw, hh, 0.0007], dark, q.skin);
+                for (const sign of [-1, 1]) for (let pin = -2; pin <= 2; pin++) {
+                    const p = add(q.p, add(mul(xAxis, sign * (hw + 0.0007)), mul(yAxis, pin * hh * 0.32)));
+                    metal.box(p, [xAxis, yAxis, normal], [0.0007, 0.0003, 0.0003], linear('#c9ad62'), q.skin);
+                }
+            }
+            for (const sign of [-1, 1]) for (let rail = 0; rail < 3; rail++) {
+                const u = sign * (0.18 + rail * 0.23);
+                const route = [[u, -0.75], [u, -0.28], [u + sign * 0.08, -0.18], [u + sign * 0.08, 0.73]].map(([x, y]) => locate(x, y, 0.001));
+                if (route.some(q => !q)) continue;
+                circuit.tube(route.map(q => q.p), route.map(() => 0.00045), 5, cyan, route[1].skin);
+            }
+            for (const sign of [-1, 1]) {
+                const path = [-0.66, -0.3, 0.15, 0.62].map(v => locate(sign * 0.76, v, 0.0025));
+                if (path.some(q => !q)) continue;
+                metal.tube(path.map(q => q.p), [0.0018, 0.0018, 0.0011, 0.0011], 8, silver, path[1].skin);
+                for (const end of [path[0], path.at(-1)]) metal.sphere(end.p, 0.0024, dark, end.skin, 5, 8);
+            }
+            const q = locate(0, 0.25, 0.002);
+            if (q) {
+                const radius = Math.min(halfWidth * 0.22, 0.009), ring = Array.from({ length: 25 }, (_, k) => add(q.p, add(mul(xAxis, radius * Math.cos(k / 24 * Math.PI * 2)), mul(yAxis, radius * Math.sin(k / 24 * Math.PI * 2)))));
+                metal.tube(ring, ring.map(() => 0.0008), 6, silver, q.skin, false);
+                metal.disk(q.p, normal, radius * 0.7, dark, q.skin, 20);
+                circuit.disk(add(q.p, [0, 0, 0.0003]), normal, radius * 0.24, cyan, q.skin, 12);
+            }
+        };
+        const torsoIds = new Set(L.torsoIds), cy = lerp(L.bone('Spine2').head, L.bone('Neck').head, 0.42);
+        panel(cy, [0, 1, 0], L.height * 0.046, L.height * 0.043, L.height * 0.009, ids => ids.every(i => torsoIds.has(source[i])));
+        for (const side of ['Left', 'Right']) for (const name of ['ForeArm', 'Leg']) {
+            const bone = L.bone(side + name), index = L.boneIndex(side + name);
+            panel(lerp(bone.head, bone.tail, 0.48), sub(bone.head, bone.tail), L.height * (name === 'Leg' ? 0.014 : 0.011), Math.hypot(...sub(bone.tail, bone.head)) * 0.27, L.height * 0.005,
+                ids => ids.every(i => skinAt(i).joints.some((j, k) => j === index && skinAt(i).weights[k] > 0.45)));
+        }
+        if (!recessed.empty) parts.push(recessed.part('Recessed android panels', { source: Int32Array.from(bindings), metalness: 0.35, roughness: 0.48, kind: 'metal' }));
+        if (!walls.empty) parts.push(walls.part('Android panel reveals', { metalness: 0.75, roughness: 0.32, doubleSided: true, kind: 'metal' }));
+        parts.push(brain.part('Circuit brain', { metalness: 0.35, roughness: 0.4, kind: 'metal' }), metal.part('Android mechanisms', { metalness: 0.8, roughness: 0.28, kind: 'metal' }),
+            circuit.part('Android circuitry', { metalness: 0.2, roughness: 0.35, kind: 'feature', emissive: f.color2, emissiveIntensity: 0.35 }));
+        const cap = parts[0], used = [...new Set(cap.index)], lookup = new Map(used.map((v, i) => [v, i]));
+        for (const field of ['positions', 'normals']) cap[field] = Body.gather(cap[field], used, 3);
+        for (const field of ['joints', 'weights']) cap[field] = Body.gather(cap[field], used, 4);
+        cap.source = Int32Array.from(used, i => source[i]);
+        cap.uvs = null;
+        cap.index = Uint32Array.from(cap.index, i => lookup.get(i));
+        // A closed helmet can hide the whole clear cap before machinery is built.
+        return parts.filter(part => part.index.length > 0);
+    }
+
     function build(pack, built, features, landmarks, options) {
         const F = normalizeFeatures(features);
         const L = landmarks || Props.landmarks(pack, built);
@@ -924,6 +1180,8 @@
         const coat = o.coat ? Object.assign({ length: 1, budget: 1 }, o.coat) : null;
         const hard = new Props.Mesh(), soft = new Props.Mesh();
         const bones = [], fur = [], extra = [];
+        if (F.arms.type === 'insect') extra.push(...insectArms(L, F.arms, bones, built.bones.length));
+        if (F.machinery.type === 'android' && o.body) extra.push(...androidParts(pack, built, L, F.machinery, o.body));
         const nearest = (p, ids) => {
             let best = ids[0], bd = Infinity;
             for (const v of ids) { const d = (L.P[v * 3] - p[0]) ** 2 + (L.P[v * 3 + 1] - p[1]) ** 2 + (L.P[v * 3 + 2] - p[2]) ** 2; if (d < bd) { bd = d; best = v; } }
@@ -942,7 +1200,7 @@
             if (made.roots && made.roots.length) fur.push({ roots: made.roots, anchor: nearest(tailBase(pack, L), pack._bodyIds) });
         }
         if (F.wings.type !== 'none') wings(soft, L, F.wings);
-        const featherPart = F.wings.type === 'feathered' ? featheredWing(L, F.wings) : F.wings.type === 'fairy' ? fairyWing(L, F.wings) : null;
+        const featherPart = F.wings.type === 'feathered' ? featheredWing(L, F.wings) : ['fairy', 'insect'].includes(F.wings.type) ? fairyWing(L, F.wings) : null;
         const bill = new Props.Mesh();
         if (F.beak.type !== 'none') beak(bill, L, F.beak);
         if (F.tusks.type !== 'none') tusks(hard, pack, L, F.tusks);
@@ -961,7 +1219,7 @@
         return { parts, bones, features: F, fur };
     }
 
-    const api = { FEATURES, SPECIES, BY_ID, HEAD_PRESETS, heads, headPreset, headId, normalizeFeatures, speciesRecipe, build, tailShape, featherTexture, fairyWingTexture, scaleTexture };
+    const api = { FEATURES, SPECIES, BY_ID, SKIN_TONES, skinTones, HEAD_PRESETS, heads, headPreset, headId, normalizeFeatures, speciesRecipe, build, followMotion, tailShape, featherTexture, fairyWingTexture, scaleTexture };
     root.RRCharacterSpecies = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

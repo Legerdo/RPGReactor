@@ -6,6 +6,25 @@ global.FlatLightField2D = require('../src/utils/FlatLightField2D.js');
 global.ModelPropShadows2D = require('../src/utils/ModelPropShadows2D.js');
 const Preview = require('../src/utils/ModelPropsPreview2D.js');
 
+test('missing or lost WebGL skips model painting and bounds expansion, then permits recovery', () => {
+    const preview = new Preview({});
+    // A previous viewport must not bypass the context check after a GPU crash.
+    const viewport = {};
+    preview.viewport = viewport;
+    for (const renderer of [undefined, {}, { gl: {}, context: {} },
+        { gl: { isContextLost: () => true }, context: { webGLVersion: 2 } }]) {
+        preview.app = { renderer };
+        assert.equal(preview.ensureViewport(), null);
+        assert.doesNotThrow(() => preview.paint({}));
+    }
+    for (const renderer of [undefined, {}, { gl: { isContextLost: () => true } }]) {
+        preview.app = { renderer };
+        assert.doesNotThrow(() => preview.expand({}));
+    }
+    preview.app = { renderer: { gl: { isContextLost: () => false }, context: { webGLVersion: 2 } } };
+    assert.equal(preview.ensureViewport() === viewport, true);
+});
+
 test('selection and movement retain the live sprite; replacement and removal dispose it', () => {
     global.ModelPropsManager = { specOf: p => ({ name: p.name, size: p.size }) };
     const preview = new Preview({});

@@ -56,3 +56,14 @@ test('power armor boots enclose the posed heel, toes and ankle through every wal
         }
     }
 });
+
+test('choosing flexible footwear preserves the original foot bindings under power armor',async()=>{
+    const pack=await Body.loadPack(),same=[];
+    for(const feet of [null,'magboots','boots']){
+        const result=Model.build(pack,{gender:1,outfit:[{id:'powerarmor'},...(feet?[{id:feet}]:[])]},{},{static:true,quality:'preview',skinSize:64,atlasSize:64});
+        const suit=result.parts.find(p=>p.name==='Power armor undersuit'),body=result.built.parts.find(p=>p.name==='Body');
+        same.push(suit.joints.every((q,i)=>q===body.joints[i])&&suit.weights.every((q,i)=>q===body.weights[i]));
+    }
+    assert.ok(!same[0]&&!same[1],'hard boots and their lining retain a rigid foot');
+    assert.ok(same[2],'flexible boots keep the original underlying articulation');
+});

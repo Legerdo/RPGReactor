@@ -144,6 +144,24 @@ test('a looping effect never shows an empty frame after its first play, measured
     layer.stop();
 });
 
+test('an inactive map effect has no simulation or draws and resumes its retained particle handle', async () => {
+    const { layer, frame, draws, handles } = loadLayer({ life: 1000 });
+    layer.play({ effectName: 'Core' }, '/project', { loop: true });
+    await new Promise(resolve => setImmediate(resolve));
+    for (let step = 0; step < 3; step++) frame();
+    layer.setWorkspaceActive(false);
+    const drawn = draws.length, particleFrame = handles[0].frame;
+    for (let step = 0; step < 120; step++) frame();
+    assert.equal(draws.length, drawn);
+    assert.equal(handles[0].frame, particleFrame);
+    assert.equal(layer.fx.raf, null);
+    layer.setWorkspaceActive(true); frame();
+    assert.equal(draws.length, drawn + 1);
+    assert.equal(handles.length, 1, 'resuming retains the particle play');
+    assert.equal(handles[0].frame, particleFrame + 1, 'the inactive time is not simulated on return');
+    layer.stop();
+});
+
 test('a play lit at every look runs its full length, though slow frames skip the looks\' ticks', async () => {
     // The Demo core on the editor's own-canvas path: the readback stalls,
     // slow frames run several updates, and a look kept only for exact tenths

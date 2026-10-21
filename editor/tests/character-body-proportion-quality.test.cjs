@@ -7,7 +7,7 @@ test.before(async () => { pack = await Body.loadPack(); });
 test('fresh quality fixtures preserve species-specific heads and morphs while varying body sliders', () => {
     const Q = require('./helpers/character-quality-matrix.cjs'), fresh = require('./quality/character-fresh-quality.cjs');
     const cases = fresh.inventory();
-    assert.equal(cases.length, 564);
+    assert.equal(cases.length, Q.Species.SPECIES.filter(s => !s.plan).length * 16 + Q.Species.heads().length * 4 + Q.Creature.KINDS.length * 4 + 16 + 8);
     for (const species of Q.Species.SPECIES.filter(s => !s.plan)) {
         const base = Q.Model.withSpecies({}, species.id), rows = cases.filter(c => c.group === 'species' && c.entity === species.id);
         assert.equal(rows.length, 16);

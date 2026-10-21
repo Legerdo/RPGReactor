@@ -3335,7 +3335,7 @@ class MapEditor3D {
                 if (plane) {
                     plane.userData.__reactorOverlay = true;
                     object.add(plane);
-                    (this.effectPlays || (this.effectPlays = [])).push({ object, effect, plane });
+                    (this.effectPlays || (this.effectPlays = [])).push({ object, effect, plane, resumeVideo: !!this._previewPaused });
                 }
                 continue;
             }
@@ -3344,6 +3344,7 @@ class MapEditor3D {
             const wrap = this.canvas && this.canvas.parentElement;
             if (!wrap) continue;
             const layer = new RRAnimationPreviewLayer(wrap);
+            layer.setWorkspaceActive?.(!this._previewPaused);
             layer.wrap.style.zIndex = '3';
             const play = { object, effect, layer, record };
             // An Effekseer effect is drawn from this view's camera and shown
@@ -3411,7 +3412,7 @@ class MapEditor3D {
             if (!reused) shared.set(key, entry);
             plane.userData.effectMedia = { map: shared, key, entry };
         }
-        if (video && !reused) video.play().catch(() => {});
+        if (video && !reused && !this._previewPaused) video.play().catch(() => {});
         return plane;
     }
 
@@ -6041,6 +6042,12 @@ class MapEditor3D {
     // finished loading on its own time.
 
     startLoop() {
+        const activity = typeof window !== 'undefined' ? window.RRDetachedWindow : null;
+        if (!this._previewActivityOff && activity?.onPreviewActivity) {
+            this._previewActivityOff = activity.onPreviewActivity(() => this.syncPreviewActivity());
+        }
+        if ((activity?.previewActive?.() === false) !== this._previewPaused) this.syncPreviewActivity();
+        if (this._previewPaused) return;
         if (this.frame !== null) return;
         const tick = now => {
             // Let go of the handle on the way out. `startLoop` refuses to start
@@ -6085,6 +6092,48 @@ class MapEditor3D {
     stopLoop() {
         if (this.frame !== null) cancelAnimationFrame(this.frame);
         this.frame = null;
+        this._previewActivityOff?.();
+        this._previewActivityOff = null;
+        clearTimeout(this._previewParkTimer);
+        this._previewParkTimer = null;
+    }
+
+    syncPreviewActivity() {
+        const paused = typeof window !== 'undefined' && window.RRDetachedWindow?.previewActive?.() === false;
+        if (paused === this._previewPaused) return;
+        this._previewPaused = paused;
+        clearTimeout(this._previewParkTimer);
+        this._previewParkTimer = null;
+        if (paused && MapEditor3D.PARK_AFTER_MS > 0 && MapEditor3D.playtestRunning()) {
+            this._previewParkTimer = setTimeout(() => {
+                this._previewParkTimer = null;
+                if (this.enabled && this._previewPaused && MapEditor3D.playtestRunning()) this.park();
+            }, MapEditor3D.PARK_AFTER_MS);
+        }
+        for (const play of this.effectPlays || []) {
+            play.layer?.setWorkspaceActive?.(!paused);
+            const video = play.plane?.userData?.video;
+            if (!video) continue;
+            if (paused) {
+                if (!video.paused && !video.ended) { play.resumeVideo = true; video.pause(); }
+            } else if (play.resumeVideo) {
+                play.resumeVideo = false;
+                if (video.paused && !video.ended) video.play()?.catch?.(() => {});
+            }
+        }
+        this._lastModelTick = 0;
+        this._lastPreviewTick = null;
+        this._flewAt = null;
+        if (paused) {
+            if (this.frame !== null) cancelAnimationFrame(this.frame);
+            this.frame = null;
+            this.flyKeys?.clear();
+            this.flyFast = false;
+        } else if (this.enabled) {
+            this._covered = true;
+            this.requestRender();
+            this.startLoop();
+        }
     }
 
     /**

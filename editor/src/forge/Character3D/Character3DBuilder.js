@@ -58,6 +58,7 @@ class Character3DBuilder {
         if (this._outfitProjectPath !== this._project()?.path) this._outfitUndo = null;
         this._outfitProjectPath = this._project()?.path;
         this.root = containerEl;
+        this._bindPreviewActivity();
         if (!this._project()) {
             this.root.innerHTML = `<div class="rr-c3d-empty">${this._t('Open a project to use Forge tools.')}</div>`;
             return;
@@ -82,7 +83,18 @@ class Character3DBuilder {
         if (this._shapeWorkerRef) { this._shapeWorkerRef.terminate(); this._shapeWorkerRef = undefined; this._shapeJob = null; }
         for (const t of this._envTargets || []) t.dispose();
         this._envTargets = [];
-        if (this._thumbView) { this._thumbView.renderer.dispose(); this._thumbView.renderer.forceContextLoss?.(); this._thumbView = null; }
+        if (this._thumbView) {
+            const thumbnails = this._thumbView;
+            thumbnails.disposed = true;
+            this._thumbView = null;
+            const release = () => {
+                for (const material of thumbnails.materials || []) material.dispose();
+                thumbnails.reflections?.dispose();
+                thumbnails.renderer.dispose(); thumbnails.renderer.forceContextLoss?.();
+            };
+            if (thumbnails.pending) thumbnails.pending.then(release);
+            else release();
+        }
         clearTimeout(this._shadeTimer);
         view.renderer.dispose();
         view.renderer.forceContextLoss?.();
@@ -154,10 +166,10 @@ class Character3DBuilder {
 
     // ── page ───────────────────────────────────────────────────────────────
     _tabs() {
-        if (this.slime) return [['species', 'Species'], ['props', 'Accessories']];
+        if (this.slime) return [['species', 'Species'], ['body', 'Body'], ['props', 'Accessories']];
         return this.human
             ? [['species', 'Species'], ['body', 'Body'], ['face', 'Face'], ['hair', 'Hair'], ['outfit', 'Outfit'], ['props', 'Accessories'], ['colors', 'Colors']]
-            : [['species', 'Species'], ['body', 'Body'], ['gear', 'Gear'], ['colors', 'Colors']];
+            : [['species', 'Species'], ['body', 'Body'], ...(!this.recipe.morphology || this.recipe.morphology === 'quadruped' ? [['gear', 'Gear']] : []), ['colors', 'Colors']];
     }
 
     _renderPage() {
@@ -351,6 +363,7 @@ class Character3DBuilder {
     _format(s, v) {
         const f = typeof s === 'string' ? s : s.format;
         if (v == null || Number.isNaN(+v)) return '';
+        if (f === 'count') return String(Math.round(v));
         if (f === 'years') return this._t('{n} years', { n: Math.round(v) });
         if (f === 'signed') return (v > 0 ? '+' : '') + Math.round(v * 100);
         if (f === 'deg') return Math.round(v) + '°';
@@ -397,6 +410,7 @@ class Character3DBuilder {
         // A select is a choice: committed once, and it may change which controls show.
         if (el.tagName === 'SELECT') {
             if (!committed) return;
+            if (!this.human && RRCreatureBody.variantsFor(this.recipe).some(v => v.key === path)) { this._replace(RRCreatureBody.withVariant(this.recipe, path, value)); return; }
             if (path === 'previewWeapon') { this._heldName = value; this._heldCatalog = null; this._syncHeldPreview(); return; }
             if (path === 'eyeStyle') { this._applyEyeStyle(value); return; }
             if (path === 'skinLook') {
@@ -449,6 +463,7 @@ class Character3DBuilder {
         if (this.slime) this._slimeDraft = el.type === 'range' && !committed;
         if (el.type === 'range') this._syncSliders();
         if (committed) this._commit();
+        if (committed && !this.human && ['eyeCount','limbPairs','appendages','jawOpen'].includes(path)) this._renderPanel();
         // Gender carried across the middle: the sex the body shows changes, and the controls for it (genitals,
         // a woman's own hair patterns) with it.
         if (committed && path === 'gender' && RRHumanBody.sexOf(this.recipe) !== this._shownSex) this._renderPanel();
@@ -537,31 +552,57 @@ class Character3DBuilder {
     _speciesTab() {
         const plan = `<div class="rr-c3d-plan">
             <button class="rr-btn-chip${this.human ? ' is-active' : ''}" data-act="plan" data-plan="human">${this._t('Humanoid')}</button>
-            <button class="rr-btn-chip${this.human ? '' : ' is-active'}" data-act="plan" data-plan="quadruped">${this._t('Four-legged')}</button></div>`;
+            <button class="rr-btn-chip${this.human ? '' : ' is-active'}" data-act="plan" data-plan="quadruped">${this._t('Non-humanoid')}</button></div>`;
         if (!this.human) {
-            const kinds = RRCreatureBody.KINDS.map(k => this._tile('kind', k.kind, k.label || this._cap(k.kind), 'kind', k.kind === this.recipe.kind)).join('');
-            const options = RRCreatureBody.OPTIONS.filter(o => o.key !== 'pattern').map(o => this._select(o.key, o.label, o.choices.map(c => [c.id, c.label]))).join('');
-            return plan + this._section('Kind') + `<div class="rr-c3d-tiles">${kinds}</div>` + this._section('Features') + options;
+            const groups = [...new Set(RRCreatureBody.KINDS.map(k => k.group || 'Land animals'))];
+            const kinds = groups.map(group => this._section(group) + `<div class="rr-c3d-tiles">${RRCreatureBody.KINDS.filter(k => (k.group || 'Land animals') === group).map(k => this._tile('kind', k.kind, k.label || this._cap(k.kind), 'kind', k.kind === this.recipe.kind)).join('')}</div>`).join('');
+            return plan + kinds;
         }
         const groups = [...new Set(RRCharacterSpecies.SPECIES.map(s => s.group))];
         const tiles = groups.map(g => `<div class="rr-c3d-subhead">${this._t(g)}</div><div class="rr-c3d-tiles">${RRCharacterSpecies.SPECIES.filter(s => s.group === g)
             .map(s => this._tile('species', s.id, s.label, 'species', s.id === this.recipe.species)).join('')}</div>`).join('');
-        // Merfolk hook (RRMerfolkBody): the tail's own section; no second tail among the features.
-        const mer = !this.slime && !!window.RRMerfolkBody && this.recipe.species === 'merfolk';
-        const features = this.slime ? RRSlimeBody.panel(this) : (mer ? RRMerfolkBody.panel(this) : '') + this._section('Features') + Object.entries(RRCharacterSpecies.FEATURES).filter(([key]) => !(mer && key === 'tail')).map(([key, def]) => {
-            const f = this.recipe.features[key];
-            let html = this._select(`features.${key}.type`, def.label, def.types);
-            if (f.type !== 'none') {
-                html += this._slider({ path: `features.${key}.size`, label: 'Size', natural: [0.5, 1.6], extreme: [0.2, 3], format: 'x' });
-                if (key === 'tail') html += this._slider({ path: 'features.tail.length', label: 'Length', natural: [0.5, 1.6], extreme: [0.2, 3], format: 'x' });
-                html += this._color(`features.${key}.color`, 'Color', []);
-                if (def.defaults.color2) html += this._color(`features.${key}.color2`, key === 'tail' || key === 'wings' ? 'Underside' : 'Tip color', []);
-            }
-            return html;
-        }).join('');
-        // Any body may wear an animal's head in place of its own.
-        const head = this.slime ? '' : this._select('headId', 'Head', RRCharacterSpecies.heads(), RRCharacterSpecies.headId(this.recipe.head));
-        return plan + this._section('Species') + `<p class="rr-c3d-note">${this._t('A species sets the body, face, skin and features to start from. Everything stays editable.')}</p>` + tiles + head + features;
+        return plan + this._section('Species') + `<p class="rr-c3d-note">${this._t('A species sets the body, face, skin and features to start from. Everything stays editable.')}</p>` + tiles;
+    }
+
+    /** Keep a part's type, dimensions and colors together in Body settings. */
+    _bodyFeature(key) {
+        const def = RRCharacterSpecies.FEATURES[key], f = this.recipe.features[key];
+        let html = this._select(`features.${key}.type`, def.label, def.types);
+        if (f.type === 'none') return html;
+        if (key !== 'machinery') html += this._slider({ path: `features.${key}.size`, label: 'Size', natural: [0.5, 1.6], extreme: [0.2, 3], format: 'x' });
+        if (key === 'tail') html += this._slider({ path: 'features.tail.length', label: 'Length', natural: [0.5, 1.6], extreme: [0.2, 3], format: 'x' });
+        html += this._color(`features.${key}.color`, 'Color', []);
+        if (def.defaults.color2) html += this._color(`features.${key}.color2`, key === 'machinery' ? 'Light color' : key === 'arms' ? 'Trim' : key === 'tail' || key === 'wings' ? 'Underside' : 'Tip color', []);
+        return html;
+    }
+
+    _creatureBodySettings() {
+        const r = this.recipe, ordinary = !r.morphology || r.morphology === 'quadruped';
+        const controls = RRCreatureBody.slidersFor(r).filter(s => s.section !== 'Coat');
+        const sectionFor = key => ({hornSize:'Horns', tuskSize:'Head', maneSize:'Head', spines:'Body', wingSize:'Wings', jawOpen:'Head', toothSize:'Head', dorsalHeight:'Fins', finSize:'Fins', finPairs:'Fins', appendages:'Appendages', appendageLength:'Appendages', limbPairs:'Legs and feet', segments:'Body', eyeCount:'Head', glow:'Body'})[key];
+        const sections = new Map();
+        const put = (section, html) => sections.set(section, (sections.get(section) || '') + html);
+        put('Body', this._select('morphology', 'Body type', RRCreatureBody.FORMS));
+        for (const v of RRCreatureBody.variantsFor(r)) put('Body', this._select(v.key, v.label, v.choices));
+        for (const o of RRCreatureBody.OPTIONS.filter(o => o.key !== 'pattern' && (ordinary || o.key === 'horns'))) {
+            put(({ears:'Head',tail:'Tail',horns:'Horns',feet:'Legs and feet',wings:'Wings',mane:'Head'})[o.key], this._select(o.key, o.label, o.choices.map(c => [c.id, c.label])));
+        }
+        const absent = key => {
+            if (key === 'headSize' && r.morphology === 'worm' && ['tapeworm','leech','roundworm'].includes(r.wormType)) return true;
+            if (key === 'hornSize') return r.horns === 'none';
+            if (key === 'toothSize') return r.jawOpen === 0;
+            if (key === 'segments' && r.morphology === 'arthropod') return r.kind !== 'centipede';
+            if (key === 'plantigrade') return r.feet === 'hoof';
+            if (key === 'appendageLength') return ['cephalopod','jellyfish'].includes(r.morphology) && r.appendages === 0 || r.morphology === 'arthropod' && r.limbPairs === 0;
+            if (!ordinary) return false;
+            const part = ({earSize:'ears', earDroop:'ears', tailLength:'tail', tailThickness:'tail', tailCurl:'tail', maneSize:'mane', wingSize:'wings'})[key];
+            return part && r[part] === 'none';
+        };
+        for (const s of controls.filter(s => !absent(s.key))) put(sectionFor(s.key) || s.section, this._slider({
+            path: s.key, label: s.label, natural: s.natural || [s.min, s.max], extreme: [s.min, s.max], step: s.step, format: s.integer ? 'count' : s.unit === 'm' ? 'm' : s.unit === '°' || /Angle|Pitch/.test(s.key) ? 'deg' : 'x'
+        }));
+        const anatomy = ordinary && r.anatomy.detail ? this._section('Anatomy') + this._select('anatomy.sex', 'Shown as', [['male', 'Male'], ['female', 'Female']]) + RRCreatureBody.anatomySliders(r).map(s => this._slider({path:'anatomy.' + s.key, label:s.label, natural:s.natural, extreme:[s.min,s.max],format:'x'})).join('') : '';
+        return this._extremeToggle(ordinary) + [...sections].map(([section,html]) => this._section(section) + html).join('') + anatomy;
     }
 
     _cap(s) { return String(s).charAt(0).toUpperCase() + String(s).slice(1); }
@@ -585,13 +626,8 @@ class Character3DBuilder {
     }
 
     _bodyTab() {
-        if (!this.human) {
-            const sections = [...new Set(RRCreatureBody.SLIDERS.map(s => s.section))].filter(s => s !== 'Coat');
-            const shownAs = this.recipe.anatomy && this.recipe.anatomy.detail ? this._select('anatomy.sex', 'Shown as', [['male', 'Male'], ['female', 'Female']]) : '';
-            return this._extremeToggle(true) + shownAs + sections.map(sec => this._section(sec) + RRCreatureBody.SLIDERS.filter(s => s.section === sec).map(s => this._slider({
-                path: s.key, label: s.label, natural: s.natural || [s.min, s.max], extreme: [s.min, s.max], step: s.step, format: s.unit === 'm' ? 'm' : s.unit === 'deg' || /Angle|Pitch/.test(s.key) ? 'deg' : 'x'
-            })).join('')).join('');
-        }
+        if (this.slime) return RRSlimeBody.panel(this);
+        if (!this.human) return this._creatureBodySettings();
         const M = RRHumanBody.MACRO_RANGES;
         const macro = [
             { path: 'gender', label: 'Gender', natural: [0, 1], ends: ['Female', 'Male'] },
@@ -608,19 +644,27 @@ class Character3DBuilder {
             + this._slider({ path: 'firmness', label: 'Firmness', natural: M.firmness.natural, extreme: M.firmness.extreme });
         const nipples = detail ? this._slider({ path: 'anatomy.areola', label: 'Areola size', natural: [0.6, 1.6], extreme: [0.4, 2.5], format: 'x' })
             + this._slider({ path: 'anatomy.nipple', label: 'Nipple size', natural: [0.3, 2], extreme: [0, 3], format: 'x' })
+            + this._slider({ path: 'anatomy.nippleProjection', label: 'Nipple projection', natural: [0, 2], extreme: [0, 10], format: 'x', ends: ['Flat', 'Raised'] })
             + this._color('anatomy.areolaColor', 'Areola color', ['#c08070', '#a0605a', '#7a4a3a', '#4a2a22'], true) : '';
         const toes = this._slider({ path: 'morph.toes', label: 'Toe length', natural: [0.7, 1.5], extreme: [0.4, 3], format: 'x' });
         let genitals = '';
         if (detail) {
             genitals = this._section('Genitals') + (male
-                ? [['length', 'Length'], ['girth', 'Girth'], ['testicles', 'Testicles']].map(([k, label]) => this._slider({ path: `anatomy.${k}`, label, natural: [-1, 1], extreme: [-1, 2], format: 'signed' })).join('')
+                ? this._toggle('anatomy.paired', 'Paired male anatomy')
+                    + this._select('anatomy.foreskin', 'Foreskin', [['circumcised', 'Circumcised'], ['uncircumcised', 'Uncircumcised']])
+                    + [['length', 'Length'], ['girth', 'Girth'], ['testicles', 'Testicles']].map(([k, label]) => this._slider({ path: `anatomy.${k}`, label, natural: [-1, 1], extreme: [-1, 2], format: 'signed' })).join('')
                 : this._slider({ path: 'anatomy.mons', label: 'Mons', natural: [0, 2], extreme: [0, 3], format: 'x' })
                     + this._slider({ path: 'anatomy.labia', label: 'Labia', natural: [0, 2], extreme: [0, 3], format: 'x' })
+                    + this._slider({ path: 'anatomy.innerLabia', label: 'Inner labia', natural: [0, 2], extreme: [0, 3], format: 'x' })
+                    + this._slider({ path: 'anatomy.clitoris', label: 'Clitoris size', natural: [0, 2], extreme: [0, 3], format: 'x' })
                     + this._slider({ path: 'anatomy.fold', label: 'Fold depth', natural: [0, 2], format: 'x' }));
         }
         return this._extremeToggle(true) + this._section('Build') + macro.map(s => this._slider(s)).join('') + shownAs
-            + this._shapeSliders(['Proportions', 'Torso', 'Bust', 'Arms and legs'], { Bust: { before: bustTop, after: nipples }, 'Arms and legs': { after: toes } })
-            + genitals + this._bodyHairSection();
+            + this._shapeSliders(['Proportions', 'Torso', 'Bust', 'Arms and legs'], { Bust: { before: bustTop, after: nipples }, 'Arms and legs': { after: toes + this._bodyFeature('arms') }, Torso: { after: this._bodyFeature('spines') + this._bodyFeature('machinery') } })
+            + this._section('Head') + this._select('headId', 'Head', RRCharacterSpecies.heads(), RRCharacterSpecies.headId(this.recipe.head))
+            + ['horns','ears','antennae','fangs','beak','tusks','whiskers','alienEyes'].map(key => this._bodyFeature(key)).join('')
+            + (this.recipe.species === 'merfolk' && window.RRMerfolkBody ? RRMerfolkBody.panel(this) : this._section('Tail') + this._bodyFeature('tail'))
+            + this._section('Wings') + this._bodyFeature('wings') + genitals + this._bodyHairSection();
     }
 
     /** Body hair: how much, by pattern or region by region, its color, and fur over it. */
@@ -664,6 +708,13 @@ class Character3DBuilder {
 
     _faceTab() {
         const morph = [
+            { path: 'morph.cranialRidges', label: 'Cranial ridges', natural: [0, 1.5], extreme: [0, 3] },
+            { path: 'morph.noseFolds', label: 'Nose folds', natural: [0, 1.5], extreme: [0, 3] },
+            { path: 'morph.cranialLobes', label: 'Cranial lobes', natural: [0, 1.5], extreme: [0, 3] },
+            { path: 'morph.earBowls', label: 'Ear bowls', natural: [0, 1], extreme: [0, 2] },
+            { path: 'morph.foreheadSpoon', label: 'Forehead spoon', natural: [0, 1.5], extreme: [0, 3] },
+            { path: 'morph.facialRidges', label: 'Facial ridges', natural: [0, 1.5], extreme: [0, 3] },
+            { path: 'morph.neckWebbing', label: 'Neck webbing', natural: [0, 1.5], extreme: [0, 3] },
             { path: 'morph.snout', label: 'Snout', natural: [0, 1], extreme: [0, 1.5] },
             { path: 'morph.muzzle', label: 'Muzzle narrow', natural: [0, 1] },
             { path: 'morph.flat', label: 'Flat face', natural: [0, 1] },
@@ -708,7 +759,7 @@ class Character3DBuilder {
                 + this._slider({ path: 'hair.facial.volume', label: 'Volume', natural: [0, 1] });
         }
         out += this._section('Brows and lashes') + this._picker('hair.brows.style', 'Brows', options(H.BROWS), 'brows');
-        if (h.brows.style !== 'none') out += this._slider({ path: 'hair.brows.thickness', label: 'Thickness', natural: [0, 1] }) + this._color('hair.brows.color', 'Color', colors.slice(0, 10), true);
+        if (h.brows.style !== 'none') out += this._slider({ path: 'hair.brows.thickness', label: 'Thickness', natural: [0, 1] }) + this._slider({ path: 'hair.brows.height', label: 'Height', natural: [-0.5, 0.5], extreme: [-0.8, 0.8] }) + this._color('hair.brows.color', 'Color', colors.slice(0, 10), true);
         return out + this._check('hair.lashes', 'Eyelashes');
     }
 
@@ -779,6 +830,12 @@ class Character3DBuilder {
             html += this._select(`outfit.${i}.pattern`, 'Pattern', W.PATTERNS.concat(item.pattern && !W.PATTERNS.some(p => p[0] === item.pattern) ? [[item.pattern, this._cap(item.pattern)]] : []));
             if (item.pattern === 'emblem') html += `<div class="rr-c3d-row rr-c3d-emblem-row"><span class="rr-c3d-label">${this._t('Emblem picture')}</span><span class="rr-c3d-emblem-name" title="${rrEscapeHtml(item.emblemPicture || '')}">${rrEscapeHtml(item.emblemPicture || this._t('None'))}</span><button class="rr-btn-chip" data-outfit-emblem="${i}">${this._t('Choose…')}</button>${item.emblemPicture ? `<button class="rr-btn-chip" data-outfit-emblem-clear="${i}">${this._t('Clear')}</button>` : ''}</div>`;
             html += this._select(`outfit.${i}.material`, 'Material', Object.keys(W.MATERIAL).map(m => [m, this._cap(m)]));
+            if (g.defaults.lightStyle != null) {
+                html += this._select(`outfit.${i}.lightStyle`, 'Light layout', [['none', 'None'], ['badge', 'Badge'], ['strips', 'Light strips'], ['circuits', 'Circuit traces']]);
+                html += this._color(`outfit.${i}.lightColor`, 'Light color', ['#70dfff', '#ffb65a', '#ef526c', '#7ce6ad', '#c39bff']);
+                html += this._slider({ path: `outfit.${i}.lightIntensity`, label: 'Light brightness', natural: [0, 1] });
+                html += this._slider({ path: `outfit.${i}.lightWidth`, label: 'Light width', natural: [0.4, 2.5], format: 'x' });
+            }
             for (const k of g.knobs || Object.keys(knobs).filter(k => item[k] != null)) {
                 if (k === 'neckline') { html += this._select(`outfit.${i}.neckline`, 'Neckline', W.NECKLINE_CHOICES); continue; }
                 if (k === 'color2') continue;
@@ -896,13 +953,14 @@ class Character3DBuilder {
 
     _colorsTab() {
         if (!this.human) {
-            const pattern = RRCreatureBody.OPTIONS.find(o => o.key === 'pattern');
-            return this._section('Coat') + (pattern ? this._select('pattern', pattern.label, pattern.choices.map(c => [c.id, c.label])) : '')
-                + RRCreatureBody.SLIDERS.filter(s => s.section === 'Coat').map(s => this._slider({ path: s.key, label: s.label, natural: s.natural || [s.min, s.max], extreme: [s.min, s.max], step: s.step, format: 'x' })).join('')
-                + RRCreatureBody.COLORS.map(c => this._color(`colors.${c.key}`, c.label, [])).join('');
+            const pattern = this.recipe.morphology === 'worm' && this.recipe.wormType === 'goauld' ? null : RRCreatureBody.OPTIONS.find(o => o.key === 'pattern');
+            const specialized = this.recipe.morphology && this.recipe.morphology !== 'quadruped';
+            return this._section(specialized ? 'Surface' : 'Coat') + (pattern ? this._select('pattern', pattern.label, pattern.choices.filter(c => !specialized || c.id !== 'socks').map(c => [c.id, c.label])) : '')
+                + RRCreatureBody.SLIDERS.filter(s => s.section === 'Coat' && pattern && (s.key === 'patternScale' ? ['stripes','tabby','spots','rosettes','piebald','dapple','scales'].includes(this.recipe.pattern) || this.recipe.kind === 'shark' && this.recipe.sharkType === 'tiger' : this.recipe.pattern !== 'solid')).map(s => this._slider({ path: s.key, label: s.label, natural: s.natural || [s.min, s.max], extreme: [s.min, s.max], step: s.step, format: 'x' })).join('')
+                + RRCreatureBody.COLORS.filter(c => !specialized || !['hoof', 'mane'].includes(c.key)).map(c => this._color(`colors.${c.key}`, specialized && c.key === 'light' ? 'Underside' : specialized && c.key === 'coat' ? 'Surface color' : c.label, [])).join('');
         }
         const S = RRCharacterSkin;
-        const tones = ['#f6e0d0', '#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26', '#3f2618', '#6a8a4a', '#7a9a3a', '#b0463e', '#5e5470', '#9aa4a2', '#d8dce2'];
+        const tones = [...RRCharacterSpecies.skinTones(this.recipe.species), '#f6e0d0', '#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26', '#3f2618', '#6a8a4a', '#7a9a3a', '#b0463e', '#5e5470', '#9aa4a2', '#d8dce2'];
         const sp = this.recipe.skinPattern;
         let out = this._section('Skin') + this._select('skinLook', 'Apply skin finish', [['', 'Choose…'], ...S.LOOKS.map(p => [p.id, p.label])])
             + this._color('skin', 'Skin color', tones) + this._select('skinPattern.type', 'Markings', S.PATTERNS);
@@ -924,7 +982,7 @@ class Character3DBuilder {
         const key = kind ? kind + ':' + id : '';
         if (kind) this._wantThumb(kind, id);
         const saved = key && this._thumbs.get(key);
-        const url = saved && saved.sig === this._thumbSig(kind) ? saved.url : '';
+        const url = saved && (saved.sig === this._thumbSig(kind) || saved.project === (this._project()?.path || '')) ? saved.url : '';
         return `<button class="rr-c3d-tile rr-c3d-thumbtile${active ? ' is-active' : ''}" data-act="${act}" data-id="${rrEscapeHtml(id)}"${extra} title="${rrEscapeHtml(this._t(label))}">`
             + `<span class="rr-c3d-thumb" data-thumb="${rrEscapeHtml(key)}">${url ? `<img src="${url}" alt="">` : ''}</span><span class="rr-c3d-tile-label">${rrEscapeHtml(this._t(label))}</span></button>`;
     }
@@ -939,7 +997,7 @@ class Character3DBuilder {
         const current = this._get(path), open = this.openPicker === path;
         const now = options.find(o => o.id === current) || options[0];
         const saved = this._thumbs.get(kind + ':' + now.id);
-        const url = saved && saved.sig === this._thumbSig(kind) ? saved.url : '';
+        const url = saved && (saved.sig === this._thumbSig(kind) || saved.project === (this._project()?.path || '')) ? saved.url : '';
         let html = `<div class="rr-c3d-row rr-c3d-pickrow"><span class="rr-c3d-label">${this._t(label)}</span>
             <button class="rr-c3d-pickcurrent${open ? ' is-open' : ''}" data-act="picker" data-id="${path}">`
             + `<span class="rr-c3d-thumb" data-thumb="${kind}:${rrEscapeHtml(now.id)}">${url ? `<img src="${url}" alt="">` : ''}</span>`
@@ -979,8 +1037,11 @@ class Character3DBuilder {
         const key = kind + ':' + id, sig = this._thumbSig(kind);
         const have = this._thumbs.get(key);
         if (have && have.sig === sig) return;
+        if (this._thumbJob?.key === key && this._thumbJob.sig === sig) return;
         const queued = this._thumbQueue.find(q => q.key === key);
-        if (queued) queued.sig = sig;
+        if (queued) {
+            if (queued.sig !== sig) { queued.sig = sig; queued.stored = false; }
+        }
         else this._thumbQueue.push({ key, kind, id, sig });
         this._pumpThumbs();
     }
@@ -1037,11 +1098,46 @@ class Character3DBuilder {
         this._previewMarks = null;
         this._thumbEpoch = (this._thumbEpoch || 0) + 1;
         this._thumbJob = null; this._thumbQueue = [];
+        this._thumbReads = null;
+        this._previewActivityOff?.(); this._previewActivityOff = null;
+        this._startOwed = false;
+    }
+
+    _bindPreviewActivity() {
+        this._previewActivityOff?.();
+        this._previewActivityOff = window.RRDetachedWindow?.onPreviewActivity?.(() => this._syncPreviewActivity());
+        this._syncPreviewActivity();
+    }
+
+    _syncPreviewActivity() {
+        const paused = !!this.root?.ownerDocument?.hidden || window.RRDetachedWindow?.previewActive?.(this.root) === false;
+        const changed = paused !== this._previewPaused;
+        this._previewPaused = paused;
+        this._talk?.pause?.(paused);
+        const view = this._view;
+        if (!paused && !view && this._startOwed) {
+            this._startOwed = false;
+            this._start();
+        }
+        if (view && changed) {
+            if (paused) {
+                cancelAnimationFrame(view.frame); cancelAnimationFrame(view.loop);
+                view.frame = view.loop = 0;
+            } else {
+                if (this._rebuildOwed) this._queueRebuild();
+                if (this._shadingOwed) this._queueShading();
+                this._pumpPainter();
+                if (view.resumeAnimation) view.resumeAnimation();
+                else this._draw();
+            }
+        }
+        this._refreshThumbs();
+        if (!paused) this._resumeImportThumbnails?.();
     }
 
     /** Only tiles intersecting the panel's visible area compete for background work. */
     _visibleThumbs() {
-        if (!this.root || this.root.isConnected === false || this.root.ownerDocument?.hidden) return [];
+        if (!this.root || this._previewPaused || this.root.isConnected === false || this.root.ownerDocument?.hidden) return [];
         const panel = this.root.querySelector('.rr-c3d-panel');
         if (!panel) return [];
         const clip = panel.getBoundingClientRect();
@@ -1059,7 +1155,7 @@ class Character3DBuilder {
         if (doc && doc !== this._thumbDocument) {
             this._thumbDocument?.removeEventListener('visibilitychange', this._thumbVisibility);
             this._thumbDocument = doc;
-            this._thumbVisibility = () => this._refreshThumbs();
+            this._thumbVisibility = () => this._syncPreviewActivity();
             doc.addEventListener('visibilitychange', this._thumbVisibility);
         }
         if (doc?.hidden && this._previewWorker) {
@@ -1086,38 +1182,66 @@ class Character3DBuilder {
     }
 
     _thumbCurrent(item) {
-        return !!this._view && this.root === item.root && this._thumbEpoch === item.epoch && item.sig === this._thumbSig(item.kind);
+        return !!this._view && !this._previewPaused && this.root === item.root && this._thumbEpoch === item.epoch && item.sig === this._thumbSig(item.kind);
+    }
+
+    _showThumb(item, url) {
+        this._thumbs.set(item.key, { url, sig: item.sig, project: this._project()?.path || '' });
+        while (this._thumbs.size > 256) this._thumbs.delete(this._thumbs.keys().next().value);
+        this.root.querySelectorAll(`.rr-c3d-thumb[data-thumb="${CSS.escape(item.key)}"]`).forEach(el => { el.innerHTML = `<img src="${url}" alt="">`; });
+    }
+
+    async _readThumbs(items) {
+        const root = this.root, epoch = this._thumbEpoch, token = {};
+        this._thumbReads = token;
+        try {
+            await Promise.all(items.map(async item => {
+                const sig = item.sig;
+                let url;
+                try { url = await this._storedThumb(item.key, sig); } catch (_) {}
+                if (this.root !== root || epoch !== this._thumbEpoch || sig !== item.sig || sig !== this._thumbSig(item.kind)) return;
+                item.stored = true;
+                if (url) {
+                    this._showThumb(item, url);
+                    this._thumbQueue = this._thumbQueue.filter(queued => queued !== item);
+                }
+            }));
+        } finally {
+            if (this._thumbReads === token) {
+                this._thumbReads = null;
+            }
+        }
     }
 
     /** One build off the page, followed by one small render; no polling of hidden tiles. */
     _pumpThumbs() {
-        if (this._thumbTimer || this._thumbJob || !this._thumbQueue.length) return;
+        if (this._thumbTimer || this._thumbReads || !this._thumbQueue.length) return;
         this._thumbTimer = setTimeout(async () => {
             this._thumbTimer = 0;
             if (!this.root) return;
-            if (!this._view || !this.pack || !this._result) { this._pumpThumbs(); return; }
-            if (Date.now() - this._lastChange < 350) { this._pumpThumbs(); return; }
-            const visible = this._visibleThumbs(), keys = new Set(visible.map(el => el.dataset.thumb));
+            const root = this.root, epoch = this._thumbEpoch;
+            let keys = new Set(this._visibleThumbs().map(el => el.dataset.thumb));
             const present = new Set([...this.root.querySelectorAll('.rr-c3d-thumb[data-thumb]')].map(el => el.dataset.thumb));
-            this._thumbQueue = this._thumbQueue.filter(q => present.has(q.key) && q.sig === this._thumbSig(q.kind));
+            this._thumbQueue = this._thumbQueue.filter(q => present.has(q.key) && q.sig === this._thumbSig(q.kind) && this._thumbs.get(q.key)?.sig !== q.sig);
+            const unread = this._thumbQueue.filter(item => keys.has(item.key) && !item.stored);
+            if (unread.length) await this._readThumbs(unread);
+            if (this.root !== root || this._thumbEpoch !== epoch) { this._pumpThumbs(); return; }
+            if (this._thumbJob) return;
+            keys = new Set(this._visibleThumbs().map(el => el.dataset.thumb));
+            this._thumbQueue = this._thumbQueue.filter(item => item.sig === this._thumbSig(item.kind));
+            if (this._thumbQueue.some(item => keys.has(item.key) && !item.stored)) { this._pumpThumbs(); return; }
             const index = this._thumbQueue.findIndex(q => keys.has(q.key));
             if (index < 0) return;
+            if (!this._view || !this.pack || !this._result || Date.now() - this._lastChange < 350) { this._pumpThumbs(); return; }
             const item = this._thumbQueue.splice(index, 1)[0];
             item.root = this.root; item.epoch = this._thumbEpoch;
             this._thumbJob = item;
             try {
-                let url = await this._storedThumb(item.key, item.sig);
+                const url = await this._makeThumb(item);
                 if (!this._thumbCurrent(item)) return;
-                if (!url) {
-                    url = await this._makeThumb(item);
-                    if (!this._thumbCurrent(item)) return;
-                    if (url) this._storeThumb(item.key, item.sig, url);
-                }
                 if (url) {
-                    this._thumbs.set(item.key, { url, sig: item.sig });
-                    // Bound memory during long sessions with many different recipes.
-                    while (this._thumbs.size > 256) this._thumbs.delete(this._thumbs.keys().next().value);
-                    this.root.querySelectorAll(`.rr-c3d-thumb[data-thumb="${CSS.escape(item.key)}"]`).forEach(el => { el.innerHTML = `<img src="${url}" alt="">`; });
+                    this._storeThumb(item.key, item.sig, url);
+                    this._showThumb(item, url);
                 }
             } catch (error) {
                 if (error.name !== 'AbortError' && this._thumbCurrent(item)) {
@@ -1128,7 +1252,7 @@ class Character3DBuilder {
             } finally {
                 if (this._thumbJob === item) { this._thumbJob = null; this._pumpThumbs(); }
             }
-        }, this._view && this._result ? 16 : 120);
+        }, 16);
     }
 
     _previewPool() {
@@ -1205,7 +1329,8 @@ class Character3DBuilder {
             const error = new Error('Character preview canceled'); error.name = 'AbortError'; throw error;
         }
         const result = await pool.build({ key: item.key + '|' + item.sig, recipe, cacheKey: item.kind,
-            options: { quality: 'preview', skinSize: 256, atlasSize: 256 } });
+            options: { quality: 'preview', skinSize: ['head', 'face', 'hands'].includes(frame) ? 256 : 128,
+                atlasSize: 256, hairBudget: 0.5, static: true } });
         return { result, frame };
     }
 
@@ -1217,7 +1342,7 @@ class Character3DBuilder {
         if (this.root !== root || this._view !== view || item.sig !== this._thumbSig(item.kind) || (item.root && !this._thumbCurrent(item))) {
             const error = new Error('Character preview canceled'); error.name = 'AbortError'; throw error;
         }
-        return this._renderThumb(prepared);
+        return this._renderThumb(prepared, () => this.root === root && this._view === view && item.sig === this._thumbSig(item.kind) && (!item.root || this._thumbCurrent(item)));
     }
 
     _ensureThumbView() {
@@ -1232,12 +1357,11 @@ class Character3DBuilder {
             renderer.toneMappingExposure = 1.05;
             renderer.setClearColor(0x000000, 0);
             const scene = new THREE.Scene();
-            scene.environment = this._studio(renderer);
-            scene.environmentIntensity = 0.75;
-            scene.add(new THREE.HemisphereLight(0xfff4e8, 0x3a3430, 0.45));
+            scene.add(new THREE.HemisphereLight(0xfff4e8, 0x756c65, 1.7));
             const key = new THREE.DirectionalLight(0xfff0e0, 2.4); key.position.set(1.6, 3.2, 2.4); scene.add(key);
             const rim = new THREE.DirectionalLight(0xc8d8ff, 1.4); rim.position.set(-1.2, 2.4, -2.8); scene.add(rim);
-            this._thumbView = { renderer, scene, camera: new THREE.PerspectiveCamera(28, 1, 0.02, 60), canvas };
+            this._thumbView = { renderer, scene, camera: new THREE.PerspectiveCamera(28, 1, 0.02, 60), canvas,
+                reflections: this._thumbnailReflections(), materials: [] };
         }
         return this._thumbView;
     }
@@ -1249,13 +1373,92 @@ class Character3DBuilder {
         return value instanceof Type ? value : new Type(value.buffer, value.byteOffset, value.length);
     }
 
-    _renderThumb({ result, frame }) {
+    _thumbnailReflections() {
+        const size = 16;
+        const faces = Array.from({ length: 6 }, (_, face) => {
+            const data = new Uint8Array(size * size * 4);
+            for (let row = 0; row < size; row++) for (let column = 0; column < size; column++) {
+                const horizontal = 2 * (column + 0.5) / size - 1, vertical = 2 * (row + 0.5) / size - 1;
+                const direction = [[1, -vertical, -horizontal], [-1, -vertical, horizontal], [horizontal, 1, vertical],
+                    [horizontal, -1, -vertical], [horizontal, -vertical, 1], [-horizontal, -vertical, -1]][face];
+                const length = Math.hypot(...direction);
+                const upper = Math.max(0, direction[1] / length);
+                const softbox = Math.max(0, (direction[0] * 0.4 + direction[1] * 0.65 + direction[2] * 0.65) / length) ** 12;
+                const offset = (row * size + column) * 4;
+                data[offset] = Math.min(255, 65 + upper * 80 + softbox * 110);
+                data[offset + 1] = Math.min(255, 68 + upper * 84 + softbox * 103);
+                data[offset + 2] = Math.min(255, 76 + upper * 92 + softbox * 90);
+                data[offset + 3] = 255;
+            }
+            return new THREE.DataTexture(data, size, size);
+        });
+        const texture = new THREE.CubeTexture(faces);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.needsUpdate = true;
+        return texture;
+    }
+
+    _thumbnailMaterial(part, result, textureFor, reflections) {
+        const picture = part.texture && result.textures[part.texture];
+        const kind = part.kind || (part.metalness > 0.5 ? 'metal' : 'prop');
+        const metal = kind === 'metal' || part.metalness > 0.5;
+        const glossy = metal || ['eye', 'glass', 'goo', 'bubble'].includes(kind) || part.wet || !!part.metallicRoughnessTexture;
+        const opaque = kind !== 'goo' && !(part.opacity != null && part.opacity < 1);
+        const material = new THREE.MeshPhongMaterial({
+            color: picture || part.colors ? 0xffffff : new THREE.Color(part.color || '#bbbbbb'),
+            map: picture ? textureFor(part.texture, picture) : null,
+            vertexColors: !!part.colors,
+            specular: glossy ? 0x666666 : kind === 'hair' ? 0x111111 : 0x181818,
+            shininess: glossy ? 55 : 12,
+            envMap: glossy ? reflections : null, combine: THREE.AddOperation, reflectivity: metal ? 0.65 : kind === 'goo' ? 0.4 : 0.12,
+            side: part.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+            transparent: !opaque, opacity: part.opacity ?? 1,
+            alphaTest: part.cutout ? (part.alphaCutoff ?? 0.5) : 0, depthWrite: opaque
+        });
+        const relief = part.normalTexture && result.textures[part.normalTexture];
+        if(relief){
+            const normal=textureFor(part.normalTexture,relief);
+            if(normal.colorSpace!==THREE.NoColorSpace){normal.colorSpace=THREE.NoColorSpace;normal.needsUpdate=true;}
+            material.normalMap=normal;const scale=part.normalScale??1;
+            material.normalScale=new THREE.Vector2(scale,-scale);
+        }
+        if (metal) material.color.multiplyScalar(0.3);
+        if (part.cutout && kind === 'hair') {
+            material.alphaToCoverage = true;
+            material.alphaTest = part.onSkin ? 0.12 : Math.min(material.alphaTest, 0.3);
+        }
+        if (part.emissive || (part.emissiveTexture && result.textures[part.emissiveTexture])) {
+            material.emissive.set(part.emissive || 0xffffff);
+            material.emissiveIntensity = Number.isFinite(part.emissiveIntensity) ? Math.max(0,part.emissiveIntensity) : 1;
+            if (part.emissiveTexture && result.textures[part.emissiveTexture]) material.emissiveMap = textureFor(part.emissiveTexture, result.textures[part.emissiveTexture]);
+        }
+        return material;
+    }
+
+    async _renderThumb({ result, frame }, current = () => true) {
         const tv = this._ensureThumbView();
+        const previous = tv.pending;
+        let release;
+        tv.pending = new Promise(resolve => { release = resolve; });
+        tv.jobs = (tv.jobs || 0) + 1;
+        try {
+            await previous;
+            if (!current() || tv.disposed || this._previewPaused || (this._thumbView && this._thumbView !== tv)) {
+                const error = new Error('Character preview canceled'); error.name = 'AbortError'; throw error;
+            }
+            return await this._drawThumb({ result, frame }, tv, current);
+        } finally {
+            if (!--tv.jobs) tv.pending = null;
+            release();
+        }
+    }
+
+    async _drawThumb({ result, frame }, tv, current) {
         const group = new THREE.Group(), made = [], textures = new Map();
         const textureFor = (name, tex) => {
             if (!textures.has(name)) {
                 const t = new THREE.DataTexture(this._previewArray(tex.data), tex.width, tex.height, THREE.RGBAFormat);
-                t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.needsUpdate = true;
+                t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; if(tex.repeat)t.wrapS=t.wrapT=THREE.RepeatWrapping; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.needsUpdate = true;
                 textures.set(name, t);
             }
             return textures.get(name);
@@ -1268,7 +1471,7 @@ class Character3DBuilder {
             if (part.uvs) g.setAttribute('uv', new THREE.BufferAttribute(this._previewArray(part.uvs), 2));
             if (part.colors) g.setAttribute('color', new THREE.BufferAttribute(this._previewArray(part.colors), 3));
             g.setIndex(new THREE.BufferAttribute(this._previewArray(part.index), 1));
-            const mesh = new THREE.Mesh(g, this._material(part, result, textureFor, this._thumbView && this._thumbView.scene));
+            const mesh = new THREE.Mesh(g, this._thumbnailMaterial(part, result, textureFor, tv.reflections));
             group.add(mesh);
             made.push(mesh);
             g.computeBoundingBox();
@@ -1294,12 +1497,26 @@ class Character3DBuilder {
         }
         cam.position.set(target.x + Math.sin(yaw) * Math.cos(pitch) * distance, target.y + Math.sin(pitch) * distance, target.z + Math.cos(yaw) * Math.cos(pitch) * distance);
         cam.lookAt(target);
-        tv.renderer.render(tv.scene, cam);
-        const url = tv.canvas.toDataURL('image/webp', 0.85);
-        tv.scene.remove(group);
-        for (const m of made) { m.geometry.dispose(); m.material.dispose(); }
-        for (const t of textures.values()) t.dispose();
-        return url;
+        let rendered = false;
+        try {
+            if (tv.renderer.compileAsync) await tv.renderer.compileAsync(tv.scene, cam);
+            if (!current() || tv.disposed || this._previewPaused || (this._thumbView && this._thumbView !== tv)) {
+                const error = new Error('Character preview canceled'); error.name = 'AbortError'; throw error;
+            }
+            tv.renderer.render(tv.scene, cam);
+            rendered = true;
+            return tv.canvas.toDataURL('image/webp', 0.85);
+        } finally {
+            tv.scene.remove(group);
+            for (const mesh of made) mesh.geometry.dispose();
+            for (const texture of textures.values()) texture.dispose();
+            if (rendered) {
+                for (const material of tv.materials) material.dispose();
+                tv.materials = made.map(mesh => mesh.material);
+            } else {
+                for (const mesh of made) mesh.material.dispose();
+            }
+        }
     }
 
     // ── randomize ──────────────────────────────────────────────────────────
@@ -1329,6 +1546,7 @@ class Character3DBuilder {
             case 'colors':
                 // A tone from the chosen people's own range.
                 if (r.species === 'human') { const tones = (RRHumanBody.PEOPLE_BY_ID.get(r.ancestry.people) || RRHumanBody.PEOPLE_BY_ID.get('mixed')).tones; r.skin = tones[seed % tones.length]; }
+                else { const tones = RRCharacterSpecies.skinTones(r.species); if (tones.length) r.skin = tones[seed % tones.length]; }
                 r.eyes = Object.assign({}, r.eyes, { color: roll.eyes.color });
                 r.hair = Object.assign({}, r.hair, { color: roll.hair.color, tipColor: roll.hair.tipColor });
                 r.outfit = r.outfit.map((item, k) => Object.assign({}, item, roll.outfit[k % Math.max(1, roll.outfit.length)] ? { color: roll.outfit[k % roll.outfit.length].color } : {}));
@@ -1347,25 +1565,30 @@ class Character3DBuilder {
 
     // ── 3D view ────────────────────────────────────────────────────────────
     async _start() {
+        const root = this.root, epoch = this._thumbEpoch;
         this._status(this._t('Loading…'));
         const ready = (window.THREE) || (this.projectController?.mapEditor3D?.ensureLibraries && await this.projectController.mapEditor3D.ensureLibraries());
+        if (this.root !== root || this._thumbEpoch !== epoch) return;
         if (!ready || !window.THREE) { this._status(this._t('The 3D libraries could not be loaded.'), 'error'); return; }
         try {
-            this.pack = this.pack || await RRHumanBody.loadPack();
-            this.eyeSource = this.eyeSource || await this._loadEyeSource();
+            if (!this.pack || !this.eyeSource) [this.pack, this.eyeSource] = await Promise.all([this.pack || RRHumanBody.loadPack(), this.eyeSource || this._loadEyeSource()]);
             // [outfit transfer] The pictures of the outfits taken from models, decoded before the first build;
             // one that comes in later (a project's own) builds the view again.
             if (window.RRCharacterOutfitTransfer) {
                 if (this._project()) RRCharacterOutfitTransfer.registerProject(RRCharacterWardrobe, this._project().path);
-                if (!this._takenPictures) this._takenPictures = RRCharacterOutfitTransfer.onPicture(() => this._queueRebuild());
-                await RRCharacterOutfitTransfer.preload(RRCharacterOutfitTransfer.BUILT_IN);
+                if (!this._takenPictures) this._takenPictures = RRCharacterOutfitTransfer.onPicture(key => {
+                    if ((this.recipe.outfit || []).some(item => RRCharacterWardrobe.BY_ID.get(item.id)?.transfer === key)) this._queueRebuild();
+                });
+                const selected = [...new Set((this.recipe.outfit || []).map(item => RRCharacterWardrobe.BY_ID.get(item.id)?.transfer).filter(Boolean))];
+                await RRCharacterOutfitTransfer.preload(selected);
             }
         } catch (error) {
             console.error('[Character3DBuilder] body pack', error);
             this._status(this._t('The body data could not be loaded.'), 'error');
             return;
         }
-        if (!this.root || !this.root.querySelector('.rr-c3d-canvas')) return;
+        if (!this.root || this.root !== root || this._thumbEpoch !== epoch || !this.root.querySelector('.rr-c3d-canvas')) return;
+        if (this._previewPaused) { this._startOwed = true; return; }
         this._makeView();
         this._rebuild();
         this._refreshThumbs();
@@ -1494,7 +1717,10 @@ class Character3DBuilder {
             const face = view.faceCenter || [0, body * 0.93, 0];
             view.target.set(face[0] * near, h * 0.52 + (face[1] - h * 0.52) * near, face[2] * near);
         }
-        else view.target.set(0, h * 0.5, (view.depth || 0) * near * 0.4);
+        else {
+            const center = view.bodyCenter || [0, h * 0.5, 0];
+            view.target.set(center[0], center[1], center[2] + ((view.depth || 0) - center[2]) * near * 0.4);
+        }
     }
 
     /** Use the actual head, including extreme proportions, for the Face button. */
@@ -1523,7 +1749,9 @@ class Character3DBuilder {
 
     _draw() {
         const view = this._view;
-        if (!view || view.frame) return;
+        if (!view) return;
+        view.needsDraw = true;
+        if (this._previewPaused || view.frame || view.loop) return;
         view.frame = requestAnimationFrame(() => { view.frame = 0; this._render(); });
     }
 
@@ -1531,9 +1759,18 @@ class Character3DBuilder {
         const view = this._view;
         if (!view) return;
         const c = view.camera, t = view.target;
-        c.position.set(t.x + Math.sin(view.yaw) * Math.cos(view.pitch) * view.distance, t.y + Math.sin(view.pitch) * view.distance, t.z + Math.cos(view.yaw) * Math.cos(view.pitch) * view.distance);
-        c.lookAt(t);
+        const aimed = view.aimed;
+        if (!aimed || aimed.camera !== c || aimed.yaw !== view.yaw || aimed.pitch !== view.pitch || aimed.distance !== view.distance
+            || aimed.x !== t.x || aimed.y !== t.y || aimed.z !== t.z || !c.up.equals(aimed.up)
+            || !c.position.equals(aimed.position) || !c.quaternion.equals(aimed.quaternion)) {
+            c.position.set(t.x + Math.sin(view.yaw) * Math.cos(view.pitch) * view.distance, t.y + Math.sin(view.pitch) * view.distance, t.z + Math.cos(view.yaw) * Math.cos(view.pitch) * view.distance);
+            c.lookAt(t);
+            const next = view.aimed || (view.aimed = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), up: new THREE.Vector3() });
+            next.camera = c; next.yaw = view.yaw; next.pitch = view.pitch; next.distance = view.distance;
+            next.x = t.x; next.y = t.y; next.z = t.z; next.up.copy(c.up); next.position.copy(c.position); next.quaternion.copy(c.quaternion);
+        }
         view.renderer.render(view.scene, c);
+        view.needsDraw = false;
     }
 
     /**
@@ -1548,8 +1785,8 @@ class Character3DBuilder {
         const slime = !!view && view.plan === 'slime';
         // Merfolk hook: a tail's own motions, and the humanoid poses of the upper body.
         const mer = human && !slime && !!window.RRMerfolkBody && !!view && !!view.boneDefs && RRMerfolkBody.hasTail(view.boneDefs);
-        const poses = slime ? RRSlimeBody.POSES : mer ? RRMerfolkBody.POSES : human ? RRCharacterPoses.POSES : RRCreatureBody.POSES.filter(p => !view.boneDefs || RRCreatureBody.poseClip(view.boneDefs, p.id, this.recipe));
-        const list = [['apose', slime ? 'Still' : 'A-pose'], ['idle', 'Idle']].concat(poses.map(p => [p.id, p.label]))
+        const poses = slime ? RRSlimeBody.POSES : mer ? RRMerfolkBody.POSES : human ? RRCharacterPoses.POSES : RRCreatureBody.posesFor(this.recipe).filter(p => !view.boneDefs || RRCreatureBody.poseClip(view.boneDefs, p.id, this.recipe));
+        const list = [['apose', slime || !human ? 'Still' : 'A-pose'], ['idle', 'Idle']].concat(poses.map(p => [p.id, p.label]))
             .map(([id, label]) => [id, this._t(label)]).sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));
         if (!list.some(([id]) => id === this.pose)) this.pose = 'idle';
         const holder = this.root.querySelector('.rr-c3d-pose-picker'), sig = JSON.stringify(list);
@@ -1569,6 +1806,9 @@ class Character3DBuilder {
         if (!view) return;
         cancelAnimationFrame(view.loop);
         view.loop = 0;
+        cancelAnimationFrame(view.frame);
+        view.frame = 0;
+        view.resumeAnimation = null;
         const time = view.action ? view.action.time : (view.resumeAt || 0);
         if (view.action) view.action.stop();
         for (const b of view.bones) { b.position.copy(b.userData.rest.p); b.quaternion.identity(); b.scale.set(1, 1, 1); }
@@ -1587,7 +1827,6 @@ class Character3DBuilder {
             view.action.play();
         }
         if (view.action && view.mixer) {
-            view.clock.getDelta();
             let carried = 0;
             // Every frame is drawn while the view keeps up; one that cannot (the frames' middle gap over
             // 22 ms through half a second) draws every other frame, the animation's time kept whole, until the
@@ -1595,6 +1834,8 @@ class Character3DBuilder {
             const gaps = [];
             view.halfRate = false;
             const tick = () => {
+                view.loop = 0;
+                if (this._previewPaused || this._view !== view) return;
                 view.loop = requestAnimationFrame(tick);
                 const dt = Math.min(0.1, view.clock.getDelta());
                 carried += dt;
@@ -1603,7 +1844,7 @@ class Character3DBuilder {
                     if (gaps.length > 30) gaps.shift();
                     if (gaps.length === 30 && gaps.slice().sort((a, b) => a - b)[15] > 0.022) view.halfRate = true;
                 }
-                if (view.halfRate && carried < 1 / 32) return;
+                if (view.halfRate && carried < 1 / 32 && !view.needsDraw) return;
                 view.mixer.update(carried);
                 if (view.poseMeta && view.poseMeta.once && view.action && !view.action.isRunning()) {
                     view.heldSince = (view.heldSince || 0) + carried;
@@ -1613,7 +1854,13 @@ class Character3DBuilder {
                 this._plant();
                 this._render();
             };
-            view.loop = requestAnimationFrame(tick);
+            view.resumeAnimation = () => {
+                if (view.loop || this._previewPaused || this._view !== view) return;
+                carried = 0; gaps.length = 0;
+                view.clock.getDelta();
+                view.loop = requestAnimationFrame(tick);
+            };
+            view.resumeAnimation();
         } else this._draw();
     }
 
@@ -1701,15 +1948,17 @@ class Character3DBuilder {
             if (!Number.isFinite(offset)) offset = 0;
         }
         view.group.position.y = offset + (m.lift ? m.lift(view.action ? view.action.time : 0) : 0);
-        // A pose lying, sitting or kneeling on the body itself: its lowest skin set on the floor, measured
-        // once on the skinned body (a sample of its vertices) and kept while the shape stands.
+        // Body contacts change during a roll or fall. Measure the current skinned
+        // surface so an offset from the first frame cannot bury a later contact.
         if (m.skin && view.meshes[0]) {
-            if (m.skinFloor === undefined) {
+            const frame = view.action ? view.action.time : 0;
+            if (m.skinFloor === undefined || m.skinFloorTime !== frame) {
                 const mesh = view.meshes[0], at = new THREE.Vector3(), count = mesh.geometry.getAttribute('position').count;
                 view.group.updateMatrixWorld(true);
                 let low = Infinity;
                 for (let i = 0; i < count; i += 7) { mesh.getVertexPosition(i, at); at.applyMatrix4(mesh.matrixWorld); low = Math.min(low, at.y); }
                 m.skinFloor = Number.isFinite(low) ? -low : 0;
+                m.skinFloorTime = frame;
             }
             view.group.position.y += m.skinFloor;
         }
@@ -1724,6 +1973,9 @@ class Character3DBuilder {
      */
     _fastShape() {
         const view = this._view, result = this._result, pack = this.pack;
+        // These fitted features change their rest skeleton or the shared cranial rim.
+        // Rebuild them with the new body rather than temporarily stretching old fittings.
+        if (this.recipe.features?.arms?.type === 'insect' || this.recipe.features?.machinery?.type === 'android') return false;
         if (!view || !result || result.plan !== 'human' || !result.built || !view.meshes.length || view.meshes.length !== result.parts.length) return false;
         if (!this._fast || this._fast.result !== result) this._fast = this._fastStart(result);
         // Shaped off the page when a shaper is at hand (a heavy shape takes longer than a frame): the newest
@@ -1801,9 +2053,51 @@ class Character3DBuilder {
         let floor = Infinity;
         for (const v of pack.body.source) floor = Math.min(floor, shaped[v * 3 + 1]);
         const lift = F.floor - floor;
+        let chest = null;
         result.parts.forEach((part, k) => {
             const map = F.maps[k], base = F.bases[k], g = view.meshes[k].geometry, pos = g.getAttribute('position'), a = pos.array;
+            if (part.chestDetail) {
+                chest ||= RRCharacterDetail.chestParts(pack, { shaped }, this.recipe, result.parts[0], part.chestReach, true);
+                const detail = part.decal ? chest.overlay : chest.base;
+                const uv = g.getAttribute('uv');
+                if (uv) { uv.array.set(detail.uvs); uv.needsUpdate = true; }
+                a.set(detail.positions);
+                for (let i = 1; i < a.length; i += 3) a[i] += lift + F.modelLift;
+                pos.needsUpdate = true;
+                g.getAttribute('normal').array.set(detail.normals); g.getAttribute('normal').needsUpdate = true;
+                return;
+            }
+            if (part.name === 'Forehead detail') {
+                const detail = RRCharacterDetail.cranialPart(pack, { shaped }, this.recipe, result.parts[0], part);
+                if (detail) {
+                    a.set(detail.positions);
+                    for (let i = 1; i < a.length; i += 3) a[i] += lift + F.modelLift;
+                    pos.needsUpdate = true;
+                    g.getAttribute('normal').array.set(detail.normals); g.getAttribute('normal').needsUpdate = true;
+                    return;
+                }
+            }
+            if (part.anatomicalDetail) {
+                const detail = RRCharacterDetail.genitalPart(pack, { shaped }, part, part.anatomicalDetail === 'female', { anatomy: this.recipe.anatomy });
+                a.set(detail.positions);
+                for (let i = 1; i < a.length; i += 3) a[i] += lift + F.modelLift;
+                pos.needsUpdate = true;
+                g.getAttribute('normal').array.set(detail.normals); g.getAttribute('normal').needsUpdate = true;
+                return;
+            }
             for (let i = 0; i < map.length; i++) {
+                if (part.interpolation) {
+                    const bind = part.interpolation;
+                    for (let axis = 0; axis < 3; axis++) {
+                        let move = 0;
+                        for (let j = bind.offsets[i]; j < bind.offsets[i + 1]; j++) {
+                            const v = bind.vertices[j] * 3 + axis;
+                            move += (shaped[v] - F.shaped[v]) * bind.weights[j];
+                        }
+                        a[i * 3 + axis] = base[i * 3 + axis] + move + (axis === 1 ? lift : 0);
+                    }
+                    continue;
+                }
                 const v = map[i] * 3;
                 a[i * 3] = base[i * 3] + shaped[v] - F.shaped[v];
                 a[i * 3 + 1] = base[i * 3 + 1] + shaped[v + 1] - F.shaped[v + 1] + lift;
@@ -1813,7 +2107,7 @@ class Character3DBuilder {
             if (k === 0) {
                 g.getAttribute('normal').array.set(normals);
                 g.getAttribute('normal').needsUpdate = true;
-            }
+            } else if (part.interpolation) g.computeVertexNormals();
         });
         // The skeleton: each joint by how far the body's own joint moved, bound again standing on the
         // floor, then the pose playing taken up again where it was (stopping it would start it over).
@@ -1871,6 +2165,8 @@ class Character3DBuilder {
         const maps = result.parts.map((part, k) => {
             const n = part.positions.length / 3;
             if (k === 0) return Int32Array.from(pack.body.source);
+            // Refined surfaces carry exact interpolation; this map only supplies their vertex count.
+            if (part.interpolation) return Int32Array.from({ length: n }, (_, i) => part.interpolation.vertices[part.interpolation.offsets[i]]);
             if (part.name === 'Genitals') return Int32Array.from(pack.helpers.genital.source);
             // Parts that know the skin vertex each of theirs rides on (areolas, body hair).
             if (part.source && part.source.length === n) return Int32Array.from(part.source);
@@ -1880,18 +2176,23 @@ class Character3DBuilder {
         });
         return {
             result, maps, shaped: Float32Array.from(P), floor: floorBody,
+            modelLift: result.parts[0].positions[1] - P[pack.body.source[0] * 3 + 1],
             bases: result.parts.map(p => Float32Array.from(p.positions)),
             joints: RRHumanBody.joints(pack, P).map(j => j.head.slice())
         };
     }
 
     _queueRebuild() {
+        this._rebuildOwed = true;
+        if (this._previewPaused) return;
         this._lastChange = Date.now();
         if (this._pending) return;
         this._pending = requestAnimationFrame(() => { this._pending = 0; this._rebuild(); });
     }
 
     _rebuild() {
+        if (this._previewPaused) { this._rebuildOwed = true; return; }
+        this._rebuildOwed = false;
         const view = this._view;
         if (!view || !this.pack) return;
         let result;
@@ -1938,6 +2239,9 @@ class Character3DBuilder {
             for (const m of view.meshes) {
                 if (m.material.map === old) { m.material.map = fresh; m.material.needsUpdate = true; }
                 if (m.material.sheenColorMap === old) { m.material.sheenColorMap = fresh; m.material.needsUpdate = true; }
+                if (m.material.emissiveMap === old) { m.material.emissiveMap = fresh; m.material.needsUpdate = true; }
+                for(const field of ['roughnessMap','metalnessMap','iridescenceThicknessMap']) if(m.material[field]===old){fresh.colorSpace=THREE.NoColorSpace;fresh.needsUpdate=true;m.material[field]=fresh;m.material.needsUpdate=true;}
+                if (m.material.normalMap === old) { fresh.colorSpace = THREE.NoColorSpace; fresh.needsUpdate = true; m.material.normalMap = fresh; m.material.needsUpdate = true; }
             }
             old.dispose();
         }
@@ -1979,6 +2283,7 @@ class Character3DBuilder {
         const t = new THREE.DataTexture(tex.data, tex.width, tex.height, THREE.RGBAFormat);
         t.colorSpace = THREE.SRGBColorSpace;
         t.flipY = false;
+        if (tex.repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
         t.generateMipmaps = true;
         t.minFilter = THREE.LinearMipmapLinearFilter;
         t.magFilter = THREE.LinearFilter;
@@ -2030,6 +2335,24 @@ class Character3DBuilder {
             transparent: !opaque, opacity: part.opacity ?? 1,
             alphaTest: part.cutout ? (part.alphaCutoff ?? 0.5) : 0, depthWrite: opaque
         });
+        const linearMap = name => {
+            const pic = name && result.textures[name];
+            if (!pic) return null;
+            const t = textureFor ? textureFor(name,pic) : this._texture(name,pic);
+            if(t.colorSpace !== THREE.NoColorSpace){t.colorSpace=THREE.NoColorSpace;t.needsUpdate=true;}
+            return t;
+        };
+        if(part.metallicRoughnessTexture) m.roughnessMap = m.metalnessMap = linearMap(part.metallicRoughnessTexture);
+        if(!this._weak && part.iridescence){
+            m.iridescence=part.iridescence; m.iridescenceIOR=part.iridescenceIOR ?? 1.3;
+            m.iridescenceThicknessRange=part.iridescenceThicknessRange || [100,400];
+            m.iridescenceThicknessMap=linearMap(part.iridescenceThicknessTexture);
+        }
+        if (part.emissive) {
+            m.emissive.set(part.emissive);
+            m.emissiveIntensity = Number.isFinite(part.emissiveIntensity) ? Math.max(0,part.emissiveIntensity) : 1;
+            if (part.emissiveTexture && result.textures[part.emissiveTexture]) m.emissiveMap = textureFor ? textureFor(part.emissiveTexture, result.textures[part.emissiveTexture]) : this._texture(part.emissiveTexture, result.textures[part.emissiveTexture]);
+        }
         // Cut-out strands (hair, lashes, fur) get soft edges from the antialiasing itself.
         if (part.cutout && kind === 'hair') { m.alphaToCoverage = true; m.alphaTest = Math.min(m.alphaTest, 0.3); }
         // Hair: matte, warm, hardly a reflection of the room.
@@ -2056,7 +2379,7 @@ class Character3DBuilder {
         if (kind === 'skin') {
             m.roughness = Math.max(0.52, part.roughness ?? 0); m.sheen = 0.3; m.sheenRoughness = 0.55; m.sheenColor = new THREE.Color(0.9, 0.7, 0.62); if (m.map) m.sheenColorMap = m.map; m.specularIntensity = 0.4;
             // Pores and fine lines, tiled small over the skin: the light breaks up on it as on real skin.
-            if (m.map) { m.normalMap = Character3DBuilder.skinDetail(); m.normalScale = new THREE.Vector2(0.3, 0.3); }
+            if (m.map && !m.normalMap) { m.normalMap = Character3DBuilder.skinDetail(); m.normalScale = new THREE.Vector2(0.3, 0.3); }
         }
         // Cloth: a soft sheen in the cloth's own color at grazing angles (from its picture), so it reads as fabric
         // without a white film washing its color out.
@@ -2081,7 +2404,7 @@ class Character3DBuilder {
     /** The build in the view: a skeleton from its bones, a skinned mesh per part, its Idle ready to play. */
     /** What the meshes in the view are made of: the same structure can be updated in place. */
     _structure(result) {
-        return result.plan + '|' + result.bones.length + '|' + result.parts.map(p => [p.name, p.positions.length, p.index.length, p.texture || '', p.kind || '', p.doubleSided ? 1 : 0, p.opacity ?? 1].join(':')).join(';');
+        return result.plan + '|' + result.bones.map(b => b.name + ':' + b.parent).join(',') + '|' + result.parts.map(p => [p.name, p.positions.length, p.index.length, p.texture || '', p.normalTexture || '', p.emissiveTexture || '', p.metallicRoughnessTexture || '', p.iridescence || 0, p.iridescenceIOR || 0, String(p.iridescenceThicknessRange || ''), p.iridescenceThicknessTexture || '', p.roughness ?? .6, p.metalness ?? 0, p.normalScale ?? 1, p.kind || '', p.doubleSided ? 1 : 0, p.opacity ?? 1, !!p.uvs, !!p.colors, !!p.keepColors].join(':')).join(';');
     }
 
     /**
@@ -2091,6 +2414,7 @@ class Character3DBuilder {
      */
     _update(result) {
         const view = this._view;
+        const priorExtent = view.extent || view.height;
         view.group.position.y = 0;
         result.bones.forEach((b, i) => {
             const parent = b.parent >= 0 ? result.bones[b.parent].head : [0, 0, 0];
@@ -2102,27 +2426,49 @@ class Character3DBuilder {
         view.group.updateMatrixWorld(true);
         view.skeleton.calculateInverses();
         result.parts.forEach((part, k) => {
-            const g = view.meshes[k].geometry;
+            const mesh = view.meshes[k], g = mesh.geometry;
+            if (part.emissive) {
+                mesh.material.emissive.set(part.emissive);
+                mesh.material.emissiveIntensity = Number.isFinite(part.emissiveIntensity) ? Math.max(0,part.emissiveIntensity) : 1;
+            }
             g.getAttribute('position').array.set(part.positions); g.getAttribute('position').needsUpdate = true;
             g.getAttribute('normal').array.set(part.normals); g.getAttribute('normal').needsUpdate = true;
+            // A new build may have the same counts with a different coat atlas, triangle order or
+            // skinning. Keeping the old buffers scrambled pictures and left reused parts on old bones.
+            for (const [name, data] of [['uv', part.uvs], ['skinIndex', part.joints], ['skinWeight', part.weights]]) {
+                const attribute = g.getAttribute(name);
+                if (!attribute || !data) continue;
+                if (attribute.array.some((q, i) => q !== data[i])) { attribute.array.set(data); attribute.needsUpdate = true; }
+            }
+            if (g.index.array.some((q, i) => q !== part.index[i])) { g.index.array.set(part.index); g.index.needsUpdate = true; }
             const c = g.getAttribute('color');
             // Shading worked out for the last shape stays until this one's comes: it hardly differs.
-            if (c && part.colors && part.colors.length === c.array.length && !part.texture) { c.array.set(part.colors); c.needsUpdate = true; }
+            if (c && part.colors && part.colors.length === c.array.length && (!part.texture || part.keepColors)) { c.array.set(part.colors); c.needsUpdate = true; }
+            // A reused topology can change from a small fish to a whale. Both
+            // BufferGeometry and SkinnedMesh cache bounds independently.
+            g.boundingBox = null;
+            if ('boundingBox' in mesh) mesh.boundingBox = null;
+            if ('boundingSphere' in mesh) mesh.boundingSphere = null;
             g.computeBoundingSphere();
         });
+        view.boneDefs = result.bones;
+        view.idleClip = result.clips?.[0] || null;
+        view.bodySkin = result.parts.find(p => p.name === 'Body') || null;
         this._restHeights(result.bones);
         const box = new THREE.Box3().setFromObject(view.group);
         view.height = Math.max(0.2, result.height);
         view.bodyHeight = result.bodyHeight || result.height;
         this._faceFrame(result);
         view.depth = box.max.z;
+        view.bodyCenter = box.getCenter(new THREE.Vector3()).toArray();
         view.extent = Math.max(view.height, box.max.x - box.min.x, box.max.z - box.min.z);
         view.blob.scale.set(Math.max(0.25, (box.max.x - box.min.x) * 0.55), Math.max(0.25, (box.max.z - box.min.z) * 0.75 + 0.08), 1);
         this._resumePose();
-        this._aim();
-        this._draw();
-        // Cloth keys hold for the body they were worked out on: the pose playing is worked out again for this one.
-        if (result.cloth && view.actions.size) {
+        if (priorExtent && Math.abs(Math.log(view.extent / priorExtent)) > 0.35) this._frame('body');
+        else { this._aim(); this._draw(); }
+        // Cloth and creature motion keys belong to their original body dimensions.
+        // Rebuild the active clip after compatible topology is resized too.
+        if ((result.cloth || result.plan === 'quadruped') && view.actions?.size) {
             const old = [...view.actions.values()].map(a => a.action);
             view.actions.clear();
             this._syncPose();
@@ -2200,6 +2546,7 @@ class Character3DBuilder {
         view.bodyHeight = result.bodyHeight || result.height;
         this._faceFrame(result);
         view.depth = box.max.z;
+        view.bodyCenter = box.getCenter(new THREE.Vector3()).toArray();
         view.extent = Math.max(view.height, box.max.x - box.min.x, box.max.z - box.min.z);
         view.floor.scale.setScalar(Math.max(0.7, Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * 0.75));
         if (firstFrame) this._frame('body');
@@ -2224,7 +2571,9 @@ class Character3DBuilder {
      */
     _queueShading() {
         clearTimeout(this._shadeTimer);
+        this._shadingOwed = false;
         this._shadeTimer = setTimeout(() => {
+            if (this._previewPaused) { this._shadingOwed = true; return; }
             const result = this._result, view = this._view;
             if (!result || !view || result.shaded) return;
             const apply = ao => {
@@ -2280,8 +2629,11 @@ class Character3DBuilder {
     }
 
     _pumpPainter() {
-        const P = this._painter, worker = this._skinWorker();
-        if (!P || P.busy || !P.next || !worker) return;
+        if (this._previewPaused) return;
+        const P = this._painter;
+        if (!P || P.busy || !P.next) return;
+        const worker = this._skinWorker();
+        if (!worker) return;
         const job = P.busy = P.next;
         P.next = null;
         worker.onmessage = e => {
@@ -2576,24 +2928,11 @@ class Character3DBuilder {
         const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
         const context = canvas.getContext('2d'); context.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
         const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-        this._ensureThumbView();
-        const view = this._thumbView, geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(model.positions, 3));
-        geometry.setAttribute('uv', new THREE.BufferAttribute(model.uvs, 2));
-        geometry.setIndex(new THREE.BufferAttribute(model.index, 1)); geometry.computeVertexNormals(); geometry.computeBoundingBox();
-        const texture = new THREE.DataTexture(new Uint8Array(pixels.data.buffer), canvas.width, canvas.height, THREE.RGBAFormat);
-        texture.colorSpace = THREE.SRGBColorSpace; texture.flipY = false; texture.needsUpdate = true;
-        const material = new THREE.MeshStandardMaterial({ map: texture, roughness: model.roughness ?? 0.8, metalness: 0, side: THREE.DoubleSide });
-        const mesh = new THREE.Mesh(geometry, material);
-        view.scene.add(mesh);
-        let url;
-        try {
-            const target = geometry.boundingBox.getCenter(new THREE.Vector3()), size = geometry.boundingBox.getSize(new THREE.Vector3());
-            const distance = Math.max(size.y, size.x) * 2.2;
-            view.camera.position.set(target.x + distance * 0.3, target.y + distance * 0.04, target.z + distance * 0.96);
-            view.camera.lookAt(target); view.renderer.render(view.scene, view.camera);
-            url = view.canvas.toDataURL('image/webp', 0.85);
-        } finally { view.scene.remove(mesh); geometry.dispose(); material.dispose(); texture.dispose(); }
+        const result = { height: 1, parts: [{ positions: model.positions, normals: RRCharacterOutfit.triangleNormals(model.positions, model.index),
+            uvs: model.uvs, index: model.index, texture: 'model', doubleSided: true, roughness: model.roughness ?? 0.8 }],
+            textures: { model: { width: canvas.width, height: canvas.height, data: new Uint8Array(pixels.data.buffer) } } };
+        const view = this._view;
+        const url = await this._renderThumb({ result, frame: 'body' }, () => this.root === root && this._project()?.path === projectPath && this._view === view);
         cache.set(key, url);
         while (cache.size > 24) cache.delete(cache.keys().next().value);
         return url;
@@ -2636,6 +2975,7 @@ class Character3DBuilder {
             box.onclick = null; box.oninput = null; box.onchange = null;
             document.removeEventListener('keydown', onKey, true);
             if (this._closeOutfitImport === close) this._closeOutfitImport = null;
+            if (this._resumeImportThumbnails === drawThumbnails) this._resumeImportThumbnails = null;
         };
         this._closeOutfitImport = close;
         const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
@@ -2699,17 +3039,32 @@ class Character3DBuilder {
             finally { busy = false; }
         };
         box.querySelector('.rr-c3d-import-search').focus();
-        (async () => {
-            for (let i = 0; i < models.length; i++) {
-                if (closed || busy) return;
-                if (models[i].thumbnail) continue;
-                await new Promise(resolve => requestAnimationFrame(resolve));
-                const url = await this._importModelThumbnail(models[i].file);
-                if (closed || !url) return;
-                const placeholder = box.querySelector(`[data-model="${i}"] .rr-c3d-nothumb`);
-                if (placeholder) { const img = document.createElement('img'); img.src = url; img.alt = ''; placeholder.replaceWith(img); }
+        let thumbnailsRunning = false;
+        const drawThumbnails = async () => {
+            if (closed || busy || thumbnailsRunning || this._previewPaused) return;
+            thumbnailsRunning = true;
+            let retry = false;
+            try {
+                for (let index = 0; index < models.length; index++) {
+                    if (closed || busy || this._previewPaused) return;
+                    if (models[index].thumbnail || !box.querySelector(`[data-model="${index}"] .rr-c3d-nothumb`)) continue;
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    if (closed || this._previewPaused) return;
+                    const url = await this._importModelThumbnail(models[index].file);
+                    if (closed || !url) return;
+                    const placeholder = box.querySelector(`[data-model="${index}"] .rr-c3d-nothumb`);
+                    if (placeholder) { const image = document.createElement('img'); image.src = url; image.alt = ''; placeholder.replaceWith(image); }
+                }
+            } catch (error) {
+                if (error.name === 'AbortError') retry = true;
+                else console.warn('[Character3DBuilder] model thumbnail', error);
+            } finally {
+                thumbnailsRunning = false;
+                if (retry && !closed && !this._previewPaused) drawThumbnails();
             }
-        })().catch(error => console.warn('[Character3DBuilder] model thumbnail', error));
+        };
+        this._resumeImportThumbnails = drawThumbnails;
+        drawThumbnails();
     }
 
     _openSaved(name) {
@@ -2894,11 +3249,11 @@ Character3DBuilder.fitThumbnailFrame = function(bounds, yaw, pitch, fov, aspect 
 
 /** Sliders that only reshape the body: the drag's fast path can follow them. */
 Character3DBuilder.bodyPath = function(path) {
-    return /^(shapes\.|morph\.|anatomy\.(length|girth|testicles|mons|labia|fold|nipple)$|gender$|age$|height$|weight$|muscle$|cup$|firmness$|proportions$|headSize$)/.test(path);
+    return /^(shapes\.|morph\.|anatomy\.(length|girth|testicles|mons|labia|innerLabia|clitoris|fold|nipple|nippleProjection)$|gender$|age$|height$|weight$|muscle$|cup$|firmness$|proportions$|headSize$)/.test(path);
 };
 
 /** Bumped when the previews' look changes, so pictures kept on disk are drawn again. */
-Character3DBuilder.PREVIEW_VERSION = 14;
+Character3DBuilder.PREVIEW_VERSION = 31;
 
 /** Rigidly fit authored grip markers in the hand's rest frame; its bone carries every pose. */
 Character3DBuilder.fitHeldPreview = function(object, shape, frame, T) {

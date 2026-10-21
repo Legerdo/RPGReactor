@@ -143,7 +143,13 @@
         loops.sort((a, b) => b.length - a.length);
         const zc = (() => { let z = 0; for (const v of loops[0]) z += P[v * 3 + 2]; return z / loops[0].length; })();
         const bearing = v => Math.atan2(P[v * 3], P[v * 3 + 2] - zc);
-        const ring = loops[0].slice().sort((a, b) => bearing(a) - bearing(b));
+        const ring = loops[0].slice();
+        // Keep the actual skin boundary adjacency, including concave hip folds.
+        let area = 0;
+        for(let i=0;i<ring.length;i++){const a=ring[i],b=ring[(i+1)%ring.length];area+=P[a*3]*P[b*3+2]-P[b*3]*P[a*3+2];}
+        if(area>0)ring.reverse();
+        const first=ring.reduce((best,v,i)=>bearing(v)<bearing(ring[best])?i:best,0);
+        ring.push(...ring.splice(0,first));
         // The skin just above the cut, where loose scales are scattered: kept triangles of the trunk within the band.
         const band = [], bandTop = cutY + 0.05 * an.height;
         for (let t = 0; t < I.length; t += 3) {
@@ -309,18 +315,31 @@
         for (const v of ringV) { C0[1] += P[v * 3 + 1]; C0[2] += P[v * 3 + 2]; ringMinY = Math.min(ringMinY, P[v * 3 + 1]); ringMaxY = Math.max(ringMaxY, P[v * 3 + 1]); }
         C0 = [0, C0[1] / ringV.length, C0[2] / ringV.length];
         const ringBear = ringV.map(v => Math.atan2(P[v * 3], P[v * 3 + 2] - C0[2]));
-        const ringRad = ringV.map(v => Math.hypot(P[v * 3], P[v * 3 + 2] - C0[2]));
-        /** The edge's reach at a bearing, between its two nearest vertices. */
-        const ringReach = a => {
-            let k = 0;
-            while (k < ringBear.length && ringBear[k] < a) k++;
-            const i0 = (k - 1 + ringBear.length) % ringBear.length, i1 = k % ringBear.length;
-            let b0 = ringBear[i0], b1 = ringBear[i1];
-            if (b1 < b0) b1 += Math.PI * 2;
-            let aa = a; if (aa < b0) aa += Math.PI * 2;
-            const t = b1 - b0 > 1e-6 ? (aa - b0) / (b1 - b0) : 0;
-            return ringRad[i0] + (ringRad[i1] - ringRad[i0]) * t;
+        // A heavy seat makes the cut higher at the back than at the belly.
+        // Flattening the very next row to the lowest cut point made a tall,
+        // cylindrical wall below the buttocks. Carry that height contour into
+        // the first tail sections, then ease it out over the upper taper.
+        const cutHeights = ringV.map((v,i)=>[ringBear[i],P[v*3+1]]).sort((a,b)=>a[0]-b[0]);
+        const contourWeight=smooth(H*.05,H*.10,ringMaxY-ringMinY);
+        const cutHeight = bearing => {
+            for(let i=0;i<cutHeights.length;i++){
+                const a=cutHeights[i],next=cutHeights[(i+1)%cutHeights.length],end=next[0]+(i===cutHeights.length-1?Math.PI*2:0);
+                const at=bearing<a[0]?bearing+Math.PI*2:bearing;
+                if(at>=a[0]&&at<=end){const t=(at-a[0])/Math.max(1e-8,end-a[0]);return a[1]+(next[1]-a[1])*t;}
+            }
+            return ringMinY;
         };
+        // A deep fold need not be star-shaped around the mean hip center.
+        // Its convex outline supports the first regular tail sections; the
+        // exact cut above it still retains every original boundary edge.
+        const ringHull = hull2(ringV.map(v=>[P[v*3],P[v*3+2]]));
+        const ringReach = a => Math.max(.003*sc,hullReach(ringHull,0,C0[2],a));
+        const topologyBear = [], lengths = [0];
+        for(let i=0;i<ringV.length;i++){
+            const a=ringV[i],b=ringV[(i+1)%ringV.length];
+            lengths.push(lengths.at(-1)+Math.hypot(P[a*3]-P[b*3],P[a*3+1]-P[b*3+1],P[a*3+2]-P[b*3+2]));
+        }
+        for(let i=0;i<ringV.length;i++)topologyBear.push(-Math.PI+lengths[i]/lengths.at(-1)*Math.PI*2);
 
         // The hidden hips and thighs: the crotch, and where the thighs run down.
         let crotch = Infinity;
@@ -328,7 +347,9 @@
         if (!isFinite(crotch)) crotch = C0[1] - 0.12 * sc;
         let qz = 0, qn = 0;
         for (const v of cut.hiddenIds) { const y = P[v * 3 + 1]; if (y < crotch - 0.05 * sc && y > crotch - 0.16 * sc) { qz += P[v * 3 + 2]; qn++; } }
-        const Q = [0, crotch - 0.105 * sc, qn ? qz / qn : C0[2]];
+        // Deep abdominal folds can lower the cut below the inferred crotch.
+        // The tail still leaves that cut downward, never back up into the torso.
+        const Q = [0, Math.min(crotch - 0.105 * sc,C0[1] - .08 * sc), qn ? qz / qn : C0[2]];
         const dirA = norm(sub(Q, C0));
 
         // Cross-sections of the hidden hips and thighs, every 1.5 cm from under the cut to below the crotch.
@@ -555,6 +576,7 @@
         };
 
         // The tail's skin, row by row.
+        const contourLift=(a,b)=>contourWeight ? (cutHeight(b)-ringMinY)*contourWeight*(1-smooth(rows[0].a,rows[0].a+.24*sc+(ringMaxY-ringMinY)*.6,a)) : 0;
         const S = sheet();
         const rowIds = [];
         for (let k = 0; k < rows.length; k++) {
@@ -567,13 +589,14 @@
                     const p = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]], b = ringBear[i];
                     ids.push(S.vertex(p, [NB[v * 3], NB[v * 3 + 1], NB[v * 3 + 2]], [Math.abs(b) / Math.PI, vOf[k] * vScale], colorAt(row.a, b, p), ringSkin[i]));
                 });
-                row.bear = ringBear;
+                row.bear = topologyBear;
             } else {
                 const capT = row.cap ? 1 : 0;
                 for (let j = 0; j < AROUND; j++) {
                     const b = bearOf(j);
                     const rr = capT ? 0.0008 * sc : reachAt(row.a, b);
                     const p = add(at.p, add(mul(X, Math.sin(b) * rr), mul(V, Math.cos(b) * rr)));
+                    p[1]+=contourLift(row.a,b);
                     const off = row.cap ? mul(d, 0.004 * sc) : [0, 0, 0];
                     ids.push(S.vertex(add(p, off), norm(add(mul(X, Math.sin(b)), mul(V, Math.cos(b)))), [Math.abs(b) / Math.PI, vOf[k] * vScale], colorAt(row.a, b, p), skinAt(row.a, j)));
                 }
@@ -593,11 +616,14 @@
             }
         };
         for (let k = 0; k + 1 < rowIds.length; k++) join(rowIds[k], rows[k].bear, rowIds[k + 1], rows[k + 1].bear);
-        // Facing out: turned over if the first triangle faces in.
+        // The cut can fold sharply on heavy bodies. Its first triangle does
+        // not establish the winding of the regular tail below it: doing so
+        // turned the entire tail inside out on deep hip/seat folds.
         {
-            const a = S.i[0] * 3, b = S.i[1] * 3, c = S.i[2] * 3, Pp = S.p;
-            const n = cross([Pp[b] - Pp[a], Pp[b + 1] - Pp[a + 1], Pp[b + 2] - Pp[a + 2]], [Pp[c] - Pp[a], Pp[c + 1] - Pp[a + 1], Pp[c + 2] - Pp[a + 2]]);
-            if (dot(n, [Pp[a] - C0[0], 0, Pp[a + 2] - C0[2]]) < 0) for (let t = 0; t < S.i.length; t += 3) { const q = S.i[t + 1]; S.i[t + 1] = S.i[t + 2]; S.i[t + 2] = q; }
+            const a = rowIds[1][0] * 3, b = rowIds[2][0] * 3, c = rowIds[1][1] * 3, Pp = S.p;
+            const n = cross([Pp[b]-Pp[a],Pp[b+1]-Pp[a+1],Pp[b+2]-Pp[a+2]], [Pp[c]-Pp[a],Pp[c+1]-Pp[a+1],Pp[c+2]-Pp[a+2]]);
+            const d = line.at(rows[1].a).d, outward = [0,-d[2],d[1]];
+            if (dot(n,outward) < 0) for(let t=0;t<S.i.length;t+=3){const q=S.i[t+1];S.i[t+1]=S.i[t+2];S.i[t+2]=q;}
         }
         smoothNormals(S, new Set(rowIds[0]));
         // The second row's normals halfway to the body's, so the light runs on across the cut.
@@ -655,7 +681,7 @@
             }, 1, true);
         }
         // Small fins.
-        const tailPoint = (a, b, out = 0) => { const at = line.at(a), V = [0, at.d[2], -at.d[1]], rr = reachAt(a, b) + out; return { p: add(at.p, add(mul([1, 0, 0], Math.sin(b) * rr), mul(V, Math.cos(b) * rr))), n: norm(add(mul([1, 0, 0], Math.sin(b)), mul(V, Math.cos(b)))), d: at.d }; };
+        const tailPoint = (a, b, out = 0) => { const at = line.at(a), V = [0, at.d[2], -at.d[1]], rr = reachAt(a, b) + out, p=add(at.p, add(mul([1, 0, 0], Math.sin(b) * rr), mul(V, Math.cos(b) * rr))); p[1]+=contourLift(a,b); return { p, n: norm(add(mul([1, 0, 0], Math.sin(b)), mul(V, Math.cos(b)))), d: at.d }; };
         if (m.hipFins) {
             // A pelvic fin each side, low on the hips, swept back along the tail.
             for (const side of [1, -1]) {
@@ -1445,7 +1471,7 @@
     }
 
     // ── the builder's page ────────────────────────────────────────────────
-    /** The Species tab's Merfolk section, in the builder's own controls (`b`: the builder). */
+    /** The Body tab's Merfolk section, in the builder's own controls (`b`: the builder). */
     function panel(b) {
         return b._section('Merfolk') + b._select('merfolk.fin', 'Tail fin', FINS) + b._select('merfolk.colors', 'Colors', COLORS)
             + b._slider({ path: 'merfolk.length', label: 'Tail length', natural: LENGTH.natural, extreme: LENGTH.extreme, format: 'x' })

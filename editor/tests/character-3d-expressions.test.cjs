@@ -327,3 +327,36 @@ test('a model without mouth shapes, or no model at all, is left alone', () => {
     S.tickTalk({ _modelInstances: new Map() });
     assert.equal(S.speakerCharacter(), null);
 });
+
+test('the Builder talk preview pauses without morph work, resumes its current mouth and cannot restart after stopping', t => {
+    const previousRequest = global.requestAnimationFrame, previousCancel = global.cancelAnimationFrame;
+    const pending = new Map();
+    let sequence = 0, draws = 0;
+    global.requestAnimationFrame = callback => { pending.set(++sequence, callback); return sequence; };
+    global.cancelAnimationFrame = token => pending.delete(token);
+    t.after(() => { global.requestAnimationFrame = previousRequest; global.cancelAnimationFrame = previousCancel; });
+    const result = face('man');
+    const meshes = result.parts.map(part => {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
+        return new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+    });
+    t.after(() => { for (const mesh of meshes) { mesh.geometry.dispose(); mesh.material.dispose(); } });
+    const controller = X.talk({ meshes }, result, pack, THREE, { draw: () => draws++ });
+    assert.ok(controller);
+    const step = () => { const callbacks = [...pending.values()]; pending.clear(); for (const callback of callbacks) callback(); };
+    for (let frame = 0; frame < 30; frame++) step();
+    controller.pause();
+    const before = meshes.map(mesh => mesh.morphTargetInfluences?.slice());
+    const drawn = draws;
+    assert.equal(pending.size, 0);
+    for (let frame = 0; frame < 60; frame++) step();
+    assert.deepEqual(meshes.map(mesh => mesh.morphTargetInfluences?.slice()), before);
+    assert.equal(draws, drawn);
+    controller.pause(false); step();
+    assert.equal(draws, drawn + 1);
+    assert.notDeepEqual(meshes.map(mesh => mesh.morphTargetInfluences?.slice()), before);
+    controller.stop(); controller.pause(false);
+    assert.equal(pending.size, 0);
+    assert.ok(meshes.every(mesh => Object.keys(mesh.geometry.morphAttributes).length === 0));
+});

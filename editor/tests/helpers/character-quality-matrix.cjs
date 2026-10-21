@@ -48,12 +48,15 @@ function inspect(result, fixture, pack) {
         if (!p.normals || p.normals.length !== p.positions.length) issue(p.name, 'normal-count', p.normals?.length);
         if (p.joints?.length !== count * 4 || p.weights?.length !== count * 4) issue(p.name, 'skin-count', [p.joints?.length, p.weights?.length]);
         if (p.uvs && p.uvs.length !== count * 2) issue(p.name, 'uv-count', p.uvs.length);
+        const usedVertices = new Set(p.index);
         for (let v = 0; v < count; v++) {
             for (let k = 0; k < 3; k++) { const x = p.positions[v * 3 + k]; if (!Number.isFinite(x)) issue(p.name, 'nonfinite-position', v); else { summary.bounds.lo[k] = Math.min(summary.bounds.lo[k], x); summary.bounds.hi[k] = Math.max(summary.bounds.hi[k], x); if (Math.abs(x) > Math.max(1, boneExtent) * 6) issue(p.name, 'position-explosion', [v, x, boneExtent]); } }
             const length = Math.hypot(...p.normals.subarray(v * 3, v * 3 + 3));
             if (!Number.isFinite(length)) issue(p.name, 'nonfinite-normal', v);
-            else if (length < 1e-5) { summary.zeroNormals++; issue(p.name, 'zero-normal', v); }
-            else if (Math.abs(length - 1) > 0.03) { summary.nonUnitNormals++; issue(p.name, 'nonunit-normal', [v, length]); }
+            // Transferred garments retain source-addressed vertices outside
+            // their cut. Only indexed vertices need a lighting normal.
+            else if (usedVertices.has(v) && length < 1e-5) { summary.zeroNormals++; issue(p.name, 'zero-normal', v); }
+            else if (usedVertices.has(v) && Math.abs(length - 1) > 0.03) { summary.nonUnitNormals++; issue(p.name, 'nonunit-normal', [v, length]); }
             let sum = 0;
             for (let k = 0; k < 4; k++) { const j = p.joints[v * 4 + k], w = p.weights[v * 4 + k]; if (!Number.isInteger(j) || j >= result.bones.length || j < 0) issue(p.name, 'invalid-joint', [v, j]); if (!Number.isFinite(w) || w < -1e-6 || w > 1.00001) issue(p.name, 'invalid-weight', [v, w]); sum += w; }
             if (Math.abs(sum - 1) > 1e-4) issue(p.name, 'weight-sum', [v, sum]);
@@ -72,7 +75,9 @@ function inspect(result, fixture, pack) {
     if (skull) {
         if (!neck) issue('Head neck', 'missing-attachment');
         else {
-            const visible = new Map(); for (const v of body.index) visible.set(geometryKey(body, v), v);
+            // Clothing may hide the source neck rim. Its retained positions still
+            // define the join, even when those body triangles are not drawn.
+            const visible = new Map(); for (let v = 0; v < body.positions.length / 3; v++) visible.set(geometryKey(body, v), v);
             const edges = new Map(), skullLo = [Infinity, Infinity, Infinity], skullHi = [-Infinity, -Infinity, -Infinity];
             for (let v = 0; v < skull.positions.length; v += 3) for (let k = 0; k < 3; k++) { skullLo[k] = Math.min(skullLo[k], skull.positions[v + k]); skullHi[k] = Math.max(skullHi[k], skull.positions[v + k]); }
             for (let t = 0; t < neck.index.length; t += 3) for (let k = 0; k < 3; k++) {

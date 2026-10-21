@@ -4,6 +4,7 @@
 // runs a character build as an error fallback. A canceled active build finishes off the page before
 // the newest work starts, while dispose() terminates it immediately.
 const { Worker, isMainThread, parentPort, workerData, threadId } = require('node:worker_threads');
+const PreviewTextures = require('./CharacterPreviewTextures.js');
 
 function abortError(message = 'Character preview canceled') {
     const error = new Error(message);
@@ -155,10 +156,10 @@ class PreviewWorker {
     }
 }
 
-const PART_FIELDS = ['name', 'kind', 'color', 'texture', 'normalTexture', 'normalScale', 'emissiveTexture', 'roughness', 'metalness', 'doubleSided', 'opacity', 'cutout', 'alphaCutoff', 'onSkin', 'envMapIntensity', 'wet'];
+const PART_FIELDS = ['name', 'kind', 'color', 'texture', 'keepColors', 'normalTexture', 'normalScale', 'metallicRoughnessTexture', 'iridescence', 'iridescenceIOR', 'iridescenceThicknessRange', 'iridescenceThicknessTexture', 'emissive', 'emissiveIntensity', 'emissiveTexture', 'roughness', 'metalness', 'doubleSided', 'opacity', 'cutout', 'alphaCutoff', 'onSkin', 'envMapIntensity', 'wet'];
 const GEOMETRY_FIELDS = ['positions', 'normals', 'uvs', 'colors', 'index'];
 
-function renderPayload(result) {
+function renderPayload(result, options = {}) {
     const transfers = [];
     let bytes = 0;
     const copy = value => {
@@ -173,14 +174,18 @@ function renderPayload(result) {
         for (const key of GEOMETRY_FIELDS) if (part[key]) out[key] = copy(part[key]);
         return out;
     });
-    const textures = Object.fromEntries(Object.entries(result.textures || {}).map(([name, texture]) => [name, { name: texture.name, width: texture.width, height: texture.height, data: copy(texture.data) }]));
+    const used = options.static ? new Set(parts.flatMap(part => [part.texture, part.emissiveTexture, part.normalTexture, part.metallicRoughnessTexture, part.iridescenceThicknessTexture]).filter(Boolean)) : null;
+    const textures = Object.fromEntries(Object.entries(result.textures || {}).filter(([name]) => !used || used.has(name)).map(([name, source]) => {
+        const texture = options.static ? PreviewTextures.thumbnail(source, options.atlasSize || 256) : source;
+        return [name, { name: texture.name, width: texture.width, height: texture.height, ...(texture.repeat ? { repeat: true } : {}), data: copy(texture.data) }];
+    }));
     return { result: { parts, textures, height: result.height, bodyHeight: result.bodyHeight, plan: result.plan, focus: result.focus || {} }, transfers, bytes };
 }
 
 async function serve() {
     // All modules and filesystem-backed lazy assets are loaded in the worker, never by the client.
     require('../../utils/QuadricDecimator.js');
-    for (const name of ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterClothes', 'CharacterSimplify', 'CharacterOutfitTransfer', 'CharacterPowerArmor', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin', 'CharacterHair', 'CreatureGear', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterPoses', 'MerfolkBody', 'CharacterCloth', 'CharacterExpressions', 'SlimeBody']) require('./' + name + '.js');
+    for (const name of ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterClothes', 'CharacterSimplify', 'CharacterOutfitTransfer', 'CharacterPowerArmor', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin', 'CharacterHair', 'CreatureGear', 'CreatureForms', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterPoses', 'MerfolkBody', 'CharacterCloth', 'CharacterExpressions', 'SlimeBody']) require('./' + name + '.js');
     const Model = require('./CharacterModel.js'), Body = require('./HumanBody.js');
     const Wardrobe = require('./CharacterWardrobe.js'), Taken = require('./CharacterOutfitTransfer.js');
     if (workerData.dataDir) Body.dataFolder = () => require('node:path').resolve(workerData.dataDir);
@@ -225,9 +230,10 @@ async function serve() {
             if (!cache) { cache = { wardrobe: { emblemPictures: context.emblemPictures || new Map() } }; caches.set(key, cache); }
             while (caches.size > 8) caches.delete(caches.keys().next().value);
             const options = Object.assign({ quality: 'preview', skinSize: 256, atlasSize: 256 }, message.options, { eyeSource: context.eyeSource });
+            if (options.static) options.eyeSource = PreviewTextures.thumbnail(options.eyeSource, 128);
             const built = Model.build(pack, message.recipe, cache, options);
             built.focus = Model.previewBounds(built);
-            const payload = renderPayload(built);
+            const payload = renderPayload(built, options);
             payload.result.stats = { buildMs: performance.now() - start, threadId, bytes: payload.bytes };
             // Shoe and tint variants grow during editing; retain only a small useful working set.
             const shoes = cache.wardrobe?.shoes;

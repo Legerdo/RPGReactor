@@ -41,6 +41,8 @@
 
     const PATTERNS = [['solid', 'Solid'], ['stripes', 'Stripes'], ['pinstripes', 'Pinstripes'], ['vstripes', 'Vertical stripes'], ['checker', 'Checks'], ['plaid', 'Plaid'], ['gradient', 'Fade'], ['halves', 'Two halves'], ['camo', 'Camouflage'], ['panels', 'Panel lines'], ['mail', 'Chain mail'], ['scales', 'Scales'], ['quilted', 'Quilted'], ['studs', 'Studded'], ['floral', 'Floral'], ['paisley', 'Paisley'], ['emblem', 'Emblem']];
 
+    PATTERNS.push(['fleet', 'Fleet panels'], ['officer', 'Officer panels'], ['technical', 'Technical seams'], ['expedition', 'Expedition panels'], ['pressure', 'Pressure-suit panels']);
+
     /**
      * Knobs a garment shows: `length` (0..1, garment's own reach), `sleeves`
      * (0 none .. 1 full), `neckline`, `fit` (0 tight .. 1 loose), `open`.
@@ -99,7 +101,7 @@
         sneaker: { collar: { front: 1.32, side: 0.88, back: 1.08 }, toe: 0.01, point: 0, width: 0.004, sole: 0.022, welt: 0.003, heel: 0, spring: 0.01, gap: 0.005, wall: 0.028, laces: true },
         boot: { toe: 0.012, point: 0.1, sole: 0.016, welt: 0.005, heel: 1, spring: 0.007, gap: 0.004, wall: 0.026, margin: 0.012 },
         sabaton: { toe: 0.022, point: 0.6, sole: 0.012, welt: 0.003, heel: 0.6, spring: 0.012, gap: 0.009, wall: 0.03, lames: 2, margin: 0.012 },
-        mag: { toe: 0.012, point: 0, width: 0.01, sole: 0.032, welt: 0.008, heel: 0, spring: 0.008, gap: 0.02, wall: 0.04, margin: 0.012, rigidFoot: true },
+        mag: { toe: 0.009, point: 0, width: 0.004, sole: 0.021, welt: 0.004, heel: 0, spring: 0.006, gap: 0.014, wall: 0.022, margin: 0.008, rigidFoot: true },
         sandal: { sandal: true, toe: 0.006, point: 0.15, sole: 0.014, welt: 0.002, heel: 0.4, spring: 0.004, gap: 0.002 }
     };
     const shoe = (kind, item, extra) => {
@@ -237,12 +239,24 @@
             pieces: i => [{ helm: { square: 3.6, flat: 0.85, gap: 0.014, bottom: 0.15, slit: true } }] },
 
         // Sci-fi
+        { id: 'starshipUniform', label: 'Starship uniform', slot: 'dress', group: 'Sci-fi', knobs: ['fit', 'neckline'], defaults: { color: '#202734', color2: '#a32c3c', trim: '#d8c793', fit: 0.18, neckline: 'high', material: 'cloth', pattern: 'fleet', lightStyle: 'badge', lightColor: '#81dfff', lightIntensity: 0.25, lightWidth: 1 },
+            pieces: i => [{ surface: 'tights', rules: { spine: a => [-3, NECKLINES[i.neckline || 'high'](a)], arms: [-1, 2.98], legs: [-1, 9] }, lift: 0.008 + i.fit * 0.008, drape: 4 }, { scifiGear: 'uniform' }] },
+        { id: 'officerJacket', label: 'Officer jacket', slot: 'over', group: 'Sci-fi', knobs: ['fit', 'sleeves', 'neckline', 'open'], defaults: { color: '#e0e4e9', color2: '#28384f', trim: '#c9a85c', fit: 0.25, sleeves: 1, length: 0.58, neckline: 'high', open: 0, material: 'cloth', pattern: 'officer', lightStyle: 'badge', lightColor: '#77caff', lightIntensity: 0.3, lightWidth: 1 },
+            pieces: i => [top(i, { lift: 0.02, drape: 5 }), { scifiGear: 'uniform' }] },
+        { id: 'techSuit', label: 'Technical undersuit', slot: 'under', group: 'Sci-fi', knobs: ['fit', 'neckline'], defaults: { color: '#141c27', color2: '#354453', trim: '#5f7987', fit: 0.1, neckline: 'turtle', material: 'rubber', pattern: 'technical', lightStyle: 'circuits', lightColor: '#34dbdc', lightIntensity: 0.3, lightWidth: 0.8 },
+            pieces: i => [{ surface: 'tights', rules: { spine: a => [-3, NECKLINES[i.neckline || 'turtle'](a)], arms: [-1, 3.04], legs: [-1, 9] }, lift: 0.005 + i.fit * 0.006, drape: 2 }, { scifiGear: 'utility' }] },
+        { id: 'explorerSuit', label: 'Planetary exploration suit', slot: 'dress', group: 'Sci-fi', knobs: ['bulk', 'fit'], defaults: { color: '#bbc7cc', color2: '#28587d', trim: '#303f4c', bulk: 0.35, fit: 0.3, material: 'plastic', pattern: 'expedition', lightStyle: 'strips', lightColor: '#71cfff', lightIntensity: 0.3, lightWidth: 0.8 },
+            pieces: i => [{ surface: 'tights', rules: { spine: [-3, 4.48], arms: [-1, 3.02], legs: [-1, 9] }, lift: 0.014 + i.bulk * 0.018 + i.fit * 0.008, drape: 7 }, { scifiGear: 'utility' }] },
+        { id: 'evaSuit', label: 'EVA pressure suit', slot: 'dress', group: 'Sci-fi', knobs: ['bulk', 'fit'], defaults: { color: '#e6e8e4', color2: '#cb692c', trim: '#303b47', bulk: 0.6, fit: 0.4, material: 'cloth', pattern: 'pressure', lightStyle: 'strips', lightColor: '#82e5ff', lightIntensity: 0.35, lightWidth: 0.8 },
+            pieces: i => [{ surface: 'tights', rules: { spine: [-3, 4.65], arms: [-1, 3.08], legs: [-1, 9] }, lift: 0.022 + i.bulk * 0.02 + i.fit * 0.008, drape: 9 }, { scifiGear: 'pressure' }] },
+        { id: 'reconArmor', label: 'Recon armor', slot: 'armor', group: 'Sci-fi', knobs: ['bulk'], defaults: { color: '#28333e', color2: '#9b3541', trim: '#111922', bulk: 0.35, material: 'plastic', pattern: 'expedition', lightStyle: 'strips', lightColor: '#48caff', lightIntensity: 0.8, lightWidth: 1 },
+            pieces: i => [{ scifiGear: 'recon' }] },
         { id: 'bodysuit', label: 'Bodysuit', slot: 'under', group: 'Sci-fi', knobs: ['color2'], defaults: { color: '#20242c', color2: '#36c2ff', material: 'rubber', pattern: 'panels', neckline: 'high' },
-            pieces: i => [{ surface: 'tights', rules: { spine: a => [-3, NECKLINES[i.neckline || 'high'](a)], arms: [-1, 2.98], legs: [-1, 9] }, lift: 0.004, drape: 1 }] },
-        { id: 'spacesuit', label: 'Space suit', slot: 'dress', group: 'Sci-fi', defaults: { color: '#e9ebee', color2: '#d86a2a', material: 'cloth', pattern: 'panels', trim: '#9aa0a8', trimWidth: 0.06 },
-            pieces: i => [{ surface: 'tights', rules: { spine: a => [-3, 4.3], arms: [-1, 2.95], legs: [-1, 9] }, lift: 0.035, drape: 14 }] },
+            pieces: i => [{ surface: 'tights', rules: { spine: a => [-3, NECKLINES[i.neckline || 'high'](a)], arms: [-1, 2.98], legs: [-1, 9] }, lift: 0.004, drape: 1 }, { scifiGear: 'utility' }] },
+        { id: 'spacesuit', label: 'Space suit', slot: 'dress', group: 'Sci-fi', defaults: { color: '#e9ebee', color2: '#d86a2a', material: 'cloth', pattern: 'pressure', lightStyle: 'strips', lightColor: '#82e5ff', lightIntensity: 0.25, lightWidth: 0.8, trim: '#303b47', trimWidth: 0.02 },
+            pieces: i => [{ surface: 'tights', rules: { spine: a => [-3, 4.3], arms: [-1, 2.95], legs: [-1, 9] }, lift: 0.035, drape: 14 }, { scifiGear: 'pressure' }] },
         { id: 'tacvest', label: 'Tactical vest', slot: 'armor', group: 'Sci-fi', defaults: { color: '#3c4436', color2: '#2c3228', material: 'cloth', pattern: 'camo', trim: '#22281e', trimWidth: 0.05 },
-            pieces: i => [plates({ surface: 'tights', rules: { spine: a => [0.6, 3.85 - 0.45 * front(a) ** 4], arms: [-1, 0.5] }, lift: 0.035, drape: 10, hard: true }, { spine: [0.6, 1.9, 3, 0.06] })] },
+            pieces: i => [{ scifiGear: 'vest' }] },
         { id: 'powerarmor', label: 'Power armor', slot: 'armor', group: 'Sci-fi', knobs: ['bulk', 'color2'], defaults: { color: '#606d70', color2: '#e5ad55', bulk: 0.6, material: 'metal', pattern: 'solid', trim: '#273137', trimWidth: 0 },
             pieces: i => powerArmor(i) },
         // [outfit transfer] RRCharacterPowerArmor's armored hands alone: a glove with a rigid plate over the back of each hand.
@@ -253,7 +267,7 @@
             pieces: i => [top(Object.assign({}, i, { sleeves: 1, neckline: 'high' }), { lift: 0.02, drape: 5 })] },
         { id: 'visorhelm', label: 'Visor helmet', slot: 'head', group: 'Sci-fi', defaults: { color: '#e4e7eb', color2: '#1a2a40', trim: '#9aa0a8', length: 1.1, face: 1, material: 'plastic' },
             pieces: i => [{ helm: { square: 2.1, flat: 0, gap: 0.018, bottom: 0.2, window: { half: 1.05, low: -0.055, high: 0.035, visor: true } } }] },
-        { id: 'magboots', label: 'Mag boots', slot: 'feet', group: 'Sci-fi', defaults: { color: '#5a606a', color2: '#36c2ff', length: 0.45, bulk: 0.9, material: 'metal', pattern: 'panels', trim: '#2a2e34', trimWidth: 0.08 },
+        { id: 'magboots', label: 'Mag boots', slot: 'feet', group: 'Sci-fi', defaults: { color: '#5a606a', color2: '#36c2ff', length: 0.32, bulk: 0.45, material: 'plastic', pattern: 'panels', trim: '#2a2e34', trimWidth: 0.08 },
             pieces: i => [shoe('mag', i)] },
 
         // Generated cuts: no external garment mesh or texture is needed for these.
@@ -309,14 +323,11 @@
     }
 
     function hood(i) {
-        return headPiece(Object.assign({ length: 1.1, face: 0 }, i), { lift: 0.04, drape: 16, value: (an, v) => {
-            const sv = an.s[v * 5], a = Math.abs(an.angle[v * 5]);
-            if (an.member[v * 5] < 0.4) return -1;
-            // From the neck up, the face left open.
-            let c = Math.min(sv - 4.1, 1);
-            const faceOpen = Math.min(1.05 - a, Math.min(sv - 4.45, 5.75 - sv) * 2);
-            return Math.max(-1, Math.min(c, -faceOpen));
-        } });
+        // Use a sewn opening on a smooth head envelope. Offsetting the face
+        // mesh made the lip/eyelid topology into jagged folds inside the hood.
+        const face = i.face ?? 0;
+        return { helm: { clothHood:true, square:2, flat:0, gap:.028, bottom:.25,
+            window:{half:1.25-face*.45,low:-.17+face*.08,high:.045,open:true} } };
     }
     /** A plate standing well off the chest closes in to the neck at its top edge, rather than flaring round it. */
     function closeAtNeck(lift) {
@@ -359,6 +370,8 @@
     function powerArmor(i) {
         return [
             { poweredArmor: true },
+            // The rubber undersuit stands 9 mm off the skin. Leave room for
+            // that layer and the ankle's mixed shin/foot bend inside the boot.
             Object.assign(shoe('mag', { length: 0.4, bulk: (i.bulk ?? 0.6) * 0.6 }, { lames: 3 }), { armorFeet: true })
         ];
     }
@@ -449,6 +462,12 @@
         const out = Object.assign({ id: g.id }, g.defaults, item);
         for (const k of ['sleeves', 'length', 'fit', 'flare', 'bell', 'open', 'face', 'bulk']) if (out[k] != null) out[k] = Math.max(0, Math.min(k === 'length' ? 1.4 : 1.5, +out[k] || 0));
         for (const k of ['color', 'color2', 'trim']) if (out[k] && !/^#[0-9a-f]{6}$/i.test(out[k])) delete out[k];
+        if (g.defaults.lightStyle != null) {
+            if (!['none', 'badge', 'strips', 'circuits'].includes(out.lightStyle)) out.lightStyle = g.defaults.lightStyle;
+            out.lightColor = /^#[0-9a-f]{6}$/i.test(out.lightColor || '') ? out.lightColor.toLowerCase() : g.defaults.lightColor;
+            out.lightIntensity = Number.isFinite(+out.lightIntensity) ? Math.max(0, Math.min(1, +out.lightIntensity)) : g.defaults.lightIntensity;
+            out.lightWidth = Number.isFinite(+out.lightWidth) ? Math.max(0.4, Math.min(2.5, +out.lightWidth)) : 1;
+        }
         if (out.neckline && !NECKLINES[out.neckline]) out.neckline = 'crew';
         if (out.emblemPicture != null) {
             const ref = out.emblemPicture, ext = typeof ref === 'string' && /\.([^.\\/]+)$/.exec(ref);
@@ -475,6 +494,12 @@
 
     // ── outfits ───────────────────────────────────────────────────────────
     const PRESETS = [
+        { id: 'starshipCrew', label: 'Starship crew', group: 'Sci-fi', items: [{ id: 'starshipUniform' }, { id: 'boots', color: '#18202b', length: 0.3 }] },
+        { id: 'commandOfficer', label: 'Command officer', group: 'Sci-fi', items: [{ id: 'starshipUniform', color2: '#36495e', lightIntensity: 0 }, { id: 'officerJacket' }, { id: 'boots', color: '#202936', length: 0.3 }] },
+        { id: 'surveyTeam', label: 'Survey team', group: 'Sci-fi', items: [{ id: 'explorerSuit' }, { id: 'magboots', color: '#263d50', length: 0.30 }, { id: 'gloves', color: '#263d50', length: 0.25 }] },
+        { id: 'reconTeam', label: 'Recon team', group: 'Sci-fi', items: [{ id: 'techSuit' }, { id: 'reconArmor' }, { id: 'magboots', color: '#27333e', color2: '#48caff' }, { id: 'gloves', color: '#27333e', length: 0.3 }] },
+        { id: 'evaCrew', label: 'EVA crew', group: 'Sci-fi', items: [{ id: 'evaSuit' }, { id: 'visorhelm' }, { id: 'magboots', color: '#d6dcd9', length: 0.35 }, { id: 'gloves', color: '#d6dcd9', length: 0.35 }] },
+        { id: 'flightCrew', label: 'Flight crew', group: 'Sci-fi', items: [{ id: 'techSuit', color: '#292e39', color2: '#906c3b', lightColor: '#ffb85a', lightStyle: 'badge', lightIntensity: 0.4 }, { id: 'boots', color: '#1a212b', length: 0.35 }, { id: 'gloves', color: '#1a212b', length: 0.2 }] },
         { id: 'none', label: 'Nothing', group: 'Basics', items: [] },
         { id: 'generatedUndergarments', label: 'Underwear separates', group: 'Basics', items: [{ id: 'briefs' }, { id: 'bra' }] },
         { id: 'generatedSwimmer', label: 'Swimmer', group: 'Swimwear', items: [{ id: 'swimsuit' }] },
@@ -532,6 +557,7 @@
     function lookOf(item, spec, cache) {
         // Without a trim color of its own, an edge is bound in the garment's own color, a shade darker.
         const look = { color: item.color, color2: item.color2, trim: item.trim || (item.color ? shadeHex(item.color, 0.8) : undefined), pattern: item.pattern || 'solid', trimWidth: item.trimWidth || 0, scale: item.scale, from: item.from, to: item.to };
+        for (const key of ['lightStyle', 'lightColor', 'lightIntensity', 'lightWidth']) if (item[key] != null) look[key] = item[key];
         if (item.emblemPicture && cache?.emblemPictures) look.emblemPicture = cache.emblemPictures.get(item.emblemPicture);
         if (spec.look === 'trim') return { color: item.trim || item.color2 || item.color, pattern: 'solid' };
         return look;
@@ -551,7 +577,7 @@
         // is worked out once per build and never kept: the next build is another body.
         const frame = {};
         const covered = new Float32Array(pack.vertexCount).fill(-1);
-        const modeledItems = [], shoeParts = [], shoeTextures = [], takenItems = [];
+        const modeledItems = [], shoeParts = [], shoeTextures = [], takenItems = [], fieldGear = [];
         const under = underLayers(), belts = [];
         // The coarse clothing helper cannot follow a very full bust or deep body folds.
         // Use the actual skin topology for soft fitted cuts there, with the same authored
@@ -561,6 +587,7 @@
         const detailedCuts = ids.some(v => an.member[v * 5] > 0.8 && an.s[v * 5] > 0.4 && an.s[v * 5] < 3.3 &&
             (Math.abs(P[v * 3]) > built.height * 0.15 || Math.abs(P[v * 3 + 2] - hip[2]) > built.height * 0.18));
         const shod = items.some(i => BY_ID.get(i.id).slot === 'feet');
+        const rigidFeet=!shod||items.some(i=>BY_ID.get(i.id).slot==='feet'&&BY_ID.get(i.id).pieces(i).some(p=>p.shoe?.rigidFoot));
         // With anything on the feet, a suit's legs end at the ankle (inside a boot, over a shoe's collar).
         const anyShoes = shod || items.some(i => BY_ID.get(i.id).pieces(i).some(p => p.shoe));
         items.forEach((item, layer) => {
@@ -570,6 +597,7 @@
             if (g.modeled) { modeledItems.push(item); return; }
             const specs = g.pieces(item);
             specs.forEach((raw, pi) => {
+                if (raw.scifiGear) { fieldGear.push({ item, kind: raw.scifiGear }); return; }
                 if (raw.swimStraps) {
                     const made = O.swimStraps(pack, built, raw.swimStraps, frame);
                     const color = O.linear(item.color), colors = new Float32Array(made.positions.length);
@@ -588,7 +616,7 @@
                 }
                 if (raw.poweredArmor || raw.poweredHelmet) {
                     const Power = root.RRCharacterPowerArmor || require('./CharacterPowerArmor.js');
-                    const made = raw.poweredHelmet ? Power.helmet(pack, built, item) : Power.build(pack, built, raw.only ? Object.assign({}, item, { only: raw.only }) : item);
+                    const made = raw.poweredHelmet ? Power.helmet(pack, built, item) : Power.build(pack, built, Object.assign({},item,{rigidFeet},raw.only?{only:raw.only}:{}));
                     shoeParts.push(...made.parts);
                     for (const v of made.hidden) covered[v] = 1;
                     return;
@@ -670,11 +698,24 @@
                 under.add(laid, layer);
                 const look = Object.assign(lookOf(item, spec, cache), { material: item.material });
                 const [roughness, metalness] = MATERIAL[item.material] || MATERIAL.cloth;
-                entries.push({ laid, look, skirt: spec.surface === 'skirt', name: g.label, roughness, metalness, doubleSided: spec.surface === 'skirt' });
+                if(spec.surface === 'skirt'){
+                    const bodice=entries.find(e=>e.garment===item.id&&!e.skirt);
+                    if(bodice){const seam=waistSeam(bodice.laid,laid,item,g.label,O);if(seam)shoeParts.push(seam);}
+                }
+                entries.push({ laid, look, garment:item.id, skirt: spec.surface === 'skirt', name: g.label, roughness, metalness, doubleSided: spec.surface === 'skirt' });
                 // The skin a tight piece covers is not drawn (a skirt hangs free of the legs).
                 if (spec.surface !== 'skirt' && spec.hides !== false) markCovered(pack, O, spec, covered);
             });
         });
+        // Hardware is fitted after the fabric layers, so badges, pouches and
+        // rigid plates sit on the finished clothing rather than inside it.
+        for (const [i, gear] of fieldGear.entries()) {
+            if (fieldGear.slice(i + 1).some(g => g.kind === gear.kind)) continue;
+            if (gear.kind === 'utility' && fieldGear.some(g => g.kind === 'recon' || g.kind === 'vest' || g.kind === 'pressure')) continue;
+            const Armor = root.RRCharacterPowerArmor || require('./CharacterPowerArmor.js');
+            const made = Armor.fieldGear(pack, built, gear.item, gear.kind, entries.map(e => e.laid));
+            shoeParts.push(...made.parts);
+        }
         const hidden = new Set();
         for (let v = 0; v < covered.length; v++) if (covered[v] > 0.1) hidden.add(v);
         // Modeled garments: each its own part and picture, hiding the skin it covers.
@@ -710,6 +751,7 @@
             if (store.key !== key) { store.layout = Atlas.layout(pack, entries, { size: cache.atlasSize || 1024 }); store.key = key; }
             cutParts = Atlas.apply(store.layout, entries);
             atlasTexture = store.layout.texture;
+            if (store.layout.emission) textures.push(store.layout.emission);
         }
         // Only skin a garment really covers stays hidden: none is left out under a slit, an opening or a tear.
         for (const v of O.uncovered(pack, built, cutParts.concat(modeledParts), hidden, frame)) hidden.delete(v);
@@ -771,6 +813,45 @@
         };
     }
 
+    /** Close an actual gap between two pieces of one sewn garment. The
+     * boundary points retain both pieces' exact skinning, including folds. */
+    function waistSeam(top, skirt, item, label, O) {
+        const tau=Math.PI*2,angle=(p,i)=>((p.field[i].spineAng%tau)+tau)%tau;
+        const boundary=(part,isSkirt)=>{
+            const candidates=part.piece.border.filter(([a,b])=>isSkirt||part.field[a].fam===0&&part.field[b].fam===0);
+            if(!candidates.length)return null;
+            const value=i=>isSkirt?part.field[i].u:part.field[i].s;
+            const low=Math.min(...candidates.flatMap(([a,b])=>[value(a),value(b)]));
+            const edges=candidates.filter(([a,b])=>Math.max(value(a),value(b))<low+(isSkirt?.025:.12));
+            const ids=[...new Set(edges.flat())];if(ids.length<8)return null;
+            const degree=new Map();for(const[a,b]of edges){degree.set(a,(degree.get(a)||0)+1);degree.set(b,(degree.get(b)||0)+1);}
+            return{ids:ids.sort((a,b)=>angle(part,a)-angle(part,b)),closed:ids.every(i=>degree.get(i)===2)};
+        };
+        const A=boundary(top,false),B=boundary(skirt,true);if(!A||!B)return null;
+        const loops=[A,B],sources=[top,skirt],positions=[],joints=[],weights=[],uvs=[],index=[],color=O.linear(item.color);
+        for(let side=0;side<2;side++)for(const i of loops[side].ids){const p=sources[side];positions.push(...p.positions.subarray(i*3,i*3+3));joints.push(...p.joints.subarray(i*4,i*4+4));weights.push(...p.weights.subarray(i*4,i*4+4));uvs.push(angle(p,i)/tau,side);}
+        const na=A.ids.length,nb=B.ids.length,closed=A.closed&&B.closed,limitA=closed?na:na-1,limitB=closed?nb:nb-1;
+        const add=(a,b,c)=>{
+            const ids=[a,b,c],upper=ids.filter(i=>i<na),lower=ids.filter(i=>i>=na);
+            if(!upper.length||!lower.length)return;
+            const mean=vs=>vs.reduce((s,i)=>s+positions[i*3+1],0)/vs.length;
+            if(mean(upper)<mean(lower)+.001)return; // Overlapping cloth already closes it.
+            const p=i=>positions.slice(i*3,i*3+3),x=p(a),y=p(b),z=p(c),u=y.map((v,k)=>v-x[k]),v=z.map((v,k)=>v-x[k]);
+            const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+            const radial=[(x[0]+y[0]+z[0])/3,0,(x[2]+y[2]+z[2])/3];
+            if(n[0]*radial[0]+n[2]*radial[2]<0)index.push(a,c,b);else index.push(a,b,c);
+        };
+        let i=0,j=0;
+        while(i<limitA||j<limitB){
+            const a=i%na,b=na+j%nb,nextA=i<limitA?angle(top,A.ids[(i+1)%na])+((i+1)>=na?tau:0):Infinity,nextB=j<limitB?angle(skirt,B.ids[(j+1)%nb])+((j+1)>=nb?tau:0):Infinity;
+            if(nextA<=nextB){add(a,b,(i+1)%na);i++;}else{add(a,b,na+(j+1)%nb);j++;}
+        }
+        if(!index.length)return null;
+        const used=[...new Set(index)],map=new Map(used.map((v,i)=>[v,i])),gather=(src,n)=>Float32Array.from(used.flatMap(v=>src.slice(v*n,v*n+n)));
+        const P=gather(positions,3),I=Uint32Array.from(index,i=>map.get(i)),[roughness,metalness]=MATERIAL[item.material]||MATERIAL.cloth;
+        return{name:label+' waist seam',doubleSided:true,positions:P,normals:O.triangleNormals(P,I),index:I,uvs:gather(uvs,2),joints:Uint8Array.from(gather(joints,4)),weights:gather(weights,4),colors:Float32Array.from({length:P.length},(_,i)=>color[i%3]),roughness,metalness};
+    }
+
     /** A laid piece pushed out to stand a few millimeters over the garments under it; its rim follows. */
     function overlay(laid, under, O, layer) {
         const P = laid.positions, gap = 0.003, n = laid.rimStart;
@@ -819,12 +900,13 @@
         if (extra) for (const e of entries) if (!e.skirt && made.tuck(e.laid.positions)) e.laid.normals = O.triangleNormals(e.laid.positions, e.laid.index);
         const Atlas = root.RRCharacterAtlas || require('./CharacterAtlas.js');
         const look = { kind: raw.kind, color: item.color, color2: item.color2, trim: item.trim, material: item.material, laces: !!raw.shoe.laces, lames: raw.shoe.lames };
-        const key = JSON.stringify([made.template.key, look]);
+        const pictureSize = cache.pictureSize || 512;
+        const key = JSON.stringify([made.template.key, look, pictureSize]);
         const store = cache.shoes || (cache.shoes = new Map());
         const name = 'shoes' + (n ? n + 1 : '') + '.png';
         let picture = store.get(key);
         if (!picture) {
-            picture = Object.assign(Atlas.shoePicture(made.template, look, 512), { name });
+            picture = Object.assign(Atlas.shoePicture(made.template, look, pictureSize), { name });
             if (store.size > 6) store.clear();
             store.set(key, picture);
         }
@@ -842,13 +924,14 @@
         const made = O.helmet(pack, built, raw.helm, frame);
         const Atlas = root.RRCharacterAtlas || require('./CharacterAtlas.js');
         const look = { color: item.color, trim: item.trim, material: item.material };
+        const textureName = raw.helm.clothHood ? 'hood-' + item.id + '.png' : 'helmet.png';
         const key = JSON.stringify([made.template.key, look]);
         const store = cache.shoes || (cache.shoes = new Map());
         let picture = store.get(key);
-        if (!picture) { picture = Object.assign(Atlas.helmPicture(made.template, look, 256), { name: 'helmet.png' }); store.set(key, picture); }
+        if (!picture) { picture = Object.assign(Atlas.helmPicture(made.template, look, 256), { name: textureName }); store.set(key, picture); }
         const [roughness, metalness] = MATERIAL[item.material] || MATERIAL.cloth;
         const s = made.shell;
-        const parts = [{ name: g.label, positions: s.positions, normals: s.normals, uvs: s.uvs, index: s.index, joints: s.joints, weights: s.weights, texture: 'helmet.png', roughness, metalness, doubleSided: true }];
+        const parts = [{ name: g.label, positions: s.positions, normals: s.normals, uvs: s.uvs, index: s.index, joints: s.joints, weights: s.weights, texture: textureName, roughness, metalness, doubleSided: true }];
         if (made.visor) {
             // The visor's tint, a little lighter toward its top where it catches the sky.
             const v = made.visor, n = v.positions.length / 3, colors = new Float32Array(n * 3), tint = O.linear(item.color2 || '#1a2a40');
@@ -938,9 +1021,9 @@
      * A preset's garments for a body: a woman dressed in a set that leaves the
      * chest bare (a barbarian's, a gladiator's) gets a cropped leather top.
      */
-    const CHEST = new Set(['top', 'dress', 'armor', 'under', 'mail']);
+    const CHEST = new Set(['top', 'dress', 'armor', 'under', 'underwearTop', 'mail']);
     function dressFor(items, female) {
-        if (!female || items.some(i => CHEST.has((BY_ID.get(i.id) || {}).slot))) return items;
+        if (!items.length || !female || items.some(i => CHEST.has((BY_ID.get(i.id) || {}).slot))) return items;
         return items.concat([{ id: 'tanktop', color: '#5a3d22', material: 'leather', length: 0.32 }]);
     }
 

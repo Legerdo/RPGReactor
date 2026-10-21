@@ -245,7 +245,13 @@
             for(let k=0;k<3;k++)positions[i+k]+=body.normals[i+k]*.009*C.scale;
             colors.set(rubber,i);
         }
-        return {part:Object.assign({},body,{name:'Power armor undersuit',positions,colors,index:Uint32Array.from(keep),texture:null,roughness:.88,metalness:0}),hidden};
+        const joints=Uint8Array.from(body.joints),weights=Float32Array.from(body.weights);
+        if(!hands&&C.item.rigidFeet!==false)for(let v=0;v<positions.length/3;v++){
+            const src=source[v],family=positions[v*3]>0?3:4;
+            if(C.an.member[src*5+family]<.5)continue;
+            Outfit.rigidFootSkin(C.built,positions.subarray(v*3,v*3+3),{joints:joints.subarray(v*4,v*4+4),weights:weights.subarray(v*4,v*4+4)});
+        }
+        return {part:Object.assign({},body,{name:'Power armor undersuit',positions,colors,joints,weights,index:Uint32Array.from(keep),texture:null,roughness:.88,metalness:0}),hidden};
     }
 
     function build(pack,built,item) {
@@ -529,7 +535,155 @@
         }
         return {parts:[metal.part('Medieval '+kind,{roughness:.34,metalness:.72}),edge.part('Medieval '+kind+' edges',{roughness:.4,metalness:.68})].filter(p=>p.index.length),hidden:new Set()};
     }
-    const api={build,helmet,medieval};
+    /** Small field equipment and formed recon plates, fitted over the actual clothing surface. */
+    function fieldGear(pack, built, item, kind, layers = []) {
+        const C = context(pack, built, item), s = C.scale, hip = C.bone('Hips').head[1], neck = C.bone('Neck').head[1];
+        const span = Math.max(0.08 * s, neck - hip), chest = C.joint('Spine2'), waist = C.joint('Hips');
+        const surfaces = [{ positions: built.parts[0].positions, index: built.parts[0].index }, ...layers];
+        const triangles = [];
+        for (const part of surfaces) for (let t = 0; t < part.index.length; t += 3) {
+            const ids = [part.index[t], part.index[t + 1], part.index[t + 2]], P = part.positions;
+            const points = ids.map(i => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]]);
+            const lo = Math.min(...points.map(p => p[1])), hi = Math.max(...points.map(p => p[1]));
+            if (hi < hip - 0.1 * s || lo > neck + 0.04 * s) continue;
+            triangles.push({ points, lo, hi, left: Math.min(...points.map(p => p[0])), right: Math.max(...points.map(p => p[0])) });
+        }
+        function surfaceAt(x, y, fallback, side = 1) {
+            let z = -Infinity;
+            for (const t of triangles) {
+                if (x < t.left || x > t.right || y < t.lo || y > t.hi) continue;
+                const [a,b,c] = t.points, det = (b[1]-c[1])*(a[0]-c[0])+(c[0]-b[0])*(a[1]-c[1]);
+                if (Math.abs(det) < 1e-12) continue;
+                const u = ((b[1]-c[1])*(x-c[0])+(c[0]-b[0])*(y-c[1]))/det;
+                const v = ((c[1]-a[1])*(x-c[0])+(a[0]-c[0])*(y-c[1]))/det, w=1-u-v;
+                if (u >= -1e-5 && v >= -1e-5 && w >= -1e-5) z = Math.max(z, side * (a[2]*u+b[2]*v+c[2]*w));
+            }
+            return Number.isFinite(z) ? side * z : fallback;
+        }
+        const frontPlates = [];
+        const faceAt = (x,y,lift=0.006*s) => {
+            let z = surfaceAt(x,y,C.section(y).front);
+            for (const p of frontPlates) if (x >= p.lo[0] && x <= p.hi[0] && y >= p.lo[1] && y <= p.hi[1]) z = Math.max(z,p.height(x,y));
+            return [x,y,z+lift];
+        };
+        // A nonplanar outline cannot be filled with one polygon fan: its
+        // triangles cut through a full bust or belly. Fit the entire plate,
+        // including its interior and closed back, to the finished fabric.
+        function fittedPlate(outline, color, joint, gap = .024 * s, depth = .012 * s, side = 1) {
+            const center = mul(outline.reduce(add, [0,0,0]), 1 / outline.length), normal = [0,0,side];
+            const lo = [0,1].map(k=>Math.min(...outline.map(p=>p[k]))), hi = [0,1].map(k=>Math.max(...outline.map(p=>p[k])));
+            const rx = Math.max((hi[0]-lo[0])/2,.005*s), ry = Math.max((hi[1]-lo[1])/2,.005*s);
+            const sample = (x,y) => side*surfaceAt(x,y,side>0?C.section(y).front:C.section(y).back,side);
+            const middle=sample(center[0],center[1]),left=sample(lo[0],center[1]),right=sample(hi[0],center[1]);
+            const bottom=sample(center[0],lo[1]),top=sample(center[0],hi[1]);
+            const slopeX=(right-left)/(2*rx),slopeY=(top-bottom)/(2*ry);
+            const curveX=Math.max(.010*s,middle-(left+right)/2),curveY=Math.max(.006*s,middle-(bottom+top)/2);
+            // Tilt with the chest and retain its broad curvature, so a plate
+            // that clears a full bust does not float in front of the collar.
+            const bend = (x,y) => curveX*((x-center[0])/rx)**2 + curveY*((y-center[1])/ry)**2 - slopeX*(x-center[0]) - slopeY*(y-center[1]);
+            let height = -Infinity;
+            // Bound a smooth rigid dome above every intersecting fabric
+            // triangle. Copying individual fabric folds into the metal made
+            // the abdominal lames look like corrugated, torn cloth.
+            for (const t of triangles) {
+                if(t.right<lo[0]||t.left>hi[0]||t.hi<lo[1]||t.lo>hi[1]) continue;
+                // Clip before bounding the dome. A long source triangle may
+                // cross a narrow lame while its far endpoint is well outside
+                // it; evaluating that endpoint exaggerated the plate's depth.
+                let polygon=t.points;
+                for(const [axis,edge,direction] of [[0,lo[0],1],[0,hi[0],-1],[1,lo[1],1],[1,hi[1],-1]]) {
+                    const clipped=[];
+                    for(let i=0;i<polygon.length;i++) {
+                        const a=polygon[i],b=polygon[(i+1)%polygon.length];
+                        const da=direction*(a[axis]-edge),db=direction*(b[axis]-edge);
+                        if(da>=0)clipped.push(a);
+                        if((da>=0)!==(db>=0))clipped.push(lerp(a,b,da/(da-db)));
+                    }
+                    polygon=clipped;
+                }
+                for(const p of polygon) height=Math.max(height,side*p[2]+bend(p[0],p[1]));
+            }
+            if(!Number.isFinite(height)) height=side*(side>0?C.section(center[1]).front:C.section(center[1]).back)+bend(center[0],center[1]);
+            const outer = (x,y) => side*(height-bend(x,y)+gap);
+            const point = (p, inset = 0) => [p[0],p[1],outer(p[0],p[1])-side*inset];
+            const steps = 5;
+            for (let edge = 0; edge < outline.length; edge++) {
+                const a = outline[edge], b = outline[(edge + 1) % outline.length];
+                const at = (i,j) => add(center, add(mul(sub(a,center),i/steps),mul(sub(b,center),j/steps)));
+                for (let i=0;i<steps;i++) for(let j=0;j<steps-i;j++) {
+                    const faces = [[at(i,j),at(i+1,j),at(i,j+1)]];
+                    if(i+j<steps-1) faces.push([at(i+1,j),at(i+1,j+1),at(i,j+1)]);
+                    for(const face of faces) {
+                        C.shell.face(face.map(p=>point(p)),color,joint,normal);
+                        C.shell.face(face.map(p=>point(p,depth)),mul(color,.62),joint,mul(normal,-1));
+                    }
+                }
+                for(let i=0;i<steps;i++) {
+                    const p=lerp(a,b,i/steps),q=lerp(a,b,(i+1)/steps);
+                    const outward=norm(sub(lerp(p,q,.5),center));
+                    C.shell.face([point(p),point(q),point(q,depth),point(p,depth)],mul(color,.78),joint,outward);
+                }
+            }
+            if(side>0) frontPlates.push({lo,hi,height:outer});
+        }
+        if (kind === 'recon' || kind === 'vest') {
+            const top = neck - span * 0.09, low = hip + span * 0.40;
+            // Separate beveled pectoral plates with real side walls and a breathing gap.
+            for (const side of [-1,1]) {
+                const outline = [[0.04,0.91],[0.60,1],[0.94,0.80],[0.84,0.12],[0.34,0],[0.05,0.12]].map(([u,v])=>{
+                    const y = low + (top-low)*v, q=C.section(y), x=side*u*q.width;
+                    return faceAt(x,y,0.025*s);
+                });
+                fittedPlate(outline,C.color,chest);
+                for (const k of [1,3]) bolt(C.hardware,faceAt(outline[k][0],outline[k][1],.001*s),Z,.0025*s,C.trim,chest);
+                const y = top-(top-low)*.25, q=C.section(y), x=side*q.width*.42;
+                for(let row=0;row<3;row++) rectangle(C.hardware,faceAt(x,y-row*.009*s,.029*s),X,Y,q.width*.25,.003*s,Z,C.trim,chest,.001*s,.0004*s);
+                rectangle(C.hardware,faceAt(x,y+.010*s,.004*s),X,Y,q.width*.25,.004*s,Z,C.accent,chest,.0015*s,.0005*s);
+            }
+            // A back shell and independent abdominal lames use their own spine joints.
+            const middle=(top+low)/2, q=C.section(middle), z=q.back-.020*s;
+            fittedPlate(OCTAGON.map(([x,y])=>[x*q.width*.85,middle+y*(top-low)*.46,z]),C.color,chest,.020*s,.012*s,-1);
+            for(let row=0;row<3;row++) {
+                const y=hip+span*(.07+row*.11), q=C.section(y), h=span*.10;
+                const outline=OCTAGON.map(([x,v])=>faceAt(x*q.width*.76,y+v*h/2,.019*s));
+                fittedPlate(outline,mul(C.color,.87),C.joint(row===2?'Spine1':'Spine'),.019*s,.009*s);
+            }
+            if (kind === 'recon') for(const side of ['Left','Right']) {
+                const E=C.envelope(side+'Arm',side==='Left'?1:2,.05,.30), at=E.point(.12);
+                guard(C,add(at,mul(E.front,E.rz+.020*s)),E.front,E.side,E.along,E.rx*1.20,E.length*.25,C.joint(side+'Arm'));
+                const leg=C.envelope(side+'UpLeg',side==='Left'?3:4,.65,.92), p=leg.point(.84);
+                guard(C,add(p,mul(leg.front,leg.rz+.015*s)),leg.front,leg.side,leg.along,leg.rx*1.15,leg.length*.22,C.joint(side+'UpLeg'));
+            }
+        }
+        if (kind === 'uniform') {
+            const y = hip + span*.77, q=C.section(y), x=q.width*.44;
+            const base=faceAt(x,y,.005*s);
+            rectangle(C.hardware,base,X,Y,.036*s,.017*s,Z,C.trim,chest,.003*s,.001*s);
+            rectangle(C.indicators,add(base,[0,.001*s,.001*s]),X,Y,.025*s,.006*s,Z,C.accent,chest,.0015*s,.0004*s);
+            for(let i=0;i<3;i++) rectangle(C.hardware,faceAt(-q.width*.40+i*.007*s,y+.015*s,.004*s),X,Y,.004*s,.012*s,Z,C.accent,chest,.0015*s,.0004*s);
+        } else {
+            // A compact chest controller, and two closed utility pouches at the hips.
+            const y=hip+span*.78, q=C.section(y), x=-q.width*.38, at=faceAt(x,y,(kind==='recon'||kind==='vest')?.038*s:.009*s);
+            rectangle(C.hardware,at,X,Y,.043*s,.058*s,Z,C.trim,chest,.006*s,.002*s);
+            const glow=Outfit.linear(item.lightColor||'#71cfff');
+            rectangle(C.indicators,add(at,[0,.012*s,.001*s]),X,Y,.029*s,.017*s,Z,glow,chest,.002*s,.0006*s);
+            for(let row=0;row<2;row++)for(let col=0;col<3;col++)rectangle(C.hardware,add(at,[(col-1)*.009*s,-.010*s-row*.009*s,.002*s]),X,Y,.005*s,.004*s,Z,C.accent,chest,.002*s,.0004*s);
+            for(const side of [-1,1]) {
+                const y=hip+span*.12, q=C.section(y), x=side*q.width*.66, width=Math.min(.075*s,q.width*.45), height=Math.min(.095*s,span*.19);
+                const at=faceAt(x,y,.014*s);
+                rectangle(C.shell,at,X,Y,width,height,Z,mul(C.color,.87),waist,.014*s,.003*s);
+                rectangle(C.hardware,add(at,[0,height*.31,.001*s]),X,Y,width*.9,height*.18,Z,C.trim,waist,.003*s,.001*s);
+                bolt(C.hardware,add(at,[0,height*.31,.004*s]),Z,.002*s,C.accent,waist);
+            }
+        }
+        const parts=[];
+        if(C.shell.i.length)parts.push(C.shell.part(kind==='recon'?'Recon formed plating':'Field utility pouches',{roughness:.55,metalness:.15}));
+        if(C.hardware.i.length)parts.push(C.hardware.part('Field fasteners and controls',{roughness:.5,metalness:.65}));
+        if(C.indicators.i.length)parts.push(C.indicators.part('Field status indicators',{roughness:.35,metalness:.1,emissive:item.lightColor||'#71cfff',emissiveIntensity:item.lightStyle==='none'?0:item.lightIntensity??.25}));
+        return {parts,hidden:new Set()};
+    }
+
+    const api={build,helmet,medieval,fieldGear};
     root.RRCharacterPowerArmor=api;
     if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

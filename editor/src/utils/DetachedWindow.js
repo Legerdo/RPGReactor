@@ -2,7 +2,7 @@
  * An editor dialog as a window of its own beside the map, on any monitor, with no title bar but
  * its own: its header drags it, its corner sizes it, its × closes it, and it keeps its place
  * between openings and between sessions. It stays in front of the editor while Reactor is the
- * app in use, and drops behind other apps with it. The map stays live; keys go where the person
+ * app in use, and drops behind other apps with it. Previews follow the active window; keys go where the person
  * last worked. EventEditorWindow.js, DatabaseWindow.js, ForgeWindow.js and
  * PluginManagerWindow.js each use one, and all can be open at once.
  *
@@ -37,11 +37,46 @@
     // for a window. Registered on the main document, so the pop-outs' clicks are heard as well.
     let lastWorkedTarget = null;
     let trackerInstalled = false;
+    let previewWindow = null;
+    let previewForeground = true;
+    const previewListeners = new Set();
+
+    function activatePreview(owner, foreground = true) {
+        if (previewWindow === owner && previewForeground === foreground) return;
+        previewWindow = owner;
+        previewForeground = foreground;
+        for (const listener of previewListeners) listener();
+    }
+
+    function previewActive(element = null) {
+        if (!previewForeground) return false;
+        const active = previewWindow?.isOpen() ? previewWindow : null;
+        const owner = element ? windows.find(win => win.isOpen() && win.owns(element)) || null : null;
+        return active === owner;
+    }
+
+    function onPreviewActivity(listener) {
+        trackLastWorked();
+        previewListeners.add(listener);
+        return () => previewListeners.delete(listener);
+    }
+
     function trackLastWorked() {
         if (trackerInstalled || typeof document === 'undefined') return;
         trackerInstalled = true;
-        document.addEventListener('pointerdown', event => { lastWorkedTarget = event.target; }, true);
-        document.addEventListener('focusin', event => { lastWorkedTarget = event.target; }, true);
+        previewForeground = document.hidden !== true && (typeof document.hasFocus !== 'function' || document.hasFocus());
+        const worked = event => {
+            lastWorkedTarget = event.target;
+            activatePreview(windows.find(win => win.isOpen() && win.owns(event.target)) || null);
+        };
+        document.addEventListener('pointerdown', worked, true);
+        document.addEventListener('focusin', worked, true);
+        document.addEventListener('wheel', worked, { capture: true, passive: true });
+        document.addEventListener('visibilitychange', () => {
+            if (!previewWindow) activatePreview(null, !document.hidden && (typeof document.hasFocus !== 'function' || document.hasFocus()));
+        });
+        root.addEventListener?.('focus', () => activatePreview(null));
+        root.addEventListener?.('blur', () => { if (!previewWindow) activatePreview(null, false); });
     }
     function lastWorked() {
         return lastWorkedTarget && lastWorkedTarget.isConnected !== false ? lastWorkedTarget : document.activeElement;
@@ -226,10 +261,10 @@
             };
             const on = (target, name, handler) => { target.on(name, handler); state.unhook.push(() => target.removeListener(name, handler)); };
             // Each window's focus decides for all of them: leaving Reactor from one lets every one drop back.
-            on(main, 'focus', () => { focus.main = true; RRDetachedWindow.decideAll(); });
-            on(main, 'blur', () => { focus.main = false; RRDetachedWindow.decideAll(); });
-            on(win, 'focus', () => { focus.own = true; state.focused = true; RRDetachedWindow.decideAll(); });
-            on(win, 'blur', () => { focus.own = false; state.focused = false; RRDetachedWindow.decideAll(); });
+            on(main, 'focus', () => { focus.main = true; activatePreview(null); RRDetachedWindow.decideAll(); });
+            on(main, 'blur', () => { focus.main = false; if (!previewWindow) activatePreview(null, false); RRDetachedWindow.decideAll(); });
+            on(win, 'focus', () => { focus.own = true; state.focused = true; activatePreview(api); RRDetachedWindow.decideAll(); });
+            on(win, 'blur', () => { focus.own = false; state.focused = false; if (previewWindow === api) activatePreview(api, false); RRDetachedWindow.decideAll(); });
             state.decide = decide;
             decide();
         }
@@ -346,6 +381,7 @@
 
         /** The dialog closed: its window hides and keeps its place for the next opening. */
         function hidePopout(state = popped) {
+            if (previewWindow === api) activatePreview(null, previewForeground);
             if (!state || state !== popped) return;
             state.wantsVisible = false;
             state.focused = false;
@@ -356,6 +392,7 @@
         /** It opens again: its window comes back where it was. */
         function showPopout() {
             if (!popped) return;
+            activatePreview(api);
             popped.wantsVisible = true;
             if (!popped.win || !popped.ready) return;
             if (root.RRPopoutBridge && popped.child) root.RRPopoutBridge.setAsleep(popped.child, false);
@@ -367,6 +404,7 @@
          * shown again after), else the in-page window at its remembered place.
          */
         function open(overlay = overlayElement(), { shownBefore = false } = {}) {
+            activatePreview(api);
             if (popped) { showPopout(); return; }
             if (separateWindows()) { popOut(overlay); return; }
             if (!shownBefore) place(overlay);
@@ -447,7 +485,9 @@
         anyFocused: () => windows.some(win => win.focused()),
         decideAll: () => { for (const win of windows) win.decideInFront(); },
         /** The element the person last clicked or tabbed to, in any window. */
-        lastWorked
+        lastWorked,
+        previewActive,
+        onPreviewActivity
     };
     root.RRDetachedWindow = RRDetachedWindow;
     if (typeof module !== 'undefined' && module.exports) module.exports = RRDetachedWindow;

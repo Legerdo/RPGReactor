@@ -522,7 +522,9 @@
         const hipY = (bones[upL].head[1] + bones[upR].head[1]) / 2;
         const skip = new Map();
         for (const [pi, hang] of marks) skip.set(pi, Uint8Array.from(hang, u => (u >= 0 ? 1 : 0)));
-        const cols = colliders(result, skip);
+        // Hands beside wide hips are not supports for a hanging skirt.
+        // Match the collision set used by its moving cloth rig.
+        const cols = colliders(result, skip).filter(c => !/(Shoulder|Arm|Hand)$/.test(c.name));
         if (!cols.length) return;
         const ps = { R: bones.map(() => [0, 0, 0, 1]), P: bones.map(b => b.head) }, C = new Float32Array(cols.length * 16), push = [0, 0, 0];
         cols.forEach((c, i) => placeCollider(c, ps, C, i));
@@ -534,7 +536,15 @@
             // [outfit transfer] Cloth taken from a model already hangs as it was made (its vertices split at picture seams).
             if (result.parts[pi].keepShape) continue;
             const part = result.parts[pi], n = hang.length, X0 = part.positions, x = Float32Array.from(X0), free = new Float32Array(n);
-            for (let v = 0; v < n; v++) if (hang[v] >= 0) free[v] = smoothstep(uTop, uTop + 0.15, hang[v]);
+            for (let v = 0; v < n; v++) if (hang[v] > .03) free[v] = smoothstep(uTop, uTop + 0.15, hang[v]);
+            // Atlas seams duplicate vertices, not fabric. Keep their shared point together during draping.
+            const coincident = new Map();
+            for (let v = 0; v < n; v++) if (hang[v] >= 0) {
+                const key = [X0[v * 3], X0[v * 3 + 1], X0[v * 3 + 2]].map(q => q.toFixed(6)).join(',');
+                if (!coincident.has(key)) coincident.set(key, []);
+                coincident.get(key).push(v);
+            }
+            const seams = [...coincident.values()].filter(group => group.length > 1);
             const seen = new Set(), E = [];
             for (let t = 0; t < part.index.length; t += 3) for (const [a, b] of [[part.index[t], part.index[t + 1]], [part.index[t + 1], part.index[t + 2]], [part.index[t + 2], part.index[t]]]) {
                 if (!(free[a] + free[b]) || hang[a] < 0 || hang[b] < 0) continue;
@@ -563,6 +573,10 @@
                     if (!free[v]) continue;
                     for (let k = 0; k < cols.length; k++) if (insideAt(C, k, cols[k], 0.006, x[v * 3], x[v * 3 + 1], x[v * 3 + 2], push) < 1) { x[v * 3] = push[0]; x[v * 3 + 1] = push[1]; x[v * 3 + 2] = push[2]; }
                 }
+                for (const group of seams) for (let k = 0; k < 3; k++) {
+                    const mean = group.reduce((sum, v) => sum + x[v * 3 + k], 0) / group.length;
+                    for (const v of group) x[v * 3 + k] = mean;
+                }
             }
             result.parts[pi] = Object.assign({}, part, { positions: x, normals: normalsOf(x, part.index) });
         }
@@ -584,6 +598,35 @@
             for (let v = 0; v < hang.length; v++) if (hang[v] >= 0) verts.push([pi, v, hang[v], Math.atan2(P[v * 3] - center[0], P[v * 3 + 2] - center[2]), P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
         }
         if (verts.length < 30) return null;
+        // Sample actual fabric triangles. Sparse vertex bins can mistake a UV seam or a
+        // coarse panel for a slit, dropping a chain and opening the back of a closed dress.
+        const triangles = [];
+        for (const [pi, hang] of marks) {
+            const part = result.parts[pi], P = part.positions;
+            for (let t = 0; t < part.index.length; t += 3) {
+                const ids = [part.index[t], part.index[t + 1], part.index[t + 2]];
+                if (ids.some(v => hang[v] < 0)) continue;
+                const a = ids.map(v => Math.atan2(P[v * 3] - center[0], P[v * 3 + 2] - center[2]));
+                if (Math.max(...a) - Math.min(...a) > Math.PI) for (let k = 0; k < 3; k++) if (a[k] < 0) a[k] += Math.PI * 2;
+                triangles.push({ ids, a, u: ids.map(v => hang[v]), P });
+            }
+        }
+        const sample = (angle, u) => {
+            let best = null, radius = Infinity;
+            for (const tri of triangles) {
+                const { a, u: v, ids, P } = tri;
+                const x = angle + Math.round(((a[0] + a[1] + a[2]) / 3 - angle) / (Math.PI * 2)) * Math.PI * 2;
+                const area = (a[1] - a[0]) * (v[2] - v[0]) - (a[2] - a[0]) * (v[1] - v[0]);
+                if (Math.abs(area) < 1e-10) continue;
+                const b = ((x - a[0]) * (v[2] - v[0]) - (a[2] - a[0]) * (u - v[0])) / area;
+                const c = ((a[1] - a[0]) * (u - v[0]) - (x - a[0]) * (v[1] - v[0])) / area;
+                if (b < -1e-5 || c < -1e-5 || b + c > 1.00001) continue;
+                const point = [0, 1, 2].map(k => P[ids[0] * 3 + k] * (1 - b - c) + P[ids[1] * 3 + k] * b + P[ids[2] * 3 + k] * c);
+                const r = Math.hypot(point[0] - center[0], point[2] - center[2]);
+                if (r < radius) { radius = r; best = point; }
+            }
+            return best;
+        };
         // Held a little above the hip joints, where lifting a thigh moves the body least.
         const near = verts.filter(q => Math.abs(q[5] - (hipY + PIN_ABOVE_HIP)) < 0.025).map(q => q[2]).sort((a, b) => a - b);
         let uPin = near.length ? near[Math.floor(near.length / 2)] : 0.2;
@@ -610,13 +653,17 @@
                 // At the hem the band reaches only upward, so a short flap ends its chain at its own hem.
                 // The vertices nearest that reach (a short flap's own hem ends its chain), the innermost layer of them.
                 const around = bins[k].filter(q => Math.abs(q[2] - u) < (j === S ? du * 1.2 : du)).sort((a, b) => Math.abs(a[2] - u) - Math.abs(b[2] - u)).slice(0, 16);
-                if (around.length < 3) continue;
-                let rmin = Infinity;
-                for (const q of around) rmin = Math.min(rmin, Math.hypot(q[4] - center[0], q[6] - center[2]));
-                let sr = 0, sy = 0, n = 0;
-                for (const q of around) { const r = Math.hypot(q[4] - center[0], q[6] - center[2]); if (r < rmin + 0.012) { sr += r; sy += q[5]; n++; } }
+                let point;
+                if (around.length >= 3) {
+                    let rmin = Infinity;
+                    for (const q of around) rmin = Math.min(rmin, Math.hypot(q[4] - center[0], q[6] - center[2]));
+                    let sr = 0, sy = 0, n = 0;
+                    for (const q of around) { const r = Math.hypot(q[4] - center[0], q[6] - center[2]); if (r < rmin + 0.012) { sr += r; sy += q[5]; n++; } }
+                    point = [center[0] + Math.sin(ak) * sr / n, sy / n, center[2] + Math.cos(ak) * sr / n];
+                } else point = sample(ak, u - (j === S ? 1e-6 : 0));
+                if (!point) continue;
                 const o = (k * (S + 1) + j) * 3;
-                rest[o] = center[0] + Math.sin(ak) * sr / n; rest[o + 1] = sy / n; rest[o + 2] = center[2] + Math.cos(ak) * sr / n;
+                rest.set(point, o);
                 has[k * (S + 1) + j] = 1;
             }
         }
@@ -632,10 +679,22 @@
             const B = body.positions;
             let best = -1, bd = Infinity;
             for (let v = 0; v < B.length / 3; v += 2) { const d = (B[v * 3] - rest[i * 3]) ** 2 + (B[v * 3 + 1] - rest[i * 3 + 1]) ** 2 + (B[v * 3 + 2] - rest[i * 3 + 2]) ** 2; if (d < bd) { bd = d; best = v; } }
-            startSkin.push([Array.from(body.joints.subarray(best * 4, best * 4 + 4)), Array.from(body.weights.subarray(best * 4, best * 4 + 4))]);
+            const J=Array.from(body.joints.subarray(best*4,best*4+4)),W=Array.from(body.weights.subarray(best*4,best*4+4));
+            // Fabric between the legs is carried by both. Picking the nearest
+            // single vertex arbitrarily tied the center panel to one knee,
+            // pulling the opposite panel away when a character sat down.
+            const width=Math.max(.035,Math.abs(bones[index.get('LeftUpLeg')].head[0]-bones[index.get('RightUpLeg')].head[0])*.45);
+            const left=smoothstep(center[0]-width,center[0]+width,rest[i*3]),sum=new Map();
+            for(let q=0;q<4;q++){
+                const name=bones[J[q]].name,match=name.match(/^(Left|Right)(UpLeg|Leg|Foot|ToeBase)$/);
+                if(match)for(const [side,weight]of [['Left',left],['Right',1-left]]){const b=index.get(side+match[2]);sum.set(b,(sum.get(b)||0)+W[q]*weight);}
+                else sum.set(J[q],(sum.get(J[q])||0)+W[q]);
+            }
+            const skin=[...sum].filter(q=>q[1]>0).sort((a,b)=>b[1]-a[1]).slice(0,4),total=skin.reduce((n,q)=>n+q[1],0)||1;
+            startSkin.push([Array.from({length:4},(_,q)=>skin[q]?.[0]||0),Array.from({length:4},(_,q)=>(skin[q]?.[1]||0)/total)]);
         }
         return {
-            kind: 'skirt', anchor: hips, chains: K, rows: S, ring: true, rest, length, center, uPin, uHem, verts, step, startSkin,
+            kind: 'skirt', anchor: hips, chains: K, rows: S, ring: true, rest, length, center, uPin, uHem, verts, step, startSkin, coverage: (angle, u) => !!sample(angle, u - 1e-6),
             // A skirt has the slack to stretch across spread knees.
             stiff: 0.02, drag: 0.03, gap: GAP, give: 1.15
         };
@@ -671,6 +730,7 @@
     /** Whether a skirt has cloth at a bearing, at a row's reach. */
     function covered(region, angle, j) {
         const S = region.rows, u = region.uPin + (region.uHem - region.uPin) * Math.min(S, j) / S, du = Math.max(0.03, (region.uHem - region.uPin) / S * 0.5);
+        if (region.coverage) return region.coverage(angle, u);
         const a0 = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
         let n = 0;
         for (const q of region.verts) {
@@ -911,9 +971,12 @@
             const span = g.uHem - g.uPin, band = Math.min(0.06, span * 0.4);
             for (const q of g.verts) {
                 const [pi, v, u, ang] = q, o = take(pi);
+                // A sewn waist edge keeps the exact source binding shared by
+                // its bodice/waist bridge, including through a seated pose.
+                if(u<=.03)continue;
                 if (u < g.uPin - band) continue;
                 const a = ((ang / g.step) % g.chains + g.chains) % g.chains;
-                if (u < g.uPin) { const [J, W] = own(pi, v); const [J2, W2] = blendSkin(J, W, anchorJ, anchorW, smoothstep(g.uPin - band, g.uPin, u)); write(o, v, J2, W2); continue; }
+                if (u < g.uPin) { const [J, W] = own(pi, v),[pinJ,pinW]=gridSkin(g,a,0,present); const [J2, W2] = blendSkin(J, W, pinJ,pinW, smoothstep(Math.max(.03,g.uPin - band), g.uPin, u)); write(o, v, J2, W2); continue; }
                 const [J, W] = gridSkin(g, a, (u - g.uPin) / span * S, present);
                 // [outfit transfer] Where no chain reaches (an open front, a slit) the vertex keeps its own skin.
                 if (!(W[0] + W[1] + W[2] + W[3] > 0)) { const [J0, W0] = own(pi, v); write(o, v, J0, W0); continue; }
@@ -1292,21 +1355,19 @@
         if (!clip.heights) return out;
         const period = clip.times[clip.times.length - 1] || 1, fps = (clip.heights.length - 1) / period;
         const lift = t => { const x = Math.max(0, Math.min(clip.heights.length - 1, t * fps)), i = Math.floor(x), k = x - i; return clip.heights[i] + ((clip.heights[Math.min(clip.heights.length - 1, i + 1)] - clip.heights[i]) * k); };
-        let low = 0;
+        let body = null, sample = [];
         if (clip.skin) {
-            const body = result.parts.find(p => p && p.name === 'Body');
-            const sample = [];
+            body = result.parts.find(p => p && p.name === 'Body');
             if (body) for (let v = 0; v < body.positions.length / 3; v += 7) sample.push(v);
-            low = Infinity;
-            for (let f = 0; f < times.length; f += Math.max(1, Math.floor(times.length / 12))) {
-                const s = skin(body, result.bones, poses[f], sample);
-                let m = Infinity;
-                for (let i = 1; i < s.length; i += 3) m = Math.min(m, s[i]);
-                low = Math.min(low, m + lift(times[f]));
-            }
-            if (!isFinite(low)) low = 0;
         }
-        for (let f = 0; f < times.length; f++) out[f] = low - lift(times[f]);
+        for (let f = 0; f < times.length; f++) {
+            if (body && sample.length) {
+                const s = skin(body, result.bones, poses[f], sample);
+                let low = Infinity;
+                for (let i = 1; i < s.length; i += 3) low = Math.min(low, s[i]);
+                out[f] = Number.isFinite(low) ? low : -lift(times[f]);
+            } else out[f] = -lift(times[f]);
+        }
         return out;
     }
 
@@ -1367,7 +1428,7 @@
     function slim(result) {
         return {
             bones: result.bones, cloth: result.cloth,
-            parts: result.parts.map(p => (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) ? null : { name: p.name, kind: p.kind, cloth: p.cloth, positions: p.positions, normals: p.normals || null, joints: p.joints, weights: p.weights }))
+            parts: result.parts.map(p => (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) ? null : { name: p.name, kind: p.kind, cloth: p.cloth, positions: p.positions, index: p.index, normals: p.normals || null, joints: p.joints, weights: p.weights }))
         };
     }
     const builds = new Map();
@@ -1511,7 +1572,7 @@
                 // A skirt is drawn a little toward where the body would carry it (over a raised thigh, along legs lying
                 // down), not toward hanging straight down from the hips.
                 if (g.startSkin) for (let i = 0; i < n; i++) {
-                    if (!st.inv[i] || !g.startSkin[i]) continue;
+                    if (!g.startSkin[i]) continue;
                     const a = carried(pa, i), ax = a[0], ay = a[1], az = a[2], b = carried(pb, i);
                     target[i * 3] = ax + (b[0] - ax) * k; target[i * 3 + 1] = ay + (b[1] - ay) * k; target[i * 3 + 2] = az + (b[2] - az) * k;
                 }
@@ -1631,7 +1692,7 @@
         const bones = result.bones, slotOf = new Map();
         for (let i = 0; i < g.boneIds.length; i++) if (g.boneIds[i] >= 0) slotOf.set(g.boneIds[i], i);
         const list = g.kind === 'cape' ? Array.from(g.sheet, v => [g.part, v]) : g.verts;
-        const out = [];
+        const out = [], byPart = new Map();
         for (const [pi, v] of list) {
             const p = result.parts[pi], infl = [];
             let cloth = 0;
@@ -1647,7 +1708,31 @@
                 }
                 infl.push([b, w, slot, lam]);
             }
-            if (cloth > 0.3) out.push({ x: [p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]], infl });
+            if (cloth > 0.3) {
+                const point = { x: [p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]], infl };
+                out.push(point);
+                if (!byPart.has(pi)) byPart.set(pi, new Map());
+                byPart.get(pi).set(v, point);
+            }
+        }
+        // A knee can cross a short skirt's broad panel between clear corners.
+        // Probe its center with the exact weighted corner transforms, adding
+        // neither render vertices nor bones to the saved character.
+        // Long hems pool on the floor and already use their dense vertex
+        // contacts; extra panel constraints there can fight that contact.
+        const knee = bones.find(b => b.name === 'LeftLeg');
+        const shortSkirt = g.kind === 'skirt' && knee && g.length.every((n, k) => !n || g.rest[pointOf(g, k, n) + 1] > knee.head[1] - 0.03);
+        if (shortSkirt) for (const [pi, points] of byPart) {
+            const p = result.parts[pi];
+            for (let t = 0; t < p.index.length; t += 3) {
+                const corners = [0, 1, 2].map(k => points.get(p.index[t + k]));
+                if (corners.some(q => !q)) continue;
+                const [a, b, c] = corners.map(q => q.x);
+                if (Math.hypot(...cross(sub(b, a), sub(c, a))) < 0.0012) continue;
+                const x = [0, 1, 2].map(k => (a[k] + b[k] + c[k]) / 3);
+                const infl = corners.flatMap(q => q.infl.map(([bone, weight, slot, lam]) => [bone, weight / 3, slot, lam, q.x]));
+                out.push({ x, infl });
+            }
         }
         return (g._bound = out);
     }
@@ -1742,6 +1827,17 @@
             let fewest = Infinity;
             for (let pass = 0; pass <= passes; pass++) {
                 const X = rec[f], ps = poses[f], turns = chainTurns(g, X, ps.R[g.anchor]);
+                // Check the exported hierarchy's actual bone heads. A carried
+                // pin can differ slightly from its fixed parent attachment;
+                // using the simulated head hid floor/skin penetration in the
+                // model that the quaternion-only animation actually renders.
+                const heads=new Array(g.chains*S);
+                for(let k=0;k<g.chains;k++)for(let j=0;j<g.length[k];j++){
+                    const slot=k*S+j,id=g.boneIds[slot];if(id<0)continue;
+                    const parent=bones[id].parent,offset=sub(bones[id].head,bones[parent].head);
+                    const base=j?heads[slot-1]:ps.P[parent],moved=rotate(j?turns[slot-1]:ps.R[parent],offset);
+                    heads[slot]=base.map((v,c)=>v+moved[c]);
+                }
                 sim.C = Cf[f];
                 if (sim.under) sim.under.at(f);
                 if (sim.shell) sim.shell.set(f, f, 0);
@@ -1750,10 +1846,10 @@
                 for (let i = 0; i < bound.length; i += step) {
                     const B = bound[i];
                     let px = 0, py = 0, pz = 0;
-                    for (const [b, w, slot] of B.infl) {
-                        const h = bones[b].head, d = [B.x[0] - h[0], B.x[1] - h[1], B.x[2] - h[2]];
+                    for (const [b, w, slot, , point] of B.infl) {
+                        const h = bones[b].head, rest = point || B.x, d = [rest[0] - h[0], rest[1] - h[1], rest[2] - h[2]];
                         let o, P;
-                        if (slot >= 0) { o = rotate(turns[slot], d); const a = pointOf(g, Math.floor(slot / S), slot % S); P = [X[a], X[a + 1], X[a + 2]]; }
+                        if (slot >= 0) { o = rotate(turns[slot], d); P=heads[slot]; }
                         else { o = rotate(ps.R[b], d); P = ps.P[b]; }
                         px += w * (o[0] + P[0]); py += w * (o[1] + P[1]); pz += w * (o[2] + P[2]);
                     }

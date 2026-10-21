@@ -176,33 +176,92 @@
     }
 
     // ── painting ──────────────────────────────────────────────────────────
-    /**
-     * Soft folds in the cloth where a body bends it: bunched rings at the
-     * inner elbow and the wrist, behind the knee and over the ankle, a few
-     * pulls from the armpits and across the waist. A brightness factor near 1.
-     */
-    function folds(p, material) {
-        const amount = material === 'silk' ? 0.55 : material === 'leather' || material === 'rubber' ? 0.6 : 1;
-        const wob = noise(p.cu * 18, p.cv * 4) - 0.5;
-        const ring = (period, phase) => Math.sin((p.cv / period + wob * 0.8 + phase) * Math.PI * 2);
-        let f = 0;
-        if (p.fam === 1 || p.fam === 2) {
-            // About the limb's axis, the inside of the elbow is where its angle is near the front.
-            const inner = Math.max(0, Math.cos(p.ang)) * 0.6 + 0.4;
-            f += ring(0.014, 0) * Math.exp(-((p.s - 2) ** 2) / 0.02) * inner * 0.08;
-            f += ring(0.01, 0.3) * Math.exp(-((p.s - 2.85) ** 2) / 0.01) * 0.06;
-        } else if (p.fam === 3 || p.fam === 4) {
-            const behind = Math.max(0, -Math.cos(p.ang)) * 0.7 + 0.3;
-            f += ring(0.016, 0) * Math.exp(-((p.s - 1) ** 2) / 0.012) * behind * 0.08;
-            f += ring(0.018, 0.5) * smoothstep(1.7, 1.95, p.s) * 0.07;
-            // Pulls from the crotch out across the thighs.
-            f += Math.sin((p.cu * 60 + p.cv * 40 + wob) * 1.2) * Math.exp(-((p.s - 0.15) ** 2) / 0.02) * 0.035;
-        } else if (p.fam === 0) {
-            const sideOf = Math.abs(Math.sin(p.ang));
-            f += ring(0.02, 0) * Math.exp(-((p.s - 1.05) ** 2) / 0.03) * 0.045;
-            f += Math.sin((p.cv * 55 - Math.sign(p.ang) * p.cu * 45 + wob) * 1.0) * Math.exp(-((p.s - 2.6) ** 2) / 0.08) * sideOf * 0.04;
+    // Sci-fi panels use the shared neutral surface, including at chart joins.
+    // A different limb-chain coordinate on each side of a shoulder seam tears
+    // a yoke or a luminous rail into unrelated patches.
+    function lightMask(look, p) {
+        if (!look.lightStyle || look.lightStyle === 'none' || !(look.lightIntensity > 0) || p.val < 0) return 0;
+        const w = look.lightWidth || 1, R = p.rest, x = Math.abs(R[0]), y = R[1];
+        const line = (d, width) => 1 - smoothstep(width * w * 0.45, width * w, Math.abs(d));
+        const range = (v, a, b) => smoothstep(a, a + 0.004, v) * (1 - smoothstep(b - 0.004, b, v));
+        const front = R[2] > 0.035;
+        const badge = p.fam === 0 && front ? range(R[0], 0.055, 0.092) * range(y, 1.278, 1.291) : 0;
+        if (look.lightStyle === 'badge') return badge;
+        if (p.fam === 0) {
+            const rail = line(x - (0.118 - Math.max(0, 1.22 - y) * 0.18), 0.0028) * range(y, 1.115, 1.32);
+            const back = R[2] < -0.035 ? line(x - 0.045, 0.0022) * range(y, 1.12, 1.32) : 0;
+            const cross = look.lightStyle === 'circuits' && front ? line(y - 1.15, 0.002) * range(x, 0.04, 0.115) : 0;
+            return Math.max(badge, front ? rail : 0, back, cross);
         }
-        return 1 + f * amount;
+        // Small cuff and thigh indicators, away from shoulder/chart junctions.
+        const face = Math.max(0, Math.cos(p.ang));
+        if (p.fam === 1 || p.fam === 2) return line(p.s - 2.72, 0.025) * smoothstep(0.55, 0.9, face);
+        return range(p.s, 0.45, 1.55) * line(Math.abs(p.ang) - 1.18, 0.025);
+    }
+
+    function futuristic(look, colors, p) {
+        const [main, panel, trim] = colors, R = p.rest, x = Math.abs(R[0]), y = R[1];
+        const torso = p.fam === 0, arm = p.fam === 1 || p.fam === 2, front = R[2] > 0.035;
+        const band = (d, width, aa = 0.0012) => 1 - smoothstep(width - aa, width + aa, Math.abs(d));
+        const range = (v, a, b) => smoothstep(a, a + 0.003, v) * (1 - smoothstep(b - 0.003, b, v));
+        let color = main;
+        const paint = (c, amount) => { if (amount > 0) color = mixc(color, c, Math.min(1, amount)); };
+        if (look.pattern === 'fleet' || look.pattern === 'officer') {
+            const edge = 1.285 - Math.min(x, 0.25) * 0.12;
+            const yoke = smoothstep(edge - 0.0015, edge + 0.0015, y) * (1 - smoothstep(1.397, 1.400, y));
+            paint(panel, yoke);
+            paint(trim, band(y - edge, 0.0012) * (1 - smoothstep(0.23, 0.27, x)));
+            if (look.pattern === 'officer' && torso && front) {
+                const slash = smoothstep(1.218 + R[0] * 0.28, 1.221 + R[0] * 0.28, y);
+                paint(panel, slash * (1 - smoothstep(0.15, 0.17, x)));
+            }
+            if (arm) {
+                paint(panel, range(p.s, 2.69, 3.2));
+                for (const at of [2.52, 2.59, 2.66]) paint(trim, band((p.s - at) * 0.24, 0.0014));
+            }
+            if (torso && front && y > 0.97 && y < 1.40) {
+                const zipper = look.pattern === 'officer' ? -0.022 : 0;
+                paint(trim, band(R[0] - zipper, 0.0015));
+                paint(mixc(main, trim, 0.24), band(R[0] - zipper - 0.004, 0.0007) * (Math.floor(y / 0.0035) % 2));
+                // A breast welt and a small rank bar below the shoulder yoke.
+                paint(trim, band(y - 1.252, 0.0010) * range(R[0], 0.045, 0.103));
+            }
+        } else if (look.pattern === 'technical') {
+            const side = torso ? smoothstep(0.11, 0.14, x) : smoothstep(0.82, 0.94, Math.abs(Math.sin(p.ang)));
+            paint(panel, side * (1 - smoothstep(1.27, 1.31, y)));
+            if (torso) {
+                paint(trim, band(x - 0.115, 0.0015) * range(y, 0.97, 1.31));
+                if (front) paint(panel, range(y, 1.23, 1.30) * range(x, 0.045, 0.10));
+                paint(trim, band(y - 1.02, 0.0015));
+            } else {
+                paint(trim, band(Math.abs(p.ang) - 1.12, 0.012));
+                paint(main, range(p.s, 1.72, 2.25) * (arm ? 1 : 0));
+            }
+        } else {
+            const pressure = look.pattern === 'pressure';
+            const chest = front ? range(y, 1.13, 1.325) * (1 - smoothstep(0.12, 0.123, x)) : 0;
+            paint(panel, chest);
+            if (front && y > 1.12 && y < 1.33) paint(trim, band(x - 0.123, 0.0017));
+            if (torso) {
+                paint(trim, band(y - 0.965, pressure ? 0.012 : 0.008));
+                if (front) paint(trim, band(R[0], 0.0014) * range(y, 0.985, 1.40));
+                // Two service-pocket flaps, with an inset stitched edge.
+                if (front) for (const side of [-1, 1]) {
+                    const pocket = range(R[0] * side, 0.057, 0.117) * range(y, 1.045, 1.105);
+                    paint(mixc(main, trim, 0.20), pocket);
+                    paint(trim, band(y - 1.094, 0.0015) * range(R[0] * side, 0.061, 0.113));
+                }
+                paint(trim, range(y, 1.40, 1.46));
+            } else {
+                const joint = arm ? 2 : 1;
+                const flex = range(p.s, joint - 0.16, joint + 0.16);
+                paint(trim, flex * (pressure ? 0.75 + 0.20 * Math.cos(p.s * Math.PI * 38) : 0.65));
+                if (arm) paint(trim, range(p.s, 2.8, 3.1));
+                else paint(panel, range(p.s, 0.2, 0.72) * smoothstep(0.85, 0.95, Math.abs(Math.sin(p.ang))));
+            }
+        }
+        const light = lightMask(look, p);
+        return light > 0 ? mixc(color, Outfit.linear(look.lightColor || '#70dfff'), light * 0.65) : color;
     }
 
     /** A texel's linear color for a look at a point described by `p` (chart and body values). */
@@ -211,6 +270,7 @@
         let t = 0, direct = null;
         const s = (p.fam === 0 ? p.y * 7.3 : p.s * 1.2) * (look.scale || 1), a = p.ang;
         switch (look.pattern) {
+            case 'fleet': case 'officer': case 'technical': case 'expedition': case 'pressure': direct = futuristic(look, colors, p); break;
             case 'stripes': t = fract(s * 2) < 0.5 ? 1 : 0; break;
             case 'pinstripes': t = fract(s * 6) < 0.12 ? 1 : 0; break;
             case 'vstripes': t = fract(p.cu * 12 * (look.scale || 1)) < 0.5 ? 1 : 0; break;
@@ -278,8 +338,10 @@
             // The weave or the hide's grain, and a slow unevenness over it.
             k = leather
                 ? 0.9 + 0.12 * noise(p.cu * 220, p.cv * 220) + 0.05 * noise(p.cu * 14, p.cv * 14)
-                : 0.93 + 0.07 * noise(p.cu * 160, p.cv * 160) + 0.03 * (fract(p.cu * 900) < 0.5 ? 1 : -1) * (fract(p.cv * 900) < 0.5 ? 1 : -1) + 0.04 * noise(p.cu * 9, p.cv * 9);
-            k *= folds(p, look.material);
+                : 0.97 + 0.025 * noise(p.cu * 160, p.cv * 160) + 0.015 * noise(p.cu * 9, p.cv * 9);
+            // Coarse fold shading painted in the rest pose stays glued to a
+            // bending garment. Let its actual drape supply those light changes;
+            // keep only a quiet material grain in the color picture.
             // A hem: the edge turned under (a little darker for the double layer), stitched a finger's width in.
             if (p.vm >= 0 && p.vm < 0.014 && !trimmed) {
                 k *= 0.95;
@@ -317,6 +379,8 @@
 
         const data = new Uint8Array(size * size * 4);
         const filled = new Uint8Array(size * size);
+        const luminous = entries.some(e => e.look.lightStyle && e.look.lightStyle !== 'none' && e.look.lightIntensity > 0);
+        const emission = luminous ? new Uint8Array(data.length) : null;
         const groups = new Map();
         for (const c of all) {
             const e = entries[c.entry];
@@ -337,14 +401,17 @@
             };
             for (const tri of c.tris) {
                 g.index.push(vertexFor(tri[0]), vertexFor(tri[1]), vertexFor(tri[2]));
-                raster(tri, c, scale, size, data, filled, p => shade(e.look, colors, p));
+                const glow = Outfit.linear(e.look.lightColor || '#70dfff').map(v => v * (e.look.lightIntensity || 0));
+                raster(tri, c, scale, size, data, filled, p => shade(e.look, colors, p), emission, p => { const mask = lightMask(e.look, p); return glow.map(v => v * mask); });
             }
         }
+        if (emission) dilate(emission, filled.slice(), size, pad + 1);
         dilate(data, filled, size, pad + 1);
         return {
             groups: [...groups.values()].map(g => ({ name: [...g.names].join(', ').slice(0, 60) || 'Outfit', refs: Uint32Array.from(g.refs), uvs: Float32Array.from(g.uvs), index: Uint32Array.from(g.index),
                 roughness: g.e.roughness, metalness: g.e.metalness, doubleSided: g.e.doubleSided })),
             texture: { width: size, height: size, data, name: 'outfit.png' },
+            emission: emission ? { width: size, height: size, data: emission, name: 'outfit-glow.png' } : null,
             scale
         };
     }
@@ -363,7 +430,7 @@
             // Each vertex's reach down a hanging skirt (RRCharacterCloth), -1 off it; only on a part with some.
             let hang = null;
             for (let i = 0; i < n; i++) { const L = entries[g.refs[i * 2]].laid; if (L.hang) { hang = hang || new Float32Array(n).fill(-1); hang[i] = L.hang[g.refs[i * 2 + 1]]; } }
-            return Object.assign({ name: g.name, positions, normals, uvs: g.uvs, joints, weights, index: g.index, roughness: g.roughness, metalness: g.metalness, doubleSided: g.doubleSided, texture: lay.texture.name }, hang ? { hang } : {});
+            return Object.assign({ name: g.name, positions, normals, uvs: g.uvs, joints, weights, index: g.index, roughness: g.roughness, metalness: g.metalness, doubleSided: g.doubleSided, texture: lay.texture.name }, hang ? { hang } : {}, lay.emission ? { emissive: '#ffffff', emissiveTexture: lay.emission.name } : {});
         });
     }
 
@@ -375,7 +442,7 @@
     const pack_ = pack;
 
     /** Paints one chart triangle's texels. */
-    function raster(tri, chart, scale, size, data, filled, color) {
+    function raster(tri, chart, scale, size, data, filled, color, emission, light) {
         const px = tri.map(k => chart.at[0] + (k.cu - chart.min[0]) * scale), py = tri.map(k => chart.at[1] + (k.cv - chart.min[1]) * scale);
         const area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
         if (Math.abs(area) < 1e-9) return;
@@ -400,6 +467,7 @@
             for (let q = 0; q < 3; q++) p.rest[q] = tri[0].rest[q] * w0 + tri[1].rest[q] * w1 + tri[2].rest[q] * w2;
             const rgb = color(p);
             data[o * 4] = toByte(rgb[0]); data[o * 4 + 1] = toByte(rgb[1]); data[o * 4 + 2] = toByte(rgb[2]); data[o * 4 + 3] = 255;
+            if (emission) { const glow = light(p); for (let k = 0; k < 3; k++) emission[o * 4 + k] = toByte(glow[k]); emission[o * 4 + 3] = 255; }
             filled[o] = inside ? 2 : 1;
         }
     }

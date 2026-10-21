@@ -79,6 +79,7 @@
 
     /** Whether a piece suits a creature (its feet); a piece without `fits` suits any. */
     function fits(id, recipe) {
+        if (recipe?.morphology && recipe.morphology !== 'quadruped') return false;
         const item = ITEM_BY_ID.get(id);
         if (!item) return false;
         return !item.fits || item.fits.includes((recipe && recipe.feet) || 'paw');
@@ -302,13 +303,92 @@
                 return grid;
             };
             const trimAt = (rows, cols, w) => (i, j) => (i < w || i >= rows - w || j < w || j >= cols - w ? P.c2 : P.c1);
+            // Detail is actual fitted geometry. Coloring a few coarse vertices made
+            // embroidery and armor seams dissolve into wide, blurry gradients.
+            const gridPoint = (grid, u, v, lift) => {
+                const row = clamp(u, 0, 1) * (grid.length - 1), col = clamp(v, 0, 1) * (grid[0].length - 1);
+                const i = Math.min(grid.length - 2, Math.floor(row)), j = Math.min(grid[0].length - 2, Math.floor(col));
+                const blend = key => lerp(lerp(grid[i][j][key], grid[i + 1][j][key], row - i), lerp(grid[i][j + 1][key], grid[i + 1][j + 1][key], row - i), col - j);
+                const n = norm(blend('n'));
+                return { p: add(blend('p'), mul(n, lift || 0)), n };
+            };
+            const traced = (grid, uv, lift, radius, material, color) => {
+                const points = uv.map(p => gridPoint(grid, p[0], p[1], lift).p);
+                F.tube(points, () => [radius, radius * 0.6], 5, material, () => color, true);
+            };
+            const border = (grid, lift, radius, material, color, inset = 0.015, steps = 32) => {
+                for (const v of [inset, 1 - inset]) traced(grid, Array.from({ length: steps + 1 }, (_, k) => [inset + (1 - 2 * inset) * k / steps, v]), lift, radius, material, color);
+                for (const u of [inset, 1 - inset]) traced(grid, Array.from({ length: steps + 1 }, (_, k) => [u, inset + (1 - 2 * inset) * k / steps]), lift, radius, material, color);
+            };
+            const embroidery = (grid, hood = false) => {
+                const lift = gap * (hood ? 2 : 1) + 0.011 * g;
+                border(grid, lift, 0.004 * g, 'cloth', P.c2);
+                border(grid, lift, 0.002 * g, 'cloth', P.c2, 0.045);
+                // Repeated fleur-de-lis with a pointed central petal, curled side
+                // petals, a tied stem and small seed diamonds on both flanks.
+                for (const u of hood ? [0.3, 0.7] : [0.2, 0.5, 0.8]) for (const v of [0.16, 0.84]) {
+                    const direction = v < 0.5 ? -1 : 1, sx = hood ? 0.1 : 0.075, sy = hood ? 0.075 : 0.038;
+                    const path = points => {
+                        const uv = ctx.curve(points.map(p => [u + p[0] * sx, v + p[1] * sy * direction, 0]), 25);
+                        traced(grid, uv, lift + 0.0004 * g, 0.003 * g, 'cloth', P.c2);
+                    };
+                    path([[0, 0.6], [-0.22, 0.05], [0, -0.85], [0.22, 0.05], [0, 0.6]]);
+                    for (const sign of [-1, 1]) path([[0, 0.3], [sign * 0.75, -0.15], [sign * 0.9, 0.35], [sign * 0.55, 0.5], [sign * 0.45, 0.17]]);
+                    path([[-0.4, 0.43], [0.4, 0.43]]);
+                    path([[0, 0.42], [0, 0.88]]);
+                    const petal = (side, central) => {
+                        const patch = Array.from({ length: 9 }, (_, i) => {
+                            const t = i / 8, width = Math.max(0.025, Math.sin(t * Math.PI)) * (central ? 0.22 : 0.18);
+                            return [-1, 0, 1].map(j => {
+                                const x = central ? j * width : side * (0.05 + t * 0.7) + j * width;
+                                const y = central ? 0.4 - t * 1.2 : 0.3 - Math.sin(t * Math.PI) * 0.46;
+                                return gridPoint(grid, u + x * sx, v + y * sy * direction);
+                            });
+                        });
+                        F.shell(patch, lift, 0.001 * g, 'cloth', () => P.c2, false);
+                    };
+                    petal(0, true); petal(-1, false); petal(1, false);
+                }
+                // Fine stitched edging has a clear silhouette even at a grazing angle.
+                for (let k = 0; k < 36; k++) for (const v of [0.03, 0.97]) {
+                    const u = 0.06 + k / 36 * 0.88;
+                    traced(grid, [[u, v - 0.006], [u + 0.008, v + 0.006]], lift, 0.0008 * g, 'cloth', P.c2);
+                }
+            };
+            const armor = grid => {
+                const bands = Math.max(2, Math.round((grid.length - 1) / 3)), sectors = 4;
+                for (let a = 0; a < bands; a++) for (let b = 0; b < sectors; b++) {
+                    const u0 = a / bands + 0.008, u1 = (a + 1) / bands - 0.008;
+                    const v0 = b / sectors + 0.006, v1 = (b + 1) / sectors - 0.006;
+                    const panel = Array.from({ length: 3 }, (_, i) => Array.from({ length: 5 }, (_, j) => {
+                        const s = gridPoint(grid, u0 + (u1 - u0) * i / 2, v0 + (v1 - v0) * j / 4);
+                        return { p: add(s.p, mul(s.n, 0.002 * g * Math.sin(j / 4 * Math.PI))), n: s.n };
+                    }));
+                    F.shell(panel, gap + 0.025 * g, 0.004 * g, main, () => P.c1, false);
+                    border(panel, gap + 0.0315 * g, 0.0022 * g, second(item), P.c2, 0.025, 4);
+                    for (const u of [0.16, 0.84]) for (const v of [0.13, 0.87]) {
+                        const s = gridPoint(panel, u, v, gap + 0.0305 * g);
+                        F.tube([s.p, add(s.p, mul(s.n, 0.003 * g))], () => [0.0045 * g, 0.0045 * g], 8, second(item), () => P.c2, true);
+                    }
+                    // A fine central chased line reinforces each separate steel plate.
+                    traced(panel, [[0.12, 0.5], [0.5, 0.5], [0.88, 0.5]], gap + 0.0315 * g, 0.001 * g, main, mul(P.c1, 0.66));
+                }
+            };
             if (item.id === 'collar' || item.id === 'collarTag' || item.id === 'spikedCollar') {
                 const at = lerp(J.neck, J.atlas, 0.62);
                 const width = 0.045 * g * r.neckThickness;
                 const mid = F.band(at, neckAxis, [0, -1, 0], width, gap, 0.011 * g, main, () => P.c1);
                 // The buckle at the side, a ring at the throat.
                 const side = mid[Math.round(mid.length / 4)];
-                F.band(add(side.p, mul(side.n, 0.01 * g)), side.n, neckAxis, 0.012 * g, 0, 0.012 * g, second(item), () => P.c2, 0, 2 * Math.PI, 8);
+                const buckleCenter = add(side.p, mul(side.n, 0.014 * g));
+                const buckleAxis = norm(cross(side.n, neckAxis));
+                const buckle = Array.from({ length: 17 }, (_, k) => {
+                    const angle = k / 16 * Math.PI * 2;
+                    return add(buckleCenter, add(mul(neckAxis, Math.cos(angle) * 0.015 * g), mul(buckleAxis, Math.sin(angle) * 0.012 * g)));
+                });
+                // A small free-standing fitting cannot use body-projected rings:
+                // its origin is outside the body, collapsing every ring point.
+                F.tube(buckle, () => [0.0025 * g, 0.0025 * g], 8, second(item), () => P.c2, false);
                 const throat = mid[0];
                 const ringC = add(throat.p, add(mul(throat.n, 0.018 * g), [0, -0.012 * g, 0]));
                 const circle = [];
@@ -334,7 +414,13 @@
                 const bc = [0, yS - 0.02 * g, zS - 0.15];
                 F.band(bc, norm([0, 1, 0.35]), [0, 0, 1], 0.045 * g, gap, 0.01 * g, main, () => P.c1, -100 * DEG, 100 * DEG, 30);
                 const top = F.surface([0, (chestTop + chestBottom) / 2, zG], [0, 1, 0]);
-                if (top) F.band(add(top.p, mul(top.n, 0.02 * g)), [1, 0, 0], [0, 0, 1], 0.02 * g, 0, 0.008 * g, second(item), () => P.c2, 0, 2 * Math.PI, 10);
+                if (top) {
+                    // A real buckle loop. Ray fitting from above the skin returned
+                    // the same origin for every direction and collapsed its inside.
+                    const c=add(top.p,mul(top.n,.013*g));
+                    const ring=Array.from({length:25},(_,i)=>add(c,[Math.cos(i/24*Math.PI*2)*.014*g,0,Math.sin(i/24*Math.PI*2)*.022*g]));
+                    F.tube(ring,()=>[.0025*g,.0025*g],8,second(item),()=>P.c2,false);
+                }
                 const rows = [];
                 for (let i = 0; i < 8; i++) {
                     const z = zG - 0.02 + (zH + 0.25 - zG) * i / 7;
@@ -405,34 +491,35 @@
             } else if (item.id === 'caparison') {
                 // From the neck's root to the croup, down the sides to the knees, its edge trimmed.
                 const hem = Math.max(J.frontKnee[1] * 0.75, 0.15);
-                const rows = 16, cols = 25;
-                drape(zS + 0.05, zH - 0.28, rows, 150 * DEG, cols, hem, 0.007 * g, (i, j, s) => {
-                    const edge = i === 0 || i === rows - 1 || s.p[1] < hem + 0.035 * g;
-                    return edge ? P.c2 : (Math.abs(j - (cols - 1) / 2) === 6 ? mixRgb(P.c1, P.c2, 0.6) : P.c1);
-                });
+                const rows = 20, cols = 33;
+                const cloth = drape(zS + 0.05, zH - 0.28, rows, 150 * DEG, cols, hem, 0.007 * g, () => P.c1);
+                embroidery(cloth);
                 // Its hood over the neck.
                 const nRows = [];
                 for (let i = 0; i < 8; i++) {
                     const c = lerp(add(J.neck, [0, 0.05 * g, -0.02]), lerp(J.neck, J.atlas, 0.85), i / 7);
                     nRows.push(F.ring(c, neckAxis, [0, 1, 0], -110 * DEG, 110 * DEG, 17));
                 }
-                F.shell(nRows, gap * 2, 0.007 * g, main, (i, j) => (j === 0 || j === 16 || i === 7 ? P.c2 : P.c1), false);
+                F.shell(nRows, gap * 2, 0.007 * g, main, () => P.c1, false);
+                embroidery(nRows, true);
             } else if (item.id === 'plateBarding') {
-                const plate = (rows, cols) => (i, j) => ((i % 3 === 2) ? mul(P.c1, 0.72) : (j === 0 || j === cols - 1 || i === 0 || i === rows - 1) ? P.c2 : P.c1);
+                const plate = () => () => P.dark;
                 // Crupper over the rump, flanchards down the flanks, peytral across the chest, crinet over the neck, chanfron down the face.
-                drape(zH + 0.3, zH - 0.26, 10, 120 * DEG, 19, Math.max(J.rearKnee[1] * 1.05, 0.2), 0.012 * g, plate(10, 19));
+                armor(drape(zH + 0.3, zH - 0.26, 10, 120 * DEG, 19, Math.max(J.rearKnee[1] * 1.05, 0.2), 0.012 * g, plate(10, 19)));
                 const pRows = [];
                 for (let i = 0; i < 8; i++) {
                     const y = yS - 0.22 * g * r.chestDepth + 0.42 * g * i / 7;
                     pRows.push(F.ring([0, y, zS - 0.25], [0, 1, 0], [0, 0, 1], -85 * DEG, 85 * DEG, 17));
                 }
                 F.shell(pRows, gap * 2, 0.012 * g, main, plate(8, 17), false);
+                armor(pRows);
                 const nRows = [];
                 for (let i = 0; i < 9; i++) {
                     const c = lerp(add(J.neck, [0, 0.04 * g, -0.03]), lerp(J.neck, J.atlas, 0.95), i / 8);
                     nRows.push(F.ring(c, neckAxis, [0, 1, 0], -75 * DEG, 75 * DEG, 13));
                 }
                 F.shell(nRows, gap * 2, 0.012 * g, main, plate(9, 13), false);
+                armor(nRows);
                 const { zt } = J.mouth;
                 const fRows = [];
                 for (let i = 0; i < 9; i++) {
@@ -440,6 +527,7 @@
                     fRows.push(F.ring(c, hd, hu, -58 * DEG, 58 * DEG, 11));
                 }
                 F.shell(fRows, gap * 2, 0.01 * g, main, plate(9, 11), false);
+                armor(fRows);
                 // A spike on the brow.
                 const brow = F.surface(H(0, 0.1, 0.4), hu);
                 if (brow) F.tube([add(brow.p, mul(brow.n, 0.01 * g)), add(brow.p, add(mul(brow.n, 0.05 * g), mul(hd, 0.03 * g))), add(brow.p, add(mul(brow.n, 0.1 * g), mul(hd, 0.07 * g)))], t => { const v = 0.018 * g * (1 - t) + 0.001; return [v, v]; }, 8, main, () => P.c2, true);

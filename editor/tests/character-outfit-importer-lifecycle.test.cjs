@@ -60,6 +60,7 @@ test('rendering a different project discards previous project undo and closes th
     b._closeOutfitImport = () => { closed++; };
     b._renderPage = () => { assert.equal(closed, 1); rendered++; };
     b._start = () => {};
+    b._bindPreviewActivity = () => {};
     b.renderInto({}, { currentProject: { path: '/second' } });
     assert.equal(b._outfitUndo, null);
     assert.equal(b._outfitProjectPath, '/second');

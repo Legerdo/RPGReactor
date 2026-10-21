@@ -3,14 +3,14 @@
     'use strict';
     const modules = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterSimplify',
         'CharacterOutfitTransfer', 'CharacterClothes', 'CharacterPowerArmor', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin',
-        'CharacterHair', 'CreatureGear', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterPoses',
+        'CharacterHair', 'CreatureGear', 'CreatureForms', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterPoses',
         'MerfolkBody', 'CharacterCloth', 'CharacterExpressions', 'SlimeBody', 'CharacterModel'];
-    importScripts('../../utils/QuadricDecimator.js', ...modules.map(name => name + '.js'));
+    importScripts('../../utils/QuadricDecimator.js', 'CharacterPreviewTextures.js', ...modules.map(name => name + '.js'));
     const Body = scope.RRHumanBody, Model = scope.RRCharacterModel, Wardrobe = scope.RRCharacterWardrobe;
     const Taken = scope.RRCharacterOutfitTransfer;
     const caches = new Map(), dynamic = new Set(), fetched = new Map();
     let context = {}, contextError = null, packPromise = null, packURL = null;
-    const PART_FIELDS = ['name', 'kind', 'color', 'texture', 'normalTexture', 'normalScale', 'emissiveTexture', 'roughness', 'metalness', 'doubleSided', 'opacity', 'cutout', 'alphaCutoff', 'onSkin', 'envMapIntensity', 'wet'];
+    const PART_FIELDS = ['name', 'kind', 'color', 'texture', 'keepColors', 'normalTexture', 'normalScale', 'metallicRoughnessTexture', 'iridescence', 'iridescenceIOR', 'iridescenceThicknessRange', 'iridescenceThicknessTexture', 'emissive', 'emissiveIntensity', 'emissiveTexture', 'roughness', 'metalness', 'doubleSided', 'opacity', 'cutout', 'alphaCutoff', 'onSkin', 'envMapIntensity', 'wet'];
     const GEOMETRY_FIELDS = ['positions', 'normals', 'uvs', 'colors', 'index'];
     async function checkedFetch(url) {
         const response = await fetch(url);
@@ -87,7 +87,7 @@
             try { await fetched.get(key); } catch (error) { fetched.delete(key); throw error; }
         }
     }
-    function renderPayload(result) {
+    function renderPayload(result, options = {}) {
         const transfers = []; let bytes = 0;
         const copy = value => {
             if (!ArrayBuffer.isView(value) || value instanceof DataView) throw new TypeError('Character preview requires typed render arrays');
@@ -99,7 +99,11 @@
             for (const key of GEOMETRY_FIELDS) if (part[key]) out[key] = copy(part[key]);
             return out;
         });
-        const textures = Object.fromEntries(Object.entries(result.textures || {}).map(([name, t]) => [name, { name: t.name, width: t.width, height: t.height, data: copy(t.data) }]));
+        const used = options.static ? new Set(parts.flatMap(part => [part.texture, part.emissiveTexture, part.normalTexture, part.metallicRoughnessTexture, part.iridescenceThicknessTexture]).filter(Boolean)) : null;
+        const textures = Object.fromEntries(Object.entries(result.textures || {}).filter(([name]) => !used || used.has(name)).map(([name, source]) => {
+            const texture = options.static ? scope.RRCharacterPreviewTextures.thumbnail(source, options.atlasSize || 256) : source;
+            return [name, { name: texture.name, width: texture.width, height: texture.height, ...(texture.repeat ? { repeat: true } : {}), data: copy(texture.data) }];
+        }));
         return { result: { parts, textures, height: result.height, bodyHeight: result.bodyHeight, plan: result.plan, focus: result.focus || {} }, transfers, bytes };
     }
     async function handle(message) {
@@ -116,9 +120,10 @@
             if (!cache) { cache = { wardrobe: { emblemPictures: context.emblemPictures || new Map() } }; caches.set(key, cache); }
             while (caches.size > 8) caches.delete(caches.keys().next().value);
             const options = Object.assign({ quality: 'preview', skinSize: 256, atlasSize: 256 }, message.options, { eyeSource: context.eyeSource });
+            if (options.static) options.eyeSource = scope.RRCharacterPreviewTextures.thumbnail(options.eyeSource, 128);
             const built = Model.build(bodyPack, message.recipe, cache, options);
             built.focus = Model.previewBounds ? Model.previewBounds(built) : {};
-            const payload = renderPayload(built);
+            const payload = renderPayload(built, options);
             payload.result.stats = { buildMs: performance.now() - start, threadId: 'browser', bytes: payload.bytes };
             const shoes = cache.wardrobe?.shoes;
             if (shoes instanceof Map) while (shoes.size > 12) shoes.delete(shoes.keys().next().value);

@@ -51,13 +51,13 @@
         shapes: Object.freeze({}),
         headSize: 1,
         // Anatomy: detail on or off, the sex shown ('auto' follows Gender), the genitals' size.
-        anatomy: Object.freeze({ detail: false, sex: 'auto', length: 0, girth: 0, testicles: 0, areola: 1, nipple: 1, areolaColor: '', fold: 1, mons: 1, labia: 1 }),
-        morph: Object.freeze({ snout: 0, muzzle: 0, flat: 0, earsAway: 0, earHoles: 0.6, toes: 1, eyeWide: 1, eyeTall: 1, eyeSocket: 0 }),
+        anatomy: Object.freeze({ detail: false, sex: 'auto', length: 0, girth: 0, testicles: 0, areola: 1, nipple: 1, nippleProjection: 1, areolaColor: '', fold: 1, mons: 1, labia: 1, innerLabia: 1, clitoris: 1, foreskin: 'circumcised', paired: false }),
+        morph: Object.freeze({ snout: 0, muzzle: 0, flat: 0, earsAway: 0, earHoles: 0.6, toes: 1, eyeWide: 1, eyeTall: 1, eyeSocket: 0, cranialRidges: 0, cranialLobes: 0, earBowls: 0, foreheadSpoon: 0, facialRidges: 0, neckWebbing: 0, noseFolds: 0 }),
         skin: '#c69c7f'
     });
 
     /** Face morphs beyond the targets: a snout or muzzle (and how narrow), a face flattened for a beak, human ears tucked away. */
-    const MORPHS = { snout: [0, 1.5], muzzle: [0, 1], flat: [0, 1], earsAway: [0, 1], earHoles: [0, 2], toes: [0.4, 3], eyeWide: [0.5, 2.5], eyeTall: [0.5, 2.5], eyeSocket: [0, 1.5] };
+    const MORPHS = { snout: [0, 1.5], muzzle: [0, 1], flat: [0, 1], earsAway: [0, 1], earHoles: [0, 2], toes: [0.4, 3], eyeWide: [0.5, 2.5], eyeTall: [0.5, 2.5], eyeSocket: [0, 1.5], cranialRidges: [0, 3], cranialLobes: [0, 3], earBowls: [0, 2], foreheadSpoon: [0, 3], facialRidges: [0, 3], neckWebbing: [0, 3], noseFolds: [0, 3] };
 
     const MIN_AGE = 11, MAX_AGE = 90;
 
@@ -133,7 +133,11 @@
             anatomy: {
                 detail: r.anatomy?.detail === true,
                 areola: clamp(r.anatomy?.areola ?? 1, 0.4, 2.5), nipple: clamp(r.anatomy?.nipple ?? 1, 0, 3), fold: clamp(r.anatomy?.fold ?? 1, 0, 2),
+                nippleProjection: clamp(r.anatomy?.nippleProjection ?? r.anatomy?.nipple ?? 1, 0, 10),
                 mons: clamp(r.anatomy?.mons ?? 1, 0, 3), labia: clamp(r.anatomy?.labia ?? 1, 0, 3),
+                innerLabia: clamp(r.anatomy?.innerLabia ?? 1, 0, 3), clitoris: clamp(r.anatomy?.clitoris ?? 1, 0, 3),
+                paired: r.anatomy?.paired == null ? r.species === 'klingon' : r.anatomy.paired === true,
+                foreskin: r.anatomy?.foreskin === 'uncircumcised' ? 'uncircumcised' : 'circumcised',
                 areolaColor: /^#[0-9a-f]{6}$/i.test(r.anatomy?.areolaColor || '') ? r.anatomy.areolaColor.toLowerCase() : '',
                 sex: ['auto', 'male', 'female'].includes(r.anatomy?.sex) ? r.anatomy.sex : 'auto',
                 length: clamp(r.anatomy?.length ?? 0, -1, 2), girth: clamp(r.anatomy?.girth ?? 0, -1, 2), testicles: clamp(r.anatomy?.testicles ?? 0, -1, 2)
@@ -601,6 +605,7 @@
         shortLegs(pack, positions, r);
         volume(pack, positions, r);
         morph(pack, positions, r);
+        navelDetail(pack, positions);
         const k = heightScale(r);
         if (k !== 1) {
             let floor = Infinity;
@@ -1184,7 +1189,23 @@
         // The front of the pelvis below the belly: for the mons above the fold and the labia beside it.
         const vulva = ids.filter(v => Math.abs(B[v * 3]) < 0.06 && B[v * 3 + 2] > B[low * 3 + 2] - 0.03 && B[v * 3 + 1] > B[low * 3 + 1] - 0.02 && B[v * 3 + 1] < B[low * 3 + 1] + 0.12)
             .map(v => [v, Math.abs(B[v * 3]), B[v * 3 + 1] - B[low * 3 + 1]]);
-        return (pack._anatomyFields = { nipples, low, crease, vulva });
+        const navel = ids.reduce((best, v) => {
+            const distance = i => Math.hypot(B[i * 3], B[i * 3 + 1] - 0.184, B[i * 3 + 2] - 0.136);
+            return distance(v) < distance(best) ? v : best;
+        }, ids[0]);
+        return (pack._anatomyFields = { nipples, low, crease, vulva, navel });
+    }
+
+    /** Ordinary abdominal anatomy, present independently of the explicit-detail switch. */
+    function navelDetail(pack, P) {
+        const v = anatomyFields(pack).navel, B = pack.positions;
+        const cx = B[v * 3], cy = B[v * 3 + 1], cz = B[v * 3 + 2];
+        for (const i of new Set(pack.body.source)) {
+            const x = (B[i * 3] - cx) / 0.008, y = (B[i * 3 + 1] - cy) / 0.012;
+            if (Math.abs(x) > 2 || Math.abs(y) > 2 || Math.abs(B[i * 3 + 2] - cz) > 0.025) continue;
+            const d = Math.hypot(x, y);
+            P[i * 3 + 2] += -0.0028 * Math.exp(-d * d * 2.5) + 0.0007 * Math.exp(-(((d - 1) / 0.32) ** 2));
+        }
     }
 
     /** A vertex's normal on the shaped body, from its own triangles. */
@@ -1207,31 +1228,95 @@
         return [n[0] / l, n[1] / l, n[2] / l];
     }
 
+    /**
+     * Reconstruct the skin under a nipple from the surrounding chest. Smoothing the modeled tip in
+     * place both shrank its rings and left a second peak beside the new one. A quadratic surface
+     * follows the shaped breast/pectoral without retaining that old tip or moving vertices toward
+     * whichever neighbor happened to be visited first. Its footprint uses the areola's texture plane;
+     * the surface itself is fitted in the current body's plane so skin only moves along its normal.
+     */
+    function nippleSurface(pack, nip, P) {
+        if (!nip.surface) {
+            const B = pack.positions, c = Array.from(B.subarray(nip.v * 3, nip.v * 3 + 3));
+            const normal = normalAt(pack, B, nip.v);
+            const length = Math.hypot(normal[2], normal[0]) || 1;
+            const across = [normal[2] / length, 0, -normal[0] / length];
+            const up = [normal[1] * across[2], normal[2] * across[0] - normal[0] * across[2], -normal[1] * across[0]];
+            const points = [];
+            for (const v of new Set(pack.body.source)) {
+                const offset = [0, 1, 2].map(k => B[v * 3 + k] - c[k]);
+                if (Math.hypot(...offset) > 0.032) continue;
+                const x = offset.reduce((s, q, k) => s + q * across[k], 0) / 0.02;
+                const y = offset.reduce((s, q, k) => s + q * up[k], 0) / 0.02;
+                points.push({ v, distance: Math.hypot(x, y) * 0.02 });
+            }
+            nip.surface = { points, samples: points.filter(p => p.distance >= 0.008 && p.distance <= 0.016) };
+        }
+        const { samples } = nip.surface;
+        const origin = Array.from(P.subarray(nip.v * 3, nip.v * 3 + 3));
+        // Fit in the current skin's plane. Rest-space coordinates contain the original modeled
+        // nipple's stretching; fitting all three axes in that space would reconstruct its bulge.
+        const facing = [0, 0, 0];
+        for (const { v } of samples) {
+            const n = normalAt(pack, P, v);
+            for (let k = 0; k < 3; k++) facing[k] += n[k];
+        }
+        const facingLength = Math.hypot(...facing) || 1;
+        const n = facing.map(q => q / facingLength), acrossLength = Math.hypot(n[2], n[0]) || 1;
+        const across = [n[2] / acrossLength, 0, -n[0] / acrossLength];
+        const up = [n[1] * across[2], n[2] * across[0] - n[0] * across[2], -n[1] * across[0]];
+        const points = nip.surface.points.map(point => {
+            const offset = origin.map((q, k) => P[point.v * 3 + k] - q);
+            const x = offset.reduce((s, q, k) => s + q * across[k], 0) / 0.02;
+            const y = offset.reduce((s, q, k) => s + q * up[k], 0) / 0.02;
+            return { ...point, row: [1, x, y, x * x, x * y, y * y] };
+        });
+        const matrix = Array.from({ length: 6 }, () => new Float64Array(9));
+        for (const { v, row, distance } of points) if (distance >= 0.008 && distance <= 0.016) for (let i = 0; i < 6; i++) {
+            for (let j = 0; j < 6; j++) matrix[i][j] += row[i] * row[j];
+            for (let k = 0; k < 3; k++) matrix[i][6 + k] += row[i] * (P[v * 3 + k] - origin[k]);
+        }
+        for (let i = 0; i < 6; i++) {
+            let pivot = i;
+            for (let j = i + 1; j < 6; j++) if (Math.abs(matrix[j][i]) > Math.abs(matrix[pivot][i])) pivot = j;
+            if (Math.abs(matrix[pivot][i]) < 1e-10) return null;
+            [matrix[i], matrix[pivot]] = [matrix[pivot], matrix[i]];
+            const scale = matrix[i][i];
+            for (let j = i; j < 9; j++) matrix[i][j] /= scale;
+            for (let j = 0; j < 6; j++) if (j !== i) {
+                const factor = matrix[j][i];
+                for (let k = i; k < 9; k++) matrix[j][k] -= factor * matrix[i][k];
+            }
+        }
+        const evaluate = row => origin.map((q, k) => q + row.reduce((sum, x, i) => sum + x * matrix[i][6 + k], 0));
+        const dx = [0, 1, 2].map(k => matrix[1][6 + k]), dy = [0, 1, 2].map(k => matrix[2][6 + k]);
+        const normal = [dx[1] * dy[2] - dx[2] * dy[1], dx[2] * dy[0] - dx[0] * dy[2], dx[0] * dy[1] - dx[1] * dy[0]];
+        const length = Math.hypot(...normal) || 1;
+        const project = pos => {
+            const offset = pos.map((q, k) => q - origin[k]);
+            const x = offset.reduce((s, q, k) => s + q * across[k], 0) / 0.02;
+            const y = offset.reduce((s, q, k) => s + q * up[k], 0) / 0.02;
+            return [1, x, y, x * x, x * y, y * y];
+        };
+        return { points, evaluate, project, normal: normal.map(q => q / length) };
+    }
+
     /** Nipples raised a little, a woman's crotch given its crease; both in the body's own surface. */
     function anatomyDetail(pack, P, r) {
-        const F = anatomyFields(pack), female = sexOf(r) === 'female', B = pack.positions;
-        const nb = neighbors(pack);
-        const height = (female ? 0.0019 : 0.0009) * r.anatomy.nipple, tipR = (female ? 0.0045 : 0.003) * Math.max(0.6, Math.sqrt(r.anatomy.nipple));
+        const F = anatomyFields(pack), female = sexOf(r) === 'female';
+        const height = (female ? 0.0019 : 0.0009) * (r.anatomy.nipple > 0 ? r.anatomy.nippleProjection : 0), tipR = (female ? 0.0045 : 0.003) * Math.max(0.6, Math.sqrt(r.anatomy.nipple));
         for (const nip of F.nipples) {
-            const c = [B[nip.v * 3], B[nip.v * 3 + 1], B[nip.v * 3 + 2]];
-            const zone = (nip.zone = nip.zone || [...new Set(pack.body.source)].map(v => [v, Math.hypot(B[v * 3] - c[0], B[v * 3 + 1] - c[1], B[v * 3 + 2] - c[2])]).filter(x => x[1] < 0.02));
-            // The base mesh's own modeled nipple smoothed away, so only one stands: this one.
-            for (let pass = 0; pass < 10; pass++) for (const [v, d] of zone) {
-                if (d > 0.018) continue;
-                const s = nb.offsets[v], e = nb.offsets[v + 1];
-                let m0 = 0, m1 = 0, m2 = 0;
-                for (let i = s; i < e; i++) { const u = nb.flat[i]; m0 += P[u * 3]; m1 += P[u * 3 + 1]; m2 += P[u * 3 + 2]; }
-                const k = 1 / (e - s), w = 0.7 * (1 - d / 0.018);
-                P[v * 3] += (m0 * k - P[v * 3]) * w; P[v * 3 + 1] += (m1 * k - P[v * 3 + 1]) * w; P[v * 3 + 2] += (m2 * k - P[v * 3 + 2]) * w;
-            }
-            const n = normalAt(pack, P, nip.v);
-            for (const [v, d] of zone) {
-                // A soft rise of the areola, then the nipple: a rounded column, its top a dome.
-                // The areola barely rises; the nipple is a soft dome, wider at its base, its edge eased into the areola.
-                const areola = (female ? 0.0003 : 0) * r.anatomy.areola * Math.max(0, 1 - (d / 0.018) ** 2);
-                const column = height * Math.pow(1 - smooth01(0, tipR * 1.6, d), 1.5);
+            const surface = nippleSurface(pack, nip, P);
+            if (!surface) continue;
+            const n = surface.normal;
+            for (const { v, distance: d, row } of surface.points) {
+                if (d >= 0.022) continue;
+                const base = surface.evaluate(row), blend = 1 - smooth01(0.01, 0.022, d);
+                // One broad, rounded tip, with a gentle shoulder into the surrounding skin.
+                const areola = (female ? 0.00025 : 0.0001) * (1 - smooth01(0, 0.018, d));
+                const column = height * (1 - smooth01(tipR * 0.4, tipR * 1.3, d));
                 const lift = areola + column;
-                P[v * 3] += n[0] * lift; P[v * 3 + 1] += n[1] * lift; P[v * 3 + 2] += n[2] * lift;
+                for (let k = 0; k < 3; k++) P[v * 3 + k] += (base[k] - P[v * 3 + k]) * blend + n[k] * lift;
             }
         }
         if (female) for (const [v, x, up] of F.vulva) {
@@ -1284,23 +1369,145 @@
 
     const smooth01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-    /**
-     * Head size and the face morphs, worked in the head's own measure (its
-     * joint, the eyes, the crown) so they suit any head the sliders made.
-     */
+    /** Shared by the editable base skin and its locally sampled forehead. */
+    function cranialRidgeAt(x, y, z, amount) {
+        const front = smooth01(-0.6, -0.08, z), band = smooth01(0.03, 0.15, y) * (1 - smooth01(0.88, 1.03, y));
+        const width = Math.exp(-Math.pow(x / 0.26, 4)), arch = y + 1.8 * x * x;
+        let ribs = 0;
+        for (const row of [0.20, 0.34, 0.48, 0.62, 0.76]) ribs += Math.exp(-(((arch - row) / 0.040) ** 2));
+        return amount * front * band * width * (0.008 + 0.032 * ribs + 0.035 * Math.exp(-((x / 0.055) ** 2)));
+    }
+
+    function foreheadSpoonAt(x, y, z, amount) {
+        const radius = Math.hypot(x / 0.070, (y - 0.36) / 0.16);
+        const rim = 0.045 * Math.exp(-(((radius - 1) / 0.23) ** 2));
+        const bowl = -0.012 * Math.exp(-((radius / 0.75) ** 4));
+        const stem = 0.024 * Math.exp(-((x / 0.035) ** 2)) * smooth01(0.01, 0.10, y) * (1 - smooth01(0.20, 0.32, y));
+        return amount * smooth01(-0.55, -0.05, z) * (rim + bowl + stem);
+    }
+
+    /** Connected bridge chevrons and central brow folds, sampled by the refined skin too. */
+    function noseFoldAt(x, y, z, amount) {
+        if (!amount) return 0;
+        const front = smooth01(-0.1, 0.10, z), width = Math.abs(x);
+        let folds = 0;
+        // Nested chevrons over the bridge and tip, then softer transverse
+        // folds between the frontal lobes. Eyelids are excluded by the caller.
+        for (let k = 0; k < 4; k++) {
+            const line = -0.08 - k * 0.065 + width * 0.48;
+            const taper = Math.exp(-((width / (0.11 + k * 0.025)) ** 6));
+            folds += taper * (0.018 * Math.exp(-(((y - line) / 0.016) ** 2)) - 0.006 * Math.exp(-(((y - line + 0.021) / 0.013) ** 2)));
+        }
+        for (let k = 0; k < 4; k++) {
+            const line = 0.10 + k * 0.07 + 0.07 * Math.exp(-((x / 0.24) ** 2));
+            folds += Math.exp(-((x / (0.43 - k * 0.035)) ** 6)) * (0.014 * Math.exp(-(((y - line) / 0.02) ** 2)) - 0.004 * Math.exp(-(((y - line + 0.028) / 0.016) ** 2)));
+        }
+        return folds * amount * front;
+    }
+
+    /** Head morphs measured against the shaped eyes, head pivot and crown. */
     function morph(pack, P, r) {
         const m = r.morph, size = r.headSize;
         if (m.toes !== 1) toes(pack, P, m.toes);
         eyes(pack, P, r.shapes.eyeSize, m.eyeWide, m.eyeTall);
         if (m.eyeSocket) eyeSockets(pack, P, m.eyeSocket);
         if (r.anatomy.detail) anatomyDetail(pack, P, r);
-        if (size === 1 && !m.snout && !m.flat && !m.earsAway && !m.muzzle) return;
+        if (size === 1 && !m.snout && !m.flat && !m.earsAway && !m.muzzle && !m.noseFolds && !m.cranialRidges && !m.cranialLobes && !m.earBowls && !m.foreheadSpoon && !m.facialRidges && !m.neckWebbing) return;
         const F = headFields(pack);
         const h = meanOf(P, pack.bones[F.head].head);
         let crown = -Infinity;
         for (let v = 0; v < F.w.length; v++) if (F.w[v] > 0.9 && P[v * 3 + 1] > crown) crown = P[v * 3 + 1];
         const eye = meanOf(P, F.eyeIds);
         const H = crown - h[1];
+        const forehead = crown - eye[1];
+        if (m.cranialRidges || m.foreheadSpoon || m.noseFolds) {
+            const eyes = new Set(F.eyeIds);
+            // A central keel and five paired, upward-arching ribs. Their tips
+            // descend toward the temples; the crest continues to the hairline.
+            // Move existing skin so the ridges share its expressions, skinning and UVs.
+            for (let v = 0; v < F.w.length; v++) {
+                if (F.w[v] < 0.5 || F.ear[v] > 0.1 || eyes.has(v)) continue;
+                const x = P[v * 3] / H, y = (P[v * 3 + 1] - eye[1]) / forehead, z = (P[v * 3 + 2] - eye[2]) / H;
+                P[v * 3 + 2] += H * (cranialRidgeAt(x, y, z, m.cranialRidges) + foreheadSpoonAt(x, y, z, m.foreheadSpoon) + noseFoldAt(x, (P[v * 3 + 1] - eye[1]) / H, z, m.noseFolds));
+            }
+        }
+        if (m.facialRidges) {
+            const eyes = new Set(F.eyeIds);
+            for (let v = 0; v < F.w.length; v++) {
+                if (F.w[v] < 0.8 || F.ear[v] > 0.3 || eyes.has(v)) continue;
+                const x = Math.abs(P[v * 3]) / H, y = (P[v * 3 + 1] - eye[1]) / H, z = (P[v * 3 + 2] - eye[2]) / H;
+                const orbit = Math.hypot((x - 0.21) / 0.17, (y + 0.035) / 0.15);
+                const rim = Math.exp(-(((orbit - 1.35) / 0.23) ** 2)) * smooth01(0.08, 0.18, x);
+                const temple = Math.exp(-(((x - 0.42 - y * 0.14) / 0.065) ** 2)) * smooth01(-0.42, -0.25, y) * (1 - smooth01(0.20, 0.38, y));
+                const front = smooth01(-0.5, -0.10, z);
+                P[v * 3 + 2] += H * m.facialRidges * front * (rim * 0.035 + temple * 0.05);
+            }
+        }
+        if (m.neckWebbing) {
+            // The Head pivot sits inside the face, above the chin. Stop below
+            // the jaw instead of fanning the cheeks out with the neck.
+            const neck = meanOf(P, pack.bones.find(b => b.name === 'Neck').head);
+            const bottom = neck[1] - H * 0.18, top = neck[1] + (h[1] - neck[1]) * 0.64, length = top - bottom;
+            const field = new Float32Array(P.length);
+            if (length > 1e-5) for (let v = 0; v < F.w.length; v++) {
+                const t = (P[v * 3 + 1] - bottom) / length;
+                if (t <= 0 || t >= 1) continue;
+                const x = P[v * 3], z = P[v * 3 + 2] - (neck[2] + (h[2] - neck[2]) * t);
+                if (Math.abs(x) > H * 0.65 || Math.abs(z) > H * 0.6) continue;
+                const side = smooth01(H * 0.07, H * 0.22, Math.abs(x));
+                // A broad membrane between the lower jaw and clavicle. The old short
+                // sinusoidal field made a rounded collar with a ledge under the chin.
+                const fan = smooth01(0, 0.35, t) * (1 - smooth01(0.62, 1, t));
+                const flank = 1 - smooth01(H * 0.18, H * 0.5, Math.abs(z));
+                field[v * 3] = Math.sign(x) * H * 0.115 * m.neckWebbing * fan * side * flank;
+            }
+            const eased = relax(pack, field, 8);
+            for (let i = 0; i < P.length; i++) P[i] += eased[i];
+        }
+        if (m.cranialLobes) {
+            const eyes = new Set(F.eyeIds);
+            // Two rounded frontal bosses above a continuous brow shelf, with
+            // a shallow central crown cleft. Keep the eyelids and eyes intact.
+            for (let v = 0; v < F.w.length; v++) {
+                if (F.w[v] < 0.5 || F.ear[v] > 0.1 || eyes.has(v)) continue;
+                const x = P[v * 3] / H, y = (P[v * 3 + 1] - eye[1]) / forehead, z = (P[v * 3 + 2] - eye[2]) / H;
+                const front = smooth01(-0.65, -0.12, z), band = smooth01(0.015, 0.10, y);
+                const lobes = Math.exp(-(((Math.abs(x) - 0.23) / 0.17) ** 2) - ((y - 0.66) / 0.29) ** 2);
+                const shelf = Math.exp(-(((y - 0.15 - Math.abs(x) * 0.28) / 0.11) ** 2)) * Math.exp(-((x / 0.55) ** 6));
+                P[v * 3 + 2] += H * m.cranialLobes * front * band * (0.15 * lobes + 0.04 * shelf);
+                const top = smooth01(0.65, 0.98, y) * smooth01(-0.9, -0.3, z);
+                P[v * 3 + 1] += H * m.cranialLobes * top * (0.08 * Math.exp(-(((Math.abs(x) - 0.25) / 0.16) ** 2)) - 0.06 * Math.exp(-((x / 0.12) ** 2)));
+            }
+        }
+        if (m.earBowls) {
+            const mask = earMask(pack);
+            const field = new Float32Array(P.length);
+            // Open each pinna toward the front and expand about its attachment,
+            // preserving the ear's existing rim, concha and lobe topology.
+            for (const side of [-1, 1]) {
+                const own = [];
+                for (let v = 0; v < F.w.length; v++) if (mask[v] > 0.65 && Math.sign(P[v * 3]) === side) own.push(v);
+                if (!own.length) continue;
+                const rootX = Math.min(...own.map(v => Math.abs(P[v * 3])));
+                const rootZ = Math.max(...own.map(v => P[v * 3 + 2]));
+                const centerY = meanOf(P, own)[1];
+                // Broad, forward-facing bowls: opening the ear must keep
+                // increasing its span, rather than rotating it edge-on again.
+                const angle = Math.min(1.12, m.earBowls * 0.78), c = Math.cos(angle), s = Math.sin(angle);
+                for (let v = 0; v < F.w.length; v++) {
+                    if (mask[v] <= 0 || F.w[v] < 0.5 || Math.sign(P[v * 3]) !== side) continue;
+                    const w = mask[v], u = Math.abs(P[v * 3]) - rootX, z = P[v * 3 + 2] - rootZ;
+                    const x = rootX + (u * c - z * s) * (1 + 0.60 * m.earBowls);
+                    const depth = rootZ + (u * s + z * c) * (1 - 0.16 * m.earBowls);
+                    const tuck = H * 0.19 * Math.min(1, m.earBowls);
+                    field[v * 3] = (side * (x - tuck) - P[v * 3]) * w;
+                    field[v * 3 + 1] = ((P[v * 3 + 1] - centerY) * 0.46 + H * 0.06) * m.earBowls * w;
+                    field[v * 3 + 2] = (depth - P[v * 3 + 2]) * w;
+                }
+            }
+            const eased = relax(pack, field, 3);
+            for (let i = 0; i < P.length; i++) P[i] += eased[i];
+        }
         if (m.earsAway) {
             // The ear drawn in as a membrane over its root: its skin settles where the head's would be
             // without it (each vertex at the mean of its neighbors, the head round it held), so the
@@ -1615,7 +1822,7 @@
         return '#' + ((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0');
     }
 
-    const api = { PEOPLES, PEOPLE_BY_ID, withPeople, irisFor, earMask, almondEye: { frame: almondFrame, half: almondHalf, at: almondAt }, VOLUME, maskOf, fatMask, volume, sexOf, anatomyFields, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
+    const api = { PEOPLES, PEOPLE_BY_ID, withPeople, irisFor, earMask, noseFoldAt, cranialRidgeAt, foreheadSpoonAt, almondEye: { frame: almondFrame, half: almondHalf, at: almondAt }, VOLUME, maskOf, fatMask, volume, sexOf, anatomyFields, nippleSurface, MORPHS, morph, headFields, vertexNormals, gather, normals, fittedSkin, naturalRecipe, neighbors, relax, SLIDERS, SHAPES, SLIDER_BY_KEY, MACRO_RANGES, ANCESTRY, DEFAULT_RECIPE, MIN_AGE, MAX_AGE, DATA_PATH, dataFolder, normalizeRecipe, targetWeights, openPack, loadPack, shape, joints, fit, build, randomRecipe };
     root.RRHumanBody = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

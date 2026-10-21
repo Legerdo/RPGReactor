@@ -3803,10 +3803,12 @@ Bitmap.prototype.drawText = function(text, x, y, maxWidth, lineHeight, align) {
     }
     context.textAlign = align || "left";
     context.textBaseline = "alphabetic";
-    context.globalAlpha = 1;
-    this._drawTextOutline(text, tx, ty, maxWidth);
-    context.globalAlpha = alpha;
-    this._drawTextBody(text, tx, ty, maxWidth);
+    if (!this._drawLegacyPaletteRun?.(text, tx, ty)) {
+        context.globalAlpha = 1;
+        this._drawTextOutline(text, tx, ty, maxWidth);
+        context.globalAlpha = alpha;
+        this._drawTextBody(text, tx, ty, maxWidth);
+    }
     context.restore();
     // Glyphs reach above and below the line and past their advance; the margin covers that and the outline.
     const size = fixed || this.fontSize;
@@ -3938,7 +3940,18 @@ Bitmap.paintLegacyGlyph = function(pixels, width, height, pad, ascent, paint, sh
     }
 };
 
-Bitmap.prototype._drawLegacyPaletteText = function(text, tx, ty, paint, shadow) {
+/** Native legacy text draws each glyph's shadow and body before the next glyph. */
+Bitmap.prototype._drawLegacyPaletteRun = function(text, tx, ty) {
+    // Keep custom CSS, outlines and smoothing on their existing paths.
+    if (!Bitmap.textShadow() || this.outlineWidth <= 0 || !this._rrLegacyPaletteShadow
+        || this.outlineColor !== this._rrLegacyShadowCss || this.textColor !== this._rrLegacyPaletteCss
+        || typeof ColorManager === "undefined") return false;
+    const body = ColorManager.legacyTextPaint?.(this._rrLegacyPaletteIndex);
+    const shadow = ColorManager.legacyTextPaint?.(20);
+    return !!(body && shadow && this._drawLegacyPaletteText(text, tx, ty, shadow, true, body));
+};
+
+Bitmap.prototype._drawLegacyPaletteText = function(text, tx, ty, paint, shadow, pairedBodyPaint) {
     if (!Bitmap.fixedFontSize() || !Bitmap.pixelText()) return false;
     const context = this._drawingContext(), value = String(text), font = this._makeFontNameText();
     const size = Bitmap.fixedFontSize(), info = Bitmap.legacyFontInfo();
@@ -3948,34 +3961,43 @@ Bitmap.prototype._drawLegacyPaletteText = function(text, tx, ty, paint, shadow) 
     if (context.textAlign === "center") tx -= width / 2;
     else if (context.textAlign === "right" || context.textAlign === "end") tx -= width;
     const cache = Bitmap._legacyPixelTextCache || (Bitmap._legacyPixelTextCache = new Map());
+    const passes = pairedBodyPaint ? [
+        { paint, shadow: true, dx: 1, dy: 1, alpha: 1 },
+        { paint: pairedBodyPaint, shadow: false, dx: 0, dy: 0, alpha: context.globalAlpha }
+    ] : [{ paint, shadow, dx: 0, dy: 0, alpha: context.globalAlpha }];
     context.save(); context.imageSmoothingEnabled = false;
     let advance = 0;
     for (const glyph of value) {
         const ready = !document.fonts || document.fonts.check(font, glyph);
-        const key = JSON.stringify(["palette", font, glyph, paint.key, shadow, ascent]);
-        let item = ready && cache.get(key);
-        if (!item) {
-            const pad = Math.ceil(size), canvas = document.createElement("canvas");
-            const glyphWidth = context.measureText(glyph).width;
-            canvas.width = Math.max(1, Math.ceil(glyphWidth) + pad * 2); canvas.height = pad * 3;
-            const ink = canvas.getContext("2d", { willReadFrequently: true });
-            ink.font = font; ink.textBaseline = "alphabetic"; ink.fillStyle = "#ffffff";
-            ink.fillText(glyph, pad, pad * 2);
-            const pixels = ink.getImageData(0, 0, canvas.width, canvas.height);
-            Bitmap.paintLegacyGlyph(pixels.data, canvas.width, canvas.height, pad, ascent, paint, shadow);
-            ink.putImageData(pixels, 0, 0);
-            item = { canvas, pad, advance: glyphWidth };
-            if (ready) {
-                cache.set(key, item);
-                Bitmap._legacyPixelTextPixels = (Bitmap._legacyPixelTextPixels || 0) + canvas.width * canvas.height;
-                while (cache.size > 128 || Bitmap._legacyPixelTextPixels > 1048576) {
-                    const oldest = cache.keys().next().value, old = cache.get(oldest);
-                    Bitmap._legacyPixelTextPixels -= old.canvas.width * old.canvas.height; cache.delete(oldest);
+        let glyphAdvance = 0;
+        for (const pass of passes) {
+            const key = JSON.stringify(["palette", font, glyph, pass.paint.key, pass.shadow, ascent]);
+            let item = ready && cache.get(key);
+            if (!item) {
+                const pad = Math.ceil(size), canvas = document.createElement("canvas");
+                const glyphWidth = context.measureText(glyph).width;
+                canvas.width = Math.max(1, Math.ceil(glyphWidth) + pad * 2); canvas.height = pad * 3;
+                const ink = canvas.getContext("2d", { willReadFrequently: true });
+                ink.font = font; ink.textBaseline = "alphabetic"; ink.fillStyle = "#ffffff";
+                ink.fillText(glyph, pad, pad * 2);
+                const pixels = ink.getImageData(0, 0, canvas.width, canvas.height);
+                Bitmap.paintLegacyGlyph(pixels.data, canvas.width, canvas.height, pad, ascent, pass.paint, pass.shadow);
+                ink.putImageData(pixels, 0, 0);
+                item = { canvas, pad, advance: glyphWidth };
+                if (ready) {
+                    cache.set(key, item);
+                    Bitmap._legacyPixelTextPixels = (Bitmap._legacyPixelTextPixels || 0) + canvas.width * canvas.height;
+                    while (cache.size > 128 || Bitmap._legacyPixelTextPixels > 1048576) {
+                        const oldest = cache.keys().next().value, old = cache.get(oldest);
+                        Bitmap._legacyPixelTextPixels -= old.canvas.width * old.canvas.height; cache.delete(oldest);
+                    }
                 }
-            }
-        } else { cache.delete(key); cache.set(key, item); }
-        context.drawImage(item.canvas, Math.round(tx + advance) - item.pad, Math.round(ty) - item.pad * 2);
-        advance += item.advance;
+            } else { cache.delete(key); cache.set(key, item); }
+            context.globalAlpha = pass.alpha;
+            context.drawImage(item.canvas, Math.round(tx + advance + pass.dx) - item.pad, Math.round(ty + pass.dy) - item.pad * 2);
+            glyphAdvance = item.advance;
+        }
+        advance += glyphAdvance;
     }
     context.restore();
     return true;

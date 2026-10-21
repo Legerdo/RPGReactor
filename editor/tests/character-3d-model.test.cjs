@@ -20,8 +20,27 @@ const Species = load('CharacterSpecies');
 const Skin = load('CharacterSkin');
 const Optimizer = require(path.join(root, 'src', 'utils', 'GlbOptimizer.js'));
 const { PNG } = require('pngjs');
+// Keep failures bounded: a mesh/texture diff can otherwise print megabytes.
+const sameBytes = (a, b) => a.byteLength === b.byteLength && Buffer.from(a.buffer, a.byteOffset, a.byteLength).equals(Buffer.from(b.buffer, b.byteOffset, b.byteLength));
 
 let pack, eyeSource;
+
+test('static thumbnail settings do not leak into the main character or its reusable picture caches', async () => {
+    const bodyPack = await Body.loadPack();
+    const recipe = Model.normalize({ hair: { style: 'bald' }, outfit: [{ id: 'boots' }] });
+    const before = JSON.stringify(recipe), cache = {};
+    const eyes = size => ({ width: size, height: size, data: new Uint8Array(size * size * 4).fill(255) });
+    const small = Model.build(bodyPack, recipe, cache, { quality: 'preview', static: true, skinSize: 32, atlasSize: 64, eyeSource: eyes(8), hairBudget: 0.5 });
+    assert.equal(small.clips.length, 0);
+    assert.equal(small.textures['eyes.png'].width, 8);
+    assert.equal(small.textures['shoes.png'].width, 64);
+    const main = Model.build(bodyPack, recipe, cache, { quality: 'preview', skinSize: 32, atlasSize: 64, eyeSource: eyes(16) });
+    assert.ok(main.clips.length > 0);
+    assert.equal(main.textures['eyes.png'].width, 16);
+    assert.equal(main.textures['shoes.png'].width, 512);
+    assert.ok(sameBytes(main.parts[0].positions, small.parts[0].positions), 'thumbnail detail budgets do not reshape the body');
+    assert.equal(JSON.stringify(recipe), before);
+});
 test.before(async () => {
     pack = await Body.loadPack();
     const png = PNG.sync.read(fs.readFileSync(path.join(dir, 'data', 'eye-brown.png')));
@@ -186,7 +205,7 @@ test('a kept cache lays the outfit on the body built now, not on the one before'
     for (const body of [{ age: 11 }, { cup: 4, gender: 0 }, { weight: 3, gender: 1 }]) {
         const reused = Model.build(pack, Object.assign({ outfit }, body), kept, { quality: 'preview' });
         const fresh = Model.build(pack, Object.assign({ outfit }, body), {}, { quality: 'preview' });
-        for (let k = 0; k < fresh.parts.length; k++) assert.deepEqual(Array.from(reused.parts[k].positions), Array.from(fresh.parts[k].positions), fresh.parts[k].name + ' on ' + JSON.stringify(body));
+        for (let k = 0; k < fresh.parts.length; k++) assert.ok(sameBytes(reused.parts[k].positions, fresh.parts[k].positions), fresh.parts[k].name + ' on ' + JSON.stringify(body));
     }
 });
 
@@ -194,10 +213,10 @@ test('the outfit and skin pictures are kept while the body changes, and repainte
     const cache = {};
     const a = Model.build(pack, { outfit: [{ id: 'tunic' }], weight: 0.2 }, cache, { quality: 'preview' });
     const b = Model.build(pack, { outfit: [{ id: 'tunic' }], weight: 0.9, muscle: 0.9 }, cache, { quality: 'preview' });
-    assert.equal(a.textures['outfit.png'], b.textures['outfit.png']);
-    assert.equal(a.textures['skin.png'], b.textures['skin.png']);
+    assert.ok(a.textures['outfit.png'] === b.textures['outfit.png'], 'reuse the outfit picture');
+    assert.ok(a.textures['skin.png'] === b.textures['skin.png'], 'reuse the skin picture');
     const c = Model.build(pack, { outfit: [{ id: 'tunic', color: '#123456' }] }, cache, { quality: 'preview' });
-    assert.notEqual(c.textures['outfit.png'], a.textures['outfit.png']);
+    assert.ok(c.textures['outfit.png'] !== a.textures['outfit.png'], 'repaint the changed outfit');
 });
 
 test('lips, eye shadow and markings land where they belong; the iris takes its color, the whites stay white', () => {
@@ -283,6 +302,13 @@ test('every module a builder file needs is on the page before it (in the editor,
             assert.equal(page.includes(rel + file), false, 'the worker entry never executes on the page');
             continue;
         }
+        if (file === 'CharacterPreviewTextures.js') {
+            const browser = fs.readFileSync(path.join(dir, 'CharacterPreviewBrowserEntry.js'), 'utf8');
+            const desktop = fs.readFileSync(path.join(dir, 'CharacterPreviewWorker.cjs'), 'utf8');
+            assert.ok(browser.includes(file) && desktop.includes(file), 'both worker entries load their texture reducer');
+            assert.equal(page.includes(rel + file), false, 'worker texture reductions do not load on the page');
+            continue;
+        }
         const at = page.indexOf(rel + file);
         assert.ok(at > 0, file + ' is loaded');
         for (const m of fs.readFileSync(path.join(dir, file), 'utf8').matchAll(/require\('\.\/([A-Za-z0-9]+)\.js'\)/g)) {
@@ -352,7 +378,10 @@ test('anatomical detail: one sharp areola patch per nipple, centered on it, and 
     // Each patch's middle (uv 0.5) is the nipple: the patch vertex nearest it sits on the nipple vertex.
     const F = Body.anatomyFields(pack);
     for (const nip of F.nipples) {
-        const i = Array.from(patch.source).indexOf(nip.v);
+        const bind = patch.interpolation;
+        const i = bind ? Array.from({ length: bind.offsets.length - 1 }, (_, i) => i).find(i =>
+            bind.offsets[i + 1] - bind.offsets[i] === 1 && bind.vertices[bind.offsets[i]] === nip.v)
+            : Array.from(patch.source).indexOf(nip.v);
         assert.ok(i >= 0, 'the nipple is in its patch');
         assert.ok(Math.abs(patch.uvs[i * 2] - 0.5) < 0.02 && Math.abs(patch.uvs[i * 2 + 1] - 0.5) < 0.02, 'centered on it');
     }
@@ -544,9 +573,9 @@ test('a modeled garment shows its own picture until a color is chosen; a color k
     const g = clothes.garments.get('mh_tee_jeans');
     const own = Clothes.picture(clothes, g);
     const plain = Model.build(pack, { outfit: [{ id: 'mh_tee_jeans' }] }, {}, { quality: 'preview' });
-    assert.equal(plain.textures['cloth-mh_tee_jeans.png'].data, own.data, 'own picture, untouched');
+    assert.ok(plain.textures['cloth-mh_tee_jeans.png'].data === own.data, 'own picture, untouched');
     const red = Model.build(pack, { outfit: [{ id: 'mh_tee_jeans', color: '#b02020', color2: '#6a6a6a' }] }, {}, { quality: 'preview' }).textures['cloth-mh_tee_jeans.png'];
-    assert.notEqual(red.data, own.data);
+    assert.ok(red.data !== own.data, 'recolor without changing the source picture');
     // Sample the texels the shirt and the trousers use.
     const part = plain.parts.find(p => p.name === 'T-shirt and jeans'), size = red.width;
     const stats = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]];

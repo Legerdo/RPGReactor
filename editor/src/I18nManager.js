@@ -22406,6 +22406,9 @@ for (const [locale, labels] of Object.entries(RR_CHARACTER_3D_HAIRZONES)) for (c
 // Forge › 3D Character Builder: anatomy options.
 const RR_CHARACTER_3D_ANATOMY2 = {"ja": {"Areola size": "乳輪の大きさ", "Nipple size": "乳首の大きさ", "Areola color": "乳輪の色", "Fold depth": "ひだの深さ"}, "es": {"Areola size": "Tamaño de la areola", "Nipple size": "Tamaño del pezón", "Areola color": "Color de la areola", "Fold depth": "Profundidad del pliegue"}, "zh-Hant": {"Areola size": "乳暈大小", "Nipple size": "乳頭大小", "Areola color": "乳暈顏色", "Fold depth": "皺褶深度"}, "zh-Hans": {"Areola size": "乳晕大小", "Nipple size": "乳头大小", "Areola color": "乳晕颜色", "Fold depth": "褶皱深度"}, "ru": {"Areola size": "Размер ареолы", "Nipple size": "Размер соска", "Areola color": "Цвет ареолы", "Fold depth": "Глубина складки"}, "pt": {"Areola size": "Tamanho da aréola", "Nipple size": "Tamanho do mamilo", "Areola color": "Cor da aréola", "Fold depth": "Profundidade da dobra"}, "de": {"Areola size": "Größe des Warzenhofs", "Nipple size": "Größe der Brustwarze", "Areola color": "Farbe des Warzenhofs", "Fold depth": "Faltentiefe"}, "fr": {"Areola size": "Taille de l’aréole", "Nipple size": "Taille du mamelon", "Areola color": "Couleur de l’aréole", "Fold depth": "Profondeur du pli"}, "el": {"Areola size": "Μέγεθος θηλαίας άλω", "Nipple size": "Μέγεθος θηλής", "Areola color": "Χρώμα θηλαίας άλω", "Fold depth": "Βάθος πτυχής"}, "ko": {"Areola size": "유륜 크기", "Nipple size": "유두 크기", "Areola color": "유륜 색", "Fold depth": "주름 깊이"}, "ar": {"Areola size": "حجم الهالة", "Nipple size": "حجم الحلمة", "Areola color": "لون الهالة", "Fold depth": "عمق الطية"}, "it": {"Areola size": "Dimensione dell’areola", "Nipple size": "Dimensione del capezzolo", "Areola color": "Colore dell’areola", "Fold depth": "Profondità della piega"}, "pl": {"Areola size": "Rozmiar otoczki", "Nipple size": "Rozmiar sutka", "Areola color": "Kolor otoczki", "Fold depth": "Głębokość fałdy"}, "id": {"Areola size": "Ukuran areola", "Nipple size": "Ukuran puting", "Areola color": "Warna areola", "Fold depth": "Kedalaman lipatan"}, "vi": {"Areola size": "Kích thước quầng vú", "Nipple size": "Kích thước núm vú", "Areola color": "Màu quầng vú", "Fold depth": "Độ sâu nếp gấp"}, "th": {"Areola size": "ขนาดลานนม", "Nipple size": "ขนาดหัวนม", "Areola color": "สีลานนม", "Fold depth": "ความลึกของรอยพับ"}, "tr": {"Areola size": "Areola boyutu", "Nipple size": "Meme ucu boyutu", "Areola color": "Areola rengi", "Fold depth": "Kıvrım derinliği"}};
 for (const [locale, labels] of Object.entries(RR_CHARACTER_3D_ANATOMY2)) for (const [source, text] of Object.entries(labels)) if (!RR_TEXT_TRANSLATIONS[locale][source] || RR_TEXT_TRANSLATIONS[locale][source] === source) RR_TEXT_TRANSLATIONS[locale][source] = text;
+// Character anatomy projection and species-specific surface controls.
+const RR_CHARACTER_ANATOMY_SURFACES = {"ja": {"Nipple projection": "乳首の突出", "Flat": "平ら", "Raised": "突出", "Sheath size": "包皮の大きさ", "Visible length": "露出部分の長さ", "Vulva size": "外陰部の大きさ", "Udder size": "乳房の大きさ", "Teat size": "乳頭の大きさ", "Foreskin": "包皮", "Circumcised": "割礼あり", "Uncircumcised": "割礼なし", "Inner labia": "小陰唇", "Clitoris size": "陰核の大きさ"}, "es": {"Nipple projection": "Proyección del pezón", "Flat": "Plano", "Raised": "Elevado", "Sheath size": "Tamaño del prepucio", "Visible length": "Longitud visible", "Vulva size": "Tamaño de la vulva", "Udder size": "Tamaño de la ubre", "Teat size": "Tamaño de las mamas", "Foreskin": "Prepucio", "Circumcised": "Circuncidado", "Uncircumcised": "No circuncidado", "Inner labia": "Labios menores", "Clitoris size": "Tamaño del clítoris"}, "zh-Hant": {"Nipple projection": "乳頭凸起", "Flat": "平坦", "Raised": "凸起", "Sheath size": "包皮大小", "Visible length": "外露長度", "Vulva size": "外陰大小", "Udder size": "乳房大小", "Teat size": "乳頭大小", "Foreskin": "包皮", "Circumcised": "已割包皮", "Uncircumcised": "未割包皮", "Inner labia": "小陰唇", "Clitoris size": "陰蒂大小"}, "zh-Hans": {"Nipple projection": "乳头凸起", "Flat": "平坦", "Raised": "凸起", "Sheath size": "包皮大小", "Visible length": "外露长度", "Vulva size": "外阴大小", "Udder size": "乳房大小", "Teat size": "乳头大小", "Foreskin": "包皮", "Circumcised": "已割包皮", "Uncircumcised": "未割包皮", "Inner labia": "小阴唇", "Clitoris size": "阴蒂大小"}, "ru": {"Nipple projection": "Выступ соска", "Flat": "Плоский", "Raised": "Выступающий", "Sheath size": "Размер препуция", "Visible length": "Видимая длина", "Vulva size": "Размер вульвы", "Udder size": "Размер вымени", "Teat size": "Размер сосков", "Foreskin": "Крайняя плоть", "Circumcised": "Обрезанный", "Uncircumcised": "Необрезанный", "Inner labia": "Малые половые губы", "Clitoris size": "Размер клитора"}, "pt": {"Nipple projection": "Projeção do mamilo", "Flat": "Plano", "Raised": "Elevado", "Sheath size": "Tamanho do prepúcio", "Visible length": "Comprimento visível", "Vulva size": "Tamanho da vulva", "Udder size": "Tamanho do úbere", "Teat size": "Tamanho das tetas", "Foreskin": "Prepúcio", "Circumcised": "Circuncidado", "Uncircumcised": "Não circuncidado", "Inner labia": "Pequenos lábios", "Clitoris size": "Tamanho do clitóris"}, "de": {"Nipple projection": "Brustwarzenvorsprung", "Flat": "Flach", "Raised": "Erhaben", "Sheath size": "Vorhautgröße", "Visible length": "Sichtbare Länge", "Vulva size": "Vulvagröße", "Udder size": "Eutergröße", "Teat size": "Zitzengröße", "Foreskin": "Vorhaut", "Circumcised": "Beschnitten", "Uncircumcised": "Unbeschnitten", "Inner labia": "Innere Schamlippen", "Clitoris size": "Klitorisgröße"}, "fr": {"Nipple projection": "Projection du mamelon", "Flat": "Plat", "Raised": "Saillant", "Sheath size": "Taille du fourreau", "Visible length": "Longueur visible", "Vulva size": "Taille de la vulve", "Udder size": "Taille du pis", "Teat size": "Taille des trayons", "Foreskin": "Prépuce", "Circumcised": "Circoncis", "Uncircumcised": "Non circoncis", "Inner labia": "Petites lèvres", "Clitoris size": "Taille du clitoris"}, "el": {"Nipple projection": "Προβολή θηλής", "Flat": "Επίπεδη", "Raised": "Προεξέχουσα", "Sheath size": "Μέγεθος ακροποσθίας", "Visible length": "Ορατό μήκος", "Vulva size": "Μέγεθος αιδοίου", "Udder size": "Μέγεθος μαστού", "Teat size": "Μέγεθος θηλών", "Foreskin": "Ακροποσθία", "Circumcised": "Με περιτομή", "Uncircumcised": "Χωρίς περιτομή", "Inner labia": "Μικρά χείλη", "Clitoris size": "Μέγεθος κλειτορίδας"}, "ko": {"Nipple projection": "유두 돌출", "Flat": "평평함", "Raised": "돌출됨", "Sheath size": "포피 크기", "Visible length": "노출 길이", "Vulva size": "외음부 크기", "Udder size": "젖통 크기", "Teat size": "젖꼭지 크기", "Foreskin": "포피", "Circumcised": "포경수술함", "Uncircumcised": "포경수술 안 함", "Inner labia": "소음순", "Clitoris size": "음핵 크기"}, "ar": {"Nipple projection": "بروز الحلمة", "Flat": "مسطحة", "Raised": "بارزة", "Sheath size": "حجم القلفة", "Visible length": "الطول الظاهر", "Vulva size": "حجم الفرج", "Udder size": "حجم الضرع", "Teat size": "حجم الحلمات", "Foreskin": "القلفة", "Circumcised": "مختون", "Uncircumcised": "غير مختون", "Inner labia": "الشفران الصغيران", "Clitoris size": "حجم البظر"}, "it": {"Nipple projection": "Sporgenza del capezzolo", "Flat": "Piatto", "Raised": "Sporgente", "Sheath size": "Dimensione del prepuzio", "Visible length": "Lunghezza visibile", "Vulva size": "Dimensione della vulva", "Udder size": "Dimensione della mammella", "Teat size": "Dimensione dei capezzoli", "Foreskin": "Prepuzio", "Circumcised": "Circonciso", "Uncircumcised": "Non circonciso", "Inner labia": "Piccole labbra", "Clitoris size": "Dimensione del clitoride"}, "pl": {"Nipple projection": "Wypukłość sutka", "Flat": "Płaski", "Raised": "Wypukły", "Sheath size": "Rozmiar napletka", "Visible length": "Widoczna długość", "Vulva size": "Rozmiar sromu", "Udder size": "Rozmiar wymienia", "Teat size": "Rozmiar strzyków", "Foreskin": "Napletek", "Circumcised": "Obrzezany", "Uncircumcised": "Nieobrzezany", "Inner labia": "Wargi sromowe mniejsze", "Clitoris size": "Rozmiar łechtaczki"}, "id": {"Nipple projection": "Tonjolan puting", "Flat": "Rata", "Raised": "Menonjol", "Sheath size": "Ukuran kulup", "Visible length": "Panjang terlihat", "Vulva size": "Ukuran vulva", "Udder size": "Ukuran ambing", "Teat size": "Ukuran puting hewan", "Foreskin": "Kulup", "Circumcised": "Disunat", "Uncircumcised": "Tidak disunat", "Inner labia": "Labia dalam", "Clitoris size": "Ukuran klitoris"}, "vi": {"Nipple projection": "Độ nhô núm vú", "Flat": "Phẳng", "Raised": "Nhô lên", "Sheath size": "Kích thước bao quy đầu", "Visible length": "Chiều dài lộ ra", "Vulva size": "Kích thước âm hộ", "Udder size": "Kích thước bầu vú", "Teat size": "Kích thước đầu vú", "Foreskin": "Bao quy đầu", "Circumcised": "Đã cắt bao quy đầu", "Uncircumcised": "Chưa cắt bao quy đầu", "Inner labia": "Môi bé", "Clitoris size": "Kích thước âm vật"}, "th": {"Nipple projection": "ความนูนของหัวนม", "Flat": "แบน", "Raised": "นูน", "Sheath size": "ขนาดหนังหุ้มปลาย", "Visible length": "ความยาวส่วนที่มองเห็น", "Vulva size": "ขนาดปากช่องคลอด", "Udder size": "ขนาดเต้านม", "Teat size": "ขนาดหัวนมสัตว์", "Foreskin": "หนังหุ้มปลาย", "Circumcised": "ขลิบแล้ว", "Uncircumcised": "ยังไม่ขลิบ", "Inner labia": "แคมเล็ก", "Clitoris size": "ขนาดคลิตอริส"}, "tr": {"Nipple projection": "Meme ucu çıkıntısı", "Flat": "Düz", "Raised": "Çıkıntılı", "Sheath size": "Kılıf boyutu", "Visible length": "Görünür uzunluk", "Vulva size": "Vulva boyutu", "Udder size": "Meme büyüklüğü", "Teat size": "Meme başı boyutu", "Foreskin": "Sünnet derisi", "Circumcised": "Sünnetli", "Uncircumcised": "Sünnetsiz", "Inner labia": "İç dudaklar", "Clitoris size": "Klitoris boyutu"}};
+for (const [locale, labels] of Object.entries(RR_CHARACTER_ANATOMY_SURFACES)) for (const [source, text] of Object.entries(labels)) if (!RR_TEXT_TRANSLATIONS[locale][source] || RR_TEXT_TRANSLATIONS[locale][source] === source) RR_TEXT_TRANSLATIONS[locale][source] = text;
 // Forge › 3D Character Builder: anatomy.
 const RR_CHARACTER_3D_ANATOMY = {"ja": {"Anatomy": "解剖学", "Anatomical detail": "解剖学的な詳細", "Shown as": "表示", "By gender": "性別に合わせる", "Girth": "太さ", "Testicles": "睾丸"}, "es": {"Anatomy": "Anatomía", "Anatomical detail": "Detalle anatómico", "Shown as": "Se muestra como", "By gender": "Según el género", "Girth": "Grosor", "Testicles": "Testículos"}, "zh-Hant": {"Anatomy": "解剖", "Anatomical detail": "解剖細節", "Shown as": "顯示為", "By gender": "依性別", "Girth": "粗細", "Testicles": "睪丸"}, "zh-Hans": {"Anatomy": "解剖", "Anatomical detail": "解剖细节", "Shown as": "显示为", "By gender": "按性别", "Girth": "粗细", "Testicles": "睾丸"}, "ru": {"Anatomy": "Анатомия", "Anatomical detail": "Анатомические детали", "Shown as": "Показывать как", "By gender": "По полу", "Girth": "Обхват", "Testicles": "Яички"}, "pt": {"Anatomy": "Anatomia", "Anatomical detail": "Detalhes anatômicos", "Shown as": "Mostrar como", "By gender": "Pelo gênero", "Girth": "Espessura", "Testicles": "Testículos"}, "de": {"Anatomy": "Anatomie", "Anatomical detail": "Anatomische Details", "Shown as": "Darstellen als", "By gender": "Nach Geschlecht", "Girth": "Umfang", "Testicles": "Hoden"}, "fr": {"Anatomy": "Anatomie", "Anatomical detail": "Détails anatomiques", "Shown as": "Affiché comme", "By gender": "Selon le genre", "Girth": "Épaisseur", "Testicles": "Testicules"}, "el": {"Anatomy": "Ανατομία", "Anatomical detail": "Ανατομική λεπτομέρεια", "Shown as": "Εμφάνιση ως", "By gender": "Βάσει φύλου", "Girth": "Περίμετρος", "Testicles": "Όρχεις"}, "ko": {"Anatomy": "해부학", "Anatomical detail": "해부학적 디테일", "Shown as": "표시", "By gender": "성별에 따라", "Girth": "둘레", "Testicles": "고환"}, "ar": {"Anatomy": "التشريح", "Anatomical detail": "تفاصيل تشريحية", "Shown as": "العرض كـ", "By gender": "حسب الجنس", "Girth": "السماكة", "Testicles": "الخصيتان"}, "it": {"Anatomy": "Anatomia", "Anatomical detail": "Dettagli anatomici", "Shown as": "Mostrato come", "By gender": "In base al genere", "Girth": "Spessore", "Testicles": "Testicoli"}, "pl": {"Anatomy": "Anatomia", "Anatomical detail": "Szczegóły anatomiczne", "Shown as": "Pokazuj jako", "By gender": "Według płci", "Girth": "Obwód", "Testicles": "Jądra"}, "id": {"Anatomy": "Anatomi", "Anatomical detail": "Detail anatomi", "Shown as": "Ditampilkan sebagai", "By gender": "Sesuai gender", "Girth": "Ketebalan", "Testicles": "Testis"}, "vi": {"Anatomy": "Giải phẫu", "Anatomical detail": "Chi tiết giải phẫu", "Shown as": "Hiển thị là", "By gender": "Theo giới tính", "Girth": "Độ dày", "Testicles": "Tinh hoàn"}, "th": {"Anatomy": "กายวิภาค", "Anatomical detail": "รายละเอียดทางกายวิภาค", "Shown as": "แสดงเป็น", "By gender": "ตามเพศ", "Girth": "ความหนา", "Testicles": "อัณฑะ"}, "tr": {"Anatomy": "Anatomi", "Anatomical detail": "Anatomik ayrıntı", "Shown as": "Gösterim", "By gender": "Cinsiyete göre", "Girth": "Kalınlık", "Testicles": "Testisler"}};
 for (const [locale, labels] of Object.entries(RR_CHARACTER_3D_ANATOMY)) for (const [source, text] of Object.entries(labels)) if (!RR_TEXT_TRANSLATIONS[locale][source] || RR_TEXT_TRANSLATIONS[locale][source] === source) RR_TEXT_TRANSLATIONS[locale][source] = text;
@@ -22892,3 +22895,422 @@ const RR_IMPORT_DESTINATION_TRANSLATIONS = {
     ]
 };
 for (const [locale, labels] of Object.entries(RR_IMPORT_DESTINATION_TRANSLATIONS)) labels.forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_IMPORT_DESTINATION_LABELS[i]] = text; });
+
+const RR_CHARACTER_ALIEN_LABELS = ['Klingon', 'Vulcan', 'Ferengi', 'Cranial ridges'];
+const RR_CHARACTER_ALIEN_TRANSLATIONS = {
+    ja: ['クリンゴン人', 'バルカン人', 'フェレンギ人', '頭蓋の隆起'],
+    es: ['Klingon', 'Vulcano', 'Ferengi', 'Crestas craneales'],
+    'zh-Hant': ['克林貢人', '瓦肯人', '佛瑞吉人', '顱骨脊'],
+    'zh-Hans': ['克林贡人', '瓦肯人', '费伦吉人', '颅骨脊'],
+    ru: ['Клингон', 'Вулканец', 'Ференги', 'Черепные гребни'],
+    pt: ['Klingon', 'Vulcano', 'Ferengi', 'Cristas cranianas'],
+    de: ['Klingone', 'Vulkanier', 'Ferengi', 'Schädelkämme'],
+    fr: ['Klingon', 'Vulcain', 'Ferengi', 'Crêtes crâniennes'],
+    el: ['Κλίνγκον', 'Βουλκάνιος', 'Φερένγκι', 'Κρανιακές ακρολοφίες'],
+    ko: ['클링온', '벌컨', '페렝기', '두개골 융기'],
+    ar: ['كلينغون', 'فولكان', 'فيرينغي', 'نتوءات الجمجمة'],
+    it: ['Klingon', 'Vulcaniano', 'Ferengi', 'Creste craniche'],
+    pl: ['Klingon', 'Wolkanin', 'Ferengi', 'Grzebienie czaszki'],
+    id: ['Klingon', 'Vulkan', 'Ferengi', 'Tonjolan tengkorak'],
+    vi: ['Klingon', 'Vulcan', 'Ferengi', 'Gờ hộp sọ'],
+    th: ['คลิงออน', 'วัลแคน', 'เฟอเรงกี', 'สันกะโหลก'],
+    tr: ['Klingon', 'Vulkan', 'Ferengi', 'Kafatası çıkıntıları']
+};
+for (const [locale, labels] of Object.entries(RR_CHARACTER_ALIEN_TRANSLATIONS)) labels.forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_CHARACTER_ALIEN_LABELS[i]] = text; });
+
+
+// Character species and optional paired male anatomy.
+const RR_CHARACTER_ANDORIAN_LABELS = {"ja": ["アンドリア人", "男性器を一対にする"], "es": ["Andoriano", "Anatomía masculina doble"], "zh-Hant": ["安多利人", "成對男性生殖器"], "zh-Hans": ["安多利人", "成对男性生殖器"], "ru": ["Андорианец", "Парная мужская анатомия"], "pt": ["Andoriano", "Anatomia masculina dupla"], "de": ["Andorianer", "Doppelte männliche Anatomie"], "fr": ["Andorien", "Anatomie masculine double"], "el": ["Ανδοριανός", "Διπλή ανδρική ανατομία"], "ko": ["안도리안", "한 쌍의 남성 생식기"], "it": ["Andoriano", "Anatomia maschile doppia"], "pl": ["Andorianin", "Podwójna męska anatomia"], "ar": ["أندوري", "أعضاء ذكرية مزدوجة"], "id": ["Andorian", "Anatomi pria berpasangan"], "vi": ["Người Andoria", "Giải phẫu nam dạng đôi"], "th": ["แอนโดเรียน", "อวัยวะเพศชายแบบคู่"], "tr": ["Andoryalı", "Çift erkek anatomisi"]};
+for (const [locale, labels] of Object.entries(RR_CHARACTER_ANDORIAN_LABELS)) labels.forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][["Andorian", "Paired male anatomy"][i]] = text; });
+
+const RR_CHARACTER_ALIEN_DETAIL_LABELS = ["Cardassian", "Cranial lobes", "Ear bowls", "Forehead spoon", "Facial ridges", "Neck webbing", "Light layout", "Light color", "Light brightness", "Light width"];
+const RR_CHARACTER_ALIEN_DETAIL_TRANSLATIONS = {
+    "ja": [
+        "カーデシア人",
+        "頭蓋のこぶ",
+        "耳介の広がり",
+        "額のスプーン状隆起",
+        "顔の隆起",
+        "首のひだ",
+        "照明配置",
+        "光の色",
+        "光の明るさ",
+        "光の幅"
+    ],
+    "es": [
+        "Cardassiano",
+        "Lóbulos craneales",
+        "Pabellones auriculares",
+        "Relieve frontal en cuchara",
+        "Crestas faciales",
+        "Membranas del cuello",
+        "Disposición de las luces",
+        "Color de la luz",
+        "Brillo de la luz",
+        "Anchura de la luz"
+    ],
+    "zh-Hant": [
+        "卡達西人",
+        "顱骨隆起",
+        "碗狀耳廓",
+        "額部匙狀隆起",
+        "面部骨脊",
+        "頸部蹼膜",
+        "燈光配置",
+        "燈光顏色",
+        "燈光亮度",
+        "燈光寬度"
+    ],
+    "zh-Hans": [
+        "卡达西人",
+        "颅骨隆起",
+        "碗状耳廓",
+        "额部匙状隆起",
+        "面部骨脊",
+        "颈部蹼膜",
+        "灯光布局",
+        "灯光颜色",
+        "灯光亮度",
+        "灯光宽度"
+    ],
+    "ru": [
+        "Кардассианец",
+        "Лобные бугры",
+        "Ушные раковины",
+        "Ложкообразный лобный гребень",
+        "Лицевые гребни",
+        "Шейные перепонки",
+        "Расположение света",
+        "Цвет света",
+        "Яркость света",
+        "Ширина света"
+    ],
+    "pt": [
+        "Cardassiano",
+        "Lobos cranianos",
+        "Conchas auriculares",
+        "Relevo frontal em colher",
+        "Cristas faciais",
+        "Membranas do pescoço",
+        "Disposição das luzes",
+        "Cor da luz",
+        "Brilho da luz",
+        "Largura da luz"
+    ],
+    "de": [
+        "Cardassianer",
+        "Schädellappen",
+        "Ohrmuscheln",
+        "Löffelförmige Stirnleiste",
+        "Gesichtsleisten",
+        "Hautfalten am Hals",
+        "Lichtanordnung",
+        "Lichtfarbe",
+        "Lichthelligkeit",
+        "Lichtbreite"
+    ],
+    "fr": [
+        "Cardassien",
+        "Lobes crâniens",
+        "Pavillons auriculaires",
+        "Relief frontal en cuillère",
+        "Crêtes faciales",
+        "Membranes du cou",
+        "Disposition des lumières",
+        "Couleur de la lumière",
+        "Luminosité de la lumière",
+        "Largeur de la lumière"
+    ],
+    "el": [
+        "Καρντασιανός",
+        "Κρανιακοί λοβοί",
+        "Κοιλότητες αυτιών",
+        "Κουταλοειδής προεξοχή μετώπου",
+        "Ακρολοφίες προσώπου",
+        "Μεμβράνες λαιμού",
+        "Διάταξη φωτισμού",
+        "Χρώμα φωτός",
+        "Φωτεινότητα φωτός",
+        "Πλάτος φωτός"
+    ],
+    "ko": [
+        "카대시안",
+        "두개골 돌출부",
+        "귀의 오목한 형태",
+        "이마 숟가락 융기",
+        "얼굴 융기",
+        "목 주름막",
+        "조명 배치",
+        "조명 색상",
+        "조명 밝기",
+        "조명 너비"
+    ],
+    "ar": [
+        "كارداسي",
+        "فصوص الجمجمة",
+        "صيوان الأذن",
+        "نتوء الجبهة الملعقي",
+        "نتوءات الوجه",
+        "أغشية الرقبة",
+        "توزيع الإضاءة",
+        "لون الضوء",
+        "سطوع الضوء",
+        "عرض الضوء"
+    ],
+    "it": [
+        "Cardassiano",
+        "Lobi cranici",
+        "Padiglioni auricolari",
+        "Rilievo frontale a cucchiaio",
+        "Creste facciali",
+        "Membrane del collo",
+        "Disposizione delle luci",
+        "Colore della luce",
+        "Luminosità della luce",
+        "Larghezza della luce"
+    ],
+    "pl": [
+        "Kardasjanin",
+        "Płaty czaszkowe",
+        "Małżowiny uszne",
+        "Łyżkowata wypukłość czoła",
+        "Grzbiety twarzy",
+        "Błony szyi",
+        "Układ świateł",
+        "Kolor światła",
+        "Jasność światła",
+        "Szerokość światła"
+    ],
+    "id": [
+        "Cardassian",
+        "Lobus tengkorak",
+        "Daun telinga cekung",
+        "Tonjolan dahi berbentuk sendok",
+        "Tonjolan wajah",
+        "Selaput leher",
+        "Tata letak cahaya",
+        "Warna cahaya",
+        "Kecerahan cahaya",
+        "Lebar cahaya"
+    ],
+    "vi": [
+        "Người Cardassian",
+        "Thùy sọ",
+        "Vành tai lõm",
+        "Gờ trán hình thìa",
+        "Gờ mặt",
+        "Màng cổ",
+        "Bố trí ánh sáng",
+        "Màu ánh sáng",
+        "Độ sáng",
+        "Độ rộng ánh sáng"
+    ],
+    "th": [
+        "คาร์แดสเซียน",
+        "ปุ่มกะโหลก",
+        "แอ่งใบหู",
+        "สันหน้าผากรูปช้อน",
+        "สันใบหน้า",
+        "พังผืดคอ",
+        "รูปแบบแสง",
+        "สีของแสง",
+        "ความสว่างของแสง",
+        "ความกว้างของแสง"
+    ],
+    "tr": [
+        "Kardasyalı",
+        "Kafatası lobları",
+        "Kulak çanakları",
+        "Kaşık biçimli alın çıkıntısı",
+        "Yüz çıkıntıları",
+        "Boyun perdeleri",
+        "Işık düzeni",
+        "Işık rengi",
+        "Işık parlaklığı",
+        "Işık genişliği"
+    ]
+};
+for (const [locale, labels] of Object.entries(RR_CHARACTER_ALIEN_DETAIL_TRANSLATIONS)) labels.forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_CHARACTER_ALIEN_DETAIL_LABELS[i]] = text; });
+
+// Articulated insect limbs and android fittings.
+const RR_CHARACTER_MECHANICAL_LABELS = ["Extra arms", "Insect arms", "Mechanical parts", "Android circuitry"];
+const RR_CHARACTER_MECHANICAL_TRANSLATIONS = {
+    "ja": [
+        "追加の腕",
+        "昆虫の腕",
+        "機械部品",
+        "アンドロイド回路"
+    ],
+    "es": [
+        "Brazos adicionales",
+        "Brazos de insecto",
+        "Partes mecánicas",
+        "Circuitos de androide"
+    ],
+    "zh-Hant": [
+        "額外手臂",
+        "昆蟲手臂",
+        "機械部件",
+        "仿生人電路"
+    ],
+    "zh-Hans": [
+        "额外手臂",
+        "昆虫手臂",
+        "机械部件",
+        "仿生人电路"
+    ],
+    "ru": [
+        "Дополнительные руки",
+        "Руки насекомого",
+        "Механические детали",
+        "Схемы андроида"
+    ],
+    "pt": [
+        "Braços adicionais",
+        "Braços de inseto",
+        "Peças mecânicas",
+        "Circuitos de androide"
+    ],
+    "de": [
+        "Zusätzliche Arme",
+        "Insektenarme",
+        "Mechanische Teile",
+        "Androidenschaltkreise"
+    ],
+    "fr": [
+        "Bras supplémentaires",
+        "Bras d’insecte",
+        "Pièces mécaniques",
+        "Circuits d’androïde"
+    ],
+    "el": [
+        "Επιπλέον χέρια",
+        "Χέρια εντόμου",
+        "Μηχανικά μέρη",
+        "Κυκλώματα ανδροειδούς"
+    ],
+    "ko": [
+        "추가 팔",
+        "곤충 팔",
+        "기계 부품",
+        "안드로이드 회로"
+    ],
+    "it": [
+        "Braccia aggiuntive",
+        "Braccia da insetto",
+        "Parti meccaniche",
+        "Circuiti androide"
+    ],
+    "pl": [
+        "Dodatkowe ręce",
+        "Ręce owada",
+        "Części mechaniczne",
+        "Obwody androida"
+    ],
+    "ar": [
+        "أذرع إضافية",
+        "أذرع حشرية",
+        "أجزاء ميكانيكية",
+        "دوائر الروبوت"
+    ],
+    "id": [
+        "Lengan tambahan",
+        "Lengan serangga",
+        "Komponen mekanis",
+        "Sirkuit android"
+    ],
+    "vi": [
+        "Tay bổ sung",
+        "Tay côn trùng",
+        "Bộ phận cơ khí",
+        "Mạch android"
+    ],
+    "th": [
+        "แขนเพิ่มเติม",
+        "แขนแมลง",
+        "ชิ้นส่วนกลไก",
+        "วงจรแอนดรอยด์"
+    ],
+    "tr": [
+        "Ek kollar",
+        "Böcek kolları",
+        "Mekanik parçalar",
+        "Android devreleri"
+    ]
+};
+for (const [locale, labels] of Object.entries(RR_CHARACTER_MECHANICAL_TRANSLATIONS)) labels.forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_CHARACTER_MECHANICAL_LABELS[i]] = text; });
+
+// Non-humanoid body families and creature controls.
+const RR_CHARACTER_FORM_LABELS = ["Non-humanoid", "Aquatic", "Land animals", "Arthropods and crawlers", "Body type", "Surface", "Surface color", "Fin size", "Fin pairs", "Appendages", "Appendage length", "Leg pairs", "Body segments", "Eye count", "Bioluminescence", "Fish", "Cetacean", "Cephalopod", "Arthropod", "Worm", "Jellyfish", "Shark", "Dolphin", "Whale", "Octopus", "Squid", "Beetle", "Stingray", "Spider", "Crab", "Centipede", "Anglerfish", "Gliding", "Crawling", "Turning", "Attacking"];
+const RR_CHARACTER_FORM_TRANSLATIONS = {
+    "ja": "非人型|水生|陸生動物|節足動物と這う生物|体型|表面|表面の色|ひれの大きさ|ひれの対数|付属肢|付属肢の長さ|脚の対数|体節数|目の数|生物発光|魚|鯨類|頭足類|節足動物|ワーム|クラゲ|サメ|イルカ|クジラ|タコ|イカ|甲虫|エイ|クモ|カニ|ムカデ|アンコウ|滑空|這う|旋回|攻撃",
+    "es": "No humanoide|Acuáticos|Animales terrestres|Artrópodos y rastreros|Tipo de cuerpo|Superficie|Color de superficie|Tamaño de aletas|Pares de aletas|Apéndices|Longitud de apéndices|Pares de patas|Segmentos corporales|Número de ojos|Bioluminiscencia|Pez|Cetáceo|Cefalópodo|Artrópodo|Gusano|Medusa|Tiburón|Delfín|Ballena|Pulpo|Calamar|Escarabajo|Raya|Araña|Cangrejo|Ciempiés|Pez pescador|Planeando|Reptando|Girando|Atacando",
+    "zh-Hant": "非人形|水生|陸生動物|節肢及爬行生物|體型|表面|表面顏色|魚鰭大小|魚鰭對數|附肢|附肢長度|足部對數|體節數|眼睛數量|生物發光|魚|鯨類|頭足類|節肢動物|蠕蟲|水母|鯊魚|海豚|鯨魚|章魚|魷魚|甲蟲|魟魚|蜘蛛|螃蟹|蜈蚣|鮟鱇魚|滑行|爬行|轉向|攻擊",
+    "zh-Hans": "非人形|水生|陆生动物|节肢及爬行生物|体型|表面|表面颜色|鱼鳍大小|鱼鳍对数|附肢|附肢长度|足部对数|体节数|眼睛数量|生物发光|鱼|鲸类|头足类|节肢动物|蠕虫|水母|鲨鱼|海豚|鲸鱼|章鱼|鱿鱼|甲虫|魟鱼|蜘蛛|螃蟹|蜈蚣|鮟鱇鱼|滑行|爬行|转向|攻击",
+    "ru": "Негуманоиды|Водные|Наземные животные|Членистоногие и ползающие|Тип тела|Поверхность|Цвет поверхности|Размер плавников|Пары плавников|Придатки|Длина придатков|Пары ног|Сегменты тела|Число глаз|Биолюминесценция|Рыба|Китообразное|Головоногое|Членистоногое|Червь|Медуза|Акула|Дельфин|Кит|Осьминог|Кальмар|Жук|Скат|Паук|Краб|Сколопендра|Удильщик|Планирование|Ползание|Поворот|Атака",
+    "pt": "Não humanoide|Aquáticos|Animais terrestres|Artrópodes e rastejantes|Tipo de corpo|Superfície|Cor da superfície|Tamanho das barbatanas|Pares de barbatanas|Apêndices|Comprimento dos apêndices|Pares de pernas|Segmentos do corpo|Número de olhos|Bioluminescência|Peixe|Cetáceo|Cefalópode|Artrópode|Verme|Água-viva|Tubarão|Golfinho|Baleia|Polvo|Lula|Besouro|Arraia|Aranha|Caranguejo|Centopeia|Peixe-pescador|Planando|Rastejando|Virando|Atacando",
+    "de": "Nicht humanoid|Wassertiere|Landtiere|Gliederfüßer und Kriechtiere|Körperbau|Oberfläche|Oberflächenfarbe|Flossengröße|Flossenpaare|Anhänge|Länge der Anhänge|Beinpaare|Körpersegmente|Augenzahl|Biolumineszenz|Fisch|Walart|Kopffüßer|Gliederfüßer|Wurm|Qualle|Hai|Delfin|Wal|Oktopus|Kalmar|Käfer|Rochen|Spinne|Krabbe|Hundertfüßer|Anglerfisch|Gleiten|Kriechen|Wenden|Angreifen",
+    "fr": "Non humanoïde|Aquatiques|Animaux terrestres|Arthropodes et rampants|Type de corps|Surface|Couleur de surface|Taille des nageoires|Paires de nageoires|Appendices|Longueur des appendices|Paires de pattes|Segments du corps|Nombre d’yeux|Bioluminescence|Poisson|Cétacé|Céphalopode|Arthropode|Ver|Méduse|Requin|Dauphin|Baleine|Pieuvre|Calmar|Coléoptère|Raie|Araignée|Crabe|Centipède|Poisson-pêcheur|Planer|Ramper|Tourner|Attaquer",
+    "el": "Μη ανθρωποειδή|Υδρόβια|Χερσαία ζώα|Αρθρόποδα και έρποντα|Τύπος σώματος|Επιφάνεια|Χρώμα επιφάνειας|Μέγεθος πτερυγίων|Ζεύγη πτερυγίων|Αποφύσεις|Μήκος αποφύσεων|Ζεύγη ποδιών|Τμήματα σώματος|Αριθμός ματιών|Βιοφωταύγεια|Ψάρι|Κητώδες|Κεφαλόποδο|Αρθρόποδο|Σκουλήκι|Μέδουσα|Καρχαρίας|Δελφίνι|Φάλαινα|Χταπόδι|Καλαμάρι|Σκαθάρι|Σαλάχι|Αράχνη|Καβούρι|Σαρανταποδαρούσα|Πεσκανδρίτσα|Ολίσθηση|Έρπει|Στροφή|Επίθεση",
+    "ko": "비인간형|수생 동물|육상 동물|절지동물과 기어다니는 생물|체형|표면|표면 색상|지느러미 크기|지느러미 쌍|부속지|부속지 길이|다리 쌍|몸통 마디|눈 개수|생물 발광|물고기|고래류|두족류|절지동물|벌레|해파리|상어|돌고래|고래|문어|오징어|딱정벌레|가오리|거미|게|지네|아귀|활공|기어가기|회전|공격",
+    "it": "Non umanoide|Acquatici|Animali terrestri|Artropodi e striscianti|Tipo di corpo|Superficie|Colore della superficie|Dimensione delle pinne|Coppie di pinne|Appendici|Lunghezza appendici|Paia di zampe|Segmenti corporei|Numero di occhi|Bioluminescenza|Pesce|Cetaceo|Cefalopode|Artropode|Verme|Medusa|Squalo|Delfino|Balena|Polpo|Calamaro|Coleottero|Razza|Ragno|Granchio|Centopiedi|Pesce pescatore|Planata|Strisciare|Virata|Attacco",
+    "pl": "Niehumanoidalne|Wodne|Zwierzęta lądowe|Stawonogi i pełzające|Typ ciała|Powierzchnia|Kolor powierzchni|Rozmiar płetw|Pary płetw|Wyrostki|Długość wyrostków|Pary nóg|Segmenty ciała|Liczba oczu|Bioluminescencja|Ryba|Waleń|Głowonóg|Stawonóg|Robak|Meduza|Rekin|Delfin|Wieloryb|Ośmiornica|Kałamarnica|Chrząszcz|Płaszczka|Pająk|Krab|Parecznik|Żabnica|Szybowanie|Pełzanie|Skręcanie|Atak",
+    "ar": "غير بشري الشكل|مائية|حيوانات برية|مفصليات وكائنات زاحفة|نوع الجسم|السطح|لون السطح|حجم الزعانف|أزواج الزعانف|الزوائد|طول الزوائد|أزواج الأرجل|حلقات الجسم|عدد العيون|إضاءة حيوية|سمكة|حوتيات|رأسيات الأرجل|مفصليات الأرجل|دودة|قنديل البحر|قرش|دلفين|حوت|أخطبوط|حبار|خنفساء|سمكة الراي|عنكبوت|سلطعون|حريش|سمكة الصياد|انزلاق|زحف|دوران|هجوم",
+    "id": "Nonhumanoid|Akuatik|Hewan darat|Artropoda dan perayap|Tipe tubuh|Permukaan|Warna permukaan|Ukuran sirip|Pasangan sirip|Anggota tambahan|Panjang anggota tambahan|Pasangan kaki|Segmen tubuh|Jumlah mata|Bioluminesensi|Ikan|Cetacea|Sefalopoda|Artropoda|Cacing|Ubur-ubur|Hiu|Lumba-lumba|Paus|Gurita|Cumi-cumi|Kumbang|Pari|Laba-laba|Kepiting|Lipan|Ikan sungut ganda|Meluncur|Merayap|Berbelok|Menyerang",
+    "vi": "Phi nhân hình|Thủy sinh|Động vật trên cạn|Chân khớp và bò trườn|Kiểu cơ thể|Bề mặt|Màu bề mặt|Kích thước vây|Số cặp vây|Phần phụ|Chiều dài phần phụ|Số cặp chân|Đốt cơ thể|Số mắt|Phát quang sinh học|Cá|Bộ Cá voi|Động vật chân đầu|Động vật chân khớp|Giun|Sứa|Cá mập|Cá heo|Cá voi|Bạch tuộc|Mực|Bọ cánh cứng|Cá đuối|Nhện|Cua|Rết|Cá cần câu|Lướt|Bò trườn|Quay|Tấn công",
+    "th": "ไม่ใช่มนุษย์|สัตว์น้ำ|สัตว์บก|สัตว์ขาปล้องและสัตว์เลื้อยคลาน|ประเภทร่างกาย|พื้นผิว|สีพื้นผิว|ขนาดครีบ|คู่ครีบ|รยางค์|ความยาวรยางค์|คู่ขา|ปล้องลำตัว|จำนวนตา|การเรืองแสงชีวภาพ|ปลา|สัตว์จำพวกวาฬ|สัตว์จำพวกหมึก|สัตว์ขาปล้อง|หนอน|แมงกะพรุน|ฉลาม|โลมา|วาฬ|หมึกสาย|หมึกกล้วย|ด้วง|ปลากระเบน|แมงมุม|ปู|ตะขาบ|ปลาแองเกลอร์|ร่อน|คลาน|เลี้ยว|โจมตี",
+    "tr": "İnsansı olmayan|Sucul|Kara hayvanları|Eklem bacaklılar ve sürünenler|Gövde tipi|Yüzey|Yüzey rengi|Yüzgeç boyutu|Yüzgeç çiftleri|Uzantılar|Uzantı uzunluğu|Bacak çiftleri|Gövde bölümleri|Göz sayısı|Biyolüminesans|Balık|Deniz memelisi|Kafadan bacaklı|Eklem bacaklı|Solucan|Denizanası|Köpekbalığı|Yunus|Balina|Ahtapot|Kalamar|Kın kanatlı|Vatoz|Örümcek|Yengeç|Kırkayak|Fener balığı|Süzülme|Sürünme|Dönme|Saldırı"
+};
+for (const [locale, labels] of Object.entries(RR_CHARACTER_FORM_TRANSLATIONS)) labels.split("|").forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_CHARACTER_FORM_LABELS[i]] = text; });
+
+// Editable Ferengi bridge/brow relief.
+for (const [locale, text] of Object.entries({ja:'鼻のひだ',es:'Pliegues nasales',fr:'Plis du nez',de:'Nasenfalten',pt:'Pregas nasais',ru:'Складки носа',ko:'코 주름','zh-Hans':'鼻部褶皱','zh-Hant':'鼻部褶皺',it:'Pieghe nasali',pl:'Fałdy nosa',ar:'طيات الأنف',id:'Lipatan hidung',vi:'Nếp gấp mũi',th:'รอยพับจมูก',tr:'Burun kıvrımları',el:'Πτυχές μύτης'})) if (RR_TEXT_TRANSLATIONS[locale]) RR_TEXT_TRANSLATIONS[locale]['Nose folds'] = text;
+
+// Anatomical marine variants and controls.
+// Body settings section for swimming appendages.
+for (const [locale, label] of Object.entries({"ja": "ひれ", "es": "Aletas", "zh-Hant": "魚鰭", "zh-Hans": "鱼鳍", "ru": "Плавники", "pt": "Barbatanas", "de": "Flossen", "fr": "Nageoires", "ko": "지느러미", "it": "Pinne", "pl": "Płetwy", "el": "Πτερύγια", "id": "Sirip", "vi": "Vây", "th": "ครีบ", "tr": "Yüzgeçler", "ar": "الزعانف"})) RR_TEXT_TRANSLATIONS[locale]['Fins'] = label;
+
+const RR_CHARACTER_MARINE_LABELS = ["Shark type", "Great white", "Tiger shark", "Bull shark", "Hammerhead", "Shortfin mako", "Thresher", "Whale shark", "Whale type", "Humpback", "Blue whale", "Orca", "Fish type", "Reef fish", "Yellowfin tuna", "Salmon", "Jaw opening", "Tooth size", "Dorsal height"];
+const RR_CHARACTER_MARINE_TRANSLATIONS = {
+    "ja": "サメの種類|ホホジロザメ|イタチザメ|オオメジロザメ|シュモクザメ|アオザメ|オナガザメ|ジンベエザメ|クジラの種類|ザトウクジラ|シロナガスクジラ|シャチ|魚の種類|サンゴ礁の魚|キハダマグロ|サケ|口の開き|歯の大きさ|背びれの高さ",
+    "es": "Tipo de tiburón|Tiburón blanco|Tiburón tigre|Tiburón toro|Tiburón martillo|Marrajo común|Tiburón zorro|Tiburón ballena|Tipo de ballena|Ballena jorobada|Ballena azul|Orca|Tipo de pez|Pez de arrecife|Atún de aleta amarilla|Salmón|Apertura de mandíbula|Tamaño de dientes|Altura de aleta dorsal",
+    "zh-Hant": "鯊魚種類|大白鯊|虎鯊|公牛鯊|雙髻鯊|尖吻鯖鯊|長尾鯊|鯨鯊|鯨魚種類|座頭鯨|藍鯨|虎鯨|魚類種類|珊瑚礁魚|黃鰭鮪|鮭魚|張嘴程度|牙齒大小|背鰭高度",
+    "zh-Hans": "鲨鱼种类|大白鲨|虎鲨|公牛鲨|双髻鲨|尖吻鲭鲨|长尾鲨|鲸鲨|鲸鱼种类|座头鲸|蓝鲸|虎鲸|鱼类种类|珊瑚礁鱼|黄鳍金枪鱼|鲑鱼|张嘴程度|牙齿大小|背鳍高度",
+    "ru": "Вид акулы|Белая акула|Тигровая акула|Бычья акула|Акула-молот|Короткопёрый мако|Акула-лисица|Китовая акула|Вид кита|Горбатый кит|Синий кит|Косатка|Вид рыбы|Рифовая рыба|Желтопёрый тунец|Лосось|Раскрытие челюсти|Размер зубов|Высота спинного плавника",
+    "pt": "Tipo de tubarão|Tubarão-branco|Tubarão-tigre|Tubarão-cabeça-chata|Tubarão-martelo|Tubarão-mako|Tubarão-raposa|Tubarão-baleia|Tipo de baleia|Baleia-jubarte|Baleia-azul|Orca|Tipo de peixe|Peixe de recife|Atum-albacora|Salmão|Abertura da mandíbula|Tamanho dos dentes|Altura da barbatana dorsal",
+    "de": "Haiart|Weißer Hai|Tigerhai|Bullenhai|Hammerhai|Kurzflossen-Mako|Fuchshai|Walhai|Walart|Buckelwal|Blauwal|Orca|Fischart|Rifffisch|Gelbflossen-Thunfisch|Lachs|Kieferöffnung|Zahngröße|Rückenflossenhöhe",
+    "fr": "Type de requin|Grand requin blanc|Requin-tigre|Requin-bouledogue|Requin-marteau|Requin mako|Requin-renard|Requin-baleine|Type de baleine|Baleine à bosse|Baleine bleue|Orque|Type de poisson|Poisson de récif|Thon albacore|Saumon|Ouverture de la mâchoire|Taille des dents|Hauteur de la nageoire dorsale",
+    "el": "Είδος καρχαρία|Λευκός καρχαρίας|Καρχαρίας τίγρης|Ταυροκαρχαρίας|Σφυροκέφαλος|Κοντόπτερος μάκο|Αλεπόσκυλος|Φαλαινοκαρχαρίας|Είδος φάλαινας|Καμπούρα φάλαινα|Γαλάζια φάλαινα|Όρκα|Είδος ψαριού|Ψάρι υφάλου|Κιτρινόπτερος τόνος|Σολομός|Άνοιγμα γνάθου|Μέγεθος δοντιών|Ύψος ραχιαίου πτερυγίου",
+    "ko": "상어 종류|백상아리|뱀상어|황소상어|귀상어|청상아리|환도상어|고래상어|고래 종류|혹등고래|대왕고래|범고래|물고기 종류|산호초 물고기|황다랑어|연어|턱 벌림|이빨 크기|등지느러미 높이",
+    "it": "Tipo di squalo|Squalo bianco|Squalo tigre|Squalo leuca|Squalo martello|Mako dalle pinne corte|Squalo volpe|Squalo balena|Tipo di balena|Megattera|Balenottera azzurra|Orca|Tipo di pesce|Pesce di barriera|Tonno pinna gialla|Salmone|Apertura della mascella|Dimensione dei denti|Altezza della pinna dorsale",
+    "pl": "Gatunek rekina|Żarłacz biały|Żarłacz tygrysi|Żarłacz tępogłowy|Rekin młot|Ostronos atlantycki|Kosogon|Rekin wielorybi|Gatunek wieloryba|Humbak|Płetwal błękitny|Orka|Gatunek ryby|Ryba rafowa|Tuńczyk żółtopłetwy|Łosoś|Rozwarcie szczęk|Rozmiar zębów|Wysokość płetwy grzbietowej",
+    "ar": "نوع القرش|القرش الأبيض الكبير|القرش النمري|القرش الثور|قرش المطرقة|قرش ماكو قصير الزعانف|القرش الدراس|القرش الحوتي|نوع الحوت|الحوت الأحدب|الحوت الأزرق|الأوركا|نوع السمكة|سمكة الشعاب|التونة صفراء الزعانف|السلمون|فتحة الفك|حجم الأسنان|ارتفاع الزعنفة الظهرية",
+    "id": "Jenis hiu|Hiu putih besar|Hiu macan|Hiu banteng|Hiu martil|Hiu mako sirip pendek|Hiu tikus|Hiu paus|Jenis paus|Paus bungkuk|Paus biru|Orca|Jenis ikan|Ikan karang|Tuna sirip kuning|Salmon|Bukaan rahang|Ukuran gigi|Tinggi sirip punggung",
+    "vi": "Loài cá mập|Cá mập trắng lớn|Cá mập hổ|Cá mập bò|Cá mập đầu búa|Cá mập mako vây ngắn|Cá mập đuôi dài|Cá mập voi|Loài cá voi|Cá voi lưng gù|Cá voi xanh|Cá voi sát thủ|Loài cá|Cá rạn san hô|Cá ngừ vây vàng|Cá hồi|Độ mở hàm|Kích thước răng|Chiều cao vây lưng",
+    "th": "ชนิดฉลาม|ฉลามขาว|ฉลามเสือ|ฉลามหัวบาตร|ฉลามหัวค้อน|ฉลามมาโกครีบสั้น|ฉลามหางยาว|ฉลามวาฬ|ชนิดวาฬ|วาฬหลังค่อม|วาฬสีน้ำเงิน|วาฬเพชฌฆาต|ชนิดปลา|ปลาแนวปะการัง|ปลาทูน่าครีบเหลือง|ปลาแซลมอน|การอ้าขากรรไกร|ขนาดฟัน|ความสูงครีบหลัง",
+    "tr": "Köpekbalığı türü|Büyük beyaz|Kaplan köpekbalığı|Boğa köpekbalığı|Çekiç başlı köpekbalığı|Sivriburun mako|Sapan köpekbalığı|Balina köpekbalığı|Balina türü|Kambur balina|Mavi balina|Orka|Balık türü|Resif balığı|Sarı yüzgeçli orkinos|Somon|Çene açıklığı|Diş boyutu|Sırt yüzgeci yüksekliği"
+};
+for (const [locale, labels] of Object.entries(RR_CHARACTER_MARINE_TRANSLATIONS)) labels.split("|").forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_CHARACTER_MARINE_LABELS[i]] = text; });
+
+// Distinct natural worms and the Goa'uld symbiote variant.
+const RR_CHARACTER_WORM_LABELS = ["Worm type", "Earthworm", "Tapeworm", "Leech", "Roundworm", "Bristleworm", "Goa'uld"];
+const RR_CHARACTER_WORM_TRANSLATIONS = {
+    "ja": "ワームの種類|ミミズ|サナダムシ|ヒル|線虫|ゴカイ|ゴアウルド",
+    "es": "Tipo de gusano|Lombriz de tierra|Tenia|Sanguijuela|Nematodo|Gusano de cerdas|Goa'uld",
+    "zh-Hant": "蠕蟲種類|蚯蚓|絛蟲|水蛭|線蟲|多毛蟲|勾阿烏德",
+    "zh-Hans": "蠕虫种类|蚯蚓|绦虫|水蛭|线虫|多毛虫|勾阿乌德",
+    "ru": "Вид червя|Дождевой червь|Ленточный червь|Пиявка|Круглый червь|Многощетинковый червь|Гоа'улд",
+    "pt": "Tipo de verme|Minhoca|Tênia|Sanguessuga|Nematódeo|Poliqueta|Goa'uld",
+    "de": "Wurmart|Regenwurm|Bandwurm|Blutegel|Fadenwurm|Borstenwurm|Goa'uld",
+    "fr": "Type de ver|Ver de terre|Ténia|Sangsue|Nématode|Ver à soies|Goa'uld",
+    "el": "Είδος σκουληκιού|Γαιοσκώληκας|Ταινία|Βδέλλα|Νηματώδης|Πολύχαιτος|Γκοά'ουλντ",
+    "ko": "벌레 종류|지렁이|촌충|거머리|선충|다모류|고아울드",
+    "it": "Tipo di verme|Lombrico|Tenia|Sanguisuga|Nematode|Polichete|Goa'uld",
+    "pl": "Typ robaka|Dżdżownica|Tasiemiec|Pijawka|Nicień|Wieloszczet|Goa'uld",
+    "ar": "نوع الدودة|دودة الأرض|دودة شريطية|علقة|دودة أسطوانية|دودة عديدة الأشواك|غواؤولد",
+    "id": "Jenis cacing|Cacing tanah|Cacing pita|Lintah|Cacing gilig|Cacing bulu|Goa'uld",
+    "vi": "Loại giun|Giun đất|Sán dây|Đỉa|Giun tròn|Giun nhiều tơ|Goa'uld",
+    "th": "ชนิดหนอน|ไส้เดือนดิน|พยาธิตัวตืด|ปลิง|หนอนตัวกลม|แม่เพรียง|โกอาอูลด์",
+    "tr": "Solucan türü|Toprak solucanı|Tenya|Sülük|Yuvarlak solucan|Kıllı solucan|Goa'uld"
+};
+for (const [locale, labels] of Object.entries(RR_CHARACTER_WORM_TRANSLATIONS)) labels.split("|").forEach((text, i) => { RR_TEXT_TRANSLATIONS[locale][RR_CHARACTER_WORM_LABELS[i]] = text; });

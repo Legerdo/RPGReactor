@@ -120,6 +120,32 @@ test('closing during stylesheet loading keeps a mounted workspace hidden', async
     assert.equal(f.calls.some(call => call[0] === 'show'), false, 'hide wins even if the overlay remains in the document');
 });
 
+test('native window focus hands preview work back and forth and pauses it outside the application', async () => {
+    const fixture = opening();
+    fixture.world.document.addEventListener = () => {};
+    const helper = fixture.world.RRDetachedWindow;
+    let changes = 0;
+    const off = helper.onPreviewActivity(() => changes++);
+    fixture.api.open(fixture.overlay); fixture.created(); fixture.loaded(); await fixture.styled(); fixture.tick(50);
+    const content = { ownerDocument: fixture.doc };
+    assert.equal(helper.previewActive(content), true);
+    assert.equal(helper.previewActive(), false);
+    const main = fixture.world.nw.Window.get();
+    main.emit('focus');
+    assert.equal(helper.previewActive(), true);
+    assert.equal(helper.previewActive(content), false);
+    main.emit('blur');
+    assert.equal(helper.previewActive(), false);
+    fixture.win.emit('focus');
+    assert.equal(helper.previewActive(content), true);
+    fixture.win.emit('blur');
+    assert.equal(helper.previewActive(content), false);
+    main.emit('focus');
+    assert.equal(helper.previewActive(), true);
+    assert.ok(changes >= 5);
+    off();
+});
+
 function mediaOpening() {
     const f = opening();
     vm.runInNewContext(fs.readFileSync(path.join(root, 'src/event/commands/MediaSurfaceEditor.js'), 'utf8'), f.world);

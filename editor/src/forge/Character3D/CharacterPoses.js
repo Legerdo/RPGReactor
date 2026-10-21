@@ -71,7 +71,7 @@
     function savedModel(result, set) {
         if (!result || !result.bones || !result.bones.some(b => b.name === 'LeftArm')) return null;
         const body = (result.parts || []).find(p => p.name === 'Body');
-        const clips = Library.gameClips(result.bones, body, set);
+        const clips = api.gameClips(result.bones, body, set);
         const names = new Set(['Idle'].concat(clips.map(c => c.name)));
         const animations = Library.SLOTS.filter(([, , clip]) => names.has(clip)).map(([name, trigger, clip]) => ({ name, type: 'clip', trigger, clip }));
         if (result.recipe && result.recipe.species === 'merfolk' && (result.clips || []).some(c => c.name === 'Tread')) {
@@ -87,6 +87,9 @@
 
 
     const api = Object.assign(Object.create(null), Library, { savedModel, humanoidRig });
+    const follow = (bones, clip) => need('RRCharacterSpecies', './CharacterSpecies.js')?.followMotion(bones, clip) || clip;
+    api.clip = (bones, ...args) => follow(bones, Library.clip(bones, ...args));
+    api.gameClips = (bones, ...args) => Library.gameClips(bones, ...args).map(clip => follow(bones, clip));
     // The library itself keeps its own state (its data); the builder reaches it through this one name.
     for (const key of Object.keys(Library)) if (typeof Library[key] !== 'function') Object.defineProperty(api, key, { get: () => Library[key], set: v => { Library[key] = v; }, enumerable: true });
     root.RRCharacterPoses = api;

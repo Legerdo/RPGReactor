@@ -72,7 +72,7 @@
         { id: 'crouchWalk', label: 'Walking crouched', group: 'move', hands: both('relaxed') },
         { id: 'sword', label: 'Sword swing', group: 'fight', hands: both('sword'), aim: 'hilt', wrist: { flex: 0, bend: [[0, -10], [0.3, -38], [0.5, -34], [0.66, 6], [0.8, 32], [0.92, 20], [1, -10]] } },
         { id: 'swordThrust', label: 'Thrust', group: 'fight', hands: both('sword'), aim: 'thrust' },
-        { id: 'bow', label: 'Bow', group: 'fight', hands: { Left: 'sword', Right: 'grab' }, aim: 'bow' },
+        { id: 'bow', label: 'Bow', group: 'fight', hands: { Left: 'sword', Right: [[0, 'archerDraw'], [1.36, 'archerDraw'], [1.48, 'open'], [1.68, 'open'], [2, 'archerDraw']] }, aim: 'bow' },
         { id: 'defend', label: 'Guarding', group: 'fight', hands: both('fist'), wrist: { flex: 0, bend: 4 } },
         { id: 'hit', label: 'Taking a hit', group: 'fight', hands: both('looseFist'), wrist: { flex: 0, bend: 4 } },
         { id: 'death', label: 'Falling dead', group: 'fight', hands: both('relaxed') },
@@ -231,6 +231,7 @@
         support: { Index: finger(46, 54, 28), Middle: finger(52, 60, 30), Ring: finger(56, 62, 30), Pinky: finger(60, 62, 30), spread: -2, thumb: [24, 12, 20, 10], gap: 0.04 },
         sword: { Index: finger(78, 94, 50), Middle: finger(82, 96, 50), Ring: finger(86, 96, 50), Pinky: finger(88, 94, 48), spread: -2, thumb: [30, 18, 30, 22], gap: 0.03 },
         grab: { Index: finger(60, 76, 40), Middle: finger(64, 80, 42), Ring: finger(68, 80, 42), Pinky: finger(72, 80, 42), spread: 2, thumb: [24, 12, 22, 16], gap: 0.03 },
+        archerDraw: { Index: finger(25, 85, 40), Middle: finger(25, 85, 40), Ring: finger(25, 85, 40), Pinky: finger(60, 70, 30), spread: 0, thumb: [0, 0, 5, 2] },
         flat: { Index: finger(-8, 0, 0), Middle: finger(-8, 0, 0), Ring: finger(-8, 0, 0), Pinky: finger(-8, 0, 0), spread: 6, thumb: [-14, 0, 0, 0] }
     };
     /** How far each finger joint turns (degrees): knuckle, middle, end; the spread; the thumb's base, roll and two joints. */
@@ -966,12 +967,14 @@
     };
     AIMS.bow = (ctx, f) => {
         const { pos } = ctx.place(f), head = pos[ctx.index.get('Head')], sh = pos[ctx.index.get('LeftArm')], u = ctx.times[f] / ctx.period;
-        const draw = ease(Math.max(0, Math.min(1, (u - 0.1) / 0.3))), release = ease(Math.max(0, Math.min(1, (u - 0.62) / 0.1)));
-        const left = [sh[0] * 0.55, sh[1] + 0.04 * ctx.scale, sh[2] + ctx.reach.Left * 0.84];
-        const right = [head[0] - 0.075 * ctx.scale, sh[1] + 0.055 * ctx.scale, left[2] - ctx.reach.Right * (0.23 + 0.62 * draw) - 0.07 * ctx.scale * release];
+        const draw = ease(Math.max(0, Math.min(1, (u - 0.1) / 0.35))) * (1 - ease(Math.max(0, Math.min(1, (u - 0.82) / 0.18))));
+        const release = ease(Math.max(0, Math.min(1, (u - 0.68) / 0.06))) * (1 - ease(Math.max(0, Math.min(1, (u - 0.82) / 0.18))));
+        const left = [head[0] + 0.015 * ctx.scale, sh[1] + 0.10 * ctx.scale, sh[2] + ctx.reach.Left * 0.88];
+        const anchor = [head[0] - 0.045 * ctx.scale, left[1] + 0.006 * ctx.scale, head[2] - 0.015 * ctx.scale];
+        const right = [anchor[0], anchor[1] - 0.008 * ctx.scale * release, (left[2] - 0.08 * ctx.scale) * (1 - draw) + anchor[2] * draw - 0.025 * ctx.scale * release];
         return [['Left', left, [0, 0, 1], [0, 1, 0]], ['Right', right, [0, -1, 0], [0, 0, 1]]].map(([S, at, d, thumb]) => {
             const turn = handTurn(ctx.F[S], d, thumb);
-            return { S, wrist: sub(at, rotate(turn, ctx.grip[S])), turn, pole: unit([S === 'Left' ? 1 : -1, -0.25, -0.5]) };
+            return { S, wrist: sub(at, rotate(turn, ctx.grip[S])), turn, pole: unit(S === 'Left' ? [1, -0.05, -0.2] : [-0.6, 0.3, -1]) };
         });
     };
     AIMS.ladder = (ctx, f) => climb(ctx, f, false);
@@ -1035,6 +1038,14 @@
             for (let i = 0; i < steps; i++) out[i] = mul([v[i * 4], v[i * 4 + 1], v[i * 4 + 2], v[i * 4 + 3]], r);
             return out;
         });
+        if (id === 'bow') {
+            // A quiet side-on archery stance; a looping boxing capture made the bow hand wander.
+            names.forEach((name, k) => {
+                const yaw = name === 'Head' ? 0 : name === 'Neck' ? -25 : -60;
+                const turn = mul(quat(0, 1, 0, yaw * DEG), world[k][Math.min(10, steps - 1)]);
+                for (let f = 0; f < steps; f++) world[k][f] = turn.slice();
+            });
+        }
         const slot = new Map(names.map((n, k) => [index.get(n), k]));
         const turnAt = (i, f) => {
             for (let b = i; b >= 0; b = bones[b].parent) if (slot.has(b)) return world[slot.get(b)][f];
@@ -1083,6 +1094,28 @@
         };
         // Resting on the body (kneeling, sitting, lying), a foot just off the floor turns at the ankle to rest on it.
         if (cap.skin) settleFeet(bones, index, names, world, steps, place, stand(), scale, !cap.once);
+        if (id === 'frontFlip' || id === 'backFlip') {
+            // Foot markers often disappear during inversion and return pointing
+            // down or backward. Recover the landing orientation before contact,
+            // rather than letting the ankle correction chase those lost markers.
+            const hips = index.get('Hips'), direction = id === 'frontFlip' ? 1 : -1;
+            let previous = 0, angle = 0, first = 0;
+            for (let f = 0; f < steps; f++) {
+                const h = turnAt(hips, f), up = rotate(h, [0, 1, 0]), value = Math.atan2(up[2], up[1]);
+                if (!f) { first = value; angle = value; }
+                else { let delta = value - previous; if (delta > Math.PI) delta -= Math.PI * 2; if (delta < -Math.PI) delta += Math.PI * 2; angle += delta; }
+                previous = value;
+                const progress = (angle - first) * direction;
+                const u = Math.max(0, Math.min(1, (progress - (2 * Math.PI - 1.0)) / 0.65));
+                if (!u) continue;
+                const front = rotate(h, [0, 0, 1]), yaw = Math.atan2(front[0], front[2]);
+                const turn = quat(0, 1, 0, yaw), mix = u * u * (3 - 2 * u);
+                for (const S of ['Left', 'Right']) for (const name of ['Foot', 'ToeBase']) {
+                    const k = names.indexOf(S + name);
+                    if (k >= 0) world[k][f] = slerp4(world[k][f], turn, mix);
+                }
+            }
+        }
         limitLegs(index, names, world, steps, turnAt, bones, !cap.hang, cap.once);
         const heights = stand();
         const tracks = names.map((n, k) => {
@@ -1103,6 +1136,30 @@
 
         for (const t of handTracks(frames, pose && pose.hands, times)) tracks.push(t);
 
+        if (id === 'frontFlip' || id === 'backFlip') {
+            // Foot-based replanting during inversion makes the hips bounce toward the floor.
+            // Keep one continuous ballistic root arc between takeoff and landing instead.
+            const hips = index.get('Hips'), progress = [], direction = id === 'frontFlip' ? 1 : -1;
+            let previous = 0, angle = 0, first = 0;
+            for (let f = 0; f < steps; f++) {
+                const up = rotate(turnAt(hips, f), [0, 1, 0]), value = Math.atan2(up[2], up[1]);
+                if (!f) { first = value; angle = value; }
+                else { let delta = value - previous; if (delta > Math.PI) delta -= Math.PI * 2; if (delta < -Math.PI) delta += Math.PI * 2; angle += delta; }
+                progress.push((angle - first) * direction); previous = value;
+            }
+            const launch = progress.findIndex(q => q > 0.35), landing = progress.findIndex((q, f) => f > launch && q > Math.PI * 2 - 0.45);
+            if (launch >= 0 && landing > launch) {
+                const from = Math.max(0, launch - 2), to = Math.min(steps - 1, landing + 2), low = body ? skinLows(bones, { times, tracks, heights: new Float32Array(steps) }, body) : null;
+                const start = heights[from], end = heights[to];
+                let apex = legLength * 0.7;
+                if (low) for (let f = from + 2; f < to - 1; f++) {
+                    const u = (f - from) / (to - from), arc = 4 * u * (1 - u), base = start * (1 - u) + end * u;
+                    apex = Math.max(apex, (0.04 * scale - low[f] - base) / arc);
+                }
+                for (let f = from; f <= to; f++) { const u = (f - from) / (to - from); heights[f] = start * (1 - u) + end * u + apex * 4 * u * (1 - u); }
+            }
+        }
+
         const period = times[steps - 1] || 1;
         return {
             name: id, times, tracks, heights, skin: !!cap.skin, once: !!cap.once,
@@ -1122,7 +1179,11 @@
         if (!index.has('LeftArm') || !index.has('LeftForeArm') || !index.has('LeftUpLeg')) return null;
         const authored = id === 'swordThrust' || id === 'bow';
         const source = take(authored ? 'fight' : id);
-        const cap = authored && source ? Object.assign({}, source, { once: true }) : source;
+        let cap = authored && source ? Object.assign({}, source, { once: true }) : source;
+        if (id === 'bow' && cap) {
+            const frames = 61;
+            cap = Object.assign({}, cap, { frames, fps: 30, rise: new Float32Array(frames), bones: Object.fromEntries(Object.entries(cap.bones).map(([name, values]) => [name, Float32Array.from({ length: frames * 4 }, (_, i) => values[Math.min(10, source.frames - 1) * 4 + i % 4])])) });
+        }
         return cap ? captured(bones, id, cap, body, POSES.find(p => p.id === id), options) : null;
     }
 

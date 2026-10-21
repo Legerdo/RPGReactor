@@ -85,7 +85,7 @@ test('classic worker entry sequences asynchronous asset loading before off-page 
             register() { throw Error('built-in must keep existing definition'); }, unregister() {} },
         RRCharacterModel: { build(pack, recipe, cache, options) {
             calls.push(['build', recipe.name, options.eyeSource?.width, cache.wardrobe.emblemPictures.size]);
-            return { height: 1.7, parts: [{ name: 'Body', positions: modelArray, index: Uint16Array.of(0), joints: Uint8Array.of(0) }], textures: { skin: { width: 1, height: 1, data: pixels } } };
+            return { height: 1.7, parts: [{ name: 'Body', keepColors: true, positions: modelArray, index: Uint16Array.of(0), joints: Uint8Array.of(0) }], textures: { skin: { width: 1, height: 1, repeat: true, data: pixels } } };
         } },
         postMessage(message, transfers) { messages.push({ message, transfers }); }
     };
@@ -101,6 +101,8 @@ test('classic worker entry sequences asynchronous asset loading before off-page 
     resolvePack({}); await new Promise(setImmediate); await new Promise(setImmediate);
     assert.deepEqual(calls.filter(c => c[0] === 'build'), [['build', 'old', 42, 1], ['build', 'new', 43, 0]]);
     assert.equal(messages.length, 2); assert.equal(messages[0].message.result.parts[0].joints, undefined);
+    assert.equal(messages[0].message.result.parts[0].keepColors, true);
+    assert.equal(messages[0].message.result.textures.skin.repeat, true);
     assert.notEqual(messages[0].message.result.parts[0].positions.buffer, modelArray.buffer);
     assert.equal(messages[0].transfers.length, 3); assert.ok(messages[0].message.result.stats.bytes > 0);
     assert.equal(modelArray[1], 1); assert.equal(pixels[3], 255);
@@ -121,4 +123,29 @@ test('unsupported browser decoding returns an explicit placeholder error without
     await new Promise(setImmediate);
     assert.equal(messages.length, 1); assert.equal(messages[0].id, 1);
     assert.equal(messages[0].error.code, 'PREVIEW_WORKER_UNAVAILABLE');
+});
+
+test('browser static thumbnails reduce eyes and transferred pictures without altering full-quality sources', async () => {
+    const messages = [], picture = { width: 512, height: 256, data: new Uint8Array(512 * 256 * 4).fill(255) };
+    const self = { location: { href: 'https://example.test/CharacterPreviewBrowserEntry.js' },
+        RRCharacterPreviewTextures: require('../src/forge/Character3D/CharacterPreviewTextures.js'),
+        RRHumanBody: { async loadPack() { return {}; } }, RRCharacterClothes: { async preload() {} },
+        RRCharacterWardrobe: { BY_ID: new Map() },
+        RRCharacterOutfitTransfer: { BUILT_IN: [], store: { outfits: new Map(), pictures: new Map(), tints: new Map() } },
+        RRCharacterModel: { build(pack, recipe, cache, options) {
+            assert.equal(options.static, true); assert.equal(options.eyeSource.width, 128);
+            return { height: 1, parts: [{ texture: 'color', normalTexture: 'relief' }], textures: { color: picture, relief: picture } };
+        } }, postMessage(message) { messages.push(message); } };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/forge/Character3D/CharacterPreviewBrowserEntry.js'), 'utf8'), {
+        self, importScripts() {}, URL, Map, Set, performance, OffscreenCanvas: function() {}, createImageBitmap() {}
+    });
+    self.onmessage({ data: { type: 'context', context: { eyeSource: picture } } });
+    self.onmessage({ data: { type: 'build', id: 1, recipe: {}, options: { static: true, atlasSize: 64 } } });
+    await new Promise(setImmediate);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].error, undefined);
+    assert.deepEqual(Object.keys(messages[0].result.textures), ['color', 'relief']);
+    assert.equal(messages[0].result.textures.color.width, 64);
+    assert.equal(picture.width, 512);
+    assert.equal(picture.data.length, 512 * 256 * 4);
 });

@@ -156,7 +156,7 @@ test('pose picker sorts translated names, preserves choice and refreshes for a d
     ctx.RRCharacterPoses.POSES=[{id:'new',label:'A new pose'}];b._syncPose();
     assert.ok(picker.innerHTML.includes('A new pose')&&!picker.innerHTML.includes('Pistol aim'));
     b._t=s=>s==='Idle'?'& <Idle>':s;b._syncPose();assert.ok(picker.innerHTML.includes('&amp; &lt;Idle>'));
-    ctx.cancelAnimationFrame=()=>{};ctx.RRCreatureBody={POSES:[{id:'trot',label:'Trot'}]};
+    ctx.cancelAnimationFrame=()=>{};ctx.RRCreatureBody={POSES:[{id:'trot',label:'Trot'}],posesFor(){return this.POSES;}};
     b._view={plan:'quadruped',bones:[],group:{position:{y:0}}};b._poseAction=()=>null;b._draw=()=>{};
     b.pose='new';b._syncPose();assert.equal(picker.value,'idle');assert.ok(picker.innerHTML.includes('Trot')&&!picker.innerHTML.includes('A new pose'));
     ctx.RRSlimeBody={POSES:[{id:'wobble',label:'Wobble'}]};b._view.plan='slime';b._syncPose();

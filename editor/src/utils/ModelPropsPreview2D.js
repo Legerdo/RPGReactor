@@ -192,9 +192,9 @@ class ModelPropsPreview2D {
     }
 
     ensureViewport() {
+        const pixi = this.app?.renderer;
+        if (!pixi?.gl || pixi.context?.webGLVersion !== 2 || pixi.gl.isContextLost?.()) return null;
         if (this.viewport) return this.viewport;
-        const pixi = this.app.renderer;
-        if (!pixi.gl || pixi.context.webGLVersion !== 2) return null;
         // Only the context-independent target methods are used. Do not create
         // the runtime singleton or replace its Graphics._app with the editor.
         const viewport = Object.create(Reactor3D.Viewport.prototype);
@@ -210,6 +210,8 @@ class ModelPropsPreview2D {
     }
 
     expand(entry) {
+        const gl = this.app?.renderer?.gl;
+        if (!gl || gl.isContextLost?.()) return;
         // Cached rigid/bone boxes, never a per-frame vertex scan.
         const box = this._box || (this._box = new THREE.Box3());
         const piece = this._piece || (this._piece = new THREE.Box3());
@@ -232,7 +234,7 @@ class ModelPropsPreview2D {
         const reach = Math.hypot(...['x', 'y', 'z'].map(axis => Math.max(Math.abs(box.min[axis]), Math.abs(box.max[axis]))));
         if (reach <= entry.radius) return;
         entry.radius = reach * 1.1;
-        entry.size = Math.min(4096, this.app.renderer.gl.getParameter(this.app.renderer.gl.MAX_TEXTURE_SIZE),
+        entry.size = Math.min(4096, gl.getParameter(gl.MAX_TEXTURE_SIZE),
             Math.ceil(entry.radius * 2 * entry.pixelsPerUnit));
         const camera = entry.camera, r = entry.radius;
         camera.left = camera.bottom = -r; camera.right = camera.top = r;

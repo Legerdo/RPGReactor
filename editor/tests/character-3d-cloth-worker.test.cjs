@@ -60,6 +60,21 @@ test('a one-shot cloth bake in the worker matches the synchronous bake, includin
     assert.deepEqual(b.errors, []);
 });
 
+test('a real summer dress sends its fabric faces to the worker and bakes the same contact correction', async () => {
+    const Model = require('../src/forge/Character3D/CharacterModel.js');
+    const Body = require('../src/forge/Character3D/HumanBody.js');
+    const Poses = require('../src/forge/Character3D/CharacterPoses.js');
+    const pack = await Body.loadPack(), b = browser();
+    const result = Model.build(pack, { age: 30, gender: 0, outfit: [{ id: 'dress' }], hair: { style: 'bald' } }, {}, { quality: 'preview', skinSize: 32 });
+    const raw = Poses.clip(result.bones, 'kneel', result.parts[0]);
+    const copy = structuredClone(result);
+    const actual = await b.api.bakeAsync(copy, raw, { quality: 'preview' });
+    const expected = Cloth.bake(result, raw, { quality: 'preview' });
+    assert.deepEqual(clothTracks(actual), clothTracks(expected));
+    assert.ok(b.jobs.find(j => j.build).build.parts.some(p => p?.index?.length > 100));
+    assert.deepEqual(b.errors, []);
+});
+
 test('returning to a build evicted by four newer builds bakes in the worker', async () => {
     const b = browser(), first = fixture('first');
     await b.api.bakeAsync(first, clip('first'), { quality: 'preview' });

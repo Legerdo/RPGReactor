@@ -602,3 +602,12 @@ test('the collapse sound row names whatever its own Collapse Effect row names', 
     assert.equal(text.ja['Collapse Sound'], '消滅音', 'and reads as the effect above it, not as breaking glass');
     assert.equal(text['zh-Hans']['Collapse Sound'], '消失音效');
 });
+
+
+test('creature Body section captions have translations in every non-English locale', () => {
+    const { catalogs } = loadI18nForTest();
+    for (const [locale, text] of Object.entries(catalogs.text)) {
+        if (locale === 'en') continue;
+        for (const key of ['Fins', 'Appendages']) assert.ok(text[key] && text[key] !== key, `${locale}: ${key}`);
+    }
+});

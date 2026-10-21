@@ -6058,9 +6058,17 @@ Reactor3D.billboardUp = function(camera) {
     // every caller reads it on the spot. Nobody keeps it.
     const up = (this._billboardUpScratch || (this._billboardUpScratch = new THREE.Vector3())).set(0, 1, 0);
     if (camera && this.BILLBOARD_TILT) {
-        const leaning = (this._billboardLeanScratch || (this._billboardLeanScratch = new THREE.Vector3()))
-            .set(0, 1, 0).applyQuaternion(camera.quaternion);
-        up.lerp(leaning, this.BILLBOARD_TILT).normalize();
+        const cache = this._billboardUpCache || (this._billboardUpCache = new WeakMap());
+        let entry = cache.get(camera);
+        const rotation = camera.quaternion, tilt = this.BILLBOARD_TILT;
+        if (!entry || entry.x !== rotation.x || entry.y !== rotation.y || entry.z !== rotation.z || entry.w !== rotation.w || entry.tilt !== tilt) {
+            if (!entry) { entry = { value: new THREE.Vector3() }; cache.set(camera, entry); }
+            const leaning = (this._billboardLeanScratch || (this._billboardLeanScratch = new THREE.Vector3()))
+                .set(0, 1, 0).applyQuaternion(rotation);
+            entry.value.set(0, 1, 0).lerp(leaning, tilt).normalize();
+            entry.x = rotation.x; entry.y = rotation.y; entry.z = rotation.z; entry.w = rotation.w; entry.tilt = tilt;
+        }
+        up.copy(entry.value);
     }
     return up;
 };
@@ -8567,9 +8575,8 @@ Reactor3D.beamLightCanvas = function() {
 /**
  * One mesh holding every light of one shape.
  *
- * Buffers are allocated once at their largest and only the used part is drawn,
- * so a frame with forty lights costs forty quads of arithmetic and no
- * allocation at all. Additive, because light adds; depth-tested so a wall hides
+ * Buffers are allocated once at their largest and only the used part is drawn.
+ * Additive, because light adds; depth-tested so a wall hides
  * the pool behind it, but not depth-*written*, so two overlapping pools do not
  * punch holes in each other.
  */
@@ -8614,7 +8621,7 @@ Reactor3D.MapScene.prototype.lightPool = function(kind) {
     });
 
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.frustumCulled = false;   // the buffer is rewritten every frame
+    mesh.frustumCulled = false;
     mesh.renderOrder = 10;
     // A pass of their own, drawn last and composited *additively*.
     //
@@ -8626,7 +8633,7 @@ Reactor3D.MapScene.prototype.lightPool = function(kind) {
     // at the same time.
     this.lightGroup().add(mesh);
     this._materials.push(material);
-    this._pools[kind] = { mesh, geometry, count: 0 };
+    this._pools[kind] = { mesh, geometry, count: 0, entries: [] };
     return this._pools[kind];
 };
 
@@ -8708,6 +8715,8 @@ Reactor3D.MapScene.prototype.syncLights = function(focus) {
     const cone = this.lightPool("cone");
     round.count = 0;
     cone.count = 0;
+    round.positionDirty = round.uvDirty = round.colorDirty = false;
+    cone.positionDirty = cone.uvDirty = cone.colorDirty = false;
 
     for (const light of declared) {
         const beam = light.type === Reactor3D.LIGHT_BEAM;
@@ -8773,22 +8782,28 @@ Reactor3D.MapScene.prototype.syncLights = function(focus) {
             }
         }
 
+        const entry = pool.entries[at] || (pool.entries[at] = {});
+        const angle = ((light.angle === undefined ? 45 : light.angle) * Math.PI) / 180;
+        const yaw = spot ? ((light.yaw || 0) * Math.PI) / 180 : 0;
+        const aim = spot ? axes.aim.set(Math.sin(yaw), 0, Math.cos(yaw)) : null;
+        const beamReach = spot && Reactor3D.LIGHT_OCCLUSION
+            ? Reactor3D.clampConeReach(light.x, light.y, standsOn + 0.5, aim.x, aim.z, radius) : radius;
+        const half = spot ? (beam ? (light.width === undefined ? Reactor3D.DEFAULT_BEAM_WIDTH : light.width)
+            : Math.tan(Math.min(angle, Math.PI * 0.49) / 2) * beamReach) : 0;
+        const positionChanged = entry.cx !== cx || entry.y !== y || entry.cz !== cz || entry.radius !== radius
+            || entry.yaw !== yaw || entry.reach !== beamReach || entry.half !== half || entry.spot !== spot || entry.beam !== beam;
         let corners;
-        if (spot) {
-            const angle = ((light.angle === undefined ? 45 : light.angle) * Math.PI) / 180;
+        if (positionChanged) {
+            entry.cx = cx; entry.y = y; entry.cz = cz; entry.radius = radius;
+            entry.yaw = yaw; entry.reach = beamReach; entry.half = half; entry.spot = spot; entry.beam = beam;
+            pool.positionDirty = true;
+        }
+        if (positionChanged && spot) {
             // The direction it points, flattened into the billboard's plane.
-            const yaw = ((light.yaw || 0) * Math.PI) / 180;
-            const aim = axes.aim.set(Math.sin(yaw), 0, Math.cos(yaw));
             // Shortened to the first wall in its way, spread and all — a
             // torch aimed at a wall used to paint its full length up the
             // wall's face and out the far side.
-            const beamReach = Reactor3D.LIGHT_OCCLUSION
-                ? Reactor3D.clampConeReach(light.x, light.y, standsOn + 0.5, aim.x, aim.z, radius)
-                : radius;
             // A beam is as wide at the source as at the tip.
-            const half = beam
-                ? (light.width === undefined ? Reactor3D.DEFAULT_BEAM_WIDTH : light.width)
-                : Math.tan(Math.min(angle, Math.PI * 0.49) / 2) * beamReach;
             let alongU = aim.dot(right);
             let alongV = aim.dot(up);
             const reach = Math.hypot(alongU, alongV) || 1;
@@ -8813,7 +8828,7 @@ Reactor3D.MapScene.prototype.syncLights = function(focus) {
                 [0, 0],
                 [0, 0]
             ];
-        } else {
+        } else if (positionChanged) {
             corners = [
                 [-radius, radius], [radius, radius],
                 [radius, -radius], [-radius, -radius]
@@ -8822,12 +8837,18 @@ Reactor3D.MapScene.prototype.syncLights = function(focus) {
 
         // Both apex corners take the middle of the source edge, so the one
         // triangle that draws maps the picture symmetrically about its axis.
-        const uvs = spot && !beam
+        const uvKind = spot && !beam ? 1 : 0;
+        const uvChanged = entry.uvKind !== uvKind;
+        const uvs = uvChanged ? (uvKind
             ? [[0, 0], [1, 0], [0.5, 1], [0.5, 1]]
-            : [[0, 0], [1, 0], [1, 1], [0, 1]];
+            : [[0, 0], [1, 0], [1, 1], [0, 1]]) : null;
+        if (uvChanged) { entry.uvKind = uvKind; pool.uvDirty = true; }
         const rgb = light.colour === undefined ? 0xffffff : light.colour;
         const intensity = (light.intensity === undefined ? 1 : light.intensity)
             * Reactor3D.LIGHT_GAIN;
+        const colorChanged = entry.colour !== rgb || entry.intensity !== intensity;
+        if (colorChanged) { entry.colour = rgb; entry.intensity = intensity; pool.colorDirty = true; }
+        if (!positionChanged && !uvChanged && !colorChanged) continue;
         let r = (((rgb >> 16) & 255) / 255) * intensity;
         let g = (((rgb >> 8) & 255) / 255) * intensity;
         let b = ((rgb & 255) / 255) * intensity;
@@ -8841,24 +8862,23 @@ Reactor3D.MapScene.prototype.syncLights = function(focus) {
         for (let corner = 0; corner < 4; corner++) {
             const v = at * 4 + corner;
             // Plane coordinates back into the world, on the ground's axes.
-            const u = corners[corner][0];
-            const w = corners[corner][1];
-            position[v * 3] = cx + right.x * u + up.x * w;
-            position[v * 3 + 1] = y + right.y * u + up.y * w;
-            position[v * 3 + 2] = cz + right.z * u + up.z * w;
-            uv[v * 2] = uvs[corner][0];
-            uv[v * 2 + 1] = uvs[corner][1];
-            tint[v * 3] = r;
-            tint[v * 3 + 1] = g;
-            tint[v * 3 + 2] = b;
+            if (positionChanged) {
+                const u = corners[corner][0];
+                const w = corners[corner][1];
+                position[v * 3] = cx + right.x * u + up.x * w;
+                position[v * 3 + 1] = y + right.y * u + up.y * w;
+                position[v * 3 + 2] = cz + right.z * u + up.z * w;
+            }
+            if (uvChanged) { uv[v * 2] = uvs[corner][0]; uv[v * 2 + 1] = uvs[corner][1]; }
+            if (colorChanged) { tint[v * 3] = r; tint[v * 3 + 1] = g; tint[v * 3 + 2] = b; }
         }
     }
 
     for (const pool of [round, cone]) {
-        pool.geometry.setDrawRange(0, pool.count * 6);
-        pool.geometry.attributes.position.needsUpdate = true;
-        pool.geometry.attributes.uv.needsUpdate = true;
-        pool.geometry.attributes.color.needsUpdate = true;
+        if (pool.geometry.drawRange.count !== pool.count * 6) pool.geometry.setDrawRange(0, pool.count * 6);
+        if (pool.positionDirty) pool.geometry.attributes.position.needsUpdate = true;
+        if (pool.uvDirty) pool.geometry.attributes.uv.needsUpdate = true;
+        if (pool.colorDirty) pool.geometry.attributes.color.needsUpdate = true;
         pool.mesh.visible = pool.count > 0;
     }
 };

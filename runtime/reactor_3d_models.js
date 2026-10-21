@@ -1264,14 +1264,22 @@ Reactor3D.aimCharacterBillboard = function(object, camera) {
         right: new THREE.Vector3(), forward: new THREE.Vector3(),
         trueUp: new THREE.Vector3(), basis: new THREE.Matrix4()
     });
-    const right = scratch.right.set(1, 0, 0).applyQuaternion(camera.quaternion);
-    right.y = 0;
-    if (right.lengthSq() < 1e-8) right.set(1, 0, 0);
-    else right.normalize();
-    const up = this.billboardUp(camera);
-    const forward = scratch.forward.crossVectors(right, up).normalize();
-    const trueUp = scratch.trueUp.crossVectors(forward, right).normalize();
-    object.quaternion.setFromRotationMatrix(scratch.basis.makeBasis(right, trueUp, forward));
+    const cache = this._billboardFacing || (this._billboardFacing = new WeakMap());
+    let facing = cache.get(camera);
+    const rotation = camera.quaternion, tilt = this.BILLBOARD_TILT;
+    if (!facing || facing.x !== rotation.x || facing.y !== rotation.y || facing.z !== rotation.z || facing.w !== rotation.w || facing.tilt !== tilt) {
+        const right = scratch.right.set(1, 0, 0).applyQuaternion(camera.quaternion);
+        right.y = 0;
+        if (right.lengthSq() < 1e-8) right.set(1, 0, 0);
+        else right.normalize();
+        const up = this.billboardUp(camera);
+        const forward = scratch.forward.crossVectors(right, up).normalize();
+        const trueUp = scratch.trueUp.crossVectors(forward, right).normalize();
+        if (!facing) { facing = { value: new THREE.Quaternion() }; cache.set(camera, facing); }
+        facing.value.setFromRotationMatrix(scratch.basis.makeBasis(right, trueUp, forward));
+        facing.x = rotation.x; facing.y = rotation.y; facing.z = rotation.z; facing.w = rotation.w; facing.tilt = tilt;
+    }
+    if (!object.quaternion.equals(facing.value)) object.quaternion.copy(facing.value);
 };
 
 Reactor3D.characterIsBehindModel = function(character, event) {
@@ -3750,6 +3758,20 @@ Reactor3D.carrySurfaceData = function(from, to) {
     return to;
 };
 
+Reactor3D.cloneSurfaceMaterial = function(material) {
+    const data = material.userData;
+    material.userData = Object.assign({}, data);
+    if (data?.rrNormalMap?.isTexture) delete material.userData.rrNormalMap;
+    if (data?.rrEmissiveMap?.isTexture) delete material.userData.rrEmissiveMap;
+    let cloned;
+    try {
+        cloned = material.clone();
+    } finally {
+        material.userData = data;
+    }
+    return Reactor3D.carrySurfaceData(material, cloned);
+};
+
 /**
  * Per vertex, the way the picture's v runs over the surface (dP/dv), summed
  * over the triangles a vertex shares and normalized: a hair card's strand
@@ -3903,7 +3925,7 @@ Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
             let material = materials[prim.material] || defaultMat;
             if (prim.attributes.COLOR_0 != null) {
                 const source = material;
-                material = material.clone();
+                material = Reactor3D.cloneSurfaceMaterial(material);
                 Reactor3D.carrySurfaceData(source, material);
                 material.vertexColors = true;
                 material.__reactorModel = true;
@@ -4883,7 +4905,7 @@ Reactor3D.cloneModelTemplate = function(template) {
     // tints one tank, not every clone of it. Material.clone drops custom
     // properties, so the model marker is carried by hand.
     const instanceMaterial = mat => {
-        const cloned = mat.clone();
+        const cloned = Reactor3D.cloneSurfaceMaterial(mat);
         cloned.__reactorModel = mat.__reactorModel;
         // Nor the light injection, which lives in onBeforeCompile and the
         // program cache key — neither of which clone copies.

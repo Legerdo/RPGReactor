@@ -89,6 +89,10 @@ after the overwrite prompt identifies its full path. A lock copied from a
 different project does not block the new copy. Startup opens the last project's
 actual folder; deleting a different copy does not remove that destination.
 
+During import, the stage, percentage and progress bar stay above the action
+buttons while the settings and log scroll. The bar keeps its full height in
+short windows, including 1024×600, and remains visible on completion or error.
+
 **Artwork restoration.** The desktop import dialog defaults to **Dither
 cleanup** for RPG Maker 2000/2003; choose **Original artwork** for unchanged
 converted pixels. The command line accepts `--graphics remaster|original`.
@@ -309,6 +313,19 @@ output. The natural opening selects `SaveMeny`: pale text with black shadows.
 A direct Map10 start retains `System`: black text with gray shadows. Keep
 that distinction when comparing fixtures. Legacy dialogue also omits MZ's
 extra 4 px inset after the original 8 px window padding.
+Shadows use the original one-pixel right/down offset. Each glyph's shadow
+and body draw together before the next glyph, including fast text and menus;
+painting every shadow before every letter incorrectly changes overlap at
+wide glyphs such as `%`, `@` and `&`. Custom CSS and smoothing retain their
+existing rendering paths.
+Runtime 20261018.12 follow-up fixtures match all 1,271 RMG2000 and 1,416
+RM2000 original text pixels, including overhangs, in both whole-line and
+characterwise rendering. Native UI checks cover three window sizes in dark
+and light themes, scrolling, failure/retry, completion and a real import
+with 162 sampled progress states. The combined legacy/UI/runtime checks
+pass 358 cases; one absent installer fixture is skipped. Progress evidence:
+`scratchpad/import-progress-{before,final}/`; the reusable UI smoke is
+`editor/tests/smoke/nw-legacy-import-progress.cjs` on an isolated display.
 The unmodified five-map original opening confirms the `SaveMeny` glyph,
 gradient and shadow oracle at all 247 checked pixels. The controlled four-line
 reference covers 1,592 pixels, including punctuation and the glyphs stored

@@ -58,6 +58,38 @@ test('thrust and bow have distinct one-shot arm motions and dedicated sprite/gam
     assert.ok(Poses.SLOTS.some(([id, , clip]) => id === 'missile' && clip === 'Bow'));
 });
 
+test('a bow draw keeps the bow hand steady and anchors the draw beside the head before release', () => {
+    const Cloth = load('CharacterCloth');
+    for (const name of ['man', 'woman', 'long-limbed man']) {
+        const { bones, body } = bodyOf(name), c = Poses.clip(bones, 'bow', body), end = c.times.at(-1);
+        const at = (u, n) => Cloth.pose(bones, c, end * u).P[bones.findIndex(b => b.name === n)];
+        const hand = at(0.1, 'LeftHand');
+        for (const u of [0.25, 0.45, 0.6, 0.7]) assert.ok(Math.hypot(...sub(hand, at(u, 'LeftHand'))) < 0.002, name + ' steady bow arm');
+        const draw = at(0.5, 'RightHand'), head = at(0.5, 'Head');
+        assert.ok(Math.hypot(...sub(draw, head)) < Math.hypot(...sub(hand, head)) * 0.2, name + ' draw reaches the cheek');
+        assert.ok(Math.hypot(...sub(draw, at(0.6, 'RightHand'))) < 0.002, name + ' holds the draw');
+    }
+});
+
+test('front and back flips keep the whole inverted body airborne through one smooth flight', () => {
+    const Cloth = load('CharacterCloth');
+    for (const name of ['man', 'woman', 'heavy man']) for (const id of ['frontFlip', 'backFlip']) {
+        const { bones, body } = bodyOf(name), c = Poses.clip(bones, id, body);
+        let inverted = 0;
+        for (let f = 1; f < c.times.length - 1; f++) {
+            const ps = Cloth.pose(bones, c, c.times[f]), hips = bones.findIndex(b => b.parent < 0);
+            if (rot(ps.R[hips], [0, 1, 0])[1] > -0.4) continue;
+            const skin = Cloth.skin(body, bones, ps);
+            let low = Infinity;
+            for (let v = 1; v < skin.length; v += 3) low = Math.min(low, skin[v] + c.heights[f]);
+            assert.ok(low > 0.025, name + '/' + id + ' clears the floor while inverted');
+            assert.ok(Math.abs(c.heights[f + 1] - 2 * c.heights[f] + c.heights[f - 1]) < 0.025, name + '/' + id + ' no mid-flight bounce');
+            inverted++;
+        }
+        assert.ok(inverted > 3);
+    }
+});
+
 test('no bone turns faster than a joint can, every track keeps one hemisphere, and no loop winds a bone round', () => {
     // 65 degrees from one key to the next is past any joint's own turn (keys come 30 or 60 a second; a pitcher's
     // arm, the fastest turn a body makes, comes to about 50 at 60 a second): a flip or a capture glitch.
@@ -430,4 +462,23 @@ test('a saved merfolk maps treading to its native tail motion', () => {
     assert.equal(slots.walking, 'Walk'); assert.equal(slots.swimming, 'Swim'); assert.equal(slots.idle, 'Idle');
     const none = Poses.savedModel(result, 'none');
     assert.equal(none.sidecar.animations.find(a => a.trigger === 'treading').clip, 'Tread', 'native motions remain available without shared motion export');
+});
+
+
+test('flip landings recover forward-facing feet instead of following lost inverted foot markers', () => {
+    const Cloth = load('CharacterCloth');
+    for (const name of ['man', 'woman', 'heavy man', 'long-limbed man']) for (const id of ['frontFlip', 'backFlip']) {
+        const { bones, body } = bodyOf(name), c = Poses.clip(bones, id, body), end = c.times.at(-1);
+        const hips = bones.findIndex(b => b.name === 'Hips');
+        for (const u of [0.8, 0.85, 0.9, 0.95, 1]) {
+            const ps = Cloth.pose(bones, c, end * u), front = rot(ps.R[hips], [0, 0, 1]);
+            for (const side of ['Left', 'Right']) {
+                const foot = bones.findIndex(b => b.name === side + 'Foot'), toe = bones.findIndex(b => b.name === side + 'ToeBase');
+                const direction = sub(ps.P[toe], ps.P[foot]), length = Math.hypot(...direction), horizontal = Math.hypot(direction[0], direction[2]);
+                assert.ok(Math.abs(direction[1]) / length < 0.55, name + '/' + id + ' does not land on vertical toes');
+                const forward = (direction[0] * front[0] + direction[2] * front[2]) / (horizontal * Math.hypot(front[0], front[2]));
+                assert.ok(forward > 0.8, name + '/' + id + ' feet face the landing direction');
+            }
+        }
+    }
 });

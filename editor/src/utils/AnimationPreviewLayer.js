@@ -64,6 +64,7 @@
             this.transform = { rotate: [0, 0, 0], scale: [1, 1, 1] };
             this.screenHeight = projectScreenHeight();
             this.span = 1;
+            this.workspaceActive = true;
             // The canvases' native size: SIZE at rest, grown with the
             // overlay (see moveTo) so a big effect is not a stretched thumbnail.
             this.size = SIZE;
@@ -188,7 +189,20 @@
             return canvas;
         }
 
+        setWorkspaceActive(active) {
+            if (this.workspaceActive === active) return;
+            this.workspaceActive = active;
+            if (!active) {
+                if (this.mv.raf) cancelAnimationFrame(this.mv.raf);
+                if (this.fx.raf) cancelAnimationFrame(this.fx.raf);
+                this.mv.raf = this.fx.raf = null;
+            } else if (this.active) {
+                this._resumeMV?.(); this._resumeFX?.();
+            }
+        }
+
         stop() {
+            this._resumeMV = this._resumeFX = null;
             this.generation++;
             this.active = false;
             if (this.mv.raf) { cancelAnimationFrame(this.mv.raf); this.mv.raf = null; }
@@ -294,6 +308,8 @@
                 const sounds=(from,to)=>{for(const timing of animation.timings||[])if(timing.frame>=from&&timing.frame<=to&&timing.se?.name)this.onSound?.(timing.se);};
                 const loop = () => {
                     if (generation !== this.generation) return;
+                    this.mv.raf = null;
+                    if (!this.workspaceActive) return;
                     try { step(); } catch (error) { console.warn('Animation preview:', error); this._finish(generation); }
                 };
                 const step = () => {
@@ -314,7 +330,12 @@
                     this.mv.raf = requestAnimationFrame(loop);
                 };
                 try { draw(0); sounds(0, 0); } catch (error) { console.warn('Animation preview:', error); this._finish(generation); return; }
-                this.mv.raf = requestAnimationFrame(loop);
+                this._resumeMV = () => {
+                    if (!this.workspaceActive || generation !== this.generation || this.mv.raf) return;
+                    last = performance.now();
+                    this.mv.raf = requestAnimationFrame(loop);
+                };
+                this._resumeMV();
             });
             return true;
         }
@@ -516,6 +537,8 @@
                 };
                 const loop = () => {
                     if (generation !== this.generation) return;
+                    fx.raf = null;
+                    if (!this.workspaceActive) return;
                     const now = Date.now();
                     if(!this.paused)acc += (now - last)*(this.speed??1);
                     last = now;
@@ -551,7 +574,12 @@
                     }
                     fx.raf = requestAnimationFrame(loop);
                 };
-                fx.raf = requestAnimationFrame(loop);
+                this._resumeFX = () => {
+                    if (!this.workspaceActive || generation !== this.generation || fx.raf) return;
+                    last = Date.now();
+                    fx.raf = requestAnimationFrame(loop);
+                };
+                this._resumeFX();
             };
             const cached = fx.effects.get(animation.effectName);
             if (cached) {

@@ -177,6 +177,7 @@
             brows: {
                 style: pickId(BROWS, b.style, 'natural'),
                 thickness: clamp(b.thickness ?? 0.5, 0, 1),
+                height: clamp(b.height ?? 0, -0.8, 0.8),
                 color: hexOk(b.color) ? b.color.toLowerCase() : ''
             },
             lashes: h.lashes !== false
@@ -1690,7 +1691,7 @@
         const thickness = (0.6 + 0.8 * b.thickness) * shape[4];
         // Eye radii to picture pixels.
         const px = x => (x + BROW_BOX[0]) / BROW_BOX[1] * W, py = y => (1 - (y - BROW_BOX[2]) / BROW_BOX[3]) * Ht;
-        const lineAt = u => (u < shape[3] ? mix(shape[0], shape[1], Math.sin((u / shape[3]) * Math.PI / 2)) : mix(shape[1], shape[2], 1 - Math.cos(((u - shape[3]) / (1 - shape[3])) * Math.PI / 2)));
+        const lineAt = u => (b.height || 0) + (u < shape[3] ? mix(shape[0], shape[1], Math.sin((u / shape[3]) * Math.PI / 2)) : mix(shape[1], shape[2], 1 - Math.cos(((u - shape[3]) / (1 - shape[3])) * Math.PI / 2)));
         const plot = (x, y, a, t) => {
             const ix = Math.floor(x), iy = Math.floor(y);
             for (let dy = 0; dy <= 1; dy++) for (let dx = 0; dx <= 1; dx++) {
@@ -1710,7 +1711,7 @@
             const half = 0.19 * thickness * (1 - 0.6 * Math.min(1, Math.max(0, u))) + 0.04;
             const d = Math.abs(ey - lineAt(Math.min(1, Math.max(0, u)))) / half;
             const ends = smooth(-0.05, 0.12, u) * (1 - smooth(0.85, 1.05, u));
-            alpha[y * W + x] = Math.max(0, 1 - d * d) * ends * 0.22;
+            alpha[y * W + x] = Math.max(0, 1 - d * d) * ends * (b.style === 'bushy' ? 0.42 : 0.22);
         }
         // The hairs.
         const count = Math.round(shape[5] * (0.7 + 0.6 * b.thickness) * 9);
@@ -1910,9 +1911,11 @@
         if (rigid) return [[hb, 0, 0, 0], [1, 0, 0, 0]];
         const yH = H.headBone.head[1], yN = H.neckBone.head[1];
         if (y >= yH) return [[hb, nb, cb, 0], [1, 0, 0, 0]];
-        if (y >= yN) { const a = (yH - y) / Math.max(1e-5, yH - yN); return [[hb, nb, cb, 0], [1 - 0.5 * a, 0.5 * a, 0, 0]]; }
-        const b = clamp((yN - y) / (0.2 * H.scale), 0, 1);
-        return [[hb, nb, cb, 0], [0.5 - 0.2 * b, 0.5 - 0.2 * b, 0.4 * b, 0]];
+        if (y >= yN) { const a = (yH - y) / Math.max(1e-5, yH - yN); return [[hb, nb, cb, 0], [1 - a, 0.5 * a, 0.5 * a, 0]]; }
+        const b = clamp((yN - y) / (0.06 * H.scale), 0, 1);
+        // Lower locks rest against the torso. Leaving 60% of their weight on
+        // the head/neck made a head turn sweep them straight through the chest.
+        return [[hb, nb, cb, 0], [0, 0.5 * (1 - b), 0.5 + 0.5 * b, 0]];
     }
 
     function toPart(H, m, name, opts) {
@@ -1979,12 +1982,7 @@
         const soft = H.budget >= 0.75;
         const strands = { texture: 'hair.png', cutout: true, alphaCutoff: soft ? 0.5 : 0.3, keepColors: true };
         // Cards are wider than the strands they stand for: whatever of them sinks into the body is lifted out.
-        for (let i = 0; i < head.pos.length; i += 3) {
-            const p = [head.pos[i], head.pos[i + 1], head.pos[i + 2]], s = H.surface(p);
-            if (!Number.isFinite(s.d) || s.d >= 0.002 * H.scale) continue;
-            const q = add(p, mul(s.n, 0.002 * H.scale - s.d));
-            head.pos[i] = q[0]; head.pos[i + 1] = q[1]; head.pos[i + 2] = q[2];
-        }
+        clearBody(H, head);
         // Hair lying over the shoulders, the back and the chest lies on the clothes worn there, never through them.
         if (o.outfitParts && o.outfitParts.length) overClothes(H, head, o.outfitParts);
         // Left out of the baked occlusion: hundreds of cards packed over the scalp would shade the skin round
@@ -2009,6 +2007,38 @@
             if (lashes.idx.length) parts.push(toPart(H, lashes, 'Lashes', { rigid: true, extra: { roughness: 0.8, uvs: Float32Array.from(lashes.uv), texture: 'lashes.png', cutout: true, alphaCutoff: 0.3, kind: 'hair' } }));
         }
         return parts;
+    }
+
+    /** Fit finished card corners to the actual surface, including broad faces
+     * whose vertices may be far from the lock. The strand generator's cheaper
+     * vertex query still handles its many intermediate path samples. */
+    function clearBody(H, mesh) {
+        const queries = root.RRCharacterOutfitTransfer || (typeof require === 'function' ? require('./CharacterOutfitTransfer.js') : null);
+        const faces = H.pack.body.index.map(i => H.pack.body.source[i]);
+        const solid = queries ? queries.triangleGrid(H.S, faces, 0.035 * H.scale) : null;
+        const gap = 0.003 * H.scale;
+        for (let pass = 0; pass < 2; pass++) for (let i = 0; i < mesh.pos.length; i += 3) {
+            const p = mesh.pos.slice(i, i + 3);
+            let s = H.surface(p);
+            if (solid && p[1] < H.earBottom) {
+                let reach = 0.06 * H.scale, hit = queries.nearestTriangle(solid, p, reach);
+                // A thick torso may engulf an entire curl, outside the small
+                // neighborhood used by ordinary strand samples.
+                if ((!hit || hit.d > reach) && p[1] < H.shoulderY && p[1] > H.built.bones[H.bones.spine1].head[1] - 0.12 * H.scale
+                    && Math.abs(p[0]) < H.shoulderHalf && Math.abs(p[2] - H.chestBone.head[2]) < 0.12 * H.scale) {
+                    reach = 0.16 * H.scale; hit = queries.nearestTriangle(solid, p, reach);
+                }
+                if (hit && hit.d <= reach) {
+                    const n = [0, 0, 0];
+                    for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) n[k] += H.normals[faces[hit.t * 3 + j] * 3 + k] * hit.bary[j];
+                    const normal = norm(n);
+                    s = { n: normal, d: dot(sub(p, hit.q), normal) };
+                } else continue;
+            }
+            if (!Number.isFinite(s.d) || s.d >= gap) continue;
+            const q = add(p, mul(s.n, Math.min(0.16 * H.scale, gap - s.d)));
+            for (let k = 0; k < 3; k++) mesh.pos[i + k] = q[k];
+        }
     }
 
     /**
@@ -2044,6 +2074,14 @@
             const P = part.positions, accepted = [];
             for (let f = 0; f < part.index.length; f += 3) {
                 const a = part.index[f], b = part.index[f + 1], c = part.index[f + 2];
+                // A neck lock must clear the torso, not ride an outward ray
+                // all the way onto a sleeve or raised arm. Sparse backpacks
+                // still support the hair through their actual chest bindings.
+                if (part.joints && part.weights && [a,b,c].every(v => {
+                    let arm=0;
+                    for(let k=0;k<4;k++)if(/Shoulder|Arm|Hand/.test(H.built.bones[part.joints[v*4+k]]?.name||''))arm+=part.weights[v*4+k];
+                    return arm>.5;
+                })) continue;
                 if (Math.min(P[a * 3 + 1], P[b * 3 + 1], P[c * 3 + 1]) > top + 0.04 ||
                     Math.max(P[a * 3 + 1], P[b * 3 + 1], P[c * 3 + 1]) < low - 0.04) continue;
                 accepted.push(a, b, c);
@@ -2091,7 +2129,12 @@
             // a real outward surface hit can support hair farther from skin.
             if (off > 0.08) off = -Infinity;
             const local = Math.max(s.d - lift, off);
-            if (solid) for (const hit of queries.rayHits(solid, p, s.n, -lift, 0.4 * H.scale)) off = Math.max(off, s.d + hit.s);
+            if (solid) {
+                const hits=queries.rayHits(solid,p,s.n,-lift,.24*H.scale).sort((a,b)=>a.s-b.s);
+                // The first crossing is the local layer supporting this lock.
+                // A nearby outer lining may be part of that same shell.
+                if(hits.length){const near=hits[0].s;for(const hit of hits)if(hit.s<=near+.025*H.scale)off=Math.max(off,s.d+hit.s);}
+            }
             if (off === -Infinity || s.d >= off + lift) continue;
             const push = off + lift - s.d;
             if (pushes) { pushes[i / 3] = push; if (off > local + lift) drape = true; }

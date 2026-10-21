@@ -111,6 +111,7 @@
 
         const header = document.createElement('div');
         header.className = 'rr-modal-header';
+        header.style.flex = 'none';
         const titleEl = document.createElement('div');
         titleEl.id = 'rr-legacy-import-title';
         titleEl.className = 'rr-modal-title';
@@ -124,7 +125,7 @@
 
         const body = document.createElement('div');
         body.className = 'rr-modal-body rr-accent-scrollbar';
-        body.style.cssText = 'gap:8px;';
+        body.style.cssText = 'gap:8px;min-height:0;';
         // The settings on one label | field | button grid; the log below them takes the height that is left.
         const fields = document.createElement('div');
         fields.style.cssText = 'flex:none;display:grid;grid-template-columns:max-content 1fr auto;column-gap:10px;row-gap:8px;align-items:center;';
@@ -231,7 +232,8 @@
         const errorEl = document.createElement('div');
         errorEl.setAttribute('role', 'alert');
         errorEl.style.cssText = 'flex:none;color:var(--color-danger-bright, #e5484d);font-size:12px;min-height:1.2em;white-space:pre-wrap;overflow-wrap:anywhere;';
-        // The console: a progress bar over the importer's own lines, coloured by level.
+        // The log scrolls with the settings. Progress stays outside that
+        // scroll area, so short windows cannot shrink or hide the bar.
         const consoleEl = document.createElement('div');
         consoleEl.style.cssText = 'flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:6px;margin-top:4px;';
         const consoleHead = document.createElement('div');
@@ -242,8 +244,11 @@
         const elapsedEl = document.createElement('span');
         elapsedEl.style.cssText = 'color:var(--color-text-muted);font-size:12px;font-variant-numeric:tabular-nums;';
         consoleHead.append(consoleTitle, elapsedEl);
+        const progressPanel = document.createElement('div');
+        progressPanel.id = 'rr-legacy-import-progress';
+        progressPanel.style.cssText = 'display:none;flex:none;flex-direction:column;gap:6px;padding:10px 20px;border-top:1px solid var(--color-border);';
         const progressRow = document.createElement('div');
-        progressRow.style.cssText = 'display:none;justify-content:space-between;gap:12px;font-size:12px;';
+        progressRow.style.cssText = 'display:none;flex:none;justify-content:space-between;gap:12px;font-size:12px;';
         const statusEl = document.createElement('span');
         statusEl.id = 'rr-legacy-import-status';
         statusEl.style.cssText = 'color:var(--color-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;';
@@ -254,7 +259,8 @@
         track.setAttribute('role', 'progressbar');
         track.setAttribute('aria-valuemin', '0');
         track.setAttribute('aria-valuemax', '100');
-        track.style.cssText = 'display:none;height:10px;background:var(--color-bg-panel);border:1px solid var(--color-border);border-radius:4px;overflow:hidden;';
+        track.setAttribute('aria-label', tt('Import Project'));
+        track.style.cssText = 'display:none;flex:none;height:10px;background:var(--color-bg-panel);border:1px solid var(--color-border);border-radius:4px;overflow:hidden;';
         const bar = document.createElement('div');
         bar.id = 'rr-legacy-import-bar';
         bar.style.cssText = 'height:100%;width:0%;background:linear-gradient(90deg, var(--color-accent-deep), var(--color-accent-hover));transition:width 0.2s ease;';
@@ -267,7 +273,8 @@
         ready.style.color = 'var(--color-text-muted)';
         ready.textContent = tt('Ready to import.');
         logEl.appendChild(ready);
-        consoleEl.append(consoleHead, progressRow, track, logEl);
+        consoleEl.append(consoleHead, logEl);
+        progressPanel.append(progressRow, track);
         body.append(fields, errorEl, consoleEl);
         const LEVEL_COLOURS = {
             stage: 'var(--color-accent-hover)',
@@ -279,12 +286,13 @@
 
         const footer = document.createElement('div');
         footer.className = 'rr-modal-footer';
+        footer.style.flex = 'none';
         const cancelButton = button('rr-legacy-import-cancel', tt('Cancel'));
         const openButton = button('rr-legacy-import-open', tt('Open project'), 'rr-button-primary');
         openButton.style.display = 'none';
         const importButton = button('rr-legacy-import-run', tt('Import'), 'rr-button-primary');
         footer.append(cancelButton, openButton, importButton);
-        modal.append(header, body, footer);
+        modal.append(header, body, progressPanel, footer);
         overlay.appendChild(modal);
 
         parentInput.value = (() => { try { return localStorage.getItem('rrLegacyImportParent') || os.homedir(); } catch (_) { return os.homedir(); } })();
@@ -474,6 +482,7 @@
             const tick = () => { const s = Math.floor((Date.now() - startedAt) / 1000); elapsedEl.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
             const setProgress = (fraction, status, state) => {
                 const pct = Math.max(0, Math.min(100, fraction * 100));
+                progressPanel.style.display = 'flex';
                 progressRow.style.display = 'flex';
                 track.style.display = 'block';
                 bar.style.width = `${pct}%`;

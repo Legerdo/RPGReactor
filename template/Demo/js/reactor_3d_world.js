@@ -3512,6 +3512,7 @@ Reactor3D.DrawBatches = {
     enabled: true,
     /** The side of a region, in cells: a multiple of PIECE_CHUNK and FOLIAGE_CHUNK. 128 drew more off-screen than it saved. */
     REGION: 64,
+    COALESCE_STREAMING: true,
     /** The scenes holding chunk meshes that may be batched. */
     _scenes: new Set(),
     _serial: 0,
@@ -3622,7 +3623,13 @@ Reactor3D.DrawBatches = {
         // Looked over only when something may have changed: chunks laid, a group holding batches gained or
         // lost a child (a chunk taken away, a batch's mesh removed with the plants), and once a second
         // whatever happened (a chunk given another material). Looking every frame cost 0.2 ms a refresh.
-        if (!state.fresh.length && ++state.tick % this.CHECK_EVERY !== 0 && !this.groupsChanged(state)) return;
+        const queue = this.COALESCE_STREAMING && mapScene._foliageQueue;
+        const queueLength = queue ? queue.length : 0;
+        const advanced = state.pending && (state.pendingQueue !== queue || state.pendingLength !== queueLength);
+        if (!state.fresh.length && !advanced && ++state.tick % this.CHECK_EVERY !== 0 && !this.groupsChanged(state)) return;
+        state.pending = false;
+        state.pendingQueue = queue;
+        state.pendingLength = queueLength;
         // A chunk taken away (an edit, the plants laid again) or given another material leaves its batch.
         for (const batch of state.batches.values()) {
             const members = batch.members;
@@ -3651,9 +3658,18 @@ Reactor3D.DrawBatches = {
                 batch.dirty = true;
             }
         }
+        const pendingRegions = queue && queue.length ? new Set(queue.map(job => Math.floor(job[0] * Reactor3D.FOLIAGE_CHUNK / this.REGION)
+            + "," + Math.floor(job[1] * Reactor3D.FOLIAGE_CHUNK / this.REGION))) : null;
         let made = 0;
         for (const [key, batch] of state.batches) {
             if (!batch.dirty) continue;
+            const first = batch.members[0], cell = first && first.userData.rrBatchCell;
+            if (batch.members.length > 1 && (first.userData.rrFoliageChunk || first.userData.rrBushChunk !== undefined) && pendingRegions
+                && pendingRegions.has(Math.floor(cell.x / this.REGION) + "," + Math.floor(cell.y / this.REGION))) {
+                if (batch.mesh) { this.drop(batch); for (const member of batch.members) this.reveal(member); }
+                state.pending = true;
+                continue;
+            }
             batch.dirty = false;
             const hidden = !!batch.mesh;
             this.drop(batch);
@@ -3757,6 +3773,8 @@ Reactor3D.DrawBatches = {
                 this.drop(batch);
             }
             state.batches.clear();
+            state.pending = false;
+            state.pendingQueue = null;
             if (forget) state.fresh.length = 0;
         }
         if (forget) { if (mapScene) mapScene._drawBatches = null; this._scenes.delete(mapScene); }
