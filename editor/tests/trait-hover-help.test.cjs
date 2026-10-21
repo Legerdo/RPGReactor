@@ -21,7 +21,7 @@ const TraitEditor = new Function(
 
 // Every trait code the dialog offers, by the tab that draws it.
 const TABS = {
-    rates: [11, 12, 13, 14],
+    rates: [11, 12, 15, 13, 14],
     param: [21, 22, 23],
     attack: [31, 32, 33, 34, 35],
     skill: [41, 42, 43, 44],
