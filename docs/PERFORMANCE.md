@@ -1,5 +1,26 @@
 # Performance checks
 
+## Border crossing (2026-10-23)
+
+Walking between North Haven (Map005) and Forest Road (Map008), measured in the game with held arrow keys (`editor/tests/perf/nw-border-crossing.cjs`), both directions and both starting maps. Figures are the longest frame of the crossing and the frames after it; the walk itself runs at 16.7 ms (RTX) and 16.7 to 33 ms (Radeon iGPU, GPU-bound).
+
+| Change | Switch | Result |
+| --- | --- | --- |
+| The light's full-screen combines (four water and sheen variants) compiled ahead while a neighbor stands beside the map | `HalfLight.expect`, `warmAhead` | 48 ms of program waits gone from the iGPU crossing frame |
+| The haze's and the halo's programs compiled ahead against stand-in targets when the map ahead has lamps or water | `HalfHaze.expect`, `warmAhead` | entering North Haven compiles no program |
+| A material whose program changed while out of sight waits for its compile when it comes back into a view drawn all along (game only); the unlit twin keeps its own warmup record | `ShaderWarmup.SEEN_MS` | no compile inside the crossing draw |
+| The crossing update shows the passes' last picture instead of drawing the world; the scene start does not update the spriteset made in the same update | `Neighbors.KEEP_PICTURE` (0: draw) | one world draw less in the crossing frame |
+| The map left becomes a neighbor from the map the game held; the copy entered takes the world's cell index; rock columns kept per map at a chunk place | none | the 45 to 100 ms frame four frames after a crossing gone |
+| Neighbor upkeep one piece a frame; models join a few a frame while worlds stand beside; the glowing water picture made in idle time ahead | `Neighbors.upkeep`, `ModelJoins` | |
+
+| Crossing | RTX before | RTX after | iGPU before | iGPU after |
+| --- | --- | --- | --- | --- |
+| North Haven to Forest Road | 67, then 83 | 17 to 33 | 67 to 133, then 83 to 100 | 33 to 50 |
+| Forest Road to North Haven | 83 to 167 | 33 | 100 to 150 | 33 to 50 |
+| Forest Road to North Haven, CPU throttled 4x | 1434 | 300 | | |
+
+Steady North Haven walk and arrival unchanged (same draw calls; GPU 13.4 vs 13.7 ms a frame on the iGPU). What is left in the crossing frame is the new Scene_Map: spriteset, windows and plugins, 25 to 40 ms on this CPU.
+
 ## Quadruped preview build (2026-10-23)
 
 The 768-pixel preview coat (384 before 2026-10-20) had tripled a dog, horse or drake preview build on this machine, from about 120 to 470 ms. Coat painting now produces the identical picture in about half the time: the timed builds average about 280 ms, under the 400 ms gate. While a slider is dragged the coat is painted at half size (384, cats 512); releasing the slider and saving paint the full picture. Creature parts again use their own tessellation, which restores the 65,000-triangle starting-type budget ([corrections](CHARACTER-QUALITY.md)).

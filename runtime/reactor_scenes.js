@@ -779,7 +779,8 @@ Scene_Map.prototype.start = function() {
         // One world: no fade, no save in the middle of a walk, and the first picture is of the map entered.
         this._mapNameWindow.open();
         $gameMap.autoplay();
-        this._spriteset.update();
+        // Made and drawn in this same update (createSpriteset): nothing has moved since, and a second draw of the world was a third of the crossing frame.
+        if (this._spritesetMadeAt !== Graphics.frameCount) this._spriteset.update();
         Reactor3D.Neighbors.end();
     } else if (this._transfer) {
         this.fadeInForTransfer();
@@ -1017,6 +1018,7 @@ Scene_Map.prototype.createSpriteset = function() {
     this._spriteset = new Spriteset_Map();
     this.addChild(this._spriteset);
     this._spriteset.update();
+    this._spritesetMadeAt = Graphics.frameCount;
 };
 
 Scene_Map.prototype.createAllWindows = function() {

@@ -11486,8 +11486,10 @@ Reactor3D.animationDue = function(holder, character, object, camera) {
 /**
  * New models built a few a frame while a battle runs on the map, and while a map is laid as it loads
  * (Reactor3D.Arrival): each is a clone, a rig, its fingers and materials (3 to 5 ms, a hundred and more for a
- * rigged hand), and an army arriving together was one frame of 200 ms. The first of a frame is always built, more
- * only inside BUDGET ms; otherwise every model is built the moment its files are in.
+ * rigged hand), and an army arriving together was one frame of 200 ms. Also while worlds stand past the borders
+ * of the map played (Reactor3D.Neighbors): their models, and the entered map's after a crossing, arrive in
+ * bursts (18 ms in the crossing frame into North Haven on an integrated GPU). The first of a frame is always
+ * built, more only inside BUDGET ms a frame; otherwise every model is built the moment its files are in.
  */
 Reactor3D.ModelJoins = {
     BUDGET: 4,
@@ -11495,6 +11497,7 @@ Reactor3D.ModelJoins = {
     queue: [],
     limited() {
         if (Reactor3D.Arrival && Reactor3D.Arrival.pacing) return true;
+        if (Reactor3D.Neighbors && Reactor3D.Neighbors.streaming && Reactor3D.Neighbors.streaming()) return true;
         const fight = typeof $gameFight !== "undefined" ? $gameFight : null;
         return !!(fight && typeof fight.isActive === "function" && fight.isActive());
     },
@@ -11507,7 +11510,10 @@ Reactor3D.ModelJoins = {
     },
     /** Once a frame, before the frame's own new models: those waiting, oldest first. */
     drain() {
-        this.spent = 0;
+        // The budget is the frame's in play: every scene synced this frame (a neighbor's world beside the map's own)
+        // drains from it. A map laid while the screen is dark (Arrival) takes it again at each ask.
+        const frame = typeof Graphics !== "undefined" && Graphics && Number.isFinite(Graphics.frameCount) ? Graphics.frameCount : null;
+        if (frame === null || frame !== this._frame || (Reactor3D.Arrival && Reactor3D.Arrival.pacing)) { this._frame = frame; this.spent = 0; }
         while (this.queue.length && (this.spent < this.BUDGET || !this.limited())) {
             const start = this.now();
             try { this.queue.shift()(); } catch (error) { console.error("Reactor3D: a model could not join the map", error); }

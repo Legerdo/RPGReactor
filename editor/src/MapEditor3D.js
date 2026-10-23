@@ -6540,7 +6540,9 @@ class MapEditor3D {
         if (n === this.storeyCut && n === 0) return;
         this.storeyCut = n;
         this._storeyCutKey = null;
-        if (typeof Reactor3D !== 'undefined' && Reactor3D.Shadows && Reactor3D.Shadows.invalidate) Reactor3D.Shadows.invalidate();
+        // What the cut takes away casts no shadow from the next frame on (Shadows.cutChanged).
+        const S = typeof Reactor3D !== 'undefined' ? Reactor3D.Shadows : null;
+        if (S) { if (S.cutChanged) S.cutChanged(); else if (S.invalidate) S.invalidate(); }
         this.syncStoreyCutControl();
         this.requestRender();
     }

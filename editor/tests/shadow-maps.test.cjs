@@ -390,14 +390,14 @@ test('a light with nothing in reach takes no row; rows wait their turn and keep 
     const render = three.slice(three.indexOf('    render(renderer, scene, mapData, options) {'), three.indexOf('\n    _publish(uniforms) {'));
     assert.match(render, /if \(this\._castersWithin\(candidate, candidate\.far\)\) wanted\.push\(candidate\);/, 'only lights with a caster in reach compete for a row');
     assert.match(render, /const assigned = this\.assign\(wanted, tiles\.length,/);
-    assert.match(render, /\.slice\(0, quality\.staticPerFrame \|\| 1\);/, 'a few static rows a frame');
-    assert.match(render, /\.slice\(0, quality\.dynamicPerFrame \|\| 1\);/, 'a few dynamic rows a frame');
+    assert.match(render, /\.slice\(0, rush \? tiles\.length : quality\.staticPerFrame \|\| 1\);/, 'a few static rows a frame, all of them when a cut changed');
+    assert.match(render, /\.slice\(0, rush \? dynTiles\.length : quality\.dynamicPerFrame \|\| 1\);/, 'a few dynamic rows a frame, all of them when a cut changed');
     assert.match(render, /\.sort\(\(a, b\) => \(a\.valid - b\.valid\) \|\| \(a\.gap - b\.gap\)\)/, 'rows with nothing to show yet first, then the nearest');
     assert.match(render, /\.sort\(\(a, b\) => \(a\.valid - b\.valid\) \|\| \(a\.stamp - b\.stamp\)\)/, 'dynamic rows the longest unrefreshed first');
     assert.match(render, /if \(tile\.id !== candidate\.id \|\| fresh\) \{[\s\S]*?tile\.valid = false;\s*tile\.dirty = true;/, "another light's rendering is not read as this one's");
     assert.match(render, /tile\.want = \{ origin, far, key: keyFor\(origin, far\) \};\s*tile\.dirty = true;/, 'a drifted light asks for a new rendering and keeps reading the old one');
     assert.match(render, /if \(staticChange\.all \|\| this\._touches\(staticChange\.points, tile\.origin, tile\.far\)\) tile\.dirty = true;/, 'a prop change dirties only the rows it stands in');
-    assert.match(render, /t\.dirty && \(!t\.valid \|\| this\._frame - t\.stamp >= interval\)/, 'a row that shows something is redrawn no more often than the interval');
+    assert.match(render, /t\.dirty && \(rush \|\| !t\.valid \|\| this\._frame - t\.stamp >= interval\)/, 'a row that shows something is redrawn no more often than the interval, unless a cut changed');
     assert.equal(Reactor3D.SHADOW_STATIC_INTERVAL, 10);
     // A rendered-to request is adopted only once its rendering exists.
     const flush = three.slice(three.indexOf('    _flush() {'), three.indexOf('\n    unbindFrom('));

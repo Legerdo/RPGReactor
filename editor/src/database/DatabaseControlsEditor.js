@@ -59,6 +59,10 @@ class DatabaseControlsEditor {
     static DEFAULT_JUMP_BUTTONS = [2];
     static BUTTON_NAMES = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'Back', 'Start', 'L3', 'R3', 'D-pad Up', 'D-pad Down', 'D-pad Left', 'D-pad Right'];
     static GRAVITY_PRESETS = [['1', 'Earth'], ['0.38', 'Mars'], ['0.166', 'Moon'], ['0.5', 'Low'], ['2', 'Heavy']];
+    /** What a long fall does in a battle on the map (ReactorPhysics.BATTLE_FALLS). */
+    static BATTLE_FALLS = [['hurt', 'Jump down; past the safe fall it hurts'], ['safe', 'Jump down any height unhurt'], ['off', 'No deeper than the safe fall']];
+    /** A jump down that would leave the player's unit with no HP (ReactorPhysics.LETHAL_FALLS). */
+    static LETHAL_FALLS = [['ask', 'Ask first'], ['allow', 'Allowed without asking'], ['never', 'Not allowed']];
 
     constructor(databaseManager, projectController, commonUI, parentEditor) {
         this.databaseManager = databaseManager;
@@ -140,7 +144,7 @@ class DatabaseControlsEditor {
     }
 
     physics() {
-        return Object.assign({ gravity: 1, jumpHeight: 1.25, fallDamage: false, fallFrom: 6, fallPercent: 10, fallCommonEvent: 0, swim: true, swimDepth: 2.2, splashSe: null, landSe: null, hardLandSe: null, ragdoll: true, mantle: true, mantleReach: 3, stepUp: true, stepUpReach: 1.5 }, this.system().reactorPhysics || {});
+        return Object.assign({ gravity: 1, jumpHeight: 1.25, fallDamage: false, fallFrom: 6, fallPercent: 10, fallCommonEvent: 0, swim: true, swimDepth: 2.2, splashSe: null, landSe: null, hardLandSe: null, ragdoll: true, mantle: true, mantleReach: 3, stepUp: true, stepUpReach: 1.5, battleClimb: true, climbHeight: 6, climbCost: 0.75, battleFall: 'hurt', lethalFall: 'ask' }, this.system().reactorPhysics || {});
     }
 
     savePhysics(physics) {
@@ -279,6 +283,11 @@ class DatabaseControlsEditor {
                         <label>${rrEscapeHtml(tt('Hard landing sound'))}</label><div class="rr-controls-inline"><button type="button" class="rr-btn-secondary rr-controls-sound" data-field="hardLandSe" data-title="Hard landing sound">${rrEscapeHtml(physics.hardLandSe && physics.hardLandSe.name ? physics.hardLandSe.name : tt('(none)'))}</button></div>
                         <label class="rr-controls-check"><input type="checkbox" class="rr-controls-ragdoll"${physics.ragdoll !== false ? ' checked' : ''}> ${rrEscapeHtml(tt('Go limp on a fatal fall'))}</label>
                         <label>${rrEscapeHtml(tt('Or run a common event'))}</label><select class="database-field-value rr-controls-event">${commonEvents.map(([id, name]) => `<option value="${id}"${Number(physics.fallCommonEvent) === Number(id) ? ' selected' : ''}>${rrEscapeHtml(name)}</option>`).join('')}</select>
+                        <label class="rr-controls-check"><input type="checkbox" class="rr-controls-climb"${physics.battleClimb !== false ? ' checked' : ''}> ${rrEscapeHtml(tt('Battlers climb walls without a ladder'))}</label>
+                        <label>${rrEscapeHtml(tt('Highest wall climbed'))}</label><div><input type="number" class="database-field-value rr-controls-num" data-field="climbHeight" min="0" max="50" step="0.5" value="${physics.climbHeight}"> <span class="rr-controls-unit">${rrEscapeHtml(tt('tiles'))}</span></div>
+                        <label>${rrEscapeHtml(tt('Climb cost'))}</label><div><input type="number" class="database-field-value rr-controls-num" data-field="climbCost" min="0" max="10" step="0.25" value="${physics.climbCost}"> <span class="rr-controls-unit">${rrEscapeHtml(tt('move per tile climbed'))}</span></div>
+                        <label>${rrEscapeHtml(tt('Long falls in battles'))}</label><select class="database-field-value rr-controls-battlefall">${DatabaseControlsEditor.BATTLE_FALLS.map(([v, l]) => `<option value="${v}"${(physics.battleFall || 'hurt') === v ? ' selected' : ''}>${rrEscapeHtml(tt(l))}</option>`).join('')}</select>
+                        <label>${rrEscapeHtml(tt('Lethal jumps'))}</label><select class="database-field-value rr-controls-lethalfall">${DatabaseControlsEditor.LETHAL_FALLS.map(([v, l]) => `<option value="${v}"${(physics.lethalFall || 'ask') === v ? ' selected' : ''}>${rrEscapeHtml(tt(l))}</option>`).join('')}</select>
                         <div class="rr-controls-note rr-controls-span">${rrEscapeHtml(tt('Gravity 1 is Earth. A map can set its own in Map Properties › Physics (the Moon, a low-gravity station).') + ' ' + tt('A ledge higher than a jump and within the reach is grabbed and climbed: press Jump while walking into it.') + ' ' + tt('A ledge up to the height climbed by walking is climbed or stepped down by walking into it for a moment.'))}</div>
                     </div>
                 </div>
@@ -359,6 +368,9 @@ class DatabaseControlsEditor {
         root.querySelector('.rr-controls-ragdoll').addEventListener('change', event => { const p = this.physics(); p.ragdoll = event.target.checked; this.savePhysics(p); });
         root.querySelector('.rr-controls-mantle').addEventListener('change', event => { const p = this.physics(); p.mantle = event.target.checked; this.savePhysics(p); });
         root.querySelector('.rr-controls-stepup').addEventListener('change', event => { const p = this.physics(); p.stepUp = event.target.checked; this.savePhysics(p); });
+        root.querySelector('.rr-controls-climb').addEventListener('change', event => { const p = this.physics(); p.battleClimb = event.target.checked; this.savePhysics(p); });
+        root.querySelector('.rr-controls-battlefall').addEventListener('change', event => { const p = this.physics(); p.battleFall = event.target.value; this.savePhysics(p); });
+        root.querySelector('.rr-controls-lethalfall').addEventListener('change', event => { const p = this.physics(); p.lethalFall = event.target.value; this.savePhysics(p); });
         root.querySelector('.rr-controls-event').addEventListener('change', event => { const p = this.physics(); p.fallCommonEvent = Math.max(0, Number(event.target.value) || 0); this.savePhysics(p); });
         root.querySelector('.rr-controls-gravity').addEventListener('change', event => {
             if (event.target.value === 'custom') return;

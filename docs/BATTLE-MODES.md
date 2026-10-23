@@ -110,7 +110,11 @@ Overwatch: a unit whose attack reaches two tiles or more can end its turn on wat
 
 Big units: an event with a size covers every cell of it. It blocks them, is hit once by an area, and moves only where all of it fits.
 
-Height: a blow from beside its target lands only within 2 levels of height; a ladder or a mantle costs extra move and the path preview shows the climb. A weapon that shoots reaches one tile further for every two levels its user stands above the target, up to three. From two levels up, half cover does not count.
+Height: a blow from beside its target lands only within 2 levels of height; a ladder or a mantle costs extra move and the path preview shows the climb.
+
+Up and down: a unit climbs a wall too high to pull itself onto, without a ladder, up to the climb height (Database › System 2 › Physics: **Battlers climb walls without a ladder**, **Highest wall climbed**, 6 tiles; **Climb cost**, 0.75 move per tile climbed, never less than a mantle). It jumps down any height, over an eave or a verge if one is in the way; past **Safe fall** it loses **Damage per tile beyond** of its max HP for each tile, and the path preview shows that HP in red under the move cost. **Long falls in battles** chooses: hurt past the safe fall (the default), unhurt, or no deeper than the safe fall. A fall that would leave the unit with no HP is marked **Fatal fall** under its HP; **Lethal jumps** says what happens: Ask first (the default: a Jump / Stay question before the move, Stay leaves the unit where it was with its move unspent), Allowed without asking, or Not allowed (not offered). Taken, the unit is knocked out on landing. Units that decide for themselves never take one and weigh what any fall costs. The question and the cue are battle words in Database › Terms (`fallAsk`, `fallYes`, `fallNo`, `fallLethal`).
+
+Grapple: an armor whose **Grapple** section is on (Database › Armors) pulls its wearer up to a roof edge or a ledge in sight within its **Reach** and **Highest edge**. Those edges show in the move range in teal; taking one fires a line, pulls the wearer up and climbs it onto the top, and it may walk on with the move it has left. **Uses per battle** (0: no limit), **Cooldown** in turns, and **Costs**: move points, or the action (the move is free, the turn ends on arriving). Units that decide for themselves use theirs. Only actors wear one. A weapon that shoots reaches one tile further for every two levels its user stands above the target, up to three. From two levels up, half cover does not count.
 
 Facing: a unit ends its turn facing the nearest enemy. Left and Right on the command menu turn it first.
 
@@ -130,7 +134,7 @@ An Action battle has no turns. The player walks, dashes and jumps as on the map 
 
 A First Person battle is seen through the leader's eyes whatever camera the map has, with the weapon in view; the map's camera returns when it ends. In third and first person the mouse is the look: taken when the battle starts, given back for a message, the menu and the end. A guard raised just as a blow lands turns it aside and staggers the attacker. Look speed and direction: `reactorControls.lookSensitivity`, `lookInvert`.
 
-A blow at arm's length lands only on someone within about a tile and a half of the striker's height: nobody is struck through the roof they stand on. A unit that fights hand to hand climbs after a target above it where a ledge or a ladder is within reach; one that shoots backs off until it can see. Lock-on tips the look up or down to a target on another level.
+A blow at arm's length lands only on someone within about a tile and a half of the striker's height: nobody is struck through the roof they stand on. A unit that fights hand to hand climbs after a target above it where a ledge, a ladder or a climbable wall is within reach; one that shoots backs off until it can see. Jump against a wall too high to mantle climbs it, up to the climb height. A unit's own fall past the safe fall costs it the same share of max HP as in Tactical (**Long falls in battles**), and nobody else. Lock-on tips the look up or down to a target on another level.
 
 If the mouse gets away during a battle (another window, the browser), nothing opens: a line says "Click to take the mouse" and the next click takes it back. Escape opens the menu. The line is `reactorBattle.terms.takeMouse`.
 

@@ -408,7 +408,7 @@
     // stands and what it is in the middle of (a step, a jump, a climb, a fall).
     A.SEAT = ["_x", "_y", "_realX", "_realY", "_direction", "_reactorDir8", "_opacity", "_jumpCount", "_jumpPeak",
         "_reactorGround", "_reactorAlt", "_reactorAir", "_reactorVz", "_reactorPeak", "_reactorLift", "_reactorZTarget",
-        "_reactorMantle", "_reactorOnLadder", "_reactorClimb", "_reactorSwim", "_reactorDive", "_reactorLeap",
+        "_reactorMantle", "_reactorGrapple", "_reactorOnLadder", "_reactorClimb", "_reactorSwim", "_reactorDive", "_reactorLeap",
         "_reactorStepUp", "_reactorStepDown", "_reactorJumped", "_reactorFall", "_reactorPosePitch", "_reactorFallYaw"];
 
     /**
@@ -2899,7 +2899,7 @@
                 if (!character.isMoving() && P) {
                     character.setDirection(spot.d);
                     try {
-                        if (spot.kind === "ladder" && P.playStep) P.playStep(character, { kind: "ladder", d: spot.d, x: spot.tx, y: spot.ty, height: spot.to });
+                        if ((spot.kind === "ladder" || spot.kind === "climb") && P.playStep) P.playStep(character, { kind: spot.kind, d: spot.d, x: spot.tx, y: spot.ty, height: spot.to });
                         else P.tryMantle(character, spot.d, true);
                     } catch (error) { /* no way up after all */ }
                 }
@@ -2943,6 +2943,9 @@
         const P = root.ReactorPhysics, spots = [];
         if (!P || !P.edges || !P.levelsAt || !A.is3D()) return spots;
         const top = A.groundOf(to), reach = A.CLIMB_SEARCH;
+        // A wall out of the hands' reach is climbed where the project lets battlers climb (ReactorPhysics.battleClimbs).
+        const settings = P.settings ? P.settings() : null;
+        const rules = settings && P.battleClimbs && P.battleClimbs(settings) && P.edgeRules ? P.edgeRules({ climb: settings.climbHeight }) : undefined;
         for (let y = to.y - reach; y <= to.y + reach; y++) for (let x = to.x - reach; x <= to.x + reach; x++) {
             if (!$gameMap.isValid(x, y)) continue;
             for (const level of P.levelsAt($dataMap, x, y)) {
@@ -2950,9 +2953,9 @@
                 for (const d of [2, 4, 6, 8]) {
                     if (!$gameMap.isPassable(x, y, d)) continue;
                     let options;
-                    try { options = P.edges($dataMap, x, y, d, level.top); } catch (error) { continue; }
+                    try { options = P.edges($dataMap, x, y, d, level.top, rules); } catch (error) { continue; }
                     for (const option of options) {
-                        if (option.kind !== "mantle" && option.kind !== "ladder") continue;
+                        if (option.kind !== "mantle" && option.kind !== "ladder" && option.kind !== "climb") continue;
                         if (!(option.to > level.top + 1.2) || option.to > top + 0.6) continue;
                         if (!$gameMap.isPassable(option.x, option.y, 10 - d)) continue;
                         spots.push({ x, y, d, kind: option.kind, from: level.top, to: option.to, tx: option.x, ty: option.y,

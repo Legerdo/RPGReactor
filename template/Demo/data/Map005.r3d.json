@@ -233,7 +233,6 @@
   ],
   "props": [
     {"id":4,"name":"Map-Objects/Tree-01","ext":".glb","file":"Tree-01","texture":"","x":48,"y":54,"z":0,"yaw":0,"pitch":0,"roll":0,"direction":2,"size":12,"scale":1,"passable":false,"animations":[],"animation":"","repeat":false,"effects":[],"effect":""},
-    {"id":6,"name":"Map-Objects/Tree-01","ext":".glb","file":"Tree-01","texture":"","x":87,"y":72.39,"z":0,"yaw":0,"pitch":0,"roll":0,"direction":2,"size":26,"scale":1,"passable":false,"animations":[],"animation":"","repeat":false,"effects":[],"effect":""},
     {"id":8,"name":"Map-Objects/Tree-02","ext":".glb","file":"Tree-02","texture":"","x":113,"y":63,"z":0,"yaw":0,"pitch":0,"roll":0,"direction":2,"stretch":[1.56,1.58,1],"size":30,"scale":1,"passable":false,"animations":[],"animation":"","repeat":false,"effects":[],"effect":""},
     {"id":9,"name":"Map-Objects/Tree-01","ext":".glb","file":"Tree-01","texture":"","x":109.9,"y":191.06,"z":0,"yaw":0,"pitch":0,"roll":0,"direction":2,"size":50,"scale":1,"passable":false,"animations":[],"animation":"","repeat":false,"effects":[],"effect":""},
     {"id":10,"name":"Map-Objects/Tree-01","ext":".glb","file":"Tree-01","texture":"","x":15.34,"y":131.71,"z":0,"yaw":0,"pitch":0,"roll":0,"direction":2,"size":50,"scale":1,"passable":false,"animations":[],"animation":"","repeat":false,"effects":[],"effect":""},

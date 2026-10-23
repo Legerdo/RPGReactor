@@ -208,5 +208,5 @@ test('the switch: off, a 144 Hz screen draws on its updates', () => {
 test('the hooks are where the frame runs', () => {
     assert.match(managers, /SceneManager\.updateMain = function\(\) \{\n[^\n]*\n\s+if \(Graphics\.FramePacing && Graphics\.FramePacing\._active\) Graphics\.FramePacing\.beforeUpdate\(\);\n\s+this\.updateFrameCount\(\);/);
     const sprites = runtimeSource('reactor_sprites.js');
-    assert.match(sprites, /if \(typeof Graphics !== "undefined" && Graphics\.FramePacing && Graphics\.FramePacing\.drawsWorld\(this\)\) return;\n\s+this\.drawReactor3D\(state\);/);
+    assert.match(sprites, /if \(typeof Graphics !== "undefined" && Graphics\.FramePacing && Graphics\.FramePacing\.drawsWorld\(this\)\) return;\n\s+if \(this\.reactor3DKeepsLastPicture\(state\)\) return;\n\s+this\.drawReactor3D\(state\);/);
 });

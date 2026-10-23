@@ -1064,11 +1064,11 @@ Game_CharacterBase.evenShapes = true;
 Game_CharacterBase.LATE_FIELDS = [
     "_interpreter",
     "_reactorGround", "_reactorAir", "_reactorVz", "_reactorAlt", "_reactorPeak", "_reactorSwim", "_reactorLeap", "_reactorClimb",
-    "_reactorOnLadder", "_reactorDive", "_reactorFloat", "_reactorRiding", "_reactorMantle", "_reactorStepDown", "_reactorStepUp",
+    "_reactorOnLadder", "_reactorDive", "_reactorFloat", "_reactorRiding", "_reactorMantle", "_reactorGrapple", "_reactorStepDown", "_reactorStepUp",
     "_reactorJumped", "_reactorDir8", "_reactorWalk", "_reactorTurnStamp", "_reactorModelYaw", "_reactorModelYawAt", "_reactorLift",
     "_reactorChaseLater", "_reactorPosePitch", "_reactorFallYaw", "_reactorPush", "_reactorPushAlso", "_reactorPushDir",
     "_reactorPushFrames", "_reactorDriftX", "_reactorDriftY", "_rrSpin", "_rrSpinCount", "_rrVehicle", "_rrHome", "_rrYaw",
-    "_rrStage", "_rrFade", "_rrVehicleTransfer", "_borderArrival", "_destinationCheckCounter"
+    "_rrStage", "_rrFade", "_rrDrop", "_rrVehicleTransfer", "_borderArrival", "_destinationCheckCounter"
 ];
 
 /**
@@ -2549,7 +2549,7 @@ Game_Character.prototype.reactorUpdateWalk = function() {
         return false;
     }
     // In the air or pulling itself up a ledge it takes no step and plans none.
-    if (this._reactorMantle || (typeof ReactorPhysics !== "undefined" && ReactorPhysics.isAirborne(this))) {
+    if (this._reactorMantle || this._reactorGrapple || (typeof ReactorPhysics !== "undefined" && ReactorPhysics.isAirborne(this))) {
         return false;
     }
     const paths = Game_Character._walkPaths;

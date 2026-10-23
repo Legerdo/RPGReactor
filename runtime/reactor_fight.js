@@ -2220,6 +2220,50 @@
         this.finishHits(run, action);
     };
 
+    /** The unit a character shows in this fight, or null. */
+    Game_Fight.prototype.unitOfCharacter = function(character) {
+        if (!character) return null;
+        for (const unit of this._units) if (!unit.gone && this.character(unit) === character) return unit;
+        return null;
+    };
+
+    /**
+     * A fall cost a unit `loss` HP (the fall rule of Database › System 2 › Physics): taken, shown over it with
+     * the hard landing sound, and a unit left with nothing is defeated.
+     */
+    Game_Fight.prototype.hurtByFall = function(unit, loss) {
+        const battler = this.battler(unit), P = root.ReactorPhysics;
+        if (!battler || !battler.isAlive() || !(loss > 0)) return;
+        battler.clearResult();
+        battler.gainHp(-Math.round(loss));
+        this.popup(unit, battler);
+        const settings = P && P.settings ? P.settings() : null;
+        if (settings && settings.hardLandSe && P.playSe) P.playSe(settings.hardLandSe);
+        else if (typeof SoundManager !== "undefined") { if (battler.isActor()) SoundManager.playActorDamage(); else SoundManager.playEnemyDamage(); }
+        if (F.feed()) ReactorEvents.emit("fightFall", { unitId: unit.id, damage: Math.round(loss), defeated: battler.isDead() });
+        if (battler.isDead()) this.defeat(unit);
+        if (this.touch) this.touch();
+    };
+
+    /**
+     * A unit of this fight came down from a fall of `fell` tiles (ReactorPhysics.onLand): true when the fight
+     * says what it costs, so the party is not hurt as when exploring. Tactical units lose what their way said
+     * (`landDrop`); in other modes a fall past the safe height costs that unit the fall rule's share of its max
+     * HP, where the project's `battleFall` is "hurt".
+     */
+    Game_Fight.prototype.onUnitLanded = function(character, fell, settings) {
+        const unit = this.unitOfCharacter(character);
+        if (!unit) return false;
+        const P = root.ReactorPhysics;
+        if (this.isTactical && this.isTactical()) return true;
+        const battler = this.battler(unit);
+        const share = settings.battleFall === "hurt" && P ? P.fallShare(fell, settings) : 0;
+        const loss = share > 0 && battler ? P.fallHp(battler.mhp, share) : 0;
+        if (loss > 0) this.hurtByFall(unit, loss);
+        else if (P && fell >= P.LAND_SOUND_FROM) P.playSe(settings.landSe);
+        return true;
+    };
+
     Game_Fight.prototype.popup = function(unit, battler) {
         const character = this.character(unit);
         const scene = typeof SceneManager !== "undefined" ? SceneManager._scene : null;
@@ -2252,6 +2296,8 @@
         endTurnAsk: "%1 units have not acted.\nEnd the turn?", endTurnAskOne: "1 unit has not acted.\nEnd the turn?", endTurnYes: "End the turn", endTurnNo: "Keep playing",
         retreatAsk: "Leave the battle?", retreatYes: "Retreat", retreatNo: "Stay and fight",
         autoAsk: "Your units act by themselves\nfor the rest of this turn?", autoYes: "Let them act", autoNo: "Keep playing",
+        // A fall that would leave the unit with no HP: the question before it (%1 the unit's name) and the move preview's word.
+        fallAsk: "%1 will not survive this fall.\nJump anyway?", fallYes: "Jump", fallNo: "Stay", fallLethal: "Fatal fall",
         // The hint line's tips: %1 and %2 are the names of the keys or buttons in force. Short: a 640 pixel screen
         // has room for about 34 letters.
         tipPick: "Choose a unit: %1", tipNext: "%1: next unit", tipMenu: "%1: battle menu", tipTurn: "%1 %2: turn the view", tipZoom: "Mouse wheel: zoom",

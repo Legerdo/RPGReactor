@@ -240,7 +240,7 @@ test('both light packers mark a sun, the map, the editor and the battle room all
     const source = source3D();
     assert.match(source, /lightY: y, spot, beam, sun, dir: sunDir, ax, ay, az, cosHalf, width,/, 'syncVolumeLights marks it too, with its direction');
     // The sun takes no cube row while its cascades cast; the rows go to the lamps.
-    assert.match(source, /const sunJobs = this\._planSun\(sun, focus, scene, staticChange, dynamicChange, quality\);\n\s*const wanted = \[\];\n\s*for \(const candidate of this\._candidates\) \{\n\s*if \(sunJobs && candidate === sun\) continue;/);
+    assert.match(source, /const sunJobs = this\._planSun\(sun, focus, scene, staticChange, dynamicChange, quality, rush\);\n\s*const wanted = \[\];\n\s*for \(const candidate of this\._candidates\) \{\n\s*if \(sunJobs && candidate === sun\) continue;/);
     // Drawn from the sentinel's flush with the casters swapped, inside the passes that already draw the rows.
     assert.match(source, /for \(const cascade of sunStatics\) \{\n\s*const camera = this\._renderSunCascade\(renderer, scene, this\._sun\.cascades\.indexOf\(cascade\), cascade,\n\s*cascade\.want \|\| cascade\.pose, Reactor3D\.SHADOW_LAYER_STATIC, this\._static, false\);/);
     assert.match(source, /Reactor3D\.SHADOW_LAYER_DYNAMIC, roots, true\);/);

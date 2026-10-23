@@ -650,6 +650,22 @@ Reactor3D.pieceIndex = function(mapData) {
     return index;
 };
 
+/**
+ * A copy of a map read from the same files (the one the game is handed over a border) takes the
+ * cell index the map it was copied beside already holds: the same pieces, nothing measured again
+ * in the frame the copy is first asked about. False when there is nothing to share.
+ */
+Reactor3D.sharePieceIndex = function(from, to) {
+    const a = from && from.reactor3d && from.reactor3d.pieces, b = to && to.reactor3d && to.reactor3d.pieces;
+    const memo = this._pieceIndexMemo;
+    if (!memo || !Array.isArray(a) || !Array.isArray(b) || a === b || a.length !== b.length || memo.has(b)) return false;
+    if (from.width !== to.width || from.height !== to.height) return false;
+    const index = memo.get(a);
+    if (!index) return false;
+    memo.set(b, index);
+    return true;
+};
+
 Reactor3D.piecesOf = function(mapData) {
     const index = this.pieceIndex(mapData);
     return index ? index.list : [];
@@ -2326,14 +2342,35 @@ Reactor3D.rockColumns = function(mapData, rocks) {
     if (cache.size > 4096) cache.clear();
     const out = [];
     for (const { key, box, reaching, sig } of chunks) {
-        let known = cache.get(key);
-        if (!known || known.sig !== sig) {
-            known = { sig, columns: this.rockColumnsFinish(mapData, reaching, this.rockChunkColumns(reaching, box, mapData ? mapData.width : Infinity, mapData ? mapData.height : Infinity)) };
-            cache.set(key, known);
-        }
+        let known = this.rockColumnsKnown(key, sig);
+        if (!known) known = this.keepRockColumns(key, sig, this.rockColumnsFinish(mapData, reaching, this.rockChunkColumns(reaching, box, mapData ? mapData.width : Infinity, mapData ? mapData.height : Infinity)));
         for (const c of known.columns) out.push(Object.assign({}, c, { piece: reaching[c.owner].piece }));
     }
     return out;
+};
+
+/**
+ * Measured columns are kept by chunk place and, there, by the rocks that reach the chunk: maps standing side by
+ * side (a neighbor's world beside the map played) have chunks at the same places, and one map's measuring must
+ * not throw away another's (the map left over a border was measured again in the frames after the crossing).
+ */
+Reactor3D.ROCK_COLUMN_KEEP = 4;
+Reactor3D.rockColumnsKnown = function(key, sig) {
+    const kept = this._rockColumnCache && this._rockColumnCache.get(key);
+    if (!kept) return null;
+    for (const entry of kept) if (entry.sig === sig) return entry;
+    return null;
+};
+Reactor3D.keepRockColumns = function(key, sig, columns) {
+    const cache = this._rockColumnCache || (this._rockColumnCache = new Map());
+    let kept = cache.get(key);
+    if (!kept) cache.set(key, kept = []);
+    const at = kept.findIndex(entry => entry.sig === sig);
+    if (at >= 0) kept.splice(at, 1);
+    const entry = { sig, columns };
+    kept.unshift(entry);
+    if (kept.length > this.ROCK_COLUMN_KEEP) kept.length = this.ROCK_COLUMN_KEEP;
+    return entry;
 };
 
 /** The chunks rockColumns measures, each with the rocks that reach it and what it was measured from. */
@@ -2406,15 +2443,14 @@ Reactor3D.prepareRockColumns = function(mapData) {
     const rocks = this.rockPiecesOf(mapData);
     if (!rocks.length) return null;
     const { chunks } = this.rockColumnPlan(mapData, rocks);
-    const cache = this._rockColumnCache || (this._rockColumnCache = new Map());
-    const missing = chunks.filter(chunk => { const known = cache.get(chunk.key); return !known || known.sig !== chunk.sig; });
+    const missing = chunks.filter(chunk => !this.rockColumnsKnown(chunk.key, chunk.sig));
     const pool = missing.length ? this.rockWorkerPool() : null;
     if (!pool) return null;
     const W = mapData.width, H = mapData.height;
     return Promise.all(missing.map(chunk => new Promise(resolve => {
         const frames = chunk.reaching.map(f => ({ c: f.c, axes: f.axes, half: f.half, round: f.round, amp: f.amp, warp: f.warp, top: f.top, min: f.min, max: f.max }));
         pool.submit({ kind: "columns", frames, box: chunk.box, W, H }, data => {
-            try { cache.set(chunk.key, { sig: chunk.sig, columns: this.rockColumnsFinish(mapData, chunk.reaching, data.columns) }); } catch (error) { /* measured where it is asked */ }
+            try { this.keepRockColumns(chunk.key, chunk.sig, this.rockColumnsFinish(mapData, chunk.reaching, data.columns)); } catch (error) { /* measured where it is asked */ }
             resolve();
         }, () => this.rockChunkColumns(chunk.reaching, chunk.box, W, H), resolve);
     })));

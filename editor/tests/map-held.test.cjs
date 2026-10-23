@@ -312,35 +312,41 @@ test('a battle\'s first frame finds every footprint taken: one per size a model 
 });
 
 test('models that join a running battle are built inside a budget a frame, in order; outside a battle each is built at once', () => {
-    const J = Reactor3D.ModelJoins, was = { now: J.now, fight: global.$gameFight, error: console.error };
+    const J = Reactor3D.ModelJoins, was = { now: J.now, fight: global.$gameFight, error: console.error, graphics: global.Graphics };
     let clock = 0, active = false;
     const built = [], job = name => () => { built.push(name); clock += 3; if (name === 'bad') throw new Error('unreadable'); };
     J.now = () => clock; J.queue.length = 0; J.spent = 0;
     global.$gameFight = { isActive: () => active };
+    // Each drain on a frame of its own; the budget is the frame's.
+    global.Graphics = { frameCount: 0 };
+    const frame = () => { Graphics.frameCount++; J.drain(); };
     try {
         // No battle (a map loading): every model the moment its files are in, whatever it costs.
         for (const name of ['a', 'b', 'c', 'd']) J.add(job(name));
         assert.deepEqual(built, ['a', 'b', 'c', 'd']);
         assert.equal(J.queue.length, 0);
         // A battle runs and an army arrives: 3 ms each against 4 ms a frame is two a frame, the rest wait their turn.
-        active = true; built.length = 0; J.drain();
+        active = true; built.length = 0; frame();
         for (const name of ['e', 'f', 'g', 'bad', 'h', 'i']) J.add(job(name));
         assert.deepEqual(built, ['e', 'f']);
-        const errors = []; console.error = (...args) => errors.push(args[0]);
+        // A second scene synced in the same frame (a neighbor's world) drains from the same budget.
         J.drain();
+        assert.deepEqual(built, ['e', 'f'], 'one budget a frame, however many scenes ask');
+        const errors = []; console.error = (...args) => errors.push(args[0]);
+        frame();
         assert.deepEqual(built, ['e', 'f', 'g', 'bad'], 'oldest first');
         assert.equal(errors.length, 1, 'one that fails is reported and stops nobody');
         // One arriving while others wait goes behind them.
         J.add(job('j'));
         assert.deepEqual(built, ['e', 'f', 'g', 'bad']);
-        J.drain();
+        frame();
         assert.deepEqual(built, ['e', 'f', 'g', 'bad', 'h', 'i']);
         // The battle ends with some waiting: they are all built on the next frame.
         J.add(job('k')); J.add(job('l'));
-        active = false; J.drain();
+        active = false; frame();
         assert.deepEqual(built.slice(6), ['j', 'k', 'l']);
         assert.equal(J.queue.length, 0);
-    } finally { J.now = was.now; J.queue.length = 0; J.spent = 0; global.$gameFight = was.fight; console.error = was.error; }
+    } finally { J.now = was.now; J.queue.length = 0; J.spent = 0; global.$gameFight = was.fight; console.error = was.error; global.Graphics = was.graphics; }
 });
 
 test('a target behind the unit is aimed at from the front: the arm never reaches behind the back', async () => {
