@@ -17,6 +17,8 @@ Game_BattlerBase.TRAIT_ELEMENT_RATE = 11;
 Game_BattlerBase.TRAIT_DEBUFF_RATE = 12;
 Game_BattlerBase.TRAIT_STATE_RATE = 13;
 Game_BattlerBase.TRAIT_STATE_RESIST = 14;
+// Reactor's own: code 15 is unused by RPG Maker MZ.
+Game_BattlerBase.TRAIT_BUFF_RATE = 15;
 Game_BattlerBase.TRAIT_PARAM = 21;
 Game_BattlerBase.TRAIT_XPARAM = 22;
 Game_BattlerBase.TRAIT_SPARAM = 23;
@@ -618,6 +620,27 @@ Game_BattlerBase.prototype.elementRate = function(elementId) {
 
 Game_BattlerBase.prototype.debuffRate = function(paramId) {
     return this.traitsPi(Game_BattlerBase.TRAIT_DEBUFF_RATE, paramId);
+};
+
+/**
+ * The chance a buff on this parameter is accepted (Buff Rate trait). It
+ * decides whether a buff lands, never how strong it is; traits multiply
+ * together, so with none it is 1.
+ */
+Game_BattlerBase.prototype.buffRate = function(paramId) {
+    return this.traitsPi(Game_BattlerBase.TRAIT_BUFF_RATE, paramId);
+};
+
+/**
+ * One roll against buffRate, clamped to 0-100%. A sure answer either way
+ * draws no random number, so a project without the trait sees the same
+ * sequence from Math.random as before the trait existed.
+ */
+Game_BattlerBase.prototype.isBuffAccepted = function(paramId) {
+    const chance = this.buffRate(paramId);
+    if (!(chance < 1)) return true; // 100% or more, and a non-number
+    if (chance <= 0) return false;
+    return Math.random() < chance;
 };
 
 Game_BattlerBase.prototype.stateRate = function(stateId) {
@@ -1481,6 +1504,50 @@ Game_Battler.prototype.addDebuff = function(paramId, turns) {
         this._result.pushAddedDebuff(paramId);
         this.refresh();
     }
+};
+
+/**
+ * The Buff Rate gate (trait 15). Plugins hang behaviour on both methods a
+ * buff passes through - VisuMZ_2_EnhancedTpSystem grants TP from
+ * itemEffectAddBuff whenever the target's result is already a success, and
+ * SkillsStatesCore and BattleVoices react inside addBuff - so a rejected
+ * buff has to stop before any of them runs. Installed once the plugins
+ * have loaded, the gate is the outermost wrapper of each.
+ *
+ * An Add Buff effect rolls once, and a buff it accepts leaves a one-use
+ * pass for the addBuff call it goes on to make, so that call does not roll
+ * a second time. Every other addBuff - an event's script, a plugin - rolls
+ * for itself. The pass is spent before the call it covers and put back as
+ * it was when the effect returns or throws, so it cannot reach a later or
+ * nested call.
+ */
+Game_Battler._buffRatePass = null;
+
+Game_Battler.installBuffRateGate = function() {
+    if (Game_Battler._buffRateGateInstalled) return false;
+    Game_Battler._buffRateGateInstalled = true;
+    const addBuff = Game_Battler.prototype.addBuff;
+    Game_Battler.prototype.addBuff = function(paramId) {
+        const pass = Game_Battler._buffRatePass;
+        if (pass && pass.battler === this && pass.paramId === paramId) {
+            Game_Battler._buffRatePass = null;
+        } else if (!this.isBuffAccepted(paramId)) {
+            return undefined;
+        }
+        return addBuff.apply(this, arguments);
+    };
+    const itemEffectAddBuff = Game_Action.prototype.itemEffectAddBuff;
+    Game_Action.prototype.itemEffectAddBuff = function(target, effect) {
+        if (!target.isBuffAccepted(effect.dataId)) return undefined;
+        const outer = Game_Battler._buffRatePass;
+        Game_Battler._buffRatePass = { battler: target, paramId: effect.dataId };
+        try {
+            return itemEffectAddBuff.apply(this, arguments);
+        } finally {
+            Game_Battler._buffRatePass = outer;
+        }
+    };
+    return true;
 };
 
 Game_Battler.prototype.removeBuff = function(paramId) {

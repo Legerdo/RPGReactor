@@ -25,6 +25,7 @@ class TraitHelp {
             12: 'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.',
             13: 'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.',
             14: 'Makes the battler immune to this state, and erases it if it is already there.',
+            15: 'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.',
             21: 'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.',
             22: 'Adds to one of the ten extra parameters. Every matching trait is summed, so these stack additively.',
             23: 'Multiplies one of the ten special parameters. Separate traits multiply together.',
@@ -155,6 +156,7 @@ class TraitHelp {
         const methods = {
             11: ['elementRate', 'calcElementRate', 'elementsMaxRate'],
             12: ['debuffRate'],
+            15: ['buffRate', 'isBuffAccepted'],
             13: ['stateRate'],
             14: ['stateResistSet', 'isStateResist'],
             21: ['paramRate', 'param'],
