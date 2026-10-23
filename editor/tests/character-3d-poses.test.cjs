@@ -482,3 +482,70 @@ test('flip landings recover forward-facing feet instead of following lost invert
         }
     }
 });
+
+test('walk and run keep both knees and feet on their own side of the hips',()=>{
+    const Cloth=load('CharacterCloth');
+    for(const name of ['man','woman','tiny woman','long-limbed man']){
+        const {bones,body}=bodyOf(name),idx=n=>bones.findIndex(b=>b.name===n);
+        for(const id of ['walk','run']){
+            const c=Poses.clip(bones,id,body);
+            for(const time of c.times){const p=Cloth.pose(bones,c,time),hip=p.P[idx('Hips')],axis=rot(p.R[idx('Hips')],[1,0,0]);
+                for(const [side,sign] of [['Left',1],['Right',-1]])for(const joint of ['Leg','Foot'])
+                    assert.ok(sign*dot(sub(p.P[idx(side+joint)],hip),axis)>.005,name+'/'+id+'/'+side+joint+' crosses the stride center');
+            }
+        }
+    }
+});
+
+test('aiming, kneeling, falling and sword grips keep wrists within a natural bend and twist',()=>{
+    const Cloth=load('CharacterCloth');
+    for(const name of ['man','woman','long-limbed man']){
+        const {bones,body}=bodyOf(name),F=Poses.handFrames(bones),idx=n=>bones.findIndex(b=>b.name===n);
+        for(const id of ['fall','kneel','sword','swordThrust','bow','defend','pistolTwo','proneAim']){
+            const c=Poses.clip(bones,id,body);
+            for(const time of c.times){const p=Cloth.pose(bones,c,time);
+                for(const side of ['Left','Right']){
+                    const fore=p.R[idx(side+'ForeArm')],hand=p.R[idx(side+'Hand')],relative=mul([-fore[0],-fore[1],-fore[2],fore[3]],hand),wrist=about(relative,F[side].along);
+                    assert.ok(Math.abs(wrist.angle)<=41,name+'/'+id+'/'+side+' wrist twist '+wrist.angle.toFixed(2));
+                    assert.ok(wrist.off<=32.01,name+'/'+id+'/'+side+' wrist bend '+wrist.off.toFixed(2));
+                }
+            }
+        }
+    }
+});
+
+test('guarding has a quiet knee and waving faces the viewer with feet resting flat',()=>{
+    const Cloth=load('CharacterCloth'),{bones,body}=bodyOf('man'),idx=n=>bones.findIndex(b=>b.name===n),F=Poses.handFrames(bones);
+    const guard=Poses.clip(bones,'defend',body),first=Cloth.pose(bones,guard,0);
+    for(const time of guard.times){const p=Cloth.pose(bones,guard,time);assert.ok(Math.abs(dot4(p.R[idx('LeftLeg')],first.R[idx('LeftLeg')]))>.99999);}
+    const wave=Poses.clip(bones,'wave',body);let lo=Infinity,hi=-Infinity;
+    for(const time of wave.times){const p=Cloth.pose(bones,wave,time),q=p.R[idx('RightHand')],palm=rot(q,F.Right.palm),along=rot(q,F.Right.along);
+        assert.ok(palm[2]>.5,'palm faces the camera');lo=Math.min(lo,along[0]);hi=Math.max(hi,along[0]);
+        for(const side of ['Left','Right'])assert.ok(rot(p.R[idx(side+'Foot')],[0,1,0])[1]>.999,'whole foot stays flat');
+    }
+    assert.ok(hi-lo>.30,'hand sweeps from side to side');
+});
+
+test('the pistol support arm and falling arms move smoothly, and kneeling forearms clear the thighs',()=>{
+    const Cloth=load('CharacterCloth'),{bones,body}=bodyOf('man'),idx=n=>bones.findIndex(b=>b.name===n),s=Math.max(...bones.map(b=>b.head[1]))/1.7;
+    for(const id of ['pistolTwo','fall']){
+        const c=Poses.clip(bones,id,body);let previous;
+        for(const time of c.times){const p=Cloth.pose(bones,c,time);
+            if(previous)for(const side of (id==='pistolTwo'?['Left']:['Left','Right'])){
+                const i=idx(side+'ForeArm'),angle=2*Math.acos(Math.min(1,Math.abs(dot4(previous.R[i],p.R[i]))))*DEG;
+                assert.ok(angle<3,id+'/'+side+' forearm step '+angle.toFixed(2)+' degrees');
+            }
+            previous=p;
+        }
+    }
+    const c=Poses.clip(bones,'kneel',body);
+    for(const time of c.times){const p=Cloth.pose(bones,c,time);
+        for(const side of ['Left','Right']){
+            const hip=p.P[idx(side+'UpLeg')],knee=p.P[idx(side+'Leg')],axis=sub(knee,hip),elbow=p.P[idx(side+'ForeArm')],wrist=p.P[idx(side+'Hand')];
+            for(const u of [0,.25,.5,.75]){
+                const at=elbow.map((v,k)=>v*(1-u)+wrist[k]*u),t=Math.max(0,Math.min(1,dot(sub(at,hip),axis)/dot(axis,axis))),near=hip.map((v,k)=>v+axis[k]*t);
+                assert.ok(Math.hypot(...sub(at,near))>.085*s,side+' forearm passes through the thigh');
+            }
+        }
+    }
+});

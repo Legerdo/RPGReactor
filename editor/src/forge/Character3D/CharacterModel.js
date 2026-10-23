@@ -58,9 +58,15 @@
             // A Head choice (`headId`, from the picker) sets the head anew; otherwise the recipe's own head.
             head: normalizeHead(typeof r.headId === 'string' ? Species.headPreset(r.headId) : r.head)
         });
+        // Human headwear has one shell/face opening and cannot fit a forked neck.
+        out.outfit=out.outfit.filter(item=>fitsGarment(out,item.id));
+        out.props=out.props.filter(item=>fitsProp(out,item.id));
         // Merfolk hook: the tail's settings, and nothing a tail cannot wear.
         return Merfolk ? Merfolk.normalizeRecipe(out, r) : out;
     }
+
+    function fitsGarment(r,id){return r.head?.heads!==2||Wardrobe.BY_ID.get(id)?.slot!=='head';}
+    function fitsProp(r,id){return r.head?.heads!==2||!['eyes','hat','halo','earrings','mask','headset'].includes(Props.BY_ID.get(id)?.slot);}
 
     /**
      * An animal head in place of the human one: { kind } of a four-legged
@@ -70,6 +76,7 @@
     function normalizeHead(h) {
         if (!h || !Creature.KINDS.concat(Creature.HEAD_KINDS || []).some(k => !k.form && k.kind === h.kind)) return null;
         const out = { id: Species.headId(h), kind: h.kind };
+        if(h.heads===2)out.heads=2;
         for (const s of Creature.SLIDERS) if (Number.isFinite(+h[s.key]) && h[s.key] !== '' && h[s.key] != null) out[s.key] = +h[s.key];
         for (const o of Creature.OPTIONS) if (o.choices.some(c => c.id === h[o.key])) out[o.key] = h[o.key];
         if (h.beak === 'hooked' || h.beak === 'straight') out.beak = h.beak;
@@ -146,8 +153,8 @@
 
         // The outfit, and the skin it covers left out.
         cache.wardrobe = cache.wardrobe || {};
-        cache.wardrobe.pictureSize = o.static ? o.atlasSize || 256 : 512;
-        if (o.atlasSize) cache.wardrobe.atlasSize = o.atlasSize;
+        cache.wardrobe.pictureSize = o.static ? o.atlasSize || 256 : 1024;
+        cache.wardrobe.atlasSize = o.atlasSize || (o.static?256:2048);
         const outfit = Wardrobe.build(pack, built, r.outfit, cache.wardrobe);
         if (outfit.texture) textures[outfit.texture.name] = outfit.texture;
         for (const t of outfit.textures || []) textures[t.name] = t;
@@ -186,6 +193,7 @@
         }
         textures['skin.png'] = cache.skin;
         body.texture = 'skin.png';
+        if(cache.skin.normal&&r.skinPattern.type==='scales'){textures['skin-scales-normal.png']=cache.skin.normal;body.normalTexture='skin-scales-normal.png';body.normalScale=.55;}
         // Scales and panels shine; skin under a coat is as matte as the fur painted on it.
         body.roughness = r.skinPattern.type === 'scales' || r.skinPattern.type === 'panels' ? 0.45 : r.bodyHair.fur > 0.3 ? 0.85 : 0.62;
         if (r.features.machinery.type === 'android') { body.roughness = 0.42; body.metalness = 0.15; }
@@ -211,7 +219,7 @@
         const skinNormals = Body.vertexNormals(pack, built.shaped);
         // Body hair: single strands where it grows; fur: dense tufts over it.
         const budget = o.hairBudget || 1;
-        if (bodyHair.amount > 0.01) {
+        if (bodyHair.amount > 0.01 && bodyHair.fur <= 0.05) {
             // In clumps of fine hairs, like locks of head hair: many hairs to a card.
             const strands = Detail.hairStrands(pack, Object.assign({}, bodyHair, { budget }), strandHidden ? new Set([...(outfit.noHair || outfit.hidden), ...strandHidden]) : (outfit.noHair || outfit.hidden), 'clump');
             if (strands.length) {
@@ -220,10 +228,14 @@
             }
         }
         if (bodyHair.fur > 0.05) {
-            const tufts = Detail.hairStrands(pack, Object.assign({}, bodyHair, { amount: Math.max(bodyHair.amount, bodyHair.fur), budget }), strandHidden ? new Set([...(outfit.noHair || outfit.hidden), ...strandHidden]) : (outfit.noHair || outfit.hidden), 'tuft');
+            // A painted undercoat plus one fur layer supplies the coverage.
+            // Stacking full body-hair clumps beneath full fur tripled the
+            // geometry on beastfolk without improving their silhouette.
+            const furBudget=budget*.55;
+            const tufts = Detail.hairStrands(pack, Object.assign({}, bodyHair, { amount: Math.max(bodyHair.amount, bodyHair.fur), budget:furBudget }), strandHidden ? new Set([...(outfit.noHair || outfit.hidden), ...strandHidden]) : (outfit.noHair || outfit.hidden), 'tuft');
             if (tufts.length) {
                 textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
-                parts.push(Detail.hairPart(pack, built.shaped, skinNormals, tufts, bodyHair.color, { width: 1 + bodyHair.fur, name: 'Fur', skin: r.skin }));
+                parts.push(Detail.hairPart(pack, built.shaped, skinNormals, tufts, bodyHair.color, { width: (1 + bodyHair.fur)/Math.sqrt(.55), name: 'Fur', skin: r.skin, picture:cache.skin }));
             }
         }
         // The areolas: their own patch with its own picture, sharp at any distance.
@@ -291,12 +303,13 @@
         body.kind = 'skin'; eyes.kind = 'eye';
         for (const p of outfit.parts) p.kind = p.metalness > 0.5 ? 'metal' : 'cloth';
         for (const p of hair) p.kind = 'hair';
-        for (const p of props.parts) p.kind = p.opacity != null && p.opacity < 1 ? 'glass' : p.metalness > 0.5 ? 'metal' : 'prop';
+        for (const p of props.parts) p.kind = p.kind==='cloth'?'cloth':p.opacity != null && p.opacity < 1 ? 'glass' : p.metalness > 0.5 ? 'metal' : 'prop';
         for (const p of features.parts) p.kind = p.kind || 'feature';
         if (features.parts.some(p => p.texture === 'feather.png')) textures['feather.png'] = cache.feather || (cache.feather = Species.featherTexture());
         if (features.parts.some(p => p.texture === 'fairywing.png')) textures['fairywing.png'] = cache.fairyWing || (cache.fairyWing = Species.fairyWingTexture());
         if (graftKind) {
-            const g = graftHead(pack, built, L, r, body, eyes, cache, budget, skinNormals, o.quality === 'preview' && o.skinSize && o.skinSize <= 512 ? 'preview' : 'save');
+            let g = graftHead(pack, built, L, r, body, eyes, cache, budget, skinNormals, o.quality === 'preview' && o.skinSize && o.skinSize <= 512 ? 'preview' : 'save');
+            if(r.head.heads===2)g=pairedHeads(g,built,L,features,r);
             for (const [k, t] of Object.entries(g.textures)) textures[k] = t;
             // Closed helmets already hide a human face. Their animal-head
             // replacements must follow the same rule: muzzles, eyes and fur
@@ -317,6 +330,7 @@
             if (Expressions.mouthCovered(pack, outfit.hidden)) Expressions.hideMouth(pack, built, body, outfit.hidden);
             else { Expressions.tintMouth(pack, built, body); parts.push(...Expressions.mouthParts(pack, built, r)); }
         }
+        Object.assign(textures,props.textures);
         parts.push(...outfit.parts, ...hair, ...props.parts, ...features.parts);
         const bones = built.bones.concat(features.bones.map(b => ({ ...b })));
         // Merfolk hook: the leg bones carry no skin; what they held, the hips hold.
@@ -328,6 +342,7 @@
             for (let k = 0; k < parts.length; k++) {
                 const q = parts[k] = Object.assign({}, parts[k], { positions: Float32Array.from(parts[k].positions) });
                 for (let i = 1; i < q.positions.length; i += 3) q.positions[i] -= floor;
+                if(q.sewnRoots){q.sewnRoots=Float32Array.from(q.sewnRoots);for(let i=1;i<q.sewnRoots.length;i+=3)q.sewnRoots[i]-=floor;}
             }
             for (const b of bones) { b.head = [b.head[0], b.head[1] - floor, b.head[2]]; if (b.tail) b.tail = [b.tail[0], b.tail[1] - floor, b.tail[2]]; }
         }
@@ -452,7 +467,7 @@
             for (let k = 0; k < 4; k++) if (SJ[v * 4 + k] === neck) neckShare += SW[v * 4 + k];
             if ((hw(v) > 0.05 || neckShare > 0.3) && P[v * 3 + 1] > cutY - 0.16 && P[v * 3 + 1] < cutY + 0.04) rim.push(v);
         }
-        const parts = [], collar = [], headRoots = [];
+        const parts = [], collar = [], headRoots = [],neckTextures={};
         // The coat over the head, behind the eyes (the face stays short-furred, as painted): tufts like the
         // body's, of the coat's own color where it grows, combed back over the skull and down the neck.
         const fwdDir = Props.vec.norm(Props.vec.sub(place(T), place(A)));
@@ -670,20 +685,23 @@
                 const q = place(Array.from(bodyPart.positions.subarray(v, v + 3)));
                 for (let k = 0; k < 3; k++) inside[k] += q[k] / (bodyPart.positions.length / 3);
             }
+            const scaledNeck=h.kind==='drake';
+            if(scaledNeck&&cr.skullAnchor)inside.splice(0,3,...place(cr.skullAnchor));
             if (base.length > 2) {
                 const cols = base.length, rows = 12, pos = [], normal = [], uv = [], joints = [], weights = [], index = [];
                 for (let row = 0; row <= rows; row++) {
                     const t = row / rows, eased = t * t * (3 - 2 * t);
                     for (let col = 0; col <= cols; col++) {
                         const v = base[col % cols], angle = Math.atan2(P[v * 3] - center[0], P[v * 3 + 2] - center[2]);
-                        const end = [inside[0] + Math.sin(angle) * 0.012, inside[1], inside[2] + Math.cos(angle) * 0.012];
+                        const endRadius=scaledNeck?cr.skullRadius*s*.40:.012;
+                        const end = [inside[0] + Math.sin(angle) * endRadius, inside[1], inside[2] + Math.cos(angle) * endRadius];
                         for (let k = 0; k < 3; k++) {
                             const blend = k === 1 ? t : eased;
                             pos.push(P[v * 3 + k] * (1 - blend) + end[k] * blend);
                         }
                         normal.push(Math.sin(angle), 0, Math.cos(angle));
                         const render = src.indexOf(v);
-                        uv.push(render >= 0 ? body.uvs[render * 2] : 0, render >= 0 ? body.uvs[render * 2 + 1] : 0);
+                        uv.push(...(scaledNeck?[col/cols,t]:[render >= 0 ? body.uvs[render * 2] : 0, render >= 0 ? body.uvs[render * 2 + 1] : 0]));
                         const influence = new Map([[head, eased]]);
                         for (let k = 0; k < 4; k++) { const joint = SJ[v * 4 + k]; influence.set(joint, (influence.get(joint) || 0) + SW[v * 4 + k] * (1 - eased)); }
                         const top = [...influence].sort((a, b) => b[1] - a[1]).slice(0, 4), total = top.reduce((sum, [, w]) => sum + w, 0) || 1;
@@ -713,6 +731,12 @@
                 }
                 parts.push({ name: 'Head neck', positions: Float32Array.from(pos), normals: Float32Array.from(normal), uvs: Float32Array.from(uv), index: Uint32Array.from(index),
                     joints: Uint8Array.from(joints), weights: Float32Array.from(weights), texture: body.texture, roughness: body.roughness, metalness: 0, onSkin: true });
+                if(scaledNeck){
+                    const part=parts.at(-1),pictures=Species.neckSurface(),main=(root.RRCharacterOutfit||require('./CharacterOutfit.js')).linear(r.skin),light=(root.RRCharacterOutfit||require('./CharacterOutfit.js')).linear(r.skinPattern.belly||r.skin);
+                    Object.assign(part,{texture:'neck-scales.png',normalTexture:'neck-scales-normal.png',normalScale:.35,keepColors:true,colors:new Float32Array(pos.length),roughness:.65});
+                    for(let i=0;i<pos.length/3;i++){const angle=2*Math.PI*uv[i*2],belly=Math.max(0,Math.cos(angle))**6*.6;part.colors.set(main.map((v,k)=>v+(light[k]-v)*belly),i*3);}
+                    Object.assign(neckTextures,pictures);
+                }
             }
         }
         // A furred head's join hidden under a collar of fur, combed down the neck.
@@ -726,7 +750,52 @@
             fur = Detail.furCards(roots, { name: 'Head fur', seed: 17 });
             parts.push(fur);
         }
-        return { parts, textures: Object.assign({}, cr.textures || {}, fur ? { 'bodyhair.png': cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256)) } : {}) };
+        return { parts, textures: Object.assign({}, cr.textures || {},neckTextures, fur ? { 'bodyhair.png': cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256)) } : {}) };
+    }
+
+    /** Two complete dragon skulls, each with its own articulated neck and head.
+     * Both neck bases reuse the existing sewn body's edge and its exact bindings.
+     * They fork above that shared collar; they never copy a human face between them.
+     */
+    function pairedHeads(g,built,L,features,r){
+        const V=Props.vec,hub=L.boneIndex('Head'),neck=L.boneIndex('Neck'),pivot=built.bones[hub].head;
+        const scale=.86,spacing=Math.max(.12,(L.ring(L.eyeY)?.rx||.075)*1.65),parts=[];
+        for(const s of [-1,1]){
+            const label=s>0?'Left':'Right',yaw=s*.48,cs=Math.cos(yaw),sn=Math.sin(yaw);
+            const rotate=v=>[v[0]*cs+v[2]*sn,v[1],-v[0]*sn+v[2]*cs];
+            const place=p=>V.add(V.add(pivot,[s*spacing,.055,-.025]),V.mul(rotate(V.sub(p,pivot)),scale));
+            const ni=built.bones.length+features.bones.length,hi=ni+1,top=place(pivot),base=V.add(pivot,[s*.026,-.11,-.015]);
+            features.bones.push({name:'Hydrata'+label+'Neck',parent:neck,head:base,tail:top},
+                {name:'Hydrata'+label+'Head',parent:ni,head:top,tail:place(built.bones[hub].tail),motionSource:'Head'});
+            for(const p of g.parts){
+                const fork=p.name==='Head neck',positions=new Float32Array(p.positions.length),normals=new Float32Array(p.normals.length),joints=new Uint8Array(p.joints.length),weights=new Float32Array(p.weights.length);
+                const rows=12,cols=fork?p.positions.length/3/(rows+1):0;
+                const start=[0,0,0],end=[0,0,0],uvs=fork?new Float32Array(p.positions.length/3*2):p.uvs,colors=fork?new Float32Array(p.positions.length):p.colors;
+                if(fork)for(let col=0;col<cols-1;col++)for(let k=0;k<3;k++){start[k]+=p.positions[col*3+k]/(cols-1);end[k]+=p.positions[(rows*cols+col)*3+k]/(cols-1);}
+                const goal=fork?place(end):null,main=fork?(root.RRCharacterOutfit||require('./CharacterOutfit.js')).linear(r.skin):null,light=fork?(root.RRCharacterOutfit||require('./CharacterOutfit.js')).linear(r.skinPattern.belly||r.skin):null;
+                for(let i=0;i<p.positions.length/3;i++){
+                    const original=Array.from(p.positions.subarray(i*3,i*3+3)),turned=place(original),u=fork?Math.floor(i/cols)/rows:1,w=u*u*(3-2*u);
+                    positions.set(V.lerp(original,turned,w),i*3);
+                    normals.set(V.norm(V.lerp(Array.from(p.normals.subarray(i*3,i*3+3)),rotate(Array.from(p.normals.subarray(i*3,i*3+3))),w)),i*3);
+                    if(fork){
+                        const column=i%cols,bp=Array.from(p.positions.subarray(column*3,column*3+3)),angle=Math.atan2(bp[0]-start[0],bp[2]-start[2]);
+                        const ep=Array.from(p.positions.subarray((rows*cols+column)*3,(rows*cols+column)*3+3)),endRadius=Math.hypot(ep[0]-end[0],ep[2]-end[2])*scale;
+                        const center=V.lerp(start,goal,w),radius=Math.hypot(bp[0]-start[0],bp[2]-start[2])*(1-u)+endRadius*u+.004*Math.sin(u*Math.PI);
+                        positions.set([center[0]+Math.sin(angle)*radius,center[1]+(bp[1]-start[1])*(1-u),center[2]+Math.cos(angle)*radius],i*3);
+                        uvs.set([column/(cols-1),u],i*2);
+                        const belly=Math.max(0,Math.cos(angle))**5*.8;
+                        colors.set(main.map((v,k)=>v+(light[k]-v)*belly),i*3);
+                        const rise=Math.min(1,u/.40),tip=Math.max(0,(u-.6)/.4),influences=new Map([[ni,rise*(1-tip)],[hi,rise*tip]]);
+                        for(let k=0;k<4;k++){const bone=p.joints[column*4+k];influences.set(bone,(influences.get(bone)||0)+p.weights[column*4+k]*(1-rise));}
+                        const top=[...influences].filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,4),sum=top.reduce((n,[,v])=>n+v,0);
+                        for(let k=0;k<4;k++){joints[i*4+k]=top[k]?.[0]||0;weights[i*4+k]=(top[k]?.[1]||0)/sum;}
+                    }else{joints[i*4]=hi;weights[i*4]=1;}
+                }
+                if(fork){const m=new Props.Mesh();m.p=Array.from(positions);m.i=Array.from(p.index);m.computeNormals();normals.set(m.n);}
+                parts.push({...p,name:'Head '+label+' '+p.name.replace(/^Head /,''),positions,normals,joints,weights,...(fork?{uvs,colors,texture:'neck-scales.png',normalTexture:'neck-scales-normal.png',normalScale:.35,keepColors:true}: {})});
+            }
+        }
+        return {...g,parts,textures:{...g.textures,...Species.neckSurface()}};
     }
 
     /** A tiny picture of one color: the skin before its own is painted. */
@@ -884,7 +953,7 @@
         return Object.fromEntries(Object.entries(bounds).filter(([, b]) => Number.isFinite(b.min[0])));
     }
 
-    const api = { normalize, withSpecies, build, shade, toGlb, random, armAngle, clipsFor, previewBounds };
+    const api = { normalize, withSpecies, build, shade, toGlb, random, armAngle, clipsFor, previewBounds, fitsGarment, fitsProp };
     root.RRCharacterModel = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

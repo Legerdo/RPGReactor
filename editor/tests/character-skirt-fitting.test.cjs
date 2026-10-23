@@ -56,11 +56,15 @@ test('sewn garments close separated bodice and skirt boundaries with the same po
  for(const profile of profiles.filter(p=>['pear-female','barrel-male'].includes(p.id)))for(const id of ['ballGown','dress','robe','trenchcoat']){
   const built=Body.build(pack,Body.normalizeRecipe(profile.patch)),worn=Wardrobe.build(pack,built,[{id}],{atlasSize:64}),part=worn.parts.find(p=>p.name.endsWith(' waist seam'));
   if(!part)continue;seams++;
-  const source=new Map();for(const p of worn.parts)if(p!==part)for(let i=0;i<p.positions.length/3;i++)source.set(key(p,i),[p,i]);
+  const source=new Map();for(const p of worn.parts)if(p.fabricRefs)for(let i=0;i<p.positions.length/3;i++)source.set(p.fabricRefs[i*2]+':'+p.fabricRefs[i*2+1],[p,i]);
   for(let i=0;i<part.positions.length/3;i++){
-   const hit=source.get(key(part,i));assert.ok(hit,id+' seam boundary belongs to the garment');
+   const hit=source.get(part.sewnRefs[i*2]+':'+part.sewnRefs[i*2+1]);assert.ok(hit,id+' seam boundary belongs to the garment');
    const[p,v]=hit;let error=0;
-   for(let k=0;k<4;k++){let expected=0;for(let q=0;q<4;q++)if(p.joints[v*4+q]===part.joints[i*4+k])expected+=p.weights[v*4+q];error=Math.max(error,Math.abs(part.weights[i*4+k]-expected));}
+   assert.equal(key({positions:part.sewnRoots},i),key(p,v),id+' exact sewn root position');
+   assert.ok(Math.hypot(...[0,1,2].map(k=>part.positions[i*3+k]-part.sewnRoots[i*3+k]))<built.height*.02,id+' narrow facing overlaps its owning cloth');
+   // Unused slots can repeat the active Hips index: compare joint totals,
+   // rather than treating each zero-weight slot as another active influence.
+   for(const j of new Set([...p.joints.subarray(v*4,v*4+4),...part.joints.subarray(i*4,i*4+4)])){let expected=0,actual=0;for(let q=0;q<4;q++){if(p.joints[v*4+q]===j)expected+=p.weights[v*4+q];if(part.joints[i*4+q]===j)actual+=part.weights[i*4+q];}error=Math.max(error,Math.abs(actual-expected));}
    assert.ok(error<1e-5,id+' boundary skin follows its source');assert.ok(Math.hypot(...part.normals.subarray(i*3,i*3+3))>.9,id+' valid sewn surface normal');
   }
  }
@@ -72,11 +76,11 @@ test('cloth rigging preserves sewn waist endpoints while the body bends',async()
  const key=(p,i)=>Array.from(p.positions.subarray(i*3,i*3+3),q=>Math.round(q*1e6)).join(':');let seams=0;
  for(const profile of require('./quality/character-outfit-accessory-quality.cjs').FRESH_PROFILES.filter(p=>['pear-female','barrel-male'].includes(p.id))){
   const result=Model.build(pack,Model.normalize({age:35,...profile.patch,outfit:[{id:'ballGown'}],hair:{style:'bald'}}),{},{static:true,skinSize:64,atlasSize:64,hairBudget:0}),seam=result.parts.find(p=>p.name.endsWith(' waist seam'));if(!seam)continue;seams++;
-  const sources=new Map();for(const p of result.parts)if(p!==seam&&p.kind==='cloth')for(let v=0;v<p.positions.length/3;v++)sources.set(key(p,v),[p,v]);
+  const sources=new Map();for(const p of result.parts)if(p.fabricRefs)for(let v=0;v<p.positions.length/3;v++)sources.set(p.fabricRefs[v*2]+':'+p.fabricRefs[v*2+1],[p,v]);
   for(const pose of ['sit','backFlip','climbWall']){
-   const raw=Poses.clip(result.bones,pose,result.parts.find(p=>p.name==='Body'));assert.ok(raw,pose+' exists');const clip=Cloth.bake(result,raw,{quality:'preview'}),ps=Cloth.pose(result.bones,clip,clip.times.at(-1)*.35),actual=Cloth.skin(seam,result.bones,ps),cache=new Map();let worst=0;
+   const raw=Poses.clip(result.bones,pose,result.parts.find(p=>p.name==='Body'));assert.ok(raw,pose+' exists');const clip=Cloth.bake(result,raw,{quality:'preview'}),ps=Cloth.pose(result.bones,clip,clip.times.at(-1)*.35),actual=Cloth.skin({...seam,positions:seam.sewnRoots},result.bones,ps),cache=new Map();let worst=0;
    for(let v=0;v<seam.positions.length/3;v++){
-    const hit=sources.get(key(seam,v));assert.ok(hit,profile.id+' sewn endpoint remains on its fabric');const[p,i]=hit;
+    const hit=sources.get(seam.sewnRefs[v*2]+':'+seam.sewnRefs[v*2+1]);assert.ok(hit,profile.id+' sewn endpoint remains on its fabric');const[p,i]=hit;
     if(!cache.has(p))cache.set(p,Cloth.skin(p,result.bones,ps));const target=cache.get(p);
     for(let k=0;k<3;k++)worst=Math.max(worst,Math.abs(actual[v*3+k]-target[i*3+k]));
    }

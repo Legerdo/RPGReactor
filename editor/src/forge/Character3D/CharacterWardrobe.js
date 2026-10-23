@@ -158,7 +158,7 @@
         { id: 'tanktop', label: 'Tank top', slot: 'top', group: 'Everyday', knobs: ['length', 'neckline', 'fit'], defaults: { color: '#e8e2d4', sleeves: 0, length: 0.5, neckline: 'scoop', fit: 0.2, material: 'cloth' },
             pieces: i => [top(Object.assign({}, i, { sleeves: 0 }))] },
         { id: 'shirt', label: 'Button shirt', slot: 'top', group: 'Everyday', knobs: ['sleeves', 'length', 'neckline', 'fit'], defaults: { color: '#f2f0ea', color2: '#c8d4e4', sleeves: 1, length: 0.55, neckline: 'crew', fit: 0.4, material: 'cloth', pattern: 'solid', trim: '#ffffff', trimWidth: 0.06 },
-            pieces: i => [top(i), { collar: { open: i.neckline === 'high' ? 0.06 : 0.24 } }] },
+            pieces: i => [top({...i,neckline:i.neckline==='high'?'crew':i.neckline}), { collar: { open: i.neckline === 'high' ? 0.06 : 0.24 } }] },
         { id: 'sweater', label: 'Sweater', slot: 'top', group: 'Everyday', knobs: ['sleeves', 'length', 'neckline', 'fit'], defaults: { color: '#7a3b3b', color2: '#5a2a2a', sleeves: 1, length: 0.6, neckline: 'turtle', fit: 0.6, material: 'cloth', pattern: 'stripes', scale: 0.6, trimWidth: 0.12 },
             pieces: i => [top(i, { lift: 0.014 + (i.fit ?? 0.5) * 0.012 })] },
         { id: 'hoodie', label: 'Hoodie', slot: 'top', group: 'Everyday', knobs: ['length', 'fit'], defaults: { color: '#4a4f58', sleeves: 1, length: 0.65, neckline: 'crew', fit: 0.7, material: 'cloth', trim: '#3a3e46', trimWidth: 0.1 },
@@ -176,7 +176,7 @@
         { id: 'suitjacket', label: 'Suit jacket', slot: 'over', group: 'Everyday', knobs: ['length', 'fit'], defaults: { color: '#2b2e36', length: 0.75, fit: 0.4, material: 'cloth', open: 0.25, neckline: 'deepv', trimWidth: 0.04, trim: '#1e2026' },
             pieces: i => [top(Object.assign({}, i, { sleeves: 1, neckline: 'deepv' }), { lift: 0.022, drape: 6 })] },
         { id: 'trenchcoat', label: 'Long coat', slot: 'over', group: 'Everyday', knobs: ['length', 'fit', 'flare'], defaults: { color: '#7b6345', length: 0.85, flare: 0.25, fit: 0.5, material: 'leather', open: 0.2, trimWidth: 0.05, trim: '#5e4a32' },
-            pieces: i => [top(Object.assign({}, i, { sleeves: 1, length: BODICE, neckline: 'high' }), { lift: 0.024, drape: 6 }), skirtPiece(Object.assign({}, i, { open: 0.25 }), { lift: 0.03 })] },
+            pieces: i => [top(Object.assign({}, i, { sleeves: 1, length: BODICE, neckline: 'crew' }), { lift: 0.024, drape: 6 }), skirtPiece(Object.assign({}, i, { open: 0.25 }), { lift: 0.03 }),{collar:{stand:.04,fall:.035,open:.30,gap:.012}}] },
         { id: 'sneakers', label: 'Sneakers', slot: 'feet', group: 'Everyday', knobs: ['color2'], defaults: { color: '#f4f4f4', color2: '#d03a3a', bulk: 0, material: 'rubber', trim: '#e8e8e8' },
             pieces: i => [shoe('sneaker', i)] },
         { id: 'shoes', label: 'Dress shoes', slot: 'feet', group: 'Everyday', defaults: { color: '#1b1612', bulk: 0, material: 'leather' },
@@ -189,6 +189,10 @@
             pieces: i => [headPiece(Object.assign({ length: 0.5 }, i), { lift: 0.012, drape: 8, value: beanieValue })] },
 
         // Fantasy and medieval
+        { id: 'gambeson', label: 'Gambeson', slot: 'top', group: 'Armor', knobs: ['sleeves', 'length', 'fit'], defaults: { color: '#b5a381', color2: '#776548', trim: '#59452f', sleeves: .9, length: .65, fit: .4, neckline: 'high', material: 'cloth', pattern: 'quilted', trimWidth: .045 },
+            pieces: i => [top(Object.assign({},i,{length:BODICE}),{lift:.018,drape:5}),skirtPiece({length:i.length*.7,flare:.22},{lift:.032,rimReach:()=>.006,look:'same'})] },
+        { id: 'tabard', label: 'Heraldic tabard', slot: 'over', group: 'Fantasy', knobs: ['length'], defaults: { color: '#284b7e', color2: '#d5b767', trim: '#d5b767', length: .7, sleeves: 0, neckline: 'crew', material: 'cloth', pattern: 'emblem', trimWidth: .055 },
+            pieces: i => [top(Object.assign({},i,{length:BODICE,sleeves:0}),{lift:.028,drape:5}),skirtPiece(i,{lift:.03,rimReach:()=>.006,value:(an,v)=>Math.min((i.length-an.skirtU[v])*4,(an.height*.13-Math.abs(an.rest[v*3]))*4),look:'same'})] },
         { id: 'tunic', label: 'Tunic', slot: 'top', group: 'Fantasy', knobs: ['sleeves', 'length', 'neckline', 'fit'], defaults: { color: '#6b7a3a', sleeves: 0.85, length: 0.55, neckline: 'v', fit: 0.6, material: 'cloth', trim: '#c9a35a', trimWidth: 0.07 },
             pieces: i => [top(Object.assign({}, i, { length: BODICE }), { lift: 0.014 }), skirtPiece({ length: (i.length ?? 0.55) * 0.55, flare: 0.25, slits: 0.5 }, { lift: 0.018, look: 'same' })] },
         { id: 'peasant', label: 'Peasant blouse', slot: 'top', group: 'Fantasy', knobs: ['sleeves', 'length'], defaults: { color: '#ece3cf', sleeves: 0.9, length: 0.45, neckline: 'boat', fit: 0.8, material: 'cloth', bell: 0.5 },
@@ -206,7 +210,7 @@
         { id: 'kilt', label: 'Kilt', slot: 'bottom', group: 'Fantasy', knobs: ['length'], defaults: { color: '#2f5a3a', color2: '#8a2a2a', length: 0.32, flare: 0.25, material: 'cloth', pattern: 'plaid', scale: 1.4 },
             pieces: i => [skirtPiece(i)] },
         { id: 'loincloth', label: 'Loincloth', slot: 'bottom', group: 'Fantasy', knobs: ['length'], defaults: { color: '#6a4a2a', length: 0.4, material: 'leather' },
-            pieces: i => [skirtPiece(i, { value: loinValue(i.length ?? 0.4) }), { surface: 'tights', rules: { spine: [-3, 0.75], legs: [-1, 0.05] }, lift: 0.008, drape: 2 }] },
+            pieces: i => [{ apronPanels: true }, { surface: 'tights', rules: { spine: [-3, .85], legs: [-1, 0.05] }, lift: 0.008, drape: 2 }] },
         { id: 'hood', label: 'Hood', slot: 'head', group: 'Fantasy', knobs: ['face'], defaults: { color: '#3b3b46', length: 0.95, face: 0, material: 'cloth' },
             pieces: i => [hood(i)] },
         { id: 'sandals', label: 'Sandals', slot: 'feet', group: 'Fantasy', defaults: { color: '#7a5636', material: 'leather' },
@@ -245,15 +249,15 @@
             pieces: i => [top(i, { lift: 0.02, drape: 5 }), { scifiGear: 'uniform' }] },
         { id: 'techSuit', label: 'Technical undersuit', slot: 'under', group: 'Sci-fi', knobs: ['fit', 'neckline'], defaults: { color: '#141c27', color2: '#354453', trim: '#5f7987', fit: 0.1, neckline: 'turtle', material: 'rubber', pattern: 'technical', lightStyle: 'circuits', lightColor: '#34dbdc', lightIntensity: 0.3, lightWidth: 0.8 },
             pieces: i => [{ surface: 'tights', rules: { spine: a => [-3, NECKLINES[i.neckline || 'turtle'](a)], arms: [-1, 3.04], legs: [-1, 9] }, lift: 0.005 + i.fit * 0.006, drape: 2 }, { scifiGear: 'utility' }] },
-        { id: 'explorerSuit', label: 'Planetary exploration suit', slot: 'dress', group: 'Sci-fi', knobs: ['bulk', 'fit'], defaults: { color: '#bbc7cc', color2: '#28587d', trim: '#303f4c', bulk: 0.35, fit: 0.3, material: 'plastic', pattern: 'expedition', lightStyle: 'strips', lightColor: '#71cfff', lightIntensity: 0.3, lightWidth: 0.8 },
+        { id: 'explorerSuit', label: 'Planetary exploration suit', slot: 'dress', group: 'Sci-fi', knobs: ['bulk', 'fit'], defaults: { color: '#bbc7cc', color2: '#28587d', trim: '#303f4c', bulk: 0.35, fit: 0.3, material: 'cloth', pattern: 'solid', lightStyle: 'badge', lightColor: '#71cfff', lightIntensity: 0.3, lightWidth: 0.8 },
             pieces: i => [{ surface: 'tights', rules: { spine: [-3, 4.48], arms: [-1, 3.02], legs: [-1, 9] }, lift: 0.014 + i.bulk * 0.018 + i.fit * 0.008, drape: 7 }, { scifiGear: 'utility' }] },
-        { id: 'evaSuit', label: 'EVA pressure suit', slot: 'dress', group: 'Sci-fi', knobs: ['bulk', 'fit'], defaults: { color: '#e6e8e4', color2: '#cb692c', trim: '#303b47', bulk: 0.6, fit: 0.4, material: 'cloth', pattern: 'pressure', lightStyle: 'strips', lightColor: '#82e5ff', lightIntensity: 0.35, lightWidth: 0.8 },
+        { id: 'evaSuit', label: 'EVA pressure suit', slot: 'dress', group: 'Sci-fi', knobs: ['bulk', 'fit'], defaults: { color: '#e6e8e4', color2: '#cb692c', trim: '#303b47', bulk: 0.6, fit: 0.4, material: 'cloth', pattern: 'solid', lightStyle: 'badge', lightColor: '#82e5ff', lightIntensity: 0.35, lightWidth: 0.8 },
             pieces: i => [{ surface: 'tights', rules: { spine: [-3, 4.65], arms: [-1, 3.08], legs: [-1, 9] }, lift: 0.022 + i.bulk * 0.02 + i.fit * 0.008, drape: 9 }, { scifiGear: 'pressure' }] },
-        { id: 'reconArmor', label: 'Recon armor', slot: 'armor', group: 'Sci-fi', knobs: ['bulk'], defaults: { color: '#28333e', color2: '#9b3541', trim: '#111922', bulk: 0.35, material: 'plastic', pattern: 'expedition', lightStyle: 'strips', lightColor: '#48caff', lightIntensity: 0.8, lightWidth: 1 },
+        { id: 'reconArmor', label: 'Recon armor', slot: 'armor', group: 'Sci-fi', knobs: ['bulk'], defaults: { color: '#465a68', color2: '#a8764d', trim: '#1b2832', bulk: 0.35, material: 'plastic', pattern: 'expedition', lightStyle: 'strips', lightColor: '#48caff', lightIntensity: 0.8, lightWidth: 1 },
             pieces: i => [{ scifiGear: 'recon' }] },
         { id: 'bodysuit', label: 'Bodysuit', slot: 'under', group: 'Sci-fi', knobs: ['color2'], defaults: { color: '#20242c', color2: '#36c2ff', material: 'rubber', pattern: 'panels', neckline: 'high' },
             pieces: i => [{ surface: 'tights', rules: { spine: a => [-3, NECKLINES[i.neckline || 'high'](a)], arms: [-1, 2.98], legs: [-1, 9] }, lift: 0.004, drape: 1 }, { scifiGear: 'utility' }] },
-        { id: 'spacesuit', label: 'Space suit', slot: 'dress', group: 'Sci-fi', defaults: { color: '#e9ebee', color2: '#d86a2a', material: 'cloth', pattern: 'pressure', lightStyle: 'strips', lightColor: '#82e5ff', lightIntensity: 0.25, lightWidth: 0.8, trim: '#303b47', trimWidth: 0.02 },
+        { id: 'spacesuit', label: 'Space suit', slot: 'dress', group: 'Sci-fi', defaults: { color: '#e9ebee', color2: '#d86a2a', material: 'cloth', pattern: 'solid', lightStyle: 'badge', lightColor: '#82e5ff', lightIntensity: 0.25, lightWidth: 0.8, trim: '#303b47', trimWidth: 0.02 },
             pieces: i => [{ surface: 'tights', rules: { spine: a => [-3, 4.3], arms: [-1, 2.95], legs: [-1, 9] }, lift: 0.035, drape: 14 }, { scifiGear: 'pressure' }] },
         { id: 'tacvest', label: 'Tactical vest', slot: 'armor', group: 'Sci-fi', defaults: { color: '#3c4436', color2: '#2c3228', material: 'cloth', pattern: 'camo', trim: '#22281e', trimWidth: 0.05 },
             pieces: i => [{ scifiGear: 'vest' }] },
@@ -310,7 +314,7 @@
      * boots 2 (over them).
      */
     function modeled(id, label, slot, material, rank) {
-        return { id, label, slot, group: 'Modeled', modeled: true, rank: rank ?? 1, knobs: [], defaults: { material: material || 'cloth' }, pieces: () => [] };
+        return { id, label, slot, group: id==='mh_uniform'?'Sci-fi':id.startsWith('mh_viking')?'Fantasy':id==='mh_suit'||id==='mh_skirtsuit'?'Formal':'Everyday', modeled: true, rank: rank ?? 1, knobs: [], defaults: { material: material || 'cloth' }, pieces: () => [] };
     }
 
     /**
@@ -319,7 +323,7 @@
      * chosen; `finish` is its [roughness, metalness].
      */
     function taken(id, label, slot, outfit, part, finish, group) {
-        return { id, label, slot, group: group || 'Star Shift', transfer: outfit, part, roughness: finish[0], metalness: finish[1], knobs: [], defaults: { material: 'cloth' }, pieces: () => [] };
+        return { id, label, slot, group: group || 'Sci-fi', transfer: outfit, part, roughness: finish[0], metalness: finish[1], knobs: [], defaults: { material: 'cloth' }, pieces: () => [] };
     }
 
     function hood(i) {
@@ -339,13 +343,6 @@
     function beanieValue(an, v) {
         if (an.member[v * 5] < 0.5) return -1;
         return Math.max(-1, Math.min(1, an.s[v * 5] - 5.5 + 0.3 * Math.max(0, -Math.cos(an.angle[v * 5]))));
-    }
-    function loinValue(length) {
-        return (an, v) => {
-            const a = Math.abs(an.angle[v * 5]);
-            const panel = Math.max(0.55 - a, a - (Math.PI - 0.55));
-            return Math.min((length - an.skirtU[v]) * 4, panel * 2);
-        };
     }
     /**
      * A sandal's straps on the skin of the foot: across the toes, over the
@@ -422,6 +419,7 @@
             garment('ballGown', 'Ball gown', 'dress', 'Formal', { color: '#623c8a', neckline: 'strapless', sleeves: 0, length: 1, flare: 1.2, material: 'silk' }, gown, ['neckline', 'length', 'flare']),
             garment('eveningGown', 'Evening gown', 'dress', 'Formal', { color: '#962f48', neckline: 'deepv', sleeves: 0, length: 1, flare: 0.15, slits: 0.5, material: 'silk' }, gown, ['neckline', 'sleeves', 'length', 'flare']),
             garment('tailcoat', 'Tailcoat', 'over', 'Formal', { color: '#24242c', sleeves: 1, neckline: 'deepv', length: 0.75, fit: 0.3, open: 0.35 }, i => [top(Object.assign({}, i, { length: BODICE }), { lift: 0.025 }), skirtPiece(Object.assign({}, i, { open: 1.7, flare: 0.15 }), { lift: 0.03 })], ['length', 'fit']),
+            garment('fieldCoat', 'Field coat', 'over', 'Sci-fi', { color: '#4c4940', color2: '#242e37', trim: '#a68e65', material: 'leather', pattern: 'solid', sleeves: 1, neckline: 'v', length: .72, fit: .3, open: .28 }, i => [top(Object.assign({},i,{length:BODICE}),{lift:.023}),skirtPiece(Object.assign({},i,{open:.25,flare:.14}),{lift:.028}),{collar:{open:.35,stand:.028,fall:.025,point:.016}}], ['length','fit','open']),
             garment('apron', 'Apron', 'over', 'Workwear', { color: '#e8dfc8', length: 0.7 }, i => [top(i, { rules: { spine: [0.5, 3.2], open: 0 }, value: (an, v) => an.member[v * 5] > 0.7 ? Math.min(an.s[v * 5] - 0.5, 3.2 - an.s[v * 5], (0.85 - Math.abs(an.angle[v * 5])) * 2) : -1, lift: 0.022 }), skirtPiece(Object.assign({}, i, { flare: 0.2 }), { value: (an, v) => Math.min((i.length - an.skirtU[v]) * 4, (0.95 - Math.abs(an.angle[v * 5])) * 2), lift: 0.025 })], ['length']),
             garment('coveralls', 'Coveralls', 'dress', 'Workwear', { color: '#405a78', color2: '#2e4359', sleeves: 1, length: 1, pattern: 'panels' }, allInOne, ['sleeves', 'length']),
             garment('scrubs', 'Medical scrubs', 'dress', 'Workwear', { color: '#54a29a', sleeves: 0.3, length: 1 }, allInOne, ['sleeves', 'length']),
@@ -494,12 +492,14 @@
 
     // ── outfits ───────────────────────────────────────────────────────────
     const PRESETS = [
+        { id: 'courier', label: 'Courier', group: 'Sci-fi', items: [{ id:'techSuit',color:'#2c3036',color2:'#48515a',lightIntensity:.12 },{ id:'fieldCoat' },{ id:'boots',color:'#292523',length:.55 },{ id:'gloves',color:'#292523' }] },
+        { id: 'pathfinder', label: 'Pathfinder', group: 'Sci-fi', items: [{ id:'explorerSuit',color:'#b9b5a0',color2:'#4d6860',trim:'#313b35',lightIntensity:.15 },{ id:'fieldCoat',color:'#344c49',color2:'#263b38',trim:'#b9a370',length:.48 },{ id:'magboots',color:'#34403a',color2:'#a79568' },{ id:'gloves',color:'#34403a' }] },
         { id: 'starshipCrew', label: 'Starship crew', group: 'Sci-fi', items: [{ id: 'starshipUniform' }, { id: 'boots', color: '#18202b', length: 0.3 }] },
         { id: 'commandOfficer', label: 'Command officer', group: 'Sci-fi', items: [{ id: 'starshipUniform', color2: '#36495e', lightIntensity: 0 }, { id: 'officerJacket' }, { id: 'boots', color: '#202936', length: 0.3 }] },
         { id: 'surveyTeam', label: 'Survey team', group: 'Sci-fi', items: [{ id: 'explorerSuit' }, { id: 'magboots', color: '#263d50', length: 0.30 }, { id: 'gloves', color: '#263d50', length: 0.25 }] },
-        { id: 'reconTeam', label: 'Recon team', group: 'Sci-fi', items: [{ id: 'techSuit' }, { id: 'reconArmor' }, { id: 'magboots', color: '#27333e', color2: '#48caff' }, { id: 'gloves', color: '#27333e', length: 0.3 }] },
+        { id: 'reconTeam', label: 'Recon team', group: 'Sci-fi', items: [{ id:'officerJacket',color:'#424e4d',color2:'#2c383b',trim:'#899892',pattern:'solid',material:'cloth',lightStyle:'badge',lightColor:'#c09b66',lightIntensity:.3,neckline:'crew',fit:.6 },{ id:'cargoTrousers',color:'#414d48',color2:'#303b37',pattern:'solid',fit:.65 },{ id:'reconArmor' },{ id:'magboots',color:'#263331',color2:'#9c987b',length:.30 },{ id:'gloves',color:'#27332f',length:.3 }] },
         { id: 'evaCrew', label: 'EVA crew', group: 'Sci-fi', items: [{ id: 'evaSuit' }, { id: 'visorhelm' }, { id: 'magboots', color: '#d6dcd9', length: 0.35 }, { id: 'gloves', color: '#d6dcd9', length: 0.35 }] },
-        { id: 'flightCrew', label: 'Flight crew', group: 'Sci-fi', items: [{ id: 'techSuit', color: '#292e39', color2: '#906c3b', lightColor: '#ffb85a', lightStyle: 'badge', lightIntensity: 0.4 }, { id: 'boots', color: '#1a212b', length: 0.35 }, { id: 'gloves', color: '#1a212b', length: 0.2 }] },
+        { id:'flightCrew',label:'Flight crew',group:'Sci-fi',items:[{ id:'officerJacket',color:'#334353',color2:'#47586a',trim:'#b19a6e',material:'cloth',pattern:'solid',fit:.55,neckline:'high',lightColor:'#ffb85a',lightStyle:'badge',lightIntensity:.4 },{ id:'cargoTrousers',color:'#303d4a',color2:'#202d36',pattern:'solid',fit:.6 },{ id:'boots',color:'#1e2831',length:.35 },{ id:'gloves',color:'#1e2831',length:.2 }] },
         { id: 'none', label: 'Nothing', group: 'Basics', items: [] },
         { id: 'generatedUndergarments', label: 'Underwear separates', group: 'Basics', items: [{ id: 'briefs' }, { id: 'bra' }] },
         { id: 'generatedSwimmer', label: 'Swimmer', group: 'Swimwear', items: [{ id: 'swimsuit' }] },
@@ -529,27 +529,27 @@
         { id: 'barbarian', label: 'Barbarian', group: 'Fantasy', items: [{ id: 'loincloth' }, { id: 'sash', color: '#4a3020' }, { id: 'wraps', color: '#6a4a2a' }, { id: 'boots', color: '#5a4030', length: 0.45 }] },
         { id: 'pirate', label: 'Pirate', group: 'Fantasy', items: [{ id: 'peasant', color: '#f0ebe0', neckline: 'v', bell: 0.3 }, { id: 'jeans', color: '#2e2a40', length: 0.8, fit: 0.7 }, { id: 'vest', color: '#7a1e1e', length: 0.6 }, { id: 'sash', color: '#c03030' }, { id: 'boots', color: '#1e1610', length: 0.7 }] },
         { id: 'monk', label: 'Monk', group: 'Fantasy', items: [{ id: 'robe', color: '#b8641e', trim: '#8a4a14', bell: 0.3, neckline: 'v' }, { id: 'sash', color: '#7a3e10' }, { id: 'sandals' }] },
-        { id: 'knight', label: 'Knight', group: 'Armor', items: [{ id: 'chainmail', length: 0.26 }, { id: 'jeans', color: '#5a5e66' }, { id: 'breastplate' }, { id: 'pauldrons' }, { id: 'vambraces' }, { id: 'gauntlets' }, { id: 'tassets' }, { id: 'greaves' }, { id: 'sabatons' }, { id: 'helm' }] },
-        { id: 'paladin', label: 'Paladin', group: 'Armor', items: [{ id: 'tunic', color: '#ece8dc', trim: '#d4af37', length: 0.9, sleeves: 1 }, { id: 'leggings', color: '#3a3e46' }, { id: 'breastplate', color: '#e8d9a0', color2: '#c8b070', trim: '#ffffff' }, { id: 'pauldrons', color: '#e8d9a0', bulk: 0.9, trim: '#ffffff' }, { id: 'vambraces', color: '#e8d9a0' }, { id: 'greaves', color: '#e8d9a0' }, { id: 'sabatons', color: '#e8d9a0' }, { id: 'gauntlets', color: '#e8d9a0' }] },
-        { id: 'gladiator', label: 'Gladiator', group: 'Armor', items: [{ id: 'loincloth', color: '#8a2a2a' }, { id: 'pauldrons', color: '#9a7a4a', material: 'gold', bulk: 0.2 }, { id: 'vambraces', color: '#8a6a3a' }, { id: 'sandals' }, { id: 'sash', color: '#5a3a1a' }] },
-        { id: 'darkknight', label: 'Dark knight', group: 'Armor', items: [{ id: 'chainmail', color: '#3a3a40', length: 0.32 }, { id: 'jeans', color: '#1a1a1e' }, { id: 'breastplate', color: '#2a2a30', color2: '#1a1a20', trim: '#8a1a1a' }, { id: 'pauldrons', color: '#2a2a30', bulk: 1.2, trim: '#8a1a1a' }, { id: 'vambraces', color: '#2a2a30' }, { id: 'gauntlets', color: '#2a2a30' }, { id: 'tassets', color: '#2a2a30', trim: '#8a1a1a' }, { id: 'greaves', color: '#2a2a30' }, { id: 'sabatons', color: '#2a2a30' }, { id: 'greathelm', color: '#2a2a30' }] },
+        { id: 'knight', label: 'Knight', group: 'Armor', items: [{ id: 'chainmail', length: 0.26 }, { id: 'leggings', color: '#414750' }, { id: 'breastplate' }, { id: 'pauldrons' }, { id: 'vambraces' }, { id: 'gauntlets' }, { id: 'tassets' }, { id: 'greaves' }, { id: 'sabatons' }, { id: 'helm' }] },
+        { id: 'paladin', label: 'Paladin', group: 'Armor', items: [{ id: 'shirt', color: '#ece8dc', trim: '#d4af37', neckline: 'high', fit: .15, sleeves: 1 }, { id: 'leggings', color: '#3a3e46' }, { id: 'breastplate', color: '#e8d9a0', color2: '#c8b070', trim: '#ffffff' }, { id: 'pauldrons', color: '#e8d9a0', bulk: 0.9, trim: '#ffffff' }, { id: 'vambraces', color: '#e8d9a0' }, { id: 'greaves', color: '#e8d9a0' }, { id: 'sabatons', color: '#e8d9a0' }, { id: 'gauntlets', color: '#e8d9a0' }] },
+        { id: 'gladiator', label: 'Gladiator', group: 'Armor', items: [{ id: 'loincloth', color: '#8a2a2a' }, { id: 'pauldrons', color: '#8d806a', material: 'metal', bulk: 0.15 }, { id: 'vambraces', color: '#6b4b31', material:'leather',bulk:.12 }, { id: 'sandals' }, { id: 'sash', color: '#5a3a1a' }] },
+        { id: 'darkknight', label: 'Dark knight', group: 'Armor', items: [{ id: 'chainmail', color: '#3a3a40', length: 0.32 }, { id: 'leggings', color: '#1a1a1e' }, { id: 'breastplate', color: '#2a2a30', color2: '#1a1a20', trim: '#8a1a1a' }, { id: 'pauldrons', color: '#2a2a30', bulk: 1.2, trim: '#8a1a1a' }, { id: 'vambraces', color: '#2a2a30' }, { id: 'gauntlets', color: '#2a2a30' }, { id: 'tassets', color: '#2a2a30', trim: '#8a1a1a' }, { id: 'greaves', color: '#2a2a30' }, { id: 'sabatons', color: '#2a2a30' }, { id: 'greathelm', color: '#2a2a30' }] },
         { id: 'pilot', label: 'Space pilot', group: 'Sci-fi', items: [{ id: 'bodysuit', color: '#d8dce2', color2: '#d86a2a' }, { id: 'tacvest', color: '#3a4250', color2: '#2a3240', pattern: 'solid' }, { id: 'magboots', color: '#3a4250' }, { id: 'gloves', color: '#3a4250' }] },
         { id: 'astronaut', label: 'Astronaut', group: 'Sci-fi', items: [{ id: 'spacesuit' }, { id: 'magboots', color: '#e9ebee', color2: '#d86a2a' }, { id: 'gloves', color: '#e9ebee', bulk: 0.6 }, { id: 'visorhelm', color: '#f2f4f6', color2: '#c89a2a' }] },
         { id: 'trooper', label: 'Power armor', group: 'Sci-fi', items: [{ id: 'powerarmor' }, { id: 'powerhelm' }] },
         { id: 'marine', label: 'Space marine', group: 'Sci-fi', items: [{ id: 'powerarmor', color: '#344e70', color2: '#ccd7dd', bulk: 1.1, trim: '#202a34' }, { id: 'powerhelm', color: '#344e70', color2: '#ccd7dd', trim: '#202a34' }] },
         { id: 'cyberpunk', label: 'Cyberpunk', group: 'Sci-fi', items: [{ id: 'tanktop', color: '#1a1a20' }, { id: 'leggings', color: '#16141c' }, { id: 'cyberjacket' }, { id: 'boots', color: '#16141c', length: 0.6 }, { id: 'gloves', color: '#ff2bd6', length: 0.05 }] },
         { id: 'soldier', label: 'Soldier', group: 'Sci-fi', items: [{ id: 'shirt', color: '#4a5240', pattern: 'camo', color2: '#353b2e' }, { id: 'jeans', color: '#4a5240', pattern: 'camo', color2: '#353b2e', fit: 0.5 }, { id: 'tacvest' }, { id: 'boots', color: '#2a2620', length: 0.4 }, { id: 'gloves', color: '#2a2620', length: 0.1 }] },
-        { id: 'mhcasual', label: 'Jeans and tee', group: 'Modeled', items: [{ id: 'mh_tee_jeans' }, { id: 'mh_sneakers' }] },
-        { id: 'mhbusiness', label: 'Business suit', group: 'Modeled', items: [{ id: 'mh_suit' }, { id: 'mh_loafers' }] },
-        { id: 'mhskirtsuit', label: 'Skirt suit', group: 'Modeled', items: [{ id: 'mh_skirtsuit' }, { id: 'mh_loafers', color: '#1b1612' }] },
-        { id: 'mhsundress', label: 'Sundress', group: 'Modeled', items: [{ id: 'mh_sundress' }, { id: 'mh_sneakers' }] },
-        { id: 'mhviking', label: 'Viking', group: 'Modeled', items: [{ id: 'mh_viking_tunic' }, { id: 'mh_viking_trousers' }, { id: 'mh_viking_boots' }] },
-        { id: 'mhstarcrew', label: 'Star crew', group: 'Modeled', items: [{ id: 'mh_uniform' }, { id: 'mh_boots' }] },
+        { id: 'mhcasual', label: 'Jeans and tee', group: 'Everyday', items: [{ id: 'mh_tee_jeans' }, { id: 'mh_sneakers' }] },
+        { id: 'mhbusiness', label: 'Business suit', group: 'Formal', items: [{ id: 'mh_suit' }, { id: 'mh_loafers' }] },
+        { id: 'mhskirtsuit', label: 'Skirt suit', group: 'Formal', items: [{ id: 'mh_skirtsuit' }, { id: 'mh_loafers', color: '#1b1612' }] },
+        { id: 'mhsundress', label: 'Sundress', group: 'Everyday', items: [{ id: 'mh_sundress' }, { id: 'mh_sneakers' }] },
+        { id: 'mhviking', label: 'Viking', group: 'Fantasy', items: [{ id: 'mh_viking_tunic' }, { id: 'mh_viking_trousers' }, { id: 'mh_viking_boots' }] },
+        { id: 'mhstarcrew', label: 'Star crew', group: 'Sci-fi', items: [{ id: 'mh_uniform' }, { id: 'mh_boots' }] },
         // [outfit transfer] The Star Shift actors' outfits; gloves, gauntlets and heeled boots are the builder's own, in their colors.
-        { id: 'ss_carol', label: "Captain's Uniform (Carol Everson)", group: 'Star Shift', items: [{ id: 'ss_carol_uniform' }, { id: 'gloves', color: '#141b2e', length: 0.12, material: 'leather' }, { id: 'boots', color: '#131b31', trim: '#8c96a6', length: 0.42, material: 'leather' }] },
-        { id: 'ss_jolt', label: 'Power Armor (Jolt Eagle)', group: 'Star Shift', items: [{ id: 'ss_jolt_armor' }, { id: 'ss_jolt_legs' }, { id: 'ss_jolt_boots' }, { id: 'powergauntlets', color: '#1d2d5e', trim: '#1c2028', color2: '#3ccaff' }] },
-        { id: 'ss_max', label: 'Power Armor (Max Triton)', group: 'Star Shift', items: [{ id: 'ss_max_armor' }, { id: 'ss_max_legs' }, { id: 'ss_max_boots' }, { id: 'powergauntlets', color: '#8c1c1c', trim: '#26262b', color2: '#ff7a30' }] },
-        { id: 'ss_vay', label: 'Royal Robes (Vay Drokan)', group: 'Star Shift', items: [{ id: 'ss_vay_robes' }, { id: 'ss_vay_boots' }] }
+        { id: 'ss_carol', label: "Captain's Uniform (Carol Everson)", group: 'Sci-fi', items: [{ id: 'ss_carol_uniform' }, { id: 'gloves', color: '#141b2e', length: 0.12, material: 'leather' }, { id: 'boots', color: '#131b31', trim: '#8c96a6', length: 0.42, material: 'leather' }] },
+        { id: 'ss_jolt', label: 'Power Armor (Jolt Eagle)', group: 'Sci-fi', items: [{ id: 'ss_jolt_armor' }, { id: 'ss_jolt_legs' }, { id: 'ss_jolt_boots' }, { id: 'powergauntlets', color: '#1d2d5e', trim: '#1c2028', color2: '#3ccaff' }] },
+        { id: 'ss_max', label: 'Power Armor (Max Triton)', group: 'Sci-fi', items: [{ id: 'ss_max_armor' }, { id: 'ss_max_legs' }, { id: 'ss_max_boots' }, { id: 'powergauntlets', color: '#8c1c1c', trim: '#26262b', color2: '#ff7a30' }] },
+        { id: 'ss_vay', label: 'Royal Robes (Vay Drokan)', group: 'Sci-fi', items: [{ id: 'ss_vay_robes' }, { id: 'ss_vay_boots' }] }
     ];
 
     // ── building ──────────────────────────────────────────────────────────
@@ -570,6 +570,7 @@
      */
     function build(pack, built, outfit, cache) {
         const O = root.RRCharacterOutfit || require('./CharacterOutfit.js');
+        const Details=root.RRCharacterGarmentDetails||(typeof require==='function'?require('./CharacterGarmentDetails.js'):null);
         cache = cache || {};
         const items = normalizeOutfit(outfit);
         const entries = [];
@@ -577,7 +578,7 @@
         // is worked out once per build and never kept: the next build is another body.
         const frame = {};
         const covered = new Float32Array(pack.vertexCount).fill(-1);
-        const modeledItems = [], shoeParts = [], shoeTextures = [], takenItems = [], fieldGear = [];
+        const modeledItems = [], shoeParts = [], shoeTextures = [], takenItems = [], fieldGear = [], aprons = [];
         const under = underLayers(), belts = [];
         // The coarse clothing helper cannot follow a very full bust or deep body folds.
         // Use the actual skin topology for soft fitted cuts there, with the same authored
@@ -596,7 +597,16 @@
             if (g.transfer) { takenItems.push(item); return; }
             if (g.modeled) { modeledItems.push(item); return; }
             const specs = g.pieces(item);
+            // Joined dresses have a sewn inner yoke over the pelvis. The
+            // free outer skirt can lift in a seated pose without exposing
+            // bare skin through the gap beneath its fitted bodice.
+            if(g.slot==='dress'&&!item.open&&specs.some(p=>p.surface==='skirt')&&specs.some(p=>p.surface==='tights')){
+                specs.unshift({surface:'tights',rules:{spine:[detailedCuts?-3:-.25,detailedCuts?2.4:1.0],legs:[-1,detailedCuts?1.4:.15]},lift:detailedCuts?.009:.005,drape:2,lining:true});
+            }
             specs.forEach((raw, pi) => {
+                if (raw.apronPanels) {
+                    aprons.push(item);return;
+                }
                 if (raw.scifiGear) { fieldGear.push({ item, kind: raw.scifiGear }); return; }
                 if (raw.swimStraps) {
                     const made = O.swimStraps(pack, built, raw.swimStraps, frame);
@@ -678,7 +688,7 @@
                     return;
                 }
                 const spec = Object.assign({}, raw);
-                if (detailedCuts && spec.surface === 'tights' && !spec.hard) spec.surface = 'body';
+                if (detailedCuts && spec.surface === 'tights' && !spec.hard) {spec.surface = 'body';if(spec.rules)spec.rules={...spec.rules,tailoredHem:true};}
                 const footed = anyShoes && spec.rules && spec.rules.legs && !spec.shoe && (typeof spec.rules.legs === 'function' || spec.rules.legs[1] > 2.05);
                 if (footed) spec.rules = Object.assign({}, spec.rules, { legs: [Array.isArray(spec.rules.legs) ? spec.rules.legs[0] : -1, 2.0] });
                 spec.cutKey = [item.id, pi, cutSettings(item), spec.bands || null, footed ? 'ankle' : null, spec.surface];
@@ -689,8 +699,15 @@
                 if (!piece.index.length) return;
                 const laid = O.lay(pack, built, piece, spec, frame);
                 laid.layer = layer;
+                laid.tailored=!!frame.tailorNeeded&&!spec.hard;
+                laid.tailorFloor=hip[1]-.10*built.height/1.7;
+                laid.fabricEntry=entries.length;
+                if(spec.surface==='skirt'){
+                    const bodice=entries.find(e=>e.garment===item.id&&!e.skirt&&!e.lining);
+                    if(bodice&&laid.tailored)joinWaist(bodice.laid,laid,built,O);
+                }
                 // Loose cloth (a skirt, a robe, a coat's tails) hangs as cloth: each vertex's reach down the skirt (RRCharacterCloth).
-                if (spec.surface === 'skirt' && !spec.hard) laid.hang = Float32Array.from(laid.field, f => f.u);
+                if (spec.surface === 'skirt' && !spec.hard) laid.hang = Float32Array.from(laid.field, f => Math.max(0,f.u-(laid.sewnWaist?.12:0)));
                 // Over what an earlier garment already wears there: a belt over a robe at a heavy belly's fold,
                 // a skirt over trouser legs, a jacket over a sweater.
                 if (under.count) overlay(laid, under, O);
@@ -699,22 +716,25 @@
                 const look = Object.assign(lookOf(item, spec, cache), { material: item.material });
                 const [roughness, metalness] = MATERIAL[item.material] || MATERIAL.cloth;
                 if(spec.surface === 'skirt'){
-                    const bodice=entries.find(e=>e.garment===item.id&&!e.skirt);
-                    if(bodice){const seam=waistSeam(bodice.laid,laid,item,g.label,O);if(seam)shoeParts.push(seam);}
+                    const bodice=entries.find(e=>e.garment===item.id&&!e.skirt&&!e.lining);
+                    if(bodice){const seam=waistSeam(bodice.laid,laid,item,g.label,O,built);if(seam)shoeParts.push(seam);}
                 }
-                entries.push({ laid, look, garment:item.id, skirt: spec.surface === 'skirt', name: g.label, roughness, metalness, doubleSided: spec.surface === 'skirt' });
+                entries.push({ laid, look, garment:item.id, lining:!!spec.lining, skirt: spec.surface === 'skirt', name: g.label+(spec.lining?' lining':''), roughness, metalness, doubleSided: spec.surface === 'skirt' });
                 // The skin a tight piece covers is not drawn (a skirt hangs free of the legs).
                 if (spec.surface !== 'skirt' && spec.hides !== false) markCovered(pack, O, spec, covered);
             });
         });
+        if(Details){Details.tailor(entries,built);for(const item of aprons)shoeParts.push(...Details.apronPanels(pack,built,item,entries.map(e=>e.laid),entries.filter(e=>e.garment===item.id).map(e=>e.laid)));}
         // Hardware is fitted after the fabric layers, so badges, pouches and
         // rigid plates sit on the finished clothing rather than inside it.
         for (const [i, gear] of fieldGear.entries()) {
             if (fieldGear.slice(i + 1).some(g => g.kind === gear.kind)) continue;
-            if (gear.kind === 'utility' && fieldGear.some(g => g.kind === 'recon' || g.kind === 'vest' || g.kind === 'pressure')) continue;
+            if (gear.kind === 'utility' && fieldGear.some(g => g.kind === 'recon' || g.kind === 'vest' || g.kind === 'pressure' || g.kind === 'uniform')) continue;
+            if(gear.kind==='uniform'&&fieldGear.some(g=>g.kind==='recon'||g.kind==='vest'))continue;
             const Armor = root.RRCharacterPowerArmor || require('./CharacterPowerArmor.js');
             const made = Armor.fieldGear(pack, built, gear.item, gear.kind, entries.map(e => e.laid));
             shoeParts.push(...made.parts);
+            shoeTextures.push(...(made.textures || []));
         }
         const hidden = new Set();
         for (let v = 0; v < covered.length; v++) if (covered[v] > 0.1) hidden.add(v);
@@ -741,7 +761,8 @@
                 for (const v of made.hidden) hidden.add(v);
             }
         }
-        modeledParts.push(...shoeParts); textures.push(...shoeTextures);
+        modeledParts.push(...shoeParts, ...garmentFasteners(entries,built), ...boundEdges(entries,built), ...(Details?Details.build(pack,built,entries):[])); textures.push(...shoeTextures);
+        if(Details)textures.push(...Details.armorFinish(modeledParts,built),...Details.leatherFinish(modeledParts,built));
         // The cut garments' parts, their picture kept while the body changes (it depends on the outfit only).
         let cutParts = [], atlasTexture = null, key = null;
         if (entries.length) {
@@ -752,6 +773,7 @@
             cutParts = Atlas.apply(store.layout, entries);
             atlasTexture = store.layout.texture;
             if (store.layout.emission) textures.push(store.layout.emission);
+            if (store.layout.normal) textures.push(store.layout.normal);
         }
         // Only skin a garment really covers stays hidden: none is left out under a slit, an opening or a tear.
         for (const v of O.uncovered(pack, built, cutParts.concat(modeledParts), hidden, frame)) hidden.delete(v);
@@ -771,13 +793,81 @@
         return { parts: cutParts.concat(modeledParts), hidden, noHair, items, texture: atlasTexture, textureKey: key, textures };
     }
 
+    /** A narrow rolled binding follows each cut boundary. Unlike painted
+     * trim it retains a crisp, lit edge at cuffs, necklines and open hems. */
+    function boundEdges(entries,built) {
+        const Props=root.RRCharacterProps||require('./CharacterProps.js'),O=root.RRCharacterOutfit||require('./CharacterOutfit.js'),m=new Props.Mesh(),hang=[],sewnRoots=[],sewnRefs=[];
+        const {add,sub,mul,norm,cross}=Props.vec,scale=built.height/1.7,radius=.00065*scale;
+        for(const entry of entries){
+            if(entry.lining)continue;
+            const laid=entry.laid,edges=laid.piece.border.filter(([a,b])=>!(laid.internalHem?.[a]&&laid.internalHem?.[b]));if(!edges.length)continue;
+            const adjacent=new Map(),unused=new Set(edges.map((_,i)=>i));
+            edges.forEach(([a,b],i)=>{for(const v of [a,b]){if(!adjacent.has(v))adjacent.set(v,[]);adjacent.get(v).push(i);}});
+            const at=v=>Array.from(laid.positions.subarray(v*3,v*3+3)),color=O.linear(entry.look.trimWidth>.02?entry.look.trim||entry.look.color:entry.look.color).map(v=>v*.84);
+            while(unused.size){
+                const first=unused.values().next().value,path=[edges[first][0]];let edge=first,current=path[0];
+                while(edge!==undefined){unused.delete(edge);const pair=edges[edge];current=pair[0]===current?pair[1]:pair[0];path.push(current);if(current===path[0])break;edge=adjacent.get(current)?.find(e=>unused.has(e));}
+                if(path.length<3)continue;const closed=path[0]===path.at(-1),rows=[];
+                for(let i=0;i<path.length;i++){
+                    const id=path[i],p=at(id),before=at(path[i?i-1:closed?path.length-2:0]),after=at(path[i+1<path.length?i+1:closed?1:i]);
+                    const tangent=norm(sub(after,before)),n=norm(Array.from(laid.normals.subarray(id*3,id*3+3))),x=norm(sub(n,mul(tangent,n.reduce((s,v,k)=>s+v*tangent[k],0)))),y=cross(tangent,x),center=add(p,mul(n,radius*1.2)),skin={joints:Array.from(laid.joints.subarray(id*4,id*4+4)),weights:Array.from(laid.weights.subarray(id*4,id*4+4))};
+                    rows.push(Array.from({length:6},(_,k)=>{const angle=k/6*Math.PI*2,normal=add(mul(x,Math.cos(angle)),mul(y,Math.sin(angle)));hang.push(laid.hang?.[id]??-1);sewnRoots.push(...p);sewnRefs.push(laid.fabricEntry,id);return m.vertex(add(center,mul(normal,radius)),normal,color,skin);}));
+                }
+                for(let i=0;i+1<rows.length;i++)for(let k=0;k<6;k++){const a=rows[i][k],b=rows[i][(k+1)%6],c=rows[i+1][k],d=rows[i+1][(k+1)%6];m.tri(a,c,b);m.tri(b,c,d);}
+            }
+        }
+        if(m.empty)return [];
+        return[m.part('Sewn garment edges',{roughness:.88,metalness:0,onSkin:true,clothDetail:true,sewnRefs:Int32Array.from(sewnRefs),sewnRoots:Float32Array.from(sewnRoots),...(hang.some(h=>h>=0)?{hang:Float32Array.from(hang)}:{})})];
+    }
+
+    /** Small construction details sampled from the finished fabric, with its
+     * own skin weights. They move with the shirt rather than a guessed torso. */
+    function garmentFasteners(entries,built) {
+        const styles={shirt:[0],polo:[0],cardigan:[0],vest:[0],gambeson:[0],suitjacket:[-.04,.04],trenchcoat:[-.045,.045],tailcoat:[-.035,.035],officerJacket:[-.035,.035]};
+        const selected=entries.filter(e=>!e.skirt&&!e.lining&&styles[e.garment]);if(!selected.length)return [];
+        const Props=root.RRCharacterProps||require('./CharacterProps.js'),O=root.RRCharacterOutfit||require('./CharacterOutfit.js');
+        const mesh=new Props.Mesh(),compute=mesh.computeNormals.bind(mesh);mesh.computeNormals=()=>{};
+        const scale=built.height/1.7,hip=built.bones.find(b=>b.name==='Hips').head[1],neck=built.bones.find(b=>b.name==='Neck').head[1];
+        const hit=(laid,x,y)=>{
+            const P=laid.positions;let best=null;
+            for(let t=0;t<laid.index.length;t+=3){
+                const ids=Array.from(laid.index.subarray(t,t+3)),[a,b,c]=ids.map(v=>v*3),d=(P[b+1]-P[c+1])*(P[a]-P[c])+(P[c]-P[b])*(P[a+1]-P[c+1]);
+                if(Math.abs(d)<1e-12)continue;
+                const u=((P[b+1]-P[c+1])*(x-P[c])+(P[c]-P[b])*(y-P[c+1]))/d,v=((P[c+1]-P[a+1])*(x-P[c])+(P[a]-P[c])*(y-P[c+1]))/d,w=1-u-v;
+                if(Math.min(u,v,w)<0)continue;
+                const z=P[a+2]*u+P[b+2]*v+P[c+2]*w;if(best&&z<=best.z)continue;
+                const weights=[u,v,w],normal=[0,1,2].map(k=>ids.reduce((s,id,j)=>s+laid.normals[id*3+k]*weights[j],0)),length=Math.hypot(...normal)||1,sum=new Map();
+                ids.forEach((id,j)=>{for(let k=0;k<4;k++){const b=laid.joints[id*4+k],weight=laid.weights[id*4+k]*weights[j];if(weight>0)sum.set(b,(sum.get(b)||0)+weight);}});
+                const skin=[...sum].sort((a,b)=>b[1]-a[1]).slice(0,4),total=skin.reduce((s,v)=>s+v[1],0)||1;
+                best={z,p:[x,y,z],n:normal.map(v=>v/length),skin:{joints:Array.from({length:4},(_,i)=>skin[i]?.[0]||0),weights:Array.from({length:4},(_,i)=>(skin[i]?.[1]||0)/total)}};
+            }
+            return best&&best.n[2]>.35?best:null;
+        };
+        const {add,mul,norm,cross}=Props.vec;
+        for(const entry of selected){
+            const count=entry.garment==='polo'?3:7,upper=neck-.065*scale,lower=entry.garment==='polo'?upper-.11*scale:hip+.055*scale;
+            const color=O.linear(entry.look.trim||'#b9afa0'),thread=O.linear(entry.look.color||'#ddd7ca'),dark=color.map(v=>v*.15);
+            for(const offset of styles[entry.garment])for(let row=0;row<count;row++){
+                const x=offset*scale,y=upper+(lower-upper)*(row+.5)/count,s=hit(entry.laid,x,y);if(!s)continue;
+                if(entries.some(e=>e.laid.layer>entry.laid.layer&&(hit(e.laid,x,y)?.z||-Infinity)>s.z+.001*scale))continue;
+                const center=add(s.p,mul(s.n,.0015*scale)),a=norm(cross([0,1,0],s.n)),b=cross(s.n,a),radius=.0034*scale;
+                mesh.loft(3,(_,t)=>({center:add(center,mul(s.n,t*.0011*scale)),x:a,y:b,rx:radius*(t===0?.90:1),ry:radius*(t===0?.90:1)}),12,color,s.skin,true);
+                for(const side of [-1,1]){
+                    const hole=add(add(center,mul(s.n,.0012*scale)),mul(a,side*radius*.4));mesh.disk(hole,s.n,radius*.18,dark,s.skin,8);
+                    mesh.tube([add(hole,mul(b,-radius*.25)),add(add(hole,mul(s.n,.0002*scale)),mul(b,radius*.25))],.00025*scale,4,thread,s.skin);
+                }
+            }
+        }
+        if(mesh.empty)return [];compute();return[mesh.part('Garment fasteners',{roughness:.66,metalness:.12,onSkin:true})];
+    }
+
     /**
      * The garments laid so far, for laying the next one over them: their
      * surface points and outward normals in a grid, by the layer each is in.
      */
     function underLayers() {
         const cell = 0.03, map = new Map(), key = (x, y, z) => x + ',' + y + ',' + z;
-        const pts = [];
+        const pts = [],sections=new Map(),faces=[];
         let pieces = 0;
         return {
             count: 0,
@@ -790,9 +880,27 @@
                     // Outward: the way the piece was lifted off the body (a skirt's faces may turn either way).
                     const B = laid.base, out = (P[i * 3] - B[i * 3]) * N[i * 3] + (P[i * 3 + 1] - B[i * 3 + 1]) * N[i * 3 + 1] + (P[i * 3 + 2] - B[i * 3 + 2]) * N[i * 3 + 2];
                     const s = out < 0 ? -1 : 1;
-                    pts.push({ p: [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]], n: [N[i * 3] * s, N[i * 3 + 1] * s, N[i * 3 + 2] * s], layer, piece });
+                    pts.push({ p: [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]], n: [N[i * 3] * s, N[i * 3 + 1] * s, N[i * 3 + 2] * s], layer, piece,fam:laid.field?.[i]?.fam });
                     this.count++;
                 }
+                if(laid.index&&laid.field)for(let t=0;t<laid.index.length;t+=3){
+                    const ids=Array.from(laid.index.subarray(t,t+3));if(ids.some(v=>v>=laid.rimStart||laid.field[v].fam===1||laid.field[v].fam===2))continue;
+                    const points=ids.map(v=>Array.from(P.subarray(v*3,v*3+3))),lo=Math.floor(Math.min(...points.map(p=>p[1]))/cell),hi=Math.floor(Math.max(...points.map(p=>p[1]))/cell);
+                    if(hi-lo>512)continue;
+                    const face={points,layer};faces.push(face);for(let k=lo;k<=hi;k++){if(!sections.has(k))sections.set(k,[]);sections.get(k).push(face);}
+                }
+            },
+            *probes(layer){
+                for(const p of pts)if(p.layer<layer&&p.fam!==1&&p.fam!==2)yield p.p;
+                for(const face of faces)if(face.layer<layer)yield[0,1,2].map(k=>face.points.reduce((s,p)=>s+p[k],0)/3);
+            },
+            radius(nx,nz,y,layer){
+                let radius=0;
+                for(const face of sections.get(Math.floor(y/cell))||[]){if(face.layer>=layer)continue;const hits=[];
+                    for(let k=0;k<3;k++){const a=face.points[k],b=face.points[(k+1)%3];if(y<Math.min(a[1],b[1])||y>Math.max(a[1],b[1])||Math.abs(a[1]-b[1])<1e-9)continue;const t=(y-a[1])/(b[1]-a[1]);hits.push([a[0]+(b[0]-a[0])*t,a[2]+(b[2]-a[2])*t]);}
+                    if(hits.length<2)continue;const[a,b]=hits,dx=b[0]-a[0],dz=b[1]-a[1],den=nx*dz-nz*dx;if(Math.abs(den)<1e-9)continue;
+                    const r=(a[0]*dz-a[1]*dx)/den,u=(a[0]*nz-a[1]*nx)/den;if(r>0&&u>=0&&u<=1)radius=Math.max(radius,r);
+                }return radius;
             },
             /** The nearest point of each garment piece under `layer` within 4 cm. */
             near(x, y, z, layer) {
@@ -813,29 +921,86 @@
         };
     }
 
+    /** Tailor the upper skirt to the actual sewn bodice, rather than leaving
+     * a second, unrelated helper waistband floating far outside a short torso. */
+    function joinWaist(top,skirt,built,O){
+        const edges=top.piece.border.filter(e=>e.every(v=>top.field[v].fam!==1&&top.field[v].fam!==2));
+        if(!edges.length)return;
+        const low=Math.min(...edges.flatMap(e=>e.map(v=>top.field[v].y)));
+        const ids=[...new Set(edges.filter(e=>e.every(v=>top.field[v].y<low+.025)).flat())];if(ids.length<8)return;
+        const points=ids.map(v=>Array.from(top.positions.subarray(v*3,v*3+3))),cx=(Math.min(...points.map(p=>p[0]))+Math.max(...points.map(p=>p[0])))/2,cz=(Math.min(...points.map(p=>p[2]))+Math.max(...points.map(p=>p[2])))/2;
+        const tau=Math.PI*2,angle=p=>(Math.atan2(p[0]-cx,p[2]-cz)+tau)%tau;
+        const loop=points.map((p,i)=>({p,a:angle(p),id:ids[i]})).sort((a,b)=>a.a-b.a),start=Math.min(...skirt.field.slice(0,skirt.rimStart).map(f=>f.u)),scale=built.height/1.7;
+        const roots=[...new Set(skirt.piece.border.filter(e=>e.every(v=>skirt.field[v].u<start+.08)).flat())].map(id=>{
+            const p=Array.from(skirt.positions.subarray(id*3,id*3+3));return{p,a:angle(p),u:skirt.field[id].u};
+        }).sort((a,b)=>a.a-b.a);if(roots.length<8)return;
+        const end=Math.max(...skirt.field.slice(0,skirt.rimStart).map(f=>f.u));
+        const sample=(list,a)=>{let hi=list.findIndex(q=>q.a>=a);if(hi<0)hi=0;const b=list[hi],previous=list[(hi+list.length-1)%list.length],aa=previous.a-(hi===0?tau:0),at=a-(hi===0&&a>previous.a?tau:0),mix=Math.max(0,Math.min(1,(at-aa)/(b.a-aa)));return{b,previous,mix,p:previous.p.map((q,k)=>q+(b.p[k]-q)*mix),u:previous.u+(b.u-previous.u)*mix};};
+        const delta=new Float32Array(skirt.rimStart*3);
+        for(let v=0;v<skirt.rimStart;v++){
+            const p=Array.from(skirt.positions.subarray(v*3,v*3+3)),a=angle(p);
+            const root=sample(roots,a),{b,previous,mix,p:target}=sample(loop,a),u=skirt.field[v].u-root.u,t=Math.max(0,Math.min(1,u/.30)),blend=1-t*t*(3-2*t);
+            target[1]+=.01*scale;
+            const rho=Math.hypot(target[0]-cx,target[2]-cz)||1;target[0]-=(target[0]-cx)/rho*.003*scale;target[2]-=(target[2]-cz)/rho*.003*scale;
+            for(let k=0;k<3;k++)delta[v*3+k]=(target[k]-root.p[k])*blend;
+            // Distribute a lowered waist over the full panel, not just its
+            // first rows. A local correction can turn those rows inside out
+            // and compress a coat tail until it no longer has a cloth rig.
+            const reach=Math.max(0,Math.min(1,u/(end-root.u||1))),drop=Math.min(.38*scale,(end-root.u)*built.height*.8);
+            const nextY=Math.max(.015*scale,Math.min(p[1]+(target[1]-root.p[1])*(1-reach),target[1]-drop*reach));
+            delta[v*3+1]=nextY-p[1];
+            const skin=new Map(),addSkin=(part,id,weight)=>{for(let k=0;k<4;k++){const j=part.joints[id*4+k];skin.set(j,(skin.get(j)||0)+part.weights[id*4+k]*weight);}};
+            addSkin(skirt,v,1-blend);addSkin(top,previous.id,blend*(1-mix));addSkin(top,b.id,blend*mix);
+            const best=[...skin].sort((a,b)=>b[1]-a[1]).slice(0,4),total=best.reduce((s,p)=>s+p[1],0)||1;
+            for(let k=0;k<4;k++){skirt.joints[v*4+k]=best[k]?.[0]||0;skirt.weights[v*4+k]=(best[k]?.[1]||0)/total;}
+        }
+        for(let v=0;v<skirt.positions.length/3;v++){
+            for(let k=0;k<3;k++)skirt.positions[v*3+k]+=delta[skirt.origin[v]*3+k];
+            if(v>=skirt.rimStart)for(let k=0;k<4;k++){skirt.joints[v*4+k]=skirt.joints[skirt.origin[v]*4+k];skirt.weights[v*4+k]=skirt.weights[skirt.origin[v]*4+k];}
+        }
+        for(let k=0;k<skirt.base.length;k++)skirt.base[k]+=delta[k];
+        skirt.sewnWaist=true;
+        // A sewn waist is an internal join, not two separately rolled and
+        // gold-trimmed openings. Remove their turned-under returns as well.
+        top.internalHem=new Uint8Array(top.positions.length/3);for(const id of ids)top.internalHem[id]=1;
+        skirt.internalHem=Uint8Array.from(skirt.field,f=>f.u<start+.03?1:0);
+        top.internalTrim=Uint8Array.from(top.field,f=>f.fam!==1&&f.fam!==2&&f.y<low+.07?1:0);
+        skirt.internalTrim=Uint8Array.from(skirt.field,f=>f.u<start+.16?1:0);
+        for(const part of [top,skirt]){
+            const index=[];
+            for(let t=0;t<part.index.length;t+=3){const face=Array.from(part.index.subarray(t,t+3));if(face.some(v=>v>=part.rimStart)&&face.every(v=>part.internalHem[part.origin[v]]))continue;index.push(...face);}
+            part.index=Uint32Array.from(index);part.normals=O.triangleNormals(part.positions,part.index);
+        }
+        skirt.normals=O.triangleNormals(skirt.positions,skirt.index);
+    }
+
     /** Close an actual gap between two pieces of one sewn garment. The
      * boundary points retain both pieces' exact skinning, including folds. */
-    function waistSeam(top, skirt, item, label, O) {
-        const tau=Math.PI*2,angle=(p,i)=>((p.field[i].spineAng%tau)+tau)%tau;
+    function waistSeam(top, skirt, item, label, O, built) {
+        const tau=Math.PI*2;let center=[0,0];
+        const angle=(p,i)=>((Math.atan2(p.positions[i*3]-center[0],p.positions[i*3+2]-center[1])%tau)+tau)%tau;
         const boundary=(part,isSkirt)=>{
-            const candidates=part.piece.border.filter(([a,b])=>isSkirt||part.field[a].fam===0&&part.field[b].fam===0);
+            const candidates=part.piece.border.filter(e=>isSkirt||e.every(v=>part.field[v].fam!==1&&part.field[v].fam!==2));
             if(!candidates.length)return null;
-            const value=i=>isSkirt?part.field[i].u:part.field[i].s;
+            const value=i=>isSkirt?part.field[i].u:part.field[i].y;
             const low=Math.min(...candidates.flatMap(([a,b])=>[value(a),value(b)]));
-            const edges=candidates.filter(([a,b])=>Math.max(value(a),value(b))<low+(isSkirt?.025:.12));
+            const edges=candidates.filter(([a,b])=>Math.max(value(a),value(b))<low+.025);
             const ids=[...new Set(edges.flat())];if(ids.length<8)return null;
             const degree=new Map();for(const[a,b]of edges){degree.set(a,(degree.get(a)||0)+1);degree.set(b,(degree.get(b)||0)+1);}
-            return{ids:ids.sort((a,b)=>angle(part,a)-angle(part,b)),closed:ids.every(i=>degree.get(i)===2)};
+            return{ids,closed:ids.every(i=>degree.get(i)===2)};
         };
         const A=boundary(top,false),B=boundary(skirt,true);if(!A||!B)return null;
-        const loops=[A,B],sources=[top,skirt],positions=[],joints=[],weights=[],uvs=[],index=[],color=O.linear(item.color);
-        for(let side=0;side<2;side++)for(const i of loops[side].ids){const p=sources[side];positions.push(...p.positions.subarray(i*3,i*3+3));joints.push(...p.joints.subarray(i*4,i*4+4));weights.push(...p.weights.subarray(i*4,i*4+4));uvs.push(angle(p,i)/tau,side);}
+        const points=A.ids.map(i=>[top.positions[i*3],top.positions[i*3+2]]).concat(B.ids.map(i=>[skirt.positions[i*3],skirt.positions[i*3+2]]));
+        center=[0,1].map(k=>(Math.min(...points.map(p=>p[k]))+Math.max(...points.map(p=>p[k])))/2);
+        A.ids.sort((a,b)=>angle(top,a)-angle(top,b));B.ids.sort((a,b)=>angle(skirt,a)-angle(skirt,b));
+        const loops=[A,B],sources=[top,skirt],positions=[],roots=[],joints=[],weights=[],uvs=[],sewnRefs=[],index=[],color=O.linear(item.color),scale=built.height/1.7;
+        const facing=top.tailored?scale:0;
+        for(let side=0;side<2;side++)for(const i of loops[side].ids){const p=sources[side],root=Array.from(p.positions.subarray(i*3,i*3+3)),a=angle(p,i);roots.push(...root);positions.push(root[0]+Math.sin(a)*.004*facing,root[1]+(side?-.025:.012)*facing,root[2]+Math.cos(a)*.004*facing);joints.push(...p.joints.subarray(i*4,i*4+4));weights.push(...p.weights.subarray(i*4,i*4+4));uvs.push(a/tau,side);sewnRefs.push(p.fabricEntry,i);}
         const na=A.ids.length,nb=B.ids.length,closed=A.closed&&B.closed,limitA=closed?na:na-1,limitB=closed?nb:nb-1;
         const add=(a,b,c)=>{
             const ids=[a,b,c],upper=ids.filter(i=>i<na),lower=ids.filter(i=>i>=na);
             if(!upper.length||!lower.length)return;
-            const mean=vs=>vs.reduce((s,i)=>s+positions[i*3+1],0)/vs.length;
-            if(mean(upper)<mean(lower)+.001)return; // Overlapping cloth already closes it.
+            if(!top.tailored){const mean=vs=>vs.reduce((sum,i)=>sum+positions[i*3+1],0)/vs.length;if(mean(upper)<mean(lower)+.001)return;}
             const p=i=>positions.slice(i*3,i*3+3),x=p(a),y=p(b),z=p(c),u=y.map((v,k)=>v-x[k]),v=z.map((v,k)=>v-x[k]);
             const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
             const radial=[(x[0]+y[0]+z[0])/3,0,(x[2]+y[2]+z[2])/3];
@@ -849,7 +1014,7 @@
         if(!index.length)return null;
         const used=[...new Set(index)],map=new Map(used.map((v,i)=>[v,i])),gather=(src,n)=>Float32Array.from(used.flatMap(v=>src.slice(v*n,v*n+n)));
         const P=gather(positions,3),I=Uint32Array.from(index,i=>map.get(i)),[roughness,metalness]=MATERIAL[item.material]||MATERIAL.cloth;
-        return{name:label+' waist seam',doubleSided:true,positions:P,normals:O.triangleNormals(P,I),index:I,uvs:gather(uvs,2),joints:Uint8Array.from(gather(joints,4)),weights:gather(weights,4),colors:Float32Array.from({length:P.length},(_,i)=>color[i%3]),roughness,metalness};
+        return{name:label+' waist seam',doubleSided:true,positions:P,sewnRefs:Int32Array.from(gather(sewnRefs,2)),sewnRoots:gather(roots,3),normals:O.triangleNormals(P,I),index:I,uvs:gather(uvs,2),joints:Uint8Array.from(gather(joints,4)),weights:gather(weights,4),colors:Float32Array.from({length:P.length},(_,i)=>color[i%3]),roughness,metalness};
     }
 
     /** A laid piece pushed out to stand a few millimeters over the garments under it; its rim follows. */
@@ -866,9 +1031,37 @@
                 const k = gap - d;
                 x += e.n[0] * k; y += e.n[1] * k; z += e.n[2] * k;
             }
+            if(laid.tailored&&(laid.hang||laid.field[i].fam!==1&&laid.field[i].fam!==2&&y>laid.tailorFloor)){
+                const r=Math.hypot(x,z);if(r>1e-6){const radius=under.radius(x/r,z/r,y,laid.layer);if(radius&&r<radius+.020){const grow=(radius+.020)/r;x*=grow;z*=grow;}}
+            }
             if (x === P[i * 3] && y === P[i * 3 + 1] && z === P[i * 3 + 2]) continue;
             push[i * 3] = x - P[i * 3]; push[i * 3 + 1] = y - P[i * 3 + 1]; push[i * 3 + 2] = z - P[i * 3 + 2];
             moved = true;
+        }
+        if(laid.tailored){
+            // Clear actual inner surfaces between the outer mesh's corners.
+            // A nearest-vertex test misses a shirt crossing a broad coat face.
+            const cell=.04,grid=new Map(),at=(v,k)=>P[v*3+k]+push[v*3+k];
+            for(let t=0;t<laid.index.length;t+=3){
+                const ids=Array.from(laid.index.subarray(t,t+3));if(ids.some(v=>v>=n||laid.field[v].fam===1||laid.field[v].fam===2))continue;
+                const lo=[0,1].map(k=>Math.floor(Math.min(...ids.map(v=>at(v,k)))/cell)),hi=[0,1].map(k=>Math.floor(Math.max(...ids.map(v=>at(v,k)))/cell));
+                if((hi[0]-lo[0]+1)*(hi[1]-lo[1]+1)>4096)continue;
+                for(let x=lo[0];x<=hi[0];x++)for(let y=lo[1];y<=hi[1];y++){const key=x+','+y;if(!grid.has(key))grid.set(key,[]);grid.get(key).push(ids);}
+            }
+            for(const point of under.probes(laid.layer)){
+                const[x,y,z]=point;if(y<laid.tailorFloor)continue;const side=z<0?-1:1;let front=-Infinity,face=null,bary=null;
+                for(const ids of grid.get(Math.floor(x/cell)+','+Math.floor(y/cell))||[]){
+                    const[a,b,c]=ids,d=(at(b,1)-at(c,1))*(at(a,0)-at(c,0))+(at(c,0)-at(b,0))*(at(a,1)-at(c,1));if(d*side<1e-10)continue;
+                    const u=((at(b,1)-at(c,1))*(x-at(c,0))+(at(c,0)-at(b,0))*(y-at(c,1)))/d,v=((at(c,1)-at(a,1))*(x-at(c,0))+(at(a,0)-at(c,0))*(y-at(c,1)))/d;if(u<0||v<0||u+v>1)continue;
+                    const hit=side*(at(a,2)*u+at(b,2)*v+at(c,2)*(1-u-v));if(hit>front){front=hit;face=ids;bary=[u,v,1-u-v];}
+                }
+                if(!face||front<0)continue;const amount=side*z+.020-front;if(amount<=0)continue;
+                // Each corner moves outward on its own side of the garment.
+                // Translating a shared side corner forward, then backward for
+                // the next probe, can stretch a coat into horizontal spikes.
+                const directions=face.map(v=>at(v,2)/(Math.hypot(at(v,0),at(v,2))||1)),gain=side*directions.reduce((s,d,i)=>s+d*bary[i],0);if(gain<.15)continue;
+                const step=Math.min(.04,amount/gain);face.forEach((v,i)=>push[v*3+2]+=directions[i]*step);moved=true;
+            }
         }
         if (!moved) return;
         const count = P.length / 3;
@@ -1054,7 +1247,8 @@
         peasantf: ['headband', 'necklace'], farmer: ['cowboy', 'scarf'], ranger: ['quiver', 'scarf'], rogue: ['quiver', 'eyepatch'], mage: ['wizardhat', 'circlet', 'necklace'],
         priest: ['necklace', 'circlet'], noble: ['crown', 'circlet', 'necklace', 'choker', 'hoops'], prince: ['crown', 'circlet', 'cape'], barbarian: ['vikinghelm', 'bracelets', 'necklace'],
         pirate: ['tricorn', 'eyepatch', 'hoops'], monk: ['necklace'], knight: ['cape'], paladin: ['cape'], gladiator: ['bracelets', 'headband'], darkknight: ['cape'],
-        pilot: ['goggles', 'jetpack', 'backpack'], astronaut: ['jetpack'], trooper: ['jetpack'], marine: ['jetpack'], cyberpunk: ['visor', 'sunglasses', 'choker', 'studs'], soldier: ['backpack', 'sunglasses', 'cap']
+        pilot: ['goggles', 'jetpack', 'backpack'], astronaut: ['jetpack'], trooper: ['jetpack'], marine: ['jetpack'], cyberpunk: ['visor', 'sunglasses', 'choker', 'studs'], soldier: ['backpack', 'sunglasses', 'cap'],
+        courier: ['utilityHarness', 'goggles'], pathfinder: ['utilityHarness', 'backpack']
     };
     const HATS = new Set(['wizardhat', 'witchhat', 'tophat', 'fedora', 'cowboy', 'bowler', 'tricorn', 'cap', 'crown', 'circlet', 'vikinghelm', 'headband', 'halo']);
     const FACE = new Set(['glasses', 'sunglasses', 'monocle', 'eyepatch', 'goggles', 'visor']);

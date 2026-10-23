@@ -209,7 +209,7 @@
         COLLIDERS.forEach(([name], k) => { if (index.has(name)) groups.set(index.get(name), { k, pts: [] }); });
         const ownerOf = bones.map(b => (index.has(owner(b.name)) ? index.get(owner(b.name)) : -1));
         result.parts.forEach((p, pi) => {
-            if (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) || p.cloth) return;
+            if (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) || p.cloth || p.sewnRoots) return;
             const skip = exclude && exclude.get(pi), n = p.positions.length / 3;
             for (let v = 0; v < n; v++) {
                 if (skip && skip[v]) continue;
@@ -587,15 +587,24 @@
      * body (the hip joints' height) to the lowest hem, one chain at each
      * bearing where cloth hangs, each only as long as the cloth under it.
      */
-    function skirtRegion(result, marks, bones, index, budget) {
+    function skirtRegion(result, marks, bones, index, budget, beforeDrape) {
         const hips = index.get('Hips'), upL = index.get('LeftUpLeg'), upR = index.get('RightUpLeg');
         if (hips === undefined || upL === undefined) return null;
         const hipY = (bones[upL].head[1] + bones[upR].head[1]) / 2;
         const center = [(bones[upL].head[0] + bones[upR].head[0]) / 2, 0, (bones[upL].head[2] + bones[upR].head[2]) / 2];
-        const verts = [];
+        const verts = [], carried = [], samples = new Set();
         for (const [pi, hang] of marks) {
-            const P = result.parts[pi].positions;
-            for (let v = 0; v < hang.length; v++) if (hang[v] >= 0) verts.push([pi, v, hang[v], Math.atan2(P[v * 3] - center[0], P[v * 3 + 2] - center[2]), P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
+            const part = result.parts[pi], P = part.positions;
+            for (let v = 0; v < hang.length; v++) if (hang[v] >= 0) {
+                const q = [pi, v, hang[v], Math.atan2(P[v * 3] - center[0], P[v * 3 + 2] - center[2]), P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
+                carried.push(q);
+                // A UV seam can duplicate a fabric vertex, while a sewn
+                // binding adds many tiny tube vertices at the same hem.
+                // Both follow the cloth; neither should bias its pin rings
+                // or turn surface decoration into a new simulation shape.
+                const key = [q[2],q[4],q[5],q[6]].map(x=>Math.round(x*1e6)).join(',');
+                if (!part.clothDetail && !samples.has(key)) { samples.add(key); verts.push(q); }
+            }
         }
         if (verts.length < 30) return null;
         // Sample actual fabric triangles. Sparse vertex bins can mistake a UV seam or a
@@ -603,6 +612,7 @@
         const triangles = [];
         for (const [pi, hang] of marks) {
             const part = result.parts[pi], P = part.positions;
+            if (part.clothDetail) continue;
             for (let t = 0; t < part.index.length; t += 3) {
                 const ids = [part.index[t], part.index[t + 1], part.index[t + 2]];
                 if (ids.some(v => hang[v] < 0)) continue;
@@ -630,6 +640,12 @@
         // Held a little above the hip joints, where lifting a thigh moves the body least.
         const near = verts.filter(q => Math.abs(q[5] - (hipY + PIN_ABOVE_HIP)) < 0.025).map(q => q[2]).sort((a, b) => a - b);
         let uPin = near.length ? near[Math.floor(near.length / 2)] : 0.2;
+        // A tailored waistband can sit below the anatomical hip plane. Pin
+        // its actual upper edge instead of selecting a row near the hem.
+        if(marks.some(([pi])=>result.parts[pi].tailoredWaist)){
+            const start=Math.min(...verts.map(q=>q[2])),roots=verts.filter(q=>q[2]<start+.025);
+            if(roots.reduce((s,q)=>s+q[5],0)/roots.length<hipY+PIN_ABOVE_HIP-.025)uPin=start;
+        }
         let uHem = 0;
         for (const q of verts) uHem = Math.max(uHem, q[2]);
         if (uHem - uPin < 0.06) return null;
@@ -637,7 +653,17 @@
         const yAt = u => { let s = 0, n = 0; for (const q of verts) if (Math.abs(q[2] - u) < 0.03) { s += q[5]; n++; } return n ? s / n : hipY; };
         const yPin = yAt(uPin), yHem = yAt(uHem);
         // A short skirt (a tunic's, a mini) hugs the hips and moves with the body's own skin; a long one hangs as cloth.
-        if (yPin - yHem < MIN_HANG) return null;
+        let originalReach=0;
+        if(beforeDrape?.size){
+            const section=u=>{let y=0,r=0,count=0;for(const q of verts)if(Math.abs(q[2]-u)<.03){const p=beforeDrape.get(q[0]),i=q[1]*3;if(p){y+=p[i+1];r+=Math.hypot(p[i]-center[0],p[i+2]-center[2]);count++;}}return count?[y/count,r/count]:null;};
+            let previous=section(uPin);
+            for(let i=1;i<=8;i++){const next=section(uPin+(uHem-uPin)*i/8);if(previous&&next)originalReach+=Math.hypot(next[0]-previous[0],next[1]-previous[1]);if(next)previous=next;}
+        }
+        // A broad waist curves fabric over the hips, so vertical drop alone
+        // understates its length. Measure the fitted panel's curved reach
+        // before contact settles it, retaining genuinely hanging coat tails.
+        const minHang=marks.reduce((n,[pi])=>Math.min(n,result.parts[pi].clothMinHang??MIN_HANG),MIN_HANG);
+        if (Math.max(yPin-yHem,originalReach) < minHang) return null;
         const S = Math.max(1, Math.min(budget.rows, Math.round((yPin - yHem) / 0.17)));
         const K = budget.chains, step = (2 * Math.PI) / K;
         // Points of each chain: the cloth nearest the body at that bearing and reach.
@@ -694,9 +720,9 @@
             startSkin.push([Array.from({length:4},(_,q)=>skin[q]?.[0]||0),Array.from({length:4},(_,q)=>(skin[q]?.[1]||0)/total)]);
         }
         return {
-            kind: 'skirt', anchor: hips, chains: K, rows: S, ring: true, rest, length, center, uPin, uHem, verts, step, startSkin, coverage: (angle, u) => !!sample(angle, u - 1e-6),
+            kind: 'skirt', anchor: hips, chains: K, rows: S, ring: true, rest, length, center, uPin, uHem, verts:carried, step, startSkin, coverage: (angle, u) => !!sample(angle, u - 1e-6),
             // A skirt has the slack to stretch across spread knees.
-            stiff: 0.02, drag: 0.03, gap: GAP, give: 1.15
+            stiff: marks.reduce((value,[pi]) => Math.max(value,result.parts[pi].clothStiffness || 0),.02), drag: 0.03, gap: GAP, give: 1.15
         };
     }
 
@@ -756,15 +782,18 @@
         const capes = [], marks = [];
         result.parts.forEach((p, pi) => {
             if (Array.isArray(p.cloth)) for (const r of p.cloth) capes.push([pi, r]);
-            if (p.hang && p.hang.length === p.positions.length / 3) marks.push([pi, p.hang]);
+            if (!p.sewnRoots && p.hang && p.hang.length === p.positions.length / 3) marks.push([pi, p.hang]);
         });
         if (!capes.length && !marks.length) return null;
         const regions = [];
         let room = Math.max(0, Math.min(LIMITS.bones, 255 - bones.length));
         const capeBudget = LIMITS.cape, skirtBudget = LIMITS.skirt;
+        const sewn = sewnDetails(result);
+        const beforeDrape=new Map(marks.filter(([pi])=>result.parts[pi].tailoredWaist).map(([pi])=>[pi,result.parts[pi].positions]));
         if (marks.length) drapeSkirts(result, marks, bones, index);
+        sewn(true);
         if (marks.length && room >= 4) {
-            const s = skirtRegion(result, marks, bones, index, skirtBudget);
+            const s = skirtRegion(result, marks, bones, index, skirtBudget, beforeDrape);
             if (s) regions.push(s);
         }
         for (const [pi, r] of capes) {
@@ -810,6 +839,7 @@
         for (const g of capeRegions) settleCape(g, parts, capeCols, bones, surface);
         for (const g of regions) bindRegion(g, parts, bones);
         result.parts = parts;
+        sewn(false);
         let key = 0;
         for (const g of regions) for (let i = 0; i < g.rest.length; i += 7) key = (key * 31 + Math.round(g.rest[i] * 1e4)) | 0;
         for (const c of cols.concat(capeCols === cols ? [] : capeCols)) for (let i = 0; i < c.r.length; i += 5) key = (key * 31 + Math.round(c.r[i] * 1e4)) | 0;
@@ -820,6 +850,36 @@
         return result.cloth;
     }
 
+    /** Sewn construction details follow the very same fabric vertex through
+     * rest draping and cloth rebinding, rather than simulating a second hem.
+     * The small modeled thickness remains an offset from that surface. */
+    function sewnDetails(result) {
+        const key=(p,o)=>[p[o],p[o+1],p[o+2]].map(v=>Math.round(v*1e6)).join(','),sources=new Map(),fabric=new Map(),attachments=[];
+        result.parts.forEach((p,pi)=>{
+            if(p.sewnRoots||p.clothDetail||!['cloth','metal'].includes(p.kind)||p.onSkin)return;
+            for(let v=0;v<p.positions.length/3;v++){const k=key(p.positions,v*3);if(!sources.has(k))sources.set(k,[pi,v]);if(p.fabricRefs)fabric.set(p.fabricRefs[v*2]+':'+p.fabricRefs[v*2+1],[pi,v]);}
+        });
+        result.parts.forEach((p,pi)=>{
+            if(!p.sewnRoots)return;
+            const refs=[];
+            for(let v=0;v<p.positions.length/3;v++){
+                const source=p.sewnRefs?fabric.get(p.sewnRefs[v*2]+':'+p.sewnRefs[v*2+1]):sources.get(key(p.sewnRoots,v*3));if(!source)continue;
+                refs.push([v,...source,...[0,1,2].map(k=>p.positions[v*3+k]-p.sewnRoots[v*3+k])]);
+            }
+            attachments.push([pi,refs]);
+        });
+        return geometry=>{
+            for(const [pi,refs]of attachments){
+                const p=result.parts[pi],positions=geometry?Float32Array.from(p.positions):p.positions,roots=geometry?Float32Array.from(p.sewnRoots):p.sewnRoots,joints=Uint8Array.from(p.joints),weights=Float32Array.from(p.weights);
+                for(const [v,from,index,dx,dy,dz]of refs){const source=result.parts[from];
+                    if(geometry){positions[v*3]=source.positions[index*3]+dx;positions[v*3+1]=source.positions[index*3+1]+dy;positions[v*3+2]=source.positions[index*3+2]+dz;for(let k=0;k<3;k++)roots[v*3+k]=source.positions[index*3+k];}
+                    for(let k=0;k<4;k++){joints[v*4+k]=source.joints[index*4+k];weights[v*4+k]=source.weights[index*4+k];}
+                }
+                result.parts[pi]=Object.assign({},p,{positions,sewnRoots:roots,joints,weights,...(geometry?{normals:normalsOf(positions,p.index)}:{})});
+            }
+        };
+    }
+
     /**
      * The surfaces under the cloth (skin, garments, armor; not hair, eyes or
      * the cloth itself) as points with their normals and skins in a grid of
@@ -828,7 +888,7 @@
     function surfaceOf(parts, exclude) {
         const cell = 0.04, grid = new Map(), pts = [];
         parts.forEach((p, pi) => {
-            if (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) || p.cloth || !p.normals) return;
+            if (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) || p.cloth || p.sewnRoots || !p.normals) return;
             const skip = exclude.get(pi), n = p.positions.length / 3;
             for (let v = 0; v < n; v++) {
                 if (skip && skip[v]) continue;
@@ -969,6 +1029,14 @@
             }
         } else {
             const span = g.uHem - g.uPin, band = Math.min(0.06, span * 0.4);
+            const hipY=(bones.find(b=>b.name==='LeftUpLeg').head[1]+bones.find(b=>b.name==='RightUpLeg').head[1])/2+PIN_ABOVE_HIP;
+            const writeSkirt=(o,pi,v,J,W)=>{
+                // A shaped waist is not a level row in the helper's UVs.
+                // Upper fabric follows the torso; cloth starting above its
+                // fixed hip anchor cannot clear the hip by rotating its tail.
+                const body=own(pi,v),amount=1-smoothstep(hipY-.025,hipY+.035,parts[pi].positions[v*3+1]);
+                const skin=blendSkin(body[0],body[1],J,W,amount);write(o,v,...skin);
+            };
             for (const q of g.verts) {
                 const [pi, v, u, ang] = q, o = take(pi);
                 // A sewn waist edge keeps the exact source binding shared by
@@ -976,11 +1044,11 @@
                 if(u<=.03)continue;
                 if (u < g.uPin - band) continue;
                 const a = ((ang / g.step) % g.chains + g.chains) % g.chains;
-                if (u < g.uPin) { const [J, W] = own(pi, v),[pinJ,pinW]=gridSkin(g,a,0,present); const [J2, W2] = blendSkin(J, W, pinJ,pinW, smoothstep(Math.max(.03,g.uPin - band), g.uPin, u)); write(o, v, J2, W2); continue; }
+                if (u < g.uPin) { const [J, W] = own(pi, v),[pinJ,pinW]=gridSkin(g,a,0,present); const [J2, W2] = blendSkin(J, W, pinJ,pinW, smoothstep(Math.max(.03,g.uPin - band), g.uPin, u)); writeSkirt(o, pi, v, J2, W2); continue; }
                 const [J, W] = gridSkin(g, a, (u - g.uPin) / span * S, present);
                 // [outfit transfer] Where no chain reaches (an open front, a slit) the vertex keeps its own skin.
                 if (!(W[0] + W[1] + W[2] + W[3] > 0)) { const [J0, W0] = own(pi, v); write(o, v, J0, W0); continue; }
-                write(o, v, J, W);
+                writeSkirt(o, pi, v, J, W);
             }
         }
         for (const [pi, o] of touched) parts[pi] = Object.assign({}, parts[pi], { joints: o.J, weights: o.W });
@@ -1428,7 +1496,7 @@
     function slim(result) {
         return {
             bones: result.bones, cloth: result.cloth,
-            parts: result.parts.map(p => (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) ? null : { name: p.name, kind: p.kind, cloth: p.cloth, positions: p.positions, index: p.index, normals: p.normals || null, joints: p.joints, weights: p.weights }))
+            parts: result.parts.map(p => (SKIP_KIND.has(p.kind) || SKIP_NAME.has(p.name) ? null : { name: p.name, kind: p.kind, cloth: p.cloth, sewnRoots:p.sewnRoots||null, positions: p.positions, index: p.index, normals: p.normals || null, joints: p.joints, weights: p.weights }))
         };
     }
     const builds = new Map();
@@ -1691,7 +1759,13 @@
         if (g._bound) return g._bound;
         const bones = result.bones, slotOf = new Map();
         for (let i = 0; i < g.boneIds.length; i++) if (g.boneIds[i] >= 0) slotOf.set(g.boneIds[i], i);
-        const list = g.kind === 'cape' ? Array.from(g.sheet, v => [g.part, v]) : g.verts;
+        const list = g.kind === 'cape' ? Array.from(g.sheet, v => [g.part, v]) : g.verts.slice();
+        // Sewn details share the fabric's bones without entering its shape
+        // samples. Their real thickness still needs collision/floor checks.
+        result.parts.forEach((p,pi)=>{if(!p?.sewnRoots)return;for(let v=0;v<p.positions.length/3;v++){
+            let weight=0;for(let k=0;k<4;k++)if(slotOf.has(p.joints[v*4+k]))weight+=p.weights[v*4+k];
+            if(weight>.3)list.push([pi,v]);
+        }});
         const out = [], byPart = new Map();
         for (const [pi, v] of list) {
             const p = result.parts[pi], infl = [];

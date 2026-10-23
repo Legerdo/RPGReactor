@@ -68,6 +68,7 @@
         { id: 'merfolk', label: 'Merfolk', group: 'Fantasy', recipe: { merfolk: {} } },
         { id: 'lizardfolk', label: 'Lizardfolk', group: 'Beastfolk', recipe: { head: { id: 'reptile', kind: 'drake', horns: 'none', ears: 'none', snoutLength: 0.85, pattern: 'scales' }, height: 0.75, weight: 0.7, muscle: 1.2, shapes: { neck: 2.2, neckLength: -0.3, shoulders: 1.2 }, skin: '#5a8a4a', skinPattern: { type: 'scales', color: '#3e6a34', belly: '#c8c890' }, eyes: { color: '#e0c030', pupil: 'slit' }, features: { tail: { type: 'lizard', color: '#5a8a4a', color2: '#c8c890' }, spines: { type: 'ridge', size: 0.6, color: '#3e5a2a' } }, bald: true } },
         { id: 'dragonborn', label: 'Dragonborn', group: 'Beastfolk', recipe: { head: { id: 'dragon', kind: 'drake', snoutLength: 1.0, pattern: 'scales', colors: { horn: '#2a1e18' } }, height: 0.8, muscle: 0.9, shapes: { neck: 1.2, shoulders: 1 }, skin: '#a8402c', skinPattern: { type: 'scales', color: '#7a2a1c', belly: '#e0b070' }, eyes: { color: '#ffb020', pupil: 'slit' }, features: { tail: { type: 'dragon', color: '#a8402c', color2: '#e0b070' } }, bald: true } },
+        { id: 'hydrata', label: 'Hydrata', group: 'Beastfolk', recipe: { head: { id: 'hydrata', kind: 'drake', heads: 2, snoutLength: .85, snoutWidth: .95, horns:'dragon',hornSize:.85, ears:'small',pattern: 'scales', colors: { horn: '#d8bc79' } }, height: .95, muscle: 1.15, weight:.55, shapes: { neck: 1.35, shoulders: 1.7, chest:.6,handSize:.5 }, skin: '#447d68', skinPattern: { type: 'scales', color: '#27513f', belly: '#d9bd76' }, eyes: { color: '#edbc45', pupil: 'slit' }, features: { tail: { type: 'dragon', color: '#447d68', color2: '#d9bd76',length:1.2 },spines:{type:'ridge',size:.65,color:'#c4aa67'} }, bald: true } },
         { id: 'birdfolk', label: 'Birdfolk', group: 'Beastfolk', recipe: { head: { id: 'bird', kind: 'bird', beak: 'hooked', mane: 'ruff', maneSize: 0.5 }, weight: 0.3, skin: '#8a6a4a', skinPattern: { type: 'feathers', color: '#7a5a3e', belly: '#e8dcc8', shadowAmount: 0 }, eyes: { color: '#e8a020' }, shapes: { neckLength: 0.8 }, features: { wings: { type: 'feathered', size: 0.75, color: '#7a5a3a', color2: '#e8dcc8' }, tail: { type: 'bird', color: '#6a4a2a', color2: '#f0e8d8' } }, bald: true } },
         { id: 'catfolk', label: 'Catfolk', group: 'Beastfolk', recipe: { head: { id: 'cat', kind: 'cat', pattern: 'tabby' }, weight: 0.38, bald: true, bodyHair: { amount: 0.85, pattern: 'werewolf', fur: 0.4, length: 0.3, color: '#c8924a' }, shapes: { neck: 0.8 }, skin: '#c8924a', skinPattern: { type: 'stripes', color: '#7a4a1a', belly: '#f0e0c8', nose: '#d07a78' }, eyes: { color: '#a7ba71', pupil: 'slit' }, features: { tail: { type: 'cat', color: '#c8924a', color2: '#7a4a1a' } } } },
         { id: 'werewolf', label: 'Werewolf', group: 'Beastfolk', recipe: { head: { id: 'wolf', kind: 'wolf', snoutLength: 0.85, pattern: 'saddle' }, height: 0.7, muscle: 1.1, weight: 0.55, shapes: { shoulders: 1, handSize: 0.6, neck: 1.3 }, skin: '#6a5240', skinPattern: { color: '#2a1e16', belly: '#8a7260', nose: '#141210' }, eyes: { color: '#f0c020' }, features: { tail: { type: 'fox', color: '#4a3424', color2: '#7a6250' } }, bodyHair: { amount: 1, pattern: 'werewolf', fur: 0.75, length: 1.2, color: '#4a3424' }, bald: true } },
@@ -115,6 +116,7 @@
         ['bull', 'Bull', { kind: 'bull', pattern: 'solid', earDroop: 0.25 }],
         ['reptile', 'Reptile', { kind: 'drake', horns: 'none', ears: 'none', snoutLength: 0.85, pattern: 'scales' }],
         ['dragon', 'Dragon', { kind: 'drake', snoutLength: 1, pattern: 'scales' }],
+        ['hydrata', 'Hydrata', { kind: 'drake', heads:2, snoutLength:.85, horns:'dragon',hornSize:.85,ears:'small',pattern:'scales' }],
         ['bird', 'Bird', { kind: 'bird', beak: 'hooked', mane: 'ruff', maneSize: 0.5 }],
         ['crow', 'Crow', { kind: 'crow', beak: 'straight' }]
     ];
@@ -504,6 +506,23 @@
      * a low dome lit on its free edge with a groove round it and its own
      * shade; down the belly, broad plates spanning it.
      */
+    let neckPictures;
+    function neckSurface(){
+        if(neckPictures)return neckPictures;
+        const size=512,heights=new Float32Array(size*size),data=new Uint8Array(size*size*4),normal=new Uint8Array(data.length);
+        for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+            const v=y/size*24,row=Math.floor(v),u=x/size*48+(row&1)*.5,fx=(u-Math.floor(u))-.5,fy=v-row-.45;
+            const d=Math.hypot(fx*1.75,fy*1.65),edge=1-Math.max(0,Math.min(1,(d-.70)/.20)),dome=Math.max(0,1-d*d);
+            const micro=Math.sin(u*25+fy*3)*Math.sin(v*34)*.007;
+            const i=y*size+x;heights[i]=edge*(.30+.7*dome)*.12+micro;
+            const value=Math.round(255*(.83+.14*edge+.015*dome+micro));data.set([value,value,value,255],i*4);
+        }
+        for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+            const h=(a,b)=>heights[((b+size)%size)*size+(a+size)%size],dx=(h(x+1,y)-h(x-1,y))*7,dy=(h(x,y+1)-h(x,y-1))*7,n=Math.hypot(dx,dy,1);
+            normal.set([Math.round(127.5-dx/n*127.5),Math.round(127.5+dy/n*127.5),Math.round(127.5+127.5/n),255],(y*size+x)*4);
+        }
+        return neckPictures={'neck-scales.png':{width:size,height:size,data},'neck-scales-normal.png':{width:size,height:size,data:normal}};
+    }
     function scaleTexture(W = 512, H = 1024) {
         const data = new Uint8Array(W * H * 4);
         const ROWS = 54, COLS = 24;
@@ -535,7 +554,7 @@
                 const edge = Math.min(1, (d2 - d1) / 0.16);
                 const dome = Math.max(0, 1 - d1 * d1 * 1.6);
                 // Lit toward its free edge (toward the tip), shaded toward its root under the scale before.
-                l = (0.72 + 0.2 * dome + 0.1 * Math.max(-1, Math.min(1, fyAt * 1.6))) * (0.6 + 0.4 * edge) * (0.92 + 0.14 * h2(((cell[0] % COLS) + COLS) % COLS, cell[1]));
+                l = (0.84 + 0.10 * dome + 0.035 * Math.max(-1, Math.min(1, fyAt * 1.6))) * (0.87 + 0.13 * edge) * (0.97 + 0.05 * h2(((cell[0] % COLS) + COLS) % COLS, cell[1]));
             }
             const o = (y * W + x) * 4, g = Math.max(0, Math.min(255, Math.round(255 * Math.min(1, l))));
             data[o] = data[o + 1] = data[o + 2] = g; data[o + 3] = 255;
@@ -939,13 +958,17 @@
         }
     }
 
-    function fangs(m, L, f) {
+    function fangs(m, L, f, pack) {
         const skin = Props.rigid(L.boneIndex('Head')), span = Math.abs(L.eyeL.center[0] - L.eyeR.center[0]);
         for (const side of [-1, 1]) {
-            const base = [L.mouth[0] + side * span * 0.25, L.mouth[1] + 0.004, L.mouth[2] + 0.018];
-            for (const v of L.headIds) if (Math.abs(L.P[v * 3] - base[0]) < 0.01 && Math.abs(L.P[v * 3 + 1] - base[1]) < 0.01) base[2] = Math.max(base[2], L.P[v * 3 + 2] + 0.003);
+            const fields=(root.RRCharacterSkin||require('./CharacterSkin.js')).fieldsOf(pack),x=L.mouth[0]+side*span*.22;
+            const lip=L.headIds.filter(v=>fields.lips[v]>.15&&L.P[v*3+1]>L.mouth[1]-.002).sort((a,b)=>{
+                const d=v=>(L.P[v*3]-x)**2+(L.P[v*3+1]-L.mouth[1]-.003)**2;return d(a)-d(b);
+            }).slice(0,3);
+            const base=lip.length?[0,1,2].map(k=>lip.reduce((n,v)=>n+L.P[v*3+k],0)/lip.length):[x,L.mouth[1]+.003,L.mouth[2]];
+            base[1]+=.0015;base[2]-=.003;
             const length = (f.type === 'long' ? 0.027 : 0.014) * f.size;
-            m.tube([base, add(base, [side * 0.002, -length * 0.55, 0.006]), add(base, [0, -length, 0.003])], [0.004 * f.size, 0.0025 * f.size, 0.0002], 8, linear(f.color), skin);
+            m.tube([base, add(base, [side * 0.0007, -length * 0.55, 0.0005]), add(base, [0, -length, -0.001])], [0.0028 * f.size, 0.0017 * f.size, 0.00012], 12, linear(f.color), skin);
         }
     }
 
@@ -1189,7 +1212,7 @@
         };
         if (F.horns.type !== 'none') horns(hard, L, F.horns);
         if (F.antennae.type !== 'none') antennae(hard, L, F.antennae);
-        if (F.fangs.type !== 'none') fangs(hard, L, F.fangs);
+        if (F.fangs.type !== 'none') fangs(hard, L, F.fangs,pack);
         if (F.ears.type !== 'none') {
             const roots = animalEars(soft, L, F.ears, coat);
             if (roots.length) fur.push({ roots, anchor: nearest([0, L.crown - 0.01, L.ring(L.brow)?.center[2] || 0], L.headIds) });
@@ -1219,7 +1242,7 @@
         return { parts, bones, features: F, fur };
     }
 
-    const api = { FEATURES, SPECIES, BY_ID, SKIN_TONES, skinTones, HEAD_PRESETS, heads, headPreset, headId, normalizeFeatures, speciesRecipe, build, followMotion, tailShape, featherTexture, fairyWingTexture, scaleTexture };
+    const api = { FEATURES, SPECIES, BY_ID, SKIN_TONES, skinTones, HEAD_PRESETS, heads, headPreset, headId, normalizeFeatures, speciesRecipe, build, followMotion, tailShape, featherTexture, fairyWingTexture, scaleTexture, neckSurface };
     root.RRCharacterSpecies = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

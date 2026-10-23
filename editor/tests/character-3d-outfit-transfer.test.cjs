@@ -26,7 +26,7 @@ const BODIES = [
     { gender: 1, extreme: true, muscle: 2.5, weight: 0.3 }, { gender: 0.5, extreme: true, height: 1.8 }
 ];
 const TAKEN = Wardrobe.GARMENTS.filter(g => g.transfer);
-const STAR_SHIFT = Wardrobe.PRESETS.filter(p => p.group === 'Star Shift');
+const STAR_SHIFT = Wardrobe.PRESETS.filter(p => p.id.startsWith('ss_'));
 
 let pack;
 test.before(async () => { pack = await Body.loadPack(); });

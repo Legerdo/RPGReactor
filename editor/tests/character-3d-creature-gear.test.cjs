@@ -18,7 +18,7 @@ test('the catalog: every piece has a slot, group, materials and defaults; preset
         for (const m of item.materials) assert.ok(Gear.MATERIALS.some(x => x.id === m), m);
         assert.match(item.defaults.color, /^#[0-9a-f]{6}$/);
     }
-    assert.deepEqual(Gear.PRESETS.map(p => p.id), ['pet', 'mount', 'war', 'royal', 'pack']);
+    assert.deepEqual(Gear.PRESETS.map(p => p.id), ['pet', 'companion', 'mount', 'war', 'royal', 'pack']);
     for (const p of Gear.PRESETS) for (const i of p.items) assert.ok(ids.has(i.id), p.id + ' ' + i.id);
 });
 

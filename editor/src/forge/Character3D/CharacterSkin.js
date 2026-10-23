@@ -498,6 +498,12 @@
         return noise3(x * 420 * scale, along * 70 * scale, z * 420 * scale) * 0.7 + noise3(x * 900, y * 160, z * 900) * 0.3;
     }
 
+    /** Small overlapping scales measured in the body's surface chart, rather than stretched UV cells. */
+    function skinScale(p,scale){
+        const v=(p.cv??p.rest[1])*scale/.007,row=Math.floor(v),u=(p.cu??p.rest[0])*scale/.009+(row&1)*.5;
+        const d=Math.hypot((fract(u)-.5)*1.75,(fract(v)-.43)*1.65),edge=1-smooth(.70,.94,d);
+        return {edge,height:edge*(.3+.7*Math.max(0,1-d*d))*.00055};
+    }
     /** A texel's skin color (linear) from the skin settings and where it lies. */
     function shadeSkin(s, base, p) {
         const accent = s.accent || Outfit.linear(s.color || '#5a4030'), belly = s.bellyRgb || (s.belly ? Outfit.linear(s.belly) : null);
@@ -590,9 +596,7 @@
                 break;
             }
             case 'scales': {
-                const [d1, d2] = cells(x, y, z, 0.012 / k);
-                const edge = 1 - smooth(0.0, 0.12, d2 - d1);
-                t = edge * 0.85 + d1 * 0.25;
+                const cell=skinScale(p,k);t=(1-cell.edge)*.40+.045;
                 break;
             }
             case 'feathers': {
@@ -873,7 +877,8 @@
         s.beard = Math.max(0, Math.min(1, (options && options.beard) || 0));
         s.genitalDetail = options && options.genitalDetail;
         const detailProfile = s.genitalDetail ? genitalProfile : null;
-        const relief = detailProfile && options.relief !== false ? new Float32Array(size * size) : null;
+        const scaleRelief=s.type==='scales'&&!fur;
+        const relief = (detailProfile||scaleRelief) && options?.relief !== false ? new Float32Array(size * size) : null;
         const canonical = detailProfile ? pack.positions : null;
         const genitalPoint = [0, 0, 0];
         s.earHoles = !!(options && options.earHoles);
@@ -946,6 +951,8 @@
                 p.fam = fam;
                 p.s = W.reduce((sum, w, k) => sum + w * an.s[v[k] * 5 + fam], 0);
                 p.ang = W.reduce((sum, w, k) => sum + w * angs[k], 0);
+                p.cu=p.ang*an.radius[fam];p.cv=p.s*an.unit[fam];
+                if(scaleRelief&&relief)relief[o]=skinScale(p,s.scale).height;
                 p.lips = W.reduce((sum, w, k) => sum + w * F.lips[v[k]], 0);
                 p.lids = W.reduce((sum, w, k) => sum + w * F.lids[v[k]], 0);
                 p.cheeks = W.reduce((sum, w, k) => sum + w * F.cheeks[v[k]], 0);
@@ -977,7 +984,7 @@
         for (let o = 0; o < size * size; o++) if (!filled[o]) { data[o * 4] = fill[0]; data[o * 4 + 1] = fill[1]; data[o * 4 + 2] = fill[2]; data[o * 4 + 3] = fur ? 0 : 255; }
         const picture = { width: size, height: size, data, name: (options && options.name) || 'skin.png' };
         if (relief) {
-            const pixels = new Uint8Array(size * size * 4), texel = (s.genitalDetail.female ? 0.16 : 0.12) / size;
+            const pixels = new Uint8Array(size * size * 4), texel = (scaleRelief?1.8:s.genitalDetail.female ? 0.16 : 0.12) / size;
             for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
                 const o = y * size + x, center = relief[o];
                 const sample = (x, y) => { const i = y * size + x; return filled[i] ? relief[i] : center; };
@@ -988,7 +995,7 @@
                 pixels[at + 1] = Math.round((0.5 + dy / length * 0.5) * 255);
                 pixels[at + 2] = Math.round((0.5 + 0.5 / length) * 255); pixels[at + 3] = 255;
             }
-            picture.normal = { width: size, height: size, data: pixels, name: 'genital_n.png' };
+            picture.normal = { width: size, height: size, data: pixels, name: scaleRelief?'skin-scales-normal.png':'genital_n.png' };
         }
         return picture;
     }

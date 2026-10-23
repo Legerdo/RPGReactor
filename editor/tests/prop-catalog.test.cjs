@@ -12,7 +12,7 @@ const root = path.join(__dirname, '..');
 global.THREE = require(path.join(root, 'node_modules', 'three'));
 global.rrEscapeHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const props = path.join(root, 'src', 'forge', 'Props');
-const FILES = ['PropCloth', 'PropPaint', 'PropMesh', 'PropRandom', 'PropCatalog', 'FlagDesign', 'FlagProp', 'PropModel', 'SpanProp', 'FramedProp', 'PictureProp', 'AccessoryProp', 'SwordProp', 'GunProp', 'ContainerProp'];
+const FILES = ['PropCloth', 'PropPaint', 'PropMesh', 'PropRandom', 'PropCatalog', 'FlagDesign', 'FlagProp', 'PropModel', 'SpanProp', 'FramedProp', 'PictureProp', 'AccessoryProp', 'SwordProp', 'GunProp', 'ContainerProp', 'FurnitureProp', 'VehicleProp'];
 const present = FILES.filter(f => fs.existsSync(path.join(props, f + '.js')));
 for (const f of present) require(path.join(props, f + '.js'));
 const Catalog = require(path.join(props, 'PropCatalog.js'));
@@ -26,7 +26,7 @@ test.before(async () => { await Accessory.prepare(); });
 
 const startOf = type => Model.normalize(type.start(Model.normalize({ kind: type.kind })));
 const CLOTH = new Set(['flag', 'span']);
-const BUDGET = 6000;
+const budgetOf = kind => kind==='vehicle'?180000:kind==='furniture'?180000:kind==='accessory'?80000:kind==='sword'?50000:kind==='gun'?45000:12000;
 
 /**
  * Every part welded together and split into connected shells. A shell is
@@ -101,7 +101,9 @@ function winding(parts, sheets = true) {
     for (const t of all) for (const p of t.p) for (let d = 0; d < 3; d++) { lo[d] = Math.min(lo[d], p[d]); hi[d] = Math.max(hi[d], p[d]); }
     const flush = Math.max(0.004, 0.03 * Math.max(...hi.map((v, d) => v - lo[d])));
     for (const s of S) {
-        if (s.ratio < 0.08) {
+        // A densely tessellated, explicitly two-sided sheet can have fewer
+        // than 8% boundary edges. Its open edges still make volume undefined.
+        if (s.ratio < 0.08 && !(s.open && s.list.every(t=>parts[t.part].doubleSided))) {
             if (s.vol < 0) problems.push(`${s.names.join('+')}: closed shell of ${s.list.length} faces turned inside out`);
             if (sheets && s.flipped) problems.push(`${s.names.join('+')}: ${s.flipped} edges wound against their neighbors`);
         } else if (sheets) {
@@ -152,7 +154,7 @@ test('every catalog entry builds whole, within budget, on the floor, facing outw
         assert.ok(b.parts.length && b.parts.every(p => p.index.length), type.id);
         assert.ok(finite(b.parts), type.id + ' finite');
         const tris = b.parts.reduce((n, p) => n + p.index.length / 3, 0);
-        assert.ok(tris <= BUDGET, `${type.id}: ${tris} triangles`);
+        assert.ok(tris <= budgetOf(type.kind), `${type.id}: ${tris} triangles`);
         if (!b.wall && !b.walls) assert.ok(Math.abs(lowest(b.parts)) < 1e-3, `${type.id} rests on y = 0`);
         assert.deepEqual(winding(b.parts, judgeSheets(type)), [], type.id);
     }
@@ -257,7 +259,7 @@ test('Randomize: every kind rolls 50 believable recipes per scope set, whole and
             const b = Model.build(r);
             assert.ok(finite(b.parts), `${kind} ${s} finite`);
             const tris = b.parts.reduce((n, p) => n + p.index.length / 3, 0);
-            assert.ok(tris > 0 && tris <= BUDGET, `${kind} ${s}: ${tris} triangles`);
+            assert.ok(tris > 0 && tris <= budgetOf(type.kind), `${kind} ${s}: ${tris} triangles`);
             if (!b.wall && !b.walls && !(r.pivot && r.pivot !== 'bottom')) assert.ok(Math.abs(lowest(b.parts)) < 1e-3, `${kind} ${s} (${type.id}, ${scope}) on the floor`);
             assert.deepEqual(winding(b.parts, judgeSheets(type)), [], `${kind} ${s} (${type.id}, ${scope})`);
         }

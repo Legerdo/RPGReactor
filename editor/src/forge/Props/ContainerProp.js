@@ -150,7 +150,7 @@
         const S = size || 1024;
         return {
             r, S, atlas: CP.atlas(S, S, [120, 110, 100, 255]), jobs: [],
-            body: [], trim: [], glass: [], glow: [], halo: [],
+            body: [], trim: [], glass: [], glow: [], halo: [], ink: [],
             bones: [{ name: 'Prop', head: [0, 0, 0], parent: -1 }], anim: [], boneKeys: new Map(),
             glowColors: [], glowUses: [], images: [], missing: null
         };
@@ -164,7 +164,9 @@
     }
 
     /** Uv of (s, t) in a region. */
-    const uvAt = (k, rect, s, t) => CP.uvIn(k.atlas, rect, Math.max(0, Math.min(1, s)), Math.max(0, Math.min(1, t)));
+    // Keep coordinates relative to the original square while packing. The
+    // final atlas height is known only after every assembly reserves its tile.
+    const uvAt = (k, rect, s, t) => CP.uvIn({width:k.S,height:k.S}, rect, Math.max(0, Math.min(1, s)), Math.max(0, Math.min(1, t)));
 
     /**
      * A bone for a lit part: `hide` { move: [x, y, z] } (moved by that while
@@ -367,7 +369,7 @@
      */
     function layDown(k, H) {
         const point = p => [p[1] - H / 2, p[2], p[0]], turn = n => [n[1], n[2], n[0]];
-        for (const list of [k.body, k.trim, k.glass, k.glow, k.halo]) for (const m of list) CM.transform(m, point, turn);
+        for (const list of [k.body, k.trim, k.glass, k.glow, k.halo, k.ink]) for (const m of list) CM.transform(m, point, turn);
         for (const b of k.bones.slice(1)) b.head = point(b.head);
         for (const a of k.anim) { if (a.hide.move) a.hide.move = turn(a.hide.move); if (a.hide.shrink) { const s = a.hide.shrink; a.hide.shrink = [s[1], s[2], s[0]]; } }
         k.lyingAxis = true;
@@ -377,7 +379,7 @@
     function cradle(k, H, Rb, radiusAt, wood, dens) {
         // The barrel's lowest point, before it is lifted: its belly at -Rb.
         const lift = Math.max(0.05, Rb * 0.22);
-        for (const m of [k.body, k.trim, k.glass, k.glow, k.halo].flat()) CM.transform(m, p => [p[0], p[1] + Rb + lift, p[2]]);
+        for (const m of [k.body, k.trim, k.glass, k.glow, k.halo, k.ink].flat()) CM.transform(m, p => [p[0], p[1] + Rb + lift, p[2]]);
         for (const b of k.bones.slice(1)) b.head = [b.head[0], b.head[1] + Rb + lift, b.head[2]];
         const rect = paintRegion(k, 128, 48, plankFace({ w: 0.6, h: 0.2, planks: 1, along: 'x', wood, board: 70, seed: k.r.seed }));
         const thick = Math.max(0.05, H * 0.07), half = Rb * 0.78, steps = 10;
@@ -408,17 +410,17 @@
      * top with a large and a small bung, or open), dented with wear.
      */
     function drum(k, options) {
-        const r = k.r, H = r.height, R = r.width / 2, seg = 34;
+        const r = k.r, H = r.height, R = r.width / 2, seg = 64;
         const C = Math.PI * 2 * R, dens = Math.min(k.S / C, k.S * 0.55 / H);
         const img = marksImage(k, options);
         const markF = r.lying ? 0.75 : 0.5;
         const ribsY = r.ribs ? Array.from({ length: r.ribs }, (_, i) => H * (i + 1) / (r.ribs + 1)) : [];
         // Markings between the ribs about the middle; hazard stripes in a band below the top bead.
         const lo = ribsY.length >= 2 ? ribsY[Math.floor(ribsY.length / 2) - 1] : H * 0.25, hi = ribsY.length >= 2 ? ribsY[Math.floor(ribsY.length / 2)] : H * 0.75;
-        const mh = Math.min((hi - lo) * 0.62, H * 0.24), mw = Math.min(C * 0.3, mh * 3.4);
+        const mh = Math.min((hi - lo) * 0.62, H * 0.24), mw = C * 0.28;
         const band = r.marks.hazard ? [H - Math.min(H * 0.24, (ribsY.length ? H - ribsY[ribsY.length - 1] : H * 0.3) * 0.72) - 0.03, H - 0.035] : null;
-        const marks = CP.markings(r.marks, { x: markF * C - mw / 2, y: H - (lo + hi) / 2 - mh / 2, w: mw, h: mh }, { wear: r.wear, seed: r.seed, image: img, pixel: 1 / dens, band: band ? [H - band[1], H - band[0]] : null, stripe: 0.07 });
-        const metal = CP.paintedMetal(r.color, r.seed, r.wear);
+        const marks = CP.markings(r.marks, { x: markF * C - mw / 2, y: H - (lo + hi) / 2 - mh / 2, w: mw, h: mh }, { stacked:true, wear: r.wear*.28, seed: r.seed, image: img, pixel: 1 / dens, band: band ? [H - band[1], H - band[0]] : null, stripe: 0.07 });
+        const metal = CP.paintedMetal(r.color, r.seed, r.wear),capMetal=CP.paintedMetal(r.trim,r.seed+5,r.wear);
         const nearEdge = y => { let d = Math.min(y, H - y); for (const ry of ribsY) d = Math.min(d, Math.abs(y - ry)); return Math.max(0, 1 - d / 0.05); };
         const sideRect = paintRegion(k, px(dens, C), px(dens, H), (s, t, out) => {
             const x = s * C, yy = t * H, y = H - yy;
@@ -427,7 +429,7 @@
         });
         const headRect = paintRegion(k, px(dens, R * 2, k.S * 0.32), px(dens, R * 2, k.S * 0.32), (s, t, out) => {
             const x = (s - 0.5) * 2 * R, z = (t - 0.5) * 2 * R, rr = Math.hypot(x, z);
-            metal(x + 3, z + 3, out, Math.max(0, 1 - (R - rr) / 0.04), 0);
+            capMetal(x + 3, z + 3, out, Math.max(0, 1 - (R - rr) / 0.04), 0);
             // A pressed ring around the head.
             const ring = Math.abs(rr - R * 0.78);
             if (ring < 0.004) { const kk = ring < 0.0015 ? 0.7 : 1.1; out[0] *= kk; out[1] *= kk; out[2] *= kk; }
@@ -570,7 +572,7 @@
             CM.mapUv(pipe, u => uvAt(k, capRect, u, 0.5));
             k.trim.push(pipe);
             const wheelR = Math.max(0.035, R * 0.22), wy = yTop + pipeH * 0.7, path = [];
-            for (let i = 0; i <= 12; i++) { const a = i / 12 * Math.PI * 2; path.push([Math.cos(a) * wheelR, wy, Math.sin(a) * wheelR]); }
+            for (let i = 0; i <= 48; i++) { const a = i / 48 * Math.PI * 2; path.push([Math.cos(a) * wheelR, wy, Math.sin(a) * wheelR]); }
             const wheel = CM.sweep(path, Math.max(0.0045, wheelR * 0.11), 6, false);
             const spokes = [CM.sweep([[-wheelR, wy, 0], [wheelR, wy, 0]], wheelR * 0.07, 5, false), CM.sweep([[0, wy, -wheelR], [0, wy, wheelR]], wheelR * 0.07, 5, false)];
             const accentRect = paintRegion(k, 32, 16, (s, t, o2) => { const c = CP.rgb(r.accent); o2[0] = c[0] * (0.85 + 0.15 * t); o2[1] = c[1] * (0.85 + 0.15 * t); o2[2] = c[2] * (0.85 + 0.15 * t); });
@@ -1047,6 +1049,20 @@
     }
 
     // ── sci-fi cargo crate ─────────────────────────────────────────────────
+    /** Painted letters have their own silhouette, rather than borrowing a
+     * handful of texels from a large metal face. The strokes sit on its panel. */
+    function vectorMark(k,face,box,text,depth){
+        const L=CP.layout(CP.cleanText(text,24)),unit=Math.min(box.h*.64/6,box.w*.92/Math.max(1,L.width));
+        const x0=box.x+(box.w-L.width*unit)/2,y0=box.y+(box.h-6*unit)/2,g=new CM.Geo(),F=face.F;
+        const point=(x,y)=>add(add(F.o,scale(F.n,depth)),add(scale(F.u,face.u0+x0+x*unit),scale(F.v,face.v1-y0-y*unit)));
+        for(const [ax,ay,bx,by]of L.segs){
+            const dx=bx-ax,dy=by-ay,len=Math.hypot(dx,dy);if(len<1e-8)continue;
+            const x=-dy/len*.48,y=dx/len*.48;
+            g.poly([point(ax+x,ay+y),point(bx+x,by+y),point(bx-x,by-y),point(ax-x,ay-y)],null,F.n);
+        }
+        k.ink.push(g.done());
+    }
+
     function cargo(k, options) {
         const r = k.r, ratio = RATIOS[r.proportions], W = r.width, H = Math.max(0.25, W * ratio[1]), D = Math.max(0.25, W * ratio[2]);
         const sc = Math.max(0.5, Math.min(1.6, Math.min(W, H * 1.6, D * 1.6) / 0.8));
@@ -1066,7 +1082,10 @@
             let box = null;
             if (f.name === 'front') box = ctl ? { x: f.w * 0.2, y: H - ys * 0.34 - H * 0.05, w: f.w * 0.6, h: H * 0.1 } : { x: f.w * 0.14, y: H - ys * 0.5 - H * 0.07, w: f.w * 0.72, h: H * 0.14 };
             else if (f.name === 'right') box = { x: f.w * 0.15, y: H - ys * 0.32 - H * 0.04, w: f.w * 0.7, h: H * 0.08 };
-            const mk = box && (f.name === 'front' ? r.marks : Object.assign({}, r.marks, { symbol: 'none', image: '' }));
+            const mk = box && Object.assign({}, f.name === 'front' ? r.marks : Object.assign({}, r.marks, { symbol: 'none', image: '' }));
+            if(box&&mk.style==='stencil'&&mk.text&&!mk.image&&mk.symbol==='none'){
+                vectorMark(k,f,box,mk.text,pd+.0005);mk.text='';
+            }
             const marks = box && mk && (mk.text || mk.symbol !== 'none' || mk.image) ? CP.markings(Object.assign({}, mk, { hazard: !top && r.marks.hazard }), box, { wear: r.wear, seed: r.seed + f.name.length, image: f.name === 'front' ? img : null, pixel: 1 / dens, band: !top && r.marks.hazard ? [H - bandV[1], H - bandV[0]] : null, stripe: 0.06 * sc })
                 : (!top && r.marks.hazard ? CP.markings({ text: '', symbol: 'none', hazard: true }, { x: 0, y: 0, w: 1, h: 1 }, { wear: r.wear, seed: r.seed, band: [H - bandV[1], H - bandV[0]], stripe: 0.06 * sc }) : null);
             const rivets = [];
@@ -1353,7 +1372,7 @@
                 const H = info.height, W = r.width;
                 const places = r.stack === 'two' ? [[0.015, H, -0.012, 0.06]] : [[W + 0.03, 0, 0.02, 0.035], [W / 2 + 0.02, H, 0.01, 0.09]];
                 const shift = r.stack === 'three' ? -W / 2 - 0.015 : 0;
-                for (const list of [k.body, k.trim, k.glass, k.glow, k.halo]) {
+                for (const list of [k.body, k.trim, k.glass, k.glow, k.halo, k.ink]) {
                     const base = list.slice();
                     for (const m of base) CM.transform(m, p => [p[0] + shift, p[1], p[2]]);
                     for (const [x, y, z, a] of places) { const t = CM.yaw(a, [x + shift, y, z]); for (const m of base) list.push(CM.transform(CM.copy(m), t.point, t.normal)); }
@@ -1362,7 +1381,7 @@
             }
         }
         // On the floor exactly, the footprint centered.
-        const lists = [k.body, k.trim, k.glass, k.glow, k.halo];
+        const lists = [k.body, k.trim, k.glass, k.glow, k.halo, k.ink];
         let minY = Infinity, minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
         for (const list of lists) for (const m of list) { const P = m.positions; for (let i = 0; i < P.length; i += 3) { minY = Math.min(minY, P[i + 1]); minX = Math.min(minX, P[i]); maxX = Math.max(maxX, P[i]); minZ = Math.min(minZ, P[i + 2]); maxZ = Math.max(maxZ, P[i + 2]); } }
         const d = [-(minX + maxX) / 2, -minY, -(minZ + maxZ) / 2];
@@ -1388,16 +1407,19 @@
         };
         const body = part(k.body, { name: 'Body', texture: 'body.png', roughness: wooden ? 0.82 : 0.42, metalness: wooden ? 0 : 0.15 });
         const trim = part(k.trim, { name: 'Trim', texture: 'body.png', roughness: wooden ? 0.55 : 0.4, metalness: wooden ? 0.55 : 0.6 });
+        part(k.ink,{name:'Painted lettering',color:r.marks.color,roughness:.78,metalness:0});
         const glass = part(k.glass, { name: 'Lenses', color: k.lensColor || '#203024', roughness: 0.12, metalness: 0 });
         for (const x of [body, trim, glass]) if (x) shadePart(x.p, x.ao);
         part(k.glow, { name: 'Glow', texture: 'glow.png', emissive: '#ffffff', emissiveTexture: 'glow.png', roughness: 0.3, metalness: 0 });
         part(k.halo, { name: 'HaloGlow', texture: 'glow.png', emissive: '#ffffff', emissiveTexture: 'glow.png', blend: true, doubleSided: false, roughness: 1, metalness: 0 });
+        for(const p of parts)if(p.texture==='body.png')CM.mapUv(p,(u,v)=>[u*k.S/k.atlas.width,v*k.S/k.atlas.height]);
         let height = 0;
         for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) height = Math.max(height, p.positions[i]);
         const clips = clipOf(k);
         return {
             kind: 'container', recipe: r, parts, bones: k.bones, clips, loop: null, textures: { 'body.png': c.body, 'glow.png': sheet ? sheet.picture : null }, cloth: null,
             height: Math.max(0.1, height), imageName: k.missing, imageMissing: !!k.missing,
+            atlasRegions:k.jobs.map(job=>({...job.rect})),
             // Which timing each glow bone keeps (by bone index), for the tests.
             boneKeys: Object.fromEntries([...k.boneKeys].map(([key, i]) => [i, key]))
         };
@@ -1525,8 +1547,8 @@
                 }
                 if (tab === 'markings') {
                     const m = r.marks;
-                    let html = this._section('Words') + textRow.call(this, 'marks.text', 'Text', 24) + this._select('marks.style', 'Style', MARK_STYLES)
-                        + (m.style !== 'burned' ? this._color('marks.color', 'Ink', ['#f2efe6', '#1d1b19', '#e8d27a', '#a3221b', '#2a2e33']) : '');
+                    let html = this._section('Words') + textRow.call(this, 'marks.text', 'Text', 24) + (m.text.trim()?this._select('marks.style', 'Style', MARK_STYLES)
+                        + (m.style !== 'burned' ? this._color('marks.color', 'Ink', ['#f2efe6', '#1d1b19', '#e8d27a', '#a3221b', '#2a2e33']) : ''):'');
                     html += this._section('Symbol') + this._tiles('mark-symbol', SYMBOL_ICONS.map(([id, label]) => ({ id, label })), m.symbol, 2);
                     if (f === 'drum' || f === 'canister' || f === 'cargo') html += this._check('marks.hazard', 'Hazard stripes');
                     html += this._section('Picture') + pictureRow.call(this, 'Picture', m.image, 'mark-image');

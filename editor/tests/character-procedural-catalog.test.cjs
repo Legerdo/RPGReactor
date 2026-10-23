@@ -175,14 +175,15 @@ test('applying a skin finish changes its colors once while preserving the rest o
     assert.equal(builder.recipe.skinPattern.type, 'freckles', 'the previous undo snapshot is untouched');
 });
 
-test('fangs sit in front of the lips and chest accessories clear the shaped torso', () => {
+test('fangs remain seated at the lips and chest accessories clear the shaped torso', () => {
     for (const body of bodies) {
         const L = Props.landmarks(pack, body);
         const fangs = Species.build(pack, body, { fangs: { type: 'long' } }).parts[0];
         const lips = L.headIds.filter(v => Math.abs(L.P[v * 3 + 1] - L.mouth[1]) < 0.01 && Math.abs(L.P[v * 3]) < 0.04);
         const lipFront = Math.max(...lips.map(v => L.P[v * 3 + 2]));
         const toothFront = Math.max(...Array.from(fangs.positions).filter((_, i) => i % 3 === 2));
-        assert.ok(toothFront > lipFront, 'upper teeth protrude beyond the closed lips');
+        assert.ok(toothFront <= lipFront+.004, 'upper teeth stay at the lips instead of floating ahead of the face');
+        assert.ok(toothFront > L.mouth[2]-.02,'teeth remain at the mouth rather than buried in the skull');
         const chestY = L.neck.center[1] - 0.24, skinFront = L.frontAt(chestY, L.neck.center[0]);
         const part = Props.build(pack, body, [{ id: 'stethoscope' }]).parts[0];
         const front = [];

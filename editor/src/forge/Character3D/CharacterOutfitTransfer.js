@@ -1903,10 +1903,12 @@
                     relaxHeavyFabric(outfit, out);
                     for (let pass = 0; pass < 5; pass++) Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
                     retainSmallFaces(outfit, out, fallback, k);
+                    tailor();
                     return out;
                 }
             }
             for (let pass = 0; pass < 5; pass++) Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
+            tailor();
             return out;
         }
         // Twice: in a hollow the skin nearest a point pushed out is another than before.
@@ -1920,6 +1922,12 @@
         // Lifts of a hanging panel can change the nearest skin on its attached band.
         for (let pass = 0; pass < 6; pass++) Outfit.collide(pack, built, out, 0, n, GAP, frame, near);
         return out;
+
+        function tailor() {
+            const reference=outfit._tailorBody||(outfit._tailorBody=Body.build(pack,Object.assign({},Body.DEFAULT_RECIPE,outfit.recipe)));
+            Outfit.tailorTorso(pack,built,reference,outfit.rest,out,frame,{source:Array.from({length:n},(_,i)=>outfit.tri[i*3]),hanging:i=>outfit.surface[i]===2||(outfit.hang&&outfit.hang[i]>=0),lift:GAP});
+            for(let pass=0;pass<5;pass++)Outfit.collide(pack,built,out,0,n,GAP,frame,near);
+        }
     }
 
     /**

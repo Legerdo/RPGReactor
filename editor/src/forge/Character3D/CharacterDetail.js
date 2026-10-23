@@ -365,6 +365,7 @@
                 const base = mode === 'clump' ? (face ? 0.01 : coarse ? 0.03 : chest ? 0.024 : fam >= 3 ? 0.017 : 0.015) : face ? 0.009 : coarse ? 0.024 : chest ? 0.019 : fam >= 3 ? 0.014 : 0.012;
                 const at = [R[a * 3], R[a * 3 + 1], R[a * 3 + 2]], front = Math.cos(an.angle[a * 5 + fam]) > 0;
                 strands.push({ tri: [a, b, c], w: [1 - s1 - s2, s1, s2],
+                    uv:[0,1].map(k=>pack.body.uv[I[t]*2+k]*(1-s1-s2)+pack.body.uv[I[t+1]*2+k]*s1+pack.body.uv[I[t+2]*2+k]*s2),
                     len: base * (0.65 + 0.7 * rand()) * (mode === 'clump' ? (0.6 + 0.9 * full) * (bodyHair.length || 1) : mode === 'strand' ? 0.35 + 0.65 * full : 1 + fur * 1.4 * (bodyHair.length || 1)), fine: full,
                     // A coat stands off the skin and lies one way, combed; single hairs lie close and stray more.
                     lean: mode !== 'tuft' ? 0.1 + 0.12 * rand() : 0.28 + 0.22 * rand() + fur * 0.25,
@@ -418,7 +419,14 @@
             const base = vi, step = s.len / (SEG - 1);
             // Fine hair is fainter: toward the color of the skin it grows on.
             const faint = single || clump ? 0.55 * (1 - (s.fine ?? 1)) : 0;
-            const cr = (rgb[0] + (skin[0] - rgb[0]) * faint) * s.shade, cg = (rgb[1] + (skin[1] - rgb[1]) * faint) * s.shade, cb = (rgb[2] + (skin[2] - rgb[2]) * faint) * s.shade;
+            let tint=rgb;
+            if(o.picture&&s.uv){
+                const pic=o.picture,x=Math.min(pic.width-1,Math.max(0,Math.round(s.uv[0]*(pic.width-1)))),y=Math.min(pic.height-1,Math.max(0,Math.round(s.uv[1]*(pic.height-1)))),offset=(y*pic.width+x)*4;
+                tint=[0,1,2].map(k=>{const v=pic.data[offset+k]/255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;});
+            }
+            const cr = (tint[0] + (skin[0] - tint[0]) * faint) * s.shade, cg = (tint[1] + (skin[1] - tint[1]) * faint) * s.shade, cb = (tint[2] + (skin[2] - tint[2]) * faint) * s.shade;
+            const blend=new Map();for(const [v,w]of [[a,wa],[b,wb],[c,wc]])for(let k=0;k<4;k++){const j=SKJ[v*4+k],weight=SKW[v*4+k]*w;if(weight>0)blend.set(j,(blend.get(j)||0)+weight);}
+            const binding=[...blend].sort((a,b)=>b[1]-a[1]).slice(0,4),sum=binding.reduce((s,b)=>s+b[1],0)||1;
             for (let g = 0; g < SEG; g++) {
                 const t = g / (SEG - 1);
                 if (g > 0) {
@@ -437,8 +445,7 @@
                     nrm[o3] = nx; nrm[o3 + 1] = ny; nrm[o3 + 2] = nz;
                     uvs[vi * 2] = k < 0 ? u0 : u1; uvs[vi * 2 + 1] = 0.05 + t * 0.9;
                     colors[o3] = cr * tone; colors[o3 + 1] = cg * tone; colors[o3 + 2] = cb * tone;
-                    joints[o4] = SKJ[a * 4]; joints[o4 + 1] = SKJ[a * 4 + 1]; joints[o4 + 2] = SKJ[a * 4 + 2]; joints[o4 + 3] = SKJ[a * 4 + 3];
-                    weights[o4] = SKW[a * 4]; weights[o4 + 1] = SKW[a * 4 + 1]; weights[o4 + 2] = SKW[a * 4 + 2]; weights[o4 + 3] = SKW[a * 4 + 3];
+                    for(let k=0;k<4;k++){joints[o4+k]=binding[k]?.[0]||0;weights[o4+k]=(binding[k]?.[1]||0)/sum;}
                     source[vi] = a;
                     vi++;
                 }

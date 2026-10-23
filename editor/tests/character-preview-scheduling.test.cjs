@@ -385,6 +385,9 @@ test('thumbnail materials retain explicit relief with lightweight lighting and n
     }
     assert.ok(used.includes('relief'));
     const plain=b._thumbnailMaterial({kind:'skin'},{textures:{}},textureFor,reflections);assert.equal(plain.normalMap,null);plain.dispose();
+    const fabric=b._thumbnailMaterial({kind:'cloth',roughness:.94,metalness:0,metallicRoughnessTexture:'finish'},result,textureFor,reflections);
+    assert.equal(fabric.envMap,null,'a roughness map does not make woven fabric glossy');
+    assert.equal(fabric.shininess,12);fabric.dispose();
     const cube = b._thumbnailReflections();
     assert.equal(cube.image.length, 6);
     assert.ok(cube.image.every(face => face.image.width === 16 && face.image.height === 16));
@@ -466,4 +469,13 @@ test('import-gallery pictures resume after an inactive compilation and stop afte
     assert.equal(pictures.has('1'), false);
     assert.equal(b._resumeImportThumbnails, null);
     assert.equal(listeners.size, 0);
+});
+
+test('species pictures match the selected gender and survive unrelated body and outfit edits',()=>{
+    const Model=require('../src/forge/Character3D/CharacterModel.js'),b=builder({RRCharacterModel:Model});
+    b.recipe=Model.normalize({gender:0,weight:1.3,outfit:[{id:'robe'}]});const before=b._thumbSig('species');
+    const a=b._thumbRecipe({kind:'species',id:'andorian'}).recipe;assert.equal(a.gender,0);
+    b.recipe=Model.normalize({...b.recipe,weight:-.5,outfit:[{id:'shirt'}],skin:'#ffffff'});assert.equal(b._thumbSig('species'),before);
+    const same=b._thumbRecipe({kind:'species',id:'andorian'}).recipe;assert.equal(JSON.stringify(same),JSON.stringify(a));
+    b.recipe=Model.normalize({...b.recipe,gender:1});assert.notEqual(b._thumbSig('species'),before);assert.equal(b._thumbRecipe({kind:'species',id:'andorian'}).recipe.gender,1);
 });

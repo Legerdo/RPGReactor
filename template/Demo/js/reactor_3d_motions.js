@@ -58,10 +58,10 @@
     const POSES = [
         { id: 'walk', label: 'Walking', group: 'move', hands: both('relaxed') }, { id: 'run', label: 'Running', group: 'move', hands: both('looseFist'), wrist: { flex: 4, bend: 2 } },
         { id: 'crouch', label: 'Crouching', group: 'rest', hands: both('relaxed') }, { id: 'jump', label: 'Jumping', group: 'move', hands: both('relaxed') },
-        { id: 'fall', label: 'Falling', group: 'move', hands: both('open'), wrist: { flex: -10, bend: 0 } }, { id: 'fight', label: 'Fighting stance', group: 'fight', hands: both('fist'), wrist: { flex: 0, bend: 4 } },
-        { id: 'wave', label: 'Waving', group: 'rest', hands: { Left: 'relaxed', Right: 'open' }, wrist: { Left: WRIST, Right: { flex: -6, bend: 0 } } },
+        { id: 'fall', label: 'Falling', group: 'move', hands: both('open'), aim: 'fall', wrist: { flex: -10, bend: 0 } }, { id: 'fight', label: 'Fighting stance', group: 'fight', hands: both('fist'), wrist: { flex: 0, bend: 4 } },
+        { id: 'wave', label: 'Waving', group: 'rest', hands: { Left: 'relaxed', Right: 'open' }, aim: 'wave', wrist: { Left: WRIST, Right: { flex: -6, bend: 0 } } },
         { id: 'armsUp', label: 'Arms up', group: 'rest', hands: both('open'), wrist: { flex: -8, bend: 0 } },
-        { id: 'kneel', label: 'Kneeling', group: 'rest', hands: both('relaxed') }, { id: 'sit', label: 'Sitting', group: 'rest', hands: both('relaxed') },
+        { id: 'kneel', label: 'Kneeling', group: 'rest', hands: both('relaxed'), aim: 'kneel' }, { id: 'sit', label: 'Sitting', group: 'rest', hands: both('relaxed') },
         { id: 'lieBack', label: 'Lying on the back', group: 'rest', hands: both('relaxed') }, { id: 'lieSide', label: 'Lying on the side', group: 'rest', hands: both('relaxed') },
         { id: 'pistol', label: 'Pistol aim', group: 'fight', hands: { Left: 'relaxed', Right: 'gun' }, aim: 'pistol', wrist: { Left: WRIST, Right: { flex: 0, bend: 0 } } },
         { id: 'pistolTwo', label: 'Pistol aim, two hands', group: 'fight', hands: { Left: 'support', Right: 'gun' }, aim: 'pistolTwo' },
@@ -70,7 +70,7 @@
         { id: 'prone', label: 'Lying face down', group: 'rest', hands: both('relaxed') },
         { id: 'proneAim', label: 'Prone aim', group: 'fight', hands: { Left: 'support', Right: 'gun' }, aim: 'rifle', aimPitch: 0.04, elbowDown: true },
         { id: 'crouchWalk', label: 'Walking crouched', group: 'move', hands: both('relaxed') },
-        { id: 'sword', label: 'Sword swing', group: 'fight', hands: both('sword'), aim: 'hilt', wrist: { flex: 0, bend: [[0, -10], [0.3, -38], [0.5, -34], [0.66, 6], [0.8, 32], [0.92, 20], [1, -10]] } },
+        { id: 'sword', label: 'Sword swing', group: 'fight', hands: both('sword'), aim: 'slash', wrist: { flex: 0, bend: 0 } },
         { id: 'swordThrust', label: 'Thrust', group: 'fight', hands: both('sword'), aim: 'thrust' },
         { id: 'bow', label: 'Bow', group: 'fight', hands: { Left: 'sword', Right: [[0, 'archerDraw'], [1.36, 'archerDraw'], [1.48, 'open'], [1.68, 'open'], [2, 'archerDraw']] }, aim: 'bow' },
         { id: 'defend', label: 'Guarding', group: 'fight', hands: both('fist'), wrist: { flex: 0, bend: 4 } },
@@ -395,7 +395,7 @@
      * pose's own `wrist` ({ flex, bend } in degrees: toward the palm, toward
      * the little finger), a relaxed hang when the pose gives none.
      */
-    const WRIST_TWIST = 70 * DEG;
+    const WRIST_TWIST = 40 * DEG;
     function holdWrists(bones, index, names, world, steps, frames, pose, turnAt) {
         for (const S of ['Left', 'Right']) {
             const h = names.indexOf(S + 'Hand'), fore = index.get(S + 'ForeArm'), frame = frames[S];
@@ -643,7 +643,7 @@
      */
     /** The most a foot points out from the hips' facing on an upright body (degrees), and in. */
     const TOE_OUT = 18, TOE_IN = 6;
-    function limitLegs(index, names, world, steps, turnAt, bones, upright, once) {
+    function limitLegs(index, names, world, steps, turnAt, bones, upright, once, toeOut = TOE_OUT) {
         const clampTo = (v, r) => {
             const [lo, hi] = r.x, d = DEG;
             return [Math.max(lo * d, Math.min(hi * d, v[0])), Math.max(-r.y * d, Math.min(r.y * d, v[1])), Math.max(-r.z * d, Math.min(r.z * d, v[2]))];
@@ -706,12 +706,35 @@
                     if (Math.abs(out) > Math.PI / 2) break;
                     // Eased in from the thigh at 49 degrees off upright to 37, so a leg passing the line turns smoothly.
                     const ease = Math.min(1, (-thigh[1] - 0.65) / 0.15);
-                    const excess = (out > TOE_OUT * DEG ? out - TOE_OUT * DEG : out < -TOE_IN * DEG ? out + TOE_IN * DEG : 0) * ease;
+                    const excess = (out > toeOut * DEG ? out - toeOut * DEG : out < -TOE_IN * DEG ? out + TOE_IN * DEG : 0) * ease;
                     if (!excess) break;
                     const axis = rotate(world[chain[0].k][f], thighDir), turn = quat(...axis, Math.max(-0.6, Math.min(0.6, excess * m / Math.max(0.4, Math.abs(axis[1])))));
                     for (const c of chain) world[c.k][f] = mul(turn, world[c.k][f]);
                 }
             }
+        }
+    }
+
+    /** Keep each stride on its own side of the hips. Joint-angle limits
+     * alone allow a captured narrow/crossing gait to scissor through a
+     * different body's opposite leg. Swing the whole chain at the hip so
+     * the knee remains a hinge and the ankle keeps its captured motion. */
+    function separateStride(bones, index, names, world, steps, place, scale) {
+        const hips = index.get('Hips');
+        for (let f = 0; f < steps; f++) for (const [S, sign] of [['Left', 1], ['Right', -1]]) {
+            const { pos, rot } = place(f), thigh = index.get(S + 'UpLeg'), knee = index.get(S + 'Leg'), foot = index.get(S + 'Foot');
+            const side = rotate(rot[hips], [1, 0, 0]), axis = rotate(rot[hips], [0, 0, 1]), origin = pos[thigh];
+            const width = Math.abs(dot(sub(origin, pos[hips]), side));
+            const gap = Math.max(.045 * scale, width * .55);
+            const clear = angle => {
+                const q = quat(...axis, angle * sign);
+                return [knee, foot].every(i => dot(sub(along3(origin, rotate(q, sub(pos[i], origin)), 1), pos[hips]), side) * sign >= gap);
+            };
+            if (clear(0)) continue;
+            let lo = 0, hi = .55;
+            for (let k = 0; k < 15; k++) { const mid = (lo + hi) / 2; if (clear(mid)) hi = mid; else lo = mid; }
+            const q = quat(...axis, hi * sign);
+            for (const suffix of ['UpLeg', 'Leg', 'Foot', 'ToeBase']) { const k = names.indexOf(S + suffix); if (k >= 0) world[k][f] = mul(q, world[k][f]); }
         }
     }
 
@@ -736,8 +759,8 @@
     /**
      * A limb reaching a target: the wrist (or ankle) to `to` (two-bone
      * reach, the elbow or knee bending toward `pole`), the hand (or foot)
-     * turned to `turn` (world); an arm's forearm takes half the hand's roll
-     * so the wrist never wrings. `weight` eases the limb from where it was.
+     * turned to `turn` (world); forearm pronation and bounded wrist turns
+     * keep a hand from wringing round its wrist. `weight` eases the limb from where it was.
      */
     const CHAINS = { arm: ['Arm', 'ForeArm', 'Hand'], leg: ['UpLeg', 'Leg', 'Foot', 'ToeBase'] };
     function reachLimb(ctx, f, S, limb, to, turn, pole, weight) {
@@ -749,20 +772,35 @@
         const sh = at(chain[0]);
         const a = Math.hypot(...sub(restAt(chain[1]), restAt(chain[0]))), b = Math.hypot(...sub(restAt(chain[2]), restAt(chain[1])));
         const off = sub(to, sh), d = Math.max(Math.abs(a - b) + 1e-4, Math.min(a + b - 1e-4, Math.hypot(...off))), u = unit(off);
-        const v = square(pole, u);
+        let v = square(pole, u);
+        if (limb === 'arm') {
+            let normal = unit(cross(u, v));
+            if (ctx.bendFrame[S] !== f) { ctx.bendReference[S] = ctx.bendNormals[S]; ctx.bendFrame[S] = f; }
+            const previous = ctx.bendReference[S];
+            if (previous) {
+                const carried = square(previous, u);
+                if (dot(normal, carried) < 0) normal = normal.map(x => -x);
+                const angle = Math.acos(Math.max(-1, Math.min(1, dot(normal, carried))));
+                if (angle > 25 * DEG) normal = unit(along3(carried.map(x => x * (1 - 25 * DEG / angle)), normal, 25 * DEG / angle));
+            }
+            ctx.bendNormals[S] = normal;
+            v = unit(cross(normal, u));
+        }
         const cosA = Math.max(-1, Math.min(1, (a * a + d * d - b * b) / (2 * a * d))), sinA = Math.sqrt(1 - cosA * cosA);
         const elbow = [0, 1, 2].map(i => sh[i] + (u[i] * cosA + v[i] * sinA) * a), reachTo = along3(sh, u, d);
         // Each bone's frame built from where its joints now are, as the poses' frames are made (along the
         // bone, and across it toward the bend), so the limb's roll follows the bend and never flips.
-        const upper = unit(sub(elbow, sh)), lower = unit(sub(reachTo, elbow)), back = v.map(x => -x);
+        const upper = unit(sub(elbow, sh)), lower = unit(sub(reachTo, elbow));
         let qTop, qMid;
         if (limb === 'arm') {
             // Across the upper arm toward where the forearm bends, across the forearm back toward the upper arm:
             // taken from the bend while there is one, from the pole's side while the arm is near straight (each
             // alone fails, one with the arm straight, the other with it folded square).
-            const bend = 1 - Math.abs(dot(upper, lower)), off = (x, y) => sub(x, y.map(k => k * dot(x, y)));
-            const sideUp = unit(along3(off(lower, upper).map(k => k * bend * 4), off(back, upper), 1 - Math.min(1, bend * 4) * 0.9));
-            const sideLow = unit(along3(off(upper.map(k => -k), lower).map(k => k * bend * 4), off(back, lower), 1 - Math.min(1, bend * 4) * 0.9));
+            // The pole and solved limb share one plane even near extension.
+            // Mixing opposite bend vectors can pass through zero and flip
+            // the entire arm frame during a slash or draw.
+            const normal = unit(cross(u, v));
+            const sideUp = unit(cross(upper, normal)), sideLow = unit(cross(lower, normal));
             qTop = mul(frameQuat(upper, sideUp), conj(rest[S + 'Arm']));
             qMid = mul(frameQuat(lower, sideLow), conj(rest[S + 'ForeArm']));
         } else {
@@ -783,14 +821,26 @@
         }
         let qEnd = turn || mul(qMid, mul(conj(old[1]), old[2]));
         if (limb === 'arm' && turn && !ctx.pose.freeWrist) {
-            // Half the hand's roll about the forearm goes into the forearm (within a forearm's reach).
+            // The forearm carries pronation within its anatomical range.
             // The roll is followed from frame to frame (never jumping a whole turn) and held within reach.
-            const fr = ctx.restAlong[S + 'ForeArm'], local = mul(conj(qMid), turn), t = dot(local, fr);
-            let roll = 2 * Math.atan2(t, local[3]);
-            const was = ctx.roll[S];
-            if (was !== undefined) roll += 2 * Math.PI * Math.round((was - roll) / (2 * Math.PI));
+            const fr = ctx.restAlong[S + 'ForeArm'], local = mul(conj(qMid), qEnd);
+            // Pronation belongs in the forearm; the wrist carries only the
+            // remaining, bounded swing and twist. Follow a continuous branch
+            // at +/-pi so a support hand never flips between opposite limits.
+            let roll = 2 * Math.atan2(dot(local, fr), local[3]);
+            roll = Math.atan2(Math.sin(roll), Math.cos(roll));
+            if (ctx.roll[S] !== undefined) roll += 2 * Math.PI * Math.round((ctx.roll[S] - roll) / (2 * Math.PI));
             ctx.roll[S] = roll;
-            qMid = mul(qMid, quat(...fr, Math.max(-120 * DEG, Math.min(120 * DEG, roll)) / 2));
+            qMid = mul(qMid, quat(...fr, Math.max(-100 * DEG, Math.min(100 * DEG, roll))));
+            const F = ctx.F[S], relative = unit4(mul(conj(qMid), qEnd));
+            let a = 2 * Math.atan2(dot(relative, F.along), relative[3]);
+            a = Math.atan2(Math.sin(a), Math.cos(a));
+            if (ctx.wristRoll[S] !== undefined) a += 2 * Math.PI * Math.round((ctx.wristRoll[S] - a) / (2 * Math.PI));
+            ctx.wristRoll[S] = a;
+            const twist = quat(...F.along, a), swing = unit4(mul(relative, conj(twist)));
+            const angle = 2 * Math.acos(Math.min(1, Math.abs(swing[3]))), limit = (ctx.pose.aim === 'wave' ? 45 : 32) * DEG;
+            qEnd = mul(qMid, mul(angle > limit ? partOf(swing, limit / angle) : swing,
+                quat(...F.along, Math.max(-40 * DEG, Math.min(40 * DEG, a)))));
         }
         const blend = (was, now) => (w < 1 ? slerp4(was, now, w) : now);
         world[top][f] = blend(old[0], qTop);
@@ -977,6 +1027,44 @@
             return { S, wrist: sub(at, rotate(turn, ctx.grip[S])), turn, pole: unit(S === 'Left' ? [1, -0.05, -0.2] : [-0.6, 0.3, -1]) };
         });
     };
+    const palmTurn = (F, along, palm) => mul(frameQuat(along, palm), conj(frameQuat(F.along, F.palm)));
+    AIMS.wave = (ctx, f) => {
+        const { pos } = ctx.place(f), sh = pos[ctx.index.get('RightArm')], phase = ctx.times[f] / ctx.period * Math.PI * 2;
+        const sway = Math.sin(phase), along = unit([sway * .42, 1, 0]);
+        return [{ S: 'Right', wrist: along3(sh, [-.20 - sway * .035, .29, .08], ctx.scale),
+            turn: palmTurn(ctx.F.Right, along, [0, 0, 1]), pole: unit([-1, -.6, 0]) }];
+    };
+    AIMS.fall = (ctx, f) => {
+        const { pos } = ctx.place(f), u = ctx.times[f] / ctx.period;
+        // A small balancing response while dropping, rather than the source
+        // capture's windmilling arm markers.
+        return ['Left', 'Right'].map(S => {
+            const m = S === 'Left' ? 1 : -1, sh = pos[ctx.index.get(S + 'Arm')];
+            const d = unit([m * .7, -.25 + .12 * Math.sin(u * Math.PI), .45]);
+            return { S, wrist: along3(sh, [m * .28, -.10 + .035 * Math.sin(u * Math.PI), .20], ctx.scale),
+                turn: palmTurn(ctx.F[S], d, [0, -.7, 1]), pole: unit([m, -.8, -.2]) };
+        });
+    };
+    AIMS.kneel = (ctx, f) => {
+        const { pos } = ctx.place(f);
+        return ['Left', 'Right'].map(S => {
+            const m = S === 'Left' ? 1 : -1, knee = pos[ctx.index.get(S + 'Leg')], hip = pos[ctx.index.get(S + 'UpLeg')];
+            const wrist = knee.map((v, k) => v * .65 + hip[k] * .35);
+            wrist[0] += m * .08 * ctx.scale; wrist[1] += .12 * ctx.scale;
+            return { S, wrist, turn: palmTurn(ctx.F[S], [0, -.35, 1], [0, -1, -.35]), pole: unit([m, .25, -.2]) };
+        });
+    };
+    AIMS.slash = (ctx, f) => {
+        const { pos } = ctx.place(f), chest = pos[ctx.index.get('Spine2')], u = ctx.times[f] / ctx.period;
+        const keys = [[0, [-.12, .04, .32, -.25]], [.25, [-.24, .26, .30, -.7]],
+            [.43, [-.12, .16, .37, -.3]], [.61, [.17, -.17, .36, .65]], [.78, [.17, -.20, .32, .8]], [1, [-.12, .04, .32, -.25]]];
+        const q = [0, 1, 2, 3].map(k => keyed(keys.map(([t, a]) => [t, a[k]]), u));
+        const grip = along3(chest, q.slice(0, 3), ctx.scale), blade = unit([q[3], 1 - Math.abs(q[3]) * .55, 0]);
+        const turnR = handTurn(ctx.F.Right, [0, 0, 1], blade), turnL = handTurn(ctx.F.Left, [0, 0, 1], blade.map(v => -v));
+        const left = along3(grip, blade, -ctx.F.Right.length * .85);
+        return [{ S: 'Right', wrist: sub(grip, rotate(turnR, ctx.grip.Right)), turn: turnR, pole: unit([-1, -.6, -.2]) },
+            { S: 'Left', wrist: sub(left, rotate(turnL, ctx.grip.Left)), turn: turnL, pole: unit([1, -.8, -.2]) }];
+    };
     AIMS.ladder = (ctx, f) => climb(ctx, f, false);
     AIMS.wall = (ctx, f) => climb(ctx, f, true);
     AIMS.tread = tread;
@@ -1009,12 +1097,20 @@
             if (index.has(S + 'ToeBase')) foot[S] = { along: unit(sub(p('ToeBase'), p('Foot'))), ball: sub(p('ToeBase'), p('Foot')) };
         }
         const period = times[times.length - 1] || 1;
-        const ctx = { bones, index, names, world, place, turnAt, scale, F: frames, pose, reach, grip, restAlong, foot, times, period, rest: restFrames(bones, index), roll: {} };
+        const ctx = { bones, index, names, world, place, turnAt, scale, F: frames, pose, reach, grip, restAlong, foot, times, period, rest: restFrames(bones, index), roll: {}, wristRoll: {}, bendNormals: {}, bendReference: {}, bendFrame: {} };
         for (let f = 0; f < steps; f++) {
             const w = pose.aimMix ? Math.max(0, Math.min(1, keyed(pose.aimMix, times[f]))) : 1;
             if (w <= 0) continue;
             for (const kind of kinds) {
-                for (const r of AIMS[kind](ctx, f)) reachLimb(ctx, f, r.S, r.limb || 'arm', r.wrist, r.turn, r.pole, w);
+                for (const r of AIMS[kind](ctx, f)) {
+                    const holdGrip = Array.isArray(r.turn) && ['pistol', 'pistolTwo', 'rifle', 'hilt', 'thrust', 'bow', 'slash'].includes(kind);
+                    const grip = holdGrip ? along3(r.wrist, rotate(r.turn, ctx.grip[r.S]), 1) : null;
+                    let wrist = r.wrist;
+                    for (let pass = 0; pass < (holdGrip ? 3 : 1); pass++) {
+                        reachLimb(ctx, f, r.S, r.limb || 'arm', wrist, r.turn, r.pole, w);
+                        if (grip) wrist = sub(grip, rotate(turnAt(index.get(r.S + 'Hand'), f), ctx.grip[r.S]));
+                    }
+                }
                 if (kind === 'rifle' && w > 0) cheekDown(ctx, f);
             }
         }
@@ -1046,6 +1142,21 @@
                 for (let f = 0; f < steps; f++) world[k][f] = turn.slice();
             });
         }
+        // These are planted actions. The boxing source's knee corrections
+        // added a visible kick to guarding and thrust even when both feet
+        // should stay put. Keep one stable stance beneath the authored arms.
+        if (['defend', 'swordThrust', 'sword'].includes(id)) names.forEach((name, k) => {
+            if (/^(Hips|Spine\d*|Neck|Head|.*(?:UpLeg|Leg|Foot|ToeBase))$/.test(name)) {
+                const q = world[k][Math.min(10, steps - 1)];
+                for (let f = 0; f < steps; f++) world[k][f] = q.slice();
+            }
+        });
+        if (id === 'wave') names.forEach((name, k) => {
+            // An ordinary standing posture keeps both soles down. The raised
+            // arm is authored below with its palm facing the viewer.
+            if (!/^(Left|Right)(Shoulder|Arm|ForeArm|Hand)$/.test(name))
+                for (let f = 0; f < steps; f++) world[k][f] = [0, 0, 0, 1];
+        });
         const slot = new Map(names.map((n, k) => [index.get(n), k]));
         const turnAt = (i, f) => {
             for (let b = i; b >= 0; b = bones[b].parent) if (slot.has(b)) return world[slot.get(b)][f];
@@ -1116,7 +1227,9 @@
                 }
             }
         }
-        limitLegs(index, names, world, steps, turnAt, bones, !cap.hang, cap.once);
+        const stride = id === 'walk' || id === 'run' || id === 'crouchWalk';
+        if (stride) separateStride(bones, index, names, world, steps, place, scale);
+        limitLegs(index, names, world, steps, turnAt, bones, !cap.hang, cap.once, stride ? 12 : TOE_OUT);
         const heights = stand();
         const tracks = names.map((n, k) => {
             const i = index.get(n), values = new Float32Array(steps * 4);
@@ -1177,10 +1290,10 @@
         if (!POSES.some(p => p.id === id)) return null;
         const index = new Set(bones.map(b => b.name));
         if (!index.has('LeftArm') || !index.has('LeftForeArm') || !index.has('LeftUpLeg')) return null;
-        const authored = id === 'swordThrust' || id === 'bow';
+        const authored = id === 'swordThrust' || id === 'bow' || id === 'sword';
         const source = take(authored ? 'fight' : id);
         let cap = authored && source ? Object.assign({}, source, { once: true }) : source;
-        if (id === 'bow' && cap) {
+        if ((id === 'bow' || id === 'sword') && cap) {
             const frames = 61;
             cap = Object.assign({}, cap, { frames, fps: 30, rise: new Float32Array(frames), bones: Object.fromEntries(Object.entries(cap.bones).map(([name, values]) => [name, Float32Array.from({ length: frames * 4 }, (_, i) => values[Math.min(10, source.frames - 1) * 4 + i % 4])])) });
         }

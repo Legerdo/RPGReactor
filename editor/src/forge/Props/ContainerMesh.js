@@ -166,6 +166,31 @@
         return g.done();
     }
 
+    /** A closed box with circular edge fillets and spherical corners. The
+     * flat panels stay flat; extra samples describe the curved edge only. */
+    function roundedBox(center, size, radius, steps = 4) {
+        if(Math.min(...size)<.008)return chamferBox(center,size,radius);
+        const h=size.map(v=>Math.abs(v)/2),r=Math.max(0,Math.min(radius,...h.map(v=>v*.95)));
+        if(r<1e-6)return chamferBox(center,size,0);
+        const P=[],N=[],T=[],I=[],coordinates=k=>{
+            const a=[];for(let j=0;j<=steps;j++)a.push(-h[k]+r*(1-Math.cos(j/steps*Math.PI/2)));
+            return a.concat(a.map(v=>-v).reverse());
+        };
+        for(let axis=0;axis<3;axis++)for(const sign of [-1,1]){
+            const u=(axis+1)%3,v=(axis+2)%3,A=coordinates(u),B=coordinates(v),base=P.length/3;
+            for(const y of B)for(const x of A){
+                const p=[0,0,0];p[axis]=sign*h[axis];p[u]=x;p[v]=y;
+                const q=p.map((value,k)=>Math.max(-h[k]+r,Math.min(h[k]-r,value))),n=norm(sub(p,q));
+                P.push(...add(center,add(q,scale(n,r))));N.push(...n);T.push(x,y);
+            }
+            for(let j=0;j<B.length-1;j++)for(let i=0;i<A.length-1;i++){
+                const a=base+j*A.length+i,b=a+1,c=a+A.length,d=c+1;
+                if(sign>0)I.push(a,b,c,b,d,c);else I.push(a,c,b,b,c,d);
+            }
+        }
+        return make(P,N,T,I);
+    }
+
     /** Planar uvs (meters) of a point relative to its piece, on the face it turns toward. */
     function planarAt(p, n) {
         const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
@@ -327,6 +352,9 @@
             g.poly([at(a[0], a[1], depth), at(c[0], c[1], depth), at(c[0], c[1], depth - recess), at(a[0], a[1], depth - recess)], [uv(a[0], a[1]), uv(c[0], c[1]), uv(c[0], c[1]), uv(a[0], a[1])], inward);
         }
         fl.poly(op.map(p => at(p[0], p[1], depth - recess)), op.map(p => uv(p[0], p[1])), F.n);
+        // A housing is also a solid when inspected away from its mounting
+        // surface (standalone screens and consoles expose this rear face).
+        g.poly(outer.map(p=>at(p[0],p[1],0)),outer.map(p=>uv(p[0],p[1])),scale(F.n,-1));
         return { housing: g.done(), floor: fl.done(), width: iw * 2, height: ih * 2 };
     }
 
@@ -432,7 +460,7 @@
         return out;
     }
 
-    const api = { Geo, make, revolve, revolveOn, smoothNormals, chamferBox, planarAt, slab, insetConvex, rect, frame, sweep, orientOutward, bezel, plate, dome, transform, yaw, pitch, copy, mapUv, skin, occlude, merge, vec: { sub, add, scale, dot, cross, norm } };
+    const api = { Geo, make, revolve, revolveOn, smoothNormals, chamferBox, roundedBox, planarAt, slab, insetConvex, rect, frame, sweep, orientOutward, bezel, plate, dome, transform, yaw, pitch, copy, mapUv, skin, occlude, merge, vec: { sub, add, scale, dot, cross, norm } };
     root.RRContainerMesh = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

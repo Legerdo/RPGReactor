@@ -2,6 +2,8 @@
 (function(root) {
     'use strict';
     const Props = root.RRCharacterProps || (typeof require === 'function' ? require('./CharacterProps.js') : null);
+    const Arthropods = root.RRCreatureArthropods || (typeof require === 'function' ? require('./CreatureArthropods.js') : null);
+    const Flyers = root.RRCreatureFlyers || (typeof require === 'function' ? require('./CreatureFlyers.js') : null);
     const { add, sub, mul, dot, cross, norm, lerp } = Props.vec;
     const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
     const rgb = hex => {
@@ -9,8 +11,10 @@
         return [16, 8, 0].map(k => { const c = (n >> k & 255) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
     };
     const mix = (a, b, t) => a.map((v, k) => v + (b[k] - v) * t);
-    const FORMS = [['quadruped', 'Four-legged'], ['fish', 'Fish'], ['cetacean', 'Cetacean'], ['cephalopod', 'Cephalopod'], ['arthropod', 'Arthropod'], ['worm', 'Worm'], ['jellyfish', 'Jellyfish']];
+    const FORMS = [['quadruped', 'Four-legged'], ['fish', 'Fish'], ['cetacean', 'Cetacean'], ['cephalopod', 'Cephalopod'], ['arthropod', 'Arthropod'], ['avian', 'Bird'], ['bat', 'Bat'], ['worm', 'Worm'], ['jellyfish', 'Jellyfish']];
     const SLIDERS = [
+        { key: 'wingSpread', label: 'Wing spread', min: 0, max: 1, natural: [0.2, 1], value: 0.75, forms: ['arthropod', 'avian', 'bat'] },
+        { key: 'antennaLength', label: 'Antenna length', min: 0.2, max: 3, natural: [0.5, 1.5], value: 1, forms: ['arthropod'] },
         { key: 'jawOpen', label: 'Jaw opening', min: 0, max: 1, natural: [0, 0.7], value: 0.03, forms: ['fish', 'cetacean', 'worm'] },
         { key: 'toothSize', label: 'Tooth size', min: 0, max: 2, natural: [0.5, 1.4], value: 1, forms: ['fish', 'cetacean', 'worm'] },
         { key: 'dorsalHeight', label: 'Dorsal height', min: 0.3, max: 2, natural: [0.7, 1.3], value: 1, forms: ['fish', 'cetacean'] },
@@ -23,7 +27,7 @@
         { key: 'eyeCount', label: 'Eye count', min: 0, max: 12, natural: [0, 8], value: 2, integer: true, forms: ['fish', 'cetacean', 'cephalopod', 'arthropod', 'worm', 'jellyfish'] },
         { key: 'glow', label: 'Bioluminescence', min: 0, max: 2, natural: [0, 1], value: 0, forms: ['fish', 'cetacean', 'cephalopod', 'arthropod', 'worm', 'jellyfish'] }
     ].map(s => ({ ...s, section: 'Body', step: s.integer ? 1 : 0.01 }));
-    const preset = (kind, label, morphology, over, coat, light, marking = '#263b46') => ({ kind, label, group: ['fish', 'cetacean', 'cephalopod', 'jellyfish'].includes(morphology) ? 'Aquatic' : 'Arthropods and crawlers', form: morphology,
+    const preset = (kind, label, morphology, over, coat, light, marking = '#263b46') => ({ kind, label, group: ['avian', 'bat'].includes(morphology) ? 'Birds and bats' : ['fish', 'cetacean', 'cephalopod', 'jellyfish'].includes(morphology) ? 'Aquatic' : 'Arthropods and crawlers', form: morphology,
         over: { morphology, size: 0.6, bodyLength: 1, girth: 1, chestDepth: 1, headSize: 1, eyeSize: 1, snoutLength: 1, tailLength: 1, tailThickness: 1, ears: 'none', mane: 'none', wings: 'none', horns: 'none', fluff: 0, spines: 0, pattern: 'countershade', ...over },
         colors: { coat, light, marking, nose: '#1b2429', eye: '#bd963d' } });
     const KINDS = [
@@ -33,12 +37,22 @@
         preset('whale', 'Whale', 'cetacean', { size: 1.8, girth: 1.12, headSize: 1.15, eyeSize: 0.45 }, '#26333b', '#d0d4ca', '#17262d'),
         preset('octopus', 'Octopus', 'cephalopod', { size: 0.45, appendages: 8, pattern: 'spots' }, '#bb7352', '#e8c4a4', '#754335'),
         preset('squid', 'Squid', 'cephalopod', { size: 0.55, appendages: 10, girth: 0.65, bodyLength: 1.2 }, '#b77c91', '#ead7d8', '#783d69'),
-        preset('beetle', 'Beetle', 'arthropod', { size: 0.25, limbPairs: 3, pattern: 'solid' }, '#426d4c', '#303a26', '#b29345'),
+        preset('beetle', 'Beetle', 'arthropod', { size: 0.25, limbPairs: 3, pattern: 'solid' }, '#304e36', '#252a21', '#a58547'),
+        preset('tick', 'Tick', 'arthropod', { size: 0.18, limbPairs: 4, eyeCount: 0, pattern: 'solid' }, '#76503e', '#a58261', '#372c25'),
+        preset('bee', 'Bee', 'arthropod', { size: 0.20, limbPairs: 3, wingSize: 1, pattern: 'solid' }, '#bb8c2c', '#d9b755', '#29241c'),
+        preset('wasp', 'Wasp', 'arthropod', { size: 0.22, limbPairs: 3, wingSize: 1, pattern: 'solid' }, '#d4a32e', '#dfc46f', '#24221d'),
+        preset('mosquito', 'Mosquito', 'arthropod', { size: 0.22, limbPairs: 3, wingSize: 1, appendageLength: 1.3, pattern: 'solid' }, '#776854', '#baac8b', '#352e25'),
+        preset('fly', 'Fly', 'arthropod', { size: 0.20, limbPairs: 3, wingSize: 1, pattern: 'solid' }, '#62676a', '#aaa8a0', '#7f392d'),
+        preset('butterfly', 'Butterfly', 'arthropod', { size: 0.23, limbPairs: 3, wingSize: 1, pattern: 'solid' }, '#d5802c', '#e5d19d', '#30231c'),
+        preset('dragonfly', 'Dragonfly', 'arthropod', { size: 0.23, limbPairs: 3, wingSize: 1, wingSpread: 1, pattern: 'solid' }, '#3b7e89', '#a9ccd1', '#263c41'),
+        preset('lobster', 'Lobster', 'arthropod', { size: 0.40, limbPairs: 5, tailLength: 1, pattern: 'solid' }, '#564c38', '#ad9673', '#243e35'),
+        preset('avian', 'Bird', 'avian', { size: 0.50, wingSize: 1, legLength: 1, neckLength: 1, wingSpread: 1, pattern: 'solid' }, '#47372c', '#f0ede4', '#251e19'),
+        preset('bat', 'Bat', 'bat', { size: 0.30, wingSize: 1, legLength: 1, wingSpread: 1, pattern: 'solid' }, '#69513d', '#987c60', '#3b302e'),
         preset('worm', 'Worm', 'worm', { size: 0.3, segments: 20, eyeCount: 0, pattern: 'stripes' }, '#b76f78', '#d99b99', '#8f4c5b'),
         preset('stingray', 'Stingray', 'fish', { size: 0.65, girth: 1.7, chestDepth: 0.35, finSize: 1.45, finPairs: 1 }, '#677a81', '#d7d9ca'),
         preset('jellyfish', 'Jellyfish', 'jellyfish', { size: 0.4, appendages: 12, eyeCount: 0, glow: 0.4 }, '#9ebcd8', '#dfcaec', '#9a6aaf'),
         preset('spider', 'Spider', 'arthropod', { size: 0.25, limbPairs: 4, eyeCount: 8, appendageLength: 1.3, pattern: 'solid' }, '#56444b', '#a69083', '#211e29'),
-        preset('crab', 'Crab', 'arthropod', { size: 0.3, limbPairs: 5, girth: 1.45, chestDepth: 0.6, pattern: 'solid' }, '#b55139', '#d7946c', '#713122'),
+        preset('crab', 'Crab', 'arthropod', { size: 0.3, limbPairs: 5, girth: 1.45, chestDepth: 0.6, pattern: 'solid' }, '#79674a', '#b49a70', '#493f2d'),
         preset('centipede', 'Centipede', 'arthropod', { size: 0.35, limbPairs: 10, segments: 18, girth: 0.55, bodyLength: 1.6, pattern: 'stripes' }, '#805137', '#d1a566', '#382b29'),
         preset('anglerfish', 'Anglerfish', 'fish', { size: 0.4, girth: 1.4, bodyLength: 0.8, headSize: 1.4, glow: 0.25, tuskSize: 0.8, jawOpen: 0.6, pattern: 'spots' }, '#47645a', '#9fa981', '#263a34')
     ];
@@ -261,8 +275,9 @@
     };
     const WORM_TYPES = {wormType:{label:'Worm type',kind:'worm',choices:[['earthworm','Earthworm'],['tapeworm','Tapeworm'],['leech','Leech'],['roundworm','Roundworm'],['bristleworm','Bristleworm'],['goauld',"Goa'uld"]]}};
     const WORM_DEFAULTS={earthworm:{eyeCount:0,jawOpen:.03,pattern:'stripes'},tapeworm:{eyeCount:0,jawOpen:.03,pattern:'solid'},leech:{eyeCount:10,jawOpen:.03,pattern:'countershade'},roundworm:{eyeCount:0,jawOpen:.03,pattern:'solid'},bristleworm:{eyeCount:2,jawOpen:.03,pattern:'stripes'},goauld:{eyeCount:2,jawOpen:.7,pattern:'countershade'}};
-    const VARIANT_TYPES = {...MARINE_TYPES,...WORM_TYPES};
+    const VARIANT_TYPES = {...MARINE_TYPES,...WORM_TYPES,...Arthropods.TYPES,...Flyers.TYPES};
     const TYPE_PALETTES = {
+        ...Arthropods.PALETTES, ...Flyers.PALETTES,
         earthworm:['#b76f78','#d99b99','#8f4c5b'],tapeworm:['#d9c8a8','#ede1c9','#b19d7e'],leech:['#41483a','#aaa47b','#20291e'],roundworm:['#d6bba0','#ebd6b9','#bda084'],bristleworm:['#92645c','#d8b094','#513e3e'],goauld:['#625449','#b3a084','#302c29'],
         greatWhite: ['#56616a','#e8e8df','#27323b'], tiger: ['#747668','#d5d5c7','#343b34'], bull: ['#72756e','#ddded3','#35413f'],
         hammerhead: ['#5b716f','#dde0d4','#31413f'], mako: ['#365766','#dfe3de','#203843'], thresher: ['#55636c','#d8dcda','#2c3a44'], whaleShark: ['#354e5b','#d3d5c6','#223d49'],
@@ -273,7 +288,7 @@
         const def=VARIANT_TYPES[key]; if(!def||def.kind!==r.kind||!def.choices.some(([id])=>id===value))return r;
         const p=TYPE_PALETTES[value];return {...r,[key]:value,...(key==='wormType'?WORM_DEFAULTS[value]:{}),...(key==='sharkType'?{jawOpen:({greatWhite:.65,tiger:.4,bull:.35,hammerhead:.28,mako:.45,thresher:.30,whaleShark:.18})[value]}:{}),colors:{...r.colors,coat:p[0],light:p[1],marking:p[2],...(key==='wormType'?{eye:value==='goauld'?'#b83d22':value==='earthworm'?'#bd963d':'#141510'}:{})}};
     }
-    const variantsFor = r => Object.entries(VARIANT_TYPES).filter(([,v])=>v.kind===r.kind&&r.morphology===(v.kind==='whale'?'cetacean':v.kind==='worm'?'worm':'fish')).map(([key,v])=>({key,...v}));
+    const variantsFor = r => Object.entries(VARIANT_TYPES).filter(([,v])=>v.kind===r.kind&&r.morphology===(v.form || (v.kind==='whale'?'cetacean':v.kind==='worm'?'worm':'fish'))).map(([key,v])=>({key,...v}));
     const ease = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
     function profileAt(keys, t) {
         for (let i = 0; i < keys.length - 1; i++) if (t <= keys[i + 1][0]) {
@@ -1032,7 +1047,7 @@
         }
         finish(mesh, 'Horns and spines', { roughness: 0.42 });
     }
-    const POSES = [{ id: 'swim', label: 'Swimming' }, { id: 'glide', label: 'Gliding' }, { id: 'crawl', label: 'Crawling' }, { id: 'turn', label: 'Turning' }, { id: 'attack', label: 'Attacking' }];
+    const POSES = [{ id: 'swim', label: 'Swimming' }, { id: 'glide', label: 'Gliding' }, { id: 'fly', label: 'Flying' }, { id: 'crawl', label: 'Crawling' }, { id: 'turn', label: 'Turning' }, { id: 'attack', label: 'Attacking' }];
     const q = (x, y, z) => { const a = Math.hypot(x, y, z); if (a < 1e-8) return [0, 0, 0, 1]; const s = Math.sin(a / 2) / a; return [x * s, y * s, z * s, Math.cos(a / 2)]; };
     const qmul = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
     const rotate = (q, p) => { const t = mul(cross(q, p), 2); return add(p, add(mul(t, q[3]), cross(q, t))); };
@@ -1040,7 +1055,9 @@
         const form = recipe?.morphology || bones[0]?.creatureForm;
         if (!form || form === 'quadruped') return null;
         const land = form === 'arthropod' || form === 'worm';
-        if (!['idle', 'turn', 'attack', ...(land ? ['crawl', 'walk', 'run'] : ['swim', 'glide'])].includes(id)) return null;
+        const penguin = form === 'avian' && recipe?.birdType === 'penguin';
+        const flyer = !penguin && (['avian', 'bat'].includes(form) || Arthropods.INSECTS.includes(recipe?.kind) && recipe.kind !== 'beetle');
+        if (!['idle', 'turn', 'attack', ...(penguin ? ['swim','glide','crawl','walk','run'] : flyer ? ['fly', 'glide', 'crawl', 'walk', 'run'] : land ? ['crawl', 'walk', 'run'] : ['swim', 'glide'])].includes(id)) return null;
         const frames = 33, period = id === 'idle' ? 4 : id === 'attack' ? 1.2 : land ? 1.4 : 2.4;
         const times = Float32Array.from({ length: frames }, (_, i) => i / (frames - 1) * period), tracks = [], heights = new Float32Array(frames), amount = id === 'idle' ? 0.2 : id === 'glide' ? 0.3 : 1;
         bones.forEach((b, index) => {
@@ -1048,15 +1065,38 @@
             for (let i = 0; i < frames; i++) {
                 const phase = i / (frames - 1) * Math.PI * 2, wave = Math.sin(phase - (b.phase || 0));
                 let x = 0, y = 0, z = 0;
-                if (b.role === 'tail') { const a = wave * 0.12 * amount; form === 'cetacean' ? x = a : y = a; }
+                if (b.role === 'tail') { const a = wave * 0.12 * amount; form === 'cetacean' || recipe?.kind === 'lobster' ? x = a : y = a; }
                 if (b.role === 'fin') z = wave * 0.17 * (b.phase || 1) * amount;
                 if (b.role === 'tentacle') { x = wave * 0.11 * amount; y = Math.cos(phase - b.phase) * 0.1 * amount; }
                 if (b.role === 'segment') y = wave * 0.075 * amount;
-                if (b.role === 'legUpper') { y = Math.cos(phase - b.phase) * 0.23 * amount; z = (b.head[0] < 0 ? -1 : 1) * Math.max(0, wave) * 0.22 * amount; }
-                if (b.role === 'legLower') z = (b.head[0] < 0 ? 1 : -1) * Math.max(0, wave) * 0.16 * amount;
+                if (b.role === 'legUpper') { y = Math.cos(phase - b.phase) * 0.23 * amount * (b.motionScale ?? 1); z = (b.head[0] < 0 ? -1 : 1) * Math.max(0, wave) * 0.22 * amount * (b.motionScale ?? 1); }
+                if (b.role === 'legLower') z = (b.head[0] < 0 ? 1 : -1) * Math.max(0, wave) * 0.16 * amount * (b.motionScale ?? 1);
+                if (b.role === 'wing') z = (b.phase || 1) * Math.sin(phase) * (id === 'fly' || penguin && id === 'swim' ? .55 : id === 'glide' ? .06 : .018);
+                if (b.role === 'wingTip') z = (b.phase || 1) * Math.sin(phase - .35) * (id === 'fly' ? .12 : .012);
+                if (b.role === 'abdomen') y = wave * .025 * amount;
+                if (b.role === 'pincer' && id === 'attack') y = Math.max(0, Math.sin(phase)) * .25 * (b.phase || 1);
                 if (b.role === 'root' && id === 'turn') y = Math.sin(phase) * 0.6;
                 if (b.role === 'head' && id === 'attack') x = Math.sin(phase) * 0.3;
                 if (b.role === 'jaw' && id === 'attack') x = Math.max(0, Math.sin(phase)) * 0.15;
+                if(form==='avian'&&!penguin&&['fly','glide'].includes(id)){
+                    // The rest chest leans forward already. A full quarter turn
+                    // tips the beak below the breast and sends the feet upward.
+                    const pitch=recipe?.birdType==='eagle'?Math.PI/3:.15;
+                    if(b.role==='root'){values.set(q(pitch,0,0),i*4);continue;}
+                    if(b.role==='head'||b.role==='birdTail'){values.set(q(-pitch,0,0),i*4);continue;}
+                    if(b.role==='wing'){values.set(qmul(q(-pitch,0,0),q(0,0,z)),i*4);continue;}
+                    if(b.role==='legUpper'){values.set(q(-.65,0,0),i*4);continue;}
+                    if(b.role==='legLower'){values.set(q(1.1,0,0),i*4);continue;}
+                }
+                // The humerus lowers, the forearm returns upward, and the manus closes
+                // behind it. Three articulations keep the primaries outside the flank;
+                // flight uses the spread rest geometry and existing wingbeat.
+                if(form==='avian'&&!penguin&&['idle','walk','run','crawl','turn'].includes(id)){
+                    const sign=b.phase||1;
+                    if(b.role==='wing'){values.set(q(0,0,-sign*1.70),i*4);continue;}
+                    if(b.role==='wingTip'){values.set(q(0,0,sign*3.35),i*4);continue;}
+                    if(b.role==='wingHand'){values.set(q(0,0,-sign*3.05),i*4);continue;}
+                }
                 values.set(q(x, y, z), i * 4);
             }
             tracks.push({ bone: index, values });
@@ -1077,7 +1117,7 @@
             }
             heights[frame] = Math.max(0, (bones[0].creatureSize || 1) * (land ? 0.003 : 0.012) - low);
         }
-        const name = ({ idle: 'Idle', crawl: 'Walk', walk: 'Walk', run: 'Run', swim: 'Swim', glide: 'Glide', turn: 'Turn', attack: 'Attack' })[id];
+        const name = ({ idle: 'Idle', crawl: 'Walk', walk: 'Walk', run: 'Run', swim: 'Swim', fly: 'Fly', glide: 'Glide', turn: 'Turn', attack: 'Attack' })[id];
         const lift = time => { const t = (id === 'attack' ? clamp(time, 0, period) : ((time % period) + period) % period) / period * (frames - 1), i = Math.min(frames - 1, Math.floor(t)); return heights[i] + (heights[Math.min(frames - 1, i + 1)] - heights[i]) * (t - i); };
         // Embedded clips carry the same floor correction the preview applies separately.
         const translation = Float32Array.from({ length: frames * 3 }, (_, i) => bones[0].head[i % 3] + (i % 3 === 1 ? heights[Math.floor(i / 3)] : 0));
@@ -1096,7 +1136,16 @@
         for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
             const u = x / size, v = y / size, grain = Math.sin(u * tau * 119) * Math.cos(v * tau * 121);
             let h = grain * .012, shade = 246, rough = .8, tint = [1,1,1];
-            if (kind === 'scales') {
+            if (kind === 'feathers') {
+                const row = Math.floor(v * 44), cell = fract(u * 72 + (row % 2) * .5), z = fract(v * 44);
+                const shaft = Math.exp(-(((cell - .5) / .045) ** 2));
+                const vane = Math.max(0, 1 - Math.abs(cell - .5) * 2);
+                const barbs = Math.sin((z * 14 - Math.abs(cell - .5) * 5) * tau);
+                const edge = Math.exp(-(((z - (.72 + vane * .23)) / .045) ** 2));
+                h = shaft * .035 + barbs * .008 * vane - edge * .038;
+                shade = 249 + shaft * 3 + barbs * 2 - edge * 10;
+                rough = .86 + barbs * .025;
+            } else if (kind === 'scales') {
                 // Staggered overlapping plates with rounded trailing rims,
                 // concentric growth lines and radial grooves, rather than dots.
                 const row = Math.floor(v * 20), q = fract(u * 36 + (row % 2) * .5), z = fract(v * 20) - .5;
@@ -1122,10 +1171,11 @@
                 shade = 220 + pebble * 24 - crevice * 42 + wrinkle * 5;
                 rough = .60 + crevice * .31 - pebble * .15;
             } else if (kind === 'chitin') {
-                const pore = Math.max(0, grain) ** 12;
+                const fineGrain = Math.sin(u * tau * 21) * Math.cos(v * tau * 23);
+                const pore = Math.max(0, fineGrain) ** 6;
                 const stria = Math.cos(u * tau * 44 + Math.sin(v * tau * 5) * .5);
-                h += stria * .035 - pore * .09;
-                shade = 242 + stria * 5 - pore * 23;
+                h = fineGrain * .003 + stria * .006 - pore * .03;
+                shade = 247 + stria - pore * 23;
                 rough = .58 + pore * .34 + stria * .06;
             } else if (kind === 'finRays') {
                 const ray = (.5 + .5 * Math.cos(u * tau * 18 + Math.sin(v * Math.PI) * .3)) ** 5;
@@ -1165,7 +1215,7 @@
     function detailSurfaces(C, options) {
         // Catalog thumbnails carry the same surface identity as the editor.
         const size = C.save ? 1024 : options.static ? 256 : 512;
-        const r = C.r, kind = r.kind==='worm'&&r.wormType==='goauld'?'symbioteSkin':r.kind==='worm'&&r.wormType==='roundworm'?'marineSkin':r.kind === 'shark' || r.morphology === 'cetacean' ? 'marineSkin' : r.kind === 'fish' ? 'scales' : r.morphology === 'arthropod' ? 'chitin' : r.morphology === 'worm' ? 'annuli' : 'pores';
+        const r = C.r, kind = r.morphology === 'avian' ? 'feathers' : r.kind==='worm'&&r.wormType==='goauld'?'symbioteSkin':r.kind==='worm'&&r.wormType==='roundworm'?'marineSkin':r.kind === 'shark' || r.morphology === 'cetacean' ? 'marineSkin' : r.kind === 'fish' ? 'scales' : r.morphology === 'arthropod' ? 'chitin' : r.morphology === 'worm' ? 'annuli' : 'pores';
         let finPictures=null;
         for (const part of C.parts) {
             if (part.noSurfaceDetail || part.kind === 'eye' || /suckers|mouth|Antennae|Horns|lure|ribs|core/i.test(part.name)) continue;
@@ -1209,9 +1259,13 @@
         const C = context(r, options.quality === 'save');
         if (r.morphology === 'fish' || r.morphology === 'cetacean') fish(C);
         else if (r.morphology === 'cephalopod') cephalopod(C);
-        else if (r.morphology === 'arthropod') arthropod(C);
+        else if (r.morphology === 'arthropod') { if (Arthropods.handles(r.kind)) Arthropods.build(C); else arthropod(C); }
+        else if (r.morphology === 'avian' || r.morphology === 'bat') Flyers.build(C);
         else if (r.morphology === 'worm') worm(C);
         else jellyfish(C);
+        if (r.pattern !== 'solid' && (Arthropods.handles(r.kind) || ['avian','bat'].includes(r.morphology))) for (const part of C.parts) {
+            if (!part.noSurfaceDetail && part.kind !== 'eye') C.pattern(part);
+        }
         adorn(C);
         const textures = detailSurfaces(C, options);
         // Axial length changes proportions independently of overall Size.
@@ -1240,13 +1294,17 @@
         }
         // Keep a bounded set of the lowest points distributed over the silhouette.
         C.bones[0].floorSamples = [...new Set([...samples.values()].flatMap(cell => Object.values(cell)))].sort((a, b) => a.p[1] - b.p[1]).slice(0, 2048);
-        const ids = ['idle', ...(r.morphology === 'arthropod' || r.morphology === 'worm' ? ['walk', 'run'] : ['swim', 'glide']), 'turn', 'attack'];
+        const flyer = ['avian', 'bat'].includes(r.morphology) || Arthropods.INSECTS.includes(r.kind) && r.kind !== 'beetle';
+        const penguin = r.morphology === 'avian' && r.birdType === 'penguin';
+        const ids = ['idle', ...(flyer ? ['walk', 'run', penguin ? 'swim' : 'fly', 'glide'] : r.morphology === 'arthropod' || r.morphology === 'worm' ? ['walk', 'run'] : ['swim', 'glide']), 'turn', 'attack'];
         const clips = options.static ? [] : ids.map(id => poseClip(C.bones, id, r).saved);
         return { recipe: r, parts: C.parts, bones: C.bones, height: height - floor, plan: 'quadruped', form: r.morphology, rig: { markers: {} }, textures, clips };
     }
     function sidecar(built) {
-        const land = built.form === 'arthropod' || built.form === 'worm';
-        const clips = [['Idle', 'idle'], [land ? 'Walk' : 'Swim', land ? 'walking' : 'swimming'], [land ? 'Run' : 'Glide', land ? 'dashing' : 'treading'], ['Attack', 'attack']];
+        const land = ['arthropod', 'worm', 'avian', 'bat'].includes(built.form);
+        const clips = [['Idle', 'idle'], [land ? 'Walk' : 'Swim', land ? 'walking' : 'swimming'], [land ? 'Run' : 'Glide', land ? 'dashing' : 'treading'], ['Attack', 'action']];
+        if (built.clips.some(c => c.name === 'Fly')) clips.push(['Fly', 'jumping'], ['Glide', 'action']);
+        else if (land && built.clips.some(c => c.name === 'Swim')) clips.push(['Swim', 'swimming'], ['Glide', 'treading']);
         return { rig: null, creature: { form: built.form, habitat: land ? 'land' : 'aquatic' }, animations: clips.map(([name, trigger]) => ({ name, trigger, type: 'clip', clip: name })) };
     }
     const api = { FORMS, SLIDERS, KINDS, MARINE_TYPES, WORM_TYPES, VARIANT_TYPES, variantsFor, withVariant, normalize, build, surfacePictures, POSES, poseClip, sidecar };

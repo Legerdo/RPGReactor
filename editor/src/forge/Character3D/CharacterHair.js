@@ -2050,6 +2050,11 @@
      */
     function overClothes(H, mesh, parts) {
         const top = H.bones && H.built.bones[H.bones.neck] ? H.built.bones[H.bones.neck].head[1] + 0.02 * H.scale : H.shoulderY + 0.06;
+        let low = Infinity;
+        for (let i = 1; i < mesh.pos.length; i += 3) low = Math.min(low, mesh.pos[i]);
+        // No strand reaches the clothing. Avoid indexing an entire outfit
+        // for short hair, which the contact loop below would leave untouched.
+        if (low > top) return;
         const cell = 0.03, grid = new Map(), key = (x, y, z) => ((x + 1024) * 2048 + (y + 1024)) * 2048 + (z + 1024);
         for (const part of parts) {
             const Q = part.positions;
@@ -2067,8 +2072,6 @@
         // skin normal as well, including thick and sparsely tessellated imports.
         const queries = root.RRCharacterOutfitTransfer || (typeof require === 'function' ? require('./CharacterOutfitTransfer.js') : null);
         const Q = [], faces = [];
-        let low = top;
-        for (let i = 1; i < mesh.pos.length; i += 3) low = Math.min(low, mesh.pos[i]);
         if (queries && low < top) for (const part of parts) {
             if (part.rrLining || !part.index) continue;
             const P = part.positions, accepted = [];

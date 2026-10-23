@@ -146,6 +146,25 @@ class Character3DBuilder {
         this._queueRebuild();
     }
 
+    /** A catalog selection starts its own recipe and retires work from the previous body. */
+    _selectPreset(recipe) {
+        clearTimeout(this._settle);
+        clearTimeout(this._shadeTimer);
+        this._fast = null;
+        this._shapeWorkerRef?.terminate();
+        this._shapeWorkerRef = undefined;
+        this._shapeJob = null;
+        this._shapeGen = (this._shapeGen || 0) + 1;
+        this.cache = {};
+        this.extreme = false;
+        this.pose = 'idle';
+        this.openPicker = null;
+        this._heldName = '';
+        this._dropHeldPreview();
+        if (this._view) { this._view.structure = null; this._view.height = 0; }
+        this._replace(recipe);
+    }
+
     _history(direction) {
         const from = direction < 0 ? this._undo : this._redo, to = direction < 0 ? this._redo : this._undo;
         if (!from.length) return;
@@ -153,8 +172,7 @@ class Character3DBuilder {
         this._committed = from.pop();
         this.recipe = RRCharacterModel.normalize(JSON.parse(this._committed));
         this._syncHistory();
-        this._renderPanel();
-        this._queueRebuild();
+        this._selectPreset(this.recipe);
     }
 
     _syncHistory() {
@@ -218,7 +236,7 @@ class Character3DBuilder {
         q('.rr-c3d-random').addEventListener('click', () => this._randomize());
         q('.rr-c3d-random-scope').addEventListener('change', e => { this.randomScope = e.target.value; });
         // Reset: back to the species' (or the creature kind's) own starting point.
-        q('.rr-c3d-reset').addEventListener('click', () => this._replace(this.human ? RRCharacterModel.withSpecies({}, this.recipe.species) : this._creature(this.recipe.kind)));
+        q('.rr-c3d-reset').addEventListener('click', () => this._selectPreset(this.human ? RRCharacterModel.withSpecies({}, this.recipe.species) : this._creature(this.recipe.kind)));
         q('.rr-c3d-open').addEventListener('click', () => this._showGallery());
         q('.rr-c3d-save').addEventListener('click', () => this.save());
         // Export sprite sheet: the panel and the rendering live in RRCharacterSpriteSheet.
@@ -400,8 +418,10 @@ class Character3DBuilder {
 
     _onInput(event, committed) {
         const el = event.target;
+        if (el.isConnected === false) return;
         const path = el.dataset && el.dataset.path;
         if (!path) return;
+        if (path === 'morphology' && !this.human) return;
         let value;
         if (el.type === 'range') value = +el.value;
         else if (el.type === 'checkbox') value = el.checked;
@@ -410,7 +430,7 @@ class Character3DBuilder {
         // A select is a choice: committed once, and it may change which controls show.
         if (el.tagName === 'SELECT') {
             if (!committed) return;
-            if (!this.human && RRCreatureBody.variantsFor(this.recipe).some(v => v.key === path)) { this._replace(RRCreatureBody.withVariant(this.recipe, path, value)); return; }
+            if (!this.human && RRCreatureBody.variantsFor(this.recipe).some(v => v.key === path)) { this._selectPreset(RRCreatureBody.withVariant(RRCreatureBody.kindRecipe(this.recipe.kind), path, value)); return; }
             if (path === 'previewWeapon') { this._heldName = value; this._heldCatalog = null; this._syncHeldPreview(); return; }
             if (path === 'eyeStyle') { this._applyEyeStyle(value); return; }
             if (path === 'skinLook') {
@@ -477,7 +497,7 @@ class Character3DBuilder {
 
     _onClick(event) {
         const b = event.target.closest('[data-act]');
-        if (!b) return;
+        if (!b || b.isConnected === false) return;
         event.preventDefault();
         const act = b.dataset.act, r = JSON.parse(JSON.stringify(this.recipe));
         if (act === 'fold') { this._fold(b); return; }
@@ -486,11 +506,19 @@ class Character3DBuilder {
         if (act === 'extreme') { this.extreme = !this.extreme; this._renderPanel(); return; }
         if (act === 'plan') {
             if ((b.dataset.plan === 'quadruped') === !this.human) return;
-            this._replace(b.dataset.plan === 'quadruped' ? Object.assign({ plan: 'quadruped' }, RRCreatureBody.kindRecipe('dog')) : { plan: 'human' });
+            this._selectPreset(b.dataset.plan === 'quadruped' ? Object.assign({ plan: 'quadruped' }, RRCreatureBody.kindRecipe('dog')) : { plan: 'human' });
             return;
         }
-        if (act === 'species') { this._replace(RRCharacterModel.withSpecies(this.recipe, b.dataset.id)); return; }
-        if (act === 'kind') { this._replace(this._creature(b.dataset.id)); return; }
+        if (act === 'species') {
+            // The explicit detail switch is a viewing/content preference,
+            // rather than a body proportion brought by the old species.
+            // Keep it between humanoids so changing species does not silently
+            // replace the fine chest surfaces with the coarse base skin.
+            const humanoid = this.human && !this.slime;
+            const anatomy = { detail: humanoid && !!this.recipe.anatomy?.detail };
+            this._selectPreset(RRCharacterModel.withSpecies({ anatomy, ...(humanoid ? { gender: this.recipe.gender } : {}) }, b.dataset.id)); return;
+        }
+        if (act === 'kind') { this._selectPreset(this._creature(b.dataset.id)); return; }
         if (act === 'gear-preset') { r.gear = RRCreatureGear.presetGear(b.dataset.id); this._replace(r); return; }
         if (act === 'add-gear') { r.gear = (r.gear || []).filter(g => (RRCreatureGear.ITEMS.find(i => i.id === g.id) || {}).slot !== (RRCreatureGear.ITEMS.find(i => i.id === b.dataset.id) || {}).slot).concat([{ id: b.dataset.id }]); this.openPicker = null; this._replace(r); return; }
         if (act === 'remove-gear') { r.gear = (r.gear || []).filter(g => g.id !== b.dataset.id); this._replace(r); return; }
@@ -500,13 +528,14 @@ class Character3DBuilder {
             RRColorPopover.open(b, {
                 value: this._get(path) || '#808080',
                 onInput: hex => {
+                    if (b.isConnected === false) return;
                     this._set(path, hex); b.style.setProperty('--rr-c3d-swatch', hex); delete b.dataset.empty;
                     // The skin while dragging: the body tinted at once from the painted skin toward the new color;
                     // the new skin is painted once the color rests.
                     if (path === 'skin' && this._tintSkin(hex)) return;
                     this._queueRebuild();
                 },
-                onChange: hex => { this._set(path, hex); b.style.setProperty('--rr-c3d-swatch', hex); b.title = hex; this._commit(); this._queueRebuild(); }
+                onChange: hex => { if (b.isConnected === false) return; this._set(path, hex); b.style.setProperty('--rr-c3d-swatch', hex); b.title = hex; this._commit(); this._queueRebuild(); }
             });
             return;
         }
@@ -579,10 +608,9 @@ class Character3DBuilder {
     _creatureBodySettings() {
         const r = this.recipe, ordinary = !r.morphology || r.morphology === 'quadruped';
         const controls = RRCreatureBody.slidersFor(r).filter(s => s.section !== 'Coat');
-        const sectionFor = key => ({hornSize:'Horns', tuskSize:'Head', maneSize:'Head', spines:'Body', wingSize:'Wings', jawOpen:'Head', toothSize:'Head', dorsalHeight:'Fins', finSize:'Fins', finPairs:'Fins', appendages:'Appendages', appendageLength:'Appendages', limbPairs:'Legs and feet', segments:'Body', eyeCount:'Head', glow:'Body'})[key];
+        const sectionFor = key => ({hornSize:'Horns', tuskSize:'Head', maneSize:'Head', spines:'Body', wingSize:'Wings', wingSpread:'Wings', antennaLength:'Appendages', jawOpen:'Head', toothSize:'Head', dorsalHeight:'Fins', finSize:'Fins', finPairs:'Fins', appendages:'Appendages', appendageLength:'Appendages', limbPairs:'Legs and feet', segments:'Body', eyeCount:'Head', glow:'Body'})[key];
         const sections = new Map();
         const put = (section, html) => sections.set(section, (sections.get(section) || '') + html);
-        put('Body', this._select('morphology', 'Body type', RRCreatureBody.FORMS));
         for (const v of RRCreatureBody.variantsFor(r)) put('Body', this._select(v.key, v.label, v.choices));
         for (const o of RRCreatureBody.OPTIONS.filter(o => o.key !== 'pattern' && (ordinary || o.key === 'horns'))) {
             put(({ears:'Head',tail:'Tail',horns:'Horns',feet:'Legs and feet',wings:'Wings',mane:'Head'})[o.key], this._select(o.key, o.label, o.choices.map(c => [c.id, c.label])));
@@ -650,7 +678,7 @@ class Character3DBuilder {
         let genitals = '';
         if (detail) {
             genitals = this._section('Genitals') + (male
-                ? this._toggle('anatomy.paired', 'Paired male anatomy')
+                ? this._check('anatomy.paired', 'Paired male anatomy')
                     + this._select('anatomy.foreskin', 'Foreskin', [['circumcised', 'Circumcised'], ['uncircumcised', 'Uncircumcised']])
                     + [['length', 'Length'], ['girth', 'Girth'], ['testicles', 'Testicles']].map(([k, label]) => this._slider({ path: `anatomy.${k}`, label, natural: [-1, 1], extreme: [-1, 2], format: 'signed' })).join('')
                 : this._slider({ path: 'anatomy.mons', label: 'Mons', natural: [0, 2], extreme: [0, 3], format: 'x' })
@@ -768,11 +796,9 @@ class Character3DBuilder {
         return [...new Set(W.GARMENTS.map(g => g.group))].map(group => ({ group, items: W.GARMENTS.filter(g => g.group === group).map(g => [g.id, g.label]) }));
     }
 
-    /** A creature of a kind, keeping what the person chose that is not the kind's: anatomy shown, gear worn. */
+    /** A catalog animal starts with its own dimensions, anatomy and equipment defaults. */
     _creature(kind) {
-        const r = Object.assign({ plan: 'quadruped' }, RRCreatureBody.kindRecipe(kind));
-        if (this.recipe && this.recipe.plan === 'quadruped') { r.anatomy = this.recipe.anatomy; r.gear = (this.recipe.gear || []).filter(g => RRCreatureGear.fits(g.id, r)); }
-        return r;
+        return Object.assign({ plan: 'quadruped' }, RRCreatureBody.kindRecipe(kind));
     }
 
     /** A four-legged creature's gear: a preset to start from, pieces one by one, each with its colors and material. */
@@ -798,14 +824,16 @@ class Character3DBuilder {
         if (this._outfitProjectPath !== this._project()?.path) this._outfitUndo = null;
         this._outfitProjectPath = this._project()?.path;
         this._bindOutfitActions();
-        const presets = [...new Set(W.PRESETS.map(p => p.group))].map(g => `<div class="rr-c3d-subhead">${this._t(g)}</div><div class="rr-c3d-tiles">${W.PRESETS.filter(p => p.group === g)
+        const order = ['Basics', 'Everyday', 'Workwear', 'Swimwear', 'Formal', 'Fantasy', 'Armor', 'Sci-fi'];
+        const groups = [...new Set(W.PRESETS.map(p => p.group))].sort((a,b) => (order.includes(a)?order.indexOf(a):order.length) - (order.includes(b)?order.indexOf(b):order.length));
+        const presets = groups.map(g => `<div class="rr-c3d-subhead">${this._t(g)}</div><div class="rr-c3d-tiles">${W.PRESETS.filter(p => p.group === g)
             .map(p => {
                 const key = W.BY_ID.get(p.items[0]?.id)?.transfer;
                 const tile = this._tile('dress', p.id, p.label, 'dress', false);
                 return key?.startsWith('project:') ? `<div class="rr-c3d-import-preset" data-user-outfit="${rrEscapeHtml(key)}">${tile}<button class="rr-c3d-import-delete" data-outfit-delete="${rrEscapeHtml(key)}" title="${this._t('Delete outfit')}" aria-label="${this._t('Delete outfit')}">×</button></div>` : tile;
             }).join('')}</div>`).join('');
         // Merfolk hook: nothing for legs or feet on a tail.
-        const fits = g => !(window.RRMerfolkBody && this.recipe.species === 'merfolk') || RRMerfolkBody.fitsGarment(g.id);
+        const fits = g => RRCharacterModel.fitsGarment(this.recipe,g.id)&&(!(window.RRMerfolkBody && this.recipe.species === 'merfolk') || RRMerfolkBody.fitsGarment(g.id));
         const add = this._addPicker('garment', 'Add a garment', W.GARMENTS.filter(fits).map(g => ({ id: g.id, label: g.label, group: g.group })), 'add-garment');
         const knobs = { sleeves: ['Sleeves', [0, 1]], length: ['Length', [0, 1], [0, 1.4]], fit: ['Looseness', [0, 1], [0, 1.5]], flare: ['Flare', [0, 1], [0, 1.5]], bell: ['Bell sleeves', [0, 1]], open: ['Open front', [0, 1]], face: ['Covers face', [0, 1]], bulk: ['Bulk', [0, 1], [0, 1.5]] };
         const items = this.recipe.outfit.map((item, i) => {
@@ -854,7 +882,7 @@ class Character3DBuilder {
 
     _propsTab() {
         const P = RRCharacterProps;
-        const add = this._addPicker('prop', 'Add an accessory', P.PROPS.filter(p => !this.slime || RRSlimeBody.fits(p.id)).map(p => ({ id: p.id, label: p.label, group: p.group })), 'add-prop');
+        const add = this._addPicker('prop', 'Add an accessory', P.PROPS.filter(p => RRCharacterModel.fitsProp(this.recipe,p.id)&&(!this.slime || RRSlimeBody.fits(p.id))).map(p => ({ id: p.id, label: p.label, group: p.group })), 'add-prop');
         const knobs = { size: ['Size', [0.6, 1.5], [0.3, 3]], height: ['Height', [0.5, 1.6], [0.3, 3]], length: ['Length', [0, 1]], width: ['Width', [0.6, 1.5]], up: ['Raised', [0, 1]] };
         const items = this.recipe.props.map((item, i) => {
             const def = P.BY_ID.get(item.id);
@@ -863,6 +891,13 @@ class Character3DBuilder {
             if (def.shapes) html += this._select(`props.${i}.shape`, 'Shape', def.shapes);
             if (def.defaults.side) html += this._select(`props.${i}.side`, 'Side', [['left', 'Left'], ['right', 'Right']]);
             for (const [k, [label, natural, extreme]] of Object.entries(knobs)) if (def.defaults[k] != null) html += this._slider({ path: `props.${i}.${k}`, label, natural, extreme: extreme || natural, format: k === 'length' || k === 'up' ? '' : 'x' });
+            const optionLabels={charm:'Charm',studs:'Studs',thick:'Thickness',billLength:'Bill length',pockets:'Pockets',vents:'Vents'};
+            for(const [key,spec]of Object.entries(def.options||{})){
+                const path=`props.${i}.${key}`,label=optionLabels[key]||key;
+                if(spec==='check')html+=this._check(path,label);
+                else if(Array.isArray(spec[0]))html+=this._select(path,label,spec);
+                else html+=this._slider({path,label,natural:spec,extreme:spec,step:key==='pockets'||key==='vents'?1:.05});
+            }
             return { id: item.id, label: def.label, html };
         });
         const weapons = this.human && !this.slime ? this._heldModels() : [];
@@ -1027,7 +1062,10 @@ class Character3DBuilder {
             if (['hair', 'facial', 'brows', 'garment', 'prop'].includes(kind)) { delete r.outfit; delete r.props; }
             if (kind === 'dress') delete r.outfit;
             if (kind === 'gear' || kind === 'gearset') delete r.gear;
-            values.set(kind, JSON.stringify([project, kind === 'kind' ? null : r]));
+            // Species tiles use that species' defaults, with the selected
+            // gender. Body/outfit edits therefore need no new catalog images.
+            const shown = kind === 'kind' ? null : kind === 'species' ? { gender: this.human && !this.slime ? r.gender ?? .5 : .5 } : r;
+            values.set(kind, JSON.stringify([project, shown]));
         }
         return values.get(kind);
     }
@@ -1301,7 +1339,7 @@ class Character3DBuilder {
             const gear = item.kind === 'gear' ? [{ id: item.id }] : RRCreatureGear.presetGear(item.id);
             return { recipe: Object.assign({}, r, { gear }), frame: 'side' };
         }
-        if (item.kind === 'species') return { recipe: RRCharacterModel.withSpecies(r, item.id), frame: 'body' };
+        if (item.kind === 'species') return { recipe: RRCharacterModel.withSpecies({gender:this.human&&!this.slime?r.gender??.5:.5}, item.id), frame: 'body' };
         if (item.kind === 'dress') {
             const preset = RRCharacterWardrobe.PRESETS.find(p => p.id === item.id);
             return { recipe: Object.assign({}, r, { outfit: RRCharacterWardrobe.dressFor(preset.items, RRHumanBody.sexOf(r) === 'female') }), frame: 'body' };
@@ -1402,7 +1440,8 @@ class Character3DBuilder {
         const picture = part.texture && result.textures[part.texture];
         const kind = part.kind || (part.metalness > 0.5 ? 'metal' : 'prop');
         const metal = kind === 'metal' || part.metalness > 0.5;
-        const glossy = metal || ['eye', 'glass', 'goo', 'bubble'].includes(kind) || part.wet || !!part.metallicRoughnessTexture;
+        const glossy = metal || ['eye', 'glass', 'goo', 'bubble'].includes(kind) || part.wet
+            || !!part.metallicRoughnessTexture && (part.metalness > .15 || (part.roughness ?? .6) < .55);
         const opaque = kind !== 'goo' && !(part.opacity != null && part.opacity < 1);
         const material = new THREE.MeshPhongMaterial({
             color: picture || part.colors ? 0xffffff : new THREE.Color(part.color || '#bbbbbb'),
@@ -1424,8 +1463,8 @@ class Character3DBuilder {
         }
         if (metal) material.color.multiplyScalar(0.3);
         if (part.cutout && kind === 'hair') {
-            material.alphaToCoverage = true;
-            material.alphaTest = part.onSkin ? 0.12 : Math.min(material.alphaTest, 0.3);
+            material.alphaToCoverage = !part.onSkin;
+            material.alphaTest = Math.min(material.alphaTest, 0.3);
         }
         if (part.emissive || (part.emissiveTexture && result.textures[part.emissiveTexture])) {
             material.emissive.set(part.emissive || 0xffffff);
@@ -1651,7 +1690,10 @@ class Character3DBuilder {
         const rim = new THREE.DirectionalLight(0xdfe6f2, 1.3);
         rim.position.set(-1.2, 2.4, -2.8);
         scene.add(rim);
-        const floor = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshStandardMaterial({ color: 0x34373e, roughness: 0.95 }));
+        // A stationary studio ground, independent of the character's bounds.
+        // Resizing a bounded pedestal with each rebuild made body sliders
+        // appear to deform the floor, especially on long, low creatures.
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x34373e, roughness: 0.95 }));
         floor.rotation.x = -Math.PI / 2;
         scene.add(floor);
         // A soft contact shadow under the feet: a blurred disc, nearly free where a shadow map is not.
@@ -1719,7 +1761,8 @@ class Character3DBuilder {
         }
         else {
             const center = view.bodyCenter || [0, h * 0.5, 0];
-            view.target.set(center[0], center[1], center[2] + ((view.depth || 0) - center[2]) * near * 0.4);
+            const face = view.faceCenter || [center[0],center[1],center[2]+((view.depth||0)-center[2])*.4];
+            view.target.set(...center.map((v,k)=>v+(face[k]-v)*near));
         }
     }
 
@@ -1727,14 +1770,15 @@ class Character3DBuilder {
     _faceFrame(result) {
         const view = this._view, head = result.bones.findIndex(b => b.name === 'Head');
         view.faceCenter = null; view.faceDistance = 0;
-        if (head < 0 || result.plan !== 'human') return;
+        const facialParts = result.plan === 'slime' || head < 0;
+        const heads = new Set(result.bones.map((b,i)=>b.name==='Head'||/^Hydrata(?:Left|Right)Head$/.test(b.name)?i:-1).filter(i=>i>=0));
         const low = [Infinity, Infinity, Infinity], high = [-Infinity, -Infinity, -Infinity];
         for (const part of result.parts) {
-            if (!/^(Body|Alien eyes|Head .*)$/.test(part.name)) continue;
+            if (facialParts ? !['eye','mouth'].includes(part.kind) : !/^(Body|Alien eyes|Head(?: .*)?|Beak|Eye .*)$/.test(part.name)) continue;
             for (let v = 0; v < part.positions.length / 3; v++) {
                 let weight = 0;
-                for (let k = 0; k < 4; k++) if (part.joints[v * 4 + k] === head) weight += part.weights[v * 4 + k];
-                if (weight < 0.85) continue;
+                for (let k = 0; k < 4; k++) if (heads.has(part.joints[v * 4 + k])) weight += part.weights[v * 4 + k];
+                if (!facialParts && weight < 0.85) continue;
                 for (let k = 0; k < 3; k++) { low[k] = Math.min(low[k], part.positions[v * 3 + k]); high[k] = Math.max(high[k], part.positions[v * 3 + k]); }
             }
         }
@@ -1744,7 +1788,7 @@ class Character3DBuilder {
         const radius = Math.hypot(...low.map((x, k) => (high[k] - x) * 0.5));
         const fov = (view.camera.fov || 35) * Math.PI / 180;
         const halfAngle = Math.atan(Math.tan(fov * 0.5) * Math.min(1, view.camera.aspect || 1));
-        view.faceDistance = Math.max(0.5, radius * 1.12 / Math.sin(halfAngle));
+        view.faceDistance = Math.max(0.5, radius * (facialParts?1.6:1.12) / Math.sin(halfAngle));
     }
 
     _draw() {
@@ -1975,7 +2019,7 @@ class Character3DBuilder {
         const view = this._view, result = this._result, pack = this.pack;
         // These fitted features change their rest skeleton or the shared cranial rim.
         // Rebuild them with the new body rather than temporarily stretching old fittings.
-        if (this.recipe.features?.arms?.type === 'insect' || this.recipe.features?.machinery?.type === 'android') return false;
+        if (this.recipe.head?.heads===2 || this.recipe.features?.arms?.type === 'insect' || this.recipe.features?.machinery?.type === 'android') return false;
         if (!view || !result || result.plan !== 'human' || !result.built || !view.meshes.length || view.meshes.length !== result.parts.length) return false;
         if (!this._fast || this._fast.result !== result) this._fast = this._fastStart(result);
         // Shaped off the page when a shaper is at hand (a heavy shape takes longer than a frame): the newest
@@ -1998,7 +2042,7 @@ class Character3DBuilder {
     /** A shape back from the shaper, laid on the view while the drag it was for still holds. */
     _shapeDone(data) {
         const job = this._shapeJob;
-        if (!job) return;
+        if (!job || data.result !== job.gen) return;
         job.busy = false;
         if (this._fast && this._fast.result === job.result && this._result === job.result) {
             const heads = [];
@@ -2198,7 +2242,7 @@ class Character3DBuilder {
         let result;
         try {
             this._loadOutfitEmblems?.();
-            result = RRCharacterModel.build(this.pack, this.recipe, this.cache, { quality: 'preview', eyeSource: this.eyeSource, paintSkin: (key, args) => this._paintSkin(key, args), hairBudget: this._weak ? 0.45 : 1, draft: !!(this.slime && this._slimeDraft) });
+            result = RRCharacterModel.build(this.pack, this.recipe, this.cache, { quality: 'preview', eyeSource: this.eyeSource, paintSkin: (key, args) => this._paintSkin(key, args), atlasSize:this._weak?1024:undefined,hairBudget: this._weak ? 0.45 : 1, draft: !!(this.slime && this._slimeDraft) });
         } catch (error) {
             console.error('[Character3DBuilder] build', error);
             this._status(this._t('This character could not be built.'), 'error');
@@ -2354,13 +2398,15 @@ class Character3DBuilder {
             if (part.emissiveTexture && result.textures[part.emissiveTexture]) m.emissiveMap = textureFor ? textureFor(part.emissiveTexture, result.textures[part.emissiveTexture]) : this._texture(part.emissiveTexture, result.textures[part.emissiveTexture]);
         }
         // Cut-out strands (hair, lashes, fur) get soft edges from the antialiasing itself.
-        if (part.cutout && kind === 'hair') { m.alphaToCoverage = true; m.alphaTest = Math.min(m.alphaTest, 0.3); }
+        if (part.cutout && kind === 'hair') { m.alphaToCoverage = !part.onSkin; m.alphaTest = Math.min(m.alphaTest, 0.3); }
         // Hair: matte, warm, hardly a reflection of the room.
-        if (kind === 'hair') { m.roughness = 0.78; m.metalness = 0; m.envMapIntensity = 0.55; }
+        if (kind === 'hair') { m.roughness = Math.max(.78,part.roughness??0); m.metalness = 0; m.envMapIntensity = 0.55; }
         // Body hair and fur take the room's light as the skin under them does, so hair of the skin's tint
         // matches it instead of showing as dark specks.
         // Their hairs are finer than a pixel from afar: a low cut keeps them as the picture shrinks.
-        if (kind === 'hair' && part.onSkin) { m.envMapIntensity = 0.85; if (part.cutout) m.alphaTest = 0.12; }
+        // Alpha-to-coverage's derivative expansion exposes bright rectangular
+        // patches on short tufts laid over skin. A stable cut matches export.
+        if (kind === 'hair' && part.onSkin) { m.envMapIntensity = 0.85; if (part.cutout) m.alphaTest = 0.3; }
         // three gives every material the scene's own environment strength unless the material holds the map
         // itself: a part reflecting more or less of the room than the rest holds it.
         const ownRoom = () => {
@@ -2389,6 +2435,7 @@ class Character3DBuilder {
         // read as grey panels over dark hair.
         else if (kind === 'hair') {
             m.sheen = 0; m.specularIntensity = 0.2;
+            if(part.envMapIntensity<.2)m.specularIntensity=.025;
             const own = part.colors ? new THREE.Color(part.colors[0], part.colors[1], part.colors[2]) : new THREE.Color(0x444444);
             m.specularColor = own.clone().lerp(new THREE.Color(0xffffff), 0.35);
             // A head of hair keeps a soft shine of its own color.
@@ -2463,6 +2510,7 @@ class Character3DBuilder {
         view.bodyCenter = box.getCenter(new THREE.Vector3()).toArray();
         view.extent = Math.max(view.height, box.max.x - box.min.x, box.max.z - box.min.z);
         view.blob.scale.set(Math.max(0.25, (box.max.x - box.min.x) * 0.55), Math.max(0.25, (box.max.z - box.min.z) * 0.75 + 0.08), 1);
+        view.blob.position.x = (box.max.x + box.min.x) / 2; view.blob.position.z = (box.max.z + box.min.z) / 2;
         this._resumePose();
         if (priorExtent && Math.abs(Math.log(view.extent / priorExtent)) > 0.35) this._frame('body');
         else { this._aim(); this._draw(); }
@@ -2548,9 +2596,14 @@ class Character3DBuilder {
         view.depth = box.max.z;
         view.bodyCenter = box.getCenter(new THREE.Vector3()).toArray();
         view.extent = Math.max(view.height, box.max.x - box.min.x, box.max.z - box.min.z);
-        view.floor.scale.setScalar(Math.max(0.7, Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * 0.75));
         if (firstFrame) this._frame('body');
         if (view.key.castShadow) {
+            // Closed animal cloth shells are much thinner than a shadow texel.
+            // Their two faces otherwise produce dark triangle bands on dense
+            // coats. Keep the ordinary face/contact bias for other models.
+            const tack=result.parts.some(p=>p.name.startsWith('Gear ')&&p.doubleSided);
+            view.key.shadow.bias=tack?-.002:-.0003;
+            view.key.shadow.normalBias=tack?.004:.012;
             const c = view.key.shadow.camera, r = view.extent * 0.75 + 0.2, mid = new THREE.Vector3(0, view.height / 2, 0);
             view.key.target.position.copy(mid);
             view.key.position.copy(mid).add(new THREE.Vector3(1.6, 3.2, 2.4).normalize().multiplyScalar(r * 3));
@@ -2637,10 +2690,10 @@ class Character3DBuilder {
         const job = P.busy = P.next;
         P.next = null;
         worker.onmessage = e => {
-            const { key, width, height, data } = e.data;
+            const { key, width, height, data, normal } = e.data;
             P.busy = null;
             // Only the newest few are kept.
-            P.ready.set(key, { width, height, data: new Uint8Array(data), name: 'skin.png' });
+            P.ready.set(key, { width, height, data: new Uint8Array(data), name: 'skin.png',...(normal?{normal:{...normal,data:new Uint8Array(normal.data)}}:{}) });
             while (P.ready.size > 4) P.ready.delete(P.ready.keys().next().value);
             if (P.next) this._pumpPainter();
             else this._queueRebuild();
@@ -2656,7 +2709,7 @@ class Character3DBuilder {
             const worker = this._skinWorker();
             this._skinWorkerRef = keep;
             if (!worker) { resolve(null); return; }
-            worker.onmessage = e => { resolve({ width: e.data.width, height: e.data.height, data: new Uint8Array(e.data.data), name: 'skin.png' }); worker.terminate(); };
+            worker.onmessage = e => { const normal=e.data.normal;resolve({ width: e.data.width, height: e.data.height, data: new Uint8Array(e.data.data), name: 'skin.png',...(normal?{normal:{...normal,data:new Uint8Array(normal.data)}}:{}) }); worker.terminate(); };
             worker.onerror = () => { resolve(null); worker.terminate(); };
             worker.postMessage({ key: 'save', args });
         });
@@ -2673,7 +2726,8 @@ class Character3DBuilder {
                 self.onmessage = e => {
                     if (e.data.init) { pack = self.RRHumanBody.openPack(e.data.json, new Uint8Array(e.data.bin)); return; }
                     const a = e.data.args, t = self.RRCharacterSkin.paint(pack, a.skin, a.pattern, a.options);
-                    self.postMessage({ key: e.data.key, width: t.width, height: t.height, data: t.data.buffer }, [t.data.buffer]);
+                    const normal=t.normal?{...t.normal,data:t.normal.data.buffer}:null;
+                    self.postMessage({ key: e.data.key, width: t.width, height: t.height, data: t.data.buffer, normal }, [t.data.buffer,...(normal?[normal.data]:[])]);
                 };`;
             const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
             const data = RRHumanBody.dataFolder();
@@ -3253,7 +3307,7 @@ Character3DBuilder.bodyPath = function(path) {
 };
 
 /** Bumped when the previews' look changes, so pictures kept on disk are drawn again. */
-Character3DBuilder.PREVIEW_VERSION = 31;
+Character3DBuilder.PREVIEW_VERSION = 47;
 
 /** Rigidly fit authored grip markers in the hand's rest frame; its bone carries every pose. */
 Character3DBuilder.fitHeldPreview = function(object, shape, frame, T) {

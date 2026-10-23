@@ -116,13 +116,13 @@
     function copies(layer, f, a) {
         const [cx, cy] = anchor(layer, f, a), short = Math.min(1, a), half = layer.size * 0.5 * short;
         if (layer.repeat === 'ring') {
-            const r = layer.spread * short * 0.5, out = [];
-            for (let k = 0; k < layer.count; k++) { const t = -Math.PI / 2 + k * Math.PI * 2 / layer.count; out.push([cx + Math.cos(t) * r, cy + Math.sin(t) * r, half]); }
+            const available=Math.max(.015,Math.min(cx,1-cx,cy,a-cy)*.94),r=Math.min(layer.spread*short*.5,available*.70),fit=Math.min(half,available-r,r*Math.sin(Math.PI/layer.count)*.85),out=[];
+            for (let k = 0; k < layer.count; k++) { const t = -Math.PI / 2 + k * Math.PI * 2 / layer.count; out.push([cx + Math.cos(t) * r, cy + Math.sin(t) * r, fit]); }
             return out;
         }
         if (layer.repeat === 'row') {
-            const step = half * 2 * (0.6 + layer.spread), out = [];
-            for (let k = 0; k < layer.count; k++) out.push([cx + (k - (layer.count - 1) / 2) * step, cy, half]);
+            const available=Math.max(.015,Math.min(cx,1-cx)*.94),fit=Math.min(half,available/(1+(layer.count-1)*(.6+layer.spread)),Math.max(.01,Math.min(cy,a-cy)*.94)),step=fit*2*(.6+layer.spread),out=[];
+            for (let k = 0; k < layer.count; k++) out.push([cx + (k - (layer.count - 1) / 2) * step, cy, fit]);
             return out;
         }
         return [[cx, cy, half]];
@@ -168,7 +168,7 @@
             case 'stripes': { const t = f.orient === 'h' ? v : u; c = C[Math.floor(t * f.count) % 2]; break; }
             case 'cross': {
                 // A Nordic cross stands toward the hoist on a flag wider than tall.
-                const cx = f.offset === 'nordic' && a < 1 ? 0.5 - 0.14 * Math.min(1, 1.5 * a) : 0.5;
+                const cx = f.offset === 'nordic' ? 0.5 - 0.14 * Math.min(1, 1.5 * a) : 0.5;
                 const arm = f.arm * short / 2, rim = f.outline * short;
                 const dd = Math.min(Math.abs(x - cx), Math.abs(y - a / 2));
                 c = dd < arm ? C[1] : dd < arm + rim ? C[2] : C[0];

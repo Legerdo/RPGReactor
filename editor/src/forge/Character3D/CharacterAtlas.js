@@ -70,14 +70,21 @@
                 for (const v of c) count[laid.field[v].fam]++;
                 fam = count.indexOf(Math.max(...count));
             }
-            const values = c.map(v => chainValue(an, laid, v, fam === 5 ? 0 : fam));
+            const values = c.map(v => {
+                const value=chainValue(an,laid,v,fam===5?0:fam);
+                // Below the hips the body's blended chain angle turns toward
+                // each leg. Fabric wrapping the trunk/skirt needs its own
+                // continuous bearing, or rear prints collapse into a fan.
+                if((fam===0||fam===5)&&Number.isFinite(laid.field[v].spineAng))value.ang=laid.field[v].spineAng;
+                return value;
+            });
             // A triangle across the seam behind: carried round so its corners sit together.
             const angs = values.map(x => x.ang);
             if (Math.max(...angs) - Math.min(...angs) > Math.PI) values.forEach(x => { if (x.ang < 0) x.ang += TAU; });
             const R = an.radius[fam] * (fam === 0 ? 1.35 : 1.15), U = an.unit[fam];
             const corners = values.map((x, k) => ({
                 v: c[k], cu: x.ang * R, cv: (fam === 5 ? x.u : x.s) * U, s: x.s, ang: x.ang, rest: x.rest,
-                y: x.rest[1], val: laid.vals[c[k]], vm: laid.edge ? (laid.vals[c[k]] < 0 ? -0.001 : laid.edge[c[k]]) : laid.vals[c[k]] * (fam === 5 ? an.unit[5] / 4 : an.unit[fam]), fam: fam === 5 ? 0 : fam, u: x.u
+                y: x.rest[1], val: laid.vals[c[k]], vm: laid.internalTrim?.[laid.origin[c[k]]] ? .03 : laid.edge ? (laid.vals[c[k]] < 0 ? -0.001 : laid.edge[c[k]]) : laid.vals[c[k]] * (fam === 5 ? an.unit[5] / 4 : an.unit[fam]), fam: fam === 5 ? 0 : fam, u: x.u
             }));
             let chart = byKey.get(fam);
             if (!chart) byKey.set(fam, chart = { fam, tris: [], min: [Infinity, Infinity], max: [-Infinity, -Infinity] });
@@ -208,9 +215,9 @@
         const paint = (c, amount) => { if (amount > 0) color = mixc(color, c, Math.min(1, amount)); };
         if (look.pattern === 'fleet' || look.pattern === 'officer') {
             const edge = 1.285 - Math.min(x, 0.25) * 0.12;
-            const yoke = smoothstep(edge - 0.0015, edge + 0.0015, y) * (1 - smoothstep(1.397, 1.400, y));
+            const yoke = smoothstep(edge - 0.006, edge + 0.006, y) * (1 - smoothstep(1.397, 1.400, y));
             paint(panel, yoke);
-            paint(trim, band(y - edge, 0.0012) * (1 - smoothstep(0.23, 0.27, x)));
+            paint(trim, band(y - edge, 0.0020) * (1 - smoothstep(0.23, 0.27, x)));
             if (look.pattern === 'officer' && torso && front) {
                 const slash = smoothstep(1.218 + R[0] * 0.28, 1.221 + R[0] * 0.28, y);
                 paint(panel, slash * (1 - smoothstep(0.15, 0.17, x)));
@@ -239,11 +246,11 @@
             }
         } else {
             const pressure = look.pattern === 'pressure';
-            const chest = front ? range(y, 1.13, 1.325) * (1 - smoothstep(0.12, 0.123, x)) : 0;
+            const chest = front ? range(y, 1.13, 1.325) * (1 - smoothstep(0.112, 0.128, x)) : 0;
             paint(panel, chest);
-            if (front && y > 1.12 && y < 1.33) paint(trim, band(x - 0.123, 0.0017));
+            // The raised sewn panel edge comes from the construction mesh.
             if (torso) {
-                paint(trim, band(y - 0.965, pressure ? 0.012 : 0.008));
+                paint(trim, range(y,.944,.974));
                 if (front) paint(trim, band(R[0], 0.0014) * range(y, 0.985, 1.40));
                 // Two service-pocket flaps, with an inset stitched edge.
                 if (front) for (const side of [-1, 1]) {
@@ -255,7 +262,7 @@
             } else {
                 const joint = arm ? 2 : 1;
                 const flex = range(p.s, joint - 0.16, joint + 0.16);
-                paint(trim, flex * (pressure ? 0.75 + 0.20 * Math.cos(p.s * Math.PI * 38) : 0.65));
+                paint(mixc(main,trim,.55), flex);
                 if (arm) paint(trim, range(p.s, 2.8, 3.1));
                 else paint(panel, range(p.s, 0.2, 0.72) * smoothstep(0.85, 0.95, Math.abs(Math.sin(p.ang))));
             }
@@ -374,11 +381,13 @@
         });
         let area = 0;
         for (const c of all) area += (c.max[0] - c.min[0] + 0.01) * (c.max[1] - c.min[1] + 0.01);
-        let scale = Math.min(700, Math.sqrt(size * size * 0.62 / Math.max(area, 1e-6)));
+        let scale = Math.min(size*.70, Math.sqrt(size * size * 0.62 / Math.max(area, 1e-6)));
         while (scale > 8 && !pack_(all, size, scale, pad)) scale *= 0.92;
 
         const data = new Uint8Array(size * size * 4);
         const filled = new Uint8Array(size * size);
+        const normal=size>=1024?new Uint8Array(data.length):null;
+        if(normal)for(let i=0;i<normal.length;i+=4)normal.set([128,128,255,255],i);
         const luminous = entries.some(e => e.look.lightStyle && e.look.lightStyle !== 'none' && e.look.lightIntensity > 0);
         const emission = luminous ? new Uint8Array(data.length) : null;
         const groups = new Map();
@@ -390,7 +399,10 @@
             if (!g) groups.set(key, g = { e, names: new Set(), refs: [], uvs: [], index: [], map: new Map() });
             g.names.add(e.name);
             const vertexFor = corner => {
-                const k = c.entry + ':' + c.fam + ':' + corner.v + ':' + (corner.ang > Math.PI + 1e-6 ? 1 : 0);
+                // A point exactly on the rear seam may be -PI in one
+                // triangle and +PI in the next. Both passed the old >PI
+                // test, welding opposite UV edges into a stretched fan.
+                const k = c.entry + ':' + c.fam + ':' + corner.v + ':' + Math.round(corner.cu * 1e8);
                 let i = g.map.get(k);
                 if (i !== undefined) return i;
                 i = g.refs.length / 2;
@@ -402,15 +414,17 @@
             for (const tri of c.tris) {
                 g.index.push(vertexFor(tri[0]), vertexFor(tri[1]), vertexFor(tri[2]));
                 const glow = Outfit.linear(e.look.lightColor || '#70dfff').map(v => v * (e.look.lightIntensity || 0));
-                raster(tri, c, scale, size, data, filled, p => shade(e.look, colors, p), emission, p => { const mask = lightMask(e.look, p); return glow.map(v => v * mask); });
+                raster(tri, c, scale, size, data, filled, p => shade(e.look, colors, p), emission, p => { const mask = lightMask(e.look, p); return glow.map(v => v * mask); },normal,p=>materialNormal(e.look,p));
             }
         }
         if (emission) dilate(emission, filled.slice(), size, pad + 1);
+        if(normal)dilate(normal,filled.slice(),size,pad+1);
         dilate(data, filled, size, pad + 1);
         return {
             groups: [...groups.values()].map(g => ({ name: [...g.names].join(', ').slice(0, 60) || 'Outfit', refs: Uint32Array.from(g.refs), uvs: Float32Array.from(g.uvs), index: Uint32Array.from(g.index),
                 roughness: g.e.roughness, metalness: g.e.metalness, doubleSided: g.e.doubleSided })),
             texture: { width: size, height: size, data, name: 'outfit.png' },
+            normal: normal?{width:size,height:size,data:normal,name:'outfit-normal.png'}:null,
             emission: emission ? { width: size, height: size, data: emission, name: 'outfit-glow.png' } : null,
             scale
         };
@@ -428,9 +442,9 @@
                 for (let q = 0; q < 4; q++) { joints[i * 4 + q] = L.joints[v * 4 + q]; weights[i * 4 + q] = L.weights[v * 4 + q]; }
             }
             // Each vertex's reach down a hanging skirt (RRCharacterCloth), -1 off it; only on a part with some.
-            let hang = null;
-            for (let i = 0; i < n; i++) { const L = entries[g.refs[i * 2]].laid; if (L.hang) { hang = hang || new Float32Array(n).fill(-1); hang[i] = L.hang[g.refs[i * 2 + 1]]; } }
-            return Object.assign({ name: g.name, positions, normals, uvs: g.uvs, joints, weights, index: g.index, roughness: g.roughness, metalness: g.metalness, doubleSided: g.doubleSided, texture: lay.texture.name }, hang ? { hang } : {}, lay.emission ? { emissive: '#ffffff', emissiveTexture: lay.emission.name } : {});
+            let hang = null, tailoredWaist = false;
+            for (let i = 0; i < n; i++) { const L = entries[g.refs[i * 2]].laid; if (L.hang) { hang = hang || new Float32Array(n).fill(-1); hang[i] = L.hang[g.refs[i * 2 + 1]]; tailoredWaist ||= !!L.sewnWaist; } }
+            return Object.assign({ name: g.name, positions, normals, uvs: g.uvs, joints, weights, fabricRefs:Int32Array.from(g.refs), index: g.index, roughness: g.roughness, metalness: g.metalness, doubleSided: g.doubleSided, texture: lay.texture.name }, lay.normal?{normalTexture:lay.normal.name,normalScale:.40}:{},hang ? { hang, ...(tailoredWaist?{tailoredWaist:true}:{}) } : {}, lay.emission ? { emissive: '#ffffff', emissiveTexture: lay.emission.name } : {});
         });
     }
 
@@ -442,7 +456,7 @@
     const pack_ = pack;
 
     /** Paints one chart triangle's texels. */
-    function raster(tri, chart, scale, size, data, filled, color, emission, light) {
+    function raster(tri, chart, scale, size, data, filled, color, emission, light,normal,normalAt) {
         const px = tri.map(k => chart.at[0] + (k.cu - chart.min[0]) * scale), py = tri.map(k => chart.at[1] + (k.cv - chart.min[1]) * scale);
         const area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
         if (Math.abs(area) < 1e-9) return;
@@ -468,8 +482,29 @@
             const rgb = color(p);
             data[o * 4] = toByte(rgb[0]); data[o * 4 + 1] = toByte(rgb[1]); data[o * 4 + 2] = toByte(rgb[2]); data[o * 4 + 3] = 255;
             if (emission) { const glow = light(p); for (let k = 0; k < 3; k++) emission[o * 4 + k] = toByte(glow[k]); emission[o * 4 + 3] = 255; }
+            if(normal)normal.set(normalAt(p),o*4);
             filled[o] = inside ? 2 : 1;
         }
+    }
+
+    function materialNormal(look,p){
+        const leather=look.material==='leather'||look.material==='rubber',metal=look.material==='metal'||look.material==='gold';
+        const f=2*Math.PI/(leather?.003:metal?.002:.0032),u=p.cu*f,v=p.cv*f;
+        let dx=metal?.04*Math.cos(u):leather?.08*Math.cos(u)*Math.sin(v*1.7):.21*Math.cos(u)*Math.sin(v);
+        let dy=metal?0:leather?.12*Math.sin(u)*Math.cos(v*1.7):.21*Math.sin(u)*Math.cos(v);
+        // The quilting follows the same four-centimeter diagonal chart as
+        // its seams. Broad padded cells catch light between recessed stitches.
+        if(look.pattern==='quilted'){
+            const a=2*Math.PI*(p.cu+p.cv)/.04,b=2*Math.PI*(p.cu-p.cv)/.04;
+            dx+=.23*(Math.sin(a)+Math.sin(b));dy+=.23*(Math.sin(a)-Math.sin(b));
+        }
+        if(look.pattern==='mail'){
+            const row=Math.floor(p.cv/.011),x=fract(p.cu/.014+(row&1)*.5)-.5,y=(fract(p.cv/.011)-.5)*1.2,r=Math.hypot(x,y)||1;
+            const ridge=(r-.38)/.065,slope=1.2*ridge*Math.exp(-ridge*ridge);
+            dx+=slope*x/r;dy+=slope*y/r;
+        }
+        const n=Math.hypot(dx,dy,1);
+        return [Math.round(127.5-dx/n*127.5),Math.round(127.5+dy/n*127.5),Math.round(127.5+127.5/n),255];
     }
 
     /** Grows painted texels into the empty ones around them, `passes` texels deep (so filtering never reads black). */

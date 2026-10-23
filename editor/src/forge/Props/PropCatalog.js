@@ -76,6 +76,20 @@
 
     /** Small line icons (24 x 24, currentColor) the types are shown with. */
     const ICONS = {
+        car: '<path d="M3 12l2-5h14l2 5v6H3zM3 12h18M7 18v3m10-3v3M6 15h2m8 0h2"/>',
+        motorcycle: '<circle cx="5" cy="17" r="4"/><circle cx="19" cy="17" r="4"/><path d="M5 17l5-8 5 8H5m9-13h3l2 13M7 9h6"/>',
+        aircraft: '<path d="M12 2l3 8 7 4v3l-8-2v5l3 2H7l3-2v-5l-8 2v-3l7-4z"/>',
+        walker: '<path d="M8 3h8l3 8H5zM9 11v5l-3 5H3m12-10v5l3 5h3M5 7H2v8m17-8h3v8"/>',
+        chair: '<path d="M6 13V4h12v9M4 13h16v4H4zM6 17v4m12-4v4"/>',
+        sofa: '<path d="M5 11V6h14v5M3 10h3v7h12v-7h3v9H3zM5 19v2m14-2v2M6 14h12m-6-8v8"/>',
+        table: '<path d="M2 8h20v4H2zM5 12v9m14-9v9M5 17h14"/>',
+        bed: '<path d="M3 19V5h18v14M3 12h18v5H3m3-5V8h5v4m2 0V8h5v4M5 19v2m14-2v2"/>',
+        cabinet: '<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M12 3v18M9 11v3m6-3v3"/>',
+        appliance: '<rect x="5" y="2" width="14" height="20" rx="1"/><path d="M5 9h14M8 5v2m0 5v4"/>',
+        screen: '<rect x="2" y="3" width="20" height="14" rx="1"/><path d="M12 17v4m-5 0h10M6 8h7m-7 4h12"/>',
+        console: '<path d="M4 3h7v7H4zm9 0h7v7h-7zM4 12h16l2 5H2zM4 17v5m16-5v5M7 14h2m3 0h2m3 0h1"/>',
+        server: '<rect x="5" y="2" width="14" height="20" rx="1"/><path d="M5 8h14M5 15h14M8 5h5m-5 6h5m-5 7h5m3-13h.1m-.1 6h.1m-.1 7h.1"/>',
+        crate: '<path d="M3 6l9-4 9 4v13l-9 3-9-3zM3 6l9 4 9-4M12 10v12M3 12l9 4 9-4"/>',
         equipment: '<path d="M8 5l4-2 4 2 5 4-3 4-2-1v9H8v-9l-2 1-3-4z"/>',
         flag: '<path d="M5 21V3"/><path d="M5 4c3-1.5 5 1.5 8 0s4.5-.5 6 .5v8c-1.5-1-3-1.5-6 0s-5-1.5-8 0"/>',
         streamer: '<path d="M5 21V3"/><path d="M5 4c4 0 7 2 15 4-8 1-11 3-15 4"/>',

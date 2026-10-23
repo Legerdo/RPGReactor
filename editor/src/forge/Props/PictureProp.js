@@ -43,7 +43,7 @@
     const DEFAULT = {
         kind: 'picture', mode: 'cutout', image: '',
         cutout: { outline: 'auto', tolerance: 0.25, size: 1, thickness: 0.04, edge: 'bevel', back: 'wood', backColor: '#5a4632', stand: 'none', backing: 'plate' },
-        turned: { profile: VASE, fromPicture: true, height: 0.6, segments: 28, top: 'open', wall: 0.015, surface: 'picture', color: '#b86a44' },
+        turned: { profile: VASE, fromPicture: true, height: 0.6, segments: 64, top: 'open', wall: 0.015, surface: 'picture', color: '#b86a44' },
         framed: Framed.DEFAULT
     };
 
@@ -64,7 +64,7 @@
             },
             turned: {
                 profile: profile.map(p => [Math.round(p[0] * 10000) / 10000, Math.round(p[1] * 10000) / 10000]), fromPicture: t.fromPicture !== false,
-                height: clamp(t.height, 0.05, 8, d.turned.height), segments: Math.round(clamp(t.segments, 8, 48, d.turned.segments)),
+                height: clamp(t.height, 0.05, 8, d.turned.height), segments: Math.round(clamp(t.segments, 8, 128, d.turned.segments)),
                 top: pick(t.top, ['open', 'closed'], 'open'), wall: clamp(t.wall, 0, 0.2, d.turned.wall),
                 surface: pick(t.surface, SURFACES.map(s => s[0]), 'picture'), color: color(t.color, d.turned.color)
             },
@@ -573,7 +573,7 @@
             if (has('colors')) Object.assign(c, { back: R.pick(['mirror', 'color', 'wood']), backColor: R.pick(Rand.PALETTES.wood.concat(Rand.PALETTES.paint)) });
         } else if (r.mode === 'turned') {
             const t = r.turned;
-            if (has('shape')) Object.assign(t, { height: R.range(0.25, 1.2), segments: R.int(24, 40) });
+            if (has('shape')) Object.assign(t, { height: R.range(0.25, 1.2), segments: R.int(48, 96) });
             if (has('details')) Object.assign(t, { top: R.chance(0.75) ? 'open' : 'closed', wall: R.range(0.008, 0.03) });
             if (has('colors')) Object.assign(t, { surface: R.weighted([['picture', r.image ? 3 : 0], ['clay', 2], ['glazed', 3], ['wood', 1.5], ['metal', 1], ['stone', 1]]), color: R.pick(['#b86a44', '#8a3a2a', '#2a5a7a', '#e8e0d0', '#3a6a4a', '#c8a050', '#6a4a8a', '#1b1b1f']) });
         } else {

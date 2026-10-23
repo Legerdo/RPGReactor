@@ -51,6 +51,8 @@
      * omitted, any).
      */
     const ITEMS = [
+        { id: 'bandana', label: 'Bandana', group: 'Companion wear', slot: 'neck', materials: ['cloth'], defaults: { color: '#a52d3b', color2: '#eed8ad', material: 'cloth' } },
+        { id: 'weatherCoat', label: 'Weather coat', group: 'Companion wear', slot: 'barding', materials: ['cloth', 'leather'], defaults: { color: '#315c67', color2: '#dfbb73', material: 'cloth' } },
         { id: 'collar', label: 'Collar', group: 'Collars', slot: 'neck', materials: ['leather', 'cloth', 'metal', 'gold'], defaults: { color: '#8a2a22', color2: '#c8b070', material: 'leather' } },
         { id: 'collarTag', label: 'Collar with tag', group: 'Collars', slot: 'neck', materials: ['leather', 'cloth', 'metal', 'gold'], defaults: { color: '#2a5a9a', color2: '#d8c070', material: 'leather' } },
         { id: 'spikedCollar', label: 'Spiked collar', group: 'Collars', slot: 'neck', materials: ['leather', 'metal'], defaults: { color: '#1e1a18', color2: '#b8bcc4', material: 'leather' } },
@@ -71,6 +73,7 @@
 
     const PRESETS = [
         { id: 'pet', label: 'Pet', items: [{ id: 'collarTag' }] },
+        { id: 'companion', label: 'Travel companion', items: [{ id: 'bandana' }, { id: 'weatherCoat' }] },
         { id: 'mount', label: 'Mount', items: [{ id: 'bridle' }, { id: 'saddle' }, { id: 'horseshoes' }] },
         { id: 'war', label: 'War beast', items: [{ id: 'plateBarding' }, { id: 'spikedCollar', material: 'metal', color: '#6a6e76' }, { id: 'saddle', color: '#3a2a20', color2: '#5a1a1a' }, { id: 'bridle', color: '#2a1e18' }, { id: 'horseshoes' }] },
         { id: 'royal', label: 'Royal', items: [{ id: 'caparison', color: '#5a1a6a', color2: '#d8b850' }, { id: 'crown' }, { id: 'bridle', color: '#5a1a6a', color2: '#d4af37' }, { id: 'collar', material: 'gold', color: '#d4af37', color2: '#b0202a' }] },
@@ -150,6 +153,9 @@
         };
         /** A thick shell over a grid of surface points (rows × cols, each { p, n }), closed round its columns if `wrap`. */
         const shell = (grid, gap, thick, material, colorAt, wrap) => {
+            // The render surface includes coat displacement absent from the
+            // analytic fitting field. Clear it even at a dense, noisy coat.
+            gap+=.012*g*Math.max(0,ctx.r?.fluff||0);
             const B = bucket(material);
             const rows = grid.length, cols = grid[0].length;
             const base = B.positions.length / 3;
@@ -374,7 +380,37 @@
                     traced(panel, [[0.12, 0.5], [0.5, 0.5], [0.88, 0.5]], gap + 0.0315 * g, 0.001 * g, main, mul(P.c1, 0.66));
                 }
             };
-            if (item.id === 'collar' || item.id === 'collarTag' || item.id === 'spikedCollar') {
+            if (item.id === 'bandana') {
+                // A triangular bib grows out of a closed neck wrap. Each row
+                // is projected from inside the neck, including the pointed end.
+                const center = lerp(J.neck, J.atlas, .6), cols = 48, rows = 9;
+                const ref = norm(sub([0,-1,0], mul(neckAxis,dot([0,-1,0],neckAxis)))), tangent = cross(neckAxis,ref);
+                const grid = Array.from({length:rows},(_,i)=>Array.from({length:cols},(_,j)=>{
+                    const a=j/cols*Math.PI*2, bib=Math.max(0,1-Math.min(a,2*Math.PI-a)/1.25);
+                    const width=(.036+.15*bib)*g, origin=add(center,mul(neckAxis,(.018-i/(rows-1)*width/g)*g));
+                    const dir=add(mul(ref,Math.cos(a)),mul(tangent,Math.sin(a)));
+                    return F.surface(origin,dir)||{p:add(origin,mul(dir,.1*g)),n:dir};
+                }));
+                F.shell(grid,gap,.003*g,main,(i)=>i===rows-1?P.c2:P.c1,true);
+                const edge=grid[rows-1].map(s=>add(s.p,mul(s.n,gap+.004*g+.012*g*(r.fluff||0))));edge.push(edge[0]);
+                F.tube(edge,()=>[.0018*g,.0018*g],5,main,()=>P.c2,false);
+                for(let j=0;j<cols;j+=2){const s=grid[rows-2][j],t=grid[rows-2][(j+1)%cols],lift=gap+.005*g+.012*g*(r.fluff||0);F.tube([add(s.p,mul(s.n,lift)),add(t.p,mul(t.n,lift))],()=>[.0007*g,.0007*g],4,main,()=>P.c2,true);}
+            } else if (item.id === 'weatherCoat') {
+                // Open below the flank: the legs and tail remain free. A
+                // raised bound edge and sewn center seam follow the fitted cloth.
+                const grid=drape(zS-.12*g,zH+.13*g,23,82*DEG,33,null,.006*g,()=>P.c1);
+                const lift=gap+.008*g+.012*g*(r.fluff||0);
+                border(grid,lift,.0025*g,main,P.c2,.012,36);
+                traced(grid,Array.from({length:33},(_,i)=>[i/32,.5]),lift,.0012*g,main,P.dark);
+                for(let k=0;k<32;k++)for(const v of [.028,.972])traced(grid,[[.035+k*.029,v],[.046+k*.029,v]],lift,.0007*g,main,P.c2);
+                // A fitted girth actually joins both flanks beneath the chest.
+                const z=zS-(zS-zH)*.35;
+                F.band([0,midY(z),z],[0,0,1],[0,1,0],.045*g,gap+.009*g,.006*g,main,()=>P.c2);
+                for(const v of [.08,.92]){const s=gridPoint(grid,.34,v,lift+.003*g),axis=norm(cross(s.n,[0,0,1]));
+                    const loop=Array.from({length:21},(_,i)=>add(s.p,add(mul(axis,Math.cos(i/20*Math.PI*2)*.012*g),[0,0,Math.sin(i/20*Math.PI*2)*.019*g])));
+                    F.tube(loop,()=>[.002*g,.002*g],6,'metal',()=>hexRgb('#adb3ba'),false);
+                }
+            } else if (item.id === 'collar' || item.id === 'collarTag' || item.id === 'spikedCollar') {
                 const at = lerp(J.neck, J.atlas, 0.62);
                 const width = 0.045 * g * r.neckThickness;
                 const mid = F.band(at, neckAxis, [0, -1, 0], width, gap, 0.011 * g, main, () => P.c1);
@@ -582,7 +618,9 @@
                 }
             } else if (item.id === 'cape') {
                 // Over the withers and back, falling to mid-flank, its hem trimmed.
-                const rows = 12, cols = 21;
+                // Coarse chords cut through the curved scapula despite their
+                // fitted corners. Resolve the cloth itself around the withers.
+                const rows = 25, cols = 49;
                 const hem = (chestTop + chestBottom) / 2 - 0.08 * g;
                 drape(zS + 0.0, zH + 0.05, rows, 125 * DEG, cols, hem, 0.006 * g, (i, j) => (j <= 0 || j >= cols - 1 || i === rows - 1 ? P.c2 : P.c1));
                 // The clasp at the front of the chest.
@@ -616,7 +654,58 @@
         return parts;
     }
 
-    const api = { ITEMS, MATERIALS, GROUPS, PRESETS, fits, normalizeGear, presetGear, build };
+    const surfaceCache=new Map();
+    /** Rest-space charts keep thread and leather grain sharp as the animal moves. */
+    function detailSurface(part,material){
+        const leather=/leather|rubber/.test(material),id=leather?'leather':'cloth',colorName='gear-'+id+'.png',normalName='gear-'+id+'-normal.png';
+        if(!surfaceCache.has(id)){
+            const size=256,data=new Uint8Array(size*size*4),normal=new Uint8Array(data.length),height=new Float32Array(size*size);
+            for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+                const u=x/size,v=y/size,grain=Math.sin(x*27.13+y*17.37)*Math.sin(x*11.7-y*29.1);
+                const warp=Math.sin(u*Math.PI*128),weft=Math.sin(v*Math.PI*128),h=leather?grain*.025:warp*weft*.055;
+                height[y*size+x]=h;const c=Math.round(255*(leather?.94+grain*.025:.94+warp*weft*.025));data.set([c,c,c,255],(y*size+x)*4);
+            }
+            for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+                const h=(a,b)=>height[((b+size)%size)*size+(a+size)%size],dx=(h(x+1,y)-h(x-1,y))*2,dy=(h(x,y+1)-h(x,y-1))*2,n=Math.hypot(dx,dy,1);
+                normal.set([Math.round(127.5-dx/n*127.5),Math.round(127.5+dy/n*127.5),Math.round(127.5+127.5/n),255],(y*size+x)*4);
+            }
+            surfaceCache.set(id,{[colorName]:{width:size,height:size,data,repeat:true},[normalName]:{width:size,height:size,data:normal,repeat:true}});
+        }
+        const output={positions:[],normals:[],colors:[],joints:[],weights:[],uvs:[],index:[]},map=new Map();
+        for(let f=0;f<part.index.length;f+=3){
+            const ids=Array.from(part.index.subarray(f,f+3)),p=ids.map(i=>Array.from(part.positions.subarray(i*3,i*3+3))),n=cross(sub(p[1],p[0]),sub(p[2],p[0])),axis=n.map(Math.abs).indexOf(Math.max(...n.map(Math.abs)));
+            for(const v of ids){const key=v+':'+axis;let to=map.get(key);if(to==null){to=output.positions.length/3;map.set(key,to);for(const [field,stride]of [['positions',3],['normals',3],['colors',3],['joints',4],['weights',4]])output[field].push(...part[field].subarray(v*stride,(v+1)*stride));const at=Array.from(part.positions.subarray(v*3,v*3+3)),axes=axis===0?[2,1]:axis===1?[0,2]:[0,1];output.uvs.push(at[axes[0]]*8,at[axes[1]]*8);}output.index.push(to);}
+        }
+        for(const field of ['positions','normals','colors','weights','uvs'])part[field]=Float32Array.from(output[field]);part.joints=Uint8Array.from(output.joints);part.index=Uint32Array.from(output.index);
+        Object.assign(part,{texture:colorName,normalTexture:normalName,normalScale:leather?.25:.35,keepColors:true});return surfaceCache.get(id);
+    }
+    /** Groom roots beneath fitted tack before making cards/fibres. Query the
+     * actual shell triangles, so openings and uncovered legs keep their fur. */
+    function clearFur(roots,parts,g=1) {
+        if(!roots.length||!parts.length)return roots;
+        const cell=.08*g,grid=new Map(),key=(x,y,z)=>x+','+y+','+z,triangles=[];
+        for(const part of parts)for(let f=0;f<part.index.length;f+=3){
+            const p=[0,1,2].map(k=>Array.from(part.positions.slice(part.index[f+k]*3,part.index[f+k]*3+3))),id=triangles.length;
+            triangles.push(p);const lo=[0,1,2].map(k=>Math.floor(Math.min(...p.map(v=>v[k]))/cell)),hi=[0,1,2].map(k=>Math.floor(Math.max(...p.map(v=>v[k]))/cell));
+            for(let x=lo[0];x<=hi[0];x++)for(let y=lo[1];y<=hi[1];y++)for(let z=lo[2];z<=hi[2];z++){const k=key(x,y,z);if(!grid.has(k))grid.set(k,[]);grid.get(k).push(id);}
+        }
+        const blocked=(p,d,reach)=>{
+            const end=add(p,mul(d,reach)),lo=[0,1,2].map(k=>Math.floor(Math.min(p[k],end[k])/cell)),hi=[0,1,2].map(k=>Math.floor(Math.max(p[k],end[k])/cell)),seen=new Set();
+            for(let x=lo[0];x<=hi[0];x++)for(let y=lo[1];y<=hi[1];y++)for(let z=lo[2];z<=hi[2];z++)for(const id of grid.get(key(x,y,z))||[]){
+                if(seen.has(id))continue;seen.add(id);
+                const[a,b,c]=triangles[id],u=sub(b,a),v=sub(c,a),h=cross(d,v),det=dot(u,h);if(Math.abs(det)<1e-12)continue;
+                const q=sub(p,a),s=dot(q,h)/det;if(s<0||s>1)continue;
+                const j=cross(q,u),t=dot(d,j)/det;if(t<0||s+t>1)continue;
+                const distance=dot(v,j)/det;if(distance>=-.002*g&&distance<=reach)return true;
+            }
+            return false;
+        };
+        return roots.filter(h=>{
+            const reach=Math.max(.025*g,h.len*1.4),start=sub(h.p,mul(h.n,reach));
+            return !blocked(start,h.n,reach*2)&&!blocked(h.p,norm(add(h.flow,mul(h.n,.25))),reach);
+        });
+    }
+    const api = { ITEMS, MATERIALS, GROUPS, PRESETS, fits, normalizeGear, presetGear, build, detailSurface, clearFur };
     root.RRCreatureGear = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

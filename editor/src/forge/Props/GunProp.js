@@ -16,6 +16,8 @@
     const Rand = need('RRPropRandom', './PropRandom.js');
     const Mesh = need('RRPropMesh', './PropMesh.js');
     const Paint = need('RRPropPaint', './PropPaint.js');
+    const CM=need('RRContainerMesh','./ContainerMesh.js');
+    const Construction=need('RRGunConstruction','./GunConstruction.js'),Surface=need('RRConstructionSurface','../Character3D/ConstructionSurface.js');
 
     const clamp = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
     const color = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : d);
@@ -61,13 +63,14 @@
             muzzle: pick(v('muzzle'), MUZZLES.map(m => m[0]), 'plain'), rails: !!v('rails', false),
             frame: pick(v('frame'), FRAMES.map(f => f[0]), 'gunmetal'), furniture: pick(v('furniture'), FURNITURE.map(f => f[0]), 'polymer'),
             paint: color(v('paint', '#3a3f4a'), '#3a3f4a'), coils: Math.round(clamp(v('coils', 0), 0, 8, 0)), vents: !!v('vents', false),
+            fasteners:r.fasteners!==false,gripRibs:Math.round(clamp(r.gripRibs,0,16,7)),
             glow: color(v('glow', '#38c8ff'), '#38c8ff'), slide: !!v('slide', false), forend: !!v('forend', false)
         };
     }
 
     // ── pieces ─────────────────────────────────────────────────────────────
     /** A side profile ([x, y, ...] in gun space) made solid `width` across, centered on z, its edges chamfered. */
-    function slab(profile, width, chamfer) { return Mesh.extrude([profile], width, { bevel: chamfer ?? Math.min(width * 0.2, 0.003) }); }
+    function slab(profile, width, chamfer) { return Mesh.extrude([profile], width, { bevel: chamfer ?? Math.min(width * 0.2, 0.003), round:true }); }
     const rect = (x0, y0, x1, y1) => [x0, y0, x1, y0, x1, y1, x0, y1];
     /** A barrel-like round along +x from `x0` to `x1` at height `y`. */
     const rod = (x0, x1, y, r, seg) => Mesh.lathe([[r, 0], [r, x1 - x0]], seg || 14, { base: [x0, y, 0], dir: [1, 0, 0] });
@@ -81,8 +84,9 @@
         P.frame.push(slab([xr0, 0, front, 0, front, Hr * 0.92, xr1 - Lr * 0.1, Hr, xr0 + Lr * 0.05, Hr, xr0, Hr * 0.85], W));
         // The barrel out of its front, a muzzle at its end.
         const bx0 = front - 0.005, bx1 = (r.slide ? front + 0.008 : xr1 + Lb);
-        P.metal.push(rod(bx0, bx1, yb, rb, 14));
-        const bore = Mesh.lathe([[rb * 0.55, 0], [rb * 0.55, 0.0015], [0, 0.0015]], 10, { base: [bx1 - 0.001, yb, 0], dir: [1, 0, 0] });
+        const barrelLength=bx1-bx0,boreDepth=Math.min(.025,barrelLength*.7);
+        P.metal.push(Mesh.lathe([[0,0],[rb,0],[rb,barrelLength],[rb*.58,barrelLength],[rb*.58,barrelLength-boreDepth],[0,barrelLength-boreDepth]],40,{base:[bx0,yb,0],dir:[1,0,0]}));
+        const bore = Mesh.lathe([[rb * 0.55, 0], [rb * 0.55, 0.0015], [0, 0.0015]], 10, { base: [bx1 - boreDepth+.0002, yb, 0], dir: [1, 0, 0] });
         P.dark.push(bore);
         let mx = bx1;
         if (r.muzzle === 'brake') { P.metal.push(slab(rect(bx1, yb - rb * 1.6, bx1 + 0.05, yb + rb * 1.6), rb * 3.2, 0.002)); for (const k of [0.014, 0.028]) P.dark.push(Mesh.box([bx1 + k, yb, 0], [0.006, rb * 2.4, rb * 3.4])); mx = bx1 + 0.05; }
@@ -96,7 +100,19 @@
         // The grip, raked back by its angle, under the receiver's rear; the trigger and its guard ahead of it.
         const a = r.grip.angle * Math.PI / 180, gl = r.grip.length, gw = Math.min(0.03, W * 0.9), gx = xr0 + Lr * (r.stock === 'full' ? 0.18 : 0.12);
         const back = Math.tan(a) * gl, gd = 0.03;
-        P.furniture.push(slab([gx, 0.004, gx + gd, 0.004, gx + gd - back, -gl, gx - back - 0.006, -gl, gx - back - 0.008, -gl + 0.01], gw));
+        const gripGeo=new CM.Geo(),gripRing=t=>Array.from({length:33},(_,j)=>{const a=j/32*Math.PI*2,bulge=1+.12*Math.sin(t*Math.PI),x=Math.sign(Math.cos(a))*Math.abs(Math.cos(a))**.55,z=Math.sign(Math.sin(a))*Math.abs(Math.sin(a))**.55;return[gx+gd*.5-back*t+x*gd*.5*bulge,-gl*t,z*gw*.5];});
+        let previous=gripRing(0);gripGeo.poly(previous.slice(0,-1),null,[0,1,0]);for(let k=1;k<=12;k++){const next=gripRing(k/12);for(let j=0;j<32;j++)gripGeo.poly([previous[j],next[j],next[j+1],previous[j+1]],null,[Math.cos((j+.5)/32*Math.PI*2),0,Math.sin((j+.5)/32*Math.PI*2)]);previous=next;}gripGeo.poly(previous.slice(0,-1),null,[0,-1,0]);P.furniture.push(CM.smoothNormals(gripGeo.done(),.8));
+        // Fine construction stays on the actual receiver/grip surfaces.
+        for(const side of [-1,1]){
+            if(r.fasteners)for(const x of [xr0+Lr*.10,xr1-Lr*.10])for(const y of [Hr*.24,Hr*.74]){
+                P.metal.push(Mesh.lathe([[Hr*.047,0],[Hr*.047,.0015],[0,.0015]],10,{base:[x,y,side*(W*.5+.0004)],dir:[0,0,side]}));
+                P.dark.push(Mesh.box([x,y,side*(W*.5+.0021)],[Hr*.055,Hr*.009,.0006]));
+            }
+            P.dark.push(Mesh.box([xr0+Lr*.54,Hr*.63,side*(W*.5+.0006)],[Lr*.17,Hr*.17,.0013]));
+            P.metal.push(Mesh.box([xr0+Lr*.54,Hr*.73,side*(W*.5+.0008)],[Lr*.19,Hr*.026,.0018]));
+            for(let j=0;j<r.gripRibs;j++){const t=(j+1)/(r.gripRibs+1);P.dark.push(Mesh.box([gx+gd*.40-back*t,-gl*t,side*(gw*.5+.0004)],[gd*.70,.0016,.0014]));}
+            if(r.slide)for(let j=0;j<7;j++)P.dark.push(Mesh.box([xr0+Lr*(.06+j*.026),Hr*.54,side*(W*.5+.0006)],[Lr*.010,Hr*.48,.0014]));
+        }
         marks.gripTop = [gx + gd / 2, 0, 0]; marks.gripBottom = [gx + gd / 2 - back, -gl, 0];
         const tx = gx + gd + 0.018;
         P.metal.push(Mesh.polyTube([[gx + gd + 0.002, 0, 0], [tx + 0.022, -0.004, 0], [tx + 0.03, -0.022, 0], [tx + 0.012, -0.034, 0], [gx + gd - 0.006, -0.032, 0]], 0.0028, 6));
@@ -115,7 +131,7 @@
             // Six chambers in a fluted cylinder above the trigger.
             const R = Math.max(Hr * 0.55, 0.018) * ms, len = Math.min(0.05, Lr * 0.35), cx = xr1 - len - 0.005;
             const prof = [[R * 0.85, 0], [R, 0.004], [R, len - 0.004], [R * 0.85, len]];
-            const cyl = Mesh.lathe(prof, 6, { base: [cx, yb, 0], dir: [1, 0, 0], phase: Math.PI / 6, sharp: 0.9 });
+            const cyl=CM.revolve([[0,0],...prof,[0,len]],72,{radius:(t,y,rad)=>rad*(1-.045*Math.max(0,Math.cos(t*Math.PI*12))**4)});CM.transform(cyl,([x,y,z])=>[cx+y,yb+x,-z],([x,y,z])=>[y,x,-z]);
             P.metal.push(cyl);
             for (let k = 0; k < 6; k++) { const ang = k * Math.PI / 3; P.dark.push(Mesh.lathe([[R * 0.24, 0], [R * 0.24, 0.002], [0, 0.002]], 8, { base: [cx + len - 0.0005, yb + Math.cos(ang) * R * 0.55, Math.sin(ang) * R * 0.55], dir: [1, 0, 0] })); }
         } else if (r.magazine === 'tube') {
@@ -158,6 +174,7 @@
             P.glass.push(Mesh.lathe([[sr * 1.5, 0], [0, 0.001]], 16, { base: [sx + sl, sy, 0], dir: [1, 0, 0] }), Mesh.lathe([[sr * 1.25, 0], [0, 0.001]], 16, { base: [sx, sy, 0], dir: [-1, 0, 0] }));
         }
         // Sci-fi: glowing coils round the barrel, vents in the receiver's sides.
+        if(r.coils)P.dark.push(rod(xr1+.006,xr1+Math.max(.02,Lb-.015),yb,rb*1.40,20));
         for (let k = 0; k < r.coils; k++) {
             const x = xr1 + 0.015 + k * Math.max(0.012, (Lb - 0.04) / Math.max(1, r.coils));
             const pts = [];
@@ -165,7 +182,8 @@
             P.glow.push(Mesh.polyTube(pts, Math.max(0.0018, rb * 0.25), 5));
         }
         if (r.vents) for (let k = 0; k < 4; k++) for (const z of [-1, 1]) P.dark.push(Mesh.box([xr0 + Lr * (0.45 + k * 0.1), Hr * 0.55, z * W / 2], [0.006, Hr * 0.35, 0.003]));
-        return { P, marks, W };
+        const construction=Construction.assemble({recipe:r,r,P,marks,W,xr0,xr1,Lr,Hr,Lb,rb,yb,gx,gd,gw,back,gl,mxs});
+        return { P, marks, W, construction };
     }
 
     // ── the build ──────────────────────────────────────────────────────────
@@ -178,7 +196,7 @@
     const toWorld = ([x, y, z]) => [x, z, -y];
 
     function build(recipe, cache) {
-        const r = normalize(recipe), c = cache || {}, { P, marks } = body(r), textures = {};
+        const r = normalize(recipe), c = cache || {}, { P, marks, construction } = body(r), textures = {};
         const frame = LOOK[r.frame], furn = LOOK[r.furniture];
         const parts = [];
         const add = (list, props) => { const m = list.length ? Mesh.merge(list) : null; if (m && m.index.length) parts.push(Object.assign(m, props)); return m; };
@@ -192,6 +210,7 @@
         add(P.dark, { name: 'Details', kind: 'metal', color: '#141416', roughness: 0.5, metalness: 0.5 });
         add(P.glass, { name: 'Lens', kind: 'glass', color: '#3a5a7a', roughness: 0.05, metalness: 0.2 });
         add(P.glow, { name: 'Glow', kind: 'prop', color: r.glow, roughness: 0.3, metalness: 0, emissive: r.glow });
+        Surface.apply(parts,textures,p=>['Frame','Metal','Details'].includes(p.name)?'metal':p.name==='Furniture'?(r.furniture==='wood'?'wood':'rubber'):null);
         for (const p of parts) Mesh.transform(p, toWorld, toWorld);
         let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
         for (const p of parts) for (let i = 0; i < p.positions.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p.positions[i + k]); hi[k] = Math.max(hi[k], p.positions[i + k]); }
@@ -202,7 +221,7 @@
         let tall = 0;
         for (const p of parts) for (let i = 1; i < p.positions.length; i += 3) tall = Math.max(tall, p.positions[i]);
         return {
-            kind: 'gun', recipe: r, parts, bones: [{ name: 'Prop', head: [0, 0, 0], parent: -1 }], clips: [], loop: null, textures, cloth: null,
+            kind: 'gun', recipe: r, construction, parts, bones: [{ name: 'Prop', head: [0, 0, 0], parent: -1 }], clips: [], loop: null, textures, cloth: null,
             height: Math.max(0.05, tall), wall: null, length: round(hi[0] - lo[0]), markers, sidecarExtra: { rig: { template: 'gun', markers } }, holdable: 'gun'
         };
     }
@@ -263,12 +282,12 @@
                 }
                 if (tab === 'parts') {
                     return this._section('Parts') + this._select('magazine', 'Magazine', MAGAZINES) + (r.magazine !== 'none' ? this._slider({ path: 'magSize', label: 'Magazine size', range: [0.4, 2], format: 'x' }) : '')
-                        + this._select('stock', 'Stock', STOCKS) + this._select('sight', 'Sight', SIGHTS) + this._check('rails', 'Rails') + this._check('forend', 'Forend')
+                        + this._check('fasteners','Fasteners') + this._slider({path:'gripRibs',label:'Grip ribs',range:[0,16],step:1}) + this._select('stock', 'Stock', STOCKS) + this._select('sight', 'Sight', SIGHTS) + this._check('rails', 'Rails') + this._check('forend', 'Forend')
                         + this._section('Sci-fi') + this._slider({ path: 'coils', label: 'Glowing coils', range: [0, 8], step: 1, format: 'int' }) + this._check('vents', 'Vents');
                 }
                 return this._section('Materials') + this._select('frame', 'Body finish', FRAMES) + this._select('furniture', 'Grip and stock', FURNITURE)
                     + (r.frame === 'painted' || r.furniture === 'painted' ? this._color('paint', 'Paint', ['#d8dce4', '#3a3f4a', '#5a6a3a', '#7a2a22', '#1b1b1f']) : '')
-                    + this._color('glow', 'Glow color', ['#38c8ff', '#ff5a3a', '#7aff6a', '#c86aff', '#ffd24a']);
+                    + (r.coils>0||r.muzzle==='emitter'||r.magazine==='cell'?this._color('glow', 'Glow color', ['#38c8ff', '#ff5a3a', '#7aff6a', '#c86aff', '#ffd24a']):'');
             }
         });
     }

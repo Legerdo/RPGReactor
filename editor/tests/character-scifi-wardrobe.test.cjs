@@ -47,7 +47,7 @@ test('light colors and brightness are independent and both maps follow the fitti
     assert.ok(!off.textures['outfit-glow.png']);
     assert.ok(off.parts.every(p => !p.emissiveTexture));
     const invalid = W.normalizeItem({ id: 'evaSuit', lightColor: 'invalid', lightIntensity: Infinity, lightWidth: -4, lightStyle: 'invalid' });
-    assert.equal(invalid.lightColor, '#82e5ff'); assert.equal(invalid.lightIntensity, 0.35); assert.equal(invalid.lightWidth, 0.4); assert.equal(invalid.lightStyle, 'strips');
+    assert.equal(invalid.lightColor, '#82e5ff'); assert.equal(invalid.lightIntensity, 0.35); assert.equal(invalid.lightWidth, 0.4); assert.equal(invalid.lightStyle, 'badge');
     assert.deepEqual(W.normalizeOutfit(JSON.parse(JSON.stringify(outfit('evaCrew')))), W.normalizeOutfit(outfit('evaCrew')));
     for (const id of ['evaSuit', 'visorhelm', 'gloves', 'magboots']) assert.ok(outfit('evaCrew').some(item => item.id === id), 'complete EVA ensemble: ' + id);
 });

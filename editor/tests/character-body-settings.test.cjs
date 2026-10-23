@@ -7,7 +7,7 @@ function ui(recipe){const b=Object.create(scope.window.Character3DBuilder.protot
 
 test('all creature types keep their selectors and dimensions in Body, with no stale species controls',()=>{
  const b=ui(Q.Creature.kindRecipe('shark'));
- for(const k of Q.Creature.KINDS){b.recipe=Q.Creature.kindRecipe(k.kind);const picker=b._speciesTab(),body=b._bodyTab();assert.ok(!picker.includes('{'),'species picker only chooses a species');assert.ok(body.includes('{morphology:'));assert.ok(!body.includes('[Features]'));
+ for(const k of Q.Creature.KINDS){b.recipe=Q.Creature.kindRecipe(k.kind);const picker=b._speciesTab(),body=b._bodyTab();assert.ok(!picker.includes('{'),'species picker only chooses a species');assert.ok(!body.includes('{morphology:'),'catalog entries keep their own body family');assert.ok(!body.includes('[Features]'));
   for(const v of Q.Creature.variantsFor(b.recipe)){assert.ok(body.includes('{'+v.key+':'));for(const [choice]of v.choices){b.recipe=Q.Creature.withVariant(b.recipe,v.key,choice);assert.ok(b._bodyTab().includes('{'+v.key+':'));}}
  }
  b.recipe=Q.Creature.kindRecipe('whale');assert.ok(!b._bodyTab().includes('sharkType'));b.recipe=Q.Creature.kindRecipe('worm');assert.ok(!b._bodyTab().includes('whaleType'));

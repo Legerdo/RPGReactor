@@ -18,6 +18,7 @@
     const Rand = need('RRPropRandom', './PropRandom.js');
     const Mesh = need('RRPropMesh', './PropMesh.js');
     const Paint = need('RRPropPaint', './PropPaint.js');
+    const Surface=need('RRConstructionSurface','../Character3D/ConstructionSurface.js');
 
     const clamp = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
     const color = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : d);
@@ -202,6 +203,11 @@
         for (let k = 0; k <= 10; k++) { const t = k / 10; prof.push([gripR * (0.92 + 0.12 * Math.sin(Math.PI * t)), t * G]); }
         const g = Mesh.lathe(prof, 14, { base: [0, 0, 0], dir: [-1, 0, 0], caps: false });
         grip.push(g);
+        if(r.grip.wrap!=='wood'){
+            const turns=Math.min(64,Math.max(4,Math.round(G/(r.grip.wrap==='wire'?.0025:.013)))),steps=turns*16,paths=r.grip.wrap==='cord'?[1,-1]:[1];
+            for(const direction of paths){const path=Array.from({length:steps+1},(_,j)=>{const t=j/steps,a=t*turns*Math.PI*2*direction,rad=gripR*(.92+.12*Math.sin(t*Math.PI))+.00025;return[-G*t,Math.cos(a)*rad,Math.sin(a)*rad];});grip.push(Mesh.polyTube(path,r.grip.wrap==='wire'?.00045:.00065,8));}
+        }
+        for(const x of [-.004,-G+.004])trimExtra.push(Mesh.lathe([[gripR*.90,0],[gripR*1.10,0],[gripR*1.10,.004],[gripR*.90,.004],[gripR*.90,0]],40,{base:[x,0,0],dir:[-1,0,0]}));
         // The pommel at the grip's end.
         const at = [-G, 0, 0];
         if (r.pommel === 'ball') pommel.push(Mesh.sphere([-G - gripR * 1.3, 0, 0], gripR * 1.55, 12));
@@ -214,7 +220,7 @@
     /** The grip's wrap: leather in spiral strips, cord in diamonds, fine wire, or wood grain. */
     function wrapPicture(wrap, base) {
         const c = Paint.hex(base);
-        const pic = Paint.paint(64, 256, (u, v, out) => {
+        const pic = Paint.paint(256, 1024, (u, v, out) => {
             let k;
             if (wrap === 'leather') { const f = ((u + v * 6) % 1 + 1) % 1; k = 0.75 + 0.25 * Math.sin(f * Math.PI) - (f < 0.06 ? 0.3 : 0); }
             else if (wrap === 'cord') { const a = ((u * 2 + v * 8) % 1 + 1) % 1, b = ((u * 2 - v * 8) % 1 + 1) % 1; const ridge = Math.min(Math.abs(a - 0.5), Math.abs(b - 0.5)); k = ridge < 0.08 ? 1.25 : 0.8 + 0.2 * Math.sin(a * Math.PI) * Math.sin(b * Math.PI); }
@@ -268,6 +274,7 @@
         textures['grip.png'] = c.grip;
         parts.push(Object.assign(Mesh.merge(h.grip), { name: 'Grip', texture: 'grip.png', roughness: r.grip.wrap === 'wire' ? 0.35 : 0.8, metalness: r.grip.wrap === 'wire' ? 0.8 : 0 }));
         // Lying flat, centered on the floor: the game stands a model by its box, so its own origin is where it is put.
+        Surface.apply(parts,textures,p=>p.name==='Grip'?'leather':p.emissive?null:'metal');
         for (const p of parts) Mesh.transform(p, toWorld, toWorld);
         let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
         for (const p of parts) for (let i = 0; i < p.positions.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p.positions[i + k]); hi[k] = Math.max(hi[k], p.positions[i + k]); }

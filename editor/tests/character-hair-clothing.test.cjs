@@ -68,3 +68,12 @@ test('long locks retain torso clearance when the head bends on normal and heavy 
     assert.ok(tested > 10000);
     assert.ok(inside / tested < 0.003, inside + '/' + tested + ' sampled contacts');
 });
+
+test('short hair above the neckline skips all clothing contact indexing without changing its geometry',async()=>{
+    const pack=await Body.loadPack(),body=Body.build(pack,{gender:0}),options={seed:17,gender:0,budget:.5};
+    const bare=Hair.build(pack,body,{style:'crew'},options);
+    const unused={get positions(){assert.fail('short hair must not scan the outfit');}};
+    const fitted=Hair.build(pack,body,{style:'crew'},{...options,outfitParts:[unused]});
+    assert.equal(fitted.length,bare.length);
+    for(let i=0;i<bare.length;i++)assert.ok(Buffer.from(fitted[i].positions.buffer).equals(Buffer.from(bare[i].positions.buffer)),bare[i].name+' unchanged');
+});

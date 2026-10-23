@@ -25,17 +25,17 @@
          * Rings of points (each the same count, closed round) joined into one smooth surface: shared
          * vertices, normals averaged from the faces round them, facing away from `inside`.
          */
-        loft(rings, color, joint, inside, colorAt) {
-            const base = this.p.length / 3, n = rings[0].length;
+        loft(rings, color, joint, inside, colorAt, open = false) {
+            const base = this.p.length / 3, n = rings[0].length, edges = open ? n - 1 : n;
             rings.forEach((ring, r) => ring.forEach((p, k) => { this.p.push(...p); this.n.push(0, 0, 0); this.c.push(...(colorAt ? colorAt(r, k) : color)); this.j.push(joint, 0, 0, 0); this.w.push(1, 0, 0, 0); }));
             const first = this.i.length;
-            for (let r = 0; r + 1 < rings.length; r++) for (let k = 0; k < n; k++) {
+            for (let r = 0; r + 1 < rings.length; r++) for (let k = 0; k < edges; k++) {
                 const a = base + r * n + k, b = base + r * n + (k + 1) % n, c = base + (r + 1) * n + k, d = base + (r + 1) * n + (k + 1) % n;
                 this.i.push(a, b, d, a, d, c);
             }
             // Wound to face out: test one face against the way out from the inside point.
             const at = q => [this.p[q * 3], this.p[q * 3 + 1], this.p[q * 3 + 2]];
-            const mid = Math.floor(rings.length / 2) * n;
+            const mid = Math.floor(rings.length / 2) * edges;
             const t = [this.i[first + mid * 6], this.i[first + mid * 6 + 1], this.i[first + mid * 6 + 2]];
             if (t.every(Number.isFinite)) {
                 const fn = cross(sub(at(t[1]), at(t[0])), sub(at(t[2]), at(t[0])));
@@ -72,6 +72,29 @@
         plate(mesh,[[-1,-1],[1,-1],[1,1],[-1,1]].map(([x,y])=>add(center,add(mul(a,x*width/2),mul(b,y*height/2)))),normal,depth,bevel,color,joint);
     }
 
+    /** Project a formed shell's silhouette in two planes. The convex outlines
+     * bridge skin folds vertically, so neighboring armor rows cannot turn into
+     * alternating wide discs and narrow bands on an exaggerated torso. */
+    function formedSections(points) {
+        const hull=axis=>{
+            const list=points.map(p=>[p[1],p[axis]]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]),cross=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+            const a=[],b=[];
+            for(const p of list){while(a.length>1&&cross(a.at(-2),a.at(-1),p)<=0)a.pop();a.push(p);}
+            for(let i=list.length-1;i>=0;i--){const p=list[i];while(b.length>1&&cross(b.at(-2),b.at(-1),p)<=0)b.pop();b.push(p);}
+            return a.slice(0,-1).concat(b.slice(0,-1));
+        };
+        const sides=hull(0),depth=hull(2),low=Math.min(...points.map(p=>p[1])),high=Math.max(...points.map(p=>p[1]));
+        const extent=(polygon,y)=>{
+            let lo=Infinity,hi=-Infinity;
+            for(let i=0;i<polygon.length;i++){
+                const a=polygon[i],b=polygon[(i+1)%polygon.length];if(y<Math.min(a[0],b[0])-1e-7||y>Math.max(a[0],b[0])+1e-7)continue;
+                if(Math.abs(a[0]-b[0])<1e-9){lo=Math.min(lo,a[1],b[1]);hi=Math.max(hi,a[1],b[1]);continue;}
+                const v=a[1]+(b[1]-a[1])*(y-a[0])/(b[0]-a[0]);lo=Math.min(lo,v);hi=Math.max(hi,v);
+            }return[lo,hi];
+        };
+        return y=>{y=Math.max(low+1e-6,Math.min(high-1e-6,y));const[left,right]=extent(sides,y),[back,front]=extent(depth,y);return{left,right,front,back,cx:(left+right)/2,cz:(front+back)/2,width:(right-left)/2};};
+    }
+
     function context(pack,built,item) {
         const an=Outfit.anatomy(pack), P=built.shaped, ids=[...new Set(pack.body.source)];
         const bones=built.bones, bone=name=>bones.find(b=>b.name===name), joint=name=>bones.findIndex(b=>b.name===name);
@@ -80,13 +103,7 @@
         const shell=new Mesh(), hardware=new Mesh(), indicators=new Mesh();
         const at=(v)=>[P[v*3],P[v*3+1],P[v*3+2]];
         const torsoIds=ids.filter(v=>an.member[v*5]>.55);
-        function section(y) {
-            let vertices=[];
-            for(const band of [.024,.05,.1]) { vertices=torsoIds.filter(v=>Math.abs(P[v*3+1]-y)<band*scale); if(vertices.length>8)break; }
-            let left=Infinity,right=-Infinity,front=-Infinity,back=Infinity;
-            for(const v of vertices) { left=Math.min(left,P[v*3]);right=Math.max(right,P[v*3]);front=Math.max(front,P[v*3+2]);back=Math.min(back,P[v*3+2]); }
-            return {left,right,front,back,cx:(left+right)/2,cz:(front+back)/2,width:(right-left)/2};
-        }
+        const section=formedSections(torsoIds.filter(v=>an.s[v*5]>.0&&an.s[v*5]<4.05).map(at));
         function envelope(name,family,t0,t1) {
             // Pack tails are drawing handles, not always the next articulation.
             const next=name.replace(/(ForeArm|UpLeg|Arm|Leg)$/, part=>({Arm:'ForeArm',ForeArm:'Hand',UpLeg:'Leg',Leg:'Foot'}[part]));
@@ -171,41 +188,52 @@
         const hip=C.bone('Hips').head[1], neck=C.bone('Neck').head[1];
         const chestLow=C.bone('Spine1').head[1]+.025*s, top=neck-.018*s;
         const mid=(top+chestLow)/2, section=C.section(mid);
-        const samples=Array.from({length:10},(_,i)=>C.section(chestLow+(top-chestLow)*i/9));
-        const w=Math.max(...samples.map(v=>v.width))+.012*s;
-        const front=Math.max(...samples.map(v=>v.front))+gap, back=Math.min(...samples.map(v=>v.back))-gap;
-        const outline=[[-.65,1],[.65,1],[1,.6],[.86,-.6],[.45,-1],[-.45,-1],[-.86,-.6],[-1,.6]];
-        for(const [z,normal] of [[front,Z],[back,mul(Z,-1)]]) {
-            const points=outline.map(([x,y])=>[section.cx+x*w,mid+y*(top-chestLow)/2,z]);
-            if(normal[2]<0)plate(C.shell,points,normal,.022*s,.007*s,C.color,C.joint('Spine2'));
-            else for(const side of [-1,1]) {
-                const half=[[.018,1],[.65,1],[1,.6],[.86,-.6],[.45,-1],[.018,-.87]];
-                const slope=.025*s/w;
-                plate(C.shell,half.map(([x,y])=>[section.cx+side*x*w,mid+y*(top-chestLow)/2,z+(1-x)*.025*s]),norm([side*slope,0,1]),.022*s,.006*s,C.color,C.joint('Spine2'));
+        // A housing follows several chest sections instead of a box sized
+        // from the widest/deepest sample anywhere between belly and collar.
+        // It stays one rigid piece on Spine2; its rest shape is formed metal.
+        const chestRings=Array.from({length:9},(_,r)=>{
+            const t=r/8,y=chestLow+(top-chestLow)*t,q=C.section(y),axis=[q.cx,y,q.cz];
+            let rx=q.width+gap,rz=(q.front-q.back)/2+gap,grow=1;
+            for(const v of C.ids)if(C.an.member[v*5]>.55&&Math.abs(C.P[v*3+1]-y)<.025*s){
+                grow=Math.max(grow,(Math.abs((C.P[v*3]-q.cx)/rx)**3+Math.abs((C.P[v*3+2]-q.cz)/rz)**3)**(1/3));
             }
+            rx*=grow;rz*=grow;
+            return roundSection(axis,X,Z,rx,rz,32,3);
+        });
+        C.shell.loft(chestRings,C.color,C.joint('Spine2'),p=>{const q=C.section(p[1]);return[q.cx,p[1],q.cz];});
+        const chestFace=(x,y,side=1)=>{
+            const u=Math.max(0,Math.min(7.99999,(y-chestLow)/(top-chestLow)*8)),r=Math.floor(u),t=u-r;
+            const ring=chestRings[r].map((p,k)=>lerp(p,chestRings[r+1][k],t));
+            let z=side>0?-Infinity:Infinity;
+            for(let k=0;k<ring.length;k++){const a=ring[k],b=ring[(k+1)%ring.length];if(x<Math.min(a[0],b[0])||x>Math.max(a[0],b[0])||Math.abs(a[0]-b[0])<1e-9)continue;const d=(x-a[0])/(b[0]-a[0]),v=a[2]+d*(b[2]-a[2]);z=side>0?Math.max(z,v):Math.min(z,v);}
+            return Number.isFinite(z)?z:side>0?C.section(y).front+gap:C.section(y).back-gap;
+        };
+        for(const side of [-1,1]) {
+            const normal=[0,0,side];
             // Recessed vent banks, kept low contrast; color is reserved for status lights.
-            for(const side of [-1,1]) for(let row=0;row<3;row++) rectangle(C.hardware,[section.cx+side*w*.48,mid+.035*s-row*.016*s,z+normal[2]*.002*s+(normal[2]>0?.014*s:0)],X,Y,w*.3,.007*s,normal,C.trim,C.joint('Spine2'),.002*s,.0008*s);
+            for(const hand of [-1,1])for(let row=0;row<3;row++){
+                const y=mid+.035*s-row*.016*s,q=C.section(y),x=q.cx+hand*q.width*.48;
+                rectangle(C.hardware,[x,y,chestFace(x,y,side)+side*.004*s],X,Y,q.width*.3,.007*s,normal,C.trim,C.joint('Spine2'),.002*s,.0008*s);
+            }
         }
-        // Wrap below the arm openings: the cuirass has real depth when seen from the side.
-        for(const side of [-1,1]) for(const [a,b] of [[[1,.6],[.86,-.6]],[[.86,-.6],[.45,-1]]]) {
-            const at=(p,z)=>[section.cx+side*p[0]*w,mid+p[1]*(top-chestLow)/2,z];
-            C.shell.face([at(a,front+(1-a[0])*.025*s),at(a,back),at(b,back),at(b,front+(1-b[0])*.025*s)],mul(C.color,.76),C.joint('Spine2'),[side,0,0]);
-        }
-        rectangle(C.indicators,[section.cx-w*.42,top-.033*s,front+.021*s],X,Y,.035*s,.009*s,Z,C.accent,C.joint('Spine2'),.003*s,.001*s);
+        const lightY=top-.033*s,lightX=C.section(lightY).cx-C.section(lightY).width*.42;
+        rectangle(C.indicators,[lightX,lightY,chestFace(lightX,lightY)+.006*s],X,Y,.035*s,.009*s,Z,C.accent,C.joint('Spine2'),.003*s,.001*s);
         // Rib housings wrap the torso below the arm openings.
         for(const side of [-1,1]) {
             const normal=[side,0,0], y=chestLow+.045*s, q=C.section(y);
             rectangle(C.hardware,[side>0?q.right+gap:q.left-gap,y,q.cz],Z,Y,(q.front-q.back)*.82,.085*s,normal,C.trim,C.joint('Spine1'),.012*s,.005*s);
         }
-        // The abdomen has independent plates on successive spine bones, with breathing gaps.
-        const bottom=hip+.01*s, end=chestLow-.012*s, count=3;
+        // Articulated lames overlap along the actual abdomen. Flat front/back
+        // plaques left black steps and floated clear of a broad belly.
+        const bottom=hip+.01*s, end=chestLow+.008*s, count=3;
         for(let row=0;row<count;row++) {
-            const y=bottom+(end-bottom)*(row+.5)/count,q=C.section(y),h=(end-bottom)/count-.009*s;
-            const width=q.width*.9;
-            for(const [z,normal] of [[q.front+gap*.75,Z],[q.back-gap*.75,mul(Z,-1)]]) {
-                const points=OCTAGON.map(([x,yy])=>[q.cx+x*width,y+yy*h/2,z]);
-                plate(C.shell,points,normal,.014*s,.004*s,mul(C.color,.89),C.joint(row===2?'Spine1':'Spine'));
-            }
+            const lo=bottom+(end-bottom)*row/count,hi=bottom+(end-bottom)*(row+1)/count+.008*s;
+            const joint=C.joint(row===2?'Spine1':'Spine');
+            const rings=Array.from({length:5},(_,r)=>{
+                const y=lo+(hi-lo)*r/4,q=C.section(y),lip=r===0?.003*s:0;
+                return roundSection([q.cx,y,q.cz],X,Z,q.width+gap+lip,(q.front-q.back)/2+gap+lip,32,3);
+            });
+            C.shell.loft(rings,mul(C.color,.89),joint,p=>{const q=C.section(p[1]);return[q.cx,p[1],q.cz];},r=>r===0?mul(C.color,.65):mul(C.color,.89));
         }
         // Pelvic armor ends above the hip flexion crease; the dark suit remains visible between pieces.
         const pelvis=C.section(hip-.055*s);
@@ -216,17 +244,25 @@
         }
         // A gorget: a raised collar of two overlapping rings round the neck, meeting the helmet's rim.
         {
-            const neck=C.bone('Neck').head, n=C.section(neck[1]-.01*s), joint=C.joint('Spine2');
+            const neck=C.bone('Neck').head, joint=C.joint('Spine2');
+            const points=C.ids.filter(v=>C.an.s[v*5]>3.9&&C.an.s[v*5]<4.6&&Math.abs(C.P[v*3+1]-neck[1])<.028*s);
+            const n=points.length?{width:Math.max(...points.map(v=>Math.abs(C.P[v*3]))),front:Math.max(...points.map(v=>C.P[v*3+2])),back:Math.min(...points.map(v=>C.P[v*3+2])),cx:neck[0]}:C.section(neck[1]);
             const rx=n.width+gap*.8, rz=(n.front-n.back)/2+gap*.8, c=[n.cx,neck[1],(n.front+n.back)/2];
             const rings=[[-.03,1.25],[-.012,1.18],[-.006,1.08],[.012,1.0],[.02,.97]].map(([dy,k])=>roundSection(add(c,[0,dy*s,0]),X,Z,rx*k,rz*k,24,3));
             C.shell.loft(rings,C.color,joint,p=>[c[0],p[1],c[2]],r=>r===2?mul(C.color,.55):C.color);
         }
         // A ridge down the breastplate and seams across it.
-        C.shell.face([[section.cx-.008*s,top-.02*s,front+.026*s],[section.cx+.008*s,top-.02*s,front+.026*s],[section.cx+.008*s,chestLow+.02*s,front+.026*s],[section.cx-.008*s,chestLow+.02*s,front+.026*s]],mul(C.color,1.1),C.joint('Spine2'),Z);
-        for(const k of [.3,.62]) for(const side of [-1,1]) rectangle(C.hardware,[section.cx+side*w*.55,chestLow+(top-chestLow)*k,front+.006*s+(1-.55)*.025*s],X,Y,w*.62,.0035*s,norm([side*.025*s/w,0,1]),C.trim,C.joint('Spine2'),.0015*s,.0006*s);
+        for(let r=0;r<8;r++){
+            const a=chestRings[r][0],b=chestRings[r+1][0];
+            C.shell.face([add(a,[-.005*s,0,.002*s]),add(a,[.005*s,0,.002*s]),add(b,[.005*s,0,.002*s]),add(b,[-.005*s,0,.002*s])],mul(C.color,1.1),C.joint('Spine2'),Z);
+        }
+        for(const k of [.3,.62])for(const side of [-1,1]){
+            const y=chestLow+(top-chestLow)*k,q=C.section(y),x=q.cx+side*q.width*.55;
+            rectangle(C.hardware,[x,y,chestFace(x,y)+.004*s],X,Y,q.width*.38,.0035*s,Z,C.trim,C.joint('Spine2'),.0015*s,.0006*s);
+        }
         // A compact power unit sits flush on the back plate.
-        rectangle(C.hardware,[section.cx,mid,back-.035*s],X,Y,w*.85,(top-chestLow)*.62,mul(Z,-1),C.trim,C.joint('Spine2'),.05*s,.01*s);
-        for(const side of [-1,1]) rectangle(C.shell,[section.cx+side*w*.26,mid,back-.04*s],X,Y,.04*s,(top-chestLow)*.44,mul(Z,-1),mul(C.color,.9),C.joint('Spine2'),.008*s,.003*s);
+        rectangle(C.hardware,[section.cx,mid,chestFace(section.cx,mid,-1)-.012*s],X,Y,section.width*.65,(top-chestLow)*.42,mul(Z,-1),C.trim,C.joint('Spine2'),.025*s,.006*s);
+        for(const side of [-1,1]){const x=section.cx+side*section.width*.26;rectangle(C.shell,[x,mid,chestFace(x,mid,-1)-.018*s],X,Y,.025*s,(top-chestLow)*.32,mul(Z,-1),mul(C.color,.9),C.joint('Spine2'),.008*s,.003*s);}
     }
 
     function undersuit(C,hands) {
@@ -358,26 +394,27 @@
     function medieval(pack, built, item, kind, layers=[]) {
         const C=context(pack,built,item), s=C.scale, metal=C.shell, edge=C.hardware;
         const tint=Outfit.linear(item.trim || item.color2 || '#676d75');
-        const clearance=.025*s;
+        const clearance=.010*s;
         const fitted=C.ids.map(v=>({p:C.at(v),family:Array.from({length:5},(_,f)=>C.an.member[v*5+f]).reduce((a,b,f,all)=>b>all[a]?f:a,0)}));
         for(const layer of layers)for(let v=0;v<(layer.rimStart??layer.positions.length/3);v++) {
             const family=layer.field?.[v]?.fam;
-            if(family!=null)fitted.push({p:Array.from(layer.positions.subarray(v*3,v*3+3)),family});
+            if(family!=null&&!layer.hang)fitted.push({p:Array.from(layer.positions.subarray(v*3,v*3+3)),family});
         }
         const torsoPoints=fitted.filter(v=>v.family===0).map(v=>v.p);
-        function section(y) {
-            let points=torsoPoints.filter(p=>Math.abs(p[1]-y)<.035*s);
-            if(!points.length)return C.section(y);
-            const left=Math.min(...points.map(p=>p[0])),right=Math.max(...points.map(p=>p[0]));
-            return {left,right,width:Math.max(Math.abs(left),Math.abs(right)),front:Math.max(...points.map(p=>p[2])),back:Math.min(...points.map(p=>p[2]))};
+        const hipY=C.bone('Hips').head[1],neckY=C.bone('Neck').head[1];
+        // The fauld overlaps the sewn skirt waist, even though cuisses must
+        // fit inside that hanging skirt. Keep these two fitting envelopes separate.
+        for(const layer of layers)if(layer.hang)for(let v=0;v<(layer.rimStart??layer.positions.length/3);v++){
+            const y=layer.positions[v*3+1];if(y>hipY-.10*s&&y<hipY+.16*s)torsoPoints.push(Array.from(layer.positions.subarray(v*3,v*3+3)));
         }
+        const section=formedSections(torsoPoints.filter(p=>p[1]>hipY-.16*s&&p[1]<neckY+.015*s));
 
         // A formed oval encloses its sampled section. No per-vertex muscle/breast displacement
         // is copied onto the plate; an axial keel gives the front its forged ridge.
         function oval(center, rx, front, back, keel=0, n=32) {
             return Array.from({length:n},(_,k)=>{
                 const a=k/n*Math.PI*2, sn=Math.sin(a), cs=Math.cos(a);
-                const r=1/Math.pow(Math.abs(sn)**3+Math.abs(cs)**3,1/3);
+                const r=1/Math.pow(Math.abs(sn)**2.3+Math.abs(cs)**2.3,1/2.3);
                 return [center[0]+sn*rx*r,center[1],center[2]+cs*r*(cs>=0?front:back)+keel*Math.max(0,cs)**10];
             });
         }
@@ -395,17 +432,19 @@
             const cx=(chest.front+chest.back)/2;
             // A single convex breast, shared across both sides. The waist is visibly pinched,
             // while the chest is broad and gently keeled, without two inflated breast cups.
-            const rings=[0,.08,.38,.72,1].map((t,r)=>{
+            const rings=Array.from({length:13},(_,r)=>{
+                const t=r/12;
                 const y=waist+(top-waist)*t;
                 const q=section(y), center=(q.front+q.back)/2;
-                let w=q.width+clearance*.65, front=q.front-center+clearance*.8, back=center-q.back+clearance*.8, grow=1;
-                for(const p of torsoPoints)if(Math.abs(p[1]-y)<.05*s) {
+                const shoulderCut=Math.max(0,(t-.55)/.45);
+                let w=Math.min(q.width,chest.width*(1-.26*shoulderCut))+clearance*.65, front=q.front-center+clearance*.8, back=center-q.back+clearance*.8, grow=1;
+                for(const p of torsoPoints)if(Math.abs(p[1]-y)<.025*s&&Math.abs(p[0])<w*.90) {
                     const dz=p[2]-center, depth=dz>0?front:back;
-                    grow=Math.max(grow,(Math.abs(p[0]/w)**3+Math.abs(dz/depth)**3)**(1/3)+.015);
+                    grow=Math.max(grow,(Math.abs(p[0]/w)**2.3+Math.abs(dz/depth)**2.3)**(1/2.3)+.015);
                 }
                 w*=grow;
                 const ring=torsoRing(y,w,front*grow,back*grow,center,.024*s);
-                if(r===4)ring.forEach((p,k)=>{p[1]-=.048*s*Math.abs(Math.sin(k/ring.length*Math.PI*2))**4;});
+                if(r===12)ring.forEach((p,k)=>{p[1]-=.048*s*Math.abs(Math.sin(k/ring.length*Math.PI*2))**4;});
                 if(r===0)ring.forEach((p,k)=>{p[1]-=.018*s*Math.max(0,Math.cos(k/ring.length*Math.PI*2))**8;});
                 return ring;
             });
@@ -417,39 +456,52 @@
             for(let row=0;row<3;row++) {
                 const y0=low+span*row/3, y1=low+span*(row+1)/3+.008*s;
                 const q=section((y0+y1)/2), cz=(q.front+q.back)/2;
-                const w=q.width+clearance+.006*s*(2-row);
-                const rings=[y0,y0+.004*s,y1].map((y,r)=>torsoRing(y,w+(r===0?.003*s:0),q.front-cz+clearance*1.7,cz-q.back+clearance*1.7,cz,.008*s));
+                const rings=Array.from({length:5},(_,r)=>{
+                    const y=y0+(y1-y0)*r/4,at=section(y),center=(at.front+at.back)/2;
+                    return torsoRing(y,at.width+clearance+.006*s*(2-row)+(r===0?.003*s:0),at.front-center+clearance*2.2,center-at.back+clearance*2.2,center,.008*s);
+                });
                 const j=C.joint(row===2?'Spine1':'Spine'), axis=p=>[0,p[1],cz];
                 metal.loft(rings,C.color,j,axis);rim(rings[0],j,axis,.0015*s);
             }
         }
         function limb(name, family, lo, hi) {
             const E=C.envelope(name,family,lo,hi), joint=C.joint(name);
-            const count=5, rings=[];
+            const count=17, rings=[];
             for(let r=0;r<count;r++) {
-                const t=lo+(hi-lo)*r/(count-1), center=E.point(t), band=(hi-lo)/(count-1)*.6;
-                let rx=.012*s, rz=.012*s, samples=[];
+                const t=lo+(hi-lo)*r/(count-1), center=E.point(t), band=(hi-lo)*.12;
+                let minX=Infinity,maxX=-Infinity,minZ=Infinity,maxZ=-Infinity,samples=[];
                 for(const v of fitted) {
                     if(v.family!==family)continue;
-                    const d=sub(v.p,E.B.head), u=dot(d,E.along)/E.length;
-                    if(u<lo||u>hi)continue;
-                    if(Math.abs(u-t)>band)continue;
-                    const x=dot(d,E.side), z=dot(d,E.front);
-                    rx=Math.max(rx,Math.abs(x));rz=Math.max(rz,Math.abs(z));samples.push([x,z]);
+                    const d=sub(v.p,E.B.head),u=dot(d,E.along)/E.length;
+                    if(u<lo||u>hi||Math.abs(u-t)>band)continue;
+                    const x=dot(d,E.side),z=dot(d,E.front);
+                    minX=Math.min(minX,x);maxX=Math.max(maxX,x);minZ=Math.min(minZ,z);maxZ=Math.max(maxZ,z);samples.push([x,z]);
                 }
-                // With sparse sections, the whole segment is a conservative fallback.
-                if(!samples.length){rx=E.rx;rz=E.rz;}
-                rx+=clearance*1.15;rz+=clearance*1.15;
-                let grow=1;
-                for(const [x,z]of samples)grow=Math.max(grow,Math.hypot(x/rx,z/rz));
+                if(!samples.length){minX=-E.rx;maxX=E.rx;minZ=-E.rz;maxZ=E.rz;}
+                const cx=(minX+maxX)/2,cz=(minZ+maxZ)/2;
+                center.splice(0,3,...add(center,add(mul(E.side,cx),mul(E.front,cz))));
+                let rx=(maxX-minX)/2+clearance,rz=(maxZ-minZ)/2+clearance,grow=1;
+                for(const [x,z]of samples)grow=Math.max(grow,(Math.abs((x-cx)/rx)**2.5+Math.abs((z-cz)/rz)**2.5)**.4);
                 rx*=grow;rz*=grow;
-                const ring=roundSection(center,E.side,E.front,rx,rz,24,2);
+                const ring=roundSection(center,E.side,E.front,rx,rz,40,2.5);
                 // A shallow central ridge, rather than an extra bulb over the entire limb.
                 ring.forEach((p,k)=>{const cs=Math.cos(k/ring.length*Math.PI*2);if(cs>0)for(let a=0;a<3;a++)p[a]+=E.front[a]*.005*s*cs**8;});
                 rings.push(ring);
             }
             const axis=p=>E.point(dot(sub(p,E.B.head),E.along)/E.length);
+            // Bridge local muscle fluctuations with one continuous silhouette along each column.
+            for(let k=0;k<rings[0].length;k++)for(let pass=0;pass<4;pass++){
+                const prev=rings.map(r=>r[k]);
+                for(let j=1;j+1<rings.length;j++){
+                    const center=axis(prev[j]),v=sub(prev[j],center),radius=Math.hypot(...v),wanted=(Math.hypot(...sub(prev[j-1],axis(prev[j-1])))+2*radius+Math.hypot(...sub(prev[j+1],axis(prev[j+1]))))/4;
+                    rings[j][k]=add(center,mul(v,Math.max(radius,wanted)/radius));
+                }
+            }
             metal.loft(rings,C.color,joint,axis);
+            for(const t of [lo+.06*(hi-lo),hi-.06*(hi-lo)])for(const side of [-1,1]){
+                const p=add(E.point(t),add(mul(E.side,E.rx*side*.70),mul(E.front,E.rz*.80+clearance*1.5)));
+                bolt(edge,p,E.front,.0024*s,tint,joint);
+            }
             // Rolled edges are narrow formed metal, not broad inflatable cuffs.
             for(const ring of [rings[0],rings.at(-1)]) {
                 const rolled=ring.map(p=>add(p,mul(norm(sub(p,axis(p))),.002*s)));
@@ -464,39 +516,32 @@
             let radiusUp=E.rx, radiusFront=E.rz;
             for(const v of fitted) {
                 const d=sub(v.p,E.B.head), t=dot(d,E.along)/E.length;
-                if(t<-.15||t>.6||Math.hypot(...d)>.17*s)continue;
+                if(v.family!==family||t<-.12||t>.4||Math.hypot(...d)>.13*s)continue;
                 radiusUp=Math.max(radiusUp,dot(d,up));radiusFront=Math.max(radiusFront,Math.abs(dot(d,fw)));
             }
-            // Three open saddle lames wrap only the shoulder's upper/front/back arc.
-            // Their length and radius taper down the arm; no spherical cap reaches into the neck.
+            // One dished shoulder cap, followed by two close overlapping lames.
+            // The front/back cut edges remain open over the mail articulation.
             for(let row=0;row<3;row++) {
-                const lo=-.20+row*.17, hi=lo+.24, rx=radiusUp+(.014+.008*bulk-row*.004)*s;
-                const rz=radiusFront+(.012+.008*bulk-row*.004)*s;
-                const rings=[lo,(lo+hi)/2,hi].map((t,r)=>Array.from({length:17},(_,k)=>{
-                    const a=-1.8+k/16*3.6;
-                    const taper=row===0&&r===0?.45:r===2?.96:1;
-                    return add(E.point(t),add(mul(up,Math.cos(a)*rx*taper),mul(fw,Math.sin(a)*rz*taper)));
-                }));
-                // Share vertices over each curved sheet, keeping smooth reflections across the
-                // plate. Separate rolled edges retain the crisp break between overlapping lames.
-                const P=Float32Array.from(rings.flat(2)), I=[];
-                for(let r=0;r<2;r++)for(let k=0;k<16;k++) {
-                    const points=[rings[r][k],rings[r+1][k],rings[r+1][k+1],rings[r][k+1]];
-                    const n=norm(sub(lerp(points[0],points[2],.5),E.point((lo+hi)/2)));
-                    const ids=[r*17+k,(r+1)*17+k,(r+1)*17+k+1,r*17+k+1];
-                    if(dot(cross(sub(points[1],points[0]),sub(points[2],points[0])),n)<0)ids.reverse();
-                    I.push(ids[0],ids[1],ids[2],ids[0],ids[2],ids[3]);
-                    if(r===1) {
-                        const a=rings[2][k], b=rings[2][k+1];
-                        edge.face([a,b,add(b,mul(E.along,-.003*s)),add(a,mul(E.along,-.003*s))],tint,joint,n);
-                    }
+                const lo=[-.12,.32,.39][row],hi=[.36,.40,.47][row],R=8,K=32;
+                const rings=Array.from({length:R+1},(_,j)=>{
+                    const t=j/R,along=lo+(hi-lo)*t;
+                    const crown=row===0?(.50+.50*Math.sin(Math.PI*t*.82)):1-.10*t;
+                    const rx=(radiusUp+(.010+.006*bulk-row*.003)*s)*crown;
+                    const rz=(radiusFront+(.009+.005*bulk-row*.003)*s)*crown;
+                    return Array.from({length:K+1},(_,k)=>{
+                        const angle=-1.72+k/K*3.44;
+                        return add(E.point(along),add(mul(up,Math.cos(angle)*rx),mul(fw,Math.sin(angle)*rz)));
+                    });
+                });
+                const axis=p=>E.point(dot(sub(p,E.B.head),E.along)/E.length);
+                metal.loft(rings,C.color,joint,axis,null,true);
+                // A rolled lower lip and three small attachment rivets resolve the scale of the metal.
+                const lip=rings.at(-1),outer=lip.map(p=>add(p,mul(norm(sub(p,axis(p))),.0014*s)));
+                edge.loft([outer,outer.map(p=>sub(p,mul(E.along,.0025*s)))],tint,joint,axis,null,true);
+                for(const k of [5,16,27]){
+                    const p=rings[R-1][k],n=norm(sub(p,axis(p)));
+                    bolt(edge,add(p,mul(n,.001*s)),n,.0022*s,tint,joint);
                 }
-                const N=Outfit.triangleNormals(P,I), base=metal.p.length/3;
-                for(let v=0;v<P.length/3;v++) {
-                    metal.p.push(...P.subarray(v*3,v*3+3));metal.n.push(...N.subarray(v*3,v*3+3));
-                    metal.c.push(...C.color);metal.j.push(joint,0,0,0);metal.w.push(1,0,0,0);
-                }
-                metal.i.push(...I.map(i=>base+i));
             }
         }
         if(kind==='breastplate')cuirass();
@@ -540,26 +585,8 @@
         const C = context(pack, built, item), s = C.scale, hip = C.bone('Hips').head[1], neck = C.bone('Neck').head[1];
         const span = Math.max(0.08 * s, neck - hip), chest = C.joint('Spine2'), waist = C.joint('Hips');
         const surfaces = [{ positions: built.parts[0].positions, index: built.parts[0].index }, ...layers];
-        const triangles = [];
-        for (const part of surfaces) for (let t = 0; t < part.index.length; t += 3) {
-            const ids = [part.index[t], part.index[t + 1], part.index[t + 2]], P = part.positions;
-            const points = ids.map(i => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]]);
-            const lo = Math.min(...points.map(p => p[1])), hi = Math.max(...points.map(p => p[1]));
-            if (hi < hip - 0.1 * s || lo > neck + 0.04 * s) continue;
-            triangles.push({ points, lo, hi, left: Math.min(...points.map(p => p[0])), right: Math.max(...points.map(p => p[0])) });
-        }
-        function surfaceAt(x, y, fallback, side = 1) {
-            let z = -Infinity;
-            for (const t of triangles) {
-                if (x < t.left || x > t.right || y < t.lo || y > t.hi) continue;
-                const [a,b,c] = t.points, det = (b[1]-c[1])*(a[0]-c[0])+(c[0]-b[0])*(a[1]-c[1]);
-                if (Math.abs(det) < 1e-12) continue;
-                const u = ((b[1]-c[1])*(x-c[0])+(c[0]-b[0])*(y-c[1]))/det;
-                const v = ((c[1]-a[1])*(x-c[0])+(a[0]-c[0])*(y-c[1]))/det, w=1-u-v;
-                if (u >= -1e-5 && v >= -1e-5 && w >= -1e-5) z = Math.max(z, side * (a[2]*u+b[2]*v+c[2]*w));
-            }
-            return Number.isFinite(z) ? side * z : fallback;
-        }
+        const surface=Outfit.projectedSurface(surfaces,{cell:.04*s,accept:(part,ids,p)=>Math.max(...p.map(q=>q[1]))>=hip-.1*s&&Math.min(...p.map(q=>q[1]))<=neck+.04*s});
+        const surfaceAt=(x,y,fallback,side=1)=>surface.depth(x,y,fallback,side);
         const frontPlates = [];
         const faceAt = (x,y,lift=0.006*s) => {
             let z = surfaceAt(x,y,C.section(y).front);
@@ -569,90 +596,113 @@
         // A nonplanar outline cannot be filled with one polygon fan: its
         // triangles cut through a full bust or belly. Fit the entire plate,
         // including its interior and closed back, to the finished fabric.
-        function fittedPlate(outline, color, joint, gap = .024 * s, depth = .012 * s, side = 1) {
+        function fittedPlate(outline, color, joint, gap = .014 * s, depth = .012 * s, side = 1) {
             const center = mul(outline.reduce(add, [0,0,0]), 1 / outline.length), normal = [0,0,side];
             const lo = [0,1].map(k=>Math.min(...outline.map(p=>p[k]))), hi = [0,1].map(k=>Math.max(...outline.map(p=>p[k])));
             const rx = Math.max((hi[0]-lo[0])/2,.005*s), ry = Math.max((hi[1]-lo[1])/2,.005*s);
             const sample = (x,y) => side*surfaceAt(x,y,side>0?C.section(y).front:C.section(y).back,side);
-            const middle=sample(center[0],center[1]),left=sample(lo[0],center[1]),right=sample(hi[0],center[1]);
-            const bottom=sample(center[0],lo[1]),top=sample(center[0],hi[1]);
-            const slopeX=(right-left)/(2*rx),slopeY=(top-bottom)/(2*ry);
-            const curveX=Math.max(.010*s,middle-(left+right)/2),curveY=Math.max(.006*s,middle-(bottom+top)/2);
-            // Tilt with the chest and retain its broad curvature, so a plate
-            // that clears a full bust does not float in front of the collar.
-            const bend = (x,y) => curveX*((x-center[0])/rx)**2 + curveY*((y-center[1])/ry)**2 - slopeX*(x-center[0]) - slopeY*(y-center[1]);
-            let height = -Infinity;
-            // Bound a smooth rigid dome above every intersecting fabric
-            // triangle. Copying individual fabric folds into the metal made
-            // the abdominal lames look like corrugated, torn cloth.
-            for (const t of triangles) {
-                if(t.right<lo[0]||t.left>hi[0]||t.hi<lo[1]||t.lo>hi[1]) continue;
-                // Clip before bounding the dome. A long source triangle may
-                // cross a narrow lame while its far endpoint is well outside
-                // it; evaluating that endpoint exaggerated the plate's depth.
-                let polygon=t.points;
-                for(const [axis,edge,direction] of [[0,lo[0],1],[0,hi[0],-1],[1,lo[1],1],[1,hi[1],-1]]) {
-                    const clipped=[];
-                    for(let i=0;i<polygon.length;i++) {
-                        const a=polygon[i],b=polygon[(i+1)%polygon.length];
-                        const da=direction*(a[axis]-edge),db=direction*(b[axis]-edge);
-                        if(da>=0)clipped.push(a);
-                        if((da>=0)!==(db>=0))clipped.push(lerp(a,b,da/(da-db)));
-                    }
-                    polygon=clipped;
+            // Form the shell over a low-frequency grid. A single quadratic
+            // dome extrapolated the belly's slope over the entire chest and
+            // lifted whole plates tens of centimetres away from short torsos.
+            // Grid spacing limits local folds without importing their creases.
+            const cells=8, grid=Array.from({length:cells+1},(_,j)=>Array.from({length:cells+1},(_,i)=>sample(lo[0]+i/cells*rx*2,lo[1]+j/cells*ry*2)));
+            for(let pass=0;pass<3;pass++) {
+                const next=grid.map(row=>row.slice());
+                for(let j=0;j<=cells;j++)for(let i=0;i<=cells;i++) {
+                    let sum=0,n=0;
+                    for(let v=Math.max(0,j-1);v<=Math.min(cells,j+1);v++)for(let u=Math.max(0,i-1);u<=Math.min(cells,i+1);u++){sum+=grid[v][u];n++;}
+                    next[j][i]=Math.max(grid[j][i],sum/n);
                 }
-                for(const p of polygon) height=Math.max(height,side*p[2]+bend(p[0],p[1]));
+                grid.forEach((row,j)=>row.splice(0,row.length,...next[j]));
             }
-            if(!Number.isFinite(height)) height=side*(side>0?C.section(center[1]).front:C.section(center[1]).back)+bend(center[0],center[1]);
-            const outer = (x,y) => side*(height-bend(x,y)+gap);
-            const point = (p, inset = 0) => [p[0],p[1],outer(p[0],p[1])-side*inset];
-            const steps = 5;
-            for (let edge = 0; edge < outline.length; edge++) {
-                const a = outline[edge], b = outline[(edge + 1) % outline.length];
-                const at = (i,j) => add(center, add(mul(sub(a,center),i/steps),mul(sub(b,center),j/steps)));
-                for (let i=0;i<steps;i++) for(let j=0;j<steps-i;j++) {
-                    const faces = [[at(i,j),at(i+1,j),at(i,j+1)]];
-                    if(i+j<steps-1) faces.push([at(i+1,j),at(i+1,j+1),at(i,j+1)]);
-                    for(const face of faces) {
-                        C.shell.face(face.map(p=>point(p)),color,joint,normal);
-                        C.shell.face(face.map(p=>point(p,depth)),mul(color,.62),joint,mul(normal,-1));
-                    }
+            const heights=new Map();
+            const outer = (x,y) => {
+                const key=x+':'+y;if(heights.has(key))return heights.get(key);
+                const u=Math.max(0,Math.min(cells-.000001,(x-lo[0])/(rx*2)*cells)),v=Math.max(0,Math.min(cells-.000001,(y-lo[1])/(ry*2)*cells));
+                const i=Math.floor(u),j=Math.floor(v),a=u-i,b=v-j;
+                const z=(grid[j][i]*(1-a)+grid[j][i+1]*a)*(1-b)+(grid[j+1][i]*(1-a)+grid[j+1][i+1]*a)*b;
+                const value=side*(Math.max(z,sample(x,y))+gap);heights.set(key,value);return value;
+            };
+            const nodes=new Map(),faces=[],borders=[],steps=5;
+            const node=p=>{const key=Math.round(p[0]*1e9)+':'+Math.round(p[1]*1e9);if(!nodes.has(key))nodes.set(key,[p[0],p[1],outer(p[0],p[1])]);return nodes.get(key);};
+            for(let edge=0;edge<outline.length;edge++){
+                const a=outline[edge],b=outline[(edge+1)%outline.length];
+                const at=(i,j)=>add(center,add(mul(sub(a,center),i/steps),mul(sub(b,center),j/steps)));
+                for(let i=0;i<steps;i++)for(let j=0;j<steps-i;j++){
+                    faces.push([at(i,j),at(i+1,j),at(i,j+1)].map(node));
+                    if(i+j<steps-1)faces.push([at(i+1,j),at(i+1,j+1),at(i,j+1)].map(node));
                 }
-                for(let i=0;i<steps;i++) {
-                    const p=lerp(a,b,i/steps),q=lerp(a,b,(i+1)/steps);
-                    const outward=norm(sub(lerp(p,q,.5),center));
-                    C.shell.face([point(p),point(q),point(q,depth),point(p,depth)],mul(color,.78),joint,outward);
+                for(let i=0;i<steps;i++)borders.push([node(lerp(a,b,i/steps)),node(lerp(a,b,(i+1)/steps))]);
+            }
+            // Clear the actual fabric between plate vertices as well. Shared
+            // nodes preserve a continuous shell while local corrections lift
+            // only the triangles crossing a bust/waist fold.
+            for(const face of faces){
+                let lift=0;
+                for(const weights of [[1/3,1/3,1/3],[.5,.5,0],[.5,0,.5],[0,.5,.5]]){
+                    const p=[0,1,2].map(k=>face.reduce((sum,q,i)=>sum+q[k]*weights[i],0));
+                    lift=Math.max(lift,sample(p[0],p[1])+depth+.002*s-side*p[2]);
+                }
+                if(lift>0)for(const p of face)p[2]+=side*lift;
+            }
+            const vertices=[...nodes.values()],ids=new Map(vertices.map((p,i)=>[p,i]));
+            const fitted=Outfit.projectedSurface([{positions:Float64Array.from(vertices.flat()),index:Uint32Array.from(faces.flatMap(f=>f.map(p=>ids.get(p))))}],{cell:.04*s});
+            const height=(x,y)=>fitted.depth(x,y,outer(x,y),side);
+            const point=(p,inset=0)=>[p[0],p[1],p[2]-side*inset];
+            for(const face of faces)for(const back of [false,true]){
+                const base=C.shell.p.length;
+                C.shell.face(face.map(p=>point(p,back?depth:0)),back?mul(color,.62):color,joint,mul(normal,back?-1:1));
+                const h=.006*s;
+                for(let i=base;i<C.shell.p.length;i+=3){
+                    const x=C.shell.p[i],y=C.shell.p[i+1],dx=(height(x+h,y)-height(x-h,y))/(2*h),dy=(height(x,y+h)-height(x,y-h))/(2*h);
+                    const n=mul(norm([-dx,-dy,1]),side*(back?-1:1));C.shell.n.splice(i,3,...n);
                 }
             }
-            if(side>0) frontPlates.push({lo,hi,height:outer});
+            for(const [p,q]of borders){const outward=norm(sub(lerp(p,q,.5),center));C.shell.face([point(p),point(q),point(q,depth),point(p,depth)],mul(color,.78),joint,outward);}
+            if(side>0)frontPlates.push({lo,hi,height});
         }
         if (kind === 'recon' || kind === 'vest') {
-            const top = neck - span * 0.09, low = hip + span * 0.40;
+            const top = neck - span * (kind==='recon'?.22:.09), low = hip + span * 0.40;
             // Separate beveled pectoral plates with real side walls and a breathing gap.
             for (const side of [-1,1]) {
                 const outline = [[0.04,0.91],[0.60,1],[0.94,0.80],[0.84,0.12],[0.34,0],[0.05,0.12]].map(([u,v])=>{
-                    const y = low + (top-low)*v, q=C.section(y), x=side*u*q.width;
+                    const y = low + (top-low)*v, q=C.section(y), x=side*u*q.width*(kind==='recon'?.83:1);
                     return faceAt(x,y,0.025*s);
                 });
-                fittedPlate(outline,C.color,chest);
+                fittedPlate(outline,C.color,chest,kind==='recon'?.020*s:.014*s);
                 for (const k of [1,3]) bolt(C.hardware,faceAt(outline[k][0],outline[k][1],.001*s),Z,.0025*s,C.trim,chest);
                 const y = top-(top-low)*.25, q=C.section(y), x=side*q.width*.42;
-                for(let row=0;row<3;row++) rectangle(C.hardware,faceAt(x,y-row*.009*s,.029*s),X,Y,q.width*.25,.003*s,Z,C.trim,chest,.001*s,.0004*s);
+                for(let row=0;row<3;row++) rectangle(C.hardware,faceAt(x,y-row*.009*s,.003*s),X,Y,q.width*.25,.003*s,Z,C.trim,chest,.001*s,.0004*s);
                 rectangle(C.hardware,faceAt(x,y+.010*s,.004*s),X,Y,q.width*.25,.004*s,Z,C.accent,chest,.0015*s,.0005*s);
             }
             // A back shell and independent abdominal lames use their own spine joints.
             const middle=(top+low)/2, q=C.section(middle), z=q.back-.020*s;
-            fittedPlate(OCTAGON.map(([x,y])=>[x*q.width*.85,middle+y*(top-low)*.46,z]),C.color,chest,.020*s,.012*s,-1);
-            for(let row=0;row<3;row++) {
+            fittedPlate(OCTAGON.map(([x,y])=>[x*q.width*(kind==='recon'?.74:.85),middle+y*(top-low)*.46,z]),C.color,chest,.014*s,.012*s,-1);
+            for(let row=0;kind!=='recon'&&row<3;row++) {
                 const y=hip+span*(.07+row*.11), q=C.section(y), h=span*.10;
                 const outline=OCTAGON.map(([x,v])=>faceAt(x*q.width*.76,y+v*h/2,.019*s));
-                fittedPlate(outline,mul(C.color,.87),C.joint(row===2?'Spine1':'Spine'),.019*s,.009*s);
+                fittedPlate(outline,mul(C.color,.87),C.joint(row===2?'Spine1':'Spine'),.011*s,.009*s);
             }
             if (kind === 'recon') for(const side of ['Left','Right']) {
-                const E=C.envelope(side+'Arm',side==='Left'?1:2,.05,.30), at=E.point(.12);
-                guard(C,add(at,mul(E.front,E.rz+.020*s)),E.front,E.side,E.along,E.rx*1.20,E.length*.25,C.joint(side+'Arm'));
-                const leg=C.envelope(side+'UpLeg',side==='Left'?3:4,.65,.92), p=leg.point(.84);
-                guard(C,add(p,mul(leg.front,leg.rz+.015*s)),leg.front,leg.side,leg.along,leg.rx*1.15,leg.length*.22,C.joint(side+'UpLeg'));
+                // A shoulder cup wraps the upper arm. Sample the actual
+                // sleeve near each station rather than placing a flat badge
+                // at the largest radius found elsewhere on the limb.
+                const family=side==='Left'?1:2,E=C.envelope(side+'Arm',family,.12,.48),joint=C.joint(side+'Arm');
+                const body=built.parts[0],sections=new Map();
+                const at=(t,angle,gap)=>{
+                    if(!sections.has(t))sections.set(t,Outfit.crossSection([body,...layers],E.point(t),[E.side,E.along,E.front],
+                        (part,v)=>part===body?C.an.member[pack.body.source[v]*5+family]>.45:part.field?.[v]?.fam===family,s));
+                    return sections.get(t)(angle,gap);
+                };
+                // Mirrored arm frames reverse the outer radial direction.
+                // Cross the outer shoulder, leaving the armpit half open.
+                const angles=Array.from({length:13},(_,k)=>(side==='Left'?1:-1)*(-Math.PI+.15+k/12*(Math.PI-.30)));
+                const rings=Array.from({length:5},(_,r)=>angles.map(a=>at(.12+r/4*.30,a,.010*s)));
+                C.shell.loft(rings,C.color,joint,p=>E.point(dot(sub(p,E.B.head),E.along)/E.length),undefined,true);
+                for(const r of [0,4])for(let k=0;k+1<angles.length;k++){
+                    const t=.12+r/4*.30,a=angles[k],b=angles[k+1];
+                    C.hardware.face([at(t,a,.010*s),at(t,b,.010*s),at(t,b,.002*s),at(t,a,.002*s)],C.trim,joint,mul(E.along,r===0?-1:1));
+                }
             }
         }
         if (kind === 'uniform') {
@@ -663,7 +713,7 @@
             for(let i=0;i<3;i++) rectangle(C.hardware,faceAt(-q.width*.40+i*.007*s,y+.015*s,.004*s),X,Y,.004*s,.012*s,Z,C.accent,chest,.0015*s,.0004*s);
         } else {
             // A compact chest controller, and two closed utility pouches at the hips.
-            const y=hip+span*.78, q=C.section(y), x=-q.width*.38, at=faceAt(x,y,(kind==='recon'||kind==='vest')?.038*s:.009*s);
+            const y=hip+span*(kind==='recon'?.65:.78), q=C.section(y), x=-q.width*.38, at=faceAt(x,y,(kind==='recon'||kind==='vest')?.004*s:.009*s);
             rectangle(C.hardware,at,X,Y,.043*s,.058*s,Z,C.trim,chest,.006*s,.002*s);
             const glow=Outfit.linear(item.lightColor||'#71cfff');
             rectangle(C.indicators,add(at,[0,.012*s,.001*s]),X,Y,.029*s,.017*s,Z,glow,chest,.002*s,.0006*s);
@@ -674,13 +724,23 @@
                 rectangle(C.shell,at,X,Y,width,height,Z,mul(C.color,.87),waist,.014*s,.003*s);
                 rectangle(C.hardware,add(at,[0,height*.31,.001*s]),X,Y,width*.9,height*.18,Z,C.trim,waist,.003*s,.001*s);
                 bolt(C.hardware,add(at,[0,height*.31,.004*s]),Z,.002*s,C.accent,waist);
+                if(kind==='recon'){
+                    // Folded pocket flaps, retaining tapes and pull tabs sit
+                    // on the pouch face, with the load carried by the belt.
+                    const face=add(at,[0,0,.003*s]);
+                    rectangle(C.hardware,add(face,[0,height*.22,.002*s]),X,Y,width*.88,height*.28,Z,mul(C.trim,1.25),waist,.005*s,.001*s);
+                    for(const sign of [-1,1])rectangle(C.hardware,add(face,[sign*width*.27,-height*.08,.003*s]),X,Y,width*.10,height*.68,Z,C.trim,waist,.002*s,.0005*s);
+                    rectangle(C.hardware,add(face,[0,-height*.23,.007*s]),X,Y,width*.20,height*.18,Z,mul(C.accent,.6),waist,.003*s,.0008*s);
+                }
             }
         }
         const parts=[];
         if(C.shell.i.length)parts.push(C.shell.part(kind==='recon'?'Recon formed plating':'Field utility pouches',{roughness:.55,metalness:.15}));
         if(C.hardware.i.length)parts.push(C.hardware.part('Field fasteners and controls',{roughness:.5,metalness:.65}));
         if(C.indicators.i.length)parts.push(C.indicators.part('Field status indicators',{roughness:.35,metalness:.1,emissive:item.lightColor||'#71cfff',emissiveIntensity:item.lightStyle==='none'?0:item.lightIntensity??.25}));
-        return {parts,hidden:new Set()};
+        const construction=kind==='recon'?(root.RRCharacterReconConstruction||require('./CharacterReconConstruction.js')).build(C,layers,surfaceAt):null;
+        if(construction)parts.push(...construction.parts);
+        return {parts,hidden:new Set(),textures:construction?.textures||[]};
     }
 
     const api={build,helmet,medieval,fieldGear};

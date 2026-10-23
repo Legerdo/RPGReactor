@@ -4,22 +4,22 @@ Dated notes for the cycle in progress, newest first. Read [STATUS.md](STATUS.md)
 
 An entry holds only what the next session needs and cannot find elsewhere: what is half-done, what to watch for, what waits on the owner, how to resume. What changed goes in the editor changelog; how the code works goes in the commit message and the guides. Size limits and the rollover are in [README.md](README.md#keeping-status-and-handoff-short); `docs-budget.test.cjs` enforces them.
 
-## Where things stand (2026-10-20)
+## Where things stand (2026-10-22)
 
 - **Start here:** [character coverage](CHARACTER-QUALITY.md), [remaining issues](CLAUDE-QUALITY-TRACKER.md), [Performance](PERFORMANCE.md). Owner will check weaker hardware.
-- **0.99.1** at runtime **20261020.1**, synced to 19 projects. Preview revision 31; [Import guide](IMPORTING-LEGACY-PROJECTS.md): Sunset fidelity/dither cleanup. Checkpoint follows `04e0f892`; character/performance/import changes included. Native game/map/Forge checks pass; low-end/two-monitor checks remain.
+- **0.99.1** at runtime **20261022.1**, synced to 19 projects. Preview revision 47. Builder progress checkpointed through 2026-10-22; visual acceptance remains open. [Import guide](IMPORTING-LEGACY-PROJECTS.md): Sunset fidelity. Recorded native checks pass; low-end/two-monitor checks remain.
 - **User-path sweeps:** 1 to 13 done and committed. Owner questions: the three sweeps entries below.
 - **Editor windows:** the event editor, Database, Forge and Plugin Manager each open in a frameless window of their own (`utils/DetachedWindow.js`), together, on any monitor; `PopoutBridge` serves several windows. The web editor floats them in the page. Database and Forge size initially to the monitor; All four request rounded corners and transparent pixels outside the panel; native Linux transparency still needs a live check.
 - **Event lists** draw tree rails beside branches, choices, loops and battle branches (map, troop and common event lists).
 - **Savior & Religion** (`template/Savior & Religion`, not in git; a deployed, encrypted MV game the owner is trying as a template): boots, plays its opening and draws its ULDS maps (2, 5, 19); its index.html is in MV mode now.
 - **Contrast pass:** done in light and dark (committed); the owner keeps the current look.
-- **Character follow-up:** Preview31: fish scales/sheen, Goa’uld relief, hood/waist/merfolk fixes; 443 clothed/extreme cases. Seated robe backs, extreme cloth and rigid armor still need fitting; priorities in coverage. [Coverage](CHARACTER-QUALITY.md), `scratchpad/deep-character-audit/review.html`. Re-save GLBs.
+- **Character/prop follow-up:** Preview47 vehicles: `scratchpad/vehicle-corrections-20261022/review.html`; prior plate/boots, bird and screen fixes: [coverage](CHARACTER-QUALITY.md), [props](PROP-BUILDER.md). Reload/reselect/re-save GLBs.
 
-## 2026-10-20 — Latest character checkpoint
+## 2026-10-22 — Builder progress checkpoint
 
-Preview31: expanded creatures/aliens, fine surface maps, joined attachments and cloth/boot fixes. Final443 geometry cases/52 focused checks pass; full-suite result remains historical. Closeout:115 further checks. Runtime20261020.1:19 copies match. Reload/reselect and re-save GLBs.
+Checkpoint includes creature/catalog expansion, tailoring/pose corrections, Body-tab recovery, faster outfit fitting, shared construction rules, furniture and nine vehicle families. Preview47 adds outline lettering, filtered grain and formed bodywork. Guides/changelogs retain the changes and recorded checks; local evidence is linked above. Demo's generated Villager7 eight-direction sheet is preserved too. No push/release.
 
-Next: ordinary seated robe rear coverage; extreme armor/chest stand-off; generated/imported cloth crossings; collars. [Tracked priorities and25 examples](CHARACTER-QUALITY.md#remaining-fitting-work-after-the-revision-31-audit). Physical iridescence is preview/source-GLB only. Local proof: ignored `scratchpad/deep-character-audit/review.html`. NW.js/llvmpipe is appearance evidence, not hardware timing. No push/release.
+Next: refine vehicle silhouettes/mechanics and weaker sci-fi/plate outfits; revisit extreme cloth/armor contact and bikini coverage. Technical passes are separate from visual acceptance, still open after the owner rejected preview46. The native caption regression rejects the old merged lettering; it cannot certify the whole asset. No new full-suite/hardware-FPS claim. Reload/reselect and rebuild/re-save older GLBs.
 
 ## 2026-10-20 — Linux 3D startup recovery
 

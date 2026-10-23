@@ -29,11 +29,17 @@
         return { width, height, data, shelfY: 0, shelfH: 0, cursorX: 0, pad: 3 };
     }
 
-    /** A rectangle w x h (pixels) in the atlas, or the largest that still fits beside the others. */
+    /** Reserve a complete region. Silently clipping late regions discarded
+     * hardware colors and fine markings on more elaborate containers. */
     function region(a, w, h) {
         w = Math.max(4, Math.min(a.width - a.pad * 2, Math.round(w))); h = Math.max(4, Math.round(h));
         if (a.cursorX + w + a.pad * 2 > a.width) { a.shelfY += a.shelfH; a.shelfH = 0; a.cursorX = 0; }
-        h = Math.min(h, Math.max(4, a.height - a.shelfY - a.pad * 2));
+        const required=a.shelfY+h+a.pad*2;
+        if(required>a.height){
+            const height=2**Math.ceil(Math.log2(required));
+            if(height>8192)throw Error('Container surface atlas exceeds its construction budget');
+            const data=new Uint8Array(a.width*height*4);data.set(a.data);a.data=data;a.height=height;
+        }
         const r = { x: a.cursorX + a.pad, y: a.shelfY + a.pad, w, h };
         a.cursorX += w + a.pad * 2;
         a.shelfH = Math.max(a.shelfH, h + a.pad * 2);
@@ -417,6 +423,12 @@
         let x0 = box.x + (box.w - total) / 2;
         if (sym) { parts.push({ kind: 'symbol', x: x0 + symW / 2, y: box.y + box.h / 2, r: symW / 2 }); x0 += symW + gap; }
         if (L) parts.push({ kind: 'text', x: x0, y: box.y + box.h / 2 - textH / 2, h: textH, w: textW });
+        if(o.stacked&&sym&&L){
+            const h=Math.min(H*.28,box.w*.92/L.width*6),w=h/6*L.width,rad=Math.min(H*.27,box.w*.18);
+            parts.length=0;
+            parts.push({kind:'symbol',x:box.x+box.w/2,y:box.y+H*.29,r:rad});
+            parts.push({kind:'text',x:box.x+(box.w-w)/2,y:box.y+H*.67,h,w});
+        }
         const pictureBox = img ? fitBox(img, box) : null;
         const labelPad = 0.25;
         const tmp = [0, 0, 0, 1];
@@ -462,7 +474,7 @@
                         if (x < p.x - p.h * 0.2 || x > p.x + p.w + p.h * 0.2 || y < p.y - p.h * 0.2 || y > p.y + p.h * 1.2) continue;
                         const gx = (x - p.x) / p.h * 6, gy = (y - p.y) / p.h * 6;
                         const label = style === 'label';
-                        const c = coverage(L, gx, gy, label ? 1.05 : 1.25, style === 'stencil', 0.32, pixel / p.h * 6 * (style === 'stencil' ? 1.8 : 1.2));
+                        const c = coverage(L, gx, gy, label ? 1.05 : 1.25, style === 'stencil', 0.12, pixel / p.h * 6 * 1.0);
                         if (c <= 0) continue;
                         // Sprayed paint: a soft speckled edge; with wear, worn through in patches.
                         const s = style === 'stencil' ? 0.82 + 0.18 * spray(x * 3, y * 3) : 1;

@@ -2,8 +2,8 @@
 (function(scope) {
     'use strict';
     const modules = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterSimplify',
-        'CharacterOutfitTransfer', 'CharacterClothes', 'CharacterPowerArmor', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin',
-        'CharacterHair', 'CreatureGear', 'CreatureForms', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterPoses',
+        'CharacterOutfitTransfer', 'CharacterClothes', 'CharacterPowerArmor', 'ConstructionSurface', 'ConstructionPatterns', 'CharacterProps', 'CharacterGarmentDetails', 'CharacterReconConstruction', 'CharacterWardrobe', 'CharacterSpecies', 'CharacterSkin',
+        'CharacterHair', 'CreatureGear', 'CreatureArthropods', 'CreatureFlyers', 'CreatureForms', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterPoses',
         'MerfolkBody', 'CharacterCloth', 'CharacterExpressions', 'SlimeBody', 'CharacterModel'];
     importScripts('../../utils/QuadricDecimator.js', 'CharacterPreviewTextures.js', ...modules.map(name => name + '.js'));
     const Body = scope.RRHumanBody, Model = scope.RRCharacterModel, Wardrobe = scope.RRCharacterWardrobe;

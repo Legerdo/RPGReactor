@@ -3491,6 +3491,105 @@
             color: var(--color-text);
         }
 
+        /* Help > About shares the editor's fixed header/footer frame. */
+        #about-modal .rr-about-dialog {
+            width: min(760px, calc(100vw - 32px));
+            max-width: calc(100vw - 32px);
+            max-height: calc(100vh - 32px);
+            overflow: hidden;
+            background: var(--color-bg-base);
+            border-color: var(--color-accent-tint-40);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-modal);
+        }
+        #about-modal .rr-modal-header,
+        #about-modal .rr-modal-footer {
+            flex: 0 0 auto;
+            background: var(--color-bg-deep);
+        }
+        #about-modal .rr-modal-header {
+            gap: 16px;
+            padding: 14px 20px;
+            border-inline-start: 3px solid var(--color-accent);
+        }
+        #about-modal .rr-modal-close:hover { color: var(--color-accent-bright); }
+        #about-modal .rr-about-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            gap: 20px;
+            padding: 20px 24px;
+            overflow-y: auto;
+        }
+        .rr-about-overview {
+            display: grid;
+            grid-template-columns: 112px minmax(0, 1fr);
+            gap: 24px;
+            align-items: center;
+        }
+        .rr-about-logo { display: block; width: 112px; height: auto; max-width: 100%; }
+        .rr-about-summary { min-width: 0; }
+        .rr-about-summary h3 {
+            margin: 0 0 10px;
+            color: var(--color-accent-bright);
+            font-size: var(--font-size-lg);
+        }
+        .rr-about-summary p { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
+        .rr-about-summary .rr-about-compatibility {
+            margin-top: 10px;
+            color: var(--color-text-muted);
+            font-size: var(--font-size-sm);
+        }
+        .rr-about-links h3 {
+            margin: 0 0 10px;
+            color: var(--color-text-strong);
+            font-size: var(--font-size-base);
+        }
+        .rr-about-link-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .rr-about-link-grid a {
+            display: flex;
+            align-items: center;
+            min-width: 0;
+            min-height: 42px;
+            padding: 10px 12px;
+            background: var(--color-bg-panel);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            color: var(--color-accent-bright);
+            font-size: var(--font-size-sm);
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+            text-decoration: none;
+            transition: background var(--ease-fast), border-color var(--ease-fast);
+        }
+        .rr-about-link-grid a:visited { color: var(--color-accent-bright); }
+        .rr-about-link-grid a:hover {
+            background: var(--color-accent-tint-10);
+            border-color: var(--color-accent);
+            text-decoration: underline;
+            text-underline-offset: 3px;
+        }
+        .rr-about-link-grid a:focus-visible,
+        .rr-about-footer button:focus-visible {
+            outline: 2px solid var(--color-accent-bright);
+            outline-offset: 2px;
+        }
+        #about-modal .rr-about-footer { align-items: center; padding: 12px 20px; }
+        .rr-about-footer span { margin-inline-end: auto; color: var(--color-text-muted); font-size: var(--font-size-sm); }
+        .rr-about-footer button { min-width: 88px; }
+        @media (max-width: 600px) {
+            #about-modal .rr-about-body { padding: 16px; gap: 16px; }
+            .rr-about-overview { grid-template-columns: 72px minmax(0, 1fr); gap: 16px; align-items: start; }
+            .rr-about-logo { width: 72px; }
+            .rr-about-link-grid { grid-template-columns: minmax(0, 1fr); }
+        }
+        @media (max-width: 380px) {
+            .rr-about-overview { grid-template-columns: minmax(0, 1fr); }
+        }
+
         /* ── Map Properties modal buttons ─────────────────────────────
            Footer buttons match the header strip (toolbar tone) with the
            primary action carried by the theme accent — no hardcoded blue. */

@@ -359,7 +359,7 @@ class PropBuilder {
         }
         this._set(path, value);
         this._syncSliders();
-        if (committed) { this._commit(); if (path === 'cloth.height' || path === 'cloth.width') this._renderPanel(); }
+        if (committed) { this._commit(); if (path === 'cloth.height' || path === 'cloth.width' || path === 'marks.text') this._renderPanel(); }
         this._quick = !committed;
         this._queueRebuild();
     }
@@ -553,7 +553,8 @@ class PropBuilder {
         } else {
             const size = box.getSize(new THREE.Vector3());
             view.target.copy(box.getCenter(new THREE.Vector3()));
-            view.distance = Math.max(0.04, Math.max(size.x, size.y, size.z) * 1.9);
+            const halfY=THREE.MathUtils.degToRad(view.camera.fov)/2,halfX=Math.atan(Math.tan(halfY)*view.camera.aspect);
+            view.distance=Math.max(.04,size.length()*.5/Math.sin(Math.min(halfX,halfY))*1.06);
         }
         this._draw();
     }
@@ -582,7 +583,8 @@ class PropBuilder {
     _structure(result) {
         // Where every vertex stands, summed: a reshaped part with as many vertices is still a new shape.
         const sum = (positions, colors) => { let s = 0; for (let i = 0; i < positions.length; i++) s += positions[i] * ((i % 7) + 1); if (colors) for (let i = 0; i < colors.length; i++) s += colors[i] * 7.31; return s.toFixed(5); };
-        return result.kind + '|' + result.bones.map(b => b.head.map(v => v.toFixed(4)).join(',')).join(';') + '|' + result.parts.map(p => [p.name, p.positions.length, p.index.length, p.cutout ? 1 : 0, sum(p.positions, p.colors)].join(':')).join(';')
+        const materialLayout=p=>JSON.stringify([p.kind==='cloth',p.texture||'',p.normalTexture||'',p.metallicRoughnessTexture||'',p.emissiveTexture||'',!!p.doubleSided,!!p.blend]);
+        return result.kind + '|' + result.bones.map(b => b.head.map(v => v.toFixed(4)).join(',')).join(';') + '|' + result.parts.map(p => [p.name, p.positions.length, p.index.length, p.cutout ? 1 : 0, materialLayout(p), sum(p.positions, p.colors)].join(':')).join(';')
             + '|' + RRPropModel.clothsOf(result).map(c => Array.from(c.setup.holes || []).join('')).join('/');
     }
 
@@ -626,6 +628,9 @@ class PropBuilder {
         const same = view.structure === structure && view.meshes.length;
         this._result = result;
         if (same) {
+            // A coating atlas can repack UV charts between drag and final
+            // resolutions without changing vertex positions or material slots.
+            result.parts.forEach((part,k)=>{const uv=view.meshes[k].geometry.getAttribute('uv');if(uv&&part.uvs){uv.array.set(part.uvs);uv.needsUpdate=true;}});
             this._swapTextures(result);
             this._applyMaterials(result);
         } else if (view.layout === layout && view.meshes.length === result.parts.length) {
@@ -682,6 +687,7 @@ class PropBuilder {
         const t = new THREE.DataTexture(tex.data, tex.width, tex.height, THREE.RGBAFormat);
         t.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
         t.flipY = false;
+        if(tex.repeat)t.wrapS=t.wrapT=THREE.RepeatWrapping;
         t.generateMipmaps = true;
         t.minFilter = THREE.LinearMipmapLinearFilter;
         t.magFilter = THREE.LinearFilter;
@@ -695,8 +701,8 @@ class PropBuilder {
         for (const [name, tex] of Object.entries(result.textures || {})) {
             if (!tex) continue;
             const kept = this._view.textures.get(name);
-            const fresh = this._texture(name, tex, !/normal/.test(name));
-            if (kept && kept.texture !== fresh) for (const m of this._view.meshes) { if (m.material.map === kept.texture) m.material.map = fresh; if (m.material.normalMap === kept.texture) m.material.normalMap = fresh; if (m.material.emissiveMap === kept.texture) m.material.emissiveMap = fresh; m.material.needsUpdate = true; }
+            const fresh = this._texture(name, tex, !/normal|surface/.test(name));
+            if (kept && kept.texture !== fresh) for (const m of this._view.meshes) { if (m.material.map === kept.texture) m.material.map = fresh; if (m.material.normalMap === kept.texture) m.material.normalMap = fresh; if (m.material.emissiveMap === kept.texture) m.material.emissiveMap = fresh; if(m.material.roughnessMap===kept.texture)m.material.roughnessMap=fresh;if(m.material.metalnessMap===kept.texture)m.material.metalnessMap=fresh; m.material.needsUpdate = true; }
         }
     }
 
@@ -709,9 +715,11 @@ class PropBuilder {
             m.roughness = part.roughness ?? 0.6;
             m.metalness = part.metalness ?? 0;
             m.opacity = part.opacity ?? 1;
-            const transparent = m.opacity < 1;
+            const transparent = m.opacity < 1 || !!part.blend;
             if (m.transparent !== transparent) { m.transparent = transparent; m.needsUpdate = true; }
             m.depthWrite = !transparent;
+            this._view.meshes[k].castShadow = !transparent;
+            if(m.emissive){m.emissive.set(part.emissive||'#000000');m.emissiveIntensity=part.emissiveIntensity??1.4;}
             if (m.sheen !== undefined && part.kind === 'cloth') m.sheen = result.recipe.cloth && result.recipe.cloth.fabric === 'silk' ? 0.6 : 0.25;
         });
     }
@@ -731,8 +739,10 @@ class PropBuilder {
         });
         const normal = part.normalTexture && result.textures[part.normalTexture];
         if (normal) { m.normalMap = this._texture(part.normalTexture, normal, false); m.normalScale = new THREE.Vector2(part.normalScale ?? 1, part.normalScale ?? 1); }
+        const surface=part.metallicRoughnessTexture&&result.textures[part.metallicRoughnessTexture];
+        if(surface)m.roughnessMap=m.metalnessMap=this._texture(part.metallicRoughnessTexture,surface,false);
         if (part.cutout) m.alphaToCoverage = true;
-        if (part.emissive) { m.emissive = new THREE.Color(part.emissive); m.emissiveIntensity = 1.4; }
+        if (part.emissive) { m.emissive = new THREE.Color(part.emissive); m.emissiveIntensity = part.emissiveIntensity ?? 1.4; }
         // Containers: a glow drawn from its picture (lamps, a display), halos blended by their alpha.
         if (part.emissive && part.emissiveTexture && result.textures[part.emissiveTexture]) m.emissiveMap = this._texture(part.emissiveTexture, result.textures[part.emissiveTexture], true);
         if (part.blend) { m.transparent = true; m.depthWrite = false; }
@@ -765,7 +775,7 @@ class PropBuilder {
             if (part.normalTexture) g.computeTangents?.();
             const mesh = new THREE.SkinnedMesh(g, this._material(part, result));
             mesh.frustumCulled = false;
-            mesh.castShadow = true;
+            mesh.castShadow = (part.opacity ?? 1) >= 1 && !part.blend;
             mesh.receiveShadow = true;
             mesh.bind(skeleton);
             view.group.add(mesh);
@@ -789,7 +799,10 @@ class PropBuilder {
         const view = this._view;
         // Framed afresh when the prop's size changes much.
         const h = result.height || 2, extent = Math.max(h, result.recipe.cloth ? result.recipe.cloth.width * 1.5 : 0);
-        const first = !view.framedFor || Math.abs(Math.log(extent / view.framedFor)) > 0.3;
+        const type=RRPropCatalog.typeOf(result.recipe)?.id || result.kind;
+        const selected=view.stagedType!==type;
+        if(selected){view.pitch=['gun','sword'].includes(result.kind)?.92:.22;view.stagedType=type;}
+        const first = selected || !view.framedFor || Math.abs(Math.log(extent / view.framedFor)) > 0.3;
         view.extent = extent;
         view.minDistance = Math.max(.01, Math.min(.4, extent * .25));
         view.camera.near = Math.max(.0005, Math.min(.05, view.minDistance * .1));
@@ -1135,7 +1148,7 @@ RRPropCatalog.ui('flag', {
                 const cap = F.clothCap(r.pole.type, r.pole.height);
                 let html = this._section('Size') + this._select('cloth.aspect', 'Shape', F.ASPECTS.map(a => [a[0], a[1]]))
                     + this._slider({ path: 'cloth.width', label: 'Width', range: [0.15, 6], step: 0.05, format: 'm' })
-                    + this._slider({ path: 'cloth.height', label: 'Height', range: [0.1, Math.max(0.2, Math.round(cap * 100) / 100)], step: 0.05, format: 'm' })
+                    + this._slider({ path: 'cloth.height', label: 'Height', range: [0.1, Math.max(0.2, Math.floor(Math.min(8, cap) * 20) / 20)], step: 0.05, format: 'm' })
                     + this._select('cloth.cut', 'Fly end', F.CUTS);
                 html += this._section('Fabric') + this._tiles('fabric', F.FABRICS.map(([id, label]) => ({ id, label })), r.cloth.fabric, 2);
                 if (r.cloth.fabric === 'tattered') html += this._slider({ path: 'cloth.wear', label: 'Wear', range: [0, 1] });
@@ -1195,7 +1208,7 @@ RRPropCatalog.ui('picture', {
             return this._section('Outline to turn') + `<div class="rr-prop-profile"><canvas class="rr-prop-profile-canvas" width="300" height="300"></canvas></div>`
                 + this._check('turned.fromPicture', 'Follow the picture')
                 + this._section('Shape') + this._slider({ path: 'turned.height', label: 'Height', range: [0.05, 4], step: 0.01, format: 'm' })
-                + this._slider({ path: 'turned.segments', label: 'Segments', range: [8, 48], step: 1, format: 'int' })
+                + this._slider({ path: 'turned.segments', label: 'Segments', range: [8, 128], step: 1, format: 'int' })
                 + this._select('turned.top', 'Opening', [['open', 'Open top'], ['closed', 'Closed top']])
                 + this._slider({ path: 'turned.wall', label: 'Wall thickness', range: [0, 0.1], step: 0.002, format: 'm' })
                 + this._section('Look') + this._select('turned.surface', 'Surface', P.SURFACES)

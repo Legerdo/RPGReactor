@@ -6,10 +6,10 @@ const hash=a=>crypto.createHash('sha256').update(new Uint8Array(a.buffer,a.byteO
 test('clothing collar and sleeve cuts cannot become stretched animal-head neck joins',async()=>{
  const pack=await Q.Body.loadPack();
  for(const [id]of Q.Species.heads().filter(([id])=>id!=='human')){
-  const r=Q.Model.normalize({...Q.Model.withSpecies({},'human'),headId:id,hair:{style:'bald'},outfit:[]}),bare=Q.Model.build(pack,r,{}, {quality:'preview',static:true,skinSize:128}),neck=bare.parts.find(p=>p.name==='Head neck');assert.ok(neck,id);
+  const r=Q.Model.normalize({...Q.Model.withSpecies({},'human'),headId:id,hair:{style:'bald'},outfit:[]}),bare=Q.Model.build(pack,r,{}, {quality:'preview',static:true,skinSize:128}),necks=bare.parts.filter(p=>/^Head .*neck$/.test(p.name));assert.equal(necks.length,id==='hydrata'?2:1,id);
   for(const outfit of [[{id:'tshirt'},{id:'shorts'}],[{id:'robe'}]]){
-   const clothed=Q.Model.build(pack,{...r,outfit},{},{quality:'preview',static:true,skinSize:128}),join=clothed.parts.find(p=>p.name==='Head neck');assert.ok(join);
-   assert.equal(hash(join.positions),hash(neck.positions),id+' neck follows the head cut independently of garment openings');assert.equal(hash(join.index),hash(neck.index));assert.equal(hash(join.weights),hash(neck.weights));
+   const clothed=Q.Model.build(pack,{...r,outfit},{},{quality:'preview',static:true,skinSize:128});
+   for(const neck of necks){const join=clothed.parts.find(p=>p.name===neck.name);assert.ok(join);assert.equal(hash(join.positions),hash(neck.positions),id+' neck follows the head cut independently of garment openings');assert.equal(hash(join.index),hash(neck.index));assert.equal(hash(join.weights),hash(neck.weights));}
   }
  }
 });

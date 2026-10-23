@@ -34,7 +34,7 @@
     function lathe(profile, segments, options) {
         const o = options || {};
         const base = o.base || [0, 0, 0], d = norm(o.dir || [0, 1, 0]);
-        const [U, V] = basis(d), seg = Math.max(3, segments | 0), phase = o.phase || 0;
+        const [U, V] = basis(d), seg = Math.max(segments>=8?32:3, segments | 0), phase = o.phase || 0;
         const P = [], N = [], T = [], I = [];
         // Profile normals: square to each span, averaged at a joint unless the joint is sharp.
         const spans = profile.slice(1).map((p, k) => { const dr = p[0] - profile[k][0], dh = p[1] - profile[k][1], l = Math.hypot(dr, dh) || 1; return [dh / l, -dr / l]; });
@@ -79,7 +79,8 @@
     }
 
     function sphere(center, r, segments, rings) {
-        const n = rings || Math.max(4, Math.round(segments / 2)), profile = [];
+        segments=Math.max(32,segments);
+        const n = rings || Math.max(16, Math.round(segments / 2)), profile = [];
         for (let k = 0; k <= n; k++) { const a = -Math.PI / 2 + Math.PI * k / n; profile.push([Math.cos(a) * r, Math.sin(a) * r]); }
         profile[0][0] = profile[n][0] = 0;
         return lathe(profile, segments, { base: center, sharp: -2, caps: false });
@@ -139,7 +140,7 @@
             for (const t of tris) { if (back) I.push(start + t[0], start + t[2], start + t[1]); else I.push(start + t[0], start + t[1], start + t[2]); }
         }
         // The rim: around each loop, from the front face's edge to the back's, through the bevel.
-        const steps = bevel > 0 ? (o.round ? 2 : 1) : 0;
+        const steps = bevel > 0 ? (o.round ? bevel>=.002?5:bevel>=.0008?3:1 : 1) : 0;
         const rimProfile = [];
         if (steps) for (let s = 0; s <= steps; s++) { const a = (s / steps) * Math.PI / 2; rimProfile.push([bevel * (1 - (o.round ? Math.sin(a) : s / steps)) , zIn + bevel * (o.round ? Math.cos(a) : 1 - s / steps)]); }
         else rimProfile.push([0, zf]);
@@ -278,7 +279,7 @@
      * turned along the path without twisting; ends closed when `caps`.
      */
     function polyTube(points, radius, segments, options) {
-        const o = options || {}, seg = Math.max(3, segments | 0), n = points.length, P = [], N = [], T = [], I = [];
+        const o = options || {}, seg = Math.max(16, segments | 0), n = points.length, P = [], N = [], T = [], I = [];
         const rOf = typeof radius === 'function' ? radius : () => radius;
         const tangent = k => norm(sub(points[Math.min(n - 1, k + 1)], points[Math.max(0, k - 1)]));
         let [u, v] = basis(tangent(0));

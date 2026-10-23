@@ -113,7 +113,7 @@ test('non-humanoid UI exposes relevant controls and browser/node workers load th
     const b = Object.create(scope.window.Character3DBuilder.prototype);
     Object.assign(b, { recipe: Q.Creature.kindRecipe('octopus'), _t: s => s, _section: s => s, _tile: () => '', _select: (path, label) => label, _slider: s => s.path + ',', _extremeToggle: () => '' });
     const species = b._speciesTab(), body = b._bodyTab();
-    assert.ok(species.includes('Non-humanoid') && species.includes('Aquatic') && body.includes('Body type'));
+    assert.ok(species.includes('Non-humanoid') && species.includes('Aquatic') && !body.includes('Body type'));
     assert.ok(body.includes('appendages') && !body.includes('legLength') && !body.includes('anatomy.'));
     assert.ok(!b._tabs().some(([id]) => id === 'gear'));
     for (const name of ['CharacterPreviewWorker.cjs', 'CharacterPreviewBrowserEntry.js']) assert.ok(fs.readFileSync(path.join(dir, name), 'utf8').includes("'CreatureForms'"));

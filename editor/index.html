@@ -799,42 +799,40 @@
     </div>
 
     <!-- About Modal -->
-    <div id="about-modal" class="modal">
-        <div class="modal-content" style="max-width: 500px; text-align: center;">
-            <div class="modal-header">
-                <h2 data-i18n="about.title">About RPG Reactor</h2>
-                <button type="button" class="modal-close" id="about-modal-close" aria-label="Close">&times;</button>
+    <div id="about-modal" class="modal rr-modal-overlay">
+        <div class="modal-content rr-modal rr-about-dialog" role="dialog" aria-modal="true" aria-labelledby="about-modal-title">
+            <div class="modal-header rr-modal-header">
+                <h2 id="about-modal-title" class="rr-modal-title" data-i18n="about.title">About RPG Reactor</h2>
+                <button type="button" class="modal-close rr-modal-close" id="about-modal-close" aria-label="Close">&times;</button>
             </div>
-            <div class="modal-body">
-                <img src="images/logo.png" alt="RPG Reactor" style="max-width: 300px; width: 100%; height: auto; margin-bottom: 24px;" onerror="this.style.display='none'">
-
-                <h3 data-i18n="about.version" style="color: var(--color-accent-hover); margin-bottom: 16px;">RPG Reactor v0.99.1</h3>
-
-                <p data-i18n="about.description" style="color: var(--color-text); line-height: 1.6; margin-bottom: 16px;">
-                    An open-source, cross-platform RPG game engine built with NW.js, PixiJS v8, and Three.js
-                </p>
-
-                <p data-i18n="about.compatibility" style="color: var(--color-text-muted); font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
-                    Create amazing RPG games with a professional editor that runs on Windows, Mac, and Linux.
-                    Compatible with RPG Maker MZ and MV projects in most cases; runtime compatibility depends primarily on the project's corescripts and plugins.
-                </p>
-
-                <div style="margin: 18px auto; padding: 14px; max-width: 360px; background: var(--color-bg-panel); border: 1px solid var(--color-border); border-radius: 6px; text-align: left;">
-                    <div data-i18n="about.linksTitle" style="color: var(--color-accent-bright); font-weight: 700; font-size: 13px; margin-bottom: 10px; text-align: center;">Psychronic Links</div>
-                    <div style="display: grid; gap: 8px; font-size: 13px;">
-                        <a class="external-link" href="https://psychronic.itch.io" target="_blank" rel="noreferrer" data-i18n="about.itch" style="color: var(--color-link); text-decoration: none;">Itch.io - Plugins And Tools</a>
-                        <a class="external-link" href="https://store.steampowered.com/developer/psychronic" target="_blank" rel="noreferrer" data-i18n="about.steam" style="color: var(--color-link); text-decoration: none;">Steam - Psychronic Games</a>
-                        <a class="external-link" href="https://github.com/Psychronic-Games?tab=repositories" target="_blank" rel="noreferrer" data-i18n="about.github" style="color: var(--color-link); text-decoration: none;">GitHub - Other Projects</a>
-                        <a class="external-link" href="https://www.youtube.com/@PsychronicGames" target="_blank" rel="noreferrer" data-i18n="about.youtube" style="color: var(--color-link); text-decoration: none;">YouTube - Psychronic Games</a>
-                        <a class="external-link" href="https://www.youtube.com/@RarelyTypicalPlayers" target="_blank" rel="noreferrer" data-i18n="about.rarelyTypicalPlayers" style="color: var(--color-link); text-decoration: none;">YouTube - Rarely Typical Players Podcast</a>
-                        <a class="external-link" href="https://discord.gg/hXacc38PTw" target="_blank" rel="noreferrer" data-i18n="about.discord" style="color: var(--color-link); text-decoration: none;">Discord - Join The Community</a>
-                        <a class="external-link" href="https://rpgcatalyst.com" target="_blank" rel="noreferrer" data-i18n="about.catalyst" style="color: var(--color-link); text-decoration: none;">RPG Catalyst Forums</a>
+            <div class="modal-body rr-modal-body rr-about-body">
+                <div class="rr-about-overview">
+                    <img class="rr-about-logo" src="images/logo.png" alt="RPG Reactor" width="112" height="112" onerror="this.style.display='none'">
+                    <div class="rr-about-summary">
+                        <h3 data-i18n="about.version">RPG Reactor v0.99.1</h3>
+                        <p data-i18n="about.description">An open-source, cross-platform RPG game engine built with NW.js, PixiJS v8, and Three.js</p>
+                        <p class="rr-about-compatibility" data-i18n="about.compatibility">
+                            Create amazing RPG games with a professional editor that runs on Windows, Mac, and Linux.
+                            Compatible with RPG Maker MZ and MV projects in most cases; runtime compatibility depends primarily on the project's corescripts and plugins.
+                        </p>
                     </div>
                 </div>
-
-                <p data-i18n="about.license" style="color: var(--color-text-muted); font-size: 12px;">
-                    License: MIT
-                </p>
+                <section class="rr-about-links" aria-labelledby="about-links-title">
+                    <h3 id="about-links-title" data-i18n="about.linksTitle">Psychronic Links</h3>
+                    <div class="rr-about-link-grid">
+                        <a class="external-link" href="https://psychronic.itch.io" target="_blank" rel="noreferrer" data-i18n="about.itch">Itch.io - Plugins And Tools</a>
+                        <a class="external-link" href="https://store.steampowered.com/developer/psychronic" target="_blank" rel="noreferrer" data-i18n="about.steam">Steam - Psychronic Games</a>
+                        <a class="external-link" href="https://github.com/Psychronic-Games?tab=repositories" target="_blank" rel="noreferrer" data-i18n="about.github">GitHub - Other Projects</a>
+                        <a class="external-link" href="https://www.youtube.com/@PsychronicGames" target="_blank" rel="noreferrer" data-i18n="about.youtube">YouTube - Psychronic Games</a>
+                        <a class="external-link" href="https://www.youtube.com/@RarelyTypicalPlayers" target="_blank" rel="noreferrer" data-i18n="about.rarelyTypicalPlayers">YouTube - Rarely Typical Players Podcast</a>
+                        <a class="external-link" href="https://discord.gg/hXacc38PTw" target="_blank" rel="noreferrer" data-i18n="about.discord">Discord - Join The Community</a>
+                        <a class="external-link" href="https://rpgcatalyst.com" target="_blank" rel="noreferrer" data-i18n="about.catalyst">RPG Catalyst Forums</a>
+                    </div>
+                </section>
+            </div>
+            <div class="rr-modal-footer rr-about-footer">
+                <span data-i18n="about.license">License: MIT</span>
+                <button type="button" class="rr-button-primary" data-about-close>Close</button>
             </div>
         </div>
     </div>
@@ -1152,12 +1150,18 @@
     <script src="src/forge/Character3D/CharacterOutfitTransfer.js"></script>
     <script src="src/forge/Character3D/CharacterClothes.js"></script>
     <script src="src/forge/Character3D/CharacterPowerArmor.js"></script>
-    <script src="src/forge/Character3D/CharacterWardrobe.js"></script>
+    <script src="src/forge/Character3D/ConstructionSurface.js"></script>
+    <script src="src/forge/Character3D/ConstructionPatterns.js"></script>
     <script src="src/forge/Character3D/CharacterProps.js"></script>
-    <script src="src/forge/Character3D/CharacterSpecies.js"></script>
+    <script src="src/forge/Character3D/CharacterGarmentDetails.js"></script>
+    <script src="src/forge/Character3D/CharacterReconConstruction.js"></script>
+    <script src="src/forge/Character3D/CharacterWardrobe.js"></script>
     <script src="src/forge/Character3D/CharacterSkin.js"></script>
+    <script src="src/forge/Character3D/CharacterSpecies.js"></script>
     <script src="src/forge/Character3D/CharacterHair.js"></script>
     <script src="src/forge/Character3D/CreatureGear.js"></script>
+    <script src="src/forge/Character3D/CreatureArthropods.js"></script>
+    <script src="src/forge/Character3D/CreatureFlyers.js"></script>
     <script src="src/forge/Character3D/CreatureForms.js"></script>
     <script src="src/forge/Character3D/CreatureBody.js"></script>
     <script src="src/forge/Character3D/CharacterGlb.js"></script>
@@ -1185,10 +1189,19 @@
     <script src="src/forge/Props/PictureProp.js"></script>
     <script src="src/forge/Props/AccessoryProp.js"></script>
     <script src="src/forge/Props/SwordProp.js"></script>
+    <script src="src/forge/Props/ContainerMesh.js"></script>
+    <script src="src/forge/Props/GunConstruction.js"></script>
     <script src="src/forge/Props/GunProp.js"></script>
     <script src="src/forge/Props/ContainerPaint.js"></script>
-    <script src="src/forge/Props/ContainerMesh.js"></script>
     <script src="src/forge/Props/ContainerProp.js"></script>
+    <script src="src/forge/Props/PropKeycaps.js"></script>
+    <script src="src/forge/Props/FurnitureConstruction.js"></script>
+    <script src="src/forge/Props/FurnitureProp.js"></script>
+    <script src="src/forge/Props/VehicleConstruction.js"></script>
+    <script src="src/forge/Props/VehicleBodywork.js"></script>
+    <script src="src/forge/Props/VehicleTypeface.js"></script>
+    <script src="src/forge/Props/VehicleFinish.js"></script>
+    <script src="src/forge/Props/VehicleProp.js"></script>
     <script src="src/forge/Props/PropBuilder.js"></script>
     <script src="src/forge/SoundEffectGenerator/AudioExport.js"></script>
     <script src="src/forge/SoundEffectGenerator/SoundEffectGenerator.js"></script>

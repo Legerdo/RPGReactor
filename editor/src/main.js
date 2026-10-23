@@ -749,8 +749,8 @@ class RPGReactor {
             modal._rrModalKeys?.leave();
         };
         const trap = keys?.modal(modal, { onEscape: close, container: () => modal.querySelector('.modal-content') || modal });
-        const closeButton = modal.querySelector('.modal-close');
-        if (closeButton && !closeButton._rrAboutClose) {
+        for (const closeButton of modal.querySelectorAll('.modal-close, [data-about-close]')) {
+            if (closeButton._rrAboutClose) continue;
             closeButton._rrAboutClose = true;
             closeButton.addEventListener('click', close);
         }

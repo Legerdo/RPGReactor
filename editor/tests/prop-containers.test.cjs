@@ -15,7 +15,8 @@ const Catalog = require(path.join(props, 'PropCatalog.js'));
 const Optimizer = require(path.join(root, 'src', 'utils', 'GlbOptimizer.js'));
 const { PNG } = require(path.join(root, 'node_modules', 'pngjs'));
 
-const BUDGET = 3000;
+// Curved drum rings/valves and rounded fittings replace coarse cylinders.
+const BUDGET = 12000;
 const encode = t => { const p = new PNG({ width: t.width, height: t.height }); p.data = Buffer.from(t.data); return PNG.sync.write(p); };
 const withOver = (id, over) => { const r = C.fromPreset(id); for (const [k, v] of Object.entries(over)) r[k] = v && typeof v === 'object' ? Object.assign({}, r[k], v) : v; return C.normalize(r); };
 

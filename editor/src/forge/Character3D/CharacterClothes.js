@@ -151,6 +151,17 @@
             out[i * 3 + 2] = z + g.offsets[i * 3 + 2] * sz;
         }
         Outfit.collide(pack, built, out, 0, n, GAP, frame);
+        const reference=pack._tailorReference||(pack._tailorReference=Body.build(pack,Body.DEFAULT_RECIPE));
+        Outfit.tailorTorso(pack,built,reference,()=>g._tailorRest||(g._tailorRest=fit(pack,reference,g,{})),out,frame,
+            {source:Array.from({length:n},(_,i)=>g.refs[i*3]),hanging:i=>{
+                if(!g._tailorPanels){
+                    const parent=Array.from({length:n},(_,j)=>j),find=j=>parent[j]===j?j:(parent[j]=find(parent[j]));
+                    for(let t=0;t<g.indexRaw.length;t+=3){const a=find(g.source[g.indexRaw[t]]);for(let k=1;k<3;k++)parent[find(g.source[g.indexRaw[t+k]])]=a;}
+                    const tops=new Map(),bottoms=new Map();for(let j=0;j<n;j++){const root=find(j),y=g._tailorRest[j*3+1];tops.set(root,Math.max(tops.get(root)||0,y));bottoms.set(root,Math.min(bottoms.get(root)??Infinity,y));}
+                    g._tailorPanels=Uint8Array.from({length:n},(_,j)=>tops.get(find(j))>reference.bones.find(b=>b.name==='Neck').head[1]-.2&&(/dress|skirt/i.test(g.id)||bottoms.get(find(j))>reference.bones.find(b=>b.name==='Hips').head[1]-.3)?1:0);
+                }
+                return g._tailorPanels[i]&&g._tailorRest[i*3+1]<reference.bones.find(b=>b.name==='Hips').head[1]+.1;
+            },legged:!/dress|skirt/i.test(g.id),lift:GAP,clearance:.05});
         return out;
     }
 
@@ -305,6 +316,15 @@
         if (!g.hidden.length) return null;
         if (!g._innerFabric) {
             const covered = new Set(g.hidden), S = pack.body.source, I = pack.body.index;
+            // The Viking shell's sleeve/body seam opens at the underarm as
+            // the arm rises. A small fitted gusset spans that articulation;
+            // keep the neck, sleeve opening and hem outside its coverage.
+            if (g.id === 'mh_viking_tunic') {
+                const an=Outfit.anatomy(pack);
+                for(const v of S){const arm=an.member[v*5+1]+an.member[v*5+2];
+                    if(arm>.04&&arm<.97&&an.s[v*5]>2.6&&an.s[v*5]<3.6)covered.add(v);
+                }
+            }
             const ids = [], index = [], seen = new Set(), remap = new Map();
             const vertex = v => { if (!remap.has(v)) { remap.set(v, ids.length); ids.push(v); } return remap.get(v); };
             for (let i = 0; i < I.length; i += 3) {

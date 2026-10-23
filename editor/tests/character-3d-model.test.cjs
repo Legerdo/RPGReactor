@@ -37,7 +37,7 @@ test('static thumbnail settings do not leak into the main character or its reusa
     const main = Model.build(bodyPack, recipe, cache, { quality: 'preview', skinSize: 32, atlasSize: 64, eyeSource: eyes(16) });
     assert.ok(main.clips.length > 0);
     assert.equal(main.textures['eyes.png'].width, 16);
-    assert.equal(main.textures['shoes.png'].width, 512);
+    assert.equal(main.textures['shoes.png'].width, 1024);
     assert.ok(sameBytes(main.parts[0].positions, small.parts[0].positions), 'thumbnail detail budgets do not reshape the body');
     assert.equal(JSON.stringify(recipe), before);
 });
@@ -286,7 +286,7 @@ test('the arms hang clear of a wide body', () => {
 test('the editor page loads each module after the ones it needs', () => {
     const page = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     assert.ok(page.indexOf('src/utils/ColorPopover.js') > 0 && page.indexOf('src/utils/ColorPopover.js') < page.indexOf('src/forge/Character3D/Character3DBuilder.js'), 'the color picker is loaded before the builder');
-    const order = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterWardrobe', 'CharacterProps', 'CharacterSpecies', 'CharacterSkin', 'CharacterHair', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterModel', 'Character3DBuilder'];
+    const order = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterWardrobe', 'CharacterProps', 'CharacterSkin', 'CharacterSpecies', 'CharacterHair', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterModel', 'Character3DBuilder'];
     const at = order.map(name => page.indexOf(`src/forge/Character3D/${name}.js`));
     assert.ok(at.every(i => i > 0), 'every module is loaded');
     assert.deepEqual(at.slice().sort((a, b) => a - b), at);
