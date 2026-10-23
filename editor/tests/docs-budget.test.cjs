@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { archiveHandoff, latestRelease, splitSections } = require('../build-scripts/archive-handoff.cjs');
+const { archiveHandoff, fitHandoff, latestRelease, rebaseLinks, splitSections } = require('../build-scripts/archive-handoff.cjs');
 
 const workspaceRoot = path.resolve(__dirname, '..', '..');
 const read = file => fs.readFileSync(path.join(workspaceRoot, file), 'utf8');
@@ -43,7 +43,45 @@ test('HANDOFF.md holds one short standing and the cycle in progress', () => {
             `${section.heading} is ${bytes(section.text)} bytes (limit ${ENTRY_LIMIT}): what changed belongs in the changelog; ${RULES}`);
     }
     assert.ok(bytes(source) <= HANDOFF_LIMIT,
-        `HANDOFF.md is ${bytes(source)} bytes (limit ${HANDOFF_LIMIT}): archive older entries with archive-handoff.cjs --through <date>; ${RULES}`);
+        `HANDOFF.md is ${bytes(source)} bytes (limit ${HANDOFF_LIMIT}): run node editor/build-scripts/archive-handoff.cjs --fit; ${RULES}`);
+});
+
+// A note squeezed to fit a limit ("first401", "below1.8GiB", "tests,9 skipped,none")
+// is unreadable. Cut content or archive instead; never drop the spaces.
+const SQUEEZED = [
+    /(?<![\w./\\-])[a-z]{2,}\d[\w.]*/g, // a word glued to a number
+    /\w*[a-z][,:;]\d[\d,.]*/g,          // punctuation with no space before a number
+    /(?<![\w./\\-])[a-z]{2,},[a-z]{2,}/g // two words joined by a comma
+];
+const SQUEEZE_ALLOWED = /^(mp[34]|utf8|es\d|md5|sha\d|vp\d|av1|h26\d|x\d)/;
+
+function squeezedProse(text) {
+    const found = [];
+    text.split('\n').forEach((line, index) => {
+        const prose = line
+            .replace(/`[^`]*`/g, ' ')
+            .replace(/\]\([^)]*\)/g, '] ')
+            .replace(/https?:\/\/\S+/g, ' ');
+        for (const pattern of SQUEEZED) {
+            for (const match of prose.matchAll(pattern)) {
+                if (!SQUEEZE_ALLOWED.test(match[0])) found.push(`line ${index + 1}: "${match[0]}"`);
+            }
+        }
+    });
+    return found;
+}
+
+test('STATUS.md and HANDOFF.md are written in full sentences, not squeezed', () => {
+    for (const file of ['docs/STATUS.md', 'docs/HANDOFF.md']) {
+        const found = squeezedProse(read(file));
+        assert.deepEqual(found, [],
+            `${file} has text squeezed to fit its limit; cut content or run archive-handoff.cjs --fit instead: ${found.join(', ')}`);
+    }
+});
+
+test('the squeeze check catches glued words and passes normal prose', () => {
+    assert.equal(squeezedProse('Checks: first401 models, peaks below1.8GiB, 7,755 tests,9 skipped,none failed.').length, 4);
+    assert.deepEqual(squeezedProse('Preview 47 at runtime 20261022.1: 7,755 tests, 9 skipped; maps 1/5, cell (87,72), `glued1` and [x](a1b2.md), MP3 and mp3 audio.'), []);
 });
 
 test('archive-handoff moves entries through a date and keeps the standing', () => {
@@ -82,10 +120,23 @@ test('archive-handoff moves entries through a date and keeps the standing', () =
 
         assert.deepEqual(archiveHandoff({ root }).written, [], 'a second run moves nothing');
 
+        assert.deepEqual(fitHandoff({ root, target: 1000 }).written, [], 'a handoff that fits is left alone');
+        const fit = fitHandoff({ root, target: Buffer.byteLength(handoff) - 1 });
+        assert.deepEqual(fit.moved.map(s => s.heading), ['## 2026-01-11 — After the release'],
+            '--fit archives the oldest day that brings the handoff under the target');
+        assert.match(fs.readFileSync(path.join(root, 'docs', 'HANDOFF.md'), 'utf8'), /## Where things stand/);
+        fs.writeFileSync(path.join(root, 'docs', 'HANDOFF.md'), handoff);
+
         const midCycle = archiveHandoff({ root, through: '2026-01-11' });
         assert.equal(midCycle.file, path.join('docs', 'archive', 'handoff', '1.0.1.md'));
         assert.match(fs.readFileSync(path.join(root, midCycle.file), 'utf8'), /^# Handoff archive: the 1\.0\.1 cycle/);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }
+});
+
+test('archived entries keep their links working from the archive folder', () => {
+    assert.equal(
+        rebaseLinks('[a](PERFORMANCE.md) [b](perf-round2/) [c](../CHANGELOG.md#x) [d](archive/handoff/0.99.0.md) [e](https://x.org/a.md) [f](#here)'),
+        '[a](../../PERFORMANCE.md) [b](../../perf-round2/) [c](../../../CHANGELOG.md#x) [d](0.99.0.md) [e](https://x.org/a.md) [f](#here)');
 });

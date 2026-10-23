@@ -4,12 +4,15 @@
  *
  *   node editor/build-scripts/archive-handoff.cjs                     # the cycle the last release closed
  *   node editor/build-scripts/archive-handoff.cjs --through 2026-10-20 # older entries of the open cycle
+ *   node editor/build-scripts/archive-handoff.cjs --fit                # oldest entries until back to FIT_TARGET
  *
  * With no arguments, every dated entry on or before the latest release's date
  * goes to `archive/handoff/<that version>.md`. With `--through`, entries on or
  * before that date go to the file of the version in development (the
  * handoff is over its size budget mid-cycle). `--version` names the file
- * explicitly. "Where things stand" always stays.
+ * explicitly. `--fit` picks the earliest `--through` date that brings the
+ * handoff down to FIT_TARGET bytes, so the next session has room to write in
+ * full sentences. "Where things stand" always stays.
  *
  * An entry is a `## ` section whose heading carries a YYYY-MM-DD date. An
  * undated `## ` heading (a cycle divider) travels with the entry after it.
@@ -28,6 +31,8 @@ const HANDOFF = path.join('docs', 'HANDOFF.md');
 const ARCHIVE_DIR = path.join('docs', 'archive', 'handoff');
 
 const DATE = /\d{4}-\d{2}-\d{2}/;
+// docs-budget.test.cjs fails at 40,000 bytes; --fit leaves a quarter of that free.
+const FIT_TARGET = 30000;
 const STANDING = /^## Where things stand/;
 
 /** The newest released version and its date, from the root changelog index. */
@@ -56,6 +61,18 @@ function splitSections(source) {
 }
 
 const withBreak = text => text.replace(/\n*$/, '\n\n');
+
+/** Relative Markdown links written from docs/, rewritten to work from the archive folder. */
+function rebaseLinks(text) {
+    const from = path.posix.dirname(HANDOFF.split(path.sep).join('/'));
+    const to = ARCHIVE_DIR.split(path.sep).join('/');
+    return text.replace(/\]\(([^)\s]+)\)/g, (whole, target) => {
+        if (/^([a-z][a-z0-9+.-]*:|#|\/)/i.test(target)) return whole;
+        const [file, anchor] = target.split(/(?=#)/);
+        const rebased = path.posix.relative(to, path.posix.join(from, file)) + (file.endsWith('/') ? '/' : '');
+        return `](${rebased}${anchor || ''})`;
+    });
+}
 
 /**
  * Work out the move without writing anything.
@@ -100,7 +117,7 @@ function planArchive({ root = repoRoot, through, version } = {}) {
     const firstEntry = existing.search(/^## /m);
     const head = firstEntry < 0 ? existing : existing.slice(0, firstEntry);
     const tail = firstEntry < 0 ? '' : existing.slice(firstEntry);
-    const archived = withBreak(head) + moved.map(s => withBreak(s.text)).join('')
+    const archived = withBreak(head) + moved.map(s => withBreak(rebaseLinks(s.text))).join('')
         + tail.replace(/\n*$/, '\n');
 
     const handoff = withBreak(preamble) + kept.map(s => withBreak(s.text)).join('');
@@ -117,6 +134,22 @@ function archiveHandoff(options = {}) {
     return { ...plan, written: [HANDOFF, plan.file] };
 }
 
+/**
+ * Archive the oldest dated entries, a whole day at a time, until the handoff
+ * is at most `target` bytes. Moves nothing when it already fits.
+ */
+function fitHandoff({ root = repoRoot, target = FIT_TARGET } = {}) {
+    const source = fs.readFileSync(path.join(root, HANDOFF), 'utf8');
+    if (Buffer.byteLength(source, 'utf8') <= target) return { moved: [], written: [] };
+    const dates = [...new Set(splitSections(source).sections.map(s => s.date).filter(Boolean))].sort();
+    for (const through of dates) {
+        if (Buffer.byteLength(planArchive({ root, through }).handoff, 'utf8') <= target) {
+            return archiveHandoff({ root, through });
+        }
+    }
+    return archiveHandoff({ root, through: dates[dates.length - 1] });
+}
+
 function main(argv) {
     const value = flag => {
         const at = argv.indexOf(flag);
@@ -124,7 +157,9 @@ function main(argv) {
     };
     const through = value('--through');
     if (through && !/^\d{4}-\d{2}-\d{2}$/.test(through)) throw new Error('--through takes YYYY-MM-DD');
-    const result = archiveHandoff({ through, version: value('--version') });
+    const result = argv.includes('--fit')
+        ? fitHandoff()
+        : archiveHandoff({ through, version: value('--version') });
     if (!result.written.length) {
         console.log('Nothing to archive.');
         return;
@@ -142,4 +177,4 @@ if (require.main === module) {
     }
 }
 
-module.exports = { archiveHandoff, planArchive, latestRelease, splitSections };
+module.exports = { archiveHandoff, fitHandoff, rebaseLinks, planArchive, latestRelease, splitSections, FIT_TARGET };

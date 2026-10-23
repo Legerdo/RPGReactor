@@ -5,7 +5,8 @@ Guides for authoring with the engine, the current verified state, and maintainer
 ## Start here
 
 - [Current status](STATUS.md): the verified state of the tree, runtime defaults that supersede older notes, and open work. Read this before the handoff.
-- [Handoff](HANDOFF.md): dated notes for the cycle in progress: what is half-done, what waits on the owner, how to resume.
+- [Handoff](HANDOFF.md): dated notes for the cycle in progress: what is half-done, how to resume.
+- [Waiting on the owner](OWNER-QUESTIONS.md): the one list of questions for the owner, each with a recommendation.
 - [Authoring a world](AUTHORING.md): where every part of a 3D map lives, which tool edits it by hand, what a generator writes, and what checks it. The contract for people and AI working on the same project.
 
 ## Guides
@@ -44,9 +45,12 @@ Each session writes notes, and nothing removes them unless a rule does. These ar
 | [HANDOFF.md](HANDOFF.md) › Where things stand | The state the next session starts from. Rewritten, not added to, each session. | 2,500 bytes |
 | [HANDOFF.md](HANDOFF.md), one dated entry | What the next session needs and can't find elsewhere: half-done work, traps, owner questions, how to resume. Not a restatement of the changelog. | 4,000 bytes |
 | [HANDOFF.md](HANDOFF.md), whole file | The cycle in progress only. | 40,000 bytes |
+| [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md) | Questions only the owner can answer, each with a recommendation. An answered item leaves. | none |
 
 - **At a release,** `cut-release.cjs` moves every entry dated on or before the release into `archive/handoff/<version>.md` in the release commit. Entries older than the latest release fail the test.
-- **Mid-cycle, over the limit:** `node editor/build-scripts/archive-handoff.cjs --through <YYYY-MM-DD>` moves older entries to the archive file of the version in development.
+- **Mid-cycle, over the limit:** `node editor/build-scripts/archive-handoff.cjs --fit` moves the oldest entries to the archive file of the version in development until the handoff is back to 30,000 bytes (`--through <YYYY-MM-DD>` picks the date by hand).
+- **Never squeeze to fit.** Over a limit, cut what the changelog or a guide already holds, or archive; don't drop spaces or articles. The test fails on squeezed text ("first401", "tests,9 skipped,none").
+- **Owner questions go in [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md),** not in a dated entry or STATUS, so archiving never buries one.
 - **When an open item is finished,** it leaves STATUS › Open work. When a check is repeated, its validation bullet is replaced.
 
 ## Release history
