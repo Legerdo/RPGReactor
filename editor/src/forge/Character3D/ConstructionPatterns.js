@@ -21,5 +21,7 @@
         const at=anchors[name];if(!at||at.length!==3||!at.every(Number.isFinite))throw Error('Missing construction anchor: '+name);
         return at.map((value,k)=>value+offset[k]);
     }
-    const api={bank,matches,anchor};root.RRConstructionPatterns=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
+    /** Sides around a round part of radius `r` (meters): the polygon stays within 0.2 mm of the true circle (under a pixel at the builders' closest zoom); even, 8 to 64. */
+    function roundSides(r){const n=Math.PI*Math.sqrt(Math.max(0,r)/.0004);return Math.min(64,Math.max(8,2*Math.ceil(n/2)));}
+    const api={bank,matches,anchor,roundSides};root.RRConstructionPatterns=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

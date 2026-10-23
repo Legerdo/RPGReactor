@@ -13,6 +13,7 @@
     const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
     const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     const norm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+    const Patterns = root.RRConstructionPatterns || (typeof require === 'function' ? require('../Character3D/ConstructionPatterns.js') : null);
 
     function make(positions, normals, uvs, index) {
         return { positions: Float32Array.from(positions), normals: Float32Array.from(normals), uvs: Float32Array.from(uvs), index: Uint32Array.from(index) };
@@ -30,11 +31,12 @@
      * from the bottom up, `segments` around. The axis runs from `base` along
      * `dir` (default straight up). Ends with a radius close with a cap.
      * `phase` turns the ring (a quarter turn on 4 sides makes a diamond).
+     * Round work (8 sides or more) gets at least the sides its widest radius needs.
      */
     function lathe(profile, segments, options) {
         const o = options || {};
         const base = o.base || [0, 0, 0], d = norm(o.dir || [0, 1, 0]);
-        const [U, V] = basis(d), seg = Math.max(segments>=8?32:3, segments | 0), phase = o.phase || 0;
+        const [U, V] = basis(d), seg = segments >= 8 ? Math.max(segments | 0, Patterns.roundSides(Math.max(...profile.map(p => Math.abs(p[0]))))) : Math.max(3, segments | 0), phase = o.phase || 0;
         const P = [], N = [], T = [], I = [];
         // Profile normals: square to each span, averaged at a joint unless the joint is sharp.
         const spans = profile.slice(1).map((p, k) => { const dr = p[0] - profile[k][0], dh = p[1] - profile[k][1], l = Math.hypot(dr, dh) || 1; return [dh / l, -dr / l]; });
@@ -78,12 +80,18 @@
         return lathe([[r0, 0], [r1 ?? r0, h]], segments, Object.assign({ base: a, dir: d, sharp: 2 }, options || {}));
     }
 
+    /** A ball: at least the sides its radius needs, half as many rings (at least 6), and normals straight out from the center. */
     function sphere(center, r, segments, rings) {
-        segments=Math.max(32,segments);
-        const n = rings || Math.max(16, Math.round(segments / 2)), profile = [];
+        segments = Math.max(segments | 0, Patterns.roundSides(r));
+        const n = rings || Math.max(6, Math.round(segments / 2)), profile = [];
         for (let k = 0; k <= n; k++) { const a = -Math.PI / 2 + Math.PI * k / n; profile.push([Math.cos(a) * r, Math.sin(a) * r]); }
         profile[0][0] = profile[n][0] = 0;
-        return lathe(profile, segments, { base: center, sharp: -2, caps: false });
+        const mesh = lathe(profile, segments, { base: center, sharp: -2, caps: false }), P = mesh.positions, N = mesh.normals;
+        for (let v = 0; v < P.length; v += 3) {
+            const d = norm([P[v] - center[0], P[v + 1] - center[1], P[v + 2] - center[2]]);
+            N[v] = d[0]; N[v + 1] = d[1]; N[v + 2] = d[2];
+        }
+        return mesh;
     }
 
     /** An axis-aligned box: `center`, `size` [x, y, z]. */
@@ -279,8 +287,9 @@
      * turned along the path without twisting; ends closed when `caps`.
      */
     function polyTube(points, radius, segments, options) {
-        const o = options || {}, seg = Math.max(16, segments | 0), n = points.length, P = [], N = [], T = [], I = [];
+        const o = options || {}, n = points.length, P = [], N = [], T = [], I = [];
         const rOf = typeof radius === 'function' ? radius : () => radius;
+        const seg = Math.max(segments | 0, Patterns.roundSides(Math.max(...points.map((_, k) => rOf(k)))));
         const tangent = k => norm(sub(points[Math.min(n - 1, k + 1)], points[Math.max(0, k - 1)]));
         let [u, v] = basis(tangent(0));
         for (let k = 0; k < n; k++) {

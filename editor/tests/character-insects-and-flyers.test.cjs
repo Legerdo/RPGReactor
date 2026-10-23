@@ -174,8 +174,10 @@ test('creature anatomy keeps the tessellation it asks for while worn equipment r
     const tube = m => m.tube([[0, 0, 0], [0, 0.01, 0], [0, 0.02, 0]], 0.004, 6, white, skin);
     assert.equal(count(Props.ExactMesh, dot), 4 * 5 * 2);
     assert.equal(count(Props.ExactMesh, tube), 2 * 6 * 2 + 6 * 2);
-    assert.ok(count(Props.Mesh, dot) >= 16 * 32 * 2, 'worn pieces stay round');
-    assert.ok(count(Props.Mesh, tube) >= 2 * 24 * 2, 'worn tubes stay round');
+    // Worn pieces take their sides from their size (2026-10-23): a 1 mm dot is a few dozen triangles, a 4 mm tube 10 sides.
+    const sides = require('../src/forge/Character3D/ConstructionPatterns.js').roundSides(0.004);
+    assert.ok(count(Props.Mesh, dot) < 100, 'a worn 1 mm dot stays cheap');
+    assert.equal(count(Props.Mesh, tube), 2 * sides * 2 + sides * 2, 'worn tubes round by radius');
     const tick = build('tick'), grooves = tick.parts.find(p => p.name === 'Scutal cervical and marginal grooves');
     assert.ok(grooves.index.length / 3 < 12000, 'tick grooves ' + grooves.index.length / 3);
 });

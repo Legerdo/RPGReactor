@@ -28,6 +28,7 @@
     const norm = a => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
     const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
+    const roundSides = Patterns.roundSides;
     /** Geometry with vertex colors and per-vertex skin. */
     class Mesh {
         constructor() { this.p = []; this.n = []; this.c = []; this.j = []; this.w = []; this.i = []; }
@@ -88,9 +89,12 @@
         }
         /** A tube through points with radii (number or per-point array). */
         tube(points, radii, sides, rgb, skin, caps = true) {
-            // Worn equipment rounds its tubes by radius; an ExactMesh keeps the sides it is given.
-            const minRadius=Array.isArray(radii)?Math.min(...radii):typeof radii==='function'?radii(.5):radii;if(!this.exact)sides=Math.max(sides,minRadius>=.003?24:minRadius>=.001?12:8);
             const n = points.length;
+            // Worn equipment takes its sides from its widest radius; an ExactMesh keeps the sides it is given.
+            if (!this.exact) {
+                const widest = Array.isArray(radii) ? Math.max(...radii) : typeof radii === 'function' ? Math.max(...points.map((_, i) => radii(i / Math.max(1, n - 1)))) : radii;
+                sides = roundSides(widest);
+            }
             let prevX = null;
             return this.loft(n, i => {
                 const a = points[Math.max(0, i - 1)], b = points[Math.min(n - 1, i + 1)];
@@ -103,12 +107,24 @@
             }, sides, rgb, skin, caps);
         }
         sphere(center, r, rgb, skin, rows = 8, sides = 12, squash = [1, 1, 1]) {
-            if(!this.exact){rows=Math.max(16,rows);sides=Math.max(32,sides);}
-            return this.loft(rows + 1, (i, t) => {
+            // Worn equipment takes its sides from its widest semi-axis, half as many rows (at least 6), and the
+            // ellipsoid's own normals, so a few sides still shade round. An ExactMesh keeps what it is given.
+            if (!this.exact) { sides = roundSides(r * Math.max(...squash)); rows = Math.max(6, sides / 2); }
+            const first = this.p.length / 3;
+            const rows_ = this.loft(rows + 1, (i, t) => {
                 const phi = -Math.PI / 2 + t * Math.PI;
                 const rr = Math.cos(phi) * r;
                 return { center: add(center, [0, Math.sin(phi) * r * squash[1], 0]), x: [1, 0, 0], y: [0, 0, -1], rx: Math.max(1e-5, rr * squash[0]), ry: Math.max(1e-5, rr * squash[2]) };
             }, sides, rgb, skin, false);
+            if (!this.exact) {
+                const P = this.p, N = this.n, end = P.length / 3, ax = squash.map(k => 1 / ((r * k) ** 2 || 1));
+                for (let v = first; v < end; v++) {
+                    const d = [(P[v * 3] - center[0]) * ax[0], (P[v * 3 + 1] - center[1]) * ax[1], (P[v * 3 + 2] - center[2]) * ax[2]], l = len(d) || 1;
+                    N[v * 3] = d[0] / l; N[v * 3 + 1] = d[1] / l; N[v * 3 + 2] = d[2] / l;
+                }
+                (this.keptNormals || (this.keptNormals = [])).push(first, end);
+            }
+            return rows_;
         }
         disk(center, normal, r, rgb, skin, sides = 24, ry) {
             const x = norm(cross(normal, Math.abs(normal[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0])), y = cross(normal, x);
@@ -143,15 +159,17 @@
                 for(let j=0;j<B.length-1;j++)for(let i=0;i<A.length-1;i++){const a=base+j*A.length+i,b=a+1,c=a+A.length,d=c+1;if((sign>0)!==mirrored){this.tri(a,b,c);this.tri(b,d,c);}else{this.tri(a,c,b);this.tri(b,c,d);}}
             }
         }
+        /** Smooth normals from the faces, except over spheres, which keep their exact ones. */
         computeNormals() {
-            const P = this.p, N = new Float32Array(P.length);
+            const P = this.p, N = new Float32Array(P.length), kept = this.keptNormals, keep = kept ? new Uint8Array(P.length / 3) : null;
+            if (kept) for (let k = 0; k < kept.length; k += 2) keep.fill(1, kept[k], kept[k + 1]);
             for (let t = 0; t < this.i.length; t += 3) {
                 const a = this.i[t] * 3, b = this.i[t + 1] * 3, c = this.i[t + 2] * 3;
                 const u = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], v = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
                 const n = cross(u, v);
                 for (const s of [a, b, c]) { N[s] += n[0]; N[s + 1] += n[1]; N[s + 2] += n[2]; }
             }
-            for (let k = 0; k < N.length; k += 3) { const l = Math.hypot(N[k], N[k + 1], N[k + 2]); if (l > 0) { this.n[k] = N[k] / l; this.n[k + 1] = N[k + 1] / l; this.n[k + 2] = N[k + 2] / l; } }
+            for (let k = 0; k < N.length; k += 3) { if (keep && keep[k / 3]) continue; const l = Math.hypot(N[k], N[k + 1], N[k + 2]); if (l > 0) { this.n[k] = N[k] / l; this.n[k + 1] = N[k + 1] / l; this.n[k + 2] = N[k + 2] / l; } }
         }
         part(name, extra) {
             return Object.assign({ name, positions: Float32Array.from(this.p), normals: Float32Array.from(this.n), colors: Float32Array.from(this.c),
@@ -411,7 +429,7 @@
     /** A closed loop of tube (torus-like) through `points`. */
     function loop(m, points, radius, rgb, skin, sides = 6) {
         const plane=norm(cross(sub(points[1],points[0]),sub(points[2],points[1]))),count=points.length;
-        return m.loft(count+1,i=>{const k=i%count,d=norm(sub(points[(k+1)%count],points[(k+count-1)%count])),x=norm(cross(d,plane)),y=cross(d,x);return{center:points[k],x,y,rx:radius,ry:radius};},Math.max(sides,radius>=.002?16:8),rgb,skin,false);
+        return m.loft(count+1,i=>{const k=i%count,d=norm(sub(points[(k+1)%count],points[(k+count-1)%count])),x=norm(cross(d,plane)),y=cross(d,x);return{center:points[k],x,y,rx:radius,ry:radius};},m.exact?sides:roundSides(radius),rgb,skin,false);
     }
 
     function eyewear(m, L, o, lens) {
@@ -1376,6 +1394,7 @@
         const base = into.p.length / 3;into.doubleSided=into.doubleSided||m.doubleSided;
         into.p.push(...m.p); into.n.push(...m.n); into.c.push(...m.c); into.j.push(...m.j); into.w.push(...m.w);
         for (const x of m.i) into.i.push(x + base);
+        if (m.keptNormals) for (const v of m.keptNormals) (into.keptNormals || (into.keptNormals = [])).push(v + base);
     }
 
     /** A Mesh whose tubes and spheres keep exactly the rows and sides asked for: creature anatomy sets its own triangle budgets. */
