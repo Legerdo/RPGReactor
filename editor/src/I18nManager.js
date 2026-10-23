@@ -13351,6 +13351,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['tr'], {
 Object.assign(RR_TEXT_TRANSLATIONS['ja'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'このバトラーが1つの属性から受けるダメージに乗算します。別々の特徴の倍率は掛け合わされ、0%ならその属性を完全に無効化します。',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'このパラメータへの弱体が成功する確率に乗算します。特徴同士は掛け合わされるため、0%なら弱体を完全に無効化します。',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'このパラメータへの強化が受け入れられる確率です（効果時間の更新も含みます）。強化の強さは変わりません。特徴同士は掛け合わされ、0%なら新たな強化を防ぎ、既存の強化は切れるまでそのまま残ります。全8パラメータを防ぐには特徴が8つ必要です。',
+    'Buff Rate': '強化有効度',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'このステートがバトラーに付与される確率に乗算します。必中の行動では無視されます。',
     'Makes the battler immune to this state, and erases it if it is already there.': 'このステートを完全に無効化し、すでに付与されている場合は解除します。',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': '8つの通常能力値のいずれかに乗算します。別々の特徴は掛け合わされ、強化はその結果にさらに適用されます。',
@@ -13416,6 +13418,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['ja'], {
 Object.assign(RR_TEXT_TRANSLATIONS['es'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Multiplica el daño que este combatiente recibe de un elemento. Las tasas de rasgos distintos se multiplican entre sí, y 0% bloquea el elemento por completo.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Multiplica la probabilidad de que una reducción de este parámetro tenga éxito. Los rasgos se multiplican entre sí, así que 0% da inmunidad total.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'La probabilidad de que una mejora de este parámetro se acepte, incluida su renovación. Nunca cambia la potencia de la mejora. Los rasgos se multiplican entre sí; 0% bloquea las mejoras nuevas mientras las existentes se agotan, y bloquear los ocho parámetros requiere ocho rasgos.',
+    'Buff Rate': 'Tasa de mejora',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Multiplica la probabilidad de que este estado afecte al combatiente. Las acciones de Acierto Seguro lo ignoran.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Da inmunidad total a este estado, y lo elimina si ya está aplicado.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Multiplica uno de los ocho parámetros principales. Los rasgos distintos se multiplican, y las mejoras se aplican sobre el resultado.',
@@ -13481,6 +13485,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['es'], {
 Object.assign(RR_TEXT_TRANSLATIONS['zh-Hant'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': '對該戰鬥者受到的某一屬性傷害進行乘算。不同特性的倍率相乘，為0%時完全免疫該屬性。',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': '對該能力值弱化的成功率進行乘算。特性之間相乘，因此0%表示完全免疫該弱化。',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': '該能力值的強化被接受的機率，包括刷新回合。不會改變強化的強度。特性之間相乘；0%會阻擋新的強化，已有的強化照常到期；要阻擋全部八項能力值需要八個特性。',
+    'Buff Rate': '強化有效度',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': '對該狀態附加到戰鬥者身上的機率進行乘算。必中的行動會忽略它。',
     'Makes the battler immune to this state, and erases it if it is already there.': '使戰鬥者完全免疫該狀態，若已附加則將其解除。',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': '對八項基本能力值之一進行乘算。不同特性相乘，強化再疊加於結果之上。',
@@ -13546,6 +13552,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['zh-Hant'], {
 Object.assign(RR_TEXT_TRANSLATIONS['zh-Hans'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': '对该战斗者受到的某一属性伤害进行乘算。不同特性的倍率相乘，为0%时完全免疫该属性。',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': '对该能力值弱化的成功率进行乘算。特性之间相乘，因此0%表示完全免疫该弱化。',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': '该能力值的强化被接受的概率，包括刷新回合。不会改变强化的强度。特性之间相乘；0%会阻挡新的强化，已有的强化照常到期；要阻挡全部八项能力值需要八个特性。',
+    'Buff Rate': '强化有效度',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': '对该状态附加到战斗者身上的概率进行乘算。必中的行动会忽略它。',
     'Makes the battler immune to this state, and erases it if it is already there.': '使战斗者完全免疫该状态，若已附加则将其解除。',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': '对八项基本能力值之一进行乘算。不同特性相乘，强化再叠加在结果之上。',
@@ -13611,6 +13619,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['zh-Hans'], {
 Object.assign(RR_TEXT_TRANSLATIONS['ru'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Умножает урон, который этот боец получает от одной стихии. Ставки разных особенностей перемножаются, а 0% полностью блокирует стихию.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Умножает шанс успешного ослабления этого параметра. Особенности перемножаются, поэтому 0% даёт полный иммунитет.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'Шанс того, что усиление этого параметра будет принято, включая продление. Сила усиления не меняется. Особенности перемножаются; 0% блокирует новые усиления, а уже наложенные истекают как обычно. Чтобы заблокировать все восемь параметров, нужно восемь особенностей.',
+    'Buff Rate': 'Эффективность Усиления',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Умножает шанс наложения этого состояния на бойца. Действия с гарантированным попаданием его игнорируют.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Даёт полный иммунитет к этому состоянию и снимает его, если оно уже наложено.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Умножает один из восьми основных параметров. Разные особенности перемножаются, а усиления применяются поверх результата.',
@@ -13676,6 +13686,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['ru'], {
 Object.assign(RR_TEXT_TRANSLATIONS['pt'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Multiplica o dano que este combatente recebe de um elemento. As taxas de traços distintos se multiplicam entre si, e 0% bloqueia o elemento por completo.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Multiplica a chance de uma redução deste parâmetro ter êxito. Os traços se multiplicam entre si, então 0% dá imunidade total.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'A chance de um bônus deste parâmetro ser aceito, incluindo a renovação. Nunca altera a força do bônus. Os traços se multiplicam entre si; 0% bloqueia bônus novos enquanto os existentes expiram, e bloquear os oito parâmetros exige oito traços.',
+    'Buff Rate': 'Taxa De Bônus',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Multiplica a chance de este estado atingir o combatente. Ações de Acerto Certo a ignoram.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Dá imunidade total a este estado, e o remove caso já esteja aplicado.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Multiplica um dos oito parâmetros principais. Traços distintos se multiplicam, e as melhorias se aplicam sobre o resultado.',
@@ -13741,6 +13753,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['pt'], {
 Object.assign(RR_TEXT_TRANSLATIONS['de'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Multipliziert den Schaden, den dieser Kämpfer von einem Element erleidet. Raten verschiedener Eigenschaften multiplizieren sich, und 0% blockt das Element vollständig.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Multipliziert die Chance, dass eine Schwächung dieses Parameters gelingt. Eigenschaften multiplizieren sich, 0% macht also völlig immun.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'Die Chance, dass eine Stärkung dieses Parameters angenommen wird, eine Auffrischung eingeschlossen. Die Stärke der Stärkung ändert sich nie. Eigenschaften multiplizieren sich; 0% blockiert neue Stärkungen, bestehende laufen normal aus, und alle acht Parameter zu blockieren erfordert acht Eigenschaften.',
+    'Buff Rate': 'Stärkungsrate',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Multipliziert die Chance, dass dieser Status den Kämpfer trifft. Aktionen mit Sicherem Treffer ignorieren sie.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Macht den Kämpfer gegen diesen Status völlig immun und entfernt ihn, falls er bereits anliegt.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Multipliziert einen der acht Hauptparameter. Verschiedene Eigenschaften multiplizieren sich, Verstärkungen kommen auf das Ergebnis obendrauf.',
@@ -13806,6 +13820,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['de'], {
 Object.assign(RR_TEXT_TRANSLATIONS['fr'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Multiplie les dégâts que ce combattant subit d\'un élément. Les taux de traits distincts se multiplient entre eux, et 0% bloque l\'élément entièrement.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Multiplie la probabilité qu\'une baisse de ce paramètre réussisse. Les traits se multiplient entre eux, donc 0% rend totalement immunisé.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'La probabilité qu\'un bonus de ce paramètre soit accepté, renouvellement compris. Ne change jamais la puissance du bonus. Les traits se multiplient entre eux ; 0% bloque les nouveaux bonus pendant que ceux en place expirent, et bloquer les huit paramètres demande huit traits.',
+    'Buff Rate': 'Taux de bonus',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Multiplie la probabilité que cet état affecte le combattant. Les actions à Touche Assurée l\'ignorent.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Rend totalement immunisé à cet état, et l\'efface s\'il est déjà appliqué.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Multiplie l\'un des huit paramètres principaux. Les traits distincts se multiplient, et les améliorations s\'appliquent par-dessus le résultat.',
@@ -13871,6 +13887,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['fr'], {
 Object.assign(RR_TEXT_TRANSLATIONS['el'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Πολλαπλασιάζει τη ζημιά που δέχεται αυτός ο μαχητής από ένα στοιχείο. Τα ποσοστά από ξεχωριστά χαρακτηριστικά πολλαπλασιάζονται μεταξύ τους, και το 0% μπλοκάρει εντελώς το στοιχείο.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Πολλαπλασιάζει την πιθανότητα να πετύχει μια αποδυνάμωση σε αυτή την παράμετρο. Τα χαρακτηριστικά πολλαπλασιάζονται, οπότε το 0% δίνει πλήρη ανοσία.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'Η πιθανότητα να γίνει δεκτή μια ενίσχυση σε αυτή την παράμετρο, μαζί με την ανανέωσή της. Δεν αλλάζει ποτέ την ισχύ της ενίσχυσης. Τα χαρακτηριστικά πολλαπλασιάζονται· το 0% μπλοκάρει νέες ενισχύσεις ενώ οι υπάρχουσες λήγουν κανονικά, και για να μπλοκαριστούν και οι οκτώ παράμετροι χρειάζονται οκτώ χαρακτηριστικά.',
+    'Buff Rate': 'Ποσοστό ενίσχυσης',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Πολλαπλασιάζει την πιθανότητα να πιάσει αυτή η κατάσταση στον μαχητή. Οι ενέργειες Σίγουρου Χτυπήματος την αγνοούν.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Δίνει πλήρη ανοσία σε αυτή την κατάσταση, και τη σβήνει αν υπάρχει ήδη.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Πολλαπλασιάζει μία από τις οκτώ βασικές παραμέτρους. Τα ξεχωριστά χαρακτηριστικά πολλαπλασιάζονται, και οι ενισχύσεις εφαρμόζονται πάνω στο αποτέλεσμα.',
@@ -13936,6 +13954,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['el'], {
 Object.assign(RR_TEXT_TRANSLATIONS['ko'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': '이 배틀러가 한 속성으로부터 받는 피해에 곱해집니다. 서로 다른 특성의 배율은 곱해지며, 0%면 해당 속성을 완전히 막습니다.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': '이 능력치에 대한 약화가 성공할 확률에 곱해집니다. 특성끼리 곱해지므로 0%면 그 약화에 완전히 면역이 됩니다.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': '이 능력치에 대한 강화가 받아들여질 확률이며, 지속 시간 갱신도 포함됩니다. 강화의 세기는 바뀌지 않습니다. 특성끼리 곱해지며, 0%면 새 강화를 막고 기존 강화는 끝날 때까지 그대로 남습니다. 여덟 능력치를 모두 막으려면 특성이 8개 필요합니다.',
+    'Buff Rate': '강화 유효도',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': '이 상태가 배틀러에게 걸릴 확률에 곱해집니다. 반드시 명중 행동은 이를 무시합니다.',
     'Makes the battler immune to this state, and erases it if it is already there.': '이 상태에 완전히 면역이 되며, 이미 걸려 있다면 해제합니다.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': '8개 기본 능력치 중 하나에 곱해집니다. 서로 다른 특성은 곱해지고, 강화는 그 결과 위에 적용됩니다.',
@@ -14001,6 +14021,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['ko'], {
 Object.assign(RR_TEXT_TRANSLATIONS['ar'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'يضاعف الضرر الذي يتلقاه هذا المقاتل من عنصر واحد. تتضاعف النسب القادمة من سمات منفصلة فيما بينها، و0% يمنع العنصر تمامًا.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'يضاعف فرصة نجاح إضعاف هذه الخاصية. تتضاعف السمات فيما بينها، لذا 0% يعني مناعة كاملة.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'فرصة قبول تعزيز هذه الخاصية، بما في ذلك تجديده. لا يغيّر قوة التعزيز أبدًا. تتضاعف السمات فيما بينها؛ 0% يمنع التعزيزات الجديدة بينما تنتهي الموجودة كالمعتاد، ومنع الخصائص الثماني كلها يتطلب ثماني سمات.',
+    'Buff Rate': 'معدل التعزيز',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'يضاعف فرصة إصابة المقاتل بهذه الحالة. الأفعال ذات الإصابة المؤكدة تتجاهلها.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'يمنح مناعة كاملة من هذه الحالة، ويزيلها إن كانت مطبقة بالفعل.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'يضاعف واحدة من الخصائص الأساسية الثماني. تتضاعف السمات المنفصلة، وتُطبق التعزيزات فوق الناتج.',
@@ -14066,6 +14088,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['ar'], {
 Object.assign(RR_TEXT_TRANSLATIONS['it'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Moltiplica il danno che questo combattente subisce da un elemento. I tassi di tratti distinti si moltiplicano tra loro, e 0% blocca del tutto l\'elemento.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Moltiplica la probabilità che un indebolimento di questo parametro riesca. I tratti si moltiplicano tra loro, quindi 0% rende del tutto immuni.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'La probabilità che un buff su questo parametro venga accettato, rinnovo compreso. Non cambia mai la forza del buff. I tratti si moltiplicano tra loro; 0% blocca i nuovi buff mentre quelli presenti si esauriscono, e bloccare tutti gli otto parametri richiede otto tratti.',
+    'Buff Rate': 'Tasso buff',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Moltiplica la probabilità che questo stato colpisca il combattente. Le azioni a Colpo Sicuro la ignorano.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Rende del tutto immuni a questo stato, e lo rimuove se è già presente.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Moltiplica uno degli otto parametri principali. I tratti distinti si moltiplicano, e i potenziamenti si applicano sopra il risultato.',
@@ -14131,6 +14155,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['it'], {
 Object.assign(RR_TEXT_TRANSLATIONS['pl'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Mnoży obrażenia, jakie ten wojownik otrzymuje od jednego żywiołu. Współczynniki z osobnych cech mnożą się przez siebie, a 0% całkowicie blokuje żywioł.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Mnoży szansę powodzenia osłabienia tego parametru. Cechy mnożą się przez siebie, więc 0% daje pełną odporność.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'Szansa, że wzmocnienie tego parametru zostanie przyjęte, łącznie z odnowieniem. Nigdy nie zmienia siły wzmocnienia. Cechy mnożą się przez siebie; 0% blokuje nowe wzmocnienia, a istniejące wygasają normalnie. Zablokowanie wszystkich ośmiu parametrów wymaga ośmiu cech.',
+    'Buff Rate': 'Współczynnik wzmocnień',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Mnoży szansę nałożenia tego stanu na wojownika. Akcje o typie Pewne Trafienie ją ignorują.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Daje pełną odporność na ten stan i usuwa go, jeśli już działa.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Mnoży jeden z ośmiu głównych parametrów. Osobne cechy mnożą się, a wzmocnienia nakładają się na wynik.',
@@ -14196,6 +14222,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['pl'], {
 Object.assign(RR_TEXT_TRANSLATIONS['id'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Mengalikan kerusakan yang diterima petarung ini dari satu elemen. Nilai dari sifat yang berbeda saling dikalikan, dan 0% memblokir elemen itu sepenuhnya.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Mengalikan peluang pelemahan pada parameter ini berhasil. Sifat saling dikalikan, jadi 0% berarti kebal sepenuhnya.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'Peluang buff pada parameter ini diterima, termasuk penyegarannya. Tidak pernah mengubah kekuatan buff. Sifat saling dikalikan; 0% memblokir buff baru sementara buff yang ada habis seperti biasa, dan memblokir kedelapan parameter membutuhkan delapan sifat.',
+    'Buff Rate': 'Tingkat Buff',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Mengalikan peluang status ini mengenai petarung. Aksi Pasti Kena mengabaikannya.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Membuat kebal sepenuhnya terhadap status ini, dan menghapusnya jika sudah menempel.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Mengalikan salah satu dari delapan parameter utama. Sifat yang berbeda saling dikalikan, dan penguatan diterapkan di atas hasilnya.',
@@ -14261,6 +14289,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['id'], {
 Object.assign(RR_TEXT_TRANSLATIONS['vi'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Nhân sát thương mà chiến binh này nhận từ một hệ. Tỉ lệ từ các đặc tính riêng biệt nhân với nhau, và 0% chặn hoàn toàn hệ đó.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Nhân cơ hội một hiệu ứng suy giảm lên chỉ số này thành công. Các đặc tính nhân với nhau, nên 0% là miễn nhiễm hoàn toàn.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'Cơ hội một buff lên chỉ số này được chấp nhận, kể cả làm mới. Không bao giờ thay đổi độ mạnh của buff. Các đặc tính nhân với nhau; 0% chặn buff mới trong khi buff hiện có vẫn hết hạn bình thường, và chặn cả tám chỉ số cần tám đặc tính.',
+    'Buff Rate': 'Tỷ lệ buff',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Nhân cơ hội trạng thái này bám vào chiến binh. Hành động Chắc Trúng bỏ qua nó.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Miễn nhiễm hoàn toàn với trạng thái này, và xóa nó nếu đang có sẵn.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Nhân một trong tám chỉ số chính. Các đặc tính riêng biệt nhân với nhau, còn hiệu ứng tăng cường áp lên kết quả đó.',
@@ -14326,6 +14356,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['vi'], {
 Object.assign(RR_TEXT_TRANSLATIONS['th'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'คูณความเสียหายที่นักสู้ผู้นี้ได้รับจากธาตุหนึ่ง อัตราจากคุณลักษณะแต่ละอันจะคูณกัน และ 0% จะกันธาตุนั้นได้ทั้งหมด',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'คูณโอกาสที่การลดค่าพารามิเตอร์นี้จะสำเร็จ คุณลักษณะจะคูณกัน ดังนั้น 0% คือภูมิคุ้มกันเต็มที่',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'โอกาสที่บัฟของพารามิเตอร์นี้จะถูกยอมรับ รวมถึงการต่ออายุ ไม่เปลี่ยนความแรงของบัฟ คุณลักษณะจะคูณกัน 0% จะกันบัฟใหม่ ส่วนบัฟที่มีอยู่จะหมดไปตามปกติ และการกันทั้งแปดพารามิเตอร์ต้องใช้คุณลักษณะแปดอัน',
+    'Buff Rate': 'อัตราติดบัฟ',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'คูณโอกาสที่สถานะนี้จะติดกับนักสู้ การกระทำแบบเข้าเป้าแน่นอนจะไม่สนใจค่านี้',
     'Makes the battler immune to this state, and erases it if it is already there.': 'ทำให้ภูมิคุ้มกันสถานะนี้อย่างสมบูรณ์ และลบออกหากติดอยู่แล้ว',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'คูณหนึ่งในแปดพารามิเตอร์หลัก คุณลักษณะแต่ละอันจะคูณกัน และการเสริมพลังจะใช้ทับผลลัพธ์อีกที',
@@ -14391,6 +14423,8 @@ Object.assign(RR_TEXT_TRANSLATIONS['th'], {
 Object.assign(RR_TEXT_TRANSLATIONS['tr'], {
     'Multiplies the damage this battler takes from one element. Rates from separate traits multiply together, and 0% blocks the element outright.': 'Bu savaşçının bir elementten aldığı hasarı çarpar. Ayrı özelliklerden gelen oranlar birbiriyle çarpılır, 0% ise elementi tamamen engeller.',
     'Multiplies the chance a debuff on this parameter lands. Traits multiply together, so 0% makes the battler immune to it.': 'Bu parametreye gelen bir zayıflatmanın tutma olasılığını çarpar. Özellikler birbiriyle çarpıldığı için 0% tam bağışıklık verir.',
+    'The chance a buff on this parameter is accepted, a refresh included. It never changes how strong the buff is. Traits multiply together; 0% blocks new buffs while existing ones run out, and blocking all eight parameters takes eight traits.': 'Bu parametreye gelen bir güçlendirmenin kabul edilme olasılığı, yenileme dahil. Güçlendirmenin gücünü asla değiştirmez. Özellikler birbiriyle çarpılır; 0% yeni güçlendirmeleri engeller, mevcut olanlar normal şekilde sona erer ve sekiz parametrenin hepsini engellemek için sekiz özellik gerekir.',
+    'Buff Rate': 'Güçlendirme oranı',
     'Multiplies the chance this state lands on the battler. Certain Hit actions ignore it.': 'Bu durumun savaşçıya işleme olasılığını çarpar. Kesin İsabet eylemleri bunu yok sayar.',
     'Makes the battler immune to this state, and erases it if it is already there.': 'Bu duruma tam bağışıklık verir ve zaten uygulanmışsa siler.',
     'Multiplies one of the eight main parameters. Separate traits multiply together, and buffs apply on top of the result.': 'Sekiz ana parametreden birini çarpar. Ayrı özellikler çarpılır, güçlendirmeler ise sonucun üzerine uygulanır.',

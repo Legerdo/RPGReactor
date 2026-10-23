@@ -121,7 +121,7 @@ class DatabaseTraitEditor {
         `;
 
         const tabs = [
-            { id: 'rates', label: 'Rates', codes: [11, 12, 13, 14] },
+            { id: 'rates', label: 'Rates', codes: [11, 12, 15, 13, 14] },
             { id: 'param', label: 'Param', codes: [21, 22, 23] },
             { id: 'attack', label: 'Attack', codes: [31, 32, 33, 34] },
             { id: 'skill', label: 'Skill', codes: [41, 42, 43, 44] },
@@ -297,6 +297,12 @@ class DatabaseTraitEditor {
                 code: 12, label: this._t('Debuff Rate'),
                 control: this._selectHTML('debuff-select', 12, this._paramOptions(12, trait)),
                 value: this._numberHTML('rate-value', 12, trait.code === 12 ? Math.round(trait.value * 100) : 100),
+                unit: '%'
+            }),
+            this._rowHTML(trait, {
+                code: 15, label: this._t('Buff Rate'),
+                control: this._selectHTML('buff-select', 15, this._paramOptions(15, trait)),
+                value: this._numberHTML('rate-value', 15, trait.code === 15 ? Math.round(trait.value * 100) : 100),
                 unit: '%'
             }),
             this._rowHTML(trait, {
