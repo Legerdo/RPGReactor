@@ -650,6 +650,7 @@
             if (!at || !(at.mapId > 0) || DataManager.isBattleTest() || DataManager.isEventTest()) return bootStart.apply(this, arguments);
             Scene_Base.prototype.start.call(this);
             // The stock start is skipped here, so its post-plugin step is too.
+            if (typeof Game_Action === "function") Game_Action.installMultiElementShim();
             if (typeof Game_Battler === "function") Game_Battler.installBuffRateGate();
             SoundManager.preloadImportantSounds();
             DataManager.setupNewGame();
