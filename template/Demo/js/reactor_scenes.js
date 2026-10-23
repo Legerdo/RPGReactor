@@ -325,6 +325,8 @@ Scene_Boot.prototype.start = function() {
     // Every plugin has loaded by now; an element plugin's list reader can
     // be taught about multi-element skills and items.
     Game_Action.installMultiElementShim();
+    // ...and the Buff Rate trait can wrap every plugin's buff methods.
+    Game_Battler.installBuffRateGate();
     SoundManager.preloadImportantSounds();
     if (DataManager.isBattleTest()) {
         DataManager.setupBattleTest();

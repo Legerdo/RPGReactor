@@ -651,6 +651,7 @@
             Scene_Base.prototype.start.call(this);
             // The stock start is skipped here, so its post-plugin step is too.
             if (typeof Game_Action === "function") Game_Action.installMultiElementShim();
+            if (typeof Game_Battler === "function") Game_Battler.installBuffRateGate();
             SoundManager.preloadImportantSounds();
             DataManager.setupNewGame();
             $gamePlayer.reserveTransfer(at.mapId, at.x, at.y, play ? play.direction : 2, 0);

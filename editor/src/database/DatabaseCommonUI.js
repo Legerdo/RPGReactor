@@ -15,7 +15,7 @@ class DatabaseCommonUI {
     getTraitName(traitCode) {
         const tt = text => window.I18n ? window.I18n.tText(text) : text;
         const traitNames = {
-            11: 'Element Rate', 12: 'Debuff Rate', 13: 'State Rate', 14: 'State Resist',
+            11: 'Element Rate', 12: 'Debuff Rate', 13: 'State Rate', 14: 'State Resist', 15: 'Buff Rate',
             21: 'Parameter', 22: 'Ex-Parameter', 23: 'Sp-Parameter',
             31: 'Attack Element', 32: 'Attack State', 33: 'Attack Speed', 34: 'Attack Times+',
             35: 'Attack Skill',
@@ -52,6 +52,9 @@ class DatabaseCommonUI {
         } else if (trait.code === 12) { // Debuff Rate
             const params = globalThis.rrParamNames(tt);
             return `${params[trait.dataId] || tt('Param')} ${tt('Debuff')} ${Math.round(trait.value * 100)}%`;
+        } else if (trait.code === 15) { // Buff Rate
+            const params = globalThis.rrParamNames(tt);
+            return `${params[trait.dataId] || tt('Param')} ${tt('Buff')} ${Math.round(trait.value * 100)}%`;
         } else if (trait.code === 13) { // State Rate
             const state = this.databaseManager.getState(trait.dataId);
             const stateName = state ? state.name : `${tt('State')} ${trait.dataId}`;
