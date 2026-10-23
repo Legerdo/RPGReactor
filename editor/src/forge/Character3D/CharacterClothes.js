@@ -152,7 +152,8 @@
         }
         Outfit.collide(pack, built, out, 0, n, GAP, frame);
         const reference=pack._tailorReference||(pack._tailorReference=Body.build(pack,Body.DEFAULT_RECIPE));
-        Outfit.tailorTorso(pack,built,reference,()=>g._tailorRest||(g._tailorRest=fit(pack,reference,g,{})),out,frame,
+        // Broad-body tailoring re-seats rows by bearing and height; the skin clearance is applied again after it.
+        if(Outfit.tailorTorso(pack,built,reference,()=>g._tailorRest||(g._tailorRest=fit(pack,reference,g,{})),out,frame,
             {source:Array.from({length:n},(_,i)=>g.refs[i*3]),hanging:i=>{
                 if(!g._tailorPanels){
                     const parent=Array.from({length:n},(_,j)=>j),find=j=>parent[j]===j?j:(parent[j]=find(parent[j]));
@@ -161,7 +162,7 @@
                     g._tailorPanels=Uint8Array.from({length:n},(_,j)=>tops.get(find(j))>reference.bones.find(b=>b.name==='Neck').head[1]-.2&&(/dress|skirt/i.test(g.id)||bottoms.get(find(j))>reference.bones.find(b=>b.name==='Hips').head[1]-.3)?1:0);
                 }
                 return g._tailorPanels[i]&&g._tailorRest[i*3+1]<reference.bones.find(b=>b.name==='Hips').head[1]+.1;
-            },legged:!/dress|skirt/i.test(g.id),lift:GAP,clearance:.05});
+            },legged:!/dress|skirt/i.test(g.id),lift:GAP,clearance:.05}))Outfit.collide(pack, built, out, 0, n, GAP, frame);
         return out;
     }
 

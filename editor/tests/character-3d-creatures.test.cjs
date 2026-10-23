@@ -136,6 +136,23 @@ test('a preview build is quick enough for a live slider', () => {
     assert.ok((Date.now() - start) / 3 < 400, 'preview ' + (Date.now() - start) / 3 + ' ms');
 });
 
+test('while a slider is dragged the coat picture is half size and quicker; the whole picture on release and on save', () => {
+    const Model = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterModel.js'));
+    const coat = built => built.textures['creaturecoat.png'].width;
+    for (const kind of ['dog', 'cat']) {
+        const r = { plan: 'quadruped', ...Creature.kindRecipe(kind) };
+        Model.build(null, r, {}, { quality: 'preview' });
+        let start = Date.now();
+        const full = Model.build(null, r, {}, { quality: 'preview' }), fullMs = Date.now() - start;
+        start = Date.now();
+        const draft = Model.build(null, r, {}, { quality: 'preview', draft: true }), draftMs = Date.now() - start;
+        assert.equal(coat(draft) * 2, coat(full), kind + ' draft coat ' + coat(draft) + ' / ' + coat(full));
+        assert.ok(draftMs < fullMs, kind + ' draft ' + draftMs + ' ms, full ' + fullMs + ' ms');
+        assert.deepEqual(draft.bones.map(b => b.name), full.bones.map(b => b.name), 'the same skeleton');
+    }
+    assert.equal(coat(Creature.build(Creature.kindRecipe('dog'), { quality: 'save', draft: true })), 1536, 'a save is never a draft');
+});
+
 test('anatomical detail: off by default, a sex of its own, kept by Randomize', () => {
     const lion = Creature.kindRecipe('lion');
     assert.deepEqual(lion.anatomy, { ...Creature.DEFAULT_RECIPE.anatomy });

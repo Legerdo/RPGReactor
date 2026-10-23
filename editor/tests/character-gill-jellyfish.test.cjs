@@ -39,7 +39,9 @@ test('arthropod leg roots stay within the measured shell and front-body joints c
  const crossing=(part,y,z)=>{const hits=[];for(let t=0;t<part.index.length;t+=3){const p=Array.from(part.index.subarray(t,t+3),i=>part.positions.subarray(i*3,i*3+3)),ay=p[1][1]-p[0][1],az=p[1][2]-p[0][2],by=p[2][1]-p[0][1],bz=p[2][2]-p[0][2],det=ay*bz-az*by;if(Math.abs(det)<1e-12)continue;const u=((y-p[0][1])*bz-(z-p[0][2])*by)/det,v=(ay*(z-p[0][2])-az*(y-p[0][1]))/det;if(u>=-1e-6&&v>=-1e-6&&u+v<=1.000001)hits.push(p[0][0]+u*(p[1][0]-p[0][0])+v*(p[2][0]-p[0][0]));}return hits;};
  for(const kind of ['beetle','spider','crab','centipede'])for(const patch of [{},{girth:.3,chestDepth:.5,headSize:.6},{girth:2.6,chestDepth:2.2,headSize:2}]){
   const recipe=Q.Creature.normalizeRecipe({...Q.Creature.kindRecipe(kind),...patch}),b=Q.Model.build(null,recipe,{},{quality:'preview'}),body=b.parts.find(p=>p.name==='Body');assert.deepEqual(Q.inspect(b,{recipe}).issues,[]);
-  for(const bone of b.bones.filter(b=>b.role==='legUpper')){const hits=crossing(body,bone.head[1],bone.head[2]);assert.ok(hits.length>1,kind+' shell at leg origin');assert.ok(bone.head[0]>Math.min(...hits)&&bone.head[0]<Math.max(...hits),kind+' root is inset in shell');if(kind==='spider')assert.equal(b.bones[bone.parent].name,'Head');}
+  // A beetle's front pair rises from the prothorax (its Pronotum), the others from the body behind it.
+  const shells=[body,...b.parts.filter(p=>kind==='beetle'&&p.name==='Pronotum')];
+  for(const bone of b.bones.filter(b=>b.role==='legUpper')){const spans=shells.map(part=>crossing(part,bone.head[1],bone.head[2])).filter(hits=>hits.length>1);assert.ok(spans.length,kind+' shell at leg origin');assert.ok(spans.some(hits=>bone.head[0]>Math.min(...hits)&&bone.head[0]<Math.max(...hits)),kind+' root is inset in shell');if(kind==='spider')assert.equal(b.bones[bone.parent].name,'Head');}
   if(kind==='crab'){let low=Infinity,high=-Infinity;for(let i=0;i<body.positions.length;i+=3){low=Math.min(low,body.positions[i]);high=Math.max(high,body.positions[i]);}assert.ok(high-low>recipe.size*.8*recipe.girth,'broad carapace');}
  }
 });

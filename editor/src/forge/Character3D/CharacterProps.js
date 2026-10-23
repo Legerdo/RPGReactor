@@ -88,7 +88,8 @@
         }
         /** A tube through points with radii (number or per-point array). */
         tube(points, radii, sides, rgb, skin, caps = true) {
-            const minRadius=Array.isArray(radii)?Math.min(...radii):typeof radii==='function'?radii(.5):radii;sides=Math.max(sides,minRadius>=.003?24:minRadius>=.001?12:8);
+            // Worn equipment rounds its tubes by radius; an ExactMesh keeps the sides it is given.
+            const minRadius=Array.isArray(radii)?Math.min(...radii):typeof radii==='function'?radii(.5):radii;if(!this.exact)sides=Math.max(sides,minRadius>=.003?24:minRadius>=.001?12:8);
             const n = points.length;
             let prevX = null;
             return this.loft(n, i => {
@@ -102,7 +103,7 @@
             }, sides, rgb, skin, caps);
         }
         sphere(center, r, rgb, skin, rows = 8, sides = 12, squash = [1, 1, 1]) {
-            rows=Math.max(16,rows);sides=Math.max(32,sides);
+            if(!this.exact){rows=Math.max(16,rows);sides=Math.max(32,sides);}
             return this.loft(rows + 1, (i, t) => {
                 const phi = -Math.PI / 2 + t * Math.PI;
                 const rr = Math.cos(phi) * r;
@@ -1377,7 +1378,10 @@
         for (const x of m.i) into.i.push(x + base);
     }
 
-    const api = { PROPS, BY_ID, patterns:EQUIPMENT_PATTERNS, Mesh, landmarks, rigid, spineSkin, normalizeProp, normalizeProps, finishOf, build, vec: { add, sub, mul, dot, cross, len, norm, lerp } };
+    /** A Mesh whose tubes and spheres keep exactly the rows and sides asked for: creature anatomy sets its own triangle budgets. */
+    class ExactMesh extends Mesh { constructor() { super(); this.exact = true; } }
+
+    const api = { PROPS, BY_ID, patterns:EQUIPMENT_PATTERNS, Mesh, ExactMesh, landmarks, rigid, spineSkin, normalizeProp, normalizeProps, finishOf, build, vec: { add, sub, mul, dot, cross, len, norm, lerp } };
     root.RRCharacterProps = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

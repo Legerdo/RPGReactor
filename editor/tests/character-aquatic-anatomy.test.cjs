@@ -67,7 +67,8 @@ test('type-specific controls and the builder selector show only working aquatic 
     assert.ok(!controls(variant('shark','sharkType','whaleShark')).includes('toothSize'));
     assert.ok(!controls(Q.Creature.kindRecipe('stingray')).includes('jawOpen'));
     assert.ok(!controls(Q.Creature.kindRecipe('whale')).includes('snoutLength'));
-    const scope={window:{},console,RRCreatureBody:Q.Creature};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/forge/Character3D/Character3DBuilder.js'),'utf8'),scope);
+    // A type choice goes through _selectPreset, which clears pending timers.
+    const scope={window:{},console,RRCreatureBody:Q.Creature,setTimeout,clearTimeout};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/forge/Character3D/Character3DBuilder.js'),'utf8'),scope);
     const b=Object.create(scope.window.Character3DBuilder.prototype);Object.assign(b,{recipe:Q.Creature.kindRecipe('shark'),_t:s=>s,_section:s=>s,_tile:()=>'',_slider:()=>'',_extremeToggle:()=>'',_select:(key,label,choices)=>key+':'+choices.map(([id])=>id).join(',')});
     const html=b._bodyTab();assert.ok(html.includes('sharkType:greatWhite,tiger,bull,hammerhead,mako,thresher,whaleShark'));
     b._replace=r=>{b.recipe=r;};const choice={target:{tagName:'SELECT',value:'hammerhead',dataset:{path:'sharkType'}}};b._onInput(choice,false);assert.equal(b.recipe.sharkType,'greatWhite');b._onInput(choice,true);assert.equal(b.recipe.sharkType,'hammerhead');assert.equal(b.recipe.colors.coat,variant('shark','sharkType','hammerhead').colors.coat);

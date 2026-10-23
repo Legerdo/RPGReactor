@@ -28,7 +28,7 @@
         penguin: { head: .12, neck: .12, bill: .10, span: .27, tail: .10, legs: .09, webbed: true, upright: true }
     };
     function mesh(C, name, draw, material = {}) {
-        const m = new P.Mesh(), normals=m.computeNormals.bind(m);
+        const m = new P.ExactMesh(), normals=m.computeNormals.bind(m);
         const {keepVertexNormals,...surface}=material;
         m.computeNormals=()=>{}; draw(m); if(!keepVertexNormals)normals();
         return C.finish(m, name, { roughness: .72, ...surface });
@@ -86,7 +86,9 @@
     }
     /** Curved feather vane around a tapered rachis, with a convex upper surface. */
     function feather(m, start, end, width, color, skin, secondary) {
-        const d = norm(sub(end, start)), across = norm(cross(d, [0, 1, 0])), normal = norm(cross(across, d));
+        // A zero wing size or tail length leaves no feather rather than a collapsed one.
+        if (!(width > 1e-7) || Math.hypot(...sub(end, start)) < 1e-7) return;
+        const d = norm(sub(end, start)), across = norm(cross(d, Math.abs(d[1]) > .999 ? [1, 0, 0] : [0, 1, 0])), normal = norm(cross(across, d));
         const ids = [], rows = 12;
         for (let i = 0; i <= rows; i++) {
             const t = .002 + i / rows * .996, p = lerp(start, end, t), w = Math.sin(Math.PI * t) ** .65 * width;
@@ -301,7 +303,11 @@
             for (let j = 0; j < 5; j++) m.sphere(add(headCenter, [0, L * (.08 + Math.sin(j / 4 * Math.PI) * .04), L * (-.07 + j * .032)]), L * .025, red, rigid(head), 8, 12, [.3, 1.4, 1]);
             for (const s of [-1, 1]) m.sphere(add(bill, [s * L * .018, -L * .05, L * .005]), L * .028, red, rigid(head), 8, 12, [.5, 1.6, .8]);
         });
-        for (const s of [-1, 1]) birdWing(C, s, p, [s * L * (p.raptor?.16:.16) * r.girth, bodyY + L * (p.raptor?.16*r.chestDepth:.07), L * (p.raptor?.07:.035)]);
+        // The shoulder joint sits inside the torso's sculpted surface at its height and depth, at any girth or chest depth.
+        const shoulderY = bodyY + (p.raptor ? L * .16 * r.chestDepth : Math.min(L * .07, bodyScale[1] * .7)), shoulderZ = L * (p.raptor ? .07 : .035);
+        const yN = (shoulderY - bodyY) / bodyScale[1], taper = p.raptor ? .82 + .18 * yN : 1, zN = (shoulderZ - bodyZ - (p.raptor ? L * .10 * yN : 0)) / taper / bodyScale[2];
+        const shoulderX = Math.min(L * .16 * r.girth, .85 * bodyScale[0] * taper * Math.sqrt(Math.max(0, 1 - yN * yN - zN * zN)));
+        for (const s of [-1, 1]) birdWing(C, s, p, [s * shoulderX, shoulderY, shoulderZ]);
         const tail=C.bone('BirdTail',root,[0,bodyY-L*.18,-L*.08],[0,bodyY-L*.18,-L*.24],'birdTail',0);
         mesh(C, 'Tail feathers', m => {
             for (let j = 0; j < 11; j++) {
@@ -326,7 +332,7 @@
             const thumb = add(wrist, [s * L * .015, L * .04, L * .07]);
             m.tube([wrist, thumb, add(thumb, [-s * L * .008, -L * .014, L * .012])], [L * .009, L * .006, L * .0005], 8, c.mark, rigid(b));
         });
-        const boundary = [shoulder,hip,...tips.slice().reverse()], binding=[rootBone,rootBone,...fingerBones.slice().reverse()],membrane = new P.Mesh();
+        const boundary = [shoulder,hip,...tips.slice().reverse()], binding=[rootBone,rootBone,...fingerBones.slice().reverse()],membrane = new P.ExactMesh();
         for (let panel = 0; panel < boundary.length - 1; panel++) {
             const endA = boundary[panel], endB = boundary[panel + 1];
             const grid = [], rows = 16, columns = 16;

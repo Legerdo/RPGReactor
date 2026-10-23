@@ -398,15 +398,18 @@
 
     /** The biggest connected sheet among a part's vertices [start, end). */
     function sheetOf(part, start, end) {
-        const near = neighbors(part.index, part.positions.length / 3);
+        const near = neighbors(part.index, part.positions.length / 3), P = part.positions;
         const seen = new Int32Array(end - start).fill(-1);
-        let best = [];
+        // The hanging sheet is the tallest connected piece: a finely rounded clasp or binding can have more vertices.
+        let best = [], bestDrop = -1;
         for (let v = start; v < end; v++) {
             if (seen[v - start] >= 0) continue;
             const group = [v];
             seen[v - start] = v;
             for (let q = 0; q < group.length; q++) for (const u of near[group[q]]) if (u >= start && u < end && seen[u - start] < 0) { seen[u - start] = v; group.push(u); }
-            if (group.length > best.length) best = group;
+            let top = -Infinity, bottom = Infinity;
+            for (const u of group) { top = Math.max(top, P[u * 3 + 1]); bottom = Math.min(bottom, P[u * 3 + 1]); }
+            if (top - bottom > bestDrop) { best = group; bestDrop = top - bottom; }
         }
         return best;
     }

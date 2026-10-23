@@ -2263,21 +2263,27 @@
             axis[t] = k * 2 + (f[k] < 0 ? 1 : 0);
         }
         // Charts: faces of one axis joined across their edges.
-        const edgeFace = new Map(), chart = new Int32Array(T).fill(-1);
+        // Each face edge (slot t * 3 + k) joins the list of slots on the same undirected edge, in slot order.
+        const edgeGroup = new Map(), chart = new Int32Array(T).fill(-1);
         const ek = (a, b) => (a < b ? a * 4194304 + b : b * 4194304 + a);
+        const slotGroup = new Int32Array(T * 3), nextSlot = new Int32Array(T * 3).fill(-1), groupHead = [], groupTail = [];
         for (let t = 0; t < T; t++) for (let k = 0; k < 3; k++) {
-            const id = ek(index[t * 3 + k], index[t * 3 + (k + 1) % 3]);
-            const list = edgeFace.get(id); if (list) list.push(t); else edgeFace.set(id, [t]);
+            const id = ek(index[t * 3 + k], index[t * 3 + (k + 1) % 3]), s = t * 3 + k;
+            let g = edgeGroup.get(id);
+            if (g === undefined) { g = groupHead.length; edgeGroup.set(id, g); groupHead.push(s); groupTail.push(s); }
+            else { nextSlot[groupTail[g]] = s; groupTail[g] = s; }
+            slotGroup[s] = g;
         }
         const charts = [];
         for (let t0 = 0; t0 < T; t0++) {
             if (chart[t0] >= 0) continue;
-            const id = charts.length, faces = [t0];
+            const id = charts.length, faces = [t0], ax = axis[t0];
             chart[t0] = id;
             for (let q = 0; q < faces.length; q++) {
                 const t = faces[q];
-                for (let k = 0; k < 3; k++) for (const u of edgeFace.get(ek(index[t * 3 + k], index[t * 3 + (k + 1) % 3]))) {
-                    if (chart[u] < 0 && axis[u] === axis[t0]) { chart[u] = id; faces.push(u); }
+                for (let k = 0; k < 3; k++) for (let e = groupHead[slotGroup[t * 3 + k]]; e >= 0; e = nextSlot[e]) {
+                    const u = (e / 3) | 0;
+                    if (chart[u] < 0 && axis[u] === ax) { chart[u] = id; faces.push(u); }
                 }
             }
             let k = 0; for (const t of faces) if (fine[index[t * 3]] && fine[index[t * 3 + 1]] && fine[index[t * 3 + 2]]) k++;
@@ -2287,8 +2293,14 @@
         const flat = (p, ax) => (ax < 2 ? [p[2], p[1]] : ax < 4 ? [p[0], p[2]] : [p[0], p[1]]);
         let area = 0;
         for (const ch of charts) {
-            let lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
-            for (const t of ch.faces) for (let k = 0; k < 3; k++) { const q = flat(P(index[t * 3 + k]), ch.axis); lo = [Math.min(lo[0], q[0]), Math.min(lo[1], q[1])]; hi = [Math.max(hi[0], q[0]), Math.max(hi[1], q[1])]; }
+            // The chart's plane axes: (z, y) for an x-facing chart, (x, z) for y, (x, y) for z, as `flat`.
+            const ua = ch.axis < 2 ? 2 : 0, va = ch.axis < 2 ? 1 : ch.axis < 4 ? 2 : 1;
+            let lo0 = Infinity, lo1 = Infinity, hi0 = -Infinity, hi1 = -Infinity;
+            for (const t of ch.faces) for (let k = 0; k < 3; k++) {
+                const v = index[t * 3 + k] * 3, q0 = positions[v + ua], q1 = positions[v + va];
+                lo0 = Math.min(lo0, q0); lo1 = Math.min(lo1, q1); hi0 = Math.max(hi0, q0); hi1 = Math.max(hi1, q1);
+            }
+            const lo = [lo0, lo1], hi = [hi0, hi1];
             ch.lo = lo; ch.w = (hi[0] - lo[0]) * ch.s; ch.h = (hi[1] - lo[1]) * ch.s;
             area += ch.w * ch.h;
         }
@@ -2336,27 +2348,30 @@
             const y0 = Math.max(0, Math.floor(Math.min(q[0][1], q[1][1], q[2][1]) - 2)), y1 = Math.min(size - 1, Math.ceil(Math.max(q[0][1], q[1][1], q[2][1]) + 2));
             // How far a texel lies past each edge, in texels.
             const elen = [[1, 2], [2, 0], [0, 1]].map(([a, b]) => Math.hypot(q[b][0] - q[a][0], q[b][1] - q[a][1]) || 1);
+            // Per-face constants hoisted out of the texel loop (the arithmetic per texel is unchanged).
+            const qx0 = q[0][0], qy0 = q[0][1], qx1 = q[1][0], qy1 = q[1][1], qx2 = q[2][0], qy2 = q[2][1], absArea = Math.abs(area2);
+            const e0 = elen[0], e1 = elen[1], e2 = elen[2], a0 = vs[0] * 3, b0 = vs[1] * 3, c0 = vs[2] * 3;
             for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
                 const o = y * size + x;
                 if (filled[o] === 2) continue;
                 const px = x + 0.5, py = y + 0.5;
-                let w1 = ((px - q[0][0]) * (q[2][1] - q[0][1]) - (q[2][0] - q[0][0]) * (py - q[0][1])) / area2;
-                let w2 = ((q[1][0] - q[0][0]) * (py - q[0][1]) - (px - q[0][0]) * (q[1][1] - q[0][1])) / area2;
+                let w1 = ((px - qx0) * (qy2 - qy0) - (qx2 - qx0) * (py - qy0)) / area2;
+                let w2 = ((qx1 - qx0) * (py - qy0) - (px - qx0) * (qy1 - qy0)) / area2;
                 let w0 = 1 - w1 - w2;
                 const inside = w0 >= -1e-6 && w1 >= -1e-6 && w2 >= -1e-6;
                 if (!inside) {
                     // Past the edge, up to a few texels: the coat as it runs on across the edge (the face's plane
                     // carried on), so the filtered picture meets the next chart's colors and no stair-step shows.
                     // The nearest face to a texel paints it.
-                    const past = Math.max(-w0 * Math.abs(area2) / elen[0], -w1 * Math.abs(area2) / elen[1], -w2 * Math.abs(area2) / elen[2]);
+                    const past = Math.max(-w0 * absArea / e0, -w1 * absArea / e1, -w2 * absArea / e2);
                     if (filled[o] === 2 || past > 1.6 || (haloF[o] && near[o] <= past)) continue;
                     // Painted once all faces are in, from the nearest.
                     near[o] = past; haloF[o] = t + 1; haloW[o * 2] = w0; haloW[o * 2 + 1] = w1;
                     continue;
                 }
-                const w = [w0, w1, w2];
-                const p = [0, 1, 2].map(i => w[0] * positions[vs[0] * 3 + i] + w[1] * positions[vs[1] * 3 + i] + w[2] * positions[vs[2] * 3 + i]);
-                const nn = norm([0, 1, 2].map(i => w[0] * normals[vs[0] * 3 + i] + w[1] * normals[vs[1] * 3 + i] + w[2] * normals[vs[2] * 3 + i]));
+                const p = [w0 * positions[a0] + w1 * positions[b0] + w2 * positions[c0], w0 * positions[a0 + 1] + w1 * positions[b0 + 1] + w2 * positions[c0 + 1], w0 * positions[a0 + 2] + w1 * positions[b0 + 2] + w2 * positions[c0 + 2]];
+                const nx = w0 * normals[a0] + w1 * normals[b0] + w2 * normals[c0], ny = w0 * normals[a0 + 1] + w1 * normals[b0 + 1] + w2 * normals[c0 + 1], nz = w0 * normals[a0 + 2] + w1 * normals[b0 + 2] + w2 * normals[c0 + 2];
+                const nl = Math.hypot(nx, ny, nz) || 1, nn = [nx / nl, ny / nl, nz / nl];
                 const main = w0 >= w1 && w0 >= w2 ? vs[0] : w1 >= w2 ? vs[1] : vs[2];
                 const c = colorAt(p, nn, tags[main]);
                 data[o * 4] = Math.round(clamp(c[0], 0, 1) * 255); data[o * 4 + 1] = Math.round(clamp(c[1], 0, 1) * 255); data[o * 4 + 2] = Math.round(clamp(c[2], 0, 1) * 255); data[o * 4 + 3] = 255;
@@ -2407,18 +2422,19 @@
             for (let k = 0; k < 3; k++) data[o * 4 + k] = Math.round(clamp(sum[k], 0, 1) * 255);
         }
         // Grow every chart's edge outward a few texels, so filtering and smaller mip levels stay on coat.
+        // Each pass reads the coverage as it was when the pass began; a texel takes its first filled
+        // neighbour in the order right, left, below, above.
+        const growTo = new Int32Array(size * size), growFrom = new Int32Array(size * size);
         for (let pass = 0; pass < 6; pass++) {
-            const grow = [];
+            let grown = 0;
             for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
                 const o = y * size + x;
                 if (filled[o]) continue;
-                for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-                    const xx = x + dx, yy = y + dy;
-                    if (xx < 0 || yy < 0 || xx >= size || yy >= size || !filled[yy * size + xx]) continue;
-                    grow.push([o, yy * size + xx]); break;
-                }
+                const f = x + 1 < size && filled[o + 1] ? o + 1 : x > 0 && filled[o - 1] ? o - 1 : y + 1 < size && filled[o + size] ? o + size : y > 0 && filled[o - size] ? o - size : -1;
+                if (f < 0) continue;
+                growTo[grown] = o; growFrom[grown++] = f;
             }
-            for (const [o, f] of grow) { data.copyWithin(o * 4, f * 4, f * 4 + 4); filled[o] = 1; }
+            for (let i = 0; i < grown; i++) { const o = growTo[i], f = growFrom[i]; data.copyWithin(o * 4, f * 4, f * 4 + 4); filled[o] = 1; }
         }
         for (let y = size - 6; y < size; y++) for (let x = 0; x < 6; x++) data.fill(255, (y * size + x) * 4, (y * size + x) * 4 + 4);
         return { uvs, index: out, extra, white: [3 / size, (size - 3) / size], texture: { width: size, height: size, data, name: 'creaturecoat.png' } };
@@ -2433,7 +2449,8 @@
     /**
      * The whole creature: { parts, bones, height, plan, rig, clips, textures }.
      * `options.quality` 'preview' (coarser, for live sliders) or 'save';
-     * `options.hairBudget` scales the strand cards (1 full; weak graphics less).
+     * `options.hairBudget` scales the strand cards (1 full; weak graphics less);
+     * `options.draft` (a slider being dragged) paints a preview's coat picture at half size.
      */
     function build(recipe, options) {
         const given = normalizeRecipe(recipe);
@@ -2672,7 +2689,9 @@
             // The face (its lids, lips, nose, whisker spots) is painted finer than the rest.
             const I = coat.index, keep = new Uint8Array(vcount);
             for (let v = 0; v < vcount; v++) keep[v] = HEAD_TAGS.has(tags[v]) ? 1 : 0;
-            atlas = coatAtlas(positions, I.slice(0, bodyFaces), normals, tags, keep, (p, n, tag) => { const c = coatColor(r, lay, p, n, tag, C); return furry ? mul(c, coatGrain(r, lay, p, n, tag)) : c; }, r.kind==='cat'?(save?2048:1024):save ? 1536 : 768, total);
+            // While a slider is dragged (`draft`), the preview coat is painted at half size; the whole picture follows on release.
+            const coatSize = r.kind === 'cat' ? (save ? 2048 : 1024) : save ? 1536 : 768;
+            atlas = coatAtlas(positions, I.slice(0, bodyFaces), normals, tags, keep, (p, n, tag) => { const c = coatColor(r, lay, p, n, tag, C); return furry ? mul(c, coatGrain(r, lay, p, n, tag)) : c; }, o.draft && !save ? coatSize / 2 : coatSize, total);
             if (atlas) {
                 const uvs = new Float32Array((total + atlas.extra.length) * 2);
                 uvs.set(atlas.uvs);
@@ -2704,7 +2723,7 @@
         }
         finish('Horns', horn, { roughness: 0.45 });
         if(r.kind==='cat'&&lay.whiskerPad){
-            const P=root.RRCharacterProps||require('./CharacterProps.js'),m=new P.Mesh(),skin=P.rigid(boneIndex.get('Head')),wp=lay.whiskerPad;
+            const P=root.RRCharacterProps||require('./CharacterProps.js'),m=new P.ExactMesh(),skin=P.rigid(boneIndex.get('Head')),wp=lay.whiskerPad;
             for(const s of [-1,1])for(let row=0;row<3;row++)for(let j=0;j<4;j++){
                 const from=lay.H(s*.10,wp.y+.055*(row-1),wp.z+.035*(j-1.5)),direction=norm(add([s*.82,0,0],mul(lay.hd,.57)));
                 let start=from;
@@ -2757,7 +2776,7 @@
         }
         const fineCatFur=(roots,name)=>{
             const g=lay.g;
-            const P=root.RRCharacterProps||require('./CharacterProps.js'),m=new P.Mesh(),compute=m.computeNormals.bind(m);m.computeNormals=()=>{};
+            const P=root.RRCharacterProps||require('./CharacterProps.js'),m=new P.ExactMesh(),compute=m.computeNormals.bind(m);m.computeNormals=()=>{};
             const limit=save?1400:1000;
             for(let i=0;i<Math.min(limit,roots.length);i++){
                 const hair=roots[Math.floor(i*roots.length/Math.min(limit,roots.length))],nr=hair.n,flow=norm(add(hair.flow,mul(nr,.24))),length=hair.len*.65;

@@ -639,7 +639,13 @@
         smoothBorder(piece, pos, base, fittedLower?0:spec.edgeSmooth ?? (spec.hard || (spec.rules && spec.rules.open) ? 16 : 8));
         // Whatever still lies in the skin (a slider pushed past what the helper follows) is lifted out.
         if (spec.collide !== false) collide(pack, built, pos, 0, count, lift * 0.7, cache, null, spec.liftAt ? Float32Array.from(stand, x => Math.min(lift, x) * 0.7) : null);
-        if (spec.collide !== false && !spec.hard && !fittedLower && ['body','tights','skirt'].includes(spec.surface)) {
+        // Close-fitting swimwear and short tops (a bra, a crop top, ending above the waist) keep the skin's own shape.
+        // Torso enclosure and tailoring re-seat rows by bearing: they lifted a bra's lower edge off a full bust and
+        // stood a bikini bottom out over a hanging belly, uncovering what it is worn to cover.
+        let lowest = Infinity;
+        if (spec.surface === 'body') for (const f of piece.field) lowest = Math.min(lowest, f.y);
+        const spine = anatomy(pack).chains.spine, skinTight = spec.closeFit || spec.surface === 'body' && lowest > spine[0][1] + (spine[4][1] - spine[0][1]) * 0.4;
+        if (spec.collide !== false && !spec.hard && !fittedLower && !skinTight && ['body','tights','skirt'].includes(spec.surface)) {
             encloseTrunk(pack, built, pos, base, piece.field, lift, cache, spec);
             const reference = pack._tailorReference || (pack._tailorReference = Body.build(pack, Body.DEFAULT_RECIPE));
             const previous = Float32Array.from(pos);

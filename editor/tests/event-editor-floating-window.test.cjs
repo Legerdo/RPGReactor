@@ -118,7 +118,8 @@ test('switching to another event keeps the window open where it is', () => {
     assert.match(manager, /Nothing to apply: the window stays where it is and takes the new event\.\s*this\.eventEditor\.leaveEvent\(\);/);
     assert.match(manager, /RREventEditorWindow\.open\(modal, \{ shownBefore \}\)/, 'one way to open: its window, or the page');
     const window = read('src/utils/DetachedWindow.js');
-    assert.match(window, /function open\(overlay = overlayElement\(\), \{ shownBefore = false \} = \{\}\) \{\s*if \(popped\) \{ showPopout\(\); return; \}\s*if \(separateWindows\(\)\) \{ popOut\(overlay\); return; \}\s*if \(!shownBefore\) place\(overlay\);/,
+    // Opening also hands the window preview ownership (inactive-window performance, d27d7499).
+    assert.match(window, /function open\(overlay = overlayElement\(\), \{ shownBefore = false \} = \{\}\) \{\s*activatePreview\(api\);\s*if \(popped\) \{ showPopout\(\); return; \}\s*if \(separateWindows\(\)\) \{ popOut\(overlay\); return; \}\s*if \(!shownBefore\) place\(overlay\);/,
         'already up: shown where it is; the desktop app: a window of its own; the web editor: the page');
 });
 

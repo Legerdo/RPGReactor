@@ -100,7 +100,7 @@
             }
         };
         const eye = (center, radius, skin, count = 1, facing = [0, 0, 1]) => {
-            const m = new Props.Mesh();
+            const m = new Props.ExactMesh();
             m.sphere(center, radius, colors.dark, skin, save ? 12 : 8, save ? 20 : 16);
             m.disk(add(center, mul(facing, radius * 0.93)), facing, radius * 0.57, colors.eye, skin, 20);
             m.disk(add(center, mul(facing, radius * 0.98)), facing, radius * 0.3, colors.dark, skin, 16);
@@ -110,7 +110,7 @@
         const blade = (name, outline, parent, role = 'fin', phase = 0, color = colors.main) => {
             const center = outline.reduce((a, p) => add(a, mul(p, 1 / outline.length)), [0, 0, 0]);
             const normal = norm(cross(sub(outline[1], outline[0]), sub(outline[2], outline[0]))), thick = L * 0.006;
-            const b = bone(name, parent, outline[0], center, role, phase), m = new Props.Mesh(), rings = [], boundary = [];
+            const b = bone(name, parent, outline[0], center, role, phase), m = new Props.ExactMesh(), rings = [], boundary = [];
             const base = sub(outline.at(-1), outline[0]), reach = Math.max(L * 0.01, ...outline.map(p => Math.hypot(...sub(p, outline[0]))));
             const skin = p => {
                 const t = clamp(dot(sub(p, outline[0]), base) / Math.max(1e-12, dot(base, base)), 0, 1);
@@ -204,7 +204,7 @@
             }
             return L * 0.009;
         };
-        const body = new Props.Mesh();
+        const body = new Props.ExactMesh();
         body.loft(whale ? (C.save ? 81 : 65) : (C.save ? 65 : 41), (_, t) => ({ center: [0, Y, L * (0.5 - t)], x: [1, 0, 0], y: [0, 1, 0], rx: width(t) * r.girth * (ray ? 1.5 : 1), ry: width(t) * r.chestDepth * (ray ? 0.65 : 1) }), C.save ? 40 : 28, colors.main, skin, true);
         if (mammal && !whale) body.sphere([0, Y - L * 0.015, L * (0.49 + r.snoutLength * 0.035)], L * 0.045, colors.main, Props.rigid(headBone), 12, 24, [0.55 * r.snoutWidth, 0.45, 1.9 * r.snoutLength]);
         pattern(finish(body, 'Body', { roughness: mammal ? 0.32 : 0.45 }));
@@ -214,7 +214,7 @@
             const at = bodyRay(C, [0, y, z], [sign, 0, 0]) || [sign * w * 0.9, y, z];
             eye(add(at, [-sign * radius * 0.3, 0, 0]), radius, Props.rigid(headBone), i, [sign * 0.9, 0.1, 0.3]);
         }
-        const fins = new Props.Mesh();
+        const fins = new Props.ExactMesh();
         for (let i = 0; i < r.finPairs; i++) for (const sign of [-1, 1]) {
             const z = L * (0.12 - i * 0.17), w = width(0.5 - z / L) * r.girth * (ray ? 1.4 : 0.9), span = L * (ray ? 0.42 : 0.18) * r.finSize / (1 + i * 0.3);
             blade('Fin' + sign + '_' + i, [[sign * w, Y, z + L * 0.07], [sign * (w + span), Y - L * 0.025, z - L * 0.12], [sign * (w + span * 0.45), Y - L * 0.03, z - L * 0.19], [sign * w, Y, z - L * 0.08]], rootBone, 'fin', sign);
@@ -230,7 +230,7 @@
             const z = L * (0.25 - i * 0.025), w = width(0.5 - z / L) * r.girth;
             fins.tube([[sign * w * 0.84, Y + L * 0.04, z], [sign * w * 1.005, Y, z - L * 0.005], [sign * w * 0.84, Y - L * 0.04, z - L * 0.012]], [L * 0.0018, L * 0.0018, L * 0.001], 5, colors.mark, Props.rigid(rootBone));
         }
-        const mouth = new Props.Mesh(), lip = [];
+        const mouth = new Props.ExactMesh(), lip = [];
         if (mammal && !whale) {
             const zc = L * (0.49 + r.snoutLength * 0.035), rx = L * 0.045 * 0.55 * r.snoutWidth, rz = L * 0.045 * 1.9 * r.snoutLength;
             for (let k = 0; k <= 24; k++) { const a = -Math.PI * 0.6 + k / 24 * Math.PI * 1.2; lip.push([Math.sin(a) * rx, Y - L * 0.016, zc + Math.cos(a) * rz]); }
@@ -240,7 +240,7 @@
         }
         mouth.tube(lip, lip.map(() => L * 0.0014), 6, colors.dark, Props.rigid(headBone)); finish(mouth, 'Mouth crease', { roughness: 0.6 });
         if (whale) {
-            const pleats = new Props.Mesh();
+            const pleats = new Props.ExactMesh();
             for (let k = -3; k <= 3; k++) {
                 const path = Array.from({ length: 25 }, (_, i) => {
                     const t = 0.07 + i / 24 * 0.31, w = width(t), x = k * w * r.girth * 0.17;
@@ -255,12 +255,12 @@
 
         if (whale || (mammal && !whale)) {
             const t = whale ? 0.24 : 0.32, z = L * (0.5 - t), y = Y + width(t) * r.chestDepth;
-            const blow = new Props.Mesh(); blow.disk([0, y + L * 0.0008, z], [0, 1, 0], L * (whale ? 0.009 : 0.004), colors.dark, Props.rigid(headBone), 20, L * 0.003); finish(blow, 'Blowhole');
+            const blow = new Props.ExactMesh(); blow.disk([0, y + L * 0.0008, z], [0, 1, 0], L * (whale ? 0.009 : 0.004), colors.dark, Props.rigid(headBone), 20, L * 0.003); finish(blow, 'Blowhole');
         }
         if (r.kind === 'anglerfish') {
             const path = [[0, Y + L * 0.09, L * 0.31], [0, Y + L * 0.29, L * 0.32], [0, Y + L * 0.3, L * 0.47], [0, Y + L * 0.19, L * 0.52]];
             fins.tube(path, [L * 0.009, L * 0.006, L * 0.004, L * 0.003], 10, colors.main, Props.rigid(headBone));
-            const lure = new Props.Mesh(); lure.sphere(path.at(-1), L * 0.022, colors.light, Props.rigid(headBone), 10, 16); finish(lure, 'Luminous lure', { emissive: r.colors.light, emissiveIntensity: 1.3 });
+            const lure = new Props.ExactMesh(); lure.sphere(path.at(-1), L * 0.022, colors.light, Props.rigid(headBone), 10, 16); finish(lure, 'Luminous lure', { emissive: r.colors.light, emissiveIntensity: 1.3 });
         }
         finish(fins, 'Gills and mouth', { roughness: 0.5 });
     }
@@ -411,7 +411,7 @@
         // the tip of its nose into two crocodile-like jaws.
         const frontCurve = (t,u) => cfg.shark ? L*.01*(1-u*u)*(1-ease(mouthFront,mouthFront+.035,t)) : 0;
         const jawSetback = cfg.shark ? .004 : .012;
-        const mesh=new Props.Mesh(), rings=[], steps=C.save?100:72, sides=cfg.whale?(C.save?64:40):(C.save?32:24);
+        const mesh=new Props.ExactMesh(), rings=[], steps=C.save?100:72, sides=cfg.whale?(C.save?64:40):(C.save?32:24);
         const tri=(a,b,c)=>mesh.tri(a,b,c);
         // Put an exact ring at the jaw hinge; the two lip sheets meet there.
         // Extra axial samples model the branchial folds in the continuous skin.
@@ -511,7 +511,7 @@
         const onSide=(t,sign,y,lift=0)=>surface(t,sign>0?Math.asin(Math.abs(y))/Math.PI:1-Math.asin(Math.abs(y))/Math.PI,y<0,lift);
         // Real upper palate and lower mouth floor close the cavity behind the
         // lips. Teeth are embedded in these gum margins, never on a face decal.
-        const inside=new Props.Mesh(), gums=new Props.Mesh(), lipRows=[[],[]], mouthN=32, crossN=sides;
+        const inside=new Props.ExactMesh(), gums=new Props.ExactMesh(), lipRows=[[],[]], mouthN=32, crossN=sides;
         for(let half=0;half<2;half++) {
             const rows=[];
             for(let i=0;i<=mouthN;i++) {
@@ -543,7 +543,7 @@
         finish(inside,'Mouth interior',{kind:'mouth',roughness:.9,doubleSided:true,noSurfaceDetail:true});
         finish(gums,'Gum margins',{kind:'mouth',roughness:.62,noSurfaceDetail:true});
         if(cfg.tooth && r.toothSize>0 && r.jawOpen>0.01) {
-            const teeth=new Props.Mesh(), toothColor=rgb('#e7e0cb'), rows=cfg.shark?2:1, number=cfg.shark?28:cfg.angler?26:32;
+            const teeth=new Props.ExactMesh(), toothColor=rgb('#e7e0cb'), rows=cfg.shark?2:1, number=cfg.shark?28:cfg.angler?26:32;
             for(let half=0;half<2;half++){
                 const path=lipRows[half],lengths=[0];
                 for(let k=1;k<path.length;k++)lengths.push(lengths.at(-1)+Math.hypot(...sub(path[k].p,path[k-1].p)));
@@ -580,7 +580,7 @@
         // Rounded hydrofoil sections swept along curved, tapered span lines.
         const fin=(name,stations,parent,role,phase=0,white=false)=> {
             const finColor=cfg.type==='tuna'&&/Finlet|Second dorsal|Anal fin/.test(name)?rgb('#d9b94b'):colors.main;
-            const pts=stations.map(s=>[s[0]*L,s[1]*L+Y,s[2]*L]), b=bone(name,parent,pts[0],pts[Math.floor(pts.length/2)],role,phase), m=new Props.Mesh();
+            const pts=stations.map(s=>[s[0]*L,s[1]*L+Y,s[2]*L]), b=bone(name,parent,pts[0],pts[Math.floor(pts.length/2)],role,phase), m=new Props.ExactMesh();
             m.loft(C.save?33:25,(_,t)=>{
                 const a=profileAt(stations.map((s,i)=>[i/(stations.length-1),...s]),t), center=[a[0]*L,Y+a[1]*L,a[2]*L];
                 const ds=.002,pa=profileAt(stations.map((s,i)=>[i/(stations.length-1),...s]),Math.max(0,t-ds)),pb=profileAt(stations.map((s,i)=>[i/(stations.length-1),...s]),Math.min(1,t+ds)),axis=norm(sub(pb,pa));
@@ -633,24 +633,24 @@
         }
         // The eye sits in the actual side surface with a dark iris and restrained glint.
         if(cfg.type==='hammerhead') {
-            const bar=new Props.Mesh();bar.loft(49,(_,t)=>{const u=Math.abs(t*2-1),round=Math.sqrt(Math.max(.002,1-u**12)),x=(t*2-1)*L*.19,rx=L*(.058-.009*u)*round;return{center:[x,Y+L*.007,L*(.435+.013*u)],x:[0,0,1],y:[0,1,0],rx,ry:L*(.017-.004*u)*round};},24,colors.main,Props.rigid(headBone),true);finish(bar,'Cephalofoil',{kind:'aquatic',roughness:.46,normalScale:.07});
+            const bar=new Props.ExactMesh();bar.loft(49,(_,t)=>{const u=Math.abs(t*2-1),round=Math.sqrt(Math.max(.002,1-u**12)),x=(t*2-1)*L*.19,rx=L*(.058-.009*u)*round;return{center:[x,Y+L*.007,L*(.435+.013*u)],x:[0,0,1],y:[0,1,0],rx,ry:L*(.017-.004*u)*round};},24,colors.main,Props.rigid(headBone),true);finish(bar,'Cephalofoil',{kind:'aquatic',roughness:.46,normalScale:.07});
         }
         for(let i=0;i<r.eyeCount;i++) {
             const sign=i%2?-1:1,t=(cfg.whale?.20:cfg.mammal?.135:cfg.shark?.12:.12)+Math.floor(i/2)*.025,s=section(t),radius=L*(cfg.shark?.008:cfg.whale?.005:.009)*r.eyeSize;
             let p=onSide(t,sign,cfg.shark?.32:.18),facing=[sign,.08,.15];
             if(cfg.type==='hammerhead'){p=[sign*L*.188,Y+L*.009,L*.449];facing=[sign,0,.1];}
             if(!p)continue;p=add(p,[-sign*radius*.18,0,0]);
-            const eye=new Props.Mesh(),bind=Props.rigid(headBone);eye.sphere(p,radius,rgb('#080d12'),bind,10,16,[1,.86,1]);
+            const eye=new Props.ExactMesh(),bind=Props.rigid(headBone);eye.sphere(p,radius,rgb('#080d12'),bind,10,16,[1,.86,1]);
             eye.sphere(add(p,add(mul(norm(facing),radius*.87),[0,radius*.23,0])),radius*.10,rgb('#b9c8ce'),bind,4,6);finish(eye,'Eye '+i,{kind:'eye',roughness:.16});
         }
-        const details=new Props.Mesh();
+        const details=new Props.ExactMesh();
         if(cfg.mammal) {
             const t=cfg.whale?.16:.18,s=section(t),p=surface(t,.5,false,L*.0007);
             if(p)for(const sign of cfg.whale&&cfg.type!=='orca'?[-1,1]:[0])details.disk(add(p,[sign*L*.003,L*.0007,0]),[0,1,0],L*(cfg.whale?.0038:.003),colors.dark,Props.rigid(headBone),20,L*.0018);
         }
         finish(details,'Gills and facial detail',{kind:'aquatic',roughness:.57,noSurfaceDetail:true});
         if(cfg.type==='whaleShark') {
-            const spots=new Props.Mesh();
+            const spots=new Props.ExactMesh();
             for(let row=0;row<26;row++)for(let col=0;col<13;col++){
                 const t=.035+row/26*.78,u=(col+.5+(row%2)*.25)/13,p=surface(t,u,false,L*.00015),pa=surface(Math.min(.95,t+.002),u),pb=surface(t,Math.min(.999,u+.002));
                 const n=norm(cross(sub(pa,p),sub(pb,p))),s=section(t),out=norm([p[0]/Math.max(1e-5,s.w),(p[1]-s.upperY)/Math.max(1e-5,s.top),0]),normal=dot(n,out)<0?mul(n,-1):n;
@@ -659,7 +659,7 @@
             finish(spots,'Spotted skin',{kind:'aquatic',roughness:.55,noSurfaceDetail:true,noShade:true});
         }
         if(cfg.type==='humpback') {
-            const nodules=new Props.Mesh();for(const sign of [-1,0,1])for(let k=0;k<7;k++){const t=.035+k*.022,s=section(t),p=surface(t,Math.acos(sign*.58)/Math.PI,false);if(p)nodules.sphere(p,L*.0025*(1+k*.07),colors.main,Props.rigid(headBone),5,8);}
+            const nodules=new Props.ExactMesh();for(const sign of [-1,0,1])for(let k=0;k<7;k++){const t=.035+k*.022,s=section(t),p=surface(t,Math.acos(sign*.58)/Math.PI,false);if(p)nodules.sphere(p,L*.0025*(1+k*.07),colors.main,Props.rigid(headBone),5,8);}
             finish(nodules,'Rostral tubercles',{kind:'aquatic',roughness:.5,noSurfaceDetail:true});
         }
         if(cfg.type==='tuna')for(const sign of [-1,1])for(let k=0;k<6;k++) {
@@ -667,9 +667,9 @@
             fin('Finlet'+sign+'_'+k,[[0,y/L,s.z/L,.028,.0015],[0,y/L+sign*.020,s.z/L-.006,.015,.001],[0,y/L+sign*.023,s.z/L-.012,.001,.0002]],tail[Math.min(5,k+1)].b,'dorsal');
         }
         if(cfg.angler) {
-            const s=section(.16),path=[[0,s.upperY+s.top-L*.006,s.z],[0,Y+L*.27,L*.36],[0,Y+L*.25,L*.53],[0,Y+L*.13,L*.57]],m=new Props.Mesh();
+            const s=section(.16),path=[[0,s.upperY+s.top-L*.006,s.z],[0,Y+L*.27,L*.36],[0,Y+L*.25,L*.53],[0,Y+L*.13,L*.57]],m=new Props.ExactMesh();
             m.tube(path,[L*.007,L*.004,L*.003,L*.002],10,colors.main,Props.rigid(headBone));finish(m,'Lure stalk',{kind:'aquatic',roughness:.5});
-            const lure=new Props.Mesh();lure.sphere(path.at(-1),L*.017,colors.light,Props.rigid(headBone),10,16);finish(lure,'Luminous lure',{kind:'aquatic',emissive:r.colors.light,emissiveIntensity:1.2,noSurfaceDetail:true});
+            const lure=new Props.ExactMesh();lure.sphere(path.at(-1),L*.017,colors.light,Props.rigid(headBone),10,16);finish(lure,'Luminous lure',{kind:'aquatic',emissive:r.colors.light,emissiveIntensity:1.2,noSurfaceDetail:true});
         }
     }
 
@@ -694,7 +694,7 @@
             if (best === count - 1) return Props.rigid(chain[best]);
             return { joints: [chain[best], chain[best + 1], 0, 0], weights: [1 - fraction, fraction, 0, 0] };
         };
-        const mesh = new Props.Mesh(), steps = C.save ? 49 : 33;
+        const mesh = new Props.ExactMesh(), steps = C.save ? 49 : 33;
         const point = t => {
             const s = clamp(t, 0, 1) * count, i = Math.min(count - 1, Math.floor(s)), u = s - i;
             const a = path[Math.max(0, i - 1)], b = path[i], c = path[i + 1], d = path[Math.min(count, i + 2)];
@@ -714,7 +714,7 @@
         }, C.save ? 20 : 12, colors.main, skin, true);
         C.pattern(finish(mesh, name));
         if (suckers) {
-            const cups = new Props.Mesh(), number = C.save ? 13 : 9;
+            const cups = new Props.ExactMesh(), number = C.save ? 13 : 9;
             for (let k = 1; k <= number; k++) {
                 const t = club ? 0.77 + k / (number + 2) * 0.2 : k / (number + 2), at = point(t), armR = width(t);
                 const cr = radius * 0.45 * (1 - t) + L * 0.002, c = add(at, [0, -armR, 0]);
@@ -726,7 +726,7 @@
     }
     function cephalopod(C) {
         const { r, L, Y, colors, finish, rootBone, headBone, eye, blade } = C, squid = r.kind === 'squid';
-        const body = new Props.Mesh();
+        const body = new Props.ExactMesh();
         body.loft(C.save ? 57 : 41, (_, t) => {
             const front = Math.max(0.025, Math.sin(Math.min(1, t / 0.18) * Math.PI / 2) ** 0.65);
             const radius = front * (squid ? L * (0.13 + 0.13 * Math.sin(t * Math.PI)) * Math.max(0.02, (1 - t) ** 0.8) : L * (0.13 + 0.17 * Math.exp(-(((t - 0.59) / 0.27) ** 2))) * Math.max(0.02, (1 - t) ** 0.38));
@@ -783,7 +783,7 @@
             const band=r.pattern==='stripes'?(.5+.5*Math.cos(t*r.segments*Math.PI*2))*.20:0;
             c=mix(c,colors.mark,clamp(band+grain+.03,0,.4));return c;
         };
-        const mesh=new Props.Mesh(),rings=[],uvs=[],sides=C.save?32:24,steps=r.segments*(C.save?6:4);
+        const mesh=new Props.ExactMesh(),rings=[],uvs=[],sides=C.save?32:24,steps=r.segments*(C.save?6:4);
         const ts=[...new Set(Array.from({length:steps+1},(_,i)=>i/steps).concat(hinge))].sort((a,b)=>a-b);
         for(const t of ts){const s=section(t),row=[];
             for(const lower of [false,true]){const ring=[];
@@ -802,7 +802,7 @@
         // The sails grow from the shoulders; every axial slice shares its
         // underlying body's binding so crawling does not tear the attachment.
         for(const sign of [-1,0,1]){
-            const sail=new Props.Mesh(),rows=C.save?41:29;
+            const sail=new Props.ExactMesh(),rows=C.save?41:29;
             sail.loft(rows,(_,u)=>{
                 const t=.14+u*.19,s=section(t),spread=L*.052*r.finSize*Math.sin(Math.PI*u)**1.1*(1+.09*Math.cos(u*Math.PI*10))+L*.0002;
                 const direction=sign?norm([sign,.65,0]):[0,1,0],normal=sign?norm([-sign*.65,1,0]):[1,0,0];
@@ -812,7 +812,7 @@
             },C.save?16:12,(u,a)=>mix(mix(colors.main,colors.light,.12),colors.mark,(.20+.18*Math.cos(a)+.15*Math.sin(u*Math.PI*18)**8)*Math.sin(Math.PI*u)),p=>bodySkin(clamp((.55-p[2]/L)/1.08,.14,.34)),true);
             finish(sail,sign?'Head frill '+sign:'Cranial crest',{kind:'aquatic',roughness:.53,normalScale:.07});
         }
-        const inside=new Props.Mesh(),gums=new Props.Mesh(),paths=[];
+        const inside=new Props.ExactMesh(),gums=new Props.ExactMesh(),paths=[];
         for(let half=0;half<2;half++){
             const rows=[],path=[];
             for(let i=0;i<=24;i++){const t=i/24*hinge,s=section(t),row=[];
@@ -825,7 +825,7 @@
             paths.push(path);gums.tube(path.map(q=>q.p),L*.00085,6,colors.light,p=>bind(clamp((.55-p[2]/L)/1.08,0,hinge),!!half));
         }
         finish(inside,'Mouth interior',{kind:'mouth',roughness:.85,doubleSided:true,noSurfaceDetail:true});finish(gums,'Gum margins',{kind:'mouth',roughness:.6,noSurfaceDetail:true});
-        if(r.jawOpen>.01&&r.toothSize>0){const teeth=new Props.Mesh();
+        if(r.jawOpen>.01&&r.toothSize>0){const teeth=new Props.ExactMesh();
             for(let half=0;half<2;half++){
                 const path=paths[half],dist=[0];for(let i=1;i<path.length;i++)dist.push(dist.at(-1)+Math.hypot(...sub(path[i].p,path[i-1].p)));
                 for(let n=0;n<18;n++){
@@ -839,13 +839,13 @@
         }
         for(let i=0;i<r.eyeCount;i++){
             const sign=i%2?-1:1,t=.065+Math.floor(i/2)*.013,s=section(t),radius=L*.0045*r.eyeSize;
-            const p=[s.x+sign*(s.w-radius*.4),s.upperY+s.top*.28,s.z],facing=norm([sign,.1,.4]),m=new Props.Mesh();
+            const p=[s.x+sign*(s.w-radius*.4),s.upperY+s.top*.28,s.z],facing=norm([sign,.1,.4]),m=new Props.ExactMesh();
             m.sphere(p,radius,colors.eye,Props.rigid(headBone),10,16);
             m.disk(add(p,mul(facing,radius*.94)),facing,radius*.22,colors.dark,Props.rigid(headBone),12);
             m.sphere(add(p,add(mul(facing,radius*.86),[0,radius*.28,0])),radius*.10,[.85,.73,.60],Props.rigid(headBone),4,6);
             finish(m,'Eye '+i,{kind:'eye',roughness:.18});
         }
-        const palps=new Props.Mesh();
+        const palps=new Props.ExactMesh();
         for(const sign of [-1,1]){const s=section(.035),root=[s.x+sign*s.w*.82,s.upperY+s.top*.15,s.z],length=L*.025*r.appendageLength;
             palps.tube([root,add(root,[sign*length*.65,-length*.2,length*.25]),add(root,[sign*length*.75,-length*.35,length*.7]),add(root,[sign*length*.25,-length*.15,length])],[L*.0025,L*.002,L*.0012,L*.0002],8,colors.mark,Props.rigid(headBone));
         }finish(palps,'Oral palps',{kind:'aquatic',roughness:.53,noSurfaceDetail:true});
@@ -867,7 +867,7 @@
             return L*(centipede?.07:type==='bristleworm'?.035:.045)*r.girth*ring*end*collar*(1+(r.headSize-1)*Math.max(0,1-t/.2));
         };
         const depthAt=t=>radiusAt(t)*(type==='tapeworm'?.10:type==='leech'?.40-.30*Math.exp(-(((t-.955)/.04)**2)):1)*r.chestDepth;
-        const mesh = new Props.Mesh(),rows=type==='roundworm'?(C.save?65:49):type==='leech'?count*(C.save?8:6)+1:count*(type==='tapeworm'?(C.save?10:8):(C.save?6:4))+1;
+        const mesh = new Props.ExactMesh(),rows=type==='roundworm'?(C.save?65:49):type==='leech'?count*(C.save?8:6)+1:count*(type==='tapeworm'?(C.save?10:8):(C.save?6:4))+1;
         const sideCount=type==='leech'?(C.save?40:32):(C.save?32:20);
         mesh.loft(rows,(_,t)=>{
             const fraction=t*count-Math.floor(t*count),groove=type==='tapeworm'?1-.14*Math.exp(-((Math.min(fraction,1-fraction)/.10)**2)):1;
@@ -896,7 +896,7 @@
             surfaceRegions(C,body,p=>{const pit=suckerAt(p);return p[1]<Y&&pit.distance<1.10?pit.name:null;});
         }
         if(type==='tapeworm'){
-            const m=new Props.Mesh(),center=[0,Y,L*.518],binding=Props.rigid(rootBone),radii=[L*.017,L*.016,L*.025];
+            const m=new Props.ExactMesh(),center=[0,Y,L*.518],binding=Props.rigid(rootBone),radii=[L*.017,L*.016,L*.025];
             m.sphere(center,L*.020,colors.light,binding,C.save?32:24,C.save?64:48,[.85,.8,1.25]);
             const pitAt=p=>{
                 const a=Math.atan2((p[1]-center[1])/radii[1],p[0]/radii[0]);let best={distance:Infinity,index:0};
@@ -908,7 +908,7 @@
             marineNormals(m);const head=finish(m,'Scolex',{kind:'aquatic',roughness:.58,noSurfaceDetail:true});
             surfaceRegions(C,head,p=>{const pit=pitAt(p);return pit.distance<1.15?'Scolex sucker '+pit.index:null;});
         }else if(type==='bristleworm'){
-            const lobes=new Props.Mesh(),bristles=new Props.Mesh();
+            const lobes=new Props.ExactMesh(),bristles=new Props.ExactMesh();
             for(let segment=1;segment<count-1;segment++)for(const sign of [-1,1]){
                 const t=(segment+.5)/count,R=radiusAt(t),root=[sign*R*.88,Y,L*(.5-t)],binding=skin(root),length=L*.035*r.appendageLength;
                 lobes.sphere(root,L*.009,colors.main,binding,6,10,[1.5,.65,1]);
@@ -917,14 +917,14 @@
                     bristles.tube([p,add(p,[sign*length*.6,L*.006,f*length*.4]),add(p,[sign*length,L*(.007+f*.01),f*length*.7])],[L*.0012,L*.0007,L*.00012],5,colors.light,binding);
                 }
             }finish(lobes,'Parapodia',{kind:'aquatic',roughness:.58});finish(bristles,'Chaetae',{roughness:.58,noSurfaceDetail:true});
-            const palps=new Props.Mesh();for(const sign of [-1,1])palps.tube([[sign*L*.008,Y+L*.005,L*.48],[sign*L*.024,Y+L*.010,L*.53],[sign*L*.033,Y+L*.014,L*.55]],[L*.003,L*.0018,L*.0003],8,colors.main,Props.rigid(rootBone));finish(palps,'Sensory palps',{kind:'aquatic',roughness:.58});
+            const palps=new Props.ExactMesh();for(const sign of [-1,1])palps.tube([[sign*L*.008,Y+L*.005,L*.48],[sign*L*.024,Y+L*.010,L*.53],[sign*L*.033,Y+L*.014,L*.55]],[L*.003,L*.0018,L*.0003],8,colors.main,Props.rigid(rootBone));finish(palps,'Sensory palps',{kind:'aquatic',roughness:.58});
         }
         for(let i=0;i<r.eyeCount;i++){
             const sign=i%2?-1:1,t=.025+Math.floor(i/2)*.014,R=radiusAt(t),H=depthAt(t),radius=L*(type==='leech'?.0015:.004)*r.eyeSize;
             eye([sign*R*.55,Y+H*.78,L*(.5-t)],radius,Props.rigid(rootBone),i,[sign*.3,.8,.5]);
         }
         if(!['tapeworm','leech'].includes(type)){
-            const mouth=new Props.Mesh();mouth.disk([0,Y,L*.5004],[0,0,1],L*(type==='roundworm'?.001:type==='bristleworm'?.004:.009),colors.dark,Props.rigid(rootBone),16);finish(mouth,'Mouth');
+            const mouth=new Props.ExactMesh();mouth.disk([0,Y,L*.5004],[0,0,1],L*(type==='roundworm'?.001:type==='bristleworm'?.004:.009),colors.dark,Props.rigid(rootBone),16);finish(mouth,'Mouth');
         }
         return chain;
     }
@@ -933,7 +933,7 @@
         const crab = r.kind === 'crab', spider = r.kind === 'spider', centipede = r.kind === 'centipede';
         const chain = centipede ? worm(C, true) : null;
         if (!centipede) {
-            const m = new Props.Mesh();
+            const m = new Props.ExactMesh();
             if(crab){
                 m.sphere([0,Y,L*.015],L*.24,colors.main,Props.rigid(rootBone),24,40,[1.3*r.girth,.6*r.chestDepth,1.02]);
             }else{
@@ -943,7 +943,7 @@
             }
             C.pattern(finish(m,'Body',{kind:'aquatic',metalness:spider?0:.12,roughness:.5}));
             if(!spider&&!crab){
-                const seam=new Props.Mesh(),path=[];
+                const seam=new Props.ExactMesh(),path=[];
                 for(let j=0;j<=24;j++){const z=L*(.015-j/24*.445),hit=bodyRay(C,[0,Y+L,z],[0,-1,0]);if(hit)path.push(add(hit,[0,L*.0005,0]));}
                 if(path.length>2)seam.tube(path,L*.0015,8,colors.mark,Props.rigid(rootBone));
                 finish(seam,'Wing-case seam',{kind:'aquatic',roughness:.5});
@@ -959,7 +959,7 @@
             if(hit){rootP[0]=hit[0]*.86;rootP[1]=Y;}
             const a = bone('Leg' + sign + '_' + pair + '_0', parent, rootP, knee, 'legUpper', pair * Math.PI + (sign < 0 ? Math.PI : 0));
             const b = bone('Leg' + sign + '_' + pair + '_1', a, knee, foot, 'legLower', pair * Math.PI + (sign < 0 ? Math.PI : 0));
-            const m = new Props.Mesh(), radius = L * (centipede ? 0.005 : spider ? 0.012 : 0.016);
+            const m = new Props.ExactMesh(), radius = L * (centipede ? 0.005 : spider ? 0.012 : 0.016);
             m.tube([rootP, knee], [radius * 1.3, radius], 12, colors.main, Props.rigid(a)); m.sphere(knee, radius * 1.2, colors.mark, Props.rigid(b), 6, 10);
             m.tube([knee, foot, add(foot, [sign * L * 0.035, 0, L * 0.035])], [radius, radius * 0.55, radius * 0.12], 12, colors.main, Props.rigid(b));
             if (crab && pair === 0) {
@@ -977,12 +977,12 @@
             let p=add(hit,mul(direction,-radius*.22));
             if(crab){
                 p=add(hit,[sign*L*.025,L*.10*r.headSize,L*.025]);
-                const stalk=new Props.Mesh();stalk.tube([lerp(center,hit,.91),p],[L*.009,L*.0055],12,colors.main,Props.rigid(rootBone));finish(stalk,'Eye stalk '+i,{kind:'aquatic',roughness:.5});
+                const stalk=new Props.ExactMesh();stalk.tube([lerp(center,hit,.91),p],[L*.009,L*.0055],12,colors.main,Props.rigid(rootBone));finish(stalk,'Eye stalk '+i,{kind:'aquatic',roughness:.5});
             }
             eye(p,radius,Props.rigid(crab?rootBone:headBone),i,direction);
         }
         if (!spider && !crab) {
-            const antennae = new Props.Mesh();
+            const antennae = new Props.ExactMesh();
             for(const sign of [-1,1]){
                 const origin=[0,Y,L*(centipede?.43:.31)],aim=[sign*.5,.25,1],hit=bodyRay(C,origin,aim);
                 if(!hit)continue;
@@ -997,19 +997,19 @@
         const sides=C.save?64:48, rows=C.save?33:25;
         const at=(t,a,inside=0)=>{const angle=.003+t*Math.PI*.6,R=L*.27*Math.sin(angle)*r.girth-inside;
             return [Math.cos(a)*R,top+L*.24*r.chestDepth*Math.cos(angle),Math.sin(a)*R];};
-        const bell=new Props.Mesh();
+        const bell=new Props.ExactMesh();
         bell.loft(rows,(_,t)=>{const p=at(t,0);return {center:[0,p[1],0],x:[1,0,0],y:[0,0,1],rx:p[0],ry:p[0]};},sides,colors.main,Props.rigid(rootBone),false);
         marineNormals(bell);
         finish(bell,'Body',{kind:'aquatic',opacity:.55,doubleSided:true,roughness:.23,normalScale:.035});
         // A rolled gelatinous margin closes the paper-thin bell edge. Sampling
         // its polygon, rather than an analytic circle, seats each root exactly.
         const edge=a=>{const q=(a/(Math.PI*2)%1+1)%1*sides,i=Math.floor(q),u=q-i;return lerp(at(1,i/sides*Math.PI*2),at(1,(i+1)/sides*Math.PI*2),u);};
-        const rim=new Props.Mesh(),rimPath=Array.from({length:sides+1},(_,i)=>edge(i/sides*Math.PI*2));
+        const rim=new Props.ExactMesh(),rimPath=Array.from({length:sides+1},(_,i)=>edge(i/sides*Math.PI*2));
         rim.tube(rimPath,L*.0045,8,colors.light,Props.rigid(rootBone),false);
         finish(rim,'Bell margin',{kind:'aquatic',opacity:.78,roughness:.26,noSurfaceDetail:true});
-        const organs=new Props.Mesh();organs.sphere([0,top+L*.05*r.chestDepth,0],L*.13,colors.mark,Props.rigid(rootBone),16,32,[r.girth,.7*r.chestDepth,r.girth]);
+        const organs=new Props.ExactMesh();organs.sphere([0,top+L*.05*r.chestDepth,0],L*.13,colors.mark,Props.rigid(rootBone),16,32,[r.girth,.7*r.chestDepth,r.girth]);
         finish(organs,'Bell core',{kind:'aquatic',opacity:.72,roughness:.33,emissive:r.colors.marking,emissiveIntensity:r.glow*.35});
-        const ribs=new Props.Mesh();
+        const ribs=new Props.ExactMesh();
         for(let k=0;k<12;k++){
             const a=k/12*Math.PI*2,path=Array.from({length:rows},(_,j)=>at(j/(rows-1),a,L*.0015));
             ribs.tube(path,L*.0014,6,colors.light,Props.rigid(rootBone),false);
@@ -1031,7 +1031,7 @@
         }
     }
     function adorn(C) {
-        const { r, L, Y, rootBone, colors, finish } = C, mesh = new Props.Mesh(), body = C.parts.find(p => p.name === 'Body');
+        const { r, L, Y, rootBone, colors, finish } = C, mesh = new Props.ExactMesh(), body = C.parts.find(p => p.name === 'Body');
         let front = -Infinity, back = Infinity, top = -Infinity;
         for (let i = 0; i < body.positions.length; i += 3) { front = Math.max(front, body.positions[i + 2]); back = Math.min(back, body.positions[i + 2]); top = Math.max(top, body.positions[i + 1]); }
         const onTop = (x, z) => bodyRay(C, [x, top + L, z], [0, -1, 0]);

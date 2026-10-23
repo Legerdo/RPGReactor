@@ -72,7 +72,10 @@ function assertSound(result, label) {
             for (let k = 0; k < 4; k++) { assert.ok(p.joints[v * 4 + k] < result.bones.length, `${label}: ${p.name} joint`); sum += p.weights[v * 4 + k]; }
             assert.ok(Math.abs(sum - 1) < 0.02, `${label}: ${p.name} weights at ${v} sum to ${sum}`);
         }
-        if (p.uvs) for (let i = 0; i < p.uvs.length; i++) assert.ok(p.uvs[i] >= -1e-6 && p.uvs[i] <= 1 + 1e-6, `${label}: ${p.name} uv in the picture`);
+        // Tiled finish maps (repeat) take physical coordinates past 0..1; a part with a picture of its own stays inside it.
+        const maps = [p.texture, p.normalTexture, p.metallicRoughnessTexture, p.emissiveTexture, p.iridescenceThicknessTexture].filter(Boolean);
+        const tiled = maps.length > 0 && maps.every(name => result.textures && result.textures[name] && result.textures[name].repeat);
+        if (p.uvs && !tiled) for (let i = 0; i < p.uvs.length; i++) assert.ok(p.uvs[i] >= -1e-6 && p.uvs[i] <= 1 + 1e-6, `${label}: ${p.name} uv in the picture`);
     }
 }
 

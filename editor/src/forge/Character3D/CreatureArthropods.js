@@ -17,7 +17,7 @@
         americanLobster: ['#564c38', '#ad9673', '#243e35'], spinyLobster: ['#9b6246', '#d3b07e', '#4a3830']
     };
     function mesh(C, name, draw, material = {}) {
-        const m = new P.Mesh(),normals=m.computeNormals.bind(m);
+        const m = new P.ExactMesh(),normals=m.computeNormals.bind(m);
         m.computeNormals=()=>{}; draw(m); normals();
         return C.finish(m, name, { roughness: .48, ...material });
     }
@@ -40,7 +40,7 @@
         const point = (t, v) => add(origin, [sign * (Math.sin(angle) * span * t + Math.cos(angle) * width * v), L * .025 * Math.sin(Math.PI * t), -Math.cos(angle) * span * t + Math.sin(angle) * width * v]);
         const bone = C.bone('Wing' + sign + '_' + pair, rootBone, origin, point(.55, 0), 'wing', sign);
         ellipsoid(C,'Wing hinge '+sign+'/'+pair,origin,[L*.020,L*.016,L*.021],c.mark,bone,{roughness:.52});
-        const skin = rigid(bone), membrane = new P.Mesh(), rows = 20, sides = 10, ids = [];
+        const skin = rigid(bone), membrane = new P.ExactMesh(), rows = 20, sides = 10, ids = [];
         for (let i = 0; i <= rows; i++) {
             const t = .002 + i / rows * .996, w = Math.sin(Math.PI * t) ** .65;
             ids.push(Array.from({ length: sides + 1 }, (_, j) => {
@@ -164,7 +164,7 @@
         ellipsoid(C, 'Head capsule', [0, Y - L * .005, L * .30], [L * .105 * r.headSize, L * .073 * r.headSize, L * .092 * r.headSize], lady ? c.dark : c.main.map(v => v * .72), head);
         // Two complete half-ellipsoids with an actual central separation and fine longitudinal striae.
         for (const s of [-1, 1]) {
-            const shell = new P.Mesh(), rows = lady ? 49 : 25, sides = lady ? 48 : 20, grid = [];
+            const shell = new P.ExactMesh(), rows = lady ? 49 : 25, sides = lady ? 48 : 20, grid = [];
             const at = (t, a, rise = 0) => {
                 const radial = Math.sqrt(Math.max(0, 1 - (2 * t - 1) ** 2)), x = s * (L * .002 + Math.sin(a) * L * width * radial);
                 return [x, Y + Math.cos(a) * L * depth * radial + rise, L * (-.13 + length - t * length * 2)];
@@ -471,7 +471,7 @@
             mesh(C,'Abdominal connecting membrane',m=>{
                 for(let j=0;j<tail.length;j++){
                     const a=j?tail[j-1]:{center:[0,Y,-L*.20],b:root},b=tail[j];
-                    m.tube([a.center,lerp(a.center,b.center,.5),b.center],[L*(.081-j*.007)*r.girth,L*(.08-j*.007)*r.girth,L*(.079-j*.007)*r.girth],16,c.mark,p=>{const t=Math.max(0,Math.min(1,(p[2]-a.center[2])/(b.center[2]-a.center[2])));return {joints:[a.b,b.b,0,0],weights:[1-t,t,0,0]};});
+                    m.tube([a.center,lerp(a.center,b.center,.5),b.center],[L*(.081-j*.007)*r.girth,L*(.08-j*.007)*r.girth,L*(.079-j*.007)*r.girth],16,c.mark,p=>{const span=b.center[2]-a.center[2],t=Math.abs(span)>1e-9?Math.max(0,Math.min(1,(p[2]-a.center[2])/span)):.5;return {joints:[a.b,b.b,0,0],weights:[1-t,t,0,0]};});// segments at one depth (shortest tail) share the joint evenly
                 }
             });
             tube(C, 'Rostrum', [[0, Y + L * .06, L * .20], [0, Y + L * .07, L * .34]], [L * .035, L * .001], c.mark, root);

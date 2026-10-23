@@ -83,9 +83,12 @@ test('equipment size, rotation, material and attachment origin survive the GLB w
     const r=Model.normalize(input),out=Model.build(r),same=Model.build(JSON.parse(JSON.stringify(r)));
     assert.deepEqual(out.parts,same.parts);
     assert.ok(out.parts.every(p=>p.roughness===.4&&p.metalness===0));
-    const bytes=Buffer.from(await Model.toGlb(out,'Equipment',()=>{throw Error('no textures expected');}));
+    // Construction finish maps (relief and packed roughness/metalness) now travel with equipment.
+    const encoded=[],bytes=Buffer.from(await Model.toGlb(out,'Equipment',tex=>{encoded.push(tex.name);return Uint8Array.of(137,80,78,71);}));
+    assert.deepEqual(encoded.sort(),Object.keys(out.textures).sort(),'every finish map is embedded');
     assert.equal(bytes.toString('utf8',0,4),'glTF');
     const json=JSON.parse(bytes.toString('utf8',20,20+bytes.readUInt32LE(12)));
+    assert.equal(json.images.length,encoded.length);
     assert.equal(json.skins[0].joints.length,1);
     assert.equal(json.animations?.length||0,0);
     assert.equal(json.meshes.length,out.parts.length);
@@ -129,7 +132,8 @@ test('saving equipment keeps its captured recipe when the user switches props du
     const folder=fs.mkdtempSync('/tmp/rr-equipment-save-'),ctx=builderContext();
     ctx.require=require;ctx.Buffer=Buffer;ctx.window.dispatchEvent=()=>{};ctx.CustomEvent=class{constructor(type,options){this.type=type;this.detail=options.detail;}};
     const b=Object.create(ctx.Builder.prototype),recipe=Accessory.normalize({accessory:{id:'dagger',color:'#123456'},pivot:'attachment'});
-    Object.assign(b,{recipe,name:'Dagger',cache:{},_images:{},_project:()=>({path:folder}),_status(){}});
+    // The dagger carries finish maps; the page encodes them with a canvas, stubbed here.
+    Object.assign(b,{recipe,name:'Dagger',cache:{},_images:{},_project:()=>({path:folder}),_status(){},_png:()=>Promise.resolve(Uint8Array.of(137,80,78,71))});
     try {
         const saving=b.save();b.recipe=Model.normalize({kind:'flag'});await saving;
         const saved=JSON.parse(fs.readFileSync(path.join(folder,'3d/Props/Dagger/prop.json'),'utf8'));

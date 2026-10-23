@@ -160,7 +160,7 @@ test('reused meshes refresh changed UVs, indices, skins and vertex tint without 
     geometry.setAttribute('skinWeight', new THREE.BufferAttribute(new Float32Array(12), 4));
     geometry.setIndex([0, 1, 2]);
     const group = new THREE.Group(), mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial()); group.add(mesh);
-    b._view = { group, bones: [], skeleton: { calculateInverses() {} }, meshes: [mesh], blob: { scale: { set() {} } } };
+    b._view = { group, bones: [], skeleton: { calculateInverses() {} }, meshes: [mesh], blob: { scale: { set() {} }, position: {} } }; // the ground shadow is now centered under the body too
     for (const name of ['_restHeights', '_faceFrame', '_resumePose', '_aim', '_draw']) b[name] = () => {};
     const part = { positions: Float32Array.of(0, 0, 0, 1, 0, 0, 0, 1, 0), normals: new Float32Array(9).fill(1), uvs: new Float32Array(6).fill(0.5), colors: new Float32Array(9).fill(0.7),
         joints: new Uint8Array(12).fill(2), weights: new Float32Array(12).fill(0.25), index: Uint32Array.of(0, 2, 1), texture: 'coat.png', keepColors: true,

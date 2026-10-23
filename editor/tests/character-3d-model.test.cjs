@@ -61,7 +61,10 @@ function assertSound(result, label) {
             for (let k = 0; k < 4; k++) { assert.ok(p.joints[v * 4 + k] < result.bones.length, `${label}: ${p.name} joint`); sum += p.weights[v * 4 + k]; }
             assert.ok(Math.abs(sum - 1) < 0.02, `${label}: ${p.name} weights at ${v} sum to ${sum}`);
         }
-        if (p.uvs) for (let i = 0; i < p.uvs.length; i++) assert.ok(p.uvs[i] >= -1e-6 && p.uvs[i] <= 1 + 1e-6, `${label}: ${p.name} uv in the picture`);
+        // Tiled finish maps (repeat) take physical coordinates past 0..1; a part with a picture of its own stays inside it.
+        const maps = [p.texture, p.normalTexture, p.metallicRoughnessTexture, p.emissiveTexture, p.iridescenceThicknessTexture].filter(Boolean);
+        const tiled = maps.length > 0 && maps.every(name => result.textures && result.textures[name] && result.textures[name].repeat);
+        if (p.uvs && !tiled) for (let i = 0; i < p.uvs.length; i++) assert.ok(p.uvs[i] >= -1e-6 && p.uvs[i] <= 1 + 1e-6, `${label}: ${p.name} uv in the picture`);
     }
 }
 
@@ -286,7 +289,8 @@ test('the arms hang clear of a wide body', () => {
 test('the editor page loads each module after the ones it needs', () => {
     const page = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     assert.ok(page.indexOf('src/utils/ColorPopover.js') > 0 && page.indexOf('src/utils/ColorPopover.js') < page.indexOf('src/forge/Character3D/Character3DBuilder.js'), 'the color picker is loaded before the builder');
-    const order = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterWardrobe', 'CharacterProps', 'CharacterSkin', 'CharacterSpecies', 'CharacterHair', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterModel', 'Character3DBuilder'];
+    // Props comes before Wardrobe: the garment-detail and Recon construction modules between them build with its meshes at load.
+    const order = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterProps', 'CharacterWardrobe', 'CharacterSkin', 'CharacterSpecies', 'CharacterHair', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterModel', 'Character3DBuilder'];
     const at = order.map(name => page.indexOf(`src/forge/Character3D/${name}.js`));
     assert.ok(at.every(i => i > 0), 'every module is loaded');
     assert.deepEqual(at.slice().sort((a, b) => a - b), at);

@@ -25,7 +25,7 @@ What changed is in the changelog. For the next session:
 
 The checkpoint holds the creature and catalog expansion, tailoring and pose corrections, faster outfit fitting, shared construction rules, furniture, and nine vehicle families. Preview 47 adds outline lettering, filtered grain and formed bodywork. The owner rejected Preview 46; Preview 47 has not been reviewed. Technical checks pass, but they are not visual acceptance. The caption regression test rejects the old merged lettering and cannot certify a whole asset. The Demo's generated Villager7 eight-direction sheet is kept. No push or release.
 
-Next: vehicle silhouettes and mechanics, the weaker sci-fi and plate outfits, extreme cloth and armor contact, and bikini coverage. Older GLBs need a reload, reselect and re-save to pick up the changes. No full Node run or hardware frame-rate check since 2026-10-18.
+Next: vehicle silhouettes and mechanics, the weaker sci-fi and plate outfits, and extreme cloth and armor contact. Older GLBs need a reload, reselect and re-save to pick up the changes. No full Node run or hardware frame-rate check since 2026-10-18.
 
 ## 2026-10-20 — Linux 3D startup recovery
 

@@ -134,7 +134,7 @@
         // Slimefolk hook: the goo body, its eyes, bubbles and hats (RRSlimeBody.build).
         if (r.plan === 'slime') return Slime.build(r, cache, o);
         if (r.plan === 'quadruped') {
-            const built = Creature.build(r, { quality: o.quality || 'save', hairBudget: o.hairBudget, static: o.static });
+            const built = Creature.build(r, { quality: o.quality || 'save', hairBudget: o.hairBudget, static: o.static, draft: o.draft });
             if (o.quality === 'save' || o.quality == null || o.shade) shade(built.parts);
             return { recipe: r, parts: built.parts, bones: built.bones, height: built.height, textures: built.textures || {}, clips: built.clips, sidecar: Creature.sidecar(built), plan: 'quadruped' };
         }

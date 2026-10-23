@@ -164,3 +164,18 @@ test('new creature names, variants and controls have explicit translations in ev
     for (const type of Object.values({...Arthropods.TYPES,...Flyers.TYPES})) labels.push(type.label,...type.choices.map(c=>c[1]));
     for(const [locale,catalog] of Object.entries(scope.RR_REVIEWED_TRANSLATIONS.text)) for(const label of labels) assert.ok(typeof catalog[label]==='string'&&catalog[label].length>0,locale+'/'+label);
 });
+
+test('creature anatomy keeps the tessellation it asks for while worn equipment rounds small tubes and spheres', () => {
+    // The equipment floors (24 sides on a 3 mm tube, 16 x 32 on any sphere) once applied to every creature
+    // detail too: a tick's 160 groove dots alone reached 165,696 triangles.
+    const Props = require('../src/forge/Character3D/CharacterProps.js'), skin = Props.rigid(0), white = [1, 1, 1];
+    const count = (M, draw) => { const m = new M(); draw(m); return m.i.length / 3; };
+    const dot = m => m.sphere([0, 0, 0], 0.001, white, skin, 4, 5);
+    const tube = m => m.tube([[0, 0, 0], [0, 0.01, 0], [0, 0.02, 0]], 0.004, 6, white, skin);
+    assert.equal(count(Props.ExactMesh, dot), 4 * 5 * 2);
+    assert.equal(count(Props.ExactMesh, tube), 2 * 6 * 2 + 6 * 2);
+    assert.ok(count(Props.Mesh, dot) >= 16 * 32 * 2, 'worn pieces stay round');
+    assert.ok(count(Props.Mesh, tube) >= 2 * 24 * 2, 'worn tubes stay round');
+    const tick = build('tick'), grooves = tick.parts.find(p => p.name === 'Scutal cervical and marginal grooves');
+    assert.ok(grooves.index.length / 3 < 12000, 'tick grooves ' + grooves.index.length / 3);
+});

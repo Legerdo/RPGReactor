@@ -4,6 +4,15 @@ This pass covers every catalog entry with a bounded set of contrasting slider pr
 
 The second pass also reconciles Claude's thirteen agent reports, including the eleven paused agents, lighting and props. [The continuation tracker](CLAUDE-QUALITY-TRACKER.md) records each inherited issue separately; unresolved aesthetic and renderer limits remain explicit.
 
+## Suite corrections — 2026-10-23
+
+The 29 builder failures left by the 2026-10-22 checkpoint are resolved; geometry checks were kept, not loosened.
+
+- Creature anatomy keeps its own tessellation (`ExactMesh`). The worn-equipment tube/sphere floors had reached every creature part: Tick 232,672 triangles, crabs and lobsters about 160,000, Eagle 101,664, long-haired cats up to 169,176. All starting types are back under 65,000 (cats under 100,000). Owl eyes sit in their facial disks again; the cape is a cloth rig again (its rounded clasp had become the largest piece).
+- Bird shoulders sit inside the sculpted torso at any girth. A zero wing size or tail length leaves no feather instead of a collapsed one. The shortest lobster tail keeps valid membrane skinning.
+- Bras, crop tops, sports bras and close-fitting swimwear follow the skin instead of the broad-body torso sections. On a weight-4 body those sections had lifted a bra off the lower bust and stood the Bikini bottom out over the belly. Modeled garments get their skin clearance again after tailoring (up to 7% of a heavy body's garment vertices had sunk under the skin).
+- Tests updated for intentional changes: beetle front legs rise from the pronotum, tiled finish maps use coordinates past 0..1, the Viking tunic lining has its underarm gusset, equipment carries finish maps, Props loads before Wardrobe on the page.
+
 ## Reported visual corrections — 2026-10-22, preview revision44
 
 The local comparison is `scratchpad/quality-corrections-20261022/review.html`; it includes standing/posed armor, four crew/pressure-suit sets, rear heel views, eagle/owl ground and flight poses, and identical solid-cat settings before/after the relief correction. Prop comparisons and sample GLBs share that review.

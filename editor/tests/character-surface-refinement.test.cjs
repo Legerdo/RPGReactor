@@ -153,10 +153,12 @@ test('ogre, orc and troll tusk roots begin inside the lower gum instead of beyon
     for (const species of ['ogre', 'orc', 'troll']) for (const gender of [0, 1]) {
         const recipe = Q.Model.withSpecies({ gender, age: 32 }, species), built = Q.Body.build(pack, recipe), L = Props.landmarks(pack, built);
         const part = Q.Species.build(pack, built, { tusks: recipe.features.tusks }, L).parts[0];
-        const perTusk = part.positions.length / 3 / 2;
+        // Each tusk is a 13-ring tube with two cap centers; its ring size follows the radius-based rounding of worn pieces.
+        const perTusk = part.positions.length / 3 / 2, sides = (perTusk - 2) / 13;
+        assert.ok(Number.isInteger(sides) && sides >= 10, 'whole root rings');
         for (const [offset, side] of [[0, 1], [perTusk, -1]]) {
             const root = [0, 0, 0];
-            for (let i = 0; i < 10; i++) for (let k = 0; k < 3; k++) root[k] += part.positions[(offset + i) * 3 + k] / 10;
+            for (let i = 0; i < sides; i++) for (let k = 0; k < 3; k++) root[k] += part.positions[(offset + i) * 3 + k] / sides;
             const front = Math.max(...Array.from(pack.helpers.lowerTeeth.source).filter(v => Math.sign(built.shaped[v * 3]) === side).map(v => built.shaped[v * 3 + 2]));
             assert.ok(root[2] < front - 0.002, species + ' root remains inside the tooth arch');
             assert.ok(root[1] < L.mouth[1] + 0.005, species + ' grows from the lower jaw');

@@ -113,9 +113,13 @@ test('every modeled garment has compact body-weighted fabric confined to its aut
             assert.deepEqual(data.hidden, before, 'the authored mask is unchanged');
             assert.equal(new Set(fabric.index).size, fabric.positions.length / 3, 'only referenced vertices are stored');
             for (const v of made.hidden) assert.ok(authored.has(v), 'hiding cannot expand beyond the original garment');
+            // The Viking tunic's lining adds a fitted underarm gusset between sleeve and body
+            // (CharacterClothes innerFabric); its neckline, cuffs and hem stay open.
+            const an = Outfit.anatomy(pack), arm = v => an.member[v * 5 + 1] + an.member[v * 5 + 2];
+            const gusset = v => def.id === 'mh_viking_tunic' && arm(v) > 0.04 && arm(v) < 0.97 && an.s[v * 5] > 2.6 && an.s[v * 5] < 3.6;
             for (let v = 0; v < fabric.source.length; v++) {
                 const source = fabric.source[v];
-                assert.ok(authored.has(source), def.id + ' leaves un-authored neckline, cuff and hem skin alone');
+                assert.ok(authored.has(source) || gusset(source), def.id + ' leaves un-authored neckline, cuff and hem skin alone');
                 assert.ok(Math.hypot(...fabric.positions.subarray(v * 3, v * 3 + 3).map((x, k) => x - body.shaped[source * 3 + k])) < 0.0005);
                 for (let k = 0; k < 4; k++) {
                     assert.equal(fabric.joints[v * 4 + k], pack.skinJoints[source * 4 + k]);

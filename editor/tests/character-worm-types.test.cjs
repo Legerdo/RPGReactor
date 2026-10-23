@@ -12,7 +12,8 @@ test('worm type retains legacy defaults and persists editable Goa\'uld anatomy t
     for(const key of ['jawOpen','toothSize','finSize','appendageLength']){assert.ok(Q.Creature.slidersFor(r).some(s=>s.key===key));assert.ok(!Q.Creature.slidersFor(earth).some(s=>s.key===key));}
     for(const seed of [1,81,650])assert.deepEqual(Q.Creature.randomRecipe(seed,'worm'),Q.Creature.randomRecipe(seed,'worm'));
     assert.equal(Q.Creature.variantsFor({...r,morphology:'fish'}).length,0);
-    const scope={window:{},console,RRCreatureBody:Q.Creature};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/forge/Character3D/Character3DBuilder.js'),'utf8'),scope);
+    // A type choice goes through _selectPreset, which clears pending timers.
+    const scope={window:{},console,RRCreatureBody:Q.Creature,setTimeout,clearTimeout};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/forge/Character3D/Character3DBuilder.js'),'utf8'),scope);
     const ui=Object.create(scope.window.Character3DBuilder.prototype);Object.assign(ui,{recipe:earth,_t:s=>s,_section:s=>s,_tile:()=>'',_slider:()=>'',_extremeToggle:()=>'',_select:(key,label,choices)=>key+':'+choices.map(c=>c[0]).join(','),_replace(r){this.recipe=r;}});
     assert.ok(ui._bodyTab().includes('wormType:earthworm,tapeworm,leech,roundworm,bristleworm,goauld'));ui._onInput({target:{tagName:'SELECT',dataset:{path:'wormType'},value:'goauld'}},true);assert.equal(ui.recipe.wormType,'goauld');assert.equal(ui.recipe.eyeCount,2);
 });

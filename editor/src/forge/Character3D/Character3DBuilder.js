@@ -479,8 +479,8 @@ class Character3DBuilder {
             const select = this.root.querySelector('select[data-path="bodyHair.pattern"]');
             if (committed && select && select.value !== 'custom') this._renderPanel();
         }
-        // Slimefolk hook: while a slider is dragged the goo is rebuilt coarse and quick, whole once it is let go.
-        if (this.slime) this._slimeDraft = el.type === 'range' && !committed;
+        // While a slider is dragged, Slimefolk goo is rebuilt coarse and an animal's coat picture at half size; whole once it is let go.
+        if (this.slime || !this.human) this._dragDraft = el.type === 'range' && !committed;
         if (el.type === 'range') this._syncSliders();
         if (committed) this._commit();
         if (committed && !this.human && ['eyeCount','limbPairs','appendages','jawOpen'].includes(path)) this._renderPanel();
@@ -2242,7 +2242,7 @@ class Character3DBuilder {
         let result;
         try {
             this._loadOutfitEmblems?.();
-            result = RRCharacterModel.build(this.pack, this.recipe, this.cache, { quality: 'preview', eyeSource: this.eyeSource, paintSkin: (key, args) => this._paintSkin(key, args), atlasSize:this._weak?1024:undefined,hairBudget: this._weak ? 0.45 : 1, draft: !!(this.slime && this._slimeDraft) });
+            result = RRCharacterModel.build(this.pack, this.recipe, this.cache, { quality: 'preview', eyeSource: this.eyeSource, paintSkin: (key, args) => this._paintSkin(key, args), atlasSize:this._weak?1024:undefined,hairBudget: this._weak ? 0.45 : 1, draft: !!((this.slime || !this.human) && this._dragDraft) });
         } catch (error) {
             console.error('[Character3DBuilder] build', error);
             this._status(this._t('This character could not be built.'), 'error');

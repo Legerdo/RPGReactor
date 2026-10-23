@@ -1,5 +1,9 @@
 # Performance checks
 
+## Quadruped preview build (2026-10-23)
+
+The 768-pixel preview coat (384 before 2026-10-20) had tripled a dog, horse or drake preview build on this machine, from about 120 to 470 ms. Coat painting now produces the identical picture in about half the time: the timed builds average about 280 ms, under the 400 ms gate. While a slider is dragged the coat is painted at half size (384, cats 512); releasing the slider and saving paint the full picture. Creature parts again use their own tessellation, which restores the 65,000-triangle starting-type budget ([corrections](CHARACTER-QUALITY.md)).
+
 ## Prop construction (2026-10-22, preview revision 47)
 
 Detail now has a larger explicit geometry budget. Native defaults range from 2,282–64,634 triangles for furniture, 17,439–167,496 for vehicles (preview47 formed apertures, shaped tires and outline lettering), 5,628–17,056 for firearms and 2,416–35,420 for swords; standalone equipment reaches 20,672. These are selected-view generated counts, not FPS. Family regression bounds are 180k furniture/180k vehicle/80k equipment/50k sword/45k gun. Exports and winding checks cover all defaults and 450 scoped random recipes; broader endpoint tests include rounded picture edges and smooth pole/container hardware. The increased bounds accommodate curved surfaces and modeled fittings.
