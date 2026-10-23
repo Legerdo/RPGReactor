@@ -113,10 +113,10 @@ test('the lighting manager composites the way the runtime does', () => {
     assert.match(manager, /RRMapLights\.restore\(map, from\.pop\(\)\)/);
 });
 
-test('the tool is wired: toolbar button, scripts, dispatcher, instance', () => {
+test('the tool is wired: Tools menu entry (no toolbar button: the Build bar opens it), scripts, dispatcher, instance', () => {
     const html = read('index.html');
-    assert.match(html, /data-action="lighting-tool"[^>]*data-i18n-title="toolbar\.title\.lighting"/);
-    assert.match(html, /icon-lighting\.svg/);
+    assert.match(html, /class="html-menu-option" data-action="lighting-tool" data-i18n="toolbar\.title\.lighting"/);
+    assert.doesNotMatch(html, /tool-button" data-action="lighting-tool"/);
     const lights = html.indexOf('src/utils/MapLights.js');
     const manager = html.indexOf('src/LightingManager.js');
     const main = html.indexOf('src/main.js');

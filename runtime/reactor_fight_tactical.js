@@ -7250,6 +7250,35 @@
         return U.hash;
     };
 
+    /**
+     * Whether a marked unit (its feet, middle or head) or the cursor's cell is drawn inside a rectangle of the
+     * screen (`x`, `y`, `w`, `h` in game pixels): a HUD panel there would cover it.
+     */
+    U.covers = function(fight, x, y, w, h) {
+        if (typeof $gameMap === "undefined" || !$gameMap) return false;
+        const scene = typeof SceneManager !== "undefined" ? SceneManager._scene : null, spriteset = scene && scene._spriteset;
+        const live = spriteset && spriteset._reactor3d, camera = live && live.camera && typeof Reactor3D !== "undefined" && Reactor3D.projectToScreen ? live.camera : null;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), out = U.coverOut || (U.coverOut = { x: 0, y: 0 });
+        // (wx, wy): a point of the map in tiles; up: tiles over the ground (a flat map draws them up the screen).
+        const inside = (wx, wy, ground, up) => {
+            let point = out;
+            if (camera) point = Reactor3D.projectToScreen(camera, wx, ground + up, wy, out);
+            else { out.x = $gameMap.adjustX(wx) * tw; out.y = ($gameMap.adjustY(wy) - up) * th; }
+            return !!point && point.x >= x && point.x < x + w && point.y >= y && point.y < y + h;
+        };
+        for (let i = 0; i < U.count; i++) {
+            // On a flat map the arrays hold the body's middle; its feet are half a tile lower on the screen.
+            const fy = camera ? uy[i] : uy[i] + 0.5;
+            if (inside(ux[i], fy, ug[i], 0) || inside(ux[i], fy, ug[i], ut[i] / 2) || inside(ux[i], fy, ug[i], ut[i])) return true;
+        }
+        const cursor = fight && fight._tac ? fight._tac.cursor : null;
+        if (cursor && cursor.on) {
+            const level = Number.isFinite(cursor.h) && camera ? cursor.h : 0;
+            if (inside(cursor.x + 0.5, cursor.y + (camera ? 0.5 : 1), level, 0) || inside(cursor.x + 0.5, cursor.y + 0.5, level, 0)) return true;
+        }
+        return false;
+    };
+
     U.FRAME_MAX = 512;
     // How far inside its body's edge a big unit's frame lies, how wide its band is, and how far outside it the watch's.
     U.FRAME_INSET = 0.1; U.FRAME_BAND = 0.11; U.FRAME_WATCH = 0.16;

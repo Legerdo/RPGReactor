@@ -1547,8 +1547,12 @@ class Database3DEditor {
             const converted = conversion ? this._t('Converted from {ext} with {count} texture(s) embedded.', { ext: sourceExt.slice(1).toUpperCase(), count: conversion.images }) + ' ' : '';
             const compressNote = !compressed ? ''
                 : ' ' + (compressed === 1 ? this._t('+ 1 compressed texture') : this._t('+ {count} compressed textures', { count: compressed }));
+            // Texture seams can hold a reduced mesh near its source, so the line says what the reduction kept.
+            const triangles = reduce && window.RRGlbOptimizer.triangleResult ? window.RRGlbOptimizer.triangleResult(original, bytes) : null;
+            const triangleNote = triangles ? ', ' + this._t('{before} → {after} triangles ({percent}%)', {
+                before: triangles.before.toLocaleString(), after: triangles.after.toLocaleString(), percent: triangles.percent }) : '';
             const summary = converted + (reduce
-                ? `${this._t('Optimized')} ${entry.name}: ${before}MB → ${after}MB${levelNote}${compressNote}.${partsNote} `
+                ? `${this._t('Optimized')} ${entry.name}: ${before}MB → ${after}MB${triangleNote}${levelNote}${compressNote}.${partsNote} `
                 : this._t('Compressed {count} texture(s) of {name}: {before}MB → {after}MB on disk.', { count: compressed, name: entry.name, before, after }) + ' ') +
                 this._t('Original kept as {file}', { file: path.basename(backup) });
             say(summary);

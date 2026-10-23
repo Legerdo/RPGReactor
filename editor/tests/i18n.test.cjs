@@ -518,7 +518,7 @@ test('source inventory follows inherited literal helpers without treating overri
 test('every database navigation category has a localized keyed title', () => {
     const { manager, RR_LANGUAGES, dbTypes, RR_I18N_STRINGS } = loadI18nForTest();
     const source = fs.readFileSync(path.join(repoRoot,'src/DatabaseEditorUI.js'),'utf8');
-    const start=source.indexOf('const categories = [');
+    const start=source.indexOf('static get NAV_SECTIONS() {');
     assert.ok(start>=0);
     const catalog=source.slice(start,source.indexOf('];',start));
     const types=[...catalog.matchAll(/type: '([^']+)'/g)].map(m=>m[1]);

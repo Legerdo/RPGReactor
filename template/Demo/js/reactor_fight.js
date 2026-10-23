@@ -453,6 +453,9 @@
         this._savedBgm = null;
         this._followers = null;
         this._hookInterpreter = null;
+        // The troops whose pages run in this battle (`takeTroop`): [{ troopId, members: [unit id per member], flags }].
+        this._troopPages = [];
+        this._troopTurnEnding = false;
         // What the battle says on a HUD's banner (`announce`).
         this._notice = null;
         // The rounds in a row nobody moved or acted in (`nextInQueue`): each battle counts its own.
@@ -720,11 +723,19 @@
     Game_Fight.prototype.takeTroop = function(troopId) {
         const troop = troopId > 0 && typeof $dataTroops !== "undefined" && $dataTroops ? $dataTroops[troopId] : null;
         let came = 0;
+        // Its pages run in this battle, its members named by their place in the troop (`checkTroopPages`).
+        const members = [];
         for (const member of (troop && troop.members) || []) {
+            members.push(0);
             if (!member || member.hidden || !$dataEnemies[member.enemyId]) continue;
             const spot = this.freeSpotNear($gamePlayer.x, $gamePlayer.y, 3);
             // One bigger than its cell is moved out from the party until its body is clear of it (`around`).
-            if (spot && this.spawn({ record: "enemy", id: member.enemyId, team: "enemy", x: spot.x, y: spot.y, height: spot.height, around: $gamePlayer })) came++;
+            const unit = spot ? this.spawn({ record: "enemy", id: member.enemyId, team: "enemy", x: spot.x, y: spot.y, height: spot.height, around: $gamePlayer }) : null;
+            if (unit) { came++; members[members.length - 1] = unit.id; }
+        }
+        if (troop && Array.isArray(troop.pages) && troop.pages.length) {
+            if (!this._troopPages) this._troopPages = [];
+            this._troopPages.push({ troopId, members, flags: {} });
         }
         return came;
     };
@@ -1463,6 +1474,8 @@
         $gameMap._rrSpawned[eventId] = data;
         const event = new Game_Event($gameMap.mapId(), eventId);
         $gameMap._events[eventId] = event;
+        // In the list at once: a Start Battle on Map in the same frame takes it.
+        if ($gameMap.refreshEventList) $gameMap.refreshEventList();
         // It stands on the level chosen: left to the cell's stack it would stand on top of whatever is built there.
         if (Number.isFinite(spot.height) && is3D()) event._reactorGround = spot.height;
         if (options.direction) event.setDirection(options.direction);
@@ -1503,12 +1516,16 @@
                 }
             }
             map._events[id] = undefined;
+            if (map.refreshEventList) map.refreshEventList();
             delete spawned[key];
             // Its data stays in the map's list until the map is read again: whatever still holds the event for a
             // frame (a model's holder, an effect) reads an erased event, not a missing one, and the id is not reused.
             // The next unit to take this id starts with no self switch of the last one's.
             if (typeof $gameSelfSwitches !== "undefined" && $gameSelfSwitches && $gameSelfSwitches._data) {
-                for (const letter of ["A", "B", "C", "D"]) delete $gameSelfSwitches._data[[map.mapId(), id, letter]];
+                const prefix = `${map.mapId()},${id},`;
+                for (const key of Object.keys($gameSelfSwitches._data)) {
+                    if (key.startsWith(prefix)) delete $gameSelfSwitches._data[key];
+                }
             }
             swept++;
         }
@@ -1673,6 +1690,8 @@
             this._wait--;
             return;
         }
+        // A troop's pages are looked at between actions, as on the battle screen: a page that runs holds the battle.
+        if (this._phase !== "act" && this.updateTroopPages()) return;
         // An action already playing keeps its frames, and a unit already walking arrives.
         const stage = this._phase === "act" && this._act ? this._act.stage : "";
         if (stage !== "perform" && stage !== "walk" && stage !== "react" && F.isHeld()) { this.noteWait(); return; }
@@ -1737,6 +1756,7 @@
                 battler.onTurnEnd();
                 if (battler.isDead()) this.defeat(unit);
             }
+            this.endTroopTurn();
             // A battle nobody can move or land a blow in would never end; after a while it ends as an escape.
             this._idleRounds = this._progress ? 0 : (this._idleRounds || 0) + 1;
             this._progress = false;
@@ -2730,9 +2750,16 @@
         if (!interpreter.isRunning() && !$gameMessage.isBusy()) {
             if (this._hooks.length) {
                 const next = this._hooks.shift();
-                const event = $gameMap.event(next.eventId);
-                const page = event && event.event().pages[next.pageIndex];
-                if (page) interpreter.setup(page.list, next.eventId);
+                if (next.troopId) {
+                    // A troop's page runs as on the battle screen: as no event of the map.
+                    const troop = typeof $dataTroops !== "undefined" && $dataTroops ? $dataTroops[next.troopId] : null;
+                    const page = troop && troop.pages ? troop.pages[next.pageIndex] : null;
+                    if (page) interpreter.setup(page.list, 0);
+                } else {
+                    const event = $gameMap.event(next.eventId);
+                    const page = event && event.event().pages[next.pageIndex];
+                    if (page) interpreter.setup(page.list, next.eventId);
+                }
             } else if ($gameTemp.isCommonEventReserved && $gameTemp.isCommonEventReserved() && this.waitingInterpreter()) {
                 // A common event reserved during the battle (a skill's or an item's effect, a quest reward) is the
                 // map's to run, and the map's event is waiting for this battle: it runs here, or neither would move again.
@@ -2750,6 +2777,78 @@
         if (from && from[0] === character.x && from[1] === character.y) return;
         this._inside[key] = [character.x, character.y];
         this.fireHooks("unitEnters", { unit, x: character.x, y: character.y, px: from ? from[0] : null, py: from ? from[1] : null });
+    };
+
+    //-------------------------------------------------------------------------
+    // A troop's pages. A battle a troop came to (Battle Processing, an encounter, Start Battle on Map naming one)
+    // runs that troop's pages as the battle screen does: the same conditions (turn ending; turn A + B * X; an
+    // enemy's HP, the enemy named by its place in the troop; an actor's HP; a switch) and spans (once a battle,
+    // once a turn, every moment the conditions hold). Turn 0 is the battle's start, turn 1 its first round.
+
+    /** Whether a troop page's conditions hold now; `turnEnding`: the turn is ending. A page with none set never runs. */
+    Game_Fight.prototype.troopPageMet = function(entry, page, turnEnding) {
+        const c = page && page.conditions;
+        if (!c || (!c.turnEnding && !c.turnValid && !c.enemyValid && !c.actorValid && !c.switchValid)) return false;
+        if (c.turnEnding && !turnEnding) return false;
+        if (c.turnValid) {
+            const n = this._turn, a = Number(c.turnA) || 0, b = Number(c.turnB) || 0;
+            if (b === 0 && n !== a) return false;
+            if (b > 0 && (n < 1 || n < a || n % b !== a % b)) return false;
+        }
+        if (c.enemyValid) {
+            const unit = this.unit(entry.members[c.enemyIndex] || 0), enemy = unit ? this.battler(unit) : null;
+            if (!enemy || enemy.hpRate() * 100 > c.enemyHp) return false;
+        }
+        if (c.actorValid) {
+            const actor = $gameActors.actor(c.actorId);
+            if (!actor || actor.hpRate() * 100 > c.actorHp) return false;
+        }
+        if (c.switchValid && !$gameSwitches.value(c.switchId)) return false;
+        return true;
+    };
+
+    /**
+     * Queues the first troop page whose conditions hold and that has not run in its span, as the battle screen
+     * starts one page at a time. Returns whether one was queued (the battle then waits for it).
+     */
+    Game_Fight.prototype.checkTroopPages = function(turnEnding) {
+        const list = this._troopPages;
+        if (!list || !list.length || this._ending || this._hooks.length || (this._hookInterpreter && this._hookInterpreter.isRunning())) return false;
+        for (const entry of list) {
+            const troop = typeof $dataTroops !== "undefined" && $dataTroops ? $dataTroops[entry.troopId] : null;
+            const pages = troop && Array.isArray(troop.pages) ? troop.pages : [];
+            for (let i = 0; i < pages.length; i++) {
+                if (entry.flags[i] || !this.troopPageMet(entry, pages[i], turnEnding)) continue;
+                // Battle and Turn spans run once in their span; Moment runs whenever its conditions hold.
+                if (pages[i].span <= 1) entry.flags[i] = true;
+                this._hooks.push({ troopId: entry.troopId, pageIndex: i });
+                return true;
+            }
+        }
+        return false;
+    };
+
+    /** A turn ends: until the next begins, the pages that run as a turn ends may run (`updateTroopPages`). */
+    Game_Fight.prototype.endTroopTurn = function() {
+        if (this._troopPages && this._troopPages.length) this._troopTurnEnding = true;
+    };
+
+    /**
+     * Between actions: the next troop page that holds is queued (true: the battle waits for it). Once a turn's
+     * end has nothing more to run, the next turn is open: pages that run once a turn may run again.
+     */
+    Game_Fight.prototype.updateTroopPages = function() {
+        const ending = !!this._troopTurnEnding;
+        if (this.checkTroopPages(ending)) return true;
+        // (A battle of turns ends its round in the queue; the next round begins after it.)
+        if (ending && this._phase !== "queue") {
+            this._troopTurnEnding = false;
+            for (const entry of this._troopPages || []) {
+                const troop = typeof $dataTroops !== "undefined" && $dataTroops ? $dataTroops[entry.troopId] : null;
+                (troop && Array.isArray(troop.pages) ? troop.pages : []).forEach((page, i) => { if (page && page.span === 1) delete entry.flags[i]; });
+            }
+        }
+        return false;
     };
 
     //-------------------------------------------------------------------------
@@ -2953,6 +3052,7 @@
             if (!$dataMap.events[id]) $dataMap.events[id] = map._rrSpawned[id];
             if (!map._events[id]) map._events[id] = new Game_Event(map.mapId(), Number(id));
         }
+        if (map.refreshEventList) map.refreshEventList();
     };
 
     F.restoreSpawned = function() {

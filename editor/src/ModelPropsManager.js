@@ -591,6 +591,7 @@ class ModelPropsManager {
             </div>`;
         container.innerHTML = `
             <div class="mp-panel">
+                <div class="mp-select-hint rr-build-note rr-build-wrap rr-build-lead" hidden>${escape(this._tx('Click a model on the map to select it. Drag moves it, Delete removes it.'))}</div>
                 <div class="mp-fixed rr-accent-scrollbar">
                 <section class="mp-section mp-model-card">
                     <div class="mp-section-body mp-model-heading">
@@ -931,6 +932,11 @@ class ModelPropsManager {
         const byId = id => panel.querySelector('#' + id);
         const prop = this.prop(this.selectedId);
         const shown = prop || null;
+        // Select with nothing selected: only what a click does.
+        const idle = this.tool === 'select' && !shown;
+        panel.querySelector('.mp-panel')?.classList.toggle('is-select-idle', idle);
+        const hint = panel.querySelector('.mp-select-hint');
+        if (hint) hint.hidden = !idle;
         if (shown) {
             for (const key of ['size','scale','direction','z','passable','yaw','pitch','roll','repeat']) this.fields[key] = shown[key];
             this.fields.animationSpeed = shown.animationSpeed ?? 100;

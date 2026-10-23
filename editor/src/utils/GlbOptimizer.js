@@ -1366,7 +1366,18 @@
             .catch(() => lods(bytes, options));
     }
 
-    const api = { PRESETS, LOD_LEVELS, LOD_MIN_TRIANGLES, analyze, optimize, dropUnsampledImages, compressTextures, lods, lodsAsync, canvasEncoder, parseGlb, remapParts, imageDimensions, fromMesh };
+    /**
+     * Triangles before and after an optimization, and the share kept (whole percent).
+     * Texture seams can hold a reduced model near its source, so callers report this.
+     */
+    function triangleResult(beforeBytes, afterBytes) {
+        const before = (analyze(beforeBytes) || {}).triangles || 0;
+        const after = afterBytes === beforeBytes ? before : ((analyze(afterBytes) || {}).triangles || 0);
+        if (!before) return null;
+        return { before, after, percent: Math.round(after / before * 100) };
+    }
+
+    const api = { PRESETS, LOD_LEVELS, LOD_MIN_TRIANGLES, analyze, optimize, triangleResult, dropUnsampledImages, compressTextures, lods, lodsAsync, canvasEncoder, parseGlb, remapParts, imageDimensions, fromMesh };
 
     root.RRGlbOptimizer = api;
 

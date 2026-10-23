@@ -701,6 +701,55 @@ class ProjectController {
             }
     }
 
+    /**
+     * File › Save Project As…: unsaved changes are saved or discarded first,
+     * as for any project switch; then the project folder is copied under a
+     * new name into a folder the author picks, and the copy opens in its
+     * place (its lock taken, this one's released).
+     */
+    async saveProjectAs() {
+        if (!this.projectLoaded || !this.currentProject?.path || typeof nw === 'undefined' || this._savingProjectAs) return;
+        if (!await this.confirmUnsavedChanges()) return;
+        const title = this._tt('Save Project As');
+        const path = require('path');
+        const sourcePath = this.currentProject.path;
+        const choice = await this.uiManager.showNewProjectDialog({
+            defaultName: `${this.currentProject.name || path.basename(sourcePath)} Copy`,
+            title,
+            okLabel: this._tt('Save'),
+            templates: false,
+            validate: name => this.projectManager.isSafeProjectName(name)
+                ? ''
+                : this._tt('Project name must be a safe single folder name.')
+        });
+        if (!choice) return;
+        const basePath = await new Promise(resolve => {
+            const chooser = document.createElement('input');
+            chooser.setAttribute('type', 'file');
+            chooser.setAttribute('nwdirectory', '');
+            chooser.setAttribute('nwworkingdir', path.dirname(sourcePath));
+            chooser.addEventListener('change', () => resolve(chooser.files?.[0]?.path || chooser.value || ''));
+            chooser.addEventListener('cancel', () => resolve(''));
+            chooser.click();
+        });
+        if (!basePath) return;
+        const targetPath = path.join(basePath, choice.name);
+        this._savingProjectAs = true;
+        const body = typeof document !== 'undefined' ? document.body : null;
+        if (body) body.style.cursor = 'progress';
+        try {
+            await this.projectManager.copyProjectTo(sourcePath, targetPath, choice.name);
+        } catch (error) {
+            console.error('Save As failed:', error);
+            await RRDialog.alert(`${this._tt('The project could not be copied.')}\n\n${error.message || error}`, { title: title, kind: 'error' });
+            return;
+        } finally {
+            this._savingProjectAs = false;
+            if (body) body.style.cursor = '';
+        }
+        await this.openProjectAtPath(targetPath);
+    }
+
     /** File › Import Project…: an RPG Maker 2000/2003 project becomes a new Reactor project, then opens. */
     async importLegacyProject() {
         if (!await this.confirmUnsavedChanges()) return;
@@ -2023,7 +2072,7 @@ class ProjectController {
             id: newMapId,
             name: 'New Map',
             displayName: '',
-            tilesetId: this.newMapTilesetId(),
+            tilesetId: this.newMapTilesetId(afterMapId),
             width: 17,
             height: 13,
             scrollType: 0,
@@ -2052,15 +2101,31 @@ class ProjectController {
     }
 
     /**
-     * The tileset a new map starts on: the open map's, as a new map is most often made beside it;
-     * else the first tileset with a picture in it. Tileset 1 of a project can be an empty record.
+     * The tileset a new map starts on: that of the map it is made from in the tree (the open map when
+     * none was named); else the first tileset with a picture in it. Tileset 1 can be an empty record.
      */
-    newMapTilesetId() {
+    newMapTilesetId(sourceMapId = null) {
         const tilesets = this.databaseManager?.data?.tilesets || [];
-        const current = this.tilemapManager?.currentMap?.tilesetId;
-        if (current && tilesets[current]) return current;
+        const open = this.tilemapManager?.currentMap;
+        let source = null;
+        if (open && (sourceMapId == null || open.id === sourceMapId)) source = open.tilesetId;
+        else if (sourceMapId != null) source = this.mapFileTilesetId(sourceMapId);
+        if (source && tilesets[source]) return source;
         const drawn = tilesets.find(tileset => tileset && Array.isArray(tileset.tilesetNames) && tileset.tilesetNames.some(name => !!name));
         return drawn ? drawn.id : 1;
+    }
+
+    /** The tileset a map's file names, or null when it cannot be read. */
+    mapFileTilesetId(mapId) {
+        if (typeof nw === 'undefined' || !this.currentProject?.path) return null;
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const file = path.join(this.currentProject.path, 'data', `Map${String(mapId).padStart(3, '0')}.json`);
+            return RRJson.parse(fs.readFileSync(file)).tilesetId || null;
+        } catch (error) {
+            return null;
+        }
     }
 
     getNextMapId() {
@@ -2595,7 +2660,7 @@ class ProjectController {
         return text.replace(/<3d>/gi, '').replace(/\n{3,}/g, '\n\n').trim();
     }
 
-    /** Fill the 3D section: the switch, the room's height and its images. */
+    /** Fill the 3D section: the switch and the default camera (the room and the sky are set on the map: Build › Terrain › Room and Sky). */
     populateMap3DForm(mapData) {
         const elevation = this.mapElevation();
         const checkbox = document.getElementById('map-3d-checkbox');
@@ -2605,19 +2670,6 @@ class ProjectController {
         options.style.display = checkbox.checked ? 'block' : 'none';
         const physics = document.getElementById('map-physics-section');
         if (physics) physics.style.display = checkbox.checked ? '' : 'none';
-
-        const room = elevation ? elevation.room(mapData) : { height: 4, floor: '', walls: '', ceiling: '', sky: '', skyScrollX: 0, skyScrollY: 0 };
-        const height = document.getElementById('map-3d-height-input');
-        if (height) height.value = room.height;
-        for (const piece of ['floor', 'walls', 'ceiling', 'sky']) {
-            const select = document.getElementById(`map-3d-${piece}-select`);
-            if (!select) continue;
-            this.fillParallaxSelect(select, room[piece]);
-        }
-        const skySx = document.getElementById('map-3d-sky-sx-input');
-        if (skySx) skySx.value = room.skyScrollX || 0;
-        const skySy = document.getElementById('map-3d-sky-sy-input');
-        if (skySy) skySy.value = room.skyScrollY || 0;
 
         // The default camera: a mode, and blank overrides meaning "the mode's own".
         const camera = elevation && elevation.camera ? elevation.camera(mapData) : { mode: 'fixed' };
@@ -2684,66 +2736,14 @@ class ProjectController {
         };
     }
 
-    /** The room as the form has it now: its height, its images and the sky's drift. */
-    readMap3DForm() {
-        const elevation = this.mapElevation();
-        const value = id => document.getElementById(id)?.value || '';
-        const height = parseInt(value('map-3d-height-input'), 10);
-        return {
-            height: elevation ? elevation.clampRoomHeight(height) : height,
-            floor: value('map-3d-floor-select'),
-            walls: value('map-3d-walls-select'),
-            ceiling: value('map-3d-ceiling-select'),
-            sky: value('map-3d-sky-select'),
-            skyScrollX: parseFloat(value('map-3d-sky-sx-input')) || 0,
-            skyScrollY: parseFloat(value('map-3d-sky-sy-input')) || 0
-        };
-    }
-
     /**
-     * Choose a room image the way the parallax background is chosen: by
-     * looking at it, with `(None)` as one of the entries.
+     * The room as the map has it: the room and the sky are set on the map (Build › Terrain › Room and Sky),
+     * so OK here keeps them as they are.
      */
-    openRoomImagePicker(piece) {
-        const tt = text => this._tt(text);
-        const folder = this.parallaxFolder();
-        const assets = window.RRAssetFiles;
-        const picker = typeof window !== 'undefined' ? window.reactor?.databaseEditorUI : null;
-        const select = document.getElementById(`map-3d-${piece}-select`);
-        if (!folder || !assets || !select || !picker || typeof picker.showImagePicker !== 'function') return;
-
-        let files = [];
-        try {
-            files = assets.listImageReferences(folder);
-        } catch (error) {
-            console.error('Error reading parallaxes folder:', error);
-        }
-        if (files.length === 0) {
-            RRDialog.alert(tt('No parallax images found in img/parallaxes folder'), { title: this._t('mapProps.title'), kind: 'warning' });
-            return;
-        }
-        const titles = {
-            floor: 'mapProps.pickFloor',
-            walls: 'mapProps.pickWalls',
-            ceiling: 'mapProps.pickCeiling',
-            sky: 'mapProps.pickSky'
-        };
-        picker.showImagePicker(
-            this._t(titles[piece] || 'mapProps.pickFloor'),
-            files,
-            name => {
-                if (![...select.options].some(option => option.value === name)) {
-                    const option = document.createElement('option');
-                    option.value = name;
-                    option.textContent = name || this._t('common.none');
-                    select.appendChild(option);
-                }
-                select.value = name;
-            },
-            name => assets.imageUrlFor(folder, name),
-            select.value || undefined,
-            { selectButtonLabel: tt('Use This Parallax'), allowNone: true }
-        );
+    readMap3DForm() {
+        const elevation = this.mapElevation(), map = this.currentEditingMap;
+        const room = elevation && map ? elevation.room(map) : { height: 4, floor: '', walls: '', ceiling: '', sky: '', skyScrollX: 0, skyScrollY: 0 };
+        return { height: room.height, floor: room.floor, walls: room.walls, ceiling: room.ceiling, sky: room.sky, skyScrollX: room.skyScrollX, skyScrollY: room.skyScrollY };
     }
 
     /**
@@ -2755,7 +2755,7 @@ class ProjectController {
      * For the loaded map the tilemap manager owns the file; any other map is
      * written directly.
      */
-    saveMap3DSettings(mapData, room, wants3D) {
+    saveMap3DSettings(mapData, room, wants3D, was3D = true) {
         const elevation = this.mapElevation();
         const target = this.currentEditingMap;
         if (!elevation || !target) return false;
@@ -2773,7 +2773,9 @@ class ProjectController {
             elevation.ensure(target);
             changed = true;
         }
-        if (this.isCreatingNewMap) {
+        // A map made 3D starts in daylight. A 2D map gets no sidecar until something in it needs one.
+        const madeThreeD = wants3D && (this.isCreatingNewMap || !was3D);
+        if (madeThreeD && !(target.reactor3d && target.reactor3d.lighting)) {
             target.reactor3d = target.reactor3d || { version: 1 };
             target.reactor3d.lighting = { ambient: 1, ambientColour: '#ffffff' };
             changed = true;
@@ -3091,8 +3093,11 @@ class ProjectController {
 
         // OK button
         okBtn.addEventListener('click', async () => {
+            const createdMapId = this.isCreatingNewMap ? this.currentEditingMap?.id : null;
             if (!await this.saveMapProperties()) return;
             closeModal();
+            // A new map opens once it is made.
+            if (createdMapId) await this.loadMap(createdMapId);
         });
 
         // Cancel and Close buttons
@@ -3133,16 +3138,12 @@ class ProjectController {
         this._bindMapPropertiesListener('map-bgs-choose-btn', 'click', () => this.openMapAudioPicker('bgs'));
         this._bindMapPropertiesListener('map-bgs-track', 'click', () => this.openMapAudioPicker('bgs'));
 
-        // 3D: the checkbox reveals the room, and each image picks like a parallax.
+        // 3D: the checkbox reveals the camera and the physics.
         this._bindMapPropertiesListener('map-3d-checkbox', 'change', (e) => {
             document.getElementById('map-3d-options').style.display = e.target.checked ? 'block' : 'none';
             const physics = document.getElementById('map-physics-section');
             if (physics) physics.style.display = e.target.checked ? '' : 'none';
         });
-        for (const piece of ['floor', 'walls', 'ceiling', 'sky']) {
-            this._bindMapPropertiesListener(`map-3d-${piece}-browse-btn`, 'click',
-                () => this.openRoomImagePicker(piece));
-        }
         // Themed step buttons stand in for the browser spinner on every number
         // field of the dialog.
         document.querySelectorAll('#map-properties-modal [data-map-props-step]').forEach(button => {
@@ -3507,7 +3508,7 @@ class ProjectController {
                 }
                 this.savedMapInfosState = JSON.stringify(this.currentProject.maps || []);
             }
-            this.saveMap3DSettings(mapData, room, wants3D);
+            this.saveMap3DSettings(mapData, room, wants3D, false);
 
             // Refresh maps list
             this.renderMapsList();
@@ -3555,7 +3556,7 @@ class ProjectController {
                 }
             }
             this.savedMapInfosState = JSON.stringify(this.currentProject.maps || []);
-            const roomChanged = this.saveMap3DSettings(mapData, room, wants3D);
+            const roomChanged = this.saveMap3DSettings(mapData, room, wants3D, was3D);
             if (this.tilemapManager?.currentMap?.id === mapData.id) {
                 this.tilemapManager.captureSavedMapState();
             }

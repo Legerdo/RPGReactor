@@ -174,6 +174,58 @@ class ProjectManager {
         return parts.length === 2 && parts[0] === 'data' && /^Test_.*\.json$/.test(parts[1]);
     }
 
+    /**
+     * Save As: copy the project at `sourcePath` to `targetPath`, a folder that
+     * is not there yet and not inside the project, and give the copy
+     * `projectName`. The copy is made under a temporary name beside the target
+     * and renamed once whole, so a failed copy leaves nothing at the target.
+     * The project's editor lock stays behind. Throws with a reason on failure.
+     */
+    async copyProjectTo(sourcePath, targetPath, projectName) {
+        if (!this.fs || !this.path) throw new Error('File system not available');
+        if (!this.isSafeProjectName(projectName)) throw new Error(this._t('Project name must be a safe single folder name.'));
+        const source = this.path.resolve(sourcePath);
+        const target = this.path.resolve(targetPath);
+        const inside = this.path.relative(source, target);
+        if (!inside || (!inside.startsWith('..') && !this.path.isAbsolute(inside))) {
+            throw new Error(this._t('The copy cannot go inside the project it copies.'));
+        }
+        if (this.fs.existsSync(target)) throw new Error(this._t('Project target already exists and is not empty.'));
+        const partial = `${target}.partial-${Date.now()}`;
+        const fsp = this.fs.promises;
+        // File by file, awaiting each, so the editor keeps drawing through a large project.
+        const copy = async (from, to, rel) => {
+            await fsp.mkdir(to, { recursive: true });
+            for (const name of await fsp.readdir(from)) {
+                const relPath = rel ? `${rel}/${name}` : name;
+                if (relPath === '.rpgreactor.lock') continue;
+                const fromPath = this.path.join(from, name);
+                const toPath = this.path.join(to, name);
+                const stat = await fsp.stat(fromPath);
+                if (stat.isDirectory()) await copy(fromPath, toPath, relPath);
+                else await fsp.copyFile(fromPath, toPath);
+            }
+        };
+        try {
+            await copy(source, partial, '');
+            const projectFile = this.path.join(partial, 'project.rpgreactor');
+            if (this.fs.existsSync(projectFile)) {
+                const data = RRJson.parse(this.fs.readFileSync(projectFile));
+                if (data && typeof data === 'object' && !Array.isArray(data)) {
+                    data.name = projectName;
+                    data.modified = new Date().toISOString();
+                    this.writeJson(projectFile, data);
+                }
+            }
+            if (this.fs.existsSync(target)) throw new Error(this._t('Project target already exists and is not empty.'));
+            await fsp.rename(partial, target);
+        } catch (error) {
+            try { await fsp.rm(partial, { recursive: true, force: true }); } catch (cleanup) { /* left for the author */ }
+            throw error;
+        }
+        return target;
+    }
+
     async copyDirectory(source, target, exclude = null, relBase = '') {
         if (!this.fs || !this.path) return;
 
@@ -842,10 +894,10 @@ class ProjectManager {
         const sequences=[null];if(typeof ReactorBattleData!=='undefined')ReactorBattleData.addStarters(sequences);
 
         return {
-            'Actors.json': [null],
+            'Actors.json': [null, this.getStarterActor()],
             'Animations.json': [null],
             'Armors.json': [null],
-            'Classes.json': [null],
+            'Classes.json': [null, this.getStarterClass()],
             'CommonEvents.json': [null],
             'Enemies.json': [null],
             'Items.json': [null],
@@ -866,7 +918,6 @@ class ProjectManager {
                 scrollX: 0,
                 scrollY: 0
             }],
-            'Map001.r3d.json': { version: 1, lighting: { ambient: 1, ambientColour: '#ffffff' } },
             'Map001.json': {
                 autoplayBgm: false,
                 autoplayBgs: false,
@@ -910,11 +961,42 @@ class ProjectManager {
         };
     }
 
+    /** The one party member a blank project starts with. */
+    getStarterActor() {
+        return {
+            id: 1, name: 'Hero', nickname: '', classId: 1, initialLevel: 1, maxLevel: 99, profile: '',
+            characterName: '', characterIndex: 0, faceName: '', faceIndex: 0, battlerName: '',
+            equips: [0, 0, 0, 0, 0], traits: [], note: ''
+        };
+    }
+
+    /**
+     * The starter actor's class: a value for every level 0-99 of each of the eight parameters, and the
+     * hit, evasion and critical rates without which every attack misses.
+     */
+    getStarterClass() {
+        const curve = (base, perLevel, max) => Array.from({ length: 100 }, (_, level) =>
+            Math.min(max, base + perLevel * Math.max(1, level)));
+        return {
+            id: 1, name: 'Hero', expParams: [30, 20, 30, 30],
+            params: [curve(400, 50, 9999), curve(80, 10, 9999), curve(16, 4, 999), curve(16, 4, 999),
+                curve(16, 4, 999), curve(16, 4, 999), curve(30, 2, 999), curve(30, 2, 999)],
+            learnings: [],
+            traits: [
+                { code: 22, dataId: 0, value: 0.95 }, { code: 22, dataId: 1, value: 0.05 },
+                { code: 22, dataId: 2, value: 0.04 }, { code: 31, dataId: 1, value: 0 },
+                { code: 51, dataId: 1, value: 0 }, { code: 52, dataId: 1, value: 0 }
+            ],
+            note: ''
+        };
+    }
+
     getStarterTileset() {
-        // Tile 0 (nothing drawn) is a star (0x10): an empty upper layer never decides passage,
-        // so the tile below it does.
-        const flags = new Array(8192).fill(0);
-        flags[0] = 0x10;
+        // Every tile starts with RPG Maker's flag for its sheet (utils/TilesetSheets.js). Tile 0
+        // (nothing drawn) is a star (0x10): an empty upper layer never decides passage, so the tile
+        // below it does.
+        const flags = typeof RRTilesetSheets !== 'undefined' ? RRTilesetSheets.defaultFlags()
+            : Object.assign(new Array(8192).fill(0), { 0: 0x10 });
         return {
             id: 1,
             mode: 1,
@@ -967,7 +1049,7 @@ class ProjectManager {
             reactorSpeakerFace: true,
             // Two arrow keys held together walk diagonally (Game_Player.getInputDirection).
             reactorDiagonalMove: true,
-            partyMembers: [],
+            partyMembers: [1],
             currencyUnit: 'G',
             elements: ['', 'Physical'],
             equipTypes: ['', 'Weapon', 'Shield', 'Head', 'Body', 'Accessory'],
@@ -991,7 +1073,7 @@ class ProjectManager {
             // blank would mean silence instead -- a new project would then
             // differ from every existing one.
             sounds: new Array(24).fill(null).map(() => ({ ...emptyAudio })),
-            testBattlers: [],
+            testBattlers: [{ actorId: 1, level: 1, equips: [0, 0, 0, 0, 0] }],
             testTroopId: 1,
             battleback1Name: '',
             battleback2Name: '',

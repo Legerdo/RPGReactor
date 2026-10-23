@@ -238,11 +238,9 @@ test('the Rig tool reads every marker, fingers included, from the bones', () => 
     for (const key of ['hips', 'shoulderL', 'elbowR', 'wristL', 'thumbBaseL', 'thumbTipR', 'kneeL', 'ankleR']) assert.ok(read.found.includes(key), key);
 });
 
-test('the builder is on the Forge sidebar, in the Forge menu and loaded by the editor page', () => {
+test('the builder is on the Forge sidebar and loaded by the editor page', () => {
     const forge = fs.readFileSync(path.join(root, 'src', 'forge', 'ForgeManager.js'), 'utf8');
     assert.match(forge, /id: 'character-3d-builder'[\s\S]*?new Character3DBuilder\(\)/);
     const page = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     for (const file of ['HumanBody.js', 'CharacterGlb.js', 'Character3DBuilder.js']) assert.ok(page.includes(`src/forge/Character3D/${file}`), file);
-    assert.ok(page.includes('data-action="forge-character-3d-builder"'));
-    assert.match(fs.readFileSync(path.join(root, 'src', 'UIManager.js'), 'utf8'), /case 'forge-character-3d-builder':[\s\S]*?openForgeTool\('character-3d-builder'\)/);
 });

@@ -1556,8 +1556,12 @@ class ResourceManager {
                                 if (generation !== this.operationGeneration) return;
                                 if (optimized.bytes !== bytes) {
                                     importBytes = optimized.bytes;
+                                    const triangles = window.RRGlbOptimizer.triangleResult
+                                        ? window.RRGlbOptimizer.triangleResult(bytes, importBytes) : null;
+                                    const triangleNote = triangles ? ', ' + this.text('{before} → {after} triangles ({percent}%)', {
+                                        before: triangles.before.toLocaleString(), after: triangles.after.toLocaleString(), percent: triangles.percent }) : '';
                                     shrunkNote = ` (${(bytes.length / 1048576).toFixed(1)}MB → ` +
-                                        `${(importBytes.length / 1048576).toFixed(1)}MB)`;
+                                        `${(importBytes.length / 1048576).toFixed(1)}MB${triangleNote})`;
                                 }
                                 // Off by default: see the note on PRESETS. The
                                 // reduced model carries its own saving at every

@@ -354,7 +354,7 @@ test('the database tab, template, and detail editor are registered', () => {
     assert.match(ui, /userInterfaces: \{ name: 'New Interface',[\s\S]*?coordinateSpace: 'screen', nodes: \[\], note: '' \}/);
     const html = read('editor/index.html');
     assert.ok(html.indexOf('src/database/DatabaseUserInterfaceEditor.js') < html.indexOf('src/DatabaseEditorUI.js'));
-    assert.match(html, /data-db="userInterfaces" data-i18n="menu\.userInterfaces"/);
+    assert.match(ui, /\{ name: 'User Interfaces', type: 'userInterfaces' \}/, 'a page of the sidebar section the Database menu opens');
     assert.match(read('editor/src/UIManager.js'), /openDatabase\('userInterfaces'\)/);
     assert.match(read('editor/src/I18nManager.js'), /userInterfaces: 'menu\.userInterfaces'/);
 });
@@ -695,7 +695,7 @@ test('overlay records attach to Scene_Map, remain nonfocusable, and update from 
     const runtime = read('runtime/reactor_ui.js');
     assert.match(runtime, /Scene_Map\.prototype\.createReactorUIOverlays/);
     assert.match(runtime, /record\.mode === "overlay"/);
-    assert.match(runtime, /const shown = ReactorUI\.evaluateCondition\(this\._interface\.visible, scene\)/);
+    assert.match(runtime, /const shown = !this\._standDown && ReactorUI\.evaluateCondition\(this\._interface\.visible, scene\)/);
     assert.match(runtime, /focusInitial\(\) \{\}/);
     assert.match(runtime, /canFocus\(\) \{ return false; \}/);
     assert.doesNotMatch(runtime, /Scene_Map\.prototype\.start = function/);

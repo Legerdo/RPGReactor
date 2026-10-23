@@ -206,6 +206,9 @@ class DatabaseEditorUI {
         document.querySelectorAll('.database-nav-item').forEach(item => {
             item.textContent = this._dbTitle(item.dataset.type, item.dataset.fallbackName || item.textContent);
         });
+        document.querySelectorAll('.database-nav-section').forEach(heading => {
+            if (heading.dataset.name) heading.textContent = this._tt(heading.dataset.name);
+        });
         const titleEl = document.getElementById('database-viewer-title');
         const active = document.querySelector('.database-nav-item.active');
         if (titleEl && active) titleEl.textContent = this._dbTitle(active.dataset.type, titleEl.textContent);
@@ -651,7 +654,8 @@ class DatabaseEditorUI {
             if (!page) return then();
             page.settlePending().then(go => { if (go) then(); });
         };
-        const cancelAsked = () => afterModels(cancelAndClose);
+        // Cancel, × and Escape all ask the same question before unsaved edits are dropped.
+        const cancelAsked = () => afterModels(() => this.requestCloseDatabase(cancelAndClose));
         // Its window closed by Alt+F4 or the taskbar: as Escape, asking first; resolves once answered.
         this.askToCloseDatabase = async () => {
             const page = models();
@@ -2106,6 +2110,27 @@ class DatabaseEditorUI {
         }
     }
 
+    /** The Database's pages in the sections the sidebar and the editor's Database menu show. */
+    static get NAV_SECTIONS() {
+        return [
+            { name: 'Actors and Items', pages: [
+                { name: 'Actors', type: 'actors' }, { name: 'Classes', type: 'classes' }, { name: 'Skills', type: 'skills' },
+                { name: 'Items', type: 'items' }, { name: 'Weapons', type: 'weapons' }, { name: 'Armors', type: 'armors' }] },
+            { name: 'Battle', pages: [
+                { name: 'Enemies', type: 'enemies' }, { name: 'Troops', type: 'troops' }, { name: 'States', type: 'states' },
+                { name: 'Animations', type: 'animations' }, { name: 'Action Sequences', type: 'actionSequences' }] },
+            { name: 'World', pages: [
+                { name: 'Tilesets', type: 'tilesets' }, { name: '3D Models', type: 'reactor3d' },
+                { name: 'Structures', type: 'structures' }, { name: 'Vehicles', type: 'vehicles' }] },
+            { name: 'Events and Interfaces', pages: [
+                { name: 'Common Events', type: 'commonEvents' }, { name: 'Quests', type: 'quests' },
+                { name: 'User Interfaces', type: 'userInterfaces' }, { name: 'Music Sequences', type: 'musicSequences' }] },
+            { name: 'System', pages: [
+                { name: 'System 1', type: 'system1' }, { name: 'System 2', type: 'system2' }, { name: 'Types', type: 'types' },
+                { name: 'Terms', type: 'terms' }, { name: 'Controls', type: 'controls' }] }
+        ];
+    }
+
     /**
      * Setup the database navigation sidebar
      */
@@ -2116,47 +2141,31 @@ class DatabaseEditorUI {
         const activeType = navEl.querySelector('.database-nav-item.active')?.dataset.type;
         navEl.innerHTML = '';
 
-        const categories = [
-            { name: 'Actors', type: 'actors' },
-            { name: 'Classes', type: 'classes' },
-            { name: 'Skills', type: 'skills' },
-            { name: 'Items', type: 'items' },
-            { name: 'Weapons', type: 'weapons' },
-            { name: 'Armors', type: 'armors' },
-            { name: 'Enemies', type: 'enemies' },
-            { name: 'Troops', type: 'troops' },
-            { name: 'States', type: 'states' },
-            { name: 'Animations', type: 'animations' },
-            { name: 'Tilesets', type: 'tilesets' },
-            { name: '3D Models', type: 'reactor3d' },
-            { name: 'Vehicles', type: 'vehicles' },
-            { name: 'Structures', type: 'structures' },
-            { name: 'Common Events', type: 'commonEvents' },
-            { name: 'User Interfaces', type: 'userInterfaces' },
-            { name: 'Action Sequences', type: 'actionSequences' },
-            { name: 'Quests', type: 'quests' },
-            { name: 'Music Sequences', type: 'musicSequences' },
-            { name: 'System 1', type: 'system1' },
-            { name: 'System 2', type: 'system2' },
-            { name: 'Types', type: 'types' },
-            { name: 'Terms', type: 'terms' },
-            { name: 'Controls', type: 'controls' }
-        ];
+        // The sidebar in sections; the editor's Database menu lists the same sections (index.html).
+        for (const section of DatabaseEditorUI.NAV_SECTIONS) {
+            const heading = document.createElement('div');
+            heading.className = 'database-nav-section';
+            heading.setAttribute('role', 'presentation');
+            heading.setAttribute('data-rr-i18n-skip', '1');
+            const title = section.name;
+            heading.dataset.name = title;
+            heading.textContent = this._tt(title);
+            navEl.appendChild(heading);
+            for (const category of section.pages) {
+                const item = document.createElement('div');
+                item.className = 'database-nav-item';
+                if (category.type === activeType) item.classList.add('active');
+                item.textContent = this._dbTitle(category.type, category.name);
+                item.dataset.type = category.type;
+                item.dataset.fallbackName = category.name;
 
-        categories.forEach(category => {
-            const item = document.createElement('div');
-            item.className = 'database-nav-item';
-            if (category.type === activeType) item.classList.add('active');
-            item.textContent = this._dbTitle(category.type, category.name);
-            item.dataset.type = category.type;
-            item.dataset.fallbackName = category.name;
+                item.addEventListener('click', () => {
+                    this.openDatabase(category.type);
+                });
 
-            item.addEventListener('click', () => {
-                this.openDatabase(category.type);
-            });
-
-            navEl.appendChild(item);
-        });
+                navEl.appendChild(item);
+            }
+        }
 
         navEl.setAttribute('role', 'tablist');
         navEl.setAttribute('aria-orientation', 'vertical');
@@ -2442,9 +2451,10 @@ class DatabaseEditorUI {
             // it with a strict === 0. The Type control can convert this record
             // into an immediately editable stock MV sprite animation.
             animations: { name: 'New Animation', flashTimings: [], soundTimings: [], effectName: '', displayType: 0, offsetX: 0, offsetY: 0, rotation: { x: 0, y: 0, z: 0 }, scale: 100, speed: 100 },
-            // Tile 0 (the empty tile on every unpainted upper layer) is a star: as an O,
-            // checkPassage would stop at it and every wall on the map would be walkable.
-            tilesets: { name: 'New Tileset', mode: 0, tilesetNames: ['', '', '', '', '', '', '', '', ''], flags: Object.assign(new Array(8192).fill(0), { 0: 0x10 }), note: '' },
+            // Every tile starts with the flag RPG Maker gives its sheet (utils/TilesetSheets.js): tile 0, the
+            // empty tile on every unpainted upper layer, is a star, as an O checkPassage would stop at it and
+            // every wall on the map would be walkable; A1 water stops walkers.
+            tilesets: { name: 'New Tileset', mode: 0, tilesetNames: ['', '', '', '', '', '', '', '', ''], flags: typeof RRTilesetSheets !== 'undefined' ? RRTilesetSheets.defaultFlags() : Object.assign(new Array(8192).fill(0), { 0: 0x10 }), note: '' },
             commonEvents: { name: 'New Common Event', trigger: 0, switchId: 1, list: [{code:0,indent:0,parameters:[]}] },
             // Reactor section; the runtime (reactor_ui.js) fills in any field an
             // older record lacks, so this is the whole shape.
@@ -2647,12 +2657,13 @@ class DatabaseEditorUI {
 
 
             // The file each 2D preview comes from, under the preview; the
-            // 3D slot decoration shows the model name in the same place.
+            // 3D slot decoration shows the model name in the same place. The
+            // index is the stored one, as the picker and the event list number it.
             const sourceTag = (name, index) => {
                 const tag = document.createElement('div');
                 tag.className = 'graphic-preview-name';
                 tag.setAttribute('data-rr-i18n-skip', '1');
-                tag.textContent = name ? (index === undefined ? name : `${name} (${index + 1})`) : '';
+                tag.textContent = name ? (index === undefined ? name : `${name} (${index})`) : '';
                 tag.title = tag.textContent;
                 return tag;
             };

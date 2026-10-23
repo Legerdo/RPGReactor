@@ -27,7 +27,7 @@ Battle Processing and random encounters on a map whose mode is on the map fight 
 
 While Battle Setup is open the units stand on the map as their models or characters, colored by side, with a faint preview under the pointer. R (or the card's arrows) turns the selected unit, drag moves it, right-click removes it; each is one undo step. A placed unit has no model of its own and wears whatever its Database record is bound to, in the editor and the game, on 2D and 3D maps.
 
-Skills, items and weapons work untouched. To change its target distance or affected area, open its **Shared Combat Settings** card; the grid previews Tactical targeting. Move range and Climb are on the **Tactical Battles** card of actors, classes and enemies; weapons, armor and states can add to them. AI behavior and an enemy's picture on the map belong to **Shared Combat Settings**, since Action and First Person battles use them too. The settings are stored in the record itself ([A record's battle settings](#a-records-battle-settings)).
+Skills, items and weapons work untouched. To change its target distance or affected area, open its **Combat** section, **Targeting**; the grid previews Tactical targeting. Move range and Climb are under **Tactical Battles** for actors, classes and enemies; weapons, armor and states can add to them. AI behavior and an enemy's picture on the map are under **Behavior**, since Action and First Person battles use them too. The settings are stored in the record itself ([A record's battle settings](#a-records-battle-settings)).
 
 ## An action battle in five steps
 
@@ -41,15 +41,15 @@ Weapons work untouched: what a weapon is comes from its type's name. To change i
 
 ## A record's battle settings
 
-The Database uses the same grouping on every record page:
+Each record page has one **Combat** section, with these groups:
 
-| Section | Settings | Records |
+| Group | Settings | Records |
 | --- | --- | --- |
-| **Shared Combat Settings** | Target range, area of effect and line of sight; AI behavior; enemy appearance on the map | Skills, items and weapons for targeting; actors and enemies for behavior; enemies for appearance |
+| **Targeting** / **Behavior** | Target range, area of effect and line of sight; AI behavior; enemy appearance on the map | Skills, items and weapons for targeting; actors and enemies for behavior; enemies for appearance |
 | **Tactical Battles** | Move range per turn and Climb; movement bonuses and penalties | Actors, classes and enemies; weapons, armor and states |
 | **Action and First Person Battles** | Projectile, attack rate, magazine, reload, spread and combo; hotbar cooldown | Weapons; skills and items |
 
-Each section's **Automatic** button resets only its own fields. Shared settings open when any on-map combat mode is used; Tactical settings open for Tactical battles, and Action settings for Action or First Person. A record that already sets a value opens that value's section, and manual fold choices are remembered separately.
+Each group's **Automatic** button resets only its own fields. The section opens when the project fights in a way one of its groups is for, or when the record sets a value in it; folded, its title line says what the record sets. A fold chosen by hand is remembered.
 
 **Target range** is the distance at which a target can be selected, with minimum and maximum values in tiles. Attack and physical skills can **Uses equipped weapon’s range**; the Database shows that as one choice, since each actor may equip a different weapon. Choose **Custom range** to enter distances; choosing weapon range again clears only the range override.
 
@@ -84,7 +84,7 @@ A record of the Database keeps its battle settings in `rrBattle`, each key there
 | `ai` | actors, enemies | `aggressive`, `ranged` or `support` |
 | `fireRate`, `magazine`, `reload`, `spread`, `combo`, `projectile` | weapons | Action and First Person battles: shots or swings a second, shots in the magazine, seconds to reload, degrees of spread, swings in a combo; `bullet`, `arrow`, `bolt`, `rocket` or `none` |
 | `cooldown` | skills, items | Action and First Person battles: seconds on the hotbar |
-| `character` | enemies | its picture on the map: a character sheet's `name` and the `index` (0 to 7) of the character on it. Without it an enemy stands as the 3D model bound to it, else its battler picture, else a plain figure in its side's color |
+| `character` | enemies | its picture on the map: a character sheet's `name` and the `index` (0 to 7) of the character on it. Without it an enemy stands as the 3D model bound to it, else its battler picture (a creature drawn high over its own shadow stands just over it), else a plain figure in its side's color |
 
 In a running game, change a setting by giving the record a new object: `$dataSkills[5].rrBattle = { ...$dataSkills[5].rrBattle, range: { min: 1, max: 3 } }`. A value changed in place (`$dataSkills[5].rrBattle.range.max = 3`) is not seen by a running game.
 
@@ -98,7 +98,7 @@ In a Tactical battle the player orders the party's actors; everyone else decides
 
 A unit's turn: its move range shows. OK on a cell walks there, OK on its own cell stays. Then Attack, Skills, Items, Wait (and End Turn). An action shows its range; the cursor shows where it lands and the forecast. OK confirms. Cancel steps back one level and undoes the move until the unit acts. Shift goes to the next unit or target. The mouse hovers and clicks; touch is tap, then tap again.
 
-A blow from the side deals 1.2 times the damage, from behind 1.5. Each level of height adds or takes 10%, up to 30%. Half cover (a counter, a low wall, a bush) leaves 75% of the hit chance, full cover 50%; cover counts from two tiles away and not for an action that needs no line of sight. On a 2D map a cell nobody can walk onto hides what is behind it, unless it is water or a counter; a 3D map adds its walls, rocks, hills and shut doors. A skill's Repeats and Attack Times+ land as in a Classic battle.
+A blow from the side deals 1.2 times the damage, from behind 1.5. Each level of height adds or takes 10%, up to 30%. Half cover (a counter, a low wall, a bush) leaves 75% of the hit chance, full cover 50%; cover counts from two tiles away and not for an action that needs no line of sight. On a 2D map a cell nobody can walk onto hides what is behind it, unless it is water or a counter; a 3D map adds its walls, rocks, hills and shut doors, and its models where their mesh is (a line passes under a tree's crown). A skill's Repeats and Attack Times+ land as in a Classic battle.
 
 Units that fight by themselves never pass a turn: with nothing worth using they close in, take cover, and keep watch if they can shoot. Units that fight from a distance or support allies (`ai`: `ranged`, `support`) stay behind the ones that close in, and shooters take high ground that gives them a shot. The other side's units that only move walk together; hold the dash key to double the pace of anything the battle plays by itself. **Auto** (when three or more units are still to act) lets the rest of your turn play by each unit's preset.
 
@@ -122,7 +122,7 @@ View: walls and roofs over the battle are cut away and trees fade, so every unit
 
 **Tactical controls** can be rebound in Database › Controls › Tactical Battles. They are stored in `System.json` as `reactorControls.tacticalKeys` and `reactorControls.tacticalButtons`, mapping a key code or gamepad button to one of `viewLeft`, `viewRight`, `panUp`, `panDown`, `panLeft`, `panRight`, `level`, `unit`, `skip`. Unchanged, they follow the ordinary Page Up, Page Down, Control, Tab and Shift bindings, W A S D move the view and E turns it right (a project that walks with W A S D keeps those keys for the cursor); on a gamepad R3 is next level and L3 is back to the unit. The bindings apply only while a Tactical battle runs.
 
-**Set Terrain Cost** (Battles on the Map in the command picker; `RPGReactor` / `SetTerrainCost`: `type` region or terrain, `id`, `cost`) makes a region or terrain tag blocked (0), slow (2 or more) or normal (1). **Tactical view** in Database › System 1 › Battles or on Start Battle on Map keeps the map's own camera instead of the isometric view. A map with `<battle trigger: N>` in its note starts its battle when the party is within N tiles and in sight of an enemy unit. Transfer Player to another spot of the same map keeps the battle, each party member on its own cell; to another map it ends as an escape unless started with "keep". A kept battle ends as an escape when another battle starts. After a battle that was not lost, the enemies placed on the map that fell in it stay off the map when it is entered again, in every mode: the event's In battle row says Comes back, else its enemy does (Database › Enemies › Shared Combat Settings), else it stays gone. A party member added during a battle joins it on a cell beside the leader. A party defeated in a battle that can be lost takes the Lose branch.
+**Set Terrain Cost** (Battles on the Map in the command picker; `RPGReactor` / `SetTerrainCost`: `type` region or terrain, `id`, `cost`) makes a region or terrain tag blocked (0), slow (2 or more) or normal (1). **Tactical view** in Database › System 1 › Battles or on Start Battle on Map keeps the map's own camera instead of the isometric view. A map with `<battle trigger: N>` in its note starts its battle when the party is within N tiles and in sight of an enemy unit. Transfer Player to another spot of the same map keeps the battle, each party member on its own cell; to another map it ends as an escape unless started with "keep". A kept battle ends as an escape when another battle starts. After a battle that was not lost, the enemies placed on the map that fell in it stay off the map when it is entered again, in every mode: the event's In battle row says Comes back, else its enemy does (Database › Enemies › Combat › Behavior), else it stays gone. A party member added during a battle joins it on a cell beside the leader. A party defeated in a battle that can be lost takes the Lose branch.
 
 ## Action and First Person
 
@@ -136,7 +136,7 @@ If the mouse gets away during a battle (another window, the browser), nothing op
 
 A weapon is what its type's name says (pistol, rifle, gun, shotgun, cannon, launcher, bow, crossbow shoot; the rest swing) unless it says otherwise itself: `fireRate`, `magazine`, `reload`, `spread`, `projectile`, `combo`; `cooldown` on a skill or item ([A record's battle settings](#a-records-battle-settings)). A shot carries 2.5 times the weapon's tactical range. Every hit is the stock battle math; a gun deals about one attack's damage per second of held fire, a combo's steps 0.5, 0.6 and then a whole attack, and the party takes 0.85 of each blow.
 
-Units notice an opponent in front of them within 9 tiles or beside them within 3, close in or keep their distance by their `ai` preset, flash as they wind up, strike, and rest. At most three wind up on one opponent at a time. A "turn" for hooks, states and a Survive goal passes every 4 seconds. Goals, hooks, sides and the Win / Escape / Lose branches are as in Tactical. A battle that can be escaped is escaped by running: once an enemy has come within 15 tiles, the leader gets further than that from every enemy for a second and a half.
+Units notice an opponent in front of them within 9 tiles or beside them within 3, close in or keep their distance by their `ai` preset, flash as they wind up, strike, and rest. The leader opens the fight: the party's other members hold back until the leader attacks or aims a skill or item at the other side; one that is struck fights back at once, and all of them come to a leader under half its HP. At most three wind up on one opponent at a time. A "turn" for hooks, states and a Survive goal passes every 4 seconds. Goals, hooks, sides and the Win / Escape / Lose branches are as in Tactical. A battle that can be escaped is escaped by running: once an enemy has come within 15 tiles, the leader gets further than that from every enemy for a second and a half.
 
 ## Units
 
@@ -150,7 +150,7 @@ The event editor shows a tag unit in the In battle row like any other; changing 
 
 A unit event keeps its pages, triggers and move routes; it stops wandering on its own while it fights. Its side is the event's, the same on every page: a page change changes how the event looks and acts, not whose side it is on. **Change Unit Side** changes it. On a 3D map, a unit event with no model of its own wears the model the Database binds to its record.
 
-**HUD.** A Tactical battle shows the acting unit lower left, the unit under the cursor lower right (with the forecast while aiming) and the turn order across the top. It is its own record, separate from the Classic Battle HUD. Change it in Database › User Interfaces: Stock Layout › Tactical Battle, then Use As › Tactical Battle.
+**HUD.** A Tactical battle shows the acting unit lower left, the unit under the cursor lower right (with the forecast while aiming) and the turn order across the top. A panel over a unit or the cursor (on a small map) lets it show through. The Action and First Person HUD leaves the screen while a message or the battle's results are shown. It is its own record, separate from the Classic Battle HUD. Change it in Database › User Interfaces: Stock Layout › Tactical Battle, then Use As › Tactical Battle.
 
 **Action Sequences.** Actions on the map play their Action Sequence, the one a Classic battle would play for the same skill, weapon, class or actor. A unit never leaves its cell: moves change where it is drawn and it is back on its cell when the action ends. Distances are read for the grid: a move to the target stops where the unit's reach (its arm, and the weapon in it) meets the target's body, never inside either; two that already stand closer do not close in: the attacker takes half a pace back and strikes from there. Steps forward, back and aside are half length along the line to the target, and a screen position means home. A skill's Repeats land one after another a few frames apart, each with its own number; a sequence set to land its own hits lands one per Apply Action Effect step. On a 3D map a thrown or fired model flies in the scene and a plain shot is a tracer; animations play at the muzzle and where the shot struck. An action with no sequence plays a built-in one by kind: melee, ranged, magic, item, recovery or area. Camera steps go to the battle's cinematic camera. Not played on the map: Set Home, Hold Sprite Pose, Scrolling Plane, and the battle status, log and background steps.
 
@@ -173,6 +173,8 @@ On the event command picker's Reactor tab, under **Battles on the Map**:
 | End Battle on Map | Ends it as a win (with rewards), an escape or a loss. |
 
 The goal is what wins: defeat every enemy, survive N turns, defeat one unit, a switch is ON, or a variable is at least a value. A switch or a variable goal is met the moment any event sets it, so a game's own conditions (reach a place, talk to someone, hold out until a counter fills) are goals too. The party falling loses the battle under every goal.
+
+**Troop pages.** A battle a troop comes to (Battle Processing, an encounter, Start Battle on Map naming a troop) runs that troop's pages as the battle screen does, between actions: the same conditions (turn ending, turn A + B * X, an enemy's HP by its place in the troop, an actor's HP, a switch) and spans. Turn 0 is the battle's start and turn 1 its first round; in Action and First Person a turn passes every 4 seconds.
 
 Started by Battle Processing, the battle holds the map's event interpreter, so touch, action and autorun events wait until it ends; parallel events and hooks run. A battle meant to be interrupted by them is started with Start Battle on Map, which does not wait.
 

@@ -99,6 +99,8 @@ const EXCLUDED = new Set([
 function isStagingExcluded(relPath) {
     if (EXCLUDED.has(relPath)) return true;
     if (/^rpgmaker-runtime-backup(-\d+)?\.zip$/.test(relPath)) return true;
+    // The Character Generator's recipe beside each sheet it saved: the editor's, not the game's.
+    if (relPath.startsWith('img' + path.sep) && /\.character\.json$/i.test(relPath)) return true;
     return relPath === path.join('data', path.basename(relPath))
         && /^Test_.*\.json$/.test(path.basename(relPath));
 }

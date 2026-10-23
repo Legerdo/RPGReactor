@@ -228,6 +228,14 @@ Game_Map.prototype.events = function() {
     return list;
 };
 
+/**
+ * The live event list is made again on the next call: for code that puts an event into `_events` (or takes one
+ * out) and asks for the list in the same frame. Spawn Unit followed by Start Battle on Map runs in one frame.
+ */
+Game_Map.prototype.refreshEventList = function() {
+    if (this._events) reactorEventLists.delete(this._events);
+};
+
 Game_Map.prototype.event = function(eventId) {
     return this._events[eventId];
 };
@@ -283,7 +291,7 @@ Game_Map.prototype.setDisplayPos = function(x, y) {
         this._parallaxX = x;
     } else {
         const endX = this.width() - this.screenTileX();
-        this._displayX = endX < 0 ? endX / 2 : x.clamp(0, endX);
+        this._displayX = endX < 0 ? endX / 2 : x.clamp(0 - this.reactorEdgeReach("west"), endX + this.reactorEdgeReach("east"));
         this._parallaxX = this._displayX;
     }
     if (this.isLoopVertical()) {
@@ -291,9 +299,27 @@ Game_Map.prototype.setDisplayPos = function(x, y) {
         this._parallaxY = y;
     } else {
         const endY = this.height() - this.screenTileY();
-        this._displayY = endY < 0 ? endY / 2 : y.clamp(0, endY);
+        this._displayY = endY < 0 ? endY / 2 : y.clamp(0 - this.reactorEdgeReach("north"), endY + this.reactorEdgeReach("south"));
         this._parallaxY = this._displayY;
     }
+};
+
+/**
+ * How far the view of a 2D map may go past its edge on `side`, in tiles: half a screen where a neighboring map
+ * lies past it (its ground is drawn there, Spriteset_Map.updateNeighborTilemaps), so the party keeps the middle of
+ * the screen up to the border; none elsewhere, on a looping side, or on a 3D map (whose scene stands the neighbor).
+ */
+Game_Map.prototype.reactorEdgeReach = function(side) {
+    // Worked out once a map (kept off the Game_Map, which is saved).
+    const data = typeof $dataMap !== "undefined" ? $dataMap : null, known = Game_Map._rrEdgeSides || (Game_Map._rrEdgeSides = { map: undefined });
+    if (known.map !== data) {
+        known.map = data;
+        const R = typeof Reactor3D !== "undefined" ? Reactor3D : null, infos = typeof $dataMapInfos !== "undefined" ? $dataMapInfos : null;
+        const sides = data && R && R.Neighbors && R.neighborsOf && !(R.shouldRender3D && R.shouldRender3D(data)) ? R.neighborsOf(data) : {};
+        for (const name of ["north", "east", "south", "west"]) known[name] = !!(sides[name] && infos && infos[sides[name].map]);
+    }
+    if (!known[side] || !(typeof Reactor3D !== "undefined" && Reactor3D.Neighbors && Reactor3D.Neighbors.enabled)) return 0;
+    return Math.ceil((side === "west" || side === "east" ? this.screenTileX() : this.screenTileY()) / 2);
 };
 
 Game_Map.prototype.parallaxOx = function() {
@@ -560,7 +586,7 @@ Game_Map.prototype.scrollDown = function(distance) {
         const lastY = this._displayY;
         this._displayY = Math.min(
             this._displayY + distance,
-            this.height() - this.screenTileY()
+            this.height() - this.screenTileY() + this.reactorEdgeReach("south")
         );
         this._parallaxY += this._displayY - lastY;
     }
@@ -575,7 +601,7 @@ Game_Map.prototype.scrollLeft = function(distance) {
         }
     } else if (this.width() >= this.screenTileX()) {
         const lastX = this._displayX;
-        this._displayX = Math.max(this._displayX - distance, 0);
+        this._displayX = Math.max(this._displayX - distance, 0 - this.reactorEdgeReach("west"));
         this._parallaxX += this._displayX - lastX;
     }
 };
@@ -591,7 +617,7 @@ Game_Map.prototype.scrollRight = function(distance) {
         const lastX = this._displayX;
         this._displayX = Math.min(
             this._displayX + distance,
-            this.width() - this.screenTileX()
+            this.width() - this.screenTileX() + this.reactorEdgeReach("east")
         );
         this._parallaxX += this._displayX - lastX;
     }
@@ -606,7 +632,7 @@ Game_Map.prototype.scrollUp = function(distance) {
         }
     } else if (this.height() >= this.screenTileY()) {
         const lastY = this._displayY;
-        this._displayY = Math.max(this._displayY - distance, 0);
+        this._displayY = Math.max(this._displayY - distance, 0 - this.reactorEdgeReach("north"));
         this._parallaxY += this._displayY - lastY;
     }
 };

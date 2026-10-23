@@ -250,6 +250,11 @@
                 if (!item) return "";
                 return (item.iconIndex > 0 ? "\\I[" + item.iconIndex + "]" : "") + item.name + (amount !== 1 ? " \u00d7" + amount : "");
             }
+            case "commonEvent": {
+                const events = typeof $dataCommonEvents !== "undefined" && $dataCommonEvents ? $dataCommonEvents : [];
+                const event = events[Number(reward.giveId)];
+                return event && event.name ? String(event.name) : "";
+            }
             default: return "";
         }
     };

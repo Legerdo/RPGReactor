@@ -1,8 +1,9 @@
 /**
- * TacticsSection - a record's combat settings, grouped by where they apply:
- * Shared Combat Settings (targeting, AI behavior and enemy appearance),
- * Tactical Battles (turn-based movement and climbing), and Action and
- * First Person Battles (weapon behavior and hotbar cooldowns).
+ * TacticsSection - a record's combat settings, one Combat section per page,
+ * its groups by where they apply: targeting or behavior (every battle on the
+ * map: targeting, AI behavior and enemy appearance), Tactical Battles
+ * (turn-based movement and climbing), and Action and First Person Battles
+ * (weapon behavior and hotbar cooldowns).
  *
  * Everything is stored in the record itself, as `rrBattle`, each key
  * there only while the record sets it:
@@ -649,13 +650,13 @@
     const FILES = { 'Actors.json': 'actor', 'Classes.json': 'class', 'Skills.json': 'skill', 'Items.json': 'item', 'Weapons.json': 'weapon', 'Armors.json': 'armor', 'Enemies.json': 'enemy', 'States.json': 'state' };
 
     /**
-     * The combat cards. `key` is the name a card's fold is remembered by, the
-     * same in every language; `fights` is the way of fighting it is for
-     * (the Database folds a card nobody touched while the project never
-     * fights that way); `kinds` are the records that get it.
+     * The groups of the Combat section. `key` names the group, the same in
+     * every language; `fights` is the way of fighting it is for (the
+     * Database folds a Combat section nobody touched while the project never
+     * fights the way of any group in it); `kinds` are the records that get it.
      */
     const CARDS = {
-        shared: { key: 'sharedCombat', title: 'Shared Combat Settings', fights: 'map-battles', kinds: ['actor', 'enemy', ...ACTION_KINDS] },
+        shared: { key: 'sharedCombat', title: 'Targeting', fights: 'map-battles', kinds: ['actor', 'enemy', ...ACTION_KINDS] },
         tactical: { key: 'tactics', title: 'Tactical Battles', fights: 'tactical-battles', kinds: [...UNIT_KINDS, ...BONUS_KINDS] },
         action: { key: 'action', title: 'Action and First Person Battles', fights: 'action-battles', kinds: ACTION_KINDS }
     };
@@ -670,10 +671,13 @@
         return CARDS[card].fights;
     }
 
-    /** One title for the same group on every record page. */
+    /** A group's title: the shared group is targeting on skills, items and weapons, behavior on actors and enemies. */
     function titleFor(card, kind) {
-        return CARDS[card].title;
+        return card === 'shared' && (kind === 'actor' || kind === 'enemy') ? 'Behavior' : CARDS[card].title;
     }
+
+    // The section the groups stand in: its fold is remembered by this name.
+    const SECTION = { key: 'combat', title: 'Combat' };
 
     /** The settings a card holds on a kind of record: the ones its Automatic chip takes out, as keys of `rrBattle` and as tags. */
     function ownTags(card, kind) {
@@ -1168,8 +1172,8 @@
             if (name === 'tactical' && BONUS_KINDS.includes(kind)) rows += number('Move range', 'rr-tactics-move', 'tiles more or fewer', LIMITS.bonus[0], LIMITS.bonus[1], 1) + number('Climb', 'rr-tactics-jump', 'levels more or fewer', LIMITS.bonus[0], LIMITS.bonus[1], 1);
         }
         return `
-            <div class="database-section-header rr-tactics-header"><span class="rr-tactics-title">${word(titleFor(name, kind))}</span><span class="rr-tactics-summary"></span><button type="button" class="rr-btn-chip rr-tactics-reset" hidden>${word('Automatic')}</button></div>
-            <div class="database-section-content rr-tactics-body">
+            <div class="rr-tactics-header"><span class="rr-tactics-title">${word(titleFor(name, kind))}</span><span class="rr-tactics-summary"></span><button type="button" class="rr-btn-chip rr-tactics-reset" hidden>${word('Automatic')}</button></div>
+            <div class="rr-tactics-body">
                 <div class="rr-tactics-scope">${word(CARD_HINTS[name])}</div>
                 <div class="db-form rr-tactics-form">${rows}</div>
                 ${picture ? '<div class="rr-tactics-picture">' + (name === 'shared' ? `<span class="rr-tactics-preview-title">${word('Tactical targeting preview')}</span>` : '') + '<canvas width="198" height="198"></canvas><div class="rr-tactics-legend"></div>' + (name === 'shared' ? '<span class="rr-tactics-preview-hint" hidden></span>' : '') + '</div>' : ''}
@@ -1621,31 +1625,25 @@
     }
 
     /**
-     * One card of a record: 'shared', 'tactical' or 'action'. It folds like every
-     * Database section (the shell's RRDatabaseSections): folded, its title
-     * line still says what the record does in that kind of battle.
+     * One group of a record's Combat section: 'shared', 'tactical' or 'action'. Its title line says what the
+     * record does in that kind of battle and holds the group's Automatic chip; `outer` is the section it
+     * stands in, which folds.
      */
-    function createCard(name, options, link) {
-        const { kind } = options, card = CARDS[name];
+    function createCard(name, options, link, outer) {
+        const { kind } = options;
         const tt = t => (root.I18n ? root.I18n.tText(t) : t);
         const page = document, section = page.createElement('div');
-        section.className = 'database-section rr-tactics-section';
+        section.className = 'rr-tactics-section';
         section.dataset.kind = kind;
         section.dataset.card = name;
-        // The name the fold is remembered by, the same in every language.
-        section.dataset.sectionKey = card.key;
-        // Nobody having folded or opened it, the card is folded while the project never fights this way,
-        // except for a record that already sets something in it, by a setting of its own or by a tag.
-        section.dataset.sectionDefault = fightsFor(name, kind);
-        if (summarize(name, kind, link.live(), link.context).tagged) section.dataset.sectionInUse = 'true';
+        section.dataset.fights = fightsFor(name, kind);
         section.innerHTML = cardHtml(name, kind, tt);
 
-        const header = section.querySelector('.rr-tactics-header');
         const summary = section.querySelector('.rr-tactics-summary'), chip = section.querySelector('.rr-tactics-reset');
         const parts = (name === 'action' ? actionParts : tacticalParts)(section, kind, link, tt, () => draw(), name);
         const draw = () => {
-            // A folded card shows no picture: it is drawn when the card opens.
-            if (section.classList.contains('is-collapsed')) return;
+            // A folded section shows no picture: it is drawn when the section opens.
+            if (outer.classList.contains('is-collapsed')) return;
             parts.paint();
         };
         // A tag one of the project's plugins reads stays in the Note: its row says so, under the field.
@@ -1676,11 +1674,13 @@
             }
             for (const key of Object.keys(stays)) if (!shown[key]) stays[key].line.hidden = true;
         };
+        const card = { name, section, told: { text: '', tagged: false } };
         link.redraws.push(() => {
             parts.fill();
             const live = link.live(), told = summarize(name, kind, live, link.context, tt);
+            card.told = told;
             summary.textContent = told.text;
-            // The whole line, for a card too narrow to show it.
+            // The whole line, for a group too narrow to show it.
             summary.title = told.text;
             // The chip is there while it has something to take out: what a PTBS block sets, and a tag a plugin
             // reads, is read and never rewritten.
@@ -1691,36 +1691,46 @@
         chip.addEventListener('click', () => {
             const shown = section.ownerDocument || root.document;
             const focused = !!shown && shown.activeElement === chip;
-            // The chip leaves once nothing is set: the focus it held stays on its card, on the title line.
-            link.act(() => reset(name, kind, link.live(), link.context), () => { if (focused && chip.hidden && typeof header.focus === 'function') header.focus(); });
+            // The chip leaves once nothing is set: the focus it held goes to the section's title line.
+            const header = outer.querySelector('.rr-combat-header');
+            link.act(() => reset(name, kind, link.live(), link.context), () => { if (focused && chip.hidden && header && typeof header.focus === 'function') header.focus(); });
         });
-        section.addEventListener('rr-section-fold', event => { if (event.target === section && !event.detail.collapsed) draw(); });
-        return section;
+        outer.addEventListener('rr-section-fold', event => { if (event.target === outer && !event.detail.collapsed) draw(); });
+        card.draw = draw;
+        return card;
     }
 
     /**
-     * Combat cards stacked in one place. While every card
-     * in it is folded the stack says so itself (`is-collapsed`), so a page
-     * that gives a folded card the whole row gives it to the stack too.
+     * A record's Combat section: one card on the page that folds like every Database section (the shell's
+     * RRDatabaseSections), its groups inside. Folded, its title line still says what the record sets, or what
+     * it does left alone. Nobody having folded or opened it, it is folded while the project never fights the
+     * way of any group in it, except for a record that already sets something in it.
      */
-    function stackOf(cards) {
-        const stack = document.createElement('div');
-        stack.className = 'rr-battle-cards';
-        stack.append(...cards);
-        stack.addEventListener('rr-section-fold', () => stack.classList.toggle('is-collapsed', cards.every(card => card.classList.contains('is-collapsed'))));
-        return stack;
-    }
-
-    /** The applicable shared, Tactical and Action cards, each owning its fields and reset. */
     function createSection(options) {
         const names = cardsFor(options.kind);
         if (!names.length) return null;
+        const tt = t => (root.I18n ? root.I18n.tText(t) : t);
         const link = recordLink(options);
-        const cards = names.map(name => createCard(name, options, link));
-        const element = cards.length > 1 ? stackOf(cards) : cards[0];
+        const outer = document.createElement('div');
+        outer.className = 'database-section rr-combat-section';
+        outer.dataset.kind = options.kind;
+        const fights = Array.from(new Set(names.map(name => fightsFor(name, options.kind))));
+        outer.dataset.sectionDefault = fights.length === 1 ? fights[0] : 'map-battles';
+        // Its fold is remembered by its key, the same in every language.
+        outer.innerHTML = `<div class="database-section-header rr-combat-header" data-section-key="${SECTION.key}"><span class="rr-combat-title">${esc(tt(SECTION.title))}</span><span class="rr-combat-summary"></span></div><div class="database-section-content rr-combat-body"></div>`;
+        const body = outer.querySelector('.rr-combat-body'), summary = outer.querySelector('.rr-combat-summary');
+        const cards = names.map(name => createCard(name, options, link, outer));
+        for (const card of cards) body.appendChild(card.section);
+        link.redraws.push(() => {
+            const tagged = cards.filter(card => card.told.tagged && card.told.text);
+            const text = (tagged.length ? tagged : cards.filter(card => card.told.text).slice(0, 1)).map(card => card.told.text).join(' · ');
+            summary.textContent = text;
+            summary.title = text;
+        });
         for (const redraw of link.redraws) redraw();
-        link.place(element);
-        return element;
+        if (cards.some(card => card.told.tagged)) outer.dataset.sectionInUse = 'true';
+        link.place(outer);
+        return outer;
     }
 
     const api = {
@@ -1732,7 +1742,7 @@
         change, reset, convert, differs, put,
         tagsRead, enabledPlugins, scanPluginTags, pluginTags,
         reachCells, areaCells, directionTo, describe, picture, drawGrid,
-        CARDS, CARD_HINTS, cardsFor, fightsFor, titleFor, ownTags, ownKeys: ownTags, summarize, cardHtml, reachRow, watchPage, createSection
+        CARDS, CARD_HINTS, SECTION, cardsFor, fightsFor, titleFor, ownTags, ownKeys: ownTags, summarize, cardHtml, reachRow, watchPage, createSection
     };
     root.RRTactics = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

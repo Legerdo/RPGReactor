@@ -30,9 +30,7 @@
         // Closed by Alt+F4 or the taskbar: as Cancel does, asking first about unapplied edits.
         async closeFromFrame() {
             const editor = root.reactor && root.reactor.eventManager && root.reactor.eventManager.eventEditor;
-            if (!editor || !editor.isOpen || !editor.isOpen()) return;
-            if (!(await editor.resolvePendingChanges({ closing: true }))) return;
-            if (editor.isOpen()) editor.cancelChanges();
+            if (editor && editor.requestClose) await editor.requestClose();
         }
     });
 

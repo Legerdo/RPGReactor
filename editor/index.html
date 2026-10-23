@@ -65,6 +65,7 @@
                     <div class="html-menu-option" data-action="open-project" style="padding: 8px 16px; cursor: pointer; display: flex; justify-content: space-between; gap: 24px;"><span data-i18n="menu.openProject">Open Project</span><span style="color: var(--color-text-muted);">Ctrl+O</span></div>
                     <div class="html-menu-option" data-action="import-project" style="padding: 8px 16px; cursor: pointer; display: flex; justify-content: space-between; gap: 24px;"><span data-i18n="menu.importProject">Import Project…</span></div>
                     <div class="html-menu-option" data-action="save-project" style="padding: 8px 16px; cursor: pointer; display: flex; justify-content: space-between; gap: 24px;"><span data-i18n="toolbar.title.saveProject">Save Project</span><span style="color: var(--color-text-muted);">Ctrl+S</span></div>
+                    <div class="html-menu-option" data-action="save-project-as" style="padding: 8px 16px; cursor: pointer; display: flex; justify-content: space-between; gap: 24px;"><span data-i18n-text-source="Save Project As…">Save Project As…</span></div>
                     <div class="html-menu-option" data-action="playtest" style="padding: 8px 16px; cursor: pointer; display: flex; justify-content: space-between; gap: 24px;"><span data-i18n="toolbar.title.playtest">Playtest</span><span style="color: var(--color-text-muted);">Ctrl+R</span></div>
                     <div style="height: 1px; background: var(--color-border); margin: 4px 0;"></div>
                     <div class="html-menu-option" data-action="close-project" data-i18n="menu.closeProject" style="padding: 8px 16px; cursor: pointer;">Close Project</div>
@@ -77,33 +78,12 @@
             <div class="html-menu-item" data-menu="database" style="position: relative; padding: 8px 16px; cursor: pointer;">
                 <span data-i18n="menu.database">Database</span>
                 <div class="html-submenu rr-accent-scrollbar" id="submenu-database" style="display: none; position: absolute; top: 100%; left: 0; background-color: var(--color-bg-toolbar); color: var(--color-text); border: 1px solid var(--color-border); min-width: 200px; z-index: 10000; box-shadow: var(--shadow-popup);">
-                    <div class="html-menu-option" data-db="actors" data-i18n="menu.actors" style="padding: 8px 16px; cursor: pointer;">Actors</div>
-                    <div class="html-menu-option" data-db="classes" data-i18n="menu.classes" style="padding: 8px 16px; cursor: pointer;">Classes</div>
-                    <div class="html-menu-option" data-db="skills" data-i18n="menu.skills" style="padding: 8px 16px; cursor: pointer;">Skills</div>
-                    <div class="html-menu-option" data-db="items" data-i18n="menu.items" style="padding: 8px 16px; cursor: pointer;">Items</div>
-                    <div class="html-menu-option" data-db="weapons" data-i18n="menu.weapons" style="padding: 8px 16px; cursor: pointer;">Weapons</div>
-                    <div class="html-menu-option" data-db="armors" data-i18n="menu.armors" style="padding: 8px 16px; cursor: pointer;">Armors</div>
-                    <div style="height: 1px; background: var(--color-border); margin: 4px 0;"></div>
-                    <div class="html-menu-option" data-db="enemies" data-i18n="menu.enemies" style="padding: 8px 16px; cursor: pointer;">Enemies</div>
-                    <div class="html-menu-option" data-db="troops" data-i18n="menu.troops" style="padding: 8px 16px; cursor: pointer;">Troops</div>
-                    <div class="html-menu-option" data-db="states" data-i18n="menu.states" style="padding: 8px 16px; cursor: pointer;">States</div>
-                    <div style="height: 1px; background: var(--color-border); margin: 4px 0;"></div>
-                    <div class="html-menu-option" data-db="animations" data-i18n="menu.animations" style="padding: 8px 16px; cursor: pointer;">Animations</div>
-                    <div class="html-menu-option" data-db="tilesets" data-i18n="menu.tilesets" style="padding: 8px 16px; cursor: pointer;">Tilesets</div>
-                    <div class="html-menu-option" data-db="reactor3d" data-i18n="menu.models3d" style="padding: 8px 16px; cursor: pointer;">3D Models</div>
-                    <div class="html-menu-option" data-db="vehicles" data-i18n="vehicle.database" style="padding: 8px 16px; cursor: pointer;">Vehicles</div>
-                    <div class="html-menu-option" data-db="structures" data-i18n="menu.structures" style="padding: 8px 16px; cursor: pointer;">Structures</div>
-                    <div class="html-menu-option" data-db="commonEvents" data-i18n="menu.commonEvents" style="padding: 8px 16px; cursor: pointer;">Common Events</div>
-                    <div class="html-menu-option" data-db="userInterfaces" data-i18n="menu.userInterfaces" style="padding: 8px 16px; cursor: pointer;">User Interfaces</div>
-                    <div class="html-menu-option" data-db="actionSequences" data-i18n="menu.actionSequences" style="padding:8px 16px;cursor:pointer;">Action Sequences</div>
-                    <div class="html-menu-option" data-db="quests" data-i18n="menu.quests" style="padding: 8px 16px; cursor: pointer;">Quests</div>
-                    <div class="html-menu-option" data-db="musicSequences" data-i18n="menu.musicSequences" style="padding: 8px 16px; cursor: pointer;">Music Sequences</div>
-                    <div style="height: 1px; background: var(--color-border); margin: 4px 0;"></div>
-                    <div class="html-menu-option" data-db="system1" data-i18n="db.system1" style="padding: 8px 16px; cursor: pointer;">System 1</div>
-                    <div class="html-menu-option" data-db="system2" data-i18n="db.system2" style="padding: 8px 16px; cursor: pointer;">System 2</div>
-                    <div class="html-menu-option" data-db="types" data-i18n="menu.types" style="padding: 8px 16px; cursor: pointer;">Types</div>
-                    <div class="html-menu-option" data-db="terms" data-i18n="menu.terms" style="padding: 8px 16px; cursor: pointer;">Terms</div>
-                    <div class="html-menu-option" data-db="controls" data-i18n="menu.controls" style="padding: 8px 16px; cursor: pointer;">Controls</div>
+                    <!-- The Database's sections (DatabaseEditorUI.NAV_SECTIONS), each opening its first page; its sidebar lists the pages. -->
+                    <div class="html-menu-option" data-db="actors" style="padding: 8px 16px; cursor: pointer;"><span data-i18n-text-source="Actors and Items">Actors and Items</span></div>
+                    <div class="html-menu-option" data-db="enemies" style="padding: 8px 16px; cursor: pointer;"><span data-i18n-text-source="Battle">Battle</span></div>
+                    <div class="html-menu-option" data-db="tilesets" style="padding: 8px 16px; cursor: pointer;"><span data-i18n-text-source="World">World</span></div>
+                    <div class="html-menu-option" data-db="commonEvents" style="padding: 8px 16px; cursor: pointer;"><span data-i18n-text-source="Events and Interfaces">Events and Interfaces</span></div>
+                    <div class="html-menu-option" data-db="system1" style="padding: 8px 16px; cursor: pointer;"><span data-i18n-text-source="System">System</span></div>
                 </div>
             </div>
             <div class="html-menu-item" data-menu="plugins" style="position: relative; padding: 8px 16px; cursor: pointer;">
@@ -130,14 +110,6 @@
                 <span data-i18n="menu.forge">Forge</span>
                 <div class="html-submenu" id="submenu-forge" style="display: none; position: absolute; top: 100%; left: 0; background-color: var(--color-bg-toolbar); color: var(--color-text); border: 1px solid var(--color-border); min-width: 200px; z-index: 10000; box-shadow: var(--shadow-popup);">
                     <div class="html-menu-option" data-action="forge-launcher" data-i18n="menu.forgeLauncher" style="padding: 8px 16px; cursor: pointer;">Forge Launcher</div>
-                    <div style="height: 1px; background: var(--color-border); margin: 4px 0;"></div>
-                    <div class="html-menu-option" data-action="forge-character-generator" data-i18n="menu.characterGenerator" style="padding: 8px 16px; cursor: pointer;">Character Generator</div>
-                    <div class="html-menu-option" data-action="forge-character-3d-builder" data-i18n="menu.character3dBuilder" style="padding: 8px 16px; cursor: pointer;">3D Character Builder</div>
-                    <div class="html-menu-option" data-action="forge-prop-builder" data-i18n="menu.propBuilder" style="padding: 8px 16px; cursor: pointer;">3D Prop Builder</div>
-                    <div class="html-menu-option" data-action="forge-animation-generator" data-i18n="menu.animationGenerator" style="padding: 8px 16px; cursor: pointer;">Animation Generator</div>
-                    <div class="html-menu-option" data-action="forge-effekseer-generator" data-i18n="menu.effekseerGenerator" style="padding: 8px 16px; cursor: pointer;">Effekseer Animation Generator</div>
-                    <div class="html-menu-option" data-action="forge-sound-effect-generator" data-i18n="menu.soundEffectGenerator" style="padding: 8px 16px; cursor: pointer;">Sound Effect Generator</div>
-                    <div class="html-menu-option" data-action="forge-project-tools" data-i18n="menu.projectTools" style="padding: 8px 16px; cursor: pointer;">Project Tools</div>
                 </div>
             </div>
             <div class="html-menu-item" data-menu="build" style="position: relative; padding: 8px 16px; cursor: pointer;">
@@ -186,7 +158,7 @@
             <span class="toolbar-label" data-i18n="toolbar.tileset">Tileset:</span>
             <button class="tool-button tool-draw-mode active" data-tool="pencil" title="Single Tile Tool" data-i18n-title="toolbar.title.singleTile"><img src="images/icon-single.svg" alt=""></button>
             <button class="tool-button tool-draw-mode" data-tool="rectangle" title="Rectangular Area Tool" data-i18n-title="toolbar.title.rectangle"><img src="images/icon-area.svg" alt=""></button>
-            <button class="tool-button tool-draw-mode" data-tool="circle" title="Circular Area Tool" data-i18n-title="toolbar.title.circle"><img src="images/icon-circular-area.svg" alt=""></button>
+            <button class="tool-button tool-draw-mode" data-tool="circle" title="Circular Area Tool (Alt: from the center)" data-i18n-title="toolbar.title.circle"><img src="images/icon-circular-area.svg" alt=""></button>
             <button class="tool-button tool-draw-mode" data-tool="fill" title="Fill Tool" data-i18n-title="toolbar.title.fill"><img src="images/icon-fill.svg" alt=""></button>
             <div class="toolbar-separator"></div>
             <button class="tool-button" data-action="shadow-pen" title="Shadow Pen (Toggle shadows on tiles)" data-i18n-title="toolbar.title.shadowPen"><img src="images/icon-shadow-pen.svg" alt="" onerror="this.style.display='none';"></button>
@@ -216,8 +188,6 @@
             </button>
             <button class="tool-button" data-action="audio-player" title="Audio Player" data-i18n-title="toolbar.title.audioPlayer"><img src="images/icon-speaker.svg" alt="" onerror="this.style.display='none'; this.parentElement.innerHTML='♪';"></button>
             <button class="tool-button" data-action="build-tool" title="Build in the world: pieces, shapes, screens and lights" data-i18n-title="toolbar.title.build"><img src="images/icon-build.svg" alt="" onerror="this.style.display='none'; this.parentElement.innerHTML='BD';"></button>
-            <button class="tool-button" data-action="lighting-tool" title="Lighting Tool" data-i18n-title="toolbar.title.lighting"><img src="images/icon-lighting.svg" alt="" onerror="this.style.display='none'; this.parentElement.innerHTML='LT';"></button>
-            <button class="tool-button" data-action="media-surfaces" title="Media Surfaces" aria-label="Media Surfaces" data-i18n-title="menu.mediaSurfaces" data-i18n-aria="menu.mediaSurfaces"><img src="images/icon-media-surfaces.svg" alt=""></button>
             <button class="tool-button" data-action="image-layers" title="Image Layers" aria-label="Image Layers" data-i18n-title="menu.imageLayers" data-i18n-aria="menu.imageLayers"><img src="images/icon-image-layers.svg" alt=""></button>
 
             <!-- Forge Section -->
@@ -343,6 +313,10 @@
                                 <label class="map-info-item map-surround-view" title="Show the land past the map's border in the 3D view" data-i18n-title="toolbar.title.surroundings">
                                     <input id="map-surround-view" type="checkbox" checked aria-label="Show the land past the map's border in the 3D view" data-i18n-aria="toolbar.title.surroundings">
                                     <span data-i18n="workspace.surroundings">Surroundings</span>
+                                </label>
+                                <label class="map-info-item map-storey-cut" title="Show the 3D view up to this storey, as the game cuts away a roof over the player">
+                                    <span data-i18n-text-source="Storeys">Storeys</span>
+                                    <select id="map-storey-cut" aria-label="Storeys"><option value="0">All</option></select>
                                 </label>
                                 <span class="map-info-item"><span data-i18n="workspace.zoom">Zoom:</span> <span class="map-info-value" id="map-zoom">100%</span></span>
                                 <span class="map-info-item">(<span class="map-info-value" id="map-coordinates">--,--</span>)</span>
@@ -622,47 +596,8 @@
                                 <span data-i18n="mapProps.map3D">3D Map</span>
                             </label>
                             <div id="map-3d-options" style="display: none; margin-top: 6px; padding: 6px; background-color: var(--color-bg-panel); border: 1px solid var(--color-border); border-radius: 3px;">
-                                <div class="map-props-subhead is-first" data-i18n="mapProps.groupRoom">Room and Sky</div>
-                                <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; margin-bottom: 8px;">
-                                    <label class="map-props-label" data-i18n="mapProps.roomHeight">Room Height (tiles):</label>
-                                    <div style="max-width: 120px;"><div class="rr-number-stepper"><input class="rr-number-stepper-input" style="flex: 1; min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 6px; border: 0; background: transparent; color: var(--color-text); font-size: 12px;" type="number" id="map-3d-height-input" min="1" max="512" step="1" value="4"><div class="rr-number-stepper-buttons"><button type="button" tabindex="-1" data-map-props-step="1" data-target="map-3d-height-input" aria-label="+">&#9650;</button><button type="button" tabindex="-1" data-map-props-step="-1" data-target="map-3d-height-input" aria-label="-">&#9660;</button></div></div></div>
-                                </div>
-                                <div style="margin-bottom: 6px;">
-                                    <label class="map-props-label" style="display: block; margin-bottom: 3px;" data-i18n="mapProps.parallaxFloor">Parallax Floor:</label>
-                                    <div style="display: flex; gap: 6px; align-items: stretch;">
-                                        <select id="map-3d-floor-select" style="flex: 1; min-width: 0; padding: 5px 6px; background-color: var(--color-bg-input); border: 1px solid var(--color-border-input); color: var(--color-text); border-radius: 3px; font-size: 12px;"><option value="" data-i18n="common.none">(None)</option></select>
-                                        <button class="map-props-btn primary" style="flex: 0 0 auto; padding: 5px 12px; font-size: 12px;" id="map-3d-floor-browse-btn" type="button" data-i18n="mapProps.browse">Browse…</button>
-                                    </div>
-                                </div>
-                                <div style="margin-bottom: 6px;">
-                                    <label class="map-props-label" style="display: block; margin-bottom: 3px;" data-i18n="mapProps.parallaxWalls">Parallax Walls:</label>
-                                    <div style="display: flex; gap: 6px; align-items: stretch;">
-                                        <select id="map-3d-walls-select" style="flex: 1; min-width: 0; padding: 5px 6px; background-color: var(--color-bg-input); border: 1px solid var(--color-border-input); color: var(--color-text); border-radius: 3px; font-size: 12px;"><option value="" data-i18n="common.none">(None)</option></select>
-                                        <button class="map-props-btn primary" style="flex: 0 0 auto; padding: 5px 12px; font-size: 12px;" id="map-3d-walls-browse-btn" type="button" data-i18n="mapProps.browse">Browse…</button>
-                                    </div>
-                                </div>
-                                <div style="margin-bottom: 6px;">
-                                    <label class="map-props-label" style="display: block; margin-bottom: 3px;" data-i18n="mapProps.parallaxCeiling">Parallax Ceiling:</label>
-                                    <div style="display: flex; gap: 6px; align-items: stretch;">
-                                        <select id="map-3d-ceiling-select" style="flex: 1; min-width: 0; padding: 5px 6px; background-color: var(--color-bg-input); border: 1px solid var(--color-border-input); color: var(--color-text); border-radius: 3px; font-size: 12px;"><option value="" data-i18n="common.none">(None)</option></select>
-                                        <button class="map-props-btn primary" style="flex: 0 0 auto; padding: 5px 12px; font-size: 12px;" id="map-3d-ceiling-browse-btn" type="button" data-i18n="mapProps.browse">Browse…</button>
-                                    </div>
-                                </div>
-                                <div style="margin-bottom: 6px;">
-                                    <label class="map-props-label" style="display: block; margin-bottom: 3px;" data-i18n="mapProps.parallaxSky">Parallax Sky:</label>
-                                    <div style="display: flex; gap: 6px; align-items: stretch;">
-                                        <select id="map-3d-sky-select" style="flex: 1; min-width: 0; padding: 5px 6px; background-color: var(--color-bg-input); border: 1px solid var(--color-border-input); color: var(--color-text); border-radius: 3px; font-size: 12px;"><option value="" data-i18n="common.none">(None)</option></select>
-                                        <button class="map-props-btn primary" style="flex: 0 0 auto; padding: 5px 12px; font-size: 12px;" id="map-3d-sky-browse-btn" type="button" data-i18n="mapProps.browse">Browse…</button>
-                                    </div>
-                                </div>
-                                <div style="display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 8px; align-items: center; margin-bottom: 8px;">
-                                    <label class="map-props-label" data-i18n="mapProps.skyScrollX">Sky Scroll X:</label>
-                                    <input type="number" id="map-3d-sky-sx-input" min="-32" max="32" step="0.05" value="0" class="database-field-value" style="width: 100%; box-sizing: border-box;">
-                                    <label class="map-props-label" data-i18n="mapProps.skyScrollY">Sky Scroll Y:</label>
-                                    <input type="number" id="map-3d-sky-sy-input" min="-32" max="32" step="0.05" value="0" class="database-field-value" style="width: 100%; box-sizing: border-box;">
-                                </div>
-                                <div class="map-props-hint" data-i18n="mapProps.roomHint">The floor lies under the parallax background. Walls and the ceiling face inward, so the camera looks past them into the room.</div>
-                                <div class="map-props-subhead" data-i18n="mapProps.groupCamera">Camera</div>
+                                <div class="map-props-hint" data-i18n-text-source="The room and the sky are set on the map: Build, Terrain, Room and Sky.">The room and the sky are set on the map: Build, Terrain, Room and Sky.</div>
+                                <div class="map-props-subhead is-first" data-i18n="mapProps.groupCamera">Camera</div>
                                 <div style="margin-bottom: 6px;">
                                     <label class="map-props-label" style="display: block; margin-bottom: 3px;" data-i18n="mapProps.defaultCamera">Default Camera:</label>
                                     <select id="map-3d-camera-select" style="width: 100%; padding: 5px 6px; background-color: var(--color-bg-input); border: 1px solid var(--color-border-input); color: var(--color-text); border-radius: 3px; font-size: 12px;">

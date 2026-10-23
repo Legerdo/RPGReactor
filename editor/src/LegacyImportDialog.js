@@ -128,13 +128,15 @@
         body.style.cssText = 'gap:8px;min-height:0;';
         // The settings on one label | field | button grid; the log below them takes the height that is left.
         const fields = document.createElement('div');
+        fields.className = 'rr-import-fields';
         fields.style.cssText = 'flex:none;display:grid;grid-template-columns:max-content 1fr auto;column-gap:10px;row-gap:8px;align-items:center;';
         const label = (text, forId) => { const l = document.createElement('label'); l.setAttribute('for', forId); l.style.cssText = 'color:var(--color-text);font-size:13px;'; l.textContent = text; return l; };
         const input = (id, readOnly) => { const i = document.createElement('input'); i.type = 'text'; i.id = id; i.readOnly = !!readOnly; i.setAttribute('autocomplete', 'off'); i.setAttribute('spellcheck', 'false'); i.style.cssText = 'width:100%;box-sizing:border-box;padding:7px 10px;font-size:13px;color:var(--color-text);background:var(--color-bg-input, var(--color-bg-deep));border:1px solid var(--color-border);border-radius:var(--radius-sm, 4px);'; return i; };
         const button = (id, text, cls) => { const b = document.createElement('button'); b.type = 'button'; b.id = id; b.className = cls || 'rr-btn-secondary'; b.textContent = text; return b; };
         // A button's text is re-applied by the i18n pass from its English source, so the source moves with it.
         const setLabel = (el, english) => { el.setAttribute('data-i18n-text-source', english); el.textContent = tt(english); };
-        const hint = (text) => { const d = document.createElement('div'); d.style.cssText = 'grid-column:2 / span 2;color:var(--color-text-muted);font-size:12px;margin-top:-4px;'; d.textContent = text; return d; };
+        // A field's line of help; a short window hides the lines and the help stays on the field's tooltip.
+        const hint = (text, control) => { const d = document.createElement('div'); d.className = 'rr-import-hint'; d.style.cssText = 'grid-column:2 / span 2;color:var(--color-text-muted);font-size:12px;margin-top:-4px;'; d.textContent = text; if (control && !control.title) control.title = text; return d; };
 
         const sourceInput = input('rr-legacy-import-source', true);
         const sourceBrowse = button('rr-legacy-import-source-browse', tt('Browse…'));
@@ -200,18 +202,18 @@
         detectedEl.setAttribute('aria-live', 'polite');
         detectedEl.style.cssText = 'grid-column:2 / span 2;display:flex;align-items:center;gap:8px;min-height:24px;font-size:13px;color:var(--color-text-muted);';
         detectedEl.textContent = '—';
-        fields.append(label(tt('Source folder'), sourceInput.id), sourceInput, sourceBrowse, hint(tt('The game\'s folder: RPG_RT.ldb for 2000/2003, a Data folder or game archive for XP, VX and VX Ace.')));
+        fields.append(label(tt('Source folder'), sourceInput.id), sourceInput, sourceBrowse, hint(tt('The game\'s folder: RPG_RT.ldb for 2000/2003, a Data folder or game archive for XP, VX and VX Ace.'), sourceBrowse));
         fields.append(label(tt('Detected'), detectedEl.id), detectedEl);
         fields.append(label(tt('Create in'), parentInput.id), parentInput, parentBrowse);
         fields.append(label(tt('Project name'), nameInput.id), nameInput, spacer());
         destinationInput.style.gridColumn = '2 / span 2';
         fields.append(label(tt('Destination'), destinationInput.id), destinationInput);
-        fields.append(label(tt('Text encoding'), encodingSelect.id), encodingSelect, spacer(), hint(tt('Leave on Automatic unless names and messages come out garbled.')));
-        graphicsFields.append(label(tt('Artwork'), graphicsSelect.id), graphicsSelect, spacer(), hint(tt('Reduce dithering in backgrounds and large pictures. Original artwork is kept.')));
+        fields.append(label(tt('Text encoding'), encodingSelect.id), encodingSelect, spacer(), hint(tt('Leave on Automatic unless names and messages come out garbled.'), encodingSelect));
+        graphicsFields.append(label(tt('Artwork'), graphicsSelect.id), graphicsSelect, spacer(), hint(tt('Reduce dithering in backgrounds and large pictures. Original artwork is kept.'), graphicsSelect));
         fields.appendChild(graphicsFields);
-        fields.append(label(tt('Language'), languageSelect.id), languageSelect, spacer(), hint(tt('A translation the game ships in its Language folder, baked into every text.')));
+        fields.append(label(tt('Language'), languageSelect.id), languageSelect, spacer(), hint(tt('A translation the game ships in its Language folder, baked into every text.'), languageSelect));
         rtpInput.placeholder = tt('Drop an RTP folder, installer or archive here');
-        fields.append(label(tt('RTP folder'), rtpInput.id), rtpInput, rtpButtons, hint(tt('For 2000/2003 games that use RPG Maker\'s standard files: a folder, an RTP installer (.exe) or an archive (.zip, .rar). One already on this computer is found without it.')));
+        fields.append(label(tt('RTP folder'), rtpInput.id), rtpInput, rtpButtons, hint(tt('For 2000/2003 games that use RPG Maker\'s standard files: a folder, an RTP installer (.exe) or an archive (.zip, .rar). One already on this computer is found without it.'), rtpInput));
         // Shown when the picked game takes files from the RTP and none can be found.
         const rtpMissing = document.createElement('div');
         rtpMissing.id = 'rr-legacy-import-rtp-missing';

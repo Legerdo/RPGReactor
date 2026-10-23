@@ -66,6 +66,8 @@ class MapEditor3D {
         // A shallow pitch is the point of the view: from overhead a standing
         // facade is edge-on and the map looks exactly like the 2D one.
         this.view = { yaw: 0, pitch: 34, distance: 24, target: { x: 0, y: 0, z: 0 } };
+        // Up to which storey the view shows the map (0: all of it): see setStoreyCut.
+        this.storeyCut = 0;
         this.pointer = null;
         this.billboards = [];
         this.labels = [];
@@ -428,6 +430,8 @@ class MapEditor3D {
             // The land past the border is laid again on its own, and the steep ground changes on the floor as it stands.
             if (event?.detail?.surround && this.updateSurroundInPlace()) return;
             if (event?.detail?.cliff && this.updateCliffInPlace()) return;
+            // The sky's drift changes on the dome as it stands; a picture or the room's height builds again.
+            if (event?.detail?.room && event.detail.drift && this.updateSkyDriftInPlace()) return;
             const since = Date.now() - (this._lastRebuildAt || 0);
             if (since >= REBUILD_INTERVAL) {
                 clearTimeout(this._rebuildTimer);
@@ -1051,6 +1055,9 @@ class MapEditor3D {
         }
 
         this.attachSidecar(mapData);
+        // Another map shows every storey again.
+        if (this._storeyCutMap !== mapData.id) { this._storeyCutMap = mapData.id; this.storeyCut = 0; this._storeyCutKey = null; }
+        this.syncStoreyCutControl();
         this.loadClassification();
         // Images and geometry are independent. Mesh rocks with the runtime's
         // workers while the images load, then show the complete map at once.
@@ -2294,6 +2301,20 @@ class MapEditor3D {
      * is. The angle and the tint change with the images already in hand; only another material is read
      * off disk first, and the newest one asked for wins.
      */
+    /** The room's sky drift, onto the dome already up (image pixels a frame, as the runtime reads them). */
+    updateSkyDriftInPlace() {
+        const mapData = this.currentMap(), mesh = this.mapScene && this.mapScene._sky;
+        if (!mapData || typeof Reactor3D === 'undefined' || !Reactor3D.skyFor) return false;
+        const sky = Reactor3D.skyFor(mapData);
+        if (!mesh) return !sky;
+        const image = mesh.material && mesh.material.map && mesh.material.map.image;
+        if (!sky || !image || !mesh.userData.sky) return false;
+        mesh.userData.sky.driftX = (Number(sky.scrollX) || 0) / Math.max(1, image.width || 1);
+        mesh.userData.sky.driftY = (Number(sky.scrollY) || 0) / Math.max(1, image.height || 1);
+        this.requestRender();
+        return true;
+    }
+
     updateCliffInPlace() {
         const scene = this.mapScene;
         if (!this.currentMap() || !scene?.setRoomCliff || typeof RRMapElevation === 'undefined' || !RRMapElevation.roomCliff) return false;
@@ -3895,6 +3916,15 @@ class MapEditor3D {
     }
 
     /** Right-click in Build › Select: Copy, Paste here, Duplicate, Delete for the piece under the pointer and the selection. */
+    /** A right-click while building: in Select, the menu for the piece under the pointer; placing, the piece comes off. */
+    pieceRightClick(clientX, clientY) {
+        const manager = this.pieceManager();
+        if (!manager || !this.canEditPieces()) return;
+        if (manager.mode === 'select' && typeof RRContextMenu !== 'undefined') { this.showPieceMenu(clientX, clientY); return; }
+        const target = this.pieceTargetAt(clientX, clientY, { erase: true });
+        if (target) manager.removeAt(target);
+    }
+
     showPieceMenu(clientX, clientY) {
         const manager = this.pieceManager(), t = key => (window.I18n ? window.I18n.t(key) : key), tx = text => (window.I18n ? window.I18n.tText(text) : text);
         const pick = this.pieceTargetAt(clientX, clientY, { erase: true });
@@ -4754,9 +4784,22 @@ class MapEditor3D {
         const leaves = this.mapScene._doorGroup ? this.mapScene._doorGroup.children : null;
         if (leaves) for (const leaf of leaves) meshes.push(leaf);
         if (typeof RRMeshBvh !== 'undefined' && RRMeshBvh.raycastMeshes) {
-            return RRMeshBvh.raycastMeshes(this._raycaster.ray, meshes, THREE);
+            const hit = RRMeshBvh.raycastMeshes(this._raycaster.ray, meshes, THREE);
+            if (!this.cutAway(hit)) return hit;
+            // Above the storey cut nothing is drawn: the ray goes on from just past it.
+            const ray = this._raycaster.ray, origin = ray.origin.clone();
+            let found = hit, travelled = 0;
+            for (let i = 0; i < 16 && this.cutAway(found); i++) {
+                const step = found.distance + 1e-3;
+                travelled += step;
+                ray.origin.addScaledVector(ray.direction, step);
+                found = RRMeshBvh.raycastMeshes(ray, meshes, THREE);
+            }
+            ray.origin.copy(origin);
+            if (!found || this.cutAway(found)) return null;
+            return Object.assign({}, found, { distance: found.distance + travelled });
         }
-        const hits = this._raycaster.intersectObjects(meshes, false);
+        const hits = this._raycaster.intersectObjects(meshes, false).filter(found => !this.cutAway(found));
         return hits.length ? { point: hits[0].point, distance: hits[0].distance, object: hits[0].object, triangle: hits[0].faceIndex } : null;
     }
 
@@ -5002,14 +5045,18 @@ class MapEditor3D {
         if (!input) return;
         this._onPointerDown = event => {
             this._lastActiveAt = performance.now();
+            // Building, the left button lays pieces: a right-drag turns the view instead of moving it
+            // (a right-click still removes); Shift or the middle button moves it.
+            const turn = event.button === 2 && !event.shiftKey && !event.ctrlKey && !event.altKey && this.canEditPieces();
             this.pointer = {
                 x: event.clientX,
                 y: event.clientY,
                 // Where the drag began, so a click can be told from an orbit.
                 startX: event.clientX,
                 startY: event.clientY,
-                pan: event.button !== 0 || event.shiftKey,
+                pan: (event.button !== 0 || event.shiftKey) && !turn,
                 look: (event.button === 0 && event.altKey) || (event.button === 2 && event.ctrlKey),
+                turn,
                 paint: false
             };
             input.setPointerCapture?.(event.pointerId);
@@ -5351,6 +5398,14 @@ class MapEditor3D {
                 if (this.canvas) this.canvas.style.cursor = '';
                 return;
             }
+            // A right-click while building: its menu or its removal waited for the release, so a right-drag only turns.
+            if (drag && drag.turn) {
+                const still = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) <= 4;
+                if (drag.rightClick && still) this.pieceRightClick(drag.rightClick.x, drag.rightClick.y);
+                // (Where the menu comes after the release, it is told the press was a turn.)
+                this._turnedAt = still ? 0 : performance.now();
+                return;
+            }
             if (!drag || drag.pan || drag.look) return;
             if (drag.propHold) {
                 this.finishPropDrag(drag);
@@ -5395,10 +5450,10 @@ class MapEditor3D {
             // rest of the selection); placing, a right-click pulls the piece off, the way a brick
             // comes off a model.
             if (this.canEditPieces()) {
-                const manager = this.pieceManager();
-                if (manager.mode === 'select' && typeof RRContextMenu !== 'undefined') { this.showPieceMenu(event.clientX, event.clientY); return; }
-                const target = this.pieceTargetAt(event.clientX, event.clientY, { erase: true });
-                if (target) manager.removeAt(target);
+                // Where the menu comes with the press (Linux), it waits for the release: a right-drag turns the view.
+                if (drag && drag.turn) { drag.rightClick = { x: event.clientX, y: event.clientY }; return; }
+                if (!drag && this._turnedAt && performance.now() - this._turnedAt < 400) return;
+                this.pieceRightClick(event.clientX, event.clientY);
                 return;
             }
             // With the models tool up: a menu for the model under the pointer, or (on the ground)
@@ -5725,7 +5780,7 @@ class MapEditor3D {
         if (this.canEditTerrain()) {
             const manager = this.terrainManager(), point = this.groundPointAt(clientX, clientY);
             // The water tools click, and the biome and the border have no brush: no ring.
-            const ringless = ['fill', 'drain', 'look', 'river', 'biome', 'surround'].includes(manager.mode);
+            const ringless = ['fill', 'drain', 'look', 'river', 'biome', 'sky', 'surround'].includes(manager.mode);
             this.updateTerrainRing(ringless ? null : point);
             manager.hoverAt?.(point);
         } else if (this.terrainRing) this.terrainRing.visible = false;
@@ -5927,6 +5982,8 @@ class MapEditor3D {
             this._lastActiveAt = performance.now();
             const way = directions[String(event.key).toLowerCase()];
             if (!way || !this.acceptsFlyKey(event)) return;
+            // A key Build took first (Q/E change the level, the arrows nudge a building) does not also fly.
+            if (event.defaultPrevented && this.canEditPieces()) return;
             event.preventDefault();
             this.flyKeys.add(way);
             // The clock starts on the first key rather than at the last frame,
@@ -6432,11 +6489,117 @@ class MapEditor3D {
         scene.updateMatrixWorld();
         const matrixAuto = scene.matrixWorldAutoUpdate;
         scene.matrixWorldAutoUpdate = false;
+        // The storey cut for this view's frame only: the cut is shared by every view's pieces (the game's
+        // cutaway), and a Database preview drawn after this one is whole.
+        const cut = this.applyStoreyCut();
         try {
             this.renderFrame(scene);
         } finally {
             scene.matrixWorldAutoUpdate = matrixAuto;
+            if (cut) { cut.uniforms.rrCutTop.value = cut.top; cut.uniforms.rrCutBox.value = cut.box; }
         }
+    }
+
+    //-------------------------------------------------------------------------
+    // Storey cut: the view shows the map up to a chosen storey, as the game cuts away what is over a
+    // player under a roof, so a roofed inside is seen and built in. 0 shows every storey.
+
+    /** How many storeys the map's pieces stand: one at least. */
+    static storeyCount(mapData) {
+        const R = typeof Reactor3D !== 'undefined' ? Reactor3D : null, list = mapData?.reactor3d?.pieces;
+        if (!R || !Array.isArray(list) || !list.length) return 1;
+        const S = R.PIECE_STOREY || 5;
+        let top = 0;
+        for (const piece of list) {
+            if (!piece) continue;
+            const tall = Array.isArray(piece.size) && Number(piece.size[1]) > 0 ? Number(piece.size[1]) : R.pieceHeight ? R.pieceHeight(piece.kind) : 1;
+            top = Math.max(top, (Number(piece.z) || 0) + tall);
+        }
+        return Math.max(1, Math.ceil(top / S - 1e-6));
+    }
+
+    /** The cut's plane, in world tiles: under the top of storey `n` over the ground it was set on (as the game's, under a doorway's header). */
+    storeyCutTop() {
+        if (!(this.storeyCut > 0) || typeof Reactor3D === 'undefined') return 1e9;
+        return (this._storeyCutBase || 0) + this.storeyCut * Reactor3D.PIECE_STOREY - (Reactor3D.CUTAWAY_DROP || 0.65);
+    }
+
+    /**
+     * Show the map up to storey `n` (0: all of it). The storeys are counted from the ground at the
+     * place looked at (a building on a hill is counted from its own pad), or at `cell` when given.
+     */
+    setStoreyCut(n, cell = null) {
+        const mapData = this.currentMap();
+        n = Math.max(0, Math.floor(Number(n)) || 0);
+        // (`'keep'`: counted from the same ground as before, as when Build's level moves the cut.)
+        if (mapData && typeof Reactor3D !== 'undefined' && n > 0 && !(cell === 'keep' && this.storeyCut > 0)) {
+            const at = (cell && cell !== 'keep' && cell) || (this.view && this.view.target ? { x: Math.floor(this.view.target.x + 0.5), y: Math.floor(this.view.target.z + 0.5) } : { x: 0, y: 0 });
+            const x = Math.max(0, Math.min(mapData.width - 1, at.x)), y = Math.max(0, Math.min(mapData.height - 1, at.y));
+            this._storeyCutBase = Reactor3D.pieceBaseAt(mapData, x, y);
+        }
+        if (n === this.storeyCut && n === 0) return;
+        this.storeyCut = n;
+        this._storeyCutKey = null;
+        if (typeof Reactor3D !== 'undefined' && Reactor3D.Shadows && Reactor3D.Shadows.invalidate) Reactor3D.Shadows.invalidate();
+        this.syncStoreyCutControl();
+        this.requestRender();
+    }
+
+    /**
+     * Before a frame: the cut's plane over the whole map, and the caps on what it cuts through, laid again
+     * when the cut or the pieces change. Returns what the shared values were, to put back after the frame.
+     */
+    applyStoreyCut() {
+        const mapData = this.currentMap();
+        if (typeof Reactor3D === 'undefined' || !Reactor3D.cutawayUniforms || !mapData || !this.mapScene) return null;
+        const top = this.storeyCutTop();
+        const key = top >= 1e8 ? 'none' : top + ':' + mapData.width + 'x' + mapData.height;
+        // (The caps follow the pieces: a fresh list each change.)
+        const pieces = mapData.reactor3d && mapData.reactor3d.pieces;
+        if (key !== this._storeyCutKey || pieces !== this._storeyCutPieces || this.mapScene !== this._storeyCutScene) {
+            const box = top >= 1e8 ? null : [-1, -1, mapData.width + 1, mapData.height + 1];
+            if (this.mapScene.updateCutCaps && (top < 1e8 || this._storeyCutKey !== 'none')) this.mapScene.updateCutCaps(mapData, top, box);
+            this._storeyCutKey = key; this._storeyCutPieces = pieces; this._storeyCutScene = this.mapScene;
+        }
+        if (top >= 1e8) return null;
+        const uniforms = Reactor3D.cutawayUniforms();
+        const saved = { uniforms, top: uniforms.rrCutTop.value, box: uniforms.rrCutBox.value };
+        uniforms.rrCutTop.value = top;
+        uniforms.rrCutBox.value = [-1, -1, mapData.width + 1, mapData.height + 1];
+        return saved;
+    }
+
+    /** Whether a hit stands above the storey cut, where nothing is drawn: a pick passes through it. */
+    cutAway(hit) {
+        if (!hit || !hit.point || !(this.storeyCut > 0)) return false;
+        const data = hit.object && hit.object.userData;
+        return !!(data && (data.pieces || data.rrDoor)) && hit.point.y > this.storeyCutTop();
+    }
+
+    /** The map bar's Storeys list: All, then one per storey the map stands. */
+    syncStoreyCutControl() {
+        if (typeof document === 'undefined') return;
+        const select = document.getElementById('map-storey-cut');
+        if (!select) return;
+        if (!select._rrBound) {
+            select._rrBound = true;
+            select.addEventListener('change', () => this.setStoreyCut(Number(select.value)));
+            // The storeys are counted when the list is opened: pieces laid since are in it.
+            select.addEventListener('pointerdown', () => this.syncStoreyCutControl());
+            select.addEventListener('focus', () => this.syncStoreyCutControl());
+            if (typeof window !== 'undefined') window.addEventListener('rr-language-changed', () => this.syncStoreyCutControl());
+        }
+        const tt = text => (typeof window !== 'undefined' && window.I18n?.tText ? window.I18n.tText(text) : text);
+        const all = tt('All'), label = select.closest('.map-storey-cut');
+        if (label) label.title = tt('Show the 3D view up to this storey, as the game cuts away a roof over the player');
+        select.setAttribute('aria-label', tt('Storeys'));
+        const count = Math.max(MapEditor3D.storeyCount(this.currentMap()), this.storeyCut || 0);
+        const want = ['0'].concat(Array.from({ length: count }, (_, i) => String(i + 1)));
+        if ([...select.options].map(o => o.value + o.textContent).join() !== want.map(v => v + (v === '0' ? all : v)).join()) {
+            select.innerHTML = want.map(v => `<option value="${v}">${v === '0' ? all : v}</option>`).join('');
+        }
+        select.value = String(this.storeyCut || 0);
+        select.closest('.map-storey-cut')?.classList.toggle('is-on', this.storeyCut > 0);
     }
 
     /** One frame's passes, with the world matrices already current (see render). */

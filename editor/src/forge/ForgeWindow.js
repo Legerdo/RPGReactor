@@ -21,7 +21,7 @@
         gripClass: 'rr-forge-grip',
         dockedEvent: 'rr-forge-docked',
         isOpen: overlay => overlay.style.display !== 'none' && overlay.style.display !== '',
-        closeFromFrame() { root.reactor?.forgeManager?.close(); }
+        closeFromFrame() { return root.reactor?.forgeManager?.requestClose(); }
     });
     root.RRForgeWindow = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

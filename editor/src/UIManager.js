@@ -182,6 +182,9 @@ class UIManager {
             case 'save-project':
                 this.callbacks.saveProject();
                 break;
+            case 'save-project-as':
+                if (this.callbacks.saveProjectAs) this.callbacks.saveProjectAs();
+                break;
             case 'playtest':
                 this.callbacks.playtest();
                 break;
@@ -199,41 +202,6 @@ class UIManager {
             case 'forge-launcher':
                 if (this.callbacks.showForgeLauncher) {
                     this.callbacks.showForgeLauncher();
-                }
-                break;
-            case 'forge-character-generator':
-                if (this.callbacks.openForgeTool) {
-                    this.callbacks.openForgeTool('character-generator');
-                }
-                break;
-            case 'forge-character-3d-builder':
-                if (this.callbacks.openForgeTool) {
-                    this.callbacks.openForgeTool('character-3d-builder');
-                }
-                break;
-            case 'forge-prop-builder':
-                if (this.callbacks.openForgeTool) {
-                    this.callbacks.openForgeTool('prop-builder');
-                }
-                break;
-            case 'forge-animation-generator':
-                if (this.callbacks.openForgeTool) {
-                    this.callbacks.openForgeTool('animation-generator');
-                }
-                break;
-            case 'forge-sound-effect-generator':
-                if (this.callbacks.openForgeTool) {
-                    this.callbacks.openForgeTool('sound-effect-generator');
-                }
-                break;
-            case 'forge-effekseer-generator':
-                if (this.callbacks.openForgeTool) {
-                    this.callbacks.openForgeTool('effekseer-generator');
-                }
-                break;
-            case 'forge-project-tools':
-                if (this.callbacks.openForgeTool) {
-                    this.callbacks.openForgeTool('project-tools');
                 }
                 break;
             // The map tools open from the menu exactly as from the toolbar.
@@ -1080,9 +1048,10 @@ class UIManager {
      * Resolves { name, blank } or null when cancelled. `validate(name)` returns
      * an error message to show inline, or an empty string when the name is
      * acceptable; the dialog stays open on an error. The folder chooser that
-     * follows is the platform's own.
+     * follows is the platform's own. Save As asks for the name alone, under
+     * its own `title` and `okLabel`, with `templates` off.
      */
-    showNewProjectDialog({ defaultName = 'Reactor One', hasTemplate = true, validate = null } = {}) {
+    showNewProjectDialog({ defaultName = 'Reactor One', hasTemplate = true, validate = null, title = '', okLabel = '', templates = true } = {}) {
         const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         const previouslyFocused = document.activeElement;
         const overlay = document.createElement('div');
@@ -1101,7 +1070,7 @@ class UIManager {
         const titleEl = document.createElement('div');
         titleEl.id = 'rr-new-project-title';
         titleEl.className = 'rr-modal-title';
-        titleEl.textContent = tt('New Project');
+        titleEl.textContent = title || tt('New Project');
         const closeButton = document.createElement('button');
         closeButton.type = 'button';
         closeButton.id = 'rr-new-project-close';
@@ -1168,8 +1137,9 @@ class UIManager {
         addChoice('rr-new-project-template-demo', 'demo', tt('Reactor One demo'),
             tt('Sample maps, database, and assets to explore and reuse.'), hasTemplate, hasTemplate);
         addChoice('rr-new-project-template-blank', 'blank', tt('Blank project'),
-            tt('An empty database and one map. Start from nothing.'), !hasTemplate, true);
-        body.append(nameLabel, nameInput, errorEl, templateLabel, choices);
+            tt('One hero in the party and one map; the rest of the database starts empty.'), !hasTemplate, true);
+        body.append(nameLabel, nameInput, errorEl);
+        if (templates) body.append(templateLabel, choices);
 
         const footer = document.createElement('div');
         footer.className = 'rr-modal-footer';
@@ -1182,7 +1152,7 @@ class UIManager {
         okButton.type = 'button';
         okButton.id = 'rr-new-project-create';
         okButton.className = 'rr-button-primary';
-        okButton.textContent = tt('Create');
+        okButton.textContent = okLabel || tt('Create');
         footer.append(cancelButton, okButton);
         modal.append(header, body, footer);
         overlay.appendChild(modal);

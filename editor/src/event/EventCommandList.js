@@ -2269,6 +2269,12 @@ class EventCommandList {
                         description = VehicleCommandEditor.summary(params[1], params[3]);
                         break;
                     }
+                    // And the quest commands ("Quest: Discover: Herb Hunt").
+                    if (typeof QuestCommandEditor !== 'undefined' && QuestCommandEditor.supports(params[1])) {
+                        info.name = this._commandName(QuestCommandEditor.LABELS[params[1]]);
+                        description = QuestCommandEditor.summary(params[1], params[3], this.questCommandEditor);
+                        break;
+                    }
                     // And the Party Followers commands ("Followers walk in a wedge, 2 tiles apart").
                     if (typeof FollowerCommandEditor !== 'undefined' && FollowerCommandEditor.supports(params[1])) {
                         info.name = this._commandName(FollowerCommandEditor.LABELS[params[1]]);
@@ -2332,7 +2338,7 @@ class EventCommandList {
             case 117: {
                 // Common Event
                 const ceId = params[0] || 1;
-                let ceName = `${tt('Common Event')} ${ceId}`;
+                let ceName = `${tt('Common Event')} ${ceId.toString().padStart(4, '0')}`;
                 if (this.eventEditor.databaseManager && this.eventEditor.databaseManager.data && this.eventEditor.databaseManager.data.commonEvents) {
                     const ce = this.eventEditor.databaseManager.data.commonEvents[ceId];
                     if (ce && ce.name) ceName = ce.name;
@@ -2738,7 +2744,7 @@ class EventCommandList {
         const tt = (text) => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         const num = `#${id.toString().padStart(4, '0')}`;
         const name = this._lookupSwitchName(id);
-        return name ? `${num} ${name}` : `${num} ${tt('(unnamed)')}`;
+        return `${num} ${name || `${tt('Switch')} ${id.toString().padStart(4, '0')}`}`;
     }
 
     /** Format a variable reference: #0001 VarName */
@@ -2746,7 +2752,7 @@ class EventCommandList {
         const tt = (text) => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
         const num = `#${id.toString().padStart(4, '0')}`;
         const name = this._lookupVariableName(id);
-        return name ? `${num} ${name}` : `${num} ${tt('(unnamed)')}`;
+        return `${num} ${name || `${tt('Variable')} ${id.toString().padStart(4, '0')}`}`;
     }
 
     /** Format a Game Data operand: type+param1+param2 → readable string */
@@ -4190,6 +4196,43 @@ class EventCommandList {
      * - terminated: whether the end marker was actually found. Callers must
      *   not splice past endIndex when this is false.
      */
+    /**
+     * Put an edited Show Choices (`commands`, from its dialog) in place of the
+     * one at `index`. Choice bodies stay in choice order; the cancel body
+     * stays bound to the When Cancel marker, so a changed choice count cannot
+     * move it into a choice. A kept body brings its own terminator, so the
+     * dialog's empty one after that marker is dropped.
+     */
+    static replaceChoiceStructure(list, index, commands) {
+        const header = list[index];
+        const { branches, endIndex } = EventCommandList.collectBranchStructure(list, index, [402, 403], 404, false);
+        const choiceBodies = [];
+        let cancelBody = null;
+        for (const branch of branches) {
+            if (branch.marker.code === 403) cancelBody = branch.body;
+            else choiceBodies.push(branch.body);
+        }
+        list.splice(index, endIndex - index + 1);
+        EventCommandList.rebaseInsertIndent(commands, header.indent || 0);
+        const bodyIndent = (header.indent || 0) + 1;
+        let insertPos = index;
+        let keptTerminator = false;
+        for (const cmd of commands) {
+            if (cmd.code === 0 && keptTerminator) { keptTerminator = false; continue; }
+            keptTerminator = false;
+            list.splice(insertPos++, 0, cmd);
+            let body = null;
+            if (cmd.code === 402) body = choiceBodies.shift();
+            else if (cmd.code === 403) body = cancelBody;
+            if (body && body.length) {
+                for (const nested of body) list.splice(insertPos++, 0, nested);
+                const last = body[body.length - 1];
+                keptTerminator = last.code === 0 && (last.indent || 0) === bodyIndent;
+            }
+        }
+        return list;
+    }
+
     static collectBranchStructure(list, headerIndex, markerCodes, endCode, headerOwnsBody) {
         const baseIndent = list[headerIndex].indent || 0;
         const branches = [];
@@ -4311,43 +4354,7 @@ class EventCommandList {
         if (code === 102) {
             this.choicesEditor.show(command, (commands) => {
                 if (commands && commands.length > 0) {
-                    // Collect the old branch bodies. Choice bodies stay in
-                    // choice order; the cancel body stays bound to the 403
-                    // marker so a changed choice count can't migrate it into
-                    // a choice branch.
-                    const { branches, endIndex } = EventCommandList.collectBranchStructure(
-                        page.list, index, [402, 403], 404, false);
-                    const choiceBodies = [];
-                    let cancelBody = null;
-                    for (const branch of branches) {
-                        if (branch.marker.code === 403) {
-                            cancelBody = branch.body;
-                        } else {
-                            choiceBodies.push(branch.body);
-                        }
-                    }
-
-                    // Replace the old structure with the new one, re-attaching
-                    // each body after its marker at the header's indent.
-                    page.list.splice(index, endIndex - index + 1);
-                    this._rebaseInsertIndent(commands, command.indent || 0);
-
-                    let insertPos = index;
-                    for (const cmd of commands) {
-                        page.list.splice(insertPos++, 0, cmd);
-                        let body = null;
-                        if (cmd.code === 402) {
-                            body = choiceBodies.shift();
-                        } else if (cmd.code === 403) {
-                            body = cancelBody;
-                        }
-                        if (body) {
-                            for (const nestedCmd of body) {
-                                page.list.splice(insertPos++, 0, nestedCmd);
-                            }
-                        }
-                    }
-
+                    EventCommandList.replaceChoiceStructure(page.list, index, commands);
                     this.refreshCommandList(page, pageIndex);
                 }
             });

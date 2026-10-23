@@ -714,31 +714,8 @@ class DatabaseCommonEventEditor {
             editor.show(command, (commands) => {
                 if (!isCurrent()) return;
                 if (commands && commands.length > 0) {
-                    // Choice bodies stay in choice order; the cancel body
-                    // stays bound to the 403 marker. Nested structures ride
-                    // along inside the bodies untouched.
-                    const { branches, endIndex } = ECL.collectBranchStructure(
-                        event.list, idx, [402, 403], 404, false);
-                    const choiceBodies = [];
-                    let cancelBody = null;
-                    for (const branch of branches) {
-                        if (branch.marker.code === 403) cancelBody = branch.body;
-                        else choiceBodies.push(branch.body);
-                    }
-
-                    event.list.splice(idx, endIndex - idx + 1);
-                    ECL.rebaseInsertIndent(commands, command.indent || 0);
-
-                    let insertPos = idx;
-                    for (const cmd of commands) {
-                        event.list.splice(insertPos++, 0, cmd);
-                        let body = null;
-                        if (cmd.code === 402) body = choiceBodies.shift();
-                        else if (cmd.code === 403) body = cancelBody;
-                        if (body) {
-                            for (const nc of body) event.list.splice(insertPos++, 0, nc);
-                        }
-                    }
+                    // Each branch keeps its body; nested structures ride along inside them.
+                    ECL.replaceChoiceStructure(event.list, idx, commands);
                     refreshList();
                 }
             });

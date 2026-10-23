@@ -59,15 +59,18 @@ test('Copy Page and Paste Page carry the page\'s 3D model', async () => {
         read: async type => clipboard.filter(entry => entry.type === type).pop() || null };
     for (const [label, context] of [['the shared clipboard', { ReactorClipboard: shared }], ['the editor\'s own', {}]]) {
         const EventEditor = eventEditorIn(context);
-        const event = { id: 3, name: 'Box', note: '', x: 1, y: 1, pages: [page('Box')] };
+        const event = { id: 3, name: 'Box', note: '', x: 1, y: 1, pages: [page('Box'), page('Lid')] };
         const map = flatMap(1, [null, null, null, event]);
         map.reactor3d = { version: 1, mode: '3d', events: { 3: { 0: { ...crate } } } };
-        const editor = editorOn(EventEditor, map, event, [JSON.parse(JSON.stringify(crate))]);
+        const editor = editorOn(EventEditor, map, event, [JSON.parse(JSON.stringify(crate)), null]);
 
         editor.copyCurrentPage();
+        editor.currentPageIndex = 1;
         await editor.pasteEventPage();
+        // Paste overwrites the page in view.
         assert.equal(editor.currentEvent.pages.length, 2, label);
         assert.equal(editor.currentPageIndex, 1);
+        assert.equal(editor.currentEvent.pages[1].image.characterName, 'Box');
         assert.deepEqual(JSON.parse(JSON.stringify(editor.pendingModels[1])), crate, `${label}: the pasted page stands as the model`);
         assert.notEqual(editor.pendingModels[1], editor.pendingModels[0], 'a copy of its own');
 
@@ -78,11 +81,13 @@ test('Copy Page and Paste Page carry the page\'s 3D model', async () => {
 
     // A page with no model pastes as one with none.
     const EventEditor = eventEditorIn({});
-    const event = { id: 4, name: 'Sign', note: '', x: 2, y: 2, pages: [page('Sign')] };
-    const editor = editorOn(EventEditor, flatMap(1, [null, null, null, null, event]), event, [null]);
+    const event = { id: 4, name: 'Sign', note: '', x: 2, y: 2, pages: [page('Sign'), page('Post')] };
+    const editor = editorOn(EventEditor, flatMap(1, [null, null, null, null, event]), event, [null, { name: 'Post' }]);
     editor.copyCurrentPage();
+    editor.currentPageIndex = 1;
     await editor.pasteEventPage();
     assert.equal(editor.pendingModels[1], null);
+    assert.equal(editor.currentEvent.pages.length, 2);
 });
 
 test('an event edited on a 2D map leaves the map with no 3D sidecar, and Undo leaves it unchanged', () => {

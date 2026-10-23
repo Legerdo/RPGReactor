@@ -220,7 +220,7 @@ test('the baked loop closes on itself, keeps the hoist pinned, and plays in the 
     }
 });
 
-test('the Prop Builder is on the Forge sidebar, in the Forge menu and loaded by the editor page', () => {
+test('the Prop Builder is on the Forge sidebar and loaded by the editor page', () => {
     const forge = fs.readFileSync(path.join(root, 'src', 'forge', 'ForgeManager.js'), 'utf8');
     assert.match(forge, /id: 'prop-builder'[\s\S]*?new PropBuilder\(\)/);
     const page = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
@@ -228,8 +228,6 @@ test('the Prop Builder is on the Forge sidebar, in the Forge menu and loaded by 
     order.forEach(i => assert.ok(i > 0));
     assert.deepEqual(order, order.slice().sort((a, b) => a - b), 'loaded in order');
     assert.ok(page.indexOf('src/forge/Character3D/CharacterGlb.js') < order[0], 'after the GLB writer');
-    assert.ok(page.includes('data-action="forge-prop-builder"'));
-    assert.match(fs.readFileSync(path.join(root, 'src', 'UIManager.js'), 'utf8'), /case 'forge-prop-builder':[\s\S]*?openForgeTool\('prop-builder'\)/);
 });
 
 // ── From picture ───────────────────────────────────────────────────────────

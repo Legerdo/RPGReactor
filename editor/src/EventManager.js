@@ -1968,11 +1968,16 @@ class EventManager {
             });
         }
 
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => {
-                if (this.eventEditor) this.eventEditor.cancelChanges();
-                else if (modal) modal.style.display = 'none';
-            });
+        // The × and Escape close the window, asking first about edits not yet applied (Cancel too, in EventEditor).
+        const requestClose = () => {
+            if (this.eventEditor) this.eventEditor.requestClose();
+            else if (modal) modal.style.display = 'none';
+        };
+        if (closeBtn) closeBtn.addEventListener('click', requestClose);
+        if (modal && typeof window !== 'undefined' && window.RRKeyboardNavigation) {
+            // Wired again after a destroyed pop-out window took the old listener with it.
+            modal._rrModalKeys?.dispose?.();
+            window.RRKeyboardNavigation.modal(modal, { onEscape: requestClose });
         }
 
         // Close modal when clicking outside
@@ -2832,13 +2837,15 @@ class EventManager {
                     const box = rule.trim(pixels.data, width, height);
                     if (!box) { figure(); return; }
                     if (look.hue) { rule.rotateHue(pixels.data, look.hue); context.putImageData(pixels, 0, 0); }
-                    const scale = Math.min(1, EventManager.LOOK_ART_MAX / Math.max(box.width, box.height));
+                    // As the game cuts it: a creature drawn high over its shadow stands just over it.
+                    const art = rule.art(pixels.data, width, box);
+                    const scale = Math.min(1, EventManager.LOOK_ART_MAX / Math.max(art.width, art.height));
                     const canvas = document.createElement('canvas');
-                    canvas.width = Math.max(1, Math.round(box.width * scale)); canvas.height = Math.max(1, Math.round(box.height * scale));
+                    canvas.width = Math.max(1, Math.round(art.width * scale)); canvas.height = Math.max(1, Math.round(art.height * scale));
                     const target = canvas.getContext('2d');
                     target.imageSmoothingEnabled = true;
                     target.imageSmoothingQuality = 'high';
-                    target.drawImage(whole, box.x, box.y, box.width, box.height, 0, 0, canvas.width, canvas.height);
+                    rule.drawArt(target, whole, box, art, canvas.width, canvas.height);
                     done(canvas);
                 }).catch(() => figure());
             }

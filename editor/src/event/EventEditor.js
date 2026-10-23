@@ -113,7 +113,8 @@ class EventEditor {
         const cancel = document.getElementById('event-editor-cancel-btn');
         const apply = document.getElementById('event-editor-apply-btn');
         if (ok) ok.onclick = () => this.saveAndClose();
-        if (cancel) cancel.onclick = () => this.cancelChanges();
+        // Cancel drops the edits, asking first when there are any (as Escape and the × do).
+        if (cancel) cancel.onclick = () => this.requestClose();
         if (apply) apply.onclick = () => this.applyChanges();
     }
 
@@ -200,6 +201,18 @@ class EventEditor {
         this.pageEditor?._disposeModelPreview?.();
         this.pageEditor = null;
         this.currentPageIndex = 0;
+    }
+
+    /** Escape and the window's ×: it closes, asking first about edits not yet applied. */
+    async requestClose() {
+        if (!this.isOpen()) return false;
+        // A field still being typed in takes its value first (its change comes on blur), so Escape asks about it.
+        const overlay = typeof document !== 'undefined' ? document.getElementById('event-editor-modal') : null;
+        const active = overlay && overlay.ownerDocument && overlay.ownerDocument.activeElement;
+        if (active && active !== overlay && overlay.contains(active) && typeof active.blur === 'function') active.blur();
+        if (!await this.resolvePendingChanges({ closing: true })) return false;
+        if (this.isOpen()) this.cancelChanges();
+        return true;
     }
 
     /** The map is about to change: the window closes, asking first about unapplied edits. */
@@ -1193,11 +1206,13 @@ class EventEditor {
             return;
         }
 
+        // The copy takes the place of the page in view; New Page is how a page is added.
         const pastedPage = JSON.parse(JSON.stringify(pageData)); // Deep clone
-        this.currentEvent.pages.push(pastedPage);
+        const index = Math.max(0, Math.min(this.currentPageIndex || 0, this.currentEvent.pages.length));
+        this.currentEvent.pages[index] = pastedPage;
         if (!this.pendingModels) this.pendingModels = [];
-        this.pendingModels.push(modelData && modelData.name ? this._clone(modelData) : null);
-        this.currentPageIndex = this.currentEvent.pages.length - 1;
+        this.pendingModels[index] = modelData && modelData.name ? this._clone(modelData) : null;
+        this.currentPageIndex = index;
         // An Auto size follows the model.
         if (modelData && modelData.name) this.refreshAutoSize();
 

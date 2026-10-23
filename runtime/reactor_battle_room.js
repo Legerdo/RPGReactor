@@ -1339,22 +1339,27 @@
                 const active=this.effectActive(record,effect);let media=record.media.get(index);
                 if(!active){if(media){this.stopMedia(media);record.media.delete(index);}continue;}
                 if(!media){
-                    const image=/\.(png|jpe?g|webp)$/i.test(effect.video.file),url=this.assets.mediaUrl?.(effect.video.file);
-                    media={};record.media.set(index,media);if(!url){media.failed=true;this.assets.warn?.('Missing room media: '+effect.video.file);continue;}
-                    const element=image?new Image():document.createElement('video');media.element=element;
+                    const image=/\.(png|jpe?g|webp)$/i.test(effect.video.file);
+                    // A picture goes through the game's own image loader where there is one (assets.loadImage), so an
+                    // encrypted deployment's .png_ is read as Show Picture reads it; a movie, and the editor, by its URL.
+                    const loaded=image&&this.assets.loadImage?this.assets.loadImage(effect.video.file):null,url=loaded?'':this.assets.mediaUrl?.(effect.video.file);
+                    media={};record.media.set(index,media);if(!loaded&&!url){media.failed=true;this.assets.warn?.('Missing room media: '+effect.video.file);continue;}
+                    const element=loaded?null:image?new Image():document.createElement('video');media.element=element;media.bitmap=loaded;
                     const plane=new T.Mesh(new T.PlaneGeometry(1,1),new T.MeshBasicMaterial({side:T.DoubleSide,toneMapped:false}));
                     media.plane=plane;plane.visible=false;plane.userData.__reactorOverlay=true;record.object.add(plane);
-                    const ready=()=>{if(media.disposed||media.failed||!(image?element.naturalWidth:element.videoWidth))return;
-                        if(!media.texture){media.texture=image?new T.Texture(element):new T.VideoTexture(element);if(!image)root.RPGReactorMediaSurfaces?.watchVideoImport?.(media.texture,this.renderer);media.texture.colorSpace=T.SRGBColorSpace;media.texture.generateMipmaps=false;media.texture.minFilter=T.LinearFilter;media.texture.needsUpdate=true;plane.material.map=media.texture;plane.material.needsUpdate=true;}
+                    const ready=()=>{const source=loaded?loaded.image||loaded.canvas:element;if(media.disposed||media.failed||!source||!(image?source.naturalWidth||source.width:element.videoWidth))return;
+                        if(!media.texture){media.texture=image?new T.Texture(source):new T.VideoTexture(element);if(!image)root.RPGReactorMediaSurfaces?.watchVideoImport?.(media.texture,this.renderer);media.texture.colorSpace=T.SRGBColorSpace;media.texture.generateMipmaps=false;media.texture.minFilter=T.LinearFilter;media.texture.needsUpdate=true;plane.material.map=media.texture;plane.material.needsUpdate=true;}
                         plane.visible=true;
                     };
-                    const failed=error=>{if(media.disposed||media.failed)return;media.failed=true;plane.visible=false;media.clearGesture?.();element.pause?.();this.assets.warn?.('Could not play room media: '+effect.video.file+(error?.message?' ('+error.message+')':''));};
+                    const failed=error=>{if(media.disposed||media.failed)return;media.failed=true;plane.visible=false;media.clearGesture?.();element?.pause?.();this.assets.warn?.('Could not play room media: '+effect.video.file+(error?.message?' ('+error.message+')':''));};
                     media.fail=failed;
-                    element.onerror=failed;
-                    if(image)element.onload=ready;
+                    if(loaded){media.poll=()=>{if(loaded.isError?.())failed(new Error('the picture could not be read'));else if(loaded.isReady?.()){media.poll=null;ready();}};media.poll();}
+                    else element.onerror=failed;
+                    if(loaded){/* polled each update */}else if(image)element.onload=ready;
                     else {element.onloadeddata=ready;element.loop=effect.video.loop!==false;element.muted=this.assets.muteMedia===true||!effect.video.audio;element.volume=Math.max(0,Math.min(1,(effect.video.volume??100)/100));element.defaultMuted=element.muted;element.preload='auto';element.playsInline=true;element.playbackRate=Math.max(.05,Math.min(16,effect.video.playbackRate||1));}
-                    element.src=url;if(!image)this.playMedia(media);
+                    if(element)element.src=url;if(!image)this.playMedia(media);
                 }
+                media.poll?.();
                 if(media.texture?.userData?.rrImportFailed&&!media.failed)media.fail(new Error('Video frames cannot reach the drawing GPU'));
                 if(media.failed||!media.plane)continue;
                 if(effect.surface){this.updateMapMediaPlane(media,effect.surface);continue;}
@@ -1411,7 +1416,8 @@
             }
             const entry=this.effectContext;if(!entry||entry.disposed)return;
             try {
-                entry.context._makeContextCurrent();if(!this.effectsPaused)entry.context.update(this.effectsDelta??1);
+                // The game advances a context it shares with the map once a frame (GpuEffects.update): advanced here too, every effect ran at twice its speed.
+                entry.context._makeContextCurrent();if(!this.effectsPaused&&!G.advancedByGame?.(entry))entry.context.update(this.effectsDelta??1);
                 for(const play of this.effectPlays.values()) {
                     if(play.failed || play.pending && Date.now()-play.createdAt>15000){this.stopEffect(play);this.effectPlays.delete(play.id);continue;}
                     if(play.pending)continue;
@@ -1428,8 +1434,11 @@
                     const e=play.effect,a=play.animation,o=play.owner.object;
                     if(!R.effectAnchorWorld(o,e,play.world))continue;
                     if(play.offset){play.world.x+=play.offset.x||0;play.world.y+=play.offset.z||0;play.world.z+=play.offset.y||0;}
-                    // The effect is sized to what it rides: a model's span, or two tiles (a battler's height) for a billboard such as a sprite or a projectile's carrier, which has no model size at all.
-                    const axes=R.scaleAxes(e.scale),unit=(play.span||R.modelSpanTiles(o)||2)/26*((a.scale||100)/100),rotate=e.rotate||[0,0,0],rotation=a.rotation||{};
+                    // A battle animation is the size it is on the battle screen, worked out once where it starts (cueUnit). An
+                    // effect a model carries, or one a sequence gives a span, is sized to what it rides: a model's span, or two
+                    // tiles (a battler's height) for a billboard such as a sprite or a projectile's carrier.
+                    if(play.cue&&!(play.cueUnit>0))play.cueUnit=this.cueUnit(play.world);
+                    const axes=R.scaleAxes(e.scale),unit=(play.cue?play.cueUnit:(play.span||R.modelSpanTiles(o)||2)/26)*((a.scale||100)/100),rotate=e.rotate||[0,0,0],rotation=a.rotation||{};
                     h.setSpeed?.((a.speed??100)/100);h.setLocation(play.world.x,play.world.y,play.world.z);h.setScale(...axes.map(v=>v*unit));
                     h.setRotation((rotate[0]+(rotation.x||0))*Math.PI/180,(rotate[1]+(rotation.y||0))*Math.PI/180+o.rotation.y,(rotate[2]+(rotation.z||0))*Math.PI/180);
                     if(!play.quad){const canvas=document.createElement('canvas');canvas.width=canvas.height=4;play.quad=R.EffekseerScene.quadFor(canvas);this.scene.add(play.quad.mesh);}
@@ -1452,11 +1461,27 @@
             finally{G.restoreDefault();this.releaseContext();}
             return true;
         }
+        /**
+         * Tiles an effect unit takes for a battle animation starting at `world`: what makes it as many pixels as on
+         * the battle screen (2048 * h / (h + 40960) a unit on a screen h pixels tall), from how big a tile is drawn
+         * there by the room's camera now.
+         */
+        cueUnit(world) {
+            const T=root.THREE,camera=this.camera,height=this.height||1,width=this.width||height;
+            camera.updateMatrixWorld?.();
+            const up=new T.Vector3(0,1,0).applyQuaternion(camera.quaternion),a=world.clone().project(camera),b=world.clone().add(up).project(camera);
+            const perTile=Math.hypot((b.x-a.x)*width/2,(b.y-a.y)*height/2),wanted=2048*height/(height+40960);
+            return perTile>1e-6&&Number.isFinite(perTile)?wanted/perTile:2/26;
+        }
         playAnimation(key,animationId,transform={}) {
             const owner=this.models.get(key)||this.billboards.get(key);if(!owner?.object)return false;
             const id='cue:'+(this.cueId=(this.cueId||0)+1);
-            if(!this.queueEffect(id,owner,{animation:animationId,anchor:{part:'',offset:[0,.5,0]},scale:transform.scale??1,rotate:[0,0,0],loop:false},true))return false;
-            const play=this.effectPlays.get(id);play.offset={...transform};if(transform.span>0)play.span=transform.span;
+            // On the middle of what it plays on, or on its feet when the animation says Align Bottom. A model stands
+            // on its origin, its height its own (unscaled) units; a picture stands centred on its origin, one unit tall.
+            const record=this.assets.animation?.(animationId),bottom=!!(record&&record.alignBottom),size=owner.object.userData?.glbSize;
+            const rise=owner.billboard?(bottom?-.5:0):bottom?0:size&&size.y>0?size.y/2:.5;
+            if(!this.queueEffect(id,owner,{animation:animationId,anchor:{part:'',offset:[0,rise,0]},scale:transform.scale??1,rotate:[0,0,0],loop:false},true))return false;
+            const play=this.effectPlays.get(id);play.offset={...transform};if(transform.span>0)play.span=transform.span;else play.cue=true;
             return {isPlaying:()=>!this.disposed&&this.effectPlays.has(id)&&!play.failed&&(!play.pending||Date.now()-play.createdAt<15000),
                 cancel:()=>{if(this.effectPlays.has(id)){this.stopEffect(play);this.effectPlays.delete(id);}}};
         }

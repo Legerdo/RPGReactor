@@ -2,7 +2,8 @@
  * DatabaseControlsEditor - Database › Controls.
  *
  * Which keys and gamepad buttons do what in the game, starting from RPG
- * Maker's own mapping, and the project's jumping and gravity on 3D maps.
+ * Maker's own mapping. The project's jumping, gravity and swimming on 3D maps
+ * are game rules and stand in System 2 (`physicsCards`, `showPhysicsIn`).
  * Written to System.json: `reactorControls` (only once anything differs from
  * the stock mapping) and `reactorPhysics`. The runtime (reactor_controls.js,
  * reactor_physics.js) applies them; a map may set its own gravity and jump in
@@ -178,7 +179,7 @@ class DatabaseControlsEditor {
         const container = this.container;
         if (!container) return;
         const tt = text => this._t(text);
-        const controls = this.controls(), physics = this.physics();
+        const controls = this.controls();
         const chip = (label, data) => `<span class="rr-controls-chip">${rrEscapeHtml(label)}<button type="button" class="rr-controls-remove" ${data} title="${rrEscapeHtml(tt('Remove'))}" aria-label="${rrEscapeHtml(tt('Remove'))}">×</button></span>`;
         const add = data => `<button type="button" class="rr-btn-chip rr-controls-add" ${data} title="${rrEscapeHtml(tt('Press a key or button to add it'))}">+</button>`;
         const listening = (kind, action) => this._capture && this._capture.kind === kind && this._capture.action === action;
@@ -217,8 +218,6 @@ class DatabaseControlsEditor {
         };
         const subhead = text => `<tr class="rr-controls-subhead"><th colspan="2">${rrEscapeHtml(tt(text))}</th></tr>`;
         const jumpRow = (kind, list, name) => `<tr class="rr-controls-jump"><td>${rrEscapeHtml(tt('Jump (3D maps)'))}</td><td>${list.map(code => chip(name(code), `data-kind="${kind}-jump" data-code="${code}"`)).join('')}${listening(kind + '-jump', 'jump') ? `<span class="rr-controls-listen">${rrEscapeHtml(tt(kind === 'key' ? 'Press a key…' : 'Press a gamepad button…'))}</span>` : add(`data-kind="${kind}-jump" data-action="jump"`)}</td></tr>`;
-        const commonEvents = [[0, tt('(none)')]].concat((this.databaseManager.data.commonEvents || []).filter(Boolean).map(e => [e.id, `${String(e.id).padStart(4, '0')}: ${e.name || ''}`]));
-        const presetValue = DatabaseControlsEditor.GRAVITY_PRESETS.some(([v]) => Number(v) === Number(physics.gravity)) ? String(DatabaseControlsEditor.GRAVITY_PRESETS.find(([v]) => Number(v) === Number(physics.gravity))[0]) : 'custom';
         container.innerHTML = `
             <div class="rr-controls">
                 ${this._moved ? `<div class="rr-controls-moved" role="status">${rrEscapeHtml(tt('{key} was {from}. It is now {to}.').replace('{key}', this._moved.key).replace('{from}', this._moved.from).replace('{to}', this._moved.to))}</div>` : ''}
@@ -250,6 +249,18 @@ class DatabaseControlsEditor {
                         <div class="rr-controls-note">${rrEscapeHtml(tt('While a Tactical battle runs, these keys and buttons do this in place of what they do elsewhere.'))}</div>
                     </div>
                 </div>
+            </div>`;
+        this.bind();
+    }
+
+
+    /** The Physics and Swimming cards of 3D maps, as HTML: game rules, shown in System 2. */
+    physicsCards() {
+        const tt = text => this._t(text);
+        const controls = this.controls(), physics = this.physics();
+        const commonEvents = [[0, tt('(none)')]].concat((this.databaseManager.data.commonEvents || []).filter(Boolean).map(e => [e.id, `${String(e.id).padStart(4, '0')}: ${e.name || ''}`]));
+        const presetValue = DatabaseControlsEditor.GRAVITY_PRESETS.some(([v]) => Number(v) === Number(physics.gravity)) ? String(DatabaseControlsEditor.GRAVITY_PRESETS.find(([v]) => Number(v) === Number(physics.gravity))[0]) : 'custom';
+        return `
                 <div class="database-section rr-controls-card">
                     <div class="database-section-header" data-section-key="physics-3d-maps">${rrEscapeHtml(tt('Physics (3D maps)'))}</div>
                     <div class="database-section-content rr-controls-form">
@@ -279,9 +290,21 @@ class DatabaseControlsEditor {
                         <label>${rrEscapeHtml(tt('Splash sound'))}</label><div class="rr-controls-inline"><button type="button" class="rr-btn-secondary rr-controls-sound" data-field="splashSe" data-title="Splash sound">${rrEscapeHtml(physics.splashSe && physics.splashSe.name ? physics.splashSe.name : tt('(none)'))}</button></div>
                         <div class="rr-controls-note rr-controls-span">${rrEscapeHtml(tt('Shallower water is waded; deeper water is swum. Dash dives, Jump rises; at the surface Jump leaps out.'))}</div>
                     </div>
-                </div>
-            </div>`;
-        this.bind();
+                </div>`;
+    }
+
+    /** Shows the Physics and Swimming cards in `host` (System 2's column) and keeps them there as they change. */
+    showPhysicsIn(host) {
+        this.physicsHost = host;
+        this.renderPhysics(true);
+    }
+
+    /** Draws the cards again where they were shown, unless that page has gone (`first`: it is being built). */
+    renderPhysics(first = false) {
+        const host = this.physicsHost;
+        if (!host || (!first && !host.isConnected)) return;
+        host.innerHTML = this.physicsCards();
+        this.bindPhysics(host);
     }
 
     /** A physics sound (splash, landing, hard landing): any sound effect of the project, or none. */
@@ -304,7 +327,7 @@ class DatabaseControlsEditor {
                 const p = this.physics();
                 p[field] = result && result.name ? { name: result.name, volume: result.volume, pitch: result.pitch, pan: result.pan } : null;
                 this.savePhysics(p);
-                this.render();
+                this.renderPhysics();
             }
         });
     }
@@ -325,6 +348,10 @@ class DatabaseControlsEditor {
             this.parentEditor?._markDatabaseMutation?.();
             this.render();
         });
+    }
+
+    /** The Physics and Swimming cards' controls, wherever they stand. */
+    bindPhysics(root) {
         root.querySelector('.rr-controls-jumpon').addEventListener('change', event => { const c = this.controls(); c.jump = event.target.checked; this.saveControls(c); });
         root.querySelector('.rr-controls-fall').addEventListener('change', event => { const p = this.physics(); p.fallDamage = event.target.checked; this.savePhysics(p); });
         root.querySelector('.rr-controls-swim').addEventListener('change', event => { const p = this.physics(); p.swim = event.target.checked; this.savePhysics(p); });
@@ -344,7 +371,7 @@ class DatabaseControlsEditor {
             if (!Number.isFinite(n)) return;
             p[input.dataset.field] = Math.max(Number(input.min), Math.min(Number(input.max), n));
             this.savePhysics(p);
-            if (input.dataset.field === 'gravity') this.render();
+            if (input.dataset.field === 'gravity') this.renderPhysics();
         }));
     }
 

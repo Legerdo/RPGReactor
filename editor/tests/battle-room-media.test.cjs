@@ -126,3 +126,41 @@ test('game ignores only browser play interruption rejections; other errors remai
     }
     assert.equal(fatal.length, 4);
 });
+
+test('a room picture goes through the game\'s image loader (an encrypted .png_ decrypts as Show Picture\'s does)', () => {
+    const disposable = class { dispose() {} };
+    const scope = {
+        document: { createElement: () => { throw new Error('no element is made for a picture the loader reads'); } },
+        Reactor3D: { effectAnchorWorld: () => null }, RPGReactorMediaSurfaces: require('../../runtime/reactor_media_surfaces.js'),
+        THREE: {
+            PlaneGeometry: disposable, MeshBasicMaterial: class extends disposable { constructor(o) { super(); Object.assign(this, o); } },
+            Mesh: class { constructor(geometry, material) { Object.assign(this, { geometry, material, userData: {} }); } removeFromParent() {} },
+            Texture: class extends disposable { constructor(image) { super(); Object.assign(this, { image, userData: {} }); } },
+            Vector3: class {}, SRGBColorSpace: 'srgb', LinearFilter: 1
+        }
+    };
+    vm.runInNewContext(read('reactor_battle_room.js'), scope);
+    const view = Object.create(scope.ReactorBattleRoomView.prototype);
+    const asked = [], warnings = [];
+    // The picture's bitmap: loading, then read.
+    const bitmap = { ready: false, isReady() { return this.ready; }, isError: () => false, image: { width: 64, height: 32 } };
+    view.assets = { loadImage: file => { asked.push(file); return bitmap; }, mediaUrl: () => { throw new Error('a picture is not asked for by its URL'); }, warn: s => warnings.push(s) };
+    view.effectActive = () => true;
+    const record = { effects: [{ type: 'video', video: { file: 'Psychronic-logo-1.png' } }], object: { add() {}, userData: {} } };
+    view.updateMedia(record);
+    const media = record.media.get(0);
+    assert.deepEqual(asked, ['Psychronic-logo-1.png']);
+    assert.equal(media.failed, undefined);
+    assert.equal(media.texture, undefined, 'nothing is drawn while it loads');
+    bitmap.ready = true;
+    view.updateMedia(record);
+    assert.equal(media.texture && media.texture.image, bitmap.image, 'once read, it is the plane\'s picture');
+    assert.equal(media.plane.visible, true);
+    // One the loader cannot read fails as a missing picture does, once.
+    const broken = { isReady: () => false, isError: () => true };
+    view.assets.loadImage = () => broken;
+    const other = { effects: [{ type: 'video', video: { file: 'Gone.png' } }], object: { add() {}, userData: {} } };
+    view.updateMedia(other);
+    assert.equal(other.media.get(0).failed, true);
+    assert.equal(warnings.length, 1);
+});

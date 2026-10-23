@@ -948,6 +948,10 @@ Reactor3D.GpuEffects = {
         if (entry.disposed && !entry.loading) this.releaseContext(entry);
         this.restoreDefault();
     },
+    /** Whether the game's frame advances `entry` (`update`): a context shared with a map viewport. Its owner must not advance it as well. */
+    advancedByGame(entry) {
+        return !!entry && this._runtime.get(entry.renderer) === entry;
+    },
     update() {
         try {
             for (const entry of this._runtime.values()) {

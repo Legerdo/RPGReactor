@@ -1235,8 +1235,8 @@ class SetMovementRouteEditor {
             case 15: return `${name}: ${p[0]} ${this._t('frames')}`;
             case 27:
             case 28: {
-                const sn = this._switchName(p[0]);
-                return sn ? `${name}: [${p[0]}] ${sn}` : `${name}: [${p[0]}]`;
+                const sn = this._switchName(p[0]) || `${this._t('Switch')} ${String(p[0]).padStart(4, '0')}`;
+                return `${name}: [${p[0]}] ${sn}`;
             }
             case 29: {
                 const s = { 1: 'x8 Slower', 2: 'x4 Slower', 3: 'x2 Slower',

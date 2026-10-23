@@ -42,7 +42,8 @@ function workerRealm(source) {
 }
 
 /** A copy that left the worker's realm, so strict equality reads values (a vm realm's arrays are its own). */
-const plain = hull => hull && Object.assign({}, hull, { low: Array.from(hull.low), high: Array.from(hull.high) });
+const plain = hull => hull && Object.assign({}, hull, { low: Array.from(hull.low), high: Array.from(hull.high),
+    gapLow: hull.gapLow && Array.from(hull.gapLow), gapHigh: hull.gapHigh && Array.from(hull.gapHigh) });
 
 // The models: each made afresh per call, so what one reading caches on it (a box) never reaches the other.
 const MODELS = {

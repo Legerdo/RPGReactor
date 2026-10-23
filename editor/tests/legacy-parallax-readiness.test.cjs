@@ -14,7 +14,7 @@ test('resetting an interpreter clears old-map panorama metadata before a new com
 
 test('the authored Map7 to Map2 roof entry and subsequent camera scroll remain registered',()=>{
  const{box,map,ss}=sprites();box.Game_Screen=function(){};const picture={_rrFixedToMap:true,_x:16,_y:192,_targetX:16,_targetY:192};box.$gameScreen=new box.Game_Screen();box.$gameScreen._pictures=[null,picture];
- Object.assign(box.Game_Map.prototype,{displayX(){return this._displayX;},displayY(){return this._displayY;},screenTileX:()=>20,screenTileY:()=>15});Object.assign(map,{_displayX:19,_displayY:3,_parallaxX:19,_parallaxY:3});
+ Object.assign(box.Game_Map.prototype,{displayX(){return this._displayX;},displayY(){return this._displayY;},screenTileX:()=>20,screenTileY:()=>15,reactorEdgeReach:()=>0});Object.assign(map,{_displayX:19,_displayY:3,_parallaxX:19,_parallaxY:3});
  const objects=runtimeSource('reactor_objects.js'),start=objects.indexOf('Game_Map.prototype.scrollDown = function'),end=objects.indexOf('Game_Map.prototype.isValid = function',start);vm.runInNewContext(objects.slice(start,end),box);
  const fixedStart=src.indexOf('    Game_Screen.prototype.rrScrollFixedPictures = function'),fixedEnd=src.indexOf('    // The importer predates',fixedStart);vm.runInNewContext(src.slice(fixedStart,fixedEnd),box);
  ss.updateParallax();assert.equal(picture._x-320,-ss._parallax.origin.x);assert.equal(picture._y-240,-ss._parallax.origin.y);assert.equal(ss._parallax.origin.x,304);

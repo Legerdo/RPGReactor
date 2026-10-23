@@ -793,6 +793,12 @@
         BUDGET_MS: 8,
         /** Frames a neighbor's placed models are given to arrive and be stood in their places. */
         SETTLE: 240,
+        /**
+         * Tiles from the side it shares with the map played within which a neighbor's events that stand as models
+         * (a parked vehicle, a guard at the gate) are stood before the border is crossed: the map entered takes
+         * them over by number, so nothing pops in and nothing is built in the crossing.
+         */
+        EVENTS_AHEAD: 48,
         records: new Map(),
         /** The border crossing under way: `{ from, to, side, offset }`, from the step over the border until the map past it has started. */
         crossing: null,
@@ -968,7 +974,7 @@
         const bodies = main._neighborBodies || (main._neighborBodies = {});
         // `offset` is from the scene it stands in; `at` from the map being played (`base`: where `main` itself stands).
         const at = { x: (base ? base.x : 0) + offset.x, z: (base ? base.z : 0) + offset.z };
-        const body = bodies[side] = { mapId, scene, group, offset: { x: offset.x, z: offset.z }, at, record: record || null, props: null, settle: N.SETTLE, stage: 0, masks: 0 };
+        const body = bodies[side] = { mapId, side, scene, group, offset: { x: offset.x, z: offset.z }, at, record: record || null, props: null, ahead: null, settle: N.SETTLE, stage: 0, masks: 0 };
         // The scene a world stands in works every place in it out again each frame. A world stilled (N.still) is
         // left out of that: only when it has been stood somewhere else (N.reseat) is it worked out, once.
         const updateMatrixWorld = group.updateMatrixWorld;
@@ -1162,10 +1168,34 @@
             if (!body.props.length) { body.settle = 0; return; }
             body.scene.syncCharacterModels(body.props);
             const held = body.scene._modelInstances;
+            // (What was stood ahead of the crossing is said so: the map entered keeps it only where its own event matches.)
+            if (held && body.ahead) for (const character of body.ahead) { const holder = held.get(R.modelInstanceKey(character)); if (holder) holder.ahead = true; }
             let waiting = 0;
             if (held) for (const holder of held.values()) if (!holder.object) waiting++;
             // All there: once more to stand them, and that is that.
             body.settle = waiting ? body.settle - 1 : Math.min(body.settle - 1, 2);
+        });
+    };
+
+    /**
+     * The events of the map past a border, beside the map played, that stand as models within `EVENTS_AHEAD` tiles of
+     * the side the two maps share, as the game will hold them (its parked vehicles among them, at the numbers its entry
+     * gives them). Asked once for a world one map out.
+     */
+    N.aheadEvents = function(body) {
+        const map = body.record && body.record.map;
+        if (!map || !Array.isArray(map.events) || typeof root.Game_Event === "undefined" || !R.characterModelSpec || !N.OPPOSITE[body.side]) return [];
+        const facing = N.OPPOSITE[body.side], out = [];
+        return N.within(map, body.scene._neighborGlobals, () => {
+            const V = root.ReactorVehicles;
+            if (V && V.addVisitingVehicles && !map._rrVisitorsAdded) { map._rrVisitorsAdded = true; try { V.addVisitingVehicles(body.mapId); } catch (error) { /* no vehicles then */ } }
+            for (const event of map.events) {
+                if (!event || event.id >= R.PROP_EVENT_BASE || N.sideDistance(map, event.x, event.y, facing) > N.EVENTS_AHEAD) continue;
+                let character = null;
+                try { character = new root.Game_Event(body.mapId, event.id); } catch (error) { continue; }
+                if (character && R.characterModelSpec(character)) out.push(character);
+            }
+            return out;
         });
     };
 
@@ -1241,6 +1271,17 @@
         if (body.scene._sky && body.scene._sky.visible) body.scene._sky.visible = false;
         if (!body.record) { const record = N.request(body.mapId); if (record.state === "ready") body.record = record; }
         if (body.stage) { if (N.spend(frame)) N.stage(body); return; }
+        // Beside the map played: its events by the shared side are stood too, once (a world that came nearer by a crossing
+        // included). Only those within reach are made, and their models join as the others do (Reactor3D.ModelJoins).
+        if (depth === 1 && !body.ahead && body.record && body.record.state === "ready") {
+            body.ahead = N.aheadEvents(body);
+            if (body.ahead.length) {
+                if (!body.props) N.settle(body);
+                if (body.props) for (const character of body.ahead) body.props.push(character);
+                body.settle = Math.max(body.settle, N.SETTLE);
+                if (body.stilled) N.still(body, false);
+            }
+        }
         if (body.settle > 0) N.settle(body);
         else {
             if (!body.stilled) N.still(body, true);
@@ -1423,6 +1464,23 @@
         }
     };
 
+    /**
+     * The models stood ahead of the crossing (N.aheadEvents) stay where the map entered has the same event wearing the
+     * same model, and go where it has not (a vehicle ridden off since, a page turned): its own syncing stands it again.
+     */
+    N.keepAhead = function(scene) {
+        const held = scene._modelInstances, map = root.$gameMap;
+        if (!held || !map || typeof map.event !== "function") return;
+        for (const [key, holder] of Array.from(held.entries())) {
+            if (!holder.ahead || !/^e\d+$/.test(key)) continue;
+            const event = map.event(Number(key.slice(1))), spec = event && R.characterModelSpec ? R.characterModelSpec(event) : null;
+            if (spec && R.modelCacheKey(spec.name, spec.ext, spec.file) === holder.spec) { holder.ahead = false; continue; }
+            if (holder.object && holder.object.parent) holder.object.parent.remove(holder.object);
+            if (R.releaseModelHolder) R.releaseModelHolder(holder);
+            held.delete(key);
+        }
+    };
+
     /** The models of the party go with it: out of the scene left, into the one entered, as they are. */
     N.carryParty = function(from, to, ride, riddenNow, others) {
         const held = from._modelInstances;
@@ -1467,6 +1525,7 @@
         const V = root.ReactorVehicles, vehicles = V && V.list && cross.convoy ? V.list() : [];
         const convoy = (cross.convoy || []).map(pair => { const now = vehicles.find(event => V.idOf(event) === pair[1]); return [pair[0], now ? "e" + now._eventId : null]; });
         N.carryParty(old.scene, scene, cross.ride, riding && riding.id ? "e" + riding.id : null, convoy);
+        N.keepAhead(scene);
         // The map entered is the one everything reads now; what the map left read is kept for a way back.
         old.scene._neighborGlobals = globalsOf();
         scene._neighborKept = false;

@@ -67,8 +67,6 @@ class LightingManager {
         if (enabled) window.reactor?.claimMapTool?.('lighting');
         if (this.active === !!enabled) return;
         this.active = !!enabled;
-        const button = document.querySelector('.tool-button[data-action="lighting-tool"]');
-        if (button) button.classList.toggle('active', this.active);
         if (this.active) this._activate();
         else { this._deactivate(); window.reactor?.releaseMapTool?.('lighting'); }
         this.syncHistoryButtons();

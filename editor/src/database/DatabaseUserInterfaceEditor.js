@@ -1603,7 +1603,13 @@ class DatabaseUserInterfaceEditor {
     // LAYOUT (same math as the runtime)
     // ==========================================
 
-    rects() {
+    /**
+     * Where each node stands on the canvas. A Battle Window that follows the active actor stands where it is
+     * drawn (drawBattleWindowNode): over the actor in the battle, or at the actor's row of the party panel, its
+     * X and Y offsets from there, so its outline, handles and clicks are on the window shown. `raw`: as its
+     * anchor and parent alone would place it.
+     */
+    rects({ raw = false } = {}) {
         const screen = this.screenSize();
         const root = { x: 0, y: 0, width: screen.width, height: screen.height };
         const rects = new Map();
@@ -1628,6 +1634,19 @@ class DatabaseUserInterfaceEditor {
             return rect;
         };
         for (const node of this.current.nodes) resolve(node, new Set());
+        if (!raw) {
+            for (const node of this.current.nodes) {
+                if (node.type !== 'battleWindow' || !node.followActor) continue;
+                const rect = rects.get(node.id);
+                if (node.followTarget === 'model') {
+                    const top = this.previewActorTop();
+                    Object.assign(rect, { x: Math.round(top.x - rect.width / 2 + node.x), y: Math.round(top.y - rect.height + node.y) });
+                } else {
+                    const slot = this.previewSlotRect(rects);
+                    if (slot) Object.assign(rect, { x: slot.x + node.x, y: slot.y + node.y });
+                }
+            }
+        }
         return rects;
     }
 
@@ -2502,12 +2521,12 @@ class DatabaseUserInterfaceEditor {
         if (reparent || reanchor) {
             // A new parent or anchor changes what x/y are measured from;
             // keep the node where it is on screen and re-express the offset.
-            const before = this.rects().get(node.id);
+            const before = this.rects({ raw: true }).get(node.id);
             if (reparent) node.parent = parent;
             if (reanchor) node.anchor = anchor;
             if (before) {
                 const screen = this.screenSize();
-                const parentRect = this.rects().get(node.parent) || { x: 0, y: 0, width: screen.width, height: screen.height };
+                const parentRect = this.rects({ raw: true }).get(node.parent) || { x: 0, y: 0, width: screen.width, height: screen.height };
                 const [ax, ay] = DatabaseUserInterfaceEditor.ANCHORS[node.anchor];
                 node.x = Math.round(before.x - (parentRect.x + parentRect.width * ax - before.width * ax));
                 node.y = Math.round(before.y - (parentRect.y + parentRect.height * ay - before.height * ay));
@@ -5706,9 +5725,9 @@ class DatabaseUserInterfaceEditor {
     }
 
     /** The first party-panel row on the canvas, where a following Battle Window is previewed. */
-    previewSlotRect() {
+    previewSlotRect(rects = null) {
         const panel = (this.current.nodes || []).find(node => node.type === 'list' && node.rowLayout === 'actorPanel' && node.dataSource === 'party');
-        const rect = panel ? this.rects().get(panel.id) : null;
+        const rect = panel ? (rects || this.rects({ raw: true })).get(panel.id) : null;
         if (!rect) return null;
         const inset = panel.fill === 'window' ? 12 : 0;
         const columns = Math.max(1, panel.columns || 1);

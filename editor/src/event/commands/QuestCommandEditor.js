@@ -154,16 +154,23 @@ class QuestCommandEditor {
         });
     }
 
-    /** The command as stored: the label in params[2] is what the event list shows. */
-    static build(name, args, indent = 0, editor = null) {
-        const quest = editor ? editor.quests().find(([value]) => value === String(args.questId)) : null;
+    /** What the command does, in one line ("Discover: Herb Hunt"); quest names are read as they are now. */
+    static summary(name, args, editor = null) {
+        args = args || {};
+        let quest = null;
+        try { quest = editor ? editor.quests().find(([value]) => value === String(args.questId)) : null; } catch (_) { quest = null; }
         const questName = quest ? (quest[2] && quest[2].name) || quest[1] : (args.questId ? `#${args.questId}` : '');
+        const all = editor ? editor._t('All') : 'All';
+        if (name === 'QuestSet') return `${editor ? editor.actionLabel(name, args.action) : args.action}: ${questName}`;
+        if (name === 'QuestObjective') return `${questName} ${args.objective === 'all' ? all : '#' + args.objective} → ${editor ? editor.actionLabel(name, args.state) : args.state}`;
+        if (name === 'QuestReward') return `${questName} ${args.reward === 'all' ? all : '#' + args.reward} → ${editor ? editor.actionLabel(name, args.state) : args.state}`;
+        return questName;
+    }
+
+    /** The command as stored: params[2] keeps a readable label for other tools. */
+    static build(name, args, indent = 0, editor = null) {
         const label = QuestCommandEditor.LABELS[name] || name;
-        let detail = '';
-        if (name === 'QuestSet') detail = `${editor ? editor.actionLabel(name, args.action) : args.action}: ${questName}`;
-        else if (name === 'QuestObjective') detail = `${questName} ${args.objective === 'all' ? (editor ? editor._t('All') : 'All') : '#' + args.objective} → ${editor ? editor.actionLabel(name, args.state) : args.state}`;
-        else if (name === 'QuestReward') detail = `${questName} ${args.reward === 'all' ? (editor ? editor._t('All') : 'All') : '#' + args.reward} → ${editor ? editor.actionLabel(name, args.state) : args.state}`;
-        else detail = questName;
+        const detail = QuestCommandEditor.summary(name, args, editor);
         return {
             code: 357,
             indent,

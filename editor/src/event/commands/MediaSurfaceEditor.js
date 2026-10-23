@@ -578,12 +578,25 @@ class MediaSurfaceEditor {
         this._markChanged(key);
     }
 
-    _section(parent, title) {
-        const section = this._el('section', 'vs-control-section');
+    /**
+     * A titled card of controls. `fold` names a card that folds: shut until opened (the surface is placed by
+     * dragging it in the view), and open again next time once opened (kept in this browser's storage).
+     */
+    _section(parent, title, fold = '') {
+        const section = this._el(fold ? 'details' : 'section', 'vs-control-section');
         section.style.cssText = 'padding:10px;border:1px solid var(--color-border);border-radius:5px;background:var(--color-bg-panel);';
-        const heading = this._el('div', '', this._t(title));
-        heading.style.cssText = 'margin-bottom:8px;color:var(--color-text-strong);font-size:12px;font-weight:700;letter-spacing:.03em;';
+        const heading = this._el(fold ? 'summary' : 'div', '', this._t(title));
+        heading.style.cssText = 'margin-bottom:8px;color:var(--color-text-strong);font-size:12px;font-weight:700;letter-spacing:.03em;' + (fold ? 'cursor:pointer;' : '');
         section.appendChild(heading);
+        if (fold) {
+            const key = 'rr.mediaSurface.open.' + fold;
+            try { section.open = typeof localStorage !== 'undefined' && localStorage.getItem(key) === '1'; } catch (_) { section.open = false; }
+            if (!section.open) heading.style.marginBottom = '0';
+            this._listen(section, 'toggle', () => {
+                heading.style.marginBottom = section.open ? '8px' : '0';
+                try { localStorage.setItem(key, section.open ? '1' : '0'); } catch (_) { /* kept for this session only */ }
+            });
+        }
         parent.appendChild(section);
         return section;
     }
@@ -869,7 +882,7 @@ class MediaSurfaceEditor {
             identityGrid.appendChild(movieGroup);
         }
 
-        const binding = this._section(parent, 'Binding & Position');
+        const binding = this._section(parent, 'Binding & Position', 'binding');
         this.positionHint = this._el('div', 'vs-position-hint');
         this.positionHint.style.cssText = 'margin:-2px 0 8px;color:var(--color-text-muted);font-size:10px;';
         binding.appendChild(this.positionHint);
@@ -893,7 +906,7 @@ class MediaSurfaceEditor {
             onChange: (value, previous) => this._resizeDimension('height', previous)
         });
 
-        const placement3d = this._section(parent, '3D World Transform');
+        const placement3d = this._section(parent, '3D World Transform', 'transform');
         const linked = this._el('label', 'vs-check');
         linked.style.cssText = 'display:flex;align-items:center;gap:7px;margin-bottom:10px;color:var(--color-text);font-size:12px;';
         const keep = this._el('input'); keep.type = 'checkbox'; keep.checked = this.keepProportions !== false;

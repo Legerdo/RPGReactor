@@ -389,19 +389,23 @@ test('a placed model is hit where its picture is drawn, not where its unscaled t
     assert.equal(manager.propAtPoint(5 * 48 + 30, 6 * 48 - 40), tree, 'flipped, still hit');
 });
 
-test('a new map starts on the open map\'s tileset, else the first one with a picture', () => {
+test('a new map starts on the tileset of the map it is made from in the tree, else the first one with a picture', () => {
     const vm = require('node:vm');
     const source = read('editor/src/ProjectController.js');
-    const start = source.indexOf('    newMapTilesetId() {');
+    const start = source.indexOf('    newMapTilesetId(sourceMapId = null) {');
     const body = source.slice(start, source.indexOf('\n    }\n', start) + 6);
     const Probe = vm.runInNewContext(`(class { ${body} })`);
     const probe = new Probe();
-    probe.databaseManager = { data: { tilesets: [null, { id: 1, tilesetNames: ['', '', ''] }, { id: 2, tilesetNames: ['Outside_A1', ''] }, { id: 3, tilesetNames: ['Inside_A2'] }] } };
-    probe.tilemapManager = { currentMap: { tilesetId: 3 } };
-    assert.equal(probe.newMapTilesetId(), 3, 'beside the open map');
+    probe.databaseManager = { data: { tilesets: [null, { id: 1, tilesetNames: ['', '', ''] }, { id: 2, tilesetNames: ['Outside_A1', ''] }, { id: 3, tilesetNames: ['Inside_A2'] }, { id: 4, tilesetNames: ['Dungeon_A2'] }] } };
+    probe.mapFileTilesetId = id => ({ 7: 4, 8: 9 })[id] || null;
+    probe.tilemapManager = { currentMap: { id: 2, tilesetId: 3 } };
+    assert.equal(probe.newMapTilesetId(), 3, 'from the empty part of the tree: the open map');
+    assert.equal(probe.newMapTilesetId(2), 3, 'the open map named in the tree');
+    assert.equal(probe.newMapTilesetId(7), 4, 'another map named in the tree: its own tileset, read from its file');
+    assert.equal(probe.newMapTilesetId(8), 2, 'a map naming a missing tileset: the first with a picture');
     probe.tilemapManager = null;
     assert.equal(probe.newMapTilesetId(), 2, 'tileset 1 is empty: the first with a picture');
-    assert.match(source, /tilesetId: this\.newMapTilesetId\(\),/);
+    assert.match(source, /tilesetId: this\.newMapTilesetId\(afterMapId\),/);
 });
 
 test('a rig on a model with its own skeleton says so, not "0 vertices"', () => {

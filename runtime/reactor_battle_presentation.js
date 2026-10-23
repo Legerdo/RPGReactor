@@ -39,6 +39,8 @@
         mediaUrl(file){const media=root.RPGReactorMediaSurfaces,isImage=media?.isImageFile(file),folder=isImage?'img/pictures':'movies';
             if(Utils.isNwjs()){const fs=require('fs'),path=require('path');if(!fs.existsSync(path.join(path.dirname(process.mainModule.filename),folder,file)))return '';}
             return media?(isImage?media.pictureUrl(file):media.movieUrl(file)):folder+'/'+file.split('/').map(encodeURIComponent).join('/');},
+        // A picture through the game's image loader: an encrypted deployment's .png_ decrypts as Show Picture's does.
+        loadImage(file){const name=/\.png$/i.test(file)?file.replace(/\.[^.]+$/,''):file;return ImageManager.loadPicture(name);},
         warn:P.warn
     };
     P.sequence=function(subject,action){

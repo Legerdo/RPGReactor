@@ -156,6 +156,9 @@ test('a reward gives gold, items, EXP or a common event once, on completion or b
     assert.equal(R.rewardText(data[1].rewards[2]), 'A token');
     assert.equal(R.rewardText(data[1].rewards[3]), '40 EXP');
     assert.equal(R.rewardGives(data[1].rewards[2]), false, 'text alone gives nothing');
+    assert.equal(R.rewardText(data[1].rewards[4]), '', 'a common event the database lacks names nothing');
+    context.$dataCommonEvents = [null, null, null, null, null, null, null, null, null, { id: 9, name: 'Healer Thanks' }];
+    assert.equal(R.rewardText(data[1].rewards[4]), 'Healer Thanks', 'a common event reward with no text shows the event\'s name');
     quests.complete(1);
     assert.equal(gained.gold, 250);
     assert.deepEqual(gained.items.map(entry => [...entry]), [['Potion', 3]]);
@@ -856,6 +859,22 @@ test('the quest event commands are offered under Reactor > Game Flow and build t
     assert.deepEqual({ ...built.parameters[3] }, { questId: '3', objective: '2', state: 'complete' });
     const log = Editor.build('OpenQuestLog', {}, 0);
     assert.equal(log.parameters[2], 'Open Quest Log');
+});
+
+test('the event list shows a quest command once: its name, then what it does with no argument dump', () => {
+    const list = read('editor/src/event/EventCommandList.js');
+    const branch = list.slice(list.indexOf("QuestCommandEditor.supports(params[1])"), list.indexOf('// And the Party Followers commands'));
+    assert.match(branch, /info\.name = this\._commandName\(QuestCommandEditor\.LABELS\[params\[1\]\]\);/);
+    assert.match(branch, /description = QuestCommandEditor\.summary\(params\[1\], params\[3\], this\.questCommandEditor\);\n\s*break;/,
+        'the branch leaves before the (questId=1, action=discover) dump');
+    const context = { console, module: undefined, globalThis: undefined, window: {} };
+    context.globalThis = context;
+    vm.runInNewContext(read('editor/src/event/commands/QuestCommandEditor.js') + '\n;globalThis.__E = QuestCommandEditor;', context);
+    const Editor = context.__E;
+    const editor = new Editor({ getQuests: () => [null, { id: 1, name: 'Herb Hunt', objectives: [], rewards: [] }] });
+    assert.equal(Editor.summary('QuestSet', { questId: '1', action: 'discover' }, editor), 'Discover: Herb Hunt');
+    assert.equal(Editor.summary('QuestSet', { questId: '2', action: 'fail' }, editor), 'Fail: #2', 'a deleted quest reads by number');
+    assert.equal(Editor.build('QuestSet', { questId: '1', action: 'discover' }, 0, editor).parameters[2], 'Quest: Discover: Herb Hunt');
 });
 
 test('the quest form normalizes an old record and writes nested fields and lists', () => {

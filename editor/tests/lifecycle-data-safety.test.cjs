@@ -131,7 +131,7 @@ test('EventManager commits editor changes with one undo snapshot and keeps cance
     assert.equal(manager.undoStack.length, 1);
 });
 
-test('the X button cancels; the backdrop never does', () => {
+test('the X button closes, asking first about unapplied edits; the backdrop never does', () => {
     const listeners = {};
     const closeButton = { addEventListener: (name, handler) => { listeners.close = handler; } };
     const modal = {
@@ -142,10 +142,10 @@ test('the X button cancels; the backdrop never does', () => {
     const EventManager = loadClass('EventManager.js', 'EventManager', { document });
     const manager = Object.create(EventManager.prototype);
     let cancellations = 0;
-    manager.eventEditor = { cancelChanges: () => cancellations++ };
+    manager.eventEditor = { requestClose: () => cancellations++, cancelChanges: () => { throw new Error('the X asks first'); } };
     manager.setupEventEditorModal();
     listeners.close();
-    assert.equal(cancellations, 1, 'the X routes through cancellation');
+    assert.equal(cancellations, 1, 'the X routes through the asking close');
     if (listeners.backdrop) listeners.backdrop({ target: modal });
     assert.equal(cancellations, 1, 'a click beside the dialog costs nothing');
 });

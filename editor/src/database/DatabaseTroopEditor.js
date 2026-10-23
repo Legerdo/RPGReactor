@@ -68,8 +68,10 @@ class DatabaseTroopEditor {
         this.commandSelectionAnchor = null;
 
         const system = this.databaseManager.getSystem();
-        this.battleback1Name = (system && system.battleback1Name) || '';
-        this.battleback2Name = (system && system.battleback2Name) || '';
+        // The battleback the troop is fought on: where a map starts the battle, else the Battle Test one.
+        this._battlebackChosen = false;
+        this.applyTroopBattleback(this.troopBattleback(troop.id));
+        this.scanTroopBattlebacks(troop.id);
 
         this.configureBattleGeometry(system);
         this.showBattleUI = this.loadBattleUIPreference();
@@ -733,6 +735,14 @@ class DatabaseTroopEditor {
         const content = document.createElement('div');
         content.className = 'database-section-content';
 
+        // Where the shown battleback comes from.
+        const source = document.createElement('div');
+        source.className = 'rr-troop-battleback-source';
+        source.setAttribute('data-rr-i18n-skip', '1');
+        source.style.cssText = 'margin-bottom: 6px; font-size: 11px; color: var(--color-text-muted); line-height: 1.35;';
+        source.textContent = this.battlebackSourceText();
+        content.appendChild(source);
+
         const project = this.projectManager.getCurrentProject();
         const bb1Files = this.scanImageDir(project, 'battlebacks1');
         const bb2Files = this.scanImageDir(project, 'battlebacks2');
@@ -740,12 +750,14 @@ class DatabaseTroopEditor {
         // Lower Layer (battleback1)
         content.appendChild(this.createBBSelect('Lower Layer:', 'troop-bb1-select', bb1Files, this.battleback1Name, (val) => {
             this.battleback1Name = val;
+            this._battlebackChosen = true;
             this.loadAndRenderCanvas();
         }, 1));
 
         // Upper Layer (battleback2)
         content.appendChild(this.createBBSelect('Upper Layer:', 'troop-bb2-select', bb2Files, this.battleback2Name, (val) => {
             this.battleback2Name = val;
+            this._battlebackChosen = true;
             this.loadAndRenderCanvas();
         }, 2));
 
@@ -780,6 +792,106 @@ class DatabaseTroopEditor {
         browse.addEventListener('click', () => this.openBattlebackPicker(layer, select, onChange));
         row.appendChild(browse);
         return row;
+    }
+
+    /**
+     * Where each troop is fought, from the project's maps: troop id -> { mapId, battleback1Name,
+     * battleback2Name }. A Battle Processing that names the troop (after a Change Battle Back in the same
+     * list, that battleback; else its map's, when the map specifies one) or an encounter of a map that
+     * specifies a battleback. The lowest map id wins; a troop no map gives a battleback is absent.
+     * `maps`: [{ id, map }] with the parsed map files.
+     */
+    static battlebacksFromMaps(maps) {
+        const found = new Map();
+        const offer = (troopId, mapId, names) => {
+            if (!names || found.has(troopId)) return;
+            found.set(troopId, { mapId, battleback1Name: names[0] || '', battleback2Name: names[1] || '' });
+        };
+        for (const { id, map } of [...maps].sort((a, b) => a.id - b.id)) {
+            if (!map) continue;
+            const own = map.specifyBattleback ? [map.battleback1Name, map.battleback2Name] : null;
+            for (const event of map.events || []) {
+                for (const page of (event && event.pages) || []) {
+                    let changed = null;
+                    for (const command of page.list || []) {
+                        if (command.code === 283) changed = command.parameters || null;
+                        else if (command.code === 301 && command.parameters && command.parameters[0] === 0) offer(command.parameters[1], id, changed || own);
+                    }
+                }
+            }
+            for (const encounter of map.encounterList || []) if (encounter) offer(encounter.troopId, id, own);
+        }
+        return found;
+    }
+
+    /** What the scan found for a troop, or null (not scanned yet, or no map gives it a battleback). */
+    troopBattleback(troopId) {
+        const scan = this._battlebackScan;
+        return scan && scan.project === this.projectManager?.getCurrentProject?.()?.path && scan.found ? scan.found.get(troopId) || null : null;
+    }
+
+    applyTroopBattleback(found) {
+        const system = this.databaseManager.getSystem();
+        this._battlebackSource = found;
+        this.battleback1Name = found ? found.battleback1Name : (system && system.battleback1Name) || '';
+        this.battleback2Name = found ? found.battleback2Name : (system && system.battleback2Name) || '';
+    }
+
+    battlebackSourceText() {
+        const tt = text => window.I18n ? window.I18n.tText(text) : text;
+        const found = this._battlebackSource;
+        if (!found) return tt('No map starts this battle: the Battle Test battleback.');
+        const info = this.databaseManager.getMapInfos?.()?.[found.mapId];
+        const name = `${String(found.mapId).padStart(3, '0')}${info && info.name ? ' ' + info.name : ''}`;
+        return tt('From the map that starts this battle: {map}').replace('{map}', name);
+    }
+
+    /**
+     * Reads the project's maps once per Database opening, off the page's path, then shows the troop's own
+     * battleback if the troop on screen is still `troopId` and its battleback was not changed by hand.
+     */
+    scanTroopBattlebacks(troopId) {
+        const project = this.projectManager?.getCurrentProject?.();
+        const session = this.parentEditor?._databaseSession;
+        if (!project?.path) return;
+        const scan = this._battlebackScan;
+        if (scan && scan.project === project.path && scan.session === session) return;
+        let fs, path;
+        try { fs = require('fs'); path = require('path'); } catch (error) { return; }
+        if (!fs?.promises) return;
+        const mine = { project: project.path, session, found: null };
+        this._battlebackScan = mine;
+        const ids = Object.values(this.databaseManager.getMapInfos?.() || {}).filter(info => info && info.id > 0).map(info => info.id);
+        const read = id => fs.promises.readFile(path.join(project.path, 'data', `Map${String(id).padStart(3, '0')}.json`), 'utf8')
+            .then(text => ({ id, map: JSON.parse(text) }), () => ({ id, map: null }));
+        (async () => {
+            const maps = [];
+            for (const id of ids) {
+                if (this._battlebackScan !== mine) return;
+                maps.push(await read(id));
+            }
+            mine.found = DatabaseTroopEditor.battlebacksFromMaps(maps);
+            if (this._battlebackScan !== mine || this.currentTroopId !== troopId) return;
+            const shown = this.canvas && this.canvas.isConnected;
+            const untouched = this._battlebackSource === null && !this._battlebackChosen;
+            const found = mine.found.get(troopId) || null;
+            if (!shown || !untouched || !found) return;
+            this.applyTroopBattleback(found);
+            for (const [id, name] of [['troop-bb1-select', this.battleback1Name], ['troop-bb2-select', this.battleback2Name]]) {
+                const select = document.getElementById(id);
+                if (!select) continue;
+                if (![...select.options].some(option => option.value === name)) {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name;
+                    select.appendChild(option);
+                }
+                select.value = name;
+            }
+            const note = document.querySelector('.rr-troop-battleback-source');
+            if (note) note.textContent = this.battlebackSourceText();
+            this.loadAndRenderCanvas();
+        })().catch(error => console.warn('Troop battleback scan:', error));
     }
 
     openBattlebackPicker(layer, select, onChange) {

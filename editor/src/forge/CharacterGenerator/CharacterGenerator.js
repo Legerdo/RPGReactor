@@ -32,7 +32,9 @@ class CharacterGenerator {
         // _findBodyId. Null here means "fall back to the first body part".
         this.selectedProceduralPartId = null;
         this.templateAlignX = 'center';
-        this.templateAlignY = 'middle';
+        // Walking sheets are always bottom-aligned so the feet sit on the
+        // bottom of the cell, where the game stands a character on its tile.
+        this.templateAlignY = 'bottom';
         // Per-part param overrides: { partId: { paramKey: value, paletteOverrides: { letter: hex } } }
         this.partParams = {};
 
@@ -328,6 +330,13 @@ class CharacterGenerator {
         if (styleSelect) {
             styleSelect.addEventListener('change', () => this._setCharacterStyle(styleSelect.value));
         }
+        this.root.querySelectorAll('.rr-cg-open-recipe').forEach(select => {
+            select.addEventListener('change', () => {
+                const chosen = select.value;
+                select.value = '';
+                if (chosen) this._openRecipe(chosen);
+            });
+        });
         if (this.activeTab === 'procedural') {
             this._drawProceduralPreview();
             this._wireProceduralEvents();
@@ -341,6 +350,7 @@ class CharacterGenerator {
             this._ensurePartsFolder();
             this._loadConfig();
             this._loadCategories();
+            this._applyPendingPartsRecipe();
             this._wirePartsEvents();
             this._renderPartsPreview();
         }
@@ -2525,11 +2535,12 @@ class CharacterGenerator {
         // Dynamic per-letter palette rows for body parts with a new-format template.
         const templatePalette = this._activeBodyTemplatePalette(selectedPartId);
         const paletteOverrides = currentParams.paletteOverrides || {};
+        const effectivePalette = this._effectivePaletteHexes(selectedPartId);
         const paletteRows = templatePalette
             ? Object.entries(templatePalette).map(([letter, entry], idx) => {
                 const baseHex = (typeof entry === 'object' ? entry.hex : entry) || '#888888';
                 const material = (typeof entry === 'object' ? entry.material : '') || '';
-                const val = paletteOverrides[letter] || baseHex;
+                const val = paletteOverrides[letter] || effectivePalette[letter] || baseHex;
                 const label = material
                     ? tt(material[0].toUpperCase() + material.slice(1))
                     : tt('Color {number}').replace('{number}', idx + 1);
@@ -2659,9 +2670,6 @@ class CharacterGenerator {
                 <div style="display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;font-size:10px;color:var(--color-text-muted);">
                     <span>${tt('Align X:')}</span>
                     ${['left', 'center', 'right'].map(v => `<button class="rr-cgp-align-x" data-align="${v}" style="${alignBtnStyle(this.templateAlignX === v)}">${tt(v[0].toUpperCase() + v.slice(1))}</button>`).join('')}
-                    <span style="width:1px;height:18px;background:var(--color-border-subtle);"></span>
-                    <span>${tt('Align Y:')}</span>
-                    ${['top', 'middle', 'bottom'].map(v => `<button class="rr-cgp-align-y" data-align="${v}" style="${alignBtnStyle(this.templateAlignY === v)}">${tt(v[0].toUpperCase() + v.slice(1))}</button>`).join('')}
                 </div>
 
                 <div style="font-size:10px;color:var(--color-text-dim);text-align:center;">
@@ -2683,6 +2691,9 @@ class CharacterGenerator {
         <div style="padding:10px 18px;border-top:1px solid var(--color-border-subtle);background:var(--color-bg-panel);display:flex;align-items:center;gap:10px;flex-shrink:0;">
             <label style="font-size:12px;color:var(--color-text-muted);">${this._t('forge.saveAs')}</label>
             <input type="text" class="rr-cgp-name rr-input" placeholder="${tt('Hero')}" style="width:160px;padding:4px 8px;font-size:12px;">
+            <select class="rr-cg-open-recipe rr-select" title="${tt('Open a character saved here before')}" style="max-width:170px;font-size:11px;padding:3px 6px;">
+                <option value="">${tt('Open Character…')}</option>${this._openRecipeOptions()}
+            </select>
             <span style="font-size:10px;color:var(--color-text-dim);">→ img/characters/$&lt;name&gt;.png (${this.sheetWidth}×${this.sheetHeight})</span>
             <button class="rr-cgp-bulk-import rr-btn-chip" style="padding:6px 12px;margin-left:auto;color:var(--color-accent-bright);">${tt('Import Parts...')}</button>
             <span class="rr-cgp-template-status" style="font-size:10px;color:var(--color-text-dim);min-width:120px;"></span>
@@ -2877,6 +2888,30 @@ class CharacterGenerator {
         }
     }
 
+    // Letter → hex as the renderer draws it: per-letter override, else the
+    // material colour shift, else the Tint All shift, else the authored hex.
+    _effectivePaletteHexes(partId) {
+        const descriptor = RR_CHARACTER_REGISTRY.find(d => d.id === partId);
+        const palette = descriptor?.template?.palette;
+        if (!palette || typeof RR_CG_resolveTemplatePalette !== 'function') return {};
+        const params = CharacterRenderer.resolveParams(descriptor, this.partParams[partId] || {});
+        const resolved = RR_CG_resolveTemplatePalette(palette, params) || {};
+        const out = {};
+        for (const [letter, c] of Object.entries(resolved)) {
+            out[letter] = '#' + ((1 << 24) | (c.r << 16) | (c.g << 8) | c.b).toString(16).slice(1).toUpperCase();
+        }
+        return out;
+    }
+
+    _refreshPaletteSwatches(partId, exceptEl) {
+        const hexes = this._effectivePaletteHexes(partId);
+        this.root?.querySelectorAll('.rr-cgp-color-swatch[data-key^="palette:"]').forEach(el => {
+            if (el === exceptEl) return;
+            const hex = hexes[el.dataset.key.slice('palette:'.length)];
+            if (hex) el.style.background = hex;
+        });
+    }
+
     _activeBodyTemplatePalette(partId) {
         // Every part (body included) now carries its palette inline on the
         // descriptor.template — no special-case body lookup needed.
@@ -3066,14 +3101,6 @@ class CharacterGenerator {
         this.root.querySelectorAll('.rr-cgp-align-x').forEach(btn => {
             btn.addEventListener('click', () => {
                 this.templateAlignX = btn.dataset.align;
-                this._saveConfig();
-                this._render();
-            });
-        });
-
-        this.root.querySelectorAll('.rr-cgp-align-y').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.templateAlignY = btn.dataset.align;
                 this._saveConfig();
                 this._render();
             });
@@ -4810,11 +4837,132 @@ ${sheetJs}
             fs.mkdirSync(outDir, { recursive: true });
             const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
             fs.writeFileSync(outPath, Buffer.from(base64, 'base64'));
+            this._writeRecipe(outPath, this._proceduralRecipe());
             RRDialog.alert(tt('Saved {file} to {path}').replace('{file}', `$${name}.png`).replace('{path}', 'img/characters/'), { title: this._dialogTitle() });
         } catch (e) {
             console.error('CharacterGenerator save error:', e);
             RRDialog.alert(tt('Save failed: {error}').replace('{error}', e.message), { title: this._dialogTitle(), kind: 'error' });
         }
+    }
+
+    // ── Recipes: a saved sheet can be opened again ─────────────────────────────
+    // Each $Name.png the generator saves gets $Name.character.json beside it,
+    // holding what built it. Deploys leave these files out.
+
+    static RECIPE_SUFFIX = '.character.json';
+
+    _recipePathFor(pngPath) {
+        return pngPath.replace(/\.png$/i, '') + CharacterGenerator.RECIPE_SUFFIX;
+    }
+
+    _writeRecipe(pngPath, recipe) {
+        try {
+            require('fs').writeFileSync(this._recipePathFor(pngPath), JSON.stringify(recipe, null, 2) + '\n');
+        } catch (e) { console.error('CharacterGenerator recipe save error:', e); }
+    }
+
+    _proceduralRecipe() {
+        const layers = [...this.activeLayerOrder];
+        const params = {};
+        for (const id of layers) {
+            if (this.partParams[id] && Object.keys(this.partParams[id]).length) params[id] = JSON.parse(JSON.stringify(this.partParams[id]));
+        }
+        return {
+            format: 'rpg-reactor-character', version: 1, tool: 'procedural',
+            style: this.characterStyle, gender: this.gender,
+            frameWidth: this.frameWidth, frameHeight: this.frameHeight, alignX: this.templateAlignX,
+            layers, hidden: layers.filter(id => this.hiddenPartIds.has(id)), params
+        };
+    }
+
+    _partsRecipe() {
+        return {
+            format: 'rpg-reactor-character', version: 1, tool: 'parts',
+            style: this.characterStyle, frameWidth: this.frameWidth, frameHeight: this.frameHeight,
+            layers: this.categories.map(cat => ({ category: cat.name, file: cat.selected != null ? (cat.variations[cat.selected]?.file || null) : null }))
+        };
+    }
+
+    /** Saved characters that can be opened: [{ name, path }] from img/characters, by name. */
+    _savedRecipes() {
+        const projectPath = this._syncProjectPath();
+        if (!projectPath || window.RPGReactorHost?.mode === 'web') return [];
+        const path = require('path');
+        const dir = path.join(projectPath, 'img', 'characters');
+        let files = [];
+        try { files = require('fs').readdirSync(dir); } catch { return []; }
+        return files.filter(f => f.toLowerCase().endsWith(CharacterGenerator.RECIPE_SUFFIX))
+            .sort((a, b) => a.localeCompare(b))
+            .map(f => ({ name: f.slice(0, -CharacterGenerator.RECIPE_SUFFIX.length), path: path.join(dir, f) }));
+    }
+
+    _openRecipeOptions() {
+        return this._savedRecipes().map(r => `<option value="${this._escapeHtml(r.path)}">${this._escapeHtml(r.name)}</option>`).join('');
+    }
+
+    /** Puts a saved character back in the generator, on the tab that built it. */
+    _openRecipe(recipePath) {
+        const tt = (text) => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
+        let recipe;
+        try { recipe = JSON.parse(require('fs').readFileSync(recipePath, 'utf8')); }
+        catch (e) { RRDialog.alert(tt('Could not open {file}: {error}').replace('{file}', require('path').basename(recipePath)).replace('{error}', e.message), { title: this._dialogTitle(), kind: 'error' }); return; }
+        if (!recipe || recipe.format !== 'rpg-reactor-character') {
+            RRDialog.alert(tt('Could not open {file}: {error}').replace('{file}', require('path').basename(recipePath)).replace('{error}', tt('not a saved character')), { title: this._dialogTitle(), kind: 'error' });
+            return;
+        }
+        const name = require('path').basename(recipePath).slice(0, -CharacterGenerator.RECIPE_SUFFIX.length).replace(/^[\$!]+/, '');
+        if (recipe.style && recipe.style !== this.characterStyle && this._characterStyles().some(s => s.id === recipe.style)) {
+            this._setCharacterStyle(recipe.style);
+        }
+        this._setFrameSize(recipe.frameWidth || this.frameWidth, recipe.frameHeight || this.frameHeight);
+        let missing = 0;
+        if (recipe.tool === 'parts') {
+            this._pendingPartsRecipe = recipe;
+            this.activeTab = 'parts';
+        } else {
+            if (recipe.gender === 'male' || recipe.gender === 'female') this.gender = recipe.gender;
+            if (['left', 'center', 'right'].includes(recipe.alignX)) this.templateAlignX = recipe.alignX;
+            const known = id => RR_CHARACTER_REGISTRY.some(d => d.id === id);
+            const layers = Array.isArray(recipe.layers) ? recipe.layers.filter(id => typeof id === 'string') : [];
+            missing = layers.filter(id => !known(id)).length;
+            this.activeLayerOrder = layers.filter(known);
+            this.activePartIds = new Set(this.activeLayerOrder);
+            this.hiddenPartIds = new Set((recipe.hidden || []).filter(id => this.activePartIds.has(id)));
+            this.partParams = {};
+            for (const [id, value] of Object.entries(recipe.params || {})) {
+                if (this.activePartIds.has(id) && value && typeof value === 'object') this.partParams[id] = JSON.parse(JSON.stringify(value));
+            }
+            this.selectedProceduralPartId = this.activeLayerOrder[this.activeLayerOrder.length - 1] || null;
+            this._thumbnailCache?.clear();
+            this._forgeDescCache = null;
+            this.activeTab = 'procedural';
+        }
+        this._render();
+        if (recipe.tool === 'parts') missing = this._pendingPartsMissing || 0;
+        this._pendingPartsMissing = 0;
+        const nameInput = this.root?.querySelector(recipe.tool === 'parts' ? '.rr-cg-name-input' : '.rr-cgp-name');
+        if (nameInput) nameInput.value = name;
+        const note = tt('Opened {file}.').replace('{file}', `$${name}.png`)
+            + (missing ? ' ' + tt('{count} part(s) it used are not installed.').replace('{count}', missing) : '');
+        if (recipe.tool === 'parts') RRDialog.alert(note, { title: this._dialogTitle(), kind: missing ? 'warning' : 'info' });
+        else this._setTemplateStatus(note, missing > 0);
+    }
+
+    /** After the Parts tab lists its folders: select what a recipe being opened names. */
+    _applyPendingPartsRecipe() {
+        const recipe = this._pendingPartsRecipe;
+        if (!recipe) return;
+        this._pendingPartsRecipe = null;
+        let missing = 0;
+        for (const cat of this.categories) cat.selected = null;
+        for (const layer of recipe.layers || []) {
+            if (!layer || !layer.file) continue;
+            const cat = this.categories.find(c => c.name === layer.category);
+            const index = cat ? cat.variations.findIndex(v => v.file === layer.file) : -1;
+            if (index < 0) { missing++; continue; }
+            cat.selected = index;
+        }
+        this._pendingPartsMissing = missing;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -4894,6 +5042,9 @@ ${sheetJs}
             <div class="rr-modal-footer" style="padding:10px 18px;border-top:1px solid var(--color-border-subtle);background:var(--color-bg-panel);display:flex;align-items:center;gap:10px;flex-shrink:0;">
                 <label style="font-size:12px;color:var(--color-text-muted);">${this._t('forge.saveAs')}</label>
                 <input type="text" class="rr-cg-name-input rr-input" placeholder="${tt('MyHero')}" style="width:180px;padding:4px 8px;font-size:12px;">
+                <select class="rr-cg-open-recipe rr-select" title="${tt('Open a character saved here before')}" style="max-width:170px;font-size:11px;padding:3px 6px;">
+                    <option value="">${tt('Open Character…')}</option>${this._openRecipeOptions()}
+                </select>
                 <span style="font-size:10px;color:var(--color-text-dim);">→ img/characters/$&lt;name&gt;.png</span>
                 <div style="margin-left:auto;display:flex;gap:8px;">
                     <button class="rr-cg-refresh rr-btn-chip" style="padding:6px 14px;">↻ ${tt('Reload Parts')}</button>
@@ -4933,7 +5084,6 @@ ${sheetJs}
             if (typeof cfg.gridEnabled === 'boolean') this.gridEnabled = cfg.gridEnabled;
             if (cfg.gridStep) this.gridStep = parseInt(cfg.gridStep) || this.gridStep;
             if (['left', 'center', 'right'].includes(cfg.templateAlignX)) this.templateAlignX = cfg.templateAlignX;
-            if (['top', 'middle', 'bottom'].includes(cfg.templateAlignY)) this.templateAlignY = cfg.templateAlignY;
             this._savedLayerOrderByStyle = cfg.layerOrderByStyle && typeof cfg.layerOrderByStyle === 'object' ? cfg.layerOrderByStyle : {};
             this._savedLayerOrder = this._savedLayerOrderByStyle[this.characterStyle] || (Array.isArray(cfg.layerOrder) ? cfg.layerOrder : []);
         } catch { this._savedLayerOrder = []; this._savedLayerOrderByStyle = {}; }
@@ -5312,6 +5462,7 @@ ${sheetJs}
             fs.mkdirSync(outDir, { recursive: true });
             const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
             fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+            this._writeRecipe(outPath, this._partsRecipe());
             RRDialog.alert(tt('Saved {file} to {path}').replace('{file}', `$${name}.png`).replace('{path}', 'img/characters/'), { title: this._dialogTitle() });
         } catch (e) { console.error('CharacterGenerator parts save error:', e); RRDialog.alert(tt('Save failed: {error}').replace('{error}', e.message), { title: this._dialogTitle(), kind: 'error' }); }
     }
@@ -5335,6 +5486,8 @@ ${sheetJs}
             if (isPaletteKey) {
                 const ov = (params.paletteOverrides || {})[paletteLetter];
                 if (ov) return ov;
+                const shown = this._effectivePaletteHexes(partId)[paletteLetter];
+                if (shown) return shown;
                 const tpl = this._activeBodyTemplatePalette(partId);
                 if (tpl && tpl[paletteLetter]) {
                     const e = tpl[paletteLetter];
@@ -5356,6 +5509,7 @@ ${sheetJs}
             }
             // Thumbnails need to refresh on any colour change.
             this._thumbnailCache?.clear();
+            if (!isPaletteKey) this._refreshPaletteSwatches(partId, swatchEl);
         };
         const initialColor = readStored().toUpperCase();
 

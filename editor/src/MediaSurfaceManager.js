@@ -31,7 +31,6 @@ class MediaSurfaceManager {
             if (!window.reactor?.dockMapPanel?.(panel)) document.body.appendChild(panel);
         }
         this.panel.hidden = false;
-        document.querySelector('.tool-button[data-action="media-surfaces"]')?.classList.add('active');
         this.render(); this.syncHistoryButtons(); this.projectController?.mediaSurfacePreviewManager?.syncToolInteraction?.(); return true;
     }
     close() {
@@ -41,7 +40,6 @@ class MediaSurfaceManager {
         if (this.panel) { if (window.reactor?.undockMapPanel) window.reactor.undockMapPanel(this.panel); else this.panel.remove(); }
         const wasOpen = !!this.panel;
         this.panel = null;
-        document.querySelector('.tool-button[data-action="media-surfaces"]')?.classList.remove('active');
         if (wasOpen) { const map = window.reactor?.mapEditor; window.reactor?.uiManager?.updateUndoRedoButtons?.(!!map?.canUndo?.(), !!map?.canRedo?.()); }
         this.editor?.close(true);
         this.projectController?.mediaSurfacePreviewManager?.syncToolInteraction?.();

@@ -890,7 +890,6 @@ class DatabaseSystem1Editor {
         const mode = E.modeName(battle.mode) || 'classic';
         const used = this.battleModesInUse(mode);
         const tactical = used.has('tactical') ? '' : ' hidden', onMap = used.size ? '' : ' hidden';
-        const action = used.has('action') || used.has('firstPerson') ? '' : ' hidden';
         const options = (pairs, current) => pairs.map(([value, source]) =>
             `<option value="${value}"${String(value) === String(current) ? ' selected' : ''}${word(source)}</option>`).join('');
         const hasMap = typeof window !== 'undefined' && !!window.reactor?.eventManager?.currentMap;
@@ -934,9 +933,7 @@ class DatabaseSystem1Editor {
                     ${options([['normal', 'Normal'], ['fast', 'db.battles.paceFast'], ['skip', 'db.battles.paceSkip']], ['fast', 'skip'].includes(battle.pace) ? battle.pace : 'normal')}
                 </select>
                 <div class="system-battle-mode-hint" data-tactical${tactical}${keyed('db.battles.paceHint')}</div>
-                <div class="system-battle-group" data-action${action}${lit('Action and First Person Battles')}</div>
-                <div class="system-battle-mode-hint" data-action${action}${lit('Real-time attacks and cooldowns. First Person uses the same combat rules.')}</div>
-                <div class="system-battle-group" data-on-map${onMap}${lit('Shared Combat Settings')}</div>
+                <div class="system-battle-group" data-on-map${onMap}${lit('Battles on the Map')}</div>
                 <span data-on-map${onMap}></span>
                 <label class="system-battle-check" data-on-map${onMap}>
                     <input type="checkbox" class="system-battle-revive" ${battle.reviveAfterBattle !== false ? 'checked' : ''}>
@@ -1055,7 +1052,6 @@ class DatabaseSystem1Editor {
         if (!select) return;
         const mode = select.value || 'classic', used = this.battleModesInUse(mode);
         container.querySelectorAll('.system-battle-mode-grid [data-tactical]').forEach(row => { row.hidden = !used.has('tactical'); });
-        container.querySelectorAll('.system-battle-mode-grid [data-action]').forEach(row => { row.hidden = !used.has('action') && !used.has('firstPerson'); });
         container.querySelectorAll('.system-battle-mode-grid [data-on-map]').forEach(row => { row.hidden = used.size === 0; });
         const elsewhere = container.querySelector('.system-battle-mode-grid [data-tactical-elsewhere]');
         if (elsewhere) elsewhere.hidden = !used.has('tactical') || mode === 'tactical';

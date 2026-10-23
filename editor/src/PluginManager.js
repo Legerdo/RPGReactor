@@ -1679,6 +1679,8 @@ class PluginManager {
      */
     showArrayElementEditor(arrayData, index, parentMetadata, structSchema, allStructDefinitions, onSave) {
         const element = arrayData[index];
+        // The fields below write into the element as they change; Cancel puts this copy back.
+        const original = element && typeof element === 'object' ? JSON.parse(JSON.stringify(element)) : element;
 
         // Create mini modal
         const overlay = document.createElement('div');
@@ -1815,6 +1817,17 @@ class PluginManager {
             gap: 8px;
         `;
 
+        const cancel = () => {
+            if (overlay.parentNode !== document.body) return;
+            if (index < arrayData.length) arrayData[index] = original;
+            overlay.remove();
+        };
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = this._tt('Cancel');
+        cancelBtn.className = 'rr-btn-secondary';
+        cancelBtn.addEventListener('click', cancel);
+        footer.appendChild(cancelBtn);
+
         const okBtn = document.createElement('button');
         okBtn.textContent = this._tt('OK');
         okBtn.className = 'rr-button-primary';
@@ -1828,6 +1841,15 @@ class PluginManager {
 
         modal.appendChild(footer);
         overlay.appendChild(modal);
+        overlay.addEventListener('keydown', event => {
+            if (event.key !== 'Escape' || event.defaultPrevented) return;
+            // A dialog opened from this one is on top and answers Escape itself.
+            const modals = document.querySelectorAll('.plugin-manager-child-modal');
+            if (modals[modals.length - 1] !== overlay) return;
+            event.preventDefault();
+            event.stopPropagation();
+            cancel();
+        });
         document.body.appendChild(overlay);
     }
 

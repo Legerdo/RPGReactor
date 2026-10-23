@@ -2877,31 +2877,31 @@ Sprite_Animation.prototype._doEffekseerDraw = function(renderer, composited) {
 // extend from its target before clipping at the viewport edge (±ch here).
 Sprite_Animation.effekseerViewportSide = function() {
     const canvas = Graphics._effekseerCanvas;
+    // Twice the screen's height: an effect reaches a screen's height from its
+    // target before the viewport's edge cuts it (a bigger one costs a bigger
+    // backdrop copy for every distorting effect).
     return canvas ? canvas.height * 2 : 1440;
 };
 
+/**
+ * The projection an effect is drawn through, for a viewport `side` pixels
+ * square centered on the target and a screen `height` pixels tall: RPG
+ * Maker's size and perspective (ReactorBattleData.effekseerProjection, which
+ * the editor's previews draw through too). `mirror` flips it across the
+ * target.
+ */
+Sprite_Animation.effekseerProjection = function(height, side, mirror) {
+    return ReactorBattleData.effekseerProjection(side, side, height, 1, mirror);
+};
+
 Sprite_Animation.prototype.setProjectionMatrix = function(renderer) {
-    // AnimationPicker recipe (proven good): p = -1.2 with camera z = -10.
-    // (The MZ original's p ≈ -5.69 silently produced zero pixels through
-    // Effekseer's WebGL1 wrapper on the overlay context.)
-    //
     // The viewport is a SQUARE of side S centered on the target
-    // (setViewport), so the projection is aspect-neutral; the ch/S factor
-    // keeps one world unit = ch/26 pixels on both axes — the same on-screen
-    // effect scale as the editor previews. The effect itself sits at the
-    // world origin (camera axis), so shapes stay undistorted at every
-    // screen position; mirroring flips the x-axis around the target.
+    // (setViewport), so the projection is aspect-neutral and the effect sits
+    // on the camera axis: shapes stay undistorted at every screen position.
+    // Its scale and depth are RPG Maker's (effekseerProjection), so an effect
+    // is the size it is in RPG Maker on every screen.
     const canvas = Graphics._effekseerCanvas || renderer.view;
-    const q = canvas.height / Sprite_Animation.effekseerViewportSide();
-    const x = (this._mirror ? -1 : 1) * q;
-    const y = q;
-    const p = -1.2;
-    Graphics.effekseer.setProjectionMatrix([
-        x, 0, 0, 0,
-        0, y, 0, 0,
-        0, 0, 1, p,
-        0, 0, 0, 1,
-    ]);
+    Graphics.effekseer.setProjectionMatrix(Sprite_Animation.effekseerProjection(canvas.height, Sprite_Animation.effekseerViewportSide(), this._mirror));
 };
 
 Sprite_Animation.prototype.setCameraMatrix = function(/*renderer*/) {
@@ -2957,11 +2957,16 @@ Sprite_Animation.prototype.targetPosition = function(renderer) {
 };
 
 Sprite_Animation.prototype.targetSpritePosition = function(sprite) {
-    // Anchor unconditionally to sprite ORIGIN (typically the bottom for battle
-    // sprites with anchor.y=1). Conditional alignBottom check was leaving
-    // effects ~h/2 too high. If a future animation explicitly needs center-
-    // anchor, restore the conditional later.
-    const point = new Point(0, 0);
+    // On the middle of the target, or on its feet when the animation says
+    // Align Bottom (battle sprites stand on their origin, anchor.y = 1).
+    const bottom = !!this._animation.alignBottom;
+    // A target drawn by something else (a model on a 3D map, whose sprite
+    // stands in unseen) says where its middle is drawn.
+    if (!bottom && typeof sprite.reactorAnimationMiddle === "function") {
+        const middle = sprite.reactorAnimationMiddle();
+        if (middle) return middle;
+    }
+    const point = new Point(0, bottom ? 0 : -sprite.height / 2);
     // v5/6/7: sprite.updateTransform() forced an immediate worldTransform
     // recompute. v8 repurposed updateTransform as an opts-setter (no-args
     // throws). Skip the call on v8 -- v8's transform system has already
@@ -2977,9 +2982,26 @@ Sprite_Animation.prototype.targetSpritePosition = function(sprite) {
     // parent, whose transform stays live.
     if ((!sprite.visible || !Number.isFinite(out.x) || !Number.isFinite(out.y))
         && sprite.parent && sprite.parent.worldTransform) {
-        return sprite.parent.worldTransform.apply(new Point(sprite.x, sprite.y));
+        return sprite.parent.worldTransform.apply(new Point(sprite.x + point.x * sprite.scale.x, sprite.y + point.y * sprite.scale.y));
     }
     return out;
+};
+
+/**
+ * Where an animation on this character is centered, when its picture is a
+ * model on a 3D map (the sprite stands in unseen): the middle of the model's
+ * height, on the screen. Null where the sprite itself is the picture.
+ */
+Sprite_Character.prototype.reactorAnimationMiddle = function() {
+    const character = this._character;
+    if (this.visible || !character || typeof Reactor3D === "undefined" || typeof $dataMap === "undefined" || !$dataMap) return null;
+    if (!Reactor3D.shouldRender3D || !Reactor3D.shouldRender3D($dataMap) || !Reactor3D.projectToScreen) return null;
+    const viewport = Reactor3D.viewport && Reactor3D.viewport(), camera = viewport && viewport.camera && viewport.camera();
+    if (!camera) return null;
+    const ground = (Reactor3D.characterGround ? Reactor3D.characterGround($dataMap, character) : 0) + (character._reactorLift || 0);
+    const tall = Reactor3D.characterHeightTiles ? Reactor3D.characterHeightTiles(character) : 1.5;
+    const at = Reactor3D.projectToScreen(camera, character._realX + 0.5, ground + tall / 2, character._realY + 0.5, {});
+    return at && Number.isFinite(at.x) && Number.isFinite(at.y) ? new Point(at.x, at.y) : null;
 };
 
 Sprite_Animation.prototype.resetViewport = function(renderer) {
@@ -6396,6 +6418,61 @@ Spriteset_Map.prototype.updateParallax = function() {
 Spriteset_Map.prototype.updateTilemap = function() {
     this._tilemap.origin.x = $gameMap.displayX() * $gameMap.tileWidth();
     this._tilemap.origin.y = $gameMap.displayY() * $gameMap.tileHeight();
+    this.updateNeighborTilemaps();
+};
+
+/**
+ * A 2D map's neighbors (its Beyond the Border sides): each one's ground is a tilemap of its own under this map's,
+ * drawn where the view goes past the edge (Game_Map.reactorEdgeReach) and hidden while it does not. A neighbor is
+ * read in the background as a 3D map's are (Reactor3D.Neighbors.request), from the moment the map is entered.
+ * Its events are not drawn; the border is crossed as before.
+ */
+Spriteset_Map.prototype.updateNeighborTilemaps = function() {
+    const R = typeof Reactor3D !== "undefined" ? Reactor3D : null;
+    const held = this._rrNeighborTilemaps || (this._rrNeighborTilemaps = {});
+    if (!R || !R.Neighbors || !R.neighborsOf || this._reactor3d || typeof $gameMap.reactorEdgeReach !== "function") {
+        for (const side of Object.keys(held)) if (held[side]) held[side].tilemap.visible = false;
+        return;
+    }
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    const dx = $gameMap.displayX(), dy = $gameMap.displayY();
+    for (const side of ["north", "east", "south", "west"]) {
+        let entry = held[side];
+        if (!$gameMap.reactorEdgeReach(side)) { if (entry) entry.tilemap.visible = false; continue; }
+        if (!entry) {
+            const at = R.neighborsOf($dataMap)[side];
+            const record = at ? R.Neighbors.request(at.map) : null;
+            // (Asked again on the next frame until it has been read.)
+            if (!record || record.state !== "ready" || !record.map) continue;
+            entry = held[side] = this.createNeighborTilemap(record.map, at, side);
+            if (!entry) continue;
+        }
+        const past = side === "west" ? dx < 0 : side === "north" ? dy < 0
+            : side === "east" ? dx + $gameMap.screenTileX() > $gameMap.width() : dy + $gameMap.screenTileY() > $gameMap.height();
+        entry.tilemap.visible = past;
+        if (past) {
+            entry.tilemap.origin.x = (dx - entry.offset.x) * tw;
+            entry.tilemap.origin.y = (dy - entry.offset.z) * th;
+        }
+    }
+};
+
+/** The ground of a neighboring map, as a tilemap of its own placed `offset` tiles from this map's first tile. */
+Spriteset_Map.prototype.createNeighborTilemap = function(map, at, side) {
+    const tileset = $dataTilesets && $dataTilesets[map.tilesetId];
+    if (!tileset || !Array.isArray(map.data)) return null;
+    const tilemap = new Tilemap();
+    tilemap.tileWidth = $gameMap.tileWidth();
+    tilemap.tileHeight = $gameMap.tileHeight();
+    tilemap.setData(map.width, map.height, map.data);
+    tilemap.setBitmaps(tileset.tilesetNames.map(name => ImageManager.loadTileset(name)));
+    tilemap.flags = tileset.flags.slice();
+    if (tilemap.setTileAnimation) tilemap.setTileAnimation(tileset.rrTileFrames, tileset.rrWater);
+    tilemap.visible = false;
+    // Under this map's ground and everything standing on it.
+    const index = this._baseSprite.children.indexOf(this._tilemap);
+    this._baseSprite.addChildAt(tilemap, index < 0 ? this._baseSprite.children.length : index);
+    return { tilemap, mapId: at.map, offset: Reactor3D.Neighbors.offsetOf($dataMap, side, at, map.width, map.height) };
 };
 
 Spriteset_Map.prototype.updateShadow = function() {
@@ -6957,12 +7034,14 @@ const ReactorLookPictures = {
             const box = rule.trim(pixels.data, width, height);
             if (!box) { this.fail(entry); return; }
             if (entry.hue) { rule.rotateHue(pixels.data, entry.hue); context.putImageData(pixels, 0, 0); }
-            const scale = Math.min(1, this.FULL_MAX / Math.max(box.width, box.height));
-            const full = new Bitmap(Math.max(1, Math.round(box.width * scale)), Math.max(1, Math.round(box.height * scale)));
+            // A creature drawn high over its shadow stands just over it (ReactorFightLook.art).
+            const art = rule.art(pixels.data, width, box);
+            const scale = Math.min(1, this.FULL_MAX / Math.max(art.width, art.height));
+            const full = new Bitmap(Math.max(1, Math.round(art.width * scale)), Math.max(1, Math.round(art.height * scale)));
             const target = full.context;
             target.imageSmoothingEnabled = true;
             target.imageSmoothingQuality = "high";
-            target.drawImage(source.canvas, box.x, box.y, box.width, box.height, 0, 0, full.width, full.height);
+            rule.drawArt(target, source.canvas, box, art, full.width, full.height);
             full._baseTexture.update();
             entry.full = full;
             entry.state = "ready";

@@ -6,12 +6,20 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 ## Where things stand (2026-10-23)
 
-- **0.99.1** at runtime **20261022.1**, synced to all 19 projects. The builders are at Preview 47 with visual acceptance open: [character coverage](CHARACTER-QUALITY.md), [remaining issues](CLAUDE-QUALITY-TRACKER.md), [props](PROP-BUILDER.md). The vehicles to review are in `scratchpad/vehicle-corrections-20261022/review.html`.
-- **Owner questions:** one list, [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md). Answered items leave it.
-- **User-path sweeps:** 1 to 13 are done and committed.
+- **0.99.1** at runtime **20261023.1**, synced to all 19 projects. The builders are at Preview 47 with visual acceptance open: [character coverage](CHARACTER-QUALITY.md), [remaining issues](CLAUDE-QUALITY-TRACKER.md), [props](PROP-BUILDER.md).
+- **Owner questions:** every A and B item from 2026-10-23 is done; what is left, and the new questions, are in [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md).
 - **Editor windows:** the Event Editor, Database, Forge and Plugin Manager each open in a frameless window of their own (`utils/DetachedWindow.js`). Native Linux transparency still needs a look on the real desktop.
 - **Savior & Religion** (`template/Savior & Religion`, not in git, an encrypted MV game the owner is trying as a template) boots, plays its opening and draws its ULDS maps 2, 5 and 19.
-- **Next:** a full Node run (the last was 2026-10-18), maps 1 and 5 on the RTX, then the owner's answers.
+- **Next:** the owner's answers to the new list, then the builder tests that fail on HEAD.
+
+## 2026-10-23 — Owner answers, five agents
+
+What changed is in the changelog. For the next session:
+- **Demo data edits** were idempotent span-editing scripts in `scratchpad/owner-answers-2026-10-23/demo-edits/` (bikes to Starting Positions, Interstellar flags, Actor Command, Character Generator align, Forest Road light), run with the editor closed. Rerunning them changes nothing.
+- **Barebones** Map002, Map003 and Tilesets changed (not in git). The originals are in the session scratchpad only.
+- **Effekseer size:** measurements and MZ side-by-sides are in `scratchpad/owner-answers-2026-10-23/effekseer-scale.md`. The game, the previews and the pickers share `ReactorBattleData.effekseerProjection`; change it there only.
+- **Harness traps:** the headless display is `:2`. A screenshot of a floating editor window captures the main window. A double-click in a floating window lands only when sent over that page's DevTools connection (`scratchpad/owner-answers-2026-10-23/selfswitch-gui.cjs`). Closing the Database by a click while a 3D map is open froze the software-rendered display; use a small 2D map.
+- **Not checked by clicks:** the two animation pickers (source test only); Save As used a stubbed folder picker.
 
 ## 2026-10-22 — Builder progress checkpoint
 
