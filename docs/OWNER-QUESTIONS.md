@@ -6,16 +6,11 @@ Answer by number: "A: go", "B: all recommended except B4 and B13", "C2 done".
 
 ## A. Defects: fixed as described unless the owner objects
 
-1. Crossing between North Haven and Forest Road still costs one frame of about 120 ms, mostly shader compiling (events are now built ahead). Compile the neighbor's shaders before the crossing.
+None open.
 
 ## B. Decisions (recommendation in bold)
 
-1. Rhea's roof cells on North Haven (x 85 to 89, y 74) still see nothing: her eye, about 6.8 tiles up, is inside Tree-01's crown, whose underside there is 4 to 6.5 tiles up. Tree hulls now keep the gap under the crown, which fixed sight lines elsewhere. **Move her cell out from under the tree.**
-2. Forest Road now matches North Haven (night, steep ground from 80), so the mismatch moved to the Forest Road and Fields border (night against day). **Blend the light over the first tiles past a border, so neighboring maps can keep different times of day.**
-3. In the game a 2D map draws its neighbor's tiles past its edge; the editor's 2D view does not. **Draw them dimmed in the editor too.**
-4. The Storeys cut in the editor's 3D view shows the inside shaded by the hidden roof, as the game's cutaway does. **Drop the hidden roof's shadow in both.**
-5. Show Choices made by Reactor's old dialog with "Branch" always played as Disallow (the dialog had the two swapped); they now show Disallow, and their When Cancel bodies never ran. **Leave them as they show; they do what they always did.**
-6. The web bundle before the next itch upload: the Demo ships 1,011 files and 438 MB, over both limits with the editor. The proposal (`scratchpad/owner-answers-2026-10-23/web-trim-proposal.md`) drops 61 files (52 MB), keeps the Psychronic BGM, and lists lossy shrinks of two videos and the icon separately. **Approve the drop list; decide the lossy shrinks by eye.**
+1. The web bundle before the next itch upload (owner: decide at the end-of-weekend release): the Demo ships 1,011 files and 438 MB, over both limits with the editor. The proposal (`scratchpad/owner-answers-2026-10-23/web-trim-proposal.md`) drops 61 files (52 MB), keeps the Psychronic BGM, and lists lossy shrinks of two videos and the icon separately. **Approve the drop list; decide the lossy shrinks by eye.**
 
 ## C. Only the owner can do these
 
