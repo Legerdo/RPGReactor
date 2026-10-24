@@ -3,13 +3,13 @@
  *
  * A motion is every pose rule that shares a name: they fire together, so
  * they are one thing to the person making it. The editor shows them that
- * way: the motion's name, when it plays and how long it takes across the
- * top; a row per part it moves, with that part's keyframes on a shared
- * timeline; a playhead to scrub; and the selected part's pose at the
- * playhead as sliders. Moving a slider sets that part's key at that moment
- * (adding one if there is none), and the model shows the motion exactly
- * where the playhead stands. It saves back as the same pose rules the game
- * plays, one per part.
+ * way: the motion's name and when it plays across the top, then a
+ * storyboard: the motion's poses (the whole body at a moment) as cards in a
+ * row with the seconds from one to the next between them. A card clicked
+ * shows that pose on the model; a body part clicked on the model bends
+ * there; + adds the next pose. The per-part timeline (each part's keys on
+ * its own row) is a button away for fine timing. It saves back as the same
+ * pose rules the game plays, one per part.
  *
  * Rules of other kinds in the motion (a swing, a spin, a bob) ride along
  * untouched and are listed; a held stance (a Guard, an Aim) is a motion
@@ -27,6 +27,8 @@ class RRMotionEditor {
         // Key poses (the whole body at a moment) unless the per-part timeline is asked for; a pose copied.
         this.perPart = false;
         this.clipboard = null;
+        // The storyboard's selected pose (its index among poseTimes()).
+        this.pose = 0;
     }
 
     // ---- Key poses: the whole body at a moment, made, moved, mirrored and copied as one ----
@@ -97,6 +99,65 @@ class RRMotionEditor {
         }
     }
 
+    // ---- The storyboard: poses as cards in a row, the seconds between them the only timing ----
+
+    /** The motion's length in seconds. */
+    seconds() { return Math.max(2, this.motion.frames) / 60; }
+
+    /** Change the length to `length` seconds keeping every key where it is in seconds (what lies past it is clipped to the end). */
+    _relength(length, shift = null) {
+        const old = this.seconds(), next = Math.max(0.1, length);
+        for (const t of this.poseTracks()) {
+            for (const k of t.keys) {
+                let sec = k.at * old;
+                if (shift && sec > shift.after + 1e-6) sec += shift.by;
+                k.at = Math.max(0, Math.min(1, Math.round(sec / next * 1000) / 1000));
+            }
+            t.keys.sort((a, b) => a.at - b.at);
+        }
+        this.motion.frames = Math.max(2, Math.round(next * 60));
+    }
+
+    /** The seconds from pose `i` to the next (or from the last pose to the end). */
+    gapAfter(i) {
+        const times = this.poseTimes(), L = this.seconds();
+        return Math.round(((i + 1 < times.length ? times[i + 1] : 1) - times[i]) * L * 100) / 100;
+    }
+
+    /** The seconds from pose `i` to the next (the last's, to the end) set to `sec`: every pose after it moves, the motion grows or shrinks. */
+    setGap(i, sec) {
+        const times = this.poseTimes();
+        if (i < 0 || i >= times.length) return false;
+        const L = this.seconds(), by = Math.max(i + 1 < times.length ? 0.05 : 0, sec) - ((i + 1 < times.length ? times[i + 1] : 1) - times[i]) * L;
+        this._relength(L + by, { after: times[i] * L, by });
+        return true;
+    }
+
+    /** A new pose after pose `i` (the last when -1 or past it), `gap` seconds on, the same as pose `i`; the motion grows by the gap. */
+    insertPose(i, gap = 0.3) {
+        const times = this.poseTimes();
+        if (!times.length) { this.playhead = 0; this.addPose(); return 0; }
+        const at = i < 0 || i >= times.length ? times.length - 1 : i;
+        this.playhead = times[at];
+        const copy = this.poseAtPlayhead(), L = this.seconds(), from = times[at] * L;
+        this._relength(L + gap, { after: from, by: gap });
+        this.playhead = Math.round((from + gap) / (L + gap) * 1000) / 1000;
+        this.writePose(copy);
+        return this.playhead;
+    }
+
+    /** Pose `i` taken away with the time before it (the first, the time after it), so the rest close up: the undoing of insertPose. */
+    deletePose(i) {
+        const times = this.poseTimes();
+        if (times.length <= 1 || i < 0 || i >= times.length) return false;
+        const L = this.seconds(), from = i === 0 ? 0 : times[i - 1] * L;
+        const gap = (i === 0 ? times[1] - times[0] : times[i] - times[i - 1]) * L;
+        this.removePose(times[i]);
+        this._relength(L - gap, { after: from, by: -gap });
+        this.playhead = this.poseTimes()[Math.max(0, i - 1)] ?? 0;
+        return true;
+    }
+
     /** The pose at the playhead mirrored: each side takes the other's turn, seen in a mirror; the middle turns back. */
     mirrorPose() {
         const pose = this.poseAtPlayhead(), next = {};
@@ -128,7 +189,8 @@ class RRMotionEditor {
         const rules = this.host.rawAnimations.filter(raw => raw && raw.name === name && raw.type !== 'clip');
         const first = rules.find(raw => raw.type === 'pose') || rules[0] || {};
         const hold = rules.length > 0 && rules.every(raw => raw.type !== 'pose' || raw.hold);
-        const frames = Math.max(2, Math.round((Number(first.period) || 30) * (first.type === 'pose' || !rules.length ? 2 : 1)));
+        // A new motion starts as one pose with a beat after it.
+        const frames = rules.length ? Math.max(2, Math.round((Number(first.period) || 30) * (first.type === 'pose' ? 2 : 1))) : 18;
         const tracks = rules.map(raw => {
             if (raw.type !== 'pose') return { part: raw.part || '', other: JSON.parse(JSON.stringify(raw)) };
             // In order and within the motion, as the runtime reads them.
@@ -152,7 +214,8 @@ class RRMotionEditor {
             tracks
         };
         this.track = 0;
-        this.playhead = 0;
+        this.playhead = this.poseTimes()[0] ?? 0;
+        this.pose = 0;
         this.playing = false;
         this.render();
         this.host.renderRuleList();
@@ -163,7 +226,9 @@ class RRMotionEditor {
         const m = this.motion;
         let at = m.tracks.findIndex(t => t.part === part && !t.other);
         if (at < 0) {
-            m.tracks.push({ part, keys: m.hold ? [{ at: 1, rotate: [0, 0, 0], move: [0, 0, 0] }] : [] });
+            // At rest in every pose there is, so bending it in one pose leaves the others as they were.
+            const times = this.poseTimes();
+            m.tracks.push({ part, keys: m.hold ? [{ at: 1, rotate: [0, 0, 0], move: [0, 0, 0] }] : times.map(t => ({ at: t, rotate: [0, 0, 0], move: [0, 0, 0] })) });
             at = m.tracks.length - 1;
         }
         this.track = at;
@@ -187,6 +252,7 @@ class RRMotionEditor {
         if (this.host._sim.action && this.host._sim.action.name === '__motion') this.host._sim.action = null;
         if (this.root) this.root.remove();
         this.root = null;
+        this.host._markMotionPart?.(null);
         this.host.renderRuleList();
     }
 
@@ -281,7 +347,11 @@ class RRMotionEditor {
             let t = (frame - this._playFrom) / frames;
             if (t >= 1) {
                 if (motion.trigger !== 'action' || motion.repeat) { this._playFrom = frame; t = 0; }
-                else { this.playing = false; this._playFrom = null; t = 1; this.renderPlayButton(); }
+                else {
+                    this.playing = false; this._playFrom = null; t = 1;
+                    // The storyboard goes back to the pose it shows.
+                    if (!this.perPart) { t = this.poseTimes()[this.pose] ?? 0; this.playhead = t; this.render(); } else this.renderPlayButton();
+                }
             }
             this.playhead = Math.max(0, Math.min(1, t));
             this.drawPlayhead();
@@ -318,11 +388,11 @@ class RRMotionEditor {
             <div class="lit-section-header r3d-motion-head">
                 <input type="text" class="database-field-value r3d-motion-name" value="${rrEscapeHtml(m.name)}" title="${rrEscapeHtml(tt('Name'))}">
                 <select class="database-field-value r3d-motion-trigger" title="${rrEscapeHtml(tt('Play when'))}">${RRMotionEditor.TRIGGERS().map(([v, l]) => `<option value="${v}"${v === m.trigger ? ' selected' : ''}>${rrEscapeHtml(tt(l))}</option>`).join('')}</select>
-                <label class="r3d-motion-field">${rrEscapeHtml(tt('Length'))} <input type="number" class="database-field-value r3d-motion-length" min="0.1" max="60" step="0.1" value="${(m.frames / 60).toFixed(2)}"> s</label>
+                ${this.perPart ? `<label class="r3d-motion-field">${rrEscapeHtml(tt('Length'))} <input type="number" class="database-field-value r3d-motion-length" min="0.1" max="60" step="0.1" value="${(m.frames / 60).toFixed(2)}"> s</label>` : m.hold ? '' : `<span class="r3d-motion-field" title="${rrEscapeHtml(tt('Length'))}">${(m.frames / 60).toFixed(2)} s</span>`}
                 ${m.trigger === 'action' || m.trigger === 'jumping' ? `<label class="r3d-motion-field"><input type="checkbox" class="r3d-motion-repeat"${m.repeat ? ' checked' : ''}> ${rrEscapeHtml(tt('Repeat'))}</label>
                 ${m.trigger === 'action' ? `<label class="r3d-motion-field" title="${rrEscapeHtml(tt('Held until another stance moves the same parts.'))}"><input type="checkbox" class="r3d-motion-hold"${m.hold ? ' checked' : ''}> ${rrEscapeHtml(tt('Stance'))}</label>` : ''}` : ''}
                 <span style="flex:1"></span>
-                <button type="button" class="rr-btn-secondary r3d-motion-play" data-rr-i18n-skip="1"></button>
+                <button type="button" class="rr-btn-chip r3d-motion-play" data-rr-i18n-skip="1"></button>
                 <button type="button" class="r3d-motion-close" title="${rrEscapeHtml(tt('Close'))}">×</button>
             </div>
             ${this.perPart ? '' : this.poseBody(partName, track, pose, slider)}
@@ -332,7 +402,7 @@ class RRMotionEditor {
                     <select class="database-field-value r3d-motion-add"><option value="">${rrEscapeHtml(tt('+ Part…'))}</option>${addable.map(p => `<option value="${rrEscapeHtml(p)}">${rrEscapeHtml(partName(p))}</option>`).join('')}${m.hold ? '' : `<optgroup label="${rrEscapeHtml(tt('Other motion'))}">${['spin', 'swing', 'bob'].map(type => `<option value="@${type}">${rrEscapeHtml(tt(type === 'spin' ? 'Spin' : type === 'swing' ? 'Swing' : 'Bob'))}</option>`).join('')}</optgroup>`}</select>
                 </div>
                 <div class="r3d-motion-timeline r3d-motion-parts">
-                    <button type="button" class="rr-btn-secondary r3d-motion-backtoposes">${rrEscapeHtml(tt('← Poses'))}</button>
+                    <button type="button" class="rr-btn-chip r3d-motion-backtoposes">${rrEscapeHtml(tt('← Storyboard'))}</button>
                     <div class="r3d-motion-ruler">${[0, 0.25, 0.5, 0.75, 1].map(f => `<span style="left:${f * 100}%">${(f * m.frames / 60).toFixed(1)}s</span>`).join('')}</div>
                     ${m.tracks.map((t, i) => `<div class="r3d-motion-row${i === this.track ? ' active' : ''}" data-i="${i}">${(t.keys || []).map((k, j) => `<span class="r3d-motion-key${m.hold ? ' stance' : ''}" data-i="${i}" data-k="${j}" style="left:${(m.hold ? 1 : k.at) * 100}%"></span>`).join('')}</div>`).join('')}
                     <div class="r3d-motion-playhead"></div>
@@ -344,8 +414,8 @@ class RRMotionEditor {
                         ${slider('r3d-motion-rot', 1, pose.rotate[1], -180, 180, 1, 'Y')}
                         ${slider('r3d-motion-rot', 2, pose.rotate[2], -180, 180, 1, 'Z')}
                         ${track.part === '' ? slider('r3d-motion-move', 1, pose.move[1], -1, 1, 0.01, tt('Lift')) : ''}
-                        ${!m.hold ? `<div class="r3d-motion-pose-actions">${keyed ? `<button type="button" class="rr-btn-secondary r3d-motion-key-delete">${rrEscapeHtml(tt('Delete key'))}</button>` : `<button type="button" class="rr-btn-secondary r3d-motion-key-set">${rrEscapeHtml(tt('Add key'))}</button>`}</div>` : ''}`
-                        : `<div class="r3d-motion-pose-title">${rrEscapeHtml(track ? tt('Edited on its own card.') : tt('Add a part to move it.'))}</div>${track && track.other ? `<button type="button" class="rr-btn-secondary r3d-motion-other">${rrEscapeHtml(tt('Edit'))}</button>` : ''}`}
+                        ${!m.hold ? `<div class="r3d-motion-pose-actions">${keyed ? `<button type="button" class="rr-btn-chip r3d-motion-key-delete">${rrEscapeHtml(tt('Delete key'))}</button>` : `<button type="button" class="rr-btn-chip r3d-motion-key-set">${rrEscapeHtml(tt('Add key'))}</button>`}</div>` : ''}`
+                        : `<div class="r3d-motion-pose-title">${rrEscapeHtml(track ? tt('Edited on its own card.') : tt('Add a part to move it.'))}</div>${track && track.other ? `<button type="button" class="rr-btn-chip r3d-motion-other">${rrEscapeHtml(tt('Edit'))}</button>` : ''}`}
                 </div>
 ` : ''}
             </div>`;
@@ -353,54 +423,77 @@ class RRMotionEditor {
         this.drawPlayhead();
         this.bind();
         if (!this.perPart) this.bindPoses();
+        // The part being bent lit on the model.
+        this.host._markMotionPart?.(track && !track.other ? track.part : null);
     }
 
     /**
-     * The key-pose view: one strip of the motion's poses (the whole body at a moment) to scrub, click or
-     * drag; what to do with a pose as buttons; and the body part clicked on the model, to bend. The
-     * per-part timeline is a button away.
+     * The storyboard: the motion's poses as cards in a row, the seconds from one to the next between them
+     * (the only timing); what to do with the pose shown as a few buttons; and the body part clicked on the
+     * model, to bend. The per-part timeline is a button away.
      */
     poseBody(partName, track, pose, slider) {
         const m = this.motion, tt = text => this._t(text);
-        const times = this.poseTimes(), here = this.poseHere();
-        const button = (cls, label, title, disabled) => `<button type="button" class="rr-btn-secondary ${cls}"${title ? ` title="${rrEscapeHtml(title)}"` : ''}${disabled ? ' disabled' : ''}>${rrEscapeHtml(label)}</button>`;
-        const parts = this.poseTracks().length;
-        const strip = `<div class="r3d-motion-timeline r3d-motion-strip">
-                <div class="r3d-motion-ruler">${[0, 0.25, 0.5, 0.75, 1].map(f => `<span style="left:${f * 100}%">${(f * m.frames / 60).toFixed(1)}s</span>`).join('')}</div>
-                <div class="r3d-motion-row r3d-motion-poserow">${times.map((at, i) => `<span class="r3d-motion-posekey${here !== null && Math.abs(here - at) < 1e-9 ? ' on' : ''}" data-at="${at}" style="left:${(m.hold ? 1 : at) * 100}%" title="${rrEscapeHtml(tt('Pose'))} ${i + 1}">${i + 1}</span>`).join('')}</div>
-                <div class="r3d-motion-playhead"></div>
+        const times = this.poseTimes(), parts = this.poseTracks().length;
+        const button = (cls, label, title, disabled) => `<button type="button" class="rr-btn-chip ${cls}"${title ? ` title="${rrEscapeHtml(title)}"` : ''}${disabled ? ' disabled' : ''}>${rrEscapeHtml(label)}</button>`;
+        const count = Math.max(1, times.length);
+        const card = i => `<button type="button" class="r3d-motion-card${i === this.pose ? ' on' : ''}" data-i="${i}" title="${rrEscapeHtml(tt('Show this pose'))}"><b>${i + 1}</b><span>${rrEscapeHtml(m.hold ? tt('Stance') : tt('Pose'))}</span></button>`;
+        const gap = i => `<label class="r3d-motion-gap" title="${rrEscapeHtml(tt('Seconds to the next pose'))}">
+                <input type="number" class="r3d-motion-gap-sec" data-i="${i}" min="0.05" max="30" step="0.05" value="${this.gapAfter(i)}"><span>→</span></label>`;
+        // After the last pose: the time it takes to go back to the first (a loop) or to rest (a one-off).
+        const loops = m.trigger !== 'action' || m.repeat;
+        const tail = times.length ? `<label class="r3d-motion-gap r3d-motion-tail" title="${rrEscapeHtml(loops ? tt('Seconds back to the first pose') : tt('Seconds back to rest'))}">
+                <input type="number" class="r3d-motion-gap-sec" data-i="${times.length - 1}" min="0" max="30" step="0.05" value="${this.gapAfter(times.length - 1)}"><span>${rrEscapeHtml(loops ? tt('↻ to 1') : tt('→ rest'))}</span></label>` : '';
+        const board = `<div class="r3d-motion-board">
+                ${Array.from({ length: count }, (_, i) => card(i) + (!m.hold && i < count - 1 ? gap(i) : '')).join('')}
+                ${m.hold ? '' : `<button type="button" class="r3d-motion-card r3d-motion-card-add" title="${rrEscapeHtml(tt('The next pose: a copy of this one, to change'))}"${parts ? '' : ' disabled'}><b>+</b><span>${rrEscapeHtml(tt('Next pose'))}</span></button>${tail}`}
             </div>`;
         const actions = `<div class="r3d-motion-strip-actions">
-                ${m.hold ? '' : button('r3d-motion-pose-add', here === null ? tt('+ Pose here') : tt('Pose here ✓'), tt('Key the whole body as it stands at the playhead'), here !== null || !parts)}
-                ${m.hold ? '' : button('r3d-motion-pose-remove', tt('Remove pose'), '', here === null)}
                 ${button('r3d-motion-pose-mirror', tt('Mirror ⇆'), tt('Swap the left and right sides of this pose, as in a mirror'), !parts)}
                 ${button('r3d-motion-pose-copy', tt('Copy'), tt('Copy the whole body\'s pose here'), !parts)}
                 ${button('r3d-motion-pose-paste', tt('Paste'), tt('Put the copied pose here'), !this.clipboard)}
+                ${m.hold ? '' : button('r3d-motion-pose-remove', tt('Delete pose'), '', times.length <= 1)}
                 <span class="r3d-motion-spacer"></span>
-                ${button('r3d-motion-perpart', tt('Per part…'), tt('Time each part on its own row'))}
+                ${m.hold ? '' : `<button type="button" class="r3d-motion-link r3d-motion-perpart" title="${rrEscapeHtml(tt('Time each part on its own row'))}">${rrEscapeHtml(tt('Fine timing…'))}</button>`}
             </div>`;
         const part = track && !track.other ? `<div class="r3d-motion-pose-title">${rrEscapeHtml(partName(track.part))}</div>
                 ${slider('r3d-motion-rot', 0, pose.rotate[0], -180, 180, 1, tt('Bend'))}
                 ${slider('r3d-motion-rot', 1, pose.rotate[1], -180, 180, 1, tt('Turn'))}
                 ${slider('r3d-motion-rot', 2, pose.rotate[2], -180, 180, 1, tt('Tilt'))}
                 ${track.part === '' ? slider('r3d-motion-move', 1, pose.move[1], -1, 1, 0.01, tt('Lift')) : ''}
-                <div class="r3d-motion-pose-actions">${button('r3d-motion-part-reset', tt('Straighten'), tt('This part back to its rest at the playhead'))}</div>`
-            : `<div class="r3d-motion-pose-title">${rrEscapeHtml(tt('Click a body part on the model to bend it.'))}</div>`;
+                <div class="r3d-motion-pose-actions">${button('r3d-motion-part-reset', tt('Straighten'), tt('This part back to its rest in this pose'))}</div>`
+            : `<div class="r3d-motion-pose-empty">${rrEscapeHtml(tt('Click a body part on the model to bend it.'))}</div>`;
         return `<div class="r3d-motion-body r3d-motion-posebody">
-                <div class="r3d-motion-main">${strip}${actions}
-                    <div class="r3d-motion-hint">${rrEscapeHtml(parts ? tt('Each numbered pose is the whole body at that moment; the motion moves between them. Drag one to retime it.') : tt('Click a body part on the model to start: bend it, then move the playhead and bend it again.'))}</div>
+                <div class="r3d-motion-main">${board}${actions}
+                    <div class="r3d-motion-hint">${rrEscapeHtml(m.hold ? tt('A stance is one pose, held. Click a body part on the model to bend it.') : parts ? tt('Click a pose to see it, click a body part to bend it there. + adds the next pose.') : tt('Click a body part on the model to bend it into the first pose.'))}</div>
                 </div>
                 <div class="r3d-motion-pose">${part}</div>
             </div>`;
     }
 
-    /** The key-pose view's controls. */
+    /** The storyboard's controls. */
     bindPoses() {
         const root = this.root, m = this.motion;
         const changed = () => { this.commit(); this.render(); };
+        const show = i => {
+            const times = this.poseTimes();
+            this.pose = Math.max(0, Math.min(i, times.length - 1));
+            this.playhead = times[this.pose] ?? 0;
+            this.playing = false; this._playFrom = null;
+        };
         root.querySelector('.r3d-motion-perpart')?.addEventListener('click', () => { this.perPart = true; this.render(); });
-        root.querySelector('.r3d-motion-pose-add')?.addEventListener('click', () => { this.addPose(); changed(); });
-        root.querySelector('.r3d-motion-pose-remove')?.addEventListener('click', () => { const at = this.poseHere(); if (at !== null) { this.removePose(at); changed(); } });
+        root.querySelectorAll('.r3d-motion-card[data-i]').forEach(el => el.addEventListener('click', () => { show(Number(el.dataset.i)); this.render(); }));
+        root.querySelector('.r3d-motion-card-add')?.addEventListener('click', () => {
+            const at = this.insertPose(this.pose, 0.3);
+            this.pose = this.poseTimes().findIndex(t => Math.abs(t - at) < RRMotionEditor.POSE_SNAP);
+            this.playing = false;
+            changed();
+        });
+        root.querySelectorAll('.r3d-motion-gap-sec').forEach(input => input.addEventListener('change', () => {
+            const sec = Number(input.value);
+            if (Number.isFinite(sec) && this.setGap(Number(input.dataset.i), sec)) { show(this.pose); changed(); } else this.render();
+        }));
+        root.querySelector('.r3d-motion-pose-remove')?.addEventListener('click', () => { if (this.deletePose(this.pose)) { show(this.pose - 1); changed(); } });
         root.querySelector('.r3d-motion-pose-mirror')?.addEventListener('click', () => { this.mirrorPose(); changed(); });
         root.querySelector('.r3d-motion-pose-copy')?.addEventListener('click', () => { this.clipboard = JSON.parse(JSON.stringify(this.poseAtPlayhead())); this.render(); });
         root.querySelector('.r3d-motion-pose-paste')?.addEventListener('click', () => { if (this.clipboard) { this.writePose(JSON.parse(JSON.stringify(this.clipboard))); changed(); } });
@@ -422,11 +515,18 @@ class RRMotionEditor {
         if (!this.root) return;
         const heads = this.root.querySelectorAll ? this.root.querySelectorAll('.r3d-motion-playhead') : [this.root.querySelector('.r3d-motion-playhead')];
         for (const head of heads) if (head) head.style.left = `calc(10px + (100% - 20px) * ${this.playhead})`;
+        // The storyboard lights the pose being played through.
+        if (!this.perPart && this.playing && this.root.querySelectorAll) {
+            const times = this.poseTimes();
+            let at = 0;
+            times.forEach((t, i) => { if (t <= this.playhead + 1e-6) at = i; });
+            this.root.querySelectorAll('.r3d-motion-card[data-i]').forEach(card => card.classList.toggle('on', Number(card.dataset.i) === at));
+        }
     }
 
     /** The timeline point under a pointer (0-1), snapped to a hundredth. */
     pointAt(event) {
-        const rect = this.root.querySelector((this.perPart ? '.r3d-motion-parts' : '.r3d-motion-strip') + ' .r3d-motion-ruler').getBoundingClientRect();
+        const rect = this.root.querySelector('.r3d-motion-parts .r3d-motion-ruler').getBoundingClientRect();
         const t = (event.clientX - rect.left) / Math.max(1, rect.width);
         return Math.round(Math.max(0, Math.min(1, t)) * 100) / 100;
     }
@@ -435,7 +535,12 @@ class RRMotionEditor {
         const root = this.root, m = this.motion;
         const changed = (rerender = true) => { this.commit(); if (rerender) this.render(); };
         root.querySelector('.r3d-motion-close').addEventListener('click', () => this.close());
-        root.querySelector('.r3d-motion-play').addEventListener('click', () => { this.playing = !this.playing; this._playFrom = null; if (this.playing && this.playhead >= 1) this.playhead = 0; this.renderPlayButton(); });
+        root.querySelector('.r3d-motion-play').addEventListener('click', () => {
+            this.playing = !this.playing; this._playFrom = null;
+            if (this.playing && (this.playhead >= 1 || !this.perPart)) this.playhead = this.perPart ? 0 : (this.poseTimes()[0] ?? 0);
+            if (!this.playing && !this.perPart) { this.playhead = this.poseTimes()[this.pose] ?? 0; this.render(); return; }
+            this.renderPlayButton();
+        });
         root.querySelector('.r3d-motion-name').addEventListener('change', event => {
             const name = event.target.value.trim();
             // Another animation's name would fold it into this motion.
@@ -443,7 +548,7 @@ class RRMotionEditor {
             if (name && !taken) { m.name = name; changed(); } else event.target.value = m.name;
         });
         root.querySelector('.r3d-motion-trigger').addEventListener('change', event => { m.trigger = event.target.value; if (m.trigger !== 'action') m.hold = false; changed(); });
-        root.querySelector('.r3d-motion-length').addEventListener('change', event => { const s = Number(event.target.value); if (s > 0) { m.frames = Math.max(2, Math.round(s * 60)); changed(); } });
+        root.querySelector('.r3d-motion-length')?.addEventListener('change', event => { const s = Number(event.target.value); if (s > 0) { m.frames = Math.max(2, Math.round(s * 60)); changed(); } });
         root.querySelector('.r3d-motion-repeat')?.addEventListener('change', event => { m.repeat = event.target.checked; changed(); });
         root.querySelector('.r3d-motion-hold')?.addEventListener('change', event => {
             // A stance keeps one pose per part: the one at the playhead, sampled before the motion holds.
@@ -470,19 +575,9 @@ class RRMotionEditor {
         });
         root.querySelector('.r3d-motion-backtoposes')?.addEventListener('click', () => { this.perPart = false; this.render(); });
         // The timeline: a press sets the playhead (and picks the row); a key drags along it (a pose moves every part's key with it).
-        const area = root.querySelector(this.perPart ? '.r3d-motion-parts' : '.r3d-motion-strip');
-        area.addEventListener('pointerdown', event => {
+        const area = this.perPart ? root.querySelector('.r3d-motion-parts') : null;
+        area?.addEventListener('pointerdown', event => {
             if (event.target.closest('.r3d-motion-backtoposes')) return;
-            const poseEl = event.target.closest('.r3d-motion-posekey');
-            if (poseEl && !m.hold) {
-                let from = Number(poseEl.dataset.at), moved = false;
-                this.playhead = from; this.playing = false; this.renderPlayButton(); this.drawPlayhead();
-                area.setPointerCapture?.(event.pointerId);
-                const move = e => { const to = this.pointAt(e); from = this.movePose(from, to); this.playhead = from; poseEl.style.left = `${from * 100}%`; this.drawPlayhead(); moved = true; };
-                const up = () => { area.removeEventListener('pointermove', move); area.removeEventListener('pointerup', up); if (moved) changed(); else this.render(); };
-                area.addEventListener('pointermove', move); area.addEventListener('pointerup', up);
-                return;
-            }
             const keyEl = event.target.closest('.r3d-motion-key');
             const row = event.target.closest('.r3d-motion-row');
             if (row) this.track = Number(row.dataset.i);

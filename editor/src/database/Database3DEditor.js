@@ -1806,6 +1806,10 @@ class Database3DEditor {
         if (this._hoverBox && this._hoverName) {
             fit(this._hoverBox, this._matchedMeshes(this._hoverName), false);
         }
+        if (this._motionPartBox && this._motionPart !== null) {
+            // The whole model as every part spans it (a skinned body's own bounds are its rest at the origin).
+            fit(this._motionPartBox, this._motionPart ? this._matchedMeshes(this._motionPart) : ((this._binding && this._binding.meshes) || []), false);
+        }
         // The fulcrum rides its part every frame — a marker placed once
         // froze at whatever pose the part held at that instant.
         if (this._pivotMarker && this._pivotAnchor && this._pivotAnchor.mesh.parent
@@ -2755,6 +2759,20 @@ class Database3DEditor {
         }
     }
 
+    /** The part the motion editor bends, boxed on the model (the whole model for ''); null takes the box away. */
+    _markMotionPart(part) {
+        const name = part === undefined ? null : part;
+        if (this._motionPart === name && (name === null || (this._motionPartBox && this._motionPartBox.parent === this._scene))) return;
+        this._motionPart = name;
+        if (this._motionPartBox && this._scene) this._scene.remove(this._motionPartBox);
+        this._motionPartBox = null;
+        this._previewDirty = true;
+        if (name === null || !this._scene || !this._object || typeof THREE === 'undefined') return;
+        this._motionPartBox = new THREE.Box3Helper(new THREE.Box3(), 0x5cc8ff);
+        this._scene.add(this._motionPartBox);
+        this._updateBoxes();
+    }
+
     /** Boxes for the hovered and the chosen part, plus the pivot axes. */
     _refreshPartVisuals() {
         if (!this._scene || typeof THREE === 'undefined') return;
@@ -2771,7 +2789,8 @@ class Database3DEditor {
             const matched = this._matchedMeshes(name);
             if (!matched.length) return null;
             const box = new THREE.Box3();
-            for (const entry of matched) box.expandByObject(entry.mesh);
+            // (A bone has no geometry of its own: _expandEntry spans it to its children.)
+            for (const entry of matched) this._expandEntry(box, entry);
             return box.isEmpty() ? null : box;
         };
         if (this._hoverName && this._hoverName !== this.selectedPartName) {
@@ -9478,8 +9497,8 @@ class Database3DEditor {
                 <div class="r3d-picker-name">${escape(this._t(pose.label))}</div>
                 <button type="button" class="r3d-picker-whenlabel" title="${escape(this._t('Change when it plays'))}" data-rr-i18n-skip="1"></button>
                 <select class="database-field-value r3d-picker-when" hidden title="${escape(this._t('Play when'))}">${triggers.map(([v, l]) => `<option value="${v}"${v === when ? ' selected' : ''}>${escape(this._t(l))}</option>`).join('')}</select>
-                <div class="r3d-picker-actions"><button type="button" class="rr-btn-secondary r3d-picker-play" title="${escape(this._t('Play'))}">▶</button>
-                <button type="button" class="rr-btn-primary r3d-picker-add" data-rr-i18n-skip="1"></button></div></div>`;
+                <div class="r3d-picker-actions"><button type="button" class="rr-btn-chip r3d-picker-play" title="${escape(this._t('Play'))}">▶</button>
+                <button type="button" class="rr-btn-chip r3d-picker-add" data-rr-i18n-skip="1"></button></div></div>`;
         };
         modal.innerHTML = `
             <div class="rr-modal-header"><div class="rr-modal-title">${escape(this._t('Add a motion'))}</div><button class="rr-modal-close r3d-picker-close" type="button">×</button></div>
@@ -9490,9 +9509,8 @@ class Database3DEditor {
                     return list.length ? `<div class="lit-section r3d-picker-group"><div class="lit-section-header">${escape(this._t(group.label || 'Motions'))}</div><div class="r3d-picker-grid">${list.map(card).join('')}</div></div>` : '';
                 }).join('')}
                 <div class="lit-section r3d-picker-group"><div class="lit-section-header">${escape(this._t('Make your own'))}</div><div class="lit-section-body r3d-picker-own">
-                    <button type="button" class="rr-btn-secondary r3d-picker-keyed">${escape(this._t('Hand-keyed starting points…'))}</button>
-                    <button type="button" class="rr-btn-secondary r3d-picker-blank">${escape(this._t('A motion of key poses'))}</button>
-                    <div class="r3d-picker-note">${escape(this._t('Key a pose of the whole body, then another: the motion moves between them.'))}</div>
+                    <button type="button" class="rr-btn-chip r3d-picker-blank">${escape(this._t('+ Pose it yourself'))}</button>
+                    <div class="r3d-picker-note">${escape(this._t('Bend the body into a pose, add the next: the motion moves from one to the next.'))}</div>
                 </div></div>
             </div>
             <div class="rr-modal-footer"><button class="rr-btn-secondary r3d-picker-done">${escape(this._t('Close'))}</button></div>`;
@@ -9522,7 +9540,6 @@ class Database3DEditor {
                 modal.querySelectorAll('.r3d-picker-card').forEach(label);
             });
         });
-        modal.querySelector('.r3d-picker-keyed').addEventListener('click', () => { close(); this.showMotionPresets(); });
         modal.querySelector('.r3d-picker-blank').addEventListener('click', () => { close(); if (this.motionEditor) { this.deselectPart(); this.motionEditor.open(null); } else this.addSingleRule(); });
         keys?.enter?.();
     }
