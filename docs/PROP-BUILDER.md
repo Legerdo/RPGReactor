@@ -42,6 +42,17 @@ Choose a picture from `img/pictures`, then:
 
 Every sword and gun saves a hand rig (`rig.template` blade or gun, with its markers) in `model.json`. A character holds it through Database › Weapons the same way it holds an imported weapon.
 
+## Nature
+
+Standout trees, plants, rocks and alien flora to place on purpose; the map builder's painted foliage, bushes and rocks stay the quick way to cover ground. 31 kinds, 82 presets, in four groups:
+
+- **Trees:** broadleaf (oak, ancient oak with exposed mossy roots, maple, sacred tree with a shrine rope), conifer (spruce, fir, pine, cedar), palm (coconut, date, fan palm with a skirt of dead fans), birch (silver birch, birch clump, aspen), weeping willow, dead tree (dead, haunted, broken snag), bottle tree (baobab, bottle tree, dragon tree) and blossom tree (cherry, jacaranda, magnolia). Real branching that bends under its weight and toward the light, flared roots, bark with its own relief for each species, and leaves, needles and blossoms painted per kind.
+- **Bushes & Plants:** shrubs and a potted topiary ball, hedges, ferns and tree ferns, grasses and reeds, sunflowers, tulips, lavender, cacti, succulents, mushrooms (glowcaps glow) and ivy or hanging vines.
+- **Rocks:** boulders (worn, angular, layered, split), outcrops and scree, cliff chunks, hexagonal basalt columns, hoodoos, standing stones (menhir, a rune stone with glowing runes, a trilithon), natural arches and crystal formations (cluster, a crystal-lined geode, spires).
+- **Alien Flora:** lantern tree, glow stalks, fungus towers with glowing gill rings, parasol fungus, tentacle plants, whip fronds, crystal trees, pod plants and bulb clusters with glowing veins, coral fans, spore puffballs and spiral horns.
+
+Each kind has one page: **Kind** (its presets), **Shape** (Height or Size, two sliders of its own such as Spread, Gnarl, Droop or Tiers, and 🎲 **Shuffle** for a new take on the same kind) and **Look**: the season for trees and plants (spring, summer, autumn, bare, snow), the stone and its cover (moss, snow, sand, lichen) for rocks, and the palette and glow for alien flora and crystals. **Sway in the wind** (on by default, not on rocks) saves a looping Sway clip on one wind bone, so the trunk stands still and the crown moves; the game plays it always. Models are in metres and stand on their origin; the readout gives the size to place them at in tiles. Budgets: trees 35k triangles, plants 12k, rocks 6k, alien flora 30k.
+
 ## Wearables and Tools & Gear
 
 The 3D Character Builder's accessories, each a standalone model: hats, face, masks, jewelry and ties, capes and packs, nails and claws, bags, tools, instruments and sports. Swords, daggers and books are listed once, under Swords & Blades and Framed; saved recipes of the accessory versions still open.
