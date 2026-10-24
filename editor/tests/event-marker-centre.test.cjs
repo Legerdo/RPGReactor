@@ -342,3 +342,29 @@ test('a model event sizes itself: the tiles its body covers, kept for the editor
     const page = fs.readFileSync(path.join(editorRoot, 'src', 'event', 'EventPageEditor.js'), 'utf8');
     assert.match(page, /this\.parentEditor\.refreshAutoSize\?\.\(\);/, 'again when the model, its size or its facing changes');
 });
+
+test('an event with the Vehicle field and no picture of its own measures its vehicle\'s model for Auto', () => {
+    const EventEditor = require(path.join(editorRoot, 'src', 'event', 'EventEditor.js'));
+    const previous = global.RRVehicles;
+    global.RRVehicles = require(path.join(editorRoot, 'src', 'event', 'VehicleSetup.js'));
+    try {
+        const model = { name: 'Vehicles/kawashaki_ninja_h2', file: 'kawashaki_ninja_h2', size: 4 };
+        const editor = Object.create(EventEditor.prototype);
+        editor.databaseManager = { data: { vehicles: [null, { id: 1, name: 'Motorcycle', model, graphic3d: true }] } };
+        editor.pendingModels = [null];
+        editor.currentEvent = { id: 3, rrVehicle: { type: 1 }, pages: [{ image: { characterName: '', tileId: 0, direction: 4 } }] };
+        const sized = editor._sizeModel();
+        assert.equal(sized && sized.spec.name, model.name, 'Auto has the vehicle\'s model to measure');
+        assert.equal(sized.direction, 4, 'facing the way its page faces');
+        assert.equal(sized.vehicle, true);
+        assert.deepEqual(EventEditor.vehicleFront({ vehicle: { forward: '-x' } }), [-1, 0, 0], 'the front the model file names, as the game reads it');
+        assert.equal(EventEditor.vehicleFront({}), null);
+        // A picture on the page is what the event shows: no vehicle model, nothing to measure.
+        editor.currentEvent.pages[0].image.characterName = 'Vehicle';
+        assert.equal(editor._sizeModel(), null);
+        // A model of the page's own wins over the vehicle's.
+        editor.currentEvent.pages[0].image.characterName = '';
+        editor.pendingModels = [{ name: 'Actors/Fleagus' }];
+        assert.equal(editor._sizeModel().spec.name, 'Actors/Fleagus');
+    } finally { global.RRVehicles = previous; }
+});

@@ -338,12 +338,36 @@ class EventEditor {
         return JSON.stringify(this.pendingAuto ? ['auto', this.pendingAutoRect] : ['own', this.pendingSize]);
     }
 
-    /** The model the event stands as: its first page that has one, with the way that page faces. */
+    /**
+     * The model the event stands as: its first page that has one, with the way that page faces. An event with
+     * the Vehicle field whose first page shows no picture wears its vehicle's model (as both map views and the
+     * game draw it), so that model is the one Auto measures.
+     */
     _sizeModel() {
         const pages = (this.currentEvent && this.currentEvent.pages) || [];
         for (let index = 0; index < pages.length; index++) {
             const spec = this.pendingModels && this.pendingModels[index];
             if (spec && spec.name) return { spec, direction: (pages[index] && pages[index].image && pages[index].image.direction) || 2 };
+        }
+        const image = pages[0] && pages[0].image;
+        if (this.currentEvent && this.currentEvent.rrVehicle && typeof RRVehicles !== 'undefined' && RRVehicles.modelOf
+            && !(image && image.characterName) && !(image && image.tileId > 0)) {
+            const spec = RRVehicles.modelOf(this.currentEvent, this.databaseManager && this.databaseManager.data && this.databaseManager.data.vehicles);
+            if (spec && spec.name) return { spec, direction: (image && image.direction) || 2, vehicle: true };
+        }
+        return null;
+    }
+
+    /**
+     * The front a vehicle's model file names (`model.json` › `vehicle.forward`: "+x", "-x", "+z", "-z" or a
+     * vector), which the game turns to the way the vehicle faces (reactor_vehicles.js `forwardOf`); null for none.
+     */
+    static vehicleFront(sidecar) {
+        const value = sidecar && sidecar.vehicle && sidecar.vehicle.forward;
+        if (typeof value === 'string') return { '+x': [1, 0, 0], '-x': [-1, 0, 0], '+z': [0, 0, 1], '-z': [0, 0, -1] }[value.trim().toLowerCase()] || null;
+        if (Array.isArray(value) && value.length >= 3) {
+            const x = Number(value[0]), z = Number(value[2]), length = Math.hypot(x, z);
+            return length > 1e-6 ? [x / length, 0, z / length] : null;
         }
         return null;
     }
@@ -367,6 +391,9 @@ class EventEditor {
             if (!template || ticket !== this._autoTicket || event !== this.currentEvent || !this.pendingAuto) return;
             if (typeof Reactor3D === 'undefined' || !Reactor3D.blockedTilesFor || !Reactor3D.normalizeModelSpec) return;
             const spec = Reactor3D.normalizeModelSpec(model.spec);
+            // A vehicle is turned so its model's front leads, as the game turns it.
+            const front = model.vehicle ? EventEditor.vehicleFront(template.userData.reactorSidecar) : null;
+            if (spec && front) spec.faces = Object.assign({}, spec.faces || null, { front });
             const rect = spec ? RRMapElevation.footprintOfTiles(Reactor3D.blockedTilesFor(template, template.userData.reactorSidecar, spec, model.direction, 0, 0), 0, 0) : null;
             if (!rect) return;
             this.pendingAutoRect = rect;
@@ -791,7 +818,7 @@ class EventEditor {
             else this.pageEditor?.refreshCharacterPreview?.();
         };
         row.querySelector('.event-vehicle-type').addEventListener('change', e => change({ type: Number(e.target.value) }));
-        row.querySelector('.event-vehicle-yaw').addEventListener('change', e => change({ yaw: e.target.value }));
+        row.querySelector('.event-vehicle-yaw').addEventListener('change', e => { change({ yaw: e.target.value }); this.refreshAutoSize(); });
         return row;
     }
 

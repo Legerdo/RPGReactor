@@ -180,7 +180,7 @@ test('a placement is named by its Database entry and unit, covers its Length alo
         const [first,second]=EventManager.startingVehicles(map);
         assert.equal(EventManager.vehicleLabel(first),'Vehicle 1 · '+catalog[1].name+' · Unit 1');
         assert.equal(EventManager.vehicleLabel(second),'Vehicle 1 · '+catalog[1].name+' · Unit 2');
-        const length=Math.round(catalog[1].model.size);
+        const size=catalog[1].model.size,length=size<=1?1:2*Math.ceil(size/2-0.6)+1;
         // Facing right, its Length runs across the map; facing down, along it. Centred on its own tile.
         assert.deepEqual(EventManager.vehicleFootprint(first),[10-Math.floor((length-1)/2),10,length,1]);
         assert.deepEqual(EventManager.vehicleFootprint(second),[30,20-Math.floor((length-1)/2),1,length]);

@@ -3123,10 +3123,37 @@ class EventManager {
         const spec = record && record.graphic3d !== false && record.model?.name ? record.model : null;
         if (!spec) return [x, y, 1, 1];
         const size = Number(spec.size) > 0 ? Number(spec.size) : 3.5;
-        let length = Math.max(1, Math.round(size)), width = 1;
+        // Until the model is read: its Length, centred on its tile, touches this many tiles (4 tiles long covers
+        // its own and two on each side, as the measured footprint does); one wide.
+        const touched = span => span <= 1 ? 1 : 2 * Math.ceil(span / 2 - 0.5 - 0.1) + 1;
+        let length = touched(size), width = 1;
         const R = typeof Reactor3D !== 'undefined' ? Reactor3D : null;
-        const entry = R?._glbCache && R.modelCacheKey ? R._glbCache[R.modelCacheKey(spec.name, spec.ext, spec.file)] : null;
-        const extent = entry?.template?.userData?.glbSize;
+        const app = typeof window !== 'undefined' ? window.reactor : null;
+        const project = app?.projectController?.currentProject || app?.projectManager?.getCurrentProject?.();
+        const P = typeof RREventPreviewModels !== 'undefined' ? RREventPreviewModels : null;
+        // As the views read it (`.glb` when the Database names no extension), so the cache is found under the same key.
+        const full = (R?.normalizeModelSpec && R.normalizeModelSpec(spec)) || spec;
+        const entry = R?._glbCache && R.modelCacheKey ? R._glbCache[R.modelCacheKey(full.name, full.ext, full.file)] : null;
+        let template = (P?.peek && P.peek(project, full)) || entry?.template || null;
+        // Not read yet: it is asked for, and the placements are drawn again round their real footprint when it is in.
+        if (!template && P?.templateFor && project && !EventManager._footprintAsked?.has(spec.name)) {
+            (EventManager._footprintAsked ||= new Set()).add(spec.name);
+            // (Asked before the 3D libraries are in, it comes back empty: the next drawing asks again.)
+            Promise.resolve(P.templateFor(project, full, app?.projectController?.mapEditor3D)).then(loaded => {
+                if (loaded) app?.eventManager?.renderEventPreviews?.();
+                else EventManager._footprintAsked.delete(spec.name);
+            }).catch(() => EventManager._footprintAsked.delete(spec.name));
+        }
+        const extent = template?.userData?.glbSize;
+        // Read, the model gives the tiles its body covers, turned so its front leads, as an event's Auto size
+        // measures them and the game walks against them.
+        const E = typeof RRMapElevation !== 'undefined' ? RRMapElevation : null;
+        if (template && R.blockedTilesFor && R.normalizeModelSpec && E?.footprintOfTiles && typeof EventEditor !== 'undefined' && EventEditor.vehicleFront) {
+            const turned = R.normalizeModelSpec(spec), front = EventEditor.vehicleFront(template.userData.reactorSidecar);
+            if (turned && front) turned.faces = Object.assign({}, turned.faces || null, { front });
+            const rect = turned ? E.footprintOfTiles(R.blockedTilesFor(template, template.userData.reactorSidecar, turned, Number(of.source.startDirection) || 2, x, y), x, y) : null;
+            if (rect) return [x + rect[2], y + rect[3], rect[0], rect[1]];
+        }
         if (extent) {
             const span = Math.max(extent.x, extent.y, extent.z, 0.0001);
             length = Math.max(1, Math.round(size * Math.max(extent.x, extent.z) / span));
