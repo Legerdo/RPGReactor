@@ -212,6 +212,14 @@ bundled project inside pack archives (fewer files, smaller extracted size). Each
 
 ## 5. Source Release And Publishable Candidate
 
+Before cutting, give the release its pictures: 6 to 8 screenshots of the
+headline features, made in the real editor and game, as JPEG (about 1600 px
+wide, under 400 KB each) in `docs/media/releases/<version>/`. Put them at the
+top of `changelog/<version>.md` under `### Highlights`, linked relatively
+(`![Title](../docs/media/releases/<version>/01-name.jpg)`) with one line under
+each. The release body rewrites those links to the raw files at the tag, so the
+GitHub release shows them.
+
 Return to a clean `main` worktree at the validated commit. Do not create the tag
 manually: `cut-release.cjs` is the canonical path and creates an annotated tag
 after finalizing both changelogs and the other version surfaces.
