@@ -96,7 +96,8 @@ class RRMotionEditor {
         const m = this.motion;
         for (const [part, value] of Object.entries(pose)) {
             let t = m.tracks.find(track => track.part === part && !track.other);
-            if (!t) { t = { part, keys: [] }; m.tracks.push(t); }
+            // A part new to the motion rests in every other pose, so setting it here leaves them as they were.
+            if (!t) { t = { part, keys: m.hold ? [] : this.poseTimes().map(at => ({ at, rotate: [0, 0, 0], move: [0, 0, 0] })) }; m.tracks.push(t); }
             const stop = this.keyAtPlayhead(t, true);
             stop.rotate = value.rotate.map(v => Math.round(v * 10) / 10);
             stop.move = value.move.slice();
@@ -246,14 +247,23 @@ class RRMotionEditor {
     /** The pose at the playhead mirrored: each side takes the other's turn, seen in a mirror; the middle turns back. */
     mirrorPose() {
         const pose = this.poseAtPlayhead(), next = {};
+        // The model's own frames when the host knows them (a part's left and right joints may not be turned alike).
+        const flip = (from, to, value) => (this.host._mirrorPartValue && this.host._mirrorPartValue(from, to, value))
+            || { rotate: RRMotionEditor.mirrorTurn(value.rotate), move: [-value.move[0], value.move[1], value.move[2]] };
         for (const [part, value] of Object.entries(pose)) {
             const other = RRMotionEditor.mirrorPart(part);
-            if (other) next[other] = { rotate: RRMotionEditor.mirrorTurn(value.rotate), move: [-value.move[0], value.move[1], value.move[2]] };
-            else next[part] = { rotate: RRMotionEditor.mirrorTurn(value.rotate), move: [-value.move[0], value.move[1], value.move[2]] };
+            next[other || part] = flip(part, other || part, value);
         }
         // A side with no partner keyed here goes back to rest when its partner had nothing.
         for (const part of Object.keys(pose)) if (!next[part]) next[part] = { rotate: [0, 0, 0], move: [0, 0, 0] };
         this.writePose(next);
+    }
+
+    /** Every pose mirrored: a motion made with the left side becomes the same with the right (a left punch a right one). */
+    mirrorMotion() {
+        const playhead = this.playhead;
+        for (const at of this.poseTimes()) { this.playhead = at; this.mirrorPose(); }
+        this.playhead = playhead;
     }
 
     get active() { return !!this.motion; }
@@ -472,13 +482,13 @@ class RRMotionEditor {
                 <input type="number" class="database-field-value ${cls}-num" data-axis="${axis}" min="${min}" max="${max}" step="${step}" value="${Math.round(value * 100) / 100}"></label>`;
         this.root.innerHTML = `
             <div class="lit-section-header r3d-motion-head">
+                <button type="button" class="rr-btn-chip r3d-motion-play" data-rr-i18n-skip="1"></button>
                 <input type="text" class="database-field-value r3d-motion-name" value="${rrEscapeHtml(m.name)}" title="${rrEscapeHtml(tt('Name'))}">
                 <select class="database-field-value r3d-motion-trigger" title="${rrEscapeHtml(tt('Play when'))}">${RRMotionEditor.TRIGGERS().map(([v, l]) => `<option value="${v}"${v === m.trigger ? ' selected' : ''}>${rrEscapeHtml(tt(l))}</option>`).join('')}</select>
                 ${this.perPart ? `<label class="r3d-motion-field">${rrEscapeHtml(tt('Length'))} <input type="number" class="database-field-value r3d-motion-length" min="0.1" max="60" step="0.1" value="${(m.frames / 60).toFixed(2)}"> s</label>` : m.hold ? '' : `<span class="r3d-motion-field" title="${rrEscapeHtml(tt('Length'))}">${(m.frames / 60).toFixed(2)} s</span>`}
                 ${m.trigger === 'action' || m.trigger === 'jumping' ? `<label class="r3d-motion-field"><input type="checkbox" class="r3d-motion-repeat"${m.repeat ? ' checked' : ''}> ${rrEscapeHtml(tt('Repeat'))}</label>
                 ${m.trigger === 'action' ? `<label class="r3d-motion-field" title="${rrEscapeHtml(tt('Held until another stance moves the same parts.'))}"><input type="checkbox" class="r3d-motion-hold"${m.hold ? ' checked' : ''}> ${rrEscapeHtml(tt('Stance'))}</label>` : ''}` : ''}
                 <span style="flex:1"></span>
-                <button type="button" class="rr-btn-chip r3d-motion-play" data-rr-i18n-skip="1"></button>
                 <button type="button" class="r3d-motion-close" title="${rrEscapeHtml(tt('Close'))}">×</button>
             </div>
             ${this.perPart ? '' : this.poseBody(partName, track, pose, slider)}
@@ -551,7 +561,8 @@ class RRMotionEditor {
                     : `<div class="r3d-motion-eases" role="group">${choices.map(([id, label, title]) => `<button type="button" class="r3d-motion-ease${this.stepEase(step) === id ? ' on' : ''}" data-ease="${id}" title="${rrEscapeHtml(tt(title))}">${RRMotionEditor.easeCurve(id)}<span>${rrEscapeHtml(tt(label))}</span></button>`).join('')}</div>`}
             </div>`;
         const actions = step !== null ? timing : `<div class="r3d-motion-strip-actions">
-                ${button('r3d-motion-pose-mirror', tt('Mirror ⇆'), tt('Swap the left and right sides of this pose, as in a mirror'), !parts)}
+                ${button('r3d-motion-pose-mirror', tt('Flip pose ⇆'), tt('Swap the left and right sides of this pose, as in a mirror'), !parts)}
+                ${m.hold ? '' : button('r3d-motion-mirror-all', tt('Flip motion ⇆'), tt('Swap left and right in every pose: a left punch becomes a right one'), !parts)}
                 ${button('r3d-motion-pose-copy', tt('Copy'), tt('Copy the whole body\'s pose here'), !parts)}
                 ${button('r3d-motion-pose-paste', tt('Paste'), tt('Put the copied pose here'), !this.clipboard)}
                 ${m.hold ? '' : button('r3d-motion-pose-remove', tt('Delete pose'), '', times.length <= 1)}
@@ -631,6 +642,7 @@ class RRMotionEditor {
         }));
         root.querySelector('.r3d-motion-pose-remove')?.addEventListener('click', () => { if (this.deletePose(this.pose)) { this.step = null; show(this.pose - 1); changed(); } });
         root.querySelector('.r3d-motion-pose-mirror')?.addEventListener('click', () => { this.mirrorPose(); changed(); });
+        root.querySelector('.r3d-motion-mirror-all')?.addEventListener('click', () => { this.mirrorMotion(); changed(); });
         root.querySelector('.r3d-motion-pose-copy')?.addEventListener('click', () => { this.clipboard = JSON.parse(JSON.stringify(this.poseAtPlayhead())); this.render(); });
         root.querySelector('.r3d-motion-pose-paste')?.addEventListener('click', () => { if (this.clipboard) { this.writePose(JSON.parse(JSON.stringify(this.clipboard))); changed(); } });
         root.querySelector('.r3d-motion-part-reset')?.addEventListener('click', () => {
@@ -644,7 +656,10 @@ class RRMotionEditor {
 
     renderPlayButton() {
         const button = this.root && this.root.querySelector('.r3d-motion-play');
-        if (button) button.textContent = this.playing ? '❚❚' : '▶';
+        if (button) {
+            button.textContent = this.playing ? '❚❚' : '▶';
+            button.title = this._t(this.playing ? 'Pause' : 'Play');
+        }
     }
 
     drawPlayhead() {

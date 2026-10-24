@@ -5722,8 +5722,9 @@ class Database3DEditor {
      * the frame's axes (a rotate's X, Y and Z, the move's too), `unit` how far one unit of move goes in the
      * world. The whole model turns in its parent's frame about its origin; a part the file's clips drive, in
      * the model's frame; any other part, in its own rest frame. Null when the part is not on the model.
+     * `rest`: the frame with every part above it at rest, not as the pose at the playhead turns them.
      */
-    _motionPartFrame(part) {
+    _motionPartFrame(part, rest = false) {
         if (typeof THREE === 'undefined' || !this._binding || !this._object) return null;
         const root = this._binding.root;
         // A move is in tiles and the preview draws a body 1.6 units tall where the game draws 3 tiles.
@@ -5746,14 +5747,60 @@ class Database3DEditor {
         const { entry, depth } = found;
         entry.mesh.updateWorldMatrix(true, false);
         const at = entry.mesh.localToWorld(new THREE.Vector3().fromArray(entry.parts[depth].pivot || [0, 0, 0]));
-        if (entry.clipBase) {
-            root.updateWorldMatrix(true, false);
-            return { at, turn: root.getWorldQuaternion(new THREE.Quaternion()), unit: root.getWorldScale(new THREE.Vector3()).x * moveScale };
-        }
+        // The model's frame: at rest the root is unturned (each frame starts it there), so its parent's.
+        root.updateWorldMatrix(true, false);
+        const modelTurn = rest && root.parent ? root.parent.getWorldQuaternion(new THREE.Quaternion()) : root.getWorldQuaternion(new THREE.Quaternion());
+        if (entry.clipBase) return { at, turn: modelTurn, unit: root.getWorldScale(new THREE.Vector3()).x * moveScale };
         const parent = entry.mesh.parent;
-        const turn = parent ? parent.getWorldQuaternion(new THREE.Quaternion()) : new THREE.Quaternion();
-        turn.multiply(entry.baseQuaternion);
+        let turn;
+        if (rest) {
+            // Up the chain to the model, each posed part at its rest turn.
+            turn = entry.baseQuaternion.clone();
+            for (let node = parent; node && node !== root; node = node.parent) {
+                const own = this._binding.meshes.find(other => other.mesh === node);
+                turn.premultiply(own ? own.baseQuaternion : node.quaternion);
+            }
+            turn.premultiply(modelTurn);
+        } else {
+            turn = parent ? parent.getWorldQuaternion(new THREE.Quaternion()) : new THREE.Quaternion();
+            turn.multiply(entry.baseQuaternion);
+        }
         return { at, turn, unit: entry.mesh.getWorldScale(new THREE.Vector3()).x * moveScale };
+    }
+
+    /**
+     * A part's pose (`{ rotate, move }`, in its own frame) seen in a mirror across the model's middle and put on
+     * `to` (its other side, or itself): turned into the world, reflected left for right in the model's frame,
+     * and turned into `to`'s frame. Where the angles come out the plain swap (X kept, Y and Z negated), those
+     * numbers are kept, so keys stay the ones a person would type. Null when either part is not on the model.
+     */
+    _mirrorPartValue(from, to, value) {
+        if (typeof THREE === 'undefined' || !this._binding) return null;
+        const a = this._motionPartFrame(from, true), b = this._motionPartFrame(to, true);
+        if (!a || !b) return null;
+        const rad = Math.PI / 180;
+        const root = this._binding.root;
+        const model = root.parent ? root.parent.getWorldQuaternion(new THREE.Quaternion()) : new THREE.Quaternion();
+        const inModel = q => model.clone().invert().multiply(q).multiply(model);
+        const outModel = q => model.clone().multiply(q).multiply(model.clone().invert());
+        const turn = new THREE.Quaternion().setFromEuler(new THREE.Euler(value.rotate[0] * rad, value.rotate[1] * rad, value.rotate[2] * rad, 'XYZ'));
+        const world = a.turn.clone().multiply(turn).multiply(a.turn.clone().invert());
+        const m = inModel(world);
+        const mirrored = outModel(new THREE.Quaternion(m.x, -m.y, -m.z, m.w));
+        const local = b.turn.clone().invert().multiply(mirrored).multiply(b.turn);
+        const plain = [value.rotate[0], -value.rotate[1], -value.rotate[2]];
+        const plainQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(plain[0] * rad, plain[1] * rad, plain[2] * rad, 'XYZ'));
+        let rotate = plain;
+        if (Math.abs(plainQ.dot(local)) < 0.9999) {
+            const e = new THREE.Euler().setFromQuaternion(local, 'XYZ');
+            rotate = [e.x, e.y, e.z].map(v => Math.round(v / rad * 10) / 10);
+        }
+        // A slide likewise: into the model's frame, left for right, into the other part's frame.
+        const slide = new THREE.Vector3().fromArray(value.move).multiplyScalar(a.unit || 1).applyQuaternion(a.turn).applyQuaternion(model.clone().invert());
+        slide.x = -slide.x;
+        slide.applyQuaternion(model).applyQuaternion(b.turn.clone().invert()).divideScalar(b.unit || 1);
+        const move = slide.toArray().map(v => Math.round(v * 1000) / 1000 + 0);
+        return { rotate: rotate.map(v => v + 0), move };
     }
 
     /**

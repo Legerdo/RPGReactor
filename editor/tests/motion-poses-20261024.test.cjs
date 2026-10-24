@@ -194,7 +194,7 @@ test('the part being bent has rings (red X, green Y, blue Z) and arrows on the m
     assert.deepEqual(plain(stop.rotate), [10, 0, 30]);
     assert.deepEqual(plain(stop.move), [0, 0.25, 0]);
     const host = read('editor/src/database/Database3DEditor.js');
-    for (const name of ['_motionPartFrame(part) {', '_syncMotionGizmo() {', '_pickMotionGizmo(clientX, clientY) {', '_dragMotionGizmo(hold, clientX, clientY) {', "mode = 'motiongizmo';"])
+    for (const name of ['_motionPartFrame(part, rest = false) {', '_mirrorPartValue(from, to, value) {', '_syncMotionGizmo() {', '_pickMotionGizmo(clientX, clientY) {', '_dragMotionGizmo(hold, clientX, clientY) {', "mode = 'motiongizmo';"])
         assert.ok(host.includes(name), name);
     // Nested as Euler XYZ composes, so each ring turns just its own number.
     assert.match(host, /gizmo\.rings\.yaw\.group\.rotation\.set\(pose\.rotate\[0\] \* rad, 0, 0\);/);
@@ -261,4 +261,49 @@ test('with a step picked nothing bends: no handles, no part picked or lit, the p
     assert.match(host, /const track = editor && editor\.active && editor\.bending\(\) \? editor\.motion\.tracks\[editor\.track\] : null;/);
     assert.match(host, /const found = inside && picking \? this\._partUnderPointer/);
     assert.match(read2('editor/src/database/MotionEditor.js'), /'Click a pose card to bend it\.'/);
+});
+
+test('a flip goes through the model\'s own frames: a rig whose right arm is rolled unlike its left still lands mirrored', () => {
+    const Database3DEditor = require(path.join(repoRoot, 'editor/src/database/Database3DEditor.js'));
+    const T = global.THREE;
+    const holder = new T.Group(), root = new T.Group();
+    holder.add(root);
+    const qL = new T.Quaternion().setFromEuler(new T.Euler(0.3, -0.5, 1.1, 'XYZ'));
+    const roll = new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), Math.PI);
+    const qR = new T.Quaternion(qL.x, -qL.y, -qL.z, qL.w).multiply(roll);
+    const bone = (name, q, x) => { const b = new T.Object3D(); b.quaternion.copy(q); b.position.set(x, 1, 0); root.add(b); return { mesh: b, parts: [{ name, pivot: [0, 0, 0] }], baseQuaternion: q.clone(), clipBase: null }; };
+    const host = Object.create(Database3DEditor.prototype);
+    host._binding = { root, meshes: [bone('LeftUpperArm', qL, 0.2), bone('RightUpperArm', qR, -0.2)] };
+    host._object = root;
+    host._scale = 1;
+    const value = { rotate: [-50, 30, 45], move: [0, 0, 0] };
+    const out = host._mirrorPartValue('LeftUpperArm', 'RightUpperArm', value);
+    assert.ok(out && out.rotate.length === 3);
+    // A point on the left arm, turned, seen in the mirror, is the same point on the right arm turned by the flip.
+    const rad = Math.PI / 180, turn = r => new T.Quaternion().setFromEuler(new T.Euler(r[0] * rad, r[1] * rad, r[2] * rad, 'XYZ'));
+    const pL = new T.Vector3(0.2, 1, 0.1);
+    const pR = pL.clone().setX(-pL.x).applyQuaternion(roll.clone().invert());
+    const left = pL.clone().applyQuaternion(turn(value.rotate)).applyQuaternion(qL);
+    const right = pR.clone().applyQuaternion(turn(out.rotate)).applyQuaternion(qR);
+    assert.ok(Math.abs(left.x + right.x) < 1e-3 && Math.abs(left.y - right.y) < 1e-3 && Math.abs(left.z - right.z) < 1e-3,
+        `mirrored: ${left.toArray()} / ${right.toArray()}`);
+    assert.notDeepEqual(out.rotate, [-50, -30, -45], 'not the plain swap, which would be wrong for this rig');
+    // Joints in the model's frame (clip-driven) keep the plain swap's numbers.
+    host._binding.meshes.forEach(entry => { entry.clipBase = {}; });
+    assert.deepEqual(host._mirrorPartValue('LeftUpperArm', 'RightUpperArm', value).rotate, [-50, -30, -45]);
+});
+
+test('Flip motion flips every pose; a side new to the motion rests in the poses it was not flipped into', () => {
+    const editor = editorWith([{ part: 'LeftUpperArm', keys: [key(0, [0, 0, 0]), key(0.5, [-40, 10, 20]), key(1, [0, 0, 0])] }]);
+    editor.mirrorMotion();
+    const right = editor.motion.tracks.find(t => t.part === 'RightUpperArm');
+    assert.deepEqual(right.keys.map(k => k.at), [0, 0.5, 1]);
+    assert.deepEqual(plain(right.keys[1].rotate), [-40, -10, -20]);
+    assert.deepEqual(plain(editor.motion.tracks[0].keys[1].rotate), [0, 0, 0], 'the left now rests there');
+    const one = editorWith([{ part: 'LeftUpperArm', keys: [key(0, [0, 0, 0]), key(1, [30, 0, 0])] }]);
+    one.playhead = 1;
+    one.mirrorPose();
+    assert.deepEqual(one.motion.tracks.find(t => t.part === 'RightUpperArm').keys.map(k => k.at), [0, 1], 'rests at pose 1 though only pose 2 was flipped');
+    const src = read2('editor/src/database/MotionEditor.js');
+    assert.match(src, /<div class="lit-section-header r3d-motion-head">\n\s*<button type="button" class="rr-btn-chip r3d-motion-play"/, 'play comes first, before the name');
 });
