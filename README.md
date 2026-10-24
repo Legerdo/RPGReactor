@@ -6,16 +6,16 @@ Use RPG Reactor to create, edit, playtest, and package 2D RPGs with familiar RPG
 
 Pre-built download binaries are available at <https://psychronic.itch.io/rpg-reactor>. The current development version is 0.99.1 and is not published yet; the latest tagged source release is [0.99.0](https://github.com/Psychronic-Games/RPGReactor/releases/tag/v0.99.0).
 
-## What's new in 0.99.0
+## What's new in 0.99.1
 
-- **Battles on the map:** Tactical, Action and First Person battles play on the map itself, beside the Classic battle screen: range, flanking, cover and height, overwatch, a cinematic camera, a HUD per mode that you can restyle, and your Action Sequences on 2D and 3D maps alike.
-- **Vehicles:** author vehicles in the Database, ride them between maps with your party riding behind, and fight from them. Vehicles take damage, can be wrecked and revived, and sink in deep water.
-- **One seamless world:** maps join at their borders with no fade or loading screen, neighboring maps stand on the horizon, and the Demo adds the five-map Open Road.
-- **Landscapes:** rocks that stack into cliffs, rivers and waterfalls, foliage, painted ground, dunes and biomes, doors that open, materials with relief, and night.
-- **Models and movement:** model variants, hands that grip their weapons, weapons and vehicle seats you rig with a few markers, and characters that climb ledges and roofs.
-- **Faster, lighter, further:** games keep their speed and frame rate on weak hardware, the editor uses less memory, more RPG Maker 2000 to VX Ace games import with their own systems, and web builds can pack their files into a few archives.
+- **3D Character Builder:** make a character with sliders and pickers (dozens of species, any build, hair, clothing and armor) and save it as a rigged 3D model that walks, runs and fights in your game. Animals, birds, insects and sea creatures too.
+- **3D Prop Builder:** furniture, appliances, electronics, sci-fi interiors, weapons, tools and nine vehicles, built and saved the same way.
+- **Windows of their own:** the Database, the event editor, the Forge and plugin settings open beside the map, on a second monitor too.
+- **Battles:** battlers climb walls, jump down roofs (with fall damage you can see coming) and grapple up to ledges with a Grappler accessory. Troop pages run in battles on the map, and Effekseer effects match RPG Maker MZ's size.
+- **The world:** crossing between maps has no stall, the editor shows neighboring maps past a 2D map's edge, and self switches run from A to Z.
+- **Faster on weak hardware:** big 3D maps draw far less, 2D maps walk smoother, and high refresh rate screens get smooth motion.
 
-Read the [0.99.0 release notes](docs/posts/release-notes-0.99.0.md) for details. Everything here is opt-in; a 2D project stays a 2D project until a map is switched to 3D. Earlier updates remain in the [changelog](CHANGELOG.md) and [devlog archive](docs/README.md).
+Read the [0.99.1 release notes](docs/posts/release-notes-0.99.1.md) for details. Everything here is opt-in; a 2D project stays a 2D project until a map is switched to 3D. Earlier updates remain in the [changelog](CHANGELOG.md) and [devlog archive](docs/README.md).
 
 ## Repository Layout
 
@@ -34,7 +34,7 @@ RPGReactor/
 ## Documentation
 
 - [Editor README](editor/README.md): detailed feature list, source launch steps, project structure, shortcuts, and technical notes.
-- [Latest release notes](docs/posts/release-notes-0.99.0.md): features, fixes, and compatibility limits for 0.99.0.
+- [Latest release notes](docs/posts/release-notes-0.99.1.md): features, fixes, and compatibility limits for 0.99.1.
 - [Changelog](CHANGELOG.md): upcoming development and previous releases.
 - [Current status](docs/STATUS.md): the verified state of the tree, runtime defaults, test results, and open work.
 - [Authoring a world](docs/AUTHORING.md): where every part of a 3D map lives, which tool edits it by hand, what a generator writes, and what checks it.

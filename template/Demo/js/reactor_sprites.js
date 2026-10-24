@@ -5549,6 +5549,7 @@ Spriteset_Map.prototype.createReactor3D = function() {
     try {
         // Crossed into over a border: the world that stood past it is this map's, as it stands.
         const adopted = Reactor3D.Neighbors && Reactor3D.Neighbors.adopt($gameMap.mapId());
+        if (adopted) this._reactor3dAdoptedAt = Graphics.frameCount;
         // Opened while the map is still loading: its pieces and water are laid over the frames of that wait
         // (Reactor3D.Arrival, updateReactor3DArrival).
         const arrival = !adopted && this.isReactor3DArrivalTime() ? this.reactor3DArrivalJob() : null;
@@ -5925,7 +5926,26 @@ Spriteset_Map.prototype.updateReactor3D = function() {
     // On a screen 60 does not divide, the world is drawn on the refreshes
     // Graphics.FramePacing picks, between this update and the last.
     if (typeof Graphics !== "undefined" && Graphics.FramePacing && Graphics.FramePacing.drawsWorld(this)) return;
+    if (this.reactor3DKeepsLastPicture(state)) return;
     this.drawReactor3D(state);
+};
+
+/**
+ * The update a border is crossed in (Reactor3D.Neighbors): the scene of the map entered is the world that stood
+ * past the border, and the game does not move on this update. The passes still hold the map left's last picture
+ * of that same world, and they show it again; the map entered draws from the next update. The crossing frame
+ * then makes the new scene without also drawing the world (a third of it on a fast machine, a whole frame of
+ * the GPU on an integrated one). Only where every pass this map shows was drawn together in that last draw,
+ * `Neighbors.KEEP_PICTURE` updates back at most.
+ */
+Spriteset_Map.prototype.reactor3DKeepsLastPicture = function(state) {
+    const viewport = state && state.viewport, N = Reactor3D.Neighbors;
+    if (this._reactor3dAdoptedAt !== Graphics.frameCount || !N || !viewport || !viewport.drawnAt || !(viewport.isShared && viewport.isShared())) return false;
+    const drawn = viewport.drawnAt("below");
+    if (!(drawn >= Graphics.frameCount - N.KEEP_PICTURE)) return false;
+    if (this._reactor3dAbove && viewport.drawnAt("above") !== drawn) return false;
+    if (this._reactor3dLights && viewport.drawnAt("lights") !== drawn) return false;
+    return true;
 };
 
 /** The passes of this frame's world, from the camera as it stands. */

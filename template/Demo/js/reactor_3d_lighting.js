@@ -1352,7 +1352,8 @@ Reactor3D.MapScene.prototype.updateCutaway = function(camera, mapData, character
     const cutState = shared.rrCutTop.value === 1e9 ? "none" : shared.rrCutTop.value + ":" + shared.rrCutBox.value.join(",");
     if (cutState !== this._cutState) {
         this._cutState = cutState;
-        if (Reactor3D.Shadows && Reactor3D.Shadows.invalidate) Reactor3D.Shadows.invalidate();
+        const S = Reactor3D.Shadows;
+        if (S) { if (S.cutChanged) S.cutChanged(); else if (S.invalidate) S.invalidate(); }
         if (this.updateCutCaps) this.updateCutCaps(mapData, shared.rrCutTop.value, cutState === "none" ? null : shared.rrCutBox.value);
     }
     shared.rrCutEye.value[0] = eye.x; shared.rrCutEye.value[1] = eye.y; shared.rrCutEye.value[2] = eye.z;
@@ -3774,6 +3775,17 @@ Reactor3D.Shadows = {
     },
 
     /**
+     * The storey cut changed (a roof taken away over the player, or put back; a storey picked in the
+     * editor): every static row and the sun's cascades are drawn again on the next frame, all of
+     * them, so a roof cut away casts no shadow for even a frame and one put back casts at once. A
+     * frame with the cut unchanged draws nothing more.
+     */
+    cutChanged() {
+        this._generation++;
+        this._rush = true;
+    },
+
+    /**
      * The casters under `scene` leave the lists: a map scene going away keeps its
      * groups' children attached, so no later draw finds them parentless and drops
      * them, and each list would hold that map's models (their geometry and pictures).
@@ -4609,6 +4621,9 @@ Reactor3D.Shadows = {
         const dynTiles = this._dynTiles;
         this._frame++;
         const staticChange = this._changedStatics();
+        // A cut changed since the last frame (`cutChanged`): what it touches is drawn now, past the pacing.
+        const rush = !!this._rush;
+        this._rush = false;
         // Which characters can afford to cast, and whether any of them has
         // moved or animated since the rows were drawn. Both must run before
         // the row loop: the budget decides what the change list even holds.
@@ -4622,7 +4637,7 @@ Reactor3D.Shadows = {
         for (const tile of tiles) if (tile.id !== null) farById.set(tile.id, tile.far);
         // The brightest sun casts through its own cascades and takes no row.
         const sun = Reactor3D.SUN_SHADOW_MAP && this._atlas.band > 0 ? this._pickSun() : null;
-        const sunJobs = this._planSun(sun, focus, scene, staticChange, dynamicChange, quality);
+        const sunJobs = this._planSun(sun, focus, scene, staticChange, dynamicChange, quality, rush);
         const wanted = [];
         for (const candidate of this._candidates) {
             if (sunJobs && candidate === sun) continue;
@@ -4710,9 +4725,9 @@ Reactor3D.Shadows = {
         // animated part, or a torch in the player's hand, redraws the props
         // around it a few times a second rather than every frame.
         const interval = Reactor3D.SHADOW_STATIC_INTERVAL;
-        let staticJobs = tiles.filter(t => t.id !== null && t.dirty && (!t.valid || this._frame - t.stamp >= interval))
+        let staticJobs = tiles.filter(t => t.id !== null && t.dirty && (rush || !t.valid || this._frame - t.stamp >= interval))
             .sort((a, b) => (a.valid - b.valid) || (a.gap - b.gap))
-            .slice(0, quality.staticPerFrame || 1);
+            .slice(0, rush ? tiles.length : quality.staticPerFrame || 1);
         // A new origin/far plane changes how BOTH atlases are sampled. Queue
         // its dynamic partner too, even if the characters stood still.
         for (const row of dynTiles) {
@@ -4720,9 +4735,9 @@ Reactor3D.Shadows = {
             if (row.id !== null && tile && tile.id === row.id && tile.want && staticJobs.includes(tile)) row.dirty = true;
         }
         const dynInterval = quality.dynamicInterval || 1;
-        const dynJobs = dynTiles.filter(d => d.id !== null && d.dirty && (!d.valid || this._frame - d.stamp >= dynInterval))
+        const dynJobs = dynTiles.filter(d => d.id !== null && d.dirty && (rush || !d.valid || this._frame - d.stamp >= dynInterval))
             .sort((a, b) => (a.valid - b.valid) || (a.stamp - b.stamp))
-            .slice(0, quality.dynamicPerFrame || 1);
+            .slice(0, rush ? dynTiles.length : quality.dynamicPerFrame || 1);
         // Keep the old, matching pair until both rows fit this frame's
         // budgets. Publishing just the new static origin would hide the old
         // dynamic shadow for a frame (or longer on the weak tier).
@@ -4849,7 +4864,7 @@ Reactor3D.Shadows = {
      * share a pose; the moving half alone follows the characters in it,
      * the far cascade at half the near one's rate. Null when no sun casts.
      */
-    _planSun(sun, focus, scene, staticChange, dynamicChange, quality) {
+    _planSun(sun, focus, scene, staticChange, dynamicChange, quality, rush = false) {
         if (!sun || !focus || !Number.isFinite(focus.x)) { this._sun = null; return null; }
         // Directional: its own direction when it has one, else from the focus toward where it stands.
         const lx = sun.dir ? sun.dir[0] : sun.x - focus.x, ly = sun.dir ? sun.dir[1] : (sun.lightY !== undefined ? sun.lightY : sun.y) - focus.y;
@@ -4906,16 +4921,18 @@ Reactor3D.Shadows = {
         // Nothing yet first, then the nearest cascade.
         let chosen = null;
         for (const cascade of state.cascades) {
+            // (A cut just changed: every cascade it left stale, this frame.)
+            if (rush && cascade.dirty) { jobs.statics.push(cascade); jobs.dynamics.push(cascade); continue; }
             if (!cascade.dirty || (cascade.valid && this._frame - cascade.stamp < interval && !cascade.want)) continue;
             if (!chosen || (chosen.valid && !cascade.valid)) chosen = cascade;
         }
-        if (chosen) {
+        if (chosen && !rush) {
             jobs.statics.push(chosen);
             jobs.dynamics.push(chosen);
         }
         for (let k = 0; k < state.cascades.length; k++) {
             const cascade = state.cascades[k];
-            if (cascade === chosen || !cascade.valid || !cascade.dynDirty) continue;
+            if (cascade === chosen || jobs.statics.includes(cascade) || !cascade.valid || !cascade.dynDirty) continue;
             if (this._frame - cascade.dynStamp < dynInterval * (k + 1)) continue;
             jobs.dynamics.push(cascade);
         }
@@ -7645,7 +7662,7 @@ Reactor3D.WaterLight = {
     _memo: new WeakMap(),
     _spreads: new Map(),
     _serial: 0,
-    _lastKey: "",
+    _signatures: new Map(),
 
     /** What a sheet's spread depends on: where its water lies. */
     shapeKey(region) {
@@ -7678,8 +7695,15 @@ Reactor3D.WaterLight = {
             sheets.sort((a, b) => b.shade.light - a.shade.light || b.cells - a.cells);
             sheets.length = Math.min(sheets.length, this.MAX_SHEETS);
             const key = mapData.width + "x" + mapData.height + ";" + sheets.map(sheet => this.shapeKey(sheet.region) + "|" + sheet.region.glow + "|" + (sheet.region.colour || "")).join(";");
-            if (key !== this._lastKey) { this._lastKey = key; this._serial++; }
-            info = { signature: "water" + this._serial, sheets, width: mapData.width, height: mapData.height };
+            // One signature per look of the water, kept: a map entered again over a border (a new copy of
+            // its data) finds its picture made already instead of making it in the crossing frame.
+            let signature = this._signatures.get(key);
+            if (!signature) {
+                if (this._signatures.size >= 64) this._signatures.clear();
+                signature = "water" + (++this._serial);
+                this._signatures.set(key, signature);
+            }
+            info = { signature, sheets, width: mapData.width, height: mapData.height };
         }
         this._memo.set(raw, info);
         return info;
@@ -7800,6 +7824,24 @@ Reactor3D.WaterLight = {
         held.texture.needsUpdate = true;
         held.signature = info.signature;
         return held.texture;
+    },
+
+    /**
+     * The picture of a map beside the one played (past a border), made in idle time while the map
+     * played has no glowing water of its own using the picture: crossing into it then makes nothing
+     * (7 ms of the crossing frame into North Haven on an integrated GPU).
+     */
+    prepare(mapData, played) {
+        if (this._preparing || !mapData || this.describe(played)) return;
+        const info = this.describe(mapData), held = this._texture;
+        if (!info || (held && held.signature === info.signature && held.width === info.width && held.height === info.height)) return;
+        this._preparing = true;
+        const later = typeof requestIdleCallback === "function" ? fn => requestIdleCallback(fn, { timeout: 1000 }) : fn => setTimeout(fn, 0);
+        later(() => {
+            this._preparing = false;
+            const now = typeof $dataMap !== "undefined" ? $dataMap : null, again = this.describe(mapData);
+            if (again && !this.describe(now)) this.texture(mapData, again);
+        });
     },
 
     /** How high the focus may stand before the volume is raised with it: under this the volume stays where every map's does. */
@@ -8279,6 +8321,11 @@ Reactor3D.HalfLight = {
         twin.uuid = THREE.MathUtils.generateUUID();
         twin._listeners = {};
         twin.__rrTwinOf = material;
+        // Its own program, so its own warmup record (Reactor3D.ShaderWarmup): one read through from the original
+        // (warmed in a pass that draws it lit) let the twin skip the warmup and compile inside its first draw.
+        twin.__rrWarm = undefined;
+        twin.__rrWarmMap = undefined;
+        twin.__rrSeen = 0;
         twin.customProgramCacheKey = function() { return material.customProgramCacheKey.call(this) + "|unlit"; };
         twin.onBeforeCompile = function(shader, renderer) {
             material.onBeforeCompile.call(this, shader, renderer);
@@ -8488,6 +8535,37 @@ Reactor3D.HalfLight = {
         return { wet: !!(water && water.length), sheen: !!(u.rrWaterFarEdge && u.rrWaterFarEdge.value > 0 && u.rrWaterSheen && u.rrWaterSheen.value > 0) };
     },
 
+    /**
+     * A map about to become the one played (the map past a border) is drawn with whichever combine
+     * its water and its glowing water ask for, which only the scene it is drawn in knows (the
+     * water of every world standing in it): each of the four is compiled ahead by `warmAhead`.
+     */
+    _expected: null,
+    expect() {
+        if (!this._expected) this._expected = [false, true].flatMap(wet => [false, true].map(sheen => ({ wet, sheen })));
+    },
+
+    /**
+     * One expected full-screen program of `kind` ("light", "upsample" or "combine") not yet built
+     * starts compiling on the driver's threads, from inside the pass that draws that kind, so its
+     * target (and the output it decides) is the one its draw will have. The first draw after a
+     * border crossing then finds it linked: built in that draw, it stopped the frame on the
+     * driver's answer (48 ms on an integrated Radeon). Nothing without parallel compiling: there
+     * a compile cannot be started without waiting for it.
+     */
+    warmAhead(renderer, kind) {
+        const W = Reactor3D.ShaderWarmup;
+        if (!this._expected || !W || !W.enabled || !W.supported(renderer)) return;
+        for (const { wet, sheen } of this._expected) {
+            const quad = kind === "light" ? this.program(renderer, sheen) : kind === "upsample" ? this.upsampleProgram(renderer, wet, sheen) : this.combineQuad(wet, sheen);
+            if (quad.warmed === renderer) continue;
+            quad.warmed = renderer;
+            if (renderer.properties.get(quad.material).currentProgram) continue;
+            try { W.compileGuarded(renderer, quad.scene, quad.camera, quad.scene); } catch (error) { /* built in its first draw */ }
+            return;
+        }
+    },
+
     /** After the unlit draw: the light, the combine, then the rest of the pass. */
     finish(renderer, scene, target, camera, split) {
         this.unswap(split);
@@ -8521,6 +8599,7 @@ Reactor3D.HalfLight = {
             camera.getWorldPosition(pass.camera.position);
             renderer.setRenderTarget(light);
             renderer.render(pass.scene, pass.camera);
+            this.warmAhead(renderer, "light");
             split.light = light;
             // Every pixel of the pass written: the unlit colour, lit. Matched
             // to the surfaces the light falls on, the pass's depth is read,
@@ -8545,6 +8624,7 @@ Reactor3D.HalfLight = {
                 up.camera.position.copy(pass.camera.position);
                 renderer.setRenderTarget(view);
                 renderer.render(up.scene, up.camera);
+                this.warmAhead(renderer, "upsample");
                 renderer.setRenderTarget(target);
             } else {
                 renderer.setRenderTarget(target);
@@ -8558,6 +8638,7 @@ Reactor3D.HalfLight = {
                     combine.camera.position.copy(pass.camera.position);
                 }
                 renderer.render(combine.scene, combine.camera);
+                this.warmAhead(renderer, "combine");
             }
             // Everything else, lit as it always was, over the lit surfaces.
             for (const m of split.deferred) m.visible = false;

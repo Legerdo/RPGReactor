@@ -2159,19 +2159,32 @@ Reactor3D.ShaderWarmup = {
     // Programs started a frame at most: building each one's source is CPU
     // work too (a map's first frame spent 200 ms on it).
     COMPILES_PER_FRAME: 6,
+    /**
+     * Milliseconds since a material was last drawn within which a recompile is drawn as before.
+     * In the game, one out of sight longer than this that comes back into a view drawn all along,
+     * needing another program (it changed while unseen: shadows came on, a map's plants revealed
+     * by a border crossing), waits for it as a new one does: nothing on screen disappears and
+     * nothing coming into view stops the frame. A view that was itself not drawn for as long (a
+     * menu over the map, the editor's still view) draws its recompiles as before.
+     */
+    SEEN_MS: 250,
     materialReady(renderer, material, mesh, scene, camera, now) {
         const props = renderer.properties.get(material);
         const program = props && props.currentProgram;
         if (program && props.__version === material.version) return true;
         let state = this._materials.get(material);
-        // Drawn before (another variant, or a recompile): not held.
-        if (!state && program) return true;
+        // Coming back into view with its program to change: held while it compiles, the wait counted from now.
+        const returning = !!program && this._viewKept && !(now - (material.__rrSeen || 0) <= this.SEEN_MS);
+        if (returning && state && state.version === material.version && state.returning) return state.ready || now - state.started > this.TIMEOUT_MS;
+        // Drawn a moment ago (another variant, or a recompile): not held.
+        if (!state && program && !returning) return true;
         // Changed since its compile began (shadows came on during the first
         // frame and every lit material took its shadow variant): compile the
         // variant the draw will ask for. The timeout runs from the first ask.
-        if (!state || state.version !== material.version) {
+        if (!state || state.version !== material.version || (returning && !state.returning)) {
             if (this._startedThisFrame >= this.COMPILES_PER_FRAME) return false;
-            state = this.start(renderer, material, mesh, scene, camera, now, state);
+            state = this.start(renderer, material, mesh, scene, camera, now, returning ? null : state);
+            state.returning = returning;
         }
         return state.ready || now - state.started > this.TIMEOUT_MS;
     },
@@ -2205,6 +2218,10 @@ Reactor3D.ShaderWarmup = {
         if (!this.enabled || !this.supported(renderer)) return null;
         const now = typeof performance !== "undefined" ? performance.now() : Date.now();
         this._startedThisFrame = 0;
+        // Whether this renderer has drawn all along (SEEN_MS), in the game.
+        const last = this._drawnAt.get(renderer);
+        this._viewKept = last !== undefined && now - last <= this.SEEN_MS && !this.inEditor();
+        this._drawnAt.set(renderer, now);
         const queue = this._queues.get(renderer);
         if (queue && (queue.list.length || (queue.bands && queue.bands.length))) this.pump(renderer);
         let hidden = null;
@@ -2219,10 +2236,11 @@ Reactor3D.ShaderWarmup = {
                     // (Asking walked every property of every material on every draw: a
                     // material never drawn never had the program version the check wanted.)
                     if (!material || !material.visible) continue;
-                    if (material.__rrWarm === material.version && material.__rrWarmMap === material.map) continue;
+                    // When it was last drawn (SEEN_MS): only once it may be.
+                    if (material.__rrWarm === material.version && material.__rrWarmMap === material.map) { material.__rrSeen = now; continue; }
                     if (!this.materialReady(renderer, material, object, scene, camera, now)) ready = false;
                     else if (!this.picturesReady(renderer, material)) ready = false;
-                    else { material.__rrWarm = material.version; material.__rrWarmMap = material.map; }
+                    else { material.__rrWarm = material.version; material.__rrWarmMap = material.map; material.__rrSeen = now; }
                 }
                 if (!ready) { object.visible = false; (hidden || (hidden = [])).push(object); return true; }
             }
@@ -2233,6 +2251,8 @@ Reactor3D.ShaderWarmup = {
         return hidden;
     },
     lastHidden: 0,
+    _drawnAt: new WeakMap(),
+    _viewKept: false,
     show(hidden) {
         for (const object of hidden) object.visible = true;
     }
@@ -2371,6 +2391,7 @@ Reactor3D.Viewport.prototype.renderInto = function(target, scene, camera) {
             Reactor3D.renderScene(this._renderer, scene, camera);
             if (split) Reactor3D.HalfLight.finish(this._renderer, scene, target, camera, split);
             if (haze) Reactor3D.HalfHaze.draw(this._renderer, target, camera, haze, split);
+            Reactor3D.HalfHaze.warmAhead(this._renderer, target);
         } finally {
             if (split) Reactor3D.HalfLight.restore(split);
             if (haze) Reactor3D.HalfHaze.restore(haze);
@@ -3057,7 +3078,13 @@ Reactor3D.Viewport.prototype.renderPass = function(mapScene, which, slot) {
     const empty = this.render(slot);
     if (Reactor3D.EffekseerScene) Reactor3D.EffekseerScene.setPass("all");
     mapScene.setPass("all");
+    (this._slotDrawn || (this._slotDrawn = {}))[slot] = frame;
     return empty === true;
+};
+
+/** The update (Graphics.frameCount) a pass's target was last drawn on; undefined when never. */
+Reactor3D.Viewport.prototype.drawnAt = function(slot) {
+    return this._slotDrawn ? this._slotDrawn[slot] : undefined;
 };
 
 Reactor3D.Viewport.prototype.setVisible = function(visible) {
@@ -9359,23 +9386,8 @@ Reactor3D.HalfHaze = {
         this._shrink = { material, scene, camera: new THREE.Camera() };
         return this._shrink;
     },
-    /**
-     * `split`: the pass's light (Reactor3D.HalfLight), when drawn: its small
-     * light's alpha is each texel's distance, and the haze is filtered up
-     * from the samples on each pixel's own surface, so it stays crisp at a
-     * silhouette in front of it.
-     */
-    draw(renderer, target, camera, list, split) {
-        const light = split ? split.light : null;
-        // (A halo's feeders alone, with no haze this frame: their group stands in the same light bodies.)
-        const group = list.length ? list[0].parent : list.halo.parent;
-        const w = Math.max(1, Math.ceil(target.width * this.SCALE)), h = Math.max(1, Math.ceil(target.height * this.SCALE));
-        let half = this._target;
-        if (!half || half.width !== w || half.height !== h) {
-            if (half) half.dispose();
-            half = this._target = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false,
-                minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
-        }
+    /** The haze's small picture laid over the pass, filtered up (made once). */
+    quad() {
         if (!this._quad) {
             const material = new THREE.ShaderMaterial({
                 uniforms: { map: { value: null }, small: { value: null }, depth: { value: null }, matched: { value: 0 },
@@ -9424,6 +9436,80 @@ Reactor3D.HalfHaze = {
             quadScene.add(mesh);
             this._quad = { scene: quadScene, camera: new THREE.Camera(), material };
         }
+        return this._quad;
+    },
+    /**
+     * The haze's and the halo's programs (Reactor3D.Halo), compiled ahead on the driver's
+     * threads once a map with lamps or glowing water lies past the border the party nears
+     * (`expect`, Reactor3D.Neighbors): a map with none of its own never drew them, and the first
+     * draws of the map entered built them all. Each draws into a small picture of its own or
+     * into the pass; stand-in targets of each kind give the program the output its draw will
+     * have. One a call, from inside the pass's draw (Viewport.renderInto), on a pass that can
+     * have the haze (one with a depth texture).
+     */
+    expect() { this._expected = true; },
+    warmAhead(renderer, target) {
+        if (!this._expected || this._warmedFor === renderer || !target || !target.depthTexture) return;
+        const W = Reactor3D.ShaderWarmup;
+        if (!W || !W.enabled || !W.supported(renderer)) return;
+        for (const entry of this.warmList()) {
+            if (entry.done === renderer) continue;
+            entry.done = renderer;
+            if (renderer.properties.get(entry.material).currentProgram) continue;
+            const before = renderer.getRenderTarget();
+            try { renderer.setRenderTarget(this.standIn(entry.output)); W.compileGuarded(renderer, entry.scene, entry.camera, entry.scene); }
+            catch (error) { /* built in its first draw */ }
+            finally { renderer.setRenderTarget(before); }
+            return;
+        }
+        this._warmedFor = renderer;
+    },
+    /** What `warmAhead` compiles: the haze's quads, a lamp's glow, the halo's quads and a feeder; `output` "small" or "pass". */
+    warmList() {
+        if (this._warmList) return this._warmList;
+        const eye = new THREE.PerspectiveCamera(), alone = mesh => { mesh.frustumCulled = false; const scene = new THREE.Scene(); scene.add(mesh); return scene; };
+        const list = [];
+        const shrink = this.shrinkQuad(), quad = this.quad();
+        list.push({ scene: shrink.scene, camera: shrink.camera, material: shrink.material, output: "small" });
+        list.push({ scene: quad.scene, camera: quad.camera, material: quad.material, output: "pass" });
+        const glow = new THREE.Mesh(Reactor3D.sphereBodyGeometry(), Reactor3D.lightBodyMaterial());
+        list.push({ scene: alone(glow), camera: eye, material: glow.material, output: "small" });
+        const halo = Reactor3D.Halo;
+        if (halo && halo.quads && halo.surfaceMaterial) {
+            const q = halo.quads();
+            for (const [part, output] of [["down", "small"], ["up", "small"], ["screen", "pass"]]) list.push({ scene: q[part].scene, camera: q.camera, material: q[part].material, output });
+            const feeder = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), halo.surfaceMaterial({ colour: { value: new THREE.Color() }, strength: { value: 0 } }));
+            list.push({ scene: alone(feeder), camera: eye, material: feeder.material, output: "small" });
+        }
+        return (this._warmList = list);
+    },
+    /** A 1x1 target of each kind of output: a picture of its own (linear), or one written as the pass is. */
+    standIn(output) {
+        const held = this._standIns || (this._standIns = {});
+        if (!held[output]) {
+            const target = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false, stencilBuffer: false, generateMipmaps: false });
+            held[output] = output === "pass" && Reactor3D.sharePassOutput ? Reactor3D.sharePassOutput(target) : target;
+        }
+        return held[output];
+    },
+    /**
+     * `split`: the pass's light (Reactor3D.HalfLight), when drawn: its small
+     * light's alpha is each texel's distance, and the haze is filtered up
+     * from the samples on each pixel's own surface, so it stays crisp at a
+     * silhouette in front of it.
+     */
+    draw(renderer, target, camera, list, split) {
+        const light = split ? split.light : null;
+        // (A halo's feeders alone, with no haze this frame: their group stands in the same light bodies.)
+        const group = list.length ? list[0].parent : list.halo.parent;
+        const w = Math.max(1, Math.ceil(target.width * this.SCALE)), h = Math.max(1, Math.ceil(target.height * this.SCALE));
+        let half = this._target;
+        if (!half || half.width !== w || half.height !== h) {
+            if (half) half.dispose();
+            half = this._target = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false,
+                minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+        }
+        this.quad();
         // Only the haze: everything else in the group was drawn with the pass.
         const others = [];
         for (const child of group.children) if (child.visible) { others.push(child); child.visible = false; }

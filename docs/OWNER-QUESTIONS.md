@@ -14,7 +14,7 @@ None open.
 
 ## C. Only the owner can do these
 
-1. By hand: dismount a vehicle with Escape, and load a save with the keyboard. In harness runs the menu twice opened by itself after the dismount, and one keyboard load did nothing. Both were probably the harness.
+1. By hand: dismount a vehicle with Escape, and load a save with the keyboard. In harness runs the menu twice opened by itself after the dismount, and one keyboard load did nothing. Both were probably the harness. Also: walking east from (188, 38) on North Haven after arriving from the forest, a menu screen opened by itself in 3 of about 12 harness runs; nothing on the map triggers one there.
 2. Review North Haven (landscape, rivers, foliage, HD materials, the village, night). The five motorcycles are now Starting Positions using the vehicle's own model facing south; their old event models were turned 163° and tilted 7°.
 3. Playtest an Action battle: followers now hold back until the leader attacks or drops below half HP. Does it feel right?
 4. Look at Barebones Map002 and Map003: drawn on a Star Shift tileset Barebones lacks, they now use SF Inside and look different.
