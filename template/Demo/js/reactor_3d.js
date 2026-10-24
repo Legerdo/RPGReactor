@@ -2174,7 +2174,11 @@ Reactor3D.ShaderWarmup = {
         if (program && props.__version === material.version) return true;
         let state = this._materials.get(material);
         // Coming back into view with its program to change: held while it compiles, the wait counted from now.
-        const returning = !!program && this._viewKept && !(now - (material.__rrSeen || 0) <= this.SEEN_MS);
+        // A new material whose first compile began here and that has not been drawn since is still
+        // waiting for that compile: its program is the one being built, not one it comes back to.
+        const seen = material.__rrSeen || 0;
+        const waitingFirst = !!state && !state.returning && (!seen || seen < state.started);
+        const returning = !!program && this._viewKept && !waitingFirst && !(now - seen <= this.SEEN_MS);
         if (returning && state && state.version === material.version && state.returning) return state.ready || now - state.started > this.TIMEOUT_MS;
         // Drawn a moment ago (another variant, or a recompile): not held.
         if (!state && program && !returning) return true;

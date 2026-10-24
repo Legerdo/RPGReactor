@@ -11,6 +11,7 @@ const Glb = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterGlb
 const Optimizer = require(path.join(root, 'src', 'utils', 'GlbOptimizer.js'));
 const Rigger = require(path.join(root, 'src', 'database', 'ModelRigger.js'));
 const Presets = require(path.join(root, 'src', 'database', 'RigMotionPresets.js'));
+const { cpuMicros, withinBudget } = require('./helpers/timing.cjs');
 
 const bounds = parts => {
     const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
@@ -130,26 +131,28 @@ test('the saved creature is a skinned GLB with vertex colors and an Idle clip, a
     assert.deepEqual(JSON.parse(JSON.stringify(side)), side);
 });
 
-test('a preview build is quick enough for a live slider', () => {
-    // CPU time, not the clock: the suite runs many files at once, and waiting on them is not the build's cost.
-    const start = process.cpuUsage();
+test('a preview build is quick enough for a live slider', t => {
+    const start = cpuMicros();
     for (const kind of ['dog', 'horse', 'drake']) Creature.build(Creature.kindRecipe(kind), { quality: 'preview' });
-    const used = process.cpuUsage(start), ms = (used.user + used.system) / 1000 / 3;
-    assert.ok(ms < 400, 'preview ' + Math.round(ms) + ' ms');
+    const ms = (cpuMicros() - start) / 1000 / 3;
+    withinBudget(t, ms, 400, 'preview ' + Math.round(ms) + ' ms');
 });
 
 test('while a slider is dragged the coat picture is half size and quicker; the whole picture on release and on save', () => {
     const Model = require(path.join(root, 'src', 'forge', 'Character3D', 'CharacterModel.js'));
     const coat = built => built.textures['creaturecoat.png'].width;
+    // Each build's CPU time, the least of three taken in turn: the two are compared in one run, on one machine.
+    const timed = options => { const start = cpuMicros(); const built = Model.build(null, options.recipe, {}, options.build); return { built, ms: (cpuMicros() - start) / 1000 }; };
     for (const kind of ['dog', 'cat']) {
         const r = { plan: 'quadruped', ...Creature.kindRecipe(kind) };
         Model.build(null, r, {}, { quality: 'preview' });
-        let start = Date.now();
-        const full = Model.build(null, r, {}, { quality: 'preview' }), fullMs = Date.now() - start;
-        start = Date.now();
-        const draft = Model.build(null, r, {}, { quality: 'preview', draft: true }), draftMs = Date.now() - start;
+        let full = null, draft = null, fullMs = Infinity, draftMs = Infinity;
+        for (let round = 0; round < 3; round++) {
+            const f = timed({ recipe: r, build: { quality: 'preview' } }), d = timed({ recipe: r, build: { quality: 'preview', draft: true } });
+            full = f.built; draft = d.built; fullMs = Math.min(fullMs, f.ms); draftMs = Math.min(draftMs, d.ms);
+        }
         assert.equal(coat(draft) * 2, coat(full), kind + ' draft coat ' + coat(draft) + ' / ' + coat(full));
-        assert.ok(draftMs < fullMs, kind + ' draft ' + draftMs + ' ms, full ' + fullMs + ' ms');
+        assert.ok(draftMs < fullMs, kind + ' draft ' + Math.round(draftMs) + ' ms, full ' + Math.round(fullMs) + ' ms');
         assert.deepEqual(draft.bones.map(b => b.name), full.bones.map(b => b.name), 'the same skeleton');
     }
     assert.equal(coat(Creature.build(Creature.kindRecipe('dog'), { quality: 'save', draft: true })), 1536, 'a save is never a draft');

@@ -6,11 +6,11 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 ## Where things stand (2026-10-23)
 
-- **0.99.1** shipped 2026-10-24 (UTC) with release pictures; **0.99.2** is open at runtime **20261023.2**, synced to all 19 projects. The builders are at Preview 47 with visual acceptance open: [character coverage](CHARACTER-QUALITY.md), [remaining issues](CLAUDE-QUALITY-TRACKER.md), [props](PROP-BUILDER.md).
+- **0.99.1** shipped 2026-10-24 (UTC) with release pictures; **0.99.2** is open at runtime **20261024.1**, synced to all 19 projects. The builders are at Preview 47 with visual acceptance open: [character coverage](CHARACTER-QUALITY.md), [remaining issues](CLAUDE-QUALITY-TRACKER.md), [props](PROP-BUILDER.md).
 - **Owner questions:** [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md); the web trim waits for the weekend release.
 - **Editor windows:** the Event Editor, Database, Forge and Plugin Manager each open in a frameless window of their own (`utils/DetachedWindow.js`). Native Linux transparency still needs a look on the real desktop.
 - **Savior & Religion** (`template/Savior & Religion`, not in git, an encrypted MV game the owner is trying as a template) boots, plays its opening and draws its ULDS maps 2, 5 and 19.
-- **Next:** CI green, then the three trailer-shoot bugs in STATUS (Blueprint stamp blanking, Forge preview frame drops, the gown breaking on Height), then keeping the map scene across a seamless crossing. 0.99.1 and 0.99.2 are announced together at the end of the weekend with a video and pictures (RELEASE-CHECKLIST §5).
+- **Next:** the three trailer-shoot bugs in STATUS (Blueprint stamp blanking, Forge preview frame drops, the gown breaking on Height) and the Database close freeze, then keeping the map scene across a seamless crossing. 0.99.1 and 0.99.2 are announced together at the end of the weekend with a video and pictures (RELEASE-CHECKLIST §5).
 
 ## 2026-10-24 — 0.99.1 shipped; trailer pipeline
 

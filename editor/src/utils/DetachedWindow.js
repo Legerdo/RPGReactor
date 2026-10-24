@@ -397,6 +397,12 @@
             if (!popped.win || !popped.ready) return;
             if (root.RRPopoutBridge && popped.child) root.RRPopoutBridge.setAsleep(popped.child, false);
             try { popped.win.show(); popped.win.focus(); } catch (error) { /* gone */ }
+            // A dialog first opened while its window was still being made had its focus refused there
+            // (hidden): the focus goes into it now that it shows.
+            const keys = popped.overlay && popped.overlay._rrModalKeys;
+            let active = null;
+            try { active = popped.child && popped.child.document ? popped.child.document.activeElement : null; } catch (error) { /* gone */ }
+            if (keys && typeof keys.refocus === 'function' && !(active && popped.overlay.contains(active))) keys.refocus();
         }
 
         /**
