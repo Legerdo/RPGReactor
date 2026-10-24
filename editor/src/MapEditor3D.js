@@ -4383,7 +4383,7 @@ class MapEditor3D {
 
     /** The event's number and name, as the 2D map labels its squares. */
     eventLabel(event) {
-        if (event._rrDatabaseVehicle) return this.textLabel(event.name || 'Vehicle');
+        if (event._rrDatabaseVehicle) return this.textLabel(typeof EventManager !== 'undefined' && EventManager.vehicleLabel ? EventManager.vehicleLabel(event) : event.name || 'Vehicle');
         return this.textLabel(`${String(event.id).padStart(3, '0')}: ${event.name || ''}`.trim());
     }
 
@@ -5235,7 +5235,7 @@ class MapEditor3D {
                     this.beginEventDrag();
                 } else {
                     const mesh = this.eventAt(event.clientX, event.clientY);
-                    if (mesh && !mesh.userData.event?._rrDatabaseVehicle) {
+                    if (mesh) {
                         this.pointer.drag = mesh;
                         // Where the event was taken hold of, in tiles from its own: a sized event's
                         // marker stands in the middle of its footprint, and stays under the pointer.
@@ -5687,7 +5687,6 @@ class MapEditor3D {
     }
 
     dragEventTo(mesh, tile) {
-        if (mesh?.userData?.event?._rrDatabaseVehicle) return;
         const mapData = this.currentMap();
         const event = mesh?.userData?.event;
         if (!mapData || !event) return;
@@ -5695,6 +5694,21 @@ class MapEditor3D {
         if (tile.x < 0 || tile.y < 0 || tile.x >= mapData.width || tile.y >= mapData.height) return;
 
         const manager = this.eventManager();
+        // A Database vehicle's placement moves its start in the Database (saved on the drop), as in the 2D view.
+        if (event._rrDatabaseVehicle) {
+            if (!manager?.canPlaceVehicle?.(event, tile.x, tile.y)) return;
+            if (!this._eventDragSaved) {
+                this._eventDragSaved = true;
+                manager.resetMapClickTracking?.();
+                manager.saveState?.();
+            }
+            manager.moveVehicleStart(event, tile.x, tile.y);
+            this._eventDragMoved = true;
+            this._eventDragVehicle = true;
+            this.placeEvent(mesh);
+            manager.selectTile?.(tile.x, tile.y);
+            return;
+        }
         // Two events cannot share a cell (a sized event's footprint counts), and the 2D drag refuses the same way.
         if (manager?.canPlaceEvent && !manager.canPlaceEvent(event, tile.x, tile.y)) return;
 
@@ -5719,9 +5733,11 @@ class MapEditor3D {
      */
     finishEventDrag() {
         if (this.canvas) this.canvas.style.cursor = 'default';
-        const moved = this._eventDragMoved;
+        const moved = this._eventDragMoved, vehicle = this._eventDragVehicle;
         this._eventDragSaved = false;
         this._eventDragMoved = false;
+        this._eventDragVehicle = false;
+        if (vehicle) this.eventManager()?.saveVehicleStarts?.();
         if (moved) this.eventManager()?.renderEvents?.();
     }
 
@@ -5730,6 +5746,7 @@ class MapEditor3D {
         if (!this.canSelectEvents()) return;
         const picked = this.select(this.eventAt(clientX, clientY));
         if (typeof this.onEventSelected === 'function') this.onEventSelected(picked?._rrDatabaseVehicle ? null : picked);
+        if (picked?._rrDatabaseVehicle) this.eventManager()?.selectVehicle?.(picked);
         if (!picked) {
             const tile = this.tileAt(clientX, clientY);
             // Battle Setup has a unit in hand: the click stands it where its preview stands, on the surface the pointer met.

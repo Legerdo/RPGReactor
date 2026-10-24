@@ -215,7 +215,8 @@ class EventManager {
             heights: this._eventHeightsSnapshot(),
             sizes: this._eventSizesSnapshot(),
             autoSizes: this._eventAutoSizesSnapshot(),
-            previews: this._eventPreviewsSnapshot()
+            previews: this._eventPreviewsSnapshot(),
+            vehicles: this._vehicleStartsSnapshot()
         };
         this.undoStack.push(eventsData);
 
@@ -241,7 +242,8 @@ class EventManager {
             heights: this._eventHeightsSnapshot(),
             sizes: this._eventSizesSnapshot(),
             autoSizes: this._eventAutoSizesSnapshot(),
-            previews: this._eventPreviewsSnapshot()
+            previews: this._eventPreviewsSnapshot(),
+            vehicles: this._vehicleStartsSnapshot()
         });
 
         // Restore previous state
@@ -254,6 +256,7 @@ class EventManager {
         this._restoreEventHeights(previousData);
         this._restoreEventSizes(previousData);
         this._restoreEventPreviews(previousData);
+        this._restoreVehicleStarts(previousData);
 
         // Undo restores cloned data, so the selection must follow that object.
         this._restoreEventSelection();
@@ -275,7 +278,8 @@ class EventManager {
             heights: this._eventHeightsSnapshot(),
             sizes: this._eventSizesSnapshot(),
             autoSizes: this._eventAutoSizesSnapshot(),
-            previews: this._eventPreviewsSnapshot()
+            previews: this._eventPreviewsSnapshot(),
+            vehicles: this._vehicleStartsSnapshot()
         });
 
         // Restore next state
@@ -288,6 +292,7 @@ class EventManager {
         this._restoreEventHeights(nextData);
         this._restoreEventSizes(nextData);
         this._restoreEventPreviews(nextData);
+        this._restoreVehicleStarts(nextData);
 
         // Undo restores cloned data, so the selection must follow that object.
         this._restoreEventSelection();
@@ -654,6 +659,15 @@ class EventManager {
         this.selectTile(tileX, tileY);
 
         const eventAtPos = this.getEventAt(tileX, tileY) || null;
+        // A Database vehicle's placement is taken hold of like an event: dragged, it moves its start in the Database.
+        const vehicleAtPos = eventAtPos ? null : this.getVehicleAt(tileX, tileY);
+        if (vehicleAtPos) {
+            this.selectEvent(null);
+            this.selectVehicle(vehicleAtPos);
+            this.selectTile(tileX, tileY);
+            this.startDragging(vehicleAtPos, event);
+            return;
+        }
         if (!eventAtPos && this.tilesetPaletteViewer) {
             const selectedTiles = this.tilesetPaletteViewer.getSelectedTiles();
             if (selectedTiles && selectedTiles.length > 0) {
@@ -1187,8 +1201,15 @@ class EventManager {
         });
     }
 
+    /** A Database vehicle placement chosen on the map or in the list (by identity: the placements are made afresh each draw). */
+    selectVehicle(vehicle) {
+        this.selectedVehicleIdentity = vehicle ? String(vehicle._rrVehicleIdentity || '') : null;
+        this.updateEventListSelection();
+    }
+
     // Select an event
     selectEvent(event) {
+        if (event) this.selectedVehicleIdentity = null;
         const previousEvent = this.selectedEvent;
         this.selectedEvent = event;
         this.notifyEventSelected(event);
@@ -1321,6 +1342,20 @@ class EventManager {
             if (newTileX >= 0 && newTileX < this.currentMap.width &&
                 newTileY >= 0 && newTileY < this.currentMap.height) {
 
+                if (this.draggedEvent._rrDatabaseVehicle) {
+                    // Not onto an event or another vehicle: the Database start is moved, and the placements drawn again.
+                    if (this.canPlaceVehicle(this.draggedEvent, newTileX, newTileY)) {
+                        if (!this._dragStateSaved) {
+                            this._dragStateSaved = true;
+                            this.resetMapClickTracking();
+                            this.saveState();
+                        }
+                        this.moveVehicleStart(this.draggedEvent, newTileX, newTileY);
+                        this.selectTile(newTileX, newTileY);
+                        this.renderEventPreviews();
+                    }
+                    return;
+                }
                 // No other event on any cell the dragged one's footprint would cover
                 if (this.canPlaceEvent(this.draggedEvent, newTileX, newTileY)) {
                     // First real movement: capture the pre-drag state for
@@ -1370,8 +1405,9 @@ class EventManager {
             this.tilemapManager.container.cursor = 'default';
         }
 
-        // The event open in the window follows where it was dropped.
-        this.eventEditor?.followMapMove?.(this.draggedEvent);
+        // The event open in the window follows where it was dropped; a vehicle's new start is saved to the Database.
+        if (this.draggedEvent._rrDatabaseVehicle) this.saveVehicleStarts();
+        else this.eventEditor?.followMapMove?.(this.draggedEvent);
 
         this.isDragging = false;
         this.draggedEvent = null;
@@ -3053,6 +3089,121 @@ class EventManager {
         return true;
     }
 
+    /**
+     * Where a Database vehicle placement (startingVehicles) comes from: its type's record, the copy's number
+     * (1 for the record's own place) and the object holding its start. Null when it is gone from the Database.
+     */
+    static vehicleStartOf(event) {
+        const app = typeof window !== 'undefined' ? window.reactor : null;
+        const types = app?.databaseManager?.data?.vehicles, number = Number(String(event?._rrVehicleIdentity || '').split(':')[1]);
+        const COPY = (typeof RRVehicles !== 'undefined' && RRVehicles.COPY) || 10000;
+        const type = number > 0 ? number % COPY : Number(event?._rrDatabaseVehicle), copy = number > 0 ? Math.floor(number / COPY) + 1 : 1;
+        const record = Array.isArray(types) ? types[type] : null;
+        if (!record || typeof RRVehicles === 'undefined') return null;
+        const starts = RRVehicles.startsOf(record), start = starts.find(entry => entry.copy === copy);
+        return start ? { type, copy, record, source: start.source, units: starts.length, unit: starts.indexOf(start) + 1 } : null;
+    }
+
+    /** "Vehicle 1 · Motorcycle · Unit 3": the Database entry a placement belongs to, and which of its rows. */
+    static vehicleLabel(event) {
+        const tt = text => (typeof window !== 'undefined' && window.I18n) ? window.I18n.tText(text) : text;
+        const of = EventManager.vehicleStartOf(event);
+        if (!of) return event?.name || tt('Vehicle');
+        return [tt('Vehicle') + ' ' + of.type, of.record.name || tt('Unnamed'), of.units > 1 ? tt('Unit') + ' ' + of.unit : ''].filter(Boolean).join(' · ');
+    }
+
+    /**
+     * The tiles a Database vehicle covers, `[x0, y0, w, h]`, centred on its tile as the game stands it: a 3D vehicle
+     * is its Length (the model's longest side) along the way it faces and as wide as its model is (1 until the model
+     * has been read); a 2D vehicle, one tile. `at` is a tile it is about to stand on.
+     */
+    static vehicleFootprint(vehicle, at = null) {
+        const x = at ? at.x : vehicle.x, y = at ? at.y : vehicle.y;
+        const of = EventManager.vehicleStartOf(vehicle), record = of?.record;
+        const spec = record && record.graphic3d !== false && record.model?.name ? record.model : null;
+        if (!spec) return [x, y, 1, 1];
+        const size = Number(spec.size) > 0 ? Number(spec.size) : 3.5;
+        let length = Math.max(1, Math.round(size)), width = 1;
+        const R = typeof Reactor3D !== 'undefined' ? Reactor3D : null;
+        const entry = R?._glbCache && R.modelCacheKey ? R._glbCache[R.modelCacheKey(spec.name, spec.ext, spec.file)] : null;
+        const extent = entry?.template?.userData?.glbSize;
+        if (extent) {
+            const span = Math.max(extent.x, extent.y, extent.z, 0.0001);
+            length = Math.max(1, Math.round(size * Math.max(extent.x, extent.z) / span));
+            width = Math.max(1, Math.round(size * Math.min(extent.x, extent.z) / span));
+        }
+        const across = [4, 6].includes(Number(of.source.startDirection));
+        const w = across ? length : width, h = across ? width : length;
+        return [x - Math.floor((w - 1) / 2), y - Math.floor((h - 1) / 2), w, h];
+    }
+
+    getVehicleAt(x, y) {
+        return EventManager.startingVehicles(this.currentMap).find(entry => {
+            const [x0, y0, w, h] = EventManager.vehicleFootprint(entry);
+            return x >= x0 && x < x0 + w && y >= y0 && y < y0 + h;
+        }) || null;
+    }
+
+    /** Whether a vehicle placement can stand at a tile: on the map, and over no event's or other vehicle's tiles. */
+    canPlaceVehicle(vehicle, x, y) {
+        const [x0, y0, w, h] = EventManager.vehicleFootprint(vehicle, { x, y });
+        if (!this.currentMap || x0 < 0 || y0 < 0 || x0 + w > this.currentMap.width || y0 + h > this.currentMap.height) return false;
+        const overlaps = ([ox, oy, ow, oh]) => ox < x0 + w && ox + ow > x0 && oy < y0 + h && oy + oh > y0;
+        if ((this.currentMap.events || []).some(other => other && overlaps(this._eventRect(other)))) return false;
+        return !EventManager.startingVehicles(this.currentMap).some(other => other._rrVehicleIdentity !== vehicle._rrVehicleIdentity && overlaps(EventManager.vehicleFootprint(other)));
+    }
+
+    /** Moves a Database vehicle placement on this map: the Database's start is written, and saved by saveVehicleStarts. */
+    moveVehicleStart(event, x, y) {
+        const of = EventManager.vehicleStartOf(event);
+        if (!of || !this.currentMap) return false;
+        of.source.startX = x;
+        of.source.startY = y;
+        event.x = x;
+        event.y = y;
+        const manager = typeof window !== 'undefined' ? window.reactor?.databaseManager : null;
+        if (manager) manager.mutationGeneration = (manager.mutationGeneration || 0) + 1;
+        this._vehicleStartsChanged = true;
+        return true;
+    }
+
+    /** Writes the vehicles to ReactorVehicles.json after a placement moved (a drop, an undo): the Database is where they live. */
+    async saveVehicleStarts() {
+        if (!this._vehicleStartsChanged) return false;
+        this._vehicleStartsChanged = false;
+        const app = typeof window !== 'undefined' ? window.reactor : null, manager = app?.databaseManager, ui = app?.databaseEditorUI, project = app?.projectController?.currentProject || app?.projectManager?.getCurrentProject?.();
+        if (!manager?.data?.vehicles || !project?.path || typeof manager.saveJSON !== 'function') return false;
+        try { await manager.saveJSON(project.path, 'ReactorVehicles.json', manager.data.vehicles); }
+        catch (error) { console.error('Could not save the moved vehicle:', error); this._vehicleStartsChanged = true; return false; }
+        // The Database window's Cancel goes back to its snapshot: the vehicles written now are what it goes back to.
+        if (ui?._dataSnapshot) {
+            try { const snapshot = JSON.parse(ui._dataSnapshot); snapshot.vehicles = manager.data.vehicles; ui._dataSnapshot = JSON.stringify(snapshot); }
+            catch (error) { console.warn('Could not carry the moved vehicle into the Database snapshot:', error); }
+        }
+        return true;
+    }
+
+    /** This map's vehicle placements for an undo step: where each one stood. */
+    _vehicleStartsSnapshot() {
+        return EventManager.startingVehicles(this.currentMap).map(event => {
+            const of = EventManager.vehicleStartOf(event);
+            return of ? { type: of.type, copy: of.copy, x: of.source.startX, y: of.source.startY } : null;
+        }).filter(Boolean);
+    }
+
+    _restoreVehicleStarts(data) {
+        const types = typeof window !== 'undefined' ? window.reactor?.databaseManager?.data?.vehicles : null;
+        if (!Array.isArray(data?.vehicles) || !Array.isArray(types) || typeof RRVehicles === 'undefined') return;
+        for (const entry of data.vehicles) {
+            const start = types[entry.type] ? RRVehicles.startsOf(types[entry.type]).find(row => row.copy === entry.copy) : null;
+            if (!start || (start.source.startX === entry.x && start.source.startY === entry.y)) continue;
+            start.source.startX = entry.x;
+            start.source.startY = entry.y;
+            this._vehicleStartsChanged = true;
+        }
+        if (this._vehicleStartsChanged) this.saveVehicleStarts();
+    }
+
     /** The model a previewed page inherits from its database record. */
     previewModelRaw(event, pageIndex) {
         const own = this.currentMap?.reactor3d?.events?.[String(event?.id)]?.[String(pageIndex)];
@@ -3143,9 +3294,10 @@ class EventManager {
         // The small marker opens the database entry, never an Event Editor.
         for (const vehicle of EventManager.startingVehicles(this.currentMap)) {
             const marker = new PIXI.Graphics();
-            marker.rect(vehicle.x*tw, vehicle.y*th, tw, th).stroke({color:0xf0a040,width:2});
-            marker.eventMode = 'static'; marker.cursor = 'pointer';
-            marker.on('pointertap', () => { if (this.eventMode) EventManager.openVehicle(vehicle); });
+            const [fx, fy, fw, fh] = EventManager.vehicleFootprint(vehicle);
+            marker.rect(fx*tw, fy*th, fw*tw, fh*th).stroke({color:0xf0a040,width:2});
+            // A click takes hold of it (handleMapPointerDown) and a double-click opens its Database entry, as an event's does.
+            marker.eventMode = 'static'; marker.cursor = 'grab';
             container.addChild(marker);
         }
         this._syncPreviewTicker();
@@ -3442,7 +3594,8 @@ class EventManager {
         const events = Array.isArray(this.currentMap?.events)
             ? this.currentMap.events.filter(Boolean)
             : [];
-        if (events.length === 0) {
+        const vehicles = EventManager.startingVehicles(this.currentMap);
+        if (events.length === 0 && vehicles.length === 0) {
             eventsListEl.innerHTML = `<div class="tree-item" style="color: var(--color-text-muted); padding: 6px 8px;">${tt('No events on this map')}</div>`;
             return;
         }
@@ -3490,6 +3643,34 @@ class EventManager {
             eventsListEl.appendChild(item);
         });
 
+        // Below the map's own events, the Database's vehicles that start on this map: named by their entry and unit,
+        // set apart, a click selects and shows one, a double-click opens its entry in Database › Vehicles.
+        if (vehicles.length) {
+            const head = document.createElement('div');
+            head.className = 'event-list-vehicles-head';
+            head.textContent = tt('Vehicles (Database)');
+            eventsListEl.appendChild(head);
+        }
+        for (const vehicle of vehicles) {
+            const item = document.createElement('div');
+            item.className = 'tree-item event-list-item event-list-vehicle';
+            item.dataset.vehicleIdentity = String(vehicle._rrVehicleIdentity || '');
+            item.setAttribute('data-rr-i18n-skip', '');
+            item.textContent = EventManager.vehicleLabel(vehicle);
+            item.title = tt('From Database › Vehicles. Drag it on the map to move where it starts; double-click to open its entry.');
+            item.addEventListener('click', e => {
+                e.stopPropagation();
+                if (this.projectController?.setEventMode && !this.eventMode) this.projectController.setEventMode(true);
+                this.selectEvent(null);
+                this.selectVehicle(vehicle);
+                this.selectTile(vehicle.x, vehicle.y);
+                this.centerOnEvent?.(vehicle);
+            });
+            item.addEventListener('dblclick', e => { e.stopPropagation(); EventManager.openVehicle(vehicle); });
+            item.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); EventManager.openVehicle(vehicle); });
+            eventsListEl.appendChild(item);
+        }
+
         // Update selection highlight after populating list
         this.updateEventListSelection();
 
@@ -3514,8 +3695,11 @@ class EventManager {
         }
 
         // Highlight current selection with gold color
-        if (this.selectedEvent) {
-            const selectedItem = eventsListEl.querySelector(`[data-event-id="${this.selectedEvent.id}"]`);
+        const selectedIdentity = !this.selectedEvent && this.selectedVehicleIdentity;
+        if (this.selectedEvent || selectedIdentity) {
+            const selectedItem = selectedIdentity
+                ? [...eventsListEl.querySelectorAll('.event-list-vehicle')].find(item => item.dataset.vehicleIdentity === selectedIdentity)
+                : eventsListEl.querySelector(`[data-event-id="${this.selectedEvent.id}"]`);
             if (selectedItem) {
                 selectedItem.classList.add('selected');
                 selectedItem.style.backgroundColor = 'var(--color-accent-tint-35)'; // Gold highlight

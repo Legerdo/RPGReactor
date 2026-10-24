@@ -7829,3 +7829,7 @@ html.rr-detached-window {
 .rr-prop-which { display: flex; gap: 4px; margin: 8px 0 0; }
 .rr-prop-which .rr-btn-chip { flex: 1 1 0; }
 .rr-prop-which .rr-btn-chip.is-active { color: var(--color-accent-bright); border-color: var(--color-accent-bright); }
+
+/* The map's events list: the Database's vehicles below the map's own events, in the vehicle markers' orange. */
+.event-list-vehicles-head { margin:8px 0 2px; padding:4px 8px 4px 7px; border-left:3px solid #f0a040; border-bottom:1px solid var(--color-border); background:var(--color-bg-toolbar); color:var(--color-text); font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; user-select:none; }
+.event-list-item.event-list-vehicle { padding:6px 8px 6px 9px; margin:2px 0; border-left:3px solid #f0a040; border-radius:3px; font-size:13px; cursor:pointer; }

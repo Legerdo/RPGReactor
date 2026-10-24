@@ -118,13 +118,18 @@ the previous assignments. Adjust movement and handling as needed. In
 **Starting Position**, click the location button, choose a map and tile
 with the shared map picker, then choose the facing. A 3D map stands in the
 picker (drag to turn, right-drag to move, scroll to zoom, click the place);
-**Top Down** is the flat view. **Clear** leaves it
-unplaced. The vehicle appears in both editor views without adding an event
-to the map or its event list; opening its marker selects the Vehicles entry.
-Vehicle starting coordinates follow anchored map resize offsets.
+**Top Down** is the flat view. The vehicle appears in both editor views
+without adding an event to the map: its orange marker covers its Length along
+the way it faces (one tile for a 2D vehicle), and the map's Events list shows
+it below the map's own events under **Vehicles (Database)**, named by its
+entry and row ("Vehicle 1 · Motorcycle · Unit 3"). Drag it on the map, in the
+2D or the 3D view, to move where it starts: the Database is written when it is
+dropped, and Undo puts it back. Double-click it, or its row, to open its
+Vehicles entry. Vehicle starting coordinates follow anchored map resize offsets.
 
 **Several of one vehicle.** Starting Position is a list: **+ Add Another** adds a copy of the vehicle with a starting
-position and facing of its own, and **Delete** on a copy's row takes it away. Each copy is a vehicle of its own
+position and facing of its own, and **Delete** takes a row away (the first row's vehicle is replaced by the next
+one's; with no other row it is left unplaced). Each copy is a vehicle of its own
 in the game (its own place, condition and equipment) and is named in commands as "Motorcycle 2". In the file a
 copy is an entry of the record's `copies` (`{ id, startMapId, startX, startY, startDirection }`); its identity is
 `0:<vehicle ID + 10000 * (id - 1)>`, the first copy's `0:<vehicle ID>`.
