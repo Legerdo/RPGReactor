@@ -3231,6 +3231,71 @@ class EventManager {
         if (this._vehicleStartsChanged) this.saveVehicleStarts();
     }
 
+    /** Measures the map's Auto sizes soon after a drawing (refreshAutoSizes), one run at a time. */
+    scheduleAutoSizes() {
+        if (this._autoSizesQueued || typeof setTimeout !== 'function') return;
+        this._autoSizesQueued = true;
+        setTimeout(() => {
+            this._autoSizesQueued = false;
+            if (this._autoSizesRunning) { this._autoSizesAgain = true; return; }
+            this._autoSizesRunning = true;
+            Promise.resolve(this.refreshAutoSizes()).catch(error => console.warn('Could not measure event sizes:', error)).finally(() => {
+                this._autoSizesRunning = false;
+                if (this._autoSizesAgain) { this._autoSizesAgain = false; this.scheduleAutoSizes(); }
+            });
+        }, 0);
+    }
+
+    /**
+     * Every event standing as a model with no size of its own takes the footprint Auto measures (the Event Editor's
+     * rule, EventEditor.measureAutoRect), without the Event Editor being opened and applied: an event given a model,
+     * a vehicle event wearing its vehicle's model, a vehicle whose model or Length changed in the Database. It is the
+     * editor's picture of the event (the game measures the model itself), so on a map with no edits of its own the
+     * saved state takes it too and the map does not read as changed.
+     */
+    async refreshAutoSizes() {
+        const map = this.currentMap, E = typeof RRMapElevation !== 'undefined' ? RRMapElevation : null;
+        const P = typeof RREventPreviewModels !== 'undefined' ? RREventPreviewModels : null;
+        if (!map || !E?.setEventSizeAuto || !P?.templateFor || typeof EventEditor === 'undefined' || !EventEditor.measureAutoRect) return false;
+        // The 3D runtime still loading (a map just opened): measured once it is in.
+        if (typeof Reactor3D === 'undefined' || !Reactor3D.eventModelSpec) { this._retryAutoSizes(map); return false; }
+        const app = typeof window !== 'undefined' ? window.reactor : null;
+        const project = this.projectController?.currentProject || app?.projectController?.currentProject;
+        const vehicles = (this.databaseManager || app?.databaseManager)?.data?.vehicles;
+        const tilemap = this.tilemapManager, clean = !!tilemap?.isMapDirty && tilemap.savedMapState != null && !tilemap.isMapDirty();
+        let changed = false, unread = false;
+        for (const event of map.events || []) {
+            if (!event || E.eventSizeEntry(map, event.id)) continue;
+            const model = EventEditor.sizeModelOf(event, page => Reactor3D.eventModelSpec(map, event.id, page), vehicles);
+            if (!model) continue;
+            // Asked before the 3D libraries are in, a model can wait for good: it is asked only once they are, and
+            // given a few seconds; one not read in time is measured on the next try.
+            const ready = typeof window !== 'undefined' && window.THREE && Reactor3D.extensionsLoaded && Reactor3D.extensionsLoaded();
+            const template = ready ? await Promise.race([P.templateFor(project, model.spec, this.projectController?.mapEditor3D),
+                new Promise(resolve => setTimeout(() => resolve(null), 8000))]) : null;
+            if (map !== this.currentMap) return false;
+            if (!template) { unread = true; continue; }
+            const rect = EventEditor.measureAutoRect(template, model);
+            if (rect && E.setEventSizeAuto(map, event.id, rect)) changed = true;
+        }
+        // A model not read yet (the 3D libraries still loading when the map opens) is measured again a little later.
+        if (unread) this._retryAutoSizes(map);
+        else this._autoSizesRetry = 0;
+        if (!changed) return false;
+        if (clean && tilemap.captureSavedMapState) tilemap.captureSavedMapState();
+        this.renderEvents();
+        return true;
+    }
+
+    /** Tries refreshAutoSizes again on the same map after 1, 2, 4... seconds, six times at most. */
+    _retryAutoSizes(map) {
+        if (this._autoSizesRetryMap !== map) { this._autoSizesRetryMap = map; this._autoSizesRetry = 0; }
+        if (map !== this.currentMap || (this._autoSizesRetry || 0) >= 6 || typeof setTimeout !== 'function') return;
+        const wait = 1000 * 2 ** (this._autoSizesRetry || 0);
+        this._autoSizesRetry = (this._autoSizesRetry || 0) + 1;
+        setTimeout(() => { if (map === this.currentMap) this.scheduleAutoSizes(); }, wait);
+    }
+
     /** The model a previewed page inherits from its database record. */
     previewModelRaw(event, pageIndex) {
         const own = this.currentMap?.reactor3d?.events?.[String(event?.id)]?.[String(pageIndex)];
@@ -3530,6 +3595,7 @@ class EventManager {
 
     renderEvents() {
         if (!this.eventContainer || !this.currentMap) return;
+        this.scheduleAutoSizes();
         this.renderEventPreviews();
         this.updateEditingHighlight();
         // The 3D view draws the same events; without this an edited event

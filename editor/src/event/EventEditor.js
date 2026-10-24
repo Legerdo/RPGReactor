@@ -344,18 +344,35 @@ class EventEditor {
      * game draw it), so that model is the one Auto measures.
      */
     _sizeModel() {
-        const pages = (this.currentEvent && this.currentEvent.pages) || [];
+        return EventEditor.sizeModelOf(this.currentEvent, index => this.pendingModels && this.pendingModels[index],
+            this.databaseManager && this.databaseManager.data && this.databaseManager.data.vehicles);
+    }
+
+    /** `_sizeModel` for any event: `modelAt(page)` is the model a page stands as; `vehicles` the Database's. */
+    static sizeModelOf(event, modelAt, vehicles) {
+        const pages = (event && event.pages) || [];
         for (let index = 0; index < pages.length; index++) {
-            const spec = this.pendingModels && this.pendingModels[index];
+            const spec = modelAt(index);
             if (spec && spec.name) return { spec, direction: (pages[index] && pages[index].image && pages[index].image.direction) || 2 };
         }
         const image = pages[0] && pages[0].image;
-        if (this.currentEvent && this.currentEvent.rrVehicle && typeof RRVehicles !== 'undefined' && RRVehicles.modelOf
+        if (event && event.rrVehicle && typeof RRVehicles !== 'undefined' && RRVehicles.modelOf
             && !(image && image.characterName) && !(image && image.tileId > 0)) {
-            const spec = RRVehicles.modelOf(this.currentEvent, this.databaseManager && this.databaseManager.data && this.databaseManager.data.vehicles);
+            const spec = RRVehicles.modelOf(event, vehicles);
             if (spec && spec.name) return { spec, direction: (image && image.direction) || 2, vehicle: true };
         }
         return null;
+    }
+
+    /** The footprint `[w, h, ox, oy]` a model (sizeModelOf) covers, from its read template; null when it cannot be measured. */
+    static measureAutoRect(template, model) {
+        if (!template || !model || typeof Reactor3D === 'undefined' || !Reactor3D.blockedTilesFor || !Reactor3D.normalizeModelSpec || typeof RRMapElevation === 'undefined') return null;
+        const spec = Reactor3D.normalizeModelSpec(model.spec);
+        if (!spec) return null;
+        // A vehicle is turned so its model's front leads, as the game turns it.
+        const front = model.vehicle ? EventEditor.vehicleFront(template.userData.reactorSidecar) : null;
+        if (front) spec.faces = Object.assign({}, spec.faces || null, { front });
+        return RRMapElevation.footprintOfTiles(Reactor3D.blockedTilesFor(template, template.userData.reactorSidecar, spec, model.direction, 0, 0), 0, 0);
     }
 
     /**
@@ -389,12 +406,7 @@ class EventEditor {
         const event = this.currentEvent, ticket = this._autoTicket = (this._autoTicket || 0) + 1;
         Promise.resolve(RREventPreviewModels.templateFor(project, model.spec, controller && controller.mapEditor3D)).then(template => {
             if (!template || ticket !== this._autoTicket || event !== this.currentEvent || !this.pendingAuto) return;
-            if (typeof Reactor3D === 'undefined' || !Reactor3D.blockedTilesFor || !Reactor3D.normalizeModelSpec) return;
-            const spec = Reactor3D.normalizeModelSpec(model.spec);
-            // A vehicle is turned so its model's front leads, as the game turns it.
-            const front = model.vehicle ? EventEditor.vehicleFront(template.userData.reactorSidecar) : null;
-            if (spec && front) spec.faces = Object.assign({}, spec.faces || null, { front });
-            const rect = spec ? RRMapElevation.footprintOfTiles(Reactor3D.blockedTilesFor(template, template.userData.reactorSidecar, spec, model.direction, 0, 0), 0, 0) : null;
+            const rect = EventEditor.measureAutoRect(template, model);
             if (!rect) return;
             this.pendingAutoRect = rect;
             this._showSize();
