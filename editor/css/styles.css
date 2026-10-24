@@ -1118,9 +1118,10 @@
         }
 
         .database-nav-item {
-            /* 7px keeps all 24 pages and their five section headings on screen in a 1080p window, with room for
-               platform font metrics. */
-            padding: 7px 10px;
+            /* 5px keeps all 24 pages and their five section headings on screen without scrolling in the
+               Database window's first-open size on a 1080p screen with a taskbar, with room for platform
+               font metrics. */
+            padding: 5px 10px;
             border-radius: 3px;
             cursor: pointer;
             border-bottom: 1px solid var(--color-bg-menubar);
@@ -1133,21 +1134,25 @@
             background-color: var(--color-bg-button);
         }
 
-        /* A section of the sidebar: a ruled heading over its pages, as the Database menu lists them. */
+        /* A section of the sidebar, as the Database menu lists them: the editor's section heading, an accent
+           strip on a toolbar band (.lit-section-header, the panel headers). */
         .database-nav-section {
-            padding: 10px 10px 4px;
+            margin: 6px 0 2px;
+            padding: 4px 8px 4px 7px;
+            border-left: 3px solid var(--color-accent);
+            border-bottom: 1px solid var(--color-border);
+            border-radius: 3px;
+            background-color: var(--color-bg-toolbar);
             font-size: 11px;
             font-weight: 600;
             letter-spacing: 0.04em;
             text-transform: uppercase;
-            color: var(--color-text-muted);
-            border-bottom: 1px solid var(--color-border);
-            margin-bottom: 2px;
+            color: var(--color-text);
             user-select: none;
         }
 
         .database-nav-section:first-child {
-            padding-top: 4px;
+            margin-top: 0;
         }
 
         .database-nav-item.active {
