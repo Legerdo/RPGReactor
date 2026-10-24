@@ -2875,7 +2875,7 @@ class MapEditor3D {
         const doorKey = door ? ':door:' + [door.x - target.x, door.y - target.y, door.rot, door.width, door.style].join(',') : '';
         // A building turned or grown while picked up has a new footprint: its slab is made again.
         const intoKey = carved ? ':into:' + JSON.stringify(carved.map(p => [p.kind, p.x - into.wall.x, p.y - into.wall.y, p.z - into.wall.z, p.height || 5, p.rot, p.size, p.offset])) : '';
-        const key = intoKey + doorKey + (stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null, manager.heightFor ? manager.heightFor(manager.kind) : 5]));
+        const key = intoKey + doorKey + (stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null, manager.heightFor ? manager.heightFor(manager.kind) : 5, manager.kind === 'floor' ? manager.floorBrush : 1]));
         if (!this.pieceGhost || this.pieceGhost.userData.key !== key) {
             this.hidePieceGhost(true);
             // A plan's ghost is the building itself, translucent; a selected
@@ -2891,7 +2891,9 @@ class MapEditor3D {
                         // A stair run shows whole: every step, as wide as it will be laid.
                         : (manager.kind === 'stair' && manager.stairRun ? manager.stairRun(Object.assign({ id: 0, material: '' }, manager.pieceFor({ x: 0, y: 0, z: 0 })))
                             : manager.kind === 'ladder' && manager.ladderRun ? manager.ladderRun(Object.assign({ id: 0, material: '' }, manager.pieceFor({ x: 0, y: 0, z: 0 }), { rot: manager.ladderRotFor(target) ?? manager.rot }))
-                            : [Object.assign({ id: 0, material: '' }, manager.pieceFor({ x: 0, y: 0, z: 0 }))]), null));
+                            : manager.kind === 'floor' && manager.floorBrush > 1 && manager.brushCells
+                                ? manager.brushCells({ x: 0, y: 0, z: 0 }).map(cell => Object.assign({ id: 0, material: '' }, manager.pieceFor(cell)))
+                                : [Object.assign({ id: 0, material: '' }, manager.pieceFor({ x: 0, y: 0, z: 0 }))]), null));
             const material = new THREE.MeshBasicMaterial({ color: erase ? 0xff6b6b : bounds ? 0x7dff9a : stamp ? 0xffd166 : 0x7fd8ff, transparent: true, opacity: erase ? 0.35 : 0.5, depthWrite: false });
             this.pieceGhost = new THREE.Mesh(geometry, material);
             this.pieceGhost.renderOrder = 998;
@@ -2969,7 +2971,9 @@ class MapEditor3D {
         }
         if (!this.terrainRing) this.buildTerrainRing();
         if (!this.terrainRing) return;
-        const radius = this.terrainManager()?.radius || 3;
+        const terrain = this.terrainManager();
+        // The Path tool's ring is the road's own width.
+        const radius = terrain?.mode === 'path' && terrain.pathBrush ? terrain.pathBrush().radius : terrain?.radius || 3;
         const positions = this.terrainRing.geometry.attributes.position;
         const band = MapEditor3D.TERRAIN_RING, segments = band.segments;
         const cx = point.x + 0.5, cz = point.y + 0.5;

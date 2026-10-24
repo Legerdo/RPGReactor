@@ -56,6 +56,8 @@ class PieceBuilderManager {
         // A rectangle fills or lines its edge as `rectFill` says ('auto': floors, blocks and roofs fill).
         // The height new walls, panes and pillars are laid at, per kind (none: a storey).
         this.heights = {};
+        // A floor laid this many tiles square at a click, and a floor line this wide.
+        this.floorBrush = 1;
         this.drawShape = PieceBuilderManager.stored('rr-build-draw', ['brush', 'line', 'rect'], 'brush');
         this.rectFill = PieceBuilderManager.stored('rr-build-rectfill', ['auto', 'fill', 'edge'], 'auto');
         // A wall line off the grid's axes: one straight wall (a turned box) or a stepped run of cells.
@@ -274,6 +276,16 @@ class PieceBuilderManager {
             if (E.setPiece(map, door)) changed = true;
         }
         return changed;
+    }
+
+    /** The cells a floor brush covers round a cell: `floorBrush` square, the cell in its middle (or just past it, even). */
+    brushCells(cell, across = null) {
+        const n = this.kind === 'floor' ? Math.max(1, Math.min(9, Math.round(this.floorBrush) || 1)) : 1;
+        if (n === 1) return [cell];
+        // `across` ('x' or 'y'): only that way, a line widened across itself and no longer than drawn.
+        const out = [], from = -Math.floor((n - 1) / 2), nx = across === 'y' ? 1 : n, ny = across === 'x' ? 1 : n;
+        for (let dy = 0; dy < ny; dy++) for (let dx = 0; dx < nx; dx++) out.push(Object.assign({}, cell, { x: cell.x + (nx > 1 ? from + dx : 0), y: cell.y + (ny > 1 ? from + dy : 0) }));
+        return out;
     }
 
     /** The height the next piece of `kind` is laid at, in tiles. */
@@ -2141,7 +2153,13 @@ class PieceBuilderManager {
         if (this._stroke.line) {
             // A fence joins corner to corner, so its line steps diagonally; anything else keeps a side to the next.
             const run = this.kind === 'fence' ? PieceBuilderManager.lineCells8(a, target) : PieceBuilderManager.lineCells(a, target);
-            for (const cell of run) cells.push({ x: cell.x, y: cell.y, z: a.z });
+            // A floor line is as wide as the floor brush.
+            const seen = new Set();
+            const across = Math.abs(target.x - a.x) >= Math.abs(target.y - a.y) ? 'y' : 'x';
+            for (const cell of run) for (const wide of this.brushCells({ x: cell.x, y: cell.y, z: a.z }, across)) {
+                const key = wide.x + ',' + wide.y;
+                if (!seen.has(key)) { seen.add(key); cells.push(wide); }
+            }
             return { cells, x0, y0, x1, y1 };
         }
         // Rocks fill it on a grid of their spacing, each its own (seeded by its place, so the
@@ -2231,6 +2249,15 @@ class PieceBuilderManager {
                 if (step.x < 0 || step.y < 0 || step.x >= map.width || step.y >= map.height) continue;
                 if (elevation.setPiece(map, step) && this._changedSince(map)) changed = true;
             }
+        } else if (piece.kind === 'floor' && this.floorBrush > 1) {
+            // A floor brush lays its square at once.
+            changed = false;
+            for (const cell of this.brushCells(target)) {
+                if (cell.x < 0 || cell.y < 0 || cell.x >= map.width || cell.y >= map.height) continue;
+                const one = this.pieceFor(cell);
+                if (group) one.group = group;
+                if (elevation.setPiece(map, one) && this._changedSince(map)) changed = true;
+            }
         } else changed = !!elevation.setPiece(map, piece) && this._changedSince(map);
         if (changed && piece.kind === 'stair' && this._stroke.mode !== 'erase') this.warnStairFoot([elevation.pieceAt(map, piece.x, piece.y, piece.z)]);
         // The rock laid: the next one is another rock (its own variation; the ghost follows).
@@ -2244,7 +2271,7 @@ class PieceBuilderManager {
         // (a hidden face between touching walls belongs to both).
         if (changed) {
             this._stroke.moved = true;
-            const reach = this.isShape(piece.kind) ? Math.ceil(Math.max(...(piece.size || [1, 1, 1])) / 2) + 1 : Math.max(1, this.stairSteps, this.stairWidth, piece.kind === 'ladder' ? this.ladderWidth : 1);
+            const reach = this.isShape(piece.kind) ? Math.ceil(Math.max(...(piece.size || [1, 1, 1])) / 2) + 1 : Math.max(1, this.stairSteps, this.stairWidth, piece.kind === 'ladder' ? this.ladderWidth : 1, piece.kind === 'floor' ? this.floorBrush : 1);
             this.announce(false, { x0: target.x - reach, y0: target.y - reach, x1: target.x + reach, y1: target.y + reach });
         }
         return changed;

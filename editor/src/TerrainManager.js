@@ -21,6 +21,18 @@ class TerrainManager {
      * Grounds to start a type from: the material (img/materials), a tint and whether anything grows on it.
      * A project without the material's image still lists the type; it draws once the image is there.
      */
+    /**
+     * The roads and paths the Path tool paints, each a ground type made the first time it is used (found again by
+     * its name): nothing grows on them.
+     */
+    static PATH_SURFACES = [
+        { name: 'Dirt road', material: 'Dirt', tint: '#8a6a4c', bare: true },
+        { name: 'Cobblestone', material: 'Cobble', tint: '', bare: true },
+        { name: 'Gravel path', material: 'Gravel', tint: '#8f8a82', bare: true },
+        { name: 'Sand path', material: 'Sand', tint: '', bare: true },
+        { name: 'Paving', material: 'Stone', tint: '', bare: true }
+    ];
+
     static GROUND_PRESETS = [
         { name: 'Sand', material: 'Sand', tint: '', bare: true },
         { name: 'Dirt', material: 'Dirt', tint: '#8a6a4c' },
@@ -97,6 +109,11 @@ class TerrainManager {
         this.groundSoft = 0.4;
         // 'brush' paints under the pointer; 'rect' fills the rectangle a drag spans.
         this.groundShape = 'brush';
+        // The Path tool: which road, how wide (tiles), a crisp or soft edge, a freehand stroke or a straight line.
+        this.pathSurface = 0;
+        this.pathWidth = 3;
+        this.pathEdge = 'soft';
+        this.pathShape = 'brush';
         this._groundStroke = null;
         // Dunes: where the wind blows toward, a ridge to the next, a crest's height, which field.
         this.dunes = { dir: 30, size: 10, height: 1.6, seed: 1, walkable: true };
@@ -189,7 +206,7 @@ class TerrainManager {
     }
 
     setMode(mode) {
-        if (!this.elevation()?.TERRAIN_MODES.includes(mode) && !['drain', 'fill', 'look', 'river', 'ground', 'dunes', 'biome', 'surround', 'sky'].includes(mode) && !this.isFoliageMode(mode)) return;
+        if (!this.elevation()?.TERRAIN_MODES.includes(mode) && !['drain', 'fill', 'look', 'river', 'ground', 'path', 'dunes', 'biome', 'surround', 'sky'].includes(mode) && !this.isFoliageMode(mode)) return;
         if (mode !== 'river') this.cancelRiver();
         this.mode = mode;
         if (mode !== 'look' && this.selectedWater) this.selectWater(null);
@@ -304,6 +321,7 @@ class TerrainManager {
         if (this.mode === 'river') return this.riverPoint(point);
         if (this.isFoliageMode()) return this.beginFoliage(point);
         if (this.mode === 'ground') return this.beginGround(point);
+        if (this.mode === 'path') return this.beginPath(point);
         // The biome, the border and the room panels have no brush.
         if (this.mode === 'biome' || this.mode === 'surround' || this.mode === 'sky') return false;
         if (this.mode === 'drain') {
@@ -670,8 +688,72 @@ class TerrainManager {
         if (stroke.start) return this.groundRect(point);
         const cx = point.x + 0.5, cy = point.y + 0.5, last = stroke.last, spacing = Math.max(0.35, this.radius * 0.3);
         if (!first && last && Math.hypot(cx - last.x, cy - last.y) < spacing) return false;
+        // Dabs all the way from the last one, however fast the pointer went: a stroke is never a dotted line.
+        const points = TerrainManager.strokePoints(first ? null : last, { x: cx, y: cy }, spacing);
         stroke.last = { x: cx, y: cy };
-        const changed = ground.paint(map, this.groundType, cx, cy, { radius: this.radius, strength: this.strength, level: this.groundLevel, soft: this.groundSoft, erase: this.groundErase });
+        const changed = ground.paintMany(map, this.groundType, points, { radius: this.radius, strength: this.strength, level: this.groundLevel, soft: this.groundSoft, erase: this.groundErase });
+        if (!changed) return false;
+        const seen = stroke.region;
+        stroke.region = seen ? { x0: Math.min(seen.x0, changed.x0), y0: Math.min(seen.y0, changed.y0), x1: Math.max(seen.x1, changed.x1), y1: Math.max(seen.y1, changed.y1) } : changed;
+        this.announceGround(changed, false);
+        return true;
+    }
+
+    /** The points from `a` (excluded; null for none) to `b`, `spacing` apart: [[x, y]...]. */
+    static strokePoints(a, b, spacing) {
+        if (!a) return [[b.x, b.y]];
+        const d = Math.hypot(b.x - a.x, b.y - a.y), steps = Math.max(1, Math.ceil(d / Math.max(0.1, spacing))), out = [];
+        for (let i = 1; i <= steps; i++) out.push([a.x + (b.x - a.x) * i / steps, a.y + (b.y - a.y) * i / steps]);
+        return out;
+    }
+
+    /** The ground type the Path tool paints the chosen road as: found by its name, else made now. -1 when it cannot be. */
+    pathTypeIndex() {
+        const surface = TerrainManager.PATH_SURFACES[this.pathSurface] || TerrainManager.PATH_SURFACES[0];
+        const found = this.groundTypes().findIndex(type => (type.name || type.material) === surface.name);
+        if (found >= 0) return found;
+        const before = this.groundType;
+        const index = this.addGroundType(Object.assign({}, surface));
+        if (index < 0) this.groundType = before;
+        return index;
+    }
+
+    /** The Path tool's brush: half its width, a whole road (full strength and coverage), a crisp or a soft edge. */
+    pathBrush() { return { radius: Math.max(0.5, this.pathWidth / 2), strength: 1, level: 9, soft: this.pathEdge === 'crisp' ? 0.12 : 0.5 }; }
+
+    /**
+     * Paint a road: a freehand stroke laid continuously along the drag, or (Line) a straight one from where the drag
+     * began to the pointer, laid again from the ground as it was as the pointer moves. One undo step.
+     */
+    beginPath(point) {
+        const map = this.currentMap(), ground = this.ground();
+        if (!map || !ground || !point) return false;
+        if (!this.hasGroundFloor()) { this._flashText(this._tt('This map has no floor to paint over.')); return false; }
+        const index = this.pathTypeIndex();
+        if (index < 0) return false;
+        const at = { x: point.x + 0.5, y: point.y + 0.5 };
+        this._groundStroke = { saved: ground.snapshot(map), region: null, last: null, path: { index, start: this.pathShape === 'line' ? at : null } };
+        return this.pathDab(point, true);
+    }
+
+    pathDab(point, first) {
+        const map = this.currentMap(), ground = this.ground(), stroke = this._groundStroke;
+        if (!map || !ground || !stroke || !stroke.path) return false;
+        const at = { x: point.x + 0.5, y: point.y + 0.5 }, brush = this.pathBrush(), spacing = Math.max(0.3, brush.radius * 0.4);
+        let changed;
+        if (stroke.path.start) {
+            if (!first && stroke.last && Math.hypot(at.x - stroke.last.x, at.y - stroke.last.y) < 0.25) return false;
+            ground.restore(map, stroke.saved);
+            const from = stroke.path.start;
+            changed = ground.paintMany(map, stroke.path.index, [[from.x, from.y]].concat(TerrainManager.strokePoints(from, at, spacing)), brush);
+            const reach = brush.radius + 1, line = { x0: Math.floor(Math.min(from.x, at.x, stroke.last ? stroke.last.x : at.x) - reach), y0: Math.floor(Math.min(from.y, at.y, stroke.last ? stroke.last.y : at.y) - reach),
+                x1: Math.ceil(Math.max(from.x, at.x, stroke.last ? stroke.last.x : at.x) + reach), y1: Math.ceil(Math.max(from.y, at.y, stroke.last ? stroke.last.y : at.y) + reach) };
+            changed = changed ? { x0: Math.min(changed.x0, line.x0), y0: Math.min(changed.y0, line.y0), x1: Math.max(changed.x1, line.x1), y1: Math.max(changed.y1, line.y1) } : line;
+        } else {
+            if (!first && stroke.last && Math.hypot(at.x - stroke.last.x, at.y - stroke.last.y) < spacing) return false;
+            changed = ground.paintMany(map, stroke.path.index, TerrainManager.strokePoints(first ? null : stroke.last, at, spacing), brush);
+        }
+        stroke.last = at;
         if (!changed) return false;
         const seen = stroke.region;
         stroke.region = seen ? { x0: Math.min(seen.x0, changed.x0), y0: Math.min(seen.y0, changed.y0), x1: Math.max(seen.x1, changed.x1), y1: Math.max(seen.y1, changed.y1) } : changed;
@@ -1001,6 +1083,7 @@ class TerrainManager {
     }
 
     paintAt(point) {
+        if (this._groundStroke && this._groundStroke.path) return point ? this.pathDab(point, false) : false;
         if (this._groundStroke) return point ? this.groundDab(point, false) : false;
         if (this._foliageStroke) return point ? this.foliageDab(point, false) : false;
         if (!this._stroke || !point) return false;

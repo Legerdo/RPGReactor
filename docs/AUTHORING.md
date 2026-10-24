@@ -801,7 +801,16 @@ A character walks a rise of up to 0.75 tile, jumps onto anything up to its jump 
 "ground": { "types": [ { "name": "Beach", "material": "Sand", "tint": "#e8866a", "scale": 4, "bare": true, "paint": "0x812 9x3 5" } ] }
 ```
 
-The room's floor is the map's own ground; `ground.types` paints others over it, up to eight. A type is a `material` (an image under `img/materials`, with its `_normal`/`_rough` maps and `.json` when it has them), a `tint`, a `scale` (tiles to one repeat; absent: the material's own, else 4), `bare` (nothing grows on it) and `paint`: a level 0-9 per cell, row by row, as runs. A later type lies over an earlier one. Borders wander, and a half-strength paint reads as patches. On slopes a type turns to the room's cliff as the floor does. In the editor: Build bar › Terrain › **Ground** (Paint or Erase, + Add a ground, the material tile, Tint, Scale, Nothing grows here; Radius, Strength, Soft edge, Coverage; Fill the whole map). The Ground panel fills a rectangle by drag (Rectangle). A rock capped with `"ground"` wears the type painted under it, and bushes are not stood on bare ground by the brush. **Dunes** raises wind-shaped ridges (Wind direction, Ridge spacing, Height). **Biome** sets a map's ground, cliff tint, plant colors and water together. **Rock** is in the Terrain group. By rule:
+The room's floor is the map's own ground; `ground.types` paints others over it, up to eight. A type is a `material` (an image under `img/materials`, with its `_normal`/`_rough` maps and `.json` when it has them), a `tint`, a `scale` (tiles to one repeat; absent: the material's own, else 4), `bare` (nothing grows on it) and `paint`: a level 0-9 per cell, row by row, as runs. A later type lies over an earlier one. Borders wander, and a half-strength paint reads as patches. On slopes a type turns to the room's cliff as the floor does. In the editor, a road or a path is Build bar › Terrain › **Path**: drag
+along the way it goes (**Brush**) or from one end to the other (**Line**),
+choose its **Surface** (Dirt road, Cobblestone, Gravel path, Sand path,
+Paving: each a ground type made, bare, the first time it is used) and its
+**Width** in tiles, with a soft or crisp edge. It follows the ground up and
+down hills and is laid all along the drag however fast the pointer moves;
+the Eraser slot takes it away and Ground changes its look. A road of floor
+pieces instead: Build › Floor with a **Size** of 2×2 to 5×5 (a Line of
+floor is that wide), or one slab of any size from Shape › Box. Build bar ›
+Terrain › **Ground** (Paint or Erase, + Add a ground, the material tile, Tint, Scale, Nothing grows here; Radius, Strength, Soft edge, Coverage; Fill the whole map). The Ground panel fills a rectangle by drag (Rectangle). A rock capped with `"ground"` wears the type painted under it, and bushes are not stood on bare ground by the brush. **Dunes** raises wind-shaped ridges (Wind direction, Ridge spacing, Height). **Biome** sets a map's ground, cliff tint, plant colors and water together. **Rock** is in the Terrain group. By rule:
 
 ```
 node editor/build-scripts/paint-ground.cjs <project> <mapId> <spec.json> [--check]

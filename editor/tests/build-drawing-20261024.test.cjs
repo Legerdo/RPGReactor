@@ -344,3 +344,13 @@ test('a window or a doorway goes into a straight diagonal wall: the wall cut eit
     assert.ok(after.some(p => p.z === 4.5 && p.size[0] === 2), 'the doorway\'s header, a door\'s height up, two tiles wide so the grid has a way through');
     assert.equal(manager.undoStack.length, 3, 'each one undo step');
 });
+
+test('a floor in hand lays a square of tiles at a click, and a line of floor that wide', () => {
+    const map = freshMap(); const { manager, E } = builderOn(map);
+    manager.setKind('floor'); manager.floorBrush = 3; manager.setDrawShape('brush');
+    manager.beginStroke({ x: 5, y: 5, z: 0 }); manager.endStroke();
+    assert.deepEqual(cells(E, map, 'floor'), ['4,4', '4,5', '4,6', '5,4', '5,5', '5,6', '6,4', '6,5', '6,6']);
+    manager.setDrawShape('line'); manager.floorBrush = 2;
+    stroke(manager, { x: 10, y: 2, z: 0 }, { x: 14, y: 2, z: 0 });
+    assert.equal(E.pieces(map).filter(p => p.kind === 'floor' && p.x >= 10).length, 10, 'two tiles wide, five long');
+});

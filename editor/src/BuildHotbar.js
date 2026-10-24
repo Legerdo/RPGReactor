@@ -49,8 +49,8 @@ class BuildHotbar {
     static ROCK_PRESETS = { boulder: [3, 2, 3], rock: [4, 4, 4], cliff: [4, 8, 4], spire: [2, 8, 2], ledge: [6, 2, 3], slab: [6, 1, 6] };
     static SLOTS = ['select'].concat(BuildHotbar.PIECES, BuildHotbar.EXTRA);
     /** The Terrain group: the ground's brushes, the water, then the whole map's look and the land past its border. Each is a TerrainManager mode. */
-    static TERRAIN = ['raise', 'lower', 'smooth', 'flatten', 'dunes', 'ground', 'terase', 'rock', 'pour', 'river', 'drain', 'look', 'biome', 'sky', 'surround'];
-    static TERRAIN_MODE = { raise: 'raise', lower: 'lower', smooth: 'smooth', flatten: 'flatten', dunes: 'dunes', ground: 'ground', terase: 'ground', pour: 'fill', river: 'river', drain: 'drain', look: 'look', biome: 'biome', sky: 'sky', surround: 'surround' };
+    static TERRAIN = ['raise', 'lower', 'smooth', 'flatten', 'dunes', 'ground', 'terase', 'path', 'rock', 'pour', 'river', 'drain', 'look', 'biome', 'sky', 'surround'];
+    static TERRAIN_MODE = { raise: 'raise', lower: 'lower', smooth: 'smooth', flatten: 'flatten', dunes: 'dunes', ground: 'ground', path: 'path', terase: 'ground', pour: 'fill', river: 'river', drain: 'drain', look: 'look', biome: 'biome', sky: 'sky', surround: 'surround' };
     /** The Models group's fixed slots; the models themselves follow as model0, model1... */
     static MODELS = ['mselect', 'mremove', 'library'];
     /** The Foliage group: four kinds painted as a density, then bushes. Each is a TerrainManager mode of the same name. */
@@ -345,6 +345,8 @@ class BuildHotbar {
             look: 'M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z M18 15l1 2 2 1-2 1-1 2-1-2-2-1 2-1z',
             dunes: 'M2 18c3-7 6-7 8-2 2-6 6-8 12 2z M2 21h20',
             ground: 'M3 20h18 M3 15c3-2 6 2 9 0s6-2 9 0 M7 10l2-5 2 5z M14 10c0-3 5-3 5 0z',
+            // A road running away: its two edges closing in, the middle line dashed.
+            path: 'M4 21L10 3 M20 21L14 3 M12 20v-3 M12 14v-3 M12 8V6',
             biome: 'M12 3a9 9 0 1 0 0.01 0z M3 12h18 M12 3c-3 3-3 15 0 18 M12 3c3 3 3 15 0 18',
             // Room and Sky: a cloud under the sun.
             sky: 'M6 19h11a4 4 0 0 0 .4-7.98A5.5 5.5 0 0 0 6.6 12.2 3.4 3.4 0 0 0 6 19z M17 3v2 M21 7h-2 M13.5 4.5l1.2 1.2',
@@ -381,7 +383,7 @@ class BuildHotbar {
         if (slot === 'mremove' || slot === 'terase' || slot === 'ferase') return this._t('build.hammer');
         if (slot === 'library') return this._t('build.library');
         if (/^model\d+$/.test(slot)) return (this.props()?.libraryModels()[Number(slot.slice(5))]?.name || '').split('/').pop();
-        if (slot === 'dunes' || slot === 'ground' || slot === 'biome' || slot === 'sky' || slot === 'surround') return this._tt({ dunes: 'Dunes', ground: 'Ground', biome: 'Biome', sky: 'Room and Sky', surround: 'Beyond the Border' }[slot]);
+        if (slot === 'dunes' || slot === 'ground' || slot === 'path' || slot === 'biome' || slot === 'sky' || slot === 'surround') return this._tt({ dunes: 'Dunes', ground: 'Ground', path: 'Path', biome: 'Biome', sky: 'Room and Sky', surround: 'Beyond the Border' }[slot]);
         if (BuildHotbar.TERRAIN.includes(slot)) return this._t({ pour: 'terrain.waterPour', drain: 'terrain.drain', look: 'terrain.lookShort' }[slot] || 'terrain.' + slot);
         if (BuildHotbar.ALIEN_FOLIAGE[slot]) return this._tt(BuildHotbar.ALIEN_FOLIAGE[slot]);
         if (BuildHotbar.FOLIAGE.includes(slot)) return this._t('foliage.' + slot);
@@ -603,6 +605,9 @@ class BuildHotbar {
             // In hand: how a drag lays it, and the level it is laid at. Placed: where it stands, to type or step.
             if (!piece && (!s.shape || kind === 'rock')) body += drawCard();
             if (!piece && !s.shape) body += section(tt('Level'), levelRow(manager.level, manager.levelStep(kind)), 'Q / E');
+            // A floor in hand: how many tiles square a click lays (and how wide a line of floor is).
+            if (!piece && kind === 'floor') body += section(tt('Size'), `<div class="rr-build-finishes rr-build-floorbrush">${[1, 2, 3, 4, 5].map(n => `<button type="button" class="rr-build-chip rr-build-fbrush" data-value="${n}" aria-pressed="${manager.floorBrush === n}">${n}×${n}</button>`).join('')}</div>`
+                + `<div class="rr-build-note rr-build-wrap">${escape(tt('Tiles laid at each click; a Line of floor is this wide. For one big slab of any size, use Shape › Box.'))}</div>`);
             // A wall's, a pane's or a pillar's height: a storey (5) unless set, a garden wall lower, a hall higher.
             if (PieceBuilderManager.SIZED_KINDS.includes(kind)) {
                 const tall = piece ? (piece.height || 5) : manager.heightFor(kind);
@@ -1137,6 +1142,7 @@ class BuildHotbar {
         };
         panel.querySelectorAll('input[type=number].rr-build-height').forEach(el => el.addEventListener('change', () => { applyHeight(el.value, true); this.renderPanel(); }));
         panel.querySelectorAll('.rr-build-draw').forEach(el => el.addEventListener('click', () => { manager.setDrawShape(el.dataset.draw); this.renderPanel(); }));
+        panel.querySelectorAll('.rr-build-fbrush').forEach(el => el.addEventListener('click', () => { manager.floorBrush = Number(el.dataset.value) || 1; manager._ghostChanged?.(); this.renderPanel(); }));
         panel.querySelectorAll('.rr-build-diagonal').forEach(el => el.addEventListener('click', () => { manager.setDiagonal(el.dataset.diagonal); this.renderPanel(); }));
         panel.querySelectorAll('.rr-build-rectfill').forEach(el => el.addEventListener('click', () => { manager.setRectFill(el.dataset.fill); this.renderPanel(); }));
         // The level: in hand it is where the next piece goes; placed, the selection is raised or lowered (one undo step a press).
@@ -1357,6 +1363,18 @@ class BuildHotbar {
                     inHand ? escape(inHand.name || inHand.material) : ''))
                 + section(t('terrain.brush'), brushRows)
                 + edit + whole;
+        } else if (slot === 'path') {
+            // A road or a path painted on the ground: which one, how wide, its edge, and how the drag lays it.
+            const surfaces = TerrainManager.PATH_SURFACES.map((surface, i) => `<button type="button" class="rr-build-chip rr-build-psurface" data-value="${i}" aria-pressed="${i === terrain.pathSurface}"><i class="rr-build-gdot" style="background:${escape(surface.tint || '#c8c0b0')}"></i><span>${escape(tt(surface.name))}</span></button>`).join('');
+            const drawChip = (value, label, icon) => `<button type="button" class="rr-build-chip rr-build-pshape" data-value="${value}" aria-pressed="${terrain.pathShape === value}">${this.icon(icon, 18)}<span>${escape(tt(label))}</span></button>`;
+            const noFloor = terrain.hasGroundFloor() ? '' : `<div class="rr-build-note rr-build-wrap rr-build-gnofloor">${tt('This map has no floor to paint over.')}</div>`;
+            body = lead(tt('Drag to paint a road or a path on the ground. It follows the ground up and down hills, and nothing grows on it.')) + noFloor
+                + section(tt('Draw'), `<div class="rr-build-finishes rr-build-draws">${drawChip('brush', 'Brush', 'drawBrush')}${drawChip('line', 'Line', 'drawLine')}</div>`
+                    + `<div class="rr-build-note rr-build-wrap">${escape(tt(terrain.pathShape === 'line' ? 'Drag from one end to the other for a straight road.' : 'Drag along the way the road goes.'))}</div>`)
+                + section(tt('Surface'), `<div class="rr-build-finishes rr-build-pair">${surfaces}</div>`)
+                + section(t('terrain.brush'), range('rr-build-pwidth', tt('Width'), terrain.pathWidth, 1, 12, 0.5, terrain.pathWidth)
+                    + `<div class="rr-build-finishes rr-build-pair">${chipOf('rr-build-pedge', 'soft', tt('Soft edge'), terrain.pathEdge !== 'crisp')}${chipOf('rr-build-pedge', 'crisp', tt('Crisp edge'), terrain.pathEdge === 'crisp')}</div>`)
+                + `<div class="rr-build-note rr-build-wrap">${tt('The Eraser slot takes paint away. A road is a ground: change its look under Ground.')}</div>`;
         } else if (slot === 'biome') {
             const names = { temperate: 'Temperate', desert: 'Desert', snow: 'Snow', volcanic: 'Volcanic', alienViolet: 'Alien violet', alienFungal: 'Alien fungal' };
             body = lead(tt('A starting look for the whole map: its ground, cliffs, plant colors and water together. Heights stay as they are.'))
@@ -1408,6 +1426,7 @@ class BuildHotbar {
             panel.querySelector('.' + cls + '-value').textContent = show(Number(event.target.value));
         });
         bindRange('rr-build-tradius', v => { terrain.radius = v; }, v => v);
+        bindRange('rr-build-pwidth', v => { terrain.pathWidth = v; }, v => v);
         bindRange('rr-build-rwidth', v => { terrain.riverWidth = v; }, v => v);
         bindRange('rr-build-rdepth', v => { terrain.riverDepth = v; }, v => v);
         panel.querySelector('.rr-build-rfinish')?.addEventListener('click', () => terrain.finishRiver());
@@ -1422,6 +1441,9 @@ class BuildHotbar {
         panel.querySelector('.rr-build-dseed')?.addEventListener('click', () => { terrain.dunes.seed = 1 + Math.floor(Math.random() * 9999); this.flash(this._tt('Another dune field')); });
         // Ground: the type in hand, its look, the brush.
         panel.querySelectorAll('.rr-build-gmode').forEach(el => el.addEventListener('click', () => { terrain.groundErase = el.dataset.value === 'erase'; this.renderTerrainPanel(); }));
+        panel.querySelectorAll('.rr-build-psurface').forEach(el => el.addEventListener('click', () => { terrain.pathSurface = Number(el.dataset.value) || 0; this.renderTerrainPanel(); }));
+        panel.querySelectorAll('.rr-build-pshape').forEach(el => el.addEventListener('click', () => { terrain.pathShape = el.dataset.value; this.renderTerrainPanel(); }));
+        panel.querySelectorAll('.rr-build-pedge').forEach(el => el.addEventListener('click', () => { terrain.pathEdge = el.dataset.value; this.renderTerrainPanel(); }));
         panel.querySelectorAll('.rr-build-gshape').forEach(el => el.addEventListener('click', () => { terrain.groundShape = el.dataset.value; this.renderTerrainPanel(); }));
         panel.querySelector('.rr-build-gsetfloor')?.addEventListener('click', event => { if (terrain.setGroundFloor(event.currentTarget.dataset.floor)) this.renderTerrainPanel(); });
         panel.querySelectorAll('.rr-build-gtype').forEach(el => el.addEventListener('click', () => { terrain.editGroundType({}, 'commit'); terrain.groundType = Number(el.dataset.index); terrain.groundErase = false; this.renderTerrainPanel(); }));
