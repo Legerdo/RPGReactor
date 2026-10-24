@@ -1,6 +1,6 @@
 # Current status
 
-**0.99.0** shipped on 2026-10-12 (UTC; the evening of the 11th Pacific) at runtime **20261011.14**: battles on the map, vehicles and mounted combat, seamless neighboring maps and the Open Road, the landscape tools, the performance pass and quality levels, and web builds in pack archives. **0.99.1** is in development. Released behavior is in the [changelog](../CHANGELOG.md) and [release notes](posts/release-notes-0.99.0.md); notes for the cycle in progress are in [HANDOFF.md](HANDOFF.md); earlier dated history is in [archive/handoff](archive/handoff/).
+**0.99.1** shipped on 2026-10-24 (UTC; the evening of the 23rd Pacific) at runtime **20261023.2**: the 3D Character and Prop Builders, the Database, event editor and Forge in windows of their own, climbing, falls and the Grappler in battles, troop pages in battles on the map, Effekseer at MZ's size, self switches A to Z, deploy encryption, and the border crossing without a shader stall. It is announced together with 0.99.2 at the end of the weekend. **0.99.2** is in development. Released behavior is in the [changelog](../CHANGELOG.md) and [release notes](posts/release-notes-0.99.1.md); notes for the cycle in progress are in [HANDOFF.md](HANDOFF.md); earlier dated history is in [archive/handoff](archive/handoff/).
 
 ## Version and validation
 
