@@ -10,4 +10,10 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 - **Owner questions:** [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md); the web trim waits for the weekend release.
 - **Editor windows:** the Event Editor, Database, Forge and Plugin Manager each open in a frameless window of their own (`utils/DetachedWindow.js`). Native Linux transparency still needs a look on the real desktop.
 - **Savior & Religion** (`template/Savior & Religion`, not in git, an encrypted MV game the owner is trying as a template) boots, plays its opening and draws its ULDS maps 2, 5 and 19.
-- **Next:** keep the map scene across a seamless crossing (the last missed refresh at a border). 0.99.1 and 0.99.2 are announced together at the end of the weekend; a devlog draft for 0.99.1 is in `scratchpad/round2-2026-10-23/release-0.99.1/devlog.md`, and each release gets highlight pictures (RELEASE-CHECKLIST §5).
+- **Next:** CI green, then the three trailer-shoot bugs in STATUS (Blueprint stamp blanking, Forge preview frame drops, the gown breaking on Height), then keeping the map scene across a seamless crossing. 0.99.1 and 0.99.2 are announced together at the end of the weekend with a video and pictures (RELEASE-CHECKLIST §5).
+
+## 2026-10-24 — 0.99.1 shipped; trailer pipeline
+
+- **Release:** 0.99.1 is tagged and published with eight highlight pictures (`docs/media/releases/0.99.1/`). The README front page carries the key art and a gallery; `docs/media/readme/social-preview.jpg` is uploaded as the repository's link preview. Pushing works without prompts through the gh credential helper in the repo's `.git/config`.
+- **Trailer:** `scratchpad/trailer/` (gitignored). `record-all.sh [names]` re-records shots on the headless display (x11grab per window id: the root window of `:2` is black), `edit.sh` cuts `out/rough-cut.mp4` to *Darkstream Descent* from `tools/edit-plan.json`. The owner liked the rough cut. For the final: raid at dusk or day, a fixed camera path for the night shot and the ride, builder shots cropped to the 3D view, a stamped house once the Blueprint bug is fixed, an Action battle moment.
+- **Announcement:** a devlog draft for 0.99.1 is in `scratchpad/round2-2026-10-23/release-0.99.1/devlog.md`; the 0.99.2 post covers both versions.
