@@ -6615,7 +6615,7 @@ class MapEditor3D {
         return !!(data && (data.pieces || data.rrDoor)) && hit.point.y > this.storeyCutTop();
     }
 
-    /** The map bar's Storeys list: All, then one per storey the map stands. */
+    /** The map bar's Floors list: All, then one per storey (5 tiles) the map's tallest piece reaches, however many. */
     syncStoreyCutControl() {
         if (typeof document === 'undefined') return;
         const select = document.getElementById('map-storey-cut');
@@ -6630,8 +6630,8 @@ class MapEditor3D {
         }
         const tt = text => (typeof window !== 'undefined' && window.I18n?.tText ? window.I18n.tText(text) : text);
         const all = tt('All'), label = select.closest('.map-storey-cut');
-        if (label) label.title = tt('Show the 3D view up to this storey, as the game cuts away a roof over the player');
-        select.setAttribute('aria-label', tt('Storeys'));
+        if (label) label.title = tt('Show the 3D view up to this floor, as the game cuts away a roof over the player');
+        select.setAttribute('aria-label', tt('Floors'));
         const count = Math.max(MapEditor3D.storeyCount(this.currentMap()), this.storeyCut || 0);
         const want = ['0'].concat(Array.from({ length: count }, (_, i) => String(i + 1)));
         if ([...select.options].map(o => o.value + o.textContent).join() !== want.map(v => v + (v === '0' ? all : v)).join()) {

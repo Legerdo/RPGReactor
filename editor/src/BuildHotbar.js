@@ -661,7 +661,7 @@ class BuildHotbar {
             if (PieceBuilderManager.HEIGHT_KINDS.includes(kind)) {
                 const tall = piece ? (piece.height || PieceBuilderManager.defaultHeight(kind)) : manager.heightFor(kind);
                 body += section(tt('Size'), slide('rr-build-height', tt('Height'), tall, 0.5, 40, 0.25, 'height', 'y', 0)
-                    + `<div class="rr-build-note rr-build-wrap">${escape(tt('In tiles. A storey is 5; a character stands 3.'))}</div>`, tall === 5 ? tt('a storey') : '');
+                    + `<div class="rr-build-note rr-build-wrap">${escape(tt('In tiles. One floor of a building is 5; a character stands 3.'))}</div>`, tall === 5 ? tt('one floor') : '');
             }
             if (piece && !s.shape) {
                 const map = this.currentMap();

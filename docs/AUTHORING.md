@@ -396,9 +396,11 @@ pointed at a window, doorway or pane walls it up. Each slot shows its key
 (1 to 0, the Eraser X). A right-click takes a piece off and a right-drag turns the view
 (Shift-drag or the middle button moves it); R turns the piece in hand, and
 Escape in Select with nothing selected leaves Build. A stair laid or turned
-with its foot against a wall is said. The map bar's **Storeys** list shows
-the 3D view up to a storey, as the game cuts away a roof over the player;
-while building, the cut follows the level built at.
+with its foot against a wall is said. The map bar's **Floors** list shows
+the 3D view up to a floor (5 tiles each, counted from the ground), as the
+game cuts away a roof over the player; it lists as many floors as the
+map's tallest piece reaches, so a tower of 40 lists 40. While building,
+the cut follows the level built at.
 
 A material may have companions beside its image, each optional:
 `<Name>_normal.png` (a normal map, OpenGL convention, green up),

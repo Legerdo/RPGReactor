@@ -177,7 +177,7 @@ test('the view cut at a storey: storeys counted from the pieces, a plane under t
     const source = read('editor/src/MapEditor3D.js');
     // Only this view's frame wears the cut: the shared values are put back after it.
     assert.match(source, /const cut = this\.applyStoreyCut\(\);\s*try \{\s*this\.renderFrame\(scene\);\s*\} finally \{\s*scene\.matrixWorldAutoUpdate = matrixAuto;\s*if \(cut\) \{ cut\.uniforms\.rrCutTop\.value = cut\.top; cut\.uniforms\.rrCutBox\.value = cut\.box; \}/);
-    assert.match(read('editor/index.html'), /<select id="map-storey-cut" aria-label="Storeys">/);
+    assert.match(read('editor/index.html'), /<select id="map-storey-cut" aria-label="Floors">/);
     // Build's level moves the cut with it.
     assert.match(read('editor/src/PieceBuilderManager.js'), /if \(view\?\.storeyCut > 0 && view\.setStoreyCut\) view\.setStoreyCut\(Math\.floor\(this\.level \/ S\) \+ 1, 'keep'\);/);
 });
