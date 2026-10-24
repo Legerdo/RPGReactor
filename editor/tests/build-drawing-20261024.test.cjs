@@ -133,3 +133,11 @@ test('a wall line off the grid is one straight wall from end to end; Stepped kee
     assert.equal(c.E.pieces(steps).filter(p => p.kind === 'box').length, 0);
     assert.equal(c.E.pieces(steps).filter(p => p.kind === 'wall').length, 11);
 });
+
+test('the Height slider is handled with the panel\'s other sliders, so a drag sets the height instead of moving the piece', () => {
+    const source = read('editor/src/BuildHotbar.js');
+    // The sliders' shared handler took a Height drag on a placed wall for a move and the panel then showed 5 again.
+    assert.match(source, /if \(kind === 'rr-build-height'\) \{ applyHeight\(v, false\); return; \}/);
+    assert.ok(source.indexOf("if (kind === 'rr-build-height')") < source.indexOf("else if (!placed) return;"), 'before the placed-only branches');
+    assert.match(source, /querySelectorAll\('input\[type=number\]\.rr-build-height'\)/, 'the number box when typed');
+});

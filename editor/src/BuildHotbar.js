@@ -1123,20 +1123,15 @@ class BuildHotbar {
         panel.querySelector('.rr-build-relay')?.addEventListener('click', () => { manager.relayFromPlan(); this.renderPanel(); });
         this.bindDoorPanel(s, edit);
         if (s.kind === 'many') this.bindParts();
-        // Height: the slider edits live (one undo step a drag), the number when typed.
-        panel.querySelectorAll('.rr-build-height').forEach(el => {
-            const apply = (value, record) => {
-                const tall = Math.max(0.5, Math.min(40, Math.round((Number(value) || 5) * 4) / 4));
-                if (s.kind === 'many') manager.updateSelection(piece => PieceBuilderManager.SIZED_KINDS.includes(piece.kind) ? { height: tall === 5 ? undefined : tall } : {}, record);
-                else if (s.piece) manager.updateSelected({ height: tall === 5 ? undefined : tall }, record);
-                else manager.setHeight(s.kind, tall);
-            };
-            if (el.type === 'range') {
-                let first = true;
-                el.addEventListener('input', () => { apply(el.value, first); first = false; const number = panel.querySelector('input[type=number].rr-build-height'); if (number) number.value = el.value; });
-                el.addEventListener('change', () => { first = true; this.renderPanel(); });
-            } else el.addEventListener('change', () => { apply(el.value, true); this.renderPanel(); });
-        });
+        // Height of a wall, a pane or a pillar: in hand, the one selected, or every one of a selection. The slider
+        // runs through the sliders' own handler below (live, one undo step on release); the number when typed.
+        const applyHeight = (value, record) => {
+            const tall = Math.max(0.5, Math.min(40, Math.round((Number(value) || 5) * 4) / 4));
+            if (s.kind === 'many') manager.updateSelection(piece => PieceBuilderManager.SIZED_KINDS.includes(piece.kind) ? { height: tall === 5 ? undefined : tall } : {}, record);
+            else if (s.piece) manager.updateSelected({ height: tall === 5 ? undefined : tall }, record);
+            else manager.setHeight(s.kind, tall);
+        };
+        panel.querySelectorAll('input[type=number].rr-build-height').forEach(el => el.addEventListener('change', () => { applyHeight(el.value, true); this.renderPanel(); }));
         panel.querySelectorAll('.rr-build-draw').forEach(el => el.addEventListener('click', () => { manager.setDrawShape(el.dataset.draw); this.renderPanel(); }));
         panel.querySelectorAll('.rr-build-diagonal').forEach(el => el.addEventListener('click', () => { manager.setDiagonal(el.dataset.diagonal); this.renderPanel(); }));
         panel.querySelectorAll('.rr-build-rectfill').forEach(el => el.addEventListener('click', () => { manager.setRectFill(el.dataset.fill); this.renderPanel(); }));
@@ -1235,6 +1230,7 @@ class BuildHotbar {
                 const v = Number(el.value), key = el.dataset.key, kind = el.dataset.for;
                 number.value = kind === 'rr-build-surface' ? Math.round(v * 100) : el.value;
                 if (kind === 'rr-build-surface') { if (placed || !s.piece) setSurface({ [key]: v }, false); return; }
+                if (kind === 'rr-build-height') { applyHeight(v, false); return; }
                 if (kind === 'rr-build-size') {
                     const size = (placed ? manager.selectedPiece().size : manager.sizeFor(s.kind)).slice(); size[Number(key)] = v;
                     if (placed) manager.updateSelected({ size }, false); else manager.setSize(s.kind, size);
