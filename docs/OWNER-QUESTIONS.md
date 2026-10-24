@@ -24,4 +24,3 @@ None open.
 8. Look at Preview 47 vehicles (`scratchpad/vehicle-corrections-20261022/review.html`) for visual acceptance.
 9. Look at the floating windows on the real desktop: transparent rounded corners on Linux, the Forge's first opening, and the Plugin Manager beside the others.
 10. Check weaker hardware and two monitors.
-11. Release gates: signed Windows and macOS package launches (editing `Info.plist` for the game's name breaks the macOS seal, as the icon swap already did), and one full game playthrough.
