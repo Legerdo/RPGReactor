@@ -131,9 +131,11 @@ test('the saved creature is a skinned GLB with vertex colors and an Idle clip, a
 });
 
 test('a preview build is quick enough for a live slider', () => {
-    const start = Date.now();
+    // CPU time, not the clock: the suite runs many files at once, and waiting on them is not the build's cost.
+    const start = process.cpuUsage();
     for (const kind of ['dog', 'horse', 'drake']) Creature.build(Creature.kindRecipe(kind), { quality: 'preview' });
-    assert.ok((Date.now() - start) / 3 < 400, 'preview ' + (Date.now() - start) / 3 + ' ms');
+    const used = process.cpuUsage(start), ms = (used.user + used.system) / 1000 / 3;
+    assert.ok(ms < 400, 'preview ' + Math.round(ms) + ' ms');
 });
 
 test('while a slider is dragged the coat picture is half size and quicker; the whole picture on release and on save', () => {
