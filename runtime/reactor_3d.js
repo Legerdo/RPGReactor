@@ -10491,18 +10491,38 @@ Reactor3D.renderBlocker = function(mapData) {
      * Escape releases the pointer lock, and the browser keeps that key
      * press to itself: the game never hears it, so the menu needed a second
      * Escape. Losing the lock with the window still focused is that key
-     * press; it calls the menu the way the key would have. Losing focus
-     * (another window) releases the lock too, and calls nothing.
+     * press, and is pressed for it (Input.virtualClick), so it goes where the
+     * key would: a rider gets off, a message closes, otherwise the menu opens.
+     * Losing focus (another window, an overlay) releases the lock too, and
+     * its blur can come just after the lock's change, so the press waits a
+     * moment (LOCK_RELEASE_WAIT) and a blur or a hidden page in that time
+     * calls nothing. Read as the menu at once, every focus loss with the
+     * window still counted as focused opened the menu by itself.
      */
+    const LOCK_RELEASE_WAIT = 150;
     function lockReleased() {
         // A fullscreen change (F4) drops the lock too; that is not Escape.
         if (Date.now() < (look.suppressMenuUntil || 0)) return;
-        const scene = typeof SceneManager !== "undefined" && SceneManager._scene;
-        if (!scene || typeof Scene_Map === "undefined" || !(scene instanceof Scene_Map)) return;
-        if (!isRelativeMode(currentState().mode)) return;
-        if (typeof scene.isMenuEnabled === "function" && !scene.isMenuEnabled()) return;
-        held.clear();
-        scene.menuCalling = true;
+        // An Escape the page heard itself has already gone to Input: the release is that same press.
+        if (Date.now() - (look.escapeAt || 0) < 500) return;
+        cancelLockRelease();
+        look.releaseTimer = setTimeout(() => {
+            look.releaseTimer = 0;
+            if (Date.now() < (look.suppressMenuUntil || 0)) return;
+            if (typeof document !== "undefined" && ((document.hasFocus && !document.hasFocus()) || document.visibilityState === "hidden")) return;
+            const scene = typeof SceneManager !== "undefined" && SceneManager._scene;
+            if (!scene || typeof Scene_Map === "undefined" || !(scene instanceof Scene_Map)) return;
+            if (!isRelativeMode(currentState().mode)) return;
+            held.clear();
+            if (typeof Input !== "undefined" && typeof Input.virtualClick === "function") Input.virtualClick("escape");
+            else if (typeof scene.isMenuEnabled !== "function" || scene.isMenuEnabled()) scene.menuCalling = true;
+        }, LOCK_RELEASE_WAIT);
+    }
+
+    /** A lock release waiting to be read as Escape (lockReleased) is dropped: the window lost focus. */
+    function cancelLockRelease() {
+        if (look.releaseTimer) clearTimeout(look.releaseTimer);
+        look.releaseTimer = 0;
     }
 
     /** The map direction (2/4/6/8, or a diagonal pair) the held keys ask for, relative to the camera. */
@@ -11093,6 +11113,7 @@ Reactor3D.renderBlocker = function(mapData) {
                     look.suppressMenuUntil = Date.now() + 1500;
                     return;
                 }
+                if (event.code === "Escape" || event.keyCode === 27) look.escapeAt = Date.now();
                 const key = KEYS[event.code];
                 if (!key) return;
                 held.add(key);
@@ -11106,7 +11127,8 @@ Reactor3D.renderBlocker = function(mapData) {
                 const key = KEYS[event.code];
                 if (key) held.delete(key);
             });
-            window.addEventListener("blur", () => held.clear());
+            window.addEventListener("blur", () => { held.clear(); cancelLockRelease(); });
+            document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") cancelLockRelease(); });
             // A click on the game takes the mouse in the relative modes;
             // Escape (the browser's own) gives it back.
             document.addEventListener("mousedown", event => {
@@ -11202,6 +11224,7 @@ Reactor3D.renderBlocker = function(mapData) {
         currentState: currentState,
         look: look,
         held: held,
+        lockReleased: lockReleased,
         relativeMove: relativeMove,
         requestLook: requestLook,
         releaseLook: releaseLook,

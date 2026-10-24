@@ -18,3 +18,4 @@ The owner reviews North Haven, playtests battles and tries weaker hardware on th
 
 1. Look at the weak-GPU picture on the UHD 630: edges, beams, and the `"cas"` against the `"crisp"` upscale (later).
 2. Look at Preview 47 vehicles (`scratchpad/vehicle-corrections-20261022/review.html`) for visual acceptance (later).
+3. By hand, in third person on a 3D map: ride a vehicle and press Escape once. It should get off, not open the menu (fixed at runtime 20261024.3, checked in Node only).
