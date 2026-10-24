@@ -179,3 +179,16 @@ test('a building\'s parts are read the same after it is made taller: the gable o
     assert.equal(E.pieces(map).find(p => p.kind === 'block').z, 8);
     assert.equal(roleOf(E.pieces(map), 'block'), before, 'the block on the wall keeps the wall\'s part');
 });
+
+test('a building whose walls were made taller through its roof is put right by setting its height again', () => {
+    const map = freshMap(); const { manager, E } = builderOn(map);
+    const lay = list => { for (const p of list) E.setPiece(map, Object.assign({ rot: 0, material: '', group: 1 }, p)); };
+    // As an older Height left it: walls of both storeys 8 tall, the upper floor, the upper storey and the roof where they stood.
+    lay([{ kind: 'wall', x: 3, y: 3, z: 0, height: 8 }, { kind: 'floor', x: 3, y: 3, z: 5 }, { kind: 'wall', x: 3, y: 3, z: 5, height: 8 }, { kind: 'roof', x: 3, y: 3, z: 10 }]);
+    manager.selectedIds = E.pieces(map).map(p => p.id); manager.selected = manager.selectedIds[0];
+    manager.setSelectionHeight(8);
+    const zOf = (kind, z0) => E.pieces(map).filter(p => p.kind === kind).map(p => p.z).sort((a, b) => a - b);
+    assert.deepEqual(Array.from(zOf('wall')), [0, 8]);
+    assert.deepEqual(Array.from(zOf('floor')), [8]);
+    assert.deepEqual(Array.from(zOf('roof')), [16]);
+});

@@ -547,7 +547,13 @@ class PieceBuilderManager {
         // Each storey: the level its walls stand at, and how tall they stand now.
         const storeys = new Map();
         for (const wall of walls) storeys.set(wall.z, Math.max(storeys.get(wall.z) || 0, wall.height || 5));
-        const bands = [...storeys.entries()].sort((a, b) => a[0] - b[0]);
+        // A storey is as tall as where the next one stands, or the lowest thing laid over its walls (the roof), when
+        // its walls reach past that: a building whose walls were made taller alone, through its roof, is measured
+        // as built, and setting its height again lifts the roof off the walls.
+        const bases = [...storeys.keys()].sort((a, b) => a - b);
+        const RESTS = ['floor', 'roof', 'ramp', 'block'];
+        const over = base => pieces.reduce((low, piece) => piece.z > base && RESTS.includes(piece.kind) ? Math.min(low, piece.z) : low, Infinity);
+        const bands = bases.map((base, i) => [base, Math.min(storeys.get(base), (i + 1 < bases.length ? bases[i + 1] : over(base)) - base)]);
         const stacked = bands.some(([base, h]) => pieces.some(piece => piece.z >= base + h - 1e-6));
         const grown = stacked ? Math.max(1, Math.round(tall)) : tall;
         const lift = z => bands.reduce((sum, [base, h]) => sum + (base + h <= z + 1e-6 ? grown - h : 0), 0);
