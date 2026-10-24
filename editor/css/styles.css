@@ -7848,4 +7848,7 @@ html.rr-detached-window {
 .rr-build-rectfills { margin-top: 6px; }
 .rr-build-draws .rr-build-chip, .rr-build-rectfills .rr-build-chip, .rr-build-diagonals .rr-build-chip { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px 4px; }
 .rr-build-draws .rr-build-chip svg, .rr-build-rectfills .rr-build-chip svg, .rr-build-diagonals .rr-build-chip svg { flex: none; }
+/* The Foliage panel's Paint, Recolor, Pick and Erase: one row of four. */
+.rr-build-finishes.rr-build-factions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.rr-build-factions .rr-build-chip { justify-content: center; padding-left: 2px; padding-right: 2px; }
 .rr-build-diagonals { margin-top: 6px; }

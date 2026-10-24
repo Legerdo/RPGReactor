@@ -22,8 +22,8 @@ class TerrainManager {
      * A project without the material's image still lists the type; it draws once the image is there.
      */
     /**
-     * The roads and paths the Path tool paints, each a ground type made the first time it is used (found again by
-     * its name): nothing grows on them.
+     * Roads and paths to start from: quick picks for the Path tool's look in hand. Whatever is painted becomes a ground
+     * type the first time that look is used (found again by its material, tint and scale): nothing grows on it.
      */
     static PATH_SURFACES = [
         { name: 'Dirt road', material: 'Dirt', tint: '#8a6a4c', bare: true },
@@ -93,12 +93,14 @@ class TerrainManager {
         this.riverWidth = 3;
         this.riverDepth = 1;
         this._river = null;
-        // Foliage: paint or erase, how thick, and each kind's look in hand.
-        this.foliageErase = false;
+        // Foliage: what a click does (paint, recolor what grows there, pick its look, erase), how thick, and each kind's look in hand.
+        this.foliageAction = 'paint';
         this.foliageLevel = 7;
         this.foliageLook = {};
         this.bushSize = 1.6;
         this.bushVary = true;
+        // How tall a bush stands beside its width (1 round, up to 2.5 a column, down to 0.5 a mound).
+        this.bushTall = 1;
         this.bushColour = '';
         this.bushBloom = '';
         this._foliageStroke = null;
@@ -109,8 +111,9 @@ class TerrainManager {
         this.groundSoft = 0.4;
         // 'brush' paints under the pointer; 'rect' fills the rectangle a drag spans.
         this.groundShape = 'brush';
-        // The Path tool: which road, how wide (tiles), a crisp or soft edge, a freehand stroke or a straight line.
-        this.pathSurface = 0;
+        // The Path tool: the road in hand (any material, a tint, a scale), how wide (tiles), a crisp or soft edge,
+        // a freehand stroke, a straight line or a curve.
+        this.pathLook = TerrainManager.pathLookOf(TerrainManager.PATH_SURFACES[0]);
         this.pathWidth = 3;
         this.pathEdge = 'soft';
         this.pathShape = 'brush';
@@ -132,7 +135,7 @@ class TerrainManager {
     /** A kind's look in hand: what the runtime grows it as, with the author's changes over it. */
     foliageLookOf(kind) {
         const base = (typeof Reactor3D !== 'undefined' && Reactor3D.FOLIAGE_LOOKS && Reactor3D.FOLIAGE_LOOKS[kind]) || {};
-        return Object.assign({ height: base.height, colour: base.colour, tip: base.tip, glow: base.glow || 0 }, this.foliageLook[kind] || {});
+        return Object.assign({ height: base.height, colour: base.colour, tip: base.tip, glow: base.glow || 0, vary: base.vary ?? 0.25, width: 1, lean: 1 }, this.foliageLook[kind] || {});
     }
 
     _t(key, params) { return window.I18n ? window.I18n.t(key, params) : key; }
@@ -549,9 +552,40 @@ class TerrainManager {
     // ---- Foliage ------------------------------------------------------------
 
     /** A foliage stroke starts: one undo step for the whole of it; the first dab lands at once. */
+    /** Erasing with a foliage brush (the Erase action). */
+    get foliageErase() { return this.foliageAction === 'erase'; }
+    set foliageErase(on) { this.foliageAction = on ? 'erase' : this.foliageAction === 'erase' || !this.foliageAction ? 'paint' : this.foliageAction; }
+
+    /**
+     * Pick: the look of what grows under a point (a bush's colors for the Bush) taken into hand, to paint more of it
+     * or recolor others like it; then back to Paint. False when nothing of the kind grows there.
+     */
+    pickFoliage(point) {
+        const map = this.currentMap(), foliage = this.foliage();
+        if (!map || !foliage || !point) return false;
+        const cx = point.x + 0.5, cy = point.y + 0.5;
+        if (this.mode === 'bush') {
+            const bush = foliage.bushAt(map, cx, cy, Math.max(1, this.radius * 0.5));
+            if (!bush) { this._flashText(this._tt('No bush there to pick.')); return false; }
+            this.bushColour = bush.colour || '';
+            this.bushBloom = bush.bloom || '';
+            if (bush.size) this.bushSize = bush.size;
+            this.bushTall = bush.tall || 1;
+        } else {
+            const look = foliage.lookAt(map, this.mode, Math.floor(cx), Math.floor(cy));
+            if (!look) { this._flashText(this._tt('Nothing of this kind grows there to pick.')); return false; }
+            this.foliageLook[this.mode] = look;
+        }
+        this.foliagePalette = null;
+        this.foliageAction = 'paint';
+        window.reactor?.buildHotbar?.renderFoliagePanel?.();
+        return true;
+    }
+
     beginFoliage(point) {
         const map = this.currentMap(), foliage = this.foliage();
         if (!map || !foliage || !point) return false;
+        if (this.foliageAction === 'pick' && this.mode !== TerrainManager.FOLIAGE_ERASER) { this.pickFoliage(point); return false; }
         this._foliageStroke = { saved: foliage.snapshot(map), region: null, last: null, travelled: 0 };
         return this.foliageDab(point, true);
     }
@@ -571,6 +605,12 @@ class TerrainManager {
             }
             if (foliage.removeBushes(map, cx, cy, this.radius)) join({ x0: Math.floor(cx - this.radius), y0: Math.floor(cy - this.radius), x1: Math.ceil(cx + this.radius), y1: Math.ceil(cy + this.radius) });
             stroke.last = { x: cx, y: cy };
+        } else if (this.mode === 'bush' && this.foliageAction === 'recolor') {
+            // The bushes the brush passes over take the leaves and blossom in hand.
+            const last = stroke.last, spacing = Math.max(0.35, this.radius * 0.3);
+            if (!first && last && Math.hypot(cx - last.x, cy - last.y) < spacing) return false;
+            if (foliage.recolorBushes(map, cx, cy, this.radius, { colour: this.bushColour, bloom: this.bushBloom })) changed = { x0: Math.floor(cx - this.radius - 3), y0: Math.floor(cy - this.radius - 3), x1: Math.ceil(cx + this.radius + 3), y1: Math.ceil(cy + this.radius + 3) };
+            stroke.last = { x: cx, y: cy };
         } else if (this.mode === 'bush') {
             if (this.foliageErase) {
                 if (foliage.removeBushes(map, cx, cy, this.radius * 0.5)) changed = { x0: Math.floor(cx - this.radius), y0: Math.floor(cy - this.radius), x1: Math.ceil(cx + this.radius), y1: Math.ceil(cy + this.radius) };
@@ -582,7 +622,7 @@ class TerrainManager {
                 if (!first && last && Math.hypot(cx - last.x, cy - last.y) < step) return false;
                 const vary = this.bushVary, r = vary && !first ? Math.random() * this.radius * 0.5 : 0, a = Math.random() * Math.PI * 2;
                 const size = vary ? this.bushSize * (0.75 + Math.random() * 0.5) : this.bushSize;
-                const bush = foliage.addBush(map, { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, size, colour: this.bushColour || undefined, bloom: this.bushBloom || undefined, tall: vary ? 0.85 + Math.random() * 0.35 : 1 });
+                const bush = foliage.addBush(map, { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, size, colour: this.bushColour || undefined, bloom: this.bushBloom || undefined, tall: Math.max(0.5, Math.min(2.5, (this.bushTall || 1) * (vary ? 0.85 + Math.random() * 0.35 : 1))) });
                 if (bush) changed = { x0: Math.floor(bush.x - bush.size), y0: Math.floor(bush.y - bush.size), x1: Math.ceil(bush.x + bush.size), y1: Math.ceil(bush.y + bush.size) };
                 stroke.last = { x: cx, y: cy };
             }
@@ -590,7 +630,10 @@ class TerrainManager {
             const last = stroke.last, spacing = Math.max(0.35, this.radius * 0.3);
             if (!first && last && Math.hypot(cx - last.x, cy - last.y) < spacing) return false;
             const look = this.foliageLook[this.mode] || {};
-            changed = foliage.paint(map, this.mode, cx, cy, { radius: this.radius, strength: this.strength, level: this.foliageLevel, erase: this.foliageErase, settings: look });
+            // Recolor moves what already grows under the brush to the look in hand; Paint and Erase change how thick it grows.
+            changed = this.foliageAction === 'recolor'
+                ? foliage.recolor(map, this.mode, cx, cy, { radius: this.radius, settings: look })
+                : foliage.paint(map, this.mode, cx, cy, { radius: this.radius, strength: this.strength, level: this.foliageLevel, erase: this.foliageErase, settings: look });
             stroke.last = { x: cx, y: cy };
         }
         if (!changed) return false;
@@ -884,13 +927,42 @@ class TerrainManager {
         return step;
     }
 
-    /** The ground type the Path tool paints the chosen road as: found by its name, else made now. -1 when it cannot be. */
+    /** A road's look as the Path tool holds it: `{ material, tint, scale, name }` (tint '' for none, scale null for the material's own). */
+    static pathLookOf(source) {
+        const tint = String(source && source.tint || '').toLowerCase();
+        const scale = Number(source && source.scale);
+        return { material: String(source && source.material || 'Dirt'), tint: /^#[0-9a-f]{6}$/.test(tint) && tint !== '#ffffff' ? tint : '',
+            scale: Number.isFinite(scale) && scale > 0 ? scale : null, name: String(source && source.name || '') };
+    }
+
+    /** Whether a ground type (or a preset) looks as the road in hand: the same material, tint and scale. */
+    static samePathLook(a, b) {
+        const x = TerrainManager.pathLookOf(a), y = TerrainManager.pathLookOf(b);
+        return x.material === y.material && x.tint === y.tint && x.scale === y.scale;
+    }
+
+    /** Take a road's look into hand: a preset, one of the map's grounds, or a change to the material, tint or scale. */
+    setPathLook(patch) {
+        this.pathLook = TerrainManager.pathLookOf(Object.assign({}, this.pathLook, patch || {}));
+        // A look changed by hand is no longer the preset or ground it came from: it is named after its material.
+        if (patch && !('name' in patch)) this.pathLook.name = '';
+        return this.pathLook;
+    }
+
+    /**
+     * The ground type the Path tool paints the road in hand as: a ground of the map that looks the same, else one made
+     * now (bare). Roads already laid keep their own look. -1 when it cannot be (the map holds as many grounds as it may).
+     */
     pathTypeIndex() {
-        const surface = TerrainManager.PATH_SURFACES[this.pathSurface] || TerrainManager.PATH_SURFACES[0];
-        const found = this.groundTypes().findIndex(type => (type.name || type.material) === surface.name);
+        const look = this.pathLook || TerrainManager.pathLookOf(TerrainManager.PATH_SURFACES[0]);
+        const found = this.groundTypes().findIndex(type => TerrainManager.samePathLook(type, look));
         if (found >= 0) return found;
+        const preset = TerrainManager.PATH_SURFACES.find(surface => TerrainManager.samePathLook(surface, look));
+        const taken = new Set(this.groundTypes().map(type => type.name || type.material));
+        let name = look.name || (preset ? preset.name : look.material + ' road');
+        for (let n = 2; taken.has(name); n++) name = (look.name || (preset ? preset.name : look.material + ' road')) + ' ' + n;
         const before = this.groundType;
-        const index = this.addGroundType(Object.assign({}, surface));
+        const index = this.addGroundType({ name, material: look.material, tint: look.tint, scale: look.scale, bare: true });
         if (index < 0) this.groundType = before;
         return index;
     }
@@ -1231,6 +1303,30 @@ class TerrainManager {
         const mapEditor = window.reactor?.mapEditor;
         if (typeof mapEditor?.onElevationChanged === 'function') mapEditor.onElevationChanged(this.currentMap());
         if (typeof document !== 'undefined' && typeof CustomEvent === 'function') document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: this.currentMap()?.id } }));
+    }
+
+    /** A palette's look for one kind (a bush: `{ colour, bloom }`), as a quick color: what is painted next, nothing already planted. */
+    static paletteLook(key, kind) {
+        const palette = TerrainManager.FOLIAGE_PALETTES[key];
+        if (!palette || !palette[kind]) return null;
+        if (kind === 'bush') return { colour: palette.bush[0], bloom: palette.bush[1] || '' };
+        const look = { colour: palette[kind][0], tip: palette[kind][1] };
+        if (kind === 'flowers') look.colours = palette.petals.slice();
+        if (kind === 'bulbs') look.colours = palette.bulbPetals.slice();
+        if (palette.glow) look.glow = palette.glow;
+        return look;
+    }
+
+    /** Take a palette's colors into hand for one kind only: the plants already on the map keep theirs. */
+    takePaletteLook(key, kind = this.mode) {
+        const look = TerrainManager.paletteLook(key, kind);
+        if (!look) return false;
+        if (kind === 'bush') { this.bushColour = look.colour; this.bushBloom = look.bloom; return true; }
+        // Height and the like stay as they were; the colors (and a glowing palette's glow) are the palette's.
+        const own = Object.assign({}, this.foliageLook[kind] || {});
+        delete own.colours; delete own.glow;
+        this.foliageLook[kind] = Object.assign(own, look);
+        return true;
     }
 
     /**

@@ -805,8 +805,11 @@ The room's floor is the map's own ground; `ground.types` paints others over it, 
 along the way it goes (**Brush**) or from one end to the other (**Line**),
 or click points and it bends through them (**Curve**: click the last point
 again, press Enter or **Lay road** to lay it; Backspace or **Take off last
-point** steps back, Esc or **Cancel** drops it), choose its **Surface** (Dirt road, Cobblestone, Gravel path, Sand path,
-Paving: each a ground type made, bare, the first time it is used) and its
+point** steps back, Esc or **Cancel** drops it), choose its **Surface** (any of the project's materials, with a tint and a
+scale; Dirt road, Cobblestone, Gravel path, Sand path and Paving as quick
+picks, and the map's own grounds to paint more of one: a look is a ground
+type made, bare, the first time it is used, and roads already laid keep
+theirs when the look in hand changes) and its
 **Width** in tiles, with a soft or crisp edge. It follows the ground up and
 down hills and is laid all along the drag however fast the pointer moves.
 With **Level the ground under the road** (on by default) the ground under it
@@ -869,7 +872,9 @@ terrain. Nothing grows where a piece or a rock stands on the ground, under
 water (reeds stand in water up to about 0.9 tile deep), or on a slope the
 room draws as cliff. `height` is in tiles, `colour` the root and `tip` the
 tip (as they read in daylight), `vary` how much each clump differs, `seed`
-which scatter; `flowers` also takes `colours`, the petals to pick from.
+which scatter, `width` how thick each blade is and `lean` how far it leans
+(both 1 for the kind's own; height up to 12 tiles); `flowers` also takes
+`colours`, the petals to pick from.
 Leave a key out for the kind's own look. A bush is a seeded mass of leaves
 at `x`, `y` (tiles), `size` wide (0.4-8); `tall` makes it taller than wide,
 `bloom` gives it blossom. A bush 1.4 or more wide blocks the cells it
@@ -877,9 +882,13 @@ covers; smaller ones are walked through. `wind` blows toward `dir`
 degrees (0 east, 90 south) at `strength` (0-2), with `gust` rolling over
 it; whoever walks through the grass bends it.
 
-Three kinds are not Earth's: `bulbs` (a lit globe on a stalk; takes `colours` as flowers do), `tendrils` (fronds that curl and uncurl) and `crystals` (shards no wind moves, the one kind that stands on bare ground). Any layer takes `glow` (0-1): its own color shows whatever the light, strongest at the tip.
+Three kinds are not Earth's: `bulbs` (a lit globe on a stalk; takes `colours` as flowers do), `tendrils` (fronds that curl and uncurl) and `crystals` (shards no wind moves, the one kind that stands on bare ground; `colours` makes each shard one of the list, dark at its root and pale at its point). Any layer takes `glow` (0-1): its own color shows whatever the light, strongest at the tip.
 
-The **Colors** tab recolors every plant on the map and what is painted next from a palette; a flower layer's petals are a list of colors.
+Plants painted with another look are a layer of their own: what is already planted keeps its look. The Foliage panel's
+**Color** card (Color, Tips, Glow, petals or mixed shards, and quick colors from the palettes) and **Shape** card
+(Height, Thickness, Lean, Variety; a bush's Size and Tall or squat) are for what is painted next. **Recolor** brushes the
+look in hand onto plants already growing (as dense as they were; bushes take the leaves and blossom), **Pick** takes the
+look of the plants clicked into hand, and **Whole map** › Recolor everything recolors every plant on the map from a palette.
 
 In the editor the Build bar's **Foliage** group paints a kind with a brush
 (size, strength, density; Erase thins it), stands bushes by click or

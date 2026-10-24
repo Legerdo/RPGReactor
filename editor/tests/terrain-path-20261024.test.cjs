@@ -25,7 +25,7 @@ const mapOf = (w, h) => ({ id: 1, width: w, height: h, data: new Array(w * h * 6
 
 test('a road dragged fast is one road, as wide as asked, with nothing missing between the pointer\'s steps', () => {
     const map = mapOf(40, 20); const { terrain, G } = terrainOn(map);
-    terrain.setMode('path'); terrain.pathWidth = 3; terrain.pathSurface = 1;
+    terrain.setMode('path'); terrain.pathWidth = 3; terrain.setPathLook(terrain.constructor.PATH_SURFACES[1]);
     // The pointer seen only three times across thirty tiles.
     terrain.beginStroke({ x: 2, y: 9 }); terrain.paintAt({ x: 18, y: 9 }); terrain.paintAt({ x: 34, y: 9 }); terrain.endStroke();
     const types = G.types(map);
@@ -106,4 +106,27 @@ test('a curved road is clicked out point by point, drawn through them, laid with
     terrain.beginStroke({ x: 2, y: 2 }); terrain.endStroke(); terrain.beginStroke({ x: 30, y: 2 }); terrain.endStroke();
     assert.equal(terrain.handlePathKey({ key: 'Escape' }), true);
     assert.equal(G.types(map)[0].paint, painted, 'the dropped one left nothing');
+});
+
+test('a road may be any material, tint and scale; another look is another ground, and roads already laid keep theirs', () => {
+    const map = mapOf(30, 20); const { terrain, G } = terrainOn(map);
+    terrain.setMode('path'); terrain.pathWidth = 2; terrain.pathLevel = false;
+    terrain.setPathLook({ material: 'Marble', tint: '#AA3344', scale: 2 });
+    terrain.beginStroke({ x: 2, y: 4 }); terrain.paintAt({ x: 20, y: 4 }); terrain.endStroke();
+    let types = G.types(map);
+    assert.deepEqual(JSON.parse(JSON.stringify(types.map(t => [t.name, t.material, t.tint, t.scale, t.bare]))), [['Marble road', 'Marble', '#aa3344', 2, true]]);
+    // Another tint: a ground of its own, painted from now on; the first road is as it was.
+    terrain.setPathLook({ tint: '#336699' });
+    terrain.beginStroke({ x: 2, y: 12 }); terrain.paintAt({ x: 20, y: 12 }); terrain.endStroke();
+    types = G.types(map);
+    assert.equal(types.length, 2);
+    assert.equal(types[0].tint, '#aa3344', 'the first road keeps its tint');
+    assert.equal(types[1].tint, '#336699');
+    assert.notEqual(types[0].name, types[1].name, 'each its own name');
+    assert.ok(G.levelsOf(map, 0)[4 * 30 + 10] >= 8 && G.levelsOf(map, 1)[12 * 30 + 10] >= 8);
+    // One of the map's grounds taken into hand paints as that ground: no third type.
+    terrain.setPathLook({ material: types[0].material, tint: types[0].tint, scale: types[0].scale, name: types[0].name });
+    terrain.beginStroke({ x: 2, y: 16 }); terrain.paintAt({ x: 8, y: 16 }); terrain.endStroke();
+    assert.equal(G.types(map).length, 2);
+    assert.ok(G.levelsOf(map, 0)[16 * 30 + 5] >= 8);
 });
