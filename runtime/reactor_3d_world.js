@@ -5290,10 +5290,16 @@ Reactor3D.MapScene.prototype.updateWaterSheets = function(mapData, load) {
 // three at 9, one at 5; trailing none left off). A later type lies over an
 // earlier one. A map without `ground` draws exactly as it did.
 
-Reactor3D.GROUND_TYPES_MAX = 8;
+/**
+ * How many ground types a map draws. The paint of four types is one layer of an array texture, and each type's
+ * tint, scale and maps one column of a small data texture, so the floor's samplers and uniforms are the same however
+ * many there are; types of one material share its picture. What a type costs is a fourth of a splat read where
+ * anything is painted, and a picture's memory per material (GROUND_ARRAY_SIZE squared).
+ */
+Reactor3D.GROUND_TYPES_MAX = 64;
 /** Tiles one repeat of a ground type's image covers, unless the type or its material says. */
 Reactor3D.GROUND_TYPE_SCALE = 4;
-/** The side each ground type's image is kept at on the GPU (they share one array texture), by tier. */
+/** The side each ground material's image is kept at on the GPU (they share one array texture), by tier. */
 Reactor3D.GROUND_ARRAY_SIZE = { full: 512, weak: 256 };
 /** A cell wears a type from this level up (what grows, what lies past the map's edge). */
 Reactor3D.GROUND_SOLID_LEVEL = 5;
@@ -5401,9 +5407,11 @@ Reactor3D.groundMaterialNames = function(mapData) {
 
 /**
  * The ground types as the floor's shader reads them, made once per scene: the
- * paint as one or two RGBA textures (a type a channel, a texel a cell), the
- * types' images as the layers of one array texture and their normal and
- * roughness maps as another, so the floor costs three or four samplers however
+ * paint as an array texture of RGBA layers (four types a layer, a channel each,
+ * a texel a cell), each type's tint, scale, picture and maps as a column of a
+ * small float texture (`info`), the materials' images as the layers of one
+ * array texture and their normal and roughness maps as another (types of one
+ * material share a layer), so the floor costs four or five samplers however
  * many types a map has. A layer is grey until its image arrives.
  */
 Reactor3D.MapScene.prototype.groundLayers = function(mapData) {
@@ -5411,18 +5419,35 @@ Reactor3D.MapScene.prototype.groundLayers = function(mapData) {
     if (!ground || typeof THREE === "undefined" || !THREE.DataArrayTexture || typeof document === "undefined" || !document) return null;
     const W = mapData.width, H = mapData.height, count = ground.types.length, load = this._cliffLoad, build = this._build;
     const side = Reactor3D.GROUND_ARRAY_SIZE[Reactor3D.isWeakGpu && Reactor3D.isWeakGpu() ? "weak" : "full"];
+    // Each material once: the types that wear it read the same layer.
+    const materials = Array.from(new Set(ground.types.map(type => type.material))), layerOf = ground.types.map(type => materials.indexOf(type.material));
+    const groups = Math.ceil(count / 4);
     const splat = () => {
-        const texture = new THREE.DataTexture(new Uint8Array(W * H * 4), W, H, THREE.RGBAFormat);
+        const texture = new THREE.DataArrayTexture(new Uint8Array(W * H * 4 * groups), W, H, groups);
+        texture.format = THREE.RGBAFormat;
+        texture.type = THREE.UnsignedByteType;
         texture.magFilter = THREE.LinearFilter;
         texture.minFilter = THREE.LinearFilter;
         texture.generateMipmaps = false;
+        texture.needsUpdate = true;
+        this._textures.push(texture);
+        return texture;
+    };
+    // A column a type: its tint and repeat; whether its picture is in, which layer, whether it has maps; the maps' settings.
+    const info = () => {
+        const texture = new THREE.DataTexture(new Float32Array(count * 3 * 4), count, 3, THREE.RGBAFormat, THREE.FloatType);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.generateMipmaps = false;
+        texture.needsUpdate = true;
         this._textures.push(texture);
         return texture;
     };
     const layers = (srgb, kept) => {
-        const data = new Uint8Array(side * side * 4 * count);
+        const depth = materials.length;
+        const data = new Uint8Array(side * side * 4 * depth);
         if (srgb) data.fill(128); else for (let i = 0; i < data.length; i += 4) { data[i] = 128; data[i + 1] = 128; data[i + 2] = 255; }
-        const texture = new THREE.DataArrayTexture(data, side, side, count);
+        const texture = new THREE.DataArrayTexture(data, side, side, depth);
         texture.format = THREE.RGBAFormat;
         texture.type = THREE.UnsignedByteType;
         texture.wrapS = THREE.RepeatWrapping;
@@ -5439,24 +5464,35 @@ Reactor3D.MapScene.prototype.groundLayers = function(mapData) {
     // same set: a map, and each neighboring map shown past its borders (Reactor3D.Neighbors).
     Reactor3D.releaseGroundArrays(this);
     const sharing = !!this._materialProbe && !this._materialSettingsLoad;
-    const key = side + "|" + ground.types.map(type => type.material).join("|");
+    const key = side + "|" + materials.join("|");
     let shared = sharing ? Reactor3D._groundArrays.get(key) : null;
     const first = !shared;
     if (first) {
-        shared = { key, array: layers(true, sharing), detail: null, on: new Float32Array(count), detailOn: new Array(count).fill(0), users: new Set(), refs: 0 };
+        shared = { key, array: layers(true, sharing), detail: null, on: new Float32Array(materials.length), detailOn: new Array(materials.length).fill(0), users: new Set(), refs: 0 };
         if (sharing) Reactor3D._groundArrays.set(key, shared);
     }
     if (sharing) { shared.refs++; this._groundShared = shared; }
     const g = this._ground = {
-        count, width: W, height: H,
-        materials: ground.types.map(type => type.material),
+        count, groups, width: W, height: H,
+        materials: ground.types.map(type => type.material), layerOf,
         size: new THREE.Vector2(W, H),
-        splat: splat(), splatB: count > 4 ? splat() : null,
+        splat: splat(), info: info(),
         array: shared.array, detail: shared.detail,
         types: ground.types.map(() => new THREE.Vector4(1, 1, 1, 1 / Reactor3D.GROUND_TYPE_SCALE)),
         on: shared.on,
-        detailParams: ground.types.map((type, index) => new THREE.Vector4(1, 0, 0.5, shared.detailOn[index])),
-        settings: ground.types.map(() => null)
+        detailParams: ground.types.map((type, index) => new THREE.Vector4(1, 0, 0.5, shared.detailOn[layerOf[index]])),
+        settings: ground.types.map(() => null),
+        /** The info texture written again from the types' tints and repeats, which pictures are in and the maps' settings. */
+        sync() {
+            const data = this.info.image.data, n = this.count;
+            for (let i = 0; i < n; i++) {
+                const t = this.types[i], d = this.detailParams[i], layer = this.layerOf[i];
+                data.set([t.x, t.y, t.z, t.w], i * 4);
+                data.set([this.on[layer] || 0, layer, d.w, 0], (n + i) * 4);
+                data.set([d.x, d.y, d.z, d.w], (2 * n + i) * 4);
+            }
+            this.info.needsUpdate = true;
+        }
     };
     shared.users.add(g);
     let canvas = null, context = null;
@@ -5488,36 +5524,40 @@ Reactor3D.MapScene.prototype.groundLayers = function(mapData) {
         if (!bitmap) return;
         if (ready(bitmap)) then(); else if (typeof bitmap.addLoadListener === "function") bitmap.addLoadListener(() => { if (live() && ready(bitmap)) then(); });
     };
-    ground.types.forEach((type, index) => {
-        if (first) {
-            let bitmap = null;
-            try { bitmap = typeof load === "function" ? load(type.material) : null; } catch (error) { bitmap = null; }
-            whenRead(bitmap, () => {
-                try {
-                    const pixels = read(imageOf(bitmap));
-                    store(shared.array, index, (data, to, from) => { data[to] = pixels[from]; data[to + 1] = pixels[from + 1]; data[to + 2] = pixels[from + 2]; data[to + 3] = 255; });
-                    shared.on[index] = 1;
-                } catch (error) {
-                    console.warn(`Reactor3D: ground material "${type.material}" could not be read.`, error);
-                }
-            });
-            const normal = companion(type.material + Reactor3D.MATERIAL_NORMAL), rough = companion(type.material + Reactor3D.MATERIAL_ROUGH);
-            if (normal || rough) {
-                if (!shared.detail) { shared.detail = layers(false, sharing); for (const user of shared.users) user.detail = shared.detail; }
-                const pack = () => {
-                    if (![normal, rough].filter(Boolean).every(ready)) return;
-                    try {
-                        const n = normal ? read(imageOf(normal)).slice() : null, r = rough ? read(imageOf(rough)).slice() : null;
-                        store(shared.detail, index, (data, to, from) => { data[to] = n ? n[from] : 128; data[to + 1] = n ? n[from + 1] : 128; data[to + 2] = n ? n[from + 2] : 255; data[to + 3] = r ? r[from] : 0; });
-                        shared.detailOn[index] = 1;
-                        for (const user of shared.users) user.detailParams[index].w = 1;
-                    } catch (error) {
-                        console.warn(`Reactor3D: the maps of ground material "${type.material}" could not be read.`, error);
-                    }
-                };
-                whenRead(normal, pack); if (rough && rough !== normal) whenRead(rough, pack);
+    // Every scene wearing these pictures learns a layer has come in.
+    const tell = () => { for (const user of shared.users) if (typeof user.sync === "function") user.sync(); };
+    if (first) materials.forEach((name, layer) => {
+        let bitmap = null;
+        try { bitmap = typeof load === "function" ? load(name) : null; } catch (error) { bitmap = null; }
+        whenRead(bitmap, () => {
+            try {
+                const pixels = read(imageOf(bitmap));
+                store(shared.array, layer, (data, to, from) => { data[to] = pixels[from]; data[to + 1] = pixels[from + 1]; data[to + 2] = pixels[from + 2]; data[to + 3] = 255; });
+                shared.on[layer] = 1;
+                tell();
+            } catch (error) {
+                console.warn(`Reactor3D: ground material "${name}" could not be read.`, error);
             }
+        });
+        const normal = companion(name + Reactor3D.MATERIAL_NORMAL), rough = companion(name + Reactor3D.MATERIAL_ROUGH);
+        if (normal || rough) {
+            if (!shared.detail) { shared.detail = layers(false, sharing); for (const user of shared.users) user.detail = shared.detail; }
+            const pack = () => {
+                if (![normal, rough].filter(Boolean).every(ready)) return;
+                try {
+                    const n = normal ? read(imageOf(normal)).slice() : null, r = rough ? read(imageOf(rough)).slice() : null;
+                    store(shared.detail, layer, (data, to, from) => { data[to] = n ? n[from] : 128; data[to + 1] = n ? n[from + 1] : 128; data[to + 2] = n ? n[from + 2] : 255; data[to + 3] = r ? r[from] : 0; });
+                    shared.detailOn[layer] = 1;
+                    for (const user of shared.users) user.layerOf.forEach((at, i) => { if (at === layer) user.detailParams[i].w = 1; });
+                    tell();
+                } catch (error) {
+                    console.warn(`Reactor3D: the maps of ground material "${name}" could not be read.`, error);
+                }
+            };
+            whenRead(normal, pack); if (rough && rough !== normal) whenRead(rough, pack);
         }
+    });
+    ground.types.forEach((type, index) => {
         // The material's own settings: its repeat when the type gives none, and how its relief and sheen read.
         const apply = raw => {
             const s = g.settings[index] = Reactor3D.normalizeMaterialSettings(raw);
@@ -5561,32 +5601,33 @@ Reactor3D.MapScene.prototype.updateGround = function(mapData, region) {
     const W = g.width, H = g.height;
     const x0 = region ? Math.max(0, Math.floor(region.x0)) : 0, x1 = region ? Math.min(W - 1, Math.ceil(region.x1)) : W - 1;
     const y0 = region ? Math.max(0, Math.floor(region.y0)) : 0, y1 = region ? Math.min(H - 1, Math.ceil(region.y1)) : H - 1;
+    const data = g.splat.image.data;
     ground.types.forEach((type, index) => {
-        const texture = index < 4 ? g.splat : g.splatB, data = texture.image.data, channel = index % 4, paint = type.paint;
-        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) data[(y * W + x) * 4 + channel] = Math.round(paint[y * W + x] * 255 / 9);
+        const base = (index >> 2) * W * H * 4, channel = index & 3, paint = type.paint;
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) data[base + (y * W + x) * 4 + channel] = Math.round(paint[y * W + x] * 255 / 9);
         const tint = type.tint, settings = g.settings[index];
         g.types[index].set(tint ? parseInt(tint.slice(1, 3), 16) / 255 : 1, tint ? parseInt(tint.slice(3, 5), 16) / 255 : 1, tint ? parseInt(tint.slice(5, 7), 16) / 255 : 1,
             1 / (type.scale || (settings && settings.scale) || Reactor3D.GROUND_TYPE_SCALE));
     });
     g.splat.needsUpdate = true;
-    if (g.splatB) g.splatB.needsUpdate = true;
+    if (typeof g.sync === "function") g.sync();
     return true;
 };
 
 /** The shader's declarations for a scene's ground types (groundSlopeMaterial splices them in). */
 Reactor3D.groundTypesHeaderGLSL = function(g) {
+    const groups = g.groups || Math.ceil(g.count / 4);
     return [
         "#define RR_GROUND_COUNT " + g.count,
+        "#define RR_GROUND_GROUPS " + groups,
         g.detail ? "#define RR_GROUND_DETAIL" : "",
         "precision highp sampler2DArray;",
-        "uniform sampler2D rrGroundSplat;",
-        g.splatB ? "uniform sampler2D rrGroundSplatB;" : "",
+        "uniform sampler2DArray rrGroundSplat;",
         "uniform sampler2DArray rrGroundArray;",
+        "uniform highp sampler2D rrGroundInfo;",
         "uniform vec2 rrGroundSize;",
-        "uniform vec4 rrGroundType[RR_GROUND_COUNT];",
-        "uniform float rrGroundOn[RR_GROUND_COUNT];",
         "uniform vec4 rrGroundKey;",
-        g.detail ? "uniform sampler2DArray rrGroundDetail;\nuniform vec4 rrGroundDetailParams[RR_GROUND_COUNT];\n" + Reactor3D.DETAIL_FUNCTIONS_GLSL : ""
+        g.detail ? "uniform sampler2DArray rrGroundDetail;\n" + Reactor3D.DETAIL_FUNCTIONS_GLSL : ""
     ].filter(Boolean).join("\n");
 };
 
@@ -5595,38 +5636,49 @@ Reactor3D.groundTypesHeaderGLSL = function(g) {
  * between cells, so a border is soft; it is then drawn in with a wandering edge,
  * and a half-strength paint reads as patches, not as a wash. A type's image is laid
  * from above and, where the ground leans, from the sides, as the floor itself is.
+ * Its tint and repeat (row 0 of rrGroundInfo), whether its picture is in and which
+ * layer it is (row 1) and its maps' settings (row 2) are read only where it is painted.
  */
 Reactor3D.groundTypesBodyGLSL = function(g) {
     return [
         "\t{",
         "\t\tvec2 rrSuv = rrGroundIn.xz / rrGroundSize;",
-        "\t\tvec4 rrWA = texture2D(rrGroundSplat, rrSuv);",
-        g.splatB ? "\t\tvec4 rrWB = texture2D(rrGroundSplatB, rrSuv);" : "",
-        "\t\tif (rrWA.x + rrWA.y + rrWA.z + rrWA.w" + (g.splatB ? " + rrWB.x + rrWB.y + rrWB.z + rrWB.w" : "") + " > 0.004) {",
+        "\t\tvec4 rrWs[RR_GROUND_GROUPS];",
+        "\t\tfloat rrWT = 0.0, rrWE = 0.0;",
         // The wandering edge moves a weight only between none and whole (its term is rrW * (1 - rrW)), so the noise
         // is worked out only where some type is part-way: the inside of a painted ground skips it, to the same picture.
-        "\t\t\tvec4 rrWE = rrWA * (1.0 - rrWA);",
-        g.splatB ? "\t\t\trrWE += rrWB * (1.0 - rrWB);" : "",
+        "\t\tfor (int k = 0; k < RR_GROUND_GROUPS; k++) {",
+        "\t\t\tvec4 rrWk = texture(rrGroundSplat, vec3(rrSuv, float(k)));",
+        "\t\t\trrWs[k] = rrWk;",
+        "\t\t\trrWT += rrWk.x + rrWk.y + rrWk.z + rrWk.w;",
+        "\t\t\tvec4 rrWEk = rrWk * (1.0 - rrWk);",
+        "\t\t\trrWE += rrWEk.x + rrWEk.y + rrWEk.z + rrWEk.w;",
+        "\t\t}",
+        "\t\tif (rrWT > 0.004) {",
         "\t\t\tfloat rrWn = 0.5;",
-        "\t\t\tif (rrWE.x + rrWE.y + rrWE.z + rrWE.w > 0.0) rrWn = rrGroundNoise(rrGroundAt.xz * 0.9) * 0.65 + rrGroundNoise(rrGroundAt.xz * 3.7) * 0.35;",
+        "\t\t\tif (rrWE > 0.0) rrWn = rrGroundNoise(rrGroundAt.xz * 0.9) * 0.65 + rrGroundNoise(rrGroundAt.xz * 3.7) * 0.35;",
         // A painted ground is shaded by how it faces the key light, leaning a little to one side so a slope
         // reads under a sun straight overhead (a dune's slip face is darker than its back); level ground is as it was.
         "\t\t\tvec3 rrGL = normalize((rrGroundKey.w > 0.5 ? normalize(rrGroundKey.xyz - vRRGroundPos) : normalize(rrGroundKey.xyz)) + vec3(0.45, 0.0, 0.35));",
         "\t\t\tfloat rrGShade = clamp((0.35 + 0.65 * max(dot(rrGN, rrGL), 0.0)) / (0.35 + 0.65 * max(rrGL.y, 0.05)), 0.5, 1.25);",
         "\t\t\tfor (int i = 0; i < RR_GROUND_COUNT; i++) {",
-        g.splatB ? "\t\t\t\tfloat rrW = i < 4 ? rrWA[i] : rrWB[i - 4];" : "\t\t\t\tfloat rrW = rrWA[i];",
-        "\t\t\t\tif (rrW < 0.004 || rrGroundOn[i] < 0.5) continue;",
+        "\t\t\t\tfloat rrW = rrWs[i >> 2][i & 3];",
+        "\t\t\t\tif (rrW < 0.004) continue;",
+        "\t\t\t\tvec4 rrGI = texelFetch(rrGroundInfo, ivec2(i, 1), 0);",
+        "\t\t\t\tif (rrGI.x < 0.5) continue;",
         "\t\t\t\trrW = smoothstep(0.38, 0.62, rrW + (rrWn - 0.5) * 1.6 * rrW * (1.0 - rrW));",
         "\t\t\t\tif (rrW < 0.004) continue;",
-        "\t\t\t\tfloat rrTS = rrGroundType[i].w, rrTL = float(i);",
+        "\t\t\t\tvec4 rrGT = texelFetch(rrGroundInfo, ivec2(i, 0), 0);",
+        "\t\t\t\tfloat rrTS = rrGT.w, rrTL = rrGI.y;",
         "\t\t\t\tvec3 rrTP = rrGroundAt * rrTS, rrTdx = rrGdx * rrTS, rrTdy = rrGdy * rrTS;",
         "\t\t\t\tvec4 rrTC = textureGrad(rrGroundArray, vec3(rrTP.xz, rrTL), rrTdx.xz, rrTdy.xz);",
         "\t\t\t\tif (rrGW.x + rrGW.z > 0.01) rrTC = textureGrad(rrGroundArray, vec3(rrTP.zy, rrTL), rrTdx.zy, rrTdy.zy) * rrGW.x + rrTC * rrGW.y + textureGrad(rrGroundArray, vec3(rrTP.xy, rrTL), rrTdx.xy, rrTdy.xy) * rrGW.z;",
-        "\t\t\t\trrTC.rgb *= rrGroundType[i].rgb * rrGShade;",
+        "\t\t\t\trrTC.rgb *= rrGT.rgb * rrGShade;",
         g.detail ? [
-            "\t\t\t\tif (rrGroundDetailParams[i].w > 0.5) {",
+            "\t\t\t\tif (rrGI.z > 0.5) {",
+            "\t\t\t\t\tvec4 rrGD = texelFetch(rrGroundInfo, ivec2(i, 2), 0);",
             "\t\t\t\t\tvec4 rrTD = textureGrad(rrGroundDetail, vec3(rrTP.xz, rrTL), rrTdx.xz, rrTdy.xz);",
-            "\t\t\t\t\trrTC.rgb = rrDetailShade(rrTC.rgb, rrGN, normalize(rrDetailAxis(rrTD, rrGN, 1, rrGroundDetailParams[i].x)), rrTD.a, vRRGroundPos, rrGroundDetailParams[i]);",
+            "\t\t\t\t\trrTC.rgb = rrDetailShade(rrTC.rgb, rrGN, normalize(rrDetailAxis(rrTD, rrGN, 1, rrGD.x)), rrTD.a, vRRGroundPos, rrGD);",
             "\t\t\t\t}"
         ].join("\n") : "",
         "\t\t\t\tsampledDiffuseColor.rgb = mix(sampledDiffuseColor.rgb, rrTC.rgb, rrW);",
@@ -5639,18 +5691,13 @@ Reactor3D.groundTypesBodyGLSL = function(g) {
 /** A ground's uniforms on a compiled floor shader. */
 Reactor3D.groundTypesUniforms = function(shader, g) {
     shader.uniforms.rrGroundSplat = { value: g.splat };
-    if (g.splatB) shader.uniforms.rrGroundSplatB = { value: g.splatB };
     shader.uniforms.rrGroundArray = { value: g.array };
+    shader.uniforms.rrGroundInfo = { value: g.info };
     shader.uniforms.rrGroundSize = { value: g.size };
-    shader.uniforms.rrGroundType = { value: g.types };
-    shader.uniforms.rrGroundOn = { value: g.on };
     // The key light the lit materials share (the map's sun, else a direction from above), under this shader's own name.
     const lights = Reactor3D.lightUniforms ? Reactor3D.lightUniforms() : null;
     shader.uniforms.rrGroundKey = { value: lights && lights.rrKeyLight ? lights.rrKeyLight.value : new Float32Array(Reactor3D.KEY_LIGHT_DEFAULT || [0.35, 1, 0.3, 0]) };
-    if (g.detail) {
-        shader.uniforms.rrGroundDetail = { value: g.detail };
-        shader.uniforms.rrGroundDetailParams = { value: g.detailParams };
-    }
+    if (g.detail) shader.uniforms.rrGroundDetail = { value: g.detail };
 };
 
 //-----------------------------------------------------------------------------

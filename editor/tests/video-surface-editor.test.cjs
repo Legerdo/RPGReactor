@@ -620,7 +620,7 @@ test('Preview Event animates stepping pages and previews 3D-model pages in both 
     assert.match(map3d, /this\.animateEventPreviews\(now\);/);
     assert.match(html, /src="src\/utils\/EventPreviewModels\.js"/);
     const models = require(path.join(editorRoot, 'src', 'utils', 'EventPreviewModels.js'));
-    assert.deepEqual(Object.keys(models).sort(), ['THUMBNAILS_KEPT', 'animate', 'clear', 'disposeInstance', 'instance', 'nextMap', 'releaseGpu', 'revision',
+    assert.deepEqual(Object.keys(models).sort(), ['THUMBNAILS_KEPT', 'animate', 'clear', 'disposeInstance', 'instance', 'nextMap', 'peek', 'releaseGpu', 'revision',
         'sharedGeometry', 'stats', 'sweep', 'templateFor', 'texturesDecoded', 'thumbnail']);
 });
 

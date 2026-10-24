@@ -693,7 +693,7 @@ class TerrainManager {
     addGroundType(source) {
         const index = this._groundStep((map, ground) => ground.addType(map, source));
         if (index >= 0) { this.groundType = index; this.groundErase = false; }
-        else if (index === -1) this._flashText(this._tt('A map holds eight ground types.'));
+        else if (index === -1) this._flashText(this._tt('A map holds {count} ground types. Remove one under Ground › Edit this ground, or paint with one the map has.').replace('{count}', this.ground()?.MAX || 64));
         return index;
     }
 

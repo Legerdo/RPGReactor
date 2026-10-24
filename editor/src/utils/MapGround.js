@@ -10,7 +10,8 @@
 (function(root) {
     'use strict';
 
-    const MAX = 8;
+    /** As many types as the runtime draws (Reactor3D.GROUND_TYPES_MAX). */
+    const MAX = 64;
     const runtime = () => {
         if (root.Reactor3D && root.Reactor3D.decodeGroundPaint) return root.Reactor3D;
         if (typeof require === 'function' && typeof module !== 'undefined') {
