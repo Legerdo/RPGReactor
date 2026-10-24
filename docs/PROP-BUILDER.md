@@ -35,8 +35,9 @@ Choose a picture from `img/pictures`, then:
   - Hilt: crossguard, disc or basket guard with its size and the bend of its arms; the grip's length, wrap and color; the pommel.
   - Look: steel, damascus or bronze; steel, gilded, bronze or black iron trim; a glowing edge or blade.
 - **Firearms:** pistol, revolver, rifle, shotgun, submachine gun, sniper rifle. **Sci-fi:** energy sword, blaster pistol and rifle, plasma cannon, laser rifle.
-  - Parts: barrel, receiver, grip angle, magazine (box, drum, revolver cylinder, tube, energy cell, none), stock, sight, muzzle (plain, brake, suppressor, emitter), rails, forend, glowing coils and vents.
-  - Finish: gunmetal, polymer, chrome or painted panels; wood or polymer furniture; the glow color.
+  - Style: each preset starts in its own receiver style (Slide and frame, Classic, Carbine, Stamped steel, Bolt action, Sealed shell, Open frame, Armored), and any gun can take any style. Receivers are built from chamfered plates that catch the light (`RRHardSurface`): stepped panels, real through-holes for skeleton stocks, guards and carry handles, ejection ports, slide serrations, handguard slots and vent banks.
+  - Parts: barrel, receiver, grip angle, magazine (box, ribbed drum, revolver cylinder, tube, energy cell, none), stock, sight (aperture and post, red dot, scope on rings), muzzle (plain, ported brake, suppressor, flash hider, finned emitter), real-scale rails, forend, glow strips sunk into the panels, finned or windowed coils and vents.
+  - Finish: gunmetal, polymer, chrome or painted panels over a darker underframe; wood or polymer furniture; the glow color. The view stands a gun upright, its right side to the camera; it saves lying down as before.
 - **Axes, Bows & Shields:** the Character Builder's axe, spear, staff, bow and round shield.
 
 Every sword and gun saves a hand rig (`rig.template` blade or gun, with its markers) in `model.json`. A character holds it through Database › Weapons the same way it holds an imported weapon.

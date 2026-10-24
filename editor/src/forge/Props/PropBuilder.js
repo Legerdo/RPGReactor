@@ -539,11 +539,30 @@ class PropBuilder {
         return true;
     }
 
+    /**
+     * A build's own preview pose (a gun stands up in the view, its right side
+     * to the camera, and saves lying down): the view turns and lifts the
+     * model's group only; parts, the GLB and model.json keep the build's frame.
+     */
+    _pose(result) {
+        const view = this._view, pose = result && result.preview;
+        if (!view || !view.group) return;
+        view.group.rotation.set(...(pose && pose.turn ? pose.turn : [0, 0, 0]));
+        view.group.position.set(0, pose && pose.lift ? pose.lift : 0, 0);
+        view.group.updateMatrixWorld(true);
+    }
+
+    /** The bounds of a build as the view shows it (posed). */
+    _shownBox(result) {
+        const box = new THREE.Box3(), v = new THREE.Vector3(), group = this._view && this._view.group, m = group ? group.matrixWorld : null;
+        for (const p of result.parts) for (let i = 0; i < p.positions.length; i += 3) { v.set(p.positions[i], p.positions[i + 1], p.positions[i + 2]); box.expandByPoint(m ? v.applyMatrix4(m) : v); }
+        return box;
+    }
+
     _frame(which) {
         const view = this._view;
         if (!view || !this._result) return;
-        const box = new THREE.Box3();
-        for (const p of this._result.parts) for (let i = 0; i < p.positions.length; i += 3) box.expandByPoint(new THREE.Vector3(p.positions[i], p.positions[i + 1], p.positions[i + 2]));
+        const box = this._shownBox(this._result);
         const moving = this._result.parts.filter(p => p.moves && p.kind === 'cloth');
         if (which === 'close' && moving.length) {
             const c = new THREE.Box3();
@@ -755,6 +774,8 @@ class PropBuilder {
         const view = this._view;
         this._clearModel();
         view.structure = structure;
+        // Bind with the group unposed: the skins then follow whatever pose _stage gives the group.
+        this._pose(null);
         const bones = result.bones.map(b => { const bone = new THREE.Bone(); bone.name = b.name; return bone; });
         result.bones.forEach((b, i) => {
             const parent = b.parent >= 0 ? result.bones[b.parent].head : [0, 0, 0];
@@ -801,7 +822,8 @@ class PropBuilder {
         const h = result.height || 2, extent = Math.max(h, result.recipe.cloth ? result.recipe.cloth.width * 1.5 : 0);
         const type=RRPropCatalog.typeOf(result.recipe)?.id || result.kind;
         const selected=view.stagedType!==type;
-        if(selected){view.pitch=['gun','sword'].includes(result.kind)?.92:.22;view.stagedType=type;}
+        if(selected){view.pitch=result.previewPitch??(result.kind==='sword'?.92:.22);if(result.preview)view.yaw=.35;view.stagedType=type;}
+        this._pose(result);
         const first = selected || !view.framedFor || Math.abs(Math.log(extent / view.framedFor)) > 0.3;
         view.extent = extent;
         view.minDistance = Math.max(.01, Math.min(.4, extent * .25));
@@ -821,8 +843,7 @@ class PropBuilder {
             else { mesh.rotation.set(0, 0, 0); mesh.position.set(0, tall / 2, w.at - 0.002); }
         });
         view.blob.scale.setScalar(Math.max(0.3, extent * 0.12));
-        const box = new THREE.Box3();
-        for (const p of result.parts) for (let i = 0; i < p.positions.length; i += 3) box.expandByPoint(new THREE.Vector3(p.positions[i], p.positions[i + 1], p.positions[i + 2]));
+        const box = this._shownBox(result);
         const mid = box.getCenter(new THREE.Vector3()), r = box.getSize(new THREE.Vector3()).length() * 0.6 + 0.5;
         view.floor.position.y = result.kind === 'accessory' ? box.min.y - .001 : 0;
         view.blob.position.y = view.floor.position.y + .002;
