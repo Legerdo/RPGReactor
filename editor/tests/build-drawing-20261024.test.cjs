@@ -275,3 +275,72 @@ test('a wall pointed at a window, doorway or pane fills it in; pointed at plain 
     manager.beginStroke({ x: 5, y: 6, z: 0, side: 'south', faceCell: { x: 5, y: 5 }, height: 0.5, top: false, point: { x: 5.5, z: 6 } }); manager.endStroke();
     assert.ok(E.pieces(map).some(p => p.kind === 'wall' && p.x === 5 && p.y === 6), 'beside a plain wall, as before');
 });
+
+test('fences join what is beside them: an L closes its corner, a diagonal run joins corner to corner, a lone fence stands as laid', () => {
+    const piece = (x, y, extra) => Object.assign({ id: x * 100 + y, kind: 'fence', x, y, z: 0, rot: 0, material: '' }, extra);
+    const map = { width: 20, height: 20, reactor3d: { version: 1, pieces: [piece(2, 2), piece(3, 2), piece(3, 3), piece(6, 6), piece(7, 7), piece(8, 8), piece(12, 12),
+        { id: 900, kind: 'wall', x: 1, y: 2, z: 0, rot: 0, material: '' }] } };
+    const index = R.pieceIndex(map);
+    const joins = (x, y) => JSON.stringify(R.fenceJoins(index.list.find(p => p.x === x && p.y === y), index).map(j => j.join(',')).sort());
+    assert.equal(joins(2, 2), JSON.stringify(['-1,0', '1,0']), 'east to the next fence, west into the wall');
+    assert.equal(joins(3, 2), JSON.stringify(['-1,0', '0,1']), 'the corner: west and south, no diagonal past it');
+    assert.equal(joins(7, 7), JSON.stringify(['-1,-1', '1,1']), 'a diagonal run joins corner to corner');
+    assert.equal(joins(12, 12), '[]', 'a lone fence stands as laid');
+    // A diagonal rail drawn as a beam: every face of it looks outward.
+    const out = { positions: [], uvs: [], colors: [] };
+    R.emitPiece(Object.assign({}, index.list.find(p => p.x === 7 && p.y === 7), { fenceJoin: [[1, 1]], rot: 0 }), 0, out, null);
+    const P = out.positions; let inward = 0;
+    // The rail beam's axis runs from the cell's middle (7.5, 7.5) to its corner (8, 8).
+    for (let i = 0; i < P.length; i += 9) {
+        const a = [P[i], P[i + 1], P[i + 2]], b = [P[i + 3], P[i + 4], P[i + 5]], c = [P[i + 6], P[i + 7], P[i + 8]];
+        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        const m = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3];
+        // The nearest point of whichever solid it belongs to: the post's middle or the rail's line.
+        const t = Math.max(0, Math.min(1, ((m[0] - 7.5) + (m[2] - 7.5)) / 1));
+        const railY = m[1] < 0.9 ? 0.56 : 1.21;
+        const post = Math.abs(m[0] - 7.5) <= 0.081 && Math.abs(m[2] - 7.5) <= 0.081;
+        const centre = post ? [7.5, 0.75, 7.5] : [7.5 + 0.5 * t, railY, 7.5 + 0.5 * t];
+        if (n[0] * (m[0] - centre[0]) + n[1] * (m[1] - centre[1]) + n[2] * (m[2] - centre[2]) < -1e-9) inward++;
+    }
+    assert.equal(inward, 0, 'no face of the post or the rails looks inward');
+});
+
+test('a fence dragged or drawn as a line turns itself to run the way it was laid', () => {
+    const map = freshMap(); const { manager, E } = builderOn(map);
+    manager.setKind('fence'); manager.setDrawShape('line'); manager.rot = 0;
+    stroke(manager, { x: 5, y: 2, z: 0 }, { x: 5, y: 7, z: 0 });
+    assert.ok(E.pieces(map).filter(p => p.kind === 'fence').every(p => p.rot % 2 === 1), 'a north-south run faces north-south');
+    stroke(manager, { x: 10, y: 10, z: 0 }, { x: 13, y: 13, z: 0 });
+    assert.equal(E.pieces(map).filter(p => p.kind === 'fence' && p.x >= 10).length, 4, 'a diagonal line lays one fence a step, corner to corner');
+});
+
+test('a window or a doorway goes into a straight diagonal wall: the wall cut either side, the opening turned as it is', () => {
+    const map = freshMap(); const { manager, E, P } = builderOn(map);
+    manager.setKind('wall'); manager.setDrawShape('line'); manager.setDiagonal('straight'); manager.material = 'Stone';
+    stroke(manager, { x: 2, y: 2, z: 0 }, { x: 10, y: 8, z: 0 });
+    const wall = E.pieces(map).find(p => p.kind === 'box');
+    const f = P.straightFrame(wall);
+    // Pointed at the wall's middle, 2.5 up, from beside it.
+    const aim = (along, height) => { const x = f.cx + f.c * along - f.s * 0.5, z = f.cz + f.s * along + f.c * 0.5; return { x: Math.floor(x), y: Math.floor(z), z: 2, side: 'south', faceCell: { x: Math.floor(x), y: Math.floor(z) }, height, top: false, point: { x, z } }; };
+    manager.setKind('window');
+    const found = manager.wallUnder(aim(0, 2.5));
+    assert.ok(found && found.straight, 'the window finds the straight wall under the pointer');
+    manager.beginStroke(aim(0, 2.5)); manager.endStroke();
+    const boxes = E.pieces(map).filter(p => p.kind === 'box');
+    assert.equal(boxes.length, 5, 'two lengths of wall, a sill, a pane and a header');
+    assert.ok(boxes.every(p => p.angle === wall.angle), 'every part turned as the wall');
+    const full = boxes.filter(p => p.size[1] === 5);
+    assert.equal(full.length, 2);
+    assert.ok(Math.abs(full[0].size[0] + full[1].size[0] + 1 - wall.size[0]) < 0.02, 'the wall cut by a tile, the rest of it kept');
+    const pane = boxes.find(p => p.material === 'Glass');
+    assert.ok(pane && pane.z === 1.5 && pane.size[2] <= 0.1, 'a pane in the hole, above the sill');
+    assert.ok(boxes.some(p => p.z >= 3.5 && p.material === 'Stone' && p.size[0] === 1), 'a header over it');
+    // A doorway along it: the wall cut again, a header only over the opening.
+    manager.setKind('doorway');
+    manager.beginStroke(aim(-3, 1)); manager.endStroke();
+    const after = E.pieces(map).filter(p => p.kind === 'box');
+    assert.equal(after.length, 7, 'one length of wall cut in two and a header: 5 - 1 + 3');
+    assert.ok(after.some(p => p.z === 4.5 && p.size[0] === 2), 'the doorway\'s header, a door\'s height up, two tiles wide so the grid has a way through');
+    assert.equal(manager.undoStack.length, 3, 'each one undo step');
+});

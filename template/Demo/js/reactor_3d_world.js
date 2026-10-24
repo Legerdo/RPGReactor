@@ -1525,7 +1525,19 @@ Reactor3D.pieceShapes = function(kind, piece) {
         // the glass a plan sets in every window's hole.
         case "glass": return [box(0, 0, 0.45, 1, H, 0.55)];
         // Waist high on a three-tile character; it still blocks a cell.
-        case "fence": return [box(0.05, 0, 0.42, 0.15, 1.5, 0.58), box(0.85, 0, 0.42, 0.95, 1.5, 0.58), box(0, 0.5, 0.45, 1, 0.62, 0.55), box(0, 1.15, 0.45, 1, 1.27, 0.55)];
+        case "fence": {
+            // Joined to the fences (and walls) beside it (fenceJoin, worked out by pieceGeometry): a post in the
+            // middle and two rails toward each, to the cell's edge or, for a diagonal neighbour, its corner.
+            if (piece && Array.isArray(piece.fenceJoin) && piece.fenceJoin.length) {
+                const out = [box(0.42, 0, 0.42, 0.58, 1.5, 0.58)];
+                for (const [dx, dz] of piece.fenceJoin) {
+                    const ex = 0.5 + dx * 0.5, ez = 0.5 + dz * 0.5;
+                    out.push({ beam: [0.5, 0.5, ex, ez, 0.5, 0.62, 0.05] }, { beam: [0.5, 0.5, ex, ez, 1.15, 1.27, 0.05] });
+                }
+                return out;
+            }
+            return [box(0.05, 0, 0.42, 0.15, 1.5, 0.58), box(0.85, 0, 0.42, 0.95, 1.5, 0.58), box(0, 0.5, 0.45, 1, 0.62, 0.55), box(0, 1.15, 0.45, 1, 1.27, 0.55)];
+        }
         // The shapes fill the unit cell; their size stretches the cell.
         case "box": return [box(0, 0, 0, 1, 1, 1)];
         case "wedge": return [{ wedge: true }];
@@ -1622,6 +1634,22 @@ Reactor3D.emitPiece = function(piece, base, out, hidden) {
             side(skip.north, v0 <= 1e-6, (a, b) => quad(p(x1, a, v0), p(x0, a, v0), p(x0, b, v0), p(x1, b, v0))); // north
             side(skip.east, x1 >= 1 - 1e-6, (a, b) => quad(p(x1, a, v1), p(x1, a, v0), p(x1, b, v0), p(x1, b, v1))); // east
             side(skip.west, x0 <= 1e-6, (a, b) => quad(p(x0, a, v0), p(x0, a, v1), p(x0, b, v1), p(x0, b, v0))); // west
+        } else if (shape.beam) {
+            // A box laid along a line on the ground (a fence's rail to a diagonal neighbour): the box's faces in
+            // the beam's own frame, turned onto the line (a turn keeps their winding).
+            const [ax, av, bx, bv, y0, y1, w] = shape.beam;
+            const len = Math.hypot(bx - ax, bv - av);
+            if (len > 1e-6) {
+                const c = (bx - ax) / len, s = (bv - av) / len;
+                const p = (x, y, v) => place(ax + x * c - v * s, y, av + x * s + v * c);
+                const x0 = 0, x1 = len, v0 = -w, v1 = w;
+                quad(p(x0, y1, v0), p(x0, y1, v1), p(x1, y1, v1), p(x1, y1, v0)); // top
+                quad(p(x0, y0, v0), p(x1, y0, v0), p(x1, y0, v1), p(x0, y0, v1)); // bottom
+                quad(p(x0, y0, v1), p(x1, y0, v1), p(x1, y1, v1), p(x0, y1, v1));
+                quad(p(x1, y0, v0), p(x0, y0, v0), p(x0, y1, v0), p(x1, y1, v0));
+                quad(p(x1, y0, v1), p(x1, y0, v0), p(x1, y1, v0), p(x1, y1, v1));
+                quad(p(x0, y0, v0), p(x0, y0, v1), p(x0, y1, v1), p(x0, y1, v0));
+            }
         } else if (shape.wedge) {
             // Flat at v 0, a full level at v 1.
             const p = place;
@@ -1935,6 +1963,22 @@ Reactor3D.hiddenFacesOf = function(piece, mapData) {
 };
 
 /** A geometry of the given pieces, each on its own cell's ground. */
+/** The ways a fence joins its neighbours (see pieceShapes): [dx, dz] world steps, the four sides first. */
+Reactor3D.FENCE_JOINS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+Reactor3D.fenceJoins = function(piece, index) {
+    const at = (dx, dz) => index.cells.get((piece.y + dz) * 65536 + piece.x + dx) || [];
+    const fenceAt = (dx, dz) => at(dx, dz).some(other => other.kind === "fence" && Math.abs(other.z - piece.z) < 0.01);
+    const solidAt = (dx, dz) => at(dx, dz).some(other => (other.kind === "wall" || other.kind === "pillar" || other.kind === "glass" || other.kind === "window")
+        && other.z <= piece.z + 0.01 && other.z + this.pieceHeight(other.kind, other) > piece.z + 0.5);
+    const out = [];
+    for (const [dx, dz] of this.FENCE_JOINS) {
+        if (dx && dz) { if (fenceAt(dx, dz) && !fenceAt(dx, 0) && !fenceAt(0, dz)) out.push([dx, dz]); }
+        else if (fenceAt(dx, dz) || solidAt(dx, dz)) out.push([dx, dz]);
+    }
+    // Joined only to walls, it stands as it was laid.
+    return out.some(([dx, dz]) => fenceAt(dx, dz)) ? out : [];
+};
+
 Reactor3D.pieceGeometry = function(pieces, mapData) {
     const out = { positions: [], uvs: [], colors: [] };
     const index = mapData ? this.pieceIndex(mapData) : null;
@@ -1958,6 +2002,12 @@ Reactor3D.pieceGeometry = function(pieces, mapData) {
                 if (stack.some(other => other.kind === "ladder" && other.rot === piece.rot && other.z === piece.z)) join[local.u > 0.5 ? "hi" : "lo"] = true;
             }
             if (join.lo || join.hi) piece = Object.assign({}, piece, { ladderJoin: join });
+        }
+        // A fence joins what stands beside it at its level: a fence on any of its four sides, a wall, pane or pillar
+        // it runs into, and a fence on a diagonal when neither cell between them is fence (a run laid corner to corner).
+        if (piece.kind === "fence" && index) {
+            const join = this.fenceJoins(piece, index);
+            if (join.length) piece = Object.assign({}, piece, { fenceJoin: join, rot: 0 });
         }
         // A raised stair's support stops on the highest piece top under it in its cell.
         if (piece.kind === "stair" && piece.z > 0 && index) {
@@ -5817,10 +5867,29 @@ Reactor3D.lineCellPiece = function(mapData, piece, stack, list) {
             if (piece.frame && piece.frame.closed) add(0, 1.5, 0.94, 1, Math.min(S, H) - 1.4, 1).glass = false;
             break;
         case "glass": add(0, 0, 0.45, 1, H, 0.55).glass = true; break;
-        case "fence":
+        case "fence": {
+            // Joined (fenceJoins), as it is drawn: a post in the middle, rails toward each neighbour (a diagonal
+            // rail as a few short pieces along it); else the rails across the cell as it was laid.
+            const index = this.pieceIndex(mapData), join = index ? this.fenceJoins(piece, index) : [];
+            if (join.length) {
+                const at = (u, y, v) => [piece.x + u, oy + y, piece.y + v];
+                const solid = (x0, y0, v0, x1, y1, v1) => { const one = this.lineSolid(at, x0, y0, v0, x1, y1, v1); one.glass = glass; list.push(one); };
+                solid(0.42, 0, 0.42, 0.58, 1.5, 0.58);
+                for (const [dx, dz] of join) {
+                    for (let i = 0; i < (dx && dz ? 4 : 1); i++) {
+                        const t0 = dx && dz ? i / 4 : 0, t1 = dx && dz ? (i + 1) / 4 : 1;
+                        const ua = 0.5 + dx * 0.5 * t0, ub = 0.5 + dx * 0.5 * t1, va = 0.5 + dz * 0.5 * t0, vb = 0.5 + dz * 0.5 * t1;
+                        const u0 = Math.min(ua, ub) - (dx ? 0 : 0.05), u1 = Math.max(ua, ub) + (dx ? 0 : 0.05);
+                        const v0 = Math.min(va, vb) - (dz ? 0 : 0.05), v1 = Math.max(va, vb) + (dz ? 0 : 0.05);
+                        solid(u0, 0.5, v0, u1, 0.62, v1); solid(u0, 1.15, v0, u1, 1.27, v1);
+                    }
+                }
+                break;
+            }
             add(0.05, 0, 0.42, 0.15, 1.5, 0.58); add(0.85, 0, 0.42, 0.95, 1.5, 0.58);
             add(0, 0.5, 0.45, 1, 0.62, 0.55); add(0, 1.15, 0.45, 1, 1.27, 0.55);
             break;
+        }
         // The leaf across this cell of the doorway, counted only while it stands shut (see worldRay).
         case "door": add(0, 0, 0.44, 1, this.doorLeafHeight ? this.doorLeafHeight(piece) : 3.6, 0.56).door = piece; break;
         // A ladder's rails and rungs stop nothing.

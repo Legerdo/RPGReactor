@@ -2874,7 +2874,7 @@ class MapEditor3D {
         const door = !into && !stamp && !erase && manager.kind === 'door' ? manager.pieceFor(target) : null;
         const doorKey = door ? ':door:' + [door.x - target.x, door.y - target.y, door.rot, door.width, door.style].join(',') : '';
         // A building turned or grown while picked up has a new footprint: its slab is made again.
-        const intoKey = carved ? ':into:' + JSON.stringify(carved.map(p => [p.kind, p.z - into.wall.z, p.height || 5, p.rot])) : '';
+        const intoKey = carved ? ':into:' + JSON.stringify(carved.map(p => [p.kind, p.x - into.wall.x, p.y - into.wall.y, p.z - into.wall.z, p.height || 5, p.rot, p.size, p.offset])) : '';
         const key = intoKey + doorKey + (stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null, manager.heightFor ? manager.heightFor(manager.kind) : 5]));
         if (!this.pieceGhost || this.pieceGhost.userData.key !== key) {
             this.hidePieceGhost(true);
@@ -2882,7 +2882,7 @@ class MapEditor3D {
             // building being moved shows its footprint as a slab.
             const silhouette = stamp && !bounds ? manager.ghostGeometryFor(stamp, turn) : null;
             const geometry = silhouette
-                || (carved ? Reactor3D.pieceGeometry(carved.map(p => Object.assign({ id: 0 }, p, { material: '', x: 0, y: 0, z: p.z - into.wall.z })), null) : null)
+                || (carved ? Reactor3D.pieceGeometry(carved.map(p => Object.assign({ id: 0 }, p, { material: '', x: p.x - into.wall.x, y: p.y - into.wall.y, z: p.z - into.wall.z })), null) : null)
                 || (door ? Reactor3D.pieceGeometry([{ id: 0, kind: 'trim', material: '', x: door.x - target.x, y: door.y - target.y, z: 0, rot: door.rot,
                     boxes: [{ box: [0, 0, 0.42, door.width || 1, Reactor3D.doorLeafHeight ? Reactor3D.doorLeafHeight(door) : 3.6, 0.58] }] }], null) : null)
                 || (stamp

@@ -115,7 +115,7 @@ class PieceBuilderManager {
         if (!map || !E) return null;
         const cell = target.faceCell || { x: target.x, y: target.y };
         const stack = E.pieces(map).filter(p => p.x === cell.x && p.y === cell.y && PieceBuilderManager.CARVABLE.includes(p.kind));
-        if (!stack.length) return null;
+        if (!stack.length) return this.kind === 'wall' ? null : this.straightWallUnder(target);
         const R = typeof Reactor3D !== 'undefined' ? Reactor3D : null;
         const baseOf = (x, y) => (R && R.pieceBaseAt ? R.pieceBaseAt(map, x, y) : 0);
         const tall = piece => piece.height || 5;
@@ -136,6 +136,75 @@ class PieceBuilderManager {
         return { wall, rel: Math.max(0, rel - wall.z), rot };
     }
 
+    /** A straight wall laid off the grid (diagonalWall): a box standing upright, a tile thick or less, taller and longer than a step. */
+    static isStraightWall(piece) {
+        return !!piece && piece.kind === 'box' && !piece.tilt && !piece.roll && Array.isArray(piece.size)
+            && piece.size[2] <= 1.05 && piece.size[1] >= 1.5 && piece.size[0] >= 1.5;
+    }
+
+    /** A straight wall's middle on the ground and the way it runs: { cx, cz, c, s } (c, s the run's direction). */
+    static straightFrame(box) {
+        const off = box.offset || [0, 0];
+        const a = ((Number(box.angle) || 0) + (Number(box.rot) || 0) * 90) * Math.PI / 180;
+        return { cx: box.x + 0.5 + (off[0] || 0), cz: box.y + 0.5 + (off[1] || 0), c: Math.cos(a), s: Math.sin(a) };
+    }
+
+    /** The straight wall under the pointer, for an opening: { wall, along, rel, straight: true } or null. */
+    straightWallUnder(target) {
+        if (!target || !target.point) return null;
+        const map = this.currentMap(), E = this.elevation();
+        const R = typeof Reactor3D !== 'undefined' ? Reactor3D : null;
+        const baseOf = (x, y) => (R && R.pieceBaseAt ? R.pieceBaseAt(map, x, y) : 0);
+        for (const box of E.pieces(map)) {
+            if (!PieceBuilderManager.isStraightWall(box)) continue;
+            const f = PieceBuilderManager.straightFrame(box), dx = target.point.x - f.cx, dz = target.point.z - f.cz;
+            const along = dx * f.c + dz * f.s, across = -dx * f.s + dz * f.c;
+            const [L, H, D] = box.size;
+            if (Math.abs(along) > L / 2 + 0.05 || Math.abs(across) > D / 2 + 0.15) continue;
+            const rel = (target.faceCell || !target.top ? baseOf(target.x, target.y) + (Number(target.height) || 0) : baseOf(target.x, target.y) + target.z) - baseOf(box.x, box.y) - box.z;
+            if (rel < -0.05 || rel > H + 0.05) continue;
+            return { wall: box, along, rel: Math.max(0, rel), straight: true, rot: 0 };
+        }
+        return null;
+    }
+
+    /**
+     * An opening in a straight wall: the wall cut either side of it, and over it a header (a doorway's), a sill and
+     * a header with a pane between (a window's), or a pane the height of the wall (glass); each a box turned as the
+     * wall is, its material, building and finish. The opening is a tile wide (a door's as wide as the door), where
+     * pointed along the wall.
+     */
+    straightCarved(found, kind = this.kind) {
+        const W = found.wall, [L, H, D] = W.size, f = PieceBuilderManager.straightFrame(W);
+        const S = (typeof Reactor3D !== 'undefined' && Reactor3D.PIECE_STOREY) || 5;
+        // A doorway across a slanting wall is two tiles at least: one tile leaves no way through on the grid.
+        const wide = Math.min(L, kind === 'door' || kind === 'doorway' ? Math.max(2, this.door?.width || 1) : 1);
+        const mid = Math.max(-L / 2 + wide / 2, Math.min(L / 2 - wide / 2, Math.round(found.along * 4) / 4));
+        const quarter = v => Math.round(v * 4) / 4;
+        const part = (a0, a1, y0, y1, extra = {}) => {
+            if (a1 - a0 < 0.1 || y1 - y0 < 0.05) return null;
+            const centre = (a0 + a1) / 2, wx = f.cx + f.c * centre, wz = f.cz + f.s * centre;
+            const x = Math.floor(wx), y = Math.floor(wz);
+            const piece = { kind: 'box', x, y, z: W.z + y0, rot: 0, angle: W.angle || 0, material: W.material, size: [Math.round((a1 - a0) * 100) / 100, Math.round((y1 - y0) * 100) / 100, D],
+                offset: [Math.round((wx - x - 0.5) * 100) / 100, Math.round((wz - y - 0.5) * 100) / 100] };
+            if (W.group) piece.group = W.group;
+            if (W.finish) piece.finish = W.finish;
+            if (W.surface) piece.surface = Object.assign({}, W.surface);
+            return Object.assign(piece, extra);
+        };
+        const a0 = mid - wide / 2, a1 = mid + wide / 2;
+        const out = [part(-L / 2, a0, 0, H), part(a1, L / 2, 0, H)];
+        const glass = { material: this.material && kind === 'glass' ? this.material : 'Glass', size: null };
+        const pane = (y0, y1) => { const p = part(a0, a1, y0, y1); if (p) { p.material = glass.material; p.size[2] = Math.min(D, 0.1); } return p; };
+        if (kind === 'glass') out.push(pane(0, H));
+        else if (kind === 'window') {
+            const foot = H > S ? Math.max(0, Math.min(H - S, Math.round(found.rel - 2.55))) : 0;
+            const top = quarter(foot + Math.min(S, H - foot) - 1.4);
+            out.push(part(a0, a1, 0, foot + 1.5), pane(foot + 1.5, top), part(a0, a1, top, H));
+        } else out.push(part(a0, a1, quarter(Math.min(S, H) - 0.6), H));
+        return out.filter(Boolean);
+    }
+
     /**
      * What replaces a wall piece when an opening is laid into it: a doorway (or a door's doorway) from its foot, as
      * tall as it; a pane the whole of it; a window where it was pointed at, the wall under it left standing when the
@@ -143,6 +212,7 @@ class PieceBuilderManager {
      * face that was struck.
      */
     carvedPieces(found, kind = this.kind) {
+        if (found.straight) return this.straightCarved(found, kind);
         const W = found.wall, H = W.height || 5;
         const keep = { material: W.material, rot: found.rot };
         if (W.group) keep.group = W.group;
@@ -169,6 +239,18 @@ class PieceBuilderManager {
      */
     carveInto(map, found, target) {
         const E = this.elevation();
+        if (found.straight) {
+            const parts = this.straightCarved(found);
+            const list = E.pieces(map).filter(p => p.id !== found.wall.id);
+            let id = E.pieces(map).reduce((max, p) => Math.max(max, p.id || 0), 0);
+            for (const piece of parts) list.push(Object.assign(piece, { id: ++id }));
+            E.restorePieces(map, list);
+            if (this.kind === 'door') {
+                const text = 'A door hangs in a wall that runs along the grid; a doorway was opened here.';
+                window.reactor?.buildHotbar?.flash?.(window.I18n ? window.I18n.tText(text) : text);
+            }
+            return true;
+        }
         const cells = [found.wall];
         if (this.kind === 'door' && (this.door?.width || 1) > 1) {
             // Along the wall, toward the side of the cell the pointer is on, as far as the wall reaches.
@@ -226,6 +308,21 @@ class PieceBuilderManager {
     /** Whether a rectangle of the piece in hand fills its inside or lines its edge (a room's walls). */
     rectangleFills() {
         return this.rectFill === 'fill' || (this.rectFill === 'auto' && PieceBuilderManager.fillsRectangle(this.kind));
+    }
+
+    /** The cells of a straight run from `a` to `b`, each touching the one before at a side or a corner (a fence's diagonal). */
+    static lineCells8(a, b) {
+        const cells = [];
+        const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y), sx = b.x > a.x ? 1 : -1, sy = b.y > a.y ? 1 : -1;
+        let x = a.x, y = a.y, err = dx - dy;
+        for (;;) {
+            cells.push({ x, y });
+            if (x === b.x && y === b.y) break;
+            const e2 = 2 * err;
+            if (e2 > -dy) { err -= dy; x += sx; }
+            if (e2 < dx) { err += dx; y += sy; }
+        }
+        return cells;
     }
 
     /**
@@ -2042,7 +2139,9 @@ class PieceBuilderManager {
         const cells = [];
         // A line: the straight run from the anchor, at its level.
         if (this._stroke.line) {
-            for (const cell of PieceBuilderManager.lineCells(a, target)) cells.push({ x: cell.x, y: cell.y, z: a.z });
+            // A fence joins corner to corner, so its line steps diagonally; anything else keeps a side to the next.
+            const run = this.kind === 'fence' ? PieceBuilderManager.lineCells8(a, target) : PieceBuilderManager.lineCells(a, target);
+            for (const cell of run) cells.push({ x: cell.x, y: cell.y, z: a.z });
             return { cells, x0, y0, x1, y1 };
         }
         // Rocks fill it on a grid of their spacing, each its own (seeded by its place, so the
@@ -2306,7 +2405,34 @@ class PieceBuilderManager {
         return elevation.removePiece(map, top.x, top.y, top.z);
     }
 
+    /**
+     * Each fence that has fences beside it along one way only turns to run that way (east-west 0, north-south 1),
+     * so a fence is laid by dragging and never turned by hand. A fence's look follows its neighbours whatever its
+     * turn (Reactor3D.fenceJoins); the turn is what a lone fence and a gate go by.
+     */
+    orientFences(map) {
+        const E = this.elevation();
+        if (!map || !E) return false;
+        const list = E.pieces(map), fences = list.filter(p => p.kind === 'fence');
+        if (!fences.length) return false;
+        const at = new Set(fences.map(p => p.x + ',' + p.y + ',' + p.z));
+        let changed = false;
+        const next = list.map(piece => {
+            if (piece.kind !== 'fence') return piece;
+            const has = (dx, dy) => at.has((piece.x + dx) + ',' + (piece.y + dy) + ',' + piece.z);
+            const across = has(1, 0) || has(-1, 0), along = has(0, 1) || has(0, -1);
+            const axis = across && !along ? 0 : along && !across ? 1 : null;
+            if (axis === null || (piece.rot || 0) % 2 === axis) return piece;
+            changed = true;
+            return Object.assign({}, piece, { rot: axis });
+        });
+        if (changed) E.restorePieces(map, next);
+        return changed;
+    }
+
     endStroke() {
+        // Fences laid by a drag face the way they run.
+        if (this._stroke && this._stroke.moved && this._stroke.mode !== 'erase' && this.kind === 'fence') this.orientFences(this.currentMap());
         if (this._stroke && !this._stroke.moved) this.undoStack.pop();
         // What grew under the pieces the stroke laid on the ground goes with the stroke's own step.
         else if (this._stroke && this._stroke.mode !== 'erase' && this.undoStack[this.undoStack.length - 1] === this._stroke.entry) {

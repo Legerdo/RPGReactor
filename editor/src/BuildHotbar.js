@@ -70,7 +70,8 @@ class BuildHotbar {
     /** The kinds whose facing matters: they climb, slope, open or run one way. */
     /** The longest stair run or ladder: as high as a piece may stand. */
     static get MAX_RUN() { return (typeof Reactor3D !== 'undefined' && Reactor3D.PIECE_MAX_LEVEL) || 240; }
-    static FACING = ['stair', 'ladder', 'ramp', 'doorway', 'door', 'window', 'fence', 'roof', 'glass'];
+    // (A fence turns itself to the way it runs: PieceBuilderManager.orientFences, Reactor3D.fenceJoins.)
+    static FACING = ['stair', 'ladder', 'ramp', 'doorway', 'door', 'window', 'roof', 'glass'];
     /** A door's choices, value and label. */
     static DOOR_STYLES = [['plank', 'Plank'], ['panelled', 'Paneled'], ['arched', 'Arched'], ['double', 'Double'], ['gate', 'Gate']];
     static DOOR_OPENS = [['auto', 'On approach'], ['action', 'OK button'], ['locked', 'Locked']];

@@ -358,7 +358,16 @@ pointed at, keeping the wall's material, building and height: a window
 where it is aimed (on a wall taller than a storey the wall below it stays),
 a doorway from the wall's foot, a door with its doorway as wide as the door
 along the wall. It looks out of the building, whichever side it is laid
-from; dragged along a wall it goes into each piece passed. A **Wall**
+from; dragged along a wall it goes into each piece passed. In a straight
+(slanting) wall the wall is cut either side of the opening and the sill,
+header and pane are turned as the wall is; a doorway there is two tiles
+wide at least (one leaves no way through on the grid), and a door's leaf
+hangs only in a wall along the grid. **Fences** join what is beside them:
+a post in the middle and rails to each neighbouring fence, to a wall,
+pane or pillar a run ends against, and to a fence on a diagonal when
+neither cell between is fence, so a run turns its corners itself and a
+Line of fence steps corner to corner. A fence laid by a drag turns to the
+way it runs; only a fence standing alone shows the way it was laid. A **Wall**
 pointed at a window, doorway or pane walls it up. Each slot shows its key
 (1 to 0, the Eraser X). A right-click takes a piece off and a right-drag turns the view
 (Shift-drag or the middle button moves it); R turns the piece in hand, and

@@ -23481,3 +23481,22 @@ Object.assign(RR_TEXT_TRANSLATIONS["tr"], {"Point at a wall to set it into the w
 Object.assign(RR_TEXT_TRANSLATIONS["id"], {"Point at a wall to set it into the wall, where you point. The wall's material and height are kept.": "Arahkan ke dinding untuk memasangnya di dalam dinding, di tempat yang Anda tunjuk. Bahan dan tinggi dinding tetap.", "Point at a window or doorway to wall it up.": "Arahkan ke jendela atau ambang pintu untuk menutupnya dengan dinding."});
 Object.assign(RR_TEXT_TRANSLATIONS["vi"], {"Point at a wall to set it into the wall, where you point. The wall's material and height are kept.": "Trỏ vào tường để gắn nó vào tường, ngay chỗ bạn trỏ. Vật liệu và chiều cao của tường được giữ nguyên.", "Point at a window or doorway to wall it up.": "Trỏ vào cửa sổ hoặc ô cửa để xây kín lại."});
 Object.assign(RR_TEXT_TRANSLATIONS["th"], {"Point at a wall to set it into the wall, where you point. The wall's material and height are kept.": "ชี้ที่ผนังเพื่อฝังลงในผนังตรงที่ชี้ วัสดุและความสูงของผนังคงเดิม", "Point at a window or doorway to wall it up.": "ชี้ที่หน้าต่างหรือช่องประตูเพื่อก่อผนังปิด"});
+
+// Build: a door on a slanting wall.
+Object.assign(RR_TEXT_TRANSLATIONS["ja"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "扉はマス目に沿った壁にだけ付けられます。ここには出入口を開けました。"});
+Object.assign(RR_TEXT_TRANSLATIONS["zh-Hant"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "門只能掛在沿格線的牆上；這裡已開出門洞。"});
+Object.assign(RR_TEXT_TRANSLATIONS["zh-Hans"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "门只能挂在沿网格的墙上；这里已开出门洞。"});
+Object.assign(RR_TEXT_TRANSLATIONS["ko"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "문은 격자를 따라 놓인 벽에만 달립니다. 여기에는 출입구를 냈습니다."});
+Object.assign(RR_TEXT_TRANSLATIONS["es"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Una puerta solo cuelga en un muro que sigue la cuadrícula; aquí se abrió un vano."});
+Object.assign(RR_TEXT_TRANSLATIONS["pt"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Uma porta só se pendura em parede que segue a grade; aqui foi aberto um vão."});
+Object.assign(RR_TEXT_TRANSLATIONS["fr"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Une porte ne se pose que dans un mur aligné sur la grille ; une embrasure a été ouverte ici."});
+Object.assign(RR_TEXT_TRANSLATIONS["it"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Una porta si appende solo a un muro allineato alla griglia; qui è stato aperto un vano."});
+Object.assign(RR_TEXT_TRANSLATIONS["de"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Eine Tür hängt nur in einer Wand entlang des Rasters; hier wurde eine Türöffnung geschaffen."});
+Object.assign(RR_TEXT_TRANSLATIONS["ru"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Дверь вешается только в стену вдоль сетки; здесь проделан проём."});
+Object.assign(RR_TEXT_TRANSLATIONS["pl"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Drzwi wiszą tylko w ścianie biegnącej wzdłuż siatki; tu otwarto przejście."});
+Object.assign(RR_TEXT_TRANSLATIONS["el"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Μια πόρτα κρεμιέται μόνο σε τοίχο κατά μήκος του πλέγματος· εδώ ανοίχτηκε άνοιγμα."});
+Object.assign(RR_TEXT_TRANSLATIONS["ar"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "لا يُعلَّق الباب إلا في جدار يسير مع الشبكة؛ فُتح هنا مدخل."});
+Object.assign(RR_TEXT_TRANSLATIONS["tr"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Kapı yalnızca ızgara boyunca uzanan bir duvara takılır; burada bir kapı boşluğu açıldı."});
+Object.assign(RR_TEXT_TRANSLATIONS["id"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Pintu hanya bisa dipasang di dinding yang mengikuti grid; di sini dibuka ambang pintu."});
+Object.assign(RR_TEXT_TRANSLATIONS["vi"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "Cửa chỉ lắp được vào tường chạy theo lưới; ở đây đã mở một ô cửa."});
+Object.assign(RR_TEXT_TRANSLATIONS["th"], {"A door hangs in a wall that runs along the grid; a doorway was opened here.": "ประตูติดได้เฉพาะผนังที่วางตามตาราง ที่นี่จึงเปิดเป็นช่องประตูแทน"});
