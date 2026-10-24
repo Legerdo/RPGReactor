@@ -4374,6 +4374,7 @@
         .rr-material-option:hover, .rr-material-option:focus-visible { border-color: var(--color-border-input); background: var(--color-bg-hover); outline: none; }
         .rr-material-option[aria-selected="true"] { border-color: var(--color-accent); }
         .rr-material-option-face { width: 58px; height: 58px; }
+        .rr-material-add-face { display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 300; color: var(--color-accent-bright, var(--color-text)); border-color: var(--color-accent-border, var(--color-border-input)) !important; }
         .rr-material-option-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .rr-material-popup-note { max-width: 364px; padding-top: 6px; font-size: 11px; color: var(--color-text-muted); }
         .rr-build-facing { display: flex; align-items: center; gap: 4px; }
@@ -4428,7 +4429,9 @@
         .rr-build-group { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border: 1px solid var(--color-border); border-radius: 4px; background: transparent; color: var(--color-text-muted); font-size: 11px; cursor: pointer; white-space: nowrap; }
         .rr-build-group[aria-checked="true"] { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 18%, transparent); color: var(--color-text-strong); }
         .rr-build-group:hover { color: var(--color-text); }
-        .rr-build-range { display: grid; grid-template-columns: 64px 1fr 40px; align-items: center; gap: 6px; color: var(--color-text-muted); }
+        /* Room for a label of two words (Wind direction, Reflection) before it wraps. */
+        .rr-build-range { display: grid; grid-template-columns: 76px 1fr 40px; align-items: center; gap: 6px; color: var(--color-text-muted); }
+        .rr-build-range > span { line-height: 1.15; overflow-wrap: anywhere; }
         .rr-build-range > b { font-weight: 500; color: var(--color-text); text-align: right; }
         .rr-build-panel-foot > .rr-build-icon-btn { flex: 0 0 auto; width: 34px; padding: 4px 0; }
         .rr-build-chip {
@@ -4463,7 +4466,8 @@
         .rr-build-note { font-size: 11px; color: var(--color-text-muted); padding: 0 6px; white-space: nowrap; }
         /* A note meant to wrap does, whatever order the two rules come in. */
         .rr-build-note.rr-build-wrap { white-space: normal; overflow-wrap: anywhere; padding: 0; }
-        .rr-build-hint { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,.8); }
+        /* Two lines at most, wrapped rather than cut: a laptop-width window still shows every shortcut. */
+        .rr-build-hint { font-size: 11px; color: var(--color-text-muted); white-space: normal; max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; text-align: center; pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,.8); }
         .rr-build-hint b { color: var(--color-text-strong); font-weight: 600; }
         .rr-build-flash {
             font-size: 12px;
@@ -7852,3 +7856,18 @@ html.rr-detached-window {
 .rr-build-finishes.rr-build-factions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .rr-build-factions .rr-build-chip { justify-content: center; padding-left: 2px; padding-right: 2px; }
 .rr-build-diagonals { margin-top: 6px; }
+
+/* The Blueprint panel: each plan as its picture, name and size; the stamp's size; nudging a building picked up. */
+.rr-build-plan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; max-height: 260px; overflow-y: auto; }
+.rr-build-plan-tile { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 4px; border: 1px solid var(--color-border-input); border-radius: var(--radius-md, 4px); background: var(--color-bg-deep); color: var(--color-text); cursor: pointer; text-align: left; min-width: 0; }
+.rr-build-plan-tile:hover { border-color: var(--color-accent-bright); }
+.rr-build-plan-tile[aria-pressed="true"] { border-color: var(--color-accent-bright); box-shadow: 0 0 0 1px var(--color-accent-bright); }
+.rr-build-plan-face { display: flex; align-items: center; justify-content: center; height: 64px; border-radius: 3px; background-color: var(--color-bg-panel); background-size: contain; background-repeat: no-repeat; background-position: center; color: var(--color-text-muted); }
+.rr-build-plan-face.is-plain { border: 1px dashed var(--color-border-input); }
+.rr-build-plan-name { font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-build-plan-size { font-size: 10px; color: var(--color-text-muted); }
+.rr-build-stampsize { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.rr-build-nudges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.rr-build-nudges .rr-btn-secondary { padding: 4px 0; font-size: 14px; }
+.rr-build-handles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.rr-build-handles .rr-build-chip { justify-content: center; }

@@ -355,6 +355,12 @@ class ModelPropsManager {
     }
 
     /** Put a new prop at map coordinates (tiles, fractional allowed) from the chosen model. */
+    /** Whether a settings section is open: as last left, Placement open the first time. */
+    sectionOpen(key) {
+        const open = this._openSections || {};
+        return key in open ? !!open[key] : key === 'placement';
+    }
+
     place(x, y) {
         const elevation = this.elevation();
         if (!elevation || !this.currentMap || !this.model) return 0;
@@ -605,7 +611,7 @@ class ModelPropsManager {
                 </section>
                 </div>
                 <div class="mp-settings rr-accent-scrollbar">
-                <details class="mp-section" name="model-props-settings" data-props-section="placement"${!this._activeSection || this._activeSection === 'placement' ? ' open' : ''}>
+                <details class="mp-section" data-props-section="placement"${this.sectionOpen('placement') ? ' open' : ''}>
                     <summary class="mp-section-title">${escape(this._tx('Placement'))}</summary>
                     <div class="mp-section-body mp-field-grid">
                         <label class="mp-field">${escape(t('props.size'))}${stepper('model-props-size',0.1,64,0.5,2)}</label>
@@ -621,13 +627,13 @@ class ModelPropsManager {
                         <label class="mp-check"><input type="checkbox" id="model-props-passable">${escape(t('props.passable'))}</label>
                     </div>
                 </details>
-                <details class="mp-section" id="model-props-card" name="model-props-settings" data-props-section="transform"${this._activeSection === 'transform' ? ' open' : ''}>
+                <details class="mp-section" id="model-props-card" data-props-section="transform"${this.sectionOpen('transform') ? ' open' : ''}>
                     <summary class="mp-section-title">${escape(this._tx('Transform'))}</summary>
                     <div class="mp-section-body">
                         <div id="model-props-card-tabs"></div><div id="model-props-card-body"></div>
                     </div>
                 </details>
-                <details class="mp-section" name="model-props-settings" data-props-section="playback"${this._activeSection === 'playback' ? ' open' : ''}>
+                <details class="mp-section" data-props-section="playback"${this.sectionOpen('playback') ? ' open' : ''}>
                     <summary class="mp-section-title">${escape(this._tx('Playback'))}</summary>
                     <div class="mp-section-body mp-field-grid mp-playback-fields">
                         ${dropdown('model-props-animations',t('menu.animations'))}
@@ -649,12 +655,10 @@ class ModelPropsManager {
 
             </div>`;
         this._bindChoiceDropdowns();
+        // Each section opens and shuts by itself, several open at once if wanted; remembered while the editor runs.
         container.querySelectorAll('[data-props-section]').forEach(section => section.addEventListener('toggle', () => {
-            if (!section.open) return;
-            this._activeSection = section.dataset.propsSection;
-            for (const other of container.querySelectorAll('[data-props-section]')) {
-                if (other !== section) other.open = false;
-            }
+            this._openSections = Object.assign({}, this._openSections, { [section.dataset.propsSection]: section.open });
+            if (section.open) this._activeSection = section.dataset.propsSection;
             this._closeChoiceDropdowns();
         }));
         const byId = id => container.querySelector('#' + id);

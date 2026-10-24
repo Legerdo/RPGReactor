@@ -63,7 +63,10 @@ the top: its roof, and what stands above the top floor. **Build** opens the stru
 the map's 3D view with the same Build bar the map uses, for anything the
 plan cannot paint. The Build bar's Blueprint slot, or Use on the map,
 stamps a structure; **Rebuild from plan** re-lays a stamped one from its
-file.
+file. The Blueprint panel shows each plan as a picture with its size, a
+Direction and a Size (×1 to ×4) to stamp it at, and **Move a building** (M)
+picks one up on the map with buttons for what the keys do: Turn (R), Remove
+(Delete), Nudge (the arrows; Shift for 5) and its Size.
 
 The rules the engine applies to terrain, pieces and water (where the
 ground is, what blocks a step, how deep the water stands) are in
@@ -327,18 +330,35 @@ A file in `img/characters` whose name has `[8D]` (`$Hero[8D].png`) is cut as eig
   above the ground, up to 240 (forty-eight storeys of five): a whole level,
   or any quarter tile for a `floor`, a `block` and a shape. `rot`: quarter
   turns clockwise seen from above; `0` rises or faces south.
-- `height`: a `wall`, `glass`, `pillar`, `doorway` or `window` of its own
-  height, 0.5 to 40 tiles in quarters (a storey, 5, when absent): drawn,
+- `height`: a `wall`, `glass`, `pillar`, `doorway`, `window` or `fence` of its own
+  height, 0.5 to 40 tiles in quarters (a storey, 5, when absent; a fence 1.5): drawn,
   stood against and cut away at that height. A doorway's or window's
   opening keeps its size; the wall over it reaches the top. Setting the
   height of a whole selected building lifts each storey's floors, the
   storeys above and the roof with its walls.
 - `material`: a name under `img/materials` without extension, or `""` for
-  plain grey.
+  plain grey. Any material picker's last tile, **Your own picture…**, copies a
+  picture from the computer into `img/materials` (with `<name>_normal` and
+  `<name>_rough` beside it when they are there); the Resource Manager has the
+  folder too.
+- `tint`: any piece's colour over its material (`#rrggbb`; white or none
+  leaves it as it is): a red-painted wall without a red material. The
+  panel's Tint sits under the material, for one piece, a part or a whole
+  selection.
 - `finish`: optional `mirror`, `chrome`, `polished`, `glossy` or `gold`,
   worn over the material; a `surface` (`reflect`, `gloss`, `metal`, `tint`,
   `texture`, as on a model) overrides it.
 - `group`: pieces of one building share a number. Optional.
+
+The Build bar's **Eraser** has its own Draw card (Brush, Line, Rectangle)
+and an **Only** choice (Walls and openings, Floors and stairs, Roofs, Shapes,
+Rocks): take the roof off a house, or the walls and keep the floor. A
+selection's foot has **Duplicate** (Ctrl+D) beside Turn and Remove; a placed
+shape's **Handles** card shows all its handles or only the arrows, the rings
+or the size cubes; a shape in hand turns with Direction and steps Bigger or
+Smaller (] and [). A door's Width is set before it is placed (it is the
+opening it cuts), with a **Casing** material; a window frame takes a Frame
+material. A floor's Size goes to 9×9.
 
 In the Build bar a click lays a piece. The panel's **Draw** card says what
 a drag does: **Brush** lays one on every cell it passes, **Line** a
@@ -718,7 +738,10 @@ deeper than 0.45 tile cannot be walked into. So a lake is terrain lowered under 
 its rim, and a river is a long thin sheet over a trough. `material` is an
 image under `img/materials`; the runtime waves it, tints it by depth and
 fades it out at the shore. Optional `reflect` and `gloss` (0-1) and `tint` (`#rrggbb`) make it mirror the
-world through its waves: `reflect: 1, gloss: 0.92, tint: "#d8dde3"` is mercury.
+world through its waves: `reflect: 1, gloss: 0.92, tint: "#d8dde3"` is mercury. Pour and River show the
+liquid they lay (its kind, colour and image, any material) and set it; Look with no sheet selected sets it
+too, and with one selected changes that sheet, its image included. River takes a Flow (0 still to 4), and
+**Take off last point** (Backspace) steps back along the course.
 
 ### Rivers and waterfalls
 
@@ -768,7 +791,12 @@ cliff faces. Both add. A generator writing hills should write `terrain`
 and keep slopes under 0.75 tile per tile where characters must walk;
 `build-structure.cjs` levels a building's pad itself. The Lower brush digs
 no bank steeper than 0.7 tile per tile, so what it digs is walked into; a
-deeper hollow takes a wider brush.
+deeper hollow takes a wider brush, or untick **Keep banks walkable** for a
+moat, a pit or a canyon with sheer sides. **Flatten** levels under the brush,
+along a **Line** (a level bed as wide as the brush) or over a **Rectangle**
+(a pad for a building), to the height where the drag began, or to a height
+typed or taken from the ground with **Pick**. Radius goes to 32 and Strength
+to 2.
 
 On a shaped map the room floor is laid from the sides as well as from
 above where the ground leans, so slopes do not streak, and past a slope it
@@ -818,7 +846,7 @@ hills at its edges, and Ctrl+Z takes back the road and the levelling as one;
 the Eraser slot takes it away and Ground changes its look. A road of floor
 pieces instead: Build › Floor with a **Size** of 2×2 to 5×5 (a Line of
 floor is that wide), or one slab of any size from Shape › Box. Build bar ›
-Terrain › **Ground** (Paint or Erase, + Add a ground, the material tile, Tint, Scale, Nothing grows here; Radius, Strength, Soft edge, Coverage; Fill the whole map). The Ground panel fills a rectangle by drag (Rectangle). A rock capped with `"ground"` wears the type painted under it, and bushes are not stood on bare ground by the brush. **Dunes** raises wind-shaped ridges (Wind direction, Ridge spacing, Height). **Biome** sets a map's ground, cliff tint, plant colors and water together. **Rock** is in the Terrain group. By rule:
+Terrain › **Ground** (Paint or Erase, + Add a ground from any material or a preset, the material tile, Tint, Scale, Nothing grows here; Radius, Strength, Soft edge, Coverage; Fill the whole map, and **Fill where…** by height, slope, nearness to water and a patchy edge, as `paint-ground.cjs` does). Its **Draw** card paints under the brush, along a **Line**, or over a **Rectangle** filled or outlined (as wide as the brush), and **Level the ground under it** (off by default) flattens a filled rectangle at its own height or smooths a line or stroke as a road is, in the paint's undo step. A rock capped with `"ground"` wears the type painted under it, and bushes are not stood on bare ground by the brush. **Dunes** raises wind-shaped ridges (Wind direction, Ridge spacing, Height). **Biome** sets a map's ground, cliff tint, plant colors and water together. **Rock** is in the Terrain group. By rule:
 
 ```
 node editor/build-scripts/paint-ground.cjs <project> <mapId> <spec.json> [--check]

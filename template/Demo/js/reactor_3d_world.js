@@ -516,7 +516,9 @@ Reactor3D.pieceHeight = function(kind, piece) {
     return kind === "wall" || kind === "doorway" || kind === "window" || kind === "pillar" || kind === "glass" ? this.PIECE_STOREY : 1;
 };
 /** The cell pieces that take a `height` of their own (pieceHeight), in tiles from MIN to MAX_PIECE_HEIGHT. */
-Reactor3D.SIZED_KINDS = ["wall", "glass", "pillar", "doorway", "window"];
+Reactor3D.SIZED_KINDS = ["wall", "glass", "pillar", "doorway", "window", "fence"];
+/** A fence's own height when it is given none, in tiles (its posts; it blocks a walker to 1). */
+Reactor3D.FENCE_HEIGHT = 1.5;
 Reactor3D.MIN_PIECE_HEIGHT = 0.5;
 Reactor3D.MAX_PIECE_HEIGHT = 40;
 
@@ -596,11 +598,10 @@ Reactor3D.normalizePiece = function(raw, mapData) {
         const frame = this.normalizeWindowFrame(raw.frame);
         if (frame) piece.frame = frame;
     }
-    // A rock's top (`cap`: a material, or "ground" for the map's own floor) and its tint.
-    if (kind === "rock") {
-        if (typeof raw.cap === "string" && raw.cap.trim()) piece.cap = raw.cap.trim();
-        if (typeof raw.tint === "string" && /^#[0-9a-f]{6}$/i.test(raw.tint) && raw.tint.toLowerCase() !== "#ffffff") piece.tint = raw.tint.toLowerCase();
-    }
+    // A rock's top (`cap`: a material, or "ground" for the map's own floor).
+    if (kind === "rock" && typeof raw.cap === "string" && raw.cap.trim()) piece.cap = raw.cap.trim();
+    // Any piece's `tint`: a colour laid over its material (a red-painted wall without a red material).
+    if (typeof raw.tint === "string" && /^#[0-9a-f]{6}$/i.test(raw.tint) && raw.tint.toLowerCase() !== "#ffffff") piece.tint = raw.tint.toLowerCase();
     return piece;
 };
 
@@ -1528,15 +1529,17 @@ Reactor3D.pieceShapes = function(kind, piece) {
         case "fence": {
             // Joined to the fences (and walls) beside it (fenceJoin, worked out by pieceGeometry): a post in the
             // middle and two rails toward each, to the cell's edge or, for a diagonal neighbour, its corner.
+            // Its `height` (1.5 when none) stretches the posts and spaces the rails: a low rail to a palisade.
+            const k = piece && piece.height > 0 ? piece.height / Reactor3D.FENCE_HEIGHT : 1;
             if (piece && Array.isArray(piece.fenceJoin) && piece.fenceJoin.length) {
-                const out = [box(0.42, 0, 0.42, 0.58, 1.5, 0.58)];
+                const out = [box(0.42, 0, 0.42, 0.58, 1.5 * k, 0.58)];
                 for (const [dx, dz] of piece.fenceJoin) {
                     const ex = 0.5 + dx * 0.5, ez = 0.5 + dz * 0.5;
-                    out.push({ beam: [0.5, 0.5, ex, ez, 0.5, 0.62, 0.05] }, { beam: [0.5, 0.5, ex, ez, 1.15, 1.27, 0.05] });
+                    out.push({ beam: [0.5, 0.5, ex, ez, 0.5 * k, 0.5 * k + 0.12, 0.05] }, { beam: [0.5, 0.5, ex, ez, 1.15 * k, 1.15 * k + 0.12, 0.05] });
                 }
                 return out;
             }
-            return [box(0.05, 0, 0.42, 0.15, 1.5, 0.58), box(0.85, 0, 0.42, 0.95, 1.5, 0.58), box(0, 0.5, 0.45, 1, 0.62, 0.55), box(0, 1.15, 0.45, 1, 1.27, 0.55)];
+            return [box(0.05, 0, 0.42, 0.15, 1.5 * k, 0.58), box(0.85, 0, 0.42, 0.95, 1.5 * k, 0.58), box(0, 0.5 * k, 0.45, 1, 0.5 * k + 0.12, 0.55), box(0, 1.15 * k, 0.45, 1, 1.15 * k + 0.12, 0.55)];
         }
         // The shapes fill the unit cell; their size stretches the cell.
         case "box": return [box(0, 0, 0, 1, 1, 1)];
@@ -1595,7 +1598,8 @@ Reactor3D.emitPiece = function(piece, base, out, hidden) {
         const side = 0.62 + 0.16 * (nx * 0.5 + 0.5) + 0.12 * (nz * 0.5 + 0.5);
         return ny > 0 ? side + (1 - side) * ny : side;
     };
-    // A box may carry its own colour over the material (a shutter's paint, a flower): [r, g, b], 0-1.
+    // A box may carry its own colour over the material (a shutter's paint, a flower): [r, g, b], 0-1; else the piece's tint.
+    const own = piece.tint ? [1, 3, 5].map(i => parseInt(piece.tint.slice(i, i + 2), 16) / 255) : null;
     let tint = null;
     const tri = (a, b, c) => {
         const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
@@ -1620,7 +1624,7 @@ Reactor3D.emitPiece = function(piece, base, out, hidden) {
     let boxTop = 0;
     for (const shape of shapes) if (shape.box) boxTop = Math.max(boxTop, shape.box[4]);
     for (const shape of shapes) {
-        tint = shape.tint || null;
+        tint = shape.tint || own;
         if (shape.box) {
             const [x0, y0, v0, x1, y1, v1] = shape.box;
             const p = (x, y, v) => place(x, y, v);
@@ -5918,23 +5922,24 @@ Reactor3D.lineCellPiece = function(mapData, piece, stack, list) {
             // Joined (fenceJoins), as it is drawn: a post in the middle, rails toward each neighbour (a diagonal
             // rail as a few short pieces along it); else the rails across the cell as it was laid.
             const index = this.pieceIndex(mapData), join = index ? this.fenceJoins(piece, index) : [];
+            const k = piece.height > 0 ? piece.height / Reactor3D.FENCE_HEIGHT : 1;
             if (join.length) {
                 const at = (u, y, v) => [piece.x + u, oy + y, piece.y + v];
                 const solid = (x0, y0, v0, x1, y1, v1) => { const one = this.lineSolid(at, x0, y0, v0, x1, y1, v1); one.glass = glass; list.push(one); };
-                solid(0.42, 0, 0.42, 0.58, 1.5, 0.58);
+                solid(0.42, 0, 0.42, 0.58, 1.5 * k, 0.58);
                 for (const [dx, dz] of join) {
                     for (let i = 0; i < (dx && dz ? 4 : 1); i++) {
                         const t0 = dx && dz ? i / 4 : 0, t1 = dx && dz ? (i + 1) / 4 : 1;
                         const ua = 0.5 + dx * 0.5 * t0, ub = 0.5 + dx * 0.5 * t1, va = 0.5 + dz * 0.5 * t0, vb = 0.5 + dz * 0.5 * t1;
                         const u0 = Math.min(ua, ub) - (dx ? 0 : 0.05), u1 = Math.max(ua, ub) + (dx ? 0 : 0.05);
                         const v0 = Math.min(va, vb) - (dz ? 0 : 0.05), v1 = Math.max(va, vb) + (dz ? 0 : 0.05);
-                        solid(u0, 0.5, v0, u1, 0.62, v1); solid(u0, 1.15, v0, u1, 1.27, v1);
+                        solid(u0, 0.5 * k, v0, u1, 0.5 * k + 0.12, v1); solid(u0, 1.15 * k, v0, u1, 1.15 * k + 0.12, v1);
                     }
                 }
                 break;
             }
-            add(0.05, 0, 0.42, 0.15, 1.5, 0.58); add(0.85, 0, 0.42, 0.95, 1.5, 0.58);
-            add(0, 0.5, 0.45, 1, 0.62, 0.55); add(0, 1.15, 0.45, 1, 1.27, 0.55);
+            add(0.05, 0, 0.42, 0.15, 1.5 * k, 0.58); add(0.85, 0, 0.42, 0.95, 1.5 * k, 0.58);
+            add(0, 0.5 * k, 0.45, 1, 0.5 * k + 0.12, 0.55); add(0, 1.15 * k, 0.45, 1, 1.15 * k + 0.12, 0.55);
             break;
         }
         // The leaf across this cell of the doorway, counted only while it stands shut (see worldRay).

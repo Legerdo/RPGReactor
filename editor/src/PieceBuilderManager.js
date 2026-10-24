@@ -21,6 +21,8 @@ class PieceBuilderManager {
         this.mode = 'select';
         this.structure = '';
         this.selectedGroup = 0;
+        // How big a plan is stamped (1-4 times its own size; a stamped one grows and shrinks in Move).
+        this.stampScale = 1;
         this.panel = null;
         this.undoStack = [];
         this.redoStack = [];
@@ -43,7 +45,8 @@ class PieceBuilderManager {
         this.rockVary = true;
         this.rockSeed = 1;
         this.rockCap = '';
-        this.rockTint = '';
+        // A colour over the material for each kind in hand ('' for none): a red wall without a red material.
+        this.tints = {};
         // The next door's settings (its width and facing come from the doorway it is hung in), and
         // the frame the next window wears.
         this.door = { style: 'plank', hinge: 'left', swing: 'away', opens: 'auto', width: 2 };
@@ -59,6 +62,9 @@ class PieceBuilderManager {
         // A floor laid this many tiles square at a click, and a floor line this wide.
         this.floorBrush = 1;
         this.drawShape = PieceBuilderManager.stored('rr-build-draw', ['brush', 'line', 'rect'], 'brush');
+        // The Eraser's own: how a drag takes pieces away, and which pieces only ('' for any).
+        this.eraseShape = PieceBuilderManager.stored('rr-build-erase-draw', ['brush', 'line', 'rect'], 'brush');
+        this.eraseOnly = '';
         this.rectFill = PieceBuilderManager.stored('rr-build-rectfill', ['auto', 'fill', 'edge'], 'auto');
         // A wall line off the grid's axes: one straight wall (a turned box) or a stepped run of cells.
         this.diagonal = PieceBuilderManager.stored('rr-build-diagonal', ['straight', 'stepped'], 'straight');
@@ -96,6 +102,10 @@ class PieceBuilderManager {
 
     /** The cell pieces that take a height of their own (Reactor3D.SIZED_KINDS). */
     static SIZED_KINDS = ['wall', 'glass', 'pillar', 'doorway', 'window'];
+    /** Every piece the panel gives a Height: the storey-tall ones, and a fence (1.5 when it has none). */
+    static HEIGHT_KINDS = PieceBuilderManager.SIZED_KINDS.concat(['fence']);
+    /** A kind's height when it is given none. */
+    static defaultHeight(kind) { return kind === 'fence' ? 1.5 : 5; }
 
     /** The pieces laid into a wall rather than beside it, and the wall pieces they can be laid into. */
     static OPENINGS = ['window', 'doorway', 'glass', 'door'];
@@ -289,7 +299,7 @@ class PieceBuilderManager {
     }
 
     /** The height the next piece of `kind` is laid at, in tiles. */
-    heightFor(kind) { return this.heights[kind] > 0 ? this.heights[kind] : 5; }
+    heightFor(kind) { return this.heights[kind] > 0 ? this.heights[kind] : PieceBuilderManager.defaultHeight(kind); }
 
     setHeight(kind, height) {
         const tall = Math.max(0.5, Math.min(40, Math.round((Number(height) || 5) * 4) / 4));
@@ -301,6 +311,35 @@ class PieceBuilderManager {
     static stored(key, allowed, fallback) {
         try { const value = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null; return allowed.includes(value) ? value : fallback; }
         catch (error) { return fallback; }
+    }
+
+    /** A rock's tint in hand (the tint of the kind, as every piece has). */
+    get rockTint() { return (this.tints && this.tints.rock) || ''; }
+    set rockTint(value) { this.tints = Object.assign({}, this.tints, { rock: value || '' }); }
+
+    /** What the Eraser takes, when not everything: each a set of kinds. */
+    static ERASE_ONLY = {
+        walls: ['wall', 'glass', 'doorway', 'window', 'pillar', 'fence', 'door'],
+        floors: ['floor', 'block', 'stair', 'ramp', 'ladder'],
+        roofs: ['roof'],
+        rocks: ['rock']
+    };
+
+    setEraseShape(shape) {
+        if (!['brush', 'line', 'rect'].includes(shape)) return;
+        this.eraseShape = shape;
+        try { localStorage.setItem('rr-build-erase-draw', shape); } catch (error) { /* a preference only */ }
+        this._syncPanel();
+    }
+
+    setEraseOnly(only) { this.eraseOnly = PieceBuilderManager.ERASE_ONLY[only] || only === 'shapes' ? only : ''; this._syncPanel(); }
+
+    /** Whether the Eraser may take a piece: every piece, or only those of the kinds it is set to (shapes: every shape but a rock). */
+    erasable(piece) {
+        const only = this.eraseOnly;
+        if (!only || !piece) return true;
+        if (only === 'shapes') return this.isShape(piece.kind) && piece.kind !== 'rock';
+        return (PieceBuilderManager.ERASE_ONLY[only] || []).includes(piece.kind);
     }
 
     setDrawShape(shape) {
@@ -1527,7 +1566,8 @@ class PieceBuilderManager {
         const saved = this._snapshot(map, { ground: true, effects: true, events: true, props: this._bringsProps(plan) });
         const places = this._propPlaces(map);
         const group = elevation.nextPieceGroup(map);
-        if (!this._lay(map, plan, { group, plan: this.structure, x: Math.floor(x), y: Math.floor(y), rot: this.rot || 0, scale: 1 })) return this._tooBig(map, plan, this.rot || 0, 1);
+        const scale = Math.max(1, Math.min(4, Math.round(this.stampScale || 1)));
+        if (!this._lay(map, plan, { group, plan: this.structure, x: Math.floor(x), y: Math.floor(y), rot: this.rot || 0, scale })) return this._tooBig(map, plan, this.rot || 0, scale);
         saved.propMoves = this._propMoves(map, places);
         this._warnPropMoves(map, saved.propMoves, group);
         saved.foliage = this._clearFoliage(map, piece => piece.group === group);
@@ -2038,7 +2078,7 @@ class PieceBuilderManager {
         const piece = { kind: this.kind, x: target.x, y: target.y, z: target.z, rot: this.rot, material: this.material };
         // A wall, a pane or a pillar as tall as the panel says (a storey when it says nothing else).
         const tall = this.heights[this.kind];
-        if (PieceBuilderManager.SIZED_KINDS.includes(this.kind) && tall > 0 && tall !== 5) piece.height = tall;
+        if (PieceBuilderManager.HEIGHT_KINDS.includes(this.kind) && tall > 0 && tall !== PieceBuilderManager.defaultHeight(this.kind)) piece.height = tall;
         if (this.finish) piece.finish = this.finish;
         if (this.surface) piece.surface = Object.assign({}, this.surface);
         if (this.kind === 'door') {
@@ -2067,9 +2107,9 @@ class PieceBuilderManager {
             const off = this.shapeOffsetFor(target);
             if (off && (off[0] || off[1])) piece.offset = off;
         }
+        if (this.tints && this.tints[this.kind]) piece.tint = this.tints[this.kind];
         if (this.kind === 'rock') {
             if (this.rockCap) piece.cap = this.rockCap;
-            if (this.rockTint) piece.tint = this.rockTint;
             if (this.rockVary) {
                 const v = PieceBuilderManager.rockVariation(Number.isFinite(target.seed) ? target.seed : this.rockSeed);
                 const quarter = n => Math.max(0.5, Math.round(n * 4) / 4);
@@ -2124,9 +2164,12 @@ class PieceBuilderManager {
         // one per click as the brush lays it (a rock's rectangle is its own spacing).
         // An opening started on a wall paints into the wall under the pointer, a piece at a time.
         const carving = mode !== 'erase' && !!this.wallUnder(target);
-        const cellPiece = !this.isShape(this.kind) || this.kind === 'rock';
-        const rectangle = !carving && (!!options.rectangle || (cellPiece && this.drawShape === 'rect'));
-        const line = !carving && !rectangle && cellPiece && this.drawShape === 'line';
+        // The Eraser draws as its own panel says, whatever the slot before it was set to.
+        const erasing = mode === 'erase';
+        const cellPiece = erasing || !this.isShape(this.kind) || this.kind === 'rock';
+        const shape = erasing ? this.eraseShape : this.drawShape;
+        const rectangle = !carving && (!!options.rectangle || (cellPiece && shape === 'rect'));
+        const line = !carving && !rectangle && cellPiece && shape === 'line';
         this._stroke = { mode, moved: false, last: null, anchor: { x: target.x, y: target.y, z: target.z }, snapshot: saved.pieces, entry: saved, rectangle, line, carving, seed: this.rockSeed };
         return rectangle || line ? this.layRectangle(target) : this.dab(target);
     }
@@ -2152,7 +2195,9 @@ class PieceBuilderManager {
         // A line: the straight run from the anchor, at its level.
         if (this._stroke.line) {
             // A fence joins corner to corner, so its line steps diagonally; anything else keeps a side to the next.
-            const run = this.kind === 'fence' ? PieceBuilderManager.lineCells8(a, target) : PieceBuilderManager.lineCells(a, target);
+            const erasing = this._stroke.mode === 'erase';
+            const run = this.kind === 'fence' && !erasing ? PieceBuilderManager.lineCells8(a, target) : PieceBuilderManager.lineCells(a, target);
+            if (erasing) return { cells: run.map(cell => ({ x: cell.x, y: cell.y, z: a.z })), x0, y0, x1, y1 };
             // A floor line is as wide as the floor brush.
             const seen = new Set();
             const across = Math.abs(target.x - a.x) >= Math.abs(target.y - a.y) ? 'y' : 'x';
@@ -2410,6 +2455,14 @@ class PieceBuilderManager {
     /** Take the piece at the level, else the top piece on the cell. */
     eraseAt(map, target) {
         const elevation = this.elevation();
+        // Only some kinds: every one of them standing in the cell, whatever its level; nothing else.
+        if (this.eraseOnly) {
+            const list = elevation.pieces(map), hit = this.pieceAtTarget(target);
+            const gone = hit && this.erasable(hit) ? [hit] : list.filter(piece => piece.x === target.x && piece.y === target.y && this.erasable(piece));
+            if (!gone.length) return false;
+            const ids = new Set(gone.map(piece => piece.id));
+            return elevation.restorePieces(map, list.filter(piece => !ids.has(piece.id)));
+        }
         // A door struck goes before the doorway it hangs in (the doorway is the wall's opening).
         const door = this.pieceAtTarget(target);
         if (door && door.kind === 'door') return elevation.restorePieces(map, elevation.pieces(map).filter(piece => piece.id !== door.id));

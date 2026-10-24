@@ -266,7 +266,8 @@
                 const current = Number(grid[index]) || 0;
                 let next = current;
                 if (mode === 'raise') next = current + strength * falloff;
-                else if (mode === 'lower') next = Math.min(current, Math.max(current - strength * falloff, bankFloor(cx, cy)));
+                // `steep`: no bank limit, for a moat, a pit or a canyon with sheer sides.
+                else if (mode === 'lower') next = Math.min(current, options.steep ? current - strength * falloff : Math.max(current - strength * falloff, bankFloor(cx, cy)));
                 else if (mode === 'smooth') {
                     let sum = 0, count = 0;
                     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -747,7 +748,7 @@
      * y + oy): the game works those out from the model itself, so this is the editor's picture only.
      */
     /** The cell pieces that take a height of their own (Reactor3D.SIZED_KINDS). */
-    const SIZED_KINDS = ['wall', 'glass', 'pillar', 'doorway', 'window'];
+    const SIZED_KINDS = ['wall', 'glass', 'pillar', 'doorway', 'window', 'fence'];
     const EVENT_SIZE_MAX = 64;
     const sizeNumber = v => Math.max(1, Math.min(EVENT_SIZE_MAX, Math.floor(Number(v)) || 1));
     const eventSizeEntry = (mapData, eventId) => {
@@ -992,11 +993,10 @@
             const frame = normalizeWindowFrame(raw.frame);
             if (frame) piece.frame = frame;
         }
-        // A rock's top (a material, or "ground" for the map's floor) and its tint.
-        if (raw.kind === 'rock') {
-            if (typeof raw.cap === 'string' && raw.cap.trim()) piece.cap = raw.cap.trim();
-            if (typeof raw.tint === 'string' && /^#[0-9a-f]{6}$/i.test(raw.tint) && raw.tint.toLowerCase() !== '#ffffff') piece.tint = raw.tint.toLowerCase();
-        }
+        // A rock's top (a material, or "ground" for the map's floor).
+        if (raw.kind === 'rock' && typeof raw.cap === 'string' && raw.cap.trim()) piece.cap = raw.cap.trim();
+        // Any piece's tint: a colour over its material (white, none, is left out).
+        if (typeof raw.tint === 'string' && /^#[0-9a-f]{6}$/i.test(raw.tint) && raw.tint.toLowerCase() !== '#ffffff') piece.tint = raw.tint.toLowerCase();
         return piece;
     };
     // The stored list as last read: every write stores a new array (writePieces), so the same array,
@@ -1369,6 +1369,8 @@
             if (look.clear !== undefined && Math.abs(Number(look.clear) - 0.6) > 1e-6) next.clear = Number(look.clear);
             if (look.waves !== undefined && Math.abs(Number(look.waves) - 1) > 1e-6) next.waves = Number(look.waves);
             if (Number(look.glow) > 0) next.glow = Number(look.glow);
+            // Its image (any material), when the look names one.
+            if (typeof look.material === 'string' && look.material.trim()) next.material = look.material.trim();
             return normalizeWater(next, mapData);
         });
         return found ? writeWater(mapData, styled.filter(Boolean)) : false;
