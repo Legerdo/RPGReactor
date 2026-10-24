@@ -524,7 +524,7 @@ pieces.
 Anything built on a map can be kept as a structure and stamped again
 anywhere. In Build › Select, click a piece and **Select whole building**
 (or double-click the piece): a stamped building takes its whole group, a
-hand-built one every loose piece touching it; a box dragged on the ground
+hand-built one every loose piece touching it, rocks aside (a rock is the ground's; clicking one takes the rocks touching it); a box dragged on the ground
 selects everything in it. **Save as structure…** on the selection names
 it and writes `3d/Structures/<Name>.json` (with a `.png` picture of it),
 which Database › Structures and the Blueprint slot list at once. It holds

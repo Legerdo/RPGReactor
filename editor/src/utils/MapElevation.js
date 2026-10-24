@@ -1216,8 +1216,13 @@
      */
     const groupConnectedPieces = (mapData, x, y) => {
         const list = pieces(mapData);
+        // Rocks stay the ground's: a building made of what touches a wall leaves the rocks beside it out, and
+        // rocks picked up make a group of rocks only.
+        const here = list.filter(piece => !piece.group && piece.x === x && piece.y === y);
+        if (!here.length) return 0;
+        const rocky = here.every(piece => piece.kind === 'rock');
         const byCell = new Map();
-        for (const piece of list) { if (piece.group) continue; const key = piece.x + ',' + piece.y; (byCell.get(key) || byCell.set(key, []).get(key)).push(piece); }
+        for (const piece of list) { if (piece.group || (piece.kind === 'rock') !== rocky) continue; const key = piece.x + ',' + piece.y; (byCell.get(key) || byCell.set(key, []).get(key)).push(piece); }
         if (!byCell.has(x + ',' + y)) return 0;
         const group = nextPieceGroup(mapData);
         const seen = new Set([x + ',' + y]);

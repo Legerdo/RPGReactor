@@ -407,10 +407,10 @@ class BuildHotbar {
             const url = this.modelThumb(this.props()?.libraryModels()[Number(slot.slice(5))]);
             return url ? `<img class="rr-build-slot-thumb" src="${url}" alt="">` : this.icon('models');
         };
-        // Each slot shows the key that picks it (1 to 9, then 0) and the Eraser its X, so the shortcuts are found by looking.
+        // The key that picks a slot (1 to 9, then 0; the Eraser's X) is in its tooltip: no badge on some slots and not the rest.
         const keyOf = (slot, index) => slot === 'hammer' ? 'X' : index < 10 ? String((index + 1) % 10) : '';
         const button = (slot, index) => { const key = keyOf(slot, index); return `<button type="button" class="rr-build-slot${/^model\d+$/.test(slot) ? ' rr-build-slot-model' : ''}" data-slot="${slot}" aria-pressed="${slot === active}" title="${escape(this.label(slot) + (key ? ' (' + key + ')' : ''))}">
-            ${key ? `<kbd class="rr-build-slot-key" aria-hidden="true">${key}</kbd>` : ''}${face(slot)}<span class="rr-build-slot-label">${escape(this.label(slot))}</span></button>`; };
+            ${face(slot)}<span class="rr-build-slot-label">${escape(this.label(slot))}</span></button>`; };
         root.innerHTML = `
             ${this.is3D() ? '' : `<div class="rr-build-note">${this._t('build.needs3D')}</div>`}
             <div class="rr-build-row rr-build-slots">

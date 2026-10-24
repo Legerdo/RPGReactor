@@ -36,6 +36,8 @@ class MapEditor3D {
     static RELEASE_2D_GRAPHICS = true;
     /** While the view moves, the reflection capture takes a face every other draw; the draws after it stops fill the cube. */
     static PROBE_HALF_WHILE_MOVING = true;
+    /** Faces the reflection capture takes after the view last moved before the view may rest (every face twice over, the one behind the camera between). */
+    static PROBE_SETTLE_FACES = 12;
 
     constructor(projectController) {
         this.projectController = projectController;
@@ -6656,7 +6658,21 @@ class MapEditor3D {
             if (reflections.enabled()) reflections._frame++;
             const moving = this._drawActive && MapEditor3D.PROBE_HALF_WHILE_MOVING;
             if (moving) this._probeTurn = !this._probeTurn;
-            if (!reflections.idle() && (!moving || this._probeTurn)) reflections.update(this.renderer, scene, this.camera.position, this.mapScene.reflectionHidden?.());
+            // The capture stands at the camera, so a turn of the view leaves every face it took before out of date:
+            // after one, the view keeps drawing until it has gone round them all (the editor draws on demand,
+            // and stopped with the faces half old: a mirror caught up late, or not at all).
+            const p = this.camera.position, q = this.camera.quaternion;
+            const key = [p.x, p.y, p.z, q.x, q.y, q.z, q.w].map(v => Math.round(v * 1000)).join(',');
+            if (key !== this._probeKey) { this._probeKey = key; this._probeOwed = MapEditor3D.PROBE_SETTLE_FACES; }
+            if (!reflections.idle() && (!moving || this._probeTurn)) {
+                // Every other face the one behind the camera: what a mirror ahead of it shows.
+                const behind = this._probeBehind || (this._probeBehind = new THREE.Vector3());
+                this.camera.getWorldDirection(behind);
+                behind.multiplyScalar(-10).add(p);
+                reflections.update(this.renderer, scene, p, this.mapScene.reflectionHidden?.(), behind);
+                if (this._probeOwed > 0) this._probeOwed--;
+            }
+            if (this._probeOwed > 0 && reflections.enabled() && !reflections.idle()) this.requestRender();
         }
         // Mirror pieces and reflective water show their sharp mirrors here as in the game.
         if (typeof Reactor3D !== 'undefined' && Reactor3D.Mirrors && this.camera && this.mapScene.mirrorCandidates) {

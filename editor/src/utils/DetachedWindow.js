@@ -322,8 +322,16 @@
                 };
                 const ready = () => win.window && win.window.document && win.window.document.readyState === 'complete';
                 if (ready()) mount(); else win.on('loaded', mount);
-                win.on('move', () => { if (popped === state && state.ready) keepWindowRect(win); });
-                win.on('resize', () => { if (popped === state && state.ready) keepWindowRect(win); });
+                // Moved or sized, the whole window is drawn again on its next frame, its clear corners too: on Linux
+                // the compositor kept what those pixels last held, and the corners showed square or not by where it stood.
+                const repaint = () => {
+                    const view = win.window, html = view && view.document && view.document.documentElement;
+                    if (!html || !view.requestAnimationFrame) return;
+                    if (state.repaintFrame) view.cancelAnimationFrame(state.repaintFrame);
+                    state.repaintFrame = view.requestAnimationFrame(() => { state.repaintFrame = 0; html.classList.toggle('rr-repaint'); });
+                };
+                win.on('move', () => { if (popped === state && state.ready) { keepWindowRect(win); repaint(); } });
+                win.on('resize', () => { if (popped === state && state.ready) { keepWindowRect(win); repaint(); } });
                 stayInFrontOfEditor(main, win, state);
                 // Closing it another way than its × (Alt+F4, the taskbar) closes the dialog as its × does,
                 // asking first about unapplied edits; the window hides and waits for the next opening.
