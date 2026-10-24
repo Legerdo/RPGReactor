@@ -493,6 +493,8 @@
             ? source.cliffTint.toLowerCase() : '';
         // Image pixels a frame, to a thousandth: a whole pixel a frame is
         // already a brisk sky, and a slow one is a fraction of that.
+        const floorTint = typeof source.floorTint === 'string' && /^#[0-9a-f]{6}$/i.test(source.floorTint) && source.floorTint.toLowerCase() !== '#ffffff' ? source.floorTint.toLowerCase() : '';
+        const floorScale = Number.isFinite(Number(source.floorScale)) && Number(source.floorScale) > 0 ? Math.max(0.25, Math.min(8, Math.round(Number(source.floorScale) * 100) / 100)) : 1;
         const scroll = value => {
             const number = Number(value);
             return Number.isFinite(number) ? Math.max(-32, Math.min(32, Math.round(number * 1000) / 1000)) : 0;
@@ -509,7 +511,10 @@
             skyScrollY: scroll(source.skyScrollY),
             ...(cliff !== ROOM_CLIFF ? { cliff } : {}),
             ...(cliffSlope !== ROOM_CLIFF_SLOPE ? { cliffSlope } : {}),
-            ...(cliffTint ? { cliffTint } : {})
+            ...(cliffTint ? { cliffTint } : {}),
+            // The floor's own tint and how many times larger its picture is laid (1: at its own size).
+            ...(floorTint ? { floorTint } : {}),
+            ...(floorScale !== 1 ? { floorScale } : {})
         };
     };
 
@@ -522,7 +527,8 @@
 
     const isDefaultRoom = room =>
         !room.floor && !room.walls && !room.ceiling && !room.sky && !room.skyScrollX && !room.skyScrollY
-        && room.height === ROOM_DEFAULT_HEIGHT && room.cliff === undefined && room.cliffSlope === undefined && room.cliffTint === undefined;
+        && room.height === ROOM_DEFAULT_HEIGHT && room.cliff === undefined && room.cliffSlope === undefined && room.cliffTint === undefined
+        && room.floorTint === undefined && room.floorScale === undefined;
 
     /** The map's room, defaults filled in. */
     const room = mapData => normalizeRoom(mapData && mapData.reactor3d && mapData.reactor3d.room);
@@ -993,6 +999,9 @@
             const frame = normalizeWindowFrame(raw.frame);
             if (frame) piece.frame = frame;
         }
+        // A pillar's thickness across (0.4 when none) and a roof's rise (1 when none).
+        if (raw.kind === 'pillar' && Number(raw.thick) > 0 && Math.abs(Number(raw.thick) - 0.4) > 1e-6) piece.thick = Math.round(Math.max(0.1, Math.min(1, Number(raw.thick))) * 100) / 100;
+        if (raw.kind === 'roof' && Number(raw.rise) > 0 && Math.abs(Number(raw.rise) - 1) > 1e-6) piece.rise = Math.round(Math.max(0.25, Math.min(6, Number(raw.rise))) * 4) / 4;
         // A rock's top (a material, or "ground" for the map's floor).
         if (raw.kind === 'rock' && typeof raw.cap === 'string' && raw.cap.trim()) piece.cap = raw.cap.trim();
         // Any piece's tint: a colour over its material (white, none, is left out).
@@ -1468,7 +1477,9 @@
      * Pieces hold the water back up to their tops (`waterWalls`), so walls
      * on flat ground make a basin of their own.
      */
-    const waterBasin = (mapData, x, y, maxCells = 6000) => {
+    const waterBasin = (mapData, x, y, maxCells = 6000, upTo = null) => {
+        // `upTo`: no higher than this level (a pond filled part way); null fills to the rim.
+        const cap = upTo === null || upTo === undefined || !Number.isFinite(Number(upTo)) ? Infinity : Number(upTo);
         if (!mapData) return null;
         const W = mapData.width, H = mapData.height;
         if (x < 0 || y < 0 || x >= W || y >= H) return null;
@@ -1501,17 +1512,64 @@
         };
         let held = null;
         for (let step = 1; step <= 60; step++) {
-            const next = flood(Math.round((start + step * 0.25) * 100) / 100, held);
+            const level = Math.round((start + step * 0.25) * 100) / 100;
+            if (level > cap) break;
+            const next = flood(level, held);
             if (!next) break;
             held = next;
         }
         // Then up to the rim in finer steps, so the water meets the bank rather than stopping a quarter tile under it.
         for (let step = 1; held && step <= 4; step++) {
-            const next = flood(Math.round((held.level + 0.05) * 100) / 100, held);
+            const level = Math.round((held.level + 0.05) * 100) / 100;
+            if (level > cap) break;
+            const next = flood(level, held);
             if (!next) break;
             held = next;
         }
+        // A level asked for between the steps, when the water holds there.
+        if (cap !== Infinity && cap > start + 0.01 && (!held || held.level < cap - 1e-6)) {
+            const exact = flood(Math.round(cap * 100) / 100, held);
+            if (exact) held = exact;
+        }
         return held;
+    };
+    /**
+     * A standing sheet set to another level: filled again from its deepest cell to `level` (no higher than it holds,
+     * its rim), its look and image kept. A river is not changed. The new sheet, or null when no water stands there.
+     */
+    const setWaterLevel = (mapData, region, level) => {
+        if (!mapData || !region || region.path) return null;
+        const list = water(mapData);
+        const same = other => other.x0 === region.x0 && other.y0 === region.y0 && other.x1 === region.x1 && other.y1 === region.y1 && Math.abs(other.level - region.level) < 1e-6;
+        const own = list.find(same);
+        if (!own) return null;
+        const deepest = deepestWet(mapData, own);
+        if (!deepest) return null;
+        const basin = waterBasin(mapData, deepest.x, deepest.y, 6000, level);
+        if (!basin) return null;
+        const look = {};
+        for (const key of ['material', 'reflect', 'gloss', 'tint', 'colour', 'clear', 'waves', 'glow']) if (own[key] !== undefined) look[key] = own[key];
+        const sheet = normalizeWater(Object.assign({ x0: basin.x0, y0: basin.y0, x1: basin.x1, y1: basin.y1, level: basin.level, mask: basin.mask }, look), mapData);
+        return writeWater(mapData, list.filter(other => !same(other)).concat([sheet])) ? sheet : null;
+    };
+    /** The deepest cell a sheet covers ({ x, y, g }, g the ground there), where its water starts from. */
+    const deepestWet = (mapData, own) => {
+        const w = own.x1 - own.x0 + 1, walls = waterWalls(mapData), W = mapData.width;
+        const ground = (cx, cy) => terrainHeightAt(mapData, cx + 0.5, cy + 0.5) + (Number(at(mapData, cx, cy)) || 0) + (walls ? walls.get(cy * W + cx) || 0 : 0);
+        let deepest = null;
+        for (let cy = own.y0; cy <= own.y1; cy++) for (let cx = own.x0; cx <= own.x1; cx++) {
+            if (own.mask && own.mask[(cy - own.y0) * w + (cx - own.x0)] !== '1') continue;
+            const g = ground(cx, cy);
+            if (!deepest || g < deepest.g) deepest = { x: cx, y: cy, g };
+        }
+        return deepest;
+    };
+    /** How low and how high a sheet may stand: its deepest ground and its rim (where it would spill), or null. */
+    const waterRange = (mapData, region) => {
+        if (!mapData || !region || region.path) return null;
+        const deepest = deepestWet(mapData, region);
+        const basin = deepest ? waterBasin(mapData, deepest.x, deepest.y) : null;
+        return deepest ? { low: Math.round(deepest.g * 100) / 100, rim: basin ? basin.level : region.level } : null;
     };
     /** Pour into the hollow under a cell: one sheet over its cells at the level it holds; any sheet sharing a cell with it is taken away. */
     const fillWaterAt = (mapData, x, y, material) => {
@@ -1819,7 +1877,7 @@
 
     const api = {
         resizeSidecar,
-        WATER_MAX_LEVEL, normalizeWater, water, hasWater, addWater, waterCovers, waterAt, removeWaterAt, removeWaterRegion, styleWaterRegion, waterWalls, waterBasin, fillWaterAt, refitWater, waterSnapshot, restoreWater,
+        WATER_MAX_LEVEL, normalizeWater, water, hasWater, addWater, waterCovers, waterAt, removeWaterAt, removeWaterRegion, styleWaterRegion, waterWalls, waterBasin, fillWaterAt, setWaterLevel, waterRange, refitWater, waterSnapshot, restoreWater,
         normalizeRiverPath, riverLevelAt, sheetLevelAt, carveRiver,
         EVENT_SIZE_MAX, eventSize, eventSizeEntry, eventSizeAuto, eventSizeCentered, eventFootprintOrigin, eventMarkerOffset, markEventSizes, convertEventSizes, setEventSize, setEventSizeAuto, footprintOfTiles, PIECE_KINDS, PIECE_FINISHES, SHAPE_KINDS, SHAPE_PARAMS, PIECE_MAX_LEVEL, normalizePiece, normalizeDoor, normalizeWindowFrame, DOOR_STYLES, DOOR_OPENS, WINDOW_STYLES, pieces, hasPieces, pieceAt, setPiece, removePiece,
         piecesSnapshot, restorePieces, clearPieces, pieceMaterials,

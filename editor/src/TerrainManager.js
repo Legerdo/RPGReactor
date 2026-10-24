@@ -446,6 +446,24 @@ class TerrainManager {
         return true;
     }
 
+    /**
+     * The selected sheet raised or lowered to `level` (no higher than its rim, where it would spill): filled again
+     * from its deepest cell, its look kept. One undo step; the sheet stays selected.
+     */
+    setWaterLevel(level) {
+        const map = this.currentMap(), elevation = this.elevation(), region = this.selectedRegion();
+        if (!map || !elevation?.setWaterLevel || !region || !Number.isFinite(Number(level))) return false;
+        if (this._lookSnapshot) this.editLook({}, 'commit');
+        const saved = elevation.waterSnapshot(map);
+        const sheet = elevation.setWaterLevel(map, region, Number(level));
+        if (!sheet) { this._flashText(this._tt('The water cannot stand that low here.')); return false; }
+        this.undoStack.push({ water: saved }); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
+        this.selectedWater = { x0: sheet.x0, y0: sheet.y0, x1: sheet.x1, y1: sheet.y1, level: sheet.level };
+        this.announce(null, true); this.refreshStatus();
+        window.reactor?.mapEditor3D?.showWaterSelection?.(this.selectedWater);
+        return true;
+    }
+
     /** Give the sheet the 3D view found under the pointer the look set in the panel. */
     styleRegion(region) {
         const map = this.currentMap(), elevation = this.elevation();
@@ -1298,11 +1316,13 @@ class TerrainManager {
     applyBiome(key, replace = false) {
         // What else a biome changes, as its panel's switches say: the plants already planted, the water, the cliffs.
         const also = Object.assign({ plants: true, water: true, cliff: true }, this.biomeAlso || {});
-        const biome = TerrainManager.BIOMES[key], map = this.currentMap(), ground = this.ground(), elevation = this.elevation(), foliage = this.foliage();
+        // A built-in biome by its key, or one saved in the project ('custom:<name>').
+        const biome = TerrainManager.BIOMES[key] || this.customBiome(key), map = this.currentMap(), ground = this.ground(), elevation = this.elevation(), foliage = this.foliage();
         if (!biome || !map || !ground || !elevation) return false;
         this._settleGathered();
         const saved = { biome: true, ground: ground.snapshot(map), foliage: foliage ? foliage.snapshot(map) : null, room: map.reactor3d && map.reactor3d.room ? JSON.parse(JSON.stringify(map.reactor3d.room)) : null, water: elevation.waterSnapshot(map) };
-        const preset = name => TerrainManager.GROUND_PRESETS.find(entry => entry.name === name);
+        // A ground named from the presets, or (a saved biome's) given whole.
+        const preset = entry => (entry && typeof entry === 'object' ? entry : TerrainManager.GROUND_PRESETS.find(other => other.name === entry));
         let types = replace ? [] : ground.types(map);
         // A biome's own ground from an earlier pick gives way to this one's.
         types = types.filter(type => !type.biome);
@@ -1310,7 +1330,7 @@ class TerrainManager {
         const wanted = [];
         if (biome.base) wanted.push(Object.assign({}, preset(biome.base), { paint: ground.encode(new Uint8Array(size).fill(9)), biome: true }));
         const list = wanted.concat(types);
-        for (const name of biome.grounds) {
+        for (const name of biome.grounds || []) {
             const entry = preset(name);
             if (entry && list.length < ground.MAX && !list.some(type => (type.name || type.material) === entry.name)) list.push(Object.assign({}, entry, { paint: '' }));
         }
@@ -1341,6 +1361,88 @@ class TerrainManager {
         this.undoStack.push(saved); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
         this._announceAll();
         return true;
+    }
+
+    // ---- Biomes of the author's own, saved in the project (data/Biomes.json) --
+
+    /** The file a project's own biomes are kept in, or null without a project. */
+    _biomeFile() {
+        const project = this.projectController?.getCurrentProject?.() || this.projectController?.currentProject;
+        if (!project?.path || typeof require !== 'function') return null;
+        return require('path').join(project.path, 'data', 'Biomes.json');
+    }
+
+    /** The project's own biomes, as saved: `[{ name, base, grounds, cliffTint, palette, water }]`. */
+    customBiomes() {
+        const file = this._biomeFile();
+        if (!file) return [];
+        if (this._biomesRead && this._biomesRead.file === file) return this._biomesRead.list;
+        let list = [];
+        try {
+            const fs = require('fs');
+            if (fs.existsSync(file)) { const data = JSON.parse(fs.readFileSync(file, 'utf8')); list = Array.isArray(data?.biomes) ? data.biomes.filter(b => b && typeof b.name === 'string') : []; }
+        } catch (error) { console.warn('data/Biomes.json could not be read.', error); }
+        this._biomesRead = { file, list };
+        return list;
+    }
+
+    /** A saved biome by its key ('custom:<name>'), or null. */
+    customBiome(key) {
+        if (typeof key !== 'string' || !key.startsWith('custom:')) return null;
+        return this.customBiomes().find(biome => biome.name === key.slice(7)) || null;
+    }
+
+    _writeBiomes(list) {
+        const file = this._biomeFile();
+        if (!file) return false;
+        const text = JSON.stringify({ biomes: list }, null, 2) + '\n';
+        try {
+            const write = typeof window !== 'undefined' && window.RRWriteFileAtomicSync;
+            if (write) write(file, text); else require('fs').writeFileSync(file, text);
+        } catch (error) { console.warn('data/Biomes.json could not be written.', error); return false; }
+        this._biomesRead = { file, list };
+        return true;
+    }
+
+    /**
+     * This map's look as a biome of the project's own, under `name` (a name already used is replaced): the ground
+     * laid over the whole floor, the grounds painted, the cliff's tint, each plant kind's colors as they grow here
+     * (else as in hand), the bushes' and the water's color. The key it is applied by, or null.
+     */
+    saveBiome(name) {
+        const map = this.currentMap(), ground = this.ground(), elevation = this.elevation(), foliage = this.foliage();
+        const title = String(name || '').trim().slice(0, 40);
+        if (!map || !ground || !elevation || !title) return null;
+        const strip = type => { const record = ground.typeRecord(Object.assign({}, type, { paint: '' })); if (record) { delete record.paint; delete record.biome; } return record; };
+        const types = ground.types(map);
+        const base = types.find(type => type.biome) || null;
+        const R = typeof Reactor3D !== 'undefined' ? Reactor3D : null;
+        const layers = (foliage && foliage.snapshot(map)?.layers) || [];
+        const palette = {};
+        for (const kind of TerrainManager.FOLIAGE_MODES) {
+            if (kind === 'bush') continue;
+            const grown = layers.find(layer => layer.kind === kind), own = this.foliageLookOf(kind), look = (R && R.FOLIAGE_LOOKS && R.FOLIAGE_LOOKS[kind]) || {};
+            palette[kind] = [(grown && grown.colour) || own.colour || look.colour || '#4a7a30', (grown && grown.tip) || own.tip || look.tip || '#b9c862'];
+            const colours = (grown && grown.colours) || (this.foliageLook[kind] && this.foliageLook[kind].colours);
+            if (kind === 'flowers' && colours) palette.petals = colours.slice();
+            if (kind === 'bulbs' && colours) palette.bulbPetals = colours.slice();
+        }
+        const bush = (foliage && foliage.bushes(map)[0]) || null;
+        palette.bush = [(bush && bush.colour) || this.bushColour || '', (bush && bush.bloom) || this.bushBloom || ''];
+        const sheet = elevation.water(map).find(region => region.colour);
+        const room = map.reactor3d && map.reactor3d.room;
+        const record = { name: title, base: base ? strip(base) : null, grounds: types.filter(type => !type.biome).map(strip).filter(Boolean),
+            cliffTint: (room && room.cliffTint) || '', palette, water: sheet ? sheet.colour : '' };
+        const list = this.customBiomes().filter(biome => biome.name !== title).concat([record]);
+        return this._writeBiomes(list) ? 'custom:' + title : null;
+    }
+
+    /** Take a saved biome out of the project. */
+    removeBiome(key) {
+        const own = this.customBiome(key);
+        if (!own) return false;
+        if (this.biome === key) this.biome = null;
+        return this._writeBiomes(this.customBiomes().filter(biome => biome !== own));
     }
 
     // ---- The steep ground and the land past the border ---------------------
@@ -1398,7 +1500,8 @@ class TerrainManager {
     roomLook() {
         const map = this.currentMap(), elevation = this.elevation();
         const room = elevation && map ? elevation.room(map) : null;
-        return room ? { height: room.height, floor: room.floor, walls: room.walls, ceiling: room.ceiling, sky: room.sky, skyScrollX: room.skyScrollX, skyScrollY: room.skyScrollY } : null;
+        return room ? { height: room.height, floor: room.floor, walls: room.walls, ceiling: room.ceiling, sky: room.sky, skyScrollX: room.skyScrollX, skyScrollY: room.skyScrollY,
+            floorTint: room.floorTint || '', floorScale: room.floorScale || 1 } : null;
     }
 
     _writeRoomLook(map, look) {
@@ -1431,7 +1534,7 @@ class TerrainManager {
     /** The room changed: a sky's drift alone moves at once in the view; a picture or the height builds the view again. */
     announceRoom(before) {
         this.syncHistoryButtons();
-        const after = this.roomLook(), only = before && after && ['height', 'floor', 'walls', 'ceiling', 'sky'].every(key => before[key] === after[key]);
+        const after = this.roomLook(), only = before && after && ['height', 'floor', 'walls', 'ceiling', 'sky', 'floorTint', 'floorScale'].every(key => before[key] === after[key]);
         const mapEditor = window.reactor?.mapEditor;
         if (typeof mapEditor?.onElevationChanged === 'function') mapEditor.onElevationChanged(this.currentMap());
         if (typeof document === 'undefined' || typeof CustomEvent !== 'function') return;
@@ -1546,26 +1649,28 @@ class TerrainManager {
      * gathers the step) the layers and bushes already on the map recolored as one undo step.
      */
     applyFoliagePalette(key, step = true, existing = true) {
-        const palette = TerrainManager.FOLIAGE_PALETTES[key], map = this.currentMap(), foliage = this.foliage();
+        // A palette by its name, or one given whole (a saved biome's).
+        const palette = key && typeof key === 'object' ? key : TerrainManager.FOLIAGE_PALETTES[key], map = this.currentMap(), foliage = this.foliage();
         if (!palette) return false;
         // A palette that glows lights every kind's tips; any other leaves each kind its own glow.
         const dress = (kind, target) => {
             target.colour = palette[kind][0]; target.tip = palette[kind][1];
-            if (kind === 'flowers') target.colours = palette.petals.slice();
-            if (kind === 'bulbs') target.colours = palette.bulbPetals.slice();
+            if (kind === 'flowers' && Array.isArray(palette.petals)) target.colours = palette.petals.slice();
+            if (kind === 'bulbs' && Array.isArray(palette.bulbPetals)) target.colours = palette.bulbPetals.slice();
             if (palette.glow) target.glow = palette.glow; else delete target.glow;
             return target;
         };
         for (const kind of TerrainManager.FOLIAGE_MODES) if (palette[kind] && kind !== 'bush') this.foliageLook[kind] = dress(kind, Object.assign({}, this.foliageLook[kind] || {}));
-        this.bushColour = palette.bush[0];
-        this.bushBloom = palette.bush[1] || '';
-        this.foliagePalette = key;
+        const bushLook = Array.isArray(palette.bush) ? palette.bush : ['', ''];
+        this.bushColour = bushLook[0] || '';
+        this.bushBloom = bushLook[1] || '';
+        this.foliagePalette = typeof key === 'string' ? key : null;
         // `existing` false: the colours in hand only; what is planted keeps its own.
         if (!existing || !map || !foliage || !foliage.hasFoliage(map)) return true;
         const saved = foliage.snapshot(map), data = foliage.snapshot(map);
         // Layers of one kind the palette has made alike are one layer again when next painted; here they only change color.
         for (const layer of data.layers || []) if (palette[layer.kind]) dress(layer.kind, layer);
-        for (const bush of data.bushes || []) { bush.colour = palette.bush[0]; if (palette.bush[1]) bush.bloom = palette.bush[1]; else delete bush.bloom; }
+        if (Array.isArray(palette.bush)) for (const bush of data.bushes || []) { if (palette.bush[0]) bush.colour = palette.bush[0]; else delete bush.colour; if (palette.bush[1]) bush.bloom = palette.bush[1]; else delete bush.bloom; }
         foliage.restore(map, data);
         if (step) {
             this.undoStack.push({ foliage: saved, foliageSet: true }); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;

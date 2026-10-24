@@ -513,10 +513,19 @@ Reactor3D.PIECE_STOREY = 5;
 Reactor3D.pieceHeight = function(kind, piece) {
     // A wall, a pane of glass and a pillar may be given a height of their own (a garden wall, a tall hall).
     if (piece && piece.height > 0 && this.SIZED_KINDS.includes(kind)) return piece.height;
+    // A roof's ridge over its eaves: steeper or flatter than the 45-degree gable.
+    if (kind === "roof" && piece && piece.rise > 0) return piece.rise;
     return kind === "wall" || kind === "doorway" || kind === "window" || kind === "pillar" || kind === "glass" ? this.PIECE_STOREY : 1;
 };
 /** The cell pieces that take a `height` of their own (pieceHeight), in tiles from MIN to MAX_PIECE_HEIGHT. */
 Reactor3D.SIZED_KINDS = ["wall", "glass", "pillar", "doorway", "window", "fence"];
+/** How thick a pillar is across, in tiles (0.4 when it says nothing; 0.1 a pole to 1 a tile-wide column). */
+Reactor3D.pillarThick = function(piece) {
+    const t = Number(piece && piece.thick);
+    return Number.isFinite(t) && t > 0 ? Math.max(0.1, Math.min(1, t)) : 0.4;
+};
+/** A roof's rise when it has none, and how far it goes either way, in tiles. */
+Reactor3D.ROOF_RISE = { min: 0.25, max: 6 };
 /** A fence's own height when it is given none, in tiles (its posts; it blocks a walker to 1). */
 Reactor3D.FENCE_HEIGHT = 1.5;
 Reactor3D.MIN_PIECE_HEIGHT = 0.5;
@@ -598,6 +607,9 @@ Reactor3D.normalizePiece = function(raw, mapData) {
         const frame = this.normalizeWindowFrame(raw.frame);
         if (frame) piece.frame = frame;
     }
+    // A pillar's thickness across, and a roof's rise, when they are not their own.
+    if (kind === "pillar" && Number(raw.thick) > 0 && Math.abs(Number(raw.thick) - 0.4) > 1e-6) piece.thick = Math.round(Math.max(0.1, Math.min(1, Number(raw.thick))) * 100) / 100;
+    if (kind === "roof" && Number(raw.rise) > 0 && Math.abs(Number(raw.rise) - 1) > 1e-6) piece.rise = Math.round(Math.max(this.ROOF_RISE.min, Math.min(this.ROOF_RISE.max, Number(raw.rise))) * 4) / 4;
     // A rock's top (`cap`: a material, or "ground" for the map's own floor).
     if (kind === "rock" && typeof raw.cap === "string" && raw.cap.trim()) piece.cap = raw.cap.trim();
     // Any piece's `tint`: a colour laid over its material (a red-painted wall without a red material).
@@ -1488,7 +1500,11 @@ Reactor3D.pieceShapes = function(kind, piece) {
         case "wall": return [box(0, 0, 0, 1, H, 1)];
         case "block": return [box(0, 0, 0, 1, 1, 1)];
         case "floor": return [box(0, 0, 0, 1, this.PIECE_FLOOR_THICKNESS, 1)];
-        case "pillar": return [box(0.24, 0, 0.24, 0.76, 0.12, 0.76), { column: [0.5, 0.5, 0.2, 0.12, H - 0.12] }, box(0.24, H - 0.12, 0.24, 0.76, H, 0.76)];
+        case "pillar": {
+            // `thick` across (0.1-1 of a tile, 0.4 when none): the column, and its plinth and cap a little wider.
+            const r = this.pillarThick(piece) / 2, b = Math.min(0.5, r + 0.06);
+            return [box(0.5 - b, 0, 0.5 - b, 0.5 + b, 0.12, 0.5 + b), { column: [0.5, 0.5, r, 0.12, H - 0.12] }, box(0.5 - b, H - 0.12, 0.5 - b, 0.5 + b, H, 0.5 + b)];
+        }
         case "stair": {
             const steps = [0, 1, 2, 3].map(i => box(0, 0, i * 0.25, 1, (i + 1) * 0.25, 1));
             // A step above what it stands on has a solid down to it: a plan lays no slab under a stair,
@@ -1499,7 +1515,8 @@ Reactor3D.pieceShapes = function(kind, piece) {
             return drop > 0 ? steps.concat([box(0, -drop, 0, 1, 0, 1)]) : steps;
         }
         case "ramp": return [{ wedge: true }];
-        case "roof": return [{ gable: true }];
+        // Its ridge `rise` tiles over its eaves (1 when none: the 45-degree gable plans lay).
+        case "roof": return [{ gable: true, rise: H }];
         // A level of ladder against the side it climbs toward (+v): two rails, two rungs.
         case "ladder": {
             // Beside another level of ladder (a wide ladder), the shared side has no rail and the
@@ -1664,11 +1681,12 @@ Reactor3D.emitPiece = function(piece, base, out, hidden) {
             tri(p(0, 0, 0), p(0, 0, 1), p(0, 1, 1)); // west
         } else if (shape.gable) {
             const p = place;
-            quad(p(0, 0, 0), p(0, 1, 0.5), p(1, 1, 0.5), p(1, 0, 0)); // north slope
-            quad(p(0, 1, 0.5), p(0, 0, 1), p(1, 0, 1), p(1, 1, 0.5)); // south slope
+            const r = shape.rise > 0 ? shape.rise : 1;
+            quad(p(0, 0, 0), p(0, r, 0.5), p(1, r, 0.5), p(1, 0, 0)); // north slope
+            quad(p(0, r, 0.5), p(0, 0, 1), p(1, 0, 1), p(1, r, 0.5)); // south slope
             quad(p(0, 0, 0), p(1, 0, 0), p(1, 0, 1), p(0, 0, 1)); // bottom
-            tri(p(1, 0, 0), p(1, 1, 0.5), p(1, 0, 1)); // east gable
-            tri(p(0, 0, 0), p(0, 0, 1), p(0, 1, 0.5)); // west gable
+            tri(p(1, 0, 0), p(1, r, 0.5), p(1, 0, 1)); // east gable
+            tri(p(0, 0, 0), p(0, 0, 1), p(0, r, 0.5)); // west gable
         } else if (shape.column) {
             // Round the circle, or round an arc of it centred on +v with flat faces at the ends.
             const [ccx, ccv, r, y0, y1, segs, sweep] = shape.column;
@@ -5892,11 +5910,13 @@ Reactor3D.lineCellPiece = function(mapData, piece, stack, list) {
         case "wall": add(0, 0, 0, 1, H, 1); break;
         case "block": add(0, 0, 0, 1, 1, 1); break;
         case "floor": add(0, 0, 0, 1, this.PIECE_FLOOR_THICKNESS, 1); break;
-        case "pillar":
-            add(0.24, 0, 0.24, 0.76, 0.12, 0.76);
-            add(0.3, 0.12, 0.3, 0.7, H - 0.12, 0.7, LINE_ROUND, 0, 360);
-            add(0.24, H - 0.12, 0.24, 0.76, H, 0.76);
+        case "pillar": {
+            const r = this.pillarThick(piece) / 2, b = Math.min(0.5, r + 0.06), c = Math.max(r, 0.2);
+            add(0.5 - b, 0, 0.5 - b, 0.5 + b, 0.12, 0.5 + b);
+            add(0.5 - c, 0.12, 0.5 - c, 0.5 + c, H - 0.12, 0.5 + c, LINE_ROUND, 0, 360);
+            add(0.5 - b, H - 0.12, 0.5 - b, 0.5 + b, H, 0.5 + b);
             break;
+        }
         case "stair": {
             for (let i = 0; i < 4; i++) add(0, 0, i * 0.25, 1, (i + 1) * 0.25, 1);
             // A raised stair stands on a solid down to what is under it, as it is drawn.
@@ -5909,7 +5929,7 @@ Reactor3D.lineCellPiece = function(mapData, piece, stack, list) {
             break;
         }
         case "ramp": add(0, 0, 0, 1, 1, 1, LINE_WEDGE); break;
-        case "roof": add(0, 0, 0, 1, 1, 1, LINE_GABLE); break;
+        case "roof": add(0, 0, 0, 1, H, 1, LINE_GABLE); break;
         case "doorway": add(0, Math.min(S, H) - 0.6, 0, 1, H, 1); break;
         case "window":
             add(0, 0, 0, 1, 1.5, 1);

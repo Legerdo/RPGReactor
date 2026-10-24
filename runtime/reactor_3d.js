@@ -6930,7 +6930,10 @@ Reactor3D.roomFor = function(mapData) {
         skyScrollY: scroll(room.skyScrollY),
         cliff: typeof room.cliff === "string" ? room.cliff.trim() : this.GROUND_CLIFF,
         cliffSlope: this.clampCliffSlope(room.cliffSlope),
-        cliffTint: typeof room.cliffTint === "string" && /^#[0-9a-f]{6}$/i.test(room.cliffTint) ? room.cliffTint.toLowerCase() : ""
+        cliffTint: typeof room.cliffTint === "string" && /^#[0-9a-f]{6}$/i.test(room.cliffTint) ? room.cliffTint.toLowerCase() : "",
+        // The floor's tint over its picture, and how many times larger the picture is laid.
+        floorTint: typeof room.floorTint === "string" && /^#[0-9a-f]{6}$/i.test(room.floorTint) ? room.floorTint.toLowerCase() : "",
+        floorScale: Number(room.floorScale) > 0 ? Math.max(0.25, Math.min(8, Number(room.floorScale))) : 1
     };
     return parsed.floor || parsed.walls || parsed.ceiling || parsed.sky ? parsed : null;
 };
@@ -6974,6 +6977,7 @@ Reactor3D.MapScene.prototype.addRoom = function(room, load, tileSize, width, hei
     // A rock's "ground" cap wears the floor too (see groundLoader).
     this._roomFloor = room.floor || ""; this._roomLoad = load;
     this._roomCliff = { name: room.cliff, slope: room.cliffSlope, tint: room.cliffTint };
+    this._roomFloorLook = { tint: room.floorTint || "", scale: room.floorScale > 0 ? room.floorScale : 1 };
     if (!(width > 0) || !(height > 0)) return;
     const pieces = [
         ["floor", room.floor],
@@ -7007,8 +7011,10 @@ Reactor3D.MapScene.prototype.addRoomPiece = function(piece, bitmap, roomHeight, 
         return;
     }
     const size = tileSize || 48;
-    const imageWidth = (bitmap.width || 0) / size;
-    const imageHeight = (bitmap.height || 0) / size;
+    // The floor's picture laid at the scale the room asks (its own size when 1).
+    const grow = piece === "floor" && this._roomFloorLook ? this._roomFloorLook.scale : 1;
+    const imageWidth = (bitmap.width || 0) / size * grow;
+    const imageHeight = (bitmap.height || 0) / size * grow;
     if (!(imageWidth > 0) || !(imageHeight > 0)) return;
 
     const surfaces = [];
@@ -7078,6 +7084,7 @@ Reactor3D.MapScene.prototype.addRoomPiece = function(piece, bitmap, roomHeight, 
         });
         // Lit like the ground, so a dark corner of the room is dark.
         material.__reactorShaded = true;
+        if (piece === "floor" && this._roomFloorLook && this._roomFloorLook.tint) material.color.set(this._roomFloorLook.tint);
         Reactor3D.litMaterial(material);
         // Bent through terrain, the floor is laid from the sides on slopes and turns to rock on cliffs.
         if (piece === "floor" && (this._terrainMap || this._groundMap) && Reactor3D.GROUND_SLOPE) {

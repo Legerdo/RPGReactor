@@ -7871,3 +7871,21 @@ html.rr-detached-window {
 .rr-build-nudges .rr-btn-secondary { padding: 4px 0; font-size: 14px; }
 .rr-build-handles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .rr-build-handles .rr-build-chip { justify-content: center; }
+/* A saved biome: its chip and the button that takes it out, side by side. */
+.rr-build-ownbiome { display: inline-flex; align-items: center; gap: 2px; }
+.rr-build-ownbiome .rr-build-icon-btn { width: 22px; padding: 2px 0; }
+
+/* Every slot's name wraps onto two lines rather than being cut ("Beyond the Border", a long word in German), at a
+   size that reads; a narrow window keeps 10px names in slightly taller slots. Icons alone only when the view is short. */
+.rr-build-slot .rr-build-slot-label, .rr-build-slot[data-slot="surround"] .rr-build-slot-label, .rr-build-slot[data-slot="sky"] .rr-build-slot-label {
+    white-space: normal; text-align: center; line-height: 1.05; max-width: 60px; text-wrap: balance; overflow-wrap: break-word;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: clip;
+}
+.rr-build-hotbar.is-compact .rr-build-slot { font-size: 10px; height: 52px; }
+.rr-build-hotbar.is-compact .rr-build-slot .rr-build-slot-label { max-width: 46px; }
+/* A colour row with its None chip beside the swatch: the chip takes the room it needs, not the value column's 40px. */
+.rr-build-range:has(> .rr-build-chip) { grid-template-columns: 64px auto minmax(0, 1fr); }
+.rr-build-range:has(> .rr-build-chip) > .rr-color-swatch-btn { width: 72px; }
+.rr-build-range > .rr-build-chip { justify-self: start; padding-left: 6px; padding-right: 6px; }
+/* The Models panel's scatter settings, shut while Scatter is off. */
+.mp-scatter-fields[hidden] { display: none !important; }

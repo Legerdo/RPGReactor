@@ -16,7 +16,7 @@ project; a person can use it to find where anything lives.
 | 3D switch | `<3d>` in the map note | Map Properties › 3D | — |
 | Tile elevation (terraces, cliffs) | `MapNNN.r3d.json` › `elevation` (one whole number per tile) | — (by hand or generator) | — |
 | Terrain (rolling ground) | `MapNNN.r3d.json` › `terrain` ((w+1)×(h+1) corner heights), `terrainWidth` | Build bar › Terrain brushes | `editor/tests/terrain.test.cjs` rules |
-| Room (floor, walls, ceiling, sky) | `MapNNN.r3d.json` › `room` | Build bar › Terrain › Room and Sky | — |
+| Room (floor, its `floorTint` and `floorScale`, walls, ceiling, sky) | `MapNNN.r3d.json` › `room` | Build bar › Terrain › Room and Sky | — |
 | Steep ground (the material slopes turn to) | `MapNNN.r3d.json` › `room` › `cliff`, `cliffSlope`, `cliffTint` | Build bar › Terrain › Ground › Whole map › Steep Ground | `editor/tests/terrain-cliff.test.cjs` rules |
 | Pieces (the 3D tileset) | `MapNNN.r3d.json` › `pieces` | **Build** bar over the 3D view (the Build button in the toolbar); drawn as a plan on the flat map too | `validate-map.cjs` |
 | Buildings, built or described | `3d/Structures/*.json` (project-wide), placed as `MapNNN.r3d.json` › `structures` | Database › Structures › Build (the plot in the 3D view with the Build bar), Build bar › Blueprint or Use on the map stamps one | `build-structure.cjs --check`, and the page's own walk |
@@ -26,7 +26,7 @@ project; a person can use it to find where anything lives.
 | Water | `MapNNN.r3d.json` › `water` (a hollow's box, its `level`, a `mask` of the wet cells) | Build bar › Terrain › Pour | `validate-map.cjs` |
 | Rivers and waterfalls | `MapNNN.r3d.json` › `water` (a sheet with a `path` of heights downstream and a `flow`) | Build bar › Terrain › River | `carve-river.cjs`, `validate-map.cjs` |
 | Foliage (grass, flowers, ferns, reeds, bushes) and wind | `MapNNN.r3d.json` › `foliage` (a density per cell per layer, bushes one by one) | Build bar › Foliage | `paint-foliage.cjs`, `validate-map.cjs` |
-| Placed models | `MapNNN.r3d.json` › `props` | Build bar › Models (Select there, or Build › Select, picks a placed one up) | — |
+| Placed models | `MapNNN.r3d.json` › `props` | Build bar › Models (Select there, or Build › Select, picks a placed one up; Placement › Scatter lays many along a drag, each turned and sized its own way) | — |
 | Physics (gravity, jump, fall damage, swimming; in battles `battleClimb`, `climbHeight`, `climbCost`, `battleFall`, `lethalFall`) | `System.json` › `reactorPhysics`; a map's own in `MapNNN.r3d.json` › `physics` | Database › System 2 › Physics (3D maps), Swimming (3D maps); Map Properties › Physics | — |
 | Keys and gamepad buttons | `System.json` › `reactorControls` (absent while stock) | Database › Controls | — |
 | Lights and time of day | `MapNNN.r3d.json` › `lights`, `lighting` (a sun follows the ambient unless `daylight: "fixed"`) | Lighting tool | — |
@@ -341,6 +341,10 @@ A file in `img/characters` whose name has `[8D]` (`$Hero[8D].png`) is cut as eig
   picture from the computer into `img/materials` (with `<name>_normal` and
   `<name>_rough` beside it when they are there); the Resource Manager has the
   folder too.
+- `thick`: a `pillar`'s thickness across, 0.1 (a pole) to 1 (a column a
+  tile wide), 0.4 when absent. `rise`: a `roof`'s ridge over its eaves,
+  0.25 to 6 tiles in quarters, 1 (a 45° gable) when absent; it is drawn,
+  stood on and walked under at that pitch. Both are on the panel.
 - `tint`: any piece's colour over its material (`#rrggbb`; white or none
   leaves it as it is): a red-painted wall without a red material. The
   panel's Tint sits under the material, for one piece, a part or a whole
@@ -741,7 +745,9 @@ fades it out at the shore. Optional `reflect` and `gloss` (0-1) and `tint` (`#rr
 world through its waves: `reflect: 1, gloss: 0.92, tint: "#d8dde3"` is mercury. Pour and River show the
 liquid they lay (its kind, colour and image, any material) and set it; Look with no sheet selected sets it
 too, and with one selected changes that sheet, its image included. River takes a Flow (0 still to 4), and
-**Take off last point** (Backspace) steps back along the course.
+**Take off last point** (Backspace) steps back along the course. A pond selected in Look has a **Level**: lower it for
+a shallow pond (it is filled again from its deepest cell, its look kept), or **Fill to the rim**, the highest it
+holds before it spills.
 
 ### Rivers and waterfalls
 
@@ -846,7 +852,7 @@ hills at its edges, and Ctrl+Z takes back the road and the levelling as one;
 the Eraser slot takes it away and Ground changes its look. A road of floor
 pieces instead: Build › Floor with a **Size** of 2×2 to 5×5 (a Line of
 floor is that wide), or one slab of any size from Shape › Box. Build bar ›
-Terrain › **Ground** (Paint or Erase, + Add a ground from any material or a preset, the material tile, Tint, Scale, Nothing grows here; Radius, Strength, Soft edge, Coverage; Fill the whole map, and **Fill where…** by height, slope, nearness to water and a patchy edge, as `paint-ground.cjs` does). Its **Draw** card paints under the brush, along a **Line**, or over a **Rectangle** filled or outlined (as wide as the brush), and **Level the ground under it** (off by default) flattens a filled rectangle at its own height or smooths a line or stroke as a road is, in the paint's undo step. A rock capped with `"ground"` wears the type painted under it, and bushes are not stood on bare ground by the brush. **Dunes** raises wind-shaped ridges (Wind direction, Ridge spacing, Height). **Biome** sets a map's ground, cliff tint, plant colors and water together. **Rock** is in the Terrain group. By rule:
+Terrain › **Ground** (Paint or Erase, + Add a ground from any material or a preset, the material tile, Tint, Scale, Nothing grows here; Radius, Strength, Soft edge, Coverage; Fill the whole map, and **Fill where…** by height, slope, nearness to water and a patchy edge, as `paint-ground.cjs` does). Its **Draw** card paints under the brush, along a **Line**, or over a **Rectangle** filled or outlined (as wide as the brush), and **Level the ground under it** (off by default) flattens a filled rectangle at its own height or smooths a line or stroke as a road is, in the paint's undo step. A rock capped with `"ground"` wears the type painted under it, and bushes are not stood on bare ground by the brush. **Dunes** raises wind-shaped ridges (Wind direction, Ridge spacing, Height). **Biome** sets a map's ground, cliff tint, plant colors and water together (its switches leave the plants already planted, the water or the cliffs as they are); **Save this map's look as a biome…** keeps the map's grounds, cliff tint, plant and water colors in `data/Biomes.json` (`{ "biomes": [ { name, base, grounds, cliffTint, palette, water } ] }`), listed under Your biomes with a button to take each out. **Rock** is in the Terrain group. By rule:
 
 ```
 node editor/build-scripts/paint-ground.cjs <project> <mapId> <spec.json> [--check]

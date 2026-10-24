@@ -2875,7 +2875,7 @@ class MapEditor3D {
         const doorKey = door ? ':door:' + [door.x - target.x, door.y - target.y, door.rot, door.width, door.style].join(',') : '';
         // A building turned or grown while picked up has a new footprint: its slab is made again.
         const intoKey = carved ? ':into:' + JSON.stringify(carved.map(p => [p.kind, p.x - into.wall.x, p.y - into.wall.y, p.z - into.wall.z, p.height || 5, p.rot, p.size, p.offset])) : '';
-        const key = intoKey + doorKey + (stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn + ':' + (manager.stampScale || 1)) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null, manager.heightFor ? manager.heightFor(manager.kind) : 5, manager.kind === 'floor' ? manager.floorBrush : 1, manager.tints ? manager.tints[manager.kind] || '' : '']));
+        const key = intoKey + doorKey + (stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn + ':' + (manager.stampScale || 1)) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null, manager.heightFor ? manager.heightFor(manager.kind) : 5, manager.kind === 'floor' ? manager.floorBrush : 1, manager.tints ? manager.tints[manager.kind] || '' : '', manager.pillarThick, manager.roofRise]));
         if (!this.pieceGhost || this.pieceGhost.userData.key !== key) {
             this.hidePieceGhost(true);
             // A plan's ghost is the building itself, translucent; a selected
@@ -5212,7 +5212,10 @@ class MapEditor3D {
                         if (this.canvas) this.canvas.style.cursor = 'grabbing';
                     } else {
                         const point = this.groundPointAt(event.clientX, event.clientY);
-                        if (point && manager.placing()) {
+                        if (point && manager.placing() && manager.scatter && manager.scatter.on) {
+                            // Scatter: this one, then more as the drag goes (one undo step).
+                            if (manager.scatterAt(point, true)) { this.pointer.propPlaced = true; this.pointer.propScatter = true; }
+                        } else if (point && manager.placing()) {
                             const id = manager.place(point.x, point.y);
                             if (id) this.pointer.propPlaced = true;
                         } else {
@@ -5353,6 +5356,9 @@ class MapEditor3D {
                         y: Math.round((point.y - this.pointer.propDrag.offsetY) * 100) / 100
                     });
                 }
+            } else if (this.pointer.propScatter) {
+                const point = this.groundPointAt(event.clientX, event.clientY);
+                if (point) this.propsManager()?.scatterAt(point, false);
             } else if (this.pointer.propHold) {
                 // A placement is a click; the drag that follows moves nothing.
             } else if (this.pointer.eventArrow) {

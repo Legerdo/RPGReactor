@@ -47,6 +47,9 @@ class PieceBuilderManager {
         this.rockCap = '';
         // A colour over the material for each kind in hand ('' for none): a red wall without a red material.
         this.tints = {};
+        // A pillar's thickness and a roof's rise in hand (their own when unset: 0.4 and 1).
+        this.pillarThick = 0.4;
+        this.roofRise = 1;
         // The next door's settings (its width and facing come from the doorway it is hung in), and
         // the frame the next window wears.
         this.door = { style: 'plank', hinge: 'left', swing: 'away', opens: 'auto', width: 2 };
@@ -2108,6 +2111,8 @@ class PieceBuilderManager {
             if (off && (off[0] || off[1])) piece.offset = off;
         }
         if (this.tints && this.tints[this.kind]) piece.tint = this.tints[this.kind];
+        if (this.kind === 'pillar' && Math.abs(this.pillarThick - 0.4) > 1e-6) piece.thick = this.pillarThick;
+        if (this.kind === 'roof' && Math.abs(this.roofRise - 1) > 1e-6) piece.rise = this.roofRise;
         if (this.kind === 'rock') {
             if (this.rockCap) piece.cap = this.rockCap;
             if (this.rockVary) {
