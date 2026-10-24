@@ -2098,6 +2098,7 @@ class Database3DEditor {
                 this._updateEffectPreview();
                 this._updateHover();
                 this._updateBoxes();
+                this._syncMotionGizmo();
                 {
                     // Exponential ease toward the input goal (~70ms time
                     // constant, frame-rate independent).
@@ -5716,6 +5717,160 @@ class Database3DEditor {
     /** The rings are created this big and grown to their size on screen. */
     get EFFECT_RING_BASE() { return 0.5; }
 
+    /**
+     * Where a part's pose turns and slides it, as the runtime composes it: `at` the pivot in the world, `turn`
+     * the frame's axes (a rotate's X, Y and Z, the move's too), `unit` how far one unit of move goes in the
+     * world. The whole model turns in its parent's frame about its origin; a part the file's clips drive, in
+     * the model's frame; any other part, in its own rest frame. Null when the part is not on the model.
+     */
+    _motionPartFrame(part) {
+        if (typeof THREE === 'undefined' || !this._binding || !this._object) return null;
+        const root = this._binding.root;
+        // A move is in tiles and the preview draws a body 1.6 units tall where the game draws 3 tiles.
+        const moveScale = ((Reactor3D.EFFECT_PREVIEW_SPAN || 1.6) / 3) / (this._scale || 1);
+        if (part === '') {
+            const parent = root.parent || root;
+            parent.updateWorldMatrix(true, false);
+            root.updateWorldMatrix(true, false);
+            return { at: root.getWorldPosition(new THREE.Vector3()), turn: parent.getWorldQuaternion(new THREE.Quaternion()),
+                unit: parent.getWorldScale(new THREE.Vector3()).x * moveScale };
+        }
+        const lower = String(part).toLowerCase();
+        let found = null;
+        for (const entry of this._binding.meshes) {
+            const depth = entry.parts.findIndex(p => String(p.name).toLowerCase() === lower);
+            if (depth >= 0 && (!found || depth < found.depth)) found = { entry, depth };
+            if (found && found.depth === 0) break;
+        }
+        if (!found) return null;
+        const { entry, depth } = found;
+        entry.mesh.updateWorldMatrix(true, false);
+        const at = entry.mesh.localToWorld(new THREE.Vector3().fromArray(entry.parts[depth].pivot || [0, 0, 0]));
+        if (entry.clipBase) {
+            root.updateWorldMatrix(true, false);
+            return { at, turn: root.getWorldQuaternion(new THREE.Quaternion()), unit: root.getWorldScale(new THREE.Vector3()).x * moveScale };
+        }
+        const parent = entry.mesh.parent;
+        const turn = parent ? parent.getWorldQuaternion(new THREE.Quaternion()) : new THREE.Quaternion();
+        turn.multiply(entry.baseQuaternion);
+        return { at, turn, unit: entry.mesh.getWorldScale(new THREE.Vector3()).x * moveScale };
+    }
+
+    /**
+     * The handles on the part the motion editor bends, both at once: three rings (red X, green Y, blue Z) that
+     * turn it as Bend, Turn and Tilt do, nested as the turn composes so each ring turns just its own number,
+     * and three arrows that slide it, reaching past the rings. Whichever is grabbed brings its sliders up
+     * beside the storyboard. They show the pose at the playhead and stay one size on screen.
+     */
+    _syncMotionGizmo() {
+        const editor = this.motionEditor;
+        const track = editor && editor.active && editor.bending() ? editor.motion.tracks[editor.track] : null;
+        const canvas = this._detail && this._detail.querySelector('.r3d-db-canvas');
+        const frame = track && !track.other && track.keys && canvas && this._camera && this._scene
+            && typeof RRPoseRings3D !== 'undefined' && typeof RRAxisArrows3D !== 'undefined' && typeof RRSizeHandles3D !== 'undefined'
+            ? this._motionPartFrame(track.part) : null;
+        if (!frame) { this._hideMotionGizmo(); return; }
+        if (!this._motionGizmo) {
+            const rings = RRPoseRings3D.create(THREE, this.EFFECT_RING_BASE, 'motion-rings');
+            const arrows = RRAxisArrows3D.create(THREE, 1, 'motion-arrows');
+            const turn = new THREE.Group();
+            turn.name = 'motion-turn-frame';
+            turn.add(rings.root);
+            turn.add(arrows.root);
+            turn.traverse(node => { node.userData.__reactorOverlay = true; });
+            this._motionGizmo = { rings, arrows, turn };
+        }
+        const gizmo = this._motionGizmo;
+        if (gizmo.turn.parent !== this._scene) this._scene.add(gizmo.turn);
+        const rect = canvas.getBoundingClientRect();
+        const unit = RRSizeHandles3D.pixelWorld(THREE, this._camera, rect, frame.at);
+        const pose = editor.sampleTrack(track, editor.playhead);
+        gizmo.frame = frame;
+        gizmo.turn.position.copy(frame.at);
+        gizmo.turn.quaternion.copy(frame.turn);
+        gizmo.turn.visible = true;
+        gizmo.rings.radius = unit * 62;
+        gizmo.rings.root.scale.setScalar(gizmo.rings.radius / this.EFFECT_RING_BASE);
+        gizmo.rings.root.visible = true;
+        // X outermost: the X ring stays in the frame, Y turns with X, Z with X and Y (Euler XYZ).
+        const rad = Math.PI / 180;
+        gizmo.rings.pitch.group.rotation.set(0, 0, 0);
+        gizmo.rings.yaw.group.rotation.set(pose.rotate[0] * rad, 0, 0);
+        gizmo.rings.roll.group.rotation.order = 'XYZ';
+        gizmo.rings.roll.group.rotation.set(pose.rotate[0] * rad, pose.rotate[1] * rad, 0);
+        gizmo.arrows.length = unit * 88;
+        gizmo.arrows.root.scale.setScalar(gizmo.arrows.length);
+        gizmo.arrows.root.position.set(0, 0, 0);
+        gizmo.arrows.root.visible = true;
+        if (!this._motionGizmoHold) {
+            const over = this._motionGizmoHover;
+            RRPoseRings3D.emphasize(gizmo.rings, over && over.kind === 'ring' ? over.axis : null, false);
+            RRAxisArrows3D.emphasize(gizmo.arrows, over && over.kind === 'arrow' ? over.axis : null, false);
+        }
+    }
+
+    _hideMotionGizmo() {
+        if (this._motionGizmo) this._motionGizmo.turn.visible = false;
+        this._motionGizmoHold = null;
+    }
+
+    _disposeMotionGizmo() {
+        if (!this._motionGizmo) return;
+        RRPoseRings3D.dispose(this._motionGizmo.rings);
+        RRAxisArrows3D.dispose(this._motionGizmo.arrows);
+        this._motionGizmo.turn.parent?.remove(this._motionGizmo.turn);
+        this._motionGizmo = null;
+        this._motionGizmoHold = null;
+    }
+
+    /** The motion handle under the pointer, as a hold (`{ kind, axis, grab, ... }`), or null. */
+    _pickMotionGizmo(clientX, clientY) {
+        const gizmo = this._motionGizmo, editor = this.motionEditor;
+        if (!gizmo || !gizmo.turn.visible || !gizmo.frame || !editor || !editor.active || !this._camera) return null;
+        const track = editor.motion.tracks[editor.track];
+        if (!track || track.other) return null;
+        const rect = this._detail.querySelector('.r3d-db-canvas').getBoundingClientRect();
+        const pose = editor.sampleTrack(track, editor.playhead);
+        const ringHold = () => {
+            const ring = gizmo.rings.root.visible && RRPoseRings3D.pick(THREE, gizmo.rings, this._camera, rect, clientX, clientY,
+                { pitch: pose.rotate[0], yaw: pose.rotate[1], roll: pose.rotate[2] });
+            return ring ? { kind: 'ring', axis: ring.axis, grab: ring, index: { pitch: 0, yaw: 1, roll: 2 }[ring.axis] } : null;
+        };
+        const arrowHold = () => {
+            const arrow = gizmo.arrows.root.visible && RRAxisArrows3D.pick(THREE, gizmo.arrows, this._camera, rect, clientX, clientY);
+            return arrow ? { kind: 'arrow', axis: arrow.axis, grab: arrow, index: { x: 0, y: 1, z: 2 }[arrow.axis], start: pose.move[{ x: 0, y: 1, z: 2 }[arrow.axis]] } : null;
+        };
+        // Both show at once: past the rings an arrow is what is there to grab, within them a ring is.
+        const centre = RRSizeHandles3D.screen(THREE, this._camera, rect, gizmo.frame.at);
+        const outside = centre && Math.hypot(clientX - centre[0], clientY - centre[1]) > 62 * 0.92;
+        return outside ? (arrowHold() || ringHold()) : (ringHold() || arrowHold());
+    }
+
+    _dragMotionGizmo(hold, clientX, clientY) {
+        const gizmo = this._motionGizmo, editor = this.motionEditor;
+        if (!hold || !gizmo || !editor || !editor.active) return;
+        const rect = this._detail.querySelector('.r3d-db-canvas').getBoundingClientRect();
+        if (hold.kind === 'ring') {
+            const value = RRPoseRings3D.drag(THREE, hold.grab, this._camera, rect, clientX, clientY);
+            if (value !== null) editor.setPartValue('rotate', hold.index, Math.round(value), false);
+        } else {
+            // The arrows lie along the frame's axes: the distance along one, in move units.
+            const travel = hold.grab.travel(clientX, clientY);
+            const unit = gizmo.frame.unit || 1;
+            editor.setPartValue('move', hold.index, Math.round((hold.start + travel / unit) * 1000) / 1000, false);
+        }
+        this._lastInputAt = performance.now();
+    }
+
+    _endMotionGizmoDrag() {
+        if (this._motionGizmo) {
+            RRPoseRings3D.emphasize(this._motionGizmo.rings, null, false);
+            RRAxisArrows3D.emphasize(this._motionGizmo.arrows, null, false);
+        }
+        this._motionGizmoHold = null;
+        if (this.motionEditor && this.motionEditor.active) this.motionEditor.setPartValue(null, 0, 0, true);
+    }
+
     /** The handle of the selected effect under the pointer, for lighting it: { kind, axis | index }, or null. */
     _effectGizmoUnder(clientX, clientY) {
         const gizmo = this._fxGizmo, work = this._effectWork;
@@ -6860,6 +7015,22 @@ class Database3DEditor {
                     return;
                 }
             }
+            // A motion's handles on the part being bent come first: they sit on it, over the model.
+            if (event.button === 0 && !event.ctrlKey && this._motionGizmo && this.motionEditor && this.motionEditor.active) {
+                const hold = this._pickMotionGizmo(event.clientX, event.clientY);
+                if (hold) {
+                    mode = 'motiongizmo';
+                    this._motionGizmoHold = hold;
+                    // The sliders for what was grabbed come up beside the storyboard.
+                    const handle = hold.kind === 'ring' ? 'turn' : 'move';
+                    if (this.motionEditor.handle !== handle) { this.motionEditor.handle = handle; this.motionEditor.render(); }
+                    if (hold.kind === 'ring') RRPoseRings3D.emphasize(this._motionGizmo.rings, hold.axis, true);
+                    else RRAxisArrows3D.emphasize(this._motionGizmo.arrows, hold.axis, true);
+                    canvas.style.cursor = 'grabbing';
+                    event.preventDefault();
+                    return;
+                }
+            }
             // The pivot gizmo is drag-and-drop from any tool: a press on
             // its axes starts sliding the fulcrum in the camera plane.
             if (event.button === 0 && !event.ctrlKey && this._pivotMarker
@@ -6930,6 +7101,16 @@ class Database3DEditor {
         canvas.addEventListener('pointermove', event => {
             this._pointer = { x: event.clientX, y: event.clientY };
             this._pointerMovedAt = performance.now();
+            // A motion's handle lights under the pointer too.
+            if (this._motionGizmo && this._motionGizmo.turn.visible && !mode) {
+                const hold = this._pickMotionGizmo(event.clientX, event.clientY);
+                const over = hold ? { kind: hold.kind, axis: hold.axis } : null;
+                if (JSON.stringify(over) !== JSON.stringify(this._motionGizmoHover || null)) {
+                    this._motionGizmoHover = over;
+                    this._lastInputAt = performance.now();
+                }
+                canvas.style.cursor = over ? 'pointer' : '';
+            }
             // An effect's handle lights under the pointer, so it is plain which one a press will take.
             if (this._cardMode === 'effect' && this._fxGizmo && !mode) {
                 const over = this._effectGizmoUnder(event.clientX, event.clientY);
@@ -6967,6 +7148,8 @@ class Database3DEditor {
                 this._slideEffectAnchor(event.clientX, event.clientY);
             } else if (mode === 'fxgizmo' && this._fxGizmoHold) {
                 this._dragEffectGizmo(this._fxGizmoHold, event.clientX, event.clientY);
+            } else if (mode === 'motiongizmo' && this._motionGizmoHold) {
+                this._dragMotionGizmo(this._motionGizmoHold, event.clientX, event.clientY);
             }
             lastX = event.clientX;
             lastY = event.clientY;
@@ -7003,6 +7186,8 @@ class Database3DEditor {
                 if (!stationary) this._afterEffectEdit(true);
             } else if (mode === 'fxgizmo') {
                 this._endEffectGizmoDrag();
+            } else if (mode === 'motiongizmo') {
+                this._endMotionGizmoDrag();
             } else if (mode === 'pivot' && stationary) {
                 this._placePivot(event);
             } else if (mode === 'fxanchor' && stationary) {
@@ -7111,7 +7296,8 @@ class Database3DEditor {
         const found = this._partUnderPointer(event.clientX, event.clientY);
         // With a motion open, a click on the model picks that part's track.
         if (this.motionEditor && this.motionEditor.active) {
-            if (found) this.motionEditor.pickPart(found.name);
+            // A step (the time between two poses) picked bends nothing: there is no one pose to bend.
+            if (found && this.motionEditor.bending()) this.motionEditor.pickPart(found.name);
             return;
         }
         if (found) {
@@ -7144,7 +7330,9 @@ class Database3DEditor {
             canvas.style.cursor = 'move';
             return;
         }
-        const found = inside ? this._partUnderPointer(this._pointer.x, this._pointer.y) : null;
+        // With a step of a motion picked no part is there to pick, so none lights under the pointer.
+        const picking = !(this.motionEditor && this.motionEditor.active && !this.motionEditor.bending());
+        const found = inside && picking ? this._partUnderPointer(this._pointer.x, this._pointer.y) : null;
         const name = found ? found.name : '';
         if (name !== this._hoverName) {
             this._hoverName = name;

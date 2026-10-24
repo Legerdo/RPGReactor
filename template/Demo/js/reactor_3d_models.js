@@ -5179,12 +5179,15 @@ Reactor3D.readModelAnimationRules = function(json, clips) {
         const keys = [];
         for (const raw of value) {
             if (!raw || typeof raw !== "object") continue;
-            keys.push({
+            const key = {
                 at: Math.min(1, Math.max(0, Number(raw.at) || 0)),
                 rotate: vec3(raw.rotate),
                 move: vec3(raw.move),
                 resize: vec3(raw.resize, 1)
-            });
+            };
+            // How the step into this key goes (Reactor3D.KEY_EASES); none flows smoothly through.
+            if (Reactor3D.KEY_EASES.includes(raw.ease)) key.ease = raw.ease;
+            keys.push(key);
         }
         keys.sort((a, b) => a.at - b.at);
         return keys;
@@ -8804,8 +8807,28 @@ Reactor3D.modelRuleDuration = function(rule, clips) {
     // unless it holds, in which case the action only needs the way in and
     // the latch keeps it there.
     // A staying pose is never over while its action stands.
-    if (rule.type === "pose") return rule.stay ? Infinity : rule.hold ? rule.period : rule.period * 2 * rule.cycles;
+    // A keyed one that ends on its last pose eases back to rest after it.
+    if (rule.type === "pose") return rule.stay ? Infinity : rule.hold ? rule.period : rule.period * 2 * rule.cycles + (Reactor3D.poseSettles(rule) ? Reactor3D.POSE_SETTLE_FRAMES : 0);
     return rule.period * rule.cycles;
+};
+
+/** How many frames a one-off keyed motion that ends on a pose takes to ease back to rest after it. */
+Reactor3D.POSE_SETTLE_FRAMES = 12;
+
+/**
+ * Whether a keyed pose played once ends away from rest: its last key at the
+ * end and not at rest. Its timeline stops on that pose (the motion ends where
+ * its author left it), and the part eases back to rest over
+ * POSE_SETTLE_FRAMES after, rather than jumping there when the action ends.
+ */
+Reactor3D.poseSettles = function(rule) {
+    if (!rule || rule.type !== "pose" || rule.trigger !== "action" || rule.hold || rule.stay || rule.instant || rule.repeat) return false;
+    const keys = rule.keys;
+    if (!Array.isArray(keys) || !keys.length) return false;
+    const last = keys[keys.length - 1];
+    if (!last || !(last.at >= 1)) return false;
+    const off = (values, rest) => Array.isArray(values) && values.some(value => Math.abs((Number(value) || 0) - rest) > 1e-6);
+    return off(last.rotate, 0) || off(last.move, 0) || off(last.resize, 1);
 };
 
 /** How many frames a state's looping motion takes to fade in or out. */
@@ -8815,6 +8838,27 @@ Reactor3D.MOTION_FADE_FRAMES = 8;
 Reactor3D.poseEase = function(blend) {
     const b = Math.min(1, Math.max(0, blend));
     return b * b * (3 - 2 * b);
+};
+
+/**
+ * How a step into a key may go, by the key's `ease`: steady (one speed all
+ * the way), in (starts slow, ends fast), out (starts fast, ends slow), both
+ * (slow at both ends, stopping at the key), snap (there almost at once, in
+ * the first fifth of the step, then holding), overshoot (goes past the key and settles back). A key with none
+ * flows through on the timeline's curve.
+ */
+Reactor3D.KEY_EASES = ["steady", "in", "out", "both", "snap", "overshoot"];
+
+/** A step's progress (0..1) eased as `ease` says. */
+Reactor3D.keyEase = function(ease, t) {
+    switch (ease) {
+        case "in": return t * t * t;
+        case "out": { const u = 1 - t; return 1 - u * u * u; }
+        case "both": return t * t * (3 - 2 * t);
+        case "snap": { const u = 1 - Math.min(1, t * 5); return 1 - u * u * u; }
+        case "overshoot": { const c = 1.70158, u = t - 1; return 1 + (c + 1) * u * u * u + c * u * u; }
+        default: return t;
+    }
 };
 
 /**
@@ -8870,6 +8914,12 @@ Reactor3D.sampleModelKeys = function(rule, p) {
         const h0 = width(j - 1), h1 = width(j);
         return 3 * (h0 + h1) / ((2 * h1 + h0) / d0 + (h1 + 2 * h0) / d1);
     };
+    if (b.ease) {
+        // A step with its own ease goes straight from one key to the next at that pace.
+        const e = Reactor3D.keyEase(b.ease, t);
+        const line = name => [0, 1, 2].map(i => field(a, name, i) + (field(b, name, i) - field(a, name, i)) * e);
+        return { rotate: line("rotate"), move: line("move"), resize: line("resize") };
+    }
     const t2 = t * t, t3 = t2 * t;
     const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
     const curve = name => [0, 1, 2].map(i => {
@@ -8950,6 +9000,20 @@ Reactor3D._sampleModelKeysInto = function(rule, p, out) {
     }
     const t = Math.min(1, Math.max(0, (p - a.at) / span));
     line.loops = !!rule.trigger && rule.trigger !== "action";
+    if (b.ease) {
+        // A step with its own ease goes straight from one key to the next at that pace.
+        const e = Reactor3D.keyEase(b.ease, t);
+        for (let c = 0; c < 3; c++) {
+            const name = c === 0 ? "rotate" : c === 1 ? "move" : "resize";
+            const target = out[name];
+            for (let i = 0; i < 3; i++) {
+                const v0 = keyField(a, name, i), v1 = keyField(b, name, i);
+                target[i] = v0 + (v1 - v0) * e;
+            }
+        }
+        line.keys = null;
+        return;
+    }
     const t2 = t * t, t3 = t2 * t;
     const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
     for (let c = 0; c < 3; c++) {
@@ -9176,6 +9240,11 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
                     if (rule.instant) progress = 1;
                     else if (t < duration) progress = t / duration;
                     else if (rule.stay) progress = 1;
+                    else if (t < duration + Reactor3D.POSE_SETTLE_FRAMES && Reactor3D.poseSettles(rule)) {
+                        // Ended on its last pose: from there back to rest, eased.
+                        progress = 1;
+                        weight = this.poseEase(1 - (t - duration) / Reactor3D.POSE_SETTLE_FRAMES);
+                    }
                 }
             } else {
                 const active = rule.trigger === "always"

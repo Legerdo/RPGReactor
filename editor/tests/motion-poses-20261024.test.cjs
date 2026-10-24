@@ -8,6 +8,7 @@ const path = require('node:path');
 const test = require('node:test');
 const repoRoot = path.resolve(__dirname, '..', '..');
 const read = p => fs.readFileSync(path.join(repoRoot, p), 'utf8');
+const read2 = read;
 global.self = global; global.window = global;
 require(path.join(repoRoot, 'runtime/libs/three.js'));
 global.Reactor3D = require(path.join(repoRoot, 'runtime/reactor_3d.js'));
@@ -135,7 +136,7 @@ test('the storyboard is what opens: pose cards, the seconds between, + for the n
         assert.ok(src.includes(cls), cls);
     assert.ok(!src.includes('r3d-motion-posekey'), 'no strip of numbered dots to drag');
     // The part being bent is lit on the model.
-    assert.match(src, /this\.host\._markMotionPart\?\.\(track && !track\.other \? track\.part : null\);/);
+    assert.match(src, /this\.host\._markMotionPart\?\.\(track && !track\.other && this\.bending\(\) \? track\.part : null\);/);
     const host = read('editor/src/database/Database3DEditor.js');
     assert.match(host, /_markMotionPart\(part\) \{/);
     assert.match(host, /fit\(this\._motionPartBox, this\._motionPart \? this\._matchedMeshes\(this\._motionPart\) : \(\(this\._binding && this\._binding\.meshes\) \|\| \[\]\), false\);/);
@@ -162,4 +163,102 @@ test('a humanoid adds motion capture first; a state\'s motion replaces what play
     assert.match(src, /if \(editor\.motion\.trigger === state\) \{ editor\.playing = true;[^\n]*\n\s*else \{ editor\.commit\(\); editor\.close\(\); \}/);
     // A motion picked in the list is seen in its state.
     assert.match(src, /if \(raw\.trigger && this\.previewStates\(\)\.includes\(raw\.trigger\) && this\.previewState\(\) !== raw\.trigger\) this\.setPreviewState\(raw\.trigger, \{ keepEditor: true \}\);/);
+});
+
+test('a motion played once ends on its last pose: + after it moves the end, and the game eases back to rest after', () => {
+    const editor = editorWith([{ part: 'LeftUpperLeg', keys: [key(0, [0, 0, 0])] }], 18);
+    editor.motion.trigger = 'action';
+    assert.equal(editor.playsOnce(), true);
+    editor.playhead = 0;
+    editor.setPartValue = RRMotionEditor.prototype.setPartValue;
+    editor.insertPose(0, 0.5);
+    assert.deepEqual(editor.poseTimes(), [0, 1], 'the new pose is the end');
+    assert.equal(Math.round(editor.seconds() * 100) / 100, 0.5);
+    // The game: the last pose holds at the end, then eases to rest over the settle frames instead of jumping there.
+    const rule = { type: 'pose', trigger: 'action', period: 15, cycles: 1, keys: [{ at: 0, rotate: [0, 0, 0] }, { at: 1, rotate: [-85, 0, 0] }] };
+    assert.equal(Reactor3D.poseSettles(rule), true);
+    assert.equal(Reactor3D.modelRuleDuration(rule), 30 + Reactor3D.POSE_SETTLE_FRAMES);
+    assert.equal(Reactor3D.poseSettles(Object.assign({}, rule, { repeat: true })), false, 'a repeating motion goes round instead');
+    assert.equal(Reactor3D.poseSettles(Object.assign({}, rule, { keys: [{ at: 0, rotate: [10, 0, 0] }, { at: 0.6, rotate: [-85, 0, 0] }] })), false, 'one that goes back to rest itself');
+    const src = read('runtime/reactor_3d_models.js');
+    assert.match(src, /else if \(t < duration \+ Reactor3D\.POSE_SETTLE_FRAMES && Reactor3D\.poseSettles\(rule\)\) \{\n\s*\/\/ [^\n]*\n\s*progress = 1;\n\s*weight = this\.poseEase\(1 - \(t - duration\) \/ Reactor3D\.POSE_SETTLE_FRAMES\);/);
+});
+
+test('the part being bent has rings (red X, green Y, blue Z) and arrows on the model; a drag sets its pose', () => {
+    const editor = editorWith([{ part: 'LeftUpperLeg', keys: [key(0, [0, 0, 0]), key(1, [10, 0, 0])] }]);
+    editor.root = null;
+    editor.playhead = 1;
+    editor.setPartValue('rotate', 2, 30, false);
+    editor.setPartValue('move', 1, 0.25, false);
+    const stop = editor.motion.tracks[0].keys.find(k => k.at === 1);
+    assert.deepEqual(plain(stop.rotate), [10, 0, 30]);
+    assert.deepEqual(plain(stop.move), [0, 0.25, 0]);
+    const host = read('editor/src/database/Database3DEditor.js');
+    for (const name of ['_motionPartFrame(part) {', '_syncMotionGizmo() {', '_pickMotionGizmo(clientX, clientY) {', '_dragMotionGizmo(hold, clientX, clientY) {', "mode = 'motiongizmo';"])
+        assert.ok(host.includes(name), name);
+    // Nested as Euler XYZ composes, so each ring turns just its own number.
+    assert.match(host, /gizmo\.rings\.yaw\.group\.rotation\.set\(pose\.rotate\[0\] \* rad, 0, 0\);/);
+    assert.match(host, /gizmo\.rings\.roll\.group\.rotation\.set\(pose\.rotate\[0\] \* rad, pose\.rotate\[1\] \* rad, 0\);/);
+    const src = read('editor/src/database/MotionEditor.js');
+    assert.match(src, /data-handle="turn"/);
+    assert.match(src, /data-handle="move"/);
+    assert.match(src, /button\('r3d-motion-part-reset', tt\('Reset'\)/);
+});
+
+test('a step between two poses has its own pace: chosen on its card, saved on the keys it arrives at, played by the game', () => {
+    const editor = editorWith([
+        { part: 'LeftUpperArm', keys: [key(0, [0, 0, 0]), key(0.5, [80, 0, 0]), key(1, [0, 0, 0])] },
+        { part: 'Head', keys: [key(0, [0, 0, 0]), key(0.5, [0, 20, 0])] }
+    ]);
+    assert.equal(editor.stepEase(0), 'smooth');
+    assert.equal(editor.setStepEase(0, 'in'), true);
+    assert.equal(editor.stepEase(0), 'in');
+    assert.ok(editor.motion.tracks.every(t => t.keys.find(k => k.at === 0.5).ease === 'in'), 'every part arrives at pose 2 that way');
+    const rules = editor.rulesOf(editor.motion);
+    assert.equal(rules[0].keys[1].ease, 'in', 'saved');
+    assert.equal(rules[0].keys[2].ease, undefined, 'the next step still flows');
+    editor.motion.tracks[1].keys[1].ease = 'snap';
+    assert.equal(editor.stepEase(0), 'mixed');
+    editor.setStepEase(0, 'smooth');
+    assert.ok(editor.motion.tracks.every(t => !t.keys.find(k => k.at === 0.5).ease), 'smooth is no ease at all');
+    // The game: halfway through, a slow start has gone an eighth of the way, steady half; overshoot goes past.
+    const line = ease => [{ at: 0, rotate: [0, 0, 0], move: [0, 0, 0], resize: [1, 1, 1] }, { at: 1, rotate: [100, 0, 0], move: [0, 0, 0], resize: [1, 1, 1], ease }];
+    const at = (ease, p) => Reactor3D.sampleModelKeys({ keys: line(ease), trigger: 'action' }, p).rotate[0];
+    assert.equal(Math.round(at('steady', 0.5)), 50);
+    assert.equal(Math.round(at('in', 0.5)), 13);
+    assert.equal(Math.round(at('out', 0.5)), 88);
+    assert.equal(Math.round(at('snap', 0.1)), 88, 'a snap is nearly there a tenth of the way in');
+    assert.equal(Math.round(at('snap', 0.5)), 100, 'and holds it');
+    assert.ok(at('overshoot', 0.6) > 100);
+    const fast = { rotate: [0, 0, 0], move: [0, 0, 0], resize: [1, 1, 1] };
+    Reactor3D._sampleModelKeysInto({ keys: line('in'), trigger: 'action' }, 0.5, fast);
+    assert.equal(Math.round(fast.rotate[0]), 13, 'the frame loop samples it the same');
+    const read = Reactor3D.readModelAnimationRules({ animations: [{ name: 'a', part: 'x', type: 'pose', keys: [{ at: 1, rotate: [1, 0, 0], ease: 'out' }, { at: 0.5, rotate: [1, 0, 0], ease: 'wobble' }] }] });
+    assert.deepEqual(plain(read[0].keys.map(k => k.ease || null)), [null, 'out'], 'an ease the runtime does not know is no ease');
+    const src = read2('editor/src/database/MotionEditor.js');
+    for (const cls of ['r3d-motion-step', 'r3d-motion-timing', 'r3d-motion-ease', 'r3d-motion-sec-less', 'r3d-motion-sec-more']) assert.ok(src.includes(cls), cls);
+});
+
+test('the rings and the arrows show together; grabbing one brings its sliders up', () => {
+    const host = read2('editor/src/database/Database3DEditor.js');
+    assert.match(host, /gizmo\.rings\.root\.visible = true;/);
+    assert.match(host, /gizmo\.arrows\.root\.visible = true;/);
+    assert.match(host, /const handle = hold\.kind === 'ring' \? 'turn' : 'move';\n\s*if \(this\.motionEditor\.handle !== handle\) \{ this\.motionEditor\.handle = handle; this\.motionEditor\.render\(\); \}/);
+    assert.match(host, /return outside \? \(arrowHold\(\) \|\| ringHold\(\)\) : \(ringHold\(\) \|\| arrowHold\(\)\);/);
+});
+
+test('with a step picked nothing bends: no handles, no part picked or lit, the panel points back to the poses', () => {
+    const editor = editorWith([{ part: 'LeftUpperArm', keys: [key(0, [0, 0, 0]), key(1, [40, 0, 0])] }]);
+    editor.step = 0;
+    assert.equal(editor.bending(), false);
+    editor.playhead = 1;
+    editor.setPartValue('rotate', 0, 90, true);
+    assert.deepEqual(plain(editor.motion.tracks[0].keys[1].rotate), [40, 0, 0], 'a stray handle drag changes nothing');
+    editor.step = null;
+    assert.equal(editor.bending(), true);
+    const host = read2('editor/src/database/Database3DEditor.js');
+    assert.match(host, /if \(found && this\.motionEditor\.bending\(\)\) this\.motionEditor\.pickPart\(found\.name\);/);
+    assert.match(host, /const track = editor && editor\.active && editor\.bending\(\) \? editor\.motion\.tracks\[editor\.track\] : null;/);
+    assert.match(host, /const found = inside && picking \? this\._partUnderPointer/);
+    assert.match(read2('editor/src/database/MotionEditor.js'), /'Click a pose card to bend it\.'/);
 });

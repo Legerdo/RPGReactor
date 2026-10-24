@@ -29,6 +29,10 @@ class RRMotionEditor {
         this.clipboard = null;
         // The storyboard's selected pose (its index among poseTimes()).
         this.pose = 0;
+        // Which sliders show for the part being bent: 'turn' (Bend, Turn, Tilt) or 'move'; the handle grabbed on the model picks it.
+        this.handle = 'turn';
+        // The storyboard's selected step (the time between pose `step` and the next), or null for a pose.
+        this.step = null;
     }
 
     // ---- Key poses: the whole body at a moment, made, moved, mirrored and copied as one ----
@@ -133,15 +137,75 @@ class RRMotionEditor {
         return true;
     }
 
-    /** A new pose after pose `i` (the last when -1 or past it), `gap` seconds on, the same as pose `i`; the motion grows by the gap. */
+    /** A little picture of how a step goes: progress over time, as an SVG path. */
+    static easeCurve(ease) {
+        const at = t => ease === 'smooth' ? t * t * (3 - 2 * t) * 0.6 + t * 0.4
+            : typeof Reactor3D !== 'undefined' && Reactor3D.keyEase ? Reactor3D.keyEase(ease, t) : t;
+        const points = [];
+        for (let i = 0; i <= 24; i++) {
+            const t = i / 24, v = at(t);
+            points.push(`${(2 + t * 28).toFixed(1)},${(17 - v * 13).toFixed(1)}`);
+        }
+        return `<svg class="r3d-motion-curve" viewBox="0 0 32 20" aria-hidden="true"><path d="M${points.join(' L')}"/></svg>`;
+    }
+
+    /** How a step may go (the runtime's key eases), smooth (none) first, with what the storyboard calls each. */
+    static get EASES() { return ['steady', 'in', 'out', 'both', 'snap', 'overshoot']; }
+    static EASE_CHOICES() {
+        return [['smooth', 'Smooth', 'Flows on through the pose'], ['steady', 'Steady', 'One speed all the way'],
+            ['in', 'Start slow', 'Starts slow, ends fast'], ['out', 'End slow', 'Starts fast, ends slow'],
+            ['both', 'Slow both ends', 'Eases out of one pose and into the next, stopping there'],
+            ['snap', 'Snap', 'Gets to the next pose almost at once, then holds it'], ['overshoot', 'Overshoot', 'Goes past the pose and settles back']];
+    }
+
+    /** How the step from pose `i` to the next goes: an ease, 'smooth' (none), or 'mixed' when the parts differ. */
+    stepEase(i) {
+        const times = this.poseTimes();
+        if (i < 0 || i + 1 >= times.length) return 'smooth';
+        const seen = new Set();
+        for (const t of this.poseTracks()) {
+            const k = t.keys.find(key => Math.abs(key.at - times[i + 1]) < RRMotionEditor.POSE_SNAP);
+            if (k) seen.add(k.ease || 'smooth');
+        }
+        return seen.size === 1 ? [...seen][0] : seen.size ? 'mixed' : 'smooth';
+    }
+
+    /** The step from pose `i` to the next goes as `ease` ('smooth' for none) for every part: each keyed at the next pose. */
+    setStepEase(i, ease) {
+        const times = this.poseTimes();
+        if (i < 0 || i + 1 >= times.length) return false;
+        const playhead = this.playhead;
+        this.playhead = times[i + 1];
+        for (const t of this.poseTracks()) {
+            const k = t.keys.find(key => Math.abs(key.at - times[i + 1]) < RRMotionEditor.POSE_SNAP) || this.keyAtPlayhead(t, true);
+            if (!k) continue;
+            if (RRMotionEditor.EASES.includes(ease)) k.ease = ease; else delete k.ease;
+        }
+        this.playhead = playhead;
+        return true;
+    }
+
+    /** Whether the motion plays once (an on-demand motion that does not repeat): it ends on its last pose. */
+    playsOnce() { return !!this.motion && this.motion.trigger === 'action' && !this.motion.repeat; }
+
+    /**
+     * A new pose after pose `i` (the last when -1 or past it), `gap` seconds on, the same as pose `i`; the motion
+     * grows by the gap. A new last pose of a motion played once ends it: the time after the old last pose goes.
+     */
     insertPose(i, gap = 0.3) {
         const times = this.poseTimes();
         if (!times.length) { this.playhead = 0; this.addPose(); return 0; }
         const at = i < 0 || i >= times.length ? times.length - 1 : i;
         this.playhead = times[at];
         const copy = this.poseAtPlayhead(), L = this.seconds(), from = times[at] * L;
-        this._relength(L + gap, { after: from, by: gap });
-        this.playhead = Math.round((from + gap) / (L + gap) * 1000) / 1000;
+        if (at === times.length - 1 && this.playsOnce()) {
+            // Every key stays where it is in seconds; the new pose is the end.
+            this._relength(from + gap);
+            this.playhead = 1;
+        } else {
+            this._relength(L + gap, { after: from, by: gap });
+            this.playhead = Math.round((from + gap) / (L + gap) * 1000) / 1000;
+        }
         this.writePose(copy);
         return this.playhead;
     }
@@ -156,6 +220,27 @@ class RRMotionEditor {
         this._relength(L - gap, { after: from, by: -gap });
         this.playhead = this.poseTimes()[Math.max(0, i - 1)] ?? 0;
         return true;
+    }
+
+    /** Whether a pose is shown to bend: not while a step (the time between two poses) is picked, or played. */
+    bending() { return !!this.motion && (this.perPart || this.step === null); }
+
+    /**
+     * The handles on the model set the part being bent: `field` ('rotate' or 'move') `axis` to `value` in the pose
+     * shown, the sliders following as it drags; `final` (the drag let go) saves it. With no field, only saves.
+     */
+    setPartValue(field, axis, value, final) {
+        const m = this.motion, track = m && m.tracks[this.track];
+        if (!track || track.other || !this.bending()) return;
+        if (field) {
+            const stop = this.keyAtPlayhead(track, true);
+            if (!stop) return;
+            stop[field][axis] = value;
+            const cls = field === 'rotate' ? 'r3d-motion-rot' : 'r3d-motion-move';
+            if (this.root && this.root.querySelectorAll) this.root.querySelectorAll(`.${cls}[data-axis="${axis}"], .${cls}-num[data-axis="${axis}"]`).forEach(input => { input.value = value; });
+            this._dirty = true;
+        }
+        if (final && this._dirty) { this._dirty = false; this.commit(); this.render(); }
     }
 
     /** The pose at the playhead mirrored: each side takes the other's turn, seen in a mirror; the middle turns back. */
@@ -196,7 +281,7 @@ class RRMotionEditor {
             // In order and within the motion, as the runtime reads them.
             const keys = Array.isArray(raw.keys) && raw.keys.length
                 ? raw.keys.filter(stop => stop && typeof stop === 'object')
-                    .map(stop => ({ at: Math.min(1, Math.max(0, Number(stop.at) || 0)), rotate: RRMotionEditor.vec(stop.rotate), move: RRMotionEditor.vec(stop.move) }))
+                    .map(stop => Object.assign({ at: Math.min(1, Math.max(0, Number(stop.at) || 0)), rotate: RRMotionEditor.vec(stop.rotate), move: RRMotionEditor.vec(stop.move) }, RRMotionEditor.EASES.includes(stop.ease) ? { ease: stop.ease } : {}))
                     .sort((a, b) => a.at - b.at)
                 : [{ at: hold ? 1 : 0.5, rotate: RRMotionEditor.vec(raw.rotate), move: RRMotionEditor.vec(raw.move) }];
             const extra = JSON.parse(JSON.stringify(raw));
@@ -216,6 +301,7 @@ class RRMotionEditor {
         this.track = 0;
         this.playhead = this.poseTimes()[0] ?? 0;
         this.pose = 0;
+        this.step = null;
         this.playing = false;
         this.render();
         this.host.renderRuleList();
@@ -272,7 +358,7 @@ class RRMotionEditor {
     sampleTrack(track, at) {
         if (!track || !track.keys || typeof Reactor3D === 'undefined') return { rotate: [0, 0, 0], move: [0, 0, 0] };
         if (this.motion.hold) return { rotate: track.keys[0].rotate.slice(), move: track.keys[0].move.slice() };
-        const keys = track.keys.map(k => ({ at: k.at, rotate: k.rotate, move: k.move, resize: [1, 1, 1] }));
+        const keys = track.keys.map(k => ({ at: k.at, rotate: k.rotate, move: k.move, resize: [1, 1, 1], ease: k.ease }));
         const sampled = Reactor3D.sampleModelKeys({ keys, trigger: this.motion.trigger }, Math.max(0, Math.min(1, at)));
         return { rotate: sampled.rotate, move: sampled.move };
     }
@@ -298,7 +384,7 @@ class RRMotionEditor {
             if (track.other) return Object.assign(JSON.parse(JSON.stringify(track.other)), { name, trigger });
             const rule = Object.assign(JSON.parse(JSON.stringify(track.extra || {})), { name, part: track.part, type: 'pose', trigger, period });
             if (motion.hold) Object.assign(rule, { hold: true, rotate: track.keys[0].rotate.slice(), move: track.keys[0].move.slice() });
-            else rule.keys = track.keys.map(k => ({ at: Math.round(k.at * 1000) / 1000, rotate: k.rotate.map(v => Math.round(v * 10) / 10), move: k.move.map(v => Math.round(v * 1000) / 1000) }));
+            else rule.keys = track.keys.map(k => Object.assign({ at: Math.round(k.at * 1000) / 1000, rotate: k.rotate.map(v => Math.round(v * 10) / 10), move: k.move.map(v => Math.round(v * 1000) / 1000) }, k.ease ? { ease: k.ease } : {}));
             // An on-demand motion repeats until stopped; a jump's replays through a long fall instead of holding.
             if (motion.repeat && (trigger === 'action' || trigger === 'jumping')) rule.repeat = true;
             return rule;
@@ -349,8 +435,8 @@ class RRMotionEditor {
                 if (motion.trigger !== 'action' || motion.repeat) { this._playFrom = frame; t = 0; }
                 else {
                     this.playing = false; this._playFrom = null; t = 1;
-                    // The storyboard goes back to the pose it shows.
-                    if (!this.perPart) { t = this.poseTimes()[this.pose] ?? 0; this.playhead = t; this.render(); } else this.renderPlayButton();
+                    // The storyboard stays where the motion ended, on its last pose.
+                    if (!this.perPart) { const times = this.poseTimes(); this.pose = Math.max(0, times.length - 1); t = times[this.pose] ?? 0; this.playhead = t; this.render(); } else this.renderPlayButton();
                 }
             }
             this.playhead = Math.max(0, Math.min(1, t));
@@ -380,8 +466,8 @@ class RRMotionEditor {
         const track = m.tracks[this.track];
         const pose = track && !track.other ? this.sampleTrack(track, this.playhead) : null;
         const keyed = track && !track.other ? this.keyAtPlayhead(track, false) : null;
-        const slider = (cls, axis, value, min, max, step, label) => `
-            <label class="r3d-motion-slider"><span>${label}</span>
+        const slider = (cls, axis, value, min, max, step, label, color) => `
+            <label class="r3d-motion-slider${color ? ` axis-${color}` : ''}"><span>${label}</span>
                 <input type="range" class="${cls}" data-axis="${axis}" min="${min}" max="${max}" step="${step}" value="${value}">
                 <input type="number" class="database-field-value ${cls}-num" data-axis="${axis}" min="${min}" max="${max}" step="${step}" value="${Math.round(value * 100) / 100}"></label>`;
         this.root.innerHTML = `
@@ -423,8 +509,8 @@ class RRMotionEditor {
         this.drawPlayhead();
         this.bind();
         if (!this.perPart) this.bindPoses();
-        // The part being bent lit on the model.
-        this.host._markMotionPart?.(track && !track.other ? track.part : null);
+        // The part being bent lit on the model (none while a step is picked).
+        this.host._markMotionPart?.(track && !track.other && this.bending() ? track.part : null);
     }
 
     /**
@@ -437,18 +523,34 @@ class RRMotionEditor {
         const times = this.poseTimes(), parts = this.poseTracks().length;
         const button = (cls, label, title, disabled) => `<button type="button" class="rr-btn-chip ${cls}"${title ? ` title="${rrEscapeHtml(title)}"` : ''}${disabled ? ' disabled' : ''}>${rrEscapeHtml(label)}</button>`;
         const count = Math.max(1, times.length);
-        const card = i => `<button type="button" class="r3d-motion-card${i === this.pose ? ' on' : ''}" data-i="${i}" title="${rrEscapeHtml(tt('Show this pose'))}"><b>${i + 1}</b><span>${rrEscapeHtml(m.hold ? tt('Stance') : tt('Pose'))}</span></button>`;
-        const gap = i => `<label class="r3d-motion-gap" title="${rrEscapeHtml(tt('Seconds to the next pose'))}">
-                <input type="number" class="r3d-motion-gap-sec" data-i="${i}" min="0.05" max="30" step="0.05" value="${this.gapAfter(i)}"><span>→</span></label>`;
+        const card = i => `<button type="button" class="r3d-motion-card${i === this.pose && this.step === null ? ' on' : ''}" data-i="${i}" title="${rrEscapeHtml(tt('Show this pose'))}"><b>${i + 1}</b><span>${rrEscapeHtml(m.hold ? tt('Stance') : tt('Pose'))}</span></button>`;
         // After the last pose: the time it takes to go back to the first (a loop) or to rest (a one-off).
         const loops = m.trigger !== 'action' || m.repeat;
-        const tail = times.length ? `<label class="r3d-motion-gap r3d-motion-tail" title="${rrEscapeHtml(loops ? tt('Seconds back to the first pose') : tt('Seconds back to rest'))}">
-                <input type="number" class="r3d-motion-gap-sec" data-i="${times.length - 1}" min="0" max="30" step="0.05" value="${this.gapAfter(times.length - 1)}"><span>${rrEscapeHtml(loops ? tt('↻ to 1') : tt('→ rest'))}</span></label>` : '';
+        const choices = RRMotionEditor.EASE_CHOICES();
+        const easeName = ease => ease === 'mixed' ? tt('Mixed') : tt((choices.find(c => c[0] === ease) || choices[0])[1]);
+        // A step between two poses as a card of its own: its seconds, and how it goes as a little curve.
+        const stepCard = i => {
+            const last = i === times.length - 1, ease = last ? 'smooth' : this.stepEase(i);
+            const label = last ? (loops ? tt('↻ to 1') : tt('→ rest')) : easeName(ease);
+            return `<button type="button" class="r3d-motion-step${last ? ' r3d-motion-tail' : ''}${this.step === i ? ' on' : ''}" data-step="${i}" title="${rrEscapeHtml(last ? (loops ? tt('Seconds back to the first pose') : tt('Seconds back to rest as part of the motion (0: it ends on the last pose, then eases back)')) : tt('The time to the next pose, and how it goes'))}">
+                <b>${this.gapAfter(i).toFixed(2)}s</b>${last ? '' : RRMotionEditor.easeCurve(ease)}<span>${rrEscapeHtml(label)}</span></button>`;
+        };
         const board = `<div class="r3d-motion-board">
-                ${Array.from({ length: count }, (_, i) => card(i) + (!m.hold && i < count - 1 ? gap(i) : '')).join('')}
-                ${m.hold ? '' : `<button type="button" class="r3d-motion-card r3d-motion-card-add" title="${rrEscapeHtml(tt('The next pose: a copy of this one, to change'))}"${parts ? '' : ' disabled'}><b>+</b><span>${rrEscapeHtml(tt('Next pose'))}</span></button>${tail}`}
+                ${Array.from({ length: count }, (_, i) => card(i) + (!m.hold && i < count - 1 ? stepCard(i) : '')).join('')}
+                ${m.hold ? '' : `<button type="button" class="r3d-motion-card r3d-motion-card-add" title="${rrEscapeHtml(tt('The next pose: a copy of this one, to change'))}"${parts ? '' : ' disabled'}><b>+</b><span>${rrEscapeHtml(tt('Next pose'))}</span></button>${times.length ? stepCard(times.length - 1) : ''}`}
             </div>`;
-        const actions = `<div class="r3d-motion-strip-actions">
+        // A step picked: its timing in place of the pose's buttons.
+        if (this.step !== null && (this.step >= times.length || m.hold)) this.step = null;
+        const step = this.step;
+        const timing = step === null ? '' : `<div class="r3d-motion-timing">
+                <label class="r3d-motion-seconds">${rrEscapeHtml(tt('Seconds'))}
+                    <button type="button" class="rr-btn-chip r3d-motion-sec-less" title="−0.05 s">−</button>
+                    <input type="number" class="database-field-value r3d-motion-gap-sec" data-i="${step}" min="${step === times.length - 1 ? 0 : 0.05}" max="30" step="0.05" value="${this.gapAfter(step)}">
+                    <button type="button" class="rr-btn-chip r3d-motion-sec-more" title="+0.05 s">+</button></label>
+                ${step === times.length - 1 ? `<span class="r3d-motion-hint">${rrEscapeHtml(loops ? tt('Seconds back to the first pose') : tt('Seconds back to rest as part of the motion (0: it ends on the last pose, then eases back)'))}</span>`
+                    : `<div class="r3d-motion-eases" role="group">${choices.map(([id, label, title]) => `<button type="button" class="r3d-motion-ease${this.stepEase(step) === id ? ' on' : ''}" data-ease="${id}" title="${rrEscapeHtml(tt(title))}">${RRMotionEditor.easeCurve(id)}<span>${rrEscapeHtml(tt(label))}</span></button>`).join('')}</div>`}
+            </div>`;
+        const actions = step !== null ? timing : `<div class="r3d-motion-strip-actions">
                 ${button('r3d-motion-pose-mirror', tt('Mirror ⇆'), tt('Swap the left and right sides of this pose, as in a mirror'), !parts)}
                 ${button('r3d-motion-pose-copy', tt('Copy'), tt('Copy the whole body\'s pose here'), !parts)}
                 ${button('r3d-motion-pose-paste', tt('Paste'), tt('Put the copied pose here'), !this.clipboard)}
@@ -456,16 +558,24 @@ class RRMotionEditor {
                 <span class="r3d-motion-spacer"></span>
                 ${m.hold ? '' : `<button type="button" class="r3d-motion-link r3d-motion-perpart" title="${rrEscapeHtml(tt('Time each part on its own row'))}">${rrEscapeHtml(tt('Fine timing…'))}</button>`}
             </div>`;
-        const part = track && !track.other ? `<div class="r3d-motion-pose-title">${rrEscapeHtml(partName(track.part))}</div>
-                ${slider('r3d-motion-rot', 0, pose.rotate[0], -180, 180, 1, tt('Bend'))}
-                ${slider('r3d-motion-rot', 1, pose.rotate[1], -180, 180, 1, tt('Turn'))}
-                ${slider('r3d-motion-rot', 2, pose.rotate[2], -180, 180, 1, tt('Tilt'))}
-                ${track.part === '' ? slider('r3d-motion-move', 1, pose.move[1], -1, 1, 0.01, tt('Lift')) : ''}
-                <div class="r3d-motion-pose-actions">${button('r3d-motion-part-reset', tt('Straighten'), tt('This part back to its rest in this pose'))}</div>`
+        const move = this.handle === 'move';
+        const handles = `<div class="r3d-motion-handles" role="group">
+                <button type="button" class="r3d-motion-handle${move ? '' : ' on'}" data-handle="turn" title="${rrEscapeHtml(tt('Rings on the model turn the part'))}">⟳ ${rrEscapeHtml(tt('Rotate'))}</button>
+                <button type="button" class="r3d-motion-handle${move ? ' on' : ''}" data-handle="move" title="${rrEscapeHtml(tt('Arrows on the model move the part'))}">✥ ${rrEscapeHtml(tt('Move'))}</button></div>`;
+        const part = step !== null ? `<div class="r3d-motion-pose-empty">${rrEscapeHtml(this._t(step === times.length - 1 ? (loops ? 'The time from pose {from} back to pose 1.' : 'The time from pose {from} back to rest.') : 'The time from pose {from} to pose {to}.', { from: step + 1, to: step + 2 }))}<br>${rrEscapeHtml(tt('Click a pose card to bend it.'))}</div>`
+            : track && !track.other ? `<div class="r3d-motion-pose-title">${rrEscapeHtml(partName(track.part))}</div>
+                ${handles}
+                ${move ? `${slider('r3d-motion-move', 0, pose.move[0], -1, 1, 0.01, tt('Side'), 'x')}
+                ${slider('r3d-motion-move', 1, pose.move[1], -1, 1, 0.01, tt('Up'), 'y')}
+                ${slider('r3d-motion-move', 2, pose.move[2], -1, 1, 0.01, tt('Forward'), 'z')}`
+                : `${slider('r3d-motion-rot', 0, pose.rotate[0], -180, 180, 1, tt('Bend'), 'x')}
+                ${slider('r3d-motion-rot', 1, pose.rotate[1], -180, 180, 1, tt('Turn'), 'y')}
+                ${slider('r3d-motion-rot', 2, pose.rotate[2], -180, 180, 1, tt('Tilt'), 'z')}`}
+                <div class="r3d-motion-pose-actions">${button('r3d-motion-part-reset', tt('Reset'), tt('This part back to its rest in this pose'))}</div>`
             : `<div class="r3d-motion-pose-empty">${rrEscapeHtml(tt('Click a body part on the model to bend it.'))}</div>`;
         return `<div class="r3d-motion-body r3d-motion-posebody">
                 <div class="r3d-motion-main">${board}${actions}
-                    <div class="r3d-motion-hint">${rrEscapeHtml(m.hold ? tt('A stance is one pose, held. Click a body part on the model to bend it.') : parts ? tt('Click a pose to see it, click a body part to bend it there. + adds the next pose.') : tt('Click a body part on the model to bend it into the first pose.'))}</div>
+                    ${step !== null ? '' : `<div class="r3d-motion-hint">${rrEscapeHtml(m.hold ? tt('A stance is one pose, held. Click a body part on the model to bend it.') : parts ? tt('Click a pose to see it, click a body part to bend it there, click the time between two poses to change how it goes. + adds the next pose.') : tt('Click a body part on the model to bend it into the first pose.'))}</div>`}
                 </div>
                 <div class="r3d-motion-pose">${part}</div>
             </div>`;
@@ -482,8 +592,34 @@ class RRMotionEditor {
             this.playing = false; this._playFrom = null;
         };
         root.querySelector('.r3d-motion-perpart')?.addEventListener('click', () => { this.perPart = true; this.render(); });
-        root.querySelectorAll('.r3d-motion-card[data-i]').forEach(el => el.addEventListener('click', () => { show(Number(el.dataset.i)); this.render(); }));
+        root.querySelectorAll('.r3d-motion-handle').forEach(el => el.addEventListener('click', () => { this.handle = el.dataset.handle; this.render(); }));
+        root.querySelectorAll('.r3d-motion-card[data-i]').forEach(el => el.addEventListener('click', () => { this.step = null; show(Number(el.dataset.i)); this.render(); }));
+        // A step: its timing below, and the model at the pose it leaves.
+        root.querySelectorAll('.r3d-motion-step').forEach(el => el.addEventListener('click', () => {
+            const i = Number(el.dataset.step);
+            this.step = this.step === i ? null : i;
+            show(i);
+            this.render();
+        }));
+        const nudge = by => {
+            const input = root.querySelector('.r3d-motion-timing .r3d-motion-gap-sec');
+            if (!input) return;
+            const sec = Math.max(Number(input.min) || 0, Math.round((Number(input.value) + by) * 100) / 100);
+            if (this.setGap(this.step, sec)) { show(this.step); changed(); }
+        };
+        root.querySelector('.r3d-motion-sec-less')?.addEventListener('click', () => nudge(-0.05));
+        root.querySelector('.r3d-motion-sec-more')?.addEventListener('click', () => nudge(0.05));
+        // A way for the step to go, chosen: kept, and played from the pose it leaves so it is seen.
+        root.querySelectorAll('.r3d-motion-ease').forEach(el => el.addEventListener('click', () => {
+            const i = this.step;
+            if (i === null || !this.setStepEase(i, el.dataset.ease)) return;
+            this.commit();
+            show(i);
+            this.playing = true;
+            this.render();
+        }));
         root.querySelector('.r3d-motion-card-add')?.addEventListener('click', () => {
+            this.step = null;
             const at = this.insertPose(this.pose, 0.3);
             this.pose = this.poseTimes().findIndex(t => Math.abs(t - at) < RRMotionEditor.POSE_SNAP);
             this.playing = false;
@@ -493,7 +629,7 @@ class RRMotionEditor {
             const sec = Number(input.value);
             if (Number.isFinite(sec) && this.setGap(Number(input.dataset.i), sec)) { show(this.pose); changed(); } else this.render();
         }));
-        root.querySelector('.r3d-motion-pose-remove')?.addEventListener('click', () => { if (this.deletePose(this.pose)) { show(this.pose - 1); changed(); } });
+        root.querySelector('.r3d-motion-pose-remove')?.addEventListener('click', () => { if (this.deletePose(this.pose)) { this.step = null; show(this.pose - 1); changed(); } });
         root.querySelector('.r3d-motion-pose-mirror')?.addEventListener('click', () => { this.mirrorPose(); changed(); });
         root.querySelector('.r3d-motion-pose-copy')?.addEventListener('click', () => { this.clipboard = JSON.parse(JSON.stringify(this.poseAtPlayhead())); this.render(); });
         root.querySelector('.r3d-motion-pose-paste')?.addEventListener('click', () => { if (this.clipboard) { this.writePose(JSON.parse(JSON.stringify(this.clipboard))); changed(); } });
