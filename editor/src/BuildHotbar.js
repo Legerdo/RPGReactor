@@ -317,6 +317,7 @@ class BuildHotbar {
             drawBrush: 'M3 21c3 0 5-1.5 5-4 M8 17l10-10 2 2-10 10 M15 6l3 3',
             drawLine: 'M6 18L18 6 M3 16h5v5H3z M16 3h5v5h-5z',
             drawRect: 'M4 6h16v12H4z M4 6h0 M2 4h4v4H2z M18 16h4v4h-4z',
+            drawCurve: 'M4 19c3-10 8 4 11-6s4-6 5-7 M3 17h3v3H3z M13 11h3v3h-3z M19 3h3v3h-3z',
             fillAuto: 'M4 6h16v12H4z M9 15l3-6 3 6 M10 13h4',
             fillFull: 'M4 6h16v12H4z M4 10h16 M4 14h16 M8 6v12 M12 6v12 M16 6v12',
             fillEdge: 'M4 6h16v12H4z M7 9h10v6H7z',
@@ -1368,12 +1369,21 @@ class BuildHotbar {
             const surfaces = TerrainManager.PATH_SURFACES.map((surface, i) => `<button type="button" class="rr-build-chip rr-build-psurface" data-value="${i}" aria-pressed="${i === terrain.pathSurface}"><i class="rr-build-gdot" style="background:${escape(surface.tint || '#c8c0b0')}"></i><span>${escape(tt(surface.name))}</span></button>`).join('');
             const drawChip = (value, label, icon) => `<button type="button" class="rr-build-chip rr-build-pshape" data-value="${value}" aria-pressed="${terrain.pathShape === value}">${this.icon(icon, 18)}<span>${escape(tt(label))}</span></button>`;
             const noFloor = terrain.hasGroundFloor() ? '' : `<div class="rr-build-note rr-build-wrap rr-build-gnofloor">${tt('This map has no floor to paint over.')}</div>`;
+            const pending = terrain.pathShape === 'curve' && terrain.pathPending ? terrain.pathPending() : false;
+            const count = pending ? terrain._pathCurve.points.length : 0;
+            const curveRows = terrain.pathShape !== 'curve' ? '' : (pending
+                ? `<div class="rr-build-note rr-build-wrap">${escape(this._tt(count === 1 ? '1 point' : '{count} points').replace('{count}', count))}</div>`
+                    + `<div class="rr-build-actions"><button type="button" class="rr-btn-primary rr-build-pfinish">${escape(tt('Lay road'))} <kbd>Enter</kbd></button>`
+                    + `<button type="button" class="rr-btn-secondary rr-build-pback">${escape(tt('Take off last point'))}</button>`
+                    + `<button type="button" class="rr-btn-secondary rr-build-pcancel">${escape(tt('Cancel'))} <kbd>Esc</kbd></button></div>` : '');
+            const hint = { line: 'Drag from one end to the other for a straight road.', curve: 'Click points along the way; the road curves through them. Click the last one again, or press Enter, to lay it.', brush: 'Drag along the way the road goes.' }[terrain.pathShape] || 'Drag along the way the road goes.';
             body = lead(tt('Drag to paint a road or a path on the ground. It follows the ground up and down hills, and nothing grows on it.')) + noFloor
-                + section(tt('Draw'), `<div class="rr-build-finishes rr-build-draws">${drawChip('brush', 'Brush', 'drawBrush')}${drawChip('line', 'Line', 'drawLine')}</div>`
-                    + `<div class="rr-build-note rr-build-wrap">${escape(tt(terrain.pathShape === 'line' ? 'Drag from one end to the other for a straight road.' : 'Drag along the way the road goes.'))}</div>`)
+                + section(tt('Draw'), `<div class="rr-build-finishes rr-build-draws">${drawChip('brush', 'Brush', 'drawBrush')}${drawChip('line', 'Line', 'drawLine')}${drawChip('curve', 'Curve', 'drawCurve')}</div>`
+                    + `<div class="rr-build-note rr-build-wrap">${escape(tt(hint))}</div>` + curveRows)
                 + section(tt('Surface'), `<div class="rr-build-finishes rr-build-pair">${surfaces}</div>`)
                 + section(t('terrain.brush'), range('rr-build-pwidth', tt('Width'), terrain.pathWidth, 1, 12, 0.5, terrain.pathWidth)
-                    + `<div class="rr-build-finishes rr-build-pair">${chipOf('rr-build-pedge', 'soft', tt('Soft edge'), terrain.pathEdge !== 'crisp')}${chipOf('rr-build-pedge', 'crisp', tt('Crisp edge'), terrain.pathEdge === 'crisp')}</div>`)
+                    + `<div class="rr-build-finishes rr-build-pair">${chipOf('rr-build-pedge', 'soft', tt('Soft edge'), terrain.pathEdge !== 'crisp')}${chipOf('rr-build-pedge', 'crisp', tt('Crisp edge'), terrain.pathEdge === 'crisp')}</div>`
+                    + `<label class="rr-build-check"><input type="checkbox" class="rr-build-plevel"${terrain.pathLevel ? ' checked' : ''}> ${escape(tt('Level the ground under the road'))}</label>`)
                 + `<div class="rr-build-note rr-build-wrap">${tt('The Eraser slot takes paint away. A road is a ground: change its look under Ground.')}</div>`;
         } else if (slot === 'biome') {
             const names = { temperate: 'Temperate', desert: 'Desert', snow: 'Snow', volcanic: 'Volcanic', alienViolet: 'Alien violet', alienFungal: 'Alien fungal' };
@@ -1442,7 +1452,11 @@ class BuildHotbar {
         // Ground: the type in hand, its look, the brush.
         panel.querySelectorAll('.rr-build-gmode').forEach(el => el.addEventListener('click', () => { terrain.groundErase = el.dataset.value === 'erase'; this.renderTerrainPanel(); }));
         panel.querySelectorAll('.rr-build-psurface').forEach(el => el.addEventListener('click', () => { terrain.pathSurface = Number(el.dataset.value) || 0; this.renderTerrainPanel(); }));
-        panel.querySelectorAll('.rr-build-pshape').forEach(el => el.addEventListener('click', () => { terrain.pathShape = el.dataset.value; this.renderTerrainPanel(); }));
+        panel.querySelectorAll('.rr-build-pshape').forEach(el => el.addEventListener('click', () => { if (terrain.pathShape === 'curve' && el.dataset.value !== 'curve') terrain.cancelPath(); terrain.pathShape = el.dataset.value; this.renderTerrainPanel(); }));
+        panel.querySelector('.rr-build-plevel')?.addEventListener('change', event => { terrain.pathLevel = event.target.checked; });
+        panel.querySelector('.rr-build-pfinish')?.addEventListener('click', () => terrain.finishPath());
+        panel.querySelector('.rr-build-pback')?.addEventListener('click', () => terrain.undoPathPoint());
+        panel.querySelector('.rr-build-pcancel')?.addEventListener('click', () => terrain.cancelPath());
         panel.querySelectorAll('.rr-build-pedge').forEach(el => el.addEventListener('click', () => { terrain.pathEdge = el.dataset.value; this.renderTerrainPanel(); }));
         panel.querySelectorAll('.rr-build-gshape').forEach(el => el.addEventListener('click', () => { terrain.groundShape = el.dataset.value; this.renderTerrainPanel(); }));
         panel.querySelector('.rr-build-gsetfloor')?.addEventListener('click', event => { if (terrain.setGroundFloor(event.currentTarget.dataset.floor)) this.renderTerrainPanel(); });
@@ -2115,6 +2129,8 @@ class BuildHotbar {
         if (window.reactor?.uiManager?.isEditorModalOpenForGlobalShortcuts?.()) return;
         // A river being clicked out: Enter lays it, Escape drops the course.
         if (this.group() === 'terrain' && this.terrain()?.handleRiverKey?.(event)) { event.preventDefault(); event.stopPropagation(); return; }
+        // A curved road being clicked out: Enter lays it, Escape drops it, Backspace takes off its last point.
+        if (this.group() === 'terrain' && this.terrain()?.handlePathKey?.(event)) { event.preventDefault(); event.stopPropagation(); return; }
         // Escape lets go of the sheet the Look panel holds.
         if (event.key === 'Escape' && this.group() === 'terrain' && this.terrain()?.mode === 'look' && this.terrain().selectedWater) {
             event.preventDefault(); event.stopPropagation();

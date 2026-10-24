@@ -803,10 +803,15 @@ A character walks a rise of up to 0.75 tile, jumps onto anything up to its jump 
 
 The room's floor is the map's own ground; `ground.types` paints others over it, up to eight. A type is a `material` (an image under `img/materials`, with its `_normal`/`_rough` maps and `.json` when it has them), a `tint`, a `scale` (tiles to one repeat; absent: the material's own, else 4), `bare` (nothing grows on it) and `paint`: a level 0-9 per cell, row by row, as runs. A later type lies over an earlier one. Borders wander, and a half-strength paint reads as patches. On slopes a type turns to the room's cliff as the floor does. In the editor, a road or a path is Build bar › Terrain › **Path**: drag
 along the way it goes (**Brush**) or from one end to the other (**Line**),
-choose its **Surface** (Dirt road, Cobblestone, Gravel path, Sand path,
+or click points and it bends through them (**Curve**: click the last point
+again, press Enter or **Lay road** to lay it; Backspace or **Take off last
+point** steps back, Esc or **Cancel** drops it), choose its **Surface** (Dirt road, Cobblestone, Gravel path, Sand path,
 Paving: each a ground type made, bare, the first time it is used) and its
 **Width** in tiles, with a soft or crisp edge. It follows the ground up and
-down hills and is laid all along the drag however fast the pointer moves;
+down hills and is laid all along the drag however fast the pointer moves.
+With **Level the ground under the road** (on by default) the ground under it
+is smoothed along its length and made flat across, easing back into the
+hills at its edges, and Ctrl+Z takes back the road and the levelling as one;
 the Eraser slot takes it away and Ground changes its look. A road of floor
 pieces instead: Build › Floor with a **Size** of 2×2 to 5×5 (a Line of
 floor is that wide), or one slab of any size from Shape › Box. Build bar ›

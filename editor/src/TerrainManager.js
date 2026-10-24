@@ -114,6 +114,10 @@ class TerrainManager {
         this.pathWidth = 3;
         this.pathEdge = 'soft';
         this.pathShape = 'brush';
+        // Whether a road laid levels the ground under it: smooth along it, flat across it, a shoulder into the land.
+        this.pathLevel = true;
+        // A curved road being clicked out: the ground's paint before it, its points, the ground type it is laid as.
+        this._pathCurve = null;
         this._groundStroke = null;
         // Dunes: where the wind blows toward, a ridge to the next, a crest's height, which field.
         this.dunes = { dir: 30, size: 10, height: 1.6, seed: 1, walkable: true };
@@ -208,6 +212,7 @@ class TerrainManager {
     setMode(mode) {
         if (!this.elevation()?.TERRAIN_MODES.includes(mode) && !['drain', 'fill', 'look', 'river', 'ground', 'path', 'dunes', 'biome', 'surround', 'sky'].includes(mode) && !this.isFoliageMode(mode)) return;
         if (mode !== 'river') this.cancelRiver();
+        if (mode !== 'path') this.cancelPath();
         this.mode = mode;
         if (mode !== 'look' && this.selectedWater) this.selectWater(null);
         const look = this.panel?.querySelector('.rr-terrain-look');
@@ -275,6 +280,8 @@ class TerrainManager {
         this._groundStroke = null;
         this.groundType = 0;
         this.cancelRiver();
+        // (Another map is open: the curve's saved paint was the last map's, and is not put back here.)
+        this._pathCurve = null;
         this._groundSnapshot = null;
         this._lookSnapshot = null;
         this._cliffSnapshot = null;
@@ -294,6 +301,7 @@ class TerrainManager {
         if (this._stroke || this._foliageStroke || this._groundStroke) this.endStroke();
         this.active = false;
         this.cancelRiver();
+        this.cancelPath();
         this.selectedWater = null;
         window.reactor?.mapEditor3D?.showWaterSelection?.(null);
         // Pour's preview goes with the tool; picked up again, it shows at once.
@@ -529,6 +537,7 @@ class TerrainManager {
     hoverAt(point) {
         const view = window.reactor?.mapEditor3D;
         if (this.mode === 'river') { if (this.riverPending()) this._showRiver(point ? [point.x + 0.5, point.y + 0.5] : null); return; }
+        if (this.mode === 'path') { this.pathHover(point); return; }
         if (this.mode !== 'fill' || !point) { if (this._preview) { view?.hideWaterGhost?.(); this._preview = null; } return; }
         const cell = { x: Math.floor(point.x + 0.5), y: Math.floor(point.y + 0.5) };
         if (this._preview && this._preview.x === cell.x && this._preview.y === cell.y) return;
@@ -707,6 +716,174 @@ class TerrainManager {
         return out;
     }
 
+    /** A smooth line through `points` ({x, y}, tiles), a point every `spacing`: a Catmull-Rom curve, its ends where clicked. */
+    static splinePoints(points, spacing = 0.4) {
+        if (!points.length) return [];
+        if (points.length === 1) return [[points[0].x, points[0].y]];
+        const out = [[points[0].x, points[0].y]];
+        for (let i = 0; i < points.length - 1; i++) {
+            const p0 = points[Math.max(0, i - 1)], p1 = points[i], p2 = points[i + 1], p3 = points[Math.min(points.length - 1, i + 2)];
+            const steps = Math.max(1, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / Math.max(0.1, spacing)));
+            for (let k = 1; k <= steps; k++) {
+                const t = k / steps, t2 = t * t, t3 = t2 * t;
+                const at = (a, b, c, d) => 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+                out.push([at(p0.x, p1.x, p2.x, p3.x), at(p0.y, p1.y, p2.y, p3.y)]);
+            }
+        }
+        return out;
+    }
+
+    /** Whether a curved road is being clicked out. */
+    pathPending() { return !!(this._pathCurve && this._pathCurve.points.length); }
+
+    /** A click on the ground in Curve: the next point of the road; it is drawn through every point so far. */
+    pathCurvePoint(point) {
+        const map = this.currentMap(), ground = this.ground();
+        if (!map || !ground || !point) return false;
+        if (!this._pathCurve) {
+            const index = this.pathTypeIndex();
+            if (index < 0) return false;
+            this._pathCurve = { saved: ground.snapshot(map), points: [], index, region: null };
+        }
+        // Two clicks on one spot lay it, as a river's do.
+        const at = { x: point.x + 0.5, y: point.y + 0.5 }, now = Date.now(), last = this._pathCurve.points[this._pathCurve.points.length - 1];
+        if (last && now - (this._pathCurve.clickedAt || 0) < 400 && Math.hypot(at.x - last.x, at.y - last.y) < 0.75) return this.finishPath();
+        this._pathCurve.clickedAt = now;
+        if (!last || Math.hypot(at.x - last.x, at.y - last.y) >= 0.5) this._pathCurve.points.push(at);
+        this._pathCurve.hover = null;
+        this._drawPathCurve(null);
+        window.reactor?.buildHotbar?.renderTerrainPanel?.();
+        return true;
+    }
+
+    /** Paint the curve as it stands (and on to the pointer, `extra`, while it is clicked out), from the paint before it. */
+    _drawPathCurve(extra) {
+        const map = this.currentMap(), ground = this.ground(), curve = this._pathCurve;
+        if (!map || !ground || !curve) return;
+        ground.restore(map, curve.saved);
+        const points = extra ? curve.points.concat([extra]) : curve.points;
+        const changed = ground.paintMany(map, curve.index, TerrainManager.splinePoints(points, Math.max(0.3, this.pathBrush().radius * 0.4)), this.pathBrush());
+        const was = curve.region;
+        const now = changed || was;
+        curve.region = changed && was ? { x0: Math.min(was.x0, changed.x0), y0: Math.min(was.y0, changed.y0), x1: Math.max(was.x1, changed.x1), y1: Math.max(was.y1, changed.y1) } : now;
+        // What the last drawing covered is drawn again too, so a shorter curve leaves nothing of a longer one.
+        this.announceGround(curve.region || null, false);
+    }
+
+    /** The pointer over the ground while a curve is clicked out: the road drawn on to it. */
+    pathHover(point) {
+        const curve = this._pathCurve;
+        if (!curve || !curve.points.length || !point) return;
+        const at = { x: point.x + 0.5, y: point.y + 0.5 };
+        if (curve.hover && Math.hypot(at.x - curve.hover.x, at.y - curve.hover.y) < 0.5) return;
+        curve.hover = at;
+        this._drawPathCurve(at);
+    }
+
+    /** Lay the curve clicked out: one undo step, the ground levelled under it when asked. */
+    finishPath() {
+        const curve = this._pathCurve;
+        if (!curve) return false;
+        this._pathCurve = null;
+        if (!curve.points.length) return false;
+        this._pathCurve = curve; this._drawPathCurve(null); this._pathCurve = null;
+        const paintStep = { groundPaint: curve.saved, groundSet: true };
+        const levelStep = this.pathLevel ? this.levelUnderPath(TerrainManager.splinePoints(curve.points, 0.5).map(([x, y]) => ({ x, y })), this.pathWidth) : null;
+        this.undoStack.push(levelStep ? { steps: [paintStep, levelStep] } : paintStep); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
+        this.announceFoliage(curve.region);
+        this._relayGroundCaps();
+        this.syncHistoryButtons();
+        window.reactor?.buildHotbar?.renderTerrainPanel?.();
+        return true;
+    }
+
+    /** Drop the curve being clicked out: the ground's paint as it was. */
+    cancelPath() {
+        const curve = this._pathCurve;
+        if (!curve) return false;
+        this._pathCurve = null;
+        const map = this.currentMap(), ground = this.ground();
+        if (map && ground) { ground.restore(map, curve.saved); this.announceGround(curve.region || null, false); }
+        window.reactor?.buildHotbar?.renderTerrainPanel?.();
+        return true;
+    }
+
+    /** Take the last point off the curve being clicked out (the curve goes when none is left). */
+    undoPathPoint() {
+        const curve = this._pathCurve;
+        if (!curve) return false;
+        curve.points.pop();
+        if (!curve.points.length) return this.cancelPath();
+        this._drawPathCurve(null);
+        window.reactor?.buildHotbar?.renderTerrainPanel?.();
+        return true;
+    }
+
+    /** Enter lays the curve, Escape drops it, Backspace takes off its last point. */
+    handlePathKey(event) {
+        if (this.mode !== 'path' || !this.pathPending()) return false;
+        if (event.key === 'Enter') { this.finishPath(); return true; }
+        if (event.key === 'Escape') { this.cancelPath(); return true; }
+        if (event.key === 'Backspace') { this.undoPathPoint(); return true; }
+        return false;
+    }
+
+    /**
+     * Level the ground under a road (its middle through `trail`, {x, y} in tiles): along it the ground's own rise
+     * smoothed, so it still climbs a hill but has no bumps; across it flat, `width` wide, with a shoulder as wide
+     * again that eases into the land beside it. Returns the sealed ground step (for the road's undo), or null.
+     */
+    levelUnderPath(trail, width) {
+        const map = this.currentMap(), elevation = this.elevation();
+        if (!map || !elevation || !Array.isArray(trail) || !trail.length) return null;
+        const step = this.groundSnapshot(map);
+        const grid = elevation.ensureTerrain(map);
+        if (!grid) return null;
+        const W = map.width, H = map.height, stride = W + 1;
+        const heightAt = (x, z) => {
+            const cx = Math.max(0, Math.min(W, x)), cz = Math.max(0, Math.min(H, z));
+            const x0 = Math.min(W - 1, Math.floor(cx)), z0 = Math.min(H - 1, Math.floor(cz)), fx = cx - x0, fz = cz - z0;
+            const g = (i, j) => Number(grid[(z0 + j) * stride + x0 + i]) || 0;
+            return (g(0, 0) * (1 - fx) + g(1, 0) * fx) * (1 - fz) + (g(0, 1) * (1 - fx) + g(1, 1) * fx) * fz;
+        };
+        // The middle every half tile, its heights, then smoothed along the road.
+        const line = [];
+        for (let i = 0; i < trail.length; i++) {
+            const a = trail[i], b = trail[i + 1];
+            line.push(a);
+            if (!b) break;
+            const steps = Math.floor(Math.hypot(b.x - a.x, b.y - a.y) / 0.5);
+            for (let k = 1; k < steps; k++) line.push({ x: a.x + (b.x - a.x) * k / steps, y: a.y + (b.y - a.y) * k / steps });
+        }
+        const raw = line.map(p => heightAt(p.x, p.y));
+        const reach = Math.max(2, Math.round(width * 1.5 / 0.5));
+        const sums = [0]; for (const h of raw) sums.push(sums[sums.length - 1] + h);
+        const smooth = raw.map((_, i) => { const a = Math.max(0, i - reach), b = Math.min(raw.length, i + reach + 1); return (sums[b] - sums[a]) / (b - a); });
+        const half = Math.max(0.5, width / 2), shoulder = Math.max(1, width / 2), far = half + shoulder;
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        for (const p of line) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.y); z1 = Math.max(z1, p.y); }
+        const vx0 = Math.max(0, Math.floor(x0 - far)), vx1 = Math.min(W, Math.ceil(x1 + far)), vz0 = Math.max(0, Math.floor(z0 - far)), vz1 = Math.min(H, Math.ceil(z1 + far));
+        let moved = false;
+        for (let z = vz0; z <= vz1; z++) for (let x = vx0; x <= vx1; x++) {
+            // The nearest point of the road's middle: its smoothed height, and how far off it this corner is.
+            let best = Infinity, target = 0;
+            for (let i = 0; i < line.length; i++) { const d = (line[i].x - x) ** 2 + (line[i].y - z) ** 2; if (d < best) { best = d; target = smooth[i]; } }
+            const d = Math.sqrt(best);
+            if (d >= far) continue;
+            const t = d <= half ? 1 : 1 - (d - half) / shoulder, f = t * t * (3 - 2 * t);
+            const i = z * stride + x, was = Number(grid[i]) || 0, now = Math.round((was + (target - was) * f) * 1000) / 1000;
+            if (now !== was) { grid[i] = now; moved = true; }
+        }
+        if (!moved) return null;
+        if (!elevation.hasTerrain(map)) elevation.clearTerrain(map);
+        this._seal(step);
+        const region = { x0: vx0, x1: vx1, z0: vz0, z1: vz1 };
+        this.announce(region);
+        if (!this.refitWater() && this._reachesWater(region)) this.announce(null, true);
+        this._relayPieces(region);
+        return step;
+    }
+
     /** The ground type the Path tool paints the chosen road as: found by its name, else made now. -1 when it cannot be. */
     pathTypeIndex() {
         const surface = TerrainManager.PATH_SURFACES[this.pathSurface] || TerrainManager.PATH_SURFACES[0];
@@ -729,10 +906,11 @@ class TerrainManager {
         const map = this.currentMap(), ground = this.ground();
         if (!map || !ground || !point) return false;
         if (!this.hasGroundFloor()) { this._flashText(this._tt('This map has no floor to paint over.')); return false; }
+        if (this.pathShape === 'curve') return this.pathCurvePoint(point);
         const index = this.pathTypeIndex();
         if (index < 0) return false;
         const at = { x: point.x + 0.5, y: point.y + 0.5 };
-        this._groundStroke = { saved: ground.snapshot(map), region: null, last: null, path: { index, start: this.pathShape === 'line' ? at : null } };
+        this._groundStroke = { saved: ground.snapshot(map), region: null, last: null, path: { index, start: this.pathShape === 'line' ? at : null, trail: [at] } };
         return this.pathDab(point, true);
     }
 
@@ -754,6 +932,8 @@ class TerrainManager {
             changed = ground.paintMany(map, stroke.path.index, TerrainManager.strokePoints(first ? null : stroke.last, at, spacing), brush);
         }
         stroke.last = at;
+        // The road's middle, for levelling the ground under it when it is laid: the line's two ends, or the drag.
+        if (stroke.path.start) stroke.path.trail = [stroke.path.start, at]; else stroke.path.trail.push(at);
         if (!changed) return false;
         const seen = stroke.region;
         stroke.region = seen ? { x0: Math.min(seen.x0, changed.x0), y0: Math.min(seen.y0, changed.y0), x1: Math.max(seen.x1, changed.x1), y1: Math.max(seen.y1, changed.y1) } : changed;
@@ -797,7 +977,10 @@ class TerrainManager {
         const stroke = this._groundStroke;
         this._groundStroke = null;
         if (!stroke || !stroke.region) return;
-        this.undoStack.push({ groundPaint: stroke.saved, groundSet: true }); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
+        const paintStep = { groundPaint: stroke.saved, groundSet: true };
+        // A road levels the ground under it, the same undo step as its paint.
+        const levelStep = stroke.path && this.pathLevel ? this.levelUnderPath(stroke.path.trail, this.pathWidth) : null;
+        this.undoStack.push(levelStep ? { steps: [paintStep, levelStep] } : paintStep); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
         // What grows follows the ground: a bare type clears the foliage drawn on it.
         this.announceFoliage(stroke.region);
         // Rocks capped with the ground wear what is painted under them.
@@ -1226,6 +1409,21 @@ class TerrainManager {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !from.length) return;
         const entry = from.pop();
+        // A step made of steps (a road and the ground levelled under it): undone last first, redone first first.
+        if (entry && Array.isArray(entry.steps)) {
+            const undoing = this._undoing ?? (from === this.undoStack);
+            const order = undoing ? entry.steps.slice().reverse() : entry.steps.slice();
+            const done = [];
+            for (const step of order) {
+                const one = [step], back = [];
+                const outer = this._undoing;
+                this._undoing = undoing;
+                try { this._swap(one, back); } finally { this._undoing = outer; }
+                done.push(back[0]);
+            }
+            to.push({ steps: undoing ? done.reverse() : done });
+            return;
+        }
         if (entry && entry.biome) {
             const ground = this.ground(), foliage = this.foliage();
             const twin = { biome: true, ground: ground.snapshot(map), foliage: foliage ? foliage.snapshot(map) : null, room: map.reactor3d && map.reactor3d.room ? JSON.parse(JSON.stringify(map.reactor3d.room)) : null, water: elevation.waterSnapshot(map) };
@@ -1286,7 +1484,7 @@ class TerrainManager {
             return;
         }
         if (entry && entry.ground && (entry.changes || entry.after !== undefined)) {
-            const undoing = from === this.undoStack;
+            const undoing = this._undoing ?? (from === this.undoStack);
             if (entry.changes) this._applyChanges(map, entry.changes, undoing);
             else elevation.restoreTerrainChanges(map, undoing ? entry.after : entry.terrain, undoing ? entry.terrain : entry.after);
             elevation.restoreWater(map, undoing ? entry.water : entry.waterAfter);
