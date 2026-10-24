@@ -554,7 +554,7 @@ class BuildHotbar {
             const heights = new Map(); for (const piece of sized) heights.set(piece.height || 5, (heights.get(piece.height || 5) || 0) + 1);
             const common = [...heights.entries()].sort((a, b) => b[1] - a[1])[0];
             const heightCard = sized.length ? section(tt('Size'), slide('rr-build-height', tt('Height'), common ? common[0] : 5, 0.5, 40, 0.25, 'height', 'y', 0)
-                + `<div class="rr-build-note rr-build-wrap">${escape(tt('Sets every wall, pane and pillar selected.'))}</div>`, heights.size > 1 ? tt('mixed') : '') : '';
+                + `<div class="rr-build-note rr-build-wrap">${escape(tt('Every wall, doorway and window selected; floors and roofs above them rise with them.'))}</div>`, heights.size > 1 ? tt('mixed') : '') : '';
             body = lead(this._t(parts.length > 1 ? 'build.parts.hint' : 'build.manyHint')) + section(tt('Level'), levelRow(lowest, 0.25), tt('lowest')) + heightCard + section(tt('Structure'), keep) + materials
                 + section(this._t('build.finish'), finishes(held[0] || null, differ), parts.length > 1 ? (hand ? this.partName(hand.key) : this._t('build.parts.all')) : '');
             foot = `<button type="button" class="rr-btn-secondary rr-build-turn-all">${this.icon('turn', 16)}<span>${tt('Turn')}</span></button><button type="button" class="rr-btn-secondary rr-build-remove">${this._t('build.remove')}</button>`;
@@ -1127,7 +1127,7 @@ class BuildHotbar {
         // runs through the sliders' own handler below (live, one undo step on release); the number when typed.
         const applyHeight = (value, record) => {
             const tall = Math.max(0.5, Math.min(40, Math.round((Number(value) || 5) * 4) / 4));
-            if (s.kind === 'many') manager.updateSelection(piece => PieceBuilderManager.SIZED_KINDS.includes(piece.kind) ? { height: tall === 5 ? undefined : tall } : {}, record);
+            if (s.kind === 'many') manager.setSelectionHeight(tall, record);
             else if (s.piece) manager.updateSelected({ height: tall === 5 ? undefined : tall }, record);
             else manager.setHeight(s.kind, tall);
         };

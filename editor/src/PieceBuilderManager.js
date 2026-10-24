@@ -93,7 +93,7 @@ class PieceBuilderManager {
     }
 
     /** The cell pieces that take a height of their own (Reactor3D.SIZED_KINDS). */
-    static SIZED_KINDS = ['wall', 'glass', 'pillar'];
+    static SIZED_KINDS = ['wall', 'glass', 'pillar', 'doorway', 'window'];
 
     /** The height the next piece of `kind` is laid at, in tiles. */
     heightFor(kind) { return this.heights[kind] > 0 ? this.heights[kind] : 5; }
@@ -206,7 +206,7 @@ class PieceBuilderManager {
         const inside = (x, y, z) => { for (const q of at(x, y)) if (q.z > z || (q.z === z && WALLS.has(q.kind))) return true; return false; };
         const walled = role => role === 'wall' || role === 'inner';
         // The part of the wall a piece stands directly on, or of the block carried up from a wall; null on neither.
-        const onWall = piece => { for (const q of at(piece.x, piece.y)) { if (q.z >= piece.z) break; if (WALLS.has(q.kind) && q.z + S === piece.z) return part.get(q); } return null; };
+        const onWall = piece => { for (const q of at(piece.x, piece.y)) { if (q.z >= piece.z) break; if (WALLS.has(q.kind) && q.z + (q.height || S) === piece.z) return part.get(q); } return null; };
         const onBlock = piece => { for (const q of at(piece.x, piece.y)) { if (q.z >= piece.z) break; if (q.kind === 'block' && q.z + 1 === piece.z && walled(part.get(q))) return part.get(q); } return null; };
         // Nothing over it, and nothing but a slab standing at its own level.
         const open = piece => { for (const q of at(piece.x, piece.y)) if (q !== piece && (q.z > piece.z || (q.z === piece.z && q.kind !== 'floor'))) return false; return true; };
@@ -530,6 +530,40 @@ class PieceBuilderManager {
             const step = this.levelStep(piece.kind);
             return { z: Math.max(0, Math.min(max, Math.round((piece.z + move) / step) * step)) };
         }, record);
+    }
+
+    /**
+     * Every wall, pane, pillar, doorway and window of the selection to one height, and everything selected above
+     * them lifted with them: each storey's walls (the ones standing at one level) grow, and the floors, the next
+     * storey and the roof over their tops rise by as much, so a whole building made taller keeps its roof on.
+     * A storey's growth is whole tiles when anything stands above it, so the storeys over it stay at whole
+     * levels. Stairs and ladders keep their steps (said, when a storey they are in grew).
+     */
+    setSelectionHeight(height, record = true) {
+        const pieces = this.selectionPieces();
+        const walls = pieces.filter(piece => PieceBuilderManager.SIZED_KINDS.includes(piece.kind));
+        if (!walls.length) return false;
+        const tall = Math.max(0.5, Math.min(40, Math.round((Number(height) || 5) * 4) / 4));
+        // Each storey: the level its walls stand at, and how tall they stand now.
+        const storeys = new Map();
+        for (const wall of walls) storeys.set(wall.z, Math.max(storeys.get(wall.z) || 0, wall.height || 5));
+        const bands = [...storeys.entries()].sort((a, b) => a[0] - b[0]);
+        const stacked = bands.some(([base, h]) => pieces.some(piece => piece.z >= base + h - 1e-6));
+        const grown = stacked ? Math.max(1, Math.round(tall)) : tall;
+        const lift = z => bands.reduce((sum, [base, h]) => sum + (base + h <= z + 1e-6 ? grown - h : 0), 0);
+        const max = this.elevation()?.PIECE_MAX_LEVEL ?? 240;
+        const done = this.updateSelection(piece => {
+            const z = Math.max(0, Math.min(max, piece.z + lift(piece.z)));
+            const patch = { z: this.levelStep(piece.kind) < 1 ? Math.round(z * 4) / 4 : Math.round(z) };
+            if (PieceBuilderManager.SIZED_KINDS.includes(piece.kind)) patch.height = grown === 5 ? undefined : grown;
+            return patch;
+        }, record);
+        // A stair or a ladder inside a storey that grew no longer reaches the floor above.
+        if (done && record && pieces.some(piece => (piece.kind === 'stair' || piece.kind === 'ladder') && bands.some(([base, h]) => piece.z >= base - 1e-6 && piece.z < base + h && h !== grown))) {
+            const text = 'Stairs and ladders keep their steps: make them longer to reach the floor above.';
+            window.reactor?.buildHotbar?.flash?.(window.I18n ? window.I18n.tText(text) : text);
+        }
+        return done;
     }
 
     /** The whole selection a number of cells across and along. */

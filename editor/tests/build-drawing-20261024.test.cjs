@@ -141,3 +141,41 @@ test('the Height slider is handled with the panel\'s other sliders, so a drag se
     assert.ok(source.indexOf("if (kind === 'rr-build-height')") < source.indexOf("else if (!placed) return;"), 'before the placed-only branches');
     assert.match(source, /querySelectorAll\('input\[type=number\]\.rr-build-height'\)/, 'the number box when typed');
 });
+
+test('a whole building made taller lifts its upper floors, its next storey and its roof with its walls', () => {
+    const map = freshMap(); const { manager, E } = builderOn(map);
+    // Two storeys of a 2 by 2 house: walls, a doorway and a window at 0, a floor and walls at 5, a roof at 10, an eave at 10.5.
+    const lay = list => { for (const p of list) E.setPiece(map, Object.assign({ rot: 0, material: '', group: 1 }, p)); };
+    lay([{ kind: 'floor', x: 3, y: 3, z: 0 }, { kind: 'wall', x: 3, y: 3, z: 0 }, { kind: 'doorway', x: 4, y: 3, z: 0 }, { kind: 'window', x: 3, y: 4, z: 0 },
+        { kind: 'floor', x: 3, y: 3, z: 5 }, { kind: 'wall', x: 3, y: 3, z: 5 }, { kind: 'wall', x: 4, y: 3, z: 5 },
+        { kind: 'roof', x: 3, y: 3, z: 10 }, { kind: 'box', x: 4, y: 4, z: 10.5, size: [2, 0.25, 1] }, { kind: 'stair', x: 4, y: 4, z: 0 }]);
+    manager.selectedIds = E.pieces(map).map(p => p.id); manager.selected = manager.selectedIds[0];
+    assert.equal(manager.setSelectionHeight(8), true);
+    const at = (kind, x, y) => E.pieces(map).filter(p => p.kind === kind && p.x === x && p.y === y).map(p => [p.z, p.height || 5]).sort((a, b) => a[0] - b[0]);
+    assert.deepEqual(JSON.parse(JSON.stringify(at('wall', 3, 3))), [[0, 8], [8, 8]], 'the ground storey grows to 8 and the upper one stands on it, 8 tall');
+    assert.deepEqual(JSON.parse(JSON.stringify(at('floor', 3, 3))), [[0, 5], [8, 5]], 'the upper floor rises to the top of the walls below');
+    assert.deepEqual(JSON.parse(JSON.stringify(at('doorway', 4, 3))), [[0, 8]], 'a doorway grows with its wall');
+    assert.equal(at('roof', 3, 3)[0][0], 16, 'the roof sits on the taller second storey');
+    assert.equal(E.pieces(map).find(p => p.kind === 'box').z, 16.5, 'and the eave with it');
+    assert.equal(at('stair', 4, 4)[0][0], 0, 'a stair keeps its place');
+    // The doorway's opening stays a door's size; the wall above it reaches the top.
+    const doorway = R.normalizePiece(E.pieces(map).find(p => p.kind === 'doorway'));
+    assert.deepEqual(R.pieceShapes('doorway', doorway)[0].box, [0, R.PIECE_STOREY - 0.6, 0, 1, 8, 1]);
+    // Back down: everything comes back to where it stood.
+    manager.setSelectionHeight(5);
+    assert.deepEqual(JSON.parse(JSON.stringify(at('wall', 3, 3))), [[0, 5], [5, 5]]);
+    assert.equal(at('roof', 3, 3)[0][0], 10);
+});
+
+test('a building\'s parts are read the same after it is made taller: the gable on a taller wall is still its wall', () => {
+    const map = freshMap(); const { manager, E, P } = builderOn(map);
+    const lay = list => { for (const p of list) E.setPiece(map, Object.assign({ rot: 0, material: '', group: 1 }, p)); };
+    lay([{ kind: 'wall', x: 3, y: 3, z: 0 }, { kind: 'block', x: 3, y: 3, z: 5 }, { kind: 'wall', x: 4, y: 3, z: 0 }]);
+    const roleOf = (list, kind) => { const piece = list.find(p => p.kind === kind); const entry = P.buildingParts(list).find(e => e.ids.includes(piece.id)); return entry ? entry.key : null; };
+    const before = roleOf(E.pieces(map), 'block');
+    assert.equal(before, 'wall', 'a block on a wall is part of that wall');
+    manager.selectedIds = E.pieces(map).map(p => p.id); manager.selected = manager.selectedIds[0];
+    manager.setSelectionHeight(8);
+    assert.equal(E.pieces(map).find(p => p.kind === 'block').z, 8);
+    assert.equal(roleOf(E.pieces(map), 'block'), before, 'the block on the wall keeps the wall\'s part');
+});

@@ -327,9 +327,12 @@ A file in `img/characters` whose name has `[8D]` (`$Hero[8D].png`) is cut as eig
   above the ground, up to 240 (forty-eight storeys of five): a whole level,
   or any quarter tile for a `floor`, a `block` and a shape. `rot`: quarter
   turns clockwise seen from above; `0` rises or faces south.
-- `height`: a `wall`, `glass` or `pillar` of its own height, 0.5 to 40
-  tiles in quarters (a storey, 5, when absent): drawn, stood against and
-  cut away at that height.
+- `height`: a `wall`, `glass`, `pillar`, `doorway` or `window` of its own
+  height, 0.5 to 40 tiles in quarters (a storey, 5, when absent): drawn,
+  stood against and cut away at that height. A doorway's or window's
+  opening keeps its size; the wall over it reaches the top. Setting the
+  height of a whole selected building lifts each storey's floors, the
+  storeys above and the roof with its walls.
 - `material`: a name under `img/materials` without extension, or `""` for
   plain grey.
 - `finish`: optional `mirror`, `chrome`, `polished`, `glossy` or `gold`,

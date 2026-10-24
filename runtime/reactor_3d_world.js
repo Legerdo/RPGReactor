@@ -516,7 +516,7 @@ Reactor3D.pieceHeight = function(kind, piece) {
     return kind === "wall" || kind === "doorway" || kind === "window" || kind === "pillar" || kind === "glass" ? this.PIECE_STOREY : 1;
 };
 /** The cell pieces that take a `height` of their own (pieceHeight), in tiles from MIN to MAX_PIECE_HEIGHT. */
-Reactor3D.SIZED_KINDS = ["wall", "glass", "pillar"];
+Reactor3D.SIZED_KINDS = ["wall", "glass", "pillar", "doorway", "window"];
 Reactor3D.MIN_PIECE_HEIGHT = 0.5;
 Reactor3D.MAX_PIECE_HEIGHT = 40;
 
@@ -1516,8 +1516,11 @@ Reactor3D.pieceShapes = function(kind, piece) {
         // two tiles wide — 1.2 m, a door a person walks through — and one
         // alone is a narrow 60 cm gap. A window is the same with a sill
         // under the hole and a header over it.
-        case "doorway": return [box(0, S - 0.6, 0, 1, S, 1)];
-        case "window": return [box(0, 0, 0, 1, 1.5, 1), box(0, S - 1.4, 0, 1, S, 1)];
+        // A doorway's or a window's opening keeps its size in a taller wall: the wall above it reaches the wall's top.
+        // In a wall of another height a doorway's and a window's opening keeps its size (a lower wall's comes down
+        // with it): the wall above the opening reaches the wall's top.
+        case "doorway": return [box(0, Math.min(S, H) - 0.6, 0, 1, H, 1)];
+        case "window": return [box(0, 0, 0, 1, 1.5, 1), box(0, Math.min(S, H) - 1.4, 0, 1, H, 1)];
         // A pane the height of a wall, thin, in the middle of the cell: a viewport, or
         // the glass a plan sets in every window's hole.
         case "glass": return [box(0, 0, 0.45, 1, H, 0.55)];
@@ -5806,12 +5809,12 @@ Reactor3D.lineCellPiece = function(mapData, piece, stack, list) {
         }
         case "ramp": add(0, 0, 0, 1, 1, 1, LINE_WEDGE); break;
         case "roof": add(0, 0, 0, 1, 1, 1, LINE_GABLE); break;
-        case "doorway": add(0, S - 0.6, 0, 1, S, 1); break;
+        case "doorway": add(0, Math.min(S, H) - 0.6, 0, 1, H, 1); break;
         case "window":
             add(0, 0, 0, 1, 1.5, 1);
-            add(0, S - 1.4, 0, 1, S, 1);
+            add(0, Math.min(S, H) - 1.4, 0, 1, H, 1);
             // Shutters drawn shut fill the hole, on the cell's outer face where they hang.
-            if (piece.frame && piece.frame.closed) add(0, 1.5, 0.94, 1, S - 1.4, 1).glass = false;
+            if (piece.frame && piece.frame.closed) add(0, 1.5, 0.94, 1, Math.min(S, H) - 1.4, 1).glass = false;
             break;
         case "glass": add(0, 0, 0.45, 1, H, 0.55).glass = true; break;
         case "fence":

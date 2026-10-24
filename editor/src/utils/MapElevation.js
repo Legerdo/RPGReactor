@@ -747,7 +747,7 @@
      * y + oy): the game works those out from the model itself, so this is the editor's picture only.
      */
     /** The cell pieces that take a height of their own (Reactor3D.SIZED_KINDS). */
-    const SIZED_KINDS = ['wall', 'glass', 'pillar'];
+    const SIZED_KINDS = ['wall', 'glass', 'pillar', 'doorway', 'window'];
     const EVENT_SIZE_MAX = 64;
     const sizeNumber = v => Math.max(1, Math.min(EVENT_SIZE_MAX, Math.floor(Number(v)) || 1));
     const eventSizeEntry = (mapData, eventId) => {
