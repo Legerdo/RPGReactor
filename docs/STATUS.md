@@ -69,6 +69,9 @@ Each system has a guide; the guide is the authority on its behaviour and limits.
 The one list of open threads. Remove an item when it is done; record the doing in the changelog.
 
 - **Builder quality** (2026-10-22 checkpoint, Preview 47): visual acceptance open. Next: vehicle silhouettes/mechanics, weaker sci-fi/plate outfits, and extreme cloth/armor contact. [Characters](CHARACTER-QUALITY.md), [props and caption regression](PROP-BUILDER.md).
+- **Menu opening by itself (2026-10-24, investigating):** in harness runs a menu opened by itself after a vehicle dismount with Escape and, in 3 of about 12 runs, walking east from (188, 38) on North Haven after arriving from the forest. Map005 and Map008 hold no event or sidecar entry near there; the input path across a crossing and a dismount is being checked.
+- **Fleagus and imported humanoids:** they take the motion-capture library only for movement (walk, run, jump, swim, tread, climb); battle states (Guard, attacks, Hit, Death, Victory, Cast) fall back to the hand-keyed presets, which read badly (Guard as hands up). Planned: a model's animation rule can name a library motion, the Motion editor picks one, and Fleagus gets the mocap battle set.
+- **Action Sequence 35 (Sniper Shot):** the shown rifle sometimes spins and Fleagus turns backwards in the preview; under investigation (`Held.aim`, `reactor_3d_models.js`).
 - **Waiting on the owner:** [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md), the one list, each item with a recommendation.
 - **Neighbors:** a map three maps out still appears at a crossing. The crossing frame still misses about one refresh (25 to 40 ms): the new map scene built on every transfer. Keeping the map scene across a seamless crossing is the next step ([PERFORMANCE.md](PERFORMANCE.md) › Border crossing).
 - **Cutaway look:** in the game's cutaway the stamped Cottage's cut walls show plain light grey; the editor's Storeys cut shows stone. Not yet compared with an older commit.
@@ -90,6 +93,7 @@ The owner's calls; don't reopen them.
 
 - A failed import leaves its folder. `template/Project2` stays as it is. Walls hold water. Cancel and Undo revert 3D model bindings.
 - The Build bar and its panels stay dark in light themes. System 2's sections stay open. The event list can be folded; a click on a row turns on Event mode.
+- `template/Barebones` is an early throwaway test project; the Demo is the project that matters. Don't spend effort on Barebones.
 - A vehicle is placed either way: an event with the Vehicle field, or a Starting Position on the Vehicles page.
 - North Haven (Demo `Map005.json` and `Map005.r3d.json`) is edited in the editor. The builder that generated it (`scratchpad/northhaven/`, not in git) is a one-off; `build.cjs --demo` would discard every edit since 2026-09-28.
 

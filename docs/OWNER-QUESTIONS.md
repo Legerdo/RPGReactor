@@ -14,13 +14,7 @@ None open.
 
 ## C. Only the owner can do these
 
-1. By hand: dismount a vehicle with Escape, and load a save with the keyboard. In harness runs the menu twice opened by itself after the dismount, and one keyboard load did nothing. Both were probably the harness. Also: walking east from (188, 38) on North Haven after arriving from the forest, a menu screen opened by itself in 3 of about 12 harness runs; nothing on the map triggers one there.
-2. Review North Haven (landscape, rivers, foliage, HD materials, the village, night). The five motorcycles are now Starting Positions using the vehicle's own model facing south; their old event models were turned 163° and tilted 7°.
-3. Playtest an Action battle: followers now hold back until the leader attacks or drops below half HP. Does it feel right?
-4. Look at Barebones Map002 and Map003: drawn on a Star Shift tileset Barebones lacks, they now use SF Inside and look different.
-5. Look at the regrouped Database menu and sidebar (Animations and Action Sequences under Battle, Music Sequences under Events and Interfaces).
-6. Look at the weak-GPU picture on the UHD 630: edges, beams, and the `"cas"` against the `"crisp"` upscale.
-7. Look at the motion presets on Fleagus: Guard reads as hands up, Swim and Jump are awkward, and there are no finger joints.
-8. Look at Preview 47 vehicles (`scratchpad/vehicle-corrections-20261022/review.html`) for visual acceptance.
-9. Look at the floating windows on the real desktop: transparent rounded corners on Linux, the Forge's first opening, and the Plugin Manager beside the others.
-10. Check weaker hardware and two monitors.
+The owner reviews North Haven, playtests battles and tries weaker hardware on their own schedule; these are listed only when a specific question needs an answer.
+
+1. Look at the weak-GPU picture on the UHD 630: edges, beams, and the `"cas"` against the `"crisp"` upscale (later).
+2. Look at Preview 47 vehicles (`scratchpad/vehicle-corrections-20261022/review.html`) for visual acceptance (later).
