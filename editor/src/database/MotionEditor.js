@@ -24,6 +24,90 @@ class RRMotionEditor {
         this.track = 0;
         this.root = null;
         this._playFrom = null;
+        // Key poses (the whole body at a moment) unless the per-part timeline is asked for; a pose copied.
+        this.perPart = false;
+        this.clipboard = null;
+    }
+
+    // ---- Key poses: the whole body at a moment, made, moved, mirrored and copied as one ----
+
+    /** How close two keys' moments are to count as one pose. */
+    static get POSE_SNAP() { return 0.015; }
+
+    /** The tracks a pose is made of: every part keyed by pose (not a spin, swing or bob riding along). */
+    poseTracks() { return (this.motion ? this.motion.tracks : []).filter(t => !t.other && t.keys); }
+
+    /** The moments the motion has a pose at, from every part's keys, near ones as one: sorted, 0-1. */
+    poseTimes() {
+        const times = [];
+        for (const t of this.poseTracks()) for (const k of t.keys) if (!times.some(at => Math.abs(at - k.at) < RRMotionEditor.POSE_SNAP)) times.push(k.at);
+        return times.sort((a, b) => a - b);
+    }
+
+    /** The pose at the playhead, when the playhead stands on one. */
+    poseHere() { return this.poseTimes().find(at => Math.abs(at - this.playhead) < RRMotionEditor.POSE_SNAP) ?? null; }
+
+    /** A pose at the playhead: every part keyed there as it stands now (moving from one pose to the next). */
+    addPose() { for (const t of this.poseTracks()) this.keyAtPlayhead(t, true); }
+
+    /** The pose at `at` taken away from every part (a part keeps at least one key). */
+    removePose(at) {
+        for (const t of this.poseTracks()) {
+            if (t.keys.length <= 1) continue;
+            t.keys = t.keys.filter(k => Math.abs(k.at - at) >= RRMotionEditor.POSE_SNAP);
+        }
+    }
+
+    /** A pose moved to another moment: every part's key there goes with it. */
+    movePose(from, to) {
+        const at = Math.max(0, Math.min(1, Math.round(to * 1000) / 1000));
+        for (const t of this.poseTracks()) {
+            for (const k of t.keys) if (Math.abs(k.at - from) < RRMotionEditor.POSE_SNAP) k.at = at;
+            t.keys.sort((a, b) => a.at - b.at);
+        }
+        return at;
+    }
+
+    /** A part's other side by its name (LeftUpperLeg and RightUpperLeg, Left_Arm and Right_Arm), or null. */
+    static mirrorPart(part) {
+        const text = String(part || '');
+        const swap = text.replace(/Left|Right|left|right|\bL\b|\bR\b/g, side => ({ Left: 'Right', Right: 'Left', left: 'right', right: 'left', L: 'R', R: 'L' })[side]);
+        return swap !== text ? swap : null;
+    }
+
+    /** A turn seen in a mirror across the body (left to right): the same bend, the other way round the other two axes. */
+    static mirrorTurn(rotate) { return [rotate[0], -rotate[1], -rotate[2]]; }
+
+    /** The pose at the playhead as `{ part: { rotate, move } }`, every part keyed by pose. */
+    poseAtPlayhead() {
+        const out = {};
+        for (const t of this.poseTracks()) out[t.part] = this.sampleTrack(t, this.playhead);
+        return out;
+    }
+
+    /** Set parts' keys at the playhead to `pose` (`{ part: { rotate, move } }`), adding a part's track when it has none. */
+    writePose(pose) {
+        const m = this.motion;
+        for (const [part, value] of Object.entries(pose)) {
+            let t = m.tracks.find(track => track.part === part && !track.other);
+            if (!t) { t = { part, keys: [] }; m.tracks.push(t); }
+            const stop = this.keyAtPlayhead(t, true);
+            stop.rotate = value.rotate.map(v => Math.round(v * 10) / 10);
+            stop.move = value.move.slice();
+        }
+    }
+
+    /** The pose at the playhead mirrored: each side takes the other's turn, seen in a mirror; the middle turns back. */
+    mirrorPose() {
+        const pose = this.poseAtPlayhead(), next = {};
+        for (const [part, value] of Object.entries(pose)) {
+            const other = RRMotionEditor.mirrorPart(part);
+            if (other) next[other] = { rotate: RRMotionEditor.mirrorTurn(value.rotate), move: [-value.move[0], value.move[1], value.move[2]] };
+            else next[part] = { rotate: RRMotionEditor.mirrorTurn(value.rotate), move: [-value.move[0], value.move[1], value.move[2]] };
+        }
+        // A side with no partner keyed here goes back to rest when its partner had nothing.
+        for (const part of Object.keys(pose)) if (!next[part]) next[part] = { rotate: [0, 0, 0], move: [0, 0, 0] };
+        this.writePose(next);
     }
 
     get active() { return !!this.motion; }
@@ -241,12 +325,14 @@ class RRMotionEditor {
                 <button type="button" class="rr-btn-secondary r3d-motion-play" data-rr-i18n-skip="1"></button>
                 <button type="button" class="r3d-motion-close" title="${rrEscapeHtml(tt('Close'))}">×</button>
             </div>
-            <div class="r3d-motion-body">
+            ${this.perPart ? '' : this.poseBody(partName, track, pose, slider)}
+            ${this.perPart ? `            <div class="r3d-motion-body">
                 <div class="r3d-motion-tracks">
                     ${m.tracks.map((t, i) => `<div class="r3d-motion-track${i === this.track ? ' active' : ''}" data-i="${i}"><span>${rrEscapeHtml(partName(t.part))}${t.other ? ` <em>· ${rrEscapeHtml(tt(t.other.type === 'spin' ? 'Spin' : t.other.type === 'swing' ? 'Swing' : 'Bob'))}</em>` : ''}</span><button type="button" class="r3d-motion-track-remove" data-i="${i}" title="${rrEscapeHtml(tt('Remove'))}">×</button></div>`).join('')}
                     <select class="database-field-value r3d-motion-add"><option value="">${rrEscapeHtml(tt('+ Part…'))}</option>${addable.map(p => `<option value="${rrEscapeHtml(p)}">${rrEscapeHtml(partName(p))}</option>`).join('')}${m.hold ? '' : `<optgroup label="${rrEscapeHtml(tt('Other motion'))}">${['spin', 'swing', 'bob'].map(type => `<option value="@${type}">${rrEscapeHtml(tt(type === 'spin' ? 'Spin' : type === 'swing' ? 'Swing' : 'Bob'))}</option>`).join('')}</optgroup>`}</select>
                 </div>
-                <div class="r3d-motion-timeline">
+                <div class="r3d-motion-timeline r3d-motion-parts">
+                    <button type="button" class="rr-btn-secondary r3d-motion-backtoposes">${rrEscapeHtml(tt('← Poses'))}</button>
                     <div class="r3d-motion-ruler">${[0, 0.25, 0.5, 0.75, 1].map(f => `<span style="left:${f * 100}%">${(f * m.frames / 60).toFixed(1)}s</span>`).join('')}</div>
                     ${m.tracks.map((t, i) => `<div class="r3d-motion-row${i === this.track ? ' active' : ''}" data-i="${i}">${(t.keys || []).map((k, j) => `<span class="r3d-motion-key${m.hold ? ' stance' : ''}" data-i="${i}" data-k="${j}" style="left:${(m.hold ? 1 : k.at) * 100}%"></span>`).join('')}</div>`).join('')}
                     <div class="r3d-motion-playhead"></div>
@@ -261,10 +347,70 @@ class RRMotionEditor {
                         ${!m.hold ? `<div class="r3d-motion-pose-actions">${keyed ? `<button type="button" class="rr-btn-secondary r3d-motion-key-delete">${rrEscapeHtml(tt('Delete key'))}</button>` : `<button type="button" class="rr-btn-secondary r3d-motion-key-set">${rrEscapeHtml(tt('Add key'))}</button>`}</div>` : ''}`
                         : `<div class="r3d-motion-pose-title">${rrEscapeHtml(track ? tt('Edited on its own card.') : tt('Add a part to move it.'))}</div>${track && track.other ? `<button type="button" class="rr-btn-secondary r3d-motion-other">${rrEscapeHtml(tt('Edit'))}</button>` : ''}`}
                 </div>
+` : ''}
             </div>`;
         this.renderPlayButton();
         this.drawPlayhead();
         this.bind();
+        if (!this.perPart) this.bindPoses();
+    }
+
+    /**
+     * The key-pose view: one strip of the motion's poses (the whole body at a moment) to scrub, click or
+     * drag; what to do with a pose as buttons; and the body part clicked on the model, to bend. The
+     * per-part timeline is a button away.
+     */
+    poseBody(partName, track, pose, slider) {
+        const m = this.motion, tt = text => this._t(text);
+        const times = this.poseTimes(), here = this.poseHere();
+        const button = (cls, label, title, disabled) => `<button type="button" class="rr-btn-secondary ${cls}"${title ? ` title="${rrEscapeHtml(title)}"` : ''}${disabled ? ' disabled' : ''}>${rrEscapeHtml(label)}</button>`;
+        const parts = this.poseTracks().length;
+        const strip = `<div class="r3d-motion-timeline r3d-motion-strip">
+                <div class="r3d-motion-ruler">${[0, 0.25, 0.5, 0.75, 1].map(f => `<span style="left:${f * 100}%">${(f * m.frames / 60).toFixed(1)}s</span>`).join('')}</div>
+                <div class="r3d-motion-row r3d-motion-poserow">${times.map((at, i) => `<span class="r3d-motion-posekey${here !== null && Math.abs(here - at) < 1e-9 ? ' on' : ''}" data-at="${at}" style="left:${(m.hold ? 1 : at) * 100}%" title="${rrEscapeHtml(tt('Pose'))} ${i + 1}">${i + 1}</span>`).join('')}</div>
+                <div class="r3d-motion-playhead"></div>
+            </div>`;
+        const actions = `<div class="r3d-motion-strip-actions">
+                ${m.hold ? '' : button('r3d-motion-pose-add', here === null ? tt('+ Pose here') : tt('Pose here ✓'), tt('Key the whole body as it stands at the playhead'), here !== null || !parts)}
+                ${m.hold ? '' : button('r3d-motion-pose-remove', tt('Remove pose'), '', here === null)}
+                ${button('r3d-motion-pose-mirror', tt('Mirror ⇆'), tt('Swap the left and right sides of this pose, as in a mirror'), !parts)}
+                ${button('r3d-motion-pose-copy', tt('Copy'), tt('Copy the whole body\'s pose here'), !parts)}
+                ${button('r3d-motion-pose-paste', tt('Paste'), tt('Put the copied pose here'), !this.clipboard)}
+                <span class="r3d-motion-spacer"></span>
+                ${button('r3d-motion-perpart', tt('Per part…'), tt('Time each part on its own row'))}
+            </div>`;
+        const part = track && !track.other ? `<div class="r3d-motion-pose-title">${rrEscapeHtml(partName(track.part))}</div>
+                ${slider('r3d-motion-rot', 0, pose.rotate[0], -180, 180, 1, tt('Bend'))}
+                ${slider('r3d-motion-rot', 1, pose.rotate[1], -180, 180, 1, tt('Turn'))}
+                ${slider('r3d-motion-rot', 2, pose.rotate[2], -180, 180, 1, tt('Tilt'))}
+                ${track.part === '' ? slider('r3d-motion-move', 1, pose.move[1], -1, 1, 0.01, tt('Lift')) : ''}
+                <div class="r3d-motion-pose-actions">${button('r3d-motion-part-reset', tt('Straighten'), tt('This part back to its rest at the playhead'))}</div>`
+            : `<div class="r3d-motion-pose-title">${rrEscapeHtml(tt('Click a body part on the model to bend it.'))}</div>`;
+        return `<div class="r3d-motion-body r3d-motion-posebody">
+                <div class="r3d-motion-main">${strip}${actions}
+                    <div class="r3d-motion-hint">${rrEscapeHtml(parts ? tt('Each numbered pose is the whole body at that moment; the motion moves between them. Drag one to retime it.') : tt('Click a body part on the model to start: bend it, then move the playhead and bend it again.'))}</div>
+                </div>
+                <div class="r3d-motion-pose">${part}</div>
+            </div>`;
+    }
+
+    /** The key-pose view's controls. */
+    bindPoses() {
+        const root = this.root, m = this.motion;
+        const changed = () => { this.commit(); this.render(); };
+        root.querySelector('.r3d-motion-perpart')?.addEventListener('click', () => { this.perPart = true; this.render(); });
+        root.querySelector('.r3d-motion-pose-add')?.addEventListener('click', () => { this.addPose(); changed(); });
+        root.querySelector('.r3d-motion-pose-remove')?.addEventListener('click', () => { const at = this.poseHere(); if (at !== null) { this.removePose(at); changed(); } });
+        root.querySelector('.r3d-motion-pose-mirror')?.addEventListener('click', () => { this.mirrorPose(); changed(); });
+        root.querySelector('.r3d-motion-pose-copy')?.addEventListener('click', () => { this.clipboard = JSON.parse(JSON.stringify(this.poseAtPlayhead())); this.render(); });
+        root.querySelector('.r3d-motion-pose-paste')?.addEventListener('click', () => { if (this.clipboard) { this.writePose(JSON.parse(JSON.stringify(this.clipboard))); changed(); } });
+        root.querySelector('.r3d-motion-part-reset')?.addEventListener('click', () => {
+            const t = m.tracks[this.track];
+            if (!t || t.other) return;
+            const stop = this.keyAtPlayhead(t, true);
+            stop.rotate = [0, 0, 0]; stop.move = [0, 0, 0];
+            changed();
+        });
     }
 
     renderPlayButton() {
@@ -273,13 +419,14 @@ class RRMotionEditor {
     }
 
     drawPlayhead() {
-        const head = this.root && this.root.querySelector('.r3d-motion-playhead');
-        if (head) head.style.left = `calc(10px + (100% - 20px) * ${this.playhead})`;
+        if (!this.root) return;
+        const heads = this.root.querySelectorAll ? this.root.querySelectorAll('.r3d-motion-playhead') : [this.root.querySelector('.r3d-motion-playhead')];
+        for (const head of heads) if (head) head.style.left = `calc(10px + (100% - 20px) * ${this.playhead})`;
     }
 
     /** The timeline point under a pointer (0-1), snapped to a hundredth. */
     pointAt(event) {
-        const rect = this.root.querySelector('.r3d-motion-ruler').getBoundingClientRect();
+        const rect = this.root.querySelector((this.perPart ? '.r3d-motion-parts' : '.r3d-motion-strip') + ' .r3d-motion-ruler').getBoundingClientRect();
         const t = (event.clientX - rect.left) / Math.max(1, rect.width);
         return Math.round(Math.max(0, Math.min(1, t)) * 100) / 100;
     }
@@ -313,7 +460,7 @@ class RRMotionEditor {
             this.track = Math.max(0, Math.min(this.track, m.tracks.length - 1));
             changed();
         }));
-        root.querySelector('.r3d-motion-add').addEventListener('change', event => {
+        root.querySelector('.r3d-motion-add')?.addEventListener('change', event => {
             const part = event.target.value;
             if (event.target.selectedIndex <= 0) return;
             if (part.startsWith('@')) { this.addOther(part.slice(1)); return; }
@@ -321,9 +468,21 @@ class RRMotionEditor {
             this.track = m.tracks.length - 1;
             changed();
         });
-        // The timeline: a press sets the playhead (and picks the row); a key drags along it.
-        const area = root.querySelector('.r3d-motion-timeline');
+        root.querySelector('.r3d-motion-backtoposes')?.addEventListener('click', () => { this.perPart = false; this.render(); });
+        // The timeline: a press sets the playhead (and picks the row); a key drags along it (a pose moves every part's key with it).
+        const area = root.querySelector(this.perPart ? '.r3d-motion-parts' : '.r3d-motion-strip');
         area.addEventListener('pointerdown', event => {
+            if (event.target.closest('.r3d-motion-backtoposes')) return;
+            const poseEl = event.target.closest('.r3d-motion-posekey');
+            if (poseEl && !m.hold) {
+                let from = Number(poseEl.dataset.at), moved = false;
+                this.playhead = from; this.playing = false; this.renderPlayButton(); this.drawPlayhead();
+                area.setPointerCapture?.(event.pointerId);
+                const move = e => { const to = this.pointAt(e); from = this.movePose(from, to); this.playhead = from; poseEl.style.left = `${from * 100}%`; this.drawPlayhead(); moved = true; };
+                const up = () => { area.removeEventListener('pointermove', move); area.removeEventListener('pointerup', up); if (moved) changed(); else this.render(); };
+                area.addEventListener('pointermove', move); area.addEventListener('pointerup', up);
+                return;
+            }
             const keyEl = event.target.closest('.r3d-motion-key');
             const row = event.target.closest('.r3d-motion-row');
             if (row) this.track = Number(row.dataset.i);

@@ -7889,3 +7889,35 @@ html.rr-detached-window.rr-repaint { clip-path: inset(0 round calc(var(--radius-
 .rr-build-range > .rr-build-chip { justify-self: start; padding-left: 6px; padding-right: 6px; }
 /* The Models panel's scatter settings, shut while Scatter is off. */
 .mp-scatter-fields[hidden] { display: none !important; }
+
+/* Database › 3D Models › Add a motion: to the right, no dimming, so the model it plays on stays in view. */
+.rr-modal-overlay.r3d-picker-overlay { background: transparent; justify-content: flex-end; align-items: stretch; padding: 60px 16px 70px 0; pointer-events: none; }
+.r3d-picker { pointer-events: auto; width: min(430px, calc(100vw - 24px)); max-height: 100%; display: flex; flex-direction: column; }
+.r3d-picker .rr-modal-body { overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.r3d-picker-lead, .r3d-picker-note { font-size: 11px; color: var(--color-text-muted); line-height: 1.35; }
+.r3d-picker-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 8px; }
+.r3d-picker-card { display: flex; flex-direction: column; gap: 4px; padding: 7px 8px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-panel); min-width: 0; }
+.r3d-picker-name { font-weight: 600; font-size: 12px; color: var(--color-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r3d-picker-whenlabel { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--color-text-muted); font-size: 10px; cursor: pointer; text-align: left; text-decoration: underline dotted; text-underline-offset: 2px; }
+.r3d-picker-whenlabel:hover { color: var(--color-accent-bright); }
+.r3d-picker-actions { display: flex; gap: 4px; }
+.r3d-picker-actions .r3d-picker-play { flex: 0 0 30px; padding: 3px 0; }
+.r3d-picker-actions .r3d-picker-add { flex: 1 1 auto; min-width: 0; padding: 3px 6px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r3d-picker-own { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Motion editor › key poses: one strip of whole-body poses, what to do with one as buttons, the part clicked to bend. */
+.r3d-motion-posebody { display: flex; min-height: 0; flex: 1; overflow: hidden; }
+.r3d-motion-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 0 0 8px; background: var(--color-bg-panel); }
+.r3d-motion-timeline.r3d-motion-strip { flex: 0 0 64px; overflow: visible; cursor: pointer; }
+.r3d-motion-poserow { height: 44px; flex: 0 0 44px; border-bottom: 0; }
+.r3d-motion-posekey {
+    position: absolute; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+    background: var(--color-bg-deep); color: var(--color-text-strong); border: 2px solid var(--color-accent); cursor: ew-resize; user-select: none;
+}
+.r3d-motion-posekey.on { background: var(--color-accent); color: var(--color-bg-deep); }
+.r3d-motion-strip-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px; }
+.r3d-motion-strip-actions > button { font-size: 11px; padding: 4px 10px; }
+.r3d-motion-spacer { flex: 1; }
+.r3d-motion-hint { padding: 0 10px; font-size: 11px; color: var(--color-text-muted); line-height: 1.35; }
+.r3d-motion-backtoposes { position: absolute; right: 10px; top: 22px; z-index: 2; font-size: 11px; padding: 2px 8px; }

@@ -324,7 +324,7 @@ class Database3DEditor {
         search.addEventListener('blur', () => {
             search.style.borderColor = 'var(--color-border-input)';
         });
-        detailEl.querySelector('.r3d-motions').addEventListener('click', () => this.showMotionPresets());
+        detailEl.querySelector('.r3d-motions').addEventListener('click', () => (this._libraryMotions().length ? this.showMotionPicker() : this.showMotionPresets()));
         detailEl.querySelector('.r3d-rule-add').addEventListener('click', () => this._afterEffectWork(() => this.addRule()));
         detailEl.querySelector('.r3d-effect-add').addEventListener('click', () => this.addModelEffect());
         detailEl.querySelector('.r3d-look-add').addEventListener('click', () => this.variantsPanel.add());
@@ -9109,7 +9109,14 @@ class Database3DEditor {
         return sim.riding ? 'riding' : sim.climbing ? 'climbing' : sim.swimming ? (sim.walking ? 'swimming' : 'treading') : sim.jumping ? 'jumping' : sim.dashing ? 'dashing' : sim.walking ? 'walking' : 'standing';
     }
 
-    setPreviewState(state) {
+    setPreviewState(state, options = {}) {
+        // With a motion open on the timeline the preview stands at its playhead: a state button shows that
+        // state instead (the motion's own state plays it through, the editor staying open).
+        const editor = this.motionEditor;
+        if (editor && editor.active && !options.keepEditor) {
+            if (editor.motion.trigger === state) { editor.playing = true; editor._playFrom = null; editor.renderPlayButton(); }
+            else { editor.commit(); editor.close(); }
+        }
         // Swimming is moving through deep water; treading is floating still in it.
         this._sim.walking = state === 'walking' || state === 'dashing' || state === 'swimming';
         this._sim.dashing = state === 'dashing';
@@ -9227,7 +9234,9 @@ class Database3DEditor {
             const group = this.motionGroup(index);
             if (group && group[0] !== index) return;
             shown++;
-            const summary = group ? this.motionSummary(raw, group.length) : this.ruleSummary(raw);
+            let summary = group ? this.motionSummary(raw, group.length) : this.ruleSummary(raw);
+            // A hand-keyed motion in a state the rig plays motion capture in takes that capture's place: said so.
+            if (!raw.library && ['walking', 'dashing', 'jumping', 'swimming', 'treading', 'climbing'].includes(raw.trigger) && this._libraryMotions().length) summary += ' · ' + this._t('in place of the motion capture');
             const actions = [];
             // On-demand motions play from their own row: one button per name (a preset's parts play together).
             if (raw.trigger === 'action' && this.rawAnimations.findIndex(other => other.trigger === 'action' && other.name === raw.name) === index) {
@@ -9240,6 +9249,8 @@ class Database3DEditor {
             });
             row.dataset.modelRecordIndex = String(index);
             row.addEventListener('click', () => this._afterEffectWork(() => {
+                // A motion that plays in a state is seen in it: the preview turns to that state.
+                if (raw.trigger && this.previewStates().includes(raw.trigger) && this.previewState() !== raw.trigger) this.setPreviewState(raw.trigger, { keepEditor: true });
                 if (group && this.motionEditor) {
                     this.deselectPart();
                     this.selectedRule = index;
@@ -9400,10 +9411,120 @@ class Database3DEditor {
         this.renderRuleList();
     }
 
-    /** Add opens the card on a fresh, motionless animation. */
+    /**
+     * Add: a rigged humanoid picks from the motion capture first (the picker); any other model opens a
+     * fresh motion to key by hand.
+     */
     addRule() {
+        if (this._libraryMotions().length) { this.showMotionPicker(); return; }
         if (this.motionEditor) { this.deselectPart(); this.motionEditor.open(null); return; }
         this.addSingleRule();
+    }
+
+    /** The state a library motion plays in by itself (Jumping plays while jumping), else on demand. */
+    static libraryTrigger(id) {
+        return { walk: 'walking', run: 'dashing', jump: 'jumping', fall: 'jumping', swim: 'swimming', tread: 'treading', climbLadder: 'climbing', climbWall: 'climbing' }[id] || 'action';
+    }
+
+    /** The saved animations that play in a state (every rule of that trigger), by name, once each. */
+    _motionsIn(trigger) {
+        if (!trigger || trigger === 'action' || trigger === 'always') return [];
+        return [...new Set(this.rawAnimations.filter(raw => raw && raw.trigger === trigger).map(raw => raw.name || '?'))];
+    }
+
+    /** Put a library motion on the model, in a state (replacing what played there) or on demand. */
+    addLibraryMotion(id, trigger) {
+        const pose = this._libraryMotions().find(entry => entry.id === id);
+        if (!pose) return null;
+        const replaced = this._motionsIn(trigger);
+        if (this.motionEditor && this.motionEditor.active) this.motionEditor.close();
+        if (replaced.length) this.rawAnimations = this.rawAnimations.filter(raw => !(raw && raw.trigger === trigger));
+        // A name of its own: the library's label, numbered when another animation has it.
+        const taken = new Set(this.rawAnimations.map(raw => raw && raw.name));
+        let name = this._t(pose.label);
+        for (let n = 2; taken.has(name); n++) name = `${this._t(pose.label)} ${n}`;
+        this.rawAnimations.push({ name, type: 'clip', trigger, library: id });
+        this.selectedRule = this.rawAnimations.length - 1;
+        this.saveRules();
+        this.rebuildPlayback();
+        this.renderRuleList();
+        // Seen at once: its state in the preview, or played.
+        if (trigger !== 'action' && trigger !== 'always' && this.previewStates().includes(trigger)) this.setPreviewState(trigger);
+        else if (trigger === 'action') this.playRuleAction(name);
+        return { name, replaced };
+    }
+
+    /**
+     * Add a motion: the motion capture of Forge › 3D Character Builder first, by its groups, each with
+     * when it plays (its state, suggested) and a ▶ that shows it on the model beside the panel; using one
+     * for a state replaces what played there. Then what to make by hand: the keyed starting points and a
+     * blank motion of key poses.
+     */
+    showMotionPicker() {
+        const motions = this._libraryMotions();
+        if (!motions.length) { this.showMotionPresets(); return; }
+        const library = Reactor3D.motionLibrary();
+        const groups = (library && library.GROUPS) || [{ id: '', label: '' }];
+        const escape = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        const triggers = typeof RRMotionEditor !== 'undefined' ? RRMotionEditor.TRIGGERS() : [['action', 'On demand']];
+        const overlay = document.createElement('div');
+        // No dimming, and to the side: the model stays in view to show what ▶ plays.
+        overlay.className = 'rr-modal-overlay r3d-picker-overlay';
+        const modal = document.createElement('div');
+        modal.className = 'rr-modal r3d-picker';
+        const card = pose => {
+            const when = Database3DEditor.libraryTrigger(pose.id);
+            return `<div class="r3d-picker-card" data-id="${escape(pose.id)}">
+                <div class="r3d-picker-name">${escape(this._t(pose.label))}</div>
+                <button type="button" class="r3d-picker-whenlabel" title="${escape(this._t('Change when it plays'))}" data-rr-i18n-skip="1"></button>
+                <select class="database-field-value r3d-picker-when" hidden title="${escape(this._t('Play when'))}">${triggers.map(([v, l]) => `<option value="${v}"${v === when ? ' selected' : ''}>${escape(this._t(l))}</option>`).join('')}</select>
+                <div class="r3d-picker-actions"><button type="button" class="rr-btn-secondary r3d-picker-play" title="${escape(this._t('Play'))}">▶</button>
+                <button type="button" class="rr-btn-primary r3d-picker-add" data-rr-i18n-skip="1"></button></div></div>`;
+        };
+        modal.innerHTML = `
+            <div class="rr-modal-header"><div class="rr-modal-title">${escape(this._t('Add a motion'))}</div><button class="rr-modal-close r3d-picker-close" type="button">×</button></div>
+            <div class="rr-modal-body">
+                <div class="r3d-picker-lead">${escape(this._t('Motion capture, as Forge › 3D Character Builder uses it: fitted to this character, nothing to animate. ▶ shows it on the model.'))}</div>
+                ${groups.map(group => {
+                    const list = motions.filter(pose => (pose.group || '') === group.id || (!group.id));
+                    return list.length ? `<div class="lit-section r3d-picker-group"><div class="lit-section-header">${escape(this._t(group.label || 'Motions'))}</div><div class="r3d-picker-grid">${list.map(card).join('')}</div></div>` : '';
+                }).join('')}
+                <div class="lit-section r3d-picker-group"><div class="lit-section-header">${escape(this._t('Make your own'))}</div><div class="lit-section-body r3d-picker-own">
+                    <button type="button" class="rr-btn-secondary r3d-picker-keyed">${escape(this._t('Hand-keyed starting points…'))}</button>
+                    <button type="button" class="rr-btn-secondary r3d-picker-blank">${escape(this._t('A motion of key poses'))}</button>
+                    <div class="r3d-picker-note">${escape(this._t('Key a pose of the whole body, then another: the motion moves between them.'))}</div>
+                </div></div>
+            </div>
+            <div class="rr-modal-footer"><button class="rr-btn-secondary r3d-picker-done">${escape(this._t('Close'))}</button></div>`;
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        const keys = typeof RRKeyboardNavigation !== 'undefined' && RRKeyboardNavigation.modal ? RRKeyboardNavigation.modal(overlay, { onEscape: () => close() }) : null;
+        const close = () => { keys?.leave?.(); overlay.remove(); };
+        modal.querySelector('.r3d-picker-close').addEventListener('click', close);
+        modal.querySelector('.r3d-picker-done').addEventListener('click', close);
+        // What Add does, for the state chosen: added, used in a state, or replacing what plays there.
+        const label = el => {
+            const id = el.dataset.id, select = el.querySelector('.r3d-picker-when'), when = select.value, button = el.querySelector('.r3d-picker-add');
+            // When it plays, said in a line (a click on it gives the choice): no field to fill in for the usual case.
+            el.querySelector('.r3d-picker-whenlabel').textContent = select.options[select.selectedIndex]?.textContent || '';
+            const added = this.rawAnimations.some(raw => raw && raw.library === id && raw.trigger === when);
+            const replaced = this._motionsIn(when);
+            button.disabled = added;
+            button.textContent = added ? `✓ ${this._t('Added')}` : replaced.length ? this._t('Use instead of {names}', { names: replaced.join(', ') }) : this._t('Add');
+        };
+        modal.querySelectorAll('.r3d-picker-card').forEach(el => {
+            label(el);
+            el.querySelector('.r3d-picker-when').addEventListener('change', () => { el.querySelector('.r3d-picker-when').hidden = true; el.querySelector('.r3d-picker-whenlabel').hidden = false; label(el); });
+            el.querySelector('.r3d-picker-whenlabel').addEventListener('click', () => { el.querySelector('.r3d-picker-whenlabel').hidden = true; const select = el.querySelector('.r3d-picker-when'); select.hidden = false; select.focus(); });
+            el.querySelector('.r3d-picker-play').addEventListener('click', () => this.playEmbeddedClip(Database3DEditor.LIBRARY_PREFIX + el.dataset.id));
+            el.querySelector('.r3d-picker-add').addEventListener('click', () => {
+                this.addLibraryMotion(el.dataset.id, el.querySelector('.r3d-picker-when').value);
+                modal.querySelectorAll('.r3d-picker-card').forEach(label);
+            });
+        });
+        modal.querySelector('.r3d-picker-keyed').addEventListener('click', () => { close(); this.showMotionPresets(); });
+        modal.querySelector('.r3d-picker-blank').addEventListener('click', () => { close(); if (this.motionEditor) { this.deselectPart(); this.motionEditor.open(null); } else this.addSingleRule(); });
+        keys?.enter?.();
     }
 
     /** A lone spin, swing or bob (or a pose) on the classic card. */
