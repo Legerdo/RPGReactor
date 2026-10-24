@@ -352,8 +352,15 @@ staircase of cells. The **Level** card (− and +, or Q and E) is where the
 next piece goes; selected, it raises and lowers what is selected, as Q and
 E do, and a placed piece's **Position** card moves it by typing. The
 **Size** card sets a wall's, glass's or pillar's height, of one in hand, one
-placed or every one in a selection. Each slot shows its key (1 to 0, the
-Eraser X). A right-click takes a piece off and a right-drag turns the view
+placed or every one in a selection. A **Window**, **Doorway**, **Glass** or
+**Door** pointed at a wall goes into it, in place of the piece of wall
+pointed at, keeping the wall's material, building and height: a window
+where it is aimed (on a wall taller than a storey the wall below it stays),
+a doorway from the wall's foot, a door with its doorway as wide as the door
+along the wall. It looks out of the building, whichever side it is laid
+from; dragged along a wall it goes into each piece passed. A **Wall**
+pointed at a window, doorway or pane walls it up. Each slot shows its key
+(1 to 0, the Eraser X). A right-click takes a piece off and a right-drag turns the view
 (Shift-drag or the middle button moves it); R turns the piece in hand, and
 Escape in Select with nothing selected leaves Build. A stair laid or turned
 with its foot against a wall is said. The map bar's **Storeys** list shows

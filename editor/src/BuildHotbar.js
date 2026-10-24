@@ -583,6 +583,9 @@ class BuildHotbar {
             const rot = piece ? (s.shape ? Math.round(((piece.angle || 0) / 90) % 4) : piece.rot) : (s.shape ? 0 : manager.rot);
             let advanced = '';
             body += lead(piece ? this._t('build.hint.edit') : kind === 'rock' ? this._t('build.rock.hint') : s.shape ? this._t('build.hint.place') : escape(tt('Click to place one. Drag to draw, as the Draw card below is set.')));
+            // Windows, doorways, panes and doors go into a wall pointed at; a wall fills an opening.
+            if (!piece && PieceBuilderManager.OPENINGS.includes(kind)) body += lead(escape(tt('Point at a wall to set it into the wall, where you point. The wall\'s material and height are kept.')));
+            if (!piece && kind === 'wall') body += lead(escape(tt('Point at a window or doorway to wall it up.')));
             // A rock: sizes to start from, the one in use lit; in hand, whether each rock of a drag varies.
             let rockPresets = '';
             if (kind === 'rock') {

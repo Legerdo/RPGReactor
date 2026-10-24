@@ -95,6 +95,105 @@ class PieceBuilderManager {
     /** The cell pieces that take a height of their own (Reactor3D.SIZED_KINDS). */
     static SIZED_KINDS = ['wall', 'glass', 'pillar', 'doorway', 'window'];
 
+    /** The pieces laid into a wall rather than beside it, and the wall pieces they can be laid into. */
+    static OPENINGS = ['window', 'doorway', 'glass', 'door'];
+    static CARVABLE = ['wall', 'window', 'doorway', 'glass'];
+    /** The way a piece laid into a struck face looks: out of that face. */
+    static FACE_ROT = { south: 0, west: 1, north: 2, east: 3 };
+    /** The cell a face of each turn looks into: south, west, north, east. */
+    static FACE_STEP = [[0, 1], [-1, 0], [0, -1], [1, 0]];
+
+    /**
+     * The wall a window, doorway, pane or door in hand is pointed at, to be laid into rather than beside or on top
+     * of: `{ wall, rel, rot }`, `rel` how high up the wall the pointer is (tiles from its foot), `rot` the way the
+     * struck face looks. Null when the pointer is on no wall (the piece is laid as any other).
+     */
+    wallUnder(target) {
+        // A wall in hand fills an opening it is pointed at; struck on plain wall it is laid beside it as ever.
+        if (!target || this.mode !== 'place' || !(PieceBuilderManager.OPENINGS.includes(this.kind) || this.kind === 'wall')) return null;
+        const map = this.currentMap(), E = this.elevation();
+        if (!map || !E) return null;
+        const cell = target.faceCell || { x: target.x, y: target.y };
+        const stack = E.pieces(map).filter(p => p.x === cell.x && p.y === cell.y && PieceBuilderManager.CARVABLE.includes(p.kind));
+        if (!stack.length) return null;
+        const R = typeof Reactor3D !== 'undefined' ? Reactor3D : null;
+        const baseOf = (x, y) => (R && R.pieceBaseAt ? R.pieceBaseAt(map, x, y) : 0);
+        const tall = piece => piece.height || 5;
+        // The pointer's height over the wall's cell: where a face was struck, else just under the top it rests on.
+        const rel = target.faceCell ? baseOf(target.x, target.y) + (Number(target.height) || 0) - baseOf(cell.x, cell.y)
+            : target.top ? target.z - 0.01 : null;
+        if (rel === null) return null;
+        const wall = stack.filter(p => rel >= p.z - 0.01 && rel <= p.z + tall(p) + 0.01).sort((a, b) => b.z - a.z)[0];
+        if (!wall) return null;
+        // A door goes into plain wall (a doorway already there takes it as before); a wall only into an opening.
+        if ((this.kind === 'door' || this.kind === 'wall') && (wall.kind === 'wall') !== (this.kind === 'door')) return null;
+        let rot = target.side && PieceBuilderManager.FACE_ROT[target.side] !== undefined ? PieceBuilderManager.FACE_ROT[target.side] : (wall.rot ?? this.rot);
+        // A window looks out of the building whichever side it is laid from: struck from inside (a floor or the
+        // building's pieces at its level on that side) with nothing on the other side, it turns to face out.
+        const [dx, dy] = PieceBuilderManager.FACE_STEP[rot];
+        const inside = (x, y) => E.pieces(map).some(p => p.x === x && p.y === y && p.z <= wall.z + 0.5 && (p.z >= wall.z - 0.01 || (p.z + (p.height || 5) > wall.z && PieceBuilderManager.CARVABLE.includes(p.kind))));
+        if (inside(wall.x + dx, wall.y + dy) && !inside(wall.x - dx, wall.y - dy)) rot = (rot + 2) % 4;
+        return { wall, rel: Math.max(0, rel - wall.z), rot };
+    }
+
+    /**
+     * What replaces a wall piece when an opening is laid into it: a doorway (or a door's doorway) from its foot, as
+     * tall as it; a pane the whole of it; a window where it was pointed at, the wall under it left standing when the
+     * wall is taller than a storey. The wall's material, building and finish are kept; the opening looks out of the
+     * face that was struck.
+     */
+    carvedPieces(found, kind = this.kind) {
+        const W = found.wall, H = W.height || 5;
+        const keep = { material: W.material, rot: found.rot };
+        if (W.group) keep.group = W.group;
+        if (W.finish) keep.finish = W.finish;
+        if (W.surface) keep.surface = Object.assign({}, W.surface);
+        const sized = (piece, height) => { if (height !== 5) piece.height = height; return piece; };
+        if (kind === 'glass') return [sized(Object.assign({}, keep, { kind: 'glass', x: W.x, y: W.y, z: W.z, material: this.material || keep.material }), H)];
+        // A wall fills an opening, as tall as it, the wall's own material when it was a pane.
+        if (kind === 'wall') return [sized(Object.assign({}, keep, { kind: 'wall', x: W.x, y: W.y, z: W.z, rot: W.rot, material: W.kind === 'glass' ? (this.material || '') : keep.material }), H)];
+        if (kind === 'doorway' || kind === 'door') return [sized(Object.assign({}, keep, { kind: 'doorway', x: W.x, y: W.y, z: W.z }), H)];
+        // A window's opening is two to four tiles up its piece: its foot is put where the pointer is in the middle of it.
+        const foot = H > 5 ? Math.max(W.z, Math.min(W.z + H - 5, W.z + Math.round(found.rel - 2.55))) : W.z;
+        const out = [];
+        if (foot > W.z) out.push(sized(Object.assign({}, keep, { kind: W.kind === 'window' ? 'wall' : W.kind, x: W.x, y: W.y, z: W.z, rot: W.rot }), foot - W.z));
+        const window = sized(Object.assign({}, keep, { kind: 'window', x: W.x, y: W.y, z: foot }), W.z + H - foot);
+        if (this.windowFrame && this.windowFrame.style) window.frame = Object.assign({}, this.windowFrame);
+        out.push(window);
+        return out;
+    }
+
+    /**
+     * Lay the piece in hand into the wall it is pointed at (wallUnder): a window, doorway or pane replaces that
+     * piece of the wall; a door makes its doorway there (as wide as the door, along the wall) and hangs in it.
+     */
+    carveInto(map, found, target) {
+        const E = this.elevation();
+        const cells = [found.wall];
+        if (this.kind === 'door' && (this.door?.width || 1) > 1) {
+            // Along the wall, toward the side of the cell the pointer is on, as far as the wall reaches.
+            const along = found.rot % 2 === 0 ? [1, 0] : [0, 1];
+            const at = target.point ? (along[0] ? target.point.x - found.wall.x : target.point.z - found.wall.y) : 0.5;
+            const step = at < 0.5 ? -1 : 1;
+            for (let i = 1; cells.length < this.door.width && i < this.door.width + 2; i++) {
+                for (const dir of [step, -step]) {
+                    if (cells.length >= this.door.width) break;
+                    const x = found.wall.x + along[0] * i * dir, y = found.wall.y + along[1] * i * dir;
+                    const next = E.pieces(map).find(p => p.x === x && p.y === y && p.kind === 'wall' && p.z === found.wall.z && (p.height || 5) === (found.wall.height || 5));
+                    if (next && !cells.includes(next)) cells.push(next);
+                }
+            }
+        }
+        let changed = false;
+        for (const wall of cells) for (const piece of this.carvedPieces({ wall, rel: found.rel, rot: found.rot })) if (E.setPiece(map, piece)) changed = true;
+        if (this.kind === 'door') {
+            const door = this.pieceFor({ x: found.wall.x, y: found.wall.y, z: found.wall.z, point: target.point });
+            if (found.wall.group) door.group = found.wall.group;
+            if (E.setPiece(map, door)) changed = true;
+        }
+        return changed;
+    }
+
     /** The height the next piece of `kind` is laid at, in tiles. */
     heightFor(kind) { return this.heights[kind] > 0 ? this.heights[kind] : 5; }
 
@@ -1914,16 +2013,18 @@ class PieceBuilderManager {
         this.redoStack.length = 0;
         // Ctrl always draws a rectangle; otherwise the panel's drawing mode says. A shape or a rock is laid
         // one per click as the brush lays it (a rock's rectangle is its own spacing).
+        // An opening started on a wall paints into the wall under the pointer, a piece at a time.
+        const carving = mode !== 'erase' && !!this.wallUnder(target);
         const cellPiece = !this.isShape(this.kind) || this.kind === 'rock';
-        const rectangle = !!options.rectangle || (cellPiece && this.drawShape === 'rect');
-        const line = !rectangle && cellPiece && this.drawShape === 'line';
-        this._stroke = { mode, moved: false, last: null, anchor: { x: target.x, y: target.y, z: target.z }, snapshot: saved.pieces, entry: saved, rectangle, line, seed: this.rockSeed };
+        const rectangle = !carving && (!!options.rectangle || (cellPiece && this.drawShape === 'rect'));
+        const line = !carving && !rectangle && cellPiece && this.drawShape === 'line';
+        this._stroke = { mode, moved: false, last: null, anchor: { x: target.x, y: target.y, z: target.z }, snapshot: saved.pieces, entry: saved, rectangle, line, carving, seed: this.rockSeed };
         return rectangle || line ? this.layRectangle(target) : this.dab(target);
     }
 
     paintAt(target, options = {}) {
         if (!this._stroke || !target) return false;
-        if (options.rectangle || this._stroke.rectangle || this._stroke.line) return this.layRectangle(target);
+        if ((options.rectangle && !this._stroke.carving) || this._stroke.rectangle || this._stroke.line) return this.layRectangle(target);
         const last = this._stroke.last;
         if (last && last.x === target.x && last.y === target.y && last.z === target.z) return false;
         return this.dab(target);
@@ -2007,6 +2108,19 @@ class PieceBuilderManager {
         // and the building stops following its plan (it would be built
         // again from the plan on the next move and lose the edit), while it
         // still moves and turns as one.
+        // A window, doorway, pane or door pointed at a wall goes into the wall, in place of the piece of it pointed at.
+        const into = this._stroke.mode !== 'erase' ? this.wallUnder(target) : null;
+        if (into) {
+            const changed = this.carveInto(map, into, target) && this._changedSince(map);
+            const g = into.wall.group;
+            if (changed && g && elevation.structureOf(map, g)) { elevation.removeStructure(map, g); this._flash('pieces.detached'); this._flashed = true; }
+            if (changed) {
+                this._stroke.moved = true;
+                const reach = 1 + (this.kind === 'door' ? (this.door?.width || 1) : 0);
+                this.announce(false, { x0: into.wall.x - reach, y0: into.wall.y - reach, x1: into.wall.x + reach, y1: into.wall.y + reach });
+            }
+            return changed;
+        }
         const group = elevation.pieceGroupAt(map, target.x, target.y);
         const piece = this.pieceFor(target);
         if (group) piece.group = group;

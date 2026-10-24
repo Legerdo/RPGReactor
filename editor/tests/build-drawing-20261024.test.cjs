@@ -208,3 +208,70 @@ test('an eave tilted down over the wall\'s edge rises with the roof; a post or a
     assert.equal(boxes[1].z, 0, 'a post along the wall stays on the ground');
     assert.equal(boxes[2].z, 0, 'a chimney from the ground stays on the ground');
 });
+
+test('a window, doorway, pane or door pointed at a wall goes into it, in place of the piece of wall pointed at', () => {
+    const map = freshMap(); const { manager, E } = builderOn(map);
+    const lay = list => { for (const p of list) E.setPiece(map, Object.assign({ rot: 0, material: 'Stone', group: 3 }, p)); };
+    // A row of walls along y = 5, x 2..8; the one at x 8 eight tiles tall.
+    lay([2, 3, 4, 5, 6, 7].map(x => ({ kind: 'wall', x, y: 5, z: 0 })).concat([{ kind: 'wall', x: 8, y: 5, z: 0, height: 8 }]));
+    // The south face of (x, 5) struck from the cell beyond it (x, 6), `height` up.
+    const face = (x, height) => ({ x, y: 6, z: Math.floor(height), side: 'south', faceCell: { x, y: 5 }, height, top: false, point: { x: x + 0.5, z: 6 } });
+    const at = (x, y) => Array.from(E.pieces(map).filter(p => p.x === x && p.y === y), p => [p.kind, p.z, p.height || 5, p.rot, p.material, p.group || 0]).sort((a, b) => a[1] - b[1]);
+    const click = (kind, target) => { manager.setKind(kind); manager.beginStroke(target); manager.endStroke(); };
+    click('window', face(3, 2.5));
+    assert.deepEqual(JSON.parse(JSON.stringify(at(3, 5))), [['window', 0, 5, 0, 'Stone', 3]], 'the wall became a window, its material and building kept, looking out of the struck face');
+    assert.deepEqual(at(3, 6), [], 'nothing laid outside the wall');
+    // High up a stretched wall: the wall stays under it, the window where it was aimed.
+    click('window', face(8, 6));
+    assert.deepEqual(JSON.parse(JSON.stringify(at(8, 5))), [['wall', 0, 3, 0, 'Stone', 3], ['window', 3, 5, 0, 'Stone', 3]]);
+    click('doorway', face(4, 1));
+    assert.deepEqual(JSON.parse(JSON.stringify(at(4, 5))), [['doorway', 0, 5, 0, 'Stone', 3]]);
+    // A door in plain wall: its doorway as wide as the door, along the wall, and the door hung in it.
+    manager.door = Object.assign({}, manager.door, { width: 2 });
+    click('door', face(6, 1));
+    const doorways = E.pieces(map).filter(p => p.kind === 'doorway' && p.y === 5).map(p => p.x).sort();
+    assert.deepEqual(Array.from(doorways), [4, 6, 7], 'the clicked wall and the next one along it opened');
+    const door = E.pieces(map).find(p => p.kind === 'door');
+    assert.ok(door, 'the door is hung');
+    assert.equal(door.width, 2);
+    manager.material = 'Glass';
+    click('glass', face(2, 2));
+    assert.deepEqual(JSON.parse(JSON.stringify(at(2, 5))), [['glass', 0, 5, 0, 'Glass', 3]], 'a pane fills the whole piece');
+    // Pointed at nothing but ground, a window is laid as any piece.
+    click('window', { x: 12, y: 12, z: 0, top: true, height: 0, point: { x: 12.5, z: 12.5 } });
+    assert.equal(at(12, 12)[0][0], 'window');
+});
+
+test('a window dragged along a wall goes into every piece of it the pointer passes', () => {
+    const map = freshMap(); const { manager, E } = builderOn(map);
+    for (let x = 2; x <= 6; x++) E.setPiece(map, { kind: 'wall', x, y: 5, z: 0, rot: 0, material: 'Stone' });
+    manager.setKind('window'); manager.setDrawShape('rect');
+    const face = x => ({ x, y: 6, z: 2, side: 'south', faceCell: { x, y: 5 }, height: 2.5, top: false, point: { x: x + 0.5, z: 6 } });
+    manager.beginStroke(face(2)); for (const x of [3, 4]) manager.paintAt(face(x)); manager.endStroke();
+    assert.deepEqual(Array.from(E.pieces(map).filter(p => p.kind === 'window'), p => p.x).sort(), [2, 3, 4]);
+    assert.equal(E.pieces(map).filter(p => p.y === 6).length, 0, 'not a rectangle of windows outside');
+    assert.equal(manager.undoStack.length, 1, 'one undo step');
+});
+
+test('a window laid from inside a building still looks out of it', () => {
+    const map = freshMap(); const { manager, E } = builderOn(map);
+    for (let x = 2; x <= 6; x++) E.setPiece(map, { kind: 'wall', x, y: 5, z: 0, rot: 0, material: 'Stone' });
+    // The building's floor is north of the wall (y 4); outside, south (y 6), is open ground.
+    for (let x = 2; x <= 6; x++) E.setPiece(map, { kind: 'floor', x, y: 4, z: 0, rot: 0, material: 'Wood' });
+    manager.setKind('window');
+    // Struck on its north face, from inside.
+    manager.beginStroke({ x: 4, y: 4, z: 2, side: 'north', faceCell: { x: 4, y: 5 }, height: 2.5, top: false, point: { x: 4.5, z: 5 } }); manager.endStroke();
+    assert.equal(E.pieces(map).find(p => p.kind === 'window').rot, 0, 'it looks south, out of the building');
+});
+
+test('a wall pointed at a window, doorway or pane fills it in; pointed at plain wall it is laid beside it', () => {
+    const map = freshMap(); const { manager, E } = builderOn(map);
+    E.setPiece(map, { kind: 'window', x: 4, y: 5, z: 0, rot: 0, material: 'Stone', height: 8 });
+    E.setPiece(map, { kind: 'wall', x: 5, y: 5, z: 0, rot: 0, material: 'Stone' });
+    manager.setKind('wall'); manager.setDrawShape('brush');
+    manager.beginStroke({ x: 4, y: 6, z: 2, side: 'south', faceCell: { x: 4, y: 5 }, height: 2.5, top: false, point: { x: 4.5, z: 6 } }); manager.endStroke();
+    const filled = E.pieces(map).find(p => p.x === 4 && p.y === 5);
+    assert.deepEqual([filled.kind, filled.height, filled.material], ['wall', 8, 'Stone']);
+    manager.beginStroke({ x: 5, y: 6, z: 0, side: 'south', faceCell: { x: 5, y: 5 }, height: 0.5, top: false, point: { x: 5.5, z: 6 } }); manager.endStroke();
+    assert.ok(E.pieces(map).some(p => p.kind === 'wall' && p.x === 5 && p.y === 6), 'beside a plain wall, as before');
+});

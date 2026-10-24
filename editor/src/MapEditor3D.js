@@ -2682,13 +2682,15 @@ class MapEditor3D {
         const manager = this.pieceManager();
         if (!mapData || !target || typeof Reactor3D === 'undefined') return null;
         if (manager?.mode === 'erase') return { erase: true };
+        // Windows, doorways, panes and doors dragged along a wall go into each piece of it under the pointer.
+        if (manager?.wallUnder && manager.wallUnder(target)) return { carve: true };
         return { z: target.z, planeY: Reactor3D.pieceBaseAt(mapData, target.x, target.y) + target.z };
     }
 
     /** Where a stroke in progress lands under the pointer: on its plane, at its level. */
     pieceStrokeTargetAt(clientX, clientY) {
         const stroke = this.pointer?.pieceStroke;
-        if (!stroke || stroke.erase) return this.pieceTargetAt(clientX, clientY);
+        if (!stroke || stroke.erase || stroke.carve) return this.pieceTargetAt(clientX, clientY);
         const mapData = this.currentMap();
         if (!mapData || !this.camera || !this.canvas) return null;
         const rect = this.canvas.getBoundingClientRect();
@@ -2865,17 +2867,22 @@ class MapEditor3D {
         const stamp = manager.mode === 'stamp' ? manager.structurePlan() : bounds ? { size: [bounds.x1 - bounds.x0 + 1, bounds.y1 - bounds.y0 + 1] } : null;
         if (manager.mode === 'move' && !bounds) { this.hidePieceGhost(); return; }
         const turn = stamp && !bounds ? (manager.rot || 0) : 0;
+        // A window, doorway, pane or door pointed at a wall goes into it: the ghost is what will stand in the wall's place.
+        const into = !stamp && !erase && manager.wallUnder ? manager.wallUnder(target) : null;
+        const carved = into ? manager.carvedPieces(into) : null;
         // A door hangs across the doorway under the pointer: its ghost is the leaves' slab where it will hang.
-        const door = !stamp && !erase && manager.kind === 'door' ? manager.pieceFor(target) : null;
+        const door = !into && !stamp && !erase && manager.kind === 'door' ? manager.pieceFor(target) : null;
         const doorKey = door ? ':door:' + [door.x - target.x, door.y - target.y, door.rot, door.width, door.style].join(',') : '';
         // A building turned or grown while picked up has a new footprint: its slab is made again.
-        const key = doorKey + (stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null, manager.heightFor ? manager.heightFor(manager.kind) : 5]));
+        const intoKey = carved ? ':into:' + JSON.stringify(carved.map(p => [p.kind, p.z - into.wall.z, p.height || 5, p.rot])) : '';
+        const key = intoKey + doorKey + (stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null, manager.heightFor ? manager.heightFor(manager.kind) : 5]));
         if (!this.pieceGhost || this.pieceGhost.userData.key !== key) {
             this.hidePieceGhost(true);
             // A plan's ghost is the building itself, translucent; a selected
             // building being moved shows its footprint as a slab.
             const silhouette = stamp && !bounds ? manager.ghostGeometryFor(stamp, turn) : null;
             const geometry = silhouette
+                || (carved ? Reactor3D.pieceGeometry(carved.map(p => Object.assign({ id: 0 }, p, { material: '', x: 0, y: 0, z: p.z - into.wall.z })), null) : null)
                 || (door ? Reactor3D.pieceGeometry([{ id: 0, kind: 'trim', material: '', x: door.x - target.x, y: door.y - target.y, z: 0, rot: door.rot,
                     boxes: [{ box: [0, 0, 0.42, door.width || 1, Reactor3D.doorLeafHeight ? Reactor3D.doorLeafHeight(door) : 3.6, 0.58] }] }], null) : null)
                 || (stamp
@@ -2892,7 +2899,8 @@ class MapEditor3D {
             this.mapScene.scene().add(this.pieceGhost);
         }
         const base = Reactor3D.pieceBaseAt(mapData, target.x, target.y);
-        if (stamp) {
+        if (carved) this.pieceGhost.position.set(into.wall.x, Reactor3D.pieceBaseAt(mapData, into.wall.x, into.wall.y) + into.wall.z, into.wall.y);
+        else if (stamp) {
             // A quarter turn swaps the footprint's sides.
             const [W, H] = turn % 2 ? [stamp.size[1], stamp.size[0]] : stamp.size;
             const x = Math.max(0, Math.min(mapData.width - W, target.x)), y = Math.max(0, Math.min(mapData.height - H, target.y));
