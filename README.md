@@ -1,8 +1,28 @@
 # RPG Reactor
 
+<p align="center"><img src="docs/media/readme/key-art.jpg" alt="RPG Reactor" width="420"></p>
+
 RPG Reactor is an open-source, cross-platform RPG game editor and runtime for RPG Maker MV/MZ-compatible projects. RPG Reactor provides its own modern runtime, PixiJS 8 for 2D and Three.js for HD-2D/3D maps, while preserving compatibility with RPG Maker project data and targeting backwards compatibility with both RPG Maker MZ and MV plugins, including mixing plugins from both engines within a single project through complementary MZ and MV compatibility layers.
 
 Use RPG Reactor to create, edit, playtest, and package 2D RPGs with familiar RPG Maker-style maps, events, database records, plugins, and deployment workflows, without depending on the original RPG Maker runtime or editor.
+
+<table>
+<tr>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.1/08-north-haven-night.jpg" alt="A lamplit 3D village at night"><br><sub>Walk a lamplit 3D village at night, in worlds whose maps join with no loading.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.1/06-tactical-climb.jpg" alt="A Tactical battle on the rooftops"><br><sub>Tactical battles on the map itself: climb, grapple and see the fall damage before you jump.</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.1/07-effekseer-battle.jpg" alt="Effekseer effects in a battle on the map"><br><sub>Effekseer skill effects burst right where your party stands.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.1/05-windows.jpg" alt="The editor with the Database and event editor in their own windows"><br><sub>Map, Database and event editor side by side, on one screen or two.</sub></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><img src="docs/media/releases/0.99.1/02-character-lineup.jpg" alt="Characters made in the 3D Character Builder"><br><sub>Dozens of species, any build, clothing and armor: the 3D Character Builder saves rigged models that walk, run and fight.</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.1/03-creatures.jpg" alt="A drake in the Character Builder"><br><sub>Dragons, wolves, horses, sharks, birds and insects, built the same way.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.1/04-prop-builder.jpg" alt="A walker in the Prop Builder"><br><sub>The 3D Prop Builder makes vehicles, furniture, weapons and props for your maps.</sub></td>
+</tr>
+</table>
 
 Pre-built download binaries are available at <https://psychronic.itch.io/rpg-reactor>. The current development version is 0.99.2 and is not published yet; the latest tagged source release is [0.99.1](https://github.com/Psychronic-Games/RPGReactor/releases/tag/v0.99.1).
 
