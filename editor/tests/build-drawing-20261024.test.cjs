@@ -192,3 +192,19 @@ test('a building whose walls were made taller through its roof is put right by s
     assert.deepEqual(Array.from(zOf('floor')), [8]);
     assert.deepEqual(Array.from(zOf('roof')), [16]);
 });
+
+test('an eave tilted down over the wall\'s edge rises with the roof; a post or a chimney from the ground stays', () => {
+    const map = freshMap(); const { manager, E } = builderOn(map);
+    const lay = list => { for (const p of list) E.setPiece(map, Object.assign({ rot: 0, material: '', group: 1 }, p)); };
+    lay([{ kind: 'wall', x: 3, y: 3, z: 0 }, { kind: 'roof', x: 3, y: 3, z: 5 },
+        { kind: 'box', x: 4, y: 3, z: 4, size: [6, 0.25, 2.83], tilt: 45 },
+        { kind: 'box', x: 5, y: 5, z: 0, size: [0.32, 5, 0.32] },
+        { kind: 'box', x: 6, y: 5, z: 0, size: [1, 9, 1] }]);
+    manager.selectedIds = E.pieces(map).map(p => p.id); manager.selected = manager.selectedIds[0];
+    manager.setSelectionHeight(8);
+    const boxes = E.pieces(map).filter(p => p.kind === 'box').sort((a, b) => a.x - b.x || a.y - b.y);
+    assert.equal(E.pieces(map).find(p => p.kind === 'roof').z, 8);
+    assert.equal(boxes[0].z, 7, 'the eave hanging over the edge rises with the roof');
+    assert.equal(boxes[1].z, 0, 'a post along the wall stays on the ground');
+    assert.equal(boxes[2].z, 0, 'a chimney from the ground stays on the ground');
+});

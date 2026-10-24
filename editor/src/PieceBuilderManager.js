@@ -556,10 +556,20 @@ class PieceBuilderManager {
         const bands = bases.map((base, i) => [base, Math.min(storeys.get(base), (i + 1 < bases.length ? bases[i + 1] : over(base)) - base)]);
         const stacked = bands.some(([base, h]) => pieces.some(piece => piece.z >= base + h - 1e-6));
         const grown = stacked ? Math.max(1, Math.round(tall)) : tall;
-        const lift = z => bands.reduce((sum, [base, h]) => sum + (base + h <= z + 1e-6 ? grown - h : 0), 0);
+        // What a storey's growth lifts: whatever stands at or over its walls' top, and a shape that starts just under it
+        // and reaches past it (an eave or a roof's edge tilted down over the wall), which is the roof's, not the wall's.
+        // A shape's top: its foot plus how tall its box stands once tilted and rolled.
+        const topOf = piece => {
+            const [w, h, d] = Array.isArray(piece.size) ? piece.size.map(Number) : [1, 1, 1];
+            const t = (Number(piece.tilt) || 0) * Math.PI / 180, r = (Number(piece.roll) || 0) * Math.PI / 180;
+            return piece.z + Math.abs(h * Math.cos(t) * Math.cos(r)) + Math.abs(d * Math.sin(t)) + Math.abs(w * Math.sin(r));
+        };
+        const EAVE = 1.5;
+        const above = (piece, top) => piece.z >= top - 1e-6 || (this.isShape(piece.kind) && piece.z > top - EAVE && topOf(piece) > top + 0.05);
+        const lift = piece => bands.reduce((sum, [base, h]) => sum + (above(piece, base + h) ? grown - h : 0), 0);
         const max = this.elevation()?.PIECE_MAX_LEVEL ?? 240;
         const done = this.updateSelection(piece => {
-            const z = Math.max(0, Math.min(max, piece.z + lift(piece.z)));
+            const z = Math.max(0, Math.min(max, piece.z + lift(piece)));
             const patch = { z: this.levelStep(piece.kind) < 1 ? Math.round(z * 4) / 4 : Math.round(z) };
             if (PieceBuilderManager.SIZED_KINDS.includes(piece.kind)) patch.height = grown === 5 ? undefined : grown;
             return patch;
