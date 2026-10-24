@@ -7,7 +7,7 @@
 One bullet per area, holding its latest check. A bullet is replaced when its area is checked again.
 
 - **Release:** 0.99.1 (2026-10-24), cut with `cut-release.cjs`; the tag publishes the source release on GitHub, and signed binaries and the itch channels follow from the Actions tab (Release Candidate → Release). Public editor releases use NW.js **0.107.0** exactly ([release checklist](RELEASE-CHECKLIST.md)). The owner tests full releases on each operating system.
-- **Runtime:** revision **20261024.1**, stated twice in `runtime/reactor_main.js` (the header drives the project updater; the global identifies a running game). All 19 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
+- **Runtime:** revision **20261024.2**, stated twice in `runtime/reactor_main.js` (the header drives the project updater; the global identifies a running game). All 19 bundled projects match `runtime/` (`node editor/build-scripts/sync-runtime.cjs --check`).
 - **Legacy imports** (2026-10-18): original Sunset comparisons cover fonts, skins, camera registration, tones and transitions. Progress stays visible at 1024×600; shadows retain per-glyph overlap order. Installed RTP fonts and subtle dither cleanup with backups are supported. [Verification and limits](IMPORTING-LEGACY-PROJECTS.md).
 - **Node suite** (2026-10-23, before the 0.99.1 cut): 8,345 tests, all passing, 9 skipped. Builder technical checks pass at Preview 47; visual acceptance is open ([props](PROP-BUILDER.md)).
 - **Editor performance** (2026-10-19): inactive previews pause; thumbnails/skin builds are faster; steady lights/cameras skip repeat work. Streaming grass merges 388→55 times, with identical final geometry. 160 focused tests and native game/map/Forge checks pass. Generic matrix caching was not a consistent win and is removed. Shaders/large jobs/traversal remain; weak-PC/two-monitor checks await owner. [Measurements](PERFORMANCE.md).
@@ -70,8 +70,6 @@ The one list of open threads. Remove an item when it is done; record the doing i
 
 - **Builder quality** (2026-10-22 checkpoint, Preview 47): visual acceptance open. Next: vehicle silhouettes/mechanics, weaker sci-fi/plate outfits, and extreme cloth/armor contact. [Characters](CHARACTER-QUALITY.md), [props and caption regression](PROP-BUILDER.md).
 - **Menu opening by itself** (harness only so far): after an Escape dismount, and walking east from (188, 38) on North Haven after the forest crossing. No map data near there; input across a crossing is being checked.
-- **Imported humanoids' battle motions:** Fleagus and others use mocap for movement only; Guard, attacks, Hit, Death and Victory fall back to hand-keyed presets. Next: rules that name a library motion, picked in the Motion editor.
-- **Action Sequence 35:** the held rifle sometimes spins and Fleagus turns backwards in the preview (`Held.aim`).
 - **Waiting on the owner:** [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md), the one list, each item with a recommendation.
 - **Neighbors:** a map three maps out still appears at a crossing. The crossing frame still misses about one refresh (25 to 40 ms): the new map scene built on every transfer. Keeping the map scene across a seamless crossing is the next step ([PERFORMANCE.md](PERFORMANCE.md) › Border crossing).
 - **Cutaway look:** the game's cutaway shows the stamped Cottage's cut walls plain grey; the editor's Storeys cut shows stone.

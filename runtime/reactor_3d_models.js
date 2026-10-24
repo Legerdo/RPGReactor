@@ -5197,7 +5197,8 @@ Reactor3D.readModelAnimationRules = function(json, clips) {
         const rule = {
             name: String(raw.name || raw.part || type + "-" + i),
             part: String(raw.part || ""),
-            clip: String(raw.clip || ""),
+            // `library` names a motion of the shared motion library (attachLibraryMotions) in place of a clip in the file.
+            clip: raw.library ? Reactor3D.LIBRARY_CLIP_PREFIX + String(raw.library) : String(raw.clip || ""),
             // Playback-rate multiplier for embedded clips (1 = authored speed).
             rate: Number(raw.rate) > 0 ? Number(raw.rate) : 1,
             type,
@@ -5235,6 +5236,7 @@ Reactor3D.readModelAnimationRules = function(json, clips) {
         };
         // A clip in the model's file playing in the state its name says, not an animation of the sidecar's.
         if (raw.ownClip) rule.ownClip = true;
+        if (raw.library) rule.library = String(raw.library);
         // What a wheel and a steered part carry (a vehicle's rules), kept only on a rule that has them:
         // `exact` reaches the part by its whole name, not by prefix; `axisVector` is the line it turns
         // about (model space, kept at unit length) in place of `axis`; `radius` (model units) rolls a
@@ -5490,8 +5492,9 @@ Reactor3D.libraryRestSkeleton = function(root) {
 };
 
 /**
- * Gives a rigged humanoid (applyModelRig) the library's motions as clips,
- * one for each state the file's own clips are not named for. A clip holds
+ * Gives a rigged humanoid (applyModelRig) the library's motions as clips:
+ * one for each state the file's own clips are not named for, played there,
+ * and the rest for the model's own rules to name (`library` on a clip rule). A clip holds
  * no keys until it first plays (resolveLibraryMotion); readModelAnimationRules
  * plays each in its state where the model's own animations leave it open.
  */
@@ -5505,7 +5508,11 @@ Reactor3D.attachLibraryMotions = function(root, rig) {
         const match = clip && clip.name ? this.clipStateOf(clip.name) : null;
         if (match) named.add(match.state);
     }
-    const wanted = library.STATE_MOTIONS.filter(motion => !named.has(motion.state));
+    // The states the file leaves open play the library's motion for them; every other motion (Guard, Sword
+    // Swing, Hit, Death...) is there too, for a rule of the model's own to name (`library`). None holds keys until it plays.
+    const open = new Map(library.STATE_MOTIONS.filter(motion => !named.has(motion.state)).map(motion => [motion.id, motion]));
+    const wanted = Array.from(open.values());
+    for (const pose of library.POSES || []) if (!open.has(pose.id)) wanted.push({ id: pose.id, state: null, name: pose.label });
     if (!wanted.length) return;
     const skeleton = this.libraryRestSkeleton(root);
     if (!skeleton) return;
@@ -5527,7 +5534,7 @@ Reactor3D.libraryMotionRules = function(list, clips) {
     const out = [];
     for (const clip of clips) {
         const info = clip && clip.__reactorLibrary;
-        if (!info || covers(list || [], info.state) || out.some(rule => rule.trigger === info.state)) continue;
+        if (!info || !info.state || covers(list || [], info.state) || out.some(rule => rule.trigger === info.state)) continue;
         out.push({ name: info.name, type: "clip", clip: clip.name, trigger: info.state, defaultMotion: true });
     }
     return out;
@@ -7273,6 +7280,8 @@ Reactor3D.HandGrip = {
         return true;
     },
     update() {
+        // A chest turned for a long gun's stance (Held.blade) goes back when no hold laid it this frame.
+        if (Reactor3D.Held && Reactor3D.Held.stances.size) Reactor3D.Held.unblade(null);
         if (!this.hands.size) return;
         const now = this.now(), dt = now - this.last;
         this.last = now;
@@ -7443,10 +7452,37 @@ Reactor3D.Held = {
         }
         angle = Math.min(.96, angle);
         if (!angle) return 0;
+        const head = torso.head && torso.head.parent ? torso.head : null;
+        const stance = { owner: record, head, chestBase: torso.chest.quaternion.clone(), headBase: head ? head.quaternion.clone() : null, chestOut: null, headOut: null, fresh: true };
         q.setFromAxisAngle(up, sign * angle);
         this.turnJoint(torso.chest, q);
-        if (torso.head && torso.head.parent) this.turnJoint(torso.head, q.invert());
+        if (head) this.turnJoint(head, q.invert());
+        stance.chestOut = torso.chest.quaternion.clone();
+        if (head) stance.headOut = head.quaternion.clone();
+        this.stances.set(torso.chest, stance);
         return sign * angle;
+    },
+    /**
+     * The stance `blade` last put on a chest, by chest: the chest's and head's turns before it and after it. The
+     * chest it turns need not be a joint the model's own motion writes every frame (on a Mixamo body it is the file's
+     * Spine, between the rig's Chest and the shoulders, which only a walk or run clip moves), so the turn is taken
+     * off again before the next one is worked out, and when no hold has laid it for a frame, the way a wrist's grip
+     * turn is (HandGrip.turn, setTurn). Laid on top of the last one instead, the turns added up frame after frame:
+     * the shooter spun round with the gun, and stayed turned after putting it away.
+     */
+    stances: new Map(),
+    /**
+     * Takes stance turns off again, where nothing has posed those joints since they went on: `owner`'s before its
+     * next aim is worked out, or (no owner, once a frame from HandGrip.update) every one no hold laid this frame.
+     */
+    unblade(owner) {
+        for (const [chest, s] of this.stances) {
+            if (owner ? s.owner !== owner : s.fresh) { if (!owner) s.fresh = false; continue; }
+            this.stances.delete(chest);
+            if (chest.quaternion.equals(s.chestOut)) chest.quaternion.copy(s.chestBase);
+            if (s.head && s.head.quaternion.equals(s.headOut)) s.head.quaternion.copy(s.headBase);
+            chest.updateMatrixWorld(true);
+        }
     },
     /**
      * Holds a shown weapon the way its step asks: aimed, the shooting arm reaches down the line to `goal` so the
@@ -7455,6 +7491,8 @@ Reactor3D.Held = {
      */
     aim(owner, held, step, goal, note) {
         const T = THREE, R = Reactor3D, side = step.attachment === "leftHand" ? "left" : "right";
+        // The stance last laid on this body comes off first: the aim is worked out from the pose, not from the last aim.
+        if (this.stances.size) this.unblade(owner);
         const frame = this.frame(owner, step.attachment, step.bone);
         if (!frame || step.aim !== "target" || !goal) return frame;
         const hand = this.joint(owner, side + "Hand"), upper = hand && hand.parent && hand.parent.parent;
@@ -7561,6 +7599,7 @@ Reactor3D.Held = {
      */
     begin(owner, held, step, goal, placement, note) {
         const G = Reactor3D.HandGrip, inHand = this.HANDS.indexOf(step.attachment) >= 0 && !step.bone, thing = (held && held.object) || null;
+        if (this.stances.size) this.unblade(owner);
         // In the fist the thing goes where the hand is. The older hold leaves the hand as its pose has it and the thing where it
         // always was: only the fingers close, as far as they meet it. A wrist turn in progress eases off.
         if (owner && owner.object && placement.visible !== false && inHand) G.turn(this.joint(owner, step.attachment), null);
@@ -7942,6 +7981,8 @@ Reactor3D.MapHeld = {
             slot.node.quaternion.copy(slot.base);
             slot.out.copy(slot.base);
         }
+        // The map lays the stance itself (the chest's slot), over the motion each frame; the Battle Room's undo of it is not wanted here.
+        if (torso) H.stances.delete(torso.chest);
         main.add(object);
         object.position.copy(local.fromP); object.quaternion.copy(local.fromQ); object.scale.copy(local.fromS);
         this.unpin(state);

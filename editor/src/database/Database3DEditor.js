@@ -15,6 +15,9 @@
  * model's ambient animations stand still so nothing fights the hand.
  */
 class Database3DEditor {
+    /** The runtime's name for a library motion's clip (Reactor3D.LIBRARY_CLIP_PREFIX). */
+    static get LIBRARY_PREFIX() { return '__reactor_motion_'; }
+
     _writeFileAtomic(fs, filePath, data, options) {
         const atomic = typeof globalThis.RRWriteFileAtomicSync === 'function'
             ? globalThis.RRWriteFileAtomicSync
@@ -3227,7 +3230,9 @@ class Database3DEditor {
             values.amount = work.amount;
             values.period = work.period;
         } else if (work.motion === 'clip') {
-            values.clip = work.clip;
+            const library = Database3DEditor.libraryIdOf(work.clip);
+            if (library) values.library = library;
+            else values.clip = work.clip;
             if (work.rate && work.rate !== 1) values.rate = work.rate;
         }
         if (values.trigger === 'action' && (work.effects || []).length) {
@@ -3505,7 +3510,7 @@ class Database3DEditor {
         ];
         const motions = [['pose', this._t('Pose')], ['swing', this._t('Swing')],
             ['spin', this._t('Spin')], ['bob', this._t('Bob')]]
-            .concat((this.embeddedClips || []).length || work.motion === 'clip'
+            .concat((this.embeddedClips || []).length || this._libraryMotions().length || work.motion === 'clip'
                 ? [['clip', this._t('Clip')]] : []);
         const sliderRow = (cls, color, label, min, max, step, value, shown) => `
             <div style="display:flex;align-items:center;gap:8px;margin:6px 0;">
@@ -3568,8 +3573,14 @@ class Database3DEditor {
             const clips = this.embeddedClips || [];
             const clipOptions = clips.map(name =>
                 `<option value="${escape(name)}"${name === work.clip ? ' selected' : ''}>${escape(name)}</option>`).join('');
-            const stray = work.clip && clips.indexOf(work.clip) < 0
-                ? `<option value="${escape(work.clip)}" selected>${escape(work.clip)} ?</option>` : '';
+            const library = this._libraryMotions();
+            const libraryOptions = library.length ? `<optgroup label="${escape(this._t('Motion library'))}">` + library.map(pose => {
+                const value = Database3DEditor.LIBRARY_PREFIX + pose.id;
+                return `<option value="${escape(value)}"${value === work.clip ? ' selected' : ''}>${escape(pose.label)}</option>`;
+            }).join('') + '</optgroup>' : '';
+            const known = clips.indexOf(work.clip) >= 0 || library.some(pose => Database3DEditor.LIBRARY_PREFIX + pose.id === work.clip);
+            const stray = (work.clip && !known
+                ? `<option value="${escape(work.clip)}" selected>${escape(Database3DEditor.libraryIdOf(work.clip) || work.clip)} ?</option>` : '') + libraryOptions;
             body = row(this._t('Clip'), `<select class="r3d-card-clip" ${selectStyle}>${clipOptions}${stray}</select>`)
                 + sliderRow('r3d-card-rate', '', this._t('Speed'),
                     25, 300, 5, Math.round((work.rate || 1) * 100), Math.round((work.rate || 1) * 100) + '%');
@@ -3810,6 +3821,8 @@ class Database3DEditor {
             this._work.motion = event.target.value;
             if (this._work.motion === 'clip' && !this._work.clip && (this.embeddedClips || []).length) {
                 this._work.clip = this.embeddedClips[0];
+            } else if (this._work.motion === 'clip' && !this._work.clip && this._libraryMotions().length) {
+                this._work.clip = Database3DEditor.LIBRARY_PREFIX + this._libraryMotions()[0].id;
             }
             this._syncWorkRule();
             this._commitUndo();
@@ -9181,7 +9194,8 @@ class Database3DEditor {
             : raw.trigger === 'climbing' ? this._t('While climbing')
             : raw.trigger === 'riding' ? this._t('While riding')
             : raw.trigger === 'action' ? this._t('On demand') : this._t('Always');
-        const subject = type === 'clip' ? (raw.clip || '?') : (raw.part || this._t('Whole model'));
+        const subject = type === 'clip' ? (raw.library ? this._t('Motion library') + ': ' + this._libraryLabel(raw.library) : raw.clip || '?')
+            : (raw.part || this._t('Whole model'));
         return `${raw.name || '?'} — ${label} · ${subject} · ${trigger}`;
     }
 
@@ -9242,6 +9256,7 @@ class Database3DEditor {
             list.appendChild(row);
         });
         this._renderEmbeddedClipRows(list);
+        this._renderLibraryRows(list);
         // The rig's own default motions for the states this model has none for, and the switch.
         if (this.customRig) {
             const defaults = [...new Set((this.playRules || []).filter(rule => rule.defaultMotion).map(rule => rule.name))];
@@ -9294,6 +9309,68 @@ class Database3DEditor {
             row.classList.add('is-plain');
             list.appendChild(row);
         }
+    }
+
+    /**
+     * The shared motion library's motions (the 3D Character Builder's motion capture) a rigged humanoid's
+     * clip rule can name with `library`; none for any other model, or before the library is in.
+     */
+    _libraryMotions() {
+        if (!this.customRig || (this.customRig.template || 'humanoid') !== 'humanoid' || typeof Reactor3D === 'undefined' || !Reactor3D.motionLibrary) return [];
+        const library = Reactor3D.motionLibrary();
+        return library && Array.isArray(library.POSES) ? library.POSES : [];
+    }
+
+    _libraryLabel(id) {
+        const pose = this._libraryMotions().find(entry => entry.id === id);
+        return pose ? pose.label : String(id);
+    }
+
+    /** The library motion a clip name stands for (the runtime's LIBRARY_CLIP_PREFIX), or ''. */
+    static libraryIdOf(clip) {
+        const text = String(clip || '');
+        return text.startsWith(Database3DEditor.LIBRARY_PREFIX) ? text.slice(Database3DEditor.LIBRARY_PREFIX.length) : '';
+    }
+
+    /**
+     * The battle motions a character from the 3D Character Builder carries (the library's SLOTS: attack,
+     * guard, damage, dead, victory...), each as the library motion it plays: [{ name, id, label }].
+     */
+    _libraryBattleSet() {
+        const library = typeof Reactor3D !== 'undefined' && Reactor3D.motionLibrary ? Reactor3D.motionLibrary() : null;
+        if (!library || !this._libraryMotions().length) return [];
+        const byName = new Map((library.GAME_CLIPS || []).map(clip => [clip.name, clip.id]));
+        return (library.SLOTS || []).filter(([, trigger, clip]) => trigger === 'action' && byName.has(clip))
+            .map(([name, , clip]) => ({ name, id: byName.get(clip), label: clip }));
+    }
+
+    /** Below the file's clips: the motion library, and one Add for the whole battle set. */
+    _renderLibraryRows(list) {
+        const set = this._libraryBattleSet();
+        if (!set.length) return;
+        const header = document.createElement('div');
+        header.className = 'r3d-sec-sub';
+        header.textContent = this._t('Motion library');
+        list.appendChild(header);
+        const missing = set.filter(entry => !this.rawAnimations.some(raw => raw && raw.name === entry.name));
+        const row = this._row({ icon: 'clip', name: this._t('Motion-capture battle motions'),
+            note: set.map(entry => entry.name + ': ' + entry.label).join(', '), actions: [
+                { icon: missing.length ? 'add' : 'check', title: this._t('Add the battle motions this model has none of'),
+                    disabled: !missing.length, run: () => this.addLibraryBattleSet() }
+            ] });
+        row.style.cursor = 'default';
+        row.classList.add('is-plain');
+        list.appendChild(row);
+    }
+
+    /** Add a library clip rule for each battle motion the model has no animation of that name for. */
+    addLibraryBattleSet() {
+        const missing = this._libraryBattleSet().filter(entry => !this.rawAnimations.some(raw => raw && raw.name === entry.name));
+        if (!missing.length) return;
+        for (const entry of missing) this.rawAnimations.push({ name: entry.name, type: 'clip', trigger: 'action', library: entry.id });
+        this.saveRules();
+        this.rebuildPlayback();
+        this.renderRuleList();
     }
 
     /** Play a baked clip straight from the list, no rule required. */
