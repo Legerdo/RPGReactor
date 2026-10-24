@@ -1648,7 +1648,7 @@ Reactor3D.pieceSolidAt = function(mapData, wx, wy, wz, cut, thin, doors) {
         if (Number.isFinite(piece.rockTop)) { if (h >= piece.z && h <= piece.rockTop) return true; continue; }
         if (this.isShapeKind(kind)) { if (this.shapeHolds(mapData, piece, wx, wy, wz, base, slim)) return true; continue; }
         if (slim && (kind === "pillar" || kind === "fence" || kind === "ladder")) continue;
-        if (h < piece.z || h > piece.z + this.pieceHeight(kind)) continue;
+        if (h < piece.z || h > piece.z + this.pieceHeight(kind, piece)) continue;
         if (kind === "stair" || kind === "ramp") { if (h > this.pieceTop(piece, u, v)) continue; }
         return true;
     }

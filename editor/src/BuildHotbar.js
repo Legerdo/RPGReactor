@@ -35,7 +35,8 @@ class BuildHotbar {
         this.root = null;
         this.panel = null;
         this.visible = false;
-        this._onKeyDown = event => this.handleKey(event);
+        this._onKeyDown = event => { this.ctrlChanged(event.ctrlKey || event.metaKey); this.handleKey(event); };
+        this._onCtrl = event => this.ctrlChanged(event.type === 'keyup' ? (event.ctrlKey || event.metaKey) && event.key !== 'Control' && event.key !== 'Meta' : false);
         // The map view's Surroundings tick changed: Beyond the Border says whether the land is shown.
         this._onSurroundView = () => { if (this.visible && this.group() === 'terrain' && this.activeSlot() === 'surround') this.renderTerrainPanel(); };
     }
@@ -60,7 +61,7 @@ class BuildHotbar {
     static ALIEN_FOLIAGE = { bulbs: 'Bulbs', tendrils: 'Fronds', crystals: 'Crystals' };
     static GROUPS = ['build', 'terrain', 'foliage', 'models'];
     /** The Build group's keys, as Build binds them (PieceBuilderManager.handleKey, MapEditor3D's pointer). */
-    static KEYS_HINT = 'click to place · drag a row · Ctrl-drag a box · right-click removes · right-drag turns the view · R turns the piece · Q/E level · Ctrl+Z undo';
+    static KEYS_HINT = 'click to place · drag to draw · Ctrl-drag a box · right-click removes · right-drag turns the view · R turns the piece · Q/E level · Ctrl+Z undo';
     /**
      * How long after the last change a run of them (arrow keys on a slider, a number's arrows held, a color moved) is
      * kept as one undo step, in ms: longer than the wait before a held key or a held arrow starts to repeat.
@@ -138,8 +139,17 @@ class BuildHotbar {
         // Opened, the bar starts in Select: a click picks up, nothing is laid by accident.
         if (opening && manager.mode !== 'select') manager.setMode('select');
         document.addEventListener('keydown', this._onKeyDown, true);
+        document.addEventListener('keyup', this._onCtrl, true);
+        window.addEventListener('blur', this._onCtrl);
         document.addEventListener('rr-surround-view', this._onSurroundView);
         this.render();
+    }
+
+    /** Ctrl held or let go: the Rectangle chip shows that a drag now draws a rectangle. */
+    ctrlChanged(held) {
+        if (!!this._ctrlHeld === !!held) return;
+        this._ctrlHeld = !!held;
+        this.panel?.querySelector('.rr-build-draw[data-draw="rect"]')?.classList.toggle('is-held', this._ctrlHeld);
     }
 
     hide(release = true) {
@@ -148,6 +158,9 @@ class BuildHotbar {
         this.root.style.display = 'none';
         this.panel.style.display = 'none';
         document.removeEventListener('keydown', this._onKeyDown, true);
+        document.removeEventListener('keyup', this._onCtrl, true);
+        window.removeEventListener('blur', this._onCtrl);
+        this.ctrlChanged(false);
         document.removeEventListener('rr-surround-view', this._onSurroundView);
         if (release) { this.manager()?.deactivate(); window.reactor?.claimMapTool?.('paint'); }
     }
@@ -299,6 +312,15 @@ class BuildHotbar {
         const M = typeof PieceBuilderManager !== 'undefined' ? PieceBuilderManager.ICONS : {};
         const own = {
             select: 'M5 3l14 9-6 1.5L10 20z',
+            // The Draw card: a brush stroke, a line between two ends, a rectangle; filled, outlined or as the piece decides; a straight or stepped diagonal.
+            drawBrush: 'M3 21c3 0 5-1.5 5-4 M8 17l10-10 2 2-10 10 M15 6l3 3',
+            drawLine: 'M6 18L18 6 M3 16h5v5H3z M16 3h5v5h-5z',
+            drawRect: 'M4 6h16v12H4z M4 6h0 M2 4h4v4H2z M18 16h4v4h-4z',
+            fillAuto: 'M4 6h16v12H4z M9 15l3-6 3 6 M10 13h4',
+            fillFull: 'M4 6h16v12H4z M4 10h16 M4 14h16 M8 6v12 M12 6v12 M16 6v12',
+            fillEdge: 'M4 6h16v12H4z M7 9h10v6H7z',
+            diagStraight: 'M4 19L20 5 M4 21L20 7',
+            diagStepped: 'M3 21v-4h4v-4h4v-4h4v-4h4v-2',
             shape: 'M4 17a8 8 0 0 1 16 0 M4 17h16v3H4z',
             screen: 'M3 5h18v11H3z M9 20h6 M10 9l5 2.5-5 2.5z',
             light: 'M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8',
@@ -377,13 +399,15 @@ class BuildHotbar {
             const url = this.modelThumb(this.props()?.libraryModels()[Number(slot.slice(5))]);
             return url ? `<img class="rr-build-slot-thumb" src="${url}" alt="">` : this.icon('models');
         };
-        const button = slot => `<button type="button" class="rr-build-slot${/^model\d+$/.test(slot) ? ' rr-build-slot-model' : ''}" data-slot="${slot}" aria-pressed="${slot === active}" title="${escape(this.label(slot))}">
-            ${face(slot)}<span class="rr-build-slot-label">${escape(this.label(slot))}</span></button>`;
+        // Each slot shows the key that picks it (1 to 9, then 0) and the Eraser its X, so the shortcuts are found by looking.
+        const keyOf = (slot, index) => slot === 'hammer' ? 'X' : index < 10 ? String((index + 1) % 10) : '';
+        const button = (slot, index) => { const key = keyOf(slot, index); return `<button type="button" class="rr-build-slot${/^model\d+$/.test(slot) ? ' rr-build-slot-model' : ''}" data-slot="${slot}" aria-pressed="${slot === active}" title="${escape(this.label(slot) + (key ? ' (' + key + ')' : ''))}">
+            ${key ? `<kbd class="rr-build-slot-key" aria-hidden="true">${key}</kbd>` : ''}${face(slot)}<span class="rr-build-slot-label">${escape(this.label(slot))}</span></button>`; };
         root.innerHTML = `
             ${this.is3D() ? '' : `<div class="rr-build-note">${this._t('build.needs3D')}</div>`}
             <div class="rr-build-row rr-build-slots">
                 <div class="rr-build-groups" role="radiogroup">${BuildHotbar.GROUPS.map(g => `<button type="button" class="rr-build-group" data-group="${g}" role="radio" aria-checked="${g === group}" title="${this._t('build.group.' + g)}">${this.icon(g, 18)}<span>${this._t('build.group.' + g)}</span></button>`).join('')}</div>
-                ${slots.map(button).join('')}</div>
+                ${slots.map((slot, index) => button(slot, index)).join('')}</div>
             <div class="rr-build-hint">${terrain || group === 'foliage' ? `<span class="rr-build-keys">${this._t('terrain.keys')}</span>` : group === 'models' ? `<span class="rr-build-keys">${this._t('build.modelKeys')}</span>` : `${this._t('build.level')} <b class="rr-build-level">${manager.level}</b><span class="rr-build-keys"> · ${this._tt(BuildHotbar.KEYS_HINT)}</span>`}</div>`;
         this._slotsKey = slots.join('|');
         root.querySelectorAll('.rr-build-slot').forEach(el => el.addEventListener('click', () => this.pick(el.dataset.slot)));
@@ -490,6 +514,23 @@ class BuildHotbar {
                 + `<div class="mp-transform-row rr-surface-row${dim('tint')}" data-surface="tint"><span class="mp-axis-label">${tt('Tint')}</span>${typeof RRColorPopup !== 'undefined' ? RRColorPopup.swatch('rr-build-surface-tint', v.tint || '#ffffff') : ''}</div></div>`;
         };
         const facing = rot => `<div class="rr-build-facing">${[[2, '↑'], [3, '→'], [0, '↓'], [1, '←']].map(([r, arrow]) => `<button type="button" class="rr-build-chip rr-build-rot" data-rot="${r}" aria-pressed="${r === rot}">${arrow}</button>`).join('')}<span class="rr-build-note" title="${escape(this._t('pieces.turn'))}">R</span></div>`;
+        // How a drag lays pieces, as the 2D map's pen, line and rectangle; a rectangle fills or lines its edge.
+        const DRAW_HINT = { brush: 'Drag over the cells to lay a piece on each one.', line: 'Drag from one end to the other for a straight run.', rect: 'Drag from corner to corner. Walls make a room; floors fill it.' };
+        const drawCard = () => {
+            // Ctrl held draws a rectangle whatever is chosen: the Rectangle chip lights while it is held.
+            const chips = [['brush', 'Brush', 'drawBrush'], ['line', 'Line', 'drawLine'], ['rect', 'Rectangle', 'drawRect']].map(([value, label, icon]) =>
+                `<button type="button" class="rr-build-chip rr-build-draw${value === 'rect' && this._ctrlHeld ? ' is-held' : ''}" data-draw="${value}" aria-pressed="${manager.drawShape === value}"${value === 'rect' ? ` title="${escape(tt('Or hold Ctrl while dragging'))}"` : ''}>${this.icon(icon, 18)}<span>${escape(tt(label))}</span></button>`).join('');
+            const fills = manager.drawShape === 'rect' ? `<div class="rr-build-finishes rr-build-rectfills">${[['auto', 'Auto', 'fillAuto'], ['fill', 'Filled', 'fillFull'], ['edge', 'Outline', 'fillEdge']].map(([value, label, icon]) =>
+                `<button type="button" class="rr-build-chip rr-build-rectfill" data-fill="${value}" aria-pressed="${manager.rectFill === value}">${this.icon(icon, 16)}<span>${escape(tt(label))}</span></button>`).join('')}</div>`
+                // A wall's line off the grid: one straight wall, or a staircase of cells.
+                : manager.drawShape === 'line' && PieceBuilderManager.DIAGONAL_KINDS.includes(s.kind) ? `<div class="rr-build-finishes rr-build-diagonals">${[['straight', 'Straight', 'diagStraight'], ['stepped', 'Stepped', 'diagStepped']].map(([value, label, icon]) =>
+                    `<button type="button" class="rr-build-chip rr-build-diagonal" data-diagonal="${value}" aria-pressed="${manager.diagonal === value}" title="${escape(tt(value === 'straight' ? 'A slanting line is one smooth wall.' : 'A slanting line steps from cell to cell.'))}">${this.icon(icon, 16)}<span>${escape(tt(label))}</span></button>`).join('')}</div>` : '';
+            return section(tt('Draw'), `<div class="rr-build-finishes rr-build-draws">${chips}</div>${fills}<div class="rr-build-note rr-build-wrap">${escape(tt(DRAW_HINT[manager.drawShape] || DRAW_HINT.brush))}</div>`, tt('Ctrl: Rectangle'));
+        };
+        // The level built at or stood at: a step down, the number, a step up (a floor, a block and a shape by quarters).
+        const levelRow = (value, step) => `<div class="rr-build-levelrow"><button type="button" class="rr-btn-secondary rr-build-level-step" data-step="-1" aria-label="${escape(tt('Down a step'))}" title="${escape(tt('Down a step'))} (Q)">−</button>`
+            + `<input type="number" class="database-field-value rr-build-level-value" value="${value}" min="0" max="240" step="${step}"><button type="button" class="rr-btn-secondary rr-build-level-step" data-step="1" aria-label="${escape(tt('Up a step'))}" title="${escape(tt('Up a step'))} (E)">+</button>`
+            + `<span class="rr-build-note">${escape(tt('tiles up'))}</span></div>`;
         let head, body = '';
         if (s.kind === 'many') {
             head = this._t('build.selectedMany', { count: s.count });
@@ -507,7 +548,14 @@ class BuildHotbar {
             // The Finish card reads the part in hand (every selected piece when none is): pieces that differ press no preset.
             const inHand = hand ? new Set(hand.ids) : null, held = inHand ? pieces.filter(piece => inHand.has(piece.id)) : pieces;
             const differ = held.some(piece => !sameSurface(surfaceOf(piece), surfaceOf(held[0])));
-            body = lead(this._t(parts.length > 1 ? 'build.parts.hint' : 'build.manyHint')) + section(tt('Structure'), keep) + materials
+            const lowest = pieces.length ? Math.min(...pieces.map(piece => piece.z)) : 0;
+            // The walls, panes and pillars among them: one height for them all (the most common one shown).
+            const sized = pieces.filter(piece => PieceBuilderManager.SIZED_KINDS.includes(piece.kind));
+            const heights = new Map(); for (const piece of sized) heights.set(piece.height || 5, (heights.get(piece.height || 5) || 0) + 1);
+            const common = [...heights.entries()].sort((a, b) => b[1] - a[1])[0];
+            const heightCard = sized.length ? section(tt('Size'), slide('rr-build-height', tt('Height'), common ? common[0] : 5, 0.5, 40, 0.25, 'height', 'y', 0)
+                + `<div class="rr-build-note rr-build-wrap">${escape(tt('Sets every wall, pane and pillar selected.'))}</div>`, heights.size > 1 ? tt('mixed') : '') : '';
+            body = lead(this._t(parts.length > 1 ? 'build.parts.hint' : 'build.manyHint')) + section(tt('Level'), levelRow(lowest, 0.25), tt('lowest')) + heightCard + section(tt('Structure'), keep) + materials
                 + section(this._t('build.finish'), finishes(held[0] || null, differ), parts.length > 1 ? (hand ? this.partName(hand.key) : this._t('build.parts.all')) : '');
             foot = `<button type="button" class="rr-btn-secondary rr-build-turn-all">${this.icon('turn', 16)}<span>${tt('Turn')}</span></button><button type="button" class="rr-btn-secondary rr-build-remove">${this._t('build.remove')}</button>`;
         } else if (s.kind === 'select') {
@@ -534,7 +582,7 @@ class BuildHotbar {
             head = (s.placed ? this._t('build.selected') + ': ' : '') + (kind === 'wedge' ? this._t('pieces.kind.ramp') : this._t('pieces.kind.' + kind));
             const rot = piece ? (s.shape ? Math.round(((piece.angle || 0) / 90) % 4) : piece.rot) : (s.shape ? 0 : manager.rot);
             let advanced = '';
-            body += lead(piece ? this._t('build.hint.edit') : kind === 'rock' ? this._t('build.rock.hint') : this._t('build.hint.place'));
+            body += lead(piece ? this._t('build.hint.edit') : kind === 'rock' ? this._t('build.rock.hint') : s.shape ? this._t('build.hint.place') : escape(tt('Click to place one. Drag to draw, as the Draw card below is set.')));
             // A rock: sizes to start from, the one in use lit; in hand, whether each rock of a drag varies.
             let rockPresets = '';
             if (kind === 'rock') {
@@ -548,6 +596,20 @@ class BuildHotbar {
             const shapeGrid = s.shape && kind !== 'wedge' && kind !== 'rock' ? `<div class="rr-build-shape-grid">${this.shapeKinds().filter(k => k !== 'wedge').map(k => `<button type="button" class="rr-build-chip rr-build-shape" data-shape="${k}" aria-pressed="${k === kind}" title="${escape(this._t('pieces.kind.' + k))}" aria-label="${escape(this._t('pieces.kind.' + k))}">${this.icon(k, 20)}</button>`).join('')}</div>` : '';
             if (shapeGrid && !piece) body += section(tt('Shape'), shapeGrid, this._t('pieces.kind.' + kind));
             if (!s.shape && (BuildHotbar.FACING.includes(kind) || s.placed)) body += section(this._t('build.direction'), facing(rot));
+            // In hand: how a drag lays it, and the level it is laid at. Placed: where it stands, to type or step.
+            if (!piece && (!s.shape || kind === 'rock')) body += drawCard();
+            if (!piece && !s.shape) body += section(tt('Level'), levelRow(manager.level, manager.levelStep(kind)), 'Q / E');
+            // A wall's, a pane's or a pillar's height: a storey (5) unless set, a garden wall lower, a hall higher.
+            if (PieceBuilderManager.SIZED_KINDS.includes(kind)) {
+                const tall = piece ? (piece.height || 5) : manager.heightFor(kind);
+                body += section(tt('Size'), slide('rr-build-height', tt('Height'), tall, 0.5, 40, 0.25, 'height', 'y', 0)
+                    + `<div class="rr-build-note rr-build-wrap">${escape(tt('In tiles. A storey is 5; a character stands 3.'))}</div>`, tall === 5 ? tt('a storey') : '');
+            }
+            if (piece && !s.shape) {
+                const map = this.currentMap();
+                body += section(tt('Position'), `<div class="rr-build-position">${num('rr-build-cell', 'X', piece.x, 0, map ? map.width - 1 : 999, 1, 'x')}${num('rr-build-cell', 'Y', piece.y, 0, map ? map.height - 1 : 999, 1, 'y')}</div>`
+                    + `<div class="rr-build-subhead">${escape(tt('Level'))}</div>` + levelRow(piece.z, manager.levelStep(kind)));
+            }
             // A rock's sides and top share one card: the same swatches, a tab each (its top: nothing, the map's own ground, or any material).
             if (kind === 'rock') {
                 const material = piece ? piece.material : manager.material;
@@ -1061,6 +1123,41 @@ class BuildHotbar {
         panel.querySelector('.rr-build-relay')?.addEventListener('click', () => { manager.relayFromPlan(); this.renderPanel(); });
         this.bindDoorPanel(s, edit);
         if (s.kind === 'many') this.bindParts();
+        // Height: the slider edits live (one undo step a drag), the number when typed.
+        panel.querySelectorAll('.rr-build-height').forEach(el => {
+            const apply = (value, record) => {
+                const tall = Math.max(0.5, Math.min(40, Math.round((Number(value) || 5) * 4) / 4));
+                if (s.kind === 'many') manager.updateSelection(piece => PieceBuilderManager.SIZED_KINDS.includes(piece.kind) ? { height: tall === 5 ? undefined : tall } : {}, record);
+                else if (s.piece) manager.updateSelected({ height: tall === 5 ? undefined : tall }, record);
+                else manager.setHeight(s.kind, tall);
+            };
+            if (el.type === 'range') {
+                let first = true;
+                el.addEventListener('input', () => { apply(el.value, first); first = false; const number = panel.querySelector('input[type=number].rr-build-height'); if (number) number.value = el.value; });
+                el.addEventListener('change', () => { first = true; this.renderPanel(); });
+            } else el.addEventListener('change', () => { apply(el.value, true); this.renderPanel(); });
+        });
+        panel.querySelectorAll('.rr-build-draw').forEach(el => el.addEventListener('click', () => { manager.setDrawShape(el.dataset.draw); this.renderPanel(); }));
+        panel.querySelectorAll('.rr-build-diagonal').forEach(el => el.addEventListener('click', () => { manager.setDiagonal(el.dataset.diagonal); this.renderPanel(); }));
+        panel.querySelectorAll('.rr-build-rectfill').forEach(el => el.addEventListener('click', () => { manager.setRectFill(el.dataset.fill); this.renderPanel(); }));
+        // The level: in hand it is where the next piece goes; placed, the selection is raised or lowered (one undo step a press).
+        const levelStep = placed ? (s.kind === 'many' ? 0.25 : manager.levelStep(s.kind)) : manager.levelStep(s.kind);
+        const setLevel = value => {
+            if (placed) { const now = s.kind === 'many' ? Math.min(...manager.selectionPieces().map(p => p.z)) : s.piece.z; manager.raiseSelection(value - now); }
+            else manager.setLevel(value);
+            this.renderPanel();
+        };
+        panel.querySelectorAll('.rr-build-level-step').forEach(el => el.addEventListener('click', () => {
+            const input = panel.querySelector('.rr-build-level-value');
+            setLevel((Number(input?.value) || 0) + Number(el.dataset.step) * levelStep);
+        }));
+        panel.querySelector('.rr-build-level-value')?.addEventListener('change', event => setLevel(Number(event.target.value) || 0));
+        panel.querySelectorAll('.rr-build-cell').forEach(el => el.addEventListener('change', () => {
+            const value = Math.round(Number(el.value));
+            if (!Number.isFinite(value) || !s.piece) return;
+            manager.moveSelectionBy(el.dataset.key === 'x' ? value - s.piece.x : 0, el.dataset.key === 'y' ? value - s.piece.y : 0);
+            this.renderPanel();
+        }));
         panel.querySelector('.rr-build-turn-all')?.addEventListener('click', () => { manager.turnSelection(); this.renderPanel(); });
         // A preset chip sets the surface to the preset's (the sliders then start from it).
         const presets = (typeof Reactor3D !== 'undefined' && Reactor3D.PIECE_FINISHES) || {};

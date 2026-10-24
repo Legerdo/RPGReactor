@@ -404,7 +404,7 @@ Reactor3D.shapeSolidAt = function(kind, lx, lz, hw, hd, slack, sweep, thick) {
 Reactor3D.shapeSize = function(piece) {
     const size = Array.isArray(piece.size) ? piece.size : null;
     const n = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : fallback);
-    return size ? [n(size[0], 1), n(size[1], 1), n(size[2], n(size[0], 1))] : [1, this.pieceHeight(piece.kind), 1];
+    return size ? [n(size[0], 1), n(size[1], 1), n(size[2], n(size[0], 1))] : [1, this.pieceHeight(piece.kind, piece), 1];
 };
 /** The cells a piece's footprint covers: one for a cell piece, w by d round the middle for a shape. */
 Reactor3D.pieceFootprint = function(piece) {
@@ -510,9 +510,15 @@ Reactor3D.PIECE_FLOOR_THICKNESS = 0.1;
  * walls, steps and anything built up by hand.
  */
 Reactor3D.PIECE_STOREY = 5;
-Reactor3D.pieceHeight = function(kind) {
+Reactor3D.pieceHeight = function(kind, piece) {
+    // A wall, a pane of glass and a pillar may be given a height of their own (a garden wall, a tall hall).
+    if (piece && piece.height > 0 && this.SIZED_KINDS.includes(kind)) return piece.height;
     return kind === "wall" || kind === "doorway" || kind === "window" || kind === "pillar" || kind === "glass" ? this.PIECE_STOREY : 1;
 };
+/** The cell pieces that take a `height` of their own (pieceHeight), in tiles from MIN to MAX_PIECE_HEIGHT. */
+Reactor3D.SIZED_KINDS = ["wall", "glass", "pillar"];
+Reactor3D.MIN_PIECE_HEIGHT = 0.5;
+Reactor3D.MAX_PIECE_HEIGHT = 40;
 
 /**
  * The finishes a built piece can wear over its material, as model surfaces
@@ -535,12 +541,17 @@ Reactor3D.normalizePiece = function(raw, mapData) {
     if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) return null;
     if (mapData && (x >= mapData.width || y >= mapData.height)) return null;
     const shape = this.isShapeKind(kind);
-    // A shape stands at any quarter tile; a cell piece at a whole level.
-    const z = Math.max(0, Math.min(this.PIECE_MAX_LEVEL, shape ? Math.round((Number(raw.z) || 0) * 4) / 4 : Math.floor(Number(raw.z)) || 0));
+    // A shape, a floor and a block stand at any quarter tile (a raised dais, a slab under a lifted fountain); the rest at a whole level.
+    const quarter = shape || raw.kind === "floor" || raw.kind === "block";
+    const z = Math.max(0, Math.min(this.PIECE_MAX_LEVEL, quarter ? Math.round((Number(raw.z) || 0) * 4) / 4 : Math.floor(Number(raw.z)) || 0));
+    // A wall's, glass's or pillar's own height, to the quarter tile; the storey it stands when it has none.
+    const tall = this.SIZED_KINDS.includes(raw.kind) && Number(raw.height) > 0
+        ? Math.max(this.MIN_PIECE_HEIGHT, Math.min(this.MAX_PIECE_HEIGHT, Math.round(Number(raw.height) * 4) / 4)) : 0;
     const rot = ((Math.floor(Number(raw.rot)) || 0) % 4 + 4) % 4;
     const material = typeof raw.material === "string" ? raw.material.trim() : "";
     const id = Number(raw.id);
     const piece = { id: Number.isFinite(id) && id > 0 ? Math.floor(id) : 0, kind, x, y, z, rot, material };
+    if (tall && tall !== this.PIECE_STOREY) piece.height = tall;
     const group = Number(raw.group);
     if (Number.isFinite(group) && group > 0) piece.group = Math.floor(group);
     if (typeof raw.finish === "string" && Object.prototype.hasOwnProperty.call(this.PIECE_FINISHES, raw.finish)) piece.finish = raw.finish;
@@ -749,7 +760,7 @@ Reactor3D.pieceTop = function(piece, u, v) {
                 for (const u of [0, 1]) for (const y of [0, 1]) for (const v of [0, 1]) top = Math.max(top, at(u, y, v)[1]);
                 return top;
             }
-            return piece.z + this.pieceHeight(piece.kind);
+            return piece.z + this.pieceHeight(piece.kind, piece);
     }
 };
 
@@ -1470,13 +1481,13 @@ Reactor3D.MapScene.prototype.updateTerrain = function(mapData, region) {
  */
 Reactor3D.pieceShapes = function(kind, piece) {
     const box = (x0, y0, v0, x1, y1, v1) => ({ box: [x0, y0, v0, x1, y1, v1] });
-    const S = this.PIECE_STOREY;
+    const S = this.PIECE_STOREY, H = this.pieceHeight(kind, piece);
     const params = this.shapeParams(piece || { kind });
     switch (kind) {
-        case "wall": return [box(0, 0, 0, 1, S, 1)];
+        case "wall": return [box(0, 0, 0, 1, H, 1)];
         case "block": return [box(0, 0, 0, 1, 1, 1)];
         case "floor": return [box(0, 0, 0, 1, this.PIECE_FLOOR_THICKNESS, 1)];
-        case "pillar": return [box(0.24, 0, 0.24, 0.76, 0.12, 0.76), { column: [0.5, 0.5, 0.2, 0.12, S - 0.12] }, box(0.24, S - 0.12, 0.24, 0.76, S, 0.76)];
+        case "pillar": return [box(0.24, 0, 0.24, 0.76, 0.12, 0.76), { column: [0.5, 0.5, 0.2, 0.12, H - 0.12] }, box(0.24, H - 0.12, 0.24, 0.76, H, 0.76)];
         case "stair": {
             const steps = [0, 1, 2, 3].map(i => box(0, 0, i * 0.25, 1, (i + 1) * 0.25, 1));
             // A step above what it stands on has a solid down to it: a plan lays no slab under a stair,
@@ -1509,7 +1520,7 @@ Reactor3D.pieceShapes = function(kind, piece) {
         case "window": return [box(0, 0, 0, 1, 1.5, 1), box(0, S - 1.4, 0, 1, S, 1)];
         // A pane the height of a wall, thin, in the middle of the cell: a viewport, or
         // the glass a plan sets in every window's hole.
-        case "glass": return [box(0, 0, 0.45, 1, S, 0.55)];
+        case "glass": return [box(0, 0, 0.45, 1, H, 0.55)];
         // Waist high on a three-tile character; it still blocks a cell.
         case "fence": return [box(0.05, 0, 0.42, 0.15, 1.5, 0.58), box(0.85, 0, 0.42, 0.95, 1.5, 0.58), box(0, 0.5, 0.45, 1, 0.62, 0.55), box(0, 1.15, 0.45, 1, 1.27, 0.55)];
         // The shapes fill the unit cell; their size stretches the cell.
@@ -1853,7 +1864,7 @@ Reactor3D.visibleSpans = function(y0, y1, covered) {
 };
 Reactor3D.hiddenFacesOf = function(piece, mapData) {
     if (!this.HIDDEN_FACE_KINDS.includes(piece.kind) && piece.kind !== "floor") return null;
-    const height = this.pieceHeight(piece.kind);
+    const height = this.pieceHeight(piece.kind, piece);
     // What a neighbouring cell covers of a shared face, as height ranges from
     // the piece's base: a wall or block all of it (true); a window its sill
     // and header, a doorway its header, and the hole between stays open, so
@@ -1863,7 +1874,7 @@ Reactor3D.hiddenFacesOf = function(piece, mapData) {
         if (!stack) return false;
         let ranges = [];
         for (const other of stack) {
-            if (!this.HIDDEN_FACE_KINDS.includes(other.kind) || other.z !== z || this.pieceHeight(other.kind) !== h) continue;
+            if (!this.HIDDEN_FACE_KINDS.includes(other.kind) || other.z !== z || this.pieceHeight(other.kind, other) !== h) continue;
             if (other.kind === "wall" || other.kind === "block") return true;
             for (const shape of this.pieceShapes(other.kind, other)) {
                 if (!shape.box) continue;
@@ -1873,9 +1884,14 @@ Reactor3D.hiddenFacesOf = function(piece, mapData) {
         }
         return ranges.length ? this.mergeRanges(ranges) : false;
     };
-    const stoneAt = (x, y, z, h) => {
+    // A wall or block standing at a level (whatever its height), and one whose top is at a level.
+    const stoneAt = (x, y, z) => {
         const stack = mapData ? this.piecesAt(mapData, x, y) : null;
-        return !!stack && stack.some(other => (other.kind === "wall" || other.kind === "block") && other.z === z && this.pieceHeight(other.kind) === h);
+        return !!stack && stack.some(other => (other.kind === "wall" || other.kind === "block") && Math.abs(other.z - z) < 1e-6);
+    };
+    const stoneUnder = (x, y, z) => {
+        const stack = mapData ? this.piecesAt(mapData, x, y) : null;
+        return !!stack && stack.some(other => (other.kind === "wall" || other.kind === "block") && Math.abs(other.z + this.pieceHeight(other.kind, other) - z) < 1e-6);
     };
     const here = mapData ? this.pieceBaseAt(mapData, piece.x, piece.y) : 0;
     const level = (x, y) => !!mapData && Math.abs(this.pieceBaseAt(mapData, x, y) - here) < 0.02;
@@ -1900,7 +1916,7 @@ Reactor3D.hiddenFacesOf = function(piece, mapData) {
             south: enclosed || (level(piece.x, piece.y + 1) && covered(piece.x, piece.y + 1)),
             north: enclosed || (level(piece.x, piece.y - 1) && covered(piece.x, piece.y - 1)),
             top: enclosed,
-            bottom: piece.z === 0 || stoneAt(piece.x, piece.y, piece.z - 1, 1) || stoneAt(piece.x, piece.y, piece.z - this.PIECE_STOREY, this.PIECE_STOREY)
+            bottom: piece.z === 0 || stoneUnder(piece.x, piece.y, piece.z)
         };
     }
     // Rotation does not change a cube, so the faces are named in world terms and the cube is emitted unturned.
@@ -1909,9 +1925,9 @@ Reactor3D.hiddenFacesOf = function(piece, mapData) {
         west: level(piece.x - 1, piece.y) && solidAt(piece.x - 1, piece.y, piece.z, height),
         south: level(piece.x, piece.y + 1) && solidAt(piece.x, piece.y + 1, piece.z, height),
         north: level(piece.x, piece.y - 1) && solidAt(piece.x, piece.y - 1, piece.z, height),
-        top: stoneAt(piece.x, piece.y, piece.z + height, 1) || stoneAt(piece.x, piece.y, piece.z + height, this.PIECE_STOREY),
+        top: stoneAt(piece.x, piece.y, piece.z + height),
         // The bottom stays on the ground too: it is what a cut wall shows from above, else the ground.
-        bottom: stoneAt(piece.x, piece.y, piece.z - 1, 1) || stoneAt(piece.x, piece.y, piece.z - this.PIECE_STOREY, this.PIECE_STOREY)
+        bottom: stoneUnder(piece.x, piece.y, piece.z)
     };
 };
 
@@ -3053,7 +3069,7 @@ Reactor3D.MapScene.prototype.updateCutCaps = function(mapData, cutTop, box) {
         if (!Reactor3D.CAPPED_KINDS.includes(piece.kind)) continue;
         if (piece.x + 1 < box[0] || piece.x > box[2] || piece.y + 1 < box[1] || piece.y > box[3]) continue;
         const base = Reactor3D.pieceBaseAt(mapData, piece.x, piece.y) + piece.z;
-        if (!(base < cutTop - 1e-6 && base + Reactor3D.pieceHeight(piece.kind) > cutTop + 1e-6)) continue;
+        if (!(base < cutTop - 1e-6 && base + Reactor3D.pieceHeight(piece.kind, piece) > cutTop + 1e-6)) continue;
         let list = byMaterial.get(piece.material);
         if (!list) byMaterial.set(piece.material, list = []);
         list.push(piece);
@@ -5749,7 +5765,7 @@ Reactor3D.lineIndex = function(mapData) {
 
 /** The solids of one cell piece, added to `list`. */
 Reactor3D.lineCellPiece = function(mapData, piece, stack, list) {
-    const S = this.PIECE_STOREY, kind = piece.kind;
+    const S = this.PIECE_STOREY, kind = piece.kind, H = this.pieceHeight(kind, piece);
     const glass = this.materialLook(piece.material).glass;
     // A rock's column over this cell: from the mass's foot here to its top (a height over its own cell's ground).
     if (kind === "rock") {
@@ -5769,13 +5785,13 @@ Reactor3D.lineCellPiece = function(mapData, piece, stack, list) {
     };
     const add = (x0, y0, v0, x1, y1, v1, code, a, b) => { const solid = this.lineSolid(place, x0, y0, v0, x1, y1, v1, code, a, b); solid.glass = glass; list.push(solid); return solid; };
     switch (kind) {
-        case "wall": add(0, 0, 0, 1, S, 1); break;
+        case "wall": add(0, 0, 0, 1, H, 1); break;
         case "block": add(0, 0, 0, 1, 1, 1); break;
         case "floor": add(0, 0, 0, 1, this.PIECE_FLOOR_THICKNESS, 1); break;
         case "pillar":
             add(0.24, 0, 0.24, 0.76, 0.12, 0.76);
-            add(0.3, 0.12, 0.3, 0.7, S - 0.12, 0.7, LINE_ROUND, 0, 360);
-            add(0.24, S - 0.12, 0.24, 0.76, S, 0.76);
+            add(0.3, 0.12, 0.3, 0.7, H - 0.12, 0.7, LINE_ROUND, 0, 360);
+            add(0.24, H - 0.12, 0.24, 0.76, H, 0.76);
             break;
         case "stair": {
             for (let i = 0; i < 4; i++) add(0, 0, i * 0.25, 1, (i + 1) * 0.25, 1);
@@ -5797,7 +5813,7 @@ Reactor3D.lineCellPiece = function(mapData, piece, stack, list) {
             // Shutters drawn shut fill the hole, on the cell's outer face where they hang.
             if (piece.frame && piece.frame.closed) add(0, 1.5, 0.94, 1, S - 1.4, 1).glass = false;
             break;
-        case "glass": add(0, 0, 0.45, 1, S, 0.55).glass = true; break;
+        case "glass": add(0, 0, 0.45, 1, H, 0.55).glass = true; break;
         case "fence":
             add(0.05, 0, 0.42, 0.15, 1.5, 0.58); add(0.85, 0, 0.42, 0.95, 1.5, 0.58);
             add(0, 0.5, 0.45, 1, 0.62, 0.55); add(0, 1.15, 0.45, 1, 1.27, 0.55);

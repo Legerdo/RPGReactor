@@ -324,8 +324,12 @@ A file in `img/characters` whose name has `[8D]` (`$Hero[8D].png`) is cut as eig
   stacked: in the Build bar a drag lays a row and a Ctrl-drag fills an
   area, each rock varied a little unless Vary is off.
 - `x, y`: the cell. `z`: the level the piece's foot stands at, in tiles
-  above the ground, up to 240 (forty-eight storeys of five). `rot`: quarter
+  above the ground, up to 240 (forty-eight storeys of five): a whole level,
+  or any quarter tile for a `floor`, a `block` and a shape. `rot`: quarter
   turns clockwise seen from above; `0` rises or faces south.
+- `height`: a `wall`, `glass` or `pillar` of its own height, 0.5 to 40
+  tiles in quarters (a storey, 5, when absent): drawn, stood against and
+  cut away at that height.
 - `material`: a name under `img/materials` without extension, or `""` for
   plain grey.
 - `finish`: optional `mirror`, `chrome`, `polished`, `glossy` or `gold`,
@@ -333,10 +337,21 @@ A file in `img/characters` whose name has `[8D]` (`$Hero[8D].png`) is cut as eig
   `texture`, as on a model) overrides it.
 - `group`: pieces of one building share a number. Optional.
 
-In the Build bar a click lays a piece, a drag a row and a Ctrl-drag a box:
-floors, blocks and roofs fill it, the rest line its edge. A right-click
-takes a piece off and a right-drag turns the view (Shift-drag or the middle
-button moves it); R turns the piece in hand, Q and E change the level, and
+In the Build bar a click lays a piece. The panel's **Draw** card says what
+a drag does: **Brush** lays one on every cell it passes, **Line** a
+straight run from where it began to where it ends, **Rectangle** the
+rectangle between (Ctrl-drag draws one whatever is chosen): **Auto** fills
+it with floors, blocks and roofs and lines its edge with the rest (a room of
+walls), **Filled** and **Outline** say which. A wall, glass or block line
+that runs off the grid's axes is one **Straight** wall from end to end (a
+turned box, a tile thick, as tall as the wall in hand) or, **Stepped**, a
+staircase of cells. The **Level** card (− and +, or Q and E) is where the
+next piece goes; selected, it raises and lowers what is selected, as Q and
+E do, and a placed piece's **Position** card moves it by typing. The
+**Size** card sets a wall's, glass's or pillar's height, of one in hand, one
+placed or every one in a selection. Each slot shows its key (1 to 0, the
+Eraser X). A right-click takes a piece off and a right-drag turns the view
+(Shift-drag or the middle button moves it); R turns the piece in hand, and
 Escape in Select with nothing selected leaves Build. A stair laid or turned
 with its foot against a wall is said. The map bar's **Storeys** list shows
 the 3D view up to a storey, as the game cuts away a roof over the player;

@@ -54,8 +54,10 @@ test('the Build hint names the keys Build binds, and a right-drag turns the view
     assert.doesNotMatch(hint, /\[ \]/, 'the brackets size a shape only; its own panel says so');
     for (const words of ['right-click removes', 'right-drag turns the view', 'R turns the piece', 'Q/E level', 'Ctrl-drag a box']) assert.ok(hint.includes(words), words);
     const keys = read('editor/src/PieceBuilderManager.js');
-    assert.match(keys, /else if \(key === 'e'\) \{ event\.preventDefault\(\); this\.setLevel\(this\.level \+ 1\); \}/);
-    assert.match(keys, /else if \(key === 'q'\) \{ event\.preventDefault\(\); this\.setLevel\(this\.level - 1\); \}/);
+    // Q and E step the level built at (a quarter for floors and blocks), or raise and lower what is selected.
+    assert.match(keys, /else if \(key === 'e'\) \{ event\.preventDefault\(\); this\.setLevel\(this\.level \+ this\.levelStep\(this\.kind\)\); \}/);
+    assert.match(keys, /else if \(key === 'q'\) \{ event\.preventDefault\(\); this\.setLevel\(this\.level - this\.levelStep\(this\.kind\)\); \}/);
+    assert.match(keys, /this\.raiseSelection\(key === 'e' \? step : -step\)/);
     const view = read('editor/src/MapEditor3D.js');
     // Q and E taken for the level do not also fly the camera up and down.
     assert.match(view, /if \(event\.defaultPrevented && this\.canEditPieces\(\)\) return;/);

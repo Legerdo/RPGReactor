@@ -746,6 +746,8 @@
      * stands as a 3D model with no size of its own (the tiles its body covers, from tile x + ox,
      * y + oy): the game works those out from the model itself, so this is the editor's picture only.
      */
+    /** The cell pieces that take a height of their own (Reactor3D.SIZED_KINDS). */
+    const SIZED_KINDS = ['wall', 'glass', 'pillar'];
     const EVENT_SIZE_MAX = 64;
     const sizeNumber = v => Math.max(1, Math.min(EVENT_SIZE_MAX, Math.floor(Number(v)) || 1));
     const eventSizeEntry = (mapData, eventId) => {
@@ -931,12 +933,18 @@
         if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) return null;
         if (mapData && (x >= mapData.width || y >= mapData.height)) return null;
         const shape = SHAPE_KINDS.includes(raw.kind);
-        // A shape stands at any quarter tile; a cell piece at a whole level.
-        const z = Math.max(0, Math.min(PIECE_MAX_LEVEL, shape ? Math.round((Number(raw.z) || 0) * 4) / 4 : Math.floor(Number(raw.z)) || 0));
+        // A shape, a floor and a block stand at any quarter tile (a raised dais, a slab under a lifted fountain); the rest at a whole level.
+        const quarter = shape || raw.kind === 'floor' || raw.kind === 'block';
+        const z = Math.max(0, Math.min(PIECE_MAX_LEVEL, quarter ? Math.round((Number(raw.z) || 0) * 4) / 4 : Math.floor(Number(raw.z)) || 0));
         const rot = ((Math.floor(Number(raw.rot)) || 0) % 4 + 4) % 4;
         const material = typeof raw.material === 'string' ? raw.material.trim() : '';
         const id = Number(raw.id);
         const piece = { id: Number.isFinite(id) && id > 0 ? Math.floor(id) : 0, kind: raw.kind, x, y, z, rot, material };
+        // A wall's, glass's or pillar's own height (the runtime's SIZED_KINDS), to the quarter tile; none is a storey.
+        if (SIZED_KINDS.includes(raw.kind) && Number(raw.height) > 0) {
+            const tall = Math.max(0.5, Math.min(40, Math.round(Number(raw.height) * 4) / 4));
+            if (tall !== 5) piece.height = tall;
+        }
         // Pieces stamped from one plan share a group, so the building moves as one.
         const group = Number(raw.group);
         if (Number.isFinite(group) && group > 0) piece.group = Math.floor(group);

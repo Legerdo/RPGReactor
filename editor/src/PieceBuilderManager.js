@@ -51,6 +51,97 @@ class PieceBuilderManager {
         this.selected = 0;
         this.selectedIds = [];
         this.gizmoMode = 'all';          // every handle at once: arrows, rings and size cubes
+        // How a drag lays pieces, as the 2D map's pen, line and rectangle do: 'brush' (every cell the drag
+        // passes), 'line' (a straight run from where it began to where it is), 'rect' (the rectangle between).
+        // A rectangle fills or lines its edge as `rectFill` says ('auto': floors, blocks and roofs fill).
+        // The height new walls, panes and pillars are laid at, per kind (none: a storey).
+        this.heights = {};
+        this.drawShape = PieceBuilderManager.stored('rr-build-draw', ['brush', 'line', 'rect'], 'brush');
+        this.rectFill = PieceBuilderManager.stored('rr-build-rectfill', ['auto', 'fill', 'edge'], 'auto');
+        // A wall line off the grid's axes: one straight wall (a turned box) or a stepped run of cells.
+        this.diagonal = PieceBuilderManager.stored('rr-build-diagonal', ['straight', 'stepped'], 'straight');
+    }
+
+    setDiagonal(value) {
+        if (!['straight', 'stepped'].includes(value)) return;
+        this.diagonal = value;
+        try { localStorage.setItem('rr-build-diagonal', value); } catch (error) { /* a preference only */ }
+        this._syncPanel();
+    }
+
+    /** The kinds a Line can lay as one straight wall when it runs off the grid's axes. */
+    static DIAGONAL_KINDS = ['wall', 'glass', 'block'];
+
+    /**
+     * One straight wall from cell `a` to cell `b`: a box laid from the middle of the one to the middle of the
+     * other (a tile thick, ends included), as tall as the wall in hand, turned to the line. Null when the run is
+     * along a row or a column (the cells themselves are that wall) or the kind is no wall.
+     */
+    diagonalWall(a, b, z) {
+        if (this.diagonal !== 'straight' || !PieceBuilderManager.DIAGONAL_KINDS.includes(this.kind) || a.x === b.x || a.y === b.y) return null;
+        const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy) + 1;
+        const mx = (a.x + b.x) / 2 + 0.5, my = (a.y + b.y) / 2 + 0.5, cx = Math.floor(mx), cy = Math.floor(my);
+        const tall = this.kind === 'block' ? 1 : this.heightFor(this.kind);
+        const piece = { kind: 'box', x: cx, y: cy, z, rot: 0, material: this.material, size: [Math.min(60, Math.round(length * 100) / 100), tall, 1],
+            angle: ((Math.round(Math.atan2(dy, dx) * 180 / Math.PI) % 360) + 360) % 360 };
+        const offset = [Math.round((mx - cx - 0.5) * 100) / 100, Math.round((my - cy - 0.5) * 100) / 100];
+        if (offset[0] || offset[1]) piece.offset = offset;
+        if (this.kind === 'glass') piece.material = this.material || 'Glass';
+        if (this.finish) piece.finish = this.finish;
+        if (this.surface) piece.surface = Object.assign({}, this.surface);
+        return piece;
+    }
+
+    /** The cell pieces that take a height of their own (Reactor3D.SIZED_KINDS). */
+    static SIZED_KINDS = ['wall', 'glass', 'pillar'];
+
+    /** The height the next piece of `kind` is laid at, in tiles. */
+    heightFor(kind) { return this.heights[kind] > 0 ? this.heights[kind] : 5; }
+
+    setHeight(kind, height) {
+        const tall = Math.max(0.5, Math.min(40, Math.round((Number(height) || 5) * 4) / 4));
+        this.heights[kind] = tall;
+        this._syncPanel(); this._ghostChanged();
+    }
+
+    /** A remembered choice of the Build panel, when it is one of `allowed`. */
+    static stored(key, allowed, fallback) {
+        try { const value = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null; return allowed.includes(value) ? value : fallback; }
+        catch (error) { return fallback; }
+    }
+
+    setDrawShape(shape) {
+        if (!['brush', 'line', 'rect'].includes(shape)) return;
+        this.drawShape = shape;
+        try { localStorage.setItem('rr-build-draw', shape); } catch (error) { /* a preference only */ }
+        this._syncPanel();
+    }
+
+    setRectFill(fill) {
+        if (!['auto', 'fill', 'edge'].includes(fill)) return;
+        this.rectFill = fill;
+        try { localStorage.setItem('rr-build-rectfill', fill); } catch (error) { /* a preference only */ }
+        this._syncPanel();
+    }
+
+    /** Whether a rectangle of the piece in hand fills its inside or lines its edge (a room's walls). */
+    rectangleFills() {
+        return this.rectFill === 'fill' || (this.rectFill === 'auto' && PieceBuilderManager.fillsRectangle(this.kind));
+    }
+
+    /**
+     * The cells of a straight run from `a` to `b`, each sharing a side with the one before (a diagonal steps
+     * across and along, so a run of walls has no gap a character could squeeze through).
+     */
+    static lineCells(a, b) {
+        const cells = [{ x: a.x, y: a.y }];
+        const nx = Math.abs(b.x - a.x), ny = Math.abs(b.y - a.y), sx = b.x > a.x ? 1 : -1, sy = b.y > a.y ? 1 : -1;
+        // Step along whichever axis the true line crosses into first, one axis at a time.
+        for (let x = a.x, y = a.y, ix = 0, iy = 0; ix < nx || iy < ny;) {
+            if ((0.5 + ix) / nx < (0.5 + iy) / ny) { x += sx; ix++; } else { y += sy; iy++; }
+            cells.push({ x, y });
+        }
+        return cells;
     }
 
     // ---- A selection of many: a box dragged round them ----------------------
@@ -424,6 +515,23 @@ class PieceBuilderManager {
         return true;
     }
 
+    /** The levels a piece of `kind` stands at: whole tiles, a quarter for a floor, a block and a shape. */
+    levelStep(kind) { return kind === 'floor' || kind === 'block' || this.isShape(kind) ? 0.25 : 1; }
+
+    /** The selection (or the piece in hand) up or down by `delta` levels, never below the ground. */
+    raiseSelection(delta, record = true) {
+        const pieces = this.selectionPieces();
+        if (!pieces.length || !delta) return false;
+        const max = this.elevation()?.PIECE_MAX_LEVEL ?? 240;
+        const low = Math.min(...pieces.map(piece => piece.z));
+        const move = Math.max(-low, delta);
+        if (!move) return false;
+        return this.updateSelection(piece => {
+            const step = this.levelStep(piece.kind);
+            return { z: Math.max(0, Math.min(max, Math.round((piece.z + move) / step) * step)) };
+        }, record);
+    }
+
     /** The whole selection a number of cells across and along. */
     moveSelectionBy(dx, dy, record = true) {
         if (!dx && !dy) return false;
@@ -756,7 +864,7 @@ class PieceBuilderManager {
             return this.updateSelected(patch, record);
         }
         const patch = { x: clamp(Math.floor(cx), map.width - 1), y: clamp(Math.floor(cy), map.height - 1) };
-        if (Number.isFinite(z)) patch.z = Math.max(0, Math.floor(z));
+        if (Number.isFinite(z)) { const step = this.levelStep(piece.kind); patch.z = Math.max(0, step < 1 ? Math.round(z / step) * step : Math.floor(z)); }
         return this.updateSelected(patch, record);
     }
 
@@ -1525,7 +1633,14 @@ class PieceBuilderManager {
     /** The bar over the 3D view follows the same state as the panel. */
     _syncBar() { window.reactor?.buildHotbar?.sync?.(); }
 
-    setKind(kind) { if (this.kinds().includes(kind)) { this.kind = kind; this.mode = 'place'; this._syncPanel(); this._ghostChanged(); } }
+    setKind(kind) {
+        if (!this.kinds().includes(kind)) return;
+        this.kind = kind; this.mode = 'place';
+        // A wall stands at a whole level: a floor's quarter level carried over comes down to the one under it.
+        const step = this.levelStep(kind);
+        if (this.level % step) this.level = Math.floor(this.level / step) * step;
+        this._syncPanel(); this._ghostChanged();
+    }
     setMode(mode) {
         if (mode !== 'place' && mode !== 'erase' && mode !== 'stamp' && mode !== 'move' && mode !== 'select') return;
         if (mode !== 'select') { this.selected = 0; this.selectedIds = []; }
@@ -1539,7 +1654,8 @@ class PieceBuilderManager {
         // The Structure workshop's plot is only so many floors tall.
         const plot = this.currentMap()?.rrWorkshop;
         const max = plot ? plot.maxLevel : this.elevation()?.PIECE_MAX_LEVEL ?? 240;
-        this.level = Math.max(0, Math.min(max, Math.floor(Number(level)) || 0));
+        const step = this.levelStep(this.kind);
+        this.level = Math.max(0, Math.min(max, Math.round((Number(level) || 0) / step) * step));
         // With the view cut at a storey, the cut follows the level built at: the storey in hand is the one shown.
         const view = window.reactor?.mapEditor3D, S = (typeof Reactor3D !== 'undefined' && Reactor3D.PIECE_STOREY) || 5;
         if (view?.storeyCut > 0 && view.setStoreyCut) view.setStoreyCut(Math.floor(this.level / S) + 1, 'keep');
@@ -1662,6 +1778,9 @@ class PieceBuilderManager {
 
     pieceFor(target) {
         const piece = { kind: this.kind, x: target.x, y: target.y, z: target.z, rot: this.rot, material: this.material };
+        // A wall, a pane or a pillar as tall as the panel says (a storey when it says nothing else).
+        const tall = this.heights[this.kind];
+        if (PieceBuilderManager.SIZED_KINDS.includes(this.kind) && tall > 0 && tall !== 5) piece.height = tall;
         if (this.finish) piece.finish = this.finish;
         if (this.surface) piece.surface = Object.assign({}, this.surface);
         if (this.kind === 'door') {
@@ -1743,13 +1862,18 @@ class PieceBuilderManager {
         this.undoStack.push(saved);
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack.length = 0;
-        this._stroke = { mode, moved: false, last: null, anchor: { x: target.x, y: target.y, z: target.z }, snapshot: saved.pieces, entry: saved, rectangle: !!options.rectangle, seed: this.rockSeed };
-        return this.dab(target);
+        // Ctrl always draws a rectangle; otherwise the panel's drawing mode says. A shape or a rock is laid
+        // one per click as the brush lays it (a rock's rectangle is its own spacing).
+        const cellPiece = !this.isShape(this.kind) || this.kind === 'rock';
+        const rectangle = !!options.rectangle || (cellPiece && this.drawShape === 'rect');
+        const line = !rectangle && cellPiece && this.drawShape === 'line';
+        this._stroke = { mode, moved: false, last: null, anchor: { x: target.x, y: target.y, z: target.z }, snapshot: saved.pieces, entry: saved, rectangle, line, seed: this.rockSeed };
+        return rectangle || line ? this.layRectangle(target) : this.dab(target);
     }
 
     paintAt(target, options = {}) {
         if (!this._stroke || !target) return false;
-        if (options.rectangle || this._stroke.rectangle) return this.layRectangle(target);
+        if (options.rectangle || this._stroke.rectangle || this._stroke.line) return this.layRectangle(target);
         const last = this._stroke.last;
         if (last && last.x === target.x && last.y === target.y && last.z === target.z) return false;
         return this.dab(target);
@@ -1763,8 +1887,13 @@ class PieceBuilderManager {
         const a = this._stroke.anchor;
         const x0 = Math.min(a.x, target.x), x1 = Math.max(a.x, target.x);
         const y0 = Math.min(a.y, target.y), y1 = Math.max(a.y, target.y);
-        const fill = this._stroke.mode === 'erase' || PieceBuilderManager.fillsRectangle(this.kind);
+        const fill = this._stroke.mode === 'erase' || this.rectangleFills();
         const cells = [];
+        // A line: the straight run from the anchor, at its level.
+        if (this._stroke.line) {
+            for (const cell of PieceBuilderManager.lineCells(a, target)) cells.push({ x: cell.x, y: cell.y, z: a.z });
+            return { cells, x0, y0, x1, y1 };
+        }
         // Rocks fill it on a grid of their spacing, each its own (seeded by its place, so the
         // rectangle keeps its rocks while it is dragged bigger).
         if (this.kind === 'rock' && this._stroke.mode !== 'erase') {
@@ -1782,14 +1911,21 @@ class PieceBuilderManager {
         const map = this.currentMap(), elevation = this.elevation();
         if (!map || !elevation || !target || !this._stroke) return false;
         const last = this._stroke.last;
-        if (this._stroke.rectangle && last && last.x === target.x && last.y === target.y) return false;
-        this._stroke.rectangle = true;
+        if ((this._stroke.rectangle || this._stroke.line) && last && last.x === target.x && last.y === target.y) return false;
+        if (!this._stroke.line) this._stroke.rectangle = true;
         this._stroke.last = { x: target.x, y: target.y, z: this._stroke.anchor.z };
         // From the stroke's start again, so a rectangle that shrinks leaves nothing behind.
         elevation.restorePieces(map, this._stroke.snapshot);
         const { cells, x0, y0, x1, y1 } = this.rectangleCells(target);
         const group = elevation.pieceGroupAt(map, this._stroke.anchor.x, this._stroke.anchor.y);
         let changed = false;
+        // A wall line off the axes, Straight: one turned wall from end to end in place of the stepped cells.
+        const straight = this._stroke.line && this._stroke.mode !== 'erase' ? this.diagonalWall(this._stroke.anchor, target, this._stroke.anchor.z) : null;
+        if (straight) {
+            if (group) straight.group = group;
+            if (elevation.setPiece(map, straight)) changed = true;
+            cells.length = 0;
+        }
         for (const cell of cells) {
             if (this._stroke.mode === 'erase') { if (this.eraseAt(map, cell)) changed = true; continue; }
             const piece = this.pieceFor(cell);
@@ -2049,8 +2185,15 @@ class PieceBuilderManager {
         // Escape in Select with nothing selected leaves Build.
         else if (this.mode === 'select' && key === 'escape') { event.preventDefault(); this.leaveBuild(); }
         else if (key === 'r' && !(this.mode === 'move' && this.selectedGroup)) { event.preventDefault(); this.turn(event.shiftKey ? -1 : 1); }
-        else if (key === 'e') { event.preventDefault(); this.setLevel(this.level + 1); }
-        else if (key === 'q') { event.preventDefault(); this.setLevel(this.level - 1); }
+        // Q and E: a selection in Select goes down or up a step (a quarter for floors, blocks and shapes); else the level built at.
+        else if (this.mode === 'select' && (this.selected || this.selectedIds.length) && (key === 'e' || key === 'q')) {
+            event.preventDefault();
+            const step = this.selectionPieces().every(piece => this.levelStep(piece.kind) < 1) ? 0.25 : 1;
+            this.raiseSelection(key === 'e' ? step : -step);
+            window.reactor?.projectController?.buildHotbar?.renderPanel?.();
+        }
+        else if (key === 'e') { event.preventDefault(); this.setLevel(this.level + this.levelStep(this.kind)); }
+        else if (key === 'q') { event.preventDefault(); this.setLevel(this.level - this.levelStep(this.kind)); }
         else if (key === 'x') { event.preventDefault(); this.setMode(this.mode === 'erase' ? 'place' : 'erase'); }
         else if ((key === ']' || key === '[') && !(this.mode === 'move' && this.selectedGroup)) { event.preventDefault(); this.shapeScale = Math.max(0.25, Math.min(8, Math.round((this.shapeScale * (key === ']' ? 1.25 : 0.8)) * 100) / 100)); this._syncPanel(); this._ghostChanged(); }
         else if (key === 'm') { event.preventDefault(); this.setMode(this.mode === 'move' ? 'place' : 'move'); }

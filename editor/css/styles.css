@@ -7833,3 +7833,19 @@ html.rr-detached-window {
 /* The map's events list: the Database's vehicles below the map's own events, in the vehicle markers' orange. */
 .event-list-vehicles-head { margin:8px 0 2px; padding:4px 8px 4px 7px; border-left:3px solid #f0a040; border-bottom:1px solid var(--color-border); background:var(--color-bg-toolbar); color:var(--color-text); font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; user-select:none; }
 .event-list-item.event-list-vehicle { padding:6px 8px 6px 9px; margin:2px 0; border-left:3px solid #f0a040; border-radius:3px; font-size:13px; cursor:pointer; }
+
+/* Build: the key behind a button, shown on it (a slot's number, the Eraser's X, Q and E, Ctrl), and the Rectangle chip lit while Ctrl is held. */
+.rr-build-slot { position: relative; }
+.rr-build-slot-key { position: absolute; top: 2px; left: 4px; font: 600 9px/1 var(--font-mono, monospace); color: var(--color-text-muted); opacity: .85; pointer-events: none; }
+.rr-build-slot[aria-pressed="true"] .rr-build-slot-key { color: var(--color-accent); }
+.rr-build-hotbar.is-short .rr-build-slot-key { display: none; }
+.rr-build-levelrow kbd, .rr-build-chip kbd { margin-left: 5px; padding: 0 3px; border: 1px solid var(--color-border); border-radius: 3px; font: 600 9px/14px var(--font-mono, monospace); color: var(--color-text-muted); }
+.rr-build-levelrow { display: flex; align-items: center; gap: 6px; }
+.rr-build-levelrow .rr-build-level-value { width: 70px; text-align: center; }
+.rr-build-levelrow .rr-build-level-step { min-width: 46px; font-weight: 700; }
+.rr-build-position { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+.rr-build-chip.rr-build-draw.is-held { border-color: var(--color-accent); background: var(--color-accent-tint-25); color: var(--color-text); }
+.rr-build-rectfills { margin-top: 6px; }
+.rr-build-draws .rr-build-chip, .rr-build-rectfills .rr-build-chip, .rr-build-diagonals .rr-build-chip { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px 4px; }
+.rr-build-draws .rr-build-chip svg, .rr-build-rectfills .rr-build-chip svg, .rr-build-diagonals .rr-build-chip svg { flex: none; }
+.rr-build-diagonals { margin-top: 6px; }

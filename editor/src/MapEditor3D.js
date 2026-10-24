@@ -2804,7 +2804,7 @@ class MapEditor3D {
             for (const one of pieces) {
                 let c;
                 if (manager.isShape(one.kind)) c = this.shapeView(one).corners;
-                else { const base = Reactor3D.pieceBaseAt(mapData, one.x, one.y) + one.z, h = Reactor3D.pieceHeight(one.kind); c = []; for (const u of [0, 1]) for (const y of [0, 1]) for (const v of [0, 1]) c.push([one.x + u, base + y * h, one.y + v]); }
+                else { const base = Reactor3D.pieceBaseAt(mapData, one.x, one.y) + one.z, h = Reactor3D.pieceHeight(one.kind, one); c = []; for (const u of [0, 1]) for (const y of [0, 1]) for (const v of [0, 1]) c.push([one.x + u, base + y * h, one.y + v]); }
                 for (const [a, b] of [[0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]]) all.push(...c[a], ...c[b]);
             }
             if (!this.selectionOutline) {
@@ -2828,7 +2828,7 @@ class MapEditor3D {
         let corners;
         if (shape) corners = this.shapeView(piece).corners;
         else {
-            const base = Reactor3D.pieceBaseAt(mapData, piece.x, piece.y) + piece.z, h = Reactor3D.pieceHeight(piece.kind);
+            const base = Reactor3D.pieceBaseAt(mapData, piece.x, piece.y) + piece.z, h = Reactor3D.pieceHeight(piece.kind, piece);
             // Where it is drawn: a ladder's level shifted over, narrowed across its cell, its top cut short.
             const [ox, oy] = piece.offset || [0, 0];
             const [ax, ay] = Reactor3D.stairAxis(piece.rot || 0), across = piece.kind === 'ladder' ? 1 - (piece.span || 1) : 0;
@@ -2869,7 +2869,7 @@ class MapEditor3D {
         const door = !stamp && !erase && manager.kind === 'door' ? manager.pieceFor(target) : null;
         const doorKey = door ? ':door:' + [door.x - target.x, door.y - target.y, door.rot, door.width, door.style].join(',') : '';
         // A building turned or grown while picked up has a new footprint: its slab is made again.
-        const key = doorKey + (stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null]));
+        const key = doorKey + (stamp ? (bounds ? 'move:' + manager.selectedGroup + ':' + stamp.size.join('x') : 'stamp:' + manager.structure + ':' + turn) : (erase ? 'erase' : manager.kind) + ':' + (manager.kind === 'ladder' && manager.ladderRotFor ? manager.ladderRotFor(target) ?? manager.rot : manager.rot) + ':' + JSON.stringify([manager.sizeFor ? manager.sizeFor(manager.kind) : null, manager.params && manager.params[manager.kind], manager.kind === 'stair' ? [manager.stairSteps, manager.stairWidth] : manager.kind === 'ladder' ? [manager.ladderHeight, manager.ladderWidth] : manager.kind === 'rock' ? [manager.rockVary && manager.rockSeed, manager.rockCap, manager.rockTint] : null, manager.heightFor ? manager.heightFor(manager.kind) : 5]));
         if (!this.pieceGhost || this.pieceGhost.userData.key !== key) {
             this.hidePieceGhost(true);
             // A plan's ghost is the building itself, translucent; a selected
@@ -6529,7 +6529,7 @@ class MapEditor3D {
         let top = 0;
         for (const piece of list) {
             if (!piece) continue;
-            const tall = Array.isArray(piece.size) && Number(piece.size[1]) > 0 ? Number(piece.size[1]) : R.pieceHeight ? R.pieceHeight(piece.kind) : 1;
+            const tall = Array.isArray(piece.size) && Number(piece.size[1]) > 0 ? Number(piece.size[1]) : R.pieceHeight ? R.pieceHeight(piece.kind, piece) : 1;
             top = Math.max(top, (Number(piece.z) || 0) + tall);
         }
         return Math.max(1, Math.ceil(top / S - 1e-6));
