@@ -195,8 +195,9 @@ function main() {
     execFileSync('node', [path.join('.github', 'scripts', 'check-syntax.cjs')], { cwd: repoRoot, encoding: 'utf8' });
 
     say('Running the editor test suite...');
+    // The suite's report passed 1 MB (execFileSync's default buffer) at 0.99.1.
     const testOutput = execFileSync('node', ['--test'], {
-        cwd: path.join(repoRoot, 'editor'), encoding: 'utf8'
+        cwd: path.join(repoRoot, 'editor'), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024
     });
     const passed = Number((testOutput.match(/^# pass (\d+)$/m)
         || testOutput.match(/pass (\d+)/) || [])[1] || 0);
