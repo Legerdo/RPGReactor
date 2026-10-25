@@ -350,6 +350,8 @@
             moveFrequency: Math.max(1, Math.min(5, Math.round(((pg.move_frequency ?? 3) * 5) / 8))),
             moveRoute: Object.assign(convertRoute ? convertRoute(pg.move_route && pg.move_route.move_commands || []) : { list: [{ code: 0, parameters: [] }] }, { repeat: !!(pg.move_route && pg.move_route.repeat), skippable: !!(pg.move_route && pg.move_route.skippable), wait: false }),
             moveSpeed: Math.max(1, Math.min(6, pg.move_speed ?? 3)),
+            // the old engine's 1-8 frequency, for the runtime's move-route timing
+            rrFrequency: Math.max(1, Math.min(8, pg.move_frequency ?? 3)),
             moveType,
             priorityType: Math.max(0, Math.min(2, pg.layer ?? 0)),
             // read by the runtime for imports: a translucent page starts at transparency 3, a spinning one turns in place
