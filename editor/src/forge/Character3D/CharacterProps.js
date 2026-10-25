@@ -760,9 +760,12 @@
         m.sphere(add(C,[0,top+.0012,0]),.0058,crownCol.map(v=>v*.9),skin,6,12,[1,.45,1]);void height;
         loop(m,ringPath(1,72,b_=>{const q=at(0,b_);return add(q,mul(norm(sub(q,C)),.0012));}),.0016,seamCol,skin,5);
         // The bill: a pre-curved, stitched brim with real thickness, its sides bowed down, joined under the crown's front.
-        const brimCol=linear(o.color2||o.color),brimThread=brimCol.map(v=>v*.55+.2),pm=.95,B=R.rz*.95*(o.billLength||1),hb=.0016,NU=24,NV=8;
-        const brimAt=(u,v,lift)=>{const ph=(u*2-1)*pm,e=add(at(0,Math.PI/2-ph),[0,.001,0]),o_=[R.center[0]+Math.sin(ph)*R.rx*.92,R.center[1],R.center[2]+Math.cos(ph)*R.rz+B*Math.pow(Math.cos((u*2-1)*Math.PI/2),.75)];
-            const p=lerp(e,o_,v);p[1]+=-.011*Math.pow(Math.sin(ph)/Math.sin(pm),2)*Math.pow(v,1.3)-.007*v*v+lift;return p;};
+        const brimCol=linear(o.color2||o.color),brimThread=brimCol.map(v=>v*.55+.2),pm=1.1,B=.07*(L.height/1.7)*(o.billLength||1),hb=.0016,NU=24,NV=8;
+        // A D-shaped bill: its attached edge round the crown's front, its outer edge a full rounded curve ~7 cm out in
+        // front (a superellipse, not a point), meeting the crown at the sides; it bows gently down toward them.
+        const front0=at(0,Math.PI/2),brimAt=(u,v,lift)=>{const t=(u*2-1)*Math.PI/2,ph=(u*2-1)*pm,e=add(at(0,Math.PI/2-ph),[0,.001,0]),W=Math.abs(at(0,Math.PI/2-pm)[0]-R.center[0])*1.03,
+            o_=[R.center[0]+W*Math.sin(t),R.center[1],Math.max(e[2],front0[2]+B*Math.pow(Math.abs(Math.cos(t)),.55)-(front0[2]-e[2])*.15)];
+            const p=lerp(e,o_,v);p[1]+=-.013*Math.pow(Math.sin(t),2)*v-.005*v*v+lift;return p;};
         const bfirst=m.i.length,bb=m.p.length/3,grid=(lift)=>{const st=m.p.length/3;for(let i=0;i<=NU;i++)for(let j=0;j<=NV;j++)m.vertex(brimAt(i/NU,j/NV,lift),[0,1,0],brimCol,skin);return st;};
         const T=grid(hb),Bt=grid(-hb),id=(g,i,j)=>g+i*(NV+1)+j;
         for(let i=0;i<NU;i++)for(let j=0;j<NV;j++){m.tri(id(T,i,j),id(T,i+1,j),id(T,i,j+1));m.tri(id(T,i+1,j),id(T,i+1,j+1),id(T,i,j+1));m.tri(id(Bt,i,j),id(Bt,i,j+1),id(Bt,i+1,j));m.tri(id(Bt,i+1,j),id(Bt,i,j+1),id(Bt,i+1,j+1));}
@@ -773,25 +776,75 @@
         {const P=m.p,pt=v=>[P[v*3],P[v*3+1],P[v*3+2]];let vol=0;for(let t=bfirst;t<m.i.length;t+=3)vol+=dot(pt(m.i[t]),cross(pt(m.i[t+1]),pt(m.i[t+2])));
          if(vol<0)for(let t=bfirst;t<m.i.length;t+=3){const v=m.i[t+1];m.i[t+1]=m.i[t+2];m.i[t+2]=v;}}
         void bb;void first;
-        for(const v of [.22,.42,.62,.82,.95])m.tube(Array.from({length:NU+1},(_,i)=>brimAt(i/NU*(1-(v>.9?.04:.08))+(v>.9?.02:.04),v,hb+.00035)),.00034,4,brimThread,skin,false);
+        for(const v of [.5,.68,.84,.93])m.tube(Array.from({length:NU+1},(_,i)=>brimAt(i/NU*(1-(v>.9?.04:.08))+(v>.9?.02:.04),v,hb+.00035)),.00034,4,brimThread,skin,false);
         m.computeNormals();
         return [];
     }
 
-    function crown(m, L, o) {
-        const head = L.boneIndex('Head'), skin = rigid(head);
-        const R = hatRing(L, o, 0.03), tall = 0.06 * (o.height || 1);
-        const gold = linear(o.color), gem = linear(o.color2 || '#c0203a');
-        m.loft(5,i=>{const inner=i===2||i===3,up=i===1||i===2;return{center:[R.center[0],R.center[1]+(up?.018:0),R.center[2]],x:[1,0,0],y:[0,0,1],rx:R.rx-(inner?.003:0),ry:R.rz-(inner?.003:0)};},64,gold,skin,false);
-        const points = 8;
-        for (let k = 0; k < points; k++) {
-            const a = k / points * Math.PI * 2;
-            const base = [R.center[0] + Math.sin(a) * R.rx, R.center[1] + 0.012, R.center[2] + Math.cos(a) * R.rz];
-            m.tube([base, add(base, [0, tall * 0.6, 0]), add(base, [0, tall, 0])], [0.012, 0.007, 0.001], 4, gold, skin);
-            m.sphere(add(base, [0, tall + 0.004, 0]), 0.0045, gold, skin, 4, 6);
-            m.sphere(add(base, [Math.sin(a) * 0.002, -0.003, Math.cos(a) * 0.002]), 0.005, gem, skin, 4, 6);
+    /** A faceted gem facing n: an octagonal table, crown facets to the girdle and a pavilion to its point, every face flat. */
+    function facetedGem(g, c, n, r, rgb, skin) {
+        const x = norm(cross(n, Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0])), y = cross(n, x), S = 8;
+        const at = (k, rr, h, turn = 0) => { const a = (k + turn) / S * Math.PI * 2; return add(c, add(add(mul(x, Math.cos(a) * rr), mul(y, Math.sin(a) * rr)), mul(n, h))); };
+        const face = (p, q, w) => { const fn = norm(cross(sub(q, p), sub(w, p))), dir = dot(fn, sub(add(add(p, q), w).map(v => v / 3), sub(c, mul(n, r * 0.2)))) >= 0, nn = dir ? fn : mul(fn, -1); const i0 = g.vertex(p, nn, rgb, skin), i1 = g.vertex(q, nn, rgb, skin), i2 = g.vertex(w, nn, rgb, skin); if (dir) g.tri(i0, i1, i2); else g.tri(i0, i2, i1); };
+        const top = r * 0.42, table = r * 0.55, culet = add(c, mul(n, -r * 0.75)), mid = add(c, mul(n, top));
+        for (let k = 0; k < S; k++) {
+            const t0 = at(k, table, top, 0.5), t1 = at(k + 1, table, top, 0.5), g0 = at(k, r, 0), g1 = at(k + 1, r, 0);
+            face(mid, t0, t1);
+            face(g0, g1, t0); face(g1, t1, t0);
+            face(g0, culet, g1);
         }
-        return [];
+    }
+
+    /**
+     * Crown: one continuous gold shell, its rim rising into tall points and lower fleur points that grow out of the
+     * band with smooth fillets (no pieces stuck on square), rolled beads along both edges and up every point, pearls
+     * on the tips, and a row of faceted jewels in bezels round the band, the largest in front on four prongs.
+     */
+    function crown(m, L, o) {
+        const head = L.boneIndex('Head'), skin = rigid(head), s = o.size || 1;
+        const R = hatRing(L, o, 0.022), tall = 0.055 * (o.height || 1), band = 0.022;
+        const gold = linear(o.color), gem = linear(o.color2 || '#c0203a'), pearl = linear('#efe8dc'), clear = linear('#dfe8f2');
+        const N = 8, cols = 96, rows = 2, t2 = 0.0024, T = new ExactMesh();
+        // The rim's height round the head: the band, plus a point at each of N places, alternately tall and low.
+        const peak = th => { let h = 0; for (let k = 0; k < N; k++) { const c = k / N * Math.PI * 2, d = Math.abs(((th - c + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI), w = Math.PI / N * (k % 2 ? 0.9 : 0.95), x = d / w; if (x < 1) h = Math.max(h, (k % 2 ? 0.6 : 1) * Math.pow(1 - x, 1.55)); } return h; };
+        const rimH = th => band + tall * peak(th);
+        const pos = (th, f, inset) => { const y = R.center[1] + rimH(th) * f, flare = 1 + 0.06 * Math.pow(Math.max(0, (rimH(th) * f - band) / tall), 2); return [R.center[0] + Math.sin(th) * (R.rx * flare - inset), y, R.center[2] + Math.cos(th) * (R.rz * flare - inset)]; };
+        const first = m.i.length, outer = [], inner = [];
+        for (const [list, inset] of [[outer, 0], [inner, t2]]) for (let j = 0; j < cols; j++) { const th = j / cols * Math.PI * 2, col = []; for (let i = 0; i <= rows; i++) col.push(m.vertex(pos(th, i / rows, inset), [0, 1, 0], gold, skin)); list.push(col); }
+        for (let j = 0; j < cols; j++) { const k = (j + 1) % cols; for (let i = 0; i < rows; i++) { m.tri(outer[j][i], outer[k][i], outer[j][i + 1]); m.tri(outer[k][i], outer[k][i + 1], outer[j][i + 1]); m.tri(inner[j][i], inner[j][i + 1], inner[k][i]); m.tri(inner[k][i], inner[j][i + 1], inner[k][i + 1]); }
+ }
+        // The rim and foot strips have corners of their own, so the faces' shading stays crisp (no up-tilted sheen).
+        const edge = (f, inset) => Array.from({ length: cols }, (_, j) => m.vertex(pos(j / cols * Math.PI * 2, f, inset), [0, 1, 0], gold, skin));
+        const oT = edge(1, 0), iT = edge(1, t2), oB = edge(0, 0), iB = edge(0, t2);
+        for (let j = 0; j < cols; j++) { const k = (j + 1) % cols; m.tri(oT[j], oT[k], iT[j]); m.tri(oT[k], iT[k], iT[j]); m.tri(oB[j], iB[j], oB[k]); m.tri(oB[k], iB[j], iB[k]); }
+        { const P = m.p, pt = v => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]; let vol = 0; for (let t = first; t < m.i.length; t += 3) vol += dot(pt(m.i[t]), cross(pt(m.i[t + 1]), pt(m.i[t + 2])));
+          if (vol < 0) for (let t = first; t < m.i.length; t += 3) { const v = m.i[t + 1]; m.i[t + 1] = m.i[t + 2]; m.i[t + 2] = v; } }
+        // Rolled beads: along the bottom edge, along the band's top, and up the rim over every point.
+        const out = (th, f, more) => { const p = pos(th, f, 0), n = norm([Math.sin(th) / R.rx, 0, Math.cos(th) / R.rz]); return add(p, mul(n, more)); };
+        loop(T, ringPath(1, 48, th => out(th, 0.04, 0.0008)), 0.0022, gold, skin, 6);
+        loop(T, ringPath(1, 48, th => { const p = out(th, 0, 0.0008); return [p[0], R.center[1] + band * 0.96, p[2]]; }), 0.0016, gold, skin, 5);
+        loop(T, ringPath(1, 96, th => add(pos(th, 1, t2 / 2), [0, 0.0006, 0])), 0.0016, gold, skin, 5);
+        // Pearls on the tips.
+        const jewels = new Mesh();
+        for (let k = 0; k < N; k++) { const th = k / N * Math.PI * 2, tip = add(pos(th, 1, t2 / 2), [0, 0.004, 0]); T.sphere(tip, k % 2 ? 0.0036 : 0.0048, pearl, skin, 4, 8); }
+        // Jewels round the band, in bezels: deep red under the tall points, clear stones between; the front stone the largest, on prongs.
+        for (let k = 0; k < 12; k++) {
+            const th = k / 12 * Math.PI * 2, front = k === 0, r = (front ? 0.0072 : k % 2 ? 0.0038 : 0.0052) * s;
+            const n = norm([Math.sin(th) / R.rx, 0, Math.cos(th) / R.rz]), c = add(out(th, 0, 0.0016), [0, band * 0.5 - (R.center[1] + rimH(th) * 0 - R.center[1]), 0]);
+            const at = [c[0], R.center[1] + band * 0.48, c[2]];
+            facetedGem(jewels, add(at, mul(n, r * 0.35)), n, r, k % 2 ? clear : gem, skin);
+            loop(T, ringPath(1, 10, a => { const x = norm(cross(n, [0, 1, 0])), yv = cross(n, x); return add(at, add(add(mul(x, Math.cos(a) * r * 1.12), mul(yv, Math.sin(a) * r * 1.12)), mul(n, r * 0.25))); }), 0.0011, gold, skin, 4);
+            if (front) for (let q = 0; q < 4; q++) { const a = (q + 0.5) / 4 * Math.PI * 2, x = norm(cross(n, [0, 1, 0])), yv = cross(n, x), rad = d => add(mul(x, Math.cos(a) * d), mul(yv, Math.sin(a) * d));
+                T.tube(smoothPath([add(at, add(rad(r * 1.15), mul(n, r * 0.1))), add(at, add(rad(r * 1.08), mul(n, r * 0.55))), add(at, add(rad(r * 0.78), mul(n, r * 0.72)))], 2), t => 0.0012 * (1 - 0.4 * t), 4, gold, skin); }
+        }
+        // A jewel set in each tall point, growing from its middle.
+        for (let k = 0; k < N; k += 2) { const th = k / N * Math.PI * 2, n = norm([Math.sin(th) / R.rx, 0.25, Math.cos(th) / R.rz]), at = out(th, 0.62, 0.001);
+            facetedGem(jewels, add(at, mul(n, 0.0016)), n, 0.0042 * s, gem, skin);
+            loop(T, ringPath(1, 10, a => { const x = norm(cross(n, [0, 1, 0])), yv = cross(n, x); return add(at, add(add(mul(x, Math.cos(a) * 0.0047 * s), mul(yv, Math.sin(a) * 0.0047 * s)), mul(n, 0.001))); }), 0.001, gold, skin, 4); }
+        // The trims keep the few sides asked for (an ExactMesh) and join the gold shell, whose own normals are worked out first.
+        m.computeNormals();
+        merge(m, T);
+        return [{ mesh: jewels, extra: { name: 'Jewels', roughness: 0.04, metalness: 0.1, ownSurface: true } }];
     }
 
     function circlet(m, L, o) {
