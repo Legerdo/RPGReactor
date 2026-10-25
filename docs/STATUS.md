@@ -68,7 +68,7 @@ Each system has a guide; the guide is the authority on its behaviour and limits.
 
 The one list of open threads. Remove an item when it is done; record the doing in the changelog.
 
-- **Builder quality** (2026-10-22 checkpoint, Preview 47): visual acceptance open. Next: vehicle silhouettes/mechanics, weaker sci-fi/plate outfits, and extreme cloth/armor contact. [Characters](CHARACTER-QUALITY.md), [props and caption regression](PROP-BUILDER.md).
+- **Builder quality** (2026-10-24 push, Preview 48): visual acceptance open. Next: the bald eagle rebuild (plan in HANDOFF), skirts/dresses and sci-fi/plate outfits, hair and save-time triangle budget, extreme cloth/armor contact. [Characters](CHARACTER-QUALITY.md), [props and caption regression](PROP-BUILDER.md).
 - **Waiting on the owner:** [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md), the one list, each item with a recommendation.
 - **Neighbors:** a map three maps out still appears at a crossing. The crossing frame still misses about one refresh (25 to 40 ms): the new map scene built on every transfer. Keeping the map scene across a seamless crossing is the next step ([PERFORMANCE.md](PERFORMANCE.md) › Border crossing).
 - **Cutaway look:** the game's cutaway shows the stamped Cottage's cut walls plain grey; the editor's Floors cut shows stone.

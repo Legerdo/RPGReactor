@@ -6,11 +6,24 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 ## Where things stand (2026-10-23)
 
-- **0.99.1** shipped 2026-10-24 (UTC) with release pictures; **0.99.2** is open at runtime **20261024.12**, synced to all 19 projects. The builders are at Preview 47 with visual acceptance open: [character coverage](CHARACTER-QUALITY.md), [remaining issues](CLAUDE-QUALITY-TRACKER.md), [props](PROP-BUILDER.md).
+- **0.99.1** shipped 2026-10-24 (UTC) with release pictures; **0.99.2** is open at runtime **20261024.12**, synced to all 19 projects. The builders are at Preview 48 (2026-10-24 quality push) with visual acceptance open: [character coverage](CHARACTER-QUALITY.md), [remaining issues](CLAUDE-QUALITY-TRACKER.md), [props](PROP-BUILDER.md).
 - **Owner questions:** [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md); the web trim waits for the weekend release.
 - **Editor windows:** the Event Editor, Database, Forge and Plugin Manager each open in a frameless window of their own (`utils/DetachedWindow.js`). Native Linux transparency still needs a look on the real desktop.
 - **Savior & Religion** (`template/Savior & Religion`, not in git, an encrypted MV game the owner is trying as a template) boots, plays its opening and draws its ULDS maps 2, 5 and 19.
 - **Next:** the three trailer-shoot bugs in STATUS (Blueprint stamp blanking, Forge preview frame drops, the gown breaking on Height) and the Database close freeze, then keeping the map scene across a seamless crossing. 0.99.1 and 0.99.2 are announced together at the end of the weekend with a video and pictures (RELEASE-CHECKLIST §5).
+
+## 2026-10-24 — builders quality push (night)
+
+- **Committed:** motion storyboard and gizmos; nature, bow/staff/polearm/shield and emblem props; vehicles phases 1–3; creatures rounds 2–3; Character Builder clothing round (e79bed64: drape, construction kit, Wasteland + Wear, Body art, cyberware, Cyberpunk, Randomize parts). Reports and sheets: `scratchpad/quality-uplift-20261024/<area>/` (gitignored).
+- **Uncommitted, being finished:** hair triangles (`CharacterHair.js`, about half per style; verify every style's render before committing) and round-4 quadruped heads (`CreatureBody.js`, `headProfileOf` picks the new head per species; ship only species that are clearly better). See the entry's last bullet for tonight's outcome.
+- **Inert draft:** `CharacterSimplify.fitBudget`/`lightenPart`/`countTriangles` (save-time lightening of garments, armor, props). Nothing calls it; it was never rendered. Wire it in only with before/after renders.
+- **Eagle:** not rebuilt. The owner finds it ugly (wings sink 41–43 mm into the body in every idle/walk frame, stick tail, oversized boxy head, thin bill). Plan, measuring tool and before-sheets: `scratchpad/quality-uplift-20261024/creatures/eagle-rebuild/CONTINUE.txt`. First step there: scale/translation tracks in `CharacterCloth.js` posing and the bird floor-height pass, then the folded-wing shell.
+- **Clothing** is still the owner's top complaint: the drape barely changed skirts and dresses. Next: skirts/dresses, then sci-fi/plate outfits. Owner rule: slightly over the triangle budget but clearly better looking is fine (the outfit ratchet went 28 → 33 for the construction detail).
+- **Known test failure:** `character-3d-model` "only skin a garment really covers is hidden" fails on random seed 23 (loincloth outfit, extreme heavy body, 1.45% bare). Pre-existing: HEAD shows the same 1.45% for that outfit; the new Wasteland/Cyberpunk themes only moved which outfit seed 23 rolls.
+- **Harness trap:** on the headless KWin displays, opening a project in NW.js now ends with "Web page caused context loss and was blocked" before the Character Builder starts (HEAD too, NVIDIA and Mesa alike), so editor-viewport checks there fail. Not an outfit regression; cause not found (suspect GPU contention from several harnesses at once). The owner's own desktop is unaffected.
+- **Process rule:** kill only exact PIDs after `ps -o cmd= -p`; never a parent PID (an orphan's parent is `systemd --user`, and killing it restarted the owner's desktop session).
+- **Follow-ups:** about 193 test files leak temp dirs (a shared cleanup helper); the pickup/truck silhouette could be sharper.
+- **Tonight's outcome:** (pending)
 
 ## 2026-10-24 — 0.99.1 shipped; trailer pipeline
 
