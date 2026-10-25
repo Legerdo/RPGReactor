@@ -140,6 +140,8 @@ class PropBuilder {
                     </span>
                     <button class="rr-btn-chip rr-prop-reset">↻ ${this._t('Reset')}</button>
                     <button class="rr-btn-chip rr-prop-open">${this._t('Open')}</button>
+                    <label class="rr-c3d-name rr-c3d-group-pick"><span>${this._t('Group')}</span><select class="rr-select rr-prop-design-group" title="${this._t('Where Save Design keeps this prop')}"></select></label>
+                    <button class="rr-btn-chip rr-prop-keep" title="${this._t('Keep this prop\'s settings in the Forge to open and change later. No model is made.')}">${this._t('Save Design')}</button>
                     <span class="rr-c3d-spacer"></span>
                     <span class="rr-c3d-status" aria-live="polite"></span>
                     <button class="rr-btn-chip rr-c3d-save rr-prop-save">${this._t('Export Model To Project')}</button>
@@ -186,6 +188,12 @@ class PropBuilder {
         });
         q('.rr-prop-reset').addEventListener('click', () => this._replace(this._ui().reset(this.recipe)));
         q('.rr-prop-open').addEventListener('click', () => this._showGallery());
+        q('.rr-prop-keep').addEventListener('click', () => this.saveDesign());
+        q('.rr-prop-design-group').addEventListener('change', async e => {
+            this.designGroup = await RRForgeDesigns.chooseGroup(e.target.value, this.designGroup, (s, v) => this._t(s, v));
+            this._renderDesignGroups();
+        });
+        this._renderDesignGroups();
         q('.rr-prop-save').addEventListener('click', () => this.save());
         q('.rr-prop-motion').addEventListener('click', e => { const b = e.target.closest('[data-motion]'); if (b) this._setMotion(b.dataset.motion); });
         this.root.querySelectorAll('.rr-c3d-frame').forEach(b => b.addEventListener('click', () => this._frame(b.dataset.frame)));
@@ -249,8 +257,9 @@ class PropBuilder {
         const ui = this._ui(), tabs = ui.tabs;
         if (!tabs.some(t => t[0] === this.tab)) this.tab = tabs[0][0];
         this._renderTypes();
-        this.root.querySelector('.rr-c3d-tabs').innerHTML = tabs.map(([id, label]) =>
-            `<button class="rr-c3d-tab${id === this.tab ? ' is-active' : ''}" role="tab" aria-selected="${id === this.tab}" data-tab="${id}">${this._t(label)}</button>`).join('');
+        // The kind's pages as the Character Builder's raised tabs, side by side on the panel's edge.
+        this.root.querySelector('.rr-c3d-tabs').innerHTML = `<div class="rr-c3d-groups">${tabs.map(([id, label]) =>
+            `<button class="rr-c3d-group-tab${id === this.tab ? ' is-active' : ''}" role="tab" aria-selected="${id === this.tab}" data-tab="${id}" title="${rrEscapeHtml(this._t(label))}">${this._t(label)}</button>`).join('')}</div>`;
         const panel = this.root.querySelector('.rr-c3d-panel'), top = panel.scrollTop;
         panel.innerHTML = ui.panel.call(this, this.tab);
         this._cardify(panel);
@@ -1045,41 +1054,107 @@ class PropBuilder {
         return fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory() && fs.existsSync(path.join(dir, e.name, 'prop.json'))).map(e => e.name).sort((a, b) => a.localeCompare(b));
     }
 
+    /** Designs kept in the Forge (RRForgeDesigns): a prop's settings and its picture, no model, under forge/prop_3d/props/. */
+    _designsDir() {
+        const project = this._project();
+        return project ? require('path').join(project.path, 'forge', 'prop_3d', 'props') : null;
+    }
+
+    _renderDesignGroups() {
+        RRForgeDesigns.renderGroups(this.root && this.root.querySelector('.rr-prop-design-group'), this._designsDir(), this.designGroup, s => this._t(s));
+    }
+
+    /** Keep the prop's settings in the Forge under its name, in the chosen group: opened again from Open, nothing built. */
+    async saveDesign() {
+        if (!this._project()) return;
+        let name = this._folderName(this.name);
+        if (!name) {
+            name = this._folderName(await RRDialog.prompt(this._t('Name this prop:'), { title: this._t('Save Design'), value: this._t(this._ui().placeholder) }));
+            if (!name) return;
+            this.name = name;
+            const input = this.root.querySelector('.rr-c3d-name-input');
+            if (input) input.value = name;
+        }
+        const group = this.designGroup || '';
+        try {
+            const kept = await RRForgeDesigns.save(this._designsDir(), group, name, { builder: 'prop3d', version: 1, recipe: this.recipe },
+                this._thumbnail(), this._openedDesign, (s, v) => this._t(s, v));
+            if (!kept) return;
+            this._openedDesign = { group, name };
+            this._renderDesignGroups();
+            this._status(this._t('Design {name} saved.', { name }), 'ok');
+        } catch (error) {
+            console.error('[PropBuilder] save design', error);
+            this._status(this._t('{name} could not be saved.', { name }), 'error');
+        }
+    }
+
+    _openDesign(group, name) {
+        try {
+            const data = RRForgeDesigns.read(this._designsDir(), group, name);
+            this._openRecord(name, data);
+            this._openedDesign = { group, name };
+            this.designGroup = group;
+            this._renderDesignGroups();
+        } catch (error) {
+            console.error('[PropBuilder] open design', error);
+            this._status(this._t('{name} could not be opened.', { name }), 'error');
+        }
+    }
+
+    /** Saved props as pictures to pick from: the designs kept in the Forge by group, then the models exported to the project. */
     _showGallery() {
-        const fs = require('fs'), path = require('path');
+        const path = require('path'), t = (s, v) => this._t(s, v);
         const box = this.root.querySelector('.rr-c3d-gallery');
-        const cards = this._savedNames().map(name => {
-            const thumb = path.join(this._propsDir(), name, 'thumbnail.png');
-            const src = fs.existsSync(thumb) ? 'data:image/png;base64,' + fs.readFileSync(thumb).toString('base64') : '';
-            return `<button class="rr-c3d-saved" data-name="${rrEscapeHtml(name)}">${src ? `<img src="${src}" alt="">` : '<span class="rr-c3d-nothumb">?</span>'}<span>${rrEscapeHtml(name)}</span></button>`;
-        }).join('');
+        const models = this._savedNames().map(name => RRForgeDesigns.card(name, RRForgeDesigns.picture(path.join(this._propsDir(), name, 'thumbnail.png')), 'model', '', t)).join('');
         box.innerHTML = `<div class="rr-c3d-gallery-head"><span>${this._t('Open a saved prop')}</span><button class="rr-c3d-remove" data-close title="${this._t('Close')}">✕</button></div>
-            <div class="rr-c3d-gallery-grid">${cards || `<p class="rr-c3d-note">${this._t('No props saved in this project yet. Save to Project puts one here.')}</p>`}</div>`;
+            <div class="rr-c3d-gallery-scroll">${RRForgeDesigns.gallery(this._designsDir(), models, {
+                noDesigns: this._t('No designs yet. Save Design keeps a prop here without making a model.'),
+                noModels: this._t('No props exported from this project yet. Export Model To Project puts one here.')
+            }, t)}</div>`;
         box.hidden = false;
         const close = () => { box.hidden = true; document.removeEventListener('keydown', onKey, true); };
         const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
         document.addEventListener('keydown', onKey, true);
         box.onclick = e => {
             if (e.target.closest('[data-close]')) { close(); return; }
+            const remove = e.target.closest('[data-delete]');
+            if (remove) {
+                const group = remove.dataset.group || '', name = remove.dataset.delete;
+                RRForgeDesigns.remove(this._designsDir(), group, name, t).then(done => {
+                    if (!done) return;
+                    if (this._openedDesign && this._openedDesign.group === group && this._openedDesign.name === name) this._openedDesign = null;
+                    this._showGallery();
+                });
+                return;
+            }
             const card = e.target.closest('.rr-c3d-saved');
-            if (card) { close(); this._openSaved(card.dataset.name); }
+            if (!card) return;
+            close();
+            if (card.dataset.kind === 'design') this._openDesign(card.dataset.group || '', card.dataset.name);
+            else this._openSaved(card.dataset.name);
         };
     }
 
     _openSaved(name) {
         const fs = require('fs'), path = require('path');
         try {
-            const data = JSON.parse(fs.readFileSync(path.join(this._propsDir(), name, 'prop.json'), 'utf8'));
-            this.name = name;
-            const input = this.root.querySelector('.rr-c3d-name-input');
-            if (input) input.value = name;
-            this.tab = null;
-            this._replace(data.recipe || data);
-            this._status(this._t('Opened {name}.', { name }), 'ok');
+            this._openRecord(name, JSON.parse(fs.readFileSync(path.join(this._propsDir(), name, 'prop.json'), 'utf8')));
+            this._openedDesign = null;
         } catch (error) {
             console.error('[PropBuilder] open', error);
             this._status(this._t('{name} could not be opened.', { name }), 'error');
         }
+    }
+
+    /** A saved prop or design in the builder: its name and its recipe. */
+    _openRecord(name, data) {
+        this.name = name;
+        const input = this.root.querySelector('.rr-c3d-name-input');
+        if (input) input.value = name;
+        this.tab = null;
+        this._replace(data.recipe || data);
+        this._status(this._t('Opened {name}.', { name }), 'ok');
     }
 
     _png(tex) {
