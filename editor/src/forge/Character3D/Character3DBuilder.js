@@ -409,6 +409,7 @@ class Character3DBuilder {
      * Extreme on the slider reaches `extreme`, the natural band shaded.
      */
     _slider(s) {
+        if (this._rangeLog) this._rangeLog.set(s.path, s);
         const range = this.extreme && s.extreme ? s.extreme : s.natural;
         const [min, max] = range;
         const v = this._get(s.path);
@@ -1665,9 +1666,47 @@ class Character3DBuilder {
         let r = JSON.parse(JSON.stringify(this.recipe));
         // Gender unticked: every roll keeps the gender the character has (only women, or only men, run after run).
         this._heldGender = this.human && !this.slime && !chosen.has('gender') ? r.gender : undefined;
+        const before = r;
         for (const scope of scopes) r = this._rollPart(r, scope);
         this._heldGender = undefined;
-        this._replace(r);
+        this._replace(this._rollRanges(before, r, scopes));
+    }
+
+    /** Every slider the Body and Face tabs show for `r`, by path, with its natural and extreme ranges. */
+    _sliderRanges(r) {
+        const was = this.recipe, log = new Map();
+        this.recipe = r; this._rangeLog = log;
+        try { this._bodyTab(); if (this.human && !this.slime) this._faceTab(); } finally { this.recipe = was; this._rangeLog = null; }
+        return log;
+    }
+
+    /**
+     * A roll as the tab's switches say. Extreme proportions on: each rolled value is carried out from the middle
+     * of its natural range toward the ends of its extreme one, by a share of its own, so the whole extreme range
+     * turns up. Anatomical detail on: its sliders roll with the body (else they keep what they had).
+     */
+    _rollRanges(before, r, scopes) {
+        if (this.slime) return r;
+        const rollsBody = scopes.some(s => s === 'all' || s === 'body' || s === 'shape'), detail = !!(r.anatomy && r.anatomy.detail);
+        if (!this.extreme && !(detail && rollsBody)) return r;
+        const get = (o, path) => path.split('.').reduce((v, k) => v == null ? v : v[k], o);
+        const set = (o, path, value) => { const keys = path.split('.'), last = keys.pop(); const at = keys.reduce((v, k) => v[k] == null ? (v[k] = {}) : v[k], o); at[last] = value; };
+        r = JSON.parse(JSON.stringify(r));
+        for (const [path, s] of this._sliderRanges(r)) {
+            let v = get(r, path);
+            if (typeof v !== 'number' || !s.natural) continue;
+            const [lo, hi] = s.natural, anatomy = path.startsWith('anatomy.');
+            if (anatomy) { if (!detail || !rollsBody) continue; v = lo + Math.random() * (hi - lo); }
+            else if (v === get(before, path)) continue;
+            if (this.extreme && s.extreme) {
+                const mid = (lo + hi) / 2, share = Math.sqrt(Math.random());
+                const reach = v >= mid ? (hi > mid ? (s.extreme[1] - mid) / (hi - mid) : 1) : (lo < mid ? (mid - s.extreme[0]) / (mid - lo) : 1);
+                v = Math.min(s.extreme[1], Math.max(s.extreme[0], mid + (v - mid) * (1 + share * (reach - 1))));
+            }
+            if (s.step >= 1 || s.format === 'count') v = Math.round(v);
+            set(r, path, Math.round(v * 1000) / 1000);
+        }
+        return r;
     }
 
     /** `r` with one part rolled anew ('all' for everything). */
