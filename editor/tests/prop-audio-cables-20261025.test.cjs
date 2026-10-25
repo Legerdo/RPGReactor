@@ -206,3 +206,46 @@ test('speakers sit in Stage gear beside the microphone and build whole with the 
         assert.deepEqual(winding(b.parts), [], JSON.stringify(r));
     }
 });
+
+test('a bundle\'s wire palette: the standard code by default, saved in the recipe, a swatch each in the panel with + and -, and it colors the wires', () => {
+    const colorsOf = b => new Set(b.parts.filter(p => /^Wire\d/.test(p.name)).map(p => p.color.toLowerCase()));
+    const coded = Cable.normalize({ preset: 'bundle' });
+    assert.deepEqual(coded.wireColors, ['#7a4e2a', '#b8282a', '#e0761c', '#e2c230', '#2f8a3c', '#2456b0', '#7a42a8', '#8c8f94', '#ecebe4', '#1c1c1f'], 'brown, red, orange, yellow, green, blue, violet, grey, white, black');
+    assert.deepEqual(Cable.normalize(JSON.parse(JSON.stringify(coded))), coded, 'the palette survives saving');
+    // Editing the palette recolors the wires: coded cycles it in order, mixed deals every color before any repeats.
+    const mine = ['#ff0000', '#00ff00', '#0000ff'];
+    for (const coloring of ['coded', 'random']) {
+        const b = Model.build(Cable.normalize({ preset: 'bundle', coloring, wireColors: mine, wires: 6 }));
+        assert.deepEqual([...colorsOf(b)].sort(), mine.slice().sort(), coloring + ': the wires take the palette');
+        const one = Model.build(Cable.normalize({ preset: 'bundle', coloring, wireColors: ['#123456'], wires: 6 }));
+        assert.deepEqual([...colorsOf(one)], ['#123456'], coloring + ': a one-color palette');
+    }
+    const single = Model.build(Cable.normalize({ preset: 'bundle', coloring: 'one', color: '#abcdef', wireColors: mine }));
+    assert.deepEqual([...colorsOf(single)], ['#abcdef'], 'one color: the single picker wins');
+    // The jacket has its own color, apart from the wires'.
+    const cord = Model.build(Cable.normalize({ preset: 'cord', jacketColor: '#00aa55', color: '#aa0000' }));
+    assert.equal(cord.parts.find(p => p.name === 'Jacket').color.toLowerCase(), '#00aa55');
+    assert.deepEqual(Cable.normalize({ wireColors: [] }).wireColors.length > 0, true, 'never an empty palette');
+    assert.equal(Cable.normalize({ preset: 'bundle', wireColors: Array(20).fill('#111111') }).wireColors.length, Cable.MAX_COLORS);
+    // The panel: one picker in single-color mode; a swatch per palette color with + and - otherwise; the jacket's own picker.
+    const stub = { recipe: null, _t: s => s, _section: s => `<div class="rr-c3d-section" data-title="${s}"></div>`, _tiles: () => '', _slider: o => `<input type="range" data-path="${o.path}">`, _select: p => `<select data-path="${p}">`, _color: p => `<button data-act="color" data-path="${p}">`, _check: p => `<input type="checkbox" data-path="${p}">` };
+    const ui = Catalog.UI.cable;
+    stub.recipe = Cable.normalize({ preset: 'bundle' });
+    let html = ui.panel.call(stub, 'look');
+    for (let i = 0; i < 10; i++) assert.ok(html.includes(`data-path="wireColors.${i}"`), 'swatch ' + i);
+    assert.ok(html.includes('data-act="cable-color-add"') && html.includes('data-act="cable-color-remove"'), '+ and -');
+    assert.ok(!html.includes('data-path="color"'), 'no single picker in coded mode');
+    stub.recipe = Cable.normalize({ preset: 'cord' });
+    html = ui.panel.call(stub, 'look');
+    assert.ok(html.includes('data-path="color"') && html.includes('data-path="jacketColor"') && !html.includes('wireColors.0'), 'single mode: one wire picker, and the jacket\'s');
+    // + adds the next standard color not in it, - takes the last off.
+    const host = { recipe: Cable.normalize({ preset: 'bundle', wireColors: ['#7a4e2a', '#b8282a'] }), _set(path, v) { this.recipe = Cable.normalize(Object.assign({}, this.recipe, { [path]: v })); }, _commit() {}, _renderPanel() {}, _queueRebuild() {} };
+    ui.act.call(host, 'cable-color-add', {});
+    assert.deepEqual(host.recipe.wireColors, ['#7a4e2a', '#b8282a', '#e0761c']);
+    ui.act.call(host, 'cable-color-remove', {}); ui.act.call(host, 'cable-color-remove', {}); ui.act.call(host, 'cable-color-remove', {});
+    assert.deepEqual(host.recipe.wireColors, ['#7a4e2a'], 'down to one, never none');
+    // Randomize rolls palettes.
+    const rolled = new Set();
+    for (let s = 1; s <= 20; s++) rolled.add(JSON.stringify(Cable.random(s * 31, coded, 'colors').wireColors));
+    assert.ok(rolled.size >= 10, 'rolled palettes vary (' + rolled.size + ')');
+});

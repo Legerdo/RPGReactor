@@ -25,19 +25,28 @@
     const PATHS = [['straight', 'Laid straight'], ['sag', 'Sagging between two ends'], ['coil', 'Coiled'], ['ground', 'Lying on the ground']];
     const ENDS = [['none', 'Plain ends'], ['plug', 'Plugs'], ['bare', 'Stripped ends'], ['ring', 'Ring terminals'], ['scifi', 'Sci-fi couplings']];
     const COLORINGS = [['one', 'All one color'], ['coded', 'Color-coded'], ['random', 'Mixed colors']];
-    /** Wire insulation in the usual coding order (and the mixed ones' pool). */
-    const CODED = ['#b8282a', '#1c1c1f', '#2456b0', '#e2c230', '#2f8a3c', '#ecebe4', '#e0761c', '#7a42a8', '#7a4e2a', '#8c8f94', '#e86aa0', '#30b8c0'];
+    /** Wire insulation in the standard code order: brown, red, orange, yellow, green, blue, violet, grey, white, black (then it repeats). */
+    const CODED = ['#7a4e2a', '#b8282a', '#e0761c', '#e2c230', '#2f8a3c', '#2456b0', '#7a42a8', '#8c8f94', '#ecebe4', '#1c1c1f'];
+    /** More to add to a palette after those, and the pool a rolled palette draws from. */
+    const EXTRA = ['#e86aa0', '#30b8c0', '#9ac83a', '#c8a050', '#5a5f68', '#d84a8a'];
+    const MAX_COLORS = 12;
 
     // [id, label, defaults]
     const PRESETS = [
-        ['cord', 'Extension cord', { wires: 3, gauge: 0.45, coloring: 'one', color: '#e8761e', accent: '#2a2a2e', jacket: true, ties: 0, path: 'ground', length: 2.5, sag: 0.4, ends: 'plug', glow: false }],
-        ['bundle', 'Cable bundle', { wires: 12, gauge: 0.35, coloring: 'coded', color: '#1c1c1f', accent: '#1d1e22', jacket: false, ties: 5, path: 'ground', length: 1.6, sag: 0.4, ends: 'bare', glow: false }],
-        ['powerline', 'Hanging power line', { wires: 1, gauge: 0.8, coloring: 'one', color: '#26272b', accent: '#7a7c80', jacket: false, ties: 0, path: 'sag', length: 4, sag: 0.45, ends: 'ring', glow: false }],
-        ['coiled', 'Coiled cable', { wires: 2, gauge: 0.5, coloring: 'one', color: '#1d1e21', accent: '#3a3c40', jacket: true, ties: 0, path: 'coil', length: 3, sag: 0.4, ends: 'plug', glow: false }],
-        ['loose', 'Loose wires', { wires: 6, gauge: 0.3, coloring: 'random', color: '#b8282a', accent: '#c8a050', jacket: false, ties: 0, path: 'straight', length: 0.8, sag: 0.4, ends: 'bare', glow: false }],
-        ['conduit', 'Sci-fi conduit', { wires: 7, gauge: 0.55, coloring: 'one', color: '#2c3038', accent: '#38d8ff', jacket: true, ties: 9, path: 'sag', length: 2.4, sag: 0.35, ends: 'scifi', glow: true }]
+        ['cord', 'Extension cord', { wires: 3, gauge: 0.45, coloring: 'one', color: '#b8282a', jacketColor: '#e8761e', accent: '#2a2a2e', jacket: true, ties: 0, path: 'ground', length: 2.5, sag: 0.4, ends: 'plug', glow: false }],
+        ['bundle', 'Cable bundle', { wires: 12, gauge: 0.35, coloring: 'coded', color: '#1c1c1f', jacketColor: '#1d1e21', accent: '#1d1e22', jacket: false, ties: 5, path: 'ground', length: 1.6, sag: 0.4, ends: 'bare', glow: false }],
+        ['powerline', 'Hanging power line', { wires: 1, gauge: 0.8, coloring: 'one', color: '#26272b', jacketColor: '#1d1e21', accent: '#7a7c80', jacket: false, ties: 0, path: 'sag', length: 4, sag: 0.45, ends: 'ring', glow: false }],
+        ['coiled', 'Coiled cable', { wires: 2, gauge: 0.5, coloring: 'one', color: '#1c1c1f', jacketColor: '#1d1e21', accent: '#3a3c40', jacket: true, ties: 0, path: 'coil', length: 3, sag: 0.4, ends: 'plug', glow: false }],
+        ['loose', 'Loose wires', { wires: 6, gauge: 0.3, coloring: 'random', color: '#b8282a', jacketColor: '#1d1e21', wireColors: ['#b8282a', '#1c1c1f', '#2456b0', '#e2c230', '#2f8a3c', '#e0761c'], accent: '#c8a050', jacket: false, ties: 0, path: 'straight', length: 0.8, sag: 0.4, ends: 'bare', glow: false }],
+        ['conduit', 'Sci-fi conduit', { wires: 7, gauge: 0.55, coloring: 'one', color: '#8c8f94', jacketColor: '#2c3038', accent: '#38d8ff', jacket: true, ties: 9, path: 'sag', length: 2.4, sag: 0.35, ends: 'scifi', glow: true }]
     ];
     const IDS = PRESETS.map(p => p[0]), BY_ID = new Map(PRESETS.map(p => [p[0], p[2]]));
+
+    /** A palette: the valid colors of `list` (1 to 12), else `fallback`. */
+    function palette(list, fallback) {
+        const out = Array.isArray(list) ? list.map(c => color(c, '')).filter(c => /^#[0-9a-f]{6}$/i.test(c)).slice(0, MAX_COLORS) : [];
+        return out.length ? out : fallback.slice();
+    }
 
     function normalize(input) {
         const r = input && typeof input === 'object' ? input : {};
@@ -46,7 +55,9 @@
         return {
             kind: 'cable', preset,
             wires: Math.round(clamp(v('wires'), 1, 24, base.wires)), gauge: clamp(v('gauge'), 0, 1, base.gauge),
-            coloring: pick(v('coloring'), COLORINGS.map(c => c[0]), 'one'), color: color(v('color'), base.color), accent: color(v('accent'), base.accent),
+            coloring: pick(v('coloring'), COLORINGS.map(c => c[0]), 'one'), color: color(v('color'), base.color), jacketColor: color(v('jacketColor'), base.jacketColor), accent: color(v('accent'), base.accent),
+            // The palette a color-coded bundle cycles through (or mixed wires draw from): 1 to 12 colors, saved with it.
+            wireColors: palette(v('wireColors'), base.wireColors || CODED),
             jacket: !!v('jacket'), ties: Math.round(clamp(v('ties'), 0, 24, base.ties)),
             path: pick(v('path'), PATHS.map(p => p[0]), 'ground'), length: clamp(v('length'), 0.3, 6, base.length), sag: clamp(v('sag'), 0, 1, base.sag),
             ends: pick(v('ends'), ENDS.map(e => e[0]), 'none'), glow: !!v('glow'), seed: Math.round(clamp(r.seed, 0, 99999, 7))
@@ -138,7 +149,14 @@
         const want = r.path === 'coil' ? 150 : r.path === 'straight' ? (r.wires > 1 && !r.jacket ? Math.round(r.length / 0.03) : 4) : 72;
         const n = Math.max(r.path === 'coil' ? 40 : 4, Math.min(want, perWire ? Math.floor(24000 / perWire) : 160));
         const mid = centerline(r, Rb, n), F = frames(mid), total = lengthOf(mid);
-        const rnd = Rand.roll(r.seed * 7 + 1), hueOf = i => r.coloring === 'one' ? r.color : r.coloring === 'coded' ? CODED[i % CODED.length] : CODED[Math.floor(rnd.range(0, CODED.length)) % CODED.length];
+        // One color for every wire; the palette in order (coded); or the palette dealt out by the seed, each color once before any repeats (mixed).
+        const pal = r.wireColors, rnd = Rand.roll(r.seed * 7 + 1), deck = [];
+        const hueOf = i => {
+            if (r.coloring === 'one') return r.color;
+            if (r.coloring === 'coded') return pal[i % pal.length];
+            if (!deck.length) { deck.push(...pal); for (let q = deck.length - 1; q > 0; q--) { const w = Math.floor(rnd.range(0, q + 1)) % (q + 1); [deck[q], deck[w]] = [deck[w], deck[q]]; } }
+            return deck.pop();
+        };
         const colors = Array.from({ length: r.wires }, (_, i) => hueOf(i));
         const lay = 0.08 + rw * 30, twist = r.wires > 1 && !r.jacket;
         // Where along it each point sits (meters), for the twist and the ends.
@@ -214,10 +232,10 @@
         const P = {};
         byColor.forEach((list, i) => { P['Wire' + (i + 1)] = { meshes: list, look: { kind: 'prop', color: wireLists[i], roughness: 0.42, metalness: 0 } }; });
         if (H.Wire.length) P.WireEnd = { meshes: H.Wire, look: { kind: 'metal', color: '#b87333', roughness: 0.35, metalness: 0.9 } };
-        const jacketLook = r.preset === 'conduit' || r.glow ? { kind: 'metal', color: r.color, roughness: 0.38, metalness: 0.55 } : { kind: 'prop', color: r.color, roughness: 0.55, metalness: 0 };
+        const jacketLook = r.preset === 'conduit' || r.glow ? { kind: 'metal', color: r.jacketColor, roughness: 0.38, metalness: 0.55 } : { kind: 'prop', color: r.jacketColor, roughness: 0.55, metalness: 0 };
         if (H.Jacket.length) P.Jacket = { meshes: H.Jacket, look: jacketLook };
         if (H.Tie.length) P.Tie = { meshes: H.Tie, look: { kind: 'prop', color: r.accent, roughness: 0.5, metalness: 0 } };
-        if (H.Plug.length) P.Plug = { meshes: H.Plug, look: { kind: 'prop', color: r.jacket ? r.color : r.accent, roughness: 0.5, metalness: 0 } };
+        if (H.Plug.length) P.Plug = { meshes: H.Plug, look: { kind: 'prop', color: r.jacket ? r.jacketColor : r.accent, roughness: 0.5, metalness: 0 } };
         if (H.Copper.length) P.Copper = { meshes: H.Copper, look: { kind: 'metal', color: '#c27a44', roughness: 0.3, metalness: 0.95 } };
         if (H.Metal.length) P.Metal = { meshes: H.Metal, look: { kind: 'metal', color: r.ends === 'plug' ? '#d4b060' : '#b8bcc2', roughness: 0.3, metalness: 0.9 } };
         if (H.Slot.length) P.Slot = { meshes: H.Slot, look: { kind: 'prop', color: '#0e0e10', roughness: 0.6, metalness: 0 } };
@@ -235,11 +253,17 @@
         if (all && !keep) Object.assign(out, BY_ID.get(out.preset = R.pick(PRESETS)[0]));
         if (has('shape')) { out.length = +R.range(0.5, 4).toFixed(2); out.sag = +R.range(0.1, 0.9).toFixed(2); out.path = R.pick(PATHS)[0]; out.wires = R.pick([1, 2, 3, 4, 6, 8, 12, 16, 24]); out.gauge = +R.range(0.15, 0.8).toFixed(2); out.seed = Math.floor(R.range(0, 99999)); }
         if (has('details')) { out.ends = R.pick(ENDS)[0]; out.jacket = R.chance(0.5); out.ties = out.jacket ? 0 : R.pick([0, 2, 4, 6]); }
-        if (has('colors')) { out.coloring = R.pick(COLORINGS)[0]; out.color = R.pick(CODED.concat(Rand.PALETTES.dark)); out.accent = R.pick(Rand.PALETTES.glow.concat(['#1d1e22', '#c8a050'])); out.seed = Math.floor(R.range(0, 99999)); }
+        if (has('colors')) {
+            out.coloring = R.pick(COLORINGS)[0]; out.color = R.pick(CODED.concat(Rand.PALETTES.dark)); out.jacketColor = R.pick(Rand.PALETTES.dark.concat(['#e8761e', '#2456b0', '#e2c230', '#ecebe4']));
+            out.accent = R.pick(Rand.PALETTES.glow.concat(['#1d1e22', '#c8a050'])); out.seed = Math.floor(R.range(0, 99999));
+            // A rolled palette: the standard code's first few, or a handful drawn from all of them.
+            const pool = CODED.concat(EXTRA);
+            out.wireColors = R.chance(0.4) ? CODED.slice(0, R.int(3, 10)) : Array.from({ length: R.int(3, 8) }, () => pool.splice(Math.floor(R.range(0, pool.length)) % pool.length, 1)[0]);
+        }
         return normalize(out);
     }
 
-    const api = { PRESETS, PATHS, ENDS, COLORINGS, normalize, build, random, packing, centerline, wireR };
+    const api = { PRESETS, PATHS, ENDS, COLORINGS, CODED, EXTRA, MAX_COLORS, normalize, build, random, packing, centerline, wireR };
     root.RRCableProp = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     const Model = root.RRPropModel || (typeof require === 'function' ? require('./PropModel.js') : null);
@@ -249,8 +273,8 @@
         if (!Catalog.ICONS.cable) Catalog.ICONS.cable = '<path d="M3 7h4c4 0 4 10 8 10h6"/><path d="M3 10h3c4 0 4 10 8 10h7"/><path d="M19 15v4"/>';
         Catalog.category({ id: 'cables', label: 'Wires & Cables', order: 72, parent: 'gear' });
         for (const [id, label] of PRESETS) Catalog.add({ id: 'cable-' + id, category: 'cables', label, icon: 'cable', kind: 'cable', keywords: 'cable wire wires cord bundle power line conduit ' + label.toLowerCase(), start: () => normalize({ preset: id }), matches: r => r.preset === id });
-        Catalog.ui('cable', K.page({
-            placeholder: 'Cable', PRESETS: PRESETS.map(p => [p[0], p[1]]), normalize, random, keep: ['coloring', 'color', 'accent'],
+        const page = K.page({
+            placeholder: 'Cable', PRESETS: PRESETS.map(p => [p[0], p[1]]), normalize, random, keep: ['coloring', 'color', 'jacketColor', 'wireColors', 'accent'],
             shape(r) {
                 let html = this._select('path', 'Path shape', PATHS)
                     + this._slider({ path: 'length', label: 'Cable length', range: [0.3, 6], step: 0.05, format: 'm' });
@@ -262,14 +286,36 @@
             },
             look(r) {
                 let html = this._section('Materials') + this._select('coloring', 'Wire colors', COLORINGS);
-                html += this._color('color', r.jacket ? 'Jacket color' : 'Wire color');
+                if (r.coloring === 'one') html += this._color('color', 'Wire color');
+                else {
+                    // The palette: a swatch per color (each opens the color picker), and + / - to change how many cycle.
+                    const esc = typeof rrEscapeHtml === 'function' ? rrEscapeHtml : x => x;
+                    const sw = r.wireColors.map((c, i) => `<span class="rr-c3d-colorpick"><button type="button" class="rr-c3d-color" data-act="color" data-path="wireColors.${i}" style="--rr-c3d-swatch:${c}" title="${c}"></button></span>`).join('');
+                    const add = r.wireColors.length < MAX_COLORS ? `<button type="button" class="rr-btn-chip" data-act="cable-color-add" title="${esc(this._t('Add a wire color'))}">+</button>` : '';
+                    const del = r.wireColors.length > 1 ? `<button type="button" class="rr-btn-chip" data-act="cable-color-remove" title="${esc(this._t('Remove the last wire color'))}">−</button>` : '';
+                    html += `<div class="rr-c3d-row rr-c3d-colorrow rr-cable-palette"><span class="rr-c3d-label">${this._t('Wire palette')}</span><div class="rr-c3d-swatches" style="flex-wrap:wrap;gap:3px">${sw}${add}${del}</div></div>`;
+                }
                 html += this._check('jacket', 'In a jacket');
+                if (r.jacket) html += this._color('jacketColor', 'Jacket color');
                 html += this._select('ends', 'Cable ends', ENDS);
                 html += this._color('accent', r.glow ? 'Glow' : 'Ties and plugs');
                 if (r.jacket) html += this._slider({ path: 'ties', label: 'Wraps along it', range: [0, 24], step: 1, format: 'int' });
                 html += this._check('glow', 'Glows');
                 return html;
             }
-        }));
+        });
+        // The palette's + and -: the next color of the standard code (then the extras) not yet in it, or the last one off.
+        const styleAct = page.act;
+        page.act = function(act, b) {
+            if (act === 'cable-color-add' || act === 'cable-color-remove') {
+                const list = this.recipe.wireColors.slice();
+                if (act === 'cable-color-add' && list.length < MAX_COLORS) list.push(CODED.concat(EXTRA).find(c => !list.includes(c)) || CODED[list.length % CODED.length]);
+                if (act === 'cable-color-remove' && list.length > 1) list.pop();
+                this._set('wireColors', list); this._commit(); this._renderPanel(); this._queueRebuild();
+                return;
+            }
+            return styleAct.call(this, act, b);
+        };
+        Catalog.ui('cable', page);
     }
 })(typeof window !== 'undefined' ? window : globalThis);
