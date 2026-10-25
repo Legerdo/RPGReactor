@@ -409,7 +409,41 @@
     function shape(o) {
         return { type: o.type, a: o.a || null, b: o.b || null, ra: o.ra || 0, rb: o.rb || 0, c: o.c || null, r: o.r || null, m: o.m || 0, mr: o.mr || 0,
             ax: o.ax || null, ay: o.ay || null, az: o.az || null, bone: o.bone, k: o.k, tag: o.tag, lo: o.lo, hi: o.hi,
-            cut: false, bump: 0, bumpScale: 12, bumpSeed: 7, fx: 0, x0: 0, fz: 0, z0: 0, mid: null, envelope: false };
+            cut: false, bump: 0, bumpScale: 12, bumpSeed: 7, fx: 0, x0: 0, fz: 0, z0: 0, mid: null, envelope: false, prof: o.prof || null };
+    }
+    /**
+     * A head lofted from its three views (type 2): along the head's own axis (`az` forward from `c`), each
+     * station's cross-section is a superellipse between the side profile's top and bottom, as wide as the top
+     * profile says above the middle (`wT`) and below it (`wB`), squarer or rounder by `nT`/`nB` (the front view).
+     * `table` samples the profiles at `N` stations from z0 to z1 (head units already scaled to meters);
+     * the ends close with a rounded edge `round`. Its field is a conservative distance (never larger than the true one).
+     */
+    function profileSolid(c, ax, ay, az, table, z0, z1, round, bone, k, tag) {
+        let wmax = 0, ymax = -Infinity, ymin = Infinity;
+        for (let i = 0; i < table.length; i += 6) { wmax = Math.max(wmax, table[i + 2], table[i + 3]); ymax = Math.max(ymax, table[i]); ymin = Math.min(ymin, table[i + 1]); }
+        const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+        for (const x of [-wmax, wmax]) for (const y of [ymin, ymax]) for (const z of [z0, z1]) for (let i = 0; i < 3; i++) {
+            const v = c[i] + ax[i] * x + ay[i] * y + az[i] * z; lo[i] = Math.min(lo[i], v); hi[i] = Math.max(hi[i], v);
+        }
+        const s = shape({ type: 2, c, ax, ay, az, bone, k: k ?? 0.03, tag, lo, hi, prof: { table, N: table.length / 6, z0, z1, round, inflate: 0 } });
+        // Its field can rise a little faster than the distance across a squared corner: blocks are judged by that.
+        s.fx = 1.4;
+        return s;
+    }
+    function profileDistance(s, p) {
+        const P = s.prof, T = P.table, dx = p[0] - s.c[0], dy = p[1] - s.c[1], dz = p[2] - s.c[2];
+        const x = Math.abs(dx * s.ax[0] + dy * s.ax[1] + dz * s.ax[2]), y = dx * s.ay[0] + dy * s.ay[1] + dz * s.ay[2], z = dx * s.az[0] + dy * s.az[1] + dz * s.az[2];
+        let t = (z - P.z0) / (P.z1 - P.z0) * (P.N - 1);
+        t = t < 0 ? 0 : t > P.N - 1 ? P.N - 1 : t;
+        const i = Math.min(P.N - 2, Math.floor(t)), f = t - i, a = i * 6, b = a + 6;
+        const top = T[a] + (T[b] - T[a]) * f, bot = T[a + 1] + (T[b + 1] - T[a + 1]) * f;
+        const wT = T[a + 2] + (T[b + 2] - T[a + 2]) * f, wB = T[a + 3] + (T[b + 3] - T[a + 3]) * f, nT = T[a + 4] + (T[b + 4] - T[a + 4]) * f, nB = T[a + 5] + (T[b + 5] - T[a + 5]) * f;
+        const yc = (top + bot) * 0.5, h = Math.max(1e-6, (top - bot) * 0.5), v = (y - yc) / h;
+        const m = v < -0.6 ? 0 : v > 0.6 ? 1 : (v + 0.6) / 1.2, sm = m * m * (3 - 2 * m);
+        const w = Math.max(1e-6, wB + (wT - wB) * sm), n = nB + (nT - nB) * sm;
+        const q = Math.pow(Math.pow(x / w, n) + Math.pow(Math.abs(v), n), 1 / n);
+        const fc = (q - 1) * Math.min(w, h), fe = Math.max(P.z0 - z, z - P.z1);
+        return smax(fc, fe, P.round) - P.inflate;
     }
     /** A rounded cone from a (radius ra) to b (radius rb). */
     function cone(a, b, ra, rb, bone, k, tag) {
@@ -438,6 +472,7 @@
     const shorten = (s, z0, f) => Object.assign(s, { fz: f, z0, a: [s.a[0], s.a[1], z0 + (s.a[2] - z0) * f], b: [s.b[0], s.b[1], z0 + (s.b[2] - z0) * f] });
 
     function shapeDistance(s, p) {
+        if (s.type === 2) return profileDistance(s, p);
         if (s.type === 1) {
             const dx = p[0] - s.c[0], dy = p[1] - s.c[1], dz = p[2] - s.c[2];
             const x = (dx * s.ax[0] + dy * s.ax[1] + dz * s.ax[2]) / s.r[0];
@@ -772,21 +807,182 @@
     }
 
     /** The head: cranium, forehead, brows, cheekbones, muzzle, whisker pads, nose pad, jaw and chin, eye sockets. */
+    // ── anatomical heads ───────────────────────────────────────────────────
+    /**
+     * Species heads from their three views, in skull radii along the head's own frame (y up, z forward from the
+     * braincase's middle). Each profile is keyed over t: 0 the occiput, 1 the stop (where the forehead meets the
+     * bridge of the nose), 2 the nose's front: `top` the side view's upper line (crown, forehead, stop, bridge,
+     * nose), `bot` its lower line (throat, jaw angle, jaw, chin, lip), `wT`/`wB` the top view's half widths of the
+     * upper and lower halves (braincase and brows; zygomatic arches, cheeks, muzzle), `nT`/`nB` how square the
+     * front view's section is above and below. `back` and `stop` place t 0 and 1 (skull radii); the muzzle runs
+     * `muzzle` times the Snout length's own reach past the stop. The sub-forms (arches, brows, masseters, the
+     * bridge, nasal planum, whisker pads or flews, chin) are small, tightly blended shapes on it.
+     */
+    const HEAD_PROFILES = {
+        bigcat: {
+            back: -1.0, stop: 0.55, muzzle: 0.6, round: 0.12, eye: [0.33, 0.34, 0.8],
+            top: [[0, 0.15], [0.25, 0.68], [0.55, 0.82], [0.85, 0.74], [1, 0.64], [1.35, 0.54], [1.75, 0.46], [1.92, 0.40], [2, 0.30]],
+            bot: [[0, -0.40], [0.3, -0.70], [0.6, -0.84], [0.9, -0.74], [1.2, -0.62], [1.55, -0.56], [1.85, -0.48], [2, -0.36]],
+            wT: [[0, 0.46], [0.3, 0.72], [0.6, 0.80], [0.8, 0.66], [1, 0.42], [1.15, 0.32], [1.5, 0.32], [1.8, 0.36], [2, 0.34]],
+            wB: [[0, 0.52], [0.3, 0.90], [0.55, 1.06], [0.8, 0.98], [1, 0.76], [1.3, 0.62], [1.65, 0.60], [1.9, 0.56], [2, 0.50]],
+            nT: [[0, 2.0], [1, 2.2], [2, 2.1]], nB: [[0, 2.0], [1, 2.2], [2, 2.4]],
+            ear: [0.58, 0.58, -0.42], pad: { y: -0.30, z: -0.28 }
+        },
+        canid: {
+            back: -1.05, stop: 0.52, muzzle: 0.72, round: 0.14, eye: [0.30, 0.30, 0.75],
+            top: [[0, 0.08], [0.3, 0.56], [0.62, 0.70], [0.88, 0.64], [1, 0.52], [1.15, 0.44], [1.55, 0.38], [1.9, 0.32], [2, 0.26]],
+            bot: [[0, -0.36], [0.3, -0.60], [0.6, -0.66], [0.9, -0.60], [1.2, -0.54], [1.6, -0.50], [1.9, -0.44], [2, -0.32]],
+            wT: [[0, 0.40], [0.3, 0.64], [0.62, 0.70], [0.88, 0.58], [1, 0.40], [1.2, 0.30], [1.7, 0.27], [2, 0.22]],
+            wB: [[0, 0.46], [0.3, 0.76], [0.55, 0.86], [0.85, 0.72], [1, 0.54], [1.25, 0.40], [1.7, 0.34], [2, 0.26]],
+            nT: [[0, 2.2], [1, 2.4], [2, 2.2]], nB: [[0, 2.2], [1, 2.2], [2, 2.4]],
+            ear: [0.42, 0.62, -0.38], pad: { y: -0.26, z: -0.32 }
+        },
+        horse: {
+            back: -0.95, stop: 0.55, muzzle: 0.95, round: 0.16,
+            top: [[0, 0.20], [0.3, 0.56], [0.7, 0.62], [1, 0.56], [1.4, 0.46], [1.75, 0.36], [2, 0.26]],
+            bot: [[0, -0.40], [0.3, -0.85], [0.6, -0.98], [0.9, -0.82], [1.15, -0.60], [1.5, -0.50], [1.85, -0.52], [2, -0.38]],
+            wT: [[0, 0.40], [0.4, 0.60], [0.8, 0.64], [1, 0.56], [1.4, 0.36], [1.8, 0.34], [2, 0.30]],
+            wB: [[0, 0.46], [0.35, 0.64], [0.7, 0.60], [1, 0.42], [1.4, 0.30], [1.8, 0.34], [2, 0.30]],
+            nT: [[0, 2.4], [1, 3.0], [2, 2.4]], nB: [[0, 2.4], [1, 3.0], [2, 2.4]],
+            ear: [0.36, 0.52, -0.55], pad: { y: -0.3, z: -0.3 }
+        },
+        bear: {
+            back: -1.0, stop: 0.48, muzzle: 0.85, round: 0.14,
+            top: [[0, 0.15], [0.3, 0.66], [0.62, 0.82], [0.9, 0.72], [1, 0.56], [1.25, 0.40], [1.7, 0.36], [2, 0.26]],
+            bot: [[0, -0.40], [0.3, -0.70], [0.6, -0.82], [0.9, -0.72], [1.2, -0.54], [1.6, -0.48], [1.9, -0.42], [2, -0.28]],
+            wT: [[0, 0.46], [0.3, 0.80], [0.6, 0.88], [0.9, 0.74], [1, 0.54], [1.3, 0.36], [1.75, 0.32], [2, 0.26]],
+            wB: [[0, 0.52], [0.3, 0.92], [0.6, 1.02], [0.9, 0.84], [1, 0.60], [1.3, 0.40], [1.75, 0.34], [2, 0.28]],
+            nT: [[0, 2.2], [1, 2.3], [2, 2.3]], nB: [[0, 2.2], [1, 2.2], [2, 2.5]],
+            ear: [0.66, 0.66, -0.36], pad: { y: -0.28, z: -0.3 }
+        },
+        deer: {
+            back: -0.95, stop: 0.55, muzzle: 0.95, round: 0.13,
+            top: [[0, 0.18], [0.3, 0.52], [0.7, 0.58], [1, 0.50], [1.5, 0.36], [1.85, 0.27], [2, 0.20]],
+            bot: [[0, -0.34], [0.3, -0.60], [0.6, -0.62], [0.9, -0.50], [1.2, -0.38], [1.7, -0.34], [2, -0.24]],
+            wT: [[0, 0.38], [0.4, 0.58], [0.8, 0.62], [1, 0.50], [1.5, 0.28], [2, 0.22]],
+            wB: [[0, 0.44], [0.4, 0.60], [0.8, 0.54], [1, 0.42], [1.5, 0.25], [2, 0.22]],
+            nT: [[0, 2.3], [1, 2.6], [2, 2.3]], nB: [[0, 2.3], [1, 2.5], [2, 2.3]],
+            ear: [0.58, 0.5, -0.45], pad: { y: -0.28, z: -0.3 }
+        }
+    };
+    /** The profile a kind's head is built from (or none: the shared parametric head). */
+    // Only the heads clearly better than before use the three-view solid; big cats, deer and cats keep theirs (2026-10-24 review).
+    const headProfileOf = r => ['wolf', 'dog', 'fox'].includes(r.kind) ? 'canid' : r.kind === 'horse' ? 'horse' : r.kind === 'bear' ? 'bear' : null;
+    /** Hermite through keyed values (tangents from the neighbours). */
+    function keyed(keys, t) {
+        if (t <= keys[0][0]) return keys[0][1];
+        const n = keys.length;
+        if (t >= keys[n - 1][0]) return keys[n - 1][1];
+        let i = 0; while (i < n - 2 && t > keys[i + 1][0]) i++;
+        const [t0, v0] = keys[i], [t1, v1] = keys[i + 1], dt = t1 - t0, u = (t - t0) / dt;
+        const m0 = i > 0 ? (v1 - keys[i - 1][1]) / (t1 - keys[i - 1][0]) * dt : v1 - v0;
+        const m1 = i + 2 < n ? (keys[i + 2][1] - v0) / (keys[i + 2][0] - t0) * dt : v1 - v0;
+        const u2 = u * u, u3 = u2 * u;
+        return (2 * u3 - 3 * u2 + 1) * v0 + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * v1 + (u3 - u2) * m1;
+    }
+    /**
+     * The anatomical head: the lofted three-view solid, then the species' sub-forms, tightly blended so the bony
+     * planes stay. Returns the nose's front `zt` (skull radii) for the eyes, nostrils and mouth that follow.
+     */
+    function anatomicalHead(r, lay, id, e, c, head, B, S) {
+        const { H, sr, hd, hu, mL, J } = lay, P = HEAD_PROFILES[id], sw = r.snoutWidth;
+        const zb = P.back, zs = P.stop, zt = zs + Math.max(0.25, P.muzzle * mL);
+        const N = 56, table = new Float32Array(N * 6);
+        for (let i = 0; i < N; i++) {
+            const z = zb + (zt - zb) * i / (N - 1), t = z < zs ? (z - zb) / (zs - zb) : 1 + (z - zs) / (zt - zs);
+            // Snout width widens the muzzle (and a little the cheeks), not the braincase.
+            const wk = 1 + (sw - 1) * smooth(0.75, 1.3, t);
+            table.set([keyed(P.top, t) * sr, keyed(P.bot, t) * sr, keyed(P.wT, t) * sr * wk, keyed(P.wB, t) * sr * wk, keyed(P.nT, t), keyed(P.nB, t)], i * 6);
+        }
+        const solid = profileSolid(J.skull, [1, 0, 0], hu, hd, table, zb * sr, zt * sr, P.round * sr, B, 0.05 * sr, 'skull');
+        head.push(solid); S.push(solid);
+        const at = t => t < 1 ? zb + (zs - zb) * t : zs + (zt - zs) * (t - 1);
+        const topAt = t => keyed(P.top, t), botAt = t => keyed(P.bot, t);
+        if (id === 'bigcat') {
+            for (const s of [1, -1]) {
+                // The zygomatic arch: a strong bar of bone from under the eye back toward the ear, flaring the face wide.
+                c(H(s * 0.66, -0.02, at(0.95)), H(s * 0.92, -0.08, at(0.45)), 0.11, 0.13, 0.06, 'cheek');
+                // The brow ridge over each eye, heavy and straight, ending in the skull rather than as a knob.
+                c(H(s * 0.16, topAt(0.98) - 0.1, at(0.98)), H(s * 0.46, topAt(0.85) - 0.24, at(0.82)), 0.08, 0.06, 0.08, 'brow');
+                // The masseter over the jaw's angle, below and behind the arch.
+                e(H(s * 0.68, -0.5, at(0.55)), [0.22, 0.3, 0.34], 0.14, 'jaw');
+                // Whisker pads: broad, firm, part of the muzzle's front corners.
+                e(H(s * 0.22 * sw, botAt(1.75) + 0.30, zt - 0.3), [0.2 * sw, 0.17, 0.22], 0.09, 'whisker');
+            }
+            // The bridge of the nose: broad and straight from the stop to the nose.
+            c(H(0, topAt(1.05) - 0.14, at(1.05)), H(0, topAt(1.75) - 0.12, at(1.75)), 0.15 * sw, 0.1 * sw, 0.06, 'snout');
+            // The chin: a firm knob under the lower lip, behind the upper lip.
+            e(H(0, botAt(1.7) + 0.06, zt - 0.36), [0.18 * sw, 0.11, 0.15], 0.05, 'chin');
+        } else if (id === 'canid') {
+            const fox = r.kind === 'fox' ? 1 : 0;
+            for (const s of [1, -1]) {
+                c(H(s * 0.5, -0.02, at(0.92)), H(s * 0.70, -0.1, at(0.42)), 0.09, 0.10, 0.05, 'cheek');
+                c(H(s * 0.14, topAt(0.96) - 0.05, at(1.0)), H(s * 0.42, topAt(0.8) - 0.1, at(0.78)), 0.07, 0.06, 0.05, 'brow');
+                e(H(s * 0.55, -0.42, at(0.55)), [0.18, 0.24, 0.3], 0.08, 'jaw');
+                // The flews: the upper lips' loose rear corners hanging over the lower jaw toward the mouth's corner.
+                c(H(s * 0.24 * sw, botAt(1.4) + 0.08, at(1.35)), H(s * 0.18 * sw, botAt(1.85) + 0.1, zt - 0.14), 0.08 * (1 - 0.3 * fox), 0.07, 0.05, 'whisker');
+            }
+            c(H(0, topAt(1.12) - 0.1, at(1.12)), H(0, topAt(1.8) - 0.1, at(1.8)), 0.11 * sw, 0.08 * sw, 0.05, 'snout');
+            e(H(0, botAt(1.75) + 0.05, zt - 0.32), [0.12 * sw, 0.09, 0.14], 0.05, 'chin');
+        } else if (id === 'horse') {
+            for (const s of [1, -1]) {
+                // The jowl: the round flat plate of the cheek over the lower jaw's angle.
+                e(H(s * 0.48, -0.62, at(0.55)), [0.16, 0.42, 0.44], 0.06, 'cheek');
+                // The facial crest: a bony ridge running forward under the eye.
+                c(H(s * 0.48, -0.16, at(0.9)), H(s * 0.38, -0.26, at(1.25)), 0.07, 0.04, 0.2, 'cheek');
+                // The supraorbital process over the eye.
+                c(H(s * 0.30, topAt(0.85) - 0.1, at(0.95)), H(s * 0.5, topAt(0.75) - 0.16, at(0.78)), 0.08, 0.06, 0.08, 'brow');
+            }
+            // The muzzle: soft round lips, the upper fuller, the chin below.
+            e(H(0, botAt(1.9) + 0.22, zt - 0.2), [0.34 * sw, 0.28, 0.24], 0.06, 'snout');
+            e(H(0, botAt(1.85) + 0.05, zt - 0.3), [0.24 * sw, 0.12, 0.2], 0.06, 'chin');
+        } else if (id === 'bear') {
+            for (const s of [1, -1]) {
+                c(H(s * 0.58, -0.02, at(0.9)), H(s * 0.82, -0.08, at(0.45)), 0.11, 0.13, 0.07, 'cheek');
+                e(H(s * 0.66, -0.4, at(0.5)), [0.26, 0.32, 0.36], 0.1, 'jaw');
+            }
+            c(H(0, topAt(1.1) - 0.12, at(1.1)), H(0, topAt(1.8) - 0.12, at(1.8)), 0.14 * sw, 0.1 * sw, 0.06, 'snout');
+            e(H(0, botAt(1.75) + 0.06, zt - 0.3), [0.16 * sw, 0.1, 0.14], 0.05, 'chin');
+        } else if (id === 'deer') {
+            for (const s of [1, -1]) {
+                e(H(s * 0.46, -0.5, at(0.55)), [0.13, 0.32, 0.36], 0.05, 'cheek');
+                c(H(s * 0.46, -0.12, at(0.9)), H(s * 0.34, -0.22, at(1.25)), 0.05, 0.03, 0.1, 'cheek');
+                c(H(s * 0.28, topAt(0.85) - 0.1, at(0.95)), H(s * 0.46, topAt(0.75) - 0.15, at(0.8)), 0.07, 0.05, 0.08, 'brow');
+            }
+            e(H(0, botAt(1.9) + 0.2, zt - 0.14), [0.24 * sw, 0.2, 0.16], 0.05, 'snout');
+        }
+        // The nasal planum (nose leather) at the muzzle's front, narrowing down to the philtrum (a hoofed face's
+        // nostrils are cut into its muzzle below).
+        if (id !== 'horse' && id !== 'deer') {
+            e(H(0, topAt(1.97) - 0.1, zt - (id === 'bigcat' ? 0.05 : 0.04)), [(id === 'bigcat' ? 0.2 : id === 'bear' ? 0.24 : 0.19) * sw, id === 'bigcat' ? 0.11 : 0.13, 0.11], 0.03, 'nosepad');
+            const back = id === 'bigcat' ? 0.07 : 0.08;
+            c(H(0, topAt(1.97) - 0.12, zt - back), H(0, topAt(1.97) - 0.28, zt - back - 0.02), (id === 'bigcat' ? 0.1 : 0.08) * sw, 0.035, 0.025, 'nosepad');
+        }
+        lay.whiskerPad = { y: P.pad.y, z: zt + P.pad.z };
+        J.snoutTip = H(0, topAt(1.97) - 0.1, zt);
+        return { zt, ear: P.ear, noseY: topAt(1.97) - 0.1, eye: P.eye ? [P.eye[0], P.eye[1], at(P.eye[2])] : null, eyeOut: P.eyeOut || 0 };
+    }
+
     function headShapes(r, lay, S, E, C) {
         if(r.kind==='cat'){catHeadShapes(r,lay,S,E,C);return;}
         const { H, sr, mL, hd, hu, J } = lay;
         const sw = r.snoutWidth;
         const long = clamp((r.snoutLength - 0.6) / 0.8, 0, 1.6), cat = 1 - Math.min(1, long), felid = profileOf(r).felid ? 1 : 0;
         const gentle = r.kind === 'cat' ? 1 : 0;
-        const z0 = 0.55, zt = z0 + mL;
+        const z0 = 0.55; let zt = z0 + mL;
         const B = 'Head';
         const head = [];
         const e = (c, rad, k, tag) => { const s = E(c, rad.map(v => v * sr), B, k * sr, tag, hd, hu); head.push(s); return s; };
         const c = (a, b, ra, rb, k, tag) => { const s = C(a, b, ra * sr, rb * sr, B, k * sr, tag); head.push(s); return s; };
         if (profileOf(r).face === 'bird') { birdHead(r, lay, S, e, c, head); return; }
-        // The braincase behind the eyes, the forehead flat and broad over them, the brows, the cheekbones.
+        // Species with an anatomical head are lofted from their three views; the rest keep the parametric head.
+        const anatomy = headProfileOf(r), A = anatomy ? anatomicalHead(r, lay, anatomy, e, c, head, B, S) : null;
+        if (A) zt = A.zt;
         // A grazer's braincase is narrow behind wide jowls.
-        const grazer = r.feet === 'hoof' && r.kind !== 'boar' && long > 0.3 ? 1 : 0;
+        const grazer = r.feet === 'hoof' && r.kind !== 'boar' && long > 0.3 ? 1 : 0, hoofFace = grazer === 1, disc = r.kind === 'boar' ? 1 : 0;
+        const reptile = profileOf(r).face === 'reptile', deep = 0.72 + 0.28 * Math.min(1, mL / 1.25);
+        if (!A) {
+        // The braincase behind the eyes, the forehead flat and broad over them, the brows, the cheekbones.
         const roundCat=gentle&&['persian','britishShorthair','ragamuffin'].includes(r.catType),wedgeCat=gentle&&r.catType==='siamese';
         e(H(0, 0.08, -0.14), [0.84 - 0.2 * grazer+(roundCat?.10:gentle?.035:0)-(wedgeCat?.08:0), gentle?.84:.72, 0.95], 0.2, 'skull');
         e(H(0, gentle?.43:.36, 0.34), [gentle?.62:.54, gentle?.31:.27, 0.48], 0.18, 'skull');
@@ -801,11 +997,9 @@
         // cat's short muzzle wider than it is deep, square in front.
         c(H(0, -0.04, z0), H(0, -0.13, zt - 0.3), (0.5 - 0.06 * Math.min(1, long)) * sw * (1 - 0.25 * cat), (0.39 - 0.12 * Math.min(1, long)) * sw * (1 - 0.25 * cat), 0.16, 'snout');
         // (A small cat's short face has a small muzzle; a big cat's a deep one.)
-        const deep = 0.72 + 0.28 * Math.min(1, mL / 1.25);
         if (cat > 0) e(H(0, -0.16 * deep, (z0 + zt) / 2 + 0.04), [0.47 * sw * deep, 0.42 * deep, (zt - z0) / 2 + 0.06].map(v => v * (0.75 + 0.25 * cat)), 0.16, 'snout');
         c(H(0, 0.3, z0 + 0.05), H(0, 0.12, zt - 0.17), 0.28 * sw, 0.21 * sw, 0.14, 'snout');
         // The upper lips either side of the philtrum, full over the whisker beds and hanging past the chin.
-        const hoofFace = grazer === 1;
         // A rabbit's whisker beds are small, tucked under its nose.
         const pad = (0.75 + 0.25 * cat) * (1 - 0.2 * gentle) * (hoofFace ? 0.8 : 1) * (profileOf(r).face === 'rabbit' ? 0.72 : 1);
         // A big cat's pads are broad and long, set out to the sides, so the muzzle is square from the front.
@@ -814,9 +1008,7 @@
         if (bigPad) e(H(0, -0.33, zt - 0.22), [0.36 * sw, 0.22, 0.24], 0.14, 'whisker');
         lay.whiskerPad = { y: -0.28 - 0.04 * cat * deep, z: zt - 0.3 - 0.06 * bigPad };
         // The nose leather set into the muzzle's end, broad and flat on top; a boar's flat disc.
-        const disc = r.kind === 'boar' ? 1 : 0;
         if (hoofFace) e(H(0, -0.1, zt - 0.14), [0.4 * sw, 0.36, 0.3].map(v => v * (profileOf(r).face === 'deer' ? 0.78 : 1)), 0.12, 'snout');
-        const reptile = profileOf(r).face === 'reptile';
         if (!reptile) e(H(0, 0.04, zt + 0.0 + 0.05 * disc), [(0.22 + 0.04 * felid - 0.085 * gentle) * sw * (1 + 0.5 * disc) * (hoofFace ? 0.7 : 1), (0.12 - 0.015 * felid - 0.025 * gentle) * (1 + 0.8 * disc), 0.12], 0.05, 'nosepad');
         // A paw animal's leather narrows down to the philtrum: a rounded triangle seen from the front.
         if (!disc && !hoofFace && !reptile) c(H(0, 0.03, zt - 0.03), H(0, -0.12, zt - 0.05), (0.13 - 0.04 * gentle) * sw, 0.035, 0.025, 'nosepad');
@@ -832,6 +1024,7 @@
                 e(H(s * 0.52, -0.18, -0.15), [0.26, 0.3, 0.38], 0.12, 'cheek');
                 e(H(s * 0.12 * sw, 0.12, zt - 0.12), [0.13, 0.1, 0.16], 0.06, 'snout');
             }
+        }
         }
         // A paw animal's philtrum: a groove down the front of the muzzle from the nose to the lip, set where
         // the muzzle's front stands.
@@ -849,13 +1042,13 @@
         const faceKind = profileOf(r).face;
         // A canid's skull: broad behind the eyes where the cheekbones (zygomatic arches) flare, the forehead
         // rising over the eyes in a clear stop above the bridge of the nose (a fox's slight, a wolf's strong).
-        if (['wolf', 'dog', 'fox'].includes(r.kind)) {
+        if (!A && ['wolf', 'dog', 'fox'].includes(r.kind)) {
             const k = r.kind === 'fox' ? 0.6 : r.kind === 'wolf' ? 1.15 : 1;
             for (const s of [1, -1]) e(H(s * (0.5 + 0.06 * k), -0.02, 0.0), [0.3 * k, 0.26, 0.42], 0.22, 'cheek');
             e(H(0, 0.42, 0.42), [0.42 + 0.06 * k, 0.24 * k, 0.32], 0.16, 'skull');
             for (const s of [1, -1]) e(H(s * 0.24, 0.36, 0.56), [0.2, 0.15 * k, 0.2], 0.1, 'brow');
         }
-        if (faceKind === 'bear') {
+        if (!A && faceKind === 'bear') {
             // A bear's face is broad: full furred cheeks behind the eyes, a wide brow.
             for (const s of [1, -1]) e(H(s * 0.6, -0.15, -0.1), [0.42, 0.45, 0.55], 0.25, 'cheek');
             e(H(0, 0.38, 0.1), [0.7, 0.28, 0.5], 0.2, 'skull');
@@ -875,7 +1068,7 @@
             Object.assign(e(H(0, 0.72, -0.15), [0.5, 0.14, 0.3], 0.1, 'skull'), { bump: 0.05 * sr, bumpScale: 2.5 / sr, bumpSeed: 23 });
             e(H(0, -0.18, zt - 0.2), [0.5 * sw, 0.36, 0.26], 0.12, 'snout');
         }
-        if (hoofFace) {
+        if (hoofFace && !A) {
             // A deer's face is fine: light jowls, a slim bridge.
             const fine = faceKind === 'deer' ? 0.6 : 1;
             for (const s of [1, -1]) {
@@ -902,7 +1095,7 @@
         const hoofed = hoofFace;
         for (const s of [1, -1]) {
             const facing = hoofed ? norm(add(mul(hd, 0.75), [s * 0.66, 0, 0])) : norm(add(hd, [s * (disc ? 0.08 : 0.3), 0, 0]));
-            const from = hoofed ? H(s * 0.1 * sw, -0.02, zt - 0.12) : H(s * (disc ? 0.12 : 0.07) * sw, disc ? 0.0 : 0.01, zt - 0.05);
+            const from = hoofed ? H(s * 0.1 * sw, -0.02, zt - 0.12) : H(s * (disc ? 0.12 : 0.07) * sw, A ? A.noseY - 0.02 : disc ? 0.0 : 0.01, zt - 0.05);
             let at = null;
             for (let i = 0; i < 40; i++) {
                 const p = add(from, mul(facing, i * sr * 0.02));
@@ -923,20 +1116,24 @@
         // The lower jaw from its angle to the chin, and the floor between its halves.
         // A big cat's jaw is deep and heavy; a small cat's light.
         const jawD = cat * clamp((deep - 0.72) / 0.28, 0, 1);
-        for (const s of [1, -1]) c(H(s * 0.5, -0.42 - 0.04 * jawD, -0.05), H(s * 0.13 * sw, -0.52 - 0.04 * jawD, zt - 0.44), 0.2 + 0.03 * jawD, 0.12 + 0.03 * jawD, 0.12, 'jaw');
-        e(H(0, -0.54 - 0.05 * jawD, zt - 0.46), [0.2 * sw, 0.14 + 0.03 * jawD, 0.17], 0.12, 'chin');
-        e(H(0, -0.48 + 0.04 * gentle, 0.2), [0.36 - 0.06 * gentle, 0.22 - 0.06 * gentle, 0.45 - 0.09 * gentle], 0.2, 'jaw');
+        if (!A) for (const s of [1, -1]) c(H(s * 0.5, -0.42 - 0.04 * jawD, -0.05), H(s * 0.13 * sw, -0.52 - 0.04 * jawD, zt - 0.44), 0.2 + 0.03 * jawD, 0.12 + 0.03 * jawD, 0.12, 'jaw');
+        if (!A) e(H(0, -0.54 - 0.05 * jawD, zt - 0.46), [0.2 * sw, 0.14 + 0.03 * jawD, 0.17], 0.12, 'chin');
+        if (!A) e(H(0, -0.48 + 0.04 * gentle, 0.2), [0.36 - 0.06 * gentle, 0.22 - 0.06 * gentle, 0.45 - 0.09 * gentle], 0.2, 'jaw');
         // The eyes: out from the skull along their facing, to the surface, set into sockets cut around them.
         const eyeR = (0.15 + 0.025 * gentle) * sr * r.eyeSize;
         const side = r.eyeSide;
         for (const s of [1, -1]) {
-            const facing = norm(add(mul([s * (0.36 + 0.6 * side), 0, 0], 1), add(mul(hu, 0.12), mul(hd, 0.92 - 0.62 * side))));
-            const from = H(s * (0.18 + 0.2 * side), 0.17+gentle*.055, 0.42 - 0.2 * side + 0.1 * long);
+            const look = norm(add(mul([s * (0.36 + 0.6 * side), 0, 0], 1), add(mul(hu, 0.12), mul(hd, 0.92 - 0.62 * side))));
+            const from = A && A.eye ? H(s * A.eye[0], A.eye[1], A.eye[2]) : H(s * (0.18 + 0.2 * side), 0.17+gentle*.055, 0.42 - 0.2 * side + 0.1 * long);
+            // An anatomical head's socket is found out to the side and forward (the face's front lies far ahead of the eye).
+            const march = A && A.eye ? norm(add([s * (0.15 + 0.6 * side + (A.eyeOut || 0)), 0, 0], add(mul(hu, 0.04), mul(hd, 0.9)))) : look;
+            // There the eye looks out between its socket's opening and its own line of sight.
+            const facing = A && A.eye ? norm(add(march, look)) : look;
             // Out to where the skin stands, whatever lies over the face there (a thick neck, a mane's root).
             const built = S.filter(q => !q.cut);
             let at = from;
             for (let i = 0; i < 80; i++) {
-                const p = add(from, mul(facing, i * sr * 0.025));
+                const p = add(from, mul(march, i * sr * 0.025));
                 if (fieldAt(head, p) > 0 && fieldAt(built, p) > 0) { at = p; break; }
             }
             // The eye sits back in its socket, its front at the face's surface; the lids close round it in an
@@ -963,7 +1160,7 @@
         // The ears' roots on the skull.
         // A deer's ears are set low and wide behind its antlers.
         // A bear's small round ears stand far apart on the top of its broad head; a sheep's stand out sideways below its horns.
-        for (const s of [1, -1]) lay.ears.push({ base: faceKind === 'deer' ? H(s * 0.58, 0.5, -0.45) : faceKind === 'bear' ? H(s * 0.64, 0.6, -0.35) : faceKind === 'sheep' ? H(s * 0.58, 0.18, -0.3) : H(s * 0.52, 0.66, -0.3), side: s });
+        for (const s of [1, -1]) lay.ears.push({ base: A ? H(s * A.ear[0], A.ear[1], A.ear[2]) : faceKind === 'deer' ? H(s * 0.58, 0.5, -0.45) : faceKind === 'bear' ? H(s * 0.64, 0.6, -0.35) : faceKind === 'sheep' ? H(s * 0.58, 0.18, -0.3) : H(s * 0.52, 0.66, -0.3), side: s });
         J.mouth = { z0, zt };
         lay.headShapes = head;
     }
@@ -2123,7 +2320,8 @@
         // Inside the legs, toward the body's middle.
         const inner = onLeg ? smooth(0.1, 0.7, -n[0] * Math.sign(p[0] || 1)) : 0;
         // The pale muzzle a crisp marking: the upper lips over the whisker beds and the chin.
-        const mTop = -0.2 + (profileOf(r).felid ? 0.16 * smooth(0.26, 0.1, hx) * smooth(zt - 0.45, zt - 0.25, hz) : 0);
+        // (A canid's anatomical muzzle stands higher on its face: its pale lips reach further up, a fox's up to the cheeks.)
+        const mTop = -0.2 + (profileOf(r).felid ? 0.16 * smooth(0.26, 0.1, hx) * smooth(zt - 0.45, zt - 0.25, hz) : 0) + (r.kind === 'fox' ? 0.14 : r.kind === 'wolf' || r.kind === 'dog' ? 0.07 : 0);
         const muzzle = onHead ? smooth(mTop, mTop - 0.1, hy) * smooth(z0, z0 + 0.25, hz) + (tag === 'chin' ? 1 : 0) + (tag === 'whisker' ? 0.85 * smooth(-0.05, -0.2, hy) : 0) : 0;
         const throat = tag === 'neck' || tag === 'jaw' ? smooth(0.2, 0.8, under) : 0;
         const pat = r.pattern;
