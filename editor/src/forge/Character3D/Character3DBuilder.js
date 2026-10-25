@@ -222,6 +222,7 @@ class Character3DBuilder {
                     </span>
                     <button class="rr-btn-chip rr-c3d-reset">↻ ${this._t('Reset')}</button>
                     <button class="rr-btn-chip rr-c3d-open">${this._t('Open…')}</button>
+                    <button class="rr-btn-chip rr-c3d-keep" title="${this._t('Keep this character\'s settings in the Forge to open and change later. No model is made.')}">${this._t('Save recipe')}</button>
                     <span class="rr-c3d-spacer"></span>
                     <span class="rr-c3d-status" aria-live="polite"></span>
                     <button class="rr-btn-chip rr-c3d-sheet">${this._t('Export sprite sheet…')}</button>
@@ -262,6 +263,7 @@ class Character3DBuilder {
         // Reset: back to the species' (or the creature kind's) own starting point.
         q('.rr-c3d-reset').addEventListener('click', () => this._selectPreset(this.human ? RRCharacterModel.withSpecies({}, this.recipe.species) : this._creature(this.recipe.kind)));
         q('.rr-c3d-open').addEventListener('click', () => this._showGallery());
+        q('.rr-c3d-keep').addEventListener('click', () => this.saveRecipe());
         q('.rr-c3d-save').addEventListener('click', () => this.save());
         // Export sprite sheet: the panel and the rendering live in RRCharacterSpriteSheet.
         q('.rr-c3d-sheet').addEventListener('click', () => { if (window.RRCharacterSpriteSheet && this._view) RRCharacterSpriteSheet.openPanel(this); });
@@ -2910,6 +2912,67 @@ class Character3DBuilder {
         return project ? require('path').join(project.path, '3d', 'Characters') : null;
     }
 
+    /**
+     * Recipes kept in the Forge (Save recipe): a character's settings and its picture, no model. They live under
+     * forge/character_3d/characters/, apart from 3d/, where every folder is a model the 3D Models page lists.
+     */
+    _recipesDir() {
+        const project = this._project();
+        return project ? require('path').join(project.path, 'forge', 'character_3d', 'characters') : null;
+    }
+
+    _recipeNames() {
+        const fs = require('fs');
+        const dir = this._recipesDir();
+        if (!dir || !fs.existsSync(dir)) return [];
+        return fs.readdirSync(dir).filter(f => /\.json$/i.test(f)).map(f => f.replace(/\.json$/i, '')).sort((a, b) => a.localeCompare(b));
+    }
+
+    /** Keep the character's settings in the Forge under its name: opened again from Open…, nothing built. */
+    async saveRecipe() {
+        if (!this._project()) return;
+        const fs = require('fs'), path = require('path');
+        let name = this._folderName(this.name);
+        if (!name) {
+            name = this._folderName(await RRDialog.prompt(this._t('Name this character:'), { title: this._t('Save recipe'), value: this._t('Villager') }));
+            if (!name) return;
+            this.name = name;
+            const input = this.root.querySelector('.rr-c3d-name-input');
+            if (input) input.value = name;
+        }
+        const dir = this._recipesDir(), file = path.join(dir, name + '.json');
+        if (fs.existsSync(file) && !await RRDialog.confirm(this._t('Replace the recipe {name}?', { name }), { title: this._t('Save recipe'), ok: this._t('Replace'), danger: true })) return;
+        try {
+            const atomic = window.RRWriteFileAtomicSync || ((io, target, data) => io.writeFileSync(target, data));
+            fs.mkdirSync(dir, { recursive: true });
+            atomic(fs, file, JSON.stringify({ builder: 'character3d', version: 2, recipe: this.recipe }, null, 2) + '\n');
+            const thumb = this._thumbnail();
+            if (thumb) atomic(fs, path.join(dir, name + '.png'), thumb);
+            this._status(this._t('Recipe {name} kept.', { name }), 'ok');
+        } catch (error) {
+            console.error('[Character3DBuilder] save recipe', error);
+            this._status(this._t('{name} could not be saved.', { name }), 'error');
+        }
+    }
+
+    _openRecipe(name) {
+        const fs = require('fs'), path = require('path');
+        try {
+            const data = JSON.parse(fs.readFileSync(path.join(this._recipesDir(), name + '.json'), 'utf8'));
+            this._openRecord(name, data);
+        } catch (error) {
+            console.error('[Character3DBuilder] open recipe', error);
+            this._status(this._t('{name} could not be opened.', { name }), 'error');
+        }
+    }
+
+    async _deleteRecipe(name) {
+        if (!await RRDialog.confirm(this._t('Delete the recipe {name}?', { name }), { title: this._t('Save recipe'), ok: this._t('Delete'), danger: true })) return false;
+        const fs = require('fs'), path = require('path');
+        for (const ext of ['.json', '.png']) fs.rmSync(path.join(this._recipesDir(), name + ext), { force: true });
+        return true;
+    }
+
     _savedNames() {
         const fs = require('fs'), path = require('path');
         const dir = this._charactersDir();
@@ -2919,28 +2982,33 @@ class Character3DBuilder {
             .map(e => e.name).sort((a, b) => a.localeCompare(b));
     }
 
-    /** Saved characters as pictures to pick from. */
+    /** Saved characters as pictures to pick from: the recipes kept in the Forge, then the models saved to the project. */
     _showGallery() {
         const fs = require('fs'), path = require('path');
         const box = this.root.querySelector('.rr-c3d-gallery');
-        const names = this._savedNames();
-        const cards = names.map(name => {
-            const thumb = path.join(this._charactersDir(), name, 'thumbnail.png');
-            const src = fs.existsSync(thumb) ? 'data:image/png;base64,' + fs.readFileSync(thumb).toString('base64') : '';
-            return `<button class="rr-c3d-saved" data-name="${rrEscapeHtml(name)}">${src ? `<img src="${src}" alt="">` : '<span class="rr-c3d-nothumb">?</span>'}<span>${rrEscapeHtml(name)}</span></button>`;
-        }).join('');
+        const picture = file => fs.existsSync(file) ? 'data:image/png;base64,' + fs.readFileSync(file).toString('base64') : '';
+        const card = (name, src, kind) => `<div class="rr-c3d-saved-card"><button class="rr-c3d-saved" data-name="${rrEscapeHtml(name)}" data-kind="${kind}">${src ? `<img src="${src}" alt="">` : '<span class="rr-c3d-nothumb">?</span>'}<span>${rrEscapeHtml(name)}</span></button>`
+            + (kind === 'recipe' ? `<button class="rr-c3d-saved-delete" data-delete="${rrEscapeHtml(name)}" title="${this._t('Delete')}">✕</button>` : '') + '</div>';
+        const recipes = this._recipeNames().map(name => card(name, picture(path.join(this._recipesDir(), name + '.png')), 'recipe')).join('');
+        const models = this._savedNames().map(name => card(name, picture(path.join(this._charactersDir(), name, 'thumbnail.png')), 'model')).join('');
         box.innerHTML = `<div class="rr-c3d-gallery-head"><span>${this._t('Open a saved character')}</span><button class="rr-c3d-remove" data-close title="${this._t('Close')}">✕</button></div>
-            <div class="rr-c3d-gallery-grid">${cards || `<p class="rr-c3d-note">${this._t('No characters saved in this project yet. Save to Project puts one here.')}</p>`}</div>`;
+            <div class="rr-c3d-gallery-scroll"><div class="rr-c3d-gallery-sub">${this._t('Recipes')}</div>
+            <div class="rr-c3d-gallery-grid">${recipes || `<p class="rr-c3d-note">${this._t('No recipes yet. Save recipe keeps a character here without making a model.')}</p>`}</div>
+            <div class="rr-c3d-gallery-sub">${this._t('Saved to Project')}</div>
+            <div class="rr-c3d-gallery-grid">${models || `<p class="rr-c3d-note">${this._t('No characters saved in this project yet. Save to Project puts one here.')}</p>`}</div></div>`;
         box.hidden = false;
         const close = () => { box.hidden = true; document.removeEventListener('keydown', onKey, true); };
         const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
         document.addEventListener('keydown', onKey, true);
         box.onclick = e => {
             if (e.target.closest('[data-close]')) { close(); return; }
+            const remove = e.target.closest('[data-delete]');
+            if (remove) { this._deleteRecipe(remove.dataset.delete).then(done => { if (done) this._showGallery(); }); return; }
             const card = e.target.closest('.rr-c3d-saved');
             if (!card) return;
             close();
-            this._openSaved(card.dataset.name);
+            if (card.dataset.kind === 'recipe') this._openRecipe(card.dataset.name);
+            else this._openSaved(card.dataset.name);
         };
     }
 
@@ -3279,19 +3347,23 @@ class Character3DBuilder {
     _openSaved(name) {
         const fs = require('fs'), path = require('path');
         try {
-            const data = JSON.parse(fs.readFileSync(path.join(this._charactersDir(), name, 'character.json'), 'utf8'));
-            this.name = name;
-            const input = this.root.querySelector('.rr-c3d-name-input');
-            if (input) input.value = name;
-            const recipe = RRCharacterModel.normalize(data.recipe || data);
-            // A recipe past the natural ranges opens with Extreme on, so its sliders reach its values.
-            this.extreme = this.extreme || JSON.stringify(RRHumanBody.naturalRecipe ? RRHumanBody.naturalRecipe(recipe) : recipe) !== JSON.stringify(RRHumanBody.normalizeRecipe(recipe));
-            this._replace(recipe);
-            this._status(this._t('Opened {name}.', { name }), 'ok');
+            this._openRecord(name, JSON.parse(fs.readFileSync(path.join(this._charactersDir(), name, 'character.json'), 'utf8')));
         } catch (error) {
             console.error('[Character3DBuilder] open', error);
             this._status(this._t('{name} could not be opened.', { name }), 'error');
         }
+    }
+
+    /** A saved character's record (a model's character.json or a kept recipe) in the builder, under its name. */
+    _openRecord(name, data) {
+        this.name = name;
+        const input = this.root.querySelector('.rr-c3d-name-input');
+        if (input) input.value = name;
+        const recipe = RRCharacterModel.normalize(data.recipe || data);
+        // A recipe past the natural ranges opens with Extreme on, so its sliders reach its values.
+        this.extreme = this.extreme || JSON.stringify(RRHumanBody.naturalRecipe ? RRHumanBody.naturalRecipe(recipe) : recipe) !== JSON.stringify(RRHumanBody.normalizeRecipe(recipe));
+        this._replace(recipe);
+        this._status(this._t('Opened {name}.', { name }), 'ok');
     }
 
     /** A picture as PNG bytes. */

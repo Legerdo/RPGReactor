@@ -7704,7 +7704,19 @@ html.rr-detached-window.rr-repaint { clip-path: inset(0 round calc(var(--radius-
 }
 .rr-c3d-gallery[hidden] { display: none; }
 .rr-c3d-gallery-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: var(--color-text); margin-bottom: 8px; }
-.rr-c3d-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; overflow-y: auto; align-content: start; }
+.rr-c3d-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; align-content: start; }
+.rr-c3d-gallery-scroll { overflow-y: auto; min-height: 0; flex: 1 1 auto; }
+.rr-c3d-gallery-grid > .rr-c3d-note { grid-column: 1 / -1; margin: 0; }
+.rr-c3d-gallery-sub { margin: 4px 0 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-text-muted); }
+.rr-c3d-gallery-grid + .rr-c3d-gallery-sub { margin-top: 14px; }
+.rr-c3d-saved-card { position: relative; display: flex; }
+.rr-c3d-saved-card > .rr-c3d-saved { flex: 1 1 auto; min-width: 0; }
+.rr-c3d-saved-delete {
+    position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; padding: 0; font-size: 11px; line-height: 18px;
+    color: var(--color-text); background: var(--color-bg-deep); border: 1px solid var(--color-border-input); border-radius: 50%; cursor: pointer; opacity: 0;
+}
+.rr-c3d-saved-card:hover .rr-c3d-saved-delete, .rr-c3d-saved-delete:focus-visible { opacity: 1; }
+.rr-c3d-saved-delete:hover { color: var(--color-danger); border-color: var(--color-danger); }
 .rr-c3d-saved { display: flex; flex-direction: column; gap: 4px; padding: 6px; font-size: 11px; color: var(--color-text); background: var(--color-bg-input); border: 1px solid var(--color-border-input); border-radius: var(--radius-sm, 3px); cursor: pointer; }
 .rr-c3d-saved:hover { border-color: var(--color-accent-bright); }
 .rr-c3d-saved img, .rr-c3d-nothumb { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 2px; background: var(--color-bg-deep); }
