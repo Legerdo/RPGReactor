@@ -370,7 +370,7 @@
     // wing: humerus, forearm, hand, primary/secondary counts and lengths;
     // tail length, count and shape; leg: tibia, tarsus, toe, talon, feathering.
     const BIRDS = {
-        eagle: { pitch: 56, trunk: [.36, .20, .215], keel: 1.0, neck: [.05, .056], head: [.122, .086, .084], skull: 'raptor', bill: 'raptor', billLen: .066, eye: .0125, iris: '#f2dd74', eyeFwd: .72,
+        eagle: { pitch: 56, trunk: [.36, .20, .215], keel: 1.0, neck: [.05, .056], head: [.130, .086, .076], skull: 'raptor', bill: 'raptor', billLen: .066, eye: .0150, iris: '#f2dd74', eyeFwd: .72,
             wing: [.17, .20, .105, 10, 15, .41, .28], slots: 1, dihedral: 7, tail: [.26, 12, 'wedge'], leg: [.11, .072, .066, .036, .55], legColor: '#e8b52c', billColor: '#e9b62e', card: 1, ruff: true },
         owl: { pitch: 72, trunk: [.30, .23, .23], keel: .9, neck: [.04, .085], head: [.15, .16, .145], skull: 'owl', bill: 'owl', billLen: .036, eye: .022, iris: '#f2b221', eyeFwd: 1.45,
             wing: [.15, .17, .09, 10, 14, .32, .24], slots: .3, dihedral: 5, tail: [.17, 12, 'round'], leg: [.11, .07, .05, .028, 1.2], legColor: '#cdb79a', billColor: '#3d3a33', card: 1.15, soft: true },
@@ -669,15 +669,17 @@
                 // Wedge-shaped toward the bill, the crown flat.
                 // Long and low: a flat crown, a rounded occiput (no can-shaped back), narrowing into the cere.
                 sx *= 1 - .44 * front * front; sy *= 1 - .22 * front * front;
-                if (y > .35) sy *= 1 - .20 * smooth(.35, 1, y) * (.55 + .45 * smooth(-.4, .3, z));
-                sz *= 1 + .10 * smooth(0, -.8, z) * (1 - .5 * Math.abs(y));
+                // A flat crown level with the brow shelf, and a modest occiput that runs down into the nape (no dome).
+                if (y > .28) sy *= 1 - .34 * smooth(.28, 1, y) * (1 - .35 * smooth(.6, .95, Math.abs(x)));
+                sz *= 1 - .08 * smooth(0, -.9, z) * smooth(-.2, .6, y);
                 // The supraorbital shelf: a ridge over each eye that gives the eagle its stare.
                 // The supraorbital shelf: a hard ledge right over each eye, running forward toward the cere.
                 // It rises gently above and drops off sharply toward the eye beneath it.
                 {
-                    const ex = .72, ez = .66, h = Math.atan2(z, Math.abs(x)) - Math.atan2(ez, ex), dy = y - .37;
-                    const along = Math.exp(-(((h - .12) / .55) ** 2)), profile = dy > 0 ? Math.exp(-((dy / .20) ** 2)) : Math.exp(-((dy / .055) ** 2));
-                    push += .40 * profile * along * smooth(.2, .5, Math.abs(x)) * smooth(-.25, .25, z);
+                    // A heavy shelf: it juts out over the eye (its lower edge just above the eye's top) and runs forward to the cere.
+                    const ex = .72, ez = .66, h = Math.atan2(z, Math.abs(x)) - Math.atan2(ez, ex), dy = y - .31;
+                    const along = Math.exp(-(((h - .10) / .50) ** 2)), profile = dy > 0 ? Math.exp(-((dy / .22) ** 2)) : Math.exp(-((dy / .045) ** 2));
+                    push += .48 * profile * along * smooth(.2, .5, Math.abs(x)) * smooth(-.25, .25, z);
                     // The orbit beneath: the eye sits back under the ledge.
                     push -= .10 * Math.exp(-(((y - .12) / .17) ** 2)) * Math.exp(-((h / .40) ** 2)) * smooth(.3, .7, Math.abs(x));
                 }
@@ -772,7 +774,7 @@
      */
     const BILLS = {
         // A bald eagle's bill: massive, nearly half the head's length, about half the head deep at the base, narrow, a smooth culmen into an overhanging hook.
-        raptor: { len: .74, top: .27, bot: -.19, tip: -.50, arch: .20, width: .14, lower: .64, hook: 1, wedge: true },
+        raptor: { len: .82, top: .30, bot: -.21, tip: -.55, arch: .22, width: .155, lower: .64, hook: 1, wedge: true },
         owl: { len: .42, top: .16, bot: -.20, tip: -.42, arch: .12, width: .15, lower: .7, hook: 1 },
         crow: { len: 1.0, top: .21, bot: -.17, tip: -.10, arch: .14, width: .17, lower: .97, hook: .15 },
         cone: { len: .46, top: .21, bot: -.20, tip: -.02, arch: .05, width: .27, lower: .98, hook: 0 },
@@ -844,13 +846,14 @@
         if (b.bill === 'raptor' || b.bill === 'owl' || S.cere) {
             const cere = S.cere ? lin('#ece6dc') : b.bill === 'raptor' ? lin('#f3d64e') : mix(yellow, lin('#f5cf55'), .5), crow = [], ccen = [];
             for (let i = 0; i <= 6; i++) {
-                const t = i / 6 * (b.bill === 'raptor' ? .26 : .22), T = top(t), Bo = bot(t), swell = b.bill === 'raptor' ? 1 + .6 * Math.sin(Math.PI * Math.min(1, i / 5.2)) : 1, w = widthAt(t) * 1.07 + hh * .006 * swell, half = (T[1] - Bo[1]) / 2 + hh * .008 * swell, mid = (T[1] + Bo[1]) / 2, row = [];
+                const t = i / 6 * (b.bill === 'raptor' ? .26 : .22), T = top(t), Bo = bot(t), swell = b.bill === 'raptor' ? 1 + .6 * Math.sin(Math.PI * Math.min(1, i / 5.2)) : 1, w = widthAt(t) * 1.07 + hh * .006 * swell, half = (T[1] - Bo[1]) / 2 + hh * .006, mid = (T[1] + Bo[1]) / 2 - hh * .004 * (swell - 1), row = [];
                 for (let k = 0; k <= 12; k++) { const a = -.25 + k / 12 * (Math.PI + .5), sn = Math.sin(a), cs = Math.cos(a); row.push(m.vertex(add(at(T[0] + (Bo[0] - T[0]) * (1 - (sn + 1) / 2), mid + sn * half * (S.cere ? 1.25 : 1)), mul(X, cs * w * Math.sqrt(1 - .5 * sn * sn))), [0, 1, 0], cere, skin, [0, 0])); }
                 crow.push(row); ccen.push(at(T[0], mid));
             }
             ringsOut(m, crow, ccen, false);
         }
-        if (S.flat) ellipsoidInto(m, at(tipZ - hh * .06, hh * S.tip + hh * .10), [wd * .55, hh * .04, hh * .10], Fh, Uh, lin('#24221e'), skin);
+        // A duck's nail: a flat dark plate set into the top of the bill's tip (not a ball on top of it).
+        if (S.flat) { const T = top(.93); ellipsoidInto(m, at(T[0] - len * .015, T[1] - hh * .012), [wd * .42, hh * .016, len * .07], Fh, Uh, mix(yellow, lin('#3a3226'), .75), skin); }
         m.smoothNormals();
         C.finish(m, 'Beak', { kind: 'skin', roughness: b.bill === 'duck' ? .55 : .36, noSurfaceDetail: true });
     }
@@ -950,10 +953,10 @@
         // Feather groups: three along the forearm, four along the hand.
         const secRoot = j => add(lerp(wrist, elbow, .04 + .94 * j / Math.max(1, nS - 1)), mul(Bk, L * .004));
         const primRoot = j => add(lerp(wrist, tip, .05 + .92 * j / Math.max(1, nP - 1)), mul(Bk, L * .003));
-        const sec = [0, 1, 2].map(k => { const j = Math.round(k * nS / 3), h0 = secRoot(Math.min(nS - 1, j)); return C.bone('Secondaries ' + s + '/' + k, bB, h0, add(h0, mul(Bk, L * sLen * .5)), 'wingFeathers', s); });
+        const sec = [0, 1, 2].map(k => { const j = Math.round(k * nS / 3), h0 = secRoot(Math.min(nS - 1, j)); return C.bone('Secondaries ' + s + '_' + k, bB, h0, add(h0, mul(Bk, L * sLen * .5)), 'wingFeathers', s); });
         // Each primary on its own bone, so the folded hand stacks them into one tight blade.
         const primAng = j => th[2] + (1.30 - 1.20 * Math.pow(j / Math.max(1, nP - 1), .85)) * (.45 + .55 * sp);
-        const prim = Array.from({ length: nP }, (_, j) => { const h0 = primRoot(j); return C.bone('Primaries ' + s + '/' + j, hB, h0, add(h0, mul(dirAt(primAng(j)), L * pLen * .5)), 'wingFeathers', s); });
+        const prim = Array.from({ length: nP }, (_, j) => { const h0 = primRoot(j); return C.bone('Primaries ' + s + '_' + j, hB, h0, add(h0, mul(dirAt(primAng(j)), L * pLen * .5)), 'wingFeathers', s); });
         const secGroup = j => sec[Math.min(2, Math.floor(j * 3 / nS))], primGroup = j => prim[j];
         const skinArm = t => { const w = smooth(.40, .60, t); return { joints: [aB, bB, 0, 0], weights: [1 - w, w, 0, 0] }; };
         const lead = t => t < .5 ? lerp(shoulder, elbow, t / .5) : lerp(elbow, wrist, (t - .5) / .5);
@@ -1232,7 +1235,9 @@
             return { hip, ankle, foot: foot };
         };
         // Head colors under its feathers: the kind's head plumage, dulled.
-        B.headColor = (x, y, z) => scale3(plumage(C, y < -.35 ? 'throat' : 'head', 1, 0)(.6, 0), .95);
+        // A raptor's face: a soft grey shadow under the brow shelf round the eye, and greyish lores where the cheek feathers meet the cere and gape.
+        const faceShade = (x, y, z) => b.skull !== 'raptor' ? 1 : 1 - .09 * Math.exp(-(((y - .16) / .14) ** 2)) * smooth(.35, .7, Math.abs(x)) * smooth(.05, .5, z) - .12 * Math.exp(-(((z - .92) / .14) ** 2) - (((y + .05) / .3) ** 2));
+        B.headColor = (x, y, z) => scale3(plumage(C, y < -.35 ? 'throat' : 'head', 1, 0)(.6, 0), .95 * faceShade(x, y, z));
         B.under = (s, dorsal) => scale3(plumage(C, s > .72 ? (s > .76 ? (dorsal > 0 ? 'nape' : 'throat') : 'neck') : dorsal > 0 ? 'back' : 'breast', s > .72 ? (s - .72) / .28 : s, 0)(.6, 0), .62);
         // Eyes: seated in the skull's side, turned forward by kind.
         B.billRoot = add(add(hc, mul(Fh, headDims[0] * (b.skull === 'owl' ? .40 : b.skull === 'duck' ? .38 : b.skull === 'raptor' ? .36 : .33))), mul(Uh, headDims[2] * (b.skull === 'raptor' ? .02 : b.skull === 'owl' ? -.10 : -.02)));
@@ -1243,14 +1248,14 @@
         B.eyes = r.eyeCount > 0 ? [-1, 1].map(s => {
             const yaw = b.eyeFwd;
             let d = norm(add(mul(X, s * Math.cos(yaw)), mul(Fh, Math.sin(yaw))));
-            const u = norm([b.skull === 'owl' ? .36 : b.skull === 'raptor' ? .62 : .80 * Math.cos(yaw) + .06, b.skull === 'raptor' ? .12 : b.skull === 'owl' ? .08 : .16, b.skull === 'owl' ? .93 : b.skull === 'raptor' ? .57 : .14 + .25 * Math.sin(yaw)]);
+            const u = norm([b.skull === 'owl' ? .36 : b.skull === 'raptor' ? .62 : .80 * Math.cos(yaw) + .06, b.skull === 'raptor' ? .09 : b.skull === 'owl' ? .08 : .16, b.skull === 'owl' ? .93 : b.skull === 'raptor' ? .57 : .14 + .25 * Math.sin(yaw)]);
             const surface = shape(s * u[0], u[1], u[2]);
             // The eye looks out along the skull's own surface there (a raptor's and an owl's turned further forward).
             const at = v => { const q = norm(v); return shape(q[0], q[1], q[2]); }, uu = [s * u[0], u[1], u[2]], e1 = norm(cross(uu, [0, 0, 1])), e2 = norm(cross(uu, e1));
             let nrm = norm(cross(sub(at(add(uu, mul(e1, .03))), at(sub(uu, mul(e1, .03)))), sub(at(add(uu, mul(e2, .03))), at(sub(uu, mul(e2, .03))))));
             if (dot(nrm, sub(surface, hc)) < 0) nrm = mul(nrm, -1);
             if (b.skull !== 'owl') d = norm(add(mul(nrm, b.skull === 'raptor' ? .45 : .8), mul(d, b.skull === 'raptor' ? .55 : .2)));
-            return { side: s, c: sub(surface, mul(d, eyeR * (b.skull === 'owl' ? .25 : b.skull === 'raptor' ? .72 : .62))), d: norm(add(d, mul(Uh, .02))), r: eyeR };
+            return { side: s, c: sub(surface, mul(d, eyeR * (b.skull === 'owl' ? .25 : b.skull === 'raptor' ? .80 : .62))), d: norm(add(d, mul(Uh, .02))), r: eyeR };
         }) : [];
         birdEyes(C, B);
         birdBill(C, B);
@@ -1418,7 +1423,8 @@
             }
         }
         if (B.tail) for (const [k, bi] of B.tail.fan.entries()) bones[bi].fold = qAxis(B.tail.U, (k ? 1 : -1) * B.tail.spread * .78);
-        bones[0].birdFrame = { F: B.F, U: B.U, pitch: B.prof.pitch * DEG, eagle: B.prof.skull === 'raptor', penguin: !!B.prof.penguin };
+        // Wingbeats per flying loop: small birds beat fast (a hummingbird's a blur), big ones slowly.
+        bones[0].birdFrame = { F: B.F, U: B.U, pitch: B.prof.pitch * DEG, eagle: B.prof.skull === 'raptor', penguin: !!B.prof.penguin, beats: ({ hummingbird: 12, sparrow: 4, crow: 2, pigeon: 3, parrot: 3, duck: 3, chicken: 3, turkey: 2 })[C.r.birdType] || 1 };
     }
 
     /**
@@ -1433,7 +1439,7 @@
         const penguin = frame.penguin;
         const ids = ['idle', 'turn', 'attack', ...(penguin ? ['swim', 'glide', 'crawl', 'walk', 'run'] : ['fly', 'glide', 'crawl', 'walk', 'run'])];
         if (!ids.includes(id)) return null;
-        const frames = 33, period = id === 'idle' ? 4 : id === 'attack' ? 1.2 : id === 'fly' ? (frame.eagle ? 1.4 : .9) : ['walk', 'crawl'].includes(id) ? 1.2 : id === 'run' ? .7 : 2.4;
+        const beats = id === 'fly' ? frame.beats || 1 : 1, frames = beats > 1 ? beats * 10 + 1 : 33, period = id === 'idle' ? 4 : id === 'attack' ? 1.2 : id === 'fly' ? (frame.eagle ? 1.4 : .9) * (beats > 1 ? 1.5 : 1) : ['walk', 'crawl'].includes(id) ? 1.2 : id === 'run' ? .7 : 2.4;
         const times = Float32Array.from({ length: frames }, (_, i) => i / (frames - 1) * period), tracks = [], heights = new Float32Array(frames);
         const X = [1, 0, 0], Y = [0, 1, 0], F = frame.F, U = frame.U, level = frame.pitch - .08;
         const airborne = ['fly', 'glide'].includes(id) || penguin && id === 'swim';
@@ -1443,12 +1449,12 @@
                 const ph = i / (frames - 1) * Math.PI * 2, wave = Math.sin(ph);
                 let q = [0, 0, 0, 1];
                 if (airborne) {
-                    const flap = id === 'glide' ? 0 : 1, beat = wave * (penguin ? .7 : .62) * flap, up = Math.max(0, -Math.cos(ph)) * flap;
-                    if (b.role === 'root') q = qAxis(X, level + .05 * flap * Math.cos(ph));
+                    const pw = ph * beats, flap = id === 'glide' ? 0 : 1, beat = Math.sin(pw) * (penguin ? .7 : .62) * flap, up = Math.max(0, -Math.cos(pw)) * flap;
+                    if (b.role === 'root') q = qAxis(X, level + .05 * flap * Math.cos(pw));
                     else if (b.role === 'head') q = qAxis(X, -level + .08);
                     else if (b.role === 'wing') q = penguin ? qMul(qAxis(F, s * (beat - .9)), qAxis(U, s * .2)) : qMul(qAxis(F, s * (beat + (id === 'glide' ? .10 : .05))), qAxis(U, s * .06 * up));
                     else if (b.role === 'wingTip') q = penguin ? [0, 0, 0, 1] : qAxis(U, -s * .55 * up);
-                    else if (b.role === 'wingHand') q = penguin ? [0, 0, 0, 1] : qMul(qAxis(U, s * .65 * up), qAxis(F, -s * .18 * Math.sin(ph - .6) * flap));
+                    else if (b.role === 'wingHand') q = penguin ? [0, 0, 0, 1] : qMul(qAxis(U, s * .65 * up), qAxis(F, -s * .18 * Math.sin(pw - .6) * flap));
                     else if (b.role === 'wingFeathers') q = [0, 0, 0, 1];
                     else if (b.role === 'birdTail') q = qAxis(X, -.18 + .05 * Math.sin(ph));
                     else if (b.role === 'tailFan') q = qSlerp([0, 0, 0, 1], qInv(fold), id === 'glide' ? .5 : .25);
@@ -1523,31 +1529,40 @@
         line(C, 'Wing arm ' + s, [shoulder, elbow], [L * .025, L * .018], c.main, a);
         line(C, 'Wing forearm ' + s, [elbow, wrist], [L * .017, L * .011], c.main, b);
         const tips = [[.86, .02, .12], [.78, -.015, -.12], [.62, -.035, -.32], [.40, -.055, -.44]].map(p => add(shoulder, [s * p[0] * L * span * spread, p[1] * L, p[2] * L * span]));
-        const fingerBones = tips.map((tip, j) => C.bone('Wing finger ' + s + '/' + j, b, wrist, tip, 'wingFinger', s));
+        // Bone names avoid '/' and '.': three.js reads them as path separators when it binds a clip's tracks (the builder's view).
+        const fingerBones = tips.map((tip, j) => C.bone('Wing finger ' + s + '_' + j, b, wrist, tip, 'wingFinger', s));
         mesh(C, 'Wing fingers ' + s, m => {
-            tips.forEach((tip, j) => m.tube([wrist, lerp(wrist, tip, .48), tip], [L * .008, L * .005, L * .002], 8, c.light, rigid(fingerBones[j])));
-            const thumb = add(wrist, [s * L * .015, L * .04, L * .07]);
-            m.tube([wrist, thumb, add(thumb, [-s * L * .008, -L * .014, L * .012])], [L * .009, L * .006, L * .0005], 8, c.mark, rigid(b));
+            // Long finger bones in the membrane with knuckle joints, darker than the skin.
+            const bone = mix(c.mark, c.light, .35);
+            tips.forEach((tip, j) => { const k1 = lerp(wrist, tip, .48), k2 = lerp(wrist, tip, .78); m.tube([wrist, k1, k2, tip], [L * .0075, L * .0052, L * .0035, L * .0015], 8, bone, rigid(fingerBones[j])); for (const k of [k1, k2]) m.sphere(k, 1, bone, rigid(fingerBones[j]), 6, 10, [L * .0068, L * .0068, L * .0068]); });
+            // The thumb on the leading edge: a short digit ending in a hooked claw.
+            const thumb = add(wrist, [s * L * .012, L * .03, L * .05]), claw = Array.from({ length: 7 }, (_, i) => { const t = i / 6, a = t * 1.8; return add(thumb, [-s * L * .004 * t, L * .018 * Math.sin(a) * .6 - L * .012 * (1 - Math.cos(a)), L * .016 * Math.sin(a)]); });
+            m.tube([wrist, thumb], [L * .008, L * .006], 8, bone, rigid(b));
+            m.tube(claw, claw.map((_, i) => L * .0045 * (1 - i / 7) + L * .0004), 8, [.06, .05, .045], rigid(b));
         });
         const boundary = [shoulder,hip,...tips.slice().reverse()], binding=[rootBone,rootBone,...fingerBones.slice().reverse()],membrane = new P.ExactMesh();
         for (let panel = 0; panel < boundary.length - 1; panel++) {
             const endA = boundary[panel], endB = boundary[panel + 1];
-            const grid = [], rows = 16, columns = 16;
+            const grid = [], rows = 18, columns = 24;
             for (let i = 0; i <= rows; i++) grid.push(Array.from({ length: columns + 1 }, (_, j) => {
                 const t = i / rows, u = j / columns;
                 // Scalloped trailing edges curve inward between the fingers, not across them.
                 const edge = lerp(endA, endB, u), scallop = panel > 0 ? .13 * Math.sin(Math.PI * u) : 0;
-                const p = lerp(wrist, edge, t * (1 - scallop * t * t));
+                // The first panel's leading edge is the arm itself (wrist, elbow, shoulder), so the bones never cut through the skin.
+                const arm = t < .5 ? lerp(wrist, elbow, t * 2) : lerp(elbow, shoulder, t * 2 - 1);
+                const p = panel === 0 ? lerp(arm, lerp(wrist, hip, t), u) : lerp(wrist, edge, t * (1 - scallop * t * t));
                 p[1] -= L * .018 * Math.sin(Math.PI * t) * Math.sin(Math.PI * u);
                 // Adjacent panels share the exact binding on their common finger.
-                const wa=binding[panel]===rootBone?t:1,wb=binding[panel+1]===rootBone?t:1;
-                const skin = { joints: [binding[panel],binding[panel+1],b,0], weights: [(1-u)*wa,u*wb,1-(1-u)*wa-u*wb,0] };
-                const vein=Math.pow(Math.max(0,Math.cos(u*Math.PI*14+t*2)),24)*.045;
-                return membrane.vertex(p, [0, 1, 0], c.mark.map(v => v * (.90 + .10 * t+vein)), skin);
+                const wa=binding[panel]===rootBone?t:1,wb=binding[panel+1]===rootBone?t:1, k=Math.max(0,t*2-1);
+                const skin = panel === 0 ? { joints: [a, b, rootBone, 0], weights: [(1 - u) * k, (1 - u) * (1 - k) + u * (1 - t), u * t, 0] }
+                    : { joints: [binding[panel],binding[panel+1],b,0], weights: [(1-u)*wa,u*wb,1-(1-u)*wa-u*wb,0] };
+                // Veins branch out from the arm across each panel; the skin is thinner and lighter toward the trailing edge.
+                const vein=Math.pow(Math.max(0,Math.cos(u*Math.PI*7+t*3.5+Math.sin(t*7+panel)*.8)),10)*.30*(1-.5*t);
+                return membrane.vertex(p, [0, 1, 0], c.mark.map(v => Math.min(1, v * 1.45 * (.92 + .22 * t) * (1 - vein))), skin);
             }));
             for (let i = 0; i < rows; i++) for (let j = 0; j < columns; j++) { const x = grid[i][j], y = grid[i + 1][j], z = grid[i][j + 1], v = grid[i + 1][j + 1]; membrane.tri(x, y, z); membrane.tri(z, y, v); }
         }
-        membrane.computeNormals(); C.finish(membrane, 'Patagium ' + s, { roughness: .64, doubleSided: true, opacity: .92, noSurfaceDetail: true });
+        membrane.computeNormals(); C.finish(membrane, 'Patagium ' + s, { roughness: .58, doubleSided: true, opacity: .82, noSurfaceDetail: true });
         mesh(C,'Propatagium '+s,m=>{
             const points=[shoulder,elbow,wrist],skins=[rigid(a),rigid(b),rigid(b)];
             const ids=points.map((p,i)=>m.vertex(p,[0,1,0],c.mark,skins[i]));m.tri(...ids);
@@ -1556,26 +1571,44 @@
     function bat(C) {
         const { r, L, Y, colors: c, rootBone: root, headBone: head } = C, fox = r.batType === 'flyingFox', vampire = r.batType === 'vampireBat';
         const body = [0, Y + L * .07, 0], headCenter = [0, Y + L * .16, L * .23];
-        ellipsoid(C, 'Body', body, [L * .115 * r.girth, L * .13 * r.chestDepth, L * .25], c.main, root);
+        // A bat's trunk: a deep, broad chest for the flight muscles tapering into a smaller belly and rump (not an egg).
+        const chestC = add(body, [0, L * .012, L * .07]), rumpC = add(body, [0, -L * .012, -L * .11]);
+        const chestR = [L * .118 * r.girth, L * .128 * r.chestDepth, L * .17], rumpR = [L * .088 * r.girth, L * .098 * r.chestDepth, L * .16];
+        mesh(C, 'Body', m => { m.sphere(chestC, 1, c.main, rigid(root), C.save ? 20 : 14, C.save ? 32 : 24, chestR); m.sphere(rumpC, 1, c.main, rigid(root), C.save ? 16 : 12, C.save ? 28 : 20, rumpR); });
         C.bones[head].head = add(headCenter, [0, -L * .03, -L * .03]); C.bones[head].tail = add(headCenter, [0, L * .05, L * .05]);
         mesh(C,'Neck fur',m=>m.tube([add(body,[0,L*.035,L*.13]),headCenter],[L*.07,L*.055*r.headSize],14,c.main,p=>{const t=Math.max(0,Math.min(1,(p[2]/L-.13)/.10));return {joints:[root,head,0,0],weights:[1-t,t,0,0]};}));
         ellipsoid(C, 'Head', headCenter, [L * .085 * r.headSize, L * .085 * r.headSize, L * .09 * r.headSize], c.main, head);
         const snout = add(headCenter, [0, -L * .018, L * (fox ? .09 : .065)]);
         ellipsoid(C, 'Muzzle', snout, [L * (fox ? .035 : .055) * r.snoutWidth, L * .032, L * (fox ? .075 : .04) * r.snoutLength], c.light, head);
-        ellipsoid(C, 'Nose', add(snout, [0, L * .005, L * (fox ? .062 : .032)]), [L * .025, L * .016, L * .014], c.dark, head);
+        if (fox) ellipsoid(C, 'Nose', add(snout, [0, L * .005, L * .062]), [L * .025, L * .016, L * .014], c.dark, head);
+        else mesh(C, 'Nose', m => {
+            // A pug snout: a bare, slightly upturned nose pad with two flared nostrils and a split upper lip.
+            const tip = add(snout, [0, L * .006, L * .036]);
+            m.sphere(tip, 1, mix(c.mark, [.45, .32, .30], .35), rigid(head), 10, 16, [L * .024, L * .015, L * .010]);
+            for (const s of [-1, 1]) m.sphere(add(tip, [s * L * .009, L * .002, L * .008]), 1, [.05, .035, .03], rigid(head), 6, 10, [L * .0045, L * .0065, L * .003]);
+            m.tube([add(tip, [0, -L * .012, L * .004]), add(tip, [0, -L * .024, L * -.002])], L * .0016, 6, [.08, .05, .045], rigid(head));
+        }, { noSurfaceDetail: true });
         for (const s of [-1, 1]) {
             const ear = add(headCenter, [s * L * .07, L * .07, 0]);
             mesh(C, 'Ear and tragus ' + s, m => {
                 m.sphere(add(ear, [s * L * .012, L * .035, 0]), 1, c.main, rigid(head), 14, 20, [L * .043, L * (fox ? .065 : .09), L * .015]);
                 m.sphere(add(ear, [s * L * .012, L * .036, L * .013]), 1, c.mark, rigid(head), 12, 18, [L * .031, L * (fox ? .049 : .072), L * .006]);
-                m.tube([ear, add(ear, [-s * L * .006, L * .045, L * .012])], [L * .012, L * .002], 10, c.light, rigid(head));
+                // The tragus: a pale, pointed lobe standing up in front of the ear opening.
+                m.tube([add(ear, [-s * L * .004, L * .004, L * .016]), add(ear, [-s * L * .007, L * .026, L * .019]), add(ear, [-s * L * .005, L * .044, L * .016])], [L * .0085, L * .006, L * .0012], 10, mix(c.light, [.85, .7, .62], .3), rigid(head));
+                // Transverse folds across the inner ear.
+                for (let k = 1; k < 6; k++) { const yk = L * (.035 + (fox ? .058 : .081) * (k / 6 - .5) * 1.6), w = L * .030 * Math.sqrt(1 - ((k / 6 - .5) * 1.6) ** 2); m.tube([add(ear, [s * L * .012 - w, yk, L * .015]), add(ear, [s * L * .012, yk + L * .004, L * .017]), add(ear, [s * L * .012 + w, yk, L * .015])], L * .0012, 5, scale3(c.mark, .8), rigid(head)); }
                 const rim=Array.from({length:33},(_,j)=>{const a=j/32*Math.PI*2;return add(ear,[s*L*.012+L*.036*Math.cos(a),L*.035+L*(fox?.058:.081)*Math.sin(a),L*.011]);});
                 m.tube(rim,L*.0028,6,c.main,rigid(head));
             });
             if (r.eyeCount > 0) insetEye(C,headCenter,[L*.085*r.headSize,L*.085*r.headSize,L*.09*r.headSize],[s*L*.062,L*.018,L*.06],L*r.headSize*(fox?.020:.014)*r.eyeSize,head,s,c.main);
             batWing(C, s, [s * L * .080*r.girth, body[1] + L * .035*r.chestDepth, L * .09], [s * L * .050*r.girth, body[1] - L * .045*r.chestDepth, -L * .20]);
         }
-        if (vampire) ellipsoid(C, 'Nasal pad', add(snout, [0, L * .02, L * .035]), [L * .028, L * .025, L * .012], c.mark, head);
+        // A vampire bat's nose-leaf: a bare U-shaped pad round the nostrils with a short upright leaf above them.
+        if (vampire) mesh(C, 'Nose-leaf', m => {
+            const tip = add(snout, [0, L * .006, L * .040]), skinCol = mix(c.mark, [.55, .38, .36], .45);
+            m.tube(Array.from({ length: 13 }, (_, k) => { const a = Math.PI * (1.15 + .7 * k / 12); return add(tip, [Math.cos(a) * L * .02, Math.sin(a) * L * .016 + L * .002, L * .004]); }), L * .004, 8, skinCol, rigid(head));
+            m.sphere(add(tip, [0, L * .024, -L * .002]), 1, skinCol, rigid(head), 8, 12, [L * .011, L * .016, L * .0035]);
+        }, { noSurfaceDetail: true });
         mesh(C,'Facial folds and vibrissae',m=>{
             for(const s of [-1,1]){
                 m.tube([add(snout,[s*L*.022,-L*.014,L*.025]),add(snout,[0,-L*.020,L*.037]),add(snout,[-s*L*.013,-L*.015,L*.030])],L*.0018,6,c.dark,rigid(head));
@@ -1583,15 +1616,19 @@
             }
         },{noSurfaceDetail:true});
         mesh(C, 'Fur', m => {
-            const count=C.save?1400:900;
+            const count=C.save?3000:2200;
             for (let j = 0; j < count; j++) {
                 const a = j * 2.399963, y = 1 - (j + .5) / count * 2, t = Math.sqrt(1 - y * y), n = [Math.cos(a) * t, y, Math.sin(a) * t];
-                const p = add(body, [n[0] * L * .113 * r.girth, n[1] * L * .129 * r.chestDepth, n[2] * L * .25]);
-                const color = fox && n[2] > .25 ? c.light : c.main;
-                m.tube([p, add(p, add(mul(n, L * .012),[0,0,-L*.009]))], [L * .0009, L * .00008], 4, color, rigid(root));
+                // On the chest's surface in front, the rump's behind (the two shapes the trunk is built from).
+                const front = n[2] > -.15, cc = front ? chestC : rumpC, rr = front ? chestR : rumpR, p = add(cc, [n[0] * rr[0] * .985, n[1] * rr[1] * .985, n[2] * rr[2] * .985]);
+                // Fur lies back along the body, denser and softer, the tips frosted lighter.
+                const shade = .88 + .24 * hash(j, 7), color = scale3(fox && n[2] > .25 ? c.light : mix(c.main, c.light, .18 * Math.max(0, n[1])), shade);
+                m.tube([p, add(p, add(mul(n, L * .0065), [0, -L * .002, -L * .013]))], [L * .0012, L * .0001], 3, color, rigid(root));
             }
         }, { noSurfaceDetail: true });
         feet(C, { legs: .16 }, body[1] - L * .06, -L * .19, true);
+        // Haunches: furred thighs running out of the rump into the legs, so the legs grow from the body.
+        mesh(C, 'Haunches', m => { for (const s of [-1, 1]) m.tube([add(rumpC, [s * L * .03, -L * .02, -L * .02]), [s * L * .075 * r.girth, body[1] - L * .05, -L * .17], [s * L * .092 * r.girth, body[1] - L * .07, -L * .185]], [L * .045, L * .032, L * .022], 12, c.main, rigid(root)); });
         line(C, 'Tail', [[0, body[1], -L * .22], [0, body[1] - L * .09, -L * .36 * r.tailLength]], [L * .012, L * .002], c.main, root);
     }
     /**

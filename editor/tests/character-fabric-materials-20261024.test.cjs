@@ -175,7 +175,10 @@ const BUDGET = { total: 60000, outfit: 24000 };
 // layers lighter) took whole characters down by 5-6k: largest 73,148, 14 presets over 60k, measured later that day.
 // Cloth drape and construction detail (lapels, pockets, plackets, seams, linings; 2026-10-24) cost outfits a few
 // thousand triangles each: 33 presets' outfits over 24k. The owner prefers clearly better clothes slightly over budget.
-const RATCHET = { maxTotal: 74000, maxOutfit: 50500, overTotal: 16, overOutfit: 33 };
+// Dark linings inside open cuffs, hems and collars (2026-10-25) add 1.4-5k an outfit: the layered Wasteland scavenger
+// reaches 77.2k (73.1k without), so the ceiling on a whole character rises to 77,500, and 20 presets are over 60k.
+// Cargo pockets laid flat on the thigh in finer rows so no chord cuts into the leg (2026-10-25): +0.9k, 78,500.
+const RATCHET = { maxTotal: 78500, maxOutfit: 50500, overTotal: 20, overOutfit: 33 };
 const FEMININE = /dress|skirt|gown|bra|bikini|stocking|corset|qipao|ballet|tennis|cropTop|offShoulder|operaGloves|swimsuit|peasant|sundress|carol|vay|tights|leggings/i;
 test('humanoid presets stay within the triangle budget (ratchet)', () => {
     const rows = [];

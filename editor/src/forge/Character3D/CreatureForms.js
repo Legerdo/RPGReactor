@@ -425,7 +425,10 @@
             // curling up the flank into a grin; the split fades out behind the hinge.
             const face = cfg.underslung||cfg.bony ? 1-ease(cfg.hinge*.9,cfg.hinge+.07,t) : 1-ease(cfg.hinge*.65,cfg.hinge,t), lipDepth = cfg.underslung ? .5 : cfg.shark ? .45 : .22, upperY=Y+center*L-bottom*lipDepth*face;
             const gap = L*cfg.gape*r.jawOpen*(1-ease(cfg.hinge*.25,cfg.hinge,t));
-            return {w,top:top+bottom*lipDepth*face,bottom:bottom*(1-lipDepth*face),upperY,lowerY:upperY-gap,z:L*(.5-t+snout),gap,face};
+            // A cetacean's tail stock flattens side to side into the flukes' root at its very end, so the flukes
+            // grow out of it as one tail (not a thin rod meeting two separate blades).
+            const paddle = cfg.mammal && r.tailLength > 0 ? ease(.86, .995, t) ** 1.5 : 0, wp = w * (1 + 1.7 * paddle) + L * .008 * paddle, sq = 1 - .3 * paddle;
+            return {w:wp,top:(top+bottom*lipDepth*face)*sq,bottom:bottom*(1-lipDepth*face)*sq,upperY,lowerY:upperY-gap,z:L*(.5-t+snout),gap,face};
         };
         const skin = (p,lower,t) => {
             if (!lower || t>=cfg.hinge) return bodySkin(p);
@@ -877,7 +880,9 @@
             // smaller and nearly flat under the belly.
             if(cfg.shark&&i===0){const yy=(s.upperY-Y)/L-.045,xx=s.w/L*.62;const sp=span*.9;fin('Fin'+sign+'_'+i,[[sign*xx,yy,z+.01,.175,.0125],[sign*(xx+sp*.36),yy-sp*.08,z-.028,.145,.0088],[sign*(xx+sp*.72),yy-sp*.15,z-.095,.085,.0045],[sign*(xx+sp),yy-sp*.18,z-.15,.006,.0006]],rootBone,'fin',sign,true);continue;}
             if(cfg.shark){const sp=span*.62,yy=(s.lowerY-s.bottom*.62-Y)/L,xx=s.w/L*.5;fin('Fin'+sign+'_'+i,[[sign*xx,yy,z,.08,.0075],[sign*(xx+sp*.5),yy-sp*.18,z-.04,.058,.0045],[sign*(xx+sp),yy-sp*.3,z-.085,.005,.0004]],rootBone,'fin',sign,true);continue;}
-            fin('Fin'+sign+'_'+i,[[sign*x,y,z,.15/(1+i),.006],[sign*(x+span*.45),y-span*.23,z-.06,.11/(1+i),.004],[sign*(x+span*.85),y-span*.48,z-.11,.05/(1+i),.0018],[sign*(x+span),y-span*.58,z-.13,cfg.whale?.012:.002,.0003]],rootBone,'fin',sign,cfg.mammal||cfg.shark);
+            // A flipper grows out of the flank: its root sunk well inside the body, broad and fleshy where it
+            // leaves the skin, thinning to a fine edge at the tip.
+            fin('Fin'+sign+'_'+i,[[sign*x*.55,y+.012,z+.01,.17/(1+i),.016],[sign*(x+span*.12),y-span*.06,z-.025,.15/(1+i),.011],[sign*(x+span*.45),y-span*.23,z-.06,.11/(1+i),.0055],[sign*(x+span*.85),y-span*.48,z-.11,.05/(1+i),.0022],[sign*(x+span),y-span*.58,z-.13,cfg.whale?.012:.002,.0003]],rootBone,'fin',sign,cfg.mammal||cfg.shark);
         }
         const ds=section(cfg.dorsalT),dY=(ds.upperY+ds.top-Y)/L-.003,dz=ds.z/L,dh=cfg.dorsal*r.dorsalHeight;
         // Bony fish carry a long-based rayed dorsal (reef perch/snapper) or a short
@@ -901,7 +906,7 @@
         }
         if(r.tailLength>0)for(const sign of [-1,1]) {
             const spread=(sign>0?cfg.upperTail:cfg.lowerTail)*r.finSize*r.tailLength,stations=cfg.mammal?
-                [[0,-.012,-.495,.095,.007],[sign*spread*.38,-.01,-.535,.13,.005],[sign*spread*.80,-.006,-.60,.08,.0025],[sign*spread,0,-.66,.0015,.0003]]:
+                [[0,-.012,-.48,.1,.011],[sign*spread*.38,-.01,-.535,.13,.0055],[sign*spread*.80,-.006,-.60,.08,.0025],[sign*spread,0,-.66,.0015,.0003]]:
                 [[0,0,-.495,.08,.006],[0,sign*spread*.33,-.535,.12,.004],[0,sign*spread*.77,-.615,.07,.002],[0,sign*spread,-.69-(cfg.type==='thresher'&&sign>0?.15:0),.0015,.0003]];
             fin('Fluke'+sign,stations,parent,'fluke');
         }
@@ -1498,9 +1503,20 @@
                 plates.loft(9,(_,u)=>{const zz=z+half*(1-2*u),bulge=Math.sin(Math.PI*Math.min(1,u*1.1))**.5;return{center:[0,Y+R*.45+R*.12*bulge,zz],x:[1,0,0],y:[0,1,0],rx:Math.max(L*.002,R*1.12*(.85+.15*bulge)),ry:Math.max(L*.001,R*.62*(.8+.2*bulge))};},C.save?20:16,(u)=>mix(colors.main,colors.mark,ease(.55,.9,u)*.75),Props.rigid(chain[i]),true);
             }
             finish(plates,'Tergites',{kind:'aquatic',roughness:.36,metalness:.08});
-            const claws=new Props.ExactMesh();
-            for(const sign of [-1,1]){const a=[sign*L*.022,Y-L*.025,L*.46],path=[a,add(a,[sign*L*.02,-L*.004,L*.03]),add(a,[sign*L*.008,-L*.003,L*.06]),add(a,[-sign*L*.012,-L*.002,L*.068])];
-                claws.tube(path,[L*.009,L*.007,L*.004,L*.0006],10,mix(colors.mark,[0,0,0],.4),Props.rigid(chain[0]));}
+            // The forcipules grow from a plate (the coxosternum) under the first trunk segment, their bases sunk
+            // in the underside, and curve forward and in under the head until their tips nearly meet; small
+            // mandibles hang from the head capsule's front. Lengths along the body are given before its
+            // Body length stretch, so they keep their shape at any length.
+            const claws=new Props.ExactMesh(),zk=1/Math.max(.2,r.bodyLength||1),z0=L*(.46-.45/count),dark=mix(colors.mark,[0,0,0],.4);
+            const under=bodyRay(C,[0,Y,z0],[0,-1,0]),floor=under?under[1]:Y-L*.03;
+            claws.sphere([0,floor+L*.002,z0],L*.026,mix(colors.mark,colors.main,.35),Props.rigid(chain[0]),8,14,[1,.32,.9*zk]);
+            for(const sign of [-1,1]){
+                const d=norm([sign*.5,-.86,0]),h=bodyRay(C,[0,Y,z0],d)||[sign*L*.02,floor,z0],a=sub(h,mul(d,L*.008));
+                const path=[a,add(h,[sign*L*.012,-L*.008,L*.012*zk]),add(h,[sign*L*.014,-L*.01,L*.04*zk]),add(h,[sign*L*.002,-L*.009,L*.062*zk]),add(h,[-sign*L*.012,-L*.007,L*.07*zk])];
+                claws.tube(path,[L*.012,L*.0095,L*.0072,L*.004,L*.0007],10,dark,Props.rigid(chain[0]));
+                const md=norm([sign*.45,-.5,.75]),mh=bodyRay(C,[0,Y,L*.43],md);
+                if(mh){const mb=sub(mh,mul(md,L*.005));claws.tube([mb,add(mh,[sign*L*.004,-L*.004,L*.008*zk]),add(mh,[-sign*L*.005,-L*.006,L*.014*zk])],[L*.006,L*.0045,L*.001],8,dark,Props.rigid(chain[0]));}
+            }
             finish(claws,'Forcipules',{roughness:.3,noSurfaceDetail:true});
         }
     }
@@ -1586,7 +1602,10 @@
         const penguin = form === 'avian' && recipe?.birdType === 'penguin';
         const flyer = !penguin && (['avian', 'bat'].includes(form) || Arthropods.INSECTS.includes(recipe?.kind) && recipe.kind !== 'beetle');
         if (!['idle', 'turn', 'attack', ...(penguin ? ['swim','glide','crawl','walk','run'] : flyer ? ['fly', 'glide', 'crawl', 'walk', 'run'] : land ? ['crawl', 'walk', 'run'] : ['swim', 'glide'])].includes(id)) return null;
-        const frames = 33, period = id === 'idle' ? 4 : id === 'attack' ? 1.2 : land ? 1.4 : 2.4;
+        // Wingbeats per loop: a bat beats several times a second, an insect's wings are a blur. Whole beats keep the loop seamless,
+        // with enough keys a beat that the flap is not aliased away.
+        const insect = form === 'arthropod' && flyer, beats = id === 'fly' ? (form === 'bat' ? 7 : insect ? 30 : 1) : 1;
+        const frames = beats > 1 ? beats * 8 + 1 : 33, period = id === 'idle' ? 4 : id === 'attack' ? 1.2 : land ? 1.4 : 2.4;
         const times = Float32Array.from({ length: frames }, (_, i) => i / (frames - 1) * period), tracks = [], heights = new Float32Array(frames), amount = id === 'idle' ? 0.2 : id === 'glide' ? 0.3 : 1;
         bones.forEach((b, index) => {
             const values = new Float32Array(frames * 4);
@@ -1601,8 +1620,8 @@
                 if (b.role === 'segment') y = wave * 0.075 * amount;
                 if (b.role === 'legUpper') { y = Math.cos(phase - b.phase) * 0.23 * amount * (b.motionScale ?? 1); z = (b.head[0] < 0 ? -1 : 1) * Math.max(0, wave) * 0.22 * amount * (b.motionScale ?? 1); }
                 if (b.role === 'legLower') z = (b.head[0] < 0 ? 1 : -1) * Math.max(0, wave) * 0.16 * amount * (b.motionScale ?? 1);
-                if (b.role === 'wing') z = (b.phase || 1) * Math.sin(phase) * (id === 'fly' || penguin && id === 'swim' ? .55 : id === 'glide' ? .06 : .018);
-                if (b.role === 'wingTip') z = (b.phase || 1) * Math.sin(phase - .35) * (id === 'fly' ? .12 : .012);
+                if (b.role === 'wing') z = (b.phase || 1) * Math.sin(phase * beats) * (id === 'fly' || penguin && id === 'swim' ? (insect ? .45 : .55) : id === 'glide' ? .06 : .018);
+                if (b.role === 'wingTip') z = (b.phase || 1) * Math.sin(phase * beats - .35) * (id === 'fly' ? .12 : .012);
                 if (b.role === 'abdomen') y = wave * .025 * amount;
                 if (b.role === 'pincer' && id === 'attack') y = Math.max(0, Math.sin(phase)) * .25 * (b.phase || 1);
                 if (b.role === 'root' && id === 'turn') y = Math.sin(phase) * 0.6;
@@ -1626,6 +1645,20 @@
                     if(b.role==='wing'){values.set(q(0,0,-sign*1.70),i*4);continue;}
                     if(b.role==='wingTip'){values.set(q(0,0,sign*3.35),i*4);continue;}
                     if(b.role==='wingHand'){values.set(q(0,0,-sign*3.05),i*4);continue;}
+                }
+                // A bat at rest folds its wings: the humerus down along the flank, the forearm back up against it,
+                // and the fingers closed alongside the forearm, so the membrane hangs in folds at the side.
+                if(form==='bat'&&['idle','walk','run','crawl','turn'].includes(id)){
+                    const sign=b.phase||1, breathe=.03*Math.sin(phase);
+                    const qW=qmul(q(0,0,-sign*(.80+breathe)),q(0,-sign*.35,0)),qT=q(0,0,sign*2.55);
+                    if(b.role==='wing'){values.set(qW,i*4);continue;}
+                    if(b.role==='wingTip'){values.set(qT,i*4);continue;}
+                    if(b.role==='wingFinger'&&b.parent>=0){
+                        // The fingers run back and a little down along the flank from the raised wrist (in the forearm's own frame).
+                        const R=qmul(qW,qT),Ri=[-R[0],-R[1],-R[2],R[3]],d=norm(sub(b.tail,b.head)),tw=rotate(Ri,norm([sign*.10,-.40,-1])),t=norm(add(tw,[d[0]*.10,d[1]*.10,d[2]*.10]));
+                        const ax=cross(d,t),l=Math.hypot(...ax),ang=Math.acos(Math.max(-1,Math.min(1,dot(d,t))));
+                        values.set(l<1e-6?[0,0,0,1]:q(ax[0]/l*ang,ax[1]/l*ang,ax[2]/l*ang),i*4);continue;
+                    }
                 }
                 values.set(q(x, y, z), i * 4);
             }
@@ -1836,17 +1869,18 @@
         adorn(C);
         const textures = detailSurfaces(C, options);
         // Axial length changes proportions independently of overall Size.
-        const axis = r.morphology === 'jellyfish' ? 1 : 2;
+        // (A snake's length is its spine's, built in; stretching its coil would squash its head.)
+        const axis = r.morphology === 'jellyfish' ? 1 : 2, stretch = r.morphology === 'reptile' && r.kind === 'snake' ? 1 : r.bodyLength;
         for (const p of C.parts) for (let i = 0; i < p.positions.length; i += 3) {
-            p.positions[i + axis] *= r.bodyLength;
-            p.normals[i + axis] /= r.bodyLength;
+            p.positions[i + axis] *= stretch;
+            p.normals[i + axis] /= stretch;
             const n = Math.hypot(p.normals[i], p.normals[i + 1], p.normals[i + 2]) || 1;
             for (let k = 0; k < 3; k++) p.normals[i + k] /= n;
         }
         // Joints share one point array between a parent's tail and its child's head;
         // move each point once (twice moved every shared knee by the floor offset).
         const points = [...new Set(C.bones.flatMap(b => [b.head, b.tail]))];
-        for (const p of points) p[axis] *= r.bodyLength;
+        for (const p of points) p[axis] *= stretch;
         let floor = Infinity, height = -Infinity;
         for (const p of C.parts) for (let i = 1; i < p.positions.length; i += 3) { floor = Math.min(floor, p.positions[i]); height = Math.max(height, p.positions[i]); }
         for (const p of C.parts) for (let i = 1; i < p.positions.length; i += 3) p.positions[i] -= floor;

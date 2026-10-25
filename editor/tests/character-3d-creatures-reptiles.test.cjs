@@ -170,3 +170,48 @@ test('a preview build is quick enough for a live slider', () => {
         assert.ok(ms < 1500, kind + ' preview ' + ms.toFixed(0) + ' ms');
     }
 });
+
+// 2026-10-25b review: frog lids, frog hands, snake length and snout.
+test('a frog\'s eyelids are skin over the eyeball, never its dark back showing', () => {
+    for (const type of ['treeFrog', 'poisonDart', 'toad']) {
+        const b = built('frog', 'frogType', type), lids = b.parts.find(p => p.name === 'Eyelids');
+        assert.ok(lids && lids.colors, type + ' has lids');
+        let dark = 0; for (let i = 0; i < lids.colors.length; i += 3) if (Math.max(lids.colors[i], lids.colors[i + 1], lids.colors[i + 2]) < 0.04) dark++;
+        assert.equal(dark, 0, type + ' lids carry the skin color');
+        // The hood covers the top of the eye: lid vertices stand above every eyeball's centre.
+        const eyes = b.parts.filter(p => /^Eye /.test(p.name));
+        for (const e of eyes) { let top = -1e9, cy = 0; const n = e.positions.length / 3; for (let i = 0; i < n; i++) { top = Math.max(top, e.positions[i * 3 + 1]); cy += e.positions[i * 3 + 1] / n; }
+            let lidTop = -1e9; for (let i = 0; i < lids.positions.length; i += 3) lidTop = Math.max(lidTop, lids.positions[i + 1]); assert.ok(lidTop >= top - 1e-4, type + ' lid over the eye'); }
+    }
+});
+test('a frog\'s forearm runs on into its hand: leg skin fills the wrist down to the fingers', () => {
+    const b = built('frog', 'frogType', 'treeFrog'), legs = b.parts.find(p => p.name === 'Legs'), SVL = b.bones[0].reptileFrame.SVL;
+    for (const side of ['Left', 'Right']) {
+        const hand = b.bones.find(x => x.name === side + 'FrontFoot'), w = hand.head;
+        // Every height from the fingers up to above the wrist has leg skin near the wrist (no gap).
+        for (let k = 0; k <= 8; k++) {
+            const y = w[1] - SVL * .02 + SVL * .04 * k / 8; let near = false;
+            for (let i = 0; i < legs.positions.length && !near; i += 3) if (Math.abs(legs.positions[i + 1] - y) < SVL * .006 && Math.hypot(legs.positions[i] - w[0], legs.positions[i + 2] - w[2]) < SVL * .05) near = true;
+            assert.ok(near, side + ' wrist skin at slice ' + k);
+        }
+    }
+});
+test('snakes are long for their build, a python longer and slimmer than a viper, the length slider grows the spine', () => {
+    const ratio = type => { const b = built('snake', 'snakeType', type), F = b.bones[0].reptileFrame, body = b.parts.find(p => p.name === 'Body');
+        // Thickness: the body's depth at mid-body (the skin bound to the Hips bone), the raised head left out.
+        const hips = b.bones.findIndex(x => x.name === 'Hips');
+        let lo = 1e9, hi = -1e9; for (let v = 0; v < body.positions.length / 3; v++) if (body.joints[v * 4] === hips && body.weights[v * 4] > .5) { lo = Math.min(lo, body.positions[v * 3 + 1]); hi = Math.max(hi, body.positions[v * 3 + 1]); }
+        return { len: F.length, ratio: F.length / (hi - lo), head: F.headLength }; };
+    const py = ratio('python'), vi = ratio('viper'), tree = ratio('treeSnake');
+    assert.ok(py.ratio > 20, 'python ' + py.ratio.toFixed(1));
+    assert.ok(vi.ratio > 12 && vi.ratio < py.ratio, 'viper ' + vi.ratio.toFixed(1));
+    assert.ok(tree.ratio > 40, 'tree snake ' + tree.ratio.toFixed(1));
+    assert.ok(py.len > vi.len, 'python longer than viper');
+    const longer = Creature.build({ ...recipeOf('snake', 'snakeType', 'python'), bodyLength: 1.5 }, { quality: 'preview' }).bones[0].reptileFrame;
+    assert.ok(Math.abs(longer.length / py.len - 1.5) < 0.02, 'length slider scales the spine');
+    assert.ok(Math.abs(longer.headLength - py.head) < 1e-6, 'and leaves the head its size');
+    // At rest it lies in S-bends, compact: across its widest it spans well under its length.
+    const body = built('snake', 'snakeType', 'python').parts.find(p => p.name === 'Body');
+    let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (let i = 0; i < body.positions.length; i += 3) { x0 = Math.min(x0, body.positions[i]); x1 = Math.max(x1, body.positions[i]); z0 = Math.min(z0, body.positions[i + 2]); z1 = Math.max(z1, body.positions[i + 2]); }
+    assert.ok(Math.max(x1 - x0, z1 - z0) < py.len * .6, 'resting S is compact');
+});

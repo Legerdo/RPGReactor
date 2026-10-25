@@ -744,7 +744,8 @@ class Character3DBuilder {
             + this._shapeSliders(['Proportions', 'Torso', 'Bust', 'Arms and legs'], { Bust: { before: bustTop, after: nipples }, 'Arms and legs': { after: toes + this._bodyFeature('arms') }, Torso: { after: this._bodyFeature('spines') + this._bodyFeature('machinery') } })
             + this._section('Head') + this._select('headId', 'Head', RRCharacterSpecies.heads(), RRCharacterSpecies.headId(this.recipe.head))
             + ['horns','ears','antennae','fangs','beak','tusks','whiskers','alienEyes'].map(key => this._bodyFeature(key)).join('')
-            + (this.recipe.species === 'merfolk' && window.RRMerfolkBody ? RRMerfolkBody.panel(this) : this._section('Tail') + this._bodyFeature('tail'))
+            // Centaur hook: the horse's coat and build in place of a tail of the person's own.
+            + (this.recipe.species === 'centaur' && window.RRCharacterCentaur ? RRCharacterCentaur.panel(this) : this.recipe.species === 'merfolk' && window.RRMerfolkBody ? RRMerfolkBody.panel(this) : this._section('Tail') + this._bodyFeature('tail'))
             + this._section('Wings') + this._bodyFeature('wings') + genitals + this._bodyHairSection();
     }
 
@@ -886,7 +887,7 @@ class Character3DBuilder {
                 return key?.startsWith('project:') ? `<div class="rr-c3d-import-preset" data-user-outfit="${rrEscapeHtml(key)}">${tile}<button class="rr-c3d-import-delete" data-outfit-delete="${rrEscapeHtml(key)}" title="${this._t('Delete outfit')}" aria-label="${this._t('Delete outfit')}">×</button></div>` : tile;
             }).join('')}</div>`).join('');
         // Merfolk hook: nothing for legs or feet on a tail.
-        const fits = g => RRCharacterModel.fitsGarment(this.recipe,g.id)&&(!(window.RRMerfolkBody && this.recipe.species === 'merfolk') || RRMerfolkBody.fitsGarment(g.id));
+        const fits = g => RRCharacterModel.fitsGarment(this.recipe,g.id)&&(!(window.RRMerfolkBody && this.recipe.species === 'merfolk') || RRMerfolkBody.fitsGarment(g.id))&&(!(window.RRCharacterCentaur && this.recipe.species === 'centaur') || RRCharacterCentaur.fitsGarment(g.id));
         const add = this._addPicker('garment', 'Add a garment', W.GARMENTS.filter(fits).map(g => ({ id: g.id, label: g.label, group: g.group })), 'add-garment');
         const knobs = { sleeves: ['Sleeves', [0, 1]], length: ['Length', [0, 1], [0, 1.4]], fit: ['Looseness', [0, 1], [0, 1.5]], flare: ['Flare', [0, 1], [0, 1.5]], bell: ['Bell sleeves', [0, 1]], open: ['Open front', [0, 1]], face: ['Covers face', [0, 1]], bulk: ['Bulk', [0, 1], [0, 1.5]] };
         const items = this.recipe.outfit.map((item, i) => {
@@ -1733,6 +1734,8 @@ class Character3DBuilder {
             case 'body':
                 for (const k of ['gender', 'age', 'height', 'weight', 'muscle', 'cup', 'firmness']) r[k] = roll[k];
                 for (const s of RRHumanBody.SLIDERS) if (!faceSections.has(s.section)) r.shapes[s.key] = roll.shapes[s.key];
+                // Centaur hook: the horse's build rolls with the body.
+                if (r.centaur && roll.centaur) for (const k of ['size', 'bodyLength', 'girth', 'legLength', 'legThickness', 'tailLength']) r.centaur[k] = roll.centaur[k];
                 break;
             case 'face':
                 for (const s of RRHumanBody.SLIDERS) if (faceSections.has(s.section)) r.shapes[s.key] = roll.shapes[s.key];
@@ -1746,6 +1749,8 @@ class Character3DBuilder {
                 if (r.species === 'human') { const tones = (RRHumanBody.PEOPLE_BY_ID.get(r.ancestry.people) || RRHumanBody.PEOPLE_BY_ID.get('mixed')).tones; r.skin = tones[seed % tones.length]; }
                 else { const tones = RRCharacterSpecies.skinTones(r.species); if (tones.length) r.skin = tones[seed % tones.length]; }
                 r.eyes = Object.assign({}, r.eyes, { color: roll.eyes.color });
+                // Centaur hook: the horse's coat rolls with the colors.
+                if (r.centaur && roll.centaur) for (const k of ['coat', 'marking', 'pattern']) r.centaur[k] = roll.centaur[k];
                 r.hair = Object.assign({}, r.hair, { color: roll.hair.color, tipColor: roll.hair.tipColor });
                 r.outfit = r.outfit.map((item, k) => Object.assign({}, item, roll.outfit[k % Math.max(1, roll.outfit.length)] ? { color: roll.outfit[k % roll.outfit.length].color } : {}));
                 break;
@@ -1988,7 +1993,9 @@ class Character3DBuilder {
         const slime = !!view && view.plan === 'slime';
         // Merfolk hook: a tail's own motions, and the humanoid poses of the upper body.
         const mer = human && !slime && !!window.RRMerfolkBody && !!view && !!view.boneDefs && RRMerfolkBody.hasTail(view.boneDefs);
-        const poses = slime ? RRSlimeBody.POSES : mer ? RRMerfolkBody.POSES : human ? RRCharacterPoses.POSES : RRCreatureBody.posesFor(this.recipe).filter(p => !view.boneDefs || RRCreatureBody.poseClip(view.boneDefs, p.id, this.recipe));
+        // Centaur hook: the horse's gaits and the humanoid poses of the upper body.
+        const cen = human && !slime && !!window.RRCharacterCentaur && !!view && RRCharacterCentaur.hasHorse(view.boneDefs);
+        const poses = slime ? RRSlimeBody.POSES : cen ? RRCharacterCentaur.POSES : mer ? RRMerfolkBody.POSES : human ? RRCharacterPoses.POSES : RRCreatureBody.posesFor(this.recipe).filter(p => !view.boneDefs || RRCreatureBody.poseClip(view.boneDefs, p.id, this.recipe));
         const list = [['apose', slime || !human ? 'Still' : 'A-pose'], ['idle', 'Idle']].concat(poses.map(p => [p.id, p.label]))
             .map(([id, label]) => [id, this._t(label)]).sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));
         if (!list.some(([id]) => id === this.pose)) this.pose = 'idle';
@@ -2074,7 +2081,8 @@ class Character3DBuilder {
         if (view.actions.has(id)) return view.actions.get(id).action;
         // Merfolk hook: a merfolk's skeleton plays the tail's own motions.
         const mer = !!window.RRMerfolkBody && RRMerfolkBody.hasTail(view.boneDefs);
-        let made = id === 'idle' ? view.idleClip : view.plan === 'slime' ? RRSlimeBody.poseClip(view.boneDefs, id, this.recipe) : view.plan === 'quadruped' ? RRCreatureBody.poseClip(view.boneDefs, id, this.recipe) : mer ? RRMerfolkBody.poseClip(view.boneDefs, id, view.bodySkin, this.recipe) : RRCharacterPoses.clip(view.boneDefs, id, view.bodySkin);
+        const cen = !!window.RRCharacterCentaur && RRCharacterCentaur.hasHorse(view.boneDefs);
+        let made = id === 'idle' ? view.idleClip : cen ? RRCharacterCentaur.poseClip(view.boneDefs, id, view.bodySkin, this.recipe) : view.plan === 'slime' ? RRSlimeBody.poseClip(view.boneDefs, id, this.recipe) : view.plan === 'quadruped' ? RRCreatureBody.poseClip(view.boneDefs, id, this.recipe) : mer ? RRMerfolkBody.poseClip(view.boneDefs, id, view.bodySkin, this.recipe) : RRCharacterPoses.clip(view.boneDefs, id, view.bodySkin);
         if (!made) return null;
         // Loose cloth worked out over the clip off the page (RRCharacterCloth, coarser in the view; kept per clip, body and
         // garment): until it is ready the cloth rides its anchor, then the pose takes it up where it is.
@@ -2602,7 +2610,7 @@ class Character3DBuilder {
         // Merfolk hook: a part's own relief picture (the tail's scales), as the saved file carries it; wet hair glossy.
         const merfolk = () => window.RRMerfolkBody && RRMerfolkBody.viewMaterial(m, part, result, (name, tex) => (textureFor ? textureFor(name, tex) : this._texture(name, tex)));
         merfolk();
-        if (this._weak) { if (kind === 'eye' || kind === 'glass') m.roughness = 0.08; return ownRoom(); }
+        if (this._weak) { if ((kind === 'eye' && !part.facetSurface) || kind === 'glass') m.roughness = 0.08; return ownRoom(); }
         // Skin: a soft sheen in the skin's own color (from its picture), so it warms skin and stays dark on a
         // painted scalp, stubble or markings.
         if (kind === 'skin') {
@@ -2629,6 +2637,8 @@ class Character3DBuilder {
             // A head of hair keeps a soft shine of its own color.
             if (!part.onSkin && part.name === 'Hair') { m.roughness = 0.62; m.specularIntensity = 0.32; m.specularColor = own.clone().lerp(new THREE.Color(0xffffff), 0.25); }
         }
+        // A compound eye: an even faceted surface with a soft sheen, not a wet lens mirroring the room.
+        else if (kind === 'eye' && part.facetSurface) { m.roughness = Math.max(0.38, m.roughness * 0.75); m.clearcoat = 0.35; m.clearcoatRoughness = 0.35; m.envMapIntensity = 0.55; }
         else if (kind === 'eye') { m.roughness = 0.08; m.clearcoat = 1; m.clearcoatRoughness = 0.03; }
         else if (kind === 'glass') { m.roughness = 0.02; m.metalness = 0; m.clearcoat = 1; m.envMapIntensity = 2; }
         merfolk();

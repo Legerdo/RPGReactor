@@ -162,7 +162,7 @@ test('fringes ride their hems; patches and tape follow the cloth (sewn reference
 });
 
 test('worn cloth tiles and the scrap sheet', () => {
-    for (const kind of ['canvasWorn', 'denimWorn', 'leatherWorn', 'jerseyWorn', 'burlap', 'gauze']) {
+    for (const kind of ['canvasWorn', 'denimWorn', 'leatherWorn', 'jerseyWorn', 'homespun', 'burlap', 'gauze']) {
         const t = Fabric.tile(kind);
         assert.ok(t && t.normal.data.length === t.size * t.size * 4, kind);
     }

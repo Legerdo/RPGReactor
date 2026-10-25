@@ -1732,6 +1732,9 @@
         const all=parts.concat(extras),textures=Object.assign({},L.textures);
         for(const p of all)if(!p.uvs){p.uvs=new Float32Array(p.positions.length/3*2);for(let v=0;v<p.positions.length/3;v++){const n=Array.from(p.normals.subarray(v*3,v*3+3),Math.abs),axis=n.indexOf(Math.max(...n)),axes=axis===0?[2,1]:axis===1?[0,2]:[0,1];for(let j=0;j<2;j++)p.uvs[v*2+j]=p.positions[v*3+axes[j]]*8;}}
         Surface.apply(all,textures,p=>p.opacity<1||p.emissive||p.ownSurface?null:p.name==='Felt and cloth'||p.name==='Cape'?'fabric':p.name==='Velvet'?'velvet':p.name==='Timber'?'wood':p.name==='Leather'?'leather':p.metalness>.5?'metal':p.name==='Plastic'?'rubber':null);
+        // A part left with no picture at all (the crown's faceted jewels, their colour their own) keeps its
+        // coordinates inside one picture's span rather than the physical ones a tiled finish would use.
+        for(const p of all)if(p.uvs&&!p.texture&&!p.normalTexture&&!p.metallicRoughnessTexture&&!p.emissiveTexture){let lo=Infinity,hi=-Infinity;for(const v of p.uvs){if(v<lo)lo=v;if(v>hi)hi=v;}if(lo<0||hi>1){const s=hi>lo?1/(hi-lo):0;for(let i=0;i<p.uvs.length;i++)p.uvs[i]=(p.uvs[i]-lo)*s;}}
         return { parts: all, textures, items, landmarks: L, construction };
     }
 

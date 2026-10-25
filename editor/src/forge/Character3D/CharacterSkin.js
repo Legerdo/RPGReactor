@@ -507,28 +507,79 @@
         return {edge,height:edge*(.3+.7*Math.max(0,1-d*d))*.00055};
     }
     /**
-     * An insect's armor: on the body a broad plate over the chest (split down
-     * the middle) and the belly in overlapping bands, each darker and lower
-     * under the edge of the one above; round the limbs, plates between
-     * joints, the joints themselves ringed in narrow segments. `pos` runs 0..1
-     * down each plate, `groove` marks the seams, `height` is the relief.
+     * An insect's armor, laid out on the resting body (so it runs on across
+     * the shoulders whichever body part a patch of skin is reckoned to): a
+     * shield over each side of the chest and of the upper back, split by a
+     * suture down the middle and another toward the armpit; a cap over each
+     * shoulder and a lame round it; below, overlapping bands round the belly
+     * and the lower back, arched to the middle. Round the limbs, plates
+     * between joints, the joints ringed in narrow segments. `pos` runs 0..1
+     * down each plate (its lower edge the one that overlaps the next),
+     * `groove` marks the sutures, `height` is the relief: each plate swells in
+     * its middle, its edge raised in a lip, and the plate under it tucks in.
      */
     function chitinPlate(p, scale) {
-        let pos = 0.5, groove = 0, seam = 1;
-        if (p.fam === 0) {
-            if (p.s < 2.75) { pos = fract((2.75 - p.s) / 0.27 * scale); seam = Math.min(pos, 1 - pos) / 0.05; }
-            else seam = Math.min(Math.abs(p.s - 3.75) / 0.03, p.s < 3.75 ? Math.abs(p.rest[0]) / 0.0035 : 9);
-        } else {
+        let pos = 0.5, seam = 9, id = 0;
+        const [x, y, z] = p.rest, ax = Math.abs(x), k = scale || 1, side = x < 0 ? 1 : 0;
+        const dS = Math.hypot(ax - 0.188, (y - 1.338) * 1.15, z - 0.012);
+        const torso = p.fam === 0 || (y > 1.2 && ax < 0.2);
+        if (dS < 0.104 && y > 1.2) {
+            // The shoulder: a round cap and two lames stepping down under it, each overlapping the next and the
+            // last the arm's first plate, like a beetle's or a pauldron's.
+            const rings = [0, 0.05, 0.078, 0.104];
+            let ring = 0; while (ring < 2 && dS >= rings[ring + 1]) ring++;
+            const r0 = rings[ring], r1 = rings[ring + 1];
+            pos = ring ? (dS - r0) / (r1 - r0) : 0.35 + 0.65 * dS / r1;
+            seam = Math.min(ring ? dS - r0 : 9, r1 - dS) / 0.0035; id = 10 + ring * 2 + side;
+        } else if (torso && y > 0.86) {
+            // Where the shields end: lower at the middle, rising toward the sides.
+            const low = 1.165 + 0.55 * x * x, front = z > -0.02;
+            if (y > low) {
+                pos = Math.max(0, Math.min(1, (1.43 - y) / (1.43 - low)));
+                const lateralAt = 0.105 + (1.42 - y) * 0.42, lateral = Math.abs(ax - lateralAt);
+                seam = Math.min(ax / 0.0032, (y - low) / 0.0045, lateral / 0.003);
+                id = 20 + side * 2 + (ax > lateralAt ? 1 : 0) + (front ? 0 : 4);
+                if (!front) pos = 1 - pos * 0.6;
+            } else {
+                const v = (low - y) / 0.048 * k;
+                pos = fract(v); seam = Math.min(pos, 1 - pos) / 0.07;
+                id = 40 + Math.floor(v) * 2 + (front ? 0 : 1);
+                if (!front) { seam = Math.min(seam, ax / 0.003); id += side * 100; }
+            }
+        } else if (p.fam !== 0) {
             const joints = p.fam <= 2 ? [2.0, 2.9] : [1.0, 1.95];
             const near = Math.min(...joints.map(j => Math.abs(p.s - j)));
             const step = near < 0.16 ? 0.07 : 0.42;
-            pos = fract(p.s / step * scale); seam = Math.min(pos, 1 - pos) / (near < 0.16 ? 0.12 : 0.04);
+            pos = fract(p.s / step * k); seam = Math.min(pos, 1 - pos) / (near < 0.16 ? 0.12 : 0.04);
             seam = Math.min(seam, Math.abs(Math.abs(p.ang) - Math.PI / 2) / 0.02);
+            id = 200 + p.fam * 50 + Math.floor(p.s / step * k) * 2 + (Math.abs(p.ang) > Math.PI / 2 ? 1 : 0);
         }
-        groove = seam < 1 ? 1 : 0;
-        // Each plate swells a little in its middle and its lower edge stands proud of the next.
-        const height = (smooth(0.6, 2.2, seam) * (0.55 + 0.45 * Math.sin(Math.PI * pos)) + 0.35 * smooth(0.6, 1, pos) * (seam < 3 ? 0 : 1)) * 0.0007;
-        return { pos, groove, height };
+        const groove = seam < 0.7 ? 1 : 0;
+        // The recess between plates: narrow, deepest at the suture.
+        const recess = 1 - smooth(0.15, 1.6, seam);
+        // Each plate domes in its middle; its lower edge stands proud in a lip; under the edge above, it tucks in.
+        const dome = Math.sin(Math.PI * Math.min(1, pos)), lip = smooth(0.78, 0.95, pos) * (1 - smooth(0.96, 1, pos)), tuck = 1 - smooth(0, 0.2, pos);
+        const height = ((0.55 * dome + 0.7 * lip - 0.45 * tuck) * (1 - recess) - 0.9 * recess + 0.9) * 0.0022;
+        const tint = Math.sin(id * 12.9898 + 4.1) * 43758.5453;
+        return { pos, groove, height, lip, tuck, recess, dome, tint: tint - Math.floor(tint) - 0.5 };
+    }
+    /** How much paler the front is at a point of a body part (`fam`), at `s` along it, facing `n`. */
+    function paleAt(fam, s, n) {
+        return fam === 0 ? smooth(0.35, 0.85, n[2]) * smooth(-0.4, 0.2, s) * (1 - smooth(4.4, 4.9, s)) : smooth(0.2, 0.9, -n[1]) * 0.8;
+    }
+    /** paleAt per skin vertex, eased over its neighbours so its edge runs smooth across the body parts. */
+    function paleFront(pack, F, famOf) {
+        if (pack._paleFront) return pack._paleFront;
+        const Body = root.RRHumanBody || require('./HumanBody.js'), an = F.an, N = F.normals, n = an.rest.length / 3;
+        let a = new Float32Array(n);
+        for (let v = 0; v < n; v++) { const fam = famOf(v); a[v] = paleAt(fam, an.s[v * 5 + fam], [N[v * 3], N[v * 3 + 1], N[v * 3 + 2]]); }
+        const { offsets, flat } = Body.neighbors(pack);
+        let b = new Float32Array(n);
+        for (let pass = 0; pass < 6; pass++) {
+            for (let v = 0; v < n; v++) { const s0 = offsets[v], e = offsets[v + 1]; let sum = 0; for (let i = s0; i < e; i++) sum += a[flat[i]]; b[v] = e > s0 ? 0.5 * a[v] + 0.5 * sum / (e - s0) : a[v]; }
+            [a, b] = [b, a];
+        }
+        return (pack._paleFront = a);
     }
     /** A texel's skin color (linear) from the skin settings and where it lies. */
     function shadeSkin(s, base, p) {
@@ -579,7 +630,7 @@
         // A paler front: the belly, the throat, the insides of the limbs.
         let paler = 0;
         if (belly) {
-            const front = p.fam === 0 ? smooth(0.35, 0.85, p.n[2]) * smooth(-0.4, 0.2, p.s) * (1 - smooth(4.4, 4.9, p.s)) : smooth(0.2, 0.9, -p.n[1]) * 0.8;
+            const front = p.belly != null ? p.belly : paleAt(p.fam, p.s, p.n);
             paler = front * s.amount;
             rgb = mix(rgb, belly, paler);
         }
@@ -672,8 +723,15 @@
                 break;
             }
             case 'chitin': {
-                const plate = chitinPlate(p, k);
-                t = plate.groove * 0.95 + (1 - plate.groove) * smooth(0.55, 1, plate.pos) * 0.35;
+                // The sutures dark, the edge tucked under the plate above in its shadow, the raised lip catching light.
+                // Each plate a little lighter in its glossy middle, and a shade of its own.
+                // Each plate a convex shell lit from above: lightest along its upper face, darkening down to the
+                // shadow under its lower lip; the top tucked under the plate above in that plate's shadow; a thin,
+                // soft suture between; a shade of its own.
+                const plate = chitinPlate(p, k), q = Math.min(1, plate.pos);
+                const shell = 1.16 - 0.34 * smooth(0.15, 1, q) - 0.12 * smooth(0.9, 1, q) - 0.22 * plate.tuck;
+                rgb = rgb.map(c => c * (shell * (1 - 0.25 * plate.recess) + 0.1 * plate.tint));
+                t = Math.min(1, plate.recess * 0.55);
                 break;
             }
             case 'panels': {
@@ -971,6 +1029,9 @@
             s.crotch = A.female ? [R0[AF.low * 3], R0[AF.low * 3 + 1], R0[AF.low * 3 + 2]] : null;
         }
         const famOf = v => { let best = 0; for (let fi = 1; fi < 5; fi++) if (an.member[v * 5 + fi] > an.member[v * 5 + best]) best = fi; return best; };
+        // The paler front per vertex, smoothed over the skin: a triangle takes one body part's measures, so
+        // reckoned per triangle its edge would step from triangle to triangle where the chest meets the arms.
+        const bellyField = s.bellyRgb ? paleFront(pack, F, famOf) : null;
         const triCount = layout ? layout.tris.length : body.index.length / 3;
         for (let k = 0; k < triCount; k++) {
             const t = layout ? layout.tris[k] : k * 3, own = layout ? k : t;
@@ -1021,6 +1082,7 @@
                 p.cu=p.ang*an.radius[fam];p.cv=p.s*an.unit[fam];
                 if(scaleRelief&&relief)relief[o]=s.type==='chitin'?chitinPlate(p,s.scale).height:skinScale(p,s.scale).height;
                 p.lips = W.reduce((sum, w, k) => sum + w * F.lips[v[k]], 0);
+                p.belly = bellyField ? W.reduce((sum, w, k) => sum + w * bellyField[v[k]], 0) : undefined;
                 p.lids = W.reduce((sum, w, k) => sum + w * F.lids[v[k]], 0);
                 p.cheeks = W.reduce((sum, w, k) => sum + w * F.cheeks[v[k]], 0);
                 p.bags = W.reduce((sum, w, k) => sum + w * F.bags[v[k]], 0);

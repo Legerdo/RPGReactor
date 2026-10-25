@@ -364,6 +364,17 @@
                 paint(mixc(main, trim, 0.24), band(R[0] - zipper - 0.004, 0.0007) * (Math.floor(y / 0.0035) % 2));
                 // A breast welt and a small rank bar below the shoulder yoke.
                 paint(trim, band(y - 1.252, 0.0010) * range(R[0], 0.045, 0.103));
+                // Rank pips on the right of the collar: two gold squares.
+                for (const px0 of [0.036, 0.05]) paint(trim, range(R[0], px0, px0 + 0.0085) * range(y, 1.405, 1.4135));
+            }
+            if (torso) {
+                // Piped collar: a trim band round the neckline's edge.
+                if (p.vm >= 0 && y > 1.36) paint(trim, 1 - smoothstep(0.0032, 0.0046, p.vm));
+                // Princess seams down the front and back below the yoke, mirrored, and the side seams: sewn lines a shade
+                // darker than the cloth.
+                const seamC = mixc(main, [0, 0, 0], 0.4), under = 1 - smoothstep(edge - 0.008, edge - 0.004, y);
+                paint(seamC, band(x - (0.098 + 0.035 * Math.max(0, 1.22 - y)), 0.0008) * smoothstep(0.92, 0.94, y) * under * 0.85);
+                paint(seamC, band(Math.abs(p.ang) - Math.PI / 2, 0.0008 / Math.max(p.rad || 0.13, 0.05)) * under * 0.85);
             }
         } else if (look.pattern === 'technical') {
             const side = torso ? smoothstep(0.11, 0.14, x) : smoothstep(0.82, 0.94, Math.abs(Math.sin(p.ang)));
@@ -440,9 +451,24 @@
                 break;
             }
             case 'panels': {
-                const seam = pulse(s * 1.5 + 0.03, 0.06, ws * 1.5);
-                const side = line(Math.abs(a) - Math.PI / 2, 0.025, px / Math.max(p.rad || 0.05, 0.02));
-                t = Math.max(seam, side);
+                // Piping laid out on the average body (rest positions), so it is level, mirrored left to right and the
+                // same on every body: bands round the trunk at the chest and the waist, princess lines down the front
+                // and back from the shoulder seam to the waist band, rings round the limbs at the elbow, knee and cuff, and a
+                // side seam down the trunk and the outside of each limb that meets the trunk's at the hip and armpit.
+                const R = p.rest, w = Math.max(px * 1.2, 0.0008), half = 0.0032;
+                let seam = 0;
+                if (p.fam === 0) {
+                    for (const yy of [1.03, 1.29]) seam = Math.max(seam, line(R[1] - yy, half, w));
+                    const x = Math.abs(R[0]), lean = Math.max(0, Math.min(1, (R[1] - 1.29) / 0.13));
+                    seam = Math.max(seam, line(x - (0.082 + 0.03 * lean), half * 0.8, w) * smoothstep(1.025, 1.035, R[1]) * (1 - smoothstep(1.41, 1.43, R[1])));
+                    seam = Math.max(seam, line(Math.abs(a) - Math.PI / 2, half, w / Math.max(p.rad || 0.13, 0.05)) * (1 - smoothstep(1.36, 1.40, R[1])));
+                } else {
+                    const at = p.fam <= 2 ? [2.02, 2.86] : [1.02, 1.86], su = p.su || 0.24;
+                    for (const sv of at) seam = Math.max(seam, line((p.s - sv) * su, half, w));
+                    // The outside of the limb only (legs: + angles are outward on both; arms: the top of the arm).
+                    seam = Math.max(seam, line((a - Math.PI / 2) * (p.rad || 0.05), half, w) * smoothstep(0.15, 0.3, p.s));
+                }
+                t = seam;
                 break;
             }
             case 'mail': {
@@ -519,7 +545,13 @@
             }
             // Leather and rubber: the cut edge burnished darker.
             if (leather && p.vm >= 0) k *= 1 - 0.22 * (1 - smoothstep(0.003 - aa, 0.003 + aa, p.vm));
-            if (p.vm >= 0) rgb = wear(rgb, kind, p, fab);
+            if (p.vm >= 0) rgb = wear(rgb, kind, p, fab, look);
+            // New cloth's own character at a distance (a worn piece's is RRCharacterWear's).
+            if (!look.wearInfo) {
+                // A dark cloth shows its yarns' unevenness more (a charcoal worsted's lighter fibres), not less.
+                const lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2], t = clothTone(kind, p) - 1;
+                k *= 1 + t * (1 + 1.6 * (1 - smoothstep(0.015, 0.15, lum)));
+            }
         }
         // The rim's inner face, toward the body, in shadow.
         if (p.val < 0) k *= 0.6;
@@ -534,7 +566,43 @@
      * leather polished lighter where it rubs; every hem low on the leg a
      * little dusty.
      */
-    function wear(rgb, kind, p, fab) {
+    /**
+     * How a new cloth reads from across a room, in its own meters (cu round, cv along), always smooth
+     * texel to texel (the weave itself is the cloth's tile): denim's unevenly dyed warp in long
+     * vertical streaks and its seams pressed lighter; a knit's heathered yarn; a shirting's fine
+     * melange; worsted's faint twill shade; canvas's slubbed rows; felted wool's mottle.
+     */
+    function clothTone(kind, p) {
+        const cu = p.cu, cv = p.cv;
+        switch (kind) {
+            case 'denim': {
+                const streak = (noise(cu * 160, cv * 3) - 0.5) * 0.14 + (noise(cu * 55, cv * 1.2) - 0.5) * 0.08;
+                // Outseams and inseams: the folded seam allowance rubs through lighter along the leg.
+                let seam = 0;
+                if (p.fam === 3 || p.fam === 4) {
+                    const r = p.rad || 0.06;
+                    for (const at of [Math.PI / 2, -Math.PI / 2]) { let d = p.ang - at; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; seam = Math.max(seam, 1 - smoothstep(0.003, 0.011, Math.abs(d) * r)); }
+                    seam *= 0.7 + 0.6 * noise(cu * 20, cv * 30);
+                }
+                // Whiskers: creases worn lighter fanning out from the crotch over the front of the thighs.
+                let whisk = 0;
+                if ((p.fam === 3 || p.fam === 4) && p.s < 0.45) {
+                    const front = smoothstep(0.1, 0.6, Math.cos(p.ang)), side = p.fam === 3 ? 1 : -1, t = p.s + 0.09 * side * Math.sin(p.ang);
+                    for (const at of [0.1, 0.17, 0.24, 0.31]) whisk += Math.exp(-(((t - at) / 0.011) ** 2));
+                    whisk *= front * (1 - smoothstep(0.3, 0.45, p.s)) * (0.6 + 0.5 * noise(cu * 30, cv * 4));
+                }
+                return 1 + streak + 0.24 * seam + 0.16 * Math.min(1, whisk);
+            }
+            case 'jersey': case 'rib': return 1 + (noise(cu * 40, cv * 40) - 0.5) * 0.08 + (noise(cu * 8, cv * 8) - 0.5) * 0.06;
+            case 'poplin': return 1 + (noise(cu * 70, cv * 70) - 0.5) * 0.05 + (noise(cu * 12, cv * 12) - 0.5) * 0.03;
+            case 'suiting': return 1 + (noise((cu + cv) * 70, (cu - cv) * 8) - 0.5) * 0.06 + (noise(cu * 10, cv * 10) - 0.5) * 0.035;
+            case 'canvas': return 1 + (noise(cu * 22, cv * 260) - 0.5) * 0.08 + (noise(cu * 8, cv * 8) - 0.5) * 0.04;
+            case 'felt': return 1 + (noise(cu * 30, cv * 30) - 0.5) * 0.07 + (noise(cu * 7, cv * 7) - 0.5) * 0.05;
+            default: return 1;
+        }
+    }
+
+    function wear(rgb, kind, p, fab, look) {
         const R = p.rest, edge = 1 - smoothstep(0, 0.016, p.vm);
         if (kind === 'denim') {
             const leg = p.fam === 3 || p.fam === 4;
@@ -554,9 +622,9 @@
             const rub = Math.max(joint * 0.6, edge * 0.25) * (kind === 'suede' ? 0.5 : 1);
             rgb = rgb.map(c => c * (1 + 0.22 * rub));
         }
-        // Dust along a hem low on the leg or the skirt.
+        // Dust along a hem low on the leg or the skirt (faint on new clothes: a pale band read as a stain on a dark suit).
         const low = 1 - smoothstep(0.22, 0.45, R[1]);
-        const dust = (1 - smoothstep(0, 0.07, p.vm)) * low * 0.16;
+        const dust = (1 - smoothstep(0, 0.07, p.vm)) * low * (look && !look.wearInfo ? 0.04 : 0.16);
         return dust > 0 ? mixc(rgb, [0.3, 0.26, 0.21], dust) : rgb;
     }
 
@@ -585,7 +653,10 @@
         // The cloth's own tiles (a full-size picture only: a thumbnail's is too small to show a weave).
         const tiled = size >= 1024 && !!Fabric;
         const hip = an.chains && an.chains.spine ? an.chains.spine[0][1] : 0.885;
-        const fabs = entries.map(e => { const kind = Fabric ? Fabric.kindFor(e.look.material, e.garment, e.look.pattern) : null; return { kind: kind && Wear ? Wear.fabricKind(kind, e.look, e.garment) : kind, hip }; });
+        // Tailored trousers cut from the trousers garment are suit cloth, not denim (no twill streaks, whiskers or faded knees).
+        // Camouflage is printed on ripstop: a uniform's shirt and trousers take its grid, not shirting or denim.
+        const kindOf = e => { const k = Fabric ? Fabric.kindFor(e.look.material, e.garment, e.look.pattern) : null; if (e.look.pattern === 'camo' && e.look.material === 'cloth' && ['poplin', 'denim', 'canvas', 'jersey'].includes(k)) return 'ripstop'; return k === 'denim' && e.item && e.item.trouserStyle === 'tailored' && e.look.material !== 'denim' ? 'suiting' : k; };
+        const fabs = entries.map(e => { const kind = kindOf(e); return { kind: kind && Wear ? Wear.fabricKind(kind, e.look, e.garment) : kind, hip }; });
         const edges = entries.map(e => edgeField(an, e.laid.piece, Math.max(0.02, (e.look.trimWidth || 0) * 0.15 + 0.004)));
         const px = 1 / scale;
         const groups = new Map(), maps = [];

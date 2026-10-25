@@ -187,6 +187,13 @@
             if (L.base) vote += Math.sign((P[v * 3] - L.base[v * 3]) * N[v * 3] + (P[v * 3 + 1] - L.base[v * 3 + 1]) * N[v * 3 + 1] + (P[v * 3 + 2] - L.base[v * 3 + 2]) * N[v * 3 + 2]);
         }
         if (vote < 0) for (let k = 0; k < N.length; k++) N[k] = -N[k];
+        // Eased over the cloth's creases (a heavy neck's rolls, a bunched collar): panels and tapes stood off
+        // along a crease's sharp normals cross each other and break up; along eased ones they ride over it.
+        for (let pass = 0; pass < 3; pass++) {
+            const M = Float32Array.from(N);
+            for (let t = 0; t < tris.length; t += 3) for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if (i !== j) { const a = tris[t + i] * 3, b = tris[t + j] * 3; M[a] += N[b] * 0.5; M[a + 1] += N[b + 1] * 0.5; M[a + 2] += N[b + 2] * 0.5; }
+            for (let v = 0; v < n; v++) { const l = Math.hypot(M[v * 3], M[v * 3 + 1], M[v * 3 + 2]); if (l > 1e-9) { N[v * 3] = M[v * 3] / l; N[v * 3 + 1] = M[v * 3 + 1] / l; N[v * 3 + 2] = M[v * 3 + 2] / l; } }
+        }
         const coords = new Array(n);
         const S = { entry, L, n, tris, N, C,
             p: v => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]],

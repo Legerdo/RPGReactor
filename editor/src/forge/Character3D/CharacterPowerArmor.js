@@ -318,22 +318,41 @@
         const width=t=>{ const u=(t-lo)/(hi-lo); return (1+(taper-1)*Math.pow(u,1.3))*(1+bulge*Math.sin(Math.PI*Math.min(1,u/.62))); };
         // Rims stand proud, the seam sinks in.
         const swell=[.985,1.02,1,1,.965,1,1,1.02,.985];
-        const N=24, grooves=[3,N-3], keel=(shins||thighs||fore)?(shins?.007:.004)*s:0;
+        const N=20, grooves=[3,N-3], keel=(shins||thighs||fore)?(shins?.007:.004)*s:0;
         const rings=ts.map((t,r)=>{ const thin=thighs?.94:1, ring=roundSection(E.point(t),E.side,E.front,radius[0]*width(t)*swell[r]*thin,radius[1]*width(t)*swell[r],N,2.5);
             // A ridge down the front of a shin, thigh or forearm plate.
             if(keel&&r>0&&r<ts.length-1){ const c=E.point(t); for(const [k,f] of [[0,1],[1,.45],[N-1,.45]]) ring[k]=add(ring[k],mul(norm(sub(ring[k],c)),keel*f)); }
             // A thigh plate's top is cut on a slant, sweeping up over the outside of the hip.
             if(thighs&&r<3){ const c=E.point(t), out=[Math.sign(E.B.head[0])||1,0,0];
-                for(let k=0;k<N;k++){ const d=dot(norm(sub(ring[k],c)),out); ring[k]=add(ring[k],mul(E.along,-.045*s*Math.max(0,d)+.02*s*Math.max(0,-d))); } }
+                for(let k=0;k<N;k++){ const d=dot(norm(sub(ring[k],c)),out); ring[k]=add(ring[k],mul(E.along,-.022*s*Math.max(0,d)+.02*s*Math.max(0,-d))); } }
+            // Ends cut back from the bend's crease (the elbow's inside, the back of the knee), so the plates
+            // either side of a joint pass each other as it folds instead of cutting in.
+            // Ends cut back from the bend's crease (the elbow's inside, the back of the knee), so the plates either
+            // side of a joint pass each other as it folds (to about 110 degrees) instead of cutting in. The rows on
+            // that half are drawn in toward the plate's middle on the crease side only, so they never fold over.
+            const crease=fore?{lo:true,dir:E.front,c:.62}:/Arm$/.test(name)&&lo>.3?{lo:false,dir:E.front,c:.8}:thighs?{lo:false,dir:mul(E.front,-1),c:.32}:shins?{lo:true,dir:mul(E.front,-1),c:.3}:null;
+            const m=.5*(lo+hi);
+            if(crease&&(crease.lo?t<m:t>m)){ const c=E.point(t);
+                const w=Math.abs(t-m)/(crease.lo?m-lo:hi-m);
+                for(let j=0;j<N;j++){ const d=dot(norm(sub(ring[j],c)),crease.dir); if(d>0) ring[j]=add(lerp(c,ring[j],1-.24*w*d*d),mul(E.along,(m-t)*crease.c*d**1.5*E.length)); } }
+            // Arm housings draw in on the side toward the body (most for the shoulder's pauldron, over the cap and
+            // the outside), clear of the chest's flank as the arm hangs and swings.
+            if(/Arm$/.test(name)){ const pull=fore?.25:lo<.3?.5:.42; const c=E.point(t), toBody=norm(sub([-(Math.sign(E.B.head[0])||1),0,0],mul(E.along,dot([-(Math.sign(E.B.head[0])||1),0,0],E.along))));
+                for(let j=0;j<N;j++){ const q=sub(ring[j],c), d=dot(norm(q),toBody); if(d>0) ring[j]=add(c,mul(q,1-pull*d**1.5)); } }
+            // Thigh plates flatten on their inner faces, clear of each other at the crotch.
+            if(thighs){ const c=E.point(t), inward=[-(Math.sign(E.B.head[0])||1),0,0];
+                for(let j=0;j<N;j++){ const q=sub(ring[j],c), d=dot(norm(q),inward); if(d>0) ring[j]=sub(ring[j],mul(inward,dot(q,inward)*.16*d)); } }
             return ring; });
         // Recessed panel lines down the front, either side of the raised panel.
         rings.forEach((ring,r)=>{if(r<2||r>ts.length-3)return;const c=E.point(ts[r]);for(const k of grooves)ring[k]=sub(ring[k],mul(norm(sub(ring[k],c)),.0017*s));});
         C.shell.loft(rings,C.color,joint,p=>E.point(Math.max(lo,Math.min(hi,dot(sub(p,E.B.head),E.along)/E.length))),(r,k)=>r===4?mul(C.color,.5):grooves.includes(k)&&r>1&&r<ts.length-2?mul(C.color,.55):r===1||r===7?mul(C.color,.92):C.color);
-        // A raised front panel with a narrow reveal.
-        const frontCenter=add(E.point((lo+hi)/2-.08*(hi-lo)),mul(E.front,radius[1]*width((lo+hi)/2)+.003*s));
-        const w=radius[0]*1.1,h=E.length*(hi-lo)*.42;
-        plate(C.shell,OCTAGON.map(([x,y])=>add(frontCenter,add(mul(E.side,x*w/2),mul(E.along,y*h/2)))),E.front,.006*s,.0025*s,mul(C.color,1.05),joint);
-        rectangle(C.hardware,add(frontCenter,mul(E.along,-h*.36)),E.side,E.along,w*.55,.006*s,E.front,C.trim,joint,.002*s,.0008*s);
+        // A raised panel with a narrow reveal: down the front of a leg, down the outside of an arm (an arm's
+        // front is the elbow's crease, where a panel would meet the other plate as it folds).
+        const arm=/Arm$/.test(name), out=arm?(dot(E.side,[Math.sign(E.B.head[0])||1,0,0])>=0?E.side:mul(E.side,-1)):E.front, across=arm?E.front:E.side;
+        const frontCenter=add(E.point((lo+hi)/2-.08*(hi-lo)),mul(out,radius[arm?0:1]*width((lo+hi)/2)+(arm?.0068:.003)*s));
+        const w=radius[arm?1:0]*1.1,h=E.length*(hi-lo)*.42;
+        plate(C.shell,OCTAGON.map(([x,y])=>add(frontCenter,add(mul(across,x*w/2),mul(E.along,y*h/2)))),out,.006*s,.0025*s,mul(C.color,1.05),joint);
+        rectangle(C.hardware,add(frontCenter,mul(E.along,-h*.36)),across,E.along,w*.55,.006*s,out,C.trim,joint,.002*s,.0008*s);
         // Bolts either side of the top rim.
         for(const t of [ts[1]]) for(const k of [6,18]) {
             const ring=roundSection(E.point(t),E.side,E.front,radius[0]*width(t)*1.02,radius[1]*width(t)*1.02,24,2.5), p=ring[k], n=norm(sub(p,E.point(t)));
@@ -341,6 +360,36 @@
         }
         E.shell=radius;E.ts=[lo,hi];
         return E;
+    }
+
+    /**
+     * A pauldron: a domed shell over the shoulder joint (its crown toward the sky and out, along the arm's
+     * side axis), wrapping the deltoid down the outside and front and back, drawn short on the side toward
+     * the neck so it rides over the chest's armhole instead of into it; a rolled rim, a raised ridge over its
+     * crown and one lame under its lower edge. Rigid on the upper arm.
+     */
+    function pauldron(C,side,family) {
+        const s=C.scale, E=C.envelope(side+'Arm',family,.0,.35), joint=C.joint(side+'Arm');
+        const up=dot(E.side,[0,1,0])>=0?E.side:mul(E.side,-1), axis=norm(add(up,[0,.45,0]));
+        const R=Math.max(E.rx,E.rz)*(.9+.1*C.bulk)+(.01+.01*C.bulk)*s, center=add(E.point(.08),mul(axis,.008*s));
+        const N=20, TH=[.2,.55,.9,1.2,1.45,1.62,1.72];
+        const at=(th,ph,grow=1)=>{ const inner=Math.max(0,-Math.cos(ph)), lim=1.72-.55*inner-.42*Math.abs(Math.sin(ph))*(1-.7*Math.max(0,Math.cos(ph))), t=th*lim/1.72, dir=add(mul(E.along,Math.cos(ph)),mul(E.front,Math.sin(ph)));
+            // Squarer than a sphere (formed plate), a little longer down the arm than across it.
+            const k=1+.08*Math.sin(t)**2*Math.abs(Math.sin(2*ph));
+            return add(center,mul(add(mul(axis,Math.cos(t)*R*.78),mul(dir,Math.sin(t)*R*(1+.04*Math.max(0,Math.cos(ph)))*k)),grow)); };
+        const rings=TH.map(th=>Array.from({length:N},(_,k)=>at(th,k/N*Math.PI*2)));
+        C.shell.loft(rings,C.color,joint,()=>center,(r)=>r===TH.length-1?mul(C.color,.8):C.color);
+        C.shell.face(rings[0],C.color,joint,axis);
+        // The rolled rim and a lame under the lower edge, stepped out so it overlaps the plate below.
+        bead(C.shell,rings.at(-1).concat([rings.at(-1)[0]]),false,.0045*s,lighten(C.color,.05),joint,p=>sub(p,center),4,.4);
+        const lameA=Array.from({length:N},(_,k)=>at(1.6,k/N*Math.PI*2,.97)), lameB=Array.from({length:N},(_,k)=>add(at(1.72,k/N*Math.PI*2,.98),mul(E.along,.02*s*Math.max(0,Math.cos(k/N*Math.PI*2))**.5)));
+        C.shell.loft([lameA,lameB],mul(C.color,.88),joint,()=>center,null,true);
+        // A ridge over the crown, front to back, and a trim stripe across it.
+        const ridge=Array.from({length:9},(_,k)=>{ const th=-1.3+2.6*k/8; return at(Math.abs(th),th<0?Math.PI*1.5:Math.PI*.5,1.035); });
+        bead(C.shell,ridge,false,.006*s,lighten(C.color,.08),joint,p=>sub(p,center),6,.3);
+        const stripe=Array.from({length:9},(_,k)=>{ const th=-1.2+2.4*k/8; return at(Math.abs(th),th<0?Math.PI:0,1.012); });
+        bead(C.indicators,stripe.slice(5),false,.0035*s,C.accent,joint,p=>sub(p,center),5,.3);
+        return {center,R,axis};
     }
 
     /** A joint cop (knee, elbow): a domed cup over the joint, a wing plate under it and a center bolt. */
@@ -374,8 +423,13 @@
             rx*=grow;rz*=grow;
             // Drawn in toward the waist; a formed breast either side of the ridge, the plate rounder than a box.
             const waist=(1-.1*(1-t)**2)*(1+.04*Math.exp(-(((t-.85)/.2)**2)));
+            // The flanks under the arms are drawn in (most at the bottom of the plate, where the hanging upper arm
+            // passes), leaving the arm housings room to swing past instead of through.
+            // Above, the armholes: the plate's top corners cut in under the pauldrons, which nest over them.
+            const flank=.09*(1-smooth(.1,.75,t)), hole=.2*smooth(.25,.75,t);
             return roundSection(axis,X,Z,rx*waist,rz*waist,32,2.7).map((p,k)=>{ const a=k/32*Math.PI*2, w=Math.cos(a)>0?Math.exp(-(((Math.abs(Math.sin(a))-.5)/.28)**2))*Math.exp(-(((t-.6)/.32)**2)):0;
-                return add(p,mul(norm([p[0]-axis[0],0,p[2]-axis[2]]),.02*s*w)); });
+                const f=1-flank*Math.abs(Math.sin(a))**6-hole*Math.abs(Math.sin(a))**3;
+                return add([axis[0]+(p[0]-axis[0])*f,p[1],p[2]],mul(norm([p[0]-axis[0],0,p[2]-axis[2]]),.02*s*w)); });
         });
         // Panel lines: two grooves down the breast either side of the ridge, one across under the vents.
         const chestGrooves=[5,27];
@@ -404,8 +458,8 @@
         for(const hand of [-1,1]){const y=chestLow+(top-chestLow)*.42,x=C.section(y).cx+hand*.026*s;rectangle(C.indicators,[x,y,chestFace(x,y)+.0035*s],Y,X,(top-chestLow)*.34,.0035*s,Z,C.accent,C.joint('Spine2'),.002*s,.0007*s);}
         // Rib housings wrap the torso below the arm openings.
         for(const side of [-1,1]) {
-            const normal=[side,0,0], y=chestLow+.045*s, q=C.section(y);
-            rectangle(C.hardware,[side>0?q.right+gap:q.left-gap,y,q.cz],Z,Y,(q.front-q.back)*.82,.085*s,normal,C.trim,C.joint('Spine1'),.012*s,.005*s);
+            const normal=[side,0,0], y=chestLow+.054*s, q=C.section(y);
+            rectangle(C.hardware,[q.cx+(side>0?q.right+gap-q.cx:q.left-gap-q.cx)*.93,y,q.cz],Z,Y,(q.front-q.back)*.7,.07*s,normal,C.trim,C.joint('Spine2'),.007*s,.003*s);
         }
         // Articulated lames overlap along the actual abdomen. Flat front/back
         // plaques left black steps and floated clear of a broad belly.
@@ -415,7 +469,8 @@
             const joint=C.joint(row===2?'Spine1':'Spine');
             const rings=Array.from({length:5},(_,r)=>{
                 const y=lo+(hi-lo)*r/4,q=C.section(y),lip=r===0?.003*s:0;
-                return roundSection([q.cx,y,q.cz],X,Z,q.width+gap+lip,(q.front-q.back)/2+gap+lip,32,3);
+                // Flanks drawn in like the chest's, so a swinging forearm passes by.
+                return roundSection([q.cx,y,q.cz],X,Z,q.width+gap+lip,(q.front-q.back)/2+gap+lip,32,3).map((p,k)=>{ const f=1-.08*Math.abs(Math.sin(k/32*Math.PI*2))**6; return [q.cx+(p[0]-q.cx)*f,p[1],p[2]]; });
             });
             C.shell.loft(rings,mul(C.color,.89),joint,p=>{const q=C.section(p[1]);return[q.cx,p[1],q.cz];},r=>r===0?mul(C.color,.65):mul(C.color,.89));
         }
@@ -489,8 +544,8 @@
         for(const [side,armFamily,legFamily] of [['Left',1,3],['Right',2,4]]) {
             if(!hands) {
             // Shoulder plates pivot with the upper arm, leaving a clear elbow articulation.
-            housing(C,side+'Arm',armFamily,.02,.32,.025);
-            housing(C,side+'Arm',armFamily,.43,.84);
+            pauldron(C,side,armFamily);
+            housing(C,side+'Arm',armFamily,.5,.84);
             const forearm=housing(C,side+'ForeArm',armFamily,.13,.91);
             const thigh=housing(C,side+'UpLeg',legFamily,.14,.85);
             const shin=housing(C,side+'Leg',legFamily,.15,.86);
@@ -535,18 +590,18 @@
      */
     function helmet(pack,built,item,shape='power') {
         const C=context(pack,built,item),s=C.scale,P=C.P,head=C.joint('Head');
-        const knight=shape==='knight', great=shape==='greathelm', visor=shape==='visor', bubble=visor&&item.style!=='work', power=!knight&&!great&&!visor, lenses=power&&item.style==='lenses';
+        const knight=shape==='knight', great=shape==='greathelm', visor=shape==='visor', bubble=visor&&item.style!=='work', power=!knight&&!great&&!visor, lenses=power&&item.style==='lenses', assault=power&&item.style==='assault';
         const ids=C.ids.filter(v=>C.an.member[v*5]>.6&&C.an.s[v*5]>4.2);
         const eyes=built.parts.find(p=>p.name==='Eyes').positions;
         let eyeY=0;for(let i=1;i<eyes.length;i+=3)eyeY+=eyes[i];eyeY/=eyes.length/3;
         const crown=Math.max(...ids.map(v=>P[v*3+1])), neckY=C.bone('Neck').head[1]+.012*s;
-        const gap=(bubble?.034:visor?.02:power?.016:.012)*s, e=bubble?1.9:visor?2.15:power?2.15:2.05, bell=(y,c,w)=>Math.exp(-(((y-c)/w)**2));
+        const gap=(bubble?.034:visor?.02:assault?.007:power?.016:.012)*s, e=bubble?1.9:visor?2.15:assault?2.0:power?2.15:2.05, bell=(y,c,w)=>Math.exp(-(((y-c)/w)**2));
         const extent=y=>{
             let f=-Infinity,b=Infinity,w=0,cx=0,n=0;
             for(const v of ids){ if(Math.abs(P[v*3+1]-y)>.014*s)continue; f=Math.max(f,P[v*3+2]); b=Math.min(b,P[v*3+2]); w=Math.max(w,Math.abs(P[v*3])); cx+=P[v*3]; n++; }
             return n?{y,f,b,w,cx:cx/n}:null;
         };
-        const vLow=eyeY-(bubble?.058:visor?.036:.03)*s, vHigh=eyeY+(bubble?.05:visor?.03:.026)*s, visorHalf=bubble?1.2:visor?1.15:.98, browY=eyeY+(knight?.03:.024)*s, mouthY=eyeY-.05*s;
+        const vLow=eyeY-(bubble?.058:visor?.036:assault?.019:.03)*s, vHigh=eyeY+(bubble?.05:visor?.03:assault?.015:.026)*s, visorHalf=bubble?1.2:visor?1.15:assault?1.3:.98, browY=eyeY+(knight?.03:.024)*s, mouthY=eyeY-.05*s;
         const jawY=knight?neckY+(eyeY-neckY)*.3:neckY, top=crown-.03*s;
         // Heights: evenly up the head, with steps at the visor's edges (and the brow, for an open face).
         const ys=[];
@@ -567,7 +622,7 @@
         const secAt=y=>{ if(y<=secs[0].y)return secs[0]; for(let i=0;i+1<secs.length;i++) if(y<=secs[i+1].y){ const t=(y-secs[i].y)/((secs[i+1].y-secs[i].y)||1), a=secs[i], b=secs[i+1]; return {y,f:a.f+(b.f-a.f)*t,b:a.b+(b.b-a.b)*t,w:a.w+(b.w-a.w)*t,cx:a.cx+(b.cx-a.cx)*t}; } return secs.at(-1); };
         const czOf=sec=>(sec.f+sec.b)/2;
         // The faceplate or visor drawn forward: lowest round the mouth, nothing at the brow.
-        const prow=y=>great?.02*s*bell(y,mouthY,.045*s):power?(lenses?.026:.017)*s*bell(y,mouthY-.008*s,.03*s):0;
+        const prow=y=>great?.02*s*bell(y,mouthY,.045*s):assault?.018*s*bell(y,mouthY-.01*s,.03*s):power?(lenses?.026:.017)*s*bell(y,mouthY-.008*s,.03*s):0;
         const recess=y=>(power||visor)?(lenses?.0035:visor?.007:.009)*s*smooth(vLow-.004*s,vLow+.001*s,y)*(1-smooth(vHigh-.001*s,vHigh+.004*s,y)):0;
         const radius=(sec,a,y,grow=1)=>{
             const ca=Math.cos(a), sa=Math.sin(a), cz=czOf(sec);
@@ -575,13 +630,26 @@
             const se=q=>1/Math.pow(Math.pow(Math.abs(Math.cos(q))/hz,e)+Math.pow(Math.abs(Math.sin(q))/hx,e),1/e);
             let r=se(a)*grow;
             // A power helmet's faceplate: flat cheek planes either side, meeting at the muzzle (sharper for the lensed style).
-            if(power&&ca>0){ const w=smooth(vHigh+.014*s,vLow-.004*s,y)*(lenses?1:.8);
-                if(w>0){ const a0=lenses?.66:.8, k=lenses?.9:.94; let cut=r;
+            if(power&&ca>0){ const w=smooth(vHigh+.014*s,vLow-.004*s,y)*(lenses||assault?1:.8);
+                if(w>0){ const a0=lenses?.66:assault?.58:.8, k=lenses?.9:assault?.87:.94; let cut=r;
                     for(const sd of [-1,1]){ const c=Math.cos(a-sd*a0); if(c>.25) cut=Math.min(cut,k*se(a0)*grow/c); }
                     r=r*(1-w)+cut*w; } }
             if(ca>0) r+=(prow(y)*ca**5-recess(y)*smooth(Math.cos(visorHalf+.07),Math.cos(visorHalf-.08),ca))*grow;
             // Cheek guards stand a little proud at the jaw.
             if(power) r+=.004*s*bell(y,mouthY,.03*s)*sa*sa*smooth(-.3,.2,ca);
+            // The assault faceplate stands proud of the shell below the visor, and its cheek guards stand prouder
+            // still, sweeping back past the ear with their top edge raked up toward the nape.
+            // A streamlined shell: the jaw's sides and the nape drawn in, so it tapers like a hull instead of a bucket.
+            if(assault){ const low=smooth(eyeY,jawY,y); r*=1-.07*low*sa*sa-.06*low*smooth(-.2,-.9,ca)-.07*smooth(mouthY+.01*s,jawY,y)*Math.abs(sa); }
+            // The crown sweeps back: the forehead slopes away above the brow, the crown narrows, and the rear runs
+            // out backward and down into a swept tail over the nape, a hull rather than a dome.
+            if(assault){ const u=smooth(vHigh,top,y);
+                r-=.01*s*u*u*Math.max(0,ca)**1.5*grow; r*=1-.08*u*sa*sa;
+                r+=.022*s*bell(y,eyeY+.025*s,.045*s)*Math.max(0,-ca)**2*grow; }
+            if(assault){ const aa=Math.abs(a); if(aa<2.2){
+                r+=.0035*s*smooth(.98,.86,aa)*smooth(vLow-.001*s,vLow-.007*s,y)*smooth(neckY-.004*s,neckY+.006*s,y)*grow;
+                const edge=eyeY-.004*s+(aa-.8)*.012*s;
+                r+=.0095*s*smooth(.84,.98,aa)*smooth(2.25,1.95,aa)*smooth(edge+.002*s,edge-.004*s,y)*smooth(neckY+.002*s,neckY+.012*s,y)*grow; } }
             // An open helm's cheeks draw in toward the jaw, its nape flares out over the neck.
             if(knight&&y<browY){ const d=smooth(browY,jawY,y); r*=1-.08*Math.sin(Math.PI*.5*d)*smooth(-.95,-.45,ca); r+=.016*s*d*d*smooth(-.4,-.9,ca); }
             return r;
@@ -602,7 +670,7 @@
         const ring=(y,grow=1,lift=0)=>Array.from({length:SIDES},(_,k)=>at(secAt(y),k/SIDES*Math.PI*2,y,grow,lift));
         const rings=upper.map(y=>ring(y));
         // Over the crown: rings closing to a rounded top.
-        const topSec=secs.at(-1), peak=crown+gap+(knight?.018:great?.016:bubble?.006:.016)*s;
+        const topSec=secs.at(-1), peak=crown+gap+(knight?.018:great?.016:bubble?.006:assault?.0:.016)*s;
         const CAP=power?5:6;
         for(let k=1;k<=CAP;k++){ const ph=k/CAP*Math.PI/2, y=top+(peak-top)*Math.sin(ph); rings.push(Array.from({length:SIDES},(_,j)=>at(topSec,j/SIDES*Math.PI*2,y,Math.max(.03,Math.cos(ph)**.85)))); }
         const shade=(r,k)=>r===0&&!knight?mul(shellColor,.85):shellColor;
@@ -630,14 +698,14 @@
         }
         // A comb (knight, great helm) or a low ridge (power) from the brow over the crown to the nape.
         if(!visor){
-            const from=knight?browY+.012*s:great?eyeY+.03*s:vHigh+.02*s, to=knight?browY+.01*s:eyeY-.01*s;
+            const from=knight?browY+.012*s:great?eyeY+.03*s:assault?vHigh+.055*s:vHigh+.02*s, to=knight?browY+.01*s:eyeY-.01*s;
             const path=[];
             for(const y of ys.filter(y=>y>=from)) path.push(on(0,y));
             for(let k=1;k<=CAP;k++){ const ph=k/CAP*Math.PI/2, y=top+(peak-top)*Math.sin(ph); path.push(at(topSec,0,y,Math.max(.03,Math.cos(ph)**.85))); }
             for(let k=CAP-1;k>=1;k--){ const ph=k/CAP*Math.PI/2, y=top+(peak-top)*Math.sin(ph); path.push(at(topSec,Math.PI,y,Math.max(.03,Math.cos(ph)**.85))); }
             for(const y of ys.filter(y=>y>=to).reverse()) path.push(on(Math.PI,y));
-            const tall=(knight?.011:great?.008:.005)*s, thick=(power?.007:knight?.0042:.0032)*s, n=path.length;
-            const sections=path.map((p,k)=>{ const t=k/(n-1), h=tall*Math.pow(Math.sin(Math.PI*Math.min(1,Math.max(0,t*1.08-.04))),.8)+.0012*s, u=norm(sub(p,center)), x=[thick,0,0];
+            const tall=(knight?.011:great?.008:assault?.014:.005)*s, thick=(assault?.0026:power?.007:knight?.0042:.0032)*s, n=path.length;
+            const sections=path.map((p,k)=>{ const t=k/(n-1), h=tall*Math.pow(Math.sin(Math.PI*Math.min(1,Math.max(0,t*1.08-.04))),assault?1.6:.8)+.0012*s, u=norm(sub(p,center)), x=[thick,0,0];
                 return [add(sub(p,x),mul(u,-.001*s)),add(sub(p,mul(x,.6)),mul(u,h)),add(add(p,mul(x,.6)),mul(u,h)),add(add(p,x),mul(u,-.001*s))]; });
             C.shell.loft(sections,lighten(shellColor,.06),head,p=>{ const q=nearest(path,p); return sub(q,mul(norm(sub(q,center)),.01*s)); },null,true);
         }
@@ -685,14 +753,52 @@
                 for(const side of [-1,1]){ const q=side*.5, f=on(q,mouthY-.014*s,.002*s), d=norm(add(outAt(q),[0,-.25,.35]));
                     cable(C.hardware,[f,add(f,mul(d,.008*s)),add(f,mul(d,.016*s))],.0085*s,C.trim,head); }
                         } else {
-                // The visor: a curved, dark glass band in the recess, just off its floor.
-                const strip=y=>Array.from({length:23},(_,k)=>{ const a=-.96+1.92*k/22; return on(a,y,.0008*s); });
-                const rowsG=[strip(vLow+.003*s),strip(eyeY),strip(vHigh-.004*s)];
-                lensMesh.loft(rowsG,Outfit.linear('#0c141b'),head,inside,null,true);
+                // The visor: one glossy band of tinted glass set into the recess, darkest at its edges and
+                // faintly lit along its middle; it swells a touch forward of the recess floor, as moulded glass does.
+                const VA=visorHalf-.03, strip=(y,lift)=>Array.from({length:27},(_,k)=>{ const a=-VA+2*VA*k/26; return on(a,y,lift*(1-.6*Math.abs(a/VA)**4)); });
+                const gy=[vLow+.0035*s,vLow+.009*s,eyeY-.002*s,eyeY+.006*s,vHigh-.0095*s,vHigh-.0045*s];
+                const tint=Outfit.linear(item.visorColor||'#0b1016'), glowTint=Outfit.linear(item.lightColor||'#3aa8d8');
+                const rowsG=gy.map((y,r)=>strip(y,(.0016+.0026*Math.sin(Math.PI*r/(gy.length-1)))*s));
+                const gk=assault?.8:1; lensMesh.loft(rowsG,tint,head,inside,r=>r===2||r===3?lerp(tint,glowTint,.08*gk):r===1||r===4?lerp(tint,glowTint,.035*gk):mul(tint,.6),true);
+                // The frame: a moulded lip round the opening (brow, cheeks and sill), so the glass reads as set in.
+                const lipTop=Array.from({length:17},(_,k)=>on(-visorHalf+2*visorHalf*k/16,vHigh+.0015*s,.001*s));
+                const lipLow=Array.from({length:17},(_,k)=>on(visorHalf-2*visorHalf*k/16,vLow-.0015*s,.001*s));
+                const lipSide=sd=>Array.from({length:4},(_,k)=>on(sd*(visorHalf+.05),vHigh-(vHigh-vLow)*(k+.5)/4,.001*s));
+                bead(C.shell,[...lipTop,...lipSide(1),...lipLow,...lipSide(-1).reverse()],true,(assault?.0045:.0032)*s,mul(shellColor,assault?.7:.8),head,p=>sub(p,center),assault?5:4,.3);
+                // A brow peak: the helmet's ridge runs down into a point over the bridge, splitting the band's top edge.
+                const peak=[[-.46,vHigh+.006*s,.003],[-.13,vHigh-.002*s,.0045],[0,vHigh-.017*s,.0052],[.13,vHigh-.002*s,.0045],[.46,vHigh+.006*s,.003],[.3,vHigh+.018*s,.003],[0,vHigh+.024*s,.003],[-.3,vHigh+.018*s,.003]];
+                if(!assault) plate(C.shell,peak.map(([a,y,l])=>on(a,y,l*s)),[0,.1,1],.006*s,.0022*s,shellColor,head);
                 rectangle(C.indicators,on(-1.12,vHigh+.012*s,.002*s),tanAt(-1.12),Y,.018*s,.004*s,outAt(-1.12),C.accent,head,.001*s,.0005*s);
             }
             // A brow ridge over the visor; the jaw guard's vent slats across the drawn-forward faceplate.
-            if(!lenses){
+            if(assault){
+                // The assault faceplate: the visor sunk under a heavy brow that dips to a point over the nose (an
+                // angry V), a muzzle drawn forward into a jaw with a rebreather grille, and filter cans either side.
+                const dip=q=>.004*s*Math.max(0,1-Math.abs(q)/.55)**1.5, taper=q=>1-Math.abs(q/1.3)**4;
+                const browRows=[[.034,.001],[.027,.0045],[.021,.0045],[.0175,.0015]].map(([dy,lift])=>Array.from({length:17},(_,k)=>{ const q=-1.3+2.6*k/16; return on(q,eyeY+dy*s-dip(q)*(dy<.03?1:.4),lift*s*taper(q)); }));
+                C.shell.loft(browRows,lighten(shellColor,.03),head,inside,(r)=>r>=2?mul(shellColor,.62):lighten(shellColor,.03),true);
+                // A slim chin vent: angled slats set into the jaw's point, with a light either side.
+                for(let i=-2;i<=2;i++){ const a=i*.07; rectangle(C.hardware,on(a,mouthY-.004*s-Math.abs(i)*.002*s,.0005*s),tanAt(a),Y,.0035*s,.016*s,outAt(a),mul(C.trim,.55),head,.0018*s,.0006*s); }
+                for(const side of [-1,1]) rectangle(C.indicators,on(side*.32,mouthY-.008*s,.0012*s),tanAt(side*.32),Y,.006*s,.0025*s,outAt(side*.32),C.accent,head,.001*s,.0004*s);
+                // The faceplate's facets: a crease down its middle to the chin, angled vents on each cheek facet.
+                bead(C.shell,ys.filter(y=>y<vLow-.004*s&&y>neckY).concat([neckY+.002*s]).reverse().map(y=>on(0,y,.0004*s)),false,.0028*s,lighten(shellColor,.05),head,p=>sub(p,center),4,.45);
+                for(const side of [-1,1]) for(let i=0;i<3;i++){ const a=side*(.5+i*.06); rectangle(C.hardware,on(a,mouthY+.006*s-i*.004*s,.0004*s),tanAt(a),norm([0,1,-.25*side]),.0026*s,.012*s,outAt(a),mul(C.trim,.5),head,.0016*s,.0005*s); }
+                // A collar ring from the helmet's rim down over the neck to the chest, closing the gap below it.
+                { const nj=C.joint('Neck'), base=secs[0], c=[base.cx,neckY,czOf(base)], r0=ring(neckY+.002*s,1,.0025*s);
+                  const rowsC=[[0,1,0],[-.014,1.06,0],[-.03,1.16,0],[-.045,1.3,0],[-.05,1.32,-.002]].map(([dy,k])=>r0.map(p=>add([c[0]+(p[0]-c[0])*k,0,c[2]+(p[2]-c[2])*k],[0,p[1]+dy*s,0])));
+                  C.shell.loft(rowsC,mul(shellColor,.85),nj,p=>[c[0],p[1],c[2]],(r)=>r===1||r===3?mul(C.trim,1.2):mul(shellColor,.85)); }
+                // Fine detail: panel lines round the crown and from the ear back to the nape, vent slots on each
+                // guard, running lights at the visor's ends, and a low spine over the crown instead of a comb.
+                const line=(pts)=>bead(C.hardware,pts,false,.0015*s,mul(C.trim,.75),head,p=>sub(p,center),4,.5);
+                // Swept panel lines from the visor's ends back and up over the crown's flanks (not a band round it).
+                for(const side of [-1,1]) line(Array.from({length:9},(_,k)=>{ const t=k/8; return on(side*(.55+1.9*t),vHigh+.026*s+.03*s*Math.sin(Math.PI*.5*t)-.012*s*t*t,.0003*s); }));
+                for(const side of [-1,1]){
+                    line(Array.from({length:7},(_,k)=>on(side*(2.15+.85*k/6),eyeY+.004*s-.006*s*k/6,.0003*s)));
+                    for(let i=0;i<3;i++) rectangle(C.hardware,on(side*(1.22+i*.1),mouthY+.004*s-i*.002*s,.0028*s),tanAt(side*(1.22+i*.1)),Y,.0028*s,.014*s,outAt(side*(1.22+i*.1)),mul(C.trim,.5),head,.0015*s,.0005*s);
+                    for(let i=0;i<2;i++) rectangle(C.indicators,on(side*(visorHalf+.1+i*.07),eyeY+.001*s,.0016*s),tanAt(side*(visorHalf+.1)),Y,.0045*s,.0028*s,outAt(side*(visorHalf+.1)),C.accent,head,.001*s,.0004*s);
+                }
+            }
+            if(!lenses&&!assault){
                 bead(C.shell,Array.from({length:11},(_,k)=>on(-1.1+2.2*k/10,vHigh+.004*s)),false,.004*s,lighten(shellColor,.05),head,p=>sub(p,center),6,.25);
                 for(let i=-2;i<=2;i++){ const a=i*.085, y=mouthY-.004*s;
                     rectangle(C.hardware,on(a,y,.0006*s),tanAt(a),Y,.0045*s,.024*s,outAt(a),C.trim,head,.0025*s,.0008*s); }
@@ -700,9 +806,15 @@
             // Cheek guards: a plate either side over the jaw, a step proud of the shell.
             for(const side of [-1,1]){
                 const pts=[[.62,vLow-.002*s],[1.05,vLow+.004*s],[1.38,eyeY-.01*s],[1.4,neckY+.03*s],[1.05,neckY+.012*s],[.66,mouthY-.02*s]];
-                if(!lenses) plate(C.shell,pts.map(([a,y])=>on(side*a,y,.0015*s)),outAt(side*1.0),.004*s,.0018*s,mul(shellColor,.92),head);
+                if(assault){
+                    // Seams round the faceplate and along the guards' top edges, in the dark trim.
+                    const face=[[.9,vLow-.007*s],[.94,mouthY+.008*s],[.88,neckY+.016*s],[.5,neckY+.006*s],[0,neckY+.002*s]];
+                    bead(C.hardware,face.map(([a,y])=>on(side*a,y,.0004*s)),false,.0022*s,mul(C.trim,.8),head,p=>sub(p,center),5,.35);
+                    bead(C.hardware,Array.from({length:8},(_,k)=>{ const a=.86+1.2*k/7; return on(side*a,eyeY-.004*s+(a-.8)*.012*s+.001*s,.0004*s); }),false,.0022*s,mul(C.trim,.8),head,p=>sub(p,center),5,.35);
+                }
+                else if(!lenses) plate(C.shell,pts.map(([a,y])=>on(side*a,y,.0015*s)),outAt(side*1.0),.004*s,.0018*s,mul(shellColor,.92),head);
                 // Ear modules: round housings behind the guards.
-                const ear=on(side*1.6,eyeY-.008*s,.001*s);
+                const ear=on(side*(assault?2.1:1.6),eyeY-.008*s,.001*s);
                 plate(C.hardware,OCTAGON.map(([x,y])=>add(ear,[0,y*.02*s,x*.02*s])),[side,0,0],.01*s,.004*s,C.trim,head);
                 plate(C.indicators,OCTAGON.map(([x,y])=>add(ear,[side*.01*s,y*.005*s,x*.005*s])),[side,0,0],.003*s,.001*s,C.accent,head);
             }
@@ -713,13 +825,15 @@
         if(visor){
             // The visor: one curved sheet of tinted glass in the recess, lighter toward its top where it catches the sky.
             const tint=Outfit.linear(item.color2||'#1a2a40'), cols=27, rowsN=6;
-            const grid=Array.from({length:rowsN+1},(_,r)=>{ const y=vLow+.002*s+(vHigh-vLow-.004*s)*r/rowsN; return Array.from({length:cols+1},(_,k)=>on(-visorHalf+.02+(2*visorHalf-.04)*k/cols,y,.0015*s)); });
+            // Seated inside its frame: in from the recess's soft edges (where the shell rises back to full), so no shell
+            // pokes through the glass and its border tucks under the guard rim.
+            const grid=Array.from({length:rowsN+1},(_,r)=>{ const y=vLow+.0045*s+(vHigh-vLow-.009*s)*r/rowsN; return Array.from({length:cols+1},(_,k)=>{ const a=-visorHalf+.11+(2*visorHalf-.22)*k/cols; return on(a,y,.0022*s*(1-.5*Math.abs(a/visorHalf)**6)); }); });
             glassMesh.loft(grid,tint,head,inside,r=>mul(tint,.75+.45*r/rowsN),true);
             // A guard rim round the visor's opening.
-            const rimPath=[...Array.from({length:15},(_,k)=>on(-visorHalf+2*visorHalf*k/14,vHigh+.003*s)),
-                ...Array.from({length:5},(_,k)=>on(visorHalf+.03,vHigh-(vHigh-vLow)*(k+1)/6)),
-                ...Array.from({length:15},(_,k)=>on(visorHalf-2*visorHalf*k/14,vLow-.003*s)),
-                ...Array.from({length:5},(_,k)=>on(-visorHalf-.03,vLow+(vHigh-vLow)*(k+1)/6))];
+            const rimHalf=visorHalf-.07, rimPath=[...Array.from({length:15},(_,k)=>on(-rimHalf+2*rimHalf*k/14,vHigh+.003*s)),
+                ...Array.from({length:5},(_,k)=>on(rimHalf,vHigh-(vHigh-vLow)*(k+1)/6,.002*s)),
+                ...Array.from({length:15},(_,k)=>on(rimHalf-2*rimHalf*k/14,vLow-.003*s)),
+                ...Array.from({length:5},(_,k)=>on(-rimHalf,vLow+(vHigh-vLow)*(k+1)/6,.002*s))];
             bead(C.hardware,rimPath,true,(bubble?.0045:.0035)*s,C.trim,head,p=>sub(p,center),8,.3);
             // The neck bearing: a broad ring the helmet locks onto.
             const neckRing=ring(neckY+.004*s,1,.002*s);
@@ -772,7 +886,7 @@
         }
         const parts=[C.shell.part('Power helmet plating',{roughness:.38,metalness:.65,finish:'painted'}),C.hardware.part('Power helmet visor',{roughness:.14,metalness:.6}),C.indicators.part('Power helmet indicators',{roughness:.3,metalness:.25,emissive:item.color2||'#e5ad55',emissiveIntensity:.65})];
         // The lenses glow faintly in the helmet's light color through their dark glass.
-        if(lensMesh.i.length) parts.push(lensMesh.part('Power helmet lenses',lenses?{roughness:.08,metalness:.4,emissive:item.lightColor||'#ff3b2f',emissiveIntensity:.95}:{roughness:.08,metalness:.6}));
+        if(lensMesh.i.length) parts.push(lensMesh.part('Power helmet lenses',lenses?{roughness:.08,metalness:.4,emissive:item.lightColor||'#ff3b2f',emissiveIntensity:.95}:{roughness:.05,metalness:.55,emissive:item.lightColor||'#3aa8d8',emissiveIntensity:assault?.06:.07}));
         return {parts,hidden};
     }
     /**
@@ -1407,6 +1521,15 @@
                 const y=hip+span*(.07+row*.11), q=C.section(y), h=span*.10;
                 const outline=OCTAGON.map(([x,v])=>faceAt(x*q.width*.76,y+v*h/2,.019*s));
                 fittedPlate(outline,mul(C.color,.87),C.joint(row===2?'Spine1':'Spine'),.011*s,.009*s);
+            }
+            // MOLLE webbing across a vest's lames: a strap each, stitched down in bar-tacks every 38 mm (each run laid on the plate it crosses).
+            for(let row=0;kind==='vest'&&row<3;row++){
+                const y=hip+span*(.07+row*.11), q=C.section(y), joint=C.joint(row===2?'Spine1':'Spine'), pitch=.038*s, n=Math.max(2,Math.floor(q.width*1.3/pitch));
+                for(let k=0;k<n;k++){
+                    const x=(k-(n-1)/2)*pitch;
+                    rectangle(C.hardware,faceAt(x,y,.0012*s),X,Y,pitch*.92,.011*s,Z,mul(C.color,.72),joint,.0016*s,.0005*s);
+                    rectangle(C.hardware,faceAt(x+pitch/2,y,.0026*s),X,Y,.0028*s,.012*s,Z,mul(C.color,.5),joint,.0008*s,.0003*s);
+                }
             }
             if (kind === 'recon') for(const side of ['Left','Right']) {
                 // A shoulder cup wraps the upper arm. Sample the actual

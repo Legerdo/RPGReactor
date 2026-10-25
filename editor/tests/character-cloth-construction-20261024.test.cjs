@@ -125,7 +125,9 @@ test('typical outfits stay within the triangle budget', () => {
     const built = Body.build(pack, { gender: 1, age: 30 });
     // (Draped cloth is refined where it folds, 2026-10-24: casual 15000 -> 18500, office 25000 -> 28000, winter
     // 25000 -> 31500, medic 16000 -> 16500; measured with the drape on, +1.0-3.5k a preset.)
-    for (const [preset, most] of [['casual', 18500], ['office', 28000], ['winter', 31500], ['mage', 19000], ['generatedMedic', 16500], ['detective', 30000]]) {
+    // (Dark linings inside open edges, 2026-10-25: a look into a cuff or up a hem meets cloth, not the world behind
+    // the model; +2.1-4.2k a preset: casual 20500, office 30500, winter 34000, medic 17500, detective 32000.)
+    for (const [preset, most] of [['casual', 20500], ['office', 30500], ['winter', 34000], ['mage', 19000], ['generatedMedic', 17500], ['detective', 32000]]) {
         const out = Wardrobe.build(pack, built, Wardrobe.PRESETS.find(p => p.id === preset).items, { atlasSize: 64 });
         const tris = outfitTris(out.parts);
         assert.ok(tris <= most, preset + ' outfit ' + tris + ' > ' + most);

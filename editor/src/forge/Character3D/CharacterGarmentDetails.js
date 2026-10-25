@@ -101,15 +101,15 @@
 
     function build(pack,built,entries) {
         const mesh=new Props.Mesh(),hardware=new Props.Mesh(),scale=built.height/1.7;
-        const tube=(samples,radius,color)=>{
+        const tube=(samples,radius,color,sides=6)=>{
             for(let i=0;i+1<samples.length;i++){
                 const a=samples[i],b=samples[i+1];if(!a||!b||Math.hypot(...sub(a.p,b.p))>scale*.08)continue;
                 const tangent=norm(sub(b.p,a.p));if(Math.hypot(...sub(a.p,b.p))<1e-6)continue;
                 const rows=[a,b].map(s=>{
                     const x=norm(sub(s.n,mul(tangent,dot(s.n,tangent)))),y=cross(tangent,x),center=add(s.p,mul(s.n,radius*1.35));
-                    return Array.from({length:6},(_,k)=>{const angle=k*Math.PI/3,n=add(mul(x,Math.cos(angle)),mul(y,Math.sin(angle)));return mesh.vertex(add(center,mul(n,radius)),n,color,s.skin);});
+                    return Array.from({length:sides},(_,k)=>{const angle=k*2*Math.PI/sides,n=add(mul(x,Math.cos(angle)),mul(y,Math.sin(angle)));return mesh.vertex(add(center,mul(n,radius)),n,color,s.skin);});
                 });
-                for(let k=0;k<6;k++){const j=(k+1)%6;mesh.tri(rows[0][k],rows[0][j],rows[1][k]);mesh.tri(rows[0][j],rows[1][j],rows[1][k]);}
+                for(let k=0;k<sides;k++){const j=(k+1)%sides;mesh.tri(rows[0][k],rows[0][j],rows[1][k]);mesh.tri(rows[0][j],rows[1][j],rows[1][k]);}
             }
         };
         for(const e of entries){
@@ -158,7 +158,9 @@
                 }
                 samples.push(sample(...points.at(-1)));tube(samples,radius*scale,color);
             };
-            if(TECH.has(e.garment))for(const side of [1,-1]){
+            // (A starship uniform's yoke is its own color block, cut and piped in its cloth: a sewn-on yoke over it
+            // stood off the chest as a loose flap.)
+            if(TECH.has(e.garment)&&e.garment!=='starshipUniform')for(const side of [1,-1]){
                 const fit=side===1?sample:sampler(pack,e.laid,built,-1),rows=[],N=24,M=8;
                 const panel=O.linear(e.look.color2||e.look.trim||e.look.color);
                 // A sewn shoulder yoke has a complete surface, including its interior.
@@ -175,13 +177,24 @@
                     if(side>0){mesh.tri(a,b,c);mesh.tri(b,d,c);}else{mesh.tri(a,c,b);mesh.tri(b,c,d);}
                 }
                 tube(Array.from({length:49},(_,k)=>{const x=(k/48-.5)*.35;return fit(x,1.292-Math.abs(x)*.16);}),.0013*scale,trim);
+                // Suits: a sewn-on rubberized waist band (front and back) between piped edges, and on the back a
+                // pair of curved panel seams mirroring the front's, so the suit reads as built from panels all round.
+                // (Not the EVA undersuit: its crew wear a harness over the waist, and it already carries pressure panels.)
+                if(e.garment==='spacesuit'||e.garment==='explorerSuit'){
+                    const W=.42,K=22,y0=.985,y1=1.022,bandColor=O.linear(e.look.trim||e.look.color2||e.look.color).map(c=>c*.9),bandRows=[];
+                    // Rolled edges and a raised middle: four rows, the outer two tucked back toward the cloth.
+                    for(const [j,lift] of [[0,.0012],[.12,.0036],[.5,.0042],[.88,.0036],[1,.0012]]){const row=[];for(let k=0;k<=K;k++){const x=(k/K-.5)*W,p=fit(x,y0+(y1-y0)*j);row.push(p?mesh.vertex(add(p.p,mul(p.n,lift*scale)),p.n,j===.5?bandColor:bandColor.map(c=>c*.8),p.skin):-1);}bandRows.push(row);}
+                    for(let j=0;j+1<bandRows.length;j++)for(let k=0;k<K;k++){const [a,b,c,d]=[bandRows[j][k],bandRows[j][k+1],bandRows[j+1][k],bandRows[j+1][k+1]];if(Math.min(a,b,c,d)<0)continue;if(side>0){mesh.tri(a,b,c);mesh.tri(b,d,c);}else{mesh.tri(a,c,b);mesh.tri(b,c,d);}}
+                    if(side<0)for(const sx of [-1,1])tube(Array.from({length:17},(_,k)=>{const t=k/16;return fit(sx*(.1+.06*t*t),1.03+.31*t);}),.0012*scale,trim);
+                }
             }
             // A real zipped closure and two curved torso seams. Their width
             // stays in millimeters instead of consuming a larger color atlas.
             const zip=e.garment==='fieldCoat'?.040:0;
             for(const side of [-1,1]){
                 path([[zip+side*.003,1.00],[zip+side*.003,1.365]],.0010,trim);
-                path([[side*.115,1.02],[side*.095,1.16],[side*.145,1.29],[side*.17,1.345]],.0010);
+                // (A starship uniform's and a bodysuit's panel seams are sewn in their cloth's own picture, level and mirrored.)
+                if(e.garment!=='starshipUniform'&&e.garment!=='bodysuit')path([[side*.115,1.02],[side*.095,1.16],[side*.145,1.29],[side*.17,1.345]],.0010);
             }
             for(let y=1.015;y<1.36;y+=.006){
                 const s=sample(zip+(Math.round(y/.006)%2?.0018:-.0018),y);if(!s)continue;
@@ -214,12 +227,129 @@
                         const ids=Array.from(L.index.subarray(t,t+3));if(ids.some(v=>L.field[v].fam!==fam))continue;
                         const values=ids.map(v=>L.field[v].s-at),hits=[];
                         for(let k=0;k<3;k++){const n=(k+1)%3;if((values[k]<0)===(values[n]<0))continue;const u=values[k]/(values[k]-values[n]),bary=[0,0,0];bary[k]=1-u;bary[n]=u;hits.push(point(L,ids,bary));}
-                        if(hits.length===2)tube(hits,.0015*scale,main.map(v=>v*.36));
+                        if(hits.length===2)tube(hits,.0015*scale,main.map(v=>v*.36),4);
                     }
                 }
             }
         }
+        // A garment's cloth cut at one spine position of a family (fam, s from its field): crossing segments.
+        const levelOn=(L,fam,at)=>{const hits=[];
+            for(let t=0;t<L.index.length;t+=3){
+                const ids=Array.from(L.index.subarray(t,t+3));if(ids.some(v=>L.field[v]?.fam!==fam))continue;
+                const values=ids.map(v=>L.field[v].s-at),seg=[];
+                for(let k=0;k<3;k++){const n=(k+1)%3;if((values[k]<0)===(values[n]<0))continue;const u=values[k]/(values[k]-values[n]),bary=[0,0,0];bary[k]=1-u;bary[n]=u;seg.push(point(L,ids,bary));}
+                if(seg.length===2)hits.push(seg);
+            }return hits;};
+        // That level as one closed ring of N points by bearing about an axis through center (k=0 at bearing -pi
+        // from x=axis x [0,1,0] or [1,0,0]); null where the cloth does not go all the way round.
+        const ringOn=(L,fam,at,axis,center,N)=>{
+            const segs=levelOn(L,fam,at);if(segs.length<6)return null;
+            const x=norm(cross(axis,Math.abs(axis[1])<.9?[0,1,0]:[1,0,0])),y=cross(axis,x);
+            const ang=p=>{const q=sub(p,center);return Math.atan2(dot(q,y),dot(q,x));};
+            const out=[];
+            for(let k=0;k<N;k++){const a=-Math.PI+2*Math.PI*k/N;let best=null;
+                for(const [A,B] of segs){let a0=ang(A.p),a1=ang(B.p),d=a1-a0;if(d>Math.PI)d-=2*Math.PI;if(d<-Math.PI)d+=2*Math.PI;let u=a-a0;if(u>Math.PI)u-=2*Math.PI;if(u<-Math.PI)u+=2*Math.PI;
+                    const t=Math.abs(d)<1e-9?0:u/d;if(t<-.001||t>1.001)continue;const p=add(A.p,mul(sub(B.p,A.p),t)),r=Math.hypot(...sub(p,center));
+                    if(!best||r>best.r)best={r,p,n:norm(add(mul(A.n,1-t),mul(B.n,t))),skin:t<.5?A.skin:B.skin,dir:add(mul(x,Math.cos(a)),mul(y,Math.sin(a)))};}
+                if(!best)return null;out.push(best);}
+            return out;};
+        // The spine position of a family's cloth nearest a point.
+        const sNear=(L,fam,p)=>{let best=Infinity,s=null;for(let v=0;v<L.positions.length/3;v++){if(L.field[v]?.fam!==fam)continue;const d=(L.positions[v*3]-p[0])**2+(L.positions[v*3+1]-p[1])**2+(L.positions[v*3+2]-p[2])**2;if(d<best){best=d;s=L.field[v].s;}}return s;};
+        const grid=(target,rows,color,lifts,cols=null)=>{const ids=rows.map((row,r)=>row.map((q,c)=>target.vertex(add(q.p,mul(q.n,(typeof lifts==='function'?lifts(r,c):lifts[r])*scale)),q.n,Array.isArray(color[0])?color[r]:color,q.skin)));
+            for(let r=0;r+1<ids.length;r++)for(let c=0;c+1<ids[r].length;c++){target.tri(ids[r][c],ids[r+1][c],ids[r][c+1]);target.tri(ids[r][c+1],ids[r+1][c],ids[r+1][c+1]);}};
+        // Suit gloves: a gauntlet cuff lapped over the sleeve (a rolled rubber band in the suit's trim, an ID stripe
+        // in its accent) and, on a pressure suit, a hard wrist disconnect ring below it, so the glove reads as its own piece.
+        const rings=new Props.Mesh();
+        {
+            const glove=entries.find(x=>!x.lining&&(x.garment==='gloves'||(x.garment==='techGloves'&&x.look?.style==='full')));
+            // Suits with full gloves: the pressure, exploration and flight suits, and an armored compression suit under full tech gloves.
+            const suit=entries.find(x=>!x.lining&&(['evaSuit','spacesuit','explorerSuit','bodysuit','techSuit'].includes(x.garment)||(x.garment==='compressionSuit'&&glove?.garment==='techGloves')));
+            if(suit&&glove&&glove.laid?.field){
+                const L=glove.laid,pressure=suit.garment==='evaSuit'||suit.garment==='spacesuit';
+                const band=O.linear(suit.look.trim||suit.look.color2||'#303b47'),stripe=O.linear(suit.look.color2||suit.look.trim||'#d86a2a'),steel=O.linear('#aeb4ba');
+                const level=(fam,at)=>levelOn(L,fam,at), N=20, ringAt=(fam,at,axis,center)=>ringOn(L,fam,at,axis,center,N);
+                for(const [fam,side] of [[1,'Left'],[2,'Right']]){
+                    let s0=Infinity;for(let v=0;v<L.positions.length/3;v++)if(L.field[v]?.fam===fam)s0=Math.min(s0,L.field[v].s);
+                    if(!Number.isFinite(s0)||s0>3.05)continue;
+                    const fa=built.bones.find(b=>b.name===side+'ForeArm'),hb=built.bones.find(b=>b.name===side+'Hand');if(!fa||!hb)continue;
+                    const axis=norm(sub(hb.head,fa.head));
+                    // The cuff's profile from its open edge (toward the elbow) down: a rolled lip, a raised band with an ID
+                    // stripe (hard color edges from doubled rows), and a taper back onto the glove.
+                    const prof=[[0,.0012,band],[.006,.0042,band],[.03,.0046,band],[.03,.0046,stripe],[.046,.0046,stripe],[.046,.0046,band],[.07,.004,band],[.082,.0008,band]];
+                    const at=ds=>s0+ds, mid=hb.head.map((c,k)=>fa.head[k]+(c-fa.head[k])*.8);
+                    // Sampled just in from the glove's own cut edge, where its ring is whole.
+                    const rowsR=prof.map(([ds])=>ringAt(fam,at(ds+.012),axis,mid));
+                    if(rowsR.every(Boolean)){
+                    const ids=prof.map(([ds,lift,color],r)=>rowsR[r].map(q=>mesh.vertex(add(q.p,mul(q.n,lift*scale)),q.n,color,q.skin)));
+                    for(let r=0;r+1<ids.length;r++)for(let k=0;k<N;k++){const j2=(k+1)%N;mesh.tri(ids[r][k],ids[r+1][k],ids[r][j2]);mesh.tri(ids[r][j2],ids[r+1][k],ids[r+1][j2]);}
+                    // The cuff's open edge closes down onto the sleeve a little up the arm, a tapered skirt over the
+                    // glove's cut edge: no opening between glove and sleeve from any side, inside the wrist included.
+                    const sleeve=suit.laid?.field&&ringOn(suit.laid,fam,s0-.025,axis,mid,N);
+                    if(sleeve){const skirt=sleeve.map(q=>mesh.vertex(add(q.p,mul(q.n,.0009*scale)),q.n,band.map(c=>c*.85),q.skin));
+                        for(let k=0;k<N;k++){const j2=(k+1)%N;mesh.tri(skirt[k],ids[0][k],skirt[j2]);mesh.tri(skirt[j2],ids[0][k],ids[0][j2]);}}}
+                    // The disconnect ring: a hard bearing at the wrist, below the cuff.
+                    if(pressure){const R=ringAt(fam,Math.min(2.95,s0+.11),axis,mid);if(R){
+                        const sec=[[.0004,-.004],[.0045,-.0035],[.0052,0],[.0045,.0035],[.0004,.004]];
+                        const rr=sec.map(([lift,dz])=>R.map(q=>rings.vertex(add(add(q.p,mul(q.n,lift*scale)),mul(axis,dz*scale)),q.n,steel,q.skin)));
+                        for(let r=0;r+1<rr.length;r++)for(let k=0;k<N;k++){const j2=(k+1)%N;rings.tri(rr[r][k],rr[r+1][k],rr[r][j2]);rings.tri(rr[r][j2],rr[r+1][k],rr[r+1][j2]);}}}
+                }
+            }
+        }
+        // Suits: formed pads over the knees and elbows, a neck bearing (pressure suits) or a stand-up collar, and a
+        // patch high on the left sleeve, in colors that block against the suit (dark rubber on a light suit, the
+        // accent on a dark one), so each suit reads as designed equipment at full-body distance.
+        {
+            const suit=entries.find(x=>!x.lining&&['evaSuit','spacesuit','explorerSuit','bodysuit'].includes(x.garment));
+            if(suit&&suit.laid?.field){
+                const L=suit.laid,look=suit.look,main=O.linear(look.color||'#dddddd'),lum=.2126*main[0]+.7152*main[1]+.0722*main[2];
+                const lumOf=c=>.2126*c[0]+.7152*c[1]+.0722*c[2],trim0=O.linear(look.trim||'#303b47'),accent=O.linear(look.color2||look.trim||'#d86a2a'),dark=lumOf(trim0)>.15?O.linear('#2b3138'):trim0,pressure=suit.garment==='evaSuit'||suit.garment==='spacesuit';
+                const padColor=lum>.3?dark:accent.map(c=>c*.9),bone=n=>built.bones.find(b=>b.name===n),N=24;
+                // Pads and collars only where no outer garment (a coat, an armor's textile) lies over the suit.
+                const outer=entries.filter(e=>e!==suit&&!e.lining&&!['gloves','boots','magboots'].includes(e.garment)&&e.laid?.field&&(e.laid.layer??0)>(L.layer??0));
+                const covered=(fam,at)=>outer.some(e=>e.laid.field.some(f=>f&&f.fam===fam&&Math.abs(f.s-at)<.03));
+                // A coat's skirt hangs over the knees from the torso's own family: anything outer reaching below a height.
+                const hangsBelow=y=>outer.some(e=>{const P=e.laid.positions;for(let i=1;i<P.length;i+=3)if(P[i]<y)return true;return false;});
+                // A pad: rows of the limb's cloth from above the joint to below, the arc facing `face`, domed.
+                const pad=(fam,j,next,face,above,below,half,height,color)=>{
+                    const J=bone(j),Nx=bone(next);if(!J||!Nx)return;
+                    const axis=norm(sub(Nx.head,J.head)),ends=[-above,below].map(d=>sNear(L,fam,add(J.head,mul(axis,d*scale))));
+                    if(ends.some(v=>v==null)||covered(fam,(ends[0]+ends[1])/2)||(fam>2&&hangsBelow(J.head[1]+above*scale)))return;
+                    // Evenly spaced levels between the pad's ends (the nearest-vertex levels bunch up at the joint).
+                    const levels=[0,.25,.5,.75,1].map(t=>ends[0]+(ends[1]-ends[0])*t);
+                    const rowsR=levels.map(at=>ringOn(L,fam,at,axis,J.head,N));if(rowsR.some(r=>!r))return;
+                    const keep=[];for(let k=0;k<N;k++)if(dot(rowsR[2][k].dir,face)>Math.cos(half))keep.push(k);
+                    if(keep.length<3)return;
+                    // Keep the arc contiguous (it may wrap past k=0).
+                    let startK=keep.find(k=>!keep.includes((k-1+N)%N));if(startK==null)startK=keep[0];
+                    const cols=keep.map((_,i)=>(startK+i)%N),edge=(r,c)=>Math.min(r,rowsR.length-1-r,c,cols.length-1-c);
+                    grid(mesh,rowsR.map(row=>cols.map(k=>row[k])),color,(r,c)=>{const e=edge(r,c);return e===0?.0045:e===1?height*.9:height;});
+                };
+                const fwd=[0,0,1],back=[0,0,-1];
+                for(const side of ['Left','Right']){
+                    const leg=side==='Left'?3:4,arm=side==='Left'?1:2;
+                    // (The EVA undersuit's crew wear hard knee shells from the recon kit over it.)
+                    if(suit.garment!=='evaSuit')pad(leg,side+'Leg',side+'Foot',fwd,.075,.06,1.05,.011,padColor);
+                    pad(arm,side+'ForeArm',side+'Hand',back,.05,.05,1.0,.009,padColor);
+                }
+                // The mission patch, high on the left sleeve's outside.
+                {const A=bone('LeftArm'),F=bone('LeftForeArm');if(A&&F){const axis=norm(sub(F.head,A.head)),c=add(A.head,mul(sub(F.head,A.head),.36)),out=norm(sub([1,0,0],mul(axis,axis[0])));
+                    const levels=[0,.035,.07].map(d=>sNear(L,1,add(c,mul(axis,d*scale))));
+                    if(levels.every(v=>v!=null)&&!covered(1,levels[1])){const rowsR=levels.map(at=>ringOn(L,1,at,axis,c,N));if(rowsR.every(Boolean)){
+                        const cols=[];for(let k=0;k<N;k++)if(dot(rowsR[1][k].dir,out)>Math.cos(.55))cols.push(k);
+                        if(cols.length>=2)grid(mesh,rowsR.map(row=>cols.map(k=>row[k])),[accent,O.linear('#f2f0e6'),accent],[.0016,.0019,.0016]);}}}}
+                // The neck: a bearing ring (pressure suits) or a stand-up collar in the accent.
+                const neck=bone('Neck');
+                if(neck){let top=-Infinity;for(let v=0;v<L.positions.length/3;v++)if(L.field[v]?.fam===0&&Math.abs(L.positions[v*3+1]-neck.head[1])<.06*scale)top=Math.max(top,L.field[v].s);
+                    if(Number.isFinite(top)&&!covered(0,top-.03)){const lo=ringOn(L,0,top-.06,[0,1,0],neck.head,N),hi=ringOn(L,0,top-.015,[0,1,0],neck.head,N);
+                        if(lo&&hi){const up=q=>({...q,p:add(q.p,[0,.018*scale,0])}),close=(row,k)=>row.concat([row[0]]);
+                            if(pressure){const R=[lo,hi,hi.map(up),hi.map(q=>({...q,p:add(q.p,[0,.022*scale,0])}))];
+                                grid(rings,R.map(r=>close(r)),O.linear('#aeb4ba'),[.002,.0085,.0085,.002]);}
+                            else grid(mesh,[lo,hi,hi.map(up),hi.map(q=>({...q,p:add(q.p,[0,.02*scale,0])}))].map(r=>close(r)),[main,accent,accent,accent.map(c=>c*.8)],[.0012,.0035,.004,.0015]);}}}
+            }
+        }
         const parts=[];
+        if(!rings.empty)rings.computeNormals();
+        if(!rings.empty)parts.push(rings.part('Suit glove rings',{kind:'metal',clothDetail:true,doubleSided:true,roughness:.3,metalness:.85}));
         if(!mesh.empty)mesh.computeNormals();
         if(!mesh.empty)parts.push(mesh.part('Tailored seams and pockets',{kind:'cloth',clothDetail:true,doubleSided:true,roughness:.86,metalness:0}));
         if(!hardware.empty)parts.push(hardware.part('Garment zipper teeth',{kind:'metal',clothDetail:true,doubleSided:true,roughness:.42,metalness:.65}));
@@ -1181,12 +1311,14 @@
         if(entry.garment==='cargoTrousers')for(const [fam,side,name] of [[3,1,'Left'],[4,-1,'Right']]){
             const up=bone(built,name+'UpLeg').head,knee=bone(built,name+'Leg').head,cy=mix(up[1],knee[1],.5),cz=mix(up[2],knee[2],.2)-.01*s;
             const sideP=projector(S,side,famOnly(S,fam),[[0,0,1],[0,1,0],[1,0,0]]),locate=(z,y)=>sideP(cz+z,cy+y);
-            const W=.15*s,H=.17*s,lift=T*1.05;
-            const P=panel(kit,g,S,{cols:6,rows:7,color:tone(color,1.03),locate,shape:(u,v)=>[(u-.5)*W*side,H/2-v*H],height:(u,v)=>lift+.012*s*Math.pow(Math.max(0,Math.sin(Math.PI*u)*Math.sin(Math.PI*v)),.4)});
+            // Flat on the thigh's side, following the cloth closely (fine rows, so no chord cuts into the curved leg);
+            // only a slight fullness at its middle, under a flap that lies on it.
+            const W=.12*s,H=.16*s,lift=T*1.05+.0012*s,full=u=>.004*s*Math.pow(Math.max(0,Math.sin(Math.PI*u)),.6);
+            const P=panel(kit,g,S,{cols:12,rows:14,color:tone(color,1.03),locate,shape:(u,v)=>[(u-.5)*W*side,H/2-v*H],height:(u,v)=>lift+full(u)*Math.pow(Math.max(0,Math.sin(Math.PI*v)),.4)});
             seamFrom(kit,S,insetLine(S,P,.004*s,null,0),{locate,lift:lift+.0006*s,thread,rows:1});
-            const F2=panel(kit,g,S,{cols:6,rows:2,color,locate:(z,y)=>sideP(cz+z,cy+H/2+.008*s+y),shape:(u,v)=>[(u-.5)*W*1.05*side,-v*.05*s],height:()=>lift+.015*s});
-            seamFrom(kit,S,insetLine(S,F2,.004*s,null,0),{locate:(z,y)=>sideP(cz+z,cy+H/2+.008*s+y),lift:lift+.0156*s,thread});
-            const b=sideP(cz,cy+H/2-.03*s);if(b)button(kit,b,{radius:.007*s,color:tone(color,.45),holes:4,height:lift+.018*s});
+            const F2=panel(kit,g,S,{cols:12,rows:3,color,locate:(z,y)=>sideP(cz+z,cy+H/2+.008*s+y),shape:(u,v)=>[(u-.5)*W*1.06*side,-v*.048*s],height:u=>lift+.0026*s+full(u)});
+            seamFrom(kit,S,insetLine(S,F2,.004*s,null,0),{locate:(z,y)=>sideP(cz+z,cy+H/2+.008*s+y),lift:lift+.0034*s+.004*s,thread});
+            const b=sideP(cz,cy+H/2-.03*s);if(b)button(kit,b,{radius:.006*s,color:tone(color,.45),holes:4,height:lift+.0035*s+.004*s});
         }
         // Belt loops over the band, bar-tacked at both ends.
         if(d.loops!==false&&!plain){

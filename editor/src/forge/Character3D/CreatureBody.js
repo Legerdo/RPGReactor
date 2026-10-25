@@ -232,7 +232,7 @@
             { coat: '#b58a5a', marking: '#4a3220', light: '#efe2cc', nose: '#c87a78', eye: '#9cb66c', mane: '#b58a5a' }),
         K('lion', { size: 0.86, bodyLength: 1.08, legLength: 1.05, girth: 1.0, chestDepth: 1.15, belly: -0.35, hump: 0, neckLength: 0.75, neckThickness: 0.95, neckAngle: 22, headSize: 1.42, snoutLength: 0.72, snoutWidth: 1.22, headPitch: 10, eyeSize: 0.85, eyeSide: 0.04, earSize: 0.7, ears: 'round', tail: 'tufted', tailLength: 1.05, tailThickness: 0.95, tailCurl: -0.35, mane: 'lion', maneSize: 1.0, pattern: 'countershade', pawSize: 1.2, legThickness: 1.28, fluff: 0.15 },
             { coat: '#c49556', marking: '#3a2618', light: '#ead6ae', nose: '#a8645a', eye: '#b98a32', mane: '#6e4322' }),
-        K('tiger', { size: 0.88, bodyLength: 1.12, legLength: 0.98, girth: 1.0, chestDepth: 1.12, belly: -0.35, neckLength: 0.8, neckThickness: 0.95, neckAngle: 22, headSize: 1.18, snoutLength: 0.68, snoutWidth: 1.2, headPitch: 10, eyeSize: 0.85, eyeSide: 0.04, earSize: 0.8, ears: 'round', tail: 'long', tailLength: 1.15, tailThickness: 1, tailCurl: -0.25, mane: 'ruff', maneSize: 0.35, pattern: 'stripes', pawSize: 1.2, legThickness: 1.12, fluff: 0.2 },
+        K('tiger', { size: 0.88, bodyLength: 1.12, legLength: 0.98, girth: 1.0, chestDepth: 1.12, belly: -0.35, neckLength: 0.8, neckThickness: 0.95, neckAngle: 22, headSize: 1.18, snoutLength: 0.68, snoutWidth: 1.2, headPitch: 10, eyeSize: 0.85, eyeSide: 0.04, earSize: 0.8, ears: 'round', tail: 'long', tailLength: 1.15, tailThickness: 1, tailCurl: -0.25, mane: 'none', maneSize: 0, pattern: 'stripes', pawSize: 1.2, legThickness: 1.12, fluff: 0.2 },
             { coat: '#d8782a', marking: '#1e1610', light: '#f2e8d8', nose: '#c07a70', eye: '#d0a030', mane: '#d8782a' }),
         K('dog', { size: 0.42, legLength: 1.02, girth: 0.95, chestDepth: 1.05, belly: -0.4, neckLength: 1, neckAngle: 38, headSize: 1.15, snoutLength: 0.85, snoutWidth: 1, headPitch: 14, tailThickness: 1.1, earSize: 1.1, earDroop: 0.35, tailCurl: 0.25, legThickness: 0.95 }, {}),
         K('wolf', { size: 0.55, legLength: 1.12, girth: 0.9, chestDepth: 1.2, belly: -0.6, neckLength: 1, neckAngle: 30, headSize: 1.12, snoutLength: 1.0, snoutWidth: 0.95, headPitch: 15, eyeSize: 0.85, earSize: 1, ears: 'pointed', tail: 'bushy', tailLength: 0.85, tailThickness: 1.2, tailCurl: -0.6, mane: 'ruff', maneSize: 0.6, pattern: 'saddle', fluff: 0.55, legThickness: 1.0 },
@@ -252,8 +252,8 @@
             { coat: '#e7aaa0', marking: '#c9837c', light: '#f0c2b8', nose: '#d78a86', hoof: '#8a6a5a', horn: '#ece4d0', eye: '#2a1810', mane: '#e7aaa0' }),
         // A nine-banded armadillo: low under a banded shell (shoulder shield, flexible bands, hip shield), a small
         // pointed head with a scaled cap and upright ears, a long tapered ringed tail, short legs with digging claws.
-        K('armadillo', { size: 0.26, bodyLength: 1.0, legLength: 0.42, hipHeight: 1.06, girth: 1.12, chestDepth: 0.95, hump: 0.5, belly: -0.1, neckLength: 0.28, neckAngle: 18, neckThickness: 1.0, headSize: 0.8, snoutLength: 1.05, snoutWidth: 0.62, headPitch: 30, eyeSize: 0.55, eyeSide: 0.6, earSize: 0.7, ears: 'pointed', tail: 'long', tailLength: 1.0, tailThickness: 1.45, tailCurl: -0.6, feet: 'claw', plantigrade: 0.6, pawSize: 1.15, legThickness: 0.95, pattern: 'solid', fluff: 0 },
-            { coat: '#a08672', marking: '#6a5646', light: '#cdb7a2', nose: '#4a3a34', hoof: '#cfc2ae', horn: '#6e5a4a', eye: '#1a1210', mane: '#8f7a68' }),
+        K('armadillo', { size: 0.26, bodyLength: 0.9, legLength: 0.3, hipHeight: 1.1, girth: 1.75, chestDepth: 1.2, hump: 1.1, belly: 0.25, neckLength: 0.34, neckAngle: 10, neckThickness: 0.9, headSize: 1.02, snoutLength: 0.9, snoutWidth: 0.7, headPitch: 22, eyeSize: 0.5, eyeSide: 0.7, earSize: 1.3, ears: 'pointed', tail: 'long', tailLength: 1.4, tailThickness: 1.7, tailCurl: -0.2, feet: 'claw', plantigrade: 0.7, pawSize: 1.15, legThickness: 1.0, pattern: 'solid', fluff: 0 },
+            { coat: '#b09484', marking: '#6a5646', light: '#d6bca2', nose: '#b88a80', hoof: '#d8ccb8', horn: '#665242', eye: '#1a1210', mane: '#8f7a68' }),
         K('rabbit', { size: 0.15, bodyLength: 0.74, legLength: 0.34, hipHeight: 1.5, girth: 1.22, chestDepth: 1.1, belly: 0.2, neckLength: 0.3, neckAngle: 46, headSize: 1.38, snoutLength: 0.34, snoutWidth: 0.8, headPitch: 18, eyeSize: 1.3, eyeSide: 1, earSize: 1.55, ears: 'long', earDroop: -0.45, tail: 'stub', tailLength: 0.25, tailThickness: 1.6, tailCurl: 1, plantigrade: 1, pawSize: 1.3, pattern: 'countershade', fluff: 0.6 },
             { coat: '#8a7560', marking: '#4a3a2c', light: '#e6dac8', nose: '#8a6a64', eye: '#3a2216', mane: '#9a8470' }),
         K('bull', { size: 0.95, legLength: 1.0, girth: 1.35, chestDepth: 1.3, belly: 0.25, hump: 0.45, neckLength: 0.6, neckAngle: 15, neckThickness: 1.5, headSize: 1.15, snoutLength: 1.0, snoutWidth: 1.15, headPitch: 35, eyeSize: 1.2, eyeSide: 0.85, earSize: 0.8, ears: 'round', earDroop: 0.7, tail: 'tufted', tailLength: 1, tailThickness: 0.7, tailCurl: -1, feet: 'hoof', horns: 'bull', hornSize: 1, pattern: 'piebald', legThickness: 1.22, fluff: 0.05 },
@@ -870,6 +870,17 @@
             nT: [[0, 2.2], [1, 2.3], [2, 2.3]], nB: [[0, 2.2], [1, 2.2], [2, 2.5]],
             ear: [0.66, 0.66, -0.36], pad: { y: -0.28, z: -0.3 }
         },
+        // A nine-banded armadillo: a small flat-topped braincase, then a long narrow snout tapering like a cone
+        // to a small round nose, its top line sloping gently down (the head shield lies over it, see loftsOf).
+        armadillo: {
+            back: -0.9, stop: 0.5, muzzle: 1.25, round: 0.1, eye: [0.36, 0.2, 0.86],
+            top: [[0, 0.1], [0.3, 0.5], [0.65, 0.58], [0.9, 0.5], [1, 0.45], [1.3, 0.33], [1.6, 0.23], [1.85, 0.15], [2, 0.07]],
+            bot: [[0, -0.34], [0.3, -0.54], [0.6, -0.56], [0.9, -0.46], [1.1, -0.36], [1.4, -0.27], [1.7, -0.2], [1.9, -0.16], [2, -0.09]],
+            wT: [[0, 0.4], [0.3, 0.6], [0.6, 0.64], [0.9, 0.5], [1, 0.4], [1.3, 0.27], [1.6, 0.19], [1.85, 0.14], [2, 0.09]],
+            wB: [[0, 0.44], [0.3, 0.66], [0.6, 0.7], [0.9, 0.56], [1, 0.44], [1.3, 0.29], [1.6, 0.2], [1.85, 0.15], [2, 0.1]],
+            nT: [[0, 2.2], [1, 2.2], [2, 2.0]], nB: [[0, 2.2], [1, 2.2], [2, 2.0]],
+            ear: [0.24, 0.5, -0.5], pad: { y: -0.16, z: -0.2 }
+        },
         deer: {
             back: -0.95, stop: 0.55, muzzle: 0.95, round: 0.13,
             top: [[0, 0.18], [0.3, 0.52], [0.7, 0.58], [1, 0.50], [1.5, 0.36], [1.85, 0.27], [2, 0.20]],
@@ -882,7 +893,7 @@
     };
     /** The profile a kind's head is built from (or none: the shared parametric head). */
     // Only the heads clearly better than before use the three-view solid; big cats, deer and cats keep theirs (2026-10-24 review).
-    const headProfileOf = r => ['wolf', 'dog', 'fox'].includes(r.kind) ? 'canid' : r.kind === 'horse' ? 'horse' : r.kind === 'bear' ? 'bear' : null;
+    const headProfileOf = r => ['wolf', 'dog', 'fox'].includes(r.kind) ? 'canid' : r.kind === 'horse' ? 'horse' : r.kind === 'bear' ? 'bear' : r.kind === 'armadillo' ? 'armadillo' : null;
     /** Hermite through keyed values (tangents from the neighbours). */
     function keyed(keys, t) {
         if (t <= keys[0][0]) return keys[0][1];
@@ -1061,7 +1072,7 @@
         }
         // A paw animal's philtrum: a groove down the front of the muzzle from the nose to the lip, set where
         // the muzzle's front stands.
-        if (!hoofFace && !disc && !reptile) {
+        if (!hoofFace && !disc && !reptile && r.kind !== 'armadillo') {
             const front = y => { const from = H(0, y, zt - 0.7); for (let i = 0; i < 60; i++) { const p = add(from, mul(hd, i * sr * 0.025)); if (fieldAt(head, p) > 0) return p; } return H(0, y, zt); };
             const a = front(-0.08), b = front(-0.36);
             // A rabbit's upper lip is split from the nose down: a deep cleft.
@@ -1716,7 +1727,7 @@
                 else if (horse) rr = 0.035 * tt + 0.06 * tt * smooth(0.05, 0.4, t) * (1 - 0.5 * t);
                 else if (thick) rr = 0.085 * tt * (1 - t * 0.92) + 0.005;
                 else if (r.tail === 'stub') rr = 0.06 * tt * (1 - 0.6 * t);
-                else if (r.kind === 'armadillo') rr = (0.045 * (1 - 0.85 * t) + 0.004) * tt * (1 + 0.07 * smooth(0.55, 0.9, Math.sin(t * 70)));
+                else if (r.kind === 'armadillo') { const ring = t * 14 - Math.floor(t * 14); rr = (0.078 * (1 - 0.9 * t ** 0.75) + 0.004) * tt * (1 + 0.09 * (1 - 0.6 * t) * smooth(0.45, 0.92, ring) * (1 - smooth(0.92, 1, ring))); }
                 else rr = (0.04 + 0.022 * (1 - smooth(0, 0.2, t))) * tt * (1 - t * 0.5);
                 return horse ? [rr * 1.3, rr * 0.6] : [rr, rr];
             };
@@ -1847,48 +1858,128 @@
                 out.push({ mesh: loft(pts, t => { const v = (0.016 * (1 - t) + 0.002) * ts; return [v, v]; }, 8, null, true), kind: 'horn', weights: rigid('Head'), tag: 'tusk' });
             }
         }
-        // An armadillo's carapace: a solid shoulder shield, flexible bands (a groove and a lapping ridge each), a hip
-        // shield; found by casting out from the spine to the skin at each station and standing off it.
+        // A nine-banded armadillo's carapace (after photos and the ADW/Wikipedia accounts): one high, rounded dome
+        // arched from the shoulders to the rump and hanging low over the legs as a skirt, made of a rigid
+        // shoulder (scapular) shield, nine narrow flexible bands at mid-body, each lapping over the next, and a
+        // rigid hip (pelvic) shield that curves down over the rump; the shields pebbled with small round scutes,
+        // the bands with a row of narrow tapering ones. The dome is its own shape, pushed out wherever the body
+        // would show through it.
         if (r.kind === 'armadillo' && lay.shapes) {
-            const shapes = lay.shapes, z0 = lay.spineF[2] + 0.24 * g, z1 = lay.spineR[2] - 0.4 * g, rows = 72, cols = 34, bands = 8, sweep = 2.4;
-            const positions = [], index = [], tv = [], colorsOut = [], ring = [];
-            const colorAt = (C0, u, a) => {
-                const band = u > 0.36 && u < 0.64 ? ((u - 0.36) / 0.28 * bands) % 1 : -1, scute = Math.abs(Math.sin(a * 22 + (u * 60 | 0) * 0.5));
-                let k = band >= 0 ? 0.82 + 0.3 * smooth(0.55, 0.95, band) : 0.92 + 0.12 * Math.sin(u * 140) * Math.sin(a * 25);
-                return mixRgb(mul(C0.horn, k), C0.light, 0.16 * smooth(0.7, 1, scute) + 0.3 * smooth(0.85, 1, Math.abs(a) / sweep));
+            const se = (x, n) => Math.sign(x) * Math.abs(x) ** (2 / n), fr = x => x - Math.floor(x);
+            const shapes = lay.shapes, zF = lay.spineF[2] + 0.22 * g, zR = lay.spineR[2] - 0.5 * g, rows = 96, cols = 64, bands = 9, b0 = 0.36, b1 = 0.66;
+            const yAt = u => lay.spineF[1] + (lay.spineR[1] - lay.spineF[1]) * u - 0.14 * g;
+            // The body's own extent under the shell, for its size: the dome stands over its top and well out past its
+            // flanks, its rim low over the legs so only their lower parts show.
+            let T0 = 0, W0 = 0;
+            for (let i = 0; i <= 8; i++) {
+                const u = 0.25 + 0.5 * i / 8, c = [0, yAt(u), zF + (zR - zF) * u];
+                T0 = Math.max(T0, surfaceAlong(shapes, c, [0, 1, 0], g)[1]);
+                W0 = Math.max(W0, surfaceAlong(shapes, c, [1, 0, 0], g)[0]);
+            }
+            const topMax = T0 + 0.035 * g + 0.12 * T0, rimY = u => topMax * (0.3 + 0.2 * smooth(0.3, 0, u) + 0.05 * smooth(0.72, 1, u));
+            const topY = u => rimY(u) + (topMax - rimY(u)) * Math.sqrt(Math.max(0, 1 - ((u - 0.5) / 0.58) ** 2));
+            const halfW = u => W0 * 1.22 * Math.sqrt(Math.max(0, 1 - ((u - 0.5) / 0.6) ** 2));
+            const bandAt = u => u > b0 && u < b1 ? ((u - b0) / (b1 - b0) * bands) % 1 : -1;
+            // Scutes: the shields' small round ones in offset rows, the bands' one row of narrow ones.
+            const cellAt = (u, v) => {
+                const band = bandAt(u);
+                if (band >= 0) { const x = v * 46, f = x - Math.floor(x); return { bump: Math.sin(Math.PI * f) * smooth(0, 0.3, band) * (1 - smooth(0.8, 1, band)), edge: smooth(0.75, 1, band) }; }
+                const y = u * 64, j = Math.floor(y), x = v * 30 + (j % 2) * 0.5, fx = x - Math.floor(x) - 0.5, fy = y - j - 0.5, d = Math.hypot(fx, fy * 1.1) * 2;
+                return { bump: Math.max(0, 1 - d * d), edge: smooth(0.7, 1, d) };
             };
+            const positions = [], index = [], tv = [], info = [], grid = [];
             for (let i = 0; i < rows; i++) {
-                const u = i / (rows - 1), z = z0 + (z1 - z0) * (1 - u);
-                const mid = [0, lay.spineF[1] + (lay.spineR[1] - lay.spineF[1]) * u - 0.1 * g, z];
-                // Shields thick, bands each a ridge lapping over the next one's groove.
-                const band = u > 0.36 && u < 0.64 ? ((u - 0.36) / 0.28 * bands) % 1 : -1;
-                const off = (band >= 0 ? 0.02 + 0.012 * smooth(0.1, 0.8, band) * (1 - smooth(0.85, 1, band)) : 0.03) * g;
-                const edge = 1 - 0.55 * smooth(0.9, 1, Math.max(u > 0.5 ? (u - 0.5) * 2 : 0, u < 0.5 ? (0.5 - u) * 2 : 0));
+                const u = i / (rows - 1), z = zF + (zR - zF) * u, c = [0, rimY(u), z], inner = [0, yAt(u), z];
+                const T = topY(u) - rimY(u), W = halfW(u);
+                const band = bandAt(u), lap = band >= 0 ? 0.05 * T * (smooth(0, 0.85, band) - 0.5) * (1 - smooth(0.85, 1, band) * 1.4) : 0;
                 const row = [];
                 for (let k = 0; k < cols; k++) {
-                    const a = (k / (cols - 1) * 2 - 1) * sweep, dir = [Math.sin(a), Math.cos(a), 0];
-                    const sp = surfaceAlong(shapes, mid, dir, g), dome = 0.55 + 0.6 * Math.max(0, Math.cos(a)), outer = add(sp, mul(dir, off * edge * dome + 0.004 * g)), inner = add(sp, mul(dir, -0.006 * g));
-                    row.push([outer, inner, a, u]);
+                    // Round the dome from one rim over the top to the other, the sides falling near-straight to the
+                    // rim and tucking in a little under it.
+                    const v = k / (cols - 1) * 2 - 1, a = v * Math.PI / 2 * 1.06, cell = cellAt(u, v);
+                    let p = [W * se(Math.sin(a), 2.4) * (1 - 0.05 * smooth(1, 1.06, Math.abs(v) * 1.06)), T * se(Math.cos(a), 2.4), 0];
+                    const dir0 = norm([p[0] / Math.max(W, 1e-4), p[1] / Math.max(T, 1e-4) + 1e-6, 0]);
+                    p = add(c, add(p, mul(dir0, lap + 0.007 * T * cell.bump)));
+                    // Wherever the body would show through, the shell stands off it.
+                    const dir = norm(sub(p, inner)), sp = surfaceAlong(shapes, inner, dir, g), need = len(sub(sp, inner)) + 0.012 * g;
+                    if (len(sub(p, inner)) < need) p = add(inner, mul(dir, need));
+                    row.push([p, sub(p, mul(dir0, 0.01 * g + 0.02 * T)), u, v, cell]);
                 }
-                ring.push(row);
+                grid.push(row);
             }
-            // Outer and inner skins, joined round the rim.
+            let shellNotch = null;
+            // The hip shield closes down over the rump: past the last row the shell wraps round behind the
+            // hindquarters like the end of an egg, each column curving in and down to an arched notch at its
+            // foot that stands just over the tail where the tail leaves the body, so the tail comes out from
+            // under the shield's rear rim (the rim lapping over its base), never through the shell.
+            {
+                const last = grid[grid.length - 1], cB = [0, rimY(1), zR], depth = (zF - zR) * 0.12, nCap = 12, zN = zR - depth;
+                let notch = null;
+                if (r.tail !== 'none' && J.tail && J.tail.length > 1) {
+                    const acc = [0]; for (let i = 1; i < J.tail.length; i++) acc.push(acc[i - 1] + len(sub(J.tail[i], J.tail[i - 1])));
+                    for (let i = 1; i < J.tail.length && !notch; i++) {
+                        const a0 = J.tail[i - 1], a1 = J.tail[i];
+                        if ((a0[2] - zN) * (a1[2] - zN) > 0) continue;
+                        const f = (a0[2] - zN) / ((a0[2] - a1[2]) || 1e-9), c = lerp(a0, a1, f), t = (acc[i - 1] + f * (acc[i] - acc[i - 1])) / acc[acc.length - 1];
+                        // The tail's own radius there (its rings stand 9% proud), with room for its sway.
+                        const rr = (0.078 * (1 - 0.9 * t ** 0.75) + 0.004) * r.tailThickness * g * 1.09;
+                        notch = { c, r: rr * 1.22 + 0.006 * g };
+                    }
+                }
+                const ends = last.map(([p0, , , v]) => notch ? add(notch.c, [notch.r * Math.sin(v * Math.PI / 2) * 1.15, notch.r * Math.cos(v * Math.PI / 2), 0]) : [0, cB[1], zN]);
+                for (let j = 1; j <= nCap; j++) {
+                    const th = j / nCap * Math.PI / 2, shrink = Math.cos(th), back = Math.sin(th);
+                    const row = last.map(([p0, , u0, v, cell], k) => {
+                        const E = ends[k], p = notch ? [E[0] + (p0[0] - E[0]) * shrink, E[1] + (p0[1] - E[1]) * shrink, p0[2] - depth * back]
+                            : add(cB, [(p0[0] - cB[0]) * shrink, (p0[1] - cB[1]) * (0.25 + 0.75 * shrink), (p0[2] - cB[2]) * shrink - depth * back]);
+                        const dir = norm(add(sub(p, notch ? notch.c : cB), [0, 1e-6, 0])), inner = add(cB, [0, (yAt(1) - cB[1]) * 0.5, depth * 0.3]);
+                        const sp = surfaceAlong(shapes, inner, norm(sub(p, inner)), g), need = len(sub(sp, inner)) + 0.012 * g;
+                        // (Only the rump pushes it out: never along the tail, which runs on out under it.)
+                        const q = j < nCap * 0.7 && len(sub(p, inner)) < need && need < len(sub(p, inner)) * 1.25 ? add(inner, mul(norm(sub(p, inner)), need)) : p;
+                        return [q, sub(q, mul(dir, 0.01 * g + 0.006 * T0)), 0.95, v, cellAt(0.99 - 0.004 * j, v)];
+                    });
+                    grid.push(row);
+                }
+                shellNotch = notch && { c: notch.c.slice(), r: notch.r, z: zN };
+            }
+            const nr = grid.length;
             const vid = (i, k, side) => (i * cols + k) * 2 + side;
-            for (let i = 0; i < rows; i++) for (let k = 0; k < cols; k++) for (const side of [0, 1]) { const q = ring[i][k]; positions.push(...q[side]); tv.push(q[3]); colorsOut.push([q[3], q[2]]); }
-            for (let i = 0; i + 1 < rows; i++) for (let k = 0; k + 1 < cols; k++) {
-                index.push(vid(i, k, 0), vid(i + 1, k, 0), vid(i, k + 1, 0), vid(i, k + 1, 0), vid(i + 1, k, 0), vid(i + 1, k + 1, 0));
-                index.push(vid(i, k, 1), vid(i, k + 1, 1), vid(i + 1, k, 1), vid(i, k + 1, 1), vid(i + 1, k + 1, 1), vid(i + 1, k, 1));
+            for (let i = 0; i < nr; i++) for (let k = 0; k < cols; k++) for (const side of [0, 1]) { const q = grid[i][k]; positions.push(...q[side]); tv.push(q[2]); info.push(q); }
+            for (let i = 0; i + 1 < nr; i++) for (let k = 0; k + 1 < cols; k++) {
+                index.push(vid(i, k, 0), vid(i, k + 1, 0), vid(i + 1, k, 0), vid(i, k + 1, 0), vid(i + 1, k + 1, 0), vid(i + 1, k, 0));
+                index.push(vid(i, k, 1), vid(i + 1, k, 1), vid(i, k + 1, 1), vid(i, k + 1, 1), vid(i + 1, k, 1), vid(i + 1, k + 1, 1));
             }
-            for (let i = 0; i + 1 < rows; i++) for (const k of [0, cols - 1]) { const f = k === 0; index.push(...(f ? [vid(i, k, 0), vid(i, k, 1), vid(i + 1, k, 0), vid(i + 1, k, 0), vid(i, k, 1), vid(i + 1, k, 1)] : [vid(i, k, 0), vid(i + 1, k, 0), vid(i, k, 1), vid(i + 1, k, 0), vid(i + 1, k, 1), vid(i, k, 1)])); }
-            for (let k = 0; k + 1 < cols; k++) for (const i of [0, rows - 1]) { const f = i === 0; index.push(...(f ? [vid(i, k, 0), vid(i, k + 1, 0), vid(i, k, 1), vid(i, k + 1, 0), vid(i, k + 1, 1), vid(i, k, 1)] : [vid(i, k, 0), vid(i, k, 1), vid(i, k + 1, 0), vid(i, k + 1, 0), vid(i, k, 1), vid(i, k + 1, 1)])); }
-            const weights = t => t < 0.35 ? [['Chest', 1 - t / 0.7], ['Spine', t / 0.7]] : t < 0.65 ? [['Spine', 1 - (t - 0.35) / 0.6], ['Hips', (t - 0.35) / 0.6]] : [['Hips', 1]];
-            out.push({ mesh: { positions, index, t: tv }, kind: 'horn', weights, tag: 'shell', paint: (C0, i) => colorAt(C0, ...colorsOut[i]) });
-            // The head shield: a scaled cap over the skull from between the ears to the bridge of the nose.
-            if (lay.headShapes) {
-                const H = lay.H, hu = J.hup, lift = q => surfaceAlong(lay.headShapes, add(q, mul(hu, -0.4 * sr)), hu, g);
-                const pts = [-0.35, -0.1, 0.15, 0.4, 0.65, 0.9].map(z => add(lift(H(0, 0.2, z)), mul(hu, 0.004 * g)));
-                const cap = loft(pts, t => [sr * (0.42 - 0.26 * t), sr * 0.06 * (1 - 0.5 * t)], 14, [1, 0, 0], true);
-                out.push({ mesh: cap, kind: 'horn', weights: rigid('Head'), tag: 'shell', paint: (C0, i) => mixRgb(mul(C0.horn, 0.95), C0.light, 0.2 * Math.abs(Math.sin(cap.t[i] * 40))) });
+            // The rim: outer to inner round all four edges.
+            for (let i = 0; i + 1 < nr; i++) { index.push(vid(i, 0, 0), vid(i + 1, 0, 0), vid(i, 0, 1), vid(i + 1, 0, 0), vid(i + 1, 0, 1), vid(i, 0, 1)); const k = cols - 1; index.push(vid(i, k, 0), vid(i, k, 1), vid(i + 1, k, 0), vid(i + 1, k, 0), vid(i, k, 1), vid(i + 1, k, 1)); }
+            for (let k = 0; k + 1 < cols; k++) { index.push(vid(0, k, 0), vid(0, k, 1), vid(0, k + 1, 0), vid(0, k + 1, 0), vid(0, k, 1), vid(0, k + 1, 1)); const i = nr - 1; index.push(vid(i, k, 0), vid(i, k + 1, 0), vid(i, k, 1), vid(i, k + 1, 0), vid(i, k + 1, 1), vid(i, k, 1)); }
+            const weights = t => t < 0.3 ? [['Chest', 1]] : t < 0.5 ? [['Chest', (0.5 - t) / 0.2], ['Spine', (t - 0.3) / 0.2]] : t < 0.7 ? [['Spine', (0.7 - t) / 0.2], ['Hips', (t - 0.5) / 0.2]] : [['Hips', 1]];
+            // Colour: grey-brown scutes with paler seams, each band's rear edge pale, the skirt's edge yellowish pink.
+            const paint = (C0, i) => {
+                const [, , u, v, cell] = info[i], band = bandAt(u), rim = smooth(0.9, 1, Math.abs(v)) + smooth(0.03, 0, u) + smooth(0.97, 1, u);
+                let col = mixRgb(mul(C0.horn, 0.9 + 0.16 * cell.bump), C0.light, 0.22 * cell.edge);
+                if (band >= 0) col = mixRgb(col, mul(C0.horn, 0.7), 0.35 * smooth(0.25, 0, band));
+                return mixRgb(col, mixRgb(C0.light, [0.85, 0.66, 0.58], 0.3), 0.55 * Math.min(1, rim));
+            };
+            out.push({ mesh: { positions, index, t: tv }, kind: 'horn', weights, tag: 'shell', paint });
+            lay.shell = { zF, zR, T0, W0, bands, b0, b1, yAt, notch: shellNotch };
+            // The head shield: a long tapering plate of small scutes over the crown and down the top of the snout,
+            // lying on the head; between the ears at the back, ending short of the nose.
+            if (lay.headShapes && J.mouth) {
+                const H = lay.H, hu = J.hup, hs = lay.headShapes, zA = -0.42, zB = J.mouth.zt - 0.32, nr = 30, nc = 17, hp = [], hi = [], ht2 = [];
+                for (let i = 0; i < nr; i++) {
+                    const tz = i / (nr - 1), z = zA + (zB - zA) * tz, from = H(0, 0, z), wSide = len(sub(surfaceAlong(hs, from, [1, 0, 0], g), from));
+                    for (let k = 0; k < nc; k++) {
+                        const x = (k / (nc - 1) * 2 - 1) * (0.78 - 0.2 * tz), dir = norm(add(mul(hu, 1), [x * 1.4, 0, 0]));
+                        const sp = surfaceAlong(hs, from, dir, g), cy = (i * 0.5) % 1, cx = (k * 0.5 + (i % 2) * 0.25) % 1;
+                        const bump = Math.sin(Math.PI * fr(i / 2.2)) * Math.sin(Math.PI * fr(k / 2 + (Math.floor(i / 2.2) % 2) * 0.5));
+                        const edge = smooth(0.8, 1, Math.abs(x) / (0.78 - 0.2 * tz)) + smooth(0.05, 0, tz) + smooth(0.92, 1, tz);
+                        hp.push(...add(sp, mul(dir, (0.03 + 0.012 * bump) * sr * (1 - 0.6 * Math.min(1, edge)) + 0.002 * g)));
+                        ht2.push(tz); hi.push([bump, edge, wSide]);
+                    }
+                }
+                const idx = [];
+                for (let i = 0; i + 1 < nr; i++) for (let k = 0; k + 1 < nc; k++) { const a = i * nc + k; idx.push(a, a + nc, a + 1, a + 1, a + nc, a + nc + 1); }
+                out.push({ mesh: { positions: hp, index: idx, t: ht2 }, kind: 'horn', weights: rigid('Head'), tag: 'shell', paint: (C0, i) => mixRgb(mul(C0.horn, 0.9 + 0.12 * hi[i][0]), mixRgb(C0.light, [0.85, 0.66, 0.58], 0.3), 0.3 * smooth(0.4, 0, hi[i][0]) + 0.3 * Math.min(1, hi[i][1])) });
             }
         }
         // A pig's rhinarium: a short tube of even girth, a slight rim, then a flat face with two oval nostrils.
@@ -2358,6 +2449,16 @@
     // ── coat ───────────────────────────────────────────────────────────────
     const LEG_TAGS = new Set(['upperleg', 'thigh', 'lowerleg', 'pastern', 'paw', 'pad', 'toe', 'hoof']);
     const LOW_LEG_TAGS = new Set(['lowerleg', 'pastern', 'paw', 'pad', 'toe', 'hoof']);
+    /** Who has whiskers, and how: rows and columns on each pad, their spacing (skull radii), length, thickness, spread. */
+    const WHISKERS = {
+        cat: { rows: 4, cols: 4, dy: 0.05, dz: 0.035, len: 1.05, thick: 1, up: 0.34, fan: 0.36 },
+        lion: { rows: 4, cols: 5, dy: 0.05, dz: 0.034, len: 0.95, thick: 1.25, up: 0.3, fan: 0.4 },
+        tiger: { rows: 4, cols: 5, dy: 0.05, dz: 0.034, len: 1.05, thick: 1.25, up: 0.3, fan: 0.4 },
+        dog: { rows: 3, cols: 3, dy: 0.06, dz: 0.05, len: 0.55, thick: 0.9, up: 0.28, fan: 0.3 },
+        wolf: { rows: 3, cols: 3, dy: 0.06, dz: 0.05, len: 0.6, thick: 0.9, up: 0.28, fan: 0.3 },
+        fox: { rows: 3, cols: 4, dy: 0.055, dz: 0.04, len: 0.8, thick: 0.85, up: 0.3, fan: 0.34 },
+        rabbit: { rows: 3, cols: 4, dy: 0.06, dz: 0.04, len: 1.0, thick: 0.8, up: 0.32, fan: 0.36 }
+    };
     const HEAD_TAGS = new Set(['skull', 'brow', 'snout', 'whisker', 'nosepad', 'jaw', 'chin', 'cheek', 'ear']);
     const TORSO_TAGS = new Set(['torso', 'belly', 'rump', 'back', 'hump', 'neck', 'mane', 'scapula']);
 
@@ -2386,6 +2487,48 @@
         }
         if (face === 'reptile') return onHead ? smooth(-0.3, -0.45, hy) * smooth(z0, z0 + 0.3, hz) + ((tag === 'neck' || tag === 'jaw') ? smooth(0.2, 0.8, under) : 0) : smooth(0.2, 0.8, under) * (tag === 'neck' ? 1 : 0);
         return (tag === 'neck' || tag === 'jaw') ? smooth(0.2, 0.8, under) * 0.9 : 0;
+    }
+
+    /**
+     * A tiger's stripes (after photos of Bengal and Amur tigers): narrow dark stripes, each its own irregular
+     * line, running down from the spine and slanting back, tapering to a point before the white belly (never
+     * meeting underneath), many doubled or forked low on the flank; on the neck the same down the sides; on the
+     * legs short horizontal bars on the outside, fading inside. Each stripe is placed by a seeded walk along
+     * the body, not a repeating wave. Returns 0..1.
+     */
+    function tigerStripe(r, lay, p, n, tag, torsoMid, onLeg, onHead, hz, hy) {
+        const { J, g } = lay, seed = (r.seed % 1000) + 17, ps = r.patternScale || 1, side = p[0] >= 0 ? 1 : -1;
+        const rnd = (i, k) => hash3(i * 1.37 + k * 7.1, side * 3.3 + k, k * 1.9, seed);
+        // A line of half-width w at distance d (none where it has tapered away).
+        const line = (w, d) => w > 1e-3 ? smooth(w, w * 0.5, d) : 0;
+        if (onHead || tag === 'tail') return 0;
+        if (onLeg) {
+            // Bars across the leg, outside only, uneven in spacing and length, broken at the front and back.
+            const out = clamp((n[0] * side + 0.25) / 0.6, 0, 1), y = p[1] / g * 15 / ps, i = Math.floor(y), f = y - i;
+            const w = 0.14 + 0.14 * rnd(i, 3), c = 0.5 + 0.3 * (rnd(i, 4) - 0.5) + 0.12 * fbm(p[0] * 30, p[2] * 30, i, seed, 2);
+            const reach = smooth(0.15, 0.45, Math.abs(Math.atan2(n[2], n[0] * side)) < 1.2 + 0.6 * rnd(i, 5) ? 1 : 0);
+            return line(w, Math.abs(f - c)) * out * reach * (rnd(i, 6) > 0.18 ? 1 : 0);
+        }
+        // Up the side: 1 on the spine, 0 under the belly (the angle round the torso's middle line).
+        const h = 1 - Math.abs(Math.atan2(Math.abs(p[0]), p[1] - torsoMid[1])) / Math.PI;
+        // Along the body in stripe units: stripes about every 0.075 g, a seeded spacing, slanting back lower down.
+        const neck = tag === 'neck' ? 1 : 0, zz = (p[2] + (1 - h) * 0.07 * g * (1 - neck)) / g / (0.075 * ps);
+        const base = Math.floor(zz);
+        let best = 0;
+        for (let i = base - 2; i <= base + 2; i++) {
+            const c = i + 0.5 + 0.35 * (rnd(i, 1) - 0.5) + 0.25 * fbm(h * 3 + i, i * 0.7, side, seed + 3, 2);
+            // Where it ends low on the flank (a point), how wide it starts, doubled or forked.
+            const end = 0.2 + 0.32 * rnd(i, 2), top = rnd(i, 7) < 0.25 ? 0.88 + 0.1 * rnd(i, 8) : 1.05, wide = 0.11 + 0.1 * rnd(i, 9);
+            const taper = smooth(end, end + 0.28, h) * (1 - smooth(top - 0.06, top, h));
+            const d = Math.abs(zz - c), wv = wide * taper;
+            let v = line(wv, d);
+            const kind = rnd(i, 10);
+            if (kind < 0.3) v = Math.max(v, line(wv * 0.6, Math.abs(zz - c - 0.3)) * smooth(end + 0.08, end + 0.3, h) * (1 - smooth(0.75, 0.85, h)));
+            else if (kind < 0.55) { const split = 0.55 + 0.15 * rnd(i, 11), sp = smooth(split, end, h) * 0.22;
+                v = Math.max(v * smooth(split - 0.12, split, h), line(wv * 0.6, Math.abs(zz - c - sp)), line(wv * 0.6, Math.abs(zz - c + sp))); }
+            best = Math.max(best, v);
+        }
+        return best;
     }
 
     /**
@@ -2430,6 +2573,8 @@
             const ring = smooth(0.06, 0.12, d2 - d1) * (1 - smooth(0.12, 0.2, d2 - d1));
             const dotSpot = (1 - smooth(0.12, 0.2, d1)) * (lowLeg || onHead ? 1 : 0);
             col = mixRgb(col, C.marking, k(clamp(ring * (1 - (lowLeg || onHead ? 1 : 0)) + dotSpot, 0, 1) * (1 - belly * 0.7)));
+        } else if (pat === 'stripes' && r.kind === 'tiger') {
+            col = mixRgb(col, C.marking, k(tigerStripe(r, lay, p, n, tag, torsoMid, onLeg, onHead, hz, hy) * (1 - belly * 0.92) * (1 - muzzle)));
         } else if (pat === 'stripes' || pat === 'tabby') {
             const warp = fbm(p[0] * 4, p[1] * 4, p[2] * 4, seed, 3) * 0.35;
             // Upright bands down the trunk and the haunches, rings round the legs below the elbow and stifle.
@@ -2929,12 +3074,14 @@
         const save = quality !== 'preview';
         const budget = clamp(o.hairBudget == null ? 1 : o.hairBudget, 0, 2);
         const lay = layout(r);
-        const shapes = shapesOf(r, lay).filter(shape => !o.headOnly || shape.bone === 'Head');
+        const shapes = shapesOf(r, lay).filter(shape => (!o.headOnly || shape.bone === 'Head') && (!o.headless || (shape.bone !== 'Head' && shape.bone !== 'Neck')));
+        // Centaur hook (RRCharacterCentaur): with `headless` no neck or head, and the caller's own shapes (a waist from the withers).
+        if (o.extraShapes) shapes.push(...o.extraShapes(lay, { cone, ellipsoid, flatten }));
         if (!o.headOnly) attachTail(r, lay, shapes);
         lay.shapes = shapes;
         const bones = bonesOf(lay);
         const boneIndex = new Map(bones.map((b, i) => [b.name, i]));
-        const lofts = loftsOf(r, lay).filter(piece => !o.headOnly || ['ear', 'brow', 'forelock', 'beak', 'crest', 'horn', 'tusk', 'tooth', 'tongue'].includes(piece.tag));
+        const lofts = loftsOf(r, lay).filter(piece => (!o.headOnly || ['ear', 'brow', 'forelock', 'beak', 'crest', 'horn', 'tusk', 'tooth', 'tongue'].includes(piece.tag)) && (!o.headless || !['ear', 'brow', 'forelock', 'beak', 'crest', 'horn', 'tusk', 'tooth', 'tongue', 'whisker', 'mane'].includes(piece.tag)));
         const prof = profileOf(r);
         // Grid cell in body units, coarser for a very long body so the grid stays in bounds.
         let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
@@ -3078,8 +3225,12 @@
                 } else {
                     c = coatColor(r, lay, p, [0, 0, 1], piece.tag, C);
                     if (piece.tag === 'tail' && r.pattern === 'points') c = mixRgb(c, C.marking, smooth(0.4, 0.9, t) * r.patternAmount);
-                    if (piece.tag === 'tail' && r.kind === 'armadillo') c = mixRgb(mul(C.coat, 0.85), C.light, 0.3 * smooth(0.55, 0.9, Math.sin(t * 70)));
-                    if (piece.tag === 'tail' && r.pattern === 'stripes') c = mixRgb(c, C.marking, (Math.sin(t * 30) > 0.3 ? 1 : 0) * r.patternAmount);
+                    if (piece.tag === 'tail' && r.kind === 'armadillo') { const ring = t * 14 - Math.floor(t * 14), sc = Math.abs(Math.sin((p[0] / Math.max(1e-4, Math.hypot(p[0], p[1] - (lay.J.tail[0] || [0, 0])[1]))) * 9)); c = mixRgb(mul(C.horn, 0.92 + 0.1 * sc), C.light, 0.45 * smooth(0.82, 1, ring) + 0.15 * smooth(0.3, 0, ring)); }
+                    if (piece.tag === 'tail' && r.pattern === 'stripes' && r.kind === 'tiger') {
+                        // Uneven dark rings, closer toward the end, and a black tip.
+                        const x = t * 9 + 2.2 * t * t, ri = Math.floor(x), f = x - ri, w = 0.2 + 0.12 * hash3(ri, 1, 2, r.seed % 1000);
+                        c = mixRgb(c, C.marking, Math.max(smooth(w, w * 0.6, Math.abs(f - 0.5)) * smooth(0.05, 0.12, t), smooth(0.86, 0.9, t)) * r.patternAmount);
+                    } else if (piece.tag === 'tail' && r.pattern === 'stripes') c = mixRgb(c, C.marking, (Math.sin(t * 30) > 0.3 ? 1 : 0) * r.patternAmount);
                     if (piece.tag === 'crest') c = mixRgb(C.mane, C.marking, smooth(0.4, 1, t) * 0.5);
                     if (piece.tag === 'tail' && r.tail === 'tufted' && t > 0.88) c = mixRgb(c, mixRgb(C.mane, C.marking, 0.5), smooth(0.88, 0.95, t));
                 }
@@ -3215,15 +3366,26 @@
         }
         finish('Horns', horn, { roughness: 0.45 });
         finish('Claws', claws, { roughness: 0.4 });
-        if(r.kind==='cat'&&lay.whiskerPad){
-            const P=root.RRCharacterProps||require('./CharacterProps.js'),m=new P.ExactMesh(),skin=P.rigid(boneIndex.get('Head')),wp=lay.whiskerPad;
-            for(const s of [-1,1])for(let row=0;row<3;row++)for(let j=0;j<4;j++){
-                const from=lay.H(s*.10,wp.y+.055*(row-1),wp.z+.035*(j-1.5)),direction=norm(add([s*.82,0,0],mul(lay.hd,.57)));
-                let start=from;
-                for(let k=0;k<100;k++){const p=add(from,mul(direction,k*lay.sr*.015));if(fieldAt(lay.headShapes,p)>0){start=sub(p,mul(direction,lay.sr*.012));break;}}
-                const end=add(start,add([s*lay.sr*(1.0+j*.11),0,0],add(mul(lay.hu,lay.sr*(.23-row*.18-j*.03)),mul(lay.hd,lay.sr*(.12+j*.08)))));
-                const mid=add(lerp(start,end,.5),mul(lay.hu,lay.sr*.035));
-                m.tube([start,mid,end],[lay.sr*.0023,lay.sr*.0016,lay.sr*.00012],5,C.light,skin);
+        // Whiskers (vibrissae): rooted in staggered rows on each whisker pad, each fanning out by its own row
+        // (upper rows angled up, lower down) and column (back ones swept back, front ones forward) so they spread
+        // apart and never cross, with a gentle backward droop and fine tips. Sized to the head.
+        const whiskerLines = [];
+        const WH = WHISKERS[r.kind];
+        if (WH && lay.whiskerPad && !o.headless) {
+            const P = root.RRCharacterProps || require('./CharacterProps.js'), m = new P.ExactMesh(), skin = P.rigid(boneIndex.get('Head')), wp = lay.whiskerPad, sr0 = lay.sr;
+            const rad = sr0 * 0.0023 * WH.thick;
+            for (const s of [-1, 1]) for (let row = 0; row < WH.rows; row++) for (let j = 0; j < WH.cols; j++) {
+                const ru = WH.rows > 1 ? row / (WH.rows - 1) : 0.5, cu = WH.cols > 1 ? j / (WH.cols - 1) : 0.5;
+                const from = lay.H(s * 0.1, wp.y + WH.dy * (0.5 - ru) * (WH.rows - 1), wp.z + WH.dz * (cu - 0.5) * (WH.cols - 1) + (row % 2) * WH.dz * 0.5), out = norm(add([s * 0.82, 0, 0], mul(lay.hd, 0.57)));
+                let start = from;
+                for (let k = 0; k < 100; k++) { const q = add(from, mul(out, k * sr0 * 0.015)); if (fieldAt(lay.headShapes, q) > 0) { start = sub(q, mul(out, sr0 * 0.012)); break; } }
+                const el = WH.up * (1 - 2 * ru), az = 0.12 + WH.fan * (2 * cu - 1), length = sr0 * WH.len * (0.8 + 0.3 * (1 - cu)) * (1 - 0.18 * Math.abs(ru - 0.5));
+                const dir = norm(add(add([s * Math.cos(el) * Math.cos(az), 0, 0], mul(lay.hu, Math.sin(el))), mul(lay.hd, Math.cos(el) * Math.sin(az))));
+                const end = add(start, mul(dir, length)), bend = add(lerp(start, end, 0.5), add(mul(lay.hu, -length * 0.06), mul(lay.hd, -length * 0.05)));
+                const at = t => add(add(mul(start, (1 - t) * (1 - t)), mul(bend, 2 * t * (1 - t))), mul(end, t * t));
+                const pts = [0, 0.25, 0.5, 0.75, 1].map(at);
+                m.tube(pts, [rad, rad * 0.8, rad * 0.58, rad * 0.32, rad * 0.05], 5, C.light, skin);
+                whiskerLines.push({ side: s, pts, radius: rad });
             }
             if(r.catType==='maineCoon')for(const ear of lay.ears){
                 const tip=ear.tip;if(!tip)continue;
@@ -3303,7 +3465,8 @@
         let top = 0;
         for (const part of parts) for (let i = 1; i < part.positions.length; i += 3) top = Math.max(top, part.positions[i]);
         const markers = markersOf(lay, scalePoint);
-        const result = { parts, bones: outBones, height: top, plan: 'quadruped', headOnly: !!o.headOnly, rig: { template: 'quadruped', markers }, clips: o.static ? [] : [idleClip(outBones)], textures, recipe: given };
+        const result = { parts, bones: outBones, height: top, plan: 'quadruped', headOnly: !!o.headOnly, rig: { template: 'quadruped', markers }, clips: o.static ? [] : [idleClip(outBones, r)], textures, recipe: given };
+        Object.defineProperty(result, 'whiskerLines', { value: whiskerLines, enumerable: false });
         if(o.headOnly){result.skullAnchor=scalePoint(lay.H(0,-.32,-.20));result.skullRadius=lay.sr*S;}
         if (o.diagnostics) result.attachments = {
             coreTriangles: bodyFaces / 3,
@@ -3328,14 +3491,17 @@
         const at = v => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
         const skinOf = v => ({ joints: coat.joints.slice(v * 4, v * 4 + 4), weights: coat.weights.slice(v * 4, v * 4 + 4) });
         // Areas of the body's triangles by kind of root.
-        const maneTris = [], coatTris = [];
-        let maneArea = 0, coatArea = 0;
+        const maneTris = [], coatTris = [], ruffTris = [];
+        let maneArea = 0, coatArea = 0, ruffArea = 0;
         for (let t = 0; t < I.length; t += 3) {
             const a = I[t], b = I[t + 1], c = I[t + 2];
             if (a >= vcount || b >= vcount || c >= vcount) continue;
             const tag = tags[a];
             const pa = at(a), pb = at(b), pc = at(c);
             const area = 0.5 * len(cross(sub(pb, pa), sub(pc, pa)));
+            // A tiger's cheek ruffs: the fur over the sides of the face below and behind the eyes.
+            if (r.kind === 'tiger' && HEAD_TAGS.has(tag) && tag !== 'ear') { const q = sub(pa, J.skull), hz = dot(q, J.hdir) / sr, hy = dot(q, J.hup) / sr, hx = Math.abs(q[0]) / sr;
+                if (hx > 0.45 && hy < 0.15 && hy > -0.75 && hz < 0.25 && hz > -0.95) { ruffArea += area; ruffTris.push([t, ruffArea]); } }
             if (tag === 'mane' && lionMane) { maneArea += area; maneTris.push([t, maneArea]); }
             else if (shag > 0 && !(tag === 'nosepad' || tag === 'hoof' || tag === 'pad' || tag === 'vulva' || tag === 'sheath' || tag === 'udder') && !(tag === 'mane')) {
                 const n = [normals[a * 3], normals[a * 3 + 1], normals[a * 3 + 2]];
@@ -3375,6 +3541,16 @@
                 const color = mixRgb(mixRgb(dark, mane, 0.3 + 0.7 * rand()), fair, fringe * 0.7);
                 roots.push(Object.assign({ p, n, flow, len: (0.07 + 0.1 * rand()) * (0.55 + 0.45 * ms) * g * (0.35 + 0.85 * fromFace), width: (r.kind==='cat'?.0035:.018) * g * (0.8 + 0.4 * rand()), lift: 0.15 + 0.25 * rand(), droop: 0.45,
                     color, tipColor: mixRgb(color, fair, 0.35) }, skinOf(v)));
+            }
+        }
+        if (ruffTris.length) {
+            // Short pale side-whiskers of fur sweeping back and down off the cheeks (a tiger has no neck mane).
+            const fair = mixRgb(C.light, [1, 1, 1], 0.2), count = Math.round((save ? 700 : 320) * budget);
+            for (let i = 0; i < count; i++) {
+                const { p, n, v } = pick(ruffTris, ruffArea), q = sub(p, J.skull), hz = dot(q, J.hdir) / sr;
+                const flow = norm(add(add(mul(n, 0.55), mul(J.hdir, -0.7)), mul(J.hup, -0.25)));
+                const color = mixRgb(fair, C.coat, smooth(0.0, -0.8, hz) * 0.5 * rand());
+                roots.push(Object.assign({ p, n, flow, len: (0.035 + 0.035 * rand()) * g * (0.6 + 0.6 * smooth(0.2, -0.6, hz)), width: 0.006 * g * (0.8 + 0.4 * rand()), lift: 0.35, droop: 0.25, color, tipColor: fair }, skinOf(v)));
             }
         }
         if (r.mane === 'horse' && r.maneSize > 0 && maneCap > 0) {
@@ -3551,7 +3727,7 @@
     // ── idle ───────────────────────────────────────────────────────────────
     const axisAngle = (x, y, z, a) => { const s = Math.sin(a / 2); return [x * s, y * s, z * s, Math.cos(a / 2)]; };
     /** Breathing, a tail that swings, a head that looks about: three seconds round. */
-    function idleClip(bones) {
+    function idleClip(bones, recipe) {
         const steps = 25, period = 3;
         const times = [];
         for (let i = 0; i < steps; i++) times.push((period * i) / (steps - 1));
@@ -3569,9 +3745,11 @@
         track('Head', a => axisAngle(0, 1, 0, 0.12 * Math.sin(a)));
         track('LeftWing', a => axisAngle(0, 0, 1, 0.06 * Math.sin(a)));
         track('RightWing', a => axisAngle(0, 0, 1, -0.06 * Math.sin(a)));
-        track('Tail', a => axisAngle(0, 1, 0, 0.22 * Math.sin(a * 2)));
-        track('Tail2', a => axisAngle(0, 1, 0, 0.25 * Math.sin(a * 2 - 0.6)));
-        track('Tail3', a => axisAngle(0, 1, 0, 0.3 * Math.sin(a * 2 - 1.2)));
+        // (An armadillo's tail sways only past its hip shield's rim, see poseClip.)
+        const shielded = recipe && recipe.kind === 'armadillo' ? 1 : 0;
+        track('Tail', a => axisAngle(0, 1, 0, 0.22 * (1 - shielded) * Math.sin(a * 2)));
+        track('Tail2', a => axisAngle(0, 1, 0, 0.25 * (1 - shielded) * Math.sin(a * 2 - 0.6)));
+        track('Tail3', a => axisAngle(0, 1, 0, (0.3 + 0.2 * shielded) * Math.sin(a * 2 - 1.2)));
         return { name: 'Idle', times, tracks };
     }
 
@@ -3779,6 +3957,12 @@
                 }
                 const hips = qMul(qTurn(0, 0, roll), qTurn(pitch, 0, 0));
                 P.__hips = hips;
+            }
+            // An armadillo's tail root lies under the rigid hip shield: it holds still there and all its motion
+            // is taken past the shield's rim (on the last tail bone), so the tail never cuts through the shell.
+            if (r && r.kind === 'armadillo' && (P.Tail || P.Tail2)) {
+                const a = P.Tail || [0, 0, 0], b = P.Tail2 || [0, 0, 0], c = P.Tail3 || [0, 0, 0];
+                P.Tail3 = [a[0] + b[0] + c[0], (a[1] + b[1] + c[1]) * 0.7, a[2] + b[2] + c[2]]; delete P.Tail; delete P.Tail2;
             }
             frames.push(P);
         }

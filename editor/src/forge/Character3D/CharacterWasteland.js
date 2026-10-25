@@ -813,7 +813,8 @@
             for (let t = from; t < rubber.i.length; t += 3) {
                 const ids = [rubber.i[t], rubber.i[t + 1], rubber.i[t + 2]].map(v => v - base), rc = ids.map(v => [Math.floor(v / C1), v % C1]);
                 const ma = rc.reduce((sum, [r, k]) => sum + grid[r][k].a, 0) / 3, my = rc.reduce((sum, [r, k]) => sum + grid[r][k].y, 0) / 3;
-                if (!eyes.some(E => Math.hypot((ma - E.a) * 0.085, my - E.y) < E.r * 0.92)) keep.push(rubber.i[t], rubber.i[t + 1], rubber.i[t + 2]);
+                // (Cut a little wider than the lens: the cut's stair of whole cells lies under the lens's flange, never inside it.)
+                if (!eyes.some(E => Math.hypot((ma - E.a) * 0.085, my - E.y) < E.r * 1.02)) keep.push(rubber.i[t], rubber.i[t + 1], rubber.i[t + 2]);
             }
             rubber.i.splice(from, rubber.i.length - from, ...keep);
         }
@@ -834,11 +835,43 @@
             const a = Math.atan2(E.center[0] - F.cx, E.center[2] - F.cz), q = onMask(a, E.center[1]);
             const dir = norm(add(mul(norm(sub(E.center, [F.cx, E.center[1], F.cz])), 0.35), [0, 0, 0.94]));
             const r = Math.max(0.021 * s, E.radius * 1.65), base = add(q.p, mul(dir, -0.002 * s)), lip = add(q.p, mul(dir, 0.011 * s));
-            rubber.tube([base, add(q.p, mul(dir, 0.006 * s))], t => r * (1.18 - 0.08 * t), 18, tone(color, 0.95), head, { caps: false });
+            rubber.tube([add(base, mul(dir, -0.002 * s)), add(q.p, mul(dir, 0.006 * s))], t => r * (1.18 - 0.08 * t), 24, tone(color, 0.95), head, { caps: false });
+            // The collar's floor: a rubber ring across its foot, from the lens's edge out to its wall, so a look past the
+            // lens down the collar meets rubber, not the face through the cut.
+            {
+                const x = norm(cross(dir, Y)), yv = cross(x, dir), N = 32, foot = add(base, mul(dir, 0.0005 * s)), ring = [];
+                for (let k = 0; k <= N; k++) {
+                    const ang = k / N * TAU, off = add(mul(x, Math.cos(ang)), mul(yv, Math.sin(ang)));
+                    ring.push([rubber.vertex(add(foot, mul(off, r * 0.9)), dir, tone(color, 0.7), head, [k / N * 0.2, 0]), rubber.vertex(add(foot, mul(off, r * 1.2)), dir, tone(color, 0.7), head, [k / N * 0.2, 0.02])]);
+                }
+                const P3 = v => [rubber.p[v * 3], rubber.p[v * 3 + 1], rubber.p[v * 3 + 2]], f0 = cross(sub(P3(ring[0][1]), P3(ring[0][0])), sub(P3(ring[1][0]), P3(ring[0][0])));
+                const up = dot(f0, dir) > 0;
+                for (let k = 0; k < N; k++) { const [a0, b0] = ring[k], [a1, b1] = ring[k + 1]; if (up) rubber.quad(a0, b0, b1, a1); else rubber.quad(a0, a1, b1, b0); }
+            }
+            // A moulded flange sealing the collar into the mask: a smooth ring on the mask's surface from the collar out,
+            // over the eye hole's cut edge.
+            {
+                const x = norm(cross(dir, Y)), yv = cross(x, dir), N = 32, inner = [], outer = [];
+                for (let k = 0; k <= N; k++) {
+                    const ang = k / N * TAU, rad = [Math.cos(ang), Math.sin(ang)];
+                    for (const [list, rr, lift, shade] of [[inner, r * 1.1, 0.003 * s, 0.95], [outer, r * 1.85, 0.0012 * s, 1]]) {
+                        const w = add(q.p, add(mul(x, rad[0] * rr), mul(yv, rad[1] * rr))), wa = Math.atan2(w[0] - F.cx, w[2] - F.cz);
+                        // The mask's radius there, blended from its nearest points (a nearest point alone steps cell to cell).
+                        const near = flat.map(f => [((f.a - wa) * 0.085) ** 2 + (f.y - w[1]) ** 2, f]).sort((P, Q) => P[0] - Q[0]).slice(0, 4);
+                        let R = 0, W = 0; for (const [d, f] of near) { const k2 = 1 / (Math.sqrt(d) + 1e-4); R += Math.hypot(f.p[0] - F.cx, f.p[2] - F.cz) * k2; W += k2; }
+                        const n = [Math.sin(wa), 0, Math.cos(wa)], pp = [F.cx + n[0] * (R / W + lift), w[1], F.cz + n[2] * (R / W + lift)];
+                        list.push(rubber.vertex(pp, n, tone(color, shade), head, [k / N * 0.2, 0]));
+                    }
+                }
+                // Facing out of the mask, whichever way the ring runs.
+                const P3 = v => [rubber.p[v * 3], rubber.p[v * 3 + 1], rubber.p[v * 3 + 2]], f0 = cross(sub(P3(outer[0]), P3(inner[0])), sub(P3(inner[1]), P3(inner[0])));
+                const out0 = dot(f0, sub(P3(inner[0]), [F.cx, P3(inner[0])[1], F.cz])) > 0;
+                for (let k = 0; k < N; k++) if (out0) rubber.quad(inner[k], outer[k], outer[k + 1], inner[k + 1]); else rubber.quad(inner[k], inner[k + 1], outer[k + 1], outer[k]);
+            }
             metal.tube([add(q.p, mul(dir, 0.005 * s)), lip], r * 1.06, 18, metalC, head, { caps: false });
             metal.tube([lip, add(lip, mul(dir, 0.0015 * s))], r * 0.9, 18, tone(metalC, 1.2), head, { caps: false });
             for (let k = 0; k < 3; k++) { const ang = k / 3 * TAU + 0.5, x = norm(cross(dir, Y)), y = cross(x, dir), p = add(lip, add(mul(x, Math.cos(ang) * r * 0.98), mul(y, Math.sin(ang) * r * 0.98))); rivet(metal, p, dir, 0.0022 * s, tone(metalC, 1.1), head); }
-            glass.disc(add(lip, mul(dir, -0.001 * s)), dir, r * 0.92, linear(item.lensColor || '#5a6e66'), head, 20);
+            glass.disc(add(lip, mul(dir, -0.001 * s)), dir, r * 0.95, linear(item.lensColor || '#5a6e66'), head, 24);
         }
         // Filters: one forward under the nose, or two at the cheeks, angled down.
         const filters = twin ? [[-0.55, -1], [0.55, 1]] : [[0, 0]];
@@ -1089,11 +1122,12 @@
         const skinAt = p => C.skinAt(p, false);
         // Each column rides on what it lies over: the hanging part with the point it falls from.
         const hold = sections.map((sec, k) => { const last = sec.hull[sec.hull.length - 2]; return C.skinAt([cx + Math.sin(sec.a) * last[0], last[1] - gap, cz + Math.cos(sec.a) * last[0]], false); });
-        const base = m.p.length / 3, cols = A + 1;
+        const base = m.p.length / 3, cols = A + 1, hemSkin = [];
         for (let r = 0; r <= N; r++) for (let k = 0; k <= A; k++) {
             const q = k % A, p = grid[r][q], sec = sections[q], t = sec.len * r / N;
             const lying = (() => { let acc = 0; for (let i = 1; i < sec.hull.length - 1; i++) acc += Math.hypot(sec.hull[i][0] - sec.hull[i - 1][0], sec.hull[i][1] - sec.hull[i - 1][1]); return acc; })();
             const skin = t <= lying ? skinAt(sub(p, [0, gap, 0])) : hold[q];
+            if (r === N) hemSkin[q] = skin;
             // The color is the blanket's picture; the vertices only darken it toward the hem.
             const g = 1 - 0.3 * ss(0.55, 1, r / N);
             m.vertex(p, [0, 1, 0], [g, g, g], skin, [k / A * 4, r / N * 0.98]);
@@ -1105,9 +1139,9 @@
         for (let r = 0; r <= N; r++) { const a = base + r * cols, b = a + A; for (let c = 0; c < 3; c++) { const v = (m.n[a * 3 + c] + m.n[b * 3 + c]) / 2; m.n[a * 3 + c] = m.n[b * 3 + c] = v; } }
         // A rolled collar round the head hole.
         roll(m, grid[0].map((p, k) => ({ p, n: norm(add(sub(p, [cx, p[1], cz]), [0, 0.6, 0])) })).concat([{ p: grid[0][0], n: norm(add(sub(grid[0][0], [cx, grid[0][0][1], cz]), [0, 0.6, 0])) }]), 0.02 * s, 0.01 * s, [0.85, 0.85, 0.85], p => C.skinAt(p, true));
-        // The frayed hem.
+        // The frayed hem, riding on the hem it hangs from (not on the far point a short cape's hold reaches: a hand or a knee).
         const fr = new GearMesh(), W = need('RRCharacterWear', './CharacterWear.js'), pic = W && W.pictures().fray, cards = [];
-        for (let k = 0; k <= A; k++) { const q = k % A, p = grid[N][q], prev = grid[N - 1][q], dir = norm(sub(p, prev)), n = norm(sub(p, [cx, p[1], cz])), L = (0.03 + 0.04 * noise2(k * 0.6, 7, 3)) * s; cards.push([fr.vertex(sub(p, mul(dir, 0.004 * s)), n, tone(color, 0.75), hold[q], [k * 0.3, 0]), fr.vertex(add(p, mul(dir, L)), n, tone(color, 0.6), hold[q], [k * 0.3, 0.7])]); }
+        for (let k = 0; k <= A; k++) { const q = k % A, p = grid[N][q], prev = grid[N - 1][q], dir = norm(add(norm(sub(p, prev)), [0, -1.4, 0])), n = norm(sub(p, [cx, p[1], cz])), L = (opts.plain ? 0.012 + 0.018 * noise2(k * 0.6, 7, 3) : 0.03 + 0.04 * noise2(k * 0.6, 7, 3)) * s; cards.push([fr.vertex(sub(p, mul(dir, 0.004 * s)), n, tone(color, 0.75), hemSkin[q], [k * 0.3, 0]), fr.vertex(add(p, mul(dir, L)), n, tone(color, 0.6), hemSkin[q], [k * 0.3, 0.7])]); }
         for (let k = 0; k < A; k++) fr.quad(cards[k][0], cards[k + 1][0], cards[k + 1][1], cards[k][1]);
         const blanket = opts.plain ? blanketPicture(item.color || '#a08a62', item.color || '#a08a62') : blanketPicture(item.color || '#a08a62', item.color2 || '#6e5a3a'), Fabric = need('RRCharacterFabric', './CharacterFabric.js');
         const part = m.part(opts.name || 'Poncho', { texture: blanket.name, keepColors: true, roughness: 0.92, metalness: 0, doubleSided: true });

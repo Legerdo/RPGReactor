@@ -339,7 +339,7 @@
         // [outfit transfer] RRCharacterPowerArmor's armored hands alone: a glove with a rigid plate over the back of each hand.
         { id: 'powergauntlets', label: 'Power gauntlets', slot: 'hands', group: 'Sci-fi', knobs: ['color2'], defaults: { color: '#606d70', color2: '#e5ad55', bulk: 0.6, material: 'metal', pattern: 'solid', trim: '#273137', trimWidth: 0 },
             pieces: () => [{ poweredArmor: true, only: 'hands' }] },
-        { id: 'powerhelm', label: 'Power armor helmet', slot: 'head', group: 'Sci-fi', knobs: ['color2'], styles: [['visor', 'Visor'], ['lenses', 'Twin lenses']], defaults: { color: '#606d70', color2: '#e5ad55', trim: '#273137', material: 'metal', style: 'visor' }, pieces: () => [{ poweredHelmet: true }] },
+        { id: 'powerhelm', label: 'Power armor helmet', slot: 'head', group: 'Sci-fi', knobs: ['color2'], styles: [['visor', 'Visor'], ['lenses', 'Twin lenses'], ['assault', 'Assault faceplate']], defaults: { color: '#606d70', color2: '#e5ad55', trim: '#273137', material: 'metal', style: 'visor' }, pieces: () => [{ poweredHelmet: true }] },
         { id: 'cyberjacket', label: 'Neon jacket', slot: 'over', group: 'Sci-fi', defaults: { color: '#16141c', color2: '#ff2bd6', length: 0.55, material: 'plastic', open: 0.35, neckline: 'high', trim: '#ff2bd6', trimWidth: 0.05 },
             pieces: i => [top(Object.assign({}, i, { sleeves: 1, neckline: 'high' }), { lift: 0.016, drape: 5, structured: true })] },
         { id: 'visorhelm', label: 'Visor helmet', slot: 'head', group: 'Sci-fi', styles: [['dome', 'Pressure dome'], ['work', 'Work helmet']], defaults: { color: '#e4e7eb', color2: '#1a2a40', trim: '#9aa0a8', length: 1.1, face: 1, material: 'plastic', style: 'dome' },
@@ -703,10 +703,10 @@
     // ── outfits ───────────────────────────────────────────────────────────
     const PRESETS = [
         { id: 'courier', label: 'Courier', group: 'Sci-fi', items: [{ id:'techSuit',color:'#2c3036',color2:'#48515a',lightIntensity:.12 },{ id:'fieldCoat' },{ id:'boots',color:'#292523',length:.55 },{ id:'gloves',color:'#292523' }] },
-        { id: 'pathfinder', label: 'Pathfinder', group: 'Sci-fi', items: [{ id:'explorerSuit',color:'#b9b5a0',color2:'#4d6860',trim:'#313b35',lightIntensity:.15 },{ id:'fieldCoat',color:'#344c49',color2:'#263b38',trim:'#b9a370',length:.48 },{ id:'magboots',color:'#34403a',color2:'#a79568' },{ id:'gloves',color:'#34403a' }] },
+        { id: 'pathfinder', label: 'Pathfinder', group: 'Sci-fi', items: [{ id:'explorerSuit',color:'#b9b5a0',color2:'#4d6860',trim:'#313b35',lightIntensity:.15 },{ id:'fieldCoat',color:'#344c49',color2:'#263b38',trim:'#b9a370',length:.48 },{ id:'magboots',color:'#34403a',color2:'#a79568' },{ id:'gloves',color:'#34403a',bulk:.3 }] },
         { id: 'starshipCrew', label: 'Starship crew', group: 'Sci-fi', items: [{ id: 'starshipUniform' }, { id: 'boots', color: '#18202b', length: 0.3 }] },
         { id: 'commandOfficer', label: 'Command officer', group: 'Sci-fi', items: [{ id: 'starshipUniform', color2: '#36495e', lightIntensity: 0 }, { id: 'officerJacket' }, { id: 'boots', color: '#202936', length: 0.3 }] },
-        { id: 'surveyTeam', label: 'Survey team', group: 'Sci-fi', items: [{ id: 'explorerSuit' }, { id: 'magboots', color: '#263d50', length: 0.30 }, { id: 'gloves', color: '#263d50', length: 0.25 }] },
+        { id: 'surveyTeam', label: 'Survey team', group: 'Sci-fi', items: [{ id: 'explorerSuit' }, { id: 'magboots', color: '#263d50', length: 0.30 }, { id: 'gloves', color: '#263d50', length: 0.25, bulk: 0.3 }] },
         { id: 'reconTeam', label: 'Recon team', group: 'Sci-fi', items: [{ id:'officerJacket',color:'#424e4d',color2:'#2c383b',trim:'#899892',pattern:'solid',material:'cloth',lightStyle:'badge',lightColor:'#c09b66',lightIntensity:.3,neckline:'crew',fit:.6 },{ id:'cargoTrousers',color:'#414d48',color2:'#303b37',pattern:'solid',fit:.65 },{ id:'reconArmor' },{ id:'magboots',color:'#263331',color2:'#9c987b',length:.30 },{ id:'gloves',color:'#27332f',length:.3 }] },
         { id: 'evaCrew', label: 'EVA crew', group: 'Sci-fi', items: [{ id: 'evaSuit', color: '#34404b', color2: '#e0782a', trim: '#1c242c', bulk: 0.15, fit: 0.15, pattern: 'pressure', lightColor: '#ffb24a' }, { id: 'reconArmor', color: '#d9dcd6', color2: '#e0782a', trim: '#262e36', bulk: 0.3, pattern: 'solid', lightColor: '#ffb24a', lightIntensity: 0.7 }, { id: 'visorhelm', style: 'work', color: '#d9dcd6', color2: '#3a2a14', trim: '#2a323a' }, { id: 'magboots', color: '#d6dcd9', length: 0.35 }, { id: 'gloves', color: '#2a323a', length: 0.35 }] },
         { id:'flightCrew',label:'Flight crew',group:'Sci-fi',items:[{ id:'officerJacket',color:'#334353',color2:'#47586a',trim:'#b19a6e',material:'cloth',pattern:'solid',fit:.55,neckline:'high',lightColor:'#ffb85a',lightStyle:'badge',lightIntensity:.4 },{ id:'cargoTrousers',color:'#303d4a',color2:'#202d36',pattern:'solid',fit:.6 },{ id:'boots',color:'#1e2831',length:.35 },{ id:'gloves',color:'#1e2831',length:.2 }] },
@@ -746,9 +746,11 @@
         { id: 'pilot', label: 'Space pilot', group: 'Sci-fi', items: [{ id: 'bodysuit', color: '#d8dce2', color2: '#d86a2a' }, { id: 'tacvest', color: '#3a4250', color2: '#2a3240', pattern: 'solid' }, { id: 'magboots', color: '#3a4250' }, { id: 'gloves', color: '#3a4250' }] },
         { id: 'astronaut', label: 'Astronaut', group: 'Sci-fi', items: [{ id: 'spacesuit' }, { id: 'magboots', color: '#e9ebee', color2: '#d86a2a' }, { id: 'gloves', color: '#e9ebee', bulk: 0.6 }, { id: 'visorhelm', color: '#f2f4f6', color2: '#c89a2a' }] },
         { id: 'trooper', label: 'Power armor', group: 'Sci-fi', items: [{ id: 'powerarmor' }, { id: 'powerhelm' }] },
-        { id: 'marine', label: 'Space marine', group: 'Sci-fi', items: [{ id: 'powerarmor', color: '#344e70', color2: '#ccd7dd', bulk: 1.1, trim: '#202a34' }, { id: 'powerhelm', color: '#344e70', color2: '#ccd7dd', trim: '#202a34', style: 'lenses' }] },
+        // A sleek, form-fitting armored suit: compression undersuit with light in its seams, close-fitted bevelled plates
+        // (the cyber armor set's sleek style) with red accent light, high armored boots, and the assault faceplate helmet.
+        { id: 'marine', label: 'Space marine', group: 'Sci-fi', items: [{ id: 'compressionSuit', style: 'circuit', color: '#141a26', color2: '#1d2738', lightColor: '#ff4636', lightIntensity: 0.6 }, { id: 'cyberChest', style: 'sleek', color: '#2e4668', color2: '#1f2c40', trim: '#9fb2c8', lightColor: '#ff4636', bulk: 0.6 }, { id: 'cyberPauldrons', style: 'sleek', color: '#2e4668', color2: '#1f2c40', trim: '#9fb2c8', lightColor: '#ff4636', bulk: 0.55 }, { id: 'cyberBracers', style: 'sleek', color: '#2e4668', color2: '#1f2c40', trim: '#9fb2c8', lightColor: '#ff4636', bulk: 0.5 }, { id: 'cyberLegs', style: 'sleek', color: '#2e4668', color2: '#1f2c40', trim: '#9fb2c8', lightColor: '#ff4636', bulk: 0.55 }, { id: 'techGloves', style: 'full', color: '#161c28', color2: '#2e4668', lightColor: '#ff4636' }, { id: 'magSoles', style: 'boot', color: '#1a2232', color2: '#2e4668', lightColor: '#ff4636', length: 0.05 }, { id: 'powerhelm', color: '#2e4668', color2: '#ff4636', trim: '#161c28', style: 'assault', lightColor: '#ff4636' }] },
         { id: 'cyberpunk', label: 'Cyberpunk', group: 'Sci-fi', items: [{ id: 'tanktop', color: '#1a1a20' }, { id: 'leggings', color: '#16141c' }, { id: 'cyberjacket' }, { id: 'boots', color: '#16141c', length: 0.6 }, { id: 'gloves', color: '#ff2bd6', length: 0.05 }] },
-        { id: 'soldier', label: 'Soldier', group: 'Sci-fi', items: [{ id: 'shirt', color: '#4a5240', pattern: 'camo', color2: '#353b2e' }, { id: 'jeans', color: '#4a5240', pattern: 'camo', color2: '#353b2e', fit: 0.5 }, { id: 'tacvest' }, { id: 'boots', color: '#2a2620', length: 0.4 }, { id: 'gloves', color: '#2a2620', length: 0.1 }] },
+        { id: 'soldier', label: 'Soldier', group: 'Sci-fi', items: [{ id: 'shirt', color: '#4a5240', pattern: 'camo', color2: '#353b2e', trim: '#3e4536' }, { id: 'jeans', color: '#4a5240', pattern: 'camo', color2: '#353b2e', fit: 0.5 }, { id: 'tacvest' }, { id: 'boots', color: '#2a2620', length: 0.4 }, { id: 'gloves', color: '#2a2620', length: 0.3 }] },
         { id: 'mhcasual', label: 'Jeans and tee', group: 'Everyday', items: [{ id: 'mh_tee_jeans' }, { id: 'mh_sneakers' }] },
         { id: 'mhbusiness', label: 'Business suit', group: 'Formal', items: [{ id: 'mh_suit' }, { id: 'mh_loafers' }] },
         { id: 'mhskirtsuit', label: 'Skirt suit', group: 'Formal', items: [{ id: 'mh_skirtsuit' }, { id: 'mh_loafers', color: '#1b1612' }] },
@@ -766,7 +768,7 @@
         { id: 'raider', label: 'Raider', group: 'Wasteland', items: [{ id: 'tanktop', color: '#2a2826', wear: 0.8 }, { id: 'jeans', color: '#26282c', wear: 0.85 }, { id: 'scrapArmor', style: 'plates' }, { id: 'scrapPauldrons', style: 'mixed' }, { id: 'bandages' }, { id: 'workBoots', style: 'plain', color: '#1e1a16' }, { id: 'fingerlessGloves', color: '#1e1a16', wear: 0.7 }, { id: 'gasMask', style: 'single' }] },
         { id: 'roadWarrior', label: 'Road warrior', group: 'Wasteland', items: [{ id: 'tshirt', color: '#3a3632', sleeves: 0, wear: 0.6 }, { id: 'cargoTrousers', color: '#2e2a26', color2: '#2e2a26', pattern: 'solid', wear: 0.6 }, { id: 'scrapArmor', style: 'tire' }, { id: 'scrapPauldrons', style: 'hubcap' }, { id: 'toolBelt' }, { id: 'legWraps', color: '#5a4a38' }, { id: 'workBoots', style: 'plain' }, { id: 'gloves', color: '#2a2018', wear: 0.6 }, { id: 'dustGoggles', style: 'eyes', color2: '#7a5a2a' }] },
         { id: 'nomad', label: 'Desert nomad', group: 'Wasteland', items: [{ id: 'shirt', color: '#d8ccb0', trim: '#d8ccb0', wear: 0.5 }, { id: 'cargoTrousers', color: '#b8a07a', color2: '#9a8460', pattern: 'solid', wear: 0.55, fit: 0.8 }, { id: 'ragWraps' }, { id: 'poncho' }, { id: 'shemagh', style: 'face', color: '#c8b48e' }, { id: 'legWraps' }, { id: 'workBoots', style: 'wrapped' }, { id: 'bandages' }] },
-        { id: 'settler', label: 'Settler', group: 'Wasteland', items: [{ id: 'shirt', color: '#8a6a4a', color2: '#5a3a2a', pattern: 'plaid', trim: '#8a6a4a', wear: 0.45 }, { id: 'jeans', color: '#4a5a6e', wear: 0.6 }, { id: 'shawl' }, { id: 'toolBelt', color: '#5a3a24' }, { id: 'workBoots', style: 'plain' }, { id: 'headWrap' }] },
+        { id: 'settler', label: 'Settler', group: 'Wasteland', items: [{ id: 'shirt', color: '#8a6a4a', color2: '#5a3a2a', pattern: 'plaid', trim: '#8a6a4a', wear: 0.45 }, { id: 'jeans', color: '#4a5a6e', wear: 0.6 }, { id: 'shawl', color: '#6e5a3e', color2: '#4e3e2a' }, { id: 'toolBelt', color: '#5a3a24' }, { id: 'workBoots', style: 'plain' }, { id: 'headWrap' }] },
         { id: 'wasteMechanic', label: 'Mechanic', group: 'Wasteland', items: [{ id: 'coveralls', color: '#4a5560', color2: '#363e46', pattern: 'solid', wear: 0.8 }, { id: 'toolBelt' }, { id: 'workBoots', style: 'plain' }, { id: 'fingerlessGloves', wear: 0.75 }, { id: 'dustGoggles', style: 'forehead' }, { id: 'harness', style: 'bandolier', color: '#3a3a32' }] },
         { id: 'wasteMedic', label: 'Medic', group: 'Wasteland', items: [{ id: 'tshirt', color: '#9a9a8e', wear: 0.4 }, { id: 'cargoTrousers', color: '#5e6458', color2: '#4a5046', pattern: 'solid', wear: 0.5 }, { id: 'fieldJacket', color: '#a9a596', color2: '#7a7668', wear: 0.5 }, { id: 'harness', style: 'harness', color: '#d8d2c2', color2: '#8a2a22' }, { id: 'gasMask', style: 'twin' }, { id: 'workBoots', style: 'plain' }, { id: 'gloves', color: '#5a6a5a', length: 0.25 }] },
         // Cyberpunk: layered techwear and cyber armor (RRCharacterCyberwear).
@@ -1048,6 +1050,8 @@
             if (store.layout.emission) textures.push(store.layout.emission);
             for (const map of store.layout.maps || [store.layout.normal]) if (map) textures.push(map);
         }
+        // The garments' insides near their open edges, dark (and open where the picture tears a hole).
+        if (entries.length) modeledParts.push(...garmentLinings(entries, built, cutParts, atlasTexture));
         // Only skin a garment really covers stays hidden: none is left out under a slit, an opening or a tear.
         for (const v of O.uncovered(pack, built, cutParts.concat(modeledParts), hidden, frame)) hidden.delete(v);
         // Skin behind a torn garment's holes, where nothing else is worn over it (RRCharacterWear).
@@ -1152,6 +1156,117 @@
             else if (f.fam === 0) extra += 0.003 * Math.max(0, Math.min(1, (f.s - 3.4) / 0.4)) * Math.max(0, Math.min(1, (Math.abs(Math.sin(f.spineAng)) - 0.6) / 0.3));
             return extra;
         };
+    }
+
+    /** How far in from an open edge a garment is lined (meters on a 1.7 m body): as far as an eye sees into a cuff, a hem or a collar. */
+    const LINING_REACH = 0.11;
+    /**
+     * The inside of every cut garment near its open edges (cuffs, hems,
+     * collars, an open front): a dark lining a little under the cloth, facing
+     * in, so a look into a sleeve or up a hem meets the lining's dark cloth
+     * instead of the culled back of the outer face (and the world behind the
+     * model). Each lining point rides on the fabric vertex it lies under
+     * (sewnRefs, for the cloth rig and cap easing), so it moves with it.
+     * Seams joined inside the garment (a bodice's waist into its skirt) are
+     * not open edges. Returns [] or one part, 'Garment linings'.
+     */
+    function garmentLinings(entries, built, cutParts, picture) {
+        const Props = root.RRCharacterProps || require('./CharacterProps.js'), O = root.RRCharacterOutfit || require('./CharacterOutfit.js'), m = new Props.Mesh();
+        const hang = [], sewnRoots = [], sewnRefs = [], scale = built.height / 1.7;
+        // Where the outfit's picture is cut away (a torn hole, RRCharacterWear): those cloth vertices and the ring round them.
+        const torn = new Map();
+        if (picture && picture.data) for (const part of cutParts || []) {
+            if (!part.cutout || !part.fabricRefs || !part.uvs) continue;
+            const R = part.fabricRefs, U = part.uvs, Wd = picture.width, Ht = picture.height;
+            for (let i = 0; i < R.length / 2; i++) {
+                const x = Math.min(Wd - 1, Math.max(0, Math.floor(U[i * 2] * Wd))), y = Math.min(Ht - 1, Math.max(0, Math.floor(U[i * 2 + 1] * Ht)));
+                if (picture.data[(y * Wd + x) * 4 + 3] >= 128) continue;
+                const e = R[i * 2], laid = entries[e] && entries[e].laid;
+                if (!laid) continue;
+                let mask = torn.get(e);
+                if (!mask) torn.set(e, mask = new Uint8Array(laid.positions.length / 3));
+                mask[R[i * 2 + 1]] = 1;
+            }
+        }
+        for (const [e, mask] of torn) { const nb = entries[e].laid.piece.neighbors, seed = [...mask.keys()].filter(v => mask[v]); for (const v of seed) for (const u of nb[v] || []) if (u < mask.length) mask[u] = 1; }
+        // An edge worn under another layer (a waistband under a shirt, a shirt's hem under a coat) is never seen
+        // into: only edges with no outer cloth over them are lined. Cloth points by layer on a coarse grid.
+        const cell = 0.03 * scale, grid = new Map(), key = (x, y, z) => Math.floor(x / cell) + ',' + Math.floor(y / cell) + ',' + Math.floor(z / cell);
+        entries.forEach((entry, e) => {
+            const L = entry.laid; if (!L || entry.lining) return;
+            const P = L.positions, n = L.rimStart ?? P.length / 3;
+            for (let v = 0; v < n; v++) { const k = key(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]); let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(e, v); }
+        });
+        const covered = (e, x, y, z) => {
+            const layer = entries[e].laid.layer ?? 0, r = 0.025 * scale;
+            for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) {
+                const l = grid.get((Math.floor(x / cell) + i) + ',' + (Math.floor(y / cell) + j) + ',' + (Math.floor(z / cell) + k));
+                if (l) for (let q = 0; q < l.length; q += 2) {
+                    const o = entries[l[q]].laid;
+                    if (l[q] === e || !((o.layer ?? 0) > layer)) continue;
+                    const P = o.positions, v = l[q + 1];
+                    if (Math.hypot(P[v * 3] - x, P[v * 3 + 1] - y, P[v * 3 + 2] - z) < r) return true;
+                }
+            }
+            return false;
+        };
+        entries.forEach((entry, e) => {
+            const laid = entry.laid, piece = laid && laid.piece;
+            if (entry.lining || !piece || !piece.border || !piece.border.length || !laid.normals) return;
+            const n = laid.rimStart ?? laid.positions.length / 3, P = laid.positions, N = laid.normals;
+            // Open edges only.
+            const open = piece.border.filter(([a, b]) => !(laid.internalHem?.[a] && laid.internalHem?.[b]));
+            if (!open.length) return;
+            // Distance in along the cloth from the open edges (through its own edges), as far as the reach.
+            const reach = LINING_REACH * scale, dist = new Float32Array(n).fill(Infinity), nb = piece.neighbors;
+            let front = [];
+            // A cuff or a trouser hem is looked into deeper than a body's hem or neckline (lined only 5 cm in).
+            const start = v => (laid.field && laid.field[v] && laid.field[v].fam === 0 ? reach - 0.05 * scale : 0);
+            for (const [a, b] of open) for (const v of [a, b]) if (v < n && !(dist[v] <= start(v)) && !covered(e, P[v * 3], P[v * 3 + 1], P[v * 3 + 2])) { dist[v] = start(v); front.push(v); }
+            if (!front.length) return;
+            while (front.length) {
+                const next = [];
+                for (const v of front) for (const u of nb[v] || []) {
+                    if (u >= n) continue;
+                    const d = dist[v] + Math.hypot(P[u * 3] - P[v * 3], P[u * 3 + 1] - P[v * 3 + 1], P[u * 3 + 2] - P[v * 3 + 2]);
+                    if (d < dist[u] && d < reach) { dist[u] = d; next.push(u); }
+                }
+                front = next;
+            }
+            // A deep shade of the garment's own color: dark, never black-blue on a tan coat.
+            const base = O.linear(entry.look.color || '#808080'), color = base.map(c => c * 0.16 + 0.004);
+            const depth = Math.max(0.0012 * scale, (laid.hem?.thickness ?? 0.0012 * scale) * 1.6);
+            const ids = new Map();
+            const vertex = v => {
+                let k = ids.get(v);
+                if (k !== undefined) return k;
+                // In from the outer face (its winding's normal points out of the garment).
+                const nrm = [-N[v * 3], -N[v * 3 + 1], -N[v * 3 + 2]];
+                hang.push(laid.hang?.[v] ?? -1); sewnRoots.push(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]); sewnRefs.push(laid.fabricEntry, v);
+                k = m.vertex([P[v * 3] + nrm[0] * depth, P[v * 3 + 1] + nrm[1] * depth, P[v * 3 + 2] + nrm[2] * depth], nrm, color,
+                    { joints: Array.from(laid.joints.subarray(v * 4, v * 4 + 4)), weights: Array.from(laid.weights.subarray(v * 4, v * 4 + 4)) });
+                ids.set(v, k);
+                return k;
+            };
+            // Torn holes stay open through it: a hole shows what is worn under the garment, not a dark lining.
+            const holes = torn.get(e);
+            const I = laid.index;
+            for (let t = 0; t < I.length; t += 3) {
+                const a = I[t], b = I[t + 1], c = I[t + 2];
+                if (a >= n || b >= n || c >= n) continue;
+                if (holes && (holes[a] || holes[b] || holes[c])) continue;
+                if (!(dist[a] < reach || dist[b] < reach || dist[c] < reach)) continue;
+                // Not where the cloth folds back over itself (a face turned against its corners' normals): pushed
+                // in along those normals, the lining there would come out through the fold's outer face.
+                const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2], wx = P[c * 3] - P[a * 3], wy = P[c * 3 + 1] - P[a * 3 + 1], wz = P[c * 3 + 2] - P[a * 3 + 2];
+                const fx = uy * wz - uz * wy, fy = uz * wx - ux * wz, fz = ux * wy - uy * wx, fl = Math.hypot(fx, fy, fz) || 1;
+                if ([a, b, c].some(v => (fx * N[v * 3] + fy * N[v * 3 + 1] + fz * N[v * 3 + 2]) / fl < 0.35)) continue;
+                // Facing in: the outer face's winding reversed.
+                m.tri(vertex(a), vertex(c), vertex(b));
+            }
+        });
+        if (m.empty) return [];
+        return [m.part('Garment linings', { kind: 'cloth', roughness: 0.92, metalness: 0, clothDetail: true, rrLining: true, sewnRefs: Int32Array.from(sewnRefs), sewnRoots: Float32Array.from(sewnRoots), ...(hang.some(h => h >= 0) ? { hang: Float32Array.from(hang) } : {}) })];
     }
 
     /**
@@ -1646,6 +1761,8 @@
             for (let i = 0; i < P.length; i += 3) pts.push(P[i], P[i + 1], P[i + 2]);
         }
         const made = O.band(pack, built, raw.band, Float32Array.from(pts));
+        // The cloth it is buckled over is drawn in under it (a loose tunic gathers above and below the belt).
+        for (const e of entries) if (!e.lining && made.cinch && made.cinch(e.laid.positions, v => { const f = e.laid.field[v]; return !f || f.fam === 0; })) e.laid.normals = O.triangleNormals(e.laid.positions, e.laid.index);
         const Atlas = root.RRCharacterAtlas || require('./CharacterAtlas.js');
         const look = { color: item.color, buckle: item.color2, material: item.material };
         const key = JSON.stringify(['belt', look]);

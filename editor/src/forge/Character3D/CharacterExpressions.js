@@ -1239,5 +1239,7 @@
         ALIASES, apply, talk, SAMPLE_LINE
     };
     root.RRCharacterExpressions = api;
+    // The body's resting mouth closes the lips with these units (HumanBody's closeLips).
+    if (Body && Body.useExpressions) Body.useExpressions(api);
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1472,7 +1472,10 @@
                 case 'anchorBeard': f = Math.max(mustacheBand, Math.min(f, (lipW * 1.5 - x) / rx * 60, (H.lipBottom - p[1]) / H.radii[1] * 60, (H.chin[1] + 0.03 * H.scale + x * 0.25 - p[1]) / H.radii[1] * 60)); break;
                 case 'chinCurtain': f = Math.min(f, (H.lipBottom - 0.008 * H.scale - p[1]) / H.radii[1] * 60); break;
                 case 'sideburns': f = Math.min(f, (ax - 0.65) * 40, (p[1] - H.earBottom + 0.01 * H.scale) / H.radii[1] * 60); break;
-                case 'chevron': f = Math.min(mustacheBand, (p[1] - H.lipTop - lipH * 0.5 + x * 0.13) / H.radii[1] * 60); break;
+                // A chevron is thick and covers the whole space under the nose, down over the top of the upper
+                // lip's edge (its lower line falling a little toward the corners), so it never thins to a strip
+                // on a face with a short upper lip.
+                case 'chevron': f = Math.min((mustacheTop - p[1]) / H.radii[1] * 60, (p[1] - (H.lipTop - lipH * 0.15) + x * 0.08) / H.radii[1] * 60, (lipW * 1.12 - x) / rx * 60 + (1 - mx2 * mx2) * 2); break;
                 case 'goatee': f = Math.max(Math.min(f, chinZone, (mouthY + lipH - p[1]) / H.radii[1] * 60, (p[1] - (H.chin[1] - 0.012 * H.scale)) / H.radii[1] * 60), mustacheBand); break;
                 case 'chinStrap': {
                     // A band along the jaw's edge, from the sideburns round the chin.
@@ -1531,7 +1534,7 @@
         const surf = cutSurface(H, facialField(H, f.style));
         if (!surf.index.length) return;
         const V = f.volume, Lf = f.length;
-        const thick = { stubble: 0.0008, goatee: 0.006, chinStrap: 0.004, shortBeard: 0.006, fullBeard: 0.012, longBeard: 0.014, wizardBeard: 0.016, braidedBeard: 0.013, muttonChops: 0.008, mustache: 0.006, pencil: 0.0025, handlebar: 0.006, walrus: 0.01, horseshoe: 0.007, soulPatch: 0.003, anchorBeard: 0.005, chinCurtain: 0.009, sideburns: 0.004, chevron: 0.007 }[f.style] * S * (0.6 + 0.8 * V);
+        const thick = { stubble: 0.0008, goatee: 0.006, chinStrap: 0.004, shortBeard: 0.006, fullBeard: 0.012, longBeard: 0.014, wizardBeard: 0.016, braidedBeard: 0.013, muttonChops: 0.008, mustache: 0.006, pencil: 0.0025, handlebar: 0.006, walrus: 0.01, horseshoe: 0.007, soulPatch: 0.003, anchorBeard: 0.005, chinCurtain: 0.009, sideburns: 0.004, chevron: 0.005 }[f.style] * S * (0.6 + 0.8 * V);
         const freq = 1 / (0.006 * S);
         const lumps = p => 0.75 + 0.25 * Math.sin(p[0] * freq * 1.3 + Math.sin(p[1] * freq)) * Math.cos(p[2] * freq * 1.1 + p[1] * freq * 0.7);
         // Thicker toward the chin, thin at the cheek edge.
@@ -1671,15 +1674,17 @@
 
     // ── brows and lashes ───────────────────────────────────────────────────
     function browShape(style) {
-        // [inner height, peak height, outer height, peak at, width (thickness), hair count]
+        // [inner height, peak height, outer height, peak at, width (thickness), hair count], in eye radii
+        // above the eye's center: the brow lies along the orbit's upper rim, its head a little lower than
+        // its arch, not up on the forehead.
         return {
-            natural: [1.55, 1.85, 1.55, 0.6, 1, 34],
-            thin: [1.6, 1.85, 1.55, 0.62, 0.45, 26],
-            thick: [1.5, 1.8, 1.5, 0.58, 1.6, 46],
-            arched: [1.45, 2.05, 1.5, 0.55, 0.9, 34],
-            straight: [1.65, 1.7, 1.6, 0.5, 1, 34],
-            angry: [1.25, 1.75, 1.9, 0.7, 1.15, 38],
-            bushy: [1.55, 1.85, 1.55, 0.55, 2.1, 60]
+            natural: [1.27, 1.55, 1.3, 0.6, 1, 34],
+            thin: [1.32, 1.58, 1.32, 0.62, 0.45, 26],
+            thick: [1.22, 1.5, 1.25, 0.58, 1.6, 46],
+            arched: [1.2, 1.75, 1.27, 0.55, 0.9, 34],
+            straight: [1.35, 1.42, 1.35, 0.5, 1, 34],
+            angry: [1.08, 1.47, 1.62, 0.7, 1.15, 38],
+            bushy: [1.27, 1.55, 1.3, 0.55, 2.1, 60]
         }[style];
     }
 
@@ -2161,6 +2166,10 @@
             if (!Number.isFinite(s.d) || !s.n) continue;
             if (normals) normals.set(s.n, i);
             if (P[i + 1] > top) continue;
+            // Skin that faces down (the jaw's and chin's underside, which a heavy jaw brings below the neck's top)
+            // has no garment outside it: its outward ray only runs down onto the shirt's collar or shoulders, and
+            // pushing a lock along it stretched one corner of a card down from beside the jaw to the shirt.
+            if (s.n[1] < -0.5) continue;
             // The farthest garment point off the skin near this one, measured along the skin's normal here.
             let off = -Infinity;
             const cx = Math.floor(p[0] / cell), cy = Math.floor(p[1] / cell), cz = Math.floor(p[2] / cell);

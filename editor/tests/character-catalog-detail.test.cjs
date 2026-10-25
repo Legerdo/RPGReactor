@@ -36,7 +36,10 @@ test('joined dresses include a fitted pelvis lining independent of the free skir
   for(let i=0;i<lining.positions.length;i+=3)if(lining.positions[i+1]<hip[1]+.06&&lining.positions[i+1]>hip[1]-.08&&lining.positions[i+2]<hip[2])seat.push(i);
   assert.ok(seat.length>12,id+' has actual rear fabric over the pelvis');sound([lining],body.bones);
  }
- const body=Q.Body.build(pack,{gender:1}),open=W.build(pack,body,[{id:'tabard'}],{atlasSize:128});assert.ok(!open.parts.some(p=>p.name.includes('lining')),'split tabards retain their open panels');
+ const body=Q.Body.build(pack,{gender:1}),open=W.build(pack,body,[{id:'tabard'}],{atlasSize:128});
+ // 'Garment linings' (RRCharacterWardrobe.garmentLinings) is the dark inner face along every open edge, cuffs, hems
+ // and the tabard's own split sides included; it is not a pelvis yoke, so it does not close the open panels.
+ assert.ok(!open.parts.some(p=>p.name.includes('lining')&&p.name!=='Garment linings'),'split tabards retain their open panels');
 });
 
 test('skirt prints stay continuous across the rear hip chart instead of stretching into a fan',()=>{

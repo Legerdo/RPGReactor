@@ -9,7 +9,7 @@
  *                   and seat; sun fading over the shoulders and upper back; stains with
  *                   tide lines (oil, rust, earth)                       (painted, RRCharacterAtlas)
  *   worn cloth      the cloth's tile turns abraded, pilled or crazed (RRCharacterFabric kinds
- *                   registered here: canvasWorn, denimWorn, leatherWorn, jerseyWorn, burlap, gauze)
+ *                   registered here: canvasWorn, denimWorn, leatherWorn, jerseyWorn, homespun, burlap, gauze)
  *   frayed hems     lower hems and cuffs grow a fringe of threads; a ragged garment (a duster,
  *                   a poncho, rag wraps) a long tattered hem         (alpha-cut cards on the hem)
  *   holes           torn holes with threads across them, the skin or the layer under them
@@ -171,6 +171,29 @@
     const DUST = [0.33, 0.27, 0.19], MUD = [0.12, 0.085, 0.055], OIL = [0.022, 0.018, 0.014], RUST = [0.2, 0.065, 0.02];
 
     /**
+     * Worn cloth's weave as it reads from across a room, in the cloth's own meters (chart cu round,
+     * cv along): each weft yarn a few millimeters thick takes the dye its own way, a few carry thick
+     * slubs a few centimeters long, the warp runs in faint streaks, and the cloth was dyed in lots
+     * that left broad bands a shade apart. The weave's own relief is the cloth's tile; this is its color.
+     */
+    function homespun(rgb, look, p, L, seed) {
+        if (!Number.isFinite(p.cu) || !Number.isFinite(p.cv)) return rgb;
+        const coarse = look.material === 'wool' ? 1.5 : look.material === 'canvas' ? 1.15 : 1;
+        const pitch = 0.003 * coarse, row = Math.floor(p.cv / pitch), col = Math.floor(p.cu / pitch);
+        const sd = seed % 9973;
+        // The weft: every yarn its own take of the dye; a slub (a thick, lighter or darker run) on one row in five.
+        const len = 0.035 * coarse, at = p.cu / len + ihash(row, 17, sd) * 9, seg = Math.floor(at), inSeg = fract(at);
+        const slub = ihash(row, seg, sd + 31) < 0.2 ? (ihash(row, seg, sd + 37) < 0.5 ? -1 : 1) * Math.sin(Math.PI * inSeg) : 0;
+        // The warp: long faint streaks down the cloth, a yarn's dye drifting along its length.
+        const warp = ihash(col, Math.floor(p.cv / 0.09 + ihash(col, 3, sd) * 5), sd + 41) - 0.5;
+        // Dye lots: bands across the cloth, 4 to 9 cm.
+        const bandAt = p.cv / 0.065 + 0.35 * Math.sin(p.cu / 0.21 + sd);
+        const band = ihash(Math.floor(bandAt), 5, sd + 53) - 0.5;
+        const k = 1 + (0.05 + 0.07 * L) * (ihash(row, 7, sd) - 0.5) + (0.08 + 0.1 * L) * slub + (0.035 + 0.03 * L) * warp + (0.05 + 0.07 * L) * band;
+        return [rgb[0] * k, rgb[1] * k, rgb[2] * k];
+    }
+
+    /**
      * A texel of the outfit picture, weathered by its piece's `look.wearInfo`: [r, g, b, alpha].
      * `p`: RRCharacterAtlas's texel (rest position, chain, angle, distance from the cut edge
      * `vm`, chart meters `cu`/`cv`, meters per texel `px`).
@@ -192,6 +215,7 @@
         let out = rgb.slice(0, 3);
         // Uneven with age: the dye a little lighter and darker in broad drifts.
         out = out.map(c => c * (1 + L * 0.16 * (n1 - 0.5)));
+        if (!hard && !leatherish) out = homespun(out, look, p, L, W.seed);
         // Sun-bleached over the shoulders and upper back, faded all over a little.
         const top = ss(1.02, 1.42, R[1]) * (0.6 + 0.8 * (noise3(R[0] * 3 + sd, R[1] * 3, R[2] * 3) - 0.3));
         const fade = Math.min(0.7, L * (0.14 + 0.55 * Math.max(0, top))) * (hard ? 0.3 : 1);
@@ -317,6 +341,13 @@
                     s.h = 0.045 * knit + 0.06 * pill + 0.012 * P(u, v, 64, 64, 93);
                     s.r = 0.9 + 0.05 * pill;
                 } },
+            // Homespun wool (a worn blanket, a rag shawl): a coarse plain weave of uneven, slubbed yarns, fulled soft.
+            homespun: { span: 0.0384, size: 256, normalScale: 1.25, cavity: 4, occlusion: 0.85, sheen: [0.35, 0.9],
+                sample(u, v, s) {
+                    const w = weave(u, v, 12, 121, 0.9), fuzz = P(u, v, 64, 64, 122), felted = ss(0.4, 0.8, P(u, v, 3, 3, 123));
+                    s.h = 0.2 * w * (1 - 0.45 * felted) + 0.05 * (fuzz - 0.5) + 0.03 * (P(u, v, 6, 6, 124) - 0.5);
+                    s.r = 0.94 + 0.05 * (fuzz - 0.5);
+                } },
             // Burlap and sacking: a coarse, open, uneven weave with dark gaps between the yarns.
             burlap: { span: 0.0384, size: 256, normalScale: 1.2, cavity: 3, occlusion: 0.9, sheen: [0.2, 0.95],
                 sample(u, v, s) {
@@ -337,7 +368,7 @@
                 } }
         });
     }
-    const WORN = { canvas: 'canvasWorn', denim: 'denimWorn', leather: 'leatherWorn', jersey: 'jerseyWorn' };
+    const WORN = { canvas: 'canvasWorn', denim: 'denimWorn', leather: 'leatherWorn', jersey: 'jerseyWorn', felt: 'homespun', poplin: 'canvasWorn' };
     /** A garment's own cloth where the catalog names one (`cloth` on its entry), keyed by garment id. */
     const OWN_CLOTH = {};
     /** The cloth's tile for a piece: a garment's own cloth, else its kind worn past a little wear. */
@@ -510,7 +541,9 @@
             const away = mul(into, -1), downness = dot(away, down);
             const cuff = (f.fam === 1 || f.fam === 2) && f.s > 2.55 || (f.fam === 3 || f.fam === 4) && f.s > 1.55;
             let weight = cuff ? 0.8 : Math.max(0, (downness - 0.15) / 0.85);
-            if (ragged) weight = Math.max(weight, cuff ? 1 : Math.max(0, downness + 0.25));
+            // A ragged coat tatters where its hems hang (the skirt's lower edge); a cuff only frays (long cards there
+            // read as feathers sticking off the wrist), and an edge running down the open front barely does.
+            if (ragged) weight = cuff ? 0.28 : Math.max(0.12 * Math.max(0, downness + 0.6), (downness - 0.3) / 0.7);
             if (weight <= 0.02) continue;
             const along = order.get(i) || 0, wobble = noise3(along / (0.09 * scale) + sd, 0.5, 1.5), fine = noise3(along / (0.025 * scale) + sd, 4.5, 2.5);
             const length = (ragged ? (0.025 + 0.06 * L) * (0.35 + 1.1 * wobble) + 0.012 * fine : (0.004 + 0.008 * L) * (0.6 + 0.8 * fine)) * scale * weight;

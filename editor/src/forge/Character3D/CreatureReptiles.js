@@ -230,7 +230,7 @@
         const dark = [.008, .008, .01], rim = mix(iris, dark, .55);
         m.sphere(center, radius, (t, a, q) => {
             const d = sub(q, center), front = dot(d, f) / radius, x = dot(d, right) / radius, y = dot(d, up) / radius;
-            if (front < .05) return dark;
+            if (front < .05) return opts.back || dark;
             const rr = Math.hypot(x, y);
             const inPupil = pupil === 'slit' ? Math.abs(x) < .11 * Math.sqrt(Math.max(0, 1 - (y / .62) ** 2)) && front > .5
                 : pupil === 'bar' ? Math.abs(y) < .16 * Math.sqrt(Math.max(0, 1 - (x / .62) ** 2)) && front > .5 : rr < (opts.pupilSize || .36) && front > .5;
@@ -282,20 +282,27 @@
 
     // ── snake ─────────────────────────────────────────────────────────────
     const SNAKES = {
-        python: { girth: .036, head: .042, headWide: 1.62, neck: .62, tail: .12, eye: .2, pupil: 'slit', nt: 2.2, nb: 3.2, pits: 'labial', taper: 1.4 },
-        viper: { girth: .045, head: .055, headWide: 2.15, neck: .48, tail: .1, eye: .24, pupil: 'slit', nt: 2.1, nb: 3, pits: 'loreal', brow: 1, taper: 1.8 },
-        coral: { girth: .0125, head: .028, headWide: 1.05, neck: .92, tail: .09, eye: .2, pupil: 'round', nt: 2, nb: 2.6, taper: 1 },
-        treeSnake: { girth: .0115, head: .036, headWide: 1.45, neck: .7, tail: .3, eye: .33, pupil: 'round', nt: 2.1, nb: 2.8, taper: 1.2 },
-        cobra: { girth: .022, head: .036, headWide: 1.3, neck: .85, tail: .16, eye: .24, pupil: 'round', nt: 2.1, nb: 2.9, hood: 1, taper: 1.2 }
+        // `long`: the body's length over its size's base length, for its real build (length over thickest
+        // diameter: a python about 24, a viper 15, a cobra 32, a coral snake 45, a green tree snake 55); girth and
+        // head stay sized by the base length. `snout`: how far back the rounded tip runs (of the head's length).
+        python: { girth: .036, head: .08, headWide: 1.4, neck: .62, tail: .12, eye: .2, pupil: 'slit', nt: 2.2, nb: 3.2, pits: 'labial', taper: 1.4, long: 1.72, snout: .46 },
+        viper: { girth: .045, head: .092, headWide: 1.9, neck: .48, tail: .1, eye: .24, pupil: 'slit', nt: 2.1, nb: 3, pits: 'loreal', brow: 1, taper: 1.8, long: 1.3, snout: .4 },
+        coral: { girth: .0125, head: .034, headWide: 1.05, neck: .92, tail: .09, eye: .2, pupil: 'round', nt: 2, nb: 2.6, taper: 1, long: 1.12, snout: .38 },
+        treeSnake: { girth: .0115, head: .04, headWide: 1.4, neck: .7, tail: .3, eye: .33, pupil: 'round', nt: 2.1, nb: 2.8, taper: 1.2, long: 1.28, snout: .45 },
+        cobra: { girth: .022, head: .056, headWide: 1.15, neck: .85, tail: .16, eye: .24, pupil: 'round', nt: 2.1, nb: 2.9, hood: 1, taper: 1.2, long: 1.4, snout: .42 }
     };
     function snake(C) {
-        const r = C.r, type = SNAKES[r.snakeType] || SNAKES.python, S = C.L * 1.7, save = C.save;
-        const Rb = S * type.girth * r.girth, Lh = S * type.head * r.headSize * (.75 + .25 * r.snoutLength), Wh = Rb * type.neck * type.headWide * (.8 + .2 * r.headSize);
+        // Body length scales the spine itself (not a stretch of the whole coil, which would squash the head).
+        const r = C.r, type = SNAKES[r.snakeType] || SNAKES.python, S0 = C.L * 1.7, S = S0 * (type.long || 1) * (r.bodyLength || 1), save = C.save;
+        const Rb = S0 * type.girth * r.girth, Lh = S0 * type.head * r.headSize * (.75 + .25 * r.snoutLength), Wh = Rb * type.neck * type.headWide * (.8 + .2 * r.headSize);
         const tailStart = S * (1 - type.tail * r.tailLength / (r.tailLength > 0 ? 1 : 1));
-        const hoodTop = type.hood ? S * .3 : 0;
-        // Rest: a loose S on the ground; a cobra rears its front third with the hood spread.
-        const yaw = s => .42 * Math.sin(s / S * Math.PI * 2 * 1.35 + .6) * ease(0, S * .08, s) - (type.hood ? .25 : 0);
-        const pitch = s => type.hood ? 1.2 * (ease(Lh * 1.1, Lh * 1.1 + S * .06, s) - ease(S * .2, S * .3, s)) : 0;
+        const hoodTop = type.hood ? S0 * .3 : 0;
+        // Rest: a loose S on the ground, more waves in a longer body; a cobra rears its front with the hood spread.
+        // The body lies in deep S-bends (heading swinging well past side-on, so the snake sits compact, about
+        // a third of its length across), straighter at the neck and the tail's tip; the neck lifts the head a little.
+        const waves = 1.5 + .25 * Math.min(1, S / S0 - 1), bend = 1.75 * (type.hood ? .7 : 1);
+        const yaw = s => bend * Math.sin(s / S * Math.PI * 2 * waves + .6) * ease(Lh, Lh + S0 * .12, s) * (1 - .45 * ease(S * .8, S, s)) - (type.hood ? .25 : 0);
+        const pitch = s => type.hood ? 1.2 * (ease(Lh * 1.1, Lh * 1.1 + S0 * .06, s) - ease(S0 * .2, S0 * .3, s)) : .32 * (ease(Lh * .9, Lh * 1.4, s) - ease(Lh * 2, Lh * 4.5, s));
         const N = save ? 300 : 170, sides = save ? 44 : 30;
         const path = spinePath(S, N, yaw, pitch);
         // Half-width, top and bottom along the body (meters along from the snout).
@@ -307,7 +314,7 @@
             return grow * vent * tail;
         };
         const stations = [];
-        const hood = s => type.hood ? Math.exp(-(((s - Lh - S * .065) / (S * .05)) ** 4)) * ease(Lh, Lh + S * .02, s) : 0;
+        const hood = s => type.hood ? Math.exp(-(((s - Lh - S0 * .065) / (S0 * .05)) ** 4)) * ease(Lh, Lh + S0 * .02, s) : 0;
         for (const s of stationsAlong(S, path.ds, Lh * .35, save ? 18 : 12)) {
             const u = s / Lh, here = pathAt(path, s);
             let w, top, bot, nt = type.nt, nb = type.nb, crease = null, lowerInset = 0;
@@ -317,8 +324,9 @@
                 // Snout: a rounded, slightly tapered tip (the rostral plate), the head widening behind the eyes to
                 // the jaw joints, clearly wider than the neck, then narrowing quickly into the neck. In profile the
                 // snout slopes down to the tip and the chin rises to meet it.
-                const tip = Math.sqrt(1 - (1 - Math.min(1, u / .28)) ** 2), back = ease(.9, 1.18, u);
-                const shape = type.brow ? .42 + .58 * ease(0, .84, u) ** .9 : .56 + .44 * ease(0, .8, u) ** .9;
+                // The snout tapers over its front part to a narrow rounded tip (never a flat, blunt front).
+                const sn = type.snout || .3, tip = Math.sqrt(1 - (1 - Math.min(1, u / sn)) ** 2) * (.64 + .36 * ease(0, sn * 1.6, u)), back = ease(.9, 1.18, u);
+                const shape = type.brow ? .4 + .6 * ease(0, .84, u) ** .9 : .46 + .54 * ease(0, .85, u) ** .9;
                 const jaw = 1 + (type.brow ? .1 : .06) * Math.exp(-(((u - .84) / .1) ** 2));
                 const hw = Wh * tip * shape * jaw, ht = Wh * (type.brow ? .5 : .56) * tip * (.6 + .4 * ease(0, .5, u)), hb = Wh * .4 * tip * (.5 + .5 * ease(0, .75, u));
                 w = hw + (R - hw) * back; top = ht + (R * .95 - ht) * back; bot = hb + (R * .82 - hb) * back;
@@ -397,10 +405,10 @@
             if (t === 'cobra') {
                 c = mix(col.main, col.mark, ease(.45, .8, n) * .35 * amt);
                 // The spectacle on the back of the hood.
-                const hs = s - Lh - S * .06, sp = Math.abs(Math.hypot(Math.abs(x) - Rb * 1.5, hs * 1.4) - Rb * .9);
-                if (Math.abs(hs) < S * .05) c = mix(c, col.light, ease(Rb * .35, Rb * .15, sp) * amt * .9);
+                const hs = s - Lh - S0 * .06, sp = Math.abs(Math.hypot(Math.abs(x) - Rb * 1.5, hs * 1.4) - Rb * .9);
+                if (Math.abs(hs) < S0 * .05) c = mix(c, col.light, ease(Rb * .35, Rb * .15, sp) * amt * .9);
                 c = mix(c, col.light, belly * .85);
-                if (Math.abs(hs) < S * .06) c = mix(c, col.mark, belly * ease(.6, .4, fract(hs / (Rb * 2.4))) * .7 * amt);
+                if (Math.abs(hs) < S0 * .06) c = mix(c, col.mark, belly * ease(.6, .4, fract(hs / (Rb * 2.4))) * .7 * amt);
                 return c.map(k => k * (.9 + .2 * n));
             }
             // Python: big rounded saddles dark-edged on a tan ground, lighter-centred blotches low on the flanks, an arrow on the crown.
@@ -446,7 +454,7 @@
         }
         if (!details.empty) C.parts.push(details.part('Nostrils', { kind: 'skin', roughness: .7, noSurfaceDetail: true }));
         part.reptile = { length: S, Rb };
-        C.bones[0].reptileFrame = { kind: 'snake', length: S, type: r.snakeType, restYaw: chain.map(x => ({ b: x.b, c: x.c })), yawAt: yaw, pitchAt: pitch, headLength: Lh };
+        C.bones[0].reptileFrame = { kind: 'snake', length: S, waves, reared: type.hood ? Lh + S0 * .3 : 0, type: r.snakeType, restYaw: chain.map(x => ({ b: x.b, c: x.c })), yawAt: yaw, pitchAt: pitch, headLength: Lh };
     }
 
     /**
@@ -764,10 +772,14 @@
             frogRoots.push({ p: shoulder, r: rA * 1.6 });
             limbTube(legs, [add(shoulder, [-sign * rA, rA * .5, 0]), shoulder, lerp(shoulder, elbow, .5), elbow], [rA * 1.5, rA * 1.3, rA * 1.05, rA * .9], save ? 12 : 9, p => { const w = ease(rA * .5, rA * 2.5, Math.hypot(...sub(p, shoulder))); return { joints: [fu, chest, 0, 0], weights: [w, 1 - w, 0, 0] }; });
             limbTube(legs, [elbow, lerp(elbow, wrist, .5), wrist], [rA * .9, rA * .75, rA * .62], save ? 12 : 9, p => { const t = clamp(Math.hypot(...sub(p, elbow)) / (rA * 1.5), 0, 1); return { joints: [fl, fu, 0, 0], weights: [.5 + .5 * t, .5 - .5 * t, 0, 0] }; });
+            // The hand: a low palm under the wrist, the forearm running on into it, the fingers growing out of it.
+            const palm = add(wrist, [0, -SVL * .01, SVL * .006]);
+            limbTube(legs, [lerp(elbow, wrist, .7), wrist, palm], [rA * .68, rA * .62, rA * .58], save ? 12 : 9, p => { const t = clamp(Math.hypot(...sub(p, wrist)) / (rA * 1.2), 0, 1); return { joints: [fh, fl, 0, 0], weights: [.5 + .5 * t, .5 - .5 * t, 0, 0] }; });
+            legs.sphere(palm, rA * .66, [1, 1, 1], Props.rigid(fh), 8, 12, [1.2, .62, 1.15]);
             for (let k = 0; k < 4; k++) {
                 const a = (-.9 + k * .55) * sign + sign * .25, dir = norm([Math.sin(a), 0, Math.cos(a)]), len = SVL * [.07, .1, .12, .09][k] * legK;
-                const base = add(wrist, [0, -SVL * .012, 0]), tipP = add(add(base, mul(dir, len)), [0, -SVL * .008, 0]), rf = rA * .3;
-                limbTube(legs, [base, add(lerp(base, tipP, .5), [0, SVL * .006, 0]), tipP], [rf * 1.6, rf * 1.05, rf * .9], save ? 7 : 6, Props.rigid(fh));
+                const base = add(palm, mul(dir, rA * .25)), tipP = add(add(base, mul(dir, len)), [0, -SVL * .008, 0]), rf = rA * .3;
+                limbTube(legs, [base, add(lerp(base, tipP, .45), [0, SVL * .004, 0]), tipP], [rf * 1.5, rf * 1.05, rf * .9], save ? 7 : 6, Props.rigid(fh));
                 if (type.pads) pads.sphere(add(tipP, mul(dir, rf * .5)), rf * 1.9, [1, 1, 1], Props.rigid(fh), 6, 10, [1, .55, 1]);
             }
             // Hind: the thigh forward along the flank, the shin folded back beside it, the long foot forward again on the ground.
@@ -785,6 +797,8 @@
             limbTube(legs, [add(hip, [-sign * rT * .5, rT * .2, -rT * .3]), hip, lerp(hip, knee, .45), knee], [rT * 1.15, rT * 1.2, rT * 1.0, rT * .6], save ? 16 : 11, p => { const w = ease(rT * .4, rT * 2.2, Math.hypot(...sub(p, hip))); return { joints: [tu, hips, 0, 0], weights: [w, 1 - w, 0, 0] }; });
             limbTube(legs, [add(knee, mul(norm(sub(knee, ankle)), rT * .25)), knee, lerp(knee, ankle, .45), ankle], [rT * .55, rT * .62, rT * .55, rT * .36], save ? 14 : 10, p => { const t = clamp(Math.hypot(...sub(p, knee)) / (rT * 1.1), 0, 1); return { joints: [tl, tu, 0, 0], weights: [.5 + .5 * t, .5 - .5 * t, 0, 0] }; });
             limbTube(legs, [add(ankle, mul(norm(sub(ankle, sole)), rT * .15)), ankle, lerp(ankle, sole, .5), sole], [rT * .34, rT * .34, rT * .3, rT * .26], save ? 12 : 9, p => { const t = clamp(Math.hypot(...sub(p, ankle)) / (rT * .8), 0, 1); return { joints: [tf, tl, 0, 0], weights: [.5 + .5 * t, .5 - .5 * t, 0, 0] }; });
+            // The sole: a flat pad the shin's tube runs into and the toes grow out of.
+            legs.sphere(sole, rT * .3, [1, 1, 1], Props.rigid(tf), 8, 12, [1.25, .6, 1.3]);
             // Five long toes fanned forward and out, the fourth longest, webbed between.
             const toes = [];
             for (let k = 0; k < 5; k++) {
@@ -869,15 +883,51 @@
             const a = 1.0, surface = add(add(st.p, mul(X, sign * se(Math.cos(a), st.nt) * st.w)), mul(Yv, se(Math.sin(a), st.nt) * st.top));
             const outward = norm(add(mul(X, sign * Math.cos(a)), mul(Yv, Math.sin(a) * 1.1)));
             const center = add(surface, mul(outward, eyeR * .05));
-            eyeball(C, 'Eye ' + (sign > 0 ? 'L' : 'R'), center, eyeR, add(mul(outward, .7), add(mul(X, sign * .5), mul(st.f, .45))), type.pupil, iris, head, { pupilSize: .42, flecks: true });
-            // The upper lid: a half ring of skin over the top of the eye.
-            const f = norm(add(mul(outward, .7), add(mul(X, sign * .5), mul(st.f, .45)))), ex = norm(cross(Yv, f)), ey = cross(f, ex), arc = [];
-            for (let k = 0; k <= 14; k++) { const th = Math.PI * (.08 + .84 * k / 14); arc.push(add(add(center, mul(f, eyeR * .15)), add(mul(ex, Math.cos(th) * eyeR * 1.02), mul(ey, Math.sin(th) * eyeR * .92)))); }
-            lids.tube(arc, arc.map((_, k) => eyeR * (.09 + .12 * Math.sin(Math.PI * k / 14))), 8, mix(col.main, col.mark, t === 'toad' ? .2 : 0), Props.rigid(head));
+            const lidSkin = mix(col.main, col.mark, t === 'toad' ? .2 : 0);
+            eyeball(C, 'Eye ' + (sign > 0 ? 'L' : 'R'), center, eyeR, add(mul(outward, .7), add(mul(X, sign * .5), mul(st.f, .45))), type.pupil, iris, head, { pupilSize: .42, flecks: true, back: lidSkin });
+            // The upper lid: a hood of skin over the back and top of the eyeball, its edge a soft rounded fold a
+            // third of the way down the eye (never the eyeball's dark back showing above the head).
+            const f = norm(add(mul(outward, .7), add(mul(X, sign * .5), mul(st.f, .45)))), ex = norm(cross(Yv, f)), ey = cross(f, ex);
+            const hA = norm(add(mul(f, -.6), mul(ey, .8))), hX = norm(cross(hA, ex)), hY = cross(hA, hX), capA = 1.5, hr = eyeR * 1.05, nT = 7, nP = 28, ring = [];
+            for (let i = 0; i <= nT; i++) {
+                const th = capA * i / nT, row = [];
+                for (let j = 0; j < nP; j++) {
+                    const ph = 2 * Math.PI * j / nP, d = norm(add(mul(hA, Math.cos(th)), add(mul(hX, Math.sin(th) * Math.cos(ph)), mul(hY, Math.sin(th) * Math.sin(ph)))));
+                    const q = add(center, mul(d, hr)), n = fbm(q[0] / SVL * 60 + sign * 3, (q[1] + q[2]) / SVL * 60);
+                    row.push(lids.vertex(q, d, lidSkin.map(k => k * (.9 + .18 * n)), Props.rigid(head)));
+                }
+                ring.push(row);
+            }
+            const P = lids.p, wind = (a, b, c) => { const pa = [P[a * 3], P[a * 3 + 1], P[a * 3 + 2]], n = cross(sub([P[b * 3], P[b * 3 + 1], P[b * 3 + 2]], pa), sub([P[c * 3], P[c * 3 + 1], P[c * 3 + 2]], pa)); if (dot(n, sub(pa, center)) >= 0) lids.tri(a, b, c); else lids.tri(a, c, b); };
+            for (let i = 0; i < nT; i++) for (let j = 0; j < nP; j++) { const a = ring[i][j], b = ring[i][(j + 1) % nP], c = ring[i + 1][j], d = ring[i + 1][(j + 1) % nP]; wind(a, c, b); wind(b, c, d); }
+            const edge = [];
+            for (let j = 0; j <= nP; j++) { const ph = 2 * Math.PI * j / nP; edge.push(add(center, mul(norm(add(mul(hA, Math.cos(capA)), add(mul(hX, Math.sin(capA) * Math.cos(ph)), mul(hY, Math.sin(capA) * Math.sin(ph))))), hr))); }
+            lids.tube(edge, edge.map(() => eyeR * .075), 8, lidSkin, Props.rigid(head), false);
             // Eardrum and nostril.
             const ts = stAt(Lh * .98), tX = norm(cross([0, 1, 0], ts.f)), tY = cross(ts.f, tX), ta = .25;
             const tp = add(add(ts.p, mul(tX, sign * se(Math.cos(ta), ts.nt) * ts.w)), mul(tY, se(Math.sin(ta), ts.nt) * ts.top));
-            det.disk(add(tp, mul(tX, sign * SVL * .0008)), norm(add(mul(tX, sign), mul(tY, .25))), Whd * (t === 'toad' ? .13 : .16), mix(t === 'treeFrog' ? mix(col.main, col.light, .3) : col.main, [.03, .025, .02], .3), Props.rigid(head), 18);
+            // The eardrum: a disc of skin lying on the head's own surface (each point cast onto the skin, then
+            // a hair proud of it, its rim a little raised), never a flat circle cutting through the curve.
+            {
+                const tn = norm(add(mul(tX, sign), mul(tY, .25))), rad = Whd * (t === 'toad' ? .13 : .16), tc = mix(t === 'treeFrog' ? mix(col.main, col.light, .3) : col.main, [.03, .025, .02], .3);
+                const ux = norm(cross(tn, Math.abs(tn[1]) < .9 ? [0, 1, 0] : [1, 0, 0])), uy = cross(tn, ux), P = mesh.p, I = mesh.i, tris = [];
+                for (let k = 0; k < I.length; k += 3) { const a = [P[I[k] * 3], P[I[k] * 3 + 1], P[I[k] * 3 + 2]]; if (Math.hypot(...sub(a, tp)) < rad * 3) tris.push(k); }
+                const onSkin = q => { let best = null, bd = Infinity; const o = add(q, mul(tn, rad)), d = mul(tn, -1);
+                    for (const k of tris) { const A = [P[I[k] * 3], P[I[k] * 3 + 1], P[I[k] * 3 + 2]], B = [P[I[k + 1] * 3], P[I[k + 1] * 3 + 1], P[I[k + 1] * 3 + 2]], Cc = [P[I[k + 2] * 3], P[I[k + 2] * 3 + 1], P[I[k + 2] * 3 + 2]];
+                        const e1 = sub(B, A), e2 = sub(Cc, A), h = cross(d, e2), det = dot(e1, h); if (Math.abs(det) < 1e-14) continue;
+                        const sv = sub(o, A), u = dot(sv, h) / det; if (u < 0 || u > 1) continue; const qv = cross(sv, e1), v = dot(d, qv) / det; if (v < 0 || u + v > 1) continue;
+                        const dist = dot(e2, qv) / det; if (dist > 0 && dist < bd) { bd = dist; best = add(o, mul(d, dist)); } }
+                    return best || q; };
+                const rings = 5, segs = 20, ids = [];
+                for (let ri = 0; ri <= rings; ri++) { const f = ri / rings, row = [];
+                    for (let k = 0; k < (ri ? segs : 1); k++) { const a = k / segs * Math.PI * 2, q = add(tp, add(mul(ux, Math.cos(a) * rad * f), mul(uy, Math.sin(a) * rad * f)));
+                        const lift = SVL * (.0007 + .0006 * Math.exp(-(((f - .92) / .08) ** 2)));
+                        row.push(det.vertex(add(onSkin(q), mul(tn, lift)), tn, mix(tc, col.main, .25 * ease(.75, 1, f)), Props.rigid(head))); }
+                    ids.push(row); }
+                const tri = (a, b, c) => { const pa = det.p.slice(a * 3, a * 3 + 3), nrm = cross(sub(det.p.slice(b * 3, b * 3 + 3), pa), sub(det.p.slice(c * 3, c * 3 + 3), pa)); if (dot(nrm, tn) >= 0) det.tri(a, b, c); else det.tri(a, c, b); };
+                for (let k = 0; k < segs; k++) tri(ids[0][0], ids[1][k], ids[1][(k + 1) % segs]);
+                for (let ri = 1; ri < rings; ri++) for (let k = 0; k < segs; k++) { const a = ids[ri][k], b = ids[ri][(k + 1) % segs], c = ids[ri + 1][k], d2 = ids[ri + 1][(k + 1) % segs]; tri(a, c, b); tri(b, c, d2); }
+            }
             const ns = stAt(Lh * .1), nX = norm(cross([0, 1, 0], ns.f)), nY = cross(ns.f, nX), np = add(add(ns.p, mul(nX, sign * ns.w * .45)), mul(nY, ns.top * .92));
             det.disk(add(np, mul(nY, SVL * .002)), norm(add(nY, mul(ns.f, .4))), Whd * .03, [.03, .025, .02], Props.rigid(head), 8);
         }
@@ -941,8 +991,14 @@
             let yaw = rest, pitch = 0;
             if (id === 'crawl' || id === 'walk' || id === 'run') {
                 // Serpentine: a wave runs from the neck to the tail; the head swings least.
-                const lam = S * (id === 'run' ? .42 : .36), A = (id === 'run' ? .62 : .5) * (.35 + .65 * ease(0, S * .14, center)) * (1 - .4 * ease(S * .85, S, center));
-                yaw = A * Math.sin(center / lam * Math.PI * 2 - ph);
+                // The travelling wave as deep as the rest's S-bends and as many along the body, so a slithering snake
+                // stays about as compact as a resting one (and in the view framed on it).
+                // The body's mean heading holds still (the snake undulates along its line, never swinging round the
+                // whole frame); a cobra's reared front stays up out of the wave.
+                const lam = S / (F.waves || 2.6) * (id === 'run' ? 1.15 : 1), amp = x => (id === 'run' ? 1.05 : .95) * (.35 + .65 * ease(0, S * .14, x)) * (1 - .4 * ease(S * .85, S, x)) * ease(F.reared || 0, (F.reared || 0) + S * .08, x);
+                const wave = x => amp(x) * Math.sin(x / lam * Math.PI * 2 - ph);
+                let mean = 0; for (let k = 0; k < 24; k++) mean += wave(S * (k + .5) / 24) / 24;
+                yaw = (F.reared ? rest * (1 - ease(0, S * .08, center - F.reared)) : 0) + wave(center) - mean;
                 if (b.role === 'head') yaw = .12 * Math.sin(-ph) ;
             } else if (id === 'idle') {
                 yaw = rest + .035 * Math.sin(ph + center / S * 6);

@@ -2784,7 +2784,27 @@
             }
             return moved;
         };
-        return { positions: Pos, normals: triangleNormals(Pos, I), uvs: Float32Array.from(uvs), index: I, joints, weights, source, cover };
+        // What the belt is worn over (a tunic, a shirt hanging loose) is drawn in under it, cinched: never out through
+        // its faces or over its edges, easing back out to its own shape a few centimeters above and below it.
+        const cinch = (Q, trunk) => {
+            let moved = false;
+            for (let i = 0; i < Q.length; i += 3) {
+                const y = Q[i + 1], over = Math.max(y0 - y, y - y1, 0);
+                if (over > 0.035 || (trunk && !trunk(i / 3))) continue;
+                const dx = Q[i] - cx, dz = Q[i + 2] - cz, d = Math.hypot(dx, dz);
+                if (d < 1e-6) continue;
+                let a = Math.atan2(dx, dz) - Math.PI; a = ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+                const x = a / (Math.PI * 2) * cols, j = Math.floor(x) % cols, w = x - Math.floor(x);
+                const inner = (R[j] * (1 - w) + R[(j + 1) % cols] * w) - th - 0.0015;
+                const need = (d - inner) * (1 - smoothstep(0, 0.035, over));
+                // (Not a sleeve or a hand hanging beside the waist.)
+                if (need <= 0 || d - inner > 0.05) continue;
+                Q[i] -= dx / d * need; Q[i + 2] -= dz / d * need;
+                moved = true;
+            }
+            return moved;
+        };
+        return { positions: Pos, normals: triangleNormals(Pos, I), uvs: Float32Array.from(uvs), index: I, joints, weights, source, cover, cinch };
     }
 
     /** A pair of shoes in a style on a built body: { part arrays, hidden (pack vertex ids), template }. */
