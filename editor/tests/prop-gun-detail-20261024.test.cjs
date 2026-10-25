@@ -129,7 +129,7 @@ test('every firearm type builds within the detail budget, every style on every f
 });
 
 test('saved recipes from before the styles still load: each preset brings its own receiver style', () => {
-    const expected = { pistol: 'slide', revolver: 'classic', rifle: 'carbine', shotgun: 'classic', smg: 'stamped', sniper: 'bolt', blasterPistol: 'monocoque', blasterRifle: 'truss', plasma: 'heavy', laser: 'monocoque' };
+    const expected = { pistol: 'slide', revolver: 'classic', rifle: 'carbine', shotgun: 'classic', smg: 'stamped', sniper: 'bolt', blasterPistol: 'monocoque', blasterRifle: 'truss', plasma: 'heavy', laser: 'monocoque', railgun: 'monocoque' };
     for (const [id] of Gun.PRESETS) {
         const old = Gun.normalize({ preset: id });
         delete old.style;
@@ -164,9 +164,11 @@ test('the hand rig markers stay where the runtime holds the gun', () => {
         const yb = g.magazine === 'cylinder' ? Math.max(Hr * 0.62, Math.max(Hr * 0.55, 0.018) * g.magSize * 1.55 + 0.009) : Hr * 0.62;
         const gx = xr0 + Lr * (g.stock === 'full' ? 0.18 : 0.12), back = Math.tan(g.grip.angle * Math.PI / 180) * g.grip.length, gd = 0.03, tx = gx + gd + 0.018;
         const front = g.slide ? xr1 + Lb * 0.85 : xr1, bx1 = g.slide ? front + 0.008 : xr1 + Lb, rb = g.barrel.thickness / 2;
-        const mx = bx1 + ({ brake: 0.05, suppressor: Lb * 0.6 + 0.09, emitter: 0.045, flash: Math.max(0.04, rb * 6) }[g.muzzle] || 0);
+        // A railgun's mouth is its yoke, past the rails' ends, whatever the muzzle says.
+        const railed = g.barrelBuild === 'rails', mx = bx1 + (railed ? 0.008 : ({ brake: 0.05, suppressor: Lb * 0.6 + 0.09, emitter: 0.045, flash: Math.max(0.04, rb * 6) }[g.muzzle] || 0));
         const local = { gripTop: [gx + gd / 2, 0, 0], gripBottom: [gx + gd / 2 - back, -g.grip.length, 0], trigger: [tx, -0.012, 0], muzzle: [mx, yb, 0] };
-        if (g.forend) local.foreGrip = [(xr1 + 0.004 + xr1 + Math.min(Lb * 0.6, 0.36)) / 2, yb - rb - 0.018, 0];
+        // Its fore grip hangs under the lower rail.
+        if (g.forend) local.foreGrip = [(xr1 + 0.004 + xr1 + Math.min(Lb * 0.6, 0.36)) / 2, railed ? yb - Math.max(0.004, rb) - Math.max(0.008, rb * 1.1) - 0.001 - 0.018 : yb - rb - 0.018, 0];
         if (g.stock === 'full') local.stock = [xr0 - 0.26 - Lr * 0.15 - 0.012, (Hr * 0.8 - 0.06) / 2, 0];
         if (g.stock === 'folding') local.stock = [xr0 - 0.22 - 0.01, Hr * 0.3 - 0.03, 0];
         local.rear = local.stock || [xr0, Hr * 0.5, 0];

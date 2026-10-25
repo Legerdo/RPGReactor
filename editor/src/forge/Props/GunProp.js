@@ -30,6 +30,8 @@
     const MAGAZINES = [['box', 'Box magazine'], ['drum', 'Drum magazine'], ['cylinder', 'Revolver cylinder'], ['tube', 'Tube under the barrel'], ['cell', 'Energy cell'], ['none', 'None']];
     const STOCKS = [['none', 'None'], ['folding', 'Folding stock'], ['full', 'Full stock']];
     const SIGHTS = [['iron', 'Iron sights'], ['dot', 'Red dot'], ['scope', 'Telescopic sight'], ['none', 'None']];
+    /** A round barrel, or a railgun's two conductor rails with the projectile channel between them. */
+    const BARRELS = [['round', 'Round barrel'], ['rails', 'Twin conductor rails']];
     const MUZZLES = [['plain', 'Plain'], ['brake', 'Muzzle brake'], ['flash', 'Flash hider'], ['suppressor', 'Suppressor'], ['emitter', 'Emitter']];
     /** How the receiver is built: five firearm styles, three sci-fi; each preset starts on its own. */
     const STYLES = [['slide', 'Slide and frame'], ['classic', 'Classic'], ['carbine', 'Carbine'], ['stamped', 'Stamped steel'], ['bolt', 'Bolt action'], ['monocoque', 'Sealed shell'], ['truss', 'Open frame'], ['heavy', 'Armored']];
@@ -52,6 +54,7 @@
         ['blasterPistol', 'Blaster pistol', 'scifi', { style: 'monocoque', barrel: { length: 0.12, thickness: 0.02 }, receiver: { length: 0.2, height: 0.05 }, magazine: 'cell', magSize: 1, stock: 'none', sight: 'none', grip: { angle: 20, length: 0.11 }, muzzle: 'emitter', rails: false, frame: 'painted', furniture: 'painted', paint: '#d8dce4', coils: 3, vents: true, glow: '#38c8ff' }],
         ['blasterRifle', 'Blaster rifle', 'scifi', { style: 'truss', barrel: { length: 0.42, thickness: 0.022 }, receiver: { length: 0.34, height: 0.07 }, magazine: 'cell', magSize: 1.2, stock: 'full', sight: 'dot', grip: { angle: 20, length: 0.1 }, muzzle: 'emitter', rails: true, frame: 'painted', furniture: 'painted', paint: '#3a3f4a', coils: 5, vents: true, glow: '#ff5a3a', forend: true }],
         ['plasma', 'Plasma cannon', 'scifi', { style: 'heavy', barrel: { length: 0.5, thickness: 0.05 }, receiver: { length: 0.42, height: 0.1 }, magazine: 'drum', magSize: 1.5, stock: 'none', sight: 'scope', grip: { angle: 10, length: 0.1 }, muzzle: 'emitter', rails: false, frame: 'painted', furniture: 'polymer', paint: '#5a6a3a', coils: 6, vents: true, glow: '#7aff6a', forend: true }],
+        ['railgun', 'Railgun rifle', 'scifi', { style: 'monocoque', barrelBuild: 'rails', capacitors: 4, barrel: { length: 0.54, thickness: 0.02 }, receiver: { length: 0.36, height: 0.07 }, magazine: 'cell', magSize: 1.1, stock: 'full', sight: 'scope', grip: { angle: 18, length: 0.1 }, muzzle: 'plain', rails: true, frame: 'painted', furniture: 'polymer', paint: '#4a4e56', coils: 0, vents: true, glow: '#38c8ff', forend: true }],
         ['laser', 'Laser rifle', 'scifi', { style: 'monocoque', barrel: { length: 0.55, thickness: 0.011 }, receiver: { length: 0.3, height: 0.055 }, magazine: 'cell', magSize: 0.9, stock: 'full', sight: 'scope', grip: { angle: 18, length: 0.1 }, muzzle: 'emitter', rails: false, frame: 'chrome', furniture: 'painted', paint: '#f0f0f2', coils: 2, vents: false, glow: '#c86aff' }]
     ];
     const PRESET_BY_ID = new Map(PRESETS.map(p => [p[0], p[3]]));
@@ -72,7 +75,8 @@
             frame: pick(v('frame'), FRAMES.map(f => f[0]), 'gunmetal'), furniture: pick(v('furniture'), FURNITURE.map(f => f[0]), 'polymer'),
             paint: color(v('paint', '#3a3f4a'), '#3a3f4a'), coils: Math.round(clamp(v('coils', 0), 0, 8, 0)), vents: !!v('vents', false),
             fasteners:r.fasteners!==false,gripRibs:Math.round(clamp(r.gripRibs,0,16,7)),
-            glow: color(v('glow', '#38c8ff'), '#38c8ff'), slide: !!v('slide', false), forend: !!v('forend', false)
+            glow: color(v('glow', '#38c8ff'), '#38c8ff'), slide: !!v('slide', false), forend: !!v('forend', false),
+            barrelBuild: pick(v('barrelBuild'), BARRELS.map(b => b[0]), 'round'), capacitors: Math.round(clamp(v('capacitors', 0), 0, 6, 0))
         };
     }
 
@@ -95,7 +99,7 @@
      * receiver's shape comes from its style.
      */
     function body(r) {
-        const P = { frame: [], under: [], furniture: [], metal: [], glass: [], glow: [], dark: [], brass: [] }, marks = {};
+        const P = { frame: [], under: [], furniture: [], metal: [], glass: [], glow: [], dark: [], brass: [], boreGlow: [], copper: [], insul: [], charge: [] }, marks = {};
         const Lr = r.receiver.length, Hr = r.receiver.height, Lb = r.barrel.length, rb = r.barrel.thickness / 2;
         // A revolver's bore lines up with its top chamber: the cylinder's axis sits below the barrel by the chambers' circle.
         const wheel = r.magazine === 'cylinder', Rc = Math.max(Hr * 0.55, 0.018) * r.magSize;
@@ -282,50 +286,109 @@
         }
 
         // ── the barrel and its muzzle ──────────────────────────────────────
-        const bx0 = front - 0.005, bx1 = r.slide ? front + 0.008 : xr1 + Lb, L = bx1 - bx0, boreDepth = Math.min(0.025, L * 0.7);
+        // Every bore is open: each turned part is a closed shell hollowed to the bore, a dark liner just inside its wall
+        // and a dark floor well back from the mouth (lathes here leave their ends uncapped; the profiles close on themselves).
+        const railed = r.barrelBuild === 'rails', RG = { g: Math.max(0.004, rb), hR: Math.max(0.008, rb * 1.1), wR: Math.max(0.014, rb * 2.4) };
+        const bx0 = front - 0.005, bx1 = r.slide ? front + 0.008 : xr1 + Lb, L = bx1 - bx0, boreDepth = Math.min(0.06, L * 0.7), rbo = rb * 0.58;
+        const open = (profile, seg, x, list, sharp) => list.push(Mesh.lathe(profile, seg || 24, { base: [x, yb, 0], dir: [1, 0, 0], sharp: sharp ?? 0.5, caps: false }));
+        /** A bore into a muzzle: a liner facing in from `x1` back `depth` and a floor facing the mouth (faintly lit when `lit`). */
+        const bore = (x1, r0, depth, lit) => { open([[r0 * 0.96, depth], [r0 * 0.96, 0]], 24, x1 - depth, P.dark); (lit ? P.boreGlow : P.dark).push(Mesh.lathe([[r0, 0], [r0, 0.0015]], 24, { base: [x1 - depth, yb, 0], dir: [1, 0, 0] })); };
+        /** A thin dark tube, seen from outside and from inside. */
+        const sleeve = (x0, x1, r0) => { open([[r0, 0], [r0, x1 - x0]], 16, x0, P.dark); open([[r0 * 0.96, x1 - x0], [r0 * 0.96, 0]], 16, x0, P.dark); };
         const step = r.slide ? 0 : Math.min(0.03, L * 0.1);
-        const barrelProfile = [[0, 0], [rb * (step ? 1.3 : 1), 0], ...(step ? [[rb * 1.3, step], [rb, step + 0.004]] : []), [rb, L - 0.0015], [rb * 0.86, L], [rb * 0.58, L], [rb * 0.58, L - boreDepth], [0, L - boreDepth]];
-        if (style === 'bolt' && L > 0.25) {
-            // A fluted heavy barrel.
-            const f0 = L * 0.22, f1 = L * 0.72, prof = [[rb * 1.3, 0], [rb * 1.3, step], [rb, step + 0.004], [rb, f0], [rb, f0 + 0.01], [rb, f1 - 0.01], [rb, f1], [rb, L - 0.0015], [rb * 0.86, L], [rb * 0.58, L], [rb * 0.58, L - boreDepth], [0, L - boreDepth]];
-            const fl = CM.revolve([[0, 0], ...prof], 48, { radius: (t, y, rad) => (y > f0 + 0.005 && y < f1 - 0.005 && rad >= rb * 0.99 ? rad * (1 - 0.1 * Math.max(0, Math.cos(t * Math.PI * 12)) ** 3) : rad) });
-            CM.transform(fl, ([x, y, z]) => [bx0 + y, yb + x, -z], ([x, y, z]) => [y, x, -z]);
-            P.metal.push(fl);
-        } else P.metal.push(Mesh.lathe(barrelProfile, 40, { base: [bx0, yb, 0], dir: [1, 0, 0] }));
-        P.dark.push(Mesh.lathe([[rb * 0.55, 0], [rb * 0.55, 0.0015], [0, 0.0015]], 10, { base: [bx1 - boreDepth + 0.0002, yb, 0], dir: [1, 0, 0] }));
         let mx = bx1;
-        if (r.muzzle === 'brake') {
-            // A ported block: three windows through each side, the bore showing through them.
-            const len = 0.05, h = rb * 1.7, x0 = bx1 - 0.006, holes = [];
-            for (let k = 0; k < 3; k++) { const x = bx1 + 0.007 + k * 0.012; holes.push(HS.cut(rect(x, yb - h * 0.62, x + 0.0075, yb + h * 0.62), 0.0015)); }
-            plate(P.under, HS.cut(rect(x0, yb - h, bx1 + len, yb + h), [0, h * 0.35, h * 0.35, 0]), rb * 3.2, Math.min(rb * 0.4, 0.002), { holes });
-            P.dark.push(rod(x0, bx1 + len - 0.001, yb, rb * 0.62, 12));
-            mx = bx1 + len;
-        } else if (r.muzzle === 'suppressor') {
-            // A can: hex mount, two banded sections, a recessed front cap.
-            const len = Lb * 0.6 + 0.09, R = rb * 2.2, body = [[R * 0.88, 0.016], [R, 0.02]];
-            for (const t of [0.34, 0.68]) body.push([R, len * t], [R * 0.93, len * t + 0.002], [R * 0.93, len * t + 0.006], [R, len * t + 0.008]);
-            body.push([R, len - 0.008], [R * 0.9, len - 0.002], [R * 0.66, len - 0.002], [R * 0.6, len - 0.006], [rb * 0.7, len - 0.006], [rb * 0.7, len - 0.003], [0, len - 0.003]);
-            P.under.push(turned(bx1 - 0.004, yb, [[rb * 1.15, 0], [rb * 1.9, 0.002], [rb * 1.9, 0.016]], 6, 0.9));
-            P.under.push(turned(bx1, yb, body, 32));
-            P.dark.push(turned(bx1 + len - 0.0035, yb, [[rb * 0.68, 0], [0, 0.0004]], 12));
-            mx = bx1 + len;
-        } else if (r.muzzle === 'flash') {
-            // Four prongs on a collar.
-            const len = Math.max(0.04, rb * 6);
-            P.under.push(turned(bx1 - 0.004, yb, [[rb * 1.15, 0], [rb * 1.55, 0.002], [rb * 1.55, len * 0.32]], 24));
-            for (let k = 0; k < 4; k++) { const prong = HS.chamferedBox([bx1 + len * 0.64, yb + rb * 1.12, 0], [len * 0.68, rb * 0.7, rb * 0.9], Math.min(0.0008, rb * 0.15)); P.under.push(HS.turn(prong, 'x', Math.PI / 4 + k * Math.PI / 2, [0, yb, 0])); }
-            P.dark.push(rod(bx1 + len * 0.3, bx1 + len - 0.002, yb, rb * 0.8, 12));
-            mx = bx1 + len;
-        } else if (r.muzzle === 'emitter') {
-            // A flared emitter: six fins on the flare, a lens sunk in its mouth, a glowing band in a groove.
-            (scifi ? P.frame : P.metal).push(turned(bx1, yb, [[rb, 0], [rb * 1.9, 0.012], [rb * 2.2, 0.026], [rb * 2.2, 0.03], [rb * 2.05, 0.031], [rb * 2.05, 0.034], [rb * 2.2, 0.035], [rb * 2.2, 0.04], [rb * 1.8, 0.045], [rb * 1.3, 0.045], [rb * 1.2, 0.04]], 32));
-            P.glow.push(turned(bx1 + 0.031, yb, [[rb * 2.1, 0], [rb * 2.1, 0.003]], 32));
-            P.glow.push(turned(bx1 + 0.036, yb, [[rb * 1.22, 0], [0, 0.002]], 24));
-            for (let k = 0; k < 6; k++) { const fin = HS.plate([[bx1 + 0.004, 0], [bx1 + 0.026, 0], [bx1 + 0.024, rb * 0.9], [bx1 + 0.012, rb * 0.9]], Math.max(0.0012, rb * 0.18), 0.0004, { frame: { o: [0, yb + rb * 1.5, 0], u: [1, 0, 0], v: [0, 1, 0], n: [0, 0, 1] } }); P.under.push(HS.turn(fin, 'x', k * Math.PI / 3, [0, yb, 0])); }
-            mx = bx1 + 0.045;
-        } else if (!r.slide) P.under.push(turned(bx1 - 0.012, yb, [[rb * 1.12, 0], [rb * 1.18, 0.001], [rb * 1.18, 0.0095], [rb * 1.05, 0.0105]], 24));
+        if (railed) mx = railBarrel();
+        else {
+            if (style === 'bolt' && L > 0.25) {
+                // A fluted heavy barrel.
+                const f0 = L * 0.22, f1 = L * 0.72, prof = [[rb * 1.3, 0], [rb * 1.3, step], [rb, step + 0.004], [rb, f0], [rb, f0 + 0.01], [rb, f1 - 0.01], [rb, f1], [rb, L - 0.0015], [rb * 0.86, L], [rbo, L], [rbo, L - boreDepth], [0, L - boreDepth]];
+                const fl = CM.revolve([[0, 0], ...prof], 48, { radius: (t, y, rad) => (y > f0 + 0.005 && y < f1 - 0.005 && rad >= rb * 0.99 ? rad * (1 - 0.1 * Math.max(0, Math.cos(t * Math.PI * 12)) ** 3) : rad) });
+                CM.transform(fl, ([x, y, z]) => [bx0 + y, yb + x, -z], ([x, y, z]) => [y, x, -z]);
+                P.metal.push(fl);
+                bore(bx1 - 0.0004, rbo * 0.97, boreDepth - 0.0008);
+            } else {
+                open([[0, 0], [rb * (step ? 1.3 : 1), 0], ...(step ? [[rb * 1.3, step], [rb, step + 0.004]] : []), [rb, L - 0.0015], [rb * 0.86, L], [rbo, L], [rbo, L - boreDepth], [0, L - boreDepth]], 40, bx0, P.metal, 0.6);
+                bore(bx1, rbo, boreDepth - 0.0005, r.muzzle === 'emitter');
+            }
+            if (r.muzzle === 'brake') {
+                // Baffles across the bore with ports between them, joined by a strap over and under; the bore runs through.
+                const len = 0.05, h = rb * 1.7, wz = rb * 1.6, x0 = bx1 - 0.006, c = Math.min(rb * 0.4, 0.002), face = HS.cut(rect(-wz, yb - h, wz, yb + h), Math.min(wz, h) * 0.3), spans = [[x0, bx1 + 0.007]];
+                for (let k = 0; k < 3; k++) { const a = bx1 + 0.007 + k * 0.012 + 0.0075; spans.push([a, k < 2 ? a + 0.0045 : bx1 + len]); }
+                for (const [a, b2] of spans) put(P.under, HS.plate(face, b2 - a, c, Object.assign({ holes: [HS.circle(0, yb, rbo * 1.08, 24)] }, across(a, b2 - a))));
+                for (const s of [-1, 1]) plate(P.under, rect(x0, s > 0 ? yb + h * 0.62 : yb - h, bx1 + len, s > 0 ? yb + h : yb - h * 0.62), wz * 2, c);
+                sleeve(x0 + 0.001, bx1 + 0.007, rbo * 1.07);
+                mx = bx1 + len;
+            } else if (r.muzzle === 'suppressor') {
+                // A can: hex mount, two banded sections, a recessed front cap with the bore going into it.
+                const len = Lb * 0.6 + 0.09, R = rb * 2.2, body = [[rb * 0.75, 0.016], [R * 0.88, 0.016], [R, 0.02]];
+                for (const t of [0.34, 0.68]) body.push([R, len * t], [R * 0.93, len * t + 0.002], [R * 0.93, len * t + 0.006], [R, len * t + 0.008]);
+                body.push([R, len - 0.008], [R * 0.9, len - 0.002], [R * 0.66, len - 0.002], [R * 0.6, len - 0.006], [rb * 0.75, len - 0.006], [rb * 0.75, 0.016]);
+                P.under.push(turned(bx1 - 0.004, yb, [[rb * 1.15, 0], [rb * 1.9, 0.002], [rb * 1.9, 0.016]], 6, 0.9));
+                open(body, 32, bx1, P.under);
+                bore(bx1 + len - 0.006, rb * 0.75, Math.min(0.05, len * 0.4) - 0.002);
+                mx = bx1 + len;
+            } else if (r.muzzle === 'flash') {
+                // Four prongs on a collar, a dark open sleeve between them.
+                const len = Math.max(0.04, rb * 6);
+                open([[rb * 1.05, 0], [rb * 1.55, 0.002], [rb * 1.55, len * 0.32], [rb * 0.8, len * 0.32], [rb * 0.8, len * 0.32 - 0.002], [rb * 1.05, len * 0.32 - 0.004], [rb * 1.05, 0]], 24, bx1 - 0.004, P.under, 0.9);
+                for (let k = 0; k < 4; k++) { const prong = HS.chamferedBox([bx1 + len * 0.64, yb + rb * 1.12, 0], [len * 0.68, rb * 0.7, rb * 0.9], Math.min(0.0008, rb * 0.15)); P.under.push(HS.turn(prong, 'x', Math.PI / 4 + k * Math.PI / 2, [0, yb, 0])); }
+                sleeve(bx1 + len * 0.3, bx1 + len - 0.002, rb * 0.76);
+                mx = bx1 + len;
+            } else if (r.muzzle === 'emitter') {
+                // A flared emitter: six fins on the flare, a glowing band in a groove, and an open throat: a dark
+                // funnel down to the bore with three focusing rings in it and the emitter's core lit at the bottom.
+                const mouth = rb * 1.2;
+                open([[rb, 0], [rb * 1.9, 0.012], [rb * 2.2, 0.026], [rb * 2.2, 0.03], [rb * 2.05, 0.031], [rb * 2.05, 0.034], [rb * 2.2, 0.035], [rb * 2.2, 0.04], [rb * 1.8, 0.045], [rb * 1.3, 0.045], [mouth, 0.04], [mouth, 0.006], [rbo, 0], [rb, 0]], 32, bx1, scifi ? P.frame : P.metal, 0.9);
+                open([[mouth * 0.965, 0.0395], [mouth * 0.965, 0.0062], [rbo * 0.98, 0.0004]], 32, bx1, P.dark, 0.9);
+                open([[rb * 2.1, 0], [rb * 2.1, 0.003]], 32, bx1 + 0.031, P.glow);
+                for (const a of [0.009, 0.019, 0.029]) open([[mouth, 0.0035], [mouth * 0.9, 0.0026], [mouth * 0.9, 0.0009], [mouth, 0]], 32, bx1 + a, P.boreGlow, 0.9);
+                P.boreGlow.push(Mesh.lathe([[0, 0], [rbo * 0.62, 0], [rbo * 0.45, rbo * 0.3], [0, rbo * 0.42]], 20, { base: [bx1 - boreDepth + 0.001, yb, 0], dir: [1, 0, 0], caps: false }));
+                for (let k = 0; k < 6; k++) { const fin = HS.plate([[bx1 + 0.004, 0], [bx1 + 0.026, 0], [bx1 + 0.024, rb * 0.9], [bx1 + 0.012, rb * 0.9]], Math.max(0.0012, rb * 0.18), 0.0004, { frame: { o: [0, yb + rb * 1.5, 0], u: [1, 0, 0], v: [0, 1, 0], n: [0, 0, 1] } }); P.under.push(HS.turn(fin, 'x', k * Math.PI / 3, [0, yb, 0])); }
+                mx = bx1 + 0.045;
+            } else if (!r.slide) open([[rb * 1.12, 0], [rb * 1.18, 0.001], [rb * 1.18, 0.0095], [rb * 1.05, 0.0105], [rb * 1.01, 0.0105], [rb * 1.01, 0], [rb * 1.12, 0]], 24, bx1 - 0.012, P.under, 0.9);
+        }
         marks.muzzle = [mx, yb, 0];
+        /**
+         * The railgun's barrel: two conductor rails over and under an open channel, copper faces on their inner
+         * sides, insulating cheeks clamping them apart at intervals (the gap shows between), finned heat sinks
+         * along the top rail, a yoke round the mouth and the breech closed by a faintly lit armature at the back.
+         */
+        function railBarrel() {
+            const { g, hR, wR } = RG, x0 = bx0, x1 = bx1, c = Math.min(0.0015, hR * 0.15);
+            for (const s of [-1, 1]) {
+                const yIn = yb + s * g, yOut = yb + s * (g + hR);
+                plate(P.metal, HS.cut(rect(x0, Math.min(yIn, yOut), x1, Math.max(yIn, yOut)), [hR * 0.3, hR * 0.3, hR * 0.3, hR * 0.3]), wR, c);
+                plate(P.copper, rect(x0 + 0.006, Math.min(yIn, yIn - s * 0.0012), x1 - 0.003, Math.max(yIn, yIn - s * 0.0012)), wR * 0.56, 0.0003);
+                // A dark groove down each outer side.
+                plate(P.dark, rect(x0 + 0.01, yb + s * (g + hR * 0.42), x1 - 0.01, yb + s * (g + hR * 0.58)), wR + 0.0008, 0.0002);
+            }
+            // Insulating cheeks on both sides, two bolts through each.
+            const n = Math.max(2, Math.round((x1 - x0) / 0.11)), cw = 0.016, ct = 0.005;
+            for (let k = 0; k <= n; k++) {
+                const x = x0 + 0.012 + (x1 - x0 - 0.03) * k / n;
+                for (const s of [-1, 1]) {
+                    cbox(P.insul, [x, yb, s * (wR / 2 + ct / 2)], [cw, (g + hR) * 2 + 0.004, ct], 0.0012);
+                    for (const t of [-1, 1]) P.metal.push(Mesh.lathe([[0, 0], [0.0022, 0], [0.0022, 0.0012], [0.0014, 0.0019], [0, 0.0019]], 12, { base: [x, yb + t * (g + hR * 0.5), s * (wR / 2 + ct)], dir: [0, 0, s], sharp: 0.5 }));
+                }
+            }
+            // Heat sinks: a stack of fins on the top rail between the cheeks, a shorter one under the bottom rail.
+            const fin = 0.0016, pitch = 0.0058, yTop = yb + g + hR, fh = Math.max(0.01, hR * 1.1);
+            for (let k = 0; k < n; k++) {
+                const a = x0 + 0.012 + (x1 - x0 - 0.03) * k / n + cw / 2 + 0.004, b = x0 + 0.012 + (x1 - x0 - 0.03) * (k + 1) / n - cw / 2 - 0.004;
+                if (b - a < 0.02) continue;
+                const m = Math.floor((b - a) / pitch);
+                for (let j = 0; j < m; j++) { const x = a + (b - a - (m - 1) * pitch) / 2 + j * pitch - fin / 2; put(P.under, HS.plate(HS.cut(rect(-wR * 0.46, yTop - 0.0005, wR * 0.46, yTop + fh), [0, 0, 0.0012, 0.0012]), fin, 0.0003, across(x, fin))); }
+                plate(P.under, rect(a, yTop - 0.0005, b, yTop + 0.0015), wR * 0.9, 0.0004);
+                if (k % 2 === 1) { const yBot = yb - g - hR, mm = Math.floor((b - a) / (pitch * 1.4)); for (let j = 0; j < mm; j++) { const x = a + (b - a - (mm - 1) * pitch * 1.4) / 2 + j * pitch * 1.4 - fin / 2; put(P.under, HS.plate(rect(-wR * 0.4, yBot - fh * 0.6, wR * 0.4, yBot + 0.0005), fin, 0.0003, across(x, fin))); } }
+            }
+            // The yoke round the mouth: a frame across both rails with the channel through it.
+            const yoke = 0.012, hole = HS.cut(rect(-wR * 0.42, yb - g + 0.0012, wR * 0.42, yb + g - 0.0012), 0.001);
+            put(P.under, HS.plate(HS.cut(rect(-wR / 2 - ct, yb - g - hR - 0.002, wR / 2 + ct, yb + g + hR + 0.002), 0.003), yoke, 0.0012, Object.assign({ holes: [hole] }, across(x1 - 0.004, yoke))));
+            // The breech: a dark block closing the channel's back, the armature in it faintly lit.
+            put(P.dark, HS.plate(rect(-wR / 2, yb - g, wR / 2, yb + g), 0.01, 0.0006, across(x0 - 0.006, 0.01)));
+            put(P.boreGlow, HS.plate(HS.cut(rect(-wR * 0.3, yb - g * 0.7, wR * 0.3, yb + g * 0.7), 0.001), 0.003, 0.0004, across(x0 + 0.004, 0.003)));
+            return x1 + 0.008;
+        }
         if (S.rib) {
             // A ventilated rib along the barrel's top: posts with windows between them, a bead at its end.
             const x0 = xr1 + 0.004, x1 = bx1 - 0.004, y0 = yb + rb * 0.75, y1 = yb + rb + 0.0065, holes = [];
@@ -461,9 +524,9 @@
             const er = Math.max(0.0022, R * 0.11), lugEnd = xr1 + Lb - 0.003, ly = yc - er * 2.4;
             P.metal.push(rod(cx + len, xfw + 0.004, yc, er, 12));
             P.metal.push(rod(cx + len + 0.001, cx + len + 0.004, yc, R * 0.36, 24));
-            plate(P.frame, HS.round([[xfw - 0.002, yb], [lugEnd, yb], [lugEnd, ly + 0.004], [lugEnd - 0.01, ly], [xfw + 0.004, ly], [xfw - 0.002, yc - R * 0.42]], 0.003, 3, [2, 3, 4, 5]), Math.max(rb * 1.55, 0.0105), Math.min(ch, rb * 0.35), { smooth: 40 });
+            plate(P.frame, HS.round([[xfw - 0.002, yb - rb * 0.64], [lugEnd, yb - rb * 0.64], [lugEnd, ly + 0.004], [lugEnd - 0.01, ly], [xfw + 0.004, ly], [xfw - 0.002, yc - R * 0.42]], 0.003, 3, [2, 3, 4, 5]), Math.max(rb * 1.55, 0.0105), Math.min(ch, rb * 0.35), { smooth: 40 });
             // A sighting rib down the barrel's top, from the frame to the front sight.
-            plate(P.frame, HS.cut(rect(xfw - 0.006, yb + rb * 0.55, xr1 + Lb - 0.002, yb + rb + 0.0028), 0.0012, [1, 2]), Math.max(0.0055, rb * 0.75), 0.0008);
+            plate(P.frame, HS.cut(rect(xfw - 0.006, yb + rb * 0.64, xr1 + Lb - 0.002, yb + rb + 0.0028), 0.0012, [1, 2]), Math.max(0.0055, rb * 0.75), 0.0008);
         } else if (r.magazine === 'tube') {
             // A tube under the barrel, a capped end and a band holding it to the barrel.
             const tr = 0.009 * ms + 0.004, ty = yb - rb - 0.012, t1 = xr1 + Lb * 0.8;
@@ -497,6 +560,13 @@
                 // The stock's fore part, floating clear under the barrel, with vent slots.
                 for (let k = 0; k < n; k++) { const x = f0 + 0.012 + k * 0.034; slots.push({ outline: HS.slot(x + 0.011, (fB + yb - rb) / 2 - 0.002, 0.022, 0.006, 2), depth: 0.002, side: 'both', apart: true }); }
                 plate(P.furniture, HS.cut(rect(f0 - 0.006, fB, f1, yb - rb - 0.003), [0, 0.012, 0.003, 0]), fW, Math.min(0.003, fW * 0.12), { inset: slots });
+            } else if (railed) {
+                // Under the rails, clear of the channel: a grip block hung from the lower rail, grip slots, a lit strip.
+                const yLow = yb - RG.g - RG.hR - 0.001, yDown = yLow - 0.034, grooves = [];
+                for (let k = 0; k < 4; k++) { const x = f0 + (f1 - f0) * (0.3 + k * 0.12); grooves.push({ outline: HS.slot(x, yDown + 0.013, 0.012, 0.006, 2), depth: 0.0018, side: 'both', apart: true }); }
+                plate(P.furniture, HS.cut(rect(f0 + 0.01, yDown, f1 - 0.02, yLow), [0.004, 0.004, 0.012, 0.006]), Math.min(fW, RG.wR * 1.1), Math.min(0.003, fW * 0.12), { inset: grooves });
+                put(P.charge, HS.chamferedBox([(f0 + f1) / 2, yLow - 0.008, 0], [(f1 - f0) * 0.5, 0.0025, Math.min(fW, RG.wR * 1.1) + 0.001], 0.0005));
+                marks.foreGrip = [(f0 + f1) / 2, yLow - 0.018, 0];
             } else if (scifi) {
                 // A shroud: angular, a sunk strip (glowing when the gun glows) and a heat-sink notch under it.
                 const s = [{ outline: [[f0 + 0.012, yb - rb * 0.2], [f1 - 0.03, yb - rb * 0.2], [f1 - 0.024, yb + rb * 0.6], [f0 + 0.018, yb + rb * 0.6]], depth: 0.0018, draft: 0.0004, side: 'both', apart: true }];
@@ -508,7 +578,7 @@
                 plate(P.furniture, HS.cut(rect(f0, fB, f1, fT), [0.003, 0.008, 0.003, 0.003]), fW, Math.min(0.003, fW * 0.12), { inset: slots });
                 P.under.push(turned(f1 - 0.002, yb, [[rb * 1.25, 0], [Math.min(fW * 0.42, (fT - fB) * 0.42), 0.002], [Math.min(fW * 0.42, (fT - fB) * 0.42), 0.008], [rb * 1.25, 0.01]], 24));
             }
-            marks.foreGrip = [(f0 + f1) / 2, yb - rb - 0.018, 0];
+            if (!railed) marks.foreGrip = [(f0 + f1) / 2, yb - rb - 0.018, 0];
         }
 
         // ── the stock ──────────────────────────────────────────────────────
@@ -552,6 +622,15 @@
         marks.rear = rear;
 
         // ── rails and sights ───────────────────────────────────────────────
+        /**
+         * A lens at `at` facing `dir`, `R` across: a coated glass dome sunk in its housing and a thin retaining ring
+         * round it; the housing's inside is dark behind it, so it reads as glass from the front and from the eyepiece.
+         */
+        const lens = (at, dir, R) => {
+            const o = { base: at, dir, sharp: 0.9, caps: false };
+            P.glass.push(Mesh.lathe([[0, 0], [R, 0], [R * 0.72, R * 0.06], [0, R * 0.09]], 32, o));
+            P.metal.push(Mesh.lathe([[R, 0.0001], [R, 0.0022], [R * 0.9, 0.0022], [R * 0.9, 0.0008], [R, 0.0001]], 32, o));
+        };
         const top = S.top;
         /** A picatinny rail at real scale: a base and a crown of teeth on a 10 mm pitch, the dovetail in the crown's chamfer. */
         const rail = (x0, x1, y, list) => {
@@ -596,18 +675,23 @@
             P.metal.push(Mesh.lathe([[0.0055, 0], [0.0055, 0.005], [0.0045, 0.0062], [0, 0.0062]], 16, { base: [x + len * 0.45, sightBase + 0.013, 0.012], dir: [0, 0, 1], sharp: 0.5 }));
         } else if (r.sight === 'scope') {
             const sr = 0.014 + Lb * 0.012, sl = 0.14 + Lb * 0.18, sx = xr0 + Lr * 0.15, sy = sightBase + sr + 0.016;
-            P.metal.push(Mesh.lathe([[sr * 1.35, 0], [sr * 1.35, 0.03], [sr, 0.05], [sr, sl - 0.05], [sr * 1.6, sl - 0.02], [sr * 1.6, sl]], 32, { base: [sx, sy, 0], dir: [1, 0, 0], sharp: 0.5 }));
+            // The tube open at both ends: the ocular's rim and the objective's bell each step in to a recessed lens.
+            const ro = sr * 1.42, re = sr * 1.12, lf = 0.011, lr = 0.007;
+            const tube = { base: [sx, sy, 0], dir: [1, 0, 0], sharp: 0.5, caps: false };
+            P.metal.push(Mesh.lathe([[re, lr], [re, 0], [sr * 1.35, 0], [sr * 1.35, 0.03], [sr, 0.05], [sr, sl - 0.05], [sr * 1.6, sl - 0.02], [sr * 1.6, sl], [ro, sl], [ro, sl - lf]], 48, tube));
+            // Inside, dark: from the objective down into the tube and back out to the ocular, closing the tube on itself.
+            P.dark.push(Mesh.lathe([[ro, sl - lf], [sr * 0.86, sl - lf - 0.02], [sr * 0.86, lr + 0.02], [re, lr]], 48, tube));
+            lens([sx + sl - lf, sy, 0], [1, 0, 0], ro * 0.985); lens([sx + lr, sy, 0], [-1, 0, 0], re * 0.985);
             // Rings: a plate across the bore, its hole the tube, its foot on the rail.
             for (const k of [0.25, 0.7]) {
                 const R = sr * 1.28, th = Math.acos(0.8 / 1.28), ringOutline = [[-sr * 0.8, 0], [sr * 0.8, 0]];
                 for (let j = 0; j <= 12; j++) { const t = -th + j / 12 * (Math.PI + 2 * th); ringOutline.push([R * Math.cos(t), sy - sightBase + R * Math.sin(t)]); }
                 put(P.under, HS.plate(ringOutline, 0.011, 0.0012, { holes: [HS.circle(0, sy - sightBase, sr * 1.002, 20)], frame: { o: [sx + sl * k, sightBase, 0], u: [0, 0, 1], v: [0, 1, 0], n: [1, 0, 0] } }));
             }
-            P.glass.push(Mesh.lathe([[sr * 1.5, 0], [0, 0.001]], 24, { base: [sx + sl - 0.004, sy, 0], dir: [1, 0, 0] }), Mesh.lathe([[sr * 1.25, 0], [0, 0.001]], 24, { base: [sx + 0.004, sy, 0], dir: [-1, 0, 0] }));
         }
 
         // ── sci-fi: coils round the barrel, vents ──────────────────────────
-        if (r.coils) {
+        if (r.coils && !railed) {
             const windowed = style === 'truss' || style === 'heavy', c0 = (r.slide ? front : xr1) + 0.006, c1 = c0 + Math.max(0.014, Math.min(Lb - 0.021, r.coils * (windowed ? 0.042 : 0.026) + 0.01)), cl = c1 - c0;
             (glowing ? P.glow : P.dark).push(rod(c0, c1, yb, rb * (windowed ? 1.25 : 1.08), 20));
             if (windowed) {
@@ -626,6 +710,25 @@
                 for (const x of [c0 - 0.004, c1 - 0.002]) P.metal.push(turned(x, yb, [[rb * 1.05, 0], [fr * 0.82, 0.001], [fr * 0.82, 0.006], [rb * 1.05, 0.007]], 24));
                 plate(P.frame, HS.cut(rect(c0 - 0.004, yb + fr - 0.003, c1 + 0.003, yb + fr + 0.004), 0.002, [1, 2]), Math.max(0.004, rb * 0.8), 0.0008);
             }
+        }
+        if (r.capacitors) {
+            // Capacitor banks: cans lying along the receiver's sides in a cradle, a copper bus bar over their
+            // terminals, a strap round each, and a charge light ringing each can; a row of charge pips on top.
+            const n = r.capacitors, x0 = xr0 + Lr * 0.4, x1 = xr1 - 0.008, cr = Math.max(0.006, Math.min(Hr * 0.17, 0.011)), cl = (x1 - x0) / n - 0.004, cy = Hr * 0.66;
+            for (const s of [-1, 1]) {
+                const z = s * (W / 2 + cr + 0.0015);
+                plate(P.under, HS.cut(rect(x0 - 0.004, cy - cr - 0.003, x1 + 0.004, cy - cr * 0.3), 0.002), cr * 2 + 0.004, 0.0008, { center: z });
+                for (let k = 0; k < n; k++) {
+                    const a = x0 + k * (cl + 0.004);
+                    P.frame.push(Mesh.lathe([[0, 0], [cr * 0.92, 0], [cr, cr * 0.12], [cr, cl - cr * 0.15], [cr * 0.9, cl], [0, cl]], 24, { base: [a, cy, z], dir: [1, 0, 0], sharp: 0.5 }));
+                    P.insul.push(Mesh.lathe([[cr * 1.02, 0], [cr * 1.02, cl * 0.42]], 24, { base: [a + cl * 0.08, cy, z], dir: [1, 0, 0], caps: false }));
+                    P.charge.push(Mesh.lathe([[cr * 1.035, 0], [cr * 1.035, Math.min(0.003, cl * 0.08)]], 24, { base: [a + cl * 0.62, cy, z], dir: [1, 0, 0], caps: false }));
+                    P.under.push(Mesh.lathe([[cr * 1.04, 0], [cr * 1.04, 0.0025]], 24, { base: [a + cl * 0.82, cy, z], dir: [1, 0, 0], caps: false }));
+                    P.metal.push(Mesh.lathe([[0.0018, 0], [0.0018, 0.003], [0, 0.003]], 10, { base: [a + cl * 0.88, cy + cr * 0.6, z], dir: [0, 1, 0] }));
+                }
+                P.copper.push(HS.chamferedBox([(x0 + x1) / 2, cy + cr * 0.6 + 0.0035, z], [x1 - x0 - cl * 0.5, 0.0016, 0.004], 0.0004));
+            }
+            for (let k = 0; k < 5; k++) put(P.charge, HS.chamferedBox([xr0 + Lr * (0.06 + k * 0.035), top + 0.0012, W * 0.3], [Lr * 0.022, 0.0024, 0.004], 0.0005));
         }
         if (r.vents) {
             // A louvered vent bank on the receiver's sides.
@@ -662,7 +765,12 @@
         add(P.metal, { name: 'Metal', kind: 'metal', color: chrome ? '#d4d8de' : '#5d626b', roughness: chrome ? 0.16 : 0.34, metalness: 0.75 });
         add(P.dark, { name: 'Details', kind: 'metal', color: '#111113', roughness: 0.7, metalness: 0.3 });
         add(P.brass, { name: 'Brass', kind: 'metal', color: '#b8964a', roughness: 0.3, metalness: 0.85 });
-        add(P.glass, { name: 'Lens', kind: 'glass', color: '#3a5a7a', roughness: 0.05, metalness: 0.2 });
+        // Coated glass: tinted, glossy, a little see-through onto the dark tube behind it.
+        add(P.glass, { name: 'Lens', kind: 'glass', color: '#3e5f8c', roughness: 0.03, metalness: 0.55, opacity: 0.78 });
+        add(P.copper, { name: 'Conductors', kind: 'metal', color: '#b87048', roughness: 0.28, metalness: 0.9 });
+        add(P.insul, { name: 'Insulators', kind: 'prop', color: '#d8d0bc', roughness: 0.5, metalness: 0 });
+        add(P.boreGlow, { name: 'Bore glow', kind: 'prop', color: '#0c0d10', roughness: 0.4, metalness: 0, emissive: r.glow, emissiveIntensity: 0.16 });
+        add(P.charge, { name: 'Charge lights', kind: 'prop', color: r.glow, roughness: 0.3, metalness: 0, emissive: r.glow });
         add(P.glow, { name: 'Glow', kind: 'prop', color: r.glow, roughness: 0.3, metalness: 0, emissive: r.glow });
         Surface.apply(parts, textures, p => ['Frame', 'Underframe', 'Metal', 'Details'].includes(p.name) ? 'metal' : p.name === 'Furniture' ? (r.furniture === 'wood' ? 'wood' : 'rubber') : null);
         for (const p of parts) Mesh.transform(p, toWorld, toWorld);
@@ -678,7 +786,9 @@
         const depth = hi[2] - lo[2], preview = { turn: [Math.PI / 2, 0, 0], lift: round(depth / 2 + Math.max(0.03, depth * 0.3)) };
         return {
             kind: 'gun', recipe: r, construction, parts, bones: [{ name: 'Prop', head: [0, 0, 0], parent: -1 }], clips: [], loop: null, textures, cloth: null,
-            height: Math.max(0.05, tall), wall: null, length: round(hi[0] - lo[0]), markers, sidecarExtra: { rig: { template: 'gun', markers } }, holdable: 'gun', preview
+            height: Math.max(0.05, tall), wall: null, length: round(hi[0] - lo[0]), markers, holdable: 'gun', preview,
+            // Charge lights breathe in the game on the model's glow rule.
+            sidecarExtra: Object.assign({ rig: { template: 'gun', markers } }, parts.some(p => p.name === 'Charge lights') ? { animations: [{ name: 'Charge lights', type: 'glow', part: 'Charge lights', trigger: 'always', mode: 'pulse', period: 84, min: 0.3, max: 1.25 }] } : {})
         };
     }
 
@@ -700,13 +810,16 @@
         }
         if (has('details')) {
             const keep = (key, d) => (base[key] !== undefined ? base[key] : d);
-            out.muzzle = scifi ? 'emitter' : R.chance(0.35) ? R.pick(['plain', 'brake', 'flash', 'suppressor']) : keep('muzzle', 'plain');
+            out.muzzle = scifi && base.muzzle === 'emitter' ? 'emitter' : R.chance(0.35) ? R.pick(['plain', 'brake', 'flash', 'suppressor']) : keep('muzzle', 'plain');
             out.style = R.chance(0.3) ? R.pick(STYLES.filter(st => SCIFI_STYLES.includes(st[0]) === scifi).map(st => st[0])) : base.style;
             out.sight = R.chance(0.35) ? R.pick(long ? ['iron', 'dot', 'scope'] : ['iron', 'dot', 'none']) : keep('sight', 'iron');
             out.rails = long ? R.chance(0.6) : R.chance(0.2);
             out.stock = base.stock === 'none' ? 'none' : R.chance(0.25) ? R.pick(['folding', 'full']) : base.stock;
             out.magazine = base.magazine === 'cylinder' || base.magazine === 'tube' || base.magazine === 'none' ? base.magazine : scifi ? R.pick(['cell', 'cell', 'drum']) : R.chance(0.2) ? 'drum' : base.magazine;
-            if (scifi) { out.coils = Math.max(0, Math.min(8, (base.coils || 0) + R.int(-1, 2))); out.vents = R.chance(0.7); }
+            if (scifi) { out.coils = base.barrelBuild === 'rails' ? 0 : Math.max(0, Math.min(8, (base.coils || 0) + R.int(-1, 2))); out.vents = R.chance(0.7); }
+            out.barrelBuild = base.barrelBuild || 'round';
+            out.capacitors = base.capacitors ? Math.max(2, Math.min(6, base.capacitors + R.int(-2, 2))) : scifi && R.chance(0.15) ? R.int(2, 3) : 0;
+            if (out.barrelBuild === 'rails') out.muzzle = 'plain';
             out.forend = long ? R.chance(0.7) : !!base.forend;
         }
         if (has('colors')) {
@@ -716,14 +829,14 @@
         return normalize(out);
     }
 
-    const api = { MAGAZINES, STOCKS, SIGHTS, MUZZLES, STYLES, FRAMES, FURNITURE, PRESETS, normalize, build, random };
+    const api = { BARRELS, MAGAZINES, STOCKS, SIGHTS, MUZZLES, STYLES, FRAMES, FURNITURE, PRESETS, normalize, build, random };
     root.RRGunProp = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     const Model = root.RRPropModel, Catalog = root.RRPropCatalog || (typeof require === 'function' ? require('./PropCatalog.js') : null);
     if (Model && Model.register) Model.register({ id: 'gun', label: 'Firearm', normalize, build, random, randomScopes: [Rand.SCOPES.all, Rand.SCOPES.shape, Rand.SCOPES.details, Rand.SCOPES.colors] });
     if (Catalog) {
-        const icon = { pistol: 'pistol', revolver: 'pistol', rifle: 'rifle', shotgun: 'shotgun', smg: 'rifle', sniper: 'rifle', blasterPistol: 'blaster', blasterRifle: 'blaster', plasma: 'cannon', laser: 'blaster' };
-        for (const [id, label, category] of PRESETS) Catalog.add({ id: 'gun-' + id, category, label, icon: icon[id], kind: 'gun', keywords: 'gun weapon firearm ranged ' + id, start: () => normalize({ preset: id }), matches: r => r.preset === id });
+        const icon = { pistol: 'pistol', revolver: 'pistol', rifle: 'rifle', shotgun: 'shotgun', smg: 'rifle', sniper: 'rifle', blasterPistol: 'blaster', blasterRifle: 'blaster', plasma: 'cannon', laser: 'blaster', railgun: 'rifle' };
+        for (const [id, label, category] of PRESETS) Catalog.add({ id: 'gun-' + id, category, label, icon: icon[id], kind: 'gun', keywords: 'gun weapon firearm ranged ' + id + (id === 'railgun' ? ' rail magnetic coil capacitor' : ''), start: () => normalize({ preset: id }), matches: r => r.preset === id });
         Catalog.ui('gun', {
             placeholder: 'Firearm',
             tabs: [['body', 'Body'], ['parts', 'Parts'], ['look', 'Look']],
@@ -732,7 +845,7 @@
                 const r = this.recipe;
                 if (tab === 'body') {
                     return this._section('Barrel') + this._slider({ path: 'barrel.length', label: 'Length', range: [0.04, 1.2], step: 0.01, format: 'm' })
-                        + this._slider({ path: 'barrel.thickness', label: 'Thickness', range: [0.006, 0.07], step: 0.001, format: 'm' }) + this._select('muzzle', 'Muzzle', MUZZLES)
+                        + this._slider({ path: 'barrel.thickness', label: 'Thickness', range: [0.006, 0.07], step: 0.001, format: 'm' }) + this._select('barrelBuild', 'Barrel build', BARRELS) + (r.barrelBuild === 'rails' ? '' : this._select('muzzle', 'Muzzle', MUZZLES))
                         + this._section('Receiver') + this._select('style', 'Style', STYLES) + this._slider({ path: 'receiver.length', label: 'Length', range: [0.08, 0.7], step: 0.01, format: 'm' })
                         + this._slider({ path: 'receiver.height', label: 'Height', range: [0.025, 0.14], step: 0.002, format: 'm' })
                         + this._section('Grip') + this._slider({ path: 'grip.angle', label: 'Angle', range: [0, 40], step: 1, format: 'deg' }) + this._slider({ path: 'grip.length', label: 'Length', range: [0.06, 0.16], step: 0.005, format: 'm' });
@@ -740,11 +853,11 @@
                 if (tab === 'parts') {
                     return this._section('Parts') + this._select('magazine', 'Magazine', MAGAZINES) + (r.magazine !== 'none' ? this._slider({ path: 'magSize', label: 'Magazine size', range: [0.4, 2], format: 'x' }) : '')
                         + this._check('fasteners','Fasteners') + this._slider({path:'gripRibs',label:'Grip ribs',range:[0,16],step:1}) + this._select('stock', 'Stock', STOCKS) + this._select('sight', 'Sight', SIGHTS) + this._check('rails', 'Rails') + this._check('forend', 'Forend')
-                        + this._section('Sci-fi') + this._slider({ path: 'coils', label: 'Glowing coils', range: [0, 8], step: 1, format: 'int' }) + this._check('vents', 'Vents');
+                        + this._section('Sci-fi') + (r.barrelBuild === 'rails' ? '' : this._slider({ path: 'coils', label: 'Glowing coils', range: [0, 8], step: 1, format: 'int' })) + this._slider({ path: 'capacitors', label: 'Capacitor banks', range: [0, 6], step: 1, format: 'int' }) + this._check('vents', 'Vents');
                 }
                 return this._section('Materials') + this._select('frame', 'Body finish', FRAMES) + this._select('furniture', 'Grip and stock', FURNITURE)
                     + (r.frame === 'painted' || r.furniture === 'painted' ? this._color('paint', 'Paint', ['#d8dce4', '#3a3f4a', '#5a6a3a', '#7a2a22', '#1b1b1f']) : '')
-                    + (r.coils>0||r.muzzle==='emitter'||r.magazine==='cell'?this._color('glow', 'Glow color', ['#38c8ff', '#ff5a3a', '#7aff6a', '#c86aff', '#ffd24a']):'');
+                    + (r.coils>0||r.muzzle==='emitter'||r.magazine==='cell'||r.capacitors>0?this._color('glow', 'Glow color', ['#38c8ff', '#ff5a3a', '#7aff6a', '#c86aff', '#ffd24a']):'');
             }
         });
     }
