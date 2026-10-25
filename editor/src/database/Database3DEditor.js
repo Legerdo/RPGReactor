@@ -986,9 +986,12 @@ class Database3DEditor {
             }
         }
         if (!this._thumbRenderer) {
+            // Drawn as large as a thumbnail is ever shown (an actor's graphic box, about 128 px, on a
+            // 2x screen) and no larger: 512 px was four times the pixels for a 20 px list icon, and on
+            // a software renderer each model took that long to draw and to give back.
             const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 512;
+            canvas.width = Database3DEditor.THUMBNAIL_PIXELS;
+            canvas.height = Database3DEditor.THUMBNAIL_PIXELS;
             this._thumbRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
             if (typeof RRModelRelease !== 'undefined') RRModelRelease.track(this._thumbRenderer, 'model-thumbnails');
             this._thumbRenderer.setClearColor(0x000000, 0);
@@ -1040,6 +1043,9 @@ class Database3DEditor {
         for (let i = 3; i < data.length; i += 4) if (data[i] >= 2) return true;
         return false;
     }
+
+    /** The size a model's thumbnail is drawn at, square. */
+    static THUMBNAIL_PIXELS = 256;
 
     /** The largest a 64x64 PNG of nothing comes to; a real thumbnail is several times that. */
     static EMPTY_THUMBNAIL_BYTES = 320;

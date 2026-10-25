@@ -2284,22 +2284,58 @@ class BuildHotbar {
     }
 
     /**
-     * A plan's picture when it has none saved beside it: its pieces drawn from above at an angle, once per plan and
-     * kept while the editor runs (never written to the project). '' until drawn; the tile takes it when it is.
+     * A plan's picture when it has none saved beside it: its pieces drawn from above at an angle. Never written to
+     * the project: kept while the editor runs, and in the editor's own data folder by the plan file's size and date,
+     * so a big plan (the Demo's Manor takes a third of a second) is drawn once, not each time the slot opens. Drawn
+     * one a frame, so the bar keeps moving while they come. '' until drawn; the tile takes it when it is.
      */
     planPicture(entry) {
         const key = entry.file + ':' + JSON.stringify(entry.plan && entry.plan.size);
         const pictures = this._planPictures || (this._planPictures = new Map());
         if (pictures.has(key)) return pictures.get(key) || '';
+        const kept = this.keptPlanPicture(entry);
+        if (kept?.url) { pictures.set(key, kept.url); return kept.url; }
         pictures.set(key, '');
-        setTimeout(() => {
-            const url = this.drawPlan(entry.plan);
-            if (!url) return;
-            pictures.set(key, url);
-            const face = this.panel?.querySelector(`.rr-build-plan-tile[data-value="${CSS.escape(entry.file)}"] .rr-build-plan-face`);
-            if (face) { face.classList.remove('is-plain'); face.innerHTML = ''; face.style.backgroundImage = `url('${url}')`; }
-        }, 0);
+        (this._planQueue || (this._planQueue = [])).push({ key, entry, file: kept?.file || '' });
+        this.drawPlanQueue();
         return '';
+    }
+
+    /** Where a drawn plan's picture is kept ({ file }) and, when it is there already, its address ({ file, url }). */
+    keptPlanPicture(entry) {
+        try {
+            if (typeof nw === 'undefined' || !nw.App?.dataPath || typeof require !== 'function' || typeof RRAssetFiles === 'undefined') return null;
+            const fs = require('fs'), path = require('path'), crypto = require('crypto');
+            const source = path.join(this.manager().projectPath(), '3d', 'Structures', entry.file);
+            const stat = fs.statSync(source);
+            const name = crypto.createHash('sha1').update([source, stat.size, stat.mtimeMs].join('|')).digest('hex') + '.png';
+            const file = path.join(nw.App.dataPath, 'plan-pictures', name);
+            return fs.existsSync(file) ? { file, url: RRAssetFiles.toUrl(file) } : { file };
+        } catch (error) { return null; }
+    }
+
+    /** The queued plan pictures, one a frame: each shown on its tile and kept for next time. */
+    drawPlanQueue() {
+        if (this._planFrame || !this._planQueue?.length) return;
+        const next = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : callback => setTimeout(callback, 16);
+        this._planFrame = next(() => {
+            this._planFrame = null;
+            const job = this._planQueue.shift();
+            if (!job) return;
+            const url = this.drawPlan(job.entry.plan);
+            if (url) {
+                this._planPictures?.set(job.key, url);
+                const face = this.panel?.querySelector(`.rr-build-plan-tile[data-value="${CSS.escape(job.entry.file)}"] .rr-build-plan-face`);
+                if (face) { face.classList.remove('is-plain'); face.innerHTML = ''; face.style.backgroundImage = `url('${url}')`; }
+                if (job.file) {
+                    const fs = require('fs'), path = require('path');
+                    fs.promises.mkdir(path.dirname(job.file), { recursive: true })
+                        .then(() => fs.promises.writeFile(job.file, Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')))
+                        .catch(error => console.warn('A plan\'s picture could not be kept.', error));
+                }
+            }
+            this.drawPlanQueue();
+        });
     }
 
     /** A plan drawn into a small picture (a data URL), or '' when it cannot be. One renderer, let go a moment after the last picture. */

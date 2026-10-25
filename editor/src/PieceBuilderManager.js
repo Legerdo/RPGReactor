@@ -1577,7 +1577,7 @@ class PieceBuilderManager {
         this.undoStack.push(saved);
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack.length = 0;
-        this.announce(true);
+        this.announce(true, this._laid);
         this.refreshStatus();
         return true;
     }
@@ -1591,6 +1591,8 @@ class PieceBuilderManager {
         const X0 = Math.max(0, Math.min(map.width - W, record.x)), Y0 = Math.max(0, Math.min(map.height - H, record.y));
         if (W > map.width || H > map.height) return false;
         record.x = X0; record.y = Y0;
+        // The cells it covers: the 3D view lays only these again (announce).
+        this._laid = { x0: X0, y0: Y0, x1: X0 + W - 1, y1: Y0 + H - 1 };
         this._levelPad(map, X0, Y0, W, H);
         elevation.relocatePropsOff(map, X0, Y0, W, H, record.group);
         const kept = elevation.pieces(map).filter(piece => piece.group !== record.group && !(piece.x >= X0 && piece.x < X0 + W && piece.y >= Y0 && piece.y < Y0 + H));
@@ -1658,12 +1660,14 @@ class PieceBuilderManager {
         if (!plan) return false;
         const saved = this._snapshot(map, { ground: true, effects: true, events: true, props: this._bringsProps(plan) });
         const places = this._propPlaces(map);
+        // Where it stood as well as where it goes: both are laid again.
+        const was = elevation.pieceGroupBounds(map, record.group);
         if (!this._lay(map, plan, Object.assign(record, change))) return this._tooBig(map, plan, record.rot, record.scale);
         saved.propMoves = this._propMoves(map, places);
         this._warnPropMoves(map, saved.propMoves, record.group);
         saved.foliage = this._clearFoliage(map, piece => piece.group === record.group);
         this.undoStack.push(saved); if (this.undoStack.length > 50) this.undoStack.shift(); this.redoStack.length = 0;
-        this.announce(true); this.refreshStatus(); this._ghostChanged();
+        this.announce(true, PieceBuilderManager.unionRegion(was, this._laid)); this.refreshStatus(); this._ghostChanged();
         return true;
     }
 
@@ -1752,7 +1756,7 @@ class PieceBuilderManager {
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack.length = 0;
         this._levelPad(map, X0, Y0, W, H);
-        this.announce(true);
+        this.announce(true, PieceBuilderManager.unionRegion(bounds, { x0: X0, y0: Y0, x1: X0 + W - 1, y1: Y0 + H - 1 }));
         this.refreshStatus();
         this._ghostChanged();
         return true;
@@ -2683,7 +2687,16 @@ class PieceBuilderManager {
         this.announce(); this.refreshStatus(); this._syncPanel();
     }
 
-    /** The pieces changed: the 3D view lays them down again in place, and the map is dirty. */
+    /** Two cell regions ({x0, y0, x1, y1}, inclusive) as one box holding both; null when either is unknown. */
+    static unionRegion(a, b) {
+        if (!a || !b) return null;
+        return { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) };
+    }
+
+    /**
+     * The pieces changed: the 3D view lays them down again in place, and the map is dirty.
+     * `region` (cells, inclusive) is where: only the piece, ground and foliage chunks there are laid again.
+     */
     announce(terrainToo = false, region = null) {
         this.render2D();
         this.syncHistoryButtons();
@@ -2696,18 +2709,23 @@ class PieceBuilderManager {
         // A stamp levels the ground as well: the terrain goes first (in
         // place, the whole map), then the pieces are laid on it. `region`
         // is the cells an edit touched, so only their chunks are relaid.
-        if (terrainToo) document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: this.currentMap()?.id, terrain: true, region: null } }));
+        // The terrain's region is in corners, one past the cells and a corner of margin round them.
+        const corners = region ? { x0: region.x0 - 1, x1: region.x1 + 2, z0: region.y0 - 1, z1: region.y1 + 2 } : null;
+        if (terrainToo) document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: this.currentMap()?.id, terrain: true, region: corners } }));
         // Ponds follow levelled ground as they follow a terrain stroke, and the pieces that hold them back.
         window.reactor?.terrainManager?.piecesChanged?.(terrainToo ? null : region);
         // And the ponds it left, so its undo gives back only what it took from them.
         if (top && 'water' in top && top.waterAfter === undefined) top.waterAfter = JSON.stringify(this.elevation()?.waterSnapshot?.(this.currentMap()) || []);
         document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: this.currentMap()?.id, pieces: true, region: region || null } }));
-        // Events came or went with a building: the event tool and the 3D
-        // view's markers are redrawn (a plain edit notice rebuilds the view).
+        // Events came or went with a building: the event tool redraws them and
+        // says so (`rr-events-changed`), and the 3D view builds only the events
+        // that changed. A plain edit notice would build the whole view again:
+        // the scene, its shaders and its textures, most of a second on North Haven.
         if (this._eventsChanged) {
             this._eventsChanged = false;
-            window.reactor?.eventManager?.renderEvents?.();
-            document.dispatchEvent(new CustomEvent('rr-map-edited', { detail: { mapId: this.currentMap()?.id } }));
+            const events = window.reactor?.eventManager;
+            if (typeof events?.renderEvents === 'function') events.renderEvents();
+            else document.dispatchEvent(new CustomEvent('rr-events-changed'));
         }
     }
 }

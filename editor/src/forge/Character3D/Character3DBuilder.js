@@ -2268,6 +2268,8 @@ class Character3DBuilder {
         for (const p of result.parts) for (let i = 1; i < p.positions.length; i += 3) floorModel = Math.min(floorModel, p.positions[i]);
         for (const v of pack.body.source) floorBody = Math.min(floorBody, P[v * 3 + 1]);
         const shift = Math.max(0, -floorModel);
+        // The skin vertex nearest a point. Past a few cells (a gown's hem stands half a metre out from the legs) every
+        // vertex is compared: the first vertex of the body stood in for them, so the hem rode on it and tore.
         const nearest = (x, y, z) => {
             const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell);
             let best = body[0], bd = Infinity;
@@ -2280,6 +2282,12 @@ class Character3DBuilder {
                     }
                 }
                 if (bd < Infinity) break;
+            }
+            if (bd === Infinity) {
+                for (const u of body) {
+                    const d = (P[u * 3] - x) ** 2 + (P[u * 3 + 1] - y) ** 2 + (P[u * 3 + 2] - z) ** 2;
+                    if (d < bd) { bd = d; best = u; }
+                }
             }
             return best;
         };

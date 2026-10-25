@@ -4,13 +4,19 @@ Dated notes for the cycle in progress, newest first. Read [STATUS.md](STATUS.md)
 
 An entry holds only what the next session needs and cannot find elsewhere: what is half-done, what to watch for, what waits on the owner, how to resume. What changed goes in the editor changelog; how the code works goes in the commit message and the guides. Size limits and the rollover are in [README.md](README.md#keeping-status-and-handoff-short); `docs-budget.test.cjs` enforces them.
 
-## Where things stand (2026-10-23)
+## Where things stand (2026-10-25)
 
 - **0.99.1** shipped 2026-10-24 (UTC) with release pictures; **0.99.2** is open at runtime **20261024.12**, synced to all 19 projects. The builders are at Preview 48 (2026-10-24 quality push) with visual acceptance open: [character coverage](CHARACTER-QUALITY.md), [remaining issues](CLAUDE-QUALITY-TRACKER.md), [props](PROP-BUILDER.md).
 - **Owner questions:** [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md); the web trim waits for the weekend release.
 - **Editor windows:** the Event Editor, Database, Forge and Plugin Manager each open in a frameless window of their own (`utils/DetachedWindow.js`). Native Linux transparency still needs a look on the real desktop.
 - **Savior & Religion** (`template/Savior & Religion`, not in git, an encrypted MV game the owner is trying as a template) boots, plays its opening and draws its ULDS maps 2, 5 and 19.
-- **Next:** the three trailer-shoot bugs in STATUS (Blueprint stamp blanking, Forge preview frame drops, the gown breaking on Height) and the Database close freeze, then keeping the map scene across a seamless crossing. 0.99.1 and 0.99.2 are announced together at the end of the weekend with a video and pictures (RELEASE-CHECKLIST §5).
+- **Next:** CI's eleven failures sorted (real or runner timing), PR #78 reviewed and merged, PR #72 answered; then the builders deep dive with the owner, then keeping the map scene across a seamless crossing. 0.99.1 and 0.99.2 are announced together at the end of the weekend with a video and pictures (RELEASE-CHECKLIST §5).
+
+## 2026-10-25 — trailer bugs, the harness, the Database freeze
+
+- **Done:** the Blueprint "blank" was the GPU process restarting on hardware-decoded video on the virtual display (harness only); stamping no longer rebuilds the whole 3D scene (only the footprint's chunks), plan pictures are kept in the editor's data folder; the Forge's dropped frames were the 2D map drawing every frame behind it (now covered while another window is worked in); the gown tore mid-drag because hem vertices past six cells rode on body vertex 0. The freeze: see STATUS.
+- **Not done:** a stamped Manor (80,577 pieces) still costs about 0.9 s; the 2D shadow caster set of a swaying lamp is followed at 500 ms (plausible, not exact); one software-rendering close in 24 still stalled.
+- **Harness:** display `:2`-style numbering, NVIDIA builder crash and the cleanup are in STATUS › Working notes. Scripts from this session were scratch only.
 
 ## 2026-10-24 — builders quality push (night)
 
@@ -19,7 +25,7 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 - **Eagle:** not rebuilt. The owner finds it ugly (wings sink 41–43 mm into the body in every idle/walk frame, stick tail, oversized boxy head, thin bill). Plan: [CHARACTER-QUALITY.md](CHARACTER-QUALITY.md#open-plans-2026-10-24). First step there: scale/translation tracks in `CharacterCloth.js` posing and the bird floor-height pass, then the folded-wing shell.
 - **Clothing** is still the owner's top complaint: the drape barely changed skirts and dresses. Next: skirts/dresses, then sci-fi/plate outfits. Owner rule: slightly over the triangle budget but clearly better looking is fine (the outfit ratchet went 28 → 33 for the construction detail).
 - **Known test failure:** `character-3d-model` "only skin a garment really covers is hidden" fails on random seed 23 (loincloth outfit, extreme heavy body, 1.45% bare). Pre-existing: HEAD shows the same 1.45% for that outfit; the new Wasteland/Cyberpunk themes only moved which outfit seed 23 rolls.
-- **Harness trap:** on the headless KWin displays, opening a project in NW.js now ends with "Web page caused context loss and was blocked" before the Character Builder starts (HEAD too, NVIDIA and Mesa alike), so editor-viewport checks there fail. Not an outfit regression; cause not found (suspect GPU contention from several harnesses at once). The owner's own desktop is unaffected.
+- **Harness trap:** "Web page caused context loss and was blocked" on the headless displays: found 2026-10-25 (video decode and the builder's studio on NVIDIA; STATUS › Working notes).
 - **Process rule:** kill only exact PIDs after `ps -o cmd= -p`; never a parent PID (an orphan's parent is `systemd --user`, and killing it restarted the owner's desktop session).
 - **Follow-ups:** about 193 test files leak temp dirs (a shared cleanup helper); the pickup/truck silhouette could be sharper.
 - **Outcome:** hair (about half the triangles, renders checked) and the round-4 heads for wolf, dog, fox, horse and bear are committed; lion, tiger, deer and cats keep round 3. The eagle plan and the quadruped notes are copied into [CHARACTER-QUALITY.md](CHARACTER-QUALITY.md#open-plans-2026-10-24); nothing needed is left only in scratch folders.
