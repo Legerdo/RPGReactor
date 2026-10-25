@@ -133,7 +133,8 @@
     const slab = (outline, z0, z1, ch, o) => HS.plate(outline, z1 - z0, ch, Object.assign({ center: (z0 + z1) / 2, smooth: 45 }, o || {}));
     const box = (c, s, ch) => HS.chamferedBox(c, s, ch ?? Math.min(...s) * 0.2);
     const disc = (at, dir, r, h, n) => Mesh.lathe([[0, 0], [r, 0], [r, h], [0, h]], n || 16, { base: at, dir });
-    const ring = (at, dir, ri, ro, h, n) => Mesh.lathe([[ri, 0], [ro, 0], [ro, h], [ri, h], [ri, 0]], n || 32, { base: at, dir });
+    /** A ring (an annulus `h` thick, open through its middle). */
+    const ring = (at, dir, ri, ro, h, n) => Mesh.lathe([[ri, 0], [ro, 0], [ro, h], [ri, h], [ri, 0]], n || 32, { base: at, dir, caps: false });
     const blob = (c, rx, ry, rz, n) => K.apply(Mesh.sphere([0, 0, 0], rx, n || 16, Math.round((n || 16) / 2)), p => [c[0] + p[0], c[1] + p[1] * ry / rx, c[2] + p[2] * rz / rx]);
     /** A string (or a thin rod) from a to b, `d` across. */
     const string = (a, b, d) => { const dir = norm(sub(b, a)); return K.bar(a, b, Math.abs(dir[2]) > 0.9 ? [1, 0, 0] : [0, 0, 1], d, d); };
@@ -194,6 +195,111 @@
         // Bass side first: the -y posts from the nut out, then the +y posts from the far end in (or inline in order).
         if (o.inline) return posts.slice().reverse();
         return posts.slice(0, n).concat(posts.slice(n).reverse());
+    }
+
+    /**
+     * A pipe with a real bore along +x from x0 to x1: its wall from radius `Ri` to `Ro` (numbers or functions of
+     * x), both ends open, `holes` cut through the wall ([{ x, rx, rs, at, p }]: half sizes along it and round it
+     * in meters, `at` the angle round from +z (to the nearest column), `p` 2 round, 4 a rounded slot). The wall
+     * is a grid of rows and columns; each hole sits in a window of whole cells, rings of faces blending its
+     * outline out to the window's edge. Returns { outer, inner }: the outside, the ends and the holes' walls,
+     * and the bore's own surface (a dark part, seen through the openings); together one closed shell.
+     */
+    const V3 = K.vec;
+    const mid4 = q => mul(q.reduce((m, p) => add(m, p), [0, 0, 0]), 1 / q.length);
+    function boredPipe(x0, x1, Ro, Ri, holes, o) {
+        const opt = o || {}, N = opt.sides || 32, da = Math.PI * 2 / N, gO = new CM.Geo(), gI = new CM.Geo();
+        const RO = typeof Ro === 'function' ? Ro : () => Ro, RI = typeof Ri === 'function' ? Ri : () => Ri;
+        // `o.surface(x, th, inner)` another body of the same grid (a vessel round its middle `o.center`).
+        const at = opt.surface || ((x, th, inner) => { const r = inner ? RI(x) : RO(x); return [x, r * Math.sin(th), r * Math.cos(th)]; });
+        const radial = opt.center ? (pt, s) => mul(sub(pt, opt.center), s) : (pt, s) => mul([0, pt[1], pt[2]], s);
+        const e = 1e-4, arcAt = (x, th) => Math.hypot(...sub(at(x, th + e), at(x, th - e))) / (2 * e), alongAt = (x, th) => Math.hypot(...sub(at(x + e, th), at(x - e, th))) / (2 * e);
+        const mc = opt.minCells || 2;
+        const W = (holes || []).map(h => {
+            const col = Math.round((h.at || 0) / da), th = col * da, R0 = arcAt(h.x, th), sx = alongAt(h.x, th), c = Math.max(mc, Math.ceil(h.rs * 1.45 / (R0 * da)));
+            const wx = Math.max(h.rx * 1.45, h.rx + 0.0012) / sx, nr = 2 * Math.max(mc, Math.ceil(wx * sx / (R0 * da)));
+            const n = norm(V3.cross(sub(at(h.x + e, th), at(h.x - e, th)), sub(at(h.x, th + e), at(h.x, th - e))));
+            return Object.assign({}, h, { col, c, wx, nr, th, p: h.p || 2, ax: h.rx / sx, as: h.rs / R0, c3: at(h.x, th), n3: n });
+        });
+        // Two windows may share rows or columns but never cells.
+        for (let i = 0; i < W.length; i++) for (let j = 0; j < i; j++) {
+            const a = W[i], b = W[j], dc = Math.abs(((a.col - b.col) % N + N + N / 2) % N - N / 2);
+            if (Math.abs(a.x - b.x) < a.wx + b.wx - 1e-9 && dc < a.c + b.c) throw new Error('boredPipe: holes ' + i + ' and ' + j + ' overlap');
+        }
+        const xs = [x0, x1];
+        const step = opt.step || (x1 - x0) / 6;
+        for (let x = x0 + step; x < x1 - step * 0.3; x += step) if (!W.some(w => Math.abs(x - w.x) < w.wx + step * 0.3)) xs.push(x);
+        for (const x of opt.breaks || []) if (x > x0 && x < x1 && !W.some(w => Math.abs(x - w.x) < w.wx + 0.001)) xs.push(x);
+        for (const w of W) for (let i = 0; i <= w.nr; i++) xs.push(w.x - w.wx + 2 * w.wx * i / w.nr);
+        xs.sort((a, b) => a - b);
+        const rows = xs.filter((x, i) => !i || x - xs[i - 1] > 1e-6);
+        const colIn = (w, j) => { const d = ((j - w.col) % N + N) % N; return d < w.c || d >= N - w.c; };
+        for (let i = 0; i + 1 < rows.length; i++) {
+            const xa = rows[i], xb = rows[i + 1], xm = (xa + xb) / 2;
+            for (let j = 0; j < N; j++) {
+                if (W.some(w => xm > w.x - w.wx && xm < w.x + w.wx && colIn(w, j))) continue;
+                const t0 = j * da, t1 = (j + 1) * da, tm = (t0 + t1) / 2, uv = [[xa * 20, j / N], [xb * 20, j / N], [xb * 20, (j + 1) / N], [xa * 20, (j + 1) / N]];
+                const qo = [at(xa, t0), at(xb, t0), at(xb, t1), at(xa, t1)], qi = [at(xa, t0, 1), at(xb, t0, 1), at(xb, t1, 1), at(xa, t1, 1)];
+                gO.poly(qo, uv, radial(mid4(qo), 1));
+                gI.poly(qi, uv, radial(mid4(qi), -1));
+            }
+        }
+        if (!opt.surface) for (const [x, s] of [[x0, -1], [x1, 1]]) for (let j = 0; j < N; j++) gO.poly([at(x, j * da), at(x, (j + 1) * da), at(x, (j + 1) * da, 1), at(x, j * da, 1)], null, [s, 0, 0]);
+        for (const w of W) {
+            // The window's edge as (x, angle) points round it, and the hole's outline at each one's bearing.
+            const snap = v => rows.reduce((m, x) => (Math.abs(x - v) < Math.abs(m - v) ? x : m), rows[0]);
+            const edge = [], a0 = w.th - w.c * da, a1 = w.th + w.c * da, xa = snap(w.x - w.wx), xb = snap(w.x + w.wx);
+            for (let k = 0; k < 2 * w.c; k++) edge.push([xa, a0 + k * da]);
+            // Its sides take every row between its ends (another window beside it may add rows).
+            const side = rows.filter(x => x > xa - 1e-7 && x < xb - 1e-7);
+            for (const x of side) edge.push([x, a1]);
+            for (let k = 0; k < 2 * w.c; k++) edge.push([xb, a1 - k * da]);
+            const back = rows.filter(x => x > xa + 1e-7 && x < xb + 1e-7).reverse();
+            for (const x of back) edge.push([x, a0]);
+            const sp = v => Math.sign(v) * Math.pow(Math.abs(v), 2 / w.p);
+            const hole = edge.map(([x, th]) => { const f = Math.atan2((th - w.th) / (w.c * da), (x - w.x) / w.wx); return [w.x + w.ax * sp(Math.cos(f)), w.th + w.as * sp(Math.sin(f))]; });
+            const K = 3, loops = [];
+            for (let k = 0; k <= K; k++) { const t = Math.pow(k / K, 1.3); loops.push(edge.map((e, m) => [hole[m][0] + (e[0] - hole[m][0]) * t, hole[m][1] + (e[1] - hole[m][1]) * t])); }
+            const n = edge.length;
+            for (let k = 0; k < K; k++) for (let m = 0; m < n; m++) {
+                const a = loops[k][m], b = loops[k][(m + 1) % n], c = loops[k + 1][(m + 1) % n], d = loops[k + 1][m];
+                const qo = [a, b, c, d].map(q => at(q[0], q[1])), qi = [a, b, c, d].map(q => at(q[0], q[1], 1));
+                gO.poly(qo, null, radial(mid4(qo), 1));
+                gI.poly(qi, null, radial(mid4(qi), -1));
+            }
+            for (let m = 0; m < n; m++) {
+                const a = hole[m], b = hole[(m + 1) % n], q = [at(a[0], a[1]), at(b[0], b[1]), at(b[0], b[1], 1), at(a[0], a[1], 1)];
+                const rel = sub(mid4(q), w.c3), toAxis = sub(mul(w.n3, V3.dot(rel, w.n3)), rel);
+                gO.poly(q, null, toAxis);
+            }
+        }
+        const outer = CM.smoothNormals(gO.done(), opt.crease ?? 0.7);
+        if (opt.grain || opt.uv) {
+            // Wood grain along it: u round it (in the grain's across scale), v along; a face over the seam unwrapped.
+            const P = outer.positions, I = outer.index, uv = new Float32Array(P.length / 3 * 2), Rm = RO((x0 + x1) / 2), per = opt.uv ? opt.uv[0] / (Math.PI * 2) : Rm / 0.11, turn = Math.PI * 2 * per, cz = opt.center ? opt.center[2] : 0;
+            for (let i = 0; i < P.length / 3; i++) { uv[i * 2] = Math.atan2(P[i * 3 + 1], P[i * 3 + 2] - cz) * per; uv[i * 2 + 1] = P[i * 3] / (opt.uv ? opt.uv[1] : 0.42); }
+            for (let t = 0; t < I.length; t += 3) for (let j = 1; j < 3; j++) { const a = I[t], b = I[t + j], d = uv[b * 2] - uv[a * 2]; if (Math.abs(d) > turn / 2) uv[b * 2] -= Math.sign(d) * turn; }
+            outer.uvs = uv; outer.keepUv = true;
+        }
+        return { outer, inner: CM.smoothNormals(gI.done(), 0.7) };
+    }
+    /**
+     * A collar standing on a pipe of radius R along x: an elliptical ring round (xc, top), its hole `hole` and
+     * outline `outer` [half along, half across], its top `lift` above the pipe and gently curved, its foot
+     * shaped down onto the pipe (a flute's lip plate, a tone hole's chimney).
+     */
+    function collar(xc, R, hole, outer, lift, o) {
+        const opt = o || {}, ri = 1, ro = 2, prof = opt.flat
+            ? [[ri, 0], [ro, 0], [ro, 1], [ri, 1], [ri, 0]]
+            : [[ri, 0], [ro, 0], [ro, 0.5], [ro - 0.07, 0.88], [ro - 0.25, 1], [ri + 0.15, 1], [ri + 0.03, 0.88], [ri, 0.55], [ri, 0]];
+        const m = Mesh.lathe(prof, opt.n || 32, { base: [0, 0, 0], dir: [0, 0, 1], sharp: 0.5, caps: false });
+        const sink = opt.sink ?? 0.0004, flat = opt.curve ?? 0.5;
+        return CM.smoothNormals(K.apply(m, p => {
+            const r = Math.hypot(p[0], p[1]), ph = Math.atan2(p[1], p[0]), f = Math.max(0, Math.min(1, (r - ri) / (ro - ri)));
+            const X = xc + Math.cos(ph) * (hole[0] + (outer[0] - hole[0]) * f), Y = Math.sin(ph) * (hole[1] + (outer[1] - hole[1]) * f);
+            const zb = Math.sqrt(Math.max(0, (R - sink) ** 2 - Y * Y)), zt = Math.sqrt(Math.max(0, (R + lift) ** 2 - Y * Y * flat));
+            return [X, Y, zb + (zt - zb) * p[2]];
+        }), 0.5);
     }
 
     // ── the instruments ───────────────────────────────────────────────────
@@ -297,60 +403,119 @@
             return { gripBottom: [hgt * 0.35, -0.25, 0], gripTop: [hgt * 0.55, -0.25, 0], tip: [hgt, -0.25, 0], edge: [hgt * 0.5, 0.25, 0] };
         },
         flute(r, H) {
-            const L = 0.67 * r.length, R = 0.0095 * (0.9 + r.shape * 0.2), prof = [[0, 0], [R * 1.12, 0], [R * 1.12, 0.012], [R, 0.014]];
-            for (const x of [0.11, 0.42]) prof.push([R, x * L - 0.006], [R * 1.12, x * L - 0.004], [R * 1.12, x * L + 0.004], [R, x * L + 0.006]);
-            prof.push([R, L - 0.03], [R * 1.1, L - 0.028], [R * 1.1, L - 0.006], [R * 0.9, L - 0.002], [R * 0.5, L], [0, L]);
-            H.Metal.push(Mesh.lathe(prof, 24, { base: [0, 0, 0], dir: [1, 0, 0], sharp: 0.6 }));
-            // The lip plate with its embouchure hole near the head; the tone-hole cups along the top on a rod.
-            const xl = L - 0.075;
-            H.Metal.push(blob([xl, 0, R * 0.7], 0.017, 0.011, 0.005, 16));
-            H.Dark.push(blob([xl, 0, R * 0.7 + 0.0042], 0.0055, 0.0042, 0.0012, 12));
+            // A silver tube with a real bore: open at its foot, stopped at its head by the cork under the crown;
+            // the embouchure hole cut through under the lip plate, and the open-hole keys' rings over holes cut
+            // through too, so air (and a look) goes in at the lips and out at the foot and the open holes.
+            const L = 0.67 * r.length, R = 0.0095 * (0.9 + r.shape * 0.2), Ri = R * 0.88, xl = L - 0.075, xe = L - 0.014;
             const cups = [0.17, 0.2, 0.235, 0.27, 0.31, 0.35, 0.385, 0.45, 0.49, 0.53, 0.57].map(t => t * L).filter(x => x < xl - 0.09);
+            const open = new Set([3, 4, 5, 6, 7].filter(i => i < cups.length)), pr = R * 0.24;
+            const holes = [{ x: xl, rx: 0.0052, rs: 0.0058 }, ...[...open].map(i => ({ x: cups[i], rx: pr * 1.08, rs: pr * 1.08 }))];
+            const pipe = boredPipe(0.004, xe, R, Ri, holes, { sides: 32, step: 0.06 });
+            H.Metal.push(pipe.outer); H.Dark.push(pipe.inner);
+            // The joints' tenon rings (a bored ring at the foot's mouth), the crown and the cork behind the lips.
+            H.Metal.push(ring([0, 0, 0], [1, 0, 0], Ri, R * 1.13, 0.012, 32));
+            for (const x of [0.11, 0.42]) H.Metal.push(ring([x * L - 0.005, 0, 0], [1, 0, 0], R * 0.97, R * 1.11, 0.01, 32));
+            H.Metal.push(ring([L - 0.032, 0, 0], [1, 0, 0], R * 0.97, R * 1.1, 0.02, 32));
+            H.Dark.push(disc([xl + 0.017, 0, 0], [1, 0, 0], Ri * 1.01, xe - xl - 0.012, 20));
+            H.Metal.push(Mesh.lathe([[0, 0], [R * 1.02, 0], [R * 1.05, 0.004], [R * 0.95, 0.01], [R * 0.6, 0.0135], [0, 0.0145]], 24, { base: [xe - 0.001, 0, 0], dir: [1, 0, 0], sharp: 0.5 }));
+            // The lip plate: a curved oval plate on its riser, its hole over the one in the tube.
+            H.Metal.push(collar(xl, R, [0.0047, 0.0051], [0.016, 0.0118], 0.0042));
+            // Keys over the tone holes: a chimney under each, a pad in a cup (a ring over the hole on the open
+            // ones), each on its arm from the rod down the side.
             for (const [i, x] of cups.entries()) {
-                const cr = i < 3 ? 0.0068 : 0.0072;
-                H.Metal.push(Mesh.lathe([[0, 0], [cr, 0], [cr, 0.0018], [cr * 0.9, 0.0026], [0, 0.0026]], 16, { base: [x, 0, R + 0.0012], dir: [0, 0, 1], sharp: 0.5 }));
-                if (i % 2 && i < 8) H.Dark.push(disc([x, 0, R + 0.0034], [0, 0, 1], cr * 0.38, 0.0004, 10));
-                H.Metal.push(string([x, 0, R + 0.0018], [x, R * 1.05, R * 0.6], 0.0016));
+                const cr = i < 3 ? 0.0068 : 0.0072, z = R + 0.0016, ring2 = open.has(i);
+                H.Metal.push(collar(x, R, [cr * 0.62, cr * 0.62], [cr * 0.8, cr * 0.8], 0.0012, { flat: true, sink: 0.0006, curve: 1, n: 20 }));
+                H.Ivory.push(Mesh.lathe(ring2 ? [[pr, 0], [cr * 0.88, 0], [cr * 0.88, 0.0012], [pr, 0.0012], [pr, 0]] : [[0, 0], [cr * 0.88, 0], [cr * 0.88, 0.0012], [0, 0.0012]], 20, { base: [x, 0, z - 0.0006], dir: [0, 0, 1], sharp: 0.5, caps: !ring2 }));
+                H.Metal.push(Mesh.lathe(ring2
+                    ? [[pr + 0.0012, 0.0004], [cr * 0.86, 0.0004], [cr, 0], [cr, 0.0018], [cr * 0.92, 0.0028], [pr + 0.0016, 0.0028], [pr + 0.0012, 0.0022], [pr + 0.0012, 0.0004]]
+                    : [[0, 0.0004], [cr * 0.86, 0.0004], [cr, 0], [cr, 0.0018], [cr * 0.92, 0.0028], [0, 0.0029]], 20, { base: [x, 0, z], dir: [0, 0, 1], sharp: 0.5, caps: !ring2 }));
+                H.Metal.push(string([x + cr * 0.8, R * 0.2, z + 0.0012], [x + cr * 1.05, R * 1.05, R * 0.6], 0.0014));
             }
-            if (cups.length) H.Metal.push(Mesh.lathe([[0.0013, 0], [0.0013, cups[cups.length - 1] - cups[0] + 0.02]], 8, { base: [cups[0] - 0.01, R * 1.05, R * 0.6], dir: [1, 0, 0] }));
-            // The foot's roller keys and a trill lever, the crown at the head.
+            if (cups.length) H.Metal.push(Mesh.lathe([[0.0013, 0], [0.0013, cups[cups.length - 1] - cups[0] + 0.03]], 8, { base: [cups[0] - 0.01, R * 1.05, R * 0.6], dir: [1, 0, 0] }));
+            // The foot's roller keys on their own short rod.
             for (const x of [0.03, 0.055, 0.08]) H.Metal.push(Mesh.lathe([[0, 0], [0.0062, 0], [0.0062, 0.002], [0, 0.0024]], 14, { base: [x * L / 0.67, -R * 0.4, R + 0.0008], dir: norm([0, -0.4, 1]) }));
-            H.Metal.push(Mesh.lathe([[0, 0], [R * 0.95, 0], [R * 0.95, 0.006], [R * 0.6, 0.012], [0, 0.013]], 16, { base: [L - 0.002, 0, 0], dir: [1, 0, 0], sharp: 0.5 }));
             return { gripBottom: [L * 0.25, 0, 0], gripTop: [L * 0.42, 0, 0], tip: [L, 0, 0], edge: [L * 0.5, 0, R] };
         },
         recorder(r, H) {
             const L = 0.32 * r.length, R = 0.0115 * (0.9 + r.shape * 0.2);
             const prof = [[0, 0], [R * 1.35, 0], [R * 1.4, 0.006], [R * 1.25, 0.014], [R * 0.95, 0.04], [R * 0.92, 0.07], [R * 1.12, 0.074], [R * 1.12, 0.08], [R * 0.95, 0.084], [R, L * 0.68], [R * 1.25, L * 0.69], [R * 1.28, L * 0.71], [R * 1.12, L * 0.725], [R * 1.12, L * 0.84], [R * 1.05, L * 0.9], [R * 0.75, L * 0.97], [R * 0.55, L], [0, L]];
-            const body = Mesh.lathe(prof, 24, { base: [0, 0, 0], dir: [1, 0, 0], sharp: 0.6 });
-            // The beak flattens toward the lips.
-            H.Wood.push(CM.smoothNormals(K.apply(body, p => [p[0], p[1], p[2] * (1 - 0.38 * smooth((p[0] - L * 0.86) / (L * 0.12)))]), 0.6));
-            H.Dark.push(box([L * 0.79, 0, R * 1.05], [0.008, 0.009, 0.004], 0.0008), box([L * 0.995, 0, 0], [0.0016, R * 1.1, 0.0026], 0.0004));
-            H.Ivory.push(box([L * 0.775, 0, R * 1.06], [0.003, 0.009, 0.003], 0.0006));
-            const holes = [0.14, 0.24, 0.31, 0.4, 0.49, 0.56, 0.63].map(t => t * L + 0.02);
-            for (const [i, x] of holes.entries()) {
-                const rr = R * (i < 2 ? 0.28 : 0.34);
-                if (i < 2) for (const y of [-0.0028, 0.0028]) H.Dark.push(disc([x, y, R * 0.93], [0, 0, 1], rr * 0.7, 0.0012, 10));
-                else H.Dark.push(disc([x + (i === 6 ? 0 : 0), i === 2 ? 0.0016 : 0, R * 0.93], [0, 0, 1], rr, 0.0012, 12));
-            }
-            H.Dark.push(disc([L * 0.66, 0, -R * 0.93], [0, 0, -1], R * 0.32, 0.0012, 12));
+            // A bored body from the open foot to past the window: finger holes and the thumb hole cut through,
+            // the window cut through with its labium ramp sloping down to a sharp edge; the block stops the bore
+            // at the window's head side, the windway a slit over it out to the beak.
+            const xp = L * 0.81, at = x => { for (let k = 1; k < prof.length - 1; k++) if (prof[k + 1][1] >= x) { const [r0, h0] = prof[k], [r1, h1] = prof[k + 1]; return r0 + (r1 - r0) * Math.max(0, Math.min(1, (x - h0) / ((h1 - h0) || 1))); } return R; };
+            const RO = x => (x <= 0 ? R * 1.35 : at(x)), RI = x => R * (0.52 + 0.14 * x / L);
+            const xw = L * 0.785, xe = xw - 0.003, xh = xw + 0.003, xf = xe - 0.0075, ws = R * 0.4;
+            const holes = [0.14, 0.24, 0.31, 0.4, 0.49, 0.56, 0.63].map((t, i) => ({ x: t * L + 0.02, rx: R * (i < 2 ? 0.25 : 0.33), rs: R * (i < 2 ? 0.25 : 0.33) }));
+            holes.push({ x: L * 0.655, rx: R * 0.31, rs: R * 0.31, at: Math.PI }, { x: (xf + xh) / 2, rx: (xh - xf) / 2, rs: ws, p: 5 });
+            const pipe = boredPipe(0, xp, RO, RI, holes, { sides: 32, step: 0.012, breaks: prof.slice(1, -1).map(p => p[1]), crease: 0.6, grain: true });
+            H.Wood.push(pipe.outer); H.Dark.push(pipe.inner);
+            // The head and beak, flattening toward the lips; the windway's mouth at its tip.
+            const head = Mesh.lathe([[0, xp - 0.001], [at(xp), xp - 0.001], ...prof.filter(p => p[1] > xp)], 32, { base: [0, 0, 0], dir: [1, 0, 0], sharp: 0.6 });
+            H.Wood.push(CM.smoothNormals(K.apply(head, p => [p[0], p[1], p[2] * (1 - 0.38 * smooth((p[0] - L * 0.86) / (L * 0.12)))]), 0.6));
+            H.Dark.push(box([L * 0.995, 0, R * 0.32], [0.0024, R * 0.9, 0.0014], 0.0003));
+            H.Ivory.push(disc([xh, 0, 0], [1, 0, 0], RI(xh) * 1.004, xp - xh + 0.002, 24));
+            H.Dark.push(box([xh + 0.0003, 0, RI(xh) - 0.0006], [0.0012, ws * 1.5, 0.0012], 0.0002));
+            // The labium ramp: a wedge filling the window's foot side, its top from the outside down to the edge.
+            const g = new CM.Geo(), S = 6, wy = ws * 1.25, zo = y => Math.sqrt(Math.max(0, RO(xf) ** 2 - y * y)) - 0.0002, zi = y => Math.sqrt(Math.max(0, RI(xe) ** 2 - y * y)) + 0.0003;
+            const T = [], E = [], B = [];
+            for (let k = 0; k <= S; k++) { const y = -wy + 2 * wy * k / S; T.push([xf - 0.0012, y, zo(y)]); E.push([xe, y, zi(y)]); B.push([xf - 0.0012, y, zi(y) - 0.0002]); }
+            const up = [(zo(0) - zi(0)), 0, xe - xf];
+            for (let k = 0; k < S; k++) { g.poly([T[k], T[k + 1], E[k + 1], E[k]], null, up); g.poly([B[k], B[k + 1], E[k + 1], E[k]], null, [0, 0, -1]); g.poly([T[k], T[k + 1], B[k + 1], B[k]], null, [-1, 0, 0]); }
+            g.poly([T[0], E[0], B[0]], null, [0, -1, 0]); g.poly([T[S], E[S], B[S]], null, [0, 1, 0]);
+            H.Ivory.push(CM.smoothNormals(g.done(), 0.8));
             return { gripBottom: [L * 0.2, 0, 0], gripTop: [L * 0.6, 0, 0], tip: [L, 0, 0], edge: [L * 0.5, 0, R] };
         },
         ocarina(r, H) {
-            const L = 0.16 * r.length, plump = 0.8 + r.shape * 0.4, cx = L * 0.45;
-            const body = K.apply(Mesh.sphere([0, 0, 0], L * 0.5, 32, 16), p => { const t = Math.max(0, Math.min(1, (p[0] / (L * 0.5) + 1) / 2)), k = 0.62 * plump * (0.7 + 0.45 * Math.sin(Math.PI * Math.pow(t, 0.8))); return [cx + p[0], p[1] * k, p[2] * k * 0.78]; });
-            H.Paint.push(CM.smoothNormals(body, 0.3));
-            // The mouthpiece out of its narrow end, its windway, the labium window on top.
-            const mx = cx + L * 0.43;
-            H.Paint.push(K.sweep(curve(t => [mx - 0.01 + 0.05 * t, -0.012 * t * t, 0.004 * t], 6), K.roundRect(0.012, 0.02, 0.004, 2), { up: [0, 0, 1] }));
-            H.Dark.push(box([mx + 0.04, -0.012, 0.004], [0.004, 0.009, 0.0022], 0.0005));
-            H.Dark.push(box([mx - 0.015, 0, L * 0.19 * plump * 0.8], [0.01, 0.009, 0.006], 0.0012));
-            const top = (x, y) => { const t = (x - cx) / (L * 0.5); const k = 0.62 * plump * (0.7 + 0.45 * Math.sin(Math.PI * Math.pow(Math.max(0, (t + 1) / 2), 0.8))) * 0.78 * L * 0.5; return Math.sqrt(Math.max(0, 1 - t * t - (y / (k / 0.78 || 1)) ** 2)) * k; };
-            const holes = [[0.2, -0.32, 0.0042], [0.34, -0.36, 0.0048], [0.48, -0.36, 0.005], [0.62, -0.3, 0.0046], [0.2, 0.32, 0.0042], [0.34, 0.36, 0.0048], [0.48, 0.36, 0.005], [0.62, 0.3, 0.0046], [0.05, -0.15, 0.003], [0.05, 0.15, 0.003]];
-            for (const [t, s, hr] of holes) { const x = cx - L * 0.38 + L * 0.72 * t, y = s * L * 0.32 * plump; H.Dark.push(blob([x, y, top(x, y) - 0.0004], hr, hr, 0.0012, 10)); }
-            // A painted band round its middle.
-            const band = curve(t => { const a = t * Math.PI * 2, x = cx - L * 0.12, kk = 0.62 * plump * (0.7 + 0.45 * Math.sin(Math.PI * Math.pow(0.38, 0.8))) * L * 0.5 * Math.sqrt(1 - 0.24 * 0.24); return [x, Math.cos(a) * kk * 1.004, Math.sin(a) * kk * 0.78 * 1.004]; }, 40).slice(0, 40);
-            H.Accent.push(K.sweep(band, K.roundRect(0.0012, 0.006, 0.0005, 1), { up: [1, 0, 0], closed: true }));
-            return { gripBottom: [cx - L * 0.2, 0, 0], gripTop: [cx + L * 0.2, 0, 0], tip: [mx + 0.04, 0, 0], edge: [cx, -L * 0.3, 0] };
+            // A sweet-potato ocarina: a hollow glazed vessel (its wall a real thickness, its inside dark), a
+            // mouthpiece out of its blunt end with the windway's slit at its tip, the voicing hole on top behind it
+            // (a window cut through, its labium ramp sloping down to a sharp edge), and finger holes of their own
+            // sizes cut through: two arcs on top, two small sub holes, two thumb holes under it.
+            const sc = r.length, L = 0.16 * sc, W = 0.04 * sc * (0.82 + r.shape * 0.36), t = 0.0045 * sc;
+            const wf = u => { u = Math.max(0, Math.min(1, u)); return W * Math.pow(Math.sin(Math.PI * Math.pow(u, 1.18)), 0.56) * (0.88 + 0.12 * u); };
+            const zc = u => 0.007 * sc * Math.sin(Math.PI * u), yc = u => -0.006 * sc * Math.sin(Math.PI * u);
+            const Cb = [L * 0.52, 0, zc(0.52)];
+            const outerAt = (x, th) => { const u = x / L, w = wf(u), c = Math.cos(th); return [x, yc(u) + w * Math.sin(th), zc(u) + w * (c > 0 ? 0.66 : 0.8) * c]; };
+            const normalAt = (x, th) => {
+                const e = 1e-4, n = V3.cross(sub(outerAt(x + e, th), outerAt(x - e, th)), sub(outerAt(x, th + e), outerAt(x, th - e)));
+                return Math.hypot(...n) > 1e-14 ? norm(n) : norm(sub(outerAt(x, th), Cb));
+            };
+            const surface = (x, th, inner) => { const p = outerAt(x, th); return inner ? sub(p, mul(normalAt(Math.min(L, Math.max(0, x)), th), t)) : p; };
+            const xw = 0.855 * L, ww = 0.0064 * sc, ws = 0.0046 * sc;
+            const holes = [[0.15, 0.5, 3.0], [0.235, 0.36, 4.0], [0.32, 0.3, 4.6], [0.405, 0.38, 4.2], [0.49, -0.46, 3.3], [0.575, -0.36, 4.2], [0.66, -0.3, 4.7], [0.745, -0.38, 4.1], [0.56, -1.3, 2.3], [0.255, 1.3, 2.2], [0.62, Math.PI - 0.4, 4.2], [0.36, Math.PI + 0.4, 4.0]]
+                .map(([u, at, rr]) => ({ x: u * L, at, rx: rr * 0.001 * sc, rs: rr * 0.001 * sc }));
+            holes.push({ x: xw, at: 0, rx: ww, rs: ws, p: 5 });
+            const body = boredPipe(0, L, 0, 0, holes, { sides: 44, step: L / 14, surface, center: Cb, uv: [2, 0.08], crease: 0.6, minCells: 3 });
+            H.Paint.push(body.outer); H.Dark.push(body.inner);
+            // The labium: a ramp filling the window's tail side, from the outside down to the edge mid-window.
+            const g = new CM.Geo(), S = 6, xf = xw - ww - 0.0012 * sc, xe = xw - ww * 0.05, T = [], E = [], B = [];
+            for (let k = 0; k <= S; k++) {
+                const th = (-1 + 2 * k / S) * ws * 1.3 / W;
+                const pf = outerAt(xf, th), nf = normalAt(xf, th), pe = outerAt(xe, th), ne = normalAt(xe, th);
+                T.push(sub(pf, mul(nf, 0.0003))); E.push(sub(pe, mul(ne, t * 0.55))); B.push(sub(pf, mul(nf, t * 0.7)));
+            }
+            const nw = normalAt(xw, 0), up = norm(add(nw, mul(norm(sub(outerAt(xe, 0), outerAt(xf, 0))), 0.6)));
+            for (let k = 0; k < S; k++) {
+                g.poly([T[k], T[k + 1], E[k + 1], E[k]], null, up); g.poly([B[k], B[k + 1], E[k + 1], E[k]], null, mul(nw, -1));
+                g.poly([T[k], T[k + 1], B[k + 1], B[k]], null, sub(outerAt(xf, 0), outerAt(xe, 0)));
+            }
+            g.poly([T[0], E[0], B[0]], null, [0, -1, 0]); g.poly([T[S], E[S], B[S]], null, [0, 1, 0]);
+            H.Paint.push(CM.smoothNormals(g.done(), 0.8));
+            // The windway's mouth on the window's head side, under its edge.
+            const ph = outerAt(xw + ww * 0.92, 0), across = norm(V3.cross(nw, sub(outerAt(xw + 0.001, 0), outerAt(xw - 0.001, 0))));
+            H.Dark.push(K.bar(sub(sub(ph, mul(across, ws * 0.8)), mul(nw, 0.0016 * sc)), sub(add(ph, mul(across, ws * 0.8)), mul(nw, 0.0016 * sc)), nw, 0.0014 * sc, 0.0011 * sc));
+            // The mouthpiece out of the blunt end, a little up and toward the player, flattening to the lips.
+            // The mouthpiece grows out of the blunt end: a broad rounded root buried in the body flowing smoothly down
+            // into a flattened oval that lifts a little toward the lips; the windway's slit in its tip.
+            const md = norm([1, -0.12, 0.16]), m0 = [L - 0.03 * sc, 0, zc(1) + 0.002 * sc], ml = 0.05 * sc, NS = 14;
+            const mpts = curve(f => add(add(m0, mul(md, ml * f)), [0, 0, 0.005 * sc * f * f]), NS);
+            const oval = (h, w, n) => Array.from({ length: 28 }, (_, q) => { const a = q / 28 * Math.PI * 2, c = Math.cos(a), s2 = Math.sin(a); return [h / 2 * Math.sign(c) * Math.pow(Math.abs(c), 2 / n), w / 2 * Math.sign(s2) * Math.pow(Math.abs(s2), 2 / n)]; });
+            H.Paint.push(K.sweep(mpts, q => { const f = q / NS, e = Math.pow(1 - smooth(f / 0.85), 2); return oval((0.0115 + 0.028 * e - 0.0015 * f) * sc, (0.021 + 0.024 * e - 0.001 * f) * sc, 2); }, { up: [0, 0, 1], cos: K.COS.soft }));
+            const mt = mpts[NS], mdt = norm(sub(mpts[NS], mpts[NS - 1]));
+            H.Dark.push(K.bar(sub(mt, mul(mdt, 0.004 * sc)), add(mt, mul(mdt, 0.0006 * sc)), [0, 0, 1], 0.011 * sc, 0.0016 * sc));
+            // A painted band round its tail, and the mouthpiece's lip ring.
+            const band = curve(k => { const th = k * Math.PI * 2; return add(outerAt(0.085 * L, th), mul(normalAt(0.085 * L, th), 0.0003)); }, 48).slice(0, 48);
+            H.Accent.push(K.sweep(band, K.roundRect(0.0006 * sc, 0.0026 * sc, 0.0003, 1), { closed: true }));
+            return { gripBottom: [L * 0.3, 0, zc(0.3)], gripTop: [L * 0.62, 0, zc(0.62)], tip: mt, edge: [L * 0.5, -W, 0] };
         },
         trumpet(r, H) {
             const k = r.length, bellR = 0.056 * (0.85 + r.shape * 0.3), tr = 0.0055, M = H.Metal;
@@ -388,39 +553,69 @@
             return { gripBottom: [vx[0], 0, -0.03], gripTop: [vx[2], 0, -0.03], tip: [bx + bl, yb, zb], edge: [vx[1], 0, 0.05] };
         },
         sax(r, H) {
-            const k = r.length, bellR = 0.06 * (0.85 + r.shape * 0.3), M = H.Metal;
-            // The body: a cone along the length down to the bow, round it, and up into the bell.
-            const pts = [], rads = [], top = 0.6 * k, bow = 0.07, gap = 0.075;
-            for (let j = 0; j <= 16; j++) { const t = j / 16; pts.push([top - (top - bow) * t, 0, 0]); rads.push(0.011 + 0.017 * t); }
-            for (let j = 1; j <= 10; j++) { const a = Math.PI * j / 10; pts.push([bow - Math.sin(a) * gap * 0.62, gap / 2 - Math.cos(a) * gap / 2, 0]); rads.push(0.028 + 0.004 * j / 10); }
-            for (let j = 1; j <= 6; j++) { const t = j / 6; pts.push([bow + (0.17 * k) * t, gap, 0]); rads.push(0.032 + 0.004 * t); }
-            M.push(K.tube(pts, j => rads[j], 24));
-            const last = pts[pts.length - 1], bl = 0.11 * k, prof = [];
-            for (let j = 0; j <= 12; j++) { const t = j / 12; prof.push([0.036 + (bellR - 0.036) * Math.pow(t, 2.6), bl * t]); }
-            prof.push([bellR + 0.004, bl + 0.002], [bellR + 0.003, bl + 0.005], [bellR - 0.003, bl + 0.002]);
-            for (let j = 12; j >= 0; j--) { const t = j / 12; prof.push([Math.max(0.001, 0.033 + (bellR - 0.006 - 0.033) * Math.pow(t, 2.6)), bl * t + 0.002]); }
-            M.push(Mesh.lathe(prof, 32, { base: sub(last, [0.004, 0, 0]), dir: [1, 0, 0], sharp: 0.9 }));
-            H.Dark.push(disc(add(last, [0.006, 0, 0]), [1, 0, 0], 0.03, 0.002, 20));
-            // The neck, bent, the mouthpiece and its ligature and reed.
-            const neckPts = curve(t => [top + 0.1 * k * Math.sin(t * Math.PI / 2), -0.045 * (1 - Math.cos(t * Math.PI / 2)), 0.012 * t], 8);
-            M.push(K.tube(neckPts, j => 0.0105 - 0.004 * j / 8, 16));
-            const mp = neckPts[8], md = norm(sub(neckPts[8], neckPts[6]));
-            H.Dark.push(Mesh.lathe([[0.0075, 0], [0.0082, 0.02], [0.0078, 0.05], [0.006, 0.06], [0, 0.064]], 16, { base: sub(mp, mul(md, 0.012)), dir: md, sharp: 0.6 }));
-            M.push(ring(add(mp, mul(md, 0.004)), md, 0.0078, 0.009, 0.01, 16));
-            H.Ivory.push(K.apply(box([0, 0, 0], [0.04, 0.01, 0.0015], 0.0004), q => add(add(mp, mul(md, 0.028 + q[0])), [0, q[1], -0.0075 + q[2]])));
-            // The keys: pad cups with pearl touches along its top, rods down its side, guard and thumb rest.
-            const along = [0.16, 0.22, 0.28, 0.34, 0.4, 0.46, 0.52].map(t => t * k);
-            for (const [i, x] of along.entries()) {
-                const t = (top - x) / (top - bow), rad = 0.011 + 0.017 * t, cr = 0.007 + 0.006 * t;
-                M.push(Mesh.lathe([[0, 0], [cr, 0], [cr, 0.004], [cr * 0.85, 0.0055], [0, 0.0055]], 16, { base: [x, 0, rad + 0.0006], dir: [0, 0, 1], sharp: 0.5 }));
-                if (i % 2 === 0) H.Ivory.push(Mesh.lathe([[0, 0], [0.006, 0], [0.006, 0.002], [0, 0.0032]], 14, { base: [x, 0, rad + 0.006], dir: [0, 0, 1], sharp: 0.5 }));
-                M.push(string([x, cr * 0.6, rad + 0.003], [x, rad * 0.9, rad * 0.5], 0.0018));
+            // An alto standing on its bow (x up, the bell's side +y, its keys toward +z): a clearly conical body from
+            // a narrow top down to a wide bottom, a deep U bow, the bell branch rising beside it and turning out into a
+            // flared bell level with its lower part; a short curved neck off the top with the mouthpiece angled down.
+            const k = r.length, M = H.Metal, bellR = 0.058 * (0.88 + r.shape * 0.24);
+            const xb = 0.12, top = xb + 0.43 * k, G0 = 0.088, D = 0.095, xs = xb - D + G0 / 2, rb = x => 0.0128 + 0.0215 * Math.pow(Math.max(0, Math.min(1.15, (top - x) / (top - xb))), 1.1);
+            const pts = [], rads = [];
+            for (let j = 0; j <= 18; j++) { const x = top - (top - xs) * j / 18; pts.push([x, 0, 0]); rads.push(rb(x)); }
+            for (let j = 1; j <= 14; j++) { const a = Math.PI * j / 14; pts.push([xs - G0 / 2 * Math.sin(a), G0 / 2 - G0 / 2 * Math.cos(a), 0]); rads.push(rb(xs) + (0.037 - rb(xs)) * j / 14); }
+            const P0 = [xb, G0, 0], P1 = [xb + 0.035, G0, 0], P2 = [xb + 0.068, G0 + 0.009, 0];
+            for (let j = 1; j <= 4; j++) { pts.push([xs + (xb - xs) * j / 4, G0, 0]); rads.push(0.037); }
+            for (let j = 1; j <= 8; j++) { const t = j / 8, u = 1 - t; pts.push([0, 1, 2].map(i => u * u * P0[i] + 2 * u * t * P1[i] + t * t * P2[i])); rads.push(0.037 + 0.003 * t); }
+            // The bell flares on out of the same tube (one surface, its rings and normals shared, no seam where the
+            // flare begins), open at its mouth; a rolled rim and the inside wall turn back in from there, dark down the throat.
+            const dir = norm(sub(P2, P1)), bl = 0.088, rOut = t => 0.04 + (bellR - 0.04) * Math.pow(t, 2.4), rIn = t => 0.037 + (bellR - 0.006 - 0.037) * Math.pow(t, 2.4);
+            for (let j = 1; j <= 16; j++) { const t = j / 16; pts.push(add(P2, mul(dir, bl * t))); rads.push(rOut(t)); }
+            M.push(K.tube(pts, j => rads[j], 28, { caps: false }));
+            const prof = [[rOut(0.96) - 0.0012, bl * 0.96], [bellR + 0.0035, bl + 0.0015], [bellR + 0.003, bl + 0.0045], [bellR - 0.003, bl + 0.002]];
+            for (let j = 14; j >= 0; j--) { const t = j / 14; prof.push([rIn(t), bl * t + 0.002]); }
+            for (let j = 1; j <= 12; j++) { const t = j / 12 * 0.96; prof.push([rOut(t) - 0.0012, bl * t + 0.002 * (1 - t / 0.96)]); }
+            const bell = Mesh.lathe(prof, 40, { base: P2, dir, sharp: 0.9, caps: false });
+            M.push(bell);
+            H.Dark.push(disc(add(P2, mul(dir, 0.012)), dir, 0.036, 0.002, 24));
+            H._sax = { top, bottom: xs, rb, bell };
+            // The neck: up off the top and curving over away from the bell, the mouthpiece angled down on its end.
+            const N0 = [top, 0, 0], N1 = [top + 0.06, 0, 0], N2 = [top + 0.1, -0.032, 0], N3 = [top + 0.094, -0.098, 0];
+            const neckPts = curve(t => { const u = 1 - t; return [0, 1, 2].map(i => u * u * u * N0[i] + 3 * u * u * t * N1[i] + 3 * u * t * t * N2[i] + t * t * t * N3[i]); }, 14);
+            M.push(K.tube(neckPts, j => rb(top) - 0.0005 - 0.0038 * j / 14, 18));
+            M.push(K.tube([add(N0, [0.004, 0, 0]), add(N0, [-0.012, 0, 0])], rb(top) + 0.0018, 20));
+            const md = norm(sub(N3, N2)), mp = sub(N3, mul(md, 0.012));
+            H.Dark.push(Mesh.lathe([[0.0086, 0], [0.0094, 0.025], [0.009, 0.05], [0.007, 0.062], [0, 0.066]], 18, { base: mp, dir: md, sharp: 0.6 }));
+            M.push(ring(add(mp, mul(md, 0.016)), md, 0.0094, 0.0108, 0.011, 18));
+            H.Ivory.push(K.bar(add(add(mp, mul(md, 0.014)), [-0.009, 0, 0]), add(add(mp, mul(md, 0.064)), [-0.0072, 0, 0]), [1, 0, 0], 0.011, 0.0016));
+            M.push(K.tube([add(neckPts[4], [0, 0, 0.011]), add(neckPts[9], [0.006, 0, 0.009])], 0.0016, 6));
+            // Keys: large pad cups on chimneys down the front with pearls on the main six, the low cups turned toward
+            // the bell under wire guards, cups on the bell branch; a rod down the player's side with an arm to each.
+            const cup = (c, n, cr, pearl) => {
+                M.push(Mesh.lathe([[cr * 0.78, -0.007], [cr * 0.88, -0.007], [cr * 0.88, 0], [cr * 0.78, 0], [cr * 0.78, -0.007]], 20, { base: c, dir: n, caps: false }));
+                M.push(Mesh.lathe([[0, 0], [cr, 0], [cr, 0.0035], [cr * 0.93, 0.0052], [0, 0.0058]], 22, { base: c, dir: n, sharp: 0.5 }));
+                if (pearl) H.Ivory.push(Mesh.lathe([[0, 0], [0.0062, 0], [0.0062, 0.0014], [0.0044, 0.0031], [0, 0.0035]], 16, { base: add(c, mul(n, 0.0056)), dir: n, sharp: 0.5 }));
+            };
+            const on = (x, n, lift) => add([x, 0, 0], mul(n, rb(x) + (lift || 0.003)));
+            const front = [0, 0, 1], main = [[0.075, 0.0098, 1], [0.105, 0.0104, 1], [0.135, 0.011, 1], [0.165, 0.0092, 0], [0.215, 0.0124, 1], [0.25, 0.0131, 1], [0.285, 0.0138, 1]];
+            const rodPts = [];
+            for (const [d, cr, pearl] of main) {
+                const x = top - d * k, c = on(x, front);
+                cup(c, front, cr, pearl);
+                const rp = [x, -(rb(x) + 0.006), rb(x) * 0.45];
+                rodPts.push(rp); M.push(string(add(c, [0, -cr * 0.7, 0.003]), rp, 0.0018));
             }
-            M.push(Mesh.lathe([[0.0016, 0], [0.0016, along[along.length - 1] - along[0] + 0.04]], 8, { base: [along[0] - 0.02, 0.011 + 0.017 * 0.5, 0.012], dir: [1, 0, 0] }));
-            for (const x of [0.1, 0.14].map(t => t * k)) M.push(Mesh.lathe([[0, 0], [0.014, 0], [0.014, 0.004], [0, 0.0055]], 18, { base: [x, gap * 0.15, 0.029], dir: [0, 0, 1], sharp: 0.5 }));
-            M.push(K.tube(curve(t => [0.42 * k + 0.05 * t, -0.03 - 0.008 * Math.sin(Math.PI * t), -0.004], 8), 0.0016, 6));
-            M.push(box([0.48 * k, 0, -0.022], [0.016, 0.01, 0.006], 0.0015));
-            return { gripBottom: [0.24 * k, 0, 0], gripTop: [0.44 * k, 0, 0], tip: [0.62 * k, 0, 0], edge: [0.44 * k, 0, 0.04] };
+            M.push(K.tube([add(rodPts[0], [0.02, 0, 0]), ...rodPts, add(rodPts[rodPts.length - 1], [-0.02, 0, 0])], 0.0017, 6));
+            const low = norm([0, 0.75, 1]);
+            for (const [d, cr] of [[0.33, 0.0165], [0.37, 0.0175]]) {
+                const x = top - d * k, c = on(x, low);
+                cup(c, low, cr, false);
+                // A wire guard arching over the cup, its feet on the body.
+                const along = [1, 0, 0], side = norm(V3.cross(low, along)), g = curve(t => { const a = Math.PI * t; return add(add([x, 0, 0], mul(low, rb(x) + 0.004 + 0.011 * Math.sin(a))), mul(along, (cr + 0.007) * Math.cos(a))); }, 10);
+                for (const off of [-0.6, 0.6]) M.push(K.tube(g.map(p => add(p, mul(side, off * cr))), 0.0014, 6));
+            }
+            for (const [x, cr] of [[xb - 0.012, 0.016], [xb + 0.022, 0.017]]) { const c = [x, G0, 0.037 + 0.003]; cup(c, front, cr, false); M.push(string(add(c, [0, cr * 0.8, 0]), [x + 0.01, G0 + 0.038, 0.012], 0.0018)); }
+            // Thumb rest and strap ring on its back.
+            M.push(box([top - 0.19 * k, 0, -(rb(top - 0.19 * k) + 0.004)], [0.024, 0.016, 0.006], 0.002));
+            M.push(ring([top - 0.07 * k, 0, -(rb(top - 0.07 * k) + 0.002)], [0, 0, -1], 0.003, 0.0055, 0.004, 14));
+            return { gripBottom: [top - 0.29 * k, 0, 0], gripTop: [top - 0.09 * k, 0, 0], tip: add(mp, mul(md, 0.066)), edge: [top - 0.2 * k, -0.05, 0] };
         },
         snare(r, H) {
             // A drum stands on its bottom head, its batter head up (the face): shell, hoops, lugs and rods, snares under it.
@@ -677,7 +872,22 @@
             textures[id] = c[id];
             return id;
         };
-        for (const k of ['Wood', 'Top', 'Varnish', 'Bow']) for (const m of H[k]) Mesh.grainUv(m);
+        for (const k of ['Wood', 'Top', 'Varnish', 'Bow']) for (const m of H[k]) if (!m.keepUv) Mesh.grainUv(m);
+        // A glaze over fired clay: its color pooling a little deeper and paler in broad soft patches, a few iron specks.
+        const glazePic = () => {
+            const id = 'inst-glaze.png';
+            if (!c[id] || c[id + 'key'] !== r.color) {
+                const base = Paint.hex(r.color), pool = Paint.fractal(5, 4, 3), fleck = Paint.noise(11, 160);
+                const pic = Paint.paint(256, 256, (u, v, out) => {
+                    const m = pool(u, v), f = fleck(u, v), k = 0.94 + 0.16 * (m - 0.5) - (f > 0.95 ? 0.22 * (f - 0.95) / 0.05 : 0);
+                    for (let i = 0; i < 3; i++) out[i] = Math.max(0, Math.min(255, base[i] * k + 14 * (m - 0.5)));
+                    out[3] = 255;
+                }, 1);
+                pic.name = id; pic.repeat = true; c[id] = pic; c[id + 'key'] = r.color;
+            }
+            textures[id] = c[id];
+            return id;
+        };
         const trim = K.look(r.metal), glow = r.glow, flute = r.preset === 'flute';
         const woodColor = WOOD[r.wood], board = r.preset === 'electric' && r.wood === 'maple' ? '#3a2418' : '#1c1614';
         const look = {
@@ -685,7 +895,7 @@
             Top: H.Top.length && { kind: 'prop', texture: woodPic('top', WOOD.spruce, 17, 30), roughness: 0.32, metalness: 0, mat: 'wood' },
             Varnish: H.Varnish.length && { kind: 'prop', texture: woodPic('varnish', hexMix(r.color, '#d8a060', 0.15), 23, 24), roughness: 0.28, metalness: 0, mat: 'wood' },
             Bow: H.Bow.length && { kind: 'prop', texture: woodPic('bow', '#4a2416', 41), roughness: 0.35, metalness: 0, mat: 'wood' },
-            Paint: { kind: 'prop', color: r.color, roughness: r.preset === 'ocarina' ? 0.3 : 0.2, metalness: r.preset === 'ocarina' ? 0 : 0.08 },
+            Paint: r.preset === 'ocarina' ? { kind: 'prop', texture: glazePic(), roughness: 0.14, metalness: 0 } : { kind: 'prop', color: r.color, roughness: 0.2, metalness: 0.08 },
             Board: { kind: 'prop', color: board, roughness: 0.42, metalness: 0 },
             Dark: { kind: 'prop', color: '#141214', roughness: 0.5, metalness: 0.1 },
             Ivory: { kind: 'prop', color: r.preset === 'keytar' || r.preset === 'synth' ? '#f3f1ec' : '#ece2cc', roughness: 0.32, metalness: 0 },
@@ -703,7 +913,9 @@
         };
         const P = {};
         for (const k of LISTS) if (H[k].length && look[k]) P[k] = { meshes: H[k], look: look[k] };
-        return K.finish('instrument', r, P, marks, textures, { template: 'blade' });
+        // The saxophone stands up on its bow as on a stand (its length up, its keys toward the viewer); the rest lie flat.
+        const upright = r.preset === 'sax' ? { toWorld: ([x, y, z]) => [-y, x, z] } : {};
+        return K.finish('instrument', r, P, marks, textures, Object.assign({ template: 'blade' }, upright));
     }
 
     /** A random instrument: another style when Everything rolls; shape its size and proportions; details its proportion, glow and bow; colors its wood, finish and metal. */
