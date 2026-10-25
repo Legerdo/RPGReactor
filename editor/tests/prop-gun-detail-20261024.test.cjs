@@ -159,7 +159,9 @@ test('the hand rig markers stay where the runtime holds the gun', () => {
     for (const [id] of Gun.PRESETS) for (const extra of [{}, { stock: 'full', forend: true }, { stock: 'folding', muzzle: 'suppressor' }, { muzzle: 'brake' }, { muzzle: 'flash' }, { muzzle: 'emitter' }]) {
         const r = Model.build(Object.assign({ kind: 'gun', preset: id }, extra), {}, {}), g = r.recipe, m = r.markers, what = id + ' ' + JSON.stringify(extra);
         // Gun space, as the builder lays them: the grip under the receiver's rear, raked back by its angle.
-        const Lr = g.receiver.length, Lb = g.barrel.length, Hr = g.receiver.height, xr0 = -Lr * 0.45, xr1 = Lr * 0.55, yb = Hr * 0.62;
+        const Lr = g.receiver.length, Lb = g.barrel.length, Hr = g.receiver.height, xr0 = -Lr * 0.45, xr1 = Lr * 0.55;
+        // A revolver's bore sits over its top chamber: raised so the cylinder's axis clears the trigger guard.
+        const yb = g.magazine === 'cylinder' ? Math.max(Hr * 0.62, Math.max(Hr * 0.55, 0.018) * g.magSize * 1.55 + 0.009) : Hr * 0.62;
         const gx = xr0 + Lr * (g.stock === 'full' ? 0.18 : 0.12), back = Math.tan(g.grip.angle * Math.PI / 180) * g.grip.length, gd = 0.03, tx = gx + gd + 0.018;
         const front = g.slide ? xr1 + Lb * 0.85 : xr1, bx1 = g.slide ? front + 0.008 : xr1 + Lb, rb = g.barrel.thickness / 2;
         const mx = bx1 + ({ brake: 0.05, suppressor: Lb * 0.6 + 0.09, emitter: 0.045, flash: Math.max(0.04, rb * 6) }[g.muzzle] || 0);

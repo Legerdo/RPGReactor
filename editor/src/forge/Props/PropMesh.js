@@ -320,7 +320,33 @@
         return make(P, N, T, I);
     }
 
-    const api = { planarUv, polyTube, lathe, tube, sphere, box, extrude, inset, transform, merge, computeNormals, basis, shade };
+    /**
+     * Uvs for a wooden part with its grain along its length: the part's long axis in the side view found
+     * from its points (a stock lies along the bore, a grip panel down the grip), v along it, u across it on
+     * the side faces and round the edges; end grain where the face looks along the axis. In meters / tile.
+     */
+    function grainUv(mesh) {
+        const P = mesh.positions, N = mesh.normals, n = P.length / 3;
+        if (!n) return mesh;
+        let mx = 0, my = 0;
+        for (let i = 0; i < n; i++) { mx += P[i * 3]; my += P[i * 3 + 1]; }
+        mx /= n; my /= n;
+        let xx = 0, yy = 0, xy = 0;
+        for (let i = 0; i < n; i++) { const dx = P[i * 3] - mx, dy = P[i * 3 + 1] - my; xx += dx * dx; yy += dy * dy; xy += dx * dy; }
+        const th = 0.5 * Math.atan2(2 * xy, xx - yy), ax = Math.cos(th), ay = Math.sin(th), ACROSS = 0.11, ALONG = 0.42;
+        const uv = new Float32Array(n * 2);
+        for (let i = 0; i < n; i++) {
+            const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2], nx = N[i * 3], ny = N[i * 3 + 1], nz = N[i * 3 + 2];
+            const along = x * ax + y * ay, across = -x * ay + y * ax, nAlong = Math.abs(nx * ax + ny * ay), nAcross = Math.abs(-nx * ay + ny * ax);
+            if (Math.abs(nz) >= nAcross && Math.abs(nz) >= nAlong) { uv[i * 2] = across / ACROSS; uv[i * 2 + 1] = along / ALONG; }
+            else if (nAcross >= nAlong) { uv[i * 2] = z / ACROSS + across / ACROSS; uv[i * 2 + 1] = along / ALONG; }
+            else { uv[i * 2] = z / ACROSS; uv[i * 2 + 1] = across / ACROSS * 0.3; }
+        }
+        mesh.uvs = uv;
+        return mesh;
+    }
+
+    const api = { grainUv, planarUv, polyTube, lathe, tube, sphere, box, extrude, inset, transform, merge, computeNormals, basis, shade };
     root.RRPropMesh = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

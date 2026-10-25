@@ -18,7 +18,7 @@
             for(const s of [-1,1]){P.metal.push(M.lathe([[0,0],[Hr*.09,0],[Hr*.09,.0015],[0,.002]],20,{base:[x,y,s*z],dir:[0,0,s]}));
                 const lever=HS.plate([[0,-.0016],[Hr*.32,-.001],[Hr*.34,.001],[0,.0016]],.0016,.0004,{center:s*(z+.0022)});P.metal.push(HS.turn(lever,'z',-.5,[0,0,0]));M.transform(lever,([px,py,pz])=>[px+x,py+y,pz]);}
         }},
-        {id:'grip-side-scales',test:r=>r.style==='classic'||r.style==='bolt',controls:['grip.length','grip.angle','furniture'],build(c){
+        {id:'grip-side-scales',test:r=>(r.style==='classic'||r.style==='bolt')&&r.magazine!=='cylinder',controls:['grip.length','grip.angle','furniture'],build(c){
             // Scales on the rounded grip, held by two screws.
             const {P,gx,gd,back,gl,gw}=c;
             for(const s of [-1,1]){const F=CM.frame([0,0,s*(gw/2+.0004)],[s,0,0],[0,1,0]),outline=[[gx+.004,-gl*.13],[gx+gd-.004,-gl*.13],[gx+gd-back*.86-.004,-gl*.86],[gx-back*.86+.003,-gl*.86]].flatMap(([x,y])=>[x*s,y]);

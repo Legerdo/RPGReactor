@@ -242,6 +242,22 @@
             H.Metal.push(K.sweep(hoop, K.roundRect(0.011 * s, 0.016 * s, 0.003 * s, 2), { up: [0, 0, 1], cos: K.COS.crisp, closed: true }));
             H.Glow.push(K.sweep(hoop.map(p => [rc + (p[0] - rc) * 0.93, p[1] * 0.93, 0]), K.roundRect(0.002 * s, 0.006 * s, 0.0008, 1), { up: [0, 0, 1], closed: true }));
             H.Gem.push(K.gem([rc - ring * 0.55, 0, 0], [1, 0, 0], 0.017 * s, ring * 1.1, 6, { low: 0.3, prism: 0.35 }));
+            if (r.glow) {
+                // The charge it emits: a white-hot core round the crystal, a halo, a thin field filling the hoop, and
+                // arcs jumping in from the hoop to the core. All still: built once, nothing redrawn per frame.
+                const blob = (sx, sy, sz, n) => K.apply(Mesh.sphere([0, 0, 0], sx, n, Math.round(n / 2)), p => [rc + p[0], p[1] * sy / sx, p[2] * sz / sx]);
+                H.Core.push(blob(ring * 0.4, ring * 0.24, ring * 0.24, 20));
+                H.Aura.push(blob(ring * 0.6, ring * 0.44, ring * 0.36, 24));
+                H.Haze.push(blob(ring * 0.9, ring * 0.9, ring * 0.16, 32));
+                for (let k = 0; k < 6; k++) {
+                    const a = k * Math.PI / 3 + 0.35, ca = Math.cos(a), sa = Math.sin(a), pts = [];
+                    for (let j = 0; j <= 6; j++) {
+                        const t = j / 6, rr = ring * (0.9 - 0.62 * t), kink = j && j < 6 ? (((k * 7 + j * 3) % 5) / 4 - 0.5) * ring * 0.09 : 0;
+                        pts.push([rc + ca * rr - sa * kink, sa * rr * (1 - 0.3 * t) + ca * kink, (((k + j) % 3) - 1) * ring * 0.02 * (j && j < 6 ? 1 : 0)]);
+                    }
+                    H.Arc.push(K.tube(pts, j => 0.0018 * s * (1 - 0.5 * j / 6), 5));
+                }
+            }
             return { tip: [rc + ring + 0.006 * s, 0, 0], light: [rc, 0, 0], face: [rc, -ring, 0] };
         },
         wandwood(r, H, c) {
@@ -288,7 +304,7 @@
     // ── the build ──────────────────────────────────────────────────────────
     function build(recipe, cache) {
         const r = normalize(recipe), c = cache || {}, fam = FAMILY[r.preset], L = r.length;
-        const H = { Wood: [], Bone: [], Horn: [], Body: [], Metal: [], Wrap: [], Gem: [], Glow: [], Dark: [], Leaves: [] };
+        const H = { Wood: [], Bone: [], Horn: [], Body: [], Metal: [], Wrap: [], Gem: [], Glow: [], Dark: [], Leaves: [], Core: [], Arc: [], Aura: [], Haze: [] };
         const head = HEADS[r.preset](r, H, c);
         const textures = {}, trim = K.look(r.metal), glow = r.glow;
         if (H.Wood.length) {
@@ -300,6 +316,9 @@
             if (!c.wrap) c.wrap = K.wrapPicture('leather', '#3a2418', 'staff-wrap.png');
             textures['staff-wrap.png'] = c.wrap;
         }
+        // The charge's heart: the crystal's color most of the way to white.
+        const hot = '#' + Paint.hex(r.gem).map(v => Math.round(v + (255 - v) * 0.6).toString(16).padStart(2, '0')).join('');
+        const arc = '#' + Paint.hex(r.gem).map(v => Math.round(v + (255 - v) * 0.3).toString(16).padStart(2, '0')).join('');
         const gemLook = glow ? { kind: 'prop', color: K.shadeHex(r.gem, 0.55), emissive: r.gem, emissiveIntensity: 0.85, roughness: 0.1, metalness: 0.1 } : { kind: 'metal', color: r.gem, roughness: 0.08, metalness: 0.35 };
         const P = {
             Wood: { meshes: H.Wood, look: { kind: 'prop', texture: 'staff-wood.png', roughness: 0.66, metalness: 0, mat: 'wood' } },
@@ -311,7 +330,13 @@
             Leaves: { meshes: H.Leaves, look: { kind: 'prop', color: '#4f7a34', roughness: 0.6, metalness: 0, doubleSided: false } },
             Dark: { meshes: H.Dark, look: { kind: 'prop', color: '#141210', roughness: 0.8, metalness: 0 } },
             Gem: { meshes: H.Gem, look: gemLook },
-            Glow: { meshes: H.Glow, look: glow ? { kind: 'prop', color: K.shadeHex(r.gem, 0.5), emissive: r.gem, emissiveIntensity: 0.9, roughness: 0.3, metalness: 0 } : { kind: 'prop', color: '#0e0e10', roughness: 0.5, metalness: 0.2 } }
+            Glow: { meshes: H.Glow, look: glow ? { kind: 'prop', color: K.shadeHex(r.gem, 0.5), emissive: r.gem, emissiveIntensity: 0.9, roughness: 0.3, metalness: 0 } : { kind: 'prop', color: '#0e0e10', roughness: 0.5, metalness: 0.2 } },
+            // An emitter's charge (the energy staff's): bright and unlit-looking at its heart, softer and see-through outward;
+            // all a touch see-through so none of it throws a shadow on the rest.
+            Core: { meshes: H.Core, look: { kind: 'prop', color: hot, emissive: hot, emissiveIntensity: 2.2, opacity: 0.94, roughness: 0.4, metalness: 0 } },
+            Arc: { meshes: H.Arc, look: { kind: 'prop', color: arc, emissive: arc, emissiveIntensity: 2.6, opacity: 0.94, roughness: 0.4, metalness: 0 } },
+            Aura: { meshes: H.Aura, look: { kind: 'prop', color: r.gem, emissive: r.gem, emissiveIntensity: 1.9, opacity: 0.38, roughness: 0.3, metalness: 0 } },
+            Haze: { meshes: H.Haze, look: { kind: 'prop', color: r.gem, emissive: r.gem, emissiveIntensity: 1.5, opacity: 0.22, roughness: 0.3, metalness: 0 } }
         };
         const g = head.grip ? head.grip : [L * fam.grip - 0.05, L * fam.grip + 0.05];
         const marks = { gripBottom: [g[0], 0, 0], gripTop: [g[1], 0, 0], tip: head.tip, edge: head.face };

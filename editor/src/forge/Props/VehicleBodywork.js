@@ -10,6 +10,11 @@
     // Smooth section interpolation without the overshoot of a cubic spline.
     // Straight between stations: faceted bodies are flat panels between knots.
     function lin(points,z){let i=0;while(i+1<points.length-1&&z>points[i+1][0])i++;const a=points[i],b=points[i+1],t=Math.max(0,Math.min(1,(z-a[0])/(b[0]-a[0])));return mix(a[1],b[1],t);}
+    // Fillet half-width of a faceted knot, as a fraction of the half-length.
+    const FILLET=.05;
+    /** The polyline `lin` averaged over [t-e, t+e]: flat spans stay flat and
+     * every kink becomes a smooth quadratic roll of width 2e. */
+    function soft(points,t,e){let sum=0;const n=8;for(let i=0;i<n;i++)sum+=lin(points,t-e+(i+.5)/n*2*e);return sum/n;}
     function section(points,z){let i=0;while(i+1<points.length-1&&z>points[i+1][0])i++;const a=points[i],b=points[i+1],t=Math.max(0,Math.min(1,(z-a[0])/(b[0]-a[0]))),u=t*t*(3-2*t);return mix(a[1],b[1],u);}
     function loft(rings){
         const g=new CM.Geo(),count=rings[0].length;
@@ -120,13 +125,16 @@
     };
     function roadProfile(r,q){
         const {W,H,L}= {W:r.width,H:r.height,L:r.length},D=DESIGN[r.form]||DESIGN.compact,widths=D.widths,tops=D.tops;
-        const faceted=(r.bodyStyle||'rounded')!=='rounded',interp=faceted?lin:section;
+        // Faceted panels stay flat between knots, but each knot crease is
+        // rolled over a short fillet (a box-filtered polyline), the way a
+        // pressed panel turns a corner: no knife edges, no faceted silhouette.
+        const faceted=(r.bodyStyle||'rounded')!=='rounded',e=FILLET,interp=faceted?(pts,t)=>soft(pts,t,e):section;
         const width=z=>W*.49*interp(widths,z/(L*.49)),top=z=>q.hood+H*interp(tops,z/(L*.49));
         const crown=[[0,.047],[.35,.045],[.68,.040],[.85,.032],[.95,.017],[.99,-.014],[1,-.10]];
         // Faceted: a flat, slightly peaked deck and a bevelled shoulder.
         const crownF=[[0,.034],[.34,.030],[.70,.019],[.735,.017],[.945,.003],[.955,-.001],[1,-.085]];
         const topFace=(z,f)=>top(z)+H*(faceted?lin(crownF,Math.abs(f)):contour(crown,Math.abs(f)));
-        const knots=faceted?[...new Set([...widths,...tops].map(p=>p[0]))].filter(k=>Math.abs(k)<.999).map(k=>k*L*.49):[];
+        const knots=faceted?[...new Set([...widths,...tops].map(p=>p[0]).flatMap(k=>[k-e,k-e*.5,k,k+e*.5,k+e]))].filter(k=>Math.abs(k)<.999).map(k=>k*L*.49):[];
         return{width,top,topFace,faceted,knots,vhull:!!D.vhull};
     }
     /** Section anchors of a road body at station z, from the floor center up
@@ -184,12 +192,13 @@
         const z0=Math.min(L*.43,cabinFront+L*.06),z1=L*.472,deck=['compact','sport','rover'].includes(r.form)&&cabinRear-L*.06>-L*.468+L*.05?[-L*.468,cabinRear-L*.06]:null;
         // A pickup's bed is its own box behind the cab: a gap, real depth over the axle.
         const bed=r.form==='truck'?{rear:-L*.474,front:cabinRear-L*.03,fade:L*.008,floor:Math.max(hood-H*.24,2*R+H*.02),gap:cabinRear-L*.012}:null;
-        c.cabinFloor=Math.max(base+H*.035,hood-H*.16);c.panels={z0,z1,deck,bed,gap,depth};
+        c.cabinFloor=Math.max(base+H*.035,hood-H*.16);c.panels={z0,z1,deck,bed,gap,depth};const seating=roadSeating(c);
         // Stations: even spacing, arch refinements, square arch legs and
         // the exact door/bonnet/deck shut lines with their groove shoulders.
         const features=[],tag=new Map(),mark=(z,t)=>{features.push(z);tag.set(z,t);};
         for(const [z,t]of [[door.rear,'doorR'],[door.front,'doorF'],[z0,'hood0'],[z1,'hood1'],...(deck?[[deck[0],'deck0'],[deck[1],'deck1']]:[])]){mark(z,t);mark(z-gap,t+'-');mark(z+gap,t+'+');}
         for(const a of axleZ)for(const s of [-1,1]){const z=a+s*(R*1.09+.002);if(Math.abs(z)<L*.49)mark(z,'');}
+        if(seating.low<seating.high){const e=Math.min(.10,(seating.z1-seating.z0)/4);for(const z of [seating.z0,seating.z0+e*.5,seating.z0+e,seating.z1-e,seating.z1-e*.5,seating.z1])mark(z,'');}
         if(bed){for(const z of [bed.rear,bed.rear+bed.fade,bed.front-bed.fade,bed.front])mark(z,'');for(const z of [bed.gap-.022,bed.gap+.022])mark(z,'gap');}
         for(const z of p.knots)if(features.every(f=>Math.abs(f-z)>gap*3)){features.push(z);tag.set(z,'knot');}
         const nLoose=p.faceted?33:57,loose=[...Array.from({length:nLoose},(_,i)=>-L*.49+L*.98*i/(nLoose-1))];
@@ -201,7 +210,7 @@
             const half=withNeighbours(roadAnchors(c,p,z),neighbourGap),top=p.top(z);
             const fade=Math.min(1,Math.max(0,(z-cabinRear)/(L*.045)),Math.max(0,(cabinFront-z)/(L*.045))),cabin=r.interior?fade*fade*(3-2*fade):0;
             const tub=bed?Math.min(1,Math.max(0,(z-bed.rear)/bed.fade),Math.max(0,(bed.front-z)/bed.fade)):0;
-            const lift=(f,y)=>{if(!(y>top-H*.03&&f<=.85))return y;if(tub)return y+(bed.floor-y)*tub;return y+(c.cabinFloor-y)*cabin;};
+            const lift=(f,y)=>{if(!(y>top-H*.03&&f<=.85))return y;if(tub)return y+(bed.floor-y)*tub;return y+(floorAt(seating,z)-y)*cabin;};
             const full=half.concat(half.slice(1,-1).reverse().map(([x,y,f,t])=>[-x,y,f,t]));
             if(!cols.length)for(let j=0;j<full.length;j++)cols.push(full[j][3]);
             rings.push(full.map(([x,y,f])=>[x,lift(f,y),z]));
@@ -274,37 +283,222 @@
         for(let j=0;j<=32;j++){const t=j/32,bottom=scale(add(a,b),.5),top=scale(add(e,d),.5);points.push(add(add(scale(bottom,1-t),scale(top,t)),scale(n,bulge*Math.sin(pi*t)+radius*.7)));}
         c.tube(kind,points,radius,name);
     }
+    /** Where people sit in a road cab: the front row a leg's length behind
+     * the windscreen base over a footwell sunk between the wheel wells, and
+     * a raised second row for hatch and rover bodies. Shared by the body
+     * shell (its floor) and the cabin fit-out. Meters, +z forward. */
+    function roadSeating(c){
+        if(c.seating)return c.seating;
+        const {r,H,R,base,hood,axleZ}=c,front=c.cabinZ+c.cabinL*.5,rear=c.cabinZ-c.cabinL*.5,high=Math.max(base+H*.035,hood-H*.16);
+        const hip=front-Math.min(1.05,c.cabinL*.40);
+        let z0=Math.max(rear+.05,hip-.62),z1=front-.04;
+        for(const a of axleZ){if(a<hip)z0=Math.max(z0,a+R*1.22);else z1=Math.min(z1,a-R*1.22);}
+        const want=Math.min(high,Math.max(base+H*.05,hood-.62)),sunk=r.interior&&z1-z0>.35&&high-want>.04;
+        const second=r.form==='compact'&&hip-1.12>rear?hip-.80:null;
+        return c.seating={front,rear,hip,second,high,low:sunk?want:high,z0,z1};
+    }
+    function floorAt(s,z){if(s.low>=s.high)return s.high;const e=Math.min(.10,(s.z1-s.z0)/4),t=Math.min(1,Math.max(0,(z-s.z0)/e),Math.max(0,(s.z1-z)/e)),u=t*t*(3-2*t);return s.high+(s.low-s.high)*u;}
+    /** Road cab fit-out: shaped seats, a dash with instruments, a raked
+     * steering wheel, pedals and a centre console. Returns the seat block
+     * (driver first) in the runtime's `vehicle.seats` form. */
     function cabin(c){
-        const {r,W,H,L,hood,roofY,front,rear,bw,put,tube}=c;if(!r.interior)return;const rise=roofY-hood,width=bw*2,seatZ=(front+rear)*.5-L*.045,box=(kind,center,size,bevel,name)=>put(kind,CM.roundedBox(center,size,bevel,2),name);
-        box('dark',[0,c.cabinFloor?c.cabinFloor+H*.010:hood-H*.015,(front+rear)*.5],[width*.90,H*.012,(front-rear)*.86],.01,'Cabin floor');
-        for(const sign of [-1,1]){
-            const x=sign*width*.23,low=hood-H*.085,top=hood+rise*.63,seat=CM.roundedBox([x,(low+top)/2,seatZ],[width*.36,top-low,L*.036],Math.min(width*.035,L*.012),2);
-            const anchor=[x,low,seatZ],angle=-.11,turn=p=>[p[0],p[1]*Math.cos(angle)-p[2]*Math.sin(angle),p[1]*Math.sin(angle)+p[2]*Math.cos(angle)];
-            CM.transform(seat,p=>add(anchor,turn(sub(p,anchor))),turn);put('seat',seat,'Cabin seat upholstery');
-            box('seat',[x,hood-H*.065,seatZ+L*.045],[width*.36,H*.055,L*.13],Math.min(H*.02,L*.016),'Cabin seat upholstery');
-            box('seat',[x,hood+rise*.775,seatZ-rise*.08],[width*.23,rise*.23,L*.035],Math.min(rise*.035,L*.010),'Cabin headrests');
-            for(const side of [-1,1])tube('metal',[[x+side*width*.05,hood+rise*.60,seatZ-rise*.07],[x+side*width*.05,hood+rise*.72,seatZ-rise*.08]],Math.min(W*.003,rise*.014),'Headrest posts');
-            // A padded center channel and stitched edges remain distinct from
-            // the hard trim and metal steering hardware.
-            box('seat',[x,hood+rise*.25,seatZ+L*.022],[width*.28,rise*.45,L*.008],L*.003,'Seat center channels');
-            for(const side of [-1,1])tube('trim',[[x+side*width*.14,low+H*.02,seatZ+L*.022],[x+side*width*.14,hood+rise*.51,seatZ+L*.009]],Math.min(W*.0017,rise*.009),'Seat piping');
+        const {r,W,H,L,hood,roofY,front,bw,put,tube}=c;if(!r.interior)return null;const rise=roofY-hood,width=bw*2,box=(kind,center,size,bevel,name)=>put(kind,CM.roundedBox(center,size,bevel,2),name);
+        const S=roadSeating(c),low=S.low,hipZ=S.hip;
+        // Floor: a mat over the sunk footwell and the raised rear deck.
+        const fl=new CM.Geo(),steps=24,fz0=S.rear+.04,fz1=front-.05,hwF=width*.45;
+        for(let i=0;i<steps;i++){const a=fz0+(fz1-fz0)*i/steps,b=fz0+(fz1-fz0)*(i+1)/steps,ya=floorAt(S,a)+.006,yb=floorAt(S,b)+.006;fl.poly([[-hwF,ya,a],[hwF,ya,a],[hwF,yb,b],[-hwF,yb,b]],null,[0,1,0]);}
+        put('dark',solidify(fl.done(),.012),'Cabin floor');
+        const k=Math.max(.6,Math.min(1,(roofY-low-.05)/1.17,width/1.45)),hipY=low+.27*k,driverX=width*.23,seats=[];
+        for(const sign of [-1,1]){const at=[sign*driverX,hipY,hipZ];seatUnit(c,at,{k,width:.52,floor:floorAt(S,hipZ),recline:.36});if(sign>0)seats.unshift({posture:'seated',seat:{at}});else seats.push({posture:'seated',seat:{at}});}
+        if(S.second!=null){
+            const z=S.second,y=Math.max(floorAt(S,z)+.10*k,low+.27*k),k2=Math.max(.55,Math.min(k,(roofY-y-.04)/.90));
+            for(const sign of [-1,1]){const at=[sign*width*.25,y,z];seatUnit(c,at,{k:k2,width:.52,floor:floorAt(S,z),recline:.30});seats.push({posture:'seated',seat:{at}});}
         }
-        box('trim',[0,hood+rise*.20,front-L*.080],[width*.94,rise*.12,L*.050],Math.min(rise*.025,L*.008),'Dashboard housing');
-        const driverX=width*.23,wheel=[driverX,hood+rise*.35,front-L*.14],F=CM.frame(wheel,[1,0,0],[0,-.88,-.475]),R=Math.min(width*.12,rise*.36);
-        put('rubber',CM.revolveOn(F,0,0,[[R*.86,-R*.06],[R,-R*.06],[R,R*.06],[R*.86,R*.06],[R*.86,-R*.06]],48),'Cabin steering wheel');
-        put('trim',CM.revolveOn(F,0,0,[[0,-R*.05],[R*.24,-R*.05],[R*.24,R*.06],[0,R*.06]],24),'Steering hub');
-        for(let j=0;j<3;j++){const a=j/3*Math.PI*2;const p=add(F.o,add(scale(F.u,Math.cos(a)*R*.85),scale(F.v,Math.sin(a)*R*.85)));tube('metal',[F.o,p],R*.035,'Steering spokes');}
-        tube('dark',[[driverX,hood+rise*.18,front-L*.08],wheel],R*.10,'Steering column');
-        const instruments=CM.frame([driverX,hood+rise*.255,front-L*.108],[1,0,0],[0,-.95,-.312]);
-        put('dark',CM.slab(CM.rect(0,0,width*.28,rise*.16),instruments,.005,.002,true),'Instrument binnacle');
+        if(r.form==='rover'){
+            // Troop bay: inward-facing seats along both walls behind the cab.
+            const kb=Math.max(.6,Math.min(1,(roofY-S.high-.45)/.85));
+            // One padded bench per wall (a seat place every 0.62 m), not a row of separate chairs.
+            const zs=[];for(let z=hipZ-.95*kb;z>S.rear+.40*kb;z-=.62*kb)zs.push(z);
+            if(zs.length)for(const sign of [-1,1]){const mid=(zs[0]+zs.at(-1))/2,y=S.high+.42*kb,len=zs[0]-zs.at(-1)+.56*kb,at=[sign*(width*.45-.24*kb),y,mid];
+                seatUnit(c,at,{k:kb,width:len/kb,floor:S.high,recline:.12,yaw:-sign*pi/2,headrest:false});
+                for(const z of zs)seats.push({posture:'seated',seat:{at:[at[0],y,z]}});}
+        }
+        // Wheel: raked toward the driver, a forearm ahead of the chest.
+        const R=Math.min(.19*k,width*.12),wheel=[driverX,hipY+.36*k,Math.min(hipZ+.50*k,front-.30)],F=CM.frame(wheel,[1,0,0],[0,-.88,-.475]);
+        put('rubber',CM.revolveOn(F,0,0,[[R*.86,-R*.07],[R,-R*.07],[R*1.02,0],[R,R*.07],[R*.86,R*.07],[R*.84,0],[R*.86,-R*.07]],40),'Cabin steering wheel');
+        // Hub and spokes belong to the wheel part, so the whole wheel turns with the steer control.
+        put('rubber',CM.revolveOn(F,0,0,[[0,-R*.05],[R*.24,-R*.05],[R*.24,R*.06],[0,R*.06]],24),'Cabin steering wheel');
+        for(let j=0;j<3;j++){const a=j/3*Math.PI*2+Math.PI/2;const p=add(F.o,add(scale(F.u,Math.cos(a)*R*.85),scale(F.v,Math.sin(a)*R*.85)));put('rubber',CM.sweep([F.o,p],R*.045,12,true),'Cabin steering wheel');}
+        // Dash: from the windscreen base back to just ahead of the wheel.
+        // Upper dash slab with a knee cavity below; a centre stack carries it down to the console.
+        const dashRear=wheel[2]+.10*k,dashTop=Math.min(hood+rise*.16,roofY-.25),dashH=Math.min(.20*k,dashTop-hipY),dashY=dashTop-dashH/2;
+        box('trim',[0,dashY,(dashRear+front-.03)/2],[width*.94,Math.max(.06,dashH),Math.max(.10,front-.03-dashRear)],Math.min(.04,dashH*.3),'Dashboard housing');
+        box('trim',[0,(hipY+.10*k+dashTop-dashH)/2,dashRear+.10],[.26*k,Math.max(.04,dashTop-dashH-hipY-.10*k),.16],.025,'Dashboard housing');
+        box('dark',[0,dashTop+.004,front-.10],[width*.80,.008,.08],.003,'Defroster grille');
+        tube('dark',[[driverX,dashY,dashRear+.04],wheel],R*.10,'Steering column');
+        const instruments=CM.frame([driverX,dashTop-.06*k,dashRear-.002],[1,0,0],[0,.95,-.312]);
+        put('dark',CM.slab(CM.rect(0,0,R*1.6,.09*k),instruments,.005,.002,true),'Instrument binnacle');
         for(const sign of [-1,1]){
-            const frame={...instruments,o:add(instruments.o,add(scale(instruments.u,sign*width*.072),scale(instruments.n,.006)))},radius=rise*.055;
+            const frame={...instruments,o:add(instruments.o,add(scale(instruments.u,sign*R*.42),scale(instruments.n,.006)))},radius=.035*k;
             put('metal',CM.revolveOn(frame,0,0,[[radius*.88,0],[radius,0],[radius,.002],[radius*.88,.002],[radius*.88,0]],32),'Instrument dial bezels');
             put(r.lights?'light':'glass',CM.revolveOn(frame,0,0,[[0,.001],[radius*.85,.001],[radius*.85,.002],[0,.002]],32),'Instrument faces');
             tube('dark',[frame.o,add(frame.o,add(scale(frame.u,radius*.50),scale(frame.v,radius*.25)))],Math.max(.0008,radius*.04),'Instrument needles');
         }
-        box('dark',[-width*.13,hood+rise*.25,front-L*.108],[width*.18,rise*.16,L*.005],.003,'Center dashboard display');
-        for(let j=0;j<3;j++)box(r.lights?'glow':'metal',[-width*.13,hood+rise*(.22+j*.026),front-L*.112],[width*.14,rise*.009,.002],.0004,'Dashboard status strips');
+        box('dark',[0,dashTop-.07*k,dashRear-.004],[width*.16,.11*k,.008],.003,'Center dashboard display');
+        for(let j=0;j<3;j++)box(r.lights?'glow':'metal',[0,dashTop-.10*k+j*.026*k,dashRear-.010],[width*.12,.008,.002],.0004,'Dashboard status strips');
+        // Console between the front seats, with a selector; pedals in the footwell.
+        const conL=Math.max(.2,dashRear+.10-hipZ);put('trim',standing(CM.roundedBox([0,(floorAt(S,hipZ)+hipY+.10*k)/2,hipZ+conL/2-.15],[.16*k,hipY+.10*k-floorAt(S,hipZ),conL],.03,2)),'Center console');
+        tube('metal',[[0,hipY+.10*k,hipZ+.25*k],[0,hipY+.20*k,hipZ+.23*k]],.008,'Gear selector');box('accent',[0,hipY+.21*k,hipZ+.23*k],[.035,.035,.04],.012,'Gear selector knob');
+        const pedalZ=Math.min(hipZ+.85*k,front-.12),pedalY=floorAt(S,pedalZ)+.09*k,feet=[];
+        for(const [dx,w]of [[-.09,.06],[.07,.09]]){box('metal',[driverX+dx*k,pedalY,pedalZ],[w*k,.07*k,.015],.004,'Pedals');tube('dark',[[driverX+dx*k,pedalY+.03*k,pedalZ],[driverX+dx*k,dashY,pedalZ+.08]],.006,'Pedal arms');feet.push([driverX+dx*k,pedalY,pedalZ-.03]);}
+        const hand=s=>add(F.o,scale(F.u,s*R*.92));
+        Object.assign(seats[0],{handL:{at:hand(1)},handR:{at:hand(-1)},footL:{at:feet[1]},footR:{at:feet[0]}});
+        const axis=norm(cross(F.u,F.v));
+        return{seats,controls:[{input:'steer',shape:'wheel',part:'Cabin steering wheel',at:wheel.slice(),axis:axis[1]<0?scale(axis,-1):axis,degrees:90,degreesAtSpeed:90}]};
+    }
+    /** A one-sided sheet made into a closed thin plate: a back face `t`
+     * behind every face, and strips along the sheet's open edges, so it
+     * holds from behind and has a real volume. */
+    function solidify(mesh,t){
+        const P=mesh.positions,N=mesh.normals,I=mesh.index,key=i=>Math.round(P[i*3]*1e5)+','+Math.round(P[i*3+1]*1e5)+','+Math.round(P[i*3+2]*1e5),edges=new Map(),g=new CM.Geo();
+        const at=i=>[P[i*3],P[i*3+1],P[i*3+2]],back=i=>sub(at(i),scale([N[i*3],N[i*3+1],N[i*3+2]],t));
+        for(let k=0;k<I.length;k+=3){const ids=[I[k],I[k+1],I[k+2]],n=norm(cross(sub(at(ids[1]),at(ids[0])),sub(at(ids[2]),at(ids[0]))));
+            g.poly(ids.map(at),null,n);g.poly(ids.map(back),null,scale(n,-1));
+            for(let e=0;e<3;e++){const a=ids[e],b=ids[(e+1)%3],ka=key(a),kb=key(b),id=ka<kb?ka+'|'+kb:kb+'|'+ka,list=edges.get(id);if(list)list.push([a,b,n]);else edges.set(id,[[a,b,n]]);}}
+        for(const list of edges.values())if(list.length===1){const [a,b,n]=list[0],out=norm(cross(sub(at(b),at(a)),n));g.poly([at(a),at(b),back(b),back(a)],null,out);}
+        return CM.smoothNormals(g.done(),.9);
+    }
+    /** A skin with a hole cut in it, given a back skin `t` behind and a
+     * rim round the hole's edge, so the cut reads as a panel of real
+     * thickness from inside. The front faces keep their own normals. */
+    function backed(mesh,t){
+        const P=mesh.positions,N=mesh.normals,I=mesh.index,key=i=>Math.round(P[i*3]*1e5)+','+Math.round(P[i*3+1]*1e5)+','+Math.round(P[i*3+2]*1e5),edges=new Map(),g=new CM.Geo();
+        const at=i=>[P[i*3],P[i*3+1],P[i*3+2]],back=i=>sub(at(i),scale([N[i*3],N[i*3+1],N[i*3+2]],t));
+        for(let k=0;k<I.length;k+=3){const ids=[I[k],I[k+1],I[k+2]],n=norm(cross(sub(at(ids[1]),at(ids[0])),sub(at(ids[2]),at(ids[0]))));if(!n.every(Number.isFinite))continue;
+            g.poly(ids.map(back),null,scale(n,-1));
+            for(let e=0;e<3;e++){const a=ids[e],b=ids[(e+1)%3],ka=key(a),kb=key(b),id=ka<kb?ka+'|'+kb:kb+'|'+ka,list=edges.get(id);if(list)list.push([a,b,n]);else edges.set(id,[[a,b,n]]);}}
+        for(const list of edges.values())if(list.length===1){const [a,b,n]=list[0],out=norm(cross(sub(at(b),at(a)),n));g.poly([at(a),at(b),back(b),back(a)],null,out);}
+        const m=CM.merge([mesh,g.done()]);return{positions:m.positions,normals:m.normals,uvs:m.uvs,index:m.index};
+    }
+    /** Drops the downward faces at a mesh's lowest level: the hidden
+     * underside of a box that stands on a floor. */
+    function standing(mesh){
+        const P=mesh.positions,I=mesh.index;let low=Infinity;for(let i=1;i<P.length;i+=3)low=Math.min(low,P[i]);const out=[];
+        for(let k=0;k<I.length;k+=3){const a=I[k]*3,b=I[k+1]*3,c=I[k+2]*3;if(Math.max(P[a+1],P[b+1],P[c+1])<low+.004){const e1=[P[b]-P[a],P[b+1]-P[a+1],P[b+2]-P[a+2]],e2=[P[c]-P[a],P[c+1]-P[a+1],P[c+2]-P[a+2]],ny=e1[2]*e2[0]-e1[0]*e2[2];if(ny<0)continue;}out.push(I[k],I[k+1],I[k+2]);}
+        mesh.index=Uint32Array.from(out);return mesh;
+    }
+    /** A shaped seat for one person, built facing +z round its hip point
+     * (the top of the cushion under the rider's hip), then turned by `yaw`
+     * about y and moved to `at`. Human sized in meters; `k` scales it to a
+     * cramped cabin. Cushion and backrest carry side bolsters; the back
+     * leans by `recline` radians. Returns where the rider's hip sits. */
+    function seatUnit(c,at,o={}){
+        const {put,tube}=c,k=o.k??1,w=(o.width??.50)*k,floor=o.floor,yaw=o.yaw||0,recline=o.recline??.30,back=(o.back??.60)*k,list=[],trims=[],metal=[];
+        const rb=(center,size,radius)=>CM.roundedBox(center,size,Math.min(radius,...size.map(v=>v*.45)),2);
+        const tilt=(m,pivot,a)=>CM.transform(m,p=>{const d=sub(p,pivot);return add(pivot,[d[0],d[1]*Math.cos(a)-d[2]*Math.sin(a),d[1]*Math.sin(a)+d[2]*Math.cos(a)]);},n=>[n[0],n[1]*Math.cos(a)-n[2]*Math.sin(a),n[1]*Math.sin(a)+n[2]*Math.cos(a)]);
+        const depth=.46*k,cushion=.10*k;
+        // Cushion: a centre pad between raised side bolsters, nose tipped up.
+        const pad=rb([0,-cushion/2,depth*.42],[w*.70,cushion,depth],.035*k);tilt(pad,[0,0,-.05*k],-.07);list.push(pad);
+        for(const s of [-1,1]){const b=rb([s*w*.41,-cushion*.36,depth*.40],[w*.19,cushion*1.28,depth*.96],.045*k);tilt(b,[0,0,-.05*k],-.07);list.push(b);}
+        // Backrest: lumbar pad between wing bolsters, leaning back from the hip.
+        const pivot=[0,-.02*k,-.06*k],lean=m=>tilt(m,pivot,-recline);
+        list.push(lean(rb([0,back*.48,-.11*k],[w*.70,back*.92,.09*k],.035*k)));
+        for(const s of [-1,1])list.push(lean(rb([s*w*.41,back*.44,-.085*k],[w*.19,back*.88,.15*k],.05*k)));
+        if(o.headrest!==false){list.push(lean(rb([0,back+.12*k,-.12*k],[w*.52,.18*k,.09*k],.04*k)));for(const s of [-1,1])metal.push(lean(CM.sweep([[s*w*.15,back*.90,-.12*k],[s*w*.15,back+.05*k,-.12*k]],.008*k,8,true)));}
+        // Pedestal or bench frame down to the floor.
+        if(floor!=null){const drop=Math.max(.02,at[1]-cushion-floor);trims.push(standing(rb([0,-cushion-drop/2,depth*.36],[w*.62,drop,depth*.70],.02*k)));}
+        const place=m=>CM.transform(m,p=>[at[0]+p[0]*Math.cos(yaw)+p[2]*Math.sin(yaw),at[1]+p[1],at[2]-p[0]*Math.sin(yaw)+p[2]*Math.cos(yaw)],n=>[n[0]*Math.cos(yaw)+n[2]*Math.sin(yaw),n[1],-n[0]*Math.sin(yaw)+n[2]*Math.cos(yaw)]);
+        put('seat',place(CM.merge(list)),'Cabin seat upholstery');
+        if(trims.length)put('trim',place(CM.merge(trims)),'Seat frames');
+        if(metal.length)put('metal',place(CM.merge(metal)),'Headrest posts');
+        return at;
+    }
+    /** A plan outline in the turning sense openSkin() expects. */
+    function ccw(poly){let a=0;for(let i=0;i<poly.length;i++){const p=poly[i],q=poly[(i+1)%poly.length];a+=p[0]*q[1]-q[0]*p[1];}return a<0?poly.slice().reverse():poly;}
+    /** Cuts a hole in a skin: the part of every face above `minY` that
+     * lies inside the convex plan outline `region` ([[x, z], ...],
+     * counter-clockwise seen from above) is removed. Faces are clipped
+     * exactly along the outline, so neighbours share their cut points and
+     * the skin stays watertight round the hole. In place. */
+    function openSkin(mesh,region,minY){
+        const P=Array.from(mesh.positions),N=Array.from(mesh.normals),I=mesh.index,out=[];
+        const lo=[Math.min(...region.map(q=>q[0])),Math.min(...region.map(q=>q[1]))],hi=[Math.max(...region.map(q=>q[0])),Math.max(...region.map(q=>q[1]))];
+        const vert=i=>({p:[P[i*3],P[i*3+1],P[i*3+2]],n:[N[i*3],N[i*3+1],N[i*3+2]],i});
+        const side=(a,b,v)=>(b[0]-a[0])*(v.p[2]-a[1])-(b[1]-a[1])*(v.p[0]-a[0]);
+        const cut=(poly,a,b,keepInside)=>{const res=[];for(let j=0;j<poly.length;j++){const u=poly[j],w=poly[(j+1)%poly.length],su=side(a,b,u)*(keepInside?-1:1),sw=side(a,b,w)*(keepInside?-1:1);if(su<=0)res.push(u);if((su<0&&sw>0)||(su>0&&sw<0)){const t=su/(su-sw);res.push({p:u.p.map((x,k)=>x+(w.p[k]-x)*t),n:u.n.map((x,k)=>x+(w.n[k]-x)*t),i:-1});}}return res;};
+        const emit=poly=>{if(poly.length<3)return;const ids=poly.map(v=>{if(v.i>=0)return v.i;P.push(...v.p);N.push(...norm(v.n));return v.i=P.length/3-1;});for(let j=1;j+1<ids.length;j++){const A=poly[0].p,B=poly[j].p,C=poly[j+1].p;if(Math.hypot(...cross(sub(B,A),sub(C,A)))<1e-12)continue;out.push(ids[0],ids[j],ids[j+1]);}};
+        for(let t=0;t<I.length;t+=3){
+            const tri=[vert(I[t]),vert(I[t+1]),vert(I[t+2])];
+            if(tri.some(v=>v.p[1]<=minY)||Math.max(...tri.map(v=>v.p[0]))<lo[0]||Math.min(...tri.map(v=>v.p[0]))>hi[0]||Math.max(...tri.map(v=>v.p[2]))<lo[1]||Math.min(...tri.map(v=>v.p[2]))>hi[1]){out.push(I[t],I[t+1],I[t+2]);continue;}
+            // The parts outside each outline edge are kept; what is inside them all is the hole.
+            let rest=tri;
+            for(let e=0;e<region.length&&rest.length>=3;e++){const a=region[e],b=region[(e+1)%region.length];emit(cut(rest,a,b,false));rest=cut(rest,a,b,true);}
+        }
+        mesh.positions=Float32Array.from(P);mesh.normals=Float32Array.from(N);mesh.uvs=new Float32Array(P.length/3*2);mesh.index=Uint32Array.from(out);
+        return mesh;
+    }
+    /** The flight cabin under the canopy: the hull is opened inside the
+     * canopy's sill, a tub drops to a floor near the keel, and a pilot row
+     * (yoke, console, displays) sits ahead of passenger rows. */
+    function flightCabin(c,hull,cp,o){
+        const {r,W,H,L,put,tube}=c,{zRear,zFront,cy}=o,span=zFront-zRear,lipK=.90,edge=.035;
+        const z0=zRear+.035,z1=zRear+span*.90,hw=z=>cp.halfW(z)*lipK,sill=(z,x)=>cp.sill(z,x)+.012;
+        // Plan outline of the opening, counter-clockwise from above (+x right, +z down the page).
+        const outline=[];for(let i=0;i<=24;i++){const z=z0+(z1-z0)*i/24;outline.push([-hw(z),z]);}for(let i=24;i>=0;i--){const z=z0+(z1-z0)*i/24;outline.push([hw(z),z]);}
+        openSkin(hull,ccw(outline),cy);
+        const floor=Math.max(cy-H*.20,H*.27),rows=36;
+        const Z=Array.from({length:rows+1},(_,i)=>z0+(z1-z0)*i/rows);
+        // Coaming: a formed lip over the cut edge, then the tub walls.
+        const lip=new CM.Geo(),wall=new CM.Geo(),lipW=edge*1.6;
+        const sideAt=(z,s,off)=>{const x=s*(hw(z)+off);return[x,sill(z,x),z];};
+        for(const s of [-1,1])for(let i=0;i<rows;i++){
+            const a=Z[i],b=Z[i+1],inA=sideAt(a,s,-lipW*.45),inB=sideAt(b,s,-lipW*.45),outA=sideAt(a,s,lipW),outB=sideAt(b,s,lipW),up=[0,1,0];
+            lip.poly([inA,outA,outB,inB],null,up);lip.poly([inA,inB,add(inB,[0,-.03,0]),add(inA,[0,-.03,0])],null,[-s,0,0]);
+            const wa=[inA[0],floor,a],wb=[inB[0],floor,b];wall.poly([add(inA,[0,-.03,0]),add(inB,[0,-.03,0]),wb,wa],null,[-s,0,0]);
+        }
+        for(const [z,face]of [[z0,1],[z1,-1]]){
+            const pts=[];for(let j=0;j<=16;j++){const x=-hw(z)+lipW*.45+(2*hw(z)-lipW*.9)*j/16;pts.push([x,sill(z,x)-.03,z]);}
+            for(let j=0;j<16;j++){wall.poly([pts[j],pts[j+1],[pts[j+1][0],floor,z],[pts[j][0],floor,z]],null,[0,0,face]);lip.poly([pts[j],pts[j+1],add(pts[j+1],[0,.03,-face*lipW*1.4]),add(pts[j],[0,.03,-face*lipW*1.4])],null,[0,1,0]);}
+        }
+        put('trim',solidify(lip.done(),.008),'Cockpit coaming');
+        put('secondary',solidify(wall.done(),.012),'Cockpit tub liner');
+        // Floor plate, slightly narrower than the tub.
+        const fl=new CM.Geo();for(let i=0;i<rows;i++){const a=Z[i],b=Z[i+1];fl.poly([[-hw(a)+.01,floor+.005,a],[hw(a)-.01,floor+.005,a],[hw(b)-.01,floor+.005,b],[-hw(b)+.01,floor+.005,b]],null,[0,1,0]);}
+        put('dark',solidify(fl.done(),.012),'Cabin floor');
+        // Rows: the pilot ahead, passengers behind at a fixed pitch.
+        // Rows are laid from the aft bulkhead forward; the pilot row is the
+        // last that still leaves leg room ahead of it, and the dash sits at
+        // the pilot's knees with the glare shield running on into the nose.
+        const crownAt=z=>cp.crown(z),hipUp=.15,mid=(z0+z1)/2;
+        const k=Math.max(.62,Math.min(1,(crownAt(mid)-floor-hipUp-.06)/.80,hw(mid)/.56));
+        const pitch=.74*k,aft=z0+.30*k,legs=.64*k,count=Math.max(1,Math.floor((z1-.06-legs-aft)/pitch)+1);
+        const front=count>1?aft+(count-1)*pitch:Math.min(z1-.06-legs,mid),dashZ=front+legs;
+        const across=n=>{const room=hw(front)*2-.04;return Array.from({length:n},(_,i)=>(i-(n-1)/2)*Math.min(.56*k,room/n));};
+        const seatRows=Array.from({length:count},(_,i)=>front-i*pitch);
+        o.seats=[];
+        seatRows.forEach((z,row)=>{const n=row===0?2:Math.max(2,Math.min(3,Math.floor((hw(z)*2-.04)/(.50*k))));for(const x of across(n)){seatUnit(c,[x,floor+hipUp*k+.10*k,z],{k:k*(row===0?1:.96),width:.50,floor,recline:.32});o.seats.push([x,floor+hipUp*k+.10*k,z]);}});
+        // Pilot station: a dash under the canopy nose, two displays, a yoke
+        // ahead of the left seat and a throttle console between the seats.
+        const pilotX=across(2)[1],dashTop=Math.min(crownAt(dashZ)-.07,floor+.62*k),dashW=hw(dashZ)*1.8;
+        put('trim',CM.roundedBox([0,(floor+dashTop)/2+.08,dashZ+.02],[dashW,dashTop-floor-.16,.26],.03,3),'Dashboard housing');
+        // Glare shield / avionics deck from the dash into the nose glass.
+        if(z1-dashZ>.2){const deck=new CM.Geo(),n=10,y=z=>Math.min(dashTop,crownAt(z)-.06);for(let i=0;i<n;i++){const a=dashZ+.13+(z1-dashZ-.13)*i/n,b=dashZ+.13+(z1-dashZ-.13)*(i+1)/n;deck.poly([[-hw(a)+.02,y(a),a],[hw(a)-.02,y(a),a],[hw(b)-.02,y(b),b],[-hw(b)+.02,y(b),b]],null,[0,1,0]);}put('trim',solidify(deck.done(),.012),'Dashboard housing');
+            // Nav and systems screens laid into the deck ahead of each seat.
+            for(const s of [-1,1]){const z=dashZ+.13+(z1-dashZ-.13)*.35,w=Math.min(.26*k,hw(z)*.7),F=CM.frame([s*hw(z)*.42,y(z)+.004,z],[1,0,0],[0,0,-1]);put('dark',CM.slab(CM.rect(0,0,w,.16*k),F,.004,.0015,true),'Instrument binnacle');put(r.lights?'glow':'metal',CM.slab(CM.rect(0,0,w*.86,.13*k),{...F,o:add(F.o,[0,.0045,0])},.001,.0004,true),'Console display');}}
+        const face=CM.frame([0,dashTop-.07,dashZ-.10],[1,0,0],[0,.80,.60]);
+        for(const s of [-1,1]){
+            put('dark',CM.slab(CM.rect(s*dashW*.22,0,dashW*.34,.11*k),face,.012,.004,true),'Instrument binnacle');
+            put(r.lights?'glow':'metal',CM.slab(CM.rect(s*dashW*.22,0,dashW*.30,.08*k),{...face,o:add(face.o,scale(face.n,.013))},.002,.0006,true),'Dashboard status strips');
+        }
+        const col=[pilotX,dashTop-.10,dashZ-.12],hub=[pilotX,dashTop-.05,dashZ-.30*k];tube('dark',[col,hub],.022,'Steering column');
+        const yoke=[[pilotX-.15*k,hub[1]+.05,hub[2]],[pilotX-.13*k,hub[1],hub[2]],[pilotX+.13*k,hub[1],hub[2]],[pilotX+.15*k,hub[1]+.05,hub[2]]];
+        tube('trim',yoke.slice(1,3),.016,'Steering hub');
+        for(const s of [0,1]){const a=yoke[s*2],b=yoke[s*2+1];tube('rubber',[s?b:a,add(s?b:a,[0,.09*k,-.01])],.019,'Cabin steering wheel');}
+        tube('rubber',[yoke[0],yoke[1]],.017,'Cabin steering wheel');tube('rubber',[yoke[2],yoke[3]],.017,'Cabin steering wheel');
+        const conZ=front+.10*k,conH=.30*k;put('trim',CM.roundedBox([0,floor+conH/2,conZ],[.14*k,conH,.62*k],.03,3),'Center console');
+        for(const s of [-1,1]){const base=[s*.025,floor+conH,conZ+.10*k];tube('metal',[base,add(base,[0,.10*k,.03])],.006,'Throttle levers');put('accent',CM.roundedBox(add(base,[0,.11*k,.035]),[.03,.03,.04],.01,2),'Throttle grips');}
+        put(r.lights?'glow':'dark',CM.roundedBox([0,floor+conH+.003,conZ-.12*k],[.09*k,.006,.16*k],.002,2),'Console display');
+        return o.seats;
     }
     /** Convex 2D outlines raised by `height` with chamfered top edges, then
      * bent onto a surface: warp([u, v, h]) -> point. Faces are re-shaded
@@ -733,16 +927,19 @@
         // A deep hull with the cockpit sunk into it: the canopy is a low, long fighter bubble, not a dome.
         const widths=[[-.50,.46],[-.38,.92],[-.15,1],[.12,.95],[.32,.70],[.49,.12]],heights=[[-.50,.16],[-.34,.28],[0,.28],[.23,.20],[.49,.05]];
         const yAt=z=>cy+H*.015*Math.sin((z/L+.5)/.99*pi);
-        let skin;
+        let skin,hullMesh;
         if(style==='rounded'){
             const rings=[];for(let j=0;j<=64;j++){const z=-L*.5+L*.99*j/64;rings.push([z,bw*section(widths,z/L),cy+H*.015*Math.sin(j/64*pi),H*section(heights,z/L)]);}
-            put('paint',shell(rings,2.7,64),'Formed pressure hull');
+            hullMesh=put('paint',shell(rings,2.7,64),'Formed pressure hull');
             put('trim',shell([[-L*.46,bw*.45,H*.32,H*.06],[-L*.18,bw*.80,H*.29,H*.055],[L*.25,bw*.66,H*.34,H*.045],[L*.46,bw*.10,H*.46,H*.01]],2.6),'Ventral keel');
             skin=(z,a,offset=0)=>{const w=bw*section(widths,z/L),h=H*section(heights,z/L),y=yAt(z),co=Math.cos(a),si=Math.sin(a);return[Math.sign(co)*Math.abs(co)**(2/2.7)*(w+offset),y+Math.sign(si)*Math.abs(si)**(2/2.7)*(h+offset),z];};
         }else{
             // Few stations, straight between them: flat panels meeting at chines.
-            const knots=[-.50,-.46,-.40,-.34,-.24,-.15,0,.12,.22,.30,.37,.43,.49],stations=knots.map(k=>({z:L*k,w:bw*section(widths,k),y:yAt(L*k),h:H*section(heights,k)}));
-            put('paint',HW.facetedLoft(stations,HW.HULL_SECTION),'Formed pressure hull');
+            // Each chine between flat panels is rolled over a short fillet (see soft()).
+            const knots=[-.50,-.46,-.40,-.34,-.24,-.15,0,.12,.22,.30,.37,.43,.49],e=.012,poly=f=>knots.map(k=>[k,f(k)]),PW=poly(k=>bw*section(widths,k)),PY=poly(k=>yAt(L*k)),PH=poly(k=>H*section(heights,k));
+            const rolled=[...new Set(knots.flatMap((k,i)=>i===0||i===knots.length-1?[k]:[k-e,k-e*.5,k,k+e*.5,k+e]))].sort((a,b)=>a-b);
+            const stations=rolled.map(k=>({z:L*k,w:soft(PW,k,e),y:soft(PY,k,e),h:soft(PH,k,e)}));
+            hullMesh=put('paint',HW.facetedLoft(stations,HW.HULL_SECTION),'Formed pressure hull');
             const keel=[[-.46,.45,.32,.06],[-.30,.70,.30,.058],[-.18,.80,.29,.055],[.25,.66,.34,.045],[.46,.10,.46,.012]].map(([z,w,y,h])=>({z:L*z,w:bw*w,y:H*y,h:H*h}));
             put('frame',HW.facetedLoft(keel,HW.BOX_SECTION),'Ventral keel');
             skin=HW.loftSkin(stations,HW.HULL_SECTION);
@@ -750,9 +947,9 @@
         c.hullSkin=skin;
         const top=(z,x)=>HW.topOf(skin,z,x);
         // Cabin interior under a sealed bubble canopy.
-        const roof=H*(.87+.35*(r.cabinHeight-1)),canopyFront=L*.22,canopyRear=-L*.11,cb=bw*.58,deck=H*.63;
-        cabin({...c,hood:deck,roofY:roof,front:canopyFront,rear:canopyRear,bw:cb});
-        HW.canopy(c,{skin,zRear:-L*.14,zFront:L*.335,zPeak:-L*.01,peakY:roof+H*.05,width:bw*.72,spineLength:L*(shuttle?.21:.15),bows:shuttle?[L*.17]:[L*.17,-L*.03],seal:H*.011,spineKind:style==='armored'?'armor':'secondary'});
+        const roof=H*(.87+.35*(r.cabinHeight-1));
+        const cp=HW.canopy(c,{skin,zRear:-L*.14,zFront:L*.335,zPeak:-L*.01,peakY:roof+H*.05,width:bw*.72,spineLength:L*(shuttle?.21:.15),bows:shuttle?[L*.17]:[L*.17,-L*.03],seal:H*.011,spineKind:style==='armored'?'armor':'secondary'});
+        if(r.interior)c.cabinSeats=flightCabin(c,hullMesh,cp,{zRear:-L*.14,zFront:L*.335,cy});
         for(const s of [-1,1]){
             const engineX=s*W*(shuttle?.35:.36)*r.wingSpan,engineY=H*.45,engineZ=-L*.32,R=H*(shuttle?.18:.17)*r.engineSize;
             wing(c,s,bw*.64,Math.abs(engineX)+R*.55,-L*.28,L*(shuttle?.14:.09),H*.46);
@@ -981,6 +1178,41 @@
     /** Faceted/Armored walker: chamfered torso casting on a dark frame, plated
      * limbs, bolt-capped joint drums, piston pairs, vent banks and louvered
      * pauldrons. Names that carry lettering and fasteners are kept. */
+    /** A one-seat cockpit pod sunk into the walker's torso behind its
+     * windscreen: the skin under the glass is opened, a lined pod drops to
+     * a floor on the lower frame, with a seat, twin control sticks on side
+     * consoles and a dash under the glass. */
+    function walkerCockpit(c,torso){
+        const {r,W,H,L,put,tube}=c;if(!r.interior)return;
+        const zb=L*.292,zt=L*.085,yb=H*.76,yt=H*.87,glassY=z=>yb+(yt-yb)*(zb-z)/(zb-zt),xw=W*.205,zf=zb-.03,zr=zt+.03;
+        openSkin(torso,ccw([[-xw,zr],[xw,zr],[xw,zf],[-xw,zf]]),H*.68);Object.assign(torso,backed(torso,.02));
+        const floor=H*.60,back=-L*.22,front=zf,top=z=>glassY(z)-.01,g=new CM.Geo(),lip=new CM.Geo();
+        // Pod: side walls up to the glass line, a back wall, a front kick panel.
+        const n=12;
+        for(const s of [-1,1])for(let i=0;i<n;i++){const a=back+(front-back)*i/n,b=back+(front-back)*(i+1)/n,ya=Math.min(top(Math.max(a,zr)),H*.84),yb2=Math.min(top(Math.max(b,zr)),H*.84);g.poly([[s*xw,floor,a],[s*xw,floor,b],[s*xw,yb2,b],[s*xw,ya,a]],null,[-s,0,0]);}
+        g.poly([[-xw,floor,back],[xw,floor,back],[xw,H*.84,back],[-xw,H*.84,back]],null,[0,0,1]);
+        g.poly([[-xw,floor,front],[xw,floor,front],[xw,top(front),front],[-xw,top(front),front]],null,[0,0,-1]);
+        // Ceiling over the rear of the pod, up to the opening's back edge.
+        g.poly([[-xw,H*.84,back],[xw,H*.84,back],[xw,H*.84,zr],[-xw,H*.84,zr]],null,[0,-1,0]);
+        put('secondary',solidify(g.done(),.012),'Cockpit tub liner');
+        // Coaming round the opening, over the cut skin.
+        const edge=[[-xw,top(zr)+.012,zr],[xw,top(zr)+.012,zr],[xw,top(zf)+.012,zf],[-xw,top(zf)+.012,zf]];
+        for(let i=0;i<4;i++){const a=edge[i],b=edge[(i+1)%4],o=scale(norm(sub(scale(add(a,b),.5),[0,(a[1]+b[1])/2,(zr+zf)/2])),.06);lip.poly([a,b,add(b,o),add(a,o)],null,[0,1,.4]);}
+        put('trim',solidify(lip.done(),.008),'Cockpit coaming');
+        put('dark',CM.roundedBox([0,floor+.01,(back+front)/2],[xw*1.9,.02,front-back-.02],.006,2),'Cabin floor');
+        const k=Math.max(.6,Math.min(1,(H*.84-floor-.30)/.92,xw/.40)),hip=[0,floor+.30*k,back+.34*k];
+        seatUnit(c,hip,{k,width:.54,floor,recline:.22});
+        for(const s of [-1,1]){
+            const con=[s*(xw-.10*k),floor+.30*k,hip[2]+.30*k];
+            put('trim',CM.roundedBox([con[0],(floor+con[1]+.12*k)/2,con[2]],[.14*k,con[1]+.12*k-floor,.40*k],.03,2),'Center console');
+            const base=[con[0],con[1]+.12*k,con[2]+.10*k];tube('metal',[base,add(base,[0,.10*k,.02])],.010,'Throttle levers');
+            put('rubber',CM.roundedBox(add(base,[0,.14*k,.025]),[.045*k,.09*k,.05*k],.018,2),'Cabin steering wheel');
+        }
+        const dashZ=front-.10,dashY=Math.min(top(dashZ)-.06,floor+.75*k);
+        put('trim',CM.roundedBox([0,dashY-.08*k,dashZ],[xw*1.8,.16*k,.18],.03,2),'Dashboard housing');
+        const face=CM.frame([0,dashY-.05*k,dashZ-.092],[1,0,0],[0,.9,.43]);
+        for(const s of [-1,0,1])put(r.lights?'glow':'metal',CM.slab(CM.rect(s*xw*.55,0,xw*.42,.07*k),face,.002,.0006,true),'Dashboard status strips');
+    }
     function walkerStyled(c){
         const {r,W,H,L,put,box,tube,sheet,glazing}=c,hip=H*.43,knee=H*.25,ankle=H*.09,spread=W*.22*r.stance,armored=r.bodyStyle==='armored';
         put('frame',beam([0,hip,-L*.19],[0,hip,L*.19],W*.45,H*.065),'Hip cradle');
@@ -990,7 +1222,7 @@
         for(const s of [-1,1])HW.pistonPair(c,[s*W*.09,H*.51,-L*.04],[s*W*.15,H*.60,-L*.07],H*.007,[0,0,1],'Torso stabilizers');
         round(c,'trim',waist,[[W*.16,-H*.011],[W*.18,-H*.011],[W*.18,H*.001],[W*.16,H*.001],[W*.16,-H*.011]],'Waist bearing seal');
         const torso=[[-.33,.24,.70,.085],[-.25,.33,.70,.135],[-.15,.345,.70,.14],[.10,.35,.71,.14],[.22,.31,.69,.10],[.29,.26,.675,.070],[.33,.20,.665,.060]].map(([z,w,y,h])=>({z:L*z,w:W*w,y:H*y,h:H*h}));
-        put('paint',HW.facetedLoft(torso,HW.BOX_SECTION),'Cast torso housing');
+        const torsoMesh=put('paint',HW.facetedLoft(torso,HW.BOX_SECTION),'Cast torso housing');walkerCockpit(c,torsoMesh);
         put('frame',HW.facetedLoft([{z:-L*.29,w:W*.21,y:H*.59,h:H*.025},{z:L*.17,w:W*.29,y:H*.59,h:H*.035},{z:L*.28,w:W*.20,y:H*.63,h:H*.025}],HW.BOX_SECTION),'Torso lower frame');
         const skin=HW.loftSkin(torso,HW.BOX_SECTION);
         const windshield=[[-W*.245,H*.76,L*.292],[W*.245,H*.76,L*.292],[W*.22,H*.87,L*.085],[-W*.22,H*.87,L*.085]];
@@ -1058,7 +1290,7 @@
         tube('trim',[[0,H*.51,0],[0,H*.59,0]],W*.105,'Torso load spine');
         for(const s of [-1,1])tube('metal',[[s*W*.09,H*.51,-L*.03],[s*W*.15,H*.60,-L*.06]],H*.014,'Torso stabilizers');
         round(c,'trim',waist,[[W*.16,-H*.011],[W*.18,-H*.011],[W*.18,H*.001],[W*.16,H*.001],[W*.16,-H*.011]],'Waist bearing seal');
-        put('paint',shell([[-L*.33,W*.24,H*.70,H*.085],[-L*.23,W*.34,H*.70,H*.14],[L*.10,W*.35,H*.71,H*.14],[L*.29,W*.26,H*.675,H*.070],[L*.33,W*.20,H*.665,H*.060]],5.0,64),'Cast torso housing');
+        walkerCockpit(c,put('paint',shell([[-L*.33,W*.24,H*.70,H*.085],[-L*.23,W*.34,H*.70,H*.14],[L*.10,W*.35,H*.71,H*.14],[L*.29,W*.26,H*.675,H*.070],[L*.33,W*.20,H*.665,H*.060]],5.0,64),'Cast torso housing'));
         put('trim',shell([[-L*.29,W*.21,H*.59,H*.025],[L*.17,W*.29,H*.59,H*.035],[L*.28,W*.20,H*.63,H*.025]],3.2),'Torso lower frame');
         const windshield=[[-W*.245,H*.76,L*.292],[W*.245,H*.76,L*.292],[W*.22,H*.87,L*.085],[-W*.22,H*.87,L*.085]];
         put('glass',glazing(windshield,H*.012),'Walker cockpit glass');
@@ -1104,5 +1336,5 @@
             }
         }
     }
-    const api={DESIGN,shell,loft,pressed,filletBox,contour,windowFrame,roadWindows,roadProfile,roadBody,roadAnchors,lampUnit,wheel,RIM_STYLES,roadDetails,roadFace,section,flight,turbine,round,bike,drone,walker,grille,cabin};root.RRVehicleBodywork=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
+    const api={DESIGN,shell,loft,pressed,filletBox,contour,windowFrame,roadWindows,roadProfile,roadBody,roadAnchors,lampUnit,wheel,RIM_STYLES,roadDetails,roadFace,section,flight,seatUnit,openSkin,turbine,round,bike,drone,walker,grille,cabin};root.RRVehicleBodywork=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

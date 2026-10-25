@@ -40,11 +40,11 @@
         gunmetal: { color: '#6a7079', roughness: 0.4, metalness: 0.5 }, polymer: { color: '#3c3e44', roughness: 0.66, metalness: 0 },
         chrome: { color: '#d4d8de', roughness: 0.2, metalness: 0.82 }, painted: { color: null, roughness: 0.42, metalness: 0.25 }
     };
-    const FURNITURE_LOOK = { polymer: { color: '#2e3034', roughness: 0.86, metalness: 0 }, wood: { color: '#6e4426', roughness: 0.6, metalness: 0 }, painted: { color: null, roughness: 0.58, metalness: 0.1 } };
+    const FURNITURE_LOOK = { polymer: { color: '#2e3034', roughness: 0.86, metalness: 0 }, wood: { color: '#6e4426', roughness: 0.44, metalness: 0 }, painted: { color: null, roughness: 0.58, metalness: 0.1 } };
 
     const PRESETS = [
         ['pistol', 'Pistol', 'firearms', { style: 'slide', barrel: { length: 0.11, thickness: 0.012 }, receiver: { length: 0.19, height: 0.034 }, magazine: 'none', magSize: 1, stock: 'none', sight: 'iron', grip: { angle: 18, length: 0.11 }, muzzle: 'plain', rails: false, frame: 'polymer', furniture: 'polymer', slide: true }],
-        ['revolver', 'Revolver', 'firearms', { style: 'classic', barrel: { length: 0.16, thickness: 0.016 }, receiver: { length: 0.14, height: 0.04 }, magazine: 'cylinder', magSize: 1, stock: 'none', sight: 'iron', grip: { angle: 28, length: 0.12 }, muzzle: 'plain', rails: false, frame: 'chrome', furniture: 'wood' }],
+        ['revolver', 'Revolver', 'firearms', { style: 'classic', barrel: { length: 0.11, thickness: 0.017 }, receiver: { length: 0.14, height: 0.04 }, magazine: 'cylinder', magSize: 1, stock: 'none', sight: 'iron', grip: { angle: 24, length: 0.105 }, muzzle: 'plain', rails: false, frame: 'gunmetal', furniture: 'wood' }],
         ['rifle', 'Rifle', 'firearms', { style: 'carbine', barrel: { length: 0.5, thickness: 0.013 }, receiver: { length: 0.3, height: 0.06 }, magazine: 'box', magSize: 1.2, stock: 'full', sight: 'dot', grip: { angle: 22, length: 0.1 }, muzzle: 'brake', rails: true, frame: 'gunmetal', furniture: 'polymer', forend: true }],
         ['shotgun', 'Shotgun', 'firearms', { style: 'classic', barrel: { length: 0.62, thickness: 0.02 }, receiver: { length: 0.24, height: 0.06 }, magazine: 'tube', magSize: 1, stock: 'full', sight: 'iron', grip: { angle: 30, length: 0.1 }, muzzle: 'plain', rails: false, frame: 'gunmetal', furniture: 'wood', forend: true }],
         ['smg', 'Submachine gun', 'firearms', { style: 'stamped', barrel: { length: 0.2, thickness: 0.012 }, receiver: { length: 0.26, height: 0.055 }, magazine: 'box', magSize: 1.4, stock: 'folding', sight: 'iron', grip: { angle: 14, length: 0.1 }, muzzle: 'suppressor', rails: true, frame: 'gunmetal', furniture: 'polymer' }],
@@ -95,15 +95,37 @@
      * receiver's shape comes from its style.
      */
     function body(r) {
-        const P = { frame: [], under: [], furniture: [], metal: [], glass: [], glow: [], dark: [] }, marks = {};
+        const P = { frame: [], under: [], furniture: [], metal: [], glass: [], glow: [], dark: [], brass: [] }, marks = {};
         const Lr = r.receiver.length, Hr = r.receiver.height, Lb = r.barrel.length, rb = r.barrel.thickness / 2;
-        const W = Math.max(0.022, Hr * 0.55), xr0 = -Lr * 0.45, xr1 = Lr * 0.55, yb = Hr * 0.62;
+        // A revolver's bore lines up with its top chamber: the cylinder's axis sits below the barrel by the chambers' circle.
+        const wheel = r.magazine === 'cylinder', Rc = Math.max(Hr * 0.55, 0.018) * r.magSize;
+        const W = Math.max(0.022, Hr * 0.55), xr0 = -Lr * 0.45, xr1 = Lr * 0.55, yb = wheel ? Math.max(Hr * 0.62, Rc * 1.55 + 0.009) : Hr * 0.62, yc = wheel ? yb - Rc * 0.55 : yb;
         const style = r.style, scifi = SCIFI_STYLES.includes(style), glowing = r.coils > 0 || r.muzzle === 'emitter' || r.magazine === 'cell';
         const ch = Math.max(0.0008, Math.min(0.0025, W * 0.07));
         const put = (list, mesh, floors) => { if (mesh && mesh.index.length) { list.push(mesh); if (mesh.floor) (floors || P.dark).push(mesh.floor); } return mesh; };
         const plate = (list, outline, t, c, o, floors) => put(list, HS.plate(outline, t, c ?? ch, o), floors);
         const cbox = (list, center, size, c) => put(list, HS.chamferedBox(center, size, c ?? Math.min(ch, ...size.map(v => v * 0.3))));
         const strip = glowing ? P.glow : P.dark;
+        /**
+         * A lofted wooden part along x from x0 to x1: `sec(t)` gives each section's center height, half height,
+         * half width, how much narrower its top is (`k`) and how square it is (`e`, 1 an ellipse, less squarer).
+         * Closed, smooth; uvs come from its grain afterwards.
+         */
+        const lofted = (x0, x1, n, sec, around) => {
+            const g = new CM.Geo(), A = around || 24, rings = [];
+            for (let i = 0; i <= n; i++) {
+                const t = i / n, x = x0 + (x1 - x0) * t, q = sec(t), ring = [];
+                for (let j = 0; j < A; j++) { const a = j / A * Math.PI * 2, sy = Math.sign(Math.sin(a)) * Math.abs(Math.sin(a)) ** q.e, sz = Math.sign(Math.cos(a)) * Math.abs(Math.cos(a)) ** q.e; ring.push([x, q.yc + q.hy * sy, q.hz * sz * (1 - q.k * Math.max(0, sy))]); }
+                rings.push(ring);
+            }
+            // Uvs in meters: round the section (u) and along it (v), so a normal map has a frame.
+            const uv = (i, j) => [j / A * 0.2, Math.abs(rings[i][0][0] - x0)], cap = ring => ring.map(p => [p[1], p[2]]);
+            for (let i = 0; i < n; i++) for (let j = 0; j < A; j++) { const am = (j + 0.5) / A * Math.PI * 2, j1 = j + 1; g.poly([rings[i][j], rings[i + 1][j], rings[i + 1][j1 % A], rings[i][j1 % A]], [uv(i, j), uv(i + 1, j), uv(i + 1, j1), uv(i, j1)], [0, Math.sin(am), Math.cos(am)]); }
+            const dir = Math.sign(x1 - x0);
+            g.poly(rings[0], cap(rings[0]), [-dir, 0, 0]); g.poly(rings[n], cap(rings[n]), [dir, 0, 0]);
+            return CM.smoothNormals(g.done(), 0.45);
+        };
+        const ease = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
         // The receiver runs over the barrel when it has a slide.
         const front = r.slide ? xr1 + Lb * 0.85 : xr1;
         // Where the grip, trigger and magazine sit (the hand rig's markers come from these).
@@ -111,6 +133,11 @@
         const back = Math.tan(a) * gl, gd = 0.03, tx = gx + gd + 0.018, mxs = tx + 0.04, ms = r.magSize;
         const gripFront = y => gx + gd - back * (-y / gl);
         const mh = 0.07 * ms + 0.03, md = 0.028 + 0.01 * ms, curve = Lb > 0.3 ? 0.03 * ms : 0, mw = Math.min(W * 0.8, 0.026);
+        // A revolver's layout: the cylinder centered over the trigger, the frame wrapped close round it.
+        const WH = wheel ? (() => {
+            const R = Rc, len = Math.min(0.046, Lr * 0.33), cx = tx + 0.004 - len / 2;
+            return { R, len, cx, yt: yc + R + 0.0062, xw0: cx - 0.0015, xw1: cx + len + 0.0015, xf: cx + len + 0.0105, yfb: yc - R - 0.0045 };
+        })() : null;
         const S = receiver();
 
         // ── the receiver, by style ─────────────────────────────────────────
@@ -162,16 +189,29 @@
                 out.selector = [xr0 + Lr * 0.12, Hr * 0.36, W * 0.46];
             } else if (style === 'classic') {
                 if (r.magazine === 'cylinder') {
-                    // A revolver's frame: a window round the cylinder, the top strap over it, a hammer spur behind.
-                    const R = Math.max(Hr * 0.55, 0.018) * ms, len = Math.min(0.05, Lr * 0.35), cx = xr1 - len - 0.005;
-                    const top = Math.max(Hr, yb + R + 0.006), bot = Math.min(0, yb - R - 0.006);
-                    plate(P.frame, HS.round([[xr0 + Lr * 0.02, Hr * 0.45], [xr0 + Lr * 0.1, top], [xf + 0.006, top], [xf + 0.006, bot + 0.006], [xf - 0.004, bot], [xr0 + Lr * 0.12, Math.min(0, bot)], [xr0 - 0.002, Hr * 0.08]], 0.005, 2, [1, 6]), W, ch,
-                        { holes: [HS.cut(rect(cx - 0.0015, yb - R - 0.002, cx + len + 0.0015, yb + R + 0.002), 0.003)] });
-                    plate(P.metal, [[xr0 + Lr * 0.06, top - 0.006], [xr0 + Lr * 0.14, top - 0.006], [xr0 + Lr * 0.08, top + 0.008], [xr0 + Lr * 0.01, top + 0.013], [xr0 - 0.006, top + 0.01]], 0.007, 0.0012);
-                    // The barrel's underlug down to the ejector rod.
-                    plate(P.frame, HS.cut(rect(xf, yb - rb * 2.6, xf + Lb * 0.9, yb - rb * 0.3), [0, rb * 1.2, 0, 0]), rb * 1.7, Math.min(ch, rb * 0.4));
-                    out.top = top; out.rail = [xr0 + Lr * 0.12, xf - 0.004];
-                    out.pins = [[xr0 + Lr * 0.18, Hr * 0.2, W / 2], [xf - 0.002, yb + R + 0.003, W / 2]];
+                    // A revolver's frame, wrapped close round the cylinder: a top strap arching down into the barrel's
+                    // shank, a rounded recoil shield behind the window rising into the hump over the hammer, the frame
+                    // under the cylinder stepping down to where the trigger and its guard come out.
+                    const { R, len, cx, yt, xw0, xw1, xf: xfw, yfb } = WH, top = yt;
+                    // The window is open at the front (the cylinder's face shows between the frame's lug round the
+                    // barrel and the strap under the cylinder), closed behind by the recoil shield.
+                    const wt = yc + R + 0.0018, wb = yc - R - 0.0018, yfl = yc - R - 0.0065, lugB = yb - rb - 0.003;
+                    const outline = [[gx + 0.004, -0.004], [cx - 0.043, yt - 0.024], [cx - 0.036, yt - 0.007], [cx - 0.024, yt], [xfw - 0.006, yt], [xfw + 0.001, yb + rb + 0.0025], [xfw + 0.002, lugB], [xw1 + 0.0015, lugB], [xw1 + 0.0015, wt], [xw0, wt], [xw0, wb], [xw1 + 0.005, wb], [xw1 + 0.006, yfl], [tx + 0.026, yfl], [tx + 0.018, 0], [gx + gd + 0.004, 0], [gx + gd, -0.004]];
+                    plate(P.frame, HS.round(outline, 0.004, 3, [1, 2, 3, 4, 5, 6, 12, 13, 14, 15]), W, ch * 1.2,
+                        { smooth: 40, inset: [{ outline: HS.round([[cx - 0.023, 0.007], [cx - 0.008, 0.007], [cx - 0.008, yc + R * 0.25], [cx - 0.031, yc + R * 0.25]], 0.003, 2), depth: 0.0005, draft: 0.0003, side: 'both' }] });
+                    // The barrel's shank out of the frame, the rear sight's notch on the top strap and a groove down it.
+                    P.metal.push(turned(xfw - 0.004, yb, [[rb * 1.18, 0], [rb * 1.18, front - xfw + 0.012], [rb, front - xfw + 0.014]], 32));
+                    put(P.dark, Mesh.box([(cx - 0.016 + xfw) / 2, yt + 0.0002, 0], [xfw - cx + 0.008, 0.0008, 0.0024]));
+                    put(P.frame, HS.plate([[-0.0055, 0], [0.0055, 0], [0.0055, 0.0042], [0.0012, 0.0042], [0.0012, 0.0018], [-0.0012, 0.0018], [-0.0012, 0.0042], [-0.0055, 0.0042]], 0.006, 0.0006, { frame: { o: [cx - 0.014, yt - 0.0005, 0], u: [0, 0, 1], v: [0, 1, 0], n: [1, 0, 0] } }));
+                    // The hammer: its body in the frame's slot behind the sight, the spur back over the hump, checkered.
+                    const hx = cx - 0.018, ht = yt;
+                    plate(P.metal, HS.round([[hx + 0.001, ht - 0.012], [hx + 0.002, ht - 0.002], [hx - 0.002, ht + 0.0028], [hx - 0.012, ht + 0.0032], [hx - 0.022, ht + 0.0055], [hx - 0.029, ht + 0.0035], [hx - 0.028, ht - 0.0005], [hx - 0.018, ht - 0.0035], [hx - 0.012, ht - 0.012]], 0.002, 2, [1, 2, 3, 4, 5, 6, 7]), 0.0062, 0.0009, { smooth: 30 });
+                    for (let k = 0; k < 5; k++) { const t = k / 4, x = hx - 0.014 - 0.01 * t, y = ht + 0.0038 + 0.0018 * t - 0.002 * t * t; put(P.dark, Mesh.box([x, y + 0.0004, 0], [0.0009, 0.0011, 0.0066])); }
+                    // The cylinder latch on the left, behind the window.
+                    put(P.metal, HS.chamferedBox([cx - 0.011, yc + R * 0.05, -(W / 2 + 0.0012)], [0.011, 0.0055, 0.0026], 0.0008));
+                    for (let k = 0; k < 4; k++) put(P.dark, Mesh.box([cx - 0.015 + k * 0.0027, yc + R * 0.05, -(W / 2 + 0.0026)], [0.0008, 0.0045, 0.0005]));
+                    out.top = top; out.rail = [cx - 0.01, xfw - 0.004];
+                    out.pins = [[cx - 0.026, 0.008, W / 2], [cx - 0.012, yc - R * 0.6, W / 2], [cx - 0.031, yc + R * 0.1, W / 2]];
                 } else {
                     // A rounded steel box with a scroll panel framed into its sides and the port on the right.
                     plate(P.frame, HS.round(HS.cut(rect(xr0, 0, xf, Hr), Hr * 0.12, [1]), Hr * 0.28, 3, [0, 4]), W, ch * 1.2,
@@ -295,7 +335,36 @@
 
         // ── the grip, trigger and guard ────────────────────────────────────
         const loft = style === 'classic' || style === 'bolt';
-        if (loft) {
+        if (wheel) {
+            // A revolver's grip: one curve down and back out of the frame (a plow handle), slimmer at the
+            // top and fuller at the palm, a rounded butt whose toe tips forward; a steel frame showing as the
+            // front and back straps, a wooden panel each side (domed at its edges), one screw through both.
+            const coreT = 0.0165, pt = 0.0052, ease = t => t * t * (3 - 2 * t);
+            const bez = (p0, p1, p2, p3, t) => { const u = 1 - t; return [0, 1].map(i => u * u * u * p0[i] + 3 * u * u * t * p1[i] + 3 * u * t * t * p2[i] + t * t * t * p3[i]); };
+            const xb0 = WH.cx - 0.043, back0 = [xb0 + 0.004, 0.006], front0 = [gx + gd + 0.001, 0.002];
+            const butt = [gx + gd * 0.5 - back, -gl * 0.9], d = 0.0185;
+            // The back strap: from the hump down, bowing back, round into the butt; the front strap straighter, its toe forward.
+            const backAt = t => bez(back0, [back0[0] - 0.01, -gl * 0.3], [butt[0] - d - 0.004, -gl * 0.62], [butt[0] - d * 0.9, butt[1]], t);
+            const frontAt = t => bez(front0, [front0[0] - 0.004, -gl * 0.35], [butt[0] + d * 1.05, -gl * 0.6], [butt[0] + d * 1.12, butt[1] + 0.002], t);
+            const outline = inset => {
+                const pts = [], n = 16;
+                for (let k = 0; k <= n; k++) { const t = k / n, [x, y] = frontAt(t); pts.push([x - inset, k ? y : y - inset]); }
+                const c = [butt[0] + d * 0.11, butt[1] + 0.001], rx = d * 1.01 - inset, ry = 0.009 - inset * 0.6;
+                for (let k = 1; k < 10; k++) { const th = -k / 10 * Math.PI; pts.push([c[0] + Math.cos(th) * rx, c[1] + Math.sin(th) * ry]); }
+                for (let k = n; k >= 0; k--) { const t = k / n, [x, y] = backAt(t); pts.push([x + inset, k ? y : y - inset]); }
+                return pts;
+            };
+            plate(P.frame, outline(0), coreT, 0.0016, { smooth: 40 });
+            const panel = outline(0.0028).filter(p => p[1] < -0.006);
+            for (const s of [-1, 1]) {
+                put(P.furniture, HS.plate(panel, pt, 0.0022, { center: s * (coreT / 2 + pt / 2 - 0.0009), smooth: 55 }));
+                const mid = [0, 1].map(i => (frontAt(0.5)[i] + backAt(0.5)[i]) / 2), at = [mid[0], mid[1], s * (coreT / 2 + pt - 0.0009)];
+                P.metal.push(Mesh.lathe([[0.0042, 0], [0.0042, 0.0004], [0.0034, 0.0007], [0, 0.0007]], 20, { base: [at[0], at[1], at[2] - s * 0.0002], dir: [0, 0, s], sharp: 0.5 }));
+                P.metal.push(Mesh.lathe([[0, 0], [0.0026, 0], [0.0026, 0.0008], [0.0019, 0.0014], [0, 0.0017]], 16, { base: [at[0], at[1], at[2] + s * 0.0004], dir: [0, 0, s], sharp: 0.5 }));
+                P.dark.push(Mesh.box([at[0], at[1], at[2] + s * 0.0019], [0.004, 0.0006, 0.0005]));
+            }
+            void ease;
+        } else if (loft) {
             // A swelled, rounded grip turned in 32 around and 12 down; uvs run around and down it (meters), so its normal map has a frame.
             const g = new CM.Geo(), ring = t => Array.from({ length: 33 }, (_, j) => { const an = j / 32 * Math.PI * 2, bulge = 1 + 0.12 * Math.sin(t * Math.PI), x = Math.sign(Math.cos(an)) * Math.abs(Math.cos(an)) ** 0.55, z = Math.sign(Math.sin(an)) * Math.abs(Math.sin(an)) ** 0.55; return [gx + gd * 0.5 - back * t + x * gd * 0.5 * bulge, -gl * t, z * gw * 0.5]; });
             const around = 2 * (gd + gw) / 32, flatUv = p => [p[0] - gx, p[2]];
@@ -327,9 +396,9 @@
         }
         marks.gripTop = [gx + gd / 2, 0, 0]; marks.gripBottom = [gx + gd / 2 - back, -gl, 0];
         // The guard: a plate with its loop cut through, from the frame down round the trigger and back to the grip.
-        const gy = -0.034, gb = Math.min(gripFront(gy) + 0.001, tx - 0.008), guard = [[gripFront(0) - 0.003, 0.003], [tx + 0.031, 0.003], [tx + 0.034, -0.02], [tx + 0.02, gy - 0.002], [gb, gy - 0.002]];
+        const gy = wheel ? -0.027 : -0.034, gb = Math.min(gripFront(gy) + 0.001, tx - 0.008), guard = wheel ? [[gx + gd - 0.002, 0.002], [tx + 0.024, 0.002], [tx + 0.023, -0.012], [tx + 0.012, gy], [tx - 0.006, gy], [gx + gd - 0.004, -0.016]] : [[gripFront(0) - 0.003, 0.003], [tx + 0.031, 0.003], [tx + 0.034, -0.02], [tx + 0.02, gy - 0.002], [gb, gy - 0.002]];
         const loopOf = HS.offset(guard, 0.0045).map(([x, y]) => [x, Math.min(y, -0.0025)]);
-        plate(style === 'slide' || style === 'carbine' || style === 'classic' ? P.frame : P.under, style === 'classic' ? HS.round(guard, 0.008, 3, [2, 3]) : HS.cut(guard, 0.006, [2, 3]), 0.0075, 0.0013, { holes: [style === 'classic' ? HS.round(loopOf, 0.005, 2, [2, 3]) : HS.cut(loopOf, 0.004, [2, 3])] });
+        plate(style === 'slide' || style === 'carbine' || style === 'classic' ? P.frame : P.under, wheel ? HS.round(guard, 0.009, 4, [2, 3, 4, 5]) : style === 'classic' ? HS.round(guard, 0.008, 3, [2, 3]) : HS.cut(guard, 0.006, [2, 3]), wheel ? 0.0068 : 0.0075, 0.0013, { smooth: wheel ? 40 : 30, holes: [wheel ? HS.round(loopOf, 0.007, 4, [1, 2, 3, 4]) : style === 'classic' ? HS.round(loopOf, 0.005, 2, [2, 3]) : HS.cut(loopOf, 0.004, [2, 3])] });
         plate(P.metal, [[tx - 0.002, 0.002], [tx + 0.004, 0.002], [tx + 0.0035, -0.007], [tx + 0.0012, -0.0145], [tx - 0.0025, -0.0185], [tx - 0.0038, -0.0168], [tx - 0.001, -0.012], [tx - 0.0012, -0.004]], 0.005, 0.0009);
         marks.trigger = [tx, -0.012, 0];
         let rear = [xr0, Hr * 0.5, 0];
@@ -358,13 +427,43 @@
             plate(P.under, [[mxs, 0.004], [mxs + 0.032, 0.004], [mxs + 0.034, c[1] + R * 0.7], [mxs - 0.002, c[1] + R * 0.7]], 0.02, ch);
             well();
         } else if (r.magazine === 'cylinder') {
-            // Six chambers in a fluted cylinder above the trigger.
-            const R = Math.max(Hr * 0.55, 0.018) * ms, len = Math.min(0.05, Lr * 0.35), cx = xr1 - len - 0.005;
-            const prof = [[R * 0.85, 0], [R, 0.004], [R, len - 0.004], [R * 0.85, len]];
-            const cyl = CM.revolve([[0, 0], ...prof, [0, len]], 72, { radius: (t, y, rad) => rad * (1 - 0.045 * Math.max(0, Math.cos(t * Math.PI * 12)) ** 4) }); CM.transform(cyl, ([x, y, z]) => [cx + y, yb + x, -z], ([x, y, z]) => [y, x, -z]);
+            // Six chambers in a cylinder above the trigger, its top chamber behind the bore: six round-bottomed flutes
+            // between the chambers that stop short of both ends, a chamfered front, bolt notches round its rear.
+            const { R, len, cx, xf: xfw } = WH, fl0 = len * 0.3, fl1 = len * 0.84;
+            const prof = [[R * 0.8, 0], [R * 0.97, 0.0015], [R, 0.003]];
+            for (let k = 0; k <= 14; k++) prof.push([R, 0.004 + (len - 0.0085) * k / 14]);
+            prof.push([R * 0.97, len - 0.002], [R * 0.86, len], [R * 0.82, len]);
+            const ramp = (a, b, y) => { const t = Math.max(0, Math.min(1, (y - a) / (b - a))); return t * t * (3 - 2 * t); };
+            const flute = (f, y) => {
+                const d = Math.abs(((f * 6) % 1 + 1) % 1 - 0.5) * 2, hw = 0.42;
+                if (d > hw) return 0;
+                // Its ends round off: the groove narrows and shallows over the first and last few millimeters.
+                const end = Math.min(ramp(fl1 + 0.006, fl1 - 0.002, y), ramp(fl0 - 0.004, fl0 + 0.004, y));
+                return Math.sqrt(Math.max(0, 1 - (d / (hw * Math.max(0.35, end))) ** 2)) * end;
+            };
+            const cyl = CM.revolve([[0, 0], ...prof, [0, len]], 96, { phase: Math.PI + Math.PI / 6, radius: (f, y, rad) => rad * (1 - 0.15 * flute(f, y)), crease: 0.5 });
+            CM.transform(cyl, ([x, y, z]) => [cx + y, yc + x, -z], ([x, y, z]) => [y, x, -z]);
             P.metal.push(cyl);
-            for (let k = 0; k < 6; k++) { const ang = k * Math.PI / 3; P.dark.push(Mesh.lathe([[R * 0.24, 0], [R * 0.24, 0.002], [0, 0.002]], 8, { base: [cx + len - 0.0005, yb + Math.cos(ang) * R * 0.55, Math.sin(ang) * R * 0.55], dir: [1, 0, 0] })); }
-            P.metal.push(rod(cx - 0.004, cx + len + 0.004, yb, R * 0.12, 10));
+            for (let k = 0; k < 6; k++) {
+                const ang = k * Math.PI / 3, cy = yc + Math.cos(ang) * R * 0.55, cz = Math.sin(ang) * R * 0.55;
+                // A chamber's mouth: a bright countersink round a dark bore, a bullet's nose down in it.
+                P.frame.push(Mesh.lathe([[R * 0.27, -0.0012], [R * 0.335, 0]], 20, { base: [cx + len + 0.0003, cy, cz], dir: [1, 0, 0] }));
+                P.brass.push(Mesh.lathe([[0, 0], [R * 0.2, 0], [R * 0.17, 0.0009], [R * 0.08, 0.0014], [0, 0.0015]], 14, { base: [cx + len - 0.0004, cy, cz], dir: [1, 0, 0], sharp: 0.5 }));
+                P.dark.push(Mesh.lathe([[R * 0.275, 0], [R * 0.275, 0.0005], [0, 0.0005]], 20, { base: [cx + len - 0.0004, cy, cz], dir: [1, 0, 0] }));
+                // The brass rims of the rounds, showing at the back behind the recoil shield's edge.
+                P.brass.push(Mesh.lathe([[0, 0], [R * 0.3, 0], [R * 0.3, 0.0012], [0, 0.0012]], 16, { base: [cx - 0.0012, cy, cz], dir: [1, 0, 0] }));
+                // A bolt notch on the rear band, under each chamber.
+                put(P.dark, HS.turn(Mesh.box([cx + len * 0.15, yc + R, 0], [0.0035, 0.0008, 0.0018]), 'x', ang, [0, yc, 0]));
+            }
+            // The center pin and the ejector star's hub at the front.
+            P.metal.push(rod(cx - 0.004, cx + len + 0.0025, yc, R * 0.16, 16));
+            // The ejector rod from the cylinder's face into a full-length shroud under the barrel, rounded at the muzzle.
+            const er = Math.max(0.0022, R * 0.11), lugEnd = xr1 + Lb - 0.003, ly = yc - er * 2.4;
+            P.metal.push(rod(cx + len, xfw + 0.004, yc, er, 12));
+            P.metal.push(rod(cx + len + 0.001, cx + len + 0.004, yc, R * 0.36, 24));
+            plate(P.frame, HS.round([[xfw - 0.002, yb], [lugEnd, yb], [lugEnd, ly + 0.004], [lugEnd - 0.01, ly], [xfw + 0.004, ly], [xfw - 0.002, yc - R * 0.42]], 0.003, 3, [2, 3, 4, 5]), Math.max(rb * 1.55, 0.0105), Math.min(ch, rb * 0.35), { smooth: 40 });
+            // A sighting rib down the barrel's top, from the frame to the front sight.
+            plate(P.frame, HS.cut(rect(xfw - 0.006, yb + rb * 0.55, xr1 + Lb - 0.002, yb + rb + 0.0028), 0.0012, [1, 2]), Math.max(0.0055, rb * 0.75), 0.0008);
         } else if (r.magazine === 'tube') {
             // A tube under the barrel, a capped end and a band holding it to the barrel.
             const tr = 0.009 * ms + 0.004, ty = yb - rb - 0.012, t1 = xr1 + Lb * 0.8;
@@ -387,7 +486,13 @@
             if (style === 'classic') {
                 // A pump: rounded, grooved across its grip.
                 for (let k = 0; k < (f1 - f0 > 0.07 ? 7 : 0); k++) { const x = f0 + (f1 - f0) * (0.25 + k * 0.075); slots.push({ outline: rect(x, fB + 0.007, x + 0.0028, fT - 0.007), depth: 0.0014, draft: 0.0005, side: 'both' }); }
-                plate(P.furniture, HS.round(rect(f0, fB, f1, fT), Math.min(0.012, (fT - fB) * 0.4), 3), fW, Math.min(0.004, fW * 0.16), { smooth: 40, inset: slots });
+                // A pump: round in section, its ends tapered, grooved round its grip.
+                const grooves = [0.28, 0.34, 0.4, 0.46, 0.52, 0.58, 0.64];
+                put(P.furniture, lofted(f0, f1, 96, t => {
+                    const g = f1 - f0 > 0.07 ? grooves.reduce((a, c) => a + Math.exp(-(((t - c) / 0.0065) ** 4)), 0) : 0, end = 0.84 + 0.16 * ease(Math.min(t, 1 - t) / 0.09), sc = end * (1 - 0.06 * Math.min(1, g));
+                    return { yc: (fT + fB) / 2, hy: (fT - fB) / 2 * sc, hz: fW / 2 * sc, k: 0.12, e: 0.8 };
+                }, 28));
+                void slots;
             } else if (style === 'bolt') {
                 // The stock's fore part, floating clear under the barrel, with vent slots.
                 for (let k = 0; k < n; k++) { const x = f0 + 0.012 + k * 0.034; slots.push({ outline: HS.slot(x + 0.011, (fB + yb - rb) / 2 - 0.002, 0.022, 0.006, 2), depth: 0.002, side: 'both', apart: true }); }
@@ -422,9 +527,19 @@
                 else holes.push(HS.cut(q, 0.008));
             }
             if (style === 'carbine') P.under.push(Mesh.lathe([[0.012, 0], [0.012, s0 - s1 - 0.05], [0.009, s0 - s1 - 0.045]], 24, { base: [xr0 - 0.002, Hr * 0.55, 0], dir: [-1, 0, 0], sharp: 0.5 }));
-            plate(P.furniture, outline, sw, Math.min(style === 'classic' || style === 'bolt' ? 0.006 : 0.003, sw * 0.18), { holes, smooth: 40 });
+            if (style === 'classic') {
+                // A shaped stock: a slim wrist behind the receiver, the comb rising along its top, the belly dropping
+                // to a tall butt, its sides swelling a little toward the shoulder; a rubber recoil pad on its end.
+                const L = s0 - s1, tc = Math.min(0.9, (s0 - (s1 + 0.06)) / L), tb = Math.min(0.92, (s0 - (s1 + 0.04)) / L);
+                const topY = t => t < tc ? top + 0.016 * ease(t / tc) - 0.004 * Math.sin(Math.PI * Math.min(1, t / 0.3)) : top + 0.016 - 0.004 * (t - tc) / (1 - tc);
+                const botY = t => t < tb ? Hr * 0.12 + (-0.07 - Hr * 0.12) * Math.pow(t / tb, 0.85) : -0.07 - 0.002 * (t - tb) / (1 - tb);
+                const half = t => sw * (0.36 + 0.14 * ease(t / 0.8)) - 0.0025 * Math.exp(-(((t - 0.12) / 0.08) ** 2));
+                const sec = t => ({ yc: (topY(t) + botY(t)) / 2, hy: (topY(t) - botY(t)) / 2, hz: half(t), k: 0.22, e: 0.62 });
+                put(P.furniture, lofted(s0, s1, 36, sec, 28));
+                put(P.dark, lofted(s1 + 0.001, s1 - 0.012, 3, t => { const q = sec(1); return { yc: q.yc, hy: q.hy * (1.01 - 0.03 * t), hz: q.hz * (1.02 - 0.04 * t), k: q.k, e: q.e }; }, 28));
+            } else plate(P.furniture, outline, sw, Math.min(style === 'classic' || style === 'bolt' ? 0.006 : 0.003, sw * 0.18), { holes, smooth: 40 });
             if (style === 'bolt') plate(P.under, HS.cut(rect(s1 + 0.07, top + 0.004, s0 - 0.04, topAt(s0 - 0.04) + 0.012), 0.004, [2, 3]), sw * 0.6, ch);
-            plate(P.dark, rect(s1 - 0.012, -0.072, s1 + 0.001, top + 0.012), Math.min(0.042, sw + 0.003), 0.002);
+            if (style !== 'classic') plate(P.dark, rect(s1 - 0.012, -0.072, s1 + 0.001, top + 0.012), Math.min(0.042, sw + 0.003), 0.002);
             marks.stock = [s1 - 0.012, (top - 0.06) / 2, 0]; rear = marks.stock;
         } else if (r.stock === 'folding') {
             // A side-folding frame: a stamped loop with a hinge knuckle and a ribbed butt plate.
@@ -456,9 +571,9 @@
         if (r.sight === 'iron') {
             if (style === 'classic') {
                 // A ramp blade at the muzzle (or a bead on the rib), a notch at the rear.
-                if (r.magazine === 'cylinder' || !long) plate(P.frame, [[bx1 - 0.03, yb + rb * 0.6], [bx1 - 0.004, yb + rb * 0.6], [bx1 - 0.004, yb + rb + 0.008], [bx1 - 0.011, yb + rb + 0.008]], 0.0035, 0.0006);
+                if (r.magazine === 'cylinder' || !long) plate(P.frame, HS.round([[bx1 - 0.032, yb + rb * 0.6], [bx1 - 0.005, yb + rb * 0.6], [bx1 - 0.005, yb + rb + 0.0095], [bx1 - 0.012, yb + rb + 0.0095]], 0.0015, 2, [2, 3]), 0.0032, 0.0006);
                 else P.metal.push(Mesh.sphere([bx1 - 0.008, yb + rb + 0.0085, 0], 0.0022, 12));
-                put(P.metal, HS.plate([[-0.006, 0], [0.006, 0], [0.006, 0.006], [0.0015, 0.006], [0.0015, 0.003], [-0.0015, 0.003], [-0.0015, 0.006], [-0.006, 0.006]], 0.005, 0.0006, { frame: { o: [xr0 + Lr * 0.12 + 0.0025, sightBase - 0.001, 0], u: [0, 0, 1], v: [0, 1, 0], n: [1, 0, 0] } }));
+                if (!wheel) put(P.metal, HS.plate([[-0.006, 0], [0.006, 0], [0.006, 0.006], [0.0015, 0.006], [0.0015, 0.003], [-0.0015, 0.003], [-0.0015, 0.006], [-0.006, 0.006]], 0.005, 0.0006, { frame: { o: [xr0 + Lr * 0.12 + 0.0025, sightBase - 0.001, 0], u: [0, 0, 1], v: [0, 1, 0], n: [1, 0, 0] } }));
             } else if (!long) {
                 // Pistol sights: a dovetailed notch at the rear, a post at the front.
                 put(P.metal, HS.plate([[-0.0065, 0], [0.0065, 0], [0.0065, 0.006], [0.0016, 0.006], [0.0016, 0.0028], [-0.0016, 0.0028], [-0.0016, 0.006], [-0.0065, 0.006]], 0.006, 0.0008, { frame: { o: [xr0 + 0.008, sightBase - 0.0008, 0], u: [0, 0, 1], v: [0, 1, 0], n: [1, 0, 0] } }));
@@ -538,13 +653,15 @@
         const add = (list, props) => { const m = list.length ? Mesh.merge(list) : null; if (m && m.index.length) parts.push(Object.assign(m, props)); return m; };
         add(P.frame, { name: 'Frame', kind: 'metal', color: frame.color || r.paint, roughness: frame.roughness, metalness: frame.metalness });
         add(P.under, { name: 'Underframe', kind: 'metal', color: chrome ? '#3a3d42' : '#363a41', roughness: 0.6, metalness: 0.35 });
+        if (r.furniture === 'wood') for (const m of P.furniture) Mesh.grainUv(m);
         const furniture = add(P.furniture, { name: 'Furniture', kind: 'prop', color: r.furniture === 'painted' ? r.paint : furn.color, roughness: furn.roughness, metalness: furn.metalness });
         if (furniture && r.furniture === 'wood') {
-            if (!c.wood) c.wood = Paint.wood('#7a4a28', 21);
-            textures['wood.png'] = c.wood; furniture.texture = 'wood.png'; Mesh.planarUv(furniture, 0.25);
+            if (!c.gunWood) c.gunWood = Paint.grainWood('#5e3a22', 21, 'gun-wood.png');
+            textures['gun-wood.png'] = c.gunWood; furniture.texture = 'gun-wood.png';
         }
         add(P.metal, { name: 'Metal', kind: 'metal', color: chrome ? '#d4d8de' : '#5d626b', roughness: chrome ? 0.16 : 0.34, metalness: 0.75 });
         add(P.dark, { name: 'Details', kind: 'metal', color: '#111113', roughness: 0.7, metalness: 0.3 });
+        add(P.brass, { name: 'Brass', kind: 'metal', color: '#b8964a', roughness: 0.3, metalness: 0.85 });
         add(P.glass, { name: 'Lens', kind: 'glass', color: '#3a5a7a', roughness: 0.05, metalness: 0.2 });
         add(P.glow, { name: 'Glow', kind: 'prop', color: r.glow, roughness: 0.3, metalness: 0, emissive: r.glow });
         Surface.apply(parts, textures, p => ['Frame', 'Underframe', 'Metal', 'Details'].includes(p.name) ? 'metal' : p.name === 'Furniture' ? (r.furniture === 'wood' ? 'wood' : 'rubber') : null);

@@ -362,6 +362,33 @@
         const solid=c=>({...design,field:{...design.field,layout:'solid',colors:[c,c,c,c,c]}}),black=Design.prepare(solid('#000000'),1,images),white=Design.prepare(solid('#ffffff'),1,images),k=[0,0,0,255],w=[0,0,0,255];
         return(u,v,out)=>{Design.colorAt(black,u,v,k);Design.colorAt(white,u,v,w);const a=Math.max(0,Math.min(1,1-(w[0]-k[0])/255));for(let i=0;i<3;i++)out[i]=a>.004?Math.min(1,k[i]/a/255)*(1-r.grime*.12):0;const nick=hash(Math.floor(u*90),Math.floor(v*90),r.surfaceSeed+5);out[3]=a*(1-r.wear*.4*(nick>.9?1:.08));};
     }
+    // Hardware lettering and emblems must never be painted across: handles,
+    // latches, lamps, mirrors, vents and fasteners standing on the panel.
+    const FIXTURE=/handle|latch|lamp|light|mirror|vane|louver|fastener|socket|bolt|rib|grille|vent|filler|hinge|antenna|wiper|marker/i;
+    /** Moves (or narrows) a caption of `width` x `height` centred at F.o
+     * along F.u into the nearest stretch of the spec's panel that no fixture
+     * crosses at the caption's height. Returns the new frame and width. */
+    function clearSpan(parts,s,F,width,height,need=width){
+        const margin=height*.30,band=height*.62,blocked=[],reach=Math.max(.04,Math.min(s.depth*.5,Math.max(width,height)*.5));
+        for(const p of parts){
+            if(p===s.p||!FIXTURE.test(p.name))continue;const P=p.positions;
+            for(let k=0;k<p.index.length;k+=3){
+                let lo=Infinity,hi=-Infinity,vlo=Infinity,vhi=-Infinity,near=false;
+                for(let j=0;j<3;j++){const i=p.index[k+j],d=[P[i*3]-F.o[0],P[i*3+1]-F.o[1],P[i*3+2]-F.o[2]],u=dot(d,F.u),v=dot(d,F.v),n=dot(d,F.n);lo=Math.min(lo,u);hi=Math.max(hi,u);vlo=Math.min(vlo,v);vhi=Math.max(vhi,v);if(Math.abs(n)<reach)near=true;}
+                if(near&&vhi>-band&&vlo<band&&hi>-width&&lo<width)blocked.push([lo-margin,hi+margin]);
+            }
+        }
+        if(!blocked.length)return{F,width};
+        blocked.sort((a,b)=>a[0]-b[0]);const free=[];let at=-width/2-s.w*.04;const end=width/2+s.w*.04;
+        for(const [a,b]of blocked){if(a>at)free.push([at,Math.min(a,end)]);at=Math.max(at,b);if(at>=end)break;}
+        if(at<end)free.push([at,end]);
+        const spans=free.filter(([a,b])=>b-a>1e-6);if(!spans.length)return{F,width:0};
+        const fits=spans.filter(([a,b])=>b-a>=need),pick=fits.length?fits.sort((x,y)=>Math.abs(Math.max(x[0]+need/2,Math.min(x[1]-need/2,0)))-Math.abs(Math.max(y[0]+need/2,Math.min(y[1]-need/2,0))))[0]:spans.sort((x,y)=>(y[1]-y[0])-(x[1]-x[0]))[0];
+        const room=pick[1]-pick[0],w=Math.min(width,room),c=Math.max(pick[0]+Math.min(need,room)/2,Math.min(pick[1]-Math.min(need,room)/2,0));
+        return{F:{...F,o:add(F.o,scale(F.u,c))},width:w};
+    }
+    /** The width a caption really takes (lettering() scales to fit both limits). */
+    function captionWidth(text,width,height){const advance=Array.from(CP.cleanText(text,22)).reduce((n,ch)=>n+(Typeface[ch]||Typeface[' ']).advance,0);if(!advance)return 0;const size=Math.min(width/(advance+.12),height/1.10);return size*(advance+.12);}
     function decorate(parts,textures,r,cache={},images={}){
         const W=r.width,H=r.height,L=r.length,specs=markingSpecs(parts,r);
         const insignia=r.insignia&&r.insignia.layers&&r.insignia.layers.length?r.insignia:null,named=insignia?Design.pictures(insignia):[];
@@ -375,7 +402,7 @@
         }
         const regions=new Map(kept.regions),meshes=[],offset=Math.min(W,H,L)*.0007;
         for(const s of specs){const uv=regions.get(s.type+'|'+Math.round(s.w/s.h*100)+'|'+s.p.color),m=project(s.p,s.F,s.w,s.h,s.depth,uv,offset);if(m.index.length)meshes.push(m);}
-        if(insignia&&regions.has('insignia'))for(const s of insigniaSpots(parts,r,specs)){const m=project(s.p,s.F,s.size,s.size,s.depth,regions.get('insignia'),offset*1.3);if(m.index.length)meshes.push(m);}
+        if(insignia&&regions.has('insignia'))for(const s of insigniaSpots(parts,r,specs)){const spec=specs.find(q=>q.p===s.p&&Math.abs(dot(sub(s.F.o,q.F.o),q.F.n))<1e-6)||{p:s.p,w:s.size,depth:s.depth},clear=clearSpan(parts,spec,s.F,s.size,s.size);if(clear.width<s.size*.999)continue;const m=project(s.p,clear.F,s.size,s.size,s.depth,regions.get('insignia'),offset*1.3);if(m.index.length)meshes.push(m);}
         if(meshes.length){const mesh=CM.merge(meshes);CM.skin(mesh,0);parts.push({...mesh,name:'Vehicle markings',surfaceRole:'ink',texture:kept.image.name,color:'#ffffff',roughness:.76,metalness:0,cutout:true,alphaCutoff:.5});textures[kept.image.name]=kept.image;}
         const letters=[];
         for(const s of specs){
@@ -392,7 +419,8 @@
             // cooling ribs and wing root. A generic centered caption was not.
             if(s.p.name==='Formed side equipment bays'){F.o[2]=L*.16;w=Math.min(s.w*.42,L*.20);}
             if(s.p.name==='Formed avionics shell'){F.o[2]=L*.17;w=W*.20;h=L*.10;}
-            const m=lettering(s.p,F,text,w,h,offset*1.6);if(!m.index.length)continue;
+            const clear=clearSpan(parts,s,F,w,h,captionWidth(text,w,h));
+            const m=lettering(s.p,clear.F,text,clear.width,h,offset*1.6);if(!m.index.length)continue;
             const ink=rgb(s.p.color).reduce((n,v,i)=>n+v*[.21,.72,.07][i],0)>.58?'#202b31':'#e4e6dc',color=lin(ink);m.colors=Float32Array.from({length:m.positions.length},(_,i)=>color[i%3]);letters.push(m);
         }
         if(letters.length){const mesh=CM.merge(letters);mesh.colors=Float32Array.from(letters.flatMap(m=>Array.from(m.colors)));CM.skin(mesh,0);parts.push({...mesh,name:'Vehicle lettering',surfaceRole:'ink',color:'#ffffff',roughness:.8,metalness:0});}

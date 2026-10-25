@@ -329,8 +329,17 @@ class PropBuilder {
         return `<label class="rr-c3d-row rr-c3d-choice"><span class="rr-c3d-label">${this._t(label)}</span><select class="rr-select" data-path="${path}">${opts}</select></label>`;
     }
 
+    /** The color a control shows: the recipe's own, else what the kind says it currently draws (`effectiveColor`), so an unset color still shows. */
+    _shownColor(path) {
+        const own = this._get(path);
+        if (own) return own;
+        const hook = this._ui().effectiveColor;
+        const v = hook ? hook.call(this, path) : '';
+        return /^#[0-9a-f]{6}$/i.test(v || '') ? v : '';
+    }
+
     _color(path, label, swatches) {
-        const v = this._get(path) || '';
+        const v = this._shownColor(path);
         const sw = (swatches || []).map(c => `<button class="rr-c3d-swatch" data-act="swatch" data-path="${path}" data-color="${c}" style="background:${c}" title="${c}"></button>`).join('');
         return `<div class="rr-c3d-row rr-c3d-colorrow"><span class="rr-c3d-label">${this._t(label)}</span>
             <div class="rr-c3d-swatches">${sw}</div>
@@ -378,7 +387,7 @@ class PropBuilder {
         if (act === 'color') {
             const path = b.dataset.path;
             RRColorPopover.open(b, {
-                value: this._get(path) || '#808080',
+                value: this._shownColor(path) || '#808080',
                 onInput: hex => { this._set(path, hex); b.style.setProperty('--rr-c3d-swatch', hex); this._quick = true; this._queueRebuild(); },
                 onChange: hex => { this._set(path, hex); b.style.setProperty('--rr-c3d-swatch', hex); b.title = hex; this._commit(); this._quick = false; this._renderPanel(); this._queueRebuild(); }
             });

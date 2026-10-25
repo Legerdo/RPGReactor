@@ -27,7 +27,7 @@
         const form=BY_ID.has(input.form)?input.form:'compact',f=BY_ID.get(form),r=input;
         return {kind:'vehicle',form,width:clamp(r.width,.5,8,f[2]),height:clamp(r.height,.35,7,f[3]),length:clamp(r.length,1,12,f[4]),
             paint:hex(r.paint,form==='rover'?'#697460':form==='sport'||form==='motorcycle'?'#8c353b':form==='walker'?'#bd8d43':'#426c80'),secondary:hex(r.secondary,form==='rover'?'#475144':form==='walker'?'#48545e':form==='compact'||form==='sport'||form==='motorcycle'?'#303c43':'#b4bdba'),trim:hex(r.trim,'#252c32'),accent:hex(r.accent,'#d0a15c'),glass:hex(r.glass,'#172c36'),
-            interior:r.interior!==false,windowOpacity:clamp(r.windowOpacity,.2,.95,.82),seatColor:hex(r.seatColor,'#62717a'),finish:['enamel','powder','brushed','composite'].includes(r.finish)?r.finish:'enamel',wear:clamp(r.wear,0,1,['rover','walker','truck'].includes(form)?.35:.08),grime:clamp(r.grime,0,1,['rover','walker','truck'].includes(form)?.30:.06),surfaceSeed:Math.round(clamp(r.surfaceSeed,1,999999,701)),livery:['plain','stripe','rally','service'].includes(r.livery)?r.livery:['rover','walker','truck','hover','shuttle','drone'].includes(form)?'service':form==='sport'?'rally':'stripe',markings:typeof r.markings==='string'?r.markings.toUpperCase().replace(/[^A-Z0-9 .:/-]/g,'').slice(0,22):({compact:'R-17',sport:'24',truck:'FIELD SERVICE',rover:'RANGER 06',motorcycle:'R-17',hover:'UTILITY 17',shuttle:'EXPEDITION 07',drone:'SURVEY 06',walker:'WORK UNIT 06'}[form]),
+            interior:r.interior!==false,windowOpacity:clamp(r.windowOpacity,.2,.95,.62),seatColor:hex(r.seatColor,'#62717a'),finish:['enamel','powder','brushed','composite'].includes(r.finish)?r.finish:'enamel',wear:clamp(r.wear,0,1,['rover','walker','truck'].includes(form)?.35:.08),grime:clamp(r.grime,0,1,['rover','walker','truck'].includes(form)?.30:.06),surfaceSeed:Math.round(clamp(r.surfaceSeed,1,999999,701)),livery:['plain','stripe','rally','service'].includes(r.livery)?r.livery:['rover','walker','truck','hover','shuttle','drone'].includes(form)?'service':form==='sport'?'rally':'stripe',markings:typeof r.markings==='string'?r.markings.toUpperCase().replace(/[^A-Z0-9 .:/-]/g,'').slice(0,22):({compact:'R-17',sport:'24',truck:'FIELD SERVICE',rover:'RANGER 06',motorcycle:'R-17',hover:'UTILITY 17',shuttle:'EXPEDITION 07',drone:'SURVEY 06',walker:'WORK UNIT 06'}[form]),
             wheelSize:clamp(r.wheelSize,.75,1.3,1),wheelbase:clamp(r.wheelbase,.5,.72,(Bodywork.DESIGN[form]||{}).wheelbase||.62),clearance:clamp(r.clearance,0,1,.4),
             cabinHeight:clamp(r.cabinHeight,.7,1.3,1),cabinLength:clamp(r.cabinLength,.75,1.25,1),axles:Math.round(clamp(r.axles,2,3,form==='rover'?3:2)),
             armor:clamp(r.armor,0,1,form==='rover'?.8:.2),roughness:clamp(r.roughness,.2,.9,{sport:.24,compact:.30,motorcycle:.30,truck:.40,hover:.38,shuttle:.40,drone:.42}[form]??.52),
@@ -152,10 +152,14 @@
                 box('trim',[sign*(hx+W*.002),hy,hz],[W*.006,H*.037,Math.min(L*.045,door.width*.32)],.006,'Door handle recess');
                 box('metal',[sign*(hx+W*.007),hy,hz],[W*.009,H*.012,Math.min(L*.038,door.width*.27)],.004,'Door latch');
                 const mirrorBase=[sign*bw,hood+H*.10,front-L*.035],mirror=[sign*W*.56,hood+H*.11,front-L*.055];
-                tube('trim',[mirrorBase,mirror],W*.010);box('paint',mirror,[W*.13,H*.07,L*.035],.018);
+                // A rounded housing on a stalk with the glass on its rear face.
+                const ms=[W*.13,H*.075,L*.04];tube('trim',[mirrorBase,mirror],W*.010);put('paint',CM.roundedBox(mirror,ms,Math.min(...ms)*.46,4));
+                put('glass',CM.roundedBox([mirror[0]+sign*W*.004,mirror[1],mirror[2]-ms[2]*.5],[ms[0]*.84,ms[1]*.72,.006],.004,2),'Mirror face');
 
             }
-            Bodywork.cabin({...context,front,rear});
+            const fit=Bodywork.cabin({...context,front,rear});
+            // The riders sit where the seats are built: the driver first, hands on the wheel rim.
+            if(fit){mounts.seats=fit.seats;mounts.controls=fit.controls;}
             Bodywork.roadFace(context);
             if(r.roofRack){for(const x of [-W*.29,W*.29]){for(const z of [rr,rf])tube('trim',[[x,roofY,z],[x,roofY+H*.10,z]],H*.016);tube('metal',[[x,roofY+H*.10,rr],[x,roofY+H*.10,rf]],H*.019);}for(let j=0;j<5;j++){const z=rr+(rf-rr)*j/4;tube('metal',[[-W*.29,roofY+H*.10,z],[W*.29,roofY+H*.10,z]],H*.012);}}
             if(r.form==='truck'){
@@ -238,7 +242,7 @@
         for(const c of mounts.controls||[])c.at[1]-=low;
         const textures={};Finish.fittings(parts,r);Finish.apply(parts,textures,r,cache,options);tint(parts,context.tints);Finish.decorate(parts,textures,r,cache,options.images||{});for(const p of parts)delete p.zone;
         const finalParts=consolidate(parts,r,wheels,mounts);
-        const sidecarExtra=GROUND.has(r.form)?{vehicle:{forward:'+z',wheels,...(mounts.seats?{seats:mounts.seats,controls:mounts.controls,stand:{lean:0,side:'left'}}:{})}}:{};
+        const sidecarExtra=GROUND.has(r.form)?{vehicle:{forward:'+z',wheels,...(mounts.seats?{seats:mounts.seats,controls:mounts.controls,...(r.form==='motorcycle'?{stand:{lean:0,side:'left'}}:{})}:{})}}:{};
         const missing=r.insignia.layers.length?Design.pictures(r.insignia).find(n=>!(options.images||{})[n])||'':'';
         return {kind:'vehicle',recipe:r,construction,parts:finalParts,bones:[{name:'Prop',head:[0,0,0],parent:-1}],clips:[],textures,height:high-low,sidecarExtra,imageName:missing,imageMissing:!!missing};
     }
@@ -297,7 +301,7 @@
             if(f==='walker')out+=slider('stance','Stance width',[.75,1.3]);
             return out;
         }
-        if(tab==='look')return (car||['hover','shuttle'].includes(f)?this._check('interior','Cabin interior')+(this.recipe.interior?slider('windowOpacity','Window opacity',[.2,.95])+this._color('seatColor','Seat upholstery'):''):'')+this._select('finish','Paint finish',[['enamel','Enamel'],['powder','Powder coat'],['brushed','Brushed alloy'],['composite','Woven composite']])+this._select('livery','Paint scheme',[['plain','Plain'],['stripe','Coach stripe'],['rally','Rally'],['service','Service markings']])+`<label class="rr-c3d-row"><span class="rr-c3d-label">${this._t('Custom marking')}</span><input type="text" class="rr-input rr-prop-text" data-path="markings" maxlength="22" value="${this.recipe.markings}" spellcheck="false"></label>`+slider('wear','Paint wear',[0,1])+slider('grime','Grime',[0,1])+slider('surfaceSeed','Surface variation',[1,999999],1)+this._color('paint','Body color')+this._color('secondary','Secondary body color')+this._color('trim','Trim')+this._color('accent','Accent')+this._color('glass','Glass')+slider('roughness','Roughness',[.2,.9])
+        if(tab==='look')return (car||['hover','shuttle','walker'].includes(f)?this._check('interior','Cabin interior')+(this.recipe.interior?slider('windowOpacity','Window opacity',[.2,.95])+this._color('seatColor','Seat upholstery'):''):'')+this._select('finish','Paint finish',[['enamel','Enamel'],['powder','Powder coat'],['brushed','Brushed alloy'],['composite','Woven composite']])+this._select('livery','Paint scheme',[['plain','Plain'],['stripe','Coach stripe'],['rally','Rally'],['service','Service markings']])+`<label class="rr-c3d-row"><span class="rr-c3d-label">${this._t('Custom marking')}</span><input type="text" class="rr-input rr-prop-text" data-path="markings" maxlength="22" value="${this.recipe.markings}" spellcheck="false"></label>`+slider('wear','Paint wear',[0,1])+slider('grime','Grime',[0,1])+slider('surfaceSeed','Surface variation',[1,999999],1)+this._color('paint','Body color')+this._color('secondary','Secondary body color')+this._color('trim','Trim')+this._color('accent','Accent')+this._color('glass','Glass')+slider('roughness','Roughness',[.2,.9])
             // Insignia: the Design page's emblems-only list (shapes, or a project picture), painted on doors, flanks and fins.
             +(this._designPanel?this._designPanel('insignia',{field:false}):'');
         let out=this._check('details','Details')+(this.recipe.details?slider('detailDensity','Detail density',[0,1]):'')+this._check('lights','Lights');
