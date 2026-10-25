@@ -87,7 +87,20 @@
         return parts.map(([id]) => id).filter(id => chosen.has(id));
     }
 
-    const api = { html, render, bind, load, save, scopesFor, summary };
+    /**
+     * The Randomize button's die, drawn like the editor's own toolbar icons (an outline in the text color, the
+     * pips in the accent): an emoji die took the system's colors and looked out of place.
+     */
+    function icon(size = 14) {
+        return `<svg class="rr-random-icon" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" focusable="false">`
+            + '<path d="M12 2.8 20.2 7.4v9.2L12 21.2 3.8 16.6V7.4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'
+            + '<path d="M3.8 7.4 12 12l8.2-4.6M12 12v9.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" opacity="0.8"/>'
+            + '<g fill="var(--color-accent-bright)"><ellipse cx="12" cy="7.4" rx="1.6" ry="0.95"/>'
+            + '<circle cx="6.6" cy="11.6" r="1.05"/><circle cx="9.3" cy="16.4" r="1.05"/>'
+            + '<circle cx="14.7" cy="13.4" r="1.05"/><circle cx="17.4" cy="11.2" r="1.05"/><circle cx="14.7" cy="17.8" r="1.05"/><circle cx="17.4" cy="15.6" r="1.05"/></g></svg>';
+    }
+
+    const api = { html, render, bind, load, save, scopesFor, summary, icon };
     root.RRRandomPartsMenu = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

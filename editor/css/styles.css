@@ -7706,6 +7706,8 @@ html.rr-detached-window.rr-repaint { clip-path: inset(0 round calc(var(--radius-
 .rr-c3d-gallery-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: var(--color-text); margin-bottom: 8px; }
 .rr-c3d-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; align-content: start; }
 .rr-c3d-gallery-scroll { overflow-y: auto; min-height: 0; flex: 1 1 auto; }
+.rr-c3d-group-pick select { max-width: 150px; }
+.rr-random-icon { display: inline-block; vertical-align: -2px; }
 .rr-c3d-gallery-grid > .rr-c3d-note { grid-column: 1 / -1; margin: 0; }
 .rr-c3d-gallery-sub { margin: 4px 0 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-text-muted); }
 .rr-c3d-gallery-grid + .rr-c3d-gallery-sub { margin-top: 14px; }

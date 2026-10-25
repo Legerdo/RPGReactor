@@ -754,7 +754,7 @@
         const panel = document.createElement('div');
         panel.className = 'rr-c3d-export';
         panel.setAttribute('role', 'dialog');
-        panel.setAttribute('aria-label', t('Export sprite sheet'));
+        panel.setAttribute('aria-label', t('Export Sprite Sheet'));
         host.appendChild(panel);
         const draw = () => {
             const l = layout(state.layout), face = l.id === 'face', exprs = expressionList();
@@ -762,7 +762,7 @@
             const presets = facePresets();
             const presetOptions = presets.map(p => `<option value="${p.id}"${p.id === state.preset ? ' selected' : ''}>${esc(t(p.label))}</option>`).join('');
             panel.innerHTML = `
-                <div class="rr-c3d-export-head"><span>${esc(t('Export sprite sheet'))}</span><button class="rr-c3d-clear" data-x="close" title="${esc(t('Close'))}">✕</button></div>
+                <div class="rr-c3d-export-head"><span>${esc(t('Export Sprite Sheet'))}</span><button class="rr-c3d-clear" data-x="close" title="${esc(t('Close'))}">✕</button></div>
                 <label class="rr-c3d-row rr-c3d-choice"><span class="rr-c3d-label">${esc(t('Sheet'))}</span><select class="rr-select" data-x="layout">${LAYOUTS.map(o => `<option value="${o.id}"${o.id === l.id ? ' selected' : ''}>${esc(t(o.label))}</option>`).join('')}</select></label>
                 <label class="rr-c3d-row"><span class="rr-c3d-label">${esc(t('Frame size'))}</span><input type="number" class="rr-input" data-x="frame" min="16" max="512" step="1" value="${state.frame}"><span class="rr-c3d-value">${l.columns * state.frame} × ${l.rows * state.frame}</span></label>
                 ${face ? `
@@ -832,7 +832,7 @@
         if (!project) return;
         let name = safeName(builder.name);
         if (!name) {
-            name = safeName(await root.RRDialog.prompt(t('Name this character:'), { title: t('Export sprite sheet'), value: t('Villager') }));
+            name = safeName(await root.RRDialog.prompt(t('Name this character:'), { title: t('Export Sprite Sheet'), value: t('Villager') }));
             if (!name) return;
             builder.name = name;
             const input = builder.root.querySelector('.rr-c3d-name-input');
@@ -840,7 +840,7 @@
         }
         const fs = require('fs'), path = require('path'), l = layout(state.layout);
         const file = path.join(project.path, 'img', l.folder, fileName(l.id, name));
-        if (fs.existsSync(file) && !await root.RRDialog.confirm(t('Replace {file}?', { file: 'img/' + l.folder + '/' + path.basename(file) }), { title: t('Export sprite sheet'), ok: t('Replace'), danger: true })) return;
+        if (fs.existsSync(file) && !await root.RRDialog.confirm(t('Replace {file}?', { file: 'img/' + l.folder + '/' + path.basename(file) }), { title: t('Export Sprite Sheet'), ok: t('Replace'), danger: true })) return;
         const bar = panel.querySelector('.rr-c3d-export-progress'), go = panel.querySelector('.rr-c3d-export-go');
         panel.dataset.busy = '1';
         builder.root.classList.add('is-exporting');

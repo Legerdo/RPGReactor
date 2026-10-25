@@ -5,7 +5,7 @@
  * its species, face, hair, outfit, accessories and colors, or a four-legged
  * creature. Every control edits the recipe; the view rebuilds from it,
  * skinned on its own skeleton, standing in its A-pose or playing its Idle.
- * Save to Project writes the GLB (pictures inside) to
+ * Export Model To Project writes the GLB (pictures inside) to
  * <project>/3d/Characters/<name>/source/, the recipe beside it
  * (character.json) and a thumbnail, so Open lists it and edits it again, and
  * Database › 3D Models shows it like an imported model.
@@ -217,16 +217,17 @@ class Character3DBuilder {
                     <button class="rr-btn-chip rr-c3d-undo" title="${this._t('Undo')}" disabled>↶</button>
                     <button class="rr-btn-chip rr-c3d-redo" title="${this._t('Redo')}" disabled>↷</button>
                     <span class="rr-c3d-group">
-                        <button class="rr-btn-chip rr-c3d-random" title="${this._t('Roll something new for the parts ticked beside it')}">🎲 ${this._t('Randomize')}</button>
+                        <button class="rr-btn-chip rr-c3d-random" title="${this._t('Roll something new for the parts ticked beside it')}">${RRRandomPartsMenu.icon()} ${this._t('Randomize')}</button>
                         ${RRRandomPartsMenu.html(t => this._t(t))}
                     </span>
                     <button class="rr-btn-chip rr-c3d-reset">↻ ${this._t('Reset')}</button>
-                    <button class="rr-btn-chip rr-c3d-open">${this._t('Open…')}</button>
-                    <button class="rr-btn-chip rr-c3d-keep" title="${this._t('Keep this character\'s settings in the Forge to open and change later. No model is made.')}">${this._t('Save recipe')}</button>
+                    <button class="rr-btn-chip rr-c3d-open">${this._t('Open')}</button>
+                    <label class="rr-c3d-name rr-c3d-group-pick"><span>${this._t('Group')}</span><select class="rr-select rr-c3d-design-group" title="${this._t('Where Save Design keeps this character')}"></select></label>
+                    <button class="rr-btn-chip rr-c3d-keep" title="${this._t('Keep this character\'s settings in the Forge to open and change later. No model is made.')}">${this._t('Save Design')}</button>
                     <span class="rr-c3d-spacer"></span>
                     <span class="rr-c3d-status" aria-live="polite"></span>
-                    <button class="rr-btn-chip rr-c3d-sheet">${this._t('Export sprite sheet…')}</button>
-                    <button class="rr-btn-chip rr-c3d-save">${this._t('Save to Project')}</button>
+                    <button class="rr-btn-chip rr-c3d-sheet">${this._t('Export Sprite Sheet')}</button>
+                    <button class="rr-btn-chip rr-c3d-save">${this._t('Export Model To Project')}</button>
                 </div>
                 <div class="rr-c3d-body">
                     <div class="rr-c3d-side">
@@ -241,7 +242,7 @@ class Character3DBuilder {
                             <select id="rr-c3d-pose-picker" class="rr-select rr-c3d-pose-picker" data-rr-search="always"></select>
                         </div>
                         <div class="rr-c3d-viewbar">
-                            <button class="rr-btn-chip rr-c3d-frame" data-frame="body">${this._t('Whole body')}</button>
+                            <button class="rr-btn-chip rr-c3d-frame" data-frame="body">${this._t('Whole Body')}</button>
                             <button class="rr-btn-chip rr-c3d-frame" data-frame="face">${this._t('Face')}</button>
                         </div>
                         <div class="rr-c3d-hint">${this._t('Drag to turn, wheel to zoom')}</div>
@@ -263,7 +264,9 @@ class Character3DBuilder {
         // Reset: back to the species' (or the creature kind's) own starting point.
         q('.rr-c3d-reset').addEventListener('click', () => this._selectPreset(this.human ? RRCharacterModel.withSpecies({}, this.recipe.species) : this._creature(this.recipe.kind)));
         q('.rr-c3d-open').addEventListener('click', () => this._showGallery());
-        q('.rr-c3d-keep').addEventListener('click', () => this.saveRecipe());
+        q('.rr-c3d-keep').addEventListener('click', () => this.saveDesign());
+        q('.rr-c3d-design-group').addEventListener('change', e => this._chooseDesignGroup(e.target.value));
+        this._renderDesignGroups();
         q('.rr-c3d-save').addEventListener('click', () => this.save());
         // Export sprite sheet: the panel and the rendering live in RRCharacterSpriteSheet.
         q('.rr-c3d-sheet').addEventListener('click', () => { if (window.RRCharacterSpriteSheet && this._view) RRCharacterSpriteSheet.openPanel(this); });
@@ -1646,7 +1649,7 @@ class Character3DBuilder {
     /** The parts Randomize can roll for this character (a person's, or a creature's or slime's). */
     _randomPartList() {
         return this.human && !this.slime
-            ? [['body', 'Body'], ['face', 'Face'], ['hair', 'Hair'], ['outfit', 'Outfit'], ['colors', 'Colors'], ...(window.RRCharacterBodyArt ? [['bodyart', 'Body art']] : [])]
+            ? [['gender', 'Gender'], ['body', 'Body'], ['face', 'Face'], ['hair', 'Hair'], ['outfit', 'Outfit'], ['colors', 'Colors'], ...(window.RRCharacterBodyArt ? [['bodyart', 'Body art']] : [])]
             : [['shape', 'Shape'], ['colors', 'Colors']];
     }
 
@@ -1658,7 +1661,10 @@ class Character3DBuilder {
         const scopes = RRRandomPartsMenu.scopesFor(parts, chosen);
         if (!scopes.length) return;
         let r = JSON.parse(JSON.stringify(this.recipe));
+        // Gender unticked: every roll keeps the gender the character has (only women, or only men, run after run).
+        this._heldGender = this.human && !this.slime && !chosen.has('gender') ? r.gender : undefined;
         for (const scope of scopes) r = this._rollPart(r, scope);
+        this._heldGender = undefined;
         this._replace(r);
     }
 
@@ -1678,9 +1684,11 @@ class Character3DBuilder {
             if (scope === 'shape') return Object.assign(r, n, { plan: 'quadruped', colors: r.colors, pattern: r.pattern });
             return Object.assign(r, n, { plan: 'quadruped' });
         }
-        const roll = RRCharacterModel.random(seed, { species: r.species });
+        const roll = RRCharacterModel.random(seed, { species: r.species, gender: this._heldGender });
         const faceSections = new Set(['Head and neck', 'Head shape', 'Forehead and brows', 'Eyes', 'Nose', 'Mouth and jaw', 'Ears']);
         switch (scope) {
+            // Gender alone: a woman or a man, the rest as it is.
+            case 'gender': r.gender = seed % 2 ? 1 : 0; break;
             case 'body':
                 for (const k of ['gender', 'age', 'height', 'weight', 'muscle', 'cup', 'firmness']) r[k] = roll[k];
                 for (const s of RRHumanBody.SLIDERS) if (!faceSections.has(s.section)) r.shapes[s.key] = roll.shapes[s.key];
@@ -2913,63 +2921,104 @@ class Character3DBuilder {
     }
 
     /**
-     * Recipes kept in the Forge (Save recipe): a character's settings and its picture, no model. They live under
-     * forge/character_3d/characters/, apart from 3d/, where every folder is a model the 3D Models page lists.
+     * Designs kept in the Forge (Save Design): a character's settings and its picture, no model, in groups of the
+     * author's own. They live under forge/character_3d/characters/ (a group is a folder there), apart from 3d/,
+     * where every folder is a model the 3D Models page lists.
      */
-    _recipesDir() {
+    _designsDir(group = '') {
         const project = this._project();
-        return project ? require('path').join(project.path, 'forge', 'character_3d', 'characters') : null;
+        if (!project) return null;
+        const path = require('path'), base = path.join(project.path, 'forge', 'character_3d', 'characters');
+        return group ? path.join(base, group) : base;
     }
 
-    _recipeNames() {
-        const fs = require('fs');
-        const dir = this._recipesDir();
+    /** The groups made so far, by name. */
+    _designGroups() {
+        const fs = require('fs'), dir = this._designsDir();
+        if (!dir || !fs.existsSync(dir)) return [];
+        return fs.readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort((a, b) => a.localeCompare(b));
+    }
+
+    _designNames(group = '') {
+        const fs = require('fs'), dir = this._designsDir(group);
         if (!dir || !fs.existsSync(dir)) return [];
         return fs.readdirSync(dir).filter(f => /\.json$/i.test(f)).map(f => f.replace(/\.json$/i, '')).sort((a, b) => a.localeCompare(b));
     }
 
-    /** Keep the character's settings in the Forge under its name: opened again from Open…, nothing built. */
-    async saveRecipe() {
+    /** The toolbar's Group choice: no group, every group made, and a new one. */
+    _renderDesignGroups() {
+        const select = this.root?.querySelector('.rr-c3d-design-group');
+        if (!select) return;
+        const groups = this._designGroups();
+        if (this.designGroup && !groups.includes(this.designGroup)) groups.push(this.designGroup);
+        select.innerHTML = `<option value="">${rrEscapeHtml(this._t('No Group'))}</option>`
+            + groups.map(g => `<option value="${rrEscapeHtml(g)}">${rrEscapeHtml(g)}</option>`).join('')
+            + `<option value="\u0000new">${rrEscapeHtml(this._t('New Group'))}</option>`;
+        select.value = this.designGroup || '';
+    }
+
+    async _chooseDesignGroup(value) {
+        if (value === '\u0000new') {
+            const name = this._folderName(await RRDialog.prompt(this._t('Name the new group:'), { title: this._t('New Group'), value: '' }));
+            if (name) this.designGroup = name;
+        } else this.designGroup = value || '';
+        this._renderDesignGroups();
+    }
+
+    /** Keep the character's settings in the Forge under its name, in the chosen group: opened again from Open, nothing built. */
+    async saveDesign() {
         if (!this._project()) return;
         const fs = require('fs'), path = require('path');
         let name = this._folderName(this.name);
         if (!name) {
-            name = this._folderName(await RRDialog.prompt(this._t('Name this character:'), { title: this._t('Save recipe'), value: this._t('Villager') }));
+            name = this._folderName(await RRDialog.prompt(this._t('Name this character:'), { title: this._t('Save Design'), value: this._t('Villager') }));
             if (!name) return;
             this.name = name;
             const input = this.root.querySelector('.rr-c3d-name-input');
             if (input) input.value = name;
         }
-        const dir = this._recipesDir(), file = path.join(dir, name + '.json');
-        if (fs.existsSync(file) && !await RRDialog.confirm(this._t('Replace the recipe {name}?', { name }), { title: this._t('Save recipe'), ok: this._t('Replace'), danger: true })) return;
+        const group = this.designGroup || '', dir = this._designsDir(group), file = path.join(dir, name + '.json');
+        if (fs.existsSync(file) && !(this._openedDesign && this._openedDesign.group === group && this._openedDesign.name === name)
+            && !await RRDialog.confirm(this._t('Replace the design {name}?', { name }), { title: this._t('Save Design'), ok: this._t('Replace'), danger: true })) return;
         try {
             const atomic = window.RRWriteFileAtomicSync || ((io, target, data) => io.writeFileSync(target, data));
             fs.mkdirSync(dir, { recursive: true });
             atomic(fs, file, JSON.stringify({ builder: 'character3d', version: 2, recipe: this.recipe }, null, 2) + '\n');
             const thumb = this._thumbnail();
             if (thumb) atomic(fs, path.join(dir, name + '.png'), thumb);
-            this._status(this._t('Recipe {name} kept.', { name }), 'ok');
+            // Opened from another group (or under another name) and saved here: it moved, it isn't copied.
+            const was = this._openedDesign;
+            if (was && (was.group !== group || was.name !== name) && was.name === name) {
+                for (const ext of ['.json', '.png']) fs.rmSync(path.join(this._designsDir(was.group), name + ext), { force: true });
+            }
+            this._openedDesign = { group, name };
+            this._renderDesignGroups();
+            this._status(this._t('Design {name} saved.', { name }), 'ok');
         } catch (error) {
-            console.error('[Character3DBuilder] save recipe', error);
+            console.error('[Character3DBuilder] save design', error);
             this._status(this._t('{name} could not be saved.', { name }), 'error');
         }
     }
 
-    _openRecipe(name) {
+    _openDesign(group, name) {
         const fs = require('fs'), path = require('path');
         try {
-            const data = JSON.parse(fs.readFileSync(path.join(this._recipesDir(), name + '.json'), 'utf8'));
+            const data = JSON.parse(fs.readFileSync(path.join(this._designsDir(group), name + '.json'), 'utf8'));
             this._openRecord(name, data);
+            this._openedDesign = { group, name };
+            this.designGroup = group;
+            this._renderDesignGroups();
         } catch (error) {
-            console.error('[Character3DBuilder] open recipe', error);
+            console.error('[Character3DBuilder] open design', error);
             this._status(this._t('{name} could not be opened.', { name }), 'error');
         }
     }
 
-    async _deleteRecipe(name) {
-        if (!await RRDialog.confirm(this._t('Delete the recipe {name}?', { name }), { title: this._t('Save recipe'), ok: this._t('Delete'), danger: true })) return false;
+    async _deleteDesign(group, name) {
+        if (!await RRDialog.confirm(this._t('Delete the design {name}?', { name }), { title: this._t('Save Design'), ok: this._t('Delete'), danger: true })) return false;
         const fs = require('fs'), path = require('path');
-        for (const ext of ['.json', '.png']) fs.rmSync(path.join(this._recipesDir(), name + ext), { force: true });
+        for (const ext of ['.json', '.png']) fs.rmSync(path.join(this._designsDir(group), name + ext), { force: true });
+        if (this._openedDesign && this._openedDesign.group === group && this._openedDesign.name === name) this._openedDesign = null;
         return true;
     }
 
@@ -2982,20 +3031,24 @@ class Character3DBuilder {
             .map(e => e.name).sort((a, b) => a.localeCompare(b));
     }
 
-    /** Saved characters as pictures to pick from: the recipes kept in the Forge, then the models saved to the project. */
+    /** Saved characters as pictures to pick from: the designs kept in the Forge by group, then the models exported to the project. */
     _showGallery() {
         const fs = require('fs'), path = require('path');
         const box = this.root.querySelector('.rr-c3d-gallery');
         const picture = file => fs.existsSync(file) ? 'data:image/png;base64,' + fs.readFileSync(file).toString('base64') : '';
-        const card = (name, src, kind) => `<div class="rr-c3d-saved-card"><button class="rr-c3d-saved" data-name="${rrEscapeHtml(name)}" data-kind="${kind}">${src ? `<img src="${src}" alt="">` : '<span class="rr-c3d-nothumb">?</span>'}<span>${rrEscapeHtml(name)}</span></button>`
-            + (kind === 'recipe' ? `<button class="rr-c3d-saved-delete" data-delete="${rrEscapeHtml(name)}" title="${this._t('Delete')}">✕</button>` : '') + '</div>';
-        const recipes = this._recipeNames().map(name => card(name, picture(path.join(this._recipesDir(), name + '.png')), 'recipe')).join('');
+        const card = (name, src, kind, group = '') => `<div class="rr-c3d-saved-card"><button class="rr-c3d-saved" data-name="${rrEscapeHtml(name)}" data-kind="${kind}" data-group="${rrEscapeHtml(group)}">${src ? `<img src="${src}" alt="">` : '<span class="rr-c3d-nothumb">?</span>'}<span>${rrEscapeHtml(name)}</span></button>`
+            + (kind === 'design' ? `<button class="rr-c3d-saved-delete" data-delete="${rrEscapeHtml(name)}" data-group="${rrEscapeHtml(group)}" title="${this._t('Delete')}">✕</button>` : '') + '</div>';
+        const designs = group => this._designNames(group).map(name => card(name, picture(path.join(this._designsDir(group), name + '.png')), 'design', group)).join('');
+        const loose = designs(''), groups = this._designGroups().map(group => ({ group, cards: designs(group) }));
         const models = this._savedNames().map(name => card(name, picture(path.join(this._charactersDir(), name, 'thumbnail.png')), 'model')).join('');
+        const section = (title, cards, empty) => `<div class="rr-c3d-gallery-sub">${rrEscapeHtml(title)}</div><div class="rr-c3d-gallery-grid">${cards || `<p class="rr-c3d-note">${empty}</p>`}</div>`;
+        const none = !loose && !groups.some(g => g.cards);
         box.innerHTML = `<div class="rr-c3d-gallery-head"><span>${this._t('Open a saved character')}</span><button class="rr-c3d-remove" data-close title="${this._t('Close')}">✕</button></div>
-            <div class="rr-c3d-gallery-scroll"><div class="rr-c3d-gallery-sub">${this._t('Recipes')}</div>
-            <div class="rr-c3d-gallery-grid">${recipes || `<p class="rr-c3d-note">${this._t('No recipes yet. Save recipe keeps a character here without making a model.')}</p>`}</div>
-            <div class="rr-c3d-gallery-sub">${this._t('Saved to Project')}</div>
-            <div class="rr-c3d-gallery-grid">${models || `<p class="rr-c3d-note">${this._t('No characters saved in this project yet. Save to Project puts one here.')}</p>`}</div></div>`;
+            <div class="rr-c3d-gallery-scroll">`
+            + (none ? section(this._t('Designs'), '', this._t('No designs yet. Save Design keeps a character here without making a model.'))
+                : (loose ? section(this._t('Designs'), loose) : '') + groups.filter(g => g.cards).map(g => section(g.group, g.cards)).join(''))
+            + section(this._t('Exported Models'), models, this._t('No models exported from this project yet. Export Model To Project puts one here.'))
+            + '</div>';
         box.hidden = false;
         const close = () => { box.hidden = true; document.removeEventListener('keydown', onKey, true); };
         const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
@@ -3003,11 +3056,11 @@ class Character3DBuilder {
         box.onclick = e => {
             if (e.target.closest('[data-close]')) { close(); return; }
             const remove = e.target.closest('[data-delete]');
-            if (remove) { this._deleteRecipe(remove.dataset.delete).then(done => { if (done) this._showGallery(); }); return; }
+            if (remove) { this._deleteDesign(remove.dataset.group || '', remove.dataset.delete).then(done => { if (done) this._showGallery(); }); return; }
             const card = e.target.closest('.rr-c3d-saved');
             if (!card) return;
             close();
-            if (card.dataset.kind === 'recipe') this._openRecipe(card.dataset.name);
+            if (card.dataset.kind === 'design') this._openDesign(card.dataset.group || '', card.dataset.name);
             else this._openSaved(card.dataset.name);
         };
     }
@@ -3392,7 +3445,7 @@ class Character3DBuilder {
         if (!project || !this.pack) return;
         let name = this._folderName(this.name);
         if (!name) {
-            name = this._folderName(await RRDialog.prompt(this._t('Name this character:'), { title: this._t('Save to Project'), value: this._t('Villager') }));
+            name = this._folderName(await RRDialog.prompt(this._t('Name this character:'), { title: this._t('Export Model To Project'), value: this._t('Villager') }));
             if (!name) return;
             this.name = name;
             const input = this.root.querySelector('.rr-c3d-name-input');
@@ -3401,7 +3454,7 @@ class Character3DBuilder {
         const fs = require('fs'), path = require('path');
         const folder = path.join(this._charactersDir(), name);
         const file = path.join(folder, 'source', name + '.glb');
-        if (fs.existsSync(file) && !await RRDialog.confirm(this._t('Replace the saved character {name}?', { name }), { title: this._t('Save to Project'), ok: this._t('Replace'), danger: true })) return;
+        if (fs.existsSync(file) && !await RRDialog.confirm(this._t('Replace the saved character {name}?', { name }), { title: this._t('Export Model To Project'), ok: this._t('Replace'), danger: true })) return;
         this._status(this._t('Saving…'));
         try {
             await this._loadOutfitEmblems?.();

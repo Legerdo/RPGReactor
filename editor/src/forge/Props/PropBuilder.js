@@ -135,14 +135,14 @@ class PropBuilder {
                     <button class="rr-btn-chip rr-prop-undo" title="${this._t('Undo')}" disabled>↶</button>
                     <button class="rr-btn-chip rr-prop-redo" title="${this._t('Redo')}" disabled>↷</button>
                     <span class="rr-c3d-group rr-prop-randomgroup">
-                        <button class="rr-btn-chip rr-prop-random" title="${this._t('Roll something new for the parts ticked beside it')}">🎲 ${this._t('Randomize')}</button>
+                        <button class="rr-btn-chip rr-prop-random" title="${this._t('Roll something new for the parts ticked beside it')}">${RRRandomPartsMenu.icon()} ${this._t('Randomize')}</button>
                         ${RRRandomPartsMenu.html(t => this._t(t))}
                     </span>
                     <button class="rr-btn-chip rr-prop-reset">↻ ${this._t('Reset')}</button>
-                    <button class="rr-btn-chip rr-prop-open">${this._t('Open…')}</button>
+                    <button class="rr-btn-chip rr-prop-open">${this._t('Open')}</button>
                     <span class="rr-c3d-spacer"></span>
                     <span class="rr-c3d-status" aria-live="polite"></span>
-                    <button class="rr-btn-chip rr-c3d-save rr-prop-save">${this._t('Save to Project')}</button>
+                    <button class="rr-btn-chip rr-c3d-save rr-prop-save">${this._t('Export Model To Project')}</button>
                 </div>
                 <div class="rr-c3d-body rr-prop-body">
                     <div class="rr-prop-types">
@@ -1096,7 +1096,7 @@ class PropBuilder {
         if (!project) return;
         let name = this._folderName(this.name);
         if (!name) {
-            name = this._folderName(await RRDialog.prompt(this._t('Name this prop:'), { title: this._t('Save to Project'), value: this._t(this._ui().placeholder) }));
+            name = this._folderName(await RRDialog.prompt(this._t('Name this prop:'), { title: this._t('Export Model To Project'), value: this._t(this._ui().placeholder) }));
             if (!name) return;
             this.name = name;
             const input = this.root.querySelector('.rr-c3d-name-input');
@@ -1104,7 +1104,7 @@ class PropBuilder {
         }
         const fs = require('fs'), path = require('path');
         const folder = path.join(this._propsDir(), name), file = path.join(folder, 'source', name + '.glb');
-        if (fs.existsSync(file) && !await RRDialog.confirm(this._t('Replace the saved prop {name}?', { name }), { title: this._t('Save to Project'), ok: this._t('Replace'), danger: true })) return;
+        if (fs.existsSync(file) && !await RRDialog.confirm(this._t('Replace the saved prop {name}?', { name }), { title: this._t('Export Model To Project'), ok: this._t('Replace'), danger: true })) return;
         this._status(this._t('Saving…'));
         try {
             const recipe = JSON.parse(JSON.stringify(this.recipe));

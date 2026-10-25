@@ -986,6 +986,8 @@
         const bald = o.species && (Species.BY_ID.get(o.species)?.recipe || {}).bald;
         r.hair = bald ? { style: 'bald', brows: { style: 'none' }, lashes: false } : Hair.randomHair(scramble(seed + 2), { gender, people: body.ancestry.people, age: body.age });
         // Under a hat, hair that lies close.
+        // A gender held (Randomize with Gender unticked): everything else rolled for it, the outfit and hair too.
+        if (Number.isFinite(o.gender)) body.gender = o.gender;
         if (dressed.hat && !bald) r.hair = Wardrobe.hairUnderHat(r.hair, rand, gender === 'male');
         if (o.species === 'andorian') {
             r.hair.color = '#f3f2ec'; r.hair.tipColor = ''; r.hair.highlights = 0;
