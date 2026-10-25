@@ -282,7 +282,8 @@ test('the 3D subsystem is the core and the extensions the core names', () => {
     // 60 since 2026-10-11: reactor_vehicles_mount.js (fighting from a vehicle: a mounted unit of a Tactical battle, the
     // vehicle's commands on the battle screen, a rider seated in a Battle Room) is its own concern.
     // 61 since 2026-10-18: the humanoid motion library is shared with the Builder and loaded on demand.
-    assert.ok(roots.length <= 61, `runtime js/ root has grown to ${roots.length} files`);
+    // 62 since 2026-10-25: reactor_hdr_overlay.js (opt-in HDR rendering of Effekseer effects) is its own concern.
+    assert.ok(roots.length <= 62, `runtime js/ root has grown to ${roots.length} files`);
 });
 
 test('the game boots every extension straight after the core, before anything reads them', () => {
