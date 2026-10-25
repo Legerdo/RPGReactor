@@ -64,14 +64,30 @@
         ring('trim',margin+.012,margin-.006,thickness*.52,0,name+' glazing gasket');
         return normal;
     }
+    /** An armored upper hull: the glasshouse quad as opaque wall panels with
+     * small, deep-set windows cut in it. us: window spans across (0..1),
+     * vs: their common bottom and top (0..1 up the quad). */
+    function apertures(c,quad,us,vs,name){
+        const [a,b,d,e]=quad,P=(u,v)=>add(scale(add(scale(a,1-u),scale(b,u)),1-v),scale(add(scale(e,1-u),scale(d,u)),v)),W=c.W;
+        const n=norm(cross(sub(b,a),sub(e,a))),centre=[0,a[1],(a[2]+d[2])/2],inward=dot(n,sub(centre,P(.5,.5)))>0?n:scale(n,-1),t=Math.max(.02,W*.012);
+        const ub=[0,...us.flat(),1],vb=[0,vs[0],vs[1],1];
+        for(let i=0;i+1<ub.length;i++)for(let j=0;j+1<vb.length;j++){
+            if(ub[i+1]-ub[i]<1e-4)continue;const open=j===1&&us.some(([u0,u1])=>Math.abs(u0-ub[i])<1e-6&&Math.abs(u1-ub[i+1])<1e-6);if(open)continue;
+            c.sheet('paint',[P(ub[i],vb[j]),P(ub[i+1],vb[j]),P(ub[i+1],vb[j+1]),P(ub[i],vb[j+1])].map(p=>add(p,scale(inward,t*.5))),t,'Hull upper walls');
+        }
+        for(const [u0,u1]of us){const q=[P(u0,vs[0]),P(u1,vs[0]),P(u1,vs[1]),P(u0,vs[1])];c.put('glass',c.glazing(q.map(p=>add(p,scale(inward,t*1.6))),0),name+' glass');windowFrame(c,q,0,name,.10);}
+    }
     function roadWindows(c){
         const {W,H,hood,front,rear,rf,rr,rw,bw,roofY,r,put,glazing,sheet}=c;
         const lf=[-bw,hood,front],rfb=[bw,hood,front],lft=[-rw,roofY,rf],rft=[rw,roofY,rf],lrb=[-bw,hood,rear],rrb=[bw,hood,rear],lrt=[-rw,roofY,rr],rrt=[rw,roofY,rr];
         const panes=[[lf,rfb,rft,lft],[rrb,lrb,lrt,rrt],[lrb,lf,lft,lrt],[rfb,rrb,rrt,rft]],margin=r.form==='rover'||r.bodyStyle==='armored'?.11:r.form==='sport'?.075:.085;
         const flat=(r.bodyStyle||'rounded')!=='rounded';
-        for(let i=0;i<panes.length;i++){const p=panes[i],bulge=flat?0:i===0?W*.025:i<2?0:W*.008;put('glass',glazing(p,bulge));windowFrame(c,p,bulge,['Windscreen','Rear window','Right window','Left window'][i],margin);}
+        const small=!!(DESIGN[r.form]&&DESIGN[r.form].smallWindows);
+        for(let i=0;i<panes.length;i++){const p=panes[i],bulge=flat?0:i===0?W*.025:i<2?0:W*.008;
+            if(small&&i>0){apertures(c,p,i===1?[[.34,.66]]:[[.07,.24],[.35,.52],[.69,.87]].map(([a,b])=>i===3?[1-b,1-a]:[a,b]).sort((x,y)=>x[0]-y[0]),i===1?[.42,.84]:[.30,.80],['Windscreen','Rear window','Right window','Left window'][i]);continue;}
+            put('glass',glazing(p,bulge));windowFrame(c,p,bulge,['Windscreen','Rear window','Right window','Left window'][i],margin);}
         // Armored: slatted guards over the side glass, standing off the frame.
-        if(r.bodyStyle==='armored')for(const i of [2,3]){const [a,b,d,e]=panes[i],n=norm(cross(sub(b,a),sub(e,a))),out=dot(n,[a[0],0,0])<0?scale(n,-1):n,off=scale(out,W*.022),P=(u,v)=>add(add(scale(add(scale(a,1-u),scale(b,u)),1-v),scale(add(scale(e,1-u),scale(d,u)),v)),off);
+        if(r.bodyStyle==='armored'&&!small)for(const i of [2,3]){const [a,b,d,e]=panes[i],n=norm(cross(sub(b,a),sub(e,a))),out=dot(n,[a[0],0,0])<0?scale(n,-1):n,off=scale(out,W*.022),P=(u,v)=>add(add(scale(add(scale(a,1-u),scale(b,u)),1-v),scale(add(scale(e,1-u),scale(d,u)),v)),off);
             for(const v of [.25,.5,.75])c.tube('trim',[P(.05,v),P(.95,v)],W*.0065,'Window guards');for(const u of [.04,.96]){c.tube('trim',[P(u,.04),P(u,.96)],W*.008,'Window guards');for(const v of [.04,.96])c.tube('trim',[add(P(u,v),scale(out,-W*.02)),P(u,v)],W*.006,'Window guard posts');}}
         for(const sign of [-1,1]){
             const z=Math.max(rr+(.12*(rf-rr)),Math.min(rf-.12*(rf-rr),c.door.rear)),t=(z-rr)/(rf-rr),bottom=[sign*bw,hood,mix(rear,front,t)],top=[sign*rw,roofY,z],half=Math.min(c.L*.022,(front-rear)*.06);
@@ -79,10 +95,31 @@
             const F=CM.frame([sign*W*.56,hood+H*.11,front-c.L*.055],[0,0,-sign],[0,1,0]);put('glass',CM.slab(CM.rect(0,0,c.L*.026,H*.052),F,W*.004,.005,true),'Mirror glass');
         }
     }
+    /** Road vehicle classes, reverse-engineered from real proportions.
+     * Heights are fractions of the recipe height H, stations fractions of
+     * the length L; widths/tops (body plan and the line of the bonnet and
+     * deck under the glass) are keyed by z/(0.49 L). cab: windscreen base,
+     * roof front, roof rear and rear-glass base as fractions of L.
+     *   compact: a hatchback city car; wheels at the corners, steep rake,
+     *            near-vertical hatch, glass a third of the side.
+     *   sport:   a low mid-engine wedge; big wheels, tight arches, a short
+     *            cab-forward glasshouse and a long engine deck.
+     *   truck:   a pickup; long flat bonnet, a separate cab, a gap, a bed.
+     *   rover:   an armored patrol truck (MRAP): tall flat-sided hull on a
+     *            V-shaped belly, short sloped bonnet over a big grille, small
+     *            deep-set windows, big wheels well outboard. */
+    const DESIGN={
+        compact:{R:.205,floor:.10,belt:.60,roof:.975,wheelbase:.64,tire:.115,track:.43,cab:[.21,.035,-.36,-.465],bw:.435,rw:.355,
+            widths:[[-1,.86],[-.82,.985],[0,1],[.66,.985],[1,.84]],tops:[[-1,-.035],[-.93,0],[.43,0],[.64,-.075],[1,-.175]]},
+        sport:{R:.26,floor:.075,belt:.62,roof:.975,wheelbase:.60,tire:.135,track:.44,cab:[.13,-.035,-.17,-.37],bw:.42,rw:.30,
+            widths:[[-1,.90],[-.62,1],[-.08,.92],[.55,1],[1,.86]],tops:[[-1,-.03],[-.78,0],[.26,0],[.56,-.03],[.80,-.075],[1,-.17]]},
+        truck:{R:.235,floor:.16,belt:.64,roof:.975,wheelbase:.62,tire:.12,track:.435,cab:[.18,.095,-.11,-.135],bw:.445,rw:.405,
+            widths:[[-1,.97],[-.92,1],[0,1],[.75,1],[1,.91]],tops:[[-1,0],[.36,0],[.6,-.025],[.92,-.055],[1,-.105]]},
+        rover:{R:.21,floor:.17,belt:.68,roof:.975,wheelbase:.60,tire:.16,track:.43,cab:[.225,.17,-.465,-.48],bw:.445,rw:.415,vhull:true,smallWindows:true,
+            widths:[[-1,.90],[-.93,.93],[0,.93],[.78,.93],[1,.86]],tops:[[-1,0],[.46,0],[.52,-.035],[1,-.21]]}
+    };
     function roadProfile(r,q){
-        const {W,H,L}= {W:r.width,H:r.height,L:r.length},sport=r.form==='sport',truck=r.form==='truck',rover=r.form==='rover';
-        const widths=rover?[[-1,.83],[-.72,.98],[0,.98],[.63,1],[1,.80]]:truck?[[-1,.91],[-.68,1],[0,.97],[.62,1],[1,.83]]:sport?[[-1,.83],[-.66,1],[0,.91],[.62,1],[1,.83]]:[[-1,.78],[-.65,1],[-.08,.96],[.63,1],[1,.79]];
-        const tops=rover?[[-1,-.035],[-.67,.04],[0,0],[.65,.015],[1,-.13]]:truck?[[-1,-.03],[-.65,0],[0,0],[.61,.025],[1,-.085]]:sport?[[-1,-.04],[-.64,.07],[-.05,-.015],[.62,.065],[1,-.085]]:[[-1,-.055],[-.64,.035],[0,0],[.62,.035],[1,-.105]];
+        const {W,H,L}= {W:r.width,H:r.height,L:r.length},D=DESIGN[r.form]||DESIGN.compact,widths=D.widths,tops=D.tops;
         const faceted=(r.bodyStyle||'rounded')!=='rounded',interp=faceted?lin:section;
         const width=z=>W*.49*interp(widths,z/(L*.49)),top=z=>q.hood+H*interp(tops,z/(L*.49));
         const crown=[[0,.047],[.35,.045],[.68,.040],[.85,.032],[.95,.017],[.99,-.014],[1,-.10]];
@@ -90,7 +127,7 @@
         const crownF=[[0,.034],[.34,.030],[.70,.019],[.735,.017],[.945,.003],[.955,-.001],[1,-.085]];
         const topFace=(z,f)=>top(z)+H*(faceted?lin(crownF,Math.abs(f)):contour(crown,Math.abs(f)));
         const knots=faceted?[...new Set([...widths,...tops].map(p=>p[0]))].filter(k=>Math.abs(k)<.999).map(k=>k*L*.49):[];
-        return{width,top,topFace,faceted,knots};
+        return{width,top,topFace,faceted,knots,vhull:!!D.vhull};
     }
     /** Section anchors of a road body at station z, from the floor center up
      * the +x side to the roof center: [x, y, f, tag]. f is the fraction of
@@ -99,15 +136,17 @@
     function roadAnchors(c,p,z){
         const {H,R,base,axleZ}=c,w=p.width(z),top=p.top(z),reach=R*1.09;
         const opening=Math.max(base,...axleZ.map(a=>Math.abs(z-a)<=reach?R+Math.sqrt(Math.max(0,reach*reach-(z-a)**2)):base));
-        const low=Math.min(opening,top-H*.018),rocker=Math.max(low,c.door.low),shoulder=Math.max(low,top-H*(p.faceted?.085:.10));
+        // An armored hull's belly is a shallow V up to the chines.
+        const vh=p.vhull?base+H*.075:base,low=Math.max(vh,Math.min(opening,top-H*.018)),rocker=Math.max(low,c.door.low),shoulder=Math.max(low,top-H*(p.faceted?.085:.10));
+        const belly=p.vhull?[[0,base,'floor'],[.45,base+H*.035,''],[.82,vh,'']]:[[0,base,'floor'],[.80,base,'']];
         if(p.faceted){
             // Two flat flank facets meeting at a waist crease, a bevelled
             // shoulder and a flat deck: every corner is a crease.
-            const out=[[0,base,'floor'],[.80,base,''],[.905,low,'crease'],[.94,rocker,'rocker'],[.975,mix(rocker,shoulder,.40),'crease'],[1,shoulder,'crease']];
+            const out=[...belly,[.905,low,'crease'],[.94,rocker,'rocker'],[.975,mix(rocker,shoulder,.40),'crease'],[1,shoulder,'crease']];
             for(const f of [.955,.945,.85,.735,.70,.48,.34,.20,0])out.push([f,Math.max(low,p.topFace(z,f)),f===.955?'crease':f===.945?'doorTop':f===.735?'hood':f===.70?'deck':f===.34?'press':'']);
             return out.map(([f,y,tag])=>[f*w,y,f,tag]);
         }
-        const out=[[0,base,'floor'],[.80,base,''],[.905,low,'crease'],[.94,rocker,'rocker']];
+        const out=[...belly,[.905,low,'crease'],[.94,rocker,'rocker']];
         // A slightly hollow flank: the panel leans out to a crisp shoulder line.
         for(const t of [1/3,2/3])out.push([.94+.06*t**1.3,mix(rocker,shoulder,t),'']);
         out.push([1,shoulder,'crease']);
@@ -142,15 +181,16 @@
         const {r,W,H,L,R,base,hood,axleZ,put,door}=c,p=roadProfile(r,c);
         const gap=Math.max(.0035,W*.0028),depth=Math.max(.003,W*.0022),rise=Math.min(H*.004,W*.003),press=W*.012;
         const cabinRear=c.cabinZ-c.cabinL*.5,cabinFront=c.cabinZ+c.cabinL*.5;
-        const z0=Math.min(L*.43,cabinFront+L*.03),z1=L*.472,deck=['compact','sport','rover'].includes(r.form)&&cabinRear-L*.03>-L*.468+L*.05?[-L*.468,cabinRear-L*.03]:null;
-        const bed=r.form==='truck'?{rear:-L*.474,front:cabinRear-L*.012,fade:L*.008,floor:hood-H*.045}:null;
+        const z0=Math.min(L*.43,cabinFront+L*.06),z1=L*.472,deck=['compact','sport','rover'].includes(r.form)&&cabinRear-L*.06>-L*.468+L*.05?[-L*.468,cabinRear-L*.06]:null;
+        // A pickup's bed is its own box behind the cab: a gap, real depth over the axle.
+        const bed=r.form==='truck'?{rear:-L*.474,front:cabinRear-L*.03,fade:L*.008,floor:Math.max(hood-H*.24,2*R+H*.02),gap:cabinRear-L*.012}:null;
         c.cabinFloor=Math.max(base+H*.035,hood-H*.16);c.panels={z0,z1,deck,bed,gap,depth};
         // Stations: even spacing, arch refinements, square arch legs and
         // the exact door/bonnet/deck shut lines with their groove shoulders.
         const features=[],tag=new Map(),mark=(z,t)=>{features.push(z);tag.set(z,t);};
         for(const [z,t]of [[door.rear,'doorR'],[door.front,'doorF'],[z0,'hood0'],[z1,'hood1'],...(deck?[[deck[0],'deck0'],[deck[1],'deck1']]:[])]){mark(z,t);mark(z-gap,t+'-');mark(z+gap,t+'+');}
         for(const a of axleZ)for(const s of [-1,1]){const z=a+s*(R*1.09+.002);if(Math.abs(z)<L*.49)mark(z,'');}
-        if(bed)for(const z of [bed.rear,bed.rear+bed.fade,bed.front-bed.fade,bed.front])mark(z,'');
+        if(bed){for(const z of [bed.rear,bed.rear+bed.fade,bed.front-bed.fade,bed.front])mark(z,'');for(const z of [bed.gap-.022,bed.gap+.022])mark(z,'gap');}
         for(const z of p.knots)if(features.every(f=>Math.abs(f-z)>gap*3)){features.push(z);tag.set(z,'knot');}
         const nLoose=p.faceted?33:57,loose=[...Array.from({length:nLoose},(_,i)=>-L*.49+L*.98*i/(nLoose-1))];
         for(const a of axleZ)for(let i=-12;i<=12;i++){const z=a+i/12*R*1.09;if(Math.abs(z)<L*.49)loose.push(z);}
@@ -174,6 +214,8 @@
         // Character lines split their normals only where the section really
         // bends (10 degrees or more); a fading crease melts into the surface.
         for(let i=0;i<n;i++)for(let j=0;j<m;j++)if(cols[j]==='crease'||cols[j]==='rocker'){const a=norm(sub(rings[i][j],rings[i][(j+m-1)%m])),b=norm(sub(rings[i][(j+1)%m],rings[i][j]));if(dot(a,b)<Math.cos(pi/18))creaseJ[i][j]=true;}
+        // The cab and the bed meet at a recessed vertical gap.
+        for(let i=1;i+1<n;i++)if(tag.get(Z[i])==='gap')for(let j=0;j<m;j++){shift[i][j]=-Math.max(.03,W*.016);creaseI[i][j]=creaseI[i-1][j]=creaseI[i+1][j]=true;}
         // Faceted bodies fold across the knot stations too.
         for(let i=1;i+1<n;i++)if(tag.get(Z[i])==='knot')for(let j=0;j<m;j++){const tu=sub(rings[i][(j+1)%m],rings[i][(j+m-1)%m]),n1=norm(cross(tu,sub(rings[i][j],rings[i-1][j]))),n2=norm(cross(tu,sub(rings[i+1][j],rings[i][j])));if(dot(n1,n2)<Math.cos(pi/20))creaseI[i][j]=true;}
         const lines=[];
@@ -688,7 +730,8 @@
      * ring, framed bows and a rear spine fairing: no open back, no roof slab. */
     function flight(c){
         const {r,W,H,L,put,box,tube,sheet}=c,shuttle=r.form==='shuttle',bw=W*(shuttle?.235:.29),cy=H*.51,style=r.bodyStyle||'rounded';
-        const widths=[[-.50,.44],[-.38,.90],[-.15,1],[.12,.95],[.32,.70],[.49,.12]],heights=[[-.50,.13],[-.34,.24],[0,.24],[.23,.17],[.49,.045]];
+        // A deep hull with the cockpit sunk into it: the canopy is a low, long fighter bubble, not a dome.
+        const widths=[[-.50,.46],[-.38,.92],[-.15,1],[.12,.95],[.32,.70],[.49,.12]],heights=[[-.50,.16],[-.34,.28],[0,.28],[.23,.20],[.49,.05]];
         const yAt=z=>cy+H*.015*Math.sin((z/L+.5)/.99*pi);
         let skin;
         if(style==='rounded'){
@@ -707,9 +750,9 @@
         c.hullSkin=skin;
         const top=(z,x)=>HW.topOf(skin,z,x);
         // Cabin interior under a sealed bubble canopy.
-        const roof=H*(.91+.35*(r.cabinHeight-1)),canopyFront=L*.22,canopyRear=-L*.11,cb=bw*.58,deck=H*.69;
+        const roof=H*(.87+.35*(r.cabinHeight-1)),canopyFront=L*.22,canopyRear=-L*.11,cb=bw*.58,deck=H*.63;
         cabin({...c,hood:deck,roofY:roof,front:canopyFront,rear:canopyRear,bw:cb});
-        HW.canopy(c,{skin,zRear:-L*.135,zFront:L*.315,zPeak:-L*.005,peakY:roof+H*.075,width:bw*.80,spineLength:L*(shuttle?.21:.15),bows:shuttle?[L*.17]:[L*.17,-L*.03],seal:H*.011,spineKind:style==='armored'?'armor':'secondary'});
+        HW.canopy(c,{skin,zRear:-L*.14,zFront:L*.335,zPeak:-L*.01,peakY:roof+H*.05,width:bw*.72,spineLength:L*(shuttle?.21:.15),bows:shuttle?[L*.17]:[L*.17,-L*.03],seal:H*.011,spineKind:style==='armored'?'armor':'secondary'});
         for(const s of [-1,1]){
             const engineX=s*W*(shuttle?.35:.36)*r.wingSpan,engineY=H*.45,engineZ=-L*.32,R=H*(shuttle?.18:.17)*r.engineSize;
             wing(c,s,bw*.64,Math.abs(engineX)+R*.55,-L*.28,L*(shuttle?.14:.09),H*.46);
@@ -963,8 +1006,10 @@
                 HW.armorPlate(c,[T(x0,zt0),T(x1,zt0),T(x1,zt1),T(x0,zt1)],{kind:'armor',name:'Torso armor plates',out:[0,1,0],thickness:H*.010,boltPitch:.24});}
             const vz=-L*.27,vx=skin(vz,0)[0];HW.ventBank(c,CM.frame([s*(vx+.002),H*.70,vz],[0,0,-s],[0,1,0]),L*.075,H*.10,5,'Walker side vent banks');
             const a=[s*spread,hip,0],b=[s*spread*1.08,knee,L*.10],d=[s*spread,ankle,-L*.05],shoulder=[s*W*.40,H*.75,0],elbow=[s*W*.44,H*.58,L*.04],hand=[s*W*.43,H*.48,L*.20];
-            plateLimb(c,a,b,W*(.085+.025*r.armor),L*.13,'Tapered thigh armor');plateLimb(c,b,d,W*(.095+.025*r.armor),L*.14,'Tapered shin armor','armor','Tapered shin armor cover plates');
-            for(const p of [a,b,d])HW.joint(c,[p[0]+s*W*.067,p[1],p[2]],[s,0,0],H*.044,W*.12);
+            plateLimb(c,a,b,W*(.11+.03*r.armor),L*.16,'Tapered thigh armor');plateLimb(c,b,d,W*(.12+.03*r.armor),L*.17,'Tapered shin armor','armor','Tapered shin armor cover plates');
+            for(const p of [a,b,d])HW.joint(c,[p[0]+s*W*.085,p[1],p[2]],[s,0,0],H*.05,W*.14);
+            // Hip faulds: angled plates hanging off the cradle over the thigh roots.
+            for(const z of [L*.20,-L*.20]){const dir=Math.sign(z),u=[dir,0,0],v=norm([0,1,dir*.28]);put('armor',HS.plate(HS.cut(HS.rect(-W*.10,-H*.055,W*.10,H*.055),W*.03),H*.016,H*.005,{frame:CM.frame([s*W*.13,hip-H*.035,z+dir*L*.03],u,v)}),'Hip faulds');}
             // Piston pairs behind each leg segment.
             if(r.details)for(const [p,q]of [[a,b],[b,d]]){const ax=norm(sub(q,p)),back=scale(norm(cross(ax,[1,0,0])),-L*.10);HW.pistonPair(c,add(add(p,scale(sub(q,p),.12)),back),add(add(p,scale(sub(q,p),.86)),back),H*.009,[1,0,0],'Leg hydraulics');}
             const kneeFrame=CM.frame([b[0],b[1],b[2]+L*.16],[1,0,0],[0,1,0]);put('frame',HS.plate(HS.cut(HS.rect(-W*.085,-H*.027,W*.085,H*.027),W*.02),H*.014,H*.003,{frame:kneeFrame}),'Knee cap seals');put('armor',HS.plate(HS.cut(HS.rect(-W*.075,-H*.022,W*.075,H*.022),W*.025),H*(.010+.012*r.armor),H*.004,{frame:{...kneeFrame,o:add(kneeFrame.o,[0,0,H*.014])}}),'Knee caps');
@@ -1059,5 +1104,5 @@
             }
         }
     }
-    const api={shell,loft,pressed,filletBox,contour,windowFrame,roadWindows,roadProfile,roadBody,roadAnchors,lampUnit,wheel,RIM_STYLES,roadDetails,roadFace,section,flight,turbine,round,bike,drone,walker,grille,cabin};root.RRVehicleBodywork=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
+    const api={DESIGN,shell,loft,pressed,filletBox,contour,windowFrame,roadWindows,roadProfile,roadBody,roadAnchors,lampUnit,wheel,RIM_STYLES,roadDetails,roadFace,section,flight,turbine,round,bike,drone,walker,grille,cabin};root.RRVehicleBodywork=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

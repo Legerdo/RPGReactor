@@ -7,8 +7,8 @@
     const CM=need('RRContainerMesh','./ContainerMesh.js'),Paint=need('RRPropPaint','./PropPaint.js'),Construction=need('RRVehicleConstruction','./VehicleConstruction.js'),Bodywork=need('RRVehicleBodywork','./VehicleBodywork.js'),HS=need('RRHardSurface','./HardSurface.js'),Design=need('RRFlagDesign','./FlagDesign.js'),Finish=need('RRVehicleFinish','./VehicleFinish.js');
     const {add,sub,scale,norm,cross,dot}=CM.vec;
     const FORMS=[
-        ['compact','Compact car',1.75,1.48,3.45],['sport','Sports coupe',1.90,1.25,4.45],
-        ['truck','Utility truck',2.05,1.95,5.1],['rover','Armored rover',2.55,2.35,5.6],
+        ['compact','Compact car',1.76,1.50,3.95],['sport','Sports coupe',1.98,1.18,4.50],
+        ['truck','Utility truck',2.02,1.92,5.40],['rover','Armored rover',2.55,2.75,6.30],
         ['motorcycle','Motorcycle',.82,1.18,2.18],['hover','Hover transport',2.65,1.45,4.4],
         ['shuttle','Shuttle',4.2,2.1,6.4],['drone','Survey drone',1.45,.65,1.45],['walker','Utility walker',2.7,4.2,1.9]
     ];
@@ -28,7 +28,7 @@
         return {kind:'vehicle',form,width:clamp(r.width,.5,8,f[2]),height:clamp(r.height,.35,7,f[3]),length:clamp(r.length,1,12,f[4]),
             paint:hex(r.paint,form==='rover'?'#697460':form==='sport'||form==='motorcycle'?'#8c353b':form==='walker'?'#bd8d43':'#426c80'),secondary:hex(r.secondary,form==='rover'?'#475144':form==='walker'?'#48545e':form==='compact'||form==='sport'||form==='motorcycle'?'#303c43':'#b4bdba'),trim:hex(r.trim,'#252c32'),accent:hex(r.accent,'#d0a15c'),glass:hex(r.glass,'#172c36'),
             interior:r.interior!==false,windowOpacity:clamp(r.windowOpacity,.2,.95,.82),seatColor:hex(r.seatColor,'#62717a'),finish:['enamel','powder','brushed','composite'].includes(r.finish)?r.finish:'enamel',wear:clamp(r.wear,0,1,['rover','walker','truck'].includes(form)?.35:.08),grime:clamp(r.grime,0,1,['rover','walker','truck'].includes(form)?.30:.06),surfaceSeed:Math.round(clamp(r.surfaceSeed,1,999999,701)),livery:['plain','stripe','rally','service'].includes(r.livery)?r.livery:['rover','walker','truck','hover','shuttle','drone'].includes(form)?'service':form==='sport'?'rally':'stripe',markings:typeof r.markings==='string'?r.markings.toUpperCase().replace(/[^A-Z0-9 .:/-]/g,'').slice(0,22):({compact:'R-17',sport:'24',truck:'FIELD SERVICE',rover:'RANGER 06',motorcycle:'R-17',hover:'UTILITY 17',shuttle:'EXPEDITION 07',drone:'SURVEY 06',walker:'WORK UNIT 06'}[form]),
-            wheelSize:clamp(r.wheelSize,.75,1.3,1),wheelbase:clamp(r.wheelbase,.5,.72,.62),clearance:clamp(r.clearance,0,1,.4),
+            wheelSize:clamp(r.wheelSize,.75,1.3,1),wheelbase:clamp(r.wheelbase,.5,.72,(Bodywork.DESIGN[form]||{}).wheelbase||.62),clearance:clamp(r.clearance,0,1,.4),
             cabinHeight:clamp(r.cabinHeight,.7,1.3,1),cabinLength:clamp(r.cabinLength,.75,1.25,1),axles:Math.round(clamp(r.axles,2,3,form==='rover'?3:2)),
             armor:clamp(r.armor,0,1,form==='rover'?.8:.2),roughness:clamp(r.roughness,.2,.9,{sport:.24,compact:.30,motorcycle:.30,truck:.40,hover:.38,shuttle:.40,drone:.42}[form]??.52),
             spokes:Math.round(clamp(r.spokes,4,10,6)),tread:clamp(r.tread,0,1,form==='rover'||form==='truck'?.8:.25),treadPattern:TREADS.includes(r.treadPattern)?r.treadPattern:form==='rover'?'mud':form==='truck'?'allTerrain':'road',
@@ -46,11 +46,13 @@
         const W=r.width,H=r.height,L=r.length,span=L*r.wheelbase;
         const axleZ=r.axles===3?[-span*.5,-span*.17,span*.5]:[-span*.5,span*.5];
         const gap=Math.min(...axleZ.slice(1).map((z,i)=>z-axleZ[i]));
-        const R=Math.min(H*.22*r.wheelSize,gap*.44,W*.32),hood=R*2.12+H*(.075+r.clearance*.075),base=R*.55+H*(.025+r.clearance*.085);
-        const cabinZ=r.form==='truck'?L*.10:r.form==='compact'?-L*.05:-L*.02,cabinL=L*(r.form==='truck'?.30:r.form==='compact'?.60:r.form==='rover'?.53:.43)*r.cabinLength;
+        // Per-class proportions (Bodywork.DESIGN): wheel size, floor, beltline
+        // and the glasshouse stations. Clearance lifts the body on its wheels.
+        const D=Bodywork.DESIGN[r.form],R=Math.min(H*D.R*r.wheelSize,gap*.44,W*.32),lift=H*.09*(r.clearance-.4),base=Math.max(R*.18,H*D.floor+lift),hood=Math.max(H*D.belt+lift*.6,base+R*1.25,R*2.05);
+        const cabinZ=L*(D.cab[0]+D.cab[3])/2,cabinL=L*(D.cab[0]-D.cab[3])*r.cabinLength;
         const bays=axleZ.slice(1).map((z,i)=>[Math.max(axleZ[i]+R*1.14,cabinZ-cabinL*.47),Math.min(z-R*1.14,cabinZ+cabinL*.47)]).sort((a,b)=>(b[1]-b[0])-(a[1]-a[0]));
         const [rear,front]=bays[0],door={rear,front,z:(rear+front)/2,width:Math.max(.02,front-rear),low:base+H*.06,high:hood+H*.055};
-        return{R,axleZ,hood,base,cabinZ,cabinL,door};
+        return{R,axleZ,hood,base,cabinZ,cabinL,door,design:D};
     }
 
     /** Beveled rectangular cross sections, in z order: [z,halfWidth,bottom,top]. */
@@ -105,9 +107,9 @@
         if(['compact','sport','truck','rover'].includes(r.form)) {
             const layout=roadLayout(r),{R,axleZ,hood,base,cabinZ,cabinL,door}=layout,half=W*.49;
             Object.assign(context,layout,{half});Bodywork.roadBody(context);
-            const tireW=W*(r.form==='rover'?.14:.115);
+            const tireW=W*layout.design.tire,track=layout.design.track;
             for(let i=0;i<axleZ.length;i++)for(const sign of [-1,1]){
-                const z=axleZ[i],x=sign*W*.44,name=(i===0?'Rear':i===r.axles-1?'Front':'Middle')+(sign>0?' left':' right');
+                const z=axleZ[i],x=sign*W*track,name=(i===0?'Rear':i===r.axles-1?'Front':'Middle')+(sign>0?' left':' right');
                 wheel(x,z,R,tireW,name);
                 tube('metal',[[0,R,z],[x,R,z]],H*.035);
                 tube('metal',[[sign*W*.28,hood-H*.05,z],[x,R,z]],H*.019);
@@ -137,7 +139,9 @@
                 for(let k=0;k+1<path.length;k++){const d=path[k][2],e=path[k+1][2];liner.poly([at(k,flank[k]-.006),at(k+1,flank[k+1]-.006),at(k+1,lineIn),at(k,lineIn)],null,[0,-(d[0]+e[0]),-(d[1]+e[1])]);}
                 put('liner',liner.done(),'Wheel arch liners');
             }
-            const roofY=hood+H*(r.form==='sport'?.27:r.form==='rover'?.35:.37)*r.cabinHeight,front=cabinZ+cabinL*.50,rear=cabinZ-cabinL*.50,rf=cabinZ+cabinL*(r.form==='sport'?.10:.20),rr=cabinZ-cabinL*(r.form==='compact'?.38:.32),bw=W*.405,rw=W*(r.form==='sport'?.315:.34);
+            // Glasshouse from the class design: roof at the recipe height, the
+            // windscreen and rear glass raked between their stations.
+            const D=layout.design,cab=D.cab,roofY=hood+Math.max(H*.12,H*(D.roof-(r.bodyStyle==='rounded'?.058:.03))-hood)*r.cabinHeight,front=cabinZ+cabinL*.50,rear=cabinZ-cabinL*.50,at=t=>rear+cabinL*(t-cab[3])/(cab[0]-cab[3]),rf=at(cab[1]),rr=at(cab[2]),bw=W*D.bw,rw=W*D.rw;
             Object.assign(context,{R,hood,base,half,roofY,rf,rr,rw,bw,cabinZ,cabinL,axleZ,door});
             Bodywork.roadWindows({...context,front,rear,glazing,sheet});
             if(r.bodyStyle==='rounded')put('secondary',Bodywork.shell(Array.from({length:25},(_,i)=>{const t=i/24,crown=Math.sin(t*Math.PI);return[rr+(rf-rr)*t,rw*(1+.012*crown),roofY+H*(.008+.010*crown),H*(.018+.022*crown)];}),2.8,64),'Crowned roof panel');
