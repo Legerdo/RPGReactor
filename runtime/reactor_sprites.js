@@ -2535,6 +2535,7 @@ Sprite_Animation.prototype.initMembers = function() {
 };
 
 Sprite_Animation.prototype.destroy = function(options) {
+    globalThis.ReactorHdrOverlay?.release(this);
     Sprite.prototype.destroy.call(this, options);
     if (this._handle) {
         this._handle.stop();
@@ -2557,6 +2558,7 @@ Sprite_Animation.prototype.setup = function(
     this._effectContext = typeof Reactor3D !== "undefined" ? Reactor3D._spawningEffectContext || null : null;
     this._effect = this._effectContext ? Reactor3D.GpuEffects.load(this._effectContext, animation.effectName) : EffectManager.load(animation.effectName);
     this._playing = true;
+    globalThis.ReactorHdrOverlay?.setup(this, animation);
     const timings = animation.soundTimings.concat(animation.flashTimings);
     for (const timing of timings) {
         if (timing.frame > this._maxTimingFrames) {
@@ -2594,6 +2596,7 @@ Sprite_Animation.prototype.update = function() {
 };
 
 Sprite_Animation.prototype.canStart = function() {
+    if (globalThis.ReactorHdrOverlay && !ReactorHdrOverlay.canStart(this)) return false;
     if (this._previous && this.shouldWaitForPrevious()) {
         return !this._previous.isPlaying();
     } else {
@@ -2788,7 +2791,9 @@ Sprite_Animation.renderActive = function(renderer) {
     // and multiply layers darkened nothing into solid black. The copy is
     // pixel-identical to what it covers, so it is invisible in itself.
     const composited = !!(Graphics.blitSceneBehindEffects && Graphics.blitSceneBehindEffects());
+    const hdr = [];
     for (const inst of list) {
+        if (inst._hdrActive) { hdr.push(inst); continue; }
         try {
             inst._doEffekseerDraw(renderer, composited);
         } catch (e) {
@@ -2802,6 +2807,7 @@ Sprite_Animation.renderActive = function(renderer) {
             }
         }
     }
+    globalThis.ReactorHdrOverlay?.render(renderer, hdr);
     list.length = 0;
 };
 

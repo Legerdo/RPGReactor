@@ -6,11 +6,11 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 
 ## Where things stand (2026-10-25)
 
-- **0.99.1** shipped 2026-10-24 (UTC) with release pictures; **0.99.2** is open at runtime **20261024.12**, synced to all 19 projects. The builders are at Preview 48 (2026-10-24 quality push) with visual acceptance open: [character coverage](CHARACTER-QUALITY.md), [remaining issues](CLAUDE-QUALITY-TRACKER.md), [props](PROP-BUILDER.md).
+- **0.99.1** shipped 2026-10-24 (UTC) with release pictures; **0.99.2** is open at runtime **20261025.2** (with PR #78, the HDR effect overlay), synced to all 19 projects. The builders are at Preview 48 (2026-10-24 quality push) with visual acceptance open: [character coverage](CHARACTER-QUALITY.md), [remaining issues](CLAUDE-QUALITY-TRACKER.md), [props](PROP-BUILDER.md).
 - **Owner questions:** [OWNER-QUESTIONS.md](OWNER-QUESTIONS.md); the web trim waits for the weekend release.
 - **Editor windows:** the Event Editor, Database, Forge and Plugin Manager each open in a frameless window of their own (`utils/DetachedWindow.js`). Native Linux transparency still needs a look on the real desktop.
 - **Savior & Religion** (`template/Savior & Religion`, not in git, an encrypted MV game the owner is trying as a template) boots, plays its opening and draws its ULDS maps 2, 5 and 19.
-- **Next:** CI's eleven failures sorted (real or runner timing), PR #78 reviewed and merged, PR #72 answered; then the builders deep dive with the owner, then keeping the map scene across a seamless crossing. 0.99.1 and 0.99.2 are announced together at the end of the weekend with a video and pictures (RELEASE-CHECKLIST §5).
+- **Next:** CI's eleven failures sorted (real or runner timing); then the builders deep dive with the owner, then keeping the map scene across a seamless crossing. 0.99.1 and 0.99.2 are announced together at the end of the weekend with a video and pictures (RELEASE-CHECKLIST §5).
 
 ## 2026-10-25 — trailer bugs, the harness, the Database freeze
 

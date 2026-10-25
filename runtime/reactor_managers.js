@@ -1370,6 +1370,7 @@ EffectManager._errorUrls = [];
 
 EffectManager.load = function(filename) {
     if (filename) {
+        globalThis.ReactorHdrOverlay?.request(filename);
         const url = this.makeUrl(filename);
         const cache = this._cache;
         if (!cache[url] && Graphics.effekseer) {
@@ -4487,6 +4488,12 @@ PluginManager._commands = {};
 PluginManager.setup = function(plugins) {
     for (const plugin of plugins) {
         const pluginName = Utils.extractFileName(plugin.name);
+        // The built-in implementation replaces the former opt-in plugin. Keep
+        // its tuning when upgrading, but never run both renderers.
+        if (plugin.status && pluginName.toLowerCase() === "reactorhdroverlay" && globalThis.ReactorHdrOverlay?.native) {
+            ReactorHdrOverlay.configure(plugin.parameters || {});
+            continue;
+        }
         if (plugin.status && !this._scripts.includes(pluginName)) {
             this.setParameters(pluginName, plugin.parameters);
             this.loadScript(plugin.name);
