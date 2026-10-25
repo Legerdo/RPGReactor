@@ -15,7 +15,7 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 ## 2026-10-24 — builders quality push (night)
 
 - **Committed:** motion storyboard and gizmos; nature, bow/staff/polearm/shield and emblem props; vehicles phases 1–3; creatures rounds 2–3; Character Builder clothing round (e79bed64: drape, construction kit, Wasteland + Wear, Body art, cyberware, Cyberpunk, Randomize parts). Reports and sheets: `scratchpad/quality-uplift-20261024/<area>/` (gitignored).
-- **Uncommitted, being finished:** hair triangles (`CharacterHair.js`, about half per style; verify every style's render before committing) and round-4 quadruped heads (`CreatureBody.js`, `headProfileOf` picks the new head per species; ship only species that are clearly better). See the entry's last bullet for tonight's outcome.
+- **Uncommitted, being finished:** hair triangles (`CharacterHair.js`, about half per style; verify every style's render before committing) and round-4 quadruped heads (`CreatureBody.js`, `headProfileOf` picks the new head per species; ship only species that are clearly better). See the last bullet.
 - **Inert draft:** `CharacterSimplify.fitBudget`/`lightenPart`/`countTriangles` (save-time lightening of garments, armor, props). Nothing calls it; it was never rendered. Wire it in only with before/after renders.
 - **Eagle:** not rebuilt. The owner finds it ugly (wings sink 41–43 mm into the body in every idle/walk frame, stick tail, oversized boxy head, thin bill). Plan, measuring tool and before-sheets: `scratchpad/quality-uplift-20261024/creatures/eagle-rebuild/CONTINUE.txt`. First step there: scale/translation tracks in `CharacterCloth.js` posing and the bird floor-height pass, then the folded-wing shell.
 - **Clothing** is still the owner's top complaint: the drape barely changed skirts and dresses. Next: skirts/dresses, then sci-fi/plate outfits. Owner rule: slightly over the triangle budget but clearly better looking is fine (the outfit ratchet went 28 → 33 for the construction detail).
@@ -23,7 +23,7 @@ An entry holds only what the next session needs and cannot find elsewhere: what 
 - **Harness trap:** on the headless KWin displays, opening a project in NW.js now ends with "Web page caused context loss and was blocked" before the Character Builder starts (HEAD too, NVIDIA and Mesa alike), so editor-viewport checks there fail. Not an outfit regression; cause not found (suspect GPU contention from several harnesses at once). The owner's own desktop is unaffected.
 - **Process rule:** kill only exact PIDs after `ps -o cmd= -p`; never a parent PID (an orphan's parent is `systemd --user`, and killing it restarted the owner's desktop session).
 - **Follow-ups:** about 193 test files leak temp dirs (a shared cleanup helper); the pickup/truck silhouette could be sharper.
-- **Tonight's outcome:** (pending)
+- **Tonight's outcome:** both finishing agents were stopped after ~10 minutes at the owner's bedtime; nothing of theirs is committed. Their notes: `scratchpad/quality-uplift-20261024/budget/CONTINUE.txt` (hair, per-style verdicts) and `scratchpad/quality-uplift-20261024/creatures/birds-quadrupeds/CONTINUE.txt` (heads, per-species verdicts). Resume by reading those, rendering what is unchecked, then committing only what is clearly better.
 
 ## 2026-10-24 — 0.99.1 shipped; trailer pipeline
 
