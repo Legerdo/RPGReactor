@@ -8087,6 +8087,31 @@ globalThis.RR_REVIEWED_TRANSLATIONS.sections.pl.Vehicles = 'Pojazdy';
  for (const [locale, row] of Object.entries(rows)) row.split('|').forEach((value,i) => { globalThis.RR_REVIEWED_TRANSLATIONS.text[locale][keys[i]] = value; });
 }
 
+// Character Builder creature catalog: the flying-animals group, the turkey, the pig (Chicken and Duck are reviewed above).
+{
+ const keys = ['Flying animals', 'Turkey', 'Pig', 'Armadillo'];
+ const rows = {
+  "ja": "飛ぶ動物|七面鳥|ブタ|アルマジロ",
+  "es": "Animales voladores|Pavo|Cerdo|Armadillo",
+  "zh-Hant": "飛行動物|火雞|豬|犰狳",
+  "zh-Hans": "飞行动物|火鸡|猪|犰狳",
+  "ru": "Летающие животные|Индейка|Свинья|Броненосец",
+  "pt": "Animais voadores|Peru|Porco|Tatu",
+  "de": "Flugtiere|Truthahn|Schwein|Gürteltier",
+  "fr": "Animaux volants|Dinde|Cochon|Tatou",
+  "el": "Ιπτάμενα ζώα|Γαλοπούλα|Γουρούνι|Αρμαδίλος",
+  "ko": "날아다니는 동물|칠면조|돼지|아르마딜로",
+  "it": "Animali volanti|Tacchino|Maiale|Armadillo",
+  "pl": "Zwierzęta latające|Indyk|Świnia|Pancernik",
+  "ar": "حيوانات طائرة|ديك رومي|خنزير|مدرع",
+  "id": "Hewan terbang|Kalkun|Babi|Armadilo",
+  "vi": "Động vật bay|Gà tây|Lợn|Con tatu",
+  "th": "สัตว์บินได้|ไก่งวง|หมู|อาร์มาดิลโล",
+  "tr": "Uçan hayvanlar|Hindi|Domuz|Armadillo"
+ };
+ for (const [locale, row] of Object.entries(rows)) if (globalThis.RR_REVIEWED_TRANSLATIONS.text[locale]) row.split('|').forEach((value, i) => { globalThis.RR_REVIEWED_TRANSLATIONS.text[locale][keys[i]] = value; });
+}
+
 // Cat breed choices and the paired dragon humanoid.
 {
  const keys='Cat type|Domestic shorthair|Ragamuffin|Ragdoll|Persian|Maine Coon|Siamese|British shorthair|Hydrata'.split('|');

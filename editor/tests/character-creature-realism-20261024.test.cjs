@@ -50,7 +50,7 @@ test('the bald eagle reads as one: proportions, white head and tail, hooked yell
     const b = Q.Creature.build(r, { quality: 'preview' });
     // Wings spread at rest: span about twice the bird's length (bald eagle 1.8-2.3 m over 0.7-1 m).
     // Length: bill tip to tail tip.
-    const [x0, x1] = extent(b.parts, 0), beakPart = b.parts.find(p => p.name === 'Beak'), tailPart = b.parts.find(p => p.name === 'Tail feathers');
+    const [x0, x1] = extent(b.parts, 0), beakPart = b.parts.find(p => p.name === 'Beak'), tailPart = b.parts.find(p => p.name === 'Tail rectrices') || b.parts.find(p => p.name === 'Tail feathers');
     let tip = null; for (let i = 0; i < beakPart.positions.length; i += 3) if (!tip || beakPart.positions[i + 2] > tip[2]) tip = Array.from(beakPart.positions.subarray(i, i + 3));
     let length = 0; for (let i = 0; i < tailPart.positions.length; i += 3) length = Math.max(length, Math.hypot(...tip.map((v, k) => v - tailPart.positions[i + k])));
     const span = x1 - x0;
@@ -131,5 +131,33 @@ test('round 3: species eyes, paws with claws and pads, regional fur, faces', () 
     for (const t of Object.keys(Q.Creature.CAT_BREEDS)) {
         const r = Q.Creature.withVariant(Q.Creature.kindRecipe('cat'), 'catType', t), q = Q.inspect(Q.Creature.build(r, { quality: 'save' }), { recipe: r });
         assert.deepEqual(q.issues, [], t); assert.ok(q.summary.triangles < 100000, t + ' ' + q.summary.triangles);
+    }
+});
+
+test('birds (2026-10-25): perched, a folded-wing shell lies on the body and the card wing shrinks away; the tail is solid blades, the bill massive', () => {
+    const r = bird('eagle'), b = Q.Creature.build(r, { quality: 'preview' });
+    const idle = Q.Creature.poseClip(b.bones, 'idle', r), fly = Q.Creature.poseClip(b.bones, 'fly', r);
+    const scales = c => c.saved.tracks.filter(t => t.path === 'scale');
+    assert.equal(scales(idle).length, 4, 'both shells and both humeri carry a scale in every clip');
+    const shells = b.parts.filter(p => /^Folded wing /.test(p.name));
+    assert.equal(shells.length, 2, 'a closed folded-wing shell per side');
+    const body = b.parts.find(p => p.name === 'Body'), perched = Cloth.pose(b.bones, idle, 0), flying = Cloth.pose(b.bones, fly, 0);
+    const [bx0, bx1] = extent([body], 0, perched, b.bones), [sx0, sx1] = extent(shells, 0, perched, b.bones);
+    // Clear of the contour cards (about a centimetre) plus the shell's own thickness: within 3 cm of the trunk's side.
+    assert.ok(sx0 > bx0 - r.size * .06 && sx1 < bx1 + r.size * .06, 'the shells lie on the body, not standing off it: ' + (bx0 - sx0).toFixed(3));
+    assert.ok(extent(shells, 1, flying, b.bones).reduce((a, c) => c - a) < r.size * .01, 'in flight the shells are hidden (bound small inside the shoulder)');
+    for (const wing of b.parts.filter(p => /Flight feathers/.test(p.name))) {
+        const wx = extent([wing], 0, perched, b.bones);
+        assert.ok(wx[1] - wx[0] < r.size * .01, 'perched, the open card wing has shrunk to a speck at the shell pivot: ' + wing.name);
+    }
+    const tail = b.parts.find(p => p.name === 'Tail rectrices');
+    assert.ok(tail && tail.texture !== Flyers.FEATHER_TEX, 'the tail is solid blades, not cutout cards');
+    const beak = b.parts.find(p => p.name === 'Beak'), head = b.parts.find(p => p.name === 'Head');
+    const [by0, by1] = extent([beak], 1), [hy0, hy1] = extent([head], 1);
+    assert.ok(by1 - by0 > (hy1 - hy0) * .5, 'the hooked bill is about as deep as half the head: ' + ((by1 - by0) / (hy1 - hy0)).toFixed(2));
+    // Every flying bird perches on its folded-wing shell; the penguin keeps its flippers.
+    for (const type of ['owl', 'crow', 'chicken', 'duck', 'penguin']) {
+        const rb = bird(type), bb = Q.Creature.build(rb, { quality: 'preview' }), shell = bb.parts.filter(p => /^Folded wing /.test(p.name)).length;
+        assert.equal(shell, type === 'penguin' ? 0 : 2, type + ' folded-wing shells');
     }
 });

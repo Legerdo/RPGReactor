@@ -3,7 +3,7 @@
     'use strict';
     const modules = ['HumanTargets', 'HumanBody', 'CharacterDrape', 'CharacterOutfit', 'CharacterFabric', 'CharacterWear', 'CharacterAtlas', 'CharacterSimplify',
         'CharacterOutfitTransfer', 'CharacterClothes', 'CharacterPowerArmor', 'CharacterWasteland', 'ConstructionSurface', 'ConstructionPatterns', 'CharacterCyberGear', 'CharacterProps', 'CharacterGarmentDetails', 'CharacterReconConstruction', 'CharacterWardrobe', 'CharacterSpecies', 'CharacterBodyArtMotifs', 'CharacterBodyArt', 'CharacterSkin', 'CharacterBodyMods',
-        'CharacterHair', 'CreatureGear', 'CreatureArthropods', 'CreatureFlyers', 'CreatureForms', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterPoses',
+        'CharacterHair', 'CreatureGear', 'CreatureArthropods', 'CreatureFlyers', 'CreatureReptiles', 'CreatureForms', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterPoses',
         'MerfolkBody', 'CharacterCloth', 'CharacterExpressions', 'SlimeBody', 'CharacterModel'];
     importScripts('../../utils/QuadricDecimator.js', 'CharacterPreviewTextures.js', ...modules.map(name => name + '.js'));
     const Body = scope.RRHumanBody, Model = scope.RRCharacterModel, Wardrobe = scope.RRCharacterWardrobe;

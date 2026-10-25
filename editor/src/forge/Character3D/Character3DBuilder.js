@@ -1066,7 +1066,9 @@ class Character3DBuilder {
             const specialized = this.recipe.morphology && this.recipe.morphology !== 'quadruped';
             return this._section(specialized ? 'Surface' : 'Coat') + (pattern ? this._select('pattern', pattern.label, pattern.choices.filter(c => !specialized || c.id !== 'socks').map(c => [c.id, c.label])) : '')
                 + RRCreatureBody.SLIDERS.filter(s => s.section === 'Coat' && pattern && (s.key === 'patternScale' ? ['stripes','tabby','spots','rosettes','piebald','dapple','scales'].includes(this.recipe.pattern) || this.recipe.kind === 'shark' && this.recipe.sharkType === 'tiger' : this.recipe.pattern !== 'solid')).map(s => this._slider({ path: s.key, label: s.label, natural: s.natural || [s.min, s.max], extreme: [s.min, s.max], step: s.step, format: 'x' })).join('')
-                + RRCreatureBody.COLORS.filter(c => !specialized || !['hoof', 'mane'].includes(c.key)).map(c => this._color(`colors.${c.key}`, specialized && c.key === 'light' ? 'Underside' : specialized && c.key === 'coat' ? 'Surface color' : c.label, [])).join('');
+                + RRCreatureBody.COLORS.filter(c => !specialized || !['hoof', 'mane'].includes(c.key)).map(c => this._color(`colors.${c.key}`, specialized && c.key === 'light' ? 'Underside' : specialized && c.key === 'coat' ? 'Surface color' : c.label, [])).join('')
+                // A worm's own band: an earthworm's saddle, a leech's side stripes.
+                + (this.recipe.kind === 'worm' && ['earthworm', 'leech'].includes(this.recipe.wormType) ? this._color('colors.band', this.recipe.wormType === 'leech' ? 'Side stripes' : 'Saddle band', []) : '');
         }
         const S = RRCharacterSkin;
         const tones = [...RRCharacterSpecies.skinTones(this.recipe.species), '#f6e0d0', '#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26', '#3f2618', '#6a8a4a', '#7a9a3a', '#b0463e', '#5e5470', '#9aa4a2', '#d8dce2'];

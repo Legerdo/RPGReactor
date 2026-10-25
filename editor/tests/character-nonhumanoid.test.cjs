@@ -68,8 +68,10 @@ test('swimming and crawling deform native rigs through finite looped motion and 
         assert.equal(Q.Creature.poseClip(b.bones, id === 'swim' ? 'crawl' : 'swim', r), null);
         for (const tr of clip.tracks) {
             assert.ok(tr.bone < b.bones.length && tr.values.every(Number.isFinite));
+            // Quaternion tracks hold 4 values a key; translation and scale tracks 3.
+            const n = tr.path === 'translation' || tr.path === 'scale' ? 3 : 4;
             let gap = 0;
-            for (let k = 0; k < 4; k++) gap = Math.max(gap, Math.abs(tr.values[k] - tr.values[tr.values.length - 4 + k]));
+            for (let k = 0; k < n; k++) gap = Math.max(gap, Math.abs(tr.values[k] - tr.values[tr.values.length - n + k]));
             assert.ok(gap < 1e-6, 'closed loop');
         }
         let changed = 0;

@@ -440,7 +440,7 @@
      * hinged dactyl, both with cutting-edge denticles and darker tips. `dir` is the
      * palm axis: crabs fold theirs across the front, lobsters hold them forward. */
     function claw(C, s, wrist, parent, big, dir) {
-        const { L, colors: c, r } = C, k = big, f = norm(dir), up = [0, 1, 0], side = norm(P.vec.cross(up, f));
+        const { L, colors: c, r } = C, k = big, f = norm(dir), up = [0, 1, 0], side = mul(norm(P.vec.cross(up, f)), r.kind === 'lobster' ? s : 1); // a lobster's pair mirror each other
         const palmLength = L * .15 * k, palm = add(wrist, mul(f, palmLength));
         const b = C.bone('Chela' + s, parent, wrist, palm, 'claw', s);
         const tip = r.crabType === 'blueCrab' ? [.62, .12, .1] : c.dark;
@@ -558,7 +558,8 @@
             const phase = pair * Math.PI + (s < 0 ? Math.PI : 0);
             if (pair === 0 && !spiny) {
                 // Cheliped: merus and carpus, then the claw folded across the front (crab) or held forward (lobster).
-                const big = r.crabType === 'fiddlerCrab' ? (s > 0 ? 2.1 : .6) : lobster ? (s < 0 ? 1.3 : 1.1) : 1;
+                // A lobster's two claws are matched in size (only the fiddler crab keeps its one oversized claw).
+                const big = r.crabType === 'fiddlerCrab' ? (s > 0 ? 2.1 : .6) : lobster ? 1.2 : 1;
                 const knee = add(start, lobster ? [s * L * .09, L * .0, L * .13] : [s * L * .07, -L * .005, L * .11]);
                 const wrist = add(knee, lobster ? [s * L * .05, L * .01, L * .11] : [s * L * .015, L * .01, L * .06]);
                 const a = C.bone('Leg' + s + '_' + pair + '_0', root, start, knee, 'legUpper', phase), b = C.bone('Leg' + s + '_' + pair + '_1', a, knee, wrist, 'legLower', phase);

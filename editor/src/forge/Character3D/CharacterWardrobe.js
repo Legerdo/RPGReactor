@@ -117,7 +117,7 @@
         sneaker: { collar: { front: 1.32, side: 0.88, back: 1.08 }, toe: 0.01, point: 0, width: 0.004, sole: 0.022, welt: 0.003, heel: 0, spring: 0.01, gap: 0.005, wall: 0.028, laces: true },
         boot: { toe: 0.012, point: 0.1, sole: 0.016, welt: 0.005, heel: 1, spring: 0.007, gap: 0.004, wall: 0.026, margin: 0.012 },
         sabaton: { toe: 0.022, point: 0.6, sole: 0.012, welt: 0.003, heel: 0.6, spring: 0.012, gap: 0.009, wall: 0.03, lames: 2, margin: 0.012 },
-        mag: { toe: 0.009, point: 0, width: 0.004, sole: 0.021, welt: 0.004, heel: 0, spring: 0.006, gap: 0.014, wall: 0.022, margin: 0.008, rigidFoot: true },
+        mag: { toe: 0.009, point: 0, width: 0.004, sole: 0.021, welt: 0.004, heel: 0, spring: 0.006, gap: 0.006, wall: 0.022, margin: 0.008, rigidFoot: true },
         sandal: { sandal: true, toe: 0.006, point: 0.15, sole: 0.014, welt: 0.002, heel: 0.4, spring: 0.004, gap: 0.002 }
     };
     const shoe = (kind, item, extra) => {
@@ -311,9 +311,9 @@
             pieces: i => [Object.assign(shoe('dress', i, Object.assign({}, SHOE_KINDS.sabaton, { collar: { front: 1.35 + (i.length ?? 0.3), side: 1.2 + (i.length ?? 0.3), back: 1.25 + (i.length ?? 0.3) }, wall: 0.012, sole: 0.009, lames: 0, point: 0.3 })),
                 { armorLiner: true, look: { color: i.color2 || '#2b231d', color2: i.color2 || '#2b231d', trim: '#1c1612', material: 'leather' } }), { plateArmor: 'sabatons' }] },
         { id: 'helm', label: 'Helmet', slot: 'head', group: 'Armor', knobs: ['face'], defaults: { color: '#b0b6be', length: 0.9, face: 0.2, material: 'metal', trim: '#d4af37', trimWidth: 0.05 },
-            pieces: i => [{ helm: { square: 2.2, flat: 0.15, gap: 0.011, bottom: 0.6, window: { half: Math.round((1.15 - (i.face ?? 0.2) * 0.45) * 100) / 100, low: Math.round((-0.2 + (i.face ?? 0.2) * 0.1) * 1000) / 1000, high: 0.028, open: true } } }] },
+            pieces: () => [{ poweredHelmet: true, shape: 'knight' }] },
         { id: 'greathelm', label: 'Great helm', slot: 'head', group: 'Armor', defaults: { color: '#a0a6ae', trim: '#7a8088', length: 1, face: 1, material: 'metal' },
-            pieces: i => [{ helm: { square: 3.6, flat: 0.85, gap: 0.014, bottom: 0.15, slit: true } }] },
+            pieces: () => [{ poweredHelmet: true, shape: 'greathelm' }] },
 
         // Sci-fi
         { id: 'starshipUniform', label: 'Starship uniform', slot: 'dress', group: 'Sci-fi', knobs: ['fit', 'neckline'], defaults: { color: '#202734', color2: '#a32c3c', trim: '#d8c793', fit: 0.18, neckline: 'high', material: 'cloth', pattern: 'fleet', lightStyle: 'badge', lightColor: '#81dfff', lightIntensity: 0.25, lightWidth: 1 },
@@ -339,11 +339,11 @@
         // [outfit transfer] RRCharacterPowerArmor's armored hands alone: a glove with a rigid plate over the back of each hand.
         { id: 'powergauntlets', label: 'Power gauntlets', slot: 'hands', group: 'Sci-fi', knobs: ['color2'], defaults: { color: '#606d70', color2: '#e5ad55', bulk: 0.6, material: 'metal', pattern: 'solid', trim: '#273137', trimWidth: 0 },
             pieces: () => [{ poweredArmor: true, only: 'hands' }] },
-        { id: 'powerhelm', label: 'Power armor helmet', slot: 'head', group: 'Sci-fi', knobs: ['color2'], defaults: { color: '#606d70', color2: '#e5ad55', trim: '#273137', material: 'metal' }, pieces: () => [{ poweredHelmet: true }] },
+        { id: 'powerhelm', label: 'Power armor helmet', slot: 'head', group: 'Sci-fi', knobs: ['color2'], styles: [['visor', 'Visor'], ['lenses', 'Twin lenses']], defaults: { color: '#606d70', color2: '#e5ad55', trim: '#273137', material: 'metal', style: 'visor' }, pieces: () => [{ poweredHelmet: true }] },
         { id: 'cyberjacket', label: 'Neon jacket', slot: 'over', group: 'Sci-fi', defaults: { color: '#16141c', color2: '#ff2bd6', length: 0.55, material: 'plastic', open: 0.35, neckline: 'high', trim: '#ff2bd6', trimWidth: 0.05 },
             pieces: i => [top(Object.assign({}, i, { sleeves: 1, neckline: 'high' }), { lift: 0.016, drape: 5, structured: true })] },
-        { id: 'visorhelm', label: 'Visor helmet', slot: 'head', group: 'Sci-fi', defaults: { color: '#e4e7eb', color2: '#1a2a40', trim: '#9aa0a8', length: 1.1, face: 1, material: 'plastic' },
-            pieces: i => [{ helm: { square: 2.1, flat: 0, gap: 0.018, bottom: 0.2, window: { half: 1.05, low: -0.055, high: 0.035, visor: true } } }] },
+        { id: 'visorhelm', label: 'Visor helmet', slot: 'head', group: 'Sci-fi', styles: [['dome', 'Pressure dome'], ['work', 'Work helmet']], defaults: { color: '#e4e7eb', color2: '#1a2a40', trim: '#9aa0a8', length: 1.1, face: 1, material: 'plastic', style: 'dome' },
+            pieces: () => [{ poweredHelmet: true, shape: 'visor' }] },
         { id: 'magboots', label: 'Mag boots', slot: 'feet', group: 'Sci-fi', defaults: { color: '#5a606a', color2: '#36c2ff', length: 0.32, bulk: 0.45, material: 'plastic', pattern: 'panels', trim: '#2a2e34', trimWidth: 0.08 },
             pieces: i => [shoe('mag', i)] },
 
@@ -448,7 +448,7 @@
             { poweredArmor: true },
             // The rubber undersuit stands 9 mm off the skin. Leave room for
             // that layer and the ankle's mixed shin/foot bend inside the boot.
-            Object.assign(shoe('mag', { length: 0.4, bulk: (i.bulk ?? 0.6) * 0.6 }, { lames: 3 }), { armorFeet: true })
+            Object.assign(shoe('mag', { length: 0.4, bulk: (i.bulk ?? 0.6) * 0.6 }, { lames: 3, gap: 0.014 }), { armorFeet: true })
         ];
     }
 
@@ -708,7 +708,7 @@
         { id: 'commandOfficer', label: 'Command officer', group: 'Sci-fi', items: [{ id: 'starshipUniform', color2: '#36495e', lightIntensity: 0 }, { id: 'officerJacket' }, { id: 'boots', color: '#202936', length: 0.3 }] },
         { id: 'surveyTeam', label: 'Survey team', group: 'Sci-fi', items: [{ id: 'explorerSuit' }, { id: 'magboots', color: '#263d50', length: 0.30 }, { id: 'gloves', color: '#263d50', length: 0.25 }] },
         { id: 'reconTeam', label: 'Recon team', group: 'Sci-fi', items: [{ id:'officerJacket',color:'#424e4d',color2:'#2c383b',trim:'#899892',pattern:'solid',material:'cloth',lightStyle:'badge',lightColor:'#c09b66',lightIntensity:.3,neckline:'crew',fit:.6 },{ id:'cargoTrousers',color:'#414d48',color2:'#303b37',pattern:'solid',fit:.65 },{ id:'reconArmor' },{ id:'magboots',color:'#263331',color2:'#9c987b',length:.30 },{ id:'gloves',color:'#27332f',length:.3 }] },
-        { id: 'evaCrew', label: 'EVA crew', group: 'Sci-fi', items: [{ id: 'evaSuit' }, { id: 'visorhelm' }, { id: 'magboots', color: '#d6dcd9', length: 0.35 }, { id: 'gloves', color: '#d6dcd9', length: 0.35 }] },
+        { id: 'evaCrew', label: 'EVA crew', group: 'Sci-fi', items: [{ id: 'evaSuit', color: '#34404b', color2: '#e0782a', trim: '#1c242c', bulk: 0.15, fit: 0.15, pattern: 'pressure', lightColor: '#ffb24a' }, { id: 'reconArmor', color: '#d9dcd6', color2: '#e0782a', trim: '#262e36', bulk: 0.3, pattern: 'solid', lightColor: '#ffb24a', lightIntensity: 0.7 }, { id: 'visorhelm', style: 'work', color: '#d9dcd6', color2: '#3a2a14', trim: '#2a323a' }, { id: 'magboots', color: '#d6dcd9', length: 0.35 }, { id: 'gloves', color: '#2a323a', length: 0.35 }] },
         { id:'flightCrew',label:'Flight crew',group:'Sci-fi',items:[{ id:'officerJacket',color:'#334353',color2:'#47586a',trim:'#b19a6e',material:'cloth',pattern:'solid',fit:.55,neckline:'high',lightColor:'#ffb85a',lightStyle:'badge',lightIntensity:.4 },{ id:'cargoTrousers',color:'#303d4a',color2:'#202d36',pattern:'solid',fit:.6 },{ id:'boots',color:'#1e2831',length:.35 },{ id:'gloves',color:'#1e2831',length:.2 }] },
         { id: 'none', label: 'Nothing', group: 'Basics', items: [] },
         { id: 'generatedUndergarments', label: 'Underwear separates', group: 'Basics', items: [{ id: 'briefs' }, { id: 'bra' }] },
@@ -729,7 +729,7 @@
         { id: 'sporty', label: 'Athlete', group: 'Everyday', items: [{ id: 'tanktop', color: '#d03a3a' }, { id: 'shorts', color: '#1f1f24', length: 0.25 }, { id: 'sneakers' }] },
         { id: 'summerdress', label: 'Summer dress', group: 'Everyday', items: [{ id: 'dress', color: '#f0c040', sleeves: 0, length: 0.45, flare: 0.6 }, { id: 'sandals' }] },
         { id: 'peasantf', label: 'Villager', group: 'Fantasy', items: [{ id: 'peasant' }, { id: 'skirt', color: '#6a4a32', length: 0.95, flare: 0.5 }, { id: 'sash', color: '#8a3a2a' }, { id: 'shoes', color: '#4a3020' }] },
-        { id: 'farmer', label: 'Farmer', group: 'Fantasy', items: [{ id: 'tunic', color: '#8a7a5a', sleeves: 0.7 }, { id: 'jeans', color: '#5a4a32', fit: 0.6 }, { id: 'sash' }, { id: 'boots', length: 0.2 }] },
+        { id: 'farmer', label: 'Farmer', group: 'Fantasy', items: [{ id: 'tunic', color: '#8a7a5a', sleeves: 0.7 }, { id: 'jeans', color: '#5a4a32', fit: 0.15 }, { id: 'sash' }, { id: 'boots', length: 0.2 }] },
         { id: 'ranger', label: 'Ranger', group: 'Fantasy', items: [{ id: 'tunic', color: '#3e5a32' }, { id: 'leggings', color: '#3a3024' }, { id: 'vest', color: '#4a3220' }, { id: 'sash' }, { id: 'boots', length: 0.5 }, { id: 'hood', color: '#2f4a2a' }, { id: 'wraps' }] },
         { id: 'rogue', label: 'Rogue', group: 'Fantasy', items: [{ id: 'shirt', color: '#2a2a30' }, { id: 'leggings', color: '#1a1a1e' }, { id: 'leatherarmor', color: '#2e2620', color2: '#221c18' }, { id: 'boots', color: '#1e1814', length: 0.55 }, { id: 'gloves', color: '#1e1814' }, { id: 'hood', color: '#1c1c22' }] },
         { id: 'mage', label: 'Mage', group: 'Fantasy', items: [{ id: 'robe' }, { id: 'sash', color: '#d4af37' }, { id: 'shoes', color: '#2a1e3a' }] },
@@ -746,7 +746,7 @@
         { id: 'pilot', label: 'Space pilot', group: 'Sci-fi', items: [{ id: 'bodysuit', color: '#d8dce2', color2: '#d86a2a' }, { id: 'tacvest', color: '#3a4250', color2: '#2a3240', pattern: 'solid' }, { id: 'magboots', color: '#3a4250' }, { id: 'gloves', color: '#3a4250' }] },
         { id: 'astronaut', label: 'Astronaut', group: 'Sci-fi', items: [{ id: 'spacesuit' }, { id: 'magboots', color: '#e9ebee', color2: '#d86a2a' }, { id: 'gloves', color: '#e9ebee', bulk: 0.6 }, { id: 'visorhelm', color: '#f2f4f6', color2: '#c89a2a' }] },
         { id: 'trooper', label: 'Power armor', group: 'Sci-fi', items: [{ id: 'powerarmor' }, { id: 'powerhelm' }] },
-        { id: 'marine', label: 'Space marine', group: 'Sci-fi', items: [{ id: 'powerarmor', color: '#344e70', color2: '#ccd7dd', bulk: 1.1, trim: '#202a34' }, { id: 'powerhelm', color: '#344e70', color2: '#ccd7dd', trim: '#202a34' }] },
+        { id: 'marine', label: 'Space marine', group: 'Sci-fi', items: [{ id: 'powerarmor', color: '#344e70', color2: '#ccd7dd', bulk: 1.1, trim: '#202a34' }, { id: 'powerhelm', color: '#344e70', color2: '#ccd7dd', trim: '#202a34', style: 'lenses' }] },
         { id: 'cyberpunk', label: 'Cyberpunk', group: 'Sci-fi', items: [{ id: 'tanktop', color: '#1a1a20' }, { id: 'leggings', color: '#16141c' }, { id: 'cyberjacket' }, { id: 'boots', color: '#16141c', length: 0.6 }, { id: 'gloves', color: '#ff2bd6', length: 0.05 }] },
         { id: 'soldier', label: 'Soldier', group: 'Sci-fi', items: [{ id: 'shirt', color: '#4a5240', pattern: 'camo', color2: '#353b2e' }, { id: 'jeans', color: '#4a5240', pattern: 'camo', color2: '#353b2e', fit: 0.5 }, { id: 'tacvest' }, { id: 'boots', color: '#2a2620', length: 0.4 }, { id: 'gloves', color: '#2a2620', length: 0.1 }] },
         { id: 'mhcasual', label: 'Jeans and tee', group: 'Everyday', items: [{ id: 'mh_tee_jeans' }, { id: 'mh_sneakers' }] },
@@ -868,7 +868,7 @@
                 }
                 if (raw.poweredArmor || raw.poweredHelmet) {
                     const Power = root.RRCharacterPowerArmor || require('./CharacterPowerArmor.js');
-                    const made = raw.poweredHelmet ? Power.helmet(pack, built, item) : Power.build(pack, built, Object.assign({},item,{rigidFeet},raw.only?{only:raw.only}:{}));
+                    const made = raw.poweredHelmet ? Power.helmet(pack, built, item, raw.shape) : Power.build(pack, built, Object.assign({},item,{rigidFeet},raw.only?{only:raw.only}:{}));
                     shoeParts.push(...made.parts);
                     for (const v of made.hidden) covered[v] = 1;
                     return;
@@ -1590,7 +1590,7 @@
         }
         const made = O.shoes(pack, built, raw.shoe, extra, frame);
         // Trouser legs that bulge between the shaft's rings are kept inside it.
-        if (extra) for (const e of entries) if (!e.skirt && made.tuck(e.laid.positions)) e.laid.normals = O.triangleNormals(e.laid.positions, e.laid.index);
+        if (extra) for (const e of entries) if (!e.skirt && made.tuck(e.laid.positions, e.laid)) e.laid.normals = O.triangleNormals(e.laid.positions, e.laid.index);
         const Atlas = root.RRCharacterAtlas || require('./CharacterAtlas.js');
         // An armored boot's liner wears its own look (leather under the plates).
         if (raw.look) item = Object.assign({}, item, raw.look);

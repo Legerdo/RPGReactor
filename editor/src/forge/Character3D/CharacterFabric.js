@@ -12,7 +12,8 @@
  *   KINDS                   every tile: denim, jersey, rib, canvas, poplin,
  *                           felt, suiting, satin, suede, leather, brushed,
  *                           hammered, ripstop, padded, neoprene, plastic,
- *                           quilted, mail
+ *                           quilted, mail; and the Cyberpunk cloths techShell,
+ *                           cordura, baffled, hexKnit, coated, ventMesh
  *   kindFor(material, garmentId, pattern)   the tile a garment's cloth takes:
  *                           its material, and for plain 'cloth' what the
  *                           garment is (jeans are denim, a T-shirt jersey, a
@@ -227,6 +228,57 @@
                 s.h = 0.02 * knitV(fract(u * 16), fract(v * 22)) + 0.006 * pnoise(u, v, 64, 64, 51);
                 s.r = 0.64 + 0.05 * (pnoise(u, v, 16, 16, 52) - 0.5);
             } },
+        // Cyberpunk technical cloths (RRCharacterCyberwear's garments), their relief broad enough to read from across a room.
+        // Bonded technical shell: a fine twill face under a raised ripstop grid every 8 mm, its coating's shine mottled.
+        techShell: { span: 0.032, size: 256, normalScale: 1.5, cavity: 8, occlusion: 0.9, sheen: [0.2, 0.45],
+            sample(u, v, s) {
+                const line = t => Math.exp(-((Math.min(fract(t), 1 - fract(t)) / 0.045) ** 2));
+                const grid = Math.max(line(u * 4), line(v * 4));
+                s.h = 0.04 * twill(u, v, 48) + 0.1 * grid + 0.012 * pnoise(u, v, 8, 8, 71);
+                s.r = 0.62 + 0.1 * grid + 0.1 * (pnoise(u, v, 4, 4, 72) - 0.5);
+            } },
+        // Heavy-duty nylon: a coarse two-over-two basket weave with a dull sheen.
+        cordura: { span: 0.024, size: 256, normalScale: 1.8, cavity: 8, occlusion: 0.9, sheen: [0.3, 0.7],
+            sample(u, v, s) {
+                // Paired yarns (two over two), 1.2 mm each, a little slubbed, in a 12 mm ripstop box.
+                const w = plainWeave(u, v, 10, 73, 0.25), fine = plainWeave(u, v, 20, 78, 0.1);
+                const line = t => Math.exp(-((Math.min(fract(t), 1 - fract(t)) / 0.06) ** 2)), grid = Math.max(line(u * 2), line(v * 2));
+                s.h = 0.07 * w + 0.03 * fine + 0.12 * grid;
+                s.r = 0.76 + 0.06 * w - 0.04 * grid;
+            } },
+        // Channel quilting: puffed horizontal baffles 2.5 cm apart, stitched in their grooves, a ripstop face.
+        baffled: { span: 0.05, size: 256, normalScale: 1.2, cavity: 2.2, occlusion: 0.9, sheen: [0.3, 0.45],
+            sample(u, v, s) {
+                const q = fract(v * 2), puff = Math.pow(Math.sin(Math.PI * q), 0.6);
+                const groove = 1 - smoothstep(0.015, 0.06, Math.min(q, 1 - q)), stitch = groove * (fract(u * 30) < 0.6 ? 1 : 0);
+                s.h = 0.5 * puff - 0.06 * stitch + 0.015 * plainWeave(u, v, 80, 74, 0.1);
+                s.r = 0.5 + 0.2 * groove;
+            } },
+        // Compression knit: small raised hexagons in rows, a smooth knit between them.
+        hexKnit: { span: 0.016, size: 256, normalScale: 1.3, cavity: 6, occlusion: 0.8, sheen: [0.3, 0.5],
+            sample(u, v, s) {
+                const X = u * 7, Y = v * 8, row = Math.floor(Y), x = X + (row & 1) * 0.5;
+                const fx = fract(x) - 0.5, fy = fract(Y) - 0.5;
+                const hex = Math.max(Math.abs(fx) * 0.866 + Math.abs(fy) * 0.5, Math.abs(fy)) * 1.15;
+                const cell = 1 - smoothstep(0.34, 0.44, hex);
+                s.h = 0.16 * cell + 0.015 * knitV(fract(u * 40), fract(v * 54));
+                s.r = 0.66 - 0.14 * cell;
+            } },
+        // Waxed, coated canvas: a firm weave under crinkled creases, shinier where the coating is rubbed.
+        coated: { span: 0.064, size: 512, normalScale: 1.2, cavity: 6, occlusion: 0.75, sheen: [0.15, 0.5],
+            sample(u, v, s) {
+                const crease = Math.abs(fbm(u, v, 6, 3, 75) - 0.5);
+                s.h = 0.03 * plainWeave(u, v, 96, 76, 0.2) - 0.18 * Math.exp(-((crease / 0.035) ** 2)) + 0.05 * fbm(u, v, 12, 2, 77);
+                s.r = 0.48 + 0.18 * smoothstep(0.02, 0.2, crease);
+            } },
+        // Vent mesh: a knit face perforated in a fine grid of holes.
+        ventMesh: { span: 0.0128, size: 256, normalScale: 1.2, cavity: 8, occlusion: 0.85, sheen: [0.35, 0.6],
+            sample(u, v, s) {
+                const x = fract(u * 12) - 0.5, y = fract(v * 12 + (Math.floor(u * 12) & 1) * 0.5) - 0.5, hole = 1 - smoothstep(0.16, 0.24, Math.hypot(x, y));
+                s.h = 0.04 * knitV(fract(u * 36), fract(v * 48)) - 0.12 * hole;
+                s.r = 0.7 + 0.1 * hole;
+                if (hole > 0.5) s.ao = 0.55;
+            } },
         // Moulded plastic: a faint orange peel, its shine a little mottled.
         plastic: { span: 0.0256, size: 256, normalScale: 0.6, cavity: 0, occlusion: 0,
             sample(u, v, s) {
@@ -275,6 +327,10 @@
         ripstop: ['starshipUniform', 'officerJacket', 'explorerSuit', 'tacvest', 'swimTrunks', 'techJacket', 'techSmock', 'cyberJoggers', 'cyberBomber'],
         padded: ['evaSuit', 'spacesuit']
     };
+    /** The Cyberpunk garments' own technical cloths, for their soft materials. */
+    const CYBER_CLOTH = new Map([['techJacket', 'techShell'], ['techSmock', 'techShell'], ['cyberJoggers', 'cordura'], ['cyberBomber', 'baffled'],
+        ['compressionSuit', 'hexKnit'], ['cyberTrench', 'coated'], ['smartShirt', 'ventMesh'], ['utilityRig', 'cordura']]);
+    const CYBER_SOFT = new Set(['cloth', 'canvas', 'rubber', 'knit', 'denim', undefined]);
     const CLOTH_OF = new Map(Object.entries(GARMENT_CLOTH).flatMap(([kind, ids]) => ids.map(id => [id, kind])));
     const SUEDE = new Set(['vest', 'sash', 'loincloth']);
     const RIBBED_KNIT = new Set(['sweater', 'beanie', 'cardigan', 'socks']);
@@ -289,6 +345,7 @@
         if (pattern === 'mail') return 'mail';
         if (pattern === 'quilted') return 'quilted';
         const id = garmentId || '';
+        if (CYBER_CLOTH.has(id) && CYBER_SOFT.has(material)) return CYBER_CLOTH.get(id);
         switch (material) {
             case 'silk': return 'satin';
             case 'leather': return SUEDE.has(id) ? 'suede' : 'leather';

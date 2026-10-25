@@ -1475,12 +1475,14 @@
     const armorSet = (style, o) => ['cyberChest', 'cyberPauldrons', 'cyberBracers', 'cyberLegs'].map(id => Object.assign({ id, style }, o));
     const PRESETS = [
         { id: 'netrunner', label: 'Netrunner', group: GROUP, items: [
-            { id: 'smartShirt', style: 'rain', color: '#121418', lightColor: '#3dffb0', lightIntensity: 0.6 },
-            { id: 'cyberJoggers', style: 'seams', color: '#1d2024', color2: '#2a2e33', lightColor: '#3dffb0' },
-            { id: 'techSmock', style: 'band', color: '#2a2f33', color2: '#1f2327', trim: '#5c6268', lightColor: '#3dffb0', length: 0.74 },
-            { id: 'utilityRig', style: 'belt', color: '#1f2226', color2: '#2e3238', trim: '#5f646b', lightColor: '#3dffb0' },
-            { id: 'techGloves', style: 'fingerless', color: '#16181b', lightColor: '#3dffb0' },
-            { id: 'magSoles', style: 'sneaker', color: '#202327', color2: '#3dffb0', trim: '#1a1c20', lightColor: '#3dffb0' }] },
+            // Hooded, visored and wired in: cyan light down every seam.
+            { id: 'smartShirt', style: 'rain', color: '#0f1a1e', color2: '#16323a', lightColor: '#38e6ff', lightIntensity: 0.85 },
+            { id: 'cyberJoggers', style: 'seams', color: '#1a2226', color2: '#1f4048', trim: '#38e6ff', lightColor: '#38e6ff', fit: 0.45 },
+            { id: 'techSmock', style: 'band', color: '#22343a', color2: '#163038', trim: '#38e6ff', lightColor: '#38e6ff', lightIntensity: 1, length: 0.86, face: 0.15 },
+            { id: 'utilityRig', style: 'sling', color: '#152026', color2: '#38e6ff', trim: '#7fdcec', lightColor: '#38e6ff' },
+            { id: 'dustGoggles', style: 'eyes', color: '#11181c', color2: '#38e6ff' },
+            { id: 'techGloves', style: 'full', color: '#121a1e', color2: '#1f4048', lightColor: '#38e6ff' },
+            { id: 'magSoles', style: 'sneaker', color: '#1a2226', color2: '#38e6ff', trim: '#14191c', lightColor: '#38e6ff' }] },
         { id: 'streetSamurai', label: 'Street samurai', group: GROUP, items: [
             { id: 'cyberJoggers', style: 'strapped', color: '#161618', color2: '#2a1418', trim: '#3a3a3e', lightColor: '#ff3046' },
             { id: 'techJacket', style: 'wrap', color: '#151517', color2: '#5a0f18', trim: '#b49a5a', lightColor: '#ff3046', length: 0.7 },
@@ -1494,8 +1496,9 @@
             { id: 'cyberTrench', style: 'piping', color: '#1c1d21', color2: '#25272c', lightColor: '#d9f1ff', lightIntensity: 0.75, length: 0.95, open: 0.22 },
             { id: 'shoes', color: '#0f0f11' }] },
         { id: 'techCourier', label: 'Techwear courier', group: GROUP, items: [
-            { id: 'cyberJoggers', style: 'strapped', color: '#26282c', color2: '#33363b', trim: '#ff8a2a', lightColor: '#ff8a2a' },
-            { id: 'techJacket', style: 'diagonal', color: '#34373c', color2: '#1d1f23', trim: '#9aa0a8', lightColor: '#ff8a2a' },
+            // High-visibility: acid-yellow bonded panels and an orange rig over storm grey.
+            { id: 'cyberJoggers', style: 'strapped', color: '#3c4046', color2: '#c9f22a', trim: '#ff7a1a', lightColor: '#ff8a2a', fit: 0.7 },
+            { id: 'techJacket', style: 'diagonal', color: '#4a4f56', color2: '#d4ff2e', trim: '#e8ebee', lightColor: '#ff8a2a', length: 0.56 },
             { id: 'utilityRig', style: 'chest', color: '#202225', color2: '#ff7a1a', trim: '#5b6066', lightColor: '#ff8a2a' },
             { id: 'techGloves', style: 'fingerless', color: '#1d1f23', lightColor: '#ff8a2a' },
             { id: 'magSoles', style: 'sneaker', color: '#e6e7e9', color2: '#ff7a1a', trim: '#d8dadd', lightColor: '#ff8a2a' }] },
@@ -1512,8 +1515,8 @@
         { id: 'neonPunk', label: 'Neon punk', group: GROUP, items: [
             { id: 'smartShirt', style: 'rain', color: '#0e0e12', lightColor: '#ff2bd6', lightIntensity: 0.8, sleeves: 0.3 },
             { id: 'cyberJoggers', style: 'seams', color: '#1a1820', color2: '#2a2733', lightColor: '#ff2bd6', wear: 0.18 },
-            { id: 'cyberBomber', style: 'stripe', color: '#121116', color2: '#2a2733', lightColor: '#ff2bd6' },
-            { id: 'cyberPauldrons', style: 'salvaged', color: '#8a6d4c', color2: '#5a5f66', trim: '#6a7179', lightColor: '#ff2bd6', wear: 0.4 },
+            { id: 'cyberBomber', style: 'stripe', color: '#2a0f2e', color2: '#ff2bd6', trim: '#f2d4ff', lightColor: '#ff2bd6' },
+            { id: 'cyberPauldrons', style: 'neon', color: '#24102a', color2: '#ff2bd6', trim: '#d9dde3', lightColor: '#ff2bd6', bulk: 0.3 },
             { id: 'techGloves', style: 'fingerless', color: '#121116', lightColor: '#ff2bd6' },
             { id: 'magSoles', style: 'sneaker', color: '#121116', color2: '#ff2bd6', lightColor: '#ff2bd6' }] },
         { id: 'glowRunner', label: 'Glow runner', group: GROUP, items: [
@@ -1521,12 +1524,15 @@
             ...armorSet('neon', { color: '#1b2030', color2: '#2a3346', trim: '#4a5672', lightColor: '#38e6ff', bulk: 0.3 }).filter(i => i.id !== 'cyberPauldrons'),
             { id: 'techGloves', style: 'fingerless', color: '#141822', lightColor: '#38e6ff' },
             { id: 'magSoles', style: 'sneaker', color: '#141822', color2: '#2a3346', lightColor: '#38e6ff' }] },
+        // Street chrome: polished plates bolted over black techwear, violet light in the seams.
         { id: 'scrapper', label: 'Chrome scrapper', group: GROUP, items: [
-            { id: 'compressionSuit', style: 'plain', color: '#1e1c1a', color2: '#2c2824' },
-            { id: 'cyberJoggers', style: 'strapped', color: '#3a3630', color2: '#4a443a', trim: '#6a6258', lightColor: '#ffcf5a', wear: 0.55 },
-            ...armorSet('salvaged', { color: '#8a6d4c', color2: '#5e636b', trim: '#6a7179', lightColor: '#ffcf5a', wear: 0.55, bulk: 0.45 }).filter(i => i.id !== 'cyberLegs'),
-            { id: 'techGloves', style: 'fingerless', color: '#2a2622', lightColor: '#ffcf5a', wear: 0.5 },
-            { id: 'magSoles', style: 'boot', color: '#2a2622', color2: '#4a443a', lightColor: '#ffcf5a', wear: 0.5 }] }
+            { id: 'compressionSuit', style: 'circuit', color: '#111116', color2: '#1d1c26', lightColor: '#b45cff', lightIntensity: 0.65 },
+            { id: 'cyberJoggers', style: 'seams', color: '#17161c', color2: '#25232e', trim: '#9aa0aa', lightColor: '#b45cff' },
+            { id: 'cyberBomber', style: 'chevron', color: '#141319', color2: '#262430', trim: '#b9bfc8', lightColor: '#b45cff', fit: 0.5 },
+            ...armorSet('sleek', { color: '#c9ced6', color2: '#7d8592', trim: '#eef1f4', material: 'metal', lightColor: '#b45cff', bulk: 0.4 }).filter(i => i.id !== 'cyberLegs' && i.id !== 'cyberChest'),
+            { id: 'utilityRig', style: 'sling', color: '#18171d', color2: '#c9ced6', trim: '#9aa0aa', lightColor: '#b45cff' },
+            { id: 'techGloves', style: 'full', color: '#16151b', color2: '#c9ced6', lightColor: '#b45cff' },
+            { id: 'magSoles', style: 'boot', color: '#16151b', color2: '#7d8592', lightColor: '#b45cff' }] }
     ];
 
     // ── building ──────────────────────────────────────────────────────────

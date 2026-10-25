@@ -59,7 +59,7 @@
         return { c, p: [x, y, z], d1: Math.sqrt(d1), d2: Math.sqrt(d2) };
     }
 
-    const PATTERNS = [['none', 'None'], ['freckles', 'Freckles'], ['scales', 'Scales'], ['stripes', 'Stripes'], ['spots', 'Spots'], ['fur', 'Fur'], ['feathers', 'Feathers'], ['decay', 'Decay'], ['panels', 'Panels'], ['tribal', 'Tribal marks'], ['vitiligo', 'Patches'], ['moles', 'Moles'], ['scars', 'Scars'], ['veins', 'Veins'], ['stone', 'Stone'], ['marble', 'Marble'], ['lava', 'Lava cracks']];
+    const PATTERNS = [['none', 'None'], ['freckles', 'Freckles'], ['scales', 'Scales'], ['stripes', 'Stripes'], ['spots', 'Spots'], ['fur', 'Fur'], ['feathers', 'Feathers'], ['decay', 'Decay'], ['panels', 'Panels'], ['chitin', 'Chitin plates'], ['tribal', 'Tribal marks'], ['vitiligo', 'Patches'], ['moles', 'Moles'], ['scars', 'Scars'], ['veins', 'Veins'], ['stone', 'Stone'], ['marble', 'Marble'], ['lava', 'Lava cracks']];
     const LOOKS = [
         { id: 'freckled', label: 'Freckled', skin: '#d9ad91', settings: { type: 'freckles', color: '#8e5032', amount: 0.7 } },
         { id: 'moles', label: 'Beauty marks', skin: '#a8795a', settings: { type: 'moles', color: '#4b2c24', amount: 0.8 } },
@@ -506,6 +506,30 @@
         const d=Math.hypot((fract(u)-.5)*1.75,(fract(v)-.43)*1.65),edge=1-smooth(.70,.94,d);
         return {edge,height:edge*(.3+.7*Math.max(0,1-d*d))*.00055};
     }
+    /**
+     * An insect's armor: on the body a broad plate over the chest (split down
+     * the middle) and the belly in overlapping bands, each darker and lower
+     * under the edge of the one above; round the limbs, plates between
+     * joints, the joints themselves ringed in narrow segments. `pos` runs 0..1
+     * down each plate, `groove` marks the seams, `height` is the relief.
+     */
+    function chitinPlate(p, scale) {
+        let pos = 0.5, groove = 0, seam = 1;
+        if (p.fam === 0) {
+            if (p.s < 2.75) { pos = fract((2.75 - p.s) / 0.27 * scale); seam = Math.min(pos, 1 - pos) / 0.05; }
+            else seam = Math.min(Math.abs(p.s - 3.75) / 0.03, p.s < 3.75 ? Math.abs(p.rest[0]) / 0.0035 : 9);
+        } else {
+            const joints = p.fam <= 2 ? [2.0, 2.9] : [1.0, 1.95];
+            const near = Math.min(...joints.map(j => Math.abs(p.s - j)));
+            const step = near < 0.16 ? 0.07 : 0.42;
+            pos = fract(p.s / step * scale); seam = Math.min(pos, 1 - pos) / (near < 0.16 ? 0.12 : 0.04);
+            seam = Math.min(seam, Math.abs(Math.abs(p.ang) - Math.PI / 2) / 0.02);
+        }
+        groove = seam < 1 ? 1 : 0;
+        // Each plate swells a little in its middle and its lower edge stands proud of the next.
+        const height = (smooth(0.6, 2.2, seam) * (0.55 + 0.45 * Math.sin(Math.PI * pos)) + 0.35 * smooth(0.6, 1, pos) * (seam < 3 ? 0 : 1)) * 0.0007;
+        return { pos, groove, height };
+    }
     /** A texel's skin color (linear) from the skin settings and where it lies. */
     function shadeSkin(s, base, p) {
         const accent = s.accent || Outfit.linear(s.color || '#5a4030'), belly = s.bellyRgb || (s.belly ? Outfit.linear(s.belly) : null);
@@ -553,9 +577,11 @@
             }
         }
         // A paler front: the belly, the throat, the insides of the limbs.
+        let paler = 0;
         if (belly) {
             const front = p.fam === 0 ? smooth(0.35, 0.85, p.n[2]) * smooth(-0.4, 0.2, p.s) * (1 - smooth(4.4, 4.9, p.s)) : smooth(0.2, 0.9, -p.n[1]) * 0.8;
-            rgb = mix(rgb, belly, front * s.amount);
+            paler = front * s.amount;
+            rgb = mix(rgb, belly, paler);
         }
         const k = s.scale;
         let t = 0;
@@ -615,11 +641,17 @@
                 break;
             }
             case 'stripes': {
-                const along = p.fam === 0 ? y * 9 : p.s * 2.2;
+                // A tabby's: on the body the stripes run from the spine down and forward round the flanks, dipping
+                // a little as they leave the back (a chevron down the spine), broadest across the back and breaking
+                // up and narrowing toward the chest and belly; a dark line down the spine. Round the limbs, rings.
+                const front = p.fam === 0 ? smooth(-0.2, 0.85, p.n[2]) : 0;
+                const along = p.fam === 0 ? y * 9 + Math.abs(x) * 2.6 * (1 - front) : p.s * 2.2;
                 const wob = noise3(x * 8, y * 8, z * 8) * 0.9;
                 const v = Math.abs(Math.sin((along * k + wob) * Math.PI));
-                const side = p.fam === 0 ? 1 - smooth(0.4, 0.9, p.n[2]) * 0.8 : 1;
-                t = smooth(0.82, 0.92, v) * side;
+                const broken = smooth(0.25, 0.55, noise3(x * 22 + 3.1, y * 6, z * 22));
+                const side = p.fam === 0 ? (1 - front * 0.85) * (1 - front * (1 - broken)) : 1;
+                t = smooth(0.86 - 0.14 * (1 - front), 0.94 - 0.1 * (1 - front), v) * side;
+                if (p.fam === 0 && p.n[2] < -0.4) t = Math.max(t, (1 - smooth(0.012, 0.03, Math.abs(x))) * smooth(-0.4, -0.75, p.n[2]) * 0.9);
                 break;
             }
             case 'spots': {
@@ -637,6 +669,11 @@
                 const blot = noise3(x * 11, y * 11, z * 11) + noise3(x * 31, y * 31, z * 31) * 0.5;
                 const vein = Math.abs(noise3(x * 45, y * 45, z * 45) - 0.5) < 0.025 ? 1 : 0;
                 t = Math.max(smooth(0.85, 1.15, blot), vein * 0.8);
+                break;
+            }
+            case 'chitin': {
+                const plate = chitinPlate(p, k);
+                t = plate.groove * 0.95 + (1 - plate.groove) * smooth(0.55, 1, plate.pos) * 0.35;
                 break;
             }
             case 'panels': {
@@ -657,7 +694,8 @@
                 break;
             }
         }
-        if (s.type !== 'none') rgb = mix(rgb, s.type === 'vitiligo' ? Outfit.linear('#f2e6dc') : accent, Math.max(0, Math.min(1, t)) * s.amount);
+        const marked = s.type !== 'none' ? Math.max(0, Math.min(1, t)) * s.amount : 0;
+        if (s.type !== 'none') rgb = mix(rgb, s.type === 'vitiligo' ? Outfit.linear('#f2e6dc') : accent, marked);
         // A small oval recess with an upper hood. Its landmark is on the rest skin, so
         // pigment stays registered with the modeled navel as the abdomen changes shape.
         if (s.navel && p.fam === 0 && Math.abs(z - s.navel[2]) < 0.025) {
@@ -698,7 +736,12 @@
             const bh = s.bodyHair, here = p.hair ?? hairDensity(bh.regions, p);
             // The hair itself is strands over the skin (RRCharacterDetail). Under fur the skin takes the fur's
             // color, so none shows between the tufts; under thick hair it darkens a little toward the hair's.
-            if (bh.fur > 0.05) rgb = mix(rgb, bh.rgb, Math.min(1, here * Math.max(bh.amount, bh.fur)) * Math.min(1, bh.fur * 1.4) * 0.95);
+            // A patterned coat keeps its pattern in the fur: the pale front and the markings (a tabby's stripes)
+            // laid over the fur's color as they are over the skin's.
+            let coat = bh.rgb;
+            if (paler) coat = mix(coat, belly, paler);
+            if (marked && s.type !== 'vitiligo') coat = mix(coat, accent, marked);
+            if (bh.fur > 0.05) rgb = mix(rgb, coat, Math.min(1, here * Math.max(bh.amount, bh.fur)) * Math.min(1, bh.fur * 1.4) * 0.95);
             // Under the locks, as on a scalp, the skin takes on the hair's color in fine streaks along its
             // lie: what thick hair reads as from across a room, where single hairs are too fine to see.
             if (bh.amount > 0.01) {
@@ -890,7 +933,7 @@
         s.beard = Math.max(0, Math.min(1, (options && options.beard) || 0));
         s.genitalDetail = options && options.genitalDetail;
         const detailProfile = s.genitalDetail ? genitalProfile : null;
-        const scaleRelief=s.type==='scales'&&!fur;
+        const scaleRelief=(s.type==='scales'||s.type==='chitin')&&!fur;
         const relief = ((detailProfile||scaleRelief) && options?.relief !== false) || artRelief ? new Float32Array(size * size) : null;
         const glowMap = artGlow ? new Float32Array(size * size * 3) : null;
         const texelMap = artRelief ? new Float32Array(size * size).fill(layout.texel) : null;
@@ -976,7 +1019,7 @@
                 p.s = W.reduce((sum, w, k) => sum + w * an.s[v[k] * 5 + fam], 0);
                 p.ang = W.reduce((sum, w, k) => sum + w * angs[k], 0);
                 p.cu=p.ang*an.radius[fam];p.cv=p.s*an.unit[fam];
-                if(scaleRelief&&relief)relief[o]=skinScale(p,s.scale).height;
+                if(scaleRelief&&relief)relief[o]=s.type==='chitin'?chitinPlate(p,s.scale).height:skinScale(p,s.scale).height;
                 p.lips = W.reduce((sum, w, k) => sum + w * F.lips[v[k]], 0);
                 p.lids = W.reduce((sum, w, k) => sum + w * F.lids[v[k]], 0);
                 p.cheeks = W.reduce((sum, w, k) => sum + w * F.cheeks[v[k]], 0);

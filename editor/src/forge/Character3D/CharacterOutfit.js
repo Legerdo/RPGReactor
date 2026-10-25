@@ -1628,22 +1628,33 @@
         };
         // The leg's rings: per height, the farthest skin (or garment) in each direction round the leg's axis.
         const cols = style.cols || SHOE_COLS;
+        // A boot's shaft closes round the leg, not round the trousers: what is worn under it reaches at most
+        // `ease` past the skin (the cloth is tucked in after, tuckInto), and its folds never print through.
+        const ease = style.ease ?? 0.008;
         const ringAt = (s, dirs) => {
             const c = legAxis(F, s), y = c[1], half = shaft ? 0.03 : 0.016;
-            const r = new Float64Array(dirs.length);
+            const r = new Float64Array(dirs.length), rg = new Float64Array(dirs.length);
             const win = Math.PI * 2 / dirs.length * 1.6;
             const [cf, cl] = toPlan(F, c[0], c[2]);
             for (let i = 0; i < pts.length; i += 3) {
                 if (Math.abs(pts[i + 1] - y) > half) continue;
                 const [f, l] = toPlan(F, pts[i], pts[i + 2]);
                 const df = f - cf, dl = l - cl, d = Math.hypot(df, dl), ang = Math.atan2(dl, df);
+                const into = i < own ? r : rg;
                 for (let k = 0; k < dirs.length; k++) {
                     let da = Math.abs(ang - dirs[k]); if (da > Math.PI) da = Math.PI * 2 - da;
-                    if (da < win) r[k] = Math.max(r[k], d * Math.cos(da));
+                    if (da < win) into[k] = Math.max(into[k], d * Math.cos(da));
                 }
             }
-            const sm = circBlur(r, 2);
-            return { c, y, r: Array.from(r, (x, k) => Math.max(x, sm[k]) + gap + 0.002) };
+            const n = dirs.length, smg = circBlur(rg, 4);
+            // The skin's reach round the leg, eased into one smooth line: widened a column each way, then
+            // softened. Taken as the larger of each reading and its blur, every sparse skin point stood as its
+            // own tooth up the counter and the shaft, and the heel came out rumpled.
+            const wide = Array.from(r, (x, k) => Math.max(r[(k + n - 1) % n], x, r[(k + 1) % n]));
+            const sm = circBlur(wide, 3);
+            const skin = Array.from(r, (x, k) => Math.max(x, sm[k]));
+            // The cap reaches as far as the skin either side: sparse skin in one direction is no dent in the shaft.
+            return { c, y, skin: skin.map(x => x + 0.003), r: skin.map((x, k) => Math.max(x, Math.min(Math.max(rg[k], smg[k]), Math.max(skin[(k + n - 1) % n], x, skin[(k + 1) % n]) + ease)) + gap + 0.002) };
         };
         // The sole's outline: the footprint's reach in each direction round the ankle, widened by the gap.
         const N = 180, reach = new Float64Array(N);
@@ -1659,20 +1670,30 @@
         const sm = circBlur(reach, 3);
         const junctionDirs = Array.from({ length: N }, (_, b) => b / N * Math.PI * 2);
         const junction = ringAt(sj, junctionDirs);
-        const outline = [];
+        const outline = [], radii = [], swell = [];
         for (let b = 0; b < N; b++) {
             const ang = b / N * Math.PI * 2;
             let r = Math.max(reach[b], sm[b]) + gap + (style.width || 0) * Math.abs(Math.sin(ang));
             // Round the toe, or draw it to a point, past the toes.
             const ahead = Math.max(0, Math.cos(ang));
             r += (style.toe || 0) * Math.pow(ahead, 2 + (style.point || 0) * 10);
+            radii.push(r);
             // Never inside the leg as it leaves the shoe.
-            r = Math.max(r, junction.r[b] + 0.008);
-            outline.push([Math.cos(ang) * r, Math.sin(ang) * r]);
+            swell.push(Math.max(0, junction.r[b] + 0.008 - r));
         }
+        // Where the ankle bones stand past the footprint the outline swells out smoothly round them: taken
+        // as it came, the swell was a jog in the welt under each ankle.
+        if (swell.some(x => x > 0)) {
+            // Widened 16 degrees each way, then softened: a smooth hump no lower than the swell anywhere that counts.
+            const wide = swell.map((_, b) => { let m = 0; for (let q = -8; q <= 8; q++) m = Math.max(m, swell[(b + q + N) % N]); return m; });
+            const soft = circBlur(wide, 30);
+            for (let b = 0; b < N; b++) radii[b] += Math.max(swell[b], soft[b]);
+        }
+        for (let b = 0; b < N; b++) { const ang = b / N * Math.PI * 2; outline.push([Math.cos(ang) * radii[b], Math.sin(ang) * radii[b]]); }
         // A manufactured heel counter follows one smooth support envelope. Independent
         // radial maxima made every sparse heel vertex a visible tooth in the sole.
-        const rear=outline.map(p=>p[0]).reduce((a,b)=>Math.min(a,b)),halfWidth=Math.max(...outline.map(p=>Math.abs(p[1])));
+        // Its width is the heel's own (behind the ankle), not the ball's: a counter as wide as the forefoot was a bulb.
+        const rear=outline.map(p=>p[0]).reduce((a,b)=>Math.min(a,b)),halfWidth=Math.max(...outline.filter(p=>p[0]<=0).map(p=>Math.abs(p[1])));
         for(let j=0;j<outline.length;j++){
             const p=outline[j];if(p[0]>=-.008)continue;
             const t=Math.max(0,Math.min(1,(-p[0]-.008)/Math.max(.001,-rear-.008)));
@@ -1680,7 +1701,7 @@
             const a=j/N*Math.PI*2,rx=-rear,ry=halfWidth*.92;
             const radius=1/Math.sqrt((Math.cos(a)/rx)**2+(Math.sin(a)/ry)**2);
             const current=Math.hypot(...p),wanted=Math.max(current,radius);
-            outline[j]=p.map(v=>v*(1+(wanted/current-1)*Math.min(1,t*5)));
+            outline[j]=p.map(v=>v*(1+(wanted/current-1)*smoothstep(0,.35,t)));
         }
         // Columns at even steps along the outline, from the heel (behind the ankle) round.
         const start = N / 2;
@@ -1777,6 +1798,31 @@
         // The seam column behind repeats the first.
         for (let row = 0; row < rows; row++) for (let k = 0; k < 3; k++) G[(row * (cols + 1) + cols) * 3 + k] = G[(row * (cols + 1)) * 3 + k];
         return { F, G, rows, cols, O, out, dirs, yj, shaftRows, rings };
+    }
+
+    /**
+     * The upper's shading eased over its neighbors: its quads split along whichever diagonal is shorter,
+     * and the facet normals flipped with them from column to column, which a glossy boot showed as rumpled
+     * streaks round the heel. Only within the upper (the welt and the sole keep their edges).
+     */
+    function smoothUpperNormals(N, I, ranges, passes = 2) {
+        const inUpper = v => ranges.some(([a, b]) => v >= a && v < b);
+        const nbr = new Map();
+        for (let k = 0; k < I.length; k += 3) for (let e = 0; e < 3; e++) {
+            const a = I[k + e], b = I[k + (e + 1) % 3];
+            if (!inUpper(a) || !inUpper(b)) continue;
+            (nbr.get(a) || nbr.set(a, new Set()).get(a)).add(b);
+            (nbr.get(b) || nbr.set(b, new Set()).get(b)).add(a);
+        }
+        for (let p = 0; p < passes; p++) {
+            const prev = Float32Array.from(N);
+            for (const [v, set] of nbr) {
+                let x = prev[v * 3] * 2, y = prev[v * 3 + 1] * 2, z = prev[v * 3 + 2] * 2;
+                for (const u of set) { x += prev[u * 3]; y += prev[u * 3 + 1]; z += prev[u * 3 + 2]; }
+                const l = Math.hypot(x, y, z) || 1;
+                N[v * 3] = x / l; N[v * 3 + 1] = y / l; N[v * 3 + 2] = z / l;
+            }
+        }
     }
 
     /** The least concave curve over evenly spaced values (their upper hull), sampled back at each. */
@@ -1917,7 +1963,7 @@
      */
     function layShoes(pack, built, t, extra, options, frame) {
         const style = t.style, measure = options && options.measure;
-        const positions = [], uvs = [], index = [], paint = [], collar = [], lining = [], shafts = [];
+        const positions = [], uvs = [], index = [], paint = [], collar = [], lining = [], shafts = [], uppers = [];
         const joints = [], weights = [], source = [];
         const sole = style.sole ?? 0.012, welt = style.welt ?? 0.004;
         for (let side = 0; side < 2; side++) {
@@ -1946,16 +1992,23 @@
                 add(p, pc.uvs[i * 2], pc.uvs[i * 2 + 1], measure ? attrOf(p, 'upper', { row, col, below: t.collarRow[Math.round(col)] - row }) : null);
             });
             for (let i = 0; i < pc.index.length; i += 3) index.push(upperStart + pc.index[i], upperStart + pc.index[i + 1], upperStart + pc.index[i + 2]);
+            uppers.push([upperStart, upperStart + pc.verts.length]);
             // Wherever the leg reaches past the upper (a calf between two rings), it stands out of it; the
             // collar's roll and lining are laid from where it ends up.
             const upperSoft = [];
-            for (let i = 0; i < pc.verts.length; i++) if (pc.verts[i].a >= C * SHOE_WALL) upperSoft.push(upperStart + i);
+            // Not a boot's shaft above the foot: its rings are already measured round the leg, and the body's
+            // nearest normal behind the calf read as the leg breaking through, kicking single points out in a fin.
+            const shaftFrom = grid.shaftRows ? C * (SHOE_WALL + SHOE_DOME + 1) : Infinity;
+            for (let i = 0; i < pc.verts.length; i++) if (pc.verts[i].a >= C * SHOE_WALL && Math.min(pc.verts[i].a, pc.verts[i].b) < shaftFrom) upperSoft.push(upperStart + i);
             const before=Float32Array.from(positions);
             collide(pack, built, positions, 0, 0, 0.0025, frame || {}, upperSoft);
-            // Spread a heel correction over the complete rear counter instead of denting individual points.
+            // Spread a heel correction over the complete rear counter instead of denting individual points:
+            // measured only on the counter it is spread over (a calf pressing the shaft is no reason to
+            // inflate the heel), and eased out toward the sides and up the leg, never a step (it stood out as a fin).
+            const heelWeight=(f,y)=>smoothstep(-.004,-.02,f)*(1-smoothstep(grid.yj-.01,grid.yj+.03,y));
             let heelLift=0;
-            for(const i of upperSoft){const [f]=toPlan(F,before[i*3],before[i*3+2]);if(f<-.012)heelLift=Math.max(heelLift,Math.hypot(positions[i*3]-before[i*3],positions[i*3+2]-before[i*3+2]));}
-            if(heelLift>0)for(const i of upperSoft){const p=[before[i*3],before[i*3+1],before[i*3+2]],[f]=toPlan(F,p[0],p[2]);if(f>=-.012||p[1]>grid.yj+.02)continue;const axis=legAxis(F,2-(p[1]-F.ankle[1])/Math.max(.001,F.knee[1]-F.ankle[1])),d=norm3([p[0]-axis[0],0,p[2]-axis[2]]);positions[i*3]=p[0]+d[0]*heelLift;positions[i*3+2]=p[2]+d[2]*heelLift;}
+            for(const i of upperSoft){const [f]=toPlan(F,before[i*3],before[i*3+2]),w=heelWeight(f,before[i*3+1]);if(w>.5)heelLift=Math.max(heelLift,Math.hypot(positions[i*3]-before[i*3],positions[i*3+2]-before[i*3+2]));}
+            if(heelLift>0)for(const i of upperSoft){const p=[before[i*3],before[i*3+1],before[i*3+2]],[f]=toPlan(F,p[0],p[2]),w=heelWeight(f,p[1]);if(w<=0)continue;const axis=legAxis(F,2-(p[1]-F.ankle[1])/Math.max(.001,F.knee[1]-F.ankle[1])),d=norm3([p[0]-axis[0],0,p[2]-axis[2]]),own=(positions[i*3]-p[0])*d[0]+(positions[i*3+2]-p[2])*d[2];if(own>=heelLift*w)continue;positions[i*3]=p[0]+d[0]*heelLift*w;positions[i*3+2]=p[2]+d[2]*heelLift*w;}
 
             // The collar's edge rolled over, and the lining a little way down inside.
                 const rimOf = new Map();
@@ -2077,29 +2130,66 @@
         // One normal where the grid's seam behind (and the collar's roll) meets itself.
         const normals = triangleNormals(P, I);
         weldNormals(P, normals);
+        smoothUpperNormals(normals, I, uppers);
+        weldNormals(P, normals);
         return {
             positions: P, normals, uvs: Float32Array.from(uvs), index: I,
             joints: t.skin.joints, weights: t.skin.weights, source: t.skin.source,
             paint: measure ? { attrs: paint, index: I, uvs: Float32Array.from(uvs) } : null, collar,
-            tuck: points => tuckInto(shafts, style, points)
+            tuck: (points, cloth) => tuckInto(shafts, style, points, cloth && cloth.joints && cloth.weights ? { cloth, boot: { P, joints: t.skin.joints, weights: t.skin.weights } } : null)
         };
     }
 
     /**
      * Garment points inside a boot's shaft kept there: each point round a leg,
      * below the shaft's top, is drawn in toward the leg's axis until it lies a
-     * few millimeters inside the shaft. Returns whether any moved.
+     * few millimeters inside the shaft. Returns whether any moved. With
+     * `reskin` ({ cloth: the laid garment's joints and weights, boot }), what is
+     * inside also moves as the boot does (the skin of the boot's points round it,
+     * eased back to its own just over the top): a closely fitted shaft over cloth bound to the
+     * leg on its own let the cloth through as soon as the ankle bent.
      */
-    function tuckInto(grids, style, P) {
+    function tuckInto(grids, style, P, reskin) {
         if (style.top == null) return false;
         let moved = false;
+        let nearestBoot = null;
+        if (reskin) {
+            const B = reskin.boot.P, cell = 0.02, map = new Map(), key = (x, y, z) => x + ',' + y + ',' + z;
+            for (let v = 0; v < B.length / 3; v++) {
+                const k = key(Math.floor(B[v * 3] / cell), Math.floor(B[v * 3 + 1] / cell), Math.floor(B[v * 3 + 2] / cell));
+                let list = map.get(k); if (!list) map.set(k, list = []); list.push(v);
+            }
+            // The boot's skin round a point: its points within 3 cm, the nearer the more (one nearest point's
+            // weights changed in steps across the ankle's bend, and the cloth crossed the boot between them).
+            nearestBoot = (x, y, z) => {
+                const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell), found = [];
+                for (let r = 2; r <= 3 && !found.length; r++) for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) for (let c = -r; c <= r; c++) {
+                    const list = map.get(key(cx + a, cy + b, cz + c)); if (!list) continue;
+                    for (const v of list) { const d = Math.sqrt((B[v * 3] - x) ** 2 + (B[v * 3 + 1] - y) ** 2 + (B[v * 3 + 2] - z) ** 2); if (d < 0.03 * r / 2) found.push([v, 1 / (d + 0.004) ** 2]); }
+                }
+                return found;
+            };
+        }
+        const follow = (i, top) => {
+            const v = i / 3, y = P[i + 1], w = 1 - smoothstep(top - 0.01, top + 0.04, y);
+            if (w <= 0) return;
+            const near = nearestBoot(P[i], y, P[i + 2]);
+            if (!near.length) return;
+            const { joints: CJ, weights: CW } = reskin.cloth, { joints: BJ, weights: BW } = reskin.boot, sum = new Map();
+            const total0 = near.reduce((n, e) => n + e[1], 0);
+            for (let k = 0; k < 4; k++) if (CW[v * 4 + k] > 0) sum.set(CJ[v * 4 + k], (sum.get(CJ[v * 4 + k]) || 0) + CW[v * 4 + k] * (1 - w));
+            for (const [b, q] of near) for (let k = 0; k < 4; k++) if (BW[b * 4 + k] > 0) sum.set(BJ[b * 4 + k], (sum.get(BJ[b * 4 + k]) || 0) + BW[b * 4 + k] * w * q / total0);
+            const top4 = [...sum].sort((p, q) => q[1] - p[1]).slice(0, 4), total = top4.reduce((n, e) => n + e[1], 0) || 1;
+            for (let k = 0; k < 4; k++) { CJ[v * 4 + k] = top4[k] ? top4[k][0] : 0; CW[v * 4 + k] = top4[k] ? top4[k][1] / total : 0; }
+        };
         for (const g of grids) {
             const { rings, dirs, F, cols } = g;
-            const top = rings[rings.length - 1].y, bottom = rings[0].y;
+            const top = rings[rings.length - 1].y;
             for (let i = 0; i < P.length; i += 3) {
                 const y = P[i + 1];
                 // Just over the top too, easing out, so a trouser triangle reaching over the top stays inside.
-                if (y > top + 0.04 || y < bottom * 0.5) continue;
+                // Down to the floor: a suit's leg ending at the ankle hangs inside the heel counter too.
+                if (y > top + 0.04) continue;
                 let r = 0;
                 while (r + 1 < rings.length - 1 && rings[r + 1].y < y) r++;
                 const A = rings[r], B = rings[Math.min(rings.length - 1, r + 1)];
@@ -2108,6 +2198,7 @@
                 const [pf, pl] = toPlan(F, P[i], P[i + 2]), [cf, cl] = toPlan(F, cx, cz);
                 const df = pf - cf, dl = pl - cl, d = Math.hypot(df, dl);
                 if (P[i] * F.sign <= 0 || d > 0.3 || d < 1e-6) continue;
+                if (nearestBoot) follow(i, top);
                 const ang = Math.atan2(dl, df);
                 // The two columns either side of this direction.
                 let k = 0, best = Infinity;
@@ -2117,8 +2208,13 @@
                 const span = Math.abs(Math.atan2(Math.sin(dirs[k2] - dirs[k]), Math.cos(dirs[k2] - dirs[k]))) || 1;
                 const w = Math.min(1, Math.abs(da) / span);
                 const R = (A.r[k] * (1 - w) + A.r[k2] * w) * (1 - t) + (B.r[k] * (1 - w) + B.r[k2] * w) * t;
-                const most = R - 0.003 + Math.max(0, y - top) * 0.8;
-                if (d <= most || d > R + 0.08) continue;
+                const S = (A.skin[k] * (1 - w) + A.skin[k2] * w) * (1 - t) + (B.skin[k] * (1 - w) + B.skin[k2] * w) * t;
+                // A little deeper down the shaft than at its top, where the cloth shows over the rim; never into the leg.
+                const most = Math.max(Math.min(R - 0.003, S), R - 0.003 - 0.003 * smoothstep(top - 0.01, top - 0.05, y)) + Math.max(0, y - top) * 0.8;
+                // Nothing worn inside hangs through the sole (a heavy body's suit leg reached below the floor).
+                if (y < 0.004) { P[i + 1] = 0.004; moved = true; }
+                // Below the top, any cloth round this leg goes in (the shaft no longer swells round baggy legs).
+                if (d <= most || (y >= top && d > R + 0.08)) continue;
                 const s = most / d;
                 const [x, z] = fromPlan(F, cf + df * s, cl + dl * s);
                 P[i] = x; P[i + 2] = z;

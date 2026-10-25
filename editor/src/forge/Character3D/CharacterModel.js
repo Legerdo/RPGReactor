@@ -147,6 +147,8 @@
         const built = Body.build(pack, r);
         const textures = {};
         const graftKind = r.head ? r.head.kind : null;
+        // Insect head hook (RRCharacterSpecies insectHead): a shell in place of the person's head, which is left out.
+        const insectHeaded = !graftKind && !!(r.features && r.features.insectHead && r.features.insectHead.type !== 'none');
         let strandHidden = null;
         if (graftKind) {
             strandHidden = new Set();
@@ -210,11 +212,11 @@
         }
         textures['skin.png'] = cache.skin;
         body.texture = 'skin.png';
-        if(cache.skin.normal&&r.skinPattern.type==='scales'){textures['skin-scales-normal.png']=cache.skin.normal;body.normalTexture='skin-scales-normal.png';body.normalScale=.55;}
+        if(cache.skin.normal&&(r.skinPattern.type==='scales'||r.skinPattern.type==='chitin')){textures['skin-scales-normal.png']=cache.skin.normal;body.normalTexture='skin-scales-normal.png';body.normalScale=.55;}
         // Body art hook: glowing ink and implant light in the skin's own picture.
         if (cache.skin.emissive && art.length) { textures['skin-glow.png'] = cache.skin.emissive; body.emissive = '#ffffff'; body.emissiveTexture = 'skin-glow.png'; body.emissiveIntensity = 1; }
         // Scales and panels shine; skin under a coat is as matte as the fur painted on it.
-        body.roughness = r.skinPattern.type === 'scales' || r.skinPattern.type === 'panels' ? 0.45 : r.bodyHair.fur > 0.3 ? 0.85 : 0.62;
+        body.roughness = r.skinPattern.type === 'chitin' ? 0.36 : r.skinPattern.type === 'scales' || r.skinPattern.type === 'panels' ? 0.45 : r.bodyHair.fur > 0.3 ? 0.85 : 0.62;
         if (r.features.machinery.type === 'android') { body.roughness = 0.42; body.metalness = 0.15; }
 
         const eyes = Object.assign({}, built.parts[1], { roughness: 0.25, cutout: true });
@@ -229,7 +231,7 @@
         }
 
         // An animal head brings its own eyes.
-        const parts = graftKind ? [body] : [body, eyes];
+        const parts = graftKind || insectHeaded ? [body] : [body, eyes];
         if (!graftKind && !o.static && (r.morph.cranialRidges > 0 || r.morph.foreheadSpoon > 0 || r.morph.noseFolds > 0)) {
             const forehead = Detail.cranialPart(pack, built, r, body);
             if (forehead) parts.push(forehead);
@@ -318,13 +320,14 @@
         const props = Props.build(pack, built, coveredHands ? r.props.filter(item => item.id !== 'nails' && item.id !== 'claws') : r.props, hair, { outfitParts: outfit.parts });
         // Furred features grow the body's coat when it has one (its length and color), a coat of their own when not.
         const furred = bodyHair.fur > 0.05;
-        const features = Species.build(pack, built, graftKind ? headless(r.features) : r.features, L, { body, coat: { length: furred ? bodyHair.length || 1 : 1, color: furred ? bodyHair.color : null, budget } });
+        const features = Species.build(pack, built, graftKind ? headless(r.features) : r.features, L, { body, hooded: covers.some(id => HAIR_COVERS.has(id)), coat: { length: furred ? bodyHair.length || 1 : 1, color: furred ? bodyHair.color : null, budget } });
         for (const g of features.fur) {
             const part = Detail.furCards(g.roots, { name: 'Feature fur', seed: 31 });
             part.source = new Int32Array(part.positions.length / 3).fill(g.anchor);
             features.parts.push(part);
             textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
         }
+        if (features.parts.some(p => p.texture === 'insect-eye.png')) { const t = cache.insectEye || (cache.insectEye = Species.compoundEyeTexture(512)); textures['insect-eye.png'] = t; textures['insect-eye-normal.png'] = t.normal; }
         if (features.parts.some(p => p.texture === 'scales.png')) textures['scales.png'] = cache.scales || (cache.scales = Species.scaleTexture());
         // Body mods hook: the wear pictures cyber features (tails, wings, horns, ears) are plated with.
         if (BodyMods) Object.assign(textures, BodyMods.texturesFor(features.parts, cache));
@@ -336,6 +339,17 @@
         for (const p of features.parts) p.kind = p.kind || 'feature';
         if (features.parts.some(p => p.texture === 'feather.png')) textures['feather.png'] = cache.feather || (cache.feather = Species.featherTexture());
         if (features.parts.some(p => p.texture === 'fairywing.png')) textures['fairywing.png'] = cache.fairyWing || (cache.fairyWing = Species.fairyWingTexture());
+        if (insectHeaded) {
+            // The person's head above the chin left out, inside the insect's shell; under a closed helmet the shell too.
+            const head = L.boneIndex('Head'), src = pack.body.source, I = body.index, SW = pack.skinWeights, SJ = pack.skinJoints, P = built.shaped, keep = [];
+            // The skull's own skin goes; the skin that only partly follows it, under the collar plate's footprint.
+            const cut = features.insectCut;
+            const under = v => !cut || ((P[v * 3] - cut.center[0]) / cut.rx) ** 2 + ((P[v * 3 + 2] - cut.center[2]) / cut.rz) ** 2 < 1.1;
+            const gone = v => { let w = 0; for (let k = 0; k < 4; k++) if (SJ[v * 4 + k] === head) w += SW[v * 4 + k]; return P[v * 3 + 1] > L.chin - 0.004 && (w > 0.5 || (w > 0.1 && under(v))); };
+            for (let t = 0; t < I.length; t += 3) if (!(gone(src[I[t]]) || gone(src[I[t + 1]]) || gone(src[I[t + 2]]))) keep.push(I[t], I[t + 1], I[t + 2]);
+            body.index = Uint32Array.from(keep);
+            if (covers.some(id => FACE_COVERS.has(id))) features.parts = features.parts.filter(p => !/^Insect /.test(p.name));
+        }
         if (graftKind) {
             let g = graftHead(pack, built, L, r, body, eyes, cache, budget, skinNormals, o.quality === 'preview' && o.skinSize && o.skinSize <= 512 ? 'preview' : 'save');
             if(r.head.heads===2)g=pairedHeads(g,built,L,features,r);
@@ -355,7 +369,7 @@
         }
         // Expressions hook: the teeth and the tongue behind the lips, the mouth's inside darkened in the body's colors;
         // under a covering that hides the lips (a full-face helmet) none of the mouth is left.
-        if (Expressions && !graftKind) {
+        if (Expressions && !graftKind && !insectHeaded) {
             if (Expressions.mouthCovered(pack, outfit.hidden)) Expressions.hideMouth(pack, built, body, outfit.hidden);
             else { Expressions.tintMouth(pack, built, body); parts.push(...Expressions.mouthParts(pack, built, r)); }
         }
@@ -764,14 +778,16 @@
                 for (let k = 0; k < 3; k++) inside[k] += q[k] / (bodyPart.positions.length / 3);
             }
             const scaledNeck=h.kind==='drake';
-            if(scaledNeck&&cr.skullAnchor)inside.splice(0,3,...place(cr.skullAnchor));
+            // A cat's neck meets the skull at its base as wide as the neck, not pinched down to a point inside it.
+            const wideNeck=scaledNeck||h.kind==='cat';
+            if(wideNeck&&cr.skullAnchor)inside.splice(0,3,...place(cr.skullAnchor));
             if (base.length > 2) {
                 const cols = base.length, rows = 12, pos = [], normal = [], uv = [], joints = [], weights = [], index = [];
                 for (let row = 0; row <= rows; row++) {
                     const t = row / rows, eased = t * t * (3 - 2 * t);
                     for (let col = 0; col <= cols; col++) {
                         const v = base[col % cols], angle = Math.atan2(P[v * 3] - center[0], P[v * 3 + 2] - center[2]);
-                        const endRadius=scaledNeck?cr.skullRadius*s*.40:.012;
+                        const endRadius=wideNeck&&cr.skullRadius?cr.skullRadius*s*.40:.012;
                         const end = [inside[0] + Math.sin(angle) * endRadius, inside[1], inside[2] + Math.cos(angle) * endRadius];
                         for (let k = 0; k < 3; k++) {
                             const blend = k === 1 ? t : eased;
@@ -809,6 +825,10 @@
                 }
                 parts.push({ name: 'Head neck', positions: Float32Array.from(pos), normals: Float32Array.from(normal), uvs: Float32Array.from(uv), index: Uint32Array.from(index),
                     joints: Uint8Array.from(joints), weights: Float32Array.from(weights), texture: body.texture, roughness: body.roughness, metalness: 0, onSkin: true });
+                // A cat's neck runs up into the skull under a ruff of the coat, combed down, so no seam shows where they meet.
+                if (wideNeck && !scaledNeck && furred) for (let row = Math.round(rows * 0.5); row <= rows; row++) for (let col = 0; col < cols; col++) {
+                    const v = row * (cols + 1) + col; collar.push({ q: [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]], ruff: true });
+                }
                 if(scaledNeck){
                     const part=parts.at(-1),pictures=Species.neckSurface(),main=(root.RRCharacterOutfit||require('./CharacterOutfit.js')).linear(r.skin),light=(root.RRCharacterOutfit||require('./CharacterOutfit.js')).linear(r.skinPattern.belly||r.skin);
                     Object.assign(part,{texture:'neck-scales.png',normalTexture:'neck-scales-normal.png',normalScale:.35,keepColors:true,colors:new Float32Array(pos.length),roughness:.65});
@@ -823,10 +843,28 @@
             const rgb = (root.RRCharacterOutfit || require('./CharacterOutfit.js')).linear(coat), roots = headRoots;
             for (let k = 0; k < collar.length; k++) {
                 const c = collar[k].q, out = Props.vec.norm([c[0], 0, c[2] - Ah[2]]);
-                for (let j = 0; j < 2; j++) roots.push({ p: Props.vec.add(c, [0, 0.006 * j, 0]), n: out, flow: [out[0] * 0.3, -1, out[2] * 0.3], len: 0.016 + 0.01 * ((k * 7 + j * 3) % 5) / 5, width: 0.0045, color: rgb.map(x => x * 0.92), tip: rgb, lift: 0.2, droop: 0.1, joints: [neck, head, 0, 0], weights: [0.7, 0.3, 0, 0] });
+                for (let j = 0; j < 2; j++) roots.push({ p: Props.vec.add(c, [0, 0.006 * j, 0]), n: out, flow: [out[0] * 0.3, -1, out[2] * 0.3], len: (collar[k].ruff ? 0.028 : 0.016) + 0.01 * ((k * 7 + j * 3) % 5) / 5, width: 0.0045, color: rgb.map(x => x * 0.92), tip: rgb, lift: 0.2, droop: 0.1, joints: [neck, head, 0, 0], weights: [0.7, 0.3, 0, 0] });
             }
             fur = Detail.furCards(roots, { name: 'Head fur', seed: 17 });
             parts.push(fur);
+        }
+        // A tabby's lines over the back of the skull: from the brow back over the crown and down the nape, the coat's
+        // marking color laid into the head's colors (and its coat fur's), fading toward the sides and the face.
+        if (h.kind === 'cat' && r.skinPattern.type === 'stripes' && r.skinPattern.color) {
+            const Out = root.RRCharacterOutfit || require('./CharacterOutfit.js'), mark = Out.linear(r.skinPattern.color), base = Out.linear(coat);
+            const ratio = mark.map((m2, k) => Math.min(1, m2 / Math.max(0.02, base[k])));
+            for (const p of parts) {
+                if (!p.colors || !/^Head (Body|Coat fur|fur)$/.test(p.name)) continue;
+                for (let v = 0; v < p.positions.length / 3; v++) {
+                    const x = p.positions[v * 3], y = p.positions[v * 3 + 1], z = p.positions[v * 3 + 2];
+                    const behind = Math.max(0, Math.min(1, (eyeAt[2] - 0.02 - z) / 0.03)), high = Math.max(0, Math.min(1, (y - (cutY - 0.04)) / 0.05));
+                    const side = Math.max(0, 1 - Math.abs(x) / 0.05), line = Math.abs(Math.sin(Math.PI * x / 0.021 + 0.25 * Math.sin(z * 70)));
+                    // Broken a little down the nape, as a tabby's lines are.
+                    const broken = Math.sin(y * 260 + x * 40) > -0.55 || y > cutY + 0.05 ? 1 : 0.25;
+                    const k = (line < 0.34 ? 1 : line < 0.52 ? (0.52 - line) / 0.18 : 0) * behind * high * side * broken * 0.8;
+                    if (k > 0) for (let c = 0; c < 3; c++) p.colors[v * 3 + c] *= 1 + (ratio[c] - 1) * k;
+                }
+            }
         }
         return { parts, textures: Object.assign({}, cr.textures || {},neckTextures, fur ? { 'bodyhair.png': cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256)) } : {}) };
     }
@@ -974,6 +1012,8 @@
         // Slimefolk hook: a random goo.
         if (slimeSpecies(o.species)) return Slime.randomRecipe(seed);
         const body = Body.randomRecipe(scramble(seed + 1));
+        // A gender held (Randomize with Gender unticked): everything else rolled for it, the outfit and hair too.
+        if (Number.isFinite(o.gender)) body.gender = o.gender;
         const r = Object.assign({}, body);
         if (o.species && o.species !== 'human') Object.assign(r, withSpecies(r, o.species));
         const tones = Species.skinTones(r.species);
@@ -986,8 +1026,6 @@
         const bald = o.species && (Species.BY_ID.get(o.species)?.recipe || {}).bald;
         r.hair = bald ? { style: 'bald', brows: { style: 'none' }, lashes: false } : Hair.randomHair(scramble(seed + 2), { gender, people: body.ancestry.people, age: body.age });
         // Under a hat, hair that lies close.
-        // A gender held (Randomize with Gender unticked): everything else rolled for it, the outfit and hair too.
-        if (Number.isFinite(o.gender)) body.gender = o.gender;
         if (dressed.hat && !bald) r.hair = Wardrobe.hairUnderHat(r.hair, rand, gender === 'male');
         if (o.species === 'andorian') {
             r.hair.color = '#f3f2ec'; r.hair.tipColor = ''; r.hair.highlights = 0;

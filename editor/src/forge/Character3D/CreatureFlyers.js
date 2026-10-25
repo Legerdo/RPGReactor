@@ -4,13 +4,13 @@
     const P = root.RRCharacterProps || (typeof require === 'function' ? require('./CharacterProps.js') : null);
     const { add, sub, mul, norm, lerp, cross } = P.vec, rigid = P.rigid;
     const TYPES = {
-        birdType: { kind: 'avian', form: 'avian', label: 'Bird type', choices: [['eagle', 'Eagle'], ['owl', 'Owl'], ['crow', 'Crow'], ['sparrow', 'Sparrow'], ['pigeon', 'Pigeon'], ['duck', 'Duck'], ['chicken', 'Chicken'], ['parrot', 'Parrot'], ['flamingo', 'Flamingo'], ['hummingbird', 'Hummingbird'], ['penguin', 'Penguin']] },
+        birdType: { kind: 'avian', form: 'avian', label: 'Bird type', choices: [['eagle', 'Eagle'], ['owl', 'Owl'], ['crow', 'Crow'], ['sparrow', 'Sparrow'], ['pigeon', 'Pigeon'], ['duck', 'Duck'], ['chicken', 'Chicken'], ['turkey', 'Turkey'], ['parrot', 'Parrot'], ['flamingo', 'Flamingo'], ['hummingbird', 'Hummingbird'], ['penguin', 'Penguin']] },
         batType: { kind: 'bat', form: 'bat', label: 'Bat type', choices: [['littleBrownBat', 'Little brown bat'], ['flyingFox', 'Flying fox'], ['vampireBat', 'Vampire bat']] }
     };
     const PALETTES = {
         eagle: ['#47372c', '#f0ede4', '#251e19'], owl: ['#8a7051', '#d5c4a1', '#4c3a29'], crow: ['#192329', '#35414b', '#11181c'],
         sparrow: ['#80674c', '#d1bca0', '#47382a'], pigeon: ['#73828c', '#c0c7c9', '#354844'], duck: ['#4a6a50', '#b8b1a0', '#654c35'],
-        chicken: ['#ae693a', '#dcba79', '#3c3026'], parrot: ['#39894c', '#d8c841', '#2768a0'], flamingo: ['#e99591', '#f7c9bf', '#2b2b30'],
+        chicken: ['#ae693a', '#dcba79', '#3c3026'], turkey: ['#4c3b2c', '#c8b48e', '#1c1612'], parrot: ['#39894c', '#d8c841', '#2768a0'], flamingo: ['#e99591', '#f7c9bf', '#2b2b30'],
         hummingbird: ['#2e815d', '#d2c4aa', '#7a3142'], penguin: ['#26313a', '#e7e5d9', '#c79a3f'],
         littleBrownBat: ['#69513d', '#987c60', '#3b302e'], flyingFox: ['#48372d', '#ad7a46', '#241e20'], vampireBat: ['#675b51', '#a18b79', '#362b2c']
     };
@@ -22,6 +22,7 @@
         pigeon: { head: .095, neck: .11, bill: .065, span: .60, tail: .22, round: true },
         duck: { head: .11, neck: .15, bill: .14, span: .64, tail: .13, webbed: true },
         chicken: { head: .09, neck: .14, bill: .06, span: .48, tail: .29, comb: true, legs: .22 },
+        turkey: { head: .075, neck: .2, bill: .05, span: .56, tail: .34, legs: .26 },
         parrot: { head: .13, neck: .045, bill: .09, hook: true, span: .59, tail: .40, frontEyes: false },
         flamingo: { head: .085, neck: .56, bill: .13, span: .80, tail: .12, legs: .66, webbed: true },
         hummingbird: { head: .09, neck: .015, bill: .30, span: .46, tail: .20, thinBill: true },
@@ -340,7 +341,9 @@
         if (!(o.len > 1e-6) || !(o.wid > 1e-7)) return;
         const rows = o.rows || 2, dir = norm(o.dir), up0 = norm(sub(o.up, mul(dir, dot(o.up, dir))));
         let across = norm(cross(up0, dir));
-        if (o.lead) { const l = sub(o.lead, mul(dir, dot(o.lead, dir))); if (dot(across, l) > 0) across = mul(across, -1); }
+        // A card turned to put its leading vane on the other side is wound the other way too, so its faces agree with its normals (a mirrored wing's cards were lit from behind).
+        let flip = false;
+        if (o.lead) { const l = sub(o.lead, mul(dir, dot(o.lead, dir))); if (dot(across, l) > 0) { across = mul(across, -1); flip = true; } }
         const cell = o.cell, ids = [];
         for (let r = 0; r <= rows; r++) {
             const v = r / rows, row = [];
@@ -355,7 +358,10 @@
             }
             ids.push(row);
         }
-        for (let r = 0; r < rows; r++) for (let k = 0; k < 2; k++) { m.tri(ids[r][k], ids[r + 1][k], ids[r][k + 1]); m.tri(ids[r][k + 1], ids[r + 1][k], ids[r + 1][k + 1]); }
+        for (let r = 0; r < rows; r++) for (let k = 0; k < 2; k++) {
+            if (flip) { m.tri(ids[r][k], ids[r][k + 1], ids[r + 1][k]); m.tri(ids[r][k + 1], ids[r + 1][k + 1], ids[r + 1][k]); }
+            else { m.tri(ids[r][k], ids[r + 1][k], ids[r][k + 1]); m.tri(ids[r][k + 1], ids[r + 1][k], ids[r + 1][k + 1]); }
+        }
     }
 
     // ── kinds of bird ─────────────────────────────────────────────────────
@@ -364,7 +370,7 @@
     // wing: humerus, forearm, hand, primary/secondary counts and lengths;
     // tail length, count and shape; leg: tibia, tarsus, toe, talon, feathering.
     const BIRDS = {
-        eagle: { pitch: 56, trunk: [.36, .20, .215], keel: 1.0, neck: [.05, .046], head: [.135, .10, .095], skull: 'raptor', bill: 'raptor', billLen: .066, eye: .0125, iris: '#f2dd74', eyeFwd: .72,
+        eagle: { pitch: 56, trunk: [.36, .20, .215], keel: 1.0, neck: [.05, .056], head: [.122, .086, .084], skull: 'raptor', bill: 'raptor', billLen: .066, eye: .0125, iris: '#f2dd74', eyeFwd: .72,
             wing: [.17, .20, .105, 10, 15, .41, .28], slots: 1, dihedral: 7, tail: [.26, 12, 'wedge'], leg: [.11, .072, .066, .036, .55], legColor: '#e8b52c', billColor: '#e9b62e', card: 1, ruff: true },
         owl: { pitch: 72, trunk: [.30, .23, .23], keel: .9, neck: [.04, .085], head: [.15, .16, .145], skull: 'owl', bill: 'owl', billLen: .036, eye: .022, iris: '#f2b221', eyeFwd: 1.45,
             wing: [.15, .17, .09, 10, 14, .32, .24], slots: .3, dihedral: 5, tail: [.17, 12, 'round'], leg: [.11, .07, .05, .028, 1.2], legColor: '#cdb79a', billColor: '#3d3a33', card: 1.15, soft: true },
@@ -378,6 +384,9 @@
             wing: [.15, .17, .10, 10, 14, .30, .20], slots: 0, dihedral: 5, tail: [.13, 16, 'point'], leg: [.08, .055, .07, .008, 0], legColor: '#e2802a', billColor: '#d9c13a', card: 1, webbed: true },
         chicken: { pitch: 24, trunk: [.38, .22, .26], keel: 1.1, neck: [.14, .06], head: [.10, .07, .08], skull: 'passerine', bill: 'chicken', billLen: .055, eye: .011, iris: '#d7801c', eyeFwd: .1,
             wing: [.13, .14, .08, 10, 12, .24, .19], slots: 0, dihedral: 2, tail: [.30, 14, 'sickle'], leg: [.14, .13, .07, .012, 0], legColor: '#d9b53c', billColor: '#c9a648', card: 1.1, comb: true },
+        // A tom turkey: a deep bronze barrel, long bare neck, a small bare head with snood and wattle, a broad round tail fan.
+        turkey: { pitch: 20, trunk: [.44, .26, .30], keel: 1.2, neck: [.20, .05], head: [.085, .06, .068], skull: 'passerine', bill: 'chicken', billLen: .05, eye: .010, iris: '#3a2416', eyeFwd: .1,
+            wing: [.14, .15, .09, 10, 12, .25, .20], slots: 0, dihedral: 2, tail: [.36, 18, 'round'], leg: [.16, .15, .075, .012, 0], legColor: '#c08a7c', billColor: '#cdbfa6', card: 1.15, snood: true, fanTail: 2.1 },
         parrot: { pitch: 60, trunk: [.30, .19, .20], keel: 1, neck: [.06, .06], head: [.14, .11, .11], skull: 'parrot', bill: 'parrot', billLen: .07, eye: .013, iris: '#e6d89a', eyeFwd: .2,
             wing: [.15, .17, .10, 10, 10, .32, .22], slots: 0, dihedral: 3, tail: [.40, 12, 'graduated'], leg: [.08, .06, .055, .02, 0], legColor: '#5e605c', billColor: '#3a3a3a', card: .95, zygodactyl: true },
         flamingo: { pitch: 18, trunk: [.30, .16, .18], keel: .9, neck: [.50, .028], head: [.075, .055, .06], skull: 'passerine', bill: 'flamingo', billLen: .13, eye: .009, iris: '#f0d040', eyeFwd: .1,
@@ -388,7 +397,7 @@
             wing: [.08, .09, .09, 10, 10, .2, .15], slots: 0, dihedral: 0, tail: [.07, 12, 'point'], leg: [.05, .04, .06, .012, 0], legColor: '#2a2726', billColor: '#2a2522', card: .5, penguin: true, webbed: true }
     };
     /** Typical grown size (C.L / 2.4) of each kind of bird, applied when its type is chosen. */
-    const BIRD_SIZES = { eagle: .5, owl: .3, crow: .25, sparrow: .09, pigeon: .18, duck: .3, chicken: .36, parrot: .22, flamingo: .55, hummingbird: .06, penguin: .5 };
+    const BIRD_SIZES = { eagle: .5, owl: .3, crow: .25, sparrow: .09, pigeon: .18, duck: .3, chicken: .36, turkey: .5, parrot: .22, flamingo: .55, hummingbird: .06, penguin: .5 };
 
     /**
      * Plumage by tract: a feather's color from its kind of bird, its tract
@@ -480,6 +489,18 @@
                 else f = fixed(vary(M, .1));
                 break;
             }
+            case 'turkey': {
+                // Bronze body feathers with a copper sheen, each tipped with a black band and a narrow buff edge;
+                // white-barred flight feathers; a chestnut tail with a dark band near its buff tip; bare blue-and-red head skin.
+                const bronze = mix(M, [.30, .20, .06], .35), black = scale3(K, .8), buff = Lt, skinBlue = [.55, .66, .82], skinRed = [.62, .06, .06];
+                if (zone === 'head' || zone === 'face') f = fixed(skinBlue);
+                else if (zone === 'throat' || zone === 'nape' && t > .7) f = fixed(skinRed);
+                else if (zone === 'primary' || zone === 'secondary') f = v => Math.sin(v * Math.PI * 11 + rnd) > .1 ? scale3(buff, 1.15) : scale3(black, 1.2);
+                else if (zone === 'tail') f = v => v > .93 ? buff : v > .78 ? black : mix(scale3(K, 1.6), [.35, .2, .1], .55 + .25 * Math.sin(v * 30));
+                else if (['uppertail', 'rump'].includes(zone)) f = v => v > .85 ? buff : mix(bronze, [.4, .22, .08], .4);
+                else f = (v, u) => v > .92 ? buff : v > .74 ? black : vary(mix(bronze, [.42, .26, .08], .35 * smooth(.3, .7, v) * (1 - u * u)), .1);
+                break;
+            }
             case 'parrot': {
                 const red = [.55, .02, .02];
                 if (zone === 'head' && t > .55) f = fixed(Lt);
@@ -555,7 +576,8 @@
         for (let i = 1; i <= NN; i++) {
             const t = i / NN, a = 1 - t, c = add(add(mul(P0, a * a * a), mul(P1, 3 * a * a * t)), add(mul(P2, 3 * a * t * t), mul(P3, t * t * t)));
             const T = norm(add(add(mul(sub(P1, P0), 3 * a * a), mul(sub(P2, P1), 6 * a * t)), mul(sub(P3, P2), 3 * t * t)));
-            const e = smooth(0, .55, t), rr = neckR * (1 - .12 * smooth(.6, 1, t));
+            // A raptor's hood: a thick neck that flares into the shoulders, not a stalk.
+            const e = smooth(0, b.skull === 'raptor' ? .65 : .55, t), rr = neckR * (1 - .12 * smooth(.6, 1, t));
             stations.push({ s: .72 + t * .28, c, T, w: last.w + (rr * 1.04 - last.w) * e, rd: last.rd + (rr - last.rd) * e, rv: last.rv + (rr * 1.12 - last.rv) * e, skin: smooth(.15, .85, t) });
         }
         const X = [1, 0, 0];
@@ -645,15 +667,17 @@
             const front = Math.max(0, z);
             if (b.skull === 'raptor') {
                 // Wedge-shaped toward the bill, the crown flat.
-                sx *= 1 - .40 * front * front; sy *= 1 - .24 * front * front;
-                if (y > .35) sy *= 1 - .36 * smooth(.35, 1, y);
+                // Long and low: a flat crown, a rounded occiput (no can-shaped back), narrowing into the cere.
+                sx *= 1 - .44 * front * front; sy *= 1 - .22 * front * front;
+                if (y > .35) sy *= 1 - .20 * smooth(.35, 1, y) * (.55 + .45 * smooth(-.4, .3, z));
+                sz *= 1 + .10 * smooth(0, -.8, z) * (1 - .5 * Math.abs(y));
                 // The supraorbital shelf: a ridge over each eye that gives the eagle its stare.
                 // The supraorbital shelf: a hard ledge right over each eye, running forward toward the cere.
                 // It rises gently above and drops off sharply toward the eye beneath it.
                 {
                     const ex = .72, ez = .66, h = Math.atan2(z, Math.abs(x)) - Math.atan2(ez, ex), dy = y - .37;
                     const along = Math.exp(-(((h - .12) / .55) ** 2)), profile = dy > 0 ? Math.exp(-((dy / .20) ** 2)) : Math.exp(-((dy / .055) ** 2));
-                    push += .46 * profile * along * smooth(.2, .5, Math.abs(x));
+                    push += .40 * profile * along * smooth(.2, .5, Math.abs(x)) * smooth(-.25, .25, z);
                     // The orbit beneath: the eye sits back under the ledge.
                     push -= .10 * Math.exp(-(((y - .12) / .17) ** 2)) * Math.exp(-((h / .40) ** 2)) * smooth(.3, .7, Math.abs(x));
                 }
@@ -722,6 +746,8 @@
                 if (z > -.05 && y > .15) continue;
                 if (z > .45) continue;
                 if (z < -.8) continue; // the occiput, under the neck
+                // A raptor's skull reads smooth: only a neat row of nape hackles, no ragged crown or cheek cards.
+                if (b.skull === 'raptor' && (z > -.3 || y > .35 || y < -.45)) continue;
                 const p = shape(x, y, z), nrm = shapeNormal(shape, x, y, z, H.c);
                 let eyeNear = false; for (const e of B.eyes || []) if (Math.hypot(...sub(p, e.c)) < e.r * 2.3) eyeNear = true;
                 if (eyeNear) continue;
@@ -745,8 +771,8 @@
      * arch, half-width at the base, the lower mandible's reach, and a hook.
      */
     const BILLS = {
-        // A bald eagle's bill: about 0.38 of the head's length, deep but narrow, a smooth culmen into a sharp hook.
-        raptor: { len: .54, top: .21, bot: -.15, tip: -.37, arch: .17, width: .115, lower: .76, hook: 1, wedge: true },
+        // A bald eagle's bill: massive, nearly half the head's length, about half the head deep at the base, narrow, a smooth culmen into an overhanging hook.
+        raptor: { len: .74, top: .27, bot: -.19, tip: -.50, arch: .20, width: .14, lower: .64, hook: 1, wedge: true },
         owl: { len: .42, top: .16, bot: -.20, tip: -.42, arch: .12, width: .15, lower: .7, hook: 1 },
         crow: { len: 1.0, top: .21, bot: -.17, tip: -.10, arch: .14, width: .17, lower: .97, hook: .15 },
         cone: { len: .46, top: .21, bot: -.20, tip: -.02, arch: .05, width: .27, lower: .98, hook: 0 },
@@ -796,8 +822,9 @@
         // The lower mandible: a shallower trough seated under the cutting edge, ending under the hook.
         const lowEnd = S.lower, lrow = [], lcen = [];
         for (let i = 0; i <= 18; i++) {
-            const t = i / 18 * lowEnd, Bo = bot(t), z = Bo[0], yTop = Bo[1] + hh * .01, depth = hh * (S.flat ? .10 : .15) * (1 - .55 * t / lowEnd) * (b.bill === 'needle' ? .5 : 1) + len * .004;
-            const w = widthAt(t) * .92, row = [];
+            const t = i / 18 * lowEnd, Bo = bot(t), z = Bo[0], yTop = Bo[1] + hh * (b.bill === 'raptor' ? .06 : .01), depth = hh * (S.flat ? .10 : b.bill === 'raptor' ? .17 : .15) * (1 - .55 * t / lowEnd) * (b.bill === 'needle' ? .5 : 1) + len * .004;
+            // A raptor's lower mandible sits inside the upper's cutting edges (no lip showing past them).
+            const w = widthAt(t) * (b.bill === 'raptor' ? .78 : .92), row = [];
             for (let k = 0; k < 16; k++) { const a = -Math.PI / 2 + k / 16 * Math.PI * 2, sn = Math.sin(a), cs = Math.cos(a); row.push(m.vertex(add(at(z - (i === 18 ? 0 : 0), yTop - depth * (1 - sn) * .5 - depth * .1), mul(X, cs * w * (sn > 0 ? 1 : .85))), [0, 1, 0], mix(yellow, tipCol, smooth(.5, 1, t) * .6), skin, [0, 0])); }
             lrow.push(row); lcen.push(at(z, yTop - depth * .5));
         }
@@ -807,17 +834,17 @@
         for (const s of [-1, 1]) {
             // The gape: the mouth's corner as a fleshy line running back under the eye.
             const reach = b.bill === 'raptor' ? .30 : b.bill === 'duck' ? .15 : .25;
-            const gape = Array.from({ length: 14 }, (_, i) => { const t = i / 13, z = -hh * reach + (len * .55 + hh * reach) * t, Bo = bot(clamp(z / len, 0, 1)); return add(at(z, (z < 0 ? hh * S.bot + hh * .02 : Bo[1]) - hh * .01), mul(X, s * (widthAt(clamp(z / len, 0, 1)) + hh * (z < 0 ? .10 * (-z / (hh * reach)) + .01 : .006)))); });
+            const gape = Array.from({ length: 14 }, (_, i) => { const t = i / 13, z = -hh * reach + (len * .55 + hh * reach) * t, Bo = bot(clamp(z / len, 0, 1)); return add(at(z, (z < 0 ? hh * S.bot + hh * .02 : Bo[1]) - hh * .01), mul(X, s * (widthAt(clamp(z / len, 0, 1)) + hh * (z < 0 ? (b.bill === 'raptor' ? .035 : .10) * (-z / (hh * reach)) + .01 : .006)))); });
             tubeInto(m, gape, gape.map((_, i) => hh * (b.bill === 'raptor' ? .014 : .012) * (1 - i / 16)), 6, b.bill === 'raptor' ? mix(yellow, lin('#c98a1c'), .5) : dark, skin);
             // The nostril, set in the cere where there is one.
-            const nt = b.bill === 'duck' ? .22 : b.bill === 'raptor' ? .12 : .2, T = top(nt), Bo = bot(nt);
-            ellipsoidInto(m, add(at(T[0], T[1] - (T[1] - Bo[1]) * (b.bill === 'raptor' ? .32 : .25)), mul(X, s * widthAt(nt) * .93)), [hh * .012, hh * (b.bill === 'raptor' ? .035 : .02), hh * (b.bill === 'raptor' ? .055 : .04)], Fh, Uh, [.02, .015, .01], skin, 6, 10);
+            const nt = b.bill === 'duck' ? .22 : b.bill === 'raptor' ? .19 : .2, T = top(nt), Bo = bot(nt);
+            ellipsoidInto(m, add(at(T[0], T[1] - (T[1] - Bo[1]) * (b.bill === 'raptor' ? .30 : .25)), mul(X, s * (b.bill === 'raptor' ? widthAt(nt) * 1.07 + hh * .013 : widthAt(nt) * .93))), [hh * .012, hh * (b.bill === 'raptor' ? .028 : .02), hh * (b.bill === 'raptor' ? .05 : .04)], Fh, Uh, [.02, .015, .01], skin, 6, 10);
         }
         // A cere: soft waxy skin over the bill's root (raptors, owls, pigeons).
         if (b.bill === 'raptor' || b.bill === 'owl' || S.cere) {
-            const cere = S.cere ? lin('#ece6dc') : mix(yellow, lin('#f5cf55'), .5), crow = [], ccen = [];
+            const cere = S.cere ? lin('#ece6dc') : b.bill === 'raptor' ? lin('#f3d64e') : mix(yellow, lin('#f5cf55'), .5), crow = [], ccen = [];
             for (let i = 0; i <= 6; i++) {
-                const t = i / 6 * (b.bill === 'raptor' ? .26 : .22), T = top(t), Bo = bot(t), w = widthAt(t) * 1.07 + hh * .006, half = (T[1] - Bo[1]) / 2 + hh * .008, mid = (T[1] + Bo[1]) / 2, row = [];
+                const t = i / 6 * (b.bill === 'raptor' ? .26 : .22), T = top(t), Bo = bot(t), swell = b.bill === 'raptor' ? 1 + .6 * Math.sin(Math.PI * Math.min(1, i / 5.2)) : 1, w = widthAt(t) * 1.07 + hh * .006 * swell, half = (T[1] - Bo[1]) / 2 + hh * .008 * swell, mid = (T[1] + Bo[1]) / 2, row = [];
                 for (let k = 0; k <= 12; k++) { const a = -.25 + k / 12 * (Math.PI + .5), sn = Math.sin(a), cs = Math.cos(a); row.push(m.vertex(add(at(T[0] + (Bo[0] - T[0]) * (1 - (sn + 1) / 2), mid + sn * half * (S.cere ? 1.25 : 1)), mul(X, cs * w * Math.sqrt(1 - .5 * sn * sn))), [0, 1, 0], cere, skin, [0, 0])); }
                 crow.push(row); ccen.push(at(T[0], mid));
             }
@@ -998,6 +1025,42 @@
     }
 
     /** The tail: rectrices in a fan on a tail bone and two fan bones, with upper and under tail coverts. */
+    /**
+     * A closed, solid feather blade (a raptor's rectrix): a rounded tip, a
+     * shallow arch across, thin edges, a pale shaft line, bent down along its
+     * length by distance from the base only, so neighbouring blades on their
+     * own layers stay parallel when the tail fans.
+     */
+    function featherBlade(m, o) {
+        const dir = norm(o.dir), up = norm(sub(o.up, mul(dir, dot(o.up, dir)))), across = norm(cross(up, dir));
+        const rows = o.rows || 12, cols = o.cols || 10, ids = [], centers = [];
+        const half = v => o.wid * .5 * (.55 + .45 * smooth(0, .22, v)) * (v > .78 ? Math.sqrt(Math.max(0, 1 - ((v - .78) / .22) ** 2)) : 1);
+        for (let i = 0; i <= rows; i++) {
+            const v = i / rows, w = Math.max(o.len * .004, half(v)), sag = -(o.bend || 0) * o.len * v * v, c = add(add(o.root, mul(dir, v * o.len)), mul(up, sag + (o.layer || 0)));
+            const row = [];
+            for (let side = 0; side < 2; side++) for (let k = 0; k < cols; k++) {
+                // Top from the leading edge across to the trailing one, then the underside back.
+                const u = side ? 1 - 2 * k / cols : -1 + 2 * k / cols, ua = Math.abs(u);
+                const off = (o.asym || 0) * w, x = u * w + off * (1 - ua);
+                const arch = (o.arch || 0) * w * (1 - u * u), th = o.thick * Math.sqrt(Math.max(0, 1 - u * u)) * (1 - .35 * v) + o.len * .0006;
+                const p = add(add(c, mul(across, x)), mul(up, arch + (side ? -th * .5 : th * .5)));
+                const shaft = Math.exp(-(((u - (o.asym || 0) * .3) / .07) ** 2)) * (1 - .7 * v), edge = smooth(.75, 1, ua);
+                const col = o.color(v, u, side, shaft, edge);
+                row.push(m.vertex(p, side ? mul(up, -1) : up, col, o.skin, [0, 0]));
+            }
+            ids.push(row); centers.push(c);
+        }
+        // Wound by surface: the top faces up, the underside down, the two edge strips outward across.
+        const n2 = cols * 2;
+        for (let i = 0; i < rows; i++) for (let k = 0; k < n2; k++) {
+            const k2 = (k + 1) % n2, a = ids[i][k], b = ids[i][k2], c = ids[i + 1][k], d = ids[i + 1][k2];
+            const out = k < cols - 1 ? up : k >= cols && k < n2 - 1 ? mul(up, -1) : k === cols - 1 ? across : mul(across, -1);
+            triOut(m, a, c, b, out); triOut(m, b, c, d, out);
+        }
+        const cap = m.vertex(centers[0], mul(dir, -1), o.color(0, 0, 0, 0, 0), o.skin, [0, 0]);
+        for (let k = 0; k < ids[0].length; k++) triOut(m, cap, ids[0][k], ids[0][(k + 1) % ids[0].length], mul(dir, -1));
+    }
+
     function birdTail(C, B) {
         const { r, L, rootBone: root } = C, b = B.prof, [tlen, count, shape] = b.tail, F = B.F, U = B.U, X = [1, 0, 0];
         // The tail follows the trunk, raised just enough that a perched bird's tail tip clears the ground its feet stand on.
@@ -1006,7 +1069,7 @@
         for (let k = -.08; k < 1.6 && base[1] + back[1] * len1 < C.Y + L * .012; k += .04) back = norm(add(mul(F, -1), mul(U, k)));
         const tail = C.bone('BirdTail', root, base, add(base, mul(back, L * tlen * .5)), 'birdTail', 0);
         const fan = [-1, 1].map(s => C.bone('Tail fan ' + s, tail, base, add(base, add(mul(back, L * tlen * .4), mul(X, s * L * .03))), 'tailFan', s));
-        const m = new FMesh(), spread = .55 * (b.penguin ? .3 : 1), len0 = L * tlen * r.tailLength;
+        const m = new FMesh(), bm = new FMesh(), raptor = b.skull === 'raptor', spread = .55 * (b.penguin ? .3 : 1) * (b.fanTail || 1), len0 = L * tlen * r.tailLength;
         for (let j = 0; j < count; j++) {
             const t = count > 1 ? j / (count - 1) * 2 - 1 : 0, side = Math.sign(t), at = Math.abs(t);
             const shapeLen = shape === 'wedge' ? 1 - .14 * at * at : shape === 'fork' ? .75 + .35 * at : shape === 'notch' ? .92 + .08 * at : shape === 'graduated' ? 1 - .55 * at : shape === 'point' ? 1 - .35 * at : shape === 'sickle' ? .85 : shape === 'square' ? 1 : 1 - .10 * at * at;
@@ -1014,6 +1077,13 @@
             const skin = at < .2 ? rigid(tail) : { joints: [tail, fan[side > 0 ? 1 : 0], 0, 0], weights: [1 - at, at, 0, 0] };
             const up = norm(add(U, mul(back, .12)));
             if (shape === 'sickle' && at > .3) continue;
+            if (raptor) {
+                // Broad solid blades, the central pair on top and each outer pair a layer beneath, so a fanning tail never crosses itself.
+                const layer = -at * (count / 2) * L * .0016, Lt = plumage(C, 'tail', at, 600 + j)(.5, 0);
+                featherBlade(bm, { root: add(base, mul(X, t * L * .022)), dir, up, len: len * 1.04, wid: len * .25, thick: L * .0030, arch: .10, bend: .03, layer, asym: side * .18 * at,
+                    color: (v, u, under, shaft, edge) => scale3(mix(Lt, scale3(Lt, .80), .55 * shaft + .35 * edge), under ? .86 : 1 - .05 * hash(600 + j, Math.round(v * 9))), skin });
+                continue;
+            }
             card(m, { root: add(add(base, mul(X, t * L * .02)), mul(up, L * .003 * (1 - at) - L * .0008 * (j % 2))), dir, up, lead: mul(X, -side || 1), len, wid: len * (b.penguin ? .25 : .19), cell: CELLS.tail[0], rows: 5, bend: -.02, lift: .02, cup: .06,
                 color: plumage(C, 'tail', at, 600 + j), skin });
         }
@@ -1029,6 +1099,7 @@
             card(m, { root: add(add(base, mul(U, -L * .02)), add(mul(X, t * L * .035), mul(F, L * .03))), dir, up: mul(U, -1), len: len0 * .36, wid: len0 * .15, cell: CELLS.covert[(j + 2) % 5], rows: 2, bend: .05, cup: .14, color: plumage(C, 'undertail', .5, 680 + j), skin: rigid(tail) });
         }
         C.finish(m, 'Tail feathers', featherMaterial(C, { alphaCutoff: .4 }));
+        if (!bm.empty) { bm.smoothNormals(); C.finish(bm, 'Tail rectrices', { kind: 'skin', roughness: .82, noSurfaceDetail: true }); }
         B.tail = { tail, fan, spread, U: norm(add(U, mul(back, .12))) };
     }
 
@@ -1072,12 +1143,13 @@
             m.smoothNormals();
             C.finish(m, 'Leg and foot ' + s, { kind: 'skin', roughness: .55, noSurfaceDetail: true });
             // Trousers: long feathers hanging over the tibia, down onto the tarsus where the kind has them.
-            const reach = feathered, down = [0, -1, 0];
+            // A bald eagle's trousers end part way down the tarsus: the yellow, scaled lower leg shows.
+            const reach = feathered, down = [0, -1, 0], raptorLeg = b.skull === 'raptor';
             let seed = 700 + (s > 0 ? 100 : 0);
             for (let i = 0; i < 6; i++) for (let k = 0; k < 10; k++) {
-                const t = .12 + i / 6 * .9, a2 = (k + (i % 2) * .5) / 10 * Math.PI * 2, p = lerp(hip, ankle, Math.min(1, t)), radius = L * (.05 - .026 * t) * thick;
+                const t = .12 + i / 6 * .9, a2 = (k + (i % 2) * .5) / 10 * Math.PI * 2, p = lerp(hip, ankle, Math.min(1, t)), radius = L * (.05 - .026 * t) * thick * (raptorLeg ? .86 : 1);
                 const out = norm(add(mul(X, Math.cos(a2)), mul(B.Ff, Math.sin(a2))));
-                const len = L * (.06 + .035 * Math.min(1, reach)) * (b.soft ? 1.1 : 1) * (b.penguin ? .5 : 1) * (.9 + .2 * hash(seed));
+                const len = L * (.06 + .035 * Math.min(1, reach)) * (b.soft ? 1.1 : 1) * (b.penguin ? .5 : 1) * (raptorLeg ? .70 : 1) * (.9 + .2 * hash(seed));
                 card(cards, { root: add(p, mul(out, radius * .7)), dir: norm(add(down, mul(out, .22))), up: out, len: len * (reach > 0 ? 1 + reach * .5 * t : .8), wid: len * .7, cell: CELLS.contour[(k + i) % 5], rows: 3, bend: .08, cup: .2,
                     color: plumage(C, 'trouser', t, seed), skin: t > .9 ? { joints: [a, bb, 0, 0], weights: [.5, .5, 0, 0] } : rigid(a), surface: out });
                 seed++;
@@ -1101,6 +1173,25 @@
         for (const s of [-1, 1]) ellipsoidInto(m, add(add(B.billRoot, mul(H.U, -L * .045)), [s * L * .012, 0, 0]), [L * .008, L * .03, L * .02], H.F, H.U, red, skin, 8, 12);
         m.smoothNormals();
         C.finish(m, 'Comb and wattles', { kind: 'skin', roughness: .5, noSurfaceDetail: true });
+    }
+
+    /** A tom turkey's bare-skin ornaments: the snood hanging from the forehead over the bill, the wattle
+     * under the chin and the knobbly caruncles down the front of the neck, all red. */
+    function snoodAndWattle(C, B) {
+        const { L, headBone: head } = C, m = new FMesh(), skin = rigid(head), red = lin('#b21a1c'), H = B.head, D = B.headDims;
+        // The snood: a fleshy finger rising off the brow, then hanging past the bill's side.
+        const top = add(B.billRoot, mul(H.U, D[2] * .16));
+        const path = [top, add(top, add(mul(H.F, L * .008), mul(H.U, L * .004))), add(top, add(add(mul(H.F, L * .016), mul(H.U, -L * .004)), [L * .003, 0, 0])), add(top, add(add(mul(H.F, L * .018), mul(H.U, -L * .022)), [L * .006, 0, 0]))];
+        for (let j = 0; j <= 16; j++) { const q = j / 16 * 3, i = Math.min(2, Math.floor(q)), at = lerp(path[i], path[i + 1], q - i); ellipsoidInto(m, at, [L * .0036, L * .0036, L * .0036].map(v => v * (1 - j * .012)), H.F, H.U, red, skin, 6, 8); }
+        // The wattle: a fold of skin under the chin and throat.
+        ellipsoidInto(m, add(add(H.c, mul(H.U, -D[2] * .55)), mul(H.F, D[0] * .05)), [L * .012, L * .03, L * .022], H.F, H.U, red, skin, 8, 12);
+        // Caruncles: knobs down the throat.
+        for (let j = 0; j < 7; j++) {
+            const q = add(add(H.c, mul(H.U, -D[2] * (.4 + j * .22))), add(mul(H.F, -D[0] * (.05 + j * .07)), [(j % 2 - .5) * L * .012, 0, 0]));
+            ellipsoidInto(m, q, [L * .008, L * .007, L * .008], H.F, H.U, red, skin, 6, 8);
+        }
+        m.smoothNormals();
+        C.finish(m, 'Snood and wattle', { kind: 'skin', roughness: .5, noSurfaceDetail: true });
     }
 
     function bird(C) {
@@ -1164,11 +1255,14 @@
         birdEyes(C, B);
         birdBill(C, B);
         if (b.comb) combAndWattles(C, B);
+        if (b.snood) snoodAndWattle(C, B);
         if (!b.penguin) headFeathers(C, B, shape);
         if (!b.penguin) bodyFeathers(C, B, body);
         if (b.skull === 'owl') owlDisks(C, B, shape);
         for (const s of [-1, 1]) birdWing(C, B, s);
         birdTail(C, B);
+        // Every flying bird perches on a folded-wing shell (the open card wing shrinks away), so no folded wing clips into the body.
+        if (!b.penguin) for (const w of B.wings) foldedWingShell(C, B, body, w);
         birdLegs(C, B);
         foldRig(C, B);
         // Joints shared as one bone's tail and the next one's head must not be moved twice when the body is placed on the floor.
@@ -1206,22 +1300,109 @@
      * primaries beneath, their tips over the tail). Stored on the bones as
      * local turns; the poses blend toward them.
      */
+    /** The folded-wing shell is bound this many times smaller than it shows, about the shoulder inside the body: hidden at rest and in flight. */
+    const SHELL_BIND = 1000;
+    /**
+     * A bird's folded wing as one closed shell per side lying on the body
+     * (body.sample plus a gap): scapulars and coverts blending into the back
+     * along its top edge, the wrist at the breast's side, a scalloped lower
+     * edge of covert and secondary tips, and the primaries running on past
+     * the rump as a tapering blade over the closed tail, their tips a little
+     * apart above it. Painted with the tracts (brown coverts, darker remiges,
+     * feather edges). Bound SHELL_BIND times smaller about the shoulder on its
+     * own bone, which the perched clips scale up.
+     */
+    function foldedWingShell(C, B, body, w) {
+        // The pivot sits out beside the shoulder, past the shell: from there it sees the whole shell, so shrinking toward it never crosses the trunk.
+        const { L, rootBone: root } = C, s = w.s, X = [1, 0, 0], Pc = add(w.shoulder, add(mul(X, s * L * .10), mul(B.U, L * .035)));
+        w.pivot = Pc;
+        const bone = C.bone('Folded wing ' + s, root, Pc, add(Pc, mul(B.F, -L * .05)), 'foldedWing', s), skin = rigid(bone);
+        w.shell = bone;
+        const tb = C.bones[B.tail.tail], back = norm(sub(tb.tail, tb.head)), tU = B.tail.U, tailLen = L * C.prof.tail[0] * C.r.tailLength;
+        const NU = C.save ? 44 : 34, NV = C.save ? 18 : 14, ub = .70, gap = L * .009, T0 = L * .011;
+        const ang = th => s > 0 ? th : Math.PI - th;
+        // Edges as angles round the body (0 the side, pi/2 the back's midline) along u (0 shoulder .. ub rump).
+        const topAt = u => 1.10 + .30 * smooth(0, 1, u / ub);
+        const lowAt = u => { const k = u / ub; return -.42 + .25 * smooth(.0, .25, k) * 0 + .95 * smooth(.15, 1, k) - .06 * Math.abs(Math.sin(u * Math.PI * 11)) * (1 - smooth(.5, .9, k)); };
+        const frontAt = v => .10 * (1 - v) * (1 - v); // the front edge sweeps back from the wrist up to the scapulars
+        // The folded primaries reach back over the tail: an eagle's to about 0.6 of its tail, other birds' by their primaries' length.
+        const reach = C.prof.skull === 'raptor' ? tailLen * .58 : Math.min(Math.max(tailLen * .85, L * .05), L * C.prof.wing[5] * .55 * C.r.wingSize);
+        const tipC = add(add(B.tailRoot, mul(back, reach)), mul(tU, L * .016));
+        const sampleUV = (u, v) => {
+            if (u <= ub) {
+                const uu = Math.max(0, Math.min(ub, u + frontAt(v) * (1 - u / ub))), sv = .64 - (.64 - .05) * uu / ub;
+                const th = topAt(uu) + (lowAt(uu) - topAt(uu)) * v, q = body.sample(sv, ang(th));
+                return { p: q.p, n: q.n };
+            }
+            // Past the rump: the primaries' blade, narrowing to its tip above the closed tail.
+            const f = (u - ub) / (1 - ub), q0 = sampleUV(ub, v);
+            // A rounded, angled wingtip: the outer primaries end first, so the blade narrows to the innermost tip.
+            const tipP = add(add(add(tipC, mul(back, -reach * .34 * v * v)), mul(X, s * L * (.006 + .050 * v * (1 - .55 * smooth(.55, 1, f))))), mul(tU, -L * .012 * v));
+            const e = 1 - (1 - f) * (1 - f), p = lerp(q0.p, tipP, e);
+            // Keep the blade off the tail: it rises over the tail's upper side on the way back.
+            const lift = Math.sin(Math.PI * Math.min(1, f * 1.2)) * L * .010;
+            return { p: add(p, mul(tU, lift)), n: norm(lerp(q0.n, tU, smooth(0, .7, f))) };
+        };
+        // The kind's own tracts: back and coverts in front, the primaries' pattern along their length (a turkey's bars, an eagle's dark tips),
+        // the secondaries as a band along the lower edge (a mallard's speculum).
+        const M = plumage(C, 'back', .3, 1)(.5, 0), cov = plumage(C, 'covertG', .3, 2)(.5, 0), secF = plumage(C, 'secondary', .5, 3), primF = plumage(C, 'primary', .5, 4);
+        const colorAt = (u, v, outer) => {
+            const remex = smooth(.38, .62, v + .35 * u), primary = smooth(.55, .80, u), band = smooth(.52, .62, v) * (1 - smooth(.74, .84, v)) * (1 - primary);
+            const prim = primF(clamp((u - .3) / .7, 0, 1) * .98, 0), sec = secF(clamp((u - .1) / .7, 0, 1) * .98, 0);
+            let c = mix(mix(M, cov, smooth(.1, .3, v)), mix(prim, sec, band), remex);
+            // Feather edges: covert rows across the front, long vane lines along the remiges.
+            const row = (u * 13 + v * 3) % 1, lane = (v * 9 + u * 2) % 1;
+            c = scale3(c, 1 - (1 - remex) * .34 * (1 - smooth(0, .22, row)) - remex * .42 * (1 - smooth(0, .16, lane)));
+            c = mix(c, scale3(c, 1.45), (1 - remex) * .5 * smooth(.72, .98, row) + remex * .3 * smooth(.8, .98, lane));
+            return outer ? c : scale3(c, .7);
+        };
+        const m = new FMesh(), rows = [], centers = [];
+        for (let i = 0; i <= NU; i++) {
+            const u = i / NU, row = [], mids = [];
+            for (let side = 0; side < 2; side++) for (let k = 0; k <= NV; k++) {
+                const v = side ? 1 - k / NV : k / NV, q = sampleUV(u, v);
+                const th = T0 * Math.sqrt(smooth(0, .22, v)) * (.35 + .65 * smooth(.02, .14, u)) * (1 - .75 * smooth(.66, .9, u)) * (1 - .45 * smooth(.85, 1, v)) + L * .0012;
+                const off = side ? gap : gap + th, p = add(q.p, mul(q.n, off));
+                const vid = m.vertex(Pc.map((c0, j) => c0 + (p[j] - c0) / SHELL_BIND), side ? mul(q.n, -1) : q.n, colorAt(u, v, !side), skin, [v * .9, u * 3.2]);
+                row.push(vid); if (!side) mids.push({ c: add(q.p, mul(q.n, gap + th * .5)), n: q.n });
+            }
+            rows.push(row); centers.push(mids);
+        }
+        // Wound by surface: the outer face away from the body, the inner toward it, the edge strips outward.
+        const n2 = (NV + 1) * 2;
+        for (let i = 0; i < NU; i++) for (let k = 0; k < n2; k++) {
+            const k2 = (k + 1) % n2, a = rows[i][k], b2 = rows[i][k2], c = rows[i + 1][k], d = rows[i + 1][k2], C0 = centers[i];
+            const out = k < NV ? C0[Math.min(NV, k)].n : k === NV ? sub(C0[NV].c, C0[NV - 1].c) : k === n2 - 1 ? sub(C0[0].c, C0[1].c) : mul(C0[Math.min(NV, n2 - 1 - k)].n, -1);
+            triOut(m, a, c, b2, out); triOut(m, b2, c, d, out);
+        }
+        for (const [i, dir] of [[0, mul(B.F, 1)], [NU, mul(back, 1)]]) {
+            const ring = rows[i], cc = m.vertex(at3(m, ring[Math.floor(NV / 2)]), dir, colorAt(i / NU, .5, true), skin, [0, 0]);
+            for (let k = 0; k < ring.length; k++) triOut(m, cc, ring[k], ring[(k + 1) % ring.length], dir);
+        }
+        m.smoothNormals();
+        C.finish(m, 'Folded wing ' + s, plumageMaterial(C, { normalScale: .7 }));
+    }
+
+    /** A raptor's folded card wing (seen only while it opens or closes): unused, unused, unused, how far the folded secondaries turn in toward the tail, and how far its face tilts up over the back. */
+    const RAPTOR_FOLD = [0, 0, 0, .06, .8];
     function foldRig(C, B) {
         const { bones } = C, F = B.F, U = B.U, X = [1, 0, 0];
         for (const w of B.wings) {
             const s = w.s, flank = (phi, out) => norm(add(add(mul(F, -Math.cos(phi)), mul(U, Math.sin(phi))), mul(X, s * out)));
-            const outward = norm(add(mul(X, s), mul(U, .32)));
+            const outward = norm(add(mul(X, s), mul(U, B.prof.skull === 'raptor' ? RAPTOR_FOLD[4] : .32)));
             const R = (a, n, a2) => qFrames(a, n, a2, sub(outward, mul(a2, dot(outward, a2))));
-            const penguin = B.prof.penguin;
+            const penguin = B.prof.penguin, raptorWrap = B.prof.skull === 'raptor' ? RAPTOR_FOLD[3] : 0;
             const restH = norm(sub(w.elbow, w.shoulder)), restF = norm(sub(w.wrist, w.elbow)), restM = norm(sub(w.tip, w.wrist));
             const qH = penguin ? qFrames(restH, w.N, flank(.12, .22), outward) : R(restH, w.N, flank(-.62, .30));
             const qF = penguin ? qH : R(restF, w.N, flank(Math.PI - .30, -.10));
             const local = (parent, child) => qMul(qInv(parent), child);
             bones[w.aB].fold = qH; bones[w.bB].fold = local(qH, qF);
+            // Perched, a bird shows its folded-wing shell (foldedWingShell); the open card wing shrinks away at the shell's pivot.
+            if (w.shell != null) { bones[w.aB].foldScale = 1e-4; bones[w.aB].foldShift = sub(w.pivot, w.shoulder); bones[w.shell].foldScale = SHELL_BIND; }
             const elbow2 = add(w.shoulder, qRot(qH, sub(w.elbow, w.shoulder))), wrist2 = add(elbow2, qRot(qF, sub(w.wrist, w.elbow)));
             if (penguin) { bones[w.hB].fold = local(qF, qH); continue; }
             for (let lift = 0; lift < 1.2; lift += .05) {
-                const qS = w.secDir.map((d, k) => R(d, w.N, flank(.06 + .035 * k + lift, -.05 - .02 * k)));
+                const qS = w.secDir.map((d, k) => R(d, w.N, flank(.06 + .035 * k + lift, -.05 - .02 * k - raptorWrap)));
                 const low = Math.min(...w.secTips.map(t => { const head = add(elbow2, qRot(qF, sub(w.secHeads[t.k], w.elbow))); return add(head, qRot(qS[t.k], sub(t.p, w.secHeads[t.k])))[1]; }));
                 w.sec.forEach((bi, k) => { bones[bi].fold = local(qF, qS[k]); });
                 if (low > C.Y + C.L * .02) break;
@@ -1320,8 +1501,18 @@
         const name = ({ idle: 'Idle', crawl: 'Walk', walk: 'Walk', run: 'Run', swim: 'Swim', fly: 'Fly', glide: 'Glide', turn: 'Turn', attack: 'Attack' })[id];
         const lift = time => { const t = (id === 'attack' ? clamp(time, 0, period) : ((time % period) + period) % period) / period * (frames - 1), i = Math.min(frames - 1, Math.floor(t)); return heights[i] + (heights[Math.min(frames - 1, i + 1)] - heights[i]) * (t - i); };
         const translation = Float32Array.from({ length: frames * 3 }, (_, i) => bones[0].head[i % 3] + (i % 3 === 1 ? heights[Math.floor(i / 3)] : 0));
-        const saved = { name, times, tracks: tracks.concat([{ bone: 0, path: 'translation', values: translation }]), loop: id !== 'attack' };
-        return { name, times, tracks, heights, lift, loop: id !== 'attack', once: id === 'attack', skin: false, saved };
+        // A raptor's two wings: the folded shell grown to full size and the card wing shrunk into the shoulder while perched,
+        // the other way round in the air. Every clip carries both scales, so a crossfade opens one wing out of the other.
+        const shifts = [];
+        bones.forEach((b, index) => {
+            if (!b.foldScale) return;
+            const k = airborne ? 1 : b.foldScale;
+            shifts.push({ bone: index, path: 'scale', values: Float32Array.from({ length: frames * 3 }, () => k) });
+            // The shrunk card wing waits at the shell's pivot, so both wings open out of the same point beside the shoulder.
+            if (b.foldShift && b.parent >= 0) { const rest = sub(b.head, bones[b.parent].head), at = airborne ? rest : add(rest, b.foldShift); shifts.push({ bone: index, path: 'translation', values: Float32Array.from({ length: frames * 3 }, (_, i) => at[i % 3]) }); }
+        });
+        const saved = { name, times, tracks: tracks.concat([{ bone: 0, path: 'translation', values: translation }], shifts), loop: id !== 'attack' };
+        return { name, times, tracks: tracks.concat(shifts), heights, lift, loop: id !== 'attack', once: id === 'attack', skin: false, saved };
     }
 
     function batWing(C, s, shoulder, hip) {

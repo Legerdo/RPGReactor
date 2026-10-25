@@ -655,6 +655,8 @@
     /** A lens dome (or disk) facing n. */
     function lensDome(m, c, n, r, bulge, rgb, skin, sides = 20, hint) {
         const { x, y } = frameAxes(n, hint);
+        // A dome flatter than this welds into a sliver with no inside: keep the smallest a real dome, the large flat ones flat.
+        bulge = Math.max(bulge, Math.min(r * 0.3, 0.0006));
         m.loft(4, (i, t) => { const a = t * Math.PI / 2; return { center: add(c, mul(n, Math.sin(a) * bulge)), x, y, rx: Math.max(r * 0.05, Math.cos(a) * r), ry: Math.max(r * 0.05, Math.cos(a) * r) }; }, Math.min(sides, 18), rgb, skin, true);
     }
     /** A rounded slab (a module, a filter body) on a frame. */
@@ -923,6 +925,9 @@
         if (sp.hardware) sp.hardware(Object.assign({}, C, { P, at, on, baseR, uv, bbox, base, thick, under, liftAt, modeAt, region }));
         mesh.computeNormals();
         const extras = [{ mesh, extra: platingExtra(sp.name, pics, pal, o) }];
+        // An underlayer is a single open sheet (walls: false) welded under the plates: the piece shows from both
+        // sides, as the Prop Builder shows it, and no part of it reads as a closed shell without an inside.
+        if (under) extras[0].extra.doubleSided = true;
         if (sp.after) extras.push(...(sp.after(Object.assign({}, C, { P, at, baseR, bbox, base })) || []));
         return extras;
     }
@@ -1367,7 +1372,8 @@
                     const i = Math.round(X / pitch), j = Math.round(Y / pitch), cx = i * pitch, cy = j * pitch, r = Math.hypot(X - cx, Y - cy);
                     if (r < pitch * 0.36 && d > 0.002) {
                         const v = ledPattern(pattern, cx, cy, k, s, 5);
-                        out.col = v ? mixRgb([0.05, 0.05, 0.05], pal.glow, 0.7) : [0.035, 0.035, 0.04];
+                        // A lit LED's light is its emissive (which a saved mask's glow rules animate); its own color is the dim tint of an unlit one.
+                        out.col = v ? mixRgb([0.05, 0.05, 0.05], pal.glow, 0.14) : [0.035, 0.035, 0.04];
                         out.glow = v ? v * (1 - 0.35 * (r / (pitch * 0.36)) ** 2) : 0.035;
                     }
                 },
@@ -1810,7 +1816,7 @@
                             K.on(spot, 'dark', q => cylinder(q, add(c0, mul(n, -0.002)), c1, rr, Math.max(12, Math.round(rr * 2000)), hw(pal, 0.55), head, rr * 0.92));
                             K.on(spot, style === 'chrome' ? 'chrome' : 'steel', q => ring(q, c1, n, rr * 0.93, Math.max(0.0007, rr * 0.08), hw(pal, 1.15), head, 20, 5));
                             K.on(spot, 'gloss', q => lensDome(q, add(c1, mul(n, -0.0008)), n, rr * 0.86, rr * 0.25, style === 'military' ? [0.05, 0.09, 0.05] : [0.02, 0.025, 0.035], head, 18));
-                            K.on(spot, 'glow', q => lensDome(q, add(c1, mul(n, rr * 0.2 - 0.0006)), n, rr * 0.3, rr * 0.12, pal.glow, head, 10));
+                            K.on(spot, 'glow', q => lensDome(q, add(c1, mul(n, rr * 0.2 - 0.0006)), n, rr * 0.3, Math.max(rr * 0.12, 0.0009), pal.glow, head, 10));
                         }
                     }
                     // Hinge bosses and the strap.
@@ -1862,10 +1868,19 @@
         // The arm: forward along the temple, then in front of the eye.
         const lensC = add(E.center, [sd * 0.008, 0.002, E.radius * 1.05 + 0.016]);
         const temple = aroundHead(L, E.center[1] + 0.012, sd * 1.15, 0.005);
-        const path = [add(unit, [0, 0.008, 0.012]), aroundHead(L, E.center[1] + 0.016, sd * 1.45, 0.006), temple, add(lensC, [sd * 0.024, 0.004, -0.004])];
-        mesh.with(style === 'chrome' ? 'chrome' : 'paint', q => q.tube(path, style === 'military' ? 0.0024 : 0.0017, 8, style === 'chrome' ? [0.85, 0.86, 0.88] : hw(pal, 1), head, true));
-        if (style === 'military') mesh.with('dark', q => cylinder(q, add(temple, [0, 0.006, 0]), add(add(temple, [0, 0.006, 0]), [0, 0.03, -0.01]), 0.0009, 6, [0.08, 0.08, 0.08], head, 0.0004));
+        // The arm leaves the unit at a hinge boss on its face and runs in one smooth curve to the lens frame's outer edge.
         const n = norm([sd * -0.35, 0, 1]), w = E.radius * 1.5, h = E.radius * 1.15;
+        const fa0 = norm(sub([sd, 0.25, 0], mul(n, dot([sd, 0.25, 0], n)))), lensEdge = add(lensC, mul(fa0, w + 0.0012));
+        const hinge = add(unit, add(mul(ax, 0.0075), [0, 0.012, 0.008]));
+        mesh.with('dark', q => cylinder(q, add(hinge, mul(ax, -0.004)), add(hinge, mul(ax, 0.0035)), 0.0042, 14, hw(pal, 0.7), head));
+        const via = [hinge, aroundHead(L, (hinge[1] + E.center[1] + 0.012) / 2, sd * 1.4, 0.011), aroundHead(L, E.center[1] + 0.012, sd * 1.15, 0.007), lensEdge];
+        const armPath = [];
+        for (let k = 0; k + 1 < via.length; k++) for (let j = 0; j < 5; j++) { const t = j / 5, a = via[Math.max(0, k - 1)], b = via[k], c2 = via[k + 1], d = via[Math.min(via.length - 1, k + 2)], t2 = t * t, t3 = t2 * t; armPath.push([0, 1, 2].map(i => 0.5 * (2 * b[i] + (c2[i] - a[i]) * t + (2 * a[i] - 5 * b[i] + 4 * c2[i] - d[i]) * t2 + (3 * b[i] - a[i] - 3 * c2[i] + d[i]) * t3))); }
+        armPath.push(lensEdge);
+        mesh.with(style === 'chrome' ? 'chrome' : 'paint', q => q.tube(armPath, style === 'military' ? 0.0024 : 0.0017, 8, style === 'chrome' ? [0.85, 0.86, 0.88] : hw(pal, 1), head, true));
+        // A military unit's whip antenna stands from the unit's top, not loose at the temple.
+        const top = add(unit, [0, 0.026, -0.004]);
+        if (style === 'military') mesh.with('dark', q => cylinder(q, add(top, [0, -0.004, 0]), add(top, [0, 0.03, -0.01]), 0.0009, 6, [0.08, 0.08, 0.08], head, 0.0004));
         lensPlate(lens, lensC, n, [sd, 0.25, 0], w, h, 0.0008, [1, 1, 1], head, 3, 28, 6);
         const lp = bakeLens(designKey('scouterLens', o, F), 192, 160, (u, v, out) => { out.tint = scaleRgb(pal.glow, style === 'chrome' ? 0.35 : 0.6); out.glow = Math.max(readout('scouter', u * 1.3, 1 - v, 1.3, 5, style), (1 - smooth(0, 0.05, Math.min(u, 1 - u, v, 1 - v))) * 0.6); }, L.textures);
         const fa = norm(sub([sd, 0.25, 0], mul(n, dot([sd, 0.25, 0], n)))), fb = cross(n, fa), edge = Array.from({ length: 33 }, (_, j) => { const a = j / 32 * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a), kk = Math.pow(Math.pow(Math.abs(ca), 6) + Math.pow(Math.abs(sa), 6), -1 / 6); return add(lensC, add(mul(fa, ca * kk * (w + 0.0008)), mul(fb, sa * kk * (h + 0.0008)))); });
@@ -2321,7 +2336,7 @@
         return picked;
     }
 
-    const api = { STYLES, STYLE_CHOICES, PROPS, VISOR, BY_ID, LABELS, LOOKS, wearLook, randomLook, isCyber, paletteOf, headField, shape, shell, plates, bake, newMesh, modes: { RIGID, SKIN, JAW } };
+    const api = { STYLES, STYLE_CHOICES, PROPS, VISOR, BY_ID, LABELS, LOOKS, wearLook, randomLook, isCyber, paletteOf, headField, shape, shell, plates, bake, newMesh, aroundHead, modes: { RIGID, SKIN, JAW } };
     root.RRCharacterCyberGear = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

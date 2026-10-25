@@ -4,6 +4,7 @@
     const Props = root.RRCharacterProps || (typeof require === 'function' ? require('./CharacterProps.js') : null);
     const Arthropods = root.RRCreatureArthropods || (typeof require === 'function' ? require('./CreatureArthropods.js') : null);
     const Flyers = root.RRCreatureFlyers || (typeof require === 'function' ? require('./CreatureFlyers.js') : null);
+    const Reptiles = root.RRCreatureReptiles || (typeof require === 'function' ? require('./CreatureReptiles.js') : null);
     const { add, sub, mul, dot, cross, norm, lerp } = Props.vec;
     const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
     const rgb = hex => {
@@ -11,7 +12,7 @@
         return [16, 8, 0].map(k => { const c = (n >> k & 255) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
     };
     const mix = (a, b, t) => a.map((v, k) => v + (b[k] - v) * t);
-    const FORMS = [['quadruped', 'Four-legged'], ['fish', 'Fish'], ['cetacean', 'Cetacean'], ['cephalopod', 'Cephalopod'], ['arthropod', 'Arthropod'], ['avian', 'Bird'], ['bat', 'Bat'], ['worm', 'Worm'], ['jellyfish', 'Jellyfish']];
+    const FORMS = [['quadruped', 'Four-legged'], ['fish', 'Fish'], ['cetacean', 'Cetacean'], ['cephalopod', 'Cephalopod'], ['arthropod', 'Arthropod'], ['avian', 'Bird'], ['bat', 'Bat'], ['worm', 'Worm'], ['jellyfish', 'Jellyfish'], ['reptile', 'Reptile or amphibian']];
     const SLIDERS = [
         { key: 'wingSpread', label: 'Wing spread', min: 0, max: 1, natural: [0.2, 1], value: 0.75, forms: ['arthropod', 'avian', 'bat'] },
         { key: 'antennaLength', label: 'Antenna length', min: 0.2, max: 3, natural: [0.5, 1.5], value: 1, forms: ['arthropod'] },
@@ -27,13 +28,18 @@
         { key: 'eyeCount', label: 'Eye count', min: 0, max: 12, natural: [0, 8], value: 2, integer: true, forms: ['fish', 'cetacean', 'cephalopod', 'arthropod', 'worm', 'jellyfish'] },
         { key: 'glow', label: 'Bioluminescence', min: 0, max: 2, natural: [0, 1], value: 0, forms: ['fish', 'cetacean', 'cephalopod', 'arthropod', 'worm', 'jellyfish'] }
     ].map(s => ({ ...s, section: 'Body', step: s.integer ? 1 : 0.01 }));
-    const preset = (kind, label, morphology, over, coat, light, marking = '#263b46') => ({ kind, label, group: ['avian', 'bat'].includes(morphology) ? 'Birds and bats' : ['fish', 'cetacean', 'cephalopod', 'jellyfish'].includes(morphology) ? 'Aquatic' : 'Arthropods and crawlers', form: morphology,
+    const preset = (kind, label, morphology, over, coat, light, marking = '#263b46') => ({ kind, label, group: ['avian', 'bat'].includes(morphology) ? 'Flying animals' : ['fish', 'cetacean', 'cephalopod', 'jellyfish'].includes(morphology) ? 'Aquatic' : 'Arthropods and crawlers', form: morphology,
         over: { morphology, size: 0.6, bodyLength: 1, girth: 1, chestDepth: 1, headSize: 1, eyeSize: 1, snoutLength: 1, tailLength: 1, tailThickness: 1, ears: 'none', mane: 'none', wings: 'none', horns: 'none', fluff: 0, spines: 0, pattern: 'countershade', ...over },
         colors: { coat, light, marking, nose: '#1b2429', eye: '#bd963d' } });
+    /** A farm bird's preset: the avian form with that bird type, its size, palette and eye color. */
+    const farmBird = (kind, label) => {
+        const pal = Flyers.PALETTES?.[kind] || ['#8a6a4a', '#d8c8a8', '#3a2a1e'], k = preset(kind, label, 'avian', { size: Flyers.BIRD_SIZES?.[kind] || .36, wingSize: 1, legLength: 1, neckLength: 1, wingSpread: 1, pattern: 'solid', birdType: kind }, ...pal);
+        k.colors.eye = Flyers.BIRDS?.[kind]?.iris || k.colors.eye; k.group = 'Land animals'; return k;
+    };
     const KINDS = [
         preset('shark', 'Shark', 'fish', { size: 1.05, finPairs: 2, eyeSize: 0.7, jawOpen: 0.2 }, '#56616a', '#e8e8df', '#27323b'),
         preset('fish', 'Fish', 'fish', { size: 0.28, girth: 1, chestDepth: 1, finPairs: 2 }, '#ba7d43', '#dfd5bc', '#634c37'),
-        preset('dolphin', 'Dolphin', 'cetacean', { size: 0.85, snoutLength: 1.2, eyeSize: 0.65 }, '#718f9e', '#c7d7db'),
+        preset('dolphin', 'Dolphin', 'cetacean', { size: 0.85, snoutLength: 0.9, eyeSize: 0.65 }, '#718f9e', '#c7d7db'),
         preset('whale', 'Whale', 'cetacean', { size: 1.8, girth: 1.12, headSize: 1.15, eyeSize: 0.45 }, '#26333b', '#d0d4ca', '#17262d'),
         preset('octopus', 'Octopus', 'cephalopod', { size: 0.45, appendages: 8, pattern: 'spots' }, '#bb7352', '#e8c4a4', '#754335'),
         preset('squid', 'Squid', 'cephalopod', { size: 0.55, appendages: 10, girth: 0.65, bodyLength: 1.2 }, '#b77c91', '#ead7d8', '#783d69'),
@@ -47,6 +53,8 @@
         preset('dragonfly', 'Dragonfly', 'arthropod', { size: 0.23, limbPairs: 3, wingSize: 1, wingSpread: 1, pattern: 'solid' }, '#3b7e89', '#a9ccd1', '#263c41'),
         preset('lobster', 'Lobster', 'arthropod', { size: 0.40, limbPairs: 5, tailLength: 1, pattern: 'solid' }, '#564c38', '#ad9673', '#243e35'),
         preset('avian', 'Bird', 'avian', { size: 0.50, wingSize: 1, legLength: 1, neckLength: 1, wingSpread: 1, pattern: 'solid' }, '#47372c', '#f0ede4', '#251e19'),
+        // Farm birds walk more than they fly: built by the avian form, listed among the land animals.
+        farmBird('chicken', 'Chicken'), farmBird('duck', 'Duck'), farmBird('turkey', 'Turkey'),
         preset('bat', 'Bat', 'bat', { size: 0.30, wingSize: 1, legLength: 1, wingSpread: 1, pattern: 'solid' }, '#69513d', '#987c60', '#3b302e'),
         preset('worm', 'Worm', 'worm', { size: 0.3, segments: 20, eyeCount: 0, pattern: 'stripes' }, '#b76f78', '#d99b99', '#8f4c5b'),
         preset('stingray', 'Stingray', 'fish', { size: 0.65, girth: 1.7, chestDepth: 0.35, finSize: 1.45, finPairs: 1 }, '#6d6656', '#e2dfd3', '#3d372c'),
@@ -66,6 +74,8 @@
         if(out.kind==='worm'){
             for(const [key,value]of Object.entries(WORM_DEFAULTS[out.wormType]))if(original[key]==null)out[key]=value;
             if(!original.colors?.eye)out.colors.eye=out.wormType==='goauld'?'#b83d22':out.wormType==='earthworm'?'#bd963d':'#141510';
+            // An earthworm's saddle (clitellum) and a leech's side stripes: a color of their own on the Colors tab.
+            const band=input.colors?.band;out.colors.band=/^#[0-9a-f]{6}$/i.test(band||'')&&original.colors?.band?band.toLowerCase():out.wormType==='leech'?'#b8642c':'#c9805e';
         }
         if (out.morphology !== 'quadruped') out.gear = [];
         return out;
@@ -308,9 +318,9 @@
     };
     const WORM_TYPES = {wormType:{label:'Worm type',kind:'worm',choices:[['earthworm','Earthworm'],['tapeworm','Tapeworm'],['leech','Leech'],['roundworm','Roundworm'],['bristleworm','Bristleworm'],['goauld',"Goa'uld"]]}};
     const WORM_DEFAULTS={earthworm:{eyeCount:0,jawOpen:.03,pattern:'stripes'},tapeworm:{eyeCount:0,jawOpen:.03,pattern:'solid'},leech:{eyeCount:10,jawOpen:.03,pattern:'countershade'},roundworm:{eyeCount:0,jawOpen:.03,pattern:'solid'},bristleworm:{eyeCount:2,jawOpen:.03,pattern:'stripes'},goauld:{eyeCount:2,jawOpen:.7,pattern:'countershade'}};
-    const VARIANT_TYPES = {...MARINE_TYPES,...WORM_TYPES,...Arthropods.TYPES,...Flyers.TYPES};
+    const VARIANT_TYPES = {...MARINE_TYPES,...WORM_TYPES,...Arthropods.TYPES,...Flyers.TYPES,...Reptiles.TYPES};
     const TYPE_PALETTES = {
-        ...Arthropods.PALETTES, ...Flyers.PALETTES,
+        ...Arthropods.PALETTES, ...Flyers.PALETTES, ...Reptiles.PALETTES,
         earthworm:['#b76f78','#d99b99','#8f4c5b'],tapeworm:['#d9c8a8','#ede1c9','#b19d7e'],leech:['#41483a','#aaa47b','#20291e'],roundworm:['#d6bba0','#ebd6b9','#bda084'],bristleworm:['#92645c','#d8b094','#513e3e'],goauld:['#625449','#b3a084','#302c29'],
         greatWhite: ['#56616a','#e8e8df','#27323b'], tiger: ['#747668','#d5d5c7','#343b34'], bull: ['#72756e','#ddded3','#35413f'],
         hammerhead: ['#5b716f','#dde0d4','#31413f'], mako: ['#365766','#dfe3de','#203843'], thresher: ['#55636c','#d8dcda','#2c3a44'], whaleShark: ['#354e5b','#d3d5c6','#223d49'],
@@ -318,8 +328,9 @@
         reef: ['#ba7d43','#dfd5bc','#634c37'], tuna: ['#244f6c','#c4d2d5','#bfaa43'], salmon: ['#5b766e','#cad2c9','#263c35']
     };
     function withVariant(r,key,value) {
+        if(Reptiles.TYPES[key])return Reptiles.withVariant(r,key,value);
         const def=VARIANT_TYPES[key]; if(!def||def.kind!==r.kind||!def.choices.some(([id])=>id===value))return r;
-        const p=TYPE_PALETTES[value];return {...r,[key]:value,...(key==='wormType'?WORM_DEFAULTS[value]:{}),...(key==='sharkType'?{jawOpen:({greatWhite:.2,tiger:.16,bull:.14,hammerhead:.12,mako:.2,thresher:.12,whaleShark:.18})[value]}:{}),colors:{...r.colors,coat:p[0],light:p[1],marking:p[2],...(key==='wormType'?{eye:value==='goauld'?'#b83d22':value==='earthworm'?'#bd963d':'#141510'}:{})}};
+        const p=TYPE_PALETTES[value];return {...r,[key]:value,...(key==='wormType'?WORM_DEFAULTS[value]:{}),...(key==='sharkType'?{jawOpen:({greatWhite:.2,tiger:.16,bull:.14,hammerhead:.12,mako:.2,thresher:.12,whaleShark:.18})[value]}:{}),colors:{...r.colors,coat:p[0],light:p[1],marking:p[2],...(key==='wormType'?{eye:value==='goauld'?'#b83d22':value==='earthworm'?'#bd963d':'#141510',band:value==='leech'?'#b8642c':'#c9805e'}:{})}};
     }
     const variantsFor = r => Object.entries(VARIANT_TYPES).filter(([,v])=>v.kind===r.kind&&r.morphology===(v.form || (v.kind==='whale'?'cetacean':v.kind==='worm'?'worm':'fish'))).map(([key,v])=>({key,...v}));
     const ease = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -345,7 +356,7 @@
         // Requiem/lamnid shark: a conical, slightly flattened snout, the deepest
         // section just behind the pectorals and a slender keeled peduncle.
         let profile = [[0,.003,.006,.009],[.035,.027,.025,.031],[.08,.052,.046,.056],[.16,.083,.074,.083],[.27,.106,.095,.098],[.42,.114,.104,.096],[.6,.088,.078,.07],[.76,.052,.046,.041],[.88,.024,.023,.02],[1,.013,.016,.012]];
-        if (mammal && !whale) profile = [[0,.009,.009,.007],[.045,.022,.012,.011],[.09,.027,.024,.019],[.15,.055,.073,.036],[.25,.08,.092,.068],[.43,.088,.086,.077],[.65,.05,.065,.058],[.82,.022,.05,.046],[.93,.013,.034,.03],[1,.009,.018,.016]];
+        if (mammal && !whale) profile = [[0,.012,.011,.011],[.03,.022,.017,.019],[.06,.027,.022,.025],[.082,.031,.029,.03],[.105,.042,.056,.033],[.15,.058,.077,.040],[.25,.08,.092,.068],[.43,.088,.086,.077],[.65,.05,.065,.058],[.82,.022,.05,.046],[.93,.013,.034,.03],[1,.009,.018,.016]];
         if (whale) profile = [[0,.006,.008,.012],[.07,.052,.027,.034],[.17,.072,.045,.063],[.34,.087,.062,.095],[.50,.08,.061,.079],[.72,.04,.05,.05],[.88,.017,.034,.032],[1,.009,.016,.016]];
         if (type === 'blue') profile = [[0,.005,.008,.012],[.10,.056,.028,.031],[.28,.071,.047,.059],[.48,.068,.052,.06],[.7,.038,.045,.045],[.88,.016,.03,.028],[1,.009,.014,.014]];
         if (type === 'orca') profile = [[0,.008,.017,.014],[.045,.04,.046,.03],[.13,.069,.085,.052],[.30,.09,.105,.087],[.5,.075,.078,.064],[.75,.034,.05,.048],[.9,.016,.03,.028],[1,.009,.014,.014]];
@@ -479,13 +490,23 @@
             if(type==='humpback'){
                 const line=-.42+n*.6,belly=1-ease(line-.05,line+.05,y),blotch=ease(.62,.7,fbm(t*20,y*6+side*4,3))*belly;
                 let c=mix(colors.main,colors.light,belly*amount);c=mix(c,colors.main,blotch*.8);
-                return {c:c.map(v=>v*(1+(fbm(t*30,y*5)-.5)*.15)),belly};
+                // Scars: pale rake marks in short parallel sets, and a few round healed bites.
+                const rake=Math.exp(-(((((t*90+y*14+side*3)%3+3)%3-1.5)/.12)**2))*ease(.66,.72,fbm(t*9+side*4,y*2+7,2))*ease(.2,.3,t)*(1-ease(.85,.9,t))*(1-belly);
+                const bite=ease(.86,.88,fbm(t*60+side*11,y*16+3,2))*(1-belly);
+                c=mix(c,mix(colors.main,colors.light,.5),Math.max(rake*.7,bite*.3)*amount);
+                return {c:c.map(v=>v*(1+(fbm(t*30,y*5)-.5)*.22+(fbm(t*140+side,y*20)-.5)*.08)),belly};
             }
             // Bottlenose: dark dorsal cape dipping under the fin, grey flank, pale belly.
             const cape=.42-.3*Math.exp(-(((t-.43)/.16)**2))+n*.1,line=-.32+n*.15;
             const belly=1-ease(line-.09,line+.09,y);
             let c=mix(colors.main,colors.light,belly*amount);c=mix(c,colors.mark,ease(cape-.06,cape+.06,y)*.75*amount);
-            return {c,belly};
+            // A dark patch round the eye, a soft stripe from it back to the flipper, a darker top to the beak, a
+            // faint pale blaze over the shoulder and fine skin mottling.
+            const eye=Math.exp(-(((t-.135)/.032)**2)-(((y-.14)/.24)**2)),f=clamp((t-.14)/.15,0,1),stripe=Math.exp(-(((y-(.08-.36*f))/.1)**2))*ease(.13,.16,t)*(1-ease(.26,.3,t));
+            c=mix(c,mix(colors.main,colors.mark,.85),Math.max(eye*.9,stripe*.6)*Math.max(.6,amount));
+            c=mix(c,colors.mark,(1-ease(.07,.1,t))*ease(-.2,.25,y)*.55*amount);
+            c=mix(c,mix(colors.main,colors.light,.35),Math.exp(-(((t-.36)/.06)**2)-(((y-.12)/.12)**2))*.35*amount*(1-belly));
+            return {c:c.map(v=>v*(1+(fbm(t*60+side*3,y*8)-.5)*.06)),belly};
         };
         // Bony fish coloration: per-type markings with a lateral line.
         const fishCoat=(p,t,s,y,detail)=>{
@@ -724,10 +745,18 @@
                 const d=norm(sub(all[Math.min(all.length-1,k+1)].p,all[Math.max(0,k-1)].p)),out=norm([-d[2],0,d[0]]);
                 return add(q.p,add(mul(out,-L*.0024),[0,(half?-1:1)*L*.0011,0]));
             });
-            gums.tube(gumPath,lipRows[half].map(()=>L*(cfg.underslung?.0019:cfg.shark?.0014:.0008)),7,cfg.underslung?rgb('#6e5354'):cfg.tooth?rgb('#665154'):colors.mark,p=>skin(p,!!half,clamp(.5-p[2]/L,0,cfg.hinge)));
+            gums.tube(gumPath,lipRows[half].map(()=>L*(cfg.underslung?.0019:cfg.shark?.0014:cfg.whale?.0018:.0008)),7,cfg.underslung?rgb('#6e5354'):cfg.tooth?rgb('#665154'):colors.mark,p=>skin(p,!!half,clamp(.5-p[2]/L,0,cfg.hinge)));
         }
         finish(inside,'Mouth interior',{kind:'mouth',roughness:.9,doubleSided:true,noSurfaceDetail:true});
         finish(gums,'Gum margins',{kind:'mouth',roughness:.62,noSurfaceDetail:true});
+        if(cfg.whale&&cfg.type!=='orca'&&r.jawOpen>.01){
+            // Baleen: a comb of dark plates hanging from the upper jaw just inside the lip, fringed paler at their ends.
+            const baleen=new Props.ExactMesh(),path=lipRows[0].filter(q=>q.t>mouthFront+.01&&q.t<cfg.hinge*.92);
+            for(let k=0;k<path.length;k++){const q=path[k],s=section(q.t),drop=Math.min(L*.03,s.gap*.85+L*.002);if(drop<L*.002)continue;
+                const inward=[-Math.sign(q.p[0]||1)*L*.004,0,0],top=add(q.p,inward),bot=add(top,[0,-drop,0]);
+                baleen.tube([top,lerp(top,bot,.7),bot],[L*.0016,L*.0012,L*.0004],5,(t2)=>mix(rgb('#2a2622'),rgb('#8a7c66'),ease(.6,1,t2)),skin(top,false,q.t));}
+            finish(baleen,'Baleen',{kind:'mouth',roughness:.8,noSurfaceDetail:true});
+        }
         if(cfg.tooth && r.toothSize>0 && r.jawOpen>0.01) {
             const teeth=new Props.ExactMesh(), toothColor=rgb('#e7e0cb'), rows=cfg.shark?2:1, number=cfg.underslung?34:cfg.shark?28:cfg.angler?26:32;
             for(let half=0;half<2;half++){
@@ -782,7 +811,9 @@
                 const x=role==='dorsal'?[0,0,1]:norm(sub([0,0,1],mul(axis,axis[2]))),y=role==='dorsal'?[1,0,0]:norm(cross(axis,x));
                 const frame={center,x,y,rx:Math.max(L*.0003,a[3]*L*.5),ry:Math.max(L*.0002,a[4]*L)};frames.push(frame);return frame;
             },C.save?20:16,(t,a,p)=>{
-                const under=white&&p[1]<Y+profileAt(stations.map((s,i)=>[i/(stations.length-1),...s]),t)[1]*L;
+                const fr=frames[Math.round(t*((C.save?33:25)-1))];
+                const under=white&&(cfg.mammal&&cfg.type!=='humpback'&&fr?Math.sin(a)*fr.y[1]<-.15:p[1]<Y+profileAt(stations.map((s,i)=>[i/(stations.length-1),...s]),t)[1]*L);
+                if(cfg.type==='humpback'&&role==='fin')return under?mix(colors.light,colors.main,.08*ease(.6,.75,fbm(p[0]/L*60,p[2]/L*60))):mix(colors.light,colors.main,.25+.45*ease(.45,.7,fbm(p[0]/L*40+3,p[2]/L*40)));
                 if(!cfg.shark)return under?colors.light:mix(finColor,colors.mark,Math.min(1,t)*.12);
                 // Shark fins: dark above with a darker trailing margin; paired fins pale
                 // below with dusky (great white: black) tips.
@@ -798,6 +829,16 @@
                 for(let k=0;k<4;k++){const j=base.joints[k]||0;weights.set(j,(weights.get(j)||0)+(base.weights[k]||0)*(1-w));}
                 const top=[...weights].sort((a,b)=>b[1]-a[1]).slice(0,4),sum=top.reduce((s,p)=>s+p[1],0);return{joints:top.map(p=>p[0]),weights:top.map(p=>p[1]/sum)};
             },true);
+            if(cfg.type==='humpback'&&role==='fin'){
+                // A humpback's flipper: a row of knobs (tubercles) along its scalloped leading edge.
+                const knobs=new Props.ExactMesh();
+                for(let row=8;row<frames.length-2;row+=2){const f=frames[row],q=add(f.center,mul(f.x,f.rx*.9));knobs.sphere(q,Math.max(L*.0016,f.ry*1.5),mix(colors.light,colors.main,.15),Props.rigid(b),6,8,[1,.8,1]);}
+                // Barnacles crust the flipper's tip and leading edge.
+                let sd=name.length*31+7;const rn=()=>{sd=(sd*16807)%2147483647;return sd/2147483647;};
+                for(let k=0;k<26;k++){const row=Math.floor(frames.length*(.55+.42*rn())),f=frames[Math.min(frames.length-1,row)],a=(rn()-.3)*1.6,q=add(f.center,add(mul(f.x,Math.cos(a)*f.rx*.95),mul(f.y,Math.sin(a)*f.ry*.9))),nr=norm(add(mul(f.x,Math.cos(a)),mul(f.y,Math.sin(a)*3))),rr=L*(.0012+.0012*rn());
+                    knobs.tube([add(q,mul(nr,-rr*.3)),add(q,mul(nr,rr*.7))],[rr,rr*.55],6,mix(rgb('#cfc8b8'),rgb('#8a8478'),rn()*.6),Props.rigid(b));knobs.sphere(add(q,mul(nr,rr*.68)),rr*.3,rgb('#2a2622'),Props.rigid(b),4,6,[1,.4,1]);}
+                finish(knobs,name+' tubercles',{kind:'aquatic',roughness:.5,noSurfaceDetail:true});
+            }
             if(cfg.shark){
                 // Cambered hydrofoil sections: thick and rounded at the leading edge,
                 // thinning to a fine trailing edge, instead of a lenticular blade.
@@ -902,6 +943,16 @@
         if(cfg.type==='humpback') {
             const nodules=new Props.ExactMesh();for(const sign of [-1,0,1])for(let k=0;k<7;k++){const t=.035+k*.022,s=section(t),p=surface(t,Math.acos(sign*.58)/Math.PI,false);if(p)nodules.sphere(p,L*.0025*(1+k*.07),colors.main,Props.rigid(headBone),5,8);}
             finish(nodules,'Rostral tubercles',{kind:'aquatic',roughness:.5,noSurfaceDetail:true});
+            // Barnacle clusters on the chin and the lower jaw's tip: crusty pale cones, each with a dark aperture.
+            const crust=new Props.ExactMesh();let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};
+            for(const [t0,u0,lower,n]of [[.025,.5,true,14],[.05,.42,true,9],[.06,.6,true,8],[.09,.3,true,6],[.035,.25,false,5]])for(let k=0;k<n;k++){
+                const t=t0+(rnd()-.5)*.03,u=u0+(rnd()-.5)*.12,p=surface(t,u,lower),pa=surface(t+.002,u,lower),pb=surface(t,u+.004,lower);if(!p||!pa||!pb)continue;
+                let nrm=norm(cross(sub(pa,p),sub(pb,p)));const sec=section(t),out=[p[0],p[1]-sec.upperY,0];if(dot(nrm,out)<0)nrm=mul(nrm,-1);
+                const rr=L*(.0016+.0016*rnd()),sk=skin(p,lower,t),grey=mix(rgb('#cfc8b8'),rgb('#8a8478'),rnd()*.6);
+                crust.tube([add(p,mul(nrm,-rr*.3)),add(p,mul(nrm,rr*.7))],[rr,rr*.55],7,grey,sk);
+                crust.sphere(add(p,mul(nrm,rr*.68)),rr*.32,rgb('#2a2622'),sk,4,6,[1,.4,1]);
+            }
+            finish(crust,'Barnacles',{kind:'aquatic',roughness:.85,noSurfaceDetail:true});
         }
         if(cfg.type==='tuna')for(const sign of [-1,1])for(let k=0;k<6;k++) {
             const t=.64+k*.047,s=section(t),y=(sign>0?s.upperY+s.top:s.lowerY-s.bottom)-Y;
@@ -1189,15 +1240,37 @@
         // Natural worm coloring: earthworm dorsal vessel, darker front and orange
         // clitellum; nematode lateral lines; medicinal-leech stripes and spots;
         // bristleworm segment bands. Wet cuticles carry a faint thin-film sheen.
+        // The pattern (C.pattern) stays under it: each kind's coloring starts from the patterned color, not the plain coat.
+        const band=rgb(r.colors.band||(type==='leech'?'#b8642c':'#c9805e'));
+        // The pattern laid out on the worm itself, by segment and around the body: the shared painter
+        // measures in body lengths, and a worm a fiftieth as wide as it is long showed no spots and hairline stripes.
+        // The marking color, darkened only as far as a pattern needs to show on the main color (a pink earthworm's default marking is nearly its coat).
+        const lum=v=>.2126*v[0]+.7152*v[1]+.0722*v[2],ink=mix(colors.mark,[.03,.025,.025],clamp((.3-Math.abs(lum(colors.main)-lum(colors.mark)))/Math.max(.05,lum(colors.mark)),0,.6));
+        const wormMark=(t,a,up)=>{
+            const k=t*count/(r.patternScale||1),cell=Math.floor(k),f=k-cell,ring=ease(.08,.2,f)*(1-ease(.8,.92,f));
+            switch(r.pattern){
+                case 'stripes':return cell%2?ring:0;
+                case 'tabby':return cell%2?ring*ease(.35,.55,fbm(t*24,a*1.5)):0;
+                case 'spots':case 'rosettes':case 'dapple':{
+                    const n=6,u=(a/(Math.PI*2)+.5)*n+(cell%2)*.5,du=u-Math.floor(u)-.5,dv=f-.5,d=Math.hypot(du*2.2,dv*1.6);
+                    const dot=1-ease(.5,.64,d);return r.pattern==='rosettes'?dot*ease(.18,.3,d):r.pattern==='dapple'?dot*.6:dot;
+                }
+                case 'countershade':return ease(.05,.65,up)*.9;
+                case 'saddle':return ease(.32,.38,t)*(1-ease(.62,.68,t))*ease(-.2,.3,up);
+                case 'piebald':return ease(.5,.58,fbm(t*7+3.1,a*.9));
+                case 'points':return 1-ease(.06,.16,t)*(1-ease(.84,.94,t));
+                default:return 0;
+            }
+        };
         if(!centipede&&body)for(let i=0;i<body.positions.length;i+=3){
             const x=body.positions[i],y=body.positions[i+1]-Y,z=body.positions[i+2],t=clamp(.5-z/L,0,1),R=Math.max(1e-6,radiusAt(t)),a=Math.atan2(y/Math.max(1e-6,depthAt(t)),x/R),up=Math.sin(a),side=Math.abs(Math.cos(a));
             const seg=t*count-Math.floor(t*count),groove=Math.exp(-((Math.min(seg,1-seg)/.07)**2));
             let c=Array.from(body.colors.subarray(i,i+3));
-            if(type==='earthworm'){c=mix(colors.main,colors.light,ease(-.2,-.9,up)*.6);c=mix(c,colors.mark,(1-ease(.05,.35,t))*.45+Math.exp(-((Math.cos(a)/.12)**2))*Math.max(0,up)*.5);c=mix(c,rgb('#c9805e'),ease(.2,.23,t)*(1-ease(.31,.34,t))*.7);c=c.map(v=>v*(1-groove*.25));}
-            else if(type==='roundworm'){c=mix(colors.main,colors.light,.3+.2*Math.max(0,up));c=mix(c,colors.mark,Math.exp(-((Math.sin(a)/.06)**2))*.55);c=c.map(v=>v*(.96+.04*Math.sin(t*620)));}
-            else if(type==='leech'){c=mix(mix(colors.main,colors.light,ease(-.1,-.7,up)*.7),rgb('#b8642c'),Math.max(0,up)*(Math.exp(-(((side-.45)/.07)**2))+Math.exp(-(((side-.18)/.05)**2))*.7)*.8);const spot=hash2(Math.floor(t*120),Math.floor(a*3))>.6&&Math.exp(-(((side-.45)/.05)**2))>.5&&up>0;if(spot)c=mix(c,rgb('#0d0f0b'),.75);c=mix(c,rgb('#0d0f0b'),Math.exp(-(((up+.15)/.08)**2))*.6*(1-ease(.97,.99,side)));}
-            else if(type==='bristleworm'){c=mix(colors.main,colors.light,ease(-.1,-.8,up)*.6);c=mix(c,colors.mark,groove*.6+ease(.6,.75,fbm(t*30,a*2))*.2);}
-            else continue;
+            if(type==='earthworm'){c=mix(c,colors.light,ease(-.2,-.9,up)*.6);c=mix(c,colors.mark,(1-ease(.05,.35,t))*.45+Math.exp(-((Math.cos(a)/.12)**2))*Math.max(0,up)*.5);c=mix(c,band,ease(.2,.23,t)*(1-ease(.31,.34,t))*.7);c=c.map(v=>v*(1-groove*.25));}
+            else if(type==='roundworm'){c=mix(c,colors.light,.3+.2*Math.max(0,up));c=mix(c,colors.mark,Math.exp(-((Math.sin(a)/.06)**2))*.55);c=c.map(v=>v*(.96+.04*Math.sin(t*620)));}
+            else if(type==='leech'){c=mix(mix(c,colors.light,ease(-.1,-.7,up)*.7),band,Math.max(0,up)*(Math.exp(-(((side-.45)/.07)**2))+Math.exp(-(((side-.18)/.05)**2))*.7)*.8);const spot=hash2(Math.floor(t*120),Math.floor(a*3))>.6&&Math.exp(-(((side-.45)/.05)**2))>.5&&up>0;if(spot)c=mix(c,rgb('#0d0f0b'),.75);c=mix(c,rgb('#0d0f0b'),Math.exp(-(((up+.15)/.08)**2))*.6*(1-ease(.97,.99,side)));}
+            else if(type==='bristleworm'){c=mix(c,colors.light,ease(-.1,-.8,up)*.6);c=mix(c,colors.mark,groove*.6+ease(.6,.75,fbm(t*30,a*2))*.2);}
+            c=mix(c,ink,clamp(wormMark(t,a,up)*r.patternAmount,0,1)*.8);
             body.colors.set(c,i);
         }
         if(body&&['earthworm','bristleworm','roundworm'].includes(type)){body.iridescence=type==='roundworm'?.2:.4;body.iridescenceIOR=1.45;body.iridescenceThicknessRange=[200,480];}
@@ -1508,6 +1581,7 @@
     function poseClip(bones, id, recipe) {
         const form = recipe?.morphology || bones[0]?.creatureForm;
         if (!form || form === 'quadruped') return null;
+        if (form === 'reptile') return Reptiles.poseClip(bones, id, recipe);
         const land = form === 'arthropod' || form === 'worm';
         const penguin = form === 'avian' && recipe?.birdType === 'penguin';
         const flyer = !penguin && (['avian', 'bat'].includes(form) || Arthropods.INSECTS.includes(recipe?.kind) && recipe.kind !== 'beetle');
@@ -1754,6 +1828,7 @@
         else if (r.morphology === 'arthropod') { if (Arthropods.handles(r.kind)) Arthropods.build(C); else arthropod(C); }
         else if (r.morphology === 'avian' || r.morphology === 'bat') Flyers.build(C);
         else if (r.morphology === 'worm') worm(C);
+        else if (r.morphology === 'reptile') Reptiles.build(C);
         else jellyfish(C);
         if (r.pattern !== 'solid' && (Arthropods.handles(r.kind) || ['avian','bat'].includes(r.morphology))) for (const part of C.parts) {
             if (!part.noSurfaceDetail && part.kind !== 'eye') C.pattern(part);
@@ -1791,12 +1866,12 @@
         C.bones[0].floorSamples = [...new Set([...samples.values()].flatMap(cell => Object.values(cell)))].sort((a, b) => a.p[1] - b.p[1]).slice(0, 2048);
         const flyer = ['avian', 'bat'].includes(r.morphology) || Arthropods.INSECTS.includes(r.kind) && r.kind !== 'beetle';
         const penguin = r.morphology === 'avian' && r.birdType === 'penguin';
-        const ids = ['idle', ...(flyer ? ['walk', 'run', penguin ? 'swim' : 'fly', 'glide'] : r.morphology === 'arthropod' || r.morphology === 'worm' ? ['walk', 'run'] : ['swim', 'glide']), 'turn', 'attack'];
+        const ids = r.morphology === 'reptile' ? Reptiles.clipIds(r) : ['idle', ...(flyer ? ['walk', 'run', penguin ? 'swim' : 'fly', 'glide'] : r.morphology === 'arthropod' || r.morphology === 'worm' ? ['walk', 'run'] : ['swim', 'glide']), 'turn', 'attack'];
         const clips = options.static ? [] : ids.map(id => poseClip(C.bones, id, r).saved);
         return { recipe: r, parts: C.parts, bones: C.bones, height: height - floor, plan: 'quadruped', form: r.morphology, rig: { markers: {} }, textures, clips };
     }
     function sidecar(built) {
-        const land = ['arthropod', 'worm', 'avian', 'bat'].includes(built.form);
+        const land = ['arthropod', 'worm', 'avian', 'bat', 'reptile'].includes(built.form);
         const clips = [['Idle', 'idle'], [land ? 'Walk' : 'Swim', land ? 'walking' : 'swimming'], [land ? 'Run' : 'Glide', land ? 'dashing' : 'treading'], ['Attack', 'action']];
         if (built.clips.some(c => c.name === 'Fly')) clips.push(['Fly', 'jumping'], ['Glide', 'action']);
         else if (land && built.clips.some(c => c.name === 'Swim')) clips.push(['Swim', 'swimming'], ['Glide', 'treading']);
