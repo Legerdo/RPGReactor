@@ -203,6 +203,12 @@
     // forced route runs at its own frequency and gives the character's back when it ends or is cancelled; a new
     // Set Move Route replaces an unfinished one outright, and its first command runs at once. A route whose last
     // command is a step ends as that step is taken.
+    // Every character has these from the moment it is made, so all share one shape (followers made later too).
+    const _initMembersTiming = Game_CharacterBase.prototype.initMembers;
+    Game_CharacterBase.prototype.initMembers = function() {
+        _initMembersTiming.call(this);
+        this._rrFrequency = 0; this._rrOrigFrequency = 0; this._rrStop = 0; this._rrMaxStop = 0; this._rrRandomStop = 0;
+    };
     const stepStop = (f) => (f >= 8 ? 0 : 1 << (9 - f));
     const turnStop = (f) => (f >= 8 ? 0 : 1 << (8 - f));
     const waitStop = (f) => 20 + turnStop(f);
