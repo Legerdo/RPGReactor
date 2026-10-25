@@ -856,8 +856,10 @@ class Character3DBuilder {
             let html = this._color(`outfit.${i}.color`, 'Color', swatches);
             html += this._color(`outfit.${i}.color2`, 'Second color', []) + this._color(`outfit.${i}.trim`, 'Trim', [], true);
             html += this._select(`outfit.${i}.pattern`, 'Pattern', W.PATTERNS.concat(item.pattern && !W.PATTERNS.some(p => p[0] === item.pattern) ? [[item.pattern, this._cap(item.pattern)]] : []));
-            if (item.pattern === 'emblem') html += `<div class="rr-c3d-row rr-c3d-emblem-row"><span class="rr-c3d-label">${this._t('Emblem picture')}</span><span class="rr-c3d-emblem-name" title="${rrEscapeHtml(item.emblemPicture || '')}">${rrEscapeHtml(item.emblemPicture || this._t('None'))}</span><button class="rr-btn-chip" data-outfit-emblem="${i}">${this._t('Choose…')}</button>${item.emblemPicture ? `<button class="rr-btn-chip" data-outfit-emblem-clear="${i}">${this._t('Clear')}</button>` : ''}</div>`;
+            if (item.pattern === 'emblem') html += `<div class="rr-c3d-row rr-c3d-emblem-row"><span class="rr-c3d-label">${this._t('Emblem picture')}</span><span class="rr-c3d-emblem-name" title="${rrEscapeHtml(item.emblemPicture || '')}"><img class="rr-c3d-emblem-thumb" src="${rrEscapeHtml(this._emblemThumb(item))}" alt=""><span>${rrEscapeHtml(item.emblemPicture || this._t('None'))}</span></span><button class="rr-btn-chip" data-outfit-emblem="${i}">${this._t('Choose…')}</button>${item.emblemPicture ? `<button class="rr-btn-chip" data-outfit-emblem-clear="${i}">${this._t('Clear')}</button>` : ''}</div>`;
             html += this._select(`outfit.${i}.material`, 'Material', Object.keys(W.MATERIAL).map(m => [m, this._cap(m)]));
+            // Armor pieces: their plate or leather style (RRCharacterWardrobe garment `styles`).
+            if (g.styles) html += this._select(`outfit.${i}.style`, 'Style', g.styles);
             if (g.defaults.lightStyle != null) {
                 html += this._select(`outfit.${i}.lightStyle`, 'Light layout', [['none', 'None'], ['badge', 'Badge'], ['strips', 'Light strips'], ['circuits', 'Circuit traces']]);
                 html += this._color(`outfit.${i}.lightColor`, 'Light color', ['#70dfff', '#ffb65a', '#ef526c', '#7ce6ad', '#c39bff']);
@@ -1460,6 +1462,8 @@ class Character3DBuilder {
             if(normal.colorSpace!==THREE.NoColorSpace){normal.colorSpace=THREE.NoColorSpace;normal.needsUpdate=true;}
             material.normalMap=normal;const scale=part.normalScale??1;
             material.normalScale=new THREE.Vector2(scale,-scale);
+            // A cloth's tile rides the second coordinates; without them it would stretch over the whole outfit.
+            if(part.normalTexCoord===1){if(part.uvs1)normal.channel=1;else material.normalMap=null;}
         }
         if (metal) material.color.multiplyScalar(0.3);
         if (part.cutout && kind === 'hair') {
@@ -1508,6 +1512,7 @@ class Character3DBuilder {
             g.setAttribute('position', new THREE.BufferAttribute(this._previewArray(part.positions), 3));
             g.setAttribute('normal', new THREE.BufferAttribute(this._previewArray(part.normals), 3));
             if (part.uvs) g.setAttribute('uv', new THREE.BufferAttribute(this._previewArray(part.uvs), 2));
+            if (part.uvs1) g.setAttribute('uv1', new THREE.BufferAttribute(this._previewArray(part.uvs1), 2));
             if (part.colors) g.setAttribute('color', new THREE.BufferAttribute(this._previewArray(part.colors), 3));
             g.setIndex(new THREE.BufferAttribute(this._previewArray(part.index), 1));
             const mesh = new THREE.Mesh(g, this._thumbnailMaterial(part, result, textureFor, tv.reflections));
@@ -2260,8 +2265,10 @@ class Character3DBuilder {
         this._queueShading();
         const readout = this.root.querySelector('.rr-c3d-readout');
         if (readout) {
-            const tris = result.parts.reduce((s, p) => s + p.index.length / 3, 0);
-            readout.textContent = this._t('Height {m} m', { m: result.height.toFixed(2) }) + ' · ' + this._t('{n} triangles', { n: Math.round(tris).toLocaleString() });
+            // Triangles as the saved file holds them: hair's blended twin shares its core's (RRCharacterGlb.triangles).
+            const count = window.RRCharacterGlb && RRCharacterGlb.triangles ? RRCharacterGlb.triangles(result.parts) : { total: result.parts.reduce((s, p) => s + p.index.length / 3, 0) };
+            readout.textContent = this._t('Height {m} m', { m: result.height.toFixed(2) }) + ' · ' + this._t('{n} triangles', { n: Math.round(count.total).toLocaleString() });
+            readout.title = count.outfit != null ? this._t('Outfit {outfit} · Hair {hair} · Body {body}', { outfit: count.outfit.toLocaleString(), hair: count.hair.toLocaleString(), body: count.body.toLocaleString() }) : '';
         }
     }
 
@@ -2386,7 +2393,19 @@ class Character3DBuilder {
             if(t.colorSpace !== THREE.NoColorSpace){t.colorSpace=THREE.NoColorSpace;t.needsUpdate=true;}
             return t;
         };
-        if(part.metallicRoughnessTexture) m.roughnessMap = m.metalnessMap = linearMap(part.metallicRoughnessTexture);
+        // A map on the second coordinates (a cloth's tile) is drawn only where the part has them.
+        const second = !!(part.uvs1 && part.uvs1.length === part.positions.length / 3 * 2);
+        const onSet = (map, set) => { if (map && set === 1) { if (!second) return null; map.channel = 1; } return map; };
+        if(part.metallicRoughnessTexture) m.roughnessMap = m.metalnessMap = onSet(linearMap(part.metallicRoughnessTexture), part.metallicRoughnessTexCoord);
+        // The cloth's weave: its relief, and its hollows' occlusion, on the tile.
+        if (part.normalTexCoord === 1 && part.normalTexture) {
+            const relief = onSet(linearMap(part.normalTexture), 1);
+            if (relief) { m.normalMap = relief; const k = part.normalScale ?? 1; m.normalScale = new THREE.Vector2(k, -k); }
+        }
+        if (part.occlusionTexture) {
+            const occlusion = onSet(linearMap(part.occlusionTexture), part.occlusionTexCoord);
+            if (occlusion) { m.aoMap = occlusion; m.aoMapIntensity = part.occlusionStrength ?? 1; }
+        }
         if(!this._weak && part.iridescence){
             m.iridescence=part.iridescence; m.iridescenceIOR=part.iridescenceIOR ?? 1.3;
             m.iridescenceThicknessRange=part.iridescenceThicknessRange || [100,400];
@@ -2410,6 +2429,8 @@ class Character3DBuilder {
         // three gives every material the scene's own environment strength unless the material holds the map
         // itself: a part reflecting more or less of the room than the rest holds it.
         const ownRoom = () => {
+            // A tile meant for the second coordinates is never drawn over the first (a part handed over without them).
+            if (part.normalTexCoord === 1 && !second) m.normalMap = null;
             if (part.envMapIntensity != null) m.envMapIntensity = part.envMapIntensity;
             if (scene && scene.environment && m.envMapIntensity !== 1) { m.envMap = scene.environment; m.envMapIntensity *= scene.environmentIntensity; }
             return m;
@@ -2426,6 +2447,11 @@ class Character3DBuilder {
             m.roughness = Math.max(0.52, part.roughness ?? 0); m.sheen = 0.3; m.sheenRoughness = 0.55; m.sheenColor = new THREE.Color(0.9, 0.7, 0.62); if (m.map) m.sheenColorMap = m.map; m.specularIntensity = 0.4;
             // Pores and fine lines, tiled small over the skin: the light breaks up on it as on real skin.
             if (m.map && !m.normalMap) { m.normalMap = Character3DBuilder.skinDetail(); m.normalScale = new THREE.Vector2(0.3, 0.3); }
+        }
+        // A cloth with its own tile: its roughness is the tile's, its sheen the saved file's (KHR_materials_sheen).
+        else if (kind === 'cloth' && part.fabric) {
+            if (part.sheen) { m.sheen = 1; m.sheenColor = new THREE.Color(1, 1, 1).multiplyScalar(part.sheen.strength ?? 0.5); m.sheenRoughness = part.sheen.roughness ?? 0.5; if (m.map) m.sheenColorMap = m.map; }
+            m.specularIntensity = (part.roughness ?? 0.9) > 0.8 ? 0.45 : 0.75;
         }
         // Cloth: a soft sheen in the cloth's own color at grazing angles (from its picture), so it reads as fabric
         // without a white film washing its color out.
@@ -2451,7 +2477,7 @@ class Character3DBuilder {
     /** The build in the view: a skeleton from its bones, a skinned mesh per part, its Idle ready to play. */
     /** What the meshes in the view are made of: the same structure can be updated in place. */
     _structure(result) {
-        return result.plan + '|' + result.bones.map(b => b.name + ':' + b.parent).join(',') + '|' + result.parts.map(p => [p.name, p.positions.length, p.index.length, p.texture || '', p.normalTexture || '', p.emissiveTexture || '', p.metallicRoughnessTexture || '', p.iridescence || 0, p.iridescenceIOR || 0, String(p.iridescenceThicknessRange || ''), p.iridescenceThicknessTexture || '', p.roughness ?? .6, p.metalness ?? 0, p.normalScale ?? 1, p.kind || '', p.doubleSided ? 1 : 0, p.opacity ?? 1, !!p.uvs, !!p.colors, !!p.keepColors].join(':')).join(';');
+        return result.plan + '|' + result.bones.map(b => b.name + ':' + b.parent).join(',') + '|' + result.parts.map(p => [p.name, p.positions.length, p.index.length, p.texture || '', p.normalTexture || '', p.emissiveTexture || '', p.metallicRoughnessTexture || '', p.iridescence || 0, p.iridescenceIOR || 0, String(p.iridescenceThicknessRange || ''), p.iridescenceThicknessTexture || '', p.roughness ?? .6, p.metalness ?? 0, p.normalScale ?? 1, p.kind || '', p.doubleSided ? 1 : 0, p.opacity ?? 1, !!p.uvs, !!p.uvs1, p.normalTexCoord || 0, p.occlusionTexture || '', p.fabric || '', p.sheen ? p.sheen.strength + '/' + p.sheen.roughness : '', !!p.colors, !!p.keepColors].join(':')).join(';');
     }
 
     /**
@@ -2482,7 +2508,7 @@ class Character3DBuilder {
             g.getAttribute('normal').array.set(part.normals); g.getAttribute('normal').needsUpdate = true;
             // A new build may have the same counts with a different coat atlas, triangle order or
             // skinning. Keeping the old buffers scrambled pictures and left reused parts on old bones.
-            for (const [name, data] of [['uv', part.uvs], ['skinIndex', part.joints], ['skinWeight', part.weights]]) {
+            for (const [name, data] of [['uv', part.uvs], ['uv1', part.uvs1], ['skinIndex', part.joints], ['skinWeight', part.weights]]) {
                 const attribute = g.getAttribute(name);
                 if (!attribute || !data) continue;
                 if (attribute.array.some((q, i) => q !== data[i])) { attribute.array.set(data); attribute.needsUpdate = true; }
@@ -2555,6 +2581,8 @@ class Character3DBuilder {
             g.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(part.positions), 3));
             g.setAttribute('normal', new THREE.BufferAttribute(Float32Array.from(part.normals), 3));
             if (part.uvs) g.setAttribute('uv', new THREE.BufferAttribute(Float32Array.from(part.uvs), 2));
+            // A cloth's tiles (RRCharacterFabric) on their own coordinates, as the saved file's TEXCOORD_1.
+            if (part.uvs1) g.setAttribute('uv1', new THREE.BufferAttribute(Float32Array.from(part.uvs1), 2));
             if (part.colors) g.setAttribute('color', new THREE.BufferAttribute(Float32Array.from(part.colors), 3));
             // The strand's direction, for highlights that run along the hair.
             if (part.tangents && part.tangents.length === part.positions.length) {
@@ -2830,6 +2858,19 @@ class Character3DBuilder {
             event.preventDefault(); event.stopPropagation();
             this._deleteTakenOutfit(card.dataset.userOutfit);
         });
+    }
+
+    /**
+     * What an outfit emblem shows, for its row: the chosen project picture,
+     * or the built-in shield with its star in the garment's second color and
+     * trim (as RRCharacterAtlas paints it).
+     */
+    _emblemThumb(item) {
+        const project = this._project(), assets = window.RRAssetFiles, name = item.emblemPicture;
+        if (name && project && assets) { try { return assets.imageUrlFor(require('path').join(project.path, 'img', 'pictures'), name); } catch (error) { /* the built-in emblem instead */ } }
+        const hex = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? v : d), field = hex(item.color2, '#3a3d44'), trim = hex(item.trim, '#d5b767');
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 3h16v9c0 5-4 8-8 10-4-2-8-5-8-10z" fill="${field}" stroke="${trim}" stroke-width="2"/><path d="M12 6.5l1.6 3.4 3.7.4-2.8 2.5.8 3.7-3.3-1.9-3.3 1.9.8-3.7-2.8-2.5 3.7-.4z" fill="${trim}"/></svg>`;
+        return 'data:image/svg+xml,' + encodeURIComponent(svg);
     }
 
     /** Choose a validated project picture; recipes keep only its relative asset reference. */

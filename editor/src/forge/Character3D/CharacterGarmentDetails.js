@@ -40,24 +40,12 @@
         };
     }
 
-    /** Small outward cloth folds at supported joints, rather than drawing
-     * rigid wrinkles into the color map. The hem fades to its fitted edge. */
-    function tailor(entries,built){
-        const scale=built.height/1.7;
-        for(const e of entries){
-            if(!['officerJacket','cargoTrousers'].includes(e.garment)||e.lining||e.skirt)continue;
-            const L=e.laid,P=L.positions,N=L.normals;
-            for(let v=0;v<L.field.length;v++){
-                const f=L.field[v],edge=Math.max(0,Math.min(1,(L.vals?.[v]??1)*8));let amount=0;
-                if(e.garment==='officerJacket'){
-                    if(f.fam===1||f.fam===2){const elbow=Math.exp(-(((f.s-1.96)/.32)**2)),cuff=Math.exp(-(((f.s-2.81)/.18)**2));amount=(elbow*.003+cuff*.002)*Math.max(0,Math.sin(f.s*28+Math.sin(f.ang*2)*1.3));}
-                    if(f.fam===0)amount=.003*Math.exp(-(((f.s-1.1)/.55)**2))*(.5+.5*Math.cos(f.ang*10+f.s))**4;
-                }else if(f.fam===3||f.fam===4){const knee=Math.exp(-(((f.s-1.03)/.25)**2)),cuff=Math.exp(-(((f.s-1.84)/.16)**2));amount=(knee*.0035+cuff*.0025)*Math.max(0,Math.sin(f.s*31+Math.sin(f.ang)*1.7));}
-                for(let k=0;k<3;k++)P[v*3+k]+=N[v*3+k]*amount*scale*edge;
-            }
-            L.normals=O.triangleNormals(P,L.index);
-        }
-    }
+    /** Joint folds are part of every soft garment's own cut and fold field
+     * (RRCharacterOutfit.foldAt): compression at the elbow and knee, drag
+     * from the armpit and crotch, stacking over cuffs and hems, hanging
+     * flutes. Nothing is added afterwards (a second pass doubled the officer
+     * jacket's and cargo trousers' folds). Kept for callers. */
+    function tailor(entries,built){}
 
     function build(pack,built,entries) {
         const mesh=new Props.Mesh(),hardware=new Props.Mesh(),scale=built.height/1.7;
@@ -245,33 +233,142 @@
         return leatherMaps;
     }
     const rigidSkin=joint=>({joints:[joint,0,0,0],weights:[1,0,0,0]});
-    let metalMaps;
-    /** Fine, tiled manufacturing grain, independent of a character atlas.
-     * Vertex colors still supply the armor color; these maps affect relief
-     * and the finish of reflected light, without painting fixed lighting. */
+    /** A fixed random 0..1 for integer coordinates. */
+    const hash2=(x,y,s=0)=>{let h=(Math.imul(x|0,374761393)+Math.imul(y|0,668265263)+Math.imul(s|0,1442695041))|0;h=Math.imul(h^(h>>>13),1274126177);h^=h>>>16;return(h>>>0)/4294967296;};
+    const sstep=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t);};
+    /** Repeating value noise: `n` cells across a tile of `size` texels. */
+    const tileNoise=(x,y,size,n,seed)=>{const fx=x/size*n,fy=y/size*n,ix=Math.floor(fx),iy=Math.floor(fy),u=fx-ix,v=fy-iy,w=a=>((a%n)+n)%n,s=t=>t*t*(3-2*t);
+        const a=hash2(w(ix),w(iy),seed),b=hash2(w(ix+1),w(iy),seed),c=hash2(w(ix),w(iy+1),seed),d=hash2(w(ix+1),w(iy+1),seed);return a+(b-a)*s(u)+(c-a)*s(v)+(a-b-c+d)*s(u)*s(v);};
+    /** Pictures from a height, a tone and a roughness field: albedo (with alpha), tangent normal, metal-roughness. */
+    function finishPictures(prefix,W,H,field,strength,cutout) {
+        const h=new Float32Array(W*H),tone=new Float32Array(W*H),rough=new Float32Array(W*H),metal=new Float32Array(W*H),alpha=new Float32Array(W*H),s={};
+        for(let y=0;y<H;y++)for(let x=0;x<W;x++){s.h=0;s.t=1;s.r=.5;s.m=1;s.a=1;field(x,y,s);const i=y*W+x;h[i]=s.h;tone[i]=s.t;rough[i]=s.r;metal[i]=s.m;alpha[i]=s.a;}
+        const albedo=new Uint8Array(W*H*4),normal=new Uint8Array(W*H*4),surface=new Uint8Array(W*H*4),c=v=>Math.max(0,Math.min(255,Math.round(v*255)));
+        for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+            const i=y*W+x,dx=(h[y*W+(x+1)%W]-h[y*W+(x+W-1)%W])*strength,dy=(h[((y+1)%H)*W+x]-h[((y+H-1)%H)*W+x])*strength,l=Math.hypot(dx,dy,1);
+            albedo.set([c(tone[i]),c(tone[i]),c(tone[i]),cutout?c(alpha[i]):255],i*4);
+            normal.set([Math.round(127.5-127.5*dx/l),Math.round(127.5+127.5*dy/l),Math.round(127.5+127.5/l),255],i*4);
+            surface.set([255,c(rough[i]),c(metal[i]),255],i*4);
+        }
+        const pic=(name,data)=>({name,width:W,height:H,data,repeat:true});
+        return {albedo:pic(prefix+'-albedo.png',albedo),normal:pic(prefix+'-normal.png',normal),surface:pic(prefix+'-finish.png',surface)};
+    }
+    let armorTiles=null;
+    /**
+     * The armor's own tiles (256 texels a side): cast and painted plate (orange peel, sparse chips
+     * through to bare metal), hammered steel and pebbled leather where the shared cloth tiles
+     * (RRCharacterFabric) are not loaded, and two decorative bands four band-widths long: an
+     * etched scroll for steel and running stitches beside a tooled line for leather, both cut out
+     * so only the decoration lies over the plate.
+     */
+    function ownTiles() {
+        if(armorTiles)return armorTiles;
+        const S=256,cells=(x,y,n,seed)=>{const fx=x/S*n,fy=y/S*n,ix=Math.floor(fx),iy=Math.floor(fy);let f1=9,f2=9,id=0;
+            for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){const cx=ix+i,cy=iy+j,w=a=>((a%n)+n)%n,px=cx+hash2(w(cx),w(cy),seed)*.9,py=cy+hash2(w(cx),w(cy),seed+1)*.9,d=Math.hypot(fx-px,fy-py);
+                if(d<f1){f2=f1;f1=d;id=w(cx)*n+w(cy);}else if(d<f2)f2=d;}return {f1,f2,id};};
+        const painted=finishPictures('armor-grain',S,S,(x,y,s)=>{
+            // Orange peel and faint sanding marks; chipped paint comes from the form (formWear), at real edges.
+            const peel=tileNoise(x,y,S,24,3)*.6+tileNoise(x,y,S,48,4)*.4,mark=tileNoise(x*.2,y*6,S,32,5);
+            s.h=.3*peel+.05*mark;s.t=.95+.04*peel;s.r=.6+.14*peel+.06*mark;s.m=.6;},2.2);
+        painted.normal.name='armor-grain-normal.png';painted.surface.name='armor-finish.png';
+        const steel=finishPictures('armor-steel',S,S,(x,y,s)=>{
+            const c=cells(x,y,9,11),d=Math.min(1,c.f1/.62),streak=tileNoise(x,y,S,4,12)*.4+tileNoise(x*.25,y*8,S,64,13)*.6;
+            s.h=-(1-d*d)*.9+.25*(1-sstep(0,.1,c.f2-c.f1))+.06*streak;s.t=.9+.07*hash2(c.id,0,14)+.04*streak;s.r=.62+.25*d+.12*streak;s.m=1;},2.4);
+        const leather=finishPictures('armor-leather',S,S,(x,y,s)=>{
+            const c=cells(x,y,30,21),dome=sstep(0,.3,c.f2-c.f1),crease=(1-sstep(.004,.03,Math.abs(tileNoise(x,y,S,4,22)-.5)))*sstep(.35,.65,tileNoise(x,y,S,3,23));
+            s.h=.5*dome-.9*crease;s.t=.9+.08*dome-.12*crease;s.r=.7+.15*(1-dome)+.15*crease;s.m=0;},1.6);
+        // Bands: 256 x 64, isotropic (64 texels a band height), repeating along the band.
+        const BW=256,BH=64;
+        const seg=(px,py,ax,ay,bx,by)=>{const dx=bx-ax,dy=by-ay,t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/(dx*dx+dy*dy)));return Math.hypot(px-ax-t*dx,py-ay-t*dy);};
+        const scroll=(x,y)=>{
+            let d=Math.min(Math.abs(y-6),Math.abs(y-58))+1.2;                                     // border lines
+            const stem=u=>32+13*Math.sin(u/BW*Math.PI*4);
+            for(const ox of [-BW,0,BW]){const u=x-ox;if(u<-20||u>BW+20)continue;
+                d=Math.min(d,Math.abs(y-stem(u))*.9);
+                for(let k=0;k<4;k++){const cu=(k+.5)*BW/4,up=k%2?1:-1,cy=stem(cu)+up*12,r=9,ang=Math.atan2(y-cy,u-cu),rr=Math.hypot(u-cu,y-cy);
+                    // A curl: a circle opening into a spiral toward its center.
+                    const spiral=r*(1-((ang/(2*Math.PI)+1)%1)*.55);d=Math.min(d,Math.abs(rr-spiral)+(rr<3?3:0));
+                    const lx=cu+BW/8,ly=stem(lx)-up*9;d=Math.min(d,Math.max(0,Math.hypot((u-lx)/1.9,(y-ly)/1.0)-4.2));}}
+            return d;};
+        const etched=finishPictures('armor-etched',BW,BH,(x,y,s)=>{const d=scroll(x+.5,y+.5),stroke=1-sstep(2.8,3.8,d);s.a=stroke;s.h=stroke*(1-sstep(0,3.8,d))*1.6;s.t=.92+.08*stroke;s.r=.4;s.m=1;},1.2,true);
+        const tooled=finishPictures('armor-tooled',BW,BH,(x,y,s)=>{
+            // Saddle stitches a band-height apart, slanted a little, beside a tooled groove.
+            const k=(((x+(y-22)*.35)%32)+32)%32,stitch=k>4&&k<26?1-sstep(4,6,Math.abs(y-22)/(.75+.35*Math.sin((k-4)/22*Math.PI))):0,line=1-sstep(2.2,3.6,Math.abs(y-48));
+            s.a=Math.max(stitch,line);s.t=stitch>line?1:.22;s.h=stitch*1.2-line*.8;s.r=stitch>line?.75:.6;s.m=0;},1.4,true);
+        return armorTiles={painted,steel,leather,etched,tooled};
+    }
+    /**
+     * Wear by the form, into the vertex colors: convex edges and ridges catch light (lighter,
+     * and on painted plate chipped back to bare metal), recesses and lame steps darken. The
+     * curvature is measured across the part's welded surface, so seams do not show.
+     */
+    function formWear(p,finish,scale) {
+        const n=p.positions.length/3,q=.00008*scale,ids=new Int32Array(n),key=new Map(),nrm=[];
+        for(let v=0;v<n;v++){const k=Math.round(p.positions[v*3]/q)+','+Math.round(p.positions[v*3+1]/q)+','+Math.round(p.positions[v*3+2]/q);let id=key.get(k);if(id==null){id=key.size;key.set(k,id);nrm.push([0,0,0]);}ids[v]=id;for(let c=0;c<3;c++)nrm[id][c]+=p.normals[v*3+c];}
+        const m=key.size,pos=new Float32Array(m*3),H=new Float32Array(m),cnt=new Float32Array(m);
+        for(let v=0;v<n;v++)pos.set(p.positions.subarray(v*3,v*3+3),ids[v]*3);
+        for(const a of nrm){const l=Math.hypot(...a)||1;a[0]/=l;a[1]/=l;a[2]/=l;}
+        for(let t=0;t<p.index.length;t+=3)for(let e=0;e<3;e++){
+            const a=ids[p.index[t+e]],b=ids[p.index[t+(e+1)%3]];if(a===b)continue;
+            const d=[pos[b*3]-pos[a*3],pos[b*3+1]-pos[a*3+1],pos[b*3+2]-pos[a*3+2]],l2=d[0]*d[0]+d[1]*d[1]+d[2]*d[2];if(l2<1e-12)continue;
+            const k=((nrm[b][0]-nrm[a][0])*d[0]+(nrm[b][1]-nrm[a][1])*d[1]+(nrm[b][2]-nrm[a][2])*d[2])/l2;
+            H[a]+=k;H[b]+=k;cnt[a]++;cnt[b]++;
+        }
+        const bare=[.42,.43,.46];
+        for(let v=0;v<n;v++){
+            const id=ids[v],c=cnt[id]?H[id]/cnt[id]*scale:0,convex=sstep(25,150,c),hollow=sstep(10,90,-c);
+            for(let k=0;k<3;k++){
+                let x=p.colors[v*3+k];
+                if(finish==='painted')x=x+(bare[k]-x)*.6*sstep(70,240,c);
+                const lift=finish==='steel'?.2:finish==='leather'?.1:.06;
+                p.colors[v*3+k]=Math.min(1,x*(1+lift*convex-(finish==='leather'?.26:.22)*hollow));
+            }
+        }
+    }
+    /** Steel and leather tiles shared with the cloth (RRCharacterFabric), when that module is loaded. */
+    const fabricTiles=()=>root.RRCharacterFabric||(typeof require==='function'?(()=>{try{return require('./CharacterFabric.js');}catch(e){return null;}})():null);
+    /**
+     * The armor's finish: hammered or brushed steel, cast and painted plate, or leather, each a
+     * tiled relief and roughness on the armor's own surface coordinates (in meters from its
+     * builder, RRCharacterPowerArmor), worn by the form (formWear); etched and tooled bands get
+     * their cut-out decoration. Vertex colors still carry the armor's color. Returns the pictures.
+     */
     function armorFinish(parts,built) {
-        const armor=parts.filter(p=>/^(Power armor|Power helmet|Recon formed) plating$/.test(p.name)||p.name==='Recon knee shells'||p.name.startsWith('Medieval '));
-        if(!armor.length)return [];
-        if(!metalMaps){
-            const size=128,normal=new Uint8Array(size*size*4),surface=new Uint8Array(size*size*4);
-            const noise=(x,y)=>{let n=Math.imul((x+size)%size+1,374761393)^Math.imul((y+size)%size+1,668265263);n=Math.imul(n^(n>>>13),1274126177);return((n^(n>>>16))>>>0)/4294967295;};
-            for(let y=0;y<size;y++)for(let x=0;x<size;x++){
-                const i=(y*size+x)*4,dx=(noise(x+1,y)-noise(x-1,y))*.22,dy=(noise(x,y+1)-noise(x,y-1))*.08,n=norm([-dx,-dy,1]);
-                normal.set([Math.round(128+n[0]*127),Math.round(128+n[1]*127),Math.round(128+n[2]*127),255],i);
-                surface.set([255,Math.round(208+noise(x,y)*35),255,255],i);
+        const scale=built.height/1.7,legacy=p=>/^(Power armor|Power helmet|Recon formed) plating$/.test(p.name)||p.name==='Recon knee shells';
+        const chosen=parts.filter(p=>p.finish||legacy(p));
+        if(!chosen.length)return [];
+        const tiles=ownTiles(),Fabric=fabricTiles(),out=new Map(),use=pic=>{out.set(pic.name,pic);return pic.name;};
+        for(const p of chosen){
+            // Recon plates are moulded plastic; power armor is painted metal (the shared plastic tile has no metal).
+            const finish=p.finish||(/^Recon/.test(p.name)?'plastic':'painted');
+            // Surface coordinates in meters from the builder (RRCharacterPowerArmor), shown only with a tiled map.
+            if(p.armorUvs){p.uvs=p.armorUvs;p.armorUV=true;delete p.armorUvs;}
+            if(finish==='etched'||finish==='tooled'){
+                const t=tiles[finish];Object.assign(p,{texture:use(t.albedo),normalTexture:use(t.normal),normalScale:.7,cutout:true,alphaCutoff:.5,keepColors:true});
+                continue;
             }
-            metalMaps=[{name:'armor-grain-normal.png',width:size,height:size,data:normal,repeat:true},{name:'armor-finish.png',width:size,height:size,data:surface,repeat:true}];
-        }
-        const density=10/(built.height/1.7);
-        for(const p of armor){
-            p.uvs=new Float32Array(p.positions.length/3*2);
-            for(let v=0;v<p.positions.length/3;v++){
-                const n=Array.from(p.normals.subarray(v*3,v*3+3),Math.abs),axis=n.indexOf(Math.max(...n)),axes=axis===0?[2,1]:axis===1?[0,2]:[0,1];
-                p.uvs[v*2]=p.positions[v*3+axes[0]]*density;p.uvs[v*2+1]=p.positions[v*3+axes[1]]*density;
+            // Surface coordinates: the builder's own (meters times `uvDensity`), else projected along each vertex's main axis.
+            const density=10/scale;
+            if(!p.armorUV){
+                p.uvs=new Float32Array(p.positions.length/3*2);
+                for(let v=0;v<p.positions.length/3;v++){
+                    const n=Array.from(p.normals.subarray(v*3,v*3+3),Math.abs),axis=n.indexOf(Math.max(...n)),axes=axis===0?[2,1]:axis===1?[0,2]:[0,1];
+                    p.uvs[v*2]=p.positions[v*3+axes[0]]*density;p.uvs[v*2+1]=p.positions[v*3+axes[1]]*density;
+                }
             }
-            p.normalTexture=metalMaps[0].name;p.normalScale=.20;p.metallicRoughnessTexture=metalMaps[1].name;
+            if(p.colors&&!p.edgeWear)formWear(p,finish,scale);
+            const perMeter=p.armorUV?(p.uvDensity||8/scale):density;
+            const shared=finish==='steel'?(p.edgeWear?'brushed':p.tile||'hammered'):finish==='leather'?'leather':finish==='plastic'?'plastic':null;
+            if(Fabric&&shared&&Fabric.tile&&Fabric.tile(shared)){
+                const span=Fabric.tile(shared).span,uvs1=new Float32Array(p.uvs.length);
+                for(let i=0;i<uvs1.length;i++)uvs1[i]=p.uvs[i]/perMeter/span[i%2];
+                const pics={};Fabric.applyTo(p,shared,pics,{uvs1,roughness:p.roughness,normalScale:shared==='hammered'?.38:shared==='brushed'?.45:shared==='plastic'?.6:.7});for(const pic of Object.values(pics))use(pic);
+                continue;
+            }
+            const t=tiles[finish==='steel'?'steel':finish==='leather'?'leather':'painted'];
+            Object.assign(p,{texture:use(t.albedo),keepColors:true,normalTexture:use(t.normal),normalScale:finish==='leather'?.5:.35,metallicRoughnessTexture:use(t.surface)});
         }
-        return metalMaps;
+        return [...out.values()];
     }
     const api={build,tailor,apronPanels,leatherFinish,armorFinish};root.RRCharacterGarmentDetails=api;
     if(typeof module!=='undefined'&&module.exports)module.exports=api;

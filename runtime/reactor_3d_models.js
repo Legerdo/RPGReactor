@@ -3751,7 +3751,7 @@ Reactor3D._glbSparseAccessor = function(json, bin, accessor) {
 Reactor3D.carrySurfaceData = function(from, to) {
     const a = from && from.userData, b = to && to.userData;
     if (!a || !b) return to;
-    if (a.rrNormalMap && a.rrNormalMap.isTexture) { b.rrNormalMap = a.rrNormalMap; b.rrNormalScale = a.rrNormalScale && a.rrNormalScale.clone ? a.rrNormalScale.clone() : a.rrNormalScale; }
+    if (a.rrNormalMap && a.rrNormalMap.isTexture) { b.rrNormalMap = a.rrNormalMap; b.rrNormalScale = a.rrNormalScale && a.rrNormalScale.clone ? a.rrNormalScale.clone() : a.rrNormalScale; if (a.rrNormalUv1) b.rrNormalUv1 = true; }
     if (a.rrEmissiveMap && a.rrEmissiveMap.isTexture) b.rrEmissiveMap = a.rrEmissiveMap;
     if (a.rrEmissive && a.rrEmissive.isColor) b.rrEmissive = a.rrEmissive.clone();
     if (a.rrHair) b.rrHair = true;
@@ -3835,7 +3835,21 @@ Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
         // Its normal map, where it shares the picture's coordinates: lit by which way each texel faces
         // (Reactor3D.MODEL_FACING). Kept linear; a block-compressed copy is left out (its format is a color's).
         const normalInfo = def.normalTexture;
-        if (map && normalInfo && !(normalInfo.texCoord > 0) && (!texInfo || !(texInfo.texCoord > 0))) {
+        // A normal map on the second coordinates (TEXCOORD_1): a fine repeating tile, a cloth's weave from the
+        // Character Builder. Its own coordinates make the frame, so it needs no picture beside it.
+        if (normalInfo && normalInfo.texCoord === 1) {
+            const normal = this._loadGlbTexture(json, bin, normalInfo, baseUrl, textures, bitmaps, usedBitmaps);
+            if (normal && !normal.isCompressedTexture) {
+                normal.colorSpace = THREE.NoColorSpace || "";
+                normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
+                normal.needsUpdate = true;
+                mat.userData.rrNormalMap = normal;
+                mat.userData.rrNormalUv1 = true;
+                // glTF's green points up the picture, against +v: the frame's v runs the other way.
+                const k = normalInfo.scale != null ? Number(normalInfo.scale) : 1;
+                mat.userData.rrNormalScale = new THREE.Vector2(k, -k);
+            }
+        } else if (map && normalInfo && !(normalInfo.texCoord > 0) && (!texInfo || !(texInfo.texCoord > 0))) {
             const normal = this._loadGlbTexture(json, bin, normalInfo, baseUrl, textures, bitmaps, usedBitmaps);
             if (normal && !normal.isCompressedTexture) {
                 normal.colorSpace = THREE.NoColorSpace || "";
@@ -3893,6 +3907,11 @@ Reactor3D.buildGlbTemplate = function(json, bin, baseUrl, bitmaps) {
             if (prim.attributes.TEXCOORD_0 != null) {
                 geometry.setAttribute("uv", new THREE.BufferAttribute(
                     this._glbAccessor(json, bin, prim.attributes.TEXCOORD_0), 2));
+            }
+            // The second coordinates, where a material's normal map rides them.
+            if (prim.attributes.TEXCOORD_1 != null && materials[prim.material] && materials[prim.material].userData.rrNormalUv1) {
+                geometry.setAttribute("uv1", new THREE.BufferAttribute(
+                    this._glbAccessor(json, bin, prim.attributes.TEXCOORD_1), 2));
             }
             if (prim.attributes.COLOR_0 != null) {
                 const color = this._glbAccessor(json, bin, prim.attributes.COLOR_0);

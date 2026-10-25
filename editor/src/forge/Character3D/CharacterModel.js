@@ -277,7 +277,11 @@
         if (graftKind) hairRecipe = Object.assign({}, hairRecipe, { style: 'bald', brows: { style: 'none' }, lashes: false, facial: Object.assign({}, r.hair.facial, { style: 'none' }) });
         // Merfolk hook: wet hair lies flat.
         if (mer && r.merfolk.wetHair) hairRecipe = Object.assign({}, hairRecipe, { volume: Math.min(hairRecipe.volume, 0.12) });
+        // Under a soft cap (a beanie) the hair stays: flatter, pressed under the cap and out below its brim, never through it.
+        const capped = !!(outfit.caps && outfit.caps.length) && hairRecipe.style !== 'bald';
+        if (capped) hairRecipe = Object.assign({}, hairRecipe, { volume: Math.min(hairRecipe.volume ?? 0.5, 0.3) });
         const hair = Hair.build(pack, built, hairRecipe, { seed: r.seed, skin: r.skin, budget: o.hairBudget, gender: r.gender, outfitParts: outfit.parts });
+        if (capped) capHair(built, outfit, hair.filter(p => /^Hair\b/.test(p.name)));
         if (mer && r.merfolk.wetHair) Merfolk.wetHair(hair);
         if (hair.some(p => p.texture === 'lashes.png')) textures['lashes.png'] = cache.lashes || (cache.lashes = Hair.lashTexture(128));
         if (hair.some(p => p.texture === 'hair.png')) textures['hair.png'] = cache.hairStrands || (cache.hairStrands = Hair.hairTexture(256));
@@ -357,6 +361,40 @@
         // Expressions hook: a saved file carries the expressions and visemes as named morph targets.
         if (Expressions && (o.quality === 'save' || o.quality == null || o.morphs)) result.morphs = Expressions.morphTargets(pack, result);
         return result;
+    }
+
+    /**
+     * A soft cap over the hair (RRCharacterOutfit.clipUnderCap): the cap eases
+     * out over a bun or a full crown, the rest of the hair is pressed under
+     * it. The cap's eased fabric is copied into the outfit's merged parts (by
+     * their fabric references) and its trim follows it.
+     */
+    function capHair(built, outfit, hairParts) {
+        const O = root.RRCharacterOutfit || require('./CharacterOutfit.js');
+        const before = outfit.caps.map(c => Float32Array.from(c.positions));
+        const done = O.clipUnderCap(built, outfit.caps, hairParts);
+        if (!done.stretched) return;
+        const byEntry = new Map(outfit.caps.map((c, k) => [c.entry, k])), normals = outfit.caps.map(c => O.triangleNormals(c.positions, c.index));
+        for (const p of outfit.parts) {
+            const refs = p.fabricRefs || p.sewnRefs;
+            if (!refs) continue;
+            let changed = false;
+            for (let v = 0; v < p.positions.length / 3; v++) {
+                const k = byEntry.get(refs[v * 2]);
+                if (k === undefined) continue;
+                const cap = outfit.caps[k].positions, old = before[k], i = refs[v * 2 + 1] * 3;
+                for (let c = 0; c < 3; c++) {
+                    const delta = cap[i + c] - old[i + c];
+                    if (!delta) continue;
+                    p.positions[v * 3 + c] += delta;
+                    if (p.sewnRoots) p.sewnRoots[v * 3 + c] += delta;
+                    changed = true;
+                }
+                // The cap's own normals, continuous across the picture's seams.
+                if (p.fabricRefs) for (let c = 0; c < 3; c++) p.normals[v * 3 + c] = normals[k][i + c];
+            }
+            if (changed && !p.fabricRefs) p.normals = O.triangleNormals(p.positions, p.index);
+        }
     }
 
     /**

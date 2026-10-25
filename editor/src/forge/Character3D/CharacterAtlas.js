@@ -11,13 +11,23 @@
  * few millimeters of chart, a trim a distance from the cut line. Pieces of
  * one finish are merged into one part, all sharing the picture.
  *
- * The picture depends on the outfit only, never on the body's shape: the
- * builder keeps it while sliders move.
+ * The weave itself is not painted: a millimeter-a-texel picture cannot hold
+ * it (it shimmered as moiré). Each part carries a second set of coordinates,
+ * its chart's meters over its cloth's tile (RRCharacterFabric), and the
+ * tile's relief, roughness and occlusion on them; the picture keeps the
+ * colors, prints, trims and wear. Trims and hems are measured per texel from
+ * the smoothed cut edge, and prints that run round the trunk by the height
+ * of the cloth as laid, so neither steps nor waves with the mesh.
+ *
+ * The picture depends on the outfit only (as laid on the body it was first
+ * made for), never on later changes to the body's shape: the builder keeps
+ * it while sliders move.
  */
 (function(root) {
     'use strict';
 
     const Outfit = root.RRCharacterOutfit || (typeof require === 'function' ? require('./CharacterOutfit.js') : null);
+    const Fabric = root.RRCharacterFabric || (typeof require === 'function' ? require('./CharacterFabric.js') : null);
     const TAU = Math.PI * 2;
     const toByte = c => Math.max(0, Math.min(255, Math.round((c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055) * 255)));
     const fract = x => x - Math.floor(x);
@@ -28,6 +38,92 @@
         const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
         const a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1);
         return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+    }
+    /**
+     * How much of a texel `w` wide (in the pattern's own cycles) at `x` lies
+     * where fract(x) < duty: a stripe's edge filtered over the texel, never
+     * a stair of whole texels.
+     */
+    function pulse(x, duty, w) {
+        if (!(w > 1e-4)) return fract(x) < duty ? 1 : 0;
+        if (w >= 1) return duty;
+        const F = t => Math.floor(t) * duty + Math.min(fract(t), duty);
+        return (F(x + w / 2) - F(x - w / 2)) / w;
+    }
+    /** A line `half` either side of d = 0, its edges filtered over `w`. */
+    const line = (d, half, w) => 1 - smoothstep(half - w / 2, half + w / 2, Math.abs(d));
+
+    /** Where a piece vertex lies on the average body (its rest position). */
+    function restOf(an, vert) {
+        if (vert.w) {
+            const out = [0, 0, 0];
+            for (const [v, w] of vert.w) for (let k = 0; k < 3; k++) out[k] += an.rest[v * 3 + k] * w;
+            return out;
+        }
+        const { a, b, t } = vert;
+        return [0, 1, 2].map(k => an.rest[a * 3 + k] * (1 - t) + an.rest[b * 3 + k] * t);
+    }
+
+    /**
+     * The distance from a piece's cut edge, eased along itself as it is laid,
+     * to any point on the average body: a grid of the edge's segments, each
+     * filed in the cells within `reach` of it. `at(p)` is the distance, or
+     * Infinity beyond the reach.
+     */
+    const edgeFields = new WeakMap();
+    function edgeField(an, piece, reach) {
+        if (!piece || !piece.border || !piece.border.length || !piece.verts) return null;
+        let byReach = edgeFields.get(piece);
+        if (!byReach) edgeFields.set(piece, byReach = new Map());
+        const key = Math.round(reach * 1000);
+        if (byReach.has(key)) return byReach.get(key);
+        const n = piece.verts.length, pts = new Float32Array(n * 3);
+        piece.verts.forEach((vert, i) => pts.set(restOf(an, vert), i * 3));
+        // As RRCharacterOutfit eases a cut edge: each vertex between its two neighbors along the edge, eight times.
+        const near = new Map();
+        for (const [a, b] of piece.border) {
+            if (!near.has(a)) near.set(a, []);
+            if (!near.has(b)) near.set(b, []);
+            near.get(a).push(b); near.get(b).push(a);
+        }
+        const list = [...near.entries()].filter(([, q]) => q.length === 2);
+        for (let pass = 0; pass < 8; pass++) {
+            const next = list.map(([v, [a, b]]) => [0, 1, 2].map(k => 0.5 * pts[v * 3 + k] + 0.25 * (pts[a * 3 + k] + pts[b * 3 + k])));
+            list.forEach(([v], i) => pts.set(next[i], v * 3));
+        }
+        const segs = new Float32Array(piece.border.length * 6), cell = Math.max(0.01, reach), grid = new Map();
+        const keyOf = (x, y, z) => x + ',' + y + ',' + z;
+        piece.border.forEach(([a, b], s) => {
+            for (let k = 0; k < 3; k++) { segs[s * 6 + k] = pts[a * 3 + k]; segs[s * 6 + 3 + k] = pts[b * 3 + k]; }
+            const lo = [0, 1, 2].map(k => Math.floor((Math.min(pts[a * 3 + k], pts[b * 3 + k]) - reach) / cell));
+            const hi = [0, 1, 2].map(k => Math.floor((Math.max(pts[a * 3 + k], pts[b * 3 + k]) + reach) / cell));
+            for (let x = lo[0]; x <= hi[0]; x++) for (let y = lo[1]; y <= hi[1]; y++) for (let z = lo[2]; z <= hi[2]; z++) {
+                const k = keyOf(x, y, z);
+                let at = grid.get(k);
+                if (!at) grid.set(k, at = []);
+                at.push(s);
+            }
+        });
+        const field = {
+            reach,
+            at(p) {
+                const list = grid.get(keyOf(Math.floor(p[0] / cell), Math.floor(p[1] / cell), Math.floor(p[2] / cell)));
+                if (!list) return Infinity;
+                let best = Infinity;
+                for (const s of list) {
+                    const o = s * 6, ax = segs[o], ay = segs[o + 1], az = segs[o + 2];
+                    const bx = segs[o + 3] - ax, by = segs[o + 4] - ay, bz = segs[o + 5] - az;
+                    const l2 = bx * bx + by * by + bz * bz || 1e-12;
+                    const t = Math.max(0, Math.min(1, ((p[0] - ax) * bx + (p[1] - ay) * by + (p[2] - az) * bz) / l2));
+                    const dx = p[0] - ax - bx * t, dy = p[1] - ay - by * t, dz = p[2] - az - bz * t, d = dx * dx + dy * dy + dz * dz;
+                    if (d < best) best = d;
+                }
+                const d = Math.sqrt(best);
+                return d <= reach ? d : Infinity;
+            }
+        };
+        byReach.set(key, field);
+        return field;
     }
 
     /** The values of one piece vertex on chain `fam`: its position along it and angle about it. */
@@ -43,7 +139,19 @@
             const w = 0.6, ang = vals.map(x => (x.ang - own.ang > Math.PI ? x.ang - TAU : own.ang - x.ang > Math.PI ? x.ang + TAU : x.ang)).reduce((p, q) => p + q, 0) / vals.length;
             return { s: own.s * (1 - w) + mean('s') * w, ang: own.ang * (1 - w) + ang * w, u: own.u * (1 - w) + mean('u') * w, rest: own.rest.map((x, k) => x * (1 - w) + vals.reduce((sum, v) => sum + v.rest[k], 0) / vals.length * w) };
         }
-        const { a, b, t } = laid.piece.verts[laid.origin[i]];
+        const vert = laid.piece.verts[laid.origin[i]];
+        // A vertex added where the cloth is refined for its folds lies between up to three pack vertices.
+        if (vert.w) {
+            const g0 = an.angle[vert.w[0][0] * 5 + fam], out = { s: 0, ang: 0, u: 0, rest: [0, 0, 0] };
+            for (const [v, w] of vert.w) {
+                let g = an.angle[v * 5 + fam];
+                if (g - g0 > Math.PI) g -= TAU; else if (g0 - g > Math.PI) g += TAU;
+                out.s += an.s[v * 5 + fam] * w; out.ang += g * w; out.u += an.skirtU[v] * w;
+                for (let k = 0; k < 3; k++) out.rest[k] += an.rest[v * 3 + k] * w;
+            }
+            return out;
+        }
+        const { a, b, t } = vert;
         let ga = an.angle[a * 5 + fam], gb = an.angle[b * 5 + fam];
         if (gb - ga > Math.PI) gb -= TAU; else if (ga - gb > Math.PI) gb += TAU;
         return {
@@ -52,6 +160,21 @@
             u: an.skirtU[a] * (1 - t) + an.skirtU[b] * t,
             rest: [0, 1, 2].map(k => an.rest[a * 3 + k] * (1 - t) + an.rest[b * 3 + k] * t)
         };
+    }
+
+    /**
+     * A piece vertex's height on the average body as the cloth lies there: its
+     * rest height moved as far as the laying moved it off the body point under
+     * it (lift, drape, layers over layers). A print that runs round the trunk
+     * by height follows the finished cloth, not the bumps of the surface under
+     * it, so its stripes stay level.
+     */
+    function laidHeight(laid, v, restY) {
+        const o = laid.rimStart == null || v < laid.rimStart || !laid.origin ? v : laid.origin[v];
+        const P = laid.positions, B = laid.base;
+        if (!B || o * 3 + 1 >= B.length || o * 3 + 1 >= P.length) return restY;
+        const moved = P[o * 3 + 1] - B[o * 3 + 1];
+        return Number.isFinite(moved) && Math.abs(moved) < 0.25 ? restY + moved : restY;
     }
 
     /**
@@ -84,8 +207,13 @@
             const R = an.radius[fam] * (fam === 0 ? 1.35 : 1.15), U = an.unit[fam];
             const corners = values.map((x, k) => ({
                 v: c[k], cu: x.ang * R, cv: (fam === 5 ? x.u : x.s) * U, s: x.s, ang: x.ang, rest: x.rest,
-                y: x.rest[1], val: laid.vals[c[k]], vm: laid.internalTrim?.[laid.origin[c[k]]] ? .03 : laid.edge ? (laid.vals[c[k]] < 0 ? -0.001 : laid.edge[c[k]]) : laid.vals[c[k]] * (fam === 5 ? an.unit[5] / 4 : an.unit[fam]), fam: fam === 5 ? 0 : fam, u: x.u
+                y: laidHeight(laid, c[k], x.rest[1]), val: laid.vals[c[k]], vm: laid.internalTrim?.[laid.origin[c[k]]] ? .03 : laid.edge ? (laid.vals[c[k]] < 0 ? -0.001 : laid.edge[c[k]]) : laid.vals[c[k]] * (fam === 5 ? an.unit[5] / 4 : an.unit[fam]), fam: fam === 5 ? 0 : fam, u: x.u,
+                // Meters per unit along the chain and round it: how fast a print's bands change over one texel.
+                su: an.unit[fam === 5 ? 0 : fam], rad: R
             }));
+            // A triangle of the cloth itself (not its folded rim) is measured from the cut edge per texel: a sewn
+            // waist's band too, from the waist seam, so it runs even rather than in the steps of its marked vertices.
+            if (c.every(v => (laid.rimStart == null || v < laid.rimStart) && laid.vals[v] >= 0)) corners.exact = true;
             let chart = byKey.get(fam);
             if (!chart) byKey.set(fam, chart = { fam, tris: [], min: [Infinity, Infinity], max: [-Infinity, -Infinity] });
             chart.tris.push(corners);
@@ -271,21 +399,33 @@
         return light > 0 ? mixc(color, Outfit.linear(look.lightColor || '#70dfff'), light * 0.65) : color;
     }
 
-    /** A texel's linear color for a look at a point described by `p` (chart and body values). */
-    function shade(look, colors, p) {
+    /**
+     * A texel's linear color for a look at a point described by `p` (chart and
+     * body values; `p.px` meters a texel). `fab`: { kind (the cloth's tile,
+     * RRCharacterFabric), hip (the average body's hip height) } for the wear
+     * the cloth takes.
+     */
+    function shade(look, colors, p, fab) {
         const [c1, c2, trim] = colors;
         let t = 0, direct = null;
-        const s = (p.fam === 0 ? p.y * 7.3 : p.s * 1.2) * (look.scale || 1), a = p.ang;
+        const sc = look.scale || 1, px = p.px || 0;
+        const s = (p.fam === 0 ? p.y * 7.3 : p.s * 1.2) * sc, a = p.ang;
+        // One texel's width in the print's own measure: around the body (meters) and along it.
+        const wu = px * sc, ws = px * sc * (p.fam === 0 ? 7.3 : 1.2 / Math.max(p.su || 0.25, 1e-3));
         switch (look.pattern) {
             case 'fleet': case 'officer': case 'technical': case 'expedition': case 'pressure': direct = futuristic(look, colors, p); break;
-            case 'stripes': t = fract(s * 2) < 0.5 ? 1 : 0; break;
-            case 'pinstripes': t = fract(s * 6) < 0.12 ? 1 : 0; break;
-            case 'vstripes': t = fract(p.cu * 12 * (look.scale || 1)) < 0.5 ? 1 : 0; break;
-            case 'checker': t = (Math.floor(s * 2) + Math.floor(p.cu * 12 * (look.scale || 1))) & 1; break;
+            case 'stripes': t = pulse(s * 2, 0.5, ws * 2); break;
+            case 'pinstripes': t = pulse(s * 6, 0.12, ws * 6); break;
+            case 'vstripes': t = pulse(p.cu * 12 * sc, 0.5, wu * 12); break;
+            case 'checker': {
+                const A = pulse(s, 0.5, ws), B = pulse(p.cu * 6 * sc, 0.5, wu * 6);
+                t = A * (1 - B) + (1 - A) * B;
+                break;
+            }
             case 'plaid': {
-                const u = fract(s * 1.6), v = fract(p.cu * 9 * (look.scale || 1));
-                t = (u < 0.28 ? 0.5 : 0) + (v < 0.28 ? 0.5 : 0) + (fract(s * 6.4) < 0.08 || fract(p.cu * 36) < 0.08 ? 0.25 : 0);
-                t = Math.min(1, t);
+                const u = pulse(s * 1.6, 0.28, ws * 1.6), v = pulse(p.cu * 9 * sc, 0.28, wu * 9);
+                const fine = Math.max(pulse(s * 6.4, 0.08, ws * 6.4), pulse(p.cu * 36, 0.08, px * 36));
+                t = Math.min(1, 0.5 * u + 0.5 * v + 0.25 * fine);
                 break;
             }
             case 'gradient': { const k = Math.max(0, Math.min(1, (p.s - (look.from ?? 0)) / ((look.to ?? 4) - (look.from ?? 0)))); t = k * k * (3 - 2 * k); break; }
@@ -296,16 +436,17 @@
                 break;
             }
             case 'panels': {
-                const line = Math.abs(fract(s * 1.5) - 0.5) > 0.47 || Math.abs(Math.abs(a) - Math.PI / 2) < 0.025;
-                t = line ? 1 : 0;
+                const seam = pulse(s * 1.5 + 0.03, 0.06, ws * 1.5);
+                const side = line(Math.abs(a) - Math.PI / 2, 0.025, px / Math.max(p.rad || 0.05, 0.02));
+                t = Math.max(seam, side);
                 break;
             }
             case 'mail': {
                 // Rows of rings, every other row offset by half a ring.
                 const rx = p.cu / 0.014, ry = p.cv / 0.011;
                 const row = Math.floor(ry), fx = fract(rx + (row & 1) * 0.5) - 0.5, fy = fract(ry) - 0.5;
-                const r = Math.hypot(fx, fy * 1.2);
-                t = r > 0.28 && r < 0.48 ? 0 : 1;
+                const r = Math.hypot(fx, fy * 1.2), w = px / 0.0125;
+                t = 1 - line(r - 0.38, 0.1, w);
                 break;
             }
             case 'scales': {
@@ -315,55 +456,102 @@
                 break;
             }
             case 'quilted': {
-                const q = Math.abs(fract((p.cu + p.cv) / 0.04) - 0.5) < 0.04 || Math.abs(fract((p.cu - p.cv) / 0.04) - 0.5) < 0.04;
-                t = q ? 1 : 0;
+                const w = px * 1.4 / 0.04;
+                t = Math.max(line(fract((p.cu + p.cv) / 0.04) - 0.5, 0.04, w), line(fract((p.cu - p.cv) / 0.04) - 0.5, 0.04, w));
                 break;
             }
             case 'visor': t = p.fam === 0 && Math.abs(a) < 1.0 && p.s > 5.0 && p.s < 5.62 ? 1 : 0; break;
             case 'studs': {
                 const fx = fract(p.cu / 0.03) - 0.5, fy = fract(p.cv / 0.03) - 0.5;
-                t = Math.hypot(fx, fy) < 0.18 ? 2 : 0;
+                direct = mixc(c1, trim, line(Math.hypot(fx, fy), 0.18, px / 0.03));
                 break;
             }
-            case 'floral': direct = floral(p, look.scale || 1, c1, c2, trim); break;
-            case 'paisley': direct = paisley(p, look.scale || 1, c1, c2, trim); break;
+            // Drawn prints: four samples a quarter texel apart, so their outlines are smooth.
+            case 'floral': case 'paisley': {
+                const draw = look.pattern === 'floral' ? floral : paisley, q = px / 4, sum = [0, 0, 0];
+                const at = { ...p };
+                for (const [du, dv] of [[-q, -q], [q, -q], [-q, q], [q, q]]) {
+                    at.cu = p.cu + du; at.cv = p.cv + dv;
+                    const c = draw(at, sc, c1, c2, trim);
+                    sum[0] += c[0] / 4; sum[1] += c[1] / 4; sum[2] += c[2] / 4;
+                }
+                direct = sum;
+                break;
+            }
             case 'emblem': direct = emblem(p, look, c1, c2, trim); break;
             default: t = 0;
         }
-        let rgb = direct || (t >= 2 ? trim : t <= 0 ? c1 : t >= 1 ? c2 : [c1[0] + (c2[0] - c1[0]) * t, c1[1] + (c2[1] - c1[1]) * t, c1[2] + (c2[2] - c1[2]) * t]);
-        // A trim: an even band in from the cut edge (its width in the garment's own units, about 15 cm each).
-        const trimmed = look.trimWidth && p.vm >= 0 && p.vm < look.trimWidth * 0.15;
-        // Its inner edge blended over a millimeter, a clean line rather than a stair of texels.
-        if (look.trimWidth && p.vm >= 0) { const t2 = 1 - smoothstep(look.trimWidth * 0.15 - 0.0008, look.trimWidth * 0.15 + 0.0008, p.vm); if (t2 > 0) rgb = [rgb[0] + (trim[0] - rgb[0]) * t2, rgb[1] + (trim[1] - rgb[1]) * t2, rgb[2] + (trim[2] - rgb[2]) * t2]; }
+        let rgb = direct || (t <= 0 ? c1 : t >= 1 ? c2 : mixc(c1, c2, t));
+        // Edges filtered over a texel (never less than half a millimeter).
+        const aa = Math.max(0.0005, px * 0.6);
+        // A trim: an even band in from the cut edge (its width in the garment's own units, about 15 cm each),
+        // its inner edge a clean line rather than a stair of texels.
+        const band = look.trimWidth && p.vm >= 0 ? 1 - smoothstep(look.trimWidth * 0.15 - aa, look.trimWidth * 0.15 + aa, p.vm) : 0;
+        if (band > 0) rgb = mixc(rgb, trim, band);
+        const kind = fab && fab.kind;
         const hard = look.material === 'metal' || look.material === 'gold';
         let k;
         if (hard) {
             // Brushed metal, its cut edges catching the light like a rolled rim.
             k = 0.94 + 0.08 * noise(p.cu * 60, p.cv * 6) + 0.18 * (1 - smoothstep(0, 0.006, p.vm));
         } else {
-            const leather = look.material === 'leather' || look.material === 'rubber';
-            // The weave or the hide's grain, and a slow unevenness over it.
+            const leather = look.material === 'leather' || look.material === 'rubber' || look.material === 'suede';
+            // A slow unevenness of the dye or the hide (the weave and grain themselves are the cloth's tile).
             k = leather
-                ? 0.9 + 0.12 * noise(p.cu * 220, p.cv * 220) + 0.05 * noise(p.cu * 14, p.cv * 14)
+                ? 0.95 + 0.05 * noise(p.cu * 60, p.cv * 60) + 0.05 * noise(p.cu * 14, p.cv * 14)
                 : 0.97 + 0.025 * noise(p.cu * 160, p.cv * 160) + 0.015 * noise(p.cu * 9, p.cv * 9);
             // Coarse fold shading painted in the rest pose stays glued to a
             // bending garment. Let its actual drape supply those light changes;
             // keep only a quiet material grain in the color picture.
             // A hem: the edge turned under (a little darker for the double layer), stitched a finger's width in.
-            if (p.vm >= 0 && p.vm < 0.014 && !trimmed) {
-                k *= 0.95;
-                const along = p.fam === 0 || p.fam === 5 ? p.cu : p.cu;
-                if (Math.abs(p.vm - 0.0085) < 0.0011 && fract(along / 0.005) < 0.6) {
+            if (p.vm >= 0 && p.vm < 0.014 + aa) {
+                const hem = (1 - smoothstep(0.014 - aa, 0.014 + aa, p.vm)) * (1 - band);
+                k *= 1 - 0.05 * hem;
+                const stitch = line(p.vm - 0.0085, 0.0011, aa) * pulse(p.cu / 0.005, 0.6, px / 0.005) * hem;
+                if (stitch > 0) {
                     const lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
-                    k *= lum > 0.25 ? 0.72 : 1.45;
+                    k *= 1 + ((lum > 0.25 ? 0.72 : 1.45) - 1) * stitch;
                 }
             }
             // Leather and rubber: the cut edge burnished darker.
-            if (leather && p.vm >= 0 && p.vm < 0.003) k *= 0.78;
+            if (leather && p.vm >= 0) k *= 1 - 0.22 * (1 - smoothstep(0.003 - aa, 0.003 + aa, p.vm));
+            if (p.vm >= 0) rgb = wear(rgb, kind, p, fab);
         }
         // The rim's inner face, toward the body, in shadow.
         if (p.val < 0) k *= 0.6;
         return [rgb[0] * k, rgb[1] * k, rgb[2] * k];
+    }
+
+    /**
+     * The wear a cloth takes where it is worn: denim faded along its seams and
+     * hems, over the knees and the seat, its warp dyed in faint streaks;
+     * leather polished lighter where it rubs; every hem low on the leg a
+     * little dusty.
+     */
+    function wear(rgb, kind, p, fab) {
+        const R = p.rest, edge = 1 - smoothstep(0, 0.016, p.vm);
+        if (kind === 'denim') {
+            const leg = p.fam === 3 || p.fam === 4;
+            const knee = leg ? smoothstep(0.1, 0.8, Math.cos(p.ang)) * Math.exp(-(((p.s - 1) / 0.2) ** 2)) : 0;
+            const hip = fab && fab.hip || 0.885;
+            const seat = p.fam === 0 && R[2] < -0.02 ? Math.exp(-(((R[1] - hip + 0.09) / 0.06) ** 2)) * smoothstep(-0.02, -0.07, R[2]) : 0;
+            // The front of the thighs, under the pockets.
+            const thigh = leg ? smoothstep(0.3, 0.9, Math.cos(p.ang)) * Math.exp(-(((p.s - 0.25) / 0.18) ** 2)) * 0.6 : 0;
+            const faded = Math.min(1, Math.max(edge * 0.75, knee, seat * 0.8, thigh));
+            const streak = (noise(p.cu * 230, p.cv * 7) - 0.5) * 0.08;
+            const lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+            const washed = [0, 1, 2].map(c => Math.min(1, (rgb[c] * 0.8 + lum * 0.2) * 1.9 + 0.03));
+            rgb = mixc(rgb, washed, faded * 0.38).map(c => c * (1 + streak));
+        } else if (kind === 'leather' || kind === 'suede') {
+            // Rubbed lighter at the elbows and knees, along the edges the hand touches.
+            const joint = (p.fam === 1 || p.fam === 2) ? Math.exp(-(((p.s - 2) / 0.18) ** 2)) : (p.fam === 3 || p.fam === 4) ? Math.exp(-(((p.s - 1) / 0.18) ** 2)) * smoothstep(0, 0.8, Math.cos(p.ang)) : 0;
+            const rub = Math.max(joint * 0.6, edge * 0.25) * (kind === 'suede' ? 0.5 : 1);
+            rgb = rgb.map(c => c * (1 + 0.22 * rub));
+        }
+        // Dust along a hem low on the leg or the skirt.
+        const low = 1 - smoothstep(0.22, 0.45, R[1]);
+        const dust = (1 - smoothstep(0, 0.07, p.vm)) * low * 0.16;
+        return dust > 0 ? mixc(rgb, [0.3, 0.26, 0.21], dust) : rgb;
     }
 
     /**
@@ -386,17 +574,28 @@
 
         const data = new Uint8Array(size * size * 4);
         const filled = new Uint8Array(size * size);
-        const normal=size>=1024?new Uint8Array(data.length):null;
-        if(normal)for(let i=0;i<normal.length;i+=4)normal.set([128,128,255,255],i);
         const luminous = entries.some(e => e.look.lightStyle && e.look.lightStyle !== 'none' && e.look.lightIntensity > 0);
         const emission = luminous ? new Uint8Array(data.length) : null;
-        const groups = new Map();
+        // The cloth's own tiles (a full-size picture only: a thumbnail's is too small to show a weave).
+        const tiled = size >= 1024 && !!Fabric;
+        const hip = an.chains && an.chains.spine ? an.chains.spine[0][1] : 0.885;
+        const fabs = entries.map(e => ({ kind: Fabric ? Fabric.kindFor(e.look.material, e.garment, e.look.pattern) : null, hip }));
+        const edges = entries.map(e => edgeField(an, e.laid.piece, Math.max(0.02, (e.look.trimWidth || 0) * 0.15 + 0.004)));
+        const px = 1 / scale;
+        const groups = new Map(), maps = [];
         for (const c of all) {
-            const e = entries[c.entry];
+            const e = entries[c.entry], fab = fabs[c.entry], edge = edges[c.entry];
             const colors = [Outfit.linear(e.look.color), Outfit.linear(e.look.color2 || e.look.color), Outfit.linear(e.look.trim || e.look.color2 || e.look.color)];
-            const key = [e.roughness, e.metalness, !!e.doubleSided].join('|');
+            const kind = tiled ? fab.kind : null;
+            // One part per finish and per cloth: each its own tiles.
+            const key = [e.roughness, e.metalness, !!e.doubleSided, kind || ''].join('|');
             let g = groups.get(key);
-            if (!g) groups.set(key, g = { e, names: new Set(), refs: [], uvs: [], index: [], map: new Map() });
+            if (!g) {
+                groups.set(key, g = { e, kind, span: null, names: new Set(), refs: [], uvs: [], uvs1: [], index: [], map: new Map() });
+                const t = kind && Fabric.tile(kind);
+                if (t) { g.span = t.span; for (const pic of [t.normal, t.orm]) if (!maps.includes(pic)) maps.push(pic); }
+                else g.kind = null;
+            }
             g.names.add(e.name);
             const vertexFor = corner => {
                 // A point exactly on the rear seam may be -PI in one
@@ -409,22 +608,32 @@
                 g.map.set(k, i);
                 g.refs.push(c.entry, corner.v);
                 g.uvs.push((c.at[0] + (corner.cu - c.min[0]) * scale) / size, (c.at[1] + (corner.cv - c.min[1]) * scale) / size);
+                // The second coordinates: the chart's own meters, in tiles of the cloth.
+                if (g.span) g.uvs1.push(corner.cu / g.span[0], corner.cv / g.span[1]);
                 return i;
+            };
+            const glow = Outfit.linear(e.look.lightColor || '#70dfff').map(v => v * (e.look.lightIntensity || 0));
+            const color = p => {
+                // The cut edge's distance at this very texel, not drawn straight across a triangle three centimeters wide.
+                if (p.exact && edge && p.vm < edge.reach) { const d = edge.at(p.rest); if (d < Infinity) p.vm = d; }
+                p.px = px;
+                return shade(e.look, colors, p, fab);
             };
             for (const tri of c.tris) {
                 g.index.push(vertexFor(tri[0]), vertexFor(tri[1]), vertexFor(tri[2]));
-                const glow = Outfit.linear(e.look.lightColor || '#70dfff').map(v => v * (e.look.lightIntensity || 0));
-                raster(tri, c, scale, size, data, filled, p => shade(e.look, colors, p), emission, p => { const mask = lightMask(e.look, p); return glow.map(v => v * mask); },normal,p=>materialNormal(e.look,p));
+                raster(tri, c, scale, size, data, filled, color, emission, p => { const mask = lightMask(e.look, p); return glow.map(v => v * mask); });
             }
         }
         if (emission) dilate(emission, filled.slice(), size, pad + 1);
-        if(normal)dilate(normal,filled.slice(),size,pad+1);
         dilate(data, filled, size, pad + 1);
         return {
             groups: [...groups.values()].map(g => ({ name: [...g.names].join(', ').slice(0, 60) || 'Outfit', refs: Uint32Array.from(g.refs), uvs: Float32Array.from(g.uvs), index: Uint32Array.from(g.index),
-                roughness: g.e.roughness, metalness: g.e.metalness, doubleSided: g.e.doubleSided })),
+                roughness: g.e.roughness, metalness: g.e.metalness, doubleSided: g.e.doubleSided, material: g.e.look.material,
+                ...(g.kind ? { fabric: g.kind, uvs1: Float32Array.from(g.uvs1) } : {}) })),
             texture: { width: size, height: size, data, name: 'outfit.png' },
-            normal: normal?{width:size,height:size,data:normal,name:'outfit-normal.png'}:null,
+            // The cloths' tiles the parts name (relief, and occlusion/roughness/metal), for the outfit's pictures.
+            maps,
+            normal: null,
             emission: emission ? { width: size, height: size, data: emission, name: 'outfit-glow.png' } : null,
             scale
         };
@@ -444,7 +653,11 @@
             // Each vertex's reach down a hanging skirt (RRCharacterCloth), -1 off it; only on a part with some.
             let hang = null, tailoredWaist = false;
             for (let i = 0; i < n; i++) { const L = entries[g.refs[i * 2]].laid; if (L.hang) { hang = hang || new Float32Array(n).fill(-1); hang[i] = L.hang[g.refs[i * 2 + 1]]; tailoredWaist ||= !!L.sewnWaist; } }
-            return Object.assign({ name: g.name, positions, normals, uvs: g.uvs, joints, weights, fabricRefs:Int32Array.from(g.refs), index: g.index, roughness: g.roughness, metalness: g.metalness, doubleSided: g.doubleSided, texture: lay.texture.name }, lay.normal?{normalTexture:lay.normal.name,normalScale:.40}:{},hang ? { hang, ...(tailoredWaist?{tailoredWaist:true}:{}) } : {}, lay.emission ? { emissive: '#ffffff', emissiveTexture: lay.emission.name } : {});
+            const part = Object.assign({ name: g.name, positions, normals, uvs: g.uvs, joints, weights, fabricRefs:Int32Array.from(g.refs), index: g.index, roughness: g.roughness, metalness: g.metalness, doubleSided: g.doubleSided, texture: lay.texture.name }, lay.normal?{normalTexture:lay.normal.name,normalScale:.40}:{},hang ? { hang, ...(tailoredWaist?{tailoredWaist:true}:{}) } : {}, lay.emission ? { emissive: '#ffffff', emissiveTexture: lay.emission.name } : {});
+            // The cloth's tile on the second coordinates; metal keeps its material's own polish round the tile's streaks.
+            const hard = g.material === 'metal' || g.material === 'gold';
+            if (g.fabric && Fabric) Fabric.applyTo(part, g.fabric, null, { uvs1: g.uvs1, roughness: hard ? g.roughness : undefined, sheenTexture: lay.texture.name });
+            return part;
         });
     }
 
@@ -456,13 +669,13 @@
     const pack_ = pack;
 
     /** Paints one chart triangle's texels. */
-    function raster(tri, chart, scale, size, data, filled, color, emission, light,normal,normalAt) {
+    function raster(tri, chart, scale, size, data, filled, color, emission, light) {
         const px = tri.map(k => chart.at[0] + (k.cu - chart.min[0]) * scale), py = tri.map(k => chart.at[1] + (k.cv - chart.min[1]) * scale);
         const area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
         if (Math.abs(area) < 1e-9) return;
         const x0 = Math.max(0, Math.floor(Math.min(...px)) - 1), x1 = Math.min(size - 1, Math.ceil(Math.max(...px)) + 1);
         const y0 = Math.max(0, Math.floor(Math.min(...py)) - 1), y1 = Math.min(size - 1, Math.ceil(Math.max(...py)) + 1);
-        const p = { fam: tri[0].fam, s: 0, ang: 0, cu: 0, cv: 0, y: 0, val: 0, vm: 0, u: 0, rest: [0, 0, 0] };
+        const p = { fam: tri[0].fam, s: 0, ang: 0, cu: 0, cv: 0, y: 0, val: 0, vm: 0, u: 0, rest: [0, 0, 0], su: tri[0].su, rad: tri[0].rad, exact: !!tri.exact, px: 1 / scale };
         for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
             const cx = x + 0.5, cy = y + 0.5;
             let w0 = ((px[1] - cx) * (py[2] - cy) - (px[2] - cx) * (py[1] - cy)) / area;
@@ -482,29 +695,8 @@
             const rgb = color(p);
             data[o * 4] = toByte(rgb[0]); data[o * 4 + 1] = toByte(rgb[1]); data[o * 4 + 2] = toByte(rgb[2]); data[o * 4 + 3] = 255;
             if (emission) { const glow = light(p); for (let k = 0; k < 3; k++) emission[o * 4 + k] = toByte(glow[k]); emission[o * 4 + 3] = 255; }
-            if(normal)normal.set(normalAt(p),o*4);
             filled[o] = inside ? 2 : 1;
         }
-    }
-
-    function materialNormal(look,p){
-        const leather=look.material==='leather'||look.material==='rubber',metal=look.material==='metal'||look.material==='gold';
-        const f=2*Math.PI/(leather?.003:metal?.002:.0032),u=p.cu*f,v=p.cv*f;
-        let dx=metal?.04*Math.cos(u):leather?.08*Math.cos(u)*Math.sin(v*1.7):.21*Math.cos(u)*Math.sin(v);
-        let dy=metal?0:leather?.12*Math.sin(u)*Math.cos(v*1.7):.21*Math.sin(u)*Math.cos(v);
-        // The quilting follows the same four-centimeter diagonal chart as
-        // its seams. Broad padded cells catch light between recessed stitches.
-        if(look.pattern==='quilted'){
-            const a=2*Math.PI*(p.cu+p.cv)/.04,b=2*Math.PI*(p.cu-p.cv)/.04;
-            dx+=.23*(Math.sin(a)+Math.sin(b));dy+=.23*(Math.sin(a)-Math.sin(b));
-        }
-        if(look.pattern==='mail'){
-            const row=Math.floor(p.cv/.011),x=fract(p.cu/.014+(row&1)*.5)-.5,y=(fract(p.cv/.011)-.5)*1.2,r=Math.hypot(x,y)||1;
-            const ridge=(r-.38)/.065,slope=1.2*ridge*Math.exp(-ridge*ridge);
-            dx+=slope*x/r;dy+=slope*y/r;
-        }
-        const n=Math.hypot(dx,dy,1);
-        return [Math.round(127.5-dx/n*127.5),Math.round(127.5+dy/n*127.5),Math.round(127.5+127.5/n),255];
     }
 
     /** Grows painted texels into the empty ones around them, `passes` texels deep (so filtering never reads black). */

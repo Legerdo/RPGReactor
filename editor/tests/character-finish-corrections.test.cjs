@@ -29,8 +29,10 @@ test('vampire canines are rooted at the actual upper lip across contrasting face
 
 test('humanoid clothing retains a dense atlas and material relief through cached shape changes',()=>{
  const cache={},r=Q.Model.normalize({outfit:[{id:'tshirt',pattern:'plaid'},{id:'jeans'}],hair:{style:'bald'}}),o={quality:'preview',static:false,skinSize:64},a=Q.Model.build(pack,r,cache,o),b=Q.Model.build(pack,{...r,weight:.6},cache,o);
- assert.equal(a.textures['outfit.png'].width,2048);assert.equal(a.textures['outfit-normal.png'].width,2048);assert.equal(a.textures['outfit.png'],b.textures['outfit.png']);assert.equal(a.textures['outfit-normal.png'],b.textures['outfit-normal.png']);
- assert.ok(a.parts.some(p=>p.normalTexture==='outfit-normal.png'));assert.ok(a.textures['outfit-normal.png'].data.some((v,i)=>i%4===0&&Math.abs(v-128)>8));
+ assert.equal(a.textures['outfit.png'].width,2048);assert.equal(a.textures['outfit.png'],b.textures['outfit.png']);
+ // The relief is the cloth's own repeating tile on the second coordinates (RRCharacterFabric), kept with the picture.
+ const relief=a.parts.find(p=>p.normalTexture==='fabric-denim-normal.png');assert.ok(relief&&relief.normalTexCoord===1&&relief.uvs1);
+ assert.equal(a.textures['fabric-denim-normal.png'],b.textures['fabric-denim-normal.png']);assert.ok(a.textures['fabric-denim-normal.png'].data.some((v,i)=>i%4===0&&Math.abs(v-128)>8));
 });
 
 test('animal cloth and leather have physically tiled grain and export their relief maps',async()=>{

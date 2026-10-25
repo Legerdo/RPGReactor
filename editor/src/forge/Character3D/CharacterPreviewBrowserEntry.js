@@ -1,7 +1,7 @@
 /* Classic Worker entry: every full model build and its lazy asset decode stays off the page. */
 (function(scope) {
     'use strict';
-    const modules = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterAtlas', 'CharacterSimplify',
+    const modules = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterFabric', 'CharacterAtlas', 'CharacterSimplify',
         'CharacterOutfitTransfer', 'CharacterClothes', 'CharacterPowerArmor', 'ConstructionSurface', 'ConstructionPatterns', 'CharacterProps', 'CharacterGarmentDetails', 'CharacterReconConstruction', 'CharacterWardrobe', 'CharacterSpecies', 'CharacterSkin',
         'CharacterHair', 'CreatureGear', 'CreatureArthropods', 'CreatureFlyers', 'CreatureForms', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterPoses',
         'MerfolkBody', 'CharacterCloth', 'CharacterExpressions', 'SlimeBody', 'CharacterModel'];
@@ -10,8 +10,8 @@
     const Taken = scope.RRCharacterOutfitTransfer;
     const caches = new Map(), dynamic = new Set(), fetched = new Map();
     let context = {}, contextError = null, packPromise = null, packURL = null;
-    const PART_FIELDS = ['name', 'kind', 'color', 'texture', 'keepColors', 'normalTexture', 'normalScale', 'metallicRoughnessTexture', 'iridescence', 'iridescenceIOR', 'iridescenceThicknessRange', 'iridescenceThicknessTexture', 'emissive', 'emissiveIntensity', 'emissiveTexture', 'roughness', 'metalness', 'doubleSided', 'opacity', 'cutout', 'alphaCutoff', 'onSkin', 'envMapIntensity', 'wet'];
-    const GEOMETRY_FIELDS = ['positions', 'normals', 'uvs', 'colors', 'index'];
+    const PART_FIELDS = ['name', 'kind', 'color', 'texture', 'keepColors', 'normalTexture', 'normalScale', 'normalTexCoord', 'metallicRoughnessTexture', 'metallicRoughnessTexCoord', 'occlusionTexture', 'occlusionTexCoord', 'occlusionStrength', 'sheen', 'fabric', 'iridescence', 'iridescenceIOR', 'iridescenceThicknessRange', 'iridescenceThicknessTexture', 'emissive', 'emissiveIntensity', 'emissiveTexture', 'roughness', 'metalness', 'doubleSided', 'opacity', 'cutout', 'alphaCutoff', 'onSkin', 'envMapIntensity', 'wet'];
+    const GEOMETRY_FIELDS = ['positions', 'normals', 'uvs', 'uvs1', 'colors', 'index'];
     async function checkedFetch(url) {
         const response = await fetch(url);
         if (!response.ok) throw new Error('Character preview asset failed (' + response.status + '): ' + url);
@@ -99,7 +99,7 @@
             for (const key of GEOMETRY_FIELDS) if (part[key]) out[key] = copy(part[key]);
             return out;
         });
-        const used = options.static ? new Set(parts.flatMap(part => [part.texture, part.emissiveTexture, part.normalTexture, part.metallicRoughnessTexture, part.iridescenceThicknessTexture]).filter(Boolean)) : null;
+        const used = options.static ? new Set(parts.flatMap(part => [part.texture, part.emissiveTexture, part.normalTexture, part.metallicRoughnessTexture, part.occlusionTexture, part.iridescenceThicknessTexture]).filter(Boolean)) : null;
         const textures = Object.fromEntries(Object.entries(result.textures || {}).filter(([name]) => !used || used.has(name)).map(([name, source]) => {
             const texture = options.static ? scope.RRCharacterPreviewTextures.thumbnail(source, options.atlasSize || 256) : source;
             return [name, { name: texture.name, width: texture.width, height: texture.height, ...(texture.repeat ? { repeat: true } : {}), data: copy(texture.data) }];
