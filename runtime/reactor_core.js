@@ -2949,6 +2949,8 @@ Graphics._listenEffekseerStateResets = function() {
     if (overlay) {
         // Taking the loss is what lets the browser give the context back.
         overlay.addEventListener("webglcontextlost", event => event.preventDefault());
+        // The HDR overlay's targets die with the context.
+        overlay.addEventListener("webglcontextlost", () => globalThis.ReactorHdrOverlay?.contextLost());
         overlay.addEventListener("webglcontextrestored", () => this._restoreEffekseerContext());
     }
 };
@@ -2961,6 +2963,7 @@ Graphics._listenEffekseerStateResets = function() {
 Graphics._restoreEffekseerContext = function() {
     const gl = this._effekseerGL;
     if (!gl || !window.effekseer || gl.isContextLost()) return;
+    globalThis.ReactorHdrOverlay?.contextRestored();
     try {
         const context = effekseer.createContext();
         if (!context) return;
