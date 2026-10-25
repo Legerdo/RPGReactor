@@ -19,6 +19,8 @@
     'use strict';
 
     const Body = root.RRHumanBody || (typeof require === 'function' ? require('./HumanBody.js') : null);
+    // Soft pieces settle as cloth once laid (RRCharacterDrape; optional: without it they keep their laid shell).
+    const Drape = root.RRCharacterDrape || (typeof require === 'function' ? require('./CharacterDrape.js') : null);
 
     // ── colors ────────────────────────────────────────────────────────────
     const srgbToLinear = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -546,7 +548,13 @@
         // Where the garment folds, its cloth is refined to carry the folds; it stays at the helper's resolution elsewhere.
         const covered = spec.covered ? vert => weightsOf(vert).reduce((s, [v, w]) => s + spec.covered[v] * w, 0) : null;
         const hiddenScale = vert => (covered ? 1 - smoothstep(-0.04, 0.06, covered(vert)) : 1);
-        if (spec.folds) {
+        // Cloth that is draped (RRCharacterDrape) is refined wherever it is free to fold and seen; its folds are its own.
+        const drapeProfile = Drape ? Drape.profile(spec) : null;
+        piece.drapeProfile = drapeProfile;
+        if (drapeProfile) {
+            const limit = Drape.edgeLimit(drapeProfile);
+            refine(piece, an, vert => Drape.zone(drapeProfile, fieldOf(vert)) * hiddenScale(vert), () => limit, drapeProfile.passes);
+        } else if (spec.folds) {
             const unitOf = f => an.unit[f.fam] || 0.13;
             refine(piece, an, (vert) => {
                 const f = fieldOf(vert), proxy = Math.max(0, weightsOf(vert).reduce((s, [v, w]) => s + smooth[v] * w, 0)) * unitOf(f);
@@ -587,13 +595,17 @@
         // Fields at each piece vertex, for patterns: spine/limb position and angle, blended like the vertex.
         piece.field = piece.verts.map(fieldOf);
         piece.skins = piece.verts.map(vert => mixSkinWeighted(pack, weightsOf(vert)));
+        // Where a garment worn over it covers it (0 open .. 1 covered): there the drape keeps it as laid, pressed flat.
+        if (drapeProfile && covered) piece.under = Float32Array.from(piece.verts, vert => 1 - hiddenScale(vert));
         // The fold field: how far the cloth stands out of (or in from) its laid surface at each vertex, in meters on
         // the average body, and where it folds at all. Nothing folds under an outer garment, where it would not be seen.
         if (spec.folds) {
             piece.fold = new Float32Array(piece.verts.length);
             piece.foldZone = new Float32Array(piece.verts.length);
+            // Draped cloth makes its own folds; only a joint's compression folds (a bent elbow or knee, which a rest pose never bends) are drawn.
+            const folds = drapeProfile ? Object.assign({}, spec.folds, { jointsOnly: true }) : spec.folds;
             piece.verts.forEach((vert, i) => {
-                const [zone, d] = foldAt(piece.field[i], piece.edgeDist[i], spec.folds), k = hiddenScale(vert);
+                const [zone, d] = foldAt(piece.field[i], piece.edgeDist[i], folds), k = hiddenScale(vert);
                 piece.fold[i] = d * k; piece.foldZone[i] = zone * k;
             });
         }
@@ -662,6 +674,18 @@
         const add = (z, amount) => { zone = Math.max(zone, z * worth); d += amount; };
         // Heavier cloth (`weight`, its thickness) and a bulky suit fold in broader folds.
         const la = f.la ?? f.ang, wide = Math.sqrt(F.cap ?? 1) * (1 + Math.max(0, (F.weight ?? 0.0012) - 0.0012) / 0.0023 * 0.5);
+        // Draped cloth (RRCharacterDrape) hangs, stacks and drags by itself: only a joint's compression is left to draw.
+        if (F.jointsOnly) {
+            if (F.bellows) return [0, 0];
+            if (f.fam === 1 || f.fam === 2) {
+                const E = gauss(f.s - 2.0, 0.22), crook = 0.3 + 0.7 * Math.max(0, Math.cos(la));
+                add(E * crook, A * 0.7 * E * crook * ridge(2 * Math.PI * (f.s - 2.0) / (0.19 * wide) + 2.1 * Math.sin(la) + ph + 0.7 * Math.sin(2 * la - ph)));
+            } else if (f.fam === 3 || f.fam === 4) {
+                const E = gauss(f.s - 1.0, 0.16), back = 0.2 + 0.8 * Math.max(0, -Math.cos(la));
+                add(E * back, A * 0.7 * E * back * ridge(2 * Math.PI * (f.s - 1.0) / (0.12 * wide) + 1.6 * Math.sin(la) + ph));
+            }
+            return [zone, d * atEdge];
+        }
         if (F.role === 'skirt') {
             // Gravity flutes: a few broad hanging folds round the skirt, deeper and fewer with more flare,
             // growing with the reach down it, each a little different (seeded).
@@ -883,7 +907,7 @@
             const reference = pack._tailorReference || (pack._tailorReference = Body.build(pack, Body.DEFAULT_RECIPE));
             const previous = Float32Array.from(pos);
             if (tailorTorso(pack, built, reference, () => {
-                const rest=Float32Array.from(lay(pack,reference,piece,spec,{}).positions.subarray(0,count*3));
+                const rest=Float32Array.from(lay(pack,reference,piece,spec,{noDrape:true}).positions.subarray(0,count*3));
                 for(let i=0;i<count;i++)rest[i*3+1]=piece.field[i].y;
                 return rest;
             }, pos, cache,
@@ -896,6 +920,10 @@
             const neck=anatomy(pack).chains.spine[4][1];
             smoothBorder(piece,pos,base,6,v=>piece.field[v].fam===0&&piece.field[v].y>neck-.12);
         }
+        // Let go as cloth (RRCharacterDrape): eased, held where it is held, settled under gravity on the body and
+        // on the layers laid before it. The hem below is turned from the draped edge.
+        const draped = Drape && !cache.noDrape && piece.drapeProfile && spec.drapeCloth !== false ? Drape.drape({ pack, built, piece, spec, pos, base, frame: cache, quality: cache.quality,
+            chains: { 1: chainPoints(built.bones, 'armL'), 2: chainPoints(built.bones, 'armR'), 3: chainPoints(built.bones, 'legL'), 4: chainPoints(built.bones, 'legR') } }) : null;
         // The hem: the cloth turned under at its cut edge. From the outer face it rolls round the edge
         // (a rounded fold as thick as the fabric) and comes back as a facing under it, a finger's width in.
         // Rows of new vertices follow each border vertex: the roll, then the facing's end.
@@ -940,7 +968,10 @@
         skins.forEach((s, i) => { joints.set(s.joints, i * 4); weights.set(s.weights, i * 4); });
         const edge = new Float32Array(out.length / 3);
         edge.set(piece.edgeDist || []);
-        return { positions: out, normals: triangleNormals(out, index), uvs: Float32Array.from(uvs), index: Uint32Array.from(index), joints, weights, field: fields, vals: Float32Array.from(vals), edge, base, rimStart: count, origin: Int32Array.from(origin), piece, hem: Object.assign({ rows: rowOf, turn: hemTurn }, hemThickness(built, spec)) };
+        const laid = { positions: out, normals: triangleNormals(out, index), uvs: Float32Array.from(uvs), index: Uint32Array.from(index), joints, weights, field: fields, vals: Float32Array.from(vals), edge, base, rimStart: count, origin: Int32Array.from(origin), piece, hem: Object.assign({ rows: rowOf, turn: hemTurn }, hemThickness(built, spec)), draped };
+        // Pieces laid after it (outer layers) drape over it.
+        if (Drape && !cache.noDrape && spec.collide !== false) Drape.remember(cache, laid, spec);
+        return laid;
     }
 
     /** A soft garment's turned hem: the fabric's thickness and how far its facing reaches in (meters on this body). */

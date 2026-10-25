@@ -15,6 +15,8 @@
     'use strict';
 
     const Outfit = root.RRCharacterOutfit || (typeof require === 'function' ? require('./CharacterOutfit.js') : null);
+    // Body art hook (RRCharacterBodyArt): tattoos, paint, scars and implant lines painted into the skin.
+    const BodyArt = () => root.RRCharacterBodyArt || (typeof require === 'function' ? (() => { try { return require('./CharacterBodyArt.js'); } catch (_) { return null; } })() : null);
     const toByte = c => Math.max(0, Math.min(255, Math.round((c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055) * 255)));
     const srgb = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
     const fract = x => x - Math.floor(x);
@@ -784,28 +786,8 @@
     function rasterPlan(pack, size) {
         let sizes = rasterCache.get(pack);
         if (sizes?.has(size)) return sizes.get(size);
-        const body = pack.body, owners = new Int32Array(size * size), inside = new Uint8Array(size * size);
-        for (let triangle = 0; triangle < body.index.length; triangle += 3) {
-            const vertices = [body.index[triangle], body.index[triangle + 1], body.index[triangle + 2]];
-            const horizontal = vertices.map(vertex => body.uv[vertex * 2] * size);
-            const vertical = vertices.map(vertex => body.uv[vertex * 2 + 1] * size);
-            const area = (horizontal[1] - horizontal[0]) * (vertical[2] - vertical[0]) - (horizontal[2] - horizontal[0]) * (vertical[1] - vertical[0]);
-            if (Math.abs(area) < 1e-9) continue;
-            const left = Math.max(0, Math.floor(Math.min(...horizontal)) - 1), right = Math.min(size - 1, Math.ceil(Math.max(...horizontal)) + 1);
-            const top = Math.max(0, Math.floor(Math.min(...vertical)) - 1), bottom = Math.min(size - 1, Math.ceil(Math.max(...vertical)) + 1);
-            const tolerance = -0.75 / Math.sqrt(Math.abs(area));
-            for (let row = top; row <= bottom; row++) for (let column = left; column <= right; column++) {
-                const pixel = row * size + column;
-                if (inside[pixel]) continue;
-                const horizontalCenter = column + 0.5, verticalCenter = row + 0.5;
-                const first = ((horizontal[1] - horizontalCenter) * (vertical[2] - verticalCenter) - (horizontal[2] - horizontalCenter) * (vertical[1] - verticalCenter)) / area;
-                const second = ((horizontal[2] - horizontalCenter) * (vertical[0] - verticalCenter) - (horizontal[0] - horizontalCenter) * (vertical[2] - verticalCenter)) / area;
-                const third = 1 - first - second;
-                if (first < tolerance || second < tolerance || third < tolerance) continue;
-                owners[pixel] = triangle + 1;
-                inside[pixel] = first >= 0 && second >= 0 && third >= 0 ? 1 : 0;
-            }
-        }
+        const body = pack.body;
+        const owners = rasterOwners(body.index.length / 3, (k, c) => body.uv[body.index[k * 3 + c] * 2], (k, c) => body.uv[body.index[k * 3 + c] * 2 + 1], size, size, k => k * 3);
         const result = { owners, noise: size <= 256 ? new Float64Array(size * size * 3).fill(NaN) : null };
         if (size <= 256) {
             if (!sizes) { sizes = new Map(); rasterCache.set(pack, sizes); }
@@ -813,6 +795,31 @@
             sizes.set(size, result);
         }
         return result;
+    }
+    /** Which triangle paints each texel (its id + 1): `u(k, corner)`, `v(k, corner)` its picture coordinates, `id(k)` what is stored. */
+    function rasterOwners(count, u, v, width, height, id) {
+        const owners = new Int32Array(width * height), inside = new Uint8Array(width * height);
+        for (let k = 0; k < count; k++) {
+            const horizontal = [u(k, 0) * width, u(k, 1) * width, u(k, 2) * width];
+            const vertical = [v(k, 0) * height, v(k, 1) * height, v(k, 2) * height];
+            const area = (horizontal[1] - horizontal[0]) * (vertical[2] - vertical[0]) - (horizontal[2] - horizontal[0]) * (vertical[1] - vertical[0]);
+            if (Math.abs(area) < 1e-9) continue;
+            const left = Math.max(0, Math.floor(Math.min(...horizontal)) - 1), right = Math.min(width - 1, Math.ceil(Math.max(...horizontal)) + 1);
+            const top = Math.max(0, Math.floor(Math.min(...vertical)) - 1), bottom = Math.min(height - 1, Math.ceil(Math.max(...vertical)) + 1);
+            const tolerance = -0.75 / Math.sqrt(Math.abs(area));
+            for (let row = top; row <= bottom; row++) for (let column = left; column <= right; column++) {
+                const pixel = row * width + column;
+                if (inside[pixel]) continue;
+                const horizontalCenter = column + 0.5, verticalCenter = row + 0.5;
+                const first = ((horizontal[1] - horizontalCenter) * (vertical[2] - verticalCenter) - (horizontal[2] - horizontalCenter) * (vertical[1] - verticalCenter)) / area;
+                const second = ((horizontal[2] - horizontalCenter) * (vertical[0] - verticalCenter) - (horizontal[0] - horizontalCenter) * (vertical[2] - verticalCenter)) / area;
+                const third = 1 - first - second;
+                if (first < tolerance || second < tolerance || third < tolerance) continue;
+                owners[pixel] = id(k) + 1;
+                inside[pixel] = first >= 0 && second >= 0 && third >= 0 ? 1 : 0;
+            }
+        }
+        return owners;
     }
 
     /** External anatomical landmarks in the source frame; shared by shape, pigment and relief. */
@@ -868,17 +875,25 @@
         const furRgb = fur ? Outfit.linear(fur.color || '#2a1d15') : null;
         const size = (options && options.size) || 1024;
         const F = fields(pack), an = F.an, R = an.rest, N = F.normals;
+        // Body art: its layers prepared once for this picture; `layout` paints the art's own finer charts instead of the skin's.
+        const layout = options && options.layout;
+        const Art = BodyArt(), artLayers = options && options.bodyArt;
+        const art = Art && artLayers && artLayers.length && !(options && options.fur) ? Art.prepare(pack, artLayers, options.bodyArtPictures instanceof Map ? options.bodyArtPictures : new Map(Object.entries(options.bodyArtPictures || {}))) : null;
+        const artOut = art ? { height: 0, glow: [0, 0, 0] } : null;
+        const artRelief = !!layout && options?.relief !== false, artGlow = !!(art && art.glow);
         const base = Outfit.linear(skinHex || '#c69c7f');
         const data = new Uint8Array(size * size * 4), filled = new Uint8Array(size * size);
         const body = pack.body;
-        const raster = rasterPlan(pack, size), owners = raster.owners;
+        const raster = layout ? { owners: rasterOwners(layout.tris.length, (k, c) => layout.uv[k * 6 + c * 2], (k, c) => layout.uv[k * 6 + c * 2 + 1], size, size, k => k), noise: null } : rasterPlan(pack, size), owners = raster.owners;
         const p = { rest: [0, 0, 0], n: [0, 0, 0], s: 0, ang: 0, fam: 0, lips: 0, innerLip: 0, lids: 0, bags: 0, seam: 0, beardD: 0, scalpD: 0, cheeks: 0, nose: 0, noseTip: 0, ears: 0, jaw: 0 };
         p.noise = raster.noise;
         s.beard = Math.max(0, Math.min(1, (options && options.beard) || 0));
         s.genitalDetail = options && options.genitalDetail;
         const detailProfile = s.genitalDetail ? genitalProfile : null;
         const scaleRelief=s.type==='scales'&&!fur;
-        const relief = (detailProfile||scaleRelief) && options?.relief !== false ? new Float32Array(size * size) : null;
+        const relief = ((detailProfile||scaleRelief) && options?.relief !== false) || artRelief ? new Float32Array(size * size) : null;
+        const glowMap = artGlow ? new Float32Array(size * size * 3) : null;
+        const texelMap = artRelief ? new Float32Array(size * size).fill(layout.texel) : null;
         const canonical = detailProfile ? pack.positions : null;
         const genitalPoint = [0, 0, 0];
         s.earHoles = !!(options && options.earHoles);
@@ -913,13 +928,22 @@
             s.crotch = A.female ? [R0[AF.low * 3], R0[AF.low * 3 + 1], R0[AF.low * 3 + 2]] : null;
         }
         const famOf = v => { let best = 0; for (let fi = 1; fi < 5; fi++) if (an.member[v * 5 + fi] > an.member[v * 5 + best]) best = fi; return best; };
-        for (let t = 0; t < body.index.length; t += 3) {
+        const triCount = layout ? layout.tris.length : body.index.length / 3;
+        for (let k = 0; k < triCount; k++) {
+            const t = layout ? layout.tris[k] : k * 3, own = layout ? k : t;
             const r = [body.index[t], body.index[t + 1], body.index[t + 2]];
             const v = r.map(i => body.source[i]);
             const fam = famOf(v[0]);
-            const px = r.map(i => body.uv[i * 2] * size), py = r.map(i => body.uv[i * 2 + 1] * size);
+            const px = layout ? [0, 1, 2].map(c => layout.uv[k * 6 + c * 2] * size) : r.map(i => body.uv[i * 2] * size), py = layout ? [0, 1, 2].map(c => layout.uv[k * 6 + c * 2 + 1] * size) : r.map(i => body.uv[i * 2 + 1] * size);
             const area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
             if (Math.abs(area) < 1e-9) continue;
+            // The triangle's texel on the skin (meters): soft edges for the art a texel wide wherever the picture is coarser or finer.
+            let texel = s.texel;
+            if (art) {
+                const e1 = [0, 1, 2].map(c => R[v[1] * 3 + c] - R[v[0] * 3 + c]), e2 = [0, 1, 2].map(c => R[v[2] * 3 + c] - R[v[0] * 3 + c]);
+                const a3 = Math.hypot(e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]) / 2;
+                texel = Math.min(0.004, Math.sqrt(a3 / (Math.abs(area) / 2)));
+            }
             let angs = v.map(q => an.angle[q * 5 + fam]);
             if (Math.max(...angs) - Math.min(...angs) > Math.PI) angs = angs.map(a => (a < 0 ? a + Math.PI * 2 : a));
             const x0 = Math.max(0, Math.floor(Math.min(...px)) - 1), x1 = Math.min(size - 1, Math.ceil(Math.max(...px)) + 1);
@@ -927,7 +951,7 @@
             const tol = -0.75 / Math.sqrt(Math.abs(area));
             for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
                 const o = y * size + x;
-                if (owners[o] !== t + 1) continue;
+                if (owners[o] !== own + 1) continue;
                 p.noiseOffset = o * 3;
                 const cx = x + 0.5, cy = y + 0.5;
                 let w0 = ((px[1] - cx) * (py[2] - cy) - (px[2] - cx) * (py[1] - cy)) / area;
@@ -975,6 +999,19 @@
                     alpha = Math.round(Math.min(1, cover * 1.15) * 255);
                     rgb = furRgb.map(c => c * (0.75 + strand * 0.35));
                 } else rgb = shadeSkin(s, base, p);
+                if (art) {
+                    p.texel = texel;
+                    rgb = Art.shade(art, rgb, p, artOut);
+                    if (relief && artRelief) {
+                        // The art's relief, and on the fine charts the skin's own grain (pores the coarse picture cannot hold).
+                        relief[o] += artOut.height + (noise3(p.rest[0] * 2400, p.rest[1] * 2400, p.rest[2] * 2400) - 0.5) * 0.000022;
+                        texelMap[o] = texel;
+                    }
+                    if (glowMap) { glowMap[o * 3] = artOut.glow[0]; glowMap[o * 3 + 1] = artOut.glow[1]; glowMap[o * 3 + 2] = artOut.glow[2]; }
+                } else if (relief && artRelief) {
+                    relief[o] += (noise3(p.rest[0] * 2400, p.rest[1] * 2400, p.rest[2] * 2400) - 0.5) * 0.000022;
+                    texelMap[o] = texel;
+                }
                 data[o * 4] = toByte(rgb[0]); data[o * 4 + 1] = toByte(rgb[1]); data[o * 4 + 2] = toByte(rgb[2]); data[o * 4 + 3] = alpha;
                 filled[o] = inside ? 2 : 1;
             }
@@ -982,11 +1019,11 @@
         // Empty texels take the skin color, so filtering at a seam never reads black.
         const fill = (furRgb || base).map(toByte);
         for (let o = 0; o < size * size; o++) if (!filled[o]) { data[o * 4] = fill[0]; data[o * 4 + 1] = fill[1]; data[o * 4 + 2] = fill[2]; data[o * 4 + 3] = fur ? 0 : 255; }
-        const picture = { width: size, height: size, data, name: (options && options.name) || 'skin.png' };
+        const picture = { width: size, height: size, data, name: (options && options.name) || (layout ? 'bodyart.png' : 'skin.png') };
         if (relief) {
-            const pixels = new Uint8Array(size * size * 4), texel = (scaleRelief?1.8:s.genitalDetail.female ? 0.16 : 0.12) / size;
+            const pixels = new Uint8Array(size * size * 4), fixed = (scaleRelief?1.8:s.genitalDetail?(s.genitalDetail.female ? 0.16 : 0.12):1.8) / size;
             for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-                const o = y * size + x, center = relief[o];
+                const o = y * size + x, center = relief[o], texel = texelMap ? texelMap[o] : fixed;
                 const sample = (x, y) => { const i = y * size + x; return filled[i] ? relief[i] : center; };
                 const dx = (sample(Math.min(size - 1, x + 1), y) - sample(Math.max(0, x - 1), y)) / (2 * texel);
                 const dy = (sample(x, Math.min(size - 1, y + 1)) - sample(x, Math.max(0, y - 1))) / (2 * texel);
@@ -995,7 +1032,21 @@
                 pixels[at + 1] = Math.round((0.5 + dy / length * 0.5) * 255);
                 pixels[at + 2] = Math.round((0.5 + 0.5 / length) * 255); pixels[at + 3] = 255;
             }
-            picture.normal = { width: size, height: size, data: pixels, name: scaleRelief?'skin-scales-normal.png':'genital_n.png' };
+            picture.normal = { width: size, height: size, data: pixels, name: layout ? 'bodyart-relief.png' : scaleRelief?'skin-scales-normal.png':'genital_n.png' };
+        }
+        if (glowMap) {
+            const pixels = new Uint8Array(size * size * 4);
+            for (let o = 0; o < size * size; o++) { pixels[o * 4] = toByte(Math.min(1, glowMap[o * 3])); pixels[o * 4 + 1] = toByte(Math.min(1, glowMap[o * 3 + 1])); pixels[o * 4 + 2] = toByte(Math.min(1, glowMap[o * 3 + 2])); pixels[o * 4 + 3] = 255; }
+            picture.emissive = { width: size, height: size, data: pixels, name: layout ? 'bodyart-glow.png' : 'skin-glow.png' };
+        }
+        // The art's finer charts, painted the same way (RRCharacterModel lays them on a part of their own).
+        if (art && !layout && options.detail && options.detail.size) {
+            const L = Art.detailLayout(pack, artLayers, options.bodyArtPictures instanceof Map ? options.bodyArtPictures : new Map(Object.entries(options.bodyArtPictures || {})), options.detail.size);
+            if (L) {
+                const d = paint(pack, skinHex, settings, Object.assign({}, options, { size: L.size, layout: L, detail: null, name: 'bodyart.png' }));
+                d.layout = L;
+                picture.detail = d;
+            }
         }
         return picture;
     }

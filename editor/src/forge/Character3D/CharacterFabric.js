@@ -267,12 +267,12 @@
     /** The cloth a plain 'cloth' garment is woven of, by what it is. */
     const GARMENT_CLOTH = {
         denim: ['jeans', 'shorts', 'capri', 'flaredTrousers'],
-        jersey: ['tshirt', 'tanktop', 'cropTop', 'offShoulder', 'polo', 'hoodie', 'leggings', 'sportsBra', 'briefs', 'boxers', 'tights', 'tennisDress', 'scrubs'],
+        jersey: ['tshirt', 'tanktop', 'cropTop', 'offShoulder', 'polo', 'hoodie', 'leggings', 'sportsBra', 'briefs', 'boxers', 'tights', 'tennisDress', 'scrubs', 'smartShirt'],
         rib: ['sweater', 'beanie', 'cardigan', 'socks'],
         suiting: ['suitjacket', 'tailcoat', 'pencilSkirt', 'pleatedSkirt', 'skirt'],
         felt: ['robe', 'hood', 'kilt', 'gown'],
         poplin: ['shirt'],
-        ripstop: ['starshipUniform', 'officerJacket', 'explorerSuit', 'tacvest', 'swimTrunks'],
+        ripstop: ['starshipUniform', 'officerJacket', 'explorerSuit', 'tacvest', 'swimTrunks', 'techJacket', 'techSmock', 'cyberJoggers', 'cyberBomber'],
         padded: ['evaSuit', 'spacesuit']
     };
     const CLOTH_OF = new Map(Object.entries(GARMENT_CLOTH).flatMap(([kind, ids]) => ids.map(id => [id, kind])));

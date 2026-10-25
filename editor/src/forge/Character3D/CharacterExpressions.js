@@ -736,6 +736,8 @@
             if (part.name === 'Teeth') return { mode: 'teeth' };
             if (part.name === 'Tongue' && part.source && part.source.length === n) return { mode: 'tongue', map: part.source };
             if ((part.name === 'Forehead detail' || part.chestDetail) && part.interpolation) return { mode: 'interpolation', map: part.interpolation };
+            // Cyberware (RRCharacterCyberGear): per vertex, still, riding the skin under it, or swinging with the jaw.
+            if (part.faceFollow && part.faceFollow.mode.length === n) return { mode: 'follow', map: part.faceFollow };
             if (part.source && part.source.length === n && (part.name === 'Tongue' || part.name === 'Brows' || part.decal || part.onSkin)) return { mode: 'source', map: part.source };
             // Facial hair and the features on the face (tusks, a muzzle's whiskers): each strand or piece by its root.
             if (part.name === 'Facial hair' || part.kind === 'feature') return rigid(part, nearest, o);
@@ -838,6 +840,23 @@
                 }
                 positions.push(any ? P : null);
                 normals.push(null);
+            } else if (m.mode === 'follow') {
+                const fit = jawFit(M, D), P = Float32Array.from(base), o = M.offset, F = m.map;
+                let any = false;
+                for (let i = 0; i < n; i++) {
+                    const k = F.mode[i];
+                    if (k === 1) {
+                        const v = F.source[i];
+                        if (v < 0) continue;
+                        const dx = D[v * 3], dy = D[v * 3 + 1], dz = D[v * 3 + 2];
+                        if (dx || dy || dz) { P[i * 3] += dx; P[i * 3 + 1] += dy; P[i * 3 + 2] += dz; any = true; }
+                    } else if (k === 2 && fit) {
+                        const p = [base[i * 3] - o[0] - fit.c[0], base[i * 3 + 1] - o[1] - fit.c[1], base[i * 3 + 2] - o[2] - fit.c[2]];
+                        for (let a = 0; a < 3; a++) P[i * 3 + a] += fit.A[a][0] * p[0] + fit.A[a][1] * p[1] + fit.A[a][2] * p[2] + fit.t[a];
+                        any = true;
+                    }
+                }
+                positions.push(any ? P : null); normals.push(null);
             } else if (m.mode === 'teeth') {
                 const fit = jawFit(M, D);
                 if (!fit) { positions.push(null); normals.push(null); return; }

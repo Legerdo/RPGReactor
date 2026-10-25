@@ -1,8 +1,8 @@
 /* Classic Worker entry: every full model build and its lazy asset decode stays off the page. */
 (function(scope) {
     'use strict';
-    const modules = ['HumanTargets', 'HumanBody', 'CharacterOutfit', 'CharacterFabric', 'CharacterAtlas', 'CharacterSimplify',
-        'CharacterOutfitTransfer', 'CharacterClothes', 'CharacterPowerArmor', 'ConstructionSurface', 'ConstructionPatterns', 'CharacterProps', 'CharacterGarmentDetails', 'CharacterReconConstruction', 'CharacterWardrobe', 'CharacterSpecies', 'CharacterSkin',
+    const modules = ['HumanTargets', 'HumanBody', 'CharacterDrape', 'CharacterOutfit', 'CharacterFabric', 'CharacterWear', 'CharacterAtlas', 'CharacterSimplify',
+        'CharacterOutfitTransfer', 'CharacterClothes', 'CharacterPowerArmor', 'CharacterWasteland', 'ConstructionSurface', 'ConstructionPatterns', 'CharacterCyberGear', 'CharacterProps', 'CharacterGarmentDetails', 'CharacterReconConstruction', 'CharacterWardrobe', 'CharacterSpecies', 'CharacterBodyArtMotifs', 'CharacterBodyArt', 'CharacterSkin', 'CharacterBodyMods',
         'CharacterHair', 'CreatureGear', 'CreatureArthropods', 'CreatureFlyers', 'CreatureForms', 'CreatureBody', 'CharacterGlb', 'CharacterShading', 'CharacterDetail', 'CharacterPoses',
         'MerfolkBody', 'CharacterCloth', 'CharacterExpressions', 'SlimeBody', 'CharacterModel'];
     importScripts('../../utils/QuadricDecimator.js', 'CharacterPreviewTextures.js', ...modules.map(name => name + '.js'));

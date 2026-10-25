@@ -359,7 +359,8 @@
         { id: 'monocle', label: 'Monocle', slot: 'eyes', group: 'Face', defaults: { color: '#c9a35a', size: 1 }, make: (m, L, o) => monocle(m, L, o) },
         { id: 'eyepatch', label: 'Eye patch', slot: 'eyes', group: 'Face', defaults: { color: '#141414', side: 'left' }, make: (m, L, o) => eyepatch(m, L, o) },
         { id: 'goggles', label: 'Goggles', slot: 'eyes', group: 'Face', defaults: { color: '#5a3d22', color2: '#7a9a6a', up: 0 }, make: (m, L, o) => goggles(m, L, o) },
-        { id: 'visor', label: 'Cyber visor', slot: 'eyes', group: 'Face', defaults: { color: '#202024', color2: '#ff2bd6' }, make: (m, L, o) => visor(m, L, o) },
+        // The cyber visor is the wraparound HUD visor of the cyberware (RRCharacterCyberGear), its id and colors kept.
+        ...cyberVisors(),
         // Head
         { id: 'wizardhat', label: 'Wizard hat', slot: 'hat', group: 'Hats', defaults: { color: '#2e3f8a', color2: '#d4af37', size: 1, height: 1 }, make: (m, L, o) => coneHat(m, L, o, { brim: 1.7, tall: 0.4, bend: 0.14 }) },
         { id: 'witchhat', label: 'Witch hat', slot: 'hat', group: 'Hats', defaults: { color: '#1a1a1e', color2: '#6a2a8a', size: 1, height: 1 }, make: (m, L, o) => coneHat(m, L, o, { brim: 2.3, tall: 0.36, bend: 0.2 }) },
@@ -394,7 +395,9 @@
         { id: 'bowtie', label: 'Bow tie', slot: 'tie', group: 'Jewelry', defaults: { color: '#141416' }, make: (m, L, o) => bowtie(m, L, o) },
         { id: 'necktie', label: 'Tie', slot: 'tie', group: 'Jewelry', defaults: { color: '#6a1a2a', color2: '#2a1018', shape: 'straight', length: 1 },
             shapes: [['straight', 'Straight'], ['bow', 'Bow tie'], ['cravat', 'Cravat']], make: (m, L, o) => necktie(m, L, o) },
-        ...generatedProps()
+        ...generatedProps(),
+        // Cyberware (RRCharacterCyberGear): cyber faces, masks, HUD eyewear and implants.
+        ...cyberProps()
     ];
     const BY_ID = new Map(PROPS.map(p => [p.id, p]));
 
@@ -512,18 +515,6 @@
         }
         const ring = L.ring(L.eyeY + lift);
         if (ring) loop(m, ringPath(1, 32, a => [ring.center[0] + Math.sin(a) * (ring.rx + 0.006), L.eyeY + lift + 0.004, ring.center[2] + Math.cos(a) * (ring.rz + 0.006)]), 0.006, linear(o.color), skin, 4);
-        return [];
-    }
-
-    function visor(m, L, o) {
-        const head = L.boneIndex('Head'), skin = rigid(head);
-        const ring = L.ring(L.eyeY);
-        if (!ring) return [];
-        // A band round the front of the face at the eyes, glowing.
-        m.loft(17, (i, t) => {
-            const a = -1.45 + t * 2.9;
-            return { center: [ring.center[0] + Math.sin(a) * (ring.rx + 0.012), L.eyeY, ring.center[2] + Math.cos(a) * (ring.rz + 0.012)], x: [Math.sin(a), 0, Math.cos(a)], y: [0, 1, 0], rx: 0.004, ry: 0.016 };
-        }, 6, t => (Math.abs(t - 0.5) < 0.42 ? linear(o.color2) : linear(o.color)), skin, true);
         return [];
     }
 
@@ -1033,6 +1024,11 @@
     }
 
     /** Original, parameterized equipment and body details, measured on this character. */
+    /** The cyber pieces, from their own file (loaded before this one). */
+    function cyberGear() { return root.RRCharacterCyberGear || (typeof require === 'function' ? require('./CharacterCyberGear.js') : null); }
+    function cyberProps() { const Cyber = cyberGear(); return Cyber ? Cyber.PROPS : []; }
+    function cyberVisors() { const Cyber = cyberGear(); return Cyber ? [Cyber.VISOR] : []; }
+
     function generatedProps() {
         const prop = (id, label, slot, group, make, defaults, finish = 'leather', frame = 'body') => ({ id, label, slot, group, make,
             defaults: Object.assign({ color: '#62503c', color2: '#b8bcc4', size: 1 }, defaults), finish, frame });
@@ -1320,14 +1316,15 @@
         return out;
     }
 
-    /** One accessory per slot, the later one winning. */
+    /** One accessory per slot, the later one winning. A piece that covers more (`slots`: a full faceplate takes the eyes and the mouth) puts out what was there. */
     function normalizeProps(list) {
         const bySlot = new Map();
         for (const raw of Array.isArray(list) ? list : []) {
             const item = normalizeProp(raw);
             if (item) {
-                const slot = BY_ID.get(item.id).slot;
-                bySlot.set(slot === 'held' ? 'held-' + item.side : slot, item);
+                const keysOf = it => { const d = BY_ID.get(it.id); return d.slot === 'held' ? ['held-' + it.side] : d.slots || [d.slot]; }, keys = keysOf(item);
+                for (const [k, had] of [...bySlot]) if (k !== keys[0] && keysOf(had).some(key => keys.includes(key))) bySlot.delete(k);
+                bySlot.set(keys[0], item);
             }
         }
         return [...bySlot.values()];
@@ -1352,6 +1349,8 @@
         if (!items.length) return { parts: [], items };
         const L = landmarks(pack, built);
         L.bodyPart = built.parts[0];
+        // Cyberware lays its plates on the face as shaped, and brings pictures of its own.
+        L.pack = pack; L.built = built; L.textures = {};
         L.outfitParts = options.outfitParts || [];
         L.frontAt0 = L.frontAt;
         if (options.outfitParts?.length) {
@@ -1384,9 +1383,9 @@
         // Each finish its own part: felt and leather hats matte, jewelry and helmets metal, frames and packs plastic.
         for (const [finish, m] of finishes) if (!m.empty) parts.push(m.part(FINISH[finish].name, { kind:finish==='felt'||finish==='velvet'?'cloth':'prop', roughness: FINISH[finish].roughness, metalness: FINISH[finish].metalness, doubleSided:!!m.doubleSided }));
         if (!cloth.empty) parts.push(cloth.part('Cape', Object.assign({ roughness: 0.85, metalness: 0, doubleSided: true }, hanging.length ? { cloth: hanging } : {})));
-        const all=parts.concat(extras),textures={};
+        const all=parts.concat(extras),textures=Object.assign({},L.textures);
         for(const p of all)if(!p.uvs){p.uvs=new Float32Array(p.positions.length/3*2);for(let v=0;v<p.positions.length/3;v++){const n=Array.from(p.normals.subarray(v*3,v*3+3),Math.abs),axis=n.indexOf(Math.max(...n)),axes=axis===0?[2,1]:axis===1?[0,2]:[0,1];for(let j=0;j<2;j++)p.uvs[v*2+j]=p.positions[v*3+axes[j]]*8;}}
-        Surface.apply(all,textures,p=>p.opacity<1||p.emissive?null:p.name==='Felt and cloth'||p.name==='Cape'?'fabric':p.name==='Velvet'?'velvet':p.name==='Timber'?'wood':p.name==='Leather'?'leather':p.metalness>.5?'metal':p.name==='Plastic'?'rubber':null);
+        Surface.apply(all,textures,p=>p.opacity<1||p.emissive||p.ownSurface?null:p.name==='Felt and cloth'||p.name==='Cape'?'fabric':p.name==='Velvet'?'velvet':p.name==='Timber'?'wood':p.name==='Leather'?'leather':p.metalness>.5?'metal':p.name==='Plastic'?'rubber':null);
         return { parts: all, textures, items, landmarks: L, construction };
     }
 

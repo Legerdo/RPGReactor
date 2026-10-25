@@ -19,7 +19,6 @@ class PropBuilder {
         this.tab = null;
         this.motion = 'live';
         this.folded = {};
-        this.randomScope = 'all';
         try { for (const k of JSON.parse(sessionStorage.getItem(PropBuilder.FOLDED_KEY) || '[]')) this.folded[k] = true; } catch (e) { /* nothing remembered */ }
         this._undo = [];
         this._redo = [];
@@ -136,8 +135,8 @@ class PropBuilder {
                     <button class="rr-btn-chip rr-prop-undo" title="${this._t('Undo')}" disabled>↶</button>
                     <button class="rr-btn-chip rr-prop-redo" title="${this._t('Redo')}" disabled>↷</button>
                     <span class="rr-c3d-group rr-prop-randomgroup">
-                        <button class="rr-btn-chip rr-prop-random" title="${this._t('Roll something new for the part chosen beside it')}">🎲 ${this._t('Randomize')}</button>
-                        <select class="rr-c3d-random-scope rr-prop-random-scope rr-select" title="${this._t('What Randomize changes')}"></select>
+                        <button class="rr-btn-chip rr-prop-random" title="${this._t('Roll something new for the parts ticked beside it')}">🎲 ${this._t('Randomize')}</button>
+                        ${RRRandomPartsMenu.html(t => this._t(t))}
                     </span>
                     <button class="rr-btn-chip rr-prop-reset">↻ ${this._t('Reset')}</button>
                     <button class="rr-btn-chip rr-prop-open">${this._t('Open…')}</button>
@@ -178,7 +177,13 @@ class PropBuilder {
         q('.rr-prop-undo').addEventListener('click', () => this._history(-1));
         q('.rr-prop-redo').addEventListener('click', () => this._history(1));
         q('.rr-prop-random').addEventListener('click', () => this._randomize());
-        q('.rr-prop-random-scope').addEventListener('change', e => { this.randomScope = e.target.value; });
+        // Which parts Randomize rolls: any mix, ticked (RRRandomPartsMenu); remembered per kind of prop.
+        RRRandomPartsMenu.bind(this.root.querySelector('.rr-random-parts'), chosen => {
+            this.randomParts = chosen;
+            const kind = RRPropModel.kindOf(this.recipe);
+            RRRandomPartsMenu.save('prop-' + kind.id, chosen, (kind.randomScopes || []).filter(s => s[0] !== 'all'));
+            this.root.querySelector('.rr-prop-random').disabled = !chosen.size;
+        });
         q('.rr-prop-reset').addEventListener('click', () => this._replace(this._ui().reset(this.recipe)));
         q('.rr-prop-open').addEventListener('click', () => this._showGallery());
         q('.rr-prop-save').addEventListener('click', () => this.save());
@@ -256,11 +261,11 @@ class PropBuilder {
         const kind = RRPropModel.kindOf(this.recipe), group = this.root.querySelector('.rr-prop-randomgroup');
         if (group) {
             group.hidden = !kind.random;
-            const scopes = kind.randomScopes || [['all', 'Everything']];
-            if (!scopes.some(s => s[0] === this.randomScope)) this.randomScope = 'all';
-            const select = group.querySelector('select');
-            select.innerHTML = scopes.map(([id, label]) => `<option value="${id}"${id === this.randomScope ? ' selected' : ''}>${this._t(label)}</option>`).join('');
-            select.hidden = scopes.length < 2;
+            const parts = (kind.randomScopes || []).filter(s => s[0] !== 'all'), menu = group.querySelector('.rr-random-parts');
+            if (this._randomFor !== kind.id) { this.randomParts = RRRandomPartsMenu.load('prop-' + kind.id, parts); this._randomFor = kind.id; }
+            RRRandomPartsMenu.render(menu, parts, this.randomParts, t => this._t(t));
+            menu.hidden = parts.length < 2;
+            this.root.querySelector('.rr-prop-random').disabled = parts.length > 1 && !this.randomParts.size;
         }
         const type = RRPropCatalog.typeOf(this.recipe), input = this.root.querySelector('.rr-c3d-name-input');
         if (input) input.placeholder = this._t(type ? type.label : ui.placeholder);
@@ -396,9 +401,15 @@ class PropBuilder {
         });
     }
 
+    /** Roll the parts ticked beside Randomize: all of them at once, or each ticked part in turn. */
     _randomize() {
         const kind = RRPropModel.kindOf(this.recipe);
-        if (kind.random) this._replace(kind.random((Math.random() * 4294967296) >>> 0, this.recipe, this.randomScope || 'all'));
+        if (!kind.random) return;
+        const parts = (kind.randomScopes || []).filter(s => s[0] !== 'all');
+        const scopes = parts.length < 2 ? ['all'] : RRRandomPartsMenu.scopesFor(parts, this.randomParts || new Set(parts.map(p => p[0])));
+        let r = this.recipe;
+        for (const scope of scopes) r = kind.random((Math.random() * 4294967296) >>> 0, r, scope);
+        if (scopes.length) this._replace(r);
     }
 
     _status(text, kind) {

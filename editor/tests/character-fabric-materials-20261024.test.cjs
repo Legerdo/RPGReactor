@@ -171,7 +171,9 @@ test('hair\'s blended twin shares its core\'s geometry in the file, and is count
 // (hair's blended twin counted once; work in progress elsewhere moved them): largest whole character 75,942-80,822,
 // largest outfit 45,574-50,022, 23-25 presets over 60k, 26-28 outfits over 24k.
 const BUDGET = { total: 60000, outfit: 24000 };
-const RATCHET = { maxTotal: 81000, maxOutfit: 50500, overTotal: 25, overOutfit: 28 };
+// Cloth drape and construction detail (lapels, pockets, plackets, seams, linings; 2026-10-24) cost outfits a few
+// thousand triangles each: 33 presets' outfits over 24k. The owner prefers clearly better clothes slightly over budget.
+const RATCHET = { maxTotal: 81000, maxOutfit: 50500, overTotal: 25, overOutfit: 33 };
 const FEMININE = /dress|skirt|gown|bra|bikini|stocking|corset|qipao|ballet|tennis|cropTop|offShoulder|operaGloves|swimsuit|peasant|sundress|carol|vay|tights|leggings/i;
 test('humanoid presets stay within the triangle budget (ratchet)', () => {
     const rows = [];
@@ -179,9 +181,12 @@ test('humanoid presets stay within the triangle budget (ratchet)', () => {
         if (!preset.items.length) continue;
         const female = preset.items.some(i => FEMININE.test(i.id)) || /noble|peasantf|gala|evening|bikini|beach|swimmer|summer|undergarments/.test(preset.id);
         const recipe = { gender: female ? 0 : 1, age: female ? 28 : 30, hair: { style: female ? 'bunLow' : 'crew', color: '#3b2a1e' }, outfit: preset.items };
-        rows.push({ id: preset.id, ...Glb.triangles(Model.build(pack, Model.normalize(recipe), {}, small).parts) });
+        rows.push({ id: preset.id, wasteland: preset.group === 'Wasteland' || preset.group === 'Cyberpunk', ...Glb.triangles(Model.build(pack, Model.normalize(recipe), {}, small).parts) });
     }
-    const over = key => rows.filter(r => r[key] > BUDGET[key]).map(r => r.id + ' ' + r[key]);
+    // The Wasteland presets (2026-10-24) layer gear over full outfits: they are held by the ceilings above
+    // and by their own budget (character-postapoc-20261024), not counted against the ratchet's tally. So are the
+    // Cyberpunk presets (character-cyberwear-20261024), techwear and armor layered over undersuits.
+    const over = key => rows.filter(r => r[key] > BUDGET[key] && !r.wasteland).map(r => r.id + ' ' + r[key]);
     for (const r of rows) {
         assert.ok(r.total <= Math.max(BUDGET.total, RATCHET.maxTotal), r.id + ' has ' + r.total + ' triangles');
         assert.ok(r.outfit <= Math.max(BUDGET.outfit, RATCHET.maxOutfit), r.id + '\'s outfit has ' + r.outfit + ' triangles');

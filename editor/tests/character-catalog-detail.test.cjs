@@ -18,11 +18,12 @@ test('new constructed garments and brooch fit both sexes and opposing body extre
 });
 
 test('shirt fasteners follow the fitted garment and disappear under a closed outer layer',()=>{
+ // (2026-10-24: a shirt is buttoned by the construction kit, RRCharacterGarmentDetails.construct.)
  const body=Q.Body.build(pack,{gender:1,age:30});
- const bare=W.build(pack,body,[{id:'shirt'}],{atlasSize:128}),part=bare.parts.find(p=>p.name==='Garment fasteners');
+ const bare=W.build(pack,body,[{id:'shirt'}],{atlasSize:128}),part=bare.parts.find(p=>p.name==='Garment buttons');
  assert.ok(part&&part.index.length>600,'separate button solids, holes and stitches');sound([part],body.bones);
  const covered=W.build(pack,body,[{id:'shirt'},{id:'leatherarmor'}],{atlasSize:128});
- const outer=covered.parts.find(p=>p.name==='Garment fasteners');
+ const outer=covered.parts.find(p=>p.name==='Garment buttons');
  assert.ok(!outer||outer.positions.length<part.positions.length,'buried shirt buttons are omitted');
 });
 

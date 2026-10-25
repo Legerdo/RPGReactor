@@ -123,9 +123,10 @@
     const GROUPS={
         hats:['wearables','Hats',61],face:['wearables','Face',62],masks:['wearables','Masks',63],jewelry:['wearables','Jewelry & Ties',64],
         back:['wearables','Capes & Packs',65],hands:['wearables','Nails & Claws',66],melee:['weapons','Axes, Bows & Shields',44],
-        bags:['gear','Bags',71],tools:['gear','Tools',72],instruments:['gear','Instruments',73],sports:['gear','Sports',74],other:['gear','Other',79]
+        bags:['gear','Bags',71],tools:['gear','Tools',72],instruments:['gear','Instruments',73],sports:['gear','Sports',74],other:['gear','Other',79],
+        cyber:['wearables','Cyberware',67]
     };
-    const FROM_GROUP={Hats:'hats',Face:'face',Masks:'masks',Jewelry:'jewelry',Back:'back','Body details':'hands',Weapons:'melee',Performance:'instruments',Sports:'sports'};
+    const FROM_GROUP={Hats:'hats',Face:'face',Masks:'masks',Jewelry:'jewelry',Back:'back','Body details':'hands',Weapons:'melee',Performance:'instruments',Sports:'sports','Cyber faces':'cyber','Cyber masks':'cyber','HUD eyewear':'cyber',Implants:'cyber'};
     const BAGS=new Set(['satchel','beltPouch','canteen','suitcase']),UNLISTED=new Set(['sword','dagger','book','axe','spear','staff','bow','shield']);
     const groupOf=def=>def.group==='Bags and tools'?(BAGS.has(def.id)?'bags':'tools'):(FROM_GROUP[def.group]||'other');
     for(const [id,[parent,label,order]] of Object.entries(GROUPS)) Catalog.category({id:'acc-'+id,label,order,parent});
@@ -151,7 +152,7 @@
         }
         return accentCache.get(key);
     }
-    const OPTION_LABELS={charm:'Charm',studs:'Studs',thick:'Thickness',billLength:'Bill length',pockets:'Pockets',vents:'Vents'};
+    const OPTION_LABELS={charm:'Charm',studs:'Studs',thick:'Thickness',billLength:'Bill length',pockets:'Pockets',vents:'Vents',style:'Style',wear:'Wear',glow:'Glow',pattern:'Pattern',sides:'Sides',cables:'Cables'};
     api.slots=slots; api.usesAccent=usesAccent;
 
     Catalog.ui('accessory',{
@@ -169,7 +170,8 @@
                 else html+=this._slider({path:'accessory.'+key,label,range:spec,step:key==='pockets'||key==='vents'?1:.05});
             }
             html+=this._section('Look')+this._color('accessory.color','Color');
-            if(d.color2&&usesAccent(r))html+=this._color('accessory.color2','Accent');
+            // Cyberware leaves its colors empty for its style's own; its second color is its glow.
+            if((d.color2||def.cyber)&&usesAccent(r))html+=this._color('accessory.color2',def.cyber?def.labels.color2:'Accent');
             const names=slots(r),plain=names.filter(n=>n!=='Lenses');
             if(!names.length)html+=this._select('material','Material',MATERIAL_CHOICES);
             for(const name of names) {

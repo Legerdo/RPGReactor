@@ -28,6 +28,8 @@
 
     const Outfit = root.RRCharacterOutfit || (typeof require === 'function' ? require('./CharacterOutfit.js') : null);
     const Fabric = root.RRCharacterFabric || (typeof require === 'function' ? require('./CharacterFabric.js') : null);
+    // Wear and damage (RRCharacterWear; optional): grime, fading, stains and holes painted over a worn piece.
+    const Wear = root.RRCharacterWear || (typeof require === 'function' ? require('./CharacterWear.js') : null);
     const TAU = Math.PI * 2;
     const toByte = c => Math.max(0, Math.min(255, Math.round((c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055) * 255)));
     const fract = x => x - Math.floor(x);
@@ -316,6 +318,8 @@
     // a yoke or a luminous rail into unrelated patches.
     function lightMask(look, p) {
         if (!look.lightStyle || look.lightStyle === 'none' || !(look.lightIntensity > 0) || p.val < 0) return 0;
+        // A garment's own light pattern (RRCharacterCyberwear.glowMask, set by RRCharacterWardrobe's look).
+        if (look.glowMask) return look.glowMask(p);
         const w = look.lightWidth || 1, R = p.rest, x = Math.abs(R[0]), y = R[1];
         const line = (d, width) => 1 - smoothstep(width * w * 0.45, width * w, Math.abs(d));
         const range = (v, a, b) => smoothstep(a, a + 0.004, v) * (1 - smoothstep(b - 0.004, b, v));
@@ -519,7 +523,9 @@
         }
         // The rim's inner face, toward the body, in shadow.
         if (p.val < 0) k *= 0.6;
-        return [rgb[0] * k, rgb[1] * k, rgb[2] * k];
+        const out = [rgb[0] * k, rgb[1] * k, rgb[2] * k];
+        // A worn piece (its look's `wearInfo`): weathered, its holes cut out of the picture's alpha.
+        return look.wearInfo && Wear ? Wear.paint(out, look, p) : out;
     }
 
     /**
@@ -579,7 +585,7 @@
         // The cloth's own tiles (a full-size picture only: a thumbnail's is too small to show a weave).
         const tiled = size >= 1024 && !!Fabric;
         const hip = an.chains && an.chains.spine ? an.chains.spine[0][1] : 0.885;
-        const fabs = entries.map(e => ({ kind: Fabric ? Fabric.kindFor(e.look.material, e.garment, e.look.pattern) : null, hip }));
+        const fabs = entries.map(e => { const kind = Fabric ? Fabric.kindFor(e.look.material, e.garment, e.look.pattern) : null; return { kind: kind && Wear ? Wear.fabricKind(kind, e.look, e.garment) : kind, hip }; });
         const edges = entries.map(e => edgeField(an, e.laid.piece, Math.max(0.02, (e.look.trimWidth || 0) * 0.15 + 0.004)));
         const px = 1 / scale;
         const groups = new Map(), maps = [];
@@ -597,6 +603,8 @@
                 else g.kind = null;
             }
             g.names.add(e.name);
+            // A torn piece's holes are cut out of the picture (alpha): its part is drawn cut out.
+            if (e.look.wearInfo && e.look.wearInfo.holes.length) g.holes = true;
             const vertexFor = corner => {
                 // A point exactly on the rear seam may be -PI in one
                 // triangle and +PI in the next. Both passed the old >PI
@@ -628,7 +636,7 @@
         dilate(data, filled, size, pad + 1);
         return {
             groups: [...groups.values()].map(g => ({ name: [...g.names].join(', ').slice(0, 60) || 'Outfit', refs: Uint32Array.from(g.refs), uvs: Float32Array.from(g.uvs), index: Uint32Array.from(g.index),
-                roughness: g.e.roughness, metalness: g.e.metalness, doubleSided: g.e.doubleSided, material: g.e.look.material,
+                roughness: g.e.roughness, metalness: g.e.metalness, doubleSided: g.e.doubleSided, material: g.e.look.material, ...(g.holes ? { cutout: true } : {}),
                 ...(g.kind ? { fabric: g.kind, uvs1: Float32Array.from(g.uvs1) } : {}) })),
             texture: { width: size, height: size, data, name: 'outfit.png' },
             // The cloths' tiles the parts name (relief, and occlusion/roughness/metal), for the outfit's pictures.
@@ -656,6 +664,7 @@
             const part = Object.assign({ name: g.name, positions, normals, uvs: g.uvs, joints, weights, fabricRefs:Int32Array.from(g.refs), index: g.index, roughness: g.roughness, metalness: g.metalness, doubleSided: g.doubleSided, texture: lay.texture.name }, lay.normal?{normalTexture:lay.normal.name,normalScale:.40}:{},hang ? { hang, ...(tailoredWaist?{tailoredWaist:true}:{}) } : {}, lay.emission ? { emissive: '#ffffff', emissiveTexture: lay.emission.name } : {});
             // The cloth's tile on the second coordinates; metal keeps its material's own polish round the tile's streaks.
             const hard = g.material === 'metal' || g.material === 'gold';
+            if (g.cutout) { part.cutout = true; part.alphaCutoff = 0.5; }
             if (g.fabric && Fabric) Fabric.applyTo(part, g.fabric, null, { uvs1: g.uvs1, roughness: hard ? g.roughness : undefined, sheenTexture: lay.texture.name });
             return part;
         });
@@ -693,7 +702,7 @@
             p.s = k('s'); p.ang = k('ang'); p.cu = k('cu'); p.cv = k('cv'); p.y = k('y'); p.val = k('val'); p.vm = k('vm'); p.u = k('u');
             for (let q = 0; q < 3; q++) p.rest[q] = tri[0].rest[q] * w0 + tri[1].rest[q] * w1 + tri[2].rest[q] * w2;
             const rgb = color(p);
-            data[o * 4] = toByte(rgb[0]); data[o * 4 + 1] = toByte(rgb[1]); data[o * 4 + 2] = toByte(rgb[2]); data[o * 4 + 3] = 255;
+            data[o * 4] = toByte(rgb[0]); data[o * 4 + 1] = toByte(rgb[1]); data[o * 4 + 2] = toByte(rgb[2]); data[o * 4 + 3] = rgb.length > 3 ? Math.round(Math.max(0, Math.min(1, rgb[3])) * 255) : 255;
             if (emission) { const glow = light(p); for (let k = 0; k < 3; k++) emission[o * 4 + k] = toByte(glow[k]); emission[o * 4 + 3] = 255; }
             filled[o] = inside ? 2 : 1;
         }
@@ -756,7 +765,8 @@
             } else if (p.region === 'sole' || p.region === 'tread') rgb = soleColor(p, kind, c1, c2, trim, metal);
             else rgb = upperColor(p, kind, c1, c2, trim, metal, tx, look);
             const k = p.region === 'tread' ? 0.85 : grain;
-            return scale3(rgb, k);
+            // A worn shoe (its look's `wear`, RRCharacterWear): dusty, scuffed at the toe, creased.
+            return look.wear > 0 && Wear ? Wear.shoe(scale3(rgb, k), p, look) : scale3(rgb, k);
         };
         for (let tI = 0; tI < I.length; tI += 3) {
             const c = [I[tI], I[tI + 1], I[tI + 2]];

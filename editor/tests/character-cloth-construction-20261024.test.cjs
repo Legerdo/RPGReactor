@@ -5,6 +5,7 @@ const test = require('node:test'), assert = require('node:assert/strict'), path 
 const dir = path.resolve(__dirname, '../src/forge/Character3D');
 const Body = require(path.join(dir, 'HumanBody.js')), Outfit = require(path.join(dir, 'CharacterOutfit.js'));
 const Wardrobe = require(path.join(dir, 'CharacterWardrobe.js')), Model = require(path.join(dir, 'CharacterModel.js'));
+const Drape = require(path.join(dir, 'CharacterDrape.js'));
 let pack;
 test.before(async () => { pack = await Body.loadPack(); });
 
@@ -68,8 +69,12 @@ test('soft garments carry a fold field, bounded by the gap between layers', () =
             deepest = Math.max(deepest, most);
             if (spec.folds.role === 'skirt') assert.ok(most <= 0.03 + 1e-6, id + ' flutes stay bounded: ' + most);
             else assert.ok(most <= Outfit.FOLD_GAP * (spec.folds.cap ?? 1) * 1.6 + 1e-6, id + ' folds fit between layers: ' + most);
+            // Draped cloth (RRCharacterDrape, 2026-10-24) makes its own folds when it is laid: the drawn field keeps only a
+            // bent joint's compression (elbow, knee), which a rest pose never bends.
+            if (piece.drapeProfile) piece.fold.forEach((d, i) => { const f = piece.field[i]; if (Math.abs(d) > 1e-5) assert.ok(f.fam !== 0 && Math.abs(f.s - (f.fam < 3 ? 2 : 1)) < 0.7, id + ' draws folds only at a joint'); });
         }
-        assert.ok(deepest > 0.0005, id + ' folds stand out: ' + deepest);
+        // (A draped garment with no sleeve past the elbow and no leg past the knee draws none at all.)
+        if (!['tshirt', 'skirt', 'ballGown'].includes(id)) assert.ok(deepest > 0.0005, id + ' folds stand out: ' + deepest);
     }
     // Skin-tight cloth does not fold.
     for (const id of ['leggings', 'briefs', 'bra']) for (const { spec } of pieces(id)) assert.ok(!spec.folds, id + ' stays smooth');
@@ -89,8 +94,8 @@ test('cloth is refined only where it folds', () => {
         const [{ spec, piece }] = pieces(id), plain = Outfit.cutFor(pack, Object.assign({}, spec, { folds: null, cutKey: ['construction-plain', id] }));
         assert.ok(piece.index.length > plain.index.length, id + ' gains faces in its fold zones');
         assert.ok(piece.index.length < plain.index.length * 2.6, id + ' does not refine everywhere');
-        // Every added vertex lies in (or beside) a fold zone.
-        const zone = piece.verts.map((v, i) => Outfit.foldAt(piece.field[i], piece.edgeDist[i], spec.folds)[0]);
+        // Every added vertex lies in (or beside) a fold zone: for draped cloth, where it hangs free to fold (RRCharacterDrape.zone).
+        const zone = piece.verts.map((v, i) => piece.drapeProfile ? Drape.zone(piece.drapeProfile, piece.field[i]) : Outfit.foldAt(piece.field[i], piece.edgeDist[i], spec.folds)[0]);
         const nearZone = i => zone[i] > 0.05 || piece.neighbors[i].some(j => zone[j] > 0.1 || piece.neighbors[j].some(k => zone[k] > 0.2));
         piece.verts.forEach((v, i) => { if (v.w) assert.ok(nearZone(i), id + ' refined outside a fold zone'); });
         // Away from the folds the faces keep the helper's own size.
@@ -118,7 +123,9 @@ test('loose sleeves and trouser legs hang instead of following the limb in', () 
 
 test('typical outfits stay within the triangle budget', () => {
     const built = Body.build(pack, { gender: 1, age: 30 });
-    for (const [preset, most] of [['casual', 15000], ['office', 25000], ['winter', 25000], ['mage', 19000], ['generatedMedic', 16000], ['detective', 30000]]) {
+    // (Draped cloth is refined where it folds, 2026-10-24: casual 15000 -> 18500, office 25000 -> 28000, winter
+    // 25000 -> 31500, medic 16000 -> 16500; measured with the drape on, +1.0-3.5k a preset.)
+    for (const [preset, most] of [['casual', 18500], ['office', 28000], ['winter', 31500], ['mage', 19000], ['generatedMedic', 16500], ['detective', 30000]]) {
         const out = Wardrobe.build(pack, built, Wardrobe.PRESETS.find(p => p.id === preset).items, { atlasSize: 64 });
         const tris = outfitTris(out.parts);
         assert.ok(tris <= most, preset + ' outfit ' + tris + ' > ' + most);

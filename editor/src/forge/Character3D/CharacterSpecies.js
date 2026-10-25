@@ -21,10 +21,10 @@
 
     // ── features ──────────────────────────────────────────────────────────
     const FEATURES = {
-        horns: { label: 'Horns', types: [['none', 'None'], ['demon', 'Demon'], ['ram', 'Ram'], ['bull', 'Bull'], ['goat', 'Goat'], ['dragon', 'Dragon'], ['unicorn', 'Unicorn'], ['antlers', 'Antlers'], ['nubs', 'Nubs']], defaults: { size: 1, color: '#3a2a22', color2: '#d8c8a8' } },
-        ears: { label: 'Animal ears', types: [['none', 'None'], ['cat', 'Cat'], ['fox', 'Fox'], ['wolf', 'Wolf'], ['rabbit', 'Rabbit'], ['bear', 'Bear'], ['mouse', 'Mouse'], ['floppy', 'Floppy']], defaults: { size: 1, color: '#8a6a4a', color2: '#e8b8a8' } },
-        tail: { label: 'Tail', types: [['none', 'None'], ['lizard', 'Lizard'], ['dragon', 'Dragon'], ['cat', 'Cat'], ['fox', 'Bushy'], ['demon', 'Demon'], ['monkey', 'Monkey'], ['horse', 'Horse'], ['bull', 'Tufted'], ['rabbit', 'Puff'], ['bird', 'Feathers']], defaults: { size: 1, length: 1, color: '#6a7a4a', color2: '#d8d0b0' } },
-        wings: { label: 'Wings', types: [['none', 'None'], ['feathered', 'Feathered'], ['bat', 'Bat'], ['fairy', 'Fairy'], ['insect', 'Insect']], defaults: { size: 1, color: '#f2efe8', color2: '#c8c0b0' } },
+        horns: { label: 'Horns', types: [['none', 'None'], ['demon', 'Demon'], ['ram', 'Ram'], ['bull', 'Bull'], ['goat', 'Goat'], ['dragon', 'Dragon'], ['unicorn', 'Unicorn'], ['antlers', 'Antlers'], ['nubs', 'Nubs'], ['cyberHorns', 'Cyber horns'], ['cyberAntenna', 'Sensor antennae'], ['cyberBlades', 'Blade fins']], defaults: { size: 1, color: '#3a2a22', color2: '#d8c8a8' } },
+        ears: { label: 'Animal ears', types: [['none', 'None'], ['cat', 'Cat'], ['fox', 'Fox'], ['wolf', 'Wolf'], ['rabbit', 'Rabbit'], ['bear', 'Bear'], ['mouse', 'Mouse'], ['floppy', 'Floppy'], ['cyberAudio', 'Audio receivers'], ['cyberCat', 'Plated ears'], ['cyberFins', 'Antenna fins']], defaults: { size: 1, color: '#8a6a4a', color2: '#e8b8a8' } },
+        tail: { label: 'Tail', types: [['none', 'None'], ['lizard', 'Lizard'], ['dragon', 'Dragon'], ['cat', 'Cat'], ['fox', 'Bushy'], ['demon', 'Demon'], ['monkey', 'Monkey'], ['horse', 'Horse'], ['bull', 'Tufted'], ['rabbit', 'Puff'], ['bird', 'Feathers'], ['cyber', 'Cyber tail']], defaults: { size: 1, length: 1, color: '#6a7a4a', color2: '#d8d0b0' } },
+        wings: { label: 'Wings', types: [['none', 'None'], ['feathered', 'Feathered'], ['bat', 'Bat'], ['fairy', 'Fairy'], ['insect', 'Insect'], ['cyberVanes', 'Blade vanes'], ['cyberThruster', 'Thruster wings'], ['cyberEnergy', 'Energy wings']], defaults: { size: 1, color: '#f2efe8', color2: '#c8c0b0' } },
         antennae: { label: 'Antennae', types: [['none', 'None'], ['insect', 'Curved'], ['moth', 'Feathery'], ['andorian', 'Andorian']], defaults: { size: 1, color: '#503c30', color2: '#bdae88' } },
         fangs: { label: 'Fangs', types: [['none', 'None'], ['small', 'Small'], ['long', 'Long']], defaults: { size: 1, color: '#ece2cc' } },
         beak: { label: 'Beak', types: [['none', 'None'], ['raptor', 'Hooked'], ['crow', 'Pointed'], ['duck', 'Flat']], defaults: { size: 1, color: '#e0a830', color2: '#3a2a1a' } },
@@ -44,6 +44,17 @@
             for (const k of ['color', 'color2']) if (!/^#[0-9a-f]{6}$/i.test(f[k] || '')) f[k] = def.defaults[k] || '#808080';
             f.size = Math.max(0.2, Math.min(3, +f.size || 1));
             if (f.length != null) f.length = Math.max(0.2, Math.min(3, +f.length || 1));
+            // Body mods hook: a cyber feature's style, light and wear (RRCharacterBodyArt.CYBER_STYLES); others carry none.
+            if (/^cyber/.test(f.type)) {
+                if (!['sleek', 'military', 'salvaged', 'neon'].includes(f.style)) f.style = 'sleek';
+                if (!/^#[0-9a-f]{6}$/i.test(f.glow || '')) f.glow = '';
+                f.glowAmount = Math.max(0, Math.min(1, +(f.glowAmount ?? 0.6)));
+                f.wear = Math.max(0, Math.min(1, +(f.wear ?? 0.25)));
+                if (key === 'tail' && !['none', 'blade', 'stinger'].includes(f.tip)) f.tip = 'none';
+                // The organic defaults' colors are a creature's; a cyber part starts in its style's own.
+                if (!(input && input[key] && input[key].color)) f.color = '';
+                if (!(input && input[key] && input[key].color2)) f.color2 = '';
+            } else { delete f.style; delete f.glow; delete f.glowAmount; delete f.wear; delete f.tip; }
             out[key] = f;
         }
         return out;
@@ -349,7 +360,7 @@
         const base = add(tailBase(pack, L), [0, 0, reptile ? 0.045 * s : 0.015]);
         const count = reptile ? 48 : 24;
         const pts = Array.from({ length: count + 1 }, (_, k) => add(base, shape.path(k / count)));
-        // The tail's bones: a chain from the hips, five along the tail.
+        // The tail's bones: a chain from the hips, five along the tail (a cyber tail's segments ride them too).
         const chain = 5, hips = L.boneIndex('Hips');
         const at = t => pts[Math.min(count, Math.round(t * count))];
         for (let b = 0; b < chain; b++) bones.push({ name: b ? 'Tail' + (b + 1) : 'Tail', parent: b ? bones.length - 1 + boneBase : hips, head: at(b / chain), tail: at((b + 1) / chain), local: true });
@@ -359,6 +370,9 @@
             const next = Math.min(chain - 1, i + 1);
             return { joints: [first + i, first + next, 0, 0], weights: [1 - w * 0.5, w * 0.5, 0, 0] };
         };
+        // Body mods hook: a cyber tail on these same bones (RRCharacterBodyMods), so it sways as a living one does.
+        const Mods = root.RRCharacterBodyMods || (typeof require === 'function' ? require('./CharacterBodyMods.js') : null);
+        if (f.type === 'cyber' && Mods) return { parts: Mods.cyberTail(pts, t => shape.r(t) * 0.55, skinAt, f) };
         const main = linear(f.color), tip = linear(f.color2 || f.color);
         if (f.type === 'bird') {
             // A fan of tail feathers.
@@ -1210,19 +1224,26 @@
             for (const v of ids) { const d = (L.P[v * 3] - p[0]) ** 2 + (L.P[v * 3 + 1] - p[1]) ** 2 + (L.P[v * 3 + 2] - p[2]) ** 2; if (d < bd) { bd = d; best = v; } }
             return best;
         };
-        if (F.horns.type !== 'none') horns(hard, L, F.horns);
+        // Body mods hook: cyber horns, ears and wings (RRCharacterBodyMods) in the shared cyber styles.
+        const Mods = root.RRCharacterBodyMods || (typeof require === 'function' ? require('./CharacterBodyMods.js') : null);
+        const cyber = t => /^cyber/.test(t) && !!Mods;
+        if (cyber(F.horns.type)) extra.push(...Mods.cyberHorns(L, F.horns));
+        else if (F.horns.type !== 'none') horns(hard, L, F.horns);
         if (F.antennae.type !== 'none') antennae(hard, L, F.antennae);
         if (F.fangs.type !== 'none') fangs(hard, L, F.fangs,pack);
-        if (F.ears.type !== 'none') {
+        if (cyber(F.ears.type)) extra.push(...Mods.cyberEars(L, F.ears));
+        else if (F.ears.type !== 'none') {
             const roots = animalEars(soft, L, F.ears, coat);
             if (roots.length) fur.push({ roots, anchor: nearest([0, L.crown - 0.01, L.ring(L.brow)?.center[2] || 0], L.headIds) });
         }
         if (F.tail.type !== 'none') {
             const made = tail(soft, hard, pack, L, F.tail, bones, built.bones.length, coat, F.spines) || {};
             if (made.part) extra.push(made.part);
+            if (made.parts) extra.push(...made.parts);
             if (made.roots && made.roots.length) fur.push({ roots: made.roots, anchor: nearest(tailBase(pack, L), pack._bodyIds) });
         }
-        if (F.wings.type !== 'none') wings(soft, L, F.wings);
+        if (cyber(F.wings.type)) extra.push(...Mods.cyberWings(L, F.wings));
+        else if (F.wings.type !== 'none') wings(soft, L, F.wings);
         const featherPart = F.wings.type === 'feathered' ? featheredWing(L, F.wings) : ['fairy', 'insect'].includes(F.wings.type) ? fairyWing(L, F.wings) : null;
         const bill = new Props.Mesh();
         if (F.beak.type !== 'none') beak(bill, L, F.beak);

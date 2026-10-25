@@ -35,6 +35,9 @@
     const slimeSpecies = id => !!Slime && (Species.BY_ID.get(id) || {}).plan === 'slime';
     // Merfolk hook (RRMerfolkBody): a fish's tail in place of the legs, its fins, its clips.
     const Merfolk = (() => { try { return need('RRMerfolkBody', './MerfolkBody.js'); } catch (_) { return null; } })();
+    // Body art hook (RRCharacterBodyArt, RRCharacterBodyMods): tattoos, paint and scars in the skin; piercings and cybernetics.
+    const BodyArt = (() => { try { return need('RRCharacterBodyArt', './CharacterBodyArt.js'); } catch (_) { return null; } })();
+    const BodyMods = (() => { try { return need('RRCharacterBodyMods', './CharacterBodyMods.js'); } catch (_) { return null; } })();
 
     /** A full recipe from a partial one; the plan decides which half it is. */
     function normalize(input) {
@@ -58,6 +61,8 @@
             // A Head choice (`headId`, from the picker) sets the head anew; otherwise the recipe's own head.
             head: normalizeHead(typeof r.headId === 'string' ? Species.headPreset(r.headId) : r.head)
         });
+        // Body art hook: the person's own tattoos, piercings and mods.
+        if (BodyArt) out.bodyArt = BodyArt.normalize(r.bodyArt);
         // Human headwear has one shell/face opening and cannot fit a forked neck.
         out.outfit=out.outfit.filter(item=>fitsGarment(out,item.id));
         out.props=out.props.filter(item=>fitsProp(out,item.id));
@@ -66,7 +71,8 @@
     }
 
     function fitsGarment(r,id){return r.head?.heads!==2||Wardrobe.BY_ID.get(id)?.slot!=='head';}
-    function fitsProp(r,id){return r.head?.heads!==2||!['eyes','hat','halo','earrings','mask','headset'].includes(Props.BY_ID.get(id)?.slot);}
+    // Cyberware laid on the human face (`onHead`) has no face to sit on under an animal's head or beside a second head.
+    function fitsProp(r,id){const def=Props.BY_ID.get(id);if(def?.onHead&&(r.head?.heads===2||r.head?.kind))return false;return r.head?.heads!==2||!['eyes','hat','halo','earrings','mask','headset'].includes(def?.slot);}
 
     /**
      * An animal head in place of the human one: { kind } of a four-legged
@@ -108,7 +114,7 @@
             skin: own('skin'), skinPattern: own('skinPattern'), eyes: own('eyes'), head: own('head') || null,
             bodyHair: preset.bodyHair || was.bodyHair ? (preset.bodyHair || {}) : old.bodyHair,
             anatomy: { ...old.anatomy, paired: id === 'klingon' },
-            outfit: old.outfit, props: (preset.props || []).concat(old.props.filter(p => !brought.has(p.id) && !(preset.props || []).some(q => q.id === p.id))),
+            outfit: old.outfit, bodyArt: old.bodyArt, props: (preset.props || []).concat(old.props.filter(p => !brought.has(p.id) && !(preset.props || []).some(q => q.id === p.id))),
             // Hair follows a species bald by nature; leaving one, or one with its own hair or beard, the person's own grows back.
             hair: preset.bald ? { style: 'bald', brows: { style: 'none' }, lashes: false } : Object.assign({}, hairBase, preset.hair)
         });
@@ -116,7 +122,7 @@
         return normalize(next);
     }
 
-    const HAIR_COVERS = new Set(['helm', 'greathelm', 'visorhelm', 'powerhelm', 'hood', 'hoodie']);
+    const HAIR_COVERS = new Set(['helm', 'greathelm', 'visorhelm', 'powerhelm', 'hood', 'hoodie', 'poncho', 'headWrap', 'techSmock']);
     const FACE_COVERS = new Set(['greathelm', 'visorhelm', 'powerhelm']);
 
     function textureKey(name, settings) { return name + ':' + JSON.stringify(settings); }
@@ -155,16 +161,20 @@
         cache.wardrobe = cache.wardrobe || {};
         cache.wardrobe.pictureSize = o.static ? o.atlasSize || 256 : 1024;
         cache.wardrobe.atlasSize = o.atlasSize || (o.static?256:2048);
+        cache.wardrobe.quality = o.quality === 'preview' || o.static ? 'preview' : 'save';
         const outfit = Wardrobe.build(pack, built, r.outfit, cache.wardrobe);
         if (outfit.texture) textures[outfit.texture.name] = outfit.texture;
         for (const t of outfit.textures || []) textures[t.name] = t;
 
         // The body: its painted skin, the covered triangles dropped.
         const body = Object.assign({}, built.parts[0]);
-        if (outfit.hidden.size || mer) {
+        // Body art hook: skin a replaced cyber limb takes the place of.
+        const modHidden = BodyMods && r.bodyArt ? BodyMods.hiddenSkin(pack, r.bodyArt, r.outfit) : null;
+        if (modHidden && modHidden.size) strandHidden = new Set([...(strandHidden || []), ...modHidden]);
+        if (outfit.hidden.size || mer || (modHidden && modHidden.size)) {
             const keep = [];
             const src = pack.body.source, I = body.index;
-            const gone = v => outfit.hidden.has(v) || (!!mer && mer.hidden.has(v));
+            const gone = v => outfit.hidden.has(v) || (!!mer && mer.hidden.has(v)) || (!!modHidden && modHidden.has(v));
             for (let t = 0; t < I.length; t += 3) {
                 if (gone(src[I[t]]) && gone(src[I[t + 1]]) && gone(src[I[t + 2]])) continue;
                 keep.push(I[t], I[t + 1], I[t + 2]);
@@ -182,10 +192,17 @@
         // A style with hair over the scalp colors the scalp under it (not for the shortest crops or a bald head).
         const scalp = r.hair.style !== 'bald' && !r.outfit.some(i => HAIR_COVERS.has(i.id)) ? { color: r.hair.color, recede: r.hair.hairline || 0, style: r.hair.style } : null;
         // Facial hair paints its zone into the skin under it (not under a closed helmet).
-        const facial = r.hair.facial.style !== 'none' && !r.outfit.some(i => FACE_COVERS.has(i.id)) ? { style: r.hair.facial.style, color: r.hair.facial.color || r.hair.color } : null;
-        const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair, earHoles, scalp, Skin.ageStep(r.age), facial]);
+        // Masks and cyber faces over the lower face (`hidesBeard`) leave the beard out while worn; the recipe keeps it.
+        const facial = r.hair.facial.style !== 'none' && !r.outfit.some(i => FACE_COVERS.has(i.id)) && !r.props.some(i => Props.BY_ID.get(i.id)?.hidesBeard) ? { style: r.hair.facial.style, color: r.hair.facial.color || r.hair.color } : null;
+        // Body art hook: the painted layers (and the scarring round a cyber limb's socket), their project pictures, and
+        // the finer charts under the art for a full-size picture.
+        const art = BodyArt && r.bodyArt ? r.bodyArt.layers.concat(BodyMods ? BodyMods.skinLayers(r.bodyArt) : []) : [];
+        const artPictures = art.some(l => l.motif === 'picture') && o.bodyArtPictures ? o.bodyArtPictures : null;
+        const artDetail = art.length && !o.static && skinSize >= 512 ? { size: skinSize } : null;
+        const artKey = art.length ? [art, artDetail, art.filter(l => l.motif === 'picture').map(l => l.picture + ':' + !!(artPictures && (artPictures.get ? artPictures.get(l.picture) : artPictures[l.picture])))] : 0;
+        const skinKey = textureKey('skin', [r.skin, r.skinPattern, skinSize, beard, anatomy, bodyHair, earHoles, scalp, Skin.ageStep(r.age), facial, artKey]);
         if (cache.skinKey !== skinKey) {
-            const args = { skin: r.skin, pattern: r.skinPattern, options: { size: skinSize, beard, anatomy, bodyHair, earHoles, scalp, age: Skin.ageStep(r.age), facial } };
+            const args = { skin: r.skin, pattern: r.skinPattern, options: { size: skinSize, beard, anatomy, bodyHair, earHoles, scalp, age: Skin.ageStep(r.age), facial, ...(art.length ? { bodyArt: art, bodyArtPictures: artPictures, detail: artDetail } : {}) } };
             // A painter off the page (the builder's worker) answers later; until then the last skin stays.
             const painted = o.paintSkin ? o.paintSkin(skinKey, args) : Skin.paint(pack, args.skin, args.pattern, args.options);
             if (painted) { cache.skin = painted; cache.skinKey = skinKey; }
@@ -194,6 +211,8 @@
         textures['skin.png'] = cache.skin;
         body.texture = 'skin.png';
         if(cache.skin.normal&&r.skinPattern.type==='scales'){textures['skin-scales-normal.png']=cache.skin.normal;body.normalTexture='skin-scales-normal.png';body.normalScale=.55;}
+        // Body art hook: glowing ink and implant light in the skin's own picture.
+        if (cache.skin.emissive && art.length) { textures['skin-glow.png'] = cache.skin.emissive; body.emissive = '#ffffff'; body.emissiveTexture = 'skin-glow.png'; body.emissiveIntensity = 1; }
         // Scales and panels shine; skin under a coat is as matte as the fur painted on it.
         body.roughness = r.skinPattern.type === 'scales' || r.skinPattern.type === 'panels' ? 0.45 : r.bodyHair.fur > 0.3 ? 0.85 : 0.62;
         if (r.features.machinery.type === 'android') { body.roughness = 0.42; body.metalness = 0.15; }
@@ -274,6 +293,10 @@
             const closed = covers.some(id => FACE_COVERS.has(id));
             hairRecipe = Object.assign({}, r.hair, { style: 'bald', facial: closed ? Object.assign({}, r.hair.facial, { style: 'none' }) : r.hair.facial });
         }
+        // A gas mask's seal lies over the beard (RRCharacterWasteland): no facial hair through it.
+        if (covers.includes('gasMask') && hairRecipe.facial) hairRecipe = Object.assign({}, hairRecipe, { facial: Object.assign({}, hairRecipe.facial, { style: 'none' }) });
+        // So do cyber masks and faces over the lower face (RRCharacterCyberGear `hidesBeard`).
+        if (r.props.some(i => Props.BY_ID.get(i.id)?.hidesBeard) && hairRecipe.facial) hairRecipe = Object.assign({}, hairRecipe, { facial: Object.assign({}, hairRecipe.facial, { style: 'none' }) });
         if (graftKind) hairRecipe = Object.assign({}, hairRecipe, { style: 'bald', brows: { style: 'none' }, lashes: false, facial: Object.assign({}, r.hair.facial, { style: 'none' }) });
         // Merfolk hook: wet hair lies flat.
         if (mer && r.merfolk.wetHair) hairRecipe = Object.assign({}, hairRecipe, { volume: Math.min(hairRecipe.volume, 0.12) });
@@ -303,11 +326,13 @@
             textures['bodyhair.png'] = cache.bodyHairTex || (cache.bodyHairTex = Detail.bodyHairTexture(256));
         }
         if (features.parts.some(p => p.texture === 'scales.png')) textures['scales.png'] = cache.scales || (cache.scales = Species.scaleTexture());
+        // Body mods hook: the wear pictures cyber features (tails, wings, horns, ears) are plated with.
+        if (BodyMods) Object.assign(textures, BodyMods.texturesFor(features.parts, cache));
         // What each part is, for the view's materials: skin, eyes, cloth, metal, hair, a prop.
         body.kind = 'skin'; eyes.kind = 'eye';
         for (const p of outfit.parts) p.kind = p.metalness > 0.5 ? 'metal' : 'cloth';
         for (const p of hair) p.kind = 'hair';
-        for (const p of props.parts) p.kind = p.kind==='cloth'?'cloth':p.opacity != null && p.opacity < 1 ? 'glass' : p.metalness > 0.5 ? 'metal' : 'prop';
+        for (const p of props.parts) p.kind = p.kind==='cloth'?'cloth':p.opacity != null && p.opacity < 1 ? 'glass' : p.ownSurface ? 'prop' : p.metalness > 0.5 ? 'metal' : 'prop';
         for (const p of features.parts) p.kind = p.kind || 'feature';
         if (features.parts.some(p => p.texture === 'feather.png')) textures['feather.png'] = cache.feather || (cache.feather = Species.featherTexture());
         if (features.parts.some(p => p.texture === 'fairywing.png')) textures['fairywing.png'] = cache.fairyWing || (cache.fairyWing = Species.fairyWingTexture());
@@ -333,6 +358,21 @@
         if (Expressions && !graftKind) {
             if (Expressions.mouthCovered(pack, outfit.hidden)) Expressions.hideMouth(pack, built, body, outfit.hidden);
             else { Expressions.tintMouth(pack, built, body); parts.push(...Expressions.mouthParts(pack, built, r)); }
+        }
+        // Body art hook: the skin under the art on its own finer picture; piercings and cyber mods.
+        if (BodyArt && cache.skin.detail && art.length) {
+            const d = cache.skin.detail, part = BodyArt.detailPart(pack, body, d);
+            if (part) {
+                textures['bodyart.png'] = d;
+                if (d.normal) textures['bodyart-relief.png'] = d.normal;
+                if (d.emissive) textures['bodyart-glow.png'] = d.emissive;
+                parts.push(part);
+            }
+        }
+        if (BodyMods && r.bodyArt && !graftKind) {
+            const mods = BodyMods.build(pack, built, r, L, { outfit, body, quality: o.quality, static: !!o.static, cache });
+            parts.push(...mods.parts);
+            Object.assign(textures, mods.textures || {});
         }
         Object.assign(textures,props.textures);
         parts.push(...outfit.parts, ...hair, ...props.parts, ...features.parts);
@@ -938,7 +978,7 @@
         if (o.species && o.species !== 'human') Object.assign(r, withSpecies(r, o.species));
         const tones = Species.skinTones(r.species);
         if (tones.length) r.skin = pick(tones);
-        const theme = o.theme || pick(['Everyday', 'Everyday', 'Fantasy', 'Armor', 'Sci-fi']);
+        const theme = o.theme || pick(['Everyday', 'Everyday', 'Fantasy', 'Armor', 'Sci-fi', 'Wasteland', 'Cyberpunk']);
         // An outfit of the setting in its colors, with an accessory that belongs to it.
         const dressed = Wardrobe.dressRandom(rand, theme, Body.sexOf(body) === 'female');
         r.outfit = dressed.outfit;
@@ -953,6 +993,14 @@
             r.hair.facial = { ...r.hair.facial, color: '#f3f2ec' };
         }
         r.props = dressed.props;
+        // Cyberware (RRCharacterCyberGear): a sci-fi character sometimes wears a cyber look, drawn from its own
+        // sequence so the rest of the roll stays as it was.
+        const Cyber = root.RRCharacterCyberGear || (typeof require === 'function' ? require('./CharacterCyberGear.js') : null);
+        if (theme === 'Sci-fi' && Cyber) {
+            let c = scramble(seed + 7);
+            const roll = () => { c ^= c << 13; c >>>= 0; c ^= c >> 17; c ^= c << 5; c >>>= 0; return c / 4294967296; };
+            if (roll() < 0.45) r.props = r.props.concat(Cyber.randomLook(roll));
+        }
         const skinTones = ['#f1d3bd', '#e5b897', '#c69c7f', '#a8795a', '#8a5a3c', '#5e3b26', '#3f2618'];
         if (!o.species || o.species === 'human') r.skin = body.skin || pick(skinTones);
         // Eye colors as they occur in the character's people.

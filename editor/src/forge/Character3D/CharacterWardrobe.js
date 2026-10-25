@@ -22,6 +22,11 @@
     'use strict';
 
     const front = a => Math.max(0, Math.cos(a));
+    // Wear and damage (RRCharacterWear) and wasteland gear (RRCharacterWasteland); both optional.
+    const WearMod = () => root.RRCharacterWear || (typeof require === 'function' ? require('./CharacterWear.js') : null);
+    const WasteMod = () => root.RRCharacterWasteland || (typeof require === 'function' ? require('./CharacterWasteland.js') : null);
+    // Cyberpunk clothing and cyber armor (RRCharacterCyberwear); optional.
+    const CyberMod = () => { if (root.RRCharacterCyberwear) return root.RRCharacterCyberwear; try { return typeof require === 'function' ? require('./CharacterCyberwear.js') : null; } catch (e) { return null; } };
 
     /** Necklines: the top edge of a garment on the trunk, by angle about it (0 in front). */
     const NECKLINES = {
@@ -157,7 +162,8 @@
     const plates = (base, bands) => Object.assign(base, { bands });
 
     // An armor piece's `style` (the outfit card's Style choice).
-    const PLATE_STYLES = [['smooth', 'Smooth'], ['fluted', 'Fluted'], ['riveted', 'Riveted']];
+    // Scrap: riveted plates in mismatched, chipped paint and rust (RRCharacterWasteland.scrapFinish).
+    const PLATE_STYLES = [['smooth', 'Smooth'], ['fluted', 'Fluted'], ['riveted', 'Riveted'], ['scrap', 'Scrap']];
     const LEATHER_STYLES = [['moulded', 'Moulded'], ['studded', 'Studded'], ['lamellar', 'Lamellar']];
     // Pressure and exploration suits: cylindrical limbs from the elbow and knee, a torso that hangs off the chest.
     const SUIT_HANG = { arms: 1, armTaper: 0.12, legs: 1, legTaper: 0.06, sag: 0.45, rest: 0.006, chest: 0.75, slope: 0.22 };
@@ -166,34 +172,79 @@
     // 0.9 behind), so no skin shows between them on any body.
     const BODICE = 0.75;
 
+    // ── construction details (RRCharacterGarmentDetails.construct) ────────
+    // A garment's `details`: the few choices its Outfit card shows, each a key of its own on the
+    // outfit item (saved with it; unset, its `default`). `construction`: its tailoring measures
+    // (meters on a 1.7 m body; spine positions as in the header) for the details to be cut to.
+    const LAPELS = { id: 'lapel', label: 'Lapels', choices: [['notch', 'Notch'], ['peak', 'Peak'], ['shawl', 'Shawl'], ['none', 'None']] };
+    const POCKETS = { id: 'pockets', label: 'Pockets', choices: [['flap', 'Flap'], ['welt', 'Welt'], ['patch', 'Patch'], ['none', 'None']] };
+    const COLLARS = { id: 'collarStyle', label: 'Collar', choices: [['point', 'Point'], ['spread', 'Spread'], ['button', 'Button-down'], ['band', 'Band'], ['none', 'None']] };
+    const TROUSERS = { id: 'trouserStyle', label: 'Style', choices: [['jeans', 'Five-pocket'], ['chinos', 'Chinos'], ['tailored', 'Tailored'], ['plain', 'Plain']] };
+    const choice = (base, def, choices) => Object.assign({}, base, { default: def }, choices ? { choices: base.choices.filter(c => choices.includes(c[0])) } : {});
+    const toggle = (id, label, def = true) => ({ id, label, toggle: true, default: def });
+    const RIBS = toggle('ribs', 'Rib bands');
+    /**
+     * A tailored front: the piece's own cut, opened in a V from the top button (`button`, a spine
+     * position) up to the neck, wider at the top with the item's `open`; below the button the
+     * fronts curve away (`below`, radians per spine step). The V's edge is where a lapel rolls.
+     */
+    function vFront(piece, item, { button = 1.2, neck = 3.95, width = 0.38, below = 0.15 } = {}) {
+        const rules = Object.assign({}, piece.rules, { open: 0 }), top = width + (item.open ?? 0.25) * 0.4;
+        piece.value = (an, v) => {
+            const O = root.RRCharacterOutfit || require('./CharacterOutfit.js');
+            const c = O.coverage(an, v, rules);
+            if (an.member[v * 5] < 0.3) return c;
+            const s = an.s[v * 5], a = Math.abs(an.angle[v * 5]), t = (s - button) / (neck - button);
+            const open = s >= button ? 0.075 + (top - 0.075) * Math.pow(Math.min(1, t), 1.35) + Math.max(0, t - 1) * 1.5 : 0.075 + (button - s) * below;
+            return Math.min(c, (a - open) * 0.6);
+        };
+        // An open front's edge runs straight (RRCharacterOutfit.lay eases it as one).
+        piece.rules = Object.assign({}, piece.rules, { open: 0.01 });
+        return piece;
+    }
+    /** A suit jacket: a fitted body to the waist and its skirt over the seat, the quarters cut away; cropped, the body alone. */
+    function suitJacket(i) {
+        const body = top(Object.assign({}, i, { sleeves: 1, neckline: 'crew', length: (i.length ?? 0.75) > 0.6 ? BODICE : i.length }), { lift: 0.016, drape: 6, structured: true });
+        if ((i.length ?? 0.75) <= 0.6) return [vFront(body, i, { below: 0.25 })];
+        const len = 0.05 + ((i.length ?? 0.75) - 0.5) * 0.8;
+        const skirt = skirtPiece(Object.assign({}, i, { length: len, flare: 0.06 }), { lift: 0.022,
+            value: (an, v) => Math.min((len - an.skirtU[v]) * 4, (Math.abs(an.angle[v * 5]) - (0.15 + 0.5 * Math.pow(Math.max(0, an.skirtU[v]) / len, 1.6))) * 0.8) });
+        return [vFront(body, i), skirt];
+    }
+
     // ── the catalog ───────────────────────────────────────────────────────
     // slot: one garment per slot. group: where the picker lists it.
     const GARMENTS = [
         // Everyday
         { id: 'tshirt', label: 'T-shirt', slot: 'top', group: 'Everyday', knobs: ['sleeves', 'length', 'neckline', 'fit'], defaults: { color: '#3d6fb6', sleeves: 0.3, length: 0.62, neckline: 'crew', fit: 0.35, material: 'cloth', trimWidth: 0.05 },
-            pieces: i => [top(i)] },
+            details: [RIBS], pieces: i => [top(i)] },
         { id: 'tanktop', label: 'Tank top', slot: 'top', group: 'Everyday', knobs: ['length', 'neckline', 'fit'], defaults: { color: '#e8e2d4', sleeves: 0, length: 0.5, neckline: 'scoop', fit: 0.2, material: 'cloth' },
-            pieces: i => [top(Object.assign({}, i, { sleeves: 0 }))] },
+            details: [RIBS], pieces: i => [top(Object.assign({}, i, { sleeves: 0 }))] },
         { id: 'shirt', label: 'Button shirt', slot: 'top', group: 'Everyday', knobs: ['sleeves', 'length', 'neckline', 'fit'], defaults: { color: '#f2f0ea', color2: '#c8d4e4', sleeves: 1, length: 0.55, neckline: 'crew', fit: 0.4, material: 'cloth', pattern: 'solid', trim: '#ffffff', trimWidth: 0.06 },
+            details: [choice(COLLARS, 'point'), toggle('chestPocket', 'Chest pocket', false)],
             pieces: i => [top({...i,neckline:i.neckline==='high'?'crew':i.neckline}), { collar: { open: i.neckline === 'high' ? 0.06 : 0.24 } }] },
         { id: 'sweater', label: 'Sweater', slot: 'top', group: 'Everyday', knobs: ['sleeves', 'length', 'neckline', 'fit'], defaults: { color: '#7a3b3b', color2: '#5a2a2a', sleeves: 1, length: 0.6, neckline: 'turtle', fit: 0.6, material: 'cloth', pattern: 'stripes', scale: 0.6, trimWidth: 0.12 },
-            pieces: i => [top(i, { lift: 0.014 + (i.fit ?? 0.5) * 0.012 })] },
+            details: [RIBS], pieces: i => [top(i, { lift: 0.014 + (i.fit ?? 0.5) * 0.012 })] },
         { id: 'hoodie', label: 'Hoodie', slot: 'top', group: 'Everyday', knobs: ['length', 'fit'], defaults: { color: '#4a4f58', sleeves: 1, length: 0.65, neckline: 'crew', fit: 0.7, material: 'cloth', trim: '#3a3e46', trimWidth: 0.1 },
-            pieces: i => [top(Object.assign({}, i, { sleeves: 1 }), { lift: 0.016 }), hood(i)] },
+            details: [RIBS, toggle('pocket', 'Pocket'), toggle('drawstrings', 'Drawstrings')], pieces: i => [top(Object.assign({}, i, { sleeves: 1 }), { lift: 0.016 }), hood(i)] },
         { id: 'jeans', label: 'Trousers', slot: 'bottom', group: 'Everyday', knobs: ['length', 'fit'], defaults: { color: '#2f4468', length: 1, fit: 0.3, material: 'cloth', trim: '#22314b', trimWidth: 0.05 },
-            pieces: i => [legs(i)] },
+            details: [choice(TROUSERS, 'jeans'), toggle('loops', 'Belt loops')], pieces: i => [legs(i)] },
         { id: 'shorts', label: 'Shorts', slot: 'bottom', group: 'Everyday', knobs: ['length', 'fit'], defaults: { color: '#7a6a4f', length: 0.18, fit: 0.45, material: 'cloth', trimWidth: 0.05 },
-            pieces: i => [legs(i)] },
+            details: [choice(TROUSERS, 'chinos'), toggle('loops', 'Belt loops')], pieces: i => [legs(i)] },
         { id: 'leggings', label: 'Leggings', slot: 'bottom', group: 'Everyday', knobs: ['length'], defaults: { color: '#1f1f24', length: 0.95, fit: 0, material: 'cloth' },
             pieces: i => [legs(Object.assign({}, i, { fit: 0 }), { lift: 0.004, drape: 1 })] },
         { id: 'skirt', label: 'Skirt', slot: 'bottom', group: 'Everyday', knobs: ['length', 'flare'], defaults: { color: '#5b3a6e', length: 0.35, flare: 0.35, material: 'cloth', trimWidth: 0.04 },
-            pieces: i => [skirtPiece(i)] },
+            details: [toggle('waistband', 'Waistband')], pieces: i => [skirtPiece(i)] },
         { id: 'dress', label: 'Dress', slot: 'dress', group: 'Everyday', knobs: ['sleeves', 'length', 'flare', 'neckline'], defaults: { color: '#a8324a', sleeves: 0.25, length: 0.7, flare: 0.5, neckline: 'scoop', material: 'silk', trimWidth: 0.04 },
-            pieces: i => [top(Object.assign({}, i, { length: BODICE }), { lift: 0.006, drape: 3, hang: { chest: 0.12, slope: 0.8 } }), skirtPiece(i)] },
-        { id: 'suitjacket', label: 'Suit jacket', slot: 'over', group: 'Everyday', knobs: ['length', 'fit'], defaults: { color: '#2b2e36', length: 0.75, fit: 0.4, material: 'cloth', open: 0.25, neckline: 'deepv', trimWidth: 0.04, trim: '#1e2026' },
-            pieces: i => [top(Object.assign({}, i, { sleeves: 1, neckline: 'deepv' }), { lift: 0.016, drape: 6, structured: true })] },
-        { id: 'trenchcoat', label: 'Long coat', slot: 'over', group: 'Everyday', knobs: ['length', 'fit', 'flare'], defaults: { color: '#7b6345', length: 0.85, flare: 0.25, fit: 0.5, material: 'leather', open: 0.2, trimWidth: 0.05, trim: '#5e4a32' },
-            pieces: i => [top(Object.assign({}, i, { sleeves: 1, length: BODICE, neckline: 'crew' }), { lift: 0.018, drape: 6, structured: true }), skirtPiece(Object.assign({}, i, { open: 0.25 }), { lift: 0.024 }),{collar:{stand:.04,fall:.035,open:.30,gap:.012}}] },
+            details: [toggle('seams', 'Seams')], pieces: i => [top(Object.assign({}, i, { length: BODICE }), { lift: 0.006, drape: 3, hang: { chest: 0.12, slope: 0.8 } }), skirtPiece(i)] },
+        { id: 'suitjacket', label: 'Suit jacket', slot: 'over', group: 'Everyday', knobs: ['length', 'fit', 'open'], defaults: { color: '#2b2e36', length: 0.75, fit: 0.4, material: 'cloth', open: 0.25, neckline: 'deepv', trimWidth: 0.04, trim: '#1e2026' },
+            details: [choice(LAPELS, 'notch'), choice(POCKETS, 'flap'), toggle('vent', 'Back vent')],
+            construction: { tailored: true, breakS: 1.2, gorge: 3.55, lapelWidth: 0.08, fall: 0.022, stand: 0.026, leaf: 0.036, buttons: [[1.2, 0.012], [0.66, 0.012]], buttonRadius: 0.0088, pocketS: 0.86, pocketX: 0.1, pocketW: 0.15, pocketH: 0.16, flapH: 0.05, chestWelt: [2.55, 0.1], sleeveButtons: 4, vent: 0.2 },
+            pieces: i => suitJacket(i) },
+        { id: 'trenchcoat', label: 'Long coat', slot: 'over', group: 'Everyday', knobs: ['length', 'fit', 'flare', 'open'], defaults: { color: '#7b6345', length: 0.85, flare: 0.25, fit: 0.5, material: 'leather', open: 0.2, trimWidth: 0.05, trim: '#5e4a32' },
+            details: [choice(LAPELS, 'notch'), toggle('belt', 'Belt'), toggle('straps', 'Shoulder straps')],
+            construction: { tailored: true, breakS: 2.2, gorge: 3.5, lapelWidth: 0.095, fall: 0.03, stand: 0.034, leaf: 0.05, buttons: [[2.15, 0.07], [2.15, -0.07], [1.6, 0.07], [1.6, -0.07], [0.7, 0.07], [0.7, -0.07]], buttonRadius: 0.011, buttonColor: '#2a2018', sleeveButtons: 0 },
+            pieces: i => [vFront(top(Object.assign({}, i, { sleeves: 1, length: BODICE, neckline: 'crew' }), { lift: 0.018, drape: 6, structured: true }), i, { button: 2.2, width: 0.36, below: 0 }), skirtPiece(Object.assign({}, i, { open: 0.25 }), { lift: 0.024 })] },
         { id: 'sneakers', label: 'Sneakers', slot: 'feet', group: 'Everyday', knobs: ['color2'], defaults: { color: '#f4f4f4', color2: '#d03a3a', bulk: 0, material: 'rubber', trim: '#e8e8e8' },
             pieces: i => [shoe('sneaker', i)] },
         { id: 'shoes', label: 'Dress shoes', slot: 'feet', group: 'Everyday', defaults: { color: '#1b1612', bulk: 0, material: 'leather' },
@@ -215,16 +266,16 @@
         { id: 'peasant', label: 'Peasant blouse', slot: 'top', group: 'Fantasy', knobs: ['sleeves', 'length'], defaults: { color: '#ece3cf', sleeves: 0.9, length: 0.45, neckline: 'boat', fit: 0.8, material: 'cloth', bell: 0.5 },
             pieces: i => [top(Object.assign({}, i, { neckline: 'boat' }), { liftAt: bellSleeves(i.bell ?? 0.5) })] },
         { id: 'robe', label: 'Robe', slot: 'dress', group: 'Fantasy', knobs: ['length', 'flare', 'bell', 'neckline'], defaults: { color: '#2e3f8a', length: 1, flare: 0.45, bell: 0.8, neckline: 'v', material: 'cloth', trim: '#d4af37', trimWidth: 0.08 },
-            pieces: i => [top(Object.assign({}, i, { sleeves: 1, length: BODICE, fit: 0.7 }), { liftAt: bellSleeves(i.bell ?? 0.8) }), skirtPiece(i, { lift: 0.02 })] },
-        { id: 'gown', label: 'Gown', slot: 'dress', group: 'Fantasy', knobs: ['sleeves', 'flare', 'neckline'], defaults: { color: '#7c2a6b', color2: '#d8b4d0', sleeves: 0, length: 1, flare: 0.9, neckline: 'strapless', material: 'silk', trim: '#e8d39a', trimWidth: 0.05, pattern: 'gradient', from: 0.5, to: -3 },
+            details: [toggle('lining', 'Lining')], pieces: i => [top(Object.assign({}, i, { sleeves: 1, length: BODICE, fit: 0.7 }), { liftAt: bellSleeves(i.bell ?? 0.8) }), skirtPiece(i, { lift: 0.02 })] },
+        { id: 'gown', label: 'Gown', slot: 'dress', group: 'Fantasy', knobs: ['sleeves', 'flare', 'neckline'], details: [toggle('seams', 'Seams')], defaults: { color: '#7c2a6b', color2: '#d8b4d0', sleeves: 0, length: 1, flare: 0.9, neckline: 'strapless', material: 'silk', trim: '#e8d39a', trimWidth: 0.05, pattern: 'gradient', from: 0.5, to: -3 },
             pieces: i => [top(Object.assign({}, i, { length: BODICE, fit: 0.05 }), { lift: 0.005, drape: 2, hang: null }), skirtPiece(Object.assign({}, i, { length: 1 }), { lift: 0.02 })] },
-        { id: 'vest', label: 'Vest', slot: 'over', group: 'Fantasy', knobs: ['length', 'open'], defaults: { color: '#5a3d22', length: 0.45, open: 0.1, material: 'leather', neckline: 'deepv', trim: '#3a2614', trimWidth: 0.06 },
+        { id: 'vest', label: 'Vest', slot: 'over', group: 'Fantasy', knobs: ['length', 'open'], details: [choice(POCKETS, 'welt', ['welt', 'none'])], defaults: { color: '#5a3d22', length: 0.45, open: 0.1, material: 'leather', neckline: 'deepv', trim: '#3a2614', trimWidth: 0.06 },
             pieces: i => [top(Object.assign({}, i, { sleeves: 0, neckline: 'deepv', fit: 0.3 }), { lift: 0.016, drape: 5 })] },
         { id: 'corset', label: 'Corset', slot: 'waist', group: 'Fantasy', defaults: { color: '#3a1e2a', color2: '#5a3040', material: 'leather', pattern: 'vstripes', scale: 1.5, trim: '#c9a35a', trimWidth: 0.08 },
             pieces: i => [{ surface: 'tights', rules: { spine: a => [0.55, 2.75 - 0.25 * front(a)] }, lift: 0.024, drape: 6 }] },
         { id: 'sash', label: 'Belt', slot: 'waist', group: 'Fantasy', knobs: [], defaults: { color: '#3a2618', material: 'leather', trim: '#2a1a10', trimWidth: 0 },
             pieces: i => [{ band: { from: 0.88, to: 1.25 } }] },
-        { id: 'kilt', label: 'Kilt', slot: 'bottom', group: 'Fantasy', knobs: ['length'], defaults: { color: '#2f5a3a', color2: '#8a2a2a', length: 0.32, flare: 0.25, material: 'cloth', pattern: 'plaid', scale: 1.4 },
+        { id: 'kilt', label: 'Kilt', slot: 'bottom', group: 'Fantasy', knobs: ['length'], details: [toggle('waistband', 'Waistband')], defaults: { color: '#2f5a3a', color2: '#8a2a2a', length: 0.32, flare: 0.25, material: 'cloth', pattern: 'plaid', scale: 1.4 },
             pieces: i => [skirtPiece(i)] },
         { id: 'loincloth', label: 'Loincloth', slot: 'bottom', group: 'Fantasy', knobs: ['length'], defaults: { color: '#6a4a2a', length: 0.4, material: 'leather' },
             pieces: i => [{ apronPanels: true }, { surface: 'tights', rules: { spine: [-3, .85], legs: [-1, 0.05] }, lift: 0.008, drape: 2 }] },
@@ -298,6 +349,12 @@
 
         // Generated cuts: no external garment mesh or texture is needed for these.
         ...generatedGarments(),
+
+        // Wasteland: scavenged, patched, layered and weathered (RRCharacterWear, RRCharacterWasteland).
+        ...wastelandGarments(),
+
+        // Cyberpunk: techwear with bonded panels and light channels, and layered cyber armor (RRCharacterCyberwear).
+        ...cyberGarments(),
 
         // Modeled: MakeHuman's own garments (RRCharacterClothes), fitted to the body, in their own colors until one is chosen.
         modeled('mh_tee_jeans', 'T-shirt and jeans', 'dress'),
@@ -396,9 +453,108 @@
     }
 
     const BY_ID = new Map(GARMENTS.map(g => [g.id, g]));
+    /**
+     * Post-apocalyptic garments. Each starts worn (its `wear` default: the Outfit card's Wear
+     * slider); `ragged` hems tatter as they wear; `fray: false` keeps a wrapped strip's edges
+     * clean; `pockets` are sewn on as patches of the garment's own cloth (RRCharacterWear).
+     * Gear (harness, belt, mask, goggles, scrap armor, boot wraps) is built by RRCharacterWasteland.
+     */
+    function wastelandGarments() {
+        const W = 'Wasteland', REPAIRS = toggle('repairs', 'Patches and tape');
+        const scarf = (i, from, top) => ({ surface: 'body', value: (an, v) => {
+            if (an.member[v * 5] < 0.5) return -1;
+            const sv = an.s[v * 5], a = an.angle[v * 5], fr = Math.max(0, Math.cos(a));
+            return Math.max(-1, Math.min(1, Math.min(sv - from(fr), top(fr) - sv) * 3));
+        }, lift: 0.012, drape: 6, smoothCut: 6, edgeSmooth: 16, hideMargin: 0.02,
+            // Rolled as it is wound: ridges round the neck; over the face it stands off the nose and lips.
+            liftAt: f => (f.fam === 0 ? 0.005 * Math.abs(Math.sin(f.s * Math.PI * 2.6 + 0.6)) * (1 - Math.max(0, Math.min(1, (f.s - 4.5) / 0.2))) + 0.006 * Math.max(0, Math.cos(f.ang)) + (f.s > 4.55 ? 0.008 * Math.max(0, Math.cos(f.ang)) : 0) : 0) });
+        return [
+            { id: 'duster', label: 'Wasteland duster', slot: 'over', group: W, ragged: true, knobs: ['length', 'fit', 'flare', 'open'], styles: [['capelet', 'Shoulder cape'], ['plain', 'Plain']],
+                defaults: { color: '#8a7556', color2: '#5e4c34', trim: '#4a3b28', length: 0.95, flare: 0.35, fit: 0.32, open: 0.45, sleeves: 1, neckline: 'crew', material: 'canvas', trimWidth: 0, wear: 0.75, style: 'capelet' },
+                details: [REPAIRS], pockets: [{ y: 0.8, ang: 0.75, w: 0.16, h: 0.18 }, { y: 0.8, ang: -0.75, w: 0.16, h: 0.18 }],
+                // Construction (RRCharacterGarmentDetails): a storm flap on the right breast and a buttoned throat latch.
+                // (The flap is under the shoulder cape when it has one.)
+                construction: { parts: [{ kind: 'stormFlap', side: -1, x: 0.12, s: 3.55, w: 0.13, h: 0.2, when: ['style', 'plain'] }, { kind: 'throatLatch', s: 3.75, width: 0.034 }] },
+                pieces: i => {
+                    const open = i.open ?? 0.45, list = [
+                        top(Object.assign({}, i, { sleeves: 1, length: BODICE, neckline: 'crew', open: 0.05 + open * 0.3 }), { lift: 0.017, drape: 6 }),
+                        skirtPiece(Object.assign({}, i, { open: 0.12 + open * 0.4 }), { lift: 0.026 }),
+                        { collar: { open: 0.32, stand: 0.042, fall: 0.038, point: 0.02 } }];
+                    // A storm cape over the shoulders, short and open in front.
+                    if ((i.style || 'capelet') === 'capelet') list.push({ wasteGear: 'capelet' });
+                    return list;
+                } },
+            { id: 'fieldJacket', label: 'Patched field jacket', slot: 'over', group: W, knobs: ['sleeves', 'length', 'fit', 'open'],
+                defaults: { color: '#56583c', color2: '#3e4030', trim: '#3a3a2a', sleeves: 1, length: 0.6, fit: 0.22, open: 0.2, neckline: 'crew', material: 'canvas', trimWidth: 0, wear: 0.6 },
+                details: [REPAIRS], pockets: [{ y: 1.27, ang: 0.4, w: 0.11, h: 0.12 }, { y: 1.27, ang: -0.4, w: 0.11, h: 0.12 }, { y: 1.05, ang: 0.55, w: 0.14, h: 0.13 }, { y: 1.05, ang: -0.55, w: 0.14, h: 0.13 }],
+                // Construction (RRCharacterGarmentDetails): button bands down the open front, buttoned cuffs, flaps over its chest pockets.
+                construction: { parts: [{ kind: 'frontPlacket', width: 0.03, buttons: 5 }, { kind: 'cuffs', width: 0.055 }, { kind: 'pocketFlaps', pockets: [0, 1], h: 0.045, point: 0 }] },
+                pieces: i => [top(Object.assign({}, i, { neckline: 'crew' }), { lift: 0.011, drape: 4 }), { collar: { open: 0.35, stand: 0.03, fall: 0.028, point: 0.018 } }] },
+            { id: 'ragWraps', label: 'Rag wraps', slot: 'wrap', group: W, knobs: ['length'],
+                defaults: { color: '#9a8a6a', color2: '#6a5a42', length: 0.7, material: 'cloth', trimWidth: 0, wear: 0.8 },
+                // Strips wound round the trunk and a sash over the shoulder (RRCharacterWasteland).
+                pieces: () => [{ wasteGear: 'ragWraps' }] },
+            { id: 'shawl', label: 'Rag shawl', slot: 'cloak', group: W, ragged: true,
+                defaults: { color: '#7a5a48', color2: '#5a4032', trim: '#4a3226', material: 'wool', trimWidth: 0, wear: 0.7 },
+                details: [REPAIRS],
+                pieces: () => [{ surface: 'tights', value: (an, v) => {
+                    const O = root.RRCharacterOutfit || require('./CharacterOutfit.js');
+                    const arm = Math.max(an.member[v * 5 + 1], an.member[v * 5 + 2]);
+                    if (arm > 0.5) return O.coverage(an, v, { arms: [-1, 1.3] });
+                    if (an.member[v * 5] < 0.5) return -1;
+                    const sv = an.s[v * 5], a = an.angle[v * 5];
+                    // Low to a point behind, its two ends hanging in front, up over the arms between.
+                    const low = 2.95 - 1.35 * Math.max(0, -Math.cos(a)) ** 2 - 1.05 * Math.exp(-(((Math.abs(a) - 0.5) / 0.28) ** 2));
+                    return Math.max(-1, Math.min(1, Math.min(sv - low, 4.02 - sv, (Math.abs(a) - 0.13) * 1.2) * 2));
+                }, lift: 0.024, drape: 9, folds: { role: 'top', fit: 0.9, sleeves: false, seed: 7.1 }, hang: { chest: 0.9, slope: 0.22, arms: 0.4, sag: 0.6 } }] },
+            { id: 'shemagh', label: 'Desert scarf', slot: 'neck', group: W, knobs: [], styles: [['neck', 'Round the neck'], ['face', 'Over the face']],
+                defaults: { color: '#b8a98a', color2: '#5a4a38', material: 'cloth', pattern: 'plaid', scale: 2.2, trimWidth: 0, wear: 0.55, style: 'neck' },
+                // Over the face, the scarf is pulled up off the neck wrap and tied behind (RRCharacterWasteland).
+                pieces: i => [scarf(i, fr => 3.72 + 0.1 * fr, fr => 4.42 + 0.22 * (1 - fr))].concat(i.style === 'face' ? [{ wasteGear: 'faceVeil' }] : []) },
+            { id: 'headWrap', label: 'Head wrap', slot: 'head', group: W, capsHair: false, knobs: [],
+                defaults: { color: '#9a7a52', color2: '#6a5038', material: 'cloth', pattern: 'solid', trimWidth: 0, wear: 0.5 },
+                // Wound round and round: diagonal rolls of cloth, fuller over the crown.
+                pieces: i => [headPiece(Object.assign({}, i, { length: 0.62, face: 0 }), { lift: 0.012, drape: 6 }), { wasteGear: 'headWrap' }] },
+            { id: 'poncho', label: 'Hooded poncho', slot: 'cloak', group: W, ragged: true, knobs: ['length'],
+                defaults: { color: '#8a6a46', color2: '#4a3426', trim: '#5a4830', length: 0.5, material: 'wool', trimWidth: 0, wear: 0.7 },
+                // A blanket over the shoulders and arms, hanging straight from them, and its hood (RRCharacterWasteland).
+                pieces: () => [{ wasteGear: 'poncho' }] },
+            { id: 'bandages', label: 'Bandaged forearms', slot: 'wrists', group: W, knobs: ['length'],
+                defaults: { color: '#d4c9ae', color2: '#a89a7a', length: 0.6, material: 'cloth', trimWidth: 0, wear: 0.55 },
+                pieces: () => [{ wasteGear: 'bandages' }] },
+            { id: 'legWraps', label: 'Shin wraps', slot: 'legarmor', group: W, knobs: ['length'],
+                defaults: { color: '#8a7a5e', color2: '#5e5240', length: 0.6, material: 'cloth', trimWidth: 0, wear: 0.7 },
+                pieces: () => [{ wasteGear: 'legWraps' }] },
+            { id: 'workBoots', label: 'Work boots', slot: 'feet', group: W, knobs: ['length'], styles: [['wrapped', 'Rag wrapped'], ['plain', 'Plain']],
+                defaults: { color: '#3e2c1e', color2: '#7a6a50', trim: '#2a1e14', length: 0.45, bulk: 0.2, material: 'leather', wear: 0.7, style: 'wrapped' },
+                pieces: i => [shoe('boot', i, { sole: 0.021, welt: 0.006, toe: 0.016, point: 0.04, heel: 1, spring: 0.008, wall: 0.03 })].concat((i.style || 'wrapped') === 'wrapped' ? [{ wasteGear: 'bootWraps' }] : []) },
+            { id: 'harness', label: 'Scavenger harness', slot: 'chestRig', group: W, knobs: [], styles: [['bandolier', 'Bandolier'], ['harness', 'Chest harness']],
+                defaults: { color: '#4b4632', color2: '#6b5a3a', trim: '#77746a', material: 'canvas', wear: 0.6, style: 'bandolier' }, pieces: () => [{ wasteGear: 'harness' }] },
+            { id: 'toolBelt', label: 'Utility belt', slot: 'waist', group: W, knobs: [],
+                defaults: { color: '#4a3424', color2: '#5c5a44', trim: '#8a8678', material: 'leather', wear: 0.6 }, pieces: () => [{ wasteGear: 'toolBelt' }] },
+            { id: 'gasMask', label: 'Gas mask', slot: 'face', group: W, knobs: [], styles: [['single', 'Single filter'], ['twin', 'Twin filters']],
+                defaults: { color: '#2c2e2a', color2: '#4d5638', trim: '#5d5a52', material: 'rubber', wear: 0.5, style: 'single' }, pieces: () => [{ wasteGear: 'gasMask' }] },
+            { id: 'dustGoggles', label: 'Dust goggles', slot: 'eyes', group: W, knobs: [], styles: [['forehead', 'On the forehead'], ['eyes', 'Over the eyes']],
+                defaults: { color: '#4a3624', color2: '#3a5040', trim: '#8a7a5a', material: 'leather', wear: 0.5, style: 'forehead' }, pieces: () => [{ wasteGear: 'goggles' }] },
+            { id: 'scrapArmor', label: 'Scrap chest armor', slot: 'armor', group: W, knobs: [], styles: [['plates', 'Riveted scrap'], ['tire', 'Tire rubber'], ['sign', 'Road sign']],
+                defaults: { color: '#8a8070', color2: '#3a2a1c', trim: '#6d6a64', material: 'metal', wear: 0.7, style: 'plates' }, pieces: () => [{ wasteGear: 'scrapArmor' }] },
+            { id: 'scrapPauldrons', label: 'Scrap pauldrons', slot: 'shoulders', group: W, knobs: [], styles: [['mixed', 'Hubcap and sign'], ['hubcap', 'Hubcaps'], ['sign', 'Road signs']],
+                defaults: { color: '#8a8070', color2: '#3a2a1c', trim: '#77746a', material: 'metal', wear: 0.7, style: 'mixed' }, pieces: () => [{ wasteGear: 'scrapPauldrons' }] }
+        ];
+    }
+
+    /** The cyberpunk garments, cut with this file's own helpers (RRCharacterCyberwear.garments). */
+    function cyberGarments() {
+        const Cyber = CyberMod();
+        if (!Cyber || !Cyber.garments) return [];
+        return Cyber.garments({ top, legs, hood, shoe, hands, headPiece, vFront, skirtPiece, BODICE, NECKLINES, SHOE_KINDS, seedOf, toggle, choice, RIBS });
+    }
+    /** Its one-click outfits. */
+    function cyberPresets() { const Cyber = CyberMod(); return Cyber && Cyber.PRESETS ? Cyber.PRESETS : []; }
+
     function generatedGarments() {
-        const garment = (id, label, slot, group, defaults, pieces, knobs) => ({ id, label, slot, group,
-            defaults: Object.assign({ color: '#536781', color2: '#ddd6c8', material: 'cloth', trimWidth: 0.04 }, defaults), pieces, knobs });
+        const garment = (id, label, slot, group, defaults, pieces, knobs, extra) => Object.assign({ id, label, slot, group,
+            defaults: Object.assign({ color: '#536781', color2: '#ddd6c8', material: 'cloth', trimWidth: 0.04 }, defaults), pieces, knobs }, extra);
         // Work suits hang loose: from the chest, the elbow and the knee, folding at the joints.
         const allInOne = i => { const fit = i.fit ?? 0.5; return [{ surface: 'tights', rules: { spine: [-3, 4.0], arms: [-1, 0.85 + (i.sleeves ?? 1) * 2.12], legs: [-1, 0.25 + (i.length ?? 1) * 1.72] }, lift: 0.008 + fit * 0.01, drape: 5,
             folds: { role: 'one', fit, sleeves: true, seed: seedOf(i) }, hang: { arms: (i.sleeves ?? 1) > 0.7 ? ease(0.1, 0.6, fit) : 0, armTaper: 0.3, sag: 0.6 * ease(0.2, 0.7, fit), rest: 0.003, legs: ease(0.1, 0.6, fit), legTaper: 0.1, chest: 0.8 * ease(0.2, 0.7, fit), slope: 0.3 } }]; };
@@ -433,21 +589,26 @@
         const gown = i => [top(Object.assign({}, i, { length: BODICE }), { lift: 0.008, hang: { chest: 0.12, slope: 0.8 } }), skirtPiece(i)];
         return [
             garment('polo', 'Polo shirt', 'top', 'Everyday', { sleeves: 0.3, length: 0.6, fit: 0.35, neckline: 'v' }, i => [top(i), { collar: { open: 0.16 } }], ['sleeves', 'length', 'fit']),
-            garment('cardigan', 'Cardigan', 'over', 'Everyday', { color: '#8a6558', sleeves: 1, length: 0.7, fit: 0.7, open: 0.3, neckline: 'deepv' }, i => [top(i, { lift: 0.016 })], ['length', 'fit', 'open']),
-            garment('cropTop', 'Crop top', 'top', 'Everyday', { length: 0.05, sleeves: 0, neckline: 'scoop', fit: 0.1 }, i => [top(i)], ['sleeves', 'length', 'neckline']),
+            garment('cardigan', 'Cardigan', 'over', 'Everyday', { color: '#8a6558', sleeves: 1, length: 0.7, fit: 0.7, open: 0.3, neckline: 'deepv' }, i => [top(i, { lift: 0.016 })], ['length', 'fit', 'open'], { details: [RIBS, choice(POCKETS, 'patch', ['patch', 'none'])] }),
+            garment('cropTop', 'Crop top', 'top', 'Everyday', { length: 0.05, sleeves: 0, neckline: 'scoop', fit: 0.1 }, i => [top(i)], ['sleeves', 'length', 'neckline'], { details: [RIBS] }),
             garment('offShoulder', 'Off-shoulder blouse', 'top', 'Everyday', { color: '#e0c8b8', length: 0.5, sleeves: 0.6, neckline: 'boat', fit: 0.6 }, i => [top(i, { rules: { spine: [1, 3.35], arms: [1.15, 0.85 + i.sleeves * 2.12] } })], ['sleeves', 'fit']),
-            garment('flaredTrousers', 'Flared trousers', 'bottom', 'Everyday', { length: 1, flare: 0.8, fit: 0.4 }, i => [legs(i)], ['length', 'fit', 'flare']),
-            garment('capri', 'Capri trousers', 'bottom', 'Everyday', { length: 0.7, fit: 0.25 }, i => [legs(i)], ['length', 'fit']),
-            garment('pleatedSkirt', 'Pleated skirt', 'bottom', 'Everyday', { length: 0.45, flare: 0.5, pattern: 'vstripes' }, i => [skirtPiece(i, { flare: f => (i.flare * 0.3 + 0.014 * Math.cos(f.ang * 16)) * Math.max(0, f.u) ** 1.4 })], ['length', 'flare']),
-            garment('pencilSkirt', 'Pencil skirt', 'bottom', 'Formal', { color: '#30333c', length: 0.6, flare: 0.02, slits: 0.2 }, i => [skirtPiece(i)], ['length', 'flare']),
-            garment('ballGown', 'Ball gown', 'dress', 'Formal', { color: '#623c8a', neckline: 'strapless', sleeves: 0, length: 1, flare: 1.2, material: 'silk' }, gown, ['neckline', 'length', 'flare']),
-            garment('eveningGown', 'Evening gown', 'dress', 'Formal', { color: '#962f48', neckline: 'deepv', sleeves: 0, length: 1, flare: 0.15, slits: 0.5, material: 'silk' }, gown, ['neckline', 'sleeves', 'length', 'flare']),
-            garment('tailcoat', 'Tailcoat', 'over', 'Formal', { color: '#24242c', sleeves: 1, neckline: 'deepv', length: 0.75, fit: 0.3, open: 0.35 }, i => [top(Object.assign({}, i, { length: BODICE }), { lift: 0.018, structured: true }), skirtPiece(Object.assign({}, i, { open: 1.7, flare: 0.15 }), { lift: 0.024 })], ['length', 'fit']),
+            garment('flaredTrousers', 'Flared trousers', 'bottom', 'Everyday', { length: 1, flare: 0.8, fit: 0.4 }, i => [legs(i)], ['length', 'fit', 'flare'], { details: [choice(TROUSERS, 'jeans'), toggle('loops', 'Belt loops')] }),
+            garment('capri', 'Capri trousers', 'bottom', 'Everyday', { length: 0.7, fit: 0.25 }, i => [legs(i)], ['length', 'fit'], { details: [choice(TROUSERS, 'chinos'), toggle('loops', 'Belt loops')] }),
+            garment('pleatedSkirt', 'Pleated skirt', 'bottom', 'Everyday', { length: 0.45, flare: 0.5, pattern: 'vstripes' }, i => [skirtPiece(i, { flare: f => (i.flare * 0.3 + 0.014 * Math.cos(f.ang * 16)) * Math.max(0, f.u) ** 1.4 })], ['length', 'flare'], { details: [toggle('waistband', 'Waistband')] }),
+            garment('pencilSkirt', 'Pencil skirt', 'bottom', 'Formal', { color: '#30333c', length: 0.6, flare: 0.02, slits: 0.2 }, i => [skirtPiece(i)], ['length', 'flare'], { details: [toggle('waistband', 'Waistband')] }),
+            garment('ballGown', 'Ball gown', 'dress', 'Formal', { color: '#623c8a', neckline: 'strapless', sleeves: 0, length: 1, flare: 1.2, material: 'silk' }, gown, ['neckline', 'length', 'flare'], { details: [toggle('seams', 'Seams')] }),
+            garment('eveningGown', 'Evening gown', 'dress', 'Formal', { color: '#962f48', neckline: 'deepv', sleeves: 0, length: 1, flare: 0.15, slits: 0.5, material: 'silk' }, gown, ['neckline', 'sleeves', 'length', 'flare'], { details: [toggle('seams', 'Seams')] }),
+            garment('tailcoat', 'Tailcoat', 'over', 'Formal', { color: '#24242c', sleeves: 1, neckline: 'deepv', length: 0.75, fit: 0.3, open: 0.35 }, i => [vFront(top(Object.assign({}, i, { length: BODICE, neckline: 'crew' }), { lift: 0.018, structured: true }), i, { button: 1.25, below: 0.55 }), skirtPiece(Object.assign({}, i, { open: 1.7, flare: 0.15 }), { lift: 0.024 })], ['length', 'fit'],
+                { details: [choice(LAPELS, 'peak')], construction: { tailored: true, breakS: 1.25, gorge: 3.55, lapelWidth: 0.075, fall: 0.02, stand: 0.026, leaf: 0.034, facingKind: 'satin', facingRoughness: 0.45, buttons: [[1.2, 0.075], [1.2, -0.075], [0.95, 0.075], [0.95, -0.075]], buttonRadius: 0.0085, sleeveButtons: 4 } }),
             garment('fieldCoat', 'Field coat', 'over', 'Sci-fi', { color: '#4c4940', color2: '#242e37', trim: '#a68e65', material: 'leather', pattern: 'solid', sleeves: 1, neckline: 'v', length: .72, fit: .3, open: .28 }, i => [top(Object.assign({},i,{length:BODICE}),{lift:.018,structured:true}),skirtPiece(Object.assign({},i,{open:.25,flare:.14}),{lift:.024}),{collar:{open:.35,stand:.028,fall:.025,point:.016}}], ['length','fit','open']),
             garment('apron', 'Apron', 'over', 'Workwear', { color: '#e8dfc8', length: 0.7 }, i => [top(i, { rules: { spine: [0.5, 3.2], open: 0 }, value: (an, v) => an.member[v * 5] > 0.7 ? Math.min(an.s[v * 5] - 0.5, 3.2 - an.s[v * 5], (0.85 - Math.abs(an.angle[v * 5])) * 2) : -1, lift: 0.022 }), skirtPiece(Object.assign({}, i, { flare: 0.2 }), { value: (an, v) => Math.min((i.length - an.skirtU[v]) * 4, (0.95 - Math.abs(an.angle[v * 5])) * 2), lift: 0.025 })], ['length']),
-            garment('coveralls', 'Coveralls', 'dress', 'Workwear', { color: '#405a78', color2: '#2e4359', sleeves: 1, length: 1, fit: 0.5, pattern: 'panels' }, allInOne, ['sleeves', 'length', 'fit']),
-            garment('scrubs', 'Medical scrubs', 'dress', 'Workwear', { color: '#54a29a', sleeves: 0.3, length: 1, fit: 0.7 }, allInOne, ['sleeves', 'length', 'fit']),
-            garment('uniform', 'Service uniform', 'dress', 'Workwear', { color: '#34445e', sleeves: 1, length: 1, pattern: 'panels', trim: '#d4af37' }, i => [...allInOne(i), { collar: { open: 0.12 } }], ['sleeves', 'length']),
+            garment('coveralls', 'Coveralls', 'dress', 'Workwear', { color: '#405a78', color2: '#2e4359', sleeves: 1, length: 1, fit: 0.5, pattern: 'panels' }, allInOne, ['sleeves', 'length', 'fit'], { details: [toggle('pockets', 'Pockets')],
+                construction: { parts: [{ kind: 'placket', width: 0.032, to: 0.6 }, { kind: 'rivets', at: [[3.62, 0]], radius: 0.005, color: '#9a9a9a' }, { kind: 'patchPocket', s: 2.75, x: 0.095, flap: true, when: 'pockets' }, { kind: 'seam', face: -1, path: [[3.4, -0.2], [3.45, 0], [3.4, 0.2]], rows: 2 }] } }),
+            garment('scrubs', 'Medical scrubs', 'dress', 'Workwear', { color: '#54a29a', sleeves: 0.3, length: 1, fit: 0.7 }, allInOne, ['sleeves', 'length', 'fit'], { details: [toggle('pockets', 'Pockets')],
+                construction: { parts: [{ kind: 'patchPocket', s: 2.6, x: 0.09, mirror: false, w: 0.11, h: 0.12, when: 'pockets' }, { kind: 'patchPocket', s: 0.55, x: 0.12, w: 0.15, h: 0.16, when: 'pockets' }] } }),
+            garment('uniform', 'Service uniform', 'dress', 'Workwear', { color: '#34445e', sleeves: 1, length: 1, pattern: 'panels', trim: '#d4af37' }, i => [...allInOne(i), { collar: { open: 0.12 } }], ['sleeves', 'length'], { details: [toggle('pockets', 'Pockets'), toggle('belt', 'Belt'), toggle('straps', 'Shoulder straps')],
+                construction: { parts: [{ kind: 'placket', width: 0.032, to: 1.0, buttons: 6, radius: 0.0062, buttonColor: '#c8a85a' }, { kind: 'patchPocket', s: 2.8, x: 0.095, flap: true, buttonColor: '#c8a85a', when: 'pockets' },
+                    { kind: 'belt', s: 1.05, width: 0.042, color: '#1c1a18', buckle: '#c8a85a', keepers: false, when: 'belt' }, { kind: 'epaulettes', buttonColor: '#c8a85a', when: 'straps' }] } }),
             garment('swimBriefs', 'Swim briefs', 'underwearBottom', 'Swimwear', { color: '#367cad', material: 'rubber' }, brief),
             garment('swimTrunks', 'Swim trunks', 'bottom', 'Swimwear', { color: '#dc6a32', length: 0.18, fit: 0.5, pattern: 'halves' }, i => [legs(i)], ['length', 'fit']),
             garment('bikiniTop', 'Bikini top', 'underwearTop', 'Swimwear', { color: '#be3f72', material: 'rubber', trimWidth: 0 }, bikiniTop),
@@ -462,12 +623,12 @@
             garment('tights', 'Tights', 'hosiery', 'Hosiery', { color: '#303038' }, i => [{ surface: 'body', rules: { spine: [-3, 0.75], legs: [-1, 9] }, lift: 0.0025, drape: 0 }]),
             garment('operaGloves', 'Opera gloves', 'hands', 'Formal', { color: '#e4d9cc', length: 0.95, material: 'silk' }, i => [hands(i)], ['length']),
             garment('fingerlessGloves', 'Fingerless gloves', 'hands', 'Everyday', { color: '#302a26', length: 0.2, material: 'leather' }, i => [hands(i, { rules: { arms: [2.8 - i.length * 0.5, 3.25] } })], ['length']),
-            garment('qipao', 'High-collar slit dress', 'dress', 'Formal', { color: '#a32f40', neckline: 'high', sleeves: 0.15, length: 0.85, flare: 0.08, slits: 0.7, material: 'silk' }, gown, ['sleeves', 'length', 'flare']),
-            garment('balletDress', 'Ballet dress', 'dress', 'Performance', { color: '#e8dce8', neckline: 'scoop', sleeves: 0, length: 0.15, flare: 1.5, material: 'silk' }, gown, ['length', 'flare']),
-            garment('tennisDress', 'Tennis dress', 'dress', 'Sportswear', { color: '#e4e7ea', neckline: 'v', sleeves: 0, length: 0.25, flare: 0.35 }, gown, ['length', 'flare']),
+            garment('qipao', 'High-collar slit dress', 'dress', 'Formal', { color: '#a32f40', neckline: 'high', sleeves: 0.15, length: 0.85, flare: 0.08, slits: 0.7, material: 'silk' }, gown, ['sleeves', 'length', 'flare'], { details: [toggle('seams', 'Seams')] }),
+            garment('balletDress', 'Ballet dress', 'dress', 'Performance', { color: '#e8dce8', neckline: 'scoop', sleeves: 0, length: 0.15, flare: 1.5, material: 'silk' }, gown, ['length', 'flare'], { details: [toggle('seams', 'Seams')] }),
+            garment('tennisDress', 'Tennis dress', 'dress', 'Sportswear', { color: '#e4e7ea', neckline: 'v', sleeves: 0, length: 0.25, flare: 0.35 }, gown, ['length', 'flare'], { details: [toggle('seams', 'Seams')] }),
             garment('wetsuit', 'Wetsuit', 'dress', 'Sportswear', { color: '#252c35', color2: '#3b8ca2', sleeves: 1, length: 1, material: 'rubber', pattern: 'panels' }, i => allInOne(i).map(p => Object.assign({}, p, { lift: 0.004, drape: 1, folds: null, hang: null })), ['sleeves', 'length']),
             garment('triathlonSuit', 'Triathlon suit', 'dress', 'Sportswear', { color: '#3d4c8b', color2: '#e5dbcf', sleeves: 0, length: 0.35, material: 'rubber', pattern: 'halves' }, i => allInOne(i).map(p => Object.assign({}, p, { lift: 0.004, drape: 1, folds: null, hang: null })), ['sleeves', 'length']),
-            garment('cargoTrousers', 'Cargo trousers', 'bottom', 'Workwear', { color: '#747653', color2: '#53573c', length: 1, fit: 0.6, pattern: 'panels' }, i => [legs(i)], ['length', 'fit'])
+            garment('cargoTrousers', 'Cargo trousers', 'bottom', 'Workwear', { color: '#747653', color2: '#53573c', length: 1, fit: 0.6, pattern: 'panels' }, i => [legs(i)], ['length', 'fit'], { details: [choice(TROUSERS, 'chinos'), toggle('loops', 'Belt loops')] })
         ];
     }
 
@@ -475,7 +636,10 @@
     // Outward order: a later slot is laid over an earlier one.
     // Leg armor goes over trousers and under the skirt of a tunic, a dress or a robe.
     // A mail shirt goes over a top and under plate.
-    const LAYER = { under: 0, underwearBottom: -0.2, underwearTop: -0.1, hosiery: 0.2, bottom: 1, legarmor: 1.5, top: 2, dress: 2, mail: 2.5, feet: 3, hands: 2, waist: 3, wrists: 3, armor: 4, hips: 4, over: 5, shoulders: 6, head: 6 };
+    const LAYER = { under: 0, underwearBottom: -0.2, underwearTop: -0.1, hosiery: 0.2, bottom: 1, legarmor: 1.5, top: 2, dress: 2, mail: 2.5, feet: 3, hands: 2, waist: 3, wrists: 3, armor: 4, hips: 4, over: 5, shoulders: 6, head: 6,
+        // Wasteland layers: rag wraps over a top, a cloak (poncho, shawl) over a coat, a scarf at the neck, a chest rig
+        // over the armor, a gas mask and goggles on the face.
+        wrap: 2.6, cloak: 5.5, neck: 5.6, chestRig: 5.8, face: 6.2, eyes: 6.4 };
 
     /** A full outfit item: catalog defaults under what the recipe chose. */
     function normalizeItem(item) {
@@ -497,8 +661,29 @@
             if (typeof ref !== 'string' || !ref.trim() || /(^|[\\/])\.\.([\\/]|$)|^[\\/]|^[a-z][a-z0-9+.-]*:|[\u0000-\u001f]/i.test(ref) || (ext && !/^(png|jpe?g|webp|svg|gif|apng)$/i.test(ext[1]))) delete out.emblemPicture;
         }
         if (!MATERIAL[out.material]) out.material = 'cloth';
+        // Wear (the Outfit card's Wear slider, RRCharacterWear): 0..1, and an optional whole-number seed.
+        if (out.wear != null) out.wear = Math.max(0, Math.min(1, +out.wear || 0));
+        else if (!g.modeled && !g.transfer) out.wear = 0;
+        if (out.wearSeed != null) out.wearSeed = Math.max(0, Math.min(9999, Math.round(+out.wearSeed || 0)));
+        // Construction details: a saved choice stays only while it is one of the garment's own.
+        for (const d of g.details || []) {
+            if (out[d.id] == null) continue;
+            if (d.toggle) out[d.id] = !!out[d.id];
+            else if (!d.choices.some(c => c[0] === out[d.id])) delete out[d.id];
+        }
         return out;
     }
+
+    /** An outfit item's construction details: each of its garment's `details`, chosen or by default. */
+    function detailsOf(item) {
+        const g = BY_ID.get(item && item.id), out = {};
+        for (const d of (g && g.details) || []) {
+            const v = item[d.id];
+            out[d.id] = d.toggle ? (v == null ? d.default : !!v) : (d.choices.some(c => c[0] === v) ? v : d.default);
+        }
+        return out;
+    }
+    const DETAIL_KEYS = new Set(GARMENTS.flatMap(g => (g.details || []).map(d => d.id)));
 
     /** One garment per slot, the later one winning; ordered from the skin outward. */
     function normalizeOutfit(list) {
@@ -535,12 +720,12 @@
         { id: 'generatedChef', label: 'Kitchen worker', group: 'Workwear', items: [{ id: 'shirt' }, { id: 'jeans', color: '#303039' }, { id: 'apron' }, { id: 'shoes' }] },
         { id: 'generatedGala', label: 'Gala gown', group: 'Formal', items: [{ id: 'ballGown' }, { id: 'operaGloves' }, { id: 'shoes' }] },
         { id: 'generatedEvening', label: 'Evening dress', group: 'Formal', items: [{ id: 'eveningGown' }, { id: 'stockings' }, { id: 'shoes' }] },
-        { id: 'generatedTailcoat', label: 'Evening tailcoat', group: 'Formal', items: [{ id: 'shirt' }, { id: 'jeans', color: '#24242c' }, { id: 'tailcoat' }, { id: 'shoes' }] },
+        { id: 'generatedTailcoat', label: 'Evening tailcoat', group: 'Formal', items: [{ id: 'shirt' }, { id: 'jeans', color: '#24242c', trouserStyle: 'tailored' }, { id: 'tailcoat' }, { id: 'shoes' }] },
         { id: 'underwear', label: 'Underwear', group: 'Basics', items: [{ id: 'shorts', color: '#e6e1d8', length: 0, fit: 0 }, { id: 'tanktop', color: '#e6e1d8', length: 0.15, neckline: 'scoop' }] },
         { id: 'casual', label: 'Casual', group: 'Everyday', items: [{ id: 'tshirt' }, { id: 'jeans' }, { id: 'sneakers' }] },
-        { id: 'office', label: 'Office', group: 'Everyday', items: [{ id: 'shirt' }, { id: 'jeans', color: '#2b2e36' }, { id: 'suitjacket' }, { id: 'shoes' }] },
+        { id: 'office', label: 'Office', group: 'Everyday', items: [{ id: 'shirt' }, { id: 'jeans', color: '#2b2e36', trouserStyle: 'tailored' }, { id: 'suitjacket' }, { id: 'shoes' }] },
         { id: 'winter', label: 'Winter', group: 'Everyday', items: [{ id: 'sweater' }, { id: 'jeans' }, { id: 'boots' }, { id: 'beanie' }, { id: 'gloves' }] },
-        { id: 'detective', label: 'Detective', group: 'Everyday', items: [{ id: 'shirt', color: '#e8e4d8' }, { id: 'jeans', color: '#3a3530' }, { id: 'trenchcoat' }, { id: 'shoes' }] },
+        { id: 'detective', label: 'Detective', group: 'Everyday', items: [{ id: 'shirt', color: '#e8e4d8' }, { id: 'jeans', color: '#3a3530', trouserStyle: 'chinos' }, { id: 'trenchcoat' }, { id: 'shoes' }] },
         { id: 'sporty', label: 'Athlete', group: 'Everyday', items: [{ id: 'tanktop', color: '#d03a3a' }, { id: 'shorts', color: '#1f1f24', length: 0.25 }, { id: 'sneakers' }] },
         { id: 'summerdress', label: 'Summer dress', group: 'Everyday', items: [{ id: 'dress', color: '#f0c040', sleeves: 0, length: 0.45, flare: 0.6 }, { id: 'sandals' }] },
         { id: 'peasantf', label: 'Villager', group: 'Fantasy', items: [{ id: 'peasant' }, { id: 'skirt', color: '#6a4a32', length: 0.95, flare: 0.5 }, { id: 'sash', color: '#8a3a2a' }, { id: 'shoes', color: '#4a3020' }] },
@@ -574,7 +759,18 @@
         { id: 'ss_carol', label: "Captain's Uniform (Carol Everson)", group: 'Sci-fi', items: [{ id: 'ss_carol_uniform' }, { id: 'gloves', color: '#141b2e', length: 0.12, material: 'leather' }, { id: 'boots', color: '#131b31', trim: '#8c96a6', length: 0.42, material: 'leather' }] },
         { id: 'ss_jolt', label: 'Power Armor (Jolt Eagle)', group: 'Sci-fi', items: [{ id: 'ss_jolt_armor' }, { id: 'ss_jolt_legs' }, { id: 'ss_jolt_boots' }, { id: 'powergauntlets', color: '#1d2d5e', trim: '#1c2028', color2: '#3ccaff' }] },
         { id: 'ss_max', label: 'Power Armor (Max Triton)', group: 'Sci-fi', items: [{ id: 'ss_max_armor' }, { id: 'ss_max_legs' }, { id: 'ss_max_boots' }, { id: 'powergauntlets', color: '#8c1c1c', trim: '#26262b', color2: '#ff7a30' }] },
-        { id: 'ss_vay', label: 'Royal Robes (Vay Drokan)', group: 'Sci-fi', items: [{ id: 'ss_vay_robes' }, { id: 'ss_vay_boots' }] }
+        { id: 'ss_vay', label: 'Royal Robes (Vay Drokan)', group: 'Sci-fi', items: [{ id: 'ss_vay_robes' }, { id: 'ss_vay_boots' }] },
+        // Wasteland: layered, scavenged, patched (each piece's Wear slider sets how far gone it is).
+        { id: 'scavenger', label: 'Scavenger', group: 'Wasteland', items: [{ id: 'tshirt', color: '#6a6a5a', wear: 0.6 }, { id: 'cargoTrousers', color: '#6b6648', color2: '#4e4a34', pattern: 'solid', wear: 0.65 }, { id: 'fieldJacket' }, { id: 'workBoots' }, { id: 'fingerlessGloves', color: '#3a3028', wear: 0.6 }, { id: 'harness', style: 'harness' }, { id: 'dustGoggles', style: 'forehead' }, { id: 'shemagh', style: 'neck' }] },
+        { id: 'drifter', label: 'Wasteland drifter', group: 'Wasteland', items: [{ id: 'shirt', color: '#c9bfa8', trim: '#c9bfa8', wear: 0.55 }, { id: 'jeans', color: '#3a4a5e', wear: 0.75 }, { id: 'duster' }, { id: 'workBoots', color: '#4a3424', style: 'plain' }, { id: 'fingerlessGloves', wear: 0.6 }, { id: 'shemagh', style: 'face', color: '#a8865a', color2: '#5a3a28' }, { id: 'dustGoggles', style: 'eyes' }] },
+        { id: 'raider', label: 'Raider', group: 'Wasteland', items: [{ id: 'tanktop', color: '#2a2826', wear: 0.8 }, { id: 'jeans', color: '#26282c', wear: 0.85 }, { id: 'scrapArmor', style: 'plates' }, { id: 'scrapPauldrons', style: 'mixed' }, { id: 'bandages' }, { id: 'workBoots', style: 'plain', color: '#1e1a16' }, { id: 'fingerlessGloves', color: '#1e1a16', wear: 0.7 }, { id: 'gasMask', style: 'single' }] },
+        { id: 'roadWarrior', label: 'Road warrior', group: 'Wasteland', items: [{ id: 'tshirt', color: '#3a3632', sleeves: 0, wear: 0.6 }, { id: 'cargoTrousers', color: '#2e2a26', color2: '#2e2a26', pattern: 'solid', wear: 0.6 }, { id: 'scrapArmor', style: 'tire' }, { id: 'scrapPauldrons', style: 'hubcap' }, { id: 'toolBelt' }, { id: 'legWraps', color: '#5a4a38' }, { id: 'workBoots', style: 'plain' }, { id: 'gloves', color: '#2a2018', wear: 0.6 }, { id: 'dustGoggles', style: 'eyes', color2: '#7a5a2a' }] },
+        { id: 'nomad', label: 'Desert nomad', group: 'Wasteland', items: [{ id: 'shirt', color: '#d8ccb0', trim: '#d8ccb0', wear: 0.5 }, { id: 'cargoTrousers', color: '#b8a07a', color2: '#9a8460', pattern: 'solid', wear: 0.55, fit: 0.8 }, { id: 'ragWraps' }, { id: 'poncho' }, { id: 'shemagh', style: 'face', color: '#c8b48e' }, { id: 'legWraps' }, { id: 'workBoots', style: 'wrapped' }, { id: 'bandages' }] },
+        { id: 'settler', label: 'Settler', group: 'Wasteland', items: [{ id: 'shirt', color: '#8a6a4a', color2: '#5a3a2a', pattern: 'plaid', trim: '#8a6a4a', wear: 0.45 }, { id: 'jeans', color: '#4a5a6e', wear: 0.6 }, { id: 'shawl' }, { id: 'toolBelt', color: '#5a3a24' }, { id: 'workBoots', style: 'plain' }, { id: 'headWrap' }] },
+        { id: 'wasteMechanic', label: 'Mechanic', group: 'Wasteland', items: [{ id: 'coveralls', color: '#4a5560', color2: '#363e46', pattern: 'solid', wear: 0.8 }, { id: 'toolBelt' }, { id: 'workBoots', style: 'plain' }, { id: 'fingerlessGloves', wear: 0.75 }, { id: 'dustGoggles', style: 'forehead' }, { id: 'harness', style: 'bandolier', color: '#3a3a32' }] },
+        { id: 'wasteMedic', label: 'Medic', group: 'Wasteland', items: [{ id: 'tshirt', color: '#9a9a8e', wear: 0.4 }, { id: 'cargoTrousers', color: '#5e6458', color2: '#4a5046', pattern: 'solid', wear: 0.5 }, { id: 'fieldJacket', color: '#a9a596', color2: '#7a7668', wear: 0.5 }, { id: 'harness', style: 'harness', color: '#d8d2c2', color2: '#8a2a22' }, { id: 'gasMask', style: 'twin' }, { id: 'workBoots', style: 'plain' }, { id: 'gloves', color: '#5a6a5a', length: 0.25 }] },
+        // Cyberpunk: layered techwear and cyber armor (RRCharacterCyberwear).
+        ...cyberPresets()
     ];
 
     // ── building ──────────────────────────────────────────────────────────
@@ -585,6 +781,12 @@
         const look = { color: item.color, color2: item.color2, trim: item.trim || (item.color ? shadeHex(item.color, 0.88) : undefined), contrast: !!item.trim && hexDifference(item.trim, item.color || '#808080') > 40, pattern: item.pattern || 'solid', trimWidth: item.trimWidth || 0, scale: item.scale, from: item.from, to: item.to };
         for (const key of ['lightStyle', 'lightColor', 'lightIntensity', 'lightWidth']) if (item[key] != null) look[key] = item[key];
         if (item.emblemPicture && cache?.emblemPictures) look.emblemPicture = cache.emblemPictures.get(item.emblemPicture);
+        // Its wear (RRCharacterWear): grime, fading, stains and holes painted over it.
+        const Wear = WearMod(), wearInfo = Wear && Wear.lookFor(item, BY_ID.get(item.id));
+        if (wearInfo) look.wearInfo = wearInfo;
+        // A garment that paints its own light into its cloth (RRCharacterCyberwear.glowMask, read by RRCharacterAtlas).
+        const own = BY_ID.get(item.id);
+        if (own && own.glowMask) look.glowMask = p => own.glowMask(item, p);
         if (spec.look === 'trim') return { color: item.trim || item.color2 || item.color, pattern: 'solid' };
         return look;
     }
@@ -602,9 +804,11 @@
         const entries = [];
         // What laying needs of this body (its normals, the tights on its skin, a lookup of its vertices)
         // is worked out once per build and never kept: the next build is another body.
-        const frame = {};
+        // (`quality`: how finely soft pieces are draped, RRCharacterDrape: 'preview' in the builder's view.)
+        const frame = { quality: cache.quality };
         const covered = new Float32Array(pack.vertexCount).fill(-1);
-        const modeledItems = [], shoeParts = [], shoeTextures = [], takenItems = [], fieldGear = [], aprons = [];
+        const modeledItems = [], shoeParts = [], shoeTextures = [], takenItems = [], fieldGear = [], aprons = [], wasteGear = [];
+        const cyberGear = [];
         const under = underLayers(), belts = [];
         // The coarse clothing helper cannot follow a very full bust or deep body folds.
         // Use the actual skin topology for soft fitted cuts there, with the same authored
@@ -616,6 +820,8 @@
         const shod = items.some(i => BY_ID.get(i.id).slot === 'feet');
         // Strapped gear (a recon carrier and knee cups, a tactical vest) cinches the cloth under it: no loose hang there.
         const strapped = new Set(items.flatMap(i => BY_ID.get(i.id).pieces(i).map(p => p.scifiGear).filter(k => k === 'recon' || k === 'vest')));
+        // Rigid plates are fitted over the cloth as laid: under (and round) them the cloth is not draped (RRCharacterDrape).
+        const plated = items.some(i => BY_ID.get(i.id).pieces(i).some(p => p.plateArmor || p.poweredArmor));
         const rigidFeet=!shod||items.some(i=>BY_ID.get(i.id).slot==='feet'&&BY_ID.get(i.id).pieces(i).some(p=>p.shoe?.rigidFoot));
         // With anything on the feet, a suit's legs end at the ankle (inside a boot, over a shoe's collar).
         const anyShoes = shod || items.some(i => BY_ID.get(i.id).pieces(i).some(p => p.shoe));
@@ -636,6 +842,8 @@
                     aprons.push(item);return;
                 }
                 if (raw.scifiGear) { fieldGear.push({ item, kind: raw.scifiGear }); return; }
+                if (raw.wasteGear) { wasteGear.push({ item, kind: raw.wasteGear, layer, garment: g }); return; }
+                if (raw.cyberGear) { cyberGear.push({ item, kind: raw.cyberGear, layer, garment: g }); return; }
                 if (raw.swimStraps) {
                     const made = O.swimStraps(pack, built, raw.swimStraps, frame);
                     const color = O.linear(item.color), colors = new Float32Array(made.positions.length);
@@ -647,9 +855,13 @@
                 if (raw.plateArmor) {
                     const Armor = root.RRCharacterPowerArmor || require('./CharacterPowerArmor.js');
                     // Fitted over the fabric laid so far and the parts already made (a sabaton's own liner).
-                    const made = Armor.medieval(pack, built, item, raw.plateArmor, entries.map(e => e.laid), shoeParts);
+                    const scrap = item.style === 'scrap' && WasteMod();
+                    const made = Armor.medieval(pack, built, scrap ? Object.assign({}, item, { style: 'riveted', trimWidth: 0 }) : item, raw.plateArmor, entries.map(e => e.laid), shoeParts);
+                    if (scrap) WasteMod().scrapFinish(made.parts, item, built);
                     const [roughness, metalness] = MATERIAL[item.material] || MATERIAL.metal;
                     for (const part of made.parts) if (part.roughness == null) Object.assign(part, { roughness, metalness });
+                    // Worn armor rusts and grimes (RRCharacterWear).
+                    if (item.wear > 0 && WearMod()) WearMod().weatherParts(made.parts, item, built);
                     shoeParts.push(...made.parts);
                     for (const v of made.hidden || []) covered[v] = 1;
                     return;
@@ -670,7 +882,8 @@
                     // The collar's underside, toward the neck, in shade; a stitched edge along the fall.
                     for (let i = 0; i < n; i++) { const r = Math.floor(i / (made.cols + 1)); const k = r === 0 ? 0.7 : r === 4 ? 0.88 : 1; colors.set([c[0] * k, c[1] * k, c[2] * k], i * 3); }
                     const [roughness, metalness] = MATERIAL[item.material] || MATERIAL.cloth;
-                    shoeParts.push({ name: g.label + ' collar', positions: made.positions, normals: made.normals, index: made.index, joints: made.joints, weights: made.weights, colors, roughness, metalness, doubleSided: true });
+                    // With the construction kit, the collar is made on the finished cloth (RRCharacterGarmentDetails.construct).
+                    if (!(Details && Details.construct)) shoeParts.push({ name: g.label + ' collar', positions: made.positions, normals: made.normals, index: made.index, joints: made.joints, weights: made.weights, colors, roughness, metalness, doubleSided: true });
                     // A jacket or a coat laid later goes over it: its points, facing out from the neck.
                     const B = built.bones.find(b => b.name === 'Neck').head, n3 = made.positions.length;
                     const faceOut = new Float32Array(n3), axis = new Float32Array(n3);
@@ -734,6 +947,7 @@
                     if (outer) { spec.covered = outer.value; spec.cutKey.push(outer.key); }
                     spec.cutKey.push('folds');
                 }
+                if (plated) { spec.drapeCloth = false; spec.cutKey.push('undraped'); }
                 if (spec.structured) spec.liftAt = withShoulders(spec.liftAt);
                 // A tailored coat's sleeves hang open from a padded shoulder; a bell sleeve is open too.
                 if (spec.hang && (spec.structured || spec.liftAt)) spec.hang = Object.assign({}, spec.hang, { cuff: 0 }, spec.structured ? { sag: 1, chest: 1, slope: 0.12 } : {});
@@ -772,7 +986,7 @@
                     const bodice=entries.find(e=>e.garment===item.id&&!e.skirt&&!e.lining);
                     if(bodice){const seam=waistSeam(bodice.laid,laid,item,g.label,O,built);if(seam)shoeParts.push(seam);}
                 }
-                entries.push({ laid, look, garment:item.id, lining:!!spec.lining, skirt: spec.surface === 'skirt', name: g.label+(spec.lining?' lining':''), roughness, metalness, doubleSided: spec.surface === 'skirt' });
+                entries.push({ laid, look, item, garment:item.id, lining:!!spec.lining, skirt: spec.surface === 'skirt', name: g.label+(spec.lining?' lining':''), roughness, metalness, doubleSided: spec.surface === 'skirt' });
                 // The skin a tight piece covers is not drawn (a skirt hangs free of the legs).
                 if (spec.surface !== 'skirt' && spec.hides !== false) markCovered(pack, O, spec, covered);
             });
@@ -793,6 +1007,10 @@
         for (let v = 0; v < covered.length; v++) if (covered[v] > 0.1) hidden.add(v);
         // Modeled garments: each its own part and picture, hiding the skin it covers.
         const modeledParts = [], textures = [];
+        // Wasteland gear (RRCharacterWasteland): harnesses, belts, masks, goggles, scrap armor and boot wraps, over the finished layers.
+        if (wasteGear.length && WasteMod()) { const made = WasteMod().build(pack, built, wasteGear, entries, shoeParts, cache); shoeParts.push(...made.parts); textures.push(...made.textures); for (const v of made.hidden || []) hidden.add(v); }
+        // Cyber gear (RRCharacterCyberwear): panels, light channels and hardware bonded to the cloth, and cyber armor plates.
+        if (cyberGear.length && CyberMod()) { const made = CyberMod().build(pack, built, cyberGear, entries, shoeParts, cache); shoeParts.push(...made.parts); textures.push(...made.textures); for (const v of made.hidden || []) hidden.add(v); }
         if (modeledItems.length) {
             const Clothes = root.RRCharacterClothes || require('./CharacterClothes.js');
             const wear = modeledItems.map(item => {
@@ -815,12 +1033,14 @@
             }
         }
         modeledParts.push(...shoeParts, ...garmentFasteners(entries,built), ...trimBands(entries,built), ...(Details?Details.build(pack,built,entries):[])); textures.push(...shoeTextures);
-        if(Details)textures.push(...Details.armorFinish(modeledParts,built),...Details.leatherFinish(modeledParts,built));
+        if(Details)textures.push(...Details.armorFinish(modeledParts,built),...Details.leatherFinish(modeledParts,built),...(Details.pictures?Details.pictures(modeledParts):[]));
+        // Worn garments' frayed hems, sewn patches and tape (RRCharacterWear), on their laid cloth.
+        if (entries.length && WearMod()) { const worn = WearMod().build(pack, built, entries, { repairsOff: item => detailsOf(item).repairs === false, garmentOf: id => BY_ID.get(id) }); modeledParts.push(...worn.parts); textures.push(...worn.textures); }
         // The cut garments' parts, their picture kept while the body changes (it depends on the outfit only).
         let cutParts = [], atlasTexture = null, key = null;
         if (entries.length) {
             const Atlas = root.RRCharacterAtlas || require('./CharacterAtlas.js');
-            key = JSON.stringify([items.filter(i => !BY_ID.get(i.id).modeled && !BY_ID.get(i.id).transfer), cache.atlasSize || 1024, detailedCuts]);
+            key = JSON.stringify([items.filter(i => !BY_ID.get(i.id).modeled && !BY_ID.get(i.id).transfer).map(i => Object.fromEntries(Object.entries(i).filter(([k]) => !DETAIL_KEYS.has(k)))), cache.atlasSize || 1024, detailedCuts]);
             const store = cache.atlas || (cache.atlas = { key: null, layout: null });
             if (store.key !== key) { store.layout = Atlas.layout(pack, entries, { size: cache.atlasSize || 1024 }); store.key = key; }
             cutParts = Atlas.apply(store.layout, entries);
@@ -830,6 +1050,8 @@
         }
         // Only skin a garment really covers stays hidden: none is left out under a slit, an opening or a tear.
         for (const v of O.uncovered(pack, built, cutParts.concat(modeledParts), hidden, frame)) hidden.delete(v);
+        // Skin behind a torn garment's holes, where nothing else is worn over it (RRCharacterWear).
+        if (WearMod()) WearMod().unhide(pack, built, entries, hidden, entries.map(e => e.laid).concat(modeledParts.filter(p => !p.clothDetail)), frame);
         // Skin under a garment and just past its edge, where no body hair or fur grows (it would poke out under a
         // cuff or over a boot's top).
         const noHair = new Set(hidden);
@@ -893,7 +1115,7 @@
     }
 
     /** Slots whose garments lie over the trunk and limbs, one over another. */
-    const LAYERED = new Set(['under', 'underwearTop', 'underwearBottom', 'hosiery', 'bottom', 'legarmor', 'top', 'dress', 'mail', 'waist', 'armor', 'over']);
+    const LAYERED = new Set(['under', 'underwearTop', 'underwearBottom', 'hosiery', 'bottom', 'legarmor', 'top', 'dress', 'mail', 'waist', 'armor', 'over', 'wrap', 'cloak']);
 
     /**
      * How far inside the fitted cloth of the garments worn over item `layer`
@@ -980,7 +1202,9 @@
     /** Small construction details sampled from the finished fabric, with its
      * own skin weights. They move with the shirt rather than a guessed torso. */
     function garmentFasteners(entries,built) {
-        const styles={shirt:[0],polo:[0],cardigan:[0],vest:[0],gambeson:[0],suitjacket:[-.04,.04],trenchcoat:[-.045,.045],tailcoat:[-.035,.035],officerJacket:[-.035,.035]};
+        const kit=!!(root.RRCharacterGarmentDetails||(typeof require==='function'?require('./CharacterGarmentDetails.js'):null))?.construct;
+        // With the construction kit, shirts, polos and tailored fronts are buttoned by it (RRCharacterGarmentDetails.construct).
+        const styles=kit?{cardigan:[0],vest:[0],gambeson:[0],officerJacket:[-.035,.035]}:{shirt:[0],polo:[0],cardigan:[0],vest:[0],gambeson:[0],suitjacket:[-.04,.04],trenchcoat:[-.045,.045],tailcoat:[-.035,.035],officerJacket:[-.035,.035]};
         const selected=entries.filter(e=>!e.skirt&&!e.lining&&styles[e.garment]);if(!selected.length)return [];
         const Props=root.RRCharacterProps||require('./CharacterProps.js'),O=root.RRCharacterOutfit||require('./CharacterOutfit.js');
         const mesh=new Props.Mesh(),compute=mesh.computeNormals.bind(mesh);mesh.computeNormals=()=>{};
@@ -1370,7 +1594,7 @@
         const Atlas = root.RRCharacterAtlas || require('./CharacterAtlas.js');
         // An armored boot's liner wears its own look (leather under the plates).
         if (raw.look) item = Object.assign({}, item, raw.look);
-        const look = { kind: raw.kind, color: item.color, color2: item.color2, trim: item.trim, material: item.material, laces: !!raw.shoe.laces, lames: raw.shoe.lames };
+        const look = { kind: raw.kind, color: item.color, color2: item.color2, trim: item.trim, material: item.material, laces: !!raw.shoe.laces, lames: raw.shoe.lames, ...(item.wear > 0 ? { wear: item.wear } : {}) };
         const pictureSize = cache.pictureSize || 512;
         const key = JSON.stringify([made.template.key, look, pictureSize]);
         const store = cache.shoes || (cache.shoes = new Map());
@@ -1438,7 +1662,8 @@
 
     function cutSettings(item) {
         const out = {};
-        for (const k of ['sleeves', 'length', 'fit', 'flare', 'bell', 'open', 'face', 'bulk', 'neckline', 'slits']) if (item[k] != null) out[k] = typeof item[k] === 'number' ? Math.round(item[k] * 100) / 100 : item[k];
+        // A style may change the cut (a scarf round the neck or over the face, a duster's storm cape).
+        for (const k of ['sleeves', 'length', 'fit', 'flare', 'bell', 'open', 'face', 'bulk', 'neckline', 'slits', 'style']) if (item[k] != null) out[k] = typeof item[k] === 'number' ? Math.round(item[k] * 100) / 100 : item[k];
         return out;
     }
 
@@ -1515,9 +1740,16 @@
         Armor: { top: ['#ece8dc', '#3a3e46', '#6a1a2a', '#2e3f8a', '#3e5a32', '#5a3d22'], bottom: ['#3a3e46', '#2a2620', '#5a5e66'], over: ['#6a1a2a', '#2e3f8a', '#1f1f24'],
             feet: ['#3a2618', '#2a1e14'], head: ['#3b3b46'] },
         'Sci-fi': { top: ['#20242c', '#d8dce2', '#3a4250', '#1a2030', '#4a5240', '#5a606a'], bottom: ['#20242c', '#3a4250', '#16141c', '#4a5240'], over: ['#16141c', '#3a4250', '#2a3240'],
-            feet: ['#20242c', '#3a4250', '#16141c'], head: ['#3a4250'], accent: ['#36c2ff', '#ff2bd6', '#d86a2a', '#ffb020', '#30d070', '#ff3030'] }
+            feet: ['#20242c', '#3a4250', '#16141c'], head: ['#3a4250'], accent: ['#36c2ff', '#ff2bd6', '#d86a2a', '#ffb020', '#30d070', '#ff3030'] },
+        // Dust, sun-bleached drab, rust and old leather.
+        Wasteland: { top: ['#6a6a5a', '#8a7a5a', '#5a5e4a', '#9a8a6a', '#4a4a46', '#7a5a44', '#b8ac90', '#3a3632'], bottom: ['#4a463a', '#5e5a48', '#3a3a40', '#6b6648', '#2e2a26', '#3a4a5e'],
+            over: ['#8a7556', '#56583c', '#5a4a38', '#3a3632', '#7a6a50', '#6a4a36'], feet: ['#3e2c1e', '#2a2018', '#4a3424', '#3a3028'], head: ['#b8a98a', '#a8865a', '#5a4a38', '#7a5a44'] },
+        // Graphite, night black and gunmetal; the light colors stay each outfit's own.
+        Cyberpunk: { top: ['#1c1d22', '#24262b', '#2b2e33', '#16181d', '#33363c', '#e6e8eb'], bottom: ['#1d2024', '#24262b', '#161618', '#2a2c30'], over: ['#17181c', '#2b2e33', '#34373c', '#121116', '#3a3f45'],
+            feet: ['#1e2024', '#141416', '#202327'], head: ['#202328'] }
     };
-    const ROLE = { under: 'top', top: 'top', dress: 'top', mail: 'top', bottom: 'bottom', over: 'over', armor: 'over', feet: 'feet', hands: 'feet', waist: 'feet', wrists: 'bottom', head: 'head' };
+    const ROLE = { under: 'top', top: 'top', dress: 'top', mail: 'top', bottom: 'bottom', over: 'over', armor: 'over', feet: 'feet', hands: 'feet', waist: 'feet', wrists: 'bottom', head: 'head',
+        wrap: 'top', cloak: 'over', neck: 'head', chestRig: 'feet', face: 'feet', eyes: 'feet', legarmor: 'bottom' };
     /** Accessories that belong with each outfit (none for some). */
     const PRESET_PROPS = {
         casual: ['cap', 'sunglasses', 'glasses', 'studs', 'backpack'], office: ['glasses', 'studs', 'necklace'], winter: ['scarf', 'glasses'], detective: ['fedora', 'glasses'],
@@ -1526,7 +1758,10 @@
         priest: ['necklace', 'circlet'], noble: ['crown', 'circlet', 'necklace', 'choker', 'hoops'], prince: ['crown', 'circlet', 'cape'], barbarian: ['vikinghelm', 'bracelets', 'necklace'],
         pirate: ['tricorn', 'eyepatch', 'hoops'], monk: ['necklace'], knight: ['cape'], paladin: ['cape'], gladiator: ['bracelets', 'headband'], darkknight: ['cape'],
         pilot: ['goggles', 'jetpack', 'backpack'], astronaut: ['jetpack'], trooper: ['jetpack'], marine: ['jetpack'], cyberpunk: ['visor', 'sunglasses', 'choker', 'studs'], soldier: ['backpack', 'sunglasses', 'cap'],
-        courier: ['utilityHarness', 'goggles'], pathfinder: ['utilityHarness', 'backpack']
+        courier: ['utilityHarness', 'goggles'], pathfinder: ['utilityHarness', 'backpack'],
+        scavenger: ['backpack'], drifter: ['cowboy'], raider: [], roadWarrior: [], nomad: [], settler: [], wasteMechanic: ['cap'], wasteMedic: ['backpack'],
+        netrunner: ['visor', 'studs'], streetSamurai: ['visor', 'choker'], corporateAgent: ['sunglasses', 'studs'], techCourier: ['visor', 'goggles'], cyberEnforcer: [], chromeMercenary: ['visor'],
+        neonPunk: ['sunglasses', 'studs', 'choker'], glowRunner: ['visor'], scrapper: ['goggles']
     };
     const HATS = new Set(['wizardhat', 'witchhat', 'tophat', 'fedora', 'cowboy', 'bowler', 'tricorn', 'cap', 'crown', 'circlet', 'vikinghelm', 'headband', 'halo']);
     const FACE = new Set(['glasses', 'sunglasses', 'monocle', 'eyepatch', 'goggles', 'visor']);
@@ -1591,7 +1826,7 @@
         return Object.assign({}, hair, { style: list[Math.floor(rand() * list.length)], volume: 0.2 });
     }
 
-    const api = { GARMENTS, BY_ID, SLOTS, PRESETS, PATTERNS, NECKLINE_CHOICES, MATERIAL, FABRIC, hemFor, normalizeItem, normalizeOutfit, dressFor, build, dressRandom, hairUnderHat };
+    const api = { GARMENTS, BY_ID, SLOTS, PRESETS, PATTERNS, NECKLINE_CHOICES, MATERIAL, FABRIC, hemFor, normalizeItem, normalizeOutfit, detailsOf, dressFor, build, dressRandom, hairUnderHat };
     root.RRCharacterWardrobe = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

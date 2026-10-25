@@ -7984,3 +7984,15 @@ html.rr-detached-window.rr-repaint { clip-path: inset(0 round calc(var(--radius-
 .r3d-motion-pose-empty { margin: auto 0; text-align: center; color: var(--color-text-muted); line-height: 1.4; }
 .r3d-motion-pose-actions > .rr-btn-chip { flex: 1; font-size: 11px; padding: 3px 6px; }
 .r3d-motion-backtoposes { position: absolute; right: 10px; top: 22px; z-index: 2; font-size: 11px; padding: 2px 8px; }
+
+/* Randomize › which parts: a button naming what is ticked, and its list of boxes. */
+.rr-random-parts { position: relative; display: inline-flex; }
+.rr-random-parts[hidden] { display: none; }
+.rr-random-parts-toggle { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-random-parts-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 50; min-width: 160px; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px;
+    background: var(--color-bg-panel); border: 1px solid var(--color-border-input); border-radius: var(--radius-md); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
+.rr-random-parts-menu[hidden] { display: none; }
+.rr-random-parts-menu label { display: flex; align-items: center; gap: 6px; padding: 3px 2px; font-size: 12px; color: var(--color-text); cursor: pointer; white-space: nowrap; }
+.rr-random-parts-menu label:hover { color: var(--color-accent-bright); }
+.rr-random-parts-menu .rr-random-parts-all { border-bottom: 1px solid var(--color-border-subtle, var(--color-border)); padding-bottom: 5px; margin-bottom: 2px; font-weight: 600; }
+
