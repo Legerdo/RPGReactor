@@ -18,7 +18,8 @@ test('coachwork normals are continuous except at deliberate creases and shut lin
  for(const form of ['compact','sport','truck','rover']){const recipe=V.fromPreset(form),r=V.build(recipe),p=r.parts.find(p=>p.name==='Sculpted body shell'),seen=new Map();assert.ok(p);
   for(let i=0;i<p.positions.length;i+=3){if(Math.abs(p.positions[i+2])>=recipe.length*.489)continue;const key=Array.from(p.positions.subarray(i,i+3)).map(x=>Math.round(x*1e6)).join(',');if(!seen.has(key))seen.set(key,[]);seen.get(key).push(Array.from(p.normals.subarray(i,i+3)));}
   let split=0;for(const list of seen.values()){let min=1;for(const a of list)for(const b of list)min=Math.min(min,a[0]*b[0]+a[1]*b[1]+a[2]*b[2]);if(min<.999){split++;assert.ok(min<Math.cos(8*Math.PI/180),form+' weld creates a faint shading seam');}}
-  assert.ok(split>0&&split<seen.size*.25,form+' creases are lines, not the whole surface');
+  // 2026-10-24 phase 2: Faceted and Armored shells fold at every panel edge, so more of their vertices are creases.
+  assert.ok(split>0&&split<seen.size*(recipe.bodyStyle==='rounded'?.25:.5),form+' creases are lines, not the whole surface');
  }
 });
 test('glazed front assemblies and their supporting rails share the same curved envelope',()=>{

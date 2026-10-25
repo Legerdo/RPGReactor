@@ -4,9 +4,12 @@
 (function(root){
     'use strict';
     const CM=root.RRContainerMesh||(typeof require==='function'?require('./ContainerMesh.js'):null);
+    const HW=root.RRVehicleHardware||(typeof require==='function'?require('./VehicleHardware.js'):null),HS=root.RRHardSurface||(typeof require==='function'?require('./HardSurface.js'):null);
     const {add,sub,scale,norm,cross,dot}=CM.vec,pi=Math.PI;
     const mix=(a,b,t)=>a+(b-a)*t;
     // Smooth section interpolation without the overshoot of a cubic spline.
+    // Straight between stations: faceted bodies are flat panels between knots.
+    function lin(points,z){let i=0;while(i+1<points.length-1&&z>points[i+1][0])i++;const a=points[i],b=points[i+1],t=Math.max(0,Math.min(1,(z-a[0])/(b[0]-a[0])));return mix(a[1],b[1],t);}
     function section(points,z){let i=0;while(i+1<points.length-1&&z>points[i+1][0])i++;const a=points[i],b=points[i+1],t=Math.max(0,Math.min(1,(z-a[0])/(b[0]-a[0]))),u=t*t*(3-2*t);return mix(a[1],b[1],u);}
     function loft(rings){
         const g=new CM.Geo(),count=rings[0].length;
@@ -21,6 +24,7 @@
     }
     /** Rounded superellipse sections, useful for fairings and pressure hulls.
      * sections: [z, halfWidth, centerY, halfHeight], increasing z. */
+    function shellRound(sections,exponent,sides){return shell(sections,exponent,sides);}
     function shell(sections,exponent=2.6,sides=48){
         const rings=sections.map(([z,w,y,h])=>Array.from({length:sides},(_,j)=>{const a=j/sides*2*pi,c=Math.cos(a),s=Math.sin(a);return[Math.sign(c)*Math.abs(c)**(2/exponent)*w,y+Math.sign(s)*Math.abs(s)**(2/exponent)*h,z];}));
         // This order gives outward normals for increasing z.
@@ -63,8 +67,12 @@
     function roadWindows(c){
         const {W,H,hood,front,rear,rf,rr,rw,bw,roofY,r,put,glazing,sheet}=c;
         const lf=[-bw,hood,front],rfb=[bw,hood,front],lft=[-rw,roofY,rf],rft=[rw,roofY,rf],lrb=[-bw,hood,rear],rrb=[bw,hood,rear],lrt=[-rw,roofY,rr],rrt=[rw,roofY,rr];
-        const panes=[[lf,rfb,rft,lft],[rrb,lrb,lrt,rrt],[lrb,lf,lft,lrt],[rfb,rrb,rrt,rft]],margin=r.form==='rover'?.11:r.form==='sport'?.075:.085;
-        for(let i=0;i<panes.length;i++){const p=panes[i],bulge=i===0?W*.025:i<2?0:W*.008;put('glass',glazing(p,bulge));windowFrame(c,p,bulge,['Windscreen','Rear window','Right window','Left window'][i],margin);}
+        const panes=[[lf,rfb,rft,lft],[rrb,lrb,lrt,rrt],[lrb,lf,lft,lrt],[rfb,rrb,rrt,rft]],margin=r.form==='rover'||r.bodyStyle==='armored'?.11:r.form==='sport'?.075:.085;
+        const flat=(r.bodyStyle||'rounded')!=='rounded';
+        for(let i=0;i<panes.length;i++){const p=panes[i],bulge=flat?0:i===0?W*.025:i<2?0:W*.008;put('glass',glazing(p,bulge));windowFrame(c,p,bulge,['Windscreen','Rear window','Right window','Left window'][i],margin);}
+        // Armored: slatted guards over the side glass, standing off the frame.
+        if(r.bodyStyle==='armored')for(const i of [2,3]){const [a,b,d,e]=panes[i],n=norm(cross(sub(b,a),sub(e,a))),out=dot(n,[a[0],0,0])<0?scale(n,-1):n,off=scale(out,W*.022),P=(u,v)=>add(add(scale(add(scale(a,1-u),scale(b,u)),1-v),scale(add(scale(e,1-u),scale(d,u)),v)),off);
+            for(const v of [.25,.5,.75])c.tube('trim',[P(.05,v),P(.95,v)],W*.0065,'Window guards');for(const u of [.04,.96]){c.tube('trim',[P(u,.04),P(u,.96)],W*.008,'Window guards');for(const v of [.04,.96])c.tube('trim',[add(P(u,v),scale(out,-W*.02)),P(u,v)],W*.006,'Window guard posts');}}
         for(const sign of [-1,1]){
             const z=Math.max(rr+(.12*(rf-rr)),Math.min(rf-.12*(rf-rr),c.door.rear)),t=(z-rr)/(rf-rr),bottom=[sign*bw,hood,mix(rear,front,t)],top=[sign*rw,roofY,z],half=Math.min(c.L*.022,(front-rear)*.06);
             sheet('paint',[[bottom[0],bottom[1],bottom[2]-half],[bottom[0],bottom[1],bottom[2]+half],[top[0],top[1],top[2]+half],[top[0],top[1],top[2]-half]],W*.014,'Door window divider');
@@ -75,10 +83,14 @@
         const {W,H,L}= {W:r.width,H:r.height,L:r.length},sport=r.form==='sport',truck=r.form==='truck',rover=r.form==='rover';
         const widths=rover?[[-1,.83],[-.72,.98],[0,.98],[.63,1],[1,.80]]:truck?[[-1,.91],[-.68,1],[0,.97],[.62,1],[1,.83]]:sport?[[-1,.83],[-.66,1],[0,.91],[.62,1],[1,.83]]:[[-1,.78],[-.65,1],[-.08,.96],[.63,1],[1,.79]];
         const tops=rover?[[-1,-.035],[-.67,.04],[0,0],[.65,.015],[1,-.13]]:truck?[[-1,-.03],[-.65,0],[0,0],[.61,.025],[1,-.085]]:sport?[[-1,-.04],[-.64,.07],[-.05,-.015],[.62,.065],[1,-.085]]:[[-1,-.055],[-.64,.035],[0,0],[.62,.035],[1,-.105]];
-        const width=z=>W*.49*section(widths,z/(L*.49)),top=z=>q.hood+H*section(tops,z/(L*.49));
+        const faceted=(r.bodyStyle||'rounded')!=='rounded',interp=faceted?lin:section;
+        const width=z=>W*.49*interp(widths,z/(L*.49)),top=z=>q.hood+H*interp(tops,z/(L*.49));
         const crown=[[0,.047],[.35,.045],[.68,.040],[.85,.032],[.95,.017],[.99,-.014],[1,-.10]];
-        const topFace=(z,f)=>top(z)+H*contour(crown,Math.abs(f));
-        return{width,top,topFace};
+        // Faceted: a flat, slightly peaked deck and a bevelled shoulder.
+        const crownF=[[0,.034],[.34,.030],[.70,.019],[.735,.017],[.945,.003],[.955,-.001],[1,-.085]];
+        const topFace=(z,f)=>top(z)+H*(faceted?lin(crownF,Math.abs(f)):contour(crown,Math.abs(f)));
+        const knots=faceted?[...new Set([...widths,...tops].map(p=>p[0]))].filter(k=>Math.abs(k)<.999).map(k=>k*L*.49):[];
+        return{width,top,topFace,faceted,knots};
     }
     /** Section anchors of a road body at station z, from the floor center up
      * the +x side to the roof center: [x, y, f, tag]. f is the fraction of
@@ -87,7 +99,14 @@
     function roadAnchors(c,p,z){
         const {H,R,base,axleZ}=c,w=p.width(z),top=p.top(z),reach=R*1.09;
         const opening=Math.max(base,...axleZ.map(a=>Math.abs(z-a)<=reach?R+Math.sqrt(Math.max(0,reach*reach-(z-a)**2)):base));
-        const low=Math.min(opening,top-H*.018),rocker=Math.max(low,c.door.low),shoulder=Math.max(low,top-H*.10);
+        const low=Math.min(opening,top-H*.018),rocker=Math.max(low,c.door.low),shoulder=Math.max(low,top-H*(p.faceted?.085:.10));
+        if(p.faceted){
+            // Two flat flank facets meeting at a waist crease, a bevelled
+            // shoulder and a flat deck: every corner is a crease.
+            const out=[[0,base,'floor'],[.80,base,''],[.905,low,'crease'],[.94,rocker,'rocker'],[.975,mix(rocker,shoulder,.40),'crease'],[1,shoulder,'crease']];
+            for(const f of [.955,.945,.85,.735,.70,.48,.34,.20,0])out.push([f,Math.max(low,p.topFace(z,f)),f===.955?'crease':f===.945?'doorTop':f===.735?'hood':f===.70?'deck':f===.34?'press':'']);
+            return out.map(([f,y,tag])=>[f*w,y,f,tag]);
+        }
         const out=[[0,base,'floor'],[.80,base,''],[.905,low,'crease'],[.94,rocker,'rocker']];
         // A slightly hollow flank: the panel leans out to a crisp shoulder line.
         for(const t of [1/3,2/3])out.push([.94+.06*t**1.3,mix(rocker,shoulder,t),'']);
@@ -107,6 +126,15 @@
         }
         return out;
     }
+    /** A split normal under 8 degrees reads as banding, not a crease: weld it. */
+    function weldFaint(mesh){
+        const P=mesh.positions,N=mesh.normals,groups=new Map();
+        for(let i=0;i<P.length/3;i++){const k=Math.round(P[i*3]*1e5)+','+Math.round(P[i*3+1]*1e5)+','+Math.round(P[i*3+2]*1e5);let g=groups.get(k);if(!g)groups.set(k,g=[]);g.push(i);}
+        const cos=Math.cos(8*pi/180);
+        for(const g of groups.values()){if(g.length<2)continue;let close=true,sum=[0,0,0];for(const a of g){for(const b of g)if(N[a*3]*N[b*3]+N[a*3+1]*N[b*3+1]+N[a*3+2]*N[b*3+2]<cos){close=false;break;}if(!close)break;for(let k=0;k<3;k++)sum[k]+=N[a*3+k];}
+            if(!close)continue;const n=norm(sum);for(const a of g)for(let k=0;k<3;k++)N[a*3+k]=n[k];}
+        return mesh;
+    }
     /** Lofted coachwork with creases, shut-line grooves and fitted panels.
      * One continuous surface; quads inside the door and bonnet outlines
      * become their own parts, meeting the shell in a shallow V groove. */
@@ -123,7 +151,8 @@
         for(const [z,t]of [[door.rear,'doorR'],[door.front,'doorF'],[z0,'hood0'],[z1,'hood1'],...(deck?[[deck[0],'deck0'],[deck[1],'deck1']]:[])]){mark(z,t);mark(z-gap,t+'-');mark(z+gap,t+'+');}
         for(const a of axleZ)for(const s of [-1,1]){const z=a+s*(R*1.09+.002);if(Math.abs(z)<L*.49)mark(z,'');}
         if(bed)for(const z of [bed.rear,bed.rear+bed.fade,bed.front-bed.fade,bed.front])mark(z,'');
-        const loose=[...Array.from({length:57},(_,i)=>-L*.49+L*.98*i/56)];
+        for(const z of p.knots)if(features.every(f=>Math.abs(f-z)>gap*3)){features.push(z);tag.set(z,'knot');}
+        const nLoose=p.faceted?33:57,loose=[...Array.from({length:nLoose},(_,i)=>-L*.49+L*.98*i/(nLoose-1))];
         for(const a of axleZ)for(let i=-12;i<=12;i++){const z=a+i/12*R*1.09;if(Math.abs(z)<L*.49)loose.push(z);}
         const Z=[...new Set([...features,...loose.filter(z=>(Math.abs(z)>=L*.49-1e-9||features.every(f=>Math.abs(f-z)>gap*1.6)))])].sort((a,b)=>a-b);
         const neighbourGap={rocker:gap,doorTop:gap,hood:gap,deck:gap,press};
@@ -145,6 +174,8 @@
         // Character lines split their normals only where the section really
         // bends (10 degrees or more); a fading crease melts into the surface.
         for(let i=0;i<n;i++)for(let j=0;j<m;j++)if(cols[j]==='crease'||cols[j]==='rocker'){const a=norm(sub(rings[i][j],rings[i][(j+m-1)%m])),b=norm(sub(rings[i][(j+1)%m],rings[i][j]));if(dot(a,b)<Math.cos(pi/18))creaseJ[i][j]=true;}
+        // Faceted bodies fold across the knot stations too.
+        for(let i=1;i+1<n;i++)if(tag.get(Z[i])==='knot')for(let j=0;j<m;j++){const tu=sub(rings[i][(j+1)%m],rings[i][(j+m-1)%m]),n1=norm(cross(tu,sub(rings[i][j],rings[i-1][j]))),n2=norm(cross(tu,sub(rings[i+1][j],rings[i][j])));if(dot(n1,n2)<Math.cos(pi/20))creaseI[i][j]=true;}
         const lines=[];
         // A rectangle of shut lines: two station lines and two section lines.
         const outline=(i0,i1,j0,j1)=>{
@@ -174,7 +205,7 @@
             g.I.push(ids[0],ids[1],ids[2],ids[0],ids[2],ids[3]);
         }
         shellGeo.poly(P[0],null,[0,0,-1]);shellGeo.poly(P[n-1],null,[0,0,1]);
-        put('paint',shellGeo.done(),'Sculpted body shell');put('paint',doorGeo.done(),'Access door');put('paint',hoodGeo.done(),'Formed bonnet panel');
+        put('paint',weldFaint(shellGeo.done()),'Sculpted body shell');put('paint',doorGeo.done(),'Access door');put('paint',hoodGeo.done(),'Formed bonnet panel');
         // A dark strip in the floor of each groove reads as the panel gap.
         const gaps=new CM.Geo();
         for(const [[ia,ja],[ib,jb],dir]of lines){
@@ -376,6 +407,43 @@
         for(const mesh of tires)for(let i=0;i<mesh.positions.length;i+=3)radius=Math.max(radius,Math.hypot(mesh.positions[i+1]-R,mesh.positions[i+2]-z));
         return{part:tyre,with:[rimName,brakeName],at:[x,R,z],radius,side:side>0?'left':'right'};
     }
+    const hexLinear=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+    /** Armored coachwork: bolted chamfered plates on every free flank span
+     * (between the wheel arches and the door cuts; the door carries its own
+     * plate), two bonnet plates either side of a dark ridge, all over a dark
+     * under-frame. The shell itself takes the darker under-frame tone. */
+    function roadArmor(c){
+        const {r,W,H,L,R,axleZ,door,bodyProfile:p,panels}=c,t=H*(.004+.010*r.armor)+.008,lo=door.low+H*.035,hiAt=z=>p.top(z)-H*.11;
+        const cuts=axleZ.map(a=>[a-R*1.24,a+R*1.24]).concat([[door.rear-.02,door.rear+.02],[door.front-.02,door.front+.02]]).sort((a,b)=>a[0]-b[0]);
+        const spans=[];let z=-L*.455;for(const [a,b]of cuts){if(a-z>.22)spans.push([z,a]);z=Math.max(z,b);}if(L*.43-z>.22)spans.push([z,L*.43]);
+        for(const s of [-1,1])for(const [z0,z1]of spans){
+            const onDoor=z0>=door.rear-.03&&z1<=door.front+.03,P=(zz,y)=>[s*c.sideAt(zz,y),y,zz],a=z0+.015,b=z1-.015;
+            if(hiAt(a)-lo<.12||hiAt(b)-lo<.12)continue;
+            HW.armorPlate(c,[P(a,lo),P(b,lo),P(b,hiAt(b)),P(a,hiAt(a))],{kind:'armor',name:onDoor?'Door armor plates':'Bolted armor plates',out:[s,0,0],thickness:t,boltPitch:.32,probe:(u,v)=>{const zz=mix(a,b,u);return P(zz,mix(lo,hiAt(zz),v));}});
+        }
+        const z0=panels.z0+L*.025,z1=panels.z1-L*.035,top=(x,zz)=>[x,p.topFace(zz,Math.min(1,Math.abs(x)/p.width(zz))),zz];
+        for(const s of [-1,1]){const xi=s*W*.035,xo=zz=>s*p.width(zz)*.68;
+            HW.armorPlate(c,[top(xi,z0),top(xo(z0),z0),top(xo(z1),z1),top(xi,z1)],{kind:'armor',name:'Bonnet armor plates',out:[0,1,0],thickness:t*.8,boltPitch:.34,probe:(u,v)=>{const zz=mix(z0,z1,v);return top(mix(xi,xo(zz),u),zz);}});}
+        const paint=hexLinear(r.paint),frame=hexLinear('#22282c'),dark=paint.map((v,k)=>mix(v,frame[k],.62));
+        if(c.zones)for(const name of ['Sculpted body shell','Access door','Formed bonnet panel'])c.zones.set(name,()=>dark);
+    }
+    /** Fitting anchors on road bodies; Detail density picks among them. */
+    function roadFittings(c){
+        const {r,W,H,L,R,hood,base,roofY,rf,rr,rw}=c;if(!r.details)return;
+        const anchors=[],yRoof=roofY+H*.035,rc=(rr+rf)/2,utility=['truck','rover'].includes(r.form)||r.bodyStyle==='armored';
+        for(const s of [-1,1]){
+            if(utility)anchors.push({kind:'lightCage',F:CM.frame([s*rw*.72,yRoof+H*.05,rf-L*.02],[1,0,0],[0,1,0]),size:[H*.09,H*.09],face:'roof',priority:.7,post:H*.05});
+            if(r.form!=='sport'&&!(r.form==='rover'&&r.bodyStyle!=='armored'))anchors.push({kind:'antenna',F:CM.frame([s*rw*.75,yRoof,rr+L*.04],[1,0,0],[0,0,-1]),size:[W*.035,H*.28],face:'roof',priority:s>0?.8:.35});
+        }
+        if(!r.roofRack&&r.form!=='sport')anchors.push({kind:'rack',F:CM.frame([0,yRoof,rc],[1,0,0],[0,0,-1]),size:[rw*1.55,(rf-rr)*.78],face:'roof',priority:utility?.6:.4});
+        if(r.form==='rover'){
+            const back=-L*.49-.004,yc=mix(base,hood,.62),sr=Math.min(R*.92,(hood-base)*.62),lampInner=W*.34-W*.0375-.02;
+            anchors.push({kind:'spareWheel',F:CM.frame([0,yc,back],[-1,0,0],[0,1,0]),size:[sr*2,sr*2],face:'rear',priority:1});
+            const jw=Math.min(.26,lampInner-sr-.03);
+            if(jw>.16)for(const s of [-1,1])anchors.push({kind:'jerrycan',F:CM.frame([s*(sr+.03+jw/2),yc-sr*.25,back],[-1,0,0],[0,1,0]),size:[jw,jw*1.5],face:'rear',priority:.85});
+        }
+        HW.fittings(c,anchors,r.detailDensity??.6,3);
+    }
     function roadDetails(c){
         const {r,W,H,L,R,hood,base,roofY,rf,rr,rw,bw,cabinZ,cabinL,door,box,tube,sheet,put,bodyProfile:p}=c;
         const sport=r.form==='sport',utility=['truck','rover'].includes(r.form);
@@ -406,7 +474,7 @@
                 put('dark',CM.slab(CM.rect(0,0,door.width*.16,H*.075),F,.004,.002,true),'Quarter cooling inlet');
                 for(let j=0;j<3;j++)tube('metal',[[F.o[0]+s*.007,hood-H*(.09-j*.022),door.rear+door.width*.025],[F.o[0]+s*.007,hood-H*(.09-j*.022),door.rear+door.width*.175]],W*.002,'Inlet vanes');
             }
-            if(r.form==='rover'){
+            if(r.form==='rover'&&r.bodyStyle!=='armored'){
                 const antenna=[s*W*.29,roofY+.035,cabinZ-cabinL*.23];box('trim',antenna,[W*.035,H*.025,W*.035],.012,'Antenna base');tube('metal',[antenna,add(antenna,[0,H*.27,0])],W*.0024,'Radio antenna');
                 const F=CM.frame([s*W*.47,hood+H*.09,cabinZ-cabinL*.32],[0,0,-s],[0,1,0]);
                 put('trim',CM.slab(CM.rect(0,0,cabinL*.20,H*.15),F,.015,.005,true),'Armor backing');
@@ -431,8 +499,10 @@
             for(const s of [-1,1])sheet('trim',[[s*W*.27,p.top(-L*.40),-L*.40],[s*W*.27,y,-L*.43],[s*W*.27,y,-L*.40],[s*W*.27,p.top(-L*.35),-L*.35]],W*.014,'Spoiler pylons');
             put('paint',shell([[-L*.46,W*.44,y,H*.008],[-L*.42,W*.46,y+H*.005,H*.014],[-L*.37,W*.43,y,H*.006]],2.7,32),'Aero rear wing');
         }
+        if(r.bodyStyle==='armored')roadArmor(c);
+        roadFittings(c);
         if(!r.details)return;
-        if(utility){
+        if(utility&&r.bodyStyle!=='armored'){
             for(const s of [-1,1]){
                 const y=hood+H*.034,z=L*.34;
                 box('trim',[s*W*.25,y,z],[W*.20,H*.018,L*.15],.012,'Bonnet cooling recess');
@@ -514,7 +584,7 @@
         return{...F,o:at(0,0,floor)};
     }
     function roadFace(c){
-        const {r,W,H,L,hood,base,box,tube,put,bodyProfile:p}=c,sport=r.form==='sport',utility=['truck','rover'].includes(r.form),front=L*.49,y=p.top(front)-H*.035;
+        const {r,W,H,L,hood,base,box,tube,put,bodyProfile:p}=c,sport=r.form==='sport',style=r.bodyStyle||'rounded',utility=['truck','rover'].includes(r.form)||style==='armored',front=L*.49,y=p.top(front)-H*.035;
         // A layered fascia: three recessed bays (lamps, radiator, lamps)
         // with real pocket depth, mounted on the nose cap.
         const fh=H*(utility?.16:.13),cy=y-H*.027,depth=utility?.06:.05,border=Math.min(.018,fh*.11),recess=depth*.74,mount=front-.008;
@@ -523,8 +593,10 @@
         const slats=utility?7:6,inner=fh-border*2;
         if(utility)for(let j=0;j<9;j++)box('metal',[(j-4)*g.width/9,cy,mount+depth-recess+recess*.45],[g.width/9*.22,inner*.96,recess*.90],.003,'Radiator grille');
         for(let j=0;j<slats;j++)box(utility?'trim':'metal',[0,cy+(j-(slats-1)/2)*inner/slats,mount+depth-recess*.45],[g.width*.98,inner/slats*.30,recess*.70],.002,'Radiator grille');
-        const style=r.form==='sport'?'projector':r.form==='truck'?'bar':r.form==='rover'?'caged':'round';
-        for(const s of [-1,1])lampUnit(c,at(s*lampX,cy),lampW,fh,style,false);
+        // Lamps match the body style: Rounded keeps each form's own, Faceted
+        // wears LED bars (projectors on the coupe), Armored caged lamps.
+        const lamps=style==='armored'?'caged':style==='faceted'?(sport?'projector':'bar'):r.form==='sport'?'projector':r.form==='truck'?'bar':r.form==='rover'?'caged':'round';
+        for(const s of [-1,1])lampUnit(c,at(s*lampX,cy),lampW,fh,lamps,false);
         for(const s of [-1,1]){
             const by=base+H*.05,duct=CM.bezel(at(s*W*.30,by),W*.16,H*.05,.035,.008,.026);
             put('trim',duct.housing,'Brake duct');put('dark',duct.floor,'Brake duct');
@@ -542,8 +614,12 @@
         }
         if(r.bumper){
             const yy=base+H*.015;
-            put('trim',shell([[front-L*.025,W*.43,yy,H*.042],[front+L*.010,W*.43,yy,H*.032],[front+L*.020,W*.39,yy,H*.021]],3,32),'Contoured front bumper');
-            box('trim',[0,yy,-L*.50],[W*.80,H*.065,L*.035],.020,'Rear bumper');
+            if(style==='rounded'){put('trim',shell([[front-L*.025,W*.43,yy,H*.042],[front+L*.010,W*.43,yy,H*.032],[front+L*.020,W*.39,yy,H*.021]],3,32),'Contoured front bumper');box('trim',[0,yy,-L*.50],[W*.80,H*.065,L*.035],.020,'Rear bumper');}
+            else{
+                // Chamfered beam bumpers on short brackets.
+                const beam=(z,dir,name)=>{put('trim',HS.plate(HS.cut(HS.rect(-W*.44,-H*.042,W*.44,H*.042),[H*.03,H*.012,H*.012,H*.03]),L*.032,H*.010,{frame:CM.frame([0,yy,z+dir*L*.016],[dir,0,0],[0,1,0])}),name);for(const x of [-W*.26,W*.26])put('frame',HS.plate(HS.rect(-W*.03,-H*.025,W*.03,H*.025),L*.04,0,{frame:CM.frame([x,yy,z-dir*L*.01],[dir,0,0],[0,1,0])}),name+' brackets');};
+                beam(front-L*.012,1,'Contoured front bumper');beam(-L*.488,-1,'Rear bumper');
+            }
             if(utility){
                 // Grille guard: two posts on the bay seams and a top hoop, clear of the lamps.
                 const gx=grilleW/2,gz=mount+depth+.03,gt=cy+fh/2+H*.012;
@@ -605,20 +681,35 @@
         g.poly(Array.from({length:sides},(_,k)=>at(0,k)),null,[0,-1,0]);g.poly(Array.from({length:sides},(_,k)=>at(rows,k)),null,[0,1,0]);put('paint',CM.smoothNormals(g.done(),.8),'Swept stabilizers');
         const seam=Array.from({length:25},(_,j)=>{const t=.18+j/24*.76,front=mix(-L*.31,-L*.39,t);return[sign*(bw*mix(.85,.80,t)+W*mix(.012,.004,t)*.80),H*mix(.63,1.13,t),mix(-L*.46,front,.20)];});tube('trim',seam,H*.0017,'Stabilizer control seams');
     }
+    /** Flight craft. The pressure hull is a smooth superellipse loft
+     * (Rounded) or a chined wedge of flat panels (Faceted, Armored; Armored
+     * adds bolted side plates over a dark under-frame). Every style carries a
+     * sealed, pressurised one-piece canopy faired into the hull with a seal
+     * ring, framed bows and a rear spine fairing: no open back, no roof slab. */
     function flight(c){
-        const {r,W,H,L,put,box,tube,sheet,glazing}=c,shuttle=r.form==='shuttle',bw=W*(shuttle?.235:.29),cy=H*.51;
-        const widths=[[-.50,.44],[-.38,.90],[-.15,1],[.12,.95],[.32,.70],[.49,.12]],heights=[[-.50,.13],[-.34,.24],[0,.24],[.23,.17],[.49,.045]],rings=[];
-        for(let j=0;j<=64;j++){const z=-L*.5+L*.99*j/64;rings.push([z,bw*section(widths,z/L),cy+H*.015*Math.sin(j/64*pi),H*section(heights,z/L)]);}
-        put('paint',shell(rings,2.7,64),'Formed pressure hull');
-        put('trim',shell([[-L*.46,bw*.45,H*.32,H*.06],[-L*.18,bw*.80,H*.29,H*.055],[L*.25,bw*.66,H*.34,H*.045],[L*.46,bw*.10,H*.46,H*.01]],2.6),'Ventral keel');
-        const roof=H*(.91+.35*(r.cabinHeight-1)),canopyFront=L*.28,canopyRear=-L*.12,roofFront=L*.06,roofRear=-L*.085,cb=bw*.74,cr=bw*.62,deck=H*.69;
-        const lf=[-cb,deck,canopyFront],rf=[cb,deck,canopyFront],lt=[-cr,roof,roofFront],rt=[cr,roof,roofFront],lb=[-cb,H*.74,canopyRear],rb=[cb,H*.74,canopyRear],lrt=[-cr,roof,roofRear],rrt=[cr,roof,roofRear];
-        put('glass',glazing([lf,rf,rt,lt],H*.025),'Flight canopy');
-        put('glass',glazing([lb,lf,lt,lrt],W*.006),'Flight side glass');put('glass',glazing([rf,rb,rrt,rt],W*.006),'Flight side glass');
+        const {r,W,H,L,put,box,tube,sheet}=c,shuttle=r.form==='shuttle',bw=W*(shuttle?.235:.29),cy=H*.51,style=r.bodyStyle||'rounded';
+        const widths=[[-.50,.44],[-.38,.90],[-.15,1],[.12,.95],[.32,.70],[.49,.12]],heights=[[-.50,.13],[-.34,.24],[0,.24],[.23,.17],[.49,.045]];
+        const yAt=z=>cy+H*.015*Math.sin((z/L+.5)/.99*pi);
+        let skin;
+        if(style==='rounded'){
+            const rings=[];for(let j=0;j<=64;j++){const z=-L*.5+L*.99*j/64;rings.push([z,bw*section(widths,z/L),cy+H*.015*Math.sin(j/64*pi),H*section(heights,z/L)]);}
+            put('paint',shell(rings,2.7,64),'Formed pressure hull');
+            put('trim',shell([[-L*.46,bw*.45,H*.32,H*.06],[-L*.18,bw*.80,H*.29,H*.055],[L*.25,bw*.66,H*.34,H*.045],[L*.46,bw*.10,H*.46,H*.01]],2.6),'Ventral keel');
+            skin=(z,a,offset=0)=>{const w=bw*section(widths,z/L),h=H*section(heights,z/L),y=yAt(z),co=Math.cos(a),si=Math.sin(a);return[Math.sign(co)*Math.abs(co)**(2/2.7)*(w+offset),y+Math.sign(si)*Math.abs(si)**(2/2.7)*(h+offset),z];};
+        }else{
+            // Few stations, straight between them: flat panels meeting at chines.
+            const knots=[-.50,-.46,-.40,-.34,-.24,-.15,0,.12,.22,.30,.37,.43,.49],stations=knots.map(k=>({z:L*k,w:bw*section(widths,k),y:yAt(L*k),h:H*section(heights,k)}));
+            put('paint',HW.facetedLoft(stations,HW.HULL_SECTION),'Formed pressure hull');
+            const keel=[[-.46,.45,.32,.06],[-.30,.70,.30,.058],[-.18,.80,.29,.055],[.25,.66,.34,.045],[.46,.10,.46,.012]].map(([z,w,y,h])=>({z:L*z,w:bw*w,y:H*y,h:H*h}));
+            put('frame',HW.facetedLoft(keel,HW.BOX_SECTION),'Ventral keel');
+            skin=HW.loftSkin(stations,HW.HULL_SECTION);
+        }
+        c.hullSkin=skin;
+        const top=(z,x)=>HW.topOf(skin,z,x);
+        // Cabin interior under a sealed bubble canopy.
+        const roof=H*(.91+.35*(r.cabinHeight-1)),canopyFront=L*.22,canopyRear=-L*.11,cb=bw*.58,deck=H*.69;
         cabin({...c,hood:deck,roofY:roof,front:canopyFront,rear:canopyRear,bw:cb});
-        put('secondary',shell([[roofRear-L*.012,cr*.99,roof,H*.018],[(roofRear+roofFront)*.5,cr*1.02,roof+H*.016,H*.022],[roofFront+L*.006,cr,roof,H*.016]],2.8,48),'Canopy crown');
-        for(const [i,p]of [[lf,rf,rt,lt],[lb,lf,lt,lrt],[rf,rb,rrt,rt]].entries())windowFrame(c,p,i===0?H*.025:W*.006,'Canopy '+i,.065);
-        paneRail(c,[lf,rf,rt,lt],H*.025,H*.006,'trim','Windscreen mullion');
+        HW.canopy(c,{skin,zRear:-L*.135,zFront:L*.315,zPeak:-L*.005,peakY:roof+H*.075,width:bw*.80,spineLength:L*(shuttle?.21:.15),bows:shuttle?[L*.17]:[L*.17,-L*.03],seal:H*.011,spineKind:style==='armored'?'armor':'secondary'});
         for(const s of [-1,1]){
             const engineX=s*W*(shuttle?.35:.36)*r.wingSpan,engineY=H*.45,engineZ=-L*.32,R=H*(shuttle?.18:.17)*r.engineSize;
             wing(c,s,bw*.64,Math.abs(engineX)+R*.55,-L*.28,L*(shuttle?.14:.09),H*.46);
@@ -632,6 +723,7 @@
                 const x=s*bw*.82,up=[x,H*.40,z],knee=[x+s*W*.025,H*.17,z-L*.025],foot=[x+s*W*.04,H*.045,z];
                 tube('trim',[up,knee],H*.025,'Landing strut housings');tube('metal',[knee,foot],H*.014,'Landing pistons');
                 tube('metal',[[x,H*.32,z-L*.045],foot],H*.009,'Landing braces');box('trim',[foot[0],H*.026,z],[W*.095,H*.052,L*.095],.025,'Landing feet');
+                if(r.details&&style!=='rounded')HW.pistonPair(c,[x,H*.36,z+L*.03],[foot[0],H*.07,z+L*.012],H*.007,[0,0,1],'Landing gear dampers');
             }
             if(shuttle){
                 stabilizer(c,s,bw);
@@ -644,6 +736,7 @@
                     round(c,'dark',F,[[0,-H*.05],[rr*.77,-H*.05]],'Lift fan wells');
                     round(c,'metal',F,[[0,-H*.04],[rr*.17,-H*.04],[rr*.17,H*.016],[0,H*.016]],'Lift fan hubs');
                     if(r.details)for(let j=0;j<8;j++){const a=j/8*2*pi;const pts=[[.18,-.08],[.72,-.13],[.79,.07],[.23,.10]].map(([u,v])=>add(F.o,add(scale(F.u,rr*(u*Math.cos(a)-v*Math.sin(a))),add(scale(F.v,rr*(u*Math.sin(a)+v*Math.cos(a))),scale(F.n,-H*.019)))));sheet('metal',pts,H*.006,'Lift fan blades');}
+                    if(r.details)for(let j=0;j<4;j++){const a=j/4*2*pi+pi/4;tube('metal',[add(F.o,add(scale(F.u,Math.cos(a)*rr*.2),scale(F.v,Math.sin(a)*rr*.2))),add(F.o,add(scale(F.u,Math.cos(a)*rr*.93),scale(F.v,Math.sin(a)*rr*.93)))],H*.004,'Lift fan guards');}
                 }
             }
             if(r.flightFit==='interceptor'){
@@ -656,21 +749,23 @@
         }
         // Panels and running lamps use the hull's own parameterization. This
         // keeps them seated on curved skin when dimensions change.
-        const skin=(z,a,offset=0)=>{
-            const w=bw*section(widths,z/L),h=H*section(heights,z/L),y=cy+H*.015*Math.sin((z/L+.5)/.99*pi),co=Math.cos(a),si=Math.sin(a);
-            return[Math.sign(co)*Math.abs(co)**(2/2.7)*(w+offset),y+Math.sign(si)*Math.abs(si)**(2/2.7)*(h+offset),z];
-        };
         const panelContext={...c,patchCenter:[0,cy,0]};
         for(const s of [-1,1]){
             const angle=t=>s===1?t:pi-t;
-            patch(panelContext,'trim',(u,v)=>skin(mix(-L*.34,L*.29,u),angle(mix(-.24,.32,v)),H*.007),'Side equipment bay seals');
-            patch(panelContext,'secondary',(u,v)=>skin(mix(-L*.33,L*.28,u),angle(mix(-.21,.29,v)),H*.010),'Formed side equipment bays');
-            patch(panelContext,'trim',(u,v)=>skin(mix(L*.31,L*.448,u),angle(mix(.43,1.15,v)),H*.006),'Nose panel seal');
-            patch(panelContext,'secondary',(u,v)=>skin(mix(L*.314,L*.444,u),angle(mix(.46,1.12,v)),H*.009),'Nose access panels');
-            tube(r.lights?'light':'dark',Array.from({length:25},(_,i)=>skin(mix(L*.36,L*.425,i/24),angle(.56),H*.015)),H*.0045,'Nose running lights');
+            if(style==='armored'){
+                // Bolted side plates; the equipment-bay name keeps lettering and fasteners.
+                for(const [z0,z1]of [[-.33,-.12],[-.10,.04],[.06,.28]]){const A=L*z0,B=L*z1,lo=angle(-.17),hi=angle(.25);
+                    HW.armorPlate(c,[skin(A,lo),skin(B,lo),skin(B,hi),skin(A,hi)],{kind:'secondary',name:'Formed side equipment bays',out:[s,0,0],thickness:H*.016,probe:(u,v)=>skin(mix(A,B,u),angle(mix(-.17,.25,v))),boltPitch:.28});}
+            }else{
+                patch(panelContext,'trim',(u,v)=>skin(mix(-L*.34,L*.29,u),angle(mix(-.24,.32,v)),H*.007),'Side equipment bay seals');
+                patch(panelContext,'secondary',(u,v)=>skin(mix(-L*.33,L*.28,u),angle(mix(-.21,.29,v)),H*.010),'Formed side equipment bays');
+            }
+            patch(panelContext,'trim',(u,v)=>skin(mix(L*.33,L*.448,u),angle(mix(.43,1.10,v)),H*.006),'Nose panel seal');
+            patch(panelContext,'secondary',(u,v)=>skin(mix(L*.334,L*.444,u),angle(mix(.46,1.07,v)),H*.009),'Nose access panels');
+            tube(r.lights?'light':'dark',Array.from({length:25},(_,i)=>skin(mix(L*.36,L*.425,i/24),angle(.20),H*.015)),H*.0055,'Nose running lights');
             if(r.details){
-                for(let j=0;j<6;j++)tube('metal',Array.from({length:13},(_,k)=>skin(-L*(.19+j*.018),angle(mix(-.10,.20,k/12)),H*.014)),H*.0025,'Equipment bay cooling ribs');
-                const p=skin(L*.02,angle(.035),H*.017);box('trim',p,[W*.012,H*.025,L*.055],.006,'Equipment bay handles');
+                for(let j=0;j<6;j++)tube('metal',Array.from({length:13},(_,k)=>skin(-L*(.19+j*.018),angle(mix(-.10,.20,k/12)),H*.014+(style==='armored'?H*.02:0))),H*.0025,'Equipment bay cooling ribs');
+                const p=skin(L*.02,angle(.035),H*.017+(style==='armored'?H*.018:0));box('trim',p,[W*.012,H*.025,L*.055],.006,'Equipment bay handles');
             }
         }
         // Rear access hatch is layered on the pressure hull end, with a seal,
@@ -682,13 +777,25 @@
         box('trim',[0,H*.51,-L*.531],[bw*.26,H*.020,.010],.005,'Hatch latch');
         if(r.details){
             for(const s of [-1,1]){
-                // Flush maintenance tiles on the dorsal engine deck.
-                const y=H*.77,z=-L*.26;box('trim',[s*bw*.36,y,z],[bw*.43,H*.025,L*.13],.012,'Dorsal service recess');
-                for(let j=0;j<8;j++)box('metal',[s*bw*.36,y+H*.016,z+(j-3.5)*L*.013],[bw*.36,H*.006,L*.005],.002,'Heat exchanger fins');
+                // Flush maintenance tiles on the dorsal engine deck, beside the spine.
+                const z=-L*.30,x=s*bw*.58,y=top(z,Math.abs(x)+bw*.12);box('trim',[x,y+H*.006,z],[bw*.26,H*.025,L*.11],.012,'Dorsal service recess');
+                for(let j=0;j<7;j++)box('metal',[x,y+H*.022,z+(j-3)*L*.013],[bw*.21,H*.006,L*.005],.002,'Heat exchanger fins');
                 tube('dark',[[s*bw*.68,H*.67,-L*.32],[s*bw*.83,H*.70,-L*.29],[s*bw*.83,H*.70,-L*.16]],H*.008,'Coolant lines');
             }
         }
-        if(r.cargo>.05){box('trim',[0,H*.77,-L*.24],[bw*.9,H*.025,L*.20],.012,'Cargo deck mount');box('cargo',[0,H*(.795+.07*r.cargo),-L*.24],[bw*.85,H*.14*r.cargo,L*.18],.025,'Deck cargo');}
+        if(r.cargo>.05){const z=-L*.40,y=top(z,0);box('trim',[0,y+H*.005,z],[bw*.7,H*.025,L*.14],.012,'Cargo deck mount');box('cargo',[0,y+H*(.02+.06*r.cargo),z],[bw*.62,H*.12*r.cargo,L*.12],.025,'Deck cargo');}
+        // Fitting anchors: what Detail density may add.
+        const up=(z,x)=>CM.frame([x,top(z,Math.abs(x)),z],[1,0,0],[0,0,-1]),side=(z,a,s,off=0)=>{const p=skin(z,s>0?a:pi-a,off),q=skin(z,(s>0?a:pi-a)+(s>0?.01:-.01),off),n=norm([p[0]*(s>0?1:1),0,0]),v=norm(sub(q,p));return CM.frame(p,[0,0,-s],norm(sub(v,scale(n,dot(v,n)))));};
+        const anchors=[];
+        for(const s of [-1,1]){
+            anchors.push({kind:'antenna',F:up(-L*.20,s*bw*.34),size:[H*.05,H*.30],face:'dorsal',priority:.9});
+            anchors.push({kind:'vent',F:up(-L*.40,s*bw*.45),size:[bw*.30,L*.07],face:'dorsal',priority:.6});
+            anchors.push({kind:'cable',F:side(-L*.05,-.42,s,H*.002),size:[L*.30,H*.02],face:'flank'+s,priority:.5});
+            anchors.push({kind:'handle',F:side(-L*.42,.05,s,H*.004),size:[L*.06,H*.04],face:'aft'+s,priority:.7});
+            anchors.push({kind:'lightCage',F:CM.frame(skin(L*.30,s>0?-.95:pi+.95,H*.003),[0,0,1],[-1,0,0]),size:[H*.07,H*.07],face:'chin',priority:.55});
+        }
+        anchors.push({kind:'sensor',F:CM.frame(skin(L*.38,-pi/2,H*.002),[1,0,0],[0,0,1]),size:[bw*.22,L*.05],face:'chin',priority:.85});
+        HW.fittings(c,anchors,r.detailDensity??.6,2);
     }
     /** A closed, fitted curved panel. Its sampled face normals derive from
      * the surface, so a stretched recipe changes both geometry and lighting. */
@@ -704,7 +811,9 @@
         c.put(kind,CM.smoothNormals(g.done(),.7),name);
     }
     function bike(c){
-        const {r,W,H,L,R,seat,engine,box,tube,sheet,put,glazing}=c;
+        const {r,W,H,L,R,seat,engine,box,tube,sheet,put,glazing}=c,styled=(r.bodyStyle||'rounded')!=='rounded';
+        // Faceted and Armored fairings are chined flat panels instead of soft shells.
+        const shell=(sections,e,sides)=>styled?HW.facetedLoft(sections.map(([z,w,y,h])=>({z,w,y,h})),HW.HULL_SECTION):shellRound(sections,e,sides);
         // Shaped tail, radiator, swingarm and final drive add a hierarchy of
         // real mechanical assemblies beneath the tank and body fairings.
         put('secondary',shell([[-L*.345,W*.045,seat+H*.010,H*.018],[-L*.27,W*.145,seat+H*.005,H*.037],[-L*.14,W*.16,seat-H*.025,H*.028]],2.7),'Sculpted tail cowl');
@@ -727,6 +836,8 @@
                 const E=CM.frame([s*W*.245,H*.28,-L*.34],[1,0,0],[0,-1,0]);round(c,'metal',E,[[W*.044,-L*.08],[W*.055,-L*.04],[W*.055,.004],[W*.045,.012],[W*.033,.010],[W*.033,-L*.08],[W*.044,-L*.08]],'Silencer shells',48);round(c,'dark',E,[[0,-.010],[W*.034,-.010]],'Silencer throats',32);
             }
         }
+        // Armored: bolted guard plates over the tank flanks.
+        if(r.bodyStyle==='armored')for(const s of [-1,1]){const x=s*W*.235,y0=seat-H*.11,y1=seat-H*.005,z0=-L*.05,z1=L*.10;HW.armorPlate(c,[[x,y0,z0],[x,y0,z1],[x,y1,z1],[x,y1,z0]],{kind:'armor',name:'Tank guard plates',out:[s,0,0],thickness:W*.02,gap:.006,boltPitch:.12,boltRadius:.006,standoff:.006});}
         if(r.fairing==='naked')return;
         put('paint',shell([[L*.14,W*.12,H*.85,H*.085],[L*.22,W*.29,H*.84,H*.12],[L*.29,W*.26,H*.84,H*.065],[L*.325,W*.20,H*.835,H*.040]],2.4),'Sculpted nose fairing');
         put('glass',glazing([[-W*.23,H*.93,L*.27],[W*.23,H*.93,L*.27],[W*.19,H*1.04,L*.15],[-W*.19,H*1.04,L*.15]],H*.014),'Curved windscreen');
@@ -739,17 +850,29 @@
     }
     function drone(c){
         const {r,W,H,L,put,box,tube,sheet}=c,R=Math.min(W,L)*.17*r.engineSize,body=H*.55;c.motors=[];
-        put('paint',shell([[-L*.24,W*.055,H*.49,H*.045],[-L*.15,W*.15,H*.51,H*.12],[0,W*.17,H*.52,H*.15],[L*.20,W*.115,H*.50,H*.10],[L*.28,W*.035,H*.48,H*.025]],2.9),'Formed avionics shell');
-        put('secondary',shell([[-L*.20,W*.09,H*.40,H*.035],[0,W*.155,H*.39,H*.045],[L*.21,W*.09,H*.41,H*.025]],3),'Avionics belly');
+        const styled=(r.bodyStyle||'rounded')!=='rounded',S=v=>({z:v[0],w:v[1],y:v[2],h:v[3]});
+        const hull=[[-L*.24,W*.055,H*.49,H*.045],[-L*.15,W*.15,H*.51,H*.12],[0,W*.17,H*.52,H*.15],[L*.20,W*.115,H*.50,H*.10],[L*.28,W*.035,H*.48,H*.025]],belly=[[-L*.20,W*.09,H*.40,H*.035],[0,W*.155,H*.39,H*.045],[L*.21,W*.09,H*.41,H*.025]];
+        // Armored: bolted plates over the shell's flanks and a belly guard.
+        if(r.bodyStyle==='armored'){const st=[[-L*.25,W*.05,H*.49,H*.04],[-L*.20,W*.12,H*.50,H*.09],[-L*.12,W*.16,H*.51,H*.125],[L*.06,W*.17,H*.52,H*.15],[L*.18,W*.12,H*.505,H*.10],[L*.27,W*.045,H*.48,H*.03]].map(S),sk=HW.loftSkin(st,HW.HULL_SECTION);
+            for(const s of [-1,1]){const A=-L*.12,B=L*.12,lo=s>0?-.25:pi+.25,hi=s>0?.45:pi-.45;HW.armorPlate(c,[sk(A,lo),sk(B,lo),sk(B,hi),sk(A,hi)],{kind:'armor',name:'Shell armor plates',out:[s,0,0],thickness:H*.025,gap:.006,boltPitch:.10,boltRadius:.005,cut:.02,probe:(u,v)=>sk(mix(A,B,u),s>0?mix(-.25,.45,v):pi-mix(-.25,.45,v))});}
+            put('frame',CM.chamferBox([0,H*.335,0],[W*.20,H*.03,L*.30],H*.01),'Belly guard');}
+        if(styled){put('paint',HW.facetedLoft([[-L*.25,W*.05,H*.49,H*.04],[-L*.20,W*.12,H*.50,H*.09],[-L*.12,W*.16,H*.51,H*.125],[L*.06,W*.17,H*.52,H*.15],[L*.18,W*.12,H*.505,H*.10],[L*.27,W*.045,H*.48,H*.03]].map(S),HW.HULL_SECTION),'Formed avionics shell');put('secondary',HW.facetedLoft(belly.map(S),HW.BOX_SECTION),'Avionics belly');}
+        else{put('paint',shell(hull,2.9),'Formed avionics shell');put('secondary',shell(belly,3),'Avionics belly');}
         for(const sx of [-1,1])for(const sz of [-1,1]){
             const x=sx*(W*.5-R*.95),z=sz*(L*.5-R*.95),F=CM.frame([x,body,z],[1,0,0],[0,0,-1]);c.motors.push([x,body,z]);
             const a=[sx*W*.10,H*.51,sz*L*.10],b=[x,body-H*.015,z];
-            tube('trim',[a,b],H*.038,'Carbon motor booms');tube('metal',[add(a,[0,-H*.027,0]),add(b,[0,-H*.027,0])],H*.012,'Boom lower rails');
+            if(styled){put('frame',beam(a,b,H*.07,H*.05),'Carbon motor booms');put('metal',beam(add(a,[0,-H*.04,0]),add(b,[0,-H*.04,0]),H*.02,H*.016),'Boom lower rails');}
+            else{tube('trim',[a,b],H*.038,'Carbon motor booms');tube('metal',[add(a,[0,-H*.027,0]),add(b,[0,-H*.027,0])],H*.012,'Boom lower rails');}
             round(c,'trim',F,[[0,-H*.07],[R*.21,-H*.07],[R*.23,H*.018],[R*.16,H*.045],[0,H*.045]],'Brushless motor bodies',48);
             round(c,'metal',F,[[R*.205,-H*.025],[R*.225,-H*.025],[R*.225,H*.010],[R*.205,H*.010],[R*.205,-H*.025]],'Motor cooling collars',48);
             if(r.rotorGuard!=='open'){
                 round(c,'paint',F,[[R*.90,-H*.055],[R,-H*.045],[R,H*.048],[R*.94,H*.067],[R*.89,H*.052],[R*.89,-H*.055],[R*.90,-H*.055]],'Rolled rotor ducts',80);
-                for(let j=0;j<3;j++){const a=j/3*2*pi;tube('trim',[[x,body-H*.03,z],[x+Math.cos(a)*R*.91,body-H*.03,z+Math.sin(a)*R*.91]],H*.009,'Motor support stators');}
+                if(styled){
+                    // Flat stator vanes under the rotor, and a guard over it.
+                    for(let j=0;j<4;j++){const a=j/4*2*pi+pi/4,dir=[Math.cos(a),0,Math.sin(a)],mid=[x+dir[0]*R*.56,body-H*.035,z+dir[2]*R*.56];put('frame',HS.plate(HS.rect(-R*.34,-H*.022,R*.34,H*.022),H*.008,H*.002,{frame:CM.frame(mid,dir,[0,1,0])}),'Motor support stators');}
+                    if(r.rotorGuard==='ring')for(let j=0;j<6;j++){const a=j/6*2*pi;tube('metal',[[x+Math.cos(a)*R*.22,body+H*.062,z+Math.sin(a)*R*.22],[x+Math.cos(a)*R*.93,body+H*.062,z+Math.sin(a)*R*.93]],H*.0045,'Rotor guards');}
+                    if(r.rotorGuard==='ring')tube('metal',Array.from({length:33},(_,k)=>{const a=k/32*2*pi;return[x+Math.cos(a)*R*.55,body+H*.062,z+Math.sin(a)*R*.55];}),H*.0045,'Rotor guards');
+                }else for(let j=0;j<3;j++){const a=j/3*2*pi;tube('trim',[[x,body-H*.03,z],[x+Math.cos(a)*R*.91,body-H*.03,z+Math.sin(a)*R*.91]],H*.009,'Motor support stators');}
             }
             for(let j=0;j<3;j++){
                 const a=j/3*2*pi,blade=new CM.Geo(),n=16,at=(t,v)=>{const rad=R*(.16+.68*t),sweep=.15*t*t,aa=a+sweep+v*(.12-.045*t);return[x+rad*Math.cos(aa),body+H*(.018+v*.022*(1-t*.5)),z+rad*Math.sin(aa)];};
@@ -777,6 +900,8 @@
             tube('metal',[[W*.06,H*.63,-L*.17],[W*.06,H*.86,-L*.19]],H*.007,'Telemetry antenna');
         }
         box(r.lights?'glow':'dark',[0,H*.712,L*.01],[W*.036,H*.010,L*.025],.004,'Navigation beacon');
+        const anchors=[];for(const s of [-1,1]){anchors.push({kind:'antenna',F:CM.frame([s*W*.05,H*.66,-L*.17],[1,0,0],[0,0,-1]),size:[W*.02,H*.30],face:'top',priority:s>0?.7:.3});anchors.push({kind:'cable',F:CM.frame([s*W*.27,H*.53,s*L*.27],norm([s*W*.6,0,s*L*.6]),[0,0,0].map((_,k)=>k===1?0:0).map((v,k)=>[-s*L*.6,0,s*W*.6][k])),size:[Math.hypot(W,L)*.18,H*.02],face:'boom'+s,priority:.5});}
+        HW.fittings(c,anchors,r.detailDensity??.6,2);
     }
     function limb(c,a,b,width,depth,name,kind='paint'){
         const axis=norm(sub(b,a)),u=[1,0,0],v=norm(cross(axis,u)),len=Math.hypot(...sub(b,a)),profile=[[.12,.68],[.20,1],[.56,.91],[.78,.65],[.83,.48]],sections=profile.map(([t,w])=>[len*t,width*w,0,depth*(.7+.3*w)]),m=shell(sections,5.2,48);
@@ -788,7 +913,98 @@
         patch(cover,'trim',(u,v)=>at(mix(.24,.74,u),mix(.94,pi-.94,v),.002),name+' seals');
         patch(cover,'secondary',(u,v)=>at(mix(.25,.73,u),mix(.99,pi-.99,v),.005),name+' cover plates');
     }
+    /** A straight chamfered beam (box section) from a to b; `up` orients its height. */
+    function beam(a,b,w,h,up=[0,1,0],section=BOX){
+        const axis=norm(sub(b,a)),len=Math.hypot(...sub(b,a)),u0=cross(up,axis),u=Math.hypot(...u0)<1e-6?norm(cross([1,0,0],axis)):norm(u0),v=cross(axis,u);
+        const m=HW.facetedLoft([{z:0,w:w/2,y:0,h:h/2},{z:len,w:w/2,y:0,h:h/2}],section);
+        const turn=p=>add(add(scale(u,p[0]),scale(v,p[1])),scale(axis,p[2]));CM.transform(m,p=>add(a,turn(p)),turn);return m;
+    }
+    const BOX=[[0,-1],[.72,-1],[1,-.72],[1,.72],[.72,1],[0,1]];
+    /** Faceted/Armored limb: a dark chamfered under-frame beam carrying
+     * chamfered cover plates on its front and outer side (Armored adds the
+     * inner side too), seated off the frame with a shadow gap. */
+    function plateLimb(c,a,b,width,depth,name,kind='paint',coverName=name+' cover plates'){
+        const {r,put}=c,axis=norm(sub(b,a)),len=Math.hypot(...sub(b,a)),u=[1,0,0],v=norm(cross(axis,u)),side=Math.sign(a[0])||1;
+        put('frame',beam(add(a,scale(axis,len*.06)),add(a,scale(axis,len*.92)),width*1.1,depth*1.05,v),name+' frames');
+        const P=(t,x,y)=>add(add(a,scale(axis,len*t)),add(scale(u,x),scale(v,y)));
+        const t=Math.max(.012,depth*.10),plate=(o,n,uu,outline,label,k=kind)=>{const vv=cross(n,uu);put(k,HS.plate(HS.cut(outline,Math.min(.05,width*.25)),t,t*.35,{frame:CM.frame(o,uu,vv)}),label);};
+        // Front cover: tapered, from just below the upper joint to above the lower one.
+        const front=v,fu=cross(axis,front);
+        plate(P(.48,0,depth*.62+t/2),front,fu,[[-width*.60,-len*.33],[width*.60,-len*.33],[width*.48,len*.30],[-width*.48,len*.30]].map(([x,y])=>[x,-y]),coverName,kind);
+        const sides=r.bodyStyle==='armored'?[-1,1]:[side];
+        for(const s of sides){const n=scale(u,s),su=cross(axis,n);plate(P(.50,s*(width*.62+t/2),depth*.05),n,su,[[-depth*.55,-len*.28],[depth*.55,-len*.28],[depth*.42,len*.26],[-depth*.42,len*.26]],name+' side plates','secondary');}
+        if(r.details)for(const s of [-1,1])for(const tt of [.26,.70])HW.bolt(c,CM.frame(P(tt,s*width*.42,depth*.62+t),[1,0,0],cross(front,[1,0,0])),Math.max(.007,width*.05));
+    }
+    /** Faceted/Armored walker: chamfered torso casting on a dark frame, plated
+     * limbs, bolt-capped joint drums, piston pairs, vent banks and louvered
+     * pauldrons. Names that carry lettering and fasteners are kept. */
+    function walkerStyled(c){
+        const {r,W,H,L,put,box,tube,sheet,glazing}=c,hip=H*.43,knee=H*.25,ankle=H*.09,spread=W*.22*r.stance,armored=r.bodyStyle==='armored';
+        put('frame',beam([0,hip,-L*.19],[0,hip,L*.19],W*.45,H*.065),'Hip cradle');
+        const waist=CM.frame([0,H*.50,0],[1,0,0],[0,0,-1]);
+        round(c,'metal',waist,[[0,-H*.055],[W*.19,-H*.055],[W*.19,-H*.015],[W*.16,0],[W*.16,H*.025],[0,H*.025]],'Waist bearing');
+        put('frame',beam([0,H*.505,0],[0,H*.60,0],W*.16,W*.16,[0,0,1]),'Torso load spine');
+        for(const s of [-1,1])HW.pistonPair(c,[s*W*.09,H*.51,-L*.04],[s*W*.15,H*.60,-L*.07],H*.007,[0,0,1],'Torso stabilizers');
+        round(c,'trim',waist,[[W*.16,-H*.011],[W*.18,-H*.011],[W*.18,H*.001],[W*.16,H*.001],[W*.16,-H*.011]],'Waist bearing seal');
+        const torso=[[-.33,.24,.70,.085],[-.25,.33,.70,.135],[-.15,.345,.70,.14],[.10,.35,.71,.14],[.22,.31,.69,.10],[.29,.26,.675,.070],[.33,.20,.665,.060]].map(([z,w,y,h])=>({z:L*z,w:W*w,y:H*y,h:H*h}));
+        put('paint',HW.facetedLoft(torso,HW.BOX_SECTION),'Cast torso housing');
+        put('frame',HW.facetedLoft([{z:-L*.29,w:W*.21,y:H*.59,h:H*.025},{z:L*.17,w:W*.29,y:H*.59,h:H*.035},{z:L*.28,w:W*.20,y:H*.63,h:H*.025}],HW.BOX_SECTION),'Torso lower frame');
+        const skin=HW.loftSkin(torso,HW.BOX_SECTION);
+        const windshield=[[-W*.245,H*.76,L*.292],[W*.245,H*.76,L*.292],[W*.22,H*.87,L*.085],[-W*.22,H*.87,L*.085]];
+        put('glass',glazing(windshield,H*.006),'Walker cockpit glass');
+        windowFrame(c,windshield,H*.006,'Cockpit',.075);paneRail(c,windshield,H*.006,H*.005,'trim','Cockpit mullion');
+        sheet('secondary',[[-W*.27,H*.65,L*.325],[W*.27,H*.65,L*.325],[W*.24,H*.748,L*.31],[-W*.24,H*.748,L*.31]],H*(.008+.013*r.armor),'Sloped chest plate');
+        const eye=CM.frame([0,H*.696,L*.35],[1,0,0],[0,1,0]);round(c,'metal',eye,[[H*.025,0],[H*.032,.010],[H*.030,.026],[H*.021,.030],[H*.021,.007],[H*.025,0]],'Survey optic bezel');round(c,r.lights?'glow':'glass',eye,[[0,.021],[H*.020,.021],[H*.020,.024],[0,.024]],'Survey optic');
+        for(const s of [-1,1]){
+            // Torso side armor (Armored) or a vent bank either way, aft.
+            if(armored){const A=-L*.20,B=L*.08,y0=H*.625,y1=H*.795,P=(z,y)=>[s*skin(z,0)[0],y,z];
+                HW.armorPlate(c,[P(A,y0),P(B,y0),P(B,y1),P(A,y1)],{kind:'armor',name:'Torso armor plates',out:[s,0,0],thickness:H*(.008+.008*r.armor),probe:(u,v)=>P(mix(A,B,u),mix(y0,y1,v)),boltPitch:.22});
+                const zt0=-L*.29,zt1=-L*.04,x0=s*W*.03,x1=s*W*.27,T=(x,z)=>[x,skin(z,pi/2)[1],z];
+                HW.armorPlate(c,[T(x0,zt0),T(x1,zt0),T(x1,zt1),T(x0,zt1)],{kind:'armor',name:'Torso armor plates',out:[0,1,0],thickness:H*.010,boltPitch:.24});}
+            const vz=-L*.27,vx=skin(vz,0)[0];HW.ventBank(c,CM.frame([s*(vx+.002),H*.70,vz],[0,0,-s],[0,1,0]),L*.075,H*.10,5,'Walker side vent banks');
+            const a=[s*spread,hip,0],b=[s*spread*1.08,knee,L*.10],d=[s*spread,ankle,-L*.05],shoulder=[s*W*.40,H*.75,0],elbow=[s*W*.44,H*.58,L*.04],hand=[s*W*.43,H*.48,L*.20];
+            plateLimb(c,a,b,W*(.085+.025*r.armor),L*.13,'Tapered thigh armor');plateLimb(c,b,d,W*(.095+.025*r.armor),L*.14,'Tapered shin armor','armor','Tapered shin armor cover plates');
+            for(const p of [a,b,d])HW.joint(c,[p[0]+s*W*.067,p[1],p[2]],[s,0,0],H*.044,W*.12);
+            // Piston pairs behind each leg segment.
+            if(r.details)for(const [p,q]of [[a,b],[b,d]]){const ax=norm(sub(q,p)),back=scale(norm(cross(ax,[1,0,0])),-L*.10);HW.pistonPair(c,add(add(p,scale(sub(q,p),.12)),back),add(add(p,scale(sub(q,p),.86)),back),H*.009,[1,0,0],'Leg hydraulics');}
+            const kneeFrame=CM.frame([b[0],b[1],b[2]+L*.16],[1,0,0],[0,1,0]);put('frame',HS.plate(HS.cut(HS.rect(-W*.085,-H*.027,W*.085,H*.027),W*.02),H*.014,H*.003,{frame:kneeFrame}),'Knee cap seals');put('armor',HS.plate(HS.cut(HS.rect(-W*.075,-H*.022,W*.075,H*.022),W*.025),H*(.010+.012*r.armor),H*.004,{frame:{...kneeFrame,o:add(kneeFrame.o,[0,0,H*.014])}}),'Knee caps');
+            put('trim',CM.chamferBox([d[0],H*.030,-L*.04],[W*.29,H*.060,L*.40],H*.012),'Foot soles');
+            put('paint',(()=>{const m=HW.facetedLoft([{z:-L*.23,w:W*.11,y:H*.072,h:H*.022},{z:-L*.09,w:W*.135,y:H*.087,h:H*.040},{z:L*.12,w:W*.14,y:H*.067,h:H*.024},{z:L*.20,w:W*.125,y:H*.060,h:H*.015}],HW.RIDGE_SECTION);CM.transform(m,p=>add(p,[d[0],0,0]));return m;})(),'Foot instep armor');
+            for(let j=0;j<3;j++){const x=d[0]+(j-1)*W*.083;put('metal',CM.chamferBox([x,H*.047,L*.215],[W*.076,H*.055,L*.14],H*.008),'Articulated toes');put('trim',CM.chamferBox([x,H*.022,L*.22],[W*.072,H*.012,L*.12],H*.003),'Toe pads');}
+            tube('metal',[[s*W*.25,H*.75,0],shoulder],H*.030,'Shoulder axle');
+            plateLimb(c,shoulder,elbow,W*.10,L*.13,'Upper arm castings');plateLimb(c,elbow,hand,W*.072,L*.10,'Forearm castings','armor');
+            // Louvered pauldron: stacked, angled chamfered plates over a dark cowl frame.
+            put('frame',beam([shoulder[0],H*.765,-L*.20],[shoulder[0],H*.765,L*.20],W*.15,H*.09),'Pauldron frames');
+            for(let k=0;k<3;k++){const th=.30+.42*k,n=norm([s*Math.sin(th),Math.cos(th),0]),u=[0,0,1],v=cross(n,u),o=[shoulder[0]+s*W*(.010+.045*k),H*(.815-.034*k),0];
+                put('paint',HS.plate(HS.cut(HS.rect(-L*(.235-.02*k),-W*.055,L*(.235-.02*k),W*.055),W*.03),H*.016,H*.005,{frame:CM.frame(o,u,v)}),'Louvered pauldrons');}
+            const shoulderFace=CM.frame([shoulder[0],H*.75,L*.223],[1,0,0],[0,1,0]);
+            put('trim',CM.slab(CM.rect(0,0,W*.15,H*.062),shoulderFace,H*.003,.013,true),'Shoulder service seals');
+            put('secondary',CM.slab(CM.rect(0,0,W*.13,H*.052),{...shoulderFace,o:add(shoulderFace.o,[0,0,H*.004])},H*.004,.012,true),'Shoulder service plates');
+            if(r.details)for(const dx of [-1,1])for(const dy of [-1,1])c.bolt([shoulder[0]+dx*W*.043,H*(.75+dy*.016),L*.223+H*.009]);
+            for(const p of [elbow,hand])HW.joint(c,p,[s,0,0],H*.028,W*.075,{name:'Arm bearings'});
+            if(r.tool==='claw'){
+                put('trim',CM.chamferBox(hand,[W*.12,H*.04,L*.11],H*.008),'Claw wrist');
+                for(const t of [-1,1]){const p=add(hand,[t*W*.038,-H*.03,L*.025]),q=add(hand,[t*W*.065,-H*.065,L*.09]),tip=add(hand,[t*W*.025,-H*.11,L*.15]);put('metal',beam(p,q,H*.022,H*.016,[t,0,0]),'Articulated claw fingers');put('metal',beam(q,tip,H*.018,H*.013,[t,0,0]),'Articulated claw fingers');tube('trim',[add(hand,[0,-H*.015,0]),q],H*.008,'Claw actuator rods');}
+            }else if(r.tool==='welder'){
+                tube('trim',[hand,add(hand,[0,-H*.015,L*.17])],H*.023,'Welding tool');const F=CM.frame(add(hand,[0,-H*.015,L*.17]),[1,0,0],[0,1,0]);round(c,'metal',F,[[H*.024,0],[H*.027,.020],[H*.016,.040],[H*.010,.040],[H*.016,.020],[H*.024,0]],'Welding nozzle');round(c,r.lights?'glow':'dark',F,[[0,.025],[H*.010,.025]],'Welding emitter');
+            }
+            if(r.details){
+                tube('dark',Array.from({length:33},(_,j)=>{const t=j/32;return[s*mix(W*.25,W*.43,t),H*(.77-.17*t)+Math.sin(pi*t)*H*.045,-L*.12-Math.sin(pi*t)*L*.06];}),H*.009,'Arm service hoses');
+                grille(c,CM.frame([s*W*.14,H*.70,-L*.33+H*.0001],[1,0,0],[0,-1,0]),W*.15,H*.10,H*.012,7,'Walker rear cooling grille');
+                box('trim',[s*W*.15,H*.693,L*.346],[W*.12,H*.045,.009],.010,'Chest service recess');for(let j=0;j<3;j++)box('metal',[s*W*.15,H*.693+(j-1)*H*.011,L*.352],[W*.10,H*.003,.006],.002,'Chest cooling slats');
+            }
+        }
+        // Fittings: aerials, a sensor pod, a work lamp and cable runs.
+        const topY=z=>skin(z,pi/2)[1],anchors=[];
+        for(const s of [-1,1]){anchors.push({kind:'antenna',F:CM.frame([s*W*.19,topY(-L*.22),-L*.22],[1,0,0],[0,0,-1]),size:[W*.03,H*.13],face:'top',priority:.9});
+            anchors.push({kind:'handle',F:CM.frame([s*skin(-L*.05,0)[0],H*.80,-L*.05],[0,0,-s],[0,1,0]),size:[L*.09,H*.03],face:'side'+s,priority:.4});}
+        anchors.push({kind:'sensor',F:CM.frame([0,topY(L*.04)+.002,L*.03],[1,0,0],[0,0,-1]),size:[W*.09,L*.07],face:'top',priority:.8});
+        anchors.push({kind:'lightCage',F:CM.frame([W*.20,topY(L*.0),L*.06],[1,0,0],[0,1,0]),size:[H*.05,H*.05],face:'top',priority:.6,post:H*.012});
+        anchors.push({kind:'cable',F:CM.frame([0,topY(-L*.30),-L*.30],[1,0,0],[0,0,-1]),size:[W*.30,H*.02],face:'aft',priority:.5});
+        HW.fittings(c,anchors,r.detailDensity??.6,3);
+    }
     function walker(c){
+        if((c.r.bodyStyle||'rounded')!=='rounded')return walkerStyled(c);
         const {r,W,H,L,put,box,tube,sheet,glazing}=c,hip=H*.43,knee=H*.25,ankle=H*.09,spread=W*.22*r.stance;
         // A turntable waist with a load-bearing spine and a cast hip cradle.
         box('trim',[0,hip,0],[W*.45,H*.065,L*.38],.06,'Hip cradle');

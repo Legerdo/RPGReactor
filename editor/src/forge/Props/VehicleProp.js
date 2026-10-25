@@ -4,7 +4,7 @@
 (function(root) {
     'use strict';
     const need=(name,file)=>root[name]||(typeof require==='function'?require(file):null);
-    const CM=need('RRContainerMesh','./ContainerMesh.js'),Paint=need('RRPropPaint','./PropPaint.js'),Construction=need('RRVehicleConstruction','./VehicleConstruction.js'),Bodywork=need('RRVehicleBodywork','./VehicleBodywork.js'),Finish=need('RRVehicleFinish','./VehicleFinish.js');
+    const CM=need('RRContainerMesh','./ContainerMesh.js'),Paint=need('RRPropPaint','./PropPaint.js'),Construction=need('RRVehicleConstruction','./VehicleConstruction.js'),Bodywork=need('RRVehicleBodywork','./VehicleBodywork.js'),HS=need('RRHardSurface','./HardSurface.js'),Design=need('RRFlagDesign','./FlagDesign.js'),Finish=need('RRVehicleFinish','./VehicleFinish.js');
     const {add,sub,scale,norm,cross,dot}=CM.vec;
     const FORMS=[
         ['compact','Compact car',1.75,1.48,3.45],['sport','Sports coupe',1.90,1.25,4.45],
@@ -16,6 +16,13 @@
     const clamp=(v,a,b,d)=>Number.isFinite(+v)?Math.max(a,Math.min(b,+v)):d;
     const hex=(v,d)=>/^#[\da-f]{6}$/i.test(v)?v:d;
     const GROUND=new Set(['compact','sport','truck','rover','motorcycle']),TREADS=['road','allTerrain','mud'];
+    // Body styles: Rounded (smooth lofted coachwork), Faceted (few stations,
+    // flat panels, chamfered creases) and Armored (bolted chamfered plates over
+    // a darker under-frame). A recipe saved before styles existed has no
+    // bodyStyle and keeps the look it was saved with, which is Rounded; new
+    // vehicles start from the per-form default below.
+    const STYLES=['rounded','faceted','armored'],STYLE_DEFAULT={compact:'faceted',sport:'rounded',truck:'faceted',rover:'armored',motorcycle:'rounded',hover:'faceted',shuttle:'faceted',drone:'faceted',walker:'armored'};
+    const DENSITY_DEFAULT={compact:.45,sport:.4,truck:.6,rover:.75,motorcycle:.5,hover:.6,shuttle:.65,drone:.6,walker:.7};
     function normalize(input={}) {
         const form=BY_ID.has(input.form)?input.form:'compact',f=BY_ID.get(form),r=input;
         return {kind:'vehicle',form,width:clamp(r.width,.5,8,f[2]),height:clamp(r.height,.35,7,f[3]),length:clamp(r.length,1,12,f[4]),
@@ -23,13 +30,17 @@
             interior:r.interior!==false,windowOpacity:clamp(r.windowOpacity,.2,.95,.82),seatColor:hex(r.seatColor,'#62717a'),finish:['enamel','powder','brushed','composite'].includes(r.finish)?r.finish:'enamel',wear:clamp(r.wear,0,1,['rover','walker','truck'].includes(form)?.35:.08),grime:clamp(r.grime,0,1,['rover','walker','truck'].includes(form)?.30:.06),surfaceSeed:Math.round(clamp(r.surfaceSeed,1,999999,701)),livery:['plain','stripe','rally','service'].includes(r.livery)?r.livery:['rover','walker','truck','hover','shuttle','drone'].includes(form)?'service':form==='sport'?'rally':'stripe',markings:typeof r.markings==='string'?r.markings.toUpperCase().replace(/[^A-Z0-9 .:/-]/g,'').slice(0,22):({compact:'R-17',sport:'24',truck:'FIELD SERVICE',rover:'RANGER 06',motorcycle:'R-17',hover:'UTILITY 17',shuttle:'EXPEDITION 07',drone:'SURVEY 06',walker:'WORK UNIT 06'}[form]),
             wheelSize:clamp(r.wheelSize,.75,1.3,1),wheelbase:clamp(r.wheelbase,.5,.72,.62),clearance:clamp(r.clearance,0,1,.4),
             cabinHeight:clamp(r.cabinHeight,.7,1.3,1),cabinLength:clamp(r.cabinLength,.75,1.25,1),axles:Math.round(clamp(r.axles,2,3,form==='rover'?3:2)),
-            armor:clamp(r.armor,0,1,form==='rover'?.8:.2),roughness:clamp(r.roughness,.2,.9,form==='sport'?.28:.52),
+            armor:clamp(r.armor,0,1,form==='rover'?.8:.2),roughness:clamp(r.roughness,.2,.9,{sport:.24,compact:.30,motorcycle:.30,truck:.40,hover:.38,shuttle:.40,drone:.42}[form]??.52),
             spokes:Math.round(clamp(r.spokes,4,10,6)),tread:clamp(r.tread,0,1,form==='rover'||form==='truck'?.8:.25),treadPattern:TREADS.includes(r.treadPattern)?r.treadPattern:form==='rover'?'mud':form==='truck'?'allTerrain':'road',
             roofRack:!!r.roofRack,bumper:r.bumper!==false,lights:r.lights!==false,details:r.details!==false,
             cargo:clamp(r.cargo,0,1,form==='truck'?.5:0),wingSpan:clamp(r.wingSpan,.7,1.4,1),engineSize:clamp(r.engineSize,.7,1.4,1),
-            stance:clamp(r.stance,.75,1.3,1),aero:clamp(r.aero,0,1,form==='sport'?.65:0),fairing:['naked','half','full'].includes(r.fairing)?r.fairing:'half',flightFit:['transport','interceptor','cargo'].includes(r.flightFit)?r.flightFit:'transport',rotorGuard:['ring','cage','open'].includes(r.rotorGuard)?r.rotorGuard:'ring',tool:['claw','welder','none'].includes(r.tool)?r.tool:'claw'};
+            stance:clamp(r.stance,.75,1.3,1),aero:clamp(r.aero,0,1,form==='sport'?.65:0),fairing:['naked','half','full'].includes(r.fairing)?r.fairing:'half',flightFit:['transport','interceptor','cargo'].includes(r.flightFit)?r.flightFit:'transport',rotorGuard:['ring','cage','open'].includes(r.rotorGuard)?r.rotorGuard:'ring',tool:['claw','welder','none'].includes(r.tool)?r.tool:'claw',
+            bodyStyle:STYLES.includes(r.bodyStyle)?r.bodyStyle:'rounded',detailDensity:clamp(r.detailDensity,0,1,DENSITY_DEFAULT[form]),
+            // Insignia: emblems only (RRFlagDesign layers), painted on doors, flanks and fins. None by default.
+            insignia:insigniaOf(r.insignia)};
     }
-    const fromPreset=form=>normalize({form});
+    function insigniaOf(v){const d=Design.normalize({field:{layout:'solid',colors:['#000000']},layers:v&&Array.isArray(v.layers)?v.layers:[]});return{field:d.field,layers:d.layers};}
+    const fromPreset=form=>normalize({form,bodyStyle:STYLE_DEFAULT[BY_ID.has(form)?form:'compact']});
     /** A tandem rear bogie leaves a real access bay ahead of it. Door edges share wheel-clearance anchors. */
     function roadLayout(r){
         const W=r.width,H=r.height,L=r.length,span=L*r.wheelbase;
@@ -78,7 +89,7 @@
         const tube=(kind,points,radius=.018,name)=>put(kind,CM.sweep(points,radius,20,true),name);
         const sheet=(kind,points,thickness=.012,name)=>put(kind,panel(points,thickness),name);
         const bolt=(center,u=[0,0,1],v=[0,1,0])=>{if(r.details)put('metal',CM.revolveOn(CM.frame(center,u,v),0,0,[[0,0],[.014,0],[.014,.008],[0,.009]],8));};
-        const context={recipe:r,r,W,H,L,put,box,tube,sheet,bolt,wheels,bodywork:Bodywork};
+        const context={recipe:r,r,W,H,L,put,box,tube,sheet,bolt,wheels,bodywork:Bodywork,zones:new Map()};
         const wheel=(x,z,R,width,name)=>{const w=Bodywork.wheel(context,x,z,R,width,name);wheels.push(w);return w.at;};
         const vent=(center,size,rows=6,back=false)=>{if(r.details)Bodywork.grille(context,CM.frame(center,[1,0,0],[0,back?-1:1,0]),size[0],size[1],size[2],rows,'Vehicle cooling grille');};
         const lamp=(center,size,back=false)=>{
@@ -129,7 +140,8 @@
             const roofY=hood+H*(r.form==='sport'?.27:r.form==='rover'?.35:.37)*r.cabinHeight,front=cabinZ+cabinL*.50,rear=cabinZ-cabinL*.50,rf=cabinZ+cabinL*(r.form==='sport'?.10:.20),rr=cabinZ-cabinL*(r.form==='compact'?.38:.32),bw=W*.405,rw=W*(r.form==='sport'?.315:.34);
             Object.assign(context,{R,hood,base,half,roofY,rf,rr,rw,bw,cabinZ,cabinL,axleZ,door});
             Bodywork.roadWindows({...context,front,rear,glazing,sheet});
-            put('secondary',Bodywork.shell(Array.from({length:25},(_,i)=>{const t=i/24,crown=Math.sin(t*Math.PI);return[rr+(rf-rr)*t,rw*(1+.012*crown),roofY+H*(.008+.010*crown),H*(.018+.022*crown)];}),2.8,64),'Crowned roof panel');
+            if(r.bodyStyle==='rounded')put('secondary',Bodywork.shell(Array.from({length:25},(_,i)=>{const t=i/24,crown=Math.sin(t*Math.PI);return[rr+(rf-rr)*t,rw*(1+.012*crown),roofY+H*(.008+.010*crown),H*(.018+.022*crown)];}),2.8,64),'Crowned roof panel');
+            else put('secondary',HS.plate(HS.cut(HS.rect(-rw*1.015,-(rf-rr)*.5,rw*1.015,(rf-rr)*.5),H*.02),H*.032,H*.011,{frame:CM.frame([0,roofY+H*.012,(rr+rf)/2],[1,0,0],[0,0,-1])}),'Crowned roof panel');
             for(const sign of [-1,1]){
                 tube('trim',[[sign*W*.22,hood+.012,front+.006],[sign*W*.10,hood+H*.10,front-(front-rf)*.25+.006]],W*.004);
                 const hz=door.rear+door.width*.23,hy=context.bodyProfile.top(hz)-H*.13,hx=context.sideAt(hz,hy);
@@ -148,7 +160,7 @@
                 for(const x of [-W*.43,W*.43])box('paint',[x,hood+H*.04,bz],[W*.10,H*.22,bedL],.016,'Bed side rails');
                 box('paint',[0,hood+H*.04,bed.rear+.0175],[W*.90,H*.22,.035],.016,'Tailgate');
                 if(r.cargo>.05)for(let i=0;i<Math.ceil(r.cargo*3);i++)box('cargo',[(i-1)*W*.20,bed.floor+H*.10,bz-bedL*.06],[W*.18,H*.20,Math.min(L*.17,bedL*.8)],.016);
-            }else if(r.form==='rover'&&r.armor>.1){
+            }else if(r.form==='rover'&&r.armor>.1&&r.bodyStyle!=='armored'){
                 for(const sign of [-1,1]){box('armor',[sign*W*.47,hood+H*.08,cabinZ-cabinL*.30],[W*(.02+.025*r.armor),H*.18,cabinL*.26],.020);vent([sign*W*.15,hood-H*.15,-L*.49+H*.0001],[W*.16,H*.15,.015],5,true);}
             }
         } else if(r.form==='motorcycle') {
@@ -209,20 +221,22 @@
         const construction=Construction.assemble(context);
         const materials={seat:{color:r.seatColor,roughness:.88,metalness:0},secondary:{color:r.secondary,roughness:Math.min(.90,r.roughness+.08),metalness:.28},paint:{color:r.paint,roughness:r.roughness,metalness:.35},armor:{color:r.paint,roughness:Math.min(.92,r.roughness+.12),metalness:.45},
             accent:{color:r.accent,roughness:.42,metalness:.55},trim:{color:r.trim,roughness:.64,metalness:.20},dark:{color:'#11181d',roughness:.83},rubber:{color:'#202327',roughness:.92},metal:{color:'#a1abb0',roughness:.36,metalness:.78},
-            glass:{color:r.glass,roughness:.17,metalness:.38},cargo:{color:r.accent,roughness:.82},light:{color:'#94a7a3',emissive:'#d3e1dd',emissiveIntensity:.20,roughness:.25},
-            red:{color:'#932d23',emissive:'#b72b20',emissiveIntensity:.4,roughness:.27},liner:{color:'#101417',roughness:.9,doubleSided:true},chrome:{color:'#d3d9dc',roughness:.16,metalness:1},lens:{color:'#e6eef0',roughness:.03,metalness:.10,opacity:.18},redlens:{color:'#b0261c',roughness:.08,metalness:.10,opacity:.62,...(r.lights?{emissive:'#7a1710',emissiveIntensity:.35}:{})},glow:{color:r.accent,emissive:r.accent,emissiveIntensity:r.lights?.6:0,roughness:.3}};
+            glass:{color:r.glass,roughness:.17,metalness:.38},cargo:{color:r.accent,roughness:.82},light:{color:'#94a7a3',emissive:'#e2eeea',emissiveIntensity:.85,roughness:.25},frame:{color:'#2a3034',roughness:.62,metalness:.55},
+            red:{color:'#932d23',emissive:'#c42e20',emissiveIntensity:.9,roughness:.27},liner:{color:'#101417',roughness:.9,doubleSided:true},chrome:{color:'#d3d9dc',roughness:.16,metalness:1},lens:{color:'#e6eef0',roughness:.03,metalness:.10,opacity:.18},redlens:{color:'#b0261c',roughness:.08,metalness:.10,opacity:.62,...(r.lights?{emissive:'#7a1710',emissiveIntensity:.35}:{})},glow:{color:r.accent,emissive:r.accent,emissiveIntensity:r.lights?1.4:0,roughness:.3}};
         const parts=[];
-        for(const [key,list]of groups){const [kind,name]=key.split('|'),mesh=CM.merge(list);CM.skin(mesh,0);parts.push({...mesh,...materials[kind],metalness:materials[kind].metalness??0,surfaceRole:kind,name:name===kind?BY_ID.get(r.form)[1]+' '+kind:name});}
+        for(const [key,list]of groups){const [kind,name]=key.split('|'),mesh=CM.merge(list);if(!mesh.index.length)continue;CM.skin(mesh,0);parts.push({...mesh,...materials[kind],metalness:materials[kind].metalness??0,surfaceRole:kind,name:name===kind?BY_ID.get(r.form)[1]+' '+kind:name});}
+        if(context.zones)for(const p of parts){const z=context.zones.get(p.name);if(z)p.zone=z;}
         for(const p of parts)CM.mapUv(p,(_,__,i)=>{const n=Array.from(p.normals.subarray(i*3,i*3+3),Math.abs),axis=n.indexOf(Math.max(...n)),axes=axis===0?[2,1]:axis===1?[0,2]:[0,1];return axes.map(k=>p.positions[i*3+k]*5);});
         let low=Infinity,high=-Infinity;for(const p of parts)for(let i=1;i<p.positions.length;i+=3){low=Math.min(low,p.positions[i]);high=Math.max(high,p.positions[i]);}
         for(const p of parts)for(let i=1;i<p.positions.length;i+=3)p.positions[i]-=low;
         for(const w of wheels)w.at[1]-=low;
         for(const seat of mounts.seats||[])for(const key of ['seat','handL','handR','footL','footR'])if(seat[key])seat[key].at[1]-=low;
         for(const c of mounts.controls||[])c.at[1]-=low;
-        const textures={};Finish.fittings(parts,r);Finish.apply(parts,textures,r,cache,options);tint(parts,context.tints);Finish.decorate(parts,textures,r,cache);
+        const textures={};Finish.fittings(parts,r);Finish.apply(parts,textures,r,cache,options);tint(parts,context.tints);Finish.decorate(parts,textures,r,cache,options.images||{});for(const p of parts)delete p.zone;
         const finalParts=consolidate(parts,r,wheels,mounts);
         const sidecarExtra=GROUND.has(r.form)?{vehicle:{forward:'+z',wheels,...(mounts.seats?{seats:mounts.seats,controls:mounts.controls,stand:{lean:0,side:'left'}}:{})}}:{};
-        return {kind:'vehicle',recipe:r,construction,parts:finalParts,bones:[{name:'Prop',head:[0,0,0],parent:-1}],clips:[],textures,height:high-low,sidecarExtra};
+        const missing=r.insignia.layers.length?Design.pictures(r.insignia).find(n=>!(options.images||{})[n])||'':'';
+        return {kind:'vehicle',recipe:r,construction,parts:finalParts,bones:[{name:'Prop',head:[0,0,0],parent:-1}],clips:[],textures,height:high-low,sidecarExtra,imageName:missing,imageMissing:!!missing};
     }
     /** Per-vertex color factors after the coating: drilled holes, vent
      * bands and bright fasteners on dark rims. f(position) -> k or [r,g,b]. */
@@ -241,11 +255,11 @@
         const label=BY_ID.get(r.form)[1],q=v=>v==null?'':Math.round(v*1000)/1000;
         const key=p=>JSON.stringify([p.surfaceRole,p.texture||'',p.normalTexture||'',p.metallicRoughnessTexture||'',q(p.normalScale),p.texture||p.colors?'':p.color,!!p.colors,q(p.roughness),q(p.metalness),q(p.opacity??1),p.emissive||'',q(p.emissiveIntensity),p.emissiveTexture||'',!!p.cutout,q(p.alphaCutoff),!!p.blend,!!p.doubleSided]);
         const out=[],groups=new Map();
-        for(const p of parts){if(keep.has(p.name)||KEEP_PATTERN.test(p.name)){out.push(p);continue;}const k=key(p);if(!groups.has(k)){groups.set(k,[]);out.push(k);}groups.get(k).push(p);}
+        for(const p of parts){if(!p.index.length)continue;if(keep.has(p.name)||KEEP_PATTERN.test(p.name)){out.push(p);continue;}const k=key(p);if(!groups.has(k)){groups.set(k,[]);out.push(k);}groups.get(k).push(p);}
         const used=new Set(parts.map(p=>p.name));
         return out.map(entry=>{
             if(typeof entry!=='string')return entry;const list=groups.get(entry);if(list.length===1)return list[0];
-            const mesh=CM.merge(list);mesh.uvs=new Float32Array(mesh.positions.length/3*2);let v=0;for(const p of list){if(p.uvs)mesh.uvs.set(p.uvs,v*2);v+=p.positions.length/3;}
+            for(const p of list)delete p.ao;const mesh=CM.merge(list);mesh.uvs=new Float32Array(mesh.positions.length/3*2);let v=0;for(const p of list){if(p.uvs)mesh.uvs.set(p.uvs,v*2);v+=p.positions.length/3;}
             if(list[0].colors){mesh.colors=new Float32Array(mesh.positions.length);v=0;for(const p of list){mesh.colors.set(p.colors,v*3);v+=p.positions.length/3;}}
             delete mesh.ao;const own=list.find(p=>p.name===label+' '+p.surfaceRole)||list.find(p=>ADOPT.includes(p.name));
             let name=own?own.name:label+' '+list[0].surfaceRole;
@@ -256,12 +270,12 @@
     }
     function random(seed,input,scope='all') {
         const r=normalize(input),next=Paint.random(seed),all=scope==='all';
-        if(all||scope==='shape'){for(const k of ['width','height','length'])r[k]*=.88+next()*.24;r.cabinHeight=.8+next()*.4;r.cabinLength=.85+next()*.3;r.wheelbase=.52+next()*.16;r.wheelSize=.85+next()*.3;r.stance=.85+next()*.3;}
+        if(all||scope==='shape'){for(const k of ['width','height','length'])r[k]*=.88+next()*.24;r.cabinHeight=.8+next()*.4;r.cabinLength=.85+next()*.3;r.wheelbase=.52+next()*.16;r.wheelSize=.85+next()*.3;r.stance=.85+next()*.3;r.bodyStyle=STYLES[Math.floor(next()*3)];}
         if(all||scope==='colors'){r.paint=['#426c80','#8c353b','#697460','#b29d78','#aeb8b7','#4f515e'][Math.floor(next()*6)];r.secondary=['#303c43','#b4bdba','#c5ac87','#48545e'][Math.floor(next()*4)];r.accent=['#d0a15c','#82c4ca','#b66d3d'][Math.floor(next()*3)];r.roughness=.3+next()*.4;r.finish=['enamel','powder','brushed','composite'][Math.floor(next()*4)];}
-        if(all||scope==='details'){r.roofRack=next()>.55;r.bumper=next()>.2;r.cargo=next();r.armor=next();r.spokes=4+Math.floor(next()*7);r.tread=next();r.treadPattern=TREADS[Math.floor(next()*3)];r.engineSize=.85+next()*.4;r.wear=next()*.7;r.grime=next()*.6;r.surfaceSeed=1+Math.floor(next()*999998);r.livery=['plain','stripe','rally','service'][Math.floor(next()*4)];r.aero=next();r.fairing=['naked','half','full'][Math.floor(next()*3)];r.flightFit=['transport','interceptor','cargo'][Math.floor(next()*3)];r.rotorGuard=['ring','cage','open'][Math.floor(next()*3)];r.tool=['claw','welder','none'][Math.floor(next()*3)];}
+        if(all||scope==='details'){r.roofRack=next()>.55;r.bumper=next()>.2;r.cargo=next();r.armor=next();r.spokes=4+Math.floor(next()*7);r.tread=next();r.treadPattern=TREADS[Math.floor(next()*3)];r.engineSize=.85+next()*.4;r.wear=next()*.7;r.grime=next()*.6;r.surfaceSeed=1+Math.floor(next()*999998);r.livery=['plain','stripe','rally','service'][Math.floor(next()*4)];r.aero=next();r.fairing=['naked','half','full'][Math.floor(next()*3)];r.flightFit=['transport','interceptor','cargo'][Math.floor(next()*3)];r.rotorGuard=['ring','cage','open'][Math.floor(next()*3)];r.tool=['claw','welder','none'][Math.floor(next()*3)];r.detailDensity=.2+next()*.8;}
         return normalize(r);
     }
-    const api={roadLayout,FORMS,GROUND,normalize,fromPreset,build,random};root.RRVehicleProp=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
+    const api={roadLayout,FORMS,GROUND,STYLES,STYLE_DEFAULT,normalize,fromPreset,build,random};root.RRVehicleProp=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
     const Model=need('RRPropModel','./PropModel.js'),Catalog=need('RRPropCatalog','./PropCatalog.js');
     Model.register({id:'vehicle',label:'Vehicles',normalize,build,random,randomScopes:[['all','Everything'],['shape','Shape'],['colors','Colors'],['details','Details']]});
     Catalog.category({id:'vehicles',label:'Vehicles',order:55});
@@ -269,7 +283,7 @@
     Catalog.ui('vehicle',{placeholder:'Vehicles',tabs:[['shape','Shape'],['look','Look'],['details','Details']],panel(tab){
         const f=this.recipe.form,ground=GROUND.has(f),car=ground&&f!=='motorcycle',slider=(path,label,range,step=.01)=>this._slider({path,label,range,step});
         if(tab==='shape'){
-            let out=this._section('Dimensions')+slider('width','Width',[.5,8])+slider('height','Height',[.35,7])+slider('length','Length',[1,12]);
+            let out=this._select('bodyStyle','Body style',[['rounded','Rounded'],['faceted','Faceted'],['armored','Armored']])+this._section('Dimensions')+slider('width','Width',[.5,8])+slider('height','Height',[.35,7])+slider('length','Length',[1,12]);
             if(ground)out+=slider('wheelSize','Wheel size',[.75,1.3]);
             if(car)out+=slider('wheelbase','Wheelbase',[.5,.72])+slider('axles','Axles',[2,3],1)+slider('clearance','Ground clearance',[0,1]);
             if(car||f==='hover'||f==='shuttle')out+=slider('cabinHeight','Cabin height',[.7,1.3]);
@@ -279,8 +293,10 @@
             if(f==='walker')out+=slider('stance','Stance width',[.75,1.3]);
             return out;
         }
-        if(tab==='look')return (car||['hover','shuttle'].includes(f)?this._check('interior','Cabin interior')+(this.recipe.interior?slider('windowOpacity','Window opacity',[.2,.95])+this._color('seatColor','Seat upholstery'):''):'')+this._select('finish','Paint finish',[['enamel','Enamel'],['powder','Powder coat'],['brushed','Brushed alloy'],['composite','Woven composite']])+this._select('livery','Paint scheme',[['plain','Plain'],['stripe','Coach stripe'],['rally','Rally'],['service','Service markings']])+`<label class="rr-c3d-row"><span class="rr-c3d-label">${this._t('Custom marking')}</span><input type="text" class="rr-input rr-prop-text" data-path="markings" maxlength="22" value="${this.recipe.markings}" spellcheck="false"></label>`+slider('wear','Paint wear',[0,1])+slider('grime','Grime',[0,1])+slider('surfaceSeed','Surface variation',[1,999999],1)+this._color('paint','Body color')+this._color('secondary','Secondary body color')+this._color('trim','Trim')+this._color('accent','Accent')+this._color('glass','Glass')+slider('roughness','Roughness',[.2,.9]);
-        let out=this._check('details','Details')+this._check('lights','Lights');
+        if(tab==='look')return (car||['hover','shuttle'].includes(f)?this._check('interior','Cabin interior')+(this.recipe.interior?slider('windowOpacity','Window opacity',[.2,.95])+this._color('seatColor','Seat upholstery'):''):'')+this._select('finish','Paint finish',[['enamel','Enamel'],['powder','Powder coat'],['brushed','Brushed alloy'],['composite','Woven composite']])+this._select('livery','Paint scheme',[['plain','Plain'],['stripe','Coach stripe'],['rally','Rally'],['service','Service markings']])+`<label class="rr-c3d-row"><span class="rr-c3d-label">${this._t('Custom marking')}</span><input type="text" class="rr-input rr-prop-text" data-path="markings" maxlength="22" value="${this.recipe.markings}" spellcheck="false"></label>`+slider('wear','Paint wear',[0,1])+slider('grime','Grime',[0,1])+slider('surfaceSeed','Surface variation',[1,999999],1)+this._color('paint','Body color')+this._color('secondary','Secondary body color')+this._color('trim','Trim')+this._color('accent','Accent')+this._color('glass','Glass')+slider('roughness','Roughness',[.2,.9])
+            // Insignia: the Design page's emblems-only list (shapes, or a project picture), painted on doors, flanks and fins.
+            +(this._designPanel?this._designPanel('insignia',{field:false}):'');
+        let out=this._check('details','Details')+(this.recipe.details?slider('detailDensity','Detail density',[0,1]):'')+this._check('lights','Lights');
         if(ground)out+=slider('spokes','Wheel spokes',[4,10],1)+slider('tread','Tire tread',[0,1])+this._select('treadPattern','Tread pattern',[['road','Road'],['allTerrain','All-terrain'],['mud','Mud']]);
         if(car)out+=this._check('roofRack','Roof rack')+this._check('bumper','Bumpers');
         if(f==='truck'||f==='hover'||f==='shuttle')out+=slider('cargo','Cargo load',[0,1]);
@@ -291,5 +307,5 @@
         if(f==='drone')out+=this._select('rotorGuard','Rotor protection',[['ring','Duct ring'],['cage','Safety cage'],['open','Open rotor']]);
         if(f==='walker')out+=this._select('tool','Tool',[['claw','Claw'],['welder','Welder'],['none','None']]);
         return out;
-    },reset:r=>fromPreset(r.form),moves:()=>false});
+    },act(act,b){if(this._designAct)this._designAct(act,b);},reset:r=>fromPreset(r.form),moves:()=>false});
 })(typeof window!=='undefined'?window:globalThis);

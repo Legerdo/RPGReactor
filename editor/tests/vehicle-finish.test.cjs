@@ -6,7 +6,7 @@ const surfaceHash=r=>hash(r.textures['vehicle-coating-albedo.png'].data);
 const geometryHash=r=>{const h=crypto.createHash('sha256');for(const p of r.parts){h.update(Buffer.from(p.positions.buffer,p.positions.byteOffset,p.positions.byteLength));h.update(Buffer.from(p.index.buffer,p.index.byteOffset,p.index.byteLength));}return h.digest('hex');};
 test('coatings have bounded color, normal and packed material maps with complete UV charts',()=>{
  const r=V.build(V.fromPreset('rover'));
- for(const suffix of ['albedo','normal','surface']){const t=r.textures['vehicle-coating-'+suffix+'.png'];assert.ok(t);assert.ok(t.width<=1024&&t.height<=2048);assert.equal(t.data.length,t.width*t.height*4);}
+ for(const suffix of ['albedo','normal','surface']){const t=r.textures['vehicle-coating-'+suffix+'.png'];assert.ok(t);assert.ok(t.width<=2048&&t.height<=2048,'2026-10-24 phase 2: the coating atlas carries the panel layer at up to 2048×2048');assert.equal(t.data.length,t.width*t.height*4);}
  for(const p of r.parts){assert.ok(p.positions.every(Number.isFinite)&&p.normals.every(Number.isFinite));for(const key of ['texture','normalTexture','metallicRoughnessTexture'])if(p[key]){const t=r.textures[p[key]];assert.ok(t,p.name+' missing '+key);if(!t.repeat)assert.ok(p.uvs.every(v=>v>=-1e-5&&v<=1.00001),p.name+' UV outside its complete atlas');}}
  const ink=r.textures['vehicle-markings.png'];assert.ok(ink.data.some((v,i)=>i%4===3&&v===0),'markings must keep a transparent background');assert.ok(ink.data.some((v,i)=>i%4===3&&v>200));
 });
