@@ -1444,7 +1444,10 @@ Graphics.FramePacing = {
         const tilemap = spriteset._tilemap, parallax = spriteset._parallax;
         this._origin = { tx: tilemap ? tilemap.origin.x : 0, ty: tilemap ? tilemap.origin.y : 0, px: parallax ? parallax.origin.x : 0, py: parallax ? parallax.origin.y : 0, tilemap, parallax };
         if (tilemap) { tilemap.origin.x = map.displayX() * map.tileWidth(); tilemap.origin.y = map.displayY() * map.tileHeight(); }
-        if (parallax && parallax.bitmap && parallax.bitmap.width) { parallax.origin.x = map.parallaxOx() % parallax.bitmap.width; parallax.origin.y = map.parallaxOy() % parallax.bitmap.height; }
+        // MZ's parallaxOx reads _parallaxX, which a tick sets and this pass does not blend, so the
+        // tick's origin stands. Recomputing it here put every 2000/2003 panorama, which follows the
+        // camera instead, at its top-left corner for the frames between ticks: a flash and a snap back.
+        if (parallax && parallax.bitmap && spriteset.rrPlaceLegacyParallax) spriteset.rrPlaceLegacyParallax();
         this.swapCharacters(alpha, false);
         map._displayX = dx; map._displayY = dy;
     },
