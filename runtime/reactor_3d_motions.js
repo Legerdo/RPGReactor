@@ -643,11 +643,9 @@
      */
     /** The most a foot points out from the hips' facing on an upright body (degrees), and in. */
     const TOE_OUT = 18, TOE_IN = 6;
-    /**
-     * The most a walking or running foot points out (degrees), read along its ankle-to-ball line: the sole's own
-     * heel-to-toe centerline runs 6 to 9 degrees inside that line, so a stride's soles land 6 to 9 out.
-     */
-    const STRIDE_TOE_OUT = 15;
+    /** The most a walking or running foot points out (degrees, read along its pitched ankle-to-ball line, as TOE_OUT):
+     * 10 lands the sole's own centerline 5 to 12 out once the sole is level. */
+    const STRIDE_TOE_OUT = 10;
     function limitLegs(index, names, world, steps, turnAt, bones, upright, once, toeOut = TOE_OUT) {
         const clampTo = (v, r) => {
             const [lo, hi] = r.x, d = DEG;
@@ -694,9 +692,7 @@
             // (the heel swung in) or in past TOE_IN rolls the whole leg about the thigh, knee and foot together.
             const hips = names.indexOf('Hips'), m = S === 'Left' ? 1 : -1;
             const toe = index.get(S + 'ToeBase');
-            // Read along the foot's heel-to-toe line (its ankle-to-ball line along the floor at rest): the pitched
-            // ankle-to-ball line itself reads several degrees less on a foot rolled onto its edge.
-            const footDir = toe === undefined ? [0, 0, 1] : footLine(bones, index.get(S + 'Foot'), toe);
+            const footDir = toe === undefined ? [0, 0, 1] : unit(sub(bones[toe].head, bones[index.get(S + 'Foot')].head));
             const thighDir = unit(sub(bones[index.get(S + 'Leg')].head, bones[index.get(S + 'UpLeg')].head));
             // (Not on a body hung in place, its feet set on holds or kicking in the water.)
             if (hips < 0 || !upright) continue;
@@ -757,8 +753,8 @@
      * where a resting body's foot stands on it: first the ankle tilting the
      * sole (about the shin's front line, as far as LEG_RANGE lets an ankle
      * tilt and SOLE_TURN turn it, or no further past it than the capture had it), the
-     * rest from the thigh turning in or out with the knee bent (within the
-     * hip's roll). A foot turned sideways, a body lying or upside down, or a foot
+     * rest, on a resting body, from the thigh turning in or out with the
+     * knee bent (within the hip's roll); a stride's legs keep their path. A foot turned sideways, a body lying or upside down, or a foot
      * hanging in the air is left as it is.
      */
     /** How far the ankle turns the foot in or out as it rolls the sole level (degrees): rolling a sole (eversion,
@@ -828,10 +824,12 @@
                     world[kf][f] = mul(q, world[kf][f]);
                     if (kt >= 0) world[kt][f] = mul(q, world[kt][f]);
                 }
-                // The rest from the leg turning in or out at the hip, about the thigh (a kicked-up heel whipping in toward
-                // the other leg brought back behind its own hip), the knee and ankle as they are.
-                // Only with the knee bent (a straight leg turned at the hip swings the toes, not the sole), within the
-                // hip's roll, and not in a motion played once (a flip's legs turn fast enough on their own).
+                // On a resting body the rest comes from the leg turning in or out at the hip, about the thigh (a seated
+                // shin leaning brought upright over its foot), the knee and ankle as they are: only with the knee bent (a
+                // straight leg turned at the hip swings the toes, not the sole) and within the hip's roll. Never on an
+                // upright body: a thigh turned through a stride kicks the swinging foot out and the knee with it, and a
+                // foot in the air may stay a little rolled.
+                if (!heights) continue;
                 const thighAt = world[ku][f], axis = rotate(thighAt, thighDir), shinDir = rotate(world[ks][f], unit(sub(bones[fi].head, bones[si].head)));
                 const bend = smooth(25 * DEG, 50 * DEG, Math.acos(Math.max(-1, Math.min(1, dot(axis, shinDir)))));
                 if (once || bend <= 0) continue;

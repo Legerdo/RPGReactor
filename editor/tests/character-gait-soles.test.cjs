@@ -1,5 +1,6 @@
 'use strict';
-// Forge › 3D Character Builder, walking and running: the soles face the floor across, never toward each other.
+// Forge › 3D Character Builder, walking and running: the soles face the floor across, never toward each other, and
+// the swinging leg comes through straight under its hip, its knee ahead, as the capture has it.
 // The motion capture's feet carry a sideways roll (their "up" leans out 12-15 degrees standing, 25-50 through a
 // walk or run); the motion library (levelSoles) levels each sole about its heel-to-toe line (the ankle within its reach, the
 // rest from the thigh turning), in runtime/reactor_3d_motions.js, so the builder and the game's own humanoids
@@ -32,8 +33,12 @@ const BODIES = {
 const MOVES = ['walk', 'run', 'crouchWalk'];
 /** The most a sole may face toward the other foot or away (degrees) while the foot points ahead. */
 const MOST = 6;
-/** ...and while the heel lifts or the foot swings (the ankle within its reach, the rest from the thigh). */
-const ROLLING = 15;
+/**
+ * ...and while the heel lifts or the foot swings: the ankle alone levels it there, within its reach, so the swinging
+ * leg keeps its path (a thigh turned to finish the job kicked the foot out); a run's kicked-up heel, 50 degrees in
+ * from the capture, comes to about 19.
+ */
+const ROLLING = 20;
 
 /** The slope across (degrees) of points' heights fitted as a plane over the floor, `s` the hips' left-right line. */
 function acrossSlope(pts, s) {
@@ -186,5 +191,40 @@ test('a game humanoid without clips of its own walks and runs on level soles (st
         assert.ok(clip, id + ' plays');
         const rolls = Poses.soleRolls(r.bones, clip);
         for (const S of ['Left', 'Right']) rolls[S].forEach((x, f) => { if (x.across < 0.6) assert.ok(Math.abs(x.roll) <= (x.pitch < 0.3 ? MOST : ROLLING), `game ${id} frame ${f}: the ${S} sole faces ${x.roll.toFixed(1)} degrees`); });
+    }
+});
+
+test('levelling keeps the stride: the same thigh turns, the swinging foot under its hip, the knee ahead', () => {
+    const DEG = 180 / Math.PI;
+    for (const [label, recipe] of Object.entries({ male: BODIES.male, female: BODIES.female, extreme: BODIES.extreme })) {
+        const r = Model.build(pack, recipe, {}, { quality: 'preview' }), skin = r.parts.find(p => p.name === 'Body'), bones = r.bones, at = n => bones.findIndex(b => b.name === n);
+        for (const id of ['walk', 'run']) {
+            const clip = Poses.clip(bones, id, skin), raw = Poses.clip(bones, id, skin, { rawFeet: true }), frames = posed(bones, clip), hips = at('Hips');
+            for (const [S, side] of [['Left', 1], ['Right', -1]]) {
+                const thigh = at(S + 'UpLeg'), foot = at(S + 'Foot');
+                // The thighs and knees turn exactly as without levelling: the sole is the ankle's work alone.
+                for (const bone of [thigh, at(S + 'Leg')]) {
+                    const a = clip.tracks.find(t => !t.path && t.bone === bone).values, b = raw.tracks.find(t => !t.path && t.bone === bone).values;
+                    for (let f = 0; f < clip.times.length; f++) {
+                        const d = Math.abs(a[f * 4] * b[f * 4] + a[f * 4 + 1] * b[f * 4 + 1] + a[f * 4 + 2] * b[f * 4 + 2] + a[f * 4 + 3] * b[f * 4 + 3]);
+                        assert.ok(2 * Math.acos(Math.min(1, d)) * DEG < 0.5, `${label} ${id} frame ${f}: levelling turns the ${bones[bone].name}`);
+                    }
+                }
+                const lowest = Math.min(...frames.map(p => p.pos[foot][1]));
+                frames.forEach(({ W, pos }, f) => {
+                    if (pos[foot][1] - lowest < 0.05) return; // planted
+                    // Swinging: the ankle travels forward close under its hip, never kicked out past 10 cm or
+                    // across the body's middle (the capture walks 3 to 12 cm inside the hip, a run's heel 8 cm out at most).
+                    const x = qrot(W[hips], [1, 0, 0]), s = [x[0], 0, x[2]].map(v => v / Math.hypot(x[0], x[2]));
+                    const out = ((pos[foot][0] - pos[thigh][0]) * s[0] + (pos[foot][2] - pos[thigh][2]) * s[2]) * side;
+                    assert.ok(out < 0.1 && out > -0.16, `${label} ${id} frame ${f}: the swinging ${S} foot is ${(out * 100).toFixed(0)} cm out from its hip`);
+                    // The knee points ahead: the thigh's front within 40 degrees of the hips' facing, turned out at most that
+                    // (the capture's run carries its knee 35 out at the top of the kick), in at most 12.
+                    const k = qrot(W[thigh], [0, 0, 1]), fr = qrot(W[hips], [0, 0, 1]), h = Math.atan2(k[0], k[2]) - Math.atan2(fr[0], fr[2]);
+                    const knee = Math.atan2(Math.sin(h), Math.cos(h)) * DEG * side;
+                    assert.ok(knee < 40 && knee > -12, `${label} ${id} frame ${f}: the swinging ${S} knee points ${knee.toFixed(0)} degrees out`);
+                });
+            }
+        }
     }
 });

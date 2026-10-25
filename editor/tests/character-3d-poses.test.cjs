@@ -477,8 +477,8 @@ test('walking visible heel-to-ball soles face forward without curling inward', (
             headings.sort((a, b) => a - b);
             assert.ok(headings.length > clip.times.length / 4, `${name} ${S}: level sole samples`);
             const median = headings[headings.length >> 1];
-            // The same natural toe-out as the bones' test above, 5 to 12 out (was 2 to 10 while the soles rolled in
-            // and the stride's toe-out was set along the ankle-to-ball line, which reads 6 to 9 more).
+            // The same natural toe-out as the bones' test above, 5 to 12 out (was 2 to 10 while the soles rolled in:
+            // a rolled foot carries its sole's line several degrees further in than a level one).
             assert.ok(median >= 5 && median <= 12, `${name} ${S}: visible sole neutral heading ${median.toFixed(1)}`);
         }
     }
