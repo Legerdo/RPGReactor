@@ -7039,8 +7039,10 @@ Window_NameBox.prototype.updateBackground = function() {
         const lines = $gameMessage.hasText() ? $gameMessage._texts.length : 0;
         if (!lines) mw.updatePlacement();
         const rows = Math.max(1, Math.min($gameMessage.choices().length, Math.max(1, Math.floor((mw.height - mw.padding * 2) / mw.lineHeight()) - lines)));
-        this.x = mw.x + (lines ? 12 : 0);
-        this.width = mw.width - (lines ? 12 : 0);
+        // The message's own width with the text indented in it: the cursor starts left of the text.
+        this.x = mw.x;
+        this.width = mw.width;
+        this._rrChoiceIndent = lines ? 12 : 0;
         this.y = mw.y + mw.padding + lines * mw.lineHeight() - this.padding - Math.max(0, (this.itemHeight() - mw.lineHeight()) / 2);
         this.height = lines ? this.fittingHeight(rows) : mw.height;
     };
@@ -7054,6 +7056,22 @@ Window_NameBox.prototype.updateBackground = function() {
     };
     Window_ChoiceList.prototype.rowSpacing = function() {
         return inMessage() ? 0 : base.rowSpacing.call(this);
+    };
+    // The cursor starts 10 px left of the choice text and ends 2 px inside the message's contents
+    // (EasyRPG's Window_Message::UpdateCursorRect), so a system graphic's corner marks sit before
+    // the text rather than over its first letters.
+    Window_ChoiceList.prototype.refreshCursor = function() {
+        base.refreshCursor.call(this);
+        const mw = this._messageWindow, index = this.index();
+        if (!inMessage() || !$dataSystem.rrLegacyWindows || !mw || index < 0 || this.cursorAll()) return;
+        const r = this._cursorRect, x = Math.max(0, this.itemLineRect(index).x - 10);
+        const right = mw.x + mw.padding + mw.innerWidth - 2 - (this.x + this.padding);
+        this.setCursorRect(x, r.y, Math.max(0, right - x), r.height);
+    };
+    Window_ChoiceList.prototype.itemLineRect = function(index) {
+        const rect = base.itemLineRect.call(this, index), indent = inMessage() && this._messageWindow ? this._rrChoiceIndent || 0 : 0;
+        rect.x += indent; rect.width -= indent;
+        return rect;
     };
     // the old engines draw no bar behind each choice, only the cursor
     Window_ChoiceList.prototype.drawItemBackground = function(index) {
