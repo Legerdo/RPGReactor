@@ -162,7 +162,7 @@
     }
     /** The tick's eight short legs (unchanged). */
     function tickLegs(C, tick = true) {
-        const { r, L, colors: c, rootBone } = C, Y=tick?C.Y*.4:C.Y,count = r.limbPairs;
+        const { r, L, colors: c0, rootBone } = C, c = { ...c0, main: c0.main.map((v, k) => v * .35 + c0.mark[k] * .65) }, Y=tick?C.Y*.4:C.Y,count = r.limbPairs;
         const slender = ['mosquito', 'dragonfly', 'butterfly'].includes(r.kind);
         for (let pair = 0; pair < count; pair++) for (const s of [-1, 1]) {
             const u = count <= 1 ? .5 : pair / (count - 1), fan = 1 - u * 2;
@@ -274,15 +274,20 @@
         const { r, L, rootBone: root, headBone: head, colors: c } = C,Y=C.Y*.4;
         const profile=z=>{const t=Math.max(.0001,Math.min(.9999,(z+.40)/.62));return {rx:.25*r.girth*Math.sin(Math.PI*t)**.45*(1-.20*t),ry:.075*r.chestDepth*Math.sin(Math.PI*t)**.52};};
         const dorsal=(x,z,raise=0)=>{const p=profile(z);return [L*x,Y+L*(p.ry*Math.sqrt(Math.max(0,1-(x/p.rx)**2))+raise),L*z];};
-        mesh(C,'Body',m=>m.loft(C.save?65:49,(i,t)=>{const z=-.40+.62*t,p=profile(z);return {center:[0,Y,L*z],x:[1,0,0],y:[0,1,0],rx:L*p.rx,ry:L*p.ry};},40,(t,a)=>c.main.map(v=>v*(.89+.08*Math.cos(a*2)+.035*Math.sin(t*91))),rigid(root),true));
+        // Leathery alloscutum: fine longitudinal wrinkles, a marginal groove and
+        // eleven festoons notched around the posterior margin.
+        const tickSides=C.save?72:56,festoon=(x,z)=>{const phi=Math.atan2(x,-(z+.09)),f=phi/(Math.PI*.62)*5.5+5.5;return Math.abs(phi)<Math.PI*.62&&z<-.05?Math.exp(-(((f-Math.round(f))/.09)**2)):0;};
+        const tickPart=mesh(C,'Body',m=>{m.loft(C.save?65:49,(i,t)=>{const z=-.40+.62*t,p=profile(z);return {center:[0,Y,L*z],x:[1,0,0],y:[0,1,0],rx:L*p.rx,ry:L*p.ry};},tickSides,(t,a,q)=>{const z=q[2]/L,x=q[0]/L,wr=Math.sin(a*34+Math.sin(t*9)*2)*.5+.5,groove=festoon(x,z)*ease(.7,.95,Math.abs(Math.cos(a)));return c.main.map((v,k)=>v*(.84+.12*wr*Math.max(0,Math.sin(a)))*(1-groove*.45)+(c.mark[k]-v)*.12*ease(.75,.98,Math.abs(Math.cos(a))));},rigid(root),true);
+            for(let i=0;i<m.p.length;i+=3){const x=m.p[i]/L,yy=(m.p[i+1]-Y)/L,z=m.p[i+2]/L,p=profile(z),a=Math.atan2(yy/Math.max(1e-6,p.ry),x/Math.max(1e-6,p.rx)),k=1-(festoon(x,z)*.04*Math.cos(a)**8)+.012*Math.sin(a*34+Math.sin((z+.4)/.62*9)*2)*Math.max(0,Math.sin(a))*ease(-.38,-.1,z);m.p[i]*=k;m.p[i+1]=Y+(m.p[i+1]-Y)*k;}
+        },{roughness:.72});
         mesh(C,'Dorsal shield',m=>{
             const rows=[];
             for(let i=0;i<=30;i++){
                 const t=.002+i/30*.996,z=-.105+t*.318,width=.173*r.girth*Math.sin(t*Math.PI)**.58*(.75+.25*t);
-                rows.push(Array.from({length:25},(_,j)=>{const x=(j/24*2-1)*width,p=dorsal(x,z,.0012);return m.vertex(p,[0,1,0],c.mark.map(v=>v*(.9+.10*Math.sin(t*55+j*2))),rigid(root));}));
+                rows.push(Array.from({length:25},(_,j)=>{const x=(j/24*2-1)*width,p=dorsal(x,z,.0012+.0022*Math.sin(Math.PI*j/24)**.5*Math.sin(t*Math.PI)**.5);return m.vertex(p,[0,1,0],c.mark.map(v=>v*(.9+.10*Math.sin(t*55+j*2))),rigid(root));}));
             }
             for(let i=0;i<30;i++)for(let j=0;j<24;j++){m.tri(rows[i][j],rows[i+1][j],rows[i][j+1]);m.tri(rows[i][j+1],rows[i+1][j],rows[i+1][j+1]);}
-        });
+        },{roughness:.24,metalness:.06});
         mesh(C,'Scutal cervical and marginal grooves',m=>{
             for(const s of [-1,1]){
                 const cervical=Array.from({length:22},(_,i)=>{const t=i/21;return dorsal(s*(.032+.045*Math.sin(t*Math.PI))*r.girth,.17-t*.18,.0016);});
@@ -302,7 +307,9 @@
             }
         },{noSurfaceDetail:true});
         C.bones[head].head=[0,Y,L*.20];C.bones[head].tail=[0,Y,L*.31];
-        ellipsoid(C, 'Capitulum', [0, Y, L * .235], [L * .050 * r.headSize, L * .022, L * .055 * r.headSize], c.mark, head);
+        // Basis capituli: a rounded block with two pale porose areas on top.
+        mesh(C,'Capitulum',m=>{const h=r.headSize;m.roundedBox([0,Y+L*.002,L*.232],[[1,0,0],[0,1,0],[0,0,1]],[L*.046*h,L*.02,L*.034*h],L*.012,c.mark,rigid(head),3);
+            for(const s of [-1,1])m.sphere([s*L*.018*h,Y+L*.0215,L*.232],1,c.light.map(v=>v*.8),rigid(head),6,10,[L*.011*h,L*.0018,L*.016*h]);},{roughness:.3});
         mesh(C,'Ventral plates and spiracles',m=>{
             const at=(x,z)=>{const p=profile(z);return [x*L,Y-L*p.ry*Math.sqrt(Math.max(0,1-(x/p.rx)**2)),z*L];};
             for(const s of [-1,1]){
@@ -312,14 +319,21 @@
             }
             m.sphere(at(0,-.24),1,c.mark,rigid(root),7,12,[L*.013,L*.006,L*.018]);
         });
+        // Mouthparts: flattened three-article palps sheathing a toothed hypostome,
+        // with the paired chelicerae above it.
         mesh(C, 'Palps and barbed hypostome', m => {
-            for (const s of [-1, 1]) m.tube([[s * L * .04, Y, L * .27], [s * L * .045, Y, L * .35]], [L * .016, L * .009], 10, c.mark, rigid(head));
-            m.tube([[0, Y, L * .28], [0, Y, L * .38]], [L * .015, L * .006], 10, c.dark, rigid(head));
-            for (const s of [-1, 1]) for (let j = 0; j < 5; j++) {
-                const a = [s * L * .009, Y, L * (.305 + j * .013)];
-                m.tube([a, add(a, [s * L * .009, 0, -L * .01])], [L * .003, L * .0003], 5, c.mark, rigid(head));
+            const h = r.headSize;
+            for (const s of [-1, 1]) {
+                m.sphere([s * L * .03 * h, Y + L * .001, L * .282], 1, c.mark, rigid(head), 10, 16, [L * .017 * h, L * .011, L * .036 * h]);
+                m.sphere([s * L * .025 * h, Y + L * .001, L * .328], 1, c.mark.map(v => v * .9), rigid(head), 10, 16, [L * .015 * h, L * .01, L * .024 * h]);
+                m.tube([[s * L * .006, Y + L * .006, L * .25], [s * L * .006, Y + L * .006, L * .33], [s * L * .004, Y + L * .004, L * .35]], [L * .0055, L * .005, L * .002], 8, c.dark, rigid(head));
             }
-        });
+            m.sphere([0, Y - L * .006, L * .31], 1, c.light.map(v => v * .75), rigid(head), 10, 16, [L * .011 * h, L * .0045, L * .055 * h]);
+            for (const s of [-1, 1]) for (let row = 0; row < 3; row++) for (let j = 0; j < 7; j++) {
+                const a = [s * L * (.003 + row * .0028) * h, Y - L * .0098, L * (.278 + j * .0095 + row * .002)];
+                m.tube([a, add(a, [s * L * .0015, -L * .0012, -L * .0045])], [L * .0012, L * .0002], 4, c.mark.map(v => v * .7), rigid(head));
+            }
+        }, { roughness: .35 });
         insectLegs(C, true);
         for (let i = 0; i < r.eyeCount; i++) {
             const s = i % 2 ? 1 : -1, row = Math.floor(i / 2);

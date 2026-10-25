@@ -38,7 +38,7 @@
         preset('octopus', 'Octopus', 'cephalopod', { size: 0.45, appendages: 8, pattern: 'spots' }, '#bb7352', '#e8c4a4', '#754335'),
         preset('squid', 'Squid', 'cephalopod', { size: 0.55, appendages: 10, girth: 0.65, bodyLength: 1.2 }, '#b77c91', '#ead7d8', '#783d69'),
         preset('beetle', 'Beetle', 'arthropod', { size: 0.25, limbPairs: 3, pattern: 'solid' }, '#304e36', '#252a21', '#a58547'),
-        preset('tick', 'Tick', 'arthropod', { size: 0.18, limbPairs: 4, eyeCount: 0, pattern: 'solid' }, '#76503e', '#a58261', '#372c25'),
+        preset('tick', 'Tick', 'arthropod', { size: 0.18, limbPairs: 4, eyeCount: 0, pattern: 'solid' }, '#86492f', '#b98c6e', '#2a1d17'),
         preset('bee', 'Bee', 'arthropod', { size: 0.20, limbPairs: 3, wingSize: 1, pattern: 'solid' }, '#bb8c2c', '#d9b755', '#29241c'),
         preset('wasp', 'Wasp', 'arthropod', { size: 0.22, limbPairs: 3, wingSize: 1, pattern: 'solid' }, '#d4a32e', '#dfc46f', '#24221d'),
         preset('mosquito', 'Mosquito', 'arthropod', { size: 0.22, limbPairs: 3, wingSize: 1, appendageLength: 1.3, pattern: 'solid' }, '#776854', '#baac8b', '#352e25'),
@@ -440,6 +440,10 @@
             const u=p[0]/Math.max(1e-6,s.w);
             // Eye orbit, ampullary pores on the snout, nostrils under it.
             c=c.map(v=>v*(1-.38*Math.exp(-(((t-.12)/.0095)**2)-(((y-.32)/.075)**2))));
+            // Faint myomere chevrons over the flank and the pale lateral-line canal.
+            const myo=Math.cos(Math.PI*2*(t*30-.9*Math.abs(y-.05)**.8))*ease(.3,.4,t)*(1-ease(.75,.9,t))*(1-belly);
+            const lateral=Math.exp(-(((y-(.2-.08*t))/.016)**2))*ease(.24,.3,t)*(1-ease(.9,.97,t));
+            c=c.map(v=>v*(1+myo*.035)); c=mix(c,mix(colors.main,colors.light,.3),lateral*.22*(1-belly));
             if(t<.13&&y>-.1&&y<.45){const gt=t*230,gy=(y+1)*26,ct=Math.floor(gt),cy=Math.floor(gy)+(side>0?0:500),h=hash2(ct,cy);if(h>.55){const dt=gt-ct-.5-(hash2(cy,ct)-.5)*.6,dy=gy-Math.floor(gy)-.5-(hash2(ct+3,cy+5)-.5)*.6;c=c.map(v=>v*(1-.4*Math.exp(-(dt*dt+dy*dy)*22)*(1-ease(.07,.13,t))));}}
             if(cfg.underslung&&y<0&&t>.022&&t<.05){const n=Math.exp(-(((Math.abs(u)-.42)/.07)**2)-(((t-.036)/.009)**2));c=c.map(v=>v*(1-.75*n));}
             if(type==='greatWhite'){
@@ -576,7 +580,7 @@
                 const d=t-center, width=cfg.shark?.0018:.0024;
                 const fold=Math.exp(-((d/width)**2));
                 const lip=Math.exp(-(((d-width*1.8)/(width*.9))**2));
-                relief += end*(-fold*(cfg.shark?.0035:.0045)+lip*.0018 + fold*.00018*Math.sin(y*210));
+                relief += end*(-fold*(cfg.shark?.0058:.0045)+lip*(cfg.shark?.0026:.0018) + fold*.00018*Math.sin(y*210));
                 shadow = Math.max(shadow,fold*end);
             }
             return {relief,shadow};
@@ -592,10 +596,13 @@
                     const pleat=cfg.whale&&cfg.type!=='orca'&&lower?((Math.cos((Math.cos(a)+1)*Math.PI*11)+1)*.5)**8*ease(.02,.08,t)*(1-ease(.35,.49,t)):0;
                     p[1]+=L*.001*pleat;
                     // Lateral caudal keels stiffen the peduncle of fast lamnid sharks.
+                    // Shark musculature: the epaxial mass swells the upper flank, a shallow
+                    // groove follows the horizontal septum along the lateral line.
+                    if(cfg.shark&&!cfg.mammal){const yy=(lower?-1:1)*Math.sin(a),span=ease(.22,.34,t)*(1-ease(.7,.86,t)),bulge=L*(.0032*Math.exp(-(((yy-.45)/.22)**2))+.0018*Math.exp(-(((yy+.5)/.25)**2))-.0016*Math.exp(-(((yy-.04)/.07)**2)))*span;p[0]+=Math.cos(a)*bulge;p[1]+=(lower?-1:1)*Math.sin(a)*bulge;}
                     if(cfg.keel)p[0]+=Math.sign(Math.cos(a)||1)*cfg.keel*L*ease(.8,.9,t)*(1-ease(.975,1,t))*Math.exp(-((Math.sin(a)/.16)**2));
                     const normal=norm([Math.cos(a)/Math.max(s.w,1e-5),(lower?-1:1)*Math.sin(a)/Math.max(lower?s.bottom:s.top,1e-5),0]);
                     const gill=!cfg.mammal&&t>.182&&t<.31?gillShape(t,(lower?-1:1)*Math.sin(a)):{relief:0,shadow:0};
-                    const color=painted?mix([1,1,1],rgb('#4a4448'),gill.shadow*.62):mix(mul(tint(p,normal),1-pleat*.15),rgb('#45383c'),gill.shadow*.72);
+                    const color=painted?mix([1,1,1],rgb('#2e2629'),gill.shadow*(cfg.shark?.78:.62)):mix(mul(tint(p,normal),1-pleat*.15),rgb('#45383c'),gill.shadow*.72);
                     const bind=skin(p,lower&&!nose,t);
                     ids.push(mesh.vertex(add(p,mul(normal,gill.relief*L)),normal,color,bind));
                 }
@@ -643,7 +650,7 @@
             // Fish scales stay one chart over the body; shark denticles and whale skin tile finely.
             const [ku,kv]=cfg.shark?[9,4]:cfg.mammal?[6,3]:cfg.angler?[8,4]:[1,1];
             bodyPart.uvs=axialUVs;bodyPart.uvs1=axialUVs.map((v,i)=>v*(i%2?kv:ku));bodyPart.paintedSurface=true;
-            if(cfg.shark){bodyPart.roughness=.76;bodyPart.normalScale=.16;}
+            if(cfg.shark){bodyPart.roughness=.72;bodyPart.normalScale=.32;}
             C.paintMarkings=(width,height)=>{
                 const data=new Uint8Array(width*height*4);
                 for(let i=0;i<width;i++){
@@ -768,19 +775,22 @@
         // Rounded hydrofoil sections swept along curved, tapered span lines.
         const fin=(name,stations,parent,role,phase=0,white=false)=> {
             const finColor=cfg.type==='tuna'&&/Finlet|Second dorsal|Anal fin/.test(name)?rgb('#d9b94b'):colors.main;
-            const pts=stations.map(s=>[s[0]*L,s[1]*L+Y,s[2]*L]), b=bone(name,parent,pts[0],pts[Math.floor(pts.length/2)],role,phase), m=new Props.ExactMesh();
+            const pts=stations.map(s=>[s[0]*L,s[1]*L+Y,s[2]*L]), b=bone(name,parent,pts[0],pts[Math.floor(pts.length/2)],role,phase), m=new Props.ExactMesh(), frames=[];
             m.loft(C.save?33:25,(_,t)=>{
                 const a=profileAt(stations.map((s,i)=>[i/(stations.length-1),...s]),t), center=[a[0]*L,Y+a[1]*L,a[2]*L];
                 const ds=.002,pa=profileAt(stations.map((s,i)=>[i/(stations.length-1),...s]),Math.max(0,t-ds)),pb=profileAt(stations.map((s,i)=>[i/(stations.length-1),...s]),Math.min(1,t+ds)),axis=norm(sub(pb,pa));
                 const x=role==='dorsal'?[0,0,1]:norm(sub([0,0,1],mul(axis,axis[2]))),y=role==='dorsal'?[1,0,0]:norm(cross(axis,x));
-                return{center,x,y,rx:Math.max(L*.0003,a[3]*L*.5),ry:Math.max(L*.0002,a[4]*L)};
+                const frame={center,x,y,rx:Math.max(L*.0003,a[3]*L*.5),ry:Math.max(L*.0002,a[4]*L)};frames.push(frame);return frame;
             },C.save?20:16,(t,a,p)=>{
                 const under=white&&p[1]<Y+profileAt(stations.map((s,i)=>[i/(stations.length-1),...s]),t)[1]*L;
                 if(!cfg.shark)return under?colors.light:mix(finColor,colors.mark,Math.min(1,t)*.12);
                 // Shark fins: dark above with a darker trailing margin; paired fins pale
                 // below with dusky (great white: black) tips.
                 const trailing=ease(-.55,-.95,Math.cos(a));
-                if(under){const tip=ease(.7,.97,t)*(cfg.type==='greatWhite'?.92:cfg.type==='mako'||cfg.type==='whaleShark'?.2:.45);return mix(mix(colors.light,colors.main,trailing*.35),rgb('#14181c'),tip);}
+                // The grey of the upper side wraps the rounded leading edge; the pale underside
+                // keeps a dusky margin.
+                const leading=ease(.62,.92,Math.cos(a));
+                if(under){const tip=ease(.7,.97,t)*(cfg.type==='greatWhite'?.92:cfg.type==='mako'||cfg.type==='whaleShark'?.2:.45);return mix(mix(mix(colors.light,colors.main,trailing*.5+ease(.55,.95,t)*.25),mix(colors.main,colors.mark,.28),leading),rgb('#14181c'),tip*(1-leading));}
                 return mix(mix(colors.main,colors.mark,.28+t*.3),colors.mark,trailing*.35);
             },p=>{
                 const along=clamp(dot(sub(p,pts[0]),sub(pts.at(-1),pts[0]))/Math.max(1e-12,dot(sub(pts.at(-1),pts[0]),sub(pts.at(-1),pts[0]))),0,1), w=ease(0,.32,along);
@@ -788,6 +798,17 @@
                 for(let k=0;k<4;k++){const j=base.joints[k]||0;weights.set(j,(weights.get(j)||0)+(base.weights[k]||0)*(1-w));}
                 const top=[...weights].sort((a,b)=>b[1]-a[1]).slice(0,4),sum=top.reduce((s,p)=>s+p[1],0);return{joints:top.map(p=>p[0]),weights:top.map(p=>p[1]/sum)};
             },true);
+            if(cfg.shark){
+                // Cambered hydrofoil sections: thick and rounded at the leading edge,
+                // thinning to a fine trailing edge, instead of a lenticular blade.
+                const sideCount=C.save?20:16;
+                frames.forEach((f,row)=>{for(let k=0;k<sideCount;k++){
+                    const a=k/sideCount*Math.PI*2,u=Math.cos(a),q=(1-u)/2,i=(row*sideCount+k)*3,g=Math.sqrt(q)*(1-q)**1.25/.3507,v=Math.sin(a);
+                    const target=Math.sign(v)*f.ry*g;
+                    for(let c=0;c<3;c++)m.p[i+c]+=f.y[c]*(target-v*f.ry);
+                }});
+                m.computeNormals();
+            }
             if(role==='dorsal'){
                 const count=C.save?33:25,sideCount=C.save?20:16,upper=stations.at(-1)[1]>stations[0][1];
                 for(let i=0;i<m.p.length;i+=3){
@@ -813,8 +834,8 @@
             const t=[.29,.59,.74,.86][i],s=section(t),z=s.z/L,span=cfg.pectoral*r.finSize/(1+i*.8),x=s.w/L*.72,y=(s.upperY-Y)/L-.03;
             // Shark pectorals: broad based, swept and falcate, low on the flank; pelvics
             // smaller and nearly flat under the belly.
-            if(cfg.shark&&i===0){const yy=(s.upperY-Y)/L-.045,xx=s.w/L*.62;fin('Fin'+sign+'_'+i,[[sign*xx,yy,z+.008,.16,.0072],[sign*(xx+span*.38),yy-span*.1,z-.05,.125,.005],[sign*(xx+span*.76),yy-span*.18,z-.115,.065,.0024],[sign*(xx+span*.94),yy-span*.21,z-.155,.004,.0004]],rootBone,'fin',sign,true);continue;}
-            if(cfg.shark){const sp=span*.62,yy=(s.lowerY-s.bottom*.62-Y)/L,xx=s.w/L*.5;fin('Fin'+sign+'_'+i,[[sign*xx,yy,z,.075,.0045],[sign*(xx+sp*.5),yy-sp*.18,z-.045,.055,.003],[sign*(xx+sp),yy-sp*.3,z-.09,.004,.0003]],rootBone,'fin',sign,true);continue;}
+            if(cfg.shark&&i===0){const yy=(s.upperY-Y)/L-.045,xx=s.w/L*.62;const sp=span*.9;fin('Fin'+sign+'_'+i,[[sign*xx,yy,z+.01,.175,.0125],[sign*(xx+sp*.36),yy-sp*.08,z-.028,.145,.0088],[sign*(xx+sp*.72),yy-sp*.15,z-.095,.085,.0045],[sign*(xx+sp),yy-sp*.18,z-.15,.006,.0006]],rootBone,'fin',sign,true);continue;}
+            if(cfg.shark){const sp=span*.62,yy=(s.lowerY-s.bottom*.62-Y)/L,xx=s.w/L*.5;fin('Fin'+sign+'_'+i,[[sign*xx,yy,z,.08,.0075],[sign*(xx+sp*.5),yy-sp*.18,z-.04,.058,.0045],[sign*(xx+sp),yy-sp*.3,z-.085,.005,.0004]],rootBone,'fin',sign,true);continue;}
             fin('Fin'+sign+'_'+i,[[sign*x,y,z,.15/(1+i),.006],[sign*(x+span*.45),y-span*.23,z-.06,.11/(1+i),.004],[sign*(x+span*.85),y-span*.48,z-.11,.05/(1+i),.0018],[sign*(x+span),y-span*.58,z-.13,cfg.whale?.012:.002,.0003]],rootBone,'fin',sign,cfg.mammal||cfg.shark);
         }
         const ds=section(cfg.dorsalT),dY=(ds.upperY+ds.top-Y)/L-.003,dz=ds.z/L,dh=cfg.dorsal*r.dorsalHeight;
@@ -822,7 +843,7 @@
         // mid-back one (salmon), never a shark's stiff triangle.
         if(cfg.type==='reef')fin('Dorsal fin',[[0,dY,dz,.44,.005],[0,dY+dh*.45,dz-.012,.41,.0034],[0,dY+dh*.85,dz-.03,.34,.0017],[0,dY+dh,dz-.05,.14,.0004]],rootBone,'dorsal');
         else if(cfg.type==='salmon')fin('Dorsal fin',[[0,dY,dz,.17,.005],[0,dY+dh*.45,dz-.012,.14,.0032],[0,dY+dh*.85,dz-.03,.085,.0015],[0,dY+dh,dz-.045,.012,.0003]],rootBone,'dorsal');
-        else fin('Dorsal fin',[[0,dY,dz,.20,.006],[0,dY+dh*.35,dz+.010,.13,.0038],[0,dY+dh*.75,dz-.015,.055,.0015],[0,dY+dh,dz-.040,.001,.0002]],rootBone,'dorsal');
+        else{const k=cfg.shark?1.8:1;fin('Dorsal fin',[[0,dY,dz,.20,.006*k],[0,dY+dh*.35,dz+.010,.13,.0038*k],[0,dY+dh*.75,dz-.015,.055,.0015*k],[0,dY+dh,dz-.040,.001,.0002]],rootBone,'dorsal');}
         if(!cfg.mammal) {
             // A shark's small second dorsal and anal fins sit just ahead of the peduncle.
             const at=cfg.shark?.85:.79,s=section(at),y=(s.upperY+s.top-Y)/L,z0=cfg.shark?.5-at:-.29,k=cfg.shark?.8:1;
@@ -896,7 +917,7 @@
     function fish(C) { return C.r.kind === 'stingray' ? rayFish(C) : marine(C); }
 
     /** Tapered flexible arm with a private chain and optional cupped suckers. */
-    function appendage(C, name, path, parent, radius, phase, suckers, club = false, rootSkin = null) {
+    function appendage(C, name, path, parent, radius, phase, suckers, club = false, rootSkin = null, shape = null) {
         const { L, colors, bone, finish } = C, chain = [];
         const count = path.length - 1;
         for (let i = 0; i < count; i++) { const b = bone(name + '_' + i, i ? chain[i - 1] : parent, path[i], path[i + 1], 'tentacle', phase + i * 0.45); chain.push(b); }
@@ -904,7 +925,7 @@
             let best = 0, distance = Infinity, fraction = 0;
             for (let i = 0; i < count; i++) { const d = sub(path[i + 1], path[i]), t = clamp(dot(sub(p, path[i]), d) / Math.max(1e-12, dot(d, d)), 0, 1), q = lerp(path[i], path[i + 1], t), dd = dot(sub(p, q), sub(p, q)); if (dd < distance) { distance = dd; best = i; fraction = t; } }
             if (best === 0) {
-                const own=ease(radius*1.8,radius*5,Math.hypot(...sub(p,path[0])));
+                const collar=Math.max(radius,L*.0055),own=ease(collar*1.8,collar*5,Math.hypot(...sub(p,path[0])));// fine tendrils keep the same fixed collar length
                 if (!rootSkin) return {joints:[parent,chain[0],chain[1],0],weights:[1-own,own*(1-fraction),own*fraction,0]};
                 const mixed=new Map([[chain[0],own*(1-fraction)],[chain[1],own*fraction]]);
                 for(let k=0;k<4;k++)if(rootSkin.weights[k])mixed.set(rootSkin.joints[k],(mixed.get(rootSkin.joints[k])||0)+rootSkin.weights[k]*(1-own));
@@ -921,7 +942,7 @@
             return [0, 1, 2].map(k => 0.5 * (2 * b[k] + (-a[k] + c[k]) * u + (2 * a[k] - 5 * b[k] + 4 * c[k] - d[k]) * u * u + (-a[k] + 3 * b[k] - 3 * c[k] + d[k]) * u * u * u));
         };
         const width = t => radius * (club ? (1 - t) ** 1.2 * 0.6 + Math.exp(-(((t - 0.88) / 0.12) ** 2)) * 0.9 : (1 - t) ** 1.2) + L * 0.0015;
-        let previousAxis = null;
+        let previousAxis = null; const frames = [];
         mesh.loft(steps, (_, t) => {
             const center = point(t), tangent = norm(sub(point(Math.min(1, t + 0.002)), point(Math.max(0, t - 0.002))));
             // Parallel transport avoids the half-turn a fixed up vector makes
@@ -929,38 +950,92 @@
             let x = previousAxis ? norm(sub(previousAxis, mul(tangent, dot(previousAxis, tangent)))) : norm(cross(tangent, [0, 0, 1]));
             if (Math.hypot(...x) < 0.1) x = norm(cross(tangent, [0, 1, 0]));
             previousAxis = x;
-            const y = norm(cross(tangent, x)), r = width(t);
-            return { center, x, y, rx: r, ry: r };
-        }, C.save ? 20 : 12, colors.main, skin, true);
-        C.pattern(finish(mesh, name));
+            const y = norm(cross(tangent, x)), r = width(t) * (shape?.wide || 1);
+            const frame = { center, x, y, rx: r, ry: r * (shape?.flat || 1), t }; frames.push(frame); return frame;
+        }, C.save ? 20 : 12, shape?.color || colors.main, skin, true);
+        // Ribbon arms: frilled, ruffled edges along the length (jellyfish oral arms).
+        if (shape?.frill) { const sides = C.save ? 20 : 12; frames.forEach((f, row) => { for (let k = 0; k < sides; k++) { const a = k / sides * Math.PI * 2, edge = Math.cos(a) ** 4, w = Math.sin(f.t * 46 + Math.sign(Math.cos(a)) * 1.3 + phase) * shape.frill * f.rx * edge * Math.min(1, f.t * 6), i = (row * sides + k) * 3; for (let c = 0; c < 3; c++) mesh.p[i + c] += f.y[c] * w; } }); mesh.computeNormals(); }
+        const armPart = finish(mesh, name, shape?.material || {}); if (!shape) C.pattern(armPart);
+        // Cephalopod arms share the mantle's chromatophore mottling.
+        if (suckers && armPart) for (let i = 0; i < armPart.positions.length; i += 3) {
+            const q = armPart.positions.subarray(i, i + 3), n = fbm(q[0] / L * 14, q[2] / L * 14 + q[1] / L * 9, 3), h = hash2(Math.floor(q[0] / L * 90), Math.floor(q[2] / L * 90 + q[1] / L * 60));
+            armPart.colors.set(mix(mix(Array.from(armPart.colors.subarray(i, i + 3)), colors.mark, ease(.52, .68, n) * .45 * C.r.patternAmount), [.3, .09, .06], (h > .7 ? .35 : 0) * C.r.patternAmount), i);
+        }
         if (suckers) {
-            const cups = new Props.ExactMesh(), number = C.save ? 13 : 9;
-            for (let k = 1; k <= number; k++) {
-                const t = club ? 0.77 + k / (number + 2) * 0.2 : k / (number + 2), at = point(t), armR = width(t);
-                const cr = radius * 0.45 * (1 - t) + L * 0.002, c = add(at, [0, -armR, 0]);
-                cups.loft(3, (j, u) => ({ center: add(c, [0, -cr * u * 0.5, 0]), x: [1, 0, 0], y: [0, 0, 1], rx: cr * (j === 1 ? 1 : 0.65), ry: cr * (j === 1 ? 1 : 0.65) }), 12, colors.light, skin, false);
-                cups.disk(add(c, [0, -cr * 0.12, 0]), [0, -1, 0], cr * 0.6, colors.mark, skin, 12);
+            // Two staggered rows of rimmed suckers on the oral face (one row on a club),
+            // growing from the mouth and shrinking toward the tip.
+            const cups = new Props.ExactMesh(), per = C.save ? 13 : 9, lines = club ? 1 : 2;
+            for (let k = 0; k < per; k++) for (let line = 0; line < lines; line++) {
+                const t = club ? .76 + (k + .5) / per * .22 : .03 + (k + .25 + line * .5) / per * .92, at = point(t), armR = width(t);
+                const tangent = norm(sub(point(Math.min(1, t + .004)), point(Math.max(0, t - .004)))), side0 = cross(tangent, [0, 1, 0]), side = Math.hypot(...side0) < .1 ? [1, 0, 0] : norm(side0), down0 = norm(cross(side, tangent)), down = down0[1] > 0 ? mul(down0, -1) : down0;
+                const cr = (radius * .34 * Math.min(1, t * 5 + .3) * (1 - t * .7) + L * .0016) * (club ? 1.15 : 1), base = add(at, add(mul(down, armR * .8), mul(side, (lines > 1 ? (line ? 1 : -1) : 0) * armR * .45)));
+                const profile = [[0, 1], [.35, 1.08], [.45, .84], [.32, .6], [.1, .3]];
+                cups.loft(5, (j) => ({ center: add(base, mul(down, cr * profile[j][0])), x: side, y: tangent, rx: cr * profile[j][1], ry: cr * profile[j][1] }), C.save ? 10 : 8, (u) => u < .4 ? mix(colors.light, colors.main, .15) : mix(colors.light, [.55, .3, .3], (u - .4) * 1.2), skin, false);
+                cups.disk(add(base, mul(down, cr * .1)), down, cr * .3, mix(colors.mark, [.2, .07, .07], .5), skin, 8);
             }
-            finish(cups, name + ' suckers', { roughness: 0.62 });
+            finish(cups, name + ' suckers', { roughness: 0.55, doubleSided: true });
         }
     }
+    /** Octopus and squid: a mantle with a painted chromatophore chart (mottled
+     * patches, dense pigment dots, paler underside), skin papillae and eyebrow
+     * horns over raised eyes, a muscular siphon, and biserial rimmed suckers. */
     function cephalopod(C) {
         const { r, L, Y, colors, finish, rootBone, headBone, eye, blade } = C, squid = r.kind === 'squid';
-        const body = new Props.ExactMesh();
-        body.loft(C.save ? 57 : 41, (_, t) => {
+        const ring = t => {
             const front = Math.max(0.025, Math.sin(Math.min(1, t / 0.18) * Math.PI / 2) ** 0.65);
             const radius = front * (squid ? L * (0.13 + 0.13 * Math.sin(t * Math.PI)) * Math.max(0.02, (1 - t) ** 0.8) : L * (0.13 + 0.17 * Math.exp(-(((t - 0.59) / 0.27) ** 2))) * Math.max(0.02, (1 - t) ** 0.38));
             const headScale = 1 + (r.headSize - 1) * Math.exp(-((t / 0.3) ** 2));
-            return { center: [0, Y + L * 0.06 * Math.sin(t * Math.PI), L * (0.2 - t * (squid ? 0.95 : 0.73))], x: [1, 0, 0], y: [0, 1, 0], rx: radius * r.girth * headScale, ry: radius * (squid ? 0.9 : 1) * r.chestDepth * headScale };
-        }, C.save ? 40 : 28, colors.main, p => {
-            const t = clamp((p[2] / L + 0.1) / 0.23, 0, 1); return { joints: [rootBone, headBone, 0, 0], weights: [1 - t, t, 0, 0] };
-        }, true);
-        C.pattern(finish(body, 'Body', { roughness: 0.36 }));
+            return { center: [0, Y + L * 0.06 * Math.sin(t * Math.PI), L * (0.2 - t * (squid ? 0.95 : 0.73))], rx: radius * r.girth * headScale, ry: radius * (squid ? 0.9 : 1) * r.chestDepth * headScale };
+        };
+        const skinAt = p => { const t = clamp((p[2] / L + 0.1) / 0.23, 0, 1); return { joints: [rootBone, headBone, 0, 0], weights: [1 - t, t, 0, 0] }; };
+        // A seamed grid (one duplicated column) so the painted chart wraps cleanly.
+        const body = new Props.ExactMesh(), rows = C.save ? 57 : 41, sides = C.save ? 40 : 28, grid = [], uv = [];
+        const at = (t, a, lift = 0) => { const q = ring(t); return [q.center[0] + Math.cos(a) * (q.rx + lift), q.center[1] + Math.sin(a) * (q.ry + lift), q.center[2]]; };
+        for (let i = 0; i < rows; i++) {
+            const t = i / (rows - 1), row = [];
+            for (let k = 0; k <= sides; k++) { const a = k / sides * Math.PI * 2, p = at(t, a); row.push(body.vertex(p, [Math.cos(a), Math.sin(a), 0], [1, 1, 1], skinAt(p))); uv.push(t, k / sides); }
+            grid.push(row);
+        }
+        for (let i = 0; i < rows - 1; i++) for (let k = 0; k < sides; k++) { const a = grid[i][k], b = grid[i][k + 1], c = grid[i + 1][k], d = grid[i + 1][k + 1]; body.tri(a, c, b); body.tri(b, c, d); }
+        for (const [i, t] of [[0, 0], [rows - 1, 1]]) { const p = ring(t).center, v = body.vertex(p, [0, 0, t ? -1 : 1], [1, 1, 1], skinAt(p)); uv.push(t, .5); for (let k = 0; k < sides; k++) t ? body.tri(v, grid[i][k + 1], grid[i][k]) : body.tri(v, grid[i][k], grid[i][k + 1]); }
+        // Orient outward by volume, then weld the seam's shading.
+        let vol = 0; for (let k = 0; k < body.i.length; k += 3) { const [a, b, c] = [0, 1, 2].map(j => body.p.slice(body.i[k + j] * 3, body.i[k + j] * 3 + 3)); vol += dot(a, cross(b, c)); }
+        if (vol < 0) for (let k = 0; k < body.i.length; k += 3) { const v = body.i[k + 1]; body.i[k + 1] = body.i[k + 2]; body.i[k + 2] = v; }
+        marineNormals(body);
+        const part = finish(body, 'Body', { kind: 'aquatic', roughness: 0.42 });
+        part.uvs = Float32Array.from(uv); part.uvs1 = part.uvs.map((v, i) => v * (i % 2 ? 5 : 7)); part.paintedSurface = true; part.normalScale = .45;
+        // Chromatophores: mottled patches, a dense field of pigment dots, a few pale spots and a lighter underside.
+        const coat = (t, v) => {
+            const a = v * Math.PI * 2, below = clamp(-Math.sin(a), 0, 1), n = fbm(t * 7 + Math.cos(a) * 1.6, Math.sin(a) * 1.6 + 4, 4);
+            let c = mix(colors.main, colors.light, ease(.05, .8, below) * .55 * r.patternAmount);
+            c = mix(c, colors.mark, ease(.46, .66, n) * .78 * r.patternAmount * (1 - below * .6));
+            const gt = t * (squid ? 150 : 110), gv = v * (squid ? 70 : 56), ct = Math.floor(gt), cv = Math.floor(gv) % (squid ? 70 : 56), h = hash2(ct, cv);
+            const dt = gt - ct - .5 - (hash2(cv, ct) - .5) * .5, dv = gv - Math.floor(gv) - .5 - (hash2(ct + 5, cv + 2) - .5) * .5, size = .16 + h * .2;
+            const dot2 = Math.exp(-((dt * dt + dv * dv) / (size * size))) * (h > (squid ? .25 : .45) ? 1 : 0);
+            c = mix(c, mix(colors.mark, [.32, .08, .05], .5), dot2 * .65 * (1 - below * .7) * r.patternAmount);
+            if (!squid) { const st = t * 34, sv = v * 18, ct2 = Math.floor(st), cv2 = Math.floor(sv) % 18, h2 = hash2(ct2 + 40, cv2), d2 = Math.hypot(st - ct2 - .5, sv - Math.floor(sv) - .5); c = mix(c, colors.light, (h2 > .78 ? ease(.3, .18, d2) : 0) * .45 * r.patternAmount * (1 - below)); }
+            return c;
+        };
+        C.paintMarkings = (w, h) => { const data = new Uint8Array(w * h * 4); for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) { const c = coat((i + .5) / w, (j + .5) / h), k = (j * w + i) * 4; data[k] = toSrgb(c[0]); data[k + 1] = toSrgb(c[1]); data[k + 2] = toSrgb(c[2]); data[k + 3] = 255; } return { width: w, height: h, data, repeat: true }; };
         for (let i = 0; i < r.eyeCount; i++) {
             const sign = i % 2 ? -1 : 1, row = Math.floor(i / 2), z = L * (0.12 - row * 0.035), radius = L * 0.028 * r.eyeSize;
-            const at = bodyRay(C, [0, Y + L * 0.015, z], [sign, 0, 0]);
-            if (at) eye(add(at, [-sign * radius * 0.27, 0, 0]), radius, Props.rigid(headBone), i, [sign * 0.8, 0, 0.6]);
+            const hit = bodyRay(C, [0, Y + L * 0.015, z], [sign, 0, 0]);
+            if (hit) eye(add(hit, [-sign * radius * 0.27, 0, 0]), radius, Props.rigid(headBone), i, [sign * 0.8, 0, 0.6]);
         }
+        // Papillae: small fleshy bumps over the mantle top, larger "horns" over the eyes.
+        const bumps = new Props.ExactMesh(), count = squid ? 0 : C.save ? 170 : 120;
+        for (let k = 0; k < count; k++) {
+            const t = .12 + hash2(k, 3) * .8, a = Math.PI * (.1 + .8 * hash2(7, k)), p = at(t, a, -L * .002), q = ring(t), n = norm([Math.cos(a) / q.rx, Math.sin(a) / q.ry, 0]);
+            const s = L * (.0035 + .005 * hash2(k, 11) ** 2);
+            bumps.sphere(p, s, mix(colors.main, k % 3 ? colors.mark : colors.light, .3), skinAt(p), 4, 7, [1, .8 + .4 * Math.abs(n[1]), 1]);
+        }
+        if (!squid) for (const sign of [-1, 1]) { const p = at(.17, Math.PI / 2 - sign * .55, -L * .003); bumps.tube([p, add(p, [sign * L * .008, L * .022, -L * .004])], [L * .007, L * .0008], 8, mix(colors.main, colors.mark, .3), Props.rigid(headBone)); }
+        finish(bumps, 'Skin papillae', { kind: 'aquatic', roughness: .5 });
+        // Siphon: a muscular funnel from the mantle opening (left side in octopus, under the head in squid).
+        const siphon = new Props.ExactMesh(), s0 = squid ? at(.2, -Math.PI / 2, -L * .01) : at(.3, Math.PI * 1.15, -L * .01), dir = squid ? [0, -.25, 1] : [.25, -.35, .9];
+        siphon.tube([s0, add(s0, mul(norm(dir), L * .05)), add(s0, mul(norm(dir), L * .09))], [L * .026, L * .02, L * .016], 14, mix(colors.main, colors.light, .3), Props.rigid(headBone));
+        siphon.disk(add(s0, mul(norm(dir), L * .0905)), norm(dir), L * .011, mix(colors.mark, [.15, .05, .05], .5), Props.rigid(headBone), 14);
+        finish(siphon, 'Siphon', { kind: 'aquatic', roughness: .45 });
         for (let a = 0; a < r.appendages; a++) {
             const angle = a / Math.max(1, r.appendages) * Math.PI * 2, long = squid && a >= r.appendages - 2;
             const length = L * r.appendageLength * (squid ? (long ? 1.05 : 0.58) : 0.75), path = [];
@@ -1110,7 +1185,22 @@
             for(let i=0;i<mesh.p.length;i+=3)if(mesh.p[i+1]<Y){const pit=suckerAt(mesh.p.slice(i,i+3));mesh.p[i+1]+=pit.depth*(1-ease(.35,1,pit.distance));}
             marineNormals(mesh);
         }
-        const body=finish(mesh,'Body',{kind:centipede?'skin':'aquatic',roughness:type==='roundworm'?.48:.58});C.pattern(body);
+        const body=finish(mesh,'Body',{kind:centipede?'skin':'aquatic',roughness:type==='roundworm'?.3:type==='earthworm'||type==='bristleworm'?.36:.58});C.pattern(body);
+        // Natural worm coloring: earthworm dorsal vessel, darker front and orange
+        // clitellum; nematode lateral lines; medicinal-leech stripes and spots;
+        // bristleworm segment bands. Wet cuticles carry a faint thin-film sheen.
+        if(!centipede&&body)for(let i=0;i<body.positions.length;i+=3){
+            const x=body.positions[i],y=body.positions[i+1]-Y,z=body.positions[i+2],t=clamp(.5-z/L,0,1),R=Math.max(1e-6,radiusAt(t)),a=Math.atan2(y/Math.max(1e-6,depthAt(t)),x/R),up=Math.sin(a),side=Math.abs(Math.cos(a));
+            const seg=t*count-Math.floor(t*count),groove=Math.exp(-((Math.min(seg,1-seg)/.07)**2));
+            let c=Array.from(body.colors.subarray(i,i+3));
+            if(type==='earthworm'){c=mix(colors.main,colors.light,ease(-.2,-.9,up)*.6);c=mix(c,colors.mark,(1-ease(.05,.35,t))*.45+Math.exp(-((Math.cos(a)/.12)**2))*Math.max(0,up)*.5);c=mix(c,rgb('#c9805e'),ease(.2,.23,t)*(1-ease(.31,.34,t))*.7);c=c.map(v=>v*(1-groove*.25));}
+            else if(type==='roundworm'){c=mix(colors.main,colors.light,.3+.2*Math.max(0,up));c=mix(c,colors.mark,Math.exp(-((Math.sin(a)/.06)**2))*.55);c=c.map(v=>v*(.96+.04*Math.sin(t*620)));}
+            else if(type==='leech'){c=mix(mix(colors.main,colors.light,ease(-.1,-.7,up)*.7),rgb('#b8642c'),Math.max(0,up)*(Math.exp(-(((side-.45)/.07)**2))+Math.exp(-(((side-.18)/.05)**2))*.7)*.8);const spot=hash2(Math.floor(t*120),Math.floor(a*3))>.6&&Math.exp(-(((side-.45)/.05)**2))>.5&&up>0;if(spot)c=mix(c,rgb('#0d0f0b'),.75);c=mix(c,rgb('#0d0f0b'),Math.exp(-(((up+.15)/.08)**2))*.6*(1-ease(.97,.99,side)));}
+            else if(type==='bristleworm'){c=mix(colors.main,colors.light,ease(-.1,-.8,up)*.6);c=mix(c,colors.mark,groove*.6+ease(.6,.75,fbm(t*30,a*2))*.2);}
+            else continue;
+            body.colors.set(c,i);
+        }
+        if(body&&['earthworm','bristleworm','roundworm'].includes(type)){body.iridescence=type==='roundworm'?.2:.4;body.iridescenceIOR=1.45;body.iridescenceThicknessRange=[200,480];}
         if(type==='leech'){
             for(let i=0;i<body.positions.length;i+=3)if(body.positions[i+1]<Y){const pit=suckerAt(body.positions.subarray(i,i+3)),f=(1-ease(.35,1,pit.distance))*.6;body.colors.set(mix(Array.from(body.colors.subarray(i,i+3)),colors.mark,f),i);}
             surfaceRegions(C,body,p=>{const pit=suckerAt(p);return p[1]<Y&&pit.distance<1.10?pit.name:null;});
@@ -1143,8 +1233,28 @@
             const sign=i%2?-1:1,t=.025+Math.floor(i/2)*.014,R=radiusAt(t),H=depthAt(t),radius=L*(type==='leech'?.0015:.004)*r.eyeSize;
             eye([sign*R*.55,Y+H*.78,L*(.5-t)],radius,Props.rigid(rootBone),i,[sign*.3,.8,.5]);
         }
+        if(type==='earthworm'){
+            // Four pairs of short setae per segment, ventrolateral, and a prostomium lobe over the mouth.
+            const setae=new Props.ExactMesh();
+            for(let k=1;k<count-1;k++)for(const a of [-.35,-.6,-Math.PI+.35,-Math.PI+.6]){const t=(k+.5)/count,R=radiusAt(t),H=depthAt(t),p=[Math.cos(a)*R*.98,Y+Math.sin(a)*H*.98,L*(.5-t)],n=norm([Math.cos(a),Math.sin(a),0]);setae.tube([p,add(p,add(mul(n,L*.006),[0,0,-L*.003]))],[L*.0009,L*.0001],4,mix(colors.light,colors.main,.3),skin(p));}
+            setae.sphere([0,Y+depthAt(.012)*.45,L*.497],1,colors.mark,Props.rigid(rootBone),8,12,[radiusAt(.02)*.55,depthAt(.02)*.4,L*.012]);
+            finish(setae,'Setae and prostomium',{kind:'aquatic',roughness:.4,noSurfaceDetail:true});
+        }
+        if(type==='roundworm'){
+            // Three lips around the nematode mouth.
+            const lips=new Props.ExactMesh(),R=radiusAt(.004);
+            for(let k=0;k<3;k++){const a=Math.PI/2+k*Math.PI*2/3;lips.sphere([Math.cos(a)*R*.55,Y+Math.sin(a)*R*.55,L*.5],1,colors.light,Props.rigid(rootBone),6,10,[R*.5,R*.5,L*.002]);}
+            finish(lips,'Lips',{kind:'aquatic',roughness:.3,noSurfaceDetail:true});
+        }
+        if(type==='tapeworm'){
+            // Rostellum with a double crown of small curved hooks atop the scolex.
+            const hooks=new Props.ExactMesh(),c0=[0,Y,L*.539];
+            hooks.sphere(c0,1,colors.light,Props.rigid(rootBone),8,12,[L*.006,L*.006,L*.005]);
+            for(let k=0;k<22;k++){const a=k/22*Math.PI*2,rr=L*(k%2?.0062:.0052),p=add(c0,[Math.cos(a)*rr,Math.sin(a)*rr,L*.001]),o=[Math.cos(a),Math.sin(a),0];hooks.tube([p,add(p,add(mul(o,L*.004),[0,0,L*.003])),add(p,add(mul(o,L*.006),[0,0,L*.0005]))],[L*.0009,L*.0006,L*.0001],5,rgb('#c8b48a'),Props.rigid(rootBone));}
+            finish(hooks,'Rostellum hooks',{roughness:.35,noSurfaceDetail:true});
+        }
         if(!['tapeworm','leech'].includes(type)){
-            const mouth=new Props.ExactMesh();mouth.disk([0,Y,L*.5004],[0,0,1],L*(type==='roundworm'?.001:type==='bristleworm'?.004:.009),colors.dark,Props.rigid(rootBone),16);finish(mouth,'Mouth');
+            const mouth=new Props.ExactMesh();mouth.disk([0,Y-(type==='earthworm'?depthAt(.01)*.35:0),L*.5004],[0,0,1],L*(type==='roundworm'?.001:type==='bristleworm'?.004:.0045),type==='earthworm'?mix(colors.mark,colors.dark,.5):colors.dark,Props.rigid(rootBone),16);finish(mouth,'Mouth');
         }
         return chain;
     }
@@ -1321,42 +1431,57 @@
             finish(claws,'Forcipules',{roughness:.3,noSurfaceDetail:true});
         }
     }
+    /** Moon-jelly style medusa: a translucent scalloped bell (exumbrella and a
+     * fainter subumbrella), four horseshoe gonads, sixteen radial canals with a
+     * ring canal, rhopalia lappets, fine marginal tentacles and frilled oral arms. */
     function jellyfish(C) {
         const { r, L, Y, colors, rootBone, finish } = C, top = Y + L * 0.45;
         const sides=C.save?64:48, rows=C.save?33:25;
-        const at=(t,a,inside=0)=>{const angle=.003+t*Math.PI*.6,R=L*.27*Math.sin(angle)*r.girth-inside;
+        const at=(t,a,inside=0)=>{const angle=.003+t*Math.PI*.6,R=(L*.27*Math.sin(angle)*r.girth-inside)*(1+.035*Math.cos(a*8)*t**6);
             return [Math.cos(a)*R,top+L*.24*r.chestDepth*Math.cos(angle),Math.sin(a)*R];};
-        const bell=new Props.ExactMesh();
-        bell.loft(rows,(_,t)=>{const p=at(t,0);return {center:[0,p[1],0],x:[1,0,0],y:[0,0,1],rx:p[0],ry:p[0]};},sides,colors.main,Props.rigid(rootBone),false);
-        marineNormals(bell);
-        finish(bell,'Body',{kind:'aquatic',opacity:.55,doubleSided:true,roughness:.23,normalScale:.035});
+        const sheet=(name,inside,lower,last,material,tint)=>{
+            const m=new Props.ExactMesh();
+            m.loft(rows,(_,t)=>{const p=at(t*last,0,inside);return {center:[0,p[1]-lower*(1-t),0],x:[1,0,0],y:[0,0,1],rx:p[0],ry:p[0]};},sides,(t,a)=>tint(t*last,a),Props.rigid(rootBone),false);
+            for(let row=0;row<rows;row++)for(let k=0;k<sides;k++){const t=row/(rows-1)*last,a=k/sides*Math.PI*2,q=at(t,a,inside),i=(row*sides+k)*3;m.p[i]=q[0];m.p[i+1]=q[1]-lower*(1-t/last);m.p[i+2]=q[2];}
+            marineNormals(m);return finish(m,name,material);
+        };
+        // Faintly tinted gel, denser toward the apex.
+        sheet('Body',0,0,1,{kind:'aquatic',opacity:.42,doubleSided:true,roughness:.12,normalScale:.035},(t)=>mix(mix(colors.main,colors.light,.35),colors.main,1-t));
+        sheet('Subumbrella',L*.016,L*.02,.96,{kind:'aquatic',opacity:.22,doubleSided:true,roughness:.2,noSurfaceDetail:true},()=>mix(colors.main,colors.light,.5));
         // A rolled gelatinous margin closes the paper-thin bell edge. Sampling
         // its polygon, rather than an analytic circle, seats each root exactly.
         const edge=a=>{const q=(a/(Math.PI*2)%1+1)%1*sides,i=Math.floor(q),u=q-i;return lerp(at(1,i/sides*Math.PI*2),at(1,(i+1)/sides*Math.PI*2),u);};
         const rim=new Props.ExactMesh(),rimPath=Array.from({length:sides+1},(_,i)=>edge(i/sides*Math.PI*2));
-        rim.tube(rimPath,L*.0045,8,colors.light,Props.rigid(rootBone),false);
+        rim.tube(rimPath,L*.0035,8,colors.light,Props.rigid(rootBone),false);
+        // Eight rhopalia sit in notches between the marginal lobes.
+        for(let k=0;k<8;k++){const a=(k+.5)/8*Math.PI*2,p=edge(a);rim.sphere(add(p,[0,-L*.003,0]),L*.0045,mix(colors.mark,colors.light,.3),Props.rigid(rootBone),5,8);}
         finish(rim,'Bell margin',{kind:'aquatic',opacity:.78,roughness:.26,noSurfaceDetail:true});
-        const organs=new Props.ExactMesh();organs.sphere([0,top+L*.05*r.chestDepth,0],L*.13,colors.mark,Props.rigid(rootBone),16,32,[r.girth,.7*r.chestDepth,r.girth]);
-        finish(organs,'Bell core',{kind:'aquatic',opacity:.72,roughness:.33,emissive:r.colors.marking,emissiveIntensity:r.glow*.35});
+        // Four horseshoe gonads around the stomach, seen through the bell.
+        const organs=new Props.ExactMesh(),gy=top+L*.12*r.chestDepth;
+        for(let g=0;g<4;g++){const q=(g+.5)/4*Math.PI*2,c=[Math.cos(q)*L*.055*r.girth,gy,Math.sin(q)*L*.055*r.girth],path=Array.from({length:17},(_,i)=>{const b=q+Math.PI+(i/16-.5)*Math.PI*1.65;return add(c,[Math.cos(b)*L*.038*r.girth,L*.012*Math.sin(i/16*Math.PI),Math.sin(b)*L*.038*r.girth]);});organs.tube(path,path.map((_,i)=>L*(.008+.004*Math.sin(i/16*Math.PI))),10,colors.mark,Props.rigid(rootBone));}
+        organs.sphere([0,gy-L*.01,0],L*.03,mix(colors.mark,colors.light,.5),Props.rigid(rootBone),10,16,[r.girth,.5,r.girth]);
+        finish(organs,'Bell core',{kind:'aquatic',opacity:.75,roughness:.3,emissive:r.colors.marking,emissiveIntensity:r.glow*.35});
+        // Sixteen radial canals and a ring canal on the subumbrella.
         const ribs=new Props.ExactMesh();
-        for(let k=0;k<12;k++){
-            const a=k/12*Math.PI*2,path=Array.from({length:rows},(_,j)=>at(j/(rows-1),a,L*.0015));
-            ribs.tube(path,L*.0014,6,colors.light,Props.rigid(rootBone),false);
+        for(let k=0;k<16;k++){
+            const a=k/16*Math.PI*2+Math.sin(k*1.7)*.04,start=.28,path=Array.from({length:rows},(_,j)=>{const t=start+(1-start)*j/(rows-1)*.97;return add(at(t,a+Math.sin(t*9+k)*.03*(k%2),L*.012),[0,-L*.004,0]);});
+            ribs.tube(path,L*(k%4?.0008:.0012),5,colors.light,Props.rigid(rootBone),false);
         }
-        finish(ribs,'Bell ribs',{kind:'aquatic',opacity:.68,roughness:.32,emissive:r.colors.light,emissiveIntensity:r.glow*.15});
+        const ringPath=Array.from({length:sides+1},(_,i)=>add(at(.965,i/sides*Math.PI*2,L*.012),[0,-L*.004,0]));
+        ribs.tube(ringPath,L*.001,5,colors.light,Props.rigid(rootBone),false);
+        finish(ribs,'Bell ribs',{kind:'aquatic',opacity:.6,roughness:.32,emissive:r.colors.light,emissiveIntensity:r.glow*.15});
         for(let i=0;i<r.eyeCount;i++){const a=i/r.eyeCount*Math.PI*2,p=edge(a),R=L*.015*r.eyeSize;C.eye(add(p,[-Math.cos(a)*R*.2,0,-Math.sin(a)*R*.2]),R,Props.rigid(rootBone),i,[Math.cos(a),0,Math.sin(a)]);}
         for(let a=0;a<r.appendages;a++){
             const angle=a/Math.max(1,r.appendages)*Math.PI*2,root=edge(angle),path=[];
             // Embed the fixed collar in the margin; lateral curl starts at zero.
             for(let k=0;k<=6;k++){const t=k/6,rad=(Math.hypot(root[0],root[2])-L*.002)*(1-t)+L*(.19+Math.sin(t*5+angle)*.025)*r.girth*t;
                 path.push([Math.cos(angle)*rad,root[1]-t*L*.6*r.appendageLength,Math.sin(angle)*rad+Math.sin(t*7+angle)*L*.025*ease(0,.28,t)]);}
-            appendage(C,'Tendril'+a,path,rootBone,L*.0055,angle,false);
+            appendage(C,'Tendril'+a,path,rootBone,L*.0034,angle,false,false,null,{color:mix(colors.light,colors.main,.4),material:{kind:'aquatic',opacity:.7,roughness:.25}});
         }
-        // Four broader oral arms grow from the underside of the central organ,
-        // distinct from the fine marginal tentacles.
+        // Four frilled oral arms hang from the mouth under the stomach.
         if(r.appendages>0)for(let a=0;a<4;a++){
-            const angle=a/4*Math.PI*2,path=Array.from({length:7},(_,k)=>{const t=k/6,rad=L*r.girth*(.045+t*.04);return [Math.cos(angle)*rad,top-L*r.chestDepth*.015-t*L*.44*r.appendageLength,Math.sin(angle)*rad];});
-            appendage(C,'Oral arm'+a,path,rootBone,L*.018,angle,false);
+            const angle=(a+.5)/4*Math.PI*2,path=Array.from({length:7},(_,k)=>{const t=k/6,rad=L*r.girth*(.03+t*.035);return [Math.cos(angle)*rad,top-L*r.chestDepth*.015-t*L*.44*r.appendageLength,Math.sin(angle)*rad+Math.sin(t*5+a)*L*.01];});
+            appendage(C,'Oral arm'+a,path,rootBone,L*.016,angle,false,false,null,{wide:1.6,flat:.28,frill:.9,color:mix(colors.light,colors.mark,.25),material:{kind:'aquatic',opacity:.62,doubleSided:true,roughness:.25}});
         }
     }
     function adorn(C) {

@@ -126,3 +126,35 @@ test('every realism-pass starting type stays within 65,000 triangles and 128 bon
         }
     }
 });
+
+test('round 2: shark pectorals are thick cambered foils, grey above; deeper gills and stronger denticles', () => {
+    const r = Q.Creature.kindRecipe('shark'), b = build(r, 'save'), fin = part(b, 'Fin1_0'), sides = 20, at = (row, k) => Array.from(fin.positions.subarray((row * sides + k) * 3, (row * sides + k) * 3 + 3));
+    const thick = (row, k) => Math.hypot(...at(row, k).map((v, c) => v - at(row, sides - k)[c]));
+    assert.ok(thick(3, 3) > thick(3, 7) * 1.4, 'rounded leading edge thicker than the fine trailing edge');
+    assert.ok(thick(2, 5) > r.size * 2.4 * .012, 'thick at the root');
+    let up = 0, nu = 0, down = 0, nd = 0;
+    for (let i = 0; i < fin.positions.length / 3; i++) { const v = fin.colors[i * 3] + fin.colors[i * 3 + 1] + fin.colors[i * 3 + 2]; if (fin.normals[i * 3 + 1] > .5) { up += v; nu++; } else if (fin.normals[i * 3 + 1] < -.5) { down += v; nd++; } }
+    assert.ok(up / nu < down / nd * .8, 'upper side shares the grey back; only the underside is pale');
+    assert.ok(part(b, 'Body').normalScale >= .3, 'denticle relief reads up close');
+});
+
+test('round 2: octopus/squid skin, jellyfish anatomy, tick mouthparts and worm details', () => {
+    for (const kind of ['octopus', 'squid']) {
+        const b = build(Q.Creature.kindRecipe(kind)), body = part(b, 'Body');
+        assert.equal(body.texture, 'creature-markings.png'); assert.ok(body.uvs1);
+        assert.ok(part(b, 'Siphon'), kind + ' siphon');
+        const suckers = part(b, 'Arm0 suckers'); assert.ok(suckers.doubleSided && suckers.index.length / 3 > 1000, 'rimmed suckers');
+        if (kind === 'octopus') assert.ok(part(b, 'Skin papillae').index.length / 3 > 3000);
+        assert.ok(b.parts.reduce((s, p) => s + p.index.length / 3, 0) < 65000);
+    }
+    const jelly = build(Q.Creature.kindRecipe('jellyfish'));
+    for (const name of ['Body', 'Subumbrella', 'Bell core', 'Bell ribs', 'Bell margin']) assert.ok(part(jelly, name), name);
+    const arm = part(jelly, 'Oral arm0'), xs = extent(arm, 0), zs = extent(arm, 2);
+    assert.ok(Math.max(xs[1] - xs[0], zs[1] - zs[0]) > Q.Creature.kindRecipe('jellyfish').size * 2.4 * .04, 'broad frilled oral arms');
+    const tick = build(Q.Creature.kindRecipe('tick'));
+    assert.ok(part(tick, 'Capitulum') && part(tick, 'Palps and barbed hypostome').index.length / 3 > 1500);
+    const worm = type => build(variant('worm', 'wormType', type));
+    assert.ok(part(worm('earthworm'), 'Setae and prostomium') && part(worm('earthworm'), 'Body').iridescence > 0);
+    assert.ok(part(worm('tapeworm'), 'Rostellum hooks'));
+    assert.ok(part(worm('roundworm'), 'Lips'));
+});
