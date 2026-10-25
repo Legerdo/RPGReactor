@@ -5134,6 +5134,12 @@ Reactor3D.flattenModelWorld = function(root) {
  *       releases; an action pose plays in and out over its period),
  *       "drive" (turns `degrees` times an input of the state, -1 to 1,
  *       about `axisVector`: a steered part).
+ *       "glow" (a light that lives: the emissive of the part's materials —
+ *       or of materials named by `material` — breathes, flickers or
+ *       scrolls; `mode` "pulse" | "flicker" | "scroll", `period` frames,
+ *       `min`/`max` the share of the authored emissive intensity, `uv`
+ *       [u, v] emissive map turns per second for a scroll. Only uniforms
+ *       change: nothing is rebuilt or recompiled).
  * trigger: "always", "idle", "moving", or "action" — actions play on
  * demand by name (the Play Model Animation event command).
  * part: prefix of a named part recorded by the readers ("" = whole model);
@@ -5214,7 +5220,7 @@ Reactor3D.readModelAnimationRules = function(json, clips) {
     for (let i = 0; i < list.length; i++) {
         const raw = list[i] || {};
         const type = raw.type === "swing" || raw.type === "bob" || raw.type === "clip"
-            || raw.type === "pose" || raw.type === "drive" ? raw.type : "spin";
+            || raw.type === "pose" || raw.type === "drive" || raw.type === "glow" ? raw.type : "spin";
         const keys = readKeys(raw.keys);
         const rule = {
             name: String(raw.name || raw.part || type + "-" + i),
@@ -5271,6 +5277,15 @@ Reactor3D.readModelAnimationRules = function(json, clips) {
         }
         if (Number.isFinite(Number(raw.radius)) && Number(raw.radius) > 0) rule.radius = Number(raw.radius);
         if (type === "drive") rule.input = String(raw.input || "");
+        if (type === "glow") {
+            rule.mode = raw.mode === "flicker" || raw.mode === "scroll" ? raw.mode : "pulse";
+            rule.material = String(raw.material || "");
+            const lo = Number.isFinite(Number(raw.min)) ? Number(raw.min) : 0.35, hi = Number.isFinite(Number(raw.max)) ? Number(raw.max) : 1;
+            rule.min = Math.max(0, Math.min(lo, hi));
+            rule.max = Math.max(rule.min, Math.max(lo, hi));
+            const uv = Array.isArray(raw.uv) ? raw.uv : [0, 0];
+            rule.uv = [Number(uv[0]) || 0, Number(uv[1]) || 0];
+        }
         rules.push(rule);
     }
     // A rigged model plays its template's default motion for every state it
@@ -9205,6 +9220,87 @@ Reactor3D.AnimationMatches = {
     }
 };
 
+/**
+ * A glow rule's frame: the share (min..max) of each reached material's own
+ * emissive intensity, or its emissive map's offset for a scroll. The
+ * materials are found once per binding and made the instance's own (a
+ * shallow clone: same program, same texture source), so one model's lights
+ * never drive another's; after that a frame writes two numbers per material.
+ * An inactive trigger puts the authored values back.
+ */
+Reactor3D.modelGlowValue = function(rule, frame) {
+    const period = Math.max(2, rule.period), t = frame / period;
+    if (rule.mode === "flicker") {
+        // Steps of a tenth of the period, eased into each other: a held value with quick changes, the same every run.
+        const step = Math.floor(t * 10), f = t * 10 - step;
+        const at = n => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+        const a = at(step), b = at(step + 1), k = f < 0.8 ? a : a + (b - a) * (f - 0.8) / 0.2;
+        return rule.min + (rule.max - rule.min) * k;
+    }
+    if (rule.mode === "scroll") return rule.max;
+    return rule.min + (rule.max - rule.min) * (0.5 - 0.5 * Math.cos(t * Math.PI * 2));
+};
+Reactor3D.applyModelGlow = function(binding, rule, index, state) {
+    const all = binding._glow || (binding._glow = []);
+    let glow = all[index];
+    if (!glow || glow.rule !== rule) {
+        const part = rule.part.toLowerCase(), named = rule.material.toLowerCase(), list = [], seen = new Map();
+        const answers = (object) => {
+            for (let node = object; node && node !== binding.root.parent; node = node.parent) {
+                const names = [node.name].concat((node.userData && node.userData.parts || []).map(p => p && p.name));
+                if (names.some(n => n && String(n).toLowerCase().indexOf(part) === 0)) return true;
+            }
+            return false;
+        };
+        binding.root.traverse(object => {
+            if (!object.isMesh || !object.material) return;
+            const many = Array.isArray(object.material), mats = many ? object.material.slice() : [object.material];
+            let changed = false;
+            for (let k = 0; k < mats.length; k++) {
+                const m = mats[k];
+                if (!m || !m.emissive) continue;
+                if (named ? String(m.name || "").toLowerCase().indexOf(named) !== 0 : (part && !answers(object))) continue;
+                let own = seen.get(m);
+                if (!own) {
+                    own = m.clone();
+                    if (rule.mode === "scroll" && own.emissiveMap) {
+                        own.emissiveMap = own.emissiveMap.clone();
+                        own.emissiveMap.wrapS = own.emissiveMap.wrapT = THREE.RepeatWrapping;
+                        own.emissiveMap.needsUpdate = true;
+                    }
+                    seen.set(m, own);
+                    list.push({ material: own, intensity: own.emissiveIntensity, offset: own.emissiveMap ? own.emissiveMap.offset.clone() : null });
+                }
+                mats[k] = own; changed = true;
+            }
+            if (changed) object.material = many ? mats : mats[0];
+        });
+        glow = all[index] = { rule, list, lit: false };
+    }
+    let active = rule.trigger === "always"
+        || (rule.trigger === "idle" && Reactor3D.isIdleState(state))
+        || Reactor3D.moveTriggerActive(rule.trigger, state) === true;
+    let t = state.frame || 0;
+    if (rule.trigger === "action") {
+        active = !!(state.action && state.action.name === rule.name && t - state.action.frame < this.modelRuleDuration(rule));
+        if (active) t -= state.action.frame;
+    }
+    if (!active) {
+        if (glow.lit) for (const g of glow.list) { g.material.emissiveIntensity = g.intensity; if (g.offset) g.material.emissiveMap.offset.copy(g.offset); }
+        glow.lit = false;
+        return;
+    }
+    glow.lit = true;
+    const k = this.modelGlowValue(rule, t), seconds = t / 60;
+    for (const g of glow.list) {
+        g.material.emissiveIntensity = g.intensity * k;
+        if (rule.mode === "scroll" && g.offset) {
+            const map = g.material.emissiveMap;
+            map.offset.set(((g.offset.x + rule.uv[0] * seconds) % 1 + 1) % 1, ((g.offset.y + rule.uv[1] * seconds) % 1 + 1) % 1);
+        }
+    }
+};
+
 Reactor3D.applyModelAnimation = function(binding, rules, state) {
     if (typeof THREE === "undefined" || !binding || !rules || !rules.length) return;
     binding.root.position.set(0, 0, 0);
@@ -9239,6 +9335,7 @@ Reactor3D.applyModelAnimation = function(binding, rules, state) {
     for (let i = 0; i < rules.length; i++) {
         const rule = rules[i];
         if (rule.type === "clip") continue;
+        if (rule.type === "glow") { this.applyModelGlow(binding, rule, i, state); continue; }
         let quat = null;
         let restWeight = 0;
         let slide = null;
