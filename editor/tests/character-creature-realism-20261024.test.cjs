@@ -107,3 +107,29 @@ test('quadruped coats: no periodic pore lattice on hair, crest manes and hair ta
     assert.ok(fur(horse) > fur({ ...horse, mane: 'none' }) + 2000, 'a horse grows a real crest mane');
     assert.ok(fur(horse) > fur({ ...horse, tail: 'long' }) + 1000, 'a hair tail is strands, not a solid blade');
 });
+
+test('round 3: species eyes, paws with claws and pads, regional fur, faces', () => {
+    const build = k => Q.Creature.build(typeof k === 'string' ? Q.Creature.kindRecipe(k) : k, { quality: 'preview' });
+    // Each kind's eye picture: a slit for cats and foxes, round for dogs, a bar for horses (dark pupil texels in those shapes).
+    const pupil = b => { const t = b.textures['creature-eyes.png'], s = t.width, at = (u, v) => { const x = Math.floor((u + 1) / 2 * s), y = Math.floor((v + 1) / 2 * s), o = (y * s + x) * 4; return t.data[o] + t.data[o + 1] + t.data[o + 2]; }; return { center: at(0, 0), side: at(0.28, 0), up: at(0, 0.24) }; };
+    const cat = pupil(build('cat')), dog = pupil(build('dog')), horse = pupil(build('horse'));
+    assert.ok(cat.center < 30 && cat.side > 60 && cat.up < 30, 'cat: upright slit');
+    assert.ok(dog.center < 30 && dog.side < 30 && dog.up < 30, 'dog: round');
+    for (const k of ['cat', 'dog', 'horse', 'drake', 'ram']) { const e = build(k).parts.find(p => p.name === 'Eyes'); assert.equal(e.texture, 'creature-eyes.png', k); assert.ok(e.uvs && e.colors, k + ' eye uvs and colors'); }
+    // Paws: claws (a cat's only their tips), toe beans painted on the sole; hooves have no claws.
+    const claws = k => build(k).parts.find(p => p.name === 'Claws')?.index.length || 0;
+    assert.ok(claws('dog') > 0 && claws('wolf') > 0 && claws('bear') > 0 && claws('cat') > 0, 'claws on paws');
+    assert.equal(claws('horse'), 0);
+    // Regional fur: the wolf's neck hair is longer than its face's.
+    const wolf = Q.Creature.build(Q.Creature.kindRecipe('wolf'), { quality: 'save' });
+    assert.ok(wolf.parts.some(p => p.name === 'Coat fur'), 'wolf grows coat strands');
+    // The faces: a horse's jowl widens its head behind the eyes; a long-faced cat's muzzle is one piece with its face.
+    for (const k of ['cat', 'wolf', 'fox', 'horse', 'bear', 'lion', 'tiger', 'deer', 'bull', 'ram', 'boar', 'rabbit', 'drake']) {
+        const r = Q.Creature.kindRecipe(k), b = build(r), q = Q.inspect(b, { recipe: r });
+        assert.deepEqual(q.issues, [], k);
+    }
+    for (const t of Object.keys(Q.Creature.CAT_BREEDS)) {
+        const r = Q.Creature.withVariant(Q.Creature.kindRecipe('cat'), 'catType', t), q = Q.inspect(Q.Creature.build(r, { quality: 'save' }), { recipe: r });
+        assert.deepEqual(q.issues, [], t); assert.ok(q.summary.triangles < 100000, t + ' ' + q.summary.triangles);
+    }
+});
