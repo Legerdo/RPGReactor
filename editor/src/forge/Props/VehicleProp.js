@@ -15,7 +15,7 @@
     const BY_ID=new Map(FORMS.map(f=>[f[0],f]));
     const clamp=(v,a,b,d)=>Number.isFinite(+v)?Math.max(a,Math.min(b,+v)):d;
     const hex=(v,d)=>/^#[\da-f]{6}$/i.test(v)?v:d;
-    const GROUND=new Set(['compact','sport','truck','rover','motorcycle']);
+    const GROUND=new Set(['compact','sport','truck','rover','motorcycle']),TREADS=['road','allTerrain','mud'];
     function normalize(input={}) {
         const form=BY_ID.has(input.form)?input.form:'compact',f=BY_ID.get(form),r=input;
         return {kind:'vehicle',form,width:clamp(r.width,.5,8,f[2]),height:clamp(r.height,.35,7,f[3]),length:clamp(r.length,1,12,f[4]),
@@ -24,7 +24,7 @@
             wheelSize:clamp(r.wheelSize,.75,1.3,1),wheelbase:clamp(r.wheelbase,.5,.72,.62),clearance:clamp(r.clearance,0,1,.4),
             cabinHeight:clamp(r.cabinHeight,.7,1.3,1),cabinLength:clamp(r.cabinLength,.75,1.25,1),axles:Math.round(clamp(r.axles,2,3,form==='rover'?3:2)),
             armor:clamp(r.armor,0,1,form==='rover'?.8:.2),roughness:clamp(r.roughness,.2,.9,form==='sport'?.28:.52),
-            spokes:Math.round(clamp(r.spokes,4,10,6)),tread:clamp(r.tread,0,1,form==='rover'||form==='truck'?.8:.25),
+            spokes:Math.round(clamp(r.spokes,4,10,6)),tread:clamp(r.tread,0,1,form==='rover'||form==='truck'?.8:.25),treadPattern:TREADS.includes(r.treadPattern)?r.treadPattern:form==='rover'?'mud':form==='truck'?'allTerrain':'road',
             roofRack:!!r.roofRack,bumper:r.bumper!==false,lights:r.lights!==false,details:r.details!==false,
             cargo:clamp(r.cargo,0,1,form==='truck'?.5:0),wingSpan:clamp(r.wingSpan,.7,1.4,1),engineSize:clamp(r.engineSize,.7,1.4,1),
             stance:clamp(r.stance,.75,1.3,1),aero:clamp(r.aero,0,1,form==='sport'?.65:0),fairing:['naked','half','full'].includes(r.fairing)?r.fairing:'half',flightFit:['transport','interceptor','cargo'].includes(r.flightFit)?r.flightFit:'transport',rotorGuard:['ring','cage','open'].includes(r.rotorGuard)?r.rotorGuard:'ring',tool:['claw','welder','none'].includes(r.tool)?r.tool:'claw'};
@@ -35,10 +35,10 @@
         const W=r.width,H=r.height,L=r.length,span=L*r.wheelbase;
         const axleZ=r.axles===3?[-span*.5,-span*.17,span*.5]:[-span*.5,span*.5];
         const gap=Math.min(...axleZ.slice(1).map((z,i)=>z-axleZ[i]));
-        const R=Math.min(H*.22*r.wheelSize,gap*.44,W*.32),hood=R*2.12+H*(.075+r.clearance*.075),base=R+H*(.055+r.clearance*.07);
+        const R=Math.min(H*.22*r.wheelSize,gap*.44,W*.32),hood=R*2.12+H*(.075+r.clearance*.075),base=R*.55+H*(.025+r.clearance*.085);
         const cabinZ=r.form==='truck'?L*.10:r.form==='compact'?-L*.05:-L*.02,cabinL=L*(r.form==='truck'?.30:r.form==='compact'?.60:r.form==='rover'?.53:.43)*r.cabinLength;
         const bays=axleZ.slice(1).map((z,i)=>[Math.max(axleZ[i]+R*1.14,cabinZ-cabinL*.47),Math.min(z-R*1.14,cabinZ+cabinL*.47)]).sort((a,b)=>(b[1]-b[0])-(a[1]-a[0]));
-        const [rear,front]=bays[0],door={rear,front,z:(rear+front)/2,width:Math.max(.02,front-rear),low:base+H*.015,high:hood+H*.055};
+        const [rear,front]=bays[0],door={rear,front,z:(rear+front)/2,width:Math.max(.02,front-rear),low:base+H*.06,high:hood+H*.055};
         return{R,axleZ,hood,base,cabinZ,cabinL,door};
     }
 
@@ -79,39 +79,7 @@
         const sheet=(kind,points,thickness=.012,name)=>put(kind,panel(points,thickness),name);
         const bolt=(center,u=[0,0,1],v=[0,1,0])=>{if(r.details)put('metal',CM.revolveOn(CM.frame(center,u,v),0,0,[[0,0],[.014,0],[.014,.008],[0,.009]],8));};
         const context={recipe:r,r,W,H,L,put,box,tube,sheet,bolt,wheels,bodywork:Bodywork};
-        const wheel=(x,z,R,width,name)=>{
-            const side=x<0?-1:1,F=CM.frame([x,R,z],[0,0,-side],[0,1,0]),tyreName=name+' tire',rimName=name+' rim';
-            const bike=r.form==='motorcycle',profile=bike?Array.from({length:33},(_,i)=>{const a=i/32*Math.PI*2;return[R*(.82+.18*Math.cos(a)),width*.55*Math.sin(a)];}):[
-                [.57,-.42],[.64,-.51],[.82,-.56],[.92,-.53],[.97,-.45],[.993,-.32],[1,-.15],[1,0],[1,.15],[.993,.32],[.97,.45],[.92,.53],[.82,.56],[.64,.51],[.57,.42],[.57,-.42]
-            ].map(([radius,depth])=>[radius*R,depth*width]);
-            put('rubber',CM.revolveOn(F,0,0,profile,96,.5),tyreName);
-            if(r.details&&!bike)for(const sign of [-1,1])for(const radius of [.72,.86]){
-                const depth=sign*width*(radius===.72?.533:.548),ring=Array.from({length:9},(_,i)=>{const a=i/8*Math.PI*2;return[R*(radius+.003*Math.cos(a)),depth+Math.sin(a)*R*.002];});
-                put('rubber',CM.revolveOn(F,0,0,ring,96),tyreName);
-            }
-            const outer=width*.535;
-            put('metal',CM.revolveOn(F,0,0,[[R*.61,outer-.012],[R*.67,outer],[R*.57,outer+.008],[R*.53,outer+.008],[R*.53,outer-.012],[R*.61,outer-.012]],64),rimName);
-            for(let j=0;j<r.spokes;j++){
-                const a=j/r.spokes*Math.PI*2,turn=r.form==='sport'?.23:.08,point=(radius,angle)=>[Math.sin(angle)*radius,Math.cos(angle)*radius];
-                const points=[point(R*.16,a-.14),point(R*.56,a+turn-.065),point(R*.57,a+turn+.065),point(R*.19,a+.16)].flat();
-                put('metal',CM.slab(points,{...F,o:add(F.o,scale(F.n,outer-.018))},R*.055,R*.008,true),rimName);
-            }
-            put('dark',CM.revolveOn(F,0,0,[[0,outer-.02],[R*.51,outer-.02],[R*.51,outer-.015],[0,outer-.015]],24),name+' brake');
-            put('metal',CM.revolveOn(F,0,0,[[0,outer-.01],[R*.17,outer-.01],[R*.17,outer+.025],[0,outer+.025]],16),rimName);
-            if(r.details&&r.tread>0){
-                const utility=r.form==='truck'||r.form==='rover',rows=utility?[-.33,-.11,.11,.33]:[-.27,.27],count=utility?24:36;
-                for(let j=0;j<count;j++)for(const offset of rows){
-                    const a=(j+(offset>0?.45:0))/count*Math.PI*2,T=CM.frame([x+offset*width,R+Math.cos(a)*R*(bike?.986:.994),z+Math.sin(a)*R*(bike?.986:.994)],[-1,0,0],[0,-Math.sin(a),Math.cos(a)]),depth=R*(.003+.020*r.tread),bevel=Math.min(R*.002,depth*.20),hw=width*(utility?.105:.20),hl=R*(utility?.065:.033),slant=width*(utility?.045:.08);
-                    put('rubber',CM.slab([-hw,-hl-slant,hw,-hl+slant,hw,hl+slant,-hw,hl-slant],T,depth,bevel,true),tyreName);
-                }
-            }
-            if(r.details){for(let j=0;j<5;j++){const a=j/5*Math.PI*2;put('metal',CM.revolveOn(F,Math.cos(a)*R*.11,Math.sin(a)*R*.11,[[0,outer+.025],[R*.018,outer+.025],[R*.018,outer+.035],[0,outer+.035]],12),rimName);}for(let j=0;j<18;j++){const a=j/18*Math.PI*2;put('metal',CM.revolveOn(F,Math.cos(a)*R*.41,Math.sin(a)*R*.41,[[0,outer-.014],[R*.016,outer-.014],[R*.016,outer-.013],[0,outer-.013]],12),name+' brake');}}
-            if(r.details)put('dark',CM.revolveOn(F,R*.48,0,[[0,outer],[R*.013,outer],[R*.013,outer+R*.055],[0,outer+R*.055]],12),rimName);
-            if(r.form!=='motorcycle')box('accent',[x+side*(outer-.020),R*1.20,z+R*.40],[width*.14,R*.22,R*.14],R*.025,'Brake calipers');
-            let radius=0;for(const mesh of groups.get('rubber|'+tyreName))for(let i=0;i<mesh.positions.length;i+=3)radius=Math.max(radius,Math.hypot(mesh.positions[i+1]-R,mesh.positions[i+2]-z));
-            wheels.push({part:tyreName,with:[rimName,name+' brake'],at:[x,R,z],radius,side:side>0?'left':'right'});
-            return [x,R,z];
-        };
+        const wheel=(x,z,R,width,name)=>{const w=Bodywork.wheel(context,x,z,R,width,name);wheels.push(w);return w.at;};
         const vent=(center,size,rows=6,back=false)=>{if(r.details)Bodywork.grille(context,CM.frame(center,[1,0,0],[0,back?-1:1,0]),size[0],size[1],size[2],rows,'Vehicle cooling grille');};
         const lamp=(center,size,back=false)=>{
             box('trim',center,size.map(v=>v*1.16),.012);
@@ -125,29 +93,38 @@
         };
         if(['compact','sport','truck','rover'].includes(r.form)) {
             const layout=roadLayout(r),{R,axleZ,hood,base,cabinZ,cabinL,door}=layout,half=W*.49;
-            box('dark',[0,base-.045,0],[W*.68,H*.10,L*.91],.03);
             Object.assign(context,layout,{half});Bodywork.roadBody(context);
+            const tireW=W*(r.form==='rover'?.14:.115);
             for(let i=0;i<axleZ.length;i++)for(const sign of [-1,1]){
                 const z=axleZ[i],x=sign*W*.44,name=(i===0?'Rear':i===r.axles-1?'Front':'Middle')+(sign>0?' left':' right');
-                wheel(x,z,R,W*(r.form==='rover'?.14:.115),name);
+                wheel(x,z,R,tireW,name);
                 tube('metal',[[0,R,z],[x,R,z]],H*.035);
                 tube('metal',[[sign*W*.28,hood-H*.05,z],[x,R,z]],H*.019);
-                const inner=R*1.085,outer=R*(r.form==='rover'?1.19:1.15),start=Math.asin(Math.min(.92,Math.max(0,(base-R)/inner))),steps=40;
-                const arc=Array.from({length:steps+1},(_,j)=>{const a=start+j/steps*(Math.PI-2*start);return[sign*(context.bodyProfile.width(z+Math.cos(a)*inner)+.006),R+Math.sin(a)*inner,z+Math.cos(a)*inner];});
-                tube('trim',arc,H*(.006+r.armor*.003));
+                // Opening contour: square legs from the sill to the axle, then
+                // the arch; [y, z, outward direction in the side plane].
+                const inner=R*1.085,outer=R*(r.form==='rover'?1.19:1.15),legs=Math.max(0,R-base),start=legs>0?0:Math.asin(Math.min(.92,(base-R)/inner)),steps=40,path=[];
+                if(legs>0)for(let j=0;j<3;j++)path.push([base+legs*j/3,z-inner,[0,-1]]);
+                for(let j=0;j<=steps;j++){const a=Math.PI-start-j/steps*(Math.PI-2*start);path.push([R+Math.sin(a)*inner,z+Math.cos(a)*inner,[Math.sin(a),Math.cos(a)]]);}
+                if(legs>0)for(let j=2;j>=0;j--)path.push([base+legs*j/3,z+inner,[0,1]]);
+                // Each station of the flange sits on the actual flank just outside the opening.
+                const flank=path.map(([y,zz,d])=>context.sideAt(zz+d[1]*(outer-inner),y+d[0]*(outer-inner)));
+                const point=(k,off,depth)=>{const [y,zz,d]=path[k];return[sign*(flank[k]-.004+depth),y+d[0]*off,zz+d[1]*off];};
+                tube('trim',path.map((_,k)=>point(k,0,.010)),H*(.006+r.armor*.003));
                 // A formed arch flange has finite width and closed beveled edges.
-                // Its lower ends terminate in the sill, instead of hanging below the body.
-                const flange=new CM.Geo(),depth=W*.014,bevel=Math.min(W*.0035,(outer-inner)*.24),profile=[[inner,0],[inner,depth-bevel],[inner+bevel,depth],[outer-bevel,depth],[outer,depth-bevel],[outer,0]];
-                const point=(angle,section)=>[sign*(context.bodyProfile.width(z+Math.cos(angle)*section[0])-.004+section[1]),R+Math.sin(angle)*section[0],z+Math.cos(angle)*section[0]];
-                for(let j=0;j<steps;j++){
-                    const a=start+j/steps*(Math.PI-2*start),b=start+(j+1)/steps*(Math.PI-2*start),mid=(a+b)/2;
-                    for(let k=0;k<profile.length;k++){
-                        const p=profile[k],q=profile[(k+1)%profile.length],dr=q[0]-p[0],dd=q[1]-p[1],normal=norm([sign*dr,-Math.sin(mid)*dd,-Math.cos(mid)*dd]);
-                        flange.poly([point(a,p),point(b,p),point(b,q),point(a,q)],null,normal);
+                const flange=new CM.Geo(),depth=W*.014,ow=outer-inner,bevel=Math.min(W*.0035,ow*.24),profile=[[0,0],[0,depth-bevel],[bevel,depth],[ow-bevel,depth],[ow,depth-bevel],[ow,0]];
+                for(let k=0;k+1<path.length;k++){
+                    const d=[(path[k][2][0]+path[k+1][2][0])/2,(path[k][2][1]+path[k+1][2][1])/2];
+                    for(let j=0;j<profile.length;j++){
+                        const p=profile[j],q=profile[(j+1)%profile.length],dr=q[0]-p[0],dd=q[1]-p[1],normal=norm([sign*dr,-d[0]*dd,-d[1]*dd]);
+                        flange.poly([point(k,p[0],p[1]),point(k+1,p[0],p[1]),point(k+1,q[0],q[1]),point(k,q[0],q[1])],null,normal);
                     }
                 }
-                for(const [angle,side]of [[start,-1],[Math.PI-start,1]])flange.poly(profile.map(p=>point(angle,p)),null,[0,side*Math.cos(angle),-side*Math.sin(angle)]);
+                for(const k of [0,path.length-1]){const o=k?k-1:1,t=norm([0,path[k][0]-path[o][0],path[k][1]-path[o][1]]);flange.poly(profile.map(p=>point(k,p[0],p[1])),null,t);}
                 put('paint',CM.smoothNormals(flange.done(),.80),'Formed wheel arches');
+                // Dark liner inside the opening hides the painted underside.
+                const liner=new CM.Geo(),lineIn=W*.44-tireW*.62,at=(k,xx)=>{const [y,zz,d]=path[k];return[sign*xx,y-d[0]*R*.010,zz-d[1]*R*.010];};
+                for(let k=0;k+1<path.length;k++){const d=path[k][2],e=path[k+1][2];liner.poly([at(k,flank[k]-.006),at(k+1,flank[k+1]-.006),at(k+1,lineIn),at(k,lineIn)],null,[0,-(d[0]+e[0]),-(d[1]+e[1])]);}
+                put('liner',liner.done(),'Wheel arch liners');
             }
             const roofY=hood+H*(r.form==='sport'?.27:r.form==='rover'?.35:.37)*r.cabinHeight,front=cabinZ+cabinL*.50,rear=cabinZ-cabinL*.50,rf=cabinZ+cabinL*(r.form==='sport'?.10:.20),rr=cabinZ-cabinL*(r.form==='compact'?.38:.32),bw=W*.405,rw=W*(r.form==='sport'?.315:.34);
             Object.assign(context,{R,hood,base,half,roofY,rf,rr,rw,bw,cabinZ,cabinL,axleZ,door});
@@ -155,9 +132,9 @@
             put('secondary',Bodywork.shell(Array.from({length:25},(_,i)=>{const t=i/24,crown=Math.sin(t*Math.PI);return[rr+(rf-rr)*t,rw*(1+.012*crown),roofY+H*(.008+.010*crown),H*(.018+.022*crown)];}),2.8,64),'Crowned roof panel');
             for(const sign of [-1,1]){
                 tube('trim',[[sign*W*.22,hood+.012,front+.006],[sign*W*.10,hood+H*.10,front-(front-rf)*.25+.006]],W*.004);
-                Bodywork.doorSkin(context,sign);
-                box('trim',[sign*(context.bodyProfile.width(door.rear+door.width*.23)*.992+W*.013),door.high-H*.043,door.rear+door.width*.23],[W*.006,H*.037,Math.min(L*.045,door.width*.32)],.006,'Door handle recess');
-                box('metal',[sign*(context.bodyProfile.width(door.rear+door.width*.23)*.992+W*.019),door.high-H*.043,door.rear+door.width*.23],[W*.009,H*.012,Math.min(L*.038,door.width*.27)],.004,'Door latch');
+                const hz=door.rear+door.width*.23,hy=context.bodyProfile.top(hz)-H*.13,hx=context.sideAt(hz,hy);
+                box('trim',[sign*(hx+W*.002),hy,hz],[W*.006,H*.037,Math.min(L*.045,door.width*.32)],.006,'Door handle recess');
+                box('metal',[sign*(hx+W*.007),hy,hz],[W*.009,H*.012,Math.min(L*.038,door.width*.27)],.004,'Door latch');
                 const mirrorBase=[sign*bw,hood+H*.10,front-L*.035],mirror=[sign*W*.56,hood+H*.11,front-L*.055];
                 tube('trim',[mirrorBase,mirror],W*.010);box('paint',mirror,[W*.13,H*.07,L*.035],.018);
 
@@ -166,12 +143,13 @@
             Bodywork.roadFace(context);
             if(r.roofRack){for(const x of [-W*.29,W*.29]){for(const z of [rr,rf])tube('trim',[[x,roofY,z],[x,roofY+H*.10,z]],H*.016);tube('metal',[[x,roofY+H*.10,rr],[x,roofY+H*.10,rf]],H*.019);}for(let j=0;j<5;j++){const z=rr+(rf-rr)*j/4;tube('metal',[[-W*.29,roofY+H*.10,z],[W*.29,roofY+H*.10,z]],H*.012);}}
             if(r.form==='truck'){
-                const z=-L*.31,bedL=L*.32;box('dark',[0,hood-H*.05,z],[W*.76,.035,bedL],.01);
-                for(const x of [-W*.43,W*.43])box('paint',[x,hood+H*.04,z],[W*.10,H*.22,bedL],.016);
-                box('paint',[0,hood+H*.04,-L*.465],[W*.90,H*.22,.035],.016);
-                if(r.cargo>.05)for(let i=0;i<Math.ceil(r.cargo*3);i++)box('cargo',[(i-1)*W*.20,hood-.033+H*.10,z],[W*.18,H*.20,L*.17],.016);
+                // The shell is open over the bed: a real tub with rails and a gate.
+                const bed=context.panels.bed,bz=(bed.rear+bed.front)/2,bedL=bed.front-bed.rear;
+                for(const x of [-W*.43,W*.43])box('paint',[x,hood+H*.04,bz],[W*.10,H*.22,bedL],.016,'Bed side rails');
+                box('paint',[0,hood+H*.04,bed.rear+.0175],[W*.90,H*.22,.035],.016,'Tailgate');
+                if(r.cargo>.05)for(let i=0;i<Math.ceil(r.cargo*3);i++)box('cargo',[(i-1)*W*.20,bed.floor+H*.10,bz-bedL*.06],[W*.18,H*.20,Math.min(L*.17,bedL*.8)],.016);
             }else if(r.form==='rover'&&r.armor>.1){
-                for(const sign of [-1,1]){box('armor',[sign*W*.47,hood+H*.08,cabinZ-cabinL*.30],[W*(.02+.025*r.armor),H*.18,cabinL*.26],.020);vent([sign*W*.26,hood-H*.13,-L*.49+H*.0001],[W*.20,H*.17,.015],5,true);}
+                for(const sign of [-1,1]){box('armor',[sign*W*.47,hood+H*.08,cabinZ-cabinL*.30],[W*(.02+.025*r.armor),H*.18,cabinL*.26],.020);vent([sign*W*.15,hood-H*.15,-L*.49+H*.0001],[W*.16,H*.15,.015],5,true);}
             }
         } else if(r.form==='motorcycle') {
             const R=Math.min(H*.29*r.wheelSize,L*.31,W*.55),front=L*.35,rear=-L*.35,seat=H*.67+R*.25,neck=[0,H*.72,front-L*.13];
@@ -232,7 +210,7 @@
         const materials={seat:{color:r.seatColor,roughness:.88,metalness:0},secondary:{color:r.secondary,roughness:Math.min(.90,r.roughness+.08),metalness:.28},paint:{color:r.paint,roughness:r.roughness,metalness:.35},armor:{color:r.paint,roughness:Math.min(.92,r.roughness+.12),metalness:.45},
             accent:{color:r.accent,roughness:.42,metalness:.55},trim:{color:r.trim,roughness:.64,metalness:.20},dark:{color:'#11181d',roughness:.83},rubber:{color:'#202327',roughness:.92},metal:{color:'#a1abb0',roughness:.36,metalness:.78},
             glass:{color:r.glass,roughness:.17,metalness:.38},cargo:{color:r.accent,roughness:.82},light:{color:'#94a7a3',emissive:'#d3e1dd',emissiveIntensity:.20,roughness:.25},
-            red:{color:'#932d23',emissive:'#b72b20',emissiveIntensity:.4,roughness:.27},glow:{color:r.accent,emissive:r.accent,emissiveIntensity:r.lights?.6:0,roughness:.3}};
+            red:{color:'#932d23',emissive:'#b72b20',emissiveIntensity:.4,roughness:.27},liner:{color:'#101417',roughness:.9,doubleSided:true},chrome:{color:'#d3d9dc',roughness:.16,metalness:1},lens:{color:'#e6eef0',roughness:.03,metalness:.10,opacity:.18},redlens:{color:'#b0261c',roughness:.08,metalness:.10,opacity:.62,...(r.lights?{emissive:'#7a1710',emissiveIntensity:.35}:{})},glow:{color:r.accent,emissive:r.accent,emissiveIntensity:r.lights?.6:0,roughness:.3}};
         const parts=[];
         for(const [key,list]of groups){const [kind,name]=key.split('|'),mesh=CM.merge(list);CM.skin(mesh,0);parts.push({...mesh,...materials[kind],metalness:materials[kind].metalness??0,surfaceRole:kind,name:name===kind?BY_ID.get(r.form)[1]+' '+kind:name});}
         for(const p of parts)CM.mapUv(p,(_,__,i)=>{const n=Array.from(p.normals.subarray(i*3,i*3+3),Math.abs),axis=n.indexOf(Math.max(...n)),axes=axis===0?[2,1]:axis===1?[0,2]:[0,1];return axes.map(k=>p.positions[i*3+k]*5);});
@@ -241,15 +219,46 @@
         for(const w of wheels)w.at[1]-=low;
         for(const seat of mounts.seats||[])for(const key of ['seat','handL','handR','footL','footR'])if(seat[key])seat[key].at[1]-=low;
         for(const c of mounts.controls||[])c.at[1]-=low;
-        const textures={};Finish.fittings(parts,r);Finish.apply(parts,textures,r,cache,options);Finish.decorate(parts,textures,r,cache);
+        const textures={};Finish.fittings(parts,r);Finish.apply(parts,textures,r,cache,options);tint(parts,context.tints);Finish.decorate(parts,textures,r,cache);
+        const finalParts=consolidate(parts,r,wheels,mounts);
         const sidecarExtra=GROUND.has(r.form)?{vehicle:{forward:'+z',wheels,...(mounts.seats?{seats:mounts.seats,controls:mounts.controls,stand:{lean:0,side:'left'}}:{})}}:{};
-        return {kind:'vehicle',recipe:r,construction,parts,bones:[{name:'Prop',head:[0,0,0],parent:-1}],clips:[],textures,height:high-low,sidecarExtra};
+        return {kind:'vehicle',recipe:r,construction,parts:finalParts,bones:[{name:'Prop',head:[0,0,0],parent:-1}],clips:[],textures,height:high-low,sidecarExtra};
+    }
+    /** Per-vertex color factors after the coating: drilled holes, vent
+     * bands and bright fasteners on dark rims. f(position) -> k or [r,g,b]. */
+    function tint(parts,tints){
+        if(!tints)return;
+        for(const p of parts){const f=tints.get(p.name);if(!f||!p.colors)continue;for(let i=0;i<p.positions.length/3;i++){const v=f([p.positions[i*3],p.positions[i*3+1],p.positions[i*3+2]]);if(v===1)continue;for(let k=0;k<3;k++)p.colors[i*3+k]=Array.isArray(v)?v[k]:p.colors[i*3+k]*v;}}
+    }
+    // Parts the runtime, the finish or saved data address by name stay whole.
+    const KEEP=new Set(['Sculpted body shell','Access door','Formed wheel arches','Access step','Step supports','Vehicle markings','Vehicle lettering','Outboard cargo pods','Turbine casings']),KEEP_PATTERN=/divider|mullion/i;
+    // A merged group takes this name when one of its members has it.
+    const ADOPT=['Cabin seat upholstery','Cabin steering wheel','Tail lamp lens'];
+    /** Draw-call consolidation: after the coating bake, parts that share one
+     * material become one mesh. Wheels, steering and named panels stay apart. */
+    function consolidate(parts,r,wheels,mounts){
+        const keep=new Set(KEEP);for(const w of wheels){keep.add(w.part);for(const n of w.with)keep.add(n);}for(const c of mounts.controls||[])if(c.part)keep.add(c.part);
+        const label=BY_ID.get(r.form)[1],q=v=>v==null?'':Math.round(v*1000)/1000;
+        const key=p=>JSON.stringify([p.surfaceRole,p.texture||'',p.normalTexture||'',p.metallicRoughnessTexture||'',q(p.normalScale),p.texture||p.colors?'':p.color,!!p.colors,q(p.roughness),q(p.metalness),q(p.opacity??1),p.emissive||'',q(p.emissiveIntensity),p.emissiveTexture||'',!!p.cutout,q(p.alphaCutoff),!!p.blend,!!p.doubleSided]);
+        const out=[],groups=new Map();
+        for(const p of parts){if(keep.has(p.name)||KEEP_PATTERN.test(p.name)){out.push(p);continue;}const k=key(p);if(!groups.has(k)){groups.set(k,[]);out.push(k);}groups.get(k).push(p);}
+        const used=new Set(parts.map(p=>p.name));
+        return out.map(entry=>{
+            if(typeof entry!=='string')return entry;const list=groups.get(entry);if(list.length===1)return list[0];
+            const mesh=CM.merge(list);mesh.uvs=new Float32Array(mesh.positions.length/3*2);let v=0;for(const p of list){if(p.uvs)mesh.uvs.set(p.uvs,v*2);v+=p.positions.length/3;}
+            if(list[0].colors){mesh.colors=new Float32Array(mesh.positions.length);v=0;for(const p of list){mesh.colors.set(p.colors,v*3);v+=p.positions.length/3;}}
+            delete mesh.ao;const own=list.find(p=>p.name===label+' '+p.surfaceRole)||list.find(p=>ADOPT.includes(p.name));
+            let name=own?own.name:label+' '+list[0].surfaceRole;
+            if(!own&&used.has(name)&&!list.some(p=>p.name===name)){let n=2;while(used.has(name+' '+n))n++;name+=' '+n;}used.add(name);
+            const rest={...list[0]};for(const k of ['positions','normals','uvs','index','joints','weights','colors'])delete rest[k];
+            return{...rest,...mesh,name};
+        });
     }
     function random(seed,input,scope='all') {
         const r=normalize(input),next=Paint.random(seed),all=scope==='all';
         if(all||scope==='shape'){for(const k of ['width','height','length'])r[k]*=.88+next()*.24;r.cabinHeight=.8+next()*.4;r.cabinLength=.85+next()*.3;r.wheelbase=.52+next()*.16;r.wheelSize=.85+next()*.3;r.stance=.85+next()*.3;}
         if(all||scope==='colors'){r.paint=['#426c80','#8c353b','#697460','#b29d78','#aeb8b7','#4f515e'][Math.floor(next()*6)];r.secondary=['#303c43','#b4bdba','#c5ac87','#48545e'][Math.floor(next()*4)];r.accent=['#d0a15c','#82c4ca','#b66d3d'][Math.floor(next()*3)];r.roughness=.3+next()*.4;r.finish=['enamel','powder','brushed','composite'][Math.floor(next()*4)];}
-        if(all||scope==='details'){r.roofRack=next()>.55;r.bumper=next()>.2;r.cargo=next();r.armor=next();r.spokes=4+Math.floor(next()*7);r.tread=next();r.engineSize=.85+next()*.4;r.wear=next()*.7;r.grime=next()*.6;r.surfaceSeed=1+Math.floor(next()*999998);r.livery=['plain','stripe','rally','service'][Math.floor(next()*4)];r.aero=next();r.fairing=['naked','half','full'][Math.floor(next()*3)];r.flightFit=['transport','interceptor','cargo'][Math.floor(next()*3)];r.rotorGuard=['ring','cage','open'][Math.floor(next()*3)];r.tool=['claw','welder','none'][Math.floor(next()*3)];}
+        if(all||scope==='details'){r.roofRack=next()>.55;r.bumper=next()>.2;r.cargo=next();r.armor=next();r.spokes=4+Math.floor(next()*7);r.tread=next();r.treadPattern=TREADS[Math.floor(next()*3)];r.engineSize=.85+next()*.4;r.wear=next()*.7;r.grime=next()*.6;r.surfaceSeed=1+Math.floor(next()*999998);r.livery=['plain','stripe','rally','service'][Math.floor(next()*4)];r.aero=next();r.fairing=['naked','half','full'][Math.floor(next()*3)];r.flightFit=['transport','interceptor','cargo'][Math.floor(next()*3)];r.rotorGuard=['ring','cage','open'][Math.floor(next()*3)];r.tool=['claw','welder','none'][Math.floor(next()*3)];}
         return normalize(r);
     }
     const api={roadLayout,FORMS,GROUND,normalize,fromPreset,build,random};root.RRVehicleProp=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
@@ -272,7 +281,7 @@
         }
         if(tab==='look')return (car||['hover','shuttle'].includes(f)?this._check('interior','Cabin interior')+(this.recipe.interior?slider('windowOpacity','Window opacity',[.2,.95])+this._color('seatColor','Seat upholstery'):''):'')+this._select('finish','Paint finish',[['enamel','Enamel'],['powder','Powder coat'],['brushed','Brushed alloy'],['composite','Woven composite']])+this._select('livery','Paint scheme',[['plain','Plain'],['stripe','Coach stripe'],['rally','Rally'],['service','Service markings']])+`<label class="rr-c3d-row"><span class="rr-c3d-label">${this._t('Custom marking')}</span><input type="text" class="rr-input rr-prop-text" data-path="markings" maxlength="22" value="${this.recipe.markings}" spellcheck="false"></label>`+slider('wear','Paint wear',[0,1])+slider('grime','Grime',[0,1])+slider('surfaceSeed','Surface variation',[1,999999],1)+this._color('paint','Body color')+this._color('secondary','Secondary body color')+this._color('trim','Trim')+this._color('accent','Accent')+this._color('glass','Glass')+slider('roughness','Roughness',[.2,.9]);
         let out=this._check('details','Details')+this._check('lights','Lights');
-        if(ground)out+=slider('spokes','Wheel spokes',[4,10],1)+slider('tread','Tire tread',[0,1]);
+        if(ground)out+=slider('spokes','Wheel spokes',[4,10],1)+slider('tread','Tire tread',[0,1])+this._select('treadPattern','Tread pattern',[['road','Road'],['allTerrain','All-terrain'],['mud','Mud']]);
         if(car)out+=this._check('roofRack','Roof rack')+this._check('bumper','Bumpers');
         if(f==='truck'||f==='hover'||f==='shuttle')out+=slider('cargo','Cargo load',[0,1]);
         if(f==='rover'||f==='walker')out+=slider('armor','Armor thickness',[0,1]);

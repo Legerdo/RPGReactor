@@ -80,24 +80,112 @@
         const topFace=(z,f)=>top(z)+H*contour(crown,Math.abs(f));
         return{width,top,topFace};
     }
-    function roadBody(c){
-        const {r,W,H,L,R,base,hood,axleZ,put}=c,p=roadProfile(r,c),rings=[];
-        // A true shoulder, rolled upper edge and tucked rocker. The outer
-        // sill rises around each wheel; the inner floor remains continuous.
-        const stations=new Set(Array.from({length:65},(_,i)=>-L*.49+L*.98*i/64));
-        for(const z of axleZ)for(let i=-16;i<=16;i++){const zz=z+i/16*R*1.09;if(Math.abs(zz)<L*.49)stations.add(zz);}
-        for(const z of [...stations].sort((a,b)=>a-b)){
-            const w=p.width(z),top=p.top(z),opening=Math.max(base,...axleZ.map(a=>Math.abs(z-a)<R*1.09?R+Math.sqrt(Math.max(0,(R*1.09)**2-(z-a)**2)):base)),low=Math.min(opening,top-H*.018);
-            const ring=[];
-            // Closed cross section; many samples follow the broad stamped
-            // surfaces, rather than adding a huge bevel to a flat cuboid.
-            const outline=[[0,base],[.76,base],[.91,low],[.98,Math.max(low,base+(top-base)*.20)],[1,Math.max(low,top-H*.10)],[.99,top-H*.014],[.95,top+H*.017],[.85,top+H*.032],[.68,top+H*.040],[.35,top+H*.045],[0,top+H*.047]];
-            const upper=[1,.99,.95,.85,.68,.35,0],rounded=outline.slice(0,5);for(let j=0;j<upper.length-1;j++)for(let k=1;k<=3;k++){const f=mix(upper[j],upper[j+1],k/3);rounded.push([f,Math.max(low,p.topFace(z,f))]);}const full=rounded.concat(rounded.slice(1,-1).reverse().map(([x,y])=>[-x,y]));
-            // Counterclockwise section order gives outward faces along +z.
-            const rear=c.cabinZ-c.cabinL*.5,front=c.cabinZ+c.cabinL*.5,fade=Math.min(1,Math.max(0,(z-rear)/(L*.045)),Math.max(0,(front-z)/(L*.045))),cabinOpening=r.interior?fade*fade*(3-2*fade):0;
-            for(const [x,y]of full){const cabinTop=y>top-H*.03&&Math.abs(x)<=.85,yy=cabinTop?y+(base+H*.035-y)*cabinOpening:y;ring.push([x*w,yy,z]);}rings.push(ring);
+    /** Section anchors of a road body at station z, from the floor center up
+     * the +x side to the roof center: [x, y, f, tag]. f is the fraction of
+     * the station half-width. Rocker and shoulder are character creases;
+     * door, bonnet and deck-lid edges are shut-line anchors. */
+    function roadAnchors(c,p,z){
+        const {H,R,base,axleZ}=c,w=p.width(z),top=p.top(z),reach=R*1.09;
+        const opening=Math.max(base,...axleZ.map(a=>Math.abs(z-a)<=reach?R+Math.sqrt(Math.max(0,reach*reach-(z-a)**2)):base));
+        const low=Math.min(opening,top-H*.018),rocker=Math.max(low,c.door.low),shoulder=Math.max(low,top-H*.10);
+        const out=[[0,base,'floor'],[.80,base,''],[.905,low,'crease'],[.94,rocker,'rocker']];
+        // A slightly hollow flank: the panel leans out to a crisp shoulder line.
+        for(const t of [1/3,2/3])out.push([.94+.06*t**1.3,mix(rocker,shoulder,t),'']);
+        out.push([1,shoulder,'crease']);
+        for(const f of [.996,.99,.975,.95,.92,.885,.85,.80,.735,.70,.60,.48,.34,.20,.10,0])out.push([f,Math.max(low,p.topFace(z,f)),f===.95?'doorTop':f===.735?'hood':f===.70?'deck':f===.34?'press':'']);
+        return out.map(([f,y,tag])=>[f*w,y,f,tag]);
+    }
+    /** Shut-line and pressing anchors receive two neighbours at a fixed arc
+     * distance, so every groove has the same width along a curved section. */
+    function withNeighbours(points,gap){
+        const out=[];
+        for(let k=0;k<points.length;k++){
+            const q=points[k],g=gap[q[3]];
+            if(!g||k===0||k===points.length-1){out.push(q);continue;}
+            const a=points[k-1],b=points[k+1],la=Math.hypot(q[0]-a[0],q[1]-a[1])||1,lb=Math.hypot(b[0]-q[0],b[1]-q[1])||1,ta=Math.min(g,la*.4)/la,tb=Math.min(g,lb*.4)/lb;
+            out.push([mix(q[0],a[0],ta),mix(q[1],a[1],ta),mix(q[2],a[2],ta),q[3]+'-'],q,[mix(q[0],b[0],tb),mix(q[1],b[1],tb),mix(q[2],b[2],tb),q[3]+'+']);
         }
-        put('paint',loft(rings,.55),'Sculpted body shell');c.bodyProfile=p;
+        return out;
+    }
+    /** Lofted coachwork with creases, shut-line grooves and fitted panels.
+     * One continuous surface; quads inside the door and bonnet outlines
+     * become their own parts, meeting the shell in a shallow V groove. */
+    function roadBody(c){
+        const {r,W,H,L,R,base,hood,axleZ,put,door}=c,p=roadProfile(r,c);
+        const gap=Math.max(.0035,W*.0028),depth=Math.max(.003,W*.0022),rise=Math.min(H*.004,W*.003),press=W*.012;
+        const cabinRear=c.cabinZ-c.cabinL*.5,cabinFront=c.cabinZ+c.cabinL*.5;
+        const z0=Math.min(L*.43,cabinFront+L*.03),z1=L*.472,deck=['compact','sport','rover'].includes(r.form)&&cabinRear-L*.03>-L*.468+L*.05?[-L*.468,cabinRear-L*.03]:null;
+        const bed=r.form==='truck'?{rear:-L*.474,front:cabinRear-L*.012,fade:L*.008,floor:hood-H*.045}:null;
+        c.cabinFloor=Math.max(base+H*.035,hood-H*.16);c.panels={z0,z1,deck,bed,gap,depth};
+        // Stations: even spacing, arch refinements, square arch legs and
+        // the exact door/bonnet/deck shut lines with their groove shoulders.
+        const features=[],tag=new Map(),mark=(z,t)=>{features.push(z);tag.set(z,t);};
+        for(const [z,t]of [[door.rear,'doorR'],[door.front,'doorF'],[z0,'hood0'],[z1,'hood1'],...(deck?[[deck[0],'deck0'],[deck[1],'deck1']]:[])]){mark(z,t);mark(z-gap,t+'-');mark(z+gap,t+'+');}
+        for(const a of axleZ)for(const s of [-1,1]){const z=a+s*(R*1.09+.002);if(Math.abs(z)<L*.49)mark(z,'');}
+        if(bed)for(const z of [bed.rear,bed.rear+bed.fade,bed.front-bed.fade,bed.front])mark(z,'');
+        const loose=[...Array.from({length:57},(_,i)=>-L*.49+L*.98*i/56)];
+        for(const a of axleZ)for(let i=-12;i<=12;i++){const z=a+i/12*R*1.09;if(Math.abs(z)<L*.49)loose.push(z);}
+        const Z=[...new Set([...features,...loose.filter(z=>(Math.abs(z)>=L*.49-1e-9||features.every(f=>Math.abs(f-z)>gap*1.6)))])].sort((a,b)=>a-b);
+        const neighbourGap={rocker:gap,doorTop:gap,hood:gap,deck:gap,press};
+        const rings=[],cols=[];
+        for(const z of Z){
+            const half=withNeighbours(roadAnchors(c,p,z),neighbourGap),top=p.top(z);
+            const fade=Math.min(1,Math.max(0,(z-cabinRear)/(L*.045)),Math.max(0,(cabinFront-z)/(L*.045))),cabin=r.interior?fade*fade*(3-2*fade):0;
+            const tub=bed?Math.min(1,Math.max(0,(z-bed.rear)/bed.fade),Math.max(0,(bed.front-z)/bed.fade)):0;
+            const lift=(f,y)=>{if(!(y>top-H*.03&&f<=.85))return y;if(tub)return y+(bed.floor-y)*tub;return y+(c.cabinFloor-y)*cabin;};
+            const full=half.concat(half.slice(1,-1).reverse().map(([x,y,f,t])=>[-x,y,f,t]));
+            if(!cols.length)for(let j=0;j<full.length;j++)cols.push(full[j][3]);
+            rings.push(full.map(([x,y,f])=>[x,lift(f,y),z]));
+        }
+        const n=rings.length,m=cols.length,half=(m+2)/2,mirror=j=>(m-j)%m;
+        const colOf=t=>cols.indexOf(t),rowOf=t=>Z.findIndex(z=>tag.get(z)===t);
+        // Smooth reference normals, before any groove is pressed in.
+        const N0=rings.map((ring,i)=>ring.map((_,j)=>norm(cross(sub(ring[(j+1)%m],ring[(j+m-1)%m]),sub(rings[Math.min(n-1,i+1)][j],rings[Math.max(0,i-1)][j])))));
+        const shift=rings.map(ring=>ring.map(()=>0)),creaseI=rings.map(ring=>ring.map(()=>false)),creaseJ=rings.map(ring=>ring.map(()=>false));
+        // Character lines split their normals only where the section really
+        // bends (10 degrees or more); a fading crease melts into the surface.
+        for(let i=0;i<n;i++)for(let j=0;j<m;j++)if(cols[j]==='crease'||cols[j]==='rocker'){const a=norm(sub(rings[i][j],rings[i][(j+m-1)%m])),b=norm(sub(rings[i][(j+1)%m],rings[i][j]));if(dot(a,b)<Math.cos(pi/18))creaseJ[i][j]=true;}
+        const lines=[];
+        // A rectangle of shut lines: two station lines and two section lines.
+        const outline=(i0,i1,j0,j1)=>{
+            if(i0<0||i1<0||i1<=i0)return;
+            for(const i of [i0,i1])for(let j=j0;j<=j1;j++){shift[i][j]=-depth;creaseI[i][j]=true;for(const d of [-1,1])creaseI[i+d][j]=true;}
+            for(const j of [j0,j1])for(let i=i0;i<=i1;i++){shift[i][j]=-depth;creaseJ[i][j]=true;for(const d of [-1,1])creaseJ[i][(j+d+m)%m]=true;}
+            for(const i of [i0,i1])for(let j=j0;j<j1;j++)lines.push([[i,j],[i,j+1],'i']);
+            for(const j of [j0,j1])for(let i=i0;i<i1;i++)lines.push([[i,j],[i+1,j],'j']);
+        };
+        const dR=rowOf('doorR'),dF=rowOf('doorF'),rock=colOf('rocker'),doorTop=colOf('doorTop');
+        outline(dR,dF,rock,doorTop);outline(dR,dF,mirror(doorTop),mirror(rock));
+        const h0=rowOf('hood0'),h1=rowOf('hood1'),hoodCol=colOf('hood');outline(h0,h1,hoodCol,mirror(hoodCol));
+        if(deck){const d0=rowOf('deck0'),d1=rowOf('deck1'),deckCol=colOf('deck');outline(d0,d1,deckCol,mirror(deckCol));}
+        // Two long bonnet pressings rise from the panel and fade at its ends.
+        for(const j of [colOf('press'),mirror(colOf('press'))])for(let i=h0+2;i<=h1-2;i++){const t=(Z[i]-z0)/(z1-z0),ease=Math.min(1,t/.12,(1-t)/.12);shift[i][j]=rise*ease*ease*(3-2*ease);creaseJ[i][j]=true;}
+        const P=rings.map((ring,i)=>ring.map((v,j)=>add(v,scale(N0[i][j],shift[i][j]))));
+        const inDoor=(i,j)=>i>=dR&&i<dF&&((j>=rock&&j<doorTop)||(j>=mirror(doorTop)&&j<mirror(rock)));
+        const inHood=(i,j)=>i>=h0&&i<h1&&j>=hoodCol&&j<mirror(hoodCol);
+        const shellGeo=new CM.Geo(),doorGeo=new CM.Geo(),hoodGeo=new CM.Geo();
+        const normal=(i,a,j,b)=>{
+            const tu=creaseJ[a][b]?sub(P[a][(j+1)%m],P[a][j]):sub(P[a][(b+1)%m],P[a][(b+m-1)%m]);
+            const tv=creaseI[a][b]?sub(P[i+1][b],P[i][b]):sub(P[Math.min(n-1,a+1)][b],P[Math.max(0,a-1)][b]);
+            return norm(cross(tu,tv));
+        };
+        for(let i=0;i+1<n;i++)for(let j=0;j<m;j++){
+            const k=(j+1)%m,g=inDoor(i,j)?doorGeo:inHood(i,j)?hoodGeo:shellGeo,ids=[[i,j],[i,k],[i+1,k],[i+1,j]].map(([a,b])=>g.vert(P[a][b],normal(i,a,j,b)));
+            g.I.push(ids[0],ids[1],ids[2],ids[0],ids[2],ids[3]);
+        }
+        shellGeo.poly(P[0],null,[0,0,-1]);shellGeo.poly(P[n-1],null,[0,0,1]);
+        put('paint',shellGeo.done(),'Sculpted body shell');put('paint',doorGeo.done(),'Access door');put('paint',hoodGeo.done(),'Formed bonnet panel');
+        // A dark strip in the floor of each groove reads as the panel gap.
+        const gaps=new CM.Geo();
+        for(const [[ia,ja],[ib,jb],dir]of lines){
+            const across=(i,j)=>norm(dir==='i'?sub(rings[i+1][j],rings[i-1][j]):sub(rings[i][(j+1)%m],rings[i][(j+m-1)%m]));
+            const at=(i,j,s)=>add(add(P[i][j],scale(N0[i][j],depth*.42)),scale(across(i,j),s*gap*.36));
+            gaps.poly([at(ia,ja,-1),at(ib,jb,-1),at(ib,jb,1),at(ia,ja,1)],null,scale(add(N0[ia][ja],N0[ib][jb]),.5));
+        }
+        put('dark',gaps.done(),'Panel shut lines');
+        c.bodyProfile=p;
+        // Surface x of the +x flank at a station and height, for fittings.
+        c.sideAt=(z,y)=>{const pts=roadAnchors(c,p,z);for(let k=2;k+1<pts.length;k++){const a=pts[k],b=pts[k+1];if(y<=b[1]||b[3]==='doorTop'){if(y<=a[1])return a[0];const t=(y-a[1])/Math.max(1e-9,b[1]-a[1]);return mix(a[0],b[0],Math.min(1,t));}}return pts[2][0];};
     }
     /** Closed laminate patch between four corners; the skin bows with a
      * pressed character line. Used for visibly separate, fitted body panels. */
@@ -108,14 +196,6 @@
         for(const [a,b]of [[corners[0],corners[1]],[corners[1],corners[2]],[corners[2],corners[3]],[corners[3],corners[0]]])g.poly([a,b,add(b,scale(normal,-.006)),add(a,scale(normal,-.006))]);
         put(kind,CM.smoothNormals(g.done(),.75),name);
     }
-    function doorSkin(c,s){
-        const {r,W,H,hood,door,bodyProfile:p,put}=c,g=new CM.Geo(),rows=12,cols=16;
-        const at=(u,v,back=false)=>{const z=mix(door.rear,door.front,u),y=mix(door.low,door.high,v),x=p.width(z)*.992+W*.006+W*.004*Math.sin(pi*v)-(back?W*.006:0);return[s*x,y,z];};
-        for(let j=0;j<rows;j++)for(let i=0;i<cols;i++){const u=i/cols,uu=(i+1)/cols,v=j/rows,vv=(j+1)/rows;g.poly([at(u,v),at(uu,v),at(uu,vv),at(u,vv)],null,[s,0,0]);g.poly([at(u,v,true),at(u,vv,true),at(uu,vv,true),at(uu,v,true)],null,[-s,0,0]);}
-        for(const side of [0,1])for(let i=0;i<cols;i++)g.poly([at(i/cols,side),at((i+1)/cols,side),at((i+1)/cols,side,true),at(i/cols,side,true)],null,[0,side?1:-1,0]);
-        for(const side of [0,1])for(let j=0;j<rows;j++)g.poly([at(side,j/rows),at(side,(j+1)/rows),at(side,(j+1)/rows,true),at(side,j/rows,true)],null,[0,0,side?1:-1]);
-        put('paint',CM.smoothNormals(g.done(),.75),'Access door');
-    }
     function paneRail(c,corners,bulge,radius,kind,name){
         const [a,b,d,e]=corners,n=norm(cross(sub(b,a),sub(e,a))),points=[];
         for(let j=0;j<=32;j++){const t=j/32,bottom=scale(add(a,b),.5),top=scale(add(e,d),.5);points.push(add(add(scale(bottom,1-t),scale(top,t)),scale(n,bulge*Math.sin(pi*t)+radius*.7)));}
@@ -123,7 +203,7 @@
     }
     function cabin(c){
         const {r,W,H,L,hood,roofY,front,rear,bw,put,tube}=c;if(!r.interior)return;const rise=roofY-hood,width=bw*2,seatZ=(front+rear)*.5-L*.045,box=(kind,center,size,bevel,name)=>put(kind,CM.roundedBox(center,size,bevel,2),name);
-        box('dark',[0,c.base?c.base+H*.045:hood-H*.015,(front+rear)*.5],[width*.90,H*.012,(front-rear)*.86],.01,'Cabin floor');
+        box('dark',[0,c.cabinFloor?c.cabinFloor+H*.010:hood-H*.015,(front+rear)*.5],[width*.90,H*.012,(front-rear)*.86],.01,'Cabin floor');
         for(const sign of [-1,1]){
             const x=sign*width*.23,low=hood-H*.085,top=hood+rise*.63,seat=CM.roundedBox([x,(low+top)/2,seatZ],[width*.36,top-low,L*.036],Math.min(width*.035,L*.012),2);
             const anchor=[x,low,seatZ],angle=-.11,turn=p=>[p[0],p[1]*Math.cos(angle)-p[2]*Math.sin(angle),p[1]*Math.sin(angle)+p[2]*Math.cos(angle)];
@@ -153,17 +233,157 @@
         box('dark',[-width*.13,hood+rise*.25,front-L*.108],[width*.18,rise*.16,L*.005],.003,'Center dashboard display');
         for(let j=0;j<3;j++)box(r.lights?'glow':'metal',[-width*.13,hood+rise*(.22+j*.026),front-L*.112],[width*.14,rise*.009,.002],.0004,'Dashboard status strips');
     }
+    /** Convex 2D outlines raised by `height` with chamfered top edges, then
+     * bent onto a surface: warp([u, v, h]) -> point. Faces are re-shaded
+     * flat afterwards, so chamfers catch light as separate bands. */
+    function bentBlocks(outlines,height,bevel,warp){
+        const flat={o:[0,0,0],u:[1,0,0],v:[0,1,0],n:[0,0,1]},list=[];
+        for(const poly of outlines){const m=CM.slab(poly,flat,height,bevel,true),P=m.positions;for(let i=0;i<P.length;i+=3){const q=warp([P[i],P[i+1],P[i+2]]);P[i]=q[0];P[i+1]=q[1];P[i+2]=q[2];}list.push(m);}
+        return CM.smoothNormals(CM.merge(list),.94);
+    }
+    /** A tread block on a quad [s0,d0, s1,d0, s1',d1, s0',d1], cut into
+     * `slices` across the tread so its top follows the tire's shoulder.
+     * Chamfered top edges; the open base sinks into the carcass. */
+    function treadBlock(g,quad,slices,height,bevel,warp){
+        const [a0,a1,b0,b1]=[[quad[0],quad[1]],[quad[2],quad[3]],[quad[6],quad[7]],[quad[4],quad[5]]];
+        const left=t=>[mix(a0[0],b0[0],t),mix(a0[1],b0[1],t)],right=t=>[mix(a1[0],b1[0],t),mix(a1[1],b1[1],t)];
+        const span=Math.abs(b0[1]-a0[1])||1,bt=Math.min(.3,bevel/span),wide=t=>Math.abs(right(t)[0]-left(t)[0])||1;
+        const lerp=(p,q,t)=>[mix(p[0],q[0],t),mix(p[1],q[1],t)];
+        // Built flat in (along, across, up), wound outward there, then bent:
+        // the bend keeps orientation, so the block stays a closed solid.
+        const outerL=[],outerR=[],topL=[],topR=[],baseL=[],baseR=[];
+        for(let k=0;k<=slices;k++){
+            const t=k/slices,tt=mix(bt,1-bt,t),L=left(t),R=right(t),Li=left(tt),Ri=right(tt),f=Math.min(.3,bevel/wide(tt));
+            outerL.push([...L,height-bevel]);outerR.push([...R,height-bevel]);baseL.push([...L,0]);baseR.push([...R,0]);
+            topL.push([...lerp(Li,Ri,f),height]);topR.push([...lerp(Ri,Li,f),height]);
+        }
+        const faces=[];
+        for(let k=0;k<slices;k++){
+            const j=k+1;
+            faces.push([topL[k],topR[k],topR[j],topL[j]]);
+            faces.push([outerL[k],topL[k],topL[j],outerL[j]]);faces.push([topR[k],outerR[k],outerR[j],topR[j]]);
+            faces.push([baseL[k],outerL[k],outerL[j],baseL[j]]);faces.push([outerR[k],baseR[k],baseR[j],outerR[j]]);
+            faces.push([baseL[k],baseL[j],baseR[j],baseR[k]]);
+        }
+        const e=slices;
+        faces.push([outerR[0],outerL[0],topL[0],topR[0]]);faces.push([baseR[0],baseL[0],outerL[0],outerR[0]]);
+        faces.push([outerL[e],outerR[e],topR[e],topL[e]]);faces.push([baseL[e],baseR[e],outerR[e],outerL[e]]);
+        const pts=[...topL,...topR,...baseL,...baseR],c=scale(pts.reduce((m,p)=>add(m,p),[0,0,0]),1/pts.length);
+        for(const q of faces){const n=cross(sub(q[2],q[0]),sub(q[3],q[1])),m=scale(add(add(q[0],q[1]),add(q[2],q[3])),.25),o=dot(n,sub(m,c))<0?q.slice().reverse():q;g.push(o.map(warp));}
+    }
+    const RIM_STYLES={compact:'split',sport:'turbofan',truck:'steel',rover:'beadlock',motorcycle:'split'};
+    /** Wheel and tire kit. Tire: a 14-ring carcass (no hidden rings) with
+     * chamfered tread blocks in a road, all-terrain or mud pattern. Rim: a
+     * deep dish behind a rolled lip, pocketed spokes in the vehicle's style,
+     * hub, cap and nuts. Brake: a hatted, vented disc (drilled or slotted)
+     * that turns with the wheel; the caliper is fixed to the body. */
+    function wheel(c,x,z,R,width,name){
+        const {r,put}=c,side=x<0?-1:1,F=CM.frame([x,R,z],[0,0,-side],[0,1,0]),w=width,bike=r.form==='motorcycle';
+        const tyre=name+' tire',rimName=name+' rim',brakeName=name+' brake',style=RIM_STYLES[r.form]||'split',pattern=r.treadPattern||'road',lugs=r.details&&r.tread>0;
+        const at=(rho,a,d)=>add(F.o,add(scale(F.u,Math.cos(a)*rho),add(scale(F.v,Math.sin(a)*rho),scale(F.n,d))));
+        const lh=lugs?R*(bike&&pattern==='road'?.007+.022*r.tread:{road:.004+.014*r.tread,allTerrain:.006+.024*r.tread,mud:.010+.034*r.tread}[pattern]):0,Rc=R-lh*.55;
+        // Carcass: outer contour [radius, depth] across the tread, then the beads.
+        let outer,beads;
+        if(bike){outer=Array.from({length:15},(_,i)=>{const a=-Math.PI/2+i/14*Math.PI;return[Rc-R*.18*(1-Math.cos(a)),w*.55*Math.sin(a)];});beads=[[R*(.82-.18*Math.sin(pi/6)),w*.55*Math.cos(pi/6)],[R*(.82-.18*Math.sin(pi/3)),w*.55*Math.cos(pi/3)]];}
+        else{outer=[[R*.78,-w*.555],[Rc-R*.045,-w*.515],[Rc-R*.014,-w*.44],[Rc-R*.003,-w*.32],[Rc,-w*.16],[Rc,w*.16],[Rc-R*.003,w*.32],[Rc-R*.014,w*.44],[Rc-R*.045,w*.515],[R*.78,w*.555]];beads=[[R*.73,w*.562],[R*.70,w*.574],[R*.66,w*.50],[R*.60,w*.42]];}
+        let crown=outer;
+        if(lugs&&pattern==='road'&&!bike){const t=lh;crown=[...outer.slice(0,4),[Rc,-w*.165],[Rc+t,-w*.145],[Rc+t,-w*.05],[Rc+t*.35,-w*.035],[Rc+t*.35,w*.035],[Rc+t,w*.05],[Rc+t,w*.145],[Rc,w*.165],...outer.slice(6)];}
+        const profile=[...beads.slice().reverse().map(([a,b])=>[a,-b]),...crown,...beads,[beads.at(-1)[0],-beads.at(-1)[1]]];
+        const tires=[],putTire=m=>{tires.push(m);put('rubber',m,tyre);};
+        putTire(CM.revolveOn(F,0,0,profile,bike?48:52,.72));
+        const carcass=d=>{if(d<=outer[0][1])return outer[0][0];for(let k=0;k+1<outer.length;k++)if(d<=outer[k+1][1]){const t=(d-outer[k][1])/(outer[k+1][1]-outer[k][1]);return mix(outer[k][0],outer[k+1][0],t);}return outer.at(-1)[0];};
+        if(lugs){
+            const N=bike?30:pattern==='mud'?22:pattern==='allTerrain'?30:40,pitch=2*pi*Rc/N,blocks=[],quad=(s0,s1,d0,d1,slant=0,s2=s0,s3=s1)=>[s0,d0,s1,d0,s3+slant,d1,s2+slant,d1];
+            if(bike)for(const s of [-1,1])blocks.push([quad(-.20*pitch,.20*pitch,s*w*.04,s*w*.40,s*.55*pitch),.5*(s+1)*.5]);
+            else if(pattern==='road')for(const s of [-1,1])blocks.push([quad(-.34*pitch,.34*pitch,s*w*.19,s*w*.505,s*.20*pitch),s>0?.5:0]);
+            else if(pattern==='allTerrain'){for(const s of [-1,1]){blocks.push([quad(-.38*pitch,.30*pitch,s*w*.03,s*w*.25,s*.12*pitch),s>0?0:.5]);blocks.push([quad(-.36*pitch,.36*pitch,s*w*.30,s*w*.505,s*.06*pitch),s>0?.5:0]);}}
+            else for(const s of [-1,1]){blocks.push([quad(-.20*pitch,.16*pitch,s*w*.03,s*w*.505,s*.40*pitch,-.20*pitch,.26*pitch),s>0?0:.5]);blocks.push([quad(-.14*pitch,.14*pitch,s*w*.36,s*w*.505,0),s>0?.5:0]);}
+            const sink=Math.max(lh*.35,R*.004),quads=[];
+            for(let k=0;k<N;k++)for(const [poly,phase]of blocks){
+                const a0=(k+phase)*2*pi/N,slices=bike?1:Math.max(1,Math.min(3,Math.round(Math.abs(poly[5]-poly[1])/(w*.17))));
+                treadBlock(quads,poly,slices,lh,Math.min(lh*.38,pitch*.06),([s,d,h])=>at(carcass(d)+h-sink*(1-h/lh),a0+s/Rc,d));
+            }
+            // Each face is turned away from its block's centre.
+            const g=new CM.Geo();for(const q of quads)g.poly(q,null,null);
+            const meshes=[CM.smoothNormals(g.done(),.94)];
+            putTire(CM.merge(meshes));
+        }
+        // Rim: rolled lip and a deep dish down to the spoke face.
+        const kind=style==='beadlock'?'trim':'metal',lip=w*.53,dish=w*({split:.16,turbofan:.10,steel:.20,beadlock:.22}[style]||.14)*(bike?.35:1),face=lip-dish;
+        const rh=R*.19,rs=R*.585,tS=R*(bike?.045:.06),concave=w*({split:.05,turbofan:.0,steel:-.02,beadlock:.03}[style]||0),hub=face-concave;
+        put(kind,CM.revolveOn(F,0,0,[[R*.605,w*.40],[R*.645,w*.465],[R*.668,w*.50],[R*.664,w*.522],[R*.650,lip],[R*.606,lip],[R*.594,lip-w*.012],[R*.580,face],[R*.562,face-w*.012],[R*.558,-w*.38],[R*.605,-w*.38],[R*.605,w*.40]],bike?48:52,.6),rimName);
+        const depthAt=rho=>mix(hub,face,Math.max(0,Math.min(1,(rho-rh)/(rs-rh))));
+        const warp=([u,v,h])=>{const rho=Math.hypot(u,v);return add(F.o,add(scale(F.u,u),add(scale(F.v,v),scale(F.n,depthAt(rho)-tS+h))));};
+        const polar=(rho,a)=>[Math.cos(a)*rho,Math.sin(a)*rho],poly=(...pts)=>pts.flat();
+        const count=r.spokes,spokes=[],webs=[];
+        for(let k=0;k<count;k++){
+            const a=k/count*2*pi+(side<0?pi/count:0);
+            if(style==='split'){
+                // Twin rails diverge into a Y; a lower web between them is the pocket.
+                const d=pi/count*.50;
+                for(const s of [-1,1])spokes.push(poly(polar(rh,a+s*.035),polar(rh,a+s*.14),polar(rs,a+s*(d+.055)),polar(rs,a+s*(d-.045))));
+                webs.push(poly(polar(rh*1.25,a-.09),polar(rh*1.25,a+.09),polar(rs*.93,a+d-.03),polar(rs*.93,a-d+.03)));
+            }else if(style==='turbofan'){
+                for(const t of [0,.5]){const b=a+t*2*pi/count;spokes.push(poly(polar(rh*1.05,b),polar(rh*1.05,b+.16),polar(rs,b+.62),polar(rs,b+.44)));}
+            }else if(style==='steel'){
+                const d=pi/count*.66;spokes.push(poly(polar(rh,a-.20),polar(rh,a+.20),polar(rs*.86,a+d),polar(rs*.86,a-d)));
+            }else{
+                const d=pi/count*.40;
+                for(const s of [-1,1])spokes.push(poly(polar(rh,a+s*.10),polar(rh,a+s*.20),polar(rs,a+s*(d+.06)),polar(rs,a+s*(d-.04))));
+                webs.push(poly(polar(rh*1.2,a-.17),polar(rh*1.2,a+.17),polar(rs*.94,a+d-.02),polar(rs*.94,a-d+.02)));
+            }
+        }
+        put(kind,bentBlocks(spokes,tS,tS*.22,warp),rimName);
+        if(webs.length)put(kind,bentBlocks(webs,tS*.38,tS*.10,warp),rimName);
+        if(style==='steel'){
+            // Stamped outer band and raised center: the windows are the gaps.
+            put(kind,CM.revolveOn(F,0,0,[[R*.565,face-tS],[R*.565,face],[R*.50,face+w*.012],[R*.44,face],[R*.44,face-tS]],64,.6),rimName);
+            put(kind,CM.revolveOn(F,0,0,[[R*.30,hub-tS],[R*.30,hub],[R*.26,hub+w*.012]],48,.6),rimName);
+        }
+        if(style==='turbofan')put(kind,CM.revolveOn(F,0,0,[[R*.585,face-tS*.4],[R*.585,face],[R*.50,face],[R*.50,face-tS*.4],[R*.585,face-tS*.4]],56,.6),rimName);
+        if(style==='beadlock'){
+            const ring=lip+w*.016;put(kind,CM.revolveOn(F,0,0,[[R*.676,lip-w*.004],[R*.676,ring],[R*.606,ring],[R*.606,lip-w*.004]],64,.6),rimName);
+            if(r.details)for(let k=0;k<16;k++){const a=k/16*2*pi,G={...F,o:at(R*.641,a,ring)};put(kind,CM.revolveOn(G,0,0,[[R*.016,0],[R*.016,R*.014],[R*.011,R*.019],[0,R*.019]],6,.5),rimName);}
+        }
+        // Hub face, centre cap and lug nuts.
+        put(kind,CM.revolveOn(F,0,0,[[R*.215,hub-tS],[R*.215,hub],[R*.185,hub+R*.012],[R*.125,hub+R*.012],[R*.125,hub-tS],[R*.215,hub-tS]],32,.6),rimName);
+        put(kind,CM.revolveOn(F,0,0,[[R*.125,hub+R*.012],[R*.125,hub+R*.030],[R*.095,hub+R*.046],[R*.05,hub+R*.053],[0,hub+R*.055],[0,hub+R*.012],[R*.125,hub+R*.012]],24,.6),rimName);
+        const nuts=bike?0:r.form==='rover'?8:r.form==='truck'?6:5;
+        if(r.details)for(let k=0;k<nuts;k++){const a=k/nuts*2*pi+.3,G={...F,o:at(R*.158,a,hub+R*.012)};put(kind,CM.revolveOn(G,0,0,[[0,0],[R*.024,0],[R*.024,R*.024],[R*.017,R*.032],[0,R*.032]],6,.5),rimName);}
+        // Brake disc: friction ring with a vent band, hat to the hub.
+        const t=R*(bike?.02:.055),hatTop=hub-tS-R*.006,dF=hatTop-R*(bike?.01:.04),dB=dF-t,ro=R*(bike?.47:.50),ri=R*(bike?.30:.27);
+        put('metal',CM.revolveOn(F,0,0,[[ro,dB],[ro,dB+t*.35],[ro,dB+t*.65],[ro,dF],[ri,dF],[ri-R*.02,hatTop],[R*.13,hatTop],[R*.13,dB],[ro,dB]],bike?32:48,.6),brakeName);
+        const marks=[],drilled=bike||r.form==='sport',slotted=r.form==='rover'||r.form==='truck';
+        if(r.details&&drilled)for(let k=0;k<24;k++){const a=k/24*2*pi,rho=mix(ri,ro,k%2?.38:.70),G={...F,o:at(rho,a,dF+.0004)};marks.push(CM.revolveOn(G,0,0,[[R*.016,0],[0,0]],8));}
+        if(r.details&&slotted)for(let k=0;k<8;k++){const a=k/8*2*pi,g=new CM.Geo(),seg=4;for(let j=0;j<seg;j++){const p0=mix(ri*1.08,ro*.94,j/seg),p1=mix(ri*1.08,ro*.94,(j+1)/seg),a0=a+.28*j/seg,a1=a+.28*(j+1)/seg,hw=R*.008;g.poly([at(p0,a0-hw/p0,dF+.0004),at(p1,a1-hw/p1,dF+.0004),at(p1,a1+hw/p1,dF+.0004),at(p0,a0+hw/p0,dF+.0004)],null,F.n);}marks.push(g.done());}
+        if(marks.length)put('metal',CM.merge(marks),brakeName);
+        // Holes, slots and the vent band are dark in the vertex colors.
+        const tints=c.tints||(c.tints=new Map()),local=p=>{const d=sub(p,F.o);return[Math.hypot(dot(d,F.u),dot(d,F.v)),dot(d,F.n)];};
+        tints.set(brakeName,p=>{const [rho,d]=local(p);if(rho<ri+1e-4&&d>dF-1e-4)return .55;if(d>dF+.0002)return .10;if(rho>ro-1e-4&&d>dB+t*.2&&d<dF-t*.2)return .12;return 1;});
+        if(kind==='trim')tints.set(rimName,p=>{const [rho,d]=local(p);if(rho<R*.21&&d>hub+R*.011)return[.42,.45,.47];if(rho>R*.60&&d>lip+w*.016+R*.002)return[.42,.45,.47];if(rho>R*.60&&d>lip-w*.003)return 2.4;return 1;});
+        // Caliper: a fixed arc block straddling the disc's outer edge.
+        if(!bike){
+            const ac=side>0?2.35:pi-2.35,span=.36,r0=R*.39,r1=R*.545,steps=6,back=dB-R*.025;
+            let front=dF+R*.045;for(let k=0;k<=8;k++){const rho=mix(r0,r1,k/8);front=Math.min(front,depthAt(rho)-tS-.004);}
+            const g=new CM.Geo(),ch=R*.012,sec=[[r0+ch,back],[r1-ch,back],[r1,back+ch],[r1,front-ch],[r1-ch,front],[r0+ch,front],[r0,front-ch],[r0,back+ch]];
+            const ring=a=>sec.map(([rho,d])=>at(rho,a,d));
+            const middle=a=>at((r0+r1)/2,a,(back+front)/2);
+            for(let j=0;j<steps;j++){const a0=ac-span+2*span*j/steps,a1=ac-span+2*span*(j+1)/steps,A=ring(a0),B=ring(a1),centre=middle((a0+a1)/2);for(let k=0;k<sec.length;k++){const kk=(k+1)%sec.length;g.poly([A[k],A[kk],B[kk],B[k]],null,sub(scale(add(add(A[k],A[kk]),add(B[k],B[kk])),.25),centre));}}
+            for(const [a,s]of [[ac-span,-1],[ac+span,1]])g.poly(ring(a),null,scale(add(scale(F.u,-Math.sin(a)),scale(F.v,Math.cos(a))),s));
+            put('accent',CM.smoothNormals(g.done(),.9),'Brake calipers');
+        }
+        let radius=0;
+        for(const mesh of tires)for(let i=0;i<mesh.positions.length;i+=3)radius=Math.max(radius,Math.hypot(mesh.positions[i+1]-R,mesh.positions[i+2]-z));
+        return{part:tyre,with:[rimName,brakeName],at:[x,R,z],radius,side:side>0?'left':'right'};
+    }
     function roadDetails(c){
         const {r,W,H,L,R,hood,base,roofY,rf,rr,rw,bw,cabinZ,cabinL,door,box,tube,sheet,put,bodyProfile:p}=c;
         const sport=r.form==='sport',utility=['truck','rover'].includes(r.form);
         // Character lines follow the coachwork, including the changing width.
         for(const s of [-1,1]){
-            const z0=Math.max(-L*.45,door.rear),z1=Math.min(L*.45,door.front);
-            const path=Array.from({length:33},(_,i)=>{const z=z0+(z1-z0)*i/32;return[s*(p.width(z)+W*.003),hood-H*.04,z];});tube('trim',path,W*.0016,'Pressed belt line');
-            const x=s*(W*.49+W*.018),lo=door.low,hi=door.high;
-            // Door remains within the actual wheel bay, including short and
-            // three-axle recipes. A fine seal surrounds its separate skin.
-            const seal=[];for(const v of [1,0])for(let j=0;j<=24;j++){const u=v?j/24:1-j/24,z=mix(door.rear,door.front,u);seal.push([s*(p.width(z)*.992+W*.007),v?hi:lo,z]);}tube('dark',seal,W*.0014,'Door seal');
+            // The door is cut from the shell itself: its shut lines and the
+            // shoulder crease replace the former pasted skin and seal tubes.
+            const lo=door.low;
             const sideGlass=(z,y)=>s*(bw+(rw-bw)*(y-hood)/(roofY-hood));
             const pillarZ=Math.max(rr+L*.025,Math.min(rf-L*.025,door.rear));
             sheet('paint',[[sideGlass(pillarZ,hood),hood,pillarZ-L*.012],[sideGlass(pillarZ,roofY),roofY,pillarZ-L*.012],[sideGlass(pillarZ,roofY),roofY,pillarZ+L*.012],[sideGlass(pillarZ,hood),hood,pillarZ+L*.012]],W*.012,'Cabin pillars');
@@ -175,12 +395,12 @@
                 for(let j=0;j<9;j++)box('metal',[s*W*.53,lo-H*.087,door.z+(j-4)*door.width*.078],[W*.12,.004,door.width*.025],.002,'Step tread');
             }
             if(!r.details)continue;
-            if(utility)for(const y of [lo+(hi-lo)*.22,lo+(hi-lo)*.80])box('metal',[s*(p.width(door.front-.025)*.992+W*.017),y,door.front-.025],[.024,H*.037,.035],.006,'Door hinges');
+            if(utility)for(const t of [.22,.70]){const z=door.front-.025,y=mix(lo,hood,t);box('metal',[s*(c.sideAt(z,y)+.010),y,z],[.024,H*.037,.035],.006,'Door hinges');}
             box('metal',[s*W*.56,hood+H*.11,cabinZ+cabinL*.5-L*.055-.019],[W*.105,H*.048,.004],.004,'Mirror glass');
             // Rolled sill and rear quarter intake: short details stay between
             // the wheel openings instead of stretching through the tires.
             const sillWidth=door.width*.9;
-            box('trim',[s*W*.475,base+H*.018,door.z],[W*.046,H*.035,sillWidth],.018,'Rocker molding');
+            const sillY=mix(base,lo,.42);box('trim',[s*(c.sideAt(door.z,sillY)+W*.006),sillY,door.z],[W*.018,(lo-base)*.42,sillWidth],.006,'Rocker molding');
             if(sport){
                 const F=CM.frame([s*(W*.49+.012),hood-H*.065,door.rear+door.width*.10],[0,0,-s],[0,1,0]);
                 put('dark',CM.slab(CM.rect(0,0,door.width*.16,H*.075),F,.004,.002,true),'Quarter cooling inlet');
@@ -206,13 +426,6 @@
                 tube('metal',points,Math.min(W*.004,H*.003,bend*.30),'Hatch grip');
             }
         }
-        // Bonnet has a fitted perimeter and two long pressed creases.
-        const z0=Math.min(L*.43,cabinZ+cabinL*.5),z1=L*.475;
-        patch(c,'trim',(u,v)=>{const z=mix(z0,z1,u),f=mix(-.735,.735,v);return[f*p.width(z),p.topFace(z,f)+H*.0015,z];},'Bonnet perimeter seal');
-        patch(c,'paint',(u,v)=>{const z=mix(z0+L*.002,z1-L*.002,u),f=mix(-.725,.725,v);return[f*p.width(z),p.topFace(z,f)+H*.003,z];},'Formed bonnet panel');
-        for(const s of [-1,1])for(const f of [.34]){
-            const points=Array.from({length:33},(_,i)=>{const z=mix(z0,z1,i/32);return[s*p.width(z)*f,p.topFace(z,f)+H*.004,z];});tube(f===.75?'dark':'paint',points,W*(f===.75?.0010:.0024),'Bonnet pressings');
-        }
         if(r.aero>0&&['compact','sport'].includes(r.form)){
             const y=p.top(-L*.40)+H*.065+H*.09*r.aero;
             for(const s of [-1,1])sheet('trim',[[s*W*.27,p.top(-L*.40),-L*.40],[s*W*.27,y,-L*.43],[s*W*.27,y,-L*.40],[s*W*.27,p.top(-L*.35),-L*.35]],W*.014,'Spoiler pylons');
@@ -237,45 +450,105 @@
             }
         }
         if(r.form==='truck'){
-            const z=-L*.31;
-            for(let j=0;j<9;j++)box('metal',[(j-4)*W*.072,hood-H*.028,z],[W*.016,H*.009,L*.28],.003,'Bed floor ribs');
+            const bed=c.panels.bed,bz=(bed.rear+bed.front)/2,bedL=bed.front-bed.rear;
+            for(let j=0;j<9;j++)box('metal',[(j-4)*W*.072,bed.floor+H*.0045,bz],[W*.016,H*.009,bedL*.90],.003,'Bed floor ribs');
             for(const s of [-1,1])for(const zz of [-L*.44,-L*.18])tube('metal',[[s*W*.39,hood+H*.09,zz],[s*W*.36,hood+H*.11,zz],[s*W*.34,hood+H*.09,zz]],W*.007,'Bed tie-downs');
             box('trim',[0,hood+H*.10,-L*.488],[W*.16,H*.025,.014],.006,'Tailgate latch');
         }
     }
+    /** Lamp kit: a pocket in a housing, then for each lamp a bezel ring,
+     * a parabolic reflector at least a quarter of its radius deep, an
+     * emissive element and a lens. F lies on the mounting face, n outward.
+     * Styles: round, caged, projector, bar (LED cells), ladder and stack
+     * (rear). Returns the pocket floor frame. */
+    function lampUnit(c,F,w,h,style,rear){
+        const {r,put,tube}=c,lit=r.lights,depth=rear?Math.max(.03,c.H*.015+.02):Math.max(.04,Math.min(.07,h*.32)),border=Math.min(h*.13,w*.08,.016),recess=depth*.78;
+        const b=CM.bezel(F,w,h,depth,border,recess),iw=b.width,ih=b.height,at=(u,v,d)=>add(F.o,add(scale(F.u,u),add(scale(F.v,v),scale(F.n,d))));
+        const tag=rear?'Tail lamp':'Headlamp',floor=depth-recess,lens=depth-.002;
+        put('trim',b.housing,tag+' housings');put('dark',b.floor,tag+' pockets');
+        const on=kind=>lit?kind:'dark',spot=(cu,cv)=>({...F,o:at(cu,cv,0)});
+        // Round reflector pod standing on the pocket floor, its lip flush
+        // with the housing face. The bowl is a parabola 0.4 r deep.
+        const pod=(cu,cv,radius,element='light',projector=false)=>{
+            const G=spot(cu,cv),top=depth-.003,bowl=radius*.40,base=top-bowl;
+            put('metal',CM.revolveOn(G,0,0,[[radius*1.16,floor],[radius*1.16,top-radius*.04],[radius*1.10,top+radius*.02],[radius*1.02,top+radius*.015],[radius*.99,top]],40),tag+' bezels');
+            put('chrome',CM.revolveOn(G,0,0,[.99,.86,.68,.46,.24].map(f=>[radius*f,base+bowl*(f*f-.0576)/(.9801-.0576)]).concat([[radius*.17,base]]),40,.9),tag+' reflectors');
+            if(projector){
+                put('chrome',CM.revolveOn(G,0,0,[[radius*.62,base+bowl*.3],[radius*.62,base+bowl*.75],[radius*.56,base+bowl*.8]],24),tag+' projector barrels');
+                put('glass',CM.revolveOn(G,0,0,[[radius*.56,base+bowl*.78],[radius*.48,base+bowl*.98],[radius*.30,base+bowl*1.10],[0,base+bowl*1.16]],24,.6),tag+' projector lenses');
+                put(on('light'),CM.revolveOn(G,0,0,[[radius*1.07,top+radius*.025],[radius*1.07,top+radius*.045],[radius*.97,top+radius*.045],[radius*.97,top+radius*.025]],40),tag+' halo rings');
+            }else put(on(element),CM.revolveOn(G,0,0,[[radius*.17,base],[radius*.17,base+radius*.10],[radius*.12,base+radius*.20],[0,base+radius*.24]],16),tag+' elements');
+            put('lens',CM.revolveOn(G,0,0,[[radius*1.0,top+radius*.01],[radius*.72,top+radius*.08],[radius*.38,top+radius*.12],[0,top+radius*.13]],40,.4),tag+' lenses');
+            return G;
+        };
+        if(style==='round'||style==='caged'||style==='projector'){
+            const count=iw/ih>1.7?2:1,radius=Math.min(ih*.42,iw/count*.40)*(style==='projector'?.82:1);
+            for(let k=0;k<count;k++){
+                const cu=count===1?0:(k-.5)*iw*.50;pod(cu,0,radius,'light',style==='projector');
+                if(style==='caged')for(const v of [-.45,0,.45])tube('metal',[at(cu-radius*1.1,v*radius,depth+radius*.20),at(cu+radius*1.1,v*radius,depth+radius*.20)],radius*.045,'Lamp guards');
+                if(style==='caged')for(const s of [-1,1])tube('metal',[at(cu+s*radius*1.1,-radius*.6,depth),at(cu+s*radius*1.1,-radius*.6,depth+radius*.20),at(cu+s*radius*1.1,radius*.6,depth+radius*.20),at(cu+s*radius*1.1,radius*.6,depth)],radius*.05,'Lamp guards');
+            }
+            if(style==='projector')put(on('light'),CM.slab(CM.rect(0,ih*.5-border*.2,iw*.86,ih*.07),{...F,o:at(0,0,floor+.001)},depth-floor-.004,.001,true),tag+' running lights');
+        }else if(style==='bar'){
+            // Square LED cells: each a stepped reflector cup with a lamp die.
+            const cells=Math.max(3,Math.min(7,Math.round(iw/ih*1.6))),pitch=iw/cells,s=Math.min(pitch,ih)*.40;
+            for(let k=0;k<cells;k++){
+                const G=spot((k-(cells-1)/2)*pitch,ih*.08),top=depth-.004,bowl=s*.55;
+                put('chrome',CM.revolveOn({...G,u:norm(add(G.u,G.v)),v:norm(sub(G.v,G.u))},0,0,[[s*1.30,top],[s*.95,top-bowl*.55],[s*.55,top-bowl],[s*.30,top-bowl]],4,.9),tag+' reflectors');
+                put(on('light'),CM.slab(CM.rect(0,0,s*.55,s*.55),{...G,o:at((k-(cells-1)/2)*pitch,ih*.08,top-bowl)},s*.12,s*.03,true),tag+' elements');
+            }
+            put(on('light'),CM.slab(CM.rect(0,-ih*.36,iw*.92,ih*.08),{...F,o:at(0,0,floor+.001)},depth-floor-.005,.001,true),tag+' running lights');
+            put('lens',CM.slab(CM.rect(0,0,iw*.995,ih*.995),{...F,o:at(0,0,lens-.002)},.005,.0015,true),tag+' lenses');
+        }else if(style==='ladder'||style==='stack'){
+            // Rear: segmented emitters with dark dividers behind a lens.
+            const cells=style==='stack'?3:4,vertical=style==='stack',pitch=(vertical?ih:ih)/cells;
+            for(let k=0;k<cells;k++){
+                const v=(k-(cells-1)/2)*pitch,kind=vertical?(k===cells-1?'red':k===1?'glow':'light'):'red',rw=vertical?iw*.80:iw*(.92-.10*Math.abs(k-(cells-1)/2)),G={...F,o:at(0,v,floor+.001)};
+                put('chrome',CM.slab(CM.rect(0,0,rw,pitch*.86),G,recess*.30,.001,true),tag+' reflectors');
+                put(on(kind),CM.slab(CM.rect(0,0,rw*.90,pitch*.46),{...G,o:add(G.o,scale(F.n,recess*.30))},recess*.16,pitch*.06,true),tag+' elements');
+                if(vertical&&k<cells-1)put('lens',CM.slab(CM.rect(0,0,iw*.995,pitch*.99),{...F,o:at(0,v,lens-.002)},.005,.0015,true),tag+' clear lenses');
+            }
+            const lensH=vertical?pitch:ih,lensV=vertical?(cells-1)/2*pitch:0;
+            put('redlens',CM.slab(CM.rect(0,lensV,iw*.995,lensH*.99),{...F,o:at(0,0,lens-.002)},.005,.0015,true),'Tail lamp lens');
+        }
+        return{...F,o:at(0,0,floor)};
+    }
     function roadFace(c){
         const {r,W,H,L,hood,base,box,tube,put,bodyProfile:p}=c,sport=r.form==='sport',utility=['truck','rover'].includes(r.form),front=L*.49,y=p.top(front)-H*.035;
-        // A layered fascia: dark inset, separate slats, body-color perimeter,
-        // optical housings and lenses. Nothing is drawn onto a blurry atlas.
-        const fasciaWidth=W*.77,fasciaH=H*(utility?.16:.13);
-        box('trim',[0,y-H*.027,front+.003],[fasciaWidth,fasciaH,.045],.025,'Recessed front fascia');
-        const centerW=W*(utility?.38:.34);
-        box('dark',[0,y-H*.025,front+.027],[centerW,H*.10,.010],.015,'Radiator cavity');
-        for(let j=0;j<6;j++)box('metal',[0,y-H*.065+j*H*.014,front+.034],[centerW*.92,H*.0035,.006],.002,'Radiator grille');
+        // A layered fascia: three recessed bays (lamps, radiator, lamps)
+        // with real pocket depth, mounted on the nose cap.
+        const fh=H*(utility?.16:.13),cy=y-H*.027,depth=utility?.06:.05,border=Math.min(.018,fh*.11),recess=depth*.74,mount=front-.008;
+        const at=(x,yy)=>CM.frame([x,yy,mount],[1,0,0],[0,1,0]),lampW=W*.215,lampX=W*.2675,grilleW=2*(lampX-lampW/2);
+        const g=CM.bezel(at(0,cy),grilleW,fh,depth,border,recess);put('trim',g.housing,'Front fascia');put('dark',g.floor,'Radiator cavity');
+        const slats=utility?7:6,inner=fh-border*2;
+        if(utility)for(let j=0;j<9;j++)box('metal',[(j-4)*g.width/9,cy,mount+depth-recess+recess*.45],[g.width/9*.22,inner*.96,recess*.90],.003,'Radiator grille');
+        for(let j=0;j<slats;j++)box(utility?'trim':'metal',[0,cy+(j-(slats-1)/2)*inner/slats,mount+depth-recess*.45],[g.width*.98,inner/slats*.30,recess*.70],.002,'Radiator grille');
+        const style=r.form==='sport'?'projector':r.form==='truck'?'bar':r.form==='rover'?'caged':'round';
+        for(const s of [-1,1])lampUnit(c,at(s*lampX,cy),lampW,fh,style,false);
         for(const s of [-1,1]){
-            const x=s*W*.267,F=CM.frame([x,y+H*.008,front+.030],[1,0,0],[0,1,0]),rw=W*.108,rh=H*.042;
-            put('dark',CM.slab(CM.rect(0,0,rw*2,rh*2),F,.008,.005,true),'Headlamp recess');
-            for(const dx of [-.48,.42]){
-                const radius=Math.min(rh*.71,rw*.40),at=dx*rw;
-                put('metal',CM.revolveOn({...F,o:add(F.o,[0,0,.010])},at,0,[[radius,0],[radius,.012],[radius*.78,.016],[radius*.63,.009],[radius,0]],48),'Headlamp reflectors');
-                put('glass',CM.revolveOn({...F,o:add(F.o,[0,0,.010])},at,0,[[0,.011],[radius*.65,.011],[radius*.65,.015],[0,.015]],48),'Headlamp lenses');
-                put(r.lights?'light':'dark',CM.revolveOn({...F,o:add(F.o,[0,0,.010])},at,0,[[0,.017],[radius*.39,.017],[radius*.39,.019],[0,.019]],32),'Headlamp optics');
-            }
-            tube(r.lights?'light':'metal',[[x-rw*.84,y+rh*.78,front+.048],[x+rw*.84,y+rh*.78,front+.048]],H*.0025,'Running lights');
-            const by=base+H*.045;
-            box('dark',[s*W*.30,by,front+.022],[W*.16,H*.045,.040],.013,'Brake duct');
-            for(let j=0;j<3;j++)box('trim',[s*W*.30,by+H*(j-1)*.012,front+.045],[W*.14,H*.004,.006],.002,'Brake duct vanes');
-            // The gasket embeds into the rear cap; the lens sits outward of
-            // its face. Bending the strip forward here buried it in the body.
-            const path=Array.from({length:25},(_,i)=>{const t=i/24;return[s*W*(.16+.20*t),hood-H*.06+H*.008*Math.sin(pi*t),-L*.49-H*.010];});
-            tube('trim',path,H*.014,'Tail lamp housing');tube(r.lights?'red':'dark',path.map(p=>add(p,[0,0,-H*.015])),H*.007,'Tail lamp lens');
+            const by=base+H*.05,duct=CM.bezel(at(s*W*.30,by),W*.16,H*.05,.035,.008,.026);
+            put('trim',duct.housing,'Brake duct');put('dark',duct.floor,'Brake duct');
+            for(let j=0;j<3;j++)box('trim',[s*W*.30,by+H*(j-1)*.013,mount+.035-.014],[duct.width*.96,H*.004,.018],.002,'Brake duct vanes');
+        }
+        // Rear lamps sit on the tail cap; the lens stands proud of the body.
+        const back=(x,yy)=>CM.frame([x,yy,-front+.006],[-1,0,0],[0,1,0]);
+        if(utility)for(const s of [-1,1])lampUnit(c,back(s*W*(r.form==='truck'?.39:.34),hood-H*.10),W*.075,H*.15,'stack',true);
+        else for(const s of [-1,1])lampUnit(c,back(s*W*(sport?.29:.265),hood-H*.06),W*(sport?.17:.20),H*(sport?.05:.07),'ladder',true);
+        if(sport){
+            const d=Math.max(.03,H*.015+.02),F=back(0,hood-H*.06),bar=CM.bezel(F,W*.40,H*.024,d,.004,.012);
+            put('trim',bar.housing,'Tail lamp housings');put('dark',bar.floor,'Tail lamp pockets');
+            put(r.lights?'red':'dark',CM.slab(CM.rect(0,0,bar.width*.96,bar.height*.5),{...F,o:add(F.o,scale(F.n,d-.011))},.005,.001,true),'Tail lamp elements');
+            put('redlens',CM.slab(CM.rect(0,0,bar.width*.995,bar.height*.99),{...F,o:add(F.o,scale(F.n,d-.004))},.005,.0015,true),'Tail lamp lens');
         }
         if(r.bumper){
             const yy=base+H*.015;
             put('trim',shell([[front-L*.025,W*.43,yy,H*.042],[front+L*.010,W*.43,yy,H*.032],[front+L*.020,W*.39,yy,H*.021]],3,32),'Contoured front bumper');
             box('trim',[0,yy,-L*.50],[W*.80,H*.065,L*.035],.020,'Rear bumper');
             if(utility){
-                for(const s of [-1,1])tube('metal',[[s*W*.30,yy,front+.055],[s*W*.30,y-H*.025,front+.070],[s*W*.22,y+H*.005,front+.070]],W*.012,'Brush guard');
+                // Grille guard: two posts on the bay seams and a top hoop, clear of the lamps.
+                const gx=grilleW/2,gz=mount+depth+.03,gt=cy+fh/2+H*.012;
+                for(const s of [-1,1])tube('metal',[[s*gx,yy,front+.050],[s*gx,cy-fh*.35,gz],[s*gx,gt-H*.02,gz],[s*gx*.92,gt,gz]],W*.012,'Brush guard');
+                tube('metal',[[-gx*.92,gt,gz],[gx*.92,gt,gz]],W*.011,'Brush guard');tube('metal',[[-gx,cy-fh*.10,gz],[gx,cy-fh*.10,gz]],W*.008,'Brush guard');
                 box('metal',[0,yy-H*.01,front+L*.026],[W*.35,H*.085,.020],.010,'Front skid plate');
                 if(r.details)for(let j=0;j<5;j++)box('dark',[(j-2)*W*.052,yy-H*.01,front+L*.028+.012],[W*.025,H*.040,.002],.003,'Skid plate slots');
             }
@@ -570,5 +843,5 @@
             }
         }
     }
-    const api={shell,loft,pressed,filletBox,contour,windowFrame,roadWindows,roadProfile,roadBody,doorSkin,roadDetails,roadFace,section,flight,turbine,round,bike,drone,walker,grille,cabin};root.RRVehicleBodywork=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
+    const api={shell,loft,pressed,filletBox,contour,windowFrame,roadWindows,roadProfile,roadBody,roadAnchors,lampUnit,wheel,RIM_STYLES,roadDetails,roadFace,section,flight,turbine,round,bike,drone,walker,grille,cabin};root.RRVehicleBodywork=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
