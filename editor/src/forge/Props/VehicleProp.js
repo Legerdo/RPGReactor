@@ -4,7 +4,7 @@
 (function(root) {
     'use strict';
     const need=(name,file)=>root[name]||(typeof require==='function'?require(file):null);
-    const CM=need('RRContainerMesh','./ContainerMesh.js'),Paint=need('RRPropPaint','./PropPaint.js'),Construction=need('RRVehicleConstruction','./VehicleConstruction.js'),Bodywork=need('RRVehicleBodywork','./VehicleBodywork.js'),HS=need('RRHardSurface','./HardSurface.js'),Design=need('RRFlagDesign','./FlagDesign.js'),Finish=need('RRVehicleFinish','./VehicleFinish.js');
+    const CM=need('RRContainerMesh','./ContainerMesh.js'),Paint=need('RRPropPaint','./PropPaint.js'),Construction=need('RRVehicleConstruction','./VehicleConstruction.js'),Bodywork=need('RRVehicleBodywork','./VehicleBodywork.js'),HS=need('RRHardSurface','./HardSurface.js'),Design=need('RRFlagDesign','./FlagDesign.js'),Finish=need('RRVehicleFinish','./VehicleFinish.js'),Rig=need('RRVehicleRig','./VehicleRig.js');
     const {add,sub,scale,norm,cross,dot}=CM.vec;
     const FORMS=[
         ['compact','Compact car',1.76,1.50,3.95],['sport','Sports coupe',1.98,1.18,4.50],
@@ -37,7 +37,9 @@
             stance:clamp(r.stance,.75,1.3,1),aero:clamp(r.aero,0,1,form==='sport'?.65:0),fairing:['naked','half','full'].includes(r.fairing)?r.fairing:'half',flightFit:['transport','interceptor','cargo'].includes(r.flightFit)?r.flightFit:'transport',rotorGuard:['ring','cage','open'].includes(r.rotorGuard)?r.rotorGuard:'ring',tool:['claw','welder','none'].includes(r.tool)?r.tool:'claw',
             bodyStyle:STYLES.includes(r.bodyStyle)?r.bodyStyle:'rounded',detailDensity:clamp(r.detailDensity,0,1,DENSITY_DEFAULT[form]),
             // Insignia: emblems only (RRFlagDesign layers), painted on doors, flanks and fins. None by default.
-            insignia:insigniaOf(r.insignia)};
+            insignia:insigniaOf(r.insignia),
+            // Which motion the Prop Builder plays (preview only; the game plays the saved rules).
+            motion:['none','doors','drive','gear','fly'].includes(r.motion)?r.motion:'none'};
     }
     function insigniaOf(v){const d=Design.normalize({field:{layout:'solid',colors:['#000000']},layers:v&&Array.isArray(v.layers)?v.layers:[]});return{field:d.field,layers:d.layers};}
     const fromPreset=form=>normalize({form,bodyStyle:STYLE_DEFAULT[BY_ID.has(form)?form:'compact']});
@@ -181,17 +183,41 @@
                 tube('trim',[[x,R,rear],[x,H*.42,-L*.05],[x,seat,-L*.12],[x,R,rear]],W*.035);
                 tube('metal',[[x,R,front],[x,neck[1],neck[2]]],W*.037);
                 tube('trim',[[x,neck[1],neck[2]],[x,seat,-L*.13],[x,engine[1]-.09,engine[2]],[x,neck[1],neck[2]]],W*.027);
-                tube('metal',[[x,neck[1],neck[2]],[sign*W*.47,H*.82,L*.19]],W*.019,'Steering');
-                box('metal',[sign*W*.43,H*.82,L*.19],[W*.19,W*.052,W*.065],.012,'Steering');
                 tube('metal',[[x,H*.30,-L*.09],[sign*W*.38,H*.30,-L*.09]],W*.025);
                 tube('metal',[[x,H*.34,-L*.11],[sign*W*.22,H*.27,-L*.25],[sign*W*.24,H*.28,-L*.29]],W*.041,'Exhaust headers');
                 if(r.details)for(let j=0;j<6;j++)box('metal',[sign*W*.218,engine[1]+j*H*.015,engine[2]],[W*.055,H*.006,L*.12],.002);
             }
             box('dark',engine,[W*.40,H*.20,L*.21],.035);
-            const tank=new CM.Geo(),tankRows=32,tankSides=48,tankRing=i=>{const t=i/tankRows,shape=Math.sin(t*Math.PI),cy=seat-H*.025+H*.015*shape,z=-L*.11+L*.26*t;return Array.from({length:tankSides},(_,j)=>{const a=j/tankSides*Math.PI*2;return[Math.cos(a)*W*(.004+.225*shape**.65),cy+Math.sin(a)*H*(.003+.137*shape**.75),z];});};
+            // Tank: from just behind the steering head (its front cap meets the head stock, under the top clamp)
+            // back over the frame to the seat, widest over the knees, its underside sitting on the frame rails.
+            const tz0=-L*.12,tz1=neck[2]-.028,tw=t=>t<.55?Math.sin(Math.PI/2*t/.55):1-.48*((t-.55)/.45)**2,
+                tcy=t=>{const back=seat-H*.025,fr=neck[1]-H*.035,k=Math.max(0,(t-.45)/.55);return back+H*.012*Math.sin(t*Math.PI)+(fr-back)*k*k;},
+                th=t=>H*(.006+(t<.55?.135*tw(t)**.75:.135-.06*((t-.55)/.45)**1.4));
+            const tank=new CM.Geo(),tankRows=36,tankSides=48,tankRing=i=>{const t=i/tankRows,z=tz0+(tz1-tz0)*t,cy=tcy(t),hw=W*(.004+.225*tw(t)**.65),hh=th(t);return Array.from({length:tankSides},(_,j)=>{const a=j/tankSides*Math.PI*2;return[Math.cos(a)*hw,cy+Math.sin(a)*hh,z];});};
             const tankRings=Array.from({length:tankRows+1},(_,i)=>tankRing(i));
-            for(let i=0;i<tankRows;i++)for(let j=0;j<tankSides;j++){const k=(j+1)%tankSides,p=[tankRings[i][j],tankRings[i][k],tankRings[i+1][k],tankRings[i+1][j]],center=[0,seat-H*.025+H*.015*Math.sin((i+.5)/tankRows*Math.PI),-L*.11+L*.26*(i+.5)/tankRows];let normal=norm(cross(sub(p[1],p[0]),sub(p[3],p[0])));if(dot(normal,sub(scale(add(p[0],p[2]),.5),center))<0)normal=scale(normal,-1);tank.poly(p,null,normal);}
+            for(let i=0;i<tankRows;i++)for(let j=0;j<tankSides;j++){const k=(j+1)%tankSides,p=[tankRings[i][j],tankRings[i][k],tankRings[i+1][k],tankRings[i+1][j]],t=(i+.5)/tankRows,center=[0,tcy(t),tz0+(tz1-tz0)*t];let normal=norm(cross(sub(p[1],p[0]),sub(p[3],p[0])));if(dot(normal,sub(scale(add(p[0],p[2]),.5),center))<0)normal=scale(normal,-1);tank.poly(p,null,normal);}
             tank.poly(tankRings[0],null,[0,0,-1]);tank.poly(tankRings.at(-1),null,[0,0,1]);put('paint',CM.smoothNormals(tank.done(),.85),'Formed fuel tank');
+            // Steering head: the head stock the tank's nose meets, the top clamp across the fork tops and the bar risers.
+            const top=neck[1]+H*.012;
+            tube('metal',[[0,neck[1]-H*.11,neck[2]+.022],[0,top,neck[2]-.004]],W*.042,'Head stock');
+            box('metal',[0,top,neck[2]],[W*.40,H*.022,W*.10],.008,'Steering');
+            const barY=H*.80,gripZ=L*.19,clampZ=neck[2]-.012;
+            for(const sx of [-1,1])box('metal',[sx*W*.075,(top+barY)/2,clampZ],[W*.035,barY-top+.01,W*.035],.005,'Steering');
+            // Handlebar: one bent tube through the clamps, swept back to the grips.
+            const half=[[W*.075,barY,clampZ],[W*.17,barY+H*.004,clampZ-.01],[W*.27,barY+H*.012,gripZ+.012],[W*.33,barY+H*.018,gripZ]];
+            tube('metal',[...half.map(([x,y,z])=>[-x,y,z]).reverse(),...half],Math.max(.009,W*.013),'Steering');
+            for(const sx of [-1,1]){
+                tube('rubber',[[sx*W*.33,barY+H*.018,gripZ],[sx*W*.47,barY+H*.02,gripZ-.004]],Math.max(.014,W*.02),'Steering grips');
+                tube('metal',[[sx*W*.47,barY+H*.02,gripZ-.004],[sx*W*.495,barY+H*.02,gripZ-.005]],Math.max(.012,W*.016),'Steering');
+                // Lever perch and a blade lever reaching forward of the grip.
+                box('trim',[sx*W*.305,barY+H*.018,gripZ],[W*.04,W*.04,W*.045],.006,'Steering perches and mirrors');
+                tube('metal',[[sx*W*.31,barY+H*.022,gripZ+.022],[sx*W*.38,barY+H*.026,gripZ+.05],[sx*W*.45,barY+H*.024,gripZ+.045]],Math.max(.004,W*.006),'Steering');
+                // Mirror: a thin stalk up from the perch to a small head well above the bar.
+                const head=[sx*W*.40,barY+H*.16,gripZ+.01];
+                tube('metal',[[sx*W*.30,barY+H*.03,gripZ+.006],[sx*W*.33,barY+H*.10,gripZ+.008],[sx*W*.37,barY+H*.145,gripZ+.01]],Math.max(.004,W*.0055),'Steering');
+                put('trim',CM.roundedBox(head,[W*.15,H*.055,W*.035],W*.014,3),'Steering perches and mirrors');
+                put('glass',CM.roundedBox([head[0],head[1],head[2]-W*.019],[W*.13,H*.042,.004],.003,2),'Steering mirror glass');
+            }
             put('rubber',hull([[-L*.30,W*.12,seat-H*.045,seat+.015],[-L*.20,W*.20,seat-H*.03,seat+.025],[-L*.08,W*.15,seat-H*.02,seat+.025]]));
             tube('trim',[[0,seat-H*.04,-L*.28],[0,H*.45,-L*.10]],W*.036);
             // Thin formed mudguards follow the tire; a thick round tube
@@ -209,14 +235,22 @@
                 }
                 put('paint',CM.smoothNormals(g.done(),.75));
             }
-            const capShape=Math.sin((.04+.11)/.26*Math.PI),capY=seat+H*(-.025+.015*capShape+.003+.137*capShape**.75);
-            const cap=CM.frame([0,capY+.0004,L*.04],[1,0,0],[0,0,-1]);put('metal',CM.revolveOn(cap,0,0,[[0,0],[W*.05,0],[W*.05,.007],[0,.007]],16));
-            const dial=CM.frame([0,H*.80,L*.18],[1,0,0],[0,.6,-.8]);put('trim',CM.revolveOn(dial,0,0,[[0,-.012],[W*.075,-.012],[W*.075,.012],[0,.012]],20));put('glass',CM.revolveOn(dial,0,0,[[0,.012],[W*.064,.012],[W*.064,.014],[0,.014]],20));
+            const capT=.5,capZ=tz0+(tz1-tz0)*capT,capY=tcy(capT)+th(capT);
+            const cap=CM.frame([0,capY-.002,capZ],[1,0,0],[0,0,-1]);put('metal',CM.revolveOn(cap,0,0,[[0,0],[W*.05,0],[W*.05,.007],[0,.007]],16));
+            // Instrument pod on a stem from the top clamp, behind the bars, tipped toward the rider.
+            const pod=[0,top+H*.075,neck[2]-.035],dial=CM.frame(pod,[1,0,0],[0,.62,-.78]);
+            box('trim',[0,(top+pod[1])/2,neck[2]-.02],[W*.05,pod[1]-top,W*.04],.006,'Instrument stem');
+            put('trim',CM.revolveOn(dial,0,0,[[0,-.03],[W*.085,-.03],[W*.09,-.012],[W*.085,.012],[0,.012]],24));put('glass',CM.revolveOn(dial,0,0,[[0,.012],[W*.072,.012],[W*.072,.014],[0,.014]],24));
             put('light',CM.slab(CM.rect(0,0,W*.006,W*.08),{...dial,o:add(dial.o,scale(dial.n,.015))},.001,.0002,true));
-            if(r.fairing==='naked')lamp([0,H*.72,L*.27],[W*.32,H*.09,.035]);lamp([0,seat,-L*.31],[W*.20,H*.035,.025],true);
-            if(r.fairing==='naked')sheet('glass',[[-W*.18,H*.75,L*.23],[W*.18,H*.75,L*.23],[W*.15,H*.92,L*.16],[-W*.15,H*.92,L*.16]]);
+            // Headlamp on ears from the fork legs (naked), or the fairing on stays from the head stock.
+            const forkZ=y=>front+(neck[2]-front)*(y-R)/(neck[1]-R);
+            if(r.fairing==='naked'){lamp([0,H*.70,L*.27],[W*.32,H*.09,.035]);for(const sx of [-1,1])tube('metal',[[sx*W*.16,H*.66,forkZ(H*.66)],[sx*W*.16,H*.70,L*.27-.03]],W*.012,'Headlamp ears');
+                // A small fly screen on the lamp's top, braced to it.
+                sheet('glass',[[-W*.17,H*.75,L*.255],[W*.17,H*.75,L*.255],[W*.14,H*.90,L*.215],[-W*.14,H*.90,L*.215]]);for(const sx of [-1,1])tube('metal',[[sx*W*.12,H*.745,L*.26],[sx*W*.12,H*.80,L*.24]],W*.006,'Fly screen stays');}
+            else for(const sx of [-1,1])tube('metal',[[sx*W*.05,top-H*.03,neck[2]+.02],[sx*W*.10,H*.76,L*.24],[sx*W*.14,H*.77,L*.27]],W*.009,'Fairing stays');
+            lamp([0,seat,-L*.31],[W*.20,H*.035,.025],true);
             Bodywork.bike({...context,glazing});
-            mounts.seats=[{posture:'astride',seat:{at:[0,seat+.025,-L*.16]},handL:{at:[W*.42,H*.82,L*.19]},handR:{at:[-W*.42,H*.82,L*.19]},footL:{at:[W*.36,H*.30,-L*.09]},footR:{at:[-W*.36,H*.30,-L*.09]}}];
+            mounts.seats=[{posture:'astride',seat:{at:[0,seat+.025,-L*.16]},handL:{at:[W*.41,H*.82,L*.188]},handR:{at:[-W*.41,H*.82,L*.188]},footL:{at:[W*.36,H*.30,-L*.09]},footR:{at:[-W*.36,H*.30,-L*.09]}}];
             mounts.controls=[{input:'steer',shape:'bars',part:'Steering',at:neck,axis:[0,1,0],degrees:25,degreesAtSpeed:7}];
         }
         else if(['hover','shuttle'].includes(r.form)) {
@@ -241,10 +275,16 @@
         for(const seat of mounts.seats||[])for(const key of ['seat','handL','handR','footL','footR'])if(seat[key])seat[key].at[1]-=low;
         for(const c of mounts.controls||[])c.at[1]-=low;
         const textures={};Finish.fittings(parts,r);Finish.apply(parts,textures,r,cache,options);tint(parts,context.tints);Finish.decorate(parts,textures,r,cache,options.images||{});for(const p of parts)delete p.zone;
+        const rigged=Rig.pieces(parts,r,context,wheels,low);// tags door, fan and gear pieces; their meshes stay as they were
         const finalParts=consolidate(parts,r,wheels,mounts);
+        const motion=Rig.finish(finalParts,rigged,r,wheels);
         const sidecarExtra=GROUND.has(r.form)?{vehicle:{forward:'+z',wheels,...(mounts.seats?{seats:mounts.seats,controls:mounts.controls,...(r.form==='motorcycle'?{stand:{lean:0,side:'left'}}:{})}:{})}}:{};
+        // Doors, gear and fans: pivots and rules the game plays (Play Model Animation by name), editable on the 3D Models page.
+        if(motion.rules.length)Object.assign(sidecarExtra,{parts:motion.regions,animations:motion.rules});
+        // The bars' other parts (grips, perches, mirrors) turn with the bars about the steering head.
+        const steerAt=(mounts.controls||[]).find(c=>c.part==='Steering');if(r.form==='motorcycle'&&steerAt){const pv={};for(const p of finalParts)if(/^Steering /.test(p.name))pv[p.name]=steerAt.at.map(v=>Math.round(v*1e4)/1e4);if(Object.keys(pv).length)sidecarExtra.pivots=pv;}
         const missing=r.insignia.layers.length?Design.pictures(r.insignia).find(n=>!(options.images||{})[n])||'':'';
-        return {kind:'vehicle',recipe:r,construction,parts:finalParts,bones:[{name:'Prop',head:[0,0,0],parent:-1}],clips:[],textures,height:high-low,sidecarExtra,imageName:missing,imageMissing:!!missing};
+        return {kind:'vehicle',recipe:r,construction,parts:finalParts,bones:motion.bones,clips:[],previewClips:motion.preview(r.motion),motions:motion.clips.map(c=>c.name),textures,height:high-low,sidecarExtra,imageName:missing,imageMissing:!!missing};
     }
     /** Per-vertex color factors after the coating: drilled holes, vent
      * bands and bright fasteners on dark rims. f(position) -> k or [r,g,b]. */
@@ -253,7 +293,7 @@
         for(const p of parts){const f=tints.get(p.name);if(!f||!p.colors)continue;for(let i=0;i<p.positions.length/3;i++){const v=f([p.positions[i*3],p.positions[i*3+1],p.positions[i*3+2]]);if(v===1)continue;for(let k=0;k<3;k++)p.colors[i*3+k]=Array.isArray(v)?v[k]:p.colors[i*3+k]*v;}}
     }
     // Parts the runtime, the finish or saved data address by name stay whole.
-    const KEEP=new Set(['Sculpted body shell','Access door','Formed wheel arches','Access step','Step supports','Vehicle markings','Vehicle lettering','Outboard cargo pods','Turbine casings']),KEEP_PATTERN=/divider|mullion/i;
+    const KEEP=new Set(['Sculpted body shell','Access door','Formed wheel arches','Access step','Step supports','Vehicle markings','Vehicle lettering','Outboard cargo pods','Turbine casings']),KEEP_PATTERN=/divider|mullion|^Steering /i;
     // A merged group takes this name when one of its members has it.
     const ADOPT=['Cabin seat upholstery','Cabin steering wheel','Tail lamp lens'];
     /** Draw-call consolidation: after the coating bake, parts that share one
@@ -314,6 +354,9 @@
         if(['hover','shuttle'].includes(f))out+=this._select('flightFit','Flight equipment',[['transport','Transport'],['interceptor','Interceptor'],['cargo','Cargo hauler']]);
         if(f==='drone')out+=this._select('rotorGuard','Rotor protection',[['ring','Duct ring'],['cage','Safety cage'],['open','Open rotor']]);
         if(f==='walker')out+=this._select('tool','Tool',[['claw','Claw'],['welder','Welder'],['none','None']]);
+        // Preview of what moves (the saved model plays its rules in game: Doors open/close, Gear up/down, fans and wheels).
+        const motions=[['none','Parked (still)'],...(car?[['doors','Doors swinging open']]:[]),...(ground?[['drive','Wheels rolling']]:[]),...(['hover','shuttle'].includes(f)?[['gear','Landing gear folding']]:[]),...(['hover','drone'].includes(f)?[['fly','Fans and rotors spinning']]:[])];
+        if(motions.length>1)out+=this._select('motion','Vehicle motion preview',motions);
         return out;
     },act(act,b){if(this._designAct)this._designAct(act,b);},reset:r=>fromPreset(r.form),moves:()=>false});
 })(typeof window!=='undefined'?window:globalThis);

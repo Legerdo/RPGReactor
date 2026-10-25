@@ -893,7 +893,8 @@ class PropBuilder {
      */
     _playClip(result) {
         const view = this._view;
-        const clip = !RRPropModel.moves(result) && result.clips && result.clips[0];
+        // A vehicle's previewClips: the motion its Details tab picks, played here only (the game plays its rules).
+        const clips = result.previewClips || result.clips, clip = !RRPropModel.moves(result) && clips && clips[0];
         const key = clip ? view.structure + '|' + clip.tracks.map(t => t.bone + t.path + Array.from(t.times || clip.times).join(',')).join('|') : null;
         if (view.clipKey === key && (view.clipAction || !clip)) return;
         if (view.clipAction) { view.clipAction.stop(); view.clipAction = null; }

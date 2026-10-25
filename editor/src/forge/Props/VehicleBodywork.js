@@ -57,12 +57,18 @@
     }
     /** Pressed window aperture: structural surround, rolled edge and seated
      * gasket. The broad pillars are sheet bodywork instead of round scaffold. */
-    function windowFrame(c,corners,bulge,name='Window aperture',margin=.07){
+    // `span` [u0,u1]: the frame around only that stretch of the pane (a door's own window, a quarter light),
+    // its sides as thick as its top and bottom, on the whole pane's curvature.
+    function windowFrame(c,corners,bulge,name='Window aperture',margin=.07,span=null){
         const [a,b,d,e]=corners,normal=norm(cross(sub(b,a),sub(e,a))),thickness=Math.min(c.W*.010,c.H*.016),at=(u,v,depth)=>add(add(scale(add(scale(a,1-u),scale(b,u)),1-v),scale(add(scale(e,1-u),scale(d,u)),v)),scale(normal,bulge*Math.sin(pi*u)*Math.sin(pi*v)+depth));
-        const loop=(inset,radius,depth)=>{const pts=[],lo=inset,hi=1-inset;for(const [x,y,start]of [[hi-radius,lo+radius,-pi/2],[hi-radius,hi-radius,0],[lo+radius,hi-radius,pi/2],[lo+radius,lo+radius,pi]])for(let j=0;j<=6;j++){const t=start+j/6*pi/2;pts.push(at(x+radius*Math.cos(t),y+radius*Math.sin(t),depth));}return pts;};
+        const [u0,u1]=span||[0,1],ku=span?Math.hypot(...sub(e,a))/Math.max(1e-6,Math.hypot(...sub(b,a))*(u1-u0)):1,U=x=>u0+(u1-u0)*x;
+        // A stretch too short for its frame's sides (they would cross) gets none: the dividers frame it.
+        if(span&&ku*(margin+.06)>.42)return normal;
+        const loop=(inset,radius,depth)=>{const pts=[],lo=inset,hi=1-inset,lx=inset*ku,hx=1-inset*ku,rx=radius*ku;for(const [x,y,start]of [[hx-rx,lo+radius,-pi/2],[hx-rx,hi-radius,0],[lx+rx,hi-radius,pi/2],[lx+rx,lo+radius,pi]])for(let j=0;j<=6;j++){const t=start+j/6*pi/2;pts.push(at(U(x+rx*Math.cos(t)),y+radius*Math.sin(t),depth));}return pts;};
+        const centre=at(U(.5),.5,0);
         const ring=(kind,inner,outer,front,back,label)=>{const g=new CM.Geo(),A=loop(outer,.035,front),B=loop(inner,.045,front),C=loop(outer,.035,back),D=loop(inner,.045,back);
             for(let j=0;j<A.length;j++){const k=(j+1)%A.length;g.poly([A[j],A[k],B[k],B[j]],null,normal);g.poly([C[j],D[j],D[k],C[k]],null,scale(normal,-1));
-                const outside=norm(sub(scale(add(A[j],A[k]),.5),scale(add(a,d),.5)));g.poly([A[j],C[j],C[k],A[k]],null,outside);g.poly([B[j],B[k],D[k],D[j]],null,scale(outside,-1));}
+                const outside=norm(sub(scale(add(A[j],A[k]),.5),centre));g.poly([A[j],C[j],C[k],A[k]],null,outside);g.poly([B[j],B[k],D[k],D[j]],null,scale(outside,-1));}
             c.put(kind,CM.smoothNormals(g.done(),.8),label);
         };
         ring('paint',margin,0,thickness*.45,-thickness*.55,name+' formed surround');
@@ -82,6 +88,59 @@
         }
         for(const [u0,u1]of us){const q=[P(u0,vs[0]),P(u1,vs[0]),P(u1,vs[1]),P(u0,vs[1])];c.put('glass',c.glazing(q.map(p=>add(p,scale(inward,t*1.6))),0),name+' glass');windowFrame(c,q,0,name,.10);}
     }
+    /** Where the door's glass stops ahead (0..1 along the side pane): the
+     * hinge line, so the glass swings with the door and never through the pillar. */
+    function doorGlassFront(c){const {front,rear,door}=c;return Math.max(doorGlassRear(c),Math.min(1,(door.front-.012-rear)/Math.max(1e-6,front-rear)));}
+    function doorGlassRear(c){const {rf,rr,L}=c,z=Math.max(rr+(.12*(rf-rr)),Math.min(rf-.12*(rf-rr),c.door.rear));return (z-rr)/(rf-rr);}
+    /** Flat side glass in three panes: the rear quarter, the door's own glass
+     * (its own part, "Door left glass" / "Door right glass") and, when the door
+     * stops short of the pillar, a fixed front quarter light. */
+    function sideGlass(c,p,sign,bulge=0){
+        const [a,b,d,e]=p,n=norm(cross(sub(b,a),sub(e,a))),forward=b[2]>a[2],ur=doorGlassRear(c),uf=doorGlassFront(c),U=t=>forward?t:1-t,thick=.006;
+        // The whole pane's laminated shape, cut into spans along u: each span keeps the pane's own curvature.
+        const at=(u,v,back)=>{const bottom=add(scale(a,1-u),scale(b,u)),top=add(scale(e,1-u),scale(d,u));return add(add(scale(bottom,1-v),scale(top,v)),scale(n,bulge*Math.sin(u*pi)*Math.sin(v*pi)-(back?thick:0)));};
+        const span=(u0,u1)=>{const g=new CM.Geo(),su=Math.max(2,Math.round(12*(u1-u0))),sv=12,uu=i=>u0+(u1-u0)*i/su;
+            for(let j=0;j<sv;j++)for(let i=0;i<su;i++){const v=j/sv,vv=(j+1)/sv,f=[at(uu(i),v),at(uu(i+1),v),at(uu(i+1),vv),at(uu(i),vv)];let nn=norm(cross(sub(f[1],f[0]),sub(f[3],f[0])));if(dot(nn,n)<0)nn=scale(nn,-1);g.poly(f,null,nn);g.poly([at(uu(i),v,1),at(uu(i),vv,1),at(uu(i+1),vv,1),at(uu(i+1),v,1)],null,scale(nn,-1));}
+            const edge=(P,Q,out)=>g.poly([P(false),Q(false),Q(true),P(true)],null,out);
+            for(let i=0;i<su;i++){edge(k=>at(uu(i),0,k),k=>at(uu(i+1),0,k),norm(sub(a,e)));edge(k=>at(uu(i+1),1,k),k=>at(uu(i),1,k),norm(sub(e,a)));}
+            for(let j=0;j<sv;j++){edge(k=>at(u0,(j+1)/sv,k),k=>at(u0,j/sv,k),norm(sub(a,b)));edge(k=>at(u1,j/sv,k),k=>at(u1,(j+1)/sv,k),norm(sub(b,a)));}
+            return CM.smoothNormals(g.done(),.9);};
+        const spans=[[0,ur,''],[ur,uf,'door'],[uf,1,'']].filter(([u0,u1])=>u1-u0>.01);
+        for(const [u0,u1,kind]of spans){const A=U(u0),B=U(u1);c.put('glass',span(Math.min(A,B),Math.max(A,B)),kind?'Door '+(sign>0?'left':'right')+' glass':undefined);}
+    }
+    /** Belt-line weatherstrip: a rubber channel from the door's top edge onto
+     * the glass, hiding the ledge and shut line between them, so the glass
+     * is sealed into the door. The door's length is its own part. */
+    function beltSeal(c,sign){
+        const {W,H,hood,bw,rw,roofY,front,rear,door,bodyProfile:p,put}=c;if(!p)return;
+        const glassX=y=>bw+(rw-bw)*(y-hood)/Math.max(1e-6,roofY-hood),ur=doorGlassRear(c),uf=doorGlassFront(c);
+        const z0=rear+.08,z1=front-.04,zr=mix(rear,front,ur),zf=mix(rear,front,uf);
+        const run=(a,b,name)=>{
+            // Only where there is a ledge to seal: a tapering tail has the glass meeting the flank directly.
+            while(a<b&&p.width(a)*.95<bw+.03)a+=.01;while(b>a&&p.width(b)*.95<bw+.03)b-=.01;
+            if(b-a<.25)return;const n=Math.max(4,Math.ceil((b-a)/.05)),rings=[];
+            for(let i=0;i<=n;i++){
+                const z=a+(b-a)*i/n,w=p.width(z),yg=c.surfaceY(bw,z),xg=glassX(yg),xo=Math.max(w*Math.min(.975,(p.faceted?.945:.95)+.018),xg+.014),yo=c.surfaceY(xo,z),t=Math.min(.008,H*.006);
+                // A convex section (an ellipse sheared along the ledge): always a simple outline, so the strip and
+                // its caps wind one way. Its inner end swallows the glass's foot; its outer end covers the shut line.
+                const cx=(xo+xg)/2,hw=(xo-xg)/2+.003,slope=(yo-yg)/Math.max(1e-6,xo-xg),cy=(yo+yg)/2+t*.5;
+                rings.push(Array.from({length:12},(_,j)=>{const ang=j/12*2*pi,x=cx+hw*Math.cos(ang);return[sign*x,cy+(x-cx)*slope+t*Math.sin(ang),z];}));
+            }
+            const g=new CM.Geo(),m=rings[0].length;
+            // One winding for the whole strip: the section's turning sense (signed area in x, y) says which side is out.
+            let area=0;for(let j=0;j<m;j++){const a=rings[0][j],b=rings[0][(j+1)%m];area+=a[0]*b[1]-b[0]*a[1];}const out=area>0?1:-1;
+            for(let i=0;i<n;i++)for(let j=0;j<m;j++){const k=(j+1)%m,q=[rings[i][j],rings[i][k],rings[i+1][k],rings[i+1][j]];if(out<0)q.reverse();g.poly(q,null,norm(cross(sub(q[1],q[0]),sub(q[3],q[0]))));}
+            // End caps fanned from the section's centre, one triangle at a time.
+            for(const [ring,dir]of [[rings[0],-1],[rings[n],1]]){const ctr=scale(ring.reduce((s,q)=>add(s,q),[0,0,0]),1/m);for(let j=0;j<m;j++){const k=(j+1)%m,t=(dir<0)===(out>0)?[ctr,ring[k],ring[j]]:[ctr,ring[j],ring[k]];g.poly(t,null,[0,0,dir]);}}
+            // A closed strip faces out when its signed volume is positive; turned the other way, every face is reversed.
+            const mesh=g.done(),P=mesh.positions,I=mesh.index;let vol=0;
+            for(let t=0;t<I.length;t+=3){const a=I[t]*3,b=I[t+1]*3,d=I[t+2]*3;vol+=P[a]*(P[b+1]*P[d+2]-P[b+2]*P[d+1])-P[a+1]*(P[b]*P[d+2]-P[b+2]*P[d])+P[a+2]*(P[b]*P[d+1]-P[b+1]*P[d]);}
+            if(vol<0){for(let t=0;t<I.length;t+=3){const x=I[t+1];I[t+1]=I[t+2];I[t+2]=x;}for(let k=0;k<mesh.normals.length;k++)mesh.normals[k]=-mesh.normals[k];}
+            put('rubber',CM.smoothNormals(mesh,.6),name);
+        };
+        const side=sign>0?'left':'right';
+        run(z0,zr-.004,'Belt weatherstrip');run(zr+.004,Math.min(zf-.004,door.front-.006),'Door '+side+' belt seal');run(zf+.004,z1,'Belt weatherstrip');
+    }
     function roadWindows(c){
         const {W,H,hood,front,rear,rf,rr,rw,bw,roofY,r,put,glazing,sheet}=c;
         const lf=[-bw,hood,front],rfb=[bw,hood,front],lft=[-rw,roofY,rf],rft=[rw,roofY,rf],lrb=[-bw,hood,rear],rrb=[bw,hood,rear],lrt=[-rw,roofY,rr],rrt=[rw,roofY,rr];
@@ -90,7 +149,11 @@
         const small=!!(DESIGN[r.form]&&DESIGN[r.form].smallWindows);
         for(let i=0;i<panes.length;i++){const p=panes[i],bulge=flat?0:i===0?W*.025:i<2?0:W*.008;
             if(small&&i>0){apertures(c,p,i===1?[[.34,.66]]:[[.07,.24],[.35,.52],[.69,.87]].map(([a,b])=>i===3?[1-b,1-a]:[a,b]).sort((x,y)=>x[0]-y[0]),i===1?[.42,.84]:[.30,.80],['Windscreen','Rear window','Right window','Left window'][i]);continue;}
-            put('glass',glazing(p,bulge));windowFrame(c,p,bulge,['Windscreen','Rear window','Right window','Left window'][i],margin);}
+            if(i<2){put('glass',glazing(p,bulge));windowFrame(c,p,bulge,['Windscreen','Rear window'][i],margin);continue;}
+            // Side panes: the rear quarter, the door's window (glass and frame go with the door) and a front quarter light.
+            const sign=i===3?1:-1,side=sign>0?'left':'right',forward=p[1][2]>p[0][2],ur=doorGlassRear(c),uf=doorGlassFront(c);
+            sideGlass(c,p,sign,bulge);
+            for(const [a0,a1,label]of [[0,ur,['Right window','Left window'][i-2]],[ur,uf,'Door '+side+' window'],[uf,1,['Right window','Left window'][i-2]+' quarter']])if(a1-a0>.01){const A=forward?a0:1-a1,B=forward?a1:1-a0;windowFrame(c,p,bulge,label,margin,[A,B]);}}
         // Armored: slatted guards over the side glass, standing off the frame.
         if(r.bodyStyle==='armored'&&!small)for(const i of [2,3]){const [a,b,d,e]=panes[i],n=norm(cross(sub(b,a),sub(e,a))),out=dot(n,[a[0],0,0])<0?scale(n,-1):n,off=scale(out,W*.022),P=(u,v)=>add(add(scale(add(scale(a,1-u),scale(b,u)),1-v),scale(add(scale(e,1-u),scale(d,u)),v)),off);
             for(const v of [.25,.5,.75])c.tube('trim',[P(.05,v),P(.95,v)],W*.0065,'Window guards');for(const u of [.04,.96]){c.tube('trim',[P(u,.04),P(u,.96)],W*.008,'Window guards');for(const v of [.04,.96])c.tube('trim',[add(P(u,v),scale(out,-W*.02)),P(u,v)],W*.006,'Window guard posts');}}
@@ -98,6 +161,9 @@
             const z=Math.max(rr+(.12*(rf-rr)),Math.min(rf-.12*(rf-rr),c.door.rear)),t=(z-rr)/(rf-rr),bottom=[sign*bw,hood,mix(rear,front,t)],top=[sign*rw,roofY,z],half=Math.min(c.L*.022,(front-rear)*.06);
             sheet('paint',[[bottom[0],bottom[1],bottom[2]-half],[bottom[0],bottom[1],bottom[2]+half],[top[0],top[1],top[2]+half],[top[0],top[1],top[2]-half]],W*.014,'Door window divider');
             const F=CM.frame([sign*W*.56,hood+H*.11,front-c.L*.055],[0,0,-sign],[0,1,0]);put('glass',CM.slab(CM.rect(0,0,c.L*.026,H*.052),F,W*.004,.005,true),'Mirror glass');
+            const uf=doorGlassFront(c);
+            if(uf<.985&&!small){const zb=mix(rear,front,uf),zt=mix(rr,rf,uf);sheet('paint',[[sign*bw,hood,zb-half*.7],[sign*bw,hood,zb+half*.7],[sign*rw,roofY,zt+half*.7],[sign*rw,roofY,zt-half*.7]],W*.014,'Door window divider');}
+            if(!small)beltSeal(c,sign);
         }
     }
     /** Road vehicle classes, reverse-engineered from real proportions.
@@ -266,6 +332,8 @@
         }
         put('dark',gaps.done(),'Panel shut lines');
         c.bodyProfile=p;
+        // Height of the painted top surface (bonnet, deck, roof line) at x, z, for parts seated on it.
+        c.surfaceY=(x,z)=>p.topFace(z,Math.min(1,Math.abs(x)/Math.max(1e-6,p.width(z))));
         // Surface x of the +x flank at a station and height, for fittings.
         c.sideAt=(z,y)=>{const pts=roadAnchors(c,p,z);for(let k=2;k+1<pts.length;k++){const a=pts[k],b=pts[k+1];if(y<=b[1]||b[3]==='doorTop'){if(y<=a[1])return a[0];const t=(y-a[1])/Math.max(1e-9,b[1]-a[1]);return mix(a[0],b[0],Math.min(1,t));}}return pts[2][0];};
     }
@@ -680,10 +748,45 @@
         }
         HW.fittings(c,anchors,r.detailDensity??.6,3);
     }
+    /** Lays a part built over y=0 onto a surface: every point rises by the
+     * surface height under it, less `sink` (so its underside is buried, never
+     * floating). `base` is the y the part was built on. Returns the mesh. */
+    function drape(mesh,surface,base=0,sink=0){
+        const P=mesh.positions;for(let i=0;i<P.length;i+=3)P[i+1]+=surface(P[i],P[i+2])-base-sink;return mesh;
+    }
+    /** A closed slab between two matching point grids (outer O and inner I, [i][j]): faces, edges, and
+     * the whole turned to face out by its signed volume. */
+    function gridSlab(O,I){
+        const g=new CM.Geo(),n=O.length,m=O[0].length,quad=q=>g.poly(q,null,norm(cross(sub(q[1],q[0]),sub(q[3],q[0]))));
+        for(let i=0;i+1<n;i++)for(let j=0;j+1<m;j++){quad([O[i][j],O[i+1][j],O[i+1][j+1],O[i][j+1]]);quad([I[i][j],I[i][j+1],I[i+1][j+1],I[i+1][j]]);}
+        for(let i=0;i+1<n;i++){quad([O[i][0],I[i][0],I[i+1][0],O[i+1][0]]);quad([O[i][m-1],O[i+1][m-1],I[i+1][m-1],I[i][m-1]]);}
+        for(let j=0;j+1<m;j++){quad([O[0][j],O[0][j+1],I[0][j+1],I[0][j]]);quad([O[n-1][j],I[n-1][j],I[n-1][j+1],O[n-1][j+1]]);}
+        const mesh=g.done(),P=mesh.positions,X=mesh.index;let vol=0;
+        for(let t=0;t<X.length;t+=3){const a=X[t]*3,b=X[t+1]*3,d=X[t+2]*3;vol+=P[a]*(P[b+1]*P[d+2]-P[b+2]*P[d+1])-P[a+1]*(P[b]*P[d+2]-P[b+2]*P[d])+P[a+2]*(P[b]*P[d+1]-P[b+1]*P[d]);}
+        if(vol<0){for(let t=0;t<X.length;t+=3){const x=X[t+1];X[t+1]=X[t+2];X[t+2]=x;}for(let k=0;k<mesh.normals.length;k++)mesh.normals[k]=-mesh.normals[k];}
+        return CM.smoothNormals(mesh,.7);
+    }
+    /** The door's body behind its skin: a full-thickness inner door card (trim panel) with an armrest,
+     * a pull handle and a speaker grille, all the door's own parts ("Door left card", ...), so an
+     * open door reads as a door edge-on and from inside the cabin. */
+    function doorCard(c,sign){
+        const {W,H,door,put,box,bodyProfile:p}=c;if(!p||!c.sideAt)return;
+        const side=sign>0?'left':'right',T=Math.max(.05,W*.035),gap=Math.max(.004,W*.003),z0=door.rear+gap*2,z1=door.front-gap*2,low=door.low+gap*2;
+        const top=z=>c.surfaceY(p.width(z)*(p.faceted?.94:.945),z)-gap,nz=12,ny=8,O=[],I=[];
+        for(let i=0;i<=nz;i++){const z=z0+(z1-z0)*i/nz,yt=top(z),o=[],q=[];for(let j=0;j<=ny;j++){const y=low+(yt-low)*j/ny,x=c.sideAt(z,y);o.push([sign*(x-.003),y,z]);q.push([sign*(x-T),y,z]);}O.push(o);I.push(q);}
+        put('trim',gridSlab(O,I),'Door '+side+' card');
+        const at=(fz,fy,inset)=>{const z=z0+(z1-z0)*fz,y=low+(top(z)-low)*fy;return[sign*(c.sideAt(z,y)-T-inset),y,z];};
+        const arm=at(.5,.56,.025);box('seat',arm,[.05,Math.min(.06,H*.04),(z1-z0)*.55],.012,'Door '+side+' armrest');
+        const pull=at(.80,.70,.012);box('metal',pull,[.018,.022,Math.min(.12,(z1-z0)*.14)],.006,'Door '+side+' pull handle');
+        const sp=at(.78,.24,0),F=CM.frame(sp,[0,0,sign>0?1:-1],[0,1,0]),R=Math.min(.075,(top(z1)-low)*.16);
+        put('metal',CM.revolveOn(F,0,0,[[R*1.12,-.002],[R*1.12,.006],[R*.98,.008],[R*.98,-.002]],28),'Door '+side+' speaker grille');
+        put('dark',CM.revolveOn(F,0,0,[[0,.004],[R,.004],[R,.006],[0,.006]],28),'Door '+side+' speaker grille');
+    }
     function roadDetails(c){
         const {r,W,H,L,R,hood,base,roofY,rf,rr,rw,bw,cabinZ,cabinL,door,box,tube,sheet,put,bodyProfile:p}=c;
         const sport=r.form==='sport',utility=['truck','rover'].includes(r.form);
         // Character lines follow the coachwork, including the changing width.
+        if(r.interior!==false)for(const s of [-1,1])doorCard(c,s);
         for(const s of [-1,1]){
             // The door is cut from the shell itself: its shut lines and the
             // shoulder crease replace the former pasted skin and seal tubes.
@@ -739,10 +842,12 @@
         roadFittings(c);
         if(!r.details)return;
         if(utility&&r.bodyStyle!=='armored'){
+            // Seated on the bonnet: each piece is laid on the panel's own
+            // crown and slope (drape), its underside sunk a little into it.
             for(const s of [-1,1]){
-                const y=hood+H*.034,z=L*.34;
-                box('trim',[s*W*.25,y,z],[W*.20,H*.018,L*.15],.012,'Bonnet cooling recess');
-                for(let j=0;j<7;j++)box('armor',[s*W*.25,y+H*.013,z+(j-3)*L*.016],[W*.17,H*.010,L*.009],.004,'Bonnet louvers');
+                const z=L*.34,t=H*.018,sink=Math.min(.004,t*.2);
+                drape(box('trim',[s*W*.25,t/2,z],[W*.20,t,L*.15],.012,'Bonnet cooling recess'),c.surfaceY,0,sink);
+                for(let j=0;j<7;j++)drape(box('armor',[s*W*.25,t+H*.005-.002,z+(j-3)*L*.016],[W*.17,H*.010,L*.009],.004,'Bonnet louvers'),c.surfaceY,0,sink);
             }
         }
         const z=-L*.497;
@@ -758,8 +863,9 @@
         if(r.form==='truck'){
             const bed=c.panels.bed,bz=(bed.rear+bed.front)/2,bedL=bed.front-bed.rear;
             for(let j=0;j<9;j++)box('metal',[(j-4)*W*.072,bed.floor+H*.0045,bz],[W*.016,H*.009,bedL*.90],.003,'Bed floor ribs');
-            for(const s of [-1,1])for(const zz of [-L*.44,-L*.18])tube('metal',[[s*W*.39,hood+H*.09,zz],[s*W*.36,hood+H*.11,zz],[s*W*.34,hood+H*.09,zz]],W*.007,'Bed tie-downs');
-            box('trim',[0,hood+H*.10,-L*.488],[W*.16,H*.025,.014],.006,'Tailgate latch');
+            // Tie-down loops stand on the rails' inner faces; the latch sits on the tailgate's outer skin.
+            for(const s of [-1,1])for(const zz of [-L*.44,-L*.18])tube('metal',[[s*W*.383,hood+H*.10,zz-L*.008],[s*W*.362,hood+H*.10,zz-L*.006],[s*W*.355,hood+H*.10,zz],[s*W*.362,hood+H*.10,zz+L*.006],[s*W*.383,hood+H*.10,zz+L*.008]],W*.007,'Bed tie-downs');
+            box('trim',[0,hood+H*.10,bed.rear-.005],[W*.16,H*.025,.014],.006,'Tailgate latch');
         }
     }
     /** Lamp kit: a pocket in a housing, then for each lamp a bezel ring,
@@ -827,8 +933,8 @@
         const at=(x,yy)=>CM.frame([x,yy,mount],[1,0,0],[0,1,0]),lampW=W*.215,lampX=W*.2675,grilleW=2*(lampX-lampW/2);
         const g=CM.bezel(at(0,cy),grilleW,fh,depth,border,recess);put('trim',g.housing,'Front fascia');put('dark',g.floor,'Radiator cavity');
         const slats=utility?7:6,inner=fh-border*2;
-        if(utility)for(let j=0;j<9;j++)box('metal',[(j-4)*g.width/9,cy,mount+depth-recess+recess*.45],[g.width/9*.22,inner*.96,recess*.90],.003,'Radiator grille');
-        for(let j=0;j<slats;j++)box(utility?'trim':'metal',[0,cy+(j-(slats-1)/2)*inner/slats,mount+depth-recess*.45],[g.width*.98,inner/slats*.30,recess*.70],.002,'Radiator grille');
+        if(utility)for(let j=0;j<9;j++)box('metal',[(j-4)*g.width/9,cy,mount+depth-recess+recess*.47],[g.width/9*.22,inner*1.01,recess*.96],.003,'Radiator grille');
+        for(let j=0;j<slats;j++)box(utility?'trim':'metal',[0,cy+(j-(slats-1)/2)*inner/slats,mount+depth-recess*.505],[g.width*1.012,inner/slats*.30,recess*.98],.002,'Radiator grille');
         // Lamps match the body style: Rounded keeps each form's own, Faceted
         // wears LED bars (projectors on the coupe), Armored caged lamps.
         const lamps=style==='armored'?'caged':style==='faceted'?(sport?'projector':'bar'):r.form==='sport'?'projector':r.form==='truck'?'bar':r.form==='rover'?'caged':'round';
@@ -853,7 +959,7 @@
             if(style==='rounded'){put('trim',shell([[front-L*.025,W*.43,yy,H*.042],[front+L*.010,W*.43,yy,H*.032],[front+L*.020,W*.39,yy,H*.021]],3,32),'Contoured front bumper');box('trim',[0,yy,-L*.50],[W*.80,H*.065,L*.035],.020,'Rear bumper');}
             else{
                 // Chamfered beam bumpers on short brackets.
-                const beam=(z,dir,name)=>{put('trim',HS.plate(HS.cut(HS.rect(-W*.44,-H*.042,W*.44,H*.042),[H*.03,H*.012,H*.012,H*.03]),L*.032,H*.010,{frame:CM.frame([0,yy,z+dir*L*.016],[dir,0,0],[0,1,0])}),name);for(const x of [-W*.26,W*.26])put('frame',HS.plate(HS.rect(-W*.03,-H*.025,W*.03,H*.025),L*.04,0,{frame:CM.frame([x,yy,z-dir*L*.01],[dir,0,0],[0,1,0])}),name+' brackets');};
+                const beam=(z,dir,name)=>{put('trim',HS.plate(HS.cut(HS.rect(-W*.44,-H*.042,W*.44,H*.042),[H*.03,H*.012,H*.012,H*.03]),L*.032,H*.010,{frame:CM.frame([0,yy,z+dir*L*.016],[dir,0,0],[0,1,0])}),name);for(const x of [-W*.26,W*.26])put('frame',HS.plate(HS.rect(-W*.03,-H*.025,W*.03,H*.025),L*.07,0,{frame:CM.frame([x,yy,z-dir*L*.04],[dir,0,0],[0,1,0])}),name+' brackets');};
                 beam(front-L*.012,1,'Contoured front bumper');beam(-L*.488,-1,'Rear bumper');
             }
             if(utility){
@@ -861,8 +967,8 @@
                 const gx=grilleW/2,gz=mount+depth+.03,gt=cy+fh/2+H*.012;
                 for(const s of [-1,1])tube('metal',[[s*gx,yy,front+.050],[s*gx,cy-fh*.35,gz],[s*gx,gt-H*.02,gz],[s*gx*.92,gt,gz]],W*.012,'Brush guard');
                 tube('metal',[[-gx*.92,gt,gz],[gx*.92,gt,gz]],W*.011,'Brush guard');tube('metal',[[-gx,cy-fh*.10,gz],[gx,cy-fh*.10,gz]],W*.008,'Brush guard');
-                box('metal',[0,yy-H*.01,front+L*.026],[W*.35,H*.085,.020],.010,'Front skid plate');
-                if(r.details)for(let j=0;j<5;j++)box('dark',[(j-2)*W*.052,yy-H*.01,front+L*.028+.012],[W*.025,H*.040,.002],.003,'Skid plate slots');
+                const skidZ=front+L*.026-.013;box('metal',[0,yy-H*.01,skidZ],[W*.35,H*.085,.020],.010,'Front skid plate');
+                if(r.details)for(let j=0;j<5;j++)box('dark',[(j-2)*W*.052,yy-H*.01,skidZ+.0095],[W*.025,H*.040,.002],.003,'Skid plate slots');
             }
         }
     }
@@ -960,7 +1066,12 @@
             round(c,'metal',intake,[[R*.71,-.015],[R*.76,0],[R*.70,.015],[R*.57,.017],[R*.51,-.020],[R*.71,-.015]],'Engine intake lips');
             round(c,'dark',intake,[[0,-.025],[R*.55,-.025]],'Engine intake throats');
             for(const z of [-L*.26,L*.23]){
-                const x=s*bw*.82,up=[x,H*.40,z],knee=[x+s*W*.025,H*.17,z-L*.025],foot=[x+s*W*.04,H*.045,z];
+                const x=s*bw*.82,up=[x,H*.40,z],knee=[x+s*W*.025,H*.17,z-L*.025],foot=[x+s*W*.04,H*.045,z];const xm=(x+foot[0])/2,hw=W*.07,wl=L*.13,yb=up[1];
+                // A gear well in the belly and two doors hung from its long edges: open beside the leg while it
+                // stands, swung shut under it once the leg has drawn up into the hull.
+                box('dark',[xm,yb+.003,z],[hw*2,.008,wl],.003,'Landing gear wells');
+                for(const e of [-1,1])box('paint',[xm+e*hw,yb-hw/2,z],[.012,hw,wl*.96],.004,'Landing gear doors');
+                (c.struts||(c.struts=[])).push({at:up.slice(),pad:[foot[0],H*.026,z],reach:Math.max(W*.08,L*.07),well:{x:xm,y:yb,z,hw,lift:yb-H*.004}});
                 tube('trim',[up,knee],H*.025,'Landing strut housings');tube('metal',[knee,foot],H*.014,'Landing pistons');
                 tube('metal',[[x,H*.32,z-L*.045],foot],H*.009,'Landing braces');box('trim',[foot[0],H*.026,z],[W*.095,H*.052,L*.095],.025,'Landing feet');
                 if(r.details&&style!=='rounded')HW.pistonPair(c,[x,H*.36,z+L*.03],[foot[0],H*.07,z+L*.012],H*.007,[0,0,1],'Landing gear dampers');
@@ -971,7 +1082,7 @@
             }else{
                 // Downward lift ducts integrated into each side chine.
                 for(const z of [-L*.16,L*.14]){
-                    const x=s*W*.285,F=CM.frame([x,H*.40,z],[1,0,0],[0,0,-1]),rr=Math.min(W*.115,L*.08)*r.engineSize;
+                    const x=s*W*.285,F=CM.frame([x,H*.40,z],[1,0,0],[0,0,-1]),rr=Math.min(W*.115,L*.08)*r.engineSize;(c.fans||(c.fans=[])).push({at:F.o.slice(),radius:rr});
                     round(c,'paint',F,[[rr*.75,-H*.09],[rr,-H*.07],[rr,H*.015],[rr*.84,H*.035],[rr*.75,H*.02],[rr*.75,-H*.09]],'Lift fan shrouds');
                     round(c,'dark',F,[[0,-H*.05],[rr*.77,-H*.05]],'Lift fan wells');
                     round(c,'metal',F,[[0,-H*.04],[rr*.17,-H*.04],[rr*.17,H*.016],[0,H*.016]],'Lift fan hubs');
@@ -1059,7 +1170,7 @@
         put('secondary',shell([[-L*.345,W*.045,seat+H*.010,H*.018],[-L*.27,W*.145,seat+H*.005,H*.037],[-L*.14,W*.16,seat-H*.025,H*.028]],2.7),'Sculpted tail cowl');
         const radiator=CM.frame([0,H*.51,L*.105],[1,0,0],[0,1,0]);
         put('trim',CM.slab(CM.rect(0,0,W*.40,H*.18),radiator,.018,.007,true),'Radiator surround');
-        for(let j=0;j<11;j++)box('metal',[0,H*.51+(j-5)*H*.013,L*.118],[W*.35,H*.003,.007],.002,'Radiator fins');
+        for(let j=0;j<11;j++)box('metal',[0,H*.51+(j-5)*H*.013,L*.105+.016],[W*.35,H*.003,.007],.002,'Radiator fins');
         for(const s of [-1,1]){
             const z0=-L*.35,z1=-L*.065;
             tube('trim',[[s*W*.17,R,z0],[s*W*.18,H*.35,z1]],W*.041,'Box section swingarm');
@@ -1079,13 +1190,14 @@
         // Armored: bolted guard plates over the tank flanks.
         if(r.bodyStyle==='armored')for(const s of [-1,1]){const x=s*W*.235,y0=seat-H*.11,y1=seat-H*.005,z0=-L*.05,z1=L*.10;HW.armorPlate(c,[[x,y0,z0],[x,y0,z1],[x,y1,z1],[x,y1,z0]],{kind:'armor',name:'Tank guard plates',out:[s,0,0],thickness:W*.02,gap:.006,boltPitch:.12,boltRadius:.006,standoff:.006});}
         if(r.fairing==='naked')return;
-        put('paint',shell([[L*.14,W*.12,H*.85,H*.085],[L*.22,W*.29,H*.84,H*.12],[L*.29,W*.26,H*.84,H*.065],[L*.325,W*.20,H*.835,H*.040]],2.4),'Sculpted nose fairing');
-        put('glass',glazing([[-W*.23,H*.93,L*.27],[W*.23,H*.93,L*.27],[W*.19,H*1.04,L*.15],[-W*.19,H*1.04,L*.15]],H*.014),'Curved windscreen');
+        // The nose sits ahead of the steering head and its bars, wrapping the headlamps; the screen rises from its top.
+        put('paint',shell([[L*.225,W*.12,H*.79,H*.085],[L*.28,W*.29,H*.785,H*.12],[L*.335,W*.26,H*.785,H*.065],[L*.365,W*.20,H*.78,H*.040]],2.4),'Sculpted nose fairing');
+        put('glass',glazing([[-W*.23,H*.855,L*.325],[W*.23,H*.855,L*.325],[W*.19,H*.975,L*.225],[-W*.19,H*.975,L*.225]],H*.014),'Curved windscreen');
         for(const s of [-1,1]){
             const sections=r.fairing==='full'?[[-L*.04,W*.035,H*.52,H*.12],[L*.08,W*.060,H*.53,H*.19],[L*.16,W*.055,H*.65,H*.20],[L*.23,W*.018,H*.78,H*.07]]:[[-L*.04,W*.025,H*.72,H*.035],[L*.08,W*.052,H*.72,H*.065],[L*.17,W*.040,H*.76,H*.09],[L*.23,W*.020,H*.80,H*.055]];
             const m=shell(sections,2.8,40);CM.transform(m,p=>add(p,[s*W*.235,0,0]));put('paint',m,'Side fairings');
-            tube('accent',[[s*W*.28,H*.74,-L*.02],[s*W*.29,H*.77,L*.12],[s*W*.24,H*.83,L*.22]],W*.005,'Fairing character line');
-            const F=CM.frame([s*W*.10,H*.835,L*.326],[1,0,0],[0,1,0]);round(c,'trim',F,[[0,0],[H*.028,0],[H*.028,.008],[0,.008]],'Fairing headlamp mounts',40);round(c,r.lights?'light':'dark',F,[[0,.009],[H*.021,.009],[H*.021,.012],[0,.012]],'Fairing headlamps',40);
+            tube('accent',[[s*W*.28,H*.74,-L*.02],[s*W*.29,H*.77,L*.12],[s*W*.25,H*.78,L*.22]],W*.005,'Fairing character line');
+            const F=CM.frame([s*W*.10,H*.78,L*.366],[1,0,0],[0,1,0]);round(c,'trim',F,[[0,0],[H*.028,0],[H*.028,.008],[0,.008]],'Fairing headlamp mounts',40);round(c,r.lights?'light':'dark',F,[[0,.009],[H*.021,.009],[H*.021,.012],[0,.012]],'Fairing headlamps',40);
         }
     }
     function drone(c){
@@ -1336,5 +1448,5 @@
             }
         }
     }
-    const api={DESIGN,shell,loft,pressed,filletBox,contour,windowFrame,roadWindows,roadProfile,roadBody,roadAnchors,lampUnit,wheel,RIM_STYLES,roadDetails,roadFace,section,flight,seatUnit,openSkin,turbine,round,bike,drone,walker,grille,cabin};root.RRVehicleBodywork=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
+    const api={DESIGN,drape,shell,loft,pressed,filletBox,contour,windowFrame,roadWindows,roadProfile,roadBody,roadAnchors,lampUnit,wheel,RIM_STYLES,roadDetails,roadFace,section,flight,seatUnit,openSkin,turbine,round,bike,drone,walker,grille,cabin};root.RRVehicleBodywork=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
