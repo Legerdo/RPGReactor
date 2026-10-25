@@ -6774,10 +6774,13 @@ class Database3DEditor {
             const isLight = raw && raw.type === 'light';
             const playable = raw && (raw.type === 'video' ? !!(raw.video && raw.video.file)
                 : isLight ? true : Number(raw.animation) > 0);
-            if (!raw || !trigger || trigger === 'action' || !playable) return;
+            // A media surface played on demand (a picture a map's model calls by name) shows too: it is
+            // part of how the model looks. Skipped, it was a placement outline with nothing in it.
+            const onDemandSurface = raw && raw.type === 'video' && (!trigger || trigger === 'action');
+            if (!raw || !playable || (!onDemandSurface && (!trigger || trigger === 'action'))) return;
             // Only what the variant in view wears; the effect in hand always shows.
             if (this.variantsPanel && index !== this.selectedEffect && !this.variantsPanel.shows(raw)) return;
-            const active = trigger === 'always'
+            const active = onDemandSurface || trigger === 'always'
                 || (trigger === 'moving' && moving)
                 || (trigger === 'walking' && moving && !dashing)
                 || (trigger === 'dashing' && dashing)
