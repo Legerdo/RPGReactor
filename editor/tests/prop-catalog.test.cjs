@@ -12,7 +12,7 @@ const root = path.join(__dirname, '..');
 global.THREE = require(path.join(root, 'node_modules', 'three'));
 global.rrEscapeHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const props = path.join(root, 'src', 'forge', 'Props');
-const FILES = ['PropCloth', 'PropPaint', 'PropMesh', 'PropRandom', 'PropCatalog', 'FlagDesign', 'FlagProp', 'PropModel', 'SpanProp', 'FramedProp', 'PictureProp', 'AccessoryProp', 'SwordProp', 'GunProp', 'ContainerProp', 'FurnitureProp', 'VehicleProp'];
+const FILES = ['PropCloth', 'PropPaint', 'PropMesh', 'PropRandom', 'PropCatalog', 'FlagDesign', 'FlagProp', 'PropModel', 'SpanProp', 'FramedProp', 'PictureProp', 'AccessoryProp', 'SwordProp', 'GunProp', 'ContainerProp', 'FurnitureProp', 'VehicleProp', 'WeaponKit', 'HaftedProp', 'StaffProp', 'RangedProp', 'ShieldProp'];
 const present = FILES.filter(f => fs.existsSync(path.join(props, f + '.js')));
 for (const f of present) require(path.join(props, f + '.js'));
 const Catalog = require(path.join(props, 'PropCatalog.js'));
@@ -26,7 +26,7 @@ test.before(async () => { await Accessory.prepare(); });
 
 const startOf = type => Model.normalize(type.start(Model.normalize({ kind: type.kind })));
 const CLOTH = new Set(['flag', 'span']);
-const budgetOf = kind => kind==='vehicle'?180000:kind==='furniture'?180000:kind==='accessory'?80000:kind==='sword'?50000:kind==='gun'?45000:12000;
+const budgetOf = kind => kind==='vehicle'?180000:kind==='furniture'?180000:kind==='accessory'?80000:kind==='sword'?50000:kind==='gun'?45000:['hafted','staff','bow','shield'].includes(kind)?25000:12000;
 
 /**
  * Every part welded together and split into connected shells. A shell is

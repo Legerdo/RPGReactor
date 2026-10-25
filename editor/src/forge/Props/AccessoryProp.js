@@ -118,14 +118,15 @@
     if(typeof module!=='undefined'&&module.exports)module.exports=api;
     Model.register({id:'accessory',label:'Equipment',...api});
     // Where each accessory is listed: a group in Wearables, Weapons or Tools & Gear. Swords and daggers
-    // are made by the Sword kind and books by Framed, so those stay unlisted (their saved recipes still open).
+    // are made by the Sword kind, books by Framed, and axes, spears, staffs, bows and shields by the
+    // weapon kinds (Hafted, Staff, Bow, Shield), so those stay unlisted (their saved recipes still open).
     const GROUPS={
         hats:['wearables','Hats',61],face:['wearables','Face',62],masks:['wearables','Masks',63],jewelry:['wearables','Jewelry & Ties',64],
         back:['wearables','Capes & Packs',65],hands:['wearables','Nails & Claws',66],melee:['weapons','Axes, Bows & Shields',44],
         bags:['gear','Bags',71],tools:['gear','Tools',72],instruments:['gear','Instruments',73],sports:['gear','Sports',74],other:['gear','Other',79]
     };
     const FROM_GROUP={Hats:'hats',Face:'face',Masks:'masks',Jewelry:'jewelry',Back:'back','Body details':'hands',Weapons:'melee',Performance:'instruments',Sports:'sports'};
-    const BAGS=new Set(['satchel','beltPouch','canteen','suitcase']),UNLISTED=new Set(['sword','dagger','book']);
+    const BAGS=new Set(['satchel','beltPouch','canteen','suitcase']),UNLISTED=new Set(['sword','dagger','book','axe','spear','staff','bow','shield']);
     const groupOf=def=>def.group==='Bags and tools'?(BAGS.has(def.id)?'bags':'tools'):(FROM_GROUP[def.group]||'other');
     for(const [id,[parent,label,order]] of Object.entries(GROUPS)) Catalog.category({id:'acc-'+id,label,order,parent});
     for(const def of Props.PROPS) Catalog.add({id:'accessory-'+def.id,category:'acc-'+groupOf(def),label:def.label,hidden:UNLISTED.has(def.id),
