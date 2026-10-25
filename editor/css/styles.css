@@ -8022,3 +8022,12 @@ html.rr-detached-window.rr-repaint { clip-path: inset(0 round calc(var(--radius-
 .rr-random-parts-menu label:hover { color: var(--color-accent-bright); }
 .rr-random-parts-menu .rr-random-parts-all { border-bottom: 1px solid var(--color-border-subtle, var(--color-border)); padding-bottom: 5px; margin-bottom: 2px; font-weight: 600; }
 
+
+/* A search field's clear button in the theme's colours: the browser's own is a blue X that ignores the theme. */
+input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none; appearance: none; width: 12px; height: 12px; margin-left: 4px; cursor: pointer;
+    background-color: var(--color-text-muted);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 2.5l7 7M9.5 2.5l-7 7' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 2.5l7 7M9.5 2.5l-7 7' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+input[type="search"]::-webkit-search-cancel-button:hover { background-color: var(--color-accent-bright); }
