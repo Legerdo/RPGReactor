@@ -118,6 +118,7 @@ test('across their settings: the ends of every slider, every choice, still whole
         if (kind === 'staff') recipes.push({ preset: id, glow: true, light: true }, { preset: id, glow: false });
         if (kind === 'bow') recipes.push({ preset: id, arrow: true }, { preset: id, arrow: false, wood: 'pale', metal: 'gold' });
         if (kind === 'shield') for (const [face] of M.FACES) for (const [pattern] of M.PATTERNS) recipes.push({ preset: id, face, pattern, emblem: pattern === 'cross' ? 'skull' : 'star', wear: 1 });
+        if (kind === 'shield') recipes.push({ preset: id, face: 'bare', design: { field: { layout: 'canton' }, layers: [{ shape: 'eagle', place: 'br', repeat: 'ring', count: 7 }, { source: 'picture', image: 'missing.png' }] } });
         for (const r of recipes) {
             const b = Model.build(M.normalize(r)), what = JSON.stringify(r);
             assert.ok(finite(b) && tris(b) <= BUDGET, what + ' ' + tris(b));
@@ -219,6 +220,8 @@ test('the page: styles as one-click tiles, Shuffle, a few sliders, materials; pi
             _section: l => `<div class="rr-c3d-section" data-title="${l}">`, _slider: s => (seen.push(s.path), `<input type="range" data-path="${s.path}">`),
             _select: (p, l, c) => (seen.push(p), `<select data-path="${p}">${c.map(x => x[0]).join(',')}</select>`), _color: p => (seen.push(p), `<button data-act="color" data-path="${p}">`),
             _check: p => (seen.push(p), `<input type="checkbox" data-path="${p}">`), _tiles: (act, items) => items.map(it => `<button data-act="${act}" data-id="${it.id}">`).join(''),
+            // The flags' Design page (PropBuilder._designPanel), as a shield shows it: on its own face, the field only where it is painted.
+            _designPanel: (p, o) => (seen.push(p), `<div data-design="${p}" data-field="${o && o.field !== false}" data-faces="${!!(o && o.key)}">`), _designAct: () => false,
             _replace(r) { this.recipe = Model.normalize(r); }
         };
         let html = '';
@@ -228,6 +231,13 @@ test('the page: styles as one-click tiles, Shuffle, a few sliders, materials; pi
         const sliders = (html.match(/type="range"/g) || []).length;
         assert.ok(sliders >= 2 && sliders <= 4, kind + ' a few sliders: ' + sliders);
         assert.ok(/data-path="[^"]*(length|size)"/.test(html), kind + ' a size');
+        if (kind === 'shield') {
+            assert.ok(html.includes('data-design="design" data-field="true" data-faces="true"'), 'a painted shield: the whole Design page, its tiles on its own face');
+            assert.ok(!/data-path="(pattern|emblem|emblemColor|colors\.\d)"/.test(html), 'no plain pattern or emblem selects left');
+            fake.recipe = M.normalize({ preset: 'energy' });
+            assert.ok(ui.panel.call(fake, 'design').includes('data-field="false"'), 'an energy shield: its emblems only');
+            assert.ok(ui.panel.call(fake, 'look').includes('data-path="glow"'), 'an energy shield keeps its glow color');
+        }
         // A style picked from the tiles takes its own shape and keeps the colors chosen.
         const look = kind === 'shield' ? 'metal' : kind === 'staff' || kind === 'bow' ? 'metal' : 'trim';
         fake.recipe = M.normalize(Object.assign({ preset: M.PRESETS[0][0] }, { [look]: 'gold' }));

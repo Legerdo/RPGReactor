@@ -1,17 +1,25 @@
 /**
  * RRShieldProp - Weapons › Shields: a round plank shield, a heater, a kite,
  * a tower shield, a steel buckler and an energy shield, painted with a
- * field and an emblem (RRFlagDesign's), worn by use. Saved holdable.
+ * design (RRFlagDesign's: a field and emblems, shapes or the project's
+ * pictures), worn by use. Saved holdable.
  *
  * Built in weapon space (RRWeaponKit): the shield's face toward +z, its
  * top toward +x, across along y. The board is its outline made solid and
  * bent (dished, or curved round the arm), finely enough to bend; an edging
  * runs round its rim; a boss, rivets and straps go on. The face is a
  * picture: the design over planks or steel, chipped and scratched by the
- * Wear setting. Saved lying face up; the hand rig is the blade's with the
+ * Wear setting. The design is laid over the face's bounding box; its
+ * emblems keep to the face (Center is the shape's own middle, a corner is
+ * drawn in until the emblem fits) and a Border follows the rim. Bare steel
+ * shows only the emblems; an energy shield its emblems glowing over the
+ * field. Saved lying face up; the hand rig is the blade's with the
  * grip bar behind the boss running up the shield (gripBottom, gripTop),
  * the top of the rim as its tip and the face as its edge, so a fist holds
  * it with the face out over its knuckles.
+ *
+ * Recipes from before the design (pattern, colors, emblem, emblemColor)
+ * open as the same picture: legacyDesign reads them.
  */
 (function(root) {
     'use strict';
@@ -23,9 +31,11 @@
     const Paint = need('RRPropPaint', './PropPaint.js');
     const Design = need('RRFlagDesign', './FlagDesign.js');
     const K = need('RRWeaponKit', './WeaponKit.js');
+    const Flag = () => root.RRFlagProp || (typeof require === 'function' ? require('./FlagProp.js') : null);
     const { clamp, color, pick } = K;
 
     const FACES = [['wood', 'Painted wood'], ['metal', 'Painted steel'], ['bare', 'Bare steel']];
+    /** The patterns and emblems a recipe from before designs named (legacyDesign reads them). */
     const PATTERNS = [['solid', 'Solid'], ['bands', 'Bands'], ['cross', 'Cross'], ['saltire', 'Saltire'], ['quartered', 'Quartered'], ['checker', 'Checkered'], ['bend', 'Diagonal bend'], ['border', 'Border']];
     const EMBLEMS = [['none', 'None']].concat(Design.SHAPES);
     const PRESETS = [
@@ -42,17 +52,40 @@
     };
     const PRESET_BY_ID = new Map(PRESETS.map(p => [p[0], p[3]]));
     const IDS = PRESETS.map(p => p[0]);
+    /** Where Center puts an emblem on each shape: across the middle, this far down the face (the boss's middle on a round shield; above it on a tower). */
+    const CENTER = { round: 0.5, buckler: 0.5, heater: 0.42, kite: 0.36, tower: 0.3, energy: 0.5 };
+    const GLOWS = ['#38c8ff', '#7aff6a', '#ff4a3a', '#c86aff', '#ffd24a'];
+
+    /**
+     * The design a recipe from before designs painted: its pattern in its two
+     * colors, its one emblem at the shape's middle (none on bare steel or an
+     * energy shield, which showed none).
+     */
+    function legacyDesign(preset, L) {
+        const base = PRESET_BY_ID.get(pick(preset, IDS, 'round')), o = L || {};
+        const pattern = pick(o.pattern, PATTERNS.map(p => p[0]), 'solid'), cs = Array.isArray(o.colors) ? o.colors : base.colors;
+        const [a, b] = [0, 1].map(i => color(cs[i], base.colors[i]));
+        const colors = pattern === 'quartered' ? [a, b, b, a] : pattern === 'cross' ? [a, b, b] : pattern === 'bands' ? [a, b, a] : [a, b, a, b, a];
+        const emblem = pick(o.emblem, EMBLEMS.map(e => e[0]), 'none'), shown = emblem !== 'none' && o.face !== 'bare' && preset !== 'energy';
+        return Design.normalize({
+            field: { layout: pattern, colors, count: 3, orient: 'v', arm: 0.2, border: 0.09 },
+            layers: shown ? [{ source: 'shape', shape: emblem, color: color(o.emblemColor, '#d9b23c'), size: preset === 'kite' || preset === 'tower' ? 0.42 : 0.55, place: 'center' }] : []
+        });
+    }
 
     function normalize(input) {
         const r = input && typeof input === 'object' ? input : {};
         const preset = pick(r.preset, IDS, 'round'), base = PRESET_BY_ID.get(preset), fam = FAMILY[preset];
         const v = key => (r[key] !== undefined ? r[key] : base[key]);
-        const cs = Array.isArray(r.colors) ? r.colors : base.colors;
+        const face = pick(v('face'), FACES.map(f => f[0]), 'wood');
+        const design = r.design && typeof r.design === 'object' ? Design.normalize(r.design)
+            : legacyDesign(preset, { pattern: v('pattern'), colors: Array.isArray(r.colors) ? r.colors : base.colors, emblem: v('emblem'), emblemColor: v('emblemColor'), face });
+        // An energy shield glowed in its second color before it had a glow of its own.
+        const glow = color(r.glow, color(Array.isArray(r.colors) && preset === 'energy' ? r.colors[1] : '', GLOWS[0]));
         return {
             kind: 'shield', preset,
             size: clamp(v('size'), fam.range[0], fam.range[1], base.size), shape: clamp(v('shape'), 0, 1, base.shape),
-            face: pick(v('face'), FACES.map(f => f[0]), 'wood'), pattern: pick(v('pattern'), PATTERNS.map(p => p[0]), 'solid'),
-            colors: [0, 1].map(i => color(cs[i], base.colors[i])), emblem: pick(v('emblem'), EMBLEMS.map(e => e[0]), 'none'), emblemColor: color(v('emblemColor'), '#d9b23c'),
+            face, design, glow,
             metal: pick(v('metal'), K.METALS.map(m => m[0]), 'steel'), wear: clamp(v('wear'), 0, 1, 0.3)
         };
     }
@@ -109,20 +142,101 @@
         return { face: side(1), back: side(-1), wall: CM.smoothNormals(wall.done(), 0.7), out };
     }
 
-    /** The face's picture: the design laid over planks or steel, chipped and scratched by wear. */
-    function facePicture(r, box, O) {
-        const W = box.hi[1] - box.lo[1], H = box.hi[0] - box.lo[0], a = H / W;
-        const colors = r.pattern === 'quartered' ? [r.colors[0], r.colors[1], r.colors[1], r.colors[0]] : r.pattern === 'cross' ? [r.colors[0], r.colors[1], r.colors[1]] : r.pattern === 'bands' ? [r.colors[0], r.colors[1], r.colors[0]] : [r.colors[0], r.colors[1], r.colors[0], r.colors[1], r.colors[0]];
-        const design = Design.normalize({ field: { layout: r.pattern, colors, count: 3, orient: 'v', arm: 0.2, border: 0.09 }, layers: r.emblem === 'none' ? [] : [{ source: 'shape', shape: r.emblem, color: r.emblemColor, size: r.preset === 'kite' || r.preset === 'tower' ? 0.42 : 0.55, place: 'free', x: 0.5, y: r.preset === 'heater' ? 0.42 : r.preset === 'kite' ? 0.36 : r.preset === 'tower' ? 0.3 : 0.5 }] });
-        const P = Design.prepare(design, a, {}), out = [0, 0, 0, 255];
+    // ── the design on the face ──────────────────────────────────────────────
+    /** How far (x, y) is from the outline's nearest edge. */
+    function edgeDistance(O, x, y) {
+        let d = Infinity;
+        for (let i = 0, n = O.length; i < n; i++) {
+            const a = O[i], b = O[(i + 1) % n], ex = b[0] - a[0], ey = b[1] - a[1], len = ex * ex + ey * ey;
+            const t = len > 0 ? Math.max(0, Math.min(1, ((x - a[0]) * ex + (y - a[1]) * ey) / len)) : 0;
+            d = Math.min(d, Math.hypot(a[0] + ex * t - x, a[1] + ey * t - y));
+        }
+        return d;
+    }
+    const insideOf = O => { const flat = O.flat(); return (x, y) => Paint.pointInPolygon(flat, x, y); };
+
+    /**
+     * The design as the face shows it, over the outline's box (u across, v
+     * down): Center is the shape's own middle (CENTER), and an emblem placed
+     * at an edge or a corner is drawn in toward it until it sits on the face.
+     */
+    function faceDesign(r, design, O, box) {
+        const d = Design.normalize(design), W = box.hi[1] - box.lo[1], H = box.hi[0] - box.lo[0], a = H / W, short = Math.min(1, a);
+        const inside = insideOf(O), cy = CENTER[r.preset] ?? 0.5;
+        // A point of the design (in widths: x across, y down) where the outline has it.
+        const at = (x, y) => [box.hi[0] - (y / a) * H, box.lo[1] + x * W];
+        d.layers = d.layers.map(l => {
+            if (l.place === 'free') return l;
+            if (l.place === 'center') return Object.assign({}, l, { place: 'free', x: 0.5, y: cy });
+            const [ax, ay] = Design.anchor(l, d.field, a), half = l.size * 0.5 * short * 0.8 * W;
+            let x = 0.5, y = cy * a;
+            for (let t = 1; t > 0; t -= 0.05) {
+                const px = 0.5 + (ax - 0.5) * t, py = cy * a + (ay - cy * a) * t, q = at(px, py);
+                if (inside(q[0], q[1]) && edgeDistance(O, q[0], q[1]) >= half) { x = px; y = py; break; }
+            }
+            return Object.assign({}, l, { place: 'free', x, y: y / a });
+        });
+        return d;
+    }
+
+    /**
+     * What a design paints with on this face: the design itself and its
+     * pictures; a Border field drawn as a picture of its own, its band
+     * following the rim (`w` x `h`).
+     */
+    function faceField(r, O, box, images, w, h) {
+        const d = faceDesign(r, r.design, O, box), imgs = images || {};
+        if (d.field.layout !== 'border') return { design: d, images: imgs };
+        const W = box.hi[1] - box.lo[1], H = box.hi[0] - box.lo[0], band = d.field.border * Math.min(W, H), C = d.field.colors.map(Paint.hex);
+        const data = new Uint8Array(w * h * 4);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const c = edgeDistance(O, box.hi[0] - (y + 0.5) / h * H, box.lo[1] + (x + 0.5) / w * W) < band ? C[1] : C[0], o = (y * w + x) * 4;
+            data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2]; data[o + 3] = 255;
+        }
+        const name = '\u0000shield-border';
+        return { design: Object.assign({}, d, { field: Object.assign({}, d.field, { layout: 'image' }), image: name }), images: Object.assign({}, imgs, { [name]: { width: w, height: h, data } }) };
+    }
+
+    /**
+     * The emblems alone (no field), read at (u, v): their color and how much
+     * of them is there (0..1), from the design painted over black and over
+     * white.
+     */
+    function emblemsOnly(design, a, images) {
+        const solid = c => Object.assign({}, design, { field: Object.assign({}, design.field, { layout: 'solid', colors: [c] }) });
+        const black = Design.prepare(solid('#000000'), a, images), white = Design.prepare(solid('#ffffff'), a, images), k = [0, 0, 0, 255], w = [0, 0, 0, 255];
+        return {
+            any: black.layers.length > 0,
+            at(u, v, out) {
+                Design.colorAt(black, u, v, k); Design.colorAt(white, u, v, w);
+                const alpha = Math.max(0, Math.min(1, 1 - (w[0] - k[0]) / 255));
+                for (let i = 0; i < 3; i++) out[i] = alpha > 0.004 ? Math.min(255, k[i] / alpha) : 0;
+                out[3] = alpha;
+                return out;
+            }
+        };
+    }
+
+    /**
+     * The face's picture: the design laid over planks or steel (bare steel
+     * shows only its emblems), chipped and scratched by wear.
+     */
+    function facePicture(r, box, O, images, shape) {
+        const W = box.hi[1] - box.lo[1], H = box.hi[0] - box.lo[0], a = H / W, size = 512;
+        const F = faceField(r, shape || O, box, images, size, size), P = Design.prepare(F.design, a, F.images), out = [0, 0, 0, 255], em = [0, 0, 0, 0];
         const n1 = Paint.fractal(17, 8, 4), n2 = Paint.fractal(41, 32, 3), wood = r.face === 'wood', bare = r.face === 'bare';
-        const under = Paint.hex(wood ? '#8a6038' : '#9aa0a8'), size = 512, planks = r.preset === 'round' ? 7 : r.preset === 'buckler' ? 1 : 6;
+        const marks = bare ? emblemsOnly(F.design, a, F.images) : null, steel = Paint.hex(K.look('steel').color);
+        const under = Paint.hex(wood ? '#8a6038' : '#9aa0a8'), planks = r.preset === 'round' ? 7 : r.preset === 'buckler' ? 1 : 6;
         // How close each texel is to the rim (for the wear), from the outline.
         const rim = (u, v) => { const x = box.hi[0] - v * H, y = box.lo[1] + u * W; let d = Infinity; for (let i = 0; i < O.length; i += 3) d = Math.min(d, Math.hypot(O[i][0] - x, O[i][1] - y)); return d; };
         const pic = Paint.paint(size, size, (u, v, o) => {
-            let c;
-            if (bare) c = Paint.hex(K.look(r.metal === 'gold' ? 'steel' : 'steel').color);
-            else { Design.colorAt(P, u, v, out); c = [out[0], out[1], out[2]]; }
+            let c, paint = 1;
+            if (bare) {
+                // Bare steel: the emblems painted on, the steel round them.
+                c = steel;
+                if (marks.any) { marks.at(u, v, em); paint = em[3]; if (paint > 0) c = steel.map((x, i) => x + (em[i] - x) * paint); }
+                else paint = 0;
+            } else { Design.colorAt(P, u, v, out); c = [out[0], out[1], out[2]]; }
             let k = 1, worn = 0;
             if (wood) {
                 // Planks down the shield: a dark seam between, the grain along each.
@@ -132,9 +246,9 @@
             }
             // Wear: paint chipped off toward the rim and in patches, scratches across the face.
             const d = rim(u, v), chip = n2(u * 2, v * 2) + (0.06 - Math.min(0.06, d)) * 8 * r.wear;
-            if (!bare && chip > 1.02 - r.wear * 0.42) worn = 1;
+            if (paint > 0.5 && chip > 1.02 - r.wear * 0.42) worn = 1;
             const scratch = Math.abs(Math.sin((u * 37 + v * 11 + n1(u, v) * 3) * Math.PI)) < 0.012 * r.wear ? 1 : 0;
-            if (worn) c = under.map((x, i) => x * (0.8 + 0.25 * n1(u * 5, v * 5)));
+            if (worn) c = (bare ? steel : under).map((x, i) => x * (0.8 + 0.25 * n1(u * 5, v * 5)));
             k *= 1 + 0.18 * scratch - 0.1 * r.wear * n2(u * 4, v * 4);
             o[0] = Math.min(255, c[0] * k); o[1] = Math.min(255, c[1] * k); o[2] = Math.min(255, c[2] * k); o[3] = 255;
         }, 1);
@@ -142,9 +256,47 @@
         return pic;
     }
 
+    /** An energy shield's emblems: their colors where they are, clear elsewhere (a glowing cut-out over the field). */
+    function glowPicture(r, box, O, images) {
+        const a = (box.hi[0] - box.lo[0]) / (box.hi[1] - box.lo[1]), d = faceDesign(r, r.design, O, box), marks = emblemsOnly(d, a, images), em = [0, 0, 0, 0];
+        const pic = Paint.paint(512, 512, (u, v, o) => { marks.at(u, v, em); o[0] = em[0]; o[1] = em[1]; o[2] = em[2]; o[3] = em[3] * 255; }, 2);
+        pic.name = 'shield-emblem.png';
+        return pic;
+    }
+
+    /**
+     * A small picture of a design on this shield, for the Design page's
+     * tiles: `w` x `h` (RGBA), the face in its outline with its rim and boss,
+     * clear round it.
+     */
+    function facePreview(recipe, design, w, h, images) {
+        const r = normalize(Object.assign({}, recipe, { design })), H = r.size, O = outline(r.preset, H), box = bounds(O);
+        const W = box.hi[1] - box.lo[1], HH = box.hi[0] - box.lo[0], a = HH / W, s = Math.min(w / W, h / HH) * 0.94;
+        const F = faceField(r, O, box, images, 64, Math.max(8, Math.round(64 * a))), P = Design.prepare(F.design, a, F.images), out = [0, 0, 0, 255];
+        const inside = insideOf(O), rim = Paint.hex(K.look(r.metal).color), steel = Paint.hex(K.look('steel').color);
+        const marks = r.face === 'bare' || r.preset === 'energy' ? emblemsOnly(F.design, a, F.images) : null, em = [0, 0, 0, 0];
+        const ground = r.preset === 'energy' ? Paint.hex(K.shadeHex(r.glow, 0.35)) : steel;
+        const bossR = r.preset === 'buckler' ? H * 0.28 : r.preset === 'tower' ? H * 0.09 : r.preset === 'round' ? H * 0.12 : 0;
+        const data = new Uint8Array(w * h * 4), ox = (w - W * s) / 2, oy = (h - HH * s) / 2;
+        for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) {
+            const x = box.hi[0] - (py + 0.5 - oy) / s, y = box.lo[1] + (px + 0.5 - ox) / s;
+            if (!inside(x, y)) continue;
+            const u = (y - box.lo[1]) / W, v = (box.hi[0] - x) / HH;
+            let c;
+            if (marks) { marks.at(u, v, em); c = ground.map((g, i) => g + (em[i] - g) * em[3]); }
+            else { Design.colorAt(P, u, v, out); c = [out[0], out[1], out[2]]; }
+            if (edgeDistance(O, x, y) * s < 1.2) c = rim;
+            const db = Math.hypot(x, y);
+            if (bossR && db < bossR) { const lit = 1.15 - 0.5 * db / bossR; c = rim.map(t => Math.min(255, t * lit)); }
+            const o = (py * w + px) * 4;
+            data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2]; data[o + 3] = 255;
+        }
+        return { width: w, height: h, data };
+    }
+
     // ── the build ──────────────────────────────────────────────────────────
-    function build(recipe, cache) {
-        const r = normalize(recipe), c = cache || {}, H = r.size, preset = r.preset;
+    function build(recipe, cache, options) {
+        const r = normalize(recipe), c = cache || {}, H = r.size, preset = r.preset, images = (options && options.images) || {};
         const O = outline(preset, H), box = bounds(O), W = box.hi[1] - box.lo[1];
         const metalOnly = preset === 'buckler' || preset === 'energy' || r.face !== 'wood';
         const thick = preset === 'buckler' ? 0.004 : preset === 'energy' ? 0.012 : metalOnly ? 0.006 : 0.016;
@@ -152,7 +304,7 @@
         const dish = round ? (0.02 + 0.08 * r.shape) * H : 0, curve = round ? 0 : (0.05 + 0.3 * r.shape) * W;
         const R2 = (H / 2) * (H / 2);
         const bend = (x, y) => (round ? dish * Math.max(0, 1 - (x * x + y * y) / R2) : -curve * Math.pow(y / (W / 2), 2));
-        const S = { Face: [], Back: [], Rim: [], Boss: [], Metal: [], Strap: [], Grip: [], Glow: [], Field: [] };
+        const S = { Face: [], Back: [], Rim: [], Boss: [], Metal: [], Strap: [], Grip: [], Glow: [], Field: [], Emblem: [] };
         const brd = board(O, thick, bend, box, Math.max(0.03, H / 22));
         if (preset === 'energy') {
             // A frame of chamfered plates round a field of light.
@@ -161,6 +313,8 @@
             S.Metal.push(frame.body);
             const field = K.plate(inner.map(p => [p[0] * 1.02, p[1] * 1.02]), { t: () => 0.003, chamfer: 0.001 });
             S.Field.push(field.body);
+            // Its emblems glowing over the field, under the cells.
+            if (r.design.layers.length) S.Emblem.push(board(inner, 0, () => 0.0032, box, H * 2).face);
             // Hexagonal cells drawn in the field.
             const cell = H * 0.08;
             for (let i = -8; i <= 8; i++) for (let j = -8; j <= 8; j++) {
@@ -217,11 +371,14 @@
         }
         // Materials: the painted face, the edging and fittings in the chosen metal.
         const textures = {}, metal = K.look(r.metal), steel = K.look('steel');
-        const key = JSON.stringify([r.preset, r.face, r.pattern, r.colors, r.emblem, r.emblemColor, r.wear]);
-        if (preset !== 'energy') { if (c.faceKey !== key) { c.face = facePicture(r, box, brd.out); c.faceKey = key; } textures['shield-face.png'] = c.face; }
+        // The pictures the design names (a picture field, picture emblems): their sizes and versions in the key, so a picture loaded or changed paints again.
+        const named = Design.pictures(r.design), missing = named.find(n => !images[n]) || '';
+        const key = JSON.stringify([r.preset, r.size, r.face, r.design, r.wear, named.map(n => (images[n] ? [n, images[n].width, images[n].height, images[n].version || 0] : n))]);
+        if (preset !== 'energy') { if (c.faceKey !== key) { c.face = facePicture(r, box, brd.out, images, O); c.faceKey = key; } textures['shield-face.png'] = c.face; }
+        else if (S.Emblem.length) { if (c.emblemKey !== key) { c.emblem = glowPicture(r, box, O, images); c.emblemKey = key; } textures['shield-emblem.png'] = c.emblem; }
         if (!c.backWood) c.backWood = K.woodPicture('#6e4a2c', 61, 'shield-back.png');
         textures['shield-back.png'] = c.backWood;
-        const glow = r.colors[1];
+        const glow = r.glow;
         const P = {
             Face: { meshes: S.Face, look: { kind: r.face === 'wood' ? 'prop' : 'metal', texture: 'shield-face.png', roughness: r.face === 'bare' ? 0.32 : r.face === 'wood' ? 0.6 : 0.45, metalness: r.face === 'bare' ? 0.9 : r.face === 'metal' ? 0.35 : 0, mat: r.face === 'wood' ? 'wood' : 'metal' } },
             Back: { meshes: S.Back, look: metalOnly ? { kind: 'metal', color: steel.color, roughness: 0.5, metalness: 0.8, mat: 'metal' } : { kind: 'prop', texture: 'shield-back.png', roughness: 0.7, metalness: 0, mat: 'wood' } },
@@ -231,14 +388,22 @@
             Strap: { meshes: S.Strap, look: { kind: 'prop', color: '#3a2418', roughness: 0.75, metalness: 0, mat: 'leather' } },
             Grip: { meshes: S.Grip, look: { kind: 'prop', color: '#2a1d15', roughness: 0.75, metalness: 0, mat: 'leather' } },
             Field: { meshes: S.Field, look: { kind: 'prop', color: glow, emissive: glow, emissiveIntensity: 0.35, opacity: 0.55, roughness: 0.2, metalness: 0 } },
-            Glow: { meshes: S.Glow, look: { kind: 'prop', color: K.shadeHex(glow, 0.5), emissive: glow, emissiveIntensity: 0.9, roughness: 0.3, metalness: 0 } }
+            Glow: { meshes: S.Glow, look: { kind: 'prop', color: K.shadeHex(glow, 0.5), emissive: glow, emissiveIntensity: 0.9, roughness: 0.3, metalness: 0 } },
+            Emblem: { meshes: S.Emblem, look: { kind: 'prop', texture: 'shield-emblem.png', emissive: '#ffffff', emissiveTexture: 'shield-emblem.png', emissiveIntensity: 0.85, cutout: true, alphaCutoff: 0.5, doubleSided: true, roughness: 0.3, metalness: 0 } }
         };
         const topX = box.hi[0];
         const marks = { gripBottom: [-gl / 2, 0, zb - 0.028], gripTop: [gl / 2, 0, zb - 0.028], tip: [topX, 0, zb - 0.028], edge: [0, 0, z0 + 0.05] };
-        return K.finish('shield', r, P, marks, textures, { template: 'blade' });
+        const out = K.finish('shield', r, P, marks, textures, { template: 'blade' });
+        out.imageName = missing; out.imageMissing = !!missing;
+        return out;
     }
 
-    /** A random shield: a style of its own (another when Everything rolls); shape its size and curve; details its pattern and emblem; colors its paint and metal. */
+    /**
+     * A random shield: a style of its own (another when Everything rolls);
+     * shape its size and curve; details (Design) a new design as a flag rolls
+     * one (RRFlagProp.randomDesign), its face and wear; colors the same design
+     * in another palette, its metal and glow.
+     */
     function random(seed, recipe, scope, keep) {
         const R = Rand.roll(seed), cur = normalize(recipe), out = JSON.parse(JSON.stringify(cur));
         const all = !scope || scope === 'all', has = part => all || scope === part;
@@ -247,12 +412,20 @@
         out.preset = family[0];
         if (has('shape')) { out.size = Math.max(fam.range[0], Math.min(fam.range[1], R.jitter(base.size, 0.12))); out.shape = R.range(0.1, 0.9); }
         else if (out.preset !== cur.preset) Object.assign(out, { size: base.size, shape: base.shape });
-        if (has('details')) { out.pattern = R.pick(PATTERNS)[0]; out.emblem = R.chance(0.6) ? R.pick(Design.SHAPES)[0] : 'none'; out.wear = R.range(0, 0.8); if (family[0] !== 'energy' && family[0] !== 'buckler') out.face = R.weighted([['wood', 3], ['metal', 1.5], ['bare', 0.5]]); }
-        if (has('colors')) { const pal = R.pick(Rand.PALETTES.heraldic); out.colors = [pal[0], pal[1]]; out.emblemColor = pal[2]; out.metal = R.pick(K.METALS)[0]; }
+        const F = Flag();
+        if (has('details')) {
+            out.design = F.randomDesign(seed >>> 0, { design: cur.design }).design;
+            out.wear = R.range(0, 0.8);
+            if (family[0] !== 'energy' && family[0] !== 'buckler') out.face = R.weighted([['wood', 3], ['metal', 1.5], ['bare', 0.5]]);
+        }
+        if (has('colors')) {
+            if (!has('details')) out.design = F.random(seed >>> 0, { design: out.design }, 'colors').design;
+            out.metal = R.pick(K.METALS)[0]; out.glow = R.pick(GLOWS);
+        }
         return normalize(out);
     }
 
-    const api = { PRESETS, FAMILY, FACES, PATTERNS, normalize, build, random, outline };
+    const api = { PRESETS, FAMILY, FACES, PATTERNS, CENTER, GLOWS, normalize, legacyDesign, faceDesign, facePicture, facePreview, build, random, outline, bounds };
     root.RRShieldProp = api;
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     const Model = root.RRPropModel || (typeof require === 'function' ? require('./PropModel.js') : null);
@@ -262,22 +435,30 @@
         K.icons(Catalog);
         Catalog.category({ id: 'shields', label: 'Shields', order: 49, parent: 'weapons' });
         for (const [id, label, category] of PRESETS) Catalog.add({ id: 'shield-' + id, category, label, icon: FAMILY[id].icon, kind: 'shield', keywords: 'weapon armor defense shield ' + id, start: () => normalize({ preset: id }), matches: r => r.preset === id });
-        Catalog.ui('shield', K.page({
-            placeholder: 'Shield', PRESETS, normalize, random, keep: ['face', 'pattern', 'colors', 'emblem', 'emblemColor', 'metal', 'wear'],
-            tabs: [['shape', 'Shape'], ['look', 'Design']],
+        const page = K.page({
+            placeholder: 'Shield', PRESETS, normalize, random, keep: ['face', 'design', 'glow', 'metal', 'wear'],
+            tabs: [['shape', 'Shape'], ['design', 'Design'], ['look', 'Look']],
             shape(r) {
                 const fam = FAMILY[r.preset];
                 return this._slider({ path: 'size', label: 'Height', range: fam.range, step: 0.01, format: 'm' }) + this._slider({ path: 'shape', label: fam.shape, range: [0, 1] });
             },
-            look(r) {
+            look(r, tab) {
                 const energy = r.preset === 'energy', painted = !energy && r.face !== 'bare';
+                // The Design page the flags have: presets, background patterns and emblems as pictures, on this shield's own face.
+                // Bare steel and an energy shield show their emblems only.
+                if (tab === 'design') {
+                    const app = root.PropBuilder;
+                    const picture = app && app.imagePicture ? (design, w, h, images) => app.imagePicture(facePreview(r, design, w, h, images), w) : null;
+                    return this._designPanel('design', { field: painted, picture, key: 'shield-' + r.preset + '-' + r.face + '-' + r.metal });
+                }
                 let html = this._section('Materials') + (energy || r.preset === 'buckler' ? '' : this._select('face', 'Face', FACES)) + this._select('metal', 'Rim and fittings', K.METALS);
-                if (energy) return html + this._section('Glow') + this._color('colors.1', 'Glow color', ['#38c8ff', '#7aff6a', '#ff4a3a', '#c86aff', '#ffd24a']);
-                if (painted) html += this._section('Design') + this._select('pattern', 'Pattern', PATTERNS) + this._color('colors.0', 'Color', ['#8c1c1c', '#1f3c78', '#1d5c34', '#f2efe6', '#2b2b30'])
-                    + (r.pattern !== 'solid' ? this._color('colors.1', 'Second color', ['#d9b23c', '#f2efe6', '#8c1c1c', '#1f3c78', '#1b1b1f']) : '')
-                    + this._select('emblem', 'Emblem', EMBLEMS) + (r.emblem !== 'none' ? this._color('emblemColor', 'Emblem color', ['#d9b23c', '#f2efe6', '#8c1c1c', '#1b1b1f', '#1f3c78']) : '');
+                if (energy) return html + this._section('Glow') + this._color('glow', 'Glow color', GLOWS);
                 return html + this._section('Wear') + this._slider({ path: 'wear', label: 'Wear', range: [0, 1] });
             }
-        }));
+        });
+        const styleAct = page.act;
+        // Style tiles and Shuffle are the kit's; every other button is the Design page's.
+        page.act = function(act, b) { if (act === 'weapon-style' || act === 'weapon-shuffle') return styleAct.call(this, act, b); return this._designAct && this._designAct(act, b); };
+        Catalog.ui('shield', page);
     }
 })(typeof window !== 'undefined' ? window : globalThis);

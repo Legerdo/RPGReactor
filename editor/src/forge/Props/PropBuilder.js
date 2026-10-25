@@ -1385,30 +1385,42 @@ PropBuilder.prototype._profileEditor = function() {
  * A design's controls (RRFlagDesign) for the design at `path`: presets, the
  * field and its colors, and the emblems as a short list with the chosen
  * one's settings under it. Its buttons are answered by _designAct.
+ * `opts`: `field` false shows the emblems only (a face that paints no
+ * field); `picture(design, w, h, images)` draws the preset and background
+ * tiles (a data URL; a shield draws them on its own face), its tiles kept
+ * under `key`.
  */
-PropBuilder.prototype._designPanel = function(path) {
+PropBuilder.prototype._designPanel = function(path, opts) {
     this.designPath = path;
-    const D = RRFlagDesign, g = this._get(path), f = g.field;
+    const D = RRFlagDesign, g = this._get(path), f = g.field, o = opts || {};
     const mini = (key, design) => this._mini(key, () => PropBuilder.designPicture(design, 64, 40, this._images));
-    let html = this._section('Presets') + this._tiles('design-preset', D.PRESETS.map(p => ({ id: p.id, label: p.label, picture: mini('preset:' + p.id, p.design) })), null);
-    html += this._section('Background pattern') + this._tiles('field', D.LAYOUTS.map(l => ({ id: l.id, label: l.label, picture: l.id === 'image' ? '' : mini('field:' + l.id, { field: Object.assign({}, f, { layout: l.id }), layers: [] }) })), f.layout);
-    const orient = this._select(`${path}.field.orient`, 'Direction', [['h', 'Horizontal'], ['v', 'Vertical']]);
-    if (f.layout === 'image') html += `<div class="rr-c3d-row rr-prop-picturerow"><span class="rr-c3d-label">${this._t('Picture')}</span><span class="rr-prop-picturename">${rrEscapeHtml(g.image || this._t('None'))}</span><button class="rr-btn-chip" data-act="field-image">${this._t('Choose…')}</button></div>`;
-    if (f.layout === 'bands') {
-        html += this._slider({ path: `${path}.field.count`, label: 'Bands', range: [2, 5], step: 1, format: 'int' }) + orient;
-        for (let k = 0; k < f.count; k++) html += this._slider({ path: `${path}.field.sizes.${k}`, label: this._t('Band {n} size', { n: k + 1 }), range: [0.2, 5], step: 0.1, format: 'x' });
+    const face = (key, design) => (o.picture ? this._mini((o.key || 'face') + ':' + key, () => o.picture(design, 64, 40, this._images)) : mini(key, design));
+    const pictureRow = (name, act) => {
+        const img = name && this._images[name], thumb = img ? this._mini('picture:' + name, () => PropBuilder.imagePicture(img, 80)) : '';
+        return `<div class="rr-c3d-row rr-prop-picturerow"><span class="rr-c3d-label">${this._t('Picture')}</span><span class="rr-prop-picturename">${thumb ? `<img class="rr-prop-pictureimg" src="${thumb}" alt="">` : ''}${rrEscapeHtml(name || this._t('None'))}</span><button class="rr-btn-chip" data-act="${act}">${this._t('Choose…')}</button></div>`;
+    };
+    let html = '';
+    if (o.field !== false) {
+        html += this._section('Presets') + this._tiles('design-preset', D.PRESETS.map(p => ({ id: p.id, label: p.label, picture: face('preset:' + p.id, p.design) })), null);
+        html += this._section('Background pattern') + this._tiles('field', D.LAYOUTS.map(l => ({ id: l.id, label: l.label, picture: l.id === 'image' ? '' : face('field:' + l.id, { field: Object.assign({}, f, { layout: l.id }), layers: [] }) })), f.layout);
+        const orient = this._select(`${path}.field.orient`, 'Direction', [['h', 'Horizontal'], ['v', 'Vertical']]);
+        if (f.layout === 'image') html += pictureRow(g.image, 'field-image');
+        if (f.layout === 'bands') {
+            html += this._slider({ path: `${path}.field.count`, label: 'Bands', range: [2, 5], step: 1, format: 'int' }) + orient;
+            for (let k = 0; k < f.count; k++) html += this._slider({ path: `${path}.field.sizes.${k}`, label: this._t('Band {n} size', { n: k + 1 }), range: [0.2, 5], step: 0.1, format: 'x' });
+        }
+        if (f.layout === 'stripes') html += this._slider({ path: `${path}.field.count`, label: 'Stripes', range: [2, 13], step: 1, format: 'int' }) + orient;
+        if (f.layout === 'cross' || f.layout === 'saltire' || f.layout === 'bend') html += this._slider({ path: `${path}.field.arm`, label: 'Arm width', range: [0.04, 0.45], step: 0.01 });
+        if (f.layout === 'cross') html += this._select(`${path}.field.offset`, 'Upright arm', [['center', 'Centered'], ['nordic', 'Toward the hoist']]) + this._slider({ path: `${path}.field.outline`, label: 'Outline', range: [0, 0.12], step: 0.005 });
+        if (f.layout === 'checker') html += this._slider({ path: `${path}.field.cols`, label: 'Squares across', range: [2, 12], step: 1, format: 'int' });
+        if (f.layout === 'canton') html += this._slider({ path: `${path}.field.canton`, label: 'Canton size', range: [0.2, 0.7], step: 0.01 }) + this._select(`${path}.field.corner`, 'Corner', D.CORNERS)
+            + this._slider({ path: `${path}.field.rows`, label: 'Star rows', range: [0, 9], step: 1, format: 'int' }) + (f.rows ? this._slider({ path: `${path}.field.cols`, label: 'Stars across', range: [1, 12], step: 1, format: 'int' }) : '');
+        if (f.layout === 'triangle') html += this._slider({ path: `${path}.field.depth`, label: 'Depth', range: [0.15, 1], step: 0.01 });
+        if (f.layout === 'border') html += this._slider({ path: `${path}.field.border`, label: 'Border width', range: [0.02, 0.3], step: 0.005 });
+        const regions = (D.LAYOUT_BY_ID.get(f.layout).regions || []).slice(0, f.layout === 'bands' ? f.count : 5).filter((_, k) => !(f.layout === 'canton' && k === 2 && !f.rows));
+        const swatches = ['#8c1c1c', '#1f3c78', '#1d5c34', '#f2efe6', '#d9b23c', '#1b1b1f', '#5a2a6e', '#c8501e'];
+        if (regions.length) html += this._section('Colors') + regions.map((label, k) => this._color(`${path}.field.colors.${k}`, label, swatches)).join('');
     }
-    if (f.layout === 'stripes') html += this._slider({ path: `${path}.field.count`, label: 'Stripes', range: [2, 13], step: 1, format: 'int' }) + orient;
-    if (f.layout === 'cross' || f.layout === 'saltire' || f.layout === 'bend') html += this._slider({ path: `${path}.field.arm`, label: 'Arm width', range: [0.04, 0.45], step: 0.01 });
-    if (f.layout === 'cross') html += this._select(`${path}.field.offset`, 'Upright arm', [['center', 'Centered'], ['nordic', 'Toward the hoist']]) + this._slider({ path: `${path}.field.outline`, label: 'Outline', range: [0, 0.12], step: 0.005 });
-    if (f.layout === 'checker') html += this._slider({ path: `${path}.field.cols`, label: 'Squares across', range: [2, 12], step: 1, format: 'int' });
-    if (f.layout === 'canton') html += this._slider({ path: `${path}.field.canton`, label: 'Canton size', range: [0.2, 0.7], step: 0.01 }) + this._select(`${path}.field.corner`, 'Corner', D.CORNERS)
-        + this._slider({ path: `${path}.field.rows`, label: 'Star rows', range: [0, 9], step: 1, format: 'int' }) + (f.rows ? this._slider({ path: `${path}.field.cols`, label: 'Stars across', range: [1, 12], step: 1, format: 'int' }) : '');
-    if (f.layout === 'triangle') html += this._slider({ path: `${path}.field.depth`, label: 'Depth', range: [0.15, 1], step: 0.01 });
-    if (f.layout === 'border') html += this._slider({ path: `${path}.field.border`, label: 'Border width', range: [0.02, 0.3], step: 0.005 });
-    const regions = (D.LAYOUT_BY_ID.get(f.layout).regions || []).slice(0, f.layout === 'bands' ? f.count : 5).filter((_, k) => !(f.layout === 'canton' && k === 2 && !f.rows));
-    const swatches = ['#8c1c1c', '#1f3c78', '#1d5c34', '#f2efe6', '#d9b23c', '#1b1b1f', '#5a2a6e', '#c8501e'];
-    if (regions.length) html += this._section('Colors') + regions.map((label, k) => this._color(`${path}.field.colors.${k}`, label, swatches)).join('');
     // The emblems: a short list, the chosen one's settings under it.
     const layers = g.layers, sel = Math.max(0, Math.min(layers.length - 1, this.layer || 0));
     this.layer = sel;
@@ -1421,8 +1433,11 @@ PropBuilder.prototype._designPanel = function(path) {
     if (layers.length) {
         const l = layers[sel], base = `${path}.layers.${sel}`;
         html += this._section('Emblem') + this._select(`${base}.source`, 'Source', [['shape', 'Shape'], ['picture', 'Picture']]);
-        if (l.source === 'shape') html += `<div class="rr-c3d-tiles rr-prop-tiles5">${D.SHAPES.map(([id, label]) => `<button class="rr-c3d-tile rr-c3d-thumbtile${id === l.shape ? ' is-active' : ''}" data-act="layer-shape" data-id="${id}" title="${rrEscapeHtml(this._t(label))}"><span class="rr-c3d-thumb"><img src="${mini('shape:' + id + l.color, { field: { layout: 'solid', colors: ['#3a3d44'] }, layers: [{ shape: id, color: l.color, size: 0.9 }] })}" alt=""></span></button>`).join('')}</div>`;
-        else html += `<div class="rr-c3d-row rr-prop-picturerow"><span class="rr-c3d-label">${this._t('Picture')}</span><span class="rr-prop-picturename">${rrEscapeHtml(l.image || this._t('None'))}</span><button class="rr-btn-chip" data-act="layer-picture">${this._t('Choose…')}</button></div>` + this._check(`${base}.recolor`, 'One color');
+        // The shapes as pictures, and last a project picture of your own (the one chosen, or a frame to choose one).
+        const own = l.image && this._images[l.image] ? mini('own:' + l.image, { field: { layout: 'solid', colors: ['#3a3d44'] }, layers: [Object.assign({}, l, { source: 'picture', place: 'center', size: 0.9, repeat: 'none', rotate: 0, mirror: false })] }) : '';
+        html += `<div class="rr-c3d-tiles rr-prop-tiles5">${D.SHAPES.map(([id, label]) => `<button class="rr-c3d-tile rr-c3d-thumbtile${l.source === 'shape' && id === l.shape ? ' is-active' : ''}" data-act="layer-shape" data-id="${id}" title="${rrEscapeHtml(this._t(label))}"><span class="rr-c3d-thumb"><img src="${mini('shape:' + id + l.color, { field: { layout: 'solid', colors: ['#3a3d44'] }, layers: [{ shape: id, color: l.color, size: 0.9 }] })}" alt=""></span></button>`).join('')}`
+            + `<button class="rr-c3d-tile rr-c3d-thumbtile rr-prop-owntile${l.source === 'picture' ? ' is-active' : ''}" data-act="layer-picture" title="${rrEscapeHtml(this._t('Choose a picture'))}"><span class="rr-c3d-thumb">${own ? `<img src="${own}" alt="">` : '<span class="rr-prop-ownmark">＋</span>'}</span></button></div>`;
+        if (l.source === 'picture') html += pictureRow(l.image, 'layer-picture') + this._check(`${base}.recolor`, 'One color');
         if (l.source === 'shape' || l.recolor) html += this._color(`${base}.color`, 'Color', ['#d9b23c', '#f2efe6', '#1b1b1f', '#8c1c1c', '#1f3c78', '#1d5c34']);
         html += this._select(`${base}.place`, 'Place', D.PLACES);
         if (l.place === 'free') html += this._slider({ path: `${base}.x`, label: 'Across', range: [0, 1] }) + this._slider({ path: `${base}.y`, label: 'Down', range: [0, 1] });
