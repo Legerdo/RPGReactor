@@ -4259,6 +4259,15 @@ Game_Event.prototype.findProperPageIndex = function() {
     return -1;
 };
 
+/** Whether a page of this map waits on the timer (rrTimerSec); worked out once per map's data, never saved. */
+Game_Map.prototype.rrHasTimerPages = function() {
+    if (typeof $dataMap === "undefined" || !$dataMap) return false;
+    if ($dataMap._rrTimerPages === undefined) {
+        $dataMap._rrTimerPages = ($dataMap.events || []).some(e => e && (e.pages || []).some(p => p && p.conditions && p.conditions.rrTimerSec !== undefined));
+    }
+    return $dataMap._rrTimerPages;
+};
+
 Game_Event.prototype.meetsConditions = function(page) {
     const c = page.conditions;
     if (c.switch1Valid) {
@@ -4278,6 +4287,11 @@ Game_Event.prototype.meetsConditions = function(page) {
         if (!met) {
             return false;
         }
+    }
+    // an imported 2000/2003 page may wait on the timer (rrTimerSec): met at that many whole seconds left or
+    // fewer, running or not, as EasyRPG's Game_Event::AreConditionsMet reads it
+    if (c.rrTimerSec !== undefined && $gameTimer.seconds() > c.rrTimerSec) {
+        return false;
     }
     if (c.selfSwitchValid) {
         const key = [this._mapId, this._eventId, c.selfSwitchCh];
