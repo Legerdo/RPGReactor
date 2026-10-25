@@ -225,27 +225,27 @@
     const K = (kind, over, colors) => ({ kind, over, colors });
     /** Presets: recipes over the defaults, sized as the grown animal (shoulder to hip joint, in meters). */
     const KINDS = [
-        K('cat', { size: 0.23, bodyLength: 0.94, legLength: 0.78, girth: 0.91, chestDepth: 0.92, belly: -0.2, neckLength: 0.38, neckThickness: .86, neckAngle: 44, headSize: 1.62, snoutLength: 0.18, snoutWidth: 0.90, headPitch: 3, eyeSize: 1.20, eyeSide: 0.02, earSize: 0.88, ears: 'pointed', tail: 'long', tailLength: 1.1, tailThickness: 1.12, tailCurl: 0.65, pattern: 'countershade',patternScale:1.5,patternAmount:.72,pawSize: 1.16, legThickness: .93, fluff: 0.24 },
+        K('cat', { size: 0.23, bodyLength: 0.94, legLength: 0.78, girth: 0.91, chestDepth: 0.92, belly: -0.2, neckLength: 0.38, neckThickness: .86, neckAngle: 44, headSize: 1.62, snoutLength: 0.18, snoutWidth: 0.90, headPitch: 3, eyeSize: 1.05, eyeSide: 0.02, earSize: 0.88, ears: 'pointed', tail: 'long', tailLength: 1.1, tailThickness: 1.12, tailCurl: 0.65, pattern: 'countershade',patternScale:1.5,patternAmount:.72,pawSize: 1.16, legThickness: .93, fluff: 0.24 },
             { coat: '#b58a5a', marking: '#4a3220', light: '#efe2cc', nose: '#c87a78', eye: '#9cb66c', mane: '#b58a5a' }),
         K('lion', { size: 0.86, bodyLength: 1.08, legLength: 1.05, girth: 1.0, chestDepth: 1.15, belly: -0.35, hump: 0, neckLength: 0.75, neckThickness: 0.95, neckAngle: 22, headSize: 1.4, snoutLength: 0.86, snoutWidth: 1.12, headPitch: 10, eyeSize: 0.85, eyeSide: 0.04, earSize: 0.7, ears: 'round', tail: 'tufted', tailLength: 1.05, tailThickness: 0.95, tailCurl: -0.35, mane: 'lion', maneSize: 1.0, pattern: 'countershade', pawSize: 1.2, legThickness: 1.28, fluff: 0.15 },
             { coat: '#c49556', marking: '#3a2618', light: '#ead6ae', nose: '#a8645a', eye: '#b98a32', mane: '#6e4322' }),
         K('tiger', { size: 0.88, bodyLength: 1.12, legLength: 0.98, girth: 1.0, chestDepth: 1.12, belly: -0.35, neckLength: 0.8, neckThickness: 0.95, neckAngle: 22, headSize: 1.1, snoutLength: 0.8, snoutWidth: 1.1, headPitch: 10, eyeSize: 0.85, eyeSide: 0.04, earSize: 0.8, ears: 'round', tail: 'long', tailLength: 1.15, tailThickness: 1, tailCurl: -0.25, mane: 'ruff', maneSize: 0.35, pattern: 'stripes', pawSize: 1.2, legThickness: 1.12, fluff: 0.2 },
             { coat: '#d8782a', marking: '#1e1610', light: '#f2e8d8', nose: '#c07a70', eye: '#d0a030', mane: '#d8782a' }),
         K('dog', { size: 0.42, legLength: 1.02, girth: 0.95, chestDepth: 1.05, belly: -0.4, neckLength: 1, neckAngle: 38, headSize: 1.15, snoutLength: 0.85, snoutWidth: 1, headPitch: 14, tailThickness: 1.1, earSize: 1.1, earDroop: 0.35, tailCurl: 0.25, legThickness: 0.95 }, {}),
-        K('wolf', { size: 0.55, legLength: 1.12, girth: 0.92, chestDepth: 1.1, belly: -0.6, neckLength: 1, neckAngle: 30, headSize: 1.08, snoutLength: 0.92, snoutWidth: 0.95, headPitch: 15, eyeSize: 0.85, earSize: 1, ears: 'pointed', tail: 'bushy', tailLength: 0.85, tailThickness: 1.2, tailCurl: -0.6, mane: 'ruff', maneSize: 0.6, pattern: 'saddle', fluff: 0.55, legThickness: 0.9 },
-            { coat: '#8c8478', marking: '#3a3632', light: '#ddd6c8', nose: '#1e1c1a', eye: '#c8a040', mane: '#7a746a' }),
-        K('fox', { size: 0.3, legLength: 0.92, girth: 0.82, chestDepth: 0.98, belly: -0.4, neckLength: 0.9, neckAngle: 34, headSize: 1.05, snoutLength: 0.9, snoutWidth: 0.78, headPitch: 12, eyeSize: 1, earSize: 1.45, ears: 'pointed', tail: 'bushy', tailLength: 1.15, tailThickness: 1.5, tailCurl: -0.25, pattern: 'points', fluff: 0.45, legThickness: 0.8 },
+        K('wolf', { size: 0.55, legLength: 1.12, girth: 0.9, chestDepth: 1.2, belly: -0.6, neckLength: 1, neckAngle: 30, headSize: 1.12, snoutLength: 1.0, snoutWidth: 0.95, headPitch: 15, eyeSize: 0.85, earSize: 1, ears: 'pointed', tail: 'bushy', tailLength: 0.85, tailThickness: 1.2, tailCurl: -0.6, mane: 'ruff', maneSize: 0.6, pattern: 'saddle', fluff: 0.55, legThickness: 1.0 },
+            { coat: '#857a6c', marking: '#3a3632', light: '#d9cfbd', nose: '#1e1c1a', eye: '#c8a040', mane: '#80776a' }),
+        K('fox', { size: 0.3, legLength: 0.92, girth: 0.82, chestDepth: 0.98, belly: -0.4, neckLength: 0.9, neckAngle: 34, headSize: 1.05, snoutLength: 1.0, snoutWidth: 0.7, headPitch: 12, eyeSize: 1, earSize: 1.45, ears: 'pointed', tail: 'bushy', tailLength: 1.15, tailThickness: 1.5, tailCurl: -0.25, pattern: 'points', fluff: 0.45, legThickness: 0.8 },
             { coat: '#d06a24', marking: '#2a1c14', light: '#f4ece0', nose: '#1a1412', eye: '#c08a20', mane: '#d06a24' }),
         K('deer', { size: 0.6, legLength: 1.32, girth: 0.88, chestDepth: 1.08, belly: -0.3, neckLength: 1.35, neckThickness: 1.15, neckAngle: 55, headSize: 1.05, snoutLength: 1.05, snoutWidth: 0.8, headPitch: 42, eyeSize: 1.35, eyeSide: 0.85, earSize: 1.75, ears: 'narrow', earDroop: 0.35, tail: 'stub', tailLength: 0.35, feet: 'hoof', horns: 'antlers', hornSize: 1.1, legThickness: 0.72, pattern: 'countershade', fluff: 0.05 },
             { coat: '#9a6a40', marking: '#5a3a22', light: '#f0e6d6', nose: '#1e1816', horn: '#c8b090', eye: '#2a1a10', mane: '#9a6a40' }),
         K('horse', { size: 0.95, legLength: 1.36, girth: 1.1, belly: 0.1, neckLength: 1.55, neckAngle: 52, neckThickness: 1.5, headSize: 1.42, snoutLength: 1.45, snoutWidth: 1.05, headPitch: 58, chestDepth: 1.3, pawSize: 1.25, eyeSize: 1.3, eyeSide: 0.9, earSize: 1.1, ears: 'narrow', tail: 'horse', tailLength: 1.05, tailThickness: 1.2, tailCurl: -0.9, feet: 'hoof', mane: 'horse', maneSize: 1.2, pattern: 'socks', legThickness: 1.0, fluff: 0.05 },
             { coat: '#7a4a2a', marking: '#f2ede4', light: '#d8c4a8', nose: '#2a2220', eye: '#2a1810', mane: '#1e1612' }),
-        K('bear', { size: 0.78, legLength: 0.98, girth: 1.22, chestDepth: 1.05, belly: 0.4, hump: 1.1, hipHeight: 0.96, neckLength: 0.7, neckAngle: 16, neckThickness: 1.35, headSize: 1.16, snoutLength: 0.98, snoutWidth: 1.02, headPitch: 14, eyeSize: 0.55, earSize: 0.66, ears: 'round', tail: 'stub', tailLength: 0.15, feet: 'claw', plantigrade: 1, pawSize: 1.15, legThickness: 1.38, pattern: 'solid', fluff: 0.7 },
-            { coat: '#5a3c26', marking: '#3a261a', light: '#a08060', nose: '#1a1412', eye: '#2a1810', mane: '#5a3c26' }),
+        K('bear', { size: 0.78, legLength: 0.88, girth: 1.22, chestDepth: 1.08, belly: 0.4, hump: 1.1, hipHeight: 0.96, neckLength: 0.55, neckAngle: 16, neckThickness: 1.45, headSize: 1.34, snoutLength: 0.86, snoutWidth: 1.05, headPitch: 14, eyeSize: 0.62, earSize: 0.8, ears: 'round', tail: 'stub', tailLength: 0.15, feet: 'claw', plantigrade: 1, pawSize: 1.35, legThickness: 1.38, pattern: 'solid', fluff: 0.7 },
+            { coat: '#5a3c26', marking: '#3a261a', light: '#a08060', nose: '#1a1412', hoof: '#b3a48a', eye: '#2a1810', mane: '#5a3c26' }),
         K('boar', { size: 0.58, legLength: 0.75, hipHeight: 0.93, girth: 1.22, chestDepth: 1.25, hump: 0.65, belly: -0.1, neckLength: 0.45, neckAngle: 10, neckThickness: 1.5, headSize: 1.12, snoutLength: 1.1, snoutWidth: 0.95, headPitch: 25, eyeSize: 0.6, eyeSide: 0.6, earSize: 0.85, ears: 'pointed', earDroop: 0.2, tail: 'tufted', tailLength: 0.35, tailThickness: 0.6, tailCurl: -0.8, feet: 'hoof', tuskSize: 1, legThickness: 0.85, pattern: 'solid', fluff: 0.8, mane: 'horse', maneSize: 0.5 },
             { coat: '#4a3a30', marking: '#2a201a', light: '#6a5a4a', nose: '#3a2a26', horn: '#ece4d0', eye: '#1a1010', mane: '#2a2018' }),
-        K('rabbit', { size: 0.15, bodyLength: 0.74, legLength: 0.42, hipHeight: 1.38, girth: 1.22, chestDepth: 1.1, neckLength: 0.3, neckAngle: 46, headSize: 1.38, snoutLength: 0.34, snoutWidth: 0.8, headPitch: 18, eyeSize: 1.3, eyeSide: 1, earSize: 1.65, ears: 'long', earDroop: -0.45, tail: 'stub', tailLength: 0.25, tailThickness: 1.6, tailCurl: 1, plantigrade: 1, pawSize: 1.3, pattern: 'countershade', fluff: 0.6 },
-            { coat: '#9a8470', marking: '#5a4a3a', light: '#f2ece4', nose: '#8a6a64', eye: '#3a2216', mane: '#9a8470' }),
+        K('rabbit', { size: 0.15, bodyLength: 0.74, legLength: 0.34, hipHeight: 1.5, girth: 1.22, chestDepth: 1.1, belly: 0.2, neckLength: 0.3, neckAngle: 46, headSize: 1.38, snoutLength: 0.34, snoutWidth: 0.8, headPitch: 18, eyeSize: 1.3, eyeSide: 1, earSize: 1.55, ears: 'long', earDroop: -0.45, tail: 'stub', tailLength: 0.25, tailThickness: 1.6, tailCurl: 1, plantigrade: 1, pawSize: 1.3, pattern: 'countershade', fluff: 0.6 },
+            { coat: '#8a7560', marking: '#4a3a2c', light: '#e6dac8', nose: '#8a6a64', eye: '#3a2216', mane: '#9a8470' }),
         K('bull', { size: 0.95, legLength: 1.0, girth: 1.35, chestDepth: 1.3, belly: 0.25, hump: 0.45, neckLength: 0.6, neckAngle: 15, neckThickness: 1.5, headSize: 1.15, snoutLength: 1.0, snoutWidth: 1.15, headPitch: 35, eyeSize: 1.2, eyeSide: 0.85, earSize: 0.8, ears: 'round', earDroop: 0.7, tail: 'tufted', tailLength: 1, tailThickness: 0.7, tailCurl: -1, feet: 'hoof', horns: 'bull', hornSize: 1, pattern: 'piebald', legThickness: 1.22, fluff: 0.05 },
             { coat: '#2a2220', marking: '#f0ece4', light: '#3a302a', nose: '#c08a8a', horn: '#e0d4b8', eye: '#1a1010', mane: '#1a1412' }),
         K('ram', { size: 0.55, legLength: 0.92, girth: 1.22, chestDepth: 1.1, belly: 0.3, neckLength: 0.7, neckAngle: 35, headSize: 1, snoutLength: 0.85, snoutWidth: 0.85, headPitch: 35, eyeSize: 1, eyeSide: 0.9, earSize: 0.85, ears: 'floppy', earDroop: -0.9, tail: 'stub', tailLength: 0.3, feet: 'hoof', horns: 'ram', hornSize: 1.1, pattern: 'points', legThickness: 0.7, fluff: 1.3 },
@@ -665,6 +665,12 @@
         E([0, yH + 0.22 * gv, zH - 0.03], [0.15 * g, 0.16 * gv, 0.2], 'Hips', 0.08 * g, 'rump');
         E([0, yH + 0.08 * gv, zH - 0.19], [0.12 * g, 0.12 * gv, 0.09], 'Hips', 0.07 * g, 'rump');
         if (r.hump > 0) E(add(J.withers, [0, -0.02 * gv, 0.02]), [0.12 * g, 0.12 * gv * r.hump, 0.2 * Math.max(0.7, bl)], 'Chest', 0.05 * g, 'hump');
+        // A rabbit's back arches up into a high, round rump over big folded haunches.
+        if (prof.face === 'rabbit') {
+            E([0, yH + 0.30 * gv, zH + 0.06], [0.17 * g, 0.21 * gv, 0.27], 'Hips', 0.12 * g, 'rump');
+            E([0, (yS + yH) / 2 + 0.33 * gv, (zS + zH) / 2 - 0.04], [0.15 * g, 0.16 * gv, 0.3 * bl], 'Spine', 0.12 * g, 'back');
+            for (const sd of [1, -1]) E([sd * 0.12 * g, yH + 0.06 * gv, zH + 0.08], [0.085 * g, 0.17 * gv, 0.19], 'Hips', 0.1 * g, 'rump');
+        }
         // ── neck: the column, the crest of muscle over it, the throat under it.
         // A neck past the everyday thickness grows more slowly, so it stays a neck under the head.
         const nk = r.neckThickness <= 1.4 ? r.neckThickness : 1.4 + (r.neckThickness - 1.4) * 0.5;
@@ -1512,15 +1518,16 @@
                     const root = H(side * 0.4, 0.42, -0.05), turns = 0.95 + 0.25 * Math.min(1, k);
                     const R0 = 0.7 * sr * Math.sqrt(k), cen = add(sub(root, add(mul(hu, R0 * 0.966), mul(hd, R0 * 0.259))), add(mul(hd, 0.18 * sr), mul(hu, -0.12 * sr)));
                     const pts = [];
-                    for (let i = 0; i <= 28; i++) {
-                        const t = i / 28, a = (-15 + 360 * turns * t) * DEG, rad = R0 * (1 - 0.5 * t);
+                    for (let i = 0; i <= 84; i++) {
+                        const t = i / 84, a = (-15 + 360 * turns * t) * DEG, rad = R0 * (1 - 0.5 * t);
                         const q = add(cen, add(mul(hu, Math.cos(a) * rad), mul(hd, -Math.sin(a) * rad)));
                         pts.push(add(q, [side * (0.2 + 0.55 * t) * sr * Math.sqrt(k), 0, 0]));
                     }
                     // The root runs out of the skull into the coil.
                     pts.unshift(add(root, [-side * 0.05 * sr, -0.1 * sr, 0]));
                     const r0 = 0.22 * sr * Math.sqrt(k);
-                    const mesh = loft(pts, t => { const v = (r0 * (1 - 0.82 * t) + 0.004) * (1 + 0.07 * Math.sin(t * 90)); return [v, v * 0.82]; }, 12, null, false);
+                    // Annual growth ridges: close-set raised rings all the way round the horn, finer toward the tip.
+                    const mesh = loft(pts, t => { const ring = Math.pow(Math.abs(Math.sin(t * Math.PI * 30)), 0.6); const v = (r0 * (1 - 0.82 * t) + 0.004) * (1 + 0.06 * ring * (1 - 0.6 * t)); return [v, v * 0.78]; }, 14, null, false);
                     out.push({ mesh, kind: 'horn', weights: rigid('Head'), tag: 'horn' });
                 } else if (r.horns === 'goat') {
                     const pts = curve([base, add(base, s([0.02, 0.12 * hs, -0.06 * hs])), add(base, s([0.05 * hs, 0.17 * hs, -0.2 * hs])), add(base, s([0.07 * hs, 0.12 * hs, -0.3 * hs]))], 12);
@@ -2074,9 +2081,11 @@
             // The face's front stays clear: marks on the forehead and behind the eyes only.
             const face = onHead ? smooth(-0.35, 0.05, hz) * smooth(0.5, 0.28, hy) : 0;
             const low = pat === 'stripes' && !onLeg && !onHead ? 1 - height : 0;
-            const th = pat === 'tabby' ? 0.35 : 0.50 + 0.38 * low;
+            // A mackerel tabby's stripes are narrow, over an agouti ground, with a dark line down the spine.
+            const th = pat === 'tabby' ? 0.58 : 0.50 + 0.38 * low;
             const fork = pat === 'stripes' ? smooth(0.45, 0.9, low) * smooth(0.82, 0.95, Math.sin(phase * Math.PI * 2 + 1.1)) * 0.85 : 0;
-            const stripe = Math.max(smooth(th, th + (pat === 'tabby' ? 0.4 : 0.18), s), fork) * (1 - belly) * (1 - muzzle) * (1 - face);
+            const spine = pat === 'tabby' && !onLeg && !onHead && TORSO_TAGS.has(tag) ? smooth(0.72, 0.95, n[1]) : 0;
+            const stripe = Math.max(smooth(th, th + (pat === 'tabby' ? 0.22 : 0.18), s), fork, spine) * (1 - belly) * (1 - muzzle) * (1 - face);
             col = mixRgb(col, C.marking, k(stripe * (pat === 'tabby' ? 0.75 : 1)));
         } else if (pat === 'socks' || pat === 'points') {
             const sockTop = J.frontKnee[1] * (pat === 'socks' ? 0.75 : 1);
@@ -2219,6 +2228,20 @@
         if (lay.anus) {
             const d = len(sub(p, lay.anus));
             if (d < 0.03 * g) col = mixRgb(col, mixRgb(C.nose, [0.1, 0.07, 0.07], 0.5), smooth(0.03 * g, 0.012 * g, d));
+        }
+        // Wild-type coats are agouti: banded guard hairs give a grizzled back (a wolf's dark-tipped, a grizzly's silver-tipped)
+        // with paler bands showing through on the flanks.
+        const wild = ({ wolf: 1, bear: 0.7, rabbit: 0.8, boar: 0.5, fox: 0.25 }[r.kind] || 0) + (r.pattern === 'tabby' ? 0.45 : 0);
+        if (wild && !(tag === 'nosepad' || tag === 'hoof' || tag === 'pad' || tag === 'toe')) {
+            const fine = valueNoise(p[0] * 90 / g, p[1] * 90 / g, p[2] * 90 / g, seed + 17), patch = fbm(p[0] * 7 / g, p[1] * 7 / g, p[2] * 7 / g, seed + 19, 2);
+            const top = smooth(-0.1, 0.6, n[1]) * (1 - belly) * (onHead ? 0.5 : 1), tipTone = r.kind === 'bear' ? mixRgb(C.light, C.coat, 0.2) : C.marking;
+            col = mixRgb(col, tipTone, wild * top * (0.3 + 0.3 * patch) * smooth(0.45, 0.8, fine));
+            col = mixRgb(col, mixRgb(C.light, C.coat, 0.35), wild * 0.3 * (1 - top) * smooth(0.55, 0.85, 1 - fine) * (1 - belly * 0.5));
+        }
+        // A wolf's face: pale cheeks and muzzle sides under a darker bridge and brow.
+        if (r.kind === 'wolf' && onHead) {
+            const bridge = smooth(0.12, 0.35, hy) * (1 - smooth(0.10, 0.28, hx)) * smooth(z0 - 0.2, zt - 0.4, hz);
+            col = mixRgb(col, mixRgb(C.coat, C.marking, 0.5), bridge * 0.55 * amt);
         }
         // A little mottling so a solid coat is not flat paint, a touch darker along the back and paler under.
         const mottle = (1 + 0.06 * fbm(p[0] * 20, p[1] * 20, p[2] * 20, seed + 5, 2)) * (1 - 0.08 * smooth(0.2, 0.9, n[1]) + 0.06 * under);
@@ -2592,6 +2615,8 @@
         const bodyFaces = index.length;
         const horn = { positions: [], index: [], colors: [], joints: [], weights: [] };
         // Lofted pieces join the coat (ears, tails) or the horn part.
+        // Ears grow their own fur: short hair lying up the back toward the tip, pale tufts standing out of the hollow's rim.
+        const earFur = [], earRand = rng(seed + 61), earFurry = budget > 0 && !o.static && r.kind !== 'cat' && profileOf(r).face !== 'reptile';
         for (const piece of lofts) {
             const target = piece.kind === 'horn' ? horn : coat;
             const base = target.positions.length / 3;
@@ -2604,7 +2629,9 @@
                 let c;
                 if (piece.kind === 'horn') {
                     // Horns darken toward the base, tusks and spines toward the tip; claws are the hooves' color.
-                    const shade = piece.tag === 'horn' ? 0.7 + 0.3 * t : 1 - 0.25 * t;
+                    // Growth rings show as fine darker lines across a horn (close-set on a ram's).
+                    const rings = piece.tag === 'horn' ? Math.pow(Math.abs(Math.cos(t * Math.PI * (r.horns === 'ram' ? 30 : r.horns === 'dragon' ? 12 : 9))), 10) : 0;
+                    const shade = (piece.tag === 'horn' ? 0.7 + 0.3 * t : 1 - 0.25 * t) * (1 - 0.16 * rings);
                     c = piece.tag === 'claw' ? mixRgb(C.hoof, [0.85, 0.82, 0.75], 0.25 * t) : mul(C.horn, shade);
                     // A beak: its own color, a little lighter along it, a raptor's darkening to its tip.
                     if (piece.tag === 'beak') {
@@ -2645,6 +2672,13 @@
                 const j4 = new Uint8Array(4), w4 = new Float32Array(4);
                 setSkin(j4, w4, 0, map);
                 target.joints.push(...j4); target.weights.push(...w4);
+                if (earFurry && piece.tag === 'ear' && earRand() < (save ? 0.3 : 0.25)) {
+                    const n = [pn[i * 3], pn[i * 3 + 1], pn[i * 3 + 2]], f = m.face[i], u = m.u[i], np = m.positions.length / 3 - 1;
+                    const tip = [m.positions[np * 3], m.positions[np * 3 + 1], m.positions[np * 3 + 2]], up = norm(sub(tip, p)), g = lay.g, es = Math.min(1.6, r.earSize);
+                    const skin = { joints: Array.from(j4), weights: Array.from(w4) };
+                    if (f > 0.3 && Math.abs(u) < 0.7 && t < 0.85) earFur.push({ p, n, flow: up, len: (0.012 + 0.012 * t) * g * es, width: 0.004 * g, lift: 0.1, droop: 0.05, color: mul(c, 0.95 + 0.1 * earRand()), tipColor: mixRgb(c, C.light, 0.1), ...skin });
+                    else if (f < -0.2 && Math.abs(u) > 0.45 && t < 0.8) { const tuft = mixRgb(C.light, C.coat, 0.25); earFur.push({ p, n, flow: norm(add(mul(up, 0.85), mul(n, 0.3))), len: (0.010 + 0.010 * earRand()) * g * es, width: 0.004 * g, lift: 0.08, droop: 0.05, color: tuft, tipColor: mixRgb(tuft, C.light, 0.3), ...skin }); }
+                }
             }
             for (const q of m.index) target.index.push(q + base);
         }
@@ -2698,6 +2732,7 @@
         }
         // Strand cards: the lion's mane and the tail's tuft, a shaggy coat over the body, as the budget allows.
         const cards = furRoots(r, lay, coat, tags, normals, vcount, C, boneIndex, budget, save);
+        if (earFur.length) cards.roots.push(...earFur);
         // Into meters, on the floor.
         const S = r.size;
         const parts = [];

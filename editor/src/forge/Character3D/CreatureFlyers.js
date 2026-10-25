@@ -274,10 +274,11 @@
      * over the next one's base, its tip casting a soft shadow), with rachis
      * and barb streaks. Rows run down the picture (v), tips toward +v.
      */
-    const PLUMAGE_TEX = 'bird-plumage.png', PLUMAGE_NORMAL = 'bird-plumage-normal.png';
+    const PLUMAGE_TEX = 'bird-plumage.png', PLUMAGE_NORMAL = 'bird-plumage-normal.png', PLUMAGE_FINE = 'bird-plumage-fine.png', PLUMAGE_FINE_NORMAL = 'bird-plumage-fine-normal.png';
     const plumageCache = new Map();
-    function plumagePictures(size) {
-        if (plumageCache.has(size)) return plumageCache.get(size);
+    function plumagePictures(size, fine = false) {
+        const key = size + (fine ? 'f' : '');
+        if (plumageCache.has(key)) return plumageCache.get(key);
         const color = new Uint8Array(size * size * 4), normal = new Uint8Array(size * size * 4), height = new Float32Array(size * size);
         const ROWS = 10, COLS = 8, rh = size / ROWS, cw = size / COLS;
         const tipY = (r, c) => ((r + .5 + (hash(r * 31 + c, 2) - .5) * .35) * rh);
@@ -292,21 +293,22 @@
                     const ry = ((r % ROWS) + ROWS) % ROWS, ty = tipY(ry, ((c % COLS) + COLS) % COLS) + (r - ry) * rh, tx = tipX(ry, ((c % COLS) + COLS) % COLS) + (c - ((c % COLS) + COLS) % COLS) * cw;
                     let dx = x - tx; dx -= Math.round(dx / size) * size;
                     const dy = ty - y; if (dy < 0 || dy > rh * 2.6) continue;
-                    const hw = cw * (.62 + .12 * hash(ry * 7 + c, 9)), round = hw * 1.15, f = dy < round ? Math.sqrt(Math.max(0, 1 - (1 - dy / round) ** 2)) : 1;
+                    // Fine head feathers are lanceolate: narrow, with pointed tips.
+                    const hw = cw * (fine ? .48 + .1 * hash(ry * 7 + c, 9) : .62 + .12 * hash(ry * 7 + c, 9)), round = hw * (fine ? 2.2 : 1.15), f = dy < round ? (fine ? Math.pow(dy / round, .75) : Math.sqrt(Math.max(0, 1 - (1 - dy / round) ** 2))) : 1;
                     if (Math.abs(dx) < hw * f && (!best || ty < best.ty)) best = { dx, dy, hw, f, ty, id: ry * 97 + c };
                 }
             }
             let value = .78, h = 0;
             if (best) {
-                const { dx, dy, hw } = best, e = Math.abs(dx) / (hw * Math.max(.05, best.f)), tone = (hash(best.id, 3) - .5) * .10;
+                const { dx, dy, hw } = best, e = Math.abs(dx) / (hw * Math.max(.05, best.f)), tone = (hash(best.id, 3) - .5) * (fine ? .05 : .10);
                 const barb = .5 + .5 * Math.cos((Math.abs(dx) * 1.2 + dy) / (cw * .11) * Math.PI * 2);
                 const rachis = Math.exp(-((dx / (cw * .045)) ** 2)) * smooth(rh * .1, rh * .6, dy);
                 // Shadow of the feather lying over this one, just past its tip.
-                value = .86 + tone + .05 * barb + .05 * rachis - .13 * smooth(.6, 1, e);
+                value = .86 + tone + .05 * barb + .05 * rachis - (fine ? .06 : .13) * smooth(.6, 1, e);
                 const under = Math.max(0, 1 - best.dy / (rh * .55));
                 h = (1 - e * e) * .6 + barb * .12 + rachis * .3 + Math.min(1, dy / (rh * 1.5)) * .9 - under * .2;
                 // Darkened toward the feather's root, which the next feather covers.
-                value -= .12 * smooth(rh * .9, rh * 1.8, dy);
+                value -= (fine ? .05 : .12) * smooth(rh * .9, rh * 1.8, dy);
             }
             const o = y * size + x, g = Math.round(clamp(value, 0, 1) * 255);
             color.set([g, g, g, 255], o * 4); height[o] = h;
@@ -316,12 +318,13 @@
             const n = norm([(at(x - 1, y) - at(x + 1, y)) * size / 96, (at(x, y - 1) - at(x, y + 1)) * size / 96, 1]);
             normal.set([Math.round(127.5 + n[0] * 127.5), Math.round(127.5 + n[1] * 127.5), Math.round(127.5 + n[2] * 127.5), 255], (y * size + x) * 4);
         }
-        const pictures = { [PLUMAGE_TEX]: { width: size, height: size, data: color, name: PLUMAGE_TEX, repeat: true }, [PLUMAGE_NORMAL]: { width: size, height: size, data: normal, name: PLUMAGE_NORMAL, repeat: true } };
-        plumageCache.set(size, pictures);
+        const names = fine ? [PLUMAGE_FINE, PLUMAGE_FINE_NORMAL] : [PLUMAGE_TEX, PLUMAGE_NORMAL];
+        const pictures = { [names[0]]: { width: size, height: size, data: color, name: names[0], repeat: true }, [names[1]]: { width: size, height: size, data: normal, name: names[1], repeat: true } };
+        plumageCache.set(key, pictures);
         return pictures;
     }
-    function plumageMaterial(C, extra = {}) {
-        return { kind: 'feather', texture: PLUMAGE_TEX, normalTexture: PLUMAGE_NORMAL, normalScale: .9, keepColors: true, roughness: C.prof.gloss ? .6 : .9, noSurfaceDetail: true, pictures: plumagePictures(C.save ? 512 : 256), ...extra };
+    function plumageMaterial(C, extra = {}, fine = false) {
+        return { kind: 'feather', texture: fine ? PLUMAGE_FINE : PLUMAGE_TEX, normalTexture: fine ? PLUMAGE_FINE_NORMAL : PLUMAGE_NORMAL, normalScale: .9, keepColors: true, roughness: C.prof.gloss ? .6 : .9, noSurfaceDetail: true, pictures: plumagePictures(C.save ? 512 : 256, fine), ...extra };
     }
 
     /**
@@ -361,7 +364,7 @@
     // wing: humerus, forearm, hand, primary/secondary counts and lengths;
     // tail length, count and shape; leg: tibia, tarsus, toe, talon, feathering.
     const BIRDS = {
-        eagle: { pitch: 56, trunk: [.36, .20, .215], keel: 1.0, neck: [.05, .046], head: [.135, .10, .095], skull: 'raptor', bill: 'raptor', billLen: .066, eye: .0125, iris: '#f2dd74', eyeFwd: .50,
+        eagle: { pitch: 56, trunk: [.36, .20, .215], keel: 1.0, neck: [.05, .046], head: [.135, .10, .095], skull: 'raptor', bill: 'raptor', billLen: .066, eye: .0125, iris: '#f2dd74', eyeFwd: .72,
             wing: [.17, .20, .105, 10, 15, .41, .28], slots: 1, dihedral: 7, tail: [.26, 12, 'wedge'], leg: [.11, .072, .066, .036, .55], legColor: '#e8b52c', billColor: '#e9b62e', card: 1, ruff: true },
         owl: { pitch: 72, trunk: [.30, .23, .23], keel: .9, neck: [.04, .085], head: [.15, .16, .145], skull: 'owl', bill: 'owl', billLen: .036, eye: .022, iris: '#f2b221', eyeFwd: 1.45,
             wing: [.15, .17, .09, 10, 14, .32, .24], slots: .3, dihedral: 5, tail: [.17, 12, 'round'], leg: [.11, .07, .05, .028, 1.2], legColor: '#cdb79a', billColor: '#3d3a33', card: 1.15, soft: true },
@@ -402,7 +405,9 @@
         switch (type) {
             case 'eagle': {
                 // The white hood ends in a ragged line at the neck's base, lower at the throat.
-                const hood = ['nape', 'neck', 'throat'].includes(zone) ? (t + (rnd - .5) * .16 > (zone === 'throat' ? -.1 : .02) ? 1 : 0) : 0;
+                // White feathers straggle down into the brown of the shoulders and upper breast, one by one.
+                const hood = ['nape', 'neck', 'throat'].includes(zone) ? (t + (rnd - .5) * .30 > (zone === 'throat' ? -.1 : .04) ? 1 : 0)
+                    : ['breast', 'scapular', 'back', 'flank'].includes(zone) && t > .6 ? (rnd < .85 * smooth(.6, .72, t) ? 1 : 0) : 0;
                 const white = ['head', 'face', 'tail', 'uppertail', 'undertail'].includes(zone) || hood === 1;
                 const neck = ['nape', 'neck', 'throat'].includes(zone) && !white ? M : null;
                 f = white ? tipLight(vary(Lt, .04), scale3(Lt, .92), .5) : neck ? fixed(vary(neck))
@@ -639,12 +644,19 @@
             let sx = 1, sy = 1, sz = 1, push = 0;
             const front = Math.max(0, z);
             if (b.skull === 'raptor') {
-                sx *= 1 - .30 * front * front; sy *= 1 - .22 * front * front;
-                if (y > .45) sy *= 1 - .25 * smooth(.45, 1, y);
+                // Wedge-shaped toward the bill, the crown flat.
+                sx *= 1 - .40 * front * front; sy *= 1 - .24 * front * front;
+                if (y > .35) sy *= 1 - .36 * smooth(.35, 1, y);
                 // The supraorbital shelf: a ridge over each eye that gives the eagle its stare.
-                // The supraorbital shelf: a hard ridge over each eye, overhanging it.
-                push += .36 * Math.exp(-(((y - .44) / .11) ** 2) - (((z - .40) / .34) ** 2)) * smooth(.3, .7, Math.abs(x));
-                push -= .14 * Math.exp(-(((y - .10) / .16) ** 2) - (((z - .42) / .24) ** 2)) * smooth(.4, .8, Math.abs(x));
+                // The supraorbital shelf: a hard ledge right over each eye, running forward toward the cere.
+                // It rises gently above and drops off sharply toward the eye beneath it.
+                {
+                    const ex = .72, ez = .66, h = Math.atan2(z, Math.abs(x)) - Math.atan2(ez, ex), dy = y - .37;
+                    const along = Math.exp(-(((h - .12) / .55) ** 2)), profile = dy > 0 ? Math.exp(-((dy / .20) ** 2)) : Math.exp(-((dy / .055) ** 2));
+                    push += .46 * profile * along * smooth(.2, .5, Math.abs(x));
+                    // The orbit beneath: the eye sits back under the ledge.
+                    push -= .10 * Math.exp(-(((y - .12) / .17) ** 2)) * Math.exp(-((h / .40) ** 2)) * smooth(.3, .7, Math.abs(x));
+                }
                 // The forehead slopes down into the cere between the brows.
                 push -= .10 * Math.exp(-(((y - .45) / .25) ** 2) - (((z - .85) / .25) ** 2)) * (1 - smooth(.2, .5, Math.abs(x)));
                 // Cheeks fuller below and behind the eye; the occiput rounded into the nape.
@@ -667,7 +679,7 @@
             return add(add(H.c, l), mul(norm(l), push * hh * .5));
         };
         // Poles at the bill's root and the back of the skull (both hidden); plumage rows run front to back.
-        const rows = C.save ? 32 : 26, cols = C.save ? 40 : 32, ids = [], tilesAround = Math.max(2, Math.round(Math.PI * (hw + hh) * .5 / (L * .007 * 8))), tilesAlong = Math.max(1.5, Math.PI * hl * .5 / (L * .0045 * 10));
+        const rows = C.save ? 32 : 26, cols = C.save ? 40 : 32, ids = [], tilesAround = Math.max(2, Math.round(Math.PI * (hw + hh) * .5 / (L * .0048 * 8))), tilesAlong = Math.max(1.5, Math.PI * hl * .5 / (L * .0062 * 10));
         const headColor = B.headColor;
         for (let i = 0; i <= rows; i++) {
             const th = i / rows * Math.PI, row = [];
@@ -686,10 +698,17 @@
         for (const row of ids) { const a = row[0] * 3, z = row[cols] * 3, n = norm([m.n[a] + m.n[z], m.n[a + 1] + m.n[z + 1], m.n[a + 2] + m.n[z + 2]]); for (const o of [a, z]) { m.n[o] = n[0]; m.n[o + 1] = n[1]; m.n[o + 2] = n[2]; } }
         // The poles: each a ring of coincident vertices; one shared normal along the axis.
         for (const [row, d] of [[ids[0], Fh], [ids[rows], mul(Fh, -1)]]) for (const v of row) { m.n[v * 3] = d[0]; m.n[v * 3 + 1] = d[1]; m.n[v * 3 + 2] = d[2]; }
-        C.finish(m, 'Head', plumageMaterial(C, { normalScale: .28 }));
+        C.finish(m, 'Head', plumageMaterial(C, { normalScale: .4 }, true));
         return shape;
     }
 
+    /** The sculpted skull's surface normal at a unit direction, from two tangents across it. */
+    function shapeNormal(shape, x, y, z, center) {
+        const at = v => { const q = norm(v); return shape(q[0], q[1], q[2]); }, u = norm([x, y, z]), e1 = norm(cross(u, Math.abs(u[2]) < .9 ? [0, 0, 1] : [1, 0, 0])), e2 = norm(cross(u, e1));
+        let n = norm(cross(sub(at(add(u, mul(e1, .03))), at(sub(u, mul(e1, .03)))), sub(at(add(u, mul(e2, .03))), at(sub(u, mul(e2, .03))))));
+        if (dot(n, sub(shape(u[0], u[1], u[2]), center)) < 0) n = mul(n, -1);
+        return n;
+    }
     /** Fine head feathers: crown, nape hackles, cheeks; clear of the eyes and bill. */
     function headFeathers(C, B, shape) {
         const { L, headBone: head } = C, b = B.prof, m = new FMesh(), skin = rigid(head), H = B.head;
@@ -702,14 +721,17 @@
                 // Cards only where a silhouette shows them: the nape, the back of the crown, cheeks and throat.
                 if (z > -.05 && y > .15) continue;
                 if (z > .45) continue;
-                const p = shape(x, y, z), pe = shape(x * 1.01, y * 1.01, z * 1.01), nrm = norm(sub(pe, p));
+                if (z < -.8) continue; // the occiput, under the neck
+                const p = shape(x, y, z), nrm = shapeNormal(shape, x, y, z, H.c);
                 let eyeNear = false; for (const e of B.eyes || []) if (Math.hypot(...sub(p, e.c)) < e.r * 2.3) eyeNear = true;
                 if (eyeNear) continue;
                 // Head feathers flow away from the bill's root, back over the crown and down the cheeks.
                 const away = add(norm(sub(p, B.billRoot)), mul(H.F, -.35)), back = norm(sub(away, mul(nrm, dot(away, nrm))));
                 const len = size * (y > .4 ? .9 : 1) * (z < -.3 ? 1.3 : 1) * (.9 + .2 * hash(seed));
                 const zone = y < -.35 ? 'throat' : z > .2 && Math.abs(x) > .5 ? 'face' : y > .2 ? 'head' : z < -.2 ? 'nape' : 'face';
-                card(m, { root: add(p, mul(nrm, -len * .05)), dir: back, up: nrm, len, wid: len * .62, cell: CELLS.fine[Math.floor(hash(seed, 4) * 5)], curv: 1 / (B.headDims[2] * .5), bend: -.01, lift: .05, cup: .15, rows: 2,
+                // A raptor's nape: longer, pointed hackles that lift a little off the skull.
+                const hackle = b.skull === 'raptor' && z < -.25;
+                card(m, { root: add(p, mul(nrm, -len * .05)), dir: back, up: nrm, len: hackle ? len * 1.25 : len, wid: len * (hackle ? .5 : .62), cell: CELLS[hackle ? 'hackle' : 'fine'][Math.floor(hash(seed, 4) * 5)], lift: hackle ? .07 : .04, curv: 1 / (B.headDims[2] * .5), bend: -.01, cup: .15, rows: 2,
                     color: plumage(C, zone, 1, seed), skin, surface: nrm });
                 seed++;
             }
@@ -723,7 +745,8 @@
      * arch, half-width at the base, the lower mandible's reach, and a hook.
      */
     const BILLS = {
-        raptor: { len: .72, top: .30, bot: -.25, tip: -.50, arch: .26, width: .21, lower: .74, hook: 1 },
+        // A bald eagle's bill: about 0.38 of the head's length, deep but narrow, a smooth culmen into a sharp hook.
+        raptor: { len: .54, top: .21, bot: -.15, tip: -.37, arch: .17, width: .115, lower: .76, hook: 1, wedge: true },
         owl: { len: .42, top: .16, bot: -.20, tip: -.42, arch: .12, width: .15, lower: .7, hook: 1 },
         crow: { len: 1.0, top: .21, bot: -.17, tip: -.10, arch: .14, width: .17, lower: .97, hook: .15 },
         cone: { len: .46, top: .21, bot: -.20, tip: -.02, arch: .05, width: .27, lower: .98, hook: 0 },
@@ -759,7 +782,8 @@
             for (let k = 0; k < sides; k++) {
                 const a = -Math.PI / 2 + k / sides * Math.PI * 2, sn = Math.sin(a), cs = Math.cos(a);
                 // A rounded ridge on top, steep flat sides, a straight cutting edge underneath.
-                const y = sn, x = cs * (sn > 0 ? Math.sqrt(1 - .55 * sn * sn) : 1 - .15 * sn * sn) * (S.flat ? 1 : 1);
+                // A raptor's bill is a wedge from the front: a narrow ridge widening to the cutting edges.
+                const y = sn, x = cs * (S.wedge ? (sn > 0 ? 1 - .66 * sn : 1 - .25 * sn * sn) : sn > 0 ? Math.sqrt(1 - .55 * sn * sn) : 1 - .15 * sn * sn);
                 const zz = T[0] + (Bo[0] - T[0]) * (1 - (y + 1) / 2);
                 const p = add(at(zz, mid[1] + y * half * (S.flat && sn > 0 ? .7 : 1)), mul(X, x * w));
                 const col = mix(yellow, tipCol, smooth(.55, .95, t));
@@ -782,9 +806,9 @@
         const dark = scale3(yellow, .3);
         for (const s of [-1, 1]) {
             // The gape: the mouth's corner as a fleshy line running back under the eye.
-            const reach = b.bill === 'raptor' ? .55 : b.bill === 'duck' ? .15 : .25;
+            const reach = b.bill === 'raptor' ? .30 : b.bill === 'duck' ? .15 : .25;
             const gape = Array.from({ length: 14 }, (_, i) => { const t = i / 13, z = -hh * reach + (len * .55 + hh * reach) * t, Bo = bot(clamp(z / len, 0, 1)); return add(at(z, (z < 0 ? hh * S.bot + hh * .02 : Bo[1]) - hh * .01), mul(X, s * (widthAt(clamp(z / len, 0, 1)) + hh * (z < 0 ? .10 * (-z / (hh * reach)) + .01 : .006)))); });
-            tubeInto(m, gape, gape.map((_, i) => hh * (b.bill === 'raptor' ? .022 : .012) * (1 - i / 16)), 6, b.bill === 'raptor' ? mix(yellow, lin('#c98a1c'), .5) : dark, skin);
+            tubeInto(m, gape, gape.map((_, i) => hh * (b.bill === 'raptor' ? .014 : .012) * (1 - i / 16)), 6, b.bill === 'raptor' ? mix(yellow, lin('#c98a1c'), .5) : dark, skin);
             // The nostril, set in the cere where there is one.
             const nt = b.bill === 'duck' ? .22 : b.bill === 'raptor' ? .12 : .2, T = top(nt), Bo = bot(nt);
             ellipsoidInto(m, add(at(T[0], T[1] - (T[1] - Bo[1]) * (b.bill === 'raptor' ? .32 : .25)), mul(X, s * widthAt(nt) * .93)), [hh * .012, hh * (b.bill === 'raptor' ? .035 : .02), hh * (b.bill === 'raptor' ? .055 : .04)], Fh, Uh, [.02, .015, .01], skin, 6, 10);
@@ -819,14 +843,14 @@
         const c0 = m.vertex(path[0], norm(sub(path[0], path[1])), typeof color === 'function' ? color(0) : color, skin, [0, 0]), c1 = m.vertex(path[n - 1], norm(sub(path[n - 1], path[n - 2])), typeof color === 'function' ? color(1) : color, skin, [0, 0]);
         for (let k = 0; k < sides; k++) { triOut(m, c0, rows[0][k], rows[0][(k + 1) % sides], sub(path[0], path[1])); triOut(m, c1, rows[n - 1][(k + 1) % sides], rows[n - 1][k], sub(path[n - 1], path[n - 2])); }
     }
-    function ellipsoidInto(m, center, radii, F, U, color, skin, rows = 8, sides = 12) {
+    function ellipsoidInto(m, center, radii, F, U, color, skin, rows = 8, sides = 12, uvScale = null) {
         const X = norm(cross(U, F)), ids = [];
         for (let i = 0; i <= rows; i++) {
             const phi = -Math.PI / 2 + i / rows * Math.PI, row = [];
             for (let k = 0; k < sides; k++) {
                 const th = k / sides * Math.PI * 2, l = [Math.cos(phi) * Math.cos(th), Math.sin(phi), Math.cos(phi) * Math.sin(th)];
                 const off = add(add(mul(X, l[0] * radii[0]), mul(U, l[1] * radii[1])), mul(F, l[2] * radii[2]));
-                row.push(m.vertex(add(center, off), norm(add(add(mul(X, l[0] / radii[0]), mul(U, l[1] / radii[1])), mul(F, l[2] / radii[2]))), color, skin, [0, 0]));
+                row.push(m.vertex(add(center, off), norm(add(add(mul(X, l[0] / radii[0]), mul(U, l[1] / radii[1])), mul(F, l[2] / radii[2]))), color, skin, uvScale ? [k / sides * uvScale[0], i / rows * uvScale[1]] : [0, 0]));
             }
             ids.push(row);
         }
@@ -840,32 +864,31 @@
             const m = new P.ExactMesh(), F = e.d, rad = e.r;
             // The first 144 vertices are the whole eyeball, centered on the eye.
             m.sphere(e.c, rad, lin('#141110'), skin, 11, 12);
-            const irisC = add(e.c, mul(F, rad * 1.004)), iris = C.colors.eye;
-            m.disk(irisC, F, rad * .62, iris, skin, 32);
-            // Fine radial texture and a darker limbal ring give the iris depth.
+            const irisC = add(e.c, mul(F, rad * .995)), iris = C.colors.eye;
             const U0 = norm(cross(F, Math.abs(F[1]) < .9 ? [0, 1, 0] : [1, 0, 0])), V0 = cross(F, U0);
-            for (let k = 0; k < 24; k++) { const a = k / 24 * Math.PI * 2, d = add(mul(U0, Math.cos(a)), mul(V0, Math.sin(a))); m.tube([add(irisC, add(mul(d, rad * .30), mul(F, rad * .004))), add(irisC, add(mul(d, rad * .58), mul(F, rad * .004)))], rad * .016, 3, scale3(iris, .72), skin); }
-            m.tube(Array.from({ length: 33 }, (_, k) => { const a = k / 32 * Math.PI * 2; return add(irisC, add(mul(add(mul(U0, Math.cos(a)), mul(V0, Math.sin(a))), rad * .61), mul(F, rad * .003))); }), rad * .03, 4, scale3(iris, .35), skin);
-            m.disk(add(irisC, mul(F, rad * .006)), F, rad * (b.skull === 'owl' ? .34 : .27), [.008, .008, .008], skin, 24);
+            // The iris: a fine radial weave of the eye's own color, a hair darker at its rim, round a crisp black pupil.
+            const pr = rad * (b.skull === 'owl' ? .34 : .26), ir = rad * .64, SEG = 48, ringsR = [pr, pr * 1.06, (pr + ir) * .5, ir * .93, ir], ids = [];
+            for (const [ri, rr] of ringsR.entries()) ids.push(Array.from({ length: SEG }, (_, k) => {
+                const a = k / SEG * Math.PI * 2, d = add(mul(U0, Math.cos(a)), mul(V0, Math.sin(a))), streak = (hash(k, 7) - .5) * .16 + (hash(k * 3 + 1, 11) - .5) * .08;
+                // The brow shades the iris's upper part.
+                const shade = b.skull === 'raptor' ? 1 - .28 * smooth(.2, .9, dot(d, B.head.U)) : 1;
+                const tone = (ri === 0 ? .80 : ri === ringsR.length - 1 ? .62 : ri === 2 ? 1 + streak * .5 : 1 + streak) * shade;
+                return m.vertex(add(irisC, add(mul(d, rr), mul(F, -rad * .015 * (1 - ri / 4)))), F, scale3(iris, tone), skin);
+            }));
+            for (let i = 0; i < ids.length - 1; i++) for (let k = 0; k < SEG; k++) { const a = ids[i][k], b2 = ids[i][(k + 1) % SEG], c = ids[i + 1][k], d2 = ids[i + 1][(k + 1) % SEG]; triOut(m, a, c, b2, F); triOut(m, b2, c, d2, F); }
+            m.disk(add(irisC, mul(F, -rad * .012)), F, pr * 1.01, [.006, .006, .006], skin, 32);
             C.finish(m, 'Eye ' + e.side, { kind: 'eye', roughness: .2, noSurfaceDetail: true });
             const cornea = new P.ExactMesh();
-            cornea.sphere(add(e.c, mul(F, rad * .52)), rad * .62, [1, 1, 1], skin, 8, 20, [1, 1, 1]);
+            cornea.sphere(add(e.c, mul(F, rad * .52)), rad * .58, [1, 1, 1], skin, 10, 28, [1, 1, 1]);
             // Only the front cap is kept: a clear dome over the iris.
             const keep = [], P2 = cornea.p;
-            for (let t = 0; t < cornea.i.length; t += 3) { const ids = cornea.i.slice(t, t + 3); if (ids.every(v => dot(sub([P2[v * 3], P2[v * 3 + 1], P2[v * 3 + 2]], e.c), F) > rad * .96)) keep.push(...ids); }
+            for (let t = 0; t < cornea.i.length; t += 3) { const ids = cornea.i.slice(t, t + 3); if (ids.every(v => dot(sub([P2[v * 3], P2[v * 3 + 1], P2[v * 3 + 2]], e.c), F) > rad * .90)) keep.push(...ids); }
             cornea.i = keep;
-            C.finish(cornea, 'Cornea ' + e.side, { kind: 'glass', roughness: .03, opacity: .18, noSurfaceDetail: true });
+            C.finish(cornea, 'Cornea ' + e.side, { kind: 'glass', roughness: .02, opacity: .14, noSurfaceDetail: true });
             // The bare eyelid ring: skin colored by kind (a raptor's yellow-grey, an owl's black).
-            const lid = new P.ExactMesh(), ringCol = b.skull === 'raptor' ? mix(lin(b.billColor), lin('#6b5a2a'), .4) : b.skull === 'owl' ? lin('#2a2420') : scale3(C.colors.main, .5);
-            lid.tube(Array.from({ length: 41 }, (_, k) => { const a = k / 40 * Math.PI * 2; return add(add(e.c, mul(F, rad * .80)), add(mul(U0, Math.cos(a) * rad * .66), mul(V0, Math.sin(a) * rad * .66))); }), rad * (b.skull === 'raptor' ? .12 : .07), 6, ringCol, skin);
+            const lid = new P.ExactMesh(), ringCol = b.skull === 'raptor' ? mix(lin(b.billColor), lin('#3a3428'), .55) : b.skull === 'owl' ? lin('#2a2420') : scale3(C.colors.main, .5);
+            lid.tube(Array.from({ length: 41 }, (_, k) => { const a = k / 40 * Math.PI * 2; return add(add(e.c, mul(F, rad * .80)), add(mul(U0, Math.cos(a) * rad * .64), mul(V0, Math.sin(a) * rad * .64))); }), rad * (b.skull === 'raptor' ? .09 : .07), 6, ringCol, skin);
             C.finish(lid, 'Eyelid ' + e.side, { kind: 'skin', roughness: .6, noSurfaceDetail: true });
-            if (b.skull === 'raptor') {
-                // The brow's feathered shelf hoods the top of the eye: the raptor's stern look.
-                const hood = new FMesh(), up = norm(sub(B.head.U, mul(F, dot(B.head.U, F)))), along = norm(cross(up, F));
-                ellipsoidInto(hood, add(add(e.c, mul(up, rad * .88)), mul(F, rad * .55)), [rad * .62, rad * .42, rad * 1.45], norm(add(B.head.F, mul(F, .2))), up, B.headColor(0, 1, 0), skin, 8, 14);
-                hood.smoothNormals();
-                C.finish(hood, 'Brow ' + e.side, { kind: 'feather', roughness: .9, noSurfaceDetail: true });
-            }
         }
     }
 
@@ -1129,14 +1152,14 @@
         B.eyes = r.eyeCount > 0 ? [-1, 1].map(s => {
             const yaw = b.eyeFwd;
             let d = norm(add(mul(X, s * Math.cos(yaw)), mul(Fh, Math.sin(yaw))));
-            const u = norm([b.skull === 'owl' ? .36 : b.skull === 'raptor' ? .70 : .80 * Math.cos(yaw) + .06, b.skull === 'raptor' ? .12 : b.skull === 'owl' ? .08 : .16, b.skull === 'owl' ? .93 : b.skull === 'raptor' ? .42 : .14 + .25 * Math.sin(yaw)]);
+            const u = norm([b.skull === 'owl' ? .36 : b.skull === 'raptor' ? .62 : .80 * Math.cos(yaw) + .06, b.skull === 'raptor' ? .12 : b.skull === 'owl' ? .08 : .16, b.skull === 'owl' ? .93 : b.skull === 'raptor' ? .57 : .14 + .25 * Math.sin(yaw)]);
             const surface = shape(s * u[0], u[1], u[2]);
             // The eye looks out along the skull's own surface there (a raptor's and an owl's turned further forward).
             const at = v => { const q = norm(v); return shape(q[0], q[1], q[2]); }, uu = [s * u[0], u[1], u[2]], e1 = norm(cross(uu, [0, 0, 1])), e2 = norm(cross(uu, e1));
             let nrm = norm(cross(sub(at(add(uu, mul(e1, .03))), at(sub(uu, mul(e1, .03)))), sub(at(add(uu, mul(e2, .03))), at(sub(uu, mul(e2, .03))))));
             if (dot(nrm, sub(surface, hc)) < 0) nrm = mul(nrm, -1);
             if (b.skull !== 'owl') d = norm(add(mul(nrm, b.skull === 'raptor' ? .45 : .8), mul(d, b.skull === 'raptor' ? .55 : .2)));
-            return { side: s, c: sub(surface, mul(d, eyeR * (b.skull === 'owl' ? .25 : b.skull === 'raptor' ? .45 : .62))), d: norm(add(d, mul(Uh, .02))), r: eyeR };
+            return { side: s, c: sub(surface, mul(d, eyeR * (b.skull === 'owl' ? .25 : b.skull === 'raptor' ? .72 : .62))), d: norm(add(d, mul(Uh, .02))), r: eyeR };
         }) : [];
         birdEyes(C, B);
         birdBill(C, B);
