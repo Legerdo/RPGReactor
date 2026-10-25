@@ -7569,7 +7569,18 @@ html.rr-detached-window.rr-repaint { clip-path: inset(0 round calc(var(--radius-
 .rr-c3d-save { color: var(--color-accent-bright); font-weight: 600; }
 .rr-c3d-body { display: grid; grid-template-columns: 360px minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
 .rr-c3d-side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--color-border-subtle); background: var(--color-bg-panel); }
-.rr-c3d-tabs { display: flex; flex-wrap: wrap; gap: 0; padding: 6px 6px 0; border-bottom: 1px solid var(--color-border-subtle); }
+.rr-c3d-tabs { display: flex; flex-direction: column; border-bottom: 1px solid var(--color-border-subtle); }
+/* The groups: Species, Body, Outfit, as raised tabs on the panel's edge; the chosen one joins the row under it. */
+.rr-c3d-groups { display: flex; gap: 4px; padding: 8px 8px 0; background: var(--color-bg-toolbar); border-bottom: 1px solid var(--color-border-subtle); }
+.rr-c3d-group-tab {
+    flex: 1 1 0; min-width: 0; padding: 7px 6px 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+    color: var(--color-text-muted); background: var(--color-bg-panel); border: 1px solid var(--color-border-subtle); border-bottom: 0;
+    border-radius: 6px 6px 0 0; cursor: pointer; margin-bottom: -1px; box-shadow: inset 0 3px 0 transparent;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rr-c3d-group-tab:hover { color: var(--color-text); }
+.rr-c3d-group-tab.is-active { color: var(--color-accent-bright); background: var(--color-bg-panel); border-color: var(--color-border); box-shadow: inset 0 3px 0 var(--color-accent-bright); }
+.rr-c3d-subtabs { display: flex; flex-wrap: wrap; gap: 0; padding: 4px 6px 0; }
 .rr-c3d-tab {
     padding: 5px 6px; font-size: 11px; color: var(--color-text-muted); background: transparent; border: 0;
     border-bottom: 2px solid transparent; cursor: pointer;

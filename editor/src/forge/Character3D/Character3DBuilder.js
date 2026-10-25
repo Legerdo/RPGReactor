@@ -189,6 +189,26 @@ class Character3DBuilder {
             : [['species', 'Species'], ['body', 'Body'], ...(!this.recipe.morphology || this.recipe.morphology === 'quadruped' ? [['gear', 'Gear']] : []), ['colors', 'Colors']];
     }
 
+    /**
+     * The tabs in groups: what the character is (Species), its body and everything on it (Shape, Face,
+     * Hair, Colors, Body art) and what it wears (Clothing, Accessories). The groups are the top row;
+     * the chosen group's tabs sit under it. A group of one tab has no row of its own.
+     */
+    _tabGroups() {
+        const groupOf = { species: 'species', body: 'body', face: 'body', hair: 'body', colors: 'body', bodyart: 'body', outfit: 'outfit', props: 'outfit', gear: 'gear' };
+        const names = { species: 'Species', body: 'Body', outfit: 'Outfit', gear: 'Gear' };
+        // Under Body and Outfit, their own first tabs are named for what they hold.
+        const within = { body: 'Shape', outfit: 'Clothing' };
+        const groups = [];
+        for (const [id, label] of this._tabs()) {
+            const key = groupOf[id] || id;
+            let group = groups.find(g => g.id === key);
+            if (!group) groups.push(group = { id: key, label: names[key] || label, tabs: [] });
+            group.tabs.push([id, within[id] || label]);
+        }
+        return groups;
+    }
+
     _renderPage() {
         this.root.innerHTML = `
             <div class="rr-c3d">
@@ -209,7 +229,7 @@ class Character3DBuilder {
                 </div>
                 <div class="rr-c3d-body">
                     <div class="rr-c3d-side">
-                        <div class="rr-c3d-tabs" role="tablist"></div>
+                        <div class="rr-c3d-tabs"></div>
                         <div class="rr-c3d-panel"></div>
                     </div>
                     <div class="rr-c3d-view">
@@ -248,9 +268,15 @@ class Character3DBuilder {
         q('.rr-c3d-pose-picker').addEventListener('change', e => { this.pose = e.target.value; this._syncPose(); });
         this.root.querySelectorAll('.rr-c3d-frame').forEach(b => b.addEventListener('click', () => this._frame(b.dataset.frame)));
         this.root.querySelector('.rr-c3d-tabs').addEventListener('click', e => {
-            const b = e.target.closest('[data-tab]');
+            const b = e.target.closest('[data-tab], [data-group]');
             if (!b) return;
-            this.tab = b.dataset.tab;
+            if (b.dataset.group) {
+                // A group opens on the tab last used in it.
+                const group = this._tabGroups().find(g => g.id === b.dataset.group);
+                if (!group) return;
+                const last = (this._groupTab || {})[group.id];
+                this.tab = group.tabs.some(t => t[0] === last) ? last : group.tabs[0][0];
+            } else this.tab = b.dataset.tab;
             this._renderPanel();
         });
         const panel = q('.rr-c3d-panel');
@@ -267,8 +293,13 @@ class Character3DBuilder {
         if (!this.root) return;
         const tabs = this._tabs();
         if (!tabs.some(t => t[0] === this.tab)) this.tab = 'species';
-        this.root.querySelector('.rr-c3d-tabs').innerHTML = tabs.map(([id, label]) =>
-            `<button class="rr-c3d-tab${id === this.tab ? ' is-active' : ''}" role="tab" aria-selected="${id === this.tab}" data-tab="${id}">${this._t(label)}</button>`).join('');
+        const groups = this._tabGroups(), current = groups.find(g => g.tabs.some(t => t[0] === this.tab)) || groups[0];
+        (this._groupTab || (this._groupTab = {}))[current.id] = this.tab;
+        this.root.querySelector('.rr-c3d-tabs').innerHTML =
+            `<div class="rr-c3d-groups" role="tablist">${groups.map(g =>
+                `<button class="rr-c3d-group-tab${g === current ? ' is-active' : ''}" role="tab" aria-selected="${g === current}" data-group="${g.id}">${this._t(g.label)}</button>`).join('')}</div>`
+            + (current.tabs.length > 1 ? `<div class="rr-c3d-subtabs" role="tablist">${current.tabs.map(([id, label]) =>
+                `<button class="rr-c3d-tab${id === this.tab ? ' is-active' : ''}" role="tab" aria-selected="${id === this.tab}" data-tab="${id}">${this._t(label)}</button>`).join('')}</div>` : '');
         {
             const parts = this._randomPartList(), key = this._randomKey();
             if (this._randomFor !== key) { this.randomParts = RRRandomPartsMenu.load(key, parts); this._randomFor = key; }
