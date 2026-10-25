@@ -473,8 +473,40 @@ class SetMovementRouteEditor {
             section.appendChild(this._checkbox('Wait for Completion', this.moveRoute.wait,
                 (v) => this.moveRoute.wait = v));
         }
+        if (!this.autonomous && (this._legacyTiming() || this.moveRoute.rrFrequency > 0)) section.appendChild(this._frequencyRow());
 
         parent.appendChild(section);
+    }
+
+    /** Whether the project moves as RPG Maker 2000/2003 does (System › rrLegacyMotion), where a route keeps its own frequency. */
+    _legacyTiming() {
+        try { return !!(this.databaseManager && this.databaseManager.getSystem().rrLegacyMotion); } catch (e) { return false; }
+    }
+
+    /**
+     * Set Move Route's frequency, as RPG Maker 2000/2003 had it (route.rrFrequency, 1-8): the pause after each step
+     * and turn on this route (8 none). Not set runs every command in turn, as MZ does.
+     */
+    _frequencyRow() {
+        const row = document.createElement('label');
+        row.style.cssText = 'display: flex; align-items: center; gap: 6px; color: var(--color-text); font-size: 12px; margin-top: 2px;';
+        row.title = this._t('How long the character pauses after each step and turn on this route (RPG Maker 2000/2003 timing)');
+        row.appendChild(document.createTextNode(this._t('Frequency:')));
+        const select = document.createElement('select');
+        select.className = 'movement-route-frequency';
+        select.style.cssText = 'flex: 1; padding: 3px 6px; background-color: var(--color-bg-input); color: var(--color-text); border: 1px solid var(--color-border-input); border-radius: 3px; font-size: 12px;';
+        const current = this.moveRoute.rrFrequency > 0 ? Math.max(1, Math.min(8, Math.round(this.moveRoute.rrFrequency))) : 0;
+        select.appendChild(this._option('0', 'Not set', current === 0, true));
+        for (let f = 8; f >= 1; f--) {
+            const name = f === 8 ? `8: ${this._t('Highest')}` : f === 1 ? `1: ${this._t('Lowest')}` : String(f);
+            select.appendChild(this._option(String(f), name, current === f, false));
+        }
+        select.addEventListener('change', () => {
+            const f = Number(select.value);
+            if (f > 0) this.moveRoute.rrFrequency = f; else delete this.moveRoute.rrFrequency;
+        });
+        row.appendChild(select);
+        return row;
     }
 
     // ----------------------------------------------------------------
