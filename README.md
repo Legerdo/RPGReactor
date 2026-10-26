@@ -9,23 +9,25 @@ Use RPG Reactor to create, edit, playtest, and package 2D RPGs with familiar RPG
 <table>
 <tr>
 <td width="50%" align="center"><img src="docs/media/releases/0.99.1/08-north-haven-night.jpg" alt="A lamplit 3D village at night"><br><sub>Walk a lamplit 3D village at night, in worlds whose maps join with no loading.</sub></td>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.2/07-terrain.jpg" alt="Painting a road through a 3D village"><br><sub>Paint roads, ground and foliage straight onto 3D maps; roads follow the hills.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/07-terrain.jpg" alt="Painting a road through a 3D village"><br><sub>Drag the Path tool to lay dirt roads, cobblestone or paving that follow the hills through your village.</sub></td>
 </tr>
 <tr>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.2/01-character-builder.jpg" alt="The 3D Character Builder with a sci-fi outfit"><br><sub>Dress your hero in one click, from knights and rangers to starship crews and a neon Glow runner.</sub></td>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.2/02-species.jpg" alt="A centaur in the Character Builder"><br><sub>Dozens of species, now with centaurs, saved as rigged models that walk, run and fight.</sub></td>
+<td colspan="2" align="center"><img src="docs/media/releases/0.99.2/01-character-builder.jpg" alt="Sci-fi looks from the 3D Character Builder"><br><sub>Dress your hero in one click: a space marine with a sealed visor, an astronaut, starship crew, a neon Glow runner and a street samurai.</sub></td>
 </tr>
 <tr>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.2/03-creatures.jpg" alt="A bald eagle gliding"><br><sub>Birds, beasts and sea creatures, built the same way.</sub></td>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.2/04-vehicles.jpg" alt="A motorcycle in the Prop Builder"><br><sub>The 3D Prop Builder makes vehicles, furniture, weapons, instruments and props for your maps.</sub></td>
+<td colspan="2" align="center"><img src="docs/media/releases/0.99.2/02-species.jpg" alt="New species: centaur, insectfolk, Hydrata, catfolk, werewolf"><br><sub>Meet the new centaur, plus insectfolk with compound eyes, the two-headed Hydrata, catfolk and werewolves, all wearing the same outfits as everyone else.</sub></td>
 </tr>
 <tr>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.2/05-nature.jpg" alt="A cherry blossom tree"><br><sub>Trees, plants and rocks that change with the seasons and sway in the wind.</sub></td>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.2/08-editor.jpg" alt="Search results in the editor"><br><sub>Search finds maps, events, switches and every Database record, one click away.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/03-creatures.jpg" alt="A bald eagle, lion, tiger and bat"><br><sub>The rebuilt bald eagle glides on spread wings with a feathered head and hooked beak, joined by rebuilt bats, lions and tigers.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/04-vehicles.jpg" alt="A motorcycle and a pickup truck"><br><sub>Motorcycles and trucks come with real wheels, doors and headlights, and body styles you can tune with a few sliders.</sub></td>
 </tr>
 <tr>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/05-nature.jpg" alt="An oak, a cherry blossom and a willow"><br><sub>Plant oaks, cherry blossoms and weeping willows that change with the seasons and sway in the wind.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/06-sprite-sheets.jpg" alt="Sprite sheets exported from 3D"><br><sub>Export a walking character with six frames per step, or a tree that sways in eight frames, ready for your 2D maps.</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/08-editor.jpg" alt="Search results in the editor"><br><sub>Type a word in the new toolbar Search to find structures, maps, switches and event text, grouped and one click away.</sub></td>
 <td width="50%" align="center"><img src="docs/media/releases/0.99.1/06-tactical-climb.jpg" alt="A Tactical battle on the rooftops"><br><sub>Tactical battles on the map itself: climb, grapple and see the fall damage before you jump.</sub></td>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.1/07-effekseer-battle.jpg" alt="Effekseer effects in a battle on the map"><br><sub>Effekseer skill effects burst right where your party stands.</sub></td>
 </tr>
 </table>
 
