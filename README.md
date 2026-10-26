@@ -16,9 +16,6 @@ Use RPG Reactor to create, edit, playtest, and package 2D RPGs with familiar RPG
 <td width="50%" align="center"><img src="docs/media/releases/0.99.2/02-species.jpg" alt="A centaur in the Character Builder"><br><sub>Dozens of species, now with centaurs, saved as rigged models that walk, run and fight.</sub></td>
 </tr>
 <tr>
-<td colspan="2" align="center"><img src="docs/media/releases/0.99.2/06-face-sheet.jpg" alt="A face sheet of eight expressions"><br><sub>Export face sheets with eight clear expressions, and sprite sheets with any number of frames and directions.</sub></td>
-</tr>
-<tr>
 <td width="50%" align="center"><img src="docs/media/releases/0.99.2/03-creatures.jpg" alt="A bald eagle gliding"><br><sub>Birds, beasts and sea creatures, built the same way.</sub></td>
 <td width="50%" align="center"><img src="docs/media/releases/0.99.2/04-vehicles.jpg" alt="A motorcycle in the Prop Builder"><br><sub>The 3D Prop Builder makes vehicles, furniture, weapons, instruments and props for your maps.</sub></td>
 </tr>

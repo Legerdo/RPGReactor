@@ -1,6 +1,6 @@
 # RPG Reactor 0.99.2: Reactor Features, Search, Sprite Sheets from 3D, Faces with Feeling
 
-0.99.2 brings Reactor Features (Reactor's own additions in one list you can switch off when a plugin does the job), a Search that finds anything in the project, sprite sheets from the 3D Character and Prop Builders with any number of frames and directions, face sheets with eight clear expressions, new species, outfits, creatures, vehicles and trees, painted roads on 3D maps, and fixes for games imported from RPG Maker 2000/2003.
+0.99.2 brings Reactor Features (Reactor's own additions in one list you can switch off when a plugin does the job), a Search that finds anything in the project, sprite sheets from the 3D Character and Prop Builders with any number of frames and directions, new species, outfits, creatures, vehicles and trees, painted roads on 3D maps, and fixes for games imported from RPG Maker 2000/2003.
 
 [Download the binaries on itch.io](https://psychronic.itch.io/rpg-reactor). GitHub provides the source release.
 
@@ -25,10 +25,6 @@
 **Trees in bloom:** Plant cherry, jacaranda and magnolia trees that change with the seasons and sway in the wind.
 
 ![Trees in bloom](../../docs/media/releases/0.99.2/05-nature.jpg)
-
-**Faces with feeling:** Export a face sheet of eight expressions straight from your 3D character, each one clear at RPG Maker's face size.
-
-![Faces with feeling](../../docs/media/releases/0.99.2/06-face-sheet.jpg)
 
 **Paint roads on 3D maps:** Drag the Path tool to lay dirt roads, cobblestone or paving that follow the hills through your village.
 
