@@ -374,8 +374,8 @@
             // centimeters, so a tabby's stripe-colored strands don't stand out against the head's neck above them.
             if (g.neckFoot && r.bodyHair.fur > 0.05) {
                 const coatRgb = (root.RRCharacterOutfit || require('./CharacterOutfit.js')).linear(g.coat), y0 = g.neckFoot.y - 0.07, y1 = g.neckFoot.y + 0.01;
-                // There they are trimmed too, shorter and lying closer the nearer the head, so they meet the neck's
-                // short coat and none stands off the top of the neck as a fringe.
+                // A cat's are trimmed too, shorter and lying closer the nearer the head, so they meet its neck's short
+                // coat and none stands off the top of the neck as a fringe (a longer coat runs on up its neck at length).
                 const SEG = 3, y2 = g.neckFoot.y - 0.05;
                 for (const p of parts) {
                     if (p.name !== 'Fur' || !p.colors) continue;
@@ -385,6 +385,7 @@
                         const k = t * t * (3 - 2 * t) * 0.85;
                         for (let c = 0; c < 3; c++) p.colors[v * 3 + c] += (coatRgb[c] - p.colors[v * 3 + c]) * k;
                     }
+                    if (r.head.kind !== 'cat') continue;
                     const X = p.positions, N = p.normals;
                     for (let b = 0; b + SEG * 2 <= X.length / 3; b += SEG * 2) {
                         const t = Math.max(0, Math.min(1, (X[b * 3 + 1] - y2) / (g.neckFoot.y - y2)));
@@ -699,7 +700,7 @@
         const fwdDir = Props.vec.norm(Props.vec.sub(place(T), place(A)));
         // The skull's round, not the ears or horns standing off it.
         const skullC = Props.vec.lerp(place(A), eyeAt, 0.5), skullR = cw * s * 1.85;
-        const coatRoots = (pos, nrm, idx, ownOf) => {
+        const coatRoots = (pos, nrm, idx, ownOf, under) => {
             const rgbCoat = (root.RRCharacterOutfit || require('./CharacterOutfit.js')).linear(coat);
             // Two coats: the skull's and neck's, combed back; and the ears' (standing off the skull, above the
             // eyes), a short dense velvet combed up toward their tips.
@@ -732,10 +733,15 @@
                     const ws = [1 - s1 - s2, s1, s2], vs = [idx[t], idx[t + 1], idx[t + 2]];
                     const pt = [0, 1, 2].map(i => vs.reduce((a, v, j) => a + pos[v * 3 + i] * ws[j], 0));
                     const nn = Props.vec.norm([0, 1, 2].map(i => vs.reduce((a, v, j) => a + nrm[v * 3 + i] * ws[j], 0)));
-                    const c = rgbCoat.map(x => x * (0.88 + 0.2 * rand()));
+                    // In the color of the head's own skin under the root (its picture and its tint there), not the
+                    // coat's flat color: on a head painted lighter than the coat, tufts of the coat's color showed
+                    // as dark dashes all over the skull.
+                    const own = under ? under(vs, ws) : null, c = (own || rgbCoat).map(x => x * (0.88 + 0.2 * rand()));
+                    // The skull's coat shortens toward the cut under it, so it ends softly on the neck's, not as a ledge.
+                    const ledge = g.ear ? 1 : Math.max(0.45, Math.min(1, (pt[1] - cutY) / 0.04));
                     const toNeck = Math.max(0, Math.min(1, (0.75 - ownOf[vs[0]]) / 0.3));
                     const flow = g.ear ? Props.vec.norm(Props.vec.sub(pt, skullC)) : Props.vec.add(Props.vec.mul(fwdDir, -1), [0, -0.5, 0]);
-                    headRoots.push({ p: pt, n: nn, flow, len: g.len * (h.kind === 'cat' ? 0.25 : 1) * (0.7 + 0.6 * rand()), width: g.width * (h.kind === 'cat' ? 0.5 : 1), color: c.map(x => x * 0.95), tip: c,
+                    headRoots.push({ p: pt, n: nn, flow, len: g.len * ledge * (h.kind === 'cat' ? 0.25 : 1) * (0.7 + 0.6 * rand()), width: g.width * (h.kind === 'cat' ? 0.5 : 1), color: c.map(x => x * 0.95), tip: c,
                         lift: g.ear ? 0.2 : 0.3, droop: g.ear ? 0 : 0.1, joints: [head, neck, 0, 0], weights: [1 - toNeck * 0.6, toNeck * 0.6, 0, 0] });
                 }
             }
@@ -859,7 +865,14 @@
                 }
             }
             for (let v = 0; v < m; v++) { const toNeck = Math.max(0, Math.min(1, (0.75 - ownOf[v]) / 0.3)); jn.push(head, neck, 0, 0); wt.push(1 - toNeck * 0.6, toNeck * 0.6, 0, 0); }
-            if (p === bodyPart && furred) coatRoots(pos, nrm, idx, ownOf);
+            if (p === bodyPart && furred) {
+                const pic = cr.textures && cr.textures[p.texture], lin = c => Math.pow(c / 255, 2.2);
+                coatRoots(pos, nrm, idx, ownOf, pic && pic.data && uv.length ? (vs, ws) => {
+                    const u = vs.reduce((a, v, j) => a + uv[v * 2] * ws[j], 0), w = vs.reduce((a, v, j) => a + uv[v * 2 + 1] * ws[j], 0);
+                    const x = Math.min(pic.width - 1, Math.max(0, Math.floor((u - Math.floor(u)) * pic.width))), y = Math.min(pic.height - 1, Math.max(0, Math.floor((w - Math.floor(w)) * pic.height))), o = (y * pic.width + x) * 4;
+                    return [0, 1, 2].map(k => lin(pic.data[o + k]) * (col.length ? vs.reduce((a, v, j) => a + col[v * 3 + k] * ws[j], 0) : 1));
+                } : null);
+            }
             parts.push(Object.assign({}, p, { name: 'Head ' + p.name, positions: Float32Array.from(pos), normals: Float32Array.from(nrm), colors: p.colors ? Float32Array.from(col) : undefined,
                 uvs: p.uvs ? Float32Array.from(uv) : undefined, index: Uint32Array.from(idx), joints: Uint8Array.from(jn), weights: Float32Array.from(wt), kind: p.name === 'Eyes' ? 'eye' : p.kind,
                 // The head casts no shadow onto the body: a muzzle's would fall as a long dark band down the chest.
@@ -1033,7 +1046,7 @@
                     }
                     part.uvs = Float32Array.from(uv);
                     // Scaled, the head's skin just above where the neck meets it takes the neck's tone there (the head's
-                    // own picture at the contact), fading out over a few centimeters up the head; so its scales, lit
+                    // own picture at the contact), fading out over some seven centimeters up the head; so its scales, lit
                     // darker along the back of the skull, meet the neck's no darker.
                     if (scaledNeck && headPart && headPart.colors && headPart.uvs && headTex) {
                         const H = headPart.positions, HC = headPart.colors, angles = base.map(v => Math.atan2(P[v * 3] - center[0], P[v * 3 + 2] - center[2]));
@@ -1041,7 +1054,7 @@
                             const a = Math.atan2(H[i * 3] - center[0], H[i * 3 + 2] - center[2]);
                             let c = 0, bd = Infinity;
                             for (let k = 0; k < cols; k++) { const d = Math.abs(Math.atan2(Math.sin(a - angles[k]), Math.cos(a - angles[k]))); if (d < bd) { bd = d; c = k; } }
-                            const meetY = contacts[c] ? contacts[c][1] : pos[(C * (cols + 1) + c) * 3 + 1], u0 = (H[i * 3 + 1] - meetY) / 0.045;
+                            const meetY = contacts[c] ? contacts[c][1] : pos[(C * (cols + 1) + c) * 3 + 1], u0 = (H[i * 3 + 1] - meetY) / 0.07;
                             if (u0 >= 1) continue;
                             const e = Math.max(0, u0), w = 1 - e * e * (3 - 2 * e), seen = sample(headTex, headPart.uvs[i * 2], headPart.uvs[i * 2 + 1]);
                             if (!seen) continue;
@@ -1060,23 +1073,51 @@
                     }
                     // The mane: tufts over the whole neck, longest behind, shorter at the throat, combed down and out,
                     // in the neck's own colors there, so the body's fur and the head's run on into each other.
-                    // A cat's neck wears no strands of its own: at a cat's short length they read as dark flecks, not
-                    // a coat; its painted coat (the body's colors and the head's stripes, below) carries the fur up.
+                    // A cat's neck: the body's coat carried on up it into the head's, combed down, each tuft in the
+                    // neck's own color where it grows (the coat behind, the throat's light in front, the head's stripes
+                    // laid in below), from the body's trimmed length and breadth at its foot to the head's short fine
+                    // coat where it meets the skull, so neither a line where the body's fur stops nor a ruff shows.
+                    if (furred && h.kind === 'cat') {
+                        let q = 613;
+                        const rand = () => { q ^= q << 13; q >>>= 0; q ^= q >> 17; q ^= q << 5; q >>>= 0; return q / 4294967296; };
+                        const coatLen = Math.min(1.6, r.bodyHair.length || 1), headLen = (0.012 + 0.016 * coatLen) * 0.25, footLen = 0.016 * coatLen;
+                        const per = Math.max(1, Math.round(4 * budget));
+                        for (let row = 0; row < C; row++) for (let col = 0; col < cols; col++) for (let j = 0; j < per; j++) {
+                            const fu = rand(), fv = rand(), i00 = row * (cols + 1) + col, i10 = i00 + 1, i01 = i00 + cols + 1, i11 = i01 + 1;
+                            const at = (A, k) => (A[i00 * 3 + k] * (1 - fu) + A[i10 * 3 + k] * fu) * (1 - fv) + (A[i01 * 3 + k] * (1 - fu) + A[i11 * 3 + k] * fu) * fv;
+                            const p = [at(pos, 0), at(pos, 1), at(pos, 2)], n3 = Props.vec.norm([at(normal, 0), at(normal, 1), at(normal, 2)]);
+                            const rowT = (row + fv) / C, cc = [0, 1, 2].map(k => at(colors, k));
+                            // Bound as the neck's skin under it is (its nearest corner), so the coat stays on it as the head turns.
+                            const near = (row + (fv > 0.5 ? 1 : 0)) * (cols + 1) + col + (fu > 0.5 ? 1 : 0);
+                            roots.push({ p, n: n3, flow: [0, -1, 0], len: (headLen + (footLen - headLen) * (1 - rowT)) * (0.75 + 0.5 * rand()),
+                                width: 0.0018 + 0.0027 * (1 - rowT), color: cc.map(x => x * 0.97), tip: cc.map(x => Math.min(1, x * 1.05)), lift: 0.08 + 0.1 * (1 - rowT), droop: 0.02, twist: 0.4,
+                                joints: joints.slice(near * 4, near * 4 + 4), weights: weights.slice(near * 4, near * 4 + 4) });
+                        }
+                    }
                     if (furred && !scaledNeck && h.kind !== 'cat') {
                         const catLike = h.kind === 'cat' ? 0.45 : 1, P2 = pos;
                         let q = 991;
                         const rand = () => { q ^= q << 13; q >>>= 0; q ^= q >> 17; q ^= q << 5; q >>>= 0; return q / 4294967296; };
-                        const per = Math.max(1, Math.round(5 * budget));
-                        for (let row = 0; row < C; row++) for (let col = 0; col < cols; col++) for (let j = 0; j < per; j++) {
+                        const per = Math.max(1, Math.round(6 * budget));
+                        // As long and as full as the body's coat at its foot (its tufts' length, RRCharacterDetail.hairStrands)
+                        // and the head's coat where it meets the skull, standing off the skin as theirs do; in the neck's
+                        // colors where each grows, bound as the neck's skin under it is: so the coat runs on up the neck
+                        // with no bare, smooth band between a ring at the shoulders and a ring under the head.
+                        const coatLen = Math.min(1.6, r.bodyHair.length || 1), footLen = 0.014 * (1 + r.bodyHair.fur * 1.4 * coatLen), topLen = 0.012 + 0.016 * coatLen;
+                        // Two rows on past where the neck meets the head, inside its rim: there the coat grows out from
+                        // under the head's edge, so no top edge of it or bare rim of the neck shows below the skull.
+                        for (let row = 0; row < C + 2; row++) for (let col = 0; col < cols; col++) for (let j = 0; j < per; j++) {
                             const fu = rand(), fv = rand(), i00 = row * (cols + 1) + col, i10 = i00 + 1, i01 = i00 + cols + 1, i11 = i01 + 1;
-                            const at = k => (P2[i00 * 3 + k] * (1 - fu) + P2[i10 * 3 + k] * fu) * (1 - fv) + (P2[i01 * 3 + k] * (1 - fu) + P2[i11 * 3 + k] * fu) * fv;
-                            const p = [at(0), at(1), at(2)], cc = [0, 1, 2].map(k => colors[i00 * 3 + k] * (1 - fv) + colors[i01 * 3 + k] * fv);
+                            const at = (A, k) => (A[i00 * 3 + k] * (1 - fu) + A[i10 * 3 + k] * fu) * (1 - fv) + (A[i01 * 3 + k] * (1 - fu) + A[i11 * 3 + k] * fu) * fv;
+                            const p = [at(P2, 0), at(P2, 1), at(P2, 2)], cc = [0, 1, 2].map(k => at(colors, k)), n3 = Props.vec.norm([at(normal, 0), at(normal, 1), at(normal, 2)]);
                             const out = Props.vec.norm([p[0] - center[0], 0, p[2] - center[2]]), behind = Math.max(0, -out[2] * 0.5 + 0.5);
-                            const rowT = (row + fv) / C, hw2 = Math.min(1, rowT * 1.2) * 0.85;
-                            roots.push({ p, n: out, flow: [out[0] * 0.35, -1, out[2] * 0.35], len: catLike * (0.02 + 0.03 * behind) * (0.75 + 0.5 * rand()) * (0.7 + 0.6 * rowT),
-                                width: 0.005, color: cc.map(x => x * 0.92), tip: cc.map(x => Math.min(1, x * 1.08)), lift: 0.3, droop: 0.15, joints: [neck, head, 0, 0], weights: [1 - hw2, hw2, 0, 0] });
+                            const rowT = Math.min(1, (row + fv) / C), near = (row + (fv > 0.5 ? 1 : 0)) * (cols + 1) + col + (fu > 0.5 ? 1 : 0);
+                            roots.push({ p, n: n3, flow: [out[0] * 0.3, -1, out[2] * 0.3], len: (footLen + (topLen - footLen) * rowT) * (0.85 + 0.3 * behind) * (0.7 + 0.6 * rand()),
+                                width: 0.005 - 0.0016 * rowT, color: cc.map(x => x * 0.97), tip: cc.map(x => Math.min(1, x * 1.06)), lift: 0.45 - 0.15 * rowT, droop: 0.12,
+                                joints: joints.slice(near * 4, near * 4 + 4), weights: weights.slice(near * 4, near * 4 + 4) });
                         }
-                        // And up over the underside and back of the skull, combed down over where it meets the neck.
+                        // And up over the underside and back of the skull, combed down over where it meets the neck, no
+                        // longer than the neck's coat, so the head's fur flows down into it rather than overhanging it.
                         if (headPart) {
                             const H = headPart.positions, N = headPart.normals, meet = Math.max(...contacts.filter(Boolean).map(c => c[1]));
                             const coatTop = top.reduce((a, c) => a.map((x, k) => x + c[k] / cols), [0, 0, 0]);
@@ -1086,8 +1127,8 @@
                                 for (let j = 0; j < per; j++) {
                                     if (rand() > 0.55) continue;
                                     const p = [H[i * 3], y, z], out = Props.vec.norm([N[i * 3], 0, N[i * 3 + 2]]);
-                                    roots.push({ p, n: Props.vec.norm([N[i * 3], N[i * 3 + 1], N[i * 3 + 2]]), flow: [out[0] * 0.3, -1, out[2] * 0.3], len: catLike * 0.04 * (0.75 + 0.5 * rand()),
-                                        width: 0.005, color: coatTop.map((x, k) => (x + coatRgb[k]) * 0.45), tip: coatTop.map((x, k) => Math.min(1, (x + coatRgb[k]) * 0.55)), lift: 0.3, droop: 0.2, joints: [head, neck, 0, 0], weights: [0.85, 0.15, 0, 0] });
+                                    roots.push({ p, n: Props.vec.norm([N[i * 3], N[i * 3 + 1], N[i * 3 + 2]]), flow: [out[0] * 0.3, -1, out[2] * 0.3], len: catLike * 0.028 * (0.75 + 0.5 * rand()),
+                                        width: 0.004, color: coatTop.map((x, k) => (x + coatRgb[k]) * 0.48), tip: coatTop.map((x, k) => Math.min(1, (x + coatRgb[k]) * 0.53)), lift: 0.2, droop: 0.25, joints: [head, neck, 0, 0], weights: [0.85, 0.15, 0, 0] });
                                 }
                             }
                         }
