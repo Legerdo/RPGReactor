@@ -1346,6 +1346,11 @@ ImageManager.isEightDirCharacter = function(filename) {
     return /\[8D\]/i.test(Utils.extractFileName(filename || ""));
 };
 
+// A sheet tagged [1D] has one row per character, shown whichever way it faces (reactor_sprites.js).
+ImageManager.isOneDirCharacter = function(filename) {
+    return /\[1D\]/i.test(Utils.extractFileName(filename || ""));
+};
+
 ImageManager.isBigCharacter = function(filename) {
     if (ImageManager.isEightDirCharacter(filename)) return false;
     const sign = Utils.extractFileName(filename).match(/^[!$]+/);

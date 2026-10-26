@@ -65,6 +65,8 @@
         });
         // Body art hook: the person's own tattoos, piercings and mods.
         if (BodyArt) out.bodyArt = BodyArt.normalize(r.bodyArt);
+        // Expressions hook: how strongly the face moves and blushes (the Face tab's Emotion).
+        if (Expressions) out.emotion = Expressions.normalizeEmotion(r.emotion);
         // Human headwear has one shell/face opening and cannot fit a forked neck.
         out.outfit=out.outfit.filter(item=>fitsGarment(out,item.id));
         out.props=out.props.filter(item=>fitsProp(out,item.id));
@@ -118,7 +120,7 @@
             skin: own('skin'), skinPattern: own('skinPattern'), eyes: own('eyes'), head: own('head') || null,
             bodyHair: preset.bodyHair || was.bodyHair ? (preset.bodyHair || {}) : old.bodyHair,
             anatomy: { ...old.anatomy, paired: id === 'klingon' },
-            outfit: old.outfit, bodyArt: old.bodyArt, props: (preset.props || []).concat(old.props.filter(p => !brought.has(p.id) && !(preset.props || []).some(q => q.id === p.id))),
+            outfit: old.outfit, bodyArt: old.bodyArt, emotion: old.emotion, props: (preset.props || []).concat(old.props.filter(p => !brought.has(p.id) && !(preset.props || []).some(q => q.id === p.id))),
             // Hair follows a species bald by nature; leaving one, or one with its own hair or beard, the person's own grows back.
             hair: preset.bald ? { style: 'bald', brows: { style: 'none' }, lashes: false } : Object.assign({}, hairBase, preset.hair)
         });

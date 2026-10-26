@@ -12135,13 +12135,15 @@ Reactor3D.MapScene.prototype._updateCharacterBillboard = function(holder, sprite
     holder.object.visible = !!(ready && !hidden);
     if (!ready) return;
     const mirrored = !!(sprite.scale && sprite.scale.x < 0);
+    // Flip (upside down) reads its rows bottom to top: the picture turns over in its own place, as the 2D sprite does.
+    const flipped = !!(sprite.scale && sprite.scale.y < 0);
     // What the frame was cut from last time, field by field: joining them
     // into a string made one per billboard per frame to find nothing new.
     const url = bitmap.url || bitmap._url || "";
-    const stamp = holder.stampFields || (holder.stampFields = { url: null, bitmap: null, x: 0, y: 0, width: 0, height: 0, mirrored: false });
+    const stamp = holder.stampFields || (holder.stampFields = { url: null, bitmap: null, x: 0, y: 0, width: 0, height: 0, mirrored: false, flipped: false });
     // (The bitmap itself as well as its file: two drawn pictures of one size have no file to tell them apart.)
     if (stamp.url !== url || stamp.bitmap !== bitmap || stamp.x !== frame.x || stamp.y !== frame.y
-        || stamp.width !== frame.width || stamp.height !== frame.height || stamp.mirrored !== mirrored) {
+        || stamp.width !== frame.width || stamp.height !== frame.height || stamp.mirrored !== mirrored || stamp.flipped !== flipped) {
         stamp.url = url;
         stamp.bitmap = bitmap;
         stamp.x = frame.x;
@@ -12149,6 +12151,7 @@ Reactor3D.MapScene.prototype._updateCharacterBillboard = function(holder, sprite
         stamp.width = frame.width;
         stamp.height = frame.height;
         stamp.mirrored = mirrored;
+        stamp.flipped = flipped;
         const sheet = Reactor3D.sheetTextureFor(bitmap);
         if (sheet && sheet.image) {
             const view = Reactor3D.billboardView(holder, sheet);
@@ -12159,8 +12162,9 @@ Reactor3D.MapScene.prototype._updateCharacterBillboard = function(holder, sprite
             const H = sheet.image.height || 1;
             const u0 = frame.x / W;
             const uw = frame.width / W;
-            view.repeat.set(mirrored ? -uw : uw, frame.height / H);
-            view.offset.set(mirrored ? u0 + uw : u0, 1 - (frame.y + frame.height) / H);
+            const v0 = 1 - (frame.y + frame.height) / H, vh = frame.height / H;
+            view.repeat.set(mirrored ? -uw : uw, flipped ? -vh : vh);
+            view.offset.set(mirrored ? u0 + uw : u0, flipped ? v0 + vh : v0);
         }
     }
     const map = typeof $gameMap !== "undefined" ? $gameMap : null;
@@ -12286,6 +12290,24 @@ Reactor3D.MapScene.prototype._updateCharacterBillboard = function(holder, sprite
     }
     holder.object.position.set(baseX, baseY, baseZ);
     Reactor3D.aimCharacterBillboard(holder.object, camera);
+    Reactor3D.turnCharacterBillboard(holder.object, sprite.rotation, character._rrSpinPivot === "center");
+};
+
+/**
+ * The sprite's turn on its billboard (Rotate, Face Ceiling / Face Ground, a
+ * page's angle): rolled in the billboard's own plane, clockwise as the camera
+ * sees it, about its feet (the geometry's origin) or, `center`, about its
+ * middle, so it turns in place. Upright (0) leaves the aimed billboard alone.
+ */
+Reactor3D.turnCharacterBillboard = function(object, radians, center) {
+    const turn = Number(radians) || 0;
+    if (!object || !turn) return;
+    if (center) {
+        const half = (object.scale ? object.scale.y : 1) / 2;
+        object.translateX(-Math.sin(turn) * half);
+        object.translateY(half - Math.cos(turn) * half);
+    }
+    object.rotateZ(-turn);
 };
 
 Reactor3D.MapScene.prototype._clearCharacterBillboards = function() {
@@ -12697,9 +12719,12 @@ Reactor3D.installVerticalMotion = function() {
         this._reactorFallYaw = null;
         this._reactorPosePitch = pose > 0 ? 1 : pose < 0 ? -1 : 0;
     };
-    /** Turn the drawn character to `degrees` on screen; a model rolls the same way. 0 stands it straight. */
-    proto.reactorRotate = function(degrees) {
+    /** Turn the drawn character to `degrees` on screen; a model rolls the same way. 0 stands it straight. `pivot` "center": about its middle. */
+    proto.reactorRotate = function(degrees, pivot) {
+        // Sprite Transforms off (Database > Reactor Features): a Rotate step does nothing, as in MZ.
+        if (typeof ReactorFeatures !== "undefined" && !ReactorFeatures.on("spriteTransforms")) return;
         this._reactorSpin = Number(degrees) || 0;
+        this._rrSpinPivot = pivot === "center" ? "center" : undefined;
     };
     const baseIsMoving = proto.isMoving;
     proto.isMoving = function() {

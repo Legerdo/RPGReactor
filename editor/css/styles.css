@@ -6705,6 +6705,34 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .event-page-button:hover, .event-page-button:active { background-color: var(--color-bg-deep); border-color: var(--color-accent-border-strong, var(--color-accent)); }
 .event-fight-hook { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px; padding-top: 4px; border-top: 1px solid var(--color-border); font-size: 12px; }
 .event-fight-hook-label { flex-shrink: 0; }
+/* A page condition's switch, variable and value: the theme's field while its box is ticked, greyed while not. */
+.conditions-section .switch-picker-btn,
+.conditions-section .variable-picker-btn,
+.conditions-section .condition-input {
+    box-sizing: border-box; background: var(--color-bg-panel); color: var(--color-text-strong); font-weight: 600;
+    border: 1px solid var(--color-accent-border); border-radius: var(--radius-md); cursor: pointer;
+    transition: border-color var(--ease-base), background-color var(--ease-base);
+}
+.conditions-section .condition-input { cursor: text; font-variant-numeric: tabular-nums; }
+.conditions-section .switch-picker-btn:hover:not(:disabled),
+.conditions-section .variable-picker-btn:hover:not(:disabled),
+.conditions-section .condition-input:hover:not(:disabled) { border-color: var(--color-accent-bright); }
+.conditions-section .switch-picker-btn:focus-visible,
+.conditions-section .variable-picker-btn:focus-visible,
+.conditions-section .condition-input:focus {
+    outline: none; border-color: var(--color-accent-bright); box-shadow: 0 0 0 1px var(--color-accent-bright);
+}
+.conditions-section .switch-picker-btn:disabled,
+.conditions-section .variable-picker-btn:disabled,
+.conditions-section .condition-input:disabled {
+    background: var(--color-bg-surface); color: var(--color-text-dim); font-weight: normal;
+    border-color: var(--color-border-input); cursor: default; box-shadow: none;
+}
+.conditions-section .rr-shim-wrapper:has(> select:disabled) .rr-shim-trigger {
+    background: var(--color-bg-surface) !important; border-color: var(--color-border-input) !important; cursor: default !important;
+}
+/* The event page's picture controls (Direction, Frame, Mirror, Flip, Rotation) share one row: compact dropdowns. */
+.image-turn-rows .rr-shim-trigger { min-width: 0 !important; height: 22px !important; min-height: 0 !important; padding: 0 20px 0 6px !important; line-height: 20px; font-size: 11px !important; }
 .event-fight-hook-note { flex-basis: 100%; font-size: 11px; line-height: 1.35; color: var(--color-text-muted); }
 .event-fight-hook-note[hidden] { display: none; }
 .event-fight-hook select, .event-fight-hook input { padding: 3px; font-size: 11px; min-width: 0; }
@@ -6897,6 +6925,18 @@ details.mp-section:not([open]) > .mp-section-body { display:none; }
 .rr-slot-number { color: var(--color-text-muted); font-size: 12px; text-align: end; }
 .rr-slot-row .rr-shim-wrapper, .rr-slot-row select { width: 100%; }
 .rr-slot-remove { min-width: 28px; padding-inline: 0; font-size: 15px; line-height: 1; }
+/* Database > Types: Slot Layouts, under the type lists. A card per layout, side by side. */
+.rr-slot-layouts { flex: 0 0 auto; display: flex; flex-direction: column; margin: 0 8px 8px; max-height: 45%; }
+.rr-slot-layouts-body { display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 6px 8px 8px; overflow: auto; }
+.rr-slot-layouts.is-collapsed .rr-slot-layouts-body { display: none; }
+.rr-slot-layouts-hint { margin: 0; color: var(--color-text-muted); font-size: 11px; }
+.rr-slot-layouts-list { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.rr-slot-layout { display: flex; flex-direction: column; gap: 6px; width: 220px; padding: 6px; border: 1px solid var(--color-border-subtle); border-radius: 4px; background: var(--color-bg-deep); }
+.rr-slot-layout-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.rr-slot-layout-head input { width: 100%; min-width: 0; box-sizing: border-box; }
+.rr-slot-layout .rr-slot-list { margin-bottom: 0; }
+.rr-slot-layout-delete { min-width: 28px; padding-inline: 0; font-size: 15px; line-height: 1; }
+.rr-slot-layout-add { align-self: flex-start; }
 .rr-build-field.rr-build-sfield .rr-number-stepper { width: 100% !important; }
 /* A narrow view: the name over its field, as the sliders are. */
 .rr-build-panel.is-narrow .rr-build-sgrid { grid-template-columns: minmax(0, 1fr); }
@@ -8031,3 +8071,28 @@ input[type="search"]::-webkit-search-cancel-button {
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 2.5l7 7M9.5 2.5l-7 7' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 input[type="search"]::-webkit-search-cancel-button:hover { background-color: var(--color-accent-bright); }
+
+/* Global search (GlobalSearch.js): a palette under the toolbar, results grouped by kind. */
+/* A popover, not a modal: the editor around it stays usable, and the toolbar button or Escape closes it. */
+.rr-global-search-overlay { position: fixed; inset: 0; z-index: 10050; display: flex; justify-content: center; align-items: flex-start; padding-top: 72px; pointer-events: none; }
+.rr-global-search { pointer-events: auto; width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 120px); display: flex; flex-direction: column; background: var(--color-bg-menubar); color: var(--color-text); border: 1px solid var(--color-border); border-radius: 8px; box-shadow: var(--shadow-popup); overflow: hidden; }
+.rr-global-search-field { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--color-border); }
+.rr-global-search-icon { width: 20px; height: 20px; flex: none; }
+.rr-global-search-field input { flex: 1; min-width: 0; background: var(--color-bg-surface); color: var(--color-text); border: 1px solid var(--color-border-input); border-radius: 4px; padding: 7px 9px; font-size: 14px; outline: none; }
+.rr-global-search-field input:focus { border-color: var(--color-accent-bright); }
+.rr-global-search-results { overflow-y: auto; padding: 0 0 6px; }
+.rr-global-search-head { padding: 8px 12px; border-left: 3px solid var(--color-accent); }
+.rr-global-search-head .rr-modal-title { font-size: 14px; }
+.rr-global-search-group.lit-section-header { margin: 6px 0 2px; }
+.rr-global-search-group.lit-section-header:first-child { margin-top: 0; }
+.rr-global-search-count { font-weight: 400; color: var(--color-text-muted); }
+.rr-global-search-row { display: flex; align-items: baseline; gap: 10px; padding: 5px 14px; cursor: pointer; font-size: 13px; }
+.rr-global-search-row.active { background: var(--color-bg-selected); color: var(--color-text-strong); }
+.rr-global-search-name { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-global-search-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); }
+.rr-global-search-sub { margin-left: auto; flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--color-text-muted); }
+.rr-global-search-row.active .rr-global-search-text, .rr-global-search-row.active .rr-global-search-sub { color: var(--color-text); }
+.rr-global-search-row mark { background: none; color: var(--color-accent-bright); font-weight: 700; }
+.rr-global-search-empty { padding: 18px 14px; text-align: center; font-size: 13px; color: var(--color-text-muted); }
+.rr-global-search-hint.rr-modal-footer { padding: 7px 12px; justify-content: flex-start; font-size: 11px; color: var(--color-text-muted); }
+.rr-global-search-flash { outline: 2px solid var(--color-accent-bright); outline-offset: -2px; transition: outline-color 0.3s; }

@@ -677,6 +677,64 @@ Sprite_Character.prototype.update = function() {
     this._reactor3dStand = held;
 };
 
+/**
+ * The character's image turn (Mirror, Flip, Rotate about its middle; see
+ * Game_CharacterBase.reactorMirror): applied last, around everything above,
+ * so a 3D map's stand scale and lean are in the numbers. Mirror and flip are
+ * the scale's signs, kept whatever a plugin assigned; a sign this set is put
+ * back once the turn is gone, and a sprite never turned is left alone (a
+ * plugin's own negative zoom stays its own). The sprite stays on its tile:
+ * a flip turns over about the frame's middle, not its feet, and the move
+ * that takes is added to the position updatePosition gives every frame.
+ */
+Sprite_Character.prototype.reactorApplyImage = function() {
+    const character = this._character;
+    if (!character) return;
+    const mirror = !!character._rrMirror, flip = !!character._rrFlip;
+    const center = character._rrSpinPivot === "center" && !!this.rotation;
+    const held = this._rrImageHeld;
+    if (!mirror && !flip && !center && !held) return;
+    const scale = this.scale;
+    if (mirror) scale.x = -Math.abs(scale.x);
+    else if (held && held.mirror) scale.x = Math.abs(scale.x);
+    if (flip) scale.y = -Math.abs(scale.y);
+    else if (held && held.flip) scale.y = Math.abs(scale.y);
+    // The frame's middle, from the anchor, and where each transform puts it (PIXI's matrix: scale, skew, rotation).
+    const frame = this._frame, anchor = this.anchor;
+    const lx = frame ? frame.width * (0.5 - (anchor ? anchor.x : 0.5)) : 0;
+    const ly = frame ? frame.height * (0.5 - (anchor ? anchor.y : 1)) : 0;
+    const kx = this.skew ? this.skew.x : 0, ky = this.skew ? this.skew.y : 0;
+    const at = (r, sx, sy) => [Math.cos(r + ky) * sx * lx - Math.sin(r - kx) * sy * ly,
+        Math.sin(r + ky) * sx * lx + Math.cos(r - kx) * sy * ly];
+    const rot = this.rotation || 0;
+    const upright = at(0, Math.abs(scale.x), Math.abs(scale.y));
+    let dx, dy;
+    if (center) {
+        const turned = at(rot, scale.x, scale.y);
+        dx = upright[0] - turned[0]; dy = upright[1] - turned[1];
+    } else {
+        // Over in place, then turned about the feet with the rest of it.
+        const over = at(0, scale.x, scale.y);
+        const cx = upright[0] - over[0], cy = upright[1] - over[1];
+        dx = cx * Math.cos(rot) - cy * Math.sin(rot);
+        dy = cx * Math.sin(rot) + cy * Math.cos(rot);
+    }
+    this.x += dx;
+    this.y += dy;
+    if (mirror || flip || center) {
+        const record = held || (this._rrImageHeld = { mirror: false, flip: false });
+        record.mirror = mirror; record.flip = flip;
+    } else {
+        this._rrImageHeld = null;
+    }
+};
+
+const _rrImageUpdate = Sprite_Character.prototype.update;
+Sprite_Character.prototype.update = function() {
+    _rrImageUpdate.call(this);
+    this.reactorApplyImage();
+};
+
 Sprite_Character.prototype.updateOther = function() {
     this.opacity = this._character.opacity();
     if (this._reactor3dBehindCamera) this.opacity = 0;
@@ -6108,9 +6166,11 @@ Spriteset_Map.prototype.updateReactorLighting2D = function() {
     if (typeof Reactor3D === "undefined" || !Reactor3D.lightingEnabled) return;
     // The 3D light pass renders these same lights when it exists; the flat
     // composite covers every other case, including a 3D map that fell back.
+    // Database > Reactor Features can leave 2D lighting to a lighting plugin.
     const active = !this._reactor3dLights
         && !(this._reactor3dBelow && Reactor3D.lightModeFor($dataMap) === "volume")
-        && typeof $dataMap !== "undefined" && Reactor3D.lightingEnabled($dataMap);
+        && typeof $dataMap !== "undefined" && Reactor3D.lightingEnabled($dataMap)
+        && (typeof ReactorFeatures === "undefined" || ReactorFeatures.on("mapLighting2D"));
     if (!active) {
         if (this._reactorFlatLights) this.destroyReactorLighting2D();
         return;
@@ -6883,11 +6943,13 @@ Spriteset_Map.prototype.update = function() {
 })();
 
 //-----------------------------------------------------------------------------
-// Character sheets with their own frame count, named "Name[f8]" (the VX Ace
-// Victor Engine Multi Frames convention). Only when System.json sets
-// rrMultiFrames, which an import from such a game writes: an MV or MZ project
-// keeps three frames whatever its files are called. A [fN] sheet has N frames
-// per row, cycles 0..N-1 and rests on frame 0.
+// Character sheets with their own frame count, named "Name[8F]" (as the 3D
+// Character Builder exports them) or "Name[F8]" (the VX Ace Victor Engine
+// Multi Frames convention). Only when System.json sets rrMultiFrames, which an
+// import from such a game or such an export writes: an MV or MZ project keeps
+// three frames whatever its files are called. An [NF] sheet has N frames per
+// row, cycles 0..N-1 and rests on frame 0; with [8D] too, each of its eight
+// blocks is N frames wide.
 //-----------------------------------------------------------------------------
 
 const _rrMultiPatternWidth = Sprite_Character.prototype.patternWidth;
@@ -6906,7 +6968,7 @@ Sprite_Character.prototype.characterBlockX = function() {
 
 //-----------------------------------------------------------------------------
 // Character sheets tagged "[8D]" (ImageManager.isEightDirCharacter): eight
-// blocks of 3 frames x 4 rows, cut as an eight-character sheet whatever the
+// blocks of 3 frames x 4 rows (N frames with [NF]), cut as an eight-character sheet whatever the
 // "$" says. Blocks 0, 2 and 4 face down, left, right and up; the block to the
 // right of each holds its diagonals, rows down-left, down-right, up-left and
 // up-right. A character on block 0 shows block 2 while it dashes; on block 0,
@@ -6959,7 +7021,7 @@ Sprite_Character.prototype.updateCharacterFrame = function() {
 
 const _rr8DBlockX = Sprite_Character.prototype.characterBlockX;
 Sprite_Character.prototype.characterBlockX = function() {
-    return this._rr8D ? (this._rr8D.block % 4) * 3 : _rr8DBlockX.call(this);
+    return this._rr8D ? (this._rr8D.block % 4) * (Game_CharacterBase.rrFramesOf(this._characterName) || 3) : _rr8DBlockX.call(this);
 };
 
 const _rr8DBlockY = Sprite_Character.prototype.characterBlockY;
@@ -6970,6 +7032,41 @@ Sprite_Character.prototype.characterBlockY = function() {
 const _rr8DPatternY = Sprite_Character.prototype.characterPatternY;
 Sprite_Character.prototype.characterPatternY = function() {
     return this._rr8D && this._rr8D.row >= 0 ? this._rr8D.row : _rr8DPatternY.call(this);
+};
+
+//-----------------------------------------------------------------------------
+// Character sheets tagged "[1D]" (ImageManager.isOneDirCharacter): one row per
+// character, shown whichever way the character faces: a prop that looks the
+// same from every side (a tree in the wind, a lamp). A "$" sheet is that one
+// row; otherwise eight characters, four across and two down, a row each. With
+// [NF] the row has N frames. [8D] wins over [1D].
+//-----------------------------------------------------------------------------
+
+/** Whether a sprite shows a [1D] sheet (and no [8D] one). */
+Sprite_Character.prototype.rrOneDir = function() {
+    if (this._rr1DName !== this._characterName) {
+        this._rr1DName = this._characterName;
+        this._rr1DSheet = !!this._characterName && !!ImageManager.isOneDirCharacter && ImageManager.isOneDirCharacter(this._characterName)
+            && !ImageManager.isEightDirCharacter(this._characterName);
+    }
+    return this._tileId > 0 ? false : this._rr1DSheet;
+};
+
+const _rr1DPatternHeight = Sprite_Character.prototype.patternHeight;
+Sprite_Character.prototype.patternHeight = function() {
+    if (!this.bitmap || !this.rrOneDir()) return _rr1DPatternHeight.call(this);
+    return this._isBigCharacter ? this.bitmap.height : this.bitmap.height / 2;
+};
+
+const _rr1DBlockY = Sprite_Character.prototype.characterBlockY;
+Sprite_Character.prototype.characterBlockY = function() {
+    if (!this.rrOneDir()) return _rr1DBlockY.call(this);
+    return this._isBigCharacter ? 0 : Math.floor(this._character.characterIndex() / 4);
+};
+
+const _rr1DPatternY = Sprite_Character.prototype.characterPatternY;
+Sprite_Character.prototype.characterPatternY = function() {
+    return this.rrOneDir() ? 0 : _rr1DPatternY.call(this);
 };
 
 //-----------------------------------------------------------------------------

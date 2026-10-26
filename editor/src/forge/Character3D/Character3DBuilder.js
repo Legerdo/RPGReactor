@@ -329,8 +329,27 @@ class Character3DBuilder {
     _expressionRows() {
         const X = window.RRCharacterExpressions;
         if (!X || !this.human || !this._result || !X.supports(this.pack, this._result)) return '';
+        // The character's own emotion (recipe.emotion): how far every expression goes, and its blush. The face
+        // sheet's portraits and the saved model's expressions follow them.
+        const R = X.EMOTION_RANGE;
         return this._section('Expression') + this._select('view.expression', 'Expression', X.EXPRESSIONS.map(e => [e.id, e.label]), this.expression || 'neutral')
-            + `<div class="rr-c3d-row"><span class="rr-c3d-label"></span><button class="rr-btn-chip rr-c3d-talk" data-act="talk">${this._talk ? '■ ' + this._t('Stop') : '▶ ' + this._t('Talk')}</button></div>`;
+            + `<div class="rr-c3d-row"><span class="rr-c3d-label"></span><button class="rr-btn-chip rr-c3d-talk" data-act="talk">${this._talk ? '■ ' + this._t('Stop') : '▶ ' + this._t('Talk')}</button></div>`
+            + this._slider({ path: 'emotion.strength', label: 'Expressiveness', natural: R.strength, step: 0.05, ends: ['Subtle', 'Anime'] })
+            + this._slider({ path: 'emotion.blush', label: 'Blushing', natural: R.blush, step: 0.05 })
+            + this._color('emotion.blushColor', 'Blush color', ['#ee8a8a', '#f27a9a', '#e0604a', '#c8607a', '#9a4a8a']);
+    }
+
+    /**
+     * An Emotion setting changed: the face shown again with it, nothing rebuilt. On the Normal face it shows an
+     * expression the setting can be seen on (Happy for Expressiveness, Embarrassed for the blush).
+     */
+    _emotionChanged(path) {
+        if (!this.expression || this.expression === 'neutral') {
+            this.expression = path === 'emotion.strength' ? 'happy' : 'embarrassed';
+            const select = this.root && this.root.querySelector('select[data-path="view.expression"]');
+            if (select) select.value = this.expression;
+        }
+        this._showExpression();
     }
 
     /** The chosen expression on the view's face (neutral puts the face back as built). */
@@ -340,7 +359,7 @@ class Character3DBuilder {
         // The Face tab shows the choice once the face it fits is built (or hides it for one it does not fit).
         const can = this.human && X.supports(this.pack, this._result);
         if (this.tab === 'face' && this.root && !!this.root.querySelector('.rr-c3d-talk') !== can) this._renderPanel();
-        if (X.applyToView(this._view, this._result, this.pack, can ? this.expression || 'neutral' : 'neutral', 1, THREE)) this._draw();
+        if (X.applyToView(this._view, this._result, this.pack, can ? this.expression || 'neutral' : 'neutral', 1, THREE, X.emotionOf(this.recipe))) this._draw();
     }
 
     /** Talk: the face says a sample line, its mouth shaped letter by letter; again stops it. */
@@ -515,6 +534,8 @@ class Character3DBuilder {
             return;
         }
         this._set(path, value);
+        // Emotion: the face shown again, nothing rebuilt.
+        if (path.startsWith('emotion.')) { this._syncSliders(); if (committed) this._commit(); this._emotionChanged(path); return; }
         // Moving a region by hand makes the pattern Custom (the select says so once the slider is let go).
         if (path.startsWith('bodyHair.regions.')) {
             const was = this.recipe.bodyHair.pattern;
@@ -578,13 +599,14 @@ class Character3DBuilder {
                     // The skin while dragging: the body tinted at once from the painted skin toward the new color;
                     // the new skin is painted once the color rests.
                     if (path === 'skin' && this._tintSkin(hex)) return;
+                    if (path.startsWith('emotion.')) { this._emotionChanged(path); return; }
                     this._queueRebuild();
                 },
-                onChange: hex => { if (b.isConnected === false) return; this._set(path, hex); b.style.setProperty('--rr-c3d-swatch', hex); b.title = hex; this._commit(); this._queueRebuild(); }
+                onChange: hex => { if (b.isConnected === false) return; this._set(path, hex); b.style.setProperty('--rr-c3d-swatch', hex); b.title = hex; this._commit(); if (path.startsWith('emotion.')) this._emotionChanged(path); else this._queueRebuild(); }
             });
             return;
         }
-        if (act === 'swatch') { this._set(b.dataset.path, b.dataset.color); this._commit(); this._renderPanel(); this._queueRebuild(); return; }
+        if (act === 'swatch') { this._set(b.dataset.path, b.dataset.color); this._commit(); this._renderPanel(); if (b.dataset.path.startsWith('emotion.')) this._emotionChanged(b.dataset.path); else this._queueRebuild(); return; }
         if (act === 'clear') { this._set(b.dataset.path, ''); this._commit(); this._renderPanel(); this._queueRebuild(); return; }
         if (act === 'dress') {
             const preset = RRCharacterWardrobe.PRESETS.find(p => p.id === b.dataset.id);

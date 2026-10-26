@@ -3442,8 +3442,8 @@ class EventManager {
                 anim.count += ticker.deltaTime;
                 if (anim.count < anim.wait) continue;
                 anim.count = 0;
-                anim.pattern = (anim.pattern + 1) % 4;
-                anim.sprite.texture = anim.frames[anim.pattern < 3 ? anim.pattern : 1];
+                anim.step = (anim.step + 1) % anim.cycle.length;
+                anim.sprite.texture = anim.frames[anim.cycle[anim.step]] || anim.frames[0];
             }
         };
         this._previewTickerApp = app;
@@ -3491,9 +3491,15 @@ class EventManager {
         sprite.x = (event.x + 0.5) * tw;
         sprite.y = (event.y + 1) * th - shift;
         if (page.stepAnime) {
-            const frames = [0, 1, 2].map(pattern => this.characterFrame(image, pattern)?.texture || frame.texture);
+            // MZ's three frames play 0, 1, 2, 1; an [NF] sheet plays 0 to N-1 in turn, as the game does.
+            const system = window.reactor?.databaseManager?.data?.system;
+            const count = RRAssetFiles.characterFrameCount(image.characterName, system);
+            const multi = system?.rrMultiFrames === true && RRAssetFiles.framesTagged(image.characterName) > 0;
+            const frames = Array.from({ length: count }, (_, pattern) => this.characterFrame(image, pattern)?.texture || frame.texture);
+            const cycle = multi ? frames.map((_, i) => i) : [0, 1, 2, 1];
+            const start = Number.isInteger(image.pattern) ? image.pattern : (multi ? 0 : 1);
             this._previewAnimations.push({
-                sprite, frames, pattern: Number.isInteger(image.pattern) ? image.pattern : 1,
+                sprite, frames, cycle, step: Math.max(0, cycle.indexOf(start)),
                 count: 0, wait: EventManager.stepWaitFrames(page)
             });
         }
@@ -3580,12 +3586,14 @@ class EventManager {
         if (!source) return null;
         const big = RRAssetFiles.isBigCharacter(image.characterName);
         const frames = RRAssetFiles.characterFrameCount ? RRAssetFiles.characterFrameCount(image.characterName) : 3;
-        const dirRow = { 2: 0, 4: 1, 6: 2, 8: 3 }[image.direction || 2] || 0;
+        // A [1D] sheet has one row a character, whichever way it faces.
+        const rows = RRAssetFiles.characterRows ? RRAssetFiles.characterRows(image.characterName) : 4;
+        const dirRow = rows === 1 ? 0 : ({ 2: 0, 4: 1, 6: 2, 8: 3 }[image.direction || 2] || 0);
         const width = big ? source.width / frames : source.width / (frames * 4);
-        const height = big ? source.height / 4 : source.height / 8;
+        const height = big ? source.height / rows : source.height / (rows * 2);
         const index = image.characterIndex || 0;
         const baseX = big ? 0 : (index % 4) * frames * width;
-        const baseY = big ? dirRow * height : (Math.floor(index / 4) * 4 + dirRow) * height;
+        const baseY = big ? dirRow * height : (Math.floor(index / 4) * rows + dirRow) * height;
         const pattern = patternOverride !== undefined ? patternOverride : (image.pattern === undefined ? 1 : image.pattern);
         return {
             width, height,

@@ -1,7 +1,7 @@
 //=============================================================================
 // reactor_objects_legacy.js v1.8.0
 //=============================================================================
-// Event commands of RPG Maker 2000/2003 that MZ lacks, [fN] character sheets,
+// Event commands of RPG Maker 2000/2003 that MZ lacks, [NF] character sheets,
 // and Script commands that wait inside a loop.
 // Part of reactor_objects.js; loads after reactor_objects_interpreter.js.
 
@@ -646,14 +646,15 @@ Game_Interpreter.prototype.clear = function() {
 };
 
 //-----------------------------------------------------------------------------
-// [fN] character sheets (see reactor_sprites.js): N frames, looping, resting on 0.
-// Off unless System.json sets rrMultiFrames.
+// [NF] character sheets (see reactor_sprites.js): N frames, looping, resting on 0.
+// Named "Name[6F]" as Reactor exports them, or "Name[F6]" as Victor Engine Multi
+// Frames did; either case. Off unless System.json sets rrMultiFrames.
 //-----------------------------------------------------------------------------
 
 Game_CharacterBase.rrFramesOf = function(name) {
     if (!$dataSystem || !$dataSystem.rrMultiFrames) return 0;
-    const m = /\[F(\d+)\]/i.exec(String(name || ""));
-    return m ? Math.max(1, Number(m[1])) : 0;
+    const m = /\[(?:(\d+)F|F(\d+))\]/i.exec(String(name || ""));
+    return m ? Math.max(1, Number(m[1] || m[2])) : 0;
 };
 
 const _rrMultiMaxPattern = Game_CharacterBase.prototype.maxPattern;

@@ -612,7 +612,8 @@ test('Preview Event animates stepping pages and previews 3D-model pages in both 
     const map3d = read('src/MapEditor3D.js');
     const html = read('index.html');
     assert.match(events, /return \(9 - Math\.min\(6, Math\.max\(1, speed\)\)\) \* 3;/, '(9 - speed) * 3 frames, as Game_CharacterBase');
-    assert.match(events, /anim\.pattern = \(anim\.pattern \+ 1\) % 4;\n\s+anim\.sprite\.texture = anim\.frames\[anim\.pattern < 3 \? anim\.pattern : 1\];/, '2D cycles 0,1,2,1');
+    assert.match(events, /const cycle = multi \? frames\.map\(\(_, i\) => i\) : \[0, 1, 2, 1\];/, '2D cycles 0,1,2,1; an [NF] sheet 0..N-1');
+    assert.match(events, /anim\.step = \(anim\.step \+ 1\) % anim\.cycle\.length;\n\s+anim\.sprite\.texture = anim\.frames\[anim\.cycle\[anim\.step\]\]/);
     assert.match(events, /RREventPreviewModels\.thumbnail\(project, spec, this\.projectController\.mapEditor3D, pixels, direction\)/);
     assert.match(map3d, /static previewPageIndex\(mapData, event\)/);
     assert.match(map3d, /this\.eventSprite\(event, sheets, page\?\.image, previewIndex !== null && page\?\.stepAnime \? page : null\)/, '3D draws the previewed page');

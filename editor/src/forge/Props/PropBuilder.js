@@ -144,6 +144,7 @@ class PropBuilder {
                     <button class="rr-btn-chip rr-prop-keep" title="${this._t('Keep this prop\'s settings in the Forge to open and change later. No model is made.')}">${this._t('Save Design')}</button>
                     <span class="rr-c3d-spacer"></span>
                     <span class="rr-c3d-status" aria-live="polite"></span>
+                    <button class="rr-btn-chip rr-prop-sheet">${this._t('Export Sprite Sheet')}</button>
                     <button class="rr-btn-chip rr-c3d-save rr-prop-save">${this._t('Export Model To Project')}</button>
                 </div>
                 <div class="rr-c3d-body rr-prop-body">
@@ -195,6 +196,7 @@ class PropBuilder {
         });
         this._renderDesignGroups();
         q('.rr-prop-save').addEventListener('click', () => this.save());
+        q('.rr-prop-sheet').addEventListener('click', () => { if (window.RRPropSpriteSheet && this._view && this._result) RRPropSpriteSheet.openPanel(this); });
         q('.rr-prop-motion').addEventListener('click', e => { const b = e.target.closest('[data-motion]'); if (b) this._setMotion(b.dataset.motion); });
         this.root.querySelectorAll('.rr-c3d-frame').forEach(b => b.addEventListener('click', () => this._frame(b.dataset.frame)));
         q('.rr-c3d-tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) { this.tab = b.dataset.tab; this._renderPanel(); } });
