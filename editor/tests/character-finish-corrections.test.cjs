@@ -15,10 +15,11 @@ test('reptile necks enter the rear skull and have two-dimensional scale charts',
    let sumZ=0;for(let col=0;col<cols-1;col++){const i=(rows*cols+col)*3,p=Array.from(neck.positions.subarray(i,i+3));assert.ok(inside(skull,p),species+' collar ring is inside the braincase');sumZ+=p[2]/(cols-1);}
    let eyeZ=0;for(let i=2;i<eye.positions.length;i+=3)eyeZ+=eye.positions[i]/(eye.positions.length/3);assert.ok(sumZ<eyeZ-.005,species+' neck joins behind the eyes');
    let area=0;for(let t=0;t<neck.index.length;t+=3){const [a,c,d]=[0,1,2].map(k=>neck.index[t+k]*2),uv=neck.uvs;area+=Math.abs((uv[c]-uv[a])*(uv[d+1]-uv[a+1])-(uv[c+1]-uv[a+1])*(uv[d]-uv[a]));}
-   // A scaled neck's chart now spans 0..0.75 of the scale picture each way (RRCharacterModel graftHead/pairedHeads:
-   // its scales a size nearer the head's, 36 round), not the whole 0..1; so the chart must fill its own span.
+   // A scaled neck's chart spans 34/48 of the scale picture round (RRCharacterModel graftHead/pairedHeads: its
+   // scales a size nearer the head's, 34 round) and less than 0.75 up it, as its scales grow taller toward the head
+   // (RRCharacterModel.neckScaleV); not the whole 0..1, so the chart must fill its own span.
    let su=0,sv=0;for(let i=0;i<neck.uvs.length;i+=2){su=Math.max(su,neck.uvs[i]);sv=Math.max(sv,neck.uvs[i+1]);}
-   assert.ok(su>=.7&&sv>=.7&&area>1.9*su*sv,'UV chart has area rather than a repeated row');
+   assert.ok(su>=.7&&sv>=.5&&area>1.9*su*sv,'UV chart has area rather than a repeated row');
    assert.equal(neck.normalTexture,'neck-scales-normal.png');assert.ok(b.textures[neck.normalTexture]);
   }
   assert.equal(b.parts.find(p=>p.name==='Body').normalTexture,'skin-scales-normal.png');assert.deepEqual(Q.inspect(b,{recipe:b.recipe},pack).issues,[]);

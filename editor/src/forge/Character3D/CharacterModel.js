@@ -364,10 +364,19 @@
             let g = graftHead(pack, built, L, r, body, eyes, cache, budget, skinNormals, o.quality === 'preview' && o.skinSize && o.skinSize <= 512 ? 'preview' : 'save');
             if(r.head.heads===2)g=pairedHeads(g,built,L,features,r);
             for (const [k, t] of Object.entries(g.textures)) textures[k] = t;
+            // The body's hair and fur grown on the skin the head took away goes with it: left behind, those strands
+            // hang in the air beside the animal's neck as the head turns.
+            {
+                const kept = new Set(Array.from(body.index, v => pack.body.source[v]));
+                for (const p of parts) if (p.source && p.kind === 'hair' && (p.name === 'Fur' || p.name === 'Body hair')) keepStrands(p, v => kept.has(p.source[v]));
+            }
             // The body's fur strands near the top of the neck take the coat's plain color, fading in over a few
             // centimeters, so a tabby's stripe-colored strands don't stand out against the head's neck above them.
             if (g.neckFoot && r.bodyHair.fur > 0.05) {
                 const coatRgb = (root.RRCharacterOutfit || require('./CharacterOutfit.js')).linear(g.coat), y0 = g.neckFoot.y - 0.07, y1 = g.neckFoot.y + 0.01;
+                // There they are trimmed too, shorter and lying closer the nearer the head, so they meet the neck's
+                // short coat and none stands off the top of the neck as a fringe.
+                const SEG = 3, y2 = g.neckFoot.y - 0.05;
                 for (const p of parts) {
                     if (p.name !== 'Fur' || !p.colors) continue;
                     for (let v = 0; v < p.positions.length / 3; v++) {
@@ -375,6 +384,19 @@
                         if (!t) continue;
                         const k = t * t * (3 - 2 * t) * 0.85;
                         for (let c = 0; c < 3; c++) p.colors[v * 3 + c] += (coatRgb[c] - p.colors[v * 3 + c]) * k;
+                    }
+                    const X = p.positions, N = p.normals;
+                    for (let b = 0; b + SEG * 2 <= X.length / 3; b += SEG * 2) {
+                        const t = Math.max(0, Math.min(1, (X[b * 3 + 1] - y2) / (g.neckFoot.y - y2)));
+                        if (!t) continue;
+                        const e = t * t * (3 - 2 * t), keep = 1 - 0.55 * e, flat = 0.7 * e;
+                        const r0 = [0, 1, 2].map(k => (X[b * 3 + k] + X[(b + 1) * 3 + k]) / 2), n3 = [N[b * 3], N[b * 3 + 1], N[b * 3 + 2]];
+                        for (let s = 1; s < SEG; s++) {
+                            const v0 = b + s * 2, v1 = v0 + 1, m = [0, 1, 2].map(k => (X[v0 * 3 + k] + X[v1 * 3 + k]) / 2);
+                            const d = m.map((x, k) => x - r0[k]), dn = d[0] * n3[0] + d[1] * n3[1] + d[2] * n3[2];
+                            const to = d.map((x, k) => r0[k] + (x - n3[k] * dn * flat) * keep);
+                            for (const v of [v0, v1]) for (let k = 0; k < 3; k++) X[v * 3 + k] += to[k] - m[k];
+                        }
                     }
                 }
             }
@@ -579,6 +601,31 @@
         }
         const u = (row - NECK_CONTACT_ROW) / (NECK_ROWS - NECK_CONTACT_ROW);
         return [C[0] + (end[0] - C[0]) * u, C[1] + (end[1] - C[1]) * u, C[2] + (end[2] - C[2]) * u];
+    }
+
+    /**
+     * Keeps only the strands (cards of six vertices, root pair first, as
+     * Detail.hairPart lays them) whose root vertex passes `keep`, in place.
+     */
+    function keepStrands(p, keep) {
+        const PER = 6, n = p.positions.length / 3 / PER, out = [];
+        for (let s = 0; s < n; s++) if (keep(s * PER)) out.push(s);
+        if (out.length === n) return;
+        const pick = (a, size) => { const r = new a.constructor(out.length * PER * size); out.forEach((s, i) => r.set(a.subarray(s * PER * size, (s + 1) * PER * size), i * PER * size)); return r; };
+        for (const [key, size] of [['positions', 3], ['normals', 3], ['colors', 3], ['uvs', 2], ['joints', 4], ['weights', 4], ['source', 1]]) if (p[key]) p[key] = pick(p[key], size);
+        const per = p.index.length / n, index = new Uint32Array(out.length * per);
+        out.forEach((s, i) => { for (let k = 0; k < per; k++) index[i * per + k] = p.index[s * per + k] - s * PER + i * PER; });
+        p.index = index;
+    }
+
+    /**
+     * A scaled neck's picture height at row `row` of `rows` (`size` of the picture over its whole run): its scales
+     * grow taller row by row up to `reach` of the way up, where they meet the head's larger ones, a third taller.
+     */
+    function neckScaleV(row, rows, size, reach) {
+        let v = 0;
+        for (let k = 0; k < row; k++) { const e = Math.min(1, (k + 0.5) / rows / reach); v += size / rows / (1 + 0.35 * e * e * (3 - 2 * e)); }
+        return v;
     }
 
     function graftHead(pack, built, L, r, body, eyes, cache, budget, skinNormals, quality) {
@@ -961,6 +1008,16 @@
                         top.push(h0 || coatRgb);
                     }
                     foot = smoothRound(foot); top = smoothRound(top);
+                    // A cat's neck carries the body's coat up into the head's: the coat's own color behind and at the
+                    // sides (the head's picture where it meets the neck is its paler underside), the head's lighter
+                    // throat only in front, where the chest below is light too.
+                    if (furred && h.kind === 'cat') {
+                        const coatLin = Out.linear(coat);
+                        top = top.map((c, i) => {
+                            const v = base[i], front = Math.max(0, Math.min(1, (Math.cos(Math.atan2(P[v * 3] - center[0], P[v * 3 + 2] - center[2])) - 0.2) / 0.6));
+                            return c.map((x, k) => coatLin[k] + (Math.min(x, foot[i][k] * 1.1) - coatLin[k]) * front);
+                        });
+                    }
                     // The scale picture is a little darker than white: brought back so the colors meet.
                     const lift = scaledNeck ? 1 / 0.9 : 1;
                     const colors = new Float32Array(pos.length);
@@ -969,12 +1026,31 @@
                         for (let col = 0; col <= cols; col++) {
                             const i = row * (cols + 1) + col, c = col % cols;
                             for (let k = 0; k < 3; k++) colors[i * 3 + k] = (foot[c][k] + (top[c][k] - foot[c][k]) * ee) * lift;
-                            // Scaled, its scales a size nearer the head's (36 round, a whole number, so no seam behind).
-                            const sz = scaledNeck ? 0.75 : 1;
-                            uv[i * 2] = col / cols * sz; uv[i * 2 + 1] = row / rows * sz;
+                            // Scaled, its scales a size nearer the head's (34 round, a whole number, so no seam behind),
+                            // growing taller up the neck to the head's own size where they meet it.
+                            uv[i * 2] = col / cols * (scaledNeck ? 34 / 48 : 1); uv[i * 2 + 1] = scaledNeck ? neckScaleV(row, rows, 0.75, C / rows) : row / rows;
                         }
                     }
                     part.uvs = Float32Array.from(uv);
+                    // Scaled, the head's skin just above where the neck meets it takes the neck's tone there (the head's
+                    // own picture at the contact), fading out over a few centimeters up the head; so its scales, lit
+                    // darker along the back of the skull, meet the neck's no darker.
+                    if (scaledNeck && headPart && headPart.colors && headPart.uvs && headTex) {
+                        const H = headPart.positions, HC = headPart.colors, angles = base.map(v => Math.atan2(P[v * 3] - center[0], P[v * 3 + 2] - center[2]));
+                        for (let i = 0; i < H.length / 3; i++) {
+                            const a = Math.atan2(H[i * 3] - center[0], H[i * 3 + 2] - center[2]);
+                            let c = 0, bd = Infinity;
+                            for (let k = 0; k < cols; k++) { const d = Math.abs(Math.atan2(Math.sin(a - angles[k]), Math.cos(a - angles[k]))); if (d < bd) { bd = d; c = k; } }
+                            const meetY = contacts[c] ? contacts[c][1] : pos[(C * (cols + 1) + c) * 3 + 1], u0 = (H[i * 3 + 1] - meetY) / 0.045;
+                            if (u0 >= 1) continue;
+                            const e = Math.max(0, u0), w = 1 - e * e * (3 - 2 * e), seen = sample(headTex, headPart.uvs[i * 2], headPart.uvs[i * 2 + 1]);
+                            if (!seen) continue;
+                            for (let k = 0; k < 3; k++) {
+                                const ratio = Math.max(0.7, Math.min(1.6, top[c][k] / Math.max(1e-3, seen[k] * HC[i * 3 + k])));
+                                HC[i * 3 + k] *= 1 + (ratio - 1) * w;
+                            }
+                        }
+                    }
                     if (scaledNeck) {
                         Object.assign(part, { texture: 'neck-scales.png', normalTexture: 'neck-scales-normal.png', normalScale: .35, keepColors: true, colors, roughness: .65 });
                         Object.assign(neckTextures, Species.neckSurface());
@@ -984,10 +1060,8 @@
                     }
                     // The mane: tufts over the whole neck, longest behind, shorter at the throat, combed down and out,
                     // in the neck's own colors there, so the body's fur and the head's run on into each other.
-                    // A cat's short coat: a ruff of it round the top of the neck, combed down, in the coat's own color.
-                    if (furred && h.kind === 'cat') for (let row = Math.round(C * 0.5); row <= C; row++) for (let col = 0; col < cols; col++) {
-                        const v = row * (cols + 1) + col; collar.push({ q: [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]], ruff: true });
-                    }
+                    // A cat's neck wears no strands of its own: at a cat's short length they read as dark flecks, not
+                    // a coat; its painted coat (the body's colors and the head's stripes, below) carries the fur up.
                     if (furred && !scaledNeck && h.kind !== 'cat') {
                         const catLike = h.kind === 'cat' ? 0.45 : 1, P2 = pos;
                         let q = 991;
@@ -1027,7 +1101,7 @@
             const rgb = (root.RRCharacterOutfit || require('./CharacterOutfit.js')).linear(coat);
             for (let k = 0; k < collar.length; k++) {
                 const c = collar[k].q, out = Props.vec.norm([c[0], 0, c[2] - Ah[2]]);
-                for (let j = 0; j < 2; j++) roots.push({ p: Props.vec.add(c, [0, 0.006 * j, 0]), n: out, flow: [out[0] * 0.3, -1, out[2] * 0.3], len: (collar[k].ruff ? 0.028 : 0.016) + 0.01 * ((k * 7 + j * 3) % 5) / 5, width: 0.0045, color: rgb.map(x => x * 0.92), tip: rgb, lift: 0.2, droop: 0.1, joints: [neck, head, 0, 0], weights: [0.7, 0.3, 0, 0] });
+                for (let j = 0; j < 2; j++) roots.push({ p: Props.vec.add(c, [0, 0.006 * j, 0]), n: out, flow: [out[0] * 0.3, -1, out[2] * 0.3], len: 0.016 + 0.01 * ((k * 7 + j * 3) % 5) / 5, width: 0.0045, color: rgb.map(x => x * 0.92), tip: rgb, lift: 0.2, droop: 0.1, joints: [neck, head, 0, 0], weights: [0.7, 0.3, 0, 0] });
             }
             fur = Detail.furCards(roots, { name: 'Head fur', seed: 17 });
             parts.push(fur);
@@ -1038,7 +1112,7 @@
             const Out = root.RRCharacterOutfit || require('./CharacterOutfit.js'), mark = Out.linear(r.skinPattern.color), base = Out.linear(coat);
             const ratio = mark.map((m2, k) => Math.min(1, m2 / Math.max(0.02, base[k])));
             for (const p of parts) {
-                if (!p.colors || !/^Head (Body|Coat fur|fur)$/.test(p.name)) continue;
+                if (!p.colors || !/^Head (Body|Coat fur|fur|neck)$/.test(p.name)) continue;
                 for (let v = 0; v < p.positions.length / 3; v++) {
                     const x = p.positions[v * 3], y = p.positions[v * 3 + 1], z = p.positions[v * 3 + 2];
                     const behind = Math.max(0, Math.min(1, (eyeAt[2] - 0.02 - z) / 0.03)), high = Math.max(0, Math.min(1, (y - (cutY - 0.04)) / 0.05));
@@ -1096,7 +1170,7 @@
                         const tan=V.norm([0,1,2].map(k=>2*(1-u)*(trunk[k]-start[k])+2*u*(goal[k]-trunk[k]))),tw=Math.min(1,u/.35),up=V.norm(V.lerp([0,1,0],tan,tw*tw*(3-2*tw)));
                         const zAxis=V.norm(V.sub([0,0,1],V.mul(up,up[2]))),xAxis=V.cross(up,zAxis);
                         positions.set(V.add(V.add(V.add(center,V.mul(xAxis,Math.sin(angle)*radius)),V.mul(zAxis,Math.cos(angle)*radius)),[0,(bp[1]-start[1])*(1-u),0]),i*3);
-                        uvs.set([column/(cols-1)*.75,u*.75],i*2);
+                        uvs.set([column/(cols-1)*34/48,neckScaleV(Math.floor(i/cols),rows,.75,(p.neckContactRow||rows)/rows)],i*2);
                         const belly=Math.max(0,Math.cos(angle))**5*.8;
                         colors.set(p.colors?Array.from(p.colors.subarray(i*3,i*3+3)):main.map((v,k)=>v+(light[k]-v)*belly),i*3);
                         const rise=Math.min(1,u/.40),tip=Math.max(0,(u-.6)/.4),influences=new Map([[ni,rise*(1-tip)],[hi,rise*tip]]);
