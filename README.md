@@ -9,18 +9,26 @@ Use RPG Reactor to create, edit, playtest, and package 2D RPGs with familiar RPG
 <table>
 <tr>
 <td width="50%" align="center"><img src="docs/media/releases/0.99.1/08-north-haven-night.jpg" alt="A lamplit 3D village at night"><br><sub>Walk a lamplit 3D village at night, in worlds whose maps join with no loading.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/07-terrain.jpg" alt="Painting a road through a 3D village"><br><sub>Paint roads, ground and foliage straight onto 3D maps; roads follow the hills.</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/01-character-builder.jpg" alt="The 3D Character Builder with a sci-fi outfit"><br><sub>Dress your hero in one click, from knights and rangers to starship crews and a neon Glow runner.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/02-species.jpg" alt="A centaur in the Character Builder"><br><sub>Dozens of species, now with centaurs, saved as rigged models that walk, run and fight.</sub></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><img src="docs/media/releases/0.99.2/06-face-sheet.jpg" alt="A face sheet of eight expressions"><br><sub>Export face sheets with eight clear expressions, and sprite sheets with any number of frames and directions.</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/03-creatures.jpg" alt="A bald eagle gliding"><br><sub>Birds, beasts and sea creatures, built the same way.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/04-vehicles.jpg" alt="A motorcycle in the Prop Builder"><br><sub>The 3D Prop Builder makes vehicles, furniture, weapons, instruments and props for your maps.</sub></td>
+</tr>
+<tr>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/05-nature.jpg" alt="A cherry blossom tree"><br><sub>Trees, plants and rocks that change with the seasons and sway in the wind.</sub></td>
+<td width="50%" align="center"><img src="docs/media/releases/0.99.2/08-editor.jpg" alt="Search results in the editor"><br><sub>Search finds maps, events, switches and every Database record, one click away.</sub></td>
+</tr>
+<tr>
 <td width="50%" align="center"><img src="docs/media/releases/0.99.1/06-tactical-climb.jpg" alt="A Tactical battle on the rooftops"><br><sub>Tactical battles on the map itself: climb, grapple and see the fall damage before you jump.</sub></td>
-</tr>
-<tr>
 <td width="50%" align="center"><img src="docs/media/releases/0.99.1/07-effekseer-battle.jpg" alt="Effekseer effects in a battle on the map"><br><sub>Effekseer skill effects burst right where your party stands.</sub></td>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.1/05-windows.jpg" alt="The editor with the Database and event editor in their own windows"><br><sub>Map, Database and event editor side by side, on one screen or two.</sub></td>
-</tr>
-<tr>
-<td colspan="2" align="center"><img src="docs/media/releases/0.99.1/02-character-lineup.jpg" alt="Characters made in the 3D Character Builder"><br><sub>Dozens of species, any build, clothing and armor: the 3D Character Builder saves rigged models that walk, run and fight.</sub></td>
-</tr>
-<tr>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.1/03-creatures.jpg" alt="A drake in the Character Builder"><br><sub>Dragons, wolves, horses, sharks, birds and insects, built the same way.</sub></td>
-<td width="50%" align="center"><img src="docs/media/releases/0.99.1/04-prop-builder.jpg" alt="A walker in the Prop Builder"><br><sub>The 3D Prop Builder makes vehicles, furniture, weapons and props for your maps.</sub></td>
 </tr>
 </table>
 

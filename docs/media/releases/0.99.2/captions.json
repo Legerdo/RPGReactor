@@ -1,0 +1,10 @@
+[
+  {"file": "01-character-builder.jpg", "title": "Ready-to-wear looks", "caption": "Dress your hero in one click, from knights and rangers to starship crews, space marines and a neon-lit Glow runner."},
+  {"file": "02-species.jpg", "title": "Centaurs and more", "caption": "New species join the builder, like the centaur, and they wear the same outfits as everyone else."},
+  {"file": "03-creatures.jpg", "title": "Birds take flight", "caption": "Rebuilt birds like the bald eagle glide on spread wings, with feathers, talons and a pose for every move."},
+  {"file": "04-vehicles.jpg", "title": "Rebuilt vehicles", "caption": "Motorcycles, trucks and rovers come with body styles and wheel sizes you can tune with a few sliders."},
+  {"file": "05-nature.jpg", "title": "Trees in bloom", "caption": "Plant cherry, jacaranda and magnolia trees that change with the seasons and sway in the wind."},
+  {"file": "06-face-sheet.jpg", "title": "Faces with feeling", "caption": "Export a face sheet of eight expressions straight from your 3D character, each one clear at RPG Maker's face size."},
+  {"file": "07-terrain.jpg", "title": "Paint roads on 3D maps", "caption": "Drag the Path tool to lay dirt roads, cobblestone or paving that follow the hills through your village."},
+  {"file": "08-editor.jpg", "title": "Search everything", "caption": "Type a word in the new toolbar Search to find maps, switches, items and event text, grouped and one click away."}
+]
